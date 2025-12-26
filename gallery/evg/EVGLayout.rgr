@@ -55,6 +55,12 @@ class EVGLayout {
             root.height = (EVGUnit.px(pageHeight))
         }
         
+        ; Explicitly set root position to (0, 0)
+        ; This is important when re-laying out a page that was previously 
+        ; positioned elsewhere in a multi-page document
+        root.calculatedX = 0.0
+        root.calculatedY = 0.0
+        
         ; Layout root at (0, 0)
         this.layoutElement(root 0.0 0.0 pageWidth pageHeight)
         

@@ -10912,6 +10912,8 @@ func (this *EVGLayout) layout (root *EVGElement) () {
     root.height.value = EVGUnit_static_px(this.pageHeight);
     root.height.has_value = true; /* detected as non-optional */
   }
+  root.calculatedX = 0.0; 
+  root.calculatedY = 0.0; 
   this.layoutElement(root, 0.0, 0.0, this.pageWidth, this.pageHeight);
   this.log("EVGLayout: Layout complete");
 }
@@ -12930,6 +12932,26 @@ func (this *EVGHTMLRenderer) generateShellHTML (serverUrl string) string {
   html = html + "        .evg-btn-pdf:hover {\n"; 
   html = html + "            background: #b91c1c;\n"; 
   html = html + "        }\n"; 
+  html = html + "        .evg-btn-png {\n"; 
+  html = html + "            background: #059669;\n"; 
+  html = html + "            padding: 6px 12px;\n"; 
+  html = html + "            font-size: 12px;\n"; 
+  html = html + "        }\n"; 
+  html = html + "        .evg-btn-png:hover {\n"; 
+  html = html + "            background: #047857;\n"; 
+  html = html + "        }\n"; 
+  html = html + "        /* Page export button container - inside page at top-right */\n"; 
+  html = html + "        .evg-page-export-btn {\n"; 
+  html = html + "            position: absolute;\n"; 
+  html = html + "            top: 8px;\n"; 
+  html = html + "            right: 8px;\n"; 
+  html = html + "            z-index: 100;\n"; 
+  html = html + "            opacity: 0.7;\n"; 
+  html = html + "            transition: opacity 0.2s ease;\n"; 
+  html = html + "        }\n"; 
+  html = html + "        .evg-page-export-btn:hover {\n"; 
+  html = html + "            opacity: 1;\n"; 
+  html = html + "        }\n"; 
   html = html + "        .evg-view { position: relative; }\n"; 
   html = html + "        .evg-label { display: block; }\n"; 
   html = html + "        .evg-image { display: block; }\n"; 
@@ -12982,11 +13004,65 @@ func (this *EVGHTMLRenderer) generateShellHTML (serverUrl string) string {
   html = html + "            exportBtn.textContent = '📄 Export PDF';\n"; 
   html = html + "        }\n"; 
   html = html + "        \n"; 
+  html = html + "        // Export PNG function for individual pages\n"; 
+  html = html + "        async function exportPNG(pageNum, scale = 2) {\n"; 
+  html = html + "            const btn = document.querySelector('#evg-export-png-' + pageNum);\n"; 
+  html = html + "            if (btn) {\n"; 
+  html = html + "                btn.disabled = true;\n"; 
+  html = html + "                btn.textContent = '⏳';\n"; 
+  html = html + "            }\n"; 
+  html = html + "            statusEl.textContent = 'Generating PNG for page ' + pageNum + '...';\n"; 
+  html = html + "            statusEl.style.color = '#ff0';\n"; 
+  html = html + "            try {\n"; 
+  html = html + "                const response = await fetch(serverUrl + '/export-png?page=' + pageNum + '&scale=' + scale);\n"; 
+  html = html + "                if (!response.ok) throw new Error('PNG generation failed');\n"; 
+  html = html + "                const blob = await response.blob();\n"; 
+  html = html + "                const url = window.URL.createObjectURL(blob);\n"; 
+  html = html + "                const a = document.createElement('a');\n"; 
+  html = html + "                a.href = url;\n"; 
+  html = html + "                const filename = response.headers.get('Content-Disposition')?.match(/filename=\\\"(.+)\\\"/)?.[1] || ('page' + pageNum + '.png');\n"; 
+  html = html + "                a.download = filename;\n"; 
+  html = html + "                document.body.appendChild(a);\n"; 
+  html = html + "                a.click();\n"; 
+  html = html + "                window.URL.revokeObjectURL(url);\n"; 
+  html = html + "                a.remove();\n"; 
+  html = html + "                statusEl.textContent = 'PNG exported!';\n"; 
+  html = html + "                statusEl.style.color = '#0f0';\n"; 
+  html = html + "            } catch (err) {\n"; 
+  html = html + "                statusEl.textContent = 'PNG export failed: ' + err.message;\n"; 
+  html = html + "                statusEl.style.color = '#f00';\n"; 
+  html = html + "            }\n"; 
+  html = html + "            if (btn) {\n"; 
+  html = html + "                btn.disabled = false;\n"; 
+  html = html + "                btn.textContent = '🖼️ PNG';\n"; 
+  html = html + "            }\n"; 
+  html = html + "        }\n"; 
+  html = html + "        \n"; 
+  html = html + "        // Helper to add export PNG button to a page element\n"; 
+  html = html + "        function addExportPNGButton(pageElement, pageNum) {\n"; 
+  html = html + "            const btnContainer = document.createElement('div');\n"; 
+  html = html + "            btnContainer.className = 'evg-page-export-btn';\n"; 
+  html = html + "            const btn = document.createElement('button');\n"; 
+  html = html + "            btn.className = 'evg-btn evg-btn-png';\n"; 
+  html = html + "            btn.id = 'evg-export-png-' + pageNum;\n"; 
+  html = html + "            btn.textContent = '🖼️ PNG';\n"; 
+  html = html + "            btn.title = 'Export page ' + pageNum + ' as PNG';\n"; 
+  html = html + "            btn.onclick = function() { exportPNG(pageNum); };\n"; 
+  html = html + "            btnContainer.appendChild(btn);\n"; 
+  html = html + "            pageElement.style.position = 'relative';\n"; 
+  html = html + "            pageElement.appendChild(btnContainer);\n"; 
+  html = html + "        }\n"; 
+  html = html + "        \n"; 
   html = html + "        // Arrange pages as book spreads: cover alone, then pairs\n"; 
   html = html + "        // Book structure: Cover (right) -> Spreads (left+right pairs) -> Back cover (left)\n"; 
   html = html + "        // Requires EVEN number of pages for proper book layout\n"; 
   html = html + "        function arrangeAsBookSpreads() {\n"; 
   html = html + "            const pages = Array.from(contentEl.querySelectorAll('.evg-page'));\n"; 
+  html = html + "            // For single page, just add export button\n"; 
+  html = html + "            if (pages.length === 1) {\n"; 
+  html = html + "                addExportPNGButton(pages[0], 1);\n"; 
+  html = html + "                return;\n"; 
+  html = html + "            }\n"; 
   html = html + "            // Only arrange as book if there are multiple pages\n"; 
   html = html + "            if (pages.length <= 1) return;\n"; 
   html = html + "            \n"; 
@@ -13024,6 +13100,7 @@ func (this *EVGHTMLRenderer) generateShellHTML (serverUrl string) string {
   html = html + "            // === PAGE 1: FRONT COVER (right side) ===\n"; 
   html = html + "            const cover = pageClones[0];\n"; 
   html = html + "            cover.classList.add('evg-cover');\n"; 
+  html = html + "            addExportPNGButton(cover, 1);\n"; 
   html = html + "            const coverWrapper = document.createElement('div');\n"; 
   html = html + "            coverWrapper.className = 'evg-cover-wrapper';\n"; 
   html = html + "            coverWrapper.style.position = 'relative';\n"; 
@@ -13050,6 +13127,8 @@ func (this *EVGHTMLRenderer) generateShellHTML (serverUrl string) string {
   html = html + "                    spread.style.position = 'relative';\n"; 
   html = html + "                    spread.style.marginBottom = '20px';\n"; 
   html = html + "                    \n"; 
+  html = html + "                    addExportPNGButton(pageClones[i], i + 1);\n"; 
+  html = html + "                    addExportPNGButton(pageClones[i + 1], i + 2);\n"; 
   html = html + "                    spread.appendChild(pageClones[i]);\n"; 
   html = html + "                    spread.appendChild(pageClones[i + 1]);\n"; 
   html = html + "                    \n"; 
@@ -13064,6 +13143,7 @@ func (this *EVGHTMLRenderer) generateShellHTML (serverUrl string) string {
   html = html + "                // BACK COVER (left side, alone)\n"; 
   html = html + "                const backCover = pageClones[totalPages - 1];\n"; 
   html = html + "                backCover.classList.add('evg-back-cover');\n"; 
+  html = html + "                addExportPNGButton(backCover, totalPages);\n"; 
   html = html + "                const backWrapper = document.createElement('div');\n"; 
   html = html + "                backWrapper.className = 'evg-back-cover-wrapper';\n"; 
   html = html + "                backWrapper.style.position = 'relative';\n"; 
@@ -13090,8 +13170,10 @@ func (this *EVGHTMLRenderer) generateShellHTML (serverUrl string) string {
   html = html + "                    spread.style.position = 'relative';\n"; 
   html = html + "                    spread.style.marginBottom = '20px';\n"; 
   html = html + "                    \n"; 
+  html = html + "                    addExportPNGButton(pageClones[i], i + 1);\n"; 
   html = html + "                    spread.appendChild(pageClones[i]);\n"; 
   html = html + "                    if (i + 1 < totalPages) {\n"; 
+  html = html + "                        addExportPNGButton(pageClones[i + 1], i + 2);\n"; 
   html = html + "                        spread.appendChild(pageClones[i + 1]);\n"; 
   html = html + "                        const spreadLabel = document.createElement('div');\n"; 
   html = html + "                        spreadLabel.className = 'evg-page-label';\n"; 
@@ -19957,6 +20039,2820 @@ func (this *EVGPDFRenderer) sanitizeFontName (name string) string {
   }
   return result
 }
+type ObjectFitResult struct { 
+  renderW float64 `json:"renderW"` 
+  renderH float64 `json:"renderH"` 
+  offsetX float64 `json:"offsetX"` 
+  offsetY float64 `json:"offsetY"` 
+  isValid bool `json:"isValid"` 
+}
+
+func CreateNew_ObjectFitResult() *ObjectFitResult {
+  me := new(ObjectFitResult)
+  me.renderW = 0.0
+  me.renderH = 0.0
+  me.offsetX = 0.0
+  me.offsetY = 0.0
+  me.isValid = false
+  return me;
+}
+type ImageDimensions struct { 
+  width int64 `json:"width"` 
+  height int64 `json:"height"` 
+  isValid bool `json:"isValid"` 
+}
+
+func CreateNew_ImageDimensions() *ImageDimensions {
+  me := new(ImageDimensions)
+  me.width = int64(0)
+  me.height = int64(0)
+  me.isValid = false
+  return me;
+}
+func (this *ImageDimensions) set (w int64, h int64) () {
+  this.width = w; 
+  this.height = h; 
+  this.isValid = true; 
+}
+type ImageUtils struct { 
+  baseDir string `json:"baseDir"` 
+  metadataParser *JPEGMetadataParser `json:"metadataParser"` 
+  dimensionsCacheKeys []string `json:"dimensionsCacheKeys"` 
+  dimensionsCache []*ImageDimensions `json:"dimensionsCache"` 
+}
+
+func CreateNew_ImageUtils() *ImageUtils {
+  me := new(ImageUtils)
+  me.baseDir = ""
+  me.metadataParser = CreateNew_JPEGMetadataParser()
+  me.dimensionsCacheKeys = make([]string,0)
+  me.dimensionsCache = make([]*ImageDimensions,0)
+  var keys []string = make([]string, 0);
+  me.dimensionsCacheKeys = keys; 
+  var cache_1 []*ImageDimensions = make([]*ImageDimensions, 0);
+  me.dimensionsCache = cache_1; 
+  return me;
+}
+func (this *ImageUtils) setBaseDir (dir string) () {
+  this.baseDir = dir; 
+}
+func (this *ImageUtils) calculateObjectFit (containerW float64, containerH float64, imageW float64, imageH float64, objectFit string) *ObjectFitResult {
+  var result *ObjectFitResult= CreateNew_ObjectFitResult();
+  if  containerW <= 0.0 {
+    return result
+  }
+  if  containerH <= 0.0 {
+    return result
+  }
+  if  imageW <= 0.0 {
+    return result
+  }
+  if  imageH <= 0.0 {
+    return result
+  }
+  result.renderW = containerW; 
+  result.renderH = containerH; 
+  result.isValid = true; 
+  if  (int64(len([]rune(objectFit)))) == int64(0) {
+    objectFit = "cover"; 
+  }
+  var containerRatio float64= containerW / containerH;
+  var imageRatio float64= imageW / imageH;
+  if  objectFit == "cover" {
+    if  imageRatio > containerRatio {
+      result.renderH = containerH; 
+      result.renderW = containerH * imageRatio; 
+      result.offsetX = (containerW - result.renderW) / 2.0; 
+    } else {
+      result.renderW = containerW; 
+      result.renderH = containerW / imageRatio; 
+      result.offsetY = (containerH - result.renderH) / 2.0; 
+    }
+  }
+  if  objectFit == "contain" {
+    if  imageRatio > containerRatio {
+      result.renderW = containerW; 
+      result.renderH = containerW / imageRatio; 
+      result.offsetY = (containerH - result.renderH) / 2.0; 
+    } else {
+      result.renderH = containerH; 
+      result.renderW = containerH * imageRatio; 
+      result.offsetX = (containerW - result.renderW) / 2.0; 
+    }
+  }
+  return result
+}
+func (this *ImageUtils) resolveImagePath (src string) string {
+  var imgDir string= "";
+  var imgFile string= "";
+  var imgSrc string= src;
+  if  (int64(len([]rune(src)))) > int64(2) {
+    var prefix string= string([]rune(src)[int64(0):int64(2)]);
+    if  prefix == "./" {
+      imgSrc = string([]rune(src)[int64(2):(int64(len([]rune(src))))]); 
+    }
+  }
+  var lastSlash int64= int64(strings.LastIndex(imgSrc, "/"));
+  var lastBackslash int64= int64(strings.LastIndex(imgSrc, "\\"));
+  var lastSep int64= lastSlash;
+  if  lastBackslash > lastSep {
+    lastSep = lastBackslash; 
+  }
+  if  lastSep >= int64(0) {
+    imgDir = this.baseDir + (string([]rune(imgSrc)[int64(0):(lastSep + int64(1))])); 
+    imgFile = string([]rune(imgSrc)[(lastSep + int64(1)):(int64(len([]rune(imgSrc))))]); 
+  } else {
+    imgDir = this.baseDir; 
+    imgFile = imgSrc; 
+  }
+  return (imgDir + "|") + imgFile
+}
+func (this *ImageUtils) parseResolvedPath (resolved string, idx int64) string {
+  var sepIdx int64= int64(strings.Index(resolved, "|"));
+  if  sepIdx < int64(0) {
+    return ""
+  }
+  if  idx == int64(0) {
+    return string([]rune(resolved)[int64(0):sepIdx])
+  }
+  return string([]rune(resolved)[(sepIdx + int64(1)):(int64(len([]rune(resolved))))])
+}
+func (this *ImageUtils) loadImageDimensions (src string) *ImageDimensions {
+  var i int64= int64(0);
+  for i < (int64(len(this.dimensionsCacheKeys))) {
+    var key string= this.dimensionsCacheKeys[i];
+    if  key == src {
+      return this.dimensionsCache[i]
+    }
+    i = i + int64(1); 
+  }
+  var dims *ImageDimensions= CreateNew_ImageDimensions();
+  var resolved string= this.resolveImagePath(src);
+  var imgDir string= this.parseResolvedPath(resolved, int64(0));
+  var imgFile string= this.parseResolvedPath(resolved, int64(1));
+  var reader *JPEGReader= CreateNew_JPEGReader();
+  var jpegImage *JPEGImage= reader.readJPEG(imgDir, imgFile);
+  if  jpegImage.isValid == false {
+    var altDirPath string= "";
+    if  (int64(strings.Index(src, "./"))) == int64(0) {
+      altDirPath = (this.baseDir + "assets/") + (string([]rune(src)[int64(2):(int64(len([]rune(src))))])); 
+    } else {
+      altDirPath = (this.baseDir + "assets/") + src; 
+    }
+    var altLastSlash int64= int64(strings.LastIndex(altDirPath, "/"));
+    if  altLastSlash >= int64(0) {
+      imgDir = string([]rune(altDirPath)[int64(0):(altLastSlash + int64(1))]); 
+      imgFile = string([]rune(altDirPath)[(altLastSlash + int64(1)):(int64(len([]rune(altDirPath))))]); 
+    }
+    jpegImage = reader.readJPEG(imgDir, imgFile); 
+  }
+  if  jpegImage.isValid {
+    var metaInfo *JPEGMetadataInfo= this.metadataParser.parseMetadata(imgDir, imgFile);
+    var orientation int64= metaInfo.orientation;
+    var imgW int64= jpegImage.width;
+    var imgH int64= jpegImage.height;
+    if  (((orientation == int64(5)) || (orientation == int64(6))) || (orientation == int64(7))) || (orientation == int64(8)) {
+      var tmp int64= imgW;
+      imgW = imgH; 
+      imgH = tmp; 
+    }
+    (dims).set(imgW, imgH);
+  }
+  this.dimensionsCacheKeys = append(this.dimensionsCacheKeys,src); 
+  this.dimensionsCache = append(this.dimensionsCache,dims); 
+  return dims
+}
+func (this *ImageUtils) decodeImage (src string) *ImageBuffer {
+  var resolved string= this.resolveImagePath(src);
+  var imgDir string= this.parseResolvedPath(resolved, int64(0));
+  var imgFile string= this.parseResolvedPath(resolved, int64(1));
+  var decoder *JPEGDecoder= CreateNew_JPEGDecoder();
+  var imgBuffer *ImageBuffer= decoder.decode(imgDir, imgFile);
+  if  imgBuffer.width <= int64(1) {
+    var altDirPath string= "";
+    if  (int64(strings.Index(src, "./"))) == int64(0) {
+      altDirPath = (this.baseDir + "assets/") + (string([]rune(src)[int64(2):(int64(len([]rune(src))))])); 
+    } else {
+      altDirPath = (this.baseDir + "assets/") + src; 
+    }
+    var altLastSlash int64= int64(strings.LastIndex(altDirPath, "/"));
+    if  altLastSlash >= int64(0) {
+      imgDir = string([]rune(altDirPath)[int64(0):(altLastSlash + int64(1))]); 
+      imgFile = string([]rune(altDirPath)[(altLastSlash + int64(1)):(int64(len([]rune(altDirPath))))]); 
+    }
+    imgBuffer = decoder.decode(imgDir, imgFile); 
+  }
+  return imgBuffer
+}
+type RasterPixel struct { 
+  r int64 `json:"r"` 
+  g int64 `json:"g"` 
+  b int64 `json:"b"` 
+  a int64 `json:"a"` 
+}
+
+func CreateNew_RasterPixel() *RasterPixel {
+  me := new(RasterPixel)
+  me.r = int64(0)
+  me.g = int64(0)
+  me.b = int64(0)
+  me.a = int64(255)
+  return me;
+}
+func (this *RasterPixel) init (red int64, green int64, blue int64, alpha int64) () {
+  this.r = red; 
+  this.g = green; 
+  this.b = blue; 
+  this.a = alpha; 
+}
+func (this *RasterPixel) initRGB (red int64, green int64, blue int64) () {
+  this.r = red; 
+  this.g = green; 
+  this.b = blue; 
+  this.a = int64(255); 
+}
+func (this *RasterPixel) clone () *RasterPixel {
+  var p *RasterPixel= CreateNew_RasterPixel();
+  p.r = this.r; 
+  p.g = this.g; 
+  p.b = this.b; 
+  p.a = this.a; 
+  return p
+}
+type RasterBuffer struct { 
+  width int64 `json:"width"` 
+  height int64 `json:"height"` 
+  pixels []byte `json:"pixels"` 
+}
+
+func CreateNew_RasterBuffer() *RasterBuffer {
+  me := new(RasterBuffer)
+  me.width = int64(0)
+  me.height = int64(0)
+  me.pixels = 
+  make([]byte, int64(0))
+  
+  return me;
+}
+func (this *RasterBuffer) create (w int64, h int64) () {
+  this.width = w; 
+  this.height = h; 
+  var size int64= (w * h) * int64(4);
+  this.pixels = make([]byte, size); 
+  var i int64= int64(0);
+  for i < size {
+    this.pixels[i] = byte(int64(0))
+    i = i + int64(1); 
+  }
+}
+func (this *RasterBuffer) createWithColor (w int64, h int64, r int64, g int64, b int64, a int64) () {
+  this.create(w, h);
+  this.fill(r, g, b, a);
+}
+func (this *RasterBuffer) getIndex (x int64, y int64) int64 {
+  return ((y * this.width) + x) * int64(4)
+}
+func (this *RasterBuffer) inBounds (x int64, y int64) bool {
+  if  x < int64(0) {
+    return false
+  }
+  if  y < int64(0) {
+    return false
+  }
+  if  x >= this.width {
+    return false
+  }
+  if  y >= this.height {
+    return false
+  }
+  return true
+}
+func (this *RasterBuffer) setPixel (x int64, y int64, r int64, g int64, b int64, a int64) () {
+  if  this.inBounds(x, y) == false {
+    return
+  }
+  var idx int64= this.getIndex(x, y);
+  this.pixels[idx] = byte(r)
+  this.pixels[idx + int64(1)] = byte(g)
+  this.pixels[idx + int64(2)] = byte(b)
+  this.pixels[idx + int64(3)] = byte(a)
+}
+func (this *RasterBuffer) setPixelObj (x int64, y int64, p *RasterPixel) () {
+  this.setPixel(x, y, p.r, p.g, p.b, p.a);
+}
+func (this *RasterBuffer) getPixel (x int64, y int64) *RasterPixel {
+  var p *RasterPixel= CreateNew_RasterPixel();
+  if  this.inBounds(x, y) == false {
+    return p
+  }
+  var idx int64= this.getIndex(x, y);
+  p.r = int64(this.pixels[idx]); 
+  p.g = int64(this.pixels[(idx + int64(1))]); 
+  p.b = int64(this.pixels[(idx + int64(2))]); 
+  p.a = int64(this.pixels[(idx + int64(3))]); 
+  return p
+}
+func (this *RasterBuffer) getR (x int64, y int64) int64 {
+  if  this.inBounds(x, y) == false {
+    return int64(0)
+  }
+  var idx int64= this.getIndex(x, y);
+  return int64(this.pixels[idx])
+}
+func (this *RasterBuffer) getG (x int64, y int64) int64 {
+  if  this.inBounds(x, y) == false {
+    return int64(0)
+  }
+  var idx int64= this.getIndex(x, y);
+  return int64(this.pixels[(idx + int64(1))])
+}
+func (this *RasterBuffer) getB (x int64, y int64) int64 {
+  if  this.inBounds(x, y) == false {
+    return int64(0)
+  }
+  var idx int64= this.getIndex(x, y);
+  return int64(this.pixels[(idx + int64(2))])
+}
+func (this *RasterBuffer) getA (x int64, y int64) int64 {
+  if  this.inBounds(x, y) == false {
+    return int64(0)
+  }
+  var idx int64= this.getIndex(x, y);
+  return int64(this.pixels[(idx + int64(3))])
+}
+func (this *RasterBuffer) fill (r int64, g int64, b int64, a int64) () {
+  var size int64= this.width * this.height;
+  var i int64= int64(0);
+  for i < size {
+    var idx int64= i * int64(4);
+    this.pixels[idx] = byte(r)
+    this.pixels[idx + int64(1)] = byte(g)
+    this.pixels[idx + int64(2)] = byte(b)
+    this.pixels[idx + int64(3)] = byte(a)
+    i = i + int64(1); 
+  }
+}
+func (this *RasterBuffer) clear () () {
+  this.fill(int64(0), int64(0), int64(0), int64(0));
+}
+func (this *RasterBuffer) clearWhite () () {
+  this.fill(int64(255), int64(255), int64(255), int64(255));
+}
+func (this *RasterBuffer) fillRect (x int64, y int64, w int64, h int64, r int64, g int64, b int64, a int64) () {
+  var endX int64= x + w;
+  var endY int64= y + h;
+  if  x < int64(0) {
+    x = int64(0); 
+  }
+  if  y < int64(0) {
+    y = int64(0); 
+  }
+  if  endX > this.width {
+    endX = this.width; 
+  }
+  if  endY > this.height {
+    endY = this.height; 
+  }
+  var py int64= y;
+  for py < endY {
+    var px int64= x;
+    for px < endX {
+      this.setPixel(px, py, r, g, b, a);
+      px = px + int64(1); 
+    }
+    py = py + int64(1); 
+  }
+}
+func (this *RasterBuffer) copyFrom (src *RasterBuffer, srcX int64, srcY int64, dstX int64, dstY int64, w int64, h int64) () {
+  var sy int64= int64(0);
+  for sy < h {
+    var sx int64= int64(0);
+    for sx < w {
+      var p *RasterPixel= src.getPixel((srcX + sx), (srcY + sy));
+      this.setPixel(dstX + sx, dstY + sy, p.r, p.g, p.b, p.a);
+      sx = sx + int64(1); 
+    }
+    sy = sy + int64(1); 
+  }
+}
+func (this *RasterBuffer) clone () *RasterBuffer {
+  var copy *RasterBuffer= CreateNew_RasterBuffer();
+  copy.create(this.width, this.height);
+  var size int64= (this.width * this.height) * int64(4);
+  var i int64= int64(0);
+  for i < size {
+    copy.pixels[i] = byte(int64(this.pixels[i]))
+    i = i + int64(1); 
+  }
+  return copy
+}
+func (this *RasterBuffer) getPixelCount () int64 {
+  return this.width * this.height
+}
+func (this *RasterBuffer) getByteSize () int64 {
+  return (this.width * this.height) * int64(4)
+}
+func (this *RasterBuffer) toImageBuffer () *ImageBuffer {
+  var img *ImageBuffer= CreateNew_ImageBuffer();
+  img.init(this.width, this.height);
+  var size int64= (this.width * this.height) * int64(4);
+  var i int64= int64(0);
+  for i < size {
+    var r int64= int64(this.pixels[i]);
+    var g int64= int64(this.pixels[(i + int64(1))]);
+    var b int64= int64(this.pixels[(i + int64(2))]);
+    var a int64= int64(this.pixels[(i + int64(3))]);
+    if  a < int64(255) {
+      var alpha float64= (float64( a )) / 255.0;
+      var invAlpha float64= 1.0 - alpha;
+      r = int64((((float64( r )) * alpha) + (255.0 * invAlpha))); 
+      g = int64((((float64( g )) * alpha) + (255.0 * invAlpha))); 
+      b = int64((((float64( b )) * alpha) + (255.0 * invAlpha))); 
+    }
+    img.pixels[i] = byte(r)
+    img.pixels[i + int64(1)] = byte(g)
+    img.pixels[i + int64(2)] = byte(b)
+    img.pixels[i + int64(3)] = byte(int64(255))
+    i = i + int64(4); 
+  }
+  return img
+}
+func (this *RasterBuffer) fromImageBuffer (img *ImageBuffer) () {
+  this.create(img.width, img.height);
+  var size int64= (img.width * img.height) * int64(4);
+  var i int64= int64(0);
+  for i < size {
+    this.pixels[i] = byte(int64(img.pixels[i]))
+    this.pixels[i + int64(1)] = byte(int64(img.pixels[(i + int64(1))]))
+    this.pixels[i + int64(2)] = byte(int64(img.pixels[(i + int64(2))]))
+    this.pixels[i + int64(3)] = byte(int64(255))
+    i = i + int64(4); 
+  }
+}
+func (this *RasterBuffer) getRawBuffer () []byte {
+  return this.pixels
+}
+type RasterCompositor struct { 
+}
+
+func CreateNew_RasterCompositor() *RasterCompositor {
+  me := new(RasterCompositor)
+  return me;
+}
+func (this *RasterCompositor) clamp255 (val int64) int64 {
+  if  val < int64(0) {
+    return int64(0)
+  }
+  if  val > int64(255) {
+    return int64(255)
+  }
+  return val
+}
+func (this *RasterCompositor) clamp01 (val float64) float64 {
+  if  val < 0.0 {
+    return 0.0
+  }
+  if  val > 1.0 {
+    return 1.0
+  }
+  return val
+}
+func (this *RasterCompositor) blendSourceOver (buf *RasterBuffer, x int64, y int64, srcR int64, srcG int64, srcB int64, srcA int64) () {
+  if  buf.inBounds(x, y) == false {
+    return
+  }
+  if  srcA >= int64(255) {
+    buf.setPixel(x, y, srcR, srcG, srcB, int64(255));
+    return
+  }
+  if  srcA <= int64(0) {
+    return
+  }
+  var dst *RasterPixel= buf.getPixel(x, y);
+  var srcAlpha float64= (float64( srcA )) / 255.0;
+  var dstAlpha float64= (float64( dst.a )) / 255.0;
+  var outAlpha float64= srcAlpha + (dstAlpha * (1.0 - srcAlpha));
+  if  outAlpha < 0.001 {
+    buf.setPixel(x, y, int64(0), int64(0), int64(0), int64(0));
+    return
+  }
+  var invSrcAlpha float64= 1.0 - srcAlpha;
+  var outR float64= ((float64( srcR )) * srcAlpha) + (((float64( dst.r )) * dstAlpha) * invSrcAlpha);
+  var outG float64= ((float64( srcG )) * srcAlpha) + (((float64( dst.g )) * dstAlpha) * invSrcAlpha);
+  var outB float64= ((float64( srcB )) * srcAlpha) + (((float64( dst.b )) * dstAlpha) * invSrcAlpha);
+  outR = outR / outAlpha; 
+  outG = outG / outAlpha; 
+  outB = outB / outAlpha; 
+  buf.setPixel(x, y, this.clamp255((int64(outR))), this.clamp255((int64(outG))), this.clamp255((int64(outB))), this.clamp255((int64((outAlpha * 255.0)))));
+}
+func (this *RasterCompositor) blendPixelOver (buf *RasterBuffer, x int64, y int64, src *RasterPixel) () {
+  this.blendSourceOver(buf, x, y, src.r, src.g, src.b, src.a);
+}
+func (this *RasterCompositor) fillRectBlended (buf *RasterBuffer, x int64, y int64, w int64, h int64, r int64, g int64, b int64, a int64) () {
+  var endX int64= x + w;
+  var endY int64= y + h;
+  if  x < int64(0) {
+    x = int64(0); 
+  }
+  if  y < int64(0) {
+    y = int64(0); 
+  }
+  if  endX > buf.width {
+    endX = buf.width; 
+  }
+  if  endY > buf.height {
+    endY = buf.height; 
+  }
+  var py int64= y;
+  for py < endY {
+    var px int64= x;
+    for px < endX {
+      this.blendSourceOver(buf, px, py, r, g, b, a);
+      px = px + int64(1); 
+    }
+    py = py + int64(1); 
+  }
+}
+func (this *RasterCompositor) compositeOver (dst *RasterBuffer, src *RasterBuffer, dstX int64, dstY int64) () {
+  var sy int64= int64(0);
+  for sy < src.height {
+    var sx int64= int64(0);
+    for sx < src.width {
+      var p *RasterPixel= src.getPixel(sx, sy);
+      this.blendSourceOver(dst, dstX + sx, dstY + sy, p.r, p.g, p.b, p.a);
+      sx = sx + int64(1); 
+    }
+    sy = sy + int64(1); 
+  }
+}
+func (this *RasterCompositor) compositeRegionOver (dst *RasterBuffer, src *RasterBuffer, srcX int64, srcY int64, srcW int64, srcH int64, dstX int64, dstY int64) () {
+  var sy int64= int64(0);
+  for sy < srcH {
+    var sx int64= int64(0);
+    for sx < srcW {
+      var p *RasterPixel= src.getPixel((srcX + sx), (srcY + sy));
+      this.blendSourceOver(dst, dstX + sx, dstY + sy, p.r, p.g, p.b, p.a);
+      sx = sx + int64(1); 
+    }
+    sy = sy + int64(1); 
+  }
+}
+func (this *RasterCompositor) blendMultiply (buf *RasterBuffer, x int64, y int64, srcR int64, srcG int64, srcB int64, srcA int64) () {
+  if  buf.inBounds(x, y) == false {
+    return
+  }
+  var dst *RasterPixel= buf.getPixel(x, y);
+  var outR int64= int64(((float64( (srcR * dst.r) )) / 255.0));
+  var outG int64= int64(((float64( (srcG * dst.g) )) / 255.0));
+  var outB int64= int64(((float64( (srcB * dst.b) )) / 255.0));
+  var srcAlpha float64= (float64( srcA )) / 255.0;
+  var invAlpha float64= 1.0 - srcAlpha;
+  outR = int64((((float64( outR )) * srcAlpha) + ((float64( dst.r )) * invAlpha))); 
+  outG = int64((((float64( outG )) * srcAlpha) + ((float64( dst.g )) * invAlpha))); 
+  outB = int64((((float64( outB )) * srcAlpha) + ((float64( dst.b )) * invAlpha))); 
+  buf.setPixel(x, y, this.clamp255(outR), this.clamp255(outG), this.clamp255(outB), dst.a);
+}
+func (this *RasterCompositor) blendScreen (buf *RasterBuffer, x int64, y int64, srcR int64, srcG int64, srcB int64, srcA int64) () {
+  if  buf.inBounds(x, y) == false {
+    return
+  }
+  var dst *RasterPixel= buf.getPixel(x, y);
+  var scrR int64= int64(255) - srcR;
+  var scrG int64= int64(255) - srcG;
+  var scrB int64= int64(255) - srcB;
+  var dstInvR int64= int64(255) - dst.r;
+  var dstInvG int64= int64(255) - dst.g;
+  var dstInvB int64= int64(255) - dst.b;
+  var outR int64= int64(255) - (int64(((float64( (scrR * dstInvR) )) / 255.0)));
+  var outG int64= int64(255) - (int64(((float64( (scrG * dstInvG) )) / 255.0)));
+  var outB int64= int64(255) - (int64(((float64( (scrB * dstInvB) )) / 255.0)));
+  var srcAlpha float64= (float64( srcA )) / 255.0;
+  var invAlpha float64= 1.0 - srcAlpha;
+  outR = int64((((float64( outR )) * srcAlpha) + ((float64( dst.r )) * invAlpha))); 
+  outG = int64((((float64( outG )) * srcAlpha) + ((float64( dst.g )) * invAlpha))); 
+  outB = int64((((float64( outB )) * srcAlpha) + ((float64( dst.b )) * invAlpha))); 
+  buf.setPixel(x, y, this.clamp255(outR), this.clamp255(outG), this.clamp255(outB), dst.a);
+}
+func (this *RasterCompositor) blendAdditive (buf *RasterBuffer, x int64, y int64, srcR int64, srcG int64, srcB int64, srcA int64) () {
+  if  buf.inBounds(x, y) == false {
+    return
+  }
+  var dst *RasterPixel= buf.getPixel(x, y);
+  var srcAlpha float64= (float64( srcA )) / 255.0;
+  var addR int64= int64(((float64( srcR )) * srcAlpha));
+  var addG int64= int64(((float64( srcG )) * srcAlpha));
+  var addB int64= int64(((float64( srcB )) * srcAlpha));
+  var outR int64= dst.r + addR;
+  var outG int64= dst.g + addG;
+  var outB int64= dst.b + addB;
+  buf.setPixel(x, y, this.clamp255(outR), this.clamp255(outG), this.clamp255(outB), dst.a);
+}
+func (this *RasterCompositor) blendPreMultiplied (buf *RasterBuffer, x int64, y int64, srcR int64, srcG int64, srcB int64, srcA int64) () {
+  if  buf.inBounds(x, y) == false {
+    return
+  }
+  if  srcA >= int64(255) {
+    buf.setPixel(x, y, srcR, srcG, srcB, int64(255));
+    return
+  }
+  if  srcA <= int64(0) {
+    return
+  }
+  var dst *RasterPixel= buf.getPixel(x, y);
+  var invAlpha int64= int64(255) - srcA;
+  var outR int64= srcR + (int64(((float64( (dst.r * invAlpha) )) / 255.0)));
+  var outG int64= srcG + (int64(((float64( (dst.g * invAlpha) )) / 255.0)));
+  var outB int64= srcB + (int64(((float64( (dst.b * invAlpha) )) / 255.0)));
+  var outA int64= srcA + (int64(((float64( (dst.a * invAlpha) )) / 255.0)));
+  buf.setPixel(x, y, this.clamp255(outR), this.clamp255(outG), this.clamp255(outB), this.clamp255(outA));
+}
+type RasterPrimitives struct { 
+  compositor *RasterCompositor `json:"compositor"` 
+}
+
+func CreateNew_RasterPrimitives() *RasterPrimitives {
+  me := new(RasterPrimitives)
+  me.compositor = CreateNew_RasterCompositor()
+  return me;
+}
+func (this *RasterPrimitives) drawLine (buf *RasterBuffer, x1 int64, y1 int64, x2 int64, y2 int64, r int64, g int64, b int64, a int64) () {
+  var dx int64= x2 - x1;
+  var dy int64= y2 - y1;
+  var absDx int64= dx;
+  if  absDx < int64(0) {
+    absDx = int64(0) - absDx; 
+  }
+  var absDy int64= dy;
+  if  absDy < int64(0) {
+    absDy = int64(0) - absDy; 
+  }
+  var sx int64= int64(1);
+  if  x1 > x2 {
+    sx = int64(0) - int64(1); 
+  }
+  var sy int64= int64(1);
+  if  y1 > y2 {
+    sy = int64(0) - int64(1); 
+  }
+  var err int64= absDx - absDy;
+  var x int64= x1;
+  var y int64= y1;
+  var done bool= false;
+  for done == false {
+    this.compositor.blendSourceOver(buf, x, y, r, g, b, a);
+    if  (x == x2) && (y == y2) {
+      done = true; 
+    } else {
+      var e2 int64= err * int64(2);
+      if  e2 > (int64(0) - absDy) {
+        err = err - absDy; 
+        x = x + sx; 
+      }
+      if  e2 < absDx {
+        err = err + absDx; 
+        y = y + sy; 
+      }
+    }
+  }
+}
+func (this *RasterPrimitives) drawRect (buf *RasterBuffer, x int64, y int64, w int64, h int64, r int64, g int64, b int64, a int64) () {
+  this.drawLine(buf, x, y, (x + w) - int64(1), y, r, g, b, a);
+  this.drawLine(buf, (x + w) - int64(1), y, (x + w) - int64(1), (y + h) - int64(1), r, g, b, a);
+  this.drawLine(buf, (x + w) - int64(1), (y + h) - int64(1), x, (y + h) - int64(1), r, g, b, a);
+  this.drawLine(buf, x, (y + h) - int64(1), x, y, r, g, b, a);
+}
+func (this *RasterPrimitives) fillRect (buf *RasterBuffer, x int64, y int64, w int64, h int64, r int64, g int64, b int64, a int64) () {
+  this.compositor.fillRectBlended(buf, x, y, w, h, r, g, b, a);
+}
+func (this *RasterPrimitives) fillRectSolid (buf *RasterBuffer, x int64, y int64, w int64, h int64, r int64, g int64, b int64, a int64) () {
+  buf.fillRect(x, y, w, h, r, g, b, a);
+}
+func (this *RasterPrimitives) fillRoundedRect (buf *RasterBuffer, x int64, y int64, w int64, h int64, radius int64, r int64, g int64, b int64, a int64) () {
+  var maxR int64= int64(((float64( w )) / 2.0));
+  var halfH int64= int64(((float64( h )) / 2.0));
+  if  halfH < maxR {
+    maxR = halfH; 
+  }
+  if  radius > maxR {
+    radius = maxR; 
+  }
+  if  radius < int64(0) {
+    radius = int64(0); 
+  }
+  if  radius == int64(0) {
+    this.fillRect(buf, x, y, w, h, r, g, b, a);
+    return
+  }
+  this.fillRect(buf, x, y + radius, w, h - (radius * int64(2)), r, g, b, a);
+  this.fillRect(buf, x + radius, y, w - (radius * int64(2)), radius, r, g, b, a);
+  this.fillRect(buf, x + radius, (y + h) - radius, w - (radius * int64(2)), radius, r, g, b, a);
+  this.fillCircleQuadrant(buf, x + radius, y + radius, radius, int64(2), r, g, b, a);
+  this.fillCircleQuadrant(buf, ((x + w) - radius) - int64(1), y + radius, radius, int64(1), r, g, b, a);
+  this.fillCircleQuadrant(buf, x + radius, ((y + h) - radius) - int64(1), radius, int64(3), r, g, b, a);
+  this.fillCircleQuadrant(buf, ((x + w) - radius) - int64(1), ((y + h) - radius) - int64(1), radius, int64(4), r, g, b, a);
+}
+func (this *RasterPrimitives) drawRoundedRect (buf *RasterBuffer, x int64, y int64, w int64, h int64, radius int64, r int64, g int64, b int64, a int64) () {
+  var maxR int64= int64(((float64( w )) / 2.0));
+  var halfH int64= int64(((float64( h )) / 2.0));
+  if  halfH < maxR {
+    maxR = halfH; 
+  }
+  if  radius > maxR {
+    radius = maxR; 
+  }
+  if  radius < int64(0) {
+    radius = int64(0); 
+  }
+  if  radius == int64(0) {
+    this.drawRect(buf, x, y, w, h, r, g, b, a);
+    return
+  }
+  this.drawLine(buf, x + radius, y, ((x + w) - radius) - int64(1), y, r, g, b, a);
+  this.drawLine(buf, x + radius, (y + h) - int64(1), ((x + w) - radius) - int64(1), (y + h) - int64(1), r, g, b, a);
+  this.drawLine(buf, x, y + radius, x, ((y + h) - radius) - int64(1), r, g, b, a);
+  this.drawLine(buf, (x + w) - int64(1), y + radius, (x + w) - int64(1), ((y + h) - radius) - int64(1), r, g, b, a);
+  this.drawCircleArcQuadrant(buf, x + radius, y + radius, radius, int64(2), r, g, b, a);
+  this.drawCircleArcQuadrant(buf, ((x + w) - radius) - int64(1), y + radius, radius, int64(1), r, g, b, a);
+  this.drawCircleArcQuadrant(buf, x + radius, ((y + h) - radius) - int64(1), radius, int64(3), r, g, b, a);
+  this.drawCircleArcQuadrant(buf, ((x + w) - radius) - int64(1), ((y + h) - radius) - int64(1), radius, int64(4), r, g, b, a);
+}
+func (this *RasterPrimitives) fillCircle (buf *RasterBuffer, cx int64, cy int64, radius int64, r int64, g int64, b int64, a int64) () {
+  var r2 int64= radius * radius;
+  var y int64= int64(0) - radius;
+  for y <= radius {
+    var x int64= int64(0) - radius;
+    for x <= radius {
+      var d2 int64= (x * x) + (y * y);
+      if  d2 <= r2 {
+        this.compositor.blendSourceOver(buf, cx + x, cy + y, r, g, b, a);
+      }
+      x = x + int64(1); 
+    }
+    y = y + int64(1); 
+  }
+}
+func (this *RasterPrimitives) drawCircle (buf *RasterBuffer, cx int64, cy int64, radius int64, r int64, g int64, b int64, a int64) () {
+  var x int64= int64(0);
+  var y int64= radius;
+  var d int64= int64(1) - radius;
+  this.drawCirclePoints(buf, cx, cy, x, y, r, g, b, a);
+  for x < y {
+    if  d < int64(0) {
+      d = (d + (int64(2) * x)) + int64(3); 
+    } else {
+      d = (d + (int64(2) * (x - y))) + int64(5); 
+      y = y - int64(1); 
+    }
+    x = x + int64(1); 
+    this.drawCirclePoints(buf, cx, cy, x, y, r, g, b, a);
+  }
+}
+func (this *RasterPrimitives) drawCirclePoints (buf *RasterBuffer, cx int64, cy int64, x int64, y int64, r int64, g int64, b int64, a int64) () {
+  this.compositor.blendSourceOver(buf, cx + x, cy + y, r, g, b, a);
+  this.compositor.blendSourceOver(buf, cx - x, cy + y, r, g, b, a);
+  this.compositor.blendSourceOver(buf, cx + x, cy - y, r, g, b, a);
+  this.compositor.blendSourceOver(buf, cx - x, cy - y, r, g, b, a);
+  this.compositor.blendSourceOver(buf, cx + y, cy + x, r, g, b, a);
+  this.compositor.blendSourceOver(buf, cx - y, cy + x, r, g, b, a);
+  this.compositor.blendSourceOver(buf, cx + y, cy - x, r, g, b, a);
+  this.compositor.blendSourceOver(buf, cx - y, cy - x, r, g, b, a);
+}
+func (this *RasterPrimitives) fillCircleQuadrant (buf *RasterBuffer, cx int64, cy int64, radius int64, quadrant int64, r int64, g int64, b int64, a int64) () {
+  var r2 int64= radius * radius;
+  /** unused:  startY*/
+  /** unused:  endY*/
+  /** unused:  startX*/
+  /** unused:  endX*/
+  var dirX int64= int64(1);
+  var dirY int64= int64(1);
+  if  quadrant == int64(1) {
+    dirX = int64(1); 
+    dirY = int64(-1); 
+  }
+  if  quadrant == int64(2) {
+    dirX = int64(-1); 
+    dirY = int64(-1); 
+  }
+  if  quadrant == int64(3) {
+    dirX = int64(-1); 
+    dirY = int64(1); 
+  }
+  if  quadrant == int64(4) {
+    dirX = int64(1); 
+    dirY = int64(1); 
+  }
+  var dy int64= int64(0);
+  for dy <= radius {
+    var dx int64= int64(0);
+    for dx <= radius {
+      var d2 int64= (dx * dx) + (dy * dy);
+      if  d2 <= r2 {
+        var px int64= cx + (dx * dirX);
+        var py int64= cy + (dy * dirY);
+        this.compositor.blendSourceOver(buf, px, py, r, g, b, a);
+      }
+      dx = dx + int64(1); 
+    }
+    dy = dy + int64(1); 
+  }
+}
+func (this *RasterPrimitives) drawCircleArcQuadrant (buf *RasterBuffer, cx int64, cy int64, radius int64, quadrant int64, r int64, g int64, b int64, a int64) () {
+  var x int64= int64(0);
+  var y int64= radius;
+  var d int64= int64(1) - radius;
+  var dirX int64= int64(1);
+  var dirY int64= int64(-1);
+  if  quadrant == int64(1) {
+    dirX = int64(1); 
+    dirY = int64(-1); 
+  }
+  if  quadrant == int64(2) {
+    dirX = int64(-1); 
+    dirY = int64(-1); 
+  }
+  if  quadrant == int64(3) {
+    dirX = int64(-1); 
+    dirY = int64(1); 
+  }
+  if  quadrant == int64(4) {
+    dirX = int64(1); 
+    dirY = int64(1); 
+  }
+  this.compositor.blendSourceOver(buf, cx + (x * dirX), cy + (y * dirY), r, g, b, a);
+  this.compositor.blendSourceOver(buf, cx + (y * dirX), cy + (x * dirY), r, g, b, a);
+  for x < y {
+    if  d < int64(0) {
+      d = (d + (int64(2) * x)) + int64(3); 
+    } else {
+      d = (d + (int64(2) * (x - y))) + int64(5); 
+      y = y - int64(1); 
+    }
+    x = x + int64(1); 
+    this.compositor.blendSourceOver(buf, cx + (x * dirX), cy + (y * dirY), r, g, b, a);
+    this.compositor.blendSourceOver(buf, cx + (y * dirX), cy + (x * dirY), r, g, b, a);
+  }
+}
+func (this *RasterPrimitives) drawLineAA (buf *RasterBuffer, x0 int64, y0 int64, x1 int64, y1 int64, r int64, g int64, b int64, a int64) () {
+  this.drawLine(buf, x0, y0, x1, y1, r, g, b, a);
+}
+func (this *RasterPrimitives) fillEllipse (buf *RasterBuffer, cx int64, cy int64, rx int64, ry int64, r int64, g int64, b int64, a int64) () {
+  var rx2 float64= (float64( rx )) * (float64( rx ));
+  var ry2 float64= (float64( ry )) * (float64( ry ));
+  var y int64= int64(0) - ry;
+  for y <= ry {
+    var yf float64= float64( y );
+    var xExtent float64= math.Sqrt((rx2 * (1.0 - ((yf * yf) / ry2))));
+    var xi int64= int64(xExtent);
+    var x int64= int64(0) - xi;
+    for x <= xi {
+      this.compositor.blendSourceOver(buf, cx + x, cy + y, r, g, b, a);
+      x = x + int64(1); 
+    }
+    y = y + int64(1); 
+  }
+}
+func (this *RasterPrimitives) drawEllipse (buf *RasterBuffer, cx int64, cy int64, rx int64, ry int64, r int64, g int64, b int64, a int64) () {
+  var steps int64= (rx + ry) * int64(2);
+  if  steps < int64(20) {
+    steps = int64(20); 
+  }
+  var angleStep float64= 6.28318530718 / (float64( steps ));
+  var angle float64= 0.0;
+  var lastX int64= cx + rx;
+  var lastY int64= cy;
+  var i int64= int64(0);
+  for i <= steps {
+    var newX int64= cx + (int64(((float64( rx )) * (math.Cos(angle)))));
+    var newY int64= cy + (int64(((float64( ry )) * (math.Sin(angle)))));
+    if  i > int64(0) {
+      this.drawLine(buf, lastX, lastY, newX, newY, r, g, b, a);
+    }
+    lastX = newX; 
+    lastY = newY; 
+    angle = angle + angleStep; 
+    i = i + int64(1); 
+  }
+}
+type GradientStop struct { 
+  position float64 `json:"position"` 
+  r int64 `json:"r"` 
+  g int64 `json:"g"` 
+  b int64 `json:"b"` 
+  a int64 `json:"a"` 
+}
+
+func CreateNew_GradientStop() *GradientStop {
+  me := new(GradientStop)
+  me.position = 0.0
+  me.r = int64(0)
+  me.g = int64(0)
+  me.b = int64(0)
+  me.a = int64(255)
+  return me;
+}
+func (this *GradientStop) init (pos float64, red int64, green int64, blue int64, alpha int64) () {
+  this.position = pos; 
+  this.r = red; 
+  this.g = green; 
+  this.b = blue; 
+  this.a = alpha; 
+}
+func (this *GradientStop) initRGB (pos float64, red int64, green int64, blue int64) () {
+  this.position = pos; 
+  this.r = red; 
+  this.g = green; 
+  this.b = blue; 
+  this.a = int64(255); 
+}
+type RasterGradient struct { 
+}
+
+func CreateNew_RasterGradient() *RasterGradient {
+  me := new(RasterGradient)
+  return me;
+}
+func (this *RasterGradient) interpolateColor (stop1 *GradientStop, stop2 *GradientStop, t float64) *RasterPixel {
+  var p *RasterPixel= CreateNew_RasterPixel();
+  if  t < 0.0 {
+    t = 0.0; 
+  }
+  if  t > 1.0 {
+    t = 1.0; 
+  }
+  var invT float64= 1.0 - t;
+  p.r = int64((((float64( stop1.r )) * invT) + ((float64( stop2.r )) * t))); 
+  p.g = int64((((float64( stop1.g )) * invT) + ((float64( stop2.g )) * t))); 
+  p.b = int64((((float64( stop1.b )) * invT) + ((float64( stop2.b )) * t))); 
+  p.a = int64((((float64( stop1.a )) * invT) + ((float64( stop2.a )) * t))); 
+  return p
+}
+func (this *RasterGradient) getColorAtPosition (stops []*GradientStop, position float64) *RasterPixel {
+  var numStops int64= int64(len(stops));
+  if  numStops == int64(0) {
+    var p *RasterPixel= CreateNew_RasterPixel();
+    return p
+  }
+  if  numStops == int64(1) {
+    var stop *GradientStop= stops[int64(0)];
+    var p_1 *RasterPixel= CreateNew_RasterPixel();
+    p_1.r = stop.r; 
+    p_1.g = stop.g; 
+    p_1.b = stop.b; 
+    p_1.a = stop.a; 
+    return p_1
+  }
+  if  position <= 0.0 {
+    var stop_1 *GradientStop= stops[int64(0)];
+    var p_2 *RasterPixel= CreateNew_RasterPixel();
+    p_2.r = stop_1.r; 
+    p_2.g = stop_1.g; 
+    p_2.b = stop_1.b; 
+    p_2.a = stop_1.a; 
+    return p_2
+  }
+  if  position >= 1.0 {
+    var stop_2 *GradientStop= stops[(numStops - int64(1))];
+    var p_3 *RasterPixel= CreateNew_RasterPixel();
+    p_3.r = stop_2.r; 
+    p_3.g = stop_2.g; 
+    p_3.b = stop_2.b; 
+    p_3.a = stop_2.a; 
+    return p_3
+  }
+  var i int64= int64(0);
+  for i < (numStops - int64(1)) {
+    var stop1 *GradientStop= stops[i];
+    var stop2 *GradientStop= stops[(i + int64(1))];
+    if  (position >= stop1.position) && (position <= stop2.position) {
+      var _range float64= stop2.position - stop1.position;
+      if  _range < 0.001 {
+        var p_4 *RasterPixel= CreateNew_RasterPixel();
+        p_4.r = stop1.r; 
+        p_4.g = stop1.g; 
+        p_4.b = stop1.b; 
+        p_4.a = stop1.a; 
+        return p_4
+      }
+      var t float64= (position - stop1.position) / _range;
+      return this.interpolateColor(stop1, stop2, t)
+    }
+    i = i + int64(1); 
+  }
+  var stop_3 *GradientStop= stops[(numStops - int64(1))];
+  var p_5 *RasterPixel= CreateNew_RasterPixel();
+  p_5.r = stop_3.r; 
+  p_5.g = stop_3.g; 
+  p_5.b = stop_3.b; 
+  p_5.a = stop_3.a; 
+  return p_5
+}
+func (this *RasterGradient) renderLinearGradient (buf *RasterBuffer, x int64, y int64, w int64, h int64, angleDeg float64, stops []*GradientStop) () {
+  var angleRad float64= (angleDeg * 3.14159265359) / 180.0;
+  var dirX float64= math.Cos(angleRad);
+  var dirY float64= math.Sin(angleRad);
+  var hw float64= (float64( w )) / 2.0;
+  var hh float64= (float64( h )) / 2.0;
+  var d1 float64= (hw * dirX) + (hh * dirY);
+  var d2 float64= (hw * dirX) - (hh * dirY);
+  var d3 float64= ((0.0 - hw) * dirX) + (hh * dirY);
+  var d4 float64= ((0.0 - hw) * dirX) - (hh * dirY);
+  var minD float64= d1;
+  if  d2 < minD {
+    minD = d2; 
+  }
+  if  d3 < minD {
+    minD = d3; 
+  }
+  if  d4 < minD {
+    minD = d4; 
+  }
+  var maxD float64= d1;
+  if  d2 > maxD {
+    maxD = d2; 
+  }
+  if  d3 > maxD {
+    maxD = d3; 
+  }
+  if  d4 > maxD {
+    maxD = d4; 
+  }
+  var gradientLength float64= maxD - minD;
+  if  gradientLength < 1.0 {
+    gradientLength = 1.0; 
+  }
+  var cx float64= hw;
+  var cy float64= hh;
+  var py int64= int64(0);
+  for py < h {
+    var px int64= int64(0);
+    for px < w {
+      var relX float64= (float64( px )) - cx;
+      var relY float64= (float64( py )) - cy;
+      var proj float64= (relX * dirX) + (relY * dirY);
+      var t float64= (proj - minD) / gradientLength;
+      var color *RasterPixel= this.getColorAtPosition(stops, t);
+      buf.setPixel(x + px, y + py, color.r, color.g, color.b, color.a);
+      px = px + int64(1); 
+    }
+    py = py + int64(1); 
+  }
+}
+func (this *RasterGradient) renderRadialGradient (buf *RasterBuffer, x int64, y int64, w int64, h int64, cx float64, cy float64, radius float64, stops []*GradientStop) () {
+  if  radius < 1.0 {
+    radius = 1.0; 
+  }
+  var py int64= int64(0);
+  for py < h {
+    var px int64= int64(0);
+    for px < w {
+      var dx float64= (float64( px )) - cx;
+      var dy float64= (float64( py )) - cy;
+      var dist float64= math.Sqrt(((dx * dx) + (dy * dy)));
+      var t float64= dist / radius;
+      if  t > 1.0 {
+        t = 1.0; 
+      }
+      var color *RasterPixel= this.getColorAtPosition(stops, t);
+      buf.setPixel(x + px, y + py, color.r, color.g, color.b, color.a);
+      px = px + int64(1); 
+    }
+    py = py + int64(1); 
+  }
+}
+func (this *RasterGradient) renderRadialGradientCentered (buf *RasterBuffer, x int64, y int64, w int64, h int64, stops []*GradientStop) () {
+  var cx float64= (float64( w )) / 2.0;
+  var cy float64= (float64( h )) / 2.0;
+  var radius float64= math.Sqrt(((cx * cx) + (cy * cy)));
+  this.renderRadialGradient(buf, x, y, w, h, cx, cy, radius, stops);
+}
+func (this *RasterGradient) renderTwoColorLinear (buf *RasterBuffer, x int64, y int64, w int64, h int64, angleDeg float64, r1 int64, g1 int64, b1 int64, r2 int64, g2 int64, b2 int64) () {
+  var stops []*GradientStop = make([]*GradientStop, 0);
+  var stop1 *GradientStop= CreateNew_GradientStop();
+  stop1.initRGB(0.0, r1, g1, b1);
+  stops = append(stops,stop1); 
+  var stop2 *GradientStop= CreateNew_GradientStop();
+  stop2.initRGB(1.0, r2, g2, b2);
+  stops = append(stops,stop2); 
+  this.renderLinearGradient(buf, x, y, w, h, angleDeg, stops);
+}
+func (this *RasterGradient) renderTwoColorRadial (buf *RasterBuffer, x int64, y int64, w int64, h int64, r1 int64, g1 int64, b1 int64, r2 int64, g2 int64, b2 int64) () {
+  var stops []*GradientStop = make([]*GradientStop, 0);
+  var stop1 *GradientStop= CreateNew_GradientStop();
+  stop1.initRGB(0.0, r1, g1, b1);
+  stops = append(stops,stop1); 
+  var stop2 *GradientStop= CreateNew_GradientStop();
+  stop2.initRGB(1.0, r2, g2, b2);
+  stops = append(stops,stop2); 
+  this.renderRadialGradientCentered(buf, x, y, w, h, stops);
+}
+func (this *RasterGradient) parseColorToStop (colorStr string, stop *GradientStop) () {
+  var firstChar string= string([]rune(colorStr)[int64(0):int64(1)]);
+  if  firstChar == "#" {
+    var hex string= string([]rune(colorStr)[int64(1):(int64(len([]rune(colorStr))))]);
+    var hexLen int64= int64(len([]rune(hex)));
+    if  hexLen == int64(6) {
+      var rHex string= string([]rune(hex)[int64(0):int64(2)]);
+      var gHex string= string([]rune(hex)[int64(2):int64(4)]);
+      var bHex string= string([]rune(hex)[int64(4):int64(6)]);
+      stop.r = this.hexToInt(rHex); 
+      stop.g = this.hexToInt(gHex); 
+      stop.b = this.hexToInt(bHex); 
+      stop.a = int64(255); 
+    }
+    if  hexLen == int64(3) {
+      var rHex_1 string= string([]rune(hex)[int64(0):int64(1)]);
+      var gHex_1 string= string([]rune(hex)[int64(1):int64(2)]);
+      var bHex_1 string= string([]rune(hex)[int64(2):int64(3)]);
+      stop.r = this.hexToInt((rHex_1 + rHex_1)); 
+      stop.g = this.hexToInt((gHex_1 + gHex_1)); 
+      stop.b = this.hexToInt((bHex_1 + bHex_1)); 
+      stop.a = int64(255); 
+    }
+    return
+  }
+  if  strings.Contains(colorStr, "rgba") {
+    var start int64= int64(strings.Index(colorStr, "("));
+    var end int64= int64(strings.Index(colorStr, ")"));
+    if  (start >= int64(0)) && (end > start) {
+      var inner string= string([]rune(colorStr)[(start + int64(1)):end]);
+      var parts []string= strings.Split(inner, ",");
+      if  (int64(len(parts))) >= int64(4) {
+        stop.r = this.parseIntSafe((strings.TrimSpace((parts[int64(0)])))); 
+        stop.g = this.parseIntSafe((strings.TrimSpace((parts[int64(1)])))); 
+        stop.b = this.parseIntSafe((strings.TrimSpace((parts[int64(2)])))); 
+        var aStr string= strings.TrimSpace((parts[int64(3)]));
+        var alpha float64= this.parseDoubleSafe(aStr);
+        if  alpha <= 1.0 {
+          stop.a = int64((alpha * 255.0)); 
+        } else {
+          stop.a = int64(alpha); 
+        }
+      }
+    }
+    return
+  }
+  if  strings.Contains(colorStr, "rgb") {
+    var start_1 int64= int64(strings.Index(colorStr, "("));
+    var end_1 int64= int64(strings.Index(colorStr, ")"));
+    if  (start_1 >= int64(0)) && (end_1 > start_1) {
+      var inner_1 string= string([]rune(colorStr)[(start_1 + int64(1)):end_1]);
+      var parts_1 []string= strings.Split(inner_1, ",");
+      if  (int64(len(parts_1))) >= int64(3) {
+        stop.r = this.parseIntSafe((strings.TrimSpace((parts_1[int64(0)])))); 
+        stop.g = this.parseIntSafe((strings.TrimSpace((parts_1[int64(1)])))); 
+        stop.b = this.parseIntSafe((strings.TrimSpace((parts_1[int64(2)])))); 
+        stop.a = int64(255); 
+      }
+    }
+    return
+  }
+  if  colorStr == "red" {
+    stop.r = int64(255); 
+    stop.g = int64(0); 
+    stop.b = int64(0); 
+    stop.a = int64(255); 
+    return
+  }
+  if  colorStr == "green" {
+    stop.r = int64(0); 
+    stop.g = int64(128); 
+    stop.b = int64(0); 
+    stop.a = int64(255); 
+    return
+  }
+  if  colorStr == "blue" {
+    stop.r = int64(0); 
+    stop.g = int64(0); 
+    stop.b = int64(255); 
+    stop.a = int64(255); 
+    return
+  }
+  if  colorStr == "white" {
+    stop.r = int64(255); 
+    stop.g = int64(255); 
+    stop.b = int64(255); 
+    stop.a = int64(255); 
+    return
+  }
+  if  colorStr == "black" {
+    stop.r = int64(0); 
+    stop.g = int64(0); 
+    stop.b = int64(0); 
+    stop.a = int64(255); 
+    return
+  }
+  if  colorStr == "yellow" {
+    stop.r = int64(255); 
+    stop.g = int64(255); 
+    stop.b = int64(0); 
+    stop.a = int64(255); 
+    return
+  }
+  if  colorStr == "cyan" {
+    stop.r = int64(0); 
+    stop.g = int64(255); 
+    stop.b = int64(255); 
+    stop.a = int64(255); 
+    return
+  }
+  if  colorStr == "magenta" {
+    stop.r = int64(255); 
+    stop.g = int64(0); 
+    stop.b = int64(255); 
+    stop.a = int64(255); 
+    return
+  }
+  if  colorStr == "orange" {
+    stop.r = int64(255); 
+    stop.g = int64(165); 
+    stop.b = int64(0); 
+    stop.a = int64(255); 
+    return
+  }
+  if  colorStr == "purple" {
+    stop.r = int64(128); 
+    stop.g = int64(0); 
+    stop.b = int64(128); 
+    stop.a = int64(255); 
+    return
+  }
+  if  colorStr == "gray" {
+    stop.r = int64(128); 
+    stop.g = int64(128); 
+    stop.b = int64(128); 
+    stop.a = int64(255); 
+    return
+  }
+  if  colorStr == "grey" {
+    stop.r = int64(128); 
+    stop.g = int64(128); 
+    stop.b = int64(128); 
+    stop.a = int64(255); 
+    return
+  }
+  if  colorStr == "transparent" {
+    stop.r = int64(0); 
+    stop.g = int64(0); 
+    stop.b = int64(0); 
+    stop.a = int64(0); 
+    return
+  }
+  stop.r = int64(0); 
+  stop.g = int64(0); 
+  stop.b = int64(0); 
+  stop.a = int64(255); 
+}
+func (this *RasterGradient) hexToInt (hex string) int64 {
+  var result int64= int64(0);
+  var i int64= int64(0);
+  var __len int64= int64(len([]rune(hex)));
+  for i < __len {
+    var c int64= int64([]rune(hex)[i]);
+    var digit int64= int64(0);
+    if  (c >= int64(48)) && (c <= int64(57)) {
+      digit = c - int64(48); 
+    }
+    if  (c >= int64(97)) && (c <= int64(102)) {
+      digit = c - int64(87); 
+    }
+    if  (c >= int64(65)) && (c <= int64(70)) {
+      digit = c - int64(55); 
+    }
+    result = (result * int64(16)) + digit; 
+    i = i + int64(1); 
+  }
+  return result
+}
+func (this *RasterGradient) parseIntSafe (s string) int64 {
+  var result int64= int64(0);
+  var i int64= int64(0);
+  var __len int64= int64(len([]rune(s)));
+  var negative bool= false;
+  if  __len == int64(0) {
+    return int64(0)
+  }
+  var first int64= int64([]rune(s)[int64(0)]);
+  if  first == int64(45) {
+    negative = true; 
+    i = int64(1); 
+  }
+  for i < __len {
+    var c int64= int64([]rune(s)[i]);
+    if  (c >= int64(48)) && (c <= int64(57)) {
+      result = (result * int64(10)) + (c - int64(48)); 
+    }
+    i = i + int64(1); 
+  }
+  if  negative {
+    return int64(0) - result
+  }
+  return result
+}
+func (this *RasterGradient) parseDoubleSafe (s string) float64 {
+  var result float64= 0.0;
+  var decimal float64= 0.1;
+  var inDecimal bool= false;
+  var negative bool= false;
+  var i int64= int64(0);
+  var __len int64= int64(len([]rune(s)));
+  if  __len == int64(0) {
+    return 0.0
+  }
+  var first int64= int64([]rune(s)[int64(0)]);
+  if  first == int64(45) {
+    negative = true; 
+    i = int64(1); 
+  }
+  for i < __len {
+    var c int64= int64([]rune(s)[i]);
+    if  c == int64(46) {
+      inDecimal = true; 
+    } else {
+      if  (c >= int64(48)) && (c <= int64(57)) {
+        var digit float64= float64( (c - int64(48)) );
+        if  inDecimal {
+          result = result + (digit * decimal); 
+          decimal = decimal * 0.1; 
+        } else {
+          result = (result * 10.0) + digit; 
+        }
+      }
+    }
+    i = i + int64(1); 
+  }
+  if  negative {
+    return 0.0 - result
+  }
+  return result
+}
+type RasterBlur struct { 
+}
+
+func CreateNew_RasterBlur() *RasterBlur {
+  me := new(RasterBlur)
+  return me;
+}
+func (this *RasterBlur) blurHorizontal (src *RasterBuffer, radius int64) *RasterBuffer {
+  var dst *RasterBuffer= CreateNew_RasterBuffer();
+  dst.create(src.width, src.height);
+  if  radius < int64(1) {
+    var i int64= int64(0);
+    var size int64= (src.width * src.height) * int64(4);
+    for i < size {
+      dst.pixels[i] = byte(int64(src.pixels[i]))
+      i = i + int64(1); 
+    }
+    return dst
+  }
+  var diameter int64= (radius * int64(2)) + int64(1);
+  var divisor float64= float64( diameter );
+  var y int64= int64(0);
+  for y < src.height {
+    var sumR int64= int64(0);
+    var sumG int64= int64(0);
+    var sumB int64= int64(0);
+    var sumA int64= int64(0);
+    var i_1 int64= int64(0) - radius;
+    for i_1 <= radius {
+      var sampleX int64= i_1;
+      if  sampleX < int64(0) {
+        sampleX = int64(0); 
+      }
+      if  sampleX >= src.width {
+        sampleX = src.width - int64(1); 
+      }
+      var p *RasterPixel= src.getPixel(sampleX, y);
+      sumR = sumR + p.r; 
+      sumG = sumG + p.g; 
+      sumB = sumB + p.b; 
+      sumA = sumA + p.a; 
+      i_1 = i_1 + int64(1); 
+    }
+    var x int64= int64(0);
+    for x < src.width {
+      var outR int64= int64(((float64( sumR )) / divisor));
+      var outG int64= int64(((float64( sumG )) / divisor));
+      var outB int64= int64(((float64( sumB )) / divisor));
+      var outA int64= int64(((float64( sumA )) / divisor));
+      dst.setPixel(x, y, outR, outG, outB, outA);
+      var leftX int64= x - radius;
+      var rightX int64= (x + radius) + int64(1);
+      if  leftX < int64(0) {
+        leftX = int64(0); 
+      }
+      if  rightX >= src.width {
+        rightX = src.width - int64(1); 
+      }
+      var leftP *RasterPixel= src.getPixel(leftX, y);
+      sumR = sumR - leftP.r; 
+      sumG = sumG - leftP.g; 
+      sumB = sumB - leftP.b; 
+      sumA = sumA - leftP.a; 
+      var rightP *RasterPixel= src.getPixel(rightX, y);
+      sumR = sumR + rightP.r; 
+      sumG = sumG + rightP.g; 
+      sumB = sumB + rightP.b; 
+      sumA = sumA + rightP.a; 
+      x = x + int64(1); 
+    }
+    y = y + int64(1); 
+  }
+  return dst
+}
+func (this *RasterBlur) blurVertical (src *RasterBuffer, radius int64) *RasterBuffer {
+  var dst *RasterBuffer= CreateNew_RasterBuffer();
+  dst.create(src.width, src.height);
+  if  radius < int64(1) {
+    var i int64= int64(0);
+    var size int64= (src.width * src.height) * int64(4);
+    for i < size {
+      dst.pixels[i] = byte(int64(src.pixels[i]))
+      i = i + int64(1); 
+    }
+    return dst
+  }
+  var diameter int64= (radius * int64(2)) + int64(1);
+  var divisor float64= float64( diameter );
+  var x int64= int64(0);
+  for x < src.width {
+    var sumR int64= int64(0);
+    var sumG int64= int64(0);
+    var sumB int64= int64(0);
+    var sumA int64= int64(0);
+    var i_1 int64= int64(0) - radius;
+    for i_1 <= radius {
+      var sampleY int64= i_1;
+      if  sampleY < int64(0) {
+        sampleY = int64(0); 
+      }
+      if  sampleY >= src.height {
+        sampleY = src.height - int64(1); 
+      }
+      var p *RasterPixel= src.getPixel(x, sampleY);
+      sumR = sumR + p.r; 
+      sumG = sumG + p.g; 
+      sumB = sumB + p.b; 
+      sumA = sumA + p.a; 
+      i_1 = i_1 + int64(1); 
+    }
+    var y int64= int64(0);
+    for y < src.height {
+      var outR int64= int64(((float64( sumR )) / divisor));
+      var outG int64= int64(((float64( sumG )) / divisor));
+      var outB int64= int64(((float64( sumB )) / divisor));
+      var outA int64= int64(((float64( sumA )) / divisor));
+      dst.setPixel(x, y, outR, outG, outB, outA);
+      var topY int64= y - radius;
+      var bottomY int64= (y + radius) + int64(1);
+      if  topY < int64(0) {
+        topY = int64(0); 
+      }
+      if  bottomY >= src.height {
+        bottomY = src.height - int64(1); 
+      }
+      var topP *RasterPixel= src.getPixel(x, topY);
+      sumR = sumR - topP.r; 
+      sumG = sumG - topP.g; 
+      sumB = sumB - topP.b; 
+      sumA = sumA - topP.a; 
+      var bottomP *RasterPixel= src.getPixel(x, bottomY);
+      sumR = sumR + bottomP.r; 
+      sumG = sumG + bottomP.g; 
+      sumB = sumB + bottomP.b; 
+      sumA = sumA + bottomP.a; 
+      y = y + int64(1); 
+    }
+    x = x + int64(1); 
+  }
+  return dst
+}
+func (this *RasterBlur) boxBlur (src *RasterBuffer, radius int64) *RasterBuffer {
+  var temp *RasterBuffer= this.blurHorizontal(src, radius);
+  return this.blurVertical(temp, radius)
+}
+func (this *RasterBlur) boxBlurMultiPass (src *RasterBuffer, radius int64, passes int64) *RasterBuffer {
+  var result *RasterBuffer= src;
+  var i int64= int64(0);
+  for i < passes {
+    result = this.boxBlur(result, radius); 
+    i = i + int64(1); 
+  }
+  return result
+}
+func (this *RasterBlur) gaussianApproxBlur (src *RasterBuffer, radius int64) *RasterBuffer {
+  var passRadius int64= int64(((float64( radius )) / 3.0));
+  if  passRadius < int64(1) {
+    passRadius = int64(1); 
+  }
+  return this.boxBlurMultiPass(src, passRadius, int64(3))
+}
+type RasterShadow struct { 
+  blur *RasterBlur `json:"blur"` 
+}
+
+func CreateNew_RasterShadow() *RasterShadow {
+  me := new(RasterShadow)
+  me.blur = CreateNew_RasterBlur()
+  return me;
+}
+func (this *RasterShadow) createShadow (src *RasterBuffer, blurRadius int64, shadowR int64, shadowG int64, shadowB int64, shadowA int64) *RasterBuffer {
+  var shadowShape *RasterBuffer= CreateNew_RasterBuffer();
+  shadowShape.create(src.width, src.height);
+  var y int64= int64(0);
+  for y < src.height {
+    var x int64= int64(0);
+    for x < src.width {
+      var srcAlpha int64= src.getA(x, y);
+      if  srcAlpha > int64(0) {
+        var outAlpha int64= int64(((float64( (srcAlpha * shadowA) )) / 255.0));
+        shadowShape.setPixel(x, y, shadowR, shadowG, shadowB, outAlpha);
+      }
+      x = x + int64(1); 
+    }
+    y = y + int64(1); 
+  }
+  if  blurRadius > int64(0) {
+    return this.blur.gaussianApproxBlur(shadowShape, blurRadius)
+  }
+  return shadowShape
+}
+func (this *RasterShadow) createDropShadow (src *RasterBuffer, offsetX int64, offsetY int64, blurRadius int64, shadowR int64, shadowG int64, shadowB int64, shadowA int64) *RasterBuffer {
+  var spread int64= blurRadius * int64(2);
+  var absOffsetX int64= offsetX;
+  if  absOffsetX < int64(0) {
+    absOffsetX = int64(0) - absOffsetX; 
+  }
+  var absOffsetY int64= offsetY;
+  if  absOffsetY < int64(0) {
+    absOffsetY = int64(0) - absOffsetY; 
+  }
+  var newWidth int64= (src.width + spread) + absOffsetX;
+  var newHeight int64= (src.height + spread) + absOffsetY;
+  var srcX int64= spread;
+  var srcY int64= spread;
+  if  offsetX < int64(0) {
+    srcX = srcX - offsetX; 
+  }
+  if  offsetY < int64(0) {
+    srcY = srcY - offsetY; 
+  }
+  var shadowShape *RasterBuffer= CreateNew_RasterBuffer();
+  shadowShape.create(newWidth, newHeight);
+  var shadowPosX int64= srcX + offsetX;
+  var shadowPosY int64= srcY + offsetY;
+  var y int64= int64(0);
+  for y < src.height {
+    var x int64= int64(0);
+    for x < src.width {
+      var srcAlpha int64= src.getA(x, y);
+      if  srcAlpha > int64(0) {
+        var outAlpha int64= int64(((float64( (srcAlpha * shadowA) )) / 255.0));
+        shadowShape.setPixel(shadowPosX + x, shadowPosY + y, shadowR, shadowG, shadowB, outAlpha);
+      }
+      x = x + int64(1); 
+    }
+    y = y + int64(1); 
+  }
+  if  blurRadius > int64(0) {
+    return this.blur.gaussianApproxBlur(shadowShape, blurRadius)
+  }
+  return shadowShape
+}
+func (this *RasterShadow) renderRectShadow (width int64, height int64, blurRadius int64, shadowR int64, shadowG int64, shadowB int64, shadowA int64) *RasterBuffer {
+  var rect *RasterBuffer= CreateNew_RasterBuffer();
+  var spreadW int64= width + (blurRadius * int64(4));
+  var spreadH int64= height + (blurRadius * int64(4));
+  rect.create(spreadW, spreadH);
+  var offsetX int64= blurRadius * int64(2);
+  var offsetY int64= blurRadius * int64(2);
+  rect.fillRect(offsetX, offsetY, width, height, int64(255), int64(255), int64(255), int64(255));
+  return this.createShadow(rect, blurRadius, shadowR, shadowG, shadowB, shadowA)
+}
+func (this *RasterShadow) renderRoundedRectShadow (width int64, height int64, radius int64, blurRadius int64, shadowR int64, shadowG int64, shadowB int64, shadowA int64) *RasterBuffer {
+  var spreadW int64= width + (blurRadius * int64(4));
+  var spreadH int64= height + (blurRadius * int64(4));
+  var rect *RasterBuffer= CreateNew_RasterBuffer();
+  rect.create(spreadW, spreadH);
+  var offsetX int64= blurRadius * int64(2);
+  var offsetY int64= blurRadius * int64(2);
+  var maxR int64= int64(((float64( width )) / 2.0));
+  var halfH int64= int64(((float64( height )) / 2.0));
+  if  halfH < maxR {
+    maxR = halfH; 
+  }
+  if  radius > maxR {
+    radius = maxR; 
+  }
+  rect.fillRect(offsetX + radius, offsetY, width - (radius * int64(2)), height, int64(255), int64(255), int64(255), int64(255));
+  rect.fillRect(offsetX, offsetY + radius, width, height - (radius * int64(2)), int64(255), int64(255), int64(255), int64(255));
+  this.fillCornerCircle(rect, offsetX + radius, offsetY + radius, radius);
+  this.fillCornerCircle(rect, ((offsetX + width) - radius) - int64(1), offsetY + radius, radius);
+  this.fillCornerCircle(rect, offsetX + radius, ((offsetY + height) - radius) - int64(1), radius);
+  this.fillCornerCircle(rect, ((offsetX + width) - radius) - int64(1), ((offsetY + height) - radius) - int64(1), radius);
+  return this.createShadow(rect, blurRadius, shadowR, shadowG, shadowB, shadowA)
+}
+func (this *RasterShadow) fillCornerCircle (buf *RasterBuffer, cx int64, cy int64, radius int64) () {
+  var r2 int64= radius * radius;
+  var y int64= int64(0) - radius;
+  for y <= radius {
+    var x int64= int64(0) - radius;
+    for x <= radius {
+      var d2 int64= (x * x) + (y * y);
+      if  d2 <= r2 {
+        buf.setPixel(cx + x, cy + y, int64(255), int64(255), int64(255), int64(255));
+      }
+      x = x + int64(1); 
+    }
+    y = y + int64(1); 
+  }
+}
+type EVGRasterRenderer struct { 
+  buffer *RasterBuffer `json:"buffer"` 
+  compositor *RasterCompositor `json:"compositor"` 
+  primitives *RasterPrimitives `json:"primitives"` 
+  gradient *RasterGradient `json:"gradient"` 
+  shadow *RasterShadow `json:"shadow"` 
+}
+
+func CreateNew_EVGRasterRenderer() *EVGRasterRenderer {
+  me := new(EVGRasterRenderer)
+  me.buffer = CreateNew_RasterBuffer()
+  me.compositor = CreateNew_RasterCompositor()
+  me.primitives = CreateNew_RasterPrimitives()
+  me.gradient = CreateNew_RasterGradient()
+  me.shadow = CreateNew_RasterShadow()
+  return me;
+}
+func (this *EVGRasterRenderer) init (width int64, height int64) () {
+  this.buffer.create(width, height);
+}
+func (this *EVGRasterRenderer) clear (r int64, g int64, b int64, a int64) () {
+  this.buffer.fill(r, g, b, a);
+}
+func (this *EVGRasterRenderer) clearWhite () () {
+  this.buffer.fill(int64(255), int64(255), int64(255), int64(255));
+}
+func (this *EVGRasterRenderer) clearTransparent () () {
+  this.buffer.fill(int64(0), int64(0), int64(0), int64(0));
+}
+func (this *EVGRasterRenderer) getBuffer () *RasterBuffer {
+  return this.buffer
+}
+func (this *EVGRasterRenderer) renderRectWithShadow (x int64, y int64, w int64, h int64, bgR int64, bgG int64, bgB int64, bgA int64, shadowR int64, shadowG int64, shadowB int64, shadowA int64, blurRadius int64, offsetX int64, offsetY int64) () {
+  var shadowBuf *RasterBuffer= this.shadow.renderRectShadow(w, h, blurRadius, shadowR, shadowG, shadowB, shadowA);
+  var spread int64= blurRadius * int64(2);
+  this.compositor.compositeOver(this.buffer, shadowBuf, (x + offsetX) - spread, (y + offsetY) - spread);
+  this.primitives.fillRect(this.buffer, x, y, w, h, bgR, bgG, bgB, bgA);
+}
+func (this *EVGRasterRenderer) renderRoundedRectWithShadow (x int64, y int64, w int64, h int64, radius int64, bgR int64, bgG int64, bgB int64, bgA int64, shadowR int64, shadowG int64, shadowB int64, shadowA int64, blurRadius int64, offsetX int64, offsetY int64) () {
+  var shadowBuf *RasterBuffer= this.shadow.renderRoundedRectShadow(w, h, radius, blurRadius, shadowR, shadowG, shadowB, shadowA);
+  var spread int64= blurRadius * int64(2);
+  this.compositor.compositeOver(this.buffer, shadowBuf, (x + offsetX) - spread, (y + offsetY) - spread);
+  this.primitives.fillRoundedRect(this.buffer, x, y, w, h, radius, bgR, bgG, bgB, bgA);
+}
+func (this *EVGRasterRenderer) renderShadowOnly (x int64, y int64, w int64, h int64, radius int64, shadowR int64, shadowG int64, shadowB int64, shadowA int64, blurRadius int64, offsetX int64, offsetY int64) () {
+  var spread int64= blurRadius * int64(2);
+  if  radius > int64(0) {
+    var shadowBuf *RasterBuffer= this.shadow.renderRoundedRectShadow(w, h, radius, blurRadius, shadowR, shadowG, shadowB, shadowA);
+    this.compositor.compositeOver(this.buffer, shadowBuf, (x + offsetX) - spread, (y + offsetY) - spread);
+  } else {
+    var shadowBuf2 *RasterBuffer= this.shadow.renderRectShadow(w, h, blurRadius, shadowR, shadowG, shadowB, shadowA);
+    this.compositor.compositeOver(this.buffer, shadowBuf2, (x + offsetX) - spread, (y + offsetY) - spread);
+  }
+}
+func (this *EVGRasterRenderer) fillRect (x int64, y int64, w int64, h int64, r int64, g int64, b int64, a int64) () {
+  this.primitives.fillRect(this.buffer, x, y, w, h, r, g, b, a);
+}
+func (this *EVGRasterRenderer) fillRoundedRect (x int64, y int64, w int64, h int64, radius int64, r int64, g int64, b int64, a int64) () {
+  this.primitives.fillRoundedRect(this.buffer, x, y, w, h, radius, r, g, b, a);
+}
+func (this *EVGRasterRenderer) fillCircle (cx int64, cy int64, radius int64, r int64, g int64, b int64, a int64) () {
+  this.primitives.fillCircle(this.buffer, cx, cy, radius, r, g, b, a);
+}
+func (this *EVGRasterRenderer) drawRect (x int64, y int64, w int64, h int64, r int64, g int64, b int64, a int64) () {
+  this.primitives.drawRect(this.buffer, x, y, w, h, r, g, b, a);
+}
+func (this *EVGRasterRenderer) drawRoundedRect (x int64, y int64, w int64, h int64, radius int64, r int64, g int64, b int64, a int64) () {
+  this.primitives.drawRoundedRect(this.buffer, x, y, w, h, radius, r, g, b, a);
+}
+func (this *EVGRasterRenderer) renderLinearGradientRect (x int64, y int64, w int64, h int64, angleDeg float64, r1 int64, g1 int64, b1 int64, r2 int64, g2 int64, b2 int64) () {
+  var gradBuf *RasterBuffer= CreateNew_RasterBuffer();
+  gradBuf.create(w, h);
+  this.gradient.renderTwoColorLinear(gradBuf, int64(0), int64(0), w, h, angleDeg, r1, g1, b1, r2, g2, b2);
+  this.compositor.compositeOver(this.buffer, gradBuf, x, y);
+}
+func (this *EVGRasterRenderer) renderLinearGradientRoundedRect (x int64, y int64, w int64, h int64, radius int64, angleDeg float64, r1 int64, g1 int64, b1 int64, r2 int64, g2 int64, b2 int64) () {
+  var gradBuf *RasterBuffer= CreateNew_RasterBuffer();
+  gradBuf.create(w, h);
+  this.gradient.renderTwoColorLinear(gradBuf, int64(0), int64(0), w, h, angleDeg, r1, g1, b1, r2, g2, b2);
+  this.maskRoundedRect(gradBuf, w, h, radius);
+  this.compositor.compositeOver(this.buffer, gradBuf, x, y);
+}
+func (this *EVGRasterRenderer) renderRadialGradientRect (x int64, y int64, w int64, h int64, r1 int64, g1 int64, b1 int64, r2 int64, g2 int64, b2 int64) () {
+  var gradBuf *RasterBuffer= CreateNew_RasterBuffer();
+  gradBuf.create(w, h);
+  this.gradient.renderTwoColorRadial(gradBuf, int64(0), int64(0), w, h, r1, g1, b1, r2, g2, b2);
+  this.compositor.compositeOver(this.buffer, gradBuf, x, y);
+}
+func (this *EVGRasterRenderer) renderRadialGradientRoundedRect (x int64, y int64, w int64, h int64, radius int64, r1 int64, g1 int64, b1 int64, r2 int64, g2 int64, b2 int64) () {
+  var gradBuf *RasterBuffer= CreateNew_RasterBuffer();
+  gradBuf.create(w, h);
+  this.gradient.renderTwoColorRadial(gradBuf, int64(0), int64(0), w, h, r1, g1, b1, r2, g2, b2);
+  this.maskRoundedRect(gradBuf, w, h, radius);
+  this.compositor.compositeOver(this.buffer, gradBuf, x, y);
+}
+func (this *EVGRasterRenderer) renderLinearGradientWithShadow (x int64, y int64, w int64, h int64, radius int64, angleDeg float64, r1 int64, g1 int64, b1 int64, r2 int64, g2 int64, b2 int64, shadowR int64, shadowG int64, shadowB int64, shadowA int64, blurRadius int64, offsetX int64, offsetY int64) () {
+  this.renderShadowOnly(x, y, w, h, radius, shadowR, shadowG, shadowB, shadowA, blurRadius, offsetX, offsetY);
+  if  radius > int64(0) {
+    this.renderLinearGradientRoundedRect(x, y, w, h, radius, angleDeg, r1, g1, b1, r2, g2, b2);
+  } else {
+    this.renderLinearGradientRect(x, y, w, h, angleDeg, r1, g1, b1, r2, g2, b2);
+  }
+}
+func (this *EVGRasterRenderer) maskRoundedRect (buf *RasterBuffer, w int64, h int64, radius int64) () {
+  var mask *RasterBuffer= CreateNew_RasterBuffer();
+  mask.create(w, h);
+  this.primitives.fillRoundedRect(mask, int64(0), int64(0), w, h, radius, int64(255), int64(255), int64(255), int64(255));
+  var y int64= int64(0);
+  for y < h {
+    var x int64= int64(0);
+    for x < w {
+      var maskA int64= mask.getA(x, y);
+      if  maskA < int64(255) {
+        var p *RasterPixel= buf.getPixel(x, y);
+        var newA int64= int64(((float64( (p.a * maskA) )) / 255.0));
+        buf.setPixel(x, y, p.r, p.g, p.b, newA);
+      }
+      x = x + int64(1); 
+    }
+    y = y + int64(1); 
+  }
+}
+func (this *EVGRasterRenderer) toImageBuffer () *ImageBuffer {
+  return this.buffer.toImageBuffer()
+}
+func (this *EVGRasterRenderer) toJPEG (quality int64) []byte {
+  var img *ImageBuffer= this.buffer.toImageBuffer();
+  var encoder *JPEGEncoder= CreateNew_JPEGEncoder();
+  encoder.setQuality(quality);
+  return encoder.encodeToBuffer(img)
+}
+func (this *EVGRasterRenderer) saveAsJPEG (dirPath string, fileName string, quality int64) () {
+  var img *ImageBuffer= this.buffer.toImageBuffer();
+  var encoder *JPEGEncoder= CreateNew_JPEGEncoder();
+  encoder.setQuality(quality);
+  encoder.encode(img, dirPath, fileName);
+}
+func (this *EVGRasterRenderer) getRawBuffer () []byte {
+  return this.buffer.getRawBuffer()
+}
+func (this *EVGRasterRenderer) getWidth () int64 {
+  return this.buffer.width
+}
+func (this *EVGRasterRenderer) getHeight () int64 {
+  return this.buffer.height
+}
+func (this *EVGRasterRenderer) savePPM (dirPath string, fileName string) () {
+  var w int64= this.buffer.width;
+  var h int64= this.buffer.height;
+  var buf *GrowableBuffer= CreateNew_GrowableBuffer();
+  buf.writeString("P6\n");
+  buf.writeString((((strconv.FormatInt(w, 10)) + " ") + (strconv.FormatInt(h, 10))) + "\n");
+  buf.writeString("255\n");
+  var y int64= int64(0);
+  for y < h {
+    var x int64= int64(0);
+    for x < w {
+      var p *RasterPixel= this.buffer.getPixel(x, y);
+      buf.writeByte(p.r);
+      buf.writeByte(p.g);
+      buf.writeByte(p.b);
+      x = x + int64(1); 
+    }
+    y = y + int64(1); 
+  }
+  var data []byte= buf.toBuffer();
+  os.WriteFile(dirPath + "/" + fileName, data, 0644)
+  fmt.Println( (("Saved PPM: " + dirPath) + "/") + fileName )
+}
+type GlyphPoint struct { 
+  x float64 `json:"x"` 
+  y float64 `json:"y"` 
+  onCurve bool `json:"onCurve"` 
+}
+
+func CreateNew_GlyphPoint() *GlyphPoint {
+  me := new(GlyphPoint)
+  me.x = 0.0
+  me.y = 0.0
+  me.onCurve = true
+  return me;
+}
+func (this *GlyphPoint) init (px float64, py float64, on bool) () {
+  this.x = px; 
+  this.y = py; 
+  this.onCurve = on; 
+}
+type GlyphContour struct { 
+  points []*GlyphPoint `json:"points"` 
+}
+
+func CreateNew_GlyphContour() *GlyphContour {
+  me := new(GlyphContour)
+  me.points = make([]*GlyphPoint,0)
+  var p_1 []*GlyphPoint = make([]*GlyphPoint, 0);
+  me.points = p_1; 
+  return me;
+}
+func (this *GlyphContour) addPoint (x float64, y float64, onCurve bool) () {
+  var pt *GlyphPoint= CreateNew_GlyphPoint();
+  pt.init(x, y, onCurve);
+  this.points = append(this.points,pt); 
+}
+func (this *GlyphContour) numPoints () int64 {
+  return int64(len(this.points))
+}
+type GlyphOutline struct { 
+  contours []*GlyphContour `json:"contours"` 
+  xMin float64 `json:"xMin"` 
+  yMin float64 `json:"yMin"` 
+  xMax float64 `json:"xMax"` 
+  yMax float64 `json:"yMax"` 
+  advanceWidth float64 `json:"advanceWidth"` 
+  leftSideBearing float64 /**  unused  **/  `json:"leftSideBearing"` 
+}
+
+func CreateNew_GlyphOutline() *GlyphOutline {
+  me := new(GlyphOutline)
+  me.contours = make([]*GlyphContour,0)
+  me.xMin = 0.0
+  me.yMin = 0.0
+  me.xMax = 0.0
+  me.yMax = 0.0
+  me.advanceWidth = 0.0
+  me.leftSideBearing = 0.0
+  var c []*GlyphContour = make([]*GlyphContour, 0);
+  me.contours = c; 
+  return me;
+}
+func (this *GlyphOutline) addContour (contour *GlyphContour) () {
+  this.contours = append(this.contours,contour); 
+}
+type GlyphEdge struct { 
+  x1 float64 `json:"x1"` 
+  y1 float64 `json:"y1"` 
+  x2 float64 `json:"x2"` 
+  y2 float64 `json:"y2"` 
+  minY float64 `json:"minY"` 
+  maxY float64 `json:"maxY"` 
+  xAtMinY float64 `json:"xAtMinY"` 
+  dxdy float64 `json:"dxdy"` 
+  dir int64 `json:"dir"` 
+}
+
+func CreateNew_GlyphEdge() *GlyphEdge {
+  me := new(GlyphEdge)
+  me.x1 = 0.0
+  me.y1 = 0.0
+  me.x2 = 0.0
+  me.y2 = 0.0
+  me.minY = 0.0
+  me.maxY = 0.0
+  me.xAtMinY = 0.0
+  me.dxdy = 0.0
+  me.dir = int64(0)
+  return me;
+}
+func (this *GlyphEdge) init (px1 float64, py1 float64, px2 float64, py2 float64) () {
+  this.x1 = px1; 
+  this.y1 = py1; 
+  this.x2 = px2; 
+  this.y2 = py2; 
+  if  this.y1 < this.y2 {
+    this.minY = this.y1; 
+    this.maxY = this.y2; 
+    this.xAtMinY = this.x1; 
+    this.dir = int64(1); 
+  } else {
+    this.minY = this.y2; 
+    this.maxY = this.y1; 
+    this.xAtMinY = this.x2; 
+    this.dir = int64(0) - int64(1); 
+  }
+  var dy float64= this.maxY - this.minY;
+  if  dy > 0.0001 {
+    if  this.y1 < this.y2 {
+      this.dxdy = (this.x2 - this.x1) / dy; 
+    } else {
+      this.dxdy = (this.x1 - this.x2) / dy; 
+    }
+  } else {
+    this.dxdy = 0.0; 
+  }
+}
+func (this *GlyphEdge) getX (y float64) float64 {
+  return this.xAtMinY + (this.dxdy * (y - this.minY))
+}
+type RasterText struct { 
+  font *GoNullable `json:"font"` 
+  compositor *RasterCompositor `json:"compositor"` 
+  currentEdges []*GlyphEdge `json:"currentEdges"` 
+  glyfOffset int64 `json:"glyfOffset"` 
+  locaOffset int64 `json:"locaOffset"` 
+  locaFormat int64 `json:"locaFormat"` 
+}
+
+func CreateNew_RasterText() *RasterText {
+  me := new(RasterText)
+  me.compositor = CreateNew_RasterCompositor()
+  me.currentEdges = make([]*GlyphEdge,0)
+  me.glyfOffset = int64(0)
+  me.locaOffset = int64(0)
+  me.locaFormat = int64(0)
+  me.font = new(GoNullable);
+  return me;
+}
+func (this *RasterText) setFont (ttf *TrueTypeFont) () {
+  this.font.value = ttf;
+  this.font.has_value = true; /* detected as non-optional */
+  this.findTableOffsets();
+}
+func (this *RasterText) measureTextWidth (text string, fontSize float64) float64 {
+  if  this.font.value.(*TrueTypeFont).unitsPerEm <= int64(0) {
+    return 0.0
+  }
+  return this.font.value.(*TrueTypeFont).measureText(text, fontSize)
+}
+func (this *RasterText) findTableOffsets () () {
+  var i int64= int64(0);
+  var numTables int64= int64(len(this.font.value.(*TrueTypeFont).tables));
+  for i < numTables {
+    var t *TTFTableRecord= this.font.value.(*TrueTypeFont).tables[i];
+    if  t.tag == "glyf" {
+      this.glyfOffset = t.offset; 
+    }
+    if  t.tag == "loca" {
+      this.locaOffset = t.offset; 
+    }
+    i = i + int64(1); 
+  }
+  this.locaFormat = this.font.value.(*TrueTypeFont).indexToLocFormat; 
+}
+func (this *RasterText) getGlyphOffset (glyphIndex int64) int64 {
+  if  this.locaFormat == int64(0) {
+    var off int64= this.locaOffset + (glyphIndex * int64(2));
+    var offset16 int64= this.readUInt16(off);
+    return offset16 * int64(2)
+  }
+  var off_1 int64= this.locaOffset + (glyphIndex * int64(4));
+  return this.readUInt32(off_1)
+}
+func (this *RasterText) getGlyphLength (glyphIndex int64) int64 {
+  var start int64= this.getGlyphOffset(glyphIndex);
+  var end int64= this.getGlyphOffset((glyphIndex + int64(1)));
+  return end - start
+}
+func (this *RasterText) parseGlyph (glyphIndex int64, fontSize float64) *GlyphOutline {
+  var outline *GlyphOutline= CreateNew_GlyphOutline();
+  var scale float64= fontSize / (float64( this.font.value.(*TrueTypeFont).unitsPerEm ));
+  var glyphLen int64= this.getGlyphLength(glyphIndex);
+  if  glyphLen == int64(0) {
+    outline.advanceWidth = (float64( this.font.value.(*TrueTypeFont).getGlyphWidth(glyphIndex) )) * scale; 
+    return outline
+  }
+  var off int64= this.glyfOffset + this.getGlyphOffset(glyphIndex);
+  var numberOfContours int64= this.readInt16(off);
+  outline.xMin = float64( this.readInt16((off + int64(2))) ); 
+  outline.yMin = float64( this.readInt16((off + int64(4))) ); 
+  outline.xMax = float64( this.readInt16((off + int64(6))) ); 
+  outline.yMax = float64( this.readInt16((off + int64(8))) ); 
+  if  numberOfContours < int64(0) {
+    return outline
+  }
+  if  numberOfContours == int64(0) {
+    return outline
+  }
+  var endPts []int64 = make([]int64, 0);
+  var i int64= int64(0);
+  for i < numberOfContours {
+    var endPt int64= this.readUInt16(((off + int64(10)) + (i * int64(2))));
+    endPts = append(endPts,endPt); 
+    i = i + int64(1); 
+  }
+  var instrLen int64= this.readUInt16(((off + int64(10)) + (numberOfContours * int64(2))));
+  var dataOff int64= (((off + int64(10)) + (numberOfContours * int64(2))) + int64(2)) + instrLen;
+  var lastEndPt int64= endPts[(numberOfContours - int64(1))];
+  var numPoints int64= lastEndPt + int64(1);
+  if  numPoints > int64(10000) {
+    fmt.Println( "Warning: Too many points in glyph: " + (strconv.FormatInt(numPoints, 10)) )
+    return outline
+  }
+  var flags []int64 = make([]int64, 0);
+  var flagOff int64= dataOff;
+  i = int64(0); 
+  for i < numPoints {
+    var flag int64= this.readUInt8(flagOff);
+    flags = append(flags,flag); 
+    flagOff = flagOff + int64(1); 
+    i = i + int64(1); 
+    if  (int64(flag & int64(8))) != int64(0) {
+      var repeatCount int64= this.readUInt8(flagOff);
+      flagOff = flagOff + int64(1); 
+      var j int64= int64(0);
+      for (j < repeatCount) && (i < numPoints) {
+        flags = append(flags,flag); 
+        j = j + int64(1); 
+        i = i + int64(1); 
+      }
+    }
+  }
+  var xCoords []int64 = make([]int64, 0);
+  var xOff int64= flagOff;
+  var x int64= int64(0);
+  i = int64(0); 
+  for i < numPoints {
+    var flag_1 int64= flags[i];
+    var xShort bool= (int64(flag_1 & int64(2))) != int64(0);
+    var xSame bool= (int64(flag_1 & int64(16))) != int64(0);
+    if  xShort {
+      var dx int64= this.readUInt8(xOff);
+      xOff = xOff + int64(1); 
+      if  xSame {
+        x = x + dx; 
+      } else {
+        x = x - dx; 
+      }
+    } else {
+      if  xSame == false {
+        var dx_1 int64= this.readInt16(xOff);
+        xOff = xOff + int64(2); 
+        x = x + dx_1; 
+      }
+    }
+    xCoords = append(xCoords,x); 
+    i = i + int64(1); 
+  }
+  var yCoords []int64 = make([]int64, 0);
+  var yOff int64= xOff;
+  var y int64= int64(0);
+  i = int64(0); 
+  for i < numPoints {
+    var flag_2 int64= flags[i];
+    var yShort bool= (int64(flag_2 & int64(4))) != int64(0);
+    var ySame bool= (int64(flag_2 & int64(32))) != int64(0);
+    if  yShort {
+      var dy int64= this.readUInt8(yOff);
+      yOff = yOff + int64(1); 
+      if  ySame {
+        y = y + dy; 
+      } else {
+        y = y - dy; 
+      }
+    } else {
+      if  ySame == false {
+        var dy_1 int64= this.readInt16(yOff);
+        yOff = yOff + int64(2); 
+        y = y + dy_1; 
+      }
+    }
+    yCoords = append(yCoords,y); 
+    i = i + int64(1); 
+  }
+  var scale_2 float64= fontSize / (float64( this.font.value.(*TrueTypeFont).unitsPerEm ));
+  var startPt int64= int64(0);
+  var contourIdx int64= int64(0);
+  for contourIdx < numberOfContours {
+    var endPt_1 int64= endPts[contourIdx];
+    var contour *GlyphContour= CreateNew_GlyphContour();
+    var ptIdx int64= startPt;
+    for ptIdx <= endPt_1 {
+      var px float64= (float64( (xCoords[ptIdx]) )) * scale_2;
+      var py float64= (float64( (yCoords[ptIdx]) )) * scale_2;
+      var flag_3 int64= flags[ptIdx];
+      var onCurve bool= (int64(flag_3 & int64(1))) != int64(0);
+      contour.addPoint(px, py, onCurve);
+      ptIdx = ptIdx + int64(1); 
+    }
+    outline.addContour(contour);
+    startPt = endPt_1 + int64(1); 
+    contourIdx = contourIdx + int64(1); 
+  }
+  outline.advanceWidth = (float64( this.font.value.(*TrueTypeFont).getGlyphWidth(glyphIndex) )) * scale_2; 
+  return outline
+}
+func (this *RasterText) renderGlyph (buf *RasterBuffer, outline *GlyphOutline, x float64, y float64, r int64, g int64, b int64, a int64) () {
+  var newEdges []*GlyphEdge = make([]*GlyphEdge, 0);
+  this.currentEdges = newEdges; 
+  var numContours int64= int64(len(outline.contours));
+  fmt.Println( ((((("  renderGlyph: numContours=" + (strconv.FormatInt(numContours, 10))) + " pos=(") + (strconv.FormatFloat(x,'f', 6, 64))) + ",") + (strconv.FormatFloat(y,'f', 6, 64))) + ")" )
+  var cIdx int64= int64(0);
+  for cIdx < numContours {
+    var contour *GlyphContour= outline.contours[cIdx];
+    var numPts int64= contour.numPoints();
+    fmt.Println( (("    contour " + (strconv.FormatInt(cIdx, 10))) + ": numPoints=") + (strconv.FormatInt(numPts, 10)) )
+    if  numPts >= int64(2) {
+      this.flattenContourToField(contour, x, y);
+    }
+    cIdx = cIdx + int64(1); 
+  }
+  fmt.Println( "    total edges after flatten: " + (strconv.FormatInt((int64(len(this.currentEdges))), 10)) )
+  this.scanlineFillAA(buf, this.currentEdges, r, g, b, a);
+}
+func (this *RasterText) renderGlyphFast (buf *RasterBuffer, outline *GlyphOutline, x float64, y float64, r int64, g int64, b int64, a int64) () {
+  var edges []*GlyphEdge = make([]*GlyphEdge, 0);
+  var numContours int64= int64(len(outline.contours));
+  var cIdx int64= int64(0);
+  for cIdx < numContours {
+    var contour *GlyphContour= outline.contours[cIdx];
+    var numPts int64= contour.numPoints();
+    if  numPts >= int64(2) {
+      this.flattenContour(contour, edges, x, y);
+    }
+    cIdx = cIdx + int64(1); 
+  }
+  this.scanlineFill(buf, edges, r, g, b, a);
+}
+func (this *RasterText) flattenContour (contour *GlyphContour, edges []*GlyphEdge, offsetX float64, offsetY float64) () {
+  var numPts int64= contour.numPoints();
+  if  numPts < int64(2) {
+    return
+  }
+  var startX float64= 0.0;
+  var startY float64= 0.0;
+  var firstPt *GlyphPoint= contour.points[int64(0)];
+  if  firstPt.onCurve {
+    startX = firstPt.x + offsetX; 
+    startY = offsetY - firstPt.y; 
+  } else {
+    var lastPt *GlyphPoint= contour.points[(numPts - int64(1))];
+    if  lastPt.onCurve {
+      startX = lastPt.x + offsetX; 
+      startY = offsetY - lastPt.y; 
+    } else {
+      startX = ((firstPt.x + lastPt.x) / 2.0) + offsetX; 
+      startY = offsetY - ((firstPt.y + lastPt.y) / 2.0); 
+    }
+  }
+  var currX float64= startX;
+  var currY float64= startY;
+  var i int64= int64(0);
+  for i < numPts {
+    var pt *GlyphPoint= contour.points[i];
+    var nextIdx int64= (i + int64(1)) % numPts;
+    var nextPt *GlyphPoint= contour.points[nextIdx];
+    if  pt.onCurve {
+      if  nextPt.onCurve {
+        var nx float64= nextPt.x + offsetX;
+        var ny float64= offsetY - nextPt.y;
+        this.addEdge(edges, currX, currY, nx, ny);
+        currX = nx; 
+        currY = ny; 
+      }
+    } else {
+      var p0x float64= currX;
+      var p0y float64= currY;
+      var p1x float64= pt.x + offsetX;
+      var p1y float64= offsetY - pt.y;
+      var p2x float64= 0.0;
+      var p2y float64= 0.0;
+      if  nextPt.onCurve {
+        p2x = nextPt.x + offsetX; 
+        p2y = offsetY - nextPt.y; 
+      } else {
+        p2x = ((pt.x + nextPt.x) / 2.0) + offsetX; 
+        p2y = offsetY - ((pt.y + nextPt.y) / 2.0); 
+      }
+      var segments int64= int64(8);
+      var j int64= int64(1);
+      for j <= segments {
+        var t float64= (float64( j )) / (float64( segments ));
+        var invT float64= 1.0 - t;
+        var nx_1 float64= (((invT * invT) * p0x) + (((2.0 * invT) * t) * p1x)) + ((t * t) * p2x);
+        var ny_1 float64= (((invT * invT) * p0y) + (((2.0 * invT) * t) * p1y)) + ((t * t) * p2y);
+        this.addEdge(edges, currX, currY, nx_1, ny_1);
+        currX = nx_1; 
+        currY = ny_1; 
+        j = j + int64(1); 
+      }
+    }
+    i = i + int64(1); 
+  }
+  var dx float64= currX - startX;
+  var dy float64= currY - startY;
+  if  dx < 0.0 {
+    dx = 0.0 - dx; 
+  }
+  if  dy < 0.0 {
+    dy = 0.0 - dy; 
+  }
+  if  (dx > 0.01) || (dy > 0.01) {
+    this.addEdge(edges, currX, currY, startX, startY);
+  }
+}
+func (this *RasterText) addEdge (edges []*GlyphEdge, x1 float64, y1 float64, x2 float64, y2 float64) () {
+  var dy float64= y2 - y1;
+  if  dy < 0.0 {
+    dy = 0.0 - dy; 
+  }
+  if  dy < 0.001 {
+    return
+  }
+  var edge *GlyphEdge= CreateNew_GlyphEdge();
+  edge.init(x1, y1, x2, y2);
+  edges = append(edges,edge); 
+}
+func (this *RasterText) addEdgeToField (x1 float64, y1 float64, x2 float64, y2 float64) () {
+  var dy float64= y2 - y1;
+  if  dy < 0.0 {
+    dy = 0.0 - dy; 
+  }
+  if  dy < 0.001 {
+    return
+  }
+  var edge *GlyphEdge= CreateNew_GlyphEdge();
+  edge.init(x1, y1, x2, y2);
+  this.currentEdges = append(this.currentEdges,edge); 
+}
+func (this *RasterText) flattenContourToField (contour *GlyphContour, offsetX float64, offsetY float64) () {
+  var numPts int64= contour.numPoints();
+  if  numPts < int64(2) {
+    return
+  }
+  var startX float64= 0.0;
+  var startY float64= 0.0;
+  var firstPt *GlyphPoint= contour.points[int64(0)];
+  if  firstPt.onCurve {
+    startX = firstPt.x + offsetX; 
+    startY = offsetY - firstPt.y; 
+  } else {
+    var lastPt *GlyphPoint= contour.points[(numPts - int64(1))];
+    if  lastPt.onCurve {
+      startX = lastPt.x + offsetX; 
+      startY = offsetY - lastPt.y; 
+    } else {
+      startX = ((firstPt.x + lastPt.x) / 2.0) + offsetX; 
+      startY = offsetY - ((firstPt.y + lastPt.y) / 2.0); 
+    }
+  }
+  var currX float64= startX;
+  var currY float64= startY;
+  var i int64= int64(0);
+  for i < numPts {
+    var pt *GlyphPoint= contour.points[i];
+    var nextIdx int64= (i + int64(1)) % numPts;
+    var nextPt *GlyphPoint= contour.points[nextIdx];
+    if  pt.onCurve {
+      if  nextPt.onCurve {
+        var nx float64= nextPt.x + offsetX;
+        var ny float64= offsetY - nextPt.y;
+        this.addEdgeToField(currX, currY, nx, ny);
+        currX = nx; 
+        currY = ny; 
+      }
+    } else {
+      var p0x float64= currX;
+      var p0y float64= currY;
+      var p1x float64= pt.x + offsetX;
+      var p1y float64= offsetY - pt.y;
+      var p2x float64= 0.0;
+      var p2y float64= 0.0;
+      if  nextPt.onCurve {
+        p2x = nextPt.x + offsetX; 
+        p2y = offsetY - nextPt.y; 
+      } else {
+        p2x = ((pt.x + nextPt.x) / 2.0) + offsetX; 
+        p2y = offsetY - ((pt.y + nextPt.y) / 2.0); 
+      }
+      var segments int64= int64(8);
+      var j int64= int64(1);
+      for j <= segments {
+        var t float64= (float64( j )) / (float64( segments ));
+        var invT float64= 1.0 - t;
+        var nx_1 float64= (((invT * invT) * p0x) + (((2.0 * invT) * t) * p1x)) + ((t * t) * p2x);
+        var ny_1 float64= (((invT * invT) * p0y) + (((2.0 * invT) * t) * p1y)) + ((t * t) * p2y);
+        this.addEdgeToField(currX, currY, nx_1, ny_1);
+        currX = nx_1; 
+        currY = ny_1; 
+        j = j + int64(1); 
+      }
+    }
+    i = i + int64(1); 
+  }
+  var dx float64= currX - startX;
+  var dy float64= currY - startY;
+  if  dx < 0.0 {
+    dx = 0.0 - dx; 
+  }
+  if  dy < 0.0 {
+    dy = 0.0 - dy; 
+  }
+  if  (dx > 0.01) || (dy > 0.01) {
+    this.addEdgeToField(currX, currY, startX, startY);
+  }
+}
+func (this *RasterText) flattenQuadBezier (edges []*GlyphEdge, x0 float64, y0 float64, x1 float64, y1 float64, x2 float64, y2 float64, segments int64) () {
+  var prevX float64= x0;
+  var prevY float64= y0;
+  var i int64= int64(1);
+  for i <= segments {
+    var t float64= (float64( i )) / (float64( segments ));
+    var invT float64= 1.0 - t;
+    var currX float64= (((invT * invT) * x0) + (((2.0 * invT) * t) * x1)) + ((t * t) * x2);
+    var currY float64= (((invT * invT) * y0) + (((2.0 * invT) * t) * y1)) + ((t * t) * y2);
+    this.addEdge(edges, prevX, prevY, currX, currY);
+    prevX = currX; 
+    prevY = currY; 
+    i = i + int64(1); 
+  }
+}
+func (this *RasterText) scanlineFill (buf *RasterBuffer, edges []*GlyphEdge, r int64, g int64, b int64, a int64) () {
+  var numEdges int64= int64(len(edges));
+  if  numEdges == int64(0) {
+    return
+  }
+  var minY float64= 99999.0;
+  var maxY float64= 0.0 - 99999.0;
+  var i int64= int64(0);
+  for i < numEdges {
+    var e *GlyphEdge= edges[i];
+    if  e.minY < minY {
+      minY = e.minY; 
+    }
+    if  e.maxY > maxY {
+      maxY = e.maxY; 
+    }
+    i = i + int64(1); 
+  }
+  var startY int64= int64(minY);
+  var endY int64= int64(maxY);
+  if  startY < int64(0) {
+    startY = int64(0); 
+  }
+  if  endY >= buf.height {
+    endY = buf.height - int64(1); 
+  }
+  var scanY int64= startY;
+  for scanY <= endY {
+    var y float64= (float64( scanY )) + 0.5;
+    var intersections []float64 = make([]float64, 0);
+    i = int64(0); 
+    for i < numEdges {
+      var e_1 *GlyphEdge= edges[i];
+      if  (y >= e_1.minY) && (y < e_1.maxY) {
+        var ix float64= e_1.getX(y);
+        intersections = append(intersections,ix); 
+      }
+      i = i + int64(1); 
+    }
+    this.sortDoubles(intersections);
+    var numInt int64= int64(len(intersections));
+    var j int64= int64(0);
+    for (j + int64(1)) < numInt {
+      var x1 int64= int64((intersections[j]));
+      var x2 int64= int64((intersections[(j + int64(1))]));
+      if  x1 < int64(0) {
+        x1 = int64(0); 
+      }
+      if  x2 >= buf.width {
+        x2 = buf.width - int64(1); 
+      }
+      var px int64= x1;
+      for px <= x2 {
+        this.compositor.blendSourceOver(buf, px, scanY, r, g, b, a);
+        px = px + int64(1); 
+      }
+      j = j + int64(2); 
+    }
+    scanY = scanY + int64(1); 
+  }
+}
+func (this *RasterText) scanlineFillAA (buf *RasterBuffer, edges []*GlyphEdge, r int64, g int64, b int64, a int64) () {
+  var numEdges int64= int64(len(edges));
+  if  numEdges == int64(0) {
+    fmt.Println( "    scanlineFillAA: no edges, returning early!" )
+    return
+  }
+  var minY float64= 99999.0;
+  var maxY float64= 0.0 - 99999.0;
+  var minX float64= 99999.0;
+  var maxX float64= 0.0 - 99999.0;
+  var i int64= int64(0);
+  for i < numEdges {
+    var e *GlyphEdge= edges[i];
+    if  e.minY < minY {
+      minY = e.minY; 
+    }
+    if  e.maxY > maxY {
+      maxY = e.maxY; 
+    }
+    if  e.x1 < minX {
+      minX = e.x1; 
+    }
+    if  e.x2 < minX {
+      minX = e.x2; 
+    }
+    if  e.x1 > maxX {
+      maxX = e.x1; 
+    }
+    if  e.x2 > maxX {
+      maxX = e.x2; 
+    }
+    i = i + int64(1); 
+  }
+  fmt.Println( ((((((((("    scanlineFillAA: " + (strconv.FormatInt(numEdges, 10))) + " edges, bbox=(") + (strconv.FormatFloat(minX,'f', 6, 64))) + ",") + (strconv.FormatFloat(minY,'f', 6, 64))) + ")-(") + (strconv.FormatFloat(maxX,'f', 6, 64))) + ",") + (strconv.FormatFloat(maxY,'f', 6, 64))) + ")" )
+  var startY int64= (int64(minY)) - int64(1);
+  var endY int64= (int64(maxY)) + int64(1);
+  var startX int64= (int64(minX)) - int64(1);
+  var endX int64= (int64(maxX)) + int64(1);
+  if  startY < int64(0) {
+    startY = int64(0); 
+  }
+  if  endY >= buf.height {
+    endY = buf.height - int64(1); 
+  }
+  if  startX < int64(0) {
+    startX = int64(0); 
+  }
+  if  endX >= buf.width {
+    endX = buf.width - int64(1); 
+  }
+  fmt.Println( (((((("    scanlineFillAA: clamped range X=" + (strconv.FormatInt(startX, 10))) + "-") + (strconv.FormatInt(endX, 10))) + " Y=") + (strconv.FormatInt(startY, 10))) + "-") + (strconv.FormatInt(endY, 10)) )
+  var subStep float64= 0.25;
+  var subOffset float64= 0.125;
+  var samplesPerPixel float64= 16.0;
+  /** unused:  epsilon*/
+  var scanY int64= startY;
+  for scanY <= endY {
+    var scanX int64= startX;
+    for scanX <= endX {
+      var coverage int64= int64(0);
+      var sy int64= int64(0);
+      for sy < int64(4) {
+        var sampleY float64= ((float64( scanY )) + subOffset) + ((float64( sy )) * subStep);
+        var sx int64= int64(0);
+        for sx < int64(4) {
+          var sampleX float64= ((float64( scanX )) + subOffset) + ((float64( sx )) * subStep);
+          var winding int64= int64(0);
+          i = int64(0); 
+          for i < numEdges {
+            var e_1 *GlyphEdge= edges[i];
+            if  (sampleY >= e_1.minY) && (sampleY < e_1.maxY) {
+              var edgeX float64= e_1.getX(sampleY);
+              if  edgeX < sampleX {
+                winding = winding + e_1.dir; 
+              }
+            }
+            i = i + int64(1); 
+          }
+          if  winding != int64(0) {
+            coverage = coverage + int64(1); 
+          }
+          sx = sx + int64(1); 
+        }
+        sy = sy + int64(1); 
+      }
+      if  coverage > int64(0) {
+        var coverageAlpha int64= int64((((float64( coverage )) / samplesPerPixel) * (float64( a ))));
+        this.compositor.blendSourceOver(buf, scanX, scanY, r, g, b, coverageAlpha);
+      }
+      scanX = scanX + int64(1); 
+    }
+    scanY = scanY + int64(1); 
+  }
+}
+func (this *RasterText) sortIntersections (arr []float64, dirs []int64) () {
+  var n int64= int64(len(arr));
+  var i int64= int64(0);
+  for i < n {
+    var j int64= int64(0);
+    for j < ((n - i) - int64(1)) {
+      var v1 float64= arr[j];
+      var v2 float64= arr[(j + int64(1))];
+      if  v1 > v2 {
+        arr[j] = v2;
+        arr[j + int64(1)] = v1;
+        var d1 int64= dirs[j];
+        var d2 int64= dirs[(j + int64(1))];
+        dirs[j] = d2;
+        dirs[j + int64(1)] = d1;
+      }
+      j = j + int64(1); 
+    }
+    i = i + int64(1); 
+  }
+}
+func (this *RasterText) sortDoubles (arr []float64) () {
+  var n int64= int64(len(arr));
+  var i int64= int64(0);
+  for i < n {
+    var j int64= int64(0);
+    for j < ((n - i) - int64(1)) {
+      var v1 float64= arr[j];
+      var v2 float64= arr[(j + int64(1))];
+      if  v1 > v2 {
+        arr[j] = v2;
+        arr[j + int64(1)] = v1;
+      }
+      j = j + int64(1); 
+    }
+    i = i + int64(1); 
+  }
+}
+func (this *RasterText) renderText (buf *RasterBuffer, text string, x float64, y float64, fontSize float64, r int64, g int64, b int64, a int64) () {
+  var currX float64= x;
+  var __len int64= int64(len([]rune(text)));
+  var i int64= int64(0);
+  if  this.font.value.(*TrueTypeFont).unitsPerEm <= int64(0) {
+    fmt.Println( "ERROR: Font not loaded in RasterText! unitsPerEm=" + (strconv.FormatInt(this.font.value.(*TrueTypeFont).unitsPerEm, 10)) )
+    return
+  }
+  var baseline float64= this.font.value.(*TrueTypeFont).getAscender(fontSize);
+  var renderY float64= y + baseline;
+  fmt.Println( (((((((((("RasterText.renderText: text='" + text) + "' pos=(") + (strconv.FormatFloat(x,'f', 6, 64))) + ",") + (strconv.FormatFloat(y,'f', 6, 64))) + ") fontSize=") + (strconv.FormatFloat(fontSize,'f', 6, 64))) + " baseline=") + (strconv.FormatFloat(baseline,'f', 6, 64))) + " renderY=") + (strconv.FormatFloat(renderY,'f', 6, 64)) )
+  fmt.Println( (((((((((("RasterText.renderText: color=RGB(" + (strconv.FormatInt(r, 10))) + ",") + (strconv.FormatInt(g, 10))) + ",") + (strconv.FormatInt(b, 10))) + ") alpha=") + (strconv.FormatInt(a, 10))) + " bufSize=") + (strconv.FormatInt(buf.width, 10))) + "x") + (strconv.FormatInt(buf.height, 10)) )
+  for i < __len {
+    var ch int64= int64([]rune(text)[i]);
+    var glyphIdx int64= this.font.value.(*TrueTypeFont).getGlyphIndex(ch);
+    var outline *GlyphOutline= this.parseGlyph(glyphIdx, fontSize);
+    if  i == int64(0) {
+      fmt.Println( (((((("  First char: code=" + (strconv.FormatInt(ch, 10))) + " glyphIdx=") + (strconv.FormatInt(glyphIdx, 10))) + " numContours=") + (strconv.FormatInt((int64(len(outline.contours))), 10))) + " advanceWidth=") + (strconv.FormatFloat(outline.advanceWidth,'f', 6, 64)) )
+    }
+    this.renderGlyph(buf, outline, currX, renderY, r, g, b, a);
+    currX = currX + outline.advanceWidth; 
+    i = i + int64(1); 
+  }
+}
+func (this *RasterText) renderTextWithShadow (buf *RasterBuffer, text string, x float64, y float64, fontSize float64, textR int64, textG int64, textB int64, textA int64, shadowR int64, shadowG int64, shadowB int64, shadowA int64, shadowOffX float64, shadowOffY float64, blurRadius int64) () {
+  var shadowBuf *RasterBuffer= CreateNew_RasterBuffer();
+  var margin int64= blurRadius * int64(2);
+  var textWidth float64= this.font.value.(*TrueTypeFont).measureText(text, fontSize);
+  var textHeight float64= this.font.value.(*TrueTypeFont).getLineHeight(fontSize);
+  var bufW int64= (((int64(textWidth)) + margin) + margin) + int64(10);
+  var bufH int64= (((int64(textHeight)) + margin) + margin) + int64(10);
+  shadowBuf.create(bufW, bufH);
+  this.renderText(shadowBuf, text, float64( margin ), float64( margin ), fontSize, shadowR, shadowG, shadowB, int64(255));
+  if  blurRadius > int64(0) {
+    var blur *RasterBlur= CreateNew_RasterBlur();
+    var blurred *RasterBuffer= blur.gaussianApproxBlur(shadowBuf, blurRadius);
+    var py int64= int64(0);
+    for py < blurred.height {
+      var px int64= int64(0);
+      for px < blurred.width {
+        var p *RasterPixel= blurred.getPixel(px, py);
+        var newA int64= int64(((float64( (p.a * shadowA) )) / 255.0));
+        blurred.setPixel(px, py, p.r, p.g, p.b, newA);
+        px = px + int64(1); 
+      }
+      py = py + int64(1); 
+    }
+    var shadowX int64= (int64((x + shadowOffX))) - margin;
+    var shadowY int64= (int64((y + shadowOffY))) - margin;
+    this.compositor.compositeOver(buf, blurred, shadowX, shadowY);
+  } else {
+    var shadowX_1 int64= (int64((x + shadowOffX))) - margin;
+    var shadowY_1 int64= (int64((y + shadowOffY))) - margin;
+    var py_1 int64= int64(0);
+    for py_1 < shadowBuf.height {
+      var px_1 int64= int64(0);
+      for px_1 < shadowBuf.width {
+        var p_1 *RasterPixel= shadowBuf.getPixel(px_1, py_1);
+        var newA_1 int64= int64(((float64( (p_1.a * shadowA) )) / 255.0));
+        shadowBuf.setPixel(px_1, py_1, p_1.r, p_1.g, p_1.b, newA_1);
+        px_1 = px_1 + int64(1); 
+      }
+      py_1 = py_1 + int64(1); 
+    }
+    this.compositor.compositeOver(buf, shadowBuf, shadowX_1, shadowY_1);
+  }
+  this.renderText(buf, text, x, y, fontSize, textR, textG, textB, textA);
+}
+func (this *RasterText) readUInt8 (offset int64) int64 {
+  return int64(this.font.value.(*TrueTypeFont).fontData[offset])
+}
+func (this *RasterText) readUInt16 (offset int64) int64 {
+  var b1 int64= int64(this.font.value.(*TrueTypeFont).fontData[offset]);
+  var b2 int64= int64(this.font.value.(*TrueTypeFont).fontData[(offset + int64(1))]);
+  return (b1 * int64(256)) + b2
+}
+func (this *RasterText) readInt16 (offset int64) int64 {
+  var val int64= this.readUInt16(offset);
+  if  val >= int64(32768) {
+    return val - int64(65536)
+  }
+  return val
+}
+func (this *RasterText) readUInt32 (offset int64) int64 {
+  var b1 int64= int64(this.font.value.(*TrueTypeFont).fontData[offset]);
+  var b2 int64= int64(this.font.value.(*TrueTypeFont).fontData[(offset + int64(1))]);
+  var b3 int64= int64(this.font.value.(*TrueTypeFont).fontData[(offset + int64(2))]);
+  var b4 int64= int64(this.font.value.(*TrueTypeFont).fontData[(offset + int64(3))]);
+  return (((((b1 * int64(256)) + b2) * int64(256)) + b3) * int64(256)) + b4
+}
+type PNGEncoder struct { 
+  output *GoNullable `json:"output"` 
+  crcTable []int64 `json:"crcTable"` 
+  crcTableInit bool `json:"crcTableInit"` 
+}
+
+func CreateNew_PNGEncoder() *PNGEncoder {
+  me := new(PNGEncoder)
+  me.crcTable = make([]int64,0)
+  me.crcTableInit = false
+  me.output = new(GoNullable);
+  me.output.value = CreateNew_GrowableBuffer();
+  me.output.has_value = true; /* detected as non-optional */
+  return me;
+}
+func (this *PNGEncoder) initCRCTable () () {
+  if  this.crcTableInit {
+    return
+  }
+  var n int64= int64(0);
+  for n < int64(256) {
+    var c int64= n;
+    var k int64= int64(0);
+    for k < int64(8) {
+      if  (int64(c & int64(1))) != int64(0) {
+        c = int64((int64(uint64(c) >> uint(int64(1)))) ^ int64(3988292384)); 
+      } else {
+        c = int64(uint64(c) >> uint(int64(1))); 
+      }
+      k = k + int64(1); 
+    }
+    this.crcTable = append(this.crcTable,c); 
+    n = n + int64(1); 
+  }
+  this.crcTableInit = true; 
+}
+func (this *PNGEncoder) crc32Buffer (data *GrowableBuffer) int64 {
+  this.initCRCTable();
+  var crc int64= int64(4294967295);
+  var buf []byte= data.toBuffer();
+  var __len int64= (data).size();
+  var i int64= int64(0);
+  for i < __len {
+    var byte int64= int64(buf[i]);
+    var idx int64= int64((int64(crc ^ byte)) & int64(255));
+    crc = int64((int64(uint64(crc) >> uint(int64(8)))) ^ (this.crcTable[idx])); 
+    i = i + int64(1); 
+  }
+  return int64(crc ^ int64(4294967295))
+}
+func (this *PNGEncoder) writeSignature () () {
+  this.output.value.(*GrowableBuffer).writeByte(int64(137));
+  this.output.value.(*GrowableBuffer).writeByte(int64(80));
+  this.output.value.(*GrowableBuffer).writeByte(int64(78));
+  this.output.value.(*GrowableBuffer).writeByte(int64(71));
+  this.output.value.(*GrowableBuffer).writeByte(int64(13));
+  this.output.value.(*GrowableBuffer).writeByte(int64(10));
+  this.output.value.(*GrowableBuffer).writeByte(int64(26));
+  this.output.value.(*GrowableBuffer).writeByte(int64(10));
+}
+func (this *PNGEncoder) writeUInt32 (value int64) () {
+  this.output.value.(*GrowableBuffer).writeByte(int64((int64(value >> uint(int64(24)))) & int64(255)));
+  this.output.value.(*GrowableBuffer).writeByte(int64((int64(value >> uint(int64(16)))) & int64(255)));
+  this.output.value.(*GrowableBuffer).writeByte(int64((int64(value >> uint(int64(8)))) & int64(255)));
+  this.output.value.(*GrowableBuffer).writeByte(int64(value & int64(255)));
+}
+func (this *PNGEncoder) writeUInt32To (buf *GrowableBuffer, value int64) () {
+  buf.writeByte(int64((int64(value >> uint(int64(24)))) & int64(255)));
+  buf.writeByte(int64((int64(value >> uint(int64(16)))) & int64(255)));
+  buf.writeByte(int64((int64(value >> uint(int64(8)))) & int64(255)));
+  buf.writeByte(int64(value & int64(255)));
+}
+func (this *PNGEncoder) writeChunk (chunkType string, data *GrowableBuffer) () {
+  var dataLen int64= (data).size();
+  this.writeUInt32(dataLen);
+  var crcData *GrowableBuffer= CreateNew_GrowableBuffer();
+  var i int64= int64(0);
+  for i < int64(4) {
+    var ch int64= int64([]rune(chunkType)[i]);
+    crcData.writeByte(ch);
+    this.output.value.(*GrowableBuffer).writeByte(ch);
+    i = i + int64(1); 
+  }
+  var dataBuf []byte= data.toBuffer();
+  i = int64(0); 
+  for i < dataLen {
+    var b int64= int64(dataBuf[i]);
+    crcData.writeByte(b);
+    this.output.value.(*GrowableBuffer).writeByte(b);
+    i = i + int64(1); 
+  }
+  var crc int64= this.crc32Buffer(crcData);
+  this.writeUInt32(crc);
+}
+func (this *PNGEncoder) writeIHDR (width int64, height int64) () {
+  var data *GrowableBuffer= CreateNew_GrowableBuffer();
+  this.writeUInt32To(data, width);
+  this.writeUInt32To(data, height);
+  data.writeByte(int64(8));
+  data.writeByte(int64(2));
+  data.writeByte(int64(0));
+  data.writeByte(int64(0));
+  data.writeByte(int64(0));
+  this.writeChunk("IHDR", data);
+}
+func (this *PNGEncoder) adler32 (data *GrowableBuffer) int64 {
+  var a int64= int64(1);
+  var b int64= int64(0);
+  var buf []byte= data.toBuffer();
+  var __len int64= (data).size();
+  var i int64= int64(0);
+  for i < __len {
+    a = (a + (int64(buf[i]))) % int64(65521); 
+    b = (b + a) % int64(65521); 
+    i = i + int64(1); 
+  }
+  return int64((int64(b << uint(int64(16)))) | a)
+}
+func (this *PNGEncoder) createDeflateData (rawData *GrowableBuffer, compressed *GrowableBuffer) () {
+  var rawBuf []byte= rawData.toBuffer();
+  var dataLen int64= (rawData).size();
+  var blockSize int64= int64(65535);
+  var offset int64= int64(0);
+  for offset < dataLen {
+    var remaining int64= dataLen - offset;
+    var __len int64= blockSize;
+    if  remaining < __len {
+      __len = remaining; 
+    }
+    var isFinal int64= int64(0);
+    if  (offset + __len) >= dataLen {
+      isFinal = int64(1); 
+    }
+    compressed.writeByte(isFinal);
+    compressed.writeByte(int64(__len & int64(255)));
+    compressed.writeByte(int64((int64(__len >> uint(int64(8)))) & int64(255)));
+    var nlen int64= int64(__len ^ int64(65535));
+    compressed.writeByte(int64(nlen & int64(255)));
+    compressed.writeByte(int64((int64(nlen >> uint(int64(8)))) & int64(255)));
+    var i int64= int64(0);
+    for i < __len {
+      compressed.writeByte(int64(rawBuf[(offset + i)]));
+      i = i + int64(1); 
+    }
+    offset = offset + __len; 
+  }
+}
+func (this *PNGEncoder) writeIDAT (buf *RasterBuffer) () {
+  var rawData *GrowableBuffer= CreateNew_GrowableBuffer();
+  var y int64= int64(0);
+  for y < buf.height {
+    rawData.writeByte(int64(0));
+    var x int64= int64(0);
+    for x < buf.width {
+      var idx int64= ((y * buf.width) + x) * int64(4);
+      rawData.writeByte(int64(buf.pixels[idx]));
+      rawData.writeByte(int64(buf.pixels[(idx + int64(1))]));
+      rawData.writeByte(int64(buf.pixels[(idx + int64(2))]));
+      x = x + int64(1); 
+    }
+    y = y + int64(1); 
+  }
+  var zlibData *GrowableBuffer= CreateNew_GrowableBuffer();
+  zlibData.writeByte(int64(120));
+  zlibData.writeByte(int64(1));
+  this.createDeflateData(rawData, zlibData);
+  var adler int64= this.adler32(rawData);
+  zlibData.writeByte(int64((int64(adler >> uint(int64(24)))) & int64(255)));
+  zlibData.writeByte(int64((int64(adler >> uint(int64(16)))) & int64(255)));
+  zlibData.writeByte(int64((int64(adler >> uint(int64(8)))) & int64(255)));
+  zlibData.writeByte(int64(adler & int64(255)));
+  this.writeChunk("IDAT", zlibData);
+}
+func (this *PNGEncoder) writeIEND () () {
+  var data *GrowableBuffer= CreateNew_GrowableBuffer();
+  this.writeChunk("IEND", data);
+}
+func (this *PNGEncoder) encodeToBuffer (buf *RasterBuffer) []byte {
+  fmt.Println( "Encoding PNG to buffer" )
+  fmt.Println( (("  Image size: " + (strconv.FormatInt(buf.width, 10))) + "x") + (strconv.FormatInt(buf.height, 10)) )
+  this.output.value = CreateNew_GrowableBuffer();
+  this.output.has_value = true; /* detected as non-optional */
+  this.writeSignature();
+  this.writeIHDR(buf.width, buf.height);
+  this.writeIDAT(buf);
+  this.writeIEND();
+  var finalSize int64= (this.output).value.(*GrowableBuffer).size();
+  fmt.Println( ("  Encoded size: " + (strconv.FormatInt(finalSize, 10))) + " bytes" )
+  return this.output.value.(*GrowableBuffer).toBuffer()
+}
+func (this *PNGEncoder) encode (buf *RasterBuffer, dirPath string, fileName string) () {
+  fmt.Println( "Encoding PNG: " + fileName )
+  fmt.Println( (("  Image size: " + (strconv.FormatInt(buf.width, 10))) + "x") + (strconv.FormatInt(buf.height, 10)) )
+  this.output.value = CreateNew_GrowableBuffer();
+  this.output.has_value = true; /* detected as non-optional */
+  this.writeSignature();
+  this.writeIHDR(buf.width, buf.height);
+  this.writeIDAT(buf);
+  this.writeIEND();
+  var finalSize int64= (this.output).value.(*GrowableBuffer).size();
+  fmt.Println( ("  Encoded size: " + (strconv.FormatInt(finalSize, 10))) + " bytes" )
+  var outBuf []byte= this.output.value.(*GrowableBuffer).toBuffer();
+  os.WriteFile(dirPath + "/" + fileName, outBuf, 0644)
+  fmt.Println( (("  Saved: " + dirPath) + "/") + fileName )
+}
 type EVGPreviewServer struct { 
   inputFile string `json:"inputFile"` 
   inputDir string `json:"inputDir"` 
@@ -19967,6 +22863,7 @@ type EVGPreviewServer struct {
   port int64 `json:"port"` 
   title string `json:"title"` 
   serverUrl string `json:"serverUrl"` 
+  imageUtils *ImageUtils `json:"imageUtils"` 
   cachedShellHTML string `json:"cachedShellHTML"` 
   cachedContentHTML string `json:"cachedContentHTML"` 
   cachedFontsCSS string `json:"cachedFontsCSS"` 
@@ -19986,6 +22883,7 @@ func CreateNew_EVGPreviewServer() *EVGPreviewServer {
   me.port = int64(3000)
   me.title = "EVG Preview"
   me.serverUrl = ""
+  me.imageUtils = CreateNew_ImageUtils()
   me.cachedShellHTML = ""
   me.cachedContentHTML = ""
   me.cachedFontsCSS = ""
@@ -20016,6 +22914,7 @@ func (this *EVGPreviewServer) initialize (tsxFile string, serverPort int64, asse
     this.inputDir = "./"; 
     this.inputFileName = this.inputFile; 
   }
+  this.imageUtils.setBaseDir(this.inputDir);
   this.title = this.inputFileName; 
   this.reloadContent();
 }
@@ -20238,6 +23137,474 @@ func (this *EVGPreviewServer) handleExportPDF (req *http.Request, res http.Respo
   res.Write(pdfBuffer)
   fmt.Println( "PDF export complete: " + outputName )
 }
+func (this *EVGPreviewServer) handlePageInfo (req *http.Request, res http.ResponseWriter) () {
+  var engine *ComponentEngine= CreateNew_ComponentEngine();
+  if  (int64(len([]rune(this.assetPaths)))) > int64(0) {
+    engine.setAssetPaths(this.assetPaths);
+  }
+  var root *EVGElement= engine.parseFile(this.inputDir, this.inputFileName);
+  if  root.tagName == "" {
+    res.Header().Set("Content-Type", "application/json")
+    res.WriteHeader(int(int64(500)))
+    res.Write([]byte("{\"error\": \"Failed to parse TSX file\"}"))
+    return
+  }
+  var pageCount int64= int64(1);
+  if  (root.tagName == "section") || (root.tagName == "Section") {
+    pageCount = root.getChildCount(); 
+  }
+  var json string= "{";
+  json = ((json + "\"pageCount\": ") + (strconv.FormatInt(pageCount, 10))) + ","; 
+  json = ((json + "\"pageWidth\": ") + (strconv.FormatFloat(engine.pageWidth,'f', 6, 64))) + ","; 
+  json = ((json + "\"pageHeight\": ") + (strconv.FormatFloat(engine.pageHeight,'f', 6, 64))) + ","; 
+  json = ((json + "\"filename\": \"") + this.inputFileName) + "\""; 
+  json = json + "}"; 
+  res.Header().Set("Content-Type", "application/json")
+  res.Header().Set("Cache-Control", "no-cache")
+  res.WriteHeader(int(int64(200)))
+  res.Write([]byte(json))
+}
+func (this *EVGPreviewServer) handleExportPNG (req *http.Request, res http.ResponseWriter) () {
+  var pageNum int64= int64(1);
+  var scale float64= 1.0;
+  var pageParam string= req.URL.Query().Get("page");
+  fmt.Println( ("DEBUG: pageParam raw = '" + pageParam) + "'" )
+  if  (int64(len([]rune(pageParam)))) > int64(0) {
+    var pageVal *GoNullable = new(GoNullable); 
+    pageVal = r_str_2_i64(pageParam);
+    if ( pageVal.has_value ) {
+      pageNum = pageVal.value.(int64); 
+      fmt.Println( "DEBUG: pageNum parsed = " + (strconv.FormatInt(pageNum, 10)) )
+    } else {
+      fmt.Println( "DEBUG: pageVal parse failed!" )
+    }
+  } else {
+    fmt.Println( "DEBUG: pageParam is empty, using default 1" )
+  }
+  var scaleParam string= req.URL.Query().Get("scale");
+  if  (int64(len([]rune(scaleParam)))) > int64(0) {
+    var scaleVal *GoNullable = new(GoNullable); 
+    scaleVal = r_str_2_d64(scaleParam);
+    if ( scaleVal.has_value) {
+      scale = scaleVal.value.(float64); 
+    }
+  }
+  fmt.Println( ((("Generating PNG export for page " + (strconv.FormatInt(pageNum, 10))) + " at scale ") + (strconv.FormatFloat(scale,'f', 6, 64))) + "..." )
+  var engine *ComponentEngine= CreateNew_ComponentEngine();
+  if  (int64(len([]rune(this.assetPaths)))) > int64(0) {
+    engine.setAssetPaths(this.assetPaths);
+  }
+  var root *EVGElement= engine.parseFile(this.inputDir, this.inputFileName);
+  if  root.tagName == "" {
+    fmt.Println( "Error: Failed to parse TSX file for PNG export" )
+    res.Header().Set("Content-Type", "text/plain")
+    res.WriteHeader(int(int64(500)))
+    res.Write([]byte("Error: Failed to parse TSX file"))
+    return
+  }
+  var useWidth float64= engine.pageWidth;
+  var useHeight float64= engine.pageHeight;
+  fmt.Println( (("PNG page size: " + (strconv.FormatFloat(useWidth,'f', 6, 64))) + "x") + (strconv.FormatFloat(useHeight,'f', 6, 64)) )
+  var pageElement *EVGElement= root;
+  var pageCount int64= int64(1);
+  var sectionElement *EVGElement= root;
+  if  (root.tagName == "print") || (root.tagName == "Print") {
+    fmt.Println( "Root is Print wrapper, looking for Section child..." )
+    if  root.getChildCount() > int64(0) {
+      var firstChild *EVGElement= root.getChild(int64(0));
+      if  (firstChild.tagName == "section") || (firstChild.tagName == "Section") {
+        sectionElement = firstChild; 
+        fmt.Println( "Found Section inside Print" )
+      }
+    }
+  }
+  if  (sectionElement.tagName == "section") || (sectionElement.tagName == "Section") {
+    pageCount = sectionElement.getChildCount(); 
+    fmt.Println( ("Section has " + (strconv.FormatInt(pageCount, 10))) + " pages" )
+    var dbgIdx int64= int64(0);
+    for dbgIdx < pageCount {
+      var dbgPage *EVGElement= sectionElement.getChild(dbgIdx);
+      var dbgChildCount int64= dbgPage.getChildCount();
+      fmt.Println( (((("  Page " + (strconv.FormatInt((dbgIdx + int64(1)), 10))) + ": tag=") + dbgPage.tagName) + " children=") + (strconv.FormatInt(dbgChildCount, 10)) )
+      if  dbgChildCount > int64(0) {
+        var firstChild_1 *EVGElement= dbgPage.getChild(int64(0));
+        fmt.Println( (("    First child: tag=" + firstChild_1.tagName) + " src=") + firstChild_1.src )
+      }
+      dbgIdx = dbgIdx + int64(1); 
+    }
+    if  pageNum > pageCount {
+      pageNum = pageCount; 
+    }
+    if  pageNum < int64(1) {
+      pageNum = int64(1); 
+    }
+    pageElement = sectionElement.getChild((pageNum - int64(1))); 
+    fmt.Println( ((((("Selected page " + (strconv.FormatInt(pageNum, 10))) + " of ") + (strconv.FormatInt(pageCount, 10))) + " (tag: ") + pageElement.tagName) + ")" )
+    fmt.Println( (("Page element BEFORE reset: x=" + (strconv.FormatFloat(pageElement.calculatedX,'f', 6, 64))) + " y=") + (strconv.FormatFloat(pageElement.calculatedY,'f', 6, 64)) )
+  }
+  fmt.Println( "Resetting layout state..." )
+  pageElement.resetLayoutState();
+  fmt.Println( (("Page element AFTER reset: x=" + (strconv.FormatFloat(pageElement.calculatedX,'f', 6, 64))) + " y=") + (strconv.FormatFloat(pageElement.calculatedY,'f', 6, 64)) )
+  fmt.Println( "Running layout engine..." )
+  var layout *EVGLayout= CreateNew_EVGLayout();
+  layout.setPageSize(useWidth, useHeight);
+  layout.layout(pageElement);
+  fmt.Println( (((((("Page layout calculated: x=" + (strconv.FormatFloat(pageElement.calculatedX,'f', 6, 64))) + " y=") + (strconv.FormatFloat(pageElement.calculatedY,'f', 6, 64))) + " w=") + (strconv.FormatFloat(pageElement.calculatedWidth,'f', 6, 64))) + " h=") + (strconv.FormatFloat(pageElement.calculatedHeight,'f', 6, 64)) )
+  var pixelWidth int64= int64((useWidth * scale));
+  var pixelHeight int64= int64((useHeight * scale));
+  fmt.Println( ((("Raster size: " + (strconv.FormatInt(pixelWidth, 10))) + "x") + (strconv.FormatInt(pixelHeight, 10))) + " pixels" )
+  var renderer *EVGRasterRenderer= CreateNew_EVGRasterRenderer();
+  renderer.init(pixelWidth, pixelHeight);
+  (renderer).clear(int64(255), int64(255), int64(255), int64(255));
+  var fontDir string= "./assets/fonts/";
+  var fm *FontManager= CreateNew_FontManager();
+  fm.setFontsDirectory(fontDir);
+  fm.loadFont("Open_Sans/OpenSans-Regular.ttf");
+  fm.loadFont("Open_Sans/OpenSans-Bold.ttf");
+  fm.loadFont("Noto_Sans/NotoSans-Regular.ttf");
+  fm.loadFont("Noto_Sans/NotoSans-Bold.ttf");
+  fm.loadFont("Cinzel/Cinzel-Regular.ttf");
+  fm.loadFont("Cinzel/Cinzel-Bold.ttf");
+  var textRenderer *RasterText= CreateNew_RasterText();
+  var defaultFont *TrueTypeFont= fm.getFont("Open Sans");
+  if  defaultFont.unitsPerEm > int64(0) {
+    textRenderer.setFont(defaultFont);
+  }
+  fmt.Println( ((("Page position after layout: (" + (strconv.FormatFloat(pageElement.calculatedX,'f', 6, 64))) + ",") + (strconv.FormatFloat(pageElement.calculatedY,'f', 6, 64))) + ")" )
+  this.renderElementToPNG(renderer, textRenderer, fm, pageElement, scale, 0.0, 0.0);
+  var pngEncoder *PNGEncoder= CreateNew_PNGEncoder();
+  pngEncoder.encode(renderer.getBuffer(), "./output/", ("debug_page" + (strconv.FormatInt(pageNum, 10))) + ".png");
+  fmt.Println( "Saved debug PNG to ./output/" )
+  var tempDir string= "./output/";
+  var tempFile string= ("temp_export_page" + (strconv.FormatInt(pageNum, 10))) + ".jpg";
+  renderer.saveAsJPEG(tempDir, tempFile, int64(92));
+  var jpegBuffer []byte= func() []byte { d, _ := os.ReadFile(filepath.Join(tempDir, tempFile)); return d }();
+  var jpegSize int64= int64(len(jpegBuffer));
+  fmt.Println( ("JPEG generated: " + (strconv.FormatInt(jpegSize, 10))) + " bytes" )
+  var outputName string= this.inputFileName;
+  var dotIdx int64= int64(strings.LastIndex(outputName, "."));
+  if  dotIdx >= int64(0) {
+    outputName = string([]rune(outputName)[int64(0):dotIdx]); 
+  }
+  outputName = ((outputName + "_page") + (strconv.FormatInt(pageNum, 10))) + ".jpg"; 
+  res.Header().Set("Content-Type", "image/jpeg")
+  res.Header().Set("Content-Disposition", ("attachment; filename=\"" + outputName) + "\"")
+  res.Header().Set("Cache-Control", "no-cache")
+  res.WriteHeader(int(int64(200)))
+  res.Write(jpegBuffer)
+  fmt.Println( "JPEG export complete: " + outputName )
+}
+func (this *EVGPreviewServer) renderElementToPNG (renderer *EVGRasterRenderer, textRenderer *RasterText, fm *FontManager, el *EVGElement, scale float64, offsetX float64, offsetY float64) () {
+  var x float64= (el.calculatedX * scale) - offsetX;
+  var y float64= (el.calculatedY * scale) - offsetY;
+  var w float64= el.calculatedWidth * scale;
+  var h float64= el.calculatedHeight * scale;
+  fmt.Println( (((((((("Rendering element: <" + el.tagName) + "> at (") + (strconv.FormatFloat(x,'f', 6, 64))) + ",") + (strconv.FormatFloat(y,'f', 6, 64))) + ") size ") + (strconv.FormatFloat(w,'f', 6, 64))) + "x") + (strconv.FormatFloat(h,'f', 6, 64)) )
+  var radius int64= int64(0);
+  if  el.box.value.(*EVGBox).borderRadius.value.(*EVGUnit).isSet {
+    radius = int64((el.box.value.(*EVGBox).borderRadius.value.(*EVGUnit).pixels * scale)); 
+  }
+  if  el.shadowColor.value.(*EVGColor).isSet {
+    var shadowR int64= el.shadowColor.value.(*EVGColor).red();
+    var shadowG int64= el.shadowColor.value.(*EVGColor).green();
+    var shadowB int64= el.shadowColor.value.(*EVGColor).blue();
+    var shadowA int64= int64((el.shadowColor.value.(*EVGColor).alpha() * 255.0));
+    var blurRadius int64= int64(0);
+    var shadowOffX int64= int64(0);
+    var shadowOffY int64= int64(0);
+    if  el.shadowRadius.value.(*EVGUnit).isSet {
+      blurRadius = int64((el.shadowRadius.value.(*EVGUnit).pixels * scale)); 
+    }
+    if  el.shadowOffsetX.value.(*EVGUnit).isSet {
+      shadowOffX = int64((el.shadowOffsetX.value.(*EVGUnit).pixels * scale)); 
+    }
+    if  el.shadowOffsetY.value.(*EVGUnit).isSet {
+      shadowOffY = int64((el.shadowOffsetY.value.(*EVGUnit).pixels * scale)); 
+    }
+    if  w > 0.0 {
+      if  h > 0.0 {
+        renderer.renderShadowOnly(int64(x), int64(y), int64(w), int64(h), radius, shadowR, shadowG, shadowB, shadowA, blurRadius, shadowOffX, shadowOffY);
+      }
+    }
+  }
+  if  el.backgroundColor.value.(*EVGColor).isSet {
+    var bgR int64= el.backgroundColor.value.(*EVGColor).red();
+    var bgG int64= el.backgroundColor.value.(*EVGColor).green();
+    var bgB int64= el.backgroundColor.value.(*EVGColor).blue();
+    var bgA int64= int64((el.backgroundColor.value.(*EVGColor).alpha() * 255.0));
+    if  w > 0.0 {
+      if  h > 0.0 {
+        if  radius > int64(0) {
+          renderer.fillRoundedRect(int64(x), int64(y), int64(w), int64(h), radius, bgR, bgG, bgB, bgA);
+        } else {
+          renderer.fillRect(int64(x), int64(y), int64(w), int64(h), bgR, bgG, bgB, bgA);
+        }
+      }
+    }
+  }
+  if  (int64(len([]rune(el.textContent)))) > int64(0) {
+    fmt.Println( ("Rendering text element: '" + el.textContent) + "'" )
+    fmt.Println( (((((((("  Tag: " + el.tagName) + ", Position: (") + (strconv.FormatFloat(x,'f', 6, 64))) + ",") + (strconv.FormatFloat(y,'f', 6, 64))) + "), Size: ") + (strconv.FormatFloat(w,'f', 6, 64))) + "x") + (strconv.FormatFloat(h,'f', 6, 64)) )
+    var textR int64= int64(0);
+    var textG int64= int64(0);
+    var textB int64= int64(0);
+    var textA int64= int64(255);
+    if  el.color.value.(*EVGColor).isSet {
+      textR = el.color.value.(*EVGColor).red(); 
+      textG = el.color.value.(*EVGColor).green(); 
+      textB = el.color.value.(*EVGColor).blue(); 
+      textA = int64((el.color.value.(*EVGColor).alpha() * 255.0)); 
+      fmt.Println( (((((("  Text color: RGB(" + (strconv.FormatInt(textR, 10))) + ",") + (strconv.FormatInt(textG, 10))) + ",") + (strconv.FormatInt(textB, 10))) + ") A=") + (strconv.FormatInt(textA, 10)) )
+    } else {
+      fmt.Println( "  Text color: default black" )
+    }
+    var fontSize float64= 14.0 * scale;
+    if  el.fontSize.value.(*EVGUnit).isSet {
+      fontSize = el.fontSize.value.(*EVGUnit).pixels * scale; 
+      fmt.Println( ((("  Font size: " + (strconv.FormatFloat(fontSize,'f', 6, 64))) + " (from element: ") + (strconv.FormatFloat(el.fontSize.value.(*EVGUnit).pixels,'f', 6, 64))) + ")" )
+    } else {
+      fmt.Println( ("  Font size: " + (strconv.FormatFloat(fontSize,'f', 6, 64))) + " (default)" )
+    }
+    var padLeft float64= 0.0;
+    var padTop float64= 0.0;
+    if  el.box.value.(*EVGBox).paddingLeft.value.(*EVGUnit).isSet {
+      padLeft = el.box.value.(*EVGBox).paddingLeft.value.(*EVGUnit).pixels * scale; 
+    }
+    if  el.box.value.(*EVGBox).paddingTop.value.(*EVGUnit).isSet {
+      padTop = el.box.value.(*EVGBox).paddingTop.value.(*EVGUnit).pixels * scale; 
+    }
+    fmt.Println( (("  Padding: left=" + (strconv.FormatFloat(padLeft,'f', 6, 64))) + ", top=") + (strconv.FormatFloat(padTop,'f', 6, 64)) )
+    var fontFamily string= el.fontFamily;
+    if  (int64(len([]rune(fontFamily)))) == int64(0) {
+      fontFamily = "Open Sans"; 
+    }
+    fmt.Println( ("  Font family requested: '" + fontFamily) + "'" )
+    var fontName string= fontFamily;
+    if  el.fontWeight == "bold" {
+      fontName = fontFamily + " Bold"; 
+      fmt.Println( ("  Font weight: bold -> looking for '" + fontName) + "'" )
+    } else {
+      fmt.Println( ("  Font weight: regular -> looking for '" + fontName) + "'" )
+    }
+    var requestedFont *TrueTypeFont= fm.getFont(fontName);
+    if  requestedFont.unitsPerEm > int64(0) {
+      textRenderer.setFont(requestedFont);
+      fmt.Println( ("  Font loaded: '" + fontName) + "'" )
+    } else {
+      var fallbackFont *TrueTypeFont= fm.getFont(fontFamily);
+      if  fallbackFont.unitsPerEm > int64(0) {
+        textRenderer.setFont(fallbackFont);
+        fmt.Println( ("  Font fallback to: '" + fontFamily) + "'" )
+      } else {
+        var defaultFontName string= "Open Sans";
+        if  el.fontWeight == "bold" {
+          defaultFontName = "Open Sans Bold"; 
+        }
+        var defaultFont *TrueTypeFont= fm.getFont(defaultFontName);
+        if  defaultFont.unitsPerEm > int64(0) {
+          textRenderer.setFont(defaultFont);
+          fmt.Println( ("  Font fallback to default: '" + defaultFontName) + "'" )
+        } else {
+          fmt.Println( "  WARNING: No font loaded!" )
+        }
+      }
+    }
+    var textX float64= x + padLeft;
+    var textY float64= y + padTop;
+    if  (el.textAlign == "center") || (el.textAlign == "right") {
+      var textWidth float64= textRenderer.measureTextWidth(el.textContent, fontSize);
+      if  el.textAlign == "center" {
+        textX = (x + padLeft) + ((w - textWidth) / 2.0); 
+        fmt.Println( "  Text align: center, offset: " + (strconv.FormatFloat(((w - textWidth) / 2.0),'f', 6, 64)) )
+      }
+      if  el.textAlign == "right" {
+        textX = ((x + w) - textWidth) - padLeft; 
+        fmt.Println( "  Text align: right" )
+      }
+    }
+    fmt.Println( ((("  Final text position: (" + (strconv.FormatFloat(textX,'f', 6, 64))) + ",") + (strconv.FormatFloat(textY,'f', 6, 64))) + ")" )
+    textRenderer.renderText(renderer.getBuffer(), el.textContent, textX, textY, fontSize, textR, textG, textB, textA);
+    fmt.Println( "  Text rendered." )
+  }
+  if  ((el.tagName == "image") || (el.tagName == "Image")) || (el.tagName == "img") {
+    if  (int64(len([]rune(el.src)))) > int64(0) {
+      this.renderImageToPNG(renderer, el, x, y, w, h, scale);
+    }
+  }
+  var i int64= int64(0);
+  var childCount int64= el.getChildCount();
+  for i < childCount {
+    var child *EVGElement= el.getChild(i);
+    this.renderElementToPNG(renderer, textRenderer, fm, child, scale, offsetX, offsetY);
+    i = i + int64(1); 
+  }
+}
+func (this *EVGPreviewServer) renderImageToPNG (renderer *EVGRasterRenderer, el *EVGElement, x float64, y float64, w float64, h float64, scale float64) () {
+  var src string= el.src;
+  if  (int64(len([]rune(src)))) == int64(0) {
+    return
+  }
+  fmt.Println( "Rendering image: " + src )
+  var imgBuffer *ImageBuffer= this.imageUtils.decodeImage(src);
+  if  imgBuffer.width <= int64(1) {
+    fmt.Println( "  Failed to decode image: " + src )
+    return
+  }
+  var imgW float64= float64( imgBuffer.width );
+  var imgH float64= float64( imgBuffer.height );
+  fmt.Println( (("  Image size: " + (strconv.FormatInt(imgBuffer.width, 10))) + "x") + (strconv.FormatInt(imgBuffer.height, 10)) )
+  var containerW float64= w;
+  var containerH float64= h;
+  var parentW float64= 0.0;
+  var parentH float64= 0.0;
+  var ancestorEl *EVGElement= el;
+  var foundParent bool= false;
+  for ancestorEl.hasParent() && (foundParent == false) {
+    ancestorEl = ancestorEl.parent.value.(*EVGElement); 
+    var testW float64= ancestorEl.calculatedWidth * scale;
+    var testH float64= ancestorEl.calculatedHeight * scale;
+    if  (testW > 0.0) && (testH > 0.0) {
+      parentW = testW; 
+      parentH = testH; 
+      foundParent = true; 
+      fmt.Println( ((((("  Found ancestor container: " + (strconv.FormatFloat(parentW,'f', 6, 64))) + "x") + (strconv.FormatFloat(parentH,'f', 6, 64))) + " (") + ancestorEl.tagName) + ")" )
+    }
+  }
+  if  foundParent == false {
+    fmt.Println( "  No ancestor with dimensions found, using buffer size" )
+    parentW = float64( renderer.getWidth() ); 
+    parentH = float64( renderer.getHeight() ); 
+  }
+  var originalW float64= w;
+  var originalH float64= h;
+  if  containerH <= 0.0 {
+    if  containerW > 0.0 {
+      containerH = containerW * (imgH / imgW); 
+      fmt.Println( "  Container height was 0, calculated: " + (strconv.FormatFloat(containerH,'f', 6, 64)) )
+    }
+  }
+  if  containerW <= 0.0 {
+    if  containerH > 0.0 {
+      containerW = containerH * (imgW / imgH); 
+      fmt.Println( "  Container width was 0, calculated: " + (strconv.FormatFloat(containerW,'f', 6, 64)) )
+    }
+  }
+  var clipContainerW float64= containerW;
+  var clipContainerH float64= containerH;
+  if  originalW <= 0.0 {
+    if  parentW > 0.0 {
+      clipContainerW = parentW; 
+      fmt.Println( "  Using parent width for clip: " + (strconv.FormatFloat(clipContainerW,'f', 6, 64)) )
+    }
+  } else {
+    clipContainerW = originalW; 
+  }
+  if  originalH <= 0.0 {
+    if  parentH > 0.0 {
+      clipContainerH = parentH; 
+      fmt.Println( "  Using parent height for clip: " + (strconv.FormatFloat(clipContainerH,'f', 6, 64)) )
+    }
+  } else {
+    clipContainerH = originalH; 
+  }
+  var objectFit string= el.objectFit;
+  var fitResult *ObjectFitResult= this.imageUtils.calculateObjectFit(clipContainerW, clipContainerH, imgW, imgH, objectFit);
+  if  fitResult.isValid == false {
+    fmt.Println( "  ObjectFit calculation failed" )
+    return
+  }
+  var renderW float64= fitResult.renderW;
+  var renderH float64= fitResult.renderH;
+  var offsetX float64= fitResult.offsetX;
+  var offsetY float64= fitResult.offsetY;
+  fmt.Println( ((((((((((("  ObjectFit: clipContainer=" + (strconv.FormatFloat(clipContainerW,'f', 6, 64))) + "x") + (strconv.FormatFloat(clipContainerH,'f', 6, 64))) + " render=") + (strconv.FormatFloat(renderW,'f', 6, 64))) + "x") + (strconv.FormatFloat(renderH,'f', 6, 64))) + " offset=(") + (strconv.FormatFloat(offsetX,'f', 6, 64))) + ",") + (strconv.FormatFloat(offsetY,'f', 6, 64))) + ")" )
+  var srcBuf *RasterBuffer= CreateNew_RasterBuffer();
+  srcBuf.create(imgBuffer.width, imgBuffer.height);
+  var py int64= int64(0);
+  for py < imgBuffer.height {
+    var px int64= int64(0);
+    for px < imgBuffer.width {
+      var idx int64= ((py * imgBuffer.width) + px) * int64(4);
+      var r int64= int64(imgBuffer.pixels[idx]);
+      var g int64= int64(imgBuffer.pixels[(idx + int64(1))]);
+      var b int64= int64(imgBuffer.pixels[(idx + int64(2))]);
+      srcBuf.setPixel(px, py, r, g, b, int64(255));
+      px = px + int64(1); 
+    }
+    py = py + int64(1); 
+  }
+  var scaledBuf *RasterBuffer= CreateNew_RasterBuffer();
+  scaledBuf.create(int64(renderW), int64(renderH));
+  var scaleX float64= imgW / renderW;
+  var scaleY float64= imgH / renderH;
+  var dy int64= int64(0);
+  for dy < (int64(renderH)) {
+    var dx int64= int64(0);
+    for dx < (int64(renderW)) {
+      var srcPx int64= int64(((float64( dx )) * scaleX));
+      var srcPy int64= int64(((float64( dy )) * scaleY));
+      if  srcPx >= imgBuffer.width {
+        srcPx = imgBuffer.width - int64(1); 
+      }
+      if  srcPy >= imgBuffer.height {
+        srcPy = imgBuffer.height - int64(1); 
+      }
+      var p *RasterPixel= srcBuf.getPixel(srcPx, srcPy);
+      scaledBuf.setPixel(dx, dy, p.r, p.g, p.b, p.a);
+      dx = dx + int64(1); 
+    }
+    dy = dy + int64(1); 
+  }
+  var destBuf *RasterBuffer= renderer.getBuffer();
+  var clipX int64= int64(x);
+  var clipY int64= int64(y);
+  var clipW int64= int64(clipContainerW);
+  var clipH int64= int64(clipContainerH);
+  fmt.Println( (((((("  Clipping to: x=" + (strconv.FormatInt(clipX, 10))) + " y=") + (strconv.FormatInt(clipY, 10))) + " w=") + (strconv.FormatInt(clipW, 10))) + " h=") + (strconv.FormatInt(clipH, 10)) )
+  var srcStartX int64= int64(0);
+  var srcStartY int64= int64(0);
+  var dstX int64= clipX + (int64(offsetX));
+  var dstY int64= clipY + (int64(offsetY));
+  if  offsetX < 0.0 {
+    srcStartX = int64((0.0 - offsetX)); 
+    dstX = clipX; 
+  }
+  if  offsetY < 0.0 {
+    srcStartY = int64((0.0 - offsetY)); 
+    dstY = clipY; 
+  }
+  fmt.Println( ((((((("  Compositing: srcStart=(" + (strconv.FormatInt(srcStartX, 10))) + ",") + (strconv.FormatInt(srcStartY, 10))) + ") dst=(") + (strconv.FormatInt(dstX, 10))) + ",") + (strconv.FormatInt(dstY, 10))) + ")" )
+  fmt.Println( (("  Scaled buffer size: " + (strconv.FormatInt((int64(renderW)), 10))) + "x") + (strconv.FormatInt((int64(renderH)), 10)) )
+  var copyW int64= clipW;
+  var copyH int64= clipH;
+  if  copyW > ((int64(renderW)) - srcStartX) {
+    copyW = (int64(renderW)) - srcStartX; 
+  }
+  if  copyH > ((int64(renderH)) - srcStartY) {
+    copyH = (int64(renderH)) - srcStartY; 
+  }
+  var cy int64= int64(0);
+  for cy < copyH {
+    var cx int64= int64(0);
+    for cx < copyW {
+      var finalDstX int64= dstX + cx;
+      var finalDstY int64= dstY + cy;
+      if  finalDstX >= clipX {
+        if  finalDstX < (clipX + clipW) {
+          if  finalDstY >= clipY {
+            if  finalDstY < (clipY + clipH) {
+              var p_1 *RasterPixel= scaledBuf.getPixel((srcStartX + cx), (srcStartY + cy));
+              destBuf.setPixel(finalDstX, finalDstY, p_1.r, p_1.g, p_1.b, p_1.a);
+            }
+          }
+        }
+      }
+      cx = cx + int64(1); 
+    }
+    cy = cy + int64(1); 
+  }
+  fmt.Println( (((((("  Image rendered to (" + (strconv.FormatInt((int64(x)), 10))) + ",") + (strconv.FormatInt((int64(y)), 10))) + ") size ") + (strconv.FormatInt((int64(renderW)), 10))) + "x") + (strconv.FormatInt((int64(renderH)), 10)) )
+}
 func (this *EVGPreviewServer) handleEvents (client *SSEClient) () {
   fmt.Println( "SSE client connected - watching for changes" )
   fmt.Fprintf(client.Writer, "event: %s\ndata: %s\n\n", "connected", "EVG Preview Server")
@@ -20419,6 +23786,20 @@ func main() {
       return
     }
     server.handleExportPDF(r, w)
+  })
+  mux.HandleFunc("/page-info", func(w http.ResponseWriter, r *http.Request) {
+    if r.Method != "GET" {
+      http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+      return
+    }
+    server.handlePageInfo(r, w)
+  })
+  mux.HandleFunc("/export-png", func(w http.ResponseWriter, r *http.Request) {
+    if r.Method != "GET" {
+      http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+      return
+    }
+    server.handleExportPNG(r, w)
   })
   mux.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
     flusher, ok := w.(http.Flusher)

@@ -122,6 +122,9 @@ class RasterText {
     def font:TrueTypeFont
     def compositor:RasterCompositor (new RasterCompositor())
     
+    ; Edges buffer for glyph rendering (reused to avoid slice issues in Go)
+    def currentEdges:[GlyphEdge]
+    
     ; TTF table offsets (cached)
     def glyfOffset:int 0
     def locaOffset:int 0
@@ -133,6 +136,14 @@ class RasterText {
     fn setFont:void (ttf:TrueTypeFont) {
         font = ttf
         this.findTableOffsets()
+    }
+    
+    ; Measure text width using the current font
+    fn measureTextWidth:double (text:string fontSize:double) {
+        if (font.unitsPerEm <= 0) {
+            return 0.0
+        }
+        return (font.measureText(text fontSize))
     }
     
     fn findTableOffsets:void () {
@@ -344,23 +355,29 @@ class RasterText {
     ; Render a glyph outline to buffer (anti-aliased)
     fn renderGlyph:void (buf:RasterBuffer outline:GlyphOutline x:double y:double r:int g:int b:int a:int) {
         ; Convert outline to edges
-        def edges:[GlyphEdge]
+        ; Clear and reuse the instance-level edges buffer
+        def newEdges:[GlyphEdge]
+        currentEdges = newEdges
         
         def numContours:int (array_length outline.contours)
+        print ("  renderGlyph: numContours=" + (to_string numContours) + " pos=(" + (to_string x) + "," + (to_string y) + ")")
         def cIdx:int 0
         while (cIdx < numContours) {
             def contour:GlyphContour (itemAt outline.contours cIdx)
             def numPts:int (contour.numPoints())
+            print ("    contour " + (to_string cIdx) + ": numPoints=" + (to_string numPts))
             
             if (numPts >= 2) {
-                ; Flatten curves and create edges
-                this.flattenContour(contour edges x y)
+                ; Flatten curves and create edges - uses currentEdges field
+                this.flattenContourToField(contour x y)
             }
             cIdx = cIdx + 1
         }
         
+        print ("    total edges after flatten: " + (to_string (array_length currentEdges)))
+        
         ; Anti-aliased scanline fill using edges
-        this.scanlineFillAA(buf edges r g b a)
+        this.scanlineFillAA(buf currentEdges r g b a)
     }
     
     ; Render a glyph outline to buffer (no anti-aliasing, faster)
@@ -506,6 +523,119 @@ class RasterText {
         push edges edge
     }
     
+    ; Add an edge to the currentEdges field (avoids Go slice pass-by-value issue)
+    fn addEdgeToField:void (x1:double y1:double x2:double y2:double) {
+        def dy:double (y2 - y1)
+        if (dy < 0.0) {
+            dy = 0.0 - dy
+        }
+        if (dy < 0.001) {
+            return  ; Skip truly horizontal edges
+        }
+        
+        def edge:GlyphEdge (new GlyphEdge())
+        edge.init(x1 y1 x2 y2)
+        push currentEdges edge
+    }
+    
+    ; Flatten a contour to currentEdges field (avoids Go slice pass-by-value issue)
+    fn flattenContourToField:void (contour:GlyphContour offsetX:double offsetY:double) {
+        def numPts:int (contour.numPoints())
+        if (numPts < 2) {
+            return
+        }
+        
+        ; Find the first on-curve point (or implicit one)
+        def startX:double 0.0
+        def startY:double 0.0
+        def firstPt:GlyphPoint (itemAt contour.points 0)
+        
+        if (firstPt.onCurve) {
+            startX = firstPt.x + offsetX
+            startY = offsetY - firstPt.y
+        } {
+            ; First point is off-curve, find an implicit on-curve point
+            def lastPt:GlyphPoint (itemAt contour.points (numPts - 1))
+            if (lastPt.onCurve) {
+                startX = lastPt.x + offsetX
+                startY = offsetY - lastPt.y
+            } {
+                ; Both first and last are off-curve - use midpoint
+                startX = ((firstPt.x + lastPt.x) / 2.0) + offsetX
+                startY = offsetY - ((firstPt.y + lastPt.y) / 2.0)
+            }
+        }
+        
+        def currX:double startX
+        def currY:double startY
+        
+        def i:int 0
+        while (i < numPts) {
+            def pt:GlyphPoint (itemAt contour.points i)
+            def nextIdx:int ((i + 1) % numPts)
+            def nextPt:GlyphPoint (itemAt contour.points nextIdx)
+            
+            if (pt.onCurve) {
+                ; On-curve point - check what comes next
+                if (nextPt.onCurve) {
+                    ; Line to next on-curve point
+                    def nx:double (nextPt.x + offsetX)
+                    def ny:double (offsetY - nextPt.y)
+                    this.addEdgeToField(currX currY nx ny)
+                    currX = nx
+                    currY = ny
+                }
+            } {
+                ; Off-curve point - emit a quadratic bezier curve
+                def p0x:double currX
+                def p0y:double currY
+                def p1x:double (pt.x + offsetX)
+                def p1y:double (offsetY - pt.y)
+                
+                def p2x:double 0.0
+                def p2y:double 0.0
+                if (nextPt.onCurve) {
+                    p2x = nextPt.x + offsetX
+                    p2y = offsetY - nextPt.y
+                } {
+                    ; Implicit on-curve midpoint
+                    p2x = ((pt.x + nextPt.x) / 2.0) + offsetX
+                    p2y = offsetY - ((pt.y + nextPt.y) / 2.0)
+                }
+                
+                ; Flatten the quadratic bezier curve
+                def segments:int 8
+                def j:int 1
+                while (j <= segments) {
+                    def t:double ((to_double j) / (to_double segments))
+                    def invT:double (1.0 - t)
+                    
+                    def nx:double ((invT * invT * p0x) + (2.0 * invT * t * p1x) + (t * t * p2x))
+                    def ny:double ((invT * invT * p0y) + (2.0 * invT * t * p1y) + (t * t * p2y))
+                    
+                    this.addEdgeToField(currX currY nx ny)
+                    currX = nx
+                    currY = ny
+                    j = j + 1
+                }
+            }
+            i = i + 1
+        }
+        
+        ; Close the contour if needed (connect back to start)
+        def dx:double (currX - startX)
+        def dy:double (currY - startY)
+        if (dx < 0.0) {
+            dx = 0.0 - dx
+        }
+        if (dy < 0.0) {
+            dy = 0.0 - dy
+        }
+        if ((dx > 0.01) || (dy > 0.01)) {
+            this.addEdgeToField(currX currY startX startY)
+        }
+    }
+
     ; Flatten a quadratic bezier curve
     fn flattenQuadBezier:void (edges:[GlyphEdge] x0:double y0:double x1:double y1:double x2:double y2:double segments:int) {
         def prevX:double x0
@@ -615,6 +745,7 @@ class RasterText {
     fn scanlineFillAA:void (buf:RasterBuffer edges:[GlyphEdge] r:int g:int b:int a:int) {
         def numEdges:int (array_length edges)
         if (numEdges == 0) {
+            print ("    scanlineFillAA: no edges, returning early!")
             return
         }
         
@@ -647,6 +778,8 @@ class RasterText {
             i = i + 1
         }
         
+        print ("    scanlineFillAA: " + (to_string numEdges) + " edges, bbox=(" + (to_string minX) + "," + (to_string minY) + ")-(" + (to_string maxX) + "," + (to_string maxY) + ")")
+        
         ; Clamp to buffer with 1 pixel margin
         def startY:int ((to_int minY) - 1)
         def endY:int ((to_int maxY) + 1)
@@ -664,6 +797,8 @@ class RasterText {
         if (endX >= buf.width) {
             endX = buf.width - 1
         }
+        
+        print ("    scanlineFillAA: clamped range X=" + (to_string startX) + "-" + (to_string endX) + " Y=" + (to_string startY) + "-" + (to_string endY))
         
         ; Subpixel offsets for 4x4 grid
         def subStep:double 0.25
@@ -781,15 +916,29 @@ class RasterText {
         def len:int (strlen text)
         def i:int 0
         
+        ; Debug: check if font is loaded
+        if (font.unitsPerEm <= 0) {
+            print ("ERROR: Font not loaded in RasterText! unitsPerEm=" + (to_string font.unitsPerEm))
+            return
+        }
+        
         ; Get baseline offset (ascender in pixels)
         def baseline:double (font.getAscender(fontSize))
         def renderY:double (y + baseline)
+        
+        print ("RasterText.renderText: text='" + text + "' pos=(" + (to_string x) + "," + (to_string y) + ") fontSize=" + (to_string fontSize) + " baseline=" + (to_string baseline) + " renderY=" + (to_string renderY))
+        print ("RasterText.renderText: color=RGB(" + (to_string r) + "," + (to_string g) + "," + (to_string b) + ") alpha=" + (to_string a) + " bufSize=" + (to_string buf.width) + "x" + (to_string buf.height))
         
         while (i < len) {
             def ch:int (charAt text i)
             def glyphIdx:int (font.getGlyphIndex(ch))
             
             def outline:GlyphOutline (this.parseGlyph(glyphIdx fontSize))
+            
+            ; Debug first character
+            if (i == 0) {
+                print ("  First char: code=" + (to_string ch) + " glyphIdx=" + (to_string glyphIdx) + " numContours=" + (to_string (array_length outline.contours)) + " advanceWidth=" + (to_string outline.advanceWidth))
+            }
             
             this.renderGlyph(buf outline currX renderY r g b a)
             

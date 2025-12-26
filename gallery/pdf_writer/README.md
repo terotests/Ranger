@@ -4,6 +4,7 @@ A collection of binary format utilities written in Ranger:
 
 - **EVG PDF Renderer** - TSX → PDF pipeline with flexbox layout, TrueType fonts, and JPEG images
 - **EVG HTML Renderer** - TSX → HTML preview with CSS flexbox layout
+- **EVG Raster Renderer** - TSX → JPEG/PNG export with TrueType text rendering
 - **JPEG Decoder** - Full baseline DCT JPEG decoder with Huffman decoding
 - **JPEG Encoder** - Baseline JPEG encoder with configurable quality
 - **TrueType Parser** - TTF font parsing for glyph metrics and PDF embedding
@@ -12,28 +13,84 @@ A collection of binary format utilities written in Ranger:
 
 ### Completed Features
 
-| Feature | PDF | HTML | Notes |
-|---------|-----|------|-------|
-| Flexbox layout | ✅ | ✅ | Full support |
-| TrueType fonts | ✅ | ✅ | Embedded in PDF, CSS in HTML |
-| JPEG images | ✅ | ✅ | Embedded/base64 |
-| Text wrapping | ✅ | ✅ | Automatic word wrap |
-| Border radius | ✅ | ✅ | Bézier curves in PDF |
-| Linear gradients | ✅ | ✅ | Strip-based in PDF, CSS in HTML |
-| Radial gradients | ⚠️ | ✅ | Falls back to linear in PDF |
-| Box shadows | ⚠️ | ✅ | Hard edges in PDF, perfect in HTML |
-| Text shadows | ⚠️ | ✅ | Needs raster renderer in PDF |
-| Component system | ✅ | ✅ | TSX imports |
-| Layer element | ⏳ | ✅ | Absolute overlay for stacking |
-| Image viewBox | ⏳ | ✅ | Crop/zoom images |
-| Alignment (align/verticalAlign) | ✅ | ✅ | Row alignment |
+| Feature | PDF | HTML | Raster | Notes |
+|---------|-----|------|--------|-------|
+| Flexbox layout | ✅ | ✅ | ✅ | Full support |
+| TrueType fonts | ✅ | ✅ | ✅ | Glyph rasterization with anti-aliasing |
+| JPEG images | ✅ | ✅ | ✅ | Decode & scale with objectFit |
+| Text wrapping | ✅ | ✅ | ⏳ | Single line in raster |
+| Border radius | ✅ | ✅ | ⏳ | Not yet in raster |
+| Linear gradients | ✅ | ✅ | ⏳ | Not yet in raster |
+| Radial gradients | ⚠️ | ✅ | ⏳ | Falls back to linear in PDF |
+| Box shadows | ⚠️ | ✅ | ⏳ | Hard edges in PDF |
+| Text shadows | ⚠️ | ✅ | ⏳ | Needs implementation |
+| Component system | ✅ | ✅ | ✅ | TSX imports |
+| Layer element | ⏳ | ✅ | ✅ | Absolute overlay for stacking |
+| Image objectFit | ✅ | ✅ | ✅ | cover/contain modes |
+| Text alignment | ✅ | ✅ | ✅ | left/center/right |
+| Custom fonts | ✅ | ✅ | ✅ | fontFamily selection |
 
-### Planned: EVG Raster Renderer
+### New: EVG Raster Renderer (December 2025)
 
-To properly support shadows and effects in PDF, a raster (pixel buffer) renderer is planned.
-See [EVG_RASTER_PLAN.md](EVG_RASTER_PLAN.md) for details.
+The EVG Raster Renderer enables **direct JPEG export** of individual pages from the preview server. This is useful for:
 
-### New: TypeScript Control Flow Evaluation (December 2025)
+- Generating thumbnail images
+- Creating social media preview images
+- Exporting pages without PDF conversion
+- Photo book page proofing
+
+**Key Features:**
+
+| Feature | Description |
+|---------|-------------|
+| TrueType text rendering | Anti-aliased glyph rasterization using scanline fill |
+| Font family support | Select fonts by name (Open Sans, Cinzel, Noto Sans, etc.) |
+| Text alignment | left, center, right alignment |
+| JPEG image compositing | Decode, scale, and composite JPEG images |
+| objectFit: cover | Scale and center-crop images to fill container |
+| Per-page export | Export individual pages as JPEG via HTTP API |
+| Configurable scale | 1x, 2x, 3x resolution multiplier |
+
+**Usage:**
+
+Export a page as JPEG from the preview server:
+
+```
+GET /export-png?page=1&scale=2
+```
+
+Parameters:
+- `page` - Page number (1-based)
+- `scale` - Resolution multiplier (default: 2)
+
+**Architecture:**
+
+```
+┌─────────────────┐    ┌──────────────┐    ┌─────────────────┐
+│ EVG Element     │───▶│ EVGLayout    │───▶│ EVGRasterRenderer│
+│ (from TSX)      │    │ (position)   │    │ (pixel buffer)  │
+└─────────────────┘    └──────────────┘    └─────────────────┘
+                                                    │
+                       ┌──────────────┐             │
+                       │ RasterText   │◀────────────┤
+                       │ (TTF glyphs) │             │
+                       └──────────────┘             │
+                                                    ▼
+┌─────────────────┐    ┌──────────────┐    ┌─────────────────┐
+│ JPEGDecoder     │───▶│ ImageBuffer  │───▶│ JPEGEncoder     │
+│ (load images)   │    │ (RGBA pixels)│    │ (output)        │
+└─────────────────┘    └──────────────┘    └─────────────────┘
+```
+
+**Files:**
+
+- `src/tools/evg_preview_server.rgr` - HTTP server with export endpoint
+- `src/raster/EVGRasterRenderer.rgr` - Main raster rendering logic
+- `src/raster/RasterText.rgr` - TrueType glyph parsing and scanline fill
+- `src/raster/RasterBuffer.rgr` - RGBA pixel buffer operations
+- `src/core/ImageUtils.rgr` - Shared image utilities (objectFit, path resolution)
+
+### TypeScript Control Flow Evaluation (December 2025)
 
 The ComponentEngine now supports **full TypeScript control flow evaluation**, enabling dynamic document generation with loops, conditionals, and array operations.
 

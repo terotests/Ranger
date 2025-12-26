@@ -1,0 +1,261 @@
+; ImageUtils.rgr - Shared image utility functions for PDF and Raster rendering
+; This module provides common image operations to avoid code duplication.
+
+Import "../jpeg/JPEGReader.rgr"
+Import "../jpeg/JPEGDecoder.rgr"
+Import "../jpeg/JPEGMetadata.rgr"
+Import "../jpeg/ImageBuffer.rgr"
+
+; Result of objectFit calculation
+class ObjectFitResult {
+    def renderW:double 0.0
+    def renderH:double 0.0
+    def offsetX:double 0.0
+    def offsetY:double 0.0
+    def isValid:boolean false
+    
+    Constructor () {
+    }
+}
+
+; Image dimensions with validity flag
+class ImageDimensions {
+    def width:int 0
+    def height:int 0
+    def isValid:boolean false
+    
+    Constructor () {
+    }
+    
+    fn set:void (w:int h:int) {
+        width = w
+        height = h
+        isValid = true
+    }
+}
+
+; Shared image utilities
+class ImageUtils {
+    def baseDir:string ""
+    def metadataParser:JPEGMetadataParser (new JPEGMetadataParser())
+    
+    ; Cache for image dimensions
+    def dimensionsCacheKeys:[string]
+    def dimensionsCache:[ImageDimensions]
+    
+    Constructor () {
+        def keys:[string]
+        dimensionsCacheKeys = keys
+        def cache:[ImageDimensions]
+        dimensionsCache = cache
+    }
+    
+    fn setBaseDir:void (dir:string) {
+        baseDir = dir
+    }
+    
+    ; Calculate objectFit render dimensions
+    ; Returns: ObjectFitResult with renderW, renderH, offsetX, offsetY
+    fn calculateObjectFit:ObjectFitResult (containerW:double containerH:double imageW:double imageH:double objectFit:string) {
+        def result (new ObjectFitResult())
+        
+        if (containerW <= 0.0) {
+            return result
+        }
+        if (containerH <= 0.0) {
+            return result
+        }
+        if (imageW <= 0.0) {
+            return result
+        }
+        if (imageH <= 0.0) {
+            return result
+        }
+        
+        result.renderW = containerW
+        result.renderH = containerH
+        result.isValid = true
+        
+        ; Default to "cover" if not specified
+        if ((strlen objectFit) == 0) {
+            objectFit = "cover"
+        }
+        
+        def containerRatio:double (containerW / containerH)
+        def imageRatio:double (imageW / imageH)
+        
+        if (objectFit == "cover") {
+            ; Scale to cover entire container, may crop
+            if (imageRatio > containerRatio) {
+                ; Image is wider than container - scale by height, crop width
+                result.renderH = containerH
+                result.renderW = containerH * imageRatio
+                result.offsetX = (containerW - result.renderW) / 2.0
+            } {
+                ; Image is taller than container - scale by width, crop height
+                result.renderW = containerW
+                result.renderH = containerW / imageRatio
+                result.offsetY = (containerH - result.renderH) / 2.0
+            }
+        }
+        
+        if (objectFit == "contain") {
+            ; Scale to fit within container, may letterbox
+            if (imageRatio > containerRatio) {
+                ; Image is wider - fit to width, letterbox height
+                result.renderW = containerW
+                result.renderH = containerW / imageRatio
+                result.offsetY = (containerH - result.renderH) / 2.0
+            } {
+                ; Image is taller - fit to height, letterbox width
+                result.renderH = containerH
+                result.renderW = containerH * imageRatio
+                result.offsetX = (containerW - result.renderW) / 2.0
+            }
+        }
+        
+        ; For "fill" or default, use container dimensions as-is (stretch)
+        
+        return result
+    }
+    
+    ; Resolve image path with fallback to ./assets/ prefix
+    ; Returns: [dirPath, fileName] or ["", ""] if not found
+    fn resolveImagePath:string (src:string) {
+        def imgDir:string ""
+        def imgFile:string ""
+        def imgSrc:string src
+        
+        ; Remove leading "./" if present
+        if ((strlen src) > 2) {
+            def prefix:string (substring src 0 2)
+            if (prefix == "./") {
+                imgSrc = (substring src 2 (strlen src))
+            }
+        }
+        
+        ; Find last path separator
+        def lastSlash:int (lastIndexOf imgSrc "/")
+        def lastBackslash:int (lastIndexOf imgSrc "\\")
+        def lastSep:int lastSlash
+        if (lastBackslash > lastSep) {
+            lastSep = lastBackslash
+        }
+        
+        if (lastSep >= 0) {
+            imgDir = baseDir + (substring imgSrc 0 (lastSep + 1))
+            imgFile = (substring imgSrc (lastSep + 1) (strlen imgSrc))
+        } {
+            imgDir = baseDir
+            imgFile = imgSrc
+        }
+        
+        return (imgDir + "|" + imgFile)
+    }
+    
+    ; Parse resolved path string back to dir and file
+    fn parseResolvedPath:string (resolved:string idx:int) {
+        def sepIdx:int (indexOf resolved "|")
+        if (sepIdx < 0) {
+            return ""
+        }
+        if (idx == 0) {
+            return (substring resolved 0 sepIdx)
+        }
+        return (substring resolved (sepIdx + 1) (strlen resolved))
+    }
+    
+    ; Load image dimensions from file (with caching)
+    fn loadImageDimensions:ImageDimensions (src:string) {
+        ; Check cache first
+        def i:int 0
+        while (i < (array_length dimensionsCacheKeys)) {
+            def key:string (itemAt dimensionsCacheKeys i)
+            if (key == src) {
+                return (itemAt dimensionsCache i)
+            }
+            i = i + 1
+        }
+        
+        ; Not in cache, load from file
+        def dims (new ImageDimensions())
+        
+        ; Resolve path
+        def resolved:string (this.resolveImagePath(src))
+        def imgDir:string (this.parseResolvedPath(resolved 0))
+        def imgFile:string (this.parseResolvedPath(resolved 1))
+        
+        ; Read JPEG dimensions using JPEGReader
+        def reader:JPEGReader (new JPEGReader())
+        def jpegImage:JPEGImage (reader.readJPEG(imgDir imgFile))
+        
+        ; If file not found, try with ./assets/ prefix
+        if (jpegImage.isValid == false) {
+            def altDirPath:string ""
+            if ((indexOf src "./") == 0) {
+                altDirPath = baseDir + "assets/" + (substring src 2 (strlen src))
+            } {
+                altDirPath = baseDir + "assets/" + src
+            }
+            def altLastSlash:int (lastIndexOf altDirPath "/")
+            if (altLastSlash >= 0) {
+                imgDir = (substring altDirPath 0 (altLastSlash + 1))
+                imgFile = (substring altDirPath (altLastSlash + 1) (strlen altDirPath))
+            }
+            jpegImage = (reader.readJPEG(imgDir imgFile))
+        }
+        
+        if jpegImage.isValid {
+            ; Get EXIF orientation to determine final dimensions
+            def metaInfo:JPEGMetadataInfo (metadataParser.parseMetadata(imgDir imgFile))
+            def orientation:int metaInfo.orientation
+            
+            def imgW:int jpegImage.width
+            def imgH:int jpegImage.height
+            
+            ; Swap dimensions for 90/270 degree rotations
+            if ((orientation == 5) || (orientation == 6) || (orientation == 7) || (orientation == 8)) {
+                def tmp:int imgW
+                imgW = imgH
+                imgH = tmp
+            }
+            
+            dims.set(imgW imgH)
+        }
+        
+        ; Cache the result
+        push dimensionsCacheKeys src
+        push dimensionsCache dims
+        
+        return dims
+    }
+    
+    ; Decode JPEG image to ImageBuffer (with path resolution and fallback)
+    fn decodeImage:ImageBuffer (src:string) {
+        ; Resolve path
+        def resolved:string (this.resolveImagePath(src))
+        def imgDir:string (this.parseResolvedPath(resolved 0))
+        def imgFile:string (this.parseResolvedPath(resolved 1))
+        
+        def decoder:JPEGDecoder (new JPEGDecoder())
+        def imgBuffer:ImageBuffer (decoder.decode(imgDir imgFile))
+        
+        ; If decode failed (returns 1x1 error image), try alternative path with ./assets/ prefix
+        if (imgBuffer.width <= 1) {
+            def altDirPath:string ""
+            if ((indexOf src "./") == 0) {
+                altDirPath = baseDir + "assets/" + (substring src 2 (strlen src))
+            } {
+                altDirPath = baseDir + "assets/" + src
+            }
+            def altLastSlash:int (lastIndexOf altDirPath "/")
+            if (altLastSlash >= 0) {
+                imgDir = (substring altDirPath 0 (altLastSlash + 1))
+                imgFile = (substring altDirPath (altLastSlash + 1) (strlen altDirPath))
+            }
+            imgBuffer = (decoder.decode(imgDir imgFile))
+        }
+        
+        return imgBuffer
+    }
+}
