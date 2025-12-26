@@ -4,7 +4,7 @@
 ; Format: P6 (binary RGB) or P3 (ASCII RGB)
 ; Header: P6\n<width> <height>\n<maxval>\n<binary RGB data>
 
-Import "Buffer.rgr"
+Import "../core/Buffer.rgr"
 Import "ImageBuffer.rgr"
 
 class PPMImage {

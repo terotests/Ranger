@@ -23,3 +23,6 @@ jpeg_metadata.js
 # Temporary test outputs (not tracked)
 progressive_*.ppm
 progressive_*.png
+
+# Problematic images with JPEG decode/encode issues
+IMG_5857\ 2_frame_003.jpg

@@ -242,7 +242,26 @@ class PNGEncoder {
         this.writeChunk("IEND" data)
     }
     
-    ; Encode buffer to PNG
+    ; Encode buffer to PNG and return as buffer (for HTTP responses)
+    fn encodeToBuffer:buffer (buf:RasterBuffer) {
+        print ("Encoding PNG to buffer")
+        print ("  Image size: " + (to_string buf.width) + "x" + (to_string buf.height))
+        
+        ; Reset output
+        output = (new GrowableBuffer())
+        
+        this.writeSignature()
+        this.writeIHDR(buf.width buf.height)
+        this.writeIDAT(buf)
+        this.writeIEND()
+        
+        def finalSize:int (output.size())
+        print ("  Encoded size: " + (to_string finalSize) + " bytes")
+        
+        return (output.toBuffer())
+    }
+    
+    ; Encode buffer to PNG and save to file
     fn encode:void (buf:RasterBuffer dirPath:string fileName:string) {
         print ("Encoding PNG: " + fileName)
         print ("  Image size: " + (to_string buf.width) + "x" + (to_string buf.height))

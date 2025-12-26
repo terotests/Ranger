@@ -39,7 +39,19 @@
 
 Import "../jsx/ComponentEngine.rgr"
 Import "../core/EVGHTMLRenderer.rgr"
+Import "../core/EVGPDFRenderer.rgr"
+Import "../core/ImageUtils.rgr"
+Import "../fonts/FontManager.rgr"
 Import "../../../evg/EVGElement.rgr"
+Import "../../../evg/EVGLayout.rgr"
+Import "../raster/EVGRasterRenderer.rgr"
+Import "../raster/RasterText.rgr"
+Import "../raster/RasterCompositing.rgr"
+Import "../raster/RasterBuffer.rgr"
+Import "../raster/PNGEncoder.rgr"
+Import "../fonts/TrueTypeFont.rgr"
+Import "../jpeg/JPEGDecoder.rgr"
+Import "../jpeg/ImageBuffer.rgr"
 
 ; Preview Server with @(HttpServer) annotation
 class EVGPreviewServer@(HttpServer) {
@@ -52,6 +64,9 @@ class EVGPreviewServer@(HttpServer) {
     def port:int 3000
     def title:string "EVG Preview"
     def serverUrl:string ""
+    
+    ; Shared image utilities
+    def imageUtils:ImageUtils (new ImageUtils())
     
     ; Cached content for serving
     def cachedShellHTML:string ""
@@ -90,6 +105,9 @@ class EVGPreviewServer@(HttpServer) {
             inputDir = "./"
             inputFileName = inputFile
         }
+        
+        ; Set base directory for image utilities
+        imageUtils.setBaseDir(inputDir)
         
         ; Set title from filename
         title = inputFileName
@@ -163,7 +181,7 @@ class EVGPreviewServer@(HttpServer) {
         renderer.setPageSize(useWidth useHeight)
         renderer.setTitle(title)
         renderer.setBaseDir(inputDir)
-        renderer.setFontBasePath(inputDir + "../assets/fonts/")
+        renderer.setFontBasePath(inputDir + "assets/fonts/")
         renderer.setImageServer(serverUrl)
         
         ; Render content (without html/head/body wrapper)
@@ -326,6 +344,728 @@ class EVGPreviewServer@(HttpServer) {
         http_set_header res "Cache-Control" "max-age=3600"
         http_set_status res 200
         http_send_buffer res fileData
+    }
+    
+    ; GET /export-pdf - Generate and download PDF
+    fn handleExportPDF@(GET "/export-pdf"):void (req:HttpRequest res:HttpResponse) {
+        print "Generating PDF export..."
+        
+        ; Parse the TSX file fresh
+        def engine (new ComponentEngine())
+        ; Don't set page dimensions - let ComponentEngine parse them from Print element
+        
+        if ((strlen assetPaths) > 0) {
+            engine.setAssetPaths(assetPaths)
+        }
+        
+        def root:EVGElement (engine.parseFile(inputDir inputFileName))
+        
+        if (root.tagName == "") {
+            print "Error: Failed to parse TSX file for PDF export"
+            http_set_header res "Content-Type" "text/plain"
+            http_set_status res 500
+            http_send res "Error: Failed to parse TSX file"
+            return
+        }
+        
+        ; Use dimensions from ComponentEngine (which parsed Print element's format)
+        def useWidth:double engine.pageWidth
+        def useHeight:double engine.pageHeight
+        print "PDF page size from engine: " + (to_string useWidth) + "x" + (to_string useHeight)
+        
+        ; Create PDF renderer
+        def pdfRenderer (new EVGPDFRenderer())
+        pdfRenderer.setPageSize(useWidth useHeight)
+        pdfRenderer.setBaseDir(inputDir)
+        pdfRenderer.init(pdfRenderer)
+        
+        ; Load fonts for PDF rendering - relative to inputDir (where .tsx file is)
+        ; Structure: inputDir/assets/fonts/FontFamily/Font.ttf
+        def fontDir:string (inputDir + "assets/fonts/")
+        print ("PDF Font directory: " + fontDir)
+        
+        def fm:FontManager (new FontManager())
+        fm.setFontsDirectory(fontDir)
+        
+        ; Load common fonts
+        fm.loadFont("Open_Sans/OpenSans-Regular.ttf")
+        fm.loadFont("Open_Sans/OpenSans-Bold.ttf")
+        fm.loadFont("Helvetica/Helvetica.ttf")
+        fm.loadFont("Noto_Sans/NotoSans-Regular.ttf")
+        fm.loadFont("Noto_Sans/NotoSans-Bold.ttf")
+        
+        ; Load decorative fonts
+        fm.loadFont("Cinzel/Cinzel-Regular.ttf")
+        fm.loadFont("Cinzel/Cinzel-Bold.ttf")
+        fm.loadFont("Josefin_Sans/JosefinSans-Regular.ttf")
+        fm.loadFont("Gloria_Hallelujah/GloriaHallelujah.ttf")
+        fm.loadFont("Great_Vibes/GreatVibes-Regular.ttf")
+        fm.loadFont("Kaushan_Script/KaushanScript-Regular.ttf")
+        
+        pdfRenderer.setFontManager(fm)
+        
+        ; Render to PDF buffer
+        def pdfBuffer:buffer (pdfRenderer.render(root))
+        def pdfSize:int (buffer_length pdfBuffer)
+        
+        print ("PDF generated: " + (to_string pdfSize) + " bytes")
+        
+        ; Generate filename from input file
+        def outputName:string inputFileName
+        def dotIdx:int (lastIndexOf outputName ".")
+        if (dotIdx >= 0) {
+            outputName = (substring outputName 0 dotIdx)
+        }
+        outputName = outputName + ".pdf"
+        
+        ; Send PDF as download
+        http_set_header res "Content-Type" "application/pdf"
+        http_set_header res "Content-Disposition" ("attachment; filename=\"" + outputName + "\"")
+        http_set_header res "Cache-Control" "no-cache"
+        http_set_status res 200
+        http_send_buffer res pdfBuffer
+        
+        print ("PDF export complete: " + outputName)
+    }
+    
+    ; GET /page-info - Get information about document pages
+    fn handlePageInfo@(GET "/page-info"):void (req:HttpRequest res:HttpResponse) {
+        ; Parse the TSX file
+        def engine (new ComponentEngine())
+        if ((strlen assetPaths) > 0) {
+            engine.setAssetPaths(assetPaths)
+        }
+        
+        def root:EVGElement (engine.parseFile(inputDir inputFileName))
+        
+        if (root.tagName == "") {
+            http_set_header res "Content-Type" "application/json"
+            http_set_status res 500
+            http_send res "{\"error\": \"Failed to parse TSX file\"}"
+            return
+        }
+        
+        ; Count pages
+        def pageCount:int 1
+        if ((root.tagName == "section") || (root.tagName == "Section")) {
+            pageCount = (root.getChildCount())
+        }
+        
+        ; Build JSON response
+        def json:string "{"
+        json = json + "\"pageCount\": " + (to_string pageCount) + ","
+        json = json + "\"pageWidth\": " + (to_string engine.pageWidth) + ","
+        json = json + "\"pageHeight\": " + (to_string engine.pageHeight) + ","
+        json = json + "\"filename\": \"" + inputFileName + "\""
+        json = json + "}"
+        
+        http_set_header res "Content-Type" "application/json"
+        http_set_header res "Cache-Control" "no-cache"
+        http_set_status res 200
+        http_send res json
+    }
+    
+    ; GET /export-png - Generate and download PNG for a specific page
+    ; Query params: page=N (1-indexed, default=1), scale=S (default=1)
+    fn handleExportPNG@(GET "/export-png"):void (req:HttpRequest res:HttpResponse) {
+        ; Parse query parameters
+        def pageNum:int 1
+        def scale:double 1.0
+        
+        def pageParam:string (http_get_query req "page")
+        print ("DEBUG: pageParam raw = '" + pageParam + "'")
+        if ((strlen pageParam) > 0) {
+            def pageVal@(optional):int (to_int pageParam)
+            if pageVal {
+                pageNum = (unwrap pageVal)
+                print ("DEBUG: pageNum parsed = " + (to_string pageNum))
+            } {
+                print ("DEBUG: pageVal parse failed!")
+            }
+        } {
+            print ("DEBUG: pageParam is empty, using default 1")
+        }
+        
+        def scaleParam:string (http_get_query req "scale")
+        if ((strlen scaleParam) > 0) {
+            def scaleVal@(optional):double (to_double scaleParam)
+            if scaleVal {
+                scale = (unwrap scaleVal)
+            }
+        }
+        
+        print ("Generating PNG export for page " + (to_string pageNum) + " at scale " + (to_string scale) + "...")
+        
+        ; Parse the TSX file fresh
+        def engine (new ComponentEngine())
+        if ((strlen assetPaths) > 0) {
+            engine.setAssetPaths(assetPaths)
+        }
+        
+        def root:EVGElement (engine.parseFile(inputDir inputFileName))
+        
+        if (root.tagName == "") {
+            print "Error: Failed to parse TSX file for PNG export"
+            http_set_header res "Content-Type" "text/plain"
+            http_set_status res 500
+            http_send res "Error: Failed to parse TSX file"
+            return
+        }
+        
+        ; Use dimensions from ComponentEngine
+        def useWidth:double engine.pageWidth
+        def useHeight:double engine.pageHeight
+        print ("PNG page size: " + (to_string useWidth) + "x" + (to_string useHeight))
+        
+        ; Find the requested page element
+        def pageElement:EVGElement root
+        def pageCount:int 1
+        
+        ; Handle different document structures:
+        ; 1. Root is <print> containing <section> containing pages
+        ; 2. Root is <section> containing pages  
+        ; 3. Root is a single page
+        
+        def sectionElement:EVGElement root
+        
+        ; Check if root is a Print wrapper (contains Section as first child)
+        if ((root.tagName == "print") || (root.tagName == "Print")) {
+            print ("Root is Print wrapper, looking for Section child...")
+            if ((root.getChildCount()) > 0) {
+                def firstChild:EVGElement (root.getChild(0))
+                if ((firstChild.tagName == "section") || (firstChild.tagName == "Section")) {
+                    sectionElement = firstChild
+                    print ("Found Section inside Print")
+                }
+            }
+        }
+        
+        ; Check if we have a Section (either root or inside Print)
+        if ((sectionElement.tagName == "section") || (sectionElement.tagName == "Section")) {
+            pageCount = (sectionElement.getChildCount())
+            print ("Section has " + (to_string pageCount) + " pages")
+            
+            ; Debug: print info about each page
+            def dbgIdx:int 0
+            while (dbgIdx < pageCount) {
+                def dbgPage:EVGElement (sectionElement.getChild(dbgIdx))
+                def dbgChildCount:int (dbgPage.getChildCount())
+                print ("  Page " + (to_string (dbgIdx + 1)) + ": tag=" + dbgPage.tagName + " children=" + (to_string dbgChildCount))
+                ; Print first child info if exists
+                if (dbgChildCount > 0) {
+                    def firstChild:EVGElement (dbgPage.getChild(0))
+                    print ("    First child: tag=" + firstChild.tagName + " src=" + firstChild.src)
+                }
+                dbgIdx = dbgIdx + 1
+            }
+            
+            if (pageNum > pageCount) {
+                pageNum = pageCount
+            }
+            if (pageNum < 1) {
+                pageNum = 1
+            }
+            pageElement = (sectionElement.getChild((pageNum - 1)))
+            print ("Selected page " + (to_string pageNum) + " of " + (to_string pageCount) + " (tag: " + pageElement.tagName + ")")
+            print ("Page element BEFORE reset: x=" + (to_string pageElement.calculatedX) + " y=" + (to_string pageElement.calculatedY))
+        }
+        
+        ; IMPORTANT: Reset layout state before running layout
+        ; This ensures the page element and all children start fresh at (0,0)
+        print "Resetting layout state..."
+        pageElement.resetLayoutState()
+        print ("Page element AFTER reset: x=" + (to_string pageElement.calculatedX) + " y=" + (to_string pageElement.calculatedY))
+        
+        ; Run layout engine to compute calculatedX, calculatedY, calculatedWidth, calculatedHeight
+        ; The page element will now be laid out starting at (0,0) since we reset its state
+        print "Running layout engine..."
+        def layout:EVGLayout (new EVGLayout())
+        layout.setPageSize(useWidth useHeight)
+        layout.layout(pageElement)
+        print ("Page layout calculated: x=" + (to_string pageElement.calculatedX) + " y=" + (to_string pageElement.calculatedY) + " w=" + (to_string pageElement.calculatedWidth) + " h=" + (to_string pageElement.calculatedHeight))
+        
+        ; Calculate pixel dimensions
+        def pixelWidth:int (to_int (useWidth * scale))
+        def pixelHeight:int (to_int (useHeight * scale))
+        
+        print ("Raster size: " + (to_string pixelWidth) + "x" + (to_string pixelHeight) + " pixels")
+        
+        ; Initialize raster renderer
+        def renderer:EVGRasterRenderer (new EVGRasterRenderer())
+        renderer.init(pixelWidth pixelHeight)
+        renderer.clear(255 255 255 255)  ; White background
+        
+        ; Initialize font manager and text renderer
+        def fontDir:string ("./assets/fonts/")
+        def fm:FontManager (new FontManager())
+        fm.setFontsDirectory(fontDir)
+        
+        ; Load common fonts
+        fm.loadFont("Open_Sans/OpenSans-Regular.ttf")
+        fm.loadFont("Open_Sans/OpenSans-Bold.ttf")
+        fm.loadFont("Noto_Sans/NotoSans-Regular.ttf")
+        fm.loadFont("Noto_Sans/NotoSans-Bold.ttf")
+        fm.loadFont("Cinzel/Cinzel-Regular.ttf")
+        fm.loadFont("Cinzel/Cinzel-Bold.ttf")
+        
+        def textRenderer:RasterText (new RasterText())
+        def defaultFont:TrueTypeFont (fm.getFont("Open Sans"))
+        if (defaultFont.unitsPerEm > 0) {
+            textRenderer.setFont(defaultFont)
+        }
+        
+        ; No offset needed - after resetLayoutState and re-layout, 
+        ; the page element starts at (0,0)
+        print ("Page position after layout: (" + (to_string pageElement.calculatedX) + "," + (to_string pageElement.calculatedY) + ")")
+        
+        ; Render the page element with no offset (page is at origin after re-layout)
+        this.renderElementToPNG(renderer textRenderer fm pageElement scale 0.0 0.0)
+        
+        ; Also save as PNG for debugging
+        def pngEncoder:PNGEncoder (new PNGEncoder())
+        pngEncoder.encode((renderer.getBuffer()) "./output/" ("debug_page" + (to_string pageNum) + ".png"))
+        print "Saved debug PNG to ./output/"
+        
+        ; Save to temp file and read back (more reliable)
+        def tempDir:string "./output/"
+        def tempFile:string ("temp_export_page" + (to_string pageNum) + ".jpg")
+        renderer.saveAsJPEG(tempDir tempFile 92)
+        
+        ; Read the file back
+        def jpegBuffer:buffer (buffer_read_file tempDir tempFile)
+        
+        def jpegSize:int (buffer_length jpegBuffer)
+        print ("JPEG generated: " + (to_string jpegSize) + " bytes")
+        
+        ; Generate filename
+        def outputName:string inputFileName
+        def dotIdx:int (lastIndexOf outputName ".")
+        if (dotIdx >= 0) {
+            outputName = (substring outputName 0 dotIdx)
+        }
+        outputName = outputName + "_page" + (to_string pageNum) + ".jpg"
+        
+        ; Send JPEG as download
+        http_set_header res "Content-Type" "image/jpeg"
+        http_set_header res "Content-Disposition" ("attachment; filename=\"" + outputName + "\"")
+        http_set_header res "Cache-Control" "no-cache"
+        http_set_status res 200
+        http_send_buffer res jpegBuffer
+        
+        print ("JPEG export complete: " + outputName)
+    }
+    
+    ; Render EVG element to raster buffer for PNG export
+    fn renderElementToPNG:void (renderer:EVGRasterRenderer textRenderer:RasterText fm:FontManager el:EVGElement scale:double offsetX:double offsetY:double) {
+        ; Calculate position relative to the page (subtract page offset)
+        def x:double ((el.calculatedX * scale) - offsetX)
+        def y:double ((el.calculatedY * scale) - offsetY)
+        def w:double (el.calculatedWidth * scale)
+        def h:double (el.calculatedHeight * scale)
+        
+        ; Debug: print element being rendered
+        print ("Rendering element: <" + el.tagName + "> at (" + (to_string x) + "," + (to_string y) + ") size " + (to_string w) + "x" + (to_string h))
+        
+        ; Get border radius
+        def radius:int 0
+        if el.box.borderRadius.isSet {
+            radius = (to_int (el.box.borderRadius.pixels * scale))
+        }
+        
+        ; Render shadow first (if any)
+        if el.shadowColor.isSet {
+            def shadowR:int (el.shadowColor.red())
+            def shadowG:int (el.shadowColor.green())
+            def shadowB:int (el.shadowColor.blue())
+            def shadowA:int (to_int ((el.shadowColor.alpha()) * 255.0))
+            def blurRadius:int 0
+            def shadowOffX:int 0
+            def shadowOffY:int 0
+            
+            if el.shadowRadius.isSet {
+                blurRadius = (to_int (el.shadowRadius.pixels * scale))
+            }
+            if el.shadowOffsetX.isSet {
+                shadowOffX = (to_int (el.shadowOffsetX.pixels * scale))
+            }
+            if el.shadowOffsetY.isSet {
+                shadowOffY = (to_int (el.shadowOffsetY.pixels * scale))
+            }
+            
+            if (w > 0.0) {
+                if (h > 0.0) {
+                    renderer.renderShadowOnly(
+                        (to_int x) (to_int y) (to_int w) (to_int h) radius
+                        shadowR shadowG shadowB shadowA
+                        blurRadius shadowOffX shadowOffY
+                    )
+                }
+            }
+        }
+        
+        ; Render background
+        if el.backgroundColor.isSet {
+            def bgR:int (el.backgroundColor.red())
+            def bgG:int (el.backgroundColor.green())
+            def bgB:int (el.backgroundColor.blue())
+            def bgA:int (to_int ((el.backgroundColor.alpha()) * 255.0))
+            
+            if (w > 0.0) {
+                if (h > 0.0) {
+                    if (radius > 0) {
+                        renderer.fillRoundedRect((to_int x) (to_int y) (to_int w) (to_int h) radius bgR bgG bgB bgA)
+                    } {
+                        renderer.fillRect((to_int x) (to_int y) (to_int w) (to_int h) bgR bgG bgB bgA)
+                    }
+                }
+            }
+        }
+        
+        ; Render text content (for Label elements)
+        if ((strlen el.textContent) > 0) {
+            print ("Rendering text element: '" + el.textContent + "'")
+            print ("  Tag: " + el.tagName + ", Position: (" + (to_string x) + "," + (to_string y) + "), Size: " + (to_string w) + "x" + (to_string h))
+            
+            def textR:int 0
+            def textG:int 0
+            def textB:int 0
+            def textA:int 255
+            if el.color.isSet {
+                textR = (el.color.red())
+                textG = (el.color.green())
+                textB = (el.color.blue())
+                textA = (to_int ((el.color.alpha()) * 255.0))
+                print ("  Text color: RGB(" + (to_string textR) + "," + (to_string textG) + "," + (to_string textB) + ") A=" + (to_string textA))
+            } {
+                print ("  Text color: default black")
+            }
+            
+            def fontSize:double (14.0 * scale)
+            if el.fontSize.isSet {
+                fontSize = (el.fontSize.pixels * scale)
+                print ("  Font size: " + (to_string fontSize) + " (from element: " + (to_string el.fontSize.pixels) + ")")
+            } {
+                print ("  Font size: " + (to_string fontSize) + " (default)")
+            }
+            
+            ; Get padding for text positioning
+            def padLeft:double 0.0
+            def padTop:double 0.0
+            if el.box.paddingLeft.isSet {
+                padLeft = (el.box.paddingLeft.pixels * scale)
+            }
+            if el.box.paddingTop.isSet {
+                padTop = (el.box.paddingTop.pixels * scale)
+            }
+            print ("  Padding: left=" + (to_string padLeft) + ", top=" + (to_string padTop))
+            
+            ; Get font family from element, with fallback
+            def fontFamily:string el.fontFamily
+            if ((strlen fontFamily) == 0) {
+                fontFamily = "Open Sans"
+            }
+            print ("  Font family requested: '" + fontFamily + "'")
+            
+            ; Build font name with weight suffix
+            def fontName:string fontFamily
+            if (el.fontWeight == "bold") {
+                fontName = fontFamily + " Bold"
+                print ("  Font weight: bold -> looking for '" + fontName + "'")
+            } {
+                print ("  Font weight: regular -> looking for '" + fontName + "'")
+            }
+            
+            ; Try to get the requested font, fall back to Open Sans if not found
+            def requestedFont:TrueTypeFont (fm.getFont(fontName))
+            if (requestedFont.unitsPerEm > 0) {
+                textRenderer.setFont(requestedFont)
+                print ("  Font loaded: '" + fontName + "'")
+            } {
+                ; Try without Bold suffix
+                def fallbackFont:TrueTypeFont (fm.getFont(fontFamily))
+                if (fallbackFont.unitsPerEm > 0) {
+                    textRenderer.setFont(fallbackFont)
+                    print ("  Font fallback to: '" + fontFamily + "'")
+                } {
+                    ; Final fallback to Open Sans
+                    def defaultFontName:string "Open Sans"
+                    if (el.fontWeight == "bold") {
+                        defaultFontName = "Open Sans Bold"
+                    }
+                    def defaultFont:TrueTypeFont (fm.getFont(defaultFontName))
+                    if (defaultFont.unitsPerEm > 0) {
+                        textRenderer.setFont(defaultFont)
+                        print ("  Font fallback to default: '" + defaultFontName + "'")
+                    } {
+                        print ("  WARNING: No font loaded!")
+                    }
+                }
+            }
+            
+            ; Calculate text position with alignment
+            def textX:double (x + padLeft)
+            def textY:double (y + padTop)
+            
+            ; Handle text alignment (center, right)
+            if ((el.textAlign == "center") || (el.textAlign == "right")) {
+                ; Measure text width to calculate offset
+                def textWidth:double (textRenderer.measureTextWidth(el.textContent fontSize))
+                if (el.textAlign == "center") {
+                    textX = x + padLeft + ((w - textWidth) / 2.0)
+                    print ("  Text align: center, offset: " + (to_string ((w - textWidth) / 2.0)))
+                }
+                if (el.textAlign == "right") {
+                    textX = x + w - textWidth - padLeft
+                    print ("  Text align: right")
+                }
+            }
+            
+            print ("  Final text position: (" + (to_string textX) + "," + (to_string textY) + ")")
+            
+            textRenderer.renderText(
+                (renderer.getBuffer())
+                el.textContent
+                textX textY
+                fontSize
+                textR textG textB textA
+            )
+            print ("  Text rendered.")
+        }
+        
+        ; Render images
+        if ((el.tagName == "image") || (el.tagName == "Image") || (el.tagName == "img")) {
+            if ((strlen el.src) > 0) {
+                this.renderImageToPNG(renderer el x y w h scale)
+            }
+        }
+        
+        ; Render children recursively
+        def i:int 0
+        def childCount:int (el.getChildCount())
+        while (i < childCount) {
+            def child:EVGElement (el.getChild(i))
+            this.renderElementToPNG(renderer textRenderer fm child scale offsetX offsetY)
+            i = i + 1
+        }
+    }
+    
+    ; Render an image element to the raster buffer
+    fn renderImageToPNG:void (renderer:EVGRasterRenderer el:EVGElement x:double y:double w:double h:double scale:double) {
+        def src:string el.src
+        if ((strlen src) == 0) {
+            return
+        }
+        
+        print ("Rendering image: " + src)
+        
+        ; Use shared ImageUtils to decode image (handles path resolution and fallback)
+        def imgBuffer:ImageBuffer (imageUtils.decodeImage(src))
+        
+        if (imgBuffer.width <= 1) {
+            print ("  Failed to decode image: " + src)
+            return
+        }
+        
+        def imgW:double (to_double imgBuffer.width)
+        def imgH:double (to_double imgBuffer.height)
+        print ("  Image size: " + (to_string imgBuffer.width) + "x" + (to_string imgBuffer.height))
+        
+        ; Use shared ImageUtils for objectFit calculation
+        def containerW:double w
+        def containerH:double h
+        
+        ; Get parent container dimensions for clipping when element dimension is 0
+        ; Walk up the parent chain to find a container with actual dimensions
+        def parentW:double 0.0
+        def parentH:double 0.0
+        def ancestorEl:EVGElement el
+        def foundParent:boolean false
+        while ((ancestorEl.hasParent()) && (foundParent == false)) {
+            ancestorEl = (unwrap ancestorEl.parent)
+            def testW:double (ancestorEl.calculatedWidth * scale)
+            def testH:double (ancestorEl.calculatedHeight * scale)
+            ; Use this ancestor if it has both dimensions > 0
+            if ((testW > 0.0) && (testH > 0.0)) {
+                parentW = testW
+                parentH = testH
+                foundParent = true
+                print ("  Found ancestor container: " + (to_string parentW) + "x" + (to_string parentH) + " (" + ancestorEl.tagName + ")")
+            }
+        }
+        if (foundParent == false) {
+            print ("  No ancestor with dimensions found, using buffer size")
+            parentW = (to_double (renderer.getWidth()))
+            parentH = (to_double (renderer.getHeight()))
+        }
+        
+        ; Store original dimensions for clipping (before auto-calculation)
+        def originalW:double w
+        def originalH:double h
+        
+        ; If container height is 0, calculate it from image aspect ratio
+        if (containerH <= 0.0) {
+            if (containerW > 0.0) {
+                containerH = containerW * (imgH / imgW)
+                print ("  Container height was 0, calculated: " + (to_string containerH))
+            }
+        }
+        ; If container width is 0, calculate it from image aspect ratio
+        if (containerW <= 0.0) {
+            if (containerH > 0.0) {
+                containerW = containerH * (imgW / imgH)
+                print ("  Container width was 0, calculated: " + (to_string containerW))
+            }
+        }
+        
+        ; For clipping: use parent container dimensions when image dimension was 0
+        ; This ensures the image is clipped to fit within its parent container
+        def clipContainerW:double containerW
+        def clipContainerH:double containerH
+        
+        ; When original dimension was 0, use parent container size for clipping
+        if (originalW <= 0.0) {
+            if (parentW > 0.0) {
+                clipContainerW = parentW
+                print ("  Using parent width for clip: " + (to_string clipContainerW))
+            }
+        } {
+            clipContainerW = originalW
+        }
+        if (originalH <= 0.0) {
+            if (parentH > 0.0) {
+                clipContainerH = parentH
+                print ("  Using parent height for clip: " + (to_string clipContainerH))
+            }
+        } {
+            clipContainerH = originalH
+        }
+        
+        ; Calculate objectFit using the CLIP container size (parent) for proper centering
+        ; This ensures "cover" mode centers the image correctly within the visible area
+        def objectFit:string el.objectFit
+        def fitResult:ObjectFitResult (imageUtils.calculateObjectFit(clipContainerW clipContainerH imgW imgH objectFit))
+        
+        if (fitResult.isValid == false) {
+            print ("  ObjectFit calculation failed")
+            return
+        }
+        
+        def renderW:double fitResult.renderW
+        def renderH:double fitResult.renderH
+        def offsetX:double fitResult.offsetX
+        def offsetY:double fitResult.offsetY
+        
+        print ("  ObjectFit: clipContainer=" + (to_string clipContainerW) + "x" + (to_string clipContainerH) + " render=" + (to_string renderW) + "x" + (to_string renderH) + " offset=(" + (to_string offsetX) + "," + (to_string offsetY) + ")")
+        
+        ; Convert ImageBuffer to RasterBuffer for compositing
+        def srcBuf:RasterBuffer (new RasterBuffer())
+        srcBuf.create(imgBuffer.width imgBuffer.height)
+        
+        ; Copy pixels from ImageBuffer to RasterBuffer
+        def py:int 0
+        while (py < imgBuffer.height) {
+            def px:int 0
+            while (px < imgBuffer.width) {
+                def idx:int ((py * imgBuffer.width + px) * 4)
+                def r:int (buffer_get imgBuffer.pixels idx)
+                def g:int (buffer_get imgBuffer.pixels (idx + 1))
+                def b:int (buffer_get imgBuffer.pixels (idx + 2))
+                srcBuf.setPixel(px py r g b 255)
+                px = px + 1
+            }
+            py = py + 1
+        }
+        
+        ; Scale the image to render dimensions (simple nearest-neighbor for now)
+        def scaledBuf:RasterBuffer (new RasterBuffer())
+        scaledBuf.create((to_int renderW) (to_int renderH))
+        
+        def scaleX:double (imgW / renderW)
+        def scaleY:double (imgH / renderH)
+        
+        def dy:int 0
+        while (dy < (to_int renderH)) {
+            def dx:int 0
+            while (dx < (to_int renderW)) {
+                def srcPx:int (to_int ((to_double dx) * scaleX))
+                def srcPy:int (to_int ((to_double dy) * scaleY))
+                if (srcPx >= imgBuffer.width) {
+                    srcPx = (imgBuffer.width - 1)
+                }
+                if (srcPy >= imgBuffer.height) {
+                    srcPy = (imgBuffer.height - 1)
+                }
+                def p:RasterPixel (srcBuf.getPixel(srcPx srcPy))
+                scaledBuf.setPixel(dx dy p.r p.g p.b p.a)
+                dx = dx + 1
+            }
+            dy = dy + 1
+        }
+        
+        ; Composite the scaled image onto the main buffer with clipping
+        def destBuf:RasterBuffer (renderer.getBuffer())
+        
+        ; Clip to container bounds (use original bounds for clipping, not calculated)
+        def clipX:int (to_int x)
+        def clipY:int (to_int y)
+        def clipW:int (to_int clipContainerW)
+        def clipH:int (to_int clipContainerH)
+        
+        print ("  Clipping to: x=" + (to_string clipX) + " y=" + (to_string clipY) + " w=" + (to_string clipW) + " h=" + (to_string clipH))
+        
+        def srcStartX:int 0
+        def srcStartY:int 0
+        def dstX:int (clipX + (to_int offsetX))
+        def dstY:int (clipY + (to_int offsetY))
+        
+        ; Adjust for negative offsets (cover mode)
+        if (offsetX < 0.0) {
+            srcStartX = (to_int (0.0 - offsetX))
+            dstX = clipX
+        }
+        if (offsetY < 0.0) {
+            srcStartY = (to_int (0.0 - offsetY))
+            dstY = clipY
+        }
+        
+        print ("  Compositing: srcStart=(" + (to_string srcStartX) + "," + (to_string srcStartY) + ") dst=(" + (to_string dstX) + "," + (to_string dstY) + ")")
+        print ("  Scaled buffer size: " + (to_string (to_int renderW)) + "x" + (to_string (to_int renderH)))
+        
+        ; Calculate how much to copy
+        def copyW:int clipW
+        def copyH:int clipH
+        if (copyW > ((to_int renderW) - srcStartX)) {
+            copyW = ((to_int renderW) - srcStartX)
+        }
+        if (copyH > ((to_int renderH) - srcStartY)) {
+            copyH = ((to_int renderH) - srcStartY)
+        }
+        
+        ; Copy pixels with clipping
+        def cy:int 0
+        while (cy < copyH) {
+            def cx:int 0
+            while (cx < copyW) {
+                def finalDstX:int (dstX + cx)
+                def finalDstY:int (dstY + cy)
+                
+                ; Check bounds
+                if (finalDstX >= clipX) {
+                    if (finalDstX < (clipX + clipW)) {
+                        if (finalDstY >= clipY) {
+                            if (finalDstY < (clipY + clipH)) {
+                                def p:RasterPixel (scaledBuf.getPixel((srcStartX + cx) (srcStartY + cy)))
+                                destBuf.setPixel(finalDstX finalDstY p.r p.g p.b p.a)
+                            }
+                        }
+                    }
+                }
+                cx = cx + 1
+            }
+            cy = cy + 1
+        }
+        
+        print ("  Image rendered to (" + (to_string (to_int x)) + "," + (to_string (to_int y)) + ") size " + (to_string (to_int renderW)) + "x" + (to_string (to_int renderH)))
     }
     
     ; SSE /events - Live update stream

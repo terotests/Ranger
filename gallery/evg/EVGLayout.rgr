@@ -55,6 +55,12 @@ class EVGLayout {
             root.height = (EVGUnit.px(pageHeight))
         }
         
+        ; Explicitly set root position to (0, 0)
+        ; This is important when re-laying out a page that was previously 
+        ; positioned elsewhere in a multi-page document
+        root.calculatedX = 0.0
+        root.calculatedY = 0.0
+        
         ; Layout root at (0, 0)
         this.layoutElement(root 0.0 0.0 pageWidth pageHeight)
         
@@ -90,33 +96,64 @@ class EVGLayout {
         }
         
         ; For image elements, calculate dimensions based on aspect ratio
+        ; IMPORTANT: If the parent has fixed dimensions and the image should fill the parent,
+        ; use the parent dimensions as the container. The objectFit property handles 
+        ; how the actual image content is scaled within this container.
         if ((element.tagName == "image") || (element.tagName == "Image") || (element.tagName == "img")) {
             def imgSrc:string element.src
             if ((strlen imgSrc) > 0) {
                 def dims:EVGImageDimensions (imageMeasurer.getImageDimensions(imgSrc))
                 if dims.isValid {
+                    ; Store source dimensions for objectFit calculations in renderer
+                    element.sourceWidth = (to_double dims.width)
+                    element.sourceHeight = (to_double dims.height)
+                    
                     if (element.width.isSet && (element.height.isSet == false)) {
-                        ; Width is set, calculate height from aspect ratio
-                        height = (width / dims.aspectRatio)
-                        autoHeight = false
-                        this.log(("  Image aspect ratio: " + (to_string dims.aspectRatio) + " -> height=" + (to_string height)))
-                    }
-                    if ((element.width.isSet == false) && element.height.isSet) {
-                        ; Height is set, calculate width from aspect ratio
-                        width = (height * dims.aspectRatio)
-                        this.log(("  Image aspect ratio: " + (to_string dims.aspectRatio) + " -> width=" + (to_string width)))
-                    }
-                    if ((element.width.isSet == false) && (element.height.isSet == false)) {
-                        ; Neither set, use natural size (capped at parent)
-                        width = (to_double dims.width)
-                        height = (to_double dims.height)
-                        if (width > parentWidth) {
-                            def scale:double (parentWidth / width)
-                            width = parentWidth
-                            height = (height * scale)
+                        ; Width is set but height is not
+                        ; If parent has a fixed height, use it as the container height
+                        ; This matches HTML behavior where image container fills parent
+                        if (parentHeight > 0.0) {
+                            height = parentHeight
+                            this.log(("  Image container using parent height: " + (to_string width) + "x" + (to_string height)))
+                        } {
+                            ; No parent height constraint - calculate from aspect ratio
+                            height = (width / dims.aspectRatio)
+                            this.log(("  Image aspect ratio: " + (to_string dims.aspectRatio) + " -> height=" + (to_string height)))
                         }
                         autoHeight = false
-                        this.log(("  Image natural size: " + (to_string width) + "x" + (to_string height)))
+                    }
+                    if ((element.width.isSet == false) && element.height.isSet) {
+                        ; Height is set but width is not
+                        ; If parent has a fixed width, use it as the container width
+                        if (parentWidth > 0.0) {
+                            width = parentWidth
+                            this.log(("  Image container using parent width: " + (to_string width) + "x" + (to_string height)))
+                        } {
+                            ; No parent width constraint - calculate from aspect ratio
+                            width = (height * dims.aspectRatio)
+                            this.log(("  Image aspect ratio: " + (to_string dims.aspectRatio) + " -> width=" + (to_string width)))
+                        }
+                    }
+                    if ((element.width.isSet == false) && (element.height.isSet == false)) {
+                        ; Neither set - if parent has dimensions, fill parent (like 100% 100%)
+                        if ((parentWidth > 0.0) && (parentHeight > 0.0)) {
+                            width = parentWidth
+                            height = parentHeight
+                            this.log(("  Image filling parent: " + (to_string width) + "x" + (to_string height)))
+                        } {
+                            ; No parent constraints - use natural size (capped at parent)
+                            width = (to_double dims.width)
+                            height = (to_double dims.height)
+                            if (width > parentWidth) {
+                                if (parentWidth > 0.0) {
+                                    def scale:double (parentWidth / width)
+                                    width = parentWidth
+                                    height = (height * scale)
+                                }
+                            }
+                            this.log(("  Image natural size: " + (to_string width) + "x" + (to_string height)))
+                        }
+                        autoHeight = false
                     }
                 }
             }

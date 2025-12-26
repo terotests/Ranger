@@ -88,6 +88,7 @@ language {
         }
         go {
             type _type
+            range _range
         }
         rust {
             type r#type

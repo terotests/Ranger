@@ -1,0 +1,18 @@
+; Test JPEG decoder with problematic image
+; Compile: npm run -l=es6 ... 
+; Run: node jpeg_decode_test.js
+
+Import "src/jpeg/JPEGDecoder.rgr"
+
+class Main {
+    sfn m@(main):void () {
+        print "Testing JPEG decoder..."
+        
+        def decoder (new JPEGDecoder())
+        def img:ImageBuffer (decoder.decode("./assets/images/" "IMG_5857 2_frame_003.jpg"))
+        
+        print ("Decoded: " + (to_string img.width) + "x" + (to_string img.height))
+        
+        print "Done - check decoder output above for errors"
+    }
+}

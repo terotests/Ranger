@@ -44,6 +44,8 @@ class BitReader {
                     bytePos = bytePos + 1
                 } {
                     ; RST markers (D0-D7 = 208-215) - skip them
+                    ; These should only appear if DRI is set, but we skip them anyway
+                    ; as they should not affect entropy data
                     if ((nextByte >= 208) && (nextByte <= 215)) {
                         ; Skip the RST marker
                         bytePos = bytePos + 1
@@ -51,7 +53,7 @@ class BitReader {
                         this.loadNextByte()
                         return
                     }
-                    ; FF followed by other non-zero is a marker - shouldn't happen in entropy data
+                    ; FF followed by FF is padding, skip
                     if (nextByte == 255) {
                         ; FF FF padding, skip
                         bytePos = bytePos + 1
@@ -113,6 +115,28 @@ class BitReader {
     fn alignToByte:void () {
         ; Skip remaining bits in current byte
         bitPos = 0
+    }
+    
+    fn skipRestartMarker:boolean () {
+        ; Skip RST marker (FF D0-D7) after alignToByte()
+        ; Returns true if marker was found and skipped, false otherwise
+        ; Must be called after alignToByte() at restart interval boundaries
+        
+        if (bytePos + 1 >= dataEnd) {
+            return false
+        }
+        
+        def byte1:int (buffer_get data bytePos)
+        def byte2:int (buffer_get data (bytePos + 1))
+        
+        if ((byte1 == 255) && (byte2 >= 208) && (byte2 <= 215)) {
+            ; Valid RST marker found, skip it
+            bytePos = bytePos + 2
+            return true
+        }
+        
+        ; No RST marker found - this might indicate corruption or no DRI
+        return false
     }
     
     fn getBytePosition:int () {
