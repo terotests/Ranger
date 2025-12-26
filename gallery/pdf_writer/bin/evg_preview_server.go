@@ -10941,25 +10941,45 @@ func (this *EVGLayout) layoutElement (element *EVGElement, parentX float64, pare
     if  (int64(len([]rune(imgSrc)))) > int64(0) {
       var dims *EVGImageDimensions= this.imageMeasurer.value.(IFACE_EVGImageMeasurer).getImageDimensions(imgSrc);
       if  dims.isValid {
+        element.sourceWidth = float64( dims.width ); 
+        element.sourceHeight = float64( dims.height ); 
         if  element.width.value.(*EVGUnit).isSet && (element.height.value.(*EVGUnit).isSet == false) {
-          height = width / dims.aspectRatio; 
-          autoHeight = false; 
-          this.log((("  Image aspect ratio: " + (strconv.FormatFloat(dims.aspectRatio,'f', 6, 64))) + " -> height=") + (strconv.FormatFloat(height,'f', 6, 64)));
-        }
-        if  (element.width.value.(*EVGUnit).isSet == false) && element.height.value.(*EVGUnit).isSet {
-          width = height * dims.aspectRatio; 
-          this.log((("  Image aspect ratio: " + (strconv.FormatFloat(dims.aspectRatio,'f', 6, 64))) + " -> width=") + (strconv.FormatFloat(width,'f', 6, 64)));
-        }
-        if  (element.width.value.(*EVGUnit).isSet == false) && (element.height.value.(*EVGUnit).isSet == false) {
-          width = float64( dims.width ); 
-          height = float64( dims.height ); 
-          if  width > parentWidth {
-            var scale float64= parentWidth / width;
-            width = parentWidth; 
-            height = height * scale; 
+          if  parentHeight > 0.0 {
+            height = parentHeight; 
+            this.log((("  Image container using parent height: " + (strconv.FormatFloat(width,'f', 6, 64))) + "x") + (strconv.FormatFloat(height,'f', 6, 64)));
+          } else {
+            height = width / dims.aspectRatio; 
+            this.log((("  Image aspect ratio: " + (strconv.FormatFloat(dims.aspectRatio,'f', 6, 64))) + " -> height=") + (strconv.FormatFloat(height,'f', 6, 64)));
           }
           autoHeight = false; 
-          this.log((("  Image natural size: " + (strconv.FormatFloat(width,'f', 6, 64))) + "x") + (strconv.FormatFloat(height,'f', 6, 64)));
+        }
+        if  (element.width.value.(*EVGUnit).isSet == false) && element.height.value.(*EVGUnit).isSet {
+          if  parentWidth > 0.0 {
+            width = parentWidth; 
+            this.log((("  Image container using parent width: " + (strconv.FormatFloat(width,'f', 6, 64))) + "x") + (strconv.FormatFloat(height,'f', 6, 64)));
+          } else {
+            width = height * dims.aspectRatio; 
+            this.log((("  Image aspect ratio: " + (strconv.FormatFloat(dims.aspectRatio,'f', 6, 64))) + " -> width=") + (strconv.FormatFloat(width,'f', 6, 64)));
+          }
+        }
+        if  (element.width.value.(*EVGUnit).isSet == false) && (element.height.value.(*EVGUnit).isSet == false) {
+          if  (parentWidth > 0.0) && (parentHeight > 0.0) {
+            width = parentWidth; 
+            height = parentHeight; 
+            this.log((("  Image filling parent: " + (strconv.FormatFloat(width,'f', 6, 64))) + "x") + (strconv.FormatFloat(height,'f', 6, 64)));
+          } else {
+            width = float64( dims.width ); 
+            height = float64( dims.height ); 
+            if  width > parentWidth {
+              if  parentWidth > 0.0 {
+                var scale float64= parentWidth / width;
+                width = parentWidth; 
+                height = height * scale; 
+              }
+            }
+            this.log((("  Image natural size: " + (strconv.FormatFloat(width,'f', 6, 64))) + "x") + (strconv.FormatFloat(height,'f', 6, 64)));
+          }
+          autoHeight = false; 
         }
       }
     }
@@ -19159,11 +19179,31 @@ func (this *EVGPDFRenderer) renderElement (el *EVGElement, offsetX float64, offs
     this.streamBuffer.value.(*GrowableBuffer).writeString("q\n");
     this.applyClipPath(el.clipPath, x, pdfY, w, h);
   }
+  var hasOverflowClip bool= false;
+  if  el.overflow == "hidden" {
+    hasOverflowClip = true; 
+    this.streamBuffer.value.(*GrowableBuffer).writeString("q\n");
+    if  borderRadius > 0.0 {
+      this.drawRoundedRectPath(x, pdfY, w, h, borderRadius);
+      this.streamBuffer.value.(*GrowableBuffer).writeString("W n\n");
+    } else {
+      this.streamBuffer.value.(*GrowableBuffer).writeString((((((((strconv.FormatFloat(x,'f', 6, 64)) + " ") + (strconv.FormatFloat(pdfY,'f', 6, 64))) + " ") + (strconv.FormatFloat(w,'f', 6, 64))) + " ") + (strconv.FormatFloat(h,'f', 6, 64))) + " re W n\n");
+    }
+  }
   if  el.tagName != "text" {
     this.renderShadow(el, x, pdfY, w, h, borderRadius);
   }
   if  (int64(len([]rune(el.backgroundGradient)))) > int64(0) {
-    this.renderGradientBackground(el, x, pdfY, w, h, borderRadius);
+    var hasOpacity bool= false;
+    if  strings.Contains(el.backgroundGradient, "rgba") {
+      hasOpacity = true; 
+    }
+    if  strings.Contains(el.backgroundGradient, "transparent") {
+      hasOpacity = true; 
+    }
+    if  hasOpacity == false {
+      this.renderGradientBackground(el, x, pdfY, w, h, borderRadius);
+    }
   } else {
     var bgColor *EVGColor= el.backgroundColor.value.(*EVGColor);
     if  this.debug {
@@ -19194,6 +19234,9 @@ func (this *EVGPDFRenderer) renderElement (el *EVGElement, offsetX float64, offs
     i = i + int64(1); 
   }
   if  hasClipPath {
+    this.streamBuffer.value.(*GrowableBuffer).writeString("Q\n");
+  }
+  if  hasOverflowClip {
     this.streamBuffer.value.(*GrowableBuffer).writeString("Q\n");
   }
 }
@@ -19230,15 +19273,10 @@ func (this *EVGPDFRenderer) renderImage (el *EVGElement, x float64, y float64, w
   var imgName string= this.getImagePdfName(src);
   var origW float64= 0.0;
   var origH float64= 0.0;
-  var cacheIdx int64= int64(0);
-  for cacheIdx < (int64(len(this.imageDimensionsCacheKeys))) {
-    var src_key string= this.imageDimensionsCacheKeys[cacheIdx];
-    if  src_key == src {
-      var dims *EVGImageDimensions= this.imageDimensionsCache[cacheIdx];
-      origW = float64( dims.width ); 
-      origH = float64( dims.height ); 
-    }
-    cacheIdx = cacheIdx + int64(1); 
+  var dims *EVGImageDimensions= this.loadImageDimensions(src);
+  if  dims.isValid {
+    origW = float64( dims.width ); 
+    origH = float64( dims.height ); 
   }
   var renderW float64= w;
   var renderH float64= h;
@@ -19279,16 +19317,15 @@ func (this *EVGPDFRenderer) renderImage (el *EVGElement, x float64, y float64, w
     }
   }
   this.streamBuffer.value.(*GrowableBuffer).writeString("q\n");
-  var effectiveFit string= el.objectFit;
-  if  (int64(len([]rune(effectiveFit)))) == int64(0) {
-    effectiveFit = "cover"; 
+  var borderRadius float64= 0.0;
+  if  el.box.value.(*EVGBox).borderRadius.value.(*EVGUnit).isSet {
+    borderRadius = el.box.value.(*EVGBox).borderRadius.value.(*EVGUnit).pixels; 
   }
-  if  effectiveFit == "cover" {
-    if  origW > 0.0 {
-      if  origH > 0.0 {
-        this.streamBuffer.value.(*GrowableBuffer).writeString(((((((this.formatNum(x) + " ") + this.formatNum(y)) + " ") + this.formatNum(w)) + " ") + this.formatNum(h)) + " re W n\n");
-      }
-    }
+  if  borderRadius > 0.0 {
+    this.drawRoundedRectPath(x, y, w, h, borderRadius);
+    this.streamBuffer.value.(*GrowableBuffer).writeString("W n\n");
+  } else {
+    this.streamBuffer.value.(*GrowableBuffer).writeString(((((((this.formatNum(x) + " ") + this.formatNum(y)) + " ") + this.formatNum(w)) + " ") + this.formatNum(h)) + " re W n\n");
   }
   var finalX float64= x + offsetX;
   var finalY float64= y + offsetY;

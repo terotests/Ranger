@@ -1232,12 +1232,28 @@ class EVGPDFRenderer {
             borderRadius = el.box.borderRadius.pixels
         }
         
-        ; Apply clip path if set
+        ; Apply clip path if set OR if overflow is hidden
         def hasClipPath:boolean false
         if ((strlen el.clipPath) > 0) {
             hasClipPath = true
             streamBuffer.writeString("q\n")
             this.applyClipPath(el.clipPath x pdfY w h)
+        }
+        
+        ; Apply overflow:hidden clipping - clips children to element bounds
+        def hasOverflowClip:boolean false
+        if (el.overflow == "hidden") {
+            hasOverflowClip = true
+            streamBuffer.writeString("q\n")
+            ; Create rectangle clip path for element bounds
+            if (borderRadius > 0.0) {
+                ; Rounded rectangle clipping
+                this.drawRoundedRectPath(x pdfY w h borderRadius)
+                streamBuffer.writeString("W n\n")
+            } {
+                ; Simple rectangle clipping
+                streamBuffer.writeString((to_string x) + " " + (to_string pdfY) + " " + (to_string w) + " " + (to_string h) + " re W n\n")
+            }
         }
         
         ; Render shadow first (behind everything) - but NOT for text elements
@@ -1247,8 +1263,19 @@ class EVGPDFRenderer {
         }
         
         ; Render gradient background if set
+        ; Skip gradients with opacity (rgba, transparent) - PDF can't blend properly
+        ; These will be handled by the raster engine later
         if ((strlen el.backgroundGradient) > 0) {
-            this.renderGradientBackground(el x pdfY w h borderRadius)
+            def hasOpacity:boolean false
+            if (contains el.backgroundGradient "rgba") {
+                hasOpacity = true
+            }
+            if (contains el.backgroundGradient "transparent") {
+                hasOpacity = true
+            }
+            if (hasOpacity == false) {
+                this.renderGradientBackground(el x pdfY w h borderRadius)
+            }
         } {
             ; Render solid background if set (with border radius)
             def bgColor:EVGColor (unwrap el.backgroundColor)
@@ -1297,6 +1324,11 @@ class EVGPDFRenderer {
         if hasClipPath {
             streamBuffer.writeString("Q\n")
         }
+        
+        ; Restore state if overflow clip was applied
+        if hasOverflowClip {
+            streamBuffer.writeString("Q\n")
+        }
     }
     
     fn getImagePdfName:string (src:string) {
@@ -1339,18 +1371,13 @@ class EVGPDFRenderer {
         ; Register the image for embedding
         def imgName:string (this.getImagePdfName(src))
         
-        ; Get original image dimensions from cache for objectFit calculation
+        ; Get original image dimensions for objectFit calculation
         def origW:double 0.0
         def origH:double 0.0
-        def cacheIdx:int 0
-        while (cacheIdx < (array_length imageDimensionsCacheKeys)) {
-            def src_key:string (itemAt imageDimensionsCacheKeys cacheIdx)
-            if (src_key == src) {
-                def dims:EVGImageDimensions (itemAt imageDimensionsCache cacheIdx)
-                origW = (to_double dims.width)
-                origH = (to_double dims.height)
-            }
-            cacheIdx = cacheIdx + 1
+        def dims:EVGImageDimensions (this.loadImageDimensions(src))
+        if dims.isValid {
+            origW = (to_double dims.width)
+            origH = (to_double dims.height)
         }
         
         ; Calculate actual render dimensions based on objectFit
@@ -1410,19 +1437,20 @@ class EVGPDFRenderer {
         ; where: a=scaleX, d=scaleY, e=translateX, f=translateY
         streamBuffer.writeString("q\n")
         
-        ; Determine effective objectFit (default to cover)
-        def effectiveFit:string el.objectFit
-        if ((strlen effectiveFit) == 0) {
-            effectiveFit = "cover"
+        ; Always clip to container bounds for ALL images
+        ; This matches HTML behavior where image containers have overflow:hidden
+        ; and ensures images never extend beyond their designated area
+        def borderRadius:double 0.0
+        if el.box.borderRadius.isSet {
+            borderRadius = el.box.borderRadius.pixels
         }
-        
-        ; Clip to container bounds for "cover" mode
-        if (effectiveFit == "cover") {
-            if (origW > 0.0) {
-                if (origH > 0.0) {
-                    streamBuffer.writeString((this.formatNum(x)) + " " + (this.formatNum(y)) + " " + (this.formatNum(w)) + " " + (this.formatNum(h)) + " re W n\n")
-                }
-            }
+        if (borderRadius > 0.0) {
+            ; Rounded rectangle clipping
+            this.drawRoundedRectPath(x y w h borderRadius)
+            streamBuffer.writeString("W n\n")
+        } {
+            ; Simple rectangle clipping
+            streamBuffer.writeString((this.formatNum(x)) + " " + (this.formatNum(y)) + " " + (this.formatNum(w)) + " " + (this.formatNum(h)) + " re W n\n")
         }
         
         def finalX:double (x + offsetX)
