@@ -1,0 +1,386 @@
+; =============================================================================
+; ranger_pdf_tool.rgr - Main entry point for ranger-pdf-tool NPM package
+; =============================================================================
+; This file imports and exposes all public APIs for the NPM package.
+; Compile with: -nodemodule flag to export all classes
+;
+; Usage:
+;   const { PDFBuilder, FontManager, EVGElement } = require('ranger-pdf-tool');
+; =============================================================================
+
+; Core rendering
+Import "../core/EVGPDFRenderer.rgr"
+Import "../core/EVGHTMLRenderer.rgr"
+Import "../core/Buffer.rgr"
+Import "../core/ImageUtils.rgr"
+
+; JSX/TSX parsing and evaluation
+Import "../jsx/ComponentEngine.rgr"
+Import "../jsx/JSXToEVG.rgr"
+Import "../jsx/EvalValue.rgr"
+
+; Font handling
+Import "../fonts/FontManager.rgr"
+Import "../fonts/TrueTypeFont.rgr"
+
+; Image handling
+Import "../jpeg/JPEGDecoder.rgr"
+Import "../jpeg/JPEGEncoder.rgr"
+Import "../jpeg/ImageBuffer.rgr"
+Import "../jpeg/JPEGMetadata.rgr"
+
+; Raster rendering
+Import "../raster/EVGRasterRenderer.rgr"
+Import "../raster/PNGEncoder.rgr"
+Import "../raster/RasterBuffer.rgr"
+Import "../raster/RasterText.rgr"
+
+; EVG Layout engine
+Import "../../../evg/EVGElement.rgr"
+Import "../../../evg/EVGLayout.rgr"
+Import "../../../evg/EVGColor.rgr"
+Import "../../../evg/EVGUnit.rgr"
+Import "../../../evg/EVGBox.rgr"
+Import "../../../evg/EVGGradient.rgr"
+
+; =============================================================================
+; PDFBuilder - High-level API for creating PDFs
+; =============================================================================
+class PDFBuilder {
+    def fontManager:FontManager (new FontManager())
+    def pageWidth:double 595.0
+    def pageHeight:double 842.0
+    def baseDir:string "./"
+    def debug:boolean false
+    
+    Constructor () {}
+    
+    ; Set page size in points (default A4: 595x842)
+    fn setPageSize:void (width:double height:double) {
+        pageWidth = width
+        pageHeight = height
+    }
+    
+    ; Set A4 portrait (595x842 points)
+    fn setA4Portrait:void () {
+        pageWidth = 595.0
+        pageHeight = 842.0
+    }
+    
+    ; Set A4 landscape (842x595 points)
+    fn setA4Landscape:void () {
+        pageWidth = 842.0
+        pageHeight = 595.0
+    }
+    
+    ; Set US Letter portrait (612x792 points)
+    fn setLetterPortrait:void () {
+        pageWidth = 612.0
+        pageHeight = 792.0
+    }
+    
+    ; Set US Letter landscape (792x612 points)
+    fn setLetterLandscape:void () {
+        pageWidth = 792.0
+        pageHeight = 612.0
+    }
+    
+    ; Set the fonts directory path
+    fn setFontsDirectory:void (dir:string) {
+        fontManager.setFontsDirectory(dir)
+    }
+    
+    ; Load a font file (relative to fonts directory)
+    fn loadFont:void (fontPath:string) {
+        fontManager.loadFont(fontPath)
+    }
+    
+    ; Set base directory for resolving relative paths (images, etc.)
+    fn setBaseDir:void (dir:string) {
+        baseDir = dir
+    }
+    
+    ; Enable debug output
+    fn setDebug:void (enabled:boolean) {
+        debug = enabled
+    }
+    
+    ; Parse TSX string and render to PDF buffer
+    fn renderTSX:buffer (tsxContent:string) {
+        def converter (new JSXToEVG())
+        converter.pageWidth = pageWidth
+        converter.pageHeight = pageHeight
+        def root:EVGElement (converter.parse(tsxContent))
+        return (this.renderElement(root))
+    }
+    
+    ; Parse TSX file and render to PDF buffer
+    fn renderTSXFile:buffer (dirPath:string fileName:string) {
+        def converter (new JSXToEVG())
+        converter.pageWidth = pageWidth
+        converter.pageHeight = pageHeight
+        def root:EVGElement (converter.parseFile(dirPath fileName))
+        return (this.renderElement(root))
+    }
+    
+    ; Render EVG element tree to PDF buffer
+    fn renderElement:buffer (root:EVGElement) {
+        def renderer (new EVGPDFRenderer())
+        renderer.init(renderer)
+        renderer.setPageSize(pageWidth pageHeight)
+        renderer.setFontManager(fontManager)
+        renderer.setBaseDir(baseDir)
+        if debug {
+            renderer.setDebug(true)
+        }
+        
+        ; Use TTF text measurer for accurate measurements
+        def ttfMeasurer (new TTFTextMeasurer(fontManager))
+        renderer.setMeasurer(ttfMeasurer)
+        
+        return (renderer.render(root))
+    }
+    
+    ; Get the font manager for direct access
+    fn getFontManager:FontManager () {
+        return fontManager
+    }
+}
+
+; =============================================================================
+; HTMLBuilder - High-level API for creating HTML
+; =============================================================================
+class HTMLBuilder {
+    def fontManager:FontManager (new FontManager())
+    def pageWidth:double 595.0
+    def pageHeight:double 842.0
+    def baseDir:string "./"
+    
+    Constructor () {}
+    
+    fn setPageSize:void (width:double height:double) {
+        pageWidth = width
+        pageHeight = height
+    }
+    
+    fn setFontsDirectory:void (dir:string) {
+        fontManager.setFontsDirectory(dir)
+    }
+    
+    fn loadFont:void (fontPath:string) {
+        fontManager.loadFont(fontPath)
+    }
+    
+    fn setBaseDir:void (dir:string) {
+        baseDir = dir
+    }
+    
+    ; Parse TSX string and render to HTML string
+    fn renderTSX:string (tsxContent:string) {
+        def converter (new JSXToEVG())
+        converter.pageWidth = pageWidth
+        converter.pageHeight = pageHeight
+        def root:EVGElement (converter.parse(tsxContent))
+        return (this.renderElement(root))
+    }
+    
+    ; Render EVG element tree to HTML string
+    fn renderElement:string (root:EVGElement) {
+        def renderer (new EVGHTMLRenderer())
+        renderer.setPageSize(pageWidth pageHeight)
+        renderer.setFontManager(fontManager)
+        renderer.setBaseDir(baseDir)
+        
+        def ttfMeasurer (new TTFTextMeasurer(fontManager))
+        renderer.setMeasurer(ttfMeasurer)
+        
+        return (renderer.render(root))
+    }
+}
+
+; =============================================================================
+; RasterBuilder - High-level API for creating raster images (PNG/JPEG)
+; =============================================================================
+class RasterBuilder {
+    def fontManager:FontManager (new FontManager())
+    def pageWidth:double 595.0
+    def pageHeight:double 842.0
+    def baseDir:string "./"
+    def scale:double 2.0
+    def quality:int 85
+    
+    Constructor () {}
+    
+    fn setPageSize:void (width:double height:double) {
+        pageWidth = width
+        pageHeight = height
+    }
+    
+    fn setFontsDirectory:void (dir:string) {
+        fontManager.setFontsDirectory(dir)
+    }
+    
+    fn loadFont:void (fontPath:string) {
+        fontManager.loadFont(fontPath)
+    }
+    
+    fn setBaseDir:void (dir:string) {
+        baseDir = dir
+    }
+    
+    ; Set render scale (1.0 = 72dpi, 2.0 = 144dpi, etc.)
+    fn setScale:void (s:double) {
+        scale = s
+    }
+    
+    ; Set JPEG quality (1-100)
+    fn setQuality:void (q:int) {
+        quality = q
+    }
+    
+    ; Parse TSX and render to PNG buffer
+    fn renderTSXToPNG:buffer (tsxContent:string) {
+        def converter (new JSXToEVG())
+        converter.pageWidth = pageWidth
+        converter.pageHeight = pageHeight
+        def root:EVGElement (converter.parse(tsxContent))
+        return (this.renderElementToPNG(root))
+    }
+    
+    ; Render EVG element to PNG buffer
+    fn renderElementToPNG:buffer (root:EVGElement) {
+        def renderer (new EVGRasterRenderer())
+        renderer.setScale(scale)
+        renderer.setFontManager(fontManager)
+        renderer.setBaseDir(baseDir)
+        
+        def rasterText (new RasterText())
+        rasterText.setFontManager(fontManager)
+        renderer.setRasterText(rasterText)
+        
+        def imgBuf:ImageBuffer (renderer.render(root pageWidth pageHeight))
+        
+        def encoder (new PNGEncoder())
+        return (encoder.encode(imgBuf))
+    }
+    
+    ; Render EVG element to JPEG buffer
+    fn renderElementToJPEG:buffer (root:EVGElement) {
+        def renderer (new EVGRasterRenderer())
+        renderer.setScale(scale)
+        renderer.setFontManager(fontManager)
+        renderer.setBaseDir(baseDir)
+        
+        def rasterText (new RasterText())
+        rasterText.setFontManager(fontManager)
+        renderer.setRasterText(rasterText)
+        
+        def imgBuf:ImageBuffer (renderer.render(root pageWidth pageHeight))
+        
+        def encoder (new JPEGEncoder())
+        encoder.setQuality(quality)
+        return (encoder.encode(imgBuf))
+    }
+}
+
+; =============================================================================
+; ComponentBuilder - High-level API for TSX with component support
+; =============================================================================
+class ComponentBuilder {
+    def engine:ComponentEngine (new ComponentEngine())
+    def fontManager:FontManager (new FontManager())
+    def pageWidth:double 595.0
+    def pageHeight:double 842.0
+    def baseDir:string "./"
+    
+    Constructor () {}
+    
+    fn setPageSize:void (width:double height:double) {
+        pageWidth = width
+        pageHeight = height
+    }
+    
+    fn setFontsDirectory:void (dir:string) {
+        fontManager.setFontsDirectory(dir)
+    }
+    
+    fn loadFont:void (fontPath:string) {
+        fontManager.loadFont(fontPath)
+    }
+    
+    fn setBaseDir:void (dir:string) {
+        baseDir = dir
+        engine.setBaseDir(dir)
+    }
+    
+    ; Add a component search path
+    fn addComponentPath:void (path:string) {
+        engine.addSearchPath(path)
+    }
+    
+    ; Parse TSX file with component resolution and return EVG tree
+    fn parseFile:EVGElement (dirPath:string fileName:string) {
+        engine.setPrintSettings("A4" "portrait" pageWidth pageHeight)
+        return (engine.parseFile(dirPath fileName))
+    }
+    
+    ; Parse TSX string with component resolution and return EVG tree
+    fn parse:EVGElement (tsxContent:string) {
+        engine.setPrintSettings("A4" "portrait" pageWidth pageHeight)
+        return (engine.parse(tsxContent))
+    }
+    
+    ; Render parsed TSX to PDF
+    fn renderToPDF:buffer (root:EVGElement) {
+        def pdfBuilder (new PDFBuilder())
+        pdfBuilder.fontManager = fontManager
+        pdfBuilder.pageWidth = pageWidth
+        pdfBuilder.pageHeight = pageHeight
+        pdfBuilder.baseDir = baseDir
+        return (pdfBuilder.renderElement(root))
+    }
+    
+    ; Render parsed TSX to HTML
+    fn renderToHTML:string (root:EVGElement) {
+        def htmlBuilder (new HTMLBuilder())
+        htmlBuilder.fontManager = fontManager
+        htmlBuilder.pageWidth = pageWidth
+        htmlBuilder.pageHeight = pageHeight
+        htmlBuilder.baseDir = baseDir
+        return (htmlBuilder.renderElement(root))
+    }
+}
+
+; =============================================================================
+; RangerPDFTool - Factory class for module exports
+; =============================================================================
+class RangerPDFTool {
+    ; Factory methods for easy instantiation
+    sfn createPDFBuilder:PDFBuilder () {
+        return (new PDFBuilder())
+    }
+    
+    sfn createHTMLBuilder:HTMLBuilder () {
+        return (new HTMLBuilder())
+    }
+    
+    sfn createRasterBuilder:RasterBuilder () {
+        return (new RasterBuilder())
+    }
+    
+    sfn createComponentBuilder:ComponentBuilder () {
+        return (new ComponentBuilder())
+    }
+    
+    sfn createFontManager:FontManager () {
+        return (new FontManager())
+    }
+    
+    sfn createEVGElement:EVGElement () {
+        return (new EVGElement())
+    }
+    
+    sfn createEVGLayout:EVGLayout () {
+        return (new EVGLayout())
+    }
+}

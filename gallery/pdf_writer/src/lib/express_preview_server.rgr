@@ -1,0 +1,420 @@
+; =============================================================================
+; express_preview_server.rgr - Express.js HTTP Wrapper for EVG Preview
+; =============================================================================
+;
+; A Node.js/Express-based preview server for EVG/TSX documents.
+; This is the JavaScript equivalent of the Go-based evg_preview_server.
+;
+; USAGE (after npm install ranger-pdf-tool):
+;   const { createPreviewServer } = require('ranger-pdf-tool/server');
+;   const server = createPreviewServer({ port: 3000 });
+;   server.setInputFile('./document.tsx');
+;   server.start();
+;
+; Or programmatically:
+;   const { EVGPreviewServerNode } = require('ranger-pdf-tool');
+;   const server = new EVGPreviewServerNode();
+;   server.initialize('./document.tsx', 3000, './assets');
+;
+; =============================================================================
+
+Import "../jsx/ComponentEngine.rgr"
+Import "../core/EVGHTMLRenderer.rgr"
+Import "../core/EVGPDFRenderer.rgr"
+Import "../core/ImageUtils.rgr"
+Import "../fonts/FontManager.rgr"
+Import "../../../evg/EVGElement.rgr"
+Import "../../../evg/EVGLayout.rgr"
+Import "../raster/EVGRasterRenderer.rgr"
+Import "../raster/RasterText.rgr"
+Import "../raster/RasterCompositing.rgr"
+Import "../raster/RasterBuffer.rgr"
+Import "../raster/PNGEncoder.rgr"
+Import "../fonts/TrueTypeFont.rgr"
+Import "../jpeg/JPEGDecoder.rgr"
+Import "../jpeg/ImageBuffer.rgr"
+
+; Express.js Preview Server for Node.js
+class EVGPreviewServerNode {
+    def inputFile:string ""
+    def inputDir:string ""
+    def inputFileName:string ""
+    def assetPaths:string ""
+    def pageWidth:double 595.0
+    def pageHeight:double 842.0
+    def port:int 3000
+    def title:string "EVG Preview"
+    def serverUrl:string ""
+    
+    ; Shared image utilities
+    def imageUtils:ImageUtils (new ImageUtils())
+    
+    ; Cached content for serving
+    def cachedShellHTML:string ""
+    def cachedContentHTML:string ""
+    def cachedFontsCSS:string ""
+    
+    ; Last modification time for auto-reload
+    def lastModTime:int 0
+    
+    fn initialize:void (tsxFile:string serverPort:int assets:string) {
+        inputFile = tsxFile
+        port = serverPort
+        assetPaths = assets
+        serverUrl = "http://localhost:" + (to_string port)
+        
+        ; Extract directory and filename
+        def lastSlash:int (lastIndexOf inputFile "/")
+        def lastBackslash:int (lastIndexOf inputFile "\\")
+        def lastSep:int lastSlash
+        if (lastBackslash > lastSep) {
+            lastSep = lastBackslash
+        }
+        
+        if (lastSep >= 0) {
+            inputDir = (substring inputFile 0 (lastSep + 1))
+            inputFileName = (substring inputFile (lastSep + 1) (strlen inputFile))
+        } {
+            inputDir = "./"
+            inputFileName = inputFile
+        }
+        
+        ; Set base directory for image utilities
+        imageUtils.setBaseDir(inputDir)
+        
+        ; Set title from filename
+        title = inputFileName
+        
+        ; Initial render
+        this.reloadContent()
+    }
+    
+    fn setInputFile:void (tsxFile:string) {
+        inputFile = tsxFile
+        ; Re-extract directory
+        def lastSlash:int (lastIndexOf inputFile "/")
+        def lastBackslash:int (lastIndexOf inputFile "\\")
+        def lastSep:int lastSlash
+        if (lastBackslash > lastSep) {
+            lastSep = lastBackslash
+        }
+        if (lastSep >= 0) {
+            inputDir = (substring inputFile 0 (lastSep + 1))
+            inputFileName = (substring inputFile (lastSep + 1) (strlen inputFile))
+        } {
+            inputDir = "./"
+            inputFileName = inputFile
+        }
+        imageUtils.setBaseDir(inputDir)
+        title = inputFileName
+        this.reloadContent()
+    }
+    
+    fn setPageSize:void (width:double height:double) {
+        pageWidth = width
+        pageHeight = height
+    }
+    
+    fn setAssetPaths:void (paths:string) {
+        assetPaths = paths
+    }
+    
+    fn reloadContent:void () {
+        print "Parsing TSX file: " + inputFile
+        
+        ; Use ComponentEngine for full component support
+        def engine (new ComponentEngine())
+        engine.pageWidth = pageWidth
+        engine.pageHeight = pageHeight
+        
+        ; Set asset paths for component and resource resolution
+        if ((strlen assetPaths) > 0) {
+            engine.setAssetPaths(assetPaths)
+        }
+        
+        def root:EVGElement (engine.parseFile(inputDir inputFileName))
+        
+        if (root.tagName == "") {
+            print "Error: Failed to parse TSX file"
+            cachedContentHTML = "<div style='color:red;padding:20px;'>Error: Failed to parse TSX file</div>"
+            return
+        }
+        
+        print "Parsed: <" + root.tagName + "> with " + (to_string (root.getChildCount())) + " children"
+        
+        ; Use Print element's dimensions if available
+        def useWidth:double pageWidth
+        def useHeight:double pageHeight
+        if (root.pageWidth > 0.0) {
+            useWidth = root.pageWidth
+        }
+        if (root.pageHeight > 0.0) {
+            useHeight = root.pageHeight
+        }
+        
+        ; Create renderer
+        def renderer (new EVGHTMLRenderer())
+        renderer.setPageSize(useWidth useHeight)
+        renderer.setTitle(title)
+        renderer.setBaseDir(inputDir)
+        renderer.setFontBasePath(inputDir + "assets/fonts/")
+        renderer.setImageServer(serverUrl)
+        
+        ; Render content (without html/head/body wrapper)
+        cachedContentHTML = (renderer.renderContent(root))
+        
+        ; Generate shell HTML
+        cachedShellHTML = (renderer.generateShellHTML(serverUrl))
+        
+        ; Generate fonts CSS
+        cachedFontsCSS = (renderer.generateServerFontFaceCSS(serverUrl))
+        
+        print "Content rendered: " + (to_string (strlen cachedContentHTML)) + " bytes"
+    }
+    
+    ; Get the shell HTML for the index page
+    fn getShellHTML:string () {
+        return cachedShellHTML
+    }
+    
+    ; Get the rendered content HTML
+    fn getContentHTML:string () {
+        ; Reload on each request to pick up changes
+        this.reloadContent()
+        return cachedContentHTML
+    }
+    
+    ; Get the fonts CSS
+    fn getFontsCSS:string () {
+        return cachedFontsCSS
+    }
+    
+    ; Read an asset file and return as buffer
+    fn readAssetFile:buffer (assetPath:string) {
+        ; Try ./assets/ first
+        def fullPath:string ("./assets/" + assetPath)
+        def fileData:buffer (buffer_read_file "" fullPath)
+        
+        ; If not found, try inputDir/../assets/
+        if ((buffer_length fileData) == 0) {
+            fullPath = (inputDir + "../assets/" + assetPath)
+            fileData = (buffer_read_file "" fullPath)
+        }
+        
+        ; If still not found, try inputDir/assets/
+        if ((buffer_length fileData) == 0) {
+            fullPath = (inputDir + "assets/" + assetPath)
+            fileData = (buffer_read_file "" fullPath)
+        }
+        
+        return fileData
+    }
+    
+    ; Get MIME type for a file
+    fn getMimeType:string (path:string) {
+        def ext:string ""
+        def dotPos:int (lastIndexOf path ".")
+        if (dotPos >= 0) {
+            ext = (substring path (dotPos + 1) (strlen path))
+        }
+        
+        if (ext == "ttf") {
+            return "font/ttf"
+        }
+        if (ext == "otf") {
+            return "font/otf"
+        }
+        if (ext == "woff") {
+            return "font/woff"
+        }
+        if (ext == "woff2") {
+            return "font/woff2"
+        }
+        if (ext == "jpg") {
+            return "image/jpeg"
+        }
+        if (ext == "jpeg") {
+            return "image/jpeg"
+        }
+        if (ext == "png") {
+            return "image/png"
+        }
+        if (ext == "gif") {
+            return "image/gif"
+        }
+        if (ext == "svg") {
+            return "image/svg+xml"
+        }
+        if (ext == "css") {
+            return "text/css"
+        }
+        if (ext == "js") {
+            return "application/javascript"
+        }
+        if (ext == "json") {
+            return "application/json"
+        }
+        if (ext == "html") {
+            return "text/html"
+        }
+        return "application/octet-stream"
+    }
+    
+    ; Read an image and optionally resize it
+    fn readImageFile:buffer (imagePath:string maxWidth:int maxHeight:int) {
+        ; Read original image
+        def fileData:buffer (this.readAssetFile(imagePath))
+        
+        ; If no resize needed, return original
+        if (maxWidth <= 0) {
+            if (maxHeight <= 0) {
+                return fileData
+            }
+        }
+        
+        ; TODO: Implement image resizing using ImageBuffer/JPEGDecoder
+        ; For now, return original
+        return fileData
+    }
+    
+    fn getInputDir:string () {
+        return inputDir
+    }
+    
+    fn getInputFileName:string () {
+        return inputFileName
+    }
+    
+    fn getPort:int () {
+        return port
+    }
+    
+    fn getServerUrl:string () {
+        return serverUrl
+    }
+}
+
+; Factory function to create server with Express.js middleware handlers
+class ExpressPreviewFactory {
+    
+    ; Create route handlers for Express.js
+    ; Returns an object with handler functions that can be used with Express
+    fn createRouteHandlers:ExpressRouteHandlers (server:EVGPreviewServerNode) {
+        def handlers (new ExpressRouteHandlers())
+        handlers.server = server
+        return handlers
+    }
+}
+
+; Route handlers container for Express.js integration
+class ExpressRouteHandlers {
+    def server:EVGPreviewServerNode
+    
+    ; Handler for GET / - returns shell HTML
+    fn handleIndex:string () {
+        return server.getShellHTML()
+    }
+    
+    ; Handler for GET /content - returns content HTML
+    fn handleContent:string () {
+        return server.getContentHTML()
+    }
+    
+    ; Handler for GET /fonts.css - returns fonts CSS
+    fn handleFontsCSS:string () {
+        return server.getFontsCSS()
+    }
+    
+    ; Handler for assets - returns asset data and mime type
+    fn handleAsset:buffer (assetPath:string) {
+        return server.readAssetFile(assetPath)
+    }
+    
+    ; Get MIME type for asset path
+    fn getAssetMimeType:string (assetPath:string) {
+        return server.getMimeType(assetPath)
+    }
+}
+
+; CLI entry point
+Main {
+    def args:[string] (get_cmd_args)
+    def argc:int (array_length args)
+    
+    if (argc < 2) {
+        print "EVG Preview Server (Node.js)"
+        print ""
+        print "Usage: evg-preview <input.tsx> [port] [--assets=paths]"
+        print ""
+        print "Arguments:"
+        print "  input.tsx    TSX file to preview"
+        print "  port         Server port (default: 3000)"
+        print "  --assets     Comma-separated asset search paths"
+        print ""
+        print "Example:"
+        print "  evg-preview document.tsx 3006 --assets=./shared,./templates"
+        return
+    }
+    
+    def inputFile:string (itemAt args 1)
+    def port:int 3000
+    def assetPaths:string ""
+    
+    ; Parse additional arguments
+    def argIdx:int 2
+    while (argIdx < argc) {
+        def arg:string (itemAt args argIdx)
+        if ((indexOf arg "--assets=") == 0) {
+            assetPaths = (substring arg 9 (strlen arg))
+        } {
+            ; Try to parse as port number
+            def maybePort:int (str_to_int arg)
+            if (maybePort > 0) {
+                port = maybePort
+            }
+        }
+        argIdx = argIdx + 1
+    }
+    
+    print "================================================"
+    print " EVG Preview Server (Node.js / Express)"
+    print "================================================"
+    print ""
+    print "Input file: " + inputFile
+    print "Port: " + (to_string port)
+    if ((strlen assetPaths) > 0) {
+        print "Asset paths: " + assetPaths
+    }
+    print ""
+    
+    ; Create server instance
+    def server (new EVGPreviewServerNode())
+    server.initialize(inputFile port assetPaths)
+    
+    print ""
+    print "Server initialized."
+    print "To start the server, use the Express.js wrapper:"
+    print ""
+    print "  const express = require('express');"
+    print "  const { EVGPreviewServerNode, ExpressPreviewFactory } = require('ranger-pdf-tool');"
+    print ""
+    print "  const server = new EVGPreviewServerNode();"
+    print "  server.initialize('" + inputFile + "', " + (to_string port) + ", '" + assetPaths + "');"
+    print ""
+    print "  const app = express();"
+    print "  const factory = new ExpressPreviewFactory();"
+    print "  const handlers = factory.createRouteHandlers(server);"
+    print ""
+    print "  app.get('/', (req, res) => res.send(handlers.handleIndex()));"
+    print "  app.get('/content', (req, res) => res.send(handlers.handleContent()));"
+    print "  app.get('/fonts.css', (req, res) => {"
+    print "    res.type('text/css').send(handlers.handleFontsCSS());"
+    print "  });"
+    print "  app.get('/assets/*', (req, res) => {"
+    print "    const path = req.params[0];"
+    print "    res.type(handlers.getAssetMimeType(path)).send(handlers.handleAsset(path));"
+    print "  });"
+    print ""
+    print "  app.listen(" + (to_string port) + ");"
+    print ""
+}

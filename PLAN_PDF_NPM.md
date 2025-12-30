@@ -437,10 +437,11 @@ gallery/pdf_writer/
 │       ├── evg_png_tool.js
 │       └── evg_component_tool.js
 │
-├── types/                       # NEW: TypeScript declarations
-│   └── index.d.ts
-│
-├── bin/                         # Legacy compiled output (keep for now)
+├── bin/                         # Compiled CLI tools
+│   ├── evg_pdf_tool.js
+│   ├── evg_html_tool.js
+│   ├── evg_png_tool.js
+│   └── evg_component_tool.js
 ├── test/                        # Test files
 ├── examples/                    # Example TSX files
 ├── components/                  # Example components
@@ -450,43 +451,70 @@ gallery/pdf_writer/
 
 ---
 
+## Current Status (2024-12-30)
+
+**Package is CLI-only** - Programmatic API deferred due to API mismatches between `ranger_pdf_tool.rgr` and underlying classes.
+
+### Working CLI Tools:
+| Command | Description | Status |
+|---------|-------------|--------|
+| `evg-pdf` | TSX → PDF conversion | ✅ Working |
+| `evg-html` | TSX → HTML conversion | ✅ Working |
+| `evg-png` | TSX → PNG conversion | ✅ Working |
+| `evg-component` | Component compilation | ✅ Working |
+
+### Package.json Summary:
+```json
+{
+  "name": "ranger-pdf-tool",
+  "bin": {
+    "evg-pdf": "bin/evg_pdf_tool.js",
+    "evg-html": "bin/evg_html_tool.js",
+    "evg-png": "bin/evg_png_tool.js",
+    "evg-component": "bin/evg_component_tool.js"
+  },
+  "files": ["bin/", "README.md"]
+}
+```
+
+---
+
 ## Tasks Checklist
 
 ### Phase 1: Structure
-- [ ] Create `src/lib/` directory
-- [ ] Create `ranger_pdf_tool.rgr` module entry point
-- [ ] Update `gallery/pdf_writer/package.json`
-- [ ] Create `types/index.d.ts` placeholder
+- [x] Create `src/lib/` directory
+- [x] Create `ranger_pdf_tool.rgr` module entry point (not used in final package)
+- [x] Update `gallery/pdf_writer/package.json`
+- [ ] ~~Create `types/index.d.ts` placeholder~~ (not needed for CLI-only package)
 
 ### Phase 2: Build Scripts
-- [ ] Add `pdf:module` script to root package.json
-- [ ] Add CLI compilation scripts
-- [ ] Create combined `pdf:build` script
-- [ ] Test `-nodemodule` compilation
+- [x] Add CLI compilation scripts to package.json
+- [x] Create combined `build:all` script
+- [ ] ~~Add `pdf:module` script~~ (programmatic API deferred)
+- [ ] ~~Test `-nodemodule` compilation~~ (programmatic API deferred)
 
-### Phase 3: API Design
-- [ ] Define public API surface
-- [ ] Create `PDFBuilder` convenience class
-- [ ] Add in-memory PDF generation support
-- [ ] Ensure all classes are exported
+### Phase 3: API Design (DEFERRED)
+- [ ] ~~Define public API surface~~ (CLI-only for now)
+- [ ] ~~Create `PDFBuilder` convenience class~~ (exists but not exported)
+- [ ] ~~Add in-memory PDF generation support~~
+- [ ] ~~Ensure all classes are exported~~
 
-### Phase 4: TypeScript
-- [ ] Generate or write TypeScript declarations
-- [ ] Test with TypeScript consumers
+### Phase 4: TypeScript (DEFERRED)
+- [ ] ~~Generate or write TypeScript declarations~~
+- [ ] ~~Test with TypeScript consumers~~
 
 ### Phase 5: Testing
-- [ ] Add unit tests for API
-- [ ] Test CLI tools
+- [x] Test CLI tools (all 4 tools work)
 - [ ] Test npm pack and local installation
 
 ### Phase 6: Documentation
-- [ ] Update README.md with API docs
+- [ ] Update README.md with CLI docs
+- [x] CLI tools have --help output
 - [ ] Add usage examples
-- [ ] Document CLI commands
 
-### Phase 7: Preview Server
-- [ ] Decide on JavaScript HTTP approach
-- [ ] Implement Node.js wrapper or refactor
+### Phase 7: Preview Server (DEFERRED)
+- [ ] ~~Decide on JavaScript HTTP approach~~
+- [ ] ~~Implement Node.js wrapper or refactor~~
 
 ---
 
@@ -510,26 +538,26 @@ Include all dependencies (fonts, etc.) in the package.
 
 1. ✅ `npm install ranger-pdf-tool` works from any project
 2. ✅ CLI tools (`evg-pdf`, `evg-html`, etc.) work after global install
-3. ✅ Programmatic API allows in-memory PDF generation
-4. ✅ TypeScript types provide good IDE support
-5. ✅ Documentation covers all use cases
-6. ✅ Tests pass for both API and CLI
+3. ⏸️ Programmatic API allows in-memory PDF generation (DEFERRED)
+4. ⏸️ TypeScript types provide good IDE support (DEFERRED)
+5. ⏸️ Documentation covers all use cases (IN PROGRESS)
+6. 🔄 Tests pass for both API and CLI (CLI tested manually)
 
 ---
 
 ## Timeline Estimate
 
-| Phase | Effort | Dependencies |
-|-------|--------|--------------|
-| Phase 1: Structure | 2-4 hours | None |
-| Phase 2: Build Scripts | 2-4 hours | Phase 1 |
-| Phase 3: API Design | 4-8 hours | Phase 2 |
-| Phase 4: TypeScript | 2-4 hours | Phase 3 |
-| Phase 5: Testing | 4-8 hours | Phase 3 |
-| Phase 6: Documentation | 2-4 hours | Phase 5 |
-| Phase 7: Preview Server | 4-8 hours | Phase 3 |
+| Phase | Effort | Status |
+|-------|--------|--------|
+| Phase 1: Structure | 2-4 hours | ✅ Done |
+| Phase 2: Build Scripts | 2-4 hours | ✅ Done |
+| Phase 3: API Design | 4-8 hours | ⏸️ Deferred |
+| Phase 4: TypeScript | 2-4 hours | ⏸️ Deferred |
+| Phase 5: Testing | 4-8 hours | 🔄 Partial |
+| Phase 6: Documentation | 2-4 hours | 🔄 In Progress |
+| Phase 7: Preview Server | 4-8 hours | ⏸️ Deferred |
 
-**Total Estimate:** 20-40 hours
+**Remaining for CLI-only release:** ~4-8 hours (documentation + npm publish testing)
 
 ---
 

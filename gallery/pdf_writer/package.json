@@ -1,15 +1,37 @@
 {
-  "name": "pdf_writer",
+  "name": "ranger-pdf-tool",
   "version": "1.0.0",
-  "description": "A collection of binary format utilities written in Ranger:",
-  "main": "pdf_writer.js",
+  "description": "PDF, HTML, and PNG generation toolkit with EVG layout engine, TSX parser, and font support",
   "bin": {
-    "pdf_writer": "bin/evg_pdf_tool.js"
+    "evg-pdf": "bin/evg_pdf_tool.js",
+    "evg-html": "bin/evg_html_tool.js",
+    "evg-png": "bin/evg_png_tool.js",
+    "evg-component": "bin/evg_component_tool.js"
   },
   "scripts": {
+    "build:cli:pdf": "cd ../.. && cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 -nodecli ./gallery/pdf_writer/src/tools/evg_pdf_tool.rgr -d=./gallery/pdf_writer/bin -o=evg_pdf_tool.js",
+    "build:cli:html": "cd ../.. && cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 -nodecli ./gallery/pdf_writer/src/tools/evg_html_tool.rgr -d=./gallery/pdf_writer/bin -o=evg_html_tool.js",
+    "build:cli:png": "cd ../.. && cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 -nodecli ./gallery/pdf_writer/src/tools/evg_png_tool.rgr -d=./gallery/pdf_writer/bin -o=evg_png_tool.js",
+    "build:cli:component": "cd ../.. && cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 -nodecli ./gallery/pdf_writer/src/tools/evg_component_tool.rgr -d=./gallery/pdf_writer/bin -o=evg_component_tool.js",
+    "build:all": "npm run build:cli:pdf && npm run build:cli:html && npm run build:cli:png && npm run build:cli:component",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
+  "files": [
+    "bin/",
+    "README.md"
+  ],
+  "keywords": [
+    "pdf",
+    "html",
+    "png",
+    "layout",
+    "evg",
+    "tsx",
+    "react",
+    "document",
+    "generator",
+    "ranger"
+  ],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
@@ -17,5 +39,13 @@
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "typescript": "^5.9.3"
+  },
+  "peerDependencies": {
+    "express": "^4.18.0 || ^5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "express": {
+      "optional": true
+    }
   }
 }
