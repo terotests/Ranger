@@ -26975,6 +26975,310 @@ class ColorConsole  {
     console.log(str);
   };
 }
+class CLIProgress  {
+  constructor() {
+    this.useColors = true;
+    this.totalSteps = 5;
+    this.currentStep = 0;
+    this.startTime = 0.0;
+    this.stepStartTime = 0.0;
+    this.inputFile = "";
+    this.outputFile = "";
+    this.targetLanguage = "";
+    this.compilerVersion = "3.0.0-beta.1";
+    this.useColors = (process.stdout.isTTY || false);
+    this.startTime = Date.now();
+  }
+  setUseColors (use) {
+    this.useColors = use;
+  };
+  setCompilationInfo (input, output, target) {
+    this.inputFile = input;
+    this.outputFile = output;
+    this.targetLanguage = target;
+  };
+  checkMark () {
+    if ( this.useColors ) {
+      return "✓";
+    }
+    return "[OK]";
+  };
+  crossMark () {
+    if ( this.useColors ) {
+      return "✗";
+    }
+    return "[FAIL]";
+  };
+  arrowRight () {
+    if ( this.useColors ) {
+      return "→";
+    }
+    return "->";
+  };
+  bullet () {
+    if ( this.useColors ) {
+      return "•";
+    }
+    return "*";
+  };
+  lightning () {
+    if ( this.useColors ) {
+      return "⚡";
+    }
+    return "*";
+  };
+  green (text) {
+    if ( this.useColors ) {
+      return (("\x1b[32m") + text) + ("\x1b[0m");
+    }
+    return text;
+  };
+  red (text) {
+    if ( this.useColors ) {
+      return (("\x1b[31m") + text) + ("\x1b[0m");
+    }
+    return text;
+  };
+  yellow (text) {
+    if ( this.useColors ) {
+      return (("\x1b[33m") + text) + ("\x1b[0m");
+    }
+    return text;
+  };
+  cyan (text) {
+    if ( this.useColors ) {
+      return (("\x1b[36m") + text) + ("\x1b[0m");
+    }
+    return text;
+  };
+  blue (text) {
+    if ( this.useColors ) {
+      return (("\x1b[34m") + text) + ("\x1b[0m");
+    }
+    return text;
+  };
+  magenta (text) {
+    if ( this.useColors ) {
+      return (("\x1b[35m") + text) + ("\x1b[0m");
+    }
+    return text;
+  };
+  gray (text) {
+    if ( this.useColors ) {
+      return (("\x1b[90m") + text) + ("\x1b[0m");
+    }
+    return text;
+  };
+  dim (text) {
+    if ( this.useColors ) {
+      return (("\x1b[2m") + text) + ("\x1b[0m");
+    }
+    return text;
+  };
+  bold (text) {
+    if ( this.useColors ) {
+      return (("\x1b[1m") + text) + ("\x1b[0m");
+    }
+    return text;
+  };
+  boldCyan (text) {
+    if ( this.useColors ) {
+      return ((("\x1b[1m") + ("\x1b[36m")) + text) + ("\x1b[0m");
+    }
+    return text;
+  };
+  boldGreen (text) {
+    if ( this.useColors ) {
+      return ((("\x1b[1m") + ("\x1b[32m")) + text) + ("\x1b[0m");
+    }
+    return text;
+  };
+  boldRed (text) {
+    if ( this.useColors ) {
+      return ((("\x1b[1m") + ("\x1b[31m")) + text) + ("\x1b[0m");
+    }
+    return text;
+  };
+  success (msg) {
+    return (this.green(this.checkMark()) + " ") + msg;
+  };
+  error (msg) {
+    return (this.red(this.crossMark()) + " ") + msg;
+  };
+  warning (msg) {
+    return (this.yellow("⚠") + " ") + msg;
+  };
+  info (msg) {
+    return (this.cyan("ℹ") + " ") + msg;
+  };
+  divider () {
+    return this.gray("─────────────────────────────────────────────────────");
+  };
+  shortDivider () {
+    return this.gray("─────────────────────────");
+  };
+  padRight (text, width) {
+    let result = text;
+    let __len = text.length;
+    while (__len < width) {
+      result = result + " ";
+      __len = __len + 1;
+    };
+    return result;
+  };
+  padLeft (text, width) {
+    let result = text;
+    let __len = text.length;
+    while (__len < width) {
+      result = " " + result;
+      __len = __len + 1;
+    };
+    return result;
+  };
+  printHeader () {
+    console.log("");
+    console.log((this.boldCyan((this.lightning() + " Ranger Compiler")) + " ") + this.gray(("v" + this.compilerVersion)));
+    console.log("");
+  };
+  printCompilationInfo () {
+    if ( (this.inputFile.length) > 0 ) {
+      console.log((("  " + this.gray("Input:")) + "  ") + this.bold(this.inputFile));
+    }
+    if ( (this.outputFile.length) > 0 ) {
+      console.log((("  " + this.gray("Output:")) + " ") + this.bold(this.outputFile));
+    }
+    if ( (this.targetLanguage.length) > 0 ) {
+      const targetDisplay = this.getTargetDisplay(this.targetLanguage);
+      console.log((("  " + this.gray("Target:")) + " ") + targetDisplay);
+    }
+    console.log("");
+  };
+  getTargetDisplay (lang) {
+    switch (lang ) { 
+      case "es6" : 
+        return (this.yellow("JavaScript") + " ") + this.gray("(ES6)");
+      case "python" : 
+        return this.blue("Python");
+      case "go" : 
+        return this.cyan("Go");
+      case "rust" : 
+        return this.red("Rust");
+      case "java7" : 
+        return this.red("Java");
+      case "swift3" : 
+        return this.red("Swift 3");
+      case "swift6" : 
+        return this.red("Swift 6");
+      case "cpp" : 
+        return this.blue("C++");
+      case "csharp" : 
+        return this.magenta("C#");
+      case "kotlin" : 
+        return this.magenta("Kotlin");
+      case "php" : 
+        return this.magenta("PHP");
+      case "scala" : 
+        return this.red("Scala");
+      default: 
+        return lang;
+        break;
+    };
+    return lang;
+  };
+  step (stepNum, stepName) {
+    this.currentStep = stepNum;
+    this.stepStartTime = Date.now();
+    const stepLabel = ((("[" + ((stepNum.toString()))) + "/") + ((this.totalSteps.toString()))) + "]";
+    console.log(((this.cyan(stepLabel) + " ") + stepName) + "...");
+  };
+  stepWithDetail (stepNum, stepName, detail) {
+    this.currentStep = stepNum;
+    this.stepStartTime = Date.now();
+    const stepLabel = ((("[" + ((stepNum.toString()))) + "/") + ((this.totalSteps.toString()))) + "]";
+    console.log((((this.cyan(stepLabel) + " ") + stepName) + " ") + this.gray(detail));
+  };
+  printSuccess (outputPath) {
+    const endTime = Date.now();
+    const duration = endTime - this.startTime;
+    const durationStr = ((Math.floor( duration)).toString());
+    console.log("");
+    console.log(this.divider());
+    console.log("");
+    console.log(this.success("Compilation successful!"));
+    console.log("");
+    console.log((("  " + this.gray("Output:")) + " ") + outputPath);
+    console.log(((("  " + this.gray("Time:")) + "   ") + durationStr) + "ms");
+    console.log("");
+  };
+  printFailure (errorCount) {
+    const endTime = Date.now();
+    const duration = endTime - this.startTime;
+    const durationStr = ((Math.floor( duration)).toString());
+    console.log("");
+    console.log(this.divider());
+    console.log("");
+    let errorWord = "error";
+    if ( errorCount > 1 ) {
+      errorWord = "errors";
+    }
+    console.log((this.error("Compilation FAILED") + " ") + this.gray((((("(" + ((errorCount.toString()))) + " ") + errorWord) + ")")));
+    console.log("");
+  };
+  printCompilerError (filename, lineNum, colNum, description, lineContent, prevLine, nextLine) {
+    console.log("");
+    console.log((((this.bold(filename) + ":") + this.yellow(((lineNum.toString())))) + ":") + ((colNum.toString())));
+    console.log("");
+    console.log("  " + this.error(description));
+    console.log("");
+    const lineNumWidth = 4;
+    const prevLineNum = lineNum - 1;
+    const nextLineNum = lineNum + 1;
+    if ( (prevLine.length) > 0 ) {
+      const prevNumStr = this.padLeft(((prevLineNum.toString())), lineNumWidth);
+      console.log(("  " + this.gray((prevNumStr + " │ "))) + this.dim(prevLine));
+    }
+    const lineNumStr = this.padLeft(((lineNum.toString())), lineNumWidth);
+    console.log(("  " + this.red((lineNumStr + " │ "))) + lineContent);
+    let pointerPad = "";
+    let pi = 0;
+    while (pi < ((colNum + lineNumWidth) + 3)) {
+      pointerPad = pointerPad + " ";
+      pi = pi + 1;
+    };
+    console.log(("  " + pointerPad) + this.red("^── here"));
+    if ( (nextLine.length) > 0 ) {
+      const nextNumStr = this.padLeft(((nextLineNum.toString())), lineNumWidth);
+      console.log(("  " + this.gray((nextNumStr + " │ "))) + this.dim(nextLine));
+    }
+    console.log("");
+  };
+  printSimpleError (filename, lineNum, description, lineContent) {
+    console.log("");
+    console.log((this.bold(filename) + ":") + this.yellow(((lineNum.toString()))));
+    console.log("");
+    console.log("  " + this.error(description));
+    console.log("");
+    console.log(("  " + this.gray("│ ")) + lineContent);
+    console.log("");
+  };
+  printHelpHeader () {
+    this.printHeader();
+    console.log((((((this.gray("Usage:") + " rgrc ") + this.cyan("<file>")) + " ") + this.gray("[options]")) + " ") + this.gray("[flags]"));
+    console.log("");
+  };
+  printOption (option, description) {
+    const optStr = this.padRight((("-" + option) + "=<value>"), 20);
+    console.log((("  " + this.cyan(optStr)) + " ") + description);
+  };
+  printFlag (flag, description) {
+    const flagStr = this.padRight(("-" + flag), 20);
+    console.log((("  " + this.yellow(flagStr)) + " ") + description);
+  };
+  printSection (title) {
+    console.log("");
+    console.log(this.bold(title));
+  };
+}
 class RangerDocGenerator  {
   constructor() {
   }
@@ -28539,45 +28843,48 @@ class StaticAnalyzer  {
               this.envObj = env;
               const allowed_languages = ["es6", "go", "scala", "java7", "swift3", "swift6", "kotlin", "cpp", "php", "csharp", "python", "rust"];
               const params = env.commandLine;
+              const cli = new CLIProgress();
+              if ( ( typeof(params.flags["no-color"] ) != "undefined" && params.flags.hasOwnProperty("no-color") ) ) {
+                cli.setUseColors(false);
+              }
               let the_file = "";
               let plugins_only = false;
               const valid_options = ["l", "Selected language, one of " + (allowed_languages.join(", ")), "d", "output directory, default directory is \"bin/\"", "o", "output file, default is \"output.<language>\"", "classdoc", "write class documentation .md file", "operatordoc", "write operator documention into .md file"];
-              const valid_flags = ["deadcode", "Eliminate functions which are not called by any other functions", "dead4main", "Eliminate functions and classes which are unreachable from the main function", "forever", "Leave the main program into eternal loop (Go, Swift)", "allowti", "Allow type inference at target lang (creates slightly smaller code)", "plugins-only", "ignore built-in language output and use only plugins", "plugins", "(node compiler only) run specified npm plugins -plugins=\"plugin1,plugin2\"", "strict", "Strict mode. Do not allow automatic unwrapping of optionals outside of try blocks.", "typescript", "Writes JavaScript code with TypeScript annotations", "npm", "Write the package.json to the output directory", "nodecli", "Insert node.js command line header #!/usr/bin/env node to the beginning of the JavaScript file", "nodemodule", "Export the classes as node.js modules (this option will disable the static main function)", "client", "the code is ment to be run in the client environment", "scalafiddle", "scalafiddle.io compatible output", "compiler", "recompile the compiler", "copysrc", "copy all the source codes into the target directory"];
+              const valid_flags = ["no-color", "Disable colored output", "deadcode", "Eliminate functions which are not called by any other functions", "dead4main", "Eliminate functions and classes which are unreachable from the main function", "forever", "Leave the main program into eternal loop (Go, Swift)", "allowti", "Allow type inference at target lang (creates slightly smaller code)", "plugins-only", "ignore built-in language output and use only plugins", "plugins", "(node compiler only) run specified npm plugins -plugins=\"plugin1,plugin2\"", "strict", "Strict mode. Do not allow automatic unwrapping of optionals outside of try blocks.", "typescript", "Writes JavaScript code with TypeScript annotations", "esm", "Writes JavaScript code with ESM module syntax", "npm", "Write the package.json to the output directory", "nodecli", "Insert node.js command line header #!/usr/bin/env node to the beginning of the JavaScript file", "nodemodule", "Export the classes as Node.js CommonJS modules", "client", "the code is ment to be run in the client environment", "scalafiddle", "scalafiddle.io compatible output", "compiler", "recompile the compiler", "copysrc", "copy all the source codes into the target directory"];
               const parser_pragmas = ["@noinfix(true)", "disable operator infix parsing and automatic type definition checking "];
               if ( ( typeof(params.flags["compiler"] ) != "undefined" && params.flags.hasOwnProperty("compiler") ) ) {
-                console.log("---------------------------------------------");
-                console.log(" re-compiling the compiler itself ");
-                console.log("---------------------------------------------");
+                cli.printHeader();
+                console.log(cli.info("Re-compiling the compiler itself"));
+                console.log("");
                 the_file = "ng_Compiler.rgr";
               } else {
                 if ( (params.values.length) < 1 ) {
-                  console.log("Ranger compiler, version " + "2.1.71");
-                  console.log("Installed at: " + operatorsOf_8.installc95directory_51(env));
-                  console.log("Usage: <file> <options> <flags>");
-                  console.log("Options: -<option>=<value> ");
+                  cli.printHelpHeader();
+                  cli.printSection("Options:");
                   let optCnt = 0;
                   while (optCnt < (valid_options.length)) {
                     const option = valid_options[optCnt];
                     const optionDesc = valid_options[(optCnt + 1)];
-                    console.log(((("  -" + option) + "=<value> ") + this.fillStr((13 - (option.length)))) + optionDesc);
+                    cli.printOption(option, optionDesc);
                     optCnt = optCnt + 2;
                   };
-                  console.log("Flags: -<flag> ");
+                  cli.printSection("Flags:");
                   let optCnt_1 = 0;
                   while (optCnt_1 < (valid_flags.length)) {
                     const option_1 = valid_flags[optCnt_1];
                     const optionDesc_1 = valid_flags[(optCnt_1 + 1)];
-                    console.log(((("  -" + option_1) + " ") + this.fillStr((13 - (option_1.length)))) + optionDesc_1);
+                    cli.printFlag(option_1, optionDesc_1);
                     optCnt_1 = optCnt_1 + 2;
                   };
-                  console.log("Pragmas: (inside the source code files) ");
+                  cli.printSection("Pragmas (inside source files):");
                   let optCnt_2 = 0;
                   while (optCnt_2 < (parser_pragmas.length)) {
                     const option_2 = parser_pragmas[optCnt_2];
                     const optionDesc_2 = parser_pragmas[(optCnt_2 + 1)];
-                    console.log(((("   " + option_2) + " ") + this.fillStr((16 - (option_2.length)))) + optionDesc_2);
+                    console.log((("  " + cli.gray(option_2)) + " ") + optionDesc_2);
                     optCnt_2 = optCnt_2 + 2;
                   };
+                  console.log("");
                   return res;
                 }
                 the_file = params.values[0];
@@ -28598,25 +28905,29 @@ class StaticAnalyzer  {
               const idir = __dirname;
               langLibEnv = (((((root_dir + ";") + (require("path").normalize((idir + "/../compiler/")))) + ";") + (require("path").normalize((idir + "/../lib/")))) + ";") + langLibEnv;
               env.setEnv("RANGER_LIB", langLibEnv);
-              console.log("ENV: " + operatorsOf_8.envc95var_54(env, "RANGER_LIB"));
               const theFilePaths = this.possiblePaths(operatorsOf_8.envc95var_54(env, "RANGER_LIB"));
               const theFilePath = this.searchLib(theFilePaths, the_file);
               if ( operatorsOf_8.filec95exists_9(env, theFilePath, the_file) == false ) {
-                console.log("Could not compile.");
-                console.log("File not found: " + the_file);
+                cli.printHeader();
+                console.log(cli.error(("File not found: " + the_file)));
+                console.log("");
+                res.hasErrors = true;
+                res.errorMessage = "File not found: " + the_file;
                 return res;
               }
               const langFilePaths = this.possiblePaths(this.getEnvVar("RANGER_LIB"));
               const langFilePath = this.searchLib(langFilePaths, the_lang_file);
               if ( operatorsOf_8.filec95exists_9(env, langFilePath, the_lang_file) == false ) {
-                console.log(("language file " + the_lang_file) + " not found! Check the library directory or RANGER_LIB enviroment variable");
-                console.log("currently pointing at : " + langLibEnv);
-                console.log("download: https://raw.githubusercontent.com/terotests/Ranger/master/compiler/Lang.rgr");
+                cli.printHeader();
+                console.log(cli.error(("Language file not found: " + the_lang_file)));
+                console.log("");
+                console.log("  " + cli.gray("Check RANGER_LIB environment variable or library directory"));
+                console.log("  " + cli.gray("Download from: https://github.com/terotests/Ranger/blob/master/compiler/Lang.rgr"));
+                console.log("");
+                res.hasErrors = true;
+                res.errorMessage = "Language file not found";
                 return res;
-              } else {
-                console.log("Using language file from : " + langFilePath);
               }
-              console.log("File to be compiled: " + the_file);
               let langFileDirs = this.possiblePaths(this.getEnvVar("RANGER_LIB"));
               const sourceFileDir = require("path").dirname(((theFilePath + "/") + the_file));
               langFileDirs.push(sourceFileDir);
@@ -28629,7 +28940,6 @@ class StaticAnalyzer  {
               }
               parser.parse(( typeof(params.flags["no-op-transform"] ) != "undefined" && params.flags.hasOwnProperty("no-op-transform") ));
               const root = parser.rootNode;
-              console.log("--> ready to compile");
               const flags = Object.keys(params.flags);
               for ( let ci = 0; ci < root.children.length; ci++) {
                 var ch = root.children[ci];
@@ -28834,7 +29144,6 @@ class StaticAnalyzer  {
               const file = fileSystem.getFile(".", the_target);
               let wr = file.getWriter();
               if ( appCtx.hasCompilerFlag("copysrc") ) {
-                console.log("--> copying " + code.filename);
                 const fileWr = wr.getFileWriter(".", code.filename);
                 fileWr.raw(code.code, false);
               }
@@ -28864,6 +29173,11 @@ class StaticAnalyzer  {
                 }));
               }
               plugins_only = appCtx.hasCompilerFlag("plugins-only");
+              cli.printHeader();
+              cli.setCompilationInfo(the_file, the_target, the_lang);
+              cli.printCompilationInfo();
+              console.log(cli.divider());
+              console.log("");
               try {
                 await flowParser.mergeImports(node, appCtx, wr);
                 const lang_str = await operatorsOf_8.readc95file_9(env, langFilePath, the_lang_file);
@@ -28878,11 +29192,11 @@ class StaticAnalyzer  {
                 appCtx.operators = ops;
                 appCtx.targetLangName = the_lang;
                 lcc.initWriter(appCtx);
-                console.log("--- context inited ---");
-                console.log("1. Collecting available methods.");
+                cli.step(1, "Collecting methods");
                 await flowParser.CollectMethods(node, appCtx, wr);
                 if ( (appCtx.compilerErrors.length) > 0 ) {
-                  VirtualCompiler.displayCompilerErrors(appCtx);
+                  VirtualCompiler.displayCompilerErrorsWithCLI(appCtx, cli);
+                  cli.printFailure(appCtx.compilerErrors.length);
                   res.hasErrors = true;
                   res.errorMessage = "Errors during method collection phase";
                   res.ctx = appCtx;
@@ -28901,21 +29215,21 @@ class StaticAnalyzer  {
                   }
                 }));
                 await appCtx.initOpList();
-                console.log("2. Analyzing the code.");
-                console.log("selected language is " + appCtx.targetLangName);
+                cli.step(2, "Analyzing code");
                 await flowParser.StartWalk(node, appCtx, wr);
                 await flowParser.SolveAsyncFuncs(root, appCtx, wr);
                 if ( (appCtx.targetLangName == "cpp") || (appCtx.targetLangName == "rust") ) {
-                  console.log("2b. Running static analysis for " + appCtx.targetLangName);
+                  cli.stepWithDetail(3, "Static analysis", "for " + appCtx.targetLangName);
                   const staticAnalyzer = new StaticAnalyzer();
                   staticAnalyzer.ctx = appCtx;
                   staticAnalyzer.analyzeAll();
+                } else {
+                  cli.step(3, "Type checking");
                 }
-                console.log("3. Compiling the source code.");
+                cli.step(4, "Generating code");
                 switch (appCtx.targetLangName ) { 
                   case "java7" : 
                     if ( ( typeof(comp_attrs["android_res_dir"] ) != "undefined" && comp_attrs.hasOwnProperty("android_res_dir") ) ) {
-                      console.log("--> had android res dir");
                       const resDir = (( comp_attrs.hasOwnProperty("android_res_dir") ? comp_attrs["android_res_dir"] : undefined ));
                       const resFs = new CodeFileSystem();
                       const file_2 = resFs.getFile(".", "README.txt");
@@ -29103,10 +29417,15 @@ class StaticAnalyzer  {
                   const gen_1 = new RangerDocGenerator();
                   await gen_1.createOperatorDoc(root, appCtx, wr);
                 }
-                VirtualCompiler.displayCompilerErrors(appCtx);
+                cli.step(5, "Writing output");
+                VirtualCompiler.displayCompilerErrorsWithCLI(appCtx, cli);
                 if ( (appCtx.compilerErrors.length) > 0 ) {
+                  cli.printFailure(appCtx.compilerErrors.length);
                   res.hasErrors = true;
                   res.errorMessage = "Errors during compilation phase";
+                } else {
+                  const outputPath = (the_target_dir + "/") + the_target;
+                  cli.printSuccess(outputPath);
                 }
                 const ppList_1 = appCtx.findPluginsFor("postprocess");
                 await operatorsOf.forEach_12(ppList_1, ((item, index) => { 
@@ -29121,23 +29440,30 @@ class StaticAnalyzer  {
                 res.ctx = appCtx;
               } catch(e) {
                 const err_msg = ( e.toString());
-                console.log(err_msg);
+                console.log("");
+                console.log(cli.error("Unexpected compiler error"));
+                console.log("");
+                console.log("  " + cli.gray(err_msg));
                 res.hasErrors = true;
                 res.ctx = appCtx;
                 if ( typeof(lcc.lastProcessedNode) != "undefined" ) {
-                  console.log("Got compiler error close to");
-                  console.log(lcc.lastProcessedNode.getLineAsString());
+                  console.log("");
+                  console.log(cli.gray("Error occurred near:"));
+                  console.log("  " + lcc.lastProcessedNode.getLineAsString());
                   res.errorMessage = err_msg;
+                  cli.printFailure(1);
                   return res;
                 }
                 if ( typeof(flowParser.lastProcessedNode) != "undefined" ) {
-                  console.log("Got compiler error close to");
-                  console.log(flowParser.lastProcessedNode.getLineAsString());
+                  console.log("");
+                  console.log(cli.gray("Error occurred near:"));
+                  console.log("  " + flowParser.lastProcessedNode.getLineAsString());
                   res.errorMessage = err_msg;
+                  cli.printFailure(1);
                   return res;
                 }
-                console.log("Got unknown compiler error");
                 res.errorMessage = err_msg;
+                cli.printFailure(1);
               }
               return res;
             };
@@ -29159,6 +29485,22 @@ class StaticAnalyzer  {
             operatorsOf_3.createc95file_4(env.filesystem, "hello_world.rgr", "\r\n\r\nclass tester {\r\n  static fn main () {\r\n    print \"Hello World!\"\r\n  }\r\n}\r\n\r\n    ");
             require("fs").writeFileSync( "." + "/"  + "compileEnv.js", "window._Ranger_compiler_environment_ = " + (JSON.stringify(env.toDictionary())));
           };
+          VirtualCompiler.displayCompilerErrorsWithCLI = function(appCtx, cli) {
+            for ( let i = 0; i < appCtx.compilerErrors.length; i++) {
+              var e = appCtx.compilerErrors[i];
+              const line_index = e.node.getLine();
+              const col_index = e.node.sp;
+              const filename = e.node.getFilename();
+              const lineContent = e.node.getLineString(line_index);
+              let prevLine = "";
+              let nextLine = "";
+              if ( line_index > 0 ) {
+                prevLine = e.node.getLineString((line_index - 1));
+              }
+              nextLine = e.node.getLineString((line_index + 1));
+              cli.printCompilerError(filename, line_index + 1, col_index, e.description, lineContent, prevLine, nextLine);
+            };
+          };
           VirtualCompiler.displayCompilerErrors = function(appCtx) {
             const cons = new ColorConsole();
             for ( let i = 0; i < appCtx.compilerErrors.length; i++) {
@@ -29172,7 +29514,6 @@ class StaticAnalyzer  {
           };
           VirtualCompiler.displayParserErrors = function(appCtx) {
             if ( (appCtx.parserErrors.length) == 0 ) {
-              console.log("no language test errors");
               return;
             }
             console.log("LANGUAGE TEST ERRORS:");

@@ -1,0 +1,514 @@
+; =============================================================================
+; CLIProgress.rgr - Modern CLI progress indicators for Ranger compiler
+; =============================================================================
+; Provides ANSI colors, Unicode symbols, and formatted output for the compiler
+; CLI experience. Falls back to plain text on non-TTY terminals.
+
+operators {
+    ; ANSI escape code operators - return empty string for non-ES6 targets
+    ansi_reset      cmdAnsiReset:string () {
+        templates {
+            es6 ( "\"\\x1b[0m\"" )
+            * ( "\"\"" )
+        }
+    }
+    ansi_bold       cmdAnsiBold:string () {
+        templates {
+            es6 ( "\"\\x1b[1m\"" )
+            * ( "\"\"" )
+        }
+    }
+    ansi_dim        cmdAnsiDim:string () {
+        templates {
+            es6 ( "\"\\x1b[2m\"" )
+            * ( "\"\"" )
+        }
+    }
+    ansi_green      cmdAnsiGreen:string () {
+        templates {
+            es6 ( "\"\\x1b[32m\"" )
+            * ( "\"\"" )
+        }
+    }
+    ansi_red        cmdAnsiRed:string () {
+        templates {
+            es6 ( "\"\\x1b[31m\"" )
+            * ( "\"\"" )
+        }
+    }
+    ansi_yellow     cmdAnsiYellow:string () {
+        templates {
+            es6 ( "\"\\x1b[33m\"" )
+            * ( "\"\"" )
+        }
+    }
+    ansi_blue       cmdAnsiBlue:string () {
+        templates {
+            es6 ( "\"\\x1b[34m\"" )
+            * ( "\"\"" )
+        }
+    }
+    ansi_magenta    cmdAnsiMagenta:string () {
+        templates {
+            es6 ( "\"\\x1b[35m\"" )
+            * ( "\"\"" )
+        }
+    }
+    ansi_cyan       cmdAnsiCyan:string () {
+        templates {
+            es6 ( "\"\\x1b[36m\"" )
+            * ( "\"\"" )
+        }
+    }
+    ansi_gray       cmdAnsiGray:string () {
+        templates {
+            es6 ( "\"\\x1b[90m\"" )
+            * ( "\"\"" )
+        }
+    }
+    ansi_white      cmdAnsiWhite:string () {
+        templates {
+            es6 ( "\"\\x1b[37m\"" )
+            * ( "\"\"" )
+        }
+    }
+    
+    ; Background colors
+    ansi_bg_red     cmdAnsiBgRed:string () {
+        templates {
+            es6 ( "\"\\x1b[41m\"" )
+            * ( "\"\"" )
+        }
+    }
+    ansi_bg_green   cmdAnsiBgGreen:string () {
+        templates {
+            es6 ( "\"\\x1b[42m\"" )
+            * ( "\"\"" )
+        }
+    }
+    
+    ; Check if running in TTY (terminal)
+    is_tty          cmdIsTTY:boolean () {
+        templates {
+            es6 ( "(process.stdout.isTTY || false)" )
+            * ( "false" )
+        }
+    }
+    
+    ; Get current timestamp in milliseconds
+    current_time_ms cmdCurrentTimeMs:double () {
+        templates {
+            es6 ( "Date.now()" )
+            go ( "float64(time.Now().UnixMilli())" )
+            * ( "0.0" )
+        }
+    }
+}
+
+; =============================================================================
+; CLIProgress - Main class for formatted CLI output
+; =============================================================================
+class CLIProgress {
+    def useColors:boolean true
+    def totalSteps:int 5
+    def currentStep:int 0
+    def startTime:double 0.0
+    def stepStartTime:double 0.0
+    def inputFile:string ""
+    def outputFile:string ""
+    def targetLanguage:string ""
+    def compilerVersion:string "3.0.0-beta.1"
+    
+    Constructor () {
+        ; Detect if colors should be used
+        useColors = (is_tty)
+        startTime = (current_time_ms)
+    }
+    
+    ; Set color mode (for --no-color flag)
+    fn setUseColors:void (use:boolean) {
+        useColors = use
+    }
+    
+    ; Set compilation info
+    fn setCompilationInfo:void (input:string output:string target:string) {
+        inputFile = input
+        outputFile = output
+        targetLanguage = target
+    }
+    
+    ; ==========================================================================
+    ; Unicode symbols
+    ; ==========================================================================
+    fn checkMark:string () {
+        if useColors {
+            return "✓"
+        }
+        return "[OK]"
+    }
+    
+    fn crossMark:string () {
+        if useColors {
+            return "✗"
+        }
+        return "[FAIL]"
+    }
+    
+    fn arrowRight:string () {
+        if useColors {
+            return "→"
+        }
+        return "->"
+    }
+    
+    fn bullet:string () {
+        if useColors {
+            return "•"
+        }
+        return "*"
+    }
+    
+    fn lightning:string () {
+        if useColors {
+            return "⚡"
+        }
+        return "*"
+    }
+    
+    ; ==========================================================================
+    ; Color formatting methods
+    ; ==========================================================================
+    fn green:string (text:string) {
+        if useColors {
+            return (ansi_green) + text + (ansi_reset)
+        }
+        return text
+    }
+    
+    fn red:string (text:string) {
+        if useColors {
+            return (ansi_red) + text + (ansi_reset)
+        }
+        return text
+    }
+    
+    fn yellow:string (text:string) {
+        if useColors {
+            return (ansi_yellow) + text + (ansi_reset)
+        }
+        return text
+    }
+    
+    fn cyan:string (text:string) {
+        if useColors {
+            return (ansi_cyan) + text + (ansi_reset)
+        }
+        return text
+    }
+    
+    fn blue:string (text:string) {
+        if useColors {
+            return (ansi_blue) + text + (ansi_reset)
+        }
+        return text
+    }
+    
+    fn magenta:string (text:string) {
+        if useColors {
+            return (ansi_magenta) + text + (ansi_reset)
+        }
+        return text
+    }
+    
+    fn gray:string (text:string) {
+        if useColors {
+            return (ansi_gray) + text + (ansi_reset)
+        }
+        return text
+    }
+    
+    fn dim:string (text:string) {
+        if useColors {
+            return (ansi_dim) + text + (ansi_reset)
+        }
+        return text
+    }
+    
+    fn bold:string (text:string) {
+        if useColors {
+            return (ansi_bold) + text + (ansi_reset)
+        }
+        return text
+    }
+    
+    fn boldCyan:string (text:string) {
+        if useColors {
+            return (ansi_bold) + (ansi_cyan) + text + (ansi_reset)
+        }
+        return text
+    }
+    
+    fn boldGreen:string (text:string) {
+        if useColors {
+            return (ansi_bold) + (ansi_green) + text + (ansi_reset)
+        }
+        return text
+    }
+    
+    fn boldRed:string (text:string) {
+        if useColors {
+            return (ansi_bold) + (ansi_red) + text + (ansi_reset)
+        }
+        return text
+    }
+    
+    ; ==========================================================================
+    ; Formatted message types
+    ; ==========================================================================
+    fn success:string (msg:string) {
+        return (this.green((this.checkMark()))) + " " + msg
+    }
+    
+    fn error:string (msg:string) {
+        return (this.red((this.crossMark()))) + " " + msg
+    }
+    
+    fn warning:string (msg:string) {
+        return (this.yellow("⚠")) + " " + msg
+    }
+    
+    fn info:string (msg:string) {
+        return (this.cyan("ℹ")) + " " + msg
+    }
+    
+    ; ==========================================================================
+    ; Layout helpers
+    ; ==========================================================================
+    fn divider:string () {
+        return (this.gray("─────────────────────────────────────────────────────"))
+    }
+    
+    fn shortDivider:string () {
+        return (this.gray("─────────────────────────"))
+    }
+    
+    fn padRight:string (text:string width:int) {
+        def result text
+        def len (strlen text)
+        while (len < width) {
+            result = result + " "
+            len = len + 1
+        }
+        return result
+    }
+    
+    fn padLeft:string (text:string width:int) {
+        def result text
+        def len (strlen text)
+        while (len < width) {
+            result = " " + result
+            len = len + 1
+        }
+        return result
+    }
+    
+    ; ==========================================================================
+    ; Header and info display
+    ; ==========================================================================
+    fn printHeader:void () {
+        print ""
+        print (this.boldCyan((this.lightning()) + " Ranger Compiler")) + " " + (this.gray("v" + compilerVersion))
+        print ""
+    }
+    
+    fn printCompilationInfo:void () {
+        if ((strlen inputFile) > 0) {
+            print "  " + (this.gray("Input:")) + "  " + (this.bold(inputFile))
+        }
+        if ((strlen outputFile) > 0) {
+            print "  " + (this.gray("Output:")) + " " + (this.bold(outputFile))
+        }
+        if ((strlen targetLanguage) > 0) {
+            def targetDisplay (this.getTargetDisplay(targetLanguage))
+            print "  " + (this.gray("Target:")) + " " + targetDisplay
+        }
+        print ""
+    }
+    
+    fn getTargetDisplay:string (lang:string) {
+        switch lang {
+            case "es6" {
+                return (this.yellow("JavaScript")) + " " + (this.gray("(ES6)"))
+            }
+            case "python" {
+                return (this.blue("Python"))
+            }
+            case "go" {
+                return (this.cyan("Go"))
+            }
+            case "rust" {
+                return (this.red("Rust"))
+            }
+            case "java7" {
+                return (this.red("Java"))
+            }
+            case "swift3" {
+                return (this.red("Swift 3"))
+            }
+            case "swift6" {
+                return (this.red("Swift 6"))
+            }
+            case "cpp" {
+                return (this.blue("C++"))
+            }
+            case "csharp" {
+                return (this.magenta("C#"))
+            }
+            case "kotlin" {
+                return (this.magenta("Kotlin"))
+            }
+            case "php" {
+                return (this.magenta("PHP"))
+            }
+            case "scala" {
+                return (this.red("Scala"))
+            }
+            default {
+                return lang
+            }
+        }
+        return lang
+    }
+    
+    ; ==========================================================================
+    ; Step progress display
+    ; ==========================================================================
+    fn step:void (stepNum:int stepName:string) {
+        currentStep = stepNum
+        stepStartTime = (current_time_ms)
+        def stepLabel "[" + (to_string stepNum) + "/" + (to_string totalSteps) + "]"
+        print (this.cyan(stepLabel)) + " " + stepName + "..."
+    }
+    
+    fn stepWithDetail:void (stepNum:int stepName:string detail:string) {
+        currentStep = stepNum
+        stepStartTime = (current_time_ms)
+        def stepLabel "[" + (to_string stepNum) + "/" + (to_string totalSteps) + "]"
+        print (this.cyan(stepLabel)) + " " + stepName + " " + (this.gray(detail))
+    }
+    
+    ; ==========================================================================
+    ; Summary display
+    ; ==========================================================================
+    fn printSuccess:void (outputPath:string) {
+        def endTime (current_time_ms)
+        def duration (endTime - startTime)
+        def durationStr (to_string (to_int duration))
+        
+        print ""
+        print (this.divider())
+        print ""
+        print (this.success("Compilation successful!"))
+        print ""
+        print "  " + (this.gray("Output:")) + " " + outputPath
+        print "  " + (this.gray("Time:"))   + "   " + durationStr + "ms"
+        print ""
+    }
+    
+    fn printFailure:void (errorCount:int) {
+        def endTime (current_time_ms)
+        def duration (endTime - startTime)
+        def durationStr (to_string (to_int duration))
+        
+        print ""
+        print (this.divider())
+        print ""
+        def errorWord "error"
+        if (errorCount > 1) {
+            errorWord = "errors"
+        }
+        print (this.error("Compilation FAILED")) + " " + (this.gray("(" + (to_string errorCount) + " " + errorWord + ")"))
+        print ""
+    }
+    
+    ; ==========================================================================
+    ; Error display with code context
+    ; ==========================================================================
+    fn printCompilerError:void (filename:string lineNum:int colNum:int description:string lineContent:string prevLine:string nextLine:string) {
+        print ""
+        ; File location header
+        print (this.bold(filename)) + ":" + (this.yellow((to_string lineNum))) + ":" + (to_string colNum)
+        print ""
+        
+        ; Error description
+        print "  " + (this.error(description))
+        print ""
+        
+        ; Code context with line numbers
+        def lineNumWidth 4
+        def prevLineNum (lineNum - 1)
+        def nextLineNum (lineNum + 1)
+        
+        ; Previous line (if available)
+        if ((strlen prevLine) > 0) {
+            def prevNumStr (this.padLeft((to_string prevLineNum) lineNumWidth))
+            print "  " + (this.gray(prevNumStr + " │ ")) + (this.dim(prevLine))
+        }
+        
+        ; Error line (highlighted)
+        def lineNumStr (this.padLeft((to_string lineNum) lineNumWidth))
+        print "  " + (this.red(lineNumStr + " │ ")) + lineContent
+        
+        ; Error pointer
+        def pointerPad ""
+        def pi 0
+        while (pi < (colNum + lineNumWidth + 3)) {
+            pointerPad = pointerPad + " "
+            pi = pi + 1
+        }
+        print "  " + pointerPad + (this.red("^── here"))
+        
+        ; Next line (if available)  
+        if ((strlen nextLine) > 0) {
+            def nextNumStr (this.padLeft((to_string nextLineNum) lineNumWidth))
+            print "  " + (this.gray(nextNumStr + " │ ")) + (this.dim(nextLine))
+        }
+        
+        print ""
+    }
+    
+    ; Simplified error display (without full context)
+    fn printSimpleError:void (filename:string lineNum:int description:string lineContent:string) {
+        print ""
+        print (this.bold(filename)) + ":" + (this.yellow((to_string lineNum)))
+        print ""
+        print "  " + (this.error(description))
+        print ""
+        print "  " + (this.gray("│ ")) + lineContent
+        print ""
+    }
+    
+    ; ==========================================================================
+    ; Help display
+    ; ==========================================================================
+    fn printHelpHeader:void () {
+        this.printHeader()
+        print (this.gray("Usage:")) + " rgrc " + (this.cyan("<file>")) + " " + (this.gray("[options]")) + " " + (this.gray("[flags]"))
+        print ""
+    }
+    
+    fn printOption:void (option:string description:string) {
+        def optStr (this.padRight(("-" + option + "=<value>") 20))
+        print "  " + (this.cyan(optStr)) + " " + description
+    }
+    
+    fn printFlag:void (flag:string description:string) {
+        def flagStr (this.padRight(("-" + flag) 20))
+        print "  " + (this.yellow(flagStr)) + " " + description
+    }
+    
+    fn printSection:void (title:string) {
+        print ""
+        print (this.bold(title))
+    }
+}

@@ -2,6 +2,7 @@
 Import "InputFileSystem.rgr"
 Import "ng_LiveCompiler.rgr"
 Import "ColorConsole.rgr"
+Import "CLIProgress.rgr"
 Import "ng_DictNode.rgr"
 Import "ng_RangerSerializeClass.rgr"
 Import "CmdParams.rgr"
@@ -134,6 +135,14 @@ class tester {
     def allowed_languages:[string] ([] "es6" "go" "scala" "java7" "swift3" "swift6" "kotlin" "cpp" "php" "csharp" "python" "rust" )
     def params (unwrap env.commandLine)
 
+    ; Initialize CLI progress (after params is defined)
+    def cli:CLIProgress (new CLIProgress())
+    
+    ; Check for --no-color flag
+    if (has params.flags "no-color") {
+        cli.setUseColors(false)
+    }
+
     def the_file ""
     def plugins_only false
 
@@ -147,6 +156,7 @@ class tester {
 
     def valid_flags:[string] ([] _:string
       (
+      'no-color' 'Disable colored output'
       'deadcode' 'Eliminate functions which are not called by any other functions'
       'dead4main' 'Eliminate functions and classes which are unreachable from the main function'
       'forever' 'Leave the main program into eternal loop (Go, Swift)'
@@ -155,9 +165,10 @@ class tester {
       'plugins' '(node compiler only) run specified npm plugins -plugins="plugin1,plugin2"'
       'strict' 'Strict mode. Do not allow automatic unwrapping of optionals outside of try blocks.'
       'typescript' 'Writes JavaScript code with TypeScript annotations'
+      'esm' 'Writes JavaScript code with ESM module syntax'
       'npm' 'Write the package.json to the output directory' 
       'nodecli' 'Insert node.js command line header #!/usr/bin/env node to the beginning of the JavaScript file'
-      'nodemodule' 'Export the classes as node.js modules (this option will disable the static main function)'
+      'nodemodule' 'Export the classes as Node.js CommonJS modules'
       'client'  'the code is ment to be run in the client environment'
       'scalafiddle'  'scalafiddle.io compatible output'
       'compiler' 'recompile the compiler'
@@ -171,39 +182,41 @@ class tester {
       ))
 
     if( has params.flags "compiler") {
-      print "---------------------------------------------"
-      print " re-compiling the compiler itself "
-      print "---------------------------------------------"
+      cli.printHeader()
+      print (cli.info("Re-compiling the compiler itself"))
+      print ""
       the_file = "ng_Compiler.rgr"
     } {
       if ( (array_length params.values) < 1  ) {
-        print "Ranger compiler, version " + (get_option "version")
-        print "Installed at: " + (install_directory env)
-        print "Usage: <file> <options> <flags>"
-        print "Options: -<option>=<value> "
+        cli.printHelpHeader()
+        
+        cli.printSection("Options:")
         def optCnt 0
         while (optCnt < (array_length valid_options) ) {
           def option:string (itemAt valid_options optCnt)
           def optionDesc:string (itemAt valid_options (optCnt+1))
-          print "  -" + option + "=<value> " + (this.fillStr( 13 - (strlen option))) + optionDesc
+          cli.printOption(option optionDesc)
           optCnt = optCnt + 2
         }
-        print "Flags: -<flag> "
+        
+        cli.printSection("Flags:")
         def optCnt 0
         while (optCnt < (array_length valid_flags) ) {
           def option (itemAt valid_flags optCnt)
           def optionDesc (itemAt valid_flags (optCnt+1))
-          print "  -" + option + " " + (this.fillStr( 13 - (strlen option))) + optionDesc
+          cli.printFlag(option optionDesc)
           optCnt = optCnt + 2
         }
-        print "Pragmas: (inside the source code files) "
+        
+        cli.printSection("Pragmas (inside source files):")
         def optCnt 0
         while (optCnt < (array_length parser_pragmas) ) {
           def option (itemAt parser_pragmas optCnt)
           def optionDesc (itemAt parser_pragmas (optCnt+1))
-          print "   " + option + " " + (this.fillStr( 16 - (strlen option))) + optionDesc
+          print "  " + (cli.gray(option)) + " " + optionDesc
           optCnt = optCnt + 2
         }
+        print ""
         return res
       }    
       the_file = (itemAt params.values 0)
@@ -232,14 +245,18 @@ class tester {
 
     env.setEnv( "RANGER_LIB" langLibEnv  )
 
-    print "ENV: " + (env_var env "RANGER_LIB")
+    ; Debug: only show ENV in verbose mode
+    ; print "ENV: " + (env_var env "RANGER_LIB")
 
     def theFilePaths (this.possiblePaths( (env_var env "RANGER_LIB")))
     def theFilePath ( this.searchLib(theFilePaths the_file) )
       
     if ( (file_exists env theFilePath the_file) == false) {
-      print "Could not compile."
-      print "File not found: " + the_file
+      cli.printHeader()
+      print (cli.error("File not found: " + the_file))
+      print ""
+      res.hasErrors = true
+      res.errorMessage = "File not found: " + the_file
       return res
     }
     
@@ -247,14 +264,16 @@ class tester {
     def langFilePath ( this.searchLib(langFilePaths the_lang_file) )
     
     if ( (file_exists env langFilePath the_lang_file) == false) {
-      print "language file " + the_lang_file + " not found! Check the library directory or RANGER_LIB enviroment variable"
-      print "currently pointing at : " + langLibEnv
-      print "download: https://raw.githubusercontent.com/terotests/Ranger/master/compiler/Lang.rgr"
+      cli.printHeader()
+      print (cli.error("Language file not found: " + the_lang_file))
+      print ""
+      print "  " + (cli.gray("Check RANGER_LIB environment variable or library directory"))
+      print "  " + (cli.gray("Download from: https://github.com/terotests/Ranger/blob/master/compiler/Lang.rgr"))
+      print ""
+      res.hasErrors = true
+      res.errorMessage = "Language file not found"
       return res
-    } {
-      print "Using language file from : " + langFilePath 
-    }       
-    print "File to be compiled: " + the_file
+    }
 
     def langFileDirs (this.possiblePaths( (this.getEnvVar("RANGER_LIB")) ))
 
@@ -272,7 +291,6 @@ class tester {
     }
     parser.parse( (has params.flags "no-op-transform") )
     def root (unwrap parser.rootNode)
-    print "--> ready to compile"
 
     def flags (keys params.flags)
 
@@ -504,7 +522,7 @@ class tester {
     def wr (file.getWriter())
     
     if(appCtx.hasCompilerFlag("copysrc")) {
-      print "--> copying " + (code.filename)
+      ; print "--> copying " + (code.filename)
       def fileWr (wr.getFileWriter("." code.filename))
       fileWr.raw( code.code false)
     }
@@ -540,6 +558,13 @@ class tester {
       plugins_only = (appCtx.hasCompilerFlag("plugins-only"))
     }
 
+    ; Print header and compilation info
+    cli.printHeader()
+    cli.setCompilationInfo(the_file the_target the_lang)
+    cli.printCompilationInfo()
+    print (cli.divider())
+    print ""
+
     try {
 
       flowParser.mergeImports(node appCtx (unwrap wr) )
@@ -556,12 +581,12 @@ class tester {
       appCtx.operators = ops
       appCtx.targetLangName = the_lang
       lcc.initWriter( appCtx )
-      print "--- context inited ---"
 
-      print "1. Collecting available methods."
+      cli.step(1 "Collecting methods")
       flowParser.CollectMethods (node appCtx (unwrap wr))
       if ( ( array_length appCtx.compilerErrors ) > 0 ) {
-        VirtualCompiler.displayCompilerErrors(appCtx)
+        VirtualCompiler.displayCompilerErrorsWithCLI(appCtx cli)
+        cli.printFailure((array_length appCtx.compilerErrors))
         res.hasErrors = true
         res.errorMessage = "Errors during method collection phase"
         res.ctx = appCtx
@@ -585,25 +610,26 @@ class tester {
         })
       }
       appCtx.initOpList()
-      print "2. Analyzing the code."
-      print "selected language is " + appCtx.targetLangName 
+      cli.step(2 "Analyzing code")
 
       flowParser.StartWalk (node appCtx (unwrap wr))
       flowParser.SolveAsyncFuncs( root appCtx (unwrap wr))
 
       ; Run static analysis for C++ and Rust targets
       if ((appCtx.targetLangName == "cpp") || (appCtx.targetLangName == "rust")) {
-        print "2b. Running static analysis for " + appCtx.targetLangName
+        cli.stepWithDetail(3 "Static analysis" ("for " + appCtx.targetLangName))
         def staticAnalyzer:StaticAnalyzer (new StaticAnalyzer())
         staticAnalyzer.ctx = appCtx
         staticAnalyzer.analyzeAll()
+      } {
+        cli.step(3 "Type checking")
       }
 
-      print "3. Compiling the source code."
+      cli.step(4 "Generating code")
       switch appCtx.targetLangName {
         case "java7" {
           if(has comp_attrs "android_res_dir") {
-            print "--> had android res dir"
+            ; print "--> had android res dir"
             def resDir (unwrap (get comp_attrs "android_res_dir"))
             def resFs:CodeFileSystem (new CodeFileSystem())
             def file:CodeFile (resFs.getFile("." "README.txt"))
@@ -811,10 +837,17 @@ class tester {
           gen.createOperatorDoc( root appCtx (unwrap wr) )
         }
       
-        VirtualCompiler.displayCompilerErrors(appCtx)
+        cli.step(5 "Writing output")
+        
+        VirtualCompiler.displayCompilerErrorsWithCLI(appCtx cli)
         if ( ( array_length appCtx.compilerErrors ) > 0 ) {
+          cli.printFailure((array_length appCtx.compilerErrors))
           res.hasErrors = true
           res.errorMessage = "Errors during compilation phase"
+        } {
+          ; Success - print summary
+          def outputPath the_target_dir + "/" + the_target
+          cli.printSuccess(outputPath)
         }
 
         if_javascript {
@@ -834,23 +867,30 @@ class tester {
 
     } {
       def err_msg (error_msg)
-      print err_msg
+      print ""
+      print (cli.error("Unexpected compiler error"))
+      print ""
+      print "  " + (cli.gray(err_msg))
       res.hasErrors = true
       res.ctx = appCtx
       if(lcc.lastProcessedNode) {
-        print "Got compiler error close to"
-        print (lcc.lastProcessedNode.getLineAsString())
+        print ""
+        print (cli.gray("Error occurred near:"))
+        print "  " + (lcc.lastProcessedNode.getLineAsString())
         res.errorMessage = err_msg
+        cli.printFailure(1)
         return res
       }
       if(flowParser.lastProcessedNode) {
-        print "Got compiler error close to"
-        print (flowParser.lastProcessedNode.getLineAsString())
+        print ""
+        print (cli.gray("Error occurred near:"))
+        print "  " + (flowParser.lastProcessedNode.getLineAsString())
         res.errorMessage = err_msg
+        cli.printFailure(1)
         return res
       }
-      print "Got unknown compiler error"
       res.errorMessage = err_msg
+      cli.printFailure(1)
     }
     
     return res
@@ -858,6 +898,27 @@ class tester {
 
   }
 
+  ; New method with CLI formatting
+  static fn displayCompilerErrorsWithCLI:void (appCtx@(weak):RangerAppWriterContext cli:CLIProgress) {
+    for appCtx.compilerErrors e:RangerCompilerMessage i {
+        def line_index:int (e.node.getLine())
+        def col_index:int (e.node.sp)
+        def filename:string (e.node.getFilename())
+        def lineContent:string (e.node.getLineString(line_index))
+        
+        ; Get previous and next lines for context
+        def prevLine:string ""
+        def nextLine:string ""
+        if (line_index > 0) {
+            prevLine = (e.node.getLineString((line_index - 1)))
+        }
+        nextLine = (e.node.getLineString((line_index + 1)))
+        
+        cli.printCompilerError(filename (line_index + 1) col_index e.description lineContent prevLine nextLine)
+    }        
+  }
+
+  ; Legacy method kept for compatibility
   static fn displayCompilerErrors:void (appCtx@(weak):RangerAppWriterContext) {
     def cons:ColorConsole (new ColorConsole())
 
@@ -872,7 +933,7 @@ class tester {
 
   static fn displayParserErrors:void (appCtx@(weak):RangerAppWriterContext) {
     if ( (array_length appCtx.parserErrors) == 0 ) {
-      print "no language test errors"
+      ; print "no language test errors"
       return
     }
     print "LANGUAGE TEST ERRORS:"
