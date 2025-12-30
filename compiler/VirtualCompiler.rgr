@@ -126,6 +126,45 @@ class tester {
     return s
   }
 
+  ; Detect target language from output file extension
+  ; Returns the language string or empty string if not detected
+  fn detectLanguageFromExtension:string (filename:string) {
+    def lastDot:int (lastIndexOf filename ".")
+    if (lastDot < 0) {
+      return ""
+    }
+    def ext:string (substring filename (lastDot + 1) (strlen filename))
+    
+    ; Map extensions to language targets (use latest versions)
+    switch ext {
+      case "js" { return "es6" }
+      case "ts" { return "es6" }  ; TypeScript still uses es6 target with -typescript flag
+      case "go" { return "go" }
+      case "py" { return "python" }
+      case "rs" { return "rust" }
+      case "swift" { return "swift6" }  ; Latest Swift version
+      case "java" { return "java7" }
+      case "kt" { return "kotlin" }
+      case "cs" { return "csharp" }
+      case "cpp" { return "cpp" }
+      case "hpp" { return "cpp" }
+      case "php" { return "php" }
+      case "scala" { return "scala" }
+      default { return "" }
+    }
+    return ""
+  }
+
+  ; Check if file has TypeScript extension
+  fn isTypeScriptExtension:boolean (filename:string) {
+    def lastDot:int (lastIndexOf filename ".")
+    if (lastDot < 0) {
+      return false
+    }
+    def ext:string (substring filename (lastDot + 1) (strlen filename))
+    return (ext == "ts")
+  }
+
   fn run@(weak):CompilerResults ( env:InputEnv) {
 
     def res (new CompilerResults)
@@ -240,8 +279,11 @@ class tester {
 
     def langLibEnv (env_var env "RANGER_LIB")
 
+    ; Build library search paths - prioritize installation directory for bundled files
     let idir = (install_directory)
-    langLibEnv = root_dir + ";" + (normalize (idir + "/../compiler/")) + ";" + (normalize (idir + "/../lib/")) + ";" + langLibEnv
+    ; First check the bin/ directory itself (where Lang.rgr and stdops.rgr are bundled)
+    ; Then check ../compiler and ../lib for development setups
+    langLibEnv = (normalize idir) + ";" + root_dir + ";" + (normalize (idir + "/../compiler/")) + ";" + (normalize (idir + "/../lib/")) + ";" + langLibEnv
 
     env.setEnv( "RANGER_LIB" langLibEnv  )
 
@@ -381,9 +423,20 @@ class tester {
     set comp_attrs "d" the_target_dir
 
     def pLang (params.getParam("l"))
+    def autoDetectedTypeScript:boolean false
     if(!null? pLang) {
       the_lang = (unwrap pLang)
-    } 
+    } {
+      ; Auto-detect language from output file extension if -l not specified
+      def detectedLang:string (this.detectLanguageFromExtension(the_target))
+      if ((strlen detectedLang) > 0) {
+        the_lang = detectedLang
+        ; Check if TypeScript output is requested
+        if (this.isTypeScriptExtension(the_target)) {
+          autoDetectedTypeScript = true
+        }
+      }
+    }
 
     ; --- context for the compilation ---
     def appCtx@(lives):RangerAppWriterContext (new RangerAppWriterContext()))
@@ -401,6 +454,11 @@ class tester {
       set appCtx.compilerFlags n true
       ; print " / flag " + index
     })
+
+    ; Auto-add typescript flag if .ts extension was detected
+    if autoDetectedTypeScript {
+      set appCtx.compilerFlags "typescript" true
+    }
 
     params.params.forEach({
       def v item
@@ -615,12 +673,34 @@ class tester {
       flowParser.StartWalk (node appCtx (unwrap wr))
       flowParser.SolveAsyncFuncs( root appCtx (unwrap wr))
 
+      ; Check for errors after analysis phase
+      if ( ( array_length appCtx.compilerErrors ) > 0 ) {
+        print ""
+        VirtualCompiler.displayCompilerErrorsWithCLI(appCtx cli)
+        cli.printFailure((array_length appCtx.compilerErrors))
+        res.hasErrors = true
+        res.errorMessage = "Errors during code analysis phase"
+        res.ctx = appCtx
+        return res
+      }
+
       ; Run static analysis for C++ and Rust targets
       if ((appCtx.targetLangName == "cpp") || (appCtx.targetLangName == "rust")) {
         cli.stepWithDetail(3 "Static analysis" ("for " + appCtx.targetLangName))
         def staticAnalyzer:StaticAnalyzer (new StaticAnalyzer())
         staticAnalyzer.ctx = appCtx
         staticAnalyzer.analyzeAll()
+        
+        ; Check for errors after static analysis
+        if ( ( array_length appCtx.compilerErrors ) > 0 ) {
+          print ""
+          VirtualCompiler.displayCompilerErrorsWithCLI(appCtx cli)
+          cli.printFailure((array_length appCtx.compilerErrors))
+          res.hasErrors = true
+          res.errorMessage = "Errors during static analysis phase"
+          res.ctx = appCtx
+          return res
+        }
       } {
         cli.step(3 "Type checking")
       }

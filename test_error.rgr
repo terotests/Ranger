@@ -1,0 +1,18 @@
+; Test file with intentional errors to test CLI error output
+
+class TestError {
+    def name:string "test"
+    
+    fn doSomething:void () {
+        ; Call a method that doesn't exist
+        def result (this.nonExistentMethod())
+        
+        ; Use undefined variable
+        print unknownVariable
+    }
+    
+    sfn m@(main):void () {
+        def test (new TestError())
+        test.doSomething()
+    }
+}

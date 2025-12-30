@@ -1,0 +1,47 @@
+{
+  "name": "ranger-compiler",
+  "version": "3.0.0-beta.1",
+  "description": "Ranger cross-language compiler - compile once, run anywhere. Write code in Ranger and compile to JavaScript, TypeScript, Python, Go, Rust, Swift, C++, Java, Kotlin, C#, PHP, and Scala.",
+  "main": "api.js",
+  "types": "api.d.ts",
+  "bin": {
+    "ranger-compiler": "rgrc.js",
+    "rgrc": "rgrc.js"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "compiler",
+    "transpiler",
+    "cross-language",
+    "code-generation",
+    "javascript",
+    "typescript",
+    "python",
+    "go",
+    "golang",
+    "rust",
+    "swift",
+    "cpp",
+    "java",
+    "kotlin",
+    "csharp",
+    "php",
+    "scala"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/terotests/Ranger.git"
+  },
+  "author": "Tero Tolonen",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/terotests/Ranger/issues"
+  },
+  "homepage": "https://github.com/terotests/Ranger#readme"
+}

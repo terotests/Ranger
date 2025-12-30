@@ -3687,7 +3687,7 @@ class RangerFlowParser {
               if (null? varFnDesc) {
                 varFnDesc = (classDesc.findStaticMethod(strname))
                 if (null? varFnDesc) {
-                  ctx.addError(obj (" function variable not found " + strname))
+                  ctx.addError(obj ("Method '" + strname + "' not found on class '" + classDesc.name + "'"))
                 }
               }
             }
@@ -3702,11 +3702,11 @@ class RangerFlowParser {
       varFnDesc = (currClass.findMethod(obj.vref))
       if (!null? varFnDesc.nameNode) {
       } {
-        ctx.addError(obj ("Error, no description for called function: " + obj.vref))
+        ctx.addError(obj ("Method '" + obj.vref + "' not found in current class '" + currClass.name + "'"))
       }
       return varFnDesc
     }
-    ctx.addError(obj "Can not call 'this' like function")
+    ctx.addError(obj "Cannot call 'this' as a function")
     varFnDesc = (new RangerAppFunctionDesc ())
     return varFnDesc
   }
@@ -3771,7 +3771,7 @@ class RangerFlowParser {
                 if (null? classMethod) {
                   classMethod = (classDesc.findStaticMethod(strname))
                   if (null? classMethod) {
-                    ctx.addError(obj ("variable not found " + strname))
+                    ctx.addError(obj ("Property or method '" + strname + "' not found on class '" + classDesc.name + "'"))
                   }
                 }
                 if (!null? classMethod) {
