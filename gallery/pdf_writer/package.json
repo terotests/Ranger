@@ -17,7 +17,10 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "files": [
-    "bin/",
+    "bin/evg_pdf_tool.js",
+    "bin/evg_html_tool.js",
+    "bin/evg_png_tool.js",
+    "bin/evg_component_tool.js",
     "README.md"
   ],
   "keywords": [

@@ -982,7 +982,7 @@ class tester {
   static fn displayCompilerErrorsWithCLI:void (appCtx@(weak):RangerAppWriterContext cli:CLIProgress) {
     for appCtx.compilerErrors e:RangerCompilerMessage i {
         def line_index:int (e.node.getLine())
-        def col_index:int (e.node.sp)
+        def col_index:int (e.node.code.getColumn(e.node.sp))
         def filename:string (e.node.getFilename())
         def lineContent:string (e.node.getLineString(line_index))
         

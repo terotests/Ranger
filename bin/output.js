@@ -29566,7 +29566,7 @@ class StaticAnalyzer  {
             for ( let i = 0; i < appCtx.compilerErrors.length; i++) {
               var e = appCtx.compilerErrors[i];
               const line_index = e.node.getLine();
-              const col_index = e.node.sp;
+              const col_index = e.node.code.getColumn(e.node.sp);
               const filename = e.node.getFilename();
               const lineContent = e.node.getLineString(line_index);
               let prevLine = "";
