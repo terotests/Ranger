@@ -9,19 +9,18 @@
     "evg-component": "bin/evg_component_tool.js"
   },
   "scripts": {
-    "build:cli:pdf": "cd ../.. && cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 -nodecli ./gallery/pdf_writer/src/tools/evg_pdf_tool.rgr -d=./gallery/pdf_writer/bin -o=evg_pdf_tool.js",
-    "build:cli:html": "cd ../.. && cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 -nodecli ./gallery/pdf_writer/src/tools/evg_html_tool.rgr -d=./gallery/pdf_writer/bin -o=evg_html_tool.js",
-    "build:cli:png": "cd ../.. && cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 -nodecli ./gallery/pdf_writer/src/tools/evg_png_tool.rgr -d=./gallery/pdf_writer/bin -o=evg_png_tool.js",
-    "build:cli:component": "cd ../.. && cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 -nodecli ./gallery/pdf_writer/src/tools/evg_component_tool.rgr -d=./gallery/pdf_writer/bin -o=evg_component_tool.js",
-    "build:all": "npm run build:cli:pdf && npm run build:cli:html && npm run build:cli:png && npm run build:cli:component",
+    "build:cli:pdf": "cd ../.. && cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 -nodecli ./gallery/pdf_writer/src/tools/evg_pdf_tool.rgr -d=./gallery/pdf_writer/dist -o=evg_pdf_tool.js",
+    "build:cli:html": "cd ../.. && cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 -nodecli ./gallery/pdf_writer/src/tools/evg_html_tool.rgr -d=./gallery/pdf_writer/dist -o=evg_html_tool.js",
+    "build:cli:png": "cd ../.. && cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 -nodecli ./gallery/pdf_writer/src/tools/evg_png_tool.rgr -d=./gallery/pdf_writer/dist -o=evg_png_tool.js",
+    "build:cli:component": "cd ../.. && cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 -nodecli ./gallery/pdf_writer/src/tools/evg_component_tool.rgr -d=./gallery/pdf_writer/dist -o=evg_component_tool.js",
+    "build:tools": "npm run build:cli:pdf && npm run build:cli:html && npm run build:cli:png && npm run build:cli:component",
+    "build:package": "cp package-dist.json dist/package.json && cp README.md dist/README.md 2>/dev/null || true",
+    "build": "mkdir -p dist && npm run build:tools && npm run build:package",
+    "build:all": "npm run build",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "files": [
-    "bin/evg_pdf_tool.js",
-    "bin/evg_html_tool.js",
-    "bin/evg_png_tool.js",
-    "bin/evg_component_tool.js",
-    "README.md"
+    "dist/"
   ],
   "keywords": [
     "pdf",

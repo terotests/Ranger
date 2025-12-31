@@ -1,0 +1,45 @@
+{
+  "name": "ranger-pdf-tool",
+  "version": "1.0.0",
+  "description": "PDF rendering library for Node.js and Electron - compile TSX to PDF with live preview",
+  "main": "ranger_pdf_tool.js",
+  "exports": {
+    ".": {
+      "require": "./ranger_pdf_tool.js"
+    },
+    "./express": {
+      "require": "./express-wrapper.js"
+    }
+  },
+  "bin": {
+    "evg-pdf": "./evg_pdf_tool.js",
+    "evg-html": "./evg_html_tool.js",
+    "evg-png": "./evg_png_tool.js",
+    "evg-component": "./evg_component_tool.js",
+    "evg-preview": "./evg_preview_server.js"
+  },
+  "keywords": [
+    "pdf",
+    "tsx",
+    "electron",
+    "document",
+    "render",
+    "preview",
+    "live-reload",
+    "ranger"
+  ],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
+  "peerDependencies": {
+    "express": ">=4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "express": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

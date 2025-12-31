@@ -1,0 +1,30 @@
+{
+  "name": "ranger-pdf-tool",
+  "version": "1.0.0",
+  "description": "PDF, HTML, and PNG generation toolkit with EVG layout engine, TSX parser, and font support",
+  "main": "evg_pdf_tool.js",
+  "bin": {
+    "evg-pdf": "./evg_pdf_tool.js",
+    "evg-html": "./evg_html_tool.js",
+    "evg-png": "./evg_png_tool.js",
+    "evg-component": "./evg_component_tool.js"
+  },
+  "keywords": [
+    "pdf",
+    "html",
+    "png",
+    "layout",
+    "evg",
+    "tsx",
+    "react",
+    "document",
+    "generator",
+    "ranger"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
