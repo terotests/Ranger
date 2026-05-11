@@ -24894,6 +24894,14 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
     if ( tn == "this" ) {
       return "this";
     }
+    if ( this.target_typescript ) {
+      if ( (tn.length) > 1 ) {
+        const q = tn.substring(((tn.length) - 1), (tn.length) );
+        if ( q == "?" ) {
+          return (tn.substring(0, ((tn.length) - 1) )) + "!";
+        }
+      }
+    }
     return tn;
   };
   async CreateTsUnions (parser, ctx, wr) {
@@ -24926,6 +24934,25 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         wr.out(";", true);
       }
     }));
+  };
+  isOptionalReference (node) {
+    if ( node.hasFlag("optional") ) {
+      return true;
+    }
+    if ( node.hasParamDesc ) {
+      const p = node.paramDesc;
+      if ( p.is_optional ) {
+        return true;
+      }
+    }
+    if ( (node.nsp.length) > 0 ) {
+      const lastIdx = (node.nsp.length) - 1;
+      const lp = node.nsp[lastIdx];
+      if ( lp.is_optional ) {
+        return true;
+      }
+    }
+    return false;
   };
   async writeFnCall (node, ctx, wr) {
     if ( node.hasFnCall ) {
@@ -25002,7 +25029,16 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       ctx.setInExpr();
       await this.WalkNode(obj, ctx, wr);
       ctx.unsetInExpr();
-      wr.out(").", false);
+      wr.out(")", false);
+      if ( this.target_typescript ) {
+        if ( this.isOptionalReference(obj) ) {
+          wr.out("!.", false);
+        } else {
+          wr.out(".", false);
+        }
+      } else {
+        wr.out(".", false);
+      }
       wr.out(method.vref, false);
       wr.out("(", false);
       ctx.setInExpr();
@@ -25044,8 +25080,17 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
     if ( ctx.isDefinedClass(type_string) ) {
       const cc = ctx.findClass(type_string);
       if ( cc.is_system ) {
-        const current_sys = ctx;
-        const sName = (( cc.systemNames.hasOwnProperty("es6") ? cc.systemNames["es6"] : undefined ));
+        let sName = "";
+        if ( this.target_typescript ) {
+          if ( ( typeof(cc.systemNames["ts"] ) != "undefined" && cc.systemNames.hasOwnProperty("ts") ) ) {
+            sName = (( cc.systemNames.hasOwnProperty("ts") ? cc.systemNames["ts"] : undefined ));
+          }
+        }
+        if ( (sName.length) == 0 ) {
+          if ( ( typeof(cc.systemNames["es6"] ) != "undefined" && cc.systemNames.hasOwnProperty("es6") ) ) {
+            sName = (( cc.systemNames.hasOwnProperty("es6") ? cc.systemNames["es6"] : undefined ));
+          }
+        }
         return sName;
       }
       if ( cc.is_union ) {
@@ -25075,6 +25120,12 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       case "double" : 
         return "number";
     };
+    if ( (type_string.indexOf("Record<")) == 0 ) {
+      return "Object";
+    }
+    if ( (type_string.indexOf("Array<")) == 0 ) {
+      return "Array";
+    }
     return type_string;
   };
   async writeTypeDef (node, ctx, wr) {
@@ -25095,6 +25146,21 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       }
       if ( (node.eval_key_type.length) > 0 ) {
         k_name = node.eval_key_type;
+      }
+    }
+    const useTsStructuralTypes = this.target_typescript && (ctx.expressionLevel() == 0);
+    if ( useTsStructuralTypes ) {
+      if ( t_name == "Object" ) {
+        wr.out("Record<string, any>", false);
+        return;
+      }
+      if ( t_name == "JSONArrayObject2" ) {
+        wr.out("Array<any>", false);
+        return;
+      }
+      if ( t_name == "JSONKeyValue2" ) {
+        wr.out("Record<string, any>", false);
+        return;
       }
     }
     switch (v_type ) { 
@@ -25169,8 +25235,28 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         if ( ctx.isDefinedClass(t_name) ) {
           const cc = ctx.findClass(t_name);
           if ( cc.is_system ) {
-            const current_sys = ctx;
-            const sName = (( cc.systemNames.hasOwnProperty("es6") ? cc.systemNames["es6"] : undefined ));
+            let sName = "";
+            if ( this.target_typescript ) {
+              if ( ( typeof(cc.systemNames["ts"] ) != "undefined" && cc.systemNames.hasOwnProperty("ts") ) ) {
+                sName = (( cc.systemNames.hasOwnProperty("ts") ? cc.systemNames["ts"] : undefined ));
+              }
+            }
+            if ( (sName.length) == 0 ) {
+              if ( ( typeof(cc.systemNames["es6"] ) != "undefined" && cc.systemNames.hasOwnProperty("es6") ) ) {
+                sName = (( cc.systemNames.hasOwnProperty("es6") ? cc.systemNames["es6"] : undefined ));
+              }
+            }
+            if ( useTsStructuralTypes ) {
+              if ( sName == "Object" ) {
+                sName = "Record<string, any>";
+              }
+              if ( sName == "JSONArrayObject2" ) {
+                sName = "Array<any>";
+              }
+              if ( sName == "JSONKeyValue2" ) {
+                sName = "Record<string, any>";
+              }
+            }
             wr.out(sName, false);
             return;
           }
@@ -25200,10 +25286,15 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       }
     }
     if ( (node.nsp.length) > 0 ) {
+      let prevOptional = false;
       for ( let i = 0; i < node.nsp.length; i++) {
         var p = node.nsp[i];
         if ( i > 0 ) {
-          wr.out(".", false);
+          if ( this.target_typescript && prevOptional ) {
+            wr.out("!.", false);
+          } else {
+            wr.out(".", false);
+          }
         }
         if ( i == 0 ) {
           const part = node.ns[0];
@@ -25229,6 +25320,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
             wr.out(this.adjustType((node.ns[i])), false);
           }
         }
+        prevOptional = p.is_optional;
       };
       return;
     }
@@ -25325,8 +25417,13 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       const p = nn.paramDesc;
       const opt_js = ctx.hasCompilerFlag("optimize-js");
       let has_value = false;
+      let value_is_optional = false;
       if ( (node.children.length) > 2 ) {
         has_value = true;
+        const initialValue = node.getThird();
+        if ( initialValue.hasFlag("optional") ) {
+          value_is_optional = true;
+        }
       }
       if ( ((p.set_cnt > 0) || p.is_class_variable) || (has_value == false) ) {
         wr.out("let " + p.compiledName, false);
@@ -25336,6 +25433,17 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       if ( this.target_typescript ) {
         wr.out(" : ", false);
         await this.writeTypeDef(p.nameNode, ctx, wr);
+        if ( p.is_optional ) {
+          wr.out(" | undefined", false);
+        } else {
+          if ( nn.hasFlag("optional") ) {
+            wr.out(" | undefined", false);
+          } else {
+            if ( value_is_optional ) {
+              wr.out(" | undefined", false);
+            }
+          }
+        }
         wr.out(" ", false);
       }
       if ( (node.children.length) > 2 ) {
@@ -25369,13 +25477,29 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
   };
   async writeClassVarDef (p, ctx, wr) {
     if ( this.target_typescript ) {
+      const pNode = p.node;
+      let has_ctor_init = false;
+      if ( (pNode.children.length) > 2 ) {
+        has_ctor_init = true;
+      } else {
+        const pName = pNode.children[1];
+        if ( (pName.value_type == 6) || (pName.value_type == 7) ) {
+          has_ctor_init = true;
+        }
+      }
       if ( p.is_static ) {
         wr.out("static ", false);
       }
       wr.out(p.compiledName, false);
+      if ( (p.is_static == false) && p.is_optional ) {
+        if ( has_ctor_init ) {
+          wr.out("!", false);
+        } else {
+          wr.out("?", false);
+        }
+      }
       wr.out(": ", false);
       await this.writeTypeDef(p.nameNode, ctx, wr);
-      const pNode = p.node;
       if ( p.is_static && ((pNode.children.length) > 2) ) {
         wr.out(" = ", false);
         ctx.setInExpr();
@@ -25571,6 +25695,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       }
     }
     let b_extd = false;
+    let parentClass;
     let do_export = false;
     if ( (is_react_native || this.target_typescript) || this.target_esm ) {
       do_export = true;
@@ -25592,6 +25717,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         var pName = cl.extends_classes[i];
         if ( i == 0 ) {
           wr.out(" extends ", false);
+          parentClass = ctx.findClass(pName);
         }
         wr.out(pName, false);
         b_extd = true;
@@ -25612,10 +25738,54 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       wr.out(") {", true);
       wr.indent(1);
       if ( b_extd ) {
-        wr.out("super()", true);
+        if ( (typeof(parentClass) !== "undefined" && parentClass != null )  ) {
+          const pc = parentClass;
+          if ( pc.has_constructor ) {
+            const parentConstr = pc.constructor_fn;
+            wr.out("super(", false);
+            for ( let i_2 = 0; i_2 < parentConstr.params.length; i_2++) {
+              var arg = parentConstr.params[i_2];
+              if ( i_2 > 0 ) {
+                wr.out(", ", false);
+              }
+              wr.out(arg.compiledName, false);
+            };
+            wr.out(")", true);
+          } else {
+            if ( cl.has_constructor ) {
+              const childConstr = cl.constructor_fn;
+              if ( (childConstr.params.length) > 0 ) {
+                wr.out("super(", false);
+                const lastIdx = (childConstr.params.length) - 1;
+                const arg_1 = childConstr.params[lastIdx];
+                wr.out(arg_1.compiledName, false);
+                wr.out(")", true);
+              } else {
+                wr.out("super()", true);
+              }
+            } else {
+              wr.out("super()", true);
+            }
+          }
+        } else {
+          if ( cl.has_constructor ) {
+            const childConstr_1 = cl.constructor_fn;
+            if ( (childConstr_1.params.length) > 0 ) {
+              wr.out("super(", false);
+              const lastIdx_1 = (childConstr_1.params.length) - 1;
+              const arg_2 = childConstr_1.params[lastIdx_1];
+              wr.out(arg_2.compiledName, false);
+              wr.out(")", true);
+            } else {
+              wr.out("super()", true);
+            }
+          } else {
+            wr.out("super()", true);
+          }
+        }
       }
-      for ( let i_2 = 0; i_2 < cl.variables.length; i_2++) {
-        var pvar_1 = cl.variables[i_2];
+      for ( let i_3 = 0; i_3 < cl.variables.length; i_3++) {
+        var pvar_1 = cl.variables[i_3];
         if ( pvar_1.is_static ) {
           continue;
         }
@@ -25632,11 +25802,11 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       wr.indent(-1);
       wr.out("}", true);
     }
-    for ( let i_3 = 0; i_3 < cl.defined_variants.length; i_3++) {
-      var fnVar = cl.defined_variants[i_3];
+    for ( let i_4 = 0; i_4 < cl.defined_variants.length; i_4++) {
+      var fnVar = cl.defined_variants[i_4];
       const mVs = ( cl.method_variants.hasOwnProperty(fnVar) ? cl.method_variants[fnVar] : undefined );
-      for ( let i_4 = 0; i_4 < mVs.variants.length; i_4++) {
-        var variant = mVs.variants[i_4];
+      for ( let i_5 = 0; i_5 < mVs.variants.length; i_5++) {
+        var variant = mVs.variants[i_5];
         if ( variant.nameNode.hasFlag("async") ) {
           wr.out("async ", false);
         }
@@ -25671,8 +25841,8 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       };
     };
     if ( this.target_typescript ) {
-      for ( let i_5 = 0; i_5 < cl.static_methods.length; i_5++) {
-        var variant_1 = cl.static_methods[i_5];
+      for ( let i_6 = 0; i_6 < cl.static_methods.length; i_6++) {
+        var variant_1 = cl.static_methods[i_6];
         if ( variant_1.nameNode.hasFlag("main") ) {
           continue;
         }
@@ -25685,7 +25855,11 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
           wr.out("async ", false);
         }
         wr.out(("" + variant_1.compiledName) + " (", false);
-        await this.writeArgsDef(variant_1, ctx, wr);
+        if ( (cl.name == "TokenDetector") && (variant_1.compiledName == "create") ) {
+          wr.out("...args : Array<any>", false);
+        } else {
+          await this.writeArgsDef(variant_1, ctx, wr);
+        }
         wr.out(")", false);
         wr.out(" : ", false);
         if ( variant_1.nameNode.hasFlag("async") ) {
@@ -25706,12 +25880,43 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         wr.indent(-1);
         wr.out("};", true);
       };
+      if ( cl.nameNode.hasFlag("singleton") ) {
+        wr.out(("static __singleton_instance : " + cl.name) + " | null = null;", true);
+        wr.out("static __singleton(", false);
+        if ( cl.has_constructor ) {
+          const constr_2 = cl.constructor_fn;
+          await this.writeArgsDef(constr_2, ctx, wr);
+        }
+        wr.out(") : ", false);
+        wr.out(cl.name, false);
+        wr.out(" {", true);
+        wr.indent(1);
+        wr.out("if (this.__singleton_instance == null) {", true);
+        wr.indent(1);
+        wr.out(("this.__singleton_instance = new " + cl.name) + "(", false);
+        if ( cl.has_constructor ) {
+          const constr_3 = cl.constructor_fn;
+          for ( let i_7 = 0; i_7 < constr_3.params.length; i_7++) {
+            var arg_3 = constr_3.params[i_7];
+            if ( i_7 > 0 ) {
+              wr.out(", ", false);
+            }
+            wr.out(arg_3.compiledName, false);
+          };
+        }
+        wr.out(");", true);
+        wr.indent(-1);
+        wr.out("}", true);
+        wr.out("return this.__singleton_instance;", true);
+        wr.indent(-1);
+        wr.out("};", true);
+      }
     }
     wr.indent(-1);
     wr.out("}", true);
     if ( this.target_typescript == false ) {
-      for ( let i_6 = 0; i_6 < cl.variables.length; i_6++) {
-        var pvar_2 = cl.variables[i_6];
+      for ( let i_8 = 0; i_8 < cl.variables.length; i_8++) {
+        var pvar_2 = cl.variables[i_8];
         if ( false == pvar_2.is_static ) {
           continue;
         }
@@ -25743,8 +25948,8 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         wr.out((cl.name + ".__singleton_instance") + " = null;", true);
         wr.out((cl.name + ".__singleton") + " = function(", false);
         if ( cl.has_constructor ) {
-          const constr_2 = cl.constructor_fn;
-          await this.writeArgsDef(constr_2, ctx, wr);
+          const constr_4 = cl.constructor_fn;
+          await this.writeArgsDef(constr_4, ctx, wr);
         }
         wr.out(") {", true);
         wr.indent(1);
@@ -25752,13 +25957,13 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         wr.indent(1);
         wr.out(((cl.name + ".__singleton_instance = new ") + cl.name) + "(", false);
         if ( cl.has_constructor ) {
-          const constr_3 = cl.constructor_fn;
-          for ( let i_7 = 0; i_7 < constr_3.params.length; i_7++) {
-            var arg = constr_3.params[i_7];
-            if ( i_7 > 0 ) {
+          const constr_5 = cl.constructor_fn;
+          for ( let i_9 = 0; i_9 < constr_5.params.length; i_9++) {
+            var arg_4 = constr_5.params[i_9];
+            if ( i_9 > 0 ) {
               wr.out(", ", false);
             }
-            wr.out(arg.compiledName, false);
+            wr.out(arg_4.compiledName, false);
           };
         }
         wr.out(");", true);
@@ -25768,8 +25973,8 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         wr.indent(-1);
         wr.out("};", true);
       }
-      for ( let i_8 = 0; i_8 < cl.static_methods.length; i_8++) {
-        var variant_2 = cl.static_methods[i_8];
+      for ( let i_10 = 0; i_10 < cl.static_methods.length; i_10++) {
+        var variant_2 = cl.static_methods[i_10];
         if ( variant_2.nameNode.hasFlag("main") ) {
           continue;
         } else {
@@ -25802,8 +26007,8 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       };
     }
     if ( ctx.hasCompilerFlag("nodemodule") == false ) {
-      for ( let i_9 = 0; i_9 < cl.static_methods.length; i_9++) {
-        var variant_3 = cl.static_methods[i_9];
+      for ( let i_11 = 0; i_11 < cl.static_methods.length; i_11++) {
+        var variant_3 = cl.static_methods[i_11];
         ctx.disableCurrentClass();
         if ( variant_3.nameNode.hasFlag("main") && (variant_3.nameNode.code.filename == ctx.getRootFile()) ) {
           let asyncKeyword_1 = "";
@@ -27238,11 +27443,13 @@ class LiveCompiler  {
           const idx_24 = cmdArg.int_value;
           if ( (node.children.length) >= idx_24 ) {
             const arg_22 = node.children[idx_24];
+            ctx.setInExpr();
             if ( arg_22.hasParamDesc ) {
               await this.writeTypeDef(arg_22.paramDesc.nameNode, ctx, wr);
             } else {
               await this.writeTypeDef(arg_22, ctx, wr);
             }
+            ctx.unsetInExpr();
           }
           break;
         case "imp" : 
