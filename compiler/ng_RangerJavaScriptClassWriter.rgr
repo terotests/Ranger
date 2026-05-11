@@ -550,11 +550,55 @@ class RangerJavaScriptClassWriter {
   }
   fn writeClassVarDef:void (p:RangerAppParamDesc ctx:RangerAppWriterContext wr:CodeWriter) {
       if target_typescript {
+        if p.is_static {
+          wr.out("static " false)
+        }
         wr.out( p.compiledName false)
         wr.out(": " false)
         this.writeTypeDef( (unwrap p.nameNode) ctx wr)
+        def pNode:CodeNode p.node
+        if (p.is_static && ((array_length pNode.children) > 2)) {
+          wr.out(" = " false)
+          ctx.setInExpr()
+          def value:CodeNode (pNode.getThird())
+          this.WalkNode(value ctx wr)
+          ctx.unsetInExpr()
+        }
         wr.out(";" true)
       }
+  }
+
+  fn writeNewCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if node.hasNewOper {
+      def cl:RangerAppClassDesc node.clDesc
+      def givenArgs:CodeNode (node.getThird())
+      if (cl.nameNode.hasFlag("singleton")) {
+        wr.out((node.clDesc.name + ".__singleton") false)
+        wr.out("(" false)
+        for givenArgs.children n:CodeNode i {
+          if (i > 0) {
+            wr.out(", " false)
+          }
+          this.WalkNode(n ctx wr)
+        }
+        wr.out(")" false)
+        return
+      }
+
+      wr.out(("new " + node.clDesc.name) false)
+      wr.out("(" false)
+      def constr:RangerAppFunctionDesc cl.constructor_fn
+      if (!null? constr) {
+        for constr.params arg:RangerAppParamDesc i {
+          def n:CodeNode (itemAt givenArgs.children i)
+          if (i > 0) {
+            wr.out(", " false)
+          }
+          this.WalkNode(n ctx wr)
+        }
+      }
+      wr.out(")" false)
+    }
   }
 
   fn CreateLambdaCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -785,6 +829,9 @@ class RangerJavaScriptClassWriter {
       }
 
       for cl.variables pvar:RangerAppParamDesc i {
+        if pvar.is_static {
+          continue _
+        }
         this.writeVarInitDef(( unwrap pvar.node ) ctx wr)
       }
       if cl.has_constructor {
@@ -886,6 +933,64 @@ class RangerJavaScriptClassWriter {
     wr.out("}" true)
     
     if ( target_typescript == false ) {
+      for cl.variables pvar:RangerAppParamDesc i {
+        if (false == pvar.is_static) {
+          continue _
+        }
+        wr.out(((cl.name + ".") + pvar.compiledName + " = ") false)
+        def pNode:CodeNode pvar.node
+        if ((array_length pNode.children) > 2) {
+          ctx.setInExpr()
+          def value:CodeNode (pNode.getThird())
+          this.WalkNode(value ctx wr)
+          ctx.unsetInExpr()
+        } {
+          def pName:CodeNode (itemAt pNode.children 1)
+          def wrote_default false
+          if (pName.value_type == RangerNodeType.Array) {
+            wr.out("[]" false)
+            wrote_default = true
+          }
+          if (pName.value_type == RangerNodeType.Hash) {
+            wr.out("{}" false)
+            wrote_default = true
+          }
+          if (false == wrote_default) {
+            wr.out("null" false)
+          }
+        }
+        wr.out(";" true)
+      }
+
+      if (cl.nameNode.hasFlag("singleton")) {
+        wr.out(((cl.name + ".__singleton_instance") + " = null;") true)
+        wr.out(((cl.name + ".__singleton") + " = function(") false)
+        if cl.has_constructor {
+          def constr:RangerAppFunctionDesc (unwrap cl.constructor_fn)
+          this.writeArgsDef(constr ctx wr)
+        }
+        wr.out(") {" true)
+        wr.indent(1)
+        wr.out(("if (" + cl.name + ".__singleton_instance == null) {") true)
+        wr.indent(1)
+        wr.out((cl.name + ".__singleton_instance = new " + cl.name + "(") false)
+        if cl.has_constructor {
+          def constr:RangerAppFunctionDesc (unwrap cl.constructor_fn)
+          for constr.params arg:RangerAppParamDesc i {
+            if (i > 0) {
+              wr.out(", " false)
+            }
+            wr.out(arg.compiledName false)
+          }
+        }
+        wr.out(");" true)
+        wr.indent(-1)
+        wr.out("}" true)
+        wr.out(("return " + cl.name + ".__singleton_instance;") true)
+        wr.indent(-1)
+        wr.out("};" true)
+      }
+
       for cl.static_methods variant:RangerAppFunctionDesc i {
         if (variant.nameNode.hasFlag("main")) {
           continue _

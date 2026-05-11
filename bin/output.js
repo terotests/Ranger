@@ -425,7 +425,7 @@ class RangerAppParamDesc  {
     this.has_default = false;     /** note: unused */
     this.isThis = false;     /** note: unused */
     this.is_immutable = false;
-    this.is_static = false;     /** note: unused */
+    this.is_static = false;
     this.ownerHistory = [];
     this.varType = 0;
     this.refType = 0;
@@ -9464,6 +9464,14 @@ class RangerFlowParser  {
     for ( let i_3 = 0; i_3 < cBody.children.length; i_3++) {
       var fNode_2 = cBody.children[i_3];
       if ( (fNode_2.isFirstVref("sfn") || fNode_2.isFirstVref("StaticMethod")) || fNode_2.isFirstVref("static") ) {
+        if ( fNode_2.isFirstVref("static") ) {
+          if ( fNode_2.chlen() >= 2 ) {
+            const staticCmd = fNode_2.getVRefAt(1);
+            if ( (staticCmd == "def") || (staticCmd == "let") ) {
+              continue;
+            }
+          }
+        }
         await this.WalkNode(fNode_2, staticCtx, wr);
       }
     };
@@ -11082,6 +11090,9 @@ class RangerFlowParser  {
       p_1.varType = 8;
       p_1.node = node;
       p_1.nameNode = vDef;
+      if ( node.hasFlag("static") ) {
+        p_1.is_static = true;
+      }
       vDef.hasParamDesc = true;
       vDef.ownParamDesc = p_1;
       vDef.paramDesc = p_1;
@@ -11199,6 +11210,32 @@ class RangerFlowParser  {
       b_is_main = true;
     }
     if ( node.isFirstVref("static") ) {
+      if ( node.chlen() >= 2 ) {
+        const staticCmd = node.getVRefAt(1);
+        if ( (staticCmd == "def") || (staticCmd == "let") ) {
+          const staticDecl = node.newExpressionNode();
+          for ( let i_14 = 0; i_14 < node.children.length; i_14++) {
+            var ch_6 = node.children[i_14];
+            if ( i_14 == 0 ) {
+              continue;
+            }
+            staticDecl.children.push(ch_6);
+          };
+          staticDecl.setFlag("static");
+          await this.WalkCollectMethods(staticDecl, ctx, wr);
+          find_more = false;
+          return;
+        }
+      }
+      if ( node.chlen() >= 2 ) {
+        const secondNode = node.getSecond();
+        if ( secondNode.isFirstVref("def") || secondNode.isFirstVref("let") ) {
+          secondNode.setFlag("static");
+          await this.WalkCollectMethods(secondNode, ctx, wr);
+          find_more = false;
+          return;
+        }
+      }
       if ( node.chlen() < 5 ) {
         ctx.addError(node, "Invalid static function declaration");
         return;
@@ -11282,8 +11319,8 @@ class RangerFlowParser  {
       return;
     }
     if ( find_more ) {
-      for ( let i_14 = 0; i_14 < node.children.length; i_14++) {
-        var item_5 = node.children[i_14];
+      for ( let i_15 = 0; i_15 < node.children.length; i_15++) {
+        var item_5 = node.children[i_15];
         await this.WalkCollectMethods(item_5, ctx, wr);
       };
     }
@@ -14868,10 +14905,15 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
         wr.out(parentClass.compiledName, false);
       };
     } else {
-      wr.out(" : Equatable ", false);
+      wr.out(" : Hashable ", false);
     }
     wr.out(" { ", true);
     wr.indent(1);
+    wr.out("func hash(into hasher: inout Hasher) {", true);
+    wr.indent(1);
+    wr.out("hasher.combine(ObjectIdentifier(self))", true);
+    wr.indent(-1);
+    wr.out("}", true);
     for ( let i_6 = 0; i_6 < cl.variables.length; i_6++) {
       var pvar_1 = cl.variables[i_6];
       if ( ( typeof(declaredVariable[pvar_1.name] ) != "undefined" && declaredVariable.hasOwnProperty(pvar_1.name) ) ) {
@@ -14903,7 +14945,24 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       wr.out(" ) {", true);
       wr.indent(1);
       if ( typeof(parentClass) != "undefined" ) {
-        wr.out("super.init()", true);
+        wr.out("super.init(", false);
+        if ( parentClass.has_constructor ) {
+          const pConstr = parentClass.constructor_fn;
+          if ( cl.has_constructor ) {
+            const cConstr = cl.constructor_fn;
+            for ( let i_7 = 0; i_7 < pConstr.params.length; i_7++) {
+              var pArg = pConstr.params[i_7];
+              if ( i_7 > 0 ) {
+                wr.out(", ", false);
+              }
+              if ( i_7 < (cConstr.params.length) ) {
+                const cArg = cConstr.params[i_7];
+                wr.out((pArg.compiledName + " : ") + cArg.compiledName, false);
+              }
+            };
+          }
+        }
+        wr.out(")", true);
       }
       wr.newline();
       const subCtx = constr.fnCtx;
@@ -14913,13 +14972,10 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       wr.indent(-1);
       wr.out("}", true);
     }
-    for ( let i_7 = 0; i_7 < cl.static_methods.length; i_7++) {
-      var variant_2 = cl.static_methods[i_7];
+    for ( let i_8 = 0; i_8 < cl.static_methods.length; i_8++) {
+      var variant_2 = cl.static_methods[i_8];
       if ( variant_2.nameNode.hasFlag("main") ) {
         continue;
-      }
-      if ( ( typeof(declaredStaticFunction[variant_2.name] ) != "undefined" && declaredStaticFunction.hasOwnProperty(variant_2.name) ) ) {
-        wr.out("override ", false);
       }
       wr.out(("class func " + variant_2.compiledName) + "(", false);
       await this.writeArgsDef(variant_2, ctx, wr);
@@ -14935,11 +14991,11 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       wr.indent(-1);
       wr.out("}", true);
     };
-    for ( let i_8 = 0; i_8 < cl.defined_variants.length; i_8++) {
-      var fnVar_1 = cl.defined_variants[i_8];
+    for ( let i_9 = 0; i_9 < cl.defined_variants.length; i_9++) {
+      var fnVar_1 = cl.defined_variants[i_9];
       const mVs_1 = ( cl.method_variants.hasOwnProperty(fnVar_1) ? cl.method_variants[fnVar_1] : undefined );
-      for ( let i_9 = 0; i_9 < mVs_1.variants.length; i_9++) {
-        var variant_3 = mVs_1.variants[i_9];
+      for ( let i_10 = 0; i_10 < mVs_1.variants.length; i_10++) {
+        var variant_3 = mVs_1.variants[i_10];
         if ( ( typeof(dblDeclaredFunction[variant_3.name] ) != "undefined" && dblDeclaredFunction.hasOwnProperty(variant_3.name) ) ) {
           continue;
         }
@@ -14968,8 +15024,8 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
     };
     wr.indent(-1);
     wr.out("}", true);
-    for ( let i_10 = 0; i_10 < cl.static_methods.length; i_10++) {
-      var variant_4 = cl.static_methods[i_10];
+    for ( let i_11 = 0; i_11 < cl.static_methods.length; i_11++) {
+      var variant_4 = cl.static_methods[i_11];
       if ( variant_4.nameNode.hasFlag("main") && (variant_4.nameNode.code.filename == ctx.getRootFile()) ) {
         const theEnd = wr.getTag("file_end");
         theEnd.newline();
@@ -15303,7 +15359,10 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
       if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
         wr.out("/** unused:  ", false);
       }
-      if ( (p.set_cnt > 0) || p.is_class_variable ) {
+      if ( p.is_static ) {
+        wr.out("static ", false);
+      }
+      if ( (((p.set_cnt > 0) || p.is_class_variable) || (nn.value_type == 6)) || (nn.value_type == 7) ) {
         wr.out(("var " + p.compiledName) + " : ", false);
       } else {
         wr.out(("let " + p.compiledName) + " : ", false);
@@ -15348,6 +15407,9 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
       if ( nn.value_type == 20 ) {
         wr.out("  @escaping  ", false);
       }
+      if ( nn.hasFlag("mutates") ) {
+        wr.out("inout ", false);
+      }
       await this.writeTypeDef(arg.nameNode, ctx, wr);
     };
   };
@@ -15371,6 +15433,9 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
         if ( nn.value_type == 20 ) {
           wr.out("  @escaping  ", false);
         }
+      }
+      if ( nn.hasFlag("mutates") ) {
+        wr.out("inout ", false);
       }
       await this.writeTypeDef(arg.nameNode, ctx, wr);
     };
@@ -15400,6 +15465,9 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
             const mm = clMethod;
             const pDesc = mm.params[i];
             wr.out(pDesc.compiledName + " : ", false);
+            if ( ((pDesc.nameNode)).hasFlag("mutates") ) {
+              wr.out("&", false);
+            }
             await this.WalkNode(arg, ctx, wr);
             continue;
           }
@@ -15445,6 +15513,9 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
         }
         const n = givenArgs.children[i];
         wr.out(arg.compiledName + " : ", false);
+        if ( ((arg.nameNode)).hasFlag("mutates") ) {
+          wr.out("&", false);
+        }
         await this.WalkNode(n, ctx, wr);
       };
       ctx.unsetInExpr();
@@ -15524,20 +15595,44 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
   async writeNewCall (node, ctx, wr) {
     if ( node.hasNewOper ) {
       const cl = node.clDesc;
+      const givenArgs = node.getThird();
+      if ( cl.nameNode.hasFlag("singleton") ) {
+        wr.out(node.clDesc.name + ".__singleton", false);
+        wr.out("(", false);
+        if ( (typeof(cl.constructor_fn) !== "undefined" && cl.constructor_fn != null )  ) {
+          const constr = cl.constructor_fn;
+          for ( let i = 0; i < constr.params.length; i++) {
+            var arg = constr.params[i];
+            const n = givenArgs.children[i];
+            if ( i > 0 ) {
+              wr.out(", ", false);
+            }
+            wr.out(arg.name + " : ", false);
+            if ( ((arg.nameNode)).hasFlag("mutates") ) {
+              wr.out("&", false);
+            }
+            await this.WalkNode(n, ctx, wr);
+          };
+        }
+        wr.out(")", false);
+        return;
+      }
       const fc = node.getSecond();
       wr.out(node.clDesc.name, false);
       wr.out("(", false);
-      const constr = cl.constructor_fn;
-      const givenArgs = node.getThird();
-      if ( (typeof(constr) !== "undefined" && constr != null )  ) {
-        for ( let i = 0; i < constr.params.length; i++) {
-          var arg = constr.params[i];
-          const n = givenArgs.children[i];
-          if ( i > 0 ) {
+      const constr_1 = cl.constructor_fn;
+      if ( (typeof(constr_1) !== "undefined" && constr_1 != null )  ) {
+        for ( let i_1 = 0; i_1 < constr_1.params.length; i_1++) {
+          var arg_1 = constr_1.params[i_1];
+          const n_1 = givenArgs.children[i_1];
+          if ( i_1 > 0 ) {
             wr.out(", ", false);
           }
-          wr.out(arg.name + " : ", false);
-          await this.WalkNode(n, ctx, wr);
+          wr.out(arg_1.name + " : ", false);
+          if ( ((arg_1.nameNode)).hasFlag("mutates") ) {
+            wr.out("&", false);
+          }
+          await this.WalkNode(n_1, ctx, wr);
         };
       }
       wr.out(")", false);
@@ -15608,6 +15703,7 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
     let declaredFunction = {};
     let declaredStaticFunction = {};
     let parentFunction = {};
+    let parentStaticFunction = {};
     if ( (cl.extends_classes.length) > 0 ) {
       for ( let i = 0; i < cl.extends_classes.length; i++) {
         var pName = cl.extends_classes[i];
@@ -15628,6 +15724,7 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
         for ( let i_4 = 0; i_4 < pC.static_methods.length; i_4++) {
           var variant_1 = pC.static_methods[i_4];
           declaredStaticFunction[variant_1.name] = true;
+          parentStaticFunction[variant_1.name] = variant_1;
         };
       };
     }
@@ -15646,10 +15743,18 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
         wr.out(parentClass.compiledName, false);
       };
     } else {
-      wr.out(" : Equatable ", false);
+      wr.out(" : Hashable ", false);
     }
     wr.out(" { ", true);
     wr.indent(1);
+    if ( typeof(parentClass) != "undefined" ) {
+    } else {
+      wr.out("func hash(into hasher: inout Hasher) {", true);
+      wr.indent(1);
+      wr.out("hasher.combine(ObjectIdentifier(self))", true);
+      wr.indent(-1);
+      wr.out("}", true);
+    }
     for ( let i_6 = 0; i_6 < cl.variables.length; i_6++) {
       var pvar_1 = cl.variables[i_6];
       if ( ( typeof(declaredVariable[pvar_1.name] ) != "undefined" && declaredVariable.hasOwnProperty(pvar_1.name) ) ) {
@@ -15681,7 +15786,35 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
       wr.out(" ) {", true);
       wr.indent(1);
       if ( typeof(parentClass) != "undefined" ) {
-        wr.out("super.init()", true);
+        wr.out("super.init(", false);
+        if ( parentClass.has_constructor ) {
+          const pConstr = parentClass.constructor_fn;
+          if ( cl.has_constructor ) {
+            const cConstr = cl.constructor_fn;
+            for ( let i_7 = 0; i_7 < pConstr.params.length; i_7++) {
+              var pArg = pConstr.params[i_7];
+              if ( i_7 > 0 ) {
+                wr.out(", ", false);
+              }
+              let foundByName = false;
+              for ( let j = 0; j < cConstr.params.length; j++) {
+                var cArgByName = cConstr.params[j];
+                if ( cArgByName.name == pArg.name ) {
+                  wr.out((pArg.compiledName + " : ") + cArgByName.compiledName, false);
+                  foundByName = true;
+                  break;
+                }
+              };
+              if ( false == foundByName ) {
+                if ( i_7 < (cConstr.params.length) ) {
+                  const cArg = cConstr.params[i_7];
+                  wr.out((pArg.compiledName + " : ") + cArg.compiledName, false);
+                }
+              }
+            };
+          }
+        }
+        wr.out(")", true);
       }
       wr.newline();
       const subCtx = constr.fnCtx;
@@ -15691,13 +15824,16 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
       wr.indent(-1);
       wr.out("}", true);
     }
-    for ( let i_7 = 0; i_7 < cl.static_methods.length; i_7++) {
-      var variant_2 = cl.static_methods[i_7];
+    for ( let i_8 = 0; i_8 < cl.static_methods.length; i_8++) {
+      var variant_2 = cl.static_methods[i_8];
       if ( variant_2.nameNode.hasFlag("main") ) {
         continue;
       }
-      if ( ( typeof(declaredStaticFunction[variant_2.name] ) != "undefined" && declaredStaticFunction.hasOwnProperty(variant_2.name) ) ) {
-        wr.out("override ", false);
+      if ( ( typeof(parentStaticFunction[variant_2.name] ) != "undefined" && parentStaticFunction.hasOwnProperty(variant_2.name) ) ) {
+        const pStatic = (( parentStaticFunction.hasOwnProperty(variant_2.name) ? parentStaticFunction[variant_2.name] : undefined ));
+        if ( this.haveSameSig(variant_2, pStatic, ctx) ) {
+          wr.out("override ", false);
+        }
       }
       wr.out(("class func " + variant_2.compiledName) + "(", false);
       await this.writeArgsDef(variant_2, ctx, wr);
@@ -15713,11 +15849,40 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
       wr.indent(-1);
       wr.out("}", true);
     };
-    for ( let i_8 = 0; i_8 < cl.defined_variants.length; i_8++) {
-      var fnVar_1 = cl.defined_variants[i_8];
+    if ( cl.nameNode.hasFlag("singleton") ) {
+      wr.out(("private static var __singleton_instance : " + cl.compiledName) + "? = nil", true);
+      wr.out("class func __singleton(", false);
+      if ( cl.has_constructor ) {
+        const constr_1 = cl.constructor_fn;
+        await this.writeArgsDef(constr_1, ctx, wr);
+      }
+      wr.out((") -> " + cl.compiledName) + " {", true);
+      wr.indent(1);
+      wr.out(("if (" + cl.compiledName) + ".__singleton_instance == nil) {", true);
+      wr.indent(1);
+      wr.out(((cl.compiledName + ".__singleton_instance = ") + cl.compiledName) + "(", false);
+      if ( cl.has_constructor ) {
+        const constr_2 = cl.constructor_fn;
+        for ( let i_9 = 0; i_9 < constr_2.params.length; i_9++) {
+          var arg = constr_2.params[i_9];
+          if ( i_9 > 0 ) {
+            wr.out(", ", false);
+          }
+          wr.out((arg.name + " : ") + arg.compiledName, false);
+        };
+      }
+      wr.out(")", true);
+      wr.indent(-1);
+      wr.out("}", true);
+      wr.out(("return " + cl.compiledName) + ".__singleton_instance!", true);
+      wr.indent(-1);
+      wr.out("}", true);
+    }
+    for ( let i_10 = 0; i_10 < cl.defined_variants.length; i_10++) {
+      var fnVar_1 = cl.defined_variants[i_10];
       const mVs_1 = ( cl.method_variants.hasOwnProperty(fnVar_1) ? cl.method_variants[fnVar_1] : undefined );
-      for ( let i_9 = 0; i_9 < mVs_1.variants.length; i_9++) {
-        var variant_3 = mVs_1.variants[i_9];
+      for ( let i_11 = 0; i_11 < mVs_1.variants.length; i_11++) {
+        var variant_3 = mVs_1.variants[i_11];
         if ( ( typeof(dblDeclaredFunction[variant_3.name] ) != "undefined" && dblDeclaredFunction.hasOwnProperty(variant_3.name) ) ) {
           continue;
         }
@@ -15746,8 +15911,8 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
     };
     wr.indent(-1);
     wr.out("}", true);
-    for ( let i_10 = 0; i_10 < cl.static_methods.length; i_10++) {
-      var variant_4 = cl.static_methods[i_10];
+    for ( let i_12 = 0; i_12 < cl.static_methods.length; i_12++) {
+      var variant_4 = cl.static_methods[i_12];
       if ( variant_4.nameNode.hasFlag("main") && (variant_4.nameNode.code.filename == ctx.getRootFile()) ) {
         const theEnd = wr.getTag("file_end");
         theEnd.newline();
@@ -19978,6 +20143,9 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
       if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
         wr.out("/** unused:  ", false);
       }
+      if ( p.is_class_variable ) {
+        wr.out("@JvmField ", false);
+      }
       if ( (p.set_cnt > 0) || p.is_class_variable ) {
         wr.out("var ", false);
       } else {
@@ -19994,11 +20162,15 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
         await this.WalkNode(value, ctx, wr);
         ctx.unsetInExpr();
       } else {
-        if ( nn.value_type == 6 ) {
-          wr.out(" = arrayListOf()", false);
-        }
-        if ( nn.value_type == 7 ) {
-          wr.out(" = hashMapOf()", false);
+        if ( nn.hasFlag("optional") ) {
+          wr.out(" = null", false);
+        } else {
+          if ( nn.value_type == 6 ) {
+            wr.out(" = arrayListOf()", false);
+          }
+          if ( nn.value_type == 7 ) {
+            wr.out(" = hashMapOf()", false);
+          }
         }
       }
       if ( (p.ref_cnt == 0) && (p.is_class_variable == true) ) {
@@ -20056,21 +20228,35 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
   async writeNewCall (node, ctx, wr) {
     if ( node.hasNewOper ) {
       const cl = node.clDesc;
+      const givenArgs = node.getThird();
+      if ( cl.nameNode.hasFlag("singleton") ) {
+        wr.out(" ", false);
+        wr.out(node.clDesc.name + ".__singleton", false);
+        wr.out("(", false);
+        for ( let i = 0; i < givenArgs.children.length; i++) {
+          var n = givenArgs.children[i];
+          if ( i > 0 ) {
+            wr.out(", ", false);
+          }
+          await this.WalkNode(n, ctx, wr);
+        };
+        wr.out(")", false);
+        return;
+      }
       const fc = node.getSecond();
       wr.out(" ", false);
       wr.out(node.clDesc.name, false);
       wr.out("(", false);
       const constr = cl.constructor_fn;
-      const givenArgs = node.getThird();
       if ( (typeof(constr) !== "undefined" && constr != null )  ) {
-        for ( let i = 0; i < constr.params.length; i++) {
-          var arg = constr.params[i];
-          const n = givenArgs.children[i];
-          if ( i > 0 ) {
+        for ( let i_1 = 0; i_1 < constr.params.length; i_1++) {
+          var arg = constr.params[i_1];
+          const n_1 = givenArgs.children[i_1];
+          if ( i_1 > 0 ) {
             wr.out(", ", false);
           }
           if ( true || ((typeof(arg.nameNode) !== "undefined" && arg.nameNode != null ) ) ) {
-            await this.WalkNode(n, ctx, wr);
+            await this.WalkNode(n_1, ctx, wr);
           }
         };
       }
@@ -20082,83 +20268,211 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
     if ( typeof(cl) === "undefined" ) {
       return;
     }
+    let declaredFunction = {};
     const wr = orig_wr;
     const importFork = wr.fork();
     wr.out("", true);
-    wr.out("class " + cl.name, false);
+    if ( cl.is_extended_by_children ) {
+      wr.out("open class " + cl.name, false);
+    } else {
+      wr.out("class " + cl.name, false);
+    }
     if ( cl.has_constructor ) {
       const constr = cl.constructor_fn;
       wr.out("(", false);
       await this.writeArgsDef(constr, ctx, wr);
-      wr.out(" ) ", true);
+      wr.out(" )", false);
     }
+    if ( (cl.extends_classes.length) > 0 ) {
+      wr.out(" : ", false);
+      for ( let i = 0; i < cl.extends_classes.length; i++) {
+        var pName = cl.extends_classes[i];
+        if ( i > 0 ) {
+          wr.out(", ", false);
+        }
+        const parentClass = ctx.findClass(pName);
+        for ( let j = 0; j < parentClass.defined_variants.length; j++) {
+          var fnVar = parentClass.defined_variants[j];
+          const mVs = ( parentClass.method_variants.hasOwnProperty(fnVar) ? parentClass.method_variants[fnVar] : undefined );
+          for ( let k = 0; k < mVs.variants.length; k++) {
+            var variant = mVs.variants[k];
+            declaredFunction[variant.name] = true;
+          };
+        };
+        wr.out(parentClass.compiledName, false);
+        if ( parentClass.has_constructor ) {
+          wr.out("(", false);
+          if ( cl.has_constructor ) {
+            const constr_1 = cl.constructor_fn;
+            const pConstr = parentClass.constructor_fn;
+            for ( let j_1 = 0; j_1 < pConstr.params.length; j_1++) {
+              var pArg = pConstr.params[j_1];
+              if ( j_1 > 0 ) {
+                wr.out(", ", false);
+              }
+              let foundByName = false;
+              for ( let k_1 = 0; k_1 < constr_1.params.length; k_1++) {
+                var cArgByName = constr_1.params[k_1];
+                if ( cArgByName.name == pArg.name ) {
+                  wr.out(cArgByName.compiledName, false);
+                  foundByName = true;
+                  break;
+                }
+              };
+              if ( false == foundByName ) {
+                if ( j_1 < (constr_1.params.length) ) {
+                  const cArg = constr_1.params[j_1];
+                  wr.out(cArg.compiledName, false);
+                }
+              }
+            };
+          }
+          wr.out(")", false);
+        }
+      };
+    }
+    wr.out(" ", true);
     wr.out(" {", true);
     wr.indent(1);
-    for ( let i = 0; i < cl.variables.length; i++) {
-      var pvar = cl.variables[i];
-      await this.writeVarDef(pvar.node, ctx, wr);
+    let has_static_vars = false;
+    for ( let i_1 = 0; i_1 < cl.variables.length; i_1++) {
+      var pvar = cl.variables[i_1];
+      if ( pvar.is_static ) {
+        has_static_vars = true;
+      }
+    };
+    let wants_companion = false;
+    if ( ((cl.static_methods.length) > 0) || has_static_vars ) {
+      wants_companion = true;
+    }
+    if ( cl.nameNode.hasFlag("singleton") ) {
+      wants_companion = true;
+    }
+    for ( let i_2 = 0; i_2 < cl.variables.length; i_2++) {
+      var pvar_1 = cl.variables[i_2];
+      if ( pvar_1.is_static ) {
+        continue;
+      }
+      await this.writeVarDef(pvar_1.node, ctx, wr);
     };
     if ( cl.has_constructor ) {
-      const constr_1 = cl.constructor_fn;
+      const constr_2 = cl.constructor_fn;
       wr.out("", true);
       wr.out("init {", true);
       wr.indent(1);
       wr.newline();
-      const subCtx = constr_1.fnCtx;
+      const subCtx = constr_2.fnCtx;
       subCtx.is_function = true;
-      await this.WalkNode(constr_1.fnBody, subCtx, wr);
+      await this.WalkNode(constr_2.fnBody, subCtx, wr);
       wr.newline();
       wr.indent(-1);
       wr.out("}", true);
     }
-    if ( (cl.static_methods.length) > 0 ) {
+    if ( wants_companion ) {
       wr.out("companion object {", true);
       wr.indent(1);
     }
-    for ( let i_1 = 0; i_1 < cl.static_methods.length; i_1++) {
-      var variant = cl.static_methods[i_1];
-      wr.out("", true);
-      if ( variant.nameNode.hasFlag("main") ) {
+    for ( let i_3 = 0; i_3 < cl.variables.length; i_3++) {
+      var pvar_2 = cl.variables[i_3];
+      if ( false == pvar_2.is_static ) {
         continue;
+      }
+      await this.writeVarDef(pvar_2.node, ctx, wr);
+    };
+    if ( cl.nameNode.hasFlag("singleton") ) {
+      wr.out(("private var __singleton_instance : " + cl.compiledName) + "? = null", true);
+      wr.out("fun __singleton(", false);
+      if ( cl.has_constructor ) {
+        const constr_3 = cl.constructor_fn;
+        await this.writeArgsDef(constr_3, ctx, wr);
+      }
+      wr.out((") : " + cl.compiledName) + " {", true);
+      wr.indent(1);
+      wr.out("if (__singleton_instance == null) {", true);
+      wr.indent(1);
+      wr.out(("__singleton_instance = " + cl.compiledName) + "(", false);
+      if ( cl.has_constructor ) {
+        const constr_4 = cl.constructor_fn;
+        for ( let i_4 = 0; i_4 < constr_4.params.length; i_4++) {
+          var arg = constr_4.params[i_4];
+          if ( i_4 > 0 ) {
+            wr.out(", ", false);
+          }
+          wr.out(arg.compiledName, false);
+        };
+      }
+      wr.out(")", true);
+      wr.indent(-1);
+      wr.out("}", true);
+      wr.out("return __singleton_instance!!", true);
+      wr.indent(-1);
+      wr.out("}", true);
+    }
+    for ( let i_5 = 0; i_5 < cl.static_methods.length; i_5++) {
+      var variant_1 = cl.static_methods[i_5];
+      wr.out("", true);
+      if ( variant_1.nameNode.hasFlag("main") ) {
+        continue;
+      }
+      if ( variant_1.nameNode.hasFlag("open") ) {
+        wr.out("open ", false);
+      }
+      if ( variant_1.nameNode.hasFlag("override") ) {
+        wr.out("override ", false);
       }
       wr.out("fun ", false);
       wr.out(" ", false);
-      wr.out(variant.name + "(", false);
-      await this.writeArgsDef(variant, ctx, wr);
+      wr.out(variant_1.compiledName + "(", false);
+      await this.writeArgsDef(variant_1, ctx, wr);
       wr.out(") : ", false);
-      await this.writeTypeDef(variant.nameNode, ctx, wr);
+      await this.writeTypeDef(variant_1.nameNode, ctx, wr);
       wr.out(" {", true);
       wr.indent(1);
       wr.newline();
-      const subCtx_1 = variant.fnCtx;
+      const subCtx_1 = variant_1.fnCtx;
       subCtx_1.is_function = true;
-      await this.WalkNode(variant.fnBody, subCtx_1, wr);
+      await this.WalkNode(variant_1.fnBody, subCtx_1, wr);
       wr.newline();
       wr.indent(-1);
       wr.out("}", true);
     };
-    if ( (cl.static_methods.length) > 0 ) {
+    if ( wants_companion ) {
       wr.indent(-1);
       wr.out("}", true);
     }
-    for ( let i_2 = 0; i_2 < cl.defined_variants.length; i_2++) {
-      var fnVar = cl.defined_variants[i_2];
-      const mVs = ( cl.method_variants.hasOwnProperty(fnVar) ? cl.method_variants[fnVar] : undefined );
-      for ( let i_3 = 0; i_3 < mVs.variants.length; i_3++) {
-        var variant_1 = mVs.variants[i_3];
+    for ( let i_6 = 0; i_6 < cl.defined_variants.length; i_6++) {
+      var fnVar_1 = cl.defined_variants[i_6];
+      const mVs_1 = ( cl.method_variants.hasOwnProperty(fnVar_1) ? cl.method_variants[fnVar_1] : undefined );
+      for ( let i_7 = 0; i_7 < mVs_1.variants.length; i_7++) {
+        var variant_2 = mVs_1.variants[i_7];
         wr.out("", true);
+        let shouldOverride = false;
+        if ( variant_2.nameNode.hasFlag("override") ) {
+          shouldOverride = true;
+        }
+        if ( ( typeof(declaredFunction[variant_2.name] ) != "undefined" && declaredFunction.hasOwnProperty(variant_2.name) ) ) {
+          shouldOverride = true;
+        }
+        if ( (variant_2.compiledName == "toString") || ((variant_2.compiledName == "hashCode") || (variant_2.compiledName == "equals")) ) {
+          shouldOverride = true;
+        }
+        if ( shouldOverride ) {
+          wr.out("override ", false);
+        } else {
+          wr.out("open ", false);
+        }
         wr.out("fun ", false);
         wr.out(" ", false);
-        wr.out(variant_1.name + "(", false);
-        await this.writeArgsDef(variant_1, ctx, wr);
+        wr.out(variant_2.compiledName + "(", false);
+        await this.writeArgsDef(variant_2, ctx, wr);
         wr.out(") : ", false);
-        await this.writeTypeDef(variant_1.nameNode, ctx, wr);
+        await this.writeTypeDef(variant_2.nameNode, ctx, wr);
         wr.out(" {", true);
         wr.indent(1);
         wr.newline();
-        const subCtx_2 = variant_1.fnCtx;
+        const subCtx_2 = variant_2.fnCtx;
         subCtx_2.is_function = true;
-        await this.WalkNode(variant_1.fnBody, subCtx_2, wr);
+        await this.WalkNode(variant_2.fnBody, subCtx_2, wr);
         wr.newline();
         wr.indent(-1);
         wr.out("}", true);
@@ -20166,16 +20480,16 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
     };
     wr.indent(-1);
     wr.out("}", true);
-    for ( let i_4 = 0; i_4 < cl.static_methods.length; i_4++) {
-      var variant_2 = cl.static_methods[i_4];
+    for ( let i_8 = 0; i_8 < cl.static_methods.length; i_8++) {
+      var variant_3 = cl.static_methods[i_8];
       wr.out("", true);
-      if ( variant_2.nameNode.hasFlag("main") && (variant_2.nameNode.code.filename == ctx.getRootFile()) ) {
+      if ( variant_3.nameNode.hasFlag("main") && (variant_3.nameNode.code.filename == ctx.getRootFile()) ) {
         wr.out("fun main(args : Array<String>) {", true);
         wr.indent(1);
         wr.newline();
-        const subCtx_3 = variant_2.fnCtx;
+        const subCtx_3 = variant_3.fnCtx;
         subCtx_3.is_function = true;
-        await this.WalkNode(variant_2.fnBody, subCtx_3, wr);
+        await this.WalkNode(variant_3.fnBody, subCtx_3, wr);
         wr.newline();
         wr.indent(-1);
         wr.out("}", true);
@@ -25055,10 +25369,54 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
   };
   async writeClassVarDef (p, ctx, wr) {
     if ( this.target_typescript ) {
+      if ( p.is_static ) {
+        wr.out("static ", false);
+      }
       wr.out(p.compiledName, false);
       wr.out(": ", false);
       await this.writeTypeDef(p.nameNode, ctx, wr);
+      const pNode = p.node;
+      if ( p.is_static && ((pNode.children.length) > 2) ) {
+        wr.out(" = ", false);
+        ctx.setInExpr();
+        const value = pNode.getThird();
+        await this.WalkNode(value, ctx, wr);
+        ctx.unsetInExpr();
+      }
       wr.out(";", true);
+    }
+  };
+  async writeNewCall (node, ctx, wr) {
+    if ( node.hasNewOper ) {
+      const cl = node.clDesc;
+      const givenArgs = node.getThird();
+      if ( cl.nameNode.hasFlag("singleton") ) {
+        wr.out(node.clDesc.name + ".__singleton", false);
+        wr.out("(", false);
+        for ( let i = 0; i < givenArgs.children.length; i++) {
+          var n = givenArgs.children[i];
+          if ( i > 0 ) {
+            wr.out(", ", false);
+          }
+          await this.WalkNode(n, ctx, wr);
+        };
+        wr.out(")", false);
+        return;
+      }
+      wr.out("new " + node.clDesc.name, false);
+      wr.out("(", false);
+      const constr = cl.constructor_fn;
+      if ( (typeof(constr) !== "undefined" && constr != null )  ) {
+        for ( let i_1 = 0; i_1 < constr.params.length; i_1++) {
+          var arg = constr.params[i_1];
+          const n_1 = givenArgs.children[i_1];
+          if ( i_1 > 0 ) {
+            wr.out(", ", false);
+          }
+          await this.WalkNode(n_1, ctx, wr);
+        };
+      }
+      wr.out(")", false);
     }
   };
   async CreateLambdaCall (node, ctx, wr) {
@@ -25258,6 +25616,9 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       }
       for ( let i_2 = 0; i_2 < cl.variables.length; i_2++) {
         var pvar_1 = cl.variables[i_2];
+        if ( pvar_1.is_static ) {
+          continue;
+        }
         await this.writeVarInitDef(pvar_1.node, ctx, wr);
       };
       if ( cl.has_constructor ) {
@@ -25349,8 +25710,66 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
     wr.indent(-1);
     wr.out("}", true);
     if ( this.target_typescript == false ) {
-      for ( let i_6 = 0; i_6 < cl.static_methods.length; i_6++) {
-        var variant_2 = cl.static_methods[i_6];
+      for ( let i_6 = 0; i_6 < cl.variables.length; i_6++) {
+        var pvar_2 = cl.variables[i_6];
+        if ( false == pvar_2.is_static ) {
+          continue;
+        }
+        wr.out(((cl.name + ".") + pvar_2.compiledName) + " = ", false);
+        const pNode = pvar_2.node;
+        if ( (pNode.children.length) > 2 ) {
+          ctx.setInExpr();
+          const value = pNode.getThird();
+          await this.WalkNode(value, ctx, wr);
+          ctx.unsetInExpr();
+        } else {
+          const pName_1 = pNode.children[1];
+          let wrote_default = false;
+          if ( pName_1.value_type == 6 ) {
+            wr.out("[]", false);
+            wrote_default = true;
+          }
+          if ( pName_1.value_type == 7 ) {
+            wr.out("{}", false);
+            wrote_default = true;
+          }
+          if ( false == wrote_default ) {
+            wr.out("null", false);
+          }
+        }
+        wr.out(";", true);
+      };
+      if ( cl.nameNode.hasFlag("singleton") ) {
+        wr.out((cl.name + ".__singleton_instance") + " = null;", true);
+        wr.out((cl.name + ".__singleton") + " = function(", false);
+        if ( cl.has_constructor ) {
+          const constr_2 = cl.constructor_fn;
+          await this.writeArgsDef(constr_2, ctx, wr);
+        }
+        wr.out(") {", true);
+        wr.indent(1);
+        wr.out(("if (" + cl.name) + ".__singleton_instance == null) {", true);
+        wr.indent(1);
+        wr.out(((cl.name + ".__singleton_instance = new ") + cl.name) + "(", false);
+        if ( cl.has_constructor ) {
+          const constr_3 = cl.constructor_fn;
+          for ( let i_7 = 0; i_7 < constr_3.params.length; i_7++) {
+            var arg = constr_3.params[i_7];
+            if ( i_7 > 0 ) {
+              wr.out(", ", false);
+            }
+            wr.out(arg.compiledName, false);
+          };
+        }
+        wr.out(");", true);
+        wr.indent(-1);
+        wr.out("}", true);
+        wr.out(("return " + cl.name) + ".__singleton_instance;", true);
+        wr.indent(-1);
+        wr.out("};", true);
+      }
+      for ( let i_8 = 0; i_8 < cl.static_methods.length; i_8++) {
+        var variant_2 = cl.static_methods[i_8];
         if ( variant_2.nameNode.hasFlag("main") ) {
           continue;
         } else {
@@ -25383,8 +25802,8 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       };
     }
     if ( ctx.hasCompilerFlag("nodemodule") == false ) {
-      for ( let i_7 = 0; i_7 < cl.static_methods.length; i_7++) {
-        var variant_3 = cl.static_methods[i_7];
+      for ( let i_9 = 0; i_9 < cl.static_methods.length; i_9++) {
+        var variant_3 = cl.static_methods[i_9];
         ctx.disableCurrentClass();
         if ( variant_3.nameNode.hasFlag("main") && (variant_3.nameNode.code.filename == ctx.getRootFile()) ) {
           let asyncKeyword_1 = "";

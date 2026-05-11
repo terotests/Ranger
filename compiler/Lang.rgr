@@ -90,6 +90,9 @@ language {
             type _type
             range _range
         }
+        kotlin {
+            object _object
+        }
         rust {
             type r#type
             static r#static
@@ -1641,6 +1644,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 ranger ( "if ( " (e 1) ") ) {" I nl (block 2) i nl "} {" nl I (block 3) i "}" nl)
                 scala ( "if ( " (e 1) ".isDefined ) {" nl I (block 2) i nl "}" nl )
                 swift3 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
+                swift6 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
                 kotlin ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
                 java7 ( "if ( " (e 1) ".isPresent()) {" nl I (block 2) i nl "}" nl )
                 csharp ( "if ( " (e 1) ".HasValue) {" nl I (block 2) i nl "}" nl )
@@ -1666,6 +1670,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 kotlin ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 rust ( "if " (e 1) ".is_some() {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 swift3 ( "if ( " (e 1) " != nil ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                swift6 ( "if ( " (e 1) " != nil ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 go ( "if ( " (e 1) ".has_value ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 cpp ( "if ( " (e 1) " != NULL ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 python ( "if " (e 1) " is not None:" I nl (block 2) i nl "else:" I nl (block 3) i nl)
@@ -1990,10 +1995,12 @@ case class customException(smth:String)  extends Exception
                     i
                  nl I nl "case e: Exception => {" nl I (block 2) i nl "}" i nl "}" nl )
                 java7 ( nl "try {" nl I (block 1) i nl "} catch( Exception e) {" nl I (block 2) i nl "}" nl (imp 'java.io.IOException') )
+                kotlin ( nl "try {" nl I (block 1) i nl "} catch( e : Exception ) {" nl I (block 2) i nl "}" nl )
                 go ( (custom _) )
 ;                go ( "(func () { " nl I "defer func() {" nl I "if r:= recover(); r != nil {" nl I (block 2) i nl "}" nl i "}()" nl (block 1) nl i "})()" nl )  ;"
                 ; with swift there is no do without try...
                 swift3 ( "do {" nl I (block 1) i nl "} catch { " nl I (block 2) i nl "}" )
+                swift6 ( "do {" nl I (block 1) i nl "} catch { " nl I (block 2) i nl "}" )
                 cpp ( nl "try {" nl I (block 1) i nl "} catch( ... ) {" nl I (block 2) i nl "}" nl )
                 * ( nl "try {" nl I (block 1) i nl "} catch(e) {" nl I (block 2) i nl "}" nl )
             }
@@ -2136,6 +2143,7 @@ inline std::string r_trim_right(const std::string& s) {
                 swift3 ( (e 2) ".characters.count == 0 ? Array(" (e 1) ".characters).map { String($0) } : " (e 1) ".components( separatedBy : " (e 2) ")" (imp "Foundation"))
                 swift6 ( (e 2) ".count == 0 ? Array(" (e 1) ").map { String($0) } : " (e 1) ".components( separatedBy : " (e 2) ")" (imp "Foundation"))
                 java7( "new ArrayList<String>(Arrays.asList(" (e 1) ".split(" (e 2) ")))" )
+                kotlin ( "if (" (e 2) ".length == 0) " (e 1) ".map { it.toString() }.toMutableList() else " (e 1) ".split(" (e 2) ").toMutableList()" )
                 php ( "strlen(" (e 2) ") == 0 ? str_split(" (e 1) ") : " "explode(" (e 2) ", " (e 1) ")")               
                 go ("strings.Split(" (e 1) ", " (e 2) ")" (imp "strings"))
 
@@ -2824,7 +2832,7 @@ std::string r_utf8_char_at(const std::string& str, int pos_i)
                 csharp ( (e 1) "[" (e 2) "]")
                 php ( "ord(" (e 1) "[" (e 2) "])")               
                 java7 ( "(int)" (e 1) ".charAt(" (e 2) ")")  
-                kotlin ( (e 1) "[" (e 2) "]")    
+                kotlin ( (e 1) "[" (e 2) "].code")    
                 scala ( (e 1) "(" (e 2) ")")    
                 go ( "int64([]rune(" (e 1) ")[" (e 2) "])")  
                 swift3 ( "Int( ( NSString(string: " (e 1) " ) ).character( at: " (e 2) " ) )")
@@ -2842,6 +2850,7 @@ std::string r_utf8_char_at(const std::string& str, int pos_i)
             templates {
                 ranger ("(keys " (e 1) ")")
                 java7 ( "new ArrayList<>(" (e 1) ".keySet())")
+                kotlin ( "ArrayList(" (e 1) ".keys)")
                 swift3 ("Array(" (e 1) ".keys)")
                 swift6 ("Array(" (e 1) ".keys)")
                 scala ( (e 1) ".keys.to[collection.mutable.ArrayBuffer]")
@@ -3002,6 +3011,7 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 scala ( "(" (e 1) ".toString)")
                 go ("strconv.FormatInt(" (e 1) ", 10)" (imp "strconv"))
                 swift3 ("String(" (e 1) ")")              
+                swift6 ("String(" (e 1) ")")
                 csharp ( (e 1) ".ToString()" )
                 python ( "str(" (e 1) ")" )
                 rust ( (e 1) ".to_string()" )
@@ -3153,7 +3163,7 @@ func r_str_2_i64(s string) *GoNullable {
                 )
                 php ( "is_numeric(" (e 1) ") ? intval(" (e 1) ") : NULL ")
                 scala ( "Try(" (e 1) ".toInt).toOption" (imp "scala.util.Try"))
-                kotlin (  (e 1) ".toInt()")
+                kotlin (  (e 1) ".toIntOrNull()")
                 swift3 ("Int(" (e 1) ")")
                 swift6 ("Int(" (e 1) ")")
                 csharp( "Int32.Parse(" (e 1) ")" )
@@ -3233,7 +3243,7 @@ Double _getDoubleOrNull ( String str ) {
                 )
                 php ( "floatval(" (e 1) ")")
                 scala ( "Try(" (e 1) ".toDouble).toOption" (imp "scala.util.Try"))
-                kotlin (  (e 1) ".toDouble()")
+                kotlin (  (e 1) ".toDoubleOrNull()")
                 swift3 ("Double(" (e 1) ")")
                 rust ( (e 1) ".parse::<f64>().ok()" )
                 * ( "isNaN( parseFloat(" (e 1) ") ) ? undefined : parseFloat(" (e 1) ")")
@@ -3289,6 +3299,7 @@ std::string join(const T& v, const std::string& delim) {
                 php ( "implode(" (e 2) ", " (e 1) ")")
                 swift3 ( (e 1) ".joined(separator:" (e 2) ")")
                 swift6 ( (e 1) ".joined(separator:" (e 2) ")")
+                kotlin ( (e 1) ".joinToString(separator = " (e 2) ")" )
                 * ( (e 1) ".join(" (e 2) ")" )
             }            
         }                 
@@ -3684,6 +3695,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                 ranger ( "(remove_index " (e 1) " " (e 2) ")")
                  cpp ( (e 1) ".erase( "(e 1)".begin() + " (e 2) " );")
                  swift3 ( (e 1) ".remove(at:" (e 2)")")
+                 swift6 ( (e 1) ".remove(at:" (e 2)")")
                  php ( "array_splice(" (e 1) ", " (e 2 )", 1);")
                  kotlin ( (e 1) ".removeAt(" (e 2) ")" ) 
                  java7 ( (e 1) ".remove(" (e 2) ")" )
@@ -3700,6 +3712,8 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  ranger ( nl "insert " (e 1) " " (e 2) " " (e 3) nl)
                  es6 ( (e 1) ".splice(" (e 2) ", 0, " (e 3) ");" )  
                  cpp ( (e 1) ".insert(" (e 1) ".begin() + " (e 2) ", " (e 3) ");")          
+                 swift6 ( (e 1) ".insert(" (e 3) ", at:" (e 2) ")")
+                 kotlin ( (e 1) ".add(" (e 2) ", " (e 3) ")" )
                  go( (e 1 ) " = append(" (e 1) "[:" (e 2) "], append(" (typeof 1) "{" (e 3) "}, " (e 1) "[" (e 2) ":]...)...)")   
                  php ( "array_splice(" (e 1) ", " (e 2) ", 0, " (e 3) ");")
                  python ( (e 1) ".insert(" (e 2) ", " (e 3) ")" )
@@ -3711,6 +3725,8 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
             templates {
                  ranger ( nl "remove " (e 1) " " (e 2) nl)
                  es6 ( (e 1) ".splice(" (e 2) ", 1);" )                                              
+                 swift6 ( (e 1) ".remove(at:" (e 2) ")" )
+                 kotlin ( (e 1) ".removeAt(" (e 2) ")" )
             }
         }
 
@@ -3768,9 +3784,11 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                 ranger ( "removeLast " (e 1) "")
                  cpp ( (e 1) ".pop_back();")
                  swift3 ( (e 1) ".removeLast();")
+                 swift6 ( (e 1) ".removeLast()")
                  php ( "array_pop(" (e 1) " );")
                  python ( (e 1) ".pop()")
                  java7 ( (e 1) ".remove(" (e 1) ".size() - 1);" )
+                 kotlin ( (e 1) ".removeAt(" (e 1) ".size - 1)" )
                  csharp ( "Array.Resize(ref "(e 1) ", " (e 1 )".Length - 1);" ) 
                  scala ( (e 1) ".remove(" (e 1) ".length - 1)" )
                  go ( (custom _) )
@@ -3784,6 +3802,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                 ranger ( "(length " (e 1) ")")
                  cpp ( (e 1) ".size()" )                                                              
                  swift3 ( (e 1) ".count")
+                 swift6 ( (e 1) ".count")
                  php ( "count(" (e 1) ")")
                  python ( "len(" (e 1) ")")
                  java7 ( (e 1) ".size()" )                                                              
@@ -3800,6 +3819,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                 java7 ( (e 1) ".length()") 
                 scala ( (e 1) ".length()")  
                 swift3 ( (e 1) ".characters.count")  
+                swift6 ( (e 1) ".count")
                 csharp ( (e 1) ".Length")
                 python ( "len(" (e 1) ")")
                 rust ( (e 1 ) ".len()" )
@@ -3813,8 +3833,10 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  ranger ( "(clear " (e 1) ")")
                  cpp ( (e 1) ".clear();" )                                                              
                  swift3 ( (e 1) ".removeAll()")
+                 swift6 ( (e 1) ".removeAll()")
                  php ( nl (e 1) " = array();" nl)
                  java7 ( (e 1) ".clear();" )                                                              
+                 kotlin ( (e 1) ".clear()" )
                  scala ( (e 1) ".clear()" )
                  go ( (e 1) " = " (e 1) "[:0]" )
                  rust ( custom )
@@ -3908,6 +3930,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                 ranger ( "(array_extract " (e 1) " " (e 2) ")")
                  ; TODO: C++ version does not seem to have a clear functino to extrace element from std::vector
                  swift3 ( (e 1) ".remove(at:" (e 2)")")
+                 swift6 ( (e 1) ".remove(at:" (e 2)")")
                  php ( "array_splice(" (e 1) ", " (e 2 )", 1)[0]")
                  go ( "r_m_arr_" (rawtype 1) "_extract(" (e 1) ", " (e 2 )")"
 

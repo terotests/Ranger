@@ -2337,6 +2337,14 @@ class RangerFlowParser {
     staticCtx.setCurrentClass(desc)
     for cBody.children fNode:CodeNode i {
       if ((fNode.isFirstVref("sfn")) || (fNode.isFirstVref("StaticMethod")) || (fNode.isFirstVref("static"))) {
+        if (fNode.isFirstVref("static")) {
+          if ((fNode.chlen()) >= 2) {
+            def staticCmd:string (fNode.getVRefAt(1))
+            if ((staticCmd == "def") || (staticCmd == "let")) {
+              continue _
+            }
+          }
+        }
         this.WalkNode(fNode staticCtx wr)
       }
     }
@@ -4322,6 +4330,9 @@ class RangerFlowParser {
       p.varType = RangerContextVarType.Property
       p.node = node
       p.nameNode = vDef
+      if (node.hasFlag("static")) {
+        p.is_static = true
+      }
       vDef.hasParamDesc = true
       vDef.ownParamDesc = p
       vDef.paramDesc = p
@@ -4456,6 +4467,31 @@ class RangerFlowParser {
     }
 
     if ((node.isFirstVref("static")) ) {
+      if ((node.chlen()) >= 2) {
+        def staticCmd:string (node.getVRefAt(1))
+        if ((staticCmd == "def") || (staticCmd == "let")) {
+          def staticDecl (node.newExpressionNode())
+          for node.children ch:CodeNode i {
+            if (i == 0) {
+              continue
+            }
+            push staticDecl.children ch
+          }
+          staticDecl.setFlag("static")
+          this.WalkCollectMethods(staticDecl ctx wr)
+          find_more = false
+          return
+        }
+      }
+      if ((node.chlen()) >= 2) {
+        def secondNode (node.getSecond())
+        if ((secondNode.isFirstVref("def")) || (secondNode.isFirstVref("let"))) {
+          secondNode.setFlag("static")
+          this.WalkCollectMethods(secondNode ctx wr)
+          find_more = false
+          return
+        }
+      }
       ; static fn foo () {}
       if( (node.chlen()) < 5 ) {
         ctx.addError(node "Invalid static function declaration")

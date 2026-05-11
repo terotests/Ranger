@@ -675,11 +675,18 @@ class RangerSwift3ClassWriter {
         wr.out(parentClass.compiledName false)
       }
     } {
-      wr.out(" : Equatable " false )
+      wr.out(" : Hashable " false )
     }  
     
     wr.out( " { " true)
     wr.indent(1)
+
+    wr.out("func hash(into hasher: inout Hasher) {" true)
+    wr.indent(1)
+    wr.out("hasher.combine(ObjectIdentifier(self))" true)
+    wr.indent(-1)
+    wr.out("}" true)
+
     for cl.variables pvar:RangerAppParamDesc i {
       if( has declaredVariable pvar.name ) {
         wr.out("// WAS DECLARED : " + pvar.name , true)
@@ -713,8 +720,23 @@ class RangerSwift3ClassWriter {
       wr.indent(1)
 
       if(parentClass) {
-        ; TODO: call with correct parameters too!!!
-        wr.out("super.init()" true)
+        wr.out("super.init(" false)
+        if(parentClass.has_constructor) {
+          def pConstr:RangerAppFunctionDesc (unwrap parentClass.constructor_fn)
+          if(cl.has_constructor) {
+            def cConstr:RangerAppFunctionDesc (unwrap cl.constructor_fn)
+            for pConstr.params pArg:RangerAppParamDesc i {
+              if(i > 0) {
+                wr.out(", " false)
+              }
+              if(i < (array_length cConstr.params)) {
+                def cArg:RangerAppParamDesc (itemAt cConstr.params i)
+                wr.out((pArg.compiledName + " : " + cArg.compiledName) false)
+              }
+            }
+          }
+        }
+        wr.out(")" true)
       }
 
       wr.newline()
@@ -728,9 +750,6 @@ class RangerSwift3ClassWriter {
     for cl.static_methods variant:RangerAppFunctionDesc i {
       if (variant.nameNode.hasFlag("main")) {
         continue _
-      }
-      if ( has declaredStaticFunction variant.name ) {
-        wr.out("override " false)
       }
       wr.out((("class func " + variant.compiledName) + "(") false)
       this.writeArgsDef(variant ctx wr)

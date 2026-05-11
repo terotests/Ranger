@@ -242,6 +242,9 @@ class RangerKotlinClassWriter {
       if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
         wr.out("/** unused:  " false)
       }
+      if p.is_class_variable {
+        wr.out("@JvmField " false)
+      }
       if ((p.set_cnt > 0) || p.is_class_variable) {
         wr.out("var " false)
       } {
@@ -258,11 +261,15 @@ class RangerKotlinClassWriter {
         this.WalkNode(value ctx wr)
         ctx.unsetInExpr()
       } {
-        if (nn.value_type == RangerNodeType.Array) {
-          wr.out(" = arrayListOf()" false)
-        }
-        if (nn.value_type == RangerNodeType.Hash) {
-          wr.out(" = hashMapOf()" false)
+        if (nn.hasFlag("optional")) {
+          wr.out(" = null" false)
+        } {
+          if (nn.value_type == RangerNodeType.Array) {
+            wr.out(" = arrayListOf()" false)
+          }
+          if (nn.value_type == RangerNodeType.Hash) {
+            wr.out(" = hashMapOf()" false)
+          }
         }
       }
       if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
@@ -318,12 +325,26 @@ class RangerKotlinClassWriter {
   fn writeNewCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasNewOper {
       def cl:RangerAppClassDesc node.clDesc
+      def givenArgs:CodeNode (node.getThird())
+      if (cl.nameNode.hasFlag("singleton")) {
+        wr.out(" " false)
+        wr.out((node.clDesc.name + ".__singleton") false)
+        wr.out("(" false)
+        for givenArgs.children n:CodeNode i {
+          if (i > 0) {
+            wr.out(", " false)
+          }
+          this.WalkNode(n ctx wr)
+        }
+        wr.out(")" false)
+        return
+      }
+
       def fc:CodeNode (node.getSecond())
       wr.out(" " false)
       wr.out(node.clDesc.name false)
       wr.out("(" false)
       def constr:RangerAppFunctionDesc cl.constructor_fn
-      def givenArgs:CodeNode (node.getThird())
       if (!null? constr) {
         for constr.params arg:RangerAppParamDesc i {
           def n:CodeNode (itemAt givenArgs.children i)
@@ -343,19 +364,84 @@ class RangerKotlinClassWriter {
     if (null? cl) {
       return
     }
+    def declaredFunction:[string:boolean]
     def wr:CodeWriter orig_wr
     def importFork:CodeWriter (wr.fork())
     wr.out("" true)
-    wr.out(("class " + cl.name) false)
+    if cl.is_extended_by_children {
+      wr.out(("open class " + cl.name) false)
+    } {
+      wr.out(("class " + cl.name) false)
+    }
     if cl.has_constructor {
       def constr:RangerAppFunctionDesc (unwrap cl.constructor_fn)
       wr.out("(" false)
       this.writeArgsDef(constr ctx wr)
-      wr.out(" ) " true)
+      wr.out(" )" false)
     }
+    if ((array_length cl.extends_classes) > 0) {
+      wr.out(" : " false)
+      for cl.extends_classes pName:string i {
+        if (i > 0) {
+          wr.out(", " false)
+        }
+        def parentClass:RangerAppClassDesc (ctx.findClass(pName))
+        for parentClass.defined_variants fnVar:string j {
+          def mVs:RangerAppMethodVariants (get parentClass.method_variants fnVar)
+          for mVs.variants variant:RangerAppFunctionDesc k {
+            set declaredFunction variant.name true
+          }
+        }
+        wr.out(parentClass.compiledName false)
+        if parentClass.has_constructor {
+          wr.out("(" false)
+          if cl.has_constructor {
+            def constr:RangerAppFunctionDesc (unwrap cl.constructor_fn)
+            def pConstr:RangerAppFunctionDesc (unwrap parentClass.constructor_fn)
+            for pConstr.params pArg:RangerAppParamDesc j {
+              if (j > 0) {
+                wr.out(", " false)
+              }
+              def foundByName:boolean false
+              for constr.params cArgByName:RangerAppParamDesc k {
+                if (cArgByName.name == pArg.name) {
+                  wr.out(cArgByName.compiledName false)
+                  foundByName = true
+                  break
+                }
+              }
+              if (false == foundByName) {
+                if (j < (array_length constr.params)) {
+                  def cArg:RangerAppParamDesc (itemAt constr.params j)
+                  wr.out(cArg.compiledName false)
+                }
+              }
+            }
+          }
+          wr.out(")" false)
+        }
+      }
+    }
+    wr.out(" " true)
     wr.out(" {" true)
     wr.indent(1)
+    def has_static_vars false
     for cl.variables pvar:RangerAppParamDesc i {
+      if pvar.is_static {
+        has_static_vars = true
+      }
+    }
+    def wants_companion false
+    if (((array_length cl.static_methods) > 0) || has_static_vars) {
+      wants_companion = true
+    }
+    if (cl.nameNode.hasFlag("singleton")) {
+      wants_companion = true
+    }
+    for cl.variables pvar:RangerAppParamDesc i {
+      if pvar.is_static {
+        continue _
+      }
       this.writeVarDef((unwrap pvar.node) ctx wr)
     }
     if cl.has_constructor {
@@ -371,18 +457,58 @@ class RangerKotlinClassWriter {
       wr.indent(-1)
       wr.out("}" true)
     }
-    if ((array_length cl.static_methods) > 0) {
+    if wants_companion {
       wr.out("companion object {" true)
       wr.indent(1)
+    }
+    for cl.variables pvar:RangerAppParamDesc i {
+      if (false == pvar.is_static) {
+        continue _
+      }
+      this.writeVarDef((unwrap pvar.node) ctx wr)
+    }
+    if (cl.nameNode.hasFlag("singleton")) {
+      wr.out(("private var __singleton_instance : " + cl.compiledName + "? = null") true)
+      wr.out("fun __singleton(" false)
+      if cl.has_constructor {
+        def constr:RangerAppFunctionDesc (unwrap cl.constructor_fn)
+        this.writeArgsDef(constr ctx wr)
+      }
+      wr.out((") : " + cl.compiledName + " {") true)
+      wr.indent(1)
+      wr.out("if (__singleton_instance == null) {" true)
+      wr.indent(1)
+      wr.out(("__singleton_instance = " + cl.compiledName + "(") false)
+      if cl.has_constructor {
+        def constr:RangerAppFunctionDesc (unwrap cl.constructor_fn)
+        for constr.params arg:RangerAppParamDesc i {
+          if (i > 0) {
+            wr.out(", " false)
+          }
+          wr.out(arg.compiledName false)
+        }
+      }
+      wr.out(")" true)
+      wr.indent(-1)
+      wr.out("}" true)
+      wr.out("return __singleton_instance!!" true)
+      wr.indent(-1)
+      wr.out("}" true)
     }
     for cl.static_methods variant:RangerAppFunctionDesc i {
       wr.out("" true)
       if (variant.nameNode.hasFlag("main")) {
         continue _
       }
+      if (variant.nameNode.hasFlag("open")) {
+        wr.out("open " false)
+      }
+      if (variant.nameNode.hasFlag("override")) {
+        wr.out("override " false)
+      }
       wr.out("fun " false)
       wr.out(" " false)
-      wr.out((variant.name + "(") false)
+      wr.out((variant.compiledName + "(") false)
       this.writeArgsDef(variant ctx wr)
       wr.out(") : " false)
       this.writeTypeDef( (unwrap variant.nameNode ) ctx wr)
@@ -396,7 +522,7 @@ class RangerKotlinClassWriter {
       wr.indent(-1)
       wr.out("}" true)
     }
-    if ((array_length cl.static_methods) > 0) {
+    if wants_companion {
       wr.indent(-1)
       wr.out("}" true)
     }
@@ -404,9 +530,24 @@ class RangerKotlinClassWriter {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
       for mVs.variants variant:RangerAppFunctionDesc i {
         wr.out("" true)
+        def shouldOverride:boolean false
+        if (variant.nameNode.hasFlag("override")) {
+          shouldOverride = true
+        }
+        if (has declaredFunction variant.name) {
+          shouldOverride = true
+        }
+        if ((variant.compiledName == "toString") || ((variant.compiledName == "hashCode") || (variant.compiledName == "equals"))) {
+          shouldOverride = true
+        }
+        if shouldOverride {
+          wr.out("override " false)
+        } {
+          wr.out("open " false)
+        }
         wr.out("fun " false)
         wr.out(" " false)
-        wr.out((variant.name + "(") false)
+        wr.out((variant.compiledName + "(") false)
         this.writeArgsDef(variant ctx wr)
         wr.out(") : " false)
         this.writeTypeDef( (unwrap variant.nameNode ) ctx wr)

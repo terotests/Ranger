@@ -90,6 +90,9 @@ language {
             type _type
             range _range
         }
+        kotlin {
+            object _object
+        }
         rust {
             type r#type
             static r#static
