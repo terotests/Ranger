@@ -59,15 +59,15 @@ class VirtualCompiler {
     env.commandLine = (new CmdParams)
 
     CreateFile 'Lang.rgr' (unwrap (read_file '.' 'Lang.rgr'))
-    CreateFile 'stdlib.rgr' (unwrap (read_file '../lib/' 'stdlib.rgr'))
-    CreateFile 'stdops.rgr' (unwrap (read_file '../lib/' 'stdops.rgr'))
-    CreateFile 'Timers.rgr' (unwrap (read_file '../lib/' 'Timers.rgr'))
-    CreateFile 'DOMLib.rgr' (unwrap (read_file '../lib/' 'DOMLib.rgr'))
-    CreateFile 'Ajax.rgr' (unwrap (read_file '../lib/' 'Ajax.rgr'))
-    CreateFile 'Crypto.rgr' (unwrap (read_file '../lib/' 'Crypto.rgr'))
-    CreateFile 'Engine3D.rgr' (unwrap (read_file '../lib/' 'Engine3D.rgr'))
-    CreateFile 'Storage.rgr' (unwrap (read_file '../lib/' 'Storage.rgr'))
-    CreateFile 'JSON.rgr' (unwrap (read_file '../lib/' 'JSON.rgr'))
+    CreateFile 'stdlib.rgr' (unwrap (read_file './lib/' 'stdlib.rgr'))
+    CreateFile 'stdops.rgr' (unwrap (read_file './lib/' 'stdops.rgr'))
+    CreateFile 'Timers.rgr' (unwrap (read_file './lib/' 'Timers.rgr'))
+    CreateFile 'DOMLib.rgr' (unwrap (read_file './lib/' 'DOMLib.rgr'))
+    CreateFile 'Ajax.rgr' (unwrap (read_file './lib/' 'Ajax.rgr'))
+    CreateFile 'Crypto.rgr' (unwrap (read_file './lib/' 'Crypto.rgr'))
+    CreateFile 'Engine3D.rgr' (unwrap (read_file './lib/' 'Engine3D.rgr'))
+    CreateFile 'Storage.rgr' (unwrap (read_file './lib/' 'Storage.rgr'))
+    CreateFile 'JSON.rgr' (unwrap (read_file './lib/' 'JSON.rgr'))
     CreateFile 'hello_world.rgr' `
 
 class tester {
@@ -281,9 +281,9 @@ class tester {
 
     ; Build library search paths - prioritize installation directory for bundled files
     let idir = (install_directory)
-    ; First check the bin/ directory itself (where Lang.rgr and stdops.rgr are bundled)
+    ; First check the binary directory itself and its bundled ./lib directory
     ; Then check ../compiler and ../lib for development setups
-    langLibEnv = (normalize idir) + ";" + root_dir + ";" + (normalize (idir + "/../compiler/")) + ";" + (normalize (idir + "/../lib/")) + ";" + langLibEnv
+    langLibEnv = (normalize idir) + ";" + (normalize (idir + "/lib/")) + ";" + root_dir + ";" + (normalize (idir + "/../compiler/")) + ";" + (normalize (idir + "/../lib/")) + ";" + langLibEnv
 
     env.setEnv( "RANGER_LIB" langLibEnv  )
 
