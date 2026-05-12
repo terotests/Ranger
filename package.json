@@ -1,6 +1,6 @@
 {
   "name": "ranger-compiler",
-  "version": "3.0.2",
+  "version": "3.0.3",
   "description": "Ranger cross-language compiler - compile once, run anywhere",
   "main": "dist/api.js",
   "types": "dist/api.d.ts",
@@ -24,7 +24,7 @@
   "scripts": {
     "build:dist": "npm run compile && npm run build:dist:copy",
     "build:dist:copy": "cp ./bin/output.js ./dist/rgrc.js && cp ./bin/Lang.rgr ./dist/Lang.rgr && cp ./bin/stdops.rgr ./dist/stdops.rgr && cp -r ./lib ./dist/lib",
-    "build:dist:module": "node bin/output.js -nodemodule -es6 -typescript ./compiler/ng_Compiler.rgr -d=./dist -o=api.ts && tsc --declaration --outDir ./dist ./dist/api.ts",
+    "build:dist:module": "node bin/output.js -nodemodule -es6 -typescript ./compiler/ng_Compiler.rgr -d=./compiler/bin -o=api.ts && tsc --declaration --module commonjs --target es2015 --moduleResolution node --outDir ./dist ./compiler/bin/api.ts",
     "prepublishOnly": "npm run build:dist && npm test",
     "test-any-ts": "node bin/testcomp.js ./features/any/test_any.rgr -es6 -typescript",
     "test-any-csharp": "node bin/testcomp.js ./features/any/test_any.rgr -l=csharp",
@@ -39,8 +39,8 @@
     "compile:langserver": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./compiler/VirtualCompiler.rgr -d=./ranger-vscode-extension/compiler -o=output.js",
     "test:error": "node bin/output.js ./tests/cli/test_error.rgr -o=test_error.js",
     "try": "node bin/output.js -es6 ./compiler/ng_Compiler.rgr -nodecli -o=try.js",
-    "compilets": "node bin/output.js -es6 -typescript ./compiler/ng_Compiler.rgr -o=compiler.ts -nodecli && tsc",
-    "module": "node bin/output.js -nodemodule -es6 -typescript ./compiler/ng_Compiler.rgr -o=api.ts && tsc",
+    "compilets": "node bin/output.js -es6 -typescript ./compiler/ng_Compiler.rgr -d=./compiler/bin -o=compiler.ts -nodecli && tsc --module commonjs --target es2015 --moduleResolution node --outDir ./dist ./compiler/bin/compiler.ts",
+    "module": "npm run build:dist:module",
     "evalvalue:module": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 -nodemodule ./gallery/pdf_writer/src/tools/eval_value_module.rgr -d=./gallery/pdf_writer/bin -o=eval_value_module.cjs",
     "test:evalvalue": "npm run evalvalue:module && vitest run --config gallery/pdf_writer/vitest.config.js",
     "test": "cross-env NODE_OPTIONS=--max-old-space-size=8192 vitest run --config tests/vitest.config.ts",
@@ -190,6 +190,7 @@
   "devDependencies": {
     "@types/node": "^22.19.2",
     "cross-env": "^10.1.0",
+    "typescript": "^5.9.3",
     "vitest": "^1.6.0"
   }
 }

@@ -117,7 +117,7 @@ class CLIProgress {
     def inputFile:string ""
     def outputFile:string ""
     def targetLanguage:string ""
-    def compilerVersion:string "3.0.2"
+    def compilerVersion:string "3.0.3"
     
     Constructor () {
         ; Detect if colors should be used
