@@ -3564,6 +3564,7 @@ int r_string_last_index_of( std::string str, std::string key )  {
                 cpp ( (e 1) ".rfind(" (e 2) ", 0) == 0" )
                 kotlin ( (e 1) ".startsWith(" (e 2) ")" )
                 python ( (e 1) ".startswith(" (e 2) ")" )
+                rust ( (e 1) ".starts_with(" (e 2) ")" )
             }
         }
 
@@ -3578,6 +3579,7 @@ int r_string_last_index_of( std::string str, std::string key )  {
                 swift6 ( (e 1) ".hasSuffix(" (e 2) ")" )
                 csharp ( (e 1) ".EndsWith(" (e 2) ")" )
                 scala ( (e 1) ".endsWith(" (e 2) ")" )
+                rust ( (e 1) ".ends_with(" (e 2) ")" )
                 cpp ( "r_string_ends_with(" (e 1) ", " (e 2) ")"
 (create_polyfill
 "
@@ -3606,6 +3608,7 @@ bool r_string_ends_with(const std::string& str, const std::string& suffix) {
                 cpp ( (e 1) ".find(" (e 2) ") != std::string::npos" )
                 kotlin ( (e 1) ".contains(" (e 2) ")" )
                 python ( (e 2) " in " (e 1) )
+                rust ( (e 1) ".contains(" (e 2) ")" )
             }
         }
 
@@ -3617,8 +3620,10 @@ bool r_string_ends_with(const std::string& str, const std::string& suffix) {
                 go ( "strings.Replace(" (e 1) ", " (e 2) ", " (e 3) ", 1)" (imp "strings"))
                 php ( "str_replace(" (e 2) ", " (e 3) ", " (e 1) ")" )
                 swift3 ( (e 1) ".replacingOccurrences(of: " (e 2) ", with: " (e 3) ")" )
+                swift6 ( (e 1) ".replacingOccurrences(of: " (e 2) ", with: " (e 3) ")" )
                 csharp ( (e 1) ".Replace(" (e 2) ", " (e 3) ")" )
                 scala ( (e 1) ".replace(" (e 2) ", " (e 3) ")" )
+                rust ( (e 1) ".replace(" (e 2) ", " (e 3) ")" )
                 cpp ( "r_string_replace(" (e 1) ", " (e 2) ", " (e 3) ")"
 (create_polyfill
 "
