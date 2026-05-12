@@ -98,6 +98,7 @@ export function compileRanger(
   const ext = extMap[targetLang] || ".js";
   const outputFile = `${sourceBasename}${ext}`;
   const targetDir = outputDir || TEMP_OUTPUT_DIR;
+  const outputPath = path.join(targetDir, outputFile);
 
   // Ensure output directory exists
   if (!fs.existsSync(targetDir)) {
@@ -134,14 +135,32 @@ export function compileRanger(
     const outputStr = output.toString();
     const hasError =
       outputStr.includes("TypeError:") ||
+      outputStr.includes("Compilation FAILED") ||
+      outputStr.includes("[FAIL]") ||
+      outputStr.includes("✗ ") ||
       outputStr.includes("Got unknown compiler error") ||
       outputStr.includes("Undefined variable") ||
       outputStr.includes("invalid variable definition");
 
+    if (hasError) {
+      return {
+        success: false,
+        output: outputStr,
+        error: outputStr,
+      };
+    }
+
+    if (!fs.existsSync(outputPath)) {
+      return {
+        success: false,
+        output: outputStr,
+        error: `Compiler did not create expected output file: ${outputPath}\n${outputStr}`,
+      };
+    }
+
     return {
-      success: !hasError,
+      success: true,
       output: outputStr,
-      error: hasError ? outputStr : undefined,
     };
   } catch (err: any) {
     // execSync throws on non-zero exit code

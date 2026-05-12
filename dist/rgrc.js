@@ -27613,7 +27613,7 @@ class CLIProgress  {
     this.inputFile = "";
     this.outputFile = "";
     this.targetLanguage = "";
-    this.compilerVersion = "3.0.1";
+    this.compilerVersion = "3.0.4";
     this.useColors = (process.stdout.isTTY || false);
     this.startTime = Date.now();
   }
@@ -29578,7 +29578,7 @@ class StaticAnalyzer  {
               }
               let langLibEnv = operatorsOf_8.envc95var_54(env, "RANGER_LIB");
               const idir = __dirname;
-              langLibEnv = ((((((((require("path").normalize(idir)) + ";") + root_dir) + ";") + (require("path").normalize((idir + "/../compiler/")))) + ";") + (require("path").normalize((idir + "/../lib/")))) + ";") + langLibEnv;
+              langLibEnv = ((((((((((require("path").normalize(idir)) + ";") + (require("path").normalize((idir + "/lib/")))) + ";") + root_dir) + ";") + (require("path").normalize((idir + "/../compiler/")))) + ";") + (require("path").normalize((idir + "/../lib/")))) + ";") + langLibEnv;
               env.setEnv("RANGER_LIB", langLibEnv);
               const theFilePaths = this.possiblePaths(operatorsOf_8.envc95var_54(env, "RANGER_LIB"));
               const theFilePath = this.searchLib(theFilePaths, the_file);
@@ -30178,15 +30178,15 @@ class StaticAnalyzer  {
             env.filesystem = new InputFSFolder();
             env.commandLine = new CmdParams();
             operatorsOf_3.createc95file_4(env.filesystem, "Lang.rgr", (await (new Promise(resolve => { require('fs').readFile( "." + '/' + "Lang.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-            operatorsOf_3.createc95file_4(env.filesystem, "stdlib.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "stdlib.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-            operatorsOf_3.createc95file_4(env.filesystem, "stdops.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "stdops.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-            operatorsOf_3.createc95file_4(env.filesystem, "Timers.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Timers.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-            operatorsOf_3.createc95file_4(env.filesystem, "DOMLib.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "DOMLib.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-            operatorsOf_3.createc95file_4(env.filesystem, "Ajax.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Ajax.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-            operatorsOf_3.createc95file_4(env.filesystem, "Crypto.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Crypto.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-            operatorsOf_3.createc95file_4(env.filesystem, "Engine3D.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Engine3D.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-            operatorsOf_3.createc95file_4(env.filesystem, "Storage.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "Storage.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-            operatorsOf_3.createc95file_4(env.filesystem, "JSON.rgr", (await (new Promise(resolve => { require('fs').readFile( "../lib/" + '/' + "JSON.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+            operatorsOf_3.createc95file_4(env.filesystem, "stdlib.rgr", (await (new Promise(resolve => { require('fs').readFile( "./lib/" + '/' + "stdlib.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+            operatorsOf_3.createc95file_4(env.filesystem, "stdops.rgr", (await (new Promise(resolve => { require('fs').readFile( "./lib/" + '/' + "stdops.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+            operatorsOf_3.createc95file_4(env.filesystem, "Timers.rgr", (await (new Promise(resolve => { require('fs').readFile( "./lib/" + '/' + "Timers.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+            operatorsOf_3.createc95file_4(env.filesystem, "DOMLib.rgr", (await (new Promise(resolve => { require('fs').readFile( "./lib/" + '/' + "DOMLib.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+            operatorsOf_3.createc95file_4(env.filesystem, "Ajax.rgr", (await (new Promise(resolve => { require('fs').readFile( "./lib/" + '/' + "Ajax.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+            operatorsOf_3.createc95file_4(env.filesystem, "Crypto.rgr", (await (new Promise(resolve => { require('fs').readFile( "./lib/" + '/' + "Crypto.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+            operatorsOf_3.createc95file_4(env.filesystem, "Engine3D.rgr", (await (new Promise(resolve => { require('fs').readFile( "./lib/" + '/' + "Engine3D.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+            operatorsOf_3.createc95file_4(env.filesystem, "Storage.rgr", (await (new Promise(resolve => { require('fs').readFile( "./lib/" + '/' + "Storage.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
+            operatorsOf_3.createc95file_4(env.filesystem, "JSON.rgr", (await (new Promise(resolve => { require('fs').readFile( "./lib/" + '/' + "JSON.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
             operatorsOf_3.createc95file_4(env.filesystem, "hello_world.rgr", "\r\n\r\nclass tester {\r\n  static fn main () {\r\n    print \"Hello World!\"\r\n  }\r\n}\r\n\r\n    ");
             require("fs").writeFileSync( "." + "/"  + "compileEnv.js", "window._Ranger_compiler_environment_ = " + (JSON.stringify(env.toDictionary())));
           };

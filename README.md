@@ -1,16 +1,54 @@
 # Ranger cross language compiler
 
-**Version 3.0.0-alpha.1** | Status: `experimental`
+**Version 3.0.4** | Status: `experimental`
 
-Ranger is a small self-hosting cross-language, cross-platform compiler to enable writing portable algorithms and applications.
-The language has type safety, classes, inheritance, operator overloading, lambda functions, generic traits,
-class extensions, type inference and can integrate with host system API's using system classes.
+Ranger is a self-hosting cross-language compiler for writing portable algorithms, parsers, generators, and small tools once and compiling them to multiple target languages.
+
+It includes a compact typed language with classes, inheritance, traits, lambdas, type inference, extension methods, custom operators, and host integration through system classes.
+
+Ranger is best approached today as a compiler and language lab with practical multi-target output, not as a polished general-purpose language ecosystem.
+
+## What Ranger Is Good At
+
+- Writing one algorithm or tool and emitting several target languages from the same source
+- Building parsers, analyzers, generators, and DSL-like tooling with a small runtime surface
+- Experimenting with language design, operator templates, and code generation strategies
+- Studying a self-hosting compiler that is actively used to compile itself
+
+## Word of Warning
+
+- Ranger is still `experimental`, which means: be ready to fix bugs or add new capabilities when needed
+- Target quality varies by language and by feature area
+- The compiler is self-hosting, but the official and best-supported host is Node.js
+- Not every example in this repository works fully out of the box on every machine
+- Several examples in `gallery/` are research or showcase projects and may require extra toolchains, platform-specific commands, or manual setup
+
+If you want one sentence of positioning: Ranger is currently more convincing as a portable algorithm compiler / DSL toolchain than as a drop-in replacement for mainstream application languages.
+
+## Where To Start
+
+- `README.md` - language overview, installation, and syntax notes
+- `ai/QUICKREF.md` - fast reference for syntax and core concepts
+- `ai/INSTRUCTIONS.md` - fuller language guide for operators, templates, and compiler concepts
+- `ai/EXAMPLES.md` - short focused language examples
+- `gallery/` - larger examples and experiments such as parsers, EVG/TSX tooling, and games
+- `gallery/js_parser` - substantial parser example with benchmarks and README
+- `gallery/pdf_writer` - EVG / TSX document tooling and preview server
+- `gallery/invaders` - cross-target demo game
+
+## Compatibility Snapshot
+
+The project can target `JavaScript`, `Java`, `Go`, `Swift`, `PHP`, `C++`, `C#`, `Scala`, `Python`, `Kotlin`, and `Rust`, but support is uneven.
+
+| Area | Current expectation |
+| --- | --- |
+| Host/runtime | Node.js is the primary supported host for the compiler |
+| Self-hosting | Actively used, but full compiler generation quality is strongest in JavaScript |
+| JavaScript / ES6 | Best baseline target and most reliable place to start |
+| Go / Swift / Rust / Kotlin / C++ | Useful and increasingly capable, but expect edge cases and target-specific gaps |
+| Gallery examples | Good for understanding direction and capability, but some require manual setup or platform-specific tooling |
 
 ## What's New in Version 3.0
-
-🚀 **Ranger 3.0** is a major evolution focusing on developer experience and production readiness.
-
-### Key Features
 
 - **New File Extension** - Transitioning from `.clj` to `.rgr` for Ranger identity
 - **Simplified CLI** - Use `rgrc` command for shorter invocations
@@ -25,13 +63,13 @@ class extensions, type inference and can integrate with host system API's using 
 npm install -g ranger-compiler
 
 # Compile to JavaScript
-rgrc -l=es6 myfile.clj -o=output.js
+rgrc -l=es6 myfile.rgr -o=output.js
 
 # Compile to TypeScript
-rgrc -l=es6 -typescript myfile.clj -o=output.ts
+rgrc -l=es6 -typescript myfile.rgr -o=output.ts
 
 # Compile to Python
-rgrc -l=python myfile.clj -o=output.py
+rgrc -l=python myfile.rgr -o=output.py
 ```
 
 See [CHANGELOG.md](CHANGELOG.md) for full version history and [PLAN_3.md](PLAN_3.md) for the roadmap.
@@ -44,7 +82,7 @@ The compiler is _self hosting_ which means that it has been written using the co
 on several platforms. At the moment the official platform is node.js, because external plugins are only available as npm packages.
 
 The target languages supported are `JavaScript`, `Java`, `Go`, `Swift`, `PHP`, `C++`, `C#`, `Scala`, `Python`, and `Rust`. The quality
-of the target translation still varies and at the moment of this writing the compiler can only be compiled fully to JavaSript
+of the target translation still varies and at the moment of this writing the compiler can only be compiled fully to JavaScript
 target. However, most targets already can compile reasonably good code.
 
 ## Recent Updates (December 2025)
@@ -613,6 +651,8 @@ The `ai/` folder contains documentation optimized for AI assistants:
 - `QUICKREF.md` - Quick reference card
 - `INTROSPECTION.md` - Compiler introspection API for IDE/AI integration
 
+These files are also useful for human readers who want the shortest path to understanding Ranger without reading the whole README front to back.
+
 ### Compiler Introspection API (New)
 
 The compiler now exposes powerful introspection capabilities for IDE integration and AI-assisted development:
@@ -663,7 +703,7 @@ See `ai/INTROSPECTION.md` for complete API documentation.
 
 ## Installing the compiler
 
-To install the latest test version of the compiler using npm run
+Install the compiler from npm:
 
 ```
  npm install -g ranger-compiler
@@ -672,11 +712,11 @@ To install the latest test version of the compiler using npm run
 Running `ranger-compiler` without arguments shows available command-line options:
 
 ```
-Ranger compiler, version 2.1.33
-Installed at: C:\dev\static\tools\ranger-compiler
-Usage: <file> <options> <flags>
+Ranger Compiler v3.0.1
+
+Usage: rgrc <file> [options] [flags]
 Options: -<option>=<value>
-  -l=<value>             Selected language, one of es6, go, scala, java7, swift3, cpp, php, csharp, python
+    -l=<value>             Selected language, one of es6, go, scala, java7, swift3, swift6, kotlin, cpp, php, csharp, python, rust
   -d=<value>             output directory, default directory is "bin/"
   -o=<value>             output file, default is "output.<language>"
   -classdoc=<value>      write class documentation .md file
@@ -728,36 +768,40 @@ The compiler automatically detects JavaScript-related extensions (`.js`, `.ts`, 
 
 ## Getting started with Hello World
 
-Create file `hello.clj`
+Create file `hello.rgr`
 
 ```
 class Hello {
-    static fn main () {
+    sfn m@(main):void () {
         print "Hello World"
     }
 }
 
 ```
 
-Then compile it using `ranger-compiler` using command line
+Then compile it using `ranger-compiler` from the command line:
 
 ```
-ranger-compiler hello.clj
+ranger-compiler hello.rgr
 ```
 
-The result will be outputtted into directory `bin/hello.js`
+The result will be written to `bin/output.js` by default, or you can choose the output name explicitly:
+
+```
+ranger-compiler hello.rgr -o=hello.js
+```
 
 ## Compiling using TypeScript
 
 The compiler can be used from TypeScript, which makes possible to create new versions of the
 compiler just using TypeScript.
 
-Note: the example requires content of Lang, stdlib, stdops and JSON to be loaded for the compiler, in this example they are loaded from the filesystem using `readFileSync`.
+Note: the example requires `Lang`, `stdlib`, `stdops`, and `JSON` to be loaded for the compiler. In this example they are loaded from the filesystem using `readFileSync`.
 
 ```typescript
 // Notice this part of example is required:
-addFile("Lang.clj", fs.readFileSync("./libs/Lang.clj", "utf8"));
-addFile("stdlib.clj", fs.readFileSync("./libs/stdlib.clj", "utf8"));
+addFile("Lang.rgr", fs.readFileSync("./libs/Lang.rgr", "utf8"));
+addFile("stdlib.rgr", fs.readFileSync("./libs/stdlib.rgr", "utf8"));
 addFile("stdops.clj", fs.readFileSync("./libs/stdops.clj", "utf8"));
 addFile("JSON.clj", fs.readFileSync("./libs/JSON.clj", "utf8"));
 ```
