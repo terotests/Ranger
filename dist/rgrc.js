@@ -27613,7 +27613,7 @@ class CLIProgress  {
     this.inputFile = "";
     this.outputFile = "";
     this.targetLanguage = "";
-    this.compilerVersion = "3.0.1";
+    this.compilerVersion = "3.0.2";
     this.useColors = (process.stdout.isTTY || false);
     this.startTime = Date.now();
   }

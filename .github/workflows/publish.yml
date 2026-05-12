@@ -1,9 +1,10 @@
-# Publish to NPM when a release is created
+# Publish to NPM when a release is published
 name: Publish to NPM
 
 on:
+  workflow_dispatch:
   release:
-    types: [created]
+    types: [published]
 
 jobs:
   publish:
