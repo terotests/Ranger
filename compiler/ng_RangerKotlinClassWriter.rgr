@@ -543,7 +543,9 @@ class RangerKotlinClassWriter {
         if shouldOverride {
           wr.out("override " false)
         } {
-          wr.out("open " false)
+          if cl.is_extended_by_children {
+            wr.out("open " false)
+          }
         }
         wr.out("fun " false)
         wr.out(" " false)

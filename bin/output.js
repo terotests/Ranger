@@ -20459,7 +20459,9 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
         if ( shouldOverride ) {
           wr.out("override ", false);
         } else {
-          wr.out("open ", false);
+          if ( cl.is_extended_by_children ) {
+            wr.out("open ", false);
+          }
         }
         wr.out("fun ", false);
         wr.out(" ", false);
@@ -27611,7 +27613,7 @@ class CLIProgress  {
     this.inputFile = "";
     this.outputFile = "";
     this.targetLanguage = "";
-    this.compilerVersion = "3.0.0-beta.1";
+    this.compilerVersion = "3.0.1";
     this.useColors = (process.stdout.isTTY || false);
     this.startTime = Date.now();
   }

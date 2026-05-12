@@ -1,12 +1,12 @@
 {
   "name": "ranger-compiler",
-  "version": "3.0.0-beta.1",
+  "version": "3.0.1",
   "description": "Ranger cross-language compiler - compile once, run anywhere",
   "main": "dist/api.js",
   "types": "dist/api.d.ts",
   "bin": {
-    "ranger-compiler": "bin/output.js",
-    "rgrc": "bin/output.js"
+    "ranger-compiler": "dist/rgrc.js",
+    "rgrc": "dist/rgrc.js"
   },
   "files": [
     "dist/",
@@ -23,7 +23,7 @@
   },
   "scripts": {
     "build:dist": "npm run compile && npm run build:dist:copy",
-    "build:dist:copy": "cp ./bin/output.js ./dist/rgrc.js && cp ./bin/Lang.rgr ./dist/Lang.rgr && cp ./bin/stdops.rgr ./dist/stdops.rgr",
+    "build:dist:copy": "cp ./bin/output.js ./dist/rgrc.js && cp ./bin/Lang.rgr ./dist/Lang.rgr && cp ./bin/stdops.rgr ./dist/stdops.rgr && cp -r ./lib ./dist/lib",
     "build:dist:module": "node bin/output.js -nodemodule -es6 -typescript ./compiler/ng_Compiler.rgr -d=./dist -o=api.ts && tsc --declaration --outDir ./dist ./dist/api.ts",
     "prepublishOnly": "npm run build:dist && npm test",
     "test-any-ts": "node bin/testcomp.js ./features/any/test_any.rgr -es6 -typescript",

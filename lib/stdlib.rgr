@@ -19,7 +19,13 @@ operators {
                         "var " (e 2) " = " (e 1) ";" nl
                         (block 3)                        
                         nl i "}"
-            )  
+            )
+            kotlin (
+                (forkctx _ ) (def 2) "if( " (e 1) " is Boolean ) /* union case for boolean */ {" nl I
+                        "val " (e 2) " : Boolean = " (e 1) " as Boolean;" nl
+                        (block 3)
+                        nl i "}"
+            )
         }
     }
     case             _@(newcontext):void           ( arg@(union):T item2@(define):int code:block )  {
@@ -35,7 +41,13 @@ operators {
                         (e 2) " = " (e 1) ";" nl
                         (block 3)                        
                         nl i "}"
-            )  
+            )
+            kotlin (
+                (forkctx _ ) (def 2) "if( " (e 1) " is Int ) /* union case for int */ {" nl I
+                        "val " (e 2) " : Int = " (e 1) " as Int;" nl
+                        (block 3)
+                        nl i "}"
+            )
         }
     }
     case             _@(newcontext):void           ( arg@(union):T item2@(define):double code:block )  {
@@ -51,7 +63,13 @@ operators {
                         (e 2) " = " (e 1) ";" nl
                         (block 3)                        
                         nl i "}"
-            )  
+            )
+            kotlin (
+                (forkctx _ ) (def 2) "if( " (e 1) " is Double ) /* union case for double */ {" nl I
+                        "val " (e 2) " : Double = " (e 1) " as Double;" nl
+                        (block 3)
+                        nl i "}"
+            )
         }
     }
 
@@ -67,6 +85,12 @@ operators {
                 (forkctx _ ) (def 2) "if( is_string(" (e 1) ") ) {" nl I
                         (e 2) " = " (e 1) ";" nl
                         (block 3)                        
+                        nl i "}"
+            )
+            kotlin (
+                (forkctx _ ) (def 2) "if( " (e 1) " is String ) /* union case for string */ {" nl I
+                        "val " (e 2) " : String = " (e 1) " as String;" nl
+                        (block 3)
                         nl i "}"
             )
             ranger ( 'case ' (e 1) " " (e 2) ":" (typeof 2) " {" nl
@@ -119,6 +143,12 @@ operators {
                         (typeof 2) " " (e 2) " = (" (typeof 2) ") " (e 1) ";" nl
                         (block 3)
                         
+                        nl i "}"
+            )
+            kotlin (
+                (forkctx _ ) (def 2) "if( " (e 1) " is " (typeof 2) " ) /* union case */ {" nl I
+                        "val " (e 2) " : " (typeof 2) " = " (e 1) " as " (typeof 2) ";" nl
+                        (block 3)
                         nl i "}"
             ) 
             cpp (
