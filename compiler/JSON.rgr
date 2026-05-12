@@ -10,15 +10,19 @@
 systemclass JSONDataObject {
     es6 Object
     java7 JSONObject ( (imp "org.json.JSONObject") )
+    kotlin JSONObject
     go "map[string]interface{}"
     swift3 '[String:Any]'
+    swift6 '[String:Any]'
 }
 
 systemclass JSONArrayObject {
-    es6 "Array<any>"
+    es6 JSONArrayObject2
     java7 JSONArray ( (imp "org.json.JSONArray") )
+    kotlin JSONArray
     go "[]interface{}"
     swift3 '[Any]'
+    swift6 '[Any]'
 }
 
 systemclass JSONKeyValue {
@@ -28,8 +32,10 @@ systemclass JSONKeyValue {
 systemclass JSONValueUnion {
     es6 Object
     java7 Object
+    kotlin Any?
     go "interface{}"
     swift3 Any
+    swift6 Any
 }
 
 systemunion JSONValueUnion ( JSONDataObject JSONArrayObject string int double boolean )
@@ -79,8 +85,17 @@ operators {
                 "(typeof (" (e 1) " [" (e 2) "]) != \"string\" ) ? undefined : " (e 1) " [" (e 2) "] " nl
             )
             swift3 (  (e 1) '[' (e 2) '] as? String ')
+            swift6 (  (e 1) '[' (e 2) '] as? String ')
             ranger ("(getStr " (e 1) " " (e 2) ")")
             java7 ( (e 1) ".isNull( " (e 2) " ) ? null : " (e 1) ".optString(" (e 2) ") " )
+            kotlin ( "(if (" (e 1) ".isNull(" (e 2) ")) null else " (e 1) ".optString(" (e 2) "))"
+(create_polyfill "
+typealias JSONObject = org.json.JSONObject
+typealias JSONArray = org.json.JSONArray
+typealias JSONDataObject = org.json.JSONObject
+typealias JSONArrayObject = org.json.JSONArray
+")
+            )
             go ( "r_get_opt_json_string(" (e 1) ", " (e 2) ")"
 (create_polyfill "
 func r_get_opt_json_string( data map[string]interface{}, key string ) *GoNullable  {
@@ -111,8 +126,10 @@ func r_get_opt_json_string( data map[string]interface{}, key string ) *GoNullabl
                 "isNaN( parseInt(" (e 1) " [" (e 2) "]) ) ? undefined : parseInt(" (e 1) " [" (e 2) "]) " nl
             )
             swift3 (  (e 1) '[' (e 2) '] as? Int ')
+            swift6 (  (e 1) '[' (e 2) '] as? Int ')
             ranger( "(getInt " (e 1 )" " (e 2)")")
             java7 ( (e 1) ".isNull( " (e 2) " ) ? null : " (e 1) ".optInt(" (e 2) ") " )
+            kotlin ( "(if (" (e 1) ".isNull(" (e 2) ")) null else " (e 1) ".optInt(" (e 2) "))" )
             go ( "r_get_opt_json_int(" (e 1) ", " (e 2 ) ")"
 (create_polyfill "
 func r_get_opt_json_int( data map[string]interface{}, key string ) *GoNullable  {
@@ -142,8 +159,10 @@ func r_get_opt_json_int( data map[string]interface{}, key string ) *GoNullable  
                 "isNaN( parseFloat(" (e 1) " [" (e 2) "]) ) ? undefined : parseFloat(" (e 1) " [" (e 2) "]) " nl
             )
             swift3 (  (e 1) '[' (e 2) '] as? Double ')
+            swift6 (  (e 1) '[' (e 2) '] as? Double ')
             ranger( "(getDouble " (e 1 )" " (e 2)")")
             java7 ( (e 1) ".isNull( " (e 2) " ) ? null : " (e 1) ".optDouble(" (e 2) ") " )
+            kotlin ( "(if (" (e 1) ".isNull(" (e 2) ")) null else " (e 1) ".optDouble(" (e 2) "))" )
             go ( "r_get_opt_json_double(" (e 1) ", " (e 2) ")"
 (create_polyfill "
 func r_get_opt_json_double( data map[string]interface{}, key string ) *GoNullable  {
@@ -173,8 +192,10 @@ func r_get_opt_json_double( data map[string]interface{}, key string ) *GoNullabl
                 "typeof(" (e 1) " [" (e 2) "]) === \"undefined\" ? undefined :(" (e 1) " [" (e 2) "]) " 
             )
             swift3 (  (e 1) '[' (e 2) '] as? Bool ')
+            swift6 (  (e 1) '[' (e 2) '] as? Bool ')
             ranger( "(getBoolean " (e 1 )" " (e 2)")")
             java7 ( (e 1) ".isNull( " (e 2) " ) ? null : " (e 1) ".optBoolean(" (e 2) ") " )
+            kotlin ( "(if (" (e 1) ".isNull(" (e 2) ")) null else " (e 1) ".optBoolean(" (e 2) "))" )
             go ( "r_get_opt_json_bool(" (e 1) ", " (e 2) ")"
 (create_polyfill "
 func r_get_opt_json_bool( data map[string]interface{}, key string ) *GoNullable  {
@@ -203,6 +224,7 @@ func r_get_opt_json_bool( data map[string]interface{}, key string ) *GoNullable 
                 "(" (e 1) "[" (e 2) "] instanceof Object ) ? " (e 1) " [" (e 2) "] : undefined " 
             )
             swift3 (  (e 1) '[' (e 2) '] as? [String:Any] ')
+            swift6 (  (e 1) '[' (e 2) '] as? [String:Any] ')
             ranger ( '(getObject ' (e 1) ' ' (e 2) ')')
             java7 ( "__getJSONObj(" (e 1) ", " (e 2) " )" (imp 'org.json.JSONException')
 
@@ -221,6 +243,7 @@ static JSONObject __getJSONObj(JSONObject o, String item)
 ')    
                         
             )
+            kotlin ( "(if (" (e 1) ".isNull(" (e 2) ")) null else " (e 1) ".getJSONObject(" (e 2) "))" )
             go ( "r_get_opt_json_obj(" (e 1) ", " (e 2) ")"
 (create_polyfill "
 func r_get_opt_json_obj( data map[string]interface{}, key string ) *GoNullable  {
@@ -251,8 +274,10 @@ func r_get_opt_json_obj( data map[string]interface{}, key string ) *GoNullable  
                 "(" (e 1) "[" (e 2) "] instanceof Array ) ? " (e 1) " [" (e 2) "] : undefined " 
             )
             swift3 (  (e 1) '[' (e 2) '] as? [Any] ')
+            swift6 (  (e 1) '[' (e 2) '] as? [Any] ')
             ranger ("(getArray " (e 1) " " (e 2) ")")
             java7 ( (e 1) ".isNull( " (e 2) " ) ? null : " (e 1) ".getJSONArray(" (e 2) ") " )
+            kotlin ( "(if (" (e 1) ".isNull(" (e 2) ")) null else " (e 1) ".getJSONArray(" (e 2) "))" )
             go ( "r_get_opt_array(" (e 1) ", " (e 2) ")"
 (create_polyfill '
 func r_get_opt_array( data map[string]interface{}, key string ) *GoNullable  {
@@ -361,6 +386,7 @@ static Object __getJSONValue(JSONArray o, Integer item)
             
              )
             swift3 ( (e 1) "[" (e 2) "]")
+            kotlin ( (e 1) ".get(" (e 2) ")")
             go ( (e 1) "[" (e 2) "]")
             php ( (e 1) "[" (e 2) "]")
         }
@@ -371,7 +397,9 @@ static Object __getJSONValue(JSONArray o, Integer item)
             ranger ("(array_length " (e 1) ")")
             es6 ( (e 1) ".length") 
             java7 ( (e 1) ".length()" )
+            kotlin ( (e 1) ".length()" )
             swift3 ( (e 1) ".count")
+            swift6 ( (e 1) ".count")
             go( "int64(len(" (e 1) "))" )
             php ( "count(" (e 1) ")" )
         }
@@ -382,8 +410,62 @@ static Object __getJSONValue(JSONArray o, Integer item)
             ranger ( "(set " (e 1) " " (e 2) " " (e 3) " )")
             es6 ( (e 1) "[" (e 2)"] = " (e 3) ";")
             java7 ( (e 1) ".put(" (e 2)" , " (e 3) ");")
+            kotlin ( (e 1) ".put(" (e 2)" , " (e 3) ");")
             go ( (e 1) "[" (e 2) "] = " (e 3) )
             swift3 ( (e 1) "[" (e 2) "] = " (e 3) )
+            swift6 ( (e 1) "[" (e 2) "] = " (e 3) )
+            php ( (e 1) "[" (e 2) "] = " (e 3) ";" )
+        }
+    }
+
+    set _@(moves@( 3 1 ) ):void (e@(mutates):JSONDataObject key:string value:string) {
+        templates {
+            ranger ( "(set " (e 1) " " (e 2) " " (e 3) " )")
+            es6 ( (e 1) "[" (e 2)"] = " (e 3) ";")
+            java7 ( (e 1) ".put(" (e 2)" , " (e 3) ");")
+            kotlin ( (e 1) ".put(" (e 2)" , " (e 3) ");")
+            go ( (e 1) "[" (e 2) "] = " (e 3) )
+            swift3 ( (e 1) "[" (e 2) "] = " (e 3) )
+            swift6 ( (e 1) "[" (e 2) "] = " (e 3) )
+            php ( (e 1) "[" (e 2) "] = " (e 3) ";" )
+        }
+    }
+
+    set _@(moves@( 3 1 ) ):void (e@(mutates):JSONDataObject key:string value:int) {
+        templates {
+            ranger ( "(set " (e 1) " " (e 2) " " (e 3) " )")
+            es6 ( (e 1) "[" (e 2)"] = " (e 3) ";")
+            java7 ( (e 1) ".put(" (e 2)" , " (e 3) ");")
+            kotlin ( (e 1) ".put(" (e 2)" , " (e 3) ");")
+            go ( (e 1) "[" (e 2) "] = " (e 3) )
+            swift3 ( (e 1) "[" (e 2) "] = " (e 3) )
+            swift6 ( (e 1) "[" (e 2) "] = " (e 3) )
+            php ( (e 1) "[" (e 2) "] = " (e 3) ";" )
+        }
+    }
+
+    set _@(moves@( 3 1 ) ):void (e@(mutates):JSONDataObject key:string value:double) {
+        templates {
+            ranger ( "(set " (e 1) " " (e 2) " " (e 3) " )")
+            es6 ( (e 1) "[" (e 2)"] = " (e 3) ";")
+            java7 ( (e 1) ".put(" (e 2)" , " (e 3) ");")
+            kotlin ( (e 1) ".put(" (e 2)" , " (e 3) ");")
+            go ( (e 1) "[" (e 2) "] = " (e 3) )
+            swift3 ( (e 1) "[" (e 2) "] = " (e 3) )
+            swift6 ( (e 1) "[" (e 2) "] = " (e 3) )
+            php ( (e 1) "[" (e 2) "] = " (e 3) ";" )
+        }
+    }
+
+    set _@(moves@( 3 1 ) ):void (e@(mutates):JSONDataObject key:string value:boolean) {
+        templates {
+            ranger ( "(set " (e 1) " " (e 2) " " (e 3) " )")
+            es6 ( (e 1) "[" (e 2)"] = " (e 3) ";")
+            java7 ( (e 1) ".put(" (e 2)" , " (e 3) ");")
+            kotlin ( (e 1) ".put(" (e 2)" , " (e 3) ");")
+            go ( (e 1) "[" (e 2) "] = " (e 3) )
+            swift3 ( (e 1) "[" (e 2) "] = " (e 3) )
+            swift6 ( (e 1) "[" (e 2) "] = " (e 3) )
             php ( (e 1) "[" (e 2) "] = " (e 3) ";" )
         }
     }
@@ -393,8 +475,10 @@ static Object __getJSONValue(JSONArray o, Integer item)
             ranger ( "(set " (e 1) " " (e 2) " " (e 3) " )")
             es6 ( (e 1) "[" (e 2)"] = " (e 3) ";")
             java7 ( (e 1) ".put(" (e 2)" , " (e 3) ");")
+            kotlin ( (e 1) ".put(" (e 2)" , " (e 3) ");")
             go ( (e 1) "[" (e 2) "] = " (e 3) )
             swift3 ( (e 1) "[" (e 2) "] = " (e 3) )
+            swift6 ( (e 1) "[" (e 2) "] = " (e 3) )
             php ( (e 1) "[" (e 2) "] = " (e 3) ";" )
         }
     }
@@ -406,7 +490,9 @@ static Object __getJSONValue(JSONArray o, Integer item)
                 "JSON.parse(" (e 1) ")"
             )
             swift3 ( 'try JSONSerialization.jsonObject(with: ' (e 1) ', options:[]) as! [String:Any]' (imp 'Foundation') )
+            swift6 ( 'try JSONSerialization.jsonObject(with: ' (e 1) ', options:[]) as! [String:Any]' (imp 'Foundation') )
             java7 ("new JSONObject(" (e 1) ")"  (imp "org.json.JSONObject") (plugin 'maven' (  (dep 'org.json' 'json' '20171018'  ) ) ))
+            kotlin ("JSONObject(" (e 1) ")")
             go ( "__r_json_to_interface(" (e 1) ")" (imp "encoding/json")
 
 (create_polyfill "
@@ -448,8 +534,16 @@ function r_json_to_array($str) {
              i nl '} catch {' nl I
                 'return ""'
                 i nl '}'
-            '}()' (imp 'Foundation') )
+            i nl '}()' (imp 'Foundation') )
+                swift6 ( '{ () -> String in ' nl I
+                 'do {' nl I
+                     'return String(data:try JSONSerialization.data(withJSONObject: ' (e 1) ', options:[]), encoding:.utf8)!'
+                 i nl '} catch {' nl I
+                     'return ""'
+                     i nl '}'
+                i nl '}()' (imp 'Foundation') )
             java7 ( (e 1) ".toString()" )
+            kotlin ( (e 1) ".toString()" )
             go( "__toJSONData(" (e 1) ")" (imp "encoding/json")
 (create_polyfill "
 func __toJSONData ( data interface{} ) string {
@@ -469,7 +563,9 @@ func __toJSONData ( data interface{} ) string {
                 "JSON.stringify(" (e 1) ")"
             )
             swift3 ( 'String(data:try JSONSerialization.data(with: ' (e 1) ', options:[], encoding:.utf8)!)' (imp 'Foundation') )
+            swift6 ( 'String(data:try JSONSerialization.data(with: ' (e 1) ', options:[], encoding:.utf8)!)' (imp 'Foundation') )
             java7 ( (e 1) ".toString()" )
+            kotlin ( (e 1) ".toString()" )
             go( "__toJSONData(" (e 1) ")" (imp "encoding/json")
 (create_polyfill "
 func __toJSONData ( data interface{} ) string {
@@ -487,7 +583,9 @@ func __toJSONData ( data interface{} ) string {
             ranger ( "(push " (e 1 ) " " (e 2) " )")
             es6 ( (e 1) ".push(" (e 2) ")")
             java7 ( (e 1) ".put(" (e 2) ");")
+            kotlin ( (e 1) ".put(" (e 2) ");")
             swift3 ( (e 1) ".append(" (e 2) ");")
+            swift6 ( (e 1) ".append(" (e 2) ");")
             go( (e 1) " = append(" (e 1) "," (e 2) ")")
             php ( "array_push(" (e 1) ", " (e 2) ");")
         }           
@@ -496,8 +594,10 @@ func __toJSONData ( data interface{} ) string {
         templates {
             es6 ("[]")
             swift3 ( '[Any]()' )
+            swift6 ( '[Any]()' )
             ranger ("(json_array )")
             java7 ("new JSONArray()" (imp "org.json.JSONArray") (plugin 'maven' (  (dep 'org.json' 'json' '20171018'  ) ) ))
+            kotlin ("JSONArray()")
             go ( "make([]interface{},0)" )
             php ( "array()" )
         }        
@@ -506,8 +606,10 @@ func __toJSONData ( data interface{} ) string {
         templates {
             es6 ("{}")
             swift3 ( '[String:Any]()' )
+            swift6 ( '[String:Any]()' )
             ranger ("(json_object )")
             java7 ("new JSONObject()" (imp "org.json.JSONObject") (plugin 'maven' (  (dep 'org.json' 'json' '20171018'  ) ) ))
+            kotlin ("JSONObject()")
             go ( "make(map[string]interface{})" )
             php ( "array()")
         }        
@@ -516,6 +618,7 @@ func __toJSONData ( data interface{} ) string {
         templates {
             es6 ("[" ( repeat_from 1 (  (block 1) ) ) "]")
             swift3 ("[" ( repeat_from 1 (  (block 1) ) ) "]")
+            swift6 ("[" ( repeat_from 1 (  (block 1) ) ) "]")
             ranger ("(json_array " ( repeat 1 (  (block 1) ) ) ")")
             java7 ("new JSONArray" (imp "org.json.JSONArray") (plugin 'maven' (  (dep 'org.json' 'json' '20171018'  ) ) ))
             go ( "make([]interface{},0)" )

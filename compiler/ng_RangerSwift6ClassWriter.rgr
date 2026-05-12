@@ -352,7 +352,10 @@ class RangerSwift6ClassWriter {
       if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
         wr.out("/** unused:  " false)
       }
-      if ((p.set_cnt > 0) || p.is_class_variable) {
+      if p.is_static {
+        wr.out("static " false)
+      }
+      if ((p.set_cnt > 0) || p.is_class_variable || (nn.value_type == RangerNodeType.Array) || (nn.value_type == RangerNodeType.Hash)) {
         wr.out((("var " + p.compiledName) + " : ") false)
       } {
         wr.out((("let " + p.compiledName) + " : ") false)
@@ -397,6 +400,9 @@ class RangerSwift6ClassWriter {
       if(nn.value_type == RangerNodeType.ExpressionType ) {
         wr.out("  @escaping  " false)
       }
+      if(nn.hasFlag("mutates")) {
+        wr.out("inout " false)
+      }
       this.writeTypeDef( (unwrap arg.nameNode) ctx wr)
     }
   }
@@ -421,7 +427,10 @@ class RangerSwift6ClassWriter {
         if(nn.value_type == RangerNodeType.ExpressionType ) {
           wr.out("  @escaping  " false)
         }
-      }    
+      }
+      if(nn.hasFlag("mutates")) {
+        wr.out("inout " false)
+      }
       this.writeTypeDef( (unwrap arg.nameNode) ctx wr)
     }
   }
@@ -452,6 +461,9 @@ class RangerSwift6ClassWriter {
             def mm (unwrap clMethod)
             def pDesc (itemAt mm.params i)
             wr.out((pDesc.compiledName + " : ") false)
+            if ((unwrap pDesc.nameNode).hasFlag("mutates")) {
+              wr.out("&" false)
+            }
             this.WalkNode(arg ctx wr)
             continue
           } 
@@ -500,6 +512,9 @@ class RangerSwift6ClassWriter {
         }
         def n:CodeNode (itemAt givenArgs.children i)
         wr.out((arg.compiledName + " : ") false)
+        if ((unwrap arg.nameNode).hasFlag("mutates")) {
+          wr.out("&" false)
+        }
         this.WalkNode(n ctx wr)
       }
       ctx.unsetInExpr()
@@ -582,11 +597,32 @@ class RangerSwift6ClassWriter {
   fn writeNewCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasNewOper {
       def cl:RangerAppClassDesc node.clDesc
+      def givenArgs:CodeNode (node.getThird())
+      if (cl.nameNode.hasFlag("singleton")) {
+        wr.out((node.clDesc.name + ".__singleton") false)
+        wr.out("(" false)
+        if (!null? cl.constructor_fn) {
+          def constr:RangerAppFunctionDesc (unwrap cl.constructor_fn)
+          for constr.params arg:RangerAppParamDesc i {
+            def n:CodeNode (itemAt givenArgs.children i)
+            if (i > 0) {
+              wr.out(", " false)
+            }
+            wr.out((arg.name + " : ") false)
+            if ((unwrap arg.nameNode).hasFlag("mutates")) {
+              wr.out("&" false)
+            }
+            this.WalkNode(n ctx wr)
+          }
+        }
+        wr.out(")" false)
+        return
+      }
+
       def fc:CodeNode (node.getSecond())
       wr.out(node.clDesc.name false)
       wr.out("(" false)
       def constr:RangerAppFunctionDesc cl.constructor_fn
-      def givenArgs:CodeNode (node.getThird())
       if (!null? constr) {
         for constr.params arg:RangerAppParamDesc i {
           def n:CodeNode (itemAt givenArgs.children i)
@@ -594,6 +630,9 @@ class RangerSwift6ClassWriter {
             wr.out(", " false)
           }
           wr.out((arg.name + " : ") false)
+          if ((unwrap arg.nameNode).hasFlag("mutates")) {
+            wr.out("&" false)
+          }
           this.WalkNode(n ctx wr)
         }
       }
@@ -678,6 +717,7 @@ class RangerSwift6ClassWriter {
     def declaredFunction:[string:boolean]
     def declaredStaticFunction:[string:boolean]
     def parentFunction@(weak):[string:RangerAppFunctionDesc]
+    def parentStaticFunction@(weak):[string:RangerAppFunctionDesc]
     if ( ( array_length cl.extends_classes ) > 0 ) { 
       for cl.extends_classes pName:string i {
         def pC:RangerAppClassDesc (ctx.findClass(pName))
@@ -693,6 +733,7 @@ class RangerSwift6ClassWriter {
         }
         for pC.static_methods variant:RangerAppFunctionDesc i {
           set declaredStaticFunction variant.name true
+          set parentStaticFunction variant.name variant
         }
       }
     }
@@ -714,11 +755,21 @@ class RangerSwift6ClassWriter {
         wr.out(parentClass.compiledName false)
       }
     } {
-      wr.out(" : Equatable " false )
+      wr.out(" : Hashable " false )
     }  
     
     wr.out( " { " true)
     wr.indent(1)
+
+    if parentClass {
+    } {
+      wr.out("func hash(into hasher: inout Hasher) {" true)
+      wr.indent(1)
+      wr.out("hasher.combine(ObjectIdentifier(self))" true)
+      wr.indent(-1)
+      wr.out("}" true)
+    }
+
     for cl.variables pvar:RangerAppParamDesc i {
       if( has declaredVariable pvar.name ) {
         wr.out("// WAS DECLARED : " + pvar.name , true)
@@ -752,7 +803,33 @@ class RangerSwift6ClassWriter {
       wr.indent(1)
 
       if(parentClass) {
-        wr.out("super.init()" true)
+        wr.out("super.init(" false)
+        if(parentClass.has_constructor) {
+          def pConstr:RangerAppFunctionDesc (unwrap parentClass.constructor_fn)
+          if(cl.has_constructor) {
+            def cConstr:RangerAppFunctionDesc (unwrap cl.constructor_fn)
+            for pConstr.params pArg:RangerAppParamDesc i {
+              if(i > 0) {
+                wr.out(", " false)
+              }
+              def foundByName:boolean false
+              for cConstr.params cArgByName:RangerAppParamDesc j {
+                if(cArgByName.name == pArg.name) {
+                  wr.out((pArg.compiledName + " : " + cArgByName.compiledName) false)
+                  foundByName = true
+                  break
+                }
+              }
+              if(false == foundByName) {
+                if(i < (array_length cConstr.params)) {
+                  def cArg:RangerAppParamDesc (itemAt cConstr.params i)
+                  wr.out((pArg.compiledName + " : " + cArg.compiledName) false)
+                }
+              }
+            }
+          }
+        }
+        wr.out(")" true)
       }
 
       wr.newline()
@@ -767,8 +844,11 @@ class RangerSwift6ClassWriter {
       if (variant.nameNode.hasFlag("main")) {
         continue _
       }
-      if ( has declaredStaticFunction variant.name ) {
-        wr.out("override " false)
+      if (has parentStaticFunction variant.name) {
+        def pStatic:RangerAppFunctionDesc (unwrap (get parentStaticFunction variant.name))
+        if (this.haveSameSig(variant pStatic ctx)) {
+          wr.out("override " false)
+        }
       }
       wr.out((("class func " + variant.compiledName) + "(") false)
       this.writeArgsDef(variant ctx wr)
@@ -781,6 +861,34 @@ class RangerSwift6ClassWriter {
       subCtx.is_function = true
       this.WalkNode( (unwrap variant.fnBody) subCtx wr)
       wr.newline()
+      wr.indent(-1)
+      wr.out("}" true)
+    }
+    if (cl.nameNode.hasFlag("singleton")) {
+      wr.out(("private static var __singleton_instance : " + cl.compiledName + "? = nil") true)
+      wr.out("class func __singleton(" false)
+      if cl.has_constructor {
+        def constr:RangerAppFunctionDesc (unwrap cl.constructor_fn)
+        this.writeArgsDef(constr ctx wr)
+      }
+      wr.out((") -> " + cl.compiledName + " {") true)
+      wr.indent(1)
+      wr.out(("if (" + cl.compiledName + ".__singleton_instance == nil) {") true)
+      wr.indent(1)
+      wr.out((cl.compiledName + ".__singleton_instance = " + cl.compiledName + "(") false)
+      if cl.has_constructor {
+        def constr:RangerAppFunctionDesc (unwrap cl.constructor_fn)
+        for constr.params arg:RangerAppParamDesc i {
+          if (i > 0) {
+            wr.out(", " false)
+          }
+          wr.out((arg.name + " : " + arg.compiledName) false)
+        }
+      }
+      wr.out(")" true)
+      wr.indent(-1)
+      wr.out("}" true)
+      wr.out(("return " + cl.compiledName + ".__singleton_instance!") true)
       wr.indent(-1)
       wr.out("}" true)
     }

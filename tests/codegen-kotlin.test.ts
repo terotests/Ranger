@@ -144,8 +144,8 @@ describe("Kotlin Code Generation", () => {
         `${FIXTURES_DIR}/ternary_factory.rgr`
       );
       expect(result.success, `Failed: ${result.error}`).toBe(true);
-      // Ternary uses ? : syntax (note: Kotlin also supports if as expression)
-      expect(result.code).toMatch(/\?.*:/);
+      // Kotlin uses if/else expression, not C-style ternary
+      expect(result.code).toMatch(/if \(.*\).*else/);
     });
 
     it("should generate while loops", () => {

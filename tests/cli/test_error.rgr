@@ -1,0 +1,27 @@
+; Test file for compiler error output testing
+; This file contains intentional errors to test the CLI error formatting
+
+class Calculator {
+    def value:int 0
+    
+    Constructor (initial:int) {
+        value = initial
+    }
+    
+    fn add:int (n:int) {
+        return (value + n)
+    }
+    
+    fn multiply:int (n:int) {
+        return (value * n)
+    }
+}
+
+class TestErrors {
+    sfn m@(main):void () {
+        def calc (new Calculator(10))
+        
+        calc.NotExisting();
+
+    }
+}
