@@ -1,0 +1,5 @@
+class ToDoubleIntFixture {
+    sfn totalMinutes:double (minV:int secV:int) {
+        return ( (to_double minV) + ( (to_double secV) / 60.0) )
+    }
+}

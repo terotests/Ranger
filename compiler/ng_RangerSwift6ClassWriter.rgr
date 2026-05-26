@@ -350,6 +350,13 @@ class RangerSwift6ClassWriter {
       }
 
       if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
+        if ((array_length node.children) > 2) {
+          def value:CodeNode (node.getThird())
+          if (this.defValueHasSideEffects(value)) {
+            this.writeSideEffectOnlyStmt(value ctx wr)
+            return
+          }
+        }
         wr.out("/** unused:  " false)
       }
       if p.is_static {
@@ -435,40 +442,90 @@ class RangerSwift6ClassWriter {
     }
   }
 
+  fn resolveCallReceiverClassName:string (obj:CodeNode ctx:RangerAppWriterContext) {
+    if ((strlen obj.vref) > 0) {
+      if (ctx.isDefinedClass(obj.vref)) {
+        return obj.vref
+      }
+    }
+    if ((strlen obj.eval_type_name) > 0) {
+      if (ctx.isDefinedClass(obj.eval_type_name)) {
+        return obj.eval_type_name
+      }
+    }
+    if ((array_length obj.ns) >= 1) {
+      def head:string (itemAt obj.ns 0)
+      if (ctx.isDefinedClass(head)) {
+        return head
+      }
+    }
+    if ((array_length obj.children) == 1) {
+      def inner:CodeNode (itemAt obj.children 0)
+      def innerName:string (this.resolveCallReceiverClassName(inner ctx))
+      if ((strlen innerName) > 0) {
+        return innerName
+      }
+    }
+    return ""
+  }
+
+  fn isSimpleClassCallReceiver:boolean (obj:CodeNode ctx:RangerAppWriterContext) {
+    def className:string (this.resolveCallReceiverClassName(obj ctx))
+    if ((strlen className) == 0) {
+      return false
+    }
+    if (obj.vref == className) {
+      return true
+    }
+    if ((array_length obj.children) == 1) {
+      def inner:CodeNode (itemAt obj.children 0)
+      if (inner.vref == className) {
+        return true
+      }
+    }
+    return false
+  }
+
   fn CreateCallExpression(node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.has_call {
       def obj:CodeNode (node.getSecond())
       def method:CodeNode (node.getThird())
       def args:CodeNode (itemAt node.children 3)
 
-      wr.out("(" false)
+      def simpleReceiver:boolean (this.isSimpleClassCallReceiver(obj ctx))
+      if (simpleReceiver == false) {
+        wr.out("(" false)
+      }
       ctx.setInExpr()
       this.WalkNode( obj ctx wr)
       ctx.unsetInExpr()
-      wr.out(")." false)
+      if (simpleReceiver == false) {
+        wr.out(")." false)
+      } {
+        wr.out("." false)
+      }
       wr.out(method.vref false)
       wr.out("(" false)
       ctx.setInExpr()
+
+      def fnDesc@(optional) (this.resolveMethodFnDesc(node ctx))
+      def hasFnDesc:boolean (!null? fnDesc)
+
       for args.children arg:CodeNode i {
         if (i > 0) {
           wr.out(", " false)
         }
-
-        if( ctx.isDefinedClass(obj.eval_type_name)) {
-          def clDef (ctx.findClass(obj.eval_type_name))
-          def clMethod (clDef.findMethod(method.vref))
-          if(!null? clMethod) {
-            def mm (unwrap clMethod)
-            def pDesc (itemAt mm.params i)
+        if (hasFnDesc) {
+          def mm:RangerAppFunctionDesc (unwrap fnDesc)
+          if (i < (size mm.params)) {
+            def pDesc:RangerAppParamDesc (itemAt mm.params i)
             wr.out((pDesc.compiledName + " : ") false)
             if ((unwrap pDesc.nameNode).hasFlag("mutates")) {
               wr.out("&" false)
             }
             this.WalkNode(arg ctx wr)
             continue
-          } 
-        } {
-          ctx.addError(arg "Could not find evaluated class for the call")          
+          }
         }
         this.WalkNode(arg ctx wr)          
 
@@ -951,4 +1008,88 @@ class RangerSwift6ClassWriter {
       }
     }
   }
+
+  fn resolveMethodFnDesc@(weak optional):RangerAppFunctionDesc (methodNode:CodeNode ctx:RangerAppWriterContext) {
+    def res@(weak lives):RangerAppFunctionDesc
+    if (methodNode.hasParamDesc) {
+      def raw (cast (unwrap methodNode.paramDesc) to:RangerAppFunctionDesc)
+      if ((size raw.params) > 0) {
+        res = raw
+        return res
+      }
+    }
+    if ((size methodNode.ns) >= 2) {
+      def className (itemAt methodNode.ns 0)
+      if (ctx.isDefinedClass(className)) {
+        def clDef (ctx.findClass(className))
+        def methodName (itemAt methodNode.ns 1)
+        def found@(optional) (clDef.findStaticMethod(methodName))
+        if (null? found) {
+          found = (clDef.findMethod(methodName))
+        }
+        if (!null? found) {
+          res = (unwrap found)
+          return res
+        }
+      }
+    }
+    if (methodNode.has_call) {
+      def obj:CodeNode (methodNode.getSecond())
+      def method:CodeNode (methodNode.getThird())
+      def className:string (this.resolveCallReceiverClassName(obj ctx))
+      if ((strlen className) > 0) {
+        def clDef (ctx.findClass(className))
+        def found@(optional) (clDef.findStaticMethod(method.vref))
+        if (null? found) {
+          found = (clDef.findMethod(method.vref))
+        }
+        if (!null? found) {
+          res = (unwrap found)
+          return res
+        }
+      }
+    }
+    return res
+  }
+
+  fn CreateMethodCall(node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def methodNode:CodeNode (node.getFirst())
+    def args:CodeNode (node.getSecond())
+    ctx.setInExpr()
+    this.WalkNode(methodNode ctx wr)
+    ctx.unsetInExpr()
+    wr.out("(" false)
+    ctx.setInExpr()
+
+    def hasFnDesc@(mutable):boolean false
+    def fnDesc:RangerAppFunctionDesc
+    def resolved@(optional) (this.resolveMethodFnDesc(methodNode ctx))
+    if (!null? resolved) {
+      fnDesc = (unwrap resolved)
+      hasFnDesc = true
+    }
+
+    def pms (filter (args.children) {
+      if (item.hasFlag("keyword")) {
+        return false
+      }
+      return true
+    })
+
+    for pms arg:CodeNode i {
+      if (i > 0) {
+        wr.out(", " false)
+      }
+      if (hasFnDesc) {
+        if (i < (size fnDesc.params)) {
+          def pArg (itemAt fnDesc.params i)
+          wr.out((pArg.compiledName + " : ") false)
+        }
+      }
+      this.WalkNode(arg ctx wr)
+    }
+    ctx.unsetInExpr()
+    wr.out(")" false)
+  }
+
 }

@@ -3,6 +3,7 @@ import {
   compileAndRunKotlin,
   isKotlinAvailable,
   compileRangerToKotlin,
+  getGeneratedKotlinCode,
 } from "./helpers/compiler";
 import * as path from "path";
 import * as fs from "fs";
@@ -237,5 +238,11 @@ describe("Ranger to Kotlin Compilation", () => {
   it("should compile static_factory.rgr to valid Kotlin syntax", () => {
     const result = compileRangerToKotlin(`${FIXTURES_DIR}/static_factory.rgr`);
     expect(result.success, `Compile failed: ${result.error}`).toBe(true);
+  });
+
+  it("should compile to_double_int.rgr with int to_double templates", () => {
+    const result = getGeneratedKotlinCode(`${FIXTURES_DIR}/to_double_int.rgr`);
+    expect(result.success, `Compile failed: ${result.error}`).toBe(true);
+    expect(result.code).toMatch(/\.toDouble\(\)/);
   });
 });

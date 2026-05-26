@@ -1,0 +1,16 @@
+; Static class call used inside a comparison (CreateCallExpression path)
+
+class NumUtil {
+  sfn parseStrict:int (s:string) {
+    return 0
+  }
+}
+
+class Test_StaticCallLabels {
+  sfn m@(main):void () {
+    def part:string "12"
+    if (NumUtil.parseStrict(part) >= 0) {
+      print "ok"
+    }
+  }
+}
