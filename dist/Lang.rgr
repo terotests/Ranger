@@ -493,6 +493,7 @@ func r_io_get_env( name string) *GoNullable {
                 swift6 ("CommandLine.arguments[" (e 1) " + 1]")
                 es6 ( "process.argv[ 2 + " (e 1) "]")
                 rust ( "std::env::args().nth((" (e 1) " + 1) as usize).unwrap_or_default()")
+                kotlin ( "args[" (e 1) "]")
                 ranger ("( shell_arg " (e 1) " )")
             }
         }
@@ -508,6 +509,7 @@ func r_io_get_env( name string) *GoNullable {
                 go ( "int64( len( os.Args) - 1 )"  (imp "os"))
                 es6 ( "(process.argv.length - 2)" )
                 rust ( "(std::env::args().len() as i64 - 1)")
+                kotlin ( "(args.size - 1)")
                 ranger ("( shell_arg_cnt )")
             }
         }        
@@ -930,6 +932,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
 }
 "))
                 es6 ( "(require('fs').readFileSync( " (e 1) " + '/' + " (e 2) " , 'utf8'))" )
+                kotlin ( "try { java.io.File(if (" (e 1) ".isEmpty()) " (e 2) " else " (e 1) " + \"/\" + " (e 2) ").readText() } catch (_: Exception) { null }" (imp "java.io.File") )
             }
         }
 
@@ -2716,6 +2719,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
                 ranger ( "(to_int " (e 1) ")") 
                 csharp ( "(int)" (e 1 ) "" )
                 swift3 ( "Int(" (e 1 ) ")" )
+                swift6 ( "Int(" (e 1 ) ")" )
                 kotlin ( (e 1 ) ".toInt()" )
                 scala ( (e 1 ) ".toInt" )
                 rust ( (e 1 ) " as i64 " )
@@ -3165,9 +3169,50 @@ func r_str_2_i64(s string) *GoNullable {
                 )
                 php ( "is_numeric(" (e 1) ") ? intval(" (e 1) ") : NULL ")
                 scala ( "Try(" (e 1) ".toInt).toOption" (imp "scala.util.Try"))
-                kotlin (  (e 1) ".toIntOrNull()")
-                swift3 ("Int(" (e 1) ")")
-                swift6 ("Int(" (e 1) ")")
+                kotlin ( "rangerStr2IntPrefix(" (e 1) ")"
+(create_polyfill "
+fun rangerStr2IntPrefix(s: String): Int? {
+  val m = Regex(\"^-?\\\\d+\").find(s) ?: return null
+  return m.value.toIntOrNull()
+}
+")
+                )
+                swift3 ("rangerStr2IntPrefix(" (e 1) ")"
+(create_polyfill "
+func rangerStr2IntPrefix(_ s: String) -> Int? {
+  var i = s.startIndex
+  if i < s.endIndex && s[i] == \"-\" {
+    i = s.index(after: i)
+  }
+  var end = i
+  while end < s.endIndex && s[end].isNumber {
+    end = s.index(after: end)
+  }
+  if end == i {
+    return nil
+  }
+  return Int(s[i..<end])
+}
+")
+                )
+                swift6 ("rangerStr2IntPrefix(" (e 1) ")"
+(create_polyfill "
+func rangerStr2IntPrefix(_ s: String) -> Int? {
+  var i = s.startIndex
+  if i < s.endIndex && s[i] == \"-\" {
+    i = s.index(after: i)
+  }
+  var end = i
+  while end < s.endIndex && s[end].isNumber {
+    end = s.index(after: end)
+  }
+  if end == i {
+    return nil
+  }
+  return Int(s[i..<end])
+}
+")
+                )
                 csharp( "Int32.Parse(" (e 1) ")" )
                 rust ( (e 1) ".parse::<i64>().ok()" )
                 * ( "isNaN( parseInt(" (e 1) ") ) ? undefined : parseInt(" (e 1) ")")
@@ -3247,7 +3292,7 @@ Double _getDoubleOrNull ( String str ) {
                 scala ( "Try(" (e 1) ".toDouble).toOption" (imp "scala.util.Try"))
                 kotlin (  (e 1) ".toDoubleOrNull()")
                 swift3 ("Double(" (e 1) ")")
-                rust ( (e 1) ".parse::<f64>().ok()" )
+                swift6 ("Double(" (e 1) ")")
                 * ( "isNaN( parseFloat(" (e 1) ") ) ? undefined : parseFloat(" (e 1) ")")
             }
         }
@@ -4863,8 +4908,10 @@ std::string r_cpp_str_to_uppercase(std::string original)
                 go ("float64( " (e 1) " )")
                 es6 ( (e 1) )
                 swift3 ("Double(" (e 1) ")")
+                swift6 ("Double(" (e 1) ")")
                 scala ( (e 1) '.toDouble')
                 java7 ("Double.valueOf(" (e 1) ")")
+                kotlin ( (e 1) ".toDouble()" )
                 cpp ("(double)(" (e 1) ")")
                 php ( (e 1) )
                 rust ("(" (e 1) " as f64)")

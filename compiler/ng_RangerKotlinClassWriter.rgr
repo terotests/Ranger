@@ -240,6 +240,13 @@ class RangerKotlinClassWriter {
       def nn:CodeNode (itemAt node.children 1)
       def p:RangerAppParamDesc nn.paramDesc
       if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
+        if ((array_length node.children) > 2) {
+          def value:CodeNode (node.getThird())
+          if (this.defValueHasSideEffects(value)) {
+            this.writeSideEffectOnlyStmt(value ctx wr)
+            return
+          }
+        }
         wr.out("/** unused:  " false)
       }
       if p.is_class_variable {
@@ -295,6 +302,7 @@ class RangerKotlinClassWriter {
   }
   fn writeFnCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasFnCall {
+      ctx.setInExpr()
       def fc:CodeNode (node.getFirst())
       this.WriteVRef(fc ctx wr)
       wr.out("(" false)
@@ -317,6 +325,7 @@ class RangerKotlinClassWriter {
         this.WalkNode(n ctx wr)
       }
       wr.out(")" false)
+      ctx.unsetInExpr()
       if ((ctx.expressionLevel()) == 0) {
         wr.out(";" true)
       }
@@ -419,6 +428,9 @@ class RangerKotlinClassWriter {
             }
           }
           wr.out(")" false)
+        } {
+          ; Kotlin requires explicit super constructor invocation: class Child : Parent()
+          wr.out("()" false)
         }
       }
     }

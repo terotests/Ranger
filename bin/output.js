@@ -8871,7 +8871,10 @@ class RangerFlowParser  {
     await this.WalkNode(obj_2, ctx, wr);
     if ( ctx.isDefinedClass(obj_2.eval_type_name) ) {
       const cl = ctx.findClass(obj_2.eval_type_name);
-      const m = cl.findMethod(method_2.vref);
+      let m = cl.findMethod(method_2.vref);
+      if ( typeof(m) === "undefined" ) {
+        m = cl.findStaticMethod(method_2.vref);
+      }
       if ( (typeof(m) !== "undefined" && m != null )  ) {
         node.has_call = true;
         const currM = ctx.getCurrentMethod();
@@ -9025,6 +9028,9 @@ class RangerFlowParser  {
   };
   async cmdLocalCall (node, ctx, wr) {
     const fnNode = node.getFirst();
+    if ( await this.tryRepairDotMethodInfix(node, fnNode, ctx, wr) ) {
+      return true;
+    }
     const udesc = ctx.getCurrentClass();
     const desc = udesc;
     let expects_error = false;
@@ -10232,6 +10238,84 @@ class RangerFlowParser  {
     }
     return false;
   };
+  resolveStaticMethodRef (fc) {
+    let result = [];
+    if ( (fc.ns.length) > 1 ) {
+      const nn = fc.copy();
+      nn.ns.pop();
+      result.push(nn.ns.join("."));
+      result.push(fc.ns[((fc.ns.length) - 1)]);
+      return result;
+    }
+    if ( (fc.ns.length) == 1 ) {
+      result.push(fc.ns[0]);
+      result.push(fc.vref);
+      return result;
+    }
+    const dotPos = fc.vref.indexOf(".");
+    if ( dotPos > 0 ) {
+      result.push(fc.vref.substring(0, dotPos ));
+      const afterDot = dotPos + 1;
+      result.push(fc.vref.substring(afterDot, (fc.vref.length) ));
+      return result;
+    }
+    return result;
+  };
+  async buildDotMethodInfixRepair (node, fc, op_vref, methodArg, rhs, ctx, wr) {
+    const refParts = this.resolveStaticMethodRef(fc);
+    if ( (refParts.length) != 2 ) {
+      return false;
+    }
+    const objName = refParts[0];
+    const possible_cmd = refParts[1];
+    const vFnDef = this.findFunctionDesc(fc, ctx, wr);
+    if ( typeof(vFnDef) === "undefined" ) {
+      return false;
+    }
+    const callNode = node.newExpressionNode();
+    callNode.children.push(node.newVRefNode("call"));
+    callNode.children.push(node.newVRefNode(objName));
+    callNode.children.push(node.newVRefNode(possible_cmd));
+    callNode.children.push(methodArg.copy());
+    const repaired = node.newExpressionNode();
+    repaired.children.push(node.newVRefNode(op_vref));
+    repaired.children.push(callNode);
+    repaired.children.push(rhs.copy());
+    node.getChildrenFrom(repaired);
+    node.flow_done = false;
+    await this.stdParamMatch(node, ctx, wr, true);
+    return true;
+  };
+  async tryRepairDotMethodInfix (node, fc, ctx, wr) {
+    if ( (node.children.length) != 2 ) {
+      return false;
+    }
+    if ( (this.resolveStaticMethodRef(fc).length) != 2 ) {
+      return false;
+    }
+    const second = node.getSecond();
+    if ( (second.children.length) >= 3 ) {
+      const opNode = second.getFirst();
+      if ( (opNode.vref.length) > 0 ) {
+        const op_check = await ctx.getOperators(opNode.vref);
+        if ( (op_check.length) > 0 ) {
+          return await this.buildDotMethodInfixRepair(node, fc, opNode.vref, second.getSecond(), second.getThird(), ctx, wr);
+        }
+      }
+    }
+    if ( second.infix_operator && ((typeof(second.infix_node) !== "undefined" && second.infix_node != null ) ) ) {
+      const ifNode = second.infix_node;
+      if ( (ifNode.vref.length) > 0 ) {
+        const op_check2 = await ctx.getOperators(ifNode.vref);
+        if ( (op_check2.length) > 0 ) {
+          if ( (ifNode.children.length) >= 2 ) {
+            return await this.buildDotMethodInfixRepair(node, fc, ifNode.vref, ifNode.getFirst(), ifNode.getSecond(), ctx, wr);
+          }
+        }
+      }
+    }
+    return false;
+  };
   async matchNode (node, ctx, wr) {
     if ( 0 == (node.children.length) ) {
       return false;
@@ -10249,26 +10333,33 @@ class RangerFlowParser  {
         return true;
       }
     };
-    if ( ((fc.ns.length) > 1) && ((node.children.length) > 1) ) {
-      const possible_cmd = fc.ns[((fc.ns.length) - 1)];
-      const op_list_2 = await ctx.getOperators(possible_cmd);
-      if ( (op_list_2.length) > 0 ) {
-        const args = node.getSecond();
-        const nn = fc.copy();
-        nn.ns.pop();
-        const objName = nn.ns.join(".");
-        const newNode = node.newExpressionNode();
-        newNode.add(node.newVRefNode("call"));
-        newNode.add(node.newVRefNode(objName));
-        newNode.add(node.newVRefNode(possible_cmd));
-        newNode.add(args.copy());
-        node.getChildrenFrom(newNode);
-        if ( ctx.expressionLevel() == 0 ) {
-          ctx.lastBlockOp = node;
+    if ( (node.children.length) > 1 ) {
+      const refParts = this.resolveStaticMethodRef(fc);
+      const isStaticRef = (refParts.length) == 2;
+      if ( isStaticRef && (false == node.infix_operator) ) {
+        if ( await this.tryRepairDotMethodInfix(node, fc, ctx, wr) ) {
+          return true;
         }
-        node.flow_done = false;
-        await this.WalkNode(node, ctx, wr);
-        return true;
+      }
+      if ( isStaticRef ) {
+        const possible_cmd = refParts[1];
+        const op_list_2 = await ctx.getOperators(possible_cmd);
+        if ( (op_list_2.length) > 0 ) {
+          const args = node.getSecond();
+          const objName = refParts[0];
+          const newNode = node.newExpressionNode();
+          newNode.add(node.newVRefNode("call"));
+          newNode.add(node.newVRefNode(objName));
+          newNode.add(node.newVRefNode(possible_cmd));
+          newNode.add(args.copy());
+          node.getChildrenFrom(newNode);
+          if ( ctx.expressionLevel() == 0 ) {
+            ctx.lastBlockOp = node;
+          }
+          node.flow_done = false;
+          await this.WalkNode(node, ctx, wr);
+          return true;
+        }
       }
     }
     return false;
@@ -12902,6 +12993,27 @@ class RangerGenericClassWriter  {
   adjustType (tn) {
     return tn;
   };
+  defValueHasSideEffects (value) {
+    if ( value.has_call ) {
+      return true;
+    }
+    if ( value.hasFnCall ) {
+      return true;
+    }
+    if ( value.is_direct_method_call ) {
+      return true;
+    }
+    return false;
+  };
+  async writeSideEffectOnlyStmt (value, ctx, wr) {
+    ctx.setInExpr();
+    await this.WalkNode(value, ctx, wr);
+    ctx.unsetInExpr();
+    if ( ctx.expressionLevel() == 0 ) {
+      wr.out(";", true);
+    }
+    wr.newline();
+  };
   async WriteVRef (node, ctx, wr) {
     if ( node.eval_type == 13 ) {
       if ( (node.ns.length) > 1 ) {
@@ -15357,6 +15469,13 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
         }
       }
       if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
+        if ( (node.children.length) > 2 ) {
+          const value = node.getThird();
+          if ( this.defValueHasSideEffects(value) ) {
+            await this.writeSideEffectOnlyStmt(value, ctx, wr);
+            return;
+          }
+        }
         wr.out("/** unused:  ", false);
       }
       if ( p.is_static ) {
@@ -15371,8 +15490,8 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
       if ( (node.children.length) > 2 ) {
         wr.out(" = ", false);
         ctx.setInExpr();
-        const value = node.getThird();
-        await this.WalkNode(value, ctx, wr);
+        const value_1 = node.getThird();
+        await this.WalkNode(value_1, ctx, wr);
         ctx.unsetInExpr();
       } else {
         if ( nn.value_type == 6 ) {
@@ -15440,29 +15559,78 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
       await this.writeTypeDef(arg.nameNode, ctx, wr);
     };
   };
+  resolveCallReceiverClassName (obj, ctx) {
+    if ( (obj.vref.length) > 0 ) {
+      if ( ctx.isDefinedClass(obj.vref) ) {
+        return obj.vref;
+      }
+    }
+    if ( (obj.eval_type_name.length) > 0 ) {
+      if ( ctx.isDefinedClass(obj.eval_type_name) ) {
+        return obj.eval_type_name;
+      }
+    }
+    if ( (obj.ns.length) >= 1 ) {
+      const head = obj.ns[0];
+      if ( ctx.isDefinedClass(head) ) {
+        return head;
+      }
+    }
+    if ( (obj.children.length) == 1 ) {
+      const inner = obj.children[0];
+      const innerName = this.resolveCallReceiverClassName(inner, ctx);
+      if ( (innerName.length) > 0 ) {
+        return innerName;
+      }
+    }
+    return "";
+  };
+  isSimpleClassCallReceiver (obj, ctx) {
+    const className = this.resolveCallReceiverClassName(obj, ctx);
+    if ( (className.length) == 0 ) {
+      return false;
+    }
+    if ( obj.vref == className ) {
+      return true;
+    }
+    if ( (obj.children.length) == 1 ) {
+      const inner = obj.children[0];
+      if ( inner.vref == className ) {
+        return true;
+      }
+    }
+    return false;
+  };
   async CreateCallExpression (node, ctx, wr) {
     if ( node.has_call ) {
       const obj = node.getSecond();
       const method = node.getThird();
       const args = node.children[3];
-      wr.out("(", false);
+      const simpleReceiver = this.isSimpleClassCallReceiver(obj, ctx);
+      if ( simpleReceiver == false ) {
+        wr.out("(", false);
+      }
       ctx.setInExpr();
       await this.WalkNode(obj, ctx, wr);
       ctx.unsetInExpr();
-      wr.out(").", false);
+      if ( simpleReceiver == false ) {
+        wr.out(").", false);
+      } else {
+        wr.out(".", false);
+      }
       wr.out(method.vref, false);
       wr.out("(", false);
       ctx.setInExpr();
+      const fnDesc = this.resolveMethodFnDesc(node, ctx);
+      const hasFnDesc = (typeof(fnDesc) !== "undefined" && fnDesc != null ) ;
       for ( let i = 0; i < args.children.length; i++) {
         var arg = args.children[i];
         if ( i > 0 ) {
           wr.out(", ", false);
         }
-        if ( ctx.isDefinedClass(obj.eval_type_name) ) {
-          const clDef = ctx.findClass(obj.eval_type_name);
-          const clMethod = clDef.findMethod(method.vref);
-          if ( (typeof(clMethod) !== "undefined" && clMethod != null )  ) {
-            const mm = clMethod;
+        if ( hasFnDesc ) {
+          const mm = fnDesc;
+          if ( i < (mm.params.length) ) {
             const pDesc = mm.params[i];
             wr.out(pDesc.compiledName + " : ", false);
             if ( ((pDesc.nameNode)).hasFlag("mutates") ) {
@@ -15471,8 +15639,6 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
             await this.WalkNode(arg, ctx, wr);
             continue;
           }
-        } else {
-          ctx.addError(arg, "Could not find evaluated class for the call");
         }
         await this.WalkNode(arg, ctx, wr);
       };
@@ -15932,6 +16098,85 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
         theEnd.out("}", true);
       }
     };
+  };
+  resolveMethodFnDesc (methodNode, ctx) {
+    let res;
+    if ( methodNode.hasParamDesc ) {
+      const raw = (methodNode.paramDesc);
+      if ( (raw.params.length) > 0 ) {
+        res = raw;
+        return res;
+      }
+    }
+    if ( (methodNode.ns.length) >= 2 ) {
+      const className = methodNode.ns[0];
+      if ( ctx.isDefinedClass(className) ) {
+        const clDef = ctx.findClass(className);
+        const methodName = methodNode.ns[1];
+        let found = clDef.findStaticMethod(methodName);
+        if ( typeof(found) === "undefined" ) {
+          found = clDef.findMethod(methodName);
+        }
+        if ( (typeof(found) !== "undefined" && found != null )  ) {
+          res = found;
+          return res;
+        }
+      }
+    }
+    if ( methodNode.has_call ) {
+      const obj = methodNode.getSecond();
+      const method = methodNode.getThird();
+      const className_1 = this.resolveCallReceiverClassName(obj, ctx);
+      if ( (className_1.length) > 0 ) {
+        const clDef_1 = ctx.findClass(className_1);
+        let found_1 = clDef_1.findStaticMethod(method.vref);
+        if ( typeof(found_1) === "undefined" ) {
+          found_1 = clDef_1.findMethod(method.vref);
+        }
+        if ( (typeof(found_1) !== "undefined" && found_1 != null )  ) {
+          res = found_1;
+          return res;
+        }
+      }
+    }
+    return res;
+  };
+  async CreateMethodCall (node, ctx, wr) {
+    const methodNode = node.getFirst();
+    const args = node.getSecond();
+    ctx.setInExpr();
+    await this.WalkNode(methodNode, ctx, wr);
+    ctx.unsetInExpr();
+    wr.out("(", false);
+    ctx.setInExpr();
+    let hasFnDesc = false;
+    let fnDesc;
+    const resolved = this.resolveMethodFnDesc(methodNode, ctx);
+    if ( (typeof(resolved) !== "undefined" && resolved != null )  ) {
+      fnDesc = resolved;
+      hasFnDesc = true;
+    }
+    const pms = operatorsOf.filter_36(args.children, ((item, index) => { 
+      if ( item.hasFlag("keyword") ) {
+        return false;
+      }
+      return true;
+    }));
+    for ( let i = 0; i < pms.length; i++) {
+      var arg = pms[i];
+      if ( i > 0 ) {
+        wr.out(", ", false);
+      }
+      if ( hasFnDesc ) {
+        if ( i < (fnDesc.params.length) ) {
+          const pArg = fnDesc.params[i];
+          wr.out(pArg.compiledName + " : ", false);
+        }
+      }
+      await this.WalkNode(arg, ctx, wr);
+    };
+    ctx.unsetInExpr();
+    wr.out(")", false);
   };
 }
 class RangerCppClassWriter  extends RangerGenericClassWriter {
@@ -20141,6 +20386,13 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
       const nn = node.children[1];
       const p = nn.paramDesc;
       if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
+        if ( (node.children.length) > 2 ) {
+          const value = node.getThird();
+          if ( this.defValueHasSideEffects(value) ) {
+            await this.writeSideEffectOnlyStmt(value, ctx, wr);
+            return;
+          }
+        }
         wr.out("/** unused:  ", false);
       }
       if ( p.is_class_variable ) {
@@ -20158,8 +20410,8 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
       if ( (node.children.length) > 2 ) {
         wr.out(" = ", false);
         ctx.setInExpr();
-        const value = node.getThird();
-        await this.WalkNode(value, ctx, wr);
+        const value_1 = node.getThird();
+        await this.WalkNode(value_1, ctx, wr);
         ctx.unsetInExpr();
       } else {
         if ( nn.hasFlag("optional") ) {
@@ -20197,6 +20449,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
   };
   async writeFnCall (node, ctx, wr) {
     if ( node.hasFnCall ) {
+      ctx.setInExpr();
       const fc = node.getFirst();
       await this.WriteVRef(fc, ctx, wr);
       wr.out("(", false);
@@ -20220,6 +20473,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
         await this.WalkNode(n, ctx, wr);
       };
       wr.out(")", false);
+      ctx.unsetInExpr();
       if ( ctx.expressionLevel() == 0 ) {
         wr.out(";", true);
       }
@@ -20328,6 +20582,8 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
             };
           }
           wr.out(")", false);
+        } else {
+          wr.out("()", false);
         }
       };
     }

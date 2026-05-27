@@ -226,6 +226,29 @@ class RangerGenericClassWriter {
     return tn
   }
 
+  fn defValueHasSideEffects:boolean (value:CodeNode) {
+    if (value.has_call) {
+      return true
+    }
+    if (value.hasFnCall) {
+      return true
+    }
+    if (value.is_direct_method_call) {
+      return true
+    }
+    return false
+  }
+
+  fn writeSideEffectOnlyStmt:void (value:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    ctx.setInExpr()
+    this.WalkNode(value ctx wr)
+    ctx.unsetInExpr()
+    if ((ctx.expressionLevel()) == 0) {
+      wr.out(";" true)
+    }
+    wr.newline()
+  }
+
   fn WriteVRef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if (node.eval_type == RangerNodeType.Enum) {
       if( (array_length node.ns) > 1) {

@@ -70,6 +70,17 @@ describe("Swift6 Code Generation", () => {
       // Swift uses "class func" for type methods (equivalent to static)
       expect(result.code).toContain("class func");
     });
+
+    it("should emit argument labels for static calls in expressions", () => {
+      const result = getGeneratedSwiftCode(
+        `${FIXTURES_DIR}/swift_static_call_labels.rgr`
+      );
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      expect(result.code).toMatch(/NumUtil\.parseStrict\(s\s*:/);
+      expect(result.code).not.toMatch(
+        /\(NumUtil\)\.parseStrict\([^s]/
+      );
+    });
   });
 
   describe("Control Flow", () => {
