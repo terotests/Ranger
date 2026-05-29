@@ -34,3 +34,19 @@ jobs:
 
       - name: Run ES6 tests
         run: npm run test:es6
+
+  # Stable required check name for branch protection.
+  # Prefer this over matrix-specific job names like test (20.x).
+  test-gate:
+    name: test-gate
+    runs-on: ubuntu-latest
+    needs: [test]
+    if: always()
+    steps:
+      - name: Check matrix result
+        run: |
+          if [ "${{ needs.test.result }}" != "success" ]; then
+            echo "ES6 test matrix failed or was cancelled"
+            exit 1
+          fi
+          echo "All ES6 tests passed!"

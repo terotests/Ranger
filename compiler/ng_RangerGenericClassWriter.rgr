@@ -15,6 +15,8 @@
 ;      }
 ;    });
 
+Import "ng_RangerProcessCodegen.rgr"
+
 class RangerGenericClassWriter {
 
   def compiler:LiveCompiler
@@ -524,7 +526,28 @@ class RangerGenericClassWriter {
       }
     }
   }
+  fn walkNewArgForProcess:void (n:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    this.WalkNode(n ctx wr)
+  }
+
+  fn tryWriteProcessNewCall:boolean (procNewNode:CodeNode procNewCtx:RangerAppWriterContext outWr:CodeWriter) {
+    if (procNewNode.hasNewOper == false) {
+      return false
+    }
+    def procCl:RangerAppClassDesc (procNewNode.clDesc)
+    if (procCl.is_process == false) {
+      return false
+    }
+    def pc:RangerProcessCodegen (new RangerProcessCodegen())
+    def lang:string (procNewCtx.getTargetLang())
+    pc.writeWrappedNewCall(procNewNode procNewCtx outWr lang this)
+    return true
+  }
+
   fn writeNewCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if (this.tryWriteProcessNewCall(node ctx wr)) {
+      return
+    }
     if node.hasNewOper {
       def cl:RangerAppClassDesc node.clDesc
       def fc:CodeNode (node.getSecond())

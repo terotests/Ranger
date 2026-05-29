@@ -214,6 +214,22 @@ describe("Ranger Compiler - Basic Features", () => {
     });
   });
 
+  describe("Infix After Dot Method Call", () => {
+    it("should compile Class.method(arg) >= N infix expressions", () => {
+      const { compile, run } = compileAndRun(
+        `${FIXTURES_DIR}/infix_method_call.rgr`
+      );
+
+      expect(
+        compile.success,
+        `Compile failed: ${compile.error || compile.output}`
+      ).toBe(true);
+      expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+      expect(run?.output).toContain("ok dot-call infix");
+      expect(run?.output).toContain("ok lisp-call infix");
+    });
+  });
+
   describe("Optional Values", () => {
     it("should compile and run optional value handling", () => {
       const { compile, run } = compileAndRun(
