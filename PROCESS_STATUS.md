@@ -96,7 +96,7 @@ Details and fixture commands: [PROCESS_MVP.md](PROCESS_MVP.md).
 | **Other backends** | `@process` / `proc_*` not verified on Rust, Go, Python, … |
 | **`parentOf` object** | Only `parentIdOf:int` — analyzer deferred. |
 | **`spawn local` / `global`** | Not implemented. |
-| **Packaging** | `RangerProcess.rgr` may be absent from `dist/lib`. |
+| **Packaging** | `lib/RangerProcess.rgr` is copied by `npm run build:dist` → `dist/lib/` (use `rm -rf dist/lib` before copy; nested `dist/lib/lib/` was a stale `cp` artifact). |
 | **Bootstrap** | After FlowParser / writer edits run `npm run compile` twice. |
 | **app-ranger integration** | Pilot not merged; kernel still on `Process.rgr`. |
 
@@ -168,7 +168,7 @@ cd tests/.output-swift && swiftc process_nesting.swift -parse-as-library -o proc
 5. **`parentOf` typed optional** — when analyzer allows.
 6. **Gallery: `receiveMessage` demo** — console ping to `app.counterBoard` from a second named process in `.rgr` or devtools snippet.
 7. **Optional stream fixture** — host pumps chunks into `receiveMessage` / `onChunk` without compiler `async`.
-8. **Ship `RangerProcess.rgr` in `dist/lib`** + README for `proc_*` / `@name` / TS host patterns.
+8. **README for `proc_*` / `@name` / TS host** — document `Import "RangerProcess.rgr"` and `RANGER_LIB` for npm installs; run `npm run build:dist` before publish.
 9. **Auto `markStateDirty`** — reduce boilerplate in `.rgr` and generated hosts.
 
 ---
