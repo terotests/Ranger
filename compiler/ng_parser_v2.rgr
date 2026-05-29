@@ -339,6 +339,75 @@ class RangerLispParser {
     }
     return 0
   }
+
+  fn isComparisonOpPred:boolean (pred:int) {
+    if (pred == 10) {
+      return true
+    }
+    if (pred == 11) {
+      return true
+    }
+    return false
+  }
+
+  fn isDotVRef:boolean (n:CodeNode) {
+    if (n.parsed_type != RangerNodeType.VRef) {
+      return false
+    }
+    if ((indexOf n.vref ".") >= 0) {
+      return true
+    }
+    if ((array_length n.ns) >= 2) {
+      return true
+    }
+    return false
+  }
+
+  fn isDotCallPairOnNode:boolean (node:CodeNode) {
+    if ((array_length node.children) != 2) {
+      return false
+    }
+    def ch0:CodeNode (itemAt node.children 0)
+    return (this.isDotVRef(ch0))
+  }
+
+  fn foldDotCallPairToGroup:void (node:CodeNode) {
+    if ((this.isDotCallPairOnNode(node)) == false) {
+      return
+    }
+    def ch0:CodeNode (array_extract node.children 0)
+    def ch1:CodeNode (array_extract node.children 0)
+    def callGroup@(temp lives):CodeNode (new CodeNode(( unwrap code) ch0.sp ch1.ep))
+    callGroup.expression = true
+    ch0.parent = callGroup
+    ch1.parent = callGroup
+    push callGroup.children ch0
+    push callGroup.children ch1
+    push node.children callGroup
+  }
+
+  fn tryCloseCallArgParenBeforeInfix:boolean () {
+    def pr@(optional weak):CodeNode curr_node.parent
+    if (null? pr) {
+      return false
+    }
+    if ((array_length curr_node.children) < 1) {
+      return false
+    }
+    def prCnt:int (array_length pr.children)
+    if (prCnt < 2) {
+      return false
+    }
+    def prevCh:CodeNode (itemAt pr.children (prCnt - 2))
+    if ((this.isDotVRef(prevCh)) == false) {
+      return false
+    }
+    paren_cnt = paren_cnt - 1
+    removeLast parents
+    curr_node.ep = i
+    curr_node = pr
+    return true
+  }
   
   fn insert_node:void ( p_node@(strong lives):CodeNode) {
     def push_target@(optional weak lives):CodeNode curr_node
@@ -1122,6 +1191,15 @@ class RangerLispParser {
             if (new_vref_node.vref == ",") {
               curr_node.infix_operator = false
               continue 
+            }
+            if (this.isComparisonOpPred(op_pred)) {
+              (this.tryCloseCallArgParenBeforeInfix())
+            }
+            if ((this.isComparisonOpPred(op_pred)) && (false == curr_node.infix_operator)) {
+              def cn@(lives):CodeNode (unwrap curr_node)
+              if (this.isDotCallPairOnNode(cn)) {
+                (this.foldDotCallPairToGroup(cn))
+              }
             }
             def pTarget@(optional weak):CodeNode curr_node
             if (curr_node.infix_operator) {

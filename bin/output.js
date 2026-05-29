@@ -5143,6 +5143,70 @@ class RangerLispParser  {
     };
     return 0;
   };
+  isComparisonOpPred (pred) {
+    if ( pred == 10 ) {
+      return true;
+    }
+    if ( pred == 11 ) {
+      return true;
+    }
+    return false;
+  };
+  isDotVRef (n) {
+    if ( n.parsed_type != 11 ) {
+      return false;
+    }
+    if ( (n.vref.indexOf(".")) >= 0 ) {
+      return true;
+    }
+    if ( (n.ns.length) >= 2 ) {
+      return true;
+    }
+    return false;
+  };
+  isDotCallPairOnNode (node) {
+    if ( (node.children.length) != 2 ) {
+      return false;
+    }
+    const ch0 = node.children[0];
+    return this.isDotVRef(ch0);
+  };
+  foldDotCallPairToGroup (node) {
+    if ( this.isDotCallPairOnNode(node) == false ) {
+      return;
+    }
+    const ch0 = node.children.splice(0, 1).pop();
+    const ch1 = node.children.splice(0, 1).pop();
+    const callGroup = new CodeNode(this.code, ch0.sp, ch1.ep);
+    callGroup.expression = true;
+    ch0.parent = callGroup;
+    ch1.parent = callGroup;
+    callGroup.children.push(ch0);
+    callGroup.children.push(ch1);
+    node.children.push(callGroup);
+  };
+  tryCloseCallArgParenBeforeInfix () {
+    const pr = this.curr_node.parent;
+    if ( typeof(pr) === "undefined" ) {
+      return false;
+    }
+    if ( (this.curr_node.children.length) < 1 ) {
+      return false;
+    }
+    const prCnt = pr.children.length;
+    if ( prCnt < 2 ) {
+      return false;
+    }
+    const prevCh = pr.children[(prCnt - 2)];
+    if ( this.isDotVRef(prevCh) == false ) {
+      return false;
+    }
+    this.paren_cnt = this.paren_cnt - 1;
+    this.parents.pop();
+    this.curr_node.ep = this.i;
+    this.curr_node = pr;
+    return true;
+  };
   insert_node (p_node) {
     let push_target = this.curr_node;
     if ( this.curr_node.infix_operator ) {
@@ -5866,6 +5930,15 @@ class RangerLispParser  {
             if ( new_vref_node.vref == "," ) {
               this.curr_node.infix_operator = false;
               continue;
+            }
+            if ( this.isComparisonOpPred(op_pred) ) {
+              this.tryCloseCallArgParenBeforeInfix();
+            }
+            if ( this.isComparisonOpPred(op_pred) && (false == this.curr_node.infix_operator) ) {
+              const cn = this.curr_node;
+              if ( this.isDotCallPairOnNode(cn) ) {
+                this.foldDotCallPairToGroup(cn);
+              }
             }
             let pTarget = this.curr_node;
             if ( this.curr_node.infix_operator ) {
