@@ -1,0 +1,383 @@
+; CLI demo: UIPage with a ModalDialog child; ModalDialog owns a countdown timer.
+; When the timer hits zero the modal stops (and its timer), then the page opens
+; the next modal. Run auto (vitest) or interactive:
+;   node bin/output.js -es6 tests/fixtures/process_modal_dialog_timer.rgr interactive
+
+Import "RangerProcess.rgr"
+
+class LifecycleLog @singleton(true) {
+  def lines:[string]
+
+  fn add:void (msg:string) {
+    push lines msg
+  }
+
+  fn dump:void () {
+    print "  lifecycle:"
+    for lines ln:string i {
+      print ("    | " + ln)
+    }
+  }
+
+  fn clear:void () {
+    def empty:[string]
+    lines = empty
+  }
+
+  sfn log:void (msg:string) {
+    def inst (LifecycleLog.__singleton())
+    inst.add(msg)
+  }
+
+  sfn dumpAll:void () {
+    def inst (LifecycleLog.__singleton())
+    inst.dump()
+  }
+}
+
+class ScreenProcess @process(true) extends RangerProcessBase {
+  def width:int 0
+  def height:int 0
+
+  fn openHomePage:UIPage () {
+    def page (new UIPage)
+    page.screen = this
+    page.title = "Home"
+    return page
+  }
+
+  fn stop:void () {
+    LifecycleLog.log("STOP ScreenProcess")
+  }
+}
+
+class UIPage @process(true) extends RangerProcessBase {
+  def screen@(optional):ScreenProcess
+  def title:string ""
+  def activeModal@(optional):ModalDialog
+  def hasModal:boolean false
+  def cycle:int 0
+  def maxCycles:int 3
+  def allCyclesDone:boolean false
+
+  fn start:void () {
+    LifecycleLog.log(("START UIPage \"" + this.title + "\""))
+    this.openModal()
+  }
+
+  fn openModal:void () {
+    if (hasModal) {
+      def old:ModalDialog (unwrap activeModal)
+      proc_stop old
+      hasModal = false
+    }
+    def m:ModalDialog (new ModalDialog)
+    m.page = this
+    m.cycleNumber = cycle
+    activeModal = m
+    hasModal = true
+    proc_start m
+    LifecycleLog.log(("page: opened modal cycle=" + (to_string cycle)))
+  }
+
+  fn onModalClosed:void (m:ModalDialog) {
+    if (hasModal) {
+      proc_stop m
+      hasModal = false
+    }
+    cycle = cycle + 1
+    LifecycleLog.log(("page: modal finished, next cycle=" + (to_string cycle)))
+    if (cycle < maxCycles) {
+      this.openModal()
+    } {
+      allCyclesDone = true
+      LifecycleLog.log("page: all modal cycles complete")
+    }
+  }
+
+  fn stop:void () {
+    if (hasModal) {
+      def old:ModalDialog (unwrap activeModal)
+      proc_stop old
+      hasModal = false
+    }
+    LifecycleLog.log(("STOP UIPage \"" + this.title + "\""))
+  }
+}
+
+class ModalDialog @process(true) extends RangerProcessBase {
+  def page@(optional):UIPage
+  def cycleNumber:int 0
+  def timer@(optional):DialogTimer
+  def hasTimer:boolean false
+
+  fn start:void () {
+    LifecycleLog.log(("START ModalDialog cycle=" + (to_string cycleNumber)))
+    def t:DialogTimer (new DialogTimer)
+    t.modal = this
+    t.remaining = 4
+    timer = t
+    hasTimer = true
+    proc_start t
+  }
+
+  fn pulse:void () {
+    if (hasTimer == false) {
+      return
+    }
+    def t:DialogTimer (unwrap timer)
+    if (t.remaining <= 0) {
+      return
+    }
+    t.remaining = t.remaining - 1
+    LifecycleLog.log(("  timer tick remaining=" + (to_string t.remaining)))
+    if (t.remaining <= 0) {
+      this.closeAndNotifyPage()
+    }
+  }
+
+  fn closeAndNotifyPage:void () {
+    if (hasTimer) {
+      def t:DialogTimer (unwrap timer)
+      proc_stop t
+      hasTimer = false
+    }
+    LifecycleLog.log("  modal: timer done, closing")
+    def pg:UIPage (unwrap page)
+    pg.onModalClosed(this)
+  }
+
+  fn stop:void () {
+    if (hasTimer) {
+      def t:DialogTimer (unwrap timer)
+      proc_stop t
+      hasTimer = false
+    }
+    LifecycleLog.log(("STOP ModalDialog cycle=" + (to_string cycleNumber)))
+  }
+}
+
+class DialogTimer @process(true) extends RangerProcessBase {
+  def modal@(optional):ModalDialog
+  def remaining:int 0
+
+  fn start:void () {
+    LifecycleLog.log(("START DialogTimer remaining=" + (to_string remaining)))
+  }
+
+  fn stop:void () {
+    LifecycleLog.log(("STOP DialogTimer remaining=" + (to_string remaining)))
+  }
+}
+
+class ModalDialogTimerDemo {
+  def screen@(optional):ScreenProcess
+  def hasScreen:boolean false
+  def page@(optional):UIPage
+  def hasPage:boolean false
+  def running:boolean true
+  def interactive:boolean false
+  def frame:int 0
+  def pulseEvery:int 4
+
+  fn bootstrap:void () {
+    screen = (new ScreenProcess)
+    hasScreen = true
+    def sc:ScreenProcess (unwrap screen)
+    sc.width = 480
+    sc.height = 800
+    def pg:UIPage (sc.openHomePage())
+    page = pg
+    hasPage = true
+    pg.maxCycles = 3
+    proc_start pg
+    LifecycleLog.log("demo: bootstrap done")
+  }
+
+  fn countLive:int (className:string) {
+    if (className == "ModalDialog") {
+      def list (ModalDialog.allInstances())
+      def n 0
+      for list m:ModalDialog i {
+        if (m.__rangerId != 0) {
+          n = n + 1
+        }
+      }
+      return n
+    }
+    if (className == "DialogTimer") {
+      def list (DialogTimer.allInstances())
+      def n 0
+      for list t:DialogTimer i {
+        if (t.__rangerId != 0) {
+          n = n + 1
+        }
+      }
+      return n
+    }
+    return 0
+  }
+
+  fn printCounts:void (label:string) {
+    print ("  live " + label + "  modal=" + (to_string (this.countLive("ModalDialog"))) + " timer=" + (to_string (this.countLive("DialogTimer"))))
+  }
+
+  fn visualStack:void () {
+    print ""
+    print "  Process tree"
+    def sc:ScreenProcess (unwrap screen)
+    print ("    Screen #" + (to_string sc.__rangerId))
+    def pg:UIPage (unwrap page)
+    print ("      Page \"" + pg.title + "\" #" + (to_string pg.__rangerId) + "  cycle=" + (to_string pg.cycle) + "/" + (to_string pg.maxCycles))
+    if (pg.hasModal) {
+      def m:ModalDialog (unwrap pg.activeModal)
+      print ("        Modal #" + (to_string m.__rangerId) + "  dialogCycle=" + (to_string m.cycleNumber))
+      if (m.hasTimer) {
+        def t:DialogTimer (unwrap m.timer)
+        def bar:string ""
+        def i 0
+        while (i < 4) {
+          if (i < t.remaining) {
+            bar = bar + "#"
+          } {
+            bar = bar + "."
+          }
+          i = i + 1
+        }
+        print ("          Timer #" + (to_string t.__rangerId) + "  [" + bar + "] " + (to_string t.remaining))
+      } {
+        print "          Timer (none)"
+      }
+    } {
+      print "        Modal (closed)"
+    }
+  }
+
+  fn drawFrame:void () {
+    if (interactive) {
+      clear_screen
+      move_cursor 1 1
+    }
+    print "  +-- ModalDialog + Timer (q=quit) ---------------------+"
+    def pg:UIPage (unwrap page)
+    if (pg.allCyclesDone) {
+      print "  |  FINISHED — all modal cycles done                 |"
+    } {
+      print "  |  RUNNING — timer ticks on modal child             |"
+    }
+    print "  +------------------------------------------------------+"
+    this.visualStack()
+    this.printCounts("now")
+    LifecycleLog.dumpAll()
+  }
+
+  fn tickModal:void () {
+    if (hasPage == false) {
+      return
+    }
+    frame = frame + 1
+    def phase (frame % pulseEvery)
+    if (phase != 0) {
+      return
+    }
+    def pg:UIPage (unwrap page)
+    if (pg.allCyclesDone) {
+      return
+    }
+    if (pg.hasModal) {
+      def m:ModalDialog (unwrap pg.activeModal)
+      m.pulse()
+    }
+  }
+
+  fn checkDone:void () {
+    if (hasPage == false) {
+      return
+    }
+    def pg:UIPage (unwrap page)
+    if (pg.allCyclesDone) {
+      running = false
+    }
+  }
+
+  fn drainKeys:void () {
+    while (true) {
+      def key (poll_keypress)
+      if (key == "") {
+        return
+      }
+      if (key == "q") {
+        running = false
+        LifecycleLog.log("demo: quit key")
+        return
+      }
+    }
+  }
+
+  fn shutdown:void () {
+    if (hasPage) {
+      def pg:UIPage (unwrap page)
+      proc_stop pg
+      hasPage = false
+    }
+    if (hasScreen) {
+      def sc:ScreenProcess (unwrap screen)
+      proc_stop sc
+      hasScreen = false
+    }
+  }
+
+  fn runAuto:void () {
+    while (running) {
+      this.tickModal()
+      this.drawFrame()
+      this.checkDone()
+      sleep_ms 120
+    }
+  }
+
+  fn runInteractive:void () {
+    hide_cursor
+    while (running) {
+      this.tickModal()
+      this.drawFrame()
+      this.checkDone()
+      this.drainKeys()
+      sleep_ms 80
+    }
+    show_cursor
+    clear_screen
+  }
+
+  fn run:void () {
+    this.bootstrap()
+    if (interactive) {
+      this.runInteractive()
+    } {
+      this.runAuto()
+    }
+    this.shutdown()
+    LifecycleLog.dumpAll()
+    print ""
+    print "OK process modal dialog timer"
+  }
+}
+
+class Test_ModalDialogTimer {
+  sfn m@(main):void () {
+    def app (new ModalDialogTimerDemo)
+    def argc (shell_arg_cnt)
+    if (argc > 0) {
+      def mode (shell_arg 0)
+      if (mode == "interactive") {
+        app.interactive = true
+      }
+    }
+    if (app.interactive) {
+      def key:string ""
+      on_keypress key {
+      }
+    }
+    app.run()
+  }
+}

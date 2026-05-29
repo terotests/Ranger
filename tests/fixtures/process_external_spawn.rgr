@@ -1,0 +1,113 @@
+; When a normal (non-@process) class calls an instance method on a live process,
+; a `new` of another @process class inside that method must register the child
+; under *this* (the host process), not under the external caller.
+;
+; Controls:
+;   - `new WorkerProcess` from ExternalOrchestrator → root (no host parent)
+;   - HostProcess.spawnFromStatic → root (static method host)
+
+Import "RangerProcess.rgr"
+
+class HostProcess @process(true) extends RangerProcessBase {
+  def spawnCount:int 0
+
+  fn spawnWorkerFromOutside:WorkerProcess () {
+    def w:WorkerProcess (new WorkerProcess)
+    w.label = "via-host-method"
+    spawnCount = spawnCount + 1
+    return w
+  }
+
+  sfn spawnWorkerFromStatic:WorkerProcess () {
+    def w:WorkerProcess (new WorkerProcess)
+    w.label = "via-host-static"
+    return w
+  }
+}
+
+class WorkerProcess @process(true) extends RangerProcessBase {
+  def label:string ""
+}
+
+class ExternalOrchestrator {
+  def passed:boolean true
+
+  fn expectEqual:void (label:string got:int expected:int) {
+    if (got != expected) {
+      print ("FAIL " + label + " got=" + (to_string got) + " expected=" + (to_string expected))
+      passed = false
+    } {
+      print ("OK   " + label)
+    }
+  }
+
+  fn expectNonZero:void (label:string got:int) {
+    if (got == 0) {
+      print ("FAIL " + label + " got=0")
+      passed = false
+    } {
+      print ("OK   " + label)
+    }
+  }
+
+  fn run:void () {
+    print "  external spawn hierarchy test"
+    print ""
+
+    def host:HostProcess (new HostProcess)
+    proc_start host
+    this.expectNonZero("host __rangerId" host.__rangerId)
+
+    ; --- case A: normal class calls process instance method ---
+    def viaMethod:WorkerProcess (host.spawnWorkerFromOutside())
+    def hostId:int host.__rangerId
+    def parentViaLookup:int (HostProcess.parentIdOf(viaMethod))
+    def parentViaField:int viaMethod.__rangerParentId
+
+    print ""
+    print "  case A: orchestrator -> host.spawnWorkerFromOutside() -> new Worker"
+    print ("    host id=" + (to_string hostId))
+    print ("    worker id=" + (to_string viaMethod.__rangerId) + " label=" + viaMethod.label)
+    print ("    parentIdOf(worker)->Host=" + (to_string parentViaLookup))
+    print ("    worker.__rangerParentId=" + (to_string parentViaField))
+    this.expectEqual("worker parents to host (parentIdOf)" parentViaLookup hostId)
+    this.expectEqual("worker parents to host (__rangerParentId)" parentViaField hostId)
+
+    ; --- case B: same orchestrator does new directly (not under host) ---
+    def orphan:WorkerProcess (new WorkerProcess)
+    orphan.label = "via-orchestrator-new"
+    def orphanUnderHost:int (HostProcess.parentIdOf(orphan))
+
+    print ""
+    print "  case B: orchestrator -> new Worker (no host method)"
+    print ("    worker id=" + (to_string orphan.__rangerId) + " label=" + orphan.label)
+    print ("    parentIdOf(worker)->Host=" + (to_string orphanUnderHost))
+    this.expectEqual("orphan NOT under host (parentIdOf)" orphanUnderHost 0)
+
+    ; --- case C: static method on process class (no instance this) ---
+    def viaStatic:WorkerProcess (HostProcess.spawnWorkerFromStatic())
+    def staticUnderHost:int (HostProcess.parentIdOf(viaStatic))
+
+    print ""
+    print "  case C: orchestrator -> HostProcess.spawnFromStatic() -> new Worker"
+    print ("    worker id=" + (to_string viaStatic.__rangerId) + " label=" + viaStatic.label)
+    print ("    parentIdOf(worker)->Host=" + (to_string staticUnderHost))
+    this.expectEqual("static spawn NOT under instance host (parentIdOf)" staticUnderHost 0)
+
+    proc_stop host
+
+    print ""
+    if (passed) {
+      print "OK process external spawn"
+    } {
+      print "FAILED process external spawn"
+    }
+  }
+}
+
+class Test_ExternalProcessSpawn {
+  sfn m@(main):void () {
+    def app (new ExternalOrchestrator)
+    app.run()
+  }
+}
