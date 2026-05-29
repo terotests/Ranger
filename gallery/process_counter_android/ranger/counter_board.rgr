@@ -1,0 +1,165 @@
+
+; Counter board processes for React gallery (no CLI).
+; Compile: npm run build:ranger (from gallery/process_counter_board)
+
+Import "RangerProcess.rgr"
+
+class CounterRowProcess @process(true) extends RangerProcessBase {
+  def board@(optional):CounterBoardPage
+  def label:string ""
+  def value:int 0
+  def running:boolean false
+  def tickCount:int 0
+
+  fn addRep:void () {
+    value = value + 1
+    if ((null? board) == false) {
+      def pg:CounterBoardPage (unwrap board)
+      pg.markStateDirty()
+    }
+  }
+
+  fn toggleRun:void () {
+    if (running) {
+      running = false
+    } {
+      running = true
+    }
+    if ((null? board) == false) {
+      def pg:CounterBoardPage (unwrap board)
+      pg.markStateDirty()
+    }
+  }
+
+  fn pulse:void () {
+    if (running == false) {
+      return
+    }
+    tickCount = tickCount + 1
+  }
+
+  fn stop:void () {
+    running = false
+  }
+}
+
+class CounterBoardPage @process(true) @name("app.counterBoard") extends RangerProcessBase {
+  def title:string "Counters"
+  def rows:[CounterRowProcess]
+  def selectedIndex:int 0
+  def nextLabelNum:int 1
+
+  fn start:void () {
+    this.addRow()
+  }
+
+  fn addRow:CounterRowProcess () {
+    def r:CounterRowProcess (new CounterRowProcess)
+    r.board = this
+    r.label = ("Set " + (to_string nextLabelNum))
+    nextLabelNum = nextLabelNum + 1
+    push rows r
+    proc_start r
+    selectedIndex = (size rows) - 1
+    this.markStateDirty()
+    return r
+  }
+
+  fn removeSelected:void () {
+    def n:int (size rows)
+    if (n == 0) {
+      return
+    }
+    if (selectedIndex < 0) {
+      selectedIndex = 0
+    }
+    if (selectedIndex >= n) {
+      selectedIndex = n - 1
+    }
+    def victim:CounterRowProcess (at rows selectedIndex)
+    proc_stop victim
+    def kept:[CounterRowProcess]
+    def i:int 0
+    while (i < n) {
+      if (i != selectedIndex) {
+        push kept (at rows i)
+      }
+      i = i + 1
+    }
+    rows = kept
+    def n2:int (size rows)
+    if (n2 == 0) {
+      selectedIndex = 0
+    } {
+      if (selectedIndex >= n2) {
+        selectedIndex = n2 - 1
+      }
+    }
+    this.markStateDirty()
+  }
+
+  fn moveSelection:int (delta:int) {
+    def n:int (size rows)
+    if (n == 0) {
+      return 0
+    }
+    selectedIndex = selectedIndex + delta
+    if (selectedIndex < 0) {
+      selectedIndex = 0
+    }
+    if (selectedIndex >= n) {
+      selectedIndex = n - 1
+    }
+    this.markStateDirty()
+    return selectedIndex
+  }
+
+  fn addRepToSelected:void () {
+    def n:int (size rows)
+    if (n == 0) {
+      return
+    }
+    def r:CounterRowProcess (at rows selectedIndex)
+    r.addRep()
+  }
+
+  fn toggleSelectedRun:void () {
+    def n:int (size rows)
+    if (n == 0) {
+      return
+    }
+    def r:CounterRowProcess (at rows selectedIndex)
+    r.toggleRun()
+  }
+
+  fn pulseAll:void () {
+    for rows r:CounterRowProcess i {
+      r.pulse()
+    }
+    this.markStateDirty()
+  }
+
+  fn rowCount:int () {
+    return (size rows)
+  }
+
+  fn sumValues:int () {
+    def total:int 0
+    for rows r:CounterRowProcess i {
+      total = total + r.value
+    }
+    return total
+  }
+
+  fn stopAllRows:void () {
+    for rows r:CounterRowProcess i {
+      proc_stop r
+    }
+    def empty:[CounterRowProcess]
+    rows = empty
+  }
+
+  fn stop:void () {
+    this.stopAllRows()
+  }
+}

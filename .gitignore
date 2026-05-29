@@ -20,6 +20,9 @@ data_folder/
 # Test output directory
 tests/.output*/
 
+# Local scratch / compiler experiments
+tmp/
+
 # Generated binary output
 generated/bin/
 

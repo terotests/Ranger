@@ -1,0 +1,14 @@
+
+Import "RangerProcess.rgr"
+
+class PageA @process(true) @name("app.same") extends RangerProcessBase {
+}
+
+class PageB @process(true) @name("app.same") extends RangerProcessBase {
+}
+
+class Test_Dup {
+  sfn m@(main):void () {
+    print "should not compile"
+  }
+}

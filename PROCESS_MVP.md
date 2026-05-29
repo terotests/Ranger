@@ -4,7 +4,9 @@ What the **compiler MVP** is for, what it already proves, and whether “product
 
 **Implementation facts and compiler checklist:** [PROCESS_STATUS.md](PROCESS_STATUS.md)  
 **Operators and lifecycle:** [PROCESS_LIFECYCLE.md](PROCESS_LIFECYCLE.md)  
-**ObjC / UIKit comparison:** [PROCESS_COMPARE_WITH_OBJECTIVEC.md](PROCESS_COMPARE_WITH_OBJECTIVEC.md)
+**ObjC / UIKit comparison:** [PROCESS_COMPARE_WITH_OBJECTIVEC.md](PROCESS_COMPARE_WITH_OBJECTIVEC.md)  
+**React gallery (`@name`, `useProcess`, `markStateDirty`):** [gallery/process_counter_board/README.md](gallery/process_counter_board/README.md)  
+**Android / iOS exploratory galleries:** [process_counter_android](gallery/process_counter_android/README.md), [process_counter_ios](gallery/process_counter_ios/README.md)
 
 ---
 
@@ -101,6 +103,8 @@ Or: `ProcessKernel` slot stores `RangerProcessBase` / typed `@process` reference
 **What MVP already gives:** stable `__rangerId`, `proc_stop` so drain loops can exit, subtree stop so children do not keep receiving work.
 
 **Not a fundamental gap** — pattern is explicit and matches ObjC “run loop turns, drain queue” ([PROCESS_COMPARE_WITH_OBJECTIVEC.md](PROCESS_COMPARE_WITH_OBJECTIVEC.md)).
+
+**Compiler v1 shortcut:** `proc_send "app.chat" msg` or `proc_send target msg` calls `receiveMessage(msg)` on a live process (`RangerProcessBase` stub; override on your class). TypeScript hosts use generated `findProcess(path)` for typed lookup. Fixture: [`tests/fixtures/process_proc_send.rgr`](tests/fixtures/process_proc_send.rgr).
 
 ---
 
@@ -292,6 +296,28 @@ node tests/.output/process_external_spawn.js
 ```
 
 Vitest: `tests/compiler-process-external-spawn.test.ts`.
+
+### `process_counter_board.rgr` — dynamic counter rows (workout-style CLI)
+
+`CounterBoardPage` owns a list of `CounterRowProcess` children. Add/remove rows at runtime; **r** run/stop keeps `reps` and `ticks`; **space** adds a rep on the selected row. Console UI with **+**, **-**, **up**/**down**, **q**.
+
+```bash
+node bin/output.js -es6 tests/fixtures/process_counter_board.rgr -nodecli -d=tests/.output -o=process_counter_board.js
+node tests/.output/process_counter_board.js interactive
+```
+
+Vitest: `tests/compiler-process-counter-board.test.ts`.
+
+### `ProcessTreeView` — CLI process tree (debugger-style)
+
+Class in [`lib/RangerProcess.rgr`](lib/RangerProcess.rgr). Walks `__rangerChildren` from roots. For each app compile that uses `@process`, the compiler emits `ProcessRuntime.collectAllLiveRoots()` and `printProcessTree()` / `printProcessTreeTitled(title)` (instances with `__rangerParentId == 0`).
+
+```ranger
+Import "RangerProcess.rgr"
+ProcessRuntime.printProcessTreeTitled("  @process tree")
+```
+
+Fixture: `tests/fixtures/process_tree_introspection.rgr` — Vitest: `tests/compiler-process-tree-view.test.ts`. Interactive demos: **t** in `process_counter_board` / `process_nesting`.
 
 These are **mechanism demos**. A follow-up fixture could add `inboundMessages` + `drainInbound` on the same classes to show orchestration **without** compiler changes — optional next step.
 

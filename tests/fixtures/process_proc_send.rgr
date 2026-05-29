@@ -1,0 +1,53 @@
+
+Import "RangerProcess.rgr"
+
+class AlphaPage @process(true) @name("app.alpha") extends RangerProcessBase {
+  def pingCount:int 0
+
+  fn receiveMessage:void (msg:Any) {
+    pingCount = pingCount + 1
+    this.markStateDirty()
+  }
+}
+
+class BetaPage @process(true) @name("app.beta") extends RangerProcessBase {
+}
+
+class ProcSendDemo {
+  fn run:void () {
+    def a:AlphaPage (new AlphaPage)
+    proc_start a
+    proc_send "app.alpha" "hello"
+    if (a.pingCount != 1) {
+      print "FAIL proc_send: alpha pingCount"
+      return
+    }
+    def b:BetaPage (new BetaPage)
+    proc_start b
+    proc_send a "ping"
+    if (a.pingCount != 2) {
+      print "FAIL proc_send: via proc reference"
+      return
+    }
+    def found@(optional):RangerProcessBase (find_process "app.alpha")
+    if (null? found) {
+      print "FAIL proc_send: find_process after send"
+      return
+    }
+    proc_stop a
+    proc_stop b
+    proc_send "app.alpha" "after-stop"
+    if (a.pingCount != 2) {
+      print "FAIL proc_send: should not deliver to stopped process"
+      return
+    }
+    print "OK process proc_send"
+  }
+}
+
+class Test_ProcSend {
+  sfn m@(main):void () {
+    def demo (new ProcSendDemo)
+    demo.run()
+  }
+}

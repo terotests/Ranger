@@ -6,8 +6,31 @@ class RangerProcessBase {
   def __rangerParentId:int 0
   def __rangerTypeId:int 0
   def __rangerClassName:string ""
+  def __rangerPath:string ""
+  def __rangerStateGeneration:int 0
   def __rangerParent:RangerProcessBase@(optional)
   def __rangerChildren:[RangerProcessBase]
+
+  fn markStateDirty:void () {
+    __rangerStateGeneration = __rangerStateGeneration + 1
+    if ((strlen __rangerPath) > 0) {
+      ProcessUiHost.__singleton().notifyPath(__rangerPath)
+    }
+    if (__rangerId != 0) {
+      ProcessUiHost.__singleton().notifyId(__rangerId)
+    }
+  }
+
+  fn __rangerOnDescendantUiChanged:void (child:RangerProcessBase hint:string) {
+    this.markStateDirty()
+    def parent@(optional):RangerProcessBase (__rangerParent)
+    if ((null? parent) == false) {
+      def p:RangerProcessBase (unwrap parent)
+      if (p.__rangerId != 0) {
+        p.__rangerOnDescendantUiChanged(child hint)
+      }
+    }
+  }
 
   fn __rangerTrackChild:void (child:RangerProcessBase) {
     push __rangerChildren child
@@ -33,6 +56,10 @@ class RangerProcessBase {
 
   fn __rangerStopSubtree:void () {
   }
+
+  ; Optional inbound messaging hook; override on @process classes. proc_send calls this.
+  fn receiveMessage:void (msg:Any) {
+  }
 }
 
 ; Single app-wide ID space for all @process instances (roots and children).
@@ -46,13 +73,73 @@ class ProcessIdRegistry @singleton(true) {
   }
 }
 
+class ProcessNameRegistry @singleton(true) {
+  def byPath:[string:RangerProcessBase]
+
+  fn register:void (path:string proc:RangerProcessBase) {
+    if ((strlen path) == 0) {
+      return
+    }
+    if (proc.__rangerId == 0) {
+      return
+    }
+    def existing@(optional):RangerProcessBase (get byPath path)
+    if ((null? existing) == false) {
+      def old:RangerProcessBase (unwrap existing)
+      if (old.__rangerId != 0 && old.__rangerId != proc.__rangerId) {
+        print ("ERROR: duplicate live @name process path: " + path)
+        return
+      }
+    }
+    set byPath path proc
+  }
+
+  fn unregister:void (path:string) {
+    ; Map entry may remain until overwritten; hasLive/findByPath check __rangerId.
+  }
+
+  fn findByPath@(optional):RangerProcessBase (path:string) {
+    return (get byPath path)
+  }
+
+  fn hasLive:boolean (path:string) {
+    def found@(optional):RangerProcessBase (get byPath path)
+    if (null? found) {
+      return false
+    }
+    def inst:RangerProcessBase (unwrap found)
+    if (inst.__rangerId == 0) {
+      return false
+    }
+    return true
+  }
+
+  fn unbindIfConfigured:void (proc:RangerProcessBase) {
+    if ((strlen proc.__rangerPath) > 0) {
+      this.unregister(proc.__rangerPath)
+      proc.__rangerPath = ""
+    }
+  }
+}
+
+; Host-side UI subscriptions (React useProcess wires listeners in TS).
+class ProcessUiHost @singleton(true) {
+  fn notifyPath:void (path:string) {
+  }
+
+  fn notifyId:void (processId:int) {
+  }
+}
+
 class ProcessRuntime @singleton(true) {
 
   sfn stopInstance:void (proc:RangerProcessBase) {
+    ProcessNameRegistry.__singleton().unbindIfConfigured(proc)
     proc.__rangerStopSubtree()
   }
 
   sfn startInstance:void (proc:RangerProcessBase) {
+    ProcessNameRegistry.__singleton().bindIfConfigured(proc)
     proc.__rangerInvokeStart()
   }
 
@@ -75,4 +162,112 @@ class RangerFieldDescriptor {
 class RangerClassDescriptor {
   def className:string ""
   def fields:[RangerFieldDescriptor]
+}
+
+; CLI tree renderer for @process hierarchies (__rangerChildren). Root list:
+; ProcessRuntime.collectAllLiveRoots() (generated when the app has @process classes).
+class ProcessTreeView {
+  def showParentId:boolean true
+
+  fn isLive:boolean (proc:RangerProcessBase) {
+    if (proc.__rangerId == 0) {
+      return false
+    }
+    return true
+  }
+
+  fn nodeLabel:string (proc:RangerProcessBase) {
+    def label:string ""
+    label = proc.__rangerClassName
+    label = label + " #"
+    label = label + (to_string proc.__rangerId)
+    if (showParentId) {
+      label = label + " parent="
+      label = label + (to_string proc.__rangerParentId)
+    }
+    return label
+  }
+
+  fn countLiveChildren:int (proc:RangerProcessBase) {
+    def n:int 0
+    for proc.__rangerChildren ch:RangerProcessBase i {
+      if (this.isLive(ch)) {
+        n = n + 1
+      }
+    }
+    return n
+  }
+
+  fn renderSubtree:void (proc:RangerProcessBase indent:string) {
+    def liveIdx:int 0
+    def total:int (this.countLiveChildren(proc))
+    for proc.__rangerChildren ch:RangerProcessBase i {
+      if ((this.isLive(ch)) == false) {
+        continue
+      }
+      def branch:string "|-> "
+      def childIndent:string "    "
+      if (liveIdx == (total - 1)) {
+        branch = "L-> "
+      }
+      def line:string ""
+      line = indent + branch
+      def nodeText:string (this.nodeLabel(ch))
+      line = line + nodeText
+      print line
+      def nextIndent:string ""
+      nextIndent = indent + childIndent
+      this.renderSubtree(ch nextIndent)
+      liveIdx = liveIdx + 1
+    }
+  }
+
+  fn countLiveRoots:int (roots:[RangerProcessBase]) {
+    def c:int 0
+    for roots r:RangerProcessBase i {
+      if (this.isLive(r)) {
+        c = c + 1
+      }
+    }
+    return c
+  }
+
+  fn renderRoots:void (roots:[RangerProcessBase] title:string) {
+    print ""
+    if (title != "") {
+      print title
+    } {
+      print "Process tree"
+    }
+    def n:int (size roots)
+    if (n == 0) {
+      print "  (no live root processes)"
+      return
+    }
+    def liveTotal:int (this.countLiveRoots(roots))
+    if (liveTotal == 0) {
+      print "  (no live root processes)"
+      return
+    }
+    def shown:int 0
+    def i:int 0
+    while (i < n) {
+      def root:RangerProcessBase (at roots i)
+      if (this.isLive(root)) {
+        def branch:string "|-> "
+        def childIndent:string "    "
+        if (shown == (liveTotal - 1)) {
+          branch = "L-> "
+        }
+        def line:string ""
+        line = "  " + branch
+        def rootText:string (this.nodeLabel(root))
+        line = line + rootText
+        print line
+        this.renderSubtree(root childIndent)
+        shown = shown + 1
+      }
+      i = i + 1
+    }
+  }
 }

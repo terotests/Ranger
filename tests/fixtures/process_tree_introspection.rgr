@@ -1,0 +1,74 @@
+; Verifies ProcessRuntime.collectAllLiveRoots + ProcessTreeView (debugger-style CLI).
+Import "RangerProcess.rgr"
+
+class ScreenProcess @process(true) extends RangerProcessBase {
+  fn openPage:HostPage () {
+    def page (new HostPage)
+    page.screen = this
+    return page
+  }
+}
+
+class HostPage @process(true) extends RangerProcessBase {
+  def screen@(optional):ScreenProcess
+  def title:string "Workout"
+
+  fn spawnCounter:CounterProcess () {
+    def c (new CounterProcess)
+    c.page = this
+    c.label = "Set A"
+    return c
+  }
+}
+
+class CounterProcess @process(true) extends RangerProcessBase {
+  def page@(optional):HostPage
+  def label:string ""
+  def value:int 0
+}
+
+class TreeIntrospectionDemo {
+  def passed:boolean true
+
+  fn run:void () {
+    print "  process tree introspection"
+    def screen:ScreenProcess (new ScreenProcess)
+    proc_start screen
+    def page:HostPage (screen.openPage())
+    proc_start page
+    def counter:CounterProcess (page.spawnCounter())
+    proc_start counter
+    counter.value = 7
+
+    def roots (ProcessRuntime.collectAllLiveRoots())
+    def rootCount:int (size roots)
+    print ("  roots=" + (to_string rootCount))
+    if (rootCount != 1) {
+      print "FAIL expected 1 root (ScreenProcess)"
+      passed = false
+    }
+    def screenId:int (ScreenProcess.parentIdOf(counter))
+    print ("  Screen.parentIdOf(counter)=" + (to_string screenId))
+    if (screenId != screen.__rangerId) {
+      print "FAIL parentIdOf chain to screen"
+      passed = false
+    }
+    ProcessRuntime.printProcessTreeTitled("  @process tree")
+    proc_stop counter
+    proc_stop page
+    proc_stop screen
+    print ""
+    if (passed) {
+      print "OK process tree introspection"
+    } {
+      print "FAILED process tree introspection"
+    }
+  }
+}
+
+class Test_ProcessTreeIntrospection {
+  sfn m@(main):void () {
+    def app (new TreeIntrospectionDemo)
+    app.run()
+  }
+}

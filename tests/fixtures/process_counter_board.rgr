@@ -1,0 +1,460 @@
+; Interactive counter board: dynamic @process rows (workout-style sets).
+; Each row is a CounterRowProcess — start/stop preserves value + tick count;
+; Space adds reps on the selected row.
+;
+;   node bin/output.js -es6 tests/fixtures/process_counter_board.rgr -nodecli -d=tests/.output -o=process_counter_board.js
+;   node tests/.output/process_counter_board.js interactive
+; Recompile after compiler/lib changes — stale .js will miss ProcessTreeView or keyboard fixes.
+;
+; Keys:  +/= add row   - remove selected   up/down select   space +1 rep
+;        r/enter toggle run on row   q quit
+
+Import "RangerProcess.rgr"
+
+class CounterRowProcess @process(true) extends RangerProcessBase {
+  def board@(optional):CounterBoardPage
+  def label:string ""
+  def value:int 0
+  def running:boolean false
+  def tickCount:int 0
+
+  fn addRep:void () {
+    value = value + 1
+  }
+
+  fn toggleRun:void () {
+    if (running) {
+      running = false
+    } {
+      running = true
+    }
+  }
+
+  fn pulse:void () {
+    if (running == false) {
+      return
+    }
+    tickCount = tickCount + 1
+  }
+
+  fn statusLine:string () {
+    def runTag:string "[STOP]"
+    if (running) {
+      runTag = "[RUN]"
+    }
+    def line:string ""
+    line = line + label
+    line = line + "  reps="
+    line = line + (to_string value)
+    line = line + "  ticks="
+    line = line + (to_string tickCount)
+    line = line + "  "
+    line = line + runTag
+    return line
+  }
+
+  fn stop:void () {
+    running = false
+  }
+}
+
+class CounterBoardPage @process(true) extends RangerProcessBase {
+  def title:string "Counters"
+  def rows:[CounterRowProcess]
+  def selectedIndex:int 0
+  def nextLabelNum:int 1
+
+  fn start:void () {
+    this.addRow()
+  }
+
+  fn addRow:CounterRowProcess () {
+    def r:CounterRowProcess (new CounterRowProcess)
+    r.board = this
+    r.label = ("Set " + (to_string nextLabelNum))
+    nextLabelNum = nextLabelNum + 1
+    push rows r
+    proc_start r
+    selectedIndex = (size rows) - 1
+    return r
+  }
+
+  fn removeSelected:void () {
+    def n:int (size rows)
+    if (n == 0) {
+      return
+    }
+    if (selectedIndex < 0) {
+      selectedIndex = 0
+    }
+    if (selectedIndex >= n) {
+      selectedIndex = n - 1
+    }
+    def victim:CounterRowProcess (at rows selectedIndex)
+    proc_stop victim
+    def kept:[CounterRowProcess]
+    def i:int 0
+    while (i < n) {
+      if (i != selectedIndex) {
+        push kept (at rows i)
+      }
+      i = i + 1
+    }
+    rows = kept
+    def n2:int (size rows)
+    if (n2 == 0) {
+      selectedIndex = 0
+      return
+    }
+    if (selectedIndex >= n2) {
+      selectedIndex = n2 - 1
+    }
+  }
+
+  fn moveSelection:int (delta:int) {
+    def n:int (size rows)
+    if (n == 0) {
+      return 0
+    }
+    selectedIndex = selectedIndex + delta
+    if (selectedIndex < 0) {
+      selectedIndex = 0
+    }
+    if (selectedIndex >= n) {
+      selectedIndex = n - 1
+    }
+    return selectedIndex
+  }
+
+  fn addRepToSelected:void () {
+    def n:int (size rows)
+    if (n == 0) {
+      return
+    }
+    def r:CounterRowProcess (at rows selectedIndex)
+    r.addRep()
+  }
+
+  fn toggleSelectedRun:void () {
+    def n:int (size rows)
+    if (n == 0) {
+      return
+    }
+    def r:CounterRowProcess (at rows selectedIndex)
+    r.toggleRun()
+  }
+
+  fn pulseAll:void () {
+    for rows r:CounterRowProcess i {
+      r.pulse()
+    }
+  }
+
+  fn rowCount:int () {
+    return (size rows)
+  }
+
+  fn sumValues:int () {
+    def total:int 0
+    for rows r:CounterRowProcess i {
+      total = total + r.value
+    }
+    return total
+  }
+
+  fn valueAt:int (index:int) {
+    if (index < 0) {
+      return -1
+    }
+    if (index >= (size rows)) {
+      return -1
+    }
+    def r:CounterRowProcess (at rows index)
+    return r.value
+  }
+
+  fn ticksAt:int (index:int) {
+    if (index < 0) {
+      return -1
+    }
+    if (index >= (size rows)) {
+      return -1
+    }
+    def r:CounterRowProcess (at rows index)
+    return r.tickCount
+  }
+
+  fn stopAllRows:void () {
+    for rows r:CounterRowProcess i {
+      proc_stop r
+    }
+    def empty:[CounterRowProcess]
+    rows = empty
+  }
+
+  fn stop:void () {
+    this.stopAllRows()
+  }
+}
+
+class CounterBoardDemo {
+  def page@(optional):CounterBoardPage
+  def hasPage:boolean false
+  def running:boolean true
+  def interactive:boolean false
+  def frame:int 0
+  def pulseEvery:int 5
+  def showProcessTree:boolean true
+
+  fn bootstrap:void () {
+    def pg:CounterBoardPage (new CounterBoardPage)
+    page = pg
+    hasPage = true
+    proc_start pg
+  }
+
+  fn drawBoard:void () {
+    if (interactive) {
+      clear_screen
+      move_cursor 1 1
+    }
+    print "  +-- Counter board (@process rows) --------------------+"
+    print "  |  +/= add row   - remove   up/down   space +rep     |"
+    print "  |  r/enter run/stop   t toggle tree   q quit          |"
+    print "  +----------------------------------------------------+"
+    if (hasPage == false) {
+      print "  (no page)"
+      return
+    }
+    def pg:CounterBoardPage (unwrap page)
+    print ("  " + pg.title + "  rows=" + (to_string (pg.rowCount())))
+    print ""
+    def n:int (pg.rowCount())
+    if (n == 0) {
+      print "  (empty — press + to add a counter)"
+    } {
+      def i:int 0
+      while (i < n) {
+        def r:CounterRowProcess (at pg.rows i)
+        def prefix:string "    "
+        if (i == pg.selectedIndex) {
+          prefix = "  > "
+        }
+        def rowLine:string (r.statusLine())
+        def fullLine:string ""
+        fullLine = prefix + rowLine
+        print fullLine
+        i = i + 1
+      }
+    }
+    if (showProcessTree) {
+      def roots (ProcessRuntime.collectAllLiveRoots())
+      def view:ProcessTreeView (new ProcessTreeView)
+      view.renderRoots(roots "  @process tree")
+    }
+  }
+
+  fn tickRunning:void () {
+    if (hasPage == false) {
+      return
+    }
+    frame = frame + 1
+    def phase:int (frame % pulseEvery)
+    if (phase != 0) {
+      return
+    }
+    def pg:CounterBoardPage (unwrap page)
+    pg.pulseAll()
+  }
+
+  fn handleKey:void (key:string) {
+    if (hasPage == false) {
+      return
+    }
+    def pg:CounterBoardPage (unwrap page)
+    if (key == "q") {
+      running = false
+      return
+    }
+    if (key == "Q") {
+      running = false
+      return
+    }
+    if (key == "+") {
+      pg.addRow()
+      return
+    }
+    if (key == "=") {
+      pg.addRow()
+      return
+    }
+    if (key == "-") {
+      pg.removeSelected()
+      return
+    }
+    if (key == "minus") {
+      pg.removeSelected()
+      return
+    }
+    if (key == "up") {
+      pg.moveSelection(-1)
+      return
+    }
+    if (key == "down") {
+      pg.moveSelection(1)
+      return
+    }
+    if (key == " ") {
+      pg.addRepToSelected()
+      return
+    }
+    if (key == "space") {
+      pg.addRepToSelected()
+      return
+    }
+    if (key == "r") {
+      pg.toggleSelectedRun()
+      return
+    }
+    if (key == "R") {
+      pg.toggleSelectedRun()
+      return
+    }
+    if (key == "enter") {
+      pg.toggleSelectedRun()
+      return
+    }
+    if (key == "t") {
+      if (showProcessTree) {
+        showProcessTree = false
+      } {
+        showProcessTree = true
+      }
+      return
+    }
+    if (key == "T") {
+      if (showProcessTree) {
+        showProcessTree = false
+      } {
+        showProcessTree = true
+      }
+      return
+    }
+  }
+
+  fn drainKeys:void () {
+    while (true) {
+      def key (poll_keypress)
+      if (key == "") {
+        return
+      }
+      this.handleKey(key)
+    }
+  }
+
+  fn shutdown:void () {
+    if (hasPage) {
+      def pg:CounterBoardPage (unwrap page)
+      proc_stop pg
+      hasPage = false
+    }
+  }
+
+  fn printAutoSummary:void () {
+    if (hasPage == false) {
+      return
+    }
+    def pg:CounterBoardPage (unwrap page)
+    print ""
+    print ("  AUTO rows=" + (to_string (pg.rowCount())))
+    print ("  AUTO sumValues=" + (to_string (pg.sumValues())))
+    print ("  AUTO v0=" + (to_string (pg.valueAt(0))))
+    print ("  AUTO v1=" + (to_string (pg.valueAt(1))))
+    print ("  AUTO ticks0=" + (to_string (pg.ticksAt(0))))
+  }
+
+  fn runAuto:void () {
+    def pg:CounterBoardPage (unwrap page)
+    ; start() left one row (Set 1)
+    pg.addRow()
+    pg.selectedIndex = 0
+    pg.addRepToSelected()
+    pg.addRepToSelected()
+    pg.toggleSelectedRun()
+    def f:int 0
+    while (f < 12) {
+      this.tickRunning()
+      f = f + 1
+    }
+    pg.toggleSelectedRun()
+    def ticksAfterStop:int (pg.ticksAt(0))
+    pg.moveSelection(1)
+    pg.addRepToSelected()
+    pg.addRepToSelected()
+    pg.addRepToSelected()
+    pg.selectedIndex = 0
+    pg.removeSelected()
+    def rowsLeft:int (pg.rowCount())
+    def sum:int (pg.sumValues())
+    this.printAutoSummary()
+    print ("  AUTO ticksAfterStop=" + (to_string ticksAfterStop))
+    print ("  AUTO rowsLeft=" + (to_string rowsLeft))
+    print ("  AUTO sum=" + (to_string sum))
+    if (ticksAfterStop < 1) {
+      print "FAIL auto: expected ticks while running"
+    }
+    if (rowsLeft != 1) {
+      print "FAIL auto: expected 1 row after remove"
+    }
+    if (sum != 3) {
+      print "FAIL auto: expected sumValues=3"
+    }
+    if (pg.valueAt(0) != 3) {
+      print "FAIL auto: remaining row should have 3 reps"
+    }
+  }
+
+  fn runInteractive:void () {
+    hide_cursor
+    while (running) {
+      this.drainKeys()
+      this.tickRunning()
+      this.drawBoard()
+      sleep_ms 80
+    }
+    show_cursor
+    clear_screen
+  }
+
+  fn run:void () {
+    this.bootstrap()
+    if (interactive) {
+      this.runInteractive()
+    } {
+      this.runAuto()
+    }
+    this.shutdown()
+    print ""
+    print "OK process counter board"
+  }
+}
+
+class Test_CounterBoard {
+  sfn m@(main):void () {
+    def app (new CounterBoardDemo)
+    def argc (shell_arg_cnt)
+    if (argc > 0) {
+      def mode (shell_arg 0)
+      if (mode == "interactive") {
+        app.interactive = true
+      }
+    }
+    if (app.interactive) {
+      def key:string ""
+      on_keypress key {
+        ; keys queued in Lang.rgr — drained in runInteractive
+      }
+    }
+    app.run()
+  }
+}
