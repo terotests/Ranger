@@ -27,6 +27,7 @@ If you want one sentence of positioning: Ranger is currently more convincing as 
 
 ## Where To Start
 
+- [Online playground](https://terotests.github.io/Ranger/) — try Ranger in the browser (`playground/`, Vite + current compiler)
 - `README.md` - language overview, installation, and syntax notes
 - `ai/QUICKREF.md` - fast reference for syntax and core concepts
 - `ai/INSTRUCTIONS.md` - fuller language guide for operators, templates, and compiler concepts

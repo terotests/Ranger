@@ -46,7 +46,7 @@ Route mapping for a real app: URL `/counter` ↔ `app.counterBoard` ↔ `useProc
 
 [`processPaths.ts`](src/processPaths.ts) wraps `new ProcessNameRegistry().findProcess(path)` as `findProcessByPath`. Used from [`counterBoardHost.ts`](src/host/counterBoardHost.ts), [`useProcess.ts`](src/hooks/useProcess.ts), and directly in [`CounterBoard.tsx`](src/components/CounterBoard.tsx).
 
-Inbound messages from other processes: override `fn receiveMessage:void (msg:Any)` and use `proc_send "app.counterBoard" msg` in Ranger (see [`tests/fixtures/process_proc_send.rgr`](../../tests/fixtures/process_proc_send.rgr)).
+Inbound messages from other processes: override `fn receiveMessage:void (name:string value:string)` and use `proc_send "app.counterBoard" name value` in Ranger (see [`tests/fixtures/process_proc_send.rgr`](../../tests/fixtures/process_proc_send.rgr)).
 
 **Keyboard** (same as CLI fixture): `+`/`=` add row, `-` remove, ↑↓ move selection, Space +1 rep, `r`/Enter run/stop. Click a row to select it.
 

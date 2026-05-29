@@ -15,7 +15,8 @@ describe("Ranger proc_send", () => {
     const code = fs.readFileSync(OUTPUT_JS, "utf-8");
     expect(code).toContain("receiveMessage");
     expect(code).toContain("findByPath");
-    expect(code).toMatch(/proc_send|receiveMessage/);
+    expect(code).toContain("receiveMessage(");
+    expect(code).toMatch(/receiveMessage\([^)]+,\s*[^)]+\)/);
     expect(code).toContain("app.alpha");
   });
 

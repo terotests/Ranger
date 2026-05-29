@@ -193,9 +193,11 @@ language {
             templates {
                 ranger ("(cast " (e 1) " " (e 2) ":" (typeof 2) " )")
                 ts ( (e 1) " as " (typeof 2) )
+                kotlin ( (e 1) " as " (typeof 2) )
                 es6 ( (e 1) )
                 java7 ( "((" (typeof 2) ")" (e 1) ")" )
                 swift3 ( (e 1) " as " (typeof 2) "" )
+                swift6 ( (e 1) " as " (typeof 2) "" )
                 cpp ( "mpark::get<" (typeof 2) ">(" (e 1) ")" 
                 
                     (plugin 'makefile' ((dep 'variant.hpp' 'https://github.com/mpark/variant/releases/download/v1.2.2/variant.hpp')))            
@@ -5349,22 +5351,22 @@ std::string r_cpp_str_to_uppercase(std::string original)
             }
         }
 
-        proc_send@(moves@( 2 )) cmdProcSendPath:void (path:string msg:Any) {
+        proc_send@(moves@( 3 )) cmdProcSendPath:void (path:string name:string value:string) {
             templates {
-                es6 ( "(() => { const __rgrP = ProcessNameRegistry.__singleton().findByPath(" (e 1) "); if (!__rgrP || __rgrP.__rangerId === 0) return; __rgrP.receiveMessage(" (e 2) "); })()" )
-                kotlin ( "run { val __rgrP = ProcessNameRegistry.__singleton().findByPath(" (e 1) "); if (__rgrP == null || __rgrP.__rangerId == 0) return@run; __rgrP.receiveMessage(" (e 2) ") }" )
-                swift6 ( "{ let __rgrP = ProcessNameRegistry.__singleton().findByPath(" (e 1) "); guard let p = __rgrP, p.__rangerId != 0 else { return }; p.receiveMessage(" (e 2) ") }" )
-                swift3 ( "{ let __rgrP = ProcessNameRegistry.__singleton().findByPath(" (e 1) "); guard let p = __rgrP, p.__rangerId != 0 else { return }; p.receiveMessage(" (e 2) ") }" )
+                es6 ( "(() => { const __rgrP = ProcessNameRegistry.__singleton().findByPath(" (e 1) "); if (!__rgrP || __rgrP.__rangerId === 0) return; __rgrP.receiveMessage(" (e 2) ", " (e 3) "); })()" )
+                kotlin ( "run { val __rgrP = ProcessNameRegistry.__singleton().findByPath(" (e 1) "); if (__rgrP == null || __rgrP.__rangerId == 0) return@run; __rgrP.receiveMessage(" (e 2) ", " (e 3) ") }" )
+                swift6 ( "{ let __rgrP = ProcessNameRegistry.__singleton().findByPath(" (e 1) "); guard let p = __rgrP, p.__rangerId != 0 else { return }; p.receiveMessage(" (e 2) ", " (e 3) ") }" )
+                swift3 ( "{ let __rgrP = ProcessNameRegistry.__singleton().findByPath(" (e 1) "); guard let p = __rgrP, p.__rangerId != 0 else { return }; p.receiveMessage(" (e 2) ", " (e 3) ") }" )
                 * ( "/* proc_send path not implemented */" )
             }
         }
 
-        proc_send@(moves@( 2 )) cmdProcSendProc:void (proc:RangerProcessBase msg:Any) {
+        proc_send@(moves@( 3 )) cmdProcSendProc:void (proc:RangerProcessBase name:string value:string) {
             templates {
-                es6 ( "(() => { const __rgrP = " (e 1) "; if (!__rgrP || __rgrP.__rangerId === 0) return; __rgrP.receiveMessage(" (e 2) "); })()" )
-                kotlin ( "run { val __rgrP = " (e 1) "; if (__rgrP.__rangerId == 0) return@run; __rgrP.receiveMessage(" (e 2) ") }" )
-                swift6 ( "{ let __rgrP = " (e 1) "; guard __rgrP.__rangerId != 0 else { return }; __rgrP.receiveMessage(" (e 2) ") }" )
-                swift3 ( "{ let __rgrP = " (e 1) "; guard __rgrP.__rangerId != 0 else { return }; __rgrP.receiveMessage(" (e 2) ") }" )
+                es6 ( "(() => { const __rgrP = " (e 1) "; if (!__rgrP || __rgrP.__rangerId === 0) return; __rgrP.receiveMessage(" (e 2) ", " (e 3) "); })()" )
+                kotlin ( "run { val __rgrP = " (e 1) "; if (__rgrP.__rangerId == 0) return@run; __rgrP.receiveMessage(" (e 2) ", " (e 3) ") }" )
+                swift6 ( "{ let __rgrP = " (e 1) "; guard __rgrP.__rangerId != 0 else { return }; __rgrP.receiveMessage(" (e 2) ", " (e 3) ") }" )
+                swift3 ( "{ let __rgrP = " (e 1) "; guard __rgrP.__rangerId != 0 else { return }; __rgrP.receiveMessage(" (e 2) ", " (e 3) ") }" )
                 * ( "/* proc_send proc not implemented */" )
             }
         }

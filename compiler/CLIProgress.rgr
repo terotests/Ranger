@@ -90,7 +90,7 @@ operators {
     ; Check if running in TTY (terminal)
     is_tty          cmdIsTTY:boolean () {
         templates {
-            es6 ( "(process.stdout.isTTY || false)" )
+            es6 ( "((typeof process !== \"undefined\" && process.stdout && process.stdout.isTTY) || false)" )
             * ( "false" )
         }
     }

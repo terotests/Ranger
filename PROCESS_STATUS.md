@@ -37,7 +37,7 @@ Last updated after **`proc_send`**, **`findProcess` on `ProcessNameRegistry`**, 
 | **Message queue / `tick` in compiler** | Not done — **not required** for product; app pattern — [PROCESS_MVP.md](PROCESS_MVP.md) |
 | **UI binding codegen** | Not done — **not required**; app-ranger `pageSetValue` + bus |
 | **`@name("app.path")` on `@process` classes** | Done — compile-time unique path; `find_process "path"` in `.rgr`; `ProcessNameRegistry` bind on `proc_start` |
-| **`proc_send`** | Done — `proc_send "path" msg` or `proc_send target msg` → `receiveMessage(msg)` if live; stub on `RangerProcessBase` |
+| **`proc_send`** | Done — `proc_send "path" name value` or `proc_send target name value` → `receiveMessage(name, value)` if live; stub on `RangerProcessBase` |
 | **`findProcess(path)` (registry)** | Done — generated `extension ProcessNameRegistry`; live-only (`hasLive`); TS: `interface` overloads for literal paths |
 | **Singleton `new` in TS/JS emit** | Done — `new ProcessNameRegistry()` returns `__singleton_instance` (constructor guard) |
 | **`markStateDirty` / `ProcessUiHost`** | Done (stubs) — manual state generation bump + host notify; auto-dirty on assign deferred |
@@ -54,7 +54,7 @@ Last updated after **`proc_send`**, **`findProcess` on `ProcessNameRegistry`**, 
 | API | Where | Use |
 |-----|--------|-----|
 | `find_process "app.path"` | Ranger `.rgr` | Operator → `ProcessNameRegistry.__singleton().findByPath` |
-| `proc_send "app.path" msg` | Ranger `.rgr` | Resolve path → `receiveMessage(msg)` |
+| `proc_send "app.path" name value` | Ranger `.rgr` | Resolve path → `receiveMessage(name, value)` |
 | `findByPath` / `findProcess` | Generated `ProcessNameRegistry` | Host TS/Kotlin/Swift after `proc_start` |
 | `new ProcessNameRegistry().findProcess(path)` | TypeScript | Singleton `new`; typed path when `-typescript` |
 | `findProcessByPath(path)` | Gallery [`processPaths.ts`](gallery/process_counter_board/src/processPaths.ts) | Thin wrapper around `new … findProcess` |

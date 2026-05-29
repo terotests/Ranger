@@ -50,6 +50,10 @@ class RangerServiceBuilder {
 
   fn CreateServices (parser:RangerFlowParser ctx:RangerAppWriterContext orig_wr:CodeWriter) {
     if( (ctx.hasCompilerFlag("client")) || (ctx.hasCompilerSetting("client")) ) {
+      ; ES6/browser builds must not inject RangerAppService here — it breaks operator-class emit.
+      if( ctx.targetLangName == "es6" ) {
+        return
+      }
       print "--> could create Client services for Java here..."
       def root (ctx.getRoot())
       def cl (this.createOpStaticClass(ctx "RangerAppService"))

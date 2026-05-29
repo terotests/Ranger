@@ -1,0 +1,24 @@
+{
+  "name": "ranger-playground",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build:compiler": "node scripts/build-compiler.mjs && node scripts/build-compiler-env.mjs && node scripts/sync-examples.mjs",
+    "predev": "npm run build:compiler",
+    "dev": "vite",
+    "prebuild": "npm run build:compiler",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@codemirror/commands": "^6.8.1",
+    "@codemirror/lang-javascript": "^6.2.4",
+    "@codemirror/language": "^6.11.2",
+    "@codemirror/state": "^6.5.2",
+    "@codemirror/view": "^6.38.0",
+    "@lezer/highlight": "^1.2.1",
+    "typescript": "^5.9.3",
+    "vite": "^6.0.0"
+  }
+}
