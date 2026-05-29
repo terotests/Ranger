@@ -270,6 +270,29 @@ node tests/.output/process_page_lifecycle.js
 node tests/.output/process_page_lifecycle.js interactive
 ```
 
+### `process_modal_dialog_timer.rgr` — page → modal → timer → close → repeat
+
+Home `UIPage` opens a `ModalDialog` child; the modal owns a `DialogTimer` (4 ticks). When the timer hits zero the modal and timer are `proc_stop`ped, then the page opens the next modal (3 cycles, then exit). CLI shows the process tree and lifecycle log each frame.
+
+```bash
+node bin/output.js -es6 tests/fixtures/process_modal_dialog_timer.rgr -nodecli -d=tests/.output -o=process_modal_dialog_timer.js
+node tests/.output/process_modal_dialog_timer.js
+node tests/.output/process_modal_dialog_timer.js interactive
+```
+
+Vitest: `tests/compiler-process-modal-dialog.test.ts` (auto mode).
+
+### `process_external_spawn.rgr` — `new` parent when caller is outside the process
+
+A normal class calls `host.spawnWorkerFromOutside()`; `new WorkerProcess` inside that method must register under the host (`parentIdOf` / `__rangerParentId`). Controls: direct `new` from the orchestrator (root) and `sfn` static spawn on the process class (root).
+
+```bash
+node bin/output.js -es6 tests/fixtures/process_external_spawn.rgr -nodecli -d=tests/.output -o=process_external_spawn.js
+node tests/.output/process_external_spawn.js
+```
+
+Vitest: `tests/compiler-process-external-spawn.test.ts`.
+
 These are **mechanism demos**. A follow-up fixture could add `inboundMessages` + `drainInbound` on the same classes to show orchestration **without** compiler changes — optional next step.
 
 ---
