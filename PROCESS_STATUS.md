@@ -1,6 +1,7 @@
 # Ranger `@process` — implementation status
 
-Factual status of the **compiler and runtime** slice. For whether the MVP is **enough to build product orchestration** (messages, UI, timers, navigation), see **[PROCESS_MVP.md](PROCESS_MVP.md)**.
+Factual status of the **compiler and runtime** slice. For whether the MVP is **enough to build product orchestration** (messages, UI, timers, navigation), see **[PROCESS_MVP.md](PROCESS_MVP.md)**.  
+For how `@process` relates to Smalltalk, React hooks, Erlang, and other models, see **[PROCESS_COMPARISON.md](PROCESS_COMPARISON.md)**.
 
 Last updated after **`proc_send`**, **`findProcess` on `ProcessNameRegistry`**, singleton `new` for TS, and the **Vite counter-board gallery**.
 
