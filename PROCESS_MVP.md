@@ -4,6 +4,7 @@ What the **compiler MVP** is for, what it already proves, and whether “product
 
 **Implementation facts and compiler checklist:** [PROCESS_STATUS.md](PROCESS_STATUS.md)  
 **Operators and lifecycle:** [PROCESS_LIFECYCLE.md](PROCESS_LIFECYCLE.md)  
+**Cross-paradigm comparison (Smalltalk, React, Erlang, …):** [PROCESS_COMPARISON.md](PROCESS_COMPARISON.md)  
 **ObjC / UIKit comparison:** [PROCESS_COMPARE_WITH_OBJECTIVEC.md](PROCESS_COMPARE_WITH_OBJECTIVEC.md)  
 **React gallery (`@name`, `useProcess`, `markStateDirty`):** [gallery/process_counter_board/README.md](gallery/process_counter_board/README.md)  
 **Android / iOS exploratory galleries:** [process_counter_android](gallery/process_counter_android/README.md), [process_counter_ios](gallery/process_counter_ios/README.md)
