@@ -1,0 +1,53 @@
+
+Import "RangerProcess.rgr"
+
+class AlphaPage @process(true) @name("app.alpha") extends RangerProcessBase {
+  def score:int 0
+
+  fn bump:void () {
+    score = score + 1
+    this.markStateDirty()
+  }
+}
+
+class BetaPage @process(true) @name("app.beta") extends RangerProcessBase {
+  def label:string "beta"
+}
+
+class NamedPathsDemo {
+  fn run:void () {
+    def a:AlphaPage (new AlphaPage)
+    def b:BetaPage (new BetaPage)
+    proc_start a
+    proc_start b
+    a.bump()
+    def found@(optional):RangerProcessBase (find_process "app.alpha")
+    if (null? found) {
+      print "FAIL named: alpha not found"
+      return
+    }
+    if (a.score != 1) {
+      print "FAIL named: alpha score"
+      return
+    }
+    def reg (ProcessNameRegistry.__singleton())
+    if (reg.hasLive("app.beta") == false) {
+      print "FAIL named: beta not live"
+      return
+    }
+    proc_stop a
+    proc_stop b
+    if (reg.hasLive("app.alpha")) {
+      print "FAIL named: alpha still live after stop"
+      return
+    }
+    print "OK process named paths"
+  }
+}
+
+class Test_NamedPaths {
+  sfn m@(main):void () {
+    def demo (new NamedPathsDemo)
+    demo.run()
+  }
+}

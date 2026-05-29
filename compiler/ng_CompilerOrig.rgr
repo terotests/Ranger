@@ -587,6 +587,15 @@ class CompilerInterface {
           def importFork:CodeWriter (wr.fork())
           def contentFork (wr.fork())
           def theEnd (wr.createTag("file_end"))
+          if (appCtx.hasCompilerFlag("typescript")) {
+            if (has appCtx.compilerSettings "processTsHelpers") {
+              def __rgrTs:string (unwrap (get appCtx.compilerSettings "processTsHelpers"))
+              if ((strlen __rgrTs) > 0) {
+                theEnd.raw(__rgrTs false)
+                theEnd.newline()
+              }
+            }
+          }
 
           wr = contentFork
 

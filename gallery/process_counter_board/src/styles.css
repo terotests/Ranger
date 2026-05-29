@@ -1,0 +1,133 @@
+:root {
+  font-family: system-ui, sans-serif;
+  color: #e8e8ec;
+  background: #14141a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.app {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  min-height: 100vh;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+main {
+  max-width: 640px;
+}
+
+.board header h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.5rem;
+}
+
+.meta,
+.muted {
+  color: #9a9aa8;
+  font-size: 0.85rem;
+}
+
+code {
+  font-size: 0.85em;
+  background: #252530;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+button {
+  background: #2d2d3a;
+  color: inherit;
+  border: 1px solid #44445a;
+  border-radius: 6px;
+  padding: 0.4rem 0.75rem;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: #3a3a4d;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.rows {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.board:focus {
+  outline: none;
+}
+
+.row {
+  display: flex;
+  gap: 1rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  margin-bottom: 0.35rem;
+  background: #1c1c26;
+  cursor: pointer;
+}
+
+.row:focus-visible {
+  outline: 1px solid #8a9eff;
+  outline-offset: 2px;
+}
+
+.row.selected {
+  outline: 1px solid #6b8cff;
+  background: #222233;
+}
+
+.row .run {
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: #8bc48b;
+}
+
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 1.5rem;
+  margin-top: 1rem;
+  color: #9a9aa8;
+}
+
+.keys-hint {
+  flex: 1 1 100%;
+  font-size: 0.8rem;
+}
+
+.tree-panel {
+  border-left: 1px solid #333;
+  padding-left: 1rem;
+  font-size: 0.8rem;
+}
+
+.tree {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 0;
+}
+
+.tree-toggle {
+  width: 100%;
+}

@@ -4135,9 +4135,12 @@ public <T> T _arr_extract( ArrayList<T> list, Integer i )  {
                     "const readline = require('readline');" nl
                     "readline.emitKeypressEvents(process.stdin);" nl
                     "if (process.stdin.isTTY) { process.stdin.setRawMode(true); }" nl
-                    "process.stdin.on('keypress', (" (e 1) ", data) => {" nl I
-                    "if (data && data.ctrl && data.name === 'c') { process.stdout.write('\\x1b[?25h'); process.exit(); }" nl
-                    "if (data && data.name) { " (e 1) " = data.name; global.r_key_queue.push(" (e 1) "); }" nl
+                    "process.stdin.resume();" nl
+                    "process.stdin.on('keypress', (str, key) => {" nl I
+                    "if (key && key.ctrl && key.name === 'c') { process.stdout.write('\\x1b[?25h'); process.exit(); }" nl
+                    "var __rgr_k = \"\";" nl
+                    "if (key && key.name) { __rgr_k = key.name; } else if (str && str.length > 0) { __rgr_k = str; } else if (key && key.sequence) { __rgr_k = key.sequence; }" nl
+                    "if (__rgr_k !== \"\") { " (e 1) " = __rgr_k; global.r_key_queue.push(__rgr_k); }" nl
                     (block 2) 
                     i nl "});" nl
                  )
@@ -5336,6 +5339,36 @@ std::string r_cpp_str_to_uppercase(std::string original)
         }
 
         ; Process lifecycle operators (distinct from HttpServer start/stop)
+        find_process@(moves@( 1 )) cmdFindProcess:RangerProcessBase@(optional) (path:string) {
+            templates {
+                es6 ( "ProcessNameRegistry.__singleton().findByPath(" (e 1) ")" )
+                kotlin ( "ProcessNameRegistry.__singleton().findByPath(" (e 1) ")" )
+                swift6 ( "ProcessNameRegistry.__singleton().findByPath(" (e 1) ")" )
+                swift3 ( "ProcessNameRegistry.__singleton().findByPath(" (e 1) ")" )
+                * ( "/* find_process not implemented */" )
+            }
+        }
+
+        proc_send@(moves@( 2 )) cmdProcSendPath:void (path:string msg:Any) {
+            templates {
+                es6 ( "(() => { const __rgrP = ProcessNameRegistry.__singleton().findByPath(" (e 1) "); if (!__rgrP || __rgrP.__rangerId === 0) return; __rgrP.receiveMessage(" (e 2) "); })()" )
+                kotlin ( "run { val __rgrP = ProcessNameRegistry.__singleton().findByPath(" (e 1) "); if (__rgrP == null || __rgrP.__rangerId == 0) return@run; __rgrP.receiveMessage(" (e 2) ") }" )
+                swift6 ( "{ let __rgrP = ProcessNameRegistry.__singleton().findByPath(" (e 1) "); guard let p = __rgrP, p.__rangerId != 0 else { return }; p.receiveMessage(" (e 2) ") }" )
+                swift3 ( "{ let __rgrP = ProcessNameRegistry.__singleton().findByPath(" (e 1) "); guard let p = __rgrP, p.__rangerId != 0 else { return }; p.receiveMessage(" (e 2) ") }" )
+                * ( "/* proc_send path not implemented */" )
+            }
+        }
+
+        proc_send@(moves@( 2 )) cmdProcSendProc:void (proc:RangerProcessBase msg:Any) {
+            templates {
+                es6 ( "(() => { const __rgrP = " (e 1) "; if (!__rgrP || __rgrP.__rangerId === 0) return; __rgrP.receiveMessage(" (e 2) "); })()" )
+                kotlin ( "run { val __rgrP = " (e 1) "; if (__rgrP.__rangerId == 0) return@run; __rgrP.receiveMessage(" (e 2) ") }" )
+                swift6 ( "{ let __rgrP = " (e 1) "; guard __rgrP.__rangerId != 0 else { return }; __rgrP.receiveMessage(" (e 2) ") }" )
+                swift3 ( "{ let __rgrP = " (e 1) "; guard __rgrP.__rangerId != 0 else { return }; __rgrP.receiveMessage(" (e 2) ") }" )
+                * ( "/* proc_send proc not implemented */" )
+            }
+        }
+
         proc_start@(moves@( 1 )) cmdProcStart:void (proc:RangerProcessBase) {
             templates {
                 es6 ( "ProcessRuntime.startInstance(" (e 1) ")" )
@@ -5358,20 +5391,20 @@ std::string r_cpp_str_to_uppercase(std::string original)
 
         proc_stop@(moves@( 1 )) cmdProcStopProcessId:void (processId:int) {
             templates {
-                es6 ( "ProcessRuntime.__singleton().stopByProcessId(" (e 1) ")" )
-                kotlin ( "ProcessRuntime.__singleton().stopByProcessId(" (e 1) ")" )
-                swift6 ( "ProcessRuntime.__singleton().stopByProcessId(" (e 1) ")" )
-                swift3 ( "ProcessRuntime.__singleton().stopByProcessId(" (e 1) ")" )
+                es6 ( "ProcessRuntime.stopByProcessId(" (e 1) ")" )
+                kotlin ( "ProcessRuntime.stopByProcessId(" (e 1) ")" )
+                swift6 ( "ProcessRuntime.stopByProcessId(" (e 1) ")" )
+                swift3 ( "ProcessRuntime.stopByProcessId(" (e 1) ")" )
                 * ( "/* proc_stop processId not implemented */" )
             }
         }
 
         proc_stop@(moves@( 1 )) cmdProcStopClass:void (className:string) {
             templates {
-                es6 ( "ProcessRuntime.__singleton().stopByClassName(" (e 1) ")" )
-                kotlin ( "ProcessRuntime.__singleton().stopByClassName(" (e 1) ")" )
-                swift6 ( "ProcessRuntime.__singleton().stopByClassName(" (e 1) ")" )
-                swift3 ( "ProcessRuntime.__singleton().stopByClassName(" (e 1) ")" )
+                es6 ( "ProcessRuntime.stopByClassName(" (e 1) ")" )
+                kotlin ( "ProcessRuntime.stopByClassName(" (e 1) ")" )
+                swift6 ( "ProcessRuntime.stopByClassName(" (e 1) ")" )
+                swift3 ( "ProcessRuntime.stopByClassName(" (e 1) ")" )
                 * ( "/* proc_stop class not implemented */" )
             }
         }

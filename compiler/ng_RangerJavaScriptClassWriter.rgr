@@ -16,6 +16,23 @@ class RangerJavaScriptClassWriter {
     return ";"
   }
 
+  fn writeTsOptionalReturnSuffix:void (variant:RangerAppFunctionDesc wr:CodeWriter) {
+    if (target_typescript == false) {
+      return
+    }
+    if (variant.nameNode.hasFlag("optional")) {
+      wr.out(" | undefined" false)
+      return
+    }
+    def rv@(optional):RangerAppParamDesc variant.return_value
+    if (null? rv) {
+      return
+    }
+    if (rv.is_optional) {
+      wr.out(" | undefined" false)
+    }
+  }
+
   fn adjustType:string (tn:string) {
     if (tn == "this") {
       return "this"
@@ -662,6 +679,14 @@ class RangerJavaScriptClassWriter {
   }
   fn writeClassVarDef:void (p:RangerAppParamDesc ctx:RangerAppWriterContext wr:CodeWriter) {
       if target_typescript {
+        def cl@(optional weak):RangerAppClassDesc ctx.currentClass
+        def is_singleton:boolean false
+        if ((null? cl) == false) {
+          def clDesc:RangerAppClassDesc (unwrap cl)
+          if (clDesc.isSingletonClass()) {
+            is_singleton = true
+          }
+        }
         def pNode:CodeNode p.node
         def has_ctor_init:boolean false
         if ((array_length pNode.children) > 2) {
@@ -676,11 +701,17 @@ class RangerJavaScriptClassWriter {
           wr.out("static " false)
         }
         wr.out( p.compiledName false)
-        if((p.is_static == false) && p.is_optional) {
-          if(has_ctor_init) {
-            wr.out("!" false)
+        if (p.is_static == false) {
+          if (p.is_optional) {
+            if(has_ctor_init) {
+              wr.out("!" false)
+            } {
+              wr.out("?" false)
+            }
           } {
-            wr.out("?" false)
+            if (is_singleton || has_ctor_init) {
+              wr.out("!" false)
+            }
           }
         }
         wr.out(": " false)
@@ -957,6 +988,14 @@ class RangerJavaScriptClassWriter {
       wr.out(") {" true)
       wr.indent(1)
 
+      if (cl.isSingletonClass()) {
+        wr.out(("if (" + cl.name + ".__singleton_instance != null) {") true)
+        wr.indent(1)
+        wr.out(("return " + cl.name + ".__singleton_instance;") true)
+        wr.indent(-1)
+        wr.out("}" , true)
+      }
+
       if(b_extd) {
         if(!null? parentClass) {
           def pc:RangerAppClassDesc (unwrap parentClass)
@@ -1017,9 +1056,12 @@ class RangerJavaScriptClassWriter {
         subCtx.is_function = true
         this.WalkNode(( unwrap constr.fnBody ) subCtx wr)
       }
+      if (cl.isSingletonClass()) {
+        wr.out((cl.name + ".__singleton_instance = this;") true)
+      }
       wr.newline()
       wr.indent(-1)
-      wr.out("}" true)
+      wr.out("}" , true)
     }
     for cl.defined_variants fnVar:string i {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
@@ -1041,7 +1083,8 @@ class RangerJavaScriptClassWriter {
           this.writeTypeDef( (unwrap variant.nameNode ) ctx wr)
           if( variant.nameNode.hasFlag('async') ) {
             wr.out('>' false)
-          }             
+          }
+          this.writeTsOptionalReturnSuffix(variant wr)
           wr.out(" " false)        
         }
 
@@ -1092,8 +1135,8 @@ class RangerJavaScriptClassWriter {
         this.writeTypeDef( (unwrap variant.nameNode ) ctx wr)
         if( variant.nameNode.hasFlag('async') ) {
           wr.out('> ' false)
-        }        
-
+        }
+        this.writeTsOptionalReturnSuffix(variant wr)
 
         wr.out(" " false)        
         wr.out(" {" true)

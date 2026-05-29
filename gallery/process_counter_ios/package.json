@@ -1,0 +1,8 @@
+{
+  "name": "ranger-process-counter-board-ios",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "build:ranger": "node scripts/build-ranger.mjs"
+  }
+}

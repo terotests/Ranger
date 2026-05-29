@@ -179,9 +179,9 @@ class ProcessDemoApp {
   fn printMenu:void () {
     print ""
     if (this.paused) {
-      print "  ** PAUSED **   [p] resume  [k] kick  [d] dump  [s] registry  [q] quit"
+      print "  ** PAUSED **   [p] resume  [k] kick  [d] dump  [t] tree  [q] quit"
     } {
-      print "  RUNNING        [p] pause     [k] kick  [d] dump  [s] registry  [q] quit"
+      print "  RUNNING        [p] pause     [k] kick  [d] dump  [t] tree  [q] quit"
     }
   }
 
@@ -200,7 +200,9 @@ class ProcessDemoApp {
     this.visualStack()
     this.printMenu()
     if (showRegistry) {
-      this.registryTable()
+      def roots (ProcessRuntime.collectAllLiveRoots())
+      def view:ProcessTreeView (new ProcessTreeView)
+      view.renderRoots(roots "  @process tree")
       showRegistry = false
     }
     this.log.printTail()
@@ -263,7 +265,7 @@ class ProcessDemoApp {
 
   fn cmdShowRegistry:void () {
     showRegistry = true
-    this.log.add("registry")
+    this.log.add("process tree")
   }
 
   fn dispatch:void (cmd:string) {
@@ -276,6 +278,10 @@ class ProcessDemoApp {
       return
     }
     if (cmd == "s") {
+      this.cmdShowRegistry()
+      return
+    }
+    if (cmd == "t") {
       this.cmdShowRegistry()
       return
     }
@@ -322,6 +328,14 @@ class ProcessDemoApp {
     }
     if (key == "S") {
       this.dispatch("s")
+      return
+    }
+    if (key == "t") {
+      this.dispatch("t")
+      return
+    }
+    if (key == "T") {
+      this.dispatch("t")
       return
     }
     if (key == "p") {
