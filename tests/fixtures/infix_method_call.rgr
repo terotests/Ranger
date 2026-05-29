@@ -12,8 +12,8 @@ class InfixMethodCallTest {
     sfn m@(main):void () {
         def numPart "42"
 
-        ; Should compile: dot-call followed by infix >=
-        if (InfixMethodCallTest.parseInt(numPart) >= 0) {
+        ; Dot-call then infix: inner parens keep arg-list closed before >=
+        if ((InfixMethodCallTest.parseInt(numPart)) >= 0) {
             print "ok dot-call infix"
         }
 
