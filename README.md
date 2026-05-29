@@ -1,6 +1,6 @@
 # Ranger cross language compiler
 
-**Version 3.0.4** | Status: `experimental`
+**Version 3.0.5** | Status: `experimental`
 
 Ranger is a self-hosting cross-language compiler for writing portable algorithms, parsers, generators, and small tools once and compiling them to multiple target languages.
 
@@ -27,6 +27,7 @@ If you want one sentence of positioning: Ranger is currently more convincing as 
 
 ## Where To Start
 
+- [Online playground](https://terotests.github.io/Ranger/) — try Ranger in the browser (`playground/`, Vite + current compiler)
 - `README.md` - language overview, installation, and syntax notes
 - `ai/QUICKREF.md` - fast reference for syntax and core concepts
 - `ai/INSTRUCTIONS.md` - fuller language guide for operators, templates, and compiler concepts

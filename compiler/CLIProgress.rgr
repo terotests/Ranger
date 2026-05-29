@@ -90,7 +90,7 @@ operators {
     ; Check if running in TTY (terminal)
     is_tty          cmdIsTTY:boolean () {
         templates {
-            es6 ( "(process.stdout.isTTY || false)" )
+            es6 ( "((typeof process !== \"undefined\" && process.stdout && process.stdout.isTTY) || false)" )
             * ( "false" )
         }
     }
@@ -117,7 +117,7 @@ class CLIProgress {
     def inputFile:string ""
     def outputFile:string ""
     def targetLanguage:string ""
-    def compilerVersion:string "3.0.4"
+    def compilerVersion:string "3.0.5"
     
     Constructor () {
         ; Detect if colors should be used

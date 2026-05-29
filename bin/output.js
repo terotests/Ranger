@@ -7875,6 +7875,9 @@ class RangerServiceBuilder  {
   };
   async CreateServices (parser, ctx, orig_wr) {
     if ( ctx.hasCompilerFlag("client") || ctx.hasCompilerSetting("client") ) {
+      if ( ctx.targetLangName == "es6" ) {
+        return;
+      }
       console.log("--> could create Client services for Java here...");
       const root = ctx.getRoot();
       const cl = this.createOpStaticClass(ctx, "RangerAppService");
@@ -28696,8 +28699,8 @@ class CLIProgress  {
     this.inputFile = "";
     this.outputFile = "";
     this.targetLanguage = "";
-    this.compilerVersion = "3.0.4";
-    this.useColors = (process.stdout.isTTY || false);
+    this.compilerVersion = "3.0.5";
+    this.useColors = ((typeof process !== "undefined" && process.stdout && process.stdout.isTTY) || false);
     this.startTime = Date.now();
   }
   setUseColors (use) {

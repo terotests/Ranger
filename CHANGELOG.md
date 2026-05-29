@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.5] - 2026-05-29
+
+### Added
+
+- **`@process` messaging** — `proc_send` operator; `receiveMessage` on `RangerProcessBase`; `find_process` / `ProcessNameRegistry.findProcess`
+- **TypeScript named paths** — `-typescript` emits `ProcessPath`, `findProcess` on registry, singleton `new` returns shared instance
+- **`RangerProcess.rgr` in npm lib** — included under `dist/lib/` when running `npm run build:dist`
+
+### Fixed
+
+- **`build:dist:copy`** — `rm -rf dist/lib` before copy so new lib files (e.g. `RangerProcess.rgr`) land in `dist/lib/` instead of nested `dist/lib/lib/`
+
+### Changed
+
+- Version bumped from `3.0.4` to `3.0.5`
+
 ## [3.0.4] - 2026-05-12
 
 ### Fixed

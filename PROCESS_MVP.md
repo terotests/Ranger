@@ -104,7 +104,7 @@ Or: `ProcessKernel` slot stores `RangerProcessBase` / typed `@process` reference
 
 **Not a fundamental gap** — pattern is explicit and matches ObjC “run loop turns, drain queue” ([PROCESS_COMPARE_WITH_OBJECTIVEC.md](PROCESS_COMPARE_WITH_OBJECTIVEC.md)).
 
-**Compiler v1 shortcut:** `proc_send "app.chat" msg` or `proc_send target msg` calls `receiveMessage(msg)` on a live process (`RangerProcessBase` stub; override on your class). TypeScript hosts use generated `findProcess(path)` for typed lookup. Fixture: [`tests/fixtures/process_proc_send.rgr`](tests/fixtures/process_proc_send.rgr).
+**Compiler v1 shortcut:** `proc_send "app.chat" name value` or `proc_send target name value` calls `receiveMessage(name, value)` on a live process (both strings; override on your class). TypeScript hosts use generated `findProcess(path)` for typed lookup. Fixture: [`tests/fixtures/process_proc_send.rgr`](tests/fixtures/process_proc_send.rgr).
 
 ---
 

@@ -6,41 +6,116 @@ class AlphaPage @process(true) @name("app.alpha") extends RangerProcessBase {
 
   fn bump:void () {
     score = score + 1
+    print ("  AlphaPage.bump -> score=" + (to_string score))
     this.markStateDirty()
+  }
+
+  fn printStatus:void () {
+    print ("  AlphaPage status path=app.alpha score=" + (to_string score))
+  }
+
+  fn resetScore:void () {
+    score = 0
+    print "  AlphaPage.resetScore"
+    this.markStateDirty()
+  }
+
+  fn receiveMessage:void (name:string value:string) {
+    print ("  AlphaPage.receiveMessage name=" + name + " value=" + value)
+    if (name == "ping") {
+      score = score + 1
+      this.markStateDirty()
+    }
   }
 }
 
 class BetaPage @process(true) @name("app.beta") extends RangerProcessBase {
   def label:string "beta"
+
+  fn setLabel:void (next:string) {
+    label = next
+    print ("  BetaPage.setLabel -> " + label)
+    this.markStateDirty()
+  }
+
+  fn printLabel:void () {
+    print ("  BetaPage label=" + label)
+  }
+
+  fn receiveMessage:void (name:string value:string) {
+    print ("  BetaPage.receiveMessage name=" + name + " value=" + value)
+    if (name == "rename") {
+      label = value
+      this.markStateDirty()
+    }
+  }
 }
 
 class NamedPathsDemo {
   fn run:void () {
-    def a:AlphaPage (new AlphaPage)
-    def b:BetaPage (new BetaPage)
-    proc_start a
-    proc_start b
-    a.bump()
-    def found@(optional):RangerProcessBase (find_process "app.alpha")
-    if (null? found) {
+    print "== named @process paths =="
+
+    def alphaPage:AlphaPage (new AlphaPage)
+    def betaPage:BetaPage (new BetaPage)
+    proc_start alphaPage
+    proc_start betaPage
+
+    print "1) direct calls on started instances"
+    alphaPage.bump()
+    betaPage.setLabel("ready")
+    betaPage.printLabel()
+
+    print "2) find_process + cast -> call typed methods"
+    def alphaFound@(optional):RangerProcessBase (find_process "app.alpha")
+    if (null? alphaFound) {
       print "FAIL named: alpha not found"
       return
     }
-    if (a.score != 1) {
-      print "FAIL named: alpha score"
+    def alphaViaPath:AlphaPage (cast (unwrap alphaFound) to:AlphaPage)
+    alphaViaPath.printStatus()
+    alphaViaPath.bump()
+
+    def betaFound@(optional):RangerProcessBase (find_process "app.beta")
+    if (null? betaFound) {
+      print "FAIL named: beta not found"
       return
     }
-    def reg (ProcessNameRegistry.__singleton())
-    if (reg.hasLive("app.beta") == false) {
+    def betaViaPath:BetaPage (cast (unwrap betaFound) to:BetaPage)
+    betaViaPath.printLabel()
+    betaViaPath.setLabel("via-find-process")
+
+    print "3) proc_send by path and by reference"
+    proc_send alphaPage "ping" "from-demo"
+    proc_send "app.beta" "rename" "renamed-by-path"
+
+    if (alphaPage.score != 3) {
+      print "FAIL named: alpha score (expected 3)"
+      return
+    }
+    if (betaPage.label != "renamed-by-path") {
+      print "FAIL named: beta label"
+      return
+    }
+
+    def registry (ProcessNameRegistry.__singleton())
+    if (registry.hasLive("app.beta") == false) {
       print "FAIL named: beta not live"
       return
     }
-    proc_stop a
-    proc_stop b
-    if (reg.hasLive("app.alpha")) {
+
+    print "4) stop and verify registry"
+    proc_stop alphaPage
+    proc_stop betaPage
+    if (registry.hasLive("app.alpha")) {
       print "FAIL named: alpha still live after stop"
       return
     }
+    proc_send "app.alpha" "late" "ignored"
+    if (alphaPage.score != 3) {
+      print "FAIL named: message after stop should not change score"
+      return
+    }
+
     print "OK process named paths"
   }
 }
