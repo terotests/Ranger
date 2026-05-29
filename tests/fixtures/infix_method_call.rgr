@@ -1,0 +1,25 @@
+; Test: infix comparison after dot-method call vs lisp-style call
+
+class InfixMethodCallTest {
+    static fn parseInt:int (s:string) {
+        def vOpt (str2int s)
+        if (null? vOpt) {
+            return -1
+        }
+        return (unwrap vOpt)
+    }
+
+    sfn m@(main):void () {
+        def numPart "42"
+
+        ; Should compile: dot-call followed by infix >=
+        if (InfixMethodCallTest.parseInt(numPart) >= 0) {
+            print "ok dot-call infix"
+        }
+
+        ; Control: lisp-style operator call followed by infix >=
+        if ((strlen numPart) >= 0) {
+            print "ok lisp-call infix"
+        }
+    }
+}

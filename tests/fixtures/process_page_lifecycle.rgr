@@ -1,0 +1,253 @@
+Import "RangerProcess.rgr"
+
+class LifecycleLog @singleton(true) {
+  def lines:[string]
+
+  fn add:void (msg:string) {
+    push lines msg
+  }
+
+  fn dump:void () {
+    print "  lifecycle:"
+    for lines ln:string i {
+      print ("    | " + ln)
+    }
+  }
+
+  sfn log:void (msg:string) {
+    def inst (LifecycleLog.__singleton())
+    inst.add(msg)
+  }
+
+  sfn dumpAll:void () {
+    def inst (LifecycleLog.__singleton())
+    inst.dump()
+  }
+}
+
+class ScreenProcess @process(true) extends RangerProcessBase {
+  def width:int 0
+  def height:int 0
+  def activePage@(optional):UIPage
+  def hasActivePage:boolean false
+  def activeTitle:string ""
+
+  fn openPage:UIPage (title:string) {
+    def page (new UIPage)
+    page.screen = this
+    page.title = title
+    return page
+  }
+
+  fn switchTo:void (title:string) {
+    if (hasActivePage) {
+      def old:UIPage (unwrap activePage)
+      proc_stop old
+      hasActivePage = false
+      activeTitle = ""
+    }
+    def pg:UIPage (this.openPage(title))
+    activePage = pg
+    hasActivePage = true
+    activeTitle = title
+    proc_start pg
+    pg.boot()
+    LifecycleLog.log(("switch -> " + title))
+  }
+
+  fn stop:void () {
+    if (hasActivePage) {
+      def old:UIPage (unwrap activePage)
+      proc_stop old
+      hasActivePage = false
+    }
+    LifecycleLog.log("STOP ScreenProcess")
+  }
+}
+
+class UIPage @process(true) extends RangerProcessBase {
+  def screen@(optional):ScreenProcess
+  def title:string ""
+
+  fn boot:void () {
+    def t:TimerProcess (new TimerProcess)
+    t.pageTitle = this.title
+    def c:TickChild (t.spawnTick())
+    c.pageTitle = this.title
+    LifecycleLog.log(("boot page " + this.title))
+  }
+
+  fn stop:void () {
+    LifecycleLog.log(("STOP UIPage " + this.title))
+  }
+}
+
+class TimerProcess @process(true) extends RangerProcessBase {
+  def pageTitle:string ""
+  def timeLeft:int 30
+
+  fn spawnTick:TickChild () {
+    def c (new TickChild)
+    c.pageTitle = this.pageTitle
+    c.tick = 1
+    return c
+  }
+
+  fn stop:void () {
+    LifecycleLog.log(("STOP TimerProcess " + this.pageTitle))
+  }
+}
+
+class TickChild @process(true) extends RangerProcessBase {
+  def pageTitle:string ""
+  def tick:int 0
+
+  fn stop:void () {
+    LifecycleLog.log(("STOP TickChild " + this.pageTitle + " n=" + (to_string tick)))
+  }
+}
+
+class PageLifecycleDemo {
+  def screen@(optional):ScreenProcess
+  def hasScreen:boolean false
+  def interactive:boolean false
+  def running:boolean true
+
+  fn countLive:int (className:string) {
+    if (className == "UIPage") {
+      def list (UIPage.allInstances())
+      def n 0
+      for list p:UIPage i {
+        if (p.__rangerId != 0) {
+          n = n + 1
+        }
+      }
+      return n
+    }
+    if (className == "TimerProcess") {
+      def list (TimerProcess.allInstances())
+      def n 0
+      for list t:TimerProcess i {
+        if (t.__rangerId != 0) {
+          n = n + 1
+        }
+      }
+      return n
+    }
+    if (className == "TickChild") {
+      def list (TickChild.allInstances())
+      def n 0
+      for list c:TickChild i {
+        if (c.__rangerId != 0) {
+          n = n + 1
+        }
+      }
+      return n
+    }
+    return 0
+  }
+
+  fn printCounts:void (label:string) {
+    print ("  counts " + label)
+    print ("    UIPage=" + (to_string (this.countLive("UIPage"))))
+    print ("    Timer=" + (to_string (this.countLive("TimerProcess"))))
+    print ("    Tick=" + (to_string (this.countLive("TickChild"))))
+  }
+
+  fn runAuto:void () {
+    screen = (new ScreenProcess)
+    hasScreen = true
+    def sc:ScreenProcess (unwrap screen)
+    sc.width = 400
+    sc.height = 800
+    sc.switchTo("A")
+    this.printCounts("after A")
+    sc.switchTo("B")
+    this.printCounts("after B")
+    LifecycleLog.dumpAll()
+    sc.stop()
+    this.printCounts("after screen stop")
+  }
+
+  fn drawFrame:void () {
+    print "  +-- page lifecycle (1=A 2=B q=quit) --+"
+    if (hasScreen) {
+      def sc:ScreenProcess (unwrap screen)
+      print ("  active: " + sc.activeTitle)
+    }
+    this.printCounts("now")
+    LifecycleLog.dumpAll()
+  }
+
+  fn handleKey:void (key:string) {
+    if (key == "q") {
+      running = false
+      return
+    }
+    if (key == "1") {
+      def sc:ScreenProcess (unwrap screen)
+      sc.switchTo("A")
+      return
+    }
+    if (key == "2") {
+      def sc:ScreenProcess (unwrap screen)
+      sc.switchTo("B")
+      return
+    }
+  }
+
+  fn drainKeys:void () {
+    while (true) {
+      def key (poll_keypress)
+      if (key == "") {
+        return
+      }
+      this.handleKey(key)
+    }
+  }
+
+  fn runInteractive:void () {
+    screen = (new ScreenProcess)
+    hasScreen = true
+    def sc:ScreenProcess (unwrap screen)
+    sc.width = 400
+    sc.height = 800
+    sc.switchTo("A")
+    while (running) {
+      this.drawFrame()
+      this.drainKeys()
+      sleep_ms 80
+    }
+    def sc:ScreenProcess (unwrap screen)
+    sc.stop()
+  }
+
+  fn run:void () {
+    if (interactive) {
+      this.runInteractive()
+    } {
+      this.runAuto()
+    }
+    print ""
+    print "OK process page lifecycle"
+  }
+}
+
+class Test_PageLifecycle {
+  sfn m@(main):void () {
+    def app (new PageLifecycleDemo)
+    def argc (shell_arg_cnt)
+    if (argc > 0) {
+      def mode (shell_arg 0)
+      if (mode == "interactive") {
+        app.interactive = true
+      }
+    }
+    if (app.interactive) {
+      def key:string ""
+      on_keypress key {
+      }
+    }
+    app.run()
+  }
+}

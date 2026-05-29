@@ -335,7 +335,10 @@ class RangerKotlinClassWriter {
     if node.hasNewOper {
       def cl:RangerAppClassDesc node.clDesc
       def givenArgs:CodeNode (node.getThird())
-      if (cl.nameNode.hasFlag("singleton")) {
+      if (this.tryWriteProcessNewCall(node ctx wr)) {
+        return
+      }
+      if (cl.isSingletonClass()) {
         wr.out(" " false)
         wr.out((node.clDesc.name + ".__singleton") false)
         wr.out("(" false)
@@ -377,7 +380,7 @@ class RangerKotlinClassWriter {
     def wr:CodeWriter orig_wr
     def importFork:CodeWriter (wr.fork())
     wr.out("" true)
-    if cl.is_extended_by_children {
+    if (cl.is_extended_by_children || (cl.name == "RangerProcessBase")) {
       wr.out(("open class " + cl.name) false)
     } {
       wr.out(("class " + cl.name) false)
@@ -447,7 +450,7 @@ class RangerKotlinClassWriter {
     if (((array_length cl.static_methods) > 0) || has_static_vars) {
       wants_companion = true
     }
-    if (cl.nameNode.hasFlag("singleton")) {
+    if (cl.isSingletonClass()) {
       wants_companion = true
     }
     for cl.variables pvar:RangerAppParamDesc i {
@@ -479,7 +482,7 @@ class RangerKotlinClassWriter {
       }
       this.writeVarDef((unwrap pvar.node) ctx wr)
     }
-    if (cl.nameNode.hasFlag("singleton")) {
+    if (cl.isSingletonClass()) {
       wr.out(("private var __singleton_instance : " + cl.compiledName + "? = null") true)
       wr.out("fun __singleton(" false)
       if cl.has_constructor {
@@ -529,6 +532,10 @@ class RangerKotlinClassWriter {
       wr.newline()
       def subCtx:RangerAppWriterContext (unwrap variant.fnCtx)
       subCtx.is_function = true
+      subCtx.in_method = true
+      subCtx.in_static_method = false
+      subCtx.currentMethod = variant
+      subCtx.setCurrentClass( (unwrap cl) )
       this.WalkNode( (unwrap variant.fnBody ) subCtx wr)
       wr.newline()
       wr.indent(-1)
@@ -570,6 +577,10 @@ class RangerKotlinClassWriter {
         wr.newline()
         def subCtx:RangerAppWriterContext (unwrap variant.fnCtx)
         subCtx.is_function = true
+        subCtx.in_method = true
+        subCtx.in_static_method = false
+        subCtx.currentMethod = variant
+        subCtx.setCurrentClass( (unwrap cl) )
         this.WalkNode( (unwrap variant.fnBody ) subCtx wr)
         wr.newline()
         wr.indent(-1)
@@ -586,6 +597,9 @@ class RangerKotlinClassWriter {
         wr.newline()
         def subCtx:RangerAppWriterContext (unwrap variant.fnCtx )
         subCtx.is_function = true
+        subCtx.in_method = false
+        subCtx.in_static_method = true
+        subCtx.currentMethod = variant
         this.WalkNode( (unwrap variant.fnBody ) subCtx wr)
         wr.newline()
         wr.indent(-1)

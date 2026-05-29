@@ -700,7 +700,10 @@ class RangerJavaScriptClassWriter {
     if node.hasNewOper {
       def cl:RangerAppClassDesc node.clDesc
       def givenArgs:CodeNode (node.getThird())
-      if (cl.nameNode.hasFlag("singleton")) {
+      if (this.tryWriteProcessNewCall(node ctx wr)) {
+        return
+      }
+      if (cl.isSingletonClass()) {
         wr.out((node.clDesc.name + ".__singleton") false)
         wr.out("(" false)
         for givenArgs.children n:CodeNode i {
@@ -1105,7 +1108,7 @@ class RangerJavaScriptClassWriter {
 
       }
 
-      if (cl.nameNode.hasFlag("singleton")) {
+      if (cl.isSingletonClass()) {
         wr.out(("static __singleton_instance : " + cl.name + " | null = null;") true)
         wr.out("static __singleton(" false)
         if cl.has_constructor {
@@ -1170,7 +1173,7 @@ class RangerJavaScriptClassWriter {
         wr.out(";" true)
       }
 
-      if (cl.nameNode.hasFlag("singleton")) {
+      if (cl.isSingletonClass()) {
         wr.out(((cl.name + ".__singleton_instance") + " = null;") true)
         wr.out(((cl.name + ".__singleton") + " = function(") false)
         if cl.has_constructor {

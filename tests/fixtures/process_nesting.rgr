@@ -1,0 +1,447 @@
+Import "RangerProcess.rgr"
+
+class ScreenProcess @process(true) extends RangerProcessBase {
+  def width:int 0
+  def height:int 0
+
+  fn openDemoPage:UIPage () {
+    def page (new UIPage)
+    page.screen = this
+    page.title = "TimerDemo"
+    return page
+  }
+}
+
+class UIPage @process(true) extends RangerProcessBase {
+  def screen@(optional):ScreenProcess
+  def title:string ""
+
+  fn startTimer:TickChild () {
+    def t:TimerProcess (new TimerProcess)
+    def c:TickChild (t.spawnTick())
+    return c
+  }
+}
+
+class TimerProcess @process(true) extends RangerProcessBase {
+  def timeLeft:int 60
+
+  fn spawnTick:TickChild () {
+    def c (new TickChild)
+    c.tick = 1
+    return c
+  }
+
+  fn pulse:void () {
+    if (timeLeft > 0) {
+      timeLeft = timeLeft - 1
+    }
+  }
+}
+
+class TickChild @process(true) extends RangerProcessBase {
+  def tick:int 0
+}
+
+class ProcessEventLog {
+  def lines:[string]
+  def maxLines:int 3
+
+  fn add:void (msg:string) {
+    push lines msg
+  }
+
+  fn printTail:void () {
+    print "  log:"
+    def n (size lines)
+    if (n == 0) {
+      print "  | (empty)"
+      return
+    }
+    def skip 0
+    if (n > maxLines) {
+      skip = n - maxLines
+    }
+    def i skip
+    while (i < n) {
+      print ("  | " + (at lines i))
+      i = i + 1
+    }
+  }
+}
+
+class ProcessDemoApp {
+  def screen@(optional):ScreenProcess
+  def hasScreen:boolean false
+  def page@(optional):UIPage
+  def hasPage:boolean false
+  def activeTimer@(optional):TimerProcess
+  def hasTimer:boolean false
+  def activeTick@(optional):TickChild
+  def hasTick:boolean false
+  def log:ProcessEventLog (new ProcessEventLog)
+  def turn:int 0
+  def running:boolean true
+  def interactive:boolean false
+  def paused:boolean false
+  def frame:int 0
+  def pulseEvery:int 10
+  def showRegistry:boolean false
+
+  fn bootstrap:void () {
+    screen = (new ScreenProcess)
+    screen.width = 400
+    screen.height = 800
+    hasScreen = true
+    def sc:ScreenProcess (unwrap screen)
+    def pg:UIPage (sc.openDemoPage())
+    page = pg
+    hasPage = true
+    def pg2:UIPage (unwrap page)
+    def tk:TickChild (pg2.startTimer())
+    activeTick = tk
+    hasTick = true
+    def timers (TimerProcess.allInstances())
+    if ((size timers) > 0) {
+      activeTimer = (at timers 0)
+      hasTimer = true
+    }
+    this.log.add("ready: page+timer")
+  }
+
+  fn printTimeBar:void (timeLeft:int) {
+    def bar:string ""
+    def filled 0
+    if (timeLeft > 24) {
+      filled = 24
+    } {
+      filled = timeLeft
+    }
+    def i 0
+    while (i < 24) {
+      if (i < filled) {
+        bar = bar + "#"
+      } {
+        bar = bar + "."
+      }
+      i = i + 1
+    }
+    print ("      [" + bar + "] " + (to_string timeLeft) + "s")
+  }
+
+  fn registryTable:void () {
+    def screens (ScreenProcess.allInstances())
+    def pages (UIPage.allInstances())
+    def timers (TimerProcess.allInstances())
+    def ticks (TickChild.allInstances())
+    print ""
+    print "  Registry"
+    print ("    Screen=" + (to_string (size screens)) + " Page=" + (to_string (size pages)) + " Timer=" + (to_string (size timers)) + " Tick=" + (to_string (size ticks)))
+    for screens s:ScreenProcess i {
+      print ("      screen #" + (to_string s.__rangerId) + " " + (to_string s.width) + "x" + (to_string s.height))
+    }
+    for pages p:UIPage i {
+      print ("      page   #" + (to_string p.__rangerId) + " " + p.title)
+    }
+    for timers t:TimerProcess i {
+      print ("      timer  #" + (to_string t.__rangerId) + " left=" + (to_string t.timeLeft))
+    }
+    for ticks c:TickChild i {
+      print ("      tick   #" + (to_string c.__rangerId) + " n=" + (to_string c.tick))
+    }
+  }
+
+  fn treeForTick:void (child:TickChild) {
+    def timerId (TimerProcess.parentIdOf(child))
+    def pageId (UIPage.parentIdOf(child))
+    def screenId (ScreenProcess.parentIdOf(child))
+    print ""
+    print "  parentIdOf(tick)"
+    print ("    timer  -> " + (to_string timerId))
+    print ("    page   -> " + (to_string pageId))
+    print ("    screen -> " + (to_string screenId))
+  }
+
+  fn visualStack:void () {
+    print ""
+    print "  Process tree"
+    def sc:ScreenProcess (unwrap screen)
+    print ("    Screen #" + (to_string sc.__rangerId))
+    def pg:UIPage (unwrap page)
+    print ("      Page \"" + pg.title + "\" #" + (to_string pg.__rangerId))
+    def tm:TimerProcess (unwrap activeTimer)
+    this.printTimeBar(tm.timeLeft)
+    print ("      Timer #" + (to_string tm.__rangerId))
+    def tk:TickChild (unwrap activeTick)
+    print ("        Tick #" + (to_string tk.tick) + "  id=" + (to_string tk.__rangerId))
+  }
+
+  fn printMenu:void () {
+    print ""
+    if (this.paused) {
+      print "  ** PAUSED **   [p] resume  [k] kick  [d] dump  [s] registry  [q] quit"
+    } {
+      print "  RUNNING        [p] pause     [k] kick  [d] dump  [s] registry  [q] quit"
+    }
+  }
+
+  fn drawDashboard:void () {
+    if (interactive) {
+      clear_screen
+      move_cursor 1 1
+    }
+    print "  +-- @process playground --------------------------------+"
+    if (this.paused) {
+      print "  |  PAUSED                                              |"
+    } {
+      print "  |  RUNNING (timer ticks every ~500ms)                  |"
+    }
+    print "  +------------------------------------------------------+"
+    this.visualStack()
+    this.printMenu()
+    if (showRegistry) {
+      this.registryTable()
+      showRegistry = false
+    }
+    this.log.printTail()
+  }
+
+  fn tickTimer:void () {
+    if (this.paused) {
+      return
+    }
+    if (hasTimer == false) {
+      return
+    }
+    frame = frame + 1
+    def phase (frame % pulseEvery)
+    if (phase != 0) {
+      return
+    }
+    def tm:TimerProcess (unwrap activeTimer)
+    tm.pulse()
+    if (hasTick) {
+      def tk:TickChild (unwrap activeTick)
+      tk.tick = tk.tick + 1
+    }
+    activeTimer = tm
+  }
+
+  fn cmdTogglePause:void () {
+    if (this.paused) {
+      this.paused = false
+      this.log.add("resume")
+    } {
+      this.paused = true
+      this.log.add("pause")
+    }
+  }
+
+  fn cmdKick:void () {
+    if (hasTimer == false) {
+      this.log.add("kick: no timer")
+      return
+    }
+    def tm:TimerProcess (unwrap activeTimer)
+    tm.pulse()
+    def tk:TickChild (tm.spawnTick())
+    activeTick = tk
+    activeTimer = tm
+    hasTick = true
+    this.log.add(("kick " + (to_string tm.timeLeft) + "s"))
+  }
+
+  fn cmdDumpChain:void () {
+    if (hasTick == false) {
+      this.log.add("dump: no tick")
+      return
+    }
+    def tk:TickChild (unwrap activeTick)
+    this.treeForTick(tk)
+    this.log.add("dumped chain")
+  }
+
+  fn cmdShowRegistry:void () {
+    showRegistry = true
+    this.log.add("registry")
+  }
+
+  fn dispatch:void (cmd:string) {
+    if (cmd == "k") {
+      this.cmdKick()
+      return
+    }
+    if (cmd == "d") {
+      this.cmdDumpChain()
+      return
+    }
+    if (cmd == "s") {
+      this.cmdShowRegistry()
+      return
+    }
+    if (cmd == "q") {
+      running = false
+      this.log.add("bye")
+      return
+    }
+    if (cmd == "z") {
+      this.cmdTogglePause()
+      return
+    }
+    this.log.add(("? " + cmd))
+  }
+
+  fn handleKey:void (key:string) {
+    if (key == "q") {
+      this.dispatch("q")
+      return
+    }
+    if (key == "Q") {
+      this.dispatch("q")
+      return
+    }
+    if (key == "k") {
+      this.dispatch("k")
+      return
+    }
+    if (key == "K") {
+      this.dispatch("k")
+      return
+    }
+    if (key == "d") {
+      this.dispatch("d")
+      return
+    }
+    if (key == "D") {
+      this.dispatch("d")
+      return
+    }
+    if (key == "s") {
+      this.dispatch("s")
+      return
+    }
+    if (key == "S") {
+      this.dispatch("s")
+      return
+    }
+    if (key == "p") {
+      this.cmdTogglePause()
+      return
+    }
+    if (key == "P") {
+      this.cmdTogglePause()
+      return
+    }
+    if (key == " ") {
+      this.cmdTogglePause()
+      return
+    }
+    if (key == "space") {
+      this.cmdTogglePause()
+      return
+    }
+    if (key == "z") {
+      this.cmdTogglePause()
+      return
+    }
+    if (key == "Z") {
+      this.cmdTogglePause()
+      return
+    }
+  }
+
+  fn drainKeys:void () {
+    while (true) {
+      def key (poll_keypress)
+      if (key == "") {
+        return
+      }
+      this.handleKey(key)
+    }
+  }
+
+  fn nextAutoCommand:string () {
+    if (turn == 0) {
+      return "z"
+    }
+    if (turn == 1) {
+      return "k"
+    }
+    if (turn == 2) {
+      return "d"
+    }
+    if (turn == 3) {
+      return "s"
+    }
+    if (turn == 4) {
+      return "z"
+    }
+    if (turn == 5) {
+      return "q"
+    }
+    return ""
+  }
+
+  fn runAuto:void () {
+    while (running) {
+      this.tickTimer()
+      this.drawDashboard()
+      def cmd (this.nextAutoCommand())
+      if (cmd != "") {
+        this.dispatch(cmd)
+      }
+      turn = turn + 1
+      if (turn > 5) {
+        running = false
+      }
+    }
+  }
+
+  fn runInteractive:void () {
+    while (running) {
+      this.tickTimer()
+      this.drawDashboard()
+      this.drainKeys()
+      sleep_ms 50
+    }
+  }
+
+  fn run:void () {
+    this.bootstrap()
+
+    if (interactive) {
+      hide_cursor
+      this.runInteractive()
+      show_cursor
+      clear_screen
+    } {
+      this.runAuto()
+    }
+
+    print ""
+    print "  Demo finished."
+    print "OK process nesting"
+  }
+}
+
+class Test_ProcessNesting {
+  sfn m@(main):void () {
+    def app (new ProcessDemoApp)
+    def argc (shell_arg_cnt)
+    if (argc > 0) {
+      def mode (shell_arg 0)
+      if (mode == "interactive") {
+        app.interactive = true
+      }
+    }
+
+    if (app.interactive) {
+      def key:string ""
+      on_keypress key {
+        ; queue only — handleKey runs from poll loop (avoid double-toggle)
+      }
+    }
+
+    app.run()
+  }
+}

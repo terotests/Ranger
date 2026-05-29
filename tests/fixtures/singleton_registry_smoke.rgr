@@ -1,0 +1,24 @@
+class CounterStore @singleton(true) {
+  def total:int 0
+  fn add (n:int) {
+    total = total + n
+  }
+  fn getTotal:int () {
+    return total
+  }
+}
+
+class Test_SingletonRegistry {
+  sfn m@(main):void () {
+    def a (CounterStore.__singleton())
+    def b (CounterStore.__singleton())
+    a.add(3)
+    b.add(7)
+    if (b.total == 10) {
+    } {
+      print "FAIL singleton not shared"
+      return
+    }
+    print "OK singleton registry"
+  }
+}

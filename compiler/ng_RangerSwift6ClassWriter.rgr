@@ -655,7 +655,10 @@ class RangerSwift6ClassWriter {
     if node.hasNewOper {
       def cl:RangerAppClassDesc node.clDesc
       def givenArgs:CodeNode (node.getThird())
-      if (cl.nameNode.hasFlag("singleton")) {
+      if (this.tryWriteProcessNewCall(node ctx wr)) {
+        return
+      }
+      if (cl.isSingletonClass()) {
         wr.out((node.clDesc.name + ".__singleton") false)
         wr.out("(" false)
         if (!null? cl.constructor_fn) {
@@ -921,7 +924,7 @@ class RangerSwift6ClassWriter {
       wr.indent(-1)
       wr.out("}" true)
     }
-    if (cl.nameNode.hasFlag("singleton")) {
+    if (cl.isSingletonClass()) {
       wr.out(("private static var __singleton_instance : " + cl.compiledName + "? = nil") true)
       wr.out("class func __singleton(" false)
       if cl.has_constructor {
@@ -975,6 +978,10 @@ class RangerSwift6ClassWriter {
         wr.newline()
         def subCtx:RangerAppWriterContext (unwrap variant.fnCtx)
         subCtx.is_function = true
+        subCtx.in_method = true
+        subCtx.in_static_method = false
+        subCtx.currentMethod = variant
+        subCtx.setCurrentClass( (unwrap cl) )
         this.WalkNode( (unwrap variant.fnBody) subCtx wr)
         wr.newline()
         wr.indent(-1)
@@ -999,6 +1006,9 @@ class RangerSwift6ClassWriter {
         theEnd.indent(1)
         def subCtx:RangerAppWriterContext (unwrap variant.fnCtx)
         subCtx.is_function = true
+        subCtx.in_method = false
+        subCtx.in_static_method = true
+        subCtx.currentMethod = variant
         this.WalkNode( (unwrap variant.fnBody) subCtx theEnd)
         theEnd.newline()
         theEnd.indent(-1)

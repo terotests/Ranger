@@ -4564,7 +4564,11 @@ var r_key_queue: [String] = []
 var r_key_queue_lock = NSLock()
 
 func r_setup_raw_mode() {
-    let _ = system(\"stty cbreak min 1 -echo\")
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: \"/bin/stty\")
+    p.arguments = [\"-F\", \"/dev/tty\", \"cbreak\", \"min\", \"1\", \"-echo\"]
+    try? p.run()
+    p.waitUntilExit()
 }
 
 func r_read_key() -> String? {
@@ -4654,7 +4658,11 @@ func r_read_key() -> String? {
 }
 #else
 func r_setup_raw_mode() {
-    let _ = system(\"stty cbreak min 1 -echo\")
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: \"/bin/stty\")
+    p.arguments = [\"-F\", \"/dev/tty\", \"cbreak\", \"min\", \"1\", \"-echo\"]
+    try? p.run()
+    p.waitUntilExit()
 }
 
 func r_read_key() -> String? {
@@ -5324,6 +5332,67 @@ std::string r_cpp_str_to_uppercase(std::string original)
                 go ( (e 1) ".Shutdown(context.Background())" )
                 es6 ( (e 1) ".stop()" )
                 * ( "/* stop HttpServer not implemented */" )
+            }
+        }
+
+        ; Process lifecycle operators (distinct from HttpServer start/stop)
+        proc_start@(moves@( 1 )) cmdProcStart:void (proc:RangerProcessBase) {
+            templates {
+                es6 ( "ProcessRuntime.startInstance(" (e 1) ")" )
+                kotlin ( "ProcessRuntime.startInstance(" (e 1) ")" )
+                swift6 ( "ProcessRuntime.startInstance(proc: " (e 1) ")" )
+                swift3 ( "ProcessRuntime.startInstance(proc: " (e 1) ")" )
+                * ( "/* proc_start not implemented */" )
+            }
+        }
+
+        proc_stop@(moves@( 1 )) cmdProcStopInst:void (proc:RangerProcessBase) {
+            templates {
+                es6 ( "ProcessRuntime.stopInstance(" (e 1) ")" )
+                kotlin ( "ProcessRuntime.stopInstance(" (e 1) ")" )
+                swift6 ( "ProcessRuntime.stopInstance(proc: " (e 1) ")" )
+                swift3 ( "ProcessRuntime.stopInstance(proc: " (e 1) ")" )
+                * ( "/* proc_stop instance not implemented */" )
+            }
+        }
+
+        proc_stop@(moves@( 1 )) cmdProcStopProcessId:void (processId:int) {
+            templates {
+                es6 ( "ProcessRuntime.__singleton().stopByProcessId(" (e 1) ")" )
+                kotlin ( "ProcessRuntime.__singleton().stopByProcessId(" (e 1) ")" )
+                swift6 ( "ProcessRuntime.__singleton().stopByProcessId(" (e 1) ")" )
+                swift3 ( "ProcessRuntime.__singleton().stopByProcessId(" (e 1) ")" )
+                * ( "/* proc_stop processId not implemented */" )
+            }
+        }
+
+        proc_stop@(moves@( 1 )) cmdProcStopClass:void (className:string) {
+            templates {
+                es6 ( "ProcessRuntime.__singleton().stopByClassName(" (e 1) ")" )
+                kotlin ( "ProcessRuntime.__singleton().stopByClassName(" (e 1) ")" )
+                swift6 ( "ProcessRuntime.__singleton().stopByClassName(" (e 1) ")" )
+                swift3 ( "ProcessRuntime.__singleton().stopByClassName(" (e 1) ")" )
+                * ( "/* proc_stop class not implemented */" )
+            }
+        }
+
+        proc_hibernate@(moves@( 1 )) cmdProcHibernate:string (proc:RangerProcessBase) {
+            templates {
+                es6 ( "ProcessRuntime.hibernateInstance(" (e 1) ")" )
+                kotlin ( "ProcessRuntime.hibernateInstance(" (e 1) ")" )
+                swift6 ( "ProcessRuntime.hibernateInstance(proc: " (e 1) ")" )
+                swift3 ( "ProcessRuntime.hibernateInstance(proc: " (e 1) ")" )
+                * ( "\"\"" )
+            }
+        }
+
+        proc_wakeup@(moves@( 2 )) cmdProcWakeup:void (proc:RangerProcessBase state:string) {
+            templates {
+                es6 ( "ProcessRuntime.wakeupInstance(" (e 1) ", " (e 2) ")" )
+                kotlin ( "ProcessRuntime.wakeupInstance(" (e 1) ", " (e 2) ")" )
+                swift6 ( "ProcessRuntime.wakeupInstance(proc: " (e 1) ", state: " (e 2) ")" )
+                swift3 ( "ProcessRuntime.wakeupInstance(proc: " (e 1) ", state: " (e 2) ")" )
+                * ( "/* proc_wakeup not implemented */" )
             }
         }
 

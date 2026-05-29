@@ -82,8 +82,10 @@ jobs:
       - name: Run Python unit tests
         run: npm run test:python
 
-  # This job ensures all tests pass before allowing merge
+  # Stable required check name for branch protection.
+  # Prefer this over matrix-specific job names like test-es6 (20.x).
   test-gate:
+    name: test-gate
     runs-on: ubuntu-latest
     needs: [test-es6, test-go, test-python]
     if: always()

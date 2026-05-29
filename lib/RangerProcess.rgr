@@ -1,0 +1,78 @@
+
+Import "stdops.rgr"
+
+class RangerProcessBase {
+  def __rangerId:int 0
+  def __rangerParentId:int 0
+  def __rangerTypeId:int 0
+  def __rangerClassName:string ""
+  def __rangerParent:RangerProcessBase@(optional)
+  def __rangerChildren:[RangerProcessBase]
+
+  fn __rangerTrackChild:void (child:RangerProcessBase) {
+    push __rangerChildren child
+  }
+
+  fn __rangerClearChildren:void () {
+    def empty:[RangerProcessBase]
+    __rangerChildren = empty
+  }
+
+  fn __rangerInvokeStart:void () {
+  }
+
+  fn __rangerInvokeStop:void () {
+  }
+
+  fn __rangerInvokeHibernate:string () {
+    return ""
+  }
+
+  fn __rangerInvokeWakeup:void (state:string) {
+  }
+
+  fn __rangerStopSubtree:void () {
+  }
+}
+
+; Single app-wide ID space for all @process instances (roots and children).
+class ProcessIdRegistry @singleton(true) {
+  def next:int 1
+
+  fn allocate:int () {
+    def id (this.next)
+    this.next = id + 1
+    return id
+  }
+}
+
+class ProcessRuntime @singleton(true) {
+
+  sfn stopInstance:void (proc:RangerProcessBase) {
+    proc.__rangerStopSubtree()
+  }
+
+  sfn startInstance:void (proc:RangerProcessBase) {
+    proc.__rangerInvokeStart()
+  }
+
+  sfn hibernateInstance:string (proc:RangerProcessBase) {
+    def res:string (proc.__rangerInvokeHibernate())
+    return res
+  }
+
+  sfn wakeupInstance:void (proc:RangerProcessBase state:string) {
+    proc.__rangerInvokeWakeup(state)
+  }
+}
+
+class RangerFieldDescriptor {
+  def name:string ""
+  def typeName:string ""
+  def isOptional:boolean false
+}
+
+class RangerClassDescriptor {
+  def className:string ""
+  def fields:[RangerFieldDescriptor]
+}

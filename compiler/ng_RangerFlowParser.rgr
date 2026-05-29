@@ -13,6 +13,7 @@ Import "ng_RangerArgMatch.rgr"
 Import "ng_DictNode.rgr"
 Import "ng_RangerSerializeClass.rgr"
 Import "ng_RangerImmutableExtension.rgr"
+Import "ng_RangerProcessClass.rgr"
 Import "ng_RangerServiceBuilder.rgr"
 Import "ng_RangerAppOperatorDesc.rgr"
 
@@ -76,6 +77,7 @@ class RangerFlowParser {
   def walkAlso@(weak):[CodeNode]
   def serializedClasses@(weak):[RangerAppClassDesc]
   def immutableClasses@(weak):[RangerAppClassDesc]
+  def processClasses@(weak):[RangerAppClassDesc]
   def classesWithTraits:[ClassJoinPoint]
   def collectedIntefaces:[RangerAppClassDesc]
   def definedInterfaces:[string:boolean]
@@ -3640,6 +3642,57 @@ class RangerFlowParser {
       this.WalkCollectMethods( rn (unwrap cl.ctx) wr)
       push walkAlso rn
     }
+
+    if ((size processClasses) > 0) {
+      def baseDesc@(optional weak):RangerAppClassDesc (ctx.findClass("RangerProcessBase"))
+      if ((null? baseDesc) == false) {
+        def baseCl:RangerAppClassDesc (unwrap baseDesc)
+        baseCl.is_extended_by_children = true
+      }
+      def procRtGen:RangerProcessClass (new RangerProcessClass())
+      def rtWr:CodeWriter (new CodeWriter())
+      procRtGen.emitProcessRuntimeExtension(processClasses rtWr)
+      def rtCode:string (rtWr.getCode())
+      def rtSrc:SourceCode (new SourceCode (rtCode))
+      rtSrc.filename = "extension ProcessRuntime"
+      def rtParser:RangerLispParser (new RangerLispParser (rtSrc))
+      rtParser.parse((ctx.hasCompilerFlag("no-op-transform")))
+      def rtRn@(lives):CodeNode (unwrap rtParser.rootNode)
+      this.WalkCollectMethods( rtRn ctx wr)
+      push walkAlso rtRn
+    }
+
+    for processClasses cl:RangerAppClassDesc i {
+      cl.is_process = true
+      def hasProcessBase:boolean false
+      for cl.extends_classes extName:string i {
+        if (extName == "RangerProcessBase") {
+          hasProcessBase = true
+        }
+      }
+      if (hasProcessBase == false) {
+        push cl.extends_classes "RangerProcessBase"
+        def parentDesc@(optional weak):RangerAppClassDesc (ctx.findClass("RangerProcessBase"))
+        if ((null? parentDesc) == false) {
+          def parentCl:RangerAppClassDesc (unwrap parentDesc)
+          parentCl.is_extended_by_children = true
+          parentCl.is_inherited = true
+        }
+      }
+      def procGen:RangerProcessClass (new RangerProcessClass())
+      def extWr:CodeWriter (new CodeWriter())
+      def processTypeId:int (i + 1)
+      procGen.createProcessExtension( cl (unwrap cl.ctx) extWr processTypeId )
+      def theCode:string (extWr.getCode())
+      def code:SourceCode (new SourceCode ( theCode ))
+      code.filename = "extension " + (cl.name)
+      def parser:RangerLispParser (new RangerLispParser (code))
+      parser.parse((ctx.hasCompilerFlag("no-op-transform")))
+      def rn@(lives):CodeNode (unwrap parser.rootNode)
+      this.WalkCollectMethods( rn (unwrap cl.ctx) wr)
+      push walkAlso rn
+    }
+
     ;       ctx.hadValidType( (unwrap v.nameNode) )
     for ctx.definedClassList cname:string i {
       push allTypes cname
@@ -4214,6 +4267,13 @@ class RangerFlowParser {
         push immutableClasses new_class
         new_class.is_immutable = true
       }
+      if(classNameNode.hasFlag("process")) {
+        push processClasses new_class
+        new_class.is_process = true
+      }
+      if(node.hasBooleanProperty("singleton")) {
+        new_class.is_singleton = true
+      }
       def third (node.getThird())
       if(third.vref == "extends") {
         if( (node.chlen()) >= 4 ) {
@@ -4594,6 +4654,15 @@ class RangerFlowParser {
 
     if(node.hasBooleanProperty("serialize")) {
       push serializedClasses (unwrap ctx.currentClass)
+    }
+
+    if(node.hasBooleanProperty("process")) {
+      push processClasses (unwrap ctx.currentClass)
+    }
+
+    if(node.hasBooleanProperty("singleton")) {
+      def singletonCl:RangerAppClassDesc (unwrap ctx.currentClass)
+      singletonCl.is_singleton = true
     }
 
   }

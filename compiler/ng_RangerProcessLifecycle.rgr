@@ -1,0 +1,60 @@
+
+class RangerProcessLifecycle {
+
+  fn emitInvokeMethods:void (cl:RangerAppClassDesc wr:CodeWriter regName:string) {
+    if (cl.hasMethod("start")) {
+      wr.out("fn __rangerInvokeStart:void () {" , true)
+      wr.indent(1)
+      wr.out("this.start()" , true)
+      wr.indent(-1)
+      wr.out("}" , true)
+    }
+    if (cl.hasMethod("stop")) {
+      wr.out("fn __rangerInvokeStop:void () {" , true)
+      wr.indent(1)
+      wr.out("this.stop()" , true)
+      wr.indent(-1)
+      wr.out("}" , true)
+    }
+    if (cl.hasMethod("hibernate")) {
+      wr.out("fn __rangerInvokeHibernate:string () {" , true)
+      wr.indent(1)
+      wr.out("return this.hibernate()" , true)
+      wr.indent(-1)
+      wr.out("}" , true)
+    }
+    if (cl.hasMethod("wakeup")) {
+      wr.out("fn __rangerInvokeWakeup:void (state:string) {" , true)
+      wr.indent(1)
+      wr.out("this.wakeup(state)" , true)
+      wr.indent(-1)
+      wr.out("}" , true)
+    }
+  }
+
+  fn emitStopSubtree:void (cl:RangerAppClassDesc wr:CodeWriter regName:string) {
+    wr.out("fn __rangerStopSubtree:void () {" , true)
+    wr.indent(1)
+    wr.out("if (this.__rangerId == 0) {" , true)
+    wr.indent(1)
+    wr.out("return" , true)
+    wr.indent(-1)
+    wr.out("}" , true)
+    wr.out("def __rgrIdx 0" , true)
+    wr.out("while (__rgrIdx < (size this.__rangerChildren)) {" , true)
+    wr.indent(1)
+    wr.out("def __rgrChild:RangerProcessBase (at this.__rangerChildren __rgrIdx)" , true)
+    wr.out("__rgrChild.__rangerStopSubtree()" , true)
+    wr.out("__rgrIdx = __rgrIdx + 1" , true)
+    wr.indent(-1)
+    wr.out("}" , true)
+    if (cl.hasMethod("stop")) {
+      wr.out("this.__rangerInvokeStop()" , true)
+    }
+    wr.out(regName + ".__singleton().untrack(this)" , true)
+    wr.out("this.__rangerUnregister()" , true)
+    wr.out("this.__rangerClearChildren()" , true)
+    wr.indent(-1)
+    wr.out("}" , true)
+  }
+}

@@ -1,0 +1,116 @@
+
+class RangerProcessCodegen {
+
+  fn shouldWrapProcessNew:boolean (procNewNode:CodeNode procNewCtx:RangerAppWriterContext) {
+    if (procNewNode.hasNewOper == false) {
+      return false
+    }
+    def cl:RangerAppClassDesc (procNewNode.clDesc)
+    return cl.is_process
+  }
+
+  fn hasParentRegister:boolean (procNewCtx:RangerAppWriterContext) {
+    if (procNewCtx.in_method && (procNewCtx.in_static_method == false)) {
+      return true
+    }
+    return false
+  }
+
+  fn writeNewArgs:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter writer:RangerGenericClassWriter) {
+    def givenArgs:CodeNode (node.getThird())
+    def constr:RangerAppFunctionDesc (node.clDesc.constructor_fn)
+    if ((null? constr) == false) {
+      def i 0
+      for constr.params arg:RangerAppParamDesc i {
+        def argNode:CodeNode (itemAt givenArgs.children i)
+        if (i > 0) {
+          wr.out(", " false)
+        }
+        writer.walkNewArgForProcess(argNode ctx wr)
+        i = i + 1
+      }
+    }
+  }
+
+  fn writeProcessInstanceRegisterCall:void (wr:CodeWriter lang:string) {
+    if (lang == "kotlin") {
+      wr.out("if (this is RangerProcessBase && (this as RangerProcessBase).__rangerId != 0) { __rgr_proc.__rangerRegisterChild(this as RangerProcessBase) } else { __rgr_proc.__rangerRegisterRoot() }" false)
+      return
+    }
+    if (lang == "swift6" || lang == "swift3") {
+      wr.out("if let __rgr_parent = self as? RangerProcessBase, __rgr_parent.__rangerId != 0 { __rgr_proc.__rangerRegisterChild(parent: __rgr_parent) } else { __rgr_proc.__rangerRegisterRoot() }" false)
+      return
+    }
+    wr.out("if (typeof this !== 'undefined' && this.__rangerId) { __rgr_proc.__rangerRegisterChild(this) } else { __rgr_proc.__rangerRegisterRoot() }" false)
+  }
+
+  fn shouldUseProcessInstanceRegister:boolean (procNewCtx:RangerAppWriterContext newCl:RangerAppClassDesc) {
+    if (newCl.is_process == false) {
+      return false
+    }
+    if (procNewCtx.in_static_method) {
+      return false
+    }
+    def currCl@(optional):RangerAppClassDesc (procNewCtx.getCurrentClass())
+    if (null? currCl) {
+      return false
+    }
+    def hostCl:RangerAppClassDesc (unwrap currCl)
+    return hostCl.is_process
+  }
+
+  fn writeRegisterCall:void (procNewCtx:RangerAppWriterContext wr:CodeWriter lang:string newCl:RangerAppClassDesc) {
+    if (this.shouldUseProcessInstanceRegister(procNewCtx newCl)) {
+      this.writeProcessInstanceRegisterCall(wr lang)
+    } {
+      wr.out("__rgr_proc.__rangerRegisterRoot()" false)
+    }
+  }
+
+  fn writeWrappedNewCallEs6:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter writer:RangerGenericClassWriter) {
+    def cl@(lives):RangerAppClassDesc (unwrap node.clDesc)
+    wr.out("(() => { const __rgr_proc = new " false)
+    wr.out(cl.name false)
+    wr.out("(" false)
+    this.writeNewArgs(node ctx wr writer)
+    wr.out("); " false)
+    this.writeRegisterCall(ctx wr "es6" cl)
+    wr.out("; return __rgr_proc; })()" false)
+  }
+
+  fn writeWrappedNewCallKotlin:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter writer:RangerGenericClassWriter) {
+    def cl@(lives):RangerAppClassDesc (unwrap node.clDesc)
+    wr.out("run { val __rgr_proc = " false)
+    wr.out(cl.name false)
+    wr.out("(" false)
+    this.writeNewArgs(node ctx wr writer)
+    wr.out("); " false)
+    this.writeRegisterCall(ctx wr "kotlin" cl)
+    wr.out("; __rgr_proc }" false)
+  }
+
+  fn writeWrappedNewCallSwift6:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter writer:RangerGenericClassWriter) {
+    def cl@(lives):RangerAppClassDesc (unwrap node.clDesc)
+    wr.out("({ () -> " false)
+    wr.out(cl.name false)
+    wr.out(" in let __rgr_proc = " false)
+    wr.out(cl.name false)
+    wr.out("(" false)
+    this.writeNewArgs(node ctx wr writer)
+    wr.out("); " false)
+    this.writeRegisterCall(ctx wr "swift6" cl)
+    wr.out("; return __rgr_proc }())" false)
+  }
+
+  fn writeWrappedNewCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter lang:string writer:RangerGenericClassWriter) {
+    if (lang == "kotlin") {
+      this.writeWrappedNewCallKotlin(node ctx wr writer)
+      return
+    }
+    if (lang == "swift6" || lang == "swift3") {
+      this.writeWrappedNewCallSwift6(node ctx wr writer)
+      return
+    }
+    this.writeWrappedNewCallEs6(node ctx wr writer)
+  }
+}

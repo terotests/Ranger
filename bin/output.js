@@ -862,6 +862,8 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
     this.is_system_union = false;
     this.is_template = false;
     this.is_serialized = false;
+    this.is_process = false;
+    this.is_singleton = false;
     this.is_trait = false;
     this.is_operator_class = false;
     this.is_generic_instance = false;
@@ -1034,10 +1036,70 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
     };
     return res;
   };
+  isSingletonClass () {
+    if ( this.is_singleton ) {
+      return true;
+    }
+    if ( (typeof(this.nameNode) === "undefined") == false ) {
+      if ( this.nameNode.hasFlag("singleton") ) {
+        return true;
+      }
+    }
+    if ( (typeof(this.classNode) === "undefined") == false ) {
+      if ( this.classNode.hasBooleanProperty("singleton") ) {
+        return true;
+      }
+    }
+    return false;
+  };
+  buildSingletonAccessor () {
+    let res;
+    if ( this.isSingletonClass() == false ) {
+      return res;
+    }
+    let nodeForFactory;
+    if ( (typeof(this.classNode) === "undefined") == false ) {
+      nodeForFactory = this.classNode;
+    } else {
+      nodeForFactory = this.nameNode;
+    }
+    if ( typeof(nodeForFactory) === "undefined" ) {
+      return res;
+    }
+    const factoryNode = nodeForFactory;
+    const m = new RangerAppFunctionDesc();
+    m.name = "__singleton";
+    m.compiledName = "__singleton";
+    m.is_static = true;
+    m.container_class = this;
+    const methodNameNode = factoryNode.newVRefNode("__singleton");
+    methodNameNode.type_name = this.name;
+    methodNameNode.value_type = 11;
+    m.nameNode = methodNameNode;
+    if ( this.has_constructor ) {
+      const constr = this.constructor_fn;
+      for ( let i = 0; i < constr.params.length; i++) {
+        var arg = constr.params[i];
+        m.params.push(arg);
+      };
+    }
+    res = m;
+    return res;
+  };
   hasStaticMethod (m_name) {
+    if ( m_name == "__singleton" ) {
+      if ( this.isSingletonClass() ) {
+        return true;
+      }
+    }
     return ( typeof(this.defined_static_methods[m_name] ) != "undefined" && this.defined_static_methods.hasOwnProperty(m_name) );
   };
   findStaticMethod (f_name) {
+    if ( f_name == "__singleton" ) {
+      if ( this.isSingletonClass() ) {
+        return this.buildSingletonAccessor();
+      }
+    }
     let e;
     for ( let i = 0; i < this.static_methods.length; i++) {
       var m = this.static_methods[i];
@@ -2952,7 +3014,7 @@ class RangerAppWriterContext  {
     this.expr_restart = false;
     this.expr_restart_block = false;
     this.in_lhs_of_assignment = false;
-    this.in_method = false;     /** note: unused */
+    this.in_method = false;
     this.method_stack = [];
     this.typeNames = [];     /** note: unused */
     this.typeClasses = {};
@@ -5081,6 +5143,70 @@ class RangerLispParser  {
     };
     return 0;
   };
+  isComparisonOpPred (pred) {
+    if ( pred == 10 ) {
+      return true;
+    }
+    if ( pred == 11 ) {
+      return true;
+    }
+    return false;
+  };
+  isDotVRef (n) {
+    if ( n.parsed_type != 11 ) {
+      return false;
+    }
+    if ( (n.vref.indexOf(".")) >= 0 ) {
+      return true;
+    }
+    if ( (n.ns.length) >= 2 ) {
+      return true;
+    }
+    return false;
+  };
+  isDotCallPairOnNode (node) {
+    if ( (node.children.length) != 2 ) {
+      return false;
+    }
+    const ch0 = node.children[0];
+    return this.isDotVRef(ch0);
+  };
+  foldDotCallPairToGroup (node) {
+    if ( this.isDotCallPairOnNode(node) == false ) {
+      return;
+    }
+    const ch0 = node.children.splice(0, 1).pop();
+    const ch1 = node.children.splice(0, 1).pop();
+    const callGroup = new CodeNode(this.code, ch0.sp, ch1.ep);
+    callGroup.expression = true;
+    ch0.parent = callGroup;
+    ch1.parent = callGroup;
+    callGroup.children.push(ch0);
+    callGroup.children.push(ch1);
+    node.children.push(callGroup);
+  };
+  tryCloseCallArgParenBeforeInfix () {
+    const pr = this.curr_node.parent;
+    if ( typeof(pr) === "undefined" ) {
+      return false;
+    }
+    if ( (this.curr_node.children.length) < 1 ) {
+      return false;
+    }
+    const prCnt = pr.children.length;
+    if ( prCnt < 2 ) {
+      return false;
+    }
+    const prevCh = pr.children[(prCnt - 2)];
+    if ( this.isDotVRef(prevCh) == false ) {
+      return false;
+    }
+    this.paren_cnt = this.paren_cnt - 1;
+    this.parents.pop();
+    this.curr_node.ep = this.i;
+    this.curr_node = pr;
+    return true;
+  };
   insert_node (p_node) {
     let push_target = this.curr_node;
     if ( this.curr_node.infix_operator ) {
@@ -5804,6 +5930,15 @@ class RangerLispParser  {
             if ( new_vref_node.vref == "," ) {
               this.curr_node.infix_operator = false;
               continue;
+            }
+            if ( this.isComparisonOpPred(op_pred) ) {
+              this.tryCloseCallArgParenBeforeInfix();
+            }
+            if ( this.isComparisonOpPred(op_pred) && (false == this.curr_node.infix_operator) ) {
+              const cn = this.curr_node;
+              if ( this.isDotCallPairOnNode(cn) ) {
+                this.foldDotCallPairToGroup(cn);
+              }
             }
             let pTarget = this.curr_node;
             if ( this.curr_node.infix_operator ) {
@@ -7332,6 +7467,245 @@ class RangerImmutableExtension  {
     wr.out("}", true);
   };
 }
+class RangerProcessLifecycle  {
+  constructor() {
+  }
+  emitInvokeMethods (cl, wr, regName) {
+    if ( cl.hasMethod("start") ) {
+      wr.out("fn __rangerInvokeStart:void () {", true);
+      wr.indent(1);
+      wr.out("this.start()", true);
+      wr.indent(-1);
+      wr.out("}", true);
+    }
+    if ( cl.hasMethod("stop") ) {
+      wr.out("fn __rangerInvokeStop:void () {", true);
+      wr.indent(1);
+      wr.out("this.stop()", true);
+      wr.indent(-1);
+      wr.out("}", true);
+    }
+    if ( cl.hasMethod("hibernate") ) {
+      wr.out("fn __rangerInvokeHibernate:string () {", true);
+      wr.indent(1);
+      wr.out("return this.hibernate()", true);
+      wr.indent(-1);
+      wr.out("}", true);
+    }
+    if ( cl.hasMethod("wakeup") ) {
+      wr.out("fn __rangerInvokeWakeup:void (state:string) {", true);
+      wr.indent(1);
+      wr.out("this.wakeup(state)", true);
+      wr.indent(-1);
+      wr.out("}", true);
+    }
+  };
+  emitStopSubtree (cl, wr, regName) {
+    wr.out("fn __rangerStopSubtree:void () {", true);
+    wr.indent(1);
+    wr.out("if (this.__rangerId == 0) {", true);
+    wr.indent(1);
+    wr.out("return", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.out("def __rgrIdx 0", true);
+    wr.out("while (__rgrIdx < (size this.__rangerChildren)) {", true);
+    wr.indent(1);
+    wr.out("def __rgrChild:RangerProcessBase (at this.__rangerChildren __rgrIdx)", true);
+    wr.out("__rgrChild.__rangerStopSubtree()", true);
+    wr.out("__rgrIdx = __rgrIdx + 1", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    if ( cl.hasMethod("stop") ) {
+      wr.out("this.__rangerInvokeStop()", true);
+    }
+    wr.out(regName + ".__singleton().untrack(this)", true);
+    wr.out("this.__rangerUnregister()", true);
+    wr.out("this.__rangerClearChildren()", true);
+    wr.indent(-1);
+    wr.out("}", true);
+  };
+}
+class RangerProcessClass  {
+  constructor() {
+  }
+  emitAssignProcessId (wr) {
+    wr.out("def __rgrIdReg (ProcessIdRegistry.__singleton())", true);
+    wr.out("def __rgrNewId ( __rgrIdReg.allocate() )", true);
+    wr.out("this.__rangerId = __rgrNewId", true);
+  };
+  createProcessExtension (cl, ctx, wr, typeId) {
+    wr.out("Import \"RangerProcess.rgr\"", true);
+    const regName = cl.name + "__Registry";
+    const life = new RangerProcessLifecycle();
+    wr.out(("class " + regName) + " @singleton(true) {", true);
+    wr.indent(1);
+    wr.out(("def items:[" + cl.name) + "]", true);
+    wr.out(("fn track:void (inst:" + cl.name) + ") {", true);
+    wr.indent(1);
+    wr.out("push items inst", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.out(("fn untrack:void (inst:" + cl.name) + ") {", true);
+    wr.indent(1);
+    wr.out(("def kept:[" + cl.name) + "]", true);
+    wr.out(("for items x:" + cl.name) + " i {", true);
+    wr.indent(1);
+    wr.out("if (x.__rangerId != inst.__rangerId) {", true);
+    wr.indent(1);
+    wr.out("push kept x", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.out("items = kept", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.out(("fn all:[" + cl.name) + "] () {", true);
+    wr.indent(1);
+    wr.out("return items", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.out("fn stopAllInstances:void () {", true);
+    wr.indent(1);
+    wr.out("def n (size items)", true);
+    wr.out("def i (n - 1)", true);
+    wr.out("while (i >= 0) {", true);
+    wr.indent(1);
+    wr.out(("def inst:" + cl.name) + " (at items i)", true);
+    wr.out("if (inst.__rangerId != 0) {", true);
+    wr.indent(1);
+    wr.out("inst.__rangerStopSubtree()", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.out("i = i - 1", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.out(("extension " + cl.name) + " {", true);
+    wr.indent(1);
+    wr.out("fn __rangerRegisterRoot () {", true);
+    wr.indent(1);
+    wr.out(("this.__rangerClassName = \"" + cl.name) + "\"", true);
+    wr.out("this.__rangerTypeId = " + ("" + typeId), true);
+    this.emitAssignProcessId(wr);
+    wr.out(regName + ".__singleton().track(this)", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.out("fn __rangerRegisterChild (parent:RangerProcessBase) {", true);
+    wr.indent(1);
+    wr.out(("this.__rangerClassName = \"" + cl.name) + "\"", true);
+    wr.out("this.__rangerTypeId = " + ("" + typeId), true);
+    wr.out("this.__rangerParent = parent", true);
+    wr.out("this.__rangerParentId = parent.__rangerId", true);
+    this.emitAssignProcessId(wr);
+    wr.out("parent.__rangerTrackChild(this)", true);
+    wr.out(regName + ".__singleton().track(this)", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.out("fn __rangerUnregister:void () {", true);
+    wr.indent(1);
+    wr.out("this.__rangerId = 0", true);
+    wr.out("this.__rangerParentId = 0", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    life.emitInvokeMethods(cl, wr, regName);
+    life.emitStopSubtree(cl, wr, regName);
+    this.emitStaticHelpers(cl, typeId, wr, regName);
+    wr.out("sfn stopAllLive:void () {", true);
+    wr.indent(1);
+    wr.out(((("def __rgrReg:" + regName) + " (") + regName) + ".__singleton())", true);
+    wr.out("__rgrReg.stopAllInstances()", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.indent(-1);
+    wr.out("}", true);
+  };
+  emitStaticHelpers (cl, typeId, wr, regName) {
+    wr.out(("sfn allInstances:[" + cl.name) + "] () {", true);
+    wr.indent(1);
+    wr.out(((("def __rgrReg:" + regName) + " (") + regName) + ".__singleton())", true);
+    wr.out("return __rgrReg.items", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.out("sfn tryStopByProcessId:boolean (processId:int) {", true);
+    wr.indent(1);
+    wr.out(((("def __rgrReg:" + regName) + " (") + regName) + ".__singleton())", true);
+    wr.out(("for __rgrReg.items inst:" + cl.name) + " i {", true);
+    wr.indent(1);
+    wr.out("if (inst.__rangerId == processId) {", true);
+    wr.indent(1);
+    wr.out("if (inst.__rangerId != 0) {", true);
+    wr.indent(1);
+    wr.out("inst.__rangerStopSubtree()", true);
+    wr.out("return true", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.out("return false", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.out("sfn parentIdOf:int (child:RangerProcessBase) {", true);
+    wr.indent(1);
+    wr.out("def cur@(optional):RangerProcessBase (child.__rangerParent)", true);
+    wr.out("while ((null? cur) == false) {", true);
+    wr.indent(1);
+    wr.out("def node:RangerProcessBase (unwrap cur)", true);
+    wr.out("def __rgrExpectType:int " + ("" + typeId), true);
+    wr.out("if (node.__rangerTypeId != __rgrExpectType) {", true);
+    wr.indent(1);
+    wr.out("cur = node.__rangerParent", true);
+    wr.indent(-1);
+    wr.out("} {", true);
+    wr.indent(1);
+    wr.out("return node.__rangerId", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.out("return 0", true);
+    wr.indent(-1);
+    wr.out("}", true);
+  };
+  emitProcessRuntimeExtension (processClasses, wr) {
+    wr.out("Import \"RangerProcess.rgr\"", true);
+    wr.out("extension ProcessRuntime {", true);
+    wr.indent(1);
+    wr.out("fn stopByProcessId:void (processId:int) {", true);
+    wr.indent(1);
+    for ( let i = 0; i < processClasses.length; i++) {
+      var cl = processClasses[i];
+      wr.out(("if (" + cl.name) + ".tryStopByProcessId(processId)) {", true);
+      wr.indent(1);
+      wr.out("return", true);
+      wr.indent(-1);
+      wr.out("}", true);
+    };
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.out("fn stopByClassName:void (name:string) {", true);
+    wr.indent(1);
+    for ( let i_1 = 0; i_1 < processClasses.length; i_1++) {
+      var cl_1 = processClasses[i_1];
+      wr.out(("if (name == \"" + cl_1.name) + "\") {", true);
+      wr.indent(1);
+      wr.out(cl_1.name + ".stopAllLive()", true);
+      wr.out("return", true);
+      wr.indent(-1);
+      wr.out("}", true);
+    };
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.indent(-1);
+    wr.out("}", true);
+  };
+}
 class RangerServiceBuilder  {
   constructor() {
   }
@@ -7589,6 +7963,7 @@ class RangerFlowParser  {
     this.walkAlso = [];
     this.serializedClasses = [];
     this.immutableClasses = [];
+    this.processClasses = [];
     this.classesWithTraits = [];
     this.collectedIntefaces = [];
     this.definedInterfaces = {};     /** note: unused */
@@ -8871,10 +9246,7 @@ class RangerFlowParser  {
     await this.WalkNode(obj_2, ctx, wr);
     if ( ctx.isDefinedClass(obj_2.eval_type_name) ) {
       const cl = ctx.findClass(obj_2.eval_type_name);
-      let m = cl.findMethod(method_2.vref);
-      if ( typeof(m) === "undefined" ) {
-        m = cl.findStaticMethod(method_2.vref);
-      }
+      const m = cl.findMethod(method_2.vref);
       if ( (typeof(m) !== "undefined" && m != null )  ) {
         node.has_call = true;
         const currM = ctx.getCurrentMethod();
@@ -9028,9 +9400,6 @@ class RangerFlowParser  {
   };
   async cmdLocalCall (node, ctx, wr) {
     const fnNode = node.getFirst();
-    if ( await this.tryRepairDotMethodInfix(node, fnNode, ctx, wr) ) {
-      return true;
-    }
     const udesc = ctx.getCurrentClass();
     const desc = udesc;
     let expects_error = false;
@@ -10238,84 +10607,6 @@ class RangerFlowParser  {
     }
     return false;
   };
-  resolveStaticMethodRef (fc) {
-    let result = [];
-    if ( (fc.ns.length) > 1 ) {
-      const nn = fc.copy();
-      nn.ns.pop();
-      result.push(nn.ns.join("."));
-      result.push(fc.ns[((fc.ns.length) - 1)]);
-      return result;
-    }
-    if ( (fc.ns.length) == 1 ) {
-      result.push(fc.ns[0]);
-      result.push(fc.vref);
-      return result;
-    }
-    const dotPos = fc.vref.indexOf(".");
-    if ( dotPos > 0 ) {
-      result.push(fc.vref.substring(0, dotPos ));
-      const afterDot = dotPos + 1;
-      result.push(fc.vref.substring(afterDot, (fc.vref.length) ));
-      return result;
-    }
-    return result;
-  };
-  async buildDotMethodInfixRepair (node, fc, op_vref, methodArg, rhs, ctx, wr) {
-    const refParts = this.resolveStaticMethodRef(fc);
-    if ( (refParts.length) != 2 ) {
-      return false;
-    }
-    const objName = refParts[0];
-    const possible_cmd = refParts[1];
-    const vFnDef = this.findFunctionDesc(fc, ctx, wr);
-    if ( typeof(vFnDef) === "undefined" ) {
-      return false;
-    }
-    const callNode = node.newExpressionNode();
-    callNode.children.push(node.newVRefNode("call"));
-    callNode.children.push(node.newVRefNode(objName));
-    callNode.children.push(node.newVRefNode(possible_cmd));
-    callNode.children.push(methodArg.copy());
-    const repaired = node.newExpressionNode();
-    repaired.children.push(node.newVRefNode(op_vref));
-    repaired.children.push(callNode);
-    repaired.children.push(rhs.copy());
-    node.getChildrenFrom(repaired);
-    node.flow_done = false;
-    await this.stdParamMatch(node, ctx, wr, true);
-    return true;
-  };
-  async tryRepairDotMethodInfix (node, fc, ctx, wr) {
-    if ( (node.children.length) != 2 ) {
-      return false;
-    }
-    if ( (this.resolveStaticMethodRef(fc).length) != 2 ) {
-      return false;
-    }
-    const second = node.getSecond();
-    if ( (second.children.length) >= 3 ) {
-      const opNode = second.getFirst();
-      if ( (opNode.vref.length) > 0 ) {
-        const op_check = await ctx.getOperators(opNode.vref);
-        if ( (op_check.length) > 0 ) {
-          return await this.buildDotMethodInfixRepair(node, fc, opNode.vref, second.getSecond(), second.getThird(), ctx, wr);
-        }
-      }
-    }
-    if ( second.infix_operator && ((typeof(second.infix_node) !== "undefined" && second.infix_node != null ) ) ) {
-      const ifNode = second.infix_node;
-      if ( (ifNode.vref.length) > 0 ) {
-        const op_check2 = await ctx.getOperators(ifNode.vref);
-        if ( (op_check2.length) > 0 ) {
-          if ( (ifNode.children.length) >= 2 ) {
-            return await this.buildDotMethodInfixRepair(node, fc, ifNode.vref, ifNode.getFirst(), ifNode.getSecond(), ctx, wr);
-          }
-        }
-      }
-    }
-    return false;
-  };
   async matchNode (node, ctx, wr) {
     if ( 0 == (node.children.length) ) {
       return false;
@@ -10333,33 +10624,26 @@ class RangerFlowParser  {
         return true;
       }
     };
-    if ( (node.children.length) > 1 ) {
-      const refParts = this.resolveStaticMethodRef(fc);
-      const isStaticRef = (refParts.length) == 2;
-      if ( isStaticRef && (false == node.infix_operator) ) {
-        if ( await this.tryRepairDotMethodInfix(node, fc, ctx, wr) ) {
-          return true;
+    if ( ((fc.ns.length) > 1) && ((node.children.length) > 1) ) {
+      const possible_cmd = fc.ns[((fc.ns.length) - 1)];
+      const op_list_2 = await ctx.getOperators(possible_cmd);
+      if ( (op_list_2.length) > 0 ) {
+        const args = node.getSecond();
+        const nn = fc.copy();
+        nn.ns.pop();
+        const objName = nn.ns.join(".");
+        const newNode = node.newExpressionNode();
+        newNode.add(node.newVRefNode("call"));
+        newNode.add(node.newVRefNode(objName));
+        newNode.add(node.newVRefNode(possible_cmd));
+        newNode.add(args.copy());
+        node.getChildrenFrom(newNode);
+        if ( ctx.expressionLevel() == 0 ) {
+          ctx.lastBlockOp = node;
         }
-      }
-      if ( isStaticRef ) {
-        const possible_cmd = refParts[1];
-        const op_list_2 = await ctx.getOperators(possible_cmd);
-        if ( (op_list_2.length) > 0 ) {
-          const args = node.getSecond();
-          const objName = refParts[0];
-          const newNode = node.newExpressionNode();
-          newNode.add(node.newVRefNode("call"));
-          newNode.add(node.newVRefNode(objName));
-          newNode.add(node.newVRefNode(possible_cmd));
-          newNode.add(args.copy());
-          node.getChildrenFrom(newNode);
-          if ( ctx.expressionLevel() == 0 ) {
-            ctx.lastBlockOp = node;
-          }
-          node.flow_done = false;
-          await this.WalkNode(node, ctx, wr);
-          return true;
-        }
+        node.flow_done = false;
+        await this.WalkNode(node, ctx, wr);
+        return true;
       }
     }
     return false;
@@ -10596,16 +10880,66 @@ class RangerFlowParser  {
       await this.WalkCollectMethods(rn_1, cl_2.ctx, wr);
       this.walkAlso.push(rn_1);
     };
-    for ( let i_8 = 0; i_8 < ctx.definedClassList.length; i_8++) {
-      var cname = ctx.definedClassList[i_8];
+    if ( (this.processClasses.length) > 0 ) {
+      const baseDesc = ctx.findClass("RangerProcessBase");
+      if ( (typeof(baseDesc) === "undefined") == false ) {
+        const baseCl = baseDesc;
+        baseCl.is_extended_by_children = true;
+      }
+      const procRtGen = new RangerProcessClass();
+      const rtWr = new CodeWriter();
+      procRtGen.emitProcessRuntimeExtension(this.processClasses, rtWr);
+      const rtCode = rtWr.getCode();
+      const rtSrc = new SourceCode(rtCode);
+      rtSrc.filename = "extension ProcessRuntime";
+      const rtParser = new RangerLispParser(rtSrc);
+      rtParser.parse(ctx.hasCompilerFlag("no-op-transform"));
+      const rtRn = rtParser.rootNode;
+      await this.WalkCollectMethods(rtRn, ctx, wr);
+      this.walkAlso.push(rtRn);
+    }
+    for ( let i_8 = 0; i_8 < this.processClasses.length; i_8++) {
+      var cl_3 = this.processClasses[i_8];
+      cl_3.is_process = true;
+      let hasProcessBase = false;
+      for ( let i_9 = 0; i_9 < cl_3.extends_classes.length; i_9++) {
+        var extName = cl_3.extends_classes[i_9];
+        if ( extName == "RangerProcessBase" ) {
+          hasProcessBase = true;
+        }
+      };
+      if ( hasProcessBase == false ) {
+        cl_3.extends_classes.push("RangerProcessBase");
+        const parentDesc = ctx.findClass("RangerProcessBase");
+        if ( (typeof(parentDesc) === "undefined") == false ) {
+          const parentCl = parentDesc;
+          parentCl.is_extended_by_children = true;
+          parentCl.is_inherited = true;
+        }
+      }
+      const procGen = new RangerProcessClass();
+      const extWr_2 = new CodeWriter();
+      const processTypeId = i_8 + 1;
+      procGen.createProcessExtension(cl_3, cl_3.ctx, extWr_2, processTypeId);
+      const theCode_2 = extWr_2.getCode();
+      const code_2 = new SourceCode(theCode_2);
+      code_2.filename = "extension " + cl_3.name;
+      const parser_2 = new RangerLispParser(code_2);
+      parser_2.parse(ctx.hasCompilerFlag("no-op-transform"));
+      const rn_2 = parser_2.rootNode;
+      await this.WalkCollectMethods(rn_2, cl_3.ctx, wr);
+      this.walkAlso.push(rn_2);
+    };
+    for ( let i_10 = 0; i_10 < ctx.definedClassList.length; i_10++) {
+      var cname = ctx.definedClassList[i_10];
       allTypes.push(cname);
       const c = (( ctx.definedClasses.hasOwnProperty(cname) ? ctx.definedClasses[cname] : undefined ));
       if ( ((c.is_system || c.is_interface) || c.is_template) || c.is_trait ) {
         continue;
       }
       let varNames = {};
-      for ( let i_9 = 0; i_9 < c.variables.length; i_9++) {
-        var p = c.variables[i_9];
+      for ( let i_11 = 0; i_11 < c.variables.length; i_11++) {
+        var p = c.variables[i_11];
         ctx.hadValidType(p.nameNode);
         varNames[p.name] = true;
       };
@@ -10617,8 +10951,8 @@ class RangerFlowParser  {
         }));
       }));
     };
-    for ( let i_10 = 0; i_10 < ctx.definedClassList.length; i_10++) {
-      var cname_1 = ctx.definedClassList[i_10];
+    for ( let i_12 = 0; i_12 < ctx.definedClassList.length; i_12++) {
+      var cname_1 = ctx.definedClassList[i_12];
       allTypes.push(cname_1);
     };
     allTypes.push("int");
@@ -10633,8 +10967,8 @@ class RangerFlowParser  {
     rootCtx.addClass("Any", new_class);
     new_class.is_union = true;
     let did_push = {};
-    for ( let i_11 = 0; i_11 < allTypes.length; i_11++) {
-      var typeName_1 = allTypes[i_11];
+    for ( let i_13 = 0; i_13 < allTypes.length; i_13++) {
+      var typeName_1 = allTypes[i_13];
       if ( ( typeof(did_push[typeName_1] ) != "undefined" && did_push.hasOwnProperty(typeName_1) ) ) {
         continue;
       }
@@ -11090,6 +11424,13 @@ class RangerFlowParser  {
         this.immutableClasses.push(new_class_6);
         new_class_6.is_immutable = true;
       }
+      if ( classNameNode_1.hasFlag("process") ) {
+        this.processClasses.push(new_class_6);
+        new_class_6.is_process = true;
+      }
+      if ( node.hasBooleanProperty("singleton") ) {
+        new_class_6.is_singleton = true;
+      }
       const third = node.getThird();
       if ( third.vref == "extends" ) {
         if ( node.chlen() >= 4 ) {
@@ -11417,6 +11758,13 @@ class RangerFlowParser  {
     }
     if ( node.hasBooleanProperty("serialize") ) {
       this.serializedClasses.push(ctx.currentClass);
+    }
+    if ( node.hasBooleanProperty("process") ) {
+      this.processClasses.push(ctx.currentClass);
+    }
+    if ( node.hasBooleanProperty("singleton") ) {
+      const singletonCl = ctx.currentClass;
+      singletonCl.is_singleton = true;
     }
   };
   findFunctionDesc (obj, ctx, wr) {
@@ -12804,6 +13152,114 @@ class NodeEvalState  {
     this.ask_eval_end = 0;     /** note: unused */
   }
 }
+class RangerProcessCodegen  {
+  constructor() {
+  }
+  shouldWrapProcessNew (procNewNode, procNewCtx) {
+    if ( procNewNode.hasNewOper == false ) {
+      return false;
+    }
+    const cl = procNewNode.clDesc;
+    return cl.is_process;
+  };
+  hasParentRegister (procNewCtx) {
+    if ( procNewCtx.in_method && (procNewCtx.in_static_method == false) ) {
+      return true;
+    }
+    return false;
+  };
+  async writeNewArgs (node, ctx, wr, writer) {
+    const givenArgs = node.getThird();
+    const constr = node.clDesc.constructor_fn;
+    if ( (typeof(constr) === "undefined") == false ) {
+      const i = 0;
+      for ( let i_1 = 0; i_1 < constr.params.length; i_1++) {
+        var arg = constr.params[i_1];
+        const argNode = givenArgs.children[i_1];
+        if ( i_1 > 0 ) {
+          wr.out(", ", false);
+        }
+        await writer.walkNewArgForProcess(argNode, ctx, wr);
+        i_1 = i_1 + 1;
+      };
+    }
+  };
+  writeProcessInstanceRegisterCall (wr, lang) {
+    if ( lang == "kotlin" ) {
+      wr.out("if (this is RangerProcessBase && (this as RangerProcessBase).__rangerId != 0) { __rgr_proc.__rangerRegisterChild(this as RangerProcessBase) } else { __rgr_proc.__rangerRegisterRoot() }", false);
+      return;
+    }
+    if ( (lang == "swift6") || (lang == "swift3") ) {
+      wr.out("if let __rgr_parent = self as? RangerProcessBase, __rgr_parent.__rangerId != 0 { __rgr_proc.__rangerRegisterChild(parent: __rgr_parent) } else { __rgr_proc.__rangerRegisterRoot() }", false);
+      return;
+    }
+    wr.out("if (typeof this !== 'undefined' && this.__rangerId) { __rgr_proc.__rangerRegisterChild(this) } else { __rgr_proc.__rangerRegisterRoot() }", false);
+  };
+  shouldUseProcessInstanceRegister (procNewCtx, newCl) {
+    if ( newCl.is_process == false ) {
+      return false;
+    }
+    if ( procNewCtx.in_static_method ) {
+      return false;
+    }
+    const currCl = procNewCtx.getCurrentClass();
+    if ( typeof(currCl) === "undefined" ) {
+      return false;
+    }
+    const hostCl = currCl;
+    return hostCl.is_process;
+  };
+  writeRegisterCall (procNewCtx, wr, lang, newCl) {
+    if ( this.shouldUseProcessInstanceRegister(procNewCtx, newCl) ) {
+      this.writeProcessInstanceRegisterCall(wr, lang);
+    } else {
+      wr.out("__rgr_proc.__rangerRegisterRoot()", false);
+    }
+  };
+  async writeWrappedNewCallEs6 (node, ctx, wr, writer) {
+    const cl = node.clDesc;
+    wr.out("(() => { const __rgr_proc = new ", false);
+    wr.out(cl.name, false);
+    wr.out("(", false);
+    await this.writeNewArgs(node, ctx, wr, writer);
+    wr.out("); ", false);
+    this.writeRegisterCall(ctx, wr, "es6", cl);
+    wr.out("; return __rgr_proc; })()", false);
+  };
+  async writeWrappedNewCallKotlin (node, ctx, wr, writer) {
+    const cl = node.clDesc;
+    wr.out("run { val __rgr_proc = ", false);
+    wr.out(cl.name, false);
+    wr.out("(", false);
+    await this.writeNewArgs(node, ctx, wr, writer);
+    wr.out("); ", false);
+    this.writeRegisterCall(ctx, wr, "kotlin", cl);
+    wr.out("; __rgr_proc }", false);
+  };
+  async writeWrappedNewCallSwift6 (node, ctx, wr, writer) {
+    const cl = node.clDesc;
+    wr.out("({ () -> ", false);
+    wr.out(cl.name, false);
+    wr.out(" in let __rgr_proc = ", false);
+    wr.out(cl.name, false);
+    wr.out("(", false);
+    await this.writeNewArgs(node, ctx, wr, writer);
+    wr.out("); ", false);
+    this.writeRegisterCall(ctx, wr, "swift6", cl);
+    wr.out("; return __rgr_proc }())", false);
+  };
+  async writeWrappedNewCall (node, ctx, wr, lang, writer) {
+    if ( lang == "kotlin" ) {
+      await this.writeWrappedNewCallKotlin(node, ctx, wr, writer);
+      return;
+    }
+    if ( (lang == "swift6") || (lang == "swift3") ) {
+      await this.writeWrappedNewCallSwift6(node, ctx, wr, writer);
+      return;
+    }
+    await this.writeWrappedNewCallEs6(node, ctx, wr, writer);
+  };
+}
 class RangerGenericClassWriter  {
   constructor() {
     this.compFlags = {};
@@ -13255,7 +13711,26 @@ class RangerGenericClassWriter  {
       }
     }
   };
+  async walkNewArgForProcess (n, ctx, wr) {
+    await this.WalkNode(n, ctx, wr);
+  };
+  async tryWriteProcessNewCall (procNewNode, procNewCtx, outWr) {
+    if ( procNewNode.hasNewOper == false ) {
+      return false;
+    }
+    const procCl = procNewNode.clDesc;
+    if ( procCl.is_process == false ) {
+      return false;
+    }
+    const pc = new RangerProcessCodegen();
+    const lang = operatorsOf_21.getTargetLang_22(procNewCtx);
+    await pc.writeWrappedNewCall(procNewNode, procNewCtx, outWr, lang, this);
+    return true;
+  };
   async writeNewCall (node, ctx, wr) {
+    if ( await this.tryWriteProcessNewCall(node, ctx, wr) ) {
+      return;
+    }
     if ( node.hasNewOper ) {
       const cl = node.clDesc;
       const fc = node.getSecond();
@@ -15762,7 +16237,10 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
     if ( node.hasNewOper ) {
       const cl = node.clDesc;
       const givenArgs = node.getThird();
-      if ( cl.nameNode.hasFlag("singleton") ) {
+      if ( await this.tryWriteProcessNewCall(node, ctx, wr) ) {
+        return;
+      }
+      if ( cl.isSingletonClass() ) {
         wr.out(node.clDesc.name + ".__singleton", false);
         wr.out("(", false);
         if ( (typeof(cl.constructor_fn) !== "undefined" && cl.constructor_fn != null )  ) {
@@ -16015,7 +16493,7 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
       wr.indent(-1);
       wr.out("}", true);
     };
-    if ( cl.nameNode.hasFlag("singleton") ) {
+    if ( cl.isSingletonClass() ) {
       wr.out(("private static var __singleton_instance : " + cl.compiledName) + "? = nil", true);
       wr.out("class func __singleton(", false);
       if ( cl.has_constructor ) {
@@ -16069,6 +16547,10 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
         wr.newline();
         const subCtx_2 = variant_3.fnCtx;
         subCtx_2.is_function = true;
+        subCtx_2.in_method = true;
+        subCtx_2.in_static_method = false;
+        subCtx_2.currentMethod = variant_3;
+        subCtx_2.setCurrentClass(cl);
         await this.WalkNode(variant_3.fnBody, subCtx_2, wr);
         wr.newline();
         wr.indent(-1);
@@ -16090,6 +16572,9 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
         theEnd.indent(1);
         const subCtx_3 = variant_4.fnCtx;
         subCtx_3.is_function = true;
+        subCtx_3.in_method = false;
+        subCtx_3.in_static_method = true;
+        subCtx_3.currentMethod = variant_4;
         await this.WalkNode(variant_4.fnBody, subCtx_3, theEnd);
         theEnd.newline();
         theEnd.indent(-1);
@@ -20483,7 +20968,10 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
     if ( node.hasNewOper ) {
       const cl = node.clDesc;
       const givenArgs = node.getThird();
-      if ( cl.nameNode.hasFlag("singleton") ) {
+      if ( await this.tryWriteProcessNewCall(node, ctx, wr) ) {
+        return;
+      }
+      if ( cl.isSingletonClass() ) {
         wr.out(" ", false);
         wr.out(node.clDesc.name + ".__singleton", false);
         wr.out("(", false);
@@ -20526,7 +21014,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
     const wr = orig_wr;
     const importFork = wr.fork();
     wr.out("", true);
-    if ( cl.is_extended_by_children ) {
+    if ( cl.is_extended_by_children || (cl.name == "RangerProcessBase") ) {
       wr.out("open class " + cl.name, false);
     } else {
       wr.out("class " + cl.name, false);
@@ -20601,7 +21089,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
     if ( ((cl.static_methods.length) > 0) || has_static_vars ) {
       wants_companion = true;
     }
-    if ( cl.nameNode.hasFlag("singleton") ) {
+    if ( cl.isSingletonClass() ) {
       wants_companion = true;
     }
     for ( let i_2 = 0; i_2 < cl.variables.length; i_2++) {
@@ -20635,7 +21123,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
       }
       await this.writeVarDef(pvar_2.node, ctx, wr);
     };
-    if ( cl.nameNode.hasFlag("singleton") ) {
+    if ( cl.isSingletonClass() ) {
       wr.out(("private var __singleton_instance : " + cl.compiledName) + "? = null", true);
       wr.out("fun __singleton(", false);
       if ( cl.has_constructor ) {
@@ -20687,6 +21175,10 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
       wr.newline();
       const subCtx_1 = variant_1.fnCtx;
       subCtx_1.is_function = true;
+      subCtx_1.in_method = true;
+      subCtx_1.in_static_method = false;
+      subCtx_1.currentMethod = variant_1;
+      subCtx_1.setCurrentClass(cl);
       await this.WalkNode(variant_1.fnBody, subCtx_1, wr);
       wr.newline();
       wr.indent(-1);
@@ -20730,6 +21222,10 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
         wr.newline();
         const subCtx_2 = variant_2.fnCtx;
         subCtx_2.is_function = true;
+        subCtx_2.in_method = true;
+        subCtx_2.in_static_method = false;
+        subCtx_2.currentMethod = variant_2;
+        subCtx_2.setCurrentClass(cl);
         await this.WalkNode(variant_2.fnBody, subCtx_2, wr);
         wr.newline();
         wr.indent(-1);
@@ -20747,6 +21243,9 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
         wr.newline();
         const subCtx_3 = variant_3.fnCtx;
         subCtx_3.is_function = true;
+        subCtx_3.in_method = false;
+        subCtx_3.in_static_method = true;
+        subCtx_3.currentMethod = variant_3;
         await this.WalkNode(variant_3.fnBody, subCtx_3, wr);
         wr.newline();
         wr.indent(-1);
@@ -25772,7 +26271,10 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
     if ( node.hasNewOper ) {
       const cl = node.clDesc;
       const givenArgs = node.getThird();
-      if ( cl.nameNode.hasFlag("singleton") ) {
+      if ( await this.tryWriteProcessNewCall(node, ctx, wr) ) {
+        return;
+      }
+      if ( cl.isSingletonClass() ) {
         wr.out(node.clDesc.name + ".__singleton", false);
         wr.out("(", false);
         for ( let i = 0; i < givenArgs.children.length; i++) {
@@ -26138,7 +26640,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         wr.indent(-1);
         wr.out("};", true);
       };
-      if ( cl.nameNode.hasFlag("singleton") ) {
+      if ( cl.isSingletonClass() ) {
         wr.out(("static __singleton_instance : " + cl.name) + " | null = null;", true);
         wr.out("static __singleton(", false);
         if ( cl.has_constructor ) {
@@ -26202,7 +26704,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         }
         wr.out(";", true);
       };
-      if ( cl.nameNode.hasFlag("singleton") ) {
+      if ( cl.isSingletonClass() ) {
         wr.out((cl.name + ".__singleton_instance") + " = null;", true);
         wr.out((cl.name + ".__singleton") + " = function(", false);
         if ( cl.has_constructor ) {

@@ -90,10 +90,37 @@ operators {
             java7 ( (e 1) ".isNull( " (e 2) " ) ? null : " (e 1) ".optString(" (e 2) ") " )
             kotlin ( "(if (" (e 1) ".isNull(" (e 2) ")) null else " (e 1) ".optString(" (e 2) "))"
 (create_polyfill "
-typealias JSONObject = org.json.JSONObject
-typealias JSONArray = org.json.JSONArray
-typealias JSONDataObject = org.json.JSONObject
-typealias JSONArrayObject = org.json.JSONArray
+open class JSONObject {
+  protected open val values: MutableMap<String, Any?> = mutableMapOf()
+  open fun isNull(key: String): Boolean = !values.containsKey(key) || values[key] == null
+  open fun optString(key: String): String? = values[key]?.toString()
+  open fun optInt(key: String): Int? = when (val v = values[key]) {
+    is Int -> v
+    is Double -> v.toInt()
+    is String -> v.toIntOrNull()
+    else -> null
+  }
+  open fun optDouble(key: String): Double? = when (val v = values[key]) {
+    is Double -> v
+    is Int -> v.toDouble()
+    is String -> v.toDoubleOrNull()
+    else -> null
+  }
+  open fun optBoolean(key: String): Boolean? = values[key] as? Boolean
+  open fun getJSONObject(key: String): JSONObject? = values[key] as? JSONObject
+  open fun getJSONArray(key: String): JSONArray? = values[key] as? JSONArray
+  open fun put(key: String, value: Any?): JSONObject { values[key] = value; return this }
+  override fun toString(): String = values.toString()
+  constructor(source: String) : this() {}
+  constructor()
+}
+open class JSONArray : ArrayList<Any?>() {
+  open fun length(): Int = size
+  override fun get(index: Int): Any? = if (index in indices) super.get(index) else null
+  override fun toString(): String = joinToString(prefix = \"[\", postfix = \"]\")
+}
+typealias JSONDataObject = JSONObject
+typealias JSONArrayObject = JSONArray
 ")
             )
             go ( "r_get_opt_json_string(" (e 1) ", " (e 2) ")"

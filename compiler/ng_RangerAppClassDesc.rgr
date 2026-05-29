@@ -25,6 +25,8 @@ class RangerAppClassDesc {
   def is_system_union:boolean false
   def is_template:boolean false
   def is_serialized:boolean false
+  def is_process:boolean false
+  def is_singleton:boolean false
   def is_trait:boolean false
   def is_operator_class false
   def is_generic_instance false
@@ -227,10 +229,73 @@ Tests if the `class name` is either
     }
     return res
   }
+  ; Adjacent: ClassName@singleton(true) → nameNode.hasFlag("singleton")
+  ; Spaced:  class ClassName @singleton(true) → classNode.hasBooleanProperty("singleton")
+  fn isSingletonClass:boolean () {
+    if (is_singleton) {
+      return true
+    }
+    if ((null? nameNode) == false) {
+      if (nameNode.hasFlag("singleton")) {
+        return true
+      }
+    }
+    if ((null? classNode) == false) {
+      if (classNode.hasBooleanProperty("singleton")) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn buildSingletonAccessor@(weak optional):RangerAppFunctionDesc () {
+    def res@(weak optional):RangerAppFunctionDesc
+    if ((this.isSingletonClass()) == false) {
+      return res
+    }
+    def nodeForFactory@(optional weak):CodeNode
+    if ((null? classNode) == false) {
+      nodeForFactory = classNode
+    } {
+      nodeForFactory = nameNode
+    }
+    if (null? nodeForFactory) {
+      return res
+    }
+    def factoryNode:CodeNode (unwrap nodeForFactory)
+    def m@(weak lives):RangerAppFunctionDesc (new RangerAppFunctionDesc ())
+    m.name = "__singleton"
+    m.compiledName = "__singleton"
+    m.is_static = true
+    m.container_class = this
+    def methodNameNode@(lives):CodeNode (factoryNode.newVRefNode("__singleton"))
+    methodNameNode.type_name = this.name
+    methodNameNode.value_type = RangerNodeType.VRef
+    m.nameNode = methodNameNode
+    if (has_constructor) {
+      def constr:RangerAppFunctionDesc (unwrap constructor_fn)
+      for constr.params arg:RangerAppParamDesc i {
+        push m.params arg
+      }
+    }
+    res = m
+    return res
+  }
+
   fn hasStaticMethod:boolean (m_name:string) {
+    if (m_name == "__singleton") {
+      if (this.isSingletonClass()) {
+        return true
+      }
+    }
     return (has defined_static_methods m_name)
   }
   fn findStaticMethod@(weak optional):RangerAppFunctionDesc (f_name:string) {
+    if (f_name == "__singleton") {
+      if (this.isSingletonClass()) {
+        return (this.buildSingletonAccessor())
+      }
+    }
     def e@(weak lives):RangerAppFunctionDesc
     for static_methods m:RangerAppFunctionDesc i {
       if (m.name == f_name) {
