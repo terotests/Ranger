@@ -1,0 +1,76 @@
+
+Import "RangerProcess.rgr"
+
+class TickMsg {
+  def tick:int 0
+  def label:string ""
+}
+
+class AppRoot @process(true) @name("app.root") @singleton(true) extends RangerProcessBase {
+  fn startMsgReceiver:MsgReceiver () {
+    def recv:MsgReceiver (new MsgReceiver)
+    proc_start recv
+    return recv
+  }
+}
+
+class MsgReceiver @process(true) @name("app.msg") extends RangerProcessBase {
+  def lastTick:int -1
+  def lastLabel:string ""
+
+  fn onDeliver:void (n:int) {
+    lastTick = n
+    lastLabel = "int"
+    print ("  [app.msg] onDeliver int tick=" + (to_string n))
+    this.markStateDirty()
+  }
+
+  fn onDeliver:void (msg:TickMsg) {
+    lastTick = msg.tick
+    lastLabel = msg.label
+    print ("  [app.msg] onDeliver TickMsg tick=" + (to_string msg.tick) + " label=" + msg.label)
+    this.markStateDirty()
+  }
+}
+
+class ProcSendOverloadDemo {
+  fn run:void (root:AppRoot) {
+    print "== proc_send overload (int vs TickMsg) =="
+
+    def recv:MsgReceiver (root.startMsgReceiver())
+
+    proc_send recv onDeliver 42
+    if (recv.lastLabel != "int") {
+      print "FAIL proc_send overload: int branch"
+      return
+    }
+    if (recv.lastTick != 42) {
+      print "FAIL proc_send overload: int tick"
+      return
+    }
+
+    def msg:TickMsg (new TickMsg)
+    msg.tick = 7
+    msg.label = "class-msg"
+    proc_send recv onDeliver msg
+    if (recv.lastTick != 7) {
+      print "FAIL proc_send overload: class tick"
+      return
+    }
+    if (recv.lastLabel != "class-msg") {
+      print "FAIL proc_send overload: class label"
+      return
+    }
+
+    print "OK process proc_send overload"
+  }
+}
+
+class Test_ProcSendOverload {
+  sfn m@(main):void () {
+    def root:AppRoot (new AppRoot)
+    proc_start root
+    def demo (new ProcSendOverloadDemo)
+    demo.run(root)
+  }
+}

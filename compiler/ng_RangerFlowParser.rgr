@@ -14,6 +14,8 @@ Import "ng_DictNode.rgr"
 Import "ng_RangerSerializeClass.rgr"
 Import "ng_RangerImmutableExtension.rgr"
 Import "ng_RangerProcessClass.rgr"
+Import "ng_RangerProcessProcSend.rgr"
+Import "ng_RangerProcessCodegen.rgr"
 Import "ng_RangerServiceBuilder.rgr"
 Import "ng_RangerAppOperatorDesc.rgr"
 
@@ -487,6 +489,12 @@ class RangerFlowParser {
         }        
       }
       
+
+      if (fc.vref == "proc_send") {
+        if (RangerProcessProcSend.transform(this node ctx wr)) {
+          return true
+        }
+      }
 
       def b_found true
       def opFn (ctx.getOpFns(fc.vref))
@@ -1162,6 +1170,14 @@ class RangerFlowParser {
     }
     node.hasNewOper = true
     node.clDesc = currC
+    if (null? currC) {
+    } {
+      def newCl:RangerAppClassDesc (unwrap currC)
+      if (newCl.is_process) {
+        def procCodegen:RangerProcessCodegen (new RangerProcessCodegen())
+        procCodegen.validateProcessNewSite(node newCl ctx)
+      }
+    }
     def fnDescr:RangerAppFunctionDesc currC.constructor_fn
     if (!null? fnDescr) {
       if( (size fnDescr.params) > (size params.children)) {
@@ -1663,7 +1679,10 @@ class RangerFlowParser {
 
     if(ctx.isDefinedClass(obj.eval_type_name)) {
       def cl (ctx.findClass(obj.eval_type_name))
-      def m (cl.findMethod(method.vref))
+      def m@(optional):RangerAppFunctionDesc (cl.findMethod(method.vref))
+      if (null? m) {
+        m = (cl.findMethodByCompiledName(method.vref))
+      }
       if(!null? m) {
         node.has_call = true
 
@@ -2432,9 +2451,21 @@ class RangerFlowParser {
 
   fn EnterMethod:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     this.EnterFn(node ctx wr {
-      def m@(lives) (unwrap (desc.findMethod(nameNode.vref)))
-      def subCtx:RangerAppWriterContext (unwrap m.fnCtx)
-      this.walkFunctionBody( m fnBody ctx subCtx wr)      
+      def m@(optional):RangerAppFunctionDesc
+      if (null? node.fnDesc) {
+      } {
+        m = (cast (unwrap node.fnDesc) to:RangerAppFunctionDesc)
+      }
+      if (null? m) {
+        m = (desc.findMethod(nameNode.vref))
+      }
+      if (null? m) {
+        ctx.addError(node ("Error, no description for method " + nameNode.vref))
+        return
+      }
+      def method:RangerAppFunctionDesc (unwrap m)
+      def subCtx:RangerAppWriterContext (unwrap method.fnCtx)
+      this.walkFunctionBody( method fnBody ctx subCtx wr)      
     })
   }
   fn EnterStaticMethod:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -3842,6 +3873,8 @@ class RangerFlowParser {
     ; }      
 
     def m@(lives) (r.funcdesc node ctx)
+    m.node = orig_node
+    orig_node.fnDesc = m
     subCtx.is_function = true
     subCtx.currentMethod = m
     m.fnCtx = subCtx
@@ -4650,8 +4683,10 @@ class RangerFlowParser {
       def fnObj@(lives) (r.func node (unwrap currC.ctx) wr)
       def cn (fnObj.nameNode)
       if( (currC.hasOwnMethod(fnObj.name)) && (false == (cn.hasFlag("override"))) ) {
-        ctx.addError( node "Error: method of same name declared earlier. Overriding function declarations is not currently allowed!")
-        return
+        if (currC.hasDuplicateMethodSignature(fnObj)) {
+          ctx.addError( node "Error: method with the same name and parameter signature declared earlier")
+          return
+        }
       }
       if(cn.hasFlag("main")) {
         ctx.addError( node "Error: dynamic method declared as @(main). Use static 'sfn' instead of 'fn'.")

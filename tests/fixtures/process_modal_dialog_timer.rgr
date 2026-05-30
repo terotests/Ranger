@@ -5,6 +5,16 @@
 
 Import "RangerProcess.rgr"
 
+class AppRoot @process(true) @name("app.root") @singleton(true) extends RangerProcessBase {
+  fn newScreen:ScreenProcess () {
+    def screen:ScreenProcess (new ScreenProcess)
+    screen.width = 400
+    screen.height = 800
+    proc_start screen
+    return screen
+  }
+}
+
 class LifecycleLog @singleton(true) {
   def lines:[string]
 
@@ -180,12 +190,11 @@ class ModalDialogTimerDemo {
   def frame:int 0
   def pulseEvery:int 4
 
-  fn bootstrap:void () {
-    screen = (new ScreenProcess)
-    hasScreen = true
-    def sc:ScreenProcess (unwrap screen)
+  fn bootstrap:void (root:AppRoot) {
+    def sc:ScreenProcess (root.newScreen())
     sc.width = 480
-    sc.height = 800
+    screen = sc
+    hasScreen = true
     def pg:UIPage (sc.openHomePage())
     page = pg
     hasPage = true
@@ -349,8 +358,8 @@ class ModalDialogTimerDemo {
     clear_screen
   }
 
-  fn run:void () {
-    this.bootstrap()
+  fn run:void (root:AppRoot) {
+    this.bootstrap(root)
     if (interactive) {
       this.runInteractive()
     } {
@@ -365,6 +374,8 @@ class ModalDialogTimerDemo {
 
 class Test_ModalDialogTimer {
   sfn m@(main):void () {
+    def root:AppRoot (new AppRoot)
+    proc_start root
     def app (new ModalDialogTimerDemo)
     def argc (shell_arg_cnt)
     if (argc > 0) {
@@ -378,6 +389,6 @@ class Test_ModalDialogTimer {
       on_keypress key {
       }
     }
-    app.run()
+    app.run(root)
   }
 }

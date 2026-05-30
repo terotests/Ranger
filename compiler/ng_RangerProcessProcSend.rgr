@@ -1,0 +1,256 @@
+
+Import "ng_RangerAppClassDesc.rgr"
+Import "ng_CodeNode.rgr"
+Import "ng_RangerAppWriterContext.rgr"
+Import "ng_RangerAppFunctionDesc.rgr"
+Import "ng_writer.rgr"
+Import "ng_parser_v2.rgr"
+
+class RangerProcessProcSend {
+
+  sfn isReservedHandler:boolean (name:string) {
+    if (name == "start") {
+      return true
+    }
+    if (name == "stop") {
+      return true
+    }
+    if (name == "hibernate") {
+      return true
+    }
+    if (name == "wakeup") {
+      return true
+    }
+    if (name == "receiveMessage") {
+      return true
+    }
+    if ((indexOf name "__ranger") == 0) {
+      return true
+    }
+    return false
+  }
+
+  sfn collectProcessClasses:[RangerAppClassDesc] (ctx:RangerAppWriterContext) {
+    def res:[RangerAppClassDesc]
+    def root (ctx.getRoot())
+    for root.definedClasses cl:RangerAppClassDesc i {
+      if (cl.is_process) {
+        push res cl
+      }
+    }
+    return res
+  }
+
+  sfn findClassByPath@(optional):RangerAppClassDesc (pathLit:string processClasses:[RangerAppClassDesc]) {
+    def out@(optional):RangerAppClassDesc
+    for processClasses cl:RangerAppClassDesc i {
+      if (cl.process_path == pathLit) {
+        out = cl
+        return out
+      }
+    }
+    return out
+  }
+
+  sfn resolveTargetClass@(optional):RangerAppClassDesc (
+    parser:RangerFlowParser
+    target:CodeNode
+    processClasses:[RangerAppClassDesc]
+    ctx:RangerAppWriterContext
+    wr:CodeWriter
+    errNode:CodeNode
+  ) {
+    if ((strlen target.string_value) > 0) {
+      def path:string (target.string_value)
+      def cl@(optional):RangerAppClassDesc (RangerProcessProcSend.findClassByPath(path processClasses))
+      def outPath@(optional):RangerAppClassDesc
+      if (null? cl) {
+        ctx.addError(errNode ("proc_send: unknown @name process path \"" + path + "\""))
+      } {
+        outPath = cl
+      }
+      return outPath
+    }
+
+    ctx.setInExpr()
+    parser.WalkNode(target ctx wr)
+    ctx.unsetInExpr()
+
+    if (ctx.isDefinedClass(target.eval_type_name)) {
+      def cl:RangerAppClassDesc (ctx.findClass(target.eval_type_name))
+      def outType@(optional):RangerAppClassDesc
+      if (cl.is_process) {
+        outType = cl
+        return outType
+      }
+      if (target.eval_type_name == "RangerProcessBase") {
+        ctx.addError(errNode "proc_send: target must be a concrete @process type or a named path string, not RangerProcessBase")
+      } {
+        ctx.addError(errNode ("proc_send: " + target.eval_type_name + " is not a @process class"))
+      }
+    }
+
+    ctx.addError(errNode ("proc_send: could not resolve target type"))
+    def outFail@(optional):RangerAppClassDesc
+    return outFail
+  }
+
+  sfn matchHandler@(optional):RangerAppFunctionDesc (
+    parser:RangerFlowParser
+    recvClass:RangerAppClassDesc
+    methodName:string
+    argNodes:[CodeNode]
+    ctx:RangerAppWriterContext
+    wr:CodeWriter
+    errNode:CodeNode
+  ) {
+    def noMatch@(optional):RangerAppFunctionDesc
+    if (RangerProcessProcSend.isReservedHandler(methodName)) {
+      ctx.addError(errNode ("proc_send: reserved handler name \"" + methodName + "\""))
+      return noMatch
+    }
+
+    if (recvClass.hasMethod(methodName) == false) {
+      ctx.addError(errNode ("proc_send: " + recvClass.name + " has no handler \"" + methodName + "\""))
+      return noMatch
+    }
+
+    def mVs@(optional):RangerAppMethodVariants (get recvClass.method_variants methodName)
+    if (null? mVs) {
+      ctx.addError(errNode ("proc_send: no handler \"" + methodName + "\" on " + recvClass.name))
+      return noMatch
+    }
+
+    def variants:RangerAppMethodVariants (unwrap mVs)
+    def argCnt:int (size argNodes)
+    def picked@(optional):RangerAppFunctionDesc
+    def matchCnt:int 0
+    for variants.variants variant:RangerAppFunctionDesc i {
+      if ((size variant.params) != argCnt) {
+        continue
+      }
+      def sigOk:boolean true
+      def pi:int 0
+      while (pi < argCnt) {
+        def param:RangerAppParamDesc (at variant.params pi)
+        def argNode:CodeNode (at argNodes pi)
+        if (parser.areEqualTypes((unwrap param.nameNode) argNode ctx wr) == false) {
+          sigOk = false
+          break
+        }
+        pi = pi + 1
+      }
+      if (sigOk == false) {
+        continue
+      }
+      matchCnt = matchCnt + 1
+      picked = variant
+    }
+
+    if (matchCnt == 0) {
+      ctx.addError(errNode ("proc_send: no matching overload for handler \"" + methodName + "\" on " + recvClass.name))
+      return noMatch
+    }
+    if (matchCnt > 1) {
+      ctx.addError(errNode ("proc_send: ambiguous handler overload for \"" + methodName + "\" on " + recvClass.name))
+      return noMatch
+    }
+
+    def matched:RangerAppFunctionDesc (unwrap picked)
+    def currM (ctx.getCurrentMethod())
+    currM.addCallTo(matched)
+    def outMatch@(optional):RangerAppFunctionDesc
+    outMatch = matched
+    return outMatch
+  }
+
+  sfn buildLiveGuard:CodeNode (targetVref:string) {
+    return (r.expression (r.vref '!=') (r.vref (targetVref + '.__rangerId')) (r.value 0))
+  }
+
+  sfn buildHandlerCall:CodeNode (targetVref:string handlerName:string argNodes:[CodeNode]) {
+    def callArgs:CodeNode (CodeNode.expressionNode())
+    for argNodes a:CodeNode i {
+      push callArgs.children (a.copy())
+    }
+    return (r.expression (r.vref 'call') (r.vref targetVref) (r.vref handlerName) callArgs)
+  }
+
+  sfn transform:boolean (parser:RangerFlowParser node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def childCnt:int (size node.children)
+    if (childCnt < 3) {
+      ctx.addError(node "proc_send requires: target and handler method name")
+      return true
+    }
+
+    def target:CodeNode (node.getSecond())
+    def handlerNode:CodeNode (node.getThird())
+    def argNodes:[CodeNode]
+    def ai:int 3
+    while (ai < childCnt) {
+      push argNodes (at node.children ai)
+      ai = ai + 1
+    }
+
+    if ((strlen handlerNode.string_value) > 0) {
+      ctx.addError(handlerNode "proc_send handler must be a method name (identifier), not a string literal")
+      return true
+    }
+    if ((strlen handlerNode.vref) == 0) {
+      ctx.addError(handlerNode "proc_send requires a handler method name after the target")
+      return true
+    }
+    def methodName:string (handlerNode.vref)
+
+    for argNodes walkArg:CodeNode i {
+      ctx.setInExpr()
+      parser.WalkNode(walkArg ctx wr)
+      ctx.unsetInExpr()
+    }
+
+    def processClasses:[RangerAppClassDesc] (RangerProcessProcSend.collectProcessClasses(ctx))
+    def recvClass@(optional):RangerAppClassDesc (RangerProcessProcSend.resolveTargetClass(parser target processClasses ctx wr node))
+    if (null? recvClass) {
+      return true
+    }
+    def recv:RangerAppClassDesc (unwrap recvClass)
+
+    if ((strlen target.string_value) > 0) {
+      ctx.addError(target "proc_send path literal not supported; use find_process + cast to a typed variable, then proc_send that variable")
+      return true
+    }
+
+    def handler@(optional):RangerAppFunctionDesc (RangerProcessProcSend.matchHandler(parser recv methodName argNodes ctx wr node))
+    if (null? handler) {
+      return true
+    }
+    def handlerFn:RangerAppFunctionDesc (unwrap handler)
+    def emitName:string (handlerFn.compiledName)
+    if ((strlen emitName) == 0) {
+      emitName = methodName
+    }
+
+    parser.WalkNode(target ctx wr)
+    if ((strlen target.vref) == 0) {
+      ctx.addError(target "proc_send: invalid target expression")
+      return true
+    }
+
+    def stmts:[CodeNode]
+    def refGuard:CodeNode (RangerProcessProcSend.buildLiveGuard(target.vref))
+    def refCall:CodeNode (RangerProcessProcSend.buildHandlerCall(target.vref emitName argNodes))
+    def refList:[CodeNode]
+    push refList refCall
+    def refInner:CodeNode (CodeNode.blockFromList(refList))
+    def refIf (r.expression (r.vref 'if') refGuard refInner)
+    push stmts refIf
+
+    def newBlock:CodeNode (CodeNode.blockFromList(stmts))
+    newBlock.flow_done = false
+    node.getChildrenFrom(newBlock)
+    node.is_block_node = true
+    node.flow_done = false
+    parser.WalkNode(node ctx wr)
+    return true
+  }
+}

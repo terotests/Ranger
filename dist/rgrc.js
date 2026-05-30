@@ -399,7 +399,7 @@ class RangerAppHashValue  {
 class RangerAppValue  {
   constructor() {
     this.double_value = 0.0;     /** note: unused */
-    this.string_value = "";     /** note: unused */
+    this.string_value = "";
     this.int_value = 0;     /** note: unused */
     this.boolean_value = false;     /** note: unused */
   }
@@ -863,6 +863,7 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
     this.is_template = false;
     this.is_serialized = false;
     this.is_process = false;
+    this.process_path = "";
     this.is_singleton = false;
     this.is_trait = false;
     this.is_operator_class = false;
@@ -7615,6 +7616,13 @@ class RangerProcessClass  {
     life.emitInvokeMethods(cl, wr, regName);
     life.emitStopSubtree(cl, wr, regName);
     this.emitStaticHelpers(cl, typeId, wr, regName);
+    if ( (cl.process_path.length) > 0 ) {
+      wr.out("sfn processPath:string () {", true);
+      wr.indent(1);
+      wr.out(("return \"" + cl.process_path) + "\"", true);
+      wr.indent(-1);
+      wr.out("}", true);
+    }
     wr.out("sfn stopAllLive:void () {", true);
     wr.indent(1);
     wr.out(((("def __rgrReg:" + regName) + " (") + regName) + ".__singleton())", true);
@@ -7673,29 +7681,112 @@ class RangerProcessClass  {
     wr.indent(-1);
     wr.out("}", true);
   };
+  emitProcessNameRegistryExtension (processClasses, wr) {
+    wr.out("Import \"RangerProcess.rgr\"", true);
+    wr.out("extension ProcessNameRegistry {", true);
+    wr.indent(1);
+    wr.out("fn bindIfConfigured:void (proc:RangerProcessBase) {", true);
+    wr.indent(1);
+    wr.out("if (proc.__rangerId == 0) {", true);
+    wr.indent(1);
+    wr.out("return", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    let hasNamed = false;
+    for ( let i = 0; i < processClasses.length; i++) {
+      var cl = processClasses[i];
+      if ( (cl.process_path.length) > 0 ) {
+        hasNamed = true;
+      }
+    };
+    if ( hasNamed ) {
+      for ( let i_1 = 0; i_1 < processClasses.length; i_1++) {
+        var cl_1 = processClasses[i_1];
+        if ( (cl_1.process_path.length) == 0 ) {
+          continue;
+        }
+        const typeId = i_1 + 1;
+        wr.out(("if (proc.__rangerTypeId == " + ("" + typeId)) + ") {", true);
+        wr.indent(1);
+        wr.out(("proc.__rangerPath = \"" + cl_1.process_path) + "\"", true);
+        wr.out(("this.register(\"" + cl_1.process_path) + "\" proc)", true);
+        wr.out("return", true);
+        wr.indent(-1);
+        wr.out("}", true);
+      };
+    }
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.out("fn findProcess@(optional):RangerProcessBase (path:string) {", true);
+    wr.indent(1);
+    wr.out("if (this.hasLive(path)) {", true);
+    wr.indent(1);
+    wr.out("return (this.findByPath(path))", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.out("return (get byPath \"__rgr_no_such_process__\")", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.indent(-1);
+    wr.out("}", true);
+  };
   emitProcessRuntimeExtension (processClasses, wr) {
     wr.out("Import \"RangerProcess.rgr\"", true);
     wr.out("extension ProcessRuntime {", true);
     wr.indent(1);
-    wr.out("fn stopByProcessId:void (processId:int) {", true);
+    wr.out("sfn collectAllLiveRoots:[RangerProcessBase] () {", true);
     wr.indent(1);
+    wr.out("def roots:[RangerProcessBase]", true);
     for ( let i = 0; i < processClasses.length; i++) {
       var cl = processClasses[i];
-      wr.out(("if (" + cl.name) + ".tryStopByProcessId(processId)) {", true);
+      wr.out(((("def __rgr_" + cl.name) + "_all ( ") + cl.name) + ".allInstances() )", true);
+      wr.out(((("for __rgr_" + cl.name) + "_all __rgrRoot:") + cl.name) + " i {", true);
       wr.indent(1);
-      wr.out("return", true);
+      wr.out("if (__rgrRoot.__rangerId != 0 && __rgrRoot.__rangerParentId == 0) {", true);
+      wr.indent(1);
+      wr.out("push roots __rgrRoot", true);
+      wr.indent(-1);
+      wr.out("}", true);
       wr.indent(-1);
       wr.out("}", true);
     };
+    wr.out("return roots", true);
     wr.indent(-1);
     wr.out("}", true);
-    wr.out("fn stopByClassName:void (name:string) {", true);
+    wr.out("sfn printProcessTree:void () {", true);
+    wr.indent(1);
+    wr.out("def __rgrTreeView (new ProcessTreeView)", true);
+    wr.out("def __rgrRoots (ProcessRuntime.collectAllLiveRoots())", true);
+    wr.out("def __rgrTitle \"\"", true);
+    wr.out("__rgrTreeView.renderRoots(__rgrRoots __rgrTitle)", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.out("sfn printProcessTreeTitled:void (title:string) {", true);
+    wr.indent(1);
+    wr.out("def __rgrTreeView (new ProcessTreeView)", true);
+    wr.out("def __rgrRoots (ProcessRuntime.collectAllLiveRoots())", true);
+    wr.out("__rgrTreeView.renderRoots(__rgrRoots title)", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.out("sfn stopByProcessId:void (processId:int) {", true);
     wr.indent(1);
     for ( let i_1 = 0; i_1 < processClasses.length; i_1++) {
       var cl_1 = processClasses[i_1];
-      wr.out(("if (name == \"" + cl_1.name) + "\") {", true);
+      wr.out(("if (" + cl_1.name) + ".tryStopByProcessId(processId)) {", true);
       wr.indent(1);
-      wr.out(cl_1.name + ".stopAllLive()", true);
+      wr.out("return", true);
+      wr.indent(-1);
+      wr.out("}", true);
+    };
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.out("sfn stopByClassName:void (name:string) {", true);
+    wr.indent(1);
+    for ( let i_2 = 0; i_2 < processClasses.length; i_2++) {
+      var cl_2 = processClasses[i_2];
+      wr.out(("if (name == \"" + cl_2.name) + "\") {", true);
+      wr.indent(1);
+      wr.out(cl_2.name + ".stopAllLive()", true);
       wr.out("return", true);
       wr.indent(-1);
       wr.out("}", true);
@@ -7704,6 +7795,40 @@ class RangerProcessClass  {
     wr.out("}", true);
     wr.indent(-1);
     wr.out("}", true);
+  };
+  emitProcessTypeScriptHelpers (processClasses, wr) {
+    let namedPaths = [];
+    let namedClasses = [];
+    for ( let i = 0; i < processClasses.length; i++) {
+      var cl = processClasses[i];
+      if ( (cl.process_path.length) > 0 ) {
+        namedPaths.push(cl.process_path);
+        namedClasses.push(cl);
+      }
+    };
+    if ( (namedPaths.length) == 0 ) {
+      return;
+    }
+    wr.raw("", true);
+    wr.raw("// @process named-path helpers (generated)", true);
+    wr.raw("export type ProcessPath = ", false);
+    let pathIdx = 0;
+    for ( let i_1 = 0; i_1 < namedPaths.length; i_1++) {
+      var p = namedPaths[i_1];
+      if ( pathIdx > 0 ) {
+        wr.raw(" | ", false);
+      }
+      wr.raw(("\"" + p) + "\"", false);
+      pathIdx = pathIdx + 1;
+    };
+    wr.raw(";", true);
+    wr.raw("export interface ProcessNameRegistry {", true);
+    for ( let i_2 = 0; i_2 < namedClasses.length; i_2++) {
+      var cl_1 = namedClasses[i_2];
+      wr.raw(((("  findProcess(path: \"" + cl_1.process_path) + "\"): ") + cl_1.name) + " | undefined;", true);
+    };
+    wr.raw("  findProcess(path: string): RangerProcessBase | undefined;", true);
+    wr.raw("}", true);
   };
 }
 class RangerServiceBuilder  {
@@ -10886,8 +11011,19 @@ class RangerFlowParser  {
         const baseCl = baseDesc;
         baseCl.is_extended_by_children = true;
       }
+      this.validateProcessPaths(this.processClasses, ctx);
       const procRtGen = new RangerProcessClass();
       const rtWr = new CodeWriter();
+      const nameRegWr = new CodeWriter();
+      procRtGen.emitProcessNameRegistryExtension(this.processClasses, nameRegWr);
+      const nameRegCode = nameRegWr.getCode();
+      const nameRegSrc = new SourceCode(nameRegCode);
+      nameRegSrc.filename = "extension ProcessNameRegistry";
+      const nameRegParser = new RangerLispParser(nameRegSrc);
+      nameRegParser.parse(ctx.hasCompilerFlag("no-op-transform"));
+      const nameRegRn = nameRegParser.rootNode;
+      await this.WalkCollectMethods(nameRegRn, ctx, wr);
+      this.walkAlso.push(nameRegRn);
       procRtGen.emitProcessRuntimeExtension(this.processClasses, rtWr);
       const rtCode = rtWr.getCode();
       const rtSrc = new SourceCode(rtCode);
@@ -10897,6 +11033,11 @@ class RangerFlowParser  {
       const rtRn = rtParser.rootNode;
       await this.WalkCollectMethods(rtRn, ctx, wr);
       this.walkAlso.push(rtRn);
+      if ( ctx.hasCompilerFlag("typescript") ) {
+        const tsWr = new CodeWriter();
+        procRtGen.emitProcessTypeScriptHelpers(this.processClasses, tsWr);
+        ctx.compilerSettings["processTsHelpers"] = tsWr.getCode();
+      }
     }
     for ( let i_8 = 0; i_8 < this.processClasses.length; i_8++) {
       var cl_3 = this.processClasses[i_8];
@@ -11424,10 +11565,7 @@ class RangerFlowParser  {
         this.immutableClasses.push(new_class_6);
         new_class_6.is_immutable = true;
       }
-      if ( classNameNode_1.hasFlag("process") ) {
-        this.processClasses.push(new_class_6);
-        new_class_6.is_process = true;
-      }
+      this.applyProcessClassMeta(new_class_6, classNameNode_1, node, ctx);
       if ( node.hasBooleanProperty("singleton") ) {
         new_class_6.is_singleton = true;
       }
@@ -11760,7 +11898,16 @@ class RangerFlowParser  {
       this.serializedClasses.push(ctx.currentClass);
     }
     if ( node.hasBooleanProperty("process") ) {
-      this.processClasses.push(ctx.currentClass);
+      const procCl = ctx.currentClass;
+      procCl.is_process = true;
+      const procNameNode = procCl.nameNode;
+      if ( (typeof(procNameNode) === "undefined") == false ) {
+        const pn = procNameNode;
+        const procPath = this.readProcessPathFromClassTree(node);
+        if ( (procPath.length) > 0 ) {
+          procCl.process_path = procPath;
+        }
+      }
     }
     if ( node.hasBooleanProperty("singleton") ) {
       const singletonCl = ctx.currentClass;
@@ -12152,6 +12299,142 @@ class RangerFlowParser  {
     if ( (n1.children.length) != cnt ) {
       ctx.addError(n1, msg);
     }
+  };
+  readProcessPathFromClassTree (root) {
+    const path = root.getStringProperty("name");
+    if ( (path.length) > 0 ) {
+      return path;
+    }
+    if ( root.hasExpressionProperty("name") ) {
+      const ann = root.getExpressionProperty("name");
+      if ( (typeof(ann) === "undefined") == false ) {
+        const an = ann;
+        if ( (an.children.length) > 0 ) {
+          const fc = an.children[0];
+          if ( fc.value_type == 4 ) {
+            return fc.string_value;
+          }
+        }
+        if ( an.value_type == 4 ) {
+          return an.string_value;
+        }
+      }
+    }
+    for ( let i = 0; i < root.children.length; i++) {
+      var ch = root.children[i];
+      const childPath = this.readProcessPathFromClassTree(ch);
+      if ( (childPath.length) > 0 ) {
+        return childPath;
+      }
+    };
+    return "";
+  };
+  applyProcessClassMeta (cl, classNameNode, node, ctx) {
+    let isProc = false;
+    if ( classNameNode.hasFlag("process") ) {
+      isProc = true;
+    }
+    if ( node.hasBooleanProperty("process") ) {
+      isProc = true;
+    }
+    const procPathOnly = this.readProcessPathFromClassTree(node);
+    if ( isProc == false ) {
+      if ( (procPathOnly.length) > 0 ) {
+        ctx.addError(classNameNode, "@name is only allowed on @process classes");
+      }
+      return;
+    }
+    this.processClasses.push(cl);
+    cl.is_process = true;
+    if ( (procPathOnly.length) > 0 ) {
+      cl.process_path = procPathOnly;
+    }
+  };
+  resolveProcessPathFromFields (cl) {
+    for ( let i = 0; i < cl.variables.length; i++) {
+      var v = cl.variables[i];
+      if ( v.name != "__rangerProcessName" ) {
+        continue;
+      }
+      if ( v.def_value.value_type == 4 ) {
+        cl.process_path = v.def_value.string_value;
+        return;
+      }
+      if ( (v.value.string_value.length) > 0 ) {
+        cl.process_path = v.value.string_value;
+        return;
+      }
+    };
+  };
+  validateProcessPaths (processClasses, ctx) {
+    for ( let i = 0; i < processClasses.length; i++) {
+      var cl = processClasses[i];
+      if ( (cl.process_path.length) == 0 ) {
+        const classNode = cl.node;
+        if ( (typeof(classNode) === "undefined") == false ) {
+          const cn = classNode;
+          const resolvedCn = this.readProcessPathFromClassTree(cn);
+          if ( (resolvedCn.length) > 0 ) {
+            cl.process_path = resolvedCn;
+          }
+        }
+        const nameNode = cl.nameNode;
+        if ( (cl.process_path.length) == 0 ) {
+          if ( (typeof(nameNode) === "undefined") == false ) {
+            const nn = nameNode;
+            const resolvedNn = this.readProcessPathFromClassTree(nn);
+            if ( (resolvedNn.length) > 0 ) {
+              cl.process_path = resolvedNn;
+            }
+          }
+        }
+        if ( (cl.process_path.length) == 0 ) {
+          this.resolveProcessPathFromFields(cl);
+        }
+      }
+    };
+    let seen = {};
+    for ( let i_1 = 0; i_1 < processClasses.length; i_1++) {
+      var cl_1 = processClasses[i_1];
+      if ( (cl_1.process_path.length) == 0 ) {
+        continue;
+      }
+      const path = cl_1.process_path;
+      const prev = ( seen.hasOwnProperty(path) ? seen[path] : undefined );
+      if ( (typeof(prev) === "undefined") == false ) {
+        const errNode = cl_1.nameNode;
+        if ( (typeof(errNode) === "undefined") == false ) {
+          const en = errNode;
+          ctx.addError(en, "Duplicate @process @name path: " + path);
+        }
+        continue;
+      }
+      seen[path] = "1";
+      if ( this.isValidProcessPath(path) == false ) {
+        const errNode2 = cl_1.nameNode;
+        if ( (typeof(errNode2) === "undefined") == false ) {
+          const en2 = errNode2;
+          ctx.addError(en2, "Invalid @name process path: " + path);
+        }
+      }
+    };
+  };
+  isValidProcessPath (pathStr) {
+    const n = pathStr.length;
+    if ( n == 0 ) {
+      return false;
+    }
+    if ( pathStr == "." ) {
+      return false;
+    }
+    const parts = pathStr.split(".");
+    for ( let i = 0; i < parts.length; i++) {
+      var seg = parts[i];
+      if ( (seg.length) == 0 ) {
+        return false;
+      }
+    };
+    return true;
   };
   async findLanguageOper (details, ctx, opDef) {
     const langName = operatorsOf_21.getTargetLang_22(ctx);
@@ -25647,6 +25930,22 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
   lineEnding () {
     return ";";
   };
+  writeTsOptionalReturnSuffix (variant, wr) {
+    if ( this.target_typescript == false ) {
+      return;
+    }
+    if ( variant.nameNode.hasFlag("optional") ) {
+      wr.out(" | undefined", false);
+      return;
+    }
+    const rv = variant.return_value;
+    if ( typeof(rv) === "undefined" ) {
+      return;
+    }
+    if ( rv.is_optional ) {
+      wr.out(" | undefined", false);
+    }
+  };
   adjustType (tn) {
     if ( tn == "this" ) {
       return "this";
@@ -26234,6 +26533,14 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
   };
   async writeClassVarDef (p, ctx, wr) {
     if ( this.target_typescript ) {
+      const cl = ctx.currentClass;
+      let is_singleton = false;
+      if ( (typeof(cl) === "undefined") == false ) {
+        const clDesc = cl;
+        if ( clDesc.isSingletonClass() ) {
+          is_singleton = true;
+        }
+      }
       const pNode = p.node;
       let has_ctor_init = false;
       if ( (pNode.children.length) > 2 ) {
@@ -26248,11 +26555,17 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         wr.out("static ", false);
       }
       wr.out(p.compiledName, false);
-      if ( (p.is_static == false) && p.is_optional ) {
-        if ( has_ctor_init ) {
-          wr.out("!", false);
+      if ( p.is_static == false ) {
+        if ( p.is_optional ) {
+          if ( has_ctor_init ) {
+            wr.out("!", false);
+          } else {
+            wr.out("?", false);
+          }
         } else {
-          wr.out("?", false);
+          if ( is_singleton || has_ctor_init ) {
+            wr.out("!", false);
+          }
         }
       }
       wr.out(": ", false);
@@ -26497,6 +26810,13 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       }
       wr.out(") {", true);
       wr.indent(1);
+      if ( cl.isSingletonClass() ) {
+        wr.out(("if (" + cl.name) + ".__singleton_instance != null) {", true);
+        wr.indent(1);
+        wr.out(("return " + cl.name) + ".__singleton_instance;", true);
+        wr.indent(-1);
+        wr.out("}", true);
+      }
       if ( b_extd ) {
         if ( (typeof(parentClass) !== "undefined" && parentClass != null )  ) {
           const pc = parentClass;
@@ -26558,6 +26878,9 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         subCtx.is_function = true;
         await this.WalkNode(constr_1.fnBody, subCtx, wr);
       }
+      if ( cl.isSingletonClass() ) {
+        wr.out(cl.name + ".__singleton_instance = this;", true);
+      }
       wr.newline();
       wr.indent(-1);
       wr.out("}", true);
@@ -26582,6 +26905,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
           if ( variant.nameNode.hasFlag("async") ) {
             wr.out(">", false);
           }
+          this.writeTsOptionalReturnSuffix(variant, wr);
           wr.out(" ", false);
         }
         wr.out(" {", true);
@@ -26629,6 +26953,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         if ( variant_1.nameNode.hasFlag("async") ) {
           wr.out("> ", false);
         }
+        this.writeTsOptionalReturnSuffix(variant_1, wr);
         wr.out(" ", false);
         wr.out(" {", true);
         wr.indent(1);
@@ -28371,7 +28696,7 @@ class CLIProgress  {
     this.inputFile = "";
     this.outputFile = "";
     this.targetLanguage = "";
-    this.compilerVersion = "3.0.4";
+    this.compilerVersion = "3.0.5";
     this.useColors = (process.stdout.isTTY || false);
     this.startTime = Date.now();
   }
@@ -30723,6 +31048,15 @@ class StaticAnalyzer  {
                 const contentFork = wr.fork();
                 wr.createTag("utilities");
                 const theEnd = wr.createTag("file_end");
+                if ( appCtx.hasCompilerFlag("typescript") ) {
+                  if ( ( typeof(appCtx.compilerSettings["processTsHelpers"] ) != "undefined" && appCtx.compilerSettings.hasOwnProperty("processTsHelpers") ) ) {
+                    const __rgrTs = (( appCtx.compilerSettings.hasOwnProperty("processTsHelpers") ? appCtx.compilerSettings["processTsHelpers"] : undefined ));
+                    if ( (__rgrTs.length) > 0 ) {
+                      theEnd.raw(__rgrTs, false);
+                      theEnd.newline();
+                    }
+                  }
+                }
                 wr = contentFork;
                 let handledClasses = {};
                 for ( let i_4 = 0; i_4 < appCtx.definedClassList.length; i_4++) {

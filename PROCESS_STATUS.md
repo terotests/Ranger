@@ -38,7 +38,8 @@ Last updated after **`proc_send`**, **`findProcess` on `ProcessNameRegistry`**, 
 | **Message queue / `tick` in compiler** | Not done — **not required** for product; app pattern — [PROCESS_MVP.md](PROCESS_MVP.md) |
 | **UI binding codegen** | Not done — **not required**; app-ranger `pageSetValue` + bus |
 | **`@name("app.path")` on `@process` classes** | Done — compile-time unique path; `find_process "path"` in `.rgr`; `ProcessNameRegistry` bind on `proc_start` |
-| **`proc_send`** | Done — `proc_send "path" name value` or `proc_send target name value` → `receiveMessage(name, value)` if live; stub on `RangerProcessBase` |
+| **`proc_send` (typed handlers)** | Done — `proc_send target handlerName arg…`; handler is a **method identifier**; emits guarded `call` if `__rangerId != 0`; `cmdCall` type-checks args; path literals rejected (use `find_process` + cast + variable) |
+| **`proc_send` (path string target)** | Not done — use typed variable after `find_process` + `cast`; see [§ `proc_send`](#proc_send--typed-handlers-mvp) |
 | **`findProcess(path)` (registry)** | Done — generated `extension ProcessNameRegistry`; live-only (`hasLive`); TS: `interface` overloads for literal paths |
 | **Singleton `new` in TS/JS emit** | Done — `new ProcessNameRegistry()` returns `__singleton_instance` (constructor guard) |
 | **`markStateDirty` / `ProcessUiHost`** | Done (stubs) — manual state generation bump + host notify; auto-dirty on assign deferred |
@@ -55,7 +56,7 @@ Last updated after **`proc_send`**, **`findProcess` on `ProcessNameRegistry`**, 
 | API | Where | Use |
 |-----|--------|-----|
 | `find_process "app.path"` | Ranger `.rgr` | Operator → `ProcessNameRegistry.__singleton().findByPath` |
-| `proc_send "app.path" name value` | Ranger `.rgr` | Resolve path → `receiveMessage(name, value)` |
+| `proc_send target onHandler arg…` | Ranger `.rgr` | Typed handler method + args → guarded `call` when live |
 | `findByPath` / `findProcess` | Generated `ProcessNameRegistry` | Host TS/Kotlin/Swift after `proc_start` |
 | `new ProcessNameRegistry().findProcess(path)` | TypeScript | Singleton `new`; typed path when `-typescript` |
 | `findProcessByPath(path)` | Gallery [`processPaths.ts`](gallery/process_counter_board/src/processPaths.ts) | Thin wrapper around `new … findProcess` |
@@ -63,6 +64,30 @@ Last updated after **`proc_send`**, **`findProcess` on `ProcessNameRegistry`**, 
 **Gallery call sites:** [`counterBoardHost.ts`](gallery/process_counter_board/src/host/counterBoardHost.ts), [`useProcess.ts`](gallery/process_counter_board/src/hooks/useProcess.ts), [`CounterBoard.tsx`](gallery/process_counter_board/src/components/CounterBoard.tsx) (UI line showing registry lookup).
 
 Exploratory native galleries (no CI): [`gallery/process_counter_android/`](gallery/process_counter_android/), [`gallery/process_counter_ios/`](gallery/process_counter_ios/) — `findByPath` + manual refresh patterns documented in README/ISSUES.
+
+### `proc_send` — typed handlers (MVP)
+
+**Syntax (compile time):**
+
+```ranger
+proc_send alphaPage onHello "hello" "world"
+proc_send tickChild onTick 1
+```
+
+- **`target`** — typed `@process` variable (not a path string).
+- **`handlerName`** — method identifier on the receiver class (not a string literal).
+- **Arguments** — normal Ranger expressions; arity/types checked when the generated `call` is analyzed.
+
+**Lowering:** `ng_RangerProcessProcSend.rgr` rewrites to `if (target.__rangerId != 0) { call target onHello … }`. Reserved names: `start`, `stop`, `hibernate`, `wakeup`, `receiveMessage`, `__ranger*`.
+
+**Named path send (today):** assign `find_process` + `cast`, then `proc_send` the typed variable:
+
+```ranger
+def live:AlphaPage (cast (unwrap (find_process "app.alpha")) to:AlphaPage)
+proc_send live onHello "hello" "world"
+```
+
+**Next:** `proc_send "app.alpha" onHello …` with path→class resolution in the analyzer; overload pick by argument types at send site (not only `findMethod`); optional message structs instead of loose args.
 
 ---
 
@@ -100,6 +125,17 @@ Details and fixture commands: [PROCESS_MVP.md](PROCESS_MVP.md).
 | **Packaging** | `lib/RangerProcess.rgr` is copied by `npm run build:dist` → `dist/lib/` (use `rm -rf dist/lib` before copy; nested `dist/lib/lib/` was a stale `cp` artifact). |
 | **Bootstrap** | After FlowParser / writer edits run `npm run compile` twice. |
 | **app-ranger integration** | Pilot not merged; kernel still on `Process.rgr`. |
+| **`proc_send` path literal target** | Rejected at compile time — use `find_process` + cast variable ([§ `proc_send`](#proc_send--typed-handlers-mvp)). |
+
+### `@process` spawn rules (enforced at compile time)
+
+| Rule | Meaning |
+|------|---------|
+| **Named `@process`** (`@name("app.…")`) | `new` only in **`@(main)` bootstrap** or inside a **named** `@process` **instance method** (`fn`). Emits **`__rangerRegisterRoot()`** (discoverable root, `__rangerParentId == 0`). |
+| **Dynamic child** (no `@name`) | `new` only inside an **instance method** on any live `@process` (`fn`, not `sfn`/static). Emits **`__rangerRegisterChild(parent)`** when parent `__rangerId != 0`. |
+| **Orchestrator / static** | Non-`@process` classes must not `new` `@process` types; use a named root + its methods (see fixtures’ **`AppRoot @name("app.root")`**). |
+
+Negative fixture: `tests/fixtures/process_spawn_orphan_bad.rgr`. Tests: `tests/compiler-process-spawn-rules.test.ts`.
 
 ---
 
@@ -110,9 +146,9 @@ Details and fixture commands: [PROCESS_MVP.md](PROCESS_MVP.md).
 | **`spawn local` / `spawn global`** | Compiler operator + registry semantics |
 | **Typed optional `parentOf`** | Analyzer + codegen |
 | **`@process` on unsupported targets** | Backend writers + tests |
-| **Reliable child list for all `new` sites** | Codegen or static convention enforcement |
 | **`describe` / `RangerClassDescriptor` wired** | Compiler tooling |
 | **Cross-app `hibernate` wire format** | Spec / lib, if product needs portable sleep |
+| **`proc_send` path string + overload resolution** | Extend `RangerProcessProcSend` to resolve `@name` paths and pick variant by arg types at send site |
 | **`proc_send` async / broadcast / by-id only** | Deferred v2 — see [PROCESS_COMPARE_WITH_OBJECTIVEC.md](PROCESS_COMPARE_WITH_OBJECTIVEC.md) |
 | **Auto `markStateDirty` on field assign** | Codegen or analyzer hook |
 | **`ProcessUiHost` forwarder in Kotlin/Swift emit** | Native gallery needs assignable host bridge |
@@ -129,6 +165,7 @@ npm run compile
 npm run compile   # if FlowParser / process emit changed
 
 npx vitest run \
+  tests/compiler-process-spawn-rules.test.ts \
   tests/compiler-process-named.test.ts \
   tests/compiler-process-send.test.ts \
   tests/compiler-process-typescript.test.ts \
@@ -171,6 +208,7 @@ cd tests/.output-swift && swiftc process_nesting.swift -parse-as-library -o proc
 7. **Optional stream fixture** — host pumps chunks into `receiveMessage` / `onChunk` without compiler `async`.
 8. **README for `proc_*` / `@name` / TS host** — document `Import "RangerProcess.rgr"` and `RANGER_LIB` for npm installs; run `npm run build:dist` before publish.
 9. **Auto `markStateDirty`** — reduce boilerplate in `.rgr` and generated hosts.
+10. **`proc_send` by path** — compile-time path → class; same handler/arg checking as variable target.
 
 ---
 
@@ -181,4 +219,5 @@ cd tests/.output-swift && swiftc process_nesting.swift -parse-as-library -o proc
 | [PROCESS_MVP.md](PROCESS_MVP.md) | MVP scope, sufficiency, `proc_send`, streams as host pattern |
 | [PROCESS_LIFECYCLE.md](PROCESS_LIFECYCLE.md) | Operators, `start`/`stop`/hibernate, `spawn` (planned) |
 | [PROCESS_COMPARE_WITH_OBJECTIVEC.md](PROCESS_COMPARE_WITH_OBJECTIVEC.md) | ObjC messaging, protocols, run loop parallels |
+| [PROCESS_COMPARISON.md](PROCESS_COMPARISON.md) | Smalltalk / React / Erlang vs `@process` |
 | [gallery/process_counter_board/README.md](gallery/process_counter_board/README.md) | Vite sample, `find_process` vs `findProcess` vs `useProcess` |

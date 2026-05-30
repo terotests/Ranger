@@ -1,16 +1,38 @@
 
 Import "RangerProcess.rgr"
 
+class AppRoot @process(true) @name("app.root") @singleton(true) extends RangerProcessBase {
+  fn startAlpha:AlphaPage () {
+    def page:AlphaPage (new AlphaPage)
+    proc_start page
+    return page
+  }
+
+  fn startBeta:BetaPage () {
+    def page:BetaPage (new BetaPage)
+    proc_start page
+    return page
+  }
+}
+
 class AlphaPage @process(true) @name("app.alpha") extends RangerProcessBase {
   def pingCount:int 0
   def lastName:string ""
   def lastValue:string ""
 
-  fn receiveMessage:void (name:string value:string) {
+  fn onHello:void (name:string value:string) {
     pingCount = pingCount + 1
     lastName = name
     lastValue = value
-    print ("  [app.alpha] receiveMessage #" + (to_string pingCount) + " name=" + name + " value=" + value)
+    print ("  [app.alpha] onHello #" + (to_string pingCount) + " name=" + name + " value=" + value)
+    this.markStateDirty()
+  }
+
+  fn onPing:void (value:string) {
+    pingCount = pingCount + 1
+    lastName = "ping"
+    lastValue = value
+    print ("  [app.alpha] onPing #" + (to_string pingCount) + " value=" + value)
     this.markStateDirty()
   }
 
@@ -23,10 +45,10 @@ class BetaPage @process(true) @name("app.beta") extends RangerProcessBase {
   def note:string ""
   def messageCount:int 0
 
-  fn receiveMessage:void (name:string value:string) {
+  fn onGreet:void (name:string value:string) {
     messageCount = messageCount + 1
     note = (name + "=" + value)
-    print ("  [app.beta] receiveMessage #" + (to_string messageCount) + " " + note)
+    print ("  [app.beta] onGreet #" + (to_string messageCount) + " " + note)
     this.markStateDirty()
   }
 
@@ -36,13 +58,12 @@ class BetaPage @process(true) @name("app.beta") extends RangerProcessBase {
 }
 
 class ProcSendDemo {
-  fn run:void () {
+  fn run:void (root:AppRoot) {
     print "== proc_send demo =="
 
-    def alphaPage:AlphaPage (new AlphaPage)
-    proc_start alphaPage
-    print "1) send by named path (app.alpha)"
-    proc_send "app.alpha" "hello" "world"
+    def alphaPage:AlphaPage (root.startAlpha())
+    print "1) send to started alpha page"
+    proc_send alphaPage onHello "hello" "world"
     alphaPage.printInbox()
 
     if (alphaPage.pingCount != 1) {
@@ -58,12 +79,11 @@ class ProcSendDemo {
       return
     }
 
-    def betaPage:BetaPage (new BetaPage)
-    proc_start betaPage
+    def betaPage:BetaPage (root.startBeta())
     print "2) send to beta by path, then ping alpha by process reference"
-    proc_send "app.beta" "greet" "from-demo"
+    proc_send betaPage onGreet "greet" "from-demo"
     betaPage.printInbox()
-    proc_send alphaPage "ping" "via-ref"
+    proc_send alphaPage onPing "via-ref"
     alphaPage.printInbox()
 
     if (alphaPage.pingCount != 2) {
@@ -91,8 +111,8 @@ class ProcSendDemo {
     print "4) stop processes; late send must not deliver"
     proc_stop alphaPage
     proc_stop betaPage
-    proc_send "app.alpha" "after-stop" "ignored"
-    proc_send "app.beta" "late" "ignored"
+    proc_send alphaPage onHello "after-stop" "ignored"
+    proc_send betaPage onGreet "late" "ignored"
     alphaPage.printInbox()
     betaPage.printInbox()
 
@@ -111,7 +131,9 @@ class ProcSendDemo {
 
 class Test_ProcSend {
   sfn m@(main):void () {
+    def root:AppRoot (new AppRoot)
+    proc_start root
     def demo (new ProcSendDemo)
-    demo.run()
+    demo.run(root)
   }
 }

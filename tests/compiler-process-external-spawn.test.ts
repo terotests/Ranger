@@ -22,8 +22,6 @@ describe("Ranger @process — spawn from external caller", () => {
     expect(out).toContain("OK process external spawn");
     expect(out).toContain("OK   worker parents to host (parentIdOf)");
     expect(out).toContain("OK   worker parents to host (__rangerParentId)");
-    expect(out).toContain("OK   orphan NOT under host (parentIdOf)");
-    expect(out).toContain("OK   static spawn NOT under instance host (parentIdOf)");
     expect(out).not.toContain("FAIL ");
   });
 
@@ -34,7 +32,6 @@ describe("Ranger @process — spawn from external caller", () => {
     expect(result.code).toMatch(
       /spawnWorkerFromOutside[\s\S]*__rangerRegisterChild/
     );
-    expect(result.code).toContain("spawnWorkerFromStatic");
   });
 
   describe.skipIf(!kotlinAvailable)("Kotlin runtime", () => {

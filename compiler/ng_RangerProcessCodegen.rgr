@@ -1,6 +1,68 @@
 
 class RangerProcessCodegen {
 
+  sfn isNamedProcess:boolean (cl:RangerAppClassDesc) {
+    return ((strlen cl.process_path) > 0)
+  }
+
+  sfn isInProcessInstanceMethod:boolean (ctx:RangerAppWriterContext) {
+    def m:RangerAppFunctionDesc (ctx.getCurrentMethod())
+    if (m.is_static) {
+      return false
+    }
+    if (null? m.container_class) {
+      return false
+    }
+    def host:RangerAppClassDesc (unwrap m.container_class)
+    return host.is_process
+  }
+
+  sfn isBootstrapSite:boolean (ctx:RangerAppWriterContext) {
+    def m:RangerAppFunctionDesc (ctx.getCurrentMethod())
+    if (null? m.nameNode) {
+      return false
+    }
+    if (m.nameNode.hasFlag("main")) {
+      return true
+    }
+    return false
+  }
+
+  sfn isInsideNamedProcessMethod:boolean (ctx:RangerAppWriterContext) {
+    if (RangerProcessCodegen.isInProcessInstanceMethod(ctx) == false) {
+      return false
+    }
+    def m:RangerAppFunctionDesc (ctx.getCurrentMethod())
+    def host:RangerAppClassDesc (unwrap m.container_class)
+    return (RangerProcessCodegen.isNamedProcess(host))
+  }
+
+  fn validateProcessNewSite:void (node:CodeNode newCl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    if (newCl.is_process == false) {
+      return
+    }
+    def named:boolean (RangerProcessCodegen.isNamedProcess(newCl))
+    def bootstrap:boolean (RangerProcessCodegen.isBootstrapSite(ctx))
+    def inProcMethod:boolean (RangerProcessCodegen.isInProcessInstanceMethod(ctx))
+    def inNamedParent:boolean (RangerProcessCodegen.isInsideNamedProcessMethod(ctx))
+
+    if (named) {
+      if (bootstrap) {
+        return
+      }
+      if (inNamedParent) {
+        return
+      }
+      ctx.addError(node "Named @process: create only in @(main) bootstrap or inside a named @process instance method")
+      return
+    }
+
+    if (inProcMethod) {
+      return
+    }
+    ctx.addError(node "Dynamic @process: new only inside an instance method (fn) on a @process class")
+  }
+
   fn shouldWrapProcessNew:boolean (procNewNode:CodeNode procNewCtx:RangerAppWriterContext) {
     if (procNewNode.hasNewOper == false) {
       return false
@@ -10,10 +72,7 @@ class RangerProcessCodegen {
   }
 
   fn hasParentRegister:boolean (procNewCtx:RangerAppWriterContext) {
-    if (procNewCtx.in_method && (procNewCtx.in_static_method == false)) {
-      return true
-    }
-    return false
+    return (RangerProcessCodegen.isInProcessInstanceMethod(procNewCtx))
   }
 
   fn writeNewArgs:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter writer:RangerGenericClassWriter) {
@@ -48,18 +107,14 @@ class RangerProcessCodegen {
     if (newCl.is_process == false) {
       return false
     }
-    if (procNewCtx.in_static_method) {
-      return false
-    }
-    def currCl@(optional):RangerAppClassDesc (procNewCtx.getCurrentClass())
-    if (null? currCl) {
-      return false
-    }
-    def hostCl:RangerAppClassDesc (unwrap currCl)
-    return hostCl.is_process
+    return (RangerProcessCodegen.isInProcessInstanceMethod(procNewCtx))
   }
 
   fn writeRegisterCall:void (procNewCtx:RangerAppWriterContext wr:CodeWriter lang:string newCl:RangerAppClassDesc) {
+    if (RangerProcessCodegen.isNamedProcess(newCl)) {
+      wr.out("__rgr_proc.__rangerRegisterRoot()" false)
+      return
+    }
     if (this.shouldUseProcessInstanceRegister(procNewCtx newCl)) {
       this.writeProcessInstanceRegisterCall(wr lang)
     } {

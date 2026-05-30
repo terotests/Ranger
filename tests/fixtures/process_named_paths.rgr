@@ -1,6 +1,20 @@
 
 Import "RangerProcess.rgr"
 
+class AppRoot @process(true) @name("app.root") @singleton(true) extends RangerProcessBase {
+  fn startAlpha:AlphaPage () {
+    def page:AlphaPage (new AlphaPage)
+    proc_start page
+    return page
+  }
+
+  fn startBeta:BetaPage () {
+    def page:BetaPage (new BetaPage)
+    proc_start page
+    return page
+  }
+}
+
 class AlphaPage @process(true) @name("app.alpha") extends RangerProcessBase {
   def score:int 0
 
@@ -20,12 +34,10 @@ class AlphaPage @process(true) @name("app.alpha") extends RangerProcessBase {
     this.markStateDirty()
   }
 
-  fn receiveMessage:void (name:string value:string) {
-    print ("  AlphaPage.receiveMessage name=" + name + " value=" + value)
-    if (name == "ping") {
-      score = score + 1
-      this.markStateDirty()
-    }
+  fn onPing:void (from:string) {
+    print ("  AlphaPage.onPing from=" + from)
+    score = score + 1
+    this.markStateDirty()
   }
 }
 
@@ -42,23 +54,19 @@ class BetaPage @process(true) @name("app.beta") extends RangerProcessBase {
     print ("  BetaPage label=" + label)
   }
 
-  fn receiveMessage:void (name:string value:string) {
-    print ("  BetaPage.receiveMessage name=" + name + " value=" + value)
-    if (name == "rename") {
-      label = value
-      this.markStateDirty()
-    }
+  fn onRename:void (next:string) {
+    print ("  BetaPage.onRename -> " + next)
+    label = next
+    this.markStateDirty()
   }
 }
 
 class NamedPathsDemo {
-  fn run:void () {
+  fn run:void (root:AppRoot) {
     print "== named @process paths =="
 
-    def alphaPage:AlphaPage (new AlphaPage)
-    def betaPage:BetaPage (new BetaPage)
-    proc_start alphaPage
-    proc_start betaPage
+    def alphaPage:AlphaPage (root.startAlpha())
+    def betaPage:BetaPage (root.startBeta())
 
     print "1) direct calls on started instances"
     alphaPage.bump()
@@ -85,8 +93,8 @@ class NamedPathsDemo {
     betaViaPath.setLabel("via-find-process")
 
     print "3) proc_send by path and by reference"
-    proc_send alphaPage "ping" "from-demo"
-    proc_send "app.beta" "rename" "renamed-by-path"
+    proc_send alphaPage onPing "from-demo"
+    proc_send betaPage onRename "renamed-by-path"
 
     if (alphaPage.score != 3) {
       print "FAIL named: alpha score (expected 3)"
@@ -110,7 +118,7 @@ class NamedPathsDemo {
       print "FAIL named: alpha still live after stop"
       return
     }
-    proc_send "app.alpha" "late" "ignored"
+    proc_send alphaPage onPing "ignored"
     if (alphaPage.score != 3) {
       print "FAIL named: message after stop should not change score"
       return
@@ -122,7 +130,9 @@ class NamedPathsDemo {
 
 class Test_NamedPaths {
   sfn m@(main):void () {
+    def root:AppRoot (new AppRoot)
+    proc_start root
     def demo (new NamedPathsDemo)
-    demo.run()
+    demo.run(root)
   }
 }

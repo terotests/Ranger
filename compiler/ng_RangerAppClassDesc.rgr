@@ -199,7 +199,40 @@ Tests if the `class name` is either
       return true
     }
     return false
-  }  
+  }
+
+  fn methodParamSignature:string (fnDesc:RangerAppFunctionDesc) {
+    def sig:string ""
+    def pc:int (size fnDesc.params)
+    sig = (to_string pc)
+    for fnDesc.params p:RangerAppParamDesc i {
+      def tn:string (p.nameNode.type_name)
+      if ((strlen tn) == 0) {
+        tn = "?"
+      }
+      sig = sig + ":" + tn
+    }
+    return sig
+  }
+
+  fn hasDuplicateMethodSignature:boolean (fnDesc:RangerAppFunctionDesc) {
+    if (has defined_methods fnDesc.name) {
+    } {
+      return false
+    }
+    def mVs@(optional):RangerAppMethodVariants (get method_variants fnDesc.name)
+    if (null? mVs) {
+      return false
+    }
+    def want:string (this.methodParamSignature(fnDesc))
+    def vs:RangerAppMethodVariants (unwrap mVs)
+    for vs.variants existing:RangerAppFunctionDesc i {
+      if (this.methodParamSignature(existing) == want) {
+        return true
+      }
+    }
+    return false
+  }
   fn hasMethod:boolean (m_name:string) {
     if (has defined_methods m_name) {
       return true
@@ -230,6 +263,26 @@ Tests if the `class name` is either
     }
     return res
   }
+
+  fn findMethodByCompiledName@(optional weak):RangerAppFunctionDesc (compiled:string) {
+    def res@(weak lives):RangerAppFunctionDesc
+    for methods m:RangerAppFunctionDesc i {
+      if (m.compiledName == compiled) {
+        res = m
+        return res
+      }
+    }
+    for extends_classes cname:string i {
+      def cDesc:RangerAppClassDesc (ctx.findClass(cname))
+      def found@(optional weak):RangerAppFunctionDesc (cDesc.findMethodByCompiledName(compiled))
+      if (null? found) {
+      } {
+        return found
+      }
+    }
+    return res
+  }
+
   ; Adjacent: ClassName@singleton(true) → nameNode.hasFlag("singleton")
   ; Spaced:  class ClassName @singleton(true) → classNode.hasBooleanProperty("singleton")
   fn isSingletonClass:boolean () {
@@ -484,6 +537,10 @@ Tests if the `class name` is either
       push new_v.variants desc
     } {
       def new_v2:RangerAppMethodVariants (unwrap defVs)
+      def variantIdx:int (size new_v2.variants)
+      if (variantIdx > 0) {
+        desc.compiledName = (desc.name + "_" + (to_string variantIdx))
+      }
       push new_v2.variants desc
     }
     desc.container_class = this

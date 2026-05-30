@@ -11,6 +11,14 @@
 
 Import "RangerProcess.rgr"
 
+class AppRoot @process(true) @name("app.root") @singleton(true) extends RangerProcessBase {
+  fn newBoard:CounterBoardPage () {
+    def pg:CounterBoardPage (new CounterBoardPage)
+    proc_start pg
+    return pg
+  }
+}
+
 class CounterRowProcess @process(true) extends RangerProcessBase {
   def board@(optional):CounterBoardPage
   def label:string ""
@@ -58,7 +66,7 @@ class CounterRowProcess @process(true) extends RangerProcessBase {
   }
 }
 
-class CounterBoardPage @process(true) extends RangerProcessBase {
+class CounterBoardPage @process(true) @name("app.counterBoard") extends RangerProcessBase {
   def title:string "Counters"
   def rows:[CounterRowProcess]
   def selectedIndex:int 0
@@ -206,11 +214,10 @@ class CounterBoardDemo {
   def pulseEvery:int 5
   def showProcessTree:boolean true
 
-  fn bootstrap:void () {
-    def pg:CounterBoardPage (new CounterBoardPage)
+  fn bootstrap:void (root:AppRoot) {
+    def pg:CounterBoardPage (root.newBoard())
     page = pg
     hasPage = true
-    proc_start pg
   }
 
   fn drawBoard:void () {
@@ -426,8 +433,8 @@ class CounterBoardDemo {
     clear_screen
   }
 
-  fn run:void () {
-    this.bootstrap()
+  fn run:void (root:AppRoot) {
+    this.bootstrap(root)
     if (interactive) {
       this.runInteractive()
     } {
@@ -441,6 +448,8 @@ class CounterBoardDemo {
 
 class Test_CounterBoard {
   sfn m@(main):void () {
+    def root:AppRoot (new AppRoot)
+    proc_start root
     def app (new CounterBoardDemo)
     def argc (shell_arg_cnt)
     if (argc > 0) {
@@ -455,6 +464,6 @@ class Test_CounterBoard {
         ; keys queued in Lang.rgr — drained in runInteractive
       }
     }
-    app.run()
+    app.run(root)
   }
 }
