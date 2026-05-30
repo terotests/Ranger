@@ -57,7 +57,7 @@ class RangerProcessBase {
   fn __rangerStopSubtree:void () {
   }
 
-  ; Inbound messaging: proc_send target name value → receiveMessage(name, value) when live.
+  ; Legacy hook; prefer typed proc_send → handler methods on @process classes.
   fn receiveMessage:void (name:string value:string) {
   }
 }

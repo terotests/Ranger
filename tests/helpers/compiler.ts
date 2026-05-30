@@ -18,6 +18,7 @@ const TEMP_OUTPUT_DIR = path.join(ROOT_DIR, "tests", ".output");
 const GO_OUTPUT_DIR = path.join(ROOT_DIR, "tests", ".output-go");
 const PYTHON_OUTPUT_DIR = path.join(ROOT_DIR, "tests", ".output-python");
 const RUST_OUTPUT_DIR = path.join(ROOT_DIR, "tests", ".output-rust");
+const SWIFT_OUTPUT_DIR = path.join(ROOT_DIR, "tests", ".output-swift");
 
 export interface CompileResult {
   success: boolean;
@@ -1489,7 +1490,120 @@ export function getGeneratedCppCode(
 // Swift6 code generation helpers
 // ============================================================================
 
-const SWIFT_OUTPUT_DIR = path.join(ROOT_DIR, "tests", ".output-swift");
+export function isSwiftAvailable(): boolean {
+  try {
+    execSync("swiftc -version", {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Build and run a compiled Swift6 file (-parse-as-library, same as process fixtures).
+ */
+export function runCompiledSwift(swiftFile: string): RunResult {
+  const absoluteSwift = path.isAbsolute(swiftFile)
+    ? swiftFile
+    : path.join(ROOT_DIR, swiftFile);
+
+  if (!fs.existsSync(absoluteSwift)) {
+    return {
+      success: false,
+      output: "",
+      error: `Swift file not found: ${absoluteSwift}`,
+    };
+  }
+
+  const swiftDir = path.dirname(absoluteSwift);
+  const swiftBasename = path.basename(absoluteSwift, ".swift");
+  const binFile = path.join(swiftDir, swiftBasename);
+
+  try {
+    execSync(`swiftc "${absoluteSwift}" -parse-as-library -o "${binFile}"`, {
+      cwd: swiftDir,
+      encoding: "utf-8",
+      timeout: 120000,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    const output = execSync(`"${binFile}"`, {
+      cwd: swiftDir,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    try {
+      fs.unlinkSync(binFile);
+    } catch {
+      // Ignore cleanup errors
+    }
+
+    return {
+      success: true,
+      output: output.trim(),
+    };
+  } catch (err: unknown) {
+    const e = err as { stderr?: string; stdout?: string; message?: string };
+    try {
+      if (fs.existsSync(binFile)) {
+        fs.unlinkSync(binFile);
+      }
+    } catch {
+      // Ignore cleanup errors
+    }
+
+    return {
+      success: false,
+      output: e.stdout || "",
+      error: e.stderr || e.message,
+    };
+  }
+}
+
+/**
+ * Compile and run a Ranger source file as Swift6
+ */
+export function compileAndRunSwift(sourceFile: string): {
+  compile: CompileResult;
+  run?: RunResult;
+} {
+  const compileResult = compileRanger(sourceFile, "swift6", SWIFT_OUTPUT_DIR);
+
+  if (!compileResult.success) {
+    return { compile: compileResult };
+  }
+
+  const absoluteSource = path.isAbsolute(sourceFile)
+    ? sourceFile
+    : path.join(ROOT_DIR, sourceFile);
+  const sourceBasename = path.basename(
+    absoluteSource.replace(/\.clj$/, ".rgr"),
+    ".rgr"
+  );
+  const outputSwift = path.join(SWIFT_OUTPUT_DIR, `${sourceBasename}.swift`);
+
+  if (!fs.existsSync(outputSwift)) {
+    return {
+      compile: compileResult,
+      run: {
+        success: false,
+        output: "",
+        error: `Compiled Swift file not found: ${outputSwift}. Compile output: ${compileResult.output}`,
+      },
+    };
+  }
+
+  const runResult = runCompiledSwift(outputSwift);
+
+  return {
+    compile: compileResult,
+    run: runResult,
+  };
+}
 
 /**
  * Get the generated Swift6 code content for a source file

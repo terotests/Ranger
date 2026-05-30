@@ -5351,25 +5351,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
             }
         }
 
-        proc_send@(moves@( 3 )) cmdProcSendPath:void (path:string name:string value:string) {
-            templates {
-                es6 ( "(() => { const __rgrP = ProcessNameRegistry.__singleton().findByPath(" (e 1) "); if (!__rgrP || __rgrP.__rangerId === 0) return; __rgrP.receiveMessage(" (e 2) ", " (e 3) "); })()" )
-                kotlin ( "run { val __rgrP = ProcessNameRegistry.__singleton().findByPath(" (e 1) "); if (__rgrP == null || __rgrP.__rangerId == 0) return@run; __rgrP.receiveMessage(" (e 2) ", " (e 3) ") }" )
-                swift6 ( "{ let __rgrP = ProcessNameRegistry.__singleton().findByPath(" (e 1) "); guard let p = __rgrP, p.__rangerId != 0 else { return }; p.receiveMessage(" (e 2) ", " (e 3) ") }" )
-                swift3 ( "{ let __rgrP = ProcessNameRegistry.__singleton().findByPath(" (e 1) "); guard let p = __rgrP, p.__rangerId != 0 else { return }; p.receiveMessage(" (e 2) ", " (e 3) ") }" )
-                * ( "/* proc_send path not implemented */" )
-            }
-        }
-
-        proc_send@(moves@( 3 )) cmdProcSendProc:void (proc:RangerProcessBase name:string value:string) {
-            templates {
-                es6 ( "(() => { const __rgrP = " (e 1) "; if (!__rgrP || __rgrP.__rangerId === 0) return; __rgrP.receiveMessage(" (e 2) ", " (e 3) "); })()" )
-                kotlin ( "run { val __rgrP = " (e 1) "; if (__rgrP.__rangerId == 0) return@run; __rgrP.receiveMessage(" (e 2) ", " (e 3) ") }" )
-                swift6 ( "{ let __rgrP = " (e 1) "; guard __rgrP.__rangerId != 0 else { return }; __rgrP.receiveMessage(" (e 2) ", " (e 3) ") }" )
-                swift3 ( "{ let __rgrP = " (e 1) "; guard __rgrP.__rangerId != 0 else { return }; __rgrP.receiveMessage(" (e 2) ", " (e 3) ") }" )
-                * ( "/* proc_send proc not implemented */" )
-            }
-        }
+        ; proc_send is lowered in ng_RangerProcessProcSend.rgr (typed handler methods, overload match).
 
         proc_start@(moves@( 1 )) cmdProcStart:void (proc:RangerProcessBase) {
             templates {

@@ -1,7 +1,26 @@
 ; Verifies ProcessRuntime.collectAllLiveRoots + ProcessTreeView (debugger-style CLI).
 Import "RangerProcess.rgr"
 
+class AppRoot @process(true) @name("app.root") @singleton(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
+  fn bootTreeDemo:ScreenProcess () {
+    def screen:ScreenProcess (new ScreenProcess)
+    proc_start screen
+    def page:HostPage (screen.openPage())
+    proc_start page
+    def counter:CounterProcess (page.spawnCounter())
+    proc_start counter
+    counter.value = 7
+    return screen
+  }
+}
+
 class ScreenProcess @process(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
   fn openPage:HostPage () {
     def page (new HostPage)
     page.screen = this
@@ -10,6 +29,9 @@ class ScreenProcess @process(true) extends RangerProcessBase {
 }
 
 class HostPage @process(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
   def screen@(optional):ScreenProcess
   def title:string "Workout"
 
@@ -22,6 +44,9 @@ class HostPage @process(true) extends RangerProcessBase {
 }
 
 class CounterProcess @process(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
   def page@(optional):HostPage
   def label:string ""
   def value:int 0
@@ -30,33 +55,43 @@ class CounterProcess @process(true) extends RangerProcessBase {
 class TreeIntrospectionDemo {
   def passed:boolean true
 
-  fn run:void () {
+  fn run:void (root:AppRoot) {
     print "  process tree introspection"
-    def screen:ScreenProcess (new ScreenProcess)
-    proc_start screen
-    def page:HostPage (screen.openPage())
-    proc_start page
-    def counter:CounterProcess (page.spawnCounter())
-    proc_start counter
-    counter.value = 7
+    def screen:ScreenProcess (root.bootTreeDemo())
 
     def roots (ProcessRuntime.collectAllLiveRoots())
     def rootCount:int (size roots)
     print ("  roots=" + (to_string rootCount))
     if (rootCount != 1) {
-      print "FAIL expected 1 root (ScreenProcess)"
+      print "FAIL expected 1 root (AppRoot)"
       passed = false
     }
-    def screenId:int (ScreenProcess.parentIdOf(counter))
-    print ("  Screen.parentIdOf(counter)=" + (to_string screenId))
-    if (screenId != screen.__rangerId) {
-      print "FAIL parentIdOf chain to screen"
+    def counters (CounterProcess.allInstances())
+    if ((size counters) == 0) {
+      print "FAIL expected counter instance"
       passed = false
+    } {
+      def counter:CounterProcess (at counters 0)
+      def screenId:int (ScreenProcess.parentIdOf(counter))
+      print ("  Screen.parentIdOf(counter)=" + (to_string screenId))
+      if (screenId != screen.__rangerId) {
+        print "FAIL parentIdOf chain to screen"
+        passed = false
+      }
     }
     ProcessRuntime.printProcessTreeTitled("  @process tree")
-    proc_stop counter
-    proc_stop page
+    def counters2 (CounterProcess.allInstances())
+    if ((size counters2) > 0) {
+      def counter:CounterProcess (at counters2 0)
+      proc_stop counter
+    }
+    def pages (HostPage.allInstances())
+    if ((size pages) > 0) {
+      def page:HostPage (at pages 0)
+      proc_stop page
+    }
     proc_stop screen
+    proc_stop root
     print ""
     if (passed) {
       print "OK process tree introspection"
@@ -68,7 +103,9 @@ class TreeIntrospectionDemo {
 
 class Test_ProcessTreeIntrospection {
   sfn m@(main):void () {
+    def root:AppRoot (new AppRoot)
+    proc_start root
     def app (new TreeIntrospectionDemo)
-    app.run()
+    app.run(root)
   }
 }

@@ -1,5 +1,18 @@
 Import "RangerProcess.rgr"
 
+class AppRoot @process(true) @name("app.root") @singleton(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
+  fn newScreen:ScreenProcess () {
+    def screen:ScreenProcess (new ScreenProcess)
+    screen.width = 400
+    screen.height = 800
+    proc_start screen
+    return screen
+  }
+}
+
 class LifecycleLog @singleton(true) {
   def lines:[string]
 
@@ -26,6 +39,9 @@ class LifecycleLog @singleton(true) {
 }
 
 class ScreenProcess @process(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
   def width:int 0
   def height:int 0
   def activePage@(optional):UIPage
@@ -66,6 +82,9 @@ class ScreenProcess @process(true) extends RangerProcessBase {
 }
 
 class UIPage @process(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
   def screen@(optional):ScreenProcess
   def title:string ""
 
@@ -83,6 +102,9 @@ class UIPage @process(true) extends RangerProcessBase {
 }
 
 class TimerProcess @process(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
   def pageTitle:string ""
   def timeLeft:int 30
 
@@ -99,6 +121,9 @@ class TimerProcess @process(true) extends RangerProcessBase {
 }
 
 class TickChild @process(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
   def pageTitle:string ""
   def tick:int 0
 
@@ -154,12 +179,10 @@ class PageLifecycleDemo {
     print ("    Tick=" + (to_string (this.countLive("TickChild"))))
   }
 
-  fn runAuto:void () {
-    screen = (new ScreenProcess)
+  fn runAuto:void (root:AppRoot) {
+    def sc:ScreenProcess (root.newScreen())
+    screen = sc
     hasScreen = true
-    def sc:ScreenProcess (unwrap screen)
-    sc.width = 400
-    sc.height = 800
     sc.switchTo("A")
     this.printCounts("after A")
     sc.switchTo("B")
@@ -206,12 +229,10 @@ class PageLifecycleDemo {
     }
   }
 
-  fn runInteractive:void () {
-    screen = (new ScreenProcess)
+  fn runInteractive:void (root:AppRoot) {
+    def sc:ScreenProcess (root.newScreen())
+    screen = sc
     hasScreen = true
-    def sc:ScreenProcess (unwrap screen)
-    sc.width = 400
-    sc.height = 800
     sc.switchTo("A")
     while (running) {
       this.drawFrame()
@@ -222,11 +243,11 @@ class PageLifecycleDemo {
     sc.stop()
   }
 
-  fn run:void () {
+  fn run:void (root:AppRoot) {
     if (interactive) {
-      this.runInteractive()
+      this.runInteractive(root)
     } {
-      this.runAuto()
+      this.runAuto(root)
     }
     print ""
     print "OK process page lifecycle"
@@ -235,6 +256,8 @@ class PageLifecycleDemo {
 
 class Test_PageLifecycle {
   sfn m@(main):void () {
+    def root:AppRoot (new AppRoot)
+    proc_start root
     def app (new PageLifecycleDemo)
     def argc (shell_arg_cnt)
     if (argc > 0) {
@@ -248,6 +271,6 @@ class Test_PageLifecycle {
       on_keypress key {
       }
     }
-    app.run()
+    app.run(root)
   }
 }

@@ -2,9 +2,15 @@
 Import "RangerProcess.rgr"
 
 class PageA @process(true) @name("app.same") extends RangerProcessBase {
+  fn start:void () {
+  }
+
 }
 
 class PageB @process(true) @name("app.same") extends RangerProcessBase {
+  fn start:void () {
+  }
+
 }
 
 class Test_Dup {

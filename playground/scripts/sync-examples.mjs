@@ -32,7 +32,7 @@ export const EXAMPLES = [
     id: "process-tick",
     title: "Process tick child",
     file: "process_tick_child.rgr",
-    description: "@process child spawn; proc_send name+value to receiveMessage.",
+    description: "@process child spawn; proc_send to typed handler methods.",
     needsProcess: true,
   },
   {
@@ -68,7 +68,21 @@ export const EXAMPLES = [
 const EXTRA = {
   "process_tick_child.rgr": `Import "RangerProcess.rgr"
 
+class AppRoot @process(true) @name("app.root") @singleton(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
+  fn startTimer:TimerProcess () {
+    def timer:TimerProcess (new TimerProcess)
+    proc_start timer
+    return timer
+  }
+}
+
 class TimerProcess @process(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
   fn spawnTick:TickChild () {
     def tickChild (new TickChild)
     proc_start tickChild
@@ -79,9 +93,12 @@ class TimerProcess @process(true) extends RangerProcessBase {
 class TickChild @process(true) extends RangerProcessBase {
   def tick:int 0
 
-  fn receiveMessage:void (name:string value:string) {
-    tick = tick + 1
-    print ("TickChild receiveMessage name=" + name + " value=" + value + " tick=" + (to_string tick))
+  fn start:void () {
+  }
+
+  fn onTick:void (n:int) {
+    tick = tick + n
+    print ("TickChild onTick n=" + (to_string n) + " tick=" + (to_string tick))
     this.markStateDirty()
   }
 
@@ -92,10 +109,11 @@ class TickChild @process(true) extends RangerProcessBase {
 
 class TickDemo {
   sfn m@(main):void () {
-    def timer (new TimerProcess)
-    proc_start timer
+    def root:AppRoot (new AppRoot)
+    proc_start root
+    def timer:TimerProcess (root.startTimer())
     def tickChild:TickChild (timer.spawnTick())
-    proc_send tickChild "tick" "1"
+    proc_send tickChild onTick 1
     proc_stop tickChild
     proc_stop timer
     print "OK tick child demo"

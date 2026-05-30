@@ -5,18 +5,20 @@ import * as path from "path";
 import { compileAndRun, compileRanger } from "./helpers/compiler";
 
 const FIXTURE = "tests/fixtures/process_proc_send.rgr";
+const FIXTURE_OVERLOAD = "tests/fixtures/process_proc_send_overload.rgr";
 const OUTPUT_JS = path.join(__dirname, ".output", "process_proc_send.js");
 const OUTPUT_TS = path.join(__dirname, ".output", "process_proc_send.ts");
 
 describe("Ranger proc_send", () => {
-  it("should compile proc_send and emit receiveMessage + findByPath send", () => {
+  it("should compile proc_send to typed handler calls", () => {
     const result = compileRanger(FIXTURE);
     expect(result.success, `Compile failed: ${result.error || result.output}`).toBe(true);
     const code = fs.readFileSync(OUTPUT_JS, "utf-8");
-    expect(code).toContain("receiveMessage");
-    expect(code).toContain("findByPath");
-    expect(code).toContain("receiveMessage(");
-    expect(code).toMatch(/receiveMessage\([^)]+,\s*[^)]+\)/);
+    expect(code).toContain(".onHello(");
+    expect(code).toContain(".onPing(");
+    expect(code).toContain(".onGreet(");
+    expect(code).not.toContain("receiveMessage(");
+    expect(code).toContain("find_process");
     expect(code).toContain("app.alpha");
   });
 
@@ -26,6 +28,51 @@ describe("Ranger proc_send", () => {
     expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
     expect(run?.output).toContain("OK process proc_send");
     expect(run?.output).not.toContain("FAIL proc_send:");
+  });
+
+  it("should reject string literal handler at compile time", () => {
+    const badFixture = path.join(__dirname, ".output", "proc_send_bad.rgr");
+    fs.mkdirSync(path.dirname(badFixture), { recursive: true });
+    fs.writeFileSync(
+      badFixture,
+      `Import "RangerProcess.rgr"
+class P @process(true) @name("app.p") extends RangerProcessBase {
+  fn onX:void () { }
+}
+class Main {
+  sfn m@(main):void () {
+    def p:P (new P)
+    proc_start p
+    proc_send p "onX"
+  }
+}
+`
+    );
+    const result = compileRanger(badFixture);
+    expect(result.success).toBe(false);
+    expect(result.output || result.error || "").toMatch(/handler must be a method name/i);
+  });
+});
+
+describe("Ranger proc_send overload + class message", () => {
+  it("should compile overload handlers and emit mangled method names", () => {
+    const result = compileRanger(FIXTURE_OVERLOAD);
+    expect(result.success, `Compile failed: ${result.error || result.output}`).toBe(true);
+    const code = fs.readFileSync(
+      path.join(__dirname, ".output", "process_proc_send_overload.js"),
+      "utf-8"
+    );
+    expect(code).toContain(".onDeliver(");
+    expect(code).toContain(".onDeliver_1(");
+    expect(code).not.toContain("receiveMessage(");
+  });
+
+  it("should run overload fixture (int vs TickMsg)", () => {
+    const { compile, run } = compileAndRun(FIXTURE_OVERLOAD);
+    expect(compile.success, `Compile failed: ${compile.error}`).toBe(true);
+    expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+    expect(run?.output).toContain("OK process proc_send overload");
+    expect(run?.output).not.toContain("FAIL proc_send overload:");
   });
 });
 

@@ -1,6 +1,22 @@
 Import "RangerProcess.rgr"
 
+class AppRoot @process(true) @name("app.root") @singleton(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
+  fn newScreen:ScreenProcess () {
+    def screen:ScreenProcess (new ScreenProcess)
+    screen.width = 400
+    screen.height = 800
+    proc_start screen
+    return screen
+  }
+}
+
 class ScreenProcess @process(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
   def width:int 0
   def height:int 0
 
@@ -13,6 +29,9 @@ class ScreenProcess @process(true) extends RangerProcessBase {
 }
 
 class UIPage @process(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
   def screen@(optional):ScreenProcess
   def title:string ""
 
@@ -24,6 +43,9 @@ class UIPage @process(true) extends RangerProcessBase {
 }
 
 class TimerProcess @process(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
   def timeLeft:int 60
 
   fn spawnTick:TickChild () {
@@ -40,6 +62,9 @@ class TimerProcess @process(true) extends RangerProcessBase {
 }
 
 class TickChild @process(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
   def tick:int 0
 }
 
@@ -88,12 +113,10 @@ class ProcessDemoApp {
   def pulseEvery:int 10
   def showRegistry:boolean false
 
-  fn bootstrap:void () {
-    screen = (new ScreenProcess)
-    screen.width = 400
-    screen.height = 800
+  fn bootstrap:void (root:AppRoot) {
+    def sc:ScreenProcess (root.newScreen())
+    screen = sc
     hasScreen = true
-    def sc:ScreenProcess (unwrap screen)
     def pg:UIPage (sc.openDemoPage())
     page = pg
     hasPage = true
@@ -420,8 +443,8 @@ class ProcessDemoApp {
     }
   }
 
-  fn run:void () {
-    this.bootstrap()
+  fn run:void (root:AppRoot) {
+    this.bootstrap(root)
 
     if (interactive) {
       hide_cursor
@@ -440,6 +463,8 @@ class ProcessDemoApp {
 
 class Test_ProcessNesting {
   sfn m@(main):void () {
+    def root:AppRoot (new AppRoot)
+    proc_start root
     def app (new ProcessDemoApp)
     def argc (shell_arg_cnt)
     if (argc > 0) {
@@ -456,6 +481,6 @@ class Test_ProcessNesting {
       }
     }
 
-    app.run()
+    app.run(root)
   }
 }

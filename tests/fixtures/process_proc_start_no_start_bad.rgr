@@ -1,0 +1,25 @@
+; Compile-time negative: proc_start on @process without fn start.
+
+Import "RangerProcess.rgr"
+
+class AppRoot @process(true) @name("app.root") @singleton(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
+  fn bootHost:HostProcess () {
+    def host:HostProcess (new HostProcess)
+    proc_start host
+    return host
+  }
+}
+
+class HostProcess @process(true) @name("app.host") extends RangerProcessBase {
+}
+
+class Test_ProcStartNoStart {
+  sfn m@(main):void () {
+    def root:AppRoot (new AppRoot)
+    proc_start root
+    root.bootHost()
+  }
+}

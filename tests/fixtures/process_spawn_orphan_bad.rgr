@@ -1,0 +1,18 @@
+; Compile-time negative: dynamic @process new outside @process instance method.
+
+Import "RangerProcess.rgr"
+
+class HostProcess @process(true) @name("app.host") extends RangerProcessBase {
+}
+
+class WorkerProcess @process(true) extends RangerProcessBase {
+}
+
+class BadOrchestrator {
+  sfn m@(main):void () {
+    def host:HostProcess (new HostProcess)
+    proc_start host
+    def orphan:WorkerProcess (new WorkerProcess)
+    orphan.label = "illegal"
+  }
+}
