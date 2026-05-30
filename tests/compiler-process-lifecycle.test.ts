@@ -1,9 +1,16 @@
 import { describe, it, expect } from "vitest";
-import { compileAndRun, compileAndRunKotlin, isKotlinAvailable } from "./helpers/compiler";
+import {
+  compileAndRun,
+  compileAndRunKotlin,
+  compileAndRunSwift,
+  isKotlinAvailable,
+  isSwiftAvailable,
+} from "./helpers/compiler";
 
 const FIXTURE = "tests/fixtures/process_page_lifecycle.rgr";
 
 const kotlinAvailable = isKotlinAvailable();
+const swiftAvailable = isSwiftAvailable();
 
 function expectLifecycleOutput(out: string) {
   expect(out).toContain("OK process page lifecycle");
@@ -38,6 +45,15 @@ describe("Ranger @process lifecycle — page switch", () => {
   describe.skipIf(!kotlinAvailable)("Kotlin", () => {
     it("compiles and runs page lifecycle fixture", () => {
       const { compile, run } = compileAndRunKotlin(FIXTURE);
+      expect(compile.success, `Compile failed: ${compile.error}`).toBe(true);
+      expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+      expectLifecycleOutput(run?.output ?? "");
+    });
+  });
+
+  describe.skipIf(!swiftAvailable)("Swift6", () => {
+    it("compiles and runs page lifecycle fixture", () => {
+      const { compile, run } = compileAndRunSwift(FIXTURE);
       expect(compile.success, `Compile failed: ${compile.error}`).toBe(true);
       expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
       expectLifecycleOutput(run?.output ?? "");

@@ -15,6 +15,7 @@ Import "ng_RangerSerializeClass.rgr"
 Import "ng_RangerImmutableExtension.rgr"
 Import "ng_RangerProcessClass.rgr"
 Import "ng_RangerProcessProcSend.rgr"
+Import "ng_RangerProcessProcStartCheck.rgr"
 Import "ng_RangerProcessCodegen.rgr"
 Import "ng_RangerServiceBuilder.rgr"
 Import "ng_RangerAppOperatorDesc.rgr"
@@ -494,6 +495,10 @@ class RangerFlowParser {
         if (RangerProcessProcSend.transform(this node ctx wr)) {
           return true
         }
+      }
+
+      if (fc.vref == "proc_start") {
+        RangerProcessProcStartCheck.validate(this node ctx wr)
       }
 
       def b_found true

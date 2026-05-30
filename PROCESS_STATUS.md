@@ -11,7 +11,7 @@ Last updated after **`proc_send`**, **`findProcess` on `ProcessNameRegistry`**, 
 
 | Layer | State |
 |-------|--------|
-| **Compiler MVP** | Working: `@process`, tree, registry, `proc_*`, `proc_send`, named paths, subtree stop — JS / Kotlin tested; Swift6 for `process_nesting` |
+| **Compiler MVP** | Working: `@process`, tree, registry, `proc_*`, `proc_send`, named paths, subtree stop — JS / Kotlin tested; Swift6 for `process_nesting` + `process_page_lifecycle` (vitest when `swiftc` present) |
 | **TypeScript hosts** | `-typescript` emits `ProcessPath`, `findProcess` on registry, `interface ProcessNameRegistry` overloads; `new @singleton()` returns shared instance |
 | **Web gallery** | [`gallery/process_counter_board/`](gallery/process_counter_board/) — Vite + React, `findProcessByPath` / `new ProcessNameRegistry().findProcess(...)` |
 | **app-ranger** | Still uses legacy `Process` / `ProcessKernel`; not yet wired to `@process` |
@@ -115,8 +115,8 @@ Details and fixture commands: [PROCESS_MVP.md](PROCESS_MVP.md).
 | **`proc_stop "ClassName"`** | Stops all live instances of that type app-wide. |
 | **Navigation** | No compiler hook on field assign; app calls `proc_stop` (fixture `switchTo`). |
 | **`hibernate` / `wakeup`** | Codegen present; no standard payload format. |
-| **Missing `fn start`** | Empty base stub; no compile error. |
-| **Swift** | `process_page_lifecycle` not in Swift CI matrix (Kotlin runs it). |
+| **Missing `fn start` on `proc_start` target** | Compile error at `proc_start` site; with `-debug`, codegen emits a DEBUG line from `__rangerInvokeStart` when no user `start` exists. |
+| **Swift** | `process_page_lifecycle` in Swift vitest matrix (`compiler-process-kotlin-swift`, `compiler-process-lifecycle`) when `swiftc` is available. |
 | **Kotlin/Swift typed `findProcess`** | Not done — TS gets `ProcessPath` + interface overloads only. |
 | **Singleton `new` on Kotlin/Swift** | TS/JS constructor guard only; native galleries still use `__singleton()`. |
 | **Other backends** | `@process` / `proc_*` not verified on Rust, Go, Python, … |
@@ -135,7 +135,7 @@ Details and fixture commands: [PROCESS_MVP.md](PROCESS_MVP.md).
 | **Dynamic child** (no `@name`) | `new` only inside an **instance method** on any live `@process` (`fn`, not `sfn`/static). Emits **`__rangerRegisterChild(parent)`** when parent `__rangerId != 0`. |
 | **Orchestrator / static** | Non-`@process` classes must not `new` `@process` types; use a named root + its methods (see fixtures’ **`AppRoot @name("app.root")`**). |
 
-Negative fixture: `tests/fixtures/process_spawn_orphan_bad.rgr`. Tests: `tests/compiler-process-spawn-rules.test.ts`.
+Negative fixtures: `tests/fixtures/process_spawn_orphan_bad.rgr`, `tests/fixtures/process_proc_start_no_start_bad.rgr`. Tests: `tests/compiler-process-spawn-rules.test.ts`.
 
 ---
 
@@ -193,6 +193,9 @@ cd tests/.output && kotlinc process_page_lifecycle.kt -include-runtime -d page.j
 
 node bin/output.js -swift6 tests/fixtures/process_nesting.rgr -d=tests/.output-swift -o=process_nesting.swift
 cd tests/.output-swift && swiftc process_nesting.swift -parse-as-library -o process_nesting && ./process_nesting
+
+node bin/output.js -swift6 tests/fixtures/process_page_lifecycle.rgr -nodecli -d=tests/.output-swift -o=process_page_lifecycle.swift
+cd tests/.output-swift && swiftc process_page_lifecycle.swift -parse-as-library -o process_page_lifecycle && ./process_page_lifecycle
 ```
 
 ---
@@ -202,13 +205,12 @@ cd tests/.output-swift && swiftc process_nesting.swift -parse-as-library -o proc
 1. **app-ranger pilot** — one route/slot as `@process`; kernel calls `proc_start` / `findProcess` or `find_process`; messages via `proc_send` or queues — [PROCESS_MVP.md](PROCESS_MVP.md).
 2. **Kotlin/Swift parity** — `findProcess` on registry (untyped `string`) + optional singleton `new` in native writers; wire `ProcessUiHost` for Compose/SwiftUI galleries.
 3. **`spawn local`** — when duplicate children under one parent become painful.
-4. **Swift CI** — add `process_page_lifecycle` to matrix.
-5. **`parentOf` typed optional** — when analyzer allows.
-6. **Gallery: `receiveMessage` demo** — console ping to `app.counterBoard` from a second named process in `.rgr` or devtools snippet.
-7. **Optional stream fixture** — host pumps chunks into `receiveMessage` / `onChunk` without compiler `async`.
-8. **README for `proc_*` / `@name` / TS host** — document `Import "RangerProcess.rgr"` and `RANGER_LIB` for npm installs; run `npm run build:dist` before publish.
-9. **Auto `markStateDirty`** — reduce boilerplate in `.rgr` and generated hosts.
-10. **`proc_send` by path** — compile-time path → class; same handler/arg checking as variable target.
+4. **`parentOf` typed optional** — when analyzer allows.
+5. **Gallery: `receiveMessage` demo** — console ping to `app.counterBoard` from a second named process in `.rgr` or devtools snippet.
+6. **Optional stream fixture** — host pumps chunks into `receiveMessage` / `onChunk` without compiler `async`.
+7. **README for `proc_*` / `@name` / TS host** — document `Import "RangerProcess.rgr"` and `RANGER_LIB` for npm installs; run `npm run build:dist` before publish.
+8. **Auto `markStateDirty`** — reduce boilerplate in `.rgr` and generated hosts.
+9. **`proc_send` by path** — compile-time path → class; same handler/arg checking as variable target.
 
 ---
 

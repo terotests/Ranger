@@ -5,6 +5,9 @@
 Import "RangerProcess.rgr"
 
 class CounterRowProcess @process(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
   def board@(optional):CounterBoardPage
   def label:string ""
   def value:int 0

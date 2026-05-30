@@ -2,6 +2,9 @@
 Import "RangerProcess.rgr"
 
 class AppRoot @process(true) @name("app.root") @singleton(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
   fn startAlpha:AlphaPage () {
     def page:AlphaPage (new AlphaPage)
     proc_start page
@@ -16,6 +19,9 @@ class AppRoot @process(true) @name("app.root") @singleton(true) extends RangerPr
 }
 
 class AlphaPage @process(true) @name("app.alpha") extends RangerProcessBase {
+  fn start:void () {
+  }
+
   def score:int 0
 
   fn bump:void () {
@@ -42,6 +48,9 @@ class AlphaPage @process(true) @name("app.alpha") extends RangerProcessBase {
 }
 
 class BetaPage @process(true) @name("app.beta") extends RangerProcessBase {
+  fn start:void () {
+  }
+
   def label:string "beta"
 
   fn setLabel:void (next:string) {

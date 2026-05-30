@@ -1,6 +1,9 @@
 Import "RangerProcess.rgr"
 
 class AppRoot @process(true) @name("app.root") @singleton(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
   fn newScreen:ScreenProcess () {
     def screen:ScreenProcess (new ScreenProcess)
     screen.width = 400
@@ -11,6 +14,9 @@ class AppRoot @process(true) @name("app.root") @singleton(true) extends RangerPr
 }
 
 class ScreenProcess @process(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
   def width:int 0
   def height:int 0
 
@@ -23,6 +29,9 @@ class ScreenProcess @process(true) extends RangerProcessBase {
 }
 
 class UIPage @process(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
   def screen@(optional):ScreenProcess
   def title:string ""
 
@@ -34,6 +43,9 @@ class UIPage @process(true) extends RangerProcessBase {
 }
 
 class TimerProcess @process(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
   def timeLeft:int 60
 
   fn spawnTick:TickChild () {
@@ -50,6 +62,9 @@ class TimerProcess @process(true) extends RangerProcessBase {
 }
 
 class TickChild @process(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
   def tick:int 0
 }
 

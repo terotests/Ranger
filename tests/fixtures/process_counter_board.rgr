@@ -12,6 +12,9 @@
 Import "RangerProcess.rgr"
 
 class AppRoot @process(true) @name("app.root") @singleton(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
   fn newBoard:CounterBoardPage () {
     def pg:CounterBoardPage (new CounterBoardPage)
     proc_start pg
@@ -20,6 +23,9 @@ class AppRoot @process(true) @name("app.root") @singleton(true) extends RangerPr
 }
 
 class CounterRowProcess @process(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
   def board@(optional):CounterBoardPage
   def label:string ""
   def value:int 0
@@ -67,6 +73,7 @@ class CounterRowProcess @process(true) extends RangerProcessBase {
 }
 
 class CounterBoardPage @process(true) @name("app.counterBoard") extends RangerProcessBase {
+
   def title:string "Counters"
   def rows:[CounterRowProcess]
   def selectedIndex:int 0

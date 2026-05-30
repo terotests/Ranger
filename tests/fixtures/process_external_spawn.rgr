@@ -4,6 +4,9 @@
 Import "RangerProcess.rgr"
 
 class AppRoot @process(true) @name("app.root") @singleton(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
   fn startHost:HostProcess () {
     def host:HostProcess (new HostProcess)
     proc_start host
@@ -12,6 +15,9 @@ class AppRoot @process(true) @name("app.root") @singleton(true) extends RangerPr
 }
 
 class HostProcess @process(true) @name("app.host") extends RangerProcessBase {
+  fn start:void () {
+  }
+
   def spawnCount:int 0
 
   fn spawnWorkerFromOutside:WorkerProcess () {
@@ -23,6 +29,9 @@ class HostProcess @process(true) @name("app.host") extends RangerProcessBase {
 }
 
 class WorkerProcess @process(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
   def label:string ""
 }
 

@@ -1,0 +1,38 @@
+
+Import "ng_RangerAppClassDesc.rgr"
+Import "ng_CodeNode.rgr"
+Import "ng_RangerAppWriterContext.rgr"
+Import "ng_writer.rgr"
+Import "ng_parser_v2.rgr"
+
+class RangerProcessProcStartCheck {
+
+  sfn validate:boolean (parser:RangerFlowParser node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def childCnt:int (size node.children)
+    if (childCnt < 2) {
+      ctx.addError(node "proc_start requires a process target")
+      return true
+    }
+
+    def target:CodeNode (node.getSecond())
+    ctx.setInExpr()
+    parser.WalkNode(target ctx wr)
+    ctx.unsetInExpr()
+
+    if (ctx.isDefinedClass(target.eval_type_name) == false) {
+      return true
+    }
+
+    def cl:RangerAppClassDesc (ctx.findClass(target.eval_type_name))
+    if (cl.is_process == false) {
+      return true
+    }
+
+    if (cl.hasOwnMethod("start")) {
+      return true
+    }
+
+    ctx.addError(target ("proc_start: " + cl.name + " has no fn start(); add fn start:void () { } or proc_start will not run user code"))
+    return true
+  }
+}

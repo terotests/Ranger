@@ -1,14 +1,20 @@
 
+Import "ng_RangerAppWriterContext.rgr"
+
 class RangerProcessLifecycle {
 
-  fn emitInvokeMethods:void (cl:RangerAppClassDesc wr:CodeWriter regName:string) {
+  fn emitInvokeMethods:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter regName:string) {
+    wr.out("fn __rangerInvokeStart:void () {" , true)
+    wr.indent(1)
     if (cl.hasMethod("start")) {
-      wr.out("fn __rangerInvokeStart:void () {" , true)
-      wr.indent(1)
       wr.out("this.start()" , true)
-      wr.indent(-1)
-      wr.out("}" , true)
+    } {
+      if (ctx.hasCompilerFlag("debug")) {
+        wr.out(("print (\"DEBUG @process: " + cl.name + " proc_start with no fn start()\")") , true)
+      }
     }
+    wr.indent(-1)
+    wr.out("}" , true)
     if (cl.hasMethod("stop")) {
       wr.out("fn __rangerInvokeStop:void () {" , true)
       wr.indent(1)

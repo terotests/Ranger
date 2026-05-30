@@ -7528,14 +7528,18 @@ class RangerImmutableExtension  {
 class RangerProcessLifecycle  {
   constructor() {
   }
-  emitInvokeMethods (cl, wr, regName) {
+  emitInvokeMethods (cl, ctx, wr, regName) {
+    wr.out("fn __rangerInvokeStart:void () {", true);
+    wr.indent(1);
     if ( cl.hasMethod("start") ) {
-      wr.out("fn __rangerInvokeStart:void () {", true);
-      wr.indent(1);
       wr.out("this.start()", true);
-      wr.indent(-1);
-      wr.out("}", true);
+    } else {
+      if ( ctx.hasCompilerFlag("debug") ) {
+        wr.out(("print (\"DEBUG @process: " + cl.name) + " proc_start with no fn start()\")", true);
+      }
     }
+    wr.indent(-1);
+    wr.out("}", true);
     if ( cl.hasMethod("stop") ) {
       wr.out("fn __rangerInvokeStop:void () {", true);
       wr.indent(1);
@@ -7670,7 +7674,7 @@ class RangerProcessClass  {
     wr.out("this.__rangerParentId = 0", true);
     wr.indent(-1);
     wr.out("}", true);
-    life.emitInvokeMethods(cl, wr, regName);
+    life.emitInvokeMethods(cl, ctx, wr, regName);
     life.emitStopSubtree(cl, wr, regName);
     this.emitStaticHelpers(cl, typeId, wr, regName);
     if ( (cl.process_path.length) > 0 ) {
@@ -8102,6 +8106,33 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     node.is_block_node = true;
     node.flow_done = false;
     await parser.WalkNode(node, ctx, wr);
+    return true;
+  };
+  class RangerProcessProcStartCheck  {
+    constructor() {
+    }
+  }
+  RangerProcessProcStartCheck.validate = async function(parser, node, ctx, wr) {
+    const childCnt = node.children.length;
+    if ( childCnt < 2 ) {
+      ctx.addError(node, "proc_start requires a process target");
+      return true;
+    }
+    const target = node.getSecond();
+    ctx.setInExpr();
+    await parser.WalkNode(target, ctx, wr);
+    ctx.unsetInExpr();
+    if ( ctx.isDefinedClass(target.eval_type_name) == false ) {
+      return true;
+    }
+    const cl = ctx.findClass(target.eval_type_name);
+    if ( cl.is_process == false ) {
+      return true;
+    }
+    if ( cl.hasOwnMethod("start") ) {
+      return true;
+    }
+    ctx.addError(target, ("proc_start: " + cl.name) + " has no fn start(); add fn start:void () { } or proc_start will not run user code");
     return true;
   };
   class RangerProcessCodegen  {
@@ -8834,6 +8865,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           if ( await RangerProcessProcSend.transform(this, node, ctx, wr) ) {
             return true;
           }
+        }
+        if ( fc_5.vref == "proc_start" ) {
+          await RangerProcessProcStartCheck.validate(this, node, ctx, wr);
         }
         let b_found = true;
         const opFn = await ctx.getOpFns(fc_5.vref);

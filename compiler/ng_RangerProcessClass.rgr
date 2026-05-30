@@ -91,7 +91,7 @@ class RangerProcessClass {
     wr.indent(-1)
     wr.out("}" , true)
 
-    life.emitInvokeMethods(cl wr regName)
+    life.emitInvokeMethods(cl ctx wr regName)
     life.emitStopSubtree(cl wr regName)
 
     this.emitStaticHelpers(cl typeId wr regName)

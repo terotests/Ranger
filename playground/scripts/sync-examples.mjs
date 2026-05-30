@@ -69,6 +69,9 @@ const EXTRA = {
   "process_tick_child.rgr": `Import "RangerProcess.rgr"
 
 class AppRoot @process(true) @name("app.root") @singleton(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
   fn startTimer:TimerProcess () {
     def timer:TimerProcess (new TimerProcess)
     proc_start timer
@@ -77,6 +80,9 @@ class AppRoot @process(true) @name("app.root") @singleton(true) extends RangerPr
 }
 
 class TimerProcess @process(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
   fn spawnTick:TickChild () {
     def tickChild (new TickChild)
     proc_start tickChild
@@ -86,6 +92,9 @@ class TimerProcess @process(true) extends RangerProcessBase {
 
 class TickChild @process(true) extends RangerProcessBase {
   def tick:int 0
+
+  fn start:void () {
+  }
 
   fn onTick:void (n:int) {
     tick = tick + n

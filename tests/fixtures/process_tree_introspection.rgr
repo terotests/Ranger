@@ -2,6 +2,9 @@
 Import "RangerProcess.rgr"
 
 class AppRoot @process(true) @name("app.root") @singleton(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
   fn bootTreeDemo:ScreenProcess () {
     def screen:ScreenProcess (new ScreenProcess)
     proc_start screen
@@ -15,6 +18,9 @@ class AppRoot @process(true) @name("app.root") @singleton(true) extends RangerPr
 }
 
 class ScreenProcess @process(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
   fn openPage:HostPage () {
     def page (new HostPage)
     page.screen = this
@@ -23,6 +29,9 @@ class ScreenProcess @process(true) extends RangerProcessBase {
 }
 
 class HostPage @process(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
   def screen@(optional):ScreenProcess
   def title:string "Workout"
 
@@ -35,6 +44,9 @@ class HostPage @process(true) extends RangerProcessBase {
 }
 
 class CounterProcess @process(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
   def page@(optional):HostPage
   def label:string ""
   def value:int 0

@@ -7,6 +7,9 @@ class TickMsg {
 }
 
 class AppRoot @process(true) @name("app.root") @singleton(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
   fn startMsgReceiver:MsgReceiver () {
     def recv:MsgReceiver (new MsgReceiver)
     proc_start recv
@@ -15,6 +18,9 @@ class AppRoot @process(true) @name("app.root") @singleton(true) extends RangerPr
 }
 
 class MsgReceiver @process(true) @name("app.msg") extends RangerProcessBase {
+  fn start:void () {
+  }
+
   def lastTick:int -1
   def lastLabel:string ""
 

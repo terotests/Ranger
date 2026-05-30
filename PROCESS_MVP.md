@@ -220,7 +220,7 @@ These are **objective** limits of the **current compiler / runtime** slice. They
 | **Introspection `describe` / `RangerClassDescriptor`** | Not wired to compiler | Low — tooling only |
 | **`hibernate` / `wakeup` format** | No standard serialization — policy, but cross-app interchange needs a spec | Medium for “sleep mode” product feature |
 
-**Swift lifecycle test gap** (`process_page_lifecycle` not in Swift CI) is **QA coverage**, not inability to implement — Kotlin already runs the same pattern.
+**Swift lifecycle** — `process_page_lifecycle` runs in vitest when `swiftc` is available (`compiler-process-kotlin-swift`, `compiler-process-lifecycle`), same assertions as Kotlin/JS.
 
 ---
 
@@ -330,6 +330,5 @@ These are **mechanism demos**. A follow-up fixture could add `inboundMessages` +
 2. **Document `fn stop` + host checklist** — stream handlers, clock deadlines, UI unbind (parity with `kill`).
 3. **Optional `process_messages.rgr` fixture** — queue + drain on `@process` only.
 4. **`spawn local`** when duplicate timers hurt — compiler feature, not MVP blocker for first pilot.
-5. **Swift CI** for `process_page_lifecycle` — confidence, not new capability.
 
 See [PROCESS_STATUS.md](PROCESS_STATUS.md) for compiler checklist, weak areas, and rebuild commands.

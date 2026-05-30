@@ -14,4 +14,10 @@ describe("Ranger @process spawn site rules", () => {
     const result = compileRanger("tests/fixtures/process_proc_send.rgr");
     expect(result.success, result.output || result.error).toBe(true);
   });
+
+  it("should reject proc_start when target @process has no fn start", () => {
+    const result = compileRanger("tests/fixtures/process_proc_start_no_start_bad.rgr");
+    expect(result.success).toBe(false);
+    expect(result.output || result.error || "").toMatch(/proc_start:.*has no fn start/i);
+  });
 });
