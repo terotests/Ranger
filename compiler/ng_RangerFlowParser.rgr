@@ -95,68 +95,76 @@ class RangerFlowParser {
 
   def allNewRNodes:[CodeNode]
 
+  fn fixExpressionAssignmentChains:void (node@(lives):CodeNode) {
+    def is_chaining false
+    def last_is_assign false
+    def chainRoot@(weak):CodeNode
+    def innerNode@(weak):CodeNode
+    def assignNode@(weak):CodeNode
+    def newNode:CodeNode
+
+    def ch_len (size node.children)
+    for node.children item:CodeNode i {
+      def did_find false
+      if(has item.children) {
+        def fc (item.getFirst())
+        def name (fc.vref)
+
+        if( ( (strlen name) > 0 ) && ( ( charAt name 0) == (charcode ".")) ) {
+          did_find = true
+          if(i>0) {
+            def last_line (at node.children (i - 1))
+            if (is_chaining == false ) {
+              last_line.createChainTarget()
+              is_chaining = true
+              if(!null? last_line.chainTarget) {
+                chainRoot = last_line.chainTarget
+                innerNode = last_line.chainTarget
+                assignNode = last_line
+                last_is_assign = true
+              } {
+                chainRoot = last_line
+                innerNode = last_line
+              }
+            }
+            def method_name (substring name 1 (strlen name))
+            def mArgs (item.getSecond())
+            newNode = (node.newExpressionNode())
+            newNode.add( (node.newVRefNode("call") ) )
+            newNode.add( (innerNode.copy() ) )
+            newNode.add( (node.newVRefNode(method_name)) )
+            newNode.add( (mArgs.copy()) )
+            innerNode = newNode
+            item.is_part_of_chain = true
+          }
+        }
+      }
+      if(did_find == false || (i == (ch_len - 1) ) ) {
+        if( is_chaining && (last_is_assign == false)) {
+          chainRoot.getChildrenFrom( (unwrap innerNode ) )
+          chainRoot.tag = "chainroot"
+        }
+        if( is_chaining && last_is_assign) {
+          while ( (array_length assignNode.children) > 3 ) {
+            removeLast assignNode.children
+          }
+          if ( (array_length assignNode.children) >= 3 ) {
+            removeLast assignNode.children
+            push assignNode.children (unwrap innerNode)
+          }
+        }
+        is_chaining = false
+        last_is_assign = false
+      }
+    }
+  }
+
   fn WalkNodeChildren:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if (node.hasStringProperty("todo")) {
       ctx.addTodo(node (node.getStringProperty("todo")))
     }
     if node.expression {
-      def is_chaining false
-      def last_is_assign false
-      def chainRoot@(weak):CodeNode
-      def innerNode@(weak):CodeNode
-      def assignNode@(weak):CodeNode
-      def newNode:CodeNode
-      
-      def ch_len (size node.children)
-      for node.children item:CodeNode i {
-        def did_find false
-        if(has item.children) {
-          def fc (item.getFirst())
-          def name (fc.vref)
-          
-          if( ( (strlen name) > 0 ) && ( ( charAt name 0) == (charcode ".")) ) {
-            did_find = true
-            if(i>0) {
-              def last_line (at node.children (i - 1))
-              if (is_chaining == false ) {
-                last_line.createChainTarget()
-                is_chaining = true
-                if(!null? last_line.chainTarget) {
-                  chainRoot = last_line.chainTarget
-                  innerNode = last_line.chainTarget
-                  assignNode = last_line
-                  last_is_assign = true
-                } {
-                  chainRoot = last_line
-                  innerNode = last_line
-                }
-              }
-              def method_name (substring name 1 (strlen name))
-              def mArgs (item.getSecond())
-              if(last_is_assign) {
-                push assignNode.children (fc.copy())
-                push assignNode.children (mArgs.copy())
-              } {
-                newNode = (node.newExpressionNode())
-                newNode.add( (node.newVRefNode("call") ) ) 
-                newNode.add( (innerNode.copy() ) )
-                newNode.add( (node.newVRefNode(method_name)) )
-                newNode.add( (mArgs.copy()) )
-                innerNode = newNode
-              }
-              item.is_part_of_chain = true
-            }
-          } 
-        }
-        if(did_find == false || (i == (ch_len - 1) ) ) {
-          if( is_chaining && (last_is_assign == false)) {
-            chainRoot.getChildrenFrom( (unwrap innerNode ) )
-            chainRoot.tag = "chainroot"
-          }
-          is_chaining = false
-          last_is_assign = false
-        }
-      }
+      this.fixExpressionAssignmentChains(node)
       for node.children item@(lives):CodeNode i {
 
         if( (ctx.expressionLevel()) == 0 ) {
@@ -504,6 +512,9 @@ class RangerFlowParser {
       def b_found true
       def opFn (ctx.getOpFns(fc.vref))
       if(has opFn) {
+        if (fc.vref == "=") {
+          this.repairAssignMethodCallRhs(node)
+        }
         this.TransformOpFn( opFn node ctx wr)
         return true
       }
@@ -666,47 +677,7 @@ class RangerFlowParser {
 
       ; (  (someObject) '.methodName' (<arguments>) )
       if( fc.expression && ( ( size node.children ) == 3) ) {
-
-        ; print ""
-        ; print ""
-
-        def sec (node.getSecond())
-        def third (node.getThird())
-        if( (has sec.vref) && (first sec.vref) == '.' ) {
-
-          this.WalkNode( fc ctx wr )
-          def parts (strsplit (substring sec.vref 1) ".")
-          def method_name (last parts)
-          def classDesc (ctx.findClass(fc.eval_type_name))
-          def objExpr (fc.copy()) 
-          def calledItem (fc.copy())
-
-          parts.forEach({
-            if(index < ((size parts) - 1) ) {
-                try {
-                  calledItem = (r.expression 
-                                  (r.vref 'property')
-                                  (calledItem.copy())
-                                  (r.vref item)
-                              )
-                  def p (classDesc.findVariable(item))
-                  classDesc = (ctx.findClass(p.nameNode.type_name))
-                } {
-                  ctx.addError(sec ('invalid property ' + item ))
-                }
-            }
-          })
-
-
-          def calledItem (r.expression 
-                          (r.vref 'call')
-                          calledItem
-                          (r.vref method_name)
-                          (third.copy())
-                         )
-          node.getChildrenFrom( calledItem )
-          node.flow_done = false
-          this.WalkNode( node ctx wr)
+        if (this.transformDotMethodCallExpr(node ctx wr)) {
           return true
         }
       } 
@@ -733,6 +704,7 @@ class RangerFlowParser {
       } 
     }
     if node.expression {
+      this.fixExpressionAssignmentChains(node)
       for node.children item@(lives):CodeNode i {
 
         if( (ctx.expressionLevel()) == 0 ) {
@@ -2240,8 +2212,134 @@ class RangerFlowParser {
     return root
   }
 
+  fn transformDotMethodCallExpr:boolean (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if( (size node.children) == 2) {
+      def fc (node.getFirst())
+      def sec (node.getSecond())
+      def dotNode:CodeNode sec
+      def mArgs:CodeNode
+      if( (has sec.vref) && ( (strlen sec.vref) > 0 ) ) {
+        if ( (first sec.vref) == '.' ) {
+          mArgs = (sec.getSecond())
+        } {
+          return false
+        }
+      } {
+        if( (size sec.children) < 1 ) {
+          return false
+        }
+        dotNode = (sec.getFirst())
+        if( (has dotNode.vref) == false ) {
+          return false
+        }
+        if ( (first dotNode.vref) != '.' ) {
+          return false
+        }
+        if ( (size sec.children) > 1 ) {
+          mArgs = (sec.getSecond())
+        } {
+          mArgs = (node.newExpressionNode())
+        }
+      }
+      def method_name (substring dotNode.vref 1 (strlen dotNode.vref))
+      this.WalkNode( fc ctx wr )
+      if( ctx.isDefinedClass(fc.eval_type_name) ) {
+        def callNode (node.newExpressionNode())
+        callNode.add( (node.newVRefNode("call")) )
+        callNode.add( (fc.copy()) )
+        callNode.add( (node.newVRefNode(method_name)) )
+        callNode.add( (mArgs.copy()) )
+        node.getChildrenFrom( callNode )
+        node.flow_done = false
+        this.WalkNode( node ctx wr)
+        return true
+      }
+      return false
+    }
+    if( (size node.children) != 3) {
+      return false
+    }
+    def fc (node.getFirst())
+    def sec (node.getSecond())
+    def third (node.getThird())
+    if( (has sec.vref) == false) {
+      return false
+    }
+    if ( (first sec.vref) != '.' ) {
+      return false
+    }
+    this.WalkNode( fc ctx wr )
+    if( (ctx.isDefinedClass(fc.eval_type_name)) == false) {
+      return false
+    }
+    def parts (strsplit (substring sec.vref 1) ".")
+    def method_name (last parts)
+    def classDesc (ctx.findClass(fc.eval_type_name))
+    def calledItem (fc.copy())
+
+    parts.forEach({
+      if(index < ((size parts) - 1) ) {
+          try {
+            calledItem = (r.expression 
+                            (r.vref 'property')
+                            (calledItem.copy())
+                            (r.vref item)
+                        )
+            def p (classDesc.findVariable(item))
+            classDesc = (ctx.findClass(p.nameNode.type_name))
+          } {
+            ctx.addError(sec ('invalid property ' + item ))
+          }
+      }
+    })
+
+    def calledItem (r.expression 
+                    (r.vref 'call')
+                    calledItem
+                    (r.vref method_name)
+                    (third.copy())
+                   )
+    node.getChildrenFrom( calledItem )
+    node.flow_done = false
+    this.WalkNode( node ctx wr)
+    return true
+  }
+
+  fn repairAssignMethodCallRhs:void (node:CodeNode) {
+    def chCnt (size node.children)
+    if (chCnt < 4) {
+      return
+    }
+    def fc (node.getFirst())
+    if (fc.vref != "=") {
+      return
+    }
+    ; The infix parser flattens a method-call RHS into siblings of '=',
+    ; e.g. (= lhs this.flag ()) instead of (= lhs (this.flag ())).
+    ; Re-wrap everything after the LHS into a single expression node so the
+    ; normal call handling can evaluate the right-hand side.
+    def lhs:CodeNode (node.getSecond())
+    def rhs (node.newExpressionNode())
+    def i:int 2
+    while (i < chCnt) {
+      def child:CodeNode (itemAt node.children i)
+      rhs.add( (child.copy()) )
+      i = i + 1
+    }
+    while ( (size node.children) > 2 ) {
+      removeLast node.children
+    }
+    push node.children rhs
+    node.flow_done = false
+    rhs.flow_done = false
+    for rhs.children ch:CodeNode ci {
+      ch.flow_done = false
+    }
+  }
+
   fn cmdAssign:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
+    this.repairAssignMethodCallRhs(node)
     def target:CodeNode (node.getSecond())
     this.WalkNode(target ctx wr)
 
@@ -2294,7 +2392,10 @@ class RangerFlowParser {
     def n2:CodeNode (node.getThird())
     this.WalkNode(n1 ctx wr)
     ctx.setInExpr()
-    this.WalkNode(n2 ctx wr)
+    if (this.transformDotMethodCallExpr(n2 ctx wr)) {
+    } {
+      this.WalkNode(n2 ctx wr)
+    }
     ctx.unsetInExpr()
     if n1.hasParamDesc {
       n1.paramDesc.ref_cnt = (n1.paramDesc.ref_cnt + 1)
@@ -2718,6 +2819,9 @@ class RangerFlowParser {
     }
 
     def fc (at origNode.children 0)
+    if (fc.vref == "=") {
+      this.repairAssignMethodCallRhs(origNode)
+    }
     ; print "--> " + fc.vref + ", depth : " + (transaction_depth 'TransformOpFn' ctx)
     ; print (origNode.getCode())
     def myT (start_transaction 'TransformOpFn' fc.vref ctx) 
@@ -3352,6 +3456,9 @@ class RangerFlowParser {
     for op_list cmd:CodeNode i {
       def cmdName:CodeNode (cmd.getFirst())
       if (cmdName.vref == fc.vref && (! (ctx.isVarDefined(cmdName.vref)))) {
+        if (fc.vref == "=") {
+          this.repairAssignMethodCallRhs(node)
+        }
         this.stdParamMatch(node ctx wr true)
         if (!null? node.parent) {
           ; node.parent.copyEvalResFrom(node)

@@ -11,13 +11,27 @@ class RangerProcessBase {
   def __rangerParent:RangerProcessBase@(optional)
   def __rangerChildren:[RangerProcessBase]
 
+  ; Bump revision only (e.g. parent sync merging child pending*). Prefer over markStateDirty in sync blocks.
+  fn bumpStateGeneration:void () {
+    __rangerStateGeneration = __rangerStateGeneration + 1
+  }
+
   fn markStateDirty:void () {
     __rangerStateGeneration = __rangerStateGeneration + 1
+    this.flushUiNotify()
+  }
+
+  ; Notify host without bumping __rangerStateGeneration (after suppressUiNotify batch).
+  fn flushUiNotify:void () {
+    def uiHost:ProcessUiHost (ProcessUiHost.__singleton())
+    if (uiHost.isUiNotifySuppressed()) {
+      return
+    }
     if ((strlen __rangerPath) > 0) {
-      ProcessUiHost.__singleton().notifyPath(__rangerPath)
+      uiHost.notifyPath(__rangerPath)
     }
     if (__rangerId != 0) {
-      ProcessUiHost.__singleton().notifyId(__rangerId)
+      uiHost.notifyId(__rangerId)
     }
   }
 
@@ -123,7 +137,24 @@ class ProcessNameRegistry @singleton(true) {
 }
 
 ; Host-side UI subscriptions (React useProcess wires listeners in TS).
+; Hosts may replace notifyPath/notifyId on the singleton instance; markStateDirty respects suppressUiNotify.
 class ProcessUiHost @singleton(true) {
+  def __uiNotifySuppressDepth:int 0
+
+  fn isUiNotifySuppressed:boolean () {
+    return __uiNotifySuppressDepth > 0
+  }
+
+  fn beginSuppressUiNotify:void () {
+    __uiNotifySuppressDepth = __uiNotifySuppressDepth + 1
+  }
+
+  fn endSuppressUiNotify:void () {
+    if (__uiNotifySuppressDepth > 0) {
+      __uiNotifySuppressDepth = __uiNotifySuppressDepth - 1
+    }
+  }
+
   fn notifyPath:void (path:string) {
   }
 

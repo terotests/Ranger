@@ -37,12 +37,13 @@ Last updated after **`proc_send`**, **`findProcess` on `ProcessNameRegistry`**, 
 | **Field `describe` introspection** | Not done |
 | **Message queue / `tick` in compiler** | Not done — **not required** for product; app pattern — [PROCESS_MVP.md](PROCESS_MVP.md) |
 | **UI binding codegen** | Not done — **not required**; app-ranger `pageSetValue` + bus |
+| **Cross-class view DTO field assign** | **Limitation** — plain view classes cannot reliably be filled from `@process` builders; see [PROCESS_UI_VIEW_MODELS.md](PROCESS_UI_VIEW_MODELS.md) |
 | **`@name("app.path")` on `@process` classes** | Done — compile-time unique path; `find_process "path"` in `.rgr`; `ProcessNameRegistry` bind on `proc_start` |
 | **`proc_send` (typed handlers)** | Done — `proc_send target handlerName arg…`; handler is a **method identifier**; emits guarded `call` if `__rangerId != 0`; `cmdCall` type-checks args; path literals rejected (use `find_process` + cast + variable) |
 | **`proc_send` (path string target)** | Not done — use typed variable after `find_process` + `cast`; see [§ `proc_send`](#proc_send--typed-handlers-mvp) |
 | **`findProcess(path)` (registry)** | Done — generated `extension ProcessNameRegistry`; live-only (`hasLive`); TS: `interface` overloads for literal paths |
 | **Singleton `new` in TS/JS emit** | Done — `new ProcessNameRegistry()` returns `__singleton_instance` (constructor guard) |
-| **`markStateDirty` / `ProcessUiHost`** | Done (stubs) — manual state generation bump + host notify; auto-dirty on assign deferred |
+| **`markStateDirty` / `ProcessUiHost`** | Done — bump + notify; `flushUiNotify`, `bumpStateGeneration`, `beginSuppressUiNotify` — see [PROCESS_UI_NOTIFY.md](PROCESS_UI_NOTIFY.md) |
 | **`ProcessRuntime.collectAllLiveRoots`** | Done — static extension (`sfn`); used by gallery process tree panel |
 
 **Wiring:** `ng_RangerFlowParser`, `ng_RangerProcessClass`, `ng_RangerProcessLifecycle`, `ng_RangerJavaScriptClassWriter` (singleton ctor), `VirtualCompiler` (`file_end` TS helpers).

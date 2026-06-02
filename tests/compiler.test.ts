@@ -230,6 +230,24 @@ describe("Ranger Compiler - Basic Features", () => {
     });
   });
 
+  describe("Process view DTO cross-class assignment", () => {
+    it("should compile other.field = obj.method() for plain view DTOs", () => {
+      const { compile, run } = compileAndRun(
+        `${FIXTURES_DIR}/process_view_dto_assign.rgr`
+      );
+
+      expect(
+        compile.success,
+        `Compile failed: ${compile.error || compile.output}`
+      ).toBe(true);
+      expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+      expect(run?.output).toContain("ok buildRow isActive");
+      expect(run?.output).toContain("ok ViewBuilder fillRow");
+      expect(run?.output).toContain("ok toDurationView seconds");
+      expect(run?.output).toContain("Done");
+    });
+  });
+
   describe("Optional Values", () => {
     it("should compile and run optional value handling", () => {
       const { compile, run } = compileAndRun(

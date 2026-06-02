@@ -8565,75 +8565,82 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       this.infinite_recursion = false;
       this.match_types = {};
     }
+    fixExpressionAssignmentChains (node) {
+      let is_chaining = false;
+      let last_is_assign = false;
+      let chainRoot;
+      let innerNode;
+      let assignNode;
+      let newNode;
+      const ch_len = node.children.length;
+      for ( let i = 0; i < node.children.length; i++) {
+        var item = node.children[i];
+        let did_find = false;
+        if ( (item.children.length) > 0 ) {
+          const fc = item.getFirst();
+          const name = fc.vref;
+          if ( ((name.length) > 0) && ((name.charCodeAt(0 )) == (".".charCodeAt(0))) ) {
+            did_find = true;
+            if ( i > 0 ) {
+              const last_line = node.children[(i - 1)];
+              if ( is_chaining == false ) {
+                last_line.createChainTarget();
+                is_chaining = true;
+                if ( (typeof(last_line.chainTarget) !== "undefined" && last_line.chainTarget != null )  ) {
+                  chainRoot = last_line.chainTarget;
+                  innerNode = last_line.chainTarget;
+                  assignNode = last_line;
+                  last_is_assign = true;
+                } else {
+                  chainRoot = last_line;
+                  innerNode = last_line;
+                }
+              }
+              const method_name = name.substring(1, (name.length) );
+              const mArgs = item.getSecond();
+              newNode = node.newExpressionNode();
+              newNode.add(node.newVRefNode("call"));
+              newNode.add(innerNode.copy());
+              newNode.add(node.newVRefNode(method_name));
+              newNode.add(mArgs.copy());
+              innerNode = newNode;
+              item.is_part_of_chain = true;
+            }
+          }
+        }
+        if ( (did_find == false) || (i == (ch_len - 1)) ) {
+          if ( is_chaining && (last_is_assign == false) ) {
+            chainRoot.getChildrenFrom(innerNode);
+            chainRoot.tag = "chainroot";
+          }
+          if ( is_chaining && last_is_assign ) {
+            while ((assignNode.children.length) > 3) {
+              assignNode.children.pop();
+            };
+            if ( (assignNode.children.length) >= 3 ) {
+              assignNode.children.pop();
+              assignNode.children.push(innerNode);
+            }
+          }
+          is_chaining = false;
+          last_is_assign = false;
+        }
+      };
+    };
     async WalkNodeChildren (node, ctx, wr) {
       if ( node.hasStringProperty("todo") ) {
         ctx.addTodo(node, node.getStringProperty("todo"));
       }
       if ( node.expression ) {
-        let is_chaining = false;
-        let last_is_assign = false;
-        let chainRoot;
-        let innerNode;
-        let assignNode;
-        let newNode;
-        const ch_len = node.children.length;
+        this.fixExpressionAssignmentChains(node);
         for ( let i = 0; i < node.children.length; i++) {
           var item = node.children[i];
-          let did_find = false;
-          if ( (item.children.length) > 0 ) {
-            const fc = item.getFirst();
-            const name = fc.vref;
-            if ( ((name.length) > 0) && ((name.charCodeAt(0 )) == (".".charCodeAt(0))) ) {
-              did_find = true;
-              if ( i > 0 ) {
-                const last_line = node.children[(i - 1)];
-                if ( is_chaining == false ) {
-                  last_line.createChainTarget();
-                  is_chaining = true;
-                  if ( (typeof(last_line.chainTarget) !== "undefined" && last_line.chainTarget != null )  ) {
-                    chainRoot = last_line.chainTarget;
-                    innerNode = last_line.chainTarget;
-                    assignNode = last_line;
-                    last_is_assign = true;
-                  } else {
-                    chainRoot = last_line;
-                    innerNode = last_line;
-                  }
-                }
-                const method_name = name.substring(1, (name.length) );
-                const mArgs = item.getSecond();
-                if ( last_is_assign ) {
-                  assignNode.children.push(fc.copy());
-                  assignNode.children.push(mArgs.copy());
-                } else {
-                  newNode = node.newExpressionNode();
-                  newNode.add(node.newVRefNode("call"));
-                  newNode.add(innerNode.copy());
-                  newNode.add(node.newVRefNode(method_name));
-                  newNode.add(mArgs.copy());
-                  innerNode = newNode;
-                }
-                item.is_part_of_chain = true;
-              }
-            }
-          }
-          if ( (did_find == false) || (i == (ch_len - 1)) ) {
-            if ( is_chaining && (last_is_assign == false) ) {
-              chainRoot.getChildrenFrom(innerNode);
-              chainRoot.tag = "chainroot";
-            }
-            is_chaining = false;
-            last_is_assign = false;
-          }
-        };
-        for ( let i_1 = 0; i_1 < node.children.length; i_1++) {
-          var item_1 = node.children[i_1];
           if ( ctx.expressionLevel() == 0 ) {
-            ctx.lastBlockOp = item_1;
+            ctx.lastBlockOp = item;
           }
-          item_1.parent = node;
-          await this.WalkNode(item_1, ctx, wr);
-          node.copyEvalResFrom(item_1);
+          item.parent = node;
+          await this.WalkNode(item, ctx, wr);
+          node.copyEvalResFrom(item);
         };
       }
     };
@@ -8872,6 +8879,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         let b_found = true;
         const opFn = await ctx.getOpFns(fc_5.vref);
         if ( (opFn.length) > 0 ) {
+          if ( fc_5.vref == "=" ) {
+            this.repairAssignMethodCallRhs(node);
+          }
           await this.TransformOpFn(opFn, node, ctx, wr);
           return true;
         }
@@ -9004,30 +9014,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           }
         }
         if ( fc_6.expression && ((node.children.length) == 3) ) {
-          const sec_1 = node.getSecond();
-          const third = node.getThird();
-          if ( ((sec_1.vref.length) > 0) && ((sec_1.vref[0]) == ".") ) {
-            await this.WalkNode(fc_6, ctx, wr);
-            const parts_1 = (sec_1.vref.substring(1, (sec_1.vref.length) )).split(".");
-            const method_name_1 = parts_1[((parts_1.length) - 1)];
-            let classDesc_1 = ctx.findClass(fc_6.eval_type_name);
-            const objExpr_1 = fc_6.copy();
-            let calledItem_1 = fc_6.copy();
-            await operatorsOf.forEach_12(parts_1, ((item, index) => { 
-              if ( index < ((parts_1.length) - 1) ) {
-                try {
-                  calledItem_1 = CodeNode.fromList([CodeNode.vref1("property"), calledItem_1.copy(), CodeNode.vref1(item)]);
-                  const p_1 = classDesc_1.findVariable(item);
-                  classDesc_1 = ctx.findClass(p_1.nameNode.type_name);
-                } catch(e) {
-                  ctx.addError(sec_1, "invalid property " + item);
-                }
-              }
-            }));
-            const calledItem_2 = CodeNode.fromList([CodeNode.vref1("call"), calledItem_1, CodeNode.vref1(method_name_1), third.copy()]);
-            node.getChildrenFrom(calledItem_2);
-            node.flow_done = false;
-            await this.WalkNode(node, ctx, wr);
+          if ( await this.transformDotMethodCallExpr(node, ctx, wr) ) {
             return true;
           }
         }
@@ -9052,6 +9039,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         }
       }
       if ( node.expression ) {
+        this.fixExpressionAssignmentChains(node);
         for ( let i = 0; i < node.children.length; i++) {
           var item = node.children[i];
           if ( ctx.expressionLevel() == 0 ) {
@@ -10338,7 +10326,117 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       };
       return root;
     };
+    async transformDotMethodCallExpr (node, ctx, wr) {
+      if ( (node.children.length) == 2 ) {
+        const fc = node.getFirst();
+        const sec = node.getSecond();
+        let dotNode = sec;
+        let mArgs;
+        if ( ((sec.vref.length) > 0) && ((sec.vref.length) > 0) ) {
+          if ( (sec.vref[0]) == "." ) {
+            mArgs = sec.getSecond();
+          } else {
+            return false;
+          }
+        } else {
+          if ( (sec.children.length) < 1 ) {
+            return false;
+          }
+          dotNode = sec.getFirst();
+          if ( ((dotNode.vref.length) > 0) == false ) {
+            return false;
+          }
+          if ( (dotNode.vref[0]) != "." ) {
+            return false;
+          }
+          if ( (sec.children.length) > 1 ) {
+            mArgs = sec.getSecond();
+          } else {
+            mArgs = node.newExpressionNode();
+          }
+        }
+        const method_name = dotNode.vref.substring(1, (dotNode.vref.length) );
+        await this.WalkNode(fc, ctx, wr);
+        if ( ctx.isDefinedClass(fc.eval_type_name) ) {
+          const callNode = node.newExpressionNode();
+          callNode.add(node.newVRefNode("call"));
+          callNode.add(fc.copy());
+          callNode.add(node.newVRefNode(method_name));
+          callNode.add(mArgs.copy());
+          node.getChildrenFrom(callNode);
+          node.flow_done = false;
+          await this.WalkNode(node, ctx, wr);
+          return true;
+        }
+        return false;
+      }
+      if ( (node.children.length) != 3 ) {
+        return false;
+      }
+      const fc_1 = node.getFirst();
+      const sec_1 = node.getSecond();
+      const third = node.getThird();
+      if ( ((sec_1.vref.length) > 0) == false ) {
+        return false;
+      }
+      if ( (sec_1.vref[0]) != "." ) {
+        return false;
+      }
+      await this.WalkNode(fc_1, ctx, wr);
+      if ( ctx.isDefinedClass(fc_1.eval_type_name) == false ) {
+        return false;
+      }
+      const parts = (sec_1.vref.substring(1, (sec_1.vref.length) )).split(".");
+      const method_name_1 = parts[((parts.length) - 1)];
+      let classDesc = ctx.findClass(fc_1.eval_type_name);
+      let calledItem = fc_1.copy();
+      await operatorsOf.forEach_12(parts, ((item, index) => { 
+        if ( index < ((parts.length) - 1) ) {
+          try {
+            calledItem = CodeNode.fromList([CodeNode.vref1("property"), calledItem.copy(), CodeNode.vref1(item)]);
+            const p = classDesc.findVariable(item);
+            classDesc = ctx.findClass(p.nameNode.type_name);
+          } catch(e) {
+            ctx.addError(sec_1, "invalid property " + item);
+          }
+        }
+      }));
+      const calledItem_2 = CodeNode.fromList([CodeNode.vref1("call"), calledItem, CodeNode.vref1(method_name_1), third.copy()]);
+      node.getChildrenFrom(calledItem_2);
+      node.flow_done = false;
+      await this.WalkNode(node, ctx, wr);
+      return true;
+    };
+    repairAssignMethodCallRhs (node) {
+      const chCnt = node.children.length;
+      if ( chCnt < 4 ) {
+        return;
+      }
+      const fc = node.getFirst();
+      if ( fc.vref != "=" ) {
+        return;
+      }
+      const lhs = node.getSecond();
+      const rhs = node.newExpressionNode();
+      let i = 2;
+      while (i < chCnt) {
+        const child = node.children[i];
+        rhs.add(child.copy());
+        i = i + 1;
+      };
+      while ((node.children.length) > 2) {
+        node.children.pop();
+      };
+      node.children.push(rhs);
+      node.flow_done = false;
+      rhs.flow_done = false;
+      for ( let ci = 0; ci < rhs.children.length; ci++) {
+        var ch = rhs.children[ci];
+        ch.flow_done = false;
+      };
+    };
     async cmdAssign (node, ctx, wr) {
+      this.repairAssignMethodCallRhs(node);
       const target = node.getSecond();
       await this.WalkNode(target, ctx, wr);
       if ( target.hasParamDesc ) {
@@ -10378,7 +10476,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       const n2_1 = node.getThird();
       await this.WalkNode(n1_1, ctx, wr);
       ctx.setInExpr();
-      await this.WalkNode(n2_1, ctx, wr);
+      if ( await this.transformDotMethodCallExpr(n2_1, ctx, wr) ) {
+      } else {
+        await this.WalkNode(n2_1, ctx, wr);
+      }
       ctx.unsetInExpr();
       if ( n1_1.hasParamDesc ) {
         n1_1.paramDesc.ref_cnt = n1_1.paramDesc.ref_cnt + 1;
@@ -10729,6 +10830,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         }
       }
       const fc = origNode.children[0];
+      if ( fc.vref == "=" ) {
+        this.repairAssignMethodCallRhs(origNode);
+      }
       const myT = operatorsOf_33.startc95transaction_35("TransformOpFn", fc.vref, ctx);
       let newOps = [];
       let tryTypes = ["string", "int", "double", "boolean"];
@@ -11237,6 +11341,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         var cmd = op_list[i];
         const cmdName = cmd.getFirst();
         if ( (cmdName.vref == fc.vref) && (false == ctx.isVarDefined(cmdName.vref)) ) {
+          if ( fc.vref == "=" ) {
+            this.repairAssignMethodCallRhs(node);
+          }
           await this.stdParamMatch(node, ctx, wr, true);
           if ( (typeof(node.parent) !== "undefined" && node.parent != null )  ) {
           }
@@ -29086,7 +29193,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       this.inputFile = "";
       this.outputFile = "";
       this.targetLanguage = "";
-      this.compilerVersion = "3.0.5";
+      this.compilerVersion = "3.1.0";
       this.useColors = ((typeof process !== "undefined" && process.stdout && process.stdout.isTTY) || false);
       this.startTime = Date.now();
     }
