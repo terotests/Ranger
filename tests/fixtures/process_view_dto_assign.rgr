@@ -1,0 +1,112 @@
+
+Import "RangerProcess.rgr"
+
+class RowView {
+  def label:string ""
+  def isActive:boolean false
+}
+
+class DurationScreenView {
+  def seconds:int 0
+}
+
+class TimerRun @process(true) extends RangerProcessBase {
+  def remainingSec:int 45
+
+  fn start:void () {
+  }
+
+  fn displaySeconds:int () {
+    return remainingSec
+  }
+}
+
+class MyPage @process(true) extends RangerProcessBase {
+  def selected:int 0
+
+  fn start:void () {
+  }
+
+  fn isRowActive:boolean (index:int) {
+    return index == selected
+  }
+
+  fn buildRow:RowView () {
+    def row:RowView (new RowView)
+    row.label = "A"
+    row.isActive = this.isRowActive(0)
+    return row
+  }
+
+  fn toDurationView:DurationScreenView (run:TimerRun) {
+    def v:DurationScreenView (new DurationScreenView)
+    v.seconds = run.displaySeconds()
+    return v
+  }
+}
+
+class ViewBuilder {
+  fn fillRow:void (page:MyPage index:int row:RowView) {
+    row.isActive = page.isRowActive(index)
+  }
+}
+
+class AppRoot @process(true) @name("app.root") @singleton(true) extends RangerProcessBase {
+  fn start:void () {
+  }
+
+  fn newPage:MyPage () {
+    def page:MyPage (new MyPage)
+    proc_start page
+    return page
+  }
+
+  fn newRun:TimerRun () {
+    def run:TimerRun (new TimerRun)
+    proc_start run
+    return run
+  }
+
+  fn runDemo:void () {
+    print "== process view dto assign =="
+
+    def page:MyPage (this.newPage())
+
+    ; case 1: @process builds plain row, RHS is method on this
+    def row:RowView (page.buildRow())
+    if (row.isActive == false) {
+      print "FAIL buildRow isActive"
+      return
+    }
+    print ("ok buildRow isActive=" + (to_string row.isActive))
+
+    ; case 2: plain builder class calls @process method on a parameter
+    def row2:RowView (new RowView)
+    def builder:ViewBuilder (new ViewBuilder)
+    builder.fillRow(page 1 row2)
+    if (row2.isActive != false) {
+      print "FAIL ViewBuilder fillRow"
+      return
+    }
+    print "ok ViewBuilder fillRow"
+
+    ; case 3: @process fills plain view from a child @process method
+    def run:TimerRun (this.newRun())
+    def screen:DurationScreenView (page.toDurationView(run))
+    if (screen.seconds != 45) {
+      print "FAIL toDurationView seconds"
+      return
+    }
+    print ("ok toDurationView seconds=" + (to_string screen.seconds))
+
+    print "Done"
+  }
+}
+
+class ProcessViewDtoAssignDemo {
+  sfn m@(main):void () {
+    def root:AppRoot (new AppRoot)
+    proc_start root
+    root.runDemo()
+  }
+}

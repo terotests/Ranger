@@ -1,6 +1,6 @@
 # Ranger cross language compiler
 
-**Version 3.0.5** | Status: `experimental`
+**Version 3.1.0** | Status: `experimental`
 
 Ranger is a self-hosting cross-language compiler for writing portable algorithms, parsers, generators, and small tools once and compiling them to multiple target languages.
 
@@ -24,6 +24,39 @@ Ranger is best approached today as a compiler and language lab with practical mu
 - Several examples in `gallery/` are research or showcase projects and may require extra toolchains, platform-specific commands, or manual setup
 
 If you want one sentence of positioning: Ranger is currently more convincing as a portable algorithm compiler / DSL toolchain than as a drop-in replacement for mainstream application languages.
+
+## `@process` runtime (experimental)
+
+Ranger can mark classes with `@process` to get a **small object runtime** in generated code (especially JavaScript/TypeScript): parent/child tree, instance registry, `proc_start` / `proc_stop`, and UI refresh via `markStateDirty()`.
+
+| Piece | What it does |
+| --- | --- |
+| `@process` / `@process(true)` | Process instance with lifecycle hooks (`start`, `stop`, …) |
+| `proc_start` / `proc_stop` | Activate or tear down a process subtree (children first) |
+| `proc_send target handler arg…` | Typed message dispatch to `fn on…` handlers on a live instance |
+| `ProcessNameRegistry.findProcess(path)` | Lookup by `@name("app.foo")` (TypeScript path literals when using `-typescript`) |
+| `markStateDirty()` | Bump generation + notify host (`ProcessUiHost`) for UI binding |
+| `beginSuppressUiNotify` / `endSuppressUiNotify` | Batch parent↔child sync without notify storms |
+
+**Typical app shape:** domain logic and UI flags live in `@process` classes; **view DTOs** are plain Ranger classes filled by a builder; React/CLI/native hosts subscribe to `ProcessUiHost` and call `findProcess` — I/O and async work stay in the host (Node, Swift, …), not inside the process bytecode.
+
+```ranger
+class CounterPage @process @name("app.counter") extends RangerProcessBase {
+  def count:int 0
+  fn onUiIncrement:void () {
+    count = count + 1
+    this.markStateDirty()
+  }
+}
+```
+
+```typescript
+// Host (TypeScript): wire notify once, then bind UI to process fields
+const host = ProcessUiHost.__singleton();
+host.notifyPath = (path) => { /* sync view model + re-render */ };
+```
+
+**Docs:** [PROCESS_MVP.md](PROCESS_MVP.md) (scope), [PROCESS_STATUS.md](PROCESS_STATUS.md) (compiler checklist), [PROCESS_UI_NOTIFY.md](PROCESS_UI_NOTIFY.md) (notify batching), [PROCESS_UI_VIEW_MODELS.md](PROCESS_UI_VIEW_MODELS.md) (view DTO assignment). **Gallery:** [process_counter_board](gallery/process_counter_board/README.md). **Pilot:** [realtrainer `app-ranger` Active Workout demo](https://github.com/terotests/realtrainer/tree/copilot/create-watch-ui-components/app-ranger/demo/active-workout-process).
 
 ## Where To Start
 

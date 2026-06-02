@@ -7,7 +7,8 @@ What the **compiler MVP** is for, what it already proves, and whether “product
 **Cross-paradigm comparison (Smalltalk, React, Erlang, …):** [PROCESS_COMPARISON.md](PROCESS_COMPARISON.md)  
 **ObjC / UIKit comparison:** [PROCESS_COMPARE_WITH_OBJECTIVEC.md](PROCESS_COMPARE_WITH_OBJECTIVEC.md)  
 **React gallery (`@name`, `useProcess`, `markStateDirty`):** [gallery/process_counter_board/README.md](gallery/process_counter_board/README.md)  
-**Android / iOS exploratory galleries:** [process_counter_android](gallery/process_counter_android/README.md), [process_counter_ios](gallery/process_counter_ios/README.md)
+**Android / iOS exploratory galleries:** [process_counter_android](gallery/process_counter_android/README.md), [process_counter_ios](gallery/process_counter_ios/README.md)  
+**UI view models vs `@process` field assignment:** [PROCESS_UI_VIEW_MODELS.md](PROCESS_UI_VIEW_MODELS.md) (pilot: Active Workout)
 
 ---
 
