@@ -575,6 +575,9 @@ class tester {
     def node (unwrap parser.rootNode)
     def flowParser (new RangerFlowParser ())    
     def fileSystem@(lives) (new CodeFileSystem())
+    if (appCtx.hasCompilerFlag("sourcemap")) {
+      fileSystem.enableSourceMaps()
+    }
     
     def file (fileSystem.getFile("." the_target)) 
     def wr (file.getWriter())

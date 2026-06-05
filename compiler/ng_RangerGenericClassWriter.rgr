@@ -115,23 +115,23 @@ class RangerGenericClassWriter {
         def dd_str ("" + node.double_value)
         def ii_str ("" + (to_int node.double_value))
         if( dd_str == ii_str ) {
-          wr.out(("" + node.double_value+".0") , false)
+          wr.outMapped(("" + node.double_value+".0") node false "")
         } {
-          wr.out(("" + node.double_value) , false)
-        } 
+          wr.outMapped(("" + node.double_value) node false "")
+        }
       }
       case RangerNodeType.String {
         def s:string (this.EncodeString(node ctx wr))
-        wr.out((("\"" + s) + "\"") , false)
+        wr.outMapped((("\"" + s) + "\"") node false "")
       }
       case RangerNodeType.Integer {
-        wr.out(("" + node.int_value) , false)
+        wr.outMapped(("" + node.int_value) node false "")
       }
       case RangerNodeType.Boolean {
         if node.boolean_value {
-          wr.out("true" false)
+          wr.outMapped("true" node false "")
         } {
-          wr.out("false" false)
+          wr.outMapped("false" node false "")
         }
       }
     }
@@ -269,12 +269,12 @@ class RangerGenericClassWriter {
           wr.out("." false)
         }
         if ((strlen p.compiledName) > 0) {
-          wr.out((this.adjustType(p.compiledName)) false)
+          wr.outMapped((this.adjustType(p.compiledName)) node false p.name)
         } {
           if ((strlen p.name) > 0) {
-            wr.out((this.adjustType(p.name)) false)
+            wr.outMapped((this.adjustType(p.name)) node false p.name)
           } {
-            wr.out((this.adjustType( (itemAt node.ns i))) false)
+            wr.outMapped((this.adjustType( (itemAt node.ns i))) node false (itemAt node.ns i))
           }
         }
       }
@@ -284,7 +284,7 @@ class RangerGenericClassWriter {
       if (i > 0) {
         wr.out("." false)
       }
-      wr.out((this.adjustType(part)) false)
+      wr.outMapped((this.adjustType(part)) node false part)
     }
   }
   fn writeVarDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -318,7 +318,7 @@ class RangerGenericClassWriter {
       this.WalkNode( obj ctx wr)
       ctx.unsetInExpr()
       wr.out(")." false)
-      wr.out(method.vref false)
+      wr.outMapped(method.vref method false method.vref)
 ;       this.WriteVRef(fc ctx wr)
       wr.out("(" false)
       ctx.setInExpr()

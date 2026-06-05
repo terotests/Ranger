@@ -1,0 +1,266 @@
+Import "ng_CodeNode.rgr"
+
+class SourceMapEntry {
+  def genLine:int 0
+  def genCol:int 0
+  def sourceIdx:int 0
+  def origLine:int 0
+  def origCol:int 0
+  def nameIdx:int -1
+}
+
+class SourceMapBuilder {
+
+  def mappings:[SourceMapEntry]
+  def sources:[string]
+  def sourceToIdx:[string:int]
+  def sourcesContent:[string]
+  def names:[string]
+  def nameToIdx:[string:int]
+  def outputFile:string ""
+
+  fn isSyntheticSource:boolean (sourceFile:string) {
+    if ((strlen sourceFile) == 0) {
+      return true
+    }
+    if (startsWith sourceFile "<") {
+      return true
+    }
+    if (sourceFile == "dynamically_generated") {
+      return true
+    }
+    if (startsWith sourceFile "extension ") {
+      return true
+    }
+    return false
+  }
+
+  fn registerSourceIdx:int (sourceFile:string sourceContent:string) {
+    if (this.isSyntheticSource(sourceFile)) {
+      return -1
+    }
+    if (has sourceToIdx sourceFile) {
+      return (unwrap (get sourceToIdx sourceFile))
+    }
+    def idx:int (array_length sources)
+    push sources sourceFile
+    set sourceToIdx sourceFile idx
+    push sourcesContent sourceContent
+    return idx
+  }
+
+  fn registerNameIdx:int (name:string) {
+    if ((strlen name) == 0) {
+      return -1
+    }
+    if (has nameToIdx name) {
+      return (unwrap (get nameToIdx name))
+    }
+    def idx:int (array_length names)
+    push names name
+    set nameToIdx name idx
+    return idx
+  }
+
+  fn addMapping:void (
+    genLine:int
+    genCol:int
+    sourceFile:string
+    sourceContent:string
+    origLine:int
+    origCol:int
+    name:string
+  ) {
+    def sourceIdx:int (this.registerSourceIdx(sourceFile sourceContent))
+    if (sourceIdx < 0) {
+      return
+    }
+    def entry:SourceMapEntry (new SourceMapEntry ())
+    entry.genLine = genLine
+    entry.genCol = genCol
+    entry.sourceIdx = sourceIdx
+    entry.origLine = origLine
+    entry.origCol = origCol
+    entry.nameIdx = (this.registerNameIdx(name))
+    push mappings entry
+  }
+
+  fn addMappingFromNode:void (
+    genLine:int
+    genCol:int
+    node:CodeNode
+    name:string
+  ) {
+    if (null? node.code) {
+      return
+    }
+    def srcFile:string (node.getFilename())
+    def srcContent:string (node.code.code)
+    def origLine:int (node.getLine())
+    if (origLine < 0) {
+      origLine = node.row
+    }
+    def origCol:int (node.code.getColumn(node.sp))
+    if (origCol < 0) {
+      origCol = 0
+    }
+    def mapName:string name
+    if ((strlen mapName) == 0) {
+      mapName = node.vref
+    }
+    this.addMapping(genLine genCol srcFile srcContent origLine origCol mapName)
+  }
+
+  fn vlqBase64Chars:string () {
+    return "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+  }
+
+  fn encodeVLQUnsigned:string (value:int) {
+    def digits:string ""
+    def vlq:int value
+    def more:boolean true
+    while more {
+      def digit:int (vlq % 32)
+      vlq = (to_int (vlq / 32))
+      if (vlq > 0) {
+        digit = (digit + 32)
+      } {
+        more = false
+      }
+      def chars:string (this.vlqBase64Chars())
+      digits = digits + (substring chars digit (+ digit 1))
+    }
+    return digits
+  }
+
+  fn encodeSignedVLQ:string (value:int) {
+    def toEncode:int 0
+    if (value < 0) {
+      toEncode = (((0 - value) * 2) + 1)
+    } {
+      toEncode = (value * 2)
+    }
+    return (this.encodeVLQUnsigned(toEncode))
+  }
+
+  fn buildMappingsString:string () {
+    if ((array_length mappings) == 0) {
+      return ""
+    }
+    def result:string ""
+    def prevGenLine:int 0
+    def prevGenCol:int 0
+    def prevSourceIdx:int 0
+    def prevOrigLine:int 0
+    def prevOrigCol:int 0
+    def prevNameIdx:int 0
+    def firstSegment:boolean true
+
+    for mappings entry:SourceMapEntry idx {
+      while (prevGenLine < entry.genLine) {
+        result = result + ";"
+        prevGenLine = prevGenLine + 1
+        prevGenCol = 0
+        firstSegment = true
+      }
+      if (firstSegment == false) {
+        result = result + ","
+      }
+      firstSegment = false
+      result = result + (this.encodeSignedVLQ((entry.genCol - prevGenCol)))
+      result = result + (this.encodeSignedVLQ((entry.sourceIdx - prevSourceIdx)))
+      result = result + (this.encodeSignedVLQ((entry.origLine - prevOrigLine)))
+      result = result + (this.encodeSignedVLQ((entry.origCol - prevOrigCol)))
+      if (entry.nameIdx >= 0) {
+        result = result + (this.encodeSignedVLQ((entry.nameIdx - prevNameIdx)))
+        prevNameIdx = entry.nameIdx
+      }
+      prevGenCol = entry.genCol
+      prevSourceIdx = entry.sourceIdx
+      prevOrigLine = entry.origLine
+      prevOrigCol = entry.origCol
+    }
+    return result
+  }
+
+  fn jsonEscape:string (value:string) {
+    def out:string ""
+    def i:int 0
+    while (i < (strlen value)) {
+      def ch:int (charcode (substring value i (+ i 1)))
+      switch ch {
+        case 34 {
+          out = out + "\\\""
+        }
+        case 92 {
+          out = out + "\\\\"
+        }
+        case 10 {
+          out = out + "\\n"
+        }
+        case 13 {
+          out = out + "\\r"
+        }
+        case 9 {
+          out = out + "\\t"
+        }
+        default {
+          out = out + (substring value i (+ i 1))
+        }
+      }
+      i = i + 1
+    }
+    return out
+  }
+
+  fn jsonStringArray:string (items:[string]) {
+    def out:string "["
+    def i:int 0
+    while (i < (array_length items)) {
+      if (i > 0) {
+        out = out + ","
+      }
+      out = out + "\""
+      out = out + (this.jsonEscape((itemAt items i)))
+      out = out + "\""
+      i = i + 1
+    }
+    out = out + "]"
+    return out
+  }
+
+  fn toJSON:string (fileName:string) {
+    def mapFile:string fileName
+    if (endsWith mapFile ".js") {
+      mapFile = (substring mapFile 0 ((- (strlen mapFile) 3)))
+    }
+    if (endsWith mapFile ".ts") {
+      mapFile = (substring mapFile 0 ((- (strlen mapFile) 3)))
+    }
+    def json:string ""
+    json = json + "{"
+    json = json + "\"version\":3,"
+    json = json + "\"file\":\""
+    json = json + (this.jsonEscape(fileName))
+    json = json + "\","
+    json = json + "\"sourceRoot\":\"\","
+    json = json + "\"sources\":"
+    json = json + (this.jsonStringArray(sources))
+    json = json + ","
+    json = json + "\"sourcesContent\":"
+    json = json + (this.jsonStringArray(sourcesContent))
+    json = json + ","
+    json = json + "\"names\":"
+    json = json + (this.jsonStringArray(names))
+    json = json + ","
+    json = json + "\"mappings\":\""
+    json = json + (this.buildMappingsString())
+    json = json + "\""
+    json = json + "}"
+    return json
+  }
+
+  fn hasMappings:boolean () {
+    return ((array_length mappings) > 0)
+  }
+}

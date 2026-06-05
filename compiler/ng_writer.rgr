@@ -1,3 +1,5 @@
+Import "ng_SourceMap.rgr"
+
 class CodeFile {
     def path_name:string ""
     def name:string ""
@@ -5,12 +7,30 @@ class CodeFile {
     def import_list:[string:string]
     def import_names:[string]
     def fileSystem@(weak):CodeFileSystem
+    def sourceMapBuilder@(optional):SourceMapBuilder
 
     Constructor (filePath:string fileName:string) {
         name = fileName
         path_name = filePath
         writer = (new CodeWriter())
-        writer.createTag("imports")        
+        writer.createTag("imports")
+    }
+
+    fn initSourceMapsIfNeeded:void () {
+        if (!null? sourceMapBuilder) {
+            return
+        }
+        if (null? fileSystem) {
+            return
+        }
+        if (fileSystem.sourceMapsEnabled == false) {
+            return
+        }
+        sourceMapBuilder = (new SourceMapBuilder ())
+        def wr@(optional):CodeWriter writer
+        if (!null? wr) {
+            (unwrap wr).enableSourceMaps((unwrap sourceMapBuilder))
+        }
     }
 
     fn addImport:void (import_name:string) {
@@ -45,6 +65,15 @@ class CodeFile {
 
 class CodeFileSystem {
     def files:[CodeFile]
+    def sourceMapsEnabled:boolean false
+
+    fn enableSourceMaps:void () {
+        sourceMapsEnabled = true
+    }
+
+    fn shouldWriteSourceMaps:boolean () {
+        return sourceMapsEnabled
+    }
 
     fn getFile@(weak):CodeFile (path:string name:string) {
         for files file:CodeFile idx {
@@ -54,6 +83,7 @@ class CodeFileSystem {
         }
         def new_file:CodeFile (new CodeFile (path name))
         new_file.fileSystem = this
+        new_file.initSourceMapsIfNeeded()
         push files new_file
         return new_file
     }
@@ -69,6 +99,16 @@ class CodeFileSystem {
         }
     }
 
+    fn isJsOutputFile:boolean (fileName:string) {
+        if (endsWith fileName ".js") {
+            return true
+        }
+        if (endsWith fileName ".ts") {
+            return true
+        }
+        return false
+    }
+
     fn saveTo:void (path:string verbose:boolean) {
         print "Saving results to path : " + path         
         for files file:CodeFile idx {
@@ -79,7 +119,28 @@ class CodeFileSystem {
             }
             def file_content:string (file.getCode())
             if ((strlen file_content) > 0) {
-                write_file file_path (trim file.name) file_content
+                def outName:string (trim file.name)
+                def writeSourceMap:boolean false
+                if (this.shouldWriteSourceMaps()) {
+                    if (this.isJsOutputFile(outName)) {
+                        if (!null? file.sourceMapBuilder) {
+                            def builder:SourceMapBuilder (unwrap file.sourceMapBuilder)
+                            if (builder.hasMappings()) {
+                                writeSourceMap = true
+                                file_content = file_content + "\n//# sourceMappingURL=" + outName + ".map\n"
+                            }
+                        }
+                    }
+                }
+                write_file file_path outName file_content
+                if (writeSourceMap) {
+                    def builder2:SourceMapBuilder (unwrap file.sourceMapBuilder)
+                    def mapJson:string (builder2.toJSON(outName))
+                    write_file file_path (outName + ".map") mapJson
+                    if (verbose) {
+                        print "Writing source map " + file_path + "/" + outName + ".map"
+                    }
+                }
             }
         }
     }
@@ -105,7 +166,8 @@ class CodeWriter {
     def currentLine:string ""
     def tabStr:string "  "
     def nlStr "\n"
-    def lineNumber:int 1
+    def lineNumber:int 0
+    def columnNumber:int 0
     def indentAmount:int 0
 
     def compiledTags:[string:boolean]
@@ -119,6 +181,12 @@ class CodeWriter {
     def parent@(weak):CodeWriter
 
     def had_nl:boolean true
+
+    def sourceMapsEnabled:boolean false
+    def sourceMapBuilder@(optional weak):SourceMapBuilder
+    def mappingNodeStack:[CodeNode]
+    def mappingNameStack:[string]
+    def walkNodeStack:[CodeNode]
 
     static fn emptyWithFS:CodeWriter () {
         def wr@(temp) (new CodeWriter)
@@ -139,10 +207,101 @@ class CodeWriter {
         clear slices
         clear forks
         currentLine = ""
+        lineNumber = 0
+        columnNumber = 0
         def new_slice:CodeSlice (new CodeSlice ())
         push slices new_slice
         new_slice.code = newString
         current_slice = new_slice
+    }
+
+    fn enableSourceMaps:void (builder:SourceMapBuilder) {
+        sourceMapsEnabled = true
+        sourceMapBuilder = builder
+    }
+
+    fn getActiveSourceMapBuilder@(weak optional):SourceMapBuilder () {
+        if (sourceMapsEnabled && (!null? sourceMapBuilder)) {
+            return sourceMapBuilder
+        }
+        if (!null? parent) {
+            return (parent.getActiveSourceMapBuilder())
+        }
+        return sourceMapBuilder
+    }
+
+    fn pushMappingNode:void (node:CodeNode name:string) {
+        push mappingNodeStack node
+        push mappingNameStack name
+    }
+
+    fn popMappingNode:void () {
+        if ((array_length mappingNodeStack) > 0) {
+            removeLast mappingNodeStack
+        }
+        if ((array_length mappingNameStack) > 0) {
+            removeLast mappingNameStack
+        }
+    }
+
+    fn getCurrentMappingNode@(weak optional):CodeNode () {
+        def emptyNode@(weak optional):CodeNode
+        if ((array_length mappingNodeStack) == 0) {
+            return emptyNode
+        }
+        def current@(weak optional):CodeNode (itemAt mappingNodeStack ((array_length mappingNodeStack) - 1))
+        return current
+    }
+
+    fn getCurrentMappingName:string () {
+        if ((array_length mappingNameStack) == 0) {
+            return ""
+        }
+        return (itemAt mappingNameStack ((array_length mappingNameStack) - 1))
+    }
+
+    fn pushWalkNode:void (node:CodeNode) {
+        push walkNodeStack node
+    }
+
+    fn popWalkNode:void () {
+        if ((array_length walkNodeStack) > 0) {
+            removeLast walkNodeStack
+        }
+    }
+
+    fn getCurrentWalkNode@(weak optional):CodeNode () {
+        def emptyNode@(weak optional):CodeNode
+        if ((array_length walkNodeStack) > 0) {
+            def current@(weak optional):CodeNode (itemAt walkNodeStack ((array_length walkNodeStack) - 1))
+            return current
+        }
+        if (!null? parent) {
+            return (parent.getCurrentWalkNode())
+        }
+        return emptyNode
+    }
+
+    fn recordCurrentMapping:void () {
+        def builder@(optional):SourceMapBuilder (this.getActiveSourceMapBuilder())
+        if (null? builder) {
+            return
+        }
+        def node@(weak optional):CodeNode (this.getCurrentMappingNode())
+        if (null? node) {
+            node = (this.getCurrentWalkNode())
+        }
+        if (null? node) {
+            return
+        }
+        def mapName:string (this.getCurrentMappingName())
+        builder.addMappingFromNode(lineNumber columnNumber (unwrap node) mapName)
+    }
+
+    fn outMapped:void (str:string node:CodeNode newLine:boolean name:string) {
+        this.pushMappingNode(node name)
+        this.out(str newLine)
+        this.popMappingNode()
     }
 
     fn getFilesystem:CodeFileSystem () {
@@ -219,6 +378,10 @@ class CodeWriter {
         push slices new_slice
         new_slice.writer = new_writer
         new_writer.indentAmount = indentAmount
+        new_writer.lineNumber = lineNumber
+        new_writer.columnNumber = columnNumber
+        new_writer.sourceMapsEnabled = sourceMapsEnabled
+        new_writer.sourceMapBuilder = sourceMapBuilder
 
         def new_active_slice:CodeSlice (new CodeSlice ())
         push slices new_active_slice
@@ -260,6 +423,10 @@ class CodeWriter {
 
         new_slice.writer = new_writer
         new_writer.indentAmount = indentAmount
+        new_writer.lineNumber = lineNumber
+        new_writer.columnNumber = columnNumber
+        new_writer.sourceMapsEnabled = sourceMapsEnabled
+        new_writer.sourceMapBuilder = sourceMapBuilder
         new_writer.parent = this
 
         def new_active_slice:CodeSlice (new CodeSlice ())
@@ -283,12 +450,37 @@ class CodeWriter {
         } 
     }
 
+    fn advanceColumnForString:void (str:string) {
+        def i:int 0
+        while (i < (strlen str)) {
+            def ch:int (charcode (substring str i (+ i 1)))
+            if (ch == 10) {
+                lineNumber = lineNumber + 1
+                columnNumber = 0
+            } {
+                columnNumber = columnNumber + 1
+            }
+            i = i + 1
+        }
+    }
+
+    fn syncColumnFromCurrentLine:void () {
+        columnNumber = (strlen currentLine)
+    }
+
     fn writeSlice:void (str:string newLine:boolean) {
         this.addIndent()
+        this.syncColumnFromCurrentLine()
+        if ((strlen str) > 0) {
+            this.recordCurrentMapping()
+        }
         currentLine = currentLine + str
+        this.advanceColumnForString(str)
         if newLine {
             current_slice.code = current_slice.code + currentLine + nlStr
             currentLine = ""
+            lineNumber = lineNumber + 1
+            columnNumber = 0
         }
     }
 

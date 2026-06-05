@@ -132,7 +132,9 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
   }
   
   fn WriteScalarValue:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    wr.pushMappingNode(node node.vref)
     langWriter.WriteScalarValue(node ctx wr)
+    wr.popMappingNode()
   }
   fn adjustType:string (tn:string) {
     if (tn == "this") {
@@ -141,19 +143,27 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     return tn
   }
   fn WriteVRef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    wr.pushMappingNode(node node.vref)
     langWriter.WriteVRef(node ctx wr)
+    wr.popMappingNode()
   }
   fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     langWriter.writeTypeDef(node ctx wr)
   }
   fn CreateLambdaCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    wr.pushMappingNode(node node.vref)
     langWriter.CreateLambdaCall(node ctx wr)
+    wr.popMappingNode()
   }
   fn CreateCallExpression:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    wr.pushMappingNode(node node.vref)
     langWriter.CreateCallExpression(node ctx wr)
+    wr.popMappingNode()
   }
   fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    wr.pushMappingNode(node node.vref)
     langWriter.CreateLambda(node ctx wr)
+    wr.popMappingNode()
   }
   fn getTypeString:string (str:string ctx:RangerAppWriterContext) {
     return ""
@@ -363,6 +373,10 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     }
     return false
   }
+  fn finishWalkNode:void (wr:CodeWriter) {
+    wr.popWalkNode()
+  }
+
   fn WalkNode:void (node:CodeNode in_ctx:RangerAppWriterContext wr:CodeWriter) {
     
     this.initWriter(in_ctx)
@@ -370,6 +384,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     if(node.disabled_node) {
       return
     }
+    wr.pushWalkNode(node)
     def ctx (in_ctx)
 
     if(!null? node.evalCtx) {
@@ -387,11 +402,12 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       if(has node.register_name ) {
         if( (ctx.expressionLevel()) >  0) {
           if( has node.reg_compiled_name ) {
-            wr.out(node.reg_compiled_name false)
+            wr.outMapped(node.reg_compiled_name node false node.register_name)
           } {
             print "Could not find compiled name for " + node.register_name + " at " + (node.getCode())
           }
         } 
+        this.finishWalkNode(wr)
         return
       }
 
@@ -415,35 +431,46 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     
     
     if(node.value_type == RangerNodeType.Comment) {
+      this.finishWalkNode(wr)
       return
     }
     
     if (node.isPrimitive()) {
       this.WriteScalarValue(node ctx wr)
+      this.finishWalkNode(wr)
       return
     }
     this.lastProcessedNode = node
 
     if(node.isFirstVref('property')) {
+      wr.pushMappingNode(node node.vref)
       langWriter.CreatePropertyGet( node ctx wr)
+      wr.popMappingNode()
+      this.finishWalkNode(wr)
       return
     }
 
     if( node.is_plugin ) {
+      this.finishWalkNode(wr)
       return
     }
     if( node.is_array_literal ) {
+      wr.pushMappingNode(node node.vref)
       langWriter.writeArrayLiteral( node ctx wr)
+      wr.popMappingNode()
+      this.finishWalkNode(wr)
       return
     }
 
     if (node.value_type == RangerNodeType.VRef || node.value_type == RangerNodeType.Hash || node.value_type == RangerNodeType.Array) { 
       this.WriteVRef(node ctx wr)
+      this.finishWalkNode(wr)
       return    
     }
     
     if (node.value_type == RangerNodeType.Lambda) {
       this.WriteVRef(node ctx wr)
+      this.finishWalkNode(wr)
       return
     }
     if ((array_length node.children) > 0) {
@@ -464,30 +491,39 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
         } {
           this.findOpCode(op node evalCtx wr)
         }
+        this.finishWalkNode(wr)
         return
       }
       if( node.is_direct_method_call) {
+        wr.pushMappingNode(node node.vref)
         langWriter.CreateMethodCall(node ctx wr)
+        wr.popMappingNode()
+        this.finishWalkNode(wr)
         return        
       }
       if (node.has_lambda) {
         this.CreateLambda(node ctx wr)
+        this.finishWalkNode(wr)
         return
       }
       if (node.has_lambda_call) {
         this.CreateLambdaCall(node ctx wr)
+        this.finishWalkNode(wr)
         return
       }
       ; skip elents which are part of the chain...
       if(node.is_part_of_chain) {
+        this.finishWalkNode(wr)
         return
       }
       if (node.has_call) {
         this.CreateCallExpression(node ctx wr)
+        this.finishWalkNode(wr)
         return
       }
       if ((array_length node.children) > 1) {
         if (this.localCall(node ctx wr)) {
+          this.finishWalkNode(wr)
           return
         }
       }
@@ -532,6 +568,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       }
 
     }
+    this.finishWalkNode(wr)
   }
   fn walkCommandList:void (cmd:CodeNode node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if ((ctx.expressionLevel()) == 0) {
@@ -596,7 +633,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
           def idx:int cmdArg.int_value
           if ((array_length node.children) > idx) {
             def arg:CodeNode (itemAt node.children idx)
-            wr.out(arg.string_value false)
+            wr.outMapped(arg.string_value arg false "")
           }
         }
         case "block" {

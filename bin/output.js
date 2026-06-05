@@ -3929,9 +3929,7 @@ class RangerAppWriterContext  {
       }
       const p = new RangerAppParamDesc();
       p.name = arg.vref;
-      if ( p.name == "self" ) {
-        p.compiledName = "__self";
-      }
+      rCtx.assignParamCompiledName(p);
       p.value_type = arg.value_type;
       p.node = arg;
       p.init_cnt = 1;
@@ -4406,6 +4404,22 @@ class RangerAppWriterContext  {
     }
     return false;
   };
+  assignParamCompiledName (p) {
+    switch (p.name ) { 
+      case "self" : 
+        p.compiledName = "__self";
+        break;
+      case "process" : 
+        p.compiledName = "_process";
+        break;
+      case "len" : 
+        p.compiledName = "__len";
+        break;
+      default: 
+        p.compiledName = this.transformWord(p.name);
+        break;
+    };
+  };
   defineVariable (name, desc) {
     let cnt = 0;
     const fnLevel = this.findMethodLevelContext();
@@ -4636,6 +4650,246 @@ class RangerAppWriterContext  {
     root.rootFile = file_name;
   };
 }
+class SourceMapEntry  {
+  constructor() {
+    this.genLine = 0;
+    this.genCol = 0;
+    this.sourceIdx = 0;
+    this.origLine = 0;
+    this.origCol = 0;
+    this.nameIdx = -1;
+  }
+}
+class SourceMapBuilder  {
+  constructor() {
+    this.mappings = [];
+    this.sources = [];
+    this.sourceToIdx = {};
+    this.sourcesContent = [];
+    this.names = [];
+    this.nameToIdx = {};
+    this.outputFile = "";     /** note: unused */
+  }
+  isSyntheticSource (sourceFile) {
+    if ( (sourceFile.length) == 0 ) {
+      return true;
+    }
+    if ( sourceFile.startsWith("<") ) {
+      return true;
+    }
+    if ( sourceFile == "dynamically_generated" ) {
+      return true;
+    }
+    if ( sourceFile.startsWith("extension ") ) {
+      return true;
+    }
+    return false;
+  };
+  registerSourceIdx (sourceFile, sourceContent) {
+    if ( this.isSyntheticSource(sourceFile) ) {
+      return -1;
+    }
+    if ( ( typeof(this.sourceToIdx[sourceFile] ) != "undefined" && this.sourceToIdx.hasOwnProperty(sourceFile) ) ) {
+      return (( this.sourceToIdx.hasOwnProperty(sourceFile) ? this.sourceToIdx[sourceFile] : undefined ));
+    }
+    const idx = this.sources.length;
+    this.sources.push(sourceFile);
+    this.sourceToIdx[sourceFile] = idx;
+    this.sourcesContent.push(sourceContent);
+    return idx;
+  };
+  registerNameIdx (name) {
+    if ( (name.length) == 0 ) {
+      return -1;
+    }
+    if ( ( typeof(this.nameToIdx[name] ) != "undefined" && this.nameToIdx.hasOwnProperty(name) ) ) {
+      return (( this.nameToIdx.hasOwnProperty(name) ? this.nameToIdx[name] : undefined ));
+    }
+    const idx = this.names.length;
+    this.names.push(name);
+    this.nameToIdx[name] = idx;
+    return idx;
+  };
+  addMapping (genLine, genCol, sourceFile, sourceContent, origLine, origCol, name) {
+    const sourceIdx = this.registerSourceIdx(sourceFile, sourceContent);
+    if ( sourceIdx < 0 ) {
+      return;
+    }
+    const entry = new SourceMapEntry();
+    entry.genLine = genLine;
+    entry.genCol = genCol;
+    entry.sourceIdx = sourceIdx;
+    entry.origLine = origLine;
+    entry.origCol = origCol;
+    entry.nameIdx = this.registerNameIdx(name);
+    this.mappings.push(entry);
+  };
+  addMappingFromNode (genLine, genCol, node, name) {
+    if ( typeof(node.code) === "undefined" ) {
+      return;
+    }
+    const srcFile = node.getFilename();
+    const srcContent = node.code.code;
+    let origLine = node.getLine();
+    if ( origLine < 0 ) {
+      origLine = node.row;
+    }
+    let origCol = node.code.getColumn(node.sp);
+    if ( origCol < 0 ) {
+      origCol = 0;
+    }
+    let mapName = name;
+    if ( (mapName.length) == 0 ) {
+      mapName = node.vref;
+    }
+    this.addMapping(genLine, genCol, srcFile, srcContent, origLine, origCol, mapName);
+  };
+  vlqBase64Chars () {
+    return "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  };
+  encodeVLQUnsigned (value) {
+    let digits = "";
+    let vlq = value;
+    let more = true;
+    while (more) {
+      let digit = vlq % 32;
+      vlq = Math.floor( (vlq / 32));
+      if ( vlq > 0 ) {
+        digit = digit + 32;
+      } else {
+        more = false;
+      }
+      const chars = this.vlqBase64Chars();
+      digits = digits + (chars.substring(digit, (digit + 1) ));
+    };
+    return digits;
+  };
+  encodeSignedVLQ (value) {
+    let toEncode = 0;
+    if ( value < 0 ) {
+      toEncode = ((0 - value) * 2) + 1;
+    } else {
+      toEncode = value * 2;
+    }
+    return this.encodeVLQUnsigned(toEncode);
+  };
+  buildMappingsString () {
+    if ( (this.mappings.length) == 0 ) {
+      return "";
+    }
+    let result = "";
+    let prevGenLine = 0;
+    let prevGenCol = 0;
+    let prevSourceIdx = 0;
+    let prevOrigLine = 0;
+    let prevOrigCol = 0;
+    let prevNameIdx = 0;
+    let firstSegment = true;
+    for ( let idx = 0; idx < this.mappings.length; idx++) {
+      var entry = this.mappings[idx];
+      while (prevGenLine < entry.genLine) {
+        result = result + ";";
+        prevGenLine = prevGenLine + 1;
+        prevGenCol = 0;
+        firstSegment = true;
+      };
+      if ( firstSegment == false ) {
+        result = result + ",";
+      }
+      firstSegment = false;
+      result = result + this.encodeSignedVLQ((entry.genCol - prevGenCol));
+      result = result + this.encodeSignedVLQ((entry.sourceIdx - prevSourceIdx));
+      result = result + this.encodeSignedVLQ((entry.origLine - prevOrigLine));
+      result = result + this.encodeSignedVLQ((entry.origCol - prevOrigCol));
+      if ( entry.nameIdx >= 0 ) {
+        result = result + this.encodeSignedVLQ((entry.nameIdx - prevNameIdx));
+        prevNameIdx = entry.nameIdx;
+      }
+      prevGenCol = entry.genCol;
+      prevSourceIdx = entry.sourceIdx;
+      prevOrigLine = entry.origLine;
+      prevOrigCol = entry.origCol;
+    };
+    return result;
+  };
+  jsonEscape (value) {
+    let out = "";
+    let i = 0;
+    while (i < (value.length)) {
+      const ch = (value.substring(i, (i + 1) )).charCodeAt(0);
+      switch (ch ) { 
+        case 34 : 
+          out = out + "\\\"";
+          break;
+        case 92 : 
+          out = out + "\\\\";
+          break;
+        case 10 : 
+          out = out + "\\n";
+          break;
+        case 13 : 
+          out = out + "\\r";
+          break;
+        case 9 : 
+          out = out + "\\t";
+          break;
+        default: 
+          out = out + (value.substring(i, (i + 1) ));
+          break;
+      };
+      i = i + 1;
+    };
+    return out;
+  };
+  jsonStringArray (items) {
+    let out = "[";
+    let i = 0;
+    while (i < (items.length)) {
+      if ( i > 0 ) {
+        out = out + ",";
+      }
+      out = out + "\"";
+      out = out + this.jsonEscape((items[i]));
+      out = out + "\"";
+      i = i + 1;
+    };
+    out = out + "]";
+    return out;
+  };
+  toJSON (fileName) {
+    let mapFile = fileName;
+    if ( mapFile.endsWith(".js") ) {
+      mapFile = mapFile.substring(0, ((mapFile.length) - 3) );
+    }
+    if ( mapFile.endsWith(".ts") ) {
+      mapFile = mapFile.substring(0, ((mapFile.length) - 3) );
+    }
+    let json = "";
+    json = json + "{";
+    json = json + "\"version\":3,";
+    json = json + "\"file\":\"";
+    json = json + this.jsonEscape(fileName);
+    json = json + "\",";
+    json = json + "\"sourceRoot\":\"\",";
+    json = json + "\"sources\":";
+    json = json + this.jsonStringArray(this.sources);
+    json = json + ",";
+    json = json + "\"sourcesContent\":";
+    json = json + this.jsonStringArray(this.sourcesContent);
+    json = json + ",";
+    json = json + "\"names\":";
+    json = json + this.jsonStringArray(this.names);
+    json = json + ",";
+    json = json + "\"mappings\":\"";
+    json = json + this.buildMappingsString();
+    json = json + "\"";
+    json = json + "}";
+    return json;
+  };
+  hasMappings () {
+    return (this.mappings.length) > 0;
+  };
+}
 class CodeFile  {
   constructor(filePath, fileName) {
     this.path_name = "";
@@ -4647,6 +4901,22 @@ class CodeFile  {
     this.writer = new CodeWriter();
     this.writer.createTag("imports");
   }
+  initSourceMapsIfNeeded () {
+    if ( (typeof(this.sourceMapBuilder) !== "undefined" && this.sourceMapBuilder != null )  ) {
+      return;
+    }
+    if ( typeof(this.fileSystem) === "undefined" ) {
+      return;
+    }
+    if ( this.fileSystem.sourceMapsEnabled == false ) {
+      return;
+    }
+    this.sourceMapBuilder = new SourceMapBuilder();
+    const wr = this.writer;
+    if ( (typeof(wr) !== "undefined" && wr != null )  ) {
+      (wr).enableSourceMaps(this.sourceMapBuilder);
+    }
+  };
   addImport (import_name) {
     if ( false == (( typeof(this.import_list[import_name] ) != "undefined" && this.import_list.hasOwnProperty(import_name) )) ) {
       this.import_list[import_name] = import_name;
@@ -4673,7 +4943,14 @@ class CodeFile  {
 class CodeFileSystem  {
   constructor() {
     this.files = [];
+    this.sourceMapsEnabled = false;
   }
+  enableSourceMaps () {
+    this.sourceMapsEnabled = true;
+  };
+  shouldWriteSourceMaps () {
+    return this.sourceMapsEnabled;
+  };
   getFile (path, name) {
     for ( let idx = 0; idx < this.files.length; idx++) {
       var file = this.files[idx];
@@ -4683,6 +4960,7 @@ class CodeFileSystem  {
     };
     const new_file = new CodeFile(path, name);
     new_file.fileSystem = this;
+    new_file.initSourceMapsIfNeeded();
     this.files.push(new_file);
     return new_file;
   };
@@ -4697,6 +4975,15 @@ class CodeFileSystem  {
       }
     };
   };
+  isJsOutputFile (fileName) {
+    if ( fileName.endsWith(".js") ) {
+      return true;
+    }
+    if ( fileName.endsWith(".ts") ) {
+      return true;
+    }
+    return false;
+  };
   saveTo (path, verbose) {
     console.log("Saving results to path : " + path);
     for ( let idx = 0; idx < this.files.length; idx++) {
@@ -4706,9 +4993,30 @@ class CodeFileSystem  {
       if ( verbose ) {
         console.log((("Writing to file " + file_path) + "/") + file.name);
       }
-      const file_content = file.getCode();
+      let file_content = file.getCode();
       if ( (file_content.length) > 0 ) {
-        require("fs").writeFileSync( file_path + "/"  + file.name.trim(), file_content);
+        const outName = file.name.trim();
+        let writeSourceMap = false;
+        if ( this.shouldWriteSourceMaps() ) {
+          if ( this.isJsOutputFile(outName) ) {
+            if ( (typeof(file.sourceMapBuilder) !== "undefined" && file.sourceMapBuilder != null )  ) {
+              const builder = file.sourceMapBuilder;
+              if ( builder.hasMappings() ) {
+                writeSourceMap = true;
+                file_content = ((file_content + "\n//# sourceMappingURL=") + outName) + ".map\n";
+              }
+            }
+          }
+        }
+        require("fs").writeFileSync( file_path + "/"  + outName, file_content);
+        if ( writeSourceMap ) {
+          const builder2 = file.sourceMapBuilder;
+          const mapJson = builder2.toJSON(outName);
+          require("fs").writeFileSync( file_path + "/"  + outName + ".map", mapJson);
+          if ( verbose ) {
+            console.log(((("Writing source map " + file_path) + "/") + outName) + ".map");
+          }
+        }
       }
     };
   };
@@ -4731,7 +5039,8 @@ class CodeWriter  {
     this.currentLine = "";
     this.tabStr = "  ";
     this.nlStr = "\n";
-    this.lineNumber = 1;     /** note: unused */
+    this.lineNumber = 0;
+    this.columnNumber = 0;
     this.indentAmount = 0;
     this.compiledTags = {};
     this.tags = {};
@@ -4739,6 +5048,10 @@ class CodeWriter  {
     this.forks = [];
     this.tagOffset = 0;     /** note: unused */
     this.had_nl = true;     /** note: unused */
+    this.sourceMapsEnabled = false;
+    this.mappingNodeStack = [];
+    this.mappingNameStack = [];
+    this.walkNodeStack = [];
     const new_slice = new CodeSlice();
     this.slices.push(new_slice);
     this.current_slice = new_slice;
@@ -4747,10 +5060,90 @@ class CodeWriter  {
     this.slices.length = 0;
     this.forks.length = 0;
     this.currentLine = "";
+    this.lineNumber = 0;
+    this.columnNumber = 0;
     const new_slice = new CodeSlice();
     this.slices.push(new_slice);
     new_slice.code = newString;
     this.current_slice = new_slice;
+  };
+  enableSourceMaps (builder) {
+    this.sourceMapsEnabled = true;
+    this.sourceMapBuilder = builder;
+  };
+  getActiveSourceMapBuilder () {
+    if ( this.sourceMapsEnabled && ((typeof(this.sourceMapBuilder) !== "undefined" && this.sourceMapBuilder != null ) ) ) {
+      return this.sourceMapBuilder;
+    }
+    if ( (typeof(this.parent) !== "undefined" && this.parent != null )  ) {
+      return this.parent.getActiveSourceMapBuilder();
+    }
+    return this.sourceMapBuilder;
+  };
+  pushMappingNode (node, name) {
+    this.mappingNodeStack.push(node);
+    this.mappingNameStack.push(name);
+  };
+  popMappingNode () {
+    if ( (this.mappingNodeStack.length) > 0 ) {
+      this.mappingNodeStack.pop();
+    }
+    if ( (this.mappingNameStack.length) > 0 ) {
+      this.mappingNameStack.pop();
+    }
+  };
+  getCurrentMappingNode () {
+    let emptyNode;
+    if ( (this.mappingNodeStack.length) == 0 ) {
+      return emptyNode;
+    }
+    const current = this.mappingNodeStack[((this.mappingNodeStack.length) - 1)];
+    return current;
+  };
+  getCurrentMappingName () {
+    if ( (this.mappingNameStack.length) == 0 ) {
+      return "";
+    }
+    return this.mappingNameStack[((this.mappingNameStack.length) - 1)];
+  };
+  pushWalkNode (node) {
+    this.walkNodeStack.push(node);
+  };
+  popWalkNode () {
+    if ( (this.walkNodeStack.length) > 0 ) {
+      this.walkNodeStack.pop();
+    }
+  };
+  getCurrentWalkNode () {
+    let emptyNode;
+    if ( (this.walkNodeStack.length) > 0 ) {
+      const current = this.walkNodeStack[((this.walkNodeStack.length) - 1)];
+      return current;
+    }
+    if ( (typeof(this.parent) !== "undefined" && this.parent != null )  ) {
+      return this.parent.getCurrentWalkNode();
+    }
+    return emptyNode;
+  };
+  recordCurrentMapping () {
+    const builder = this.getActiveSourceMapBuilder();
+    if ( typeof(builder) === "undefined" ) {
+      return;
+    }
+    let node = this.getCurrentMappingNode();
+    if ( typeof(node) === "undefined" ) {
+      node = this.getCurrentWalkNode();
+    }
+    if ( typeof(node) === "undefined" ) {
+      return;
+    }
+    const mapName = this.getCurrentMappingName();
+    builder.addMappingFromNode(this.lineNumber, this.columnNumber, node, mapName);
+  };
+  outMapped (str, node, newLine, name) {
+    this.pushMappingNode(node, name);
+    this.out(str, newLine);
+    this.popMappingNode();
   };
   getFilesystem () {
     if ( typeof(this.ownerFile) === "undefined" ) {
@@ -4816,6 +5209,10 @@ class CodeWriter  {
     this.slices.push(new_slice);
     new_slice.writer = new_writer;
     new_writer.indentAmount = this.indentAmount;
+    new_writer.lineNumber = this.lineNumber;
+    new_writer.columnNumber = this.columnNumber;
+    new_writer.sourceMapsEnabled = this.sourceMapsEnabled;
+    new_writer.sourceMapBuilder = this.sourceMapBuilder;
     const new_active_slice = new CodeSlice();
     this.slices.push(new_active_slice);
     this.current_slice = new_active_slice;
@@ -4850,6 +5247,10 @@ class CodeWriter  {
     this.slices.push(new_slice);
     new_slice.writer = new_writer;
     new_writer.indentAmount = this.indentAmount;
+    new_writer.lineNumber = this.lineNumber;
+    new_writer.columnNumber = this.columnNumber;
+    new_writer.sourceMapsEnabled = this.sourceMapsEnabled;
+    new_writer.sourceMapBuilder = this.sourceMapBuilder;
     new_writer.parent = this;
     const new_active_slice = new CodeSlice();
     this.slices.push(new_active_slice);
@@ -4868,12 +5269,35 @@ class CodeWriter  {
       }
     }
   };
+  advanceColumnForString (str) {
+    let i = 0;
+    while (i < (str.length)) {
+      const ch = (str.substring(i, (i + 1) )).charCodeAt(0);
+      if ( ch == 10 ) {
+        this.lineNumber = this.lineNumber + 1;
+        this.columnNumber = 0;
+      } else {
+        this.columnNumber = this.columnNumber + 1;
+      }
+      i = i + 1;
+    };
+  };
+  syncColumnFromCurrentLine () {
+    this.columnNumber = this.currentLine.length;
+  };
   writeSlice (str, newLine) {
     this.addIndent();
+    this.syncColumnFromCurrentLine();
+    if ( (str.length) > 0 ) {
+      this.recordCurrentMapping();
+    }
     this.currentLine = this.currentLine + str;
+    this.advanceColumnForString(str);
     if ( newLine ) {
       this.current_slice.code = (this.current_slice.code + this.currentLine) + this.nlStr;
       this.currentLine = "";
+      this.lineNumber = this.lineNumber + 1;
+      this.columnNumber = 0;
     }
   };
   out (str, newLine) {
@@ -8039,6 +8463,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     };
     return CodeNode.fromList([CodeNode.vref1("call"), CodeNode.vref1(targetVref), CodeNode.vref1(handlerName), callArgs]);
   };
+  RangerProcessProcSend.buildFindRootExpr = function(targetVref) {
+    const emptyArgs = CodeNode.expressionNode();
+    return CodeNode.fromList([CodeNode.vref1("call"), CodeNode.vref1(targetVref), CodeNode.vref1("__rangerFindRoot"), emptyArgs]);
+  };
+  RangerProcessProcSend.buildDispatchTurnBoundary = function(opName, rootExpr) {
+    return CodeNode.fromList([CodeNode.vref1(opName), rootExpr]);
+  };
   RangerProcessProcSend.transform = async function(parser, node, ctx, wr) {
     const childCnt = node.children.length;
     if ( childCnt < 3 ) {
@@ -8093,6 +8524,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       return true;
     }
     let stmts = [];
+    const turnRoot = RangerProcessProcSend.buildFindRootExpr(target.vref);
+    const beginTurn = RangerProcessProcSend.buildDispatchTurnBoundary("begin_dispatch_turn", turnRoot);
+    const endTurn = RangerProcessProcSend.buildDispatchTurnBoundary("end_dispatch_turn", turnRoot);
+    stmts.push(beginTurn);
     const refGuard = RangerProcessProcSend.buildLiveGuard(target.vref);
     const refCall = RangerProcessProcSend.buildHandlerCall(target.vref, emitName, argNodes);
     let refList = [];
@@ -8100,6 +8535,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     const refInner = CodeNode.blockFromList(refList);
     const refIf = CodeNode.fromList([CodeNode.vref1("if"), refGuard, refInner]);
     stmts.push(refIf);
+    stmts.push(endTurn);
     const newBlock = CodeNode.blockFromList(stmts);
     newBlock.flow_done = false;
     node.getChildrenFrom(newBlock);
@@ -11723,6 +12159,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       await this.CheckTypeAnnotationOf(arg, ctx, wr);
       const p = new RangerAppParamDesc();
       p.name = arg.vref;
+      ctx.assignParamCompiledName(p);
       p.value_type = arg.value_type;
       p.node = arg;
       p.init_cnt = 1;
@@ -14129,23 +14566,23 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           const dd_str = "" + node.double_value;
           const ii_str = "" + (Math.floor( node.double_value));
           if ( dd_str == ii_str ) {
-            wr.out(("" + node.double_value) + ".0", false);
+            wr.outMapped(("" + node.double_value) + ".0", node, false, "");
           } else {
-            wr.out("" + node.double_value, false);
+            wr.outMapped("" + node.double_value, node, false, "");
           }
           break;
         case 4 : 
           const s = this.EncodeString(node, ctx, wr);
-          wr.out(("\"" + s) + "\"", false);
+          wr.outMapped(("\"" + s) + "\"", node, false, "");
           break;
         case 3 : 
-          wr.out("" + node.int_value, false);
+          wr.outMapped("" + node.int_value, node, false, "");
           break;
         case 5 : 
           if ( node.boolean_value ) {
-            wr.out("true", false);
+            wr.outMapped("true", node, false, "");
           } else {
-            wr.out("false", false);
+            wr.outMapped("false", node, false, "");
           }
           break;
       };
@@ -14269,12 +14706,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             wr.out(".", false);
           }
           if ( (p.compiledName.length) > 0 ) {
-            wr.out(this.adjustType(p.compiledName), false);
+            wr.outMapped(this.adjustType(p.compiledName), node, false, p.name);
           } else {
             if ( (p.name.length) > 0 ) {
-              wr.out(this.adjustType(p.name), false);
+              wr.outMapped(this.adjustType(p.name), node, false, p.name);
             } else {
-              wr.out(this.adjustType((node.ns[i])), false);
+              wr.outMapped(this.adjustType((node.ns[i])), node, false, node.ns[i]);
             }
           }
         };
@@ -14285,7 +14722,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         if ( i_1 > 0 ) {
           wr.out(".", false);
         }
-        wr.out(this.adjustType(part), false);
+        wr.outMapped(this.adjustType(part), node, false, part);
       };
     };
     async writeVarDef (node, ctx, wr) {
@@ -14318,7 +14755,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         await this.WalkNode(obj, ctx, wr);
         ctx.unsetInExpr();
         wr.out(").", false);
-        wr.out(method.vref, false);
+        wr.outMapped(method.vref, method, false, method.vref);
         wr.out("(", false);
         ctx.setInExpr();
         const pms = operatorsOf.filter_36(args.children, ((item, index) => { 
@@ -21701,6 +22138,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         }
       }
     };
+    paramEmitName (arg, ctx) {
+      if ( (arg.compiledName.length) > 0 ) {
+        return arg.compiledName;
+      }
+      return ctx.transformWord(arg.name);
+    };
     async writeArgsDef (fnDesc, ctx, wr) {
       for ( let i = 0; i < fnDesc.params.length; i++) {
         var arg = fnDesc.params[i];
@@ -21708,7 +22151,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           wr.out(",", false);
         }
         wr.out(" ", false);
-        wr.out(arg.name + " : ", false);
+        wr.out(this.paramEmitName(arg, ctx) + " : ", false);
         await this.writeTypeDef(arg.nameNode, ctx, wr);
       };
     };
@@ -26592,7 +27035,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         } else {
           wr.out(".", false);
         }
-        wr.out(method.vref, false);
+        wr.outMapped(method.vref, method, false, method.vref);
         wr.out("(", false);
         ctx.setInExpr();
         for ( let i = 0; i < args.children.length; i++) {
@@ -26865,12 +27308,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             }
           }
           if ( (p.compiledName.length) > 0 ) {
-            wr.out(this.adjustType(p.compiledName), false);
+            wr.outMapped(this.adjustType(p.compiledName), node, false, p.name);
           } else {
             if ( (p.name.length) > 0 ) {
-              wr.out(this.adjustType(p.name), false);
+              wr.outMapped(this.adjustType(p.name), node, false, p.name);
             } else {
-              wr.out(this.adjustType((node.ns[i])), false);
+              wr.outMapped(this.adjustType((node.ns[i])), node, false, node.ns[i]);
             }
           }
           prevOptional = p.is_optional;
@@ -26888,7 +27331,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           }
         }
         const p_1 = node.paramDesc;
-        wr.out(p_1.compiledName, false);
+        wr.outMapped(p_1.compiledName, node, false, p_1.name);
         return;
       }
       let b_was_static = false;
@@ -26916,7 +27359,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             }
           }
         }
-        wr.out(this.adjustType(part_2), false);
+        wr.outMapped(this.adjustType(part_2), node, false, part_2);
       };
     };
     async writeVarInitDef (node, ctx, wr) {
@@ -27574,7 +28017,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             if ( variant_2.nameNode.hasFlag("async") ) {
               asyncKeyword = "async ";
             }
-            wr.out(((((cl.name + ".") + variant_2.compiledName) + " = ") + asyncKeyword) + "function(", false);
+            if ( (typeof(variant_2.nameNode) !== "undefined" && variant_2.nameNode != null )  ) {
+              wr.outMapped(((((cl.name + ".") + variant_2.compiledName) + " = ") + asyncKeyword) + "function(", variant_2.nameNode, false, variant_2.compiledName);
+            } else {
+              wr.out(((((cl.name + ".") + variant_2.compiledName) + " = ") + asyncKeyword) + "function(", false);
+            }
             await this.writeArgsDef(variant_2, ctx, wr);
             wr.out(") {", true);
           }
@@ -28237,7 +28684,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       return encoded_str_2;
     };
     WriteScalarValue (node, ctx, wr) {
+      wr.pushMappingNode(node, node.vref);
       this.langWriter.WriteScalarValue(node, ctx, wr);
+      wr.popMappingNode();
     };
     adjustType (tn) {
       if ( tn == "this" ) {
@@ -28246,19 +28695,27 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       return tn;
     };
     async WriteVRef (node, ctx, wr) {
+      wr.pushMappingNode(node, node.vref);
       await this.langWriter.WriteVRef(node, ctx, wr);
+      wr.popMappingNode();
     };
     async writeTypeDef (node, ctx, wr) {
       await this.langWriter.writeTypeDef(node, ctx, wr);
     };
     async CreateLambdaCall (node, ctx, wr) {
+      wr.pushMappingNode(node, node.vref);
       await this.langWriter.CreateLambdaCall(node, ctx, wr);
+      wr.popMappingNode();
     };
     async CreateCallExpression (node, ctx, wr) {
+      wr.pushMappingNode(node, node.vref);
       await this.langWriter.CreateCallExpression(node, ctx, wr);
+      wr.popMappingNode();
     };
     async CreateLambda (node, ctx, wr) {
+      wr.pushMappingNode(node, node.vref);
       await this.langWriter.CreateLambda(node, ctx, wr);
+      wr.popMappingNode();
     };
     getTypeString (str, ctx) {
       return "";
@@ -28466,11 +28923,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }
       return false;
     };
+    finishWalkNode (wr) {
+      wr.popWalkNode();
+    };
     async WalkNode (node, in_ctx, wr) {
       this.initWriter(in_ctx);
       if ( node.disabled_node ) {
         return;
       }
+      wr.pushWalkNode(node);
       let ctx = in_ctx;
       if ( (typeof(node.evalCtx) !== "undefined" && node.evalCtx != null )  ) {
         ctx = node.evalCtx;
@@ -28478,11 +28939,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       if ( (node.register_name.length) > 0 ) {
         if ( ctx.expressionLevel() > 0 ) {
           if ( (node.reg_compiled_name.length) > 0 ) {
-            wr.out(node.reg_compiled_name, false);
+            wr.outMapped(node.reg_compiled_name, node, false, node.register_name);
           } else {
             console.log((("Could not find compiled name for " + node.register_name) + " at ") + node.getCode());
           }
         }
+        this.finishWalkNode(wr);
         return;
       }
       let liveNodes = [];
@@ -28500,30 +28962,41 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }));
       liveNodes.length = 0;
       if ( node.value_type == 12 ) {
+        this.finishWalkNode(wr);
         return;
       }
       if ( node.isPrimitive() ) {
         this.WriteScalarValue(node, ctx, wr);
+        this.finishWalkNode(wr);
         return;
       }
       this.lastProcessedNode = node;
       if ( node.isFirstVref("property") ) {
+        wr.pushMappingNode(node, node.vref);
         await this.langWriter.CreatePropertyGet(node, ctx, wr);
+        wr.popMappingNode();
+        this.finishWalkNode(wr);
         return;
       }
       if ( node.is_plugin ) {
+        this.finishWalkNode(wr);
         return;
       }
       if ( node.is_array_literal ) {
+        wr.pushMappingNode(node, node.vref);
         await this.langWriter.writeArrayLiteral(node, ctx, wr);
+        wr.popMappingNode();
+        this.finishWalkNode(wr);
         return;
       }
       if ( ((node.value_type == 11) || (node.value_type == 7)) || (node.value_type == 6) ) {
         await this.WriteVRef(node, ctx, wr);
+        this.finishWalkNode(wr);
         return;
       }
       if ( node.value_type == 21 ) {
         await this.WriteVRef(node, ctx, wr);
+        this.finishWalkNode(wr);
         return;
       }
       if ( (node.children.length) > 0 ) {
@@ -28544,29 +29017,38 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           } else {
             await this.findOpCode(op, node, evalCtx, wr);
           }
+          this.finishWalkNode(wr);
           return;
         }
         if ( node.is_direct_method_call ) {
+          wr.pushMappingNode(node, node.vref);
           await this.langWriter.CreateMethodCall(node, ctx, wr);
+          wr.popMappingNode();
+          this.finishWalkNode(wr);
           return;
         }
         if ( node.has_lambda ) {
           await this.CreateLambda(node, ctx, wr);
+          this.finishWalkNode(wr);
           return;
         }
         if ( node.has_lambda_call ) {
           await this.CreateLambdaCall(node, ctx, wr);
+          this.finishWalkNode(wr);
           return;
         }
         if ( node.is_part_of_chain ) {
+          this.finishWalkNode(wr);
           return;
         }
         if ( node.has_call ) {
           await this.CreateCallExpression(node, ctx, wr);
+          this.finishWalkNode(wr);
           return;
         }
         if ( (node.children.length) > 1 ) {
           if ( await this.localCall(node, ctx, wr) ) {
+            this.finishWalkNode(wr);
             return;
           }
         }
@@ -28606,6 +29088,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           await this.WriteVRef(node, ctx, wr);
         }
       }
+      this.finishWalkNode(wr);
     };
     async walkCommandList (cmd, node, ctx, wr) {
       if ( ctx.expressionLevel() == 0 ) {
@@ -28665,7 +29148,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             const idx_1 = cmdArg.int_value;
             if ( (node.children.length) > idx_1 ) {
               const arg_1 = node.children[idx_1];
-              wr.out(arg_1.string_value, false);
+              wr.outMapped(arg_1.string_value, arg_1, false, "");
             }
             break;
           case "block" : 
@@ -31408,6 +31891,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 const node = parser.rootNode;
                 const flowParser = new RangerFlowParser();
                 const fileSystem = new CodeFileSystem();
+                if ( appCtx.hasCompilerFlag("sourcemap") ) {
+                  fileSystem.enableSourceMaps();
+                }
                 const file = fileSystem.getFile(".", the_target);
                 let wr = file.getWriter();
                 if ( appCtx.hasCompilerFlag("copysrc") ) {
