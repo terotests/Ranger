@@ -1,0 +1,8 @@
+; Source map smoke test — breakpoint-friendly identifier
+
+class SourceMapSmoke {
+    sfn m@(main):void () {
+        def answer:int 42
+        print ("" + answer)
+    }
+}

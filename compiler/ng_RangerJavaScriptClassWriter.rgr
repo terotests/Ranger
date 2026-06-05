@@ -195,7 +195,7 @@ class RangerJavaScriptClassWriter {
       } {
         wr.out("." false)
       }
-      wr.out(method.vref false)
+      wr.outMapped(method.vref method false method.vref)
 ;       this.WriteVRef(fc ctx wr)
       wr.out("(" false)
       ctx.setInExpr()
@@ -505,12 +505,12 @@ class RangerJavaScriptClassWriter {
           }
         }
         if ((strlen p.compiledName) > 0) {
-          wr.out((this.adjustType(p.compiledName)) false)
+          wr.outMapped((this.adjustType(p.compiledName)) node false p.name)
         } {
           if ((strlen p.name) > 0) {
-            wr.out((this.adjustType(p.name)) false)
+            wr.outMapped((this.adjustType(p.name)) node false p.name)
           } {
-            wr.out((this.adjustType( (itemAt node.ns i))) false)
+            wr.outMapped((this.adjustType( (itemAt node.ns i))) node false (itemAt node.ns i))
           }
         }
         prevOptional = p.is_optional
@@ -528,7 +528,7 @@ class RangerJavaScriptClassWriter {
         }
       }
       def p:RangerAppParamDesc node.paramDesc
-      wr.out(p.compiledName false)
+      wr.outMapped(p.compiledName node false p.name)
       return
     }
     def b_was_static:boolean false
@@ -555,7 +555,7 @@ class RangerJavaScriptClassWriter {
           }
         }
       }
-      wr.out((this.adjustType(part)) false)
+      wr.outMapped((this.adjustType(part)) node false part)
     }
   }
   fn writeVarInitDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -1266,7 +1266,11 @@ class RangerJavaScriptClassWriter {
           if( variant.nameNode.hasFlag('async') ) {
             asyncKeyword = 'async '
           }
-          wr.out((((cl.name + ".") + variant.compiledName) + " = " + asyncKeyword + "function(") false)
+          if (!null? variant.nameNode) {
+            wr.outMapped((((cl.name + ".") + variant.compiledName) + " = " + asyncKeyword + "function(") (unwrap variant.nameNode) false variant.compiledName)
+          } {
+            wr.out((((cl.name + ".") + variant.compiledName) + " = " + asyncKeyword + "function(") false)
+          }
           this.writeArgsDef(variant ctx wr)
           wr.out(") {" true)
         }

@@ -56,7 +56,7 @@ const host = ProcessUiHost.__singleton();
 host.notifyPath = (path) => { /* sync view model + re-render */ };
 ```
 
-**Docs:** [PROCESS_MVP.md](PROCESS_MVP.md) (scope), [PROCESS_STATUS.md](PROCESS_STATUS.md) (compiler checklist), [PROCESS_UI_NOTIFY.md](PROCESS_UI_NOTIFY.md) (notify batching), [PROCESS_UI_VIEW_MODELS.md](PROCESS_UI_VIEW_MODELS.md) (view DTO assignment). **Gallery:** [process_counter_board](gallery/process_counter_board/README.md). **Pilot:** [realtrainer `app-ranger` Active Workout demo](https://github.com/terotests/realtrainer/tree/copilot/create-watch-ui-components/app-ranger/demo/active-workout-process).
+**Docs:** [PROCESS_MVP.md](PROCESS_MVP.md) (scope), [PROCESS_STATUS.md](PROCESS_STATUS.md) (compiler checklist), [PROCESS_RUNTIME_INVARIANTS.md](PROCESS_RUNTIME_INVARIANTS.md) (dispatch turn / one notify), [PROCESS_UI_NOTIFY.md](PROCESS_UI_NOTIFY.md) (notify batching), [PROCESS_UI_VIEW_MODELS.md](PROCESS_UI_VIEW_MODELS.md) (view DTO assignment). **Gallery:** [process_counter_board](gallery/process_counter_board/README.md). **Pilot:** [realtrainer `app-ranger` Active Workout demo](https://github.com/terotests/realtrainer/tree/copilot/create-watch-ui-components/app-ranger/demo/active-workout-process).
 
 ## Where To Start
 
@@ -766,6 +766,7 @@ Flags: -<flag>
   -nodecli       Insert node.js command line header #!/usr/bin/env node to the beginning of the JavaScript file
   -nodemodule    Export classes as CommonJS modules using module.exports (disables static main function)
   -esm           Export classes as ES6/ESM modules using export keyword (disables static main function)
+  -sourcemap     Emit .js.map / .ts.map with embedded .rgr sourcesContent (ES6/TypeScript only)
   -client        the code is ment to be run in the client environment
   -scalafiddle   scalafiddle.io compatible output
   -compiler      recompile the compiler
@@ -799,6 +800,57 @@ node bin/output.js -es6 -esm myfile.rgr -o=myfile.mjs
 
 **File Extensions:**
 The compiler automatically detects JavaScript-related extensions (`.js`, `.ts`, `.mjs`, `.cjs`) and won't double-add them. You can safely specify the full filename with extension.
+
+### JavaScript / TypeScript source maps (`-sourcemap`)
+
+Use `-sourcemap` with `-es6` or `-typescript` to emit a sibling `.js.map` / `.ts.map` file and append `//# sourceMappingURL=…` to the generated output. Kotlin, Swift, and other non-JS targets ignore this flag.
+
+**What you get**
+
+| Output | Purpose |
+| --- | --- |
+| `output.js.map` | Source map v3 (VLQ `mappings`, `names`, `sources`) |
+| `sourcesContent` | Full `.rgr` source embedded in the map — Chrome DevTools can open `.rgr` files without a separate file server |
+| Statement + expression mappings | `LiveCompiler.WalkNode` walk context plus `outMapped()` on identifiers, calls, literals |
+
+**Compile example**
+
+```bash
+# Standalone ES module + map
+node bin/output.js -es6 -esm -nodemodule -sourcemap ./myapp/App.rgr -o=app.js
+
+# Result: bin/app.js and bin/app.js.map
+```
+
+**Debug in Chrome / Edge**
+
+1. Serve the generated `.js` (and `.map` beside it). Vite/webpack are optional when `sourcesContent` is embedded.
+2. Open DevTools → **Sources**. Original `.rgr` files appear under the map tree (from `sourcesContent`).
+3. Set breakpoints on **executable** lines (e.g. `def`, `if`, `return`) — not only blank lines or signatures.
+4. Breakpoints must be **solid red**. A hollow/grey breakpoint means no mapping for that line; rebuild with `-sourcemap` and hard-refresh (disable cache).
+
+**Typical app integration (RealTrainer `app-ranger`)**
+
+```bash
+# Dev: rebuild Ranger libs with maps, then start UI
+cd frontend && npm run build:ranger-lib:debug
+npm run ui:devfirebase   # runs predev hook that calls build:ranger-lib:debug
+```
+
+Generated artifacts live next to each other, e.g. `lib/generated/es6/chat.js` + `chat.js.map`. The frontend Vite alias `@realtrainer/app-ranger-lib` resolves to that folder; DevTools follows `sourceMappingURL` automatically.
+
+**Tests**
+
+```bash
+npm run compile
+npx vitest run tests/compiler-sourcemap.test.ts
+```
+
+**Implementation notes** (for compiler hackers)
+
+- `compiler/ng_SourceMap.rgr` — `SourceMapBuilder`, VLQ encoder, `addMappingFromNode()` uses `node.getLine()` + `node.code.getColumn(sp)` (not stale `node.row`).
+- `compiler/ng_writer.rgr` — `lineNumber` / `columnNumber` on emit, `walkNodeStack`, `outMapped()`, `.map` write in `CodeFileSystem.saveTo`.
+- Flag: `compiler/ng_Compiler.rgr` → `flag sourcemap`; enabled in `VirtualCompiler.rgr` via `fileSystem.enableSourceMaps()`.
 
 ## Getting started with Hello World
 

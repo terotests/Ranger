@@ -4,6 +4,10 @@ flag es6 (
   version "2.1.71"
 )
 
+flag sourcemap (
+  version "3.1.0"
+)
+
 flag npm (
   version "2.1.71"
   name "ranger-lib"
