@@ -17,13 +17,24 @@ export class RangerProcessBase  {
     this.__rangerStateGeneration = 0;
     this.__rangerChildren = [];
   }
+  bumpStateGeneration () : void  {
+    this.__rangerStateGeneration = this.__rangerStateGeneration + 1;
+  };
   markStateDirty () : void  {
     this.__rangerStateGeneration = this.__rangerStateGeneration + 1;
+    this.flushUiNotify();
+  };
+  flushUiNotify () : void  {
+    const uiHost : ProcessUiHost  = ProcessUiHost.__singleton();
+    if ( uiHost.isUiNotifySuppressed() ) {
+      return;
+    }
+    uiHost.notifyPathDeliveredCount = uiHost.notifyPathDeliveredCount + 1;
     if ( (this.__rangerPath.length) > 0 ) {
-      (ProcessUiHost.__singleton()).notifyPath(this.__rangerPath);
+      uiHost.notifyPath(this.__rangerPath);
     }
     if ( this.__rangerId != 0 ) {
-      (ProcessUiHost.__singleton()).notifyId(this.__rangerId);
+      uiHost.notifyId(this.__rangerId);
     }
   };
   __rangerOnDescendantUiChanged (child : RangerProcessBase, hint : string) : void  {
@@ -43,6 +54,17 @@ export class RangerProcessBase  {
     let empty : Array<RangerProcessBase> | undefined  = [];
     this.__rangerChildren = empty;
   };
+  __rangerFindRoot () : RangerProcessBase  {
+    let cur : RangerProcessBase  = this;
+    let parent : RangerProcessBase | undefined  = cur.__rangerParent;
+    while ((typeof(parent) === "undefined") == false) {
+      cur = parent;
+      parent = cur.__rangerParent;
+    };
+    return cur;
+  };
+  __rangerSyncChildren () : void  {
+  };
   __rangerInvokeStart () : void  {
   };
   __rangerInvokeStop () : void  {
@@ -54,7 +76,7 @@ export class RangerProcessBase  {
   };
   __rangerStopSubtree () : void  {
   };
-  receiveMessage (msg : union_Any) : void  {
+  receiveMessage (name : string, value : string) : void  {
   };
 }
 export class ProcessIdRegistry  {
@@ -152,12 +174,30 @@ export class ProcessNameRegistry  {
   };
 }
 export class ProcessUiHost  {
+  __uiNotifySuppressDepth!: number;
+  notifyPathDeliveredCount!: number;
   constructor() {
     if (ProcessUiHost.__singleton_instance != null) {
       return ProcessUiHost.__singleton_instance;
     }
+    this.__uiNotifySuppressDepth = 0;
+    this.notifyPathDeliveredCount = 0;
     ProcessUiHost.__singleton_instance = this;
   }
+  isUiNotifySuppressed () : boolean  {
+    return this.__uiNotifySuppressDepth > 0;
+  };
+  resetNotifyDeliveryCount () : void  {
+    this.notifyPathDeliveredCount = 0;
+  };
+  beginSuppressUiNotify () : void  {
+    this.__uiNotifySuppressDepth = this.__uiNotifySuppressDepth + 1;
+  };
+  endSuppressUiNotify () : void  {
+    if ( this.__uiNotifySuppressDepth > 0 ) {
+      this.__uiNotifySuppressDepth = this.__uiNotifySuppressDepth - 1;
+    }
+  };
   notifyPath (path : string) : void  {
   };
   notifyId (processId : number) : void  {
@@ -171,12 +211,36 @@ export class ProcessUiHost  {
   };
 }
 export class ProcessRuntime  {
+  __dispatchTurnDepth!: number;
   constructor() {
     if (ProcessRuntime.__singleton_instance != null) {
       return ProcessRuntime.__singleton_instance;
     }
+    this.__dispatchTurnDepth = 0;
     ProcessRuntime.__singleton_instance = this;
   }
+  static beginDispatchTurn (root : RangerProcessBase) : void  {
+    const rt : ProcessRuntime  = ProcessRuntime.__singleton();
+    if ( rt.__dispatchTurnDepth == 0 ) {
+      const uiHost : ProcessUiHost  = ProcessUiHost.__singleton();
+      uiHost.beginSuppressUiNotify();
+    }
+    rt.__dispatchTurnDepth = rt.__dispatchTurnDepth + 1;
+  };
+  static endDispatchTurn (root : RangerProcessBase) : void  {
+    const rt : ProcessRuntime  = ProcessRuntime.__singleton();
+    if ( rt.__dispatchTurnDepth == 0 ) {
+      return;
+    }
+    rt.__dispatchTurnDepth = rt.__dispatchTurnDepth - 1;
+    if ( rt.__dispatchTurnDepth > 0 ) {
+      return;
+    }
+    root.__rangerSyncChildren();
+    const uiHost : ProcessUiHost  = ProcessUiHost.__singleton();
+    uiHost.endSuppressUiNotify();
+    root.flushUiNotify();
+  };
   static stopInstance (proc : RangerProcessBase) : void  {
     (ProcessNameRegistry.__singleton()).unbindIfConfigured(proc);
     proc.__rangerStopSubtree();
@@ -383,6 +447,8 @@ export class CounterRowProcess  extends RangerProcessBase {
     this.running = false;
     this.tickCount = 0;
   }
+  start () : void  {
+  };
   addRep () : void  {
     this.value = this.value + 1;
     if ( (typeof(this.board) === "undefined") == false ) {
@@ -432,6 +498,9 @@ export class CounterRowProcess  extends RangerProcessBase {
   __rangerUnregister () : void  {
     this.__rangerId = 0;
     this.__rangerParentId = 0;
+  };
+  __rangerInvokeStart () : void  {
+    (this).start();
   };
   __rangerInvokeStop () : void  {
     (this).stop();

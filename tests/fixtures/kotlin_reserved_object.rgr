@@ -1,0 +1,13 @@
+; Kotlin codegen: object is a Kotlin keyword — emit _object in signatures
+
+class ReservedObjectTest {
+  fn take (object:string) {
+    return
+  }
+}
+
+class Test_KotlinReservedObject {
+  sfn m@(main):void () {
+    print "Done"
+  }
+}

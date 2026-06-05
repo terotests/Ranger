@@ -3913,6 +3913,7 @@ class RangerFlowParser {
       this.CheckTypeAnnotationOf( arg ctx wr )
       def p@(lives):RangerAppParamDesc (new RangerAppParamDesc ())
       p.name = arg.vref
+      ctx.assignParamCompiledName(p)
       p.value_type = arg.value_type
       p.node = arg
       p.init_cnt = 1

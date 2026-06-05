@@ -170,4 +170,24 @@ describe("Kotlin Code Generation", () => {
       expect(result.code).toContain("fun main(");
     });
   });
+
+  describe("Reserved Words", () => {
+    it("should escape val parameter name for Kotlin", () => {
+      const result = getGeneratedKotlinCode(
+        `${FIXTURES_DIR}/kotlin_reserved_val.rgr`
+      );
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      expect(result.code).toMatch(/fun\s+setNumber\(\s*key\s*:\s*String,\s*_val\s*:\s*Double/);
+      expect(result.code).not.toMatch(/,\s*val\s*:\s*Double/);
+    });
+
+    it("should escape object parameter name for Kotlin", () => {
+      const result = getGeneratedKotlinCode(
+        `${FIXTURES_DIR}/kotlin_reserved_object.rgr`
+      );
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      expect(result.code).toMatch(/fun\s+take\(\s*_object\s*:\s*String/);
+      expect(result.code).not.toMatch(/fun\s+take\(\s*object\s*:/);
+    });
+  });
 });

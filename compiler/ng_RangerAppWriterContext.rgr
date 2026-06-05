@@ -1138,9 +1138,7 @@ class RangerAppWriterContext {
 
       def p@(lives temp):RangerAppParamDesc (new RangerAppParamDesc ())
       p.name = arg.vref
-      if(p.name == "self") {
-        p.compiledName = "__self"
-      }
+      rCtx.assignParamCompiledName(p)
       p.value_type = arg.value_type
       p.node = arg
       p.init_cnt = 1
@@ -1652,6 +1650,22 @@ class RangerAppWriterContext {
       }
     }
     return false
+  }
+  fn assignParamCompiledName:void (p:RangerAppParamDesc) {
+    switch p.name {
+      case "self" {
+        p.compiledName = "__self"
+      }
+      case "process" {
+        p.compiledName = "_process"
+      }
+      case "len" {
+        p.compiledName = "__len"
+      }
+      default {
+        p.compiledName = (this.transformWord(p.name))
+      }
+    }
   }
   fn defineVariable:void (name:string desc@(strong):RangerAppParamDesc) {
     def cnt:int 0
