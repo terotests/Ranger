@@ -176,6 +176,15 @@ class RangerProcessProcSend {
     return (r.expression (r.vref 'call') (r.vref targetVref) (r.vref handlerName) callArgs)
   }
 
+  sfn buildFindRootExpr:CodeNode (targetVref:string) {
+    def emptyArgs:CodeNode (CodeNode.expressionNode())
+    return (r.expression (r.vref 'call') (r.vref targetVref) (r.vref '__rangerFindRoot') emptyArgs)
+  }
+
+  sfn buildDispatchTurnBoundary:CodeNode (opName:string rootExpr:CodeNode) {
+    return (r.expression (r.vref opName) rootExpr)
+  }
+
   sfn transform:boolean (parser:RangerFlowParser node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def childCnt:int (size node.children)
     if (childCnt < 3) {
@@ -237,6 +246,11 @@ class RangerProcessProcSend {
     }
 
     def stmts:[CodeNode]
+    def turnRoot:CodeNode (RangerProcessProcSend.buildFindRootExpr(target.vref))
+    def beginTurn:CodeNode (RangerProcessProcSend.buildDispatchTurnBoundary('begin_dispatch_turn' turnRoot))
+    def endTurn:CodeNode (RangerProcessProcSend.buildDispatchTurnBoundary('end_dispatch_turn' turnRoot))
+    push stmts beginTurn
+
     def refGuard:CodeNode (RangerProcessProcSend.buildLiveGuard(target.vref))
     def refCall:CodeNode (RangerProcessProcSend.buildHandlerCall(target.vref emitName argNodes))
     def refList:[CodeNode]
@@ -244,6 +258,8 @@ class RangerProcessProcSend {
     def refInner:CodeNode (CodeNode.blockFromList(refList))
     def refIf (r.expression (r.vref 'if') refGuard refInner)
     push stmts refIf
+
+    push stmts endTurn
 
     def newBlock:CodeNode (CodeNode.blockFromList(stmts))
     newBlock.flow_done = false

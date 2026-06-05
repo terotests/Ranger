@@ -1,0 +1,13 @@
+; Kotlin codegen: reserved parameter names must be escaped in signatures
+
+class ReservedValTest {
+  fn setNumber (key:string val:double) {
+    return
+  }
+}
+
+class Test_KotlinReservedVal {
+  sfn m@(main):void () {
+    print "Done"
+  }
+}

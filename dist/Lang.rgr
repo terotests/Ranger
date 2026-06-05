@@ -92,6 +92,40 @@ language {
         }
         kotlin {
             object _object
+            val _val
+            var _var
+            fun _fun
+            class _class
+            when _when
+            is _is
+            in _in
+            as _as
+            null _null
+            interface _interface
+            package _package
+            typealias _typealias
+            companion _companion
+            init _init
+            override _override
+            open _open
+            abstract _abstract
+            sealed _sealed
+            data _data
+            internal _internal
+            private _private
+            protected _protected
+            public _public
+            operator _operator
+            inline _inline
+            lateinit _lateinit
+            vararg _vararg
+            reified _reified
+            suspend _suspend
+            tailrec _tailrec
+            where _where
+            get _get
+            set _set
+            field _field
         }
         rust {
             type r#type
@@ -193,9 +227,11 @@ language {
             templates {
                 ranger ("(cast " (e 1) " " (e 2) ":" (typeof 2) " )")
                 ts ( (e 1) " as " (typeof 2) )
+                kotlin ( (e 1) " as " (typeof 2) )
                 es6 ( (e 1) )
                 java7 ( "((" (typeof 2) ")" (e 1) ")" )
                 swift3 ( (e 1) " as " (typeof 2) "" )
+                swift6 ( (e 1) " as " (typeof 2) "" )
                 cpp ( "mpark::get<" (typeof 2) ">(" (e 1) ")" 
                 
                     (plugin 'makefile' ((dep 'variant.hpp' 'https://github.com/mpark/variant/releases/download/v1.2.2/variant.hpp')))            
@@ -1460,6 +1496,8 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
         int2double      cmdIntToDouble:double            ( value:int ) { 
                 templates {
                     ranger ( "(int2double " (e 1) ")" ) 
+                    kotlin ( (e 1) ".toDouble()" )
+                    swift6 ( "Double(" (e 1) ")" )
                     * ( "parseFloat(" (e 1) ")" ) 
                 } 
         }
@@ -1502,6 +1540,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 rust ( "" (e 1) ".floor() as i64" )                
                 scala ( "math.floor(" (e 1) ").toInt" (imp "scala.math"))                
                 java7 ( "(int)Math.floor(" (e 1) ")" (imp "java.lang.Math"))
+                kotlin ( "(Math.floor(" (e 1) ")).toInt()" (imp "java.lang.Math"))
                 * ( "Math.floor(" (e 1) ")")
             }
         }
@@ -2970,7 +3009,9 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 ranger ( "(strfromcode " (e 1) ")")
                 csharp ( "((char)" (e 1) ").toString()") 
                 java7 ( "(new String( new char[] {" (e 1) " }))") 
+                kotlin ( (e 1) ".toChar().toString()")
                 swift3 ( "(String( Character( UnicodeScalar(" (e 1) " ) )))") 
+                swift6 ( "String(UnicodeScalar(" (e 1) ")!)")
                 php ( "chr(" (e 1) ")") 
                 scala ( "(" (e 1) ".toChar)")      
                 go ("string([]rune{rune(" (e 1) ")})")      
@@ -2986,7 +3027,9 @@ std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
                 ranger ( "(strfromcode " (e 1) ")")
                 csharp ( "((char)" (e 1) ").toString()") 
                 java7 ( "(new String( Character.toChars(" (e 1) ")))") 
+                kotlin ( (e 1) ".toChar().toString()")
                 swift3 ( "(String( Character( UnicodeScalar(" (e 1) " )! )))") 
+                swift6 ( "String(UnicodeScalar(" (e 1) ")!)")
                 php ( "chr(" (e 1) ")") 
                 scala ( "(" (e 1) ".toChar)")      
                 go ("string([]rune{rune(" (e 1) ")})")        
@@ -3563,6 +3606,7 @@ int r_string_index_of_from( std::string str, std::string key, int start )  {
 " )                   
                 )
                 rust ( "(" (e 1) "[" (e 3) " as usize..].find(&*" (e 2) ").map(|i| (i + " (e 3) " as usize) as i64).unwrap_or(-1))" )
+                kotlin ( (e 1) ".indexOf(" (e 2 ) ", " (e 3) ")" )
                 ranger ( "(indexOfFrom " (e 1) " " (e 2) " " (e 3) ")")
             }        
         }
@@ -4873,10 +4917,12 @@ fun r_read_key(): String {
             templates {
                 es6 ((e 1) '.toLowerCase()')
                 java7 ((e 1) '.toLowerCase()')
+                kotlin ((e 1) '.lowercase()')
                 go ( "strings.ToLower(" (e 1) ")" (imp "strings"))
                 php ("strtolower(" (e 1) ")")
                 csharp ((e 1) ".ToLower()")
                 swift3 ((e 1) ".lowercased()")
+                swift6 ((e 1) ".lowercased()")
                 scala ((e 1) ".toLowerCase()")
                 python ((e 1) ".lower()")
             }
@@ -4884,6 +4930,8 @@ fun r_read_key(): String {
         to_uppercase _:string (s:string) {
             templates {
                 swift3 ( (e 1) ".uppercased()")
+                swift6 ( (e 1) ".uppercased()")
+                kotlin ( (e 1) ".uppercase()" )
                 scala ( (e 1 ) ".toUpperCase()" )
                 ranger ("(to_uppercase " (e 1) ")")
                 es6 ( (e 1) ".toUpperCase()")
@@ -5349,23 +5397,25 @@ std::string r_cpp_str_to_uppercase(std::string original)
             }
         }
 
-        proc_send@(moves@( 2 )) cmdProcSendPath:void (path:string msg:Any) {
+        ; proc_send is lowered in ng_RangerProcessProcSend.rgr (typed handler methods, overload match).
+
+        begin_dispatch_turn@(moves@( 1 )) cmdBeginDispatchTurn:void (root:RangerProcessBase) {
             templates {
-                es6 ( "(() => { const __rgrP = ProcessNameRegistry.__singleton().findByPath(" (e 1) "); if (!__rgrP || __rgrP.__rangerId === 0) return; __rgrP.receiveMessage(" (e 2) "); })()" )
-                kotlin ( "run { val __rgrP = ProcessNameRegistry.__singleton().findByPath(" (e 1) "); if (__rgrP == null || __rgrP.__rangerId == 0) return@run; __rgrP.receiveMessage(" (e 2) ") }" )
-                swift6 ( "{ let __rgrP = ProcessNameRegistry.__singleton().findByPath(" (e 1) "); guard let p = __rgrP, p.__rangerId != 0 else { return }; p.receiveMessage(" (e 2) ") }" )
-                swift3 ( "{ let __rgrP = ProcessNameRegistry.__singleton().findByPath(" (e 1) "); guard let p = __rgrP, p.__rangerId != 0 else { return }; p.receiveMessage(" (e 2) ") }" )
-                * ( "/* proc_send path not implemented */" )
+                es6 ( "ProcessRuntime.beginDispatchTurn(" (e 1) ")" )
+                kotlin ( "ProcessRuntime.beginDispatchTurn(" (e 1) ")" )
+                swift6 ( "ProcessRuntime.beginDispatchTurn(root: " (e 1) ")" )
+                swift3 ( "ProcessRuntime.beginDispatchTurn(root: " (e 1) ")" )
+                * ( "/* begin_dispatch_turn not implemented */" )
             }
         }
 
-        proc_send@(moves@( 2 )) cmdProcSendProc:void (proc:RangerProcessBase msg:Any) {
+        end_dispatch_turn@(moves@( 1 )) cmdEndDispatchTurn:void (root:RangerProcessBase) {
             templates {
-                es6 ( "(() => { const __rgrP = " (e 1) "; if (!__rgrP || __rgrP.__rangerId === 0) return; __rgrP.receiveMessage(" (e 2) "); })()" )
-                kotlin ( "run { val __rgrP = " (e 1) "; if (__rgrP.__rangerId == 0) return@run; __rgrP.receiveMessage(" (e 2) ") }" )
-                swift6 ( "{ let __rgrP = " (e 1) "; guard __rgrP.__rangerId != 0 else { return }; __rgrP.receiveMessage(" (e 2) ") }" )
-                swift3 ( "{ let __rgrP = " (e 1) "; guard __rgrP.__rangerId != 0 else { return }; __rgrP.receiveMessage(" (e 2) ") }" )
-                * ( "/* proc_send proc not implemented */" )
+                es6 ( "ProcessRuntime.endDispatchTurn(" (e 1) ")" )
+                kotlin ( "ProcessRuntime.endDispatchTurn(" (e 1) ")" )
+                swift6 ( "ProcessRuntime.endDispatchTurn(root: " (e 1) ")" )
+                swift3 ( "ProcessRuntime.endDispatchTurn(root: " (e 1) ")" )
+                * ( "/* end_dispatch_turn not implemented */" )
             }
         }
 

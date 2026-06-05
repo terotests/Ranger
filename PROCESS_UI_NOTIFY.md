@@ -6,6 +6,8 @@ This is not unique to Active Workout; any `@process` parent that merges child `p
 
 ---
 
+**Normative turn contract:** [PROCESS_RUNTIME_INVARIANTS.md](PROCESS_RUNTIME_INVARIANTS.md) (`ProcessRuntime.beginDispatchTurn` / `endDispatchTurn`, `proc_send` wrapping).
+
 ## Language/runtime primitives (`lib/RangerProcess.rgr`)
 
 | API | Role |

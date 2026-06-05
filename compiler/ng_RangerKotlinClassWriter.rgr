@@ -290,13 +290,19 @@ class RangerKotlinClassWriter {
       }
     }
   }
+  fn paramEmitName:string (arg:RangerAppParamDesc ctx:RangerAppWriterContext) {
+    if ((strlen arg.compiledName) > 0) {
+      return arg.compiledName
+    }
+    return (ctx.transformWord(arg.name))
+  }
   fn writeArgsDef:void (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
     for fnDesc.params arg:RangerAppParamDesc i {
       if (i > 0) {
         wr.out("," false)
       }
       wr.out(" " false)
-      wr.out((arg.name + " : ") false)
+      wr.out(( (this.paramEmitName(arg ctx)) + " : ") false)
       this.writeTypeDef( (unwrap arg.nameNode) ctx wr)
     }
   }

@@ -1,0 +1,70 @@
+Import "RangerProcess.rgr"
+
+; Regression: proc_send is wrapped in dispatch turn → at most one UI delivery per send.
+class NotifyRoot @process(true) @name("app.notifyRoot") extends RangerProcessBase {
+  def child@(optional):NotifyChild
+  def mergedCount:int 0
+
+  fn __rangerSyncChildren:void () {
+    if ((null? child) == false) {
+      def c:NotifyChild (unwrap child)
+      if (c.__rangerId != 0) {
+        if (c.pendingBump) {
+          mergedCount = mergedCount + 1
+          c.pendingBump = false
+          this.bumpStateGeneration()
+        }
+      }
+    }
+  }
+
+  fn start:void () {
+    def c:NotifyChild (new NotifyChild)
+    c.parent = this
+    child = c
+    proc_start c
+  }
+}
+
+class NotifyChild @process(true) extends RangerProcessBase {
+  def parent@(optional):NotifyRoot
+  def pendingBump:boolean false
+
+  fn start:void () {
+  }
+
+  fn onBump:void () {
+    pendingBump = true
+    this.markStateDirty()
+    if ((null? parent) == false) {
+      def p:NotifyRoot (unwrap parent)
+      p.markStateDirty()
+    }
+  }
+}
+
+class DispatchTurnNotifyMain {
+  sfn main@(main):void () {
+    def root:NotifyRoot (new NotifyRoot)
+    proc_start root
+    def uiHost:ProcessUiHost (ProcessUiHost.__singleton())
+    uiHost.resetNotifyDeliveryCount()
+    if ((null? root.child) == false) {
+      def c:NotifyChild (unwrap root.child)
+      proc_send c onBump
+    } {
+      print "FAIL dispatch turn: no child"
+      return
+    }
+    def count:int (uiHost.notifyPathDeliveredCount)
+    if (count != 1) {
+      print ("FAIL dispatch turn notify count=" + (to_string count))
+      return
+    }
+    if (root.mergedCount != 1) {
+      print ("FAIL dispatch turn sync mergedCount=" + (to_string root.mergedCount))
+      return
+    }
+    print "OK process dispatch turn notify"
+  }
+}

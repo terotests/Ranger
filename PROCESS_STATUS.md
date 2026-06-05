@@ -1,6 +1,7 @@
 # Ranger `@process` — implementation status
 
 Factual status of the **compiler and runtime** slice. For whether the MVP is **enough to build product orchestration** (messages, UI, timers, navigation), see **[PROCESS_MVP.md](PROCESS_MVP.md)**.  
+**Turn / notify invariants:** [PROCESS_RUNTIME_INVARIANTS.md](PROCESS_RUNTIME_INVARIANTS.md).  
 For how `@process` relates to Smalltalk, React hooks, Erlang, and other models, see **[PROCESS_COMPARISON.md](PROCESS_COMPARISON.md)**.
 
 Last updated after **`proc_send`**, **`findProcess` on `ProcessNameRegistry`**, singleton `new` for TS, and the **Vite counter-board gallery**.
@@ -44,6 +45,7 @@ Last updated after **`proc_send`**, **`findProcess` on `ProcessNameRegistry`**, 
 | **`findProcess(path)` (registry)** | Done — generated `extension ProcessNameRegistry`; live-only (`hasLive`); TS: `interface` overloads for literal paths |
 | **Singleton `new` in TS/JS emit** | Done — `new ProcessNameRegistry()` returns `__singleton_instance` (constructor guard) |
 | **`markStateDirty` / `ProcessUiHost`** | Done — bump + notify; `flushUiNotify`, `bumpStateGeneration`, `beginSuppressUiNotify` — see [PROCESS_UI_NOTIFY.md](PROCESS_UI_NOTIFY.md) |
+| **`ProcessRuntime.beginDispatchTurn` / `endDispatchTurn`** | Done — `__rangerFindRoot`, `__rangerSyncChildren`; `proc_send` wrapped — [PROCESS_RUNTIME_INVARIANTS.md](PROCESS_RUNTIME_INVARIANTS.md) |
 | **`ProcessRuntime.collectAllLiveRoots`** | Done — static extension (`sfn`); used by gallery process tree panel |
 
 **Wiring:** `ng_RangerFlowParser`, `ng_RangerProcessClass`, `ng_RangerProcessLifecycle`, `ng_RangerJavaScriptClassWriter` (singleton ctor), `VirtualCompiler` (`file_end` TS helpers).

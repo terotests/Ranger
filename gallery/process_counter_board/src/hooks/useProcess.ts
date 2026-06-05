@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getCounterBoard, ensureCounterBoardStarted } from "../host/counterBoardHost";
+import { counterBoardRoot } from "../host/counterBoardRoot";
 import { subscribePath } from "../host/processUiBridge";
 import { BOARD_PROCESS_PATH, findProcessByPath, type ProcessPath } from "../processPaths";
 
@@ -12,9 +13,13 @@ export function useProcess<P extends ProcessPath>(path: P): ReturnType<typeof re
   // Start before first paint so toolbar is not stuck on "Starting…" (effect alone never re-renders).
   if (path === BOARD_PROCESS_PATH) {
     ensureCounterBoardStarted();
+    counterBoardRoot.refreshSnapshot();
   }
 
   useEffect(() => {
+    if (path === BOARD_PROCESS_PATH) {
+      return counterBoardRoot.subscribe(() => setTick((n) => n + 1));
+    }
     return subscribePath(path, () => setTick((n) => n + 1));
   }, [path]);
 

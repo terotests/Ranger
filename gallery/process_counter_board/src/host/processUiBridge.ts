@@ -5,23 +5,44 @@ type Unsubscribe = () => void;
 const pathSubs = new Map<string, Set<() => void>>();
 const idSubs = new Map<number, Set<() => void>>();
 let installed = false;
+let notifyDepth = 0;
+let onNotifyRefresh: (() => void) | null = null;
 
-export function installProcessUiBridge(): void {
+function notifyListeners(): void {
+  if (notifyDepth > 0) {
+    return;
+  }
+  notifyDepth += 1;
+  try {
+    onNotifyRefresh?.();
+    for (const [, set] of pathSubs) {
+      for (const fn of set) {
+        fn();
+      }
+    }
+    for (const [, set] of idSubs) {
+      for (const fn of set) {
+        fn();
+      }
+    }
+  } finally {
+    notifyDepth -= 1;
+  }
+}
+
+export function installProcessUiBridge(onRefresh?: () => void): void {
+  if (onRefresh) {
+    onNotifyRefresh = onRefresh;
+  }
   if (installed) return;
   installed = true;
 
   const host = ProcessUiHost.__singleton();
-  host.notifyPath = (path: string) => {
-    const set = pathSubs.get(path);
-    if (set) {
-      for (const fn of set) fn();
-    }
+  host.notifyPath = () => {
+    notifyListeners();
   };
-  host.notifyId = (processId: number) => {
-    const set = idSubs.get(processId);
-    if (set) {
-      for (const fn of set) fn();
-    }
+  host.notifyId = () => {
+    notifyListeners();
   };
 }
 

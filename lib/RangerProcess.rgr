@@ -27,6 +27,7 @@ class RangerProcessBase {
     if (uiHost.isUiNotifySuppressed()) {
       return
     }
+    uiHost.notifyPathDeliveredCount = uiHost.notifyPathDeliveredCount + 1
     if ((strlen __rangerPath) > 0) {
       uiHost.notifyPath(__rangerPath)
     }
@@ -53,6 +54,21 @@ class RangerProcessBase {
   fn __rangerClearChildren:void () {
     def empty:[RangerProcessBase]
     __rangerChildren = empty
+  }
+
+  ; Outermost live ancestor (self if no parent). Used as dispatch-turn root.
+  fn __rangerFindRoot:RangerProcessBase () {
+    def cur:RangerProcessBase this
+    def parent@(optional):RangerProcessBase (cur.__rangerParent)
+    while ((null? parent) == false) {
+      cur = (unwrap parent)
+      parent = cur.__rangerParent
+    }
+    return cur
+  }
+
+  ; Override on app root to merge child pending* into parent before UI notify.
+  fn __rangerSyncChildren:void () {
   }
 
   fn __rangerInvokeStart:void () {
@@ -140,9 +156,15 @@ class ProcessNameRegistry @singleton(true) {
 ; Hosts may replace notifyPath/notifyId on the singleton instance; markStateDirty respects suppressUiNotify.
 class ProcessUiHost @singleton(true) {
   def __uiNotifySuppressDepth:int 0
+  ; Test/diagnostic: host notifyPath/notifyId deliveries (not suppressed).
+  def notifyPathDeliveredCount:int 0
 
   fn isUiNotifySuppressed:boolean () {
     return __uiNotifySuppressDepth > 0
+  }
+
+  fn resetNotifyDeliveryCount:void () {
+    notifyPathDeliveredCount = 0
   }
 
   fn beginSuppressUiNotify:void () {
@@ -163,6 +185,31 @@ class ProcessUiHost @singleton(true) {
 }
 
 class ProcessRuntime @singleton(true) {
+  def __dispatchTurnDepth:int 0
+
+  sfn beginDispatchTurn:void (root:RangerProcessBase) {
+    def rt:ProcessRuntime (ProcessRuntime.__singleton())
+    if (rt.__dispatchTurnDepth == 0) {
+      def uiHost:ProcessUiHost (ProcessUiHost.__singleton())
+      uiHost.beginSuppressUiNotify()
+    }
+    rt.__dispatchTurnDepth = rt.__dispatchTurnDepth + 1
+  }
+
+  sfn endDispatchTurn:void (root:RangerProcessBase) {
+    def rt:ProcessRuntime (ProcessRuntime.__singleton())
+    if (rt.__dispatchTurnDepth == 0) {
+      return
+    }
+    rt.__dispatchTurnDepth = rt.__dispatchTurnDepth - 1
+    if (rt.__dispatchTurnDepth > 0) {
+      return
+    }
+    root.__rangerSyncChildren()
+    def uiHost:ProcessUiHost (ProcessUiHost.__singleton())
+    uiHost.endSuppressUiNotify()
+    root.flushUiNotify()
+  }
 
   sfn stopInstance:void (proc:RangerProcessBase) {
     ProcessNameRegistry.__singleton().unbindIfConfigured(proc)
