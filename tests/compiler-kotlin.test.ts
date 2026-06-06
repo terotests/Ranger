@@ -207,6 +207,45 @@ describe.skipIf(!kotlinAvailable)("Ranger Compiler - Kotlin Target", () => {
     });
   });
 
+  describe("IsoDate", () => {
+    it("should compile and run iso date ops with LocalDate intrinsics", () => {
+      const { compile, run } = compileAndRunKotlin(
+        `${FIXTURES_DIR}/iso_date_ops.rgr`
+      );
+
+      expect(
+        compile.success,
+        `Compile failed: ${compile.error || compile.output}`
+      ).toBe(true);
+      expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+      expect(run?.output).toContain("addDays: 2026-02-01");
+      expect(run?.output).toContain("intrinsic: 2026-03-11");
+      expect(run?.output).toContain("week: 7");
+      expect(run?.output).toContain("Done");
+    });
+  });
+
+  describe("Regex", () => {
+    it("should compile and run regex_test with Kotlin Regex intrinsic", () => {
+      const { compile, run } = compileAndRunKotlin(
+        `${FIXTURES_DIR}/regex_test_ops.rgr`
+      );
+
+      expect(
+        compile.success,
+        `Compile failed: ${compile.error || compile.output}`
+      ).toBe(true);
+      expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+      expect(run?.output).toContain("bench_dot_star: ok");
+      expect(run?.output).toContain("anchor_exact: ok");
+      expect(run?.output).toContain("anchor_reject: ok");
+      expect(run?.output).toContain("contains: ok");
+      expect(run?.output).toContain("invalid: ok");
+      expect(run?.output).toContain("intrinsic: ok");
+      expect(run?.output).toContain("Done");
+    });
+  });
+
   describe("Inheritance", () => {
     it("should compile and run inheritance example", () => {
       const { compile, run } = compileAndRunKotlin(

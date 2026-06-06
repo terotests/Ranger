@@ -15,8 +15,8 @@ Last updated after **`proc_send`**, **`findProcess` on `ProcessNameRegistry`**, 
 | **Compiler MVP** | Working: `@process`, tree, registry, `proc_*`, `proc_send`, named paths, subtree stop — JS / Kotlin tested; Swift6 for `process_nesting` + `process_page_lifecycle` (vitest when `swiftc` present) |
 | **TypeScript hosts** | `-typescript` emits `ProcessPath`, `findProcess` on registry, `interface ProcessNameRegistry` overloads; `new @singleton()` returns shared instance |
 | **Web gallery** | [`gallery/process_counter_board/`](gallery/process_counter_board/) — Vite + React, `findProcessByPath` / `new ProcessNameRegistry().findProcess(...)` |
-| **app-ranger** | Still uses legacy `Process` / `ProcessKernel`; not yet wired to `@process` |
-| **Product orchestration** | Achievable on MVP primitives + app-ranger patterns — see [PROCESS_MVP.md](PROCESS_MVP.md) |
+| **Host apps** | Orchestration (messages, UI, navigation) lives in the host loop + Ranger libs — see [PROCESS_MVP.md](PROCESS_MVP.md) |
+| **Product orchestration** | Achievable on MVP primitives + gallery/host patterns — see [PROCESS_MVP.md](PROCESS_MVP.md) |
 
 ---
 
@@ -37,7 +37,7 @@ Last updated after **`proc_send`**, **`findProcess` on `ProcessNameRegistry`**, 
 | **`havingChild` / tree queries** | Not done |
 | **Field `describe` introspection** | Not done |
 | **Message queue / `tick` in compiler** | Not done — **not required** for product; app pattern — [PROCESS_MVP.md](PROCESS_MVP.md) |
-| **UI binding codegen** | Not done — **not required**; app-ranger `pageSetValue` + bus |
+| **UI binding codegen** | Not done — **not required**; host bridge + notify batching — [PROCESS_UI_NOTIFY.md](PROCESS_UI_NOTIFY.md) |
 | **Cross-class view DTO field assign** | **Limitation** — plain view classes cannot reliably be filled from `@process` builders; see [PROCESS_UI_VIEW_MODELS.md](PROCESS_UI_VIEW_MODELS.md) |
 | **`@name("app.path")` on `@process` classes** | Done — compile-time unique path; `find_process "path"` in `.rgr`; `ProcessNameRegistry` bind on `proc_start` |
 | **`proc_send` (typed handlers)** | Done — `proc_send target handlerName arg…`; handler is a **method identifier**; emits guarded `call` if `__rangerId != 0`; `cmdCall` type-checks args; path literals rejected (use `find_process` + cast + variable) |
@@ -96,7 +96,7 @@ proc_send live onHello "hello" "world"
 
 ## What works well (implementation)
 
-Solid for demos, tests, and an app-ranger pilot:
+Solid for demos, tests, and gallery hosts:
 
 - Wrapped `new` + parent chain without manual parent ids
 - `parentIdOf`, per-class registry, `allInstances()`, `ProcessRuntime.collectAllLiveRoots()`
@@ -127,7 +127,7 @@ Details and fixture commands: [PROCESS_MVP.md](PROCESS_MVP.md).
 | **`spawn local` / `global`** | Not implemented. |
 | **Packaging** | `lib/RangerProcess.rgr` is copied by `npm run build:dist` → `dist/lib/` (use `rm -rf dist/lib` before copy; nested `dist/lib/lib/` was a stale `cp` artifact). |
 | **Bootstrap** | After FlowParser / writer edits run `npm run compile` twice. |
-| **app-ranger integration** | Pilot not merged; kernel still on `Process.rgr`. |
+| **Legacy `Process.rgr` hosts** | Some external apps still use the pre-`@process` fat `Process` type; migration is host-side wiring. |
 | **`proc_send` path literal target** | Rejected at compile time — use `find_process` + cast variable ([§ `proc_send`](#proc_send--typed-handlers-mvp)). |
 
 ### `@process` spawn rules (enforced at compile time)
@@ -205,7 +205,7 @@ cd tests/.output-swift && swiftc process_page_lifecycle.swift -parse-as-library 
 
 ## Suggested next steps
 
-1. **app-ranger pilot** — one route/slot as `@process`; kernel calls `proc_start` / `findProcess` or `find_process`; messages via `proc_send` or queues — [PROCESS_MVP.md](PROCESS_MVP.md).
+1. **Gallery / host pilot** — one route/slot as `@process`; host calls `proc_start` / `findProcess` or `find_process`; messages via `proc_send` or queues — [PROCESS_MVP.md](PROCESS_MVP.md).
 2. **Kotlin/Swift parity** — `findProcess` on registry (untyped `string`) + optional singleton `new` in native writers; wire `ProcessUiHost` for Compose/SwiftUI galleries.
 3. **`spawn local`** — when duplicate children under one parent become painful.
 4. **`parentOf` typed optional** — when analyzer allows.

@@ -56,7 +56,7 @@ const host = ProcessUiHost.__singleton();
 host.notifyPath = (path) => { /* sync view model + re-render */ };
 ```
 
-**Docs:** [PROCESS_MVP.md](PROCESS_MVP.md) (scope), [PROCESS_STATUS.md](PROCESS_STATUS.md) (compiler checklist), [PROCESS_RUNTIME_INVARIANTS.md](PROCESS_RUNTIME_INVARIANTS.md) (dispatch turn / one notify), [PROCESS_UI_NOTIFY.md](PROCESS_UI_NOTIFY.md) (notify batching), [PROCESS_UI_VIEW_MODELS.md](PROCESS_UI_VIEW_MODELS.md) (view DTO assignment). **Gallery:** [process_counter_board](gallery/process_counter_board/README.md). **Pilot:** [realtrainer `app-ranger` Active Workout demo](https://github.com/terotests/realtrainer/tree/copilot/create-watch-ui-components/app-ranger/demo/active-workout-process).
+**Docs:** [PROCESS_MVP.md](PROCESS_MVP.md) (scope), [PROCESS_STATUS.md](PROCESS_STATUS.md) (compiler checklist), [PROCESS_RUNTIME_INVARIANTS.md](PROCESS_RUNTIME_INVARIANTS.md) (dispatch turn / one notify), [PROCESS_UI_NOTIFY.md](PROCESS_UI_NOTIFY.md) (notify batching), [PROCESS_UI_VIEW_MODELS.md](PROCESS_UI_VIEW_MODELS.md) (view DTO assignment). **Gallery:** [process_counter_board](gallery/process_counter_board/README.md) (Vite + React host for `@process`).
 
 ## Where To Start
 
@@ -828,16 +828,6 @@ node bin/output.js -es6 -esm -nodemodule -sourcemap ./myapp/App.rgr -o=app.js
 2. Open DevTools → **Sources**. Original `.rgr` files appear under the map tree (from `sourcesContent`).
 3. Set breakpoints on **executable** lines (e.g. `def`, `if`, `return`) — not only blank lines or signatures.
 4. Breakpoints must be **solid red**. A hollow/grey breakpoint means no mapping for that line; rebuild with `-sourcemap` and hard-refresh (disable cache).
-
-**Typical app integration (RealTrainer `app-ranger`)**
-
-```bash
-# Dev: rebuild Ranger libs with maps, then start UI
-cd frontend && npm run build:ranger-lib:debug
-npm run ui:devfirebase   # runs predev hook that calls build:ranger-lib:debug
-```
-
-Generated artifacts live next to each other, e.g. `lib/generated/es6/chat.js` + `chat.js.map`. The frontend Vite alias `@realtrainer/app-ranger-lib` resolves to that folder; DevTools follows `sourceMappingURL` automatically.
 
 **Tests**
 

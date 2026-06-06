@@ -1,0 +1,38 @@
+
+Import "RegexLib.rgr"
+
+class RegexTestOps {
+    sfn m@(main):void () {
+        def bench (regex_test "bench.*press" "Incline bench press")
+        if (bench) {
+            print "bench_dot_star: ok"
+        }
+
+        def exact (regex_test "^run$" "run")
+        if (exact) {
+            print "anchor_exact: ok"
+        }
+
+        def notExact (regex_test "^run$" "running")
+        if (notExact == false) {
+            print "anchor_reject: ok"
+        }
+
+        def squat (RegexMatch.testIgnoreCase("squat" "back squat"))
+        if (squat) {
+            print "contains: ok"
+        }
+
+        def bad (regex_test "[" "x")
+        if (bad == false) {
+            print "invalid: ok"
+        }
+
+        def intrinsic (regex_test "foo" "bar foo baz")
+        if (intrinsic) {
+            print "intrinsic: ok"
+        }
+
+        print "Done"
+    }
+}

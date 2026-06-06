@@ -1,0 +1,51 @@
+; Plain row input for watch EVG scenes (matches ActiveWorkout ExerciseRowView fields used by bezel).
+
+class WatchExerciseRowInput {
+    def index:int 0
+    def name:string ""
+    def summary:string ""
+    def status:string "pending"
+    def isCurrent:boolean false
+    def loggedSetsSummary:string ""
+    ; Host-computed SVG paths (P0 bridge until Ranger trig operators typecheck)
+    def strokePathD:string ""
+    def textPathD:string ""
+
+    sfn create:WatchExerciseRowInput (
+        index:int
+        name:string
+        summary:string
+        status:string
+        isCurrent:boolean
+        loggedSetsSummary:string
+        strokePathD:string
+        textPathD:string
+    ) {
+        def row:WatchExerciseRowInput (new WatchExerciseRowInput)
+        row.index = index
+        row.name = name
+        row.summary = summary
+        row.status = status
+        row.isCurrent = isCurrent
+        row.loggedSetsSummary = loggedSetsSummary
+        row.strokePathD = strokePathD
+        row.textPathD = textPathD
+        return row
+    }
+
+    fn isCompleted:boolean () {
+        return (status == "completed")
+    }
+
+    fn displayTextForRing:string () {
+        if (this.isCompleted()) {
+            if ((strlen loggedSetsSummary) > 0) {
+                return loggedSetsSummary
+            }
+            if ((strlen summary) > 0) {
+                return summary
+            }
+        }
+        return ""
+    }
+}

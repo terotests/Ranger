@@ -1,5 +1,6 @@
 
-; Date functions
+; Legacy ES6-only host Date wrapper.
+; For portable calendar logic use lib/IsoDateLib.rgr (ISO strings, no timezone).
 ; https://cdnjs.cloudflare.com/ajax/libs/date-fns/1.29.0/date_fns.min.js
 
 systemclass SystemDate {

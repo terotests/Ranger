@@ -1,0 +1,28 @@
+
+Import "IsoDateLib.rgr"
+
+class IsoDateOpsTest {
+    sfn m@(main):void () {
+        def added (DateMath.addDays("2026-01-25" 7))
+        print ("addDays: " + added)
+
+        def neg (DateMath.addDays("2026-01-25" -3))
+        print ("addDays neg: " + neg)
+
+        def cmp (DateMath.compareIso("2026-01-01" "2026-12-31"))
+        print ("compare: " + cmp)
+
+        def between (DateMath.isBetween("2026-06-15" "2026-01-01" "2026-12-31"))
+        if (between) {
+            print "between ok"
+        }
+
+        def intrinsic (iso_add_days "2026-03-10" 1)
+        print ("intrinsic: " + intrinsic)
+
+        def week (IsoCalendar.getIsoWeekNumber("2026-02-09"))
+        print ("week: " + week)
+
+        print "Done"
+    }
+}

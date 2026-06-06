@@ -1,0 +1,157 @@
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../evg/EVGColor.rgr"
+Import "WatchExerciseRowInput.rgr"
+Import "WatchBezelSegmentMath.rgr"
+Import "WatchEVGHitRegion.rgr"
+
+class WatchEVGSceneBuilder {
+    def faceSize:double 390.0
+    def arcStroke:double 16.0
+    def math:WatchBezelSegmentMath (new WatchBezelSegmentMath)
+    def lastHitMap:WatchEVGHitMap (new WatchEVGHitMap)
+
+    fn segmentColor:EVGColor (row:WatchExerciseRowInput) {
+        if (row.isCompleted()) {
+            return (EVGColor.parse("#4caf50"))
+        }
+        if (row.isCurrent) {
+            return (EVGColor.parse("#ff9800"))
+        }
+        return (EVGColor.parse("#455a64"))
+    }
+
+    fn findCurrentRow:WatchExerciseRowInput (rows:[WatchExerciseRowInput]) {
+        def i:int 0
+        def count:int (array_length rows)
+        while (i < count) {
+            def row:WatchExerciseRowInput (itemAt rows i)
+            if (row.isCurrent) {
+                return row
+            }
+            i = i + 1
+        }
+        if (count > 0) {
+            return (itemAt rows 0)
+        }
+        def empty:WatchExerciseRowInput (new WatchExerciseRowInput)
+        return empty
+    }
+
+    fn buildListScreen:EVGElement (
+        rows:[WatchExerciseRowInput]
+        completedCount:int
+        exerciseCount:int
+    ) {
+        def hitMap:WatchEVGHitMap (new WatchEVGHitMap)
+        lastHitMap = hitMap
+
+        def root:EVGElement (EVGElement.createDiv())
+        root.tagName = "watchSvg"
+        root.id = "watch-face"
+        root.width = (EVGUnit.px(faceSize))
+        root.height = (EVGUnit.px(faceSize))
+        root.viewBox = "0 0 390 390"
+        root.calculatedWidth = faceSize
+        root.calculatedHeight = faceSize
+        root.isLayoutComplete = true
+
+        def center:double (faceSize / 2.0)
+        def ringRadius:double (center - (arcStroke / 2.0) - 4.0)
+
+        def segmentCount:int (array_length rows)
+        def arcs:[SegmentArc] (math.calculateSegmentArcs(segmentCount))
+
+        def i:int 0
+        while (i < segmentCount) {
+            def row:WatchExerciseRowInput (itemAt rows i)
+            def arc:SegmentArc (itemAt arcs i)
+
+            if ((strlen row.strokePathD) > 0) {
+                def strokePath:EVGElement (EVGElement.createPath())
+                strokePath.tagName = "path"
+                strokePath.elementType = 3
+                strokePath.id = ("segment-" + (to_string row.index))
+                strokePath.svgPath = row.strokePathD
+                strokePath.strokeColor = (this.segmentColor(row))
+                strokePath.strokeWidth = arcStroke
+                strokePath.fillColor = (EVGColor.noColor())
+                root.addChild(strokePath)
+            }
+
+            hitMap.add((WatchEVGHitRegion.createArc(
+                row.index
+                center
+                center
+                ringRadius
+                arcStroke
+                arc.startAngle
+                arc.sweepAngle
+            )))
+
+            def displayText:string (row.displayTextForRing())
+            if (((strlen displayText) > 0) && ((strlen row.textPathD) > 0)) {
+                def labelText:string (math.fitDisplayText(displayText 18))
+
+                def arcLabel:EVGElement (EVGElement.createSpan())
+                arcLabel.tagName = "arcLabel"
+                arcLabel.elementType = 1
+                arcLabel.id = ("arc-label-" + (to_string row.index))
+                arcLabel.textContent = labelText
+                arcLabel.svgPath = row.textPathD
+                arcLabel.color = (EVGColor.white())
+                arcLabel.fontSize = (EVGUnit.px(11.0))
+                arcLabel.fontWeight = "bold"
+                root.addChild(arcLabel)
+            }
+
+            i = i + 1
+        }
+
+        def current:WatchExerciseRowInput (this.findCurrentRow(rows))
+        if ((strlen current.name) > 0) {
+            def title:EVGElement (EVGElement.createSpan())
+            title.tagName = "label"
+            title.elementType = 1
+            title.textContent = current.name
+            title.calculatedX = center
+            title.calculatedY = 150.0
+            title.textAlign = "center"
+            title.color = (EVGColor.parse("#f5f5f7"))
+            title.fontSize = (EVGUnit.px(16.0))
+            title.fontWeight = "bold"
+            root.addChild(title)
+
+            if ((strlen current.summary) > 0) {
+                def summary:EVGElement (EVGElement.createSpan())
+                summary.tagName = "label"
+                summary.elementType = 1
+                summary.textContent = current.summary
+                summary.calculatedX = center
+                summary.calculatedY = 178.0
+                summary.textAlign = "center"
+                summary.color = (EVGColor.parse("#9aa0a6"))
+                summary.fontSize = (EVGUnit.px(12.0))
+                root.addChild(summary)
+            }
+
+            def progress:EVGElement (EVGElement.createSpan())
+            progress.tagName = "label"
+            progress.elementType = 1
+            def progressText:string ((to_string completedCount) + "/" + (to_string exerciseCount))
+            progress.textContent = progressText
+            progress.calculatedX = center
+            progress.calculatedY = 36.0
+            progress.textAlign = "center"
+            progress.color = (EVGColor.parse("#9aa0a6"))
+            progress.fontSize = (EVGUnit.px(12.0))
+            root.addChild(progress)
+        }
+
+        return root
+    }
+
+    fn getLastHitMap:WatchEVGHitMap () {
+        return lastHitMap
+    }
+}
