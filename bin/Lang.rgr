@@ -2240,6 +2240,50 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
             }
         }
 
+        ; ISO calendar dates (YYYY-MM-DD). See lib/IsoDate/ and ai/ISO_DATE.md.
+        iso_add_days   cmdIsoAddDays:string   ( iso:string days:int ) {
+            templates {
+                ranger ( "(DateMath.addDays " (e 1) " " (e 2) ")")
+                kotlin ( "java.time.LocalDate.parse(" (e 1) ").plusDays(" (e 2) ".toLong()).toString()" (imp "java.time.LocalDate"))
+                java7 ( "java.time.LocalDate.parse(" (e 1) ").plusDays(" (e 2) ").toString()" (imp "java.time.LocalDate"))
+                es6 ( "((iso,d)=>{const p=iso.split('-').map(Number);const t=new Date(Date.UTC(p[0],p[1]-1,p[2]+d));return t.toISOString().slice(0,10)})(" (e 1) "," (e 2) ")")
+                * ( "(DateMath.addDays " (e 1) " " (e 2) ")")
+            }
+        }
+
+        iso_compare   cmdIsoCompare:int   ( a:string b:string ) {
+            templates {
+                ranger ( "(DateMath.compareIso " (e 1) " " (e 2) ")")
+                kotlin ( "java.time.LocalDate.parse(" (e 1) ").compareTo(java.time.LocalDate.parse(" (e 2) "))" (imp "java.time.LocalDate"))
+                java7 ( "java.time.LocalDate.parse(" (e 1) ").compareTo(java.time.LocalDate.parse(" (e 2) "))" (imp "java.time.LocalDate"))
+                es6 ( "((a,b)=>a<b?-1:a>b?1:0)(" (e 1) "," (e 2) ")")
+                * ( "(DateMath.compareIso " (e 1) " " (e 2) ")")
+            }
+        }
+
+        iso_between   cmdIsoBetween:boolean   ( d:string start:string end:string ) {
+            templates {
+                ranger ( "(DateMath.isBetween " (e 1) " " (e 2) " " (e 3) ")")
+                kotlin ( "(!java.time.LocalDate.parse(" (e 1) ").isBefore(java.time.LocalDate.parse(" (e 2) ")) && !java.time.LocalDate.parse(" (e 1) ").isAfter(java.time.LocalDate.parse(" (e 3) ")))" (imp "java.time.LocalDate"))
+                java7 ( "(!java.time.LocalDate.parse(" (e 1) ").isBefore(java.time.LocalDate.parse(" (e 2) ")) && !java.time.LocalDate.parse(" (e 1) ").isAfter(java.time.LocalDate.parse(" (e 3) ")))" (imp "java.time.LocalDate"))
+                es6 ( "((d,s,e)=>d>=s&&d<=e)(" (e 1) "," (e 2) "," (e 3) ")")
+                * ( "(DateMath.isBetween " (e 1) " " (e 2) " " (e 3) ")")
+            }
+        }
+
+        ; Case-insensitive regex substring search. Pattern is a string (no /literal/). See lib/Regex/ and ai/REGEX.md.
+        regex_test   cmdRegexTest:boolean   ( pattern:string haystack:string ) {
+            templates {
+                ranger ( "(RegexMatch.testIgnoreCase(" (e 1) " " (e 2) "))")
+                kotlin ( "try { Regex(" (e 1) ", RegexOption.IGNORE_CASE).containsMatchIn(" (e 2) ") } catch (_: Exception) { false }" )
+                java7 ( "try { java.util.regex.Pattern.compile(" (e 1) ", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(" (e 2) ").find() } catch (Exception e) { false }" (imp "java.util.regex.Pattern"))
+                es6 ( "(()=>{try{return new RegExp(" (e 1) ",'i').test(" (e 2) ");}catch{return false;}})()" )
+                swift6 ( (e 2) ".range(of: " (e 1) ", options: [.regularExpression, .caseInsensitive]) != nil" )
+                swift3 ( (e 2) ".range(of: " (e 1) ", options: [.regularExpression, .caseInsensitive]) != nil" )
+                * ( "(RegexMatch.testIgnoreCase(" (e 1) " " (e 2) "))")
+            }
+        }
+
         ; String s = new String(a, 2, 4)
         
         ; C#

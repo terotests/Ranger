@@ -1,0 +1,137 @@
+
+Import "DateMath.rgr"
+Import "IsoDateParse.rgr"
+
+; ISO week numbers, day-of-week, and calendar offsets (no timezone).
+class IsoCalendar {
+
+  sfn intDiv:int (numerator:int denominator:int) {
+    if (denominator <= 0) {
+      return 0
+    }
+    def num:double (int2double numerator)
+    def den:double (int2double denominator)
+    return (floor (num / den))
+  }
+
+  sfn sakamotoMonthShift:int (month:int) {
+    if (month == 1) {
+      return 0
+    }
+    if (month == 2) {
+      return 3
+    }
+    if (month == 3) {
+      return 2
+    }
+    if (month == 4) {
+      return 5
+    }
+    if (month == 5) {
+      return 0
+    }
+    if (month == 6) {
+      return 3
+    }
+    if (month == 7) {
+      return 5
+    }
+    if (month == 8) {
+      return 1
+    }
+    if (month == 9) {
+      return 4
+    }
+    if (month == 10) {
+      return 6
+    }
+    if (month == 11) {
+      return 2
+    }
+    return 4
+  }
+
+  sfn sakamotoDow:int (year:int month:int day:int) {
+    def y:int year
+    if (month < 3) {
+      y = year - 1
+    }
+    def shift:int (IsoCalendar.sakamotoMonthShift(month))
+    def y4:int (IsoCalendar.intDiv(y 4))
+    def y100:int (IsoCalendar.intDiv(y 100))
+    def y400:int (IsoCalendar.intDiv(y 400))
+    def q:int (y + y4 - y100 + y400 + shift + day)
+    def r:int (q % 7)
+    if (r < 0) {
+      r = r + 7
+    }
+    return r
+  }
+
+  sfn dayOfWeekIso:int (year:int month:int day:int) {
+    def dow:int (IsoCalendar.sakamotoDow(year month day))
+    if (dow == 0) {
+      return 7
+    }
+    return dow
+  }
+
+  sfn addDaysOffset:string (iso:string days:int) {
+    return (DateMath.addDays(iso days))
+  }
+
+  sfn daysBetween:int (fromIso:string toIso:string) {
+    def count:int 0
+    def current:string fromIso
+    while ((DateMath.compareIso(current toIso)) < 0) {
+      current = (DateMath.addDays(current 1))
+      count = count + 1
+      if (count > 4000) {
+        return 0
+      }
+    }
+    if (current == toIso) {
+      return count
+    }
+    return 0
+  }
+
+  sfn pad2:string (n:int) {
+    if (n < 10) {
+      return ("0" + (DateMath.intToString(n)))
+    }
+    return (DateMath.intToString(n))
+  }
+
+  sfn isoWeekKey:string (iso:string) {
+    def dateOnly:string (IsoDateParse.toIsoDateOnly(iso))
+    if ((strlen dateOnly) == 0) {
+      return ""
+    }
+    def week:int (IsoCalendar.getIsoWeekNumber(dateOnly))
+    if (week <= 0) {
+      return ""
+    }
+    def p:DateParts (DateParts.fromIso(dateOnly))
+    def isoDow:int (IsoCalendar.dayOfWeekIso(p.year p.month p.day))
+    def toThursday:int (4 - isoDow)
+    def thursdayIso:string (IsoCalendar.addDaysOffset(dateOnly toThursday))
+    def tp:DateParts (DateParts.fromIso(thursdayIso))
+    def isoYear:string (DateMath.intToString(tp.year))
+    return (isoYear + "-W" + (IsoCalendar.pad2(week)))
+  }
+
+  sfn getIsoWeekNumber:int (iso:string) {
+    def p:DateParts (DateParts.fromIso(iso))
+    def isoDow:int (IsoCalendar.dayOfWeekIso(p.year p.month p.day))
+    def toThursday:int (4 - isoDow)
+    def thursdayIso:string (IsoCalendar.addDaysOffset(iso toThursday))
+    def tp:DateParts (DateParts.fromIso(thursdayIso))
+    def jan4:string ((DateMath.intToString(tp.year)) + "-01-04")
+    def jan4Dow:int (IsoCalendar.dayOfWeekIso(tp.year 1 4))
+    def week1Monday:string (IsoCalendar.addDaysOffset(jan4 (1 - jan4Dow)))
+    def days:int (IsoCalendar.daysBetween(week1Monday thursdayIso))
+    def weeks:int (IsoCalendar.intDiv(days 7))
+    return (weeks + 1)
+  }
+}

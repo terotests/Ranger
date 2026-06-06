@@ -24,7 +24,7 @@ The MVP is **not** a full app kernel. It is a **small, typed object runtime** em
 | **Lifecycle** | `proc_start` / `proc_stop`, optional `start` / `stop` / `hibernate` / `wakeup` |
 | **Subtree teardown** | `__rangerStopSubtree()` — children first, then `stop()`, then registry |
 
-Everything else — message queues, UI trees, clocks, navigation tables — is **expected to live in Ranger libraries or app-ranger**, composed from fields and methods on `@process` classes, plus a **host loop** that calls into them (same contract as `ProcessKernel.tick` today).
+Everything else — message queues, UI trees, clocks, navigation tables — is **expected to live in Ranger libraries or the host app**, composed from fields and methods on `@process` classes, plus a **host loop** that calls into them (same contract as `tick()` in [`gallery/process_counter_board`](gallery/process_counter_board/README.md)).
 
 **Mental model:** “Processes are objects with a known tree and a guaranteed stop order.” That is enough to build production orchestration **next to** or **wrapping** these objects, not necessarily **inside** the compiler.
 
@@ -49,7 +49,7 @@ fn switchTo:void (title:string) {
 }
 ```
 
-This is already **navigation policy**: stop old subtree, create new page, start, boot children. Registry counts and `LifecycleLog` confirm **Tick → Timer → Page** stop order — the same invariant `killPage` must preserve in app-ranger.
+This is already **navigation policy**: stop old subtree, create new page, start, boot children. Registry counts and `LifecycleLog` confirm **Tick → Timer → Page** stop order — the same invariant any host `switchTo` / page teardown must preserve.
 
 ### Tree + introspection
 
@@ -63,7 +63,7 @@ Matches “construct while building UI tree, activate when shown” — same as 
 
 ## The four “product gaps” — MVP vs kernel today
 
-app-ranger’s `ProcessKernel` implements messages, UI push, clock-driven timers, and page slots **today** using a single fat `Process` class. The question is whether `@process` **must grow** to match that, or whether the kernel (or a thin Ranger library) should **hold `@process` instances** and delegate.
+A typical host loop implements messages, UI push, clock-driven timers, and page slots **outside** the compiler MVP. The question is whether `@process` **must grow** to match that, or whether the host (or a thin Ranger library) should **hold `@process` instances** and delegate.
 
 **Default position in this doc:** the MVP primitives are **sufficient**; most “missing” pieces are **clear, local additions** (fields + host loop + existing `EventBus`). Only a few items **require compiler or analyzer work**.
 
@@ -92,7 +92,7 @@ class AIChatProcess @process(true) extends RangerProcessBase {
 }
 ```
 
-Host contract (already established in APP_PROCESS.md):
+Host contract (see [PROCESS_RUNTIME_INVARIANTS.md](PROCESS_RUNTIME_INVARIANTS.md)):
 
 ```text
 chat.enqueue(userMsg)
@@ -100,7 +100,7 @@ chat.enqueue(userMsg)
 chat.drainInbound()
 ```
 
-Or: `ProcessKernel` slot stores `RangerProcessBase` / typed `@process` reference; `sendMessage` forwards to `enqueue` + schedules `tick` → `drainInbound`.
+Or: a host slot stores `RangerProcessBase` / typed `@process` reference; `sendMessage` forwards to `enqueue` + schedules `tick` → `drainInbound`.
 
 **What MVP already gives:** stable `__rangerId`, `proc_stop` so drain loops can exit, subtree stop so children do not keep receiving work.
 
@@ -114,7 +114,7 @@ Or: `ProcessKernel` slot stores `RangerProcessBase` / typed `@process` reference
 
 | Claim | Assessment |
 |-------|------------|
-| “Processes do not emit `ui.propChanged`” | Fixtures use `print`; **app-ranger already has** `pageSetValue` + `EventBus`. |
+| “Processes do not emit `ui.propChanged`” | Fixtures use `print`; hosts use **`markStateDirty` + notify** — [PROCESS_UI_NOTIFY.md](PROCESS_UI_NOTIFY.md). |
 | “Need `@binds` in compiler” | **Nice-to-have**, not required for MVP sufficiency. |
 
 **Enough on MVP:**
@@ -152,7 +152,7 @@ Host on `proc_stop` or `process.lifecycle` event:
 
 **What MVP already gives:** deterministic **child-before-parent** `stop()` order; registry `untrack`; `__rangerId == 0` sentinel for “do not tick this instance”.
 
-**Gap is documentation and pilot tests**, not missing opcodes — align `fn stop` checklist with `ProcessKernel.kill` + `abort()`.
+**Gap is documentation and pilot tests**, not missing opcodes — align `fn stop` checklist with host teardown (cancel timers, drop UI subscriptions).
 
 ---
 
@@ -180,14 +180,14 @@ Unifying kernel `pageId` with `__rangerId` is **integration hygiene**, not proof
 | Concern | In compiler MVP today? | Fulfillable without new language features? | Typical owner |
 |---------|------------------------|------------------------------------------|---------------|
 | Lifecycle / subtree stop | ✅ | — | Compiler |
-| Message queue + drain | ❌ (not in fixtures) | ✅ fields + `enqueue` / `drain` + host `tick` | app-ranger / lib |
-| UI sync to host | ❌ (printf demos) | ✅ `UIComponentTree` + `EventBus` (exists) | app-ranger |
+| Message queue + drain | ❌ (not in fixtures) | ✅ fields + `enqueue` / `drain` + host `tick` | host / lib |
+| UI sync to host | ❌ (printf demos) | ✅ `markStateDirty` + host notify | host |
 | Timer / async cancel | ⚠️ `stop()` hook only | ✅ `stop()` + host handler cleanup | app + host contract |
-| Page / navigation store | ❌ (app field) | ✅ `switchTo` or singleton store | app-ranger |
+| Page / navigation store | ❌ (app field) | ✅ `switchTo` or singleton store | host |
 
-**Conclusion:** The MVP is **mechanism-complete** for realtrainer-style orchestration. app-ranger’s `ProcessKernel` is an **instance** of that orchestration using a legacy `Process` type; migrating to `@process` is **refactor and wiring**, not waiting for a second runtime.
+**Conclusion:** The MVP is **mechanism-complete** for multi-page app orchestration. A host loop is an **instance** of that orchestration on top of `@process` objects; wiring is **refactor and integration**, not waiting for a second runtime.
 
-**Practical pilot (unchanged):** one route where the slot’s logic is a `@process` class; `switchTo` / `killPage` call `proc_stop`; messages and UI go through existing bus APIs.
+**Practical pilot:** one route where the slot’s logic is a `@process` class; `switchTo` calls `proc_stop`; messages and UI go through the host bridge ([`process_counter_board`](gallery/process_counter_board/README.md)).
 
 ---
 
@@ -327,7 +327,7 @@ These are **mechanism demos**. A follow-up fixture could add `inboundMessages` +
 
 ## Suggested next steps (product, not compiler)
 
-1. **app-ranger pilot** — `@process` instance behind one kernel slot; `proc_stop` on navigation.
+1. **Gallery / host pilot** — `@process` instance behind one host slot; `proc_stop` on navigation.
 2. **Document `fn stop` + host checklist** — stream handlers, clock deadlines, UI unbind (parity with `kill`).
 3. **Optional `process_messages.rgr` fixture** — queue + drain on `@process` only.
 4. **`spawn local`** when duplicate timers hurt — compiler feature, not MVP blocker for first pilot.

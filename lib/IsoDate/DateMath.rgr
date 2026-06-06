@@ -1,0 +1,215 @@
+
+; Portable calendar math on ISO-8601 date strings (YYYY-MM-DD).
+; No host Date, timezone, or locale — safe to compile to any Ranger target.
+
+class DateParts {
+    def year:int 2000
+    def month:int 1
+    def day:int 1
+
+    static fn fromIso:DateParts (iso:string) {
+        def p (new DateParts)
+        p.year = (DateMath.parseIsoComponent(iso 0 4))
+        p.month = (DateMath.parseIsoComponent(iso 5 2))
+        p.day = (DateMath.parseIsoComponent(iso 8 2))
+        return p
+    }
+
+    fn toIso:string () {
+        return (DateMath.formatIso(this.year this.month this.day))
+    }
+}
+
+class DateMath {
+    static fn parseIsoComponent:int (iso:string start:int len:int) {
+        def out@(mutable):int 0
+        def i@(mutable):int 0
+        while (i < len) {
+            def ch (charAt iso (start + i))
+            out = (out * 10) + (ch - 48)
+            i = i + 1
+        }
+        return out
+    }
+
+    static fn intToString:string (n:int) {
+        if (n == 0) {
+            return "0"
+        }
+        def digits:[string]
+        def v@(mutable):int n
+        while (v > 0) {
+            def digit (v % 10)
+            push digits (DateMath.digitChar(digit))
+            v = (floor ((v - digit) / 10))
+        }
+        def out:string ""
+        def cnt (array_length digits)
+        def i@(mutable):int (cnt - 1)
+        while (i >= 0) {
+            out = out + (itemAt digits i)
+            i = i - 1
+        }
+        return out
+    }
+
+    static fn digitChar:string (d:int) {
+        if (d == 0) {
+            return "0"
+        }
+        if (d == 1) {
+            return "1"
+        }
+        if (d == 2) {
+            return "2"
+        }
+        if (d == 3) {
+            return "3"
+        }
+        if (d == 4) {
+            return "4"
+        }
+        if (d == 5) {
+            return "5"
+        }
+        if (d == 6) {
+            return "6"
+        }
+        if (d == 7) {
+            return "7"
+        }
+        if (d == 8) {
+            return "8"
+        }
+        return "9"
+    }
+
+    static fn pad2:string (n:int) {
+        if (n < 10) {
+            return ("0" + (DateMath.intToString(n)))
+        }
+        return (DateMath.intToString(n))
+    }
+
+    static fn formatIso:string (year:int month:int day:int) {
+        return ((DateMath.intToString(year)) + "-" + (DateMath.pad2(month)) + "-" + (DateMath.pad2(day)))
+    }
+
+    static fn isLeapYear:boolean (year:int) {
+        if ((year % 4) != 0) {
+            return false
+        }
+        if ((year % 100) != 0) {
+            return true
+        }
+        if ((year % 400) != 0) {
+            return false
+        }
+        return true
+    }
+
+    static fn daysInMonth:int (year:int month:int) {
+        if (month == 2) {
+            if ((DateMath.isLeapYear(year))) {
+                return 29
+            }
+            return 28
+        }
+        if (month == 4) {
+            return 30
+        }
+        if (month == 6) {
+            return 30
+        }
+        if (month == 9) {
+            return 30
+        }
+        if (month == 11) {
+            return 30
+        }
+        return 31
+    }
+
+    static fn subtractOneDay:string (iso:string) {
+        def p (DateParts.fromIso(iso))
+        p.day = p.day - 1
+        if (p.day >= 1) {
+            return (p.toIso())
+        }
+        p.month = p.month - 1
+        if (p.month >= 1) {
+            p.day = (DateMath.daysInMonth(p.year p.month))
+            return (p.toIso())
+        }
+        p.month = 12
+        p.year = p.year - 1
+        p.day = (DateMath.daysInMonth(p.year p.month))
+        return (p.toIso())
+    }
+
+    static fn addDays:string (iso:string days:int) {
+        if (days == 0) {
+            def same (DateParts.fromIso(iso))
+            return (same.toIso())
+        }
+        if (days > 0) {
+            def p (DateParts.fromIso(iso))
+            def remaining@(mutable):int days
+            while (remaining > 0) {
+                p.day = p.day + 1
+                def dim (DateMath.daysInMonth(p.year p.month))
+                if (p.day > dim) {
+                    p.day = 1
+                    p.month = p.month + 1
+                    if (p.month > 12) {
+                        p.month = 1
+                        p.year = p.year + 1
+                    }
+                }
+                remaining = remaining - 1
+            }
+            return (p.toIso())
+        }
+        def remainingNeg@(mutable):int (0 - days)
+        def current:string iso
+        while (remainingNeg > 0) {
+            current = (DateMath.subtractOneDay(current))
+            remainingNeg = remainingNeg - 1
+        }
+        return current
+    }
+
+    static fn compareIso:int (a:string b:string) {
+        if (a == b) {
+            return 0
+        }
+        def pa (DateParts.fromIso(a))
+        def pb (DateParts.fromIso(b))
+        if (pa.year != pb.year) {
+            if (pa.year < pb.year) {
+                return -1
+            }
+            return 1
+        }
+        if (pa.month != pb.month) {
+            if (pa.month < pb.month) {
+                return -1
+            }
+            return 1
+        }
+        if (pa.day < pb.day) {
+            return -1
+        }
+        return 1
+    }
+
+    static fn isBetween:boolean (d:string start:string end:string) {
+        if ((DateMath.compareIso(d start)) < 0) {
+            return false
+        }
+        if ((DateMath.compareIso(d end)) > 0) {
+            return false
+        }
+        return true
+    }
+}

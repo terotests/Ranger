@@ -12,14 +12,14 @@ See also:
 
 ## Why Objective-C is a useful reference
 
-Apple’s stack solved the same *shape* of problems realtrainer cares about:
+Apple’s stack solved the same *shape* of problems multi-screen apps with async UI care about:
 
 - **Objects** with identity, parent/child relationships, and teardown order
 - **Asynchronous delivery** of work onto a serial “main” executor (run loop)
 - **Loose coupling** between UI controllers, timers, and network via **messages**, **protocols**, and **notifications**
 - **Lifecycle** hooks when views/controllers appear and disappear
 
-Ranger’s `@process` MVP is closer to “know the object tree and stop subtrees” than to a full ObjC runtime. **app-ranger** `ProcessKernel` is closer to a **custom run loop + message pump** sitting above plain objects.
+Ranger’s `@process` MVP is closer to “know the object tree and stop subtrees” than to a full ObjC runtime. The **host tick loop** (see [`process_counter_board`](gallery/process_counter_board/README.md)) is closer to a **custom run loop + message pump** sitting above plain objects.
 
 Objective-C is worth studying because it separates **mechanism** (runtime messaging, retain counts) from **policy** (view-controller lifecycle, delegate patterns) — and Ranger is still deciding how much of each layer to encode in the language vs the kernel.
 
@@ -27,9 +27,9 @@ Objective-C is worth studying because it separates **mechanism** (runtime messag
 
 ## Concept map (at a glance)
 
-| Objective-C idea | Typical Apple usage | Ranger / app-ranger today | Gap |
-|------------------|---------------------|---------------------------|-----|
-| **Object / instance** | `UIViewController *vc` | `@process` class instance, `Process` in kernel | Typed processes vs one fat `Process` class |
+| Objective-C idea | Typical Apple usage | Ranger + host today | Gap |
+|------------------|---------------------|---------------------|-----|
+| **Object / instance** | `UIViewController *vc` | `@process` class instance in host slot | Typed processes vs legacy fat `Process` hosts |
 | **Identity** | Pointer equality | `__rangerId` (app-wide) | Same role as `processId`; not a pointer |
 | **Message send** | `[receiver selector:arg]` | Direct `fn` calls (MVP); `sendMessage` queue (kernel) | No universal dynamic `perform` yet |
 | **Selector** | `SEL` (name + arity) | `messageType:string` + typed message classes | Strings today; could be stronger |
@@ -40,8 +40,8 @@ Objective-C is worth studying because it separates **mechanism** (runtime messag
 | **Retain / release** | ARC, `weak` for delegates | Registry `track` / `untrack`; app holds fields | No `weak`; stale refs possible |
 | **dealloc** | Final cleanup when refcount → 0 | `fn stop()` + `__rangerUnregister` | Explicit `proc_stop`, not GC |
 | **viewWillAppear / …** | VC lifecycle | `proc_start` / `proc_stop` / hibernate | Fewer named phases |
-| **NSRunLoop / main queue** | Serial UI thread | Host calls `kernel.tick` + `VirtualClock` | Same contract, host-owned |
-| **KVO** | Key-path → callback | `pageSetValue` → `ui.propChanged` | Property-level, not key-path |
+| **NSRunLoop / main queue** | Serial UI thread | Host calls `tick` + `VirtualClock` | Same contract, host-owned |
+| **KVO** | Key-path → callback | `markStateDirty` → host notify | Property-level, not key-path |
 | **Blocks** | Async completion | Not in Ranger; host JS/Swift | Completion handlers live outside |
 
 ---
@@ -87,7 +87,7 @@ Properties are often **syntactic sugar** for `setFoo:` / `foo` messages.
 | Layer | Style |
 |-------|--------|
 | **Compiler MVP** | Static calls: `t.spawnTick()`, `proc_stop old` — like C++ or Java, not ObjC |
-| **app-ranger kernel** | **Queued messages**: `sendMessage(processId, msg)` with `msg.messageType`, drained in `tick` |
+| **Host queue pattern** | **Queued messages**: `sendMessage(processId, msg)` with `msg.messageType`, drained in `tick` |
 
 Kernel example (conceptually):
 
@@ -102,7 +102,7 @@ tick(chatId)    ; "run loop turned" — drain inboundMessages
 **What to learn from ObjC:**
 
 1. **Decouple sender from receiver timing** — sender should not assume the receiver is mid-`boot()`; queue + later drain matches `[performSelector:afterDelay:]` and run-loop sources.
-2. **One serial executor for UI-facing processes** — ObjC’s main thread; Ranger’s **host must call `tick` on one thread** (documented in APP_PROCESS.md). Same invariant as “only touch UIKit on main.”
+2. **One serial executor for UI-facing processes** — ObjC’s main thread; Ranger’s **host must call `tick` on one thread** ([PROCESS_RUNTIME_INVARIANTS.md](PROCESS_RUNTIME_INVARIANTS.md)). Same invariant as “only touch UIKit on main.”
 3. **Typed envelopes, loose dispatch** — ObjC uses `SEL` + untyped `id`; kernel uses `messageType` string then switches in `processPageMessages`. Ranger could keep strings for extensibility but add **typed message classes** checked at compile time where possible (already started with `AIChatUserMessage`, `PageActionMessage`).
 
 **What is different:**
@@ -140,7 +140,7 @@ tick(chatId)    ; "run loop turned" — drain inboundMessages
 ### Ranger today
 
 - **No `protocol` keyword** in Ranger for processes.
-- **app-ranger** uses **`kind:string`** (`kindUIPage`, `kindAIChat`, …) and big `Process` with many fields — closer to one **god object** + kind switch than to small protocol-shaped APIs.
+- Legacy hosts use **`kind:string`** and a big `Process` with many fields — closer to one **god object** + kind switch than to small protocol-shaped APIs.
 - **`@process` classes** are full classes with fields and methods — conformance is “you extended the right base and implemented `fn stop`.”
 
 **What to learn:**
@@ -178,7 +178,7 @@ Even a **lighter** step: **`@processCapability("timer")`** annotation generating
 
 **NSNotificationCenter:** one-to-many broadcast by **name**; observers register with selectors or blocks.
 
-### Ranger / app-ranger
+### Ranger + host
 
 | Pattern | Ranger analogue |
 |---------|-----------------|
@@ -267,9 +267,9 @@ Child VCs are **added** as children; removal triggers disappear + teardown. **No
 
 **Key-value observing:** observe `remainingSeconds` on a model; UI updates when value changes. Fragile (string key paths) but decoupled.
 
-### Ranger / app-ranger
+### Ranger + host
 
-**Explicit push:** `pageSetValue(pageId, nodeId, key, value)` → **`ui.propChanged`**. No automatic observe of `def timeLeft` on `@process`.
+**Explicit push:** host reads `@process` fields after `markStateDirty` / notify ([PROCESS_UI_NOTIFY.md](PROCESS_UI_NOTIFY.md)). No automatic observe of `def timeLeft` on `@process`.
 
 **What to learn:**
 
@@ -304,7 +304,7 @@ Inspired by ObjC / UIKit, compatible with [PROCESS_STATUS.md](PROCESS_STATUS.md)
 | Priority | Feature | ObjC inspiration | Fits where |
 |----------|---------|------------------|------------|
 | 1 | **Message queue + `tick` on `@process`** | Run loop + performSelector | Extend `ProcessRuntime` or fold kernel into compiler |
-| 2 | **Auto-remove bus handlers on `proc_stop`** | `dealloc` / `removeObserver` | `ProcessKernel` / generated `stop` |
+| 2 | **Auto-remove bus handlers on `proc_stop`** | `dealloc` / `removeObserver` | Host / generated `stop` |
 | 3 | **`protocol` for process capabilities** | `@protocol` + optional methods | Ranger language + kernel dispatch |
 | 4 | **`spawn local`** | Child VC reuse | PROCESS_LIFECYCLE — reduces duplicate timers |
 | 5 | **`@binds` / observable fields** | KVO | UI sync without manual `pageSetValue` spam |
@@ -358,7 +358,7 @@ One story, three layers — ObjC collapsed runtime + UIKit conventions; Ranger i
 | Question | Short answer |
 |----------|----------------|
 | **Is `@process` like NSObject?** | Partially — instance lifecycle and hierarchy, not dynamic messaging everywhere. |
-| **Is `ProcessKernel` like NSRunLoop + center?** | Closer — serial `tick`, queued messages, `EventBus` ≈ notifications. |
+| **Is the host tick loop like NSRunLoop + center?** | Closer — serial `tick`, queued messages, notify batching ≈ notifications. |
 | **What should Ranger adopt?** | Queued messages, protocol-shaped APIs, weak delegates, observer cleanup, scheduled clock-driven messages, optional property→UI binding. |
 | **What should stay different?** | Static typing, explicit `proc_stop`, no swizzling, multi-target codegen. |
 

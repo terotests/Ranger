@@ -1,0 +1,134 @@
+
+; Portable regex search: pattern and haystack are strings (no /literal/ syntax).
+; Semantics match ES6 RegExp(pattern, 'i').test(haystack) — substring search, case-insensitive.
+; Ranger-target implementation supports literals, ., *, ^, $, and \\ escapes.
+; Production targets should use the regex_test compiler intrinsic (native engines).
+
+class RegexMatch {
+
+  static fn testIgnoreCase:boolean (pattern:string haystack:string) {
+    def p (to_lowercase pattern)
+    def h (to_lowercase haystack)
+    return (RegexMatch.searchPattern(p h))
+  }
+
+  static fn searchPattern:boolean (pat:string text:string) {
+    def pLen (strlen pat)
+    def tLen (strlen text)
+    if (pLen == 0) {
+      return true
+    }
+    def startAnchored:boolean false
+    def endAnchored:boolean false
+    def coreStart:int 0
+    def coreEnd:int pLen
+    if ((charAt pat 0) == (ccode "^")) {
+      startAnchored = true
+      coreStart = 1
+    }
+    if (pLen > 0) {
+      if ((charAt pat (pLen - 1)) == (ccode "$")) {
+        endAnchored = true
+        coreEnd = pLen - 1
+      }
+    }
+    def corePat:string (substring pat coreStart (coreEnd - coreStart))
+    def cLen (strlen corePat)
+    if (cLen == 0) {
+      return true
+    }
+    if (startAnchored) {
+      return (RegexMatch.matchAt(corePat 0 text 0 endAnchored))
+    }
+    def t@(mutable):int 0
+    while (t <= tLen) {
+      if (RegexMatch.matchAt(corePat 0 text t endAnchored)) {
+        return true
+      }
+      t = t + 1
+    }
+    return false
+  }
+
+  static fn matchAt:boolean (pat:string p:int text:string t:int requireEnd:boolean) {
+    def pLen (strlen pat)
+    def tLen (strlen text)
+    if (p >= pLen) {
+      if (requireEnd) {
+        return t == tLen
+      }
+      return true
+    }
+    def ch (charAt pat p)
+    if (ch == (ccode "\\")) {
+      if ((p + 1) >= pLen) {
+        return false
+      }
+      def esc (charAt pat (p + 1))
+      def nextP:int (p + 2)
+      if (nextP < pLen) {
+        def starCh (charAt pat nextP)
+        if (starCh == (ccode "*")) {
+          return (RegexMatch.matchStar(esc false nextP pat text t requireEnd))
+        }
+      }
+      if (t >= tLen) {
+        return false
+      }
+      if ((charAt text t) != esc) {
+        return false
+      }
+      return (RegexMatch.matchAt(pat nextP text (t + 1) requireEnd))
+    }
+    if (ch == (ccode ".")) {
+      def dotNext:int (p + 1)
+      if (dotNext < pLen) {
+        def starCh2 (charAt pat dotNext)
+        if (starCh2 == (ccode "*")) {
+          return (RegexMatch.matchStar((ccode ".") true dotNext pat text t requireEnd))
+        }
+      }
+      if (t >= tLen) {
+        return false
+      }
+      return (RegexMatch.matchAt(pat (p + 1) text (t + 1) requireEnd))
+    }
+    def litNext:int (p + 1)
+    if (litNext < pLen) {
+      def starCh3 (charAt pat litNext)
+      if (starCh3 == (ccode "*")) {
+        return (RegexMatch.matchStar(ch false litNext pat text t requireEnd))
+      }
+    }
+    if (t >= tLen) {
+      return false
+    }
+    if ((charAt text t) != ch) {
+      return false
+    }
+    return (RegexMatch.matchAt(pat (p + 1) text (t + 1) requireEnd))
+  }
+
+  static fn matchStar:boolean (atomChar:int isDot:boolean starPos:int pat:string text:string t:int requireEnd:boolean) {
+    def tLen (strlen text)
+    def afterStar:int (starPos + 1)
+    def cur@(mutable):int t
+    while (cur <= tLen) {
+      if (RegexMatch.matchAt(pat afterStar text cur requireEnd)) {
+        return true
+      }
+      if (cur >= tLen) {
+        break
+      }
+      if (isDot) {
+        cur = cur + 1
+      } {
+        if ((charAt text cur) != atomChar) {
+          break
+        }
+        cur = cur + 1
+      }
+    }
+    return false
+  }
+}

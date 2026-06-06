@@ -1,7 +1,7 @@
 # Ranger `@process` — UI view models and cross-class field assignment
 
 **Status:** ✅ **FIXED** (compiler, v3.0.5+). Cross-class field assignment with a `@process` method call on the RHS now compiles. The history below is kept for context.  
-**Pilot that surfaced this:** [realtrainer `app-ranger/demo/active-workout-process`](../realtrainer/app-ranger/demo/active-workout-process/) (Active Workout, Ranger-only phase).  
+**Gallery reference:** [process_counter_board](gallery/process_counter_board/README.md) — host-side view models filled from `@process` state.  
 **Regression test:** [tests/fixtures/process_view_dto_assign.rgr](tests/fixtures/process_view_dto_assign.rgr) (covered by `tests/compiler.test.ts` → "Process view DTO cross-class assignment").  
 **Related:** [PROCESS_MVP.md](PROCESS_MVP.md) (UI binding is app pattern), [PROCESS_STATUS.md](PROCESS_STATUS.md) (`markStateDirty` / no UI codegen yet).
 
@@ -241,7 +241,7 @@ Until then, treat **view models as host-side types** (TS/Swift structs) filled f
 
 | Artifact | Role |
 |----------|------|
-| [realtrainer `demo/active-workout-process/README.md`](../realtrainer/app-ranger/demo/active-workout-process/README.md) | Modular layout, `npm run sim` |
+| [gallery/process_counter_board/README.md](gallery/process_counter_board/README.md) | Vite + React host, `processUiBridge`, `useProcess` |
 | [tests/fixtures/process_view_dto_assign.rgr](tests/fixtures/process_view_dto_assign.rgr) | Regression test for cross-class view-DTO assignment (the fix) |
 | [tests/fixtures/process_proc_send.rgr](tests/fixtures/process_proc_send.rgr) | Typed `proc_send` handlers |
 | [lib/RangerProcess.rgr](lib/RangerProcess.rgr) | `markStateDirty`, `ProcessUiHost` stubs |
