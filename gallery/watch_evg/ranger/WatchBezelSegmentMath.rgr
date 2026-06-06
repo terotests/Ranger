@@ -1,0 +1,48 @@
+; Bezel ring arc layout (angles only). SVG path `d` is supplied by host (TS/Kotlin) until Ranger trig is wired.
+
+class SegmentArc {
+    def startAngle:double 0.0
+    def sweepAngle:double 0.0
+
+    sfn create:SegmentArc (startAngle:double sweepAngle:double) {
+        def arc:SegmentArc (new SegmentArc)
+        arc.startAngle = startAngle
+        arc.sweepAngle = sweepAngle
+        return arc
+    }
+}
+
+class WatchBezelSegmentMath {
+    def totalArcDegrees:double 300.0
+    def startOffset:double -60.0
+    def gapDegrees:double 4.0
+
+    fn calculateSegmentArcs:[SegmentArc] (segmentCount:int) {
+        def result:[SegmentArc]
+        if (segmentCount <= 0) {
+            return result
+        }
+
+        def totalGap:double (gapDegrees * (to_double (segmentCount - 1)))
+        def availableDegrees:double (totalArcDegrees - totalGap)
+        def segmentDegrees:double (availableDegrees / (to_double segmentCount))
+
+        def i:int 0
+        while (i < segmentCount) {
+            def startAngle:double (startOffset + (to_double i) * (segmentDegrees + gapDegrees))
+            push result (SegmentArc.create(startAngle segmentDegrees))
+            i = i + 1
+        }
+        return result
+    }
+
+    fn fitDisplayText:string (text:string maxLen:int) {
+        if ((strlen text) <= maxLen) {
+            return text
+        }
+        if (maxLen <= 1) {
+            return "…"
+        }
+        return (substring text 0 (maxLen - 1)) + "…"
+    }
+}

@@ -1,0 +1,42 @@
+Import "WatchExerciseRowInput.rgr"
+Import "WatchBezelSegmentMath.rgr"
+Import "WatchEVGHitRegion.rgr"
+Import "WatchEVGSceneBuilder.rgr"
+Import "EVGSVGRenderer.rgr"
+
+class WatchEvgRenderResult {
+    def svg:string ""
+    def hitMap:WatchEVGHitMap (new WatchEVGHitMap)
+
+    sfn create:WatchEvgRenderResult (svg:string hits:WatchEVGHitMap) {
+        def result:WatchEvgRenderResult (new WatchEvgRenderResult)
+        result.svg = svg
+        result.hitMap = hits
+        return result
+    }
+}
+
+class WatchEvgFacade {
+    def sceneBuilder:WatchEVGSceneBuilder (new WatchEVGSceneBuilder)
+    def svgRenderer:EVGSVGRenderer (new EVGSVGRenderer)
+
+    fn renderListScreen:string (
+        rows:[WatchExerciseRowInput]
+        completedCount:int
+        exerciseCount:int
+    ) {
+        def result:WatchEvgRenderResult (this.renderListScreenWithHits(rows completedCount exerciseCount))
+        return result.svg
+    }
+
+    fn renderListScreenWithHits:WatchEvgRenderResult (
+        rows:[WatchExerciseRowInput]
+        completedCount:int
+        exerciseCount:int
+    ) {
+        def root:EVGElement (sceneBuilder.buildListScreen(rows completedCount exerciseCount))
+        def svg:string (svgRenderer.render(root))
+        def hits:WatchEVGHitMap (sceneBuilder.getLastHitMap())
+        return (WatchEvgRenderResult.create(svg hits))
+    }
+}

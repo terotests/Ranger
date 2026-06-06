@@ -1,0 +1,178 @@
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGColor.rgr"
+
+class EVGSVGRenderer {
+    def pathIdCounter:int 0
+
+    fn render:string (root:EVGElement) {
+        pathIdCounter = 0
+        def w:double root.calculatedWidth
+        def h:double root.calculatedHeight
+        if (w <= 0.0) {
+            w = 390.0
+        }
+        if (h <= 0.0) {
+            h = 390.0
+        }
+
+        def vb:string root.viewBox
+        if ((strlen vb) == 0) {
+            vb = ("0 0 " + (to_string w) + " " + (to_string h))
+        }
+
+        def svg:string ""
+        svg = svg + "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\""
+        svg = svg + vb
+        svg = svg + "\" width=\""
+        svg = svg + (to_string w)
+        svg = svg + "\" height=\""
+        svg = svg + (to_string h)
+        svg = svg + "\" class=\"watch-evg-svg\">"
+
+        svg = svg + "<defs><clipPath id=\"watch-face-clip\">"
+        svg = svg + "<circle cx=\""
+        svg = svg + (to_string (w / 2.0))
+        svg = svg + "\" cy=\""
+        svg = svg + (to_string (h / 2.0))
+        svg = svg + "\" r=\""
+        svg = svg + (to_string (w / 2.0))
+        svg = svg + "\"/></clipPath></defs>"
+
+        svg = svg + "<g clip-path=\"url(#watch-face-clip)\">"
+        svg = svg + (this.renderChildren(root))
+        svg = svg + "</g></svg>"
+        return svg
+    }
+
+    fn renderChildren:string (parent:EVGElement) {
+        def html:string ""
+        def i:int 0
+        def count:int (array_length parent.children)
+        while (i < count) {
+            def child:EVGElement (itemAt parent.children i)
+            html = html + (this.renderElement(child))
+            i = i + 1
+        }
+        return html
+    }
+
+    fn renderElement:string (el:EVGElement) {
+        if (el.tagName == "path") {
+            return (this.renderStrokePath(el))
+        }
+        if (el.tagName == "arcLabel") {
+            return (this.renderArcLabel(el))
+        }
+        if ((el.tagName == "label") || (el.tagName == "span") || (el.elementType == 1)) {
+            return (this.renderText(el))
+        }
+        if ((el.elementType == 3) && ((strlen el.svgPath) > 0)) {
+            return (this.renderStrokePath(el))
+        }
+        return (this.renderChildren(el))
+    }
+
+    fn renderStrokePath:string (el:EVGElement) {
+        def out:string "<path d=\""
+        out = out + el.svgPath
+        out = out + "\" fill=\"none\""
+        if el.strokeColor.isSet {
+            out = out + " stroke=\""
+            out = out + (el.strokeColor.toCSSString())
+            out = out + "\""
+        }
+        if (el.strokeWidth > 0.0) {
+            out = out + " stroke-width=\""
+            out = out + (to_string el.strokeWidth)
+            out = out + "\""
+        }
+        if ((strlen el.id) > 0) {
+            out = out + " data-evg-id=\""
+            out = out + el.id
+            out = out + "\""
+        }
+        out = out + "/>"
+        return out
+    }
+
+    fn renderArcLabel:string (el:EVGElement) {
+        pathIdCounter = pathIdCounter + 1
+        def pathId:string ("evg-arc-text-" + (to_string pathIdCounter))
+
+        def out:string "<defs><path id=\""
+        out = out + pathId
+        out = out + "\" d=\""
+        out = out + el.svgPath
+        out = out + "\" fill=\"none\"/></defs><text fill=\""
+        out = out + (el.color.toCSSString())
+        out = out + "\" font-size=\"11\" font-weight=\"700\"><textPath href=\"#"
+        out = out + pathId
+        out = out + "\" startOffset=\"50%\" text-anchor=\"middle\">"
+        out = out + (this.escapeXml(el.textContent))
+        out = out + "</textPath></text>"
+        return out
+    }
+
+    fn renderText:string (el:EVGElement) {
+        def anchor:string "middle"
+        if (el.textAlign == "left") {
+            anchor = "start"
+        }
+        if (el.textAlign == "right") {
+            anchor = "end"
+        }
+
+        def out:string "<text x=\""
+        out = out + (to_string el.calculatedX)
+        out = out + "\" y=\""
+        out = out + (to_string el.calculatedY)
+        out = out + "\" text-anchor=\""
+        out = out + anchor
+        out = out + "\" fill=\""
+        out = out + (el.color.toCSSString())
+        out = out + "\""
+
+        if el.fontSize.isSet {
+            out = out + " font-size=\""
+            out = out + (to_string el.fontSize.pixels)
+            out = out + "\""
+        }
+
+        if (el.fontWeight == "bold") {
+            out = out + " font-weight=\"700\""
+        }
+
+        out = out + ">"
+        out = out + (this.escapeXml(el.textContent))
+        out = out + "</text>"
+        return out
+    }
+
+    fn escapeXml:string (text:string) {
+        def out:string ""
+        def i:int 0
+        def len:int (strlen text)
+        while (i < len) {
+            def ch:int (charAt text i)
+            if (ch == 38) {
+                out = out + "&amp;"
+            } {
+                if (ch == 60) {
+                    out = out + "&lt;"
+                } {
+                    if (ch == 62) {
+                        out = out + "&gt;"
+                    } {
+                        if (ch == 34) {
+                            out = out + "&quot;"
+                        } {
+                            out = out + (substring text i (i + 1))
+                        }
+                    }
+                }
+            }
+            i = i + 1
+        }
+        return out
+    }
+}

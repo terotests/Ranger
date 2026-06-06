@@ -1,0 +1,48 @@
+; Tap targets for watch EVG hosts (web + Android).
+
+class WatchEVGHitRegion {
+    def id:string ""
+    def rowIndex:int 0
+    def kind:string "arc"
+    def cx:double 0.0
+    def cy:double 0.0
+    def ringRadius:double 0.0
+    def arcStroke:double 16.0
+    def startAngle:double 0.0
+    def sweepAngle:double 0.0
+
+    sfn createArc:WatchEVGHitRegion (
+        rowIndex:int
+        cx:double
+        cy:double
+        ringRadius:double
+        arcStroke:double
+        startAngle:double
+        sweepAngle:double
+    ) {
+        def hit:WatchEVGHitRegion (new WatchEVGHitRegion)
+        hit.id = ("row.activate." + (to_string rowIndex))
+        hit.rowIndex = rowIndex
+        hit.kind = "arc"
+        hit.cx = cx
+        hit.cy = cy
+        hit.ringRadius = ringRadius
+        hit.arcStroke = arcStroke
+        hit.startAngle = startAngle
+        hit.sweepAngle = sweepAngle
+        return hit
+    }
+}
+
+class WatchEVGHitMap {
+    def regions:[WatchEVGHitRegion]
+
+    Constructor () {
+        def empty:[WatchEVGHitRegion]
+        regions = empty
+    }
+
+    fn add:void (region:WatchEVGHitRegion) {
+        push regions region
+    }
+}

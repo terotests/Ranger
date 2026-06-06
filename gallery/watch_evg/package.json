@@ -1,0 +1,10 @@
+{
+  "name": "@ranger/watch-evg",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:ranger": "node scripts/build-ranger.mjs",
+    "test": "npm run build:ranger && node bin/watch_evg_test.js"
+  }
+}

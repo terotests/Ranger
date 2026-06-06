@@ -1,0 +1,80 @@
+Import "ranger/WatchEvgLib.rgr"
+Import "ranger/WatchExerciseRowInput.rgr"
+Import "ranger/WatchBezelSegmentMath.rgr"
+
+class WatchEvgTest {
+    sfn m@(main):void () {
+        def test:WatchEvgTest (new WatchEvgTest)
+        test.run()
+    }
+
+    fn run:void () {
+        print "=== Watch EVG Tests ==="
+        this.testSegmentArcs()
+        this.testListScreenSvg()
+        print "=== All watch EVG tests passed ==="
+    }
+
+    fn testSegmentArcs:void () {
+        def math:WatchBezelSegmentMath (new WatchBezelSegmentMath)
+        def arcs:[SegmentArc] (math.calculateSegmentArcs(3))
+        if ((array_length arcs) != 3) {
+            print "FAIL segment arc count"
+            exit(1)
+        }
+        def first:SegmentArc (itemAt arcs 0)
+        if (first.startAngle != -60.0) {
+            print "FAIL first arc start"
+            exit(1)
+        }
+        print "  segment arcs OK"
+    }
+
+    fn testListScreenSvg:void () {
+        def rows:[WatchExerciseRowInput]
+        push rows (WatchExerciseRowInput.create(
+            0
+            "Plank"
+            "3x45s"
+            "pending"
+            true
+            ""
+            "M 50 195 A 175 175 0 0 1 195 50"
+            ""
+        ))
+        push rows (WatchExerciseRowInput.create(
+            1
+            "Squat"
+            "3x5@80kg"
+            "completed"
+            false
+            "5x80kg 5x80kg 5x80kg"
+            "M 195 340 A 175 175 0 0 1 340 195"
+            "M 200 200 A 160 160 0 0 1 340 195"
+        ))
+
+        def facade:WatchEvgFacade (new WatchEvgFacade)
+        def result:WatchEvgRenderResult (facade.renderListScreenWithHits(rows 1 2))
+        if ((strlen result.svg) == 0) {
+            print "FAIL empty svg"
+            exit(1)
+        }
+        if ((indexOf result.svg "watch-evg-svg") < 0) {
+            print "FAIL missing svg root class"
+            exit(1)
+        }
+        if ((indexOf result.svg "Plank") < 0) {
+            print "FAIL missing exercise title"
+            exit(1)
+        }
+        if ((indexOf result.svg "rgb(76,175,80)") < 0) {
+            print "FAIL missing completed stroke color"
+            exit(1)
+        }
+        if ((array_length result.hitMap.regions) != 2) {
+            print "FAIL hit region count"
+            exit(1)
+        }
+        print "  list screen svg OK"
+    }
+}
