@@ -38,7 +38,8 @@ class LowIRBuilderPass {
           return false
         }
         def pn (unwrap p.nameNode)
-        if (false == (LowIRUtil.isSupportedParam(pn.type_name))) {
+        def paramTypeName (this.varTypeName(pn))
+        if (false == (this.isLowerableParamType(paramTypeName))) {
           return false
         }
       }
@@ -48,24 +49,39 @@ class LowIRBuilderPass {
       return false
     }
     def retNode (unwrap fnDesc.nameNode)
-    def retType (LowIRUtil.typeFromRanger(retNode.type_name))
+    def retTypeName (this.varTypeName(retNode))
+    def retType (LowIRUtil.typeFromRanger(retTypeName))
     def voidType:string "void"
     if ((strlen retType) == 0) {
       if (fnDesc.name == "Constructor") {
         retType = voidType
       } {
-        return false
+        if (LowIRUtil.isStringType(retTypeName)) {
+          retType = "i8*"
+        } {
+          if (LowIRUtil.isArrayTypeName(retTypeName)) {
+            retType = this.irModule.ptrType
+          } {
+            if ((strlen retTypeName) > 0) {
+              if (LowIRUtil.isSupportedPrimitive(retTypeName) == false) {
+                retType = this.irModule.ptrType
+              } {
+                return false
+              }
+            } {
+              return false
+            }
+          }
+        }
       }
-    }
-    if ((retType != voidType) && ((strlen retType) == 0)) {
-      return false
     }
     for fnDesc.params p:RangerAppParamDesc i {
       if (null? p.nameNode) {
         return false
       }
       def pn (unwrap p.nameNode)
-      if (false == (LowIRUtil.isSupportedParam(pn.type_name))) {
+      def paramTypeName (this.varTypeName(pn))
+      if (false == (this.isLowerableParamType(paramTypeName))) {
         return false
       }
     }
@@ -195,10 +211,21 @@ class LowIRBuilderPass {
     def mallocParams:[string]
     push mallocParams target.ptrType
     this.ensureExternDecl("malloc" target.ptrType mallocParams false)
+    def callocParams:[string]
+    push callocParams target.ptrType
+    push callocParams target.ptrType
+    this.ensureExternDecl("calloc" target.ptrType callocParams false)
+    def reallocParams:[string]
+    push reallocParams target.ptrType
+    push reallocParams target.ptrType
+    this.ensureExternDecl("realloc" target.ptrType reallocParams false)
     def strcmpParams:[string]
     push strcmpParams "i8*"
     push strcmpParams "i8*"
     this.ensureExternDecl("strcmp" "i32" strcmpParams false)
+    def strlenParams:[string]
+    push strlenParams "i8*"
+    this.ensureExternDecl("strlen" "i32" strlenParams false)
     def termInitParams:[string]
     this.ensureExternDecl("ranger_term_init" "void" termInitParams false)
     def pollParams:[string]
@@ -215,6 +242,131 @@ class LowIRBuilderPass {
     push sprintfParams "i8*"
     push sprintfParams "i8*"
     this.ensureExternDecl("sprintf" "i32" sprintfParams true)
+    def shellCntParams:[string]
+    this.ensureExternDecl("ranger_shell_arg_cnt" "i32" shellCntParams false)
+    def shellArgParams:[string]
+    push shellArgParams "i32"
+    this.ensureExternDecl("ranger_shell_arg" "i8*" shellArgParams false)
+    def readFileParams:[string]
+    push readFileParams "i8*"
+    push readFileParams "i8*"
+    this.ensureExternDecl("ranger_read_file" "i8*" readFileParams false)
+    def charAtParams:[string]
+    push charAtParams "i8*"
+    push charAtParams "i32"
+    this.ensureExternDecl("ranger_char_at" "i32" charAtParams false)
+    def atCharParams:[string]
+    push atCharParams "i8*"
+    push atCharParams "i32"
+    this.ensureExternDecl("ranger_at_char" "i8*" atCharParams false)
+    def strdupParams:[string]
+    push strdupParams "i8*"
+    this.ensureExternDecl("ranger_strdup" "i8*" strdupParams false)
+  }
+
+  fn isLowerableParamType:boolean (typeName:string) {
+    if (LowIRUtil.isSupportedParam(typeName)) {
+      return true
+    }
+    if ((strlen typeName) == 0) {
+      return false
+    }
+    if (LowIRUtil.isArrayTypeName(typeName)) {
+      return true
+    }
+    return true
+  }
+
+  fn llvmTypeForRanger:string (typeName:string ptrType:string) {
+    if (LowIRUtil.isStringType(typeName)) {
+      return "i8*"
+    }
+    if (LowIRUtil.isArrayTypeName(typeName)) {
+      return ptrType
+    }
+    def mapped (LowIRUtil.typeFromRanger(typeName))
+    if ((strlen mapped) > 0) {
+      return mapped
+    }
+    return ptrType
+  }
+
+  fn varTypeName:string (nameNode:CodeNode) {
+    if ((strlen nameNode.type_name) > 0) {
+      return nameNode.type_name
+    }
+    if (nameNode.value_type == RangerNodeType.Array) {
+      if ((strlen nameNode.array_type) > 0) {
+        return ("[" + nameNode.array_type + "]")
+      }
+    }
+    return nameNode.eval_type_name
+  }
+
+  fn exprIsObjectPtr:boolean (node:CodeNode lctx:LowIRLowerContext) {
+    if (node.value_type != RangerNodeType.VRef) {
+      return false
+    }
+    if ((indexOf node.vref ".") >= 0) {
+      def parts:[string] (strsplit node.vref ".")
+      if ((array_length parts) >= 2) {
+        def recv (itemAt parts 0)
+        def fld (itemAt parts 1)
+        def cls (this.resolveObjectClass(recv lctx))
+        if ((strlen cls) > 0) {
+          if (this.fieldIsStringSlot(cls fld)) {
+            return false
+          }
+          if (this.fieldIsBoolSlot(cls fld)) {
+            return false
+          }
+          if (this.fieldIsPtrArraySlot(cls fld)) {
+            return false
+          }
+          def ftype (this.fieldIrTypeFor(cls fld))
+          if (ftype == "i32") {
+            return false
+          }
+          return true
+        }
+      }
+    }
+    if (this.isClassField(node.vref lctx.className this.irModule)) {
+      if (this.fieldIsStringSlot(lctx.className node.vref)) {
+        return false
+      }
+      if (this.fieldIsBoolSlot(lctx.className node.vref)) {
+        return false
+      }
+      if (this.fieldIsPtrArraySlot(lctx.className node.vref)) {
+        return false
+      }
+      def ftype (this.fieldIrTypeFor(lctx.className node.vref))
+      if (ftype == "i32") {
+        return false
+      }
+      return true
+    }
+    if (has lctx.objectSlots node.vref) {
+      return true
+    }
+    return false
+  }
+
+  fn isObjectTypeName:boolean (typeName:string) {
+    if ((strlen typeName) == 0) {
+      return false
+    }
+    if (LowIRUtil.isStringType(typeName)) {
+      return false
+    }
+    if (LowIRUtil.isArrayTypeName(typeName)) {
+      return false
+    }
+    if (LowIRUtil.isSupportedPrimitive(typeName)) {
+      return false
+    }
+    return true
   }
 
   fn exprIsString:boolean (node:CodeNode) {
@@ -231,8 +383,8 @@ class LowIRBuilderPass {
     return false
   }
 
-  fn exprMightBeString:boolean (node:CodeNode) {
-    if (this.exprIsString(node)) {
+  fn exprMightBeString:boolean (node:CodeNode lctx:LowIRLowerContext) {
+    if (this.exprIsStringish(node lctx)) {
       return true
     }
     if (node.has_operator) {
@@ -240,56 +392,87 @@ class LowIRBuilderPass {
       if (op == "+") {
         def aNode (node.getSecond())
         def bNode (node.getThird())
-        if ((this.exprIsString(aNode)) || (this.exprIsString(bNode))) {
+        if ((this.exprIsStringish(aNode lctx)) || (this.exprIsStringish(bNode lctx))) {
           return true
         }
       }
     }
     if (node.infix_operator) {
       if (!null? node.infix_node) {
-        return (this.exprMightBeString((unwrap node.infix_node)))
+        return (this.exprMightBeString((unwrap node.infix_node) lctx))
       }
     }
     return false
   }
 
+  fn lowerConcatOperand:string (node:CodeNode isStr:boolean lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def v (this.lowerExpr(node lctx))
+    if (isStr == false) {
+      if (this.exprProducesI1(node lctx)) {
+        v = (builder.emitZextI1ToI32(v))
+      }
+    }
+    return v
+  }
+
+  fn emitStrdupExpr:string (strPtr:string lctx:LowIRLowerContext) {
+    def dupArgs:[string]
+    def dupArgTypes:[string]
+    push dupArgs strPtr
+    push dupArgTypes "i8*"
+    return (lctx.builder.emitCall("ranger_strdup" "i8*" dupArgs dupArgTypes))
+  }
+
   fn lowerStringConcat:string (aNode:CodeNode bNode:CodeNode lctx:LowIRLowerContext) {
     def builder (lctx.builder)
-    def aStr (this.exprIsString(aNode))
-    def bStr (this.exprIsString(bNode))
-    def sz (builder.emitConst(lctx.ptrType "64"))
+    def aStr (this.exprIsStringish(aNode lctx))
+    def bStr (this.exprIsStringish(bNode lctx))
+    if (this.exprIsString(aNode)) {
+      aStr = true
+    }
+    if (this.exprIsString(bNode)) {
+      bStr = true
+    }
+    def sz (builder.emitConst("i32" "4096"))
     def raw (builder.emitHeapAlloc(sz))
     def buf (builder.emitIntToI8Ptr(raw lctx.ptrType))
+    def fmtLit:string "%s%s"
+    if (aStr && bStr) {
+      fmtLit = "%s%s"
+    } {
+      if (aStr && (bStr == false)) {
+        fmtLit = "%s%d"
+      } {
+        if ((aStr == false) && bStr) {
+          fmtLit = "%d%s"
+        } {
+          fmtLit = "%d%d"
+        }
+      }
+    }
     def args:[string]
     def argTypes:[string]
     push args buf
     push argTypes "i8*"
-    if (aStr && bStr) {
-      def fmtG (this.internStringGlobal("%s%s" false))
-      push args (builder.emitStrPtr(fmtG (this.stringGlobalByteLen(fmtG))))
-      push argTypes "i8*"
-      push args (this.lowerExpr(aNode lctx))
-      push argTypes "i8*"
-      push args (this.lowerExpr(bNode lctx))
+    def fmtG (this.internStringGlobal(fmtLit false))
+    push args (builder.emitStrPtr(fmtG (this.stringGlobalByteLen(fmtG))))
+    push argTypes "i8*"
+    def aVal (this.lowerConcatOperand(aNode aStr lctx))
+    if aStr {
+      push args aVal
       push argTypes "i8*"
     } {
-      if bStr {
-        def fmtG (this.internStringGlobal("%d%s" false))
-        push args (builder.emitStrPtr(fmtG (this.stringGlobalByteLen(fmtG))))
-        push argTypes "i8*"
-        push args (this.lowerExpr(aNode lctx))
-        push argTypes "i32"
-        push args (this.lowerExpr(bNode lctx))
-        push argTypes "i8*"
-      } {
-        def fmtG (this.internStringGlobal("%s%d" false))
-        push args (builder.emitStrPtr(fmtG (this.stringGlobalByteLen(fmtG))))
-        push argTypes "i8*"
-        push args (this.lowerExpr(aNode lctx))
-        push argTypes "i8*"
-        push args (this.lowerExpr(bNode lctx))
-        push argTypes "i32"
-      }
+      push args aVal
+      push argTypes "i32"
+    }
+    def bVal (this.lowerConcatOperand(bNode bStr lctx))
+    if bStr {
+      push args bVal
+      push argTypes "i8*"
+    } {
+      push args bVal
+      push argTypes "i32"
     }
     builder.emitCall("sprintf" "i32" args argTypes)
     return buf
@@ -392,10 +575,16 @@ class LowIRBuilderPass {
   fn lowerPrint:void (node:CodeNode lctx:LowIRLowerContext) {
     def textNode (node.getSecond())
     def text (this.printTextFromNode(textNode))
-    if ((strlen text) == 0) {
+    if ((strlen text) > 0) {
+      this.emitIoString(text true lctx)
       return
     }
-    this.emitIoString(text true lctx)
+    def strPtr (this.lowerExpr(textNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args strPtr
+    push argTypes "i8*"
+    this.emitPrintfFmt("%s\n" args argTypes lctx)
   }
 
   fn lowerWrite:void (node:CodeNode lctx:LowIRLowerContext) {
@@ -524,10 +713,102 @@ class LowIRBuilderPass {
     lctx.builder.emitCall("ranger_term_init" "void" args argTypes)
   }
 
+  fn lowerShellArgCnt:string (lctx:LowIRLowerContext) {
+    def args:[string]
+    def argTypes:[string]
+    return (lctx.builder.emitCall("ranger_shell_arg_cnt" "i32" args argTypes))
+  }
+
+  fn lowerShellArg:string (node:CodeNode lctx:LowIRLowerContext) {
+    def idxNode (node.getSecond())
+    def idx (this.lowerExpr(idxNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args idx
+    push argTypes "i32"
+    return (lctx.builder.emitCall("ranger_shell_arg" "i8*" args argTypes))
+  }
+
+  fn lowerReadFile:string (node:CodeNode lctx:LowIRLowerContext) {
+    def pathNode (node.getSecond())
+    def fileNode (node.getThird())
+    def path (this.lowerExpr(pathNode lctx))
+    def file (this.lowerExpr(fileNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args path
+    push argTypes "i8*"
+    push args file
+    push argTypes "i8*"
+    return (lctx.builder.emitCall("ranger_read_file" "i8*" args argTypes))
+  }
+
+  fn lowerCharAt:string (node:CodeNode lctx:LowIRLowerContext) {
+    def textNode (node.getSecond())
+    def posNode (node.getThird())
+    def text (this.lowerExpr(textNode lctx))
+    def pos (this.lowerExpr(posNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args text
+    push argTypes "i8*"
+    push args pos
+    push argTypes "i32"
+    return (lctx.builder.emitCall("ranger_char_at" "i32" args argTypes))
+  }
+
+  fn lowerAtArgs:string (textNode:CodeNode posNode:CodeNode lctx:LowIRLowerContext) {
+    def text (this.lowerExpr(textNode lctx))
+    def pos (this.lowerExpr(posNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args text
+    push argTypes "i8*"
+    push args pos
+    push argTypes "i32"
+    def chPtr (lctx.builder.emitCall("ranger_at_char" "i8*" args argTypes))
+    def dupArgs:[string]
+    def dupArgTypes:[string]
+    push dupArgs chPtr
+    push dupArgTypes "i8*"
+    return (lctx.builder.emitCall("ranger_strdup" "i8*" dupArgs dupArgTypes))
+  }
+
+  fn lowerAt:string (node:CodeNode lctx:LowIRLowerContext) {
+    return (this.lowerAtArgs((node.getSecond()) (node.getThird()) lctx))
+  }
+
+  fn lowerAtCall:string (argsNode:CodeNode lctx:LowIRLowerContext) {
+    if ((array_length argsNode.children) < 2) {
+      return ""
+    }
+    return (this.lowerAtArgs((itemAt argsNode.children 0) (itemAt argsNode.children 1) lctx))
+  }
+
+  fn lowerPtrIsNull:string (ptr:string lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def asInt (builder.emitPtrToInt(ptr))
+    def zero (builder.emitConst(lctx.ptrType "0"))
+    return (builder.emitIcmpTyped("eq" lctx.ptrType asInt zero))
+  }
+
+  fn lowerPtrIsNotNull:string (ptr:string lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def asInt (builder.emitPtrToInt(ptr))
+    def zero (builder.emitConst(lctx.ptrType "0"))
+    return (builder.emitIcmpTyped("ne" lctx.ptrType asInt zero))
+  }
+
   fn loadArrayDescExpr:string (arrNode:CodeNode lctx:LowIRLowerContext) {
+    def desc (this.loadPtrArrayDescExpr(arrNode lctx))
     if (arrNode.value_type == RangerNodeType.VRef) {
+      if ((strlen (this.ptrArrayDescFromVref(arrNode.vref lctx))) > 0) {
+        return desc
+      }
       if (this.isClassField(arrNode.vref lctx.className this.irModule)) {
-        return (this.emitFieldLoad(arrNode.vref lctx))
+        if (this.fieldIsPtrArraySlot(lctx.className arrNode.vref)) {
+          return (this.emitFieldLoad(arrNode.vref lctx))
+        }
       }
     }
     return (this.lowerExpr(arrNode lctx))
@@ -626,7 +907,12 @@ class LowIRBuilderPass {
       def len (strlen text)
       return (builder.emitConst(irI32 ("" + len)))
     }
-    return (builder.emitConst(irI32 "0"))
+    def strPtr (this.lowerExpr(textNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args strPtr
+    push argTypes "i8*"
+    return (builder.emitCall("strlen" "i32" args argTypes))
   }
 
   fn isIntArrayTypeNode:boolean (node:CodeNode) {
@@ -645,6 +931,33 @@ class LowIRBuilderPass {
     return false
   }
 
+  fn isObjectPtrArrayTypeNode:boolean (node:CodeNode) {
+    if (node.value_type == RangerNodeType.Array) {
+      if ((strlen node.array_type) > 0) {
+        if (node.array_type != "int") {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  fn emitPtrArrayNewEmpty:string (lctx:LowIRLowerContext) {
+    this.usedPtrArrayRuntime = true
+    def builder (lctx.builder)
+    def cap (builder.emitConst("i32" "256"))
+    def args:[string]
+    def argTypes:[string]
+    push args cap
+    push argTypes "i32"
+    return (builder.emitCall("RtPtrArray_new" lctx.ptrType args argTypes))
+  }
+
+  fn bindPtrArraySlot:void (varName:string desc:string lctx:LowIRLowerContext) {
+    this.bindSlot(varName lctx.ptrType desc lctx)
+    set lctx.collectionSlots varName "ptr_array"
+  }
+
   fn collectionKind:string (varName:string lctx:LowIRLowerContext) {
     if (has lctx.collectionSlots varName) {
       return (unwrap (get lctx.collectionSlots varName))
@@ -652,64 +965,81 @@ class LowIRBuilderPass {
     return ""
   }
 
+  fn arrayLenOff:int (lctx:LowIRLowerContext) {
+    if (lctx.ptrType == "i64") {
+      return 8
+    }
+    return 4
+  }
+
+  fn arrayCapOff:int (lctx:LowIRLowerContext) {
+    if (lctx.ptrType == "i64") {
+      return 12
+    }
+    return 8
+  }
+
+  fn arrayDescBytes:int (lctx:LowIRLowerContext) {
+    if (lctx.ptrType == "i64") {
+      return 16
+    }
+    return 12
+  }
+
   fn bindCollectionSlot:void (varName:string kind:string desc:string lctx:LowIRLowerContext) {
-    this.bindSlot(varName "i32" desc lctx)
+    this.bindSlot(varName lctx.ptrType desc lctx)
     set lctx.collectionSlots varName kind
   }
 
   fn loadCollectionDesc:string (varName:string lctx:LowIRLowerContext) {
-    return (this.loadSlot(varName "i32" lctx))
+    return (this.loadSlot(varName lctx.ptrType lctx))
   }
 
   fn emitDescLoad:string (desc:string byteOff:int lctx:LowIRLowerContext) {
     def builder (lctx.builder)
-    def off (builder.emitConst("i32" ("" + byteOff)))
-    def addr (builder.emitBin("add" "i32" desc off))
+    def pt (lctx.ptrType)
+    def off (builder.emitConst(pt ("" + byteOff)))
+    def addr (builder.emitBin("add" pt desc off))
     return (builder.emitPtrLoad(addr))
-  }
-
-  fn emitDescStore:void (desc:string byteOff:int value:string lctx:LowIRLowerContext) {
-    def builder (lctx.builder)
-    def off (builder.emitConst("i32" ("" + byteOff)))
-    def addr (builder.emitBin("add" "i32" desc off))
-    builder.emitPtrStore(addr value)
   }
 
   fn emitRtArrayNewEmpty:string (lctx:LowIRLowerContext) {
     def builder (lctx.builder)
-    def twelve (builder.emitConst("i32" "12"))
-    def desc (builder.emitHeapAlloc(twelve))
+    def descBytes (builder.emitConst("i32" ("" + (this.arrayDescBytes(lctx)))))
+    def desc (builder.emitHeapAlloc(descBytes))
     def sixteen (builder.emitConst("i32" "16"))
     def data (builder.emitHeapAlloc(sixteen))
-    this.emitDescStore(desc 0 data lctx)
+    builder.emitPtrStore(desc data)
     def zero (builder.emitConst("i32" "0"))
-    this.emitDescStore(desc 4 zero lctx)
+    builder.emitStoreI32At(desc (this.arrayLenOff(lctx)) zero)
     def four (builder.emitConst("i32" "4"))
-    this.emitDescStore(desc 8 four lctx)
+    builder.emitStoreI32At(desc (this.arrayCapOff(lctx)) four)
     return desc
   }
 
   fn emitRtArrayNewSized:string (cap:string lctx:LowIRLowerContext) {
     def builder (lctx.builder)
-    def twelve (builder.emitConst("i32" "12"))
-    def desc (builder.emitHeapAlloc(twelve))
+    def descBytes (builder.emitConst("i32" ("" + (this.arrayDescBytes(lctx)))))
+    def desc (builder.emitHeapAlloc(descBytes))
     def four (builder.emitConst("i32" "4"))
     def nbytes (builder.emitBin("mul" "i32" cap four))
     def data (builder.emitHeapAlloc(nbytes))
-    this.emitDescStore(desc 0 data lctx)
+    builder.emitPtrStore(desc data)
     def zero (builder.emitConst("i32" "0"))
-    this.emitDescStore(desc 4 zero lctx)
-    this.emitDescStore(desc 8 cap lctx)
+    builder.emitStoreI32At(desc (this.arrayLenOff(lctx)) zero)
+    builder.emitStoreI32At(desc (this.arrayCapOff(lctx)) cap)
     return desc
   }
 
   fn emitRtArrayGet:string (desc:string idx:string lctx:LowIRLowerContext) {
     def builder (lctx.builder)
+    def pt (lctx.ptrType)
     def data (this.emitDescLoad(desc 0 lctx))
     def four (builder.emitConst("i32" "4"))
-    def off (builder.emitBin("mul" "i32" idx four))
-    def slot (builder.emitBin("add" "i32" data off))
-    return (builder.emitPtrLoad(slot))
+    def offI32 (builder.emitBin("mul" "i32" idx four))
+    def off (builder.emitZextI32ToPtr(offI32))
+    def slot (builder.emitBin("add" pt data off))
+    return (builder.emitPtrLoadTyped(slot "i32"))
   }
 
   fn emitRtArraySet:void (desc:string idx:string val:string lctx:LowIRLowerContext) {
@@ -718,7 +1048,7 @@ class LowIRBuilderPass {
     def args:[string]
     def argTypes:[string]
     push args desc
-    push argTypes "i32"
+    push argTypes lctx.ptrType
     push args idx
     push argTypes "i32"
     push args val
@@ -728,7 +1058,8 @@ class LowIRBuilderPass {
   }
 
   fn emitRtArrayLen:string (desc:string lctx:LowIRLowerContext) {
-    return (this.emitDescLoad(desc 4 lctx))
+    def builder (lctx.builder)
+    return (builder.emitI32At(desc (this.arrayLenOff(lctx))))
   }
 
   fn emitRtMapNew:string (cap:string lctx:LowIRLowerContext) {
@@ -738,7 +1069,7 @@ class LowIRBuilderPass {
     def argTypes:[string]
     push args cap
     push argTypes "i32"
-    return (builder.emitCall("RtMap_new" "i32" args argTypes))
+    return (builder.emitCall("RtMap_new" lctx.ptrType args argTypes))
   }
 
   fn emitRtMapPut:void (desc:string key:string val:string lctx:LowIRLowerContext) {
@@ -747,7 +1078,7 @@ class LowIRBuilderPass {
     def args:[string]
     def argTypes:[string]
     push args desc
-    push argTypes "i32"
+    push argTypes lctx.ptrType
     push args key
     push argTypes "i32"
     push args val
@@ -762,7 +1093,7 @@ class LowIRBuilderPass {
     def args:[string]
     def argTypes:[string]
     push args desc
-    push argTypes "i32"
+    push argTypes lctx.ptrType
     push args key
     push argTypes "i32"
     return (builder.emitCall("RtMap_get" "i32" args argTypes))
@@ -774,7 +1105,7 @@ class LowIRBuilderPass {
     def args:[string]
     def argTypes:[string]
     push args desc
-    push argTypes "i32"
+    push argTypes lctx.ptrType
     push args key
     push argTypes "i32"
     return (builder.emitCall("RtMap_has" "i32" args argTypes))
@@ -783,6 +1114,16 @@ class LowIRBuilderPass {
   fn lowerCollectionMake:string (node:CodeNode lctx:LowIRLowerContext) {
     def sizeNode (node.getThird())
     def cap (this.lowerExpr(sizeNode lctx))
+    def innerNode (node.getSecond())
+    if (this.isObjectPtrArrayTypeNode(innerNode)) {
+      this.usedPtrArrayRuntime = true
+      def builder (lctx.builder)
+      def args:[string]
+      def argTypes:[string]
+      push args cap
+      push argTypes "i32"
+      return (builder.emitCall("RtPtrArray_new" lctx.ptrType args argTypes))
+    }
     return (this.emitRtArrayNewSized(cap lctx))
   }
 
@@ -801,6 +1142,12 @@ class LowIRBuilderPass {
 
   fn lowerCollectionLen:string (node:CodeNode lctx:LowIRLowerContext) {
     def collNode (node.getSecond())
+    if (collNode.value_type == RangerNodeType.VRef) {
+      def pdesc (this.ptrArrayDescFromVref(collNode.vref lctx))
+      if ((strlen pdesc) > 0) {
+        return (this.emitPtrArrayLen(pdesc lctx))
+      }
+    }
     def varName:string collNode.vref
     def desc (this.loadCollectionDesc(varName lctx))
     return (this.emitRtArrayLen(desc lctx))
@@ -869,8 +1216,18 @@ class LowIRBuilderPass {
       } {
         if (LowIRUtil.isStringType(nn.type_name)) {
           f.irType = ptrType
+          f.isString = true
         } {
-          f.irType = (LowIRUtil.fieldIrType(nn.type_name))
+          if (nn.type_name == "boolean") {
+            f.irType = "i32"
+            f.isBool = true
+          } {
+            if (LowIRUtil.isSupportedPrimitive(nn.type_name)) {
+              f.irType = (LowIRUtil.fieldIrType(nn.type_name))
+            } {
+              f.irType = ptrType
+            }
+          }
         }
       }
       push st.fields f
@@ -923,12 +1280,146 @@ class LowIRBuilderPass {
     return "i32"
   }
 
+  fn fieldIsPtrArraySlot:boolean (className:string fieldName:string) {
+    for this.irModule.structs st:LowIRStruct i {
+      if (st.name != className) {
+        continue
+      }
+      for st.fields f:LowIRField i {
+        if (f.name == fieldName) {
+          return f.isPtrArray
+        }
+      }
+    }
+    return false
+  }
+
+  fn fieldIsStringSlot:boolean (className:string fieldName:string) {
+    for this.irModule.structs st:LowIRStruct i {
+      if (st.name != className) {
+        continue
+      }
+      for st.fields f:LowIRField i {
+        if (f.name == fieldName) {
+          return f.isString
+        }
+      }
+    }
+    return false
+  }
+
+  fn fieldIsBoolSlot:boolean (className:string fieldName:string) {
+    for this.irModule.structs st:LowIRStruct i {
+      if (st.name != className) {
+        continue
+      }
+      for st.fields f:LowIRField i {
+        if (f.name == fieldName) {
+          return f.isBool
+        }
+      }
+    }
+    return false
+  }
+
+  fn ptrArrayDescFromVref:string (vref:string lctx:LowIRLowerContext) {
+    if ((indexOf vref ".") >= 0) {
+      def parts:[string] (strsplit vref ".")
+      if ((array_length parts) < 2) {
+        return ""
+      }
+      def recv (itemAt parts 0)
+      def fld (itemAt parts 1)
+      def cls (this.resolveObjectClass(recv lctx))
+      if ((strlen cls) == 0) {
+        return ""
+      }
+      if (this.fieldIsPtrArraySlot(cls fld) == false) {
+        return ""
+      }
+      def sptr (this.resolveObjectPtr(recv cls lctx))
+      return (this.emitFieldLoadOn(cls sptr fld lctx))
+    }
+    if (this.isClassField(vref lctx.className this.irModule)) {
+      if (this.fieldIsPtrArraySlot(lctx.className vref)) {
+        return (this.emitFieldLoad(vref lctx))
+      }
+    }
+    if (has lctx.collectionSlots vref) {
+      def kind (unwrap (get lctx.collectionSlots vref))
+      if (kind == "ptr_array") {
+        return (this.loadSlot(vref lctx.ptrType lctx))
+      }
+    }
+    return ""
+  }
+
+  fn loadPtrArrayDescExpr:string (arrNode:CodeNode lctx:LowIRLowerContext) {
+    if (arrNode.value_type == RangerNodeType.VRef) {
+      def desc (this.ptrArrayDescFromVref(arrNode.vref lctx))
+      if ((strlen desc) > 0) {
+        return desc
+      }
+    }
+    return (this.lowerExpr(arrNode lctx))
+  }
+
+  fn emitPtrArrayLen:string (desc:string lctx:LowIRLowerContext) {
+    this.usedPtrArrayRuntime = true
+    def args:[string]
+    def argTypes:[string]
+    push args desc
+    push argTypes lctx.ptrType
+    return (lctx.builder.emitCall("RtPtrArray_len" "i32" args argTypes))
+  }
+
+  fn lowerItemAt:string (node:CodeNode lctx:LowIRLowerContext) {
+    def arrNode (node.getSecond())
+    def idxNode (node.getThird())
+    def idx (this.lowerExpr(idxNode lctx))
+    if (arrNode.value_type == RangerNodeType.VRef) {
+      def kind (this.collectionKind(arrNode.vref lctx))
+      if (kind == "array") {
+        def desc (this.loadCollectionDesc(arrNode.vref lctx))
+        return (this.emitRtArrayGet(desc idx lctx))
+      }
+      if (kind == "ptr_array") {
+        def desc (this.loadSlot(arrNode.vref lctx.ptrType lctx))
+        this.usedPtrArrayRuntime = true
+        def args:[string]
+        def argTypes:[string]
+        push args desc
+        push argTypes lctx.ptrType
+        push args idx
+        push argTypes "i32"
+        return (lctx.builder.emitCall("RtPtrArray_get" lctx.ptrType args argTypes))
+      }
+    }
+    def desc (this.loadPtrArrayDescExpr(arrNode lctx))
+    this.usedPtrArrayRuntime = true
+    def args:[string]
+    def argTypes:[string]
+    push args desc
+    push argTypes lctx.ptrType
+    push args idx
+    push argTypes "i32"
+    return (lctx.builder.emitCall("RtPtrArray_get" lctx.ptrType args argTypes))
+  }
+
   fn emitFieldLoadOn:string (className:string structPtr:string fieldName:string lctx:LowIRLowerContext) {
     def builder (lctx.builder)
     def idx (this.findFieldIndex(className fieldName this.irModule))
     def fieldPtr (builder.emitGep(className structPtr idx))
     def ftype (this.fieldIrTypeFor(className fieldName))
-    return (builder.emitLoad(ftype fieldPtr))
+    def raw (builder.emitLoad(ftype fieldPtr))
+    if (this.fieldIsStringSlot(className fieldName)) {
+      return (builder.emitIntToI8Ptr(raw lctx.ptrType))
+    }
+    if (this.fieldIsBoolSlot(className fieldName)) {
+      def zero (builder.emitConst("i32" "0"))
+      return (builder.emitIcmp("ne" raw zero))
+    }
+    return raw
   }
 
   fn emitFieldStoreOn:void (className:string structPtr:string fieldName:string value:string lctx:LowIRLowerContext) {
@@ -936,7 +1427,16 @@ class LowIRBuilderPass {
     def idx (this.findFieldIndex(className fieldName this.irModule))
     def fieldPtr (builder.emitGep(className structPtr idx))
     def ftype (this.fieldIrTypeFor(className fieldName))
-    builder.emitStore(ftype value fieldPtr)
+    def storeVal:string value
+    if (this.fieldIsStringSlot(className fieldName)) {
+      def owned (this.emitStrdupExpr(value lctx))
+      storeVal = (builder.emitPtrToInt(owned))
+    } {
+      if (this.fieldIsBoolSlot(className fieldName)) {
+        storeVal = (builder.emitZextI1ToI32(value))
+      }
+    }
+    builder.emitStore(ftype storeVal fieldPtr)
   }
 
   fn emitFieldLoad:string (fieldName:string lctx:LowIRLowerContext) {
@@ -1005,11 +1505,7 @@ class LowIRBuilderPass {
   }
 
   fn emitFieldDefault:void (className:string objPtr:string fieldName:string valNode:CodeNode lctx:LowIRLowerContext) {
-    def builder (lctx.builder)
     def tmp (this.lowerExpr(valNode lctx))
-    if (valNode.value_type == RangerNodeType.Boolean) {
-      tmp = (builder.emitZextI1ToI32(tmp))
-    }
     this.emitFieldStoreOn(className objPtr fieldName tmp lctx)
   }
 
@@ -1037,7 +1533,7 @@ class LowIRBuilderPass {
     this.initFieldDefaultsInObject(className lctx.selfPtr lctx)
   }
 
-  fn initArrayFieldsInConstructor:void (className:string lctx:LowIRLowerContext) {
+  fn initArrayFieldsInObject:void (className:string objPtr:string lctx:LowIRLowerContext) {
     for this.irModule.structs st:LowIRStruct i {
       if (st.name != className) {
         continue
@@ -1046,40 +1542,100 @@ class LowIRBuilderPass {
         if (f.isPtrArray == false) {
           continue
         }
-        def cap (lctx.builder.emitConst("i32" "32"))
+        def cap (lctx.builder.emitConst("i32" "256"))
         def args:[string]
         def argTypes:[string]
         push args cap
         push argTypes "i32"
         this.usedPtrArrayRuntime = true
         def desc (lctx.builder.emitCall("RtPtrArray_new" lctx.ptrType args argTypes))
-        this.emitFieldStore(f.name desc lctx)
+        this.emitFieldStoreOn(className objPtr f.name desc lctx)
       }
     }
   }
 
+  fn initArrayFieldsInConstructor:void (className:string lctx:LowIRLowerContext) {
+    this.initArrayFieldsInObject(className lctx.selfPtr lctx)
+  }
+
+  fn structByteSize:int (className:string module:LowIRModule) {
+    for module.structs st:LowIRStruct i {
+      if (st.name != className) {
+        continue
+      }
+      def size:int 0
+      for st.fields f:LowIRField i {
+        def fsize:int 4
+        def falign:int 4
+        if (f.irType != "i32") {
+          fsize = 8
+          falign = 8
+        }
+        def rem:int (size % falign)
+        if (rem != 0) {
+          size = size + (falign - rem)
+        }
+        size = size + fsize
+      }
+      def remEnd:int (size % 8)
+      if (remEnd != 0) {
+        size = size + (8 - remEnd)
+      }
+      return size
+    }
+    return 0
+  }
+
   fn lowerNewObject:string (className:string argsNode:CodeNode lctx:LowIRLowerContext) {
     def builder (lctx.builder)
-    def fieldCnt (this.structFieldCount(className this.irModule))
-    def byteCnt (fieldCnt * 4)
-    if (lctx.ptrType == "i64") {
-      byteCnt = fieldCnt * 8
+    def byteCnt (this.structByteSize(className this.irModule))
+    if (byteCnt == 0) {
+      def fieldCnt (this.structFieldCount(className this.irModule))
+      byteCnt = fieldCnt * 4
+      if (lctx.ptrType == "i64") {
+        byteCnt = fieldCnt * 8
+      }
     }
-    def bytes (builder.emitConst(lctx.ptrType ("" + byteCnt)))
+    def bytes (builder.emitConst("i32" ("" + byteCnt)))
     def heapAddr (builder.emitHeapAlloc(bytes))
     def objSlot (builder.emitIntToStructPtr(className heapAddr))
     this.initFieldDefaultsInObject(className objSlot lctx)
-    def ctorName (LowIRUtil.mangleMethod(className "Constructor"))
-    def args:[string]
-    def argTypes:[string]
-    push args objSlot
-    push argTypes (LowIRUtil.structPtrType(className))
-    for argsNode.children arg:CodeNode i {
-      push args (this.lowerExpr(arg lctx))
-      push argTypes "i32"
+    def ctorDesc@(optional):RangerAppFunctionDesc
+    if (!null? lctx.ctx) {
+      def appCtx (unwrap lctx.ctx)
+      if (has appCtx.definedClasses className) {
+        def cl (unwrap (get appCtx.definedClasses className))
+        if cl.has_constructor {
+          if (!null? cl.constructor_fn) {
+            ctorDesc = (unwrap cl.constructor_fn)
+          }
+        }
+        if (null? ctorDesc) {
+          for cl.methods m:RangerAppFunctionDesc i {
+            if (m.name == "Constructor") {
+              ctorDesc = m
+            }
+          }
+        }
+      }
     }
-    def voidType:string "void"
-    builder.emitCall(ctorName voidType args argTypes)
+    if (!null? ctorDesc) {
+      def ctorName (LowIRUtil.mangleMethod(className "Constructor"))
+      def args:[string]
+      def argTypes:[string]
+      push args objSlot
+      push argTypes (LowIRUtil.structPtrType(className))
+      def argIdx:int 0
+      for argsNode.children arg:CodeNode i {
+        push args (this.lowerExpr(arg lctx))
+        push argTypes (this.paramIrTypeFromDesc(argIdx (unwrap ctorDesc) lctx))
+        argIdx = argIdx + 1
+      }
+      def voidType:string "void"
+      builder.emitCall(ctorName voidType args argTypes)
+    } {
+      this.initArrayFieldsInObject(className objSlot lctx)
+    }
     return heapAddr
   }
 
@@ -1142,8 +1698,9 @@ class LowIRBuilderPass {
       lctx.llvmRetType = voidType
     } {
       def retNode (unwrap fnDesc.nameNode)
-      lctx.currentRetType = (LowIRUtil.typeFromRanger(retNode.type_name))
-      lctx.llvmRetType = lctx.currentRetType
+      def retTypeName (this.varTypeName(retNode))
+      lctx.currentRetType = retTypeName
+      lctx.llvmRetType = (this.llvmTypeForRanger(retTypeName lctx.ptrType))
     }
     if isMain {
       lctx.llvmRetType = "i32"
@@ -1166,14 +1723,8 @@ class LowIRBuilderPass {
         lp.name = p.name
       }
       def pn (unwrap p.nameNode)
-      if (LowIRUtil.isStringType(pn.type_name)) {
-        lp.irType = "i8*"
-      } {
-        lp.irType = (LowIRUtil.typeFromRanger(pn.type_name))
-        if ((strlen lp.irType) == 0) {
-          lp.irType = "i32"
-        }
-      }
+      def paramTypeName (this.varTypeName(pn))
+      lp.irType = (this.llvmTypeForRanger(paramTypeName lctx.ptrType))
       push params lp
     }
 
@@ -1204,12 +1755,16 @@ class LowIRBuilderPass {
         lpName = p.name
       }
       def pn (unwrap p.nameNode)
-      def pType (LowIRUtil.typeFromRanger(pn.type_name))
-      if (LowIRUtil.isStringType(pn.type_name)) {
-        pType = "i8*"
-      }
+      def paramTypeName (this.varTypeName(pn))
+      def pType (this.llvmTypeForRanger(paramTypeName lctx.ptrType))
       def paramVal:string ("%" + lpName)
       this.bindSlot(p.name pType paramVal lctx)
+      if (LowIRUtil.isArrayTypeName(paramTypeName)) {
+        set lctx.collectionSlots p.name "ptr_array"
+      }
+      if (this.isObjectTypeName(paramTypeName)) {
+        set lctx.objectSlots p.name paramTypeName
+      }
     }
 
     if (!null? fnDesc.fnBody) {
@@ -1393,6 +1948,11 @@ class LowIRBuilderPass {
         this.bindCollectionSlot(varName "array" emptyArr lctx)
         return
       }
+      if (this.isObjectPtrArrayTypeNode(nameNode)) {
+        def emptyPtrArr (this.emitPtrArrayNewEmpty(lctx))
+        this.bindPtrArraySlot(varName emptyPtrArr lctx)
+        return
+      }
       if (this.isIntIntMapTypeNode(nameNode)) {
         def eight (lctx.builder.emitConst("i32" "8"))
         def newMap (this.emitRtMapNew(eight lctx))
@@ -1406,17 +1966,30 @@ class LowIRBuilderPass {
       def valOp (val.getOperator())
       if (valOp == "make") {
         def made (this.lowerCollectionMake(val lctx))
-        this.bindCollectionSlot(varName "array" made lctx)
+        if (this.isObjectPtrArrayTypeNode(nameNode)) {
+          this.bindPtrArraySlot(varName made lctx)
+        } {
+          this.bindCollectionSlot(varName "array" made lctx)
+        }
         return
       }
     }
     if (val.has_call || val.is_direct_method_call || val.hasFnCall) {
       def callTmp (this.lowerCall(val lctx))
       def irTypeFromCall:string "i32"
-      if ((strlen nameNode.type_name) > 0) {
-        def mappedCall (LowIRUtil.typeFromRanger(nameNode.type_name))
-        if ((strlen mappedCall) > 0) {
-          irTypeFromCall = mappedCall
+      def typeName (this.varTypeName(nameNode))
+      if ((strlen typeName) == 0) {
+        if (!null? val.fnDesc) {
+          if (!null? val.fnDesc.nameNode) {
+            def retNode (unwrap val.fnDesc.nameNode)
+            typeName = (this.varTypeName(retNode))
+          }
+        }
+      }
+      if ((strlen typeName) > 0) {
+        irTypeFromCall = (this.llvmTypeForRanger(typeName lctx.ptrType))
+        if (this.isObjectTypeName(typeName)) {
+          set lctx.objectSlots varName typeName
         }
       }
       this.bindSlot(varName irTypeFromCall callTmp lctx)
@@ -1433,19 +2006,16 @@ class LowIRBuilderPass {
       }
     }
     def tmp (this.lowerExpr(val lctx))
-    def irType:string "i32"
-    if (LowIRUtil.isStringType(nameNode.type_name)) {
-      irType = "i8*"
-    } {
-      if ((strlen nameNode.type_name) > 0) {
-        def mapped (LowIRUtil.typeFromRanger(nameNode.type_name))
-        if ((strlen mapped) > 0) {
-          irType = mapped
-        }
-      }
-    }
+    def typeName (this.varTypeName(nameNode))
+    def irType (this.llvmTypeForRanger(typeName lctx.ptrType))
     if (val.value_type == RangerNodeType.Boolean) {
       irType = "i1"
+    }
+    if (this.isObjectTypeName(typeName)) {
+      set lctx.objectSlots varName typeName
+    }
+    if (irType == "i8*") {
+      tmp = (this.emitStrdupExpr(tmp lctx))
     }
     this.bindSlot(varName irType tmp lctx)
   }
@@ -1458,18 +2028,16 @@ class LowIRBuilderPass {
     def irType:string "i32"
     def builder (lctx.builder)
     if ((indexOf varName ".") >= 0) {
-      def fieldPtr (this.resolveFieldPtrExpr(varName lctx))
-      if ((strlen fieldPtr) > 0) {
-        def parts:[string] (strsplit varName ".")
+      def parts:[string] (strsplit varName ".")
+      if ((array_length parts) >= 2) {
         def recv (itemAt parts 0)
         def fld (itemAt parts 1)
         def cls (this.resolveObjectClass(recv lctx))
-        def ftype (this.fieldIrTypeFor(cls fld))
-        if (rhs.value_type == RangerNodeType.Boolean) {
-          tmp = (builder.emitZextI1ToI32(tmp))
+        if ((strlen cls) > 0) {
+          def sptr (this.resolveObjectPtr(recv cls lctx))
+          this.emitFieldStoreOn(cls sptr fld tmp lctx)
+          return
         }
-        builder.emitStore(ftype tmp fieldPtr)
-        return
       }
     }
     if (this.isClassField(varName lctx.className this.irModule)) {
@@ -1490,6 +2058,9 @@ class LowIRBuilderPass {
           tmp = (builder.emitZextI1ToI32(tmp))
           storeType = "i32"
         }
+      }
+      if (storeType == "i8*") {
+        tmp = (this.emitStrdupExpr(tmp lctx))
       }
       builder.emitStore(storeType tmp slot)
       return
@@ -1543,19 +2114,83 @@ class LowIRBuilderPass {
     return false
   }
 
-  fn exprProducesI1:boolean (node:CodeNode) {
-    if node.has_operator {
-      def op (node.getOperator())
-      return (this.isCompareOp(op))
-    }
+  fn unwrapInfixExpr:CodeNode (node:CodeNode) {
     if node.infix_operator {
       if (!null? node.infix_node) {
-        def infix (unwrap node.infix_node)
-        if infix.has_operator {
-          def op (infix.getOperator())
-          return (this.isCompareOp(op))
+        return (unwrap node.infix_node)
+      }
+    }
+    return node
+  }
+
+  fn unwrapCondExpr:CodeNode (node:CodeNode) {
+    def n (this.unwrapInfixExpr(node))
+    if n.expression {
+      def ecnt (array_length n.children)
+      if (ecnt == 1) {
+        return (this.unwrapCondExpr((itemAt n.children 0)))
+      }
+    }
+    return n
+  }
+
+  fn exprProducesI1:boolean (node:CodeNode lctx:LowIRLowerContext) {
+    def exprNode (this.unwrapCondExpr(node))
+    if (exprNode.value_type == RangerNodeType.Boolean) {
+      return true
+    }
+    if (exprNode.has_call || exprNode.is_direct_method_call || exprNode.hasFnCall) {
+      if (!null? exprNode.fnDesc) {
+        def fd (unwrap exprNode.fnDesc)
+        if (!null? fd.nameNode) {
+          def rn (unwrap fd.nameNode)
+          if (rn.type_name == "boolean") {
+            return true
+          }
         }
       }
+    }
+    if (exprNode.value_type == RangerNodeType.VRef) {
+      if (has lctx.slotTypes exprNode.vref) {
+        def st (unwrap (get lctx.slotTypes exprNode.vref))
+        if (st == "i1") {
+          return true
+        }
+      }
+      if (this.isClassField(exprNode.vref lctx.className this.irModule)) {
+        if (this.fieldIsBoolSlot(lctx.className exprNode.vref)) {
+          return true
+        }
+      }
+      if ((indexOf exprNode.vref ".") >= 0) {
+        def parts:[string] (strsplit exprNode.vref ".")
+        if ((array_length parts) >= 2) {
+          def recv (itemAt parts 0)
+          def fld (itemAt parts 1)
+          def cls (this.resolveObjectClass(recv lctx))
+          if ((strlen cls) > 0) {
+            if (this.fieldIsBoolSlot(cls fld)) {
+              return true
+            }
+          }
+        }
+      }
+    }
+    if exprNode.has_operator {
+      def op (exprNode.getOperator())
+      if (op == "||") {
+        return true
+      }
+      if (op == "&&") {
+        return true
+      }
+      if (op == "null?") {
+        return true
+      }
+      if (op == "!null?") {
+        return true
+      }
+      return (this.isCompareOp(op))
     }
     return false
   }
@@ -1573,8 +2208,9 @@ class LowIRBuilderPass {
 
   fn lowerCond:string (node:CodeNode lctx:LowIRLowerContext) {
     def builder (lctx.builder)
-    if (node.value_type == RangerNodeType.VRef) {
-      def vref:string node.vref
+    def condNode (this.unwrapCondExpr(node))
+    if (condNode.value_type == RangerNodeType.VRef) {
+      def vref:string condNode.vref
       if (has lctx.slotTypes vref) {
         def st (unwrap (get lctx.slotTypes vref))
         if (st == "i1") {
@@ -1582,23 +2218,16 @@ class LowIRBuilderPass {
         }
       }
       if (this.isClassField(vref lctx.className this.irModule)) {
-        def ftype (this.fieldIrTypeFor(lctx.className vref))
-        if (ftype == "i1") {
-          def loaded (this.emitFieldLoad(vref lctx))
-          return loaded
-        }
-        if (ftype == "i32") {
-          def loaded (this.emitFieldLoad(vref lctx))
-          def zero (builder.emitConst("i32" "0"))
-          return (builder.emitIcmp("ne" loaded zero))
+        if (this.fieldIsBoolSlot(lctx.className vref)) {
+          return (this.emitFieldLoad(vref lctx))
         }
       }
     }
-    def v (this.lowerExpr(node lctx))
-    if (this.exprProducesI1(node)) {
+    def v (this.lowerExpr(condNode lctx))
+    if (this.exprProducesI1(condNode lctx)) {
       return v
     }
-    def vref (this.condVref(node))
+    def vref (this.condVref(condNode))
     if ((strlen vref) > 0) {
       if (has lctx.slotTypes vref) {
         def st (unwrap (get lctx.slotTypes vref))
@@ -1719,6 +2348,12 @@ class LowIRBuilderPass {
       }
       if (opName == "length") {
         def lenNode (node.getSecond())
+        if (lenNode.value_type == RangerNodeType.VRef) {
+          def pdesc (this.ptrArrayDescFromVref(lenNode.vref lctx))
+          if ((strlen pdesc) > 0) {
+            return (this.emitPtrArrayLen(pdesc lctx))
+          }
+        }
         if ((strlen (this.collectionKind(lenNode.vref lctx))) > 0) {
           return (this.lowerCollectionLen(node lctx))
         }
@@ -1726,11 +2361,51 @@ class LowIRBuilderPass {
           return (this.lowerStrlen(node lctx))
         }
       }
+      if (opName == "itemAt") {
+        return (this.lowerItemAt(node lctx))
+      }
       if (opName == "make") {
         return (this.lowerCollectionMake(node lctx))
       }
       if (opName == "poll_keypress") {
         return (this.lowerPollKeypress(lctx))
+      }
+      if (opName == "shell_arg_cnt") {
+        return (this.lowerShellArgCnt(lctx))
+      }
+      if (opName == "shell_arg") {
+        return (this.lowerShellArg(node lctx))
+      }
+      if (opName == "read_file") {
+        return (this.lowerReadFile(node lctx))
+      }
+      if (opName == "charAt") {
+        return (this.lowerCharAt(node lctx))
+      }
+      if (opName == "at") {
+        return (this.lowerAt(node lctx))
+      }
+      if (opName == "null?") {
+        def argNode (node.getSecond())
+        def ptr (this.lowerExpr(argNode lctx))
+        if (this.exprIsObjectPtr(argNode lctx)) {
+          def zero (builder.emitConst(lctx.ptrType "0"))
+          return (builder.emitIcmpTyped("eq" lctx.ptrType ptr zero))
+        }
+        return (this.lowerPtrIsNull(ptr lctx))
+      }
+      if (opName == "!null?") {
+        def argNode (node.getSecond())
+        def ptr (this.lowerExpr(argNode lctx))
+        if (this.exprIsObjectPtr(argNode lctx)) {
+          def zero (builder.emitConst(lctx.ptrType "0"))
+          return (builder.emitIcmpTyped("ne" lctx.ptrType ptr zero))
+        }
+        return (this.lowerPtrIsNotNull(ptr lctx))
+      }
+      if (opName == "unwrap") {
+        def argNode (node.getSecond())
+        return (this.lowerExpr(argNode lctx))
       }
       def binResult (this.lowerBinaryOp(opName node lctx))
       if ((strlen binResult) > 0) {
@@ -1787,18 +2462,28 @@ class LowIRBuilderPass {
 
     if (node.value_type == RangerNodeType.VRef) {
       if ((indexOf node.vref ".") >= 0) {
-        def fieldPtr (this.resolveFieldPtrExpr(node.vref lctx))
-        if ((strlen fieldPtr) > 0) {
-          def parts:[string] (strsplit node.vref ".")
+        def parts:[string] (strsplit node.vref ".")
+        if ((array_length parts) >= 2) {
           def recv (itemAt parts 0)
           def fld (itemAt parts 1)
           def cls (this.resolveObjectClass(recv lctx))
-          def ftype (this.fieldIrTypeFor(cls fld))
-          return (builder.emitLoad(ftype fieldPtr))
+          if ((strlen cls) > 0) {
+            def sptr (this.resolveObjectPtr(recv cls lctx))
+            return (this.emitFieldLoadOn(cls sptr fld lctx))
+          }
         }
       }
       if (this.isClassField(node.vref lctx.className this.irModule)) {
         return (this.emitFieldLoad(node.vref lctx))
+      }
+      if (has lctx.collectionSlots node.vref) {
+        def collKind (unwrap (get lctx.collectionSlots node.vref))
+        if (collKind == "ptr_array") {
+          return (this.loadSlot(node.vref lctx.ptrType lctx))
+        }
+        if (collKind == "array") {
+          return (this.loadCollectionDesc(node.vref lctx))
+        }
       }
       return (this.loadSlot(node.vref irI32 lctx))
     }
@@ -1815,12 +2500,55 @@ class LowIRBuilderPass {
   }
 
   fn exprIsStringish:boolean (node:CodeNode lctx:LowIRLowerContext) {
-    if (this.exprIsString(node)) {
+    def exprNode (this.unwrapCondExpr(node))
+    if (this.exprProducesI1(exprNode lctx)) {
+      return false
+    }
+    if (this.exprIsString(exprNode)) {
       return true
     }
-    if (node.value_type == RangerNodeType.VRef) {
-      if (has lctx.slotTypes node.vref) {
-        def st (unwrap (get lctx.slotTypes node.vref))
+    if (exprNode.has_call || exprNode.is_direct_method_call || exprNode.hasFnCall) {
+      if (!null? exprNode.fnDesc) {
+        def fd (unwrap exprNode.fnDesc)
+        if (!null? fd.nameNode) {
+          def rn (unwrap fd.nameNode)
+          if (LowIRUtil.isStringType(rn.type_name)) {
+            return true
+          }
+        }
+      }
+    }
+    if exprNode.has_operator {
+      if ((node.getOperator()) == "+") {
+        def aNode (node.getSecond())
+        def bNode (node.getThird())
+        if ((this.exprIsStringish(aNode lctx)) || (this.exprIsStringish(bNode lctx))) {
+          return true
+        }
+      }
+    }
+    if (exprNode.value_type == RangerNodeType.VRef) {
+      if (LowIRUtil.isStringType(exprNode.type_name)) {
+        return true
+      }
+      if (LowIRUtil.isStringType(exprNode.eval_type_name)) {
+        return true
+      }
+      if ((indexOf exprNode.vref ".") >= 0) {
+        def parts:[string] (strsplit exprNode.vref ".")
+        if ((array_length parts) >= 2) {
+          def recv (itemAt parts 0)
+          def fld (itemAt parts 1)
+          def cls (this.resolveObjectClass(recv lctx))
+          if ((strlen cls) > 0) {
+            if (this.fieldIsStringSlot(cls fld)) {
+              return true
+            }
+          }
+        }
+      }
+      if (has lctx.slotTypes exprNode.vref) {
+        def st (unwrap (get lctx.slotTypes exprNode.vref))
         if (st == "i8*") {
           return true
         }
@@ -1848,10 +2576,15 @@ class LowIRBuilderPass {
     def builder (lctx.builder)
     def a (this.lowerExpr(aNode lctx))
     def b (this.lowerExpr(bNode lctx))
-    if (aNode.value_type == RangerNodeType.Boolean) {
+    def aI1:boolean (this.exprProducesI1(aNode lctx))
+    def bI1:boolean (this.exprProducesI1(bNode lctx))
+    if (aI1 && bI1) {
+      return (builder.emitIcmpTyped(pred "i1" a b))
+    }
+    if (aI1 || (aNode.value_type == RangerNodeType.Boolean)) {
       a = (builder.emitZextI1ToI32(a))
     }
-    if (bNode.value_type == RangerNodeType.Boolean) {
+    if (bI1 || (bNode.value_type == RangerNodeType.Boolean)) {
       b = (builder.emitZextI1ToI32(b))
     }
     return (builder.emitIcmp(pred a b))
@@ -1864,7 +2597,7 @@ class LowIRBuilderPass {
       case "+" {
         def aNode (node.getSecond())
         def bNode (node.getThird())
-        if ((this.exprMightBeString(aNode)) || (this.exprMightBeString(bNode))) {
+        if ((this.exprMightBeString(aNode lctx)) || (this.exprMightBeString(bNode lctx))) {
           return (this.lowerStringConcat(aNode bNode lctx))
         }
         def a (this.lowerExpr(aNode lctx))
@@ -1923,18 +2656,32 @@ class LowIRBuilderPass {
       case "==" {
         def aNode (node.getSecond())
         def bNode (node.getThird())
-        if ((this.exprIsStringish(aNode lctx)) || (this.exprIsStringish(bNode lctx))) {
-          return (this.lowerStringCompare(aNode bNode "eq" lctx))
+        if (((this.exprProducesI1(aNode lctx)) == false) && ((this.exprProducesI1(bNode lctx)) == false)) {
+          if ((this.exprIsStringish(aNode lctx)) || (this.exprIsStringish(bNode lctx))) {
+            return (this.lowerStringCompare(aNode bNode "eq" lctx))
+          }
         }
         return (this.lowerCompareI32(aNode bNode "eq" lctx))
       }
       case "!=" {
         def aNode (node.getSecond())
         def bNode (node.getThird())
-        if ((this.exprIsStringish(aNode lctx)) || (this.exprIsStringish(bNode lctx))) {
-          return (this.lowerStringCompare(aNode bNode "ne" lctx))
+        if (((this.exprProducesI1(aNode lctx)) == false) && ((this.exprProducesI1(bNode lctx)) == false)) {
+          if ((this.exprIsStringish(aNode lctx)) || (this.exprIsStringish(bNode lctx))) {
+            return (this.lowerStringCompare(aNode bNode "ne" lctx))
+          }
         }
         return (this.lowerCompareI32(aNode bNode "ne" lctx))
+      }
+      case "||" {
+        def a (this.lowerExpr((node.getSecond()) lctx))
+        def b (this.lowerExpr((node.getThird()) lctx))
+        return (builder.emitBin("or" "i1" a b))
+      }
+      case "&&" {
+        def a (this.lowerExpr((node.getSecond()) lctx))
+        def b (this.lowerExpr((node.getThird()) lctx))
+        return (builder.emitBin("and" "i1" a b))
       }
     }
     return ""
@@ -2015,6 +2762,9 @@ class LowIRBuilderPass {
       }
     }
     def fnName:string (this.resolveCalleeName(calleeNode))
+    if (fnName == "at") {
+      return (this.lowerAtCall(argsNode lctx))
+    }
     def intrinsic (this.tryLowerIntrinsic(fnName argsNode lctx))
     if (intrinsic == "__void__") {
       return ""
@@ -2026,14 +2776,20 @@ class LowIRBuilderPass {
     if (!null? node.fnDesc) {
       if (!null? node.fnDesc.nameNode) {
         def rn (unwrap node.fnDesc.nameNode)
-        retType = (LowIRUtil.typeFromRanger(rn.type_name))
+        retType = (this.llvmTypeForRanger(rn.type_name lctx.ptrType))
       }
     }
     def args:[string]
     def argTypes:[string]
+    def argIdx:int 0
     for argsNode.children arg:CodeNode i {
       push args (this.lowerExpr(arg lctx))
-      push argTypes "i32"
+      if (!null? node.fnDesc) {
+        push argTypes (this.paramIrTypeFromDesc(argIdx (unwrap node.fnDesc) lctx))
+      } {
+        push argTypes (this.argIrType(arg lctx))
+      }
+      argIdx = argIdx + 1
     }
     return (builder.emitCall(fnName retType args argTypes))
   }
@@ -2124,6 +2880,18 @@ class LowIRBuilderPass {
     return "i32"
   }
 
+  fn paramIrTypeFromDesc:string (paramIndex:int fnDesc:RangerAppFunctionDesc lctx:LowIRLowerContext) {
+    if (paramIndex >= (array_length fnDesc.params)) {
+      return "i32"
+    }
+    def p (itemAt fnDesc.params paramIndex)
+    if (null? p.nameNode) {
+      return "i32"
+    }
+    def pn (unwrap p.nameNode)
+    return (this.llvmTypeForRanger(pn.type_name lctx.ptrType))
+  }
+
   fn lowerInstanceCallOn:string (node:CodeNode receiverName:string recvNode:CodeNode methodName:string lctx:LowIRLowerContext) {
     def builder (lctx.builder)
     def objPtr:string ""
@@ -2154,10 +2922,7 @@ class LowIRBuilderPass {
     if (!null? node.fnDesc) {
       if (!null? node.fnDesc.nameNode) {
         def rn (unwrap node.fnDesc.nameNode)
-        def mappedRet (LowIRUtil.typeFromRanger(rn.type_name))
-        if ((strlen mappedRet) > 0) {
-          retType = mappedRet
-        }
+        retType = (this.llvmTypeForRanger(rn.type_name lctx.ptrType))
       }
     } {
       if ((methName == "push") || (methName == "put") || (methName == "putAt") || (methName == "storeI32")) {
@@ -2169,9 +2934,15 @@ class LowIRBuilderPass {
     push args objPtr
     push argTypes (LowIRUtil.structPtrType(className))
     def argsNode (this.callArgsNode(node))
+    def argIdx:int 0
     for argsNode.children arg:CodeNode i {
       push args (this.lowerExpr(arg lctx))
-      push argTypes (this.argIrType(arg lctx))
+      if (!null? node.fnDesc) {
+        push argTypes (this.paramIrTypeFromDesc(argIdx (unwrap node.fnDesc) lctx))
+      } {
+        push argTypes (this.argIrType(arg lctx))
+      }
+      argIdx = argIdx + 1
     }
     return (builder.emitCall(fnName retType args argTypes))
   }

@@ -41,10 +41,12 @@ class LowIRRuntimeGen {
   static fn buildRtArraySet:void (module:LowIRModule) {
     def builder@(lives):LowIRBuilder (new LowIRBuilder(module))
     builder.reset()
+    def pt (module.ptrType)
+    def lenOff (LowIRRuntimeGen.arrayLenOff(module))
     def params:[LowIRParam]
     def descP@(lives):LowIRParam (new LowIRParam())
     descP.name = "desc"
-    descP.irType = "i32"
+    descP.irType = pt
     push params descP
     def idxP@(lives):LowIRParam (new LowIRParam())
     idxP.name = "idx"
@@ -56,13 +58,14 @@ class LowIRRuntimeGen {
     push params valP
     builder.startBlock("entry")
 
-    def data (LowIRRuntimeGen.emitDescLoad(builder "%desc" 0))
+    def data (LowIRRuntimeGen.emitDescLoad(builder module "%desc" 0))
     def four (builder.emitConst("i32" "4"))
-    def off (builder.emitBin("mul" "i32" "%idx" four))
-    def slot (builder.emitBin("add" "i32" data off))
-    builder.emitPtrStore(slot "%val")
+    def offI32 (builder.emitBin("mul" "i32" "%idx" four))
+    def off (builder.emitZextI32ToPtr(offI32))
+    def slot (builder.emitBin("add" pt data off))
+    builder.emitPtrStoreTyped(slot "%val" "i32")
 
-    def oldLen (LowIRRuntimeGen.emitDescLoad(builder "%desc" 4))
+    def oldLen (builder.emitI32At("%desc" lenOff))
     def one (builder.emitConst("i32" "1"))
     def idxPlus (builder.emitBin("add" "i32" "%idx" one))
     def needBump (builder.emitIcmp("slt" oldLen idxPlus))
@@ -71,7 +74,7 @@ class LowIRRuntimeGen {
     builder.terminateBrIf(needBump bumpLabel doneLabel)
 
     builder.startBlock(bumpLabel)
-    LowIRRuntimeGen.emitDescStore(builder "%desc" 4 idxPlus)
+    builder.emitStoreI32At("%desc" lenOff idxPlus)
     builder.terminateBr(doneLabel)
 
     builder.startBlock(doneLabel)
@@ -79,43 +82,75 @@ class LowIRRuntimeGen {
     LowIRRuntimeGen.finishFn(builder module "RtArray_set" "void" params false)
   }
 
-  static fn emitDescLoad:string (builder:LowIRBuilder desc:string byteOff:int) {
-    def off (builder.emitConst("i32" ("" + byteOff)))
-    def addr (builder.emitBin("add" "i32" desc off))
+  static fn arrayLenOff:int (module:LowIRModule) {
+    return (LowIRRuntimeGen.ptrBytes(module))
+  }
+
+  static fn arrayCapOff:int (module:LowIRModule) {
+    return ((LowIRRuntimeGen.ptrBytes(module)) + 4)
+  }
+
+  static fn arrayDescBytes:int (module:LowIRModule) {
+    return ((LowIRRuntimeGen.ptrBytes(module)) + 8)
+  }
+
+  static fn mapValsOff:int (module:LowIRModule) {
+    return (LowIRRuntimeGen.ptrBytes(module))
+  }
+
+  static fn mapCapOff:int (module:LowIRModule) {
+    return ((LowIRRuntimeGen.ptrBytes(module)) * 2)
+  }
+
+  static fn mapSizeOff:int (module:LowIRModule) {
+    return (((LowIRRuntimeGen.ptrBytes(module)) * 2) + 4)
+  }
+
+  static fn mapDescBytes:int (module:LowIRModule) {
+    return (((LowIRRuntimeGen.ptrBytes(module)) * 2) + 8)
+  }
+
+  static fn emitDescLoad:string (builder:LowIRBuilder module:LowIRModule desc:string byteOff:int) {
+    def pt (module.ptrType)
+    def off (builder.emitConst(pt ("" + byteOff)))
+    def addr (builder.emitBin("add" pt desc off))
     return (builder.emitPtrLoad(addr))
   }
 
-  static fn emitDescStore:void (builder:LowIRBuilder desc:string byteOff:int value:string) {
-    def off (builder.emitConst("i32" ("" + byteOff)))
-    def addr (builder.emitBin("add" "i32" desc off))
-    builder.emitPtrStore(addr value)
+  static fn emitKeysPtr:string (builder:LowIRBuilder module:LowIRModule desc:string) {
+    return (LowIRRuntimeGen.emitDescLoad(builder module desc 0))
   }
 
-  static fn emitKeysPtr:string (builder:LowIRBuilder desc:string) {
-    return (LowIRRuntimeGen.emitDescLoad(builder desc 0))
+  static fn emitValsPtr:string (builder:LowIRBuilder module:LowIRModule desc:string) {
+    def valsOff (LowIRRuntimeGen.mapValsOff(module))
+    return (LowIRRuntimeGen.emitDescLoad(builder module desc valsOff))
   }
 
-  static fn emitValsPtr:string (builder:LowIRBuilder desc:string) {
-    return (LowIRRuntimeGen.emitDescLoad(builder desc 4))
+  static fn emitCap:string (builder:LowIRBuilder module:LowIRModule desc:string) {
+    def capOff (LowIRRuntimeGen.mapCapOff(module))
+    return (builder.emitI32At(desc capOff))
   }
 
-  static fn emitCap:string (builder:LowIRBuilder desc:string) {
-    return (LowIRRuntimeGen.emitDescLoad(builder desc 8))
+  static fn emitSize:string (builder:LowIRBuilder module:LowIRModule desc:string) {
+    def sizeOff (LowIRRuntimeGen.mapSizeOff(module))
+    return (builder.emitI32At(desc sizeOff))
   }
 
-  static fn emitSize:string (builder:LowIRBuilder desc:string) {
-    return (LowIRRuntimeGen.emitDescLoad(builder desc 12))
-  }
-
-  static fn emitSlotAddr:string (builder:LowIRBuilder base:string slot:string) {
+  static fn emitSlotAddr:string (builder:LowIRBuilder module:LowIRModule base:string slot:string) {
+    def pt (module.ptrType)
     def four (builder.emitConst("i32" "4"))
-    def off (builder.emitBin("mul" "i32" slot four))
-    return (builder.emitBin("add" "i32" base off))
+    def offI32 (builder.emitBin("mul" "i32" slot four))
+    def off (builder.emitZextI32ToPtr(offI32))
+    return (builder.emitBin("add" pt base off))
   }
 
   static fn buildRtMapNew:void (module:LowIRModule) {
     def builder@(lives):LowIRBuilder (new LowIRBuilder(module))
     builder.reset()
+    def pt (module.ptrType)
+    def valsOff (LowIRRuntimeGen.mapValsOff(module))
+    def capOff (LowIRRuntimeGen.mapCapOff(module))
+    def sizeOff (LowIRRuntimeGen.mapSizeOff(module))
     def params:[LowIRParam]
     def capP@(lives):LowIRParam (new LowIRParam())
     capP.name = "cap"
@@ -123,17 +158,19 @@ class LowIRRuntimeGen {
     push params capP
     builder.startBlock("entry")
 
-    def sixteen (builder.emitConst("i32" "16"))
-    def desc (builder.emitHeapAlloc(sixteen))
+    def descBytes (builder.emitConst("i32" ("" + (LowIRRuntimeGen.mapDescBytes(module)))))
+    def desc (builder.emitHeapAlloc(descBytes))
     def four (builder.emitConst("i32" "4"))
     def nbytes (builder.emitBin("mul" "i32" "%cap" four))
     def keys (builder.emitHeapAlloc(nbytes))
     def vals (builder.emitHeapAlloc(nbytes))
-    LowIRRuntimeGen.emitDescStore(builder desc 0 keys)
-    LowIRRuntimeGen.emitDescStore(builder desc 4 vals)
-    LowIRRuntimeGen.emitDescStore(builder desc 8 "%cap")
+    builder.emitPtrStore(desc keys)
+    def valsFld (builder.emitConst(pt ("" + valsOff)))
+    def valsAddr (builder.emitBin("add" pt desc valsFld))
+    builder.emitPtrStore(valsAddr vals)
+    builder.emitStoreI32At(desc capOff "%cap")
     def zero (builder.emitConst("i32" "0"))
-    LowIRRuntimeGen.emitDescStore(builder desc 12 zero)
+    builder.emitStoreI32At(desc sizeOff zero)
 
     def iSlot (builder.freshTemp("i"))
     builder.emitAlloca("i32" iSlot)
@@ -149,27 +186,28 @@ class LowIRRuntimeGen {
     builder.terminateBrIf(ltCap bodyLabel doneLabel)
 
     builder.startBlock(bodyLabel)
-    def keysPtr (LowIRRuntimeGen.emitKeysPtr(builder desc))
-    def kp (LowIRRuntimeGen.emitSlotAddr(builder keysPtr iVal))
+    def keysPtr (LowIRRuntimeGen.emitKeysPtr(builder module desc))
+    def kp (LowIRRuntimeGen.emitSlotAddr(builder module keysPtr iVal))
     def negOne (builder.emitConst("i32" "-1"))
-    builder.emitPtrStore(kp negOne)
+    builder.emitPtrStoreTyped(kp negOne "i32")
     def one (builder.emitConst("i32" "1"))
     def iNext (builder.emitBin("add" "i32" iVal one))
     builder.emitStore("i32" iNext iSlot)
     builder.terminateBr(condLabel)
 
     builder.startBlock(doneLabel)
-    builder.terminateRet("i32" desc)
-    LowIRRuntimeGen.finishFn(builder module "RtMap_new" "i32" params false)
+    builder.terminateRet(pt desc)
+    LowIRRuntimeGen.finishFn(builder module "RtMap_new" pt params false)
   }
 
   static fn buildRtMapHashSlot:void (module:LowIRModule) {
     def builder@(lives):LowIRBuilder (new LowIRBuilder(module))
     builder.reset()
+    def pt (module.ptrType)
     def params:[LowIRParam]
     def descP@(lives):LowIRParam (new LowIRParam())
     descP.name = "desc"
-    descP.irType = "i32"
+    descP.irType = pt
     push params descP
     def keyP@(lives):LowIRParam (new LowIRParam())
     keyP.name = "key"
@@ -177,7 +215,7 @@ class LowIRRuntimeGen {
     push params keyP
     builder.startBlock("entry")
 
-    def cap (LowIRRuntimeGen.emitCap(builder "%desc"))
+    def cap (LowIRRuntimeGen.emitCap(builder module "%desc"))
     def h (builder.emitBin("srem" "i32" "%key" cap))
     def zero (builder.emitConst("i32" "0"))
     def neg (builder.emitIcmp("slt" h zero))
@@ -197,10 +235,12 @@ class LowIRRuntimeGen {
   static fn buildRtMapPutAt:void (module:LowIRModule) {
     def builder@(lives):LowIRBuilder (new LowIRBuilder(module))
     builder.reset()
+    def pt (module.ptrType)
+    def sizeOff (LowIRRuntimeGen.mapSizeOff(module))
     def params:[LowIRParam]
     def descP@(lives):LowIRParam (new LowIRParam())
     descP.name = "desc"
-    descP.irType = "i32"
+    descP.irType = pt
     push params descP
     def slotP@(lives):LowIRParam (new LowIRParam())
     slotP.name = "slot"
@@ -216,18 +256,18 @@ class LowIRRuntimeGen {
     push params valP
     builder.startBlock("entry")
 
-    def cap (LowIRRuntimeGen.emitCap(builder "%desc"))
+    def cap (LowIRRuntimeGen.emitCap(builder module "%desc"))
     def geCap (builder.emitIcmp("sge" "%slot" cap))
     def retLabel (builder.freshLabel("putat_ret"))
     def bodyLabel (builder.freshLabel("putat_body"))
     builder.terminateBrIf(geCap retLabel bodyLabel)
 
     builder.startBlock(bodyLabel)
-    def keysPtr (LowIRRuntimeGen.emitKeysPtr(builder "%desc"))
-    def valsPtr (LowIRRuntimeGen.emitValsPtr(builder "%desc"))
-    def kp (LowIRRuntimeGen.emitSlotAddr(builder keysPtr "%slot"))
-    def vp (LowIRRuntimeGen.emitSlotAddr(builder valsPtr "%slot"))
-    def k (builder.emitPtrLoad(kp))
+    def keysPtr (LowIRRuntimeGen.emitKeysPtr(builder module "%desc"))
+    def valsPtr (LowIRRuntimeGen.emitValsPtr(builder module "%desc"))
+    def kp (LowIRRuntimeGen.emitSlotAddr(builder module keysPtr "%slot"))
+    def vp (LowIRRuntimeGen.emitSlotAddr(builder module valsPtr "%slot"))
+    def k (builder.emitPtrLoadTyped(kp "i32"))
     def negOne (builder.emitConst("i32" "-1"))
     def eqKey (builder.emitIcmp("eq" k "%key"))
     def updLabel (builder.freshLabel("putat_upd"))
@@ -241,16 +281,16 @@ class LowIRRuntimeGen {
     builder.terminateBrIf(isEmpty emptyLabel recurseLabel)
 
     builder.startBlock(emptyLabel)
-    builder.emitPtrStore(kp "%key")
-    builder.emitPtrStore(vp "%val")
-    def size (LowIRRuntimeGen.emitSize(builder "%desc"))
+    builder.emitPtrStoreTyped(kp "%key" "i32")
+    builder.emitPtrStoreTyped(vp "%val" "i32")
+    def size (LowIRRuntimeGen.emitSize(builder module "%desc"))
     def one (builder.emitConst("i32" "1"))
     def newSize (builder.emitBin("add" "i32" size one))
-    LowIRRuntimeGen.emitDescStore(builder "%desc" 12 newSize)
+    builder.emitStoreI32At("%desc" sizeOff newSize)
     builder.terminateRet("void" "")
 
     builder.startBlock(updLabel)
-    builder.emitPtrStore(vp "%val")
+    builder.emitPtrStoreTyped(vp "%val" "i32")
     builder.terminateRet("void" "")
 
     builder.startBlock(recurseLabel)
@@ -260,7 +300,7 @@ class LowIRRuntimeGen {
     def args:[string]
     def argTypes:[string]
     push args "%desc"
-    push argTypes "i32"
+    push argTypes pt
     push args nextMod
     push argTypes "i32"
     push args "%key"
@@ -278,10 +318,11 @@ class LowIRRuntimeGen {
   static fn buildRtMapPut:void (module:LowIRModule) {
     def builder@(lives):LowIRBuilder (new LowIRBuilder(module))
     builder.reset()
+    def pt (module.ptrType)
     def params:[LowIRParam]
     def descP@(lives):LowIRParam (new LowIRParam())
     descP.name = "desc"
-    descP.irType = "i32"
+    descP.irType = pt
     push params descP
     def keyP@(lives):LowIRParam (new LowIRParam())
     keyP.name = "key"
@@ -296,7 +337,7 @@ class LowIRRuntimeGen {
     def hashArgs:[string]
     def hashTypes:[string]
     push hashArgs "%desc"
-    push hashTypes "i32"
+    push hashTypes pt
     push hashArgs "%key"
     push hashTypes "i32"
     def start (builder.emitCall("RtMap_hashSlot" "i32" hashArgs hashTypes))
@@ -304,7 +345,7 @@ class LowIRRuntimeGen {
     def putArgs:[string]
     def putTypes:[string]
     push putArgs "%desc"
-    push putTypes "i32"
+    push putTypes pt
     push putArgs start
     push putTypes "i32"
     push putArgs "%key"
@@ -319,10 +360,11 @@ class LowIRRuntimeGen {
   static fn buildRtMapGetAt:void (module:LowIRModule) {
     def builder@(lives):LowIRBuilder (new LowIRBuilder(module))
     builder.reset()
+    def pt (module.ptrType)
     def params:[LowIRParam]
     def descP@(lives):LowIRParam (new LowIRParam())
     descP.name = "desc"
-    descP.irType = "i32"
+    descP.irType = pt
     push params descP
     def slotP@(lives):LowIRParam (new LowIRParam())
     slotP.name = "slot"
@@ -334,7 +376,7 @@ class LowIRRuntimeGen {
     push params keyP
     builder.startBlock("entry")
 
-    def cap (LowIRRuntimeGen.emitCap(builder "%desc"))
+    def cap (LowIRRuntimeGen.emitCap(builder module "%desc"))
     def negOne (builder.emitConst("i32" "-1"))
     def negRet (builder.freshLabel("getat_neg"))
     def bodyLabel (builder.freshLabel("getat_body"))
@@ -342,9 +384,9 @@ class LowIRRuntimeGen {
     builder.terminateBrIf(geCap negRet bodyLabel)
 
     builder.startBlock(bodyLabel)
-    def keysPtr (LowIRRuntimeGen.emitKeysPtr(builder "%desc"))
-    def kp (LowIRRuntimeGen.emitSlotAddr(builder keysPtr "%slot"))
-    def k (builder.emitPtrLoad(kp))
+    def keysPtr (LowIRRuntimeGen.emitKeysPtr(builder module "%desc"))
+    def kp (LowIRRuntimeGen.emitSlotAddr(builder module keysPtr "%slot"))
+    def k (builder.emitPtrLoadTyped(kp "i32"))
     def isEmpty (builder.emitIcmp("eq" k negOne))
     def keyCheck (builder.freshLabel("getat_key"))
     builder.terminateBrIf(isEmpty negRet keyCheck)
@@ -356,9 +398,9 @@ class LowIRRuntimeGen {
     builder.terminateBrIf(eqKey valRet recurseRet)
 
     builder.startBlock(valRet)
-    def valsPtr (LowIRRuntimeGen.emitValsPtr(builder "%desc"))
-    def vp (LowIRRuntimeGen.emitSlotAddr(builder valsPtr "%slot"))
-    def v (builder.emitPtrLoad(vp))
+    def valsPtr (LowIRRuntimeGen.emitValsPtr(builder module "%desc"))
+    def vp (LowIRRuntimeGen.emitSlotAddr(builder module valsPtr "%slot"))
+    def v (builder.emitPtrLoadTyped(vp "i32"))
     builder.terminateRet("i32" v)
 
     builder.startBlock(negRet)
@@ -371,7 +413,7 @@ class LowIRRuntimeGen {
     def args:[string]
     def argTypes:[string]
     push args "%desc"
-    push argTypes "i32"
+    push argTypes pt
     push args nextMod
     push argTypes "i32"
     push args "%key"
@@ -384,10 +426,11 @@ class LowIRRuntimeGen {
   static fn buildRtMapGet:void (module:LowIRModule) {
     def builder@(lives):LowIRBuilder (new LowIRBuilder(module))
     builder.reset()
+    def pt (module.ptrType)
     def params:[LowIRParam]
     def descP@(lives):LowIRParam (new LowIRParam())
     descP.name = "desc"
-    descP.irType = "i32"
+    descP.irType = pt
     push params descP
     def keyP@(lives):LowIRParam (new LowIRParam())
     keyP.name = "key"
@@ -398,7 +441,7 @@ class LowIRRuntimeGen {
     def hashArgs:[string]
     def hashTypes:[string]
     push hashArgs "%desc"
-    push hashTypes "i32"
+    push hashTypes pt
     push hashArgs "%key"
     push hashTypes "i32"
     def start (builder.emitCall("RtMap_hashSlot" "i32" hashArgs hashTypes))
@@ -406,7 +449,7 @@ class LowIRRuntimeGen {
     def getArgs:[string]
     def getTypes:[string]
     push getArgs "%desc"
-    push getTypes "i32"
+    push getTypes pt
     push getArgs start
     push getTypes "i32"
     push getArgs "%key"
@@ -419,10 +462,11 @@ class LowIRRuntimeGen {
   static fn buildRtMapHas:void (module:LowIRModule) {
     def builder@(lives):LowIRBuilder (new LowIRBuilder(module))
     builder.reset()
+    def pt (module.ptrType)
     def params:[LowIRParam]
     def descP@(lives):LowIRParam (new LowIRParam())
     descP.name = "desc"
-    descP.irType = "i32"
+    descP.irType = pt
     push params descP
     def keyP@(lives):LowIRParam (new LowIRParam())
     keyP.name = "key"
@@ -433,7 +477,7 @@ class LowIRRuntimeGen {
     def getArgs:[string]
     def getTypes:[string]
     push getArgs "%desc"
-    push getTypes "i32"
+    push getTypes pt
     push getArgs "%key"
     push getTypes "i32"
     def v (builder.emitCall("RtMap_get" "i32" getArgs getTypes))
@@ -486,11 +530,10 @@ class LowIRRuntimeGen {
     capP.irType = "i32"
     push params capP
     builder.startBlock("entry")
-    def descBytes (builder.emitConst(pt ("" + (pb + 8))))
+    def descBytes (builder.emitConst("i32" ("" + (pb + 8))))
     def desc (builder.emitHeapAlloc(descBytes))
-    def elemBytes (builder.emitConst(pt ("" + pb)))
-    def capZ (builder.emitZextI32ToPtr("%cap"))
-    def capBytes (builder.emitBin("mul" pt capZ elemBytes))
+    def elemBytes (builder.emitConst("i32" ("" + pb)))
+    def capBytes (builder.emitBin("mul" "i32" "%cap" elemBytes))
     def data (builder.emitHeapAlloc(capBytes))
     def zeroPt (builder.emitConst(pt "0"))
     builder.emitPtrStore(desc data)
@@ -548,6 +591,7 @@ class LowIRRuntimeGen {
     def pt (module.ptrType)
     def pb (LowIRRuntimeGen.ptrBytes(module))
     def meta (LowIRRuntimeGen.descMetaOff(module))
+    def capOff (meta + 4)
     def params:[LowIRParam]
     def descP@(lives):LowIRParam (new LowIRParam())
     descP.name = "desc"
@@ -559,23 +603,39 @@ class LowIRRuntimeGen {
     push params valP
     builder.startBlock("entry")
     def len (builder.emitI32At("%desc" meta))
-    def cap (builder.emitI32At("%desc" (meta + 4)))
+    def cap (builder.emitI32At("%desc" capOff))
     def full (builder.emitIcmp("sge" len cap))
-    def done (builder.freshLabel("ptr_done"))
+    def grow (builder.freshLabel("ptr_grow"))
     def cont (builder.freshLabel("ptr_cont"))
-    builder.terminateBrIf(full done cont)
-    builder.startBlock(cont)
+    builder.terminateBrIf(full grow cont)
+    builder.startBlock(grow)
+    def two (builder.emitConst("i32" "2"))
+    def newCap (builder.emitBin("mul" "i32" cap two))
     def data (builder.emitPtrLoad("%desc"))
-    def elemBytes (builder.emitConst("i32" ("" + pb)))
-    def offI32 (builder.emitBin("mul" "i32" len elemBytes))
+    def elemBytes (builder.emitConst(pt ("" + pb)))
+    def newCapZ (builder.emitZextI32ToPtr(newCap))
+    def newBytes (builder.emitBin("mul" pt newCapZ elemBytes))
+    def ra:[string]
+    def rat:[string]
+    push ra data
+    push rat pt
+    push ra newBytes
+    push rat pt
+    def newData (builder.emitCall("realloc" pt ra rat))
+    builder.emitPtrStore("%desc" newData)
+    builder.emitStoreI32At("%desc" capOff newCap)
+    builder.terminateBr(cont)
+    builder.startBlock(cont)
+    def len2 (builder.emitI32At("%desc" meta))
+    def data2 (builder.emitPtrLoad("%desc"))
+    def elemBytes2 (builder.emitConst("i32" ("" + pb)))
+    def offI32 (builder.emitBin("mul" "i32" len2 elemBytes2))
     def off (builder.emitZextI32ToPtr(offI32))
-    def slot (builder.emitBin("add" pt data off))
+    def slot (builder.emitBin("add" pt data2 off))
     builder.emitPtrStore(slot "%val")
-    def one (builder.emitConst("i32" "1"))
-    def newLen (builder.emitBin("add" "i32" len one))
+    def one2 (builder.emitConst("i32" "1"))
+    def newLen (builder.emitBin("add" "i32" len2 one2))
     builder.emitStoreI32At("%desc" meta newLen)
-    builder.terminateBr(done)
-    builder.startBlock(done)
     builder.terminateRet("void" "")
     LowIRRuntimeGen.finishFn(builder module "RtPtrArray_push" "void" params false)
   }

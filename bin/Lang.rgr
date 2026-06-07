@@ -2874,6 +2874,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
         at      _:string       ( text:string position:int ) { 
             templates {
                 ranger ( '(at ' (e 1) ' ' ( e 2 ) ')')
+                llvm ( "(at " (e 1) " " (e 2) ")")
                 cpp ( 'r_utf8_char_at(' (e 1) ', ' (e 2) ')'
 (create_polyfill '
 std::string r_utf8_char_at(const std::string& str, int pos_i)
@@ -3602,6 +3603,7 @@ i "}" nl ))
         itemAt    cmdItemAt@(weak):T      ( array:[T] index:int ) { 
             templates {
                 ranger ( "(itemAt " (e 1) " " (e 2) ")" )
+                llvm ( "(itemAt " (e 1) " " (e 2) ")" )
                  cpp ( (e 1) ".at(" (e 2) ")" (imp "<vector>"))   
                  java7 ( (e 1) ".get(" (e 2) ")" )                                 
                  ; lift return optional type => safer                             
