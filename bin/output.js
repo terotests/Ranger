@@ -13565,6 +13565,20 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }));
       return node;
     };
+    operandIsNonOptionalForNullCheck (node) {
+      if ( node.hasFlag("optional") ) {
+        return false;
+      }
+      if ( node.hasParamDesc ) {
+        const pa = node.paramDesc;
+        if ( (typeof(pa.nameNode) !== "undefined" && pa.nameNode != null )  ) {
+          if ( pa.nameNode.hasFlag("optional") ) {
+            return false;
+          }
+        }
+      }
+      return true;
+    };
     async stdParamMatch (callArgs, inCtx, wr, require_all_match) {
       this.stdCommands = inCtx.getStdCommands();
       const callFnName = callArgs.getFirst();
@@ -14304,7 +14318,28 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         }
       };
       if ( (require_all_match == true) && (some_matched == false) ) {
-        ctx.addError(callArgs, "Could not match argument types for " + callFnName.vref);
+        const opName_2 = callFnName.vref;
+        let reportedSpecific = false;
+        if ( (opName_2 == "null?") || (opName_2 == "!null?") ) {
+          if ( (callArgs.children.length) > 1 ) {
+            const operand = callArgs.children[1];
+            if ( this.operandIsNonOptionalForNullCheck(operand) ) {
+              let typeLabel = operand.eval_type_name;
+              if ( (typeLabel.length) == 0 ) {
+                typeLabel = operand.type_name;
+              }
+              let nameLabel = operand.vref;
+              if ( (nameLabel.length) == 0 ) {
+                nameLabel = operand.getCode();
+              }
+              ctx.addError(operand, ((((opName_2 + " applies only to optional values; '") + nameLabel) + "' is non-optional (") + typeLabel) + ")");
+              reportedSpecific = true;
+            }
+          }
+        }
+        if ( reportedSpecific == false ) {
+          ctx.addError(callArgs, "Could not match argument types for " + callFnName.vref);
+        }
       }
       if ( expects_error ) {
         const cnt_now = ctx.getErrorCount();

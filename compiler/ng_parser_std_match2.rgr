@@ -100,6 +100,21 @@ extension RangerFlowParser {
       return node
   }
 
+  fn operandIsNonOptionalForNullCheck:boolean (node:CodeNode) {
+    if (node.hasFlag("optional")) {
+      return false
+    }
+    if (node.hasParamDesc) {
+      def pa:RangerAppParamDesc node.paramDesc
+      if (!null? pa.nameNode) {
+        if (pa.nameNode.hasFlag("optional")) {
+          return false
+        }
+      }
+    }
+    return true
+  }
+
   fn stdParamMatch:boolean (callArgs@(lives):CodeNode inCtx:RangerAppWriterContext wr:CodeWriter require_all_match:boolean) {
     stdCommands = (inCtx.getStdCommands())
     def callFnName:CodeNode (callArgs.getFirst())
@@ -992,7 +1007,28 @@ extension RangerFlowParser {
     
     }
     if ( require_all_match == true && some_matched == false) {
-      ctx.addError(callArgs ('Could not match argument types for ' + callFnName.vref))
+      def opName:string callFnName.vref
+      def reportedSpecific false
+      if ((opName == "null?") || (opName == "!null?")) {
+        if ((array_length callArgs.children) > 1) {
+          def operand (itemAt callArgs.children 1)
+          if (this.operandIsNonOptionalForNullCheck(operand)) {
+            def typeLabel:string operand.eval_type_name
+            if ((strlen typeLabel) == 0) {
+              typeLabel = operand.type_name
+            }
+            def nameLabel:string operand.vref
+            if ((strlen nameLabel) == 0) {
+              nameLabel = (operand.getCode())
+            }
+            ctx.addError(operand (opName + " applies only to optional values; '" + nameLabel + "' is non-optional (" + typeLabel + ")"))
+            reportedSpecific = true
+          }
+        }
+      }
+      if (reportedSpecific == false) {
+        ctx.addError(callArgs ('Could not match argument types for ' + callFnName.vref))
+      }
     } 
     if(expects_error) {
       def cnt_now:int (ctx.getErrorCount())

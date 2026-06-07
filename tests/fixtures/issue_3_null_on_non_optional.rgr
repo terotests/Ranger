@@ -1,0 +1,10 @@
+; Issue #3: null? on non-optional values should give a clear error
+
+class Issue3Test {
+    sfn m@(main):void () {
+        def nonOptional "hello"
+        if (!null? nonOptional) {
+            print "can not work"
+        }
+    }
+}
