@@ -1,0 +1,8 @@
+; Issue #8: unused local def should not break Go build
+
+class Issue8UnusedVar {
+    sfn m@(main):void () {
+        def dummyVar "Something"
+        print "ok"
+    }
+}

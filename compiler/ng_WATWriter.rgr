@@ -302,6 +302,26 @@ class WATWriter {
         this.writeGet(ins.arg2 wr)
         wr.out("      i32.store" true)
       }
+      case "inttoptr_struct" {
+        this.writeGet(ins.arg1 wr)
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "inttoptr_i8" {
+        this.writeGet(ins.arg1 wr)
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "zext" {
+        this.writeGet(ins.arg1 wr)
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "zext_i1" {
+        this.writeGet(ins.arg1 wr)
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "str_ptr" {
+        wr.out(("      i32.const 0") true)
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
       case "icmp" {
         this.writeGet(ins.arg1 wr)
         this.writeGet(ins.arg2 wr)

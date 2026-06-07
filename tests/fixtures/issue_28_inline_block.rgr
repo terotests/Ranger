@@ -1,0 +1,12 @@
+; Issue #28: inline block without newline after { must not swallow next statement
+
+class Issue28InlineBlock {
+    sfn m@(main):void () {
+        def mList:[string]
+        push mList "a"
+        push mList "b"
+        def list:[string] (mList.filter ({  return (item == "a") }))
+        def cnt:int (size list)
+        print (to_string cnt)
+    }
+}

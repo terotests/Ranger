@@ -991,6 +991,16 @@ class RangerGolangClassWriter {
               return
             }
           } {
+            if (value.hasNewOper || (false == (value.hasFlag("optional")))) {
+              wr.out((p.compiledName + ".value = ") false)
+              ctx.setInExpr()
+              def value:CodeNode (node.getThird())
+              this.WalkNode(value ctx wr)
+              ctx.unsetInExpr()
+              wr.out(";" true)
+              wr.out((p.compiledName + ".has_value = true;") true)
+              return
+            }
             wr.out((p.compiledName + " = ") false)
             ctx.setInExpr()
             def value:CodeNode (node.getThird())

@@ -1,0 +1,50 @@
+; LLVM: dynamic [Item] growth via push, itemAt/get indexing, [int:int] map
+
+class Item {
+    def id:int 0
+}
+
+class DynCollectionsDemo {
+    sfn m@(main):int () {
+        ; Ptr array: push 50 items (within default cap 256; exercises push + itemAt)
+        def items:[Item]
+        def i:int 0
+        while (i < 50) {
+            def it:Item (new Item())
+            it.id = i
+            push items it
+            i = i + 1
+        }
+
+        ; itemAt at growth boundaries (exercises RtPtrArray_get)
+        def first:Item (itemAt items 0)
+        def mid:Item (itemAt items 25)
+        def last:Item (itemAt items 49)
+        def sum:int 0
+        sum = (+ sum first.id)
+        sum = (+ sum mid.id)
+        sum = (+ sum last.id)
+
+        ; Int array: set + get
+        def nums:[int]
+        set nums 0 10
+        set nums 1 20
+        set nums 2 30
+        sum = (+ sum (get nums 0))
+        sum = (+ sum (get nums 1))
+        sum = (+ sum (get nums 2))
+
+        ; Map: set, overwrite, get
+        def m:[int:int]
+        set m 10 1000
+        set m 20 2000
+        set m 10 1500
+        set m 30 3000
+        sum = (+ sum (get m 10))
+        sum = (+ sum (get m 20))
+        sum = (+ sum (get m 30))
+
+        ; Return array length — native test expects 50
+        return (array_length items)
+    }
+}

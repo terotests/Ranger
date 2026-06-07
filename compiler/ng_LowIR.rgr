@@ -1,5 +1,5 @@
 
-; Ranger Low IR  typed three-address intermediate representation.
+; Ranger Low IR ? typed three-address intermediate representation.
 ; Phase 1: Ranger AST ? Low IR ? LLVM IR / WAT
 
 class LowIRUtil {
@@ -141,6 +141,8 @@ class LowIRField {
   def name:string ""
   def irType:string "i32"
   def isPtrArray:boolean false
+  def isBool:boolean false
+  def isString:boolean false
 }
 
 class LowIRStruct {
@@ -173,7 +175,7 @@ class LowIRModule {
   def externDecls:[LowIRExternDecl]
 }
 
-; Compile-session singleton  holds the module being built for one translation unit.
+; Compile-session singleton ? holds the module being built for one translation unit.
 class LowIRSession @singleton(true) {
   def module:LowIRModule (new LowIRModule())
 
@@ -238,6 +240,18 @@ class LowIRBuilder {
     return instr
   }
 
+  ; Allocas must live in the entry block so their SSA value dominates every
+  ; use. Emitting them into a conditional block creates a dynamic alloca whose
+  ; pointer is undefined on paths that skip that block.
+  fn emitToEntry:LowIRInstr (instr:LowIRInstr) {
+    if ((array_length this.blocks) > 0) {
+      def entry (itemAt this.blocks 0)
+      push entry.instrs instr
+      return instr
+    }
+    return (this.emit(instr))
+  }
+
   fn emitConst:string (irType:string value:string) {
     def tag:string "c"
     def dest (this.freshTemp(tag))
@@ -264,6 +278,10 @@ class LowIRBuilder {
   }
 
   fn emitIcmp:string (pred:string lhs:string rhs:string) {
+    return (this.emitIcmpTyped(pred "i32" lhs rhs))
+  }
+
+  fn emitIcmpTyped:string (pred:string operandType:string lhs:string rhs:string) {
     def tag:string "p"
     def dest (this.freshTemp(tag))
     def ins@(lives):LowIRInstr (new LowIRInstr())
@@ -273,6 +291,19 @@ class LowIRBuilder {
     ins.pred = pred
     ins.arg1 = lhs
     ins.arg2 = rhs
+    ins.arg3 = operandType
+    this.emit(ins)
+    return dest
+  }
+
+  fn emitPtrToInt:string (ptr:string) {
+    def tag:string "pt"
+    def dest (this.freshTemp(tag))
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "ptr_to_int"
+    ins.dest = dest
+    ins.irType = this.irModule.ptrType
+    ins.arg1 = ptr
     this.emit(ins)
     return dest
   }
@@ -308,7 +339,7 @@ class LowIRBuilder {
     ins.dest = slotName
     ins.structName = className
     ins.structSize = fieldCount
-    this.emit(ins)
+    this.emitToEntry(ins)
     return slotName
   }
 
@@ -330,7 +361,7 @@ class LowIRBuilder {
     ins.op = "alloca"
     ins.dest = slotName
     ins.irType = irType
-    this.emit(ins)
+    this.emitToEntry(ins)
     return slotName
   }
 
@@ -357,12 +388,19 @@ class LowIRBuilder {
 
   fn emitHeapAlloc:string (byteCount:string) {
     def ptrType (this.irModule.ptrType)
+    def sizeArg:string byteCount
+    if (ptrType == "i64") {
+      sizeArg = (this.emitZextI32ToPtr(byteCount))
+    }
     if this.irModule.useLibcHeap {
+      def one (this.emitConst(ptrType "1"))
       def args:[string]
       def argTypes:[string]
-      push args byteCount
+      push args one
       push argTypes ptrType
-      return (this.emitCall("malloc" ptrType args argTypes))
+      push args sizeArg
+      push argTypes ptrType
+      return (this.emitCall("calloc" ptrType args argTypes))
     }
     def tag:string "h"
     def dest (this.freshTemp(tag))
@@ -370,7 +408,7 @@ class LowIRBuilder {
     ins.op = "heap_alloc"
     ins.dest = dest
     ins.irType = ptrType
-    ins.arg1 = byteCount
+    ins.arg1 = sizeArg
     this.emit(ins)
     return dest
   }
@@ -447,9 +485,16 @@ class LowIRBuilder {
   }
 
   fn emitPtrStore:void (ptr:string value:string) {
+    this.emitPtrStoreTyped(ptr value this.irModule.ptrType)
+  }
+
+  fn emitPtrStoreTyped:void (ptr:string value:string valueType:string) {
+    def n (this.tempCounter)
+    this.tempCounter = n + 1
     def ins@(lives):LowIRInstr (new LowIRInstr())
     ins.op = "ptr_store"
-    ins.irType = this.irModule.ptrType
+    ins.dest = ("ps" + ("" + n))
+    ins.irType = valueType
     ins.arg1 = ptr
     ins.arg2 = value
     ins.arg3 = this.irModule.ptrType

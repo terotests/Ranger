@@ -1,0 +1,12 @@
+; Issue #8: for-loop item must not be emitted when unused (Go build)
+
+class Issue8ForUnusedItem {
+    sfn m@(main):void () {
+        def items:[string]
+        push items "a"
+        push items "b"
+        for items item:string i {
+            print "loop"
+        }
+    }
+}

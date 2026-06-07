@@ -117,6 +117,49 @@ describe("Ranger Compiler - LLVM / Low IR backend", () => {
     expect(ll).toContain("inttoptr");
   });
 
+  it("compiles dynamic array/map demo with push growth and itemAt", () => {
+    const ll = normalizeLl(
+      compileToLl(`${FIXTURES}/llvm_dyn_collections.rgr`, ["-freestanding"])
+    );
+    expect(ll).toContain("@main");
+    expect(ll).toContain("@RtPtrArray_push");
+    expect(ll).toContain("@RtPtrArray_get");
+    expect(ll).toContain("@RtPtrArray_len");
+    expect(ll).toContain("@RtArray_set");
+    expect(ll).toContain("@RtMap_put");
+    expect(ll).toContain("@RtMap_get");
+    expect(ll).toContain("realloc");
+  });
+
+  it("native dynamic collections binary returns 50 after push loop", () => {
+    if (!isLlvmAvailable()) {
+      return;
+    }
+    const outDir = path.join(__dirname, ".output-dyn-collections");
+    fs.mkdirSync(outDir, { recursive: true });
+    const target =
+      process.platform === "darwin"
+        ? process.arch === "arm64"
+          ? "arm64-apple-macos"
+          : "x86_64-apple-macos"
+        : "native-linux-gnu";
+    const result = compileRangerWithFlags(
+      `${FIXTURES}/llvm_dyn_collections.rgr`,
+      "llvm",
+      outDir,
+      [`-target=${target}`]
+    );
+    expect(result.success, result.error || result.output).toBe(true);
+    const llPath = path.join(outDir, "llvm_dyn_collections.ll");
+    const binPath = path.join(outDir, "dyn_collections");
+    execSync(`clang "${llPath}" -o "${binPath}"`, { stdio: "pipe" });
+    const exitCode = execSync(`"${binPath}"; echo $?`, {
+      shell: "/bin/bash",
+      encoding: "utf-8",
+    }).trim();
+    expect(exitCode).toBe("50");
+  });
+
   it("matches golden LLVM IR for add", () => {
     const ll = normalizeLl(compileToLl(`${FIXTURES}/llvm_add.rgr`));
     const goldenPath = path.join(GOLDEN_DIR, "add.ll");
@@ -168,7 +211,7 @@ describe("Ranger Compiler - LLVM / Low IR backend", () => {
     }
     expect(ll).toContain("@.str.0");
     expect(ll).toContain("declare i32 @printf(i8*, ...)");
-    expect(ll).toContain("call i32 @printf");
+    expect(ll).toContain("call i32 (i8*, ...) @printf");
     expect(ll).toContain("define dso_local i32 @main(");
   });
 

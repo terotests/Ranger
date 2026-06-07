@@ -18,6 +18,20 @@ extension RangerAppWriterContext {
 
 class LiveCompiler {
 
+  fn treeReferencesVRef:boolean (node:CodeNode name:string) {
+    if (node.value_type == RangerNodeType.VRef) {
+      if (node.vref == name) {
+        return true
+      }
+    }
+    for node.children ch:CodeNode i {
+      if (this.treeReferencesVRef(ch name)) {
+        return true
+      }
+    }
+    return false
+  }
+
   def parser@(weak):RangerFlowParser
   def langWriter:RangerGenericClassWriter
   def hasCreatedPolyfill:[string:boolean]
@@ -884,6 +898,40 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
             } {
               wr.out(arg.vref false)
             }
+          }
+        }
+        case "go_for_bind" {
+          def itemIdx:int cmdArg.int_value
+          def blockIdx:int 4
+          if ((array_length node.children) > blockIdx) {
+            if ((array_length node.children) <= itemIdx) {
+              return
+            }
+            def itemNode:CodeNode (itemAt node.children itemIdx)
+            def blockNode (itemAt node.children blockIdx)
+            def itemName:string itemNode.vref
+            if ((strlen itemName) == 0) {
+              return
+            }
+            if (this.treeReferencesVRef(blockNode itemName) == false) {
+              return
+            }
+            if itemNode.hasParamDesc {
+              def p:RangerAppParamDesc (ctx.getVariableDef(itemNode.vref))
+              wr.out(p.compiledName false)
+            } {
+              wr.out(itemName false)
+            }
+            wr.out(" := " false)
+            ctx.setInExpr()
+            def listNode:CodeNode (itemAt node.children 1)
+            def idxNode:CodeNode (itemAt node.children 3)
+            this.WalkNode(listNode ctx wr)
+            wr.out("[" false)
+            this.WalkNode(idxNode ctx wr)
+            wr.out("]" false)
+            ctx.unsetInExpr()
+            wr.out(";" true)
           }
         }
         case "r_ktype" {

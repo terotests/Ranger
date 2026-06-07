@@ -10,7 +10,7 @@ SOURCE="$ROOT/gallery/invaders/invaders.rgr"
 OUT_DIR="$ROOT/tmp/invaders-native"
 LL_FILE="$OUT_DIR/invaders.ll"
 BIN_FILE="$OUT_DIR/invaders"
-TERM_C="$ROOT/runtime/ranger_term.c"
+RT_C="$ROOT/runtime/ranger_rt.c"
 
 mkdir -p "$OUT_DIR"
 
@@ -35,7 +35,7 @@ RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr" node "$ROOT/bin/output
   -target="$TARGET"
 
 echo "==> 2/3 clang -> executable"
-clang "$LL_FILE" "$TERM_C" -o "$BIN_FILE" -Wno-override-module
+clang "$LL_FILE" "$RT_C" -o "$BIN_FILE" -Wno-override-module
 
 echo "==> 3/3 Ready: $BIN_FILE"
 echo "Run: $BIN_FILE"

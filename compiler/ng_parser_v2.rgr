@@ -82,7 +82,7 @@ class RangerLispParser {
 ;        throw "Invalid string"
       }
       if (is_block_parent && ((c == 10) || (c == 13))) {
-        this.end_expression()
+        this.end_expression(true)
         current_line_index = current_line_index + 1
         did_break = true
         break
@@ -114,10 +114,12 @@ class RangerLispParser {
     return did_break
   }
   
-  fn end_expression:boolean () {
-    i = 1 + i
-    if (i >= len) {
-      return false
+  fn end_expression:boolean (consumeCurrent:boolean) {
+    if (consumeCurrent) {
+      i = 1 + i
+      if (i >= len) {
+        return false
+      }
     }
     paren_cnt = paren_cnt - 1
     if (paren_cnt < 0) {
@@ -708,7 +710,7 @@ class RangerLispParser {
       def is_block_parent:boolean false
       if (had_lf) {
         had_lf = false
-        this.end_expression()
+        this.end_expression(true)
         break
       }
       if ((!null? curr_node)) {
@@ -1306,7 +1308,7 @@ class RangerLispParser {
         ; 
         if (   (c == 41) || (c == ((ccode "}")))) {
           if ((c == ((ccode "}"))) && is_block_parent && (((array_length curr_node.children)) > 0)) {
-            this.end_expression()
+            this.end_expression(false)
           }
           i = 1 + i
           paren_cnt = paren_cnt - 1

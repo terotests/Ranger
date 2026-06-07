@@ -1,0 +1,17 @@
+; Issue #28: inline block with member access in filter predicate
+
+class myFineClass {
+    def name:string ""
+}
+
+class Issue28InlineMember {
+    sfn m@(main):void () {
+        def objs:[myFineClass]
+        def o:myFineClass (new myFineClass())
+        o.name = "OK"
+        push objs o
+        def list:[myFineClass] (objs.filter ({  return (item.name == "OK") }))
+        def cnt:int (size list)
+        print (to_string cnt)
+    }
+}

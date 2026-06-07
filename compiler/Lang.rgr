@@ -521,6 +521,7 @@ func r_io_get_env( name string) *GoNullable {
         ; Command line arguments
         shell_arg             cmdArg:string (index:int) {
             templates {
+                llvm ( "(shell_arg " (e 1) ")")
                 cpp ( "std::string(__g_argv[" (e 1) " + 1])")
                 php ( "$argv[" (e 1) " + 1]" )
                 java7 ( "args[" (e 1) "]")
@@ -537,6 +538,7 @@ func r_io_get_env( name string) *GoNullable {
 
         shell_arg_cnt         cmdArg:int () @doc("return the number of arguments for command line utility") {
             templates {
+                llvm ( "(shell_arg_cnt)")
                 cpp ( "__g_argc - 1")
                 swift3 ("CommandLine.arguments.count - 1")
                 swift6 ("CommandLine.arguments.count - 1")
@@ -880,6 +882,7 @@ fn r_write_file(path: &str, filename: &str, data: &str) {
         read_file        cmdReadFile@(optional async):string (path:string filename:string) {
 
             templates {
+                llvm ( "(read_file " (e 1) " " (e 2) ")")
                 ts ( "await (new Promise<string>(resolve => { require('fs').readFile( " (e 1) " + '/' + " (e 2) " , 'utf8', (err,data)=>{ resolve(data) }) } ))" )
                 es6 ( "await (new Promise(resolve => { require('fs').readFile( " (e 1) " + '/' + " (e 2) " , 'utf8', (err,data)=>{ resolve(data) }) } ))" )
                 ranger (  "(read_file " (e 1) " " (e 2) ")" )
@@ -2076,7 +2079,7 @@ case class customException(smth:String)  extends Exception
                     i
                 "}" nl
                 )
-                go    (  (def 2) (def 3) "var " (e 3) " int64 = 0;  " nl "for ; " (e 3) " < int64(len(" (e 1) ")) ; " (e 3) "++ {" nl I nl (e 2) " := " (e 1) "[" (e 3) "];" nl (block 4) nl i "}" )
+                go    (  (forkctx _ ) (def 3) "var " (e 3) " int64 = 0;  " nl "for ; " (e 3) " < int64(len(" (e 1) ")) ; " (e 3) "++ {" nl I nl (go_for_bind 2) nl (block 4) nl i "}" )
 
                 php    ( (forkctx _ ) (def 2) (def 3) "for ( " (e 3) " = 0; " (e 3) " < count(" (e 1) "); " (e 3) "++) {" nl I (e 2) " = " (e 1) "[" (e 3) "];" nl (block 4) nl i "}" )
                 java7 ( (forkctx _ ) (def 2) (def 3) "for ( int " (e 3) " = 0; " (e 3) " < " (e 1) ".size(); " (e 3) "++) {" nl I (typeof 2) " " (e 2) " = " (e 1) ".get(" (e 3) ");" nl (block 4) nl i "}" )
@@ -2871,6 +2874,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
         at      _:string       ( text:string position:int ) { 
             templates {
                 ranger ( '(at ' (e 1) ' ' ( e 2 ) ')')
+                llvm ( "(at " (e 1) " " (e 2) ")")
                 cpp ( 'r_utf8_char_at(' (e 1) ', ' (e 2) ')'
 (create_polyfill '
 std::string r_utf8_char_at(const std::string& str, int pos_i)
@@ -2919,6 +2923,7 @@ std::string r_utf8_char_at(const std::string& str, int pos_i)
 
         charAt      cmdCharAt:int       ( text:string position:int ) { 
             templates {
+                llvm ( "(charAt " (e 1) " " (e 2) ")")
                 ranger ( "(charAt " (e 1) " " ( e 2 ) ")")
                 cpp ( (e 1) ".at(" (e 2) ")")    
                 csharp ( (e 1) "[" (e 2) "]")
@@ -3598,6 +3603,7 @@ i "}" nl ))
         itemAt    cmdItemAt@(weak):T      ( array:[T] index:int ) { 
             templates {
                 ranger ( "(itemAt " (e 1) " " (e 2) ")" )
+                llvm ( "(itemAt " (e 1) " " (e 2) ")" )
                  cpp ( (e 1) ".at(" (e 2) ")" (imp "<vector>"))   
                  java7 ( (e 1) ".get(" (e 2) ")" )                                 
                  ; lift return optional type => safer                             
