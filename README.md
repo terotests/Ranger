@@ -69,6 +69,7 @@ host.notifyPath = (path) => { /* sync view model + re-render */ };
 - `gallery/js_parser` - substantial parser example with benchmarks and README
 - `gallery/pdf_writer` - EVG / TSX document tooling and preview server
 - `gallery/invaders` - cross-target demo game
+- `gallery/invaders/llvm/invaders.ll` - checked-in LLVM IR sample from the experimental `-l=llvm` backend
 
 ## Compatibility Snapshot
 
@@ -80,6 +81,7 @@ The project can target `JavaScript`, `Java`, `Go`, `Swift`, `PHP`, `C++`, `C#`, 
 | Self-hosting | Actively used, but full compiler generation quality is strongest in JavaScript |
 | JavaScript / ES6 | Best baseline target and most reliable place to start |
 | Go / Swift / Rust / Kotlin / C++ | Useful and increasingly capable, but expect edge cases and target-specific gaps |
+| **LLVM / WASM** (`-l=llvm`) | **Experimental.** Lowers to LLVM IR; optional WAT export for freestanding WASM. Native libc builds work for demos like Space Invaders; browser WASM is still rough. See `npm run test:llvm`, `npm run game:build:llvm`. |
 | Gallery examples | Good for understanding direction and capability, but some require manual setup or platform-specific tooling |
 
 ## What's New in Version 3.0
@@ -115,9 +117,9 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history and [PLAN_3.md](PLAN_3
 The compiler is _self hosting_ which means that it has been written using the compiler itself and thus it can be hosted
 on several platforms. At the moment the official platform is node.js, because external plugins are only available as npm packages.
 
-The target languages supported are `JavaScript`, `Java`, `Go`, `Swift`, `PHP`, `C++`, `C#`, `Scala`, `Python`, and `Rust`. The quality
-of the target translation still varies and at the moment of this writing the compiler can only be compiled fully to JavaScript
-target. However, most targets already can compile reasonably good code.
+The target languages supported are `JavaScript`, `Java`, `Go`, `Swift`, `PHP`, `C++`, `C#`, `Scala`, `Python`, and `Rust`. An **experimental LLVM backend** (`-l=llvm`) emits LLVM IR and optional freestanding WAT for WASM toolchains; it is not a separate surface language but another codegen path from the same Ranger sources.
+
+The quality of the target translation still varies and at the moment of this writing the compiler can only be compiled fully to JavaScript target. However, most targets already can compile reasonably good code.
 
 ## Recent Updates (December 2025)
 
@@ -394,11 +396,12 @@ See `gallery/pdf_writer/examples/test_for_loop.tsx` for a complete demonstration
 
 ### Space Invaders Demo Game
 
-A complete terminal-based Space Invaders game demonstrating Ranger's cross-language capabilities. The same source code compiles to **4 different targets**:
+A complete terminal-based Space Invaders game demonstrating Ranger's cross-language capabilities. The same source code compiles to **several targets**:
 
-| Target         | Executable          | Build Command               |
+| Target         | Output              | Build Command               |
 | -------------- | ------------------- | --------------------------- |
 | ES6/JavaScript | `invaders.js`       | `npm run game:compile`      |
+| **LLVM native**| `tmp/invaders-native/invaders` | `npm run game:build:llvm` |
 | Rust           | `invaders_rust.exe` | `npm run game:build:rust`   |
 | Go             | `invaders_go.exe`   | `npm run game:build:go`     |
 | Kotlin         | `invaders.jar`      | `npm run game:build:kotlin` |
@@ -415,7 +418,23 @@ npm run game:build:all
 npm run game:run        # JavaScript
 npm run game:run:rust   # Rust
 npm run game:run:go     # Go
+./tmp/invaders-native/invaders   # LLVM native (after game:build:llvm)
 ```
+
+#### Experimental LLVM backend (Space Invaders)
+
+Ranger can lower the same `invaders.rgr` through a **Low IR → LLVM IR** pipeline (`-l=llvm`), then link with `clang` and a small C runtime (`runtime/ranger_term.c`) for terminal I/O.
+
+```bash
+npm run compile              # refresh bin/output.js after compiler changes
+npm run game:build:llvm      # invaders.rgr → tmp/invaders-native/invaders.ll → native binary
+npm run test:llvm            # LLVM/WASM fixture tests (vitest)
+npm run demo:wasm            # smaller freestanding WASM demo (tests/fixtures/llvm_wasm_demo.rgr)
+```
+
+**Checked-in sample:** [`gallery/invaders/llvm/invaders.ll`](gallery/invaders/llvm/invaders.ll) is LLVM IR kept in the repo so you can inspect codegen without building. Regenerate with `cp tmp/invaders-native/invaders.ll gallery/invaders/llvm/invaders.ll` after `game:build:llvm` (see [`gallery/invaders/llvm/README.md`](gallery/invaders/llvm/README.md)).
+
+Status: experimental — libc-linked native builds are the most reliable path; freestanding WAT/WASM for the full game is still incomplete (terminal imports, control-flow lowering). Smaller WASM demos under `npm run demo:wasm` are closer to working in the browser.
 
 #### Cross-Compiling the Game
 
@@ -470,6 +489,15 @@ npm run game:compile:swift  # Generates invaders.swift
 swiftc invaders.swift -o invaders_swift
 ```
 
+**LLVM native (macOS / Linux, experimental)**
+
+```bash
+npm run game:build:llvm
+./tmp/invaders-native/invaders
+```
+
+Requires `clang` on `PATH`. On macOS the script picks `arm64-apple-macos` or `x86_64-apple-macos` automatically.
+
 #### Platform-Specific Keyboard Input
 
 The game uses `on_keypress` and `poll_keypress` operators with platform-specific implementations:
@@ -492,6 +520,7 @@ The Space Invaders game provides an interesting comparison of how the same Range
 | Target     | Generated File   | Size (bytes) | Lines | Notes                           |
 | ---------- | ---------------- | ------------ | ----- | ------------------------------- |
 | **Ranger** | `invaders.rgr`   | 11,289       | ~400  | Original source                 |
+| **LLVM IR**| `llvm/invaders.ll` | ~60,000    | ~1,700 | Low-level IR (sample in repo)   |
 | Python     | `invaders.py`    | 9,271        | ~330  | Most compact generated code     |
 | JavaScript | `invaders.js`    | 10,301       | ~350  | Clean, readable output          |
 | Swift      | `invaders.swift` | 12,554       | ~470  | Verbose type annotations        |
@@ -499,11 +528,12 @@ The Space Invaders game provides an interesting comparison of how the same Range
 | C++        | `invaders.cpp`   | 14,148       | ~500  | Headers and type declarations   |
 | Rust       | `invaders.rs`    | 17,918       | ~600  | Most verbose (ownership, types) |
 
-**Executable Sizes (Windows):**
+**Executable Sizes (native binaries):**
 
 | Target | Executable           | Size   | Notes                             |
 | ------ | -------------------- | ------ | --------------------------------- |
-| Swift  | `invaders_swift.exe` | 76 KB  | Smallest native binary            |
+| **LLVM** | `tmp/invaders-native/invaders` | ~34 KB (arm64 macOS) | Smallest in recent local builds; libc + minimal runtime |
+| Swift  | `invaders_swift.exe` | 76 KB  | Dynamic link to system libraries  |
 | Rust   | `invaders_rust.exe`  | 291 KB | Optimized, statically linked      |
 | Go     | `invaders_go.exe`    | 2.3 MB | Includes Go runtime               |
 | C++    | `invaders_cpp.exe`   | 3.0 MB | Static linking with MinGW/pthread |
