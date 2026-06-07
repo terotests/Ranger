@@ -1,0 +1,14 @@
+; Issue #28: multiline block with newline after { (control case)
+
+class Issue28MultilineBlock {
+    sfn m@(main):void () {
+        def mList:[string]
+        push mList "a"
+        push mList "b"
+        def list:[string] (mList.filter ({ 
+            return (item == "a")
+        }))
+        def cnt:int (size list)
+        print (to_string cnt)
+    }
+}

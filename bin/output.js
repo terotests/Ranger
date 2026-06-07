@@ -5411,7 +5411,7 @@ class RangerLispParser  {
         return true;
       }
       if ( is_block_parent && ((c == 10) || (c == 13)) ) {
-        this.end_expression();
+        this.end_expression(true);
         this.current_line_index = this.current_line_index + 1;
         did_break = true;
         break;
@@ -5439,10 +5439,12 @@ class RangerLispParser  {
     };
     return did_break;
   };
-  end_expression () {
-    this.i = 1 + this.i;
-    if ( this.i >= this.__len ) {
-      return false;
+  end_expression (consumeCurrent) {
+    if ( consumeCurrent ) {
+      this.i = 1 + this.i;
+      if ( this.i >= this.__len ) {
+        return false;
+      }
     }
     this.paren_cnt = this.paren_cnt - 1;
     if ( this.paren_cnt < 0 ) {
@@ -5965,7 +5967,7 @@ class RangerLispParser  {
       let is_block_parent = false;
       if ( had_lf ) {
         had_lf = false;
-        this.end_expression();
+        this.end_expression(true);
         break;
       }
       if ( (typeof(this.curr_node) !== "undefined" && this.curr_node != null )  ) {
@@ -6525,7 +6527,7 @@ class RangerLispParser  {
         }
         if ( (c == 41) || (c == (125)) ) {
           if ( ((c == (125)) && is_block_parent) && ((this.curr_node.children.length) > 0) ) {
-            this.end_expression();
+            this.end_expression(false);
           }
           this.i = 1 + this.i;
           this.paren_cnt = this.paren_cnt - 1;
