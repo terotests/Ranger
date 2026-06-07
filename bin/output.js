@@ -24608,10 +24608,20 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 return;
               }
             } else {
+              if ( value_1.hasNewOper || (false == value_1.hasFlag("optional")) ) {
+                wr.out(p.compiledName + ".value = ", false);
+                ctx.setInExpr();
+                const value_5 = node.getThird();
+                await this.WalkNode(value_5, ctx, wr);
+                ctx.unsetInExpr();
+                wr.out(";", true);
+                wr.out(p.compiledName + ".has_value = true;", true);
+                return;
+              }
               wr.out(p.compiledName + " = ", false);
               ctx.setInExpr();
-              const value_5 = node.getThird();
-              await this.WalkNode(value_5, ctx, wr);
+              const value_6 = node.getThird();
+              await this.WalkNode(value_6, ctx, wr);
               ctx.unsetInExpr();
               wr.out(";", true);
               return;
@@ -24630,11 +24640,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           this.writeTypeDef2(p.nameNode, ctx, wr);
         }
         if ( (node.children.length) > 2 ) {
-          const value_6 = node.getThird();
-          if ( value_6.expression && ((value_6.children.length) > 1) ) {
-            const fc = value_6.children[0];
+          const value_7 = node.getThird();
+          if ( value_7.expression && ((value_7.children.length) > 1) ) {
+            const fc = value_7.children[0];
             if ( fc.vref == "array_extract" ) {
-              await this.goExtractAssign(value_6, p, ctx, wr);
+              await this.goExtractAssign(value_7, p, ctx, wr);
               return;
             }
           }
@@ -24643,14 +24653,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           if ( p.nameNode.eval_type_name == "char" ) {
             wr.out("byte(", false);
           }
-          if ( (p.nameNode.eval_type_name == "int") && (value_6.eval_type_name == "char") ) {
+          if ( (p.nameNode.eval_type_name == "int") && (value_7.eval_type_name == "char") ) {
             wr.out("int64(", false);
           }
-          await this.WalkNode(value_6, ctx, wr);
+          await this.WalkNode(value_7, ctx, wr);
           if ( p.nameNode.eval_type_name == "char" ) {
             wr.out(")", false);
           }
-          if ( (p.nameNode.eval_type_name == "int") && (value_6.eval_type_name == "char") ) {
+          if ( (p.nameNode.eval_type_name == "int") && (value_7.eval_type_name == "char") ) {
             wr.out(")", false);
           }
           ctx.unsetInExpr();

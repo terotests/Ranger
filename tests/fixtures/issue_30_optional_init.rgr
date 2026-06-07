@@ -1,0 +1,13 @@
+; Issue #30: optional-typed def with non-optional new initializer
+
+class myClass {
+    def name:string ""
+}
+
+class Issue30OptionalInit {
+    sfn m@(main):void () {
+        def currNode@(optional):myClass (new myClass())
+        currNode.name = "OK"
+        print currNode.name
+    }
+}
