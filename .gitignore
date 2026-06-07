@@ -15,7 +15,11 @@ data_folder/
 .idea/
 
 # TypeScript compiled .map files
-*.map  
+*.map
+*.tsbuildinfo
+
+# Accidental absolute-path output (e.g. /Users/... written as relative)
+Users/
 
 # Test output directory
 tests/.output*/
