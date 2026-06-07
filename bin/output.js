@@ -32265,6 +32265,26 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           this.writeGet(ins.arg2, wr);
           wr.out("      i32.store", true);
           break;
+        case "inttoptr_struct" : 
+          this.writeGet(ins.arg1, wr);
+          wr.out("      local.set " + this.wasmName(ins.dest), true);
+          break;
+        case "inttoptr_i8" : 
+          this.writeGet(ins.arg1, wr);
+          wr.out("      local.set " + this.wasmName(ins.dest), true);
+          break;
+        case "zext" : 
+          this.writeGet(ins.arg1, wr);
+          wr.out("      local.set " + this.wasmName(ins.dest), true);
+          break;
+        case "zext_i1" : 
+          this.writeGet(ins.arg1, wr);
+          wr.out("      local.set " + this.wasmName(ins.dest), true);
+          break;
+        case "str_ptr" : 
+          wr.out("      i32.const 0", true);
+          wr.out("      local.set " + this.wasmName(ins.dest), true);
+          break;
         case "icmp" : 
           this.writeGet(ins.arg1, wr);
           this.writeGet(ins.arg2, wr);
