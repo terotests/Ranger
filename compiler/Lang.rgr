@@ -57,6 +57,7 @@ language {
         php         PHP             php
         python      Python          py
         nim         Nim             nim
+        llvm        LLVM IR         ll
     }
 
     toplevel_keywords (class systemclass Constructor fn sfn Import Extend Enum def let operators)
@@ -1882,6 +1883,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 csharp ( "new " (typeof 1) "( new " (r_atype 1) "[" (e 2)"])")
                 swift3 ( "" (typeof 1)"(repeating:" (e 3) ", count:" (e 2) ")" )
                 ranger ( "(make  _:" (typeof 1) " " (e 2) ")" )
+                llvm ( "(make  _:" (typeof 1) " " (e 2) ")" )
                 go ( "make(" (typeof 1) "," (e 2) ")" )
                 cpp (  (typeof 1) "(" (e 2) ")")
                 ; new ArrayList<Double>( Arrays.asList( new Double[len_2] ) );
@@ -2225,6 +2227,7 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
 
         strlen       cmdStrlen:int       ( text:string ) { 
             templates {
+                llvm ( "(strlen " (e 1) ")")
                 ranger ( "( strlen (" (e 1 ) "))")
                 cpp ( '(int)('(e 1) ".length())") 
                 java7 ( (e 1) ".length()") 
@@ -3469,6 +3472,9 @@ std::string join(const T& v, const std::string& delim) {
         get             cmdGet@(optional):T          ( a:[T] index:int ) {
             templates {
                 es6 ('( ' (e 1) '.length  > ' (e 2)'  && ' (e 2)' >= 0  ?  '(e 1) '[' (e 2)'] : null ) ')
+                ranger ( "(get " (e 1) " " (e 2) ")")
+                llvm ( "(get " (e 1) " " (e 2) ")")
+                * ( (e 1) "[" (e 2) "]" )
             } 
         }
         
@@ -3518,6 +3524,7 @@ r_optional_primitive<int> cpp_get_map_int_value( std::map<" (r_ktype 1) ", int> 
         get             cmdGet@(optional weak):T          ( map:[K:T] key:K ) { 
             templates {
                 ranger ( "(get " (e 1) " " (e 2) ")")                 
+                llvm ( "(get " (e 1) " " (e 2) ")")
                 java7 ( (e 1) ".get(" (e 2) ")" )
                 rust ( (e 1) ".get(" (e 2) ")" )
 
@@ -3550,6 +3557,7 @@ i "}" nl ))
         set             cmdSet@(moves@( 3 1 ) ):void          ( array@(mutates):[T] index:int value@( refto@(1) ):T ) { 
             templates {
                 ranger ( "set " (e 1) " " (e 2) " " (e 3) )                
+                llvm ( "set " (e 1) " " (e 2) " " (e 3) )
                 java7 ( (e 1) ".set(" (e 2) ", " (e 3) ");" )
                 rust ( (e 1) "[" (e 2) " as usize] = " (e 3) ";" )
                 scala ( (e 1) "(" (e 2) ") =  " (e 3)  )
@@ -3564,6 +3572,7 @@ i "}" nl ))
         set             cmdSet@(moves@( 3 1 ) ):void          ( map@(mutates):[K:T] key:K value@( refto@(1) ):T ) { 
             templates {
                 ranger ( "set " (e 1) " " (e 2) " " (e 3) )                
+                llvm ( "set " (e 1) " " (e 2) " " (e 3) )
                 java7 ( (e 1) ".put(" (e 2) ", " (e 3) ");" )
                 rust ( (e 1) ".insert(" (e 2) ", " (e 3) ");" )
                 scala ( (e 1) ".put(" (e 2) ", " (e 3) ")" )
@@ -3955,6 +3964,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
 
         length       cmdStrlen:int       ( text:string ) { 
             templates {
+                llvm ( "(length " (e 1) ")")
                 ranger ( "(length " (e 1) ")")
                 cpp ( (e 1) ".length()") 
                 java7 ( (e 1) ".length()") 
@@ -4050,6 +4060,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
         array_length    cmdArrayLength:int      ( array:[T] ) { 
             templates {
                 ranger ( "(array_length " (e 1) ")")
+                llvm ( "(array_length " (e 1) ")")
                  cpp ( '(int)(' (e 1) ".size())" )                                                              
                  swift3 ( (e 1) ".count")
                  swift6 ( (e 1) ".count")
@@ -4113,6 +4124,7 @@ public <T> T _arr_extract( ArrayList<T> list, Integer i )  {
         print           cmdPrint:void           ( text:string) { 
             templates {
                  ranger ( nl "print " (e 1) nl)
+                 llvm ( nl "print " (e 1) nl)
                  cpp (ln "std::cout << " (e 1) " << std::endl;" nl (imp "<iostream>") (imp "<string>"))
                  kotlin ( nl "println( " (e 1) " )" nl )                                              
                  scala ( "println( " (e 1) " )" ) 
@@ -4132,6 +4144,7 @@ public <T> T _arr_extract( ArrayList<T> list, Integer i )  {
         ; Write text without newline
         write           cmdWrite:void           ( text:string) { 
             templates {
+                 llvm ( nl "write " (e 1) nl)
                  cpp ( nl "std::cout << " (e 1) " << std::flush;" nl (imp "<iostream>"))
                  go ( nl "fmt.Print( " (e 1) " )" nl (imp "fmt"))
                  rust ( nl "print!(\"{}\", " (e 1) ");" nl)
@@ -4149,6 +4162,7 @@ public <T> T _arr_extract( ArrayList<T> list, Integer i )  {
         ; Clear the terminal screen
         clear_screen    cmdClearScreen:void     () {
             templates {
+                 llvm ( nl "clear_screen" nl)
                  cpp ( nl "std::cout << \"\\x1b[2J\\x1b[H\" << std::flush;" nl (imp "<iostream>"))
                  go ( nl "fmt.Print(\"\\x1b[2J\\x1b[H\")" nl (imp "fmt"))
                  rust ( nl "print!(\"\\x1b[2J\\x1b[H\");" nl)
@@ -4166,6 +4180,7 @@ public <T> T _arr_extract( ArrayList<T> list, Integer i )  {
         ; Move cursor to position (1-based coordinates)
         move_cursor     cmdMoveCursor:void      ( x:int y:int) {
             templates {
+                 llvm ( nl "move_cursor " (e 1) " " (e 2) nl)
                  cpp ( nl "std::cout << \"\\x1b[\" << (" (e 2) ") << \";\" << (" (e 1) ") << \"H\" << std::flush;" nl (imp "<iostream>"))
                  go ( nl "fmt.Printf(\"\\x1b[%d;%dH\", " (e 2) ", " (e 1) ")" nl (imp "fmt"))
                  rust ( nl "print!(\"\\x1b[{};{}H\", " (e 2) ", " (e 1) ");" nl)
@@ -4183,6 +4198,7 @@ public <T> T _arr_extract( ArrayList<T> list, Integer i )  {
         ; Hide terminal cursor
         hide_cursor     cmdHideCursor:void      () {
             templates {
+                 llvm ( nl "hide_cursor" nl)
                  cpp ( nl "std::cout << \"\\x1b[?25l\" << std::flush;" nl (imp "<iostream>"))
                  go ( nl "fmt.Print(\"\\x1b[?25l\")" nl (imp "fmt"))
                  rust ( nl "print!(\"\\x1b[?25l\");" nl)
@@ -4200,6 +4216,7 @@ public <T> T _arr_extract( ArrayList<T> list, Integer i )  {
         ; Show terminal cursor
         show_cursor     cmdShowCursor:void      () {
             templates {
+                 llvm ( nl "show_cursor" nl)
                  cpp ( nl "std::cout << \"\\x1b[?25h\" << std::flush;" nl (imp "<iostream>"))
                  go ( nl "fmt.Print(\"\\x1b[?25h\")" nl (imp "fmt"))
                  rust ( nl "print!(\"\\x1b[?25h\");" nl)
@@ -4925,6 +4942,7 @@ fun r_read_key(): String {
         ; Sleep for specified milliseconds (blocking)
         sleep_ms        cmdSleepMs@(async):void         (ms:int) {
             templates {
+                 llvm ( nl "sleep_ms " (e 1) nl)
                  es6 ( nl "await new Promise(r => setTimeout(r, " (e 1) "));" nl )
                  rust ( nl "std::thread::sleep(std::time::Duration::from_millis(" (e 1) " as u64));" nl )
                  go ( nl "time.Sleep(time.Duration(" (e 1) ") * time.Millisecond)" nl (imp "time"))
@@ -4942,6 +4960,7 @@ fun r_read_key(): String {
 
         exit            cmdExit:void            ( code:int) {
             templates {
+                 llvm ( nl "exit " (e 1) nl)
                  ranger ( nl "exit " (e 1) nl)
                  cpp ( nl "exit(" (e 1) ");" nl (imp "<cstdlib>"))
                  kotlin ( nl "System.exit(" (e 1) ")" nl )

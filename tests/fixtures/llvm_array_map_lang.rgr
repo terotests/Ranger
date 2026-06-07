@@ -1,0 +1,23 @@
+; LLVM/WASM: Lang array/map operators (no collection classes)
+
+class LangCollectionsDemo {
+    sfn run:int () {
+        def list:[int]
+        set list 0 10
+        set list 1 20
+        set list 2 30
+
+        def m:[int:int]
+        set m 1 100
+        set m 2 200
+        set m 1 150
+
+        def sum:int 0
+        sum = (+ sum (get list 0))
+        sum = (+ sum (get list 1))
+        sum = (+ sum (get list 2))
+        sum = (+ sum (get m 1))
+        sum = (+ sum (get m 2))
+        return sum
+    }
+}

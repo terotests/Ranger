@@ -1,0 +1,9 @@
+; LLVM/libc: write, print, strlen via -target=native-*
+
+class LibcOps {
+    sfn m@(main):int () {
+        write "Hi"
+        print "!"
+        return (strlen "hello")
+    }
+}

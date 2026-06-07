@@ -1,0 +1,10 @@
+; LLVM PoC: recursive fibonacci
+
+class Fib {
+    sfn fib:int (n:int) {
+        if (< n 2) {
+            return n
+        }
+        return (+ (Fib.fib((- n 1))) (Fib.fib((- n 2))))
+    }
+}

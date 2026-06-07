@@ -1,0 +1,26 @@
+; LLVM/WASM: instance methods + mutable class field (Counter)
+; One increment() after Counter(10) => 11.
+
+class Counter {
+    def count:int 0
+
+    Constructor (start:int) {
+        count = start
+    }
+
+    fn increment:void () {
+        count = (+ count 1)
+    }
+
+    fn get:int () {
+        return count
+    }
+}
+
+class CounterDemo {
+    sfn run:int () {
+        def c (new Counter(10))
+        c.increment()
+        return (c.get())
+    }
+}

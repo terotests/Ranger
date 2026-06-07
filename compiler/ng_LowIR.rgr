@@ -1,0 +1,536 @@
+
+; Ranger Low IR ù typed three-address intermediate representation.
+; Phase 1: Ranger AST ? Low IR ? LLVM IR / WAT
+
+class LowIRUtil {
+  static fn typeFromRanger:string (typeName:string) {
+    switch typeName {
+      case "int" {
+        return "i32"
+      }
+      case "boolean" {
+        return "i1"
+      }
+      case "bool" {
+        return "i1"
+      }
+      case "double" {
+        return "f64"
+      }
+      case "void" {
+        return "void"
+      }
+    }
+    return ""
+  }
+
+  static fn isSupportedPrimitive:boolean (typeName:string) {
+    def t (LowIRUtil.typeFromRanger(typeName))
+    return ((strlen t) > 0)
+  }
+
+  static fn isStringType:boolean (typeName:string) {
+    return (typeName == "string")
+  }
+
+  static fn isArrayTypeName:boolean (typeName:string) {
+    if ((strlen typeName) < 3) {
+      return false
+    }
+    return ((indexOf typeName "[") == 0)
+  }
+
+  static fn isSupportedParam:boolean (typeName:string) {
+    if (LowIRUtil.isSupportedPrimitive(typeName)) {
+      return true
+    }
+    if (LowIRUtil.isStringType(typeName)) {
+      return true
+    }
+    return false
+  }
+
+  static fn fieldIrType:string (typeName:string) {
+    if (LowIRUtil.isArrayTypeName(typeName)) {
+      return "i32"
+    }
+    if (LowIRUtil.isStringType(typeName)) {
+      return "i32"
+    }
+    def t (LowIRUtil.typeFromRanger(typeName))
+    if (t == "i1") {
+      return "i32"
+    }
+    if ((strlen t) == 0) {
+      return "i32"
+    }
+    return t
+  }
+
+  static fn mangleMethod:string (className:string methodName:string) {
+    return (className + "_" + methodName)
+  }
+
+  static fn structPtrType:string (className:string) {
+    return ("%struct." + className + "*")
+  }
+
+  static fn structType:string (className:string) {
+    return ("%struct." + className)
+  }
+
+  static fn moduleUsesHeap:boolean (module:LowIRModule) {
+    if ((array_length module.structs) > 0) {
+      return true
+    }
+    for module.functions fn:LowIRFunction i {
+      for fn.blocks bb:LowIRBlock i {
+        for bb.instrs ins:LowIRInstr i {
+          if (ins.op == "heap_alloc") {
+            return true
+          }
+        }
+      }
+    }
+    return false
+  }
+}
+
+class LowIRParam {
+  def name:string ""
+  def irType:string "i32"
+}
+
+class LowIRInstr {
+  def op:string ""
+  def dest:string ""
+  def irType:string "i32"
+  def arg1:string ""
+  def arg2:string ""
+  def arg3:string ""
+  def pred:string ""
+  def fnName:string ""
+  def callArgs:[string]
+  def callTypes:[string]
+  def structName:string ""
+  def fieldIndex:int 0
+  def structSize:int 0
+}
+
+class LowIRBlock {
+  def label:string "entry"
+  def instrs:[LowIRInstr]
+  def termKind:string "ret"
+  def termType:string "i32"
+  def termValue:string ""
+  def termTarget:string ""
+  def termIfTrue:string ""
+  def termIfFalse:string ""
+}
+
+class LowIRFunction {
+  def name:string ""
+  def exportFn:boolean false
+  def isMain:boolean false
+  def returnType:string "i32"
+  def params:[LowIRParam]
+  def blocks:[LowIRBlock]
+}
+
+class LowIRField {
+  def name:string ""
+  def irType:string "i32"
+  def isPtrArray:boolean false
+}
+
+class LowIRStruct {
+  def name:string ""
+  def fields:[LowIRField]
+}
+
+class LowIRStringGlobal {
+  def name:string ""
+  def text:string ""
+  def byteLen:int 0
+  def withNewline:boolean false
+}
+
+class LowIRExternDecl {
+  def fnName:string ""
+  def retType:string "i32"
+  def paramTypes:[string]
+  def isVararg:boolean false
+}
+
+class LowIRModule {
+  def name:string "module"
+  def triple:string "unknown-unknown-unknown"
+  def ptrType:string "i32"
+  def useLibcHeap:boolean false
+  def structs:[LowIRStruct]
+  def functions:[LowIRFunction]
+  def stringGlobals:[LowIRStringGlobal]
+  def externDecls:[LowIRExternDecl]
+}
+
+; Compile-session singleton ù holds the module being built for one translation unit.
+class LowIRSession @singleton(true) {
+  def module:LowIRModule (new LowIRModule())
+
+  fn beginModule:void (moduleName:string) {
+    this.module = (new LowIRModule())
+    this.module.name = moduleName
+  }
+
+  static fn current:LowIRSession () {
+    return (LowIRSession.__singleton())
+  }
+}
+
+class LowIRBuilder {
+  def irModule:LowIRModule
+  def tempCounter:int 0
+  def blockCounter:int 0
+  def blocks:[LowIRBlock]
+  def currentBlock@(optional weak):LowIRBlock
+
+  Constructor (module:LowIRModule) {
+    irModule = module
+  }
+
+  fn freshTemp:string (prefix:string) {
+    def n (this.tempCounter)
+    this.tempCounter = n + 1
+    return ("%" + prefix + ("" + n))
+  }
+
+  fn freshLabel:string (prefix:string) {
+    def n (this.blockCounter)
+    this.blockCounter = n + 1
+    return (prefix + ("" + n))
+  }
+
+  fn reset:void () {
+    this.tempCounter = 0
+    this.blockCounter = 0
+    def emptyBlocks:[LowIRBlock]
+    this.blocks = emptyBlocks
+  }
+
+  fn startBlock:string (label:string) {
+    if (!null? this.currentBlock) {
+      def cur (unwrap this.currentBlock)
+      if (cur.termKind == "") {
+        cur.termKind = "ret"
+      }
+    }
+    def bb@(lives):LowIRBlock (new LowIRBlock())
+    bb.label = label
+    bb.termKind = ""
+    push this.blocks bb
+    this.currentBlock = bb
+    return label
+  }
+
+  fn emit:LowIRInstr (instr:LowIRInstr) {
+    def cur (unwrap this.currentBlock)
+    push cur.instrs instr
+    return instr
+  }
+
+  fn emitConst:string (irType:string value:string) {
+    def tag:string "c"
+    def dest (this.freshTemp(tag))
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "const"
+    ins.dest = dest
+    ins.irType = irType
+    ins.arg1 = value
+    this.emit(ins)
+    return dest
+  }
+
+  fn emitBin:string (kind:string irType:string lhs:string rhs:string) {
+    def tag:string "t"
+    def dest (this.freshTemp(tag))
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = kind
+    ins.dest = dest
+    ins.irType = irType
+    ins.arg1 = lhs
+    ins.arg2 = rhs
+    this.emit(ins)
+    return dest
+  }
+
+  fn emitIcmp:string (pred:string lhs:string rhs:string) {
+    def tag:string "p"
+    def dest (this.freshTemp(tag))
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "icmp"
+    ins.dest = dest
+    ins.irType = "i1"
+    ins.pred = pred
+    ins.arg1 = lhs
+    ins.arg2 = rhs
+    this.emit(ins)
+    return dest
+  }
+
+  fn emitCall:string (fnName:string retType:string args:[string] argTypes:[string]) {
+    def voidType:string "void"
+    if (retType == voidType) {
+      def ins@(lives):LowIRInstr (new LowIRInstr())
+      ins.op = "call"
+      ins.fnName = fnName
+      ins.irType = voidType
+      ins.callArgs = args
+      ins.callTypes = argTypes
+      this.emit(ins)
+      return ""
+    }
+    def tag:string "c"
+    def dest (this.freshTemp(tag))
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "call"
+    ins.dest = dest
+    ins.fnName = fnName
+    ins.irType = retType
+    ins.callArgs = args
+    ins.callTypes = argTypes
+    this.emit(ins)
+    return dest
+  }
+
+  fn emitAllocaStruct:string (className:string slotName:string fieldCount:int) {
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "alloca_struct"
+    ins.dest = slotName
+    ins.structName = className
+    ins.structSize = fieldCount
+    this.emit(ins)
+    return slotName
+  }
+
+  fn emitGep:string (className:string structPtr:string fieldIndex:int) {
+    def tag:string "f"
+    def dest (this.freshTemp(tag))
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "gep"
+    ins.dest = dest
+    ins.structName = className
+    ins.arg1 = structPtr
+    ins.fieldIndex = fieldIndex
+    this.emit(ins)
+    return dest
+  }
+
+  fn emitAlloca:string (irType:string slotName:string) {
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "alloca"
+    ins.dest = slotName
+    ins.irType = irType
+    this.emit(ins)
+    return slotName
+  }
+
+  fn emitLoad:string (irType:string slotName:string) {
+    def tag:string "v"
+    def dest (this.freshTemp(tag))
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "load"
+    ins.dest = dest
+    ins.irType = irType
+    ins.arg1 = slotName
+    this.emit(ins)
+    return dest
+  }
+
+  fn emitStore:void (irType:string value:string slotName:string) {
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "store"
+    ins.irType = irType
+    ins.arg1 = value
+    ins.arg2 = slotName
+    this.emit(ins)
+  }
+
+  fn emitHeapAlloc:string (byteCount:string) {
+    def ptrType (this.irModule.ptrType)
+    if this.irModule.useLibcHeap {
+      def args:[string]
+      def argTypes:[string]
+      push args byteCount
+      push argTypes ptrType
+      return (this.emitCall("malloc" ptrType args argTypes))
+    }
+    def tag:string "h"
+    def dest (this.freshTemp(tag))
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "heap_alloc"
+    ins.dest = dest
+    ins.irType = ptrType
+    ins.arg1 = byteCount
+    this.emit(ins)
+    return dest
+  }
+
+  fn emitIntToI8Ptr:string (addr:string addrType:string) {
+    def tag:string "s"
+    def dest (this.freshTemp(tag))
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "inttoptr_i8"
+    ins.dest = dest
+    ins.arg1 = addr
+    ins.arg2 = addrType
+    this.emit(ins)
+    return dest
+  }
+
+  fn emitIntToStructPtr:string (className:string addr:string) {
+    def tag:string "p"
+    def dest (this.freshTemp(tag))
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "inttoptr_struct"
+    ins.dest = dest
+    ins.structName = className
+    ins.arg1 = addr
+    ins.arg2 = this.irModule.ptrType
+    ins.irType = (LowIRUtil.structPtrType(className))
+    this.emit(ins)
+    return dest
+  }
+
+  fn emitZextI1ToI32:string (v:string) {
+    def tag:string "z"
+    def dest (this.freshTemp(tag))
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "zext_i1"
+    ins.dest = dest
+    ins.irType = "i32"
+    ins.arg1 = v
+    this.emit(ins)
+    return dest
+  }
+
+  fn emitZextI32ToPtr:string (v:string) {
+    def pt (this.irModule.ptrType)
+    if (pt == "i32") {
+      return v
+    }
+    def tag:string "z"
+    def dest (this.freshTemp(tag))
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "zext"
+    ins.dest = dest
+    ins.irType = pt
+    ins.arg1 = v
+    this.emit(ins)
+    return dest
+  }
+
+  fn emitPtrLoad:string (ptr:string) {
+    return (this.emitPtrLoadTyped(ptr this.irModule.ptrType))
+  }
+
+  fn emitPtrLoadTyped:string (ptr:string valueType:string) {
+    def tag:string "m"
+    def dest (this.freshTemp(tag))
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "ptr_load"
+    ins.dest = dest
+    ins.irType = valueType
+    ins.arg1 = ptr
+    ins.arg2 = this.irModule.ptrType
+    this.emit(ins)
+    return dest
+  }
+
+  fn emitPtrStore:void (ptr:string value:string) {
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "ptr_store"
+    ins.irType = this.irModule.ptrType
+    ins.arg1 = ptr
+    ins.arg2 = value
+    ins.arg3 = this.irModule.ptrType
+    this.emit(ins)
+  }
+
+  fn emitI32At:string (base:string byteOff:int) {
+    def pt (this.irModule.ptrType)
+    def off (this.emitConst(pt ("" + byteOff)))
+    def addr (this.emitBin("add" pt base off))
+    return (this.emitPtrLoadTyped(addr "i32"))
+  }
+
+  fn emitStoreI32At:void (base:string byteOff:int value:string) {
+    def pt (this.irModule.ptrType)
+    def off (this.emitConst(pt ("" + byteOff)))
+    def addr (this.emitBin("add" pt base off))
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "ptr_store"
+    ins.irType = "i32"
+    ins.arg1 = addr
+    ins.arg2 = value
+    ins.arg3 = pt
+    this.emit(ins)
+  }
+
+  fn emitStrPtr:string (globalName:string byteLen:int) {
+    def tag:string "s"
+    def dest (this.freshTemp(tag))
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "str_ptr"
+    ins.dest = dest
+    ins.irType = "i8*"
+    ins.arg1 = globalName
+    ins.arg2 = ("" + byteLen)
+    this.emit(ins)
+    return dest
+  }
+
+  fn terminateRet:void (retType:string value:string) {
+    def cur (unwrap this.currentBlock)
+    cur.termKind = "ret"
+    cur.termType = retType
+    cur.termValue = value
+  }
+
+  fn terminateBr:void (target:string) {
+    def cur (unwrap this.currentBlock)
+    cur.termKind = "br"
+    cur.termTarget = target
+  }
+
+  fn terminateBrIf:void (cond:string ifTrue:string ifFalse:string) {
+    def cur (unwrap this.currentBlock)
+    cur.termKind = "br_if"
+    cur.termValue = cond
+    cur.termIfTrue = ifTrue
+    cur.termIfFalse = ifFalse
+  }
+
+  fn terminateUnreachable:void () {
+    def cur (unwrap this.currentBlock)
+    cur.termKind = "unreachable"
+  }
+
+  fn finishFunction:string (name:string retType:string params:[LowIRParam] exportFn:boolean isMain:boolean) {
+    if (!null? this.currentBlock) {
+      def cur (unwrap this.currentBlock)
+      if (cur.termKind == "") {
+        cur.termKind = "ret"
+        cur.termType = retType
+      }
+    }
+    def fn@(lives):LowIRFunction (new LowIRFunction())
+    fn.name = name
+    fn.returnType = retType
+    fn.params = params
+    fn.blocks = this.blocks
+    fn.exportFn = exportFn
+    fn.isMain = isMain
+    push this.irModule.functions fn
+    return name
+  }
+}

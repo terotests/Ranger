@@ -1,0 +1,131 @@
+
+Import "ng_LowIR.rgr"
+
+; Target = architecture + environment (e.g. native-linux-gnu, wasm32-wasi).
+
+class LowIRTarget {
+  def arch:string "unknown"
+  def env:string "freestanding"
+  def triple:string "unknown-unknown-unknown"
+  def ptrType:string "i32"
+  def usesLibc:boolean false
+  def ioFn:string ""
+  def ioFnRet:string "i32"
+  def ioFnVararg:boolean false
+
+  static fn resolve:LowIRTarget (ctx:RangerAppWriterContext) {
+    def t@(lives):LowIRTarget (new LowIRTarget())
+    def targetName:string ""
+    if (ctx.hasCompilerSetting("target")) {
+      targetName = (ctx.getCompilerSetting("target"))
+    }
+    if ((strlen targetName) == 0) {
+      if (ctx.hasCompilerFlag("libc")) {
+        targetName = "native-linux-gnu"
+      }
+    }
+    if ((strlen targetName) == 0) {
+      return t
+    }
+    LowIRTarget.applyName(t targetName)
+    return t
+  }
+
+  static fn applyName:void (t:LowIRTarget name:string) {
+    LowIRTarget.applyNameKnown(t name)
+    if (t.usesLibc) {
+      return
+    }
+    if (t.usesLibc == false) {
+      if ((indexOf name "-") >= 0) {
+        LowIRTarget.applyExplicitTriple(t name)
+      }
+    }
+  }
+
+  static fn applyExplicitTriple:void (t:LowIRTarget triple:string) {
+    t.triple = triple
+    t.env = "libc"
+    t.ptrType = "i64"
+    t.usesLibc = true
+    t.ioFn = "printf"
+    t.ioFnRet = "i32"
+    t.ioFnVararg = true
+    if ((indexOf triple "arm64") >= 0) {
+      t.arch = "arm64"
+      return
+    }
+    if ((indexOf triple "x86_64") >= 0) {
+      t.arch = "x86_64"
+      return
+    }
+    if ((indexOf triple "wasm32") >= 0) {
+      t.arch = "wasm32"
+      return
+    }
+    t.arch = "unknown"
+  }
+
+  static fn applyNameKnown:void (t:LowIRTarget name:string) {
+    if (name == "native-linux-gnu") {
+      t.arch = "x86_64"
+      t.env = "libc"
+      t.triple = "x86_64-unknown-linux-gnu"
+      t.ptrType = "i64"
+      t.usesLibc = true
+      t.ioFn = "printf"
+      t.ioFnRet = "i32"
+      t.ioFnVararg = true
+      return
+    }
+    if (name == "x86_64-linux-gnu") {
+      LowIRTarget.applyNameKnown(t "native-linux-gnu")
+      return
+    }
+    if (name == "native-macos") {
+      LowIRTarget.applyNameKnown(t "arm64-apple-macos")
+      return
+    }
+    if (name == "arm64-apple-macos") {
+      t.arch = "arm64"
+      t.env = "libc"
+      t.triple = "arm64-apple-macosx"
+      t.ptrType = "i64"
+      t.usesLibc = true
+      t.ioFn = "printf"
+      t.ioFnRet = "i32"
+      t.ioFnVararg = true
+      return
+    }
+    if (name == "x86_64-apple-macos") {
+      t.arch = "x86_64"
+      t.env = "libc"
+      t.triple = "x86_64-apple-macosx"
+      t.ptrType = "i64"
+      t.usesLibc = true
+      t.ioFn = "printf"
+      t.ioFnRet = "i32"
+      t.ioFnVararg = true
+      return
+    }
+    if (name == "wasm32-hosted-debug") {
+      t.arch = "wasm32"
+      t.env = "hosted"
+      t.triple = "wasm32-unknown-unknown"
+      t.usesLibc = false
+      t.ioFn = "host_print"
+      t.ioFnRet = "void"
+      return
+    }
+    if (name == "wasm32-wasi") {
+      t.arch = "wasm32"
+      t.env = "wasi"
+      t.triple = "wasm32-wasi"
+      t.usesLibc = true
+      t.ioFn = "printf"
+      t.ioFnRet = "i32"
+      t.ioFnVararg = true
+      return
+    }
+  }
+}

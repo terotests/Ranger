@@ -1,0 +1,136 @@
+; LLVM/WASM: IntList + IntMap demo (heap-backed via Mem intrinsics)
+
+class Mem {
+    sfn alloc:int (nBytes:int) {
+        return 0
+    }
+
+    sfn loadI32:int (ptr:int) {
+        return 0
+    }
+
+    sfn storeI32:void (ptr:int val:int) {
+    }
+}
+
+class IntList {
+    def data:int 0
+    def len:int 0
+    def cap:int 0
+
+    Constructor (initialCap:int a:int b:int c:int) {
+        data = (Mem.alloc((* initialCap 4)))
+        Mem.storeI32(data a)
+        Mem.storeI32((+ data 4) b)
+        Mem.storeI32((+ data 8) c)
+        len = 3
+        cap = initialCap
+    }
+
+    fn push:void (item:int) {
+        def slot (+ data (* len 4))
+        Mem.storeI32(slot item)
+        len = (+ len 1)
+    }
+
+    fn get:int (idx:int) {
+        def slot (+ data (* idx 4))
+        return (Mem.loadI32(slot))
+    }
+
+    fn length:int () {
+        return len
+    }
+}
+
+class IntMap {
+    def keysPtr:int 0
+    def valsPtr:int 0
+    def cap:int 0
+    def size:int 0
+
+    Constructor (bucketCap:int) {
+        cap = bucketCap
+        keysPtr = (Mem.alloc((* bucketCap 4)))
+        valsPtr = (Mem.alloc((* bucketCap 4)))
+        def i:int 0
+        while (< i bucketCap) {
+            Mem.storeI32((+ keysPtr (* i 4)) (- 0 1))
+            i = (+ i 1)
+        }
+        size = 0
+    }
+
+    fn hashSlot:int (key:int) {
+        def h (% key cap)
+        if (< h 0) {
+            return (+ h cap)
+        }
+        return h
+    }
+
+    fn putAt:void (slot:int key:int val:int) {
+        if (>= slot cap) {
+            return
+        }
+        def kp (+ keysPtr (* slot 4))
+        def k (Mem.loadI32(kp))
+        if (k == key) {
+            Mem.storeI32((+ valsPtr (* slot 4)) val)
+            return
+        }
+        if (k == (- 0 1)) {
+            Mem.storeI32(kp key)
+            Mem.storeI32((+ valsPtr (* slot 4)) val)
+            size = (+ size 1)
+            return
+        }
+        def next (% (+ slot 1) cap)
+        this.putAt(next key val)
+    }
+
+    fn put:void (key:int val:int) {
+        def start (this.hashSlot(key))
+        this.putAt(start key val)
+    }
+
+    fn getAt:int (slot:int key:int) {
+        if (>= slot cap) {
+            return (- 0 1)
+        }
+        def kp (+ keysPtr (* slot 4))
+        def k (Mem.loadI32(kp))
+        if (k == (- 0 1)) {
+            return (- 0 1)
+        }
+        if (k == key) {
+            return (Mem.loadI32((+ valsPtr (* slot 4))))
+        }
+        def next (% (+ slot 1) cap)
+        return (this.getAt(next key))
+    }
+
+    fn get:int (key:int) {
+        def start (this.hashSlot(key))
+        return (this.getAt(start key))
+    }
+}
+
+class CollectionsDemo {
+    sfn run:int () {
+        def list (new IntList(4 10 20 30))
+
+        def map (new IntMap(8))
+        map.put(1 100)
+        map.put(2 200)
+        map.put(1 150)
+
+        def sum:int 0
+        sum = (+ sum (list.get(0)))
+        sum = (+ sum (list.get(1)))
+        sum = (+ sum (list.get(2)))
+        sum = (+ sum (map.get(1)))
+        sum = (+ sum (map.get(2)))
+        return sum
+    }
+}
