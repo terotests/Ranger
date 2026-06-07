@@ -1,0 +1,12 @@
+; Issue #8: for-loop item must still bind when used
+
+class Issue8ForUsedItem {
+    sfn m@(main):void () {
+        def items:[string]
+        push items "a"
+        push items "b"
+        for items item:string i {
+            print item
+        }
+    }
+}
