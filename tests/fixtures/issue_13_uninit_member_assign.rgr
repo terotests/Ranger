@@ -1,0 +1,13 @@
+; Issue #13: assigning to member of uninitialized object must be a compile error
+
+class SomeClass {
+    def nn:string ""
+}
+
+class Issue13UninitTest {
+    sfn m@(main):void () {
+        def obj:SomeClass
+        obj.nn = "Doo!!!"
+        print obj.nn
+    }
+}

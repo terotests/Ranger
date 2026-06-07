@@ -1895,12 +1895,7 @@ class RangerFlowParser {
     if ((size fnNode.ns) > 1) {
 
       def rootName (at fnNode.ns 0)
-      def vDef2 (ctx.getVariableDef(rootName))
-      if( (rootName != "this") && (vDef2.init_cnt == 0) && (vDef2.set_cnt == 0) ) {
-        if( (vDef2.is_class_variable == false ) && ( (ctx.isDefinedClass(rootName)) == false ) ) {
-          ctx.addError( node ('Call to uninitialized object ' + rootName) )
-        }
-      }
+      this.checkInitializedObjectReceiver(rootName node ctx)
       def vFnDef@(optional):RangerAppFunctionDesc (this.findFunctionDesc(fnNode ctx wr))
 
       if (!null? vFnDef) {
@@ -2334,6 +2329,35 @@ class RangerFlowParser {
     rhs.flow_done = false
     for rhs.children ch:CodeNode ci {
       ch.flow_done = false
+    }
+  }
+
+  fn checkInitializedObjectReceiver:void (receiverName:string node:CodeNode ctx:RangerAppWriterContext) {
+    if (receiverName == "this") {
+      return
+    }
+    if (false == (ctx.isVarDefined(receiverName))) {
+      return
+    }
+    if (ctx.isDefinedClass(receiverName)) {
+      return
+    }
+    def vDef:RangerAppParamDesc (ctx.getVariableDef(receiverName))
+    if (vDef.is_class_variable) {
+      return
+    }
+    if (vDef.varType == RangerContextVarType.FunctionParameter) {
+      return
+    }
+    if (null? vDef.nameNode) {
+      return
+    }
+    def nameN:CodeNode (unwrap vDef.nameNode)
+    if (false == (ctx.isDefinedClass(nameN.type_name))) {
+      return
+    }
+    if ((vDef.init_cnt == 0) && (vDef.set_cnt == 0)) {
+      ctx.addError(node ("Use of uninitialized object " + receiverName))
     }
   }
 
@@ -4943,6 +4967,7 @@ class RangerFlowParser {
                 ctx.addError(obj ('Error, no description for called object: ' + strname))
                 break _
               }
+              this.checkInitializedObjectReceiver(strname obj ctx)
               if set_nsp {
                 push obj.nsp (unwrap classRefDesc)
               }

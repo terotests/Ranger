@@ -1,0 +1,13 @@
+; Issue #13: initialized object member assignment is allowed
+
+class SomeClass {
+    def nn:string ""
+}
+
+class Issue13InitTest {
+    sfn m@(main):void () {
+        def obj (new SomeClass())
+        obj.nn = "Doo!!!"
+        print obj.nn
+    }
+}
