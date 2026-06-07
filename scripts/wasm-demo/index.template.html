@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Ranger WASM demo</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; }
+    code { background: #f4f4f4; padding: 0.15rem 0.35rem; border-radius: 4px; }
+    pre { background: #111; color: #eee; padding: 1rem; border-radius: 8px; }
+    p.note { color: #555; font-size: 0.95rem; }
+  </style>
+</head>
+<body>
+  <h1>Ranger &rarr; WASM</h1>
+  <p>Loads <code>demo.wasm</code> from <code>tests/fixtures/llvm_wasm_demo.rgr</code> (math, <code>if</code>, <code>while</code>).</p>
+  <p class="note">WASM is embedded below so this page works when opened as a local file. For fetch mode, run <code>npm run demo:wasm:serve</code>.</p>
+  <pre id="out">Loading...</pre>
+  <script>
+    const WASM_B64 = "__WASM_B64__";
+
+    async function loadWasmBytes() {
+      if (WASM_B64 && WASM_B64 !== "__WASM_B64__") {
+        const bin = atob(WASM_B64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) {
+          bytes[i] = bin.charCodeAt(i);
+        }
+        return bytes.buffer;
+      }
+      const resp = await fetch("./demo.wasm");
+      if (!resp.ok) {
+        throw new Error("fetch demo.wasm failed: " + resp.status);
+      }
+      return resp.arrayBuffer();
+    }
+
+    async function main() {
+      const out = document.getElementById("out");
+      const bytes = await loadWasmBytes();
+      const { instance } = await WebAssembly.instantiate(bytes);
+      const e = instance.exports;
+      const lines = [
+        "exports: " + Object.keys(e).join(", "),
+        "",
+        "-- linear --",
+        "MathLib_add(40, 2) = " + e.MathLib_add(40, 2),
+        "MathLib_mul(6, 7) = " + e.MathLib_mul(6, 7),
+        "MathLib_sq(12) = " + e.MathLib_sq(12),
+        "MathLib_hypot(3, 4) = " + e.MathLib_hypot(3, 4),
+        "",
+        "-- if (recursive fib) --",
+        "Fib_fib(10) = " + e.Fib_fib(10),
+        "Fib_fib(1) = " + e.Fib_fib(1),
+        "",
+        "-- while (iterative factorial) --",
+        "Fact_factorial(5) = " + e.Fact_factorial(5),
+        "Fact_factorial(6) = " + e.Fact_factorial(6),
+      ];
+      out.textContent = lines.join("\n");
+    }
+
+    main().catch((err) => {
+      document.getElementById("out").textContent = "Error: " + err;
+    });
+  </script>
+</body>
+</html>

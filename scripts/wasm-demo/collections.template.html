@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Ranger WASM – List &amp; Map</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; }
+    code { background: #f4f4f4; padding: 0.15rem 0.35rem; border-radius: 4px; }
+    pre { background: #111; color: #eee; padding: 1rem; border-radius: 8px; }
+    p.note { color: #555; font-size: 0.95rem; }
+  </style>
+</head>
+<body>
+  <h1>Ranger &rarr; WASM: IntList &amp; IntMap</h1>
+  <p>From <code>tests/fixtures/llvm_collections.rgr</code> — heap-backed list + open-addressing int map.</p>
+  <p class="note">Expected <code>CollectionsDemo_run()</code> = 10+20+30+150+200 = <strong>410</strong>.</p>
+  <pre id="out">Loading...</pre>
+  <script>
+    const WASM_B64 = "__WASM_B64__";
+
+    async function loadWasmBytes() {
+      if (WASM_B64 && WASM_B64 !== "__WASM_B64__") {
+        const bin = atob(WASM_B64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        return bytes.buffer;
+      }
+      const resp = await fetch("./collections.wasm");
+      if (!resp.ok) throw new Error("fetch collections.wasm failed: " + resp.status);
+      return resp.arrayBuffer();
+    }
+
+    async function main() {
+      const bytes = await loadWasmBytes();
+      const { instance } = await WebAssembly.instantiate(bytes);
+      const e = instance.exports;
+      const run = e.CollectionsDemo_run();
+      document.getElementById("out").textContent = [
+        "exports: " + Object.keys(e).join(", "),
+        "",
+        "CollectionsDemo_run() = " + run,
+        "expected: 410",
+        run === 410 ? "OK" : "MISMATCH",
+      ].join("\n");
+    }
+
+    main().catch((err) => {
+      document.getElementById("out").textContent = "Error: " + err;
+    });
+  </script>
+</body>
+</html>

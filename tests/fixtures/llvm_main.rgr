@@ -1,0 +1,13 @@
+; LLVM PoC: @main entry calling a library function
+
+class AddLib {
+    sfn add:int (a:int b:int) {
+        return (+ a b)
+    }
+}
+
+class Demo {
+    sfn m@(main):int () {
+        return (AddLib.add(40 2))
+    }
+}

@@ -217,44 +217,44 @@ void  Invaders::initAliens() {
       std::shared_ptr<Alien> alien =  std::make_shared<Alien>(ax, ay);
       aliens.push_back( alien  );
       col = col + 1;
-    }
+    };
     row = row + 1;
-  }
+  };
 }
 void  Invaders::drawAt( int x , int y , std::string ch ) {
-  std::cout << "\x1b[" << y + 1 << ";" << x + 1 << "H" << std::flush;
+  std::cout << "\x1b[" << (y + 1) << ";" << (x + 1) << "H" << std::flush;
   std::cout << ch << std::flush;
 }
 void  Invaders::eraseAt( int x , int y ) {
-  std::cout << "\x1b[" << y + 1 << ";" << x + 1 << "H" << std::flush;
+  std::cout << "\x1b[" << (y + 1) << ";" << (x + 1) << "H" << std::flush;
   std::cout << std::string(" ") << std::flush;
 }
 void  Invaders::drawBorders() {
-  std::cout << "\x1b[" << 1 << ";" << 1 << "H" << std::flush;
+  std::cout << "\x1b[" << (1) << ";" << (1) << "H" << std::flush;
   int i = 0;
   int borderW = WIDTH + 2;
   while (i < borderW) {
     std::cout << std::string("=") << std::flush;
     i = i + 1;
-  }
+  };
   int y = 0;
   while (y < HEIGHT) {
-    std::cout << "\x1b[" << y + 2 << ";" << 1 << "H" << std::flush;
+    std::cout << "\x1b[" << (y + 2) << ";" << (1) << "H" << std::flush;
     std::cout << std::string("|") << std::flush;
     int rightX = WIDTH + 2;
-    std::cout << "\x1b[" << y + 2 << ";" << rightX << "H" << std::flush;
+    std::cout << "\x1b[" << (y + 2) << ";" << (rightX) << "H" << std::flush;
     std::cout << std::string("|") << std::flush;
     y = y + 1;
-  }
+  };
   int bottomY = HEIGHT + 2;
-  std::cout << "\x1b[" << bottomY << ";" << 1 << "H" << std::flush;
+  std::cout << "\x1b[" << (bottomY) << ";" << (1) << "H" << std::flush;
   int j = 0;
   while (j < borderW) {
     std::cout << std::string("=") << std::flush;
     j = j + 1;
-  }
+  };
   int scoreY = HEIGHT + 3;
-  std::cout << "\x1b[" << scoreY << ";" << 1 << "H" << std::flush;
+  std::cout << "\x1b[" << (scoreY) << ";" << (1) << "H" << std::flush;
   std::cout << std::string("Score:       |  Arrows=move  SPACE=shoot  Q=quit") << std::flush;
 }
 void  Invaders::render() {
@@ -293,7 +293,7 @@ void  Invaders::render() {
       int drawX = alien->x + 1;
       this->drawAt(drawX, alien->y, std::string("W"));
     }
-  }
+  };
   for ( int idx2 = 0; idx2 != (int)(bullets.size()); idx2++) {
     std::shared_ptr<Bullet> bullet = bullets.at(idx2);
     if ( bullet->wasActive ) {
@@ -304,26 +304,26 @@ void  Invaders::render() {
       int bx = bullet->x + 1;
       this->drawAt(bx, bullet->y, std::string("|"));
     }
-  }
+  };
   if ( score != prevScore ) {
     int scoreY = HEIGHT + 3;
-    std::cout << "\x1b[" << scoreY << ";" << 8 << "H" << std::flush;
+    std::cout << "\x1b[" << (scoreY) << ";" << (8) << "H" << std::flush;
     std::string scoreStr = std::to_string(score) + std::string("   ");
     std::cout << scoreStr << std::flush;
   }
   int endY = HEIGHT + 4;
-  std::cout << "\x1b[" << endY << ";" << 1 << "H" << std::flush;
+  std::cout << "\x1b[" << (endY) << ";" << (1) << "H" << std::flush;
 }
 void  Invaders::savePrevState() {
   prevScore = score;
   for ( int idx = 0; idx != (int)(aliens.size()); idx++) {
     std::shared_ptr<Alien> alien = aliens.at(idx);
     alien->savePrev();
-  }
+  };
   for ( int idx2 = 0; idx2 != (int)(bullets.size()); idx2++) {
     std::shared_ptr<Bullet> bullet = bullets.at(idx2);
     bullet->savePrev();
-  }
+  };
 }
 void  Invaders::shoot() {
   int bulletY = PLAYER_Y - 1;
@@ -350,7 +350,7 @@ void  Invaders::updateBullets() {
         bullet->active = false;
       }
     }
-  }
+  };
 }
 int  Invaders::countAlive() {
   int count = 0;
@@ -359,7 +359,7 @@ int  Invaders::countAlive() {
     if ( a->alive ) {
       count = count + 1;
     }
-  }
+  };
   return count;
 }
 void  Invaders::updateAliens() {
@@ -380,7 +380,7 @@ void  Invaders::updateAliens() {
         maxX = alien->x;
       }
     }
-  }
+  };
   int rightBound = WIDTH - 2;
   if ( alienDirection > 0 ) {
     if ( maxX >= rightBound ) {
@@ -404,7 +404,7 @@ void  Invaders::updateAliens() {
         }
       }
     }
-  }
+  };
   int aliveCount = this->countAlive();
   if ( aliveCount < 12 ) {
     alienMoveDelay = 5;
@@ -431,9 +431,9 @@ void  Invaders::checkCollisions() {
             }
           }
         }
-      }
+      };
     }
-  }
+  };
 }
 void  Invaders::checkWin() {
   int aliveCount = this->countAlive();
@@ -451,7 +451,7 @@ void  Invaders::update() {
 }
 void  Invaders::endGame() {
   std::cout << "\x1b[2J\x1b[H" << std::flush;
-  std::cout << "\x1b[" << 1 << ";" << 1 << "H" << std::flush;
+  std::cout << "\x1b[" << (1) << ";" << (1) << "H" << std::flush;
   if ( gameWon ) {
     std::cout << std::string("=== YOU WIN! ===") << std::endl;
   } else {
@@ -471,7 +471,7 @@ void  Invaders::gameLoop() {
       this->handleKey(key);
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
-  }
+  };
   this->endGame();
 }
 void  Invaders::handleKey( std::string key ) {

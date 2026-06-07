@@ -4,6 +4,10 @@
 #![allow(non_snake_case)]
 #![allow(dead_code)]
 
+use std::rc::Rc;
+use std::rc::Weak;
+use std::cell::RefCell;
+
 #[derive(Clone)]
 struct Alien { 
   x : i64, 
@@ -117,17 +121,17 @@ impl Invaders {
         let ax : i64 = (col * 4) + 4;
         let ay : i64 = row + 2;
         let mut alien : Alien = Alien::new(ax, ay);
-        self.aliens.push(alien);
+        self.aliens.push(alien.clone());
         col = col + 1;
-      }
+      };
       row = row + 1;
-    }
+    };
   }
-  fn drawAt(&mut self, x : i64, y : i64, ch : String) -> () {
+  fn drawAt(x : i64, y : i64, ch : String) -> () {
     print!("\x1b[{};{}H", y + 1, x + 1);
     print!("{}", ch);
   }
-  fn eraseAt(&mut self, x : i64, y : i64) -> () {
+  fn eraseAt(x : i64, y : i64) -> () {
     print!("\x1b[{};{}H", y + 1, x + 1);
     print!("{}", " ".to_string());
   }
@@ -138,7 +142,7 @@ impl Invaders {
     while i < borderW {
       print!("{}", "=".to_string());
       i = i + 1;
-    }
+    };
     let mut y : i64 = 0;
     while y < self.HEIGHT {
       print!("\x1b[{};{}H", y + 2, 1);
@@ -147,14 +151,14 @@ impl Invaders {
       print!("\x1b[{};{}H", y + 2, rightX);
       print!("{}", "|".to_string());
       y = y + 1;
-    }
+    };
     let bottomY : i64 = self.HEIGHT + 2;
     print!("\x1b[{};{}H", bottomY, 1);
     let mut j : i64 = 0;
     while j < borderW {
       print!("{}", "=".to_string());
       j = j + 1;
-    }
+    };
     let scoreY : i64 = self.HEIGHT + 3;
     print!("\x1b[{};{}H", scoreY, 1);
     print!("{}", "Score:       |  Arrows=move  SPACE=shoot  Q=quit".to_string());
@@ -167,10 +171,14 @@ impl Invaders {
     }
     if  self.drawnPlayerX >= 0 {
       if  self.drawnPlayerX != self.playerX {
-        self.eraseAt(self.drawnPlayerX, self.PLAYER_Y);
+        let __arg_0 = self.drawnPlayerX.clone();
+        let __arg_1 = self.PLAYER_Y.clone();
+        Invaders::eraseAt(__arg_0, __arg_1);
       }
     }
-    self.drawAt(self.playerX, self.PLAYER_Y, "A".to_string());
+    let __arg_0 = self.playerX.clone();
+    let __arg_1 = self.PLAYER_Y.clone();
+    Invaders::drawAt(__arg_0, __arg_1, "A".to_string());
     self.drawnPlayerX = self.playerX;
     for idx in 0..self.aliens.len() {
       let mut alien = self.aliens[idx as usize].clone();
@@ -184,31 +192,34 @@ impl Invaders {
         }
         if  moved {
           let oldAx : i64 = alien.prevX + 1;
-          self.eraseAt(oldAx, alien.prevY);
+          let __arg_0 = alien.prevY.clone();
+          Invaders::eraseAt(oldAx, __arg_0);
         }
         if  alien.alive == false {
           let killAx : i64 = alien.x + 1;
-          self.eraseAt(killAx, alien.y);
+          let __arg_0 = alien.y.clone();
+          Invaders::eraseAt(killAx, __arg_0);
         }
       }
       if  alien.alive {
         let drawX : i64 = alien.x + 1;
-        self.drawAt(drawX, alien.y, "W".to_string());
+        let __arg_0 = alien.y.clone();
+        Invaders::drawAt(drawX, __arg_0, "W".to_string());
       }
-      self.aliens[idx as usize] = alien;
-    }
+    };
     for idx2 in 0..self.bullets.len() {
       let mut bullet = self.bullets[idx2 as usize].clone();
       if  bullet.wasActive {
         let oldBx : i64 = bullet.prevX + 1;
-        self.eraseAt(oldBx, bullet.prevY);
+        let __arg_0 = bullet.prevY.clone();
+        Invaders::eraseAt(oldBx, __arg_0);
       }
       if  bullet.active {
         let bx : i64 = bullet.x + 1;
-        self.drawAt(bx, bullet.y, "|".to_string());
+        let __arg_0 = bullet.y.clone();
+        Invaders::drawAt(bx, __arg_0, "|".to_string());
       }
-      self.bullets[idx2 as usize] = bullet;
-    }
+    };
     if  self.score != self.prevScore {
       let scoreY : i64 = self.HEIGHT + 3;
       print!("\x1b[{};{}H", scoreY, 8);
@@ -223,18 +234,16 @@ impl Invaders {
     for idx in 0..self.aliens.len() {
       let mut alien = self.aliens[idx as usize].clone();
       alien.savePrev();
-      self.aliens[idx as usize] = alien;
-    }
+    };
     for idx2 in 0..self.bullets.len() {
       let mut bullet = self.bullets[idx2 as usize].clone();
       bullet.savePrev();
-      self.bullets[idx2 as usize] = bullet;
-    }
+    };
   }
   fn shoot(&mut self, ) -> () {
     let bulletY : i64 = self.PLAYER_Y - 1;
     let mut bullet : Bullet = Bullet::new(self.playerX, bulletY);
-    self.bullets.push(bullet);
+    self.bullets.push(bullet.clone());
   }
   fn moveLeft(&mut self, ) -> () {
     if  self.playerX > 2 {
@@ -256,8 +265,7 @@ impl Invaders {
           bullet.active = false;
         }
       }
-      self.bullets[idx as usize] = bullet;
-    }
+    };
   }
   fn countAlive(&mut self, ) -> i64 {
     let mut count : i64 = 0;
@@ -266,8 +274,7 @@ impl Invaders {
       if  a.alive {
         count = count + 1;
       }
-      self.aliens[idx as usize] = a;
-    }
+    };
     return count;
   }
   fn updateAliens(&mut self, ) -> () {
@@ -288,8 +295,7 @@ impl Invaders {
           maxX = alien.x;
         }
       }
-      self.aliens[idx as usize] = alien;
-    }
+    };
     let rightBound : i64 = self.WIDTH - 2;
     if  self.alienDirection > 0 {
       if  maxX >= rightBound {
@@ -313,8 +319,7 @@ impl Invaders {
           }
         }
       }
-      self.aliens[idx2 as usize] = alien_1;
-    }
+    };
     let aliveCount : i64 = self.countAlive();
     if  aliveCount < 12 {
       self.alienMoveDelay = 5;
@@ -341,11 +346,9 @@ impl Invaders {
               }
             }
           }
-          self.aliens[aidx as usize] = alien;
-        }
+        };
       }
-      self.bullets[bidx as usize] = bullet;
-    }
+    };
   }
   fn checkWin(&mut self, ) -> () {
     let aliveCount : i64 = self.countAlive();
@@ -384,10 +387,10 @@ impl Invaders {
         } else { String::new() }
       };
       if  key != "".to_string() {
-        self.handleKey(key);
+        self.handleKey(key.clone());
       }
       std::thread::sleep(std::time::Duration::from_millis(50 as u64));
-    }
+    };
     self.endGame();
   }
   fn handleKey(&mut self, key : String) -> () {

@@ -1,0 +1,41 @@
+class Mem {
+    sfn alloc:int (nBytes:int) {
+        return 0
+    }
+    sfn loadI32:int (ptr:int) {
+        return 0
+    }
+    sfn storeI32:void (ptr:int val:int) {
+    }
+}
+
+class IntList {
+    def data:int 0
+    def len:int 0
+    def cap:int 0
+
+    Constructor (initialCap:int) {
+        data = (Mem.alloc((* initialCap 4)))
+        len = 0
+        cap = initialCap
+    }
+
+    fn push:void (item:int) {
+        def slot (+ data (* len 4))
+        Mem.storeI32(slot item)
+        len = (+ len 1)
+    }
+
+    fn get:int (idx:int) {
+        def slot (+ data (* idx 4))
+        return (Mem.loadI32(slot))
+    }
+}
+
+class ListSmoke {
+    sfn run:int () {
+        def lst (new IntList(4))
+        lst.push(10)
+        return (lst.get(0))
+    }
+}

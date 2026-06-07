@@ -1,0 +1,40 @@
+; WASM browser demo: linear math + if (fib) + while (factorial)
+
+class MathLib {
+    sfn add:int (a:int b:int) {
+        return (+ a b)
+    }
+
+    sfn mul:int (a:int b:int) {
+        return (* a b)
+    }
+
+    sfn sq:int (n:int) {
+        return (MathLib.mul(n n))
+    }
+
+    sfn hypot:int (a:int b:int) {
+        return (+ (MathLib.sq(a)) (MathLib.sq(b)))
+    }
+}
+
+class Fib {
+    sfn fib:int (n:int) {
+        if (< n 2) {
+            return n
+        }
+        return (+ (Fib.fib((- n 1))) (Fib.fib((- n 2))))
+    }
+}
+
+class Fact {
+    sfn factorial:int (n:int) {
+        def result:int 1
+        def i:int n
+        while (> i 1) {
+            (= result (* result i))
+            (= i (- i 1))
+        }
+        return result
+    }
+}

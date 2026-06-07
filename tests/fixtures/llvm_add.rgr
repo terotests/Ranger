@@ -1,0 +1,7 @@
+; LLVM PoC: freestanding add function
+
+class AddLib {
+    sfn add:int (a:int b:int) {
+        return (+ a b)
+    }
+}

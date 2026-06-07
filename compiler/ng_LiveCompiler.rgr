@@ -71,7 +71,10 @@ class LiveCompiler {
       }
       case "ranger" {
         langWriter = (new RangerRangerClassWriter ())
-      }      
+      }
+      case "llvm" {
+        langWriter = (new RangerLLVMClassWriter ())
+      }
     }
     if (!null? langWriter) {
       langWriter.compiler = this

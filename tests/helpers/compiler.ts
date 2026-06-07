@@ -53,6 +53,7 @@ export function compileRanger(
       "kotlin",
       "swift6",
       "java7",
+      "llvm",
     ].includes(language)
   ) {
     // Assume it's outputDir from old signature
@@ -95,6 +96,7 @@ export function compileRanger(
     kotlin: ".kt",
     swift6: ".swift",
     java7: ".java",
+    llvm: ".ll",
   };
   const ext = extMap[targetLang] || ".js";
   const outputFile = `${sourceBasename}${ext}`;
@@ -169,6 +171,105 @@ export function compileRanger(
     const stderr = err.stderr?.toString() || "";
     const combined = stdout + stderr;
 
+    return {
+      success: false,
+      output: stdout,
+      error: combined || err.message,
+    };
+  }
+}
+
+/**
+ * Compile Ranger with extra CLI flags (e.g. -wat, -freestanding).
+ */
+export function compileRangerWithFlags(
+  sourceFile: string,
+  language: string,
+  outputDir: string,
+  extraFlags: string[] = []
+): CompileResult {
+  const sourcePath = path.isAbsolute(sourceFile)
+    ? sourceFile
+    : `./${sourceFile.replace(/\\/g, "/")}`;
+
+  const absoluteSource = path.isAbsolute(sourceFile)
+    ? sourceFile
+    : path.join(ROOT_DIR, sourceFile);
+
+  if (!fs.existsSync(absoluteSource)) {
+    return {
+      success: false,
+      output: "",
+      error: `Source file not found: ${absoluteSource}`,
+    };
+  }
+
+  const sourceBasename = path.basename(absoluteSource, ".rgr");
+  const extMap: Record<string, string> = {
+    es6: ".js",
+    cpp: ".cpp",
+    go: ".go",
+    python: ".py",
+    rust: ".rs",
+    kotlin: ".kt",
+    swift6: ".swift",
+    java7: ".java",
+    llvm: ".ll",
+  };
+  const ext = extMap[language] || ".js";
+  const outputFile = `${sourceBasename}${ext}`;
+  const targetDir = outputDir || TEMP_OUTPUT_DIR;
+  const outputPath = path.join(targetDir, outputFile);
+
+  if (!fs.existsSync(targetDir)) {
+    fs.mkdirSync(targetDir, { recursive: true });
+  }
+
+  try {
+    const env = {
+      ...process.env,
+      RANGER_LIB: `./compiler/Lang.rgr;./lib/stdops.rgr`,
+    };
+    const relativeTargetDir = path
+      .relative(ROOT_DIR, targetDir)
+      .replace(/\\/g, "/");
+    const langFlag = language === "es6" ? "-es6" : `-l=${language}`;
+    const flags = extraFlags.join(" ");
+    const cmd = `node "${OUTPUT_JS}" ${langFlag} ${flags} "${sourcePath}" -nodecli -d="${relativeTargetDir}" -o="${outputFile}"`;
+
+    const output = execSync(cmd, {
+      cwd: ROOT_DIR,
+      env,
+      encoding: "utf-8",
+      timeout: 30000,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    const outputStr = output.toString();
+    const hasError =
+      outputStr.includes("TypeError:") ||
+      outputStr.includes("Compilation FAILED") ||
+      outputStr.includes("[FAIL]") ||
+      outputStr.includes("✗ ") ||
+      outputStr.includes("Got unknown compiler error");
+
+    if (hasError) {
+      return { success: false, output: outputStr, error: outputStr };
+    }
+
+    if (!fs.existsSync(outputPath)) {
+      return {
+        success: false,
+        output: outputStr,
+        error: `Compiler did not create expected output file: ${outputPath}\n${outputStr}`,
+      };
+    }
+
+    return { success: true, output: outputStr };
+  } catch (err: any) {
+    const stdout = err.stdout?.toString() || "";
+    const stderr = err.stderr?.toString() || "";
+    const combined = stdout + stderr;
     return {
       success: false,
       output: stdout,

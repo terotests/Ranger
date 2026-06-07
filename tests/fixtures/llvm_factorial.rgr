@@ -1,0 +1,10 @@
+; LLVM PoC: recursive factorial
+
+class Fact {
+    sfn factorial:int (n:int) {
+        if (<= n 1) {
+            return 1
+        }
+        return (* n (Fact.factorial((- n 1))))
+    }
+}

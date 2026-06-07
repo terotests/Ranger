@@ -1,0 +1,33 @@
+; WASM PoC: small math library with multiple exported functions
+
+class MathLib {
+    sfn add:int (a:int b:int) {
+        return (+ a b)
+    }
+
+    sfn mul:int (a:int b:int) {
+        return (* a b)
+    }
+
+    sfn sq:int (n:int) {
+        return (MathLib.mul(n n))
+    }
+}
+
+class Fib {
+    sfn fib:int (n:int) {
+        if (< n 2) {
+            return n
+        }
+        return (+ (Fib.fib((- n 1))) (Fib.fib((- n 2))))
+    }
+}
+
+class Fact {
+    sfn factorial:int (n:int) {
+        if (<= n 1) {
+            return 1
+        }
+        return (* n (Fact.factorial((- n 1))))
+    }
+}

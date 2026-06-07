@@ -48,7 +48,15 @@
     "test:go": "vitest run --config tests/vitest.config.ts compiler-go.test.ts",
     "test:python": "vitest run --config tests/vitest.config.ts compiler-python.test.ts",
     "test:rust": "vitest run --config tests/vitest.config.ts compiler-rust.test.ts",
-    "test:kotlin": "vitest run --config tests/vitest.config.ts compiler-kotlin.test.ts",
+    "test:llvm": "vitest run --config tests/vitest.config.ts compiler-llvm.test.ts",
+    "demo:native": "bash scripts/demo-native.sh",
+    "demo:hello": "bash scripts/compile-hello.sh",
+    "game:build:llvm": "bash scripts/compile-invaders.sh",
+    "demo:wasm": "bash scripts/compile-wasm.sh",
+    "demo:wasm:collections": "bash scripts/compile-wasm-collections.sh",
+    "demo:wasm:serve": "bash scripts/compile-wasm.sh && node scripts/serve-wasm-demo.js",
+    "compile:native": "bash scripts/compile-native.sh",
+    "compile:wasm": "bash scripts/compile-wasm.sh",
     "test:tsparser": "cross-env NODE_OPTIONS=--max-old-space-size=8192 vitest run --config tests/vitest.config.ts ts-lexer.test.ts",
     "test:watch": "vitest --config tests/vitest.config.ts",
     "gen:simple": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./generated/SimpleChessBoard.rgr -d=./generated/output -o=SimpleChessBoard.js -nodecli",
@@ -191,6 +199,7 @@
     "@types/node": "^22.19.2",
     "cross-env": "^10.1.0",
     "typescript": "^5.9.3",
-    "vitest": "^1.6.0"
+    "vitest": "^1.6.0",
+    "wabt": "^1.0.39"
   }
 }

@@ -1,0 +1,8 @@
+; LLVM/libc: print -> printf via -target=native-linux-gnu
+
+class Hello {
+    sfn m@(main):int () {
+        print "Hello, world!"
+        return 0
+    }
+}

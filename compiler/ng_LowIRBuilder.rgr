@@ -1,0 +1,2223 @@
+
+Import "ng_LowIR.rgr"
+Import "ng_LowIRRuntime.rgr"
+Import "ng_LowIRTarget.rgr"
+
+class LowIRLowerContext {
+  def ctx@(weak):RangerAppWriterContext
+  def builder:LowIRBuilder
+  def target:LowIRTarget
+  def ptrType:string "i32"
+  def slots:[string:string]
+  def slotTypes:[string:string]
+  def objectSlots:[string:string]
+  def collectionSlots:[string:string]
+  def currentRetType:string "i32"
+  def llvmRetType:string "i32"
+  def className:string ""
+  def selfPtr:string ""
+}
+
+class LowIRBuilderPass {
+  def irModule:LowIRModule (new LowIRModule())
+  def usedMapRuntime:boolean false
+  def usedArrayRuntime:boolean false
+  def usedPtrArrayRuntime:boolean false
+
+  fn canLowerFunction:boolean (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext) {
+    if (fnDesc.is_static == false) {
+      return false
+    }
+    return (this.canLowerMethod(fnDesc))
+  }
+
+  fn canLowerMethod:boolean (fnDesc:RangerAppFunctionDesc) {
+    if (fnDesc.name == "Constructor") {
+      for fnDesc.params p:RangerAppParamDesc i {
+        if (null? p.nameNode) {
+          return false
+        }
+        def pn (unwrap p.nameNode)
+        if (false == (LowIRUtil.isSupportedParam(pn.type_name))) {
+          return false
+        }
+      }
+      return true
+    }
+    if (null? fnDesc.nameNode) {
+      return false
+    }
+    def retNode (unwrap fnDesc.nameNode)
+    def retType (LowIRUtil.typeFromRanger(retNode.type_name))
+    def voidType:string "void"
+    if ((strlen retType) == 0) {
+      if (fnDesc.name == "Constructor") {
+        retType = voidType
+      } {
+        return false
+      }
+    }
+    if ((retType != voidType) && ((strlen retType) == 0)) {
+      return false
+    }
+    for fnDesc.params p:RangerAppParamDesc i {
+      if (null? p.nameNode) {
+        return false
+      }
+      def pn (unwrap p.nameNode)
+      if (false == (LowIRUtil.isSupportedParam(pn.type_name))) {
+        return false
+      }
+    }
+    return true
+  }
+
+  fn canLowerInstanceMethod:boolean (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext) {
+    if fnDesc.is_static {
+      return false
+    }
+    return (this.canLowerMethod(fnDesc))
+  }
+
+  fn isMainEntry:boolean (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext) {
+    if (null? fnDesc.nameNode) {
+      return false
+    }
+    def nn (unwrap fnDesc.nameNode)
+    if (nn.hasFlag("main")) {
+      return true
+    }
+    return false
+  }
+
+  fn shouldExport:boolean (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext) {
+    if (this.isMainEntry(fnDesc ctx)) {
+      return true
+    }
+    if (ctx.hasCompilerFlag("freestanding")) {
+      return true
+    }
+    if (fnDesc.name == "main") {
+      return false
+    }
+    if (fnDesc.is_static == false) {
+      return false
+    }
+    return (this.canLowerFunction(fnDesc ctx))
+  }
+
+  fn lowerModule:LowIRModule (appCtx:RangerAppWriterContext) {
+    def moduleName:string "ranger_module"
+    def session (LowIRSession.current())
+    session.beginModule(moduleName)
+    this.irModule = session.module
+    def target (LowIRTarget.resolve(appCtx))
+    this.irModule.triple = target.triple
+    this.irModule.ptrType = target.ptrType
+    this.irModule.useLibcHeap = target.usesLibc
+    if target.usesLibc {
+      this.ensureLibcExtern(target)
+    }
+
+    for appCtx.definedClassList cName:string i {
+      if (cName == "RangerStaticMethods") {
+        continue _
+      }
+      def cl (unwrap (get appCtx.definedClasses cName))
+      if (cl.is_operator_class || cl.is_trait || cl.is_system || cl.is_union) {
+        continue
+      }
+      this.lowerStruct(cl appCtx)
+      for cl.static_methods m:RangerAppFunctionDesc i {
+        if (cl.name == "Mem") {
+          continue
+        }
+        if (this.canLowerFunction(m appCtx)) {
+          def isMain (this.isMainEntry(m appCtx))
+          this.lowerFunction(m cl.name appCtx (this.shouldExport(m appCtx)) isMain false)
+        }
+      }
+      if cl.has_constructor {
+        if (!null? cl.constructor_fn) {
+          def ctor (unwrap cl.constructor_fn)
+          if (this.canLowerMethod(ctor)) {
+            this.lowerFunction(ctor cl.name appCtx false false true)
+          }
+        } {
+          for cl.methods m:RangerAppFunctionDesc i {
+            if (m.name == "Constructor") {
+              if (this.canLowerMethod(m)) {
+                this.lowerFunction(m cl.name appCtx false false true)
+              }
+            }
+          }
+        }
+      }
+      for cl.methods m:RangerAppFunctionDesc i {
+        if (m.name == "Constructor") {
+          continue
+        }
+        if (this.canLowerInstanceMethod(m appCtx)) {
+          this.lowerFunction(m cl.name appCtx false false true)
+        }
+      }
+    }
+    if this.usedArrayRuntime {
+      LowIRRuntimeGen.ensureArrayRuntime(this.irModule)
+    }
+    if this.usedMapRuntime {
+      LowIRRuntimeGen.ensureMapRuntime(this.irModule)
+    }
+    if this.usedPtrArrayRuntime {
+      LowIRRuntimeGen.ensurePtrArrayRuntime(this.irModule)
+    }
+    return this.irModule
+  }
+
+  fn ensureExternDecl:void (fnName:string retType:string paramTypes:[string] isVararg:boolean) {
+    if (this.hasExternDecl(fnName)) {
+      return
+    }
+    def decl@(lives):LowIRExternDecl (new LowIRExternDecl())
+    decl.fnName = fnName
+    decl.retType = retType
+    decl.isVararg = isVararg
+    for paramTypes pt:string i {
+      push decl.paramTypes pt
+    }
+    push this.irModule.externDecls decl
+  }
+
+  fn ensureLibcExtern:void (target:LowIRTarget) {
+    def ioParams:[string]
+    push ioParams "i8*"
+    this.ensureExternDecl(target.ioFn target.ioFnRet ioParams target.ioFnVararg)
+    def mallocParams:[string]
+    push mallocParams target.ptrType
+    this.ensureExternDecl("malloc" target.ptrType mallocParams false)
+    def strcmpParams:[string]
+    push strcmpParams "i8*"
+    push strcmpParams "i8*"
+    this.ensureExternDecl("strcmp" "i32" strcmpParams false)
+    def termInitParams:[string]
+    this.ensureExternDecl("ranger_term_init" "void" termInitParams false)
+    def pollParams:[string]
+    this.ensureExternDecl("ranger_poll_key" "i8*" pollParams false)
+    def termVoidParams:[string]
+    this.ensureExternDecl("ranger_clear_screen" "void" termVoidParams false)
+    this.ensureExternDecl("ranger_hide_cursor" "void" termVoidParams false)
+    this.ensureExternDecl("ranger_show_cursor" "void" termVoidParams false)
+    def moveParams:[string]
+    push moveParams "i32"
+    push moveParams "i32"
+    this.ensureExternDecl("ranger_move_cursor" "void" moveParams false)
+    def sprintfParams:[string]
+    push sprintfParams "i8*"
+    push sprintfParams "i8*"
+    this.ensureExternDecl("sprintf" "i32" sprintfParams true)
+  }
+
+  fn exprIsString:boolean (node:CodeNode) {
+    if (node.value_type == RangerNodeType.String) {
+      return true
+    }
+    if (node.expression) {
+      for node.children item:CodeNode i {
+        if (this.exprIsString(item)) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  fn exprMightBeString:boolean (node:CodeNode) {
+    if (this.exprIsString(node)) {
+      return true
+    }
+    if (node.has_operator) {
+      def op (node.getOperator())
+      if (op == "+") {
+        def aNode (node.getSecond())
+        def bNode (node.getThird())
+        if ((this.exprIsString(aNode)) || (this.exprIsString(bNode))) {
+          return true
+        }
+      }
+    }
+    if (node.infix_operator) {
+      if (!null? node.infix_node) {
+        return (this.exprMightBeString((unwrap node.infix_node)))
+      }
+    }
+    return false
+  }
+
+  fn lowerStringConcat:string (aNode:CodeNode bNode:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def aStr (this.exprIsString(aNode))
+    def bStr (this.exprIsString(bNode))
+    def sz (builder.emitConst(lctx.ptrType "64"))
+    def raw (builder.emitHeapAlloc(sz))
+    def buf (builder.emitIntToI8Ptr(raw lctx.ptrType))
+    def args:[string]
+    def argTypes:[string]
+    push args buf
+    push argTypes "i8*"
+    if (aStr && bStr) {
+      def fmtG (this.internStringGlobal("%s%s" false))
+      push args (builder.emitStrPtr(fmtG (this.stringGlobalByteLen(fmtG))))
+      push argTypes "i8*"
+      push args (this.lowerExpr(aNode lctx))
+      push argTypes "i8*"
+      push args (this.lowerExpr(bNode lctx))
+      push argTypes "i8*"
+    } {
+      if bStr {
+        def fmtG (this.internStringGlobal("%d%s" false))
+        push args (builder.emitStrPtr(fmtG (this.stringGlobalByteLen(fmtG))))
+        push argTypes "i8*"
+        push args (this.lowerExpr(aNode lctx))
+        push argTypes "i32"
+        push args (this.lowerExpr(bNode lctx))
+        push argTypes "i8*"
+      } {
+        def fmtG (this.internStringGlobal("%s%d" false))
+        push args (builder.emitStrPtr(fmtG (this.stringGlobalByteLen(fmtG))))
+        push argTypes "i8*"
+        push args (this.lowerExpr(aNode lctx))
+        push argTypes "i8*"
+        push args (this.lowerExpr(bNode lctx))
+        push argTypes "i32"
+      }
+    }
+    builder.emitCall("sprintf" "i32" args argTypes)
+    return buf
+  }
+
+  fn hasExternDecl:boolean (fnName:string) {
+    for this.irModule.externDecls d:LowIRExternDecl i {
+      if (d.fnName == fnName) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn internStringGlobal:string (text:string withNewline:boolean) {
+    for this.irModule.stringGlobals g:LowIRStringGlobal i {
+      if (g.text == text) {
+        if (g.withNewline == withNewline) {
+          return g.name
+        }
+      }
+    }
+    def cnt (array_length this.irModule.stringGlobals)
+    def gname:string (".str." + ("" + cnt))
+    def g@(lives):LowIRStringGlobal (new LowIRStringGlobal())
+    g.name = gname
+    g.text = text
+    g.withNewline = withNewline
+    if withNewline {
+      g.byteLen = (strlen text) + 2
+    } {
+      g.byteLen = (strlen text) + 1
+    }
+    push this.irModule.stringGlobals g
+    return gname
+  }
+
+  fn stringGlobalByteLen:int (gname:string) {
+    for this.irModule.stringGlobals g:LowIRStringGlobal i {
+      if (g.name == gname) {
+        return g.byteLen
+      }
+    }
+    return 0
+  }
+
+  fn printTextFromNode:string (node:CodeNode) {
+    if (node.value_type == RangerNodeType.String) {
+      return node.string_value
+    }
+    return ""
+  }
+
+  fn emitIoString:void (text:string withNewline:boolean lctx:LowIRLowerContext) {
+    if ((strlen text) == 0) {
+      return
+    }
+    def target (lctx.target)
+    if ((strlen target.ioFn) == 0) {
+      return
+    }
+    def builder (lctx.builder)
+    def gname (this.internStringGlobal(text withNewline))
+    def byteLen (this.stringGlobalByteLen(gname))
+    def strPtr (builder.emitStrPtr(gname byteLen))
+    def args:[string]
+    def argTypes:[string]
+    push args strPtr
+    push argTypes "i8*"
+    def voidType:string "void"
+    if (target.ioFnRet == voidType) {
+      builder.emitCall(target.ioFn voidType args argTypes)
+      return
+    }
+    builder.emitCall(target.ioFn target.ioFnRet args argTypes)
+  }
+
+  fn emitPrintfFmt:void (fmt:string args:[string] argTypes:[string] lctx:LowIRLowerContext) {
+    def target (lctx.target)
+    if ((strlen target.ioFn) == 0) {
+      return
+    }
+    def builder (lctx.builder)
+    def gname (this.internStringGlobal(fmt false))
+    def byteLen (this.stringGlobalByteLen(gname))
+    def fmtPtr (builder.emitStrPtr(gname byteLen))
+    def callArgs:[string]
+    def callTypes:[string]
+    push callArgs fmtPtr
+    push callTypes "i8*"
+    for args a:string i {
+      push callArgs a
+    }
+    for argTypes at:string i {
+      push callTypes at
+    }
+    builder.emitCall(target.ioFn target.ioFnRet callArgs callTypes)
+  }
+
+  fn lowerPrint:void (node:CodeNode lctx:LowIRLowerContext) {
+    def textNode (node.getSecond())
+    def text (this.printTextFromNode(textNode))
+    if ((strlen text) == 0) {
+      return
+    }
+    this.emitIoString(text true lctx)
+  }
+
+  fn lowerWrite:void (node:CodeNode lctx:LowIRLowerContext) {
+    def textNode (node.getSecond())
+    def text (this.printTextFromNode(textNode))
+    if ((strlen text) > 0) {
+      this.emitIoString(text false lctx)
+      return
+    }
+    def strPtr (this.lowerExpr(textNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args strPtr
+    push argTypes "i8*"
+    this.emitPrintfFmt("%s" args argTypes lctx)
+  }
+
+  fn lowerExit:void (node:CodeNode lctx:LowIRLowerContext) {
+    def target (lctx.target)
+    if (target.usesLibc == false) {
+      return
+    }
+    def builder (lctx.builder)
+    def codeNode (node.getSecond())
+    def code (this.lowerExpr(codeNode lctx))
+    def exitParams:[string]
+    push exitParams "i32"
+    this.ensureExternDecl("exit" "void" exitParams false)
+    def args:[string]
+    def argTypes:[string]
+    push args code
+    push argTypes "i32"
+    builder.emitCall("exit" "void" args argTypes)
+    builder.terminateUnreachable()
+  }
+
+  fn lowerSleepMs:void (node:CodeNode lctx:LowIRLowerContext) {
+    def target (lctx.target)
+    if (target.usesLibc == false) {
+      return
+    }
+    def builder (lctx.builder)
+    def msNode (node.getSecond())
+    def ms (this.lowerExpr(msNode lctx))
+    def irI32:string "i32"
+    def thousand (builder.emitConst(irI32 "1000"))
+    def usec (builder.emitBin("mul" irI32 ms thousand))
+    def usleepParams:[string]
+    push usleepParams "i32"
+    this.ensureExternDecl("usleep" "i32" usleepParams false)
+    def args:[string]
+    def argTypes:[string]
+    push args usec
+    push argTypes "i32"
+    builder.emitCall("usleep" "i32" args argTypes)
+  }
+
+  fn lowerTerminalEsc:void (text:string lctx:LowIRLowerContext) {
+    this.emitIoString(text false lctx)
+  }
+
+  fn emitTermVoidCall:void (fnName:string lctx:LowIRLowerContext) {
+    def target (lctx.target)
+    if (target.usesLibc == false) {
+      return
+    }
+    def args:[string]
+    def argTypes:[string]
+    lctx.builder.emitCall(fnName "void" args argTypes)
+  }
+
+  fn lowerClearScreen:void (node:CodeNode lctx:LowIRLowerContext) {
+    this.emitTermVoidCall("ranger_clear_screen" lctx)
+  }
+
+  fn lowerHideCursor:void (node:CodeNode lctx:LowIRLowerContext) {
+    this.emitTermVoidCall("ranger_hide_cursor" lctx)
+  }
+
+  fn lowerShowCursor:void (node:CodeNode lctx:LowIRLowerContext) {
+    this.emitTermVoidCall("ranger_show_cursor" lctx)
+  }
+
+  fn lowerMoveCursor:void (node:CodeNode lctx:LowIRLowerContext) {
+    def target (lctx.target)
+    if (target.usesLibc == false) {
+      return
+    }
+    def builder (lctx.builder)
+    def xNode (node.getSecond())
+    def yNode (node.getThird())
+    def x (this.lowerExpr(xNode lctx))
+    def y (this.lowerExpr(yNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args x
+    push argTypes "i32"
+    push args y
+    push argTypes "i32"
+    builder.emitCall("ranger_move_cursor" "void" args argTypes)
+  }
+
+  fn forIndexName:string (idxNode:CodeNode) {
+    if ((strlen idxNode.vref) > 0) {
+      return idxNode.vref
+    }
+    return "i"
+  }
+
+  fn resolveItemClass:string (itemNode:CodeNode) {
+    if ((strlen itemNode.eval_type_name) > 0) {
+      return itemNode.eval_type_name
+    }
+    return itemNode.type_name
+  }
+
+  fn lowerPollKeypress:string (lctx:LowIRLowerContext) {
+    def args:[string]
+    def argTypes:[string]
+    return (lctx.builder.emitCall("ranger_poll_key" "i8*" args argTypes))
+  }
+
+  fn lowerOnKeypress:void (node:CodeNode lctx:LowIRLowerContext) {
+    def args:[string]
+    def argTypes:[string]
+    lctx.builder.emitCall("ranger_term_init" "void" args argTypes)
+  }
+
+  fn loadArrayDescExpr:string (arrNode:CodeNode lctx:LowIRLowerContext) {
+    if (arrNode.value_type == RangerNodeType.VRef) {
+      if (this.isClassField(arrNode.vref lctx.className this.irModule)) {
+        return (this.emitFieldLoad(arrNode.vref lctx))
+      }
+    }
+    return (this.lowerExpr(arrNode lctx))
+  }
+
+  fn lowerPush:void (node:CodeNode lctx:LowIRLowerContext) {
+    def arrNode (node.getSecond())
+    def itemNode (node.getThird())
+    def desc (this.loadArrayDescExpr(arrNode lctx))
+    def itemAddr (this.lowerExpr(itemNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args desc
+    push argTypes lctx.ptrType
+    push args itemAddr
+    push argTypes lctx.ptrType
+    this.usedPtrArrayRuntime = true
+    lctx.builder.emitCall("RtPtrArray_push" "void" args argTypes)
+  }
+
+  fn lowerFor:void (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    if ((array_length node.children) <= 4) {
+      return
+    }
+    def listNode (node.getSecond())
+    def itemNode (node.getThird())
+    def bodyNode (itemAt node.children 4)
+    def idxNode (itemAt node.children 3)
+    def idxName (this.forIndexName(idxNode))
+    def desc (this.loadArrayDescExpr(listNode lctx))
+    this.usedPtrArrayRuntime = true
+    def lenArgs:[string]
+    def lenTypes:[string]
+    push lenArgs desc
+    push lenTypes lctx.ptrType
+    def len (builder.emitCall("RtPtrArray_len" "i32" lenArgs lenTypes))
+    def zero (builder.emitConst("i32" "0"))
+    this.bindSlot(idxName "i32" zero lctx)
+    def condLabel (builder.freshLabel("for_cond"))
+    def bodyLabel (builder.freshLabel("for_body"))
+    def exitLabel (builder.freshLabel("for_exit"))
+    def incLabel (builder.freshLabel("for_inc"))
+    builder.terminateBr(condLabel)
+    builder.startBlock(condLabel)
+    def idxVal (this.loadSlot(idxName "i32" lctx))
+    def cond (builder.emitIcmp("slt" idxVal len))
+    builder.terminateBrIf(cond bodyLabel exitLabel)
+    builder.startBlock(bodyLabel)
+    def elemArgs:[string]
+    def elemTypes:[string]
+    push elemArgs desc
+    push elemTypes lctx.ptrType
+    push elemArgs idxVal
+    push elemTypes "i32"
+    def elemAddr (builder.emitCall("RtPtrArray_get" lctx.ptrType elemArgs elemTypes))
+    def itemName:string itemNode.vref
+    def itemClass (this.resolveItemClass(itemNode))
+    this.bindSlot(itemName lctx.ptrType elemAddr lctx)
+    if ((strlen itemClass) > 0) {
+      set lctx.objectSlots itemName itemClass
+    }
+    this.lowerBlock(bodyNode lctx)
+    def bodyBb (unwrap builder.currentBlock)
+    if (bodyBb.termKind == "") {
+      builder.terminateBr(incLabel)
+    }
+    builder.startBlock(incLabel)
+    def idxEnd (this.loadSlot(idxName "i32" lctx))
+    def one (builder.emitConst("i32" "1"))
+    def idxNext (builder.emitBin("add" "i32" idxEnd one))
+    def idxSlot (unwrap (get lctx.slots idxName))
+    builder.emitStore("i32" idxNext idxSlot)
+    builder.terminateBr(condLabel)
+    builder.startBlock(exitLabel)
+  }
+
+  fn emitStrcmpEq:string (lhs:string rhs:string ctx:LowIRLowerContext) {
+    def args:[string]
+    def argTypes:[string]
+    push args lhs
+    push argTypes "i8*"
+    push args rhs
+    push argTypes "i8*"
+    def cmp (ctx.builder.emitCall("strcmp" "i32" args argTypes))
+    def zero (ctx.builder.emitConst("i32" "0"))
+    return (ctx.builder.emitIcmp("eq" cmp zero))
+  }
+
+  fn lowerStrlen:string (node:CodeNode lctx:LowIRLowerContext) {
+    def irI32:string "i32"
+    def textNode (node.getSecond())
+    def text (this.printTextFromNode(textNode))
+    def builder (lctx.builder)
+    if ((strlen text) > 0) {
+      def len (strlen text)
+      return (builder.emitConst(irI32 ("" + len)))
+    }
+    return (builder.emitConst(irI32 "0"))
+  }
+
+  fn isIntArrayTypeNode:boolean (node:CodeNode) {
+    if (node.value_type == RangerNodeType.Array) {
+      return (node.array_type == "int")
+    }
+    return false
+  }
+
+  fn isIntIntMapTypeNode:boolean (node:CodeNode) {
+    if (node.value_type == RangerNodeType.Hash) {
+      if (node.key_type == "int") {
+        return (node.array_type == "int")
+      }
+    }
+    return false
+  }
+
+  fn collectionKind:string (varName:string lctx:LowIRLowerContext) {
+    if (has lctx.collectionSlots varName) {
+      return (unwrap (get lctx.collectionSlots varName))
+    }
+    return ""
+  }
+
+  fn bindCollectionSlot:void (varName:string kind:string desc:string lctx:LowIRLowerContext) {
+    this.bindSlot(varName "i32" desc lctx)
+    set lctx.collectionSlots varName kind
+  }
+
+  fn loadCollectionDesc:string (varName:string lctx:LowIRLowerContext) {
+    return (this.loadSlot(varName "i32" lctx))
+  }
+
+  fn emitDescLoad:string (desc:string byteOff:int lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def off (builder.emitConst("i32" ("" + byteOff)))
+    def addr (builder.emitBin("add" "i32" desc off))
+    return (builder.emitPtrLoad(addr))
+  }
+
+  fn emitDescStore:void (desc:string byteOff:int value:string lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def off (builder.emitConst("i32" ("" + byteOff)))
+    def addr (builder.emitBin("add" "i32" desc off))
+    builder.emitPtrStore(addr value)
+  }
+
+  fn emitRtArrayNewEmpty:string (lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def twelve (builder.emitConst("i32" "12"))
+    def desc (builder.emitHeapAlloc(twelve))
+    def sixteen (builder.emitConst("i32" "16"))
+    def data (builder.emitHeapAlloc(sixteen))
+    this.emitDescStore(desc 0 data lctx)
+    def zero (builder.emitConst("i32" "0"))
+    this.emitDescStore(desc 4 zero lctx)
+    def four (builder.emitConst("i32" "4"))
+    this.emitDescStore(desc 8 four lctx)
+    return desc
+  }
+
+  fn emitRtArrayNewSized:string (cap:string lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def twelve (builder.emitConst("i32" "12"))
+    def desc (builder.emitHeapAlloc(twelve))
+    def four (builder.emitConst("i32" "4"))
+    def nbytes (builder.emitBin("mul" "i32" cap four))
+    def data (builder.emitHeapAlloc(nbytes))
+    this.emitDescStore(desc 0 data lctx)
+    def zero (builder.emitConst("i32" "0"))
+    this.emitDescStore(desc 4 zero lctx)
+    this.emitDescStore(desc 8 cap lctx)
+    return desc
+  }
+
+  fn emitRtArrayGet:string (desc:string idx:string lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def data (this.emitDescLoad(desc 0 lctx))
+    def four (builder.emitConst("i32" "4"))
+    def off (builder.emitBin("mul" "i32" idx four))
+    def slot (builder.emitBin("add" "i32" data off))
+    return (builder.emitPtrLoad(slot))
+  }
+
+  fn emitRtArraySet:void (desc:string idx:string val:string lctx:LowIRLowerContext) {
+    this.usedArrayRuntime = true
+    def builder (lctx.builder)
+    def args:[string]
+    def argTypes:[string]
+    push args desc
+    push argTypes "i32"
+    push args idx
+    push argTypes "i32"
+    push args val
+    push argTypes "i32"
+    def voidType:string "void"
+    builder.emitCall("RtArray_set" voidType args argTypes)
+  }
+
+  fn emitRtArrayLen:string (desc:string lctx:LowIRLowerContext) {
+    return (this.emitDescLoad(desc 4 lctx))
+  }
+
+  fn emitRtMapNew:string (cap:string lctx:LowIRLowerContext) {
+    this.usedMapRuntime = true
+    def builder (lctx.builder)
+    def args:[string]
+    def argTypes:[string]
+    push args cap
+    push argTypes "i32"
+    return (builder.emitCall("RtMap_new" "i32" args argTypes))
+  }
+
+  fn emitRtMapPut:void (desc:string key:string val:string lctx:LowIRLowerContext) {
+    this.usedMapRuntime = true
+    def builder (lctx.builder)
+    def args:[string]
+    def argTypes:[string]
+    push args desc
+    push argTypes "i32"
+    push args key
+    push argTypes "i32"
+    push args val
+    push argTypes "i32"
+    def voidType:string "void"
+    builder.emitCall("RtMap_put" voidType args argTypes)
+  }
+
+  fn emitRtMapGet:string (desc:string key:string lctx:LowIRLowerContext) {
+    this.usedMapRuntime = true
+    def builder (lctx.builder)
+    def args:[string]
+    def argTypes:[string]
+    push args desc
+    push argTypes "i32"
+    push args key
+    push argTypes "i32"
+    return (builder.emitCall("RtMap_get" "i32" args argTypes))
+  }
+
+  fn emitRtMapHas:string (desc:string key:string lctx:LowIRLowerContext) {
+    this.usedMapRuntime = true
+    def builder (lctx.builder)
+    def args:[string]
+    def argTypes:[string]
+    push args desc
+    push argTypes "i32"
+    push args key
+    push argTypes "i32"
+    return (builder.emitCall("RtMap_has" "i32" args argTypes))
+  }
+
+  fn lowerCollectionMake:string (node:CodeNode lctx:LowIRLowerContext) {
+    def sizeNode (node.getThird())
+    def cap (this.lowerExpr(sizeNode lctx))
+    return (this.emitRtArrayNewSized(cap lctx))
+  }
+
+  fn lowerCollectionGet:string (node:CodeNode lctx:LowIRLowerContext) {
+    def collNode (node.getSecond())
+    def keyNode (node.getThird())
+    def varName:string collNode.vref
+    def kind (this.collectionKind(varName lctx))
+    def desc (this.loadCollectionDesc(varName lctx))
+    def key (this.lowerExpr(keyNode lctx))
+    if (kind == "map") {
+      return (this.emitRtMapGet(desc key lctx))
+    }
+    return (this.emitRtArrayGet(desc key lctx))
+  }
+
+  fn lowerCollectionLen:string (node:CodeNode lctx:LowIRLowerContext) {
+    def collNode (node.getSecond())
+    def varName:string collNode.vref
+    def desc (this.loadCollectionDesc(varName lctx))
+    return (this.emitRtArrayLen(desc lctx))
+  }
+
+  fn lowerCollectionHas:string (node:CodeNode lctx:LowIRLowerContext) {
+    def collNode (node.getSecond())
+    def keyNode (node.getThird())
+    def varName:string collNode.vref
+    def desc (this.loadCollectionDesc(varName lctx))
+    def key (this.lowerExpr(keyNode lctx))
+    return (this.emitRtMapHas(desc key lctx))
+  }
+
+  fn lowerCollectionSet:void (node:CodeNode lctx:LowIRLowerContext) {
+    def collNode (node.getSecond())
+    def keyNode (node.getThird())
+    def valNode@(optional):CodeNode
+    if ((array_length node.children) > 3) {
+      valNode = (itemAt node.children 3)
+    }
+    if (null? valNode) {
+      return
+    }
+    def varName:string collNode.vref
+    def kind (this.collectionKind(varName lctx))
+    def desc (this.loadCollectionDesc(varName lctx))
+    def key (this.lowerExpr(keyNode lctx))
+    def val (this.lowerExpr((unwrap valNode) lctx))
+    if (kind == "map") {
+      this.emitRtMapPut(desc key val lctx)
+      return
+    }
+    this.emitRtArraySet(desc key val lctx)
+  }
+
+  fn lowerStruct:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    if ((array_length cl.variables) == 0) {
+      return
+    }
+    def st@(lives):LowIRStruct (new LowIRStruct())
+    st.name = cl.name
+    def ptrType (this.irModule.ptrType)
+    for cl.variables v:RangerAppParamDesc i {
+      if (null? v.nameNode) {
+        continue
+      }
+      def nn (unwrap v.nameNode)
+      def f@(lives):LowIRField (new LowIRField())
+      f.name = v.name
+      def isObjArray:boolean false
+      if (LowIRUtil.isArrayTypeName(nn.type_name)) {
+        isObjArray = true
+      } {
+        if (nn.value_type == RangerNodeType.Array) {
+          if ((strlen nn.array_type) > 0) {
+            if (nn.array_type != "int") {
+              isObjArray = true
+            }
+          }
+        }
+      }
+      if isObjArray {
+        f.irType = ptrType
+        f.isPtrArray = true
+      } {
+        if (LowIRUtil.isStringType(nn.type_name)) {
+          f.irType = ptrType
+        } {
+          f.irType = (LowIRUtil.fieldIrType(nn.type_name))
+        }
+      }
+      push st.fields f
+    }
+    push this.irModule.structs st
+  }
+
+  fn bindSlot:void (varName:string irType:string value:string lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    if (has lctx.slots varName) {
+      def slot (unwrap (get lctx.slots varName))
+      builder.emitStore(irType value slot)
+      set lctx.slotTypes varName irType
+      return
+    }
+    def slotName:string ("%" + varName + "_addr")
+    builder.emitAlloca(irType slotName)
+    builder.emitStore(irType value slotName)
+    set lctx.slots varName slotName
+    set lctx.slotTypes varName irType
+  }
+
+  fn loadSlot:string (varName:string irType:string lctx:LowIRLowerContext) {
+    if (has lctx.slots varName) {
+      def slot (unwrap (get lctx.slots varName))
+      def builder (lctx.builder)
+      def loadType (irType)
+      if (has lctx.slotTypes varName) {
+        loadType = (unwrap (get lctx.slotTypes varName))
+      }
+      if (has lctx.objectSlots varName) {
+        loadType = lctx.ptrType
+      }
+      return (builder.emitLoad(loadType slot))
+    }
+    return ("%" + varName)
+  }
+
+  fn fieldIrTypeFor:string (className:string fieldName:string) {
+    for this.irModule.structs st:LowIRStruct i {
+      if (st.name != className) {
+        continue
+      }
+      for st.fields f:LowIRField i {
+        if (f.name == fieldName) {
+          return f.irType
+        }
+      }
+    }
+    return "i32"
+  }
+
+  fn emitFieldLoadOn:string (className:string structPtr:string fieldName:string lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def idx (this.findFieldIndex(className fieldName this.irModule))
+    def fieldPtr (builder.emitGep(className structPtr idx))
+    def ftype (this.fieldIrTypeFor(className fieldName))
+    return (builder.emitLoad(ftype fieldPtr))
+  }
+
+  fn emitFieldStoreOn:void (className:string structPtr:string fieldName:string value:string lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def idx (this.findFieldIndex(className fieldName this.irModule))
+    def fieldPtr (builder.emitGep(className structPtr idx))
+    def ftype (this.fieldIrTypeFor(className fieldName))
+    builder.emitStore(ftype value fieldPtr)
+  }
+
+  fn emitFieldLoad:string (fieldName:string lctx:LowIRLowerContext) {
+    return (this.emitFieldLoadOn(lctx.className lctx.selfPtr fieldName lctx))
+  }
+
+  fn emitFieldStore:void (fieldName:string value:string lctx:LowIRLowerContext) {
+    this.emitFieldStoreOn(lctx.className lctx.selfPtr fieldName value lctx)
+  }
+
+  fn resolveObjectPtr:string (varName:string className:string lctx:LowIRLowerContext) {
+    if (varName == "this") {
+      return lctx.selfPtr
+    }
+    def addr (this.loadSlot(varName lctx.ptrType lctx))
+    return (lctx.builder.emitIntToStructPtr(className addr))
+  }
+
+  fn resolveObjectClass:string (varName:string lctx:LowIRLowerContext) {
+    if (varName == "this") {
+      return lctx.className
+    }
+    if (has lctx.objectSlots varName) {
+      return (unwrap (get lctx.objectSlots varName))
+    }
+    return ""
+  }
+
+  fn resolveFieldPtrExpr:string (vref:string lctx:LowIRLowerContext) {
+    def dotPos:int (indexOf vref ".")
+    if (dotPos < 0) {
+      return ""
+    }
+    def parts:[string] (strsplit vref ".")
+    if ((array_length parts) < 2) {
+      return ""
+    }
+    def recv (itemAt parts 0)
+    def fld (itemAt parts 1)
+    def cls (this.resolveObjectClass(recv lctx))
+    if ((strlen cls) == 0) {
+      return ""
+    }
+    def sptr (this.resolveObjectPtr(recv cls lctx))
+    def builder (lctx.builder)
+    def idx (this.findFieldIndex(cls fld this.irModule))
+    return (builder.emitGep(cls sptr idx))
+  }
+
+  fn isObjectArrayField:boolean (v:RangerAppParamDesc) {
+    if (null? v.nameNode) {
+      return false
+    }
+    def nn (unwrap v.nameNode)
+    if (LowIRUtil.isArrayTypeName(nn.type_name)) {
+      return true
+    }
+    if (nn.value_type == RangerNodeType.Array) {
+      if ((strlen nn.array_type) > 0) {
+        if (nn.array_type != "int") {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  fn emitFieldDefault:void (className:string objPtr:string fieldName:string valNode:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def tmp (this.lowerExpr(valNode lctx))
+    if (valNode.value_type == RangerNodeType.Boolean) {
+      tmp = (builder.emitZextI1ToI32(tmp))
+    }
+    this.emitFieldStoreOn(className objPtr fieldName tmp lctx)
+  }
+
+  fn initFieldDefaultsInObject:void (className:string objPtr:string lctx:LowIRLowerContext) {
+    def appCtx (unwrap lctx.ctx)
+    if (false == (has appCtx.definedClasses className)) {
+      return
+    }
+    def cl (unwrap (get appCtx.definedClasses className))
+    for cl.variables v:RangerAppParamDesc i {
+      if (this.isObjectArrayField(v)) {
+        continue
+      }
+      if (null? v.def_value) {
+        continue
+      }
+      if ((v.has_default == false) && (v.init_cnt == 0)) {
+        continue
+      }
+      this.emitFieldDefault(className objPtr v.name (unwrap v.def_value) lctx)
+    }
+  }
+
+  fn initFieldDefaultsInConstructor:void (className:string lctx:LowIRLowerContext) {
+    this.initFieldDefaultsInObject(className lctx.selfPtr lctx)
+  }
+
+  fn initArrayFieldsInConstructor:void (className:string lctx:LowIRLowerContext) {
+    for this.irModule.structs st:LowIRStruct i {
+      if (st.name != className) {
+        continue
+      }
+      for st.fields f:LowIRField i {
+        if (f.isPtrArray == false) {
+          continue
+        }
+        def cap (lctx.builder.emitConst("i32" "32"))
+        def args:[string]
+        def argTypes:[string]
+        push args cap
+        push argTypes "i32"
+        this.usedPtrArrayRuntime = true
+        def desc (lctx.builder.emitCall("RtPtrArray_new" lctx.ptrType args argTypes))
+        this.emitFieldStore(f.name desc lctx)
+      }
+    }
+  }
+
+  fn lowerNewObject:string (className:string argsNode:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def fieldCnt (this.structFieldCount(className this.irModule))
+    def byteCnt (fieldCnt * 4)
+    if (lctx.ptrType == "i64") {
+      byteCnt = fieldCnt * 8
+    }
+    def bytes (builder.emitConst(lctx.ptrType ("" + byteCnt)))
+    def heapAddr (builder.emitHeapAlloc(bytes))
+    def objSlot (builder.emitIntToStructPtr(className heapAddr))
+    this.initFieldDefaultsInObject(className objSlot lctx)
+    def ctorName (LowIRUtil.mangleMethod(className "Constructor"))
+    def args:[string]
+    def argTypes:[string]
+    push args objSlot
+    push argTypes (LowIRUtil.structPtrType(className))
+    for argsNode.children arg:CodeNode i {
+      push args (this.lowerExpr(arg lctx))
+      push argTypes "i32"
+    }
+    def voidType:string "void"
+    builder.emitCall(ctorName voidType args argTypes)
+    return heapAddr
+  }
+
+  fn findFieldIndex:int (className:string fieldName:string module:LowIRModule) {
+    for module.structs st:LowIRStruct i {
+      if (st.name != className) {
+        continue
+      }
+      def fi:int 0
+      for st.fields f:LowIRField i {
+        if (f.name == fieldName) {
+          return fi
+        }
+        fi = fi + 1
+      }
+    }
+    return -1
+  }
+
+  fn isClassField:boolean (fieldName:string className:string module:LowIRModule) {
+    if ((strlen className) == 0) {
+      return false
+    }
+    return (this.findFieldIndex(className fieldName module) >= 0)
+  }
+
+  fn structFieldCount:int (className:string module:LowIRModule) {
+    for module.structs st:LowIRStruct i {
+      if (st.name == className) {
+        return (array_length st.fields)
+      }
+    }
+    return 0
+  }
+
+  fn lowerFunction:void (fnDesc:RangerAppFunctionDesc className:string appCtx:RangerAppWriterContext exportFn:boolean isMain:boolean isInstance:boolean) {
+    def builder@(lives):LowIRBuilder (new LowIRBuilder(this.irModule))
+    builder.reset()
+    def lctx@(lives):LowIRLowerContext (new LowIRLowerContext())
+    lctx.ctx = appCtx
+    lctx.builder = builder
+    lctx.target = (LowIRTarget.resolve(appCtx))
+    lctx.ptrType = lctx.target.ptrType
+    def emptySlots:[string:string]
+    lctx.slots = emptySlots
+    def emptySlotTypes:[string:string]
+    lctx.slotTypes = emptySlotTypes
+    def emptyObjects:[string:string]
+    lctx.objectSlots = emptyObjects
+    def emptyCollections:[string:string]
+    lctx.collectionSlots = emptyCollections
+    if isInstance {
+      lctx.className = className
+      lctx.selfPtr = "%self"
+    }
+
+    def voidType:string "void"
+    if (fnDesc.name == "Constructor") {
+      lctx.currentRetType = voidType
+      lctx.llvmRetType = voidType
+    } {
+      def retNode (unwrap fnDesc.nameNode)
+      lctx.currentRetType = (LowIRUtil.typeFromRanger(retNode.type_name))
+      lctx.llvmRetType = lctx.currentRetType
+    }
+    if isMain {
+      lctx.llvmRetType = "i32"
+    }
+    if (isMain && (lctx.currentRetType == voidType)) {
+      lctx.llvmRetType = "i32"
+    }
+
+    def params:[LowIRParam]
+    if isInstance {
+      def selfParam@(lives):LowIRParam (new LowIRParam())
+      selfParam.name = "self"
+      selfParam.irType = (LowIRUtil.structPtrType(className))
+      push params selfParam
+    }
+    for fnDesc.params p:RangerAppParamDesc i {
+      def lp@(lives):LowIRParam (new LowIRParam())
+      lp.name = p.compiledName
+      if ((strlen lp.name) == 0) {
+        lp.name = p.name
+      }
+      def pn (unwrap p.nameNode)
+      if (LowIRUtil.isStringType(pn.type_name)) {
+        lp.irType = "i8*"
+      } {
+        lp.irType = (LowIRUtil.typeFromRanger(pn.type_name))
+        if ((strlen lp.irType) == 0) {
+          lp.irType = "i32"
+        }
+      }
+      push params lp
+    }
+
+    def fnName:string (LowIRUtil.mangleMethod(className fnDesc.name))
+    if isMain {
+      fnName = "main"
+    }
+    if ((strlen fnName) == 0) {
+      fnName = fnDesc.compiledName
+    }
+    if ((strlen fnName) == 0) {
+      fnName = fnDesc.name
+    }
+
+    def entryLabel:string "entry"
+    builder.startBlock(entryLabel)
+
+    if isInstance {
+      if (fnDesc.name == "Constructor") {
+        this.initFieldDefaultsInConstructor(className lctx)
+        this.initArrayFieldsInConstructor(className lctx)
+      }
+    }
+
+    for fnDesc.params p:RangerAppParamDesc i {
+      def lpName:string p.compiledName
+      if ((strlen lpName) == 0) {
+        lpName = p.name
+      }
+      def pn (unwrap p.nameNode)
+      def pType (LowIRUtil.typeFromRanger(pn.type_name))
+      if (LowIRUtil.isStringType(pn.type_name)) {
+        pType = "i8*"
+      }
+      def paramVal:string ("%" + lpName)
+      this.bindSlot(p.name pType paramVal lctx)
+    }
+
+    if (!null? fnDesc.fnBody) {
+      this.lowerBlock((unwrap fnDesc.fnBody) lctx)
+    }
+
+    if isMain {
+      if (lctx.currentRetType == voidType) {
+        def cur (unwrap builder.currentBlock)
+        if (cur.termKind == "") {
+          def zero:string "0"
+          def retVal (builder.emitConst("i32" zero))
+          builder.terminateRet(lctx.llvmRetType retVal)
+        }
+      }
+    }
+
+    builder.finishFunction(fnName lctx.llvmRetType params exportFn isMain)
+  }
+
+  fn lowerBlock:void (block:CodeNode lctx:LowIRLowerContext) {
+    if block.is_block_node {
+      def childCnt (array_length block.children)
+      if (childCnt > 0) {
+        for block.children stmt:CodeNode i {
+          this.lowerStmt(stmt lctx)
+        }
+        return
+      }
+      if (has block.register_expressions) {
+        for block.register_expressions reg:CodeNode i {
+          this.lowerStmt(reg lctx)
+        }
+      }
+      return
+    }
+    if block.expression {
+      def childCnt (array_length block.children)
+      if (childCnt > 0) {
+        for block.children stmt:CodeNode i {
+          this.lowerStmt(stmt lctx)
+        }
+        return
+      }
+    }
+    if (has block.register_expressions) {
+      for block.register_expressions reg:CodeNode i {
+        this.lowerStmt(reg lctx)
+      }
+      return
+    }
+    this.lowerStmt(block lctx)
+  }
+
+  fn isAssignNode:boolean (node:CodeNode) {
+    if ((array_length node.children) < 3) {
+      return false
+    }
+    def fc (node.getFirst())
+    return (fc.vref == "=")
+  }
+
+  fn lowerStmt:void (node:CodeNode lctx:LowIRLowerContext) {
+    if node.disabled_node {
+      return
+    }
+    if (this.isAssignNode(node)) {
+      this.lowerAssign(node lctx)
+      return
+    }
+    if node.infix_operator {
+      if (!null? node.infix_node) {
+        def infix (unwrap node.infix_node)
+        if infix.has_operator {
+          def opName (infix.getOperator())
+          if (opName == "=") {
+            this.lowerAssign(infix lctx)
+            return
+          }
+        }
+      }
+    }
+    if node.hasVarDef {
+      this.lowerVarDef(node lctx)
+      return
+    }
+    if node.has_operator {
+      def opName (node.getOperator())
+      if (opName == "return") {
+        this.lowerReturn(node lctx)
+        return
+      }
+      if (opName == "if") {
+        this.lowerIf(node lctx)
+        return
+      }
+      if (opName == "while") {
+        this.lowerWhile(node lctx)
+        return
+      }
+      if (opName == "=") {
+        this.lowerAssign(node lctx)
+        return
+      }
+      if (opName == "set") {
+        this.lowerCollectionSet(node lctx)
+        return
+      }
+      if (opName == "print") {
+        this.lowerPrint(node lctx)
+        return
+      }
+      if (opName == "write") {
+        this.lowerWrite(node lctx)
+        return
+      }
+      if (opName == "exit") {
+        this.lowerExit(node lctx)
+        return
+      }
+      if (opName == "sleep_ms") {
+        this.lowerSleepMs(node lctx)
+        return
+      }
+      if (opName == "clear_screen") {
+        this.lowerClearScreen(node lctx)
+        return
+      }
+      if (opName == "hide_cursor") {
+        this.lowerHideCursor(node lctx)
+        return
+      }
+      if (opName == "show_cursor") {
+        this.lowerShowCursor(node lctx)
+        return
+      }
+      if (opName == "move_cursor") {
+        this.lowerMoveCursor(node lctx)
+        return
+      }
+      if (opName == "for") {
+        this.lowerFor(node lctx)
+        return
+      }
+      if (opName == "push") {
+        this.lowerPush(node lctx)
+        return
+      }
+      if (opName == "on_keypress") {
+        this.lowerOnKeypress(node lctx)
+        return
+      }
+    }
+    if (node.has_call || node.is_direct_method_call) {
+      this.lowerCall(node lctx)
+      return
+    }
+    if node.hasFnCall {
+      this.lowerExpr(node lctx)
+      return
+    }
+    if node.expression {
+      for node.children item:CodeNode i {
+        this.lowerStmt(item lctx)
+      }
+    }
+  }
+
+  fn lowerVarDef:void (node:CodeNode lctx:LowIRLowerContext) {
+    def nameNode (node.getSecond())
+    def varName:string nameNode.vref
+    def valNode@(optional):CodeNode
+    def cnt (array_length node.children)
+    if (cnt > 2) {
+      def last (itemAt node.children (cnt - 1))
+      valNode = last
+    }
+    if (null? valNode) {
+      if (this.isIntArrayTypeNode(nameNode)) {
+        def emptyArr (this.emitRtArrayNewEmpty(lctx))
+        this.bindCollectionSlot(varName "array" emptyArr lctx)
+        return
+      }
+      if (this.isIntIntMapTypeNode(nameNode)) {
+        def eight (lctx.builder.emitConst("i32" "8"))
+        def newMap (this.emitRtMapNew(eight lctx))
+        this.bindCollectionSlot(varName "map" newMap lctx)
+        return
+      }
+      return
+    }
+    def val (unwrap valNode)
+    if val.has_operator {
+      def valOp (val.getOperator())
+      if (valOp == "make") {
+        def made (this.lowerCollectionMake(val lctx))
+        this.bindCollectionSlot(varName "array" made lctx)
+        return
+      }
+    }
+    if (val.has_call || val.is_direct_method_call || val.hasFnCall) {
+      def callTmp (this.lowerCall(val lctx))
+      def irTypeFromCall:string "i32"
+      if ((strlen nameNode.type_name) > 0) {
+        def mappedCall (LowIRUtil.typeFromRanger(nameNode.type_name))
+        if ((strlen mappedCall) > 0) {
+          irTypeFromCall = mappedCall
+        }
+      }
+      this.bindSlot(varName irTypeFromCall callTmp lctx)
+      return
+    }
+    if val.hasNewOper {
+      if (!null? val.clDesc) {
+        def cl (unwrap val.clDesc)
+        def argsNode (val.getThird())
+        def objPtr (this.lowerNewObject(cl.name argsNode lctx))
+        set lctx.objectSlots varName cl.name
+        this.bindSlot(varName lctx.ptrType objPtr lctx)
+        return
+      }
+    }
+    def tmp (this.lowerExpr(val lctx))
+    def irType:string "i32"
+    if (LowIRUtil.isStringType(nameNode.type_name)) {
+      irType = "i8*"
+    } {
+      if ((strlen nameNode.type_name) > 0) {
+        def mapped (LowIRUtil.typeFromRanger(nameNode.type_name))
+        if ((strlen mapped) > 0) {
+          irType = mapped
+        }
+      }
+    }
+    if (val.value_type == RangerNodeType.Boolean) {
+      irType = "i1"
+    }
+    this.bindSlot(varName irType tmp lctx)
+  }
+
+  fn lowerAssign:void (node:CodeNode lctx:LowIRLowerContext) {
+    def lhs (node.getSecond())
+    def rhs (itemAt node.children 2)
+    def varName:string lhs.vref
+    def tmp (this.lowerExpr(rhs lctx))
+    def irType:string "i32"
+    def builder (lctx.builder)
+    if ((indexOf varName ".") >= 0) {
+      def fieldPtr (this.resolveFieldPtrExpr(varName lctx))
+      if ((strlen fieldPtr) > 0) {
+        def parts:[string] (strsplit varName ".")
+        def recv (itemAt parts 0)
+        def fld (itemAt parts 1)
+        def cls (this.resolveObjectClass(recv lctx))
+        def ftype (this.fieldIrTypeFor(cls fld))
+        if (rhs.value_type == RangerNodeType.Boolean) {
+          tmp = (builder.emitZextI1ToI32(tmp))
+        }
+        builder.emitStore(ftype tmp fieldPtr)
+        return
+      }
+    }
+    if (this.isClassField(varName lctx.className this.irModule)) {
+      if (rhs.value_type == RangerNodeType.Boolean) {
+        tmp = (builder.emitZextI1ToI32(tmp))
+      }
+      this.emitFieldStore(varName tmp lctx)
+      return
+    }
+    if (has lctx.slots varName) {
+      def slot (unwrap (get lctx.slots varName))
+      def storeType (irType)
+      if (has lctx.slotTypes varName) {
+        storeType = (unwrap (get lctx.slotTypes varName))
+      }
+      if (rhs.value_type == RangerNodeType.Boolean) {
+        if (storeType != "i1") {
+          tmp = (builder.emitZextI1ToI32(tmp))
+          storeType = "i32"
+        }
+      }
+      builder.emitStore(storeType tmp slot)
+      return
+    }
+    this.bindSlot(varName irType tmp lctx)
+  }
+
+  fn lowerReturn:void (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def voidType:string "void"
+    def retType:string lctx.llvmRetType
+    if ((array_length node.children) > 1) {
+      def valNode (node.getSecond())
+      def tmp:string ""
+      if (valNode.has_call || valNode.is_direct_method_call) {
+        tmp = (this.lowerCall(valNode lctx))
+      } {
+        tmp = (this.lowerExpr(valNode lctx))
+      }
+      builder.terminateRet(retType tmp)
+    } {
+      if (retType == voidType) {
+        builder.terminateRet(voidType "")
+      } {
+        def zero:string "0"
+        def retVal (builder.emitConst("i32" zero))
+        builder.terminateRet(retType retVal)
+      }
+    }
+  }
+
+  fn isCompareOp:boolean (op:string) {
+    if (op == "==") {
+      return true
+    }
+    if (op == "!=") {
+      return true
+    }
+    if (op == "<") {
+      return true
+    }
+    if (op == ">") {
+      return true
+    }
+    if (op == "<=") {
+      return true
+    }
+    if (op == ">=") {
+      return true
+    }
+    return false
+  }
+
+  fn exprProducesI1:boolean (node:CodeNode) {
+    if node.has_operator {
+      def op (node.getOperator())
+      return (this.isCompareOp(op))
+    }
+    if node.infix_operator {
+      if (!null? node.infix_node) {
+        def infix (unwrap node.infix_node)
+        if infix.has_operator {
+          def op (infix.getOperator())
+          return (this.isCompareOp(op))
+        }
+      }
+    }
+    return false
+  }
+
+  fn condVref:string (node:CodeNode) {
+    if (node.value_type == RangerNodeType.VRef) {
+      return node.vref
+    }
+    if ((array_length node.children) > 0) {
+      def child (itemAt node.children 0)
+      return (this.condVref(child))
+    }
+    return ""
+  }
+
+  fn lowerCond:string (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    if (node.value_type == RangerNodeType.VRef) {
+      def vref:string node.vref
+      if (has lctx.slotTypes vref) {
+        def st (unwrap (get lctx.slotTypes vref))
+        if (st == "i1") {
+          return (this.loadSlot(vref "i1" lctx))
+        }
+      }
+      if (this.isClassField(vref lctx.className this.irModule)) {
+        def ftype (this.fieldIrTypeFor(lctx.className vref))
+        if (ftype == "i1") {
+          def loaded (this.emitFieldLoad(vref lctx))
+          return loaded
+        }
+        if (ftype == "i32") {
+          def loaded (this.emitFieldLoad(vref lctx))
+          def zero (builder.emitConst("i32" "0"))
+          return (builder.emitIcmp("ne" loaded zero))
+        }
+      }
+    }
+    def v (this.lowerExpr(node lctx))
+    if (this.exprProducesI1(node)) {
+      return v
+    }
+    def vref (this.condVref(node))
+    if ((strlen vref) > 0) {
+      if (has lctx.slotTypes vref) {
+        def st (unwrap (get lctx.slotTypes vref))
+        if (st == "i1") {
+          return v
+        }
+      }
+    }
+    def zero (builder.emitConst("i32" "0"))
+    return (builder.emitIcmp("ne" v zero))
+  }
+
+  fn lowerIf:void (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def condNode (node.getSecond())
+    def thenNode (node.getThird())
+    def cond (this.lowerCond(condNode lctx))
+    def thenTag:string "then"
+    def elseTag:string "else"
+    def mergeTag:string "merge"
+    def thenLabel (builder.freshLabel(thenTag))
+    def elseLabel (builder.freshLabel(elseTag))
+    def mergeLabel (builder.freshLabel(mergeTag))
+
+    def hasElse:boolean false
+    if ((array_length node.children) > 3) {
+      hasElse = true
+    }
+
+    if hasElse {
+      builder.terminateBrIf(cond thenLabel elseLabel)
+    } {
+      builder.terminateBrIf(cond thenLabel mergeLabel)
+    }
+
+    builder.startBlock(thenLabel)
+    this.lowerBlock(thenNode lctx)
+    def thenBlock (unwrap builder.currentBlock)
+    if (thenBlock.termKind == "") {
+      builder.terminateBr(mergeLabel)
+    }
+
+    if hasElse {
+      def elseNode@(optional):CodeNode
+      if ((array_length node.children) > 3) {
+        elseNode = (itemAt node.children 3)
+      }
+      if (!null? elseNode) {
+        builder.startBlock(elseLabel)
+        this.lowerBlock((unwrap elseNode) lctx)
+        def elseBlock (unwrap builder.currentBlock)
+        if (elseBlock.termKind == "") {
+          builder.terminateBr(mergeLabel)
+        }
+      }
+    }
+
+    builder.startBlock(mergeLabel)
+  }
+
+  fn lowerWhile:void (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def condNode (node.getSecond())
+    def bodyNode (node.getThird())
+    def condTag:string "while_cond"
+    def bodyTag:string "while_body"
+    def exitTag:string "while_exit"
+    def condLabel (builder.freshLabel(condTag))
+    def bodyLabel (builder.freshLabel(bodyTag))
+    def exitLabel (builder.freshLabel(exitTag))
+
+    builder.terminateBr(condLabel)
+    builder.startBlock(condLabel)
+    def cond (this.lowerCond(condNode lctx))
+    builder.terminateBrIf(cond bodyLabel exitLabel)
+
+    builder.startBlock(bodyLabel)
+    this.lowerBlock(bodyNode lctx)
+    def bodyBlock (unwrap builder.currentBlock)
+    if (bodyBlock.termKind == "") {
+      builder.terminateBr(condLabel)
+    }
+
+    builder.startBlock(exitLabel)
+  }
+
+  fn lowerExpr:string (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def irI32:string "i32"
+    def irF64:string "f64"
+    def irI1:string "i1"
+    def zero:string "0"
+    def one:string "1"
+
+    if (node.has_call || node.is_direct_method_call) {
+      return (this.lowerCall(node lctx))
+    }
+
+    if node.infix_operator {
+      if (!null? node.infix_node) {
+        return (this.lowerExpr((unwrap node.infix_node) lctx))
+      }
+    }
+
+    if node.has_operator {
+      def opName (node.getOperator())
+      if (opName == "get") {
+        return (this.lowerCollectionGet(node lctx))
+      }
+      if (opName == "has") {
+        return (this.lowerCollectionHas(node lctx))
+      }
+      if (opName == "array_length") {
+        return (this.lowerCollectionLen(node lctx))
+      }
+      if (opName == "strlen") {
+        return (this.lowerStrlen(node lctx))
+      }
+      if (opName == "length") {
+        def lenNode (node.getSecond())
+        if ((strlen (this.collectionKind(lenNode.vref lctx))) > 0) {
+          return (this.lowerCollectionLen(node lctx))
+        }
+        if (lenNode.value_type == RangerNodeType.String) {
+          return (this.lowerStrlen(node lctx))
+        }
+      }
+      if (opName == "make") {
+        return (this.lowerCollectionMake(node lctx))
+      }
+      if (opName == "poll_keypress") {
+        return (this.lowerPollKeypress(lctx))
+      }
+      def binResult (this.lowerBinaryOp(opName node lctx))
+      if ((strlen binResult) > 0) {
+        return binResult
+      }
+    }
+
+    if (node.infix_operator) {
+      if (!null? node.infix_node) {
+        return (this.lowerExpr((unwrap node.infix_node) lctx))
+      }
+    }
+
+    if node.expression {
+      if ((node.hasFnCall == false) && (node.is_direct_method_call == false) && (node.has_call == false)) {
+        def ecnt (array_length node.children)
+        if (ecnt > 0) {
+          return (this.lowerExpr((itemAt node.children 0) lctx))
+        }
+      }
+    }
+
+    if (node.isPrimitive()) {
+      switch node.value_type {
+        case RangerNodeType.Integer {
+          return (builder.emitConst(irI32 ("" + node.int_value)))
+        }
+        case RangerNodeType.Double {
+          return (builder.emitConst(irF64 ("" + node.double_value)))
+        }
+        case RangerNodeType.Boolean {
+          if node.boolean_value {
+            return (builder.emitConst(irI1 one))
+          }
+          return (builder.emitConst(irI1 zero))
+        }
+      }
+    }
+
+    if (node.value_type == RangerNodeType.String) {
+      def text (node.string_value)
+      def gname (this.internStringGlobal(text false))
+      def byteLen (this.stringGlobalByteLen(gname))
+      return (builder.emitStrPtr(gname byteLen))
+    }
+
+    if node.hasNewOper {
+      if (!null? node.clDesc) {
+        def cl (unwrap node.clDesc)
+        def argsNode (node.getThird())
+        return (this.lowerNewObject(cl.name argsNode lctx))
+      }
+    }
+
+    if (node.value_type == RangerNodeType.VRef) {
+      if ((indexOf node.vref ".") >= 0) {
+        def fieldPtr (this.resolveFieldPtrExpr(node.vref lctx))
+        if ((strlen fieldPtr) > 0) {
+          def parts:[string] (strsplit node.vref ".")
+          def recv (itemAt parts 0)
+          def fld (itemAt parts 1)
+          def cls (this.resolveObjectClass(recv lctx))
+          def ftype (this.fieldIrTypeFor(cls fld))
+          return (builder.emitLoad(ftype fieldPtr))
+        }
+      }
+      if (this.isClassField(node.vref lctx.className this.irModule)) {
+        return (this.emitFieldLoad(node.vref lctx))
+      }
+      return (this.loadSlot(node.vref irI32 lctx))
+    }
+
+    if node.hasFnCall {
+      return (this.lowerCall(node lctx))
+    }
+
+    if node.is_direct_method_call {
+      return (this.lowerCall(node lctx))
+    }
+
+    return (builder.emitConst(irI32 zero))
+  }
+
+  fn exprIsStringish:boolean (node:CodeNode lctx:LowIRLowerContext) {
+    if (this.exprIsString(node)) {
+      return true
+    }
+    if (node.value_type == RangerNodeType.VRef) {
+      if (has lctx.slotTypes node.vref) {
+        def st (unwrap (get lctx.slotTypes node.vref))
+        if (st == "i8*") {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  fn lowerStringCompare:string (aNode:CodeNode bNode:CodeNode pred:string lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def lhs (this.lowerExpr(aNode lctx))
+    def rhs (this.lowerExpr(bNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args lhs
+    push argTypes "i8*"
+    push args rhs
+    push argTypes "i8*"
+    def sc (builder.emitCall("strcmp" "i32" args argTypes))
+    def zero (builder.emitConst("i32" "0"))
+    return (builder.emitIcmp(pred sc zero))
+  }
+
+  fn lowerCompareI32:string (aNode:CodeNode bNode:CodeNode pred:string lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def a (this.lowerExpr(aNode lctx))
+    def b (this.lowerExpr(bNode lctx))
+    if (aNode.value_type == RangerNodeType.Boolean) {
+      a = (builder.emitZextI1ToI32(a))
+    }
+    if (bNode.value_type == RangerNodeType.Boolean) {
+      b = (builder.emitZextI1ToI32(b))
+    }
+    return (builder.emitIcmp(pred a b))
+  }
+
+  fn lowerBinaryOp:string (opName:string node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def irI32:string "i32"
+    switch opName {
+      case "+" {
+        def aNode (node.getSecond())
+        def bNode (node.getThird())
+        if ((this.exprMightBeString(aNode)) || (this.exprMightBeString(bNode))) {
+          return (this.lowerStringConcat(aNode bNode lctx))
+        }
+        def a (this.lowerExpr(aNode lctx))
+        def b (this.lowerExpr(bNode lctx))
+        def kind:string "add"
+        return (builder.emitBin(kind irI32 a b))
+      }
+      case "-" {
+        def a (this.lowerExpr((node.getSecond()) lctx))
+        def b (this.lowerExpr((node.getThird()) lctx))
+        def kind:string "sub"
+        return (builder.emitBin(kind irI32 a b))
+      }
+      case "*" {
+        def a (this.lowerExpr((node.getSecond()) lctx))
+        def b (this.lowerExpr((node.getThird()) lctx))
+        def kind:string "mul"
+        return (builder.emitBin(kind irI32 a b))
+      }
+      case "/" {
+        def a (this.lowerExpr((node.getSecond()) lctx))
+        def b (this.lowerExpr((node.getThird()) lctx))
+        def kind:string "sdiv"
+        return (builder.emitBin(kind irI32 a b))
+      }
+      case "%" {
+        def a (this.lowerExpr((node.getSecond()) lctx))
+        def b (this.lowerExpr((node.getThird()) lctx))
+        def kind:string "srem"
+        return (builder.emitBin(kind irI32 a b))
+      }
+      case "<" {
+        def a (this.lowerExpr((node.getSecond()) lctx))
+        def b (this.lowerExpr((node.getThird()) lctx))
+        def pred:string "slt"
+        return (builder.emitIcmp(pred a b))
+      }
+      case ">" {
+        def a (this.lowerExpr((node.getSecond()) lctx))
+        def b (this.lowerExpr((node.getThird()) lctx))
+        def pred:string "sgt"
+        return (builder.emitIcmp(pred a b))
+      }
+      case "<=" {
+        def a (this.lowerExpr((node.getSecond()) lctx))
+        def b (this.lowerExpr((node.getThird()) lctx))
+        def pred:string "sle"
+        return (builder.emitIcmp(pred a b))
+      }
+      case ">=" {
+        def a (this.lowerExpr((node.getSecond()) lctx))
+        def b (this.lowerExpr((node.getThird()) lctx))
+        def pred:string "sge"
+        return (builder.emitIcmp(pred a b))
+      }
+      case "==" {
+        def aNode (node.getSecond())
+        def bNode (node.getThird())
+        if ((this.exprIsStringish(aNode lctx)) || (this.exprIsStringish(bNode lctx))) {
+          return (this.lowerStringCompare(aNode bNode "eq" lctx))
+        }
+        return (this.lowerCompareI32(aNode bNode "eq" lctx))
+      }
+      case "!=" {
+        def aNode (node.getSecond())
+        def bNode (node.getThird())
+        if ((this.exprIsStringish(aNode lctx)) || (this.exprIsStringish(bNode lctx))) {
+          return (this.lowerStringCompare(aNode bNode "ne" lctx))
+        }
+        return (this.lowerCompareI32(aNode bNode "ne" lctx))
+      }
+    }
+    return ""
+  }
+
+  fn tryLowerIntrinsic:string (fnName:string argsNode:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def notIntrinsic:string ""
+    def handledVoid:string "__void__"
+    if (fnName == "Mem_alloc") {
+      if ((array_length argsNode.children) > 0) {
+        def nbytes (this.lowerExpr((itemAt argsNode.children 0) lctx))
+        return (builder.emitHeapAlloc(nbytes))
+      }
+      return notIntrinsic
+    }
+    if (fnName == "Mem_loadI32") {
+      if ((array_length argsNode.children) > 0) {
+        def ptr (this.lowerExpr((itemAt argsNode.children 0) lctx))
+        return (builder.emitPtrLoad(ptr))
+      }
+      return notIntrinsic
+    }
+    if (fnName == "Mem_storeI32") {
+      if ((array_length argsNode.children) > 1) {
+        def ptr (this.lowerExpr((itemAt argsNode.children 0) lctx))
+        def val (this.lowerExpr((itemAt argsNode.children 1) lctx))
+        builder.emitPtrStore(ptr val)
+        return handledVoid
+      }
+      return notIntrinsic
+    }
+    return notIntrinsic
+  }
+
+  fn finishObjectCall:string (rv:string) {
+    if ((strlen rv) > 0) {
+      return rv
+    }
+    def voidTag:string "__void__"
+    return voidTag
+  }
+
+  fn lowerCall:string (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def voidTag:string "__void__"
+    def objectCall (this.tryLowerObjectCall(node lctx))
+    if (objectCall == voidTag) {
+      return ""
+    }
+    if ((strlen objectCall) > 0) {
+      return objectCall
+    }
+    if (node.is_direct_method_call || node.has_call) {
+      return (this.lowerInstanceCall(node lctx))
+    }
+    def calleeNode (node.getFirst())
+    def argsNode (node.getSecond())
+    def calleeVref:string calleeNode.vref
+    def calleeDot:int (indexOf calleeVref ".")
+    if (calleeDot >= 0) {
+      def calleeParts:[string] (strsplit calleeVref ".")
+      if ((array_length calleeParts) >= 2) {
+        def recvPart (itemAt calleeParts 0)
+        if (recvPart == "this") {
+          def methPart (itemAt calleeParts 1)
+          calleeNode.eval_type_name = lctx.className
+          return (this.lowerInstanceCallOn(node "this" calleeNode methPart lctx))
+        }
+      }
+    }
+    if ((array_length calleeNode.ns) >= 2) {
+      def recvName (itemAt calleeNode.ns 0)
+      def methName (itemAt calleeNode.ns 1)
+      if (has lctx.objectSlots recvName) {
+        calleeNode.eval_type_name = (unwrap (get lctx.objectSlots recvName))
+        return (this.lowerInstanceCallOn(node recvName calleeNode methName lctx))
+      }
+    }
+    def fnName:string (this.resolveCalleeName(calleeNode))
+    def intrinsic (this.tryLowerIntrinsic(fnName argsNode lctx))
+    if (intrinsic == "__void__") {
+      return ""
+    }
+    if ((strlen intrinsic) > 0) {
+      return intrinsic
+    }
+    def retType:string "i32"
+    if (!null? node.fnDesc) {
+      if (!null? node.fnDesc.nameNode) {
+        def rn (unwrap node.fnDesc.nameNode)
+        retType = (LowIRUtil.typeFromRanger(rn.type_name))
+      }
+    }
+    def args:[string]
+    def argTypes:[string]
+    for argsNode.children arg:CodeNode i {
+      push args (this.lowerExpr(arg lctx))
+      push argTypes "i32"
+    }
+    return (builder.emitCall(fnName retType args argTypes))
+  }
+
+  fn tryLowerObjectCall:string (node:CodeNode lctx:LowIRLowerContext) {
+    if ((array_length node.children) < 2) {
+      return ""
+    }
+    if node.has_call {
+      if ((array_length node.children) > 3) {
+        def recv (node.getSecond())
+        def meth (node.getThird())
+        if (has lctx.objectSlots recv.vref) {
+          recv.eval_type_name = (unwrap (get lctx.objectSlots recv.vref))
+          return (this.finishObjectCall((this.lowerInstanceCallOn(node recv.vref recv meth.vref lctx))))
+        }
+      }
+    }
+    def callee (node.getFirst())
+    def argsNode (node.getSecond())
+    def v:string callee.vref
+    def dotPos:int (indexOf v ".")
+    if (dotPos >= 0) {
+      def parts:[string] (strsplit v ".")
+      if ((array_length parts) >= 2) {
+        def recvName (itemAt parts 0)
+        if (recvName == "this") {
+          def methName (itemAt parts 1)
+          callee.eval_type_name = lctx.className
+          return (this.finishObjectCall((this.lowerInstanceCallOn(node recvName callee methName lctx))))
+        }
+        if (has lctx.objectSlots recvName) {
+          def methName (itemAt parts 1)
+          callee.eval_type_name = (unwrap (get lctx.objectSlots recvName))
+          return (this.finishObjectCall((this.lowerInstanceCallOn(node recvName callee methName lctx))))
+        }
+      }
+    }
+    if (callee.value_type == RangerNodeType.VRef) {
+      if (has lctx.objectSlots callee.vref) {
+        return (this.finishObjectCall((this.lowerInstanceCallOn(node callee.vref callee node.vref lctx))))
+      }
+    }
+    return ""
+  }
+
+  fn callArgsNode:CodeNode (node:CodeNode) {
+    if node.has_call {
+      if ((array_length node.children) > 3) {
+        return (itemAt node.children 3)
+      }
+    }
+    return (node.getSecond())
+  }
+
+  fn resolveMethodName:string (node:CodeNode defaultName:string) {
+    if ((strlen defaultName) > 0) {
+      return defaultName
+    }
+    if (!null? node.fnDesc) {
+      def fd (unwrap node.fnDesc)
+      return fd.name
+    }
+    def callee (node.getFirst())
+    def v:string callee.vref
+    def dotPos:int (indexOf v ".")
+    if (dotPos >= 0) {
+      def parts:[string] (strsplit v ".")
+      if ((array_length parts) >= 2) {
+        return (itemAt parts 1)
+      }
+    }
+    return ""
+  }
+
+  fn argIrType:string (arg:CodeNode lctx:LowIRLowerContext) {
+    if (arg.value_type == RangerNodeType.String) {
+      return "i8*"
+    }
+    if (arg.value_type == RangerNodeType.VRef) {
+      if (has lctx.slotTypes arg.vref) {
+        def st (unwrap (get lctx.slotTypes arg.vref))
+        if ((strlen st) > 0) {
+          return st
+        }
+      }
+    }
+    return "i32"
+  }
+
+  fn lowerInstanceCallOn:string (node:CodeNode receiverName:string recvNode:CodeNode methodName:string lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def objPtr:string ""
+    def className:string recvNode.eval_type_name
+    if (receiverName == "this") {
+      objPtr = lctx.selfPtr
+      className = lctx.className
+    } {
+      if ((strlen className) == 0) {
+        if (has lctx.objectSlots receiverName) {
+          className = (unwrap (get lctx.objectSlots receiverName))
+        }
+      }
+      def addr (this.loadSlot(receiverName lctx.ptrType lctx))
+      objPtr = (builder.emitIntToStructPtr(className addr))
+    }
+    def methName (this.resolveMethodName(node methodName))
+    if (!null? node.fnDesc) {
+      def fd (unwrap node.fnDesc)
+      methName = fd.name
+      if ((strlen className) == 0) {
+        className = fd.container_class.name
+      }
+    }
+    def fnName (LowIRUtil.mangleMethod(className methName))
+    def voidType:string "void"
+    def retType:string "i32"
+    if (!null? node.fnDesc) {
+      if (!null? node.fnDesc.nameNode) {
+        def rn (unwrap node.fnDesc.nameNode)
+        def mappedRet (LowIRUtil.typeFromRanger(rn.type_name))
+        if ((strlen mappedRet) > 0) {
+          retType = mappedRet
+        }
+      }
+    } {
+      if ((methName == "push") || (methName == "put") || (methName == "putAt") || (methName == "storeI32")) {
+        retType = voidType
+      }
+    }
+    def args:[string]
+    def argTypes:[string]
+    push args objPtr
+    push argTypes (LowIRUtil.structPtrType(className))
+    def argsNode (this.callArgsNode(node))
+    for argsNode.children arg:CodeNode i {
+      push args (this.lowerExpr(arg lctx))
+      push argTypes (this.argIrType(arg lctx))
+    }
+    return (builder.emitCall(fnName retType args argTypes))
+  }
+
+  fn lowerInstanceCall:string (node:CodeNode lctx:LowIRLowerContext) {
+    def objNode@(optional):CodeNode
+    def methodName:string node.vref
+    if node.is_direct_method_call {
+      objNode = (node.getFirst())
+      if ((array_length node.children) > 2) {
+        def methodNode (node.getSecond())
+        methodName = methodNode.vref
+      }
+    } {
+      if ((array_length node.children) > 3) {
+        objNode = (node.getSecond())
+        def methodNode (node.getThird())
+        methodName = methodNode.vref
+      }
+    }
+    if (null? objNode) {
+      def builder (lctx.builder)
+      return (builder.emitConst("i32" "0"))
+    }
+    def obj (unwrap objNode)
+    return (this.lowerInstanceCallOn(node obj.vref obj methodName lctx))
+  }
+
+  fn resolveCalleeName:string (callee:CodeNode) {
+    if ((array_length callee.ns) >= 2) {
+      def cls (itemAt callee.ns 0)
+      def meth (itemAt callee.ns 1)
+      return (LowIRUtil.mangleMethod(cls meth))
+    }
+    def v:string callee.vref
+    def dotPos:int (indexOf v ".")
+    if (dotPos >= 0) {
+      def parts:[string] (strsplit v ".")
+      if ((array_length parts) >= 2) {
+        def p0 (itemAt parts 0)
+        def p1 (itemAt parts 1)
+        if (p0 != "this") {
+          return (LowIRUtil.mangleMethod(p0 p1))
+        }
+      }
+    }
+    return v
+  }
+}

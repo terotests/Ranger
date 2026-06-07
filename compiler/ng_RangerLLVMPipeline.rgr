@@ -1,0 +1,30 @@
+
+Import "ng_LowIRBuilder.rgr"
+Import "ng_LLVMIRWriter.rgr"
+Import "ng_WATWriter.rgr"
+
+class RangerLLVMPipeline {
+
+  fn generateModule:void (appCtx:RangerAppWriterContext wr:CodeWriter) {
+    def pass (new LowIRBuilderPass())
+    def module (pass.lowerModule(appCtx))
+
+    if (appCtx.hasCompilerFlag("wat")) {
+      def watWriter (new WATWriter())
+      watWriter.writeModule(module wr)
+      return
+    }
+
+    def llvmWriter (new LLVMIRWriter())
+    llvmWriter.writeModule(module wr)
+  }
+}
+
+class RangerLLVMClassWriter {
+  Extends (RangerGenericClassWriter)
+  def compiler:LiveCompiler
+
+  fn writeClass:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    ; LLVM pipeline emits the whole module at once — skip per-class text codegen.
+  }
+}
