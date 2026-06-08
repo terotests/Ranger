@@ -1,0 +1,44 @@
+; LLVM memory: owned ptr-array push + release at function end.
+; The array (and its 10 retained elements) is built in a helper so it is
+; released before run() measures live objects.
+
+class RangerMem {
+    sfn liveObjects:int () {
+        return 0
+    }
+
+    sfn resetStats:void () {
+    }
+}
+
+class Box {
+    def value:int 0
+
+    Constructor (v:int) {
+        value = v
+    }
+}
+
+class MemPtrArrayDemo {
+    sfn build:void () {
+        def items:[Box]
+        def i:int 0
+        while (i < 10) {
+            def b (new Box(i))
+            push items b
+            i = (+ i 1)
+        }
+    }
+
+    sfn run:int () {
+        RangerMem.resetStats()
+        MemPtrArrayDemo.build()
+        return (RangerMem.liveObjects())
+    }
+}
+
+class MemPtrArrayMain {
+    sfn m@(main):int () {
+        return (MemPtrArrayDemo.run())
+    }
+}

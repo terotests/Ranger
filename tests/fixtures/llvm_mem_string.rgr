@@ -1,0 +1,38 @@
+; LLVM memory: owned string field released via type destroy function.
+
+class RangerMem {
+    sfn liveObjects:int () {
+        return 0
+    }
+
+    sfn resetStats:void () {
+    }
+}
+
+class NamedBox {
+    def label:string ""
+    def value:int 0
+
+    Constructor (name:string v:int) {
+        label = name
+        value = v
+    }
+}
+
+class MemStringDemo {
+    sfn allocOne:void () {
+        def b (new NamedBox("hello" 7))
+    }
+
+    sfn run:int () {
+        RangerMem.resetStats()
+        MemStringDemo.allocOne()
+        return (RangerMem.liveObjects())
+    }
+}
+
+class MemStringMain {
+    sfn m@(main):int () {
+        return (MemStringDemo.run())
+    }
+}

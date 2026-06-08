@@ -99,6 +99,10 @@ class LLVMIRWriter {
       }
     }
     for module.externDecls d:LowIRExternDecl i {
+      if ((strlen d.declSig) > 0) {
+        wr.out(("declare " + d.retType + " @" + d.fnName + d.declSig) true)
+        continue _
+      }
       wr.out(("declare " + d.retType + " @" + d.fnName + "(") false)
       def pcnt (array_length d.paramTypes)
       for d.paramTypes pt:string j {
@@ -120,9 +124,43 @@ class LLVMIRWriter {
     for module.structs st:LowIRStruct i {
       this.writeStruct(st wr)
     }
+    if ((array_length module.typeDescs) > 0) {
+      this.writeTypeDescs(module wr)
+    }
     for module.functions fn:LowIRFunction i {
       this.writeFunction(fn wr)
     }
+  }
+
+  fn writeTypeDescs:void (module:LowIRModule wr:CodeWriter) {
+    wr.out("%struct.RangerFieldDesc = type { i32, i8, i8, i8, i8 }" true)
+    wr.out("%struct.RangerTypeDesc = type { i32, i16, i16, ptr }" true)
+    for module.typeDescs td:LowIRTypeDesc i {
+      this.writeOneTypeDesc(td wr)
+    }
+    wr.newline()
+  }
+
+  fn writeOneTypeDesc:void (td:LowIRTypeDesc wr:CodeWriter) {
+    def fc (array_length td.fields)
+    def fieldsRef:string "ptr null"
+    if (fc > 0) {
+      def arrName:string (td.className + "_typeFields")
+      wr.out(("@" + arrName + " = private constant [" + ("" + fc) + " x %struct.RangerFieldDesc] [") false)
+      def j:int 0
+      while (j < fc) {
+        def fd (itemAt td.fields j)
+        wr.out(("%struct.RangerFieldDesc { i32 " + ("" + fd.offset) + ", i8 " + ("" + fd.kind) + ", i8 " + ("" + fd.owned) + ", i8 0, i8 0 }") false)
+        if (j < (fc - 1)) {
+          wr.out(", " false)
+        }
+        j = j + 1
+      }
+      wr.out("]" true)
+      fieldsRef = ("ptr @" + arrName)
+    }
+    def tdName:string (td.className + "_typeDesc")
+    wr.out(("@" + tdName + " = private constant %struct.RangerTypeDesc { i32 " + ("" + td.size) + ", i16 " + ("" + fc) + ", i16 0, " + fieldsRef + " }") true)
   }
 
   fn writeStruct:void (st:LowIRStruct wr:CodeWriter) {
@@ -168,6 +206,9 @@ class LLVMIRWriter {
   fn writeInstr:void (ins:LowIRInstr wr:CodeWriter) {
     wr.out("  " false)
     switch ins.op {
+      case "comment" {
+        wr.out(("; " + ins.arg1) true)
+      }
       case "const" {
         if (ins.irType == "i1") {
           if (ins.arg1 == "1") {
@@ -254,8 +295,12 @@ class LLVMIRWriter {
       case "call" {
         def vsig (this.varargSigFor(ins.fnName))
         def calleeType:string (ins.irType + " ")
-        if ((strlen vsig) > 0) {
-          calleeType = (ins.irType + " (" + vsig + ") ")
+        if ((strlen ins.callSig) > 0) {
+          calleeType = (ins.irType + " (" + ins.callSig + ") ")
+        } {
+          if ((strlen vsig) > 0) {
+            calleeType = (ins.irType + " (" + vsig + ") ")
+          }
         }
         if ((strlen ins.dest) > 0) {
           wr.out((ins.dest + " = call " + calleeType + "@" + ins.fnName + "(") false)
@@ -268,7 +313,11 @@ class LLVMIRWriter {
           if (j < (array_length ins.callTypes)) {
             argType = (itemAt ins.callTypes j)
           }
-          wr.out((argType + " " + a) false)
+          if ((strlen argType) == 0) {
+            wr.out(a false)
+          } {
+            wr.out((argType + " " + a) false)
+          }
           if (j < (acnt - 1)) {
             wr.out(", " false)
           }

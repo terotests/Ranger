@@ -39,6 +39,35 @@ function isLlvmAvailable(): boolean {
   }
 }
 
+function nativeTarget(): string {
+  return process.platform === "darwin"
+    ? process.arch === "arm64"
+      ? "arm64-apple-macos"
+      : "x86_64-apple-macos"
+    : "native-linux-gnu";
+}
+
+const RANGER_MEM_C = path.join(ROOT, "runtime", "ranger_mem.c");
+
+function compileNativeWithMem(
+  fixture: string,
+  binName: string,
+  outDir: string
+): string {
+  fs.mkdirSync(outDir, { recursive: true });
+  const base = path.basename(fixture, ".rgr");
+  const result = compileRangerWithFlags(fixture, "llvm", outDir, [
+    `-target=${nativeTarget()}`,
+  ]);
+  expect(result.success, result.error || result.output).toBe(true);
+  const llPath = path.join(outDir, `${base}.ll`);
+  const binPath = path.join(outDir, binName);
+  execSync(`clang "${llPath}" "${RANGER_MEM_C}" -o "${binPath}"`, {
+    stdio: "pipe",
+  });
+  return binPath;
+}
+
 describe("Ranger Compiler - LLVM / Low IR backend", () => {
   beforeAll(() => {
     fs.mkdirSync(OUTPUT_DIR, { recursive: true });
@@ -152,7 +181,9 @@ describe("Ranger Compiler - LLVM / Low IR backend", () => {
     expect(result.success, result.error || result.output).toBe(true);
     const llPath = path.join(outDir, "llvm_dyn_collections.ll");
     const binPath = path.join(outDir, "dyn_collections");
-    execSync(`clang "${llPath}" -o "${binPath}"`, { stdio: "pipe" });
+    execSync(`clang "${llPath}" "${RANGER_MEM_C}" -o "${binPath}"`, {
+      stdio: "pipe",
+    });
     const exitCode = execSync(`"${binPath}"; echo $?`, {
       shell: "/bin/bash",
       encoding: "utf-8",
@@ -312,6 +343,165 @@ describe("Ranger Compiler - LLVM / Low IR backend", () => {
       encoding: "utf-8",
     }).trim();
     expect(exitCode).toBe("42");
+  });
+
+  it("emits ranger_obj_new and ranger_obj_release for trivial object", () => {
+    const ll = normalizeLl(
+      compileToLl(`${FIXTURES}/llvm_mem_trivial.rgr`, [
+        `-target=${nativeTarget()}`,
+      ])
+    );
+    expect(ll).toContain("declare i64 @ranger_obj_new");
+    expect(ll).toContain("@ranger_obj_release");
+    expect(ll).toContain("call void @ranger_obj_release");
+    expect(ll).toContain("call i64 (i32, ptr) @ranger_obj_new");
+  });
+
+  it("native trivial object alloc reports zero live objects", () => {
+    if (!isLlvmAvailable()) {
+      return;
+    }
+    const outDir = path.join(__dirname, ".output-mem-trivial");
+    const binPath = compileNativeWithMem(
+      `${FIXTURES}/llvm_mem_trivial.rgr`,
+      "mem_trivial",
+      outDir
+    );
+    const exitCode = execSync(`"${binPath}"; echo $?`, {
+      shell: "/bin/bash",
+      encoding: "utf-8",
+    }).trim();
+    expect(exitCode).toBe("0");
+  });
+
+  it("native loop of 1000 object allocs reports zero live objects", () => {
+    if (!isLlvmAvailable()) {
+      return;
+    }
+    const outDir = path.join(__dirname, ".output-mem-loop");
+    const binPath = compileNativeWithMem(
+      `${FIXTURES}/llvm_mem_loop.rgr`,
+      "mem_loop",
+      outDir
+    );
+    const exitCode = execSync(`"${binPath}"; echo $?`, {
+      shell: "/bin/bash",
+      encoding: "utf-8",
+    }).trim();
+    expect(exitCode).toBe("0");
+  });
+
+  it("emits type descriptor for string field class", () => {
+    const ll = normalizeLl(
+      compileToLl(`${FIXTURES}/llvm_mem_string.rgr`, [
+        `-target=${nativeTarget()}`,
+      ])
+    );
+    expect(ll).toContain("@NamedBox_typeDesc");
+    expect(ll).toContain("@NamedBox_typeFields");
+    expect(ll).toContain("%struct.RangerTypeDesc");
+  });
+
+  it("native field assign releases old strings", () => {
+    if (!isLlvmAvailable()) {
+      return;
+    }
+    const outDir = path.join(__dirname, ".output-mem-field-assign");
+    const binPath = compileNativeWithMem(
+      `${FIXTURES}/llvm_mem_field_assign.rgr`,
+      "mem_field_assign",
+      outDir
+    );
+    const exitCode = execSync(`"${binPath}"; echo $?`, {
+      shell: "/bin/bash",
+      encoding: "utf-8",
+    }).trim();
+    expect(exitCode).toBe("0");
+  });
+
+  it("native ptr-array push releases all elements", () => {
+    if (!isLlvmAvailable()) {
+      return;
+    }
+    const outDir = path.join(__dirname, ".output-mem-ptrarray");
+    const binPath = compileNativeWithMem(
+      `${FIXTURES}/llvm_mem_ptrarray.rgr`,
+      "mem_ptrarray",
+      outDir
+    );
+    const exitCode = execSync(`"${binPath}"; echo $?`, {
+      shell: "/bin/bash",
+      encoding: "utf-8",
+    }).trim();
+    expect(exitCode).toBe("0");
+  });
+
+  it("native string-field object alloc reports zero live objects", () => {
+    if (!isLlvmAvailable()) {
+      return;
+    }
+    const outDir = path.join(__dirname, ".output-mem-string");
+    const binPath = compileNativeWithMem(
+      `${FIXTURES}/llvm_mem_string.rgr`,
+      "mem_string",
+      outDir
+    );
+    const exitCode = execSync(`"${binPath}"; echo $?`, {
+      shell: "/bin/bash",
+      encoding: "utf-8",
+    }).trim();
+    expect(exitCode).toBe("0");
+  });
+
+  it("emits ownership summary on manual target with -strict-ownership", () => {
+    const outDir = path.join(OUTPUT_DIR, "strict-own");
+    const result = compileRangerWithFlags(
+      `${FIXTURES}/llvm_mem_ptrarray.rgr`,
+      "llvm",
+      outDir,
+      [`-target=${nativeTarget()}`, "-strict-ownership"]
+    );
+    expect(result.success, result.error || result.output).toBe(true);
+    const ll = fs.readFileSync(
+      path.join(outDir, "llvm_mem_ptrarray.ll"),
+      "utf-8"
+    );
+    expect(ll).toContain("; ownership[manual]: scope-exit disposition");
+    expect(ll).toContain("owned object 'b' -> escaped");
+    expect(ll).toContain("owned array 'items' -> released");
+  });
+
+  it("omits ownership summary without -strict-ownership", () => {
+    const outDir = path.join(OUTPUT_DIR, "no-strict-own");
+    const result = compileRangerWithFlags(
+      `${FIXTURES}/llvm_mem_ptrarray.rgr`,
+      "llvm",
+      outDir,
+      [`-target=${nativeTarget()}`]
+    );
+    expect(result.success, result.error || result.output).toBe(true);
+    const ll = fs.readFileSync(
+      path.join(outDir, "llvm_mem_ptrarray.ll"),
+      "utf-8"
+    );
+    expect(ll).not.toContain("ownership[manual]");
+  });
+
+  it("native parser-sim workload stays flat at scale (1000 objects)", () => {
+    if (!isLlvmAvailable()) {
+      return;
+    }
+    const outDir = path.join(__dirname, ".output-mem-parser-sim");
+    const binPath = compileNativeWithMem(
+      `${FIXTURES}/llvm_mem_parser_sim.rgr`,
+      "mem_parser_sim",
+      outDir
+    );
+    const exitCode = execSync(`"${binPath}"; echo $?`, {
+      shell: "/bin/bash",
+      encoding: "utf-8",
+    }).trim();
+    expect(exitCode).toBe("0");
   });
 });
 

@@ -530,7 +530,7 @@ class LowIRRuntimeGen {
     capP.irType = "i32"
     push params capP
     builder.startBlock("entry")
-    def descBytes (builder.emitConst("i32" ("" + (pb + 8))))
+    def descBytes (builder.emitConst("i32" ("" + (pb + 12))))
     def desc (builder.emitHeapAlloc(descBytes))
     def elemBytes (builder.emitConst("i32" ("" + pb)))
     def capBytes (builder.emitBin("mul" "i32" "%cap" elemBytes))

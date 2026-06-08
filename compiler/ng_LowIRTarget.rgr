@@ -13,6 +13,22 @@ class LowIRTarget {
   def ioFnRet:string "i32"
   def ioFnVararg:boolean false
 
+  ; Memory model the codegen must honor for this target:
+  ;   "manual"      = compiler-managed RC/cleanup (libc/native) -> strictest
+  ;   "freestanding" = bump/arena, no per-object release
+  ; (Strict-ownership ja Rust-borrow ovat eri writereiden vastuulla; LowIR-polku
+  ;  tuottaa vain manual/freestanding.)
+  fn memoryModel:string () {
+    if (this.usesLibc) {
+      return "manual"
+    }
+    return "freestanding"
+  }
+
+  fn isManualMemory:boolean () {
+    return (this.usesLibc)
+  }
+
   static fn resolve:LowIRTarget (ctx:RangerAppWriterContext) {
     def t@(lives):LowIRTarget (new LowIRTarget())
     def targetName:string ""

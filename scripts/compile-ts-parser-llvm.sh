@@ -13,6 +13,7 @@ LL_FIXED="$OUT_DIR/ts_parser_main_fixed.ll"
 HOST_C="$OUT_DIR/host_main.c"
 BIN_FILE="$OUT_DIR/ts_parser_main"
 RT_C="$ROOT/runtime/ranger_rt.c"
+MEM_C="$ROOT/runtime/ranger_mem.c"
 
 mkdir -p "$OUT_DIR"
 
@@ -59,9 +60,9 @@ int main(int argc, char **argv) {
 EOF
 
 echo "==> 3/4 clang"
-if ! clang "$LL_FIXED" "$HOST_C" "$RT_C" -o "$BIN_FILE" -Wno-override-module -Wl,-stack_size,0x1000000; then
+if ! clang "$LL_FIXED" "$HOST_C" "$RT_C" "$MEM_C" -o "$BIN_FILE" -Wno-override-module -Wl,-stack_size,0x1000000; then
   echo ""
-  echo "note: native link still fails  LLVM lowering for ts_parser is incomplete (itemAt, [Token] indexing, ...)." >&2
+  echo "note: native link failed. Check undefined symbols above against runtime/ranger_rt.c + runtime/ranger_mem.c." >&2
   exit 1
 fi
 

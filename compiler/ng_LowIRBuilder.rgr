@@ -12,6 +12,9 @@ class LowIRLowerContext {
   def slotTypes:[string:string]
   def objectSlots:[string:string]
   def collectionSlots:[string:string]
+  def ownedObjectLocals:[string]
+  def ownedCollectionLocals:[string]
+  def escapedLocals:[string:string]
   def currentRetType:string "i32"
   def llvmRetType:string "i32"
   def className:string ""
@@ -23,6 +26,7 @@ class LowIRBuilderPass {
   def usedMapRuntime:boolean false
   def usedArrayRuntime:boolean false
   def usedPtrArrayRuntime:boolean false
+  def usedMemRuntime:boolean false
 
   fn canLowerFunction:boolean (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext) {
     if (fnDesc.is_static == false) {
@@ -148,6 +152,9 @@ class LowIRBuilderPass {
         if (cl.name == "Mem") {
           continue
         }
+        if (cl.name == "RangerMem") {
+          continue
+        }
         if (this.canLowerFunction(m appCtx)) {
           def isMain (this.isMainEntry(m appCtx))
           this.lowerFunction(m cl.name appCtx (this.shouldExport(m appCtx)) isMain false)
@@ -186,6 +193,9 @@ class LowIRBuilderPass {
     }
     if this.usedPtrArrayRuntime {
       LowIRRuntimeGen.ensurePtrArrayRuntime(this.irModule)
+    }
+    if this.usedMemRuntime {
+      this.ensureMemExtern(target)
     }
     return this.irModule
   }
@@ -262,6 +272,50 @@ class LowIRBuilderPass {
     def strdupParams:[string]
     push strdupParams "i8*"
     this.ensureExternDecl("ranger_strdup" "i8*" strdupParams false)
+    def freeParams:[string]
+    push freeParams "i8*"
+    this.ensureExternDecl("free" "void" freeParams false)
+  }
+
+  fn ensureMemExtern:void (target:LowIRTarget) {
+    if (this.hasExternDecl("ranger_obj_new")) {
+      return
+    }
+    def destroyTy:string "ptr"
+    def declSig:string "(i32, ptr)"
+    def objNewParams:[string]
+    push objNewParams "i32"
+    push objNewParams destroyTy
+    def decl@(lives):LowIRExternDecl (new LowIRExternDecl())
+    decl.fnName = "ranger_obj_new"
+    decl.retType = target.ptrType
+    decl.paramTypes = objNewParams
+    decl.declSig = declSig
+    push this.irModule.externDecls decl
+    def relParams:[string]
+    push relParams target.ptrType
+    this.ensureExternDecl("ranger_obj_release" "void" relParams false)
+    def strRelParams:[string]
+    push strRelParams "i8*"
+    this.ensureExternDecl("ranger_str_release" "void" strRelParams false)
+    def liveParams:[string]
+    this.ensureExternDecl("ranger_mem_live_objects" "i32" liveParams false)
+    def voidParams:[string]
+    this.ensureExternDecl("ranger_mem_reset_stats" "void" voidParams false)
+    this.ensureExternDecl("ranger_obj_retain" "void" relParams false)
+    def pushOwnedParams:[string]
+    push pushOwnedParams target.ptrType
+    push pushOwnedParams target.ptrType
+    this.ensureExternDecl("ranger_ptrarray_push_owned" "void" pushOwnedParams false)
+    this.ensureExternDecl("ranger_ptrarray_release" "void" relParams false)
+  }
+
+  fn memEnabled:boolean (lctx:LowIRLowerContext) {
+    def memTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
+    if (memTarget.usesLibc == false) {
+      return false
+    }
+    return this.usedMemRuntime
   }
 
   fn isLowerableParamType:boolean (typeName:string) {
@@ -475,6 +529,17 @@ class LowIRBuilderPass {
       push argTypes "i32"
     }
     builder.emitCall("sprintf" "i32" args argTypes)
+    def memTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
+    if (memTarget.usesLibc) {
+      def dup (this.emitStrdupExpr(buf lctx))
+      def freeArgs:[string]
+      def freeArgTypes:[string]
+      push freeArgs buf
+      push freeArgTypes "i8*"
+      def voidType:string "void"
+      builder.emitCall("free" voidType freeArgs freeArgTypes)
+      return dup
+    }
     return buf
   }
 
@@ -825,8 +890,31 @@ class LowIRBuilderPass {
     push argTypes lctx.ptrType
     push args itemAddr
     push argTypes lctx.ptrType
+    def voidType:string "void"
+    if (this.exprIsObjectPtr(itemNode lctx)) {
+      if (this.memEnabled(lctx)) {
+        ; Move ownership of an owned local into the array (no retain).
+        ; The array owns the element and releases it once on free.
+        def isMove:boolean false
+        if (itemNode.value_type == RangerNodeType.VRef) {
+          if (this.isOwnedObjectLocal(itemNode.vref lctx)) {
+            isMove = true
+          }
+        }
+        if isMove {
+          set lctx.escapedLocals itemNode.vref "1"
+          this.usedPtrArrayRuntime = true
+          lctx.builder.emitCall("RtPtrArray_push" voidType args argTypes)
+          return
+        }
+        this.usedMemRuntime = true
+        this.ensureMemExtern((LowIRTarget.resolve((unwrap lctx.ctx))))
+        lctx.builder.emitCall("ranger_ptrarray_push_owned" voidType args argTypes)
+        return
+      }
+    }
     this.usedPtrArrayRuntime = true
-    lctx.builder.emitCall("RtPtrArray_push" "void" args argTypes)
+    lctx.builder.emitCall("RtPtrArray_push" voidType args argTypes)
   }
 
   fn lowerFor:void (node:CodeNode lctx:LowIRLowerContext) {
@@ -942,7 +1030,7 @@ class LowIRBuilderPass {
     return false
   }
 
-  fn emitPtrArrayNewEmpty:string (lctx:LowIRLowerContext) {
+  fn emitPtrArrayNewEmpty:string (lctx:LowIRLowerContext owned:boolean) {
     this.usedPtrArrayRuntime = true
     def builder (lctx.builder)
     def cap (builder.emitConst("i32" "256"))
@@ -950,12 +1038,20 @@ class LowIRBuilderPass {
     def argTypes:[string]
     push args cap
     push argTypes "i32"
-    return (builder.emitCall("RtPtrArray_new" lctx.ptrType args argTypes))
+    def desc (builder.emitCall("RtPtrArray_new" lctx.ptrType args argTypes))
+    if owned {
+      def one (builder.emitConst("i32" "1"))
+      builder.emitStoreI32At(desc (this.ptrArrayOwnedOff(lctx)) one)
+    }
+    return desc
   }
 
-  fn bindPtrArraySlot:void (varName:string desc:string lctx:LowIRLowerContext) {
+  fn bindPtrArraySlot:void (varName:string desc:string lctx:LowIRLowerContext owned:boolean) {
     this.bindSlot(varName lctx.ptrType desc lctx)
     set lctx.collectionSlots varName "ptr_array"
+    if owned {
+      push lctx.ownedCollectionLocals varName
+    }
   }
 
   fn collectionKind:string (varName:string lctx:LowIRLowerContext) {
@@ -981,9 +1077,14 @@ class LowIRBuilderPass {
 
   fn arrayDescBytes:int (lctx:LowIRLowerContext) {
     if (lctx.ptrType == "i64") {
-      return 16
+      return 20
     }
-    return 12
+    return 16
+  }
+
+  fn ptrArrayOwnedOff:int (lctx:LowIRLowerContext) {
+    def capOff (this.arrayCapOff(lctx))
+    return (capOff + 4)
   }
 
   fn bindCollectionSlot:void (varName:string kind:string desc:string lctx:LowIRLowerContext) {
@@ -1226,6 +1327,7 @@ class LowIRBuilderPass {
               f.irType = (LowIRUtil.fieldIrType(nn.type_name))
             } {
               f.irType = ptrType
+              f.isObject = true
             }
           }
         }
@@ -1233,6 +1335,81 @@ class LowIRBuilderPass {
       push st.fields f
     }
     push this.irModule.structs st
+    def target (LowIRTarget.resolve(ctx))
+    this.lowerTypeDesc(st target)
+  }
+
+  fn lowerTypeDesc:void (st:LowIRStruct target:LowIRTarget) {
+    def td@(lives):LowIRTypeDesc (new LowIRTypeDesc())
+    td.className = st.name
+    td.size = (this.structByteSize(st.name this.irModule))
+    def fi:int 0
+    for st.fields f:LowIRField i {
+      def kind:int 3
+      if (f.isString) {
+        kind = 0
+      } {
+        if (f.isObject) {
+          kind = 1
+        } {
+          if (f.isPtrArray) {
+            kind = 2
+          }
+        }
+      }
+      if (kind != 3) {
+        def fd@(lives):LowIRTypeFieldDesc (new LowIRTypeFieldDesc())
+        fd.offset = (this.fieldByteOffset(st.name fi this.irModule))
+        fd.kind = kind
+        ; Object fields (kind=1) and ptr-array fields (kind=2) default to BORROW
+        ; (owned=0): they typically alias memory owned elsewhere (array elements,
+        ; other nodes, a collection passed in and stored into a field). The
+        ; destructor must not recursively free them (would double-free when the
+        ; original owner also releases). String fields (kind=0) stay owned, since
+        ; each object holds its own strdup'd copy. Borrow analysis (Vaihe 3) can
+        ; later promote provably-owned object/array fields back to owned.
+        fd.owned = 1
+        if (kind == 1) {
+          fd.owned = 0
+        }
+        if (kind == 2) {
+          fd.owned = 0
+        }
+        push td.fields fd
+      }
+      fi = fi + 1
+    }
+    push this.irModule.typeDescs td
+    this.usedMemRuntime = true
+    this.ensureMemExtern(target)
+  }
+
+  fn fieldByteOffset:int (className:string fieldIndex:int module:LowIRModule) {
+    for module.structs st:LowIRStruct i {
+      if (st.name != className) {
+        continue
+      }
+      def size:int 0
+      def fi:int 0
+      for st.fields f:LowIRField i {
+        if (fi == fieldIndex) {
+          return size
+        }
+        def fsize:int 4
+        def falign:int 4
+        if (f.irType != "i32") {
+          fsize = 8
+          falign = 8
+        }
+        def rem:int (size % falign)
+        if (rem != 0) {
+          size = size + (falign - rem)
+        }
+        size = size + fsize
+        fi = fi + 1
+      }
+    }
+    return 0
   }
 
   fn bindSlot:void (varName:string irType:string value:string lctx:LowIRLowerContext) {
@@ -1245,6 +1422,17 @@ class LowIRBuilderPass {
     }
     def slotName:string ("%" + varName + "_addr")
     builder.emitAlloca(irType slotName)
+    ; Zero-init pointer slots in the entry block (before the value store) so that
+    ; owned object/collection locals defined inside a conditional branch but
+    ; released unconditionally at scope end hold NULL on skipped paths. Releasing
+    ; NULL is a guarded no-op; releasing garbage (uninitialized alloca) crashes.
+    ; Only needed (and only valid) on manual-memory targets that emit the ARC
+    ; runtime; other backends (e.g. WASM) manage slots differently.
+    if (this.memEnabled(lctx)) {
+      if (irType == lctx.ptrType) {
+        builder.emitZeroInitToEntry(irType slotName)
+      }
+    }
     builder.emitStore(irType value slotName)
     set lctx.slots varName slotName
     set lctx.slotTypes varName irType
@@ -1288,6 +1476,20 @@ class LowIRBuilderPass {
       for st.fields f:LowIRField i {
         if (f.name == fieldName) {
           return f.isPtrArray
+        }
+      }
+    }
+    return false
+  }
+
+  fn fieldIsObjectSlot:boolean (className:string fieldName:string) {
+    for this.irModule.structs st:LowIRStruct i {
+      if (st.name != className) {
+        continue
+      }
+      for st.fields f:LowIRField i {
+        if (f.name == fieldName) {
+          return f.isObject
         }
       }
     }
@@ -1422,11 +1624,36 @@ class LowIRBuilderPass {
     return raw
   }
 
+  fn emitReleaseFieldValue:void (className:string fieldName:string rawVal:string lctx:LowIRLowerContext) {
+    if (this.memEnabled(lctx) == false) {
+      return
+    }
+    def builder (lctx.builder)
+    def voidType:string "void"
+    def args:[string]
+    def argTypes:[string]
+    if (this.fieldIsStringSlot(className fieldName)) {
+      def i8p (builder.emitIntToI8Ptr(rawVal lctx.ptrType))
+      push args i8p
+      push argTypes "i8*"
+      builder.emitCall("ranger_str_release" voidType args argTypes)
+      return
+    }
+    ; Object and ptr-array fields are borrows (owned elsewhere): an object
+    ; field aliases another node/array element, and an array field commonly
+    ; aliases a collection owned by the caller (e.g. parser.tokens = toks).
+    ; Neither is released on overwrite (the original owner frees it).
+  }
+
   fn emitFieldStoreOn:void (className:string structPtr:string fieldName:string value:string lctx:LowIRLowerContext) {
     def builder (lctx.builder)
     def idx (this.findFieldIndex(className fieldName this.irModule))
     def fieldPtr (builder.emitGep(className structPtr idx))
     def ftype (this.fieldIrTypeFor(className fieldName))
+    if (this.memEnabled(lctx)) {
+      def oldRaw (builder.emitLoad(ftype fieldPtr))
+      this.emitReleaseFieldValue(className fieldName oldRaw lctx)
+    }
     def storeVal:string value
     if (this.fieldIsStringSlot(className fieldName)) {
       def owned (this.emitStrdupExpr(value lctx))
@@ -1434,6 +1661,9 @@ class LowIRBuilderPass {
     } {
       if (this.fieldIsBoolSlot(className fieldName)) {
         storeVal = (builder.emitZextI1ToI32(value))
+      } {
+        ; Object fields are borrows: store the pointer without retaining.
+        storeVal = value
       }
     }
     builder.emitStore(ftype storeVal fieldPtr)
@@ -1549,6 +1779,8 @@ class LowIRBuilderPass {
         push argTypes "i32"
         this.usedPtrArrayRuntime = true
         def desc (lctx.builder.emitCall("RtPtrArray_new" lctx.ptrType args argTypes))
+        def one (lctx.builder.emitConst("i32" "1"))
+        lctx.builder.emitStoreI32At(desc (this.ptrArrayOwnedOff(lctx)) one)
         this.emitFieldStoreOn(className objPtr f.name desc lctx)
       }
     }
@@ -1597,7 +1829,24 @@ class LowIRBuilderPass {
       }
     }
     def bytes (builder.emitConst("i32" ("" + byteCnt)))
-    def heapAddr (builder.emitHeapAlloc(bytes))
+    def heapAddr:string ""
+    def memTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
+    if (memTarget.usesLibc) {
+      this.usedMemRuntime = true
+      this.ensureMemExtern(memTarget)
+      def dtorArg:string ""
+      dtorArg = ("ptr @" + className + "_typeDesc")
+      def newArgs:[string]
+      def newArgTypes:[string]
+      push newArgs bytes
+      push newArgTypes "i32"
+      push newArgs dtorArg
+      push newArgTypes ""
+      def newSig:string ("i32, ptr")
+      heapAddr = (builder.emitCallWithSig("ranger_obj_new" lctx.ptrType newSig newArgs newArgTypes))
+    } {
+      heapAddr = (builder.emitHeapAlloc(bytes))
+    }
     def objSlot (builder.emitIntToStructPtr(className heapAddr))
     this.initFieldDefaultsInObject(className objSlot lctx)
     def ctorDesc@(optional):RangerAppFunctionDesc
@@ -1687,6 +1936,12 @@ class LowIRBuilderPass {
     lctx.objectSlots = emptyObjects
     def emptyCollections:[string:string]
     lctx.collectionSlots = emptyCollections
+    def emptyOwned:[string]
+    lctx.ownedObjectLocals = emptyOwned
+    def emptyColl:[string]
+    lctx.ownedCollectionLocals = emptyColl
+    def emptyEscaped:[string:string]
+    lctx.escapedLocals = emptyEscaped
     if isInstance {
       lctx.className = className
       lctx.selfPtr = "%self"
@@ -1771,10 +2026,11 @@ class LowIRBuilderPass {
       this.lowerBlock((unwrap fnDesc.fnBody) lctx)
     }
 
-    if isMain {
-      if (lctx.currentRetType == voidType) {
-        def cur (unwrap builder.currentBlock)
-        if (cur.termKind == "") {
+    def cur (unwrap builder.currentBlock)
+    if (cur.termKind == "") {
+      this.emitReleaseOwnedLocals(lctx)
+      if isMain {
+        if (lctx.currentRetType == voidType) {
           def zero:string "0"
           def retVal (builder.emitConst("i32" zero))
           builder.terminateRet(lctx.llvmRetType retVal)
@@ -1783,6 +2039,97 @@ class LowIRBuilderPass {
     }
 
     builder.finishFunction(fnName lctx.llvmRetType params exportFn isMain)
+  }
+
+  fn isOwnedObjectLocal:boolean (varName:string lctx:LowIRLowerContext) {
+    for lctx.ownedObjectLocals n:string i {
+      if (n == varName) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn releaseOwnedLocal:void (varName:string lctx:LowIRLowerContext) {
+    def memTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
+    if (memTarget.usesLibc == false) {
+      return
+    }
+    if (has lctx.escapedLocals varName) {
+      return
+    }
+    if (false == (has lctx.slots varName)) {
+      return
+    }
+    def builder (lctx.builder)
+    def voidType:string "void"
+    def val (this.loadSlot(varName lctx.ptrType lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args val
+    push argTypes lctx.ptrType
+    builder.emitCall("ranger_obj_release" voidType args argTypes)
+  }
+
+  fn strictOwnershipEnabled:boolean (lctx:LowIRLowerContext) {
+    def ctx (unwrap lctx.ctx)
+    return (ctx.hasCompilerFlag("strict-ownership"))
+  }
+
+  ; Diagnostic (manual targets + -strict-ownership): emit a per-exit summary of
+  ; how each owned local is disposed, so the target-specific ownership handling
+  ; is visible in the IR. Foundation for turning ambiguous cases into warnings.
+  fn emitOwnershipSummary:void (lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def objCount (array_length lctx.ownedObjectLocals)
+    def collCount (array_length lctx.ownedCollectionLocals)
+    if ((objCount + collCount) == 0) {
+      return
+    }
+    builder.emitComment("ownership[manual]: scope-exit disposition")
+    for lctx.ownedObjectLocals name:string i {
+      if (has lctx.escapedLocals name) {
+        builder.emitComment(("  owned object '" + name + "' -> escaped (moved/returned), caller owns"))
+      } {
+        builder.emitComment(("  owned object '" + name + "' -> released"))
+      }
+    }
+    for lctx.ownedCollectionLocals name:string i {
+      if (has lctx.escapedLocals name) {
+        builder.emitComment(("  owned array '" + name + "' -> escaped, caller owns"))
+      } {
+        builder.emitComment(("  owned array '" + name + "' -> released (elements freed)"))
+      }
+    }
+  }
+
+  fn emitReleaseOwnedLocals:void (lctx:LowIRLowerContext) {
+    def memTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
+    if (memTarget.isManualMemory() == false) {
+      return
+    }
+    if (this.strictOwnershipEnabled(lctx)) {
+      this.emitOwnershipSummary(lctx)
+    }
+    for lctx.ownedObjectLocals name:string i {
+      this.releaseOwnedLocal(name lctx)
+    }
+    def builder (lctx.builder)
+    def voidType:string "void"
+    for lctx.ownedCollectionLocals name:string i {
+      if (has lctx.escapedLocals name) {
+        continue
+      }
+      if (false == (has lctx.slots name)) {
+        continue
+      }
+      def desc (this.loadSlot(name lctx.ptrType lctx))
+      def args:[string]
+      def argTypes:[string]
+      push args desc
+      push argTypes lctx.ptrType
+      builder.emitCall("ranger_ptrarray_release" voidType args argTypes)
+    }
   }
 
   fn lowerBlock:void (block:CodeNode lctx:LowIRLowerContext) {
@@ -1949,8 +2296,8 @@ class LowIRBuilderPass {
         return
       }
       if (this.isObjectPtrArrayTypeNode(nameNode)) {
-        def emptyPtrArr (this.emitPtrArrayNewEmpty(lctx))
-        this.bindPtrArraySlot(varName emptyPtrArr lctx)
+        def emptyPtrArr (this.emitPtrArrayNewEmpty(lctx true))
+        this.bindPtrArraySlot(varName emptyPtrArr lctx true)
         return
       }
       if (this.isIntIntMapTypeNode(nameNode)) {
@@ -1967,7 +2314,7 @@ class LowIRBuilderPass {
       if (valOp == "make") {
         def made (this.lowerCollectionMake(val lctx))
         if (this.isObjectPtrArrayTypeNode(nameNode)) {
-          this.bindPtrArraySlot(varName made lctx)
+          this.bindPtrArraySlot(varName made lctx true)
         } {
           this.bindCollectionSlot(varName "array" made lctx)
         }
@@ -1992,6 +2339,21 @@ class LowIRBuilderPass {
           set lctx.objectSlots varName typeName
         }
       }
+      ; A call returning a collection ([T] / [int] / map) yields a descriptor
+      ; pointer. Register it as a collection slot so for/array_length/itemAt work;
+      ; the caller takes ownership (escaped from callee) and releases at scope end.
+      if (this.isObjectPtrArrayTypeNode(nameNode)) {
+        this.bindPtrArraySlot(varName callTmp lctx true)
+        return
+      }
+      if (this.isIntArrayTypeNode(nameNode)) {
+        this.bindCollectionSlot(varName "array" callTmp lctx)
+        return
+      }
+      if (this.isIntIntMapTypeNode(nameNode)) {
+        this.bindCollectionSlot(varName "map" callTmp lctx)
+        return
+      }
       this.bindSlot(varName irTypeFromCall callTmp lctx)
       return
     }
@@ -1999,8 +2361,17 @@ class LowIRBuilderPass {
       if (!null? val.clDesc) {
         def cl (unwrap val.clDesc)
         def argsNode (val.getThird())
+        if (this.isOwnedObjectLocal(varName lctx)) {
+          this.releaseOwnedLocal(varName lctx)
+        }
         def objPtr (this.lowerNewObject(cl.name argsNode lctx))
         set lctx.objectSlots varName cl.name
+        if (this.isOwnedObjectLocal(varName lctx) == false) {
+          push lctx.ownedObjectLocals varName
+        }
+        ; bindSlot zero-inits new pointer slots at entry, so an owned object
+        ; local defined only in a conditional branch is NULL (not garbage) on
+        ; skipped paths and the scope-end release is a safe no-op.
         this.bindSlot(varName lctx.ptrType objPtr lctx)
         return
       }
@@ -2035,6 +2406,17 @@ class LowIRBuilderPass {
         def cls (this.resolveObjectClass(recv lctx))
         if ((strlen cls) > 0) {
           def sptr (this.resolveObjectPtr(recv cls lctx))
+          ; Storing an owned local into a (borrow) object field: the field now
+          ; holds the reference, so the local must not be released at scope end
+          ; (would dangle the field). Mark it escaped. Object fields don't own,
+          ; so the object leaks until borrow analysis can assign an owner.
+          if (this.fieldIsObjectSlot(cls fld)) {
+            if (rhs.value_type == RangerNodeType.VRef) {
+              if (this.isOwnedObjectLocal(rhs.vref lctx)) {
+                set lctx.escapedLocals rhs.vref "1"
+              }
+            }
+          }
           this.emitFieldStoreOn(cls sptr fld tmp lctx)
           return
         }
@@ -2074,14 +2456,21 @@ class LowIRBuilderPass {
     def retType:string lctx.llvmRetType
     if ((array_length node.children) > 1) {
       def valNode (node.getSecond())
+      if (valNode.value_type == RangerNodeType.VRef) {
+        ; A returned local escapes: the caller now owns it, so it must not be
+        ; released here. Covers owned objects AND owned collections (ptr-arrays).
+        set lctx.escapedLocals valNode.vref "1"
+      }
       def tmp:string ""
       if (valNode.has_call || valNode.is_direct_method_call) {
         tmp = (this.lowerCall(valNode lctx))
       } {
         tmp = (this.lowerExpr(valNode lctx))
       }
+      this.emitReleaseOwnedLocals(lctx)
       builder.terminateRet(retType tmp)
     } {
+      this.emitReleaseOwnedLocals(lctx)
       if (retType == voidType) {
         builder.terminateRet(voidType "")
       } {
@@ -2713,6 +3102,22 @@ class LowIRBuilderPass {
         return handledVoid
       }
       return notIntrinsic
+    }
+    if (fnName == "RangerMem_liveObjects") {
+      this.usedMemRuntime = true
+      this.ensureMemExtern((LowIRTarget.resolve((unwrap lctx.ctx))))
+      def args:[string]
+      def argTypes:[string]
+      return (builder.emitCall("ranger_mem_live_objects" "i32" args argTypes))
+    }
+    if (fnName == "RangerMem_resetStats") {
+      this.usedMemRuntime = true
+      this.ensureMemExtern((LowIRTarget.resolve((unwrap lctx.ctx))))
+      def args:[string]
+      def argTypes:[string]
+      def voidType:string "void"
+      builder.emitCall("ranger_mem_reset_stats" voidType args argTypes)
+      return handledVoid
     }
     return notIntrinsic
   }
