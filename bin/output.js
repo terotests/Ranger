@@ -2440,9 +2440,9 @@ class CodeNode  {
       }
     }
     if (first_dot < 2) return false;
-    const recv = this.newExpressionNode();
-    for (let ri = 0; ri < first_dot; ri++) {
-      recv.children.push(this.children[ri].copy());
+    const recv = this.copy();
+    while (recv.children.length > first_dot) {
+      recv.children.pop();
     }
     let innerNode = recv;
     for (let i = first_dot; i < chlen - 1; i += 2) {
@@ -10361,6 +10361,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       const method_2 = node.getThird();
       const callArgs_2 = node.children[3];
       await this.WalkNode(obj_2, ctx, wr);
+      if ( (ctx.isDefinedClass(obj_2.eval_type_name) == false) && ((typeof(obj_2.clDesc) !== "undefined" && obj_2.clDesc != null ) ) ) {
+        obj_2.eval_type_name = obj_2.clDesc.name;
+      }
       if ( ctx.isDefinedClass(obj_2.eval_type_name) ) {
         const cl = ctx.findClass(obj_2.eval_type_name);
         let m = cl.findMethod(method_2.vref);

@@ -56,4 +56,30 @@ describe("Ranger Compiler - method call chaining", () => {
     expect(run?.success, run?.error).toBe(true);
     expect(run?.output?.trim()).toBe("30");
   });
+
+  it("infers int return type through full method chain", () => {
+    const { compile, run } = compileAndRun(`${FIXTURES}/chain_return_int.rgr`);
+    expect(compile.success, compile.error || compile.output).toBe(true);
+    expect(run?.success, run?.error).toBe(true);
+    expect(run?.output?.trim()).toBe("6");
+  });
+
+  it("rejects chain return type mismatch", () => {
+    const result = compileRanger(
+      `${FIXTURES}/chain_return_type_mismatch.rgr`,
+      "es6",
+      OUT
+    );
+    expect(result.success, "expected type error for Acc vs int").toBe(false);
+    expect(result.output + (result.error || "")).toMatch(
+      /invalid return value type/i
+    );
+  });
+
+  it("infers int when chain continues from a local variable", () => {
+    const { compile, run } = compileAndRun(`${FIXTURES}/chain_var_continue.rgr`);
+    expect(compile.success, compile.error || compile.output).toBe(true);
+    expect(run?.success, run?.error).toBe(true);
+    expect(run?.output?.trim()).toBe("3");
+  });
 });

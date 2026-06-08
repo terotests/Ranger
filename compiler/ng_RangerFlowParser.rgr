@@ -1689,6 +1689,10 @@ class RangerFlowParser {
 
     this.WalkNode( obj ctx wr ) 
 
+    if ( (ctx.isDefinedClass(obj.eval_type_name) == false) && (!null? obj.clDesc) ) {
+      obj.eval_type_name = obj.clDesc.name
+    }
+
     if(ctx.isDefinedClass(obj.eval_type_name)) {
       def cl (ctx.findClass(obj.eval_type_name))
       def m@(optional):RangerAppFunctionDesc (cl.findMethod(method.vref))

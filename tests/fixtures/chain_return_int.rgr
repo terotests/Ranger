@@ -1,0 +1,23 @@
+class Acc {
+    def items:[int]
+    fn add:Acc (n:int) {
+        push items n
+        return this
+    }
+    fn get:int () {
+        def s:int 0
+        for items v:int idx {
+            s = (+ s v)
+        }
+        return s
+    }
+}
+class ChainReturnInt {
+    sfn run:int () {
+        return (new Acc().add(1).add(2).add(3).get())
+    }
+    sfn m@(main):void () {
+        def n:int (new Acc().add(1).add(2).add(3).get())
+        print (to_string n)
+    }
+}
