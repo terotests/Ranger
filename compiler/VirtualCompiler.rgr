@@ -715,6 +715,15 @@ class tester {
         cli.step(3 "Type checking")
       }
 
+      ; Ownership inference (Phase A: target-independent escape summary).
+      ; Runs for any target when -strict-ownership is set; records inferred
+      ; OwnershipKind per parameter and reports it without changing codegen.
+      if (appCtx.hasCompilerFlag("strict-ownership")) {
+        def ownAnalyzer:StaticAnalyzer (new StaticAnalyzer())
+        ownAnalyzer.ctx = appCtx
+        ownAnalyzer.analyzeOwnershipAll(true)
+      }
+
       cli.step(4 "Generating code")
 
       if (appCtx.targetLangName == "llvm") {

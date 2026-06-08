@@ -3641,26 +3641,30 @@ class RangerFlowParser {
 
         ; preserve any trailing method-chain elements ( .trim () .foo (...) )
         def total (size node.children)
-        def innerNode@(weak):CodeNode
-        innerNode = newNode
-        def k 2
-        while ( k < (total - 1) ) {
-          def mName (at node.children k)
-          def mArgs (at node.children (k + 1))
-          def chName (mName.vref)
-          if( ( (strlen chName) > 0 ) && ( ( charAt chName 0) == (charcode ".")) ) {
-            def method_name (substring chName 1 (strlen chName))
-            def wrap (node.newExpressionNode())
-            wrap.add( ( node.newVRefNode("call")) )
-            wrap.add( ( innerNode.copy()) )
-            wrap.add( ( node.newVRefNode(method_name)) )
-            wrap.add( ( mArgs.copy()) )
-            innerNode = wrap
+        if ( total > 2 ) {
+          def innerNode@(weak):CodeNode
+          innerNode = newNode
+          def k 2
+          while ( k < (total - 1) ) {
+            def mName (at node.children k)
+            def mArgs (at node.children (k + 1))
+            def chName (mName.vref)
+            if( ( (strlen chName) > 0 ) && ( ( charAt chName 0) == (charcode ".")) ) {
+              def method_name (substring chName 1 (strlen chName))
+              def wrap (node.newExpressionNode())
+              wrap.add( ( node.newVRefNode("call")) )
+              wrap.add( ( innerNode.copy()) )
+              wrap.add( ( node.newVRefNode(method_name)) )
+              wrap.add( ( mArgs.copy()) )
+              innerNode = wrap
+            }
+            k = k + 2
           }
-          k = k + 2
+          node.getChildrenFrom( (unwrap innerNode) )
+          node.finalizeAsCallChainRoot()
+        } {
+          node.getChildrenFrom( newNode )
         }
-        node.getChildrenFrom( (unwrap innerNode) )
-        node.finalizeAsCallChainRoot()
 
         if( ( (ctx.expressionLevel()) == 0 ) ) {
           ctx.lastBlockOp = node

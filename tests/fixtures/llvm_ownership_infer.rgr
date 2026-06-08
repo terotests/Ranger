@@ -1,0 +1,42 @@
+; Ownership inference fixture (Phase A diagnostics).
+; Exercises the escape patterns the analyzer must detect automatically:
+;   - parent.left = child   -> child moved into parent
+;   - push tokens t         -> t moved into a member collection
+;   - return node           -> escapes to caller
+;   - a pure function       -> args stay borrowed
+
+class Node {
+    def left@(weak):Node
+    def value:int 0
+    fn attach:void (parent:Node child:Node) {
+        parent.left = child
+    }
+}
+
+class TokenBag {
+    def tokens:[Node]
+    fn addToken:void (t:Node) {
+        push tokens t
+    }
+    fn makeNode:Node (v:int) {
+        def n:Node (new Node())
+        n.value = v
+        return n
+    }
+    fn sumValue:int (a:Node b:Node) {
+        return ((a.value) + (b.value))
+    }
+}
+
+class OwnershipInferMain {
+    sfn m@(main):void () {
+        def bag:TokenBag (new TokenBag())
+        def root:Node (bag.makeNode(1))
+        def child:Node (bag.makeNode(2))
+        def helper:Node (new Node())
+        helper.attach(root child)
+        bag.addToken(root)
+        def total:int (bag.sumValue(root child))
+        print (to_string total)
+    }
+}
