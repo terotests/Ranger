@@ -318,7 +318,11 @@ class RangerGenericClassWriter {
       this.WalkNode( obj ctx wr)
       ctx.unsetInExpr()
       wr.out(")." false)
-      wr.outMapped(method.vref method false method.vref)
+      def methodName method.vref
+      if ((!null? node.fnDesc) && ((strlen node.fnDesc.compiledName) > 0)) {
+        methodName = node.fnDesc.compiledName
+      }
+      wr.outMapped(methodName method false method.vref)
 ;       this.WriteVRef(fc ctx wr)
       wr.out("(" false)
       ctx.setInExpr()

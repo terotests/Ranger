@@ -82,4 +82,30 @@ describe("Ranger Compiler - method call chaining", () => {
     expect(run?.success, run?.error).toBe(true);
     expect(run?.output?.trim()).toBe("3");
   });
+
+  it("compiles polymorphic overload chain with mangled method names", () => {
+    const result = compileRanger(
+      `${FIXTURES}/chain_polymorphic_add.rgr`,
+      "es6",
+      OUT
+    );
+    expect(result.success, result.error || result.output).toBe(true);
+    const js = fs.readFileSync(
+      path.join(OUT, "chain_polymorphic_add.js"),
+      "utf-8"
+    );
+    expect(js).toContain("add_1(");
+    expect(js).toContain(".finish(");
+  });
+
+  it("runs polymorphic overload chain with correct int and string results", () => {
+    const { compile, run } = compileAndRun(
+      `${FIXTURES}/chain_polymorphic_add.rgr`
+    );
+    expect(compile.success, compile.error || compile.output).toBe(true);
+    expect(run?.success, run?.error).toBe(true);
+    const lines = run?.output?.trim().split("\n") ?? [];
+    expect(lines[0]).toBe("3");
+    expect(lines[1]).toBe("Hello");
+  });
 });

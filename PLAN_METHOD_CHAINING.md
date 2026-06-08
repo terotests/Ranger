@@ -15,7 +15,7 @@ Katso myös [compiler/test_chain.rgr](./compiler/test_chain.rgr) (vanha kokeilu)
 | 0 Golden testit | **valmis** | `tests/compiler-chain.test.ts` + `chain_*.rgr` (8 testiä) |
 | 1 Codegen | **valmis** | `tryDesugarNewMethodChain` + `finalizeAsCallChainRoot`; `scripts/patch-chain-desugar.js` compile-patchin jälkeen |
 | 2 Tyyppipäättely | **valmis** | Ketjun viimeisen kutsun paluutyyppi (`get()` → `int`); `cmdCall` + `clDesc`-receiver |
-| **2b Polymorfinen ketjutus** | **seuraava** | ks. alla – overload + eri paluutyypit ketjussa, monikielinen codegen |
+| **2b Polymorfinen ketjutus** | **osittain valmis** | `matchMethodCall` + `fnDesc.compiledName` ES6; fixture `chain_polymorphic_add` (10 testiä) |
 | **2c Operaattoriketjutus** | suunniteltu | `str.substring(3,4)` → `Lang.rgr`-operaattori; type-class-tyylinen resoluutio |
 | 3 ChainDesugar-passi | avoin | |
 | 4–5 Laajennukset | avoin | |
@@ -186,7 +186,7 @@ Codegen:
 
 ---
 
-### Vaihe 2b – Polymorfinen ketjutus (overload + eri paluutyypit) **← seuraava**
+### Vaihe 2b – Polymorfinen ketjutus (overload + eri paluutyypit) **← osittain valmis**
 
 **Tavoite:** ketjussa saa olla **sama metodinimi, eri argumenttityypit, eri paluutyyppi** – ja käännös toimii myös kielillä joissa **ei ole polymorfista metodi-overloadingia**.
 
@@ -241,11 +241,13 @@ Huom: `.add(3)` ja `.add("Hello")` resolvoituvat **eri overloadeihin**; ketjun *
 
 **Työ:**
 
-- [ ] Fixture `tests/fixtures/chain_polymorphic_add.rgr` (yllä oleva tai vastaava)
-- [ ] `tests/compiler-chain.test.ts`: compile + run + tyyppivirheet (väärä `finish` väärälle haaralle)
-- [ ] `cmdCall` / overload-match: receiver-tyyppi sisäkkäisessä ketjussa = edellisen variantin paluutyyppi
-- [ ] Varmista `CreateCallExpression` käyttää `fnDesc.compiledName` overload-ketjussa
-- [ ] Target-testit vähintään: **ES6**, **Go**, **LLVM** (kieliä ilman overloadingia)
+- [x] Fixture `tests/fixtures/chain_polymorphic_add.rgr`
+- [x] `tests/compiler-chain.test.ts`: compile + run (`3` / `Hello`)
+- [x] `matchMethodCall` + `cmdCall`: overload-resoluutio argumenttityypeillä ketjussa
+- [x] `RangerJavaScriptClassWriter.CreateCallExpression`: `fnDesc.compiledName` (`add` / `add_1`)
+- [ ] Tyyppivirhe-testi: väärä `finish` väärälle haaralle
+- [x] Target-testit: **Kotlin**, **Swift6** (`tests/compiler-chain-kotlin-swift.test.ts`, 6 fixturea + mismatch)
+- [ ] Target-testit: **Go**, **LLVM** (kieliä ilman overloadingia)
 - [ ] Dokumentoi writer-kohtainen strategia taulukkoon (yllä)
 
 **Tiedostot:** `ng_RangerFlowParser.rgr` (`cmdCall`, `stdParamMatch`), `ng_RangerGenericClassWriter.rgr`, `ng_RangerGolangClassWriter.rgr`, `ng_LowIRBuilder.rgr`, `tests/compiler-chain.test.ts`

@@ -1,0 +1,43 @@
+class IntAcc {
+    def v:int 0
+    fn add:IntAcc (n:int) {
+        v = (+ v n)
+        return this
+    }
+    fn finish:int () {
+        return v
+    }
+}
+
+class StrAcc {
+    def s:string ""
+    fn add:StrAcc (t:string) {
+        s = (s + t)
+        return this
+    }
+    fn finish:string () {
+        return s
+    }
+}
+
+class PolyRoot {
+    fn add:IntAcc (n:int) {
+        def a:IntAcc (new IntAcc)
+        a.add(n)
+        return a
+    }
+    fn add:StrAcc (t:string) {
+        def a:StrAcc (new StrAcc)
+        a.add(t)
+        return a
+    }
+}
+
+class ChainPolymorphicAdd {
+    sfn m@(main):void () {
+        def n:int (new PolyRoot().add(3).finish())
+        def s:string (new PolyRoot().add("Hello").finish())
+        print (to_string n)
+        print s
+    }
+}

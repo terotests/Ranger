@@ -10337,6 +10337,53 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         }));
       }
     };
+    async matchMethodCall (cl, methodName, callArgs, ctx, wr, errNode) {
+      let noMatch;
+      if ( cl.hasMethod(methodName) == false ) {
+        return noMatch;
+      }
+      const mVs = ( cl.method_variants.hasOwnProperty(methodName) ? cl.method_variants[methodName] : undefined );
+      if ( typeof(mVs) === "undefined" ) {
+        return noMatch;
+      }
+      const variants = mVs;
+      const argCnt = callArgs.children.length;
+      let picked;
+      let matchCnt = 0;
+      for ( let i = 0; i < variants.variants.length; i++) {
+        var variant = variants.variants[i];
+        if ( (variant.params.length) != argCnt ) {
+          continue;
+        }
+        let sigOk = true;
+        let pi = 0;
+        while (pi < argCnt) {
+          const param = variant.params[pi];
+          const argNode = callArgs.children[pi];
+          if ( await this.areEqualTypes((param.nameNode), argNode, ctx, wr) == false ) {
+            sigOk = false;
+            break;
+          }
+          pi = pi + 1;
+        };
+        if ( sigOk == false ) {
+          continue;
+        }
+        matchCnt = matchCnt + 1;
+        picked = variant;
+      };
+      if ( matchCnt == 0 ) {
+        ctx.addError(errNode, (("No matching overload for method \"" + methodName) + "\" on ") + cl.name);
+        return noMatch;
+      }
+      if ( matchCnt > 1 ) {
+        ctx.addError(errNode, (("Ambiguous overload for method \"" + methodName) + "\" on ") + cl.name);
+        return noMatch;
+      }
+      let outMatch;
+      outMatch = picked;
+      return outMatch;
+    };
     async cmdCall (node, ctx, wr) {
       const obj = node.getSecond();
       const method = node.getThird();
@@ -10364,22 +10411,35 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       if ( (ctx.isDefinedClass(obj_2.eval_type_name) == false) && ((typeof(obj_2.clDesc) !== "undefined" && obj_2.clDesc != null ) ) ) {
         obj_2.eval_type_name = obj_2.clDesc.name;
       }
+      ctx.setInExpr();
+      for ( let i_1 = 0; i_1 < callArgs_2.children.length; i_1++) {
+        var callArg = callArgs_2.children[i_1];
+        await this.WalkNode(callArg, ctx, wr);
+      };
+      ctx.unsetInExpr();
       if ( ctx.isDefinedClass(obj_2.eval_type_name) ) {
         const cl = ctx.findClass(obj_2.eval_type_name);
-        let m = cl.findMethod(method_2.vref);
+        let m;
+        if ( cl.hasMethod(method_2.vref) ) {
+          const mVs = ( cl.method_variants.hasOwnProperty(method_2.vref) ? cl.method_variants[method_2.vref] : undefined );
+          if ( ((typeof(mVs) !== "undefined" && mVs != null ) ) && ((mVs.variants.length) > 0) ) {
+            m = await this.matchMethodCall(cl, method_2.vref, callArgs_2, ctx, wr, node);
+            if ( typeof(m) === "undefined" ) {
+              return false;
+            }
+          }
+        }
         if ( typeof(m) === "undefined" ) {
-          m = cl.findMethodByCompiledName(method_2.vref);
+          m = cl.findMethod(method_2.vref);
+          if ( typeof(m) === "undefined" ) {
+            m = cl.findMethodByCompiledName(method_2.vref);
+          }
         }
         if ( (typeof(m) !== "undefined" && m != null )  ) {
           node.has_call = true;
+          node.fnDesc = m;
           const currM = ctx.getCurrentMethod();
           currM.addCallTo(m);
-          ctx.setInExpr();
-          for ( let i_1 = 0; i_1 < callArgs_2.children.length; i_1++) {
-            var callArg = callArgs_2.children[i_1];
-            await this.WalkNode(callArg, ctx, wr);
-          };
-          ctx.unsetInExpr();
           const nn = m.nameNode;
           node.eval_type = nn.typeNameAsType(ctx);
           node.eval_type_name = nn.type_name;
@@ -14912,7 +14972,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         await this.WalkNode(obj, ctx, wr);
         ctx.unsetInExpr();
         wr.out(").", false);
-        wr.outMapped(method.vref, method, false, method.vref);
+        let methodName = method.vref;
+        if ( ((typeof(node.fnDesc) !== "undefined" && node.fnDesc != null ) ) && ((node.fnDesc.compiledName.length) > 0) ) {
+          methodName = node.fnDesc.compiledName;
+        }
+        wr.outMapped(methodName, method, false, method.vref);
         wr.out("(", false);
         ctx.setInExpr();
         const pms = operatorsOf.filter_36(args.children, ((item, index) => { 
@@ -17467,7 +17531,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         } else {
           wr.out(".", false);
         }
-        wr.out(method.vref, false);
+        let methodName = method.vref;
+        if ( ((typeof(node.fnDesc) !== "undefined" && node.fnDesc != null ) ) && ((node.fnDesc.compiledName.length) > 0) ) {
+          methodName = node.fnDesc.compiledName;
+        }
+        wr.out(methodName, false);
         wr.out("(", false);
         ctx.setInExpr();
         const fnDesc = this.resolveMethodFnDesc(node, ctx);
@@ -17901,13 +17969,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         const mVs_1 = ( cl.method_variants.hasOwnProperty(fnVar_1) ? cl.method_variants[fnVar_1] : undefined );
         for ( let i_11 = 0; i_11 < mVs_1.variants.length; i_11++) {
           var variant_3 = mVs_1.variants[i_11];
-          if ( ( typeof(dblDeclaredFunction[variant_3.name] ) != "undefined" && dblDeclaredFunction.hasOwnProperty(variant_3.name) ) ) {
+          if ( ( typeof(dblDeclaredFunction[variant_3.compiledName] ) != "undefined" && dblDeclaredFunction.hasOwnProperty(variant_3.compiledName) ) ) {
             continue;
           }
           if ( ( typeof(declaredFunction[variant_3.name] ) != "undefined" && declaredFunction.hasOwnProperty(variant_3.name) ) ) {
             wr.out("override ", false);
           }
-          dblDeclaredFunction[variant_3.name] = true;
+          dblDeclaredFunction[variant_3.compiledName] = true;
           wr.out(("func " + variant_3.compiledName) + "(", false);
           if ( ( typeof(parentFunction[variant_3.name] ) != "undefined" && parentFunction.hasOwnProperty(variant_3.name) ) ) {
             await this.writeArgsDefWithLocals((( parentFunction.hasOwnProperty(variant_3.name) ? parentFunction[variant_3.name] : undefined )), variant_3, ctx, wr);
@@ -17981,6 +18049,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             return res;
           }
         }
+      }
+      if ( (typeof(methodNode.fnDesc) !== "undefined" && methodNode.fnDesc != null )  ) {
+        res = methodNode.fnDesc;
+        return res;
       }
       if ( methodNode.has_call ) {
         const obj = methodNode.getSecond();
@@ -27202,7 +27274,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         } else {
           wr.out(".", false);
         }
-        wr.outMapped(method.vref, method, false, method.vref);
+        let methodName = method.vref;
+        if ( ((typeof(node.fnDesc) !== "undefined" && node.fnDesc != null ) ) && ((node.fnDesc.compiledName.length) > 0) ) {
+          methodName = node.fnDesc.compiledName;
+        }
+        wr.outMapped(methodName, method, false, method.vref);
         wr.out("(", false);
         ctx.setInExpr();
         for ( let i = 0; i < args.children.length; i++) {

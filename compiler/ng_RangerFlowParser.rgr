@@ -1647,6 +1647,53 @@ class RangerFlowParser {
     }
   }
 
+  fn matchMethodCall@(optional):RangerAppFunctionDesc (cl:RangerAppClassDesc methodName:string callArgs:CodeNode ctx:RangerAppWriterContext wr:CodeWriter errNode:CodeNode) {
+    def noMatch@(optional):RangerAppFunctionDesc
+    if (cl.hasMethod(methodName) == false) {
+      return noMatch
+    }
+    def mVs@(optional):RangerAppMethodVariants (get cl.method_variants methodName)
+    if (null? mVs) {
+      return noMatch
+    }
+    def variants:RangerAppMethodVariants (unwrap mVs)
+    def argCnt (size callArgs.children)
+    def picked@(optional):RangerAppFunctionDesc
+    def matchCnt 0
+    for variants.variants variant:RangerAppFunctionDesc i {
+      if ((size variant.params) != argCnt) {
+        continue
+      }
+      def sigOk true
+      def pi 0
+      while (pi < argCnt) {
+        def param:RangerAppParamDesc (at variant.params pi)
+        def argNode:CodeNode (at callArgs.children pi)
+        if (this.areEqualTypes((unwrap param.nameNode) argNode ctx wr) == false) {
+          sigOk = false
+          break
+        }
+        pi = (+ pi 1)
+      }
+      if (sigOk == false) {
+        continue
+      }
+      matchCnt = (+ matchCnt 1)
+      picked = variant
+    }
+    if (matchCnt == 0) {
+      ctx.addError(errNode ("No matching overload for method \"" + methodName + "\" on " + cl.name))
+      return noMatch
+    }
+    if (matchCnt > 1) {
+      ctx.addError(errNode ("Ambiguous overload for method \"" + methodName + "\" on " + cl.name))
+      return noMatch
+    }
+    def outMatch@(optional):RangerAppFunctionDesc
+    outMatch = (unwrap picked)
+    return outMatch
+  }
+
   fn cmdCall:boolean (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     
     def obj (node.getSecond())
@@ -1693,23 +1740,36 @@ class RangerFlowParser {
       obj.eval_type_name = obj.clDesc.name
     }
 
+    ctx.setInExpr()
+    for callArgs.children callArg:CodeNode i {
+      this.WalkNode( callArg ctx wr)
+    }
+    ctx.unsetInExpr()
+
     if(ctx.isDefinedClass(obj.eval_type_name)) {
       def cl (ctx.findClass(obj.eval_type_name))
-      def m@(optional):RangerAppFunctionDesc (cl.findMethod(method.vref))
+      def m@(optional):RangerAppFunctionDesc
+      if (cl.hasMethod(method.vref)) {
+        def mVs@(optional):RangerAppMethodVariants (get cl.method_variants method.vref)
+        if ((!null? mVs) && ((size mVs.variants) > 0)) {
+          m = (this.matchMethodCall(cl method.vref callArgs ctx wr node))
+          if (null? m) {
+            return false
+          }
+        }
+      }
       if (null? m) {
-        m = (cl.findMethodByCompiledName(method.vref))
+        m = (cl.findMethod(method.vref))
+        if (null? m) {
+          m = (cl.findMethodByCompiledName(method.vref))
+        }
       }
       if(!null? m) {
         node.has_call = true
+        node.fnDesc = m
 
         def currM (ctx.getCurrentMethod())
         currM.addCallTo( (unwrap m) )
-
-        ctx.setInExpr()
-        for callArgs.children callArg:CodeNode i {
-          this.WalkNode( callArg ctx wr)
-        }
-        ctx.unsetInExpr()
         def nn:CodeNode m.nameNode
         node.eval_type = (nn.typeNameAsType(ctx))
         node.eval_type_name = nn.type_name
