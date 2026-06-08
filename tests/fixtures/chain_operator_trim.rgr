@@ -1,0 +1,7 @@
+class ChainOperatorTrim {
+    sfn m@(main):void () {
+        def str:string "  hello  "
+        def part:string (str.trim())
+        print part
+    }
+}

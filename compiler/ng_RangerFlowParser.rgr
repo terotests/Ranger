@@ -107,50 +107,71 @@ class RangerFlowParser {
     def ch_len (size node.children)
     for node.children item:CodeNode i {
       def did_find false
-      if(has item.children) {
+      def dotName:string ""
+      def mArgs@(optional):CodeNode
+      if (has item.children) {
         def fc (item.getFirst())
-        def name (fc.vref)
-
-        if( ( (strlen name) > 0 ) && ( ( charAt name 0) == (charcode ".")) ) {
-          did_find = true
-          if(i>0) {
-            def last_line (at node.children (i - 1))
-            if (is_chaining == false ) {
-              chain_start_idx = (i - 1)
-              last_line.createChainTarget()
-              is_chaining = true
-              if(!null? last_line.chainTarget) {
-                chainRoot = last_line.chainTarget
-                innerNode = last_line.chainTarget
-                assignNode = last_line
-                last_is_assign = true
-              } {
-                chainRoot = last_line
-                innerNode = last_line
-              }
+        dotName = fc.vref
+        if ((size item.children) > 1) {
+          mArgs = item.getSecond()
+        }
+      } {
+        dotName = item.vref
+        if ((i + 1) < ch_len) {
+          mArgs = (at node.children (i + 1))
+        }
+      }
+      if ( ( (strlen dotName) > 0 ) && ( ( charAt dotName 0) == (charcode ".")) ) {
+        did_find = true
+        if(i>0) {
+          def last_line (at node.children (i - 1))
+          if (is_chaining == false ) {
+            chain_start_idx = (i - 1)
+            last_line.createChainTarget()
+            is_chaining = true
+            if(!null? last_line.chainTarget) {
+              chainRoot = last_line.chainTarget
+              innerNode = last_line.chainTarget
+              assignNode = last_line
+              last_is_assign = true
+            } {
+              chainRoot = last_line
+              innerNode = last_line
             }
-            def method_name (substring name 1 (strlen name))
-            def mArgs (item.getSecond())
-            newNode = (node.newExpressionNode())
-            newNode.add( (node.newVRefNode("call") ) )
-            newNode.add( (innerNode.copy() ) )
-            newNode.add( (node.newVRefNode(method_name)) )
-            newNode.add( (mArgs.copy()) )
-            innerNode = newNode
-            item.is_part_of_chain = true
+          }
+          def method_name (substring dotName 1 (strlen dotName))
+          def callArgs:CodeNode (node.newExpressionNode())
+          if (!null? mArgs) {
+            callArgs = mArgs.copy()
+          }
+          newNode = (node.newExpressionNode())
+          newNode.add( (node.newVRefNode("call") ) )
+          newNode.add( (innerNode.copy() ) )
+          newNode.add( (node.newVRefNode(method_name)) )
+          newNode.add( callArgs )
+          innerNode = newNode
+          item.is_part_of_chain = true
+          if (false == (has item.children)) {
+            if ((i + 1) < ch_len) {
+              def flatArg (at node.children (i + 1))
+              flatArg.is_part_of_chain = true
+            }
           }
         }
       }
       def maybe_chain_arg false
       if (is_chaining && (did_find == false) && (i > 0)) {
         def prev_item (itemAt node.children (i - 1))
+        def prev_name:string ""
         if (has prev_item.children) {
           def prev_fc (prev_item.getFirst())
-          def prev_name (prev_fc.vref)
-          if ( ( (strlen prev_name) > 0 ) && ( ( charAt prev_name 0) == (charcode ".")) ) {
-            maybe_chain_arg = true
-            item.is_part_of_chain = true
-          }
+          prev_name = prev_fc.vref
+        } {
+          prev_name = prev_item.vref
+        }
+        if ( ( (strlen prev_name) > 0 ) && ( ( charAt prev_name 0) == (charcode ".")) ) {
+          maybe_chain_arg = true
+          item.is_part_of_chain = true
         }
       }
       if ( (i == (ch_len - 1)) || ( (did_find == false) && (maybe_chain_arg == false) ) ) {
@@ -3617,7 +3638,29 @@ class RangerFlowParser {
         newNode.add( ( node.newVRefNode(objName)) )
         newNode.add( ( node.newVRefNode(possible_cmd)))
         newNode.add( ( args.copy()))
-        node.getChildrenFrom( newNode )
+
+        ; preserve any trailing method-chain elements ( .trim () .foo (...) )
+        def total (size node.children)
+        def innerNode@(weak):CodeNode
+        innerNode = newNode
+        def k 2
+        while ( k < (total - 1) ) {
+          def mName (at node.children k)
+          def mArgs (at node.children (k + 1))
+          def chName (mName.vref)
+          if( ( (strlen chName) > 0 ) && ( ( charAt chName 0) == (charcode ".")) ) {
+            def method_name (substring chName 1 (strlen chName))
+            def wrap (node.newExpressionNode())
+            wrap.add( ( node.newVRefNode("call")) )
+            wrap.add( ( innerNode.copy()) )
+            wrap.add( ( node.newVRefNode(method_name)) )
+            wrap.add( ( mArgs.copy()) )
+            innerNode = wrap
+          }
+          k = k + 2
+        }
+        node.getChildrenFrom( (unwrap innerNode) )
+        node.finalizeAsCallChainRoot()
 
         if( ( (ctx.expressionLevel()) == 0 ) ) {
           ctx.lastBlockOp = node

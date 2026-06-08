@@ -1,0 +1,8 @@
+class ChainOperatorAssign {
+    sfn m@(main):void () {
+        def str:string "  hello world  "
+        def part:string ""
+        part = str.substring(3, 7).trim()
+        print part
+    }
+}

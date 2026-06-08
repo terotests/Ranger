@@ -9066,49 +9066,71 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       for ( let i = 0; i < node.children.length; i++) {
         var item = node.children[i];
         let did_find = false;
+        let dotName = "";
+        let mArgs;
         if ( (item.children.length) > 0 ) {
           const fc = item.getFirst();
-          const name = fc.vref;
-          if ( ((name.length) > 0) && ((name.charCodeAt(0 )) == (".".charCodeAt(0))) ) {
-            did_find = true;
-            if ( i > 0 ) {
-              const last_line = node.children[(i - 1)];
-              if ( is_chaining == false ) {
-                chain_start_idx = i - 1;
-                last_line.createChainTarget();
-                is_chaining = true;
-                if ( (typeof(last_line.chainTarget) !== "undefined" && last_line.chainTarget != null )  ) {
-                  chainRoot = last_line.chainTarget;
-                  innerNode = last_line.chainTarget;
-                  assignNode = last_line;
-                  last_is_assign = true;
-                } else {
-                  chainRoot = last_line;
-                  innerNode = last_line;
-                }
+          dotName = fc.vref;
+          if ( (item.children.length) > 1 ) {
+            mArgs = item.getSecond();
+          }
+        } else {
+          dotName = item.vref;
+          if ( (i + 1) < ch_len ) {
+            mArgs = node.children[(i + 1)];
+          }
+        }
+        if ( ((dotName.length) > 0) && ((dotName.charCodeAt(0 )) == (".".charCodeAt(0))) ) {
+          did_find = true;
+          if ( i > 0 ) {
+            const last_line = node.children[(i - 1)];
+            if ( is_chaining == false ) {
+              chain_start_idx = i - 1;
+              last_line.createChainTarget();
+              is_chaining = true;
+              if ( (typeof(last_line.chainTarget) !== "undefined" && last_line.chainTarget != null )  ) {
+                chainRoot = last_line.chainTarget;
+                innerNode = last_line.chainTarget;
+                assignNode = last_line;
+                last_is_assign = true;
+              } else {
+                chainRoot = last_line;
+                innerNode = last_line;
               }
-              const method_name = name.substring(1, (name.length) );
-              const mArgs = item.getSecond();
-              newNode = node.newExpressionNode();
-              newNode.add(node.newVRefNode("call"));
-              newNode.add(innerNode.copy());
-              newNode.add(node.newVRefNode(method_name));
-              newNode.add(mArgs.copy());
-              innerNode = newNode;
-              item.is_part_of_chain = true;
+            }
+            const method_name = dotName.substring(1, (dotName.length) );
+            let callArgs = node.newExpressionNode();
+            if ( (typeof(mArgs) !== "undefined" && mArgs != null )  ) {
+              callArgs = mArgs.copy();
+            }
+            newNode = node.newExpressionNode();
+            newNode.add(node.newVRefNode("call"));
+            newNode.add(innerNode.copy());
+            newNode.add(node.newVRefNode(method_name));
+            newNode.add(callArgs);
+            innerNode = newNode;
+            item.is_part_of_chain = true;
+            if ( false == ((item.children.length) > 0) ) {
+              if ( (i + 1) < ch_len ) {
+                const flatArg = node.children[(i + 1)];
+                flatArg.is_part_of_chain = true;
+              }
             }
           }
         }
         let maybe_chain_arg = false;
         if ( (is_chaining && (did_find == false)) && (i > 0) ) {
           const prev_item = node.children[(i - 1)];
+          let prev_name = "";
           if ( (prev_item.children.length) > 0 ) {
             const prev_fc = prev_item.getFirst();
-            const prev_name = prev_fc.vref;
-            if ( ((prev_name.length) > 0) && ((prev_name.charCodeAt(0 )) == (".".charCodeAt(0))) ) {
-              maybe_chain_arg = true;
-              item.is_part_of_chain = true;
-            }
+            prev_name = prev_fc.vref;
+          } else {
+            prev_name = prev_item.vref;
+          }
+          if ( ((prev_name.length) > 0) && ((prev_name.charCodeAt(0 )) == (".".charCodeAt(0))) ) {
+            maybe_chain_arg = true;
+            item.is_part_of_chain = true;
           }
         }
         if ( (i == (ch_len - 1)) || ((did_find == false) && (maybe_chain_arg == false)) ) {
@@ -11980,7 +12002,27 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           newNode.add(node.newVRefNode(objName));
           newNode.add(node.newVRefNode(possible_cmd));
           newNode.add(args.copy());
-          node.getChildrenFrom(newNode);
+          const total = node.children.length;
+          let innerNode;
+          innerNode = newNode;
+          let k = 2;
+          while (k < (total - 1)) {
+            const mName = node.children[k];
+            const mArgs = node.children[(k + 1)];
+            const chName = mName.vref;
+            if ( ((chName.length) > 0) && ((chName.charCodeAt(0 )) == (".".charCodeAt(0))) ) {
+              const method_name = chName.substring(1, (chName.length) );
+              const wrap = node.newExpressionNode();
+              wrap.add(node.newVRefNode("call"));
+              wrap.add(innerNode.copy());
+              wrap.add(node.newVRefNode(method_name));
+              wrap.add(mArgs.copy());
+              innerNode = wrap;
+            }
+            k = k + 2;
+          };
+          node.getChildrenFrom(innerNode);
+          node.finalizeAsCallChainRoot();
           if ( ctx.expressionLevel() == 0 ) {
             ctx.lastBlockOp = node;
           }
