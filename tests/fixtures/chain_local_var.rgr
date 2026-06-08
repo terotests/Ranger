@@ -1,0 +1,21 @@
+class Acc {
+    def items:[int]
+    fn add:Acc (n:int) {
+        push items n
+        return this
+    }
+    fn get:int () {
+        def s:int 0
+        for items v:int idx {
+            s = (+ s v)
+        }
+        return s
+    }
+}
+class ChainLocalVar {
+    sfn m@(main):void () {
+        def a:Acc (new Acc().add(10).add(20))
+        def n:int (a.get())
+        print (to_string n)
+    }
+}

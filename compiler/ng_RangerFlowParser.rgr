@@ -98,6 +98,7 @@ class RangerFlowParser {
   fn fixExpressionAssignmentChains:void (node@(lives):CodeNode) {
     def is_chaining false
     def last_is_assign false
+    def chain_start_idx:int 0
     def chainRoot@(weak):CodeNode
     def innerNode@(weak):CodeNode
     def assignNode@(weak):CodeNode
@@ -115,6 +116,7 @@ class RangerFlowParser {
           if(i>0) {
             def last_line (at node.children (i - 1))
             if (is_chaining == false ) {
+              chain_start_idx = (i - 1)
               last_line.createChainTarget()
               is_chaining = true
               if(!null? last_line.chainTarget) {
@@ -139,18 +141,43 @@ class RangerFlowParser {
           }
         }
       }
-      if(did_find == false || (i == (ch_len - 1) ) ) {
-        if( is_chaining && (last_is_assign == false)) {
-          chainRoot.getChildrenFrom( (unwrap innerNode ) )
-          chainRoot.tag = "chainroot"
-        }
-        if( is_chaining && last_is_assign) {
-          while ( (array_length assignNode.children) > 3 ) {
-            removeLast assignNode.children
+      def maybe_chain_arg false
+      if (is_chaining && (did_find == false) && (i > 0)) {
+        def prev_item (itemAt node.children (i - 1))
+        if (has prev_item.children) {
+          def prev_fc (prev_item.getFirst())
+          def prev_name (prev_fc.vref)
+          if ( ( (strlen prev_name) > 0 ) && ( ( charAt prev_name 0) == (charcode ".")) ) {
+            maybe_chain_arg = true
+            item.is_part_of_chain = true
           }
-          if ( (array_length assignNode.children) >= 3 ) {
-            removeLast assignNode.children
-            push assignNode.children (unwrap innerNode)
+        }
+      }
+      if ( (i == (ch_len - 1)) || ( (did_find == false) && (maybe_chain_arg == false) ) ) {
+        if is_chaining {
+          def chainResult (unwrap innerNode)
+          chainResult.finalizeAsCallChainRoot()
+          if last_is_assign {
+            while ( (array_length assignNode.children) > 3 ) {
+              removeLast assignNode.children
+            }
+            if ( (array_length assignNode.children) >= 3 ) {
+              removeLast assignNode.children
+              push assignNode.children chainResult
+            }
+          } {
+            def kept:[CodeNode]
+            def ci:int 0
+            while (ci < chain_start_idx) {
+              push kept (itemAt node.children ci)
+              ci = ci + 1
+            }
+            push kept chainResult
+            clear node.children
+            for kept ch:CodeNode j {
+              push node.children ch
+              ch.parent = node
+            }
           }
         }
         is_chaining = false
@@ -525,12 +552,15 @@ class RangerFlowParser {
           ctx.addPage( sc.vref node )
         }
         case 'def' { 
+          this.repairAssignMethodCallRhs(node)
           EnterVarDef this node ctx wr
         }
         case 'var' {
+          this.repairAssignMethodCallRhs(node)
           EnterVarDef this node ctx wr
         }
         case 'let' {
+          this.repairAssignMethodCallRhs(node)
           EnterVarDef this node ctx wr
         }
         case 'property' {
@@ -1106,6 +1136,11 @@ class RangerFlowParser {
   }
  
   fn cmdNew:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if (node.tryDesugarNewMethodChain()) {
+      node.flow_done = false
+      this.cmdCall(node ctx wr)
+      return
+    }
     if ((size node.children) < 2) {
       ctx.addError(node "the new operator expects at lest two arguments")
       return
@@ -1885,7 +1920,7 @@ class RangerFlowParser {
       }
       if ( b_valid && (chain_cnt > 0 ) ) {
         node.getChildrenFrom( (unwrap innerNode ) )
-        node.tag = "chainroot"
+        node.finalizeAsCallChainRoot()
         node.flow_done = false
         this.WalkNode( node ctx wr)
         return true
@@ -2306,22 +2341,27 @@ class RangerFlowParser {
       return
     }
     def fc (node.getFirst())
-    if (fc.vref != "=") {
-      return
+    def rhsStart:int 0
+    if (fc.vref == "=") {
+      rhsStart = 2
+    } {
+      if (fc.vref == "def") {
+        rhsStart = 2
+      } {
+        return
+      }
     }
-    ; The infix parser flattens a method-call RHS into siblings of '=',
+    ; The infix parser flattens a method-call RHS into siblings of '=' / 'def',
     ; e.g. (= lhs this.flag ()) instead of (= lhs (this.flag ())).
-    ; Re-wrap everything after the LHS into a single expression node so the
-    ; normal call handling can evaluate the right-hand side.
-    def lhs:CodeNode (node.getSecond())
+    ; Re-wrap everything after the name (and type) into a single expression node.
     def rhs (node.newExpressionNode())
-    def i:int 2
+    def i:int rhsStart
     while (i < chCnt) {
       def child:CodeNode (itemAt node.children i)
       rhs.add( (child.copy()) )
       i = i + 1
     }
-    while ( (size node.children) > 2 ) {
+    while ( (size node.children) > rhsStart ) {
       removeLast node.children
     }
     push node.children rhs
