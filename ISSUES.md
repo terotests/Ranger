@@ -765,7 +765,7 @@ Ensured all `.rgr` source files and `bin/output.js` are committed with CRLF line
 
 ### Future Fix Needed
 
-## The parser should be investigated to handle both LF and CRLF line endings consistently. The issue is likely in the Ranger source parser (`ng_RangerLispParser.rgr` or related files) where line ending handling affects token parsing.
+Parser now normalizes CRLF, lone CR, and LF to LF in `RangerLispParser.normalizeLineEndings()` before tokenization (`compiler/ng_parser_v2.rgr`). LF-only fixtures are covered in `tests/compiler-imports.test.ts`. The CRLF-in-git workaround can be retired once all environments use the normalized parser build.
 
 ## Issue #13: Duplicate Polyfill Generation in C++ Target
 
@@ -1258,9 +1258,10 @@ Uses `filepath.Join()` which handles:
 
 ## Issue #61: Import paths don't work recursively
 
-**Status:** Open - HIGH PRIORITY  
+**Status:** Fixed  
 **Severity:** High  
-**Found:** December 17, 2025
+**Found:** December 17, 2025  
+**Fixed:** July 2026
 
 ### Description
 
@@ -1299,6 +1300,10 @@ When importing a file, the compiler should:
 1. Resolve the import path relative to the current file
 2. Add the imported file's directory to the library paths for processing that file's imports
 3. Pop the path when done processing that file
+
+### Resolution
+
+`mergeImports` and `WalkCollectMethods` in `compiler/ng_RangerFlowParser.rgr` (and `ng_FlowWork.rgr`) now push the imported file's directory onto `rootCtx.libraryPaths` while processing nested imports, then pop it afterward. Regression tests live in `tests/compiler-imports.test.ts` (`cross_dir_lexer.rgr` imports `ts_lexer.rgr`, which imports `ts_token.rgr`).
 
 ### Impact
 

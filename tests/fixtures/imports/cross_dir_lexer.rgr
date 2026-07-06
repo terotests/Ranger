@@ -1,0 +1,7 @@
+Import "./gallery/ts_parser/ts_lexer.rgr"
+
+class CrossDirLexerImportTest {
+    sfn m@(main):void () {
+        print "recursive-import-ok"
+    }
+}

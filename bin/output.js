@@ -5364,7 +5364,8 @@ class RangerLispParser  {
     this.get_op_pred = 0;     /** note: unused */
     this.had_error = false;
     this.disableOperators = false;
-    this.buff = code_module.code;
+    const normalized = RangerLispParser.normalizeLineEndings(code_module.code);
+    this.buff = normalized;
     this.code = code_module;
     this.__len = (this.buff).length;
     this.rootNode = new CodeNode(this.code, 0, 0);
@@ -6552,6 +6553,20 @@ class RangerLispParser  {
     };
   };
 }
+RangerLispParser.normalizeLineEndings = function(src) {
+  let s = src;
+  let pos = s.indexOf("\r\n");
+  while (pos >= 0) {
+    s = ((s.substring(0, pos )) + "\n") + (s.substring((pos + 2), (s.length) ));
+    pos = s.indexOf("\r\n");
+  };
+  pos = s.indexOf("\r");
+  while (pos >= 0) {
+    s = ((s.substring(0, pos )) + "\n") + (s.substring((pos + 1), (s.length) ));
+    pos = s.indexOf("\r");
+  };
+  return s;
+};
 class RangerArgMatch  {
   constructor() {
     this._debug = false;
@@ -37938,7 +37953,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     const b1 = (cn.eval_type == 14) && (defaultArg.eval_type == 3);
                     const b2 = (cn.eval_type == 3) && (defaultArg.eval_type == 14);
                     if ( false == (b1 || b2) ) {
-                      ctx.addError(node, (("Variable was assigned an incompatible type. Types were " + cn.eval_type) + " vs ") + defaultArg.eval_type);
+                      let cnTypeName = TTypes.valueAsString(cn.eval_type);
+                      if ( (cn.eval_type_name.length) > 0 ) {
+                        cnTypeName = cn.eval_type_name;
+                      }
+                      let defTypeName = TTypes.valueAsString(defaultArg.eval_type);
+                      if ( (defaultArg.eval_type_name.length) > 0 ) {
+                        defTypeName = defaultArg.eval_type_name;
+                      }
+                      ctx.addError(node, (("Variable was assigned an incompatible type. Types were " + cnTypeName) + " vs ") + defTypeName);
                     }
                   }
                 } else {
@@ -38139,7 +38162,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     const b1_1 = (cn_2.eval_type == 14) && (defaultArg_1.eval_type == 3);
                     const b2_1 = (cn_2.eval_type == 3) && (defaultArg_1.eval_type == 14);
                     if ( false == (b1_1 || b2_1) ) {
-                      ctx.addError(node, (("Variable was assigned an incompatible type. Types were " + cn_2.eval_type) + " vs ") + defaultArg_1.eval_type);
+                      let cnTypeName_1 = TTypes.valueAsString(cn_2.eval_type);
+                      if ( (cn_2.eval_type_name.length) > 0 ) {
+                        cnTypeName_1 = cn_2.eval_type_name;
+                      }
+                      let defTypeName_1 = TTypes.valueAsString(defaultArg_1.eval_type);
+                      if ( (defaultArg_1.eval_type_name.length) > 0 ) {
+                        defTypeName_1 = defaultArg_1.eval_type_name;
+                      }
+                      ctx.addError(node, (("Variable was assigned an incompatible type. Types were " + cnTypeName_1) + " vs ") + defTypeName_1);
                     }
                   }
                 } else {

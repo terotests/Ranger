@@ -29,9 +29,26 @@ class RangerLispParser {
   def curr_node@(optional weak):CodeNode
   def had_error:boolean false
   def disableOperators false
+
+  ; Accept LF, CRLF, and lone CR — normalize to LF before tokenization.
+  static fn normalizeLineEndings:string (src:string) {
+    def s:string src
+    def pos (indexOf s "\r\n")
+    while (pos >= 0) {
+      s = (substring s 0 pos) + "\n" + (substring s (pos + 2) (strlen s))
+      pos = (indexOf s "\r\n")
+    }
+    pos = (indexOf s "\r")
+    while (pos >= 0) {
+      s = (substring s 0 pos) + "\n" + (substring s (pos + 1) (strlen s))
+      pos = (indexOf s "\r")
+    }
+    return s
+  }
   
   Constructor ( code_module:SourceCode ) {
-    buff = (to_charbuffer code_module.code)
+    def normalized (RangerLispParser.normalizeLineEndings(code_module.code))
+    buff = (to_charbuffer normalized)
     code = code_module
     len = (length (( unwrap buff)))
     rootNode = (new CodeNode(( unwrap code) 0 0))
