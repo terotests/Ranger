@@ -1,0 +1,9 @@
+First char: H
+Second char: e
+Last char: o
+H
+e
+l
+l
+o
+Done
