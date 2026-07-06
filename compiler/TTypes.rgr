@@ -1,34 +1,11 @@
+Import "TTypeRegistry.rgr"
+
 class TTypes {
 
     static fn nameToValue:RangerNodeType (name:string) {
-        switch name {
-            case "double" {
-                return RangerNodeType.Double
-            }
-            case "int" {
-                return RangerNodeType.Integer
-            }
-            case "string" {
-                return RangerNodeType.String
-            }   
-            case "boolean" {
-                return RangerNodeType.Boolean
-            }         
-            case "char" {
-                return RangerNodeType.Char
-            }
-            case "charbuffer" {
-                return RangerNodeType.CharBuffer
-            }
-            case "buffer" {
-                return RangerNodeType.Buffer
-            }
-            case "int_buffer" {
-                return RangerNodeType.IntBuffer
-            }
-            case "double_buffer" {
-                return RangerNodeType.DoubleBuffer
-            }
+        def regType:RangerNodeType (TTypeRegistry.nameToNodeType(name))
+        if (regType != RangerNodeType.NoType) {
+            return regType
         }
         return RangerNodeType.NoType
     }
@@ -38,69 +15,40 @@ class TTypes {
 ;    }
 
     static fn isPrimitive:boolean (valueType:RangerNodeType) {
-        switch valueType {
-            case RangerNodeType.Double {
-                return true
-            }
-            case RangerNodeType.String {
-                return true
-            }
-            case RangerNodeType.Integer {
-                return true
-            }
-            case RangerNodeType.Boolean {
-                return true
-            }
-            case RangerNodeType.Char {
-                return true
-            }
-            case RangerNodeType.CharBuffer {
-                return true
-            }
-            case RangerNodeType.Buffer {
-                return true
-            }
-            case RangerNodeType.IntBuffer {
-                return true
-            }
-            case RangerNodeType.DoubleBuffer {
-                return true
-            }
-            case RangerNodeType.Enum {
-                return true
-            }
-        }        
+        if (TTypeRegistry.isNodePrimitive(valueType)) {
+            return true
+        }
         return false
     }
 
     static fn valueAsString:string (valueType:RangerNodeType) {
         switch valueType {
             case RangerNodeType.Double {
-                return "double"
+                return (TTypeRegistry.nodeTypeToName(RangerNodeType.Double))
             }
             case RangerNodeType.String {
-                return "string"
+                return (TTypeRegistry.nodeTypeToName(RangerNodeType.String))
             }
             case RangerNodeType.Integer {
-                return "int"
+                return (TTypeRegistry.nodeTypeToName(RangerNodeType.Integer))
             }
             case RangerNodeType.Boolean {
-                return "boolean"
+                return (TTypeRegistry.nodeTypeToName(RangerNodeType.Boolean))
             }
             case RangerNodeType.Char {
-                return "char"
+                return (TTypeRegistry.nodeTypeToName(RangerNodeType.Char))
             }
             case RangerNodeType.CharBuffer {
-                return "charbuffer"
+                return (TTypeRegistry.nodeTypeToName(RangerNodeType.CharBuffer))
             }
             case RangerNodeType.Buffer {
-                return "buffer"
+                return (TTypeRegistry.nodeTypeToName(RangerNodeType.Buffer))
             }
             case RangerNodeType.IntBuffer {
-                return "int_buffer"
+                return (TTypeRegistry.nodeTypeToName(RangerNodeType.IntBuffer))
             }
             case RangerNodeType.DoubleBuffer {
-                return "double_buffer"
+                return (TTypeRegistry.nodeTypeToName(RangerNodeType.DoubleBuffer))
             }
             case RangerNodeType.NoType {
                 return "<no type>"

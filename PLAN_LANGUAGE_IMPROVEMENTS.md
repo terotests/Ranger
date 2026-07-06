@@ -16,8 +16,8 @@
 | Type-name diagnostics (no enum integers in errors) | 3.3 | Done |
 | `SPEC_SEMANTICS.md` | 1 | Done |
 | Cross-target conformance harness | 1 | Done |
-| Records / payload enums / `match` | 2 | Partial (`record` keyword + auto-constructor; enums/match not started) |
-| Centralized type registry (#15/#59/#60) | 3.1 | Done (`TTypeRegistry` + dynamic systemclass registration) |
+| Records / payload enums / `match` | 2 | Partial (`record` + keyword/positional construction; enums/match not started) |
+| Centralized type registry (#15/#59/#60) | 3.1 | Partial (`TTypeRegistry` routes core lookups; `primitivetype` Lang syntax and writer migration ongoing) |
 | Control-flow return analysis (#16) | 3.2 | Not started |
 | Predictable `-d`/`-o` for `-nodemodule` (#62) | 4 | Not started |
 

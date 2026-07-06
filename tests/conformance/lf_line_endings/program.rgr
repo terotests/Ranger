@@ -1,0 +1,10 @@
+; Conformance: LF-only source (Issue #12 class must not break operator spacing)
+class LfLineEndingsTest {
+    sfn m@(main):void () {
+        def a 2
+        def b 3
+        def prod (a * b)
+        print (to_string prod)
+        print "Done"
+    }
+}

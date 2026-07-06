@@ -72,7 +72,7 @@
 
 - `record` declares a nominal product type with fields only (no user-defined methods required).
 - A field-order constructor is auto-generated when none is written.
-- Construction: `new RecordName field:value ...` with keyword arguments matching field names.
+- Construction: `new RecordName field value ...` with keyword markers (`new Point xpos 3 ypos 4`), or positional shorthand (`new Point 3 4`).
 - Records compile to the same class/struct machinery as `class` without inheritance.
 
 ## 6. Optional and nullable types
@@ -93,6 +93,9 @@ Seeded fixtures cover:
 | `int_division_to_double` | #4 floating division |
 | `string_codepoint_index` | #57 code-point indexing |
 | `while_loop` | Control flow codegen |
+| `lf_line_endings` | #12 LF-only sources |
+| `array_param_mutate` | #58 array reference semantics (ES6; Go skipped — slice pass-by-value) |
+| `clear_then_push` | #59 clear + push on parameter arrays |
 
 ## 8. Non-goals (this revision)
 

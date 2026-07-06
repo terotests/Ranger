@@ -2758,52 +2758,14 @@ class CodeNode  {
     if ( (node.value_type == 20) || (node.eval_type == 20) ) {
       return;
     }
+    const regType = TTypes.nameToValue(this.type_name);
+    if ( regType != 0 ) {
+      node.value_type = regType;
+      node.eval_type = regType;
+      node.eval_type_name = this.type_name;
+      return;
+    }
     switch (this.type_name ) { 
-      case "double" : 
-        node.value_type = 2;
-        node.eval_type = 2;
-        node.eval_type_name = "double";
-        break;
-      case "int" : 
-        node.value_type = 3;
-        node.eval_type = 3;
-        node.eval_type_name = "int";
-        break;
-      case "char" : 
-        node.value_type = 14;
-        node.eval_type = 14;
-        node.eval_type_name = "char";
-        break;
-      case "charbuffer" : 
-        node.value_type = 15;
-        node.eval_type = 15;
-        node.eval_type_name = "charbuffer";
-        break;
-      case "buffer" : 
-        node.value_type = 16;
-        node.eval_type = 16;
-        node.eval_type_name = "buffer";
-        break;
-      case "int_buffer" : 
-        node.value_type = 17;
-        node.eval_type = 17;
-        node.eval_type_name = "int_buffer";
-        break;
-      case "double_buffer" : 
-        node.value_type = 18;
-        node.eval_type = 18;
-        node.eval_type_name = "double_buffer";
-        break;
-      case "string" : 
-        node.value_type = 4;
-        node.eval_type = 4;
-        node.eval_type_name = "string";
-        break;
-      case "boolean" : 
-        node.value_type = 5;
-        node.eval_type = 5;
-        node.eval_type_name = "string";
-        break;
       default: 
         if ( true == this.expression ) {
           node.value_type = 20;
@@ -2871,7 +2833,7 @@ class CodeNode  {
   };
 }
 CodeNode.vref1 = function(name) {
-  const code = new SourceCode(name);
+  const code = new SourceCode(name, 0, name.length);
   const newNode = new CodeNode(code, 0, name.length);
   newNode.vref = name;
   newNode.value_type = 11;
@@ -2880,7 +2842,7 @@ CodeNode.vref1 = function(name) {
   return newNode;
 };
 CodeNode.vref2 = function(name, typeName) {
-  const code = new SourceCode(name);
+  const code = new SourceCode(name, 0, name.length);
   const newNode = new CodeNode(code, 0, name.length);
   newNode.vref = name;
   newNode.type_name = typeName;
@@ -2890,7 +2852,7 @@ CodeNode.vref2 = function(name, typeName) {
   return newNode;
 };
 CodeNode.newStr = function(name) {
-  const code = new SourceCode("");
+  const code = new SourceCode("", 0, 0);
   const newNode = new CodeNode(code, 0, 0);
   newNode.string_value = name;
   newNode.value_type = 4;
@@ -2898,7 +2860,7 @@ CodeNode.newStr = function(name) {
   return newNode;
 };
 CodeNode.newBool = function(value) {
-  const code = new SourceCode("");
+  const code = new SourceCode("", 0, 0);
   const newNode = new CodeNode(code, 0, 0);
   newNode.boolean_value = value;
   newNode.value_type = 5;
@@ -2906,7 +2868,7 @@ CodeNode.newBool = function(value) {
   return newNode;
 };
 CodeNode.newInt = function(value) {
-  const code = new SourceCode("");
+  const code = new SourceCode("", 0, 0);
   const newNode = new CodeNode(code, 0, 0);
   newNode.int_value = value;
   newNode.value_type = 3;
@@ -2914,7 +2876,7 @@ CodeNode.newInt = function(value) {
   return newNode;
 };
 CodeNode.newDouble = function(value) {
-  const code = new SourceCode("");
+  const code = new SourceCode("", 0, 0);
   const newNode = new CodeNode(code, 0, 0);
   newNode.double_value = value;
   newNode.value_type = 2;
@@ -2922,7 +2884,7 @@ CodeNode.newDouble = function(value) {
   return newNode;
 };
 CodeNode.op = function(opName) {
-  const code = new SourceCode("");
+  const code = new SourceCode("", 0, 0);
   const newNode = new CodeNode(code, 0, 0);
   newNode.expression = true;
   const opNode = CodeNode.vref1(opName);
@@ -2930,7 +2892,7 @@ CodeNode.op = function(opName) {
   return newNode;
 };
 CodeNode.op2 = function(opName, param1) {
-  const code = new SourceCode("");
+  const code = new SourceCode("", 0, 0);
   const newNode = new CodeNode(code, 0, 0);
   newNode.expression = true;
   const opNode = CodeNode.vref1(opName);
@@ -2939,7 +2901,7 @@ CodeNode.op2 = function(opName, param1) {
   return newNode;
 };
 CodeNode.op3 = function(opName, list) {
-  const code = new SourceCode("");
+  const code = new SourceCode("", 0, 0);
   const newNode = new CodeNode(code, 0, 0);
   newNode.expression = true;
   const opNode = CodeNode.vref1(opName);
@@ -2951,7 +2913,7 @@ CodeNode.op3 = function(opName, list) {
   return newNode;
 };
 CodeNode.fromList = function(list) {
-  const code = new SourceCode("");
+  const code = new SourceCode("", 0, 0);
   const newNode = new CodeNode(code, 0, 0);
   newNode.expression = true;
   for ( let i = 0; i < list.length; i++) {
@@ -2962,20 +2924,20 @@ CodeNode.fromList = function(list) {
   return newNode;
 };
 CodeNode.expressionNode = function() {
-  const code = new SourceCode("");
+  const code = new SourceCode("", 0, 0);
   const newNode = new CodeNode(code, 0, 0);
   newNode.expression = true;
   return newNode;
 };
 CodeNode.blockNode = function() {
-  const code = new SourceCode("");
+  const code = new SourceCode("", 0, 0);
   const newNode = new CodeNode(code, 0, 0);
   newNode.is_block_node = true;
   newNode.expression = true;
   return newNode;
 };
 CodeNode.blockFromList = function(list) {
-  const code = new SourceCode("");
+  const code = new SourceCode("", 0, 0);
   const newNode = new CodeNode(code, 0, 0);
   newNode.is_block_node = true;
   newNode.expression = true;
@@ -3036,6 +2998,109 @@ TTypeRegistry.isPrimitiveTypeName = function(typeName) {
 };
 TTypeRegistry.isKnownTypeName = function(typeName) {
   return TTypeRegistry.isPrimitiveTypeName(typeName);
+};
+TTypeRegistry.nameToNodeType = function(name) {
+  switch (name ) { 
+    case "double" : 
+      return 2;
+    case "int" : 
+      return 3;
+    case "string" : 
+      return 4;
+    case "boolean" : 
+      return 5;
+    case "char" : 
+      return 14;
+    case "charbuffer" : 
+      return 15;
+    case "buffer" : 
+      return 16;
+    case "int_buffer" : 
+      return 17;
+    case "double_buffer" : 
+      return 18;
+  };
+  return 0;
+};
+TTypeRegistry.nodeTypeToName = function(valueType) {
+  switch (valueType ) { 
+    case 2 : 
+      return "double";
+    case 4 : 
+      return "string";
+    case 3 : 
+      return "int";
+    case 5 : 
+      return "boolean";
+    case 14 : 
+      return "char";
+    case 15 : 
+      return "charbuffer";
+    case 16 : 
+      return "buffer";
+    case 17 : 
+      return "int_buffer";
+    case 18 : 
+      return "double_buffer";
+  };
+  return "";
+};
+TTypeRegistry.isNodePrimitive = function(valueType) {
+  const name = TTypeRegistry.nodeTypeToName(valueType);
+  if ( (name.length) > 0 ) {
+    return true;
+  }
+  if ( valueType == 13 ) {
+    return true;
+  }
+  return false;
+};
+TTypeRegistry.targetTypeString = function(lang, typeName) {
+  if ( lang == "es6" ) {
+    switch (typeName ) { 
+      case "int" : 
+        return "number";
+      case "string" : 
+        return "string";
+      case "charbuffer" : 
+        return "string";
+      case "buffer" : 
+        return "Uint8Array";
+      case "int_buffer" : 
+        return "BigInt64Array";
+      case "double_buffer" : 
+        return "Float64Array";
+      case "char" : 
+        return "number";
+      case "boolean" : 
+        return "boolean";
+      case "double" : 
+        return "number";
+    };
+  }
+  if ( lang == "go" ) {
+    switch (typeName ) { 
+      case "int" : 
+        return "int";
+      case "string" : 
+        return "string";
+      case "charbuffer" : 
+        return "string";
+      case "buffer" : 
+        return "[]byte";
+      case "int_buffer" : 
+        return "[]int64";
+      case "double_buffer" : 
+        return "[]float64";
+      case "char" : 
+        return "rune";
+      case "boolean" : 
+        return "bool";
+      case "double" : 
+        return "float64";
+    };
+  }
+  return "";
 };
 TTypeRegistry.listContains = function(list, value) {
   for ( let i = 0; i < list.length; i++) {
@@ -6622,6 +6687,121 @@ RangerLispParser.normalizeLineEndings = function(src) {
   };
   return s;
 };
+class TTypes  {
+  constructor() {
+  }
+}
+TTypes.nameToValue = function(name) {
+  const regType = TTypeRegistry.nameToNodeType(name);
+  if ( regType != 0 ) {
+    return regType;
+  }
+  return 0;
+};
+TTypes.isPrimitive = function(valueType) {
+  if ( TTypeRegistry.isNodePrimitive(valueType) ) {
+    return true;
+  }
+  return false;
+};
+TTypes.valueAsString = function(valueType) {
+  switch (valueType ) { 
+    case 2 : 
+      return TTypeRegistry.nodeTypeToName(2);
+    case 4 : 
+      return TTypeRegistry.nodeTypeToName(4);
+    case 3 : 
+      return TTypeRegistry.nodeTypeToName(3);
+    case 5 : 
+      return TTypeRegistry.nodeTypeToName(5);
+    case 14 : 
+      return TTypeRegistry.nodeTypeToName(14);
+    case 15 : 
+      return TTypeRegistry.nodeTypeToName(15);
+    case 16 : 
+      return TTypeRegistry.nodeTypeToName(16);
+    case 17 : 
+      return TTypeRegistry.nodeTypeToName(17);
+    case 18 : 
+      return TTypeRegistry.nodeTypeToName(18);
+    case 0 : 
+      return "<no type>";
+    case 1 : 
+      return "<invalid type>";
+    case 6 : 
+      return "[]";
+    case 7 : 
+      return "[:]";
+    case 8 : 
+      return "ImmutableArray";
+    case 9 : 
+      return "ImmutableHash";
+    case 10 : 
+      return "Object";
+    case 11 : 
+      return "VRef";
+    case 13 : 
+      return "Enum";
+    case 12 : 
+      return "Comment";
+    case 19 : 
+      return "Expression";
+    case 20 : 
+      return "ExpressionType";
+    case 21 : 
+      return "Lambda";
+    case 22 : 
+      return "XMLNode";
+    case 23 : 
+      return "XMLText";
+    case 24 : 
+      return "XMLAttr";
+    case 25 : 
+      return "XMLAttr";
+    case 26 : 
+      return "Dictionary";
+    case 27 : 
+      return "Any";
+    case 28 : 
+      return "Class";
+    case 29 : 
+      return "GenericClass";
+    case 30 : 
+      return "ClassRef";
+    case 31 : 
+      return "Method";
+    case 32 : 
+      return "ClassVar";
+    case 33 : 
+      return "ClassVar";
+    case 34 : 
+      return "Literal";
+    case 35 : 
+      return "Quasiliteral";
+    case 36 : 
+      return "Null";
+    case 37 : 
+      return "ArrayLiteral";
+    default: 
+      return "InvalidValueTypeEnum";
+      break;
+  };
+  return "";
+};
+TTypes.baseTypeAsEval = function(node, ctx, wr) {
+  const vType = node.value_type;
+  node.eval_type = vType;
+  if ( TTypes.isPrimitive(node.value_type) ) {
+    node.eval_type_name = TTypes.valueAsString(node.value_type);
+  } else {
+    const vType_2 = node.type_name;
+    node.eval_type_name = vType_2;
+  }
+  const vType1 = node.array_type;
+  const vType2 = node.key_type;
+  node.eval_array_type = vType1;
+  node.eval_key_type = vType2;
+};
 class RangerArgMatch  {
   constructor() {
     this._debug = false;
@@ -7109,27 +7289,13 @@ class RangerArgMatch  {
         return 19;
       case "arguments" : 
         return 19;
-      case "string" : 
-        return 4;
-      case "int" : 
-        return 3;
-      case "char" : 
-        return 14;
-      case "charbuffer" : 
-        return 15;
-      case "buffer" : 
-        return 16;
-      case "int_buffer" : 
-        return 17;
-      case "double_buffer" : 
-        return 18;
-      case "boolean" : 
-        return 5;
-      case "double" : 
-        return 2;
       case "enum" : 
         return 13;
     };
+    const regType = TTypes.nameToValue(t_name);
+    if ( regType != 0 ) {
+      return regType;
+    }
     return 10;
   };
   setRvBasedOn (arg, node) {
@@ -8892,156 +9058,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     };
     return "";
   };
-  class TTypes  {
-    constructor() {
-    }
-  }
-  TTypes.nameToValue = function(name) {
-    switch (name ) { 
-      case "double" : 
-        return 2;
-      case "int" : 
-        return 3;
-      case "string" : 
-        return 4;
-      case "boolean" : 
-        return 5;
-      case "char" : 
-        return 14;
-      case "charbuffer" : 
-        return 15;
-      case "buffer" : 
-        return 16;
-      case "int_buffer" : 
-        return 17;
-      case "double_buffer" : 
-        return 18;
-    };
-    return 0;
-  };
-  TTypes.isPrimitive = function(valueType) {
-    switch (valueType ) { 
-      case 2 : 
-        return true;
-      case 4 : 
-        return true;
-      case 3 : 
-        return true;
-      case 5 : 
-        return true;
-      case 14 : 
-        return true;
-      case 15 : 
-        return true;
-      case 16 : 
-        return true;
-      case 17 : 
-        return true;
-      case 18 : 
-        return true;
-      case 13 : 
-        return true;
-    };
-    return false;
-  };
-  TTypes.valueAsString = function(valueType) {
-    switch (valueType ) { 
-      case 2 : 
-        return "double";
-      case 4 : 
-        return "string";
-      case 3 : 
-        return "int";
-      case 5 : 
-        return "boolean";
-      case 14 : 
-        return "char";
-      case 15 : 
-        return "charbuffer";
-      case 16 : 
-        return "buffer";
-      case 17 : 
-        return "int_buffer";
-      case 18 : 
-        return "double_buffer";
-      case 0 : 
-        return "<no type>";
-      case 1 : 
-        return "<invalid type>";
-      case 6 : 
-        return "[]";
-      case 7 : 
-        return "[:]";
-      case 8 : 
-        return "ImmutableArray";
-      case 9 : 
-        return "ImmutableHash";
-      case 10 : 
-        return "Object";
-      case 11 : 
-        return "VRef";
-      case 13 : 
-        return "Enum";
-      case 12 : 
-        return "Comment";
-      case 19 : 
-        return "Expression";
-      case 20 : 
-        return "ExpressionType";
-      case 21 : 
-        return "Lambda";
-      case 22 : 
-        return "XMLNode";
-      case 23 : 
-        return "XMLText";
-      case 24 : 
-        return "XMLAttr";
-      case 25 : 
-        return "XMLAttr";
-      case 26 : 
-        return "Dictionary";
-      case 27 : 
-        return "Any";
-      case 28 : 
-        return "Class";
-      case 29 : 
-        return "GenericClass";
-      case 30 : 
-        return "ClassRef";
-      case 31 : 
-        return "Method";
-      case 32 : 
-        return "ClassVar";
-      case 33 : 
-        return "ClassVar";
-      case 34 : 
-        return "Literal";
-      case 35 : 
-        return "Quasiliteral";
-      case 36 : 
-        return "Null";
-      case 37 : 
-        return "ArrayLiteral";
-      default: 
-        return "InvalidValueTypeEnum";
-        break;
-    };
-    return "";
-  };
-  TTypes.baseTypeAsEval = function(node, ctx, wr) {
-    const vType = node.value_type;
-    node.eval_type = vType;
-    if ( TTypes.isPrimitive(node.value_type) ) {
-      node.eval_type_name = TTypes.valueAsString(node.value_type);
-    } else {
-      const vType_2 = node.type_name;
-      node.eval_type_name = vType_2;
-    }
-    const vType1 = node.array_type;
-    const vType2 = node.key_type;
-    node.eval_array_type = vType1;
-    node.eval_key_type = vType2;
-  };
   class ClassJoinPoint  {
     constructor() {
     }
@@ -9882,6 +9898,27 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       TTypes.baseTypeAsEval(node, ctx, wr);
       node.evalTypeClass = TFactory.new_scalar_signature(node, ctx, wr);
     };
+    normalizeNewArgList (node) {
+      if ( node.chlen() <= 3 ) {
+        return;
+      }
+      const third = node.getThird();
+      if ( third.expression && ((third.children.length) > 0) ) {
+        return;
+      }
+      const argList = new CodeNode(node.code, node.sp, node.ep);
+      argList.expression = true;
+      let ci = 2;
+      const chlen = node.chlen();
+      while (ci < chlen) {
+        argList.children.push(node.children[ci]);
+        ci = ci + 1;
+      };
+      while (node.chlen() > 2) {
+        node.children.pop();
+      };
+      node.children.push(argList);
+    };
     async cmdNew (node, ctx, wr) {
       if ( (node.children.length) < 2 ) {
         ctx.addError(node, "the new operator expects at lest two arguments");
@@ -9892,6 +9929,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         expr.expression = true;
         node.children.push(expr);
       }
+      this.normalizeNewArgList(node);
       const obj = node.getSecond();
       const params = node.getThird();
       let currC;
@@ -9905,8 +9943,33 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         await this.CheckVRefTypeAnnotationOf(obj, ctx, wr);
       }
       await this.WalkNode(obj, ctx, wr);
+      if ( b_template == false ) {
+        currC = ctx.findClass(obj.vref);
+      }
+      let fnDescr;
+      if ( (typeof(currC) !== "undefined" && currC != null )  ) {
+        const clTmp = currC;
+        fnDescr = clTmp.constructor_fn;
+      }
+      if ( (typeof(fnDescr) !== "undefined" && fnDescr != null )  ) {
+        const ctorFn = fnDescr;
+        if ( (typeof(currC) !== "undefined" && currC != null )  ) {
+          const newCl = currC;
+          this.expandRecordCtorArgsIfNeeded(newCl, ctorFn, params, node);
+        }
+        operatorsOf.forEach_11(ctorFn.params, ((item, index) => { 
+          if ( item.nameNode.hasFlag("keyword") ) {
+            if ( (params.children.length) > index ) {
+              (params.children[index]).setFlag("keyword");
+            }
+          }
+        }));
+      }
       for ( let i = 0; i < params.children.length; i++) {
         var arg = params.children[i];
+        if ( arg.hasFlag("keyword") ) {
+          continue;
+        }
         ctx.setInExpr();
         await this.WalkNode(arg, ctx, wr);
         ctx.unsetInExpr();
@@ -9914,7 +9977,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       node.eval_type = 10;
       node.eval_type_name = obj.vref;
       if ( b_template == false ) {
-        currC = ctx.findClass(obj.vref);
+        if ( typeof(currC) === "undefined" ) {
+          currC = ctx.findClass(obj.vref);
+        }
         const currM = ctx.getCurrentMethod();
         currM.addClassUsage(currC, ctx);
       }
@@ -9922,20 +9987,20 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       node.clDesc = currC;
       if ( typeof(currC) === "undefined" ) {
       } else {
-        const newCl = currC;
-        if ( newCl.is_process ) {
+        const newCl_1 = currC;
+        if ( newCl_1.is_process ) {
           const procCodegen = new RangerProcessCodegen();
-          procCodegen.validateProcessNewSite(node, newCl, ctx);
+          procCodegen.validateProcessNewSite(node, newCl_1, ctx);
         }
       }
-      const fnDescr = currC.constructor_fn;
       if ( (typeof(fnDescr) !== "undefined" && fnDescr != null )  ) {
-        if ( (fnDescr.params.length) > (params.children.length) ) {
-          ctx.addError(node, "Not enough arguments for class constructor " + fnDescr.node.getLineAsString());
+        const ctorFn_1 = fnDescr;
+        if ( (ctorFn_1.params.length) > (params.children.length) ) {
+          ctx.addError(node, "Not enough arguments for class constructor " + ctorFn_1.node.getLineAsString());
           return;
         }
-        for ( let i_1 = 0; i_1 < fnDescr.params.length; i_1++) {
-          var param = fnDescr.params[i_1];
+        for ( let i_1 = 0; i_1 < ctorFn_1.params.length; i_1++) {
+          var param = ctorFn_1.params[i_1];
           let has_default = false;
           if ( param.nameNode.hasFlag("default") ) {
             has_default = true;
@@ -12028,6 +12093,46 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         }
       };
     };
+    expandRecordCtorArgsIfNeeded (cl, fnDescr, params, node) {
+      if ( cl.is_record == false ) {
+        return;
+      }
+      if ( (params.children.length) == 0 ) {
+        return;
+      }
+      const fc = params.children[0];
+      if ( fc.hasFlag("keyword") ) {
+        return;
+      }
+      let valueCnt = 0;
+      for ( let i = 0; i < fnDescr.params.length; i++) {
+        var p = fnDescr.params[i];
+        if ( p.nameNode.hasFlag("keyword") == false ) {
+          valueCnt = valueCnt + 1;
+        }
+      };
+      if ( (params.children.length) != valueCnt ) {
+        return;
+      }
+      let expanded = [];
+      let vi = 0;
+      for ( let i_1 = 0; i_1 < fnDescr.params.length; i_1++) {
+        var p_1 = fnDescr.params[i_1];
+        if ( p_1.nameNode.hasFlag("keyword") ) {
+          const kw = node.newVRefNode(p_1.name);
+          kw.setFlag("keyword");
+          expanded.push(kw);
+        } else {
+          expanded.push(params.children[vi]);
+          vi = vi + 1;
+        }
+      };
+      params.children.length = 0;
+      for ( let i_2 = 0; i_2 < expanded.length; i_2++) {
+        var item = expanded[i_2];
+        params.children.push(item);
+      };
+    };
     async buildRecordConstructor (cl, ctx, wr) {
       if ( (cl.variables.length) == 0 ) {
         return;
@@ -12045,7 +12150,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         if ( i > 0 ) {
           sig = sig + " ";
         }
-        sig = ((sig + v.name) + ":") + tname;
+        sig = ((((sig + v.name) + "@(keyword) ") + v.name) + ":") + tname;
         body = ((((body + "this.") + v.name) + " = ") + v.name) + "\n";
         i = i + 1;
       };
@@ -15169,18 +15274,21 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         wr.out("(", false);
         const constr = cl.constructor_fn;
         const givenArgs = node.getThird();
-        if ( (typeof(constr) !== "undefined" && constr != null )  ) {
-          for ( let i = 0; i < constr.params.length; i++) {
-            var arg = constr.params[i];
-            const n = givenArgs.children[i];
-            if ( i > 0 ) {
-              wr.out(", ", false);
-            }
-            if ( true || ((typeof(arg.nameNode) !== "undefined" && arg.nameNode != null ) ) ) {
-              await this.WalkNode(n, ctx, wr);
-            }
-          };
-        }
+        const pms = operatorsOf.filter_36(givenArgs.children, ((item, index) => { 
+          if ( item.hasFlag("keyword") ) {
+            return false;
+          }
+          return true;
+        }));
+        let cnt = 0;
+        for ( let i = 0; i < pms.length; i++) {
+          var n = pms[i];
+          if ( cnt > 0 ) {
+            wr.out(", ", false);
+          }
+          cnt = cnt + 1;
+          await this.WalkNode(n, ctx, wr);
+        };
         wr.out(")", false);
       }
     };
@@ -24865,18 +24973,21 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         wr.out(("CreateNew_" + node.clDesc.name) + "(", false);
         const constr = cl.constructor_fn;
         const givenArgs = node.getThird();
-        if ( (typeof(constr) !== "undefined" && constr != null )  ) {
-          for ( let i = 0; i < constr.params.length; i++) {
-            var arg = constr.params[i];
-            const n = givenArgs.children[i];
-            if ( i > 0 ) {
-              wr.out(", ", false);
-            }
-            if ( true || ((typeof(arg.nameNode) !== "undefined" && arg.nameNode != null ) ) ) {
-              await this.WalkNode(n, ctx, wr);
-            }
-          };
-        }
+        const pms = operatorsOf.filter_36(givenArgs.children, ((item, index) => { 
+          if ( item.hasFlag("keyword") ) {
+            return false;
+          }
+          return true;
+        }));
+        let cnt = 0;
+        for ( let i = 0; i < pms.length; i++) {
+          var n = pms[i];
+          if ( cnt > 0 ) {
+            wr.out(", ", false);
+          }
+          cnt = cnt + 1;
+          await this.WalkNode(n, ctx, wr);
+        };
         wr.out(")", false);
       }
     };
@@ -27277,6 +27388,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }
     };
     getObjectTypeString (type_string, ctx) {
+      const mapped = TTypeRegistry.targetTypeString("es6", type_string);
+      if ( (mapped.length) > 0 ) {
+        return mapped;
+      }
       switch (type_string ) { 
         case "int" : 
           return "number";
@@ -27767,14 +27882,32 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         wr.out("new " + node.clDesc.name, false);
         wr.out("(", false);
         const constr = cl.constructor_fn;
+        const givenArgs_1 = node.getThird();
+        const pms = operatorsOf.filter_36(givenArgs_1.children, ((item, index) => { 
+          if ( item.hasFlag("keyword") ) {
+            return false;
+          }
+          return true;
+        }));
         if ( (typeof(constr) !== "undefined" && constr != null )  ) {
-          for ( let i_1 = 0; i_1 < constr.params.length; i_1++) {
-            var arg = constr.params[i_1];
-            const n_1 = givenArgs.children[i_1];
-            if ( i_1 > 0 ) {
+          let cnt = 0;
+          for ( let i_1 = 0; i_1 < pms.length; i_1++) {
+            var n_1 = pms[i_1];
+            if ( cnt > 0 ) {
               wr.out(", ", false);
             }
+            cnt = cnt + 1;
             await this.WalkNode(n_1, ctx, wr);
+          };
+        } else {
+          let cnt_1 = 0;
+          for ( let i_2 = 0; i_2 < pms.length; i_2++) {
+            var n_2 = pms[i_2];
+            if ( cnt_1 > 0 ) {
+              wr.out(", ", false);
+            }
+            cnt_1 = cnt_1 + 1;
+            await this.WalkNode(n_2, ctx, wr);
           };
         }
         wr.out(")", false);

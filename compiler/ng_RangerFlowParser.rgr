@@ -1109,6 +1109,28 @@ class RangerFlowParser {
     node.evalTypeClass = (TFactory.new_scalar_signature( node ctx wr ))
   }
  
+  fn normalizeNewArgList:void (node:CodeNode) {
+    if ((node.chlen()) <= 3) {
+      return
+    }
+    def third:CodeNode (node.getThird())
+    if (third.expression && ((size third.children) > 0)) {
+      return
+    }
+    def argList:CodeNode (new CodeNode ( (unwrap node.code) node.sp node.ep))
+    argList.expression = true
+    def ci 2
+    def chlen (node.chlen())
+    while (ci < chlen) {
+      push argList.children (at node.children ci)
+      ci = ci + 1
+    }
+    while ((node.chlen()) > 2) {
+      removeLast node.children
+    }
+    push node.children argList
+  }
+
   fn cmdNew:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if ((size node.children) < 2) {
       ctx.addError(node "the new operator expects at lest two arguments")
@@ -1118,12 +1140,11 @@ class RangerFlowParser {
       def expr (new CodeNode ( (unwrap node.code) node.sp node.ep))
       expr.expression = true
       push node.children expr
-;      ctx.addError(node "the new operator expects at lest two arguments")
-;      return
     }
+    this.normalizeNewArgList(node)
     def obj:CodeNode (node.getSecond())
     def params:CodeNode (node.getThird())
-    def currC@(lives):RangerAppClassDesc
+    def currC@(lives optional):RangerAppClassDesc
     def b_template:boolean false
 
     def expects_error:boolean false
@@ -1137,7 +1158,34 @@ class RangerFlowParser {
       this.CheckVRefTypeAnnotationOf( obj ctx wr )
     }    
     this.WalkNode(obj ctx wr)
+
+    if (b_template == false) {
+      currC = (ctx.findClass(obj.vref))
+    }
+    def fnDescr@(optional):RangerAppFunctionDesc
+    if (!null? currC) {
+      def clTmp:RangerAppClassDesc (unwrap currC)
+      fnDescr = clTmp.constructor_fn
+    }
+    if (!null? fnDescr) {
+      def ctorFn:RangerAppFunctionDesc (unwrap fnDescr)
+      if (!null? currC) {
+        def newCl:RangerAppClassDesc (unwrap currC)
+        this.expandRecordCtorArgsIfNeeded(newCl ctorFn params node)
+      }
+      ctorFn.params.forEach({
+        if(item.nameNode.hasFlag('keyword')) {
+          if ((size params.children) > index) {
+            ( (at params.children index) .setFlag('keyword'))
+          }
+        }
+      })
+    }
+
     for params.children arg:CodeNode i {
+      if (arg.hasFlag('keyword')) {
+        continue
+      }
       ctx.setInExpr()
       this.WalkNode(arg ctx wr)
       ctx.unsetInExpr()
@@ -1145,7 +1193,9 @@ class RangerFlowParser {
     node.eval_type = RangerNodeType.Object
     node.eval_type_name = obj.vref
     if (b_template == false) {
-      currC = (ctx.findClass(obj.vref))
+      if (null? currC) {
+        currC = (ctx.findClass(obj.vref))
+      }
       def currM (ctx.getCurrentMethod())
       currM.addClassUsage( (unwrap currC) ctx )
     }
@@ -1159,13 +1209,13 @@ class RangerFlowParser {
         procCodegen.validateProcessNewSite(node newCl ctx)
       }
     }
-    def fnDescr:RangerAppFunctionDesc currC.constructor_fn
     if (!null? fnDescr) {
-      if( (size fnDescr.params) > (size params.children)) {
-        ctx.addError(node 'Not enough arguments for class constructor ' + (fnDescr.node.getLineAsString()))
+      def ctorFn:RangerAppFunctionDesc (unwrap fnDescr)
+      if( (size ctorFn.params) > (size params.children)) {
+        ctx.addError(node 'Not enough arguments for class constructor ' + (ctorFn.node.getLineAsString()))
         return
       }
-      for fnDescr.params param:RangerAppParamDesc i {
+      for ctorFn.params param:RangerAppParamDesc i {
         def has_default:boolean false
         if (param.nameNode.hasFlag('default')) {
           has_default = true
@@ -3653,6 +3703,44 @@ class RangerFlowParser {
     }
   }
 
+  fn expandRecordCtorArgsIfNeeded:void (cl:RangerAppClassDesc fnDescr:RangerAppFunctionDesc params:CodeNode node:CodeNode) {
+    if (cl.is_record == false) {
+      return
+    }
+    if ((size params.children) == 0) {
+      return
+    }
+    def fc:CodeNode (first params.children)
+    if (fc.hasFlag("keyword")) {
+      return
+    }
+    def valueCnt 0
+    for fnDescr.params p:RangerAppParamDesc i {
+      if (p.nameNode.hasFlag("keyword") == false) {
+        valueCnt = valueCnt + 1
+      }
+    }
+    if ((size params.children) != valueCnt) {
+      return
+    }
+    def expanded:[CodeNode]
+    def vi 0
+    for fnDescr.params p:RangerAppParamDesc i {
+      if (p.nameNode.hasFlag("keyword")) {
+        def kw:CodeNode (node.newVRefNode(p.name))
+        kw.setFlag("keyword")
+        push expanded kw
+      } {
+        push expanded (at params.children vi)
+        vi = vi + 1
+      }
+    }
+    clear params.children
+    for expanded item:CodeNode i {
+      push params.children item
+    }
+  }
+
   fn buildRecordConstructor:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
     if ((size cl.variables) == 0) {
       return
@@ -3670,7 +3758,7 @@ class RangerFlowParser {
       if (i > 0) {
         sig = sig + " "
       }
-      sig = sig + v.name + ":" + tname
+      sig = sig + v.name + "@(keyword) " + v.name + ":" + tname
       body = body + "this." + v.name + " = " + v.name + "\n"
       i = i + 1
     }

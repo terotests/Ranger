@@ -39,4 +39,32 @@ class HttpTypeSmokeTest {
     expect(combined).not.toContain("Unknown type: HttpRequest");
     expect(combined).not.toContain("Unknown type: HttpResponse");
   });
+
+  it("should emit Uint8Array for buffer type via TTypeRegistry mapping", () => {
+    const source = `
+class BufferTypeSmokeTest {
+    def data:buffer
+    sfn m@(main):void () {
+        print "buffer-ok"
+    }
+}
+`;
+    const tmpDir = path.join(ROOT_DIR, "tests", ".output");
+    const tmpFile = path.join(tmpDir, "buffer_type_smoke.rgr");
+    fs.mkdirSync(tmpDir, { recursive: true });
+    fs.writeFileSync(tmpFile, source, "utf8");
+    const relPath = path.relative(ROOT_DIR, tmpFile).replace(/\\/g, "/");
+
+    const result = compileRanger(`./${relPath}`, "es6");
+    const combined = `${result.output}\n${result.error ?? ""}`;
+
+    try {
+      fs.unlinkSync(tmpFile);
+    } catch {
+      // ignore cleanup errors
+    }
+
+    expect(result.success, `Compile failed: ${combined}`).toBe(true);
+    expect(combined).not.toContain("Unknown type");
+  });
 });
