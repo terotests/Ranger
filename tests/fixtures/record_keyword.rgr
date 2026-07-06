@@ -1,0 +1,13 @@
+record Point {
+    def xpos:int 0
+    def ypos:int 0
+}
+
+class RecordKeywordTest {
+    sfn m@(main):void () {
+        def p (new Point xpos 3 ypos 4)
+        print (to_string p.xpos)
+        print (to_string p.ypos)
+        print "Done"
+    }
+}
