@@ -9,10 +9,11 @@
 - Issue #58: Go slice pass-by-value - Fixed with pointer semantics
 - Issue #59: Go `clear` operator - Fixed with `[:0]` slice reset
 - Issue #60: Go `buffer_read_file` separator - Fixed with `filepath.Join()`
+- Issue #60: Systemclass types not dynamically discovered in `isDefinedType()` - Fixed with `TTypeRegistry` and `registerLangSystemClasses()` (July 2026)
 
 ### Still Open
 - Issue #59: System classes have hardcoded type handling (Design Issue)
-- Issue #60: Systemclass types not dynamically discovered in `isDefinedType()` (High)
+- Issue #15: Adding new primitive types requires changes in multiple files (partially addressed by `TTypeRegistry`; full `primitivetype` registry not done)
 
 ### New in December 2025
 - HTTP Server support added with annotation-based type aliasing
@@ -875,13 +876,15 @@ This ensures `true` is only recognized as a boolean literal when followed by whi
 
 ## Issue #15: Adding new primitive types requires changes in multiple files
 
-**Status:** Open  
+**Status:** Open (partially addressed)  
 **Severity:** Medium (Technical Debt)  
 **Found:** December 16, 2025
 
 ### Description
 
 Adding a new primitive-like type (such as `buffer` for binary data) to the Ranger type system requires manual updates in many files across the compiler. This is fragile, error-prone, and creates a barrier for extending the type system.
+
+**July 2026 update:** `TTypeRegistry.rgr` centralizes primitive and systemclass type lookup for `isPrimitiveType()` / `isDefinedType()`. Full single-source `primitivetype` registration (enum values, class writers, etc.) is still outstanding.
 
 ### Example: Adding `buffer` type
 
@@ -1835,15 +1838,20 @@ When adding a new systemclass, test:
 
 ## Issue #60: Systemclass Types Not Dynamically Discovered in isDefinedType()
 
-**Status:** Open  
+**Status:** Fixed (July 2026)  
 **Severity:** High  
-**Found:** December 23, 2025
+**Found:** December 23, 2025  
+**Fixed:** July 6, 2026
 
 ### Description
 
 When adding new `systemclass` definitions to `Lang.rgr`, they are not automatically recognized as valid types. The compiler produces "Unknown type" errors even though the systemclass is properly defined.
 
-### Root Cause
+### Fix
+
+Added `compiler/TTypeRegistry.rgr` and `registerLangSystemClasses()` in `ng_RangerFlowParser.rgr`, called from `VirtualCompiler.rgr` after parsing `Lang.rgr`. Systemclasses are registered into the root context and consulted by `isPrimitiveType()` / `isDefinedType()` in `ng_RangerAppWriterContext.rgr`, removing hardcoded HTTP type checks.
+
+### Root Cause (historical)
 
 The type validation in `ng_RangerAppWriterContext.rgr` uses `isDefinedType()` which has a hardcoded list of primitive types:
 

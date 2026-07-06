@@ -14,10 +14,10 @@
 | Recursive relative import resolution (#61) | 4 | Done (prior work); regression tests added |
 | LF/CRLF/CR line-ending normalization in parser (`ng_parser_v2.rgr`) | 1 | Done |
 | Type-name diagnostics (no enum integers in errors) | 3.3 | Done |
-| `SPEC_SEMANTICS.md` | 1 | Not started |
-| Cross-target conformance harness | 1 | Not started |
-| Records / payload enums / `match` | 2 | Not started |
-| Centralized type registry (#15/#59/#60) | 3.1 | Not started |
+| `SPEC_SEMANTICS.md` | 1 | Done |
+| Cross-target conformance harness | 1 | Done |
+| Records / payload enums / `match` | 2 | Partial (`record` keyword + auto-constructor; enums/match not started) |
+| Centralized type registry (#15/#59/#60) | 3.1 | Done (`TTypeRegistry` + dynamic systemclass registration) |
 | Control-flow return analysis (#16) | 3.2 | Not started |
 | Predictable `-d`/`-o` for `-nodemodule` (#62) | 4 | Not started |
 

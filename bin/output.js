@@ -866,6 +866,7 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
     this.process_path = "";
     this.is_singleton = false;
     this.is_trait = false;
+    this.is_record = false;
     this.is_operator_class = false;
     this.is_generic_instance = false;
     this.is_union = false;
@@ -2985,6 +2986,66 @@ CodeNode.blockFromList = function(list) {
   };
   return newNode;
 };
+class TTypeRegistry  {
+  constructor() {
+  }
+}
+TTypeRegistry.scalarPrimitiveNames = function() {
+  let names = [];
+  names.push("double");
+  names.push("string");
+  names.push("int");
+  names.push("char");
+  names.push("boolean");
+  return names;
+};
+TTypeRegistry.bufferTypeNames = function() {
+  let names = [];
+  names.push("charbuffer");
+  names.push("buffer");
+  names.push("int_buffer");
+  names.push("double_buffer");
+  return names;
+};
+TTypeRegistry.isScalarPrimitive = function(typeName) {
+  for ( let i = 0; i < TTypeRegistry.scalarPrimitiveNames().length; i++) {
+    var n = TTypeRegistry.scalarPrimitiveNames()[i];
+    if ( typeName == n ) {
+      return true;
+    }
+  };
+  return false;
+};
+TTypeRegistry.isBufferType = function(typeName) {
+  for ( let i = 0; i < TTypeRegistry.bufferTypeNames().length; i++) {
+    var n = TTypeRegistry.bufferTypeNames()[i];
+    if ( typeName == n ) {
+      return true;
+    }
+  };
+  return false;
+};
+TTypeRegistry.isPrimitiveTypeName = function(typeName) {
+  if ( TTypeRegistry.isScalarPrimitive(typeName) ) {
+    return true;
+  }
+  if ( TTypeRegistry.isBufferType(typeName) ) {
+    return true;
+  }
+  return false;
+};
+TTypeRegistry.isKnownTypeName = function(typeName) {
+  return TTypeRegistry.isPrimitiveTypeName(typeName);
+};
+TTypeRegistry.listContains = function(list, value) {
+  for ( let i = 0; i < list.length; i++) {
+    var item = list[i];
+    if ( item == value ) {
+      return true;
+    }
+  };
+  return false;
+};
 class TypeCounts  {
   constructor() {
     this.b_counted = false;
@@ -3804,19 +3865,13 @@ class RangerAppWriterContext  {
     return typeName;
   };
   isPrimitiveType (typeName) {
-    if ( ((((((((typeName == "double") || (typeName == "string")) || (typeName == "int")) || (typeName == "char")) || (typeName == "charbuffer")) || (typeName == "buffer")) || (typeName == "int_buffer")) || (typeName == "double_buffer")) || (typeName == "boolean") ) {
-      return true;
-    }
-    return false;
+    return TTypeRegistry.isPrimitiveTypeName(typeName);
   };
   isDefinedType (typeName) {
     if ( typeName == "Any" ) {
       return true;
     }
-    if ( ((((((((typeName == "double") || (typeName == "string")) || (typeName == "int")) || (typeName == "char")) || (typeName == "charbuffer")) || (typeName == "buffer")) || (typeName == "int_buffer")) || (typeName == "double_buffer")) || (typeName == "boolean") ) {
-      return true;
-    }
-    if ( (((typeName == "HttpRequest") || (typeName == "HttpResponse")) || (typeName == "SSEClient")) || (typeName == "HttpServer") ) {
+    if ( TTypeRegistry.isKnownTypeName(typeName) ) {
       return true;
     }
     if ( this.isEnumDefined(typeName) ) {
@@ -3984,7 +4039,7 @@ class RangerAppWriterContext  {
     if ( this.isDefinedClass(str) ) {
       return this.findClass(str);
     }
-    const tpl_code = ("class " + str) + " {\r\n}";
+    const tpl_code = ("class " + str) + " {\n}";
     const code = new SourceCode(tpl_code);
     code.filename = str + ".ranger";
     const parser_1 = new RangerLispParser(code);
@@ -4017,7 +4072,7 @@ class RangerAppWriterContext  {
       this.addError(initParams, "Could not find the trait " + traitName);
       return res;
     }
-    const tpl_code = ("class " + instanceName) + " {\r\n}";
+    const tpl_code = ("class " + instanceName) + " {\n}";
     const code = new SourceCode(tpl_code);
     code.filename = instanceName + ".ranger";
     const parser_1 = new RangerLispParser(code);
@@ -8764,7 +8819,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       if ( ctx.isDefinedClass(str) ) {
         return ctx.findClass(str);
       }
-      const tpl_code = ("class " + str) + " {\r\n}";
+      const tpl_code = ("class " + str) + " {\n}";
       const code = new SourceCode(tpl_code);
       code.filename = str + ".ranger";
       const parser = new RangerLispParser(code);
@@ -9359,6 +9414,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             await this.EnterClass(node, ctx, wr);
             break;
           case "class" : 
+            await this.EnterClass(node, ctx, wr);
+            break;
+          case "record" : 
             await this.EnterClass(node, ctx, wr);
             break;
           case "defn" : 
@@ -9992,7 +10050,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       const wr = new CodeWriter();
       await operatorsOf_13.forEach_14(root.definedClasses, ((item, index) => { 
         if ( item.isNormalClass() ) {
-          wr.raw(((("\r\n      operators {\r\n        class_name _:string ( " + item.name) + "@(keyword) ) {\r\n          templates {\r\n            * ( '\"") + item.name) + "\"' )\r\n          }\r\n        }\r\n      }    \r\n          ", true);
+          wr.raw(((("\n      operators {\n        class_name _:string ( " + item.name) + "@(keyword) ) {\n          templates {\n            * ( '\"") + item.name) + "\"' )\n          }\n        }\n      }    \n          ", true);
         }
       }));
       await root.pushAndCollectCode(wr.getCode(), orig_wr);
@@ -11870,6 +11928,148 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         };
       }
     };
+    registerLangSystemClasses (node, ctx, wr) {
+      this.walkLangDefinitions(node, ctx);
+    };
+    walkLangDefinitions (node, ctx) {
+      if ( node.isFirstVref("systemclass") ) {
+        this.registerSystemClassFromNode(node, ctx);
+        return;
+      }
+      if ( node.isFirstVref("systemunion") ) {
+        this.registerSystemUnionFromNode(node, ctx);
+        return;
+      }
+      for ( let i = 0; i < node.children.length; i++) {
+        var ch = node.children[i];
+        this.walkLangDefinitions(ch, ctx);
+      };
+    };
+    registerSystemClassFromNode (node, ctx) {
+      const nameNode = node.getSecond();
+      if ( ctx.isDefinedClass(nameNode.vref) ) {
+        const cl = ctx.findClass(nameNode.vref);
+        if ( cl.is_system_union == false ) {
+          ctx.addError(node, "Class already defined and it was not a systemunion.");
+        }
+        cl.is_system = true;
+        const instances = node.getThird();
+        for ( let i = 0; i < instances.children.length; i++) {
+          var ch = instances.children[i];
+          const langName = ch.getFirst();
+          const langClassName = ch.getSecond();
+          cl.systemNodes[langName.vref] = ch;
+          if ( (langClassName.vref.length) > 0 ) {
+            cl.systemNames[langName.vref] = langClassName.vref;
+          }
+          if ( (langClassName.string_value.length) > 0 ) {
+            cl.systemNames[langName.vref] = langClassName.string_value;
+          }
+        };
+        return;
+      }
+      const instances_1 = node.getThird();
+      const new_class = new RangerAppClassDesc();
+      new_class.name = nameNode.vref;
+      new_class.nameNode = nameNode;
+      ctx.addClass(nameNode.vref, new_class);
+      new_class.is_system = true;
+      for ( let i_1 = 0; i_1 < instances_1.children.length; i_1++) {
+        var ch_1 = instances_1.children[i_1];
+        const langName_1 = ch_1.getFirst();
+        const langClassName_1 = ch_1.getSecond();
+        new_class.systemNodes[langName_1.vref] = ch_1;
+        if ( (langClassName_1.vref.length) > 0 ) {
+          new_class.systemNames[langName_1.vref] = langClassName_1.vref;
+        }
+        if ( (langClassName_1.string_value.length) > 0 ) {
+          new_class.systemNames[langName_1.vref] = langClassName_1.string_value;
+        }
+      };
+      nameNode.is_system_class = true;
+      nameNode.clDesc = new_class;
+    };
+    registerSystemUnionFromNode (node, ctx) {
+      const nameNode = node.getSecond();
+      if ( ctx.isDefinedClass(nameNode.vref) ) {
+        const cl = ctx.findClass(nameNode.vref);
+        if ( cl.is_system == false ) {
+          ctx.addError(node, "Only system classes can be systemunions");
+        }
+        cl.is_system_union = true;
+        const instances = node.getThird();
+        for ( let i = 0; i < instances.children.length; i++) {
+          var ch = instances.children[i];
+          cl.is_union_of.push(ch.vref);
+        };
+        return;
+      }
+      const instances_1 = node.getThird();
+      const new_class = new RangerAppClassDesc();
+      new_class.name = nameNode.vref;
+      new_class.nameNode = nameNode;
+      ctx.addClass(nameNode.vref, new_class);
+      new_class.is_system_union = true;
+      for ( let i_1 = 0; i_1 < instances_1.children.length; i_1++) {
+        var ch_1 = instances_1.children[i_1];
+        new_class.is_union_of.push(ch_1.vref);
+      };
+      nameNode.clDesc = new_class;
+    };
+    async finalizeRecordClasses (ctx, wr) {
+      const rootCtx = ctx.getRoot();
+      for ( let i = 0; i < rootCtx.definedClassList.length; i++) {
+        var cname = rootCtx.definedClassList[i];
+        const cl = rootCtx.findClass(cname);
+        if ( cl.is_record ) {
+          if ( cl.has_constructor == false ) {
+            await this.buildRecordConstructor(cl, ctx, wr);
+          }
+        }
+      };
+    };
+    async buildRecordConstructor (cl, ctx, wr) {
+      if ( (cl.variables.length) == 0 ) {
+        return;
+      }
+      let sig = "Constructor (";
+      let body = "{\n";
+      let i = 0;
+      const cnt = cl.variables.length;
+      while (i < cnt) {
+        const v = cl.variables[i];
+        let tname = v.nameNode.type_name;
+        if ( (tname.length) == 0 ) {
+          tname = "string";
+        }
+        if ( i > 0 ) {
+          sig = sig + " ";
+        }
+        sig = ((sig + v.name) + ":") + tname;
+        body = ((((body + "this.") + v.name) + " = ") + v.name) + "\n";
+        i = i + 1;
+      };
+      sig = sig + ") ";
+      const code = (sig + body) + "}";
+      const src = new SourceCode(code);
+      src.filename = ("record_ctor_" + cl.name) + ".rgr";
+      const parser = new RangerLispParser(src);
+      parser.parse(false);
+      const rn = parser.rootNode;
+      if ( typeof(rn) === "undefined" ) {
+        return;
+      }
+      const subCtx = cl.ctx;
+      subCtx.setCurrentClass(cl);
+      for ( let ci = 0; ci < rn.children.length; ci++) {
+        var ch = rn.children[ci];
+        if ( ch.isFirstVref("Constructor") ) {
+          await this.WalkCollectMethods(ch, subCtx, wr);
+          await this.Constructor(ch, subCtx, wr);
+          return;
+        }
+      };
+    };
     async mergeImports (node, ctx, wr) {
       const envOpt = ctx.getEnv();
       if ( typeof(envOpt) === "undefined" ) {
@@ -12194,6 +12394,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         did_push[typeName_1] = true;
       };
       Anynn.clDesc = new_class;
+      await this.finalizeRecordClasses(ctx, wr);
     };
     async defineFunctionParam (method, arg, ctx, wr) {
       await this.CheckTypeAnnotationOf(arg, ctx, wr);
@@ -12444,77 +12645,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         return;
       }
       if ( node.isFirstVref("systemunion") ) {
-        const nameNode_2 = node.getSecond();
-        if ( ctx.isDefinedClass(nameNode_2.vref) ) {
-          const cl = ctx.findClass(nameNode_2.vref);
-          if ( cl.is_system == false ) {
-            ctx.addError(node, "Only system classes can be systemunions");
-          }
-          cl.is_system_union = true;
-          const instances_2 = node.getThird();
-          for ( let i_3 = 0; i_3 < instances_2.children.length; i_3++) {
-            var ch_2 = instances_2.children[i_3];
-            cl.is_union_of.push(ch_2.vref);
-          };
-          return;
-        }
-        const nameNode_3 = node.getSecond();
-        const instances_3 = node.getThird();
-        const new_class_3 = new RangerAppClassDesc();
-        new_class_3.name = nameNode_3.vref;
-        new_class_3.nameNode = nameNode_3;
-        ctx.addClass(nameNode_3.vref, new_class_3);
-        new_class_3.is_system_union = true;
-        for ( let i_4 = 0; i_4 < instances_3.children.length; i_4++) {
-          var ch_3 = instances_3.children[i_4];
-          new_class_3.is_union_of.push(ch_3.vref);
-        };
-        nameNode_3.clDesc = new_class_3;
+        this.registerSystemUnionFromNode(node, ctx);
         return;
       }
       if ( node.isFirstVref("systemclass") ) {
-        const nameNode_4 = node.getSecond();
-        if ( ctx.isDefinedClass(nameNode_4.vref) ) {
-          const cl_1 = ctx.findClass(nameNode_4.vref);
-          if ( cl_1.is_system_union == false ) {
-            ctx.addError(node, "Class already defined and it was not a systemunion.");
-          }
-          cl_1.is_system = true;
-          const instances_4 = node.getThird();
-          for ( let i_5 = 0; i_5 < instances_4.children.length; i_5++) {
-            var ch_4 = instances_4.children[i_5];
-            const langName = ch_4.getFirst();
-            const langClassName = ch_4.getSecond();
-            cl_1.systemNodes[langName.vref] = ch_4;
-            if ( (langClassName.vref.length) > 0 ) {
-              cl_1.systemNames[langName.vref] = langClassName.vref;
-            }
-            if ( (langClassName.string_value.length) > 0 ) {
-              cl_1.systemNames[langName.vref] = langClassName.string_value;
-            }
-          };
-          return;
-        }
-        const instances_5 = node.getThird();
-        const new_class_4 = new RangerAppClassDesc();
-        new_class_4.name = nameNode_4.vref;
-        new_class_4.nameNode = nameNode_4;
-        ctx.addClass(nameNode_4.vref, new_class_4);
-        new_class_4.is_system = true;
-        for ( let i_6 = 0; i_6 < instances_5.children.length; i_6++) {
-          var ch_5 = instances_5.children[i_6];
-          const langName_1 = ch_5.getFirst();
-          const langClassName_1 = ch_5.getSecond();
-          new_class_4.systemNodes[langName_1.vref] = ch_5;
-          if ( (langClassName_1.vref.length) > 0 ) {
-            new_class_4.systemNames[langName_1.vref] = langClassName_1.vref;
-          }
-          if ( (langClassName_1.string_value.length) > 0 ) {
-            new_class_4.systemNames[langName_1.vref] = langClassName_1.string_value;
-          }
-        };
-        nameNode_4.is_system_class = true;
-        nameNode_4.clDesc = new_class_4;
+        this.registerSystemClassFromNode(node, ctx);
         return;
       }
       if ( node.isFirstVref("extends") ) {
@@ -12576,8 +12711,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         const fNameNode = node.children[1];
         const enumList = node.children[2];
         const new_enum = new RangerAppEnum();
-        for ( let i_7 = 0; i_7 < enumList.children.length; i_7++) {
-          var item = enumList.children[i_7];
+        for ( let i_3 = 0; i_3 < enumList.children.length; i_3++) {
+          var item = enumList.children[i_3];
           const fc_2 = item.getFirst();
           new_enum.add(fc_2.vref);
         };
@@ -12588,8 +12723,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         const fNameNode_1 = node.children[1];
         const enumList_1 = node.children[2];
         const new_enum_1 = new RangerAppEnum();
-        for ( let i_8 = 0; i_8 < enumList_1.children.length; i_8++) {
-          var item_1 = enumList_1.children[i_8];
+        for ( let i_4 = 0; i_4 < enumList_1.children.length; i_4++) {
+          var item_1 = enumList_1.children[i_4];
           new_enum_1.add(item_1.vref);
         };
         ctx.definedEnums[fNameNode_1.vref] = new_enum_1;
@@ -12598,28 +12733,31 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       if ( node.isFirstVref("trait") ) {
         const s = node.getVRefAt(1);
         const classNameNode = node.getSecond();
-        const new_class_5 = new RangerAppClassDesc();
-        new_class_5.name = s;
+        const new_class_3 = new RangerAppClassDesc();
+        new_class_3.name = s;
         const subCtx_1 = ctx.fork();
-        ctx.setCurrentClass(new_class_5);
-        subCtx_1.setCurrentClass(new_class_5);
-        new_class_5.ctx = subCtx_1;
-        new_class_5.nameNode = classNameNode;
-        ctx.addClass(s, new_class_5);
-        new_class_5.classNode = node;
-        new_class_5.node = node;
-        new_class_5.is_trait = true;
+        ctx.setCurrentClass(new_class_3);
+        subCtx_1.setCurrentClass(new_class_3);
+        new_class_3.ctx = subCtx_1;
+        new_class_3.nameNode = classNameNode;
+        ctx.addClass(s, new_class_3);
+        new_class_3.classNode = node;
+        new_class_3.node = node;
+        new_class_3.is_trait = true;
       }
-      if ( node.isFirstVref("CreateClass") || node.isFirstVref("class") ) {
+      if ( (node.isFirstVref("CreateClass") || node.isFirstVref("class")) || node.isFirstVref("record") ) {
         if ( (node.children.length) < 3 ) {
           ctx.addError(node, "Not enough arguments for creating a class");
           return;
         }
         const s_1 = node.getVRefAt(1);
         const classNameNode_1 = node.getSecond();
-        const new_class_6 = new RangerAppClassDesc();
-        new_class_6.name = s_1;
-        new_class_6.compiledName = s_1;
+        const new_class_4 = new RangerAppClassDesc();
+        new_class_4.name = s_1;
+        new_class_4.compiledName = s_1;
+        if ( node.isFirstVref("record") ) {
+          new_class_4.is_record = true;
+        }
         classNameNode_1.evalTypeClass = TFactory.new_class_signature(classNameNode_1, ctx, wr);
         const notOkNames = ["main"];
         if ( (notOkNames.indexOf(s_1)) >= 0 ) {
@@ -12627,27 +12765,27 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         }
         switch (s_1 ) { 
           case "_" : 
-            new_class_6.compiledName = "utiltyClass";
+            new_class_4.compiledName = "utiltyClass";
             break;
         };
         const subCtx_2 = ctx.fork();
-        ctx.setCurrentClass(new_class_6);
-        subCtx_2.setCurrentClass(new_class_6);
-        new_class_6.ctx = subCtx_2;
-        new_class_6.nameNode = classNameNode_1;
-        ctx.addClass(s_1, new_class_6);
-        new_class_6.classNode = node;
-        new_class_6.node = node;
+        ctx.setCurrentClass(new_class_4);
+        subCtx_2.setCurrentClass(new_class_4);
+        new_class_4.ctx = subCtx_2;
+        new_class_4.nameNode = classNameNode_1;
+        ctx.addClass(s_1, new_class_4);
+        new_class_4.classNode = node;
+        new_class_4.node = node;
         if ( node.hasBooleanProperty("trait") ) {
-          new_class_6.is_trait = true;
+          new_class_4.is_trait = true;
         }
         if ( classNameNode_1.hasFlag("immutable") ) {
-          this.immutableClasses.push(new_class_6);
-          new_class_6.is_immutable = true;
+          this.immutableClasses.push(new_class_4);
+          new_class_4.is_immutable = true;
         }
-        this.applyProcessClassMeta(new_class_6, classNameNode_1, node, ctx);
+        this.applyProcessClassMeta(new_class_4, classNameNode_1, node, ctx);
         if ( node.hasBooleanProperty("singleton") ) {
-          new_class_6.is_singleton = true;
+          new_class_4.is_singleton = true;
         }
         const third = node.getThird();
         if ( third.vref == "extends" ) {
@@ -12668,11 +12806,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }
       if ( node.isFirstVref("Extends") ) {
         const list = node.children[1];
-        for ( let i_9 = 0; i_9 < list.children.length; i_9++) {
-          var cname = list.children[i_9];
+        for ( let i_5 = 0; i_5 < list.children.length; i_5++) {
+          var cname = list.children[i_5];
           const extC = ctx.findClass(cname.vref);
-          for ( let i_10 = 0; i_10 < extC.variables.length; i_10++) {
-            var vv = extC.variables[i_10];
+          for ( let i_6 = 0; i_6 < extC.variables.length; i_6++) {
+            var vv = extC.variables[i_6];
             const currC_3 = ctx.currentClass;
             const subCtx_3 = currC_3.ctx;
             subCtx_3.defineVariable(vv.name, vv);
@@ -12792,16 +12930,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }
       if ( node.isFirstVref("operators") ) {
         const listOf = node.getSecond();
-        for ( let i_11 = 0; i_11 < listOf.children.length; i_11++) {
-          var item_2 = listOf.children[i_11];
+        for ( let i_7 = 0; i_7 < listOf.children.length; i_7++) {
+          var item_2 = listOf.children[i_7];
           ctx.createOperator(item_2);
         };
         find_more = false;
       }
       if ( node.isFirstVref("Import") || node.isFirstVref("import") ) {
         if ( (node.children.length) < 2 ) {
-          for ( let i_12 = 0; i_12 < node.children.length; i_12++) {
-            var item_3 = node.children[i_12];
+          for ( let i_8 = 0; i_8 < node.children.length; i_8++) {
+            var item_3 = node.children[i_8];
             await this.WalkCollectMethods(item_3, ctx, wr);
           };
           return;
@@ -12809,8 +12947,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         const fNameNode_2 = node.children[1];
         const import_file = fNameNode_2.string_value;
         if ( ( typeof(ctx.already_imported[import_file] ) != "undefined" && ctx.already_imported.hasOwnProperty(import_file) ) ) {
-          for ( let i_13 = 0; i_13 < node.children.length; i_13++) {
-            var item_4 = node.children[i_13];
+          for ( let i_9 = 0; i_9 < node.children.length; i_9++) {
+            var item_4 = node.children[i_9];
             await this.WalkCollectMethods(item_4, ctx, wr);
           };
           return;
@@ -12864,12 +13002,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           const staticCmd = node.getVRefAt(1);
           if ( (staticCmd == "def") || (staticCmd == "let") ) {
             const staticDecl = node.newExpressionNode();
-            for ( let i_14 = 0; i_14 < node.children.length; i_14++) {
-              var ch_6 = node.children[i_14];
-              if ( i_14 == 0 ) {
+            for ( let i_10 = 0; i_10 < node.children.length; i_10++) {
+              var ch_2 = node.children[i_10];
+              if ( i_10 == 0 ) {
                 continue;
               }
-              staticDecl.children.push(ch_6);
+              staticDecl.children.push(ch_2);
             };
             staticDecl.setFlag("static");
             await this.WalkCollectMethods(staticDecl, ctx, wr);
@@ -12971,8 +13109,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         return;
       }
       if ( find_more ) {
-        for ( let i_15 = 0; i_15 < node.children.length; i_15++) {
-          var item_5 = node.children[i_15];
+        for ( let i_11 = 0; i_11 < node.children.length; i_11++) {
+          var item_5 = node.children[i_11];
           await this.WalkCollectMethods(item_5, ctx, wr);
         };
       }
@@ -15225,7 +15363,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       if ( in_stdCode ) {
         newBody.children.push(stdCode);
       }
-      const ast = this.BuildAST("\r\n def ctx (new JinxProcessCtx)\r\n ctx.anyValues = (set ctx.anyValues \"view\" view)\r\n ctx.anyValues = (set ctx.anyValues \"uicontext\" (getUIContext))\r\n ctx.anyValues = (set ctx.anyValues \"process\" mainProcess)\r\n mainProcess.start(ctx)\r\n      ");
+      const ast = this.BuildAST("\n def ctx (new JinxProcessCtx)\n ctx.anyValues = (set ctx.anyValues \"view\" view)\n ctx.anyValues = (set ctx.anyValues \"uicontext\" (getUIContext))\n ctx.anyValues = (set ctx.anyValues \"process\" mainProcess)\n mainProcess.start(ctx)\n      ");
       await operatorsOf.forEach_15(ast.children, ((item, index) => { 
         const n = item;
         mainBody.children.push(n);
@@ -18581,7 +18719,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }
     };
     async writeArrayLiteral (node, ctx, wr) {
-      this.compiler.createPolyfillLegacy("\r\ntemplate< typename T, size_t N >\r\nstd::vector<T> r_make_vector_from_array( const T (&data)[N] )\r\n{\r\n    return std::vector<T>(data, data+N);\r\n}\r\n", ctx, wr);
+      this.compiler.createPolyfillLegacy("\ntemplate< typename T, size_t N >\nstd::vector<T> r_make_vector_from_array( const T (&data)[N] )\n{\n    return std::vector<T>(data, data+N);\n}\n", ctx, wr);
       wr.out("r_make_vector_from_array( (", false);
       wr.out(this.getObjectTypeString(node.eval_array_type, ctx), false);
       wr.out("[] ) {", false);
@@ -36399,7 +36537,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 wr.indent(1);
                 wr.out("<head>", true);
                 wr.indent(1);
-                wr.out("\r\n  <link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/materialize/0.100.2/css/materialize.min.css\">\r\n  <script src=\"https://cdnjs.cloudflare.com/ajax/libs/materialize/0.100.2/js/materialize.min.js\"></script>    \r\n    ", true);
+                wr.out("\n  <link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/materialize/0.100.2/css/materialize.min.css\">\n  <script src=\"https://cdnjs.cloudflare.com/ajax/libs/materialize/0.100.2/js/materialize.min.js\"></script>    \n    ", true);
                 wr.indent(-1);
                 wr.out("</head>", true);
                 wr.out("<body>", true);
@@ -36891,6 +37029,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   const lang_parser = new RangerLispParser(lang_code);
                   lang_parser.parse(false);
                   appCtx.langOperators = lang_parser.rootNode;
+                  flowParser.registerLangSystemClasses(lang_parser.rootNode, appCtx, wr);
                   appCtx.setRootFile(root_file);
                   const ops = new RangerActiveOperators();
                   ops.initFrom(lang_parser.rootNode);
@@ -37223,7 +37362,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               operatorsOf_3.createc95file_4(env.filesystem, "Engine3D.rgr", (await (new Promise(resolve => { require('fs').readFile( "./lib/" + '/' + "Engine3D.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
               operatorsOf_3.createc95file_4(env.filesystem, "Storage.rgr", (await (new Promise(resolve => { require('fs').readFile( "./lib/" + '/' + "Storage.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
               operatorsOf_3.createc95file_4(env.filesystem, "JSON.rgr", (await (new Promise(resolve => { require('fs').readFile( "./lib/" + '/' + "JSON.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } ))));
-              operatorsOf_3.createc95file_4(env.filesystem, "hello_world.rgr", "\r\n\r\nclass tester {\r\n  static fn main () {\r\n    print \"Hello World!\"\r\n  }\r\n}\r\n\r\n    ");
+              operatorsOf_3.createc95file_4(env.filesystem, "hello_world.rgr", "\n\nclass tester {\n  static fn main () {\n    print \"Hello World!\"\n  }\n}\n\n    ");
               require("fs").writeFileSync( "." + "/"  + "compileEnv.js", "window._Ranger_compiler_environment_ = " + (JSON.stringify(env.toDictionary())));
             };
             VirtualCompiler.displayCompilerErrorsWithCLI = function(appCtx, cli) {

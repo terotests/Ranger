@@ -22,6 +22,7 @@ Import "ng_RangerAppOperatorDesc.rgr"
 
 Import "TFiles.rgr"
 Import "TTypes.rgr"
+Import "TTypeRegistry.rgr"
 
 Import "FlowEnterVarDef.rgr"
 
@@ -540,6 +541,9 @@ class RangerFlowParser {
           this.EnterClass(node ctx wr)
         }
         case 'class' {
+          this.EnterClass(node ctx wr)
+        }
+        case 'record' {
           this.EnterClass(node ctx wr)
         }
         case 'defn' {
@@ -3550,6 +3554,147 @@ class RangerFlowParser {
     }
   }
 
+  fn registerLangSystemClasses:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    this.walkLangDefinitions(node ctx)
+  }
+
+  fn walkLangDefinitions:void (node:CodeNode ctx:RangerAppWriterContext) {
+    if (node.isFirstVref("systemclass")) {
+      this.registerSystemClassFromNode(node ctx)
+      return
+    }
+    if (node.isFirstVref("systemunion")) {
+      this.registerSystemUnionFromNode(node ctx)
+      return
+    }
+    for node.children ch:CodeNode i {
+      this.walkLangDefinitions(ch ctx)
+    }
+  }
+
+  fn registerSystemClassFromNode:void (node:CodeNode ctx:RangerAppWriterContext) {
+    def nameNode@(lives):CodeNode (node.getSecond())
+    if(ctx.isDefinedClass(nameNode.vref)) {
+      def cl (ctx.findClass(nameNode.vref))
+      if( cl.is_system_union == false ) {
+        ctx.addError(node "Class already defined and it was not a systemunion.")
+      }
+      cl.is_system = true
+      def instances:CodeNode (node.getThird())
+      for instances.children ch@(lives):CodeNode i {
+        def langName:CodeNode (ch.getFirst())
+        def langClassName:CodeNode (ch.getSecond())
+        set cl.systemNodes langName.vref ch
+        if( (strlen langClassName.vref ) > 0 ) {
+          set cl.systemNames langName.vref langClassName.vref
+        }
+        if( (strlen langClassName.string_value ) > 0 ) {
+          set cl.systemNames langName.vref langClassName.string_value
+        }
+      }
+      return
+    }
+    def instances:CodeNode (node.getThird())
+    def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
+    new_class.name = nameNode.vref
+    new_class.nameNode = nameNode
+    ctx.addClass(nameNode.vref new_class)
+    new_class.is_system = true
+    for instances.children ch@(lives):CodeNode i {
+      def langName:CodeNode (ch.getFirst())
+      def langClassName:CodeNode (ch.getSecond())
+      set new_class.systemNodes langName.vref ch
+      if( (strlen langClassName.vref ) > 0 ) {
+        set new_class.systemNames langName.vref langClassName.vref
+      }
+      if( (strlen langClassName.string_value ) > 0 ) {
+        set new_class.systemNames langName.vref langClassName.string_value
+      }
+    }
+    nameNode.is_system_class = true
+    nameNode.clDesc = new_class
+  }
+
+  fn registerSystemUnionFromNode:void (node:CodeNode ctx:RangerAppWriterContext) {
+    def nameNode@(lives):CodeNode (node.getSecond())
+    if(ctx.isDefinedClass(nameNode.vref)) {
+      def cl (ctx.findClass(nameNode.vref))
+      if( cl.is_system == false ) {
+        ctx.addError(node "Only system classes can be systemunions")
+      }
+      cl.is_system_union = true
+      def instances:CodeNode (node.getThird())
+      for instances.children ch:CodeNode i {
+        push cl.is_union_of ch.vref
+      }
+      return
+    }
+    def instances:CodeNode (node.getThird())
+    def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
+    new_class.name = nameNode.vref
+    new_class.nameNode = nameNode
+    ctx.addClass(nameNode.vref new_class)
+    new_class.is_system_union = true
+    for instances.children ch:CodeNode i {
+      push new_class.is_union_of ch.vref
+    }
+    nameNode.clDesc = new_class
+  }
+
+  fn finalizeRecordClasses:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    def rootCtx (ctx.getRoot())
+    for rootCtx.definedClassList cname:string i {
+      def cl:RangerAppClassDesc (rootCtx.findClass(cname))
+      if (cl.is_record) {
+        if (cl.has_constructor == false) {
+          this.buildRecordConstructor(cl ctx wr)
+        }
+      }
+    }
+  }
+
+  fn buildRecordConstructor:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((size cl.variables) == 0) {
+      return
+    }
+    def sig:string "Constructor ("
+    def body:string "{\n"
+    def i 0
+    def cnt (size cl.variables)
+    while (i < cnt) {
+      def v:RangerAppParamDesc (at cl.variables i)
+      def tname:string v.nameNode.type_name
+      if ((strlen tname) == 0) {
+        tname = "string"
+      }
+      if (i > 0) {
+        sig = sig + " "
+      }
+      sig = sig + v.name + ":" + tname
+      body = body + "this." + v.name + " = " + v.name + "\n"
+      i = i + 1
+    }
+    sig = sig + ") "
+    def code:string (sig + body + "}")
+    def src:SourceCode (new SourceCode (code))
+    src.filename = ("record_ctor_" + cl.name + ".rgr")
+    def parser:RangerLispParser (new RangerLispParser (src))
+    parser.parse(false)
+    def rn@(optional):CodeNode parser.rootNode
+    if (null? rn) {
+      return
+    }
+    def subCtx:RangerAppWriterContext (unwrap cl.ctx)
+    subCtx.setCurrentClass(cl)
+    for rn.children ch:CodeNode ci {
+      if (ch.isFirstVref("Constructor")) {
+        this.WalkCollectMethods(ch subCtx wr)
+        this.Constructor(ch subCtx wr)
+        return
+      }
+    }
+  }
+
   fn mergeImports:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
     def envOpt (ctx.getEnv())
@@ -3929,6 +4074,7 @@ class RangerFlowParser {
     }
     Anynn.clDesc = new_class
 
+    this.finalizeRecordClasses(ctx wr)
     
     ; initialize the operator root 
   }
@@ -4244,77 +4390,11 @@ class RangerFlowParser {
     }    
 
     if (node.isFirstVref("systemunion")) {
-
-      def nameNode@(lives):CodeNode (node.getSecond())
-      if(ctx.isDefinedClass(nameNode.vref)) {
-        def cl (ctx.findClass(nameNode.vref))
-        if( cl.is_system == false ) {
-          ctx.addError(node "Only system classes can be systemunions")
-        }
-        cl.is_system_union = true
-        def instances:CodeNode (node.getThird())
-        for instances.children ch:CodeNode i {
-          push cl.is_union_of ch.vref
-        }
-        return
-      }
-
-      def nameNode@(lives):CodeNode (node.getSecond())
-      def instances:CodeNode (node.getThird())
-      def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
-      new_class.name = nameNode.vref
-      new_class.nameNode = nameNode
-      ctx.addClass(nameNode.vref new_class)
-      new_class.is_system_union = true
-      for instances.children ch:CodeNode i {
-        push new_class.is_union_of ch.vref
-      }
-      nameNode.clDesc = new_class
+      this.registerSystemUnionFromNode(node ctx)
       return
     }
     if (node.isFirstVref("systemclass")) {
-      def nameNode@(lives):CodeNode (node.getSecond())
-      if(ctx.isDefinedClass(nameNode.vref)) {
-        def cl (ctx.findClass(nameNode.vref))
-        if( cl.is_system_union == false ) {
-          ctx.addError(node "Class already defined and it was not a systemunion.")
-        }
-        cl.is_system = true
-        def instances:CodeNode (node.getThird())
-        for instances.children ch@(lives):CodeNode i {
-          def langName:CodeNode (ch.getFirst())
-          def langClassName:CodeNode (ch.getSecond())
-          set cl.systemNodes langName.vref ch
-          if( (strlen langClassName.vref ) > 0 ) {
-            set cl.systemNames langName.vref langClassName.vref
-          }
-          if( (strlen langClassName.string_value ) > 0 ) {
-            set cl.systemNames langName.vref langClassName.string_value
-          }
-        }
-        return
-      }
-      def instances:CodeNode (node.getThird())
-      def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
-      new_class.name = nameNode.vref
-      new_class.nameNode = nameNode
-      ctx.addClass(nameNode.vref new_class)
-      new_class.is_system = true
-      for instances.children ch@(lives):CodeNode i {
-        def langName:CodeNode (ch.getFirst())
-        def langClassName:CodeNode (ch.getSecond())
-        set new_class.systemNodes langName.vref ch
-        ; set new_class.systemNames langName.vref langClassName.vref
-        if( (strlen langClassName.vref ) > 0 ) {
-          set new_class.systemNames langName.vref langClassName.vref
-        }
-        if( (strlen langClassName.string_value ) > 0 ) {
-          set new_class.systemNames langName.vref langClassName.string_value
-        }
-
-      }
-      nameNode.is_system_class = true
-      nameNode.clDesc = new_class
+      this.registerSystemClassFromNode(node ctx)
       return
     }
     if (node.isFirstVref("extends")) {
@@ -4414,7 +4494,7 @@ class RangerFlowParser {
       new_class.is_trait = true
     }
 
-    if ((node.isFirstVref("CreateClass")) || (node.isFirstVref("class"))) {
+    if ((node.isFirstVref("CreateClass")) || (node.isFirstVref("class")) || (node.isFirstVref("record"))) {
 
       if( (size node.children) < 3) {
         ctx.addError(node "Not enough arguments for creating a class")
@@ -4426,6 +4506,9 @@ class RangerFlowParser {
       def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
       new_class.name = s
       new_class.compiledName = s
+      if (node.isFirstVref("record")) {
+        new_class.is_record = true
+      }
 
       classNameNode.evalTypeClass = (TFactory.new_class_signature(classNameNode ctx wr))
       def notOkNames ([] 'main')

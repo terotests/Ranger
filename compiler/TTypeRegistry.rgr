@@ -1,0 +1,68 @@
+
+; Central registry for primitive and buffer type names.
+; New types should be registered here once; callers query instead of hardcoding lists.
+
+class TTypeRegistry {
+
+  static fn scalarPrimitiveNames:[string] () {
+    def names:[string]
+    push names "double"
+    push names "string"
+    push names "int"
+    push names "char"
+    push names "boolean"
+    return names
+  }
+
+  static fn bufferTypeNames:[string] () {
+    def names:[string]
+    push names "charbuffer"
+    push names "buffer"
+    push names "int_buffer"
+    push names "double_buffer"
+    return names
+  }
+
+  static fn isScalarPrimitive:boolean (typeName:string) {
+    for (TTypeRegistry.scalarPrimitiveNames()) n:string i {
+      if (typeName == n) {
+        return true
+      }
+    }
+    return false
+  }
+
+  static fn isBufferType:boolean (typeName:string) {
+    for (TTypeRegistry.bufferTypeNames()) n:string i {
+      if (typeName == n) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; Matches legacy isPrimitiveType() — scalars plus buffer family.
+  static fn isPrimitiveTypeName:boolean (typeName:string) {
+    if (TTypeRegistry.isScalarPrimitive(typeName)) {
+      return true
+    }
+    if (TTypeRegistry.isBufferType(typeName)) {
+      return true
+    }
+    return false
+  }
+
+  ; Matches legacy isDefinedType() primitive/buffer checks.
+  static fn isKnownTypeName:boolean (typeName:string) {
+    return (TTypeRegistry.isPrimitiveTypeName(typeName))
+  }
+
+  static fn listContains:boolean (list:[string] value:string) {
+    for list item:string i {
+      if (item == value) {
+        return true
+      }
+    }
+    return false
+  }
+}
