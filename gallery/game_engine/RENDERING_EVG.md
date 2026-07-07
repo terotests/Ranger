@@ -144,23 +144,34 @@ gradients, shadows (blur), and lots of alpha compositing are the expensive parts
 
 ## 8. Prerequisites / known gaps (Phase 0)
 
-Wiring EVG in requires first getting the EVG tooling to build in this repo
-snapshot. Observed while prototyping:
+Wiring EVG in requires the EVG tooling to build in this repo snapshot.
+Observed while prototyping:
 
-* `EVGRasterRenderer`'s transitive imports fail to compile here with a
-  `function variable not found writeByte` name-resolution error (reproduce:
-  compile any file importing `src/raster/EVGRasterRenderer.rgr` with
-  `RANGER_LIB=./compiler/Lang.rgr`). `Buffer.writeByte` exists in
-  `src/core/Buffer.rgr`, so this is a resolution/rename issue.
+* ✅ **FIXED — `writeByte` name-resolution.** `EVGRasterRenderer`'s transitive
+  imports (via `gallery/pdf_writer/src/jpeg/JPEGEncoder.rgr`'s `BitWriter`)
+  failed to compile with `function variable not found writeByte`. Root cause:
+  `buffer` is declared in `compiler/Lang.rgr` as a `systemclass` (so it is also
+  a *defined class*), and the receiver resolver in
+  `compiler/ng_RangerFlowParser.rgr` checked "is this a class?" **before** "is
+  this a variable/field?". A field named `buffer` (as `BitWriter` has) was
+  therefore resolved to the empty system type, so `buffer.writeByte(...)` looked
+  the method up on the type and failed. Fix: a field/local now shadows a
+  same-named system type in receiver position (see
+  `RangerFlowParser.varShadowsSystemType`); ordinary user classes and genuine
+  static calls are untouched. Covered by
+  `tests/fixtures/field_named_buffer.rgr` +
+  `tests/compiler.test.ts` ("resolves method calls on a field named like a
+  system type").
 * The tree is mid-rename: `PLAN_*` docs reference `src/l/` while the code is
   `src/jsx/` — align these before depending on the module paths above.
 
-These are pre-existing EVG-tooling issues (not part of the game base) and are
-the first task before a working EVG game frame can be committed.
+With the `writeByte` fix in place, `src/raster/EVGRasterRenderer.rgr` and
+`src/jpeg/JPEGEncoder.rgr` compile cleanly (`-es6`); the remaining Phase 0 item
+is the `src/l`↔`src/jsx` path alignment before a working EVG game frame lands.
 
 ## 9. Roadmap
 
-1. **Phase 0 — fix EVG build** (`writeByte` resolution; `src/l`↔`src/jsx`).
+1. **Phase 0 — fix EVG build** (`writeByte` resolution ✅ done; `src/l`↔`src/jsx` remaining).
 2. **Phase 1 — software EVG frame.** `EVGRenderer` interface; port Pong's `draw`
    to `EVGRasterRenderer`; `gfx_present_rgba` operator + `runtime/ranger_gfx.c`
    (SDL2) and `es6` canvas backend. Terminal downsample fallback.
