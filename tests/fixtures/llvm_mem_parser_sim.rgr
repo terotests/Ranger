@@ -1,0 +1,53 @@
+; LLVM memory: parser-like workload at scale.
+; Simulates tokenizing: each chunk allocates many Token objects (each with a
+; strdup'd string field), pushes them into an owned [Token] array, then drops
+; the array at function end. The array release must recursively free every
+; token AND each token's string field. Repeated over many chunks => 1000
+; objects allocated total; live count must stay flat at 0.
+
+class RangerMem {
+    sfn liveObjects:int () {
+        return 0
+    }
+
+    sfn resetStats:void () {
+    }
+}
+
+class Token {
+    def text:string ""
+    def kind:int 0
+
+    Constructor (t:string k:int) {
+        text = t
+        kind = k
+    }
+}
+
+class MemParserSim {
+    sfn parseChunk:void () {
+        def tokens:[Token]
+        def i:int 0
+        while (i < 50) {
+            def t (new Token("tok" i))
+            push tokens t
+            i = (+ i 1)
+        }
+    }
+
+    sfn run:int () {
+        RangerMem.resetStats()
+        def j:int 0
+        while (j < 20) {
+            MemParserSim.parseChunk()
+            j = (+ j 1)
+        }
+        return (RangerMem.liveObjects())
+    }
+}
+
+class MemParserSimMain {
+    sfn m@(main):int () {
+        return (MemParserSim.run())
+    }
+}

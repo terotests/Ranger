@@ -45,28 +45,81 @@ class LLVMIRWriter {
     return ""
   }
 
+  ; Map shared Low IR type names to LLVM type names. The Low IR uses "f64" for
+  ; doubles (matching the WASM backend); LLVM spells that type "double".
+  fn llTy:string (t:string) {
+    if (t == "f64") {
+      return "double"
+    }
+    return t
+  }
+
+  ; LLVM requires floating-point literals to look like floats ("1" -> "1.0").
+  fn normalizeDoubleLit:string (lit:string) {
+    if ((indexOf lit ".") >= 0) {
+      return lit
+    }
+    if ((indexOf lit "e") >= 0) {
+      return lit
+    }
+    if ((indexOf lit "E") >= 0) {
+      return lit
+    }
+    if ((indexOf lit "n") >= 0) {
+      return lit
+    }
+    return (lit + ".0")
+  }
+
+  fn hexDigit:string (d:int) {
+    if (d < 10) {
+      return (strfromcode (48 + d))
+    }
+    return (strfromcode (65 + (d - 10)))
+  }
+
+  fn hexByte:string (b:int) {
+    def hi:int (to_int (b / 16))
+    def lo:int (b - (hi * 16))
+    return ("\\" + (this.hexDigit(hi)) + (this.hexDigit(lo)))
+  }
+
   fn llvmEscapeCString:string (text:string) {
     def out:string ""
     def i:int 0
     def n:int (strlen text)
     while (i < n) {
       def code:int (charAt text i)
-      if (code == 10) {
-        out = out + "\\0A"
+      if (code == 34) {
+        out = out + "\\22"
       } {
-        if (code == 13) {
-          out = out + "\\0D"
+        if (code == 92) {
+          out = out + "\\\\"
         } {
-          if (code == 9) {
-            out = out + "\\09"
+          if ((code >= 32) && (code < 127)) {
+            out = out + (strfromcode code)
           } {
-            if (code == 34) {
-              out = out + "\\22"
+            ; Control chars and non-ASCII: emit raw UTF-8 bytes as \HH escapes
+            ; so the byte length matches utf8ByteLen and the constant is valid.
+            if (code < 128) {
+              out = out + (this.hexByte(code))
             } {
-              if (code == 92) {
-                out = out + "\\\\"
+              if (code < 2048) {
+                def hi6:int (to_int (code / 64))
+                def b1:int (192 + hi6)
+                def b2:int (128 + (code - (hi6 * 64)))
+                out = out + (this.hexByte(b1))
+                out = out + (this.hexByte(b2))
               } {
-                out = out + (strfromcode code)
+                def c1:int (to_int (code / 4096))
+                def rem:int (code - (c1 * 4096))
+                def mid:int (to_int (rem / 64))
+                def b1:int (224 + c1)
+                def b2:int (128 + mid)
+                def b3:int (128 + (rem - (mid * 64)))
+                out = out + (this.hexByte(b1))
+                out = out + (this.hexByte(b2))
+                out = out + (this.hexByte(b3))
               }
             }
           }
@@ -99,10 +152,14 @@ class LLVMIRWriter {
       }
     }
     for module.externDecls d:LowIRExternDecl i {
-      wr.out(("declare " + d.retType + " @" + d.fnName + "(") false)
+      if ((strlen d.declSig) > 0) {
+        wr.out(("declare " + d.retType + " @" + d.fnName + d.declSig) true)
+        continue _
+      }
+      wr.out(("declare " + (this.llTy(d.retType)) + " @" + d.fnName + "(") false)
       def pcnt (array_length d.paramTypes)
       for d.paramTypes pt:string j {
-        wr.out((pt + "") false)
+        wr.out(((this.llTy(pt)) + "") false)
         if (j < (pcnt - 1)) {
           wr.out(", " false)
         }
@@ -120,16 +177,50 @@ class LLVMIRWriter {
     for module.structs st:LowIRStruct i {
       this.writeStruct(st wr)
     }
+    if ((array_length module.typeDescs) > 0) {
+      this.writeTypeDescs(module wr)
+    }
     for module.functions fn:LowIRFunction i {
       this.writeFunction(fn wr)
     }
+  }
+
+  fn writeTypeDescs:void (module:LowIRModule wr:CodeWriter) {
+    wr.out("%struct.RangerFieldDesc = type { i32, i8, i8, i8, i8 }" true)
+    wr.out("%struct.RangerTypeDesc = type { i32, i16, i16, ptr }" true)
+    for module.typeDescs td:LowIRTypeDesc i {
+      this.writeOneTypeDesc(td wr)
+    }
+    wr.newline()
+  }
+
+  fn writeOneTypeDesc:void (td:LowIRTypeDesc wr:CodeWriter) {
+    def fc (array_length td.fields)
+    def fieldsRef:string "ptr null"
+    if (fc > 0) {
+      def arrName:string (td.className + "_typeFields")
+      wr.out(("@" + arrName + " = private constant [" + ("" + fc) + " x %struct.RangerFieldDesc] [") false)
+      def j:int 0
+      while (j < fc) {
+        def fd (itemAt td.fields j)
+        wr.out(("%struct.RangerFieldDesc { i32 " + ("" + fd.offset) + ", i8 " + ("" + fd.kind) + ", i8 " + ("" + fd.owned) + ", i8 0, i8 0 }") false)
+        if (j < (fc - 1)) {
+          wr.out(", " false)
+        }
+        j = j + 1
+      }
+      wr.out("]" true)
+      fieldsRef = ("ptr @" + arrName)
+    }
+    def tdName:string (td.className + "_typeDesc")
+    wr.out(("@" + tdName + " = private constant %struct.RangerTypeDesc { i32 " + ("" + td.size) + ", i16 " + ("" + fc) + ", i16 0, " + fieldsRef + " }") true)
   }
 
   fn writeStruct:void (st:LowIRStruct wr:CodeWriter) {
     wr.out(("%struct." + st.name + " = type { ") false)
     def cnt (array_length st.fields)
     for st.fields f:LowIRField i {
-      wr.out(f.irType false)
+      wr.out((this.llTy(f.irType)) false)
       if (i < (cnt - 1)) {
         wr.out(", " false)
       }
@@ -144,11 +235,11 @@ class LLVMIRWriter {
     } {
       wr.out("define private " false)
     }
-    wr.out(fn.returnType false)
+    wr.out((this.llTy(fn.returnType)) false)
     wr.out((" @" + fn.name + "(") false)
     def pcnt (array_length fn.params)
     for fn.params p:LowIRParam i {
-      wr.out((p.irType + " %" + p.name) false)
+      wr.out(((this.llTy(p.irType)) + " %" + p.name) false)
       if (i < (pcnt - 1)) {
         wr.out(", " false)
       }
@@ -168,6 +259,9 @@ class LLVMIRWriter {
   fn writeInstr:void (ins:LowIRInstr wr:CodeWriter) {
     wr.out("  " false)
     switch ins.op {
+      case "comment" {
+        wr.out(("; " + ins.arg1) true)
+      }
       case "const" {
         if (ins.irType == "i1") {
           if (ins.arg1 == "1") {
@@ -176,7 +270,11 @@ class LLVMIRWriter {
             wr.out((ins.dest + " = icmp eq i32 0, 1") true)
           }
         } {
-          wr.out((ins.dest + " = add " + ins.irType + " 0, " + ins.arg1) true)
+          if (ins.irType == "f64") {
+            wr.out((ins.dest + " = fadd double 0.0, " + (this.normalizeDoubleLit(ins.arg1))) true)
+          } {
+            wr.out((ins.dest + " = add " + ins.irType + " 0, " + ins.arg1) true)
+          }
         }
       }
       case "add" {
@@ -200,6 +298,18 @@ class LLVMIRWriter {
       case "and" {
         wr.out((ins.dest + " = and " + ins.irType + " " + ins.arg1 + ", " + ins.arg2) true)
       }
+      case "xor" {
+        wr.out((ins.dest + " = xor " + ins.irType + " " + ins.arg1 + ", " + ins.arg2) true)
+      }
+      case "shl" {
+        wr.out((ins.dest + " = shl " + ins.irType + " " + ins.arg1 + ", " + ins.arg2) true)
+      }
+      case "ashr" {
+        wr.out((ins.dest + " = ashr " + ins.irType + " " + ins.arg1 + ", " + ins.arg2) true)
+      }
+      case "lshr" {
+        wr.out((ins.dest + " = lshr " + ins.irType + " " + ins.arg1 + ", " + ins.arg2) true)
+      }
       case "heap_alloc" {
         wr.out((ins.dest + " = load " + ins.irType + ", " + ins.irType + "* @heap_ptr") true)
         wr.out(("  %heap_next = add " + ins.irType + " " + ins.dest + ", " + ins.arg1) true)
@@ -210,11 +320,12 @@ class LLVMIRWriter {
         if ((strlen addrType) == 0) {
           addrType = ins.irType
         }
-        wr.out((ins.dest + "_p = inttoptr " + addrType + " " + ins.arg1 + " to " + ins.irType + "*") true)
-        wr.out(("  " + ins.dest + " = load " + ins.irType + ", " + ins.irType + "* " + ins.dest + "_p") true)
+        def valTy (this.llTy(ins.irType))
+        wr.out((ins.dest + "_p = inttoptr " + addrType + " " + ins.arg1 + " to " + valTy + "*") true)
+        wr.out(("  " + ins.dest + " = load " + valTy + ", " + valTy + "* " + ins.dest + "_p") true)
       }
       case "ptr_store" {
-        def valType:string ins.irType
+        def valType:string (this.llTy(ins.irType))
         def addrType:string ins.arg3
         if ((strlen addrType) == 0) {
           addrType = valType
@@ -235,11 +346,32 @@ class LLVMIRWriter {
       case "ptr_to_int" {
         wr.out((ins.dest + " = ptrtoint i8* " + ins.arg1 + " to " + ins.irType) true)
       }
+      case "sitofp" {
+        wr.out((ins.dest + " = sitofp " + (this.llTy(ins.arg2)) + " " + ins.arg1 + " to " + (this.llTy(ins.irType))) true)
+      }
+      case "fptosi" {
+        wr.out((ins.dest + " = fptosi " + (this.llTy(ins.arg2)) + " " + ins.arg1 + " to " + (this.llTy(ins.irType))) true)
+      }
+      case "fadd" {
+        wr.out((ins.dest + " = fadd " + (this.llTy(ins.irType)) + " " + ins.arg1 + ", " + ins.arg2) true)
+      }
+      case "fsub" {
+        wr.out((ins.dest + " = fsub " + (this.llTy(ins.irType)) + " " + ins.arg1 + ", " + ins.arg2) true)
+      }
+      case "fmul" {
+        wr.out((ins.dest + " = fmul " + (this.llTy(ins.irType)) + " " + ins.arg1 + ", " + ins.arg2) true)
+      }
+      case "fdiv" {
+        wr.out((ins.dest + " = fdiv " + (this.llTy(ins.irType)) + " " + ins.arg1 + ", " + ins.arg2) true)
+      }
       case "zext" {
         wr.out((ins.dest + " = zext i32 " + ins.arg1 + " to " + ins.irType) true)
       }
       case "zext_i1" {
         wr.out((ins.dest + " = zext i1 " + ins.arg1 + " to i32") true)
+      }
+      case "trunc" {
+        wr.out((ins.dest + " = trunc " + (this.llTy(ins.arg2)) + " " + ins.arg1 + " to " + (this.llTy(ins.irType))) true)
       }
       case "icmp" {
         def cmpType:string "i32"
@@ -253,9 +385,14 @@ class LLVMIRWriter {
       }
       case "call" {
         def vsig (this.varargSigFor(ins.fnName))
-        def calleeType:string (ins.irType + " ")
-        if ((strlen vsig) > 0) {
-          calleeType = (ins.irType + " (" + vsig + ") ")
+        def retTy (this.llTy(ins.irType))
+        def calleeType:string (retTy + " ")
+        if ((strlen ins.callSig) > 0) {
+          calleeType = (retTy + " (" + ins.callSig + ") ")
+        } {
+          if ((strlen vsig) > 0) {
+            calleeType = (retTy + " (" + vsig + ") ")
+          }
         }
         if ((strlen ins.dest) > 0) {
           wr.out((ins.dest + " = call " + calleeType + "@" + ins.fnName + "(") false)
@@ -268,7 +405,11 @@ class LLVMIRWriter {
           if (j < (array_length ins.callTypes)) {
             argType = (itemAt ins.callTypes j)
           }
-          wr.out((argType + " " + a) false)
+          if ((strlen argType) == 0) {
+            wr.out(a false)
+          } {
+            wr.out(((this.llTy(argType)) + " " + a) false)
+          }
           if (j < (acnt - 1)) {
             wr.out(", " false)
           }
@@ -276,7 +417,7 @@ class LLVMIRWriter {
         wr.out(")" true)
       }
       case "alloca" {
-        wr.out((ins.dest + " = alloca " + ins.irType) true)
+        wr.out((ins.dest + " = alloca " + (this.llTy(ins.irType))) true)
       }
       case "alloca_struct" {
         wr.out((ins.dest + " = alloca %struct." + ins.structName) true)
@@ -285,10 +426,12 @@ class LLVMIRWriter {
         wr.out((ins.dest + " = getelementptr %struct." + ins.structName + ", %struct." + ins.structName + "* " + ins.arg1 + ", i32 0, i32 " + ("" + ins.fieldIndex)) true)
       }
       case "load" {
-        wr.out((ins.dest + " = load " + ins.irType + ", " + ins.irType + "* " + ins.arg1) true)
+        def lt (this.llTy(ins.irType))
+        wr.out((ins.dest + " = load " + lt + ", " + lt + "* " + ins.arg1) true)
       }
       case "store" {
-        wr.out(("store " + ins.irType + " " + ins.arg1 + ", " + ins.irType + "* " + ins.arg2) true)
+        def stt (this.llTy(ins.irType))
+        wr.out(("store " + stt + " " + ins.arg1 + ", " + stt + "* " + ins.arg2) true)
       }
     }
   }
@@ -298,11 +441,12 @@ class LLVMIRWriter {
     switch bb.termKind {
       case "ret" {
         if ((strlen bb.termValue) > 0) {
-          wr.out(("ret " + bb.termType + " " + bb.termValue) true)
+          wr.out(("ret " + (this.llTy(bb.termType)) + " " + bb.termValue) true)
         } {
           wr.out("ret void" true)
         }
       }
+
       case "br" {
         wr.out(("br label %" + bb.termTarget) true)
       }

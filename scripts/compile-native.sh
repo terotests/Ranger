@@ -30,7 +30,7 @@ if ! command -v clang >/dev/null 2>&1; then
 fi
 
 if [[ ! -f "$COMPILER" ]]; then
-  echo "error: compiler not built  run: npm run compile" >&2
+  echo "error: compiler not built ï¿½ run: npm run compile" >&2
   exit 1
 fi
 
@@ -59,7 +59,7 @@ if grep -q '@main(' "$LL_FILE" || grep -q 'define dso_local i32 @main(' "$LL_FIL
 fi
 
 if [[ "$HAS_MAIN" -eq 1 ]]; then
-  echo "==> 2/4 @main found in IR — no C wrapper needed"
+  echo "==> 2/4 @main found in IR ï¿½ no C wrapper needed"
   echo "==> 3/4 clang: LLVM IR -> native binary"
   clang "$LL_FILE" -o "$OUT_BIN"
 else

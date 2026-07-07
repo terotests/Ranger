@@ -1,0 +1,7 @@
+class ChainOperatorSubstring {
+    sfn m@(main):void () {
+        def str:string "  hello world  "
+        def part:string (str.substring(3, 7).trim())
+        print part
+    }
+}

@@ -38,6 +38,31 @@ class PongRenderer {
         return (game.H * scale)
     }
 
+    ; Render-only: how many pixels into the current cell the motion accumulator has
+    ; progressed (0 .. scale-1). Logic stays cell-snapped; this smooths SDL drawing.
+    fn accPixelOffset:int (acc:int step:int scale:int) {
+        def num (acc * scale)
+        def result 0
+        def rem num
+        while (rem >= step) {
+            rem = (rem - step)
+            result = (result + 1)
+        }
+        return result
+    }
+
+    fn ballCenterX:int (game:Pong) {
+        def hs (this.half(scale))
+        def ox (this.accPixelOffset(game.axAcc game.STEP scale))
+        return ((this.cell(game.ballX)) + hs + (game.vxDir * ox))
+    }
+
+    fn ballCenterY:int (game:Pong) {
+        def hs (this.half(scale))
+        def oy (this.accPixelOffset(game.ayAcc game.STEP scale))
+        return ((this.cell(game.ballY)) + hs + (game.vyDir * oy))
+    }
+
     ; Paint one frame of the game into the canvas.
     fn draw:void (game:Pong cv:SoftCanvas) {
         def pw (game.W * scale)
@@ -63,10 +88,10 @@ class PongRenderer {
         cv.fillRect((this.cell(1)) (this.cell(game.leftY)) scale (this.cell(game.PADDLE_H)) 120 220 160)
         cv.fillRect((this.cell((game.W - 2))) (this.cell(game.rightY)) scale (this.cell(game.PADDLE_H)) 220 140 120)
 
-        ; ball (bright yellow)
+        ; ball (bright yellow) — centre follows motion accumulators for smooth flight
         def hs (this.half(scale))
-        def bx ((this.cell(game.ballX)) + hs)
-        def by ((this.cell(game.ballY)) + hs)
+        def bx (this.ballCenterX(game))
+        def by (this.ballCenterY(game))
         cv.fillCircle(bx by hs 245 245 130)
     }
 }

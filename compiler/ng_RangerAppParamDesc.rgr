@@ -106,6 +106,15 @@ class RangerAppParamDesc {
   def rust_assigned_to_weak:boolean false  ; Parameter is assigned to @(weak) field
   def rust_needs_rc_wrap:boolean false      ; Parameter needs Rc<RefCell<T>> type in Rust
   def rust_assigned_to_field:boolean false  ; Parameter is assigned to a class field (requires owned)
+
+  ; Inferred ownership (target-independent escape summary, OwnershipKind).
+  ; Computed by StaticAnalyzer.analyzeOwnershipAll; consumed later by LowIR / Rust adapters.
+  def ownership_kind:int 0      ; 0=unknown, 1=owned, 2=borrowed, 3=moved (single owner / return), 4=shared (>1 owner)
+  def ownership_resolved:boolean false
+  def escapes_via:string "none" ; none | return | field | member-coll
+  def escape_owners:[string]    ; distinct owner paths the value escapes into (e.g. "parent.left", "self.tokens")
+  def escape_via_call:boolean false ; passed as argument into another (non-pure) call -> ownership depends on callee summary (interprocedural, not yet resolved)
+  def ownership_read_only:boolean false ; observed only in read positions
   
   def node@(weak):CodeNode
   def nameNode@(weak):CodeNode

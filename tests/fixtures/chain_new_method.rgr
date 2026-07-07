@@ -1,0 +1,15 @@
+class Greeter {
+    fn hello:Greeter () {
+        print "hello"
+        return this
+    }
+    fn world:Greeter () {
+        print "world"
+        return this
+    }
+}
+class ChainNewMethod {
+    sfn m@(main):void () {
+        new Greeter().hello().world()
+    }
+}

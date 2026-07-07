@@ -1,0 +1,38 @@
+; LLVM memory: single owned local released at function end (trivial int field).
+
+class RangerMem {
+    sfn liveObjects:int () {
+        return 0
+    }
+
+    sfn resetStats:void () {
+    }
+}
+
+class Box {
+    def value:int 0
+
+    Constructor (v:int) {
+        value = v
+    }
+}
+
+class MemAllocOne {
+    sfn allocOne:void () {
+        def b (new Box(42))
+    }
+}
+
+class MemTrivialDemo {
+    sfn run:int () {
+        RangerMem.resetStats()
+        MemAllocOne.allocOne()
+        return (RangerMem.liveObjects())
+    }
+}
+
+class MemTrivialMain {
+    sfn m@(main):int () {
+        return (MemTrivialDemo.run())
+    }
+}

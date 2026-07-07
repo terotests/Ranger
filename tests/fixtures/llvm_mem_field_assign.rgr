@@ -1,0 +1,42 @@
+; LLVM memory: field assign releases old string value.
+; Allocation/mutation happens in a helper so the owned local is released
+; before we measure live objects in run().
+
+class RangerMem {
+    sfn liveObjects:int () {
+        return 0
+    }
+
+    sfn resetStats:void () {
+    }
+}
+
+class NamedBox {
+    def label:string ""
+    def value:int 0
+
+    Constructor (name:string v:int) {
+        label = name
+        value = v
+    }
+}
+
+class MemFieldAssignDemo {
+    sfn mutate:void () {
+        def b (new NamedBox("first" 1))
+        b.label = "second"
+        b.label = "third"
+    }
+
+    sfn run:int () {
+        RangerMem.resetStats()
+        MemFieldAssignDemo.mutate()
+        return (RangerMem.liveObjects())
+    }
+}
+
+class MemFieldAssignMain {
+    sfn m@(main):int () {
+        return (MemFieldAssignDemo.run())
+    }
+}

@@ -1,26 +1,26 @@
 # WASM / LLVM: Lang-operaattorit (Array & Map)
 
-Tämä dokumentti kuvaa, miten `Lang.rgr`:n array/map-operaattorit voidaan tuoda Low IR / WASM -backendiin. Nykyinen `IntList` / `IntMap` -demo käyttää **luokkia + `Mem`-intrinskejä**; Lang-syntaksi (`def a:[int]`, `set`, `get`, …) on erillinen polku.
+Tï¿½mï¿½ dokumentti kuvaa, miten `Lang.rgr`:n array/map-operaattorit voidaan tuoda Low IR / WASM -backendiin. Nykyinen `IntList` / `IntMap` -demo kï¿½yttï¿½ï¿½ **luokkia + `Mem`-intrinskejï¿½**; Lang-syntaksi (`def a:[int]`, `set`, `get`, ï¿½) on erillinen polku.
 
-## Miksi Lang-templatet eivät riitä
+## Miksi Lang-templatet eivï¿½t riitï¿½
 
-`-l=llvm` käyttää `RangerLLVMPipeline` ? `LowIRBuilderPass` ? LLVM/WAT. Se **ei** laajenna `Lang.rgr`:n `templates { es6 … }` -blokkeja kuten ES6-backend. `RangerLLVMClassWriter.writeClass` on tyhjä — koko moduuli rakennetaan Low IR:stä.
+`-l=llvm` kï¿½yttï¿½ï¿½ `RangerLLVMPipeline` ? `LowIRBuilderPass` ? LLVM/WAT. Se **ei** laajenna `Lang.rgr`:n `templates { es6 ï¿½ }` -blokkeja kuten ES6-backend. `RangerLLVMClassWriter.writeClass` on tyhjï¿½ ï¿½ koko moduuli rakennetaan Low IR:stï¿½.
 
-Joten jokainen operaattori pitää joko:
+Joten jokainen operaattori pitï¿½ï¿½ joko:
 
-1. **Laskea alaspäin** `ng_LowIRBuilder.rgr`:ssä (suositeltu), tai
-2. Lisätä `Lang.rgr`:iin `llvm`-template, **ja** rakentaa erillinen LLVM-template ? Low IR -silta (ei ole olemassa).
+1. **Laskea alaspï¿½in** `ng_LowIRBuilder.rgr`:ssï¿½ (suositeltu), tai
+2. Lisï¿½tï¿½ `Lang.rgr`:iin `llvm`-template, **ja** rakentaa erillinen LLVM-template ? Low IR -silta (ei ole olemassa).
 
-Käytännössä: **lowering `ng_LowIRBuilder.rgr`:ään + pieni runtime (`RtArray` / `RtMap` tai `Mem`-laajennus)**.
+Kï¿½ytï¿½nnï¿½ssï¿½: **lowering `ng_LowIRBuilder.rgr`:ï¿½ï¿½n + pieni runtime (`RtArray` / `RtMap` tai `Mem`-laajennus)**.
 
-## Nykytila (kesä 2026)
+## Nykytila (kesï¿½ 2026)
 
 | Toiminto | Lang (`Lang.rgr`) | WASM Low IR |
 |----------|-------------------|-------------|
 | `def x:[int]` | `cmdDef` | ei |
 | `def m:[int:int]` | `cmdDef` hash | ei |
 | `make _:[int] n` | `cmdArrayLiteral` | ei |
-| `([] _:[int] (…))` | `cmdArrayLiteral` | ei |
+| `([] _:[int] (ï¿½))` | `cmdArrayLiteral` | ei |
 | `set a i v` | `cmdSet` array | ei |
 | `get a i` | `cmdGet` array | ei |
 | `set m k v` / `get m k` | `cmdSet` / `cmdGet` map | ei |
@@ -28,15 +28,15 @@ Käytännössä: **lowering `ng_LowIRBuilder.rgr`:ään + pieni runtime (`RtArray` / `
 | `array_length a` | `cmdArrayLength` | ei |
 | `push a x` | `cmdPush` | ei |
 | `keys m` | `keys` | ei (vaatii stringit) |
-| Luokat `IntList` / `IntMap` | — | kyllä (`llvm_collections.rgr`) |
-| `Mem.alloc/load/store` | — | kyllä (intrinsic) |
+| Luokat `IntList` / `IntMap` | ï¿½ | kyllï¿½ (`llvm_collections.rgr`) |
+| `Mem.alloc/load/store` | ï¿½ | kyllï¿½ (intrinsic) |
 
 ## Runtime-malli (yhteensopiva collections-demon kanssa)
 
 Sama 12-tavun descriptor heapissa (kuten `IntList`):
 
 ```text
-offset 0: data   (i32)  — osoite elementtidataan
+offset 0: data   (i32)  ï¿½ osoite elementtidataan
 offset 4: len    (i32)
 offset 8: cap    (i32)
 ```
@@ -55,40 +55,40 @@ Intrinsiset (kuten `Mem_alloc`):
 | `RtMap_new` | `def m:[int:int]` |
 | `RtMap_get/set/has` | `get` / `set` / `has` |
 
-Myöhemmin: `RtArray_push` ? Lang `push`.
+Myï¿½hemmin: `RtArray_push` ? Lang `push`.
 
 ## Toteutusvaiheet
 
-### Vaihe 1 — `[int]` ja `[int:int]` (ei stringejä)
+### Vaihe 1 ï¿½ `[int]` ja `[int:int]` (ei stringejï¿½)
 
-- `lowerVarDef`: tyhjä `def a:[int]` / `def m:[int:int]` (tällä hetkellä `valNode` puuttuu ? early return)
+- `lowerVarDef`: tyhjï¿½ `def a:[int]` / `def m:[int:int]` (tï¿½llï¿½ hetkellï¿½ `valNode` puuttuu ? early return)
 - `lowerExpr` / `lowerStmt`: operaattorit `get`, `set`, `array_length`, `has`, `make`
 - Tunnista `nameNode.value_type` (`RangerNodeType.Array` / `Hash`) ja primitiivit `int`
 - Fixture: `tests/fixtures/llvm_array_map_lang.rgr` (Lang-syntaksi, ei luokkia)
 - WASM-testi + demo
 
-**Ei vielä:** `optional` (`get` map), `null?` / `unwrap`, `push`, `keys`.
+**Ei vielï¿½:** `optional` (`get` map), `null?` / `unwrap`, `push`, `keys`.
 
-### Vaihe 2 — kasvu ja literaalit
+### Vaihe 2 ï¿½ kasvu ja literaalit
 
 - `push items x` ? `RtArray_push` (tai uudelleenallokointi)
 - `([] _:[int] (1 2 3))` ? `make` + sarja `set`
-- `itemAt` (jos macro erillisenä)
+- `itemAt` (jos macro erillisenï¿½)
 
-### Vaihe 3 — string-avaimet ja `keys`
+### Vaihe 3 ï¿½ string-avaimet ja `keys`
 
 - WASM-stringit (`[i8]` tai fixed buffer) tai int-avaimet demoissa
 - `keys m` ? uusi `RtMap_keys` (palauttaa `[int]` avainlistana)
 
-### Vaihe 4 — Lang.rgr `llvm`-rivit (valinnainen)
+### Vaihe 4 ï¿½ Lang.rgr `llvm`-rivit (valinnainen)
 
-Dokumentointi / fallback vain jos halutaan jakaa logiikka Langin puolelle — ei korvaa Low IR -loweringia.
+Dokumentointi / fallback vain jos halutaan jakaa logiikka Langin puolelle ï¿½ ei korvaa Low IR -loweringia.
 
-## Tunnetut esteet (ja miten kiertää)
+## Tunnetut esteet (ja miten kiertï¿½ï¿½)
 
 | Este | Ratkaisu |
 |------|----------|
-| Tuplalauseet (`children` + `register_expressions`) | Korjaa parser/lowering; toistaiseksi vältä useita peräkkäisiä `push`-kutsuja |
+| Tuplalauseet (`children` + `register_expressions`) | Korjaa parser/lowering; toistaiseksi vï¿½ltï¿½ useita perï¿½kkï¿½isiï¿½ `push`-kutsuja |
 | `while` + `if` WATissa | Map-probe rekursiolla (kuten `IntMap`) |
 | `get` optional mapille | Vaihe 1: `int`-kartta, puuttuva = `-1` |
 | `[string:T]` | Vaihe 3 |
@@ -101,10 +101,10 @@ npm run test:llvm
 ./scripts/compile-wasm.sh tests/fixtures/llvm_array_map_lang.rgr
 ```
 
-## Liittyvät tiedostot
+## Liittyvï¿½t tiedostot
 
-- `compiler/ng_LowIRBuilder.rgr` — lowering
-- `compiler/ng_LowIR.rgr` — `emit*` + intrinsiset
+- `compiler/ng_LowIRBuilder.rgr` ï¿½ lowering
+- `compiler/ng_LowIR.rgr` ï¿½ `emit*` + intrinsiset
 - `compiler/ng_WATWriter.rgr` / `ng_LLVMIRWriter.rgr`
-- `tests/fixtures/llvm_collections.rgr` — luokkapohjainen referenssi
-- `compiler/Lang.rgr` — operaattorimäärittelyt (rivit ~1111, 1881, 2939, 3442–4051)
+- `tests/fixtures/llvm_collections.rgr` ï¿½ luokkapohjainen referenssi
+- `compiler/Lang.rgr` ï¿½ operaattorimï¿½ï¿½rittelyt (rivit ~1111, 1881, 2939, 3442ï¿½4051)

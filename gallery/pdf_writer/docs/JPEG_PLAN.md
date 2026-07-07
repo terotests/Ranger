@@ -13,6 +13,7 @@ Both baseline and progressive JPEG decoder/encoder are fully implemented and wor
 - ✅ **Restart Marker Support** - Handles DRI/RST markers for iPhone and other camera JPEGs
 - ✅ **Command-line Tool** (jpeg_scaler.rgr) - Scale images with width/height/scale modes
 - ✅ **Multi-target Support** - Works in JavaScript and Go
+- ⚠️ **LLVM / native** (`jpeg_scaler` via `-l=llvm`) - IR generation works; **binary not usable** (decode hang, runaway memory). See [JPEG_SCALER_LLVM.md](./JPEG_SCALER_LLVM.md)
 
 ### Quality Metrics
 

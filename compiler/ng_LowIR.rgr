@@ -40,6 +40,10 @@ class LowIRUtil {
     return ((indexOf typeName "[") == 0)
   }
 
+  static fn isBufferTypeName:boolean (typeName:string) {
+    return (((typeName == "buffer") || (typeName == "int_buffer")) || (typeName == "double_buffer"))
+  }
+
   static fn isSupportedParam:boolean (typeName:string) {
     if (LowIRUtil.isSupportedPrimitive(typeName)) {
       return true
@@ -112,6 +116,7 @@ class LowIRInstr {
   def fnName:string ""
   def callArgs:[string]
   def callTypes:[string]
+  def callSig:string ""
   def structName:string ""
   def fieldIndex:int 0
   def structSize:int 0
@@ -143,6 +148,20 @@ class LowIRField {
   def isPtrArray:boolean false
   def isBool:boolean false
   def isString:boolean false
+  def isBuffer:boolean false
+  def isObject:boolean false
+}
+
+class LowIRTypeFieldDesc {
+  def offset:int 0
+  def kind:int 0
+  def owned:int 1
+}
+
+class LowIRTypeDesc {
+  def className:string ""
+  def size:int 0
+  def fields:[LowIRTypeFieldDesc]
 }
 
 class LowIRStruct {
@@ -162,6 +181,7 @@ class LowIRExternDecl {
   def retType:string "i32"
   def paramTypes:[string]
   def isVararg:boolean false
+  def declSig:string ""
 }
 
 class LowIRModule {
@@ -170,6 +190,7 @@ class LowIRModule {
   def ptrType:string "i32"
   def useLibcHeap:boolean false
   def structs:[LowIRStruct]
+  def typeDescs:[LowIRTypeDesc]
   def functions:[LowIRFunction]
   def stringGlobals:[LowIRStringGlobal]
   def externDecls:[LowIRExternDecl]
@@ -200,10 +221,13 @@ class LowIRBuilder {
     irModule = module
   }
 
+  ; Generated temporaries are prefixed with "." (valid in LLVM, but not a legal
+  ; start for a Ranger identifier) so they can never collide with source-level
+  ; parameter or variable names such as "v11".
   fn freshTemp:string (prefix:string) {
     def n (this.tempCounter)
     this.tempCounter = n + 1
-    return ("%" + prefix + ("" + n))
+    return ("%." + prefix + ("" + n))
   }
 
   fn freshLabel:string (prefix:string) {
@@ -309,6 +333,17 @@ class LowIRBuilder {
   }
 
   fn emitCall:string (fnName:string retType:string args:[string] argTypes:[string]) {
+    return (this.emitCallWithSig(fnName retType "" args argTypes))
+  }
+
+  fn emitComment:void (text:string) {
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "comment"
+    ins.arg1 = text
+    this.emit(ins)
+  }
+
+  fn emitCallWithSig:string (fnName:string retType:string callSig:string args:[string] argTypes:[string]) {
     def voidType:string "void"
     if (retType == voidType) {
       def ins@(lives):LowIRInstr (new LowIRInstr())
@@ -317,6 +352,7 @@ class LowIRBuilder {
       ins.irType = voidType
       ins.callArgs = args
       ins.callTypes = argTypes
+      ins.callSig = callSig
       this.emit(ins)
       return ""
     }
@@ -329,6 +365,7 @@ class LowIRBuilder {
     ins.irType = retType
     ins.callArgs = args
     ins.callTypes = argTypes
+    ins.callSig = callSig
     this.emit(ins)
     return dest
   }
@@ -363,6 +400,15 @@ class LowIRBuilder {
     ins.irType = irType
     this.emitToEntry(ins)
     return slotName
+  }
+
+  fn emitZeroInitToEntry:void (irType:string slotName:string) {
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "store"
+    ins.irType = irType
+    ins.arg1 = "0"
+    ins.arg2 = slotName
+    this.emitToEntry(ins)
   }
 
   fn emitLoad:string (irType:string slotName:string) {
@@ -435,6 +481,19 @@ class LowIRBuilder {
     ins.arg1 = addr
     ins.arg2 = this.irModule.ptrType
     ins.irType = (LowIRUtil.structPtrType(className))
+    this.emit(ins)
+    return dest
+  }
+
+  fn emitCast:string (castOp:string destType:string srcType:string value:string) {
+    def tag:string "cast"
+    def dest (this.freshTemp(tag))
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = castOp
+    ins.dest = dest
+    ins.irType = destType
+    ins.arg1 = value
+    ins.arg2 = srcType
     this.emit(ins)
     return dest
   }

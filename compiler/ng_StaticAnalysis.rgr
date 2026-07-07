@@ -1334,6 +1334,291 @@ class StaticAnalyzer {
     }
   }
   
+  ; ============================================================================
+  ; OWNERSHIP INFERENCE (target-independent escape summary, Phase A: diagnostics)
+  ; ============================================================================
+  ; Infers per-parameter OwnershipKind by observing where values escape:
+  ;   x.field = p          -> p moved into x's object graph
+  ;   push self.coll p     -> p moved into a member/parameter collection
+  ;   return p             -> p escapes to caller
+  ;   pure function        -> args never transfer ownership (borrowed)
+  ; Phase A only records + reports; it does not change code generation.
+
+  fn ownershipKindName:string (kind:int) {
+    if (kind == 1) { return "owned" }
+    if (kind == 2) { return "borrowed" }
+    if (kind == 3) { return "moved" }
+    if (kind == 4) { return "shared" }
+    return "unknown"
+  }
+
+  fn ownerPathOf:string (node:CodeNode) {
+    if ((array_length node.ns) >= 1) {
+      return (join node.ns ".")
+    }
+    return node.vref
+  }
+
+  ; True if a push/set/put target refers to something that outlives the current
+  ; scope (a member field, class variable, or an incoming parameter collection).
+  fn targetOutlivesScope:boolean (target:CodeNode fnCtx:RangerAppWriterContext) {
+    if ((array_length target.ns) >= 2) {
+      def root:string (itemAt target.ns 0)
+      if ((root == "this") || (root == "self")) {
+        return true
+      }
+      def rp:RangerAppParamDesc (fnCtx.getVariableDef(root))
+      if ((strlen rp.name) > 0) {
+        if (rp.varType == RangerContextVarType.FunctionParameter) {
+          return true
+        }
+        if rp.is_class_variable {
+          return true
+        }
+      }
+      return false
+    }
+    def name:string target.vref
+    if ((strlen name) > 0) {
+      def tp:RangerAppParamDesc (fnCtx.getVariableDef(name))
+      if ((strlen tp.name) > 0) {
+        if tp.is_class_variable {
+          return true
+        }
+        if (tp.varType == RangerContextVarType.FunctionParameter) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  ; Primitive (value-copied) types never transfer ownership.
+  fn isPrimitiveTypeName:boolean (name:string) {
+    if ((strlen name) == 0) {
+      return false
+    }
+    if (name == "int") { return true }
+    if (name == "double") { return true }
+    if (name == "float") { return true }
+    if (name == "boolean") { return true }
+    if (name == "char") { return true }
+    if (name == "byte") { return true }
+    if (name == "short") { return true }
+    if (name == "long") { return true }
+    if (name == "string") { return true }
+    if (name == "void") { return true }
+    return false
+  }
+
+  ; Only heap objects and collections can transfer ownership.
+  fn isHeapOwnedParam:boolean (p:RangerAppParamDesc) {
+    if (null? p.nameNode) {
+      return false
+    }
+    def tn:CodeNode (unwrap p.nameNode)
+    if ((strlen tn.array_type) > 0) {
+      return true
+    }
+    if ((strlen tn.key_type) > 0) {
+      return true
+    }
+    if (this.isPrimitiveTypeName(tn.type_name)) {
+      return false
+    }
+    if ((strlen tn.type_name) > 0) {
+      return true
+    }
+    return false
+  }
+
+  ; Record that the value named valueName escapes into ownerPath.
+  fn recordEscape:void (valueName:string ownerPath:string via:string fnCtx:RangerAppWriterContext) {
+    if ((strlen valueName) == 0) {
+      return
+    }
+    def p:RangerAppParamDesc (fnCtx.getVariableDef(valueName))
+    if ((strlen p.name) == 0) {
+      return
+    }
+    ; primitives and strings are copied, not moved -> not an ownership transfer
+    if ((this.isHeapOwnedParam(p)) == false) {
+      return
+    }
+    def already:boolean false
+    for p.escape_owners o:string i {
+      if (o == ownerPath) {
+        already = true
+      }
+    }
+    if (already == false) {
+      push p.escape_owners ownerPath
+    }
+    p.escapes_function = true
+    if (p.escapes_via == "none") {
+      p.escapes_via = via
+    }
+  }
+
+  ; Walk a function body collecting ownership escape facts.
+  fn walkForEscapes:void (node:CodeNode fnCtx:RangerAppWriterContext) {
+    if node.expression {
+      if ((array_length node.children) > 0) {
+        def first:CodeNode (node.getFirst())
+
+        ; obj.field = value  ->  value escapes into obj's object graph
+        if ((first.vref == "=") && ((array_length node.children) >= 3)) {
+          def lhs:CodeNode (node.getSecond())
+          def rhs:CodeNode (itemAt node.children 2)
+          if ((array_length lhs.ns) >= 2) {
+            def ownerPath:string (join lhs.ns ".")
+            this.recordEscape(rhs.vref ownerPath "field" fnCtx)
+          }
+        }
+
+        ; push/set/put into a member or parameter collection  ->  value escapes
+        if (((first.vref == "push") || (first.vref == "set")) || (first.vref == "put")) {
+          if ((array_length node.children) >= 3) {
+            def target:CodeNode (node.getSecond())
+            def value:CodeNode (itemAt node.children 2)
+            if (this.targetOutlivesScope(target fnCtx)) {
+              def ownerPath:string (this.ownerPathOf(target))
+              this.recordEscape(value.vref ownerPath "member-coll" fnCtx)
+            }
+          }
+        }
+
+        ; return value  ->  value escapes to the caller
+        if (first.vref == "return") {
+          if ((array_length node.children) >= 2) {
+            def rv:CodeNode (node.getSecond())
+            this.recordEscape(rv.vref "<return>" "return" fnCtx)
+          }
+        }
+
+        ; method call (call receiver method (args)) -> args may transfer ownership
+        ; to a callee we have not summarized yet (interprocedural, Phase B).
+        if (first.vref == "call") {
+          if ((array_length node.children) >= 4) {
+            def argsExpr:CodeNode (itemAt node.children 3)
+            for argsExpr.children arg:CodeNode ai {
+              if ((strlen arg.vref) > 0) {
+                def ap:RangerAppParamDesc (fnCtx.getVariableDef(arg.vref))
+                if ((strlen ap.name) > 0) {
+                  if (ap.varType == RangerContextVarType.FunctionParameter) {
+                    ap.escape_via_call = true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    for node.children child:CodeNode i {
+      this.walkForEscapes(child fnCtx)
+    }
+  }
+
+  fn ownerSuffix:string (param:RangerAppParamDesc) {
+    def cnt:int (array_length param.escape_owners)
+    if (cnt == 0) {
+      return ""
+    }
+    def s:string " ("
+    for param.escape_owners o:string i {
+      if (i > 0) {
+        s = s + ", "
+      }
+      s = s + o
+    }
+    s = s + ")"
+    return s
+  }
+
+  ; Classify each parameter after the escape walk and (when strict) report.
+  fn finalizeOwnership:void (fn:RangerAppFunctionDesc strict:boolean) {
+    def isPure:boolean false
+    if (!null? fn.nameNode) {
+      if ((unwrap fn.nameNode).hasFlag("pure")) {
+        isPure = true
+      }
+    }
+    def header_done:boolean false
+    for fn.params param:RangerAppParamDesc i {
+      if (param.varType == RangerContextVarType.FunctionParameter) {
+        def ownerCount:int (array_length param.escape_owners)
+        if isPure {
+          ; A pure function never transfers ownership of its arguments.
+          param.ownership_kind = 2
+          param.ownership_resolved = true
+        } {
+          if (ownerCount >= 2) {
+            param.ownership_kind = 4
+            param.ownership_resolved = true
+          } {
+            if (ownerCount == 1) {
+              param.ownership_kind = 3
+              param.ownership_resolved = true
+            } {
+              if param.escape_via_call {
+                ; Passed into another call whose ownership summary is not yet
+                ; propagated -> cannot decide intraprocedurally.
+                param.ownership_kind = 0
+                param.ownership_resolved = false
+              } {
+                param.ownership_kind = 2
+                param.ownership_resolved = true
+              }
+            }
+          }
+        }
+        if strict {
+          if (header_done == false) {
+            print ("ownership[infer] fn " + fn.name + ":")
+            header_done = true
+          }
+          print ("  param '" + param.name + "' -> " + (this.ownershipKindName(param.ownership_kind)) + (this.ownerSuffix(param)))
+          if (param.ownership_resolved == false) {
+            print ("    WARNING: ownership of '" + param.name + "' could not be determined (escapes via call; needs interprocedural summary)")
+          }
+        }
+      }
+    }
+  }
+
+  fn analyzeOwnership:void (fn:RangerAppFunctionDesc strict:boolean) {
+    if (!null? fn.fnBody) {
+      if (!null? fn.fnCtx) {
+        this.walkForEscapes((unwrap fn.fnBody) (unwrap fn.fnCtx))
+      }
+    }
+    this.finalizeOwnership(fn strict)
+  }
+
+  fn analyzeOwnershipClass:void (cl:RangerAppClassDesc strict:boolean) {
+    currentClass = cl
+    for cl.methods m:RangerAppFunctionDesc i {
+      this.analyzeOwnership(m strict)
+    }
+    if (!null? cl.constructor_fn) {
+      this.analyzeOwnership((unwrap cl.constructor_fn) strict)
+    }
+  }
+
+  ; Top-level ownership inference. Target-independent; Phase A only records the
+  ; summary and (when strict) reports it. Does not run the Rust-specific passes.
+  fn analyzeOwnershipAll:void (strict:boolean) {
+    if (null? ctx) {
+      return
+    }
+    this.initMutatingOps()
+    def root:RangerAppWriterContext ((unwrap ctx).getRoot())
+    for root.definedClasses cl:RangerAppClassDesc i {
+      this.analyzeOwnershipClass(cl strict)
+    }
+  }
+
   ; Run analysis on all classes in the context
   fn analyzeAll:void () {
     if (null? ctx) {

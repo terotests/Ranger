@@ -504,7 +504,11 @@ class RangerSwift6ClassWriter {
       } {
         wr.out("." false)
       }
-      wr.out(method.vref false)
+      def methodName method.vref
+      if ((!null? node.fnDesc) && ((strlen node.fnDesc.compiledName) > 0)) {
+        methodName = node.fnDesc.compiledName
+      }
+      wr.out(methodName false)
       wr.out("(" false)
       ctx.setInExpr()
 
@@ -955,14 +959,14 @@ class RangerSwift6ClassWriter {
     for cl.defined_variants fnVar:string i {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
       for mVs.variants variant:RangerAppFunctionDesc i {
-        if(has dblDeclaredFunction variant.name) {
+        if(has dblDeclaredFunction variant.compiledName) {
           continue
         }
         if(has declaredFunction variant.name) {
           wr.out("override " false)
         }
 
-        set dblDeclaredFunction variant.name true
+        set dblDeclaredFunction variant.compiledName true
         wr.out((("func " + variant.compiledName) + "(") false)
 
         if(has parentFunction variant.name) {
@@ -1042,6 +1046,10 @@ class RangerSwift6ClassWriter {
           return res
         }
       }
+    }
+    if (!null? methodNode.fnDesc) {
+      res = methodNode.fnDesc
+      return res
     }
     if (methodNode.has_call) {
       def obj:CodeNode (methodNode.getSecond())

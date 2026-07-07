@@ -1,0 +1,19 @@
+class JpegBits {
+    def yQuantTable:[int] (make [int] 64)
+
+    fn scaleQuant:void (q:int) {
+        def scale:int (5000 / q)
+        def i 0
+        while (i < 64) {
+            def stdYQuant:[int] (make [int] 64)
+            def yVal:int (to_int (((at stdYQuant i) * scale + 50) / 100))
+            set yQuantTable i yVal
+            i = i + 1
+        }
+    }
+
+    sfn m@(main):void () {
+        def j (new JpegBits())
+        j.scaleQuant(85)
+    }
+}

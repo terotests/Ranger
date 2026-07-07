@@ -1,0 +1,42 @@
+; LLVM memory: many short-lived objects, each freed when allocOne returns.
+
+class RangerMem {
+    sfn liveObjects:int () {
+        return 0
+    }
+
+    sfn resetStats:void () {
+    }
+}
+
+class Box {
+    def value:int 0
+
+    Constructor (v:int) {
+        value = v
+    }
+}
+
+class MemAllocOne {
+    sfn allocOne:void () {
+        def b (new Box(1))
+    }
+}
+
+class MemLoopDemo {
+    sfn run:int () {
+        RangerMem.resetStats()
+        def i:int 0
+        while (i < 1000) {
+            MemAllocOne.allocOne()
+            i = (+ i 1)
+        }
+        return (RangerMem.liveObjects())
+    }
+}
+
+class MemLoopMain {
+    sfn m@(main):int () {
+        return (MemLoopDemo.run())
+    }
+}

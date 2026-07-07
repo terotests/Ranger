@@ -383,6 +383,19 @@ extension CodeNode {
     clear otherNode.children
   }
 
+  ; After method-chain desugar the root must be emitted as a call tree, not as
+  ; the original receiver (e.g. hasNewOper on a `new` node would skip .add()).
+  fn finalizeAsCallChainRoot:void () {
+    this.hasNewOper = false
+    this.hasFnCall = false
+    this.tag = "chainroot"
+    this.has_call = true
+  }
+
+  fn tryDesugarNewMethodChain:boolean () {
+    return false
+  }
+
   fn cloneWithType:CodeNode (match:RangerArgMatch changeVref:boolean) {
     def newNode@(lives):CodeNode (new CodeNode ( (unwrap code) sp ep))
     if( has match.nodes vref) {

@@ -1,0 +1,8 @@
+class BufferOps {
+    sfn m@(main):void () {
+        def buf:buffer (buffer_alloc 4)
+        buffer_set buf 0 65
+        def b:int (buffer_get buf 0)
+        def len:int (buffer_length buf)
+    }
+}

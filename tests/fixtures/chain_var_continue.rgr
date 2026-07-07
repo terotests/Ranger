@@ -1,0 +1,25 @@
+class Acc {
+    def items:[int]
+    fn add:Acc (n:int) {
+        push items n
+        return this
+    }
+    fn get:int () {
+        def s:int 0
+        for items v:int idx {
+            s = (+ s v)
+        }
+        return s
+    }
+}
+class ChainVarContinue {
+    sfn run:int () {
+        def b:Acc (new Acc().add(1))
+        return (b.add(2).get())
+    }
+    sfn m@(main):void () {
+        def b:Acc (new Acc().add(1))
+        def n:int (b.add(2).get())
+        print (to_string n)
+    }
+}

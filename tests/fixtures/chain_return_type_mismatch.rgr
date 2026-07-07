@@ -1,0 +1,19 @@
+class Acc {
+    def items:[int]
+    fn add:Acc (n:int) {
+        push items n
+        return this
+    }
+    fn get:int () {
+        def s:int 0
+        for items v:int idx {
+            s = (+ s v)
+        }
+        return s
+    }
+}
+class ChainReturnTypeMismatch {
+    sfn run:Acc () {
+        return (new Acc().add(1).get())
+    }
+}

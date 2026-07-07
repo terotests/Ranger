@@ -1,6 +1,6 @@
 {
   "name": "ranger-compiler",
-  "version": "3.1.0",
+  "version": "3.1.1",
   "description": "Ranger cross-language compiler - compile once, run anywhere",
   "main": "dist/api.js",
   "types": "dist/api.d.ts",
@@ -32,7 +32,7 @@
     "example-svgpath": "rgrc -es6 ./examples/SVGPath/SVGPath.rgr -es6 -typescript -o=SVGPath.ts",
     "testcompiler": "rgrc -es6 ./compiler/ng_Compiler.rgr -nodecli -d=./bin -o=testcomp.js",
     "compileg": "rgrc -es6 ./compiler/ng_Compiler.rgr -nodecli",
-    "compile": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./compiler/ng_Compiler.rgr -nodecli -d=./bin -o=output.js && npm run compile:fixcrlf && npm run compile:copylibs",
+    "compile": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./compiler/ng_Compiler.rgr -nodecli -d=./bin -o=output.js && npm run compile:fixcrlf && node scripts/patch-chain-desugar.js && npm run compile:copylibs",
     "compile:fixcrlf": "sed -i '' 's/\\r$//' bin/output.js || sed -i 's/\\r$//' bin/output.js || true",
     "compile:copylibs": "cp ./compiler/Lang.rgr ./bin/Lang.rgr && cp ./lib/stdops.rgr ./bin/stdops.rgr",
     "compile:win": "cross-env RANGER_LIB=./compiler/Lang.rgr;./lib/stdops.rgr node bin/output.js -es6 ./compiler/ng_Compiler.rgr -nodecli -d=./bin -o=output.js && copy .\\compiler\\Lang.rgr .\\bin\\Lang.rgr && copy .\\lib\\stdops.rgr .\\bin\\stdops.rgr",

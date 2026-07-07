@@ -1,8 +1,8 @@
-# WASM pluginit ja makrot — visio
+# WASM pluginit ja makrot ï¿½ visio
 
-Kyllä, itse asiassa **pluginit ja makrot ovat paljon kiinnostavampi käyttökohde WASM:lle kuin pelkkä "vielä yksi target"**.
+Kyllï¿½, itse asiassa **pluginit ja makrot ovat paljon kiinnostavampi kï¿½yttï¿½kohde WASM:lle kuin pelkkï¿½ "vielï¿½ yksi target"**.
 
-Jos katson Rangerin nykyistä arkkitehtuuria, näkisin WASM:n ennen kaikkea näin:
+Jos katson Rangerin nykyistï¿½ arkkitehtuuria, nï¿½kisin WASM:n ennen kaikkea nï¿½in:
 
 ```text
 Ranger Compiler
@@ -12,7 +12,7 @@ Ranger Compiler
  WASM plugin
 ```
 
-eikä niinkään:
+eikï¿½ niinkï¿½ï¿½n:
 
 ```text
 Ranger
@@ -24,14 +24,14 @@ Ranger
 
 ## Ongelma jonka WASM ratkaisee
 
-Jos annat käyttäjän kirjoittaa kääntäjän pluginin:
+Jos annat kï¿½yttï¿½jï¿½n kirjoittaa kï¿½ï¿½ntï¿½jï¿½n pluginin:
 
 ```ranger
 plugin MyOptimization {
 }
 ```
 
-ja ajat sitä natiivina:
+ja ajat sitï¿½ natiivina:
 
 ```text
 dlopen()
@@ -41,11 +41,11 @@ reflection()
 
 plugin voi:
 
-* kaataa kääntäjän
+* kaataa kï¿½ï¿½ntï¿½jï¿½n
 * vuotaa muistia
-* jäädä ikuiseen silmukkaan
+* jï¿½ï¿½dï¿½ ikuiseen silmukkaan
 * lukea tiedostoja
-* tehdä mitä tahansa
+* tehdï¿½ mitï¿½ tahansa
 
 WASM:ssa saat automaattisesti sandboxin.
 
@@ -55,7 +55,7 @@ Plugin saa vain ne API:t jotka annat sille.
 
 ## AST-makrot WASM:na
 
-Voisit määritellä:
+Voisit mï¿½ï¿½ritellï¿½:
 
 ```ranger
 plugin RemoveUnusedVars {
@@ -64,7 +64,7 @@ plugin RemoveUnusedVars {
 }
 ```
 
-Kääntäjä:
+Kï¿½ï¿½ntï¿½jï¿½:
 
 ```text
 parse
@@ -78,13 +78,13 @@ modified AST
 codegen
 ```
 
-Tämä muistuttaa vähän Rustin procedural macroja, mutta turvallisemmin.
+Tï¿½mï¿½ muistuttaa vï¿½hï¿½n Rustin procedural macroja, mutta turvallisemmin.
 
 ---
 
 ## Optimointipluginien markkinapaikka
 
-Tämä voisi olla aika uniikki ominaisuus.
+Tï¿½mï¿½ voisi olla aika uniikki ominaisuus.
 
 Esimerkiksi:
 
@@ -94,7 +94,7 @@ ranger-opt-simd.wasm
 ranger-opt-tailcall.wasm
 ```
 
-ja käyttäjä valitsee:
+ja kï¿½yttï¿½jï¿½ valitsee:
 
 ```bash
 ranger build \
@@ -138,9 +138,9 @@ deserialize()
 
 ---
 
-## Kääntäjän sisäinen DSL
+## Kï¿½ï¿½ntï¿½jï¿½n sisï¿½inen DSL
 
-Voisit tehdä jopa:
+Voisit tehdï¿½ jopa:
 
 ```ranger
 compiletime {
@@ -148,9 +148,9 @@ compiletime {
 }
 ```
 
-joka käännetään WASM:ksi.
+joka kï¿½ï¿½nnetï¿½ï¿½n WASM:ksi.
 
-Kääntäjä:
+Kï¿½ï¿½ntï¿½jï¿½:
 
 ```text
 1. compile compiletime block
@@ -160,13 +160,13 @@ Kääntäjä:
 5. continue compilation
 ```
 
-Tämä on hyvin samanlainen idea kuin Zig:n `comptime`.
+Tï¿½mï¿½ on hyvin samanlainen idea kuin Zig:n `comptime`.
 
 ---
 
 ## Erityisen kiinnostava Rangerille
 
-Koska Ranger osaa generoida monia kieliä, plugin voisi olla target-kohtainen.
+Koska Ranger osaa generoida monia kieliï¿½, plugin voisi olla target-kohtainen.
 
 ```text
 AST
@@ -182,13 +182,13 @@ CPP optimizer
 
 Kaikki plugineina.
 
-Kääntäjän ydintä ei tarvitse muuttaa.
+Kï¿½ï¿½ntï¿½jï¿½n ydintï¿½ ei tarvitse muuttaa.
 
 ---
 
 ## Yksi todella mielenkiintoinen idea
 
-Sen sijaan että pluginit muokkaavat AST:ta, ne voisivat muokata tulevaa Ranger IR:ää.
+Sen sijaan ettï¿½ pluginit muokkaavat AST:ta, ne voisivat muokata tulevaa Ranger IR:ï¿½ï¿½.
 
 ```text
 AST
@@ -204,19 +204,19 @@ LLVM
 WASM/native
 ```
 
-Tämä olisi paljon vakaampi rajapinta.
+Tï¿½mï¿½ olisi paljon vakaampi rajapinta.
 
-AST muuttuu helposti kielen kehittyessä.
+AST muuttuu helposti kielen kehittyessï¿½.
 
-IR pysyy yleensä vakaampana.
+IR pysyy yleensï¿½ vakaampana.
 
-LLVM:n menestys perustuu pitkälti juuri tähän ajatukseen.
+LLVM:n menestys perustuu pitkï¿½lti juuri tï¿½hï¿½n ajatukseen.
 
 ---
 
-## Ehdotettu etenemisjärjestys
+## Ehdotettu etenemisjï¿½rjestys
 
-Jos olisin rakentamassa Rangeria eteenpäin, pitäisin jopa mahdollisena että **ensimmäinen WASM-käyttökohde ei olisi koodigenerointi vaan kääntäjän laajennukset**:
+Jos olisin rakentamassa Rangeria eteenpï¿½in, pitï¿½isin jopa mahdollisena ettï¿½ **ensimmï¿½inen WASM-kï¿½yttï¿½kohde ei olisi koodigenerointi vaan kï¿½ï¿½ntï¿½jï¿½n laajennukset**:
 
 ```text
 Phase 1:
@@ -232,13 +232,13 @@ Phase 4:
   WASM target
 ```
 
-Tämä voisi tuoda Rangeriin jotain melko omaleimaista: turvallisesti ajettavat, eri kielitargeteista riippumattomat kääntäjälaajennukset. Se on ominaisuus, jota monilla kielillä ei ole kovin elegantisti ratkaistu.
+Tï¿½mï¿½ voisi tuoda Rangeriin jotain melko omaleimaista: turvallisesti ajettavat, eri kielitargeteista riippumattomat kï¿½ï¿½ntï¿½jï¿½laajennukset. Se on ominaisuus, jota monilla kielillï¿½ ei ole kovin elegantisti ratkaistu.
 
 ---
 
-## Liittyvät dokumentit
+## Liittyvï¿½t dokumentit
 
 * [PLAN_WASM_BACKEND.md](./PLAN_WASM_BACKEND.md) â€” WASM/WAT-pipelinen nykytila
-* [PLUGINS_REVIEW.md](./PLUGINS_REVIEW.md) — nykyinen JavaScript-pohjainen plugin-arkkitehtuuri
-* [ai/ADDING_NEW_LANGUAGE.md](./ai/ADDING_NEW_LANGUAGE.md) — backend-integraatio
-* [compiler/ng_LowIR.rgr](./compiler/ng_LowIR.rgr) — Low IR (mahdollinen plugin-rajapinta Phase 3:ssa)
+* [PLUGINS_REVIEW.md](./PLUGINS_REVIEW.md) ï¿½ nykyinen JavaScript-pohjainen plugin-arkkitehtuuri
+* [ai/ADDING_NEW_LANGUAGE.md](./ai/ADDING_NEW_LANGUAGE.md) ï¿½ backend-integraatio
+* [compiler/ng_LowIR.rgr](./compiler/ng_LowIR.rgr) ï¿½ Low IR (mahdollinen plugin-rajapinta Phase 3:ssa)

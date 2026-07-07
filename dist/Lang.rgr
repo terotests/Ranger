@@ -57,6 +57,7 @@ language {
         php         PHP             php
         python      Python          py
         nim         Nim             nim
+        llvm        LLVM IR         ll
     }
 
     toplevel_keywords (class systemclass Constructor fn sfn Import Extend Enum def let operators)
@@ -220,6 +221,7 @@ language {
         random        _:double () {
             templates {
                 es6 ('Math.random()')
+                kotlin ('Math.random()' (imp "java.lang.Math"))
             }
         }
 
@@ -244,6 +246,7 @@ language {
         random        _:int ( min:int max:int) {
             templates {
                 es6 ('Math.floor(Math.random()*(' (e 2) ' - ' (e 1)' + 1) + ' (e 1)')')
+                kotlin ('(Math.floor(Math.random() * (' (e 2) ' - ' (e 1) ' + 1)).toInt() + ' (e 1) ')' (imp "java.lang.Math"))
             }
         }
         
@@ -520,6 +523,7 @@ func r_io_get_env( name string) *GoNullable {
         ; Command line arguments
         shell_arg             cmdArg:string (index:int) {
             templates {
+                llvm ( "(shell_arg " (e 1) ")")
                 cpp ( "std::string(__g_argv[" (e 1) " + 1])")
                 php ( "$argv[" (e 1) " + 1]" )
                 java7 ( "args[" (e 1) "]")
@@ -536,6 +540,7 @@ func r_io_get_env( name string) *GoNullable {
 
         shell_arg_cnt         cmdArg:int () @doc("return the number of arguments for command line utility") {
             templates {
+                llvm ( "(shell_arg_cnt)")
                 cpp ( "__g_argc - 1")
                 swift3 ("CommandLine.arguments.count - 1")
                 swift6 ("CommandLine.arguments.count - 1")
@@ -879,6 +884,7 @@ fn r_write_file(path: &str, filename: &str, data: &str) {
         read_file        cmdReadFile@(optional async):string (path:string filename:string) {
 
             templates {
+                llvm ( "(read_file " (e 1) " " (e 2) ")")
                 ts ( "await (new Promise<string>(resolve => { require('fs').readFile( " (e 1) " + '/' + " (e 2) " , 'utf8', (err,data)=>{ resolve(data) }) } ))" )
                 es6 ( "await (new Promise(resolve => { require('fs').readFile( " (e 1) " + '/' + " (e 2) " , 'utf8', (err,data)=>{ resolve(data) }) } ))" )
                 ranger (  "(read_file " (e 1) " " (e 2) ")" )
@@ -1882,6 +1888,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
                 csharp ( "new " (typeof 1) "( new " (r_atype 1) "[" (e 2)"])")
                 swift3 ( "" (typeof 1)"(repeating:" (e 3) ", count:" (e 2) ")" )
                 ranger ( "(make  _:" (typeof 1) " " (e 2) ")" )
+                llvm ( "(make  _:" (typeof 1) " " (e 2) ")" )
                 go ( "make(" (typeof 1) "," (e 2) ")" )
                 cpp (  (typeof 1) "(" (e 2) ")")
                 ; new ArrayList<Double>( Arrays.asList( new Double[len_2] ) );
@@ -2074,7 +2081,7 @@ case class customException(smth:String)  extends Exception
                     i
                 "}" nl
                 )
-                go    (  (def 2) (def 3) "var " (e 3) " int64 = 0;  " nl "for ; " (e 3) " < int64(len(" (e 1) ")) ; " (e 3) "++ {" nl I nl (e 2) " := " (e 1) "[" (e 3) "];" nl (block 4) nl i "}" )
+                go    (  (forkctx _ ) (def 3) "var " (e 3) " int64 = 0;  " nl "for ; " (e 3) " < int64(len(" (e 1) ")) ; " (e 3) "++ {" nl I nl (go_for_bind 2) nl (block 4) nl i "}" )
 
                 php    ( (forkctx _ ) (def 2) (def 3) "for ( " (e 3) " = 0; " (e 3) " < count(" (e 1) "); " (e 3) "++) {" nl I (e 2) " = " (e 1) "[" (e 3) "];" nl (block 4) nl i "}" )
                 java7 ( (forkctx _ ) (def 2) (def 3) "for ( int " (e 3) " = 0; " (e 3) " < " (e 1) ".size(); " (e 3) "++) {" nl I (typeof 2) " " (e 2) " = " (e 1) ".get(" (e 3) ");" nl (block 4) nl i "}" )
@@ -2225,6 +2232,7 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
 
         strlen       cmdStrlen:int       ( text:string ) { 
             templates {
+                llvm ( "(strlen " (e 1) ")")
                 ranger ( "( strlen (" (e 1 ) "))")
                 cpp ( '(int)('(e 1) ".length())") 
                 java7 ( (e 1) ".length()") 
@@ -2237,6 +2245,50 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
                 python ( "len(" (e 1) ")")
                 rust ( (e 1) ".chars().count() as i64")
                 * ( (e 1) ".length")
+            }
+        }
+
+        ; ISO calendar dates (YYYY-MM-DD). See lib/IsoDate/ and ai/ISO_DATE.md.
+        iso_add_days   cmdIsoAddDays:string   ( iso:string days:int ) {
+            templates {
+                ranger ( "(DateMath.addDays " (e 1) " " (e 2) ")")
+                kotlin ( "java.time.LocalDate.parse(" (e 1) ").plusDays(" (e 2) ".toLong()).toString()" (imp "java.time.LocalDate"))
+                java7 ( "java.time.LocalDate.parse(" (e 1) ").plusDays(" (e 2) ").toString()" (imp "java.time.LocalDate"))
+                es6 ( "((iso,d)=>{const p=iso.split('-').map(Number);const t=new Date(Date.UTC(p[0],p[1]-1,p[2]+d));return t.toISOString().slice(0,10)})(" (e 1) "," (e 2) ")")
+                * ( "(DateMath.addDays " (e 1) " " (e 2) ")")
+            }
+        }
+
+        iso_compare   cmdIsoCompare:int   ( a:string b:string ) {
+            templates {
+                ranger ( "(DateMath.compareIso " (e 1) " " (e 2) ")")
+                kotlin ( "java.time.LocalDate.parse(" (e 1) ").compareTo(java.time.LocalDate.parse(" (e 2) "))" (imp "java.time.LocalDate"))
+                java7 ( "java.time.LocalDate.parse(" (e 1) ").compareTo(java.time.LocalDate.parse(" (e 2) "))" (imp "java.time.LocalDate"))
+                es6 ( "((a,b)=>a<b?-1:a>b?1:0)(" (e 1) "," (e 2) ")")
+                * ( "(DateMath.compareIso " (e 1) " " (e 2) ")")
+            }
+        }
+
+        iso_between   cmdIsoBetween:boolean   ( d:string start:string end:string ) {
+            templates {
+                ranger ( "(DateMath.isBetween " (e 1) " " (e 2) " " (e 3) ")")
+                kotlin ( "(!java.time.LocalDate.parse(" (e 1) ").isBefore(java.time.LocalDate.parse(" (e 2) ")) && !java.time.LocalDate.parse(" (e 1) ").isAfter(java.time.LocalDate.parse(" (e 3) ")))" (imp "java.time.LocalDate"))
+                java7 ( "(!java.time.LocalDate.parse(" (e 1) ").isBefore(java.time.LocalDate.parse(" (e 2) ")) && !java.time.LocalDate.parse(" (e 1) ").isAfter(java.time.LocalDate.parse(" (e 3) ")))" (imp "java.time.LocalDate"))
+                es6 ( "((d,s,e)=>d>=s&&d<=e)(" (e 1) "," (e 2) "," (e 3) ")")
+                * ( "(DateMath.isBetween " (e 1) " " (e 2) " " (e 3) ")")
+            }
+        }
+
+        ; Case-insensitive regex substring search. Pattern is a string (no /literal/). See lib/Regex/ and ai/REGEX.md.
+        regex_test   cmdRegexTest:boolean   ( pattern:string haystack:string ) {
+            templates {
+                ranger ( "(RegexMatch.testIgnoreCase(" (e 1) " " (e 2) "))")
+                kotlin ( "try { Regex(" (e 1) ", RegexOption.IGNORE_CASE).containsMatchIn(" (e 2) ") } catch (_: Exception) { false }" )
+                java7 ( "try { java.util.regex.Pattern.compile(" (e 1) ", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(" (e 2) ").find() } catch (Exception e) { false }" (imp "java.util.regex.Pattern"))
+                es6 ( "(()=>{try{return new RegExp(" (e 1) ",'i').test(" (e 2) ");}catch{return false;}})()" )
+                swift6 ( (e 2) ".range(of: " (e 1) ", options: [.regularExpression, .caseInsensitive]) != nil" )
+                swift3 ( (e 2) ".range(of: " (e 1) ", options: [.regularExpression, .caseInsensitive]) != nil" )
+                * ( "(RegexMatch.testIgnoreCase(" (e 1) " " (e 2) "))")
             }
         }
 
@@ -2314,6 +2366,7 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
         ; Allocate a new buffer of specified size (zero-filled)
         buffer_alloc    cmdBufferAlloc:buffer    ( size:int ) {
             templates {
+                llvm ( "(buffer_alloc " (e 1) ")" )
                 ranger ( "(buffer_alloc " (e 1) ")" )
                 es6 ( "(function(){ var b = new ArrayBuffer(" (e 1) "); b._view = new DataView(b); return b; })()" )
                 go ( "make([]byte, " (e 1) ")" )
@@ -2329,6 +2382,7 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
         ; Get the length of a buffer in bytes
         buffer_length   cmdBufferLength:int      ( buf:buffer ) {
             templates {
+                llvm ( "(buffer_length " (e 1) ")" )
                 ranger ( "(buffer_length " (e 1) ")" )
                 es6 ( (e 1) ".byteLength" )
                 go ( "int64(len(" (e 1) "))" )
@@ -2344,6 +2398,7 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
         ; Read a single byte at offset (returns 0-255)
         buffer_get      cmdBufferGet:int         ( buf:buffer offset:int ) {
             templates {
+                llvm ( "(buffer_get " (e 1) " " (e 2) ")" )
                 ranger ( "(buffer_get " (e 1) " " (e 2) ")" )
                 es6 ( (e 1) "._view.getUint8(" (e 2) ")" )
                 go ( "int64(" (e 1) "[" (e 2) "])" )
@@ -2359,6 +2414,7 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
         ; Write a single byte at offset (value should be 0-255)
         buffer_set      cmdBufferSet:void        ( buf:buffer offset:int value:int ) {
             templates {
+                llvm ( "(buffer_set " (e 1) " " (e 2) " " (e 3) ")" )
                 ranger ( "(buffer_set " (e 1) " " (e 2) " " (e 3) ")" )
                 es6 ( (e 1) "._view.setUint8(" (e 2) ", " (e 3) ")" )
                 go ( (e 1) "[" (e 2) "] = byte(" (e 3) ")" )
@@ -2437,6 +2493,7 @@ std::string r_buffer_to_base64(const std::vector<uint8_t>& data) {
         ; Write buffer to a binary file
         buffer_write_file   cmdBufferWriteFile:void     ( path:string filename:string buf:buffer ) {
             templates {
+                llvm ( "(buffer_write_file " (e 1) " " (e 2) " " (e 3) ")" )
                 ranger ( "(buffer_write_file " (e 1) " " (e 2) " " (e 3) ")" )
                 es6 ( "require('fs').writeFileSync(" (e 1) " + '/' + " (e 2) ", Buffer.from(" (e 3) "))" )
                 go ( "os.WriteFile(" (e 1) " + \"/\" + " (e 2) ", " (e 3) ", 0644)" (imp "os") )
@@ -2459,6 +2516,7 @@ void r_buffer_write_file(const std::string& path, const std::string& filename, c
         ; Read a binary file into a buffer
         buffer_read_file    cmdBufferReadFile:buffer    ( path:string filename:string ) {
             templates {
+                llvm ( "(buffer_read_file " (e 1) " " (e 2) ")" )
                 ranger ( "(buffer_read_file " (e 1) " " (e 2) ")" )
                 es6 ( "(function(){ var b = require('fs').readFileSync(" (e 1) " + '/' + " (e 2) "); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })()" )
                 go ( "func() []byte { d, _ := os.ReadFile(filepath.Join(" (e 1) ", " (e 2) ")); return d }()" (imp "os") (imp "path/filepath") )
@@ -2534,6 +2592,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
         ; Allocate a new int_buffer of specified size (zero-filled)
         int_buffer_alloc    cmdIntBufferAlloc:int_buffer    ( size:int ) {
             templates {
+                llvm ( "(int_buffer_alloc " (e 1) ")" )
                 ranger ( "(int_buffer_alloc " (e 1) ")" )
                 es6 ( "new Int32Array(" (e 1) ")" )
                 go ( "make([]int64, " (e 1) ")" )
@@ -2564,6 +2623,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
         ; Read an int64 at index
         int_buffer_get      cmdIntBufferGet:int         ( buf:int_buffer index:int ) {
             templates {
+                llvm ( "(int_buffer_get " (e 1) " " (e 2) ")" )
                 ranger ( "(int_buffer_get " (e 1) " " (e 2) ")" )
                 es6 ( (e 1) "[" (e 2) "]" )
                 go ( (e 1) "[" (e 2) "]" )
@@ -2579,6 +2639,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
         ; Write an int64 at index
         int_buffer_set      cmdIntBufferSet:void        ( buf:int_buffer index:int value:int ) {
             templates {
+                llvm ( "(int_buffer_set " (e 1) " " (e 2) " " (e 3) ")" )
                 ranger ( "(int_buffer_set " (e 1) " " (e 2) " " (e 3) ")" )
                 es6 ( (e 1) "[" (e 2) "] = " (e 3) )
                 go ( (e 1) "[" (e 2) "] = " (e 3) )
@@ -2594,6 +2655,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
         ; Fill int_buffer with a value in range [start, end)
         int_buffer_fill     cmdIntBufferFill:void       ( buf:int_buffer value:int start:int end:int ) {
             templates {
+                llvm ( "(int_buffer_fill " (e 1) " " (e 2) " " (e 3) " " (e 4) ")" )
                 ranger ( "(int_buffer_fill " (e 1) " " (e 2) " " (e 3) " " (e 4) ")" )
                 es6 ( (e 1) ".fill(" (e 2) ", " (e 3) ", " (e 4) ")" )
                 go ( "for i := " (e 3) "; i < " (e 4) "; i++ { " (e 1) "[i] = " (e 2) " }" )
@@ -2755,6 +2817,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
 
         to_int      cmdToInt:int       ( value:double ) { 
             templates {
+                llvm ( "(to_int " (e 1) ")" )
                 ranger ( "(to_int " (e 1) ")") 
                 csharp ( "(int)" (e 1 ) "" )
                 swift3 ( "Int(" (e 1 ) ")" )
@@ -2824,6 +2887,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
         at      _:string       ( text:string position:int ) { 
             templates {
                 ranger ( '(at ' (e 1) ' ' ( e 2 ) ')')
+                llvm ( "(at " (e 1) " " (e 2) ")")
                 cpp ( 'r_utf8_char_at(' (e 1) ', ' (e 2) ')'
 (create_polyfill '
 std::string r_utf8_char_at(const std::string& str, int pos_i)
@@ -2872,6 +2936,7 @@ std::string r_utf8_char_at(const std::string& str, int pos_i)
 
         charAt      cmdCharAt:int       ( text:string position:int ) { 
             templates {
+                llvm ( "(charAt " (e 1) " " (e 2) ")")
                 ranger ( "(charAt " (e 1) " " ( e 2 ) ")")
                 cpp ( (e 1) ".at(" (e 2) ")")    
                 csharp ( (e 1) "[" (e 2) "]")
@@ -3425,6 +3490,9 @@ std::string join(const T& v, const std::string& delim) {
         get             cmdGet@(optional):T          ( a:[T] index:int ) {
             templates {
                 es6 ('( ' (e 1) '.length  > ' (e 2)'  && ' (e 2)' >= 0  ?  '(e 1) '[' (e 2)'] : null ) ')
+                ranger ( "(get " (e 1) " " (e 2) ")")
+                llvm ( "(get " (e 1) " " (e 2) ")")
+                * ( (e 1) "[" (e 2) "]" )
             } 
         }
         
@@ -3474,6 +3542,7 @@ r_optional_primitive<int> cpp_get_map_int_value( std::map<" (r_ktype 1) ", int> 
         get             cmdGet@(optional weak):T          ( map:[K:T] key:K ) { 
             templates {
                 ranger ( "(get " (e 1) " " (e 2) ")")                 
+                llvm ( "(get " (e 1) " " (e 2) ")")
                 java7 ( (e 1) ".get(" (e 2) ")" )
                 rust ( (e 1) ".get(" (e 2) ")" )
 
@@ -3506,6 +3575,7 @@ i "}" nl ))
         set             cmdSet@(moves@( 3 1 ) ):void          ( array@(mutates):[T] index:int value@( refto@(1) ):T ) { 
             templates {
                 ranger ( "set " (e 1) " " (e 2) " " (e 3) )                
+                llvm ( "set " (e 1) " " (e 2) " " (e 3) )
                 java7 ( (e 1) ".set(" (e 2) ", " (e 3) ");" )
                 rust ( (e 1) "[" (e 2) " as usize] = " (e 3) ";" )
                 scala ( (e 1) "(" (e 2) ") =  " (e 3)  )
@@ -3520,6 +3590,7 @@ i "}" nl ))
         set             cmdSet@(moves@( 3 1 ) ):void          ( map@(mutates):[K:T] key:K value@( refto@(1) ):T ) { 
             templates {
                 ranger ( "set " (e 1) " " (e 2) " " (e 3) )                
+                llvm ( "set " (e 1) " " (e 2) " " (e 3) )
                 java7 ( (e 1) ".put(" (e 2) ", " (e 3) ");" )
                 rust ( (e 1) ".insert(" (e 2) ", " (e 3) ");" )
                 scala ( (e 1) ".put(" (e 2) ", " (e 3) ")" )
@@ -3545,6 +3616,7 @@ i "}" nl ))
         itemAt    cmdItemAt@(weak):T      ( array:[T] index:int ) { 
             templates {
                 ranger ( "(itemAt " (e 1) " " (e 2) ")" )
+                llvm ( "(itemAt " (e 1) " " (e 2) ")" )
                  cpp ( (e 1) ".at(" (e 2) ")" (imp "<vector>"))   
                  java7 ( (e 1) ".get(" (e 2) ")" )                                 
                  ; lift return optional type => safer                             
@@ -3911,6 +3983,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
 
         length       cmdStrlen:int       ( text:string ) { 
             templates {
+                llvm ( "(length " (e 1) ")")
                 ranger ( "(length " (e 1) ")")
                 cpp ( (e 1) ".length()") 
                 java7 ( (e 1) ".length()") 
@@ -4006,6 +4079,7 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
         array_length    cmdArrayLength:int      ( array:[T] ) { 
             templates {
                 ranger ( "(array_length " (e 1) ")")
+                llvm ( "(array_length " (e 1) ")")
                  cpp ( '(int)(' (e 1) ".size())" )                                                              
                  swift3 ( (e 1) ".count")
                  swift6 ( (e 1) ".count")
@@ -4069,6 +4143,7 @@ public <T> T _arr_extract( ArrayList<T> list, Integer i )  {
         print           cmdPrint:void           ( text:string) { 
             templates {
                  ranger ( nl "print " (e 1) nl)
+                 llvm ( nl "print " (e 1) nl)
                  cpp (ln "std::cout << " (e 1) " << std::endl;" nl (imp "<iostream>") (imp "<string>"))
                  kotlin ( nl "println( " (e 1) " )" nl )                                              
                  scala ( "println( " (e 1) " )" ) 
@@ -4088,6 +4163,7 @@ public <T> T _arr_extract( ArrayList<T> list, Integer i )  {
         ; Write text without newline
         write           cmdWrite:void           ( text:string) { 
             templates {
+                 llvm ( nl "write " (e 1) nl)
                  cpp ( nl "std::cout << " (e 1) " << std::flush;" nl (imp "<iostream>"))
                  go ( nl "fmt.Print( " (e 1) " )" nl (imp "fmt"))
                  rust ( nl "print!(\"{}\", " (e 1) ");" nl)
@@ -4105,6 +4181,7 @@ public <T> T _arr_extract( ArrayList<T> list, Integer i )  {
         ; Clear the terminal screen
         clear_screen    cmdClearScreen:void     () {
             templates {
+                 llvm ( nl "clear_screen" nl)
                  cpp ( nl "std::cout << \"\\x1b[2J\\x1b[H\" << std::flush;" nl (imp "<iostream>"))
                  go ( nl "fmt.Print(\"\\x1b[2J\\x1b[H\")" nl (imp "fmt"))
                  rust ( nl "print!(\"\\x1b[2J\\x1b[H\");" nl)
@@ -4122,6 +4199,7 @@ public <T> T _arr_extract( ArrayList<T> list, Integer i )  {
         ; Move cursor to position (1-based coordinates)
         move_cursor     cmdMoveCursor:void      ( x:int y:int) {
             templates {
+                 llvm ( nl "move_cursor " (e 1) " " (e 2) nl)
                  cpp ( nl "std::cout << \"\\x1b[\" << (" (e 2) ") << \";\" << (" (e 1) ") << \"H\" << std::flush;" nl (imp "<iostream>"))
                  go ( nl "fmt.Printf(\"\\x1b[%d;%dH\", " (e 2) ", " (e 1) ")" nl (imp "fmt"))
                  rust ( nl "print!(\"\\x1b[{};{}H\", " (e 2) ", " (e 1) ");" nl)
@@ -4139,6 +4217,7 @@ public <T> T _arr_extract( ArrayList<T> list, Integer i )  {
         ; Hide terminal cursor
         hide_cursor     cmdHideCursor:void      () {
             templates {
+                 llvm ( nl "hide_cursor" nl)
                  cpp ( nl "std::cout << \"\\x1b[?25l\" << std::flush;" nl (imp "<iostream>"))
                  go ( nl "fmt.Print(\"\\x1b[?25l\")" nl (imp "fmt"))
                  rust ( nl "print!(\"\\x1b[?25l\");" nl)
@@ -4156,6 +4235,7 @@ public <T> T _arr_extract( ArrayList<T> list, Integer i )  {
         ; Show terminal cursor
         show_cursor     cmdShowCursor:void      () {
             templates {
+                 llvm ( nl "show_cursor" nl)
                  cpp ( nl "std::cout << \"\\x1b[?25h\" << std::flush;" nl (imp "<iostream>"))
                  go ( nl "fmt.Print(\"\\x1b[?25h\")" nl (imp "fmt"))
                  rust ( nl "print!(\"\\x1b[?25h\");" nl)
@@ -4881,6 +4961,7 @@ fun r_read_key(): String {
         ; Sleep for specified milliseconds (blocking)
         sleep_ms        cmdSleepMs@(async):void         (ms:int) {
             templates {
+                 llvm ( nl "sleep_ms " (e 1) nl)
                  es6 ( nl "await new Promise(r => setTimeout(r, " (e 1) "));" nl )
                  rust ( nl "std::thread::sleep(std::time::Duration::from_millis(" (e 1) " as u64));" nl )
                  go ( nl "time.Sleep(time.Duration(" (e 1) ") * time.Millisecond)" nl (imp "time"))
@@ -4898,6 +4979,7 @@ fun r_read_key(): String {
 
         exit            cmdExit:void            ( code:int) {
             templates {
+                 llvm ( nl "exit " (e 1) nl)
                  ranger ( nl "exit " (e 1) nl)
                  cpp ( nl "exit(" (e 1) ");" nl (imp "<cstdlib>"))
                  kotlin ( nl "System.exit(" (e 1) ")" nl )
@@ -4963,6 +5045,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
 
         to_double       toDouble:double ( input:int ) {
             templates {
+                llvm ( "(to_double " (e 1) ")" )
                 ranger ("( to_double " (e 1) " )")
                 go ("float64( " (e 1) " )")
                 es6 ( (e 1) )
@@ -5503,6 +5586,7 @@ systemclass buffer {
     csharp "byte[]"
     kotlin ByteArray
     scala "Array[Byte]"
+    llvm i64
 }
 
 ; SYSTEM CLASS: int_buffer
@@ -5522,6 +5606,7 @@ systemclass int_buffer {
     csharp "long[]"
     kotlin LongArray
     scala "Array[Long]"
+    llvm i64
 }
 
 ; SYSTEM CLASS: double_buffer
@@ -5541,6 +5626,7 @@ systemclass double_buffer {
     csharp "double[]"
     kotlin DoubleArray
     scala "Array[Double]"
+    llvm i64
 }
 
 ; ============================================================================

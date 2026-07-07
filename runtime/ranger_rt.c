@@ -57,6 +57,51 @@ const char *ranger_at_char(const char *text, int position) {
   return buf;
 }
 
+/* substring: heap-allocated copy of bytes [start, end) of text.
+ * Byte-indexed to match ranger_char_at semantics on this runtime. */
+char *ranger_substring(const char *text, int start, int end) {
+  int len;
+  int n;
+  char *out;
+  if (text == NULL) {
+    return NULL;
+  }
+  len = (int)strlen(text);
+  if (start < 0) {
+    start = 0;
+  }
+  if (end > len) {
+    end = len;
+  }
+  if (end < start) {
+    end = start;
+  }
+  n = end - start;
+  out = (char *)malloc((size_t)n + 1);
+  if (out == NULL) {
+    return NULL;
+  }
+  if (n > 0) {
+    memcpy(out, text + start, (size_t)n);
+  }
+  out[n] = '\0';
+  return out;
+}
+
+double ranger_str2double(const char *text) {
+  if (text == NULL) {
+    return 0.0;
+  }
+  return strtod(text, NULL);
+}
+
+int ranger_str2int(const char *text) {
+  if (text == NULL) {
+    return 0;
+  }
+  return (int)strtol(text, NULL, 10);
+}
+
 char *ranger_strdup(const char *text) {
   static char empty[] = "";
   size_t n;
@@ -71,6 +116,46 @@ char *ranger_strdup(const char *text) {
   }
   memcpy(copy, text, n + 1);
   return copy;
+}
+
+/* strfromcode: encode a Unicode codepoint as a heap-allocated UTF-8 string. */
+char *ranger_str_fromcode(int code) {
+  char *out = (char *)malloc(5);
+  int n = 0;
+  if (out == NULL) {
+    return NULL;
+  }
+  if (code < 0) {
+    code = 0;
+  }
+  if (code < 0x80) {
+    out[n++] = (char)code;
+  } else if (code < 0x800) {
+    out[n++] = (char)(0xC0 | (code >> 6));
+    out[n++] = (char)(0x80 | (code & 0x3F));
+  } else if (code < 0x10000) {
+    out[n++] = (char)(0xE0 | (code >> 12));
+    out[n++] = (char)(0x80 | ((code >> 6) & 0x3F));
+    out[n++] = (char)(0x80 | (code & 0x3F));
+  } else {
+    out[n++] = (char)(0xF0 | (code >> 18));
+    out[n++] = (char)(0x80 | ((code >> 12) & 0x3F));
+    out[n++] = (char)(0x80 | ((code >> 6) & 0x3F));
+    out[n++] = (char)(0x80 | (code & 0x3F));
+  }
+  out[n] = '\0';
+  return out;
+}
+
+/* rawbytechar: a single raw byte as a heap-allocated 1-byte string. */
+char *ranger_str_frombyte(int code) {
+  char *out = (char *)malloc(2);
+  if (out == NULL) {
+    return NULL;
+  }
+  out[0] = (char)(code & 0xFF);
+  out[1] = '\0';
+  return out;
 }
 
 const char *ranger_read_file(const char *path, const char *filename) {

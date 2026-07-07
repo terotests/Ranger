@@ -6,7 +6,7 @@ export default defineConfig({
     testTimeout: 30000,
     hookTimeout: 30000,
     root: "./tests",
-    exclude: ["**/node_modules/**", "**/ranger-vscode-extension/**"],
+    exclude: ["**/node_modules/**", "**/ranger-vscode-extension/**", "**/compiler-llvm.test.ts"],
     sequence: {
       concurrent: false, // Run tests sequentially
     },

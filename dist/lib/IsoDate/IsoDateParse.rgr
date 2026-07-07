@@ -1,0 +1,57 @@
+
+Import "DateMath.rgr"
+
+; Parse and validate ISO date strings without host locale APIs.
+class IsoDateParse {
+
+  sfn isDigit:boolean (ch:int) {
+    return (ch >= 48 && ch <= 57)
+  }
+
+  sfn toIsoDateOnly:string (value:string) {
+    if ((strlen value) < 10) {
+      return ""
+    }
+    def candidate:string (substring value 0 10)
+    if ((charAt candidate 4) != 45) {
+      return ""
+    }
+    if ((charAt candidate 7) != 45) {
+      return ""
+    }
+    def i:int 0
+    while (i < 10) {
+      if (i == 4 || i == 7) {
+        i = i + 1
+        continue
+      }
+      if ((IsoDateParse.isDigit((charAt candidate i))) == false) {
+        return ""
+      }
+      i = i + 1
+    }
+    return candidate
+  }
+
+  sfn datePartsToISO:string (year:int month:int day:int) {
+    if (year <= 0 || month <= 0 || day <= 0) {
+      return ""
+    }
+    return (DateMath.formatIso(year month day))
+  }
+
+  sfn isoDateToYear:int (iso:string) {
+    def p:DateParts (DateParts.fromIso(iso))
+    return p.year
+  }
+
+  sfn isoDateToMonth:int (iso:string) {
+    def p:DateParts (DateParts.fromIso(iso))
+    return p.month
+  }
+
+  sfn isoDateToDay:int (iso:string) {
+    def p:DateParts (DateParts.fromIso(iso))
+    return p.day
+  }
+}

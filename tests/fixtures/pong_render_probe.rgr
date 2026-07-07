@@ -30,9 +30,8 @@ class RenderProbe {
         print ("lit=" + (cv.litPixels(300)))
 
         ; the ball centre pixel must be the bright-yellow ball colour
-        def hs (r.half(r.scale))
-        def bx ((game.ballX * r.scale) + hs)
-        def by ((game.ballY * r.scale) + hs)
+        def bx (r.ballCenterX(game))
+        def by (r.ballCenterY(game))
         print (((("ballpx=" + (cv.pixelR(bx by))) + ",") + (cv.pixelG(bx by))) + ("," + (cv.pixelB(bx by))))
 
         ; a background pixel (top-left interior, away from walls/objects)

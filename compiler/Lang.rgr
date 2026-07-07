@@ -221,6 +221,7 @@ language {
         random        _:double () {
             templates {
                 es6 ('Math.random()')
+                kotlin ('Math.random()' (imp "java.lang.Math"))
             }
         }
 
@@ -245,6 +246,7 @@ language {
         random        _:int ( min:int max:int) {
             templates {
                 es6 ('Math.floor(Math.random()*(' (e 2) ' - ' (e 1)' + 1) + ' (e 1)')')
+                kotlin ('(Math.floor(Math.random() * (' (e 2) ' - ' (e 1) ' + 1)).toInt() + ' (e 1) ')' (imp "java.lang.Math"))
             }
         }
         
@@ -2364,6 +2366,7 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
         ; Allocate a new buffer of specified size (zero-filled)
         buffer_alloc    cmdBufferAlloc:buffer    ( size:int ) {
             templates {
+                llvm ( "(buffer_alloc " (e 1) ")" )
                 ranger ( "(buffer_alloc " (e 1) ")" )
                 es6 ( "(function(){ var b = new ArrayBuffer(" (e 1) "); b._view = new DataView(b); return b; })()" )
                 go ( "make([]byte, " (e 1) ")" )
@@ -2379,6 +2382,7 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
         ; Get the length of a buffer in bytes
         buffer_length   cmdBufferLength:int      ( buf:buffer ) {
             templates {
+                llvm ( "(buffer_length " (e 1) ")" )
                 ranger ( "(buffer_length " (e 1) ")" )
                 es6 ( (e 1) ".byteLength" )
                 go ( "int64(len(" (e 1) "))" )
@@ -2394,6 +2398,7 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
         ; Read a single byte at offset (returns 0-255)
         buffer_get      cmdBufferGet:int         ( buf:buffer offset:int ) {
             templates {
+                llvm ( "(buffer_get " (e 1) " " (e 2) ")" )
                 ranger ( "(buffer_get " (e 1) " " (e 2) ")" )
                 es6 ( (e 1) "._view.getUint8(" (e 2) ")" )
                 go ( "int64(" (e 1) "[" (e 2) "])" )
@@ -2409,6 +2414,7 @@ std::vector<std::string> r_str_split(std::string data, std::string token) {
         ; Write a single byte at offset (value should be 0-255)
         buffer_set      cmdBufferSet:void        ( buf:buffer offset:int value:int ) {
             templates {
+                llvm ( "(buffer_set " (e 1) " " (e 2) " " (e 3) ")" )
                 ranger ( "(buffer_set " (e 1) " " (e 2) " " (e 3) ")" )
                 es6 ( (e 1) "._view.setUint8(" (e 2) ", " (e 3) ")" )
                 go ( (e 1) "[" (e 2) "] = byte(" (e 3) ")" )
@@ -2487,6 +2493,7 @@ std::string r_buffer_to_base64(const std::vector<uint8_t>& data) {
         ; Write buffer to a binary file
         buffer_write_file   cmdBufferWriteFile:void     ( path:string filename:string buf:buffer ) {
             templates {
+                llvm ( "(buffer_write_file " (e 1) " " (e 2) " " (e 3) ")" )
                 ranger ( "(buffer_write_file " (e 1) " " (e 2) " " (e 3) ")" )
                 es6 ( "require('fs').writeFileSync(" (e 1) " + '/' + " (e 2) ", Buffer.from(" (e 3) "))" )
                 go ( "os.WriteFile(" (e 1) " + \"/\" + " (e 2) ", " (e 3) ", 0644)" (imp "os") )
@@ -2509,6 +2516,7 @@ void r_buffer_write_file(const std::string& path, const std::string& filename, c
         ; Read a binary file into a buffer
         buffer_read_file    cmdBufferReadFile:buffer    ( path:string filename:string ) {
             templates {
+                llvm ( "(buffer_read_file " (e 1) " " (e 2) ")" )
                 ranger ( "(buffer_read_file " (e 1) " " (e 2) ")" )
                 es6 ( "(function(){ var b = require('fs').readFileSync(" (e 1) " + '/' + " (e 2) "); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })()" )
                 go ( "func() []byte { d, _ := os.ReadFile(filepath.Join(" (e 1) ", " (e 2) ")); return d }()" (imp "os") (imp "path/filepath") )
@@ -2584,6 +2592,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
         ; Allocate a new int_buffer of specified size (zero-filled)
         int_buffer_alloc    cmdIntBufferAlloc:int_buffer    ( size:int ) {
             templates {
+                llvm ( "(int_buffer_alloc " (e 1) ")" )
                 ranger ( "(int_buffer_alloc " (e 1) ")" )
                 es6 ( "new Int32Array(" (e 1) ")" )
                 go ( "make([]int64, " (e 1) ")" )
@@ -2614,6 +2623,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
         ; Read an int64 at index
         int_buffer_get      cmdIntBufferGet:int         ( buf:int_buffer index:int ) {
             templates {
+                llvm ( "(int_buffer_get " (e 1) " " (e 2) ")" )
                 ranger ( "(int_buffer_get " (e 1) " " (e 2) ")" )
                 es6 ( (e 1) "[" (e 2) "]" )
                 go ( (e 1) "[" (e 2) "]" )
@@ -2629,6 +2639,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
         ; Write an int64 at index
         int_buffer_set      cmdIntBufferSet:void        ( buf:int_buffer index:int value:int ) {
             templates {
+                llvm ( "(int_buffer_set " (e 1) " " (e 2) " " (e 3) ")" )
                 ranger ( "(int_buffer_set " (e 1) " " (e 2) " " (e 3) ")" )
                 es6 ( (e 1) "[" (e 2) "] = " (e 3) )
                 go ( (e 1) "[" (e 2) "] = " (e 3) )
@@ -2644,6 +2655,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
         ; Fill int_buffer with a value in range [start, end)
         int_buffer_fill     cmdIntBufferFill:void       ( buf:int_buffer value:int start:int end:int ) {
             templates {
+                llvm ( "(int_buffer_fill " (e 1) " " (e 2) " " (e 3) " " (e 4) ")" )
                 ranger ( "(int_buffer_fill " (e 1) " " (e 2) " " (e 3) " " (e 4) ")" )
                 es6 ( (e 1) ".fill(" (e 2) ", " (e 3) ", " (e 4) ")" )
                 go ( "for i := " (e 3) "; i < " (e 4) "; i++ { " (e 1) "[i] = " (e 2) " }" )
@@ -2805,6 +2817,7 @@ std::vector<uint8_t> r_buffer_read_file(const std::string& path, const std::stri
 
         to_int      cmdToInt:int       ( value:double ) { 
             templates {
+                llvm ( "(to_int " (e 1) ")" )
                 ranger ( "(to_int " (e 1) ")") 
                 csharp ( "(int)" (e 1 ) "" )
                 swift3 ( "Int(" (e 1 ) ")" )
@@ -5032,6 +5045,7 @@ std::string r_cpp_str_to_uppercase(std::string original)
 
         to_double       toDouble:double ( input:int ) {
             templates {
+                llvm ( "(to_double " (e 1) ")" )
                 ranger ("( to_double " (e 1) " )")
                 go ("float64( " (e 1) " )")
                 es6 ( (e 1) )
@@ -5572,6 +5586,7 @@ systemclass buffer {
     csharp "byte[]"
     kotlin ByteArray
     scala "Array[Byte]"
+    llvm i64
 }
 
 ; SYSTEM CLASS: int_buffer
@@ -5591,6 +5606,7 @@ systemclass int_buffer {
     csharp "long[]"
     kotlin LongArray
     scala "Array[Long]"
+    llvm i64
 }
 
 ; SYSTEM CLASS: double_buffer
@@ -5610,6 +5626,7 @@ systemclass double_buffer {
     csharp "double[]"
     kotlin DoubleArray
     scala "Array[Double]"
+    llvm i64
 }
 
 ; ============================================================================

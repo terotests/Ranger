@@ -99,6 +99,7 @@ class RangerFlowParser {
   fn fixExpressionAssignmentChains:void (node@(lives):CodeNode) {
     def is_chaining false
     def last_is_assign false
+    def chain_start_idx:int 0
     def chainRoot@(weak):CodeNode
     def innerNode@(weak):CodeNode
     def assignNode@(weak):CodeNode
@@ -107,51 +108,98 @@ class RangerFlowParser {
     def ch_len (size node.children)
     for node.children item:CodeNode i {
       def did_find false
-      if(has item.children) {
+      def dotName:string ""
+      def mArgs@(optional):CodeNode
+      if (has item.children) {
         def fc (item.getFirst())
-        def name (fc.vref)
-
-        if( ( (strlen name) > 0 ) && ( ( charAt name 0) == (charcode ".")) ) {
-          did_find = true
-          if(i>0) {
-            def last_line (at node.children (i - 1))
-            if (is_chaining == false ) {
-              last_line.createChainTarget()
-              is_chaining = true
-              if(!null? last_line.chainTarget) {
-                chainRoot = last_line.chainTarget
-                innerNode = last_line.chainTarget
-                assignNode = last_line
-                last_is_assign = true
-              } {
-                chainRoot = last_line
-                innerNode = last_line
-              }
+        dotName = fc.vref
+        if ((size item.children) > 1) {
+          mArgs = item.getSecond()
+        }
+      } {
+        dotName = item.vref
+        if ((i + 1) < ch_len) {
+          mArgs = (at node.children (i + 1))
+        }
+      }
+      if ( ( (strlen dotName) > 0 ) && ( ( charAt dotName 0) == (charcode ".")) ) {
+        did_find = true
+        if(i>0) {
+          def last_line (at node.children (i - 1))
+          if (is_chaining == false ) {
+            chain_start_idx = (i - 1)
+            last_line.createChainTarget()
+            is_chaining = true
+            if(!null? last_line.chainTarget) {
+              chainRoot = last_line.chainTarget
+              innerNode = last_line.chainTarget
+              assignNode = last_line
+              last_is_assign = true
+            } {
+              chainRoot = last_line
+              innerNode = last_line
             }
-            def method_name (substring name 1 (strlen name))
-            def mArgs (item.getSecond())
-            newNode = (node.newExpressionNode())
-            newNode.add( (node.newVRefNode("call") ) )
-            newNode.add( (innerNode.copy() ) )
-            newNode.add( (node.newVRefNode(method_name)) )
-            newNode.add( (mArgs.copy()) )
-            innerNode = newNode
-            item.is_part_of_chain = true
+          }
+          def method_name (substring dotName 1 (strlen dotName))
+          def callArgs:CodeNode (node.newExpressionNode())
+          if (!null? mArgs) {
+            callArgs = mArgs.copy()
+          }
+          newNode = (node.newExpressionNode())
+          newNode.add( (node.newVRefNode("call") ) )
+          newNode.add( (innerNode.copy() ) )
+          newNode.add( (node.newVRefNode(method_name)) )
+          newNode.add( callArgs )
+          innerNode = newNode
+          item.is_part_of_chain = true
+          if (false == (has item.children)) {
+            if ((i + 1) < ch_len) {
+              def flatArg (at node.children (i + 1))
+              flatArg.is_part_of_chain = true
+            }
           }
         }
       }
-      if(did_find == false || (i == (ch_len - 1) ) ) {
-        if( is_chaining && (last_is_assign == false)) {
-          chainRoot.getChildrenFrom( (unwrap innerNode ) )
-          chainRoot.tag = "chainroot"
+      def maybe_chain_arg false
+      if (is_chaining && (did_find == false) && (i > 0)) {
+        def prev_item (itemAt node.children (i - 1))
+        def prev_name:string ""
+        if (has prev_item.children) {
+          def prev_fc (prev_item.getFirst())
+          prev_name = prev_fc.vref
+        } {
+          prev_name = prev_item.vref
         }
-        if( is_chaining && last_is_assign) {
-          while ( (array_length assignNode.children) > 3 ) {
-            removeLast assignNode.children
-          }
-          if ( (array_length assignNode.children) >= 3 ) {
-            removeLast assignNode.children
-            push assignNode.children (unwrap innerNode)
+        if ( ( (strlen prev_name) > 0 ) && ( ( charAt prev_name 0) == (charcode ".")) ) {
+          maybe_chain_arg = true
+          item.is_part_of_chain = true
+        }
+      }
+      if ( (i == (ch_len - 1)) || ( (did_find == false) && (maybe_chain_arg == false) ) ) {
+        if is_chaining {
+          def chainResult (unwrap innerNode)
+          chainResult.finalizeAsCallChainRoot()
+          if last_is_assign {
+            while ( (array_length assignNode.children) > 3 ) {
+              removeLast assignNode.children
+            }
+            if ( (array_length assignNode.children) >= 3 ) {
+              removeLast assignNode.children
+              push assignNode.children chainResult
+            }
+          } {
+            def kept:[CodeNode]
+            def ci:int 0
+            while (ci < chain_start_idx) {
+              push kept (itemAt node.children ci)
+              ci = ci + 1
+            }
+            push kept chainResult
+            clear node.children
+            for kept ch:CodeNode j {
+              push node.children ch
+              ch.parent = node
+            }
           }
         }
         is_chaining = false
@@ -526,12 +574,15 @@ class RangerFlowParser {
           ctx.addPage( sc.vref node )
         }
         case 'def' { 
+          this.repairAssignMethodCallRhs(node)
           EnterVarDef this node ctx wr
         }
         case 'var' {
+          this.repairAssignMethodCallRhs(node)
           EnterVarDef this node ctx wr
         }
         case 'let' {
+          this.repairAssignMethodCallRhs(node)
           EnterVarDef this node ctx wr
         }
         case 'property' {
@@ -1132,6 +1183,11 @@ class RangerFlowParser {
   }
 
   fn cmdNew:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if (node.tryDesugarNewMethodChain()) {
+      node.flow_done = false
+      this.cmdCall(node ctx wr)
+      return
+    }
     if ((size node.children) < 2) {
       ctx.addError(node "the new operator expects at lest two arguments")
       return
@@ -1666,6 +1722,53 @@ class RangerFlowParser {
     }
   }
 
+  fn matchMethodCall@(optional):RangerAppFunctionDesc (cl:RangerAppClassDesc methodName:string callArgs:CodeNode ctx:RangerAppWriterContext wr:CodeWriter errNode:CodeNode) {
+    def noMatch@(optional):RangerAppFunctionDesc
+    if (cl.hasMethod(methodName) == false) {
+      return noMatch
+    }
+    def mVs@(optional):RangerAppMethodVariants (get cl.method_variants methodName)
+    if (null? mVs) {
+      return noMatch
+    }
+    def variants:RangerAppMethodVariants (unwrap mVs)
+    def argCnt (size callArgs.children)
+    def picked@(optional):RangerAppFunctionDesc
+    def matchCnt 0
+    for variants.variants variant:RangerAppFunctionDesc i {
+      if ((size variant.params) != argCnt) {
+        continue
+      }
+      def sigOk true
+      def pi 0
+      while (pi < argCnt) {
+        def param:RangerAppParamDesc (at variant.params pi)
+        def argNode:CodeNode (at callArgs.children pi)
+        if (this.areEqualTypes((unwrap param.nameNode) argNode ctx wr) == false) {
+          sigOk = false
+          break
+        }
+        pi = (+ pi 1)
+      }
+      if (sigOk == false) {
+        continue
+      }
+      matchCnt = (+ matchCnt 1)
+      picked = variant
+    }
+    if (matchCnt == 0) {
+      ctx.addError(errNode ("No matching overload for method \"" + methodName + "\" on " + cl.name))
+      return noMatch
+    }
+    if (matchCnt > 1) {
+      ctx.addError(errNode ("Ambiguous overload for method \"" + methodName + "\" on " + cl.name))
+      return noMatch
+    }
+    def outMatch@(optional):RangerAppFunctionDesc
+    outMatch = (unwrap picked)
+    return outMatch
+  }
+
   fn cmdCall:boolean (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     
     def obj (node.getSecond())
@@ -1708,23 +1811,40 @@ class RangerFlowParser {
 
     this.WalkNode( obj ctx wr ) 
 
+    if ( (ctx.isDefinedClass(obj.eval_type_name) == false) && (!null? obj.clDesc) ) {
+      obj.eval_type_name = obj.clDesc.name
+    }
+
+    ctx.setInExpr()
+    for callArgs.children callArg:CodeNode i {
+      this.WalkNode( callArg ctx wr)
+    }
+    ctx.unsetInExpr()
+
     if(ctx.isDefinedClass(obj.eval_type_name)) {
       def cl (ctx.findClass(obj.eval_type_name))
-      def m@(optional):RangerAppFunctionDesc (cl.findMethod(method.vref))
+      def m@(optional):RangerAppFunctionDesc
+      if (cl.hasMethod(method.vref)) {
+        def mVs@(optional):RangerAppMethodVariants (get cl.method_variants method.vref)
+        if ((!null? mVs) && ((size mVs.variants) > 0)) {
+          m = (this.matchMethodCall(cl method.vref callArgs ctx wr node))
+          if (null? m) {
+            return false
+          }
+        }
+      }
       if (null? m) {
-        m = (cl.findMethodByCompiledName(method.vref))
+        m = (cl.findMethod(method.vref))
+        if (null? m) {
+          m = (cl.findMethodByCompiledName(method.vref))
+        }
       }
       if(!null? m) {
         node.has_call = true
+        node.fnDesc = m
 
         def currM (ctx.getCurrentMethod())
         currM.addCallTo( (unwrap m) )
-
-        ctx.setInExpr()
-        for callArgs.children callArg:CodeNode i {
-          this.WalkNode( callArg ctx wr)
-        }
-        ctx.unsetInExpr()
         def nn:CodeNode m.nameNode
         node.eval_type = (nn.typeNameAsType(ctx))
         node.eval_type_name = nn.type_name
@@ -1939,7 +2059,7 @@ class RangerFlowParser {
       }
       if ( b_valid && (chain_cnt > 0 ) ) {
         node.getChildrenFrom( (unwrap innerNode ) )
-        node.tag = "chainroot"
+        node.finalizeAsCallChainRoot()
         node.flow_done = false
         this.WalkNode( node ctx wr)
         return true
@@ -2354,28 +2474,90 @@ class RangerFlowParser {
     return true
   }
 
-  fn repairAssignMethodCallRhs:void (node:CodeNode) {
+  fn repairUnaryMinusExpr:void (node:CodeNode) {
     def chCnt (size node.children)
-    if (chCnt < 4) {
+    if (chCnt != 2) {
+      return
+    }
+    def fc (node.getFirst())
+    if (fc.vref != "-") {
+      return
+    }
+    def operand:CodeNode (at node.children 1)
+    def zero:CodeNode (CodeNode.newInt(0))
+    def minus:CodeNode (fc.copy())
+    clear node.children
+    push node.children zero
+    push node.children minus
+    push node.children (operand.copy())
+    node.expression = true
+    node.flow_done = false
+    for node.children ch@(lives):CodeNode i {
+      ch.flow_done = false
+    }
+  }
+
+  fn repairAssignUnaryMinusRhs:void (node:CodeNode) {
+    def chCnt (size node.children)
+    if (chCnt != 4) {
       return
     }
     def fc (node.getFirst())
     if (fc.vref != "=") {
       return
     }
-    ; The infix parser flattens a method-call RHS into siblings of '=',
+    def mid:CodeNode (at node.children 2)
+    if (mid.vref != "-") {
+      return
+    }
+    def operand:CodeNode (at node.children 3)
+    def rhs:CodeNode (node.newExpressionNode())
+    def zero:CodeNode (CodeNode.newInt(0))
+    push rhs.children zero
+    push rhs.children (mid.copy())
+    push rhs.children (operand.copy())
+    removeLast node.children
+    removeLast node.children
+    push node.children rhs
+    node.flow_done = false
+    rhs.flow_done = false
+  }
+
+  fn repairAssignMethodCallRhs:void (node:CodeNode) {
+    this.repairAssignUnaryMinusRhs(node)
+    def chCnt (size node.children)
+    if (chCnt < 4) {
+      if ((size node.children) > 2) {
+        def fc (node.getFirst())
+        if ((fc.vref == "=") || (fc.vref == "def")) {
+          def rhsNode:CodeNode (at node.children 2)
+          this.repairUnaryMinusExpr(rhsNode)
+        }
+      }
+      return
+    }
+    def fc (node.getFirst())
+    def rhsStart:int 0
+    if (fc.vref == "=") {
+      rhsStart = 2
+    } {
+      if (fc.vref == "def") {
+        rhsStart = 2
+      } {
+        return
+      }
+    }
+    ; The infix parser flattens a method-call RHS into siblings of '=' / 'def',
     ; e.g. (= lhs this.flag ()) instead of (= lhs (this.flag ())).
-    ; Re-wrap everything after the LHS into a single expression node so the
-    ; normal call handling can evaluate the right-hand side.
-    def lhs:CodeNode (node.getSecond())
+    ; Re-wrap everything after the name (and type) into a single expression node.
     def rhs (node.newExpressionNode())
-    def i:int 2
+    def i:int rhsStart
     while (i < chCnt) {
       def child:CodeNode (itemAt node.children i)
       rhs.add( (child.copy()) )
       i = i + 1
     }
-    while ( (size node.children) > 2 ) {
+    while ( (size node.children) > rhsStart ) {
       removeLast node.children
     }
     push node.children rhs
@@ -2383,6 +2565,10 @@ class RangerFlowParser {
     rhs.flow_done = false
     for rhs.children ch:CodeNode ci {
       ch.flow_done = false
+    }
+    if ((size node.children) > rhsStart) {
+      def rhsNode:CodeNode (at node.children rhsStart)
+      this.repairUnaryMinusExpr(rhsNode)
     }
   }
 
@@ -3534,6 +3720,9 @@ class RangerFlowParser {
     for op_list cmd:CodeNode i {
       def cmdName:CodeNode (cmd.getFirst())
       if (cmdName.vref == fc.vref && (! (ctx.isVarDefined(cmdName.vref)))) {
+        if (fc.vref == "-") {
+          this.repairUnaryMinusExpr(node)
+        }
         if (fc.vref == "=") {
           this.repairAssignMethodCallRhs(node)
         }
@@ -3567,7 +3756,33 @@ class RangerFlowParser {
         newNode.add( ( node.newVRefNode(objName)) )
         newNode.add( ( node.newVRefNode(possible_cmd)))
         newNode.add( ( args.copy()))
-        node.getChildrenFrom( newNode )
+
+        ; preserve any trailing method-chain elements ( .trim () .foo (...) )
+        def total (size node.children)
+        if ( total > 2 ) {
+          def innerNode@(weak):CodeNode
+          innerNode = newNode
+          def k 2
+          while ( k < (total - 1) ) {
+            def mName (at node.children k)
+            def mArgs (at node.children (k + 1))
+            def chName (mName.vref)
+            if( ( (strlen chName) > 0 ) && ( ( charAt chName 0) == (charcode ".")) ) {
+              def method_name (substring chName 1 (strlen chName))
+              def wrap (node.newExpressionNode())
+              wrap.add( ( node.newVRefNode("call")) )
+              wrap.add( ( innerNode.copy()) )
+              wrap.add( ( node.newVRefNode(method_name)) )
+              wrap.add( ( mArgs.copy()) )
+              innerNode = wrap
+            }
+            k = k + 2
+          }
+          node.getChildrenFrom( (unwrap innerNode) )
+          node.finalizeAsCallChainRoot()
+        } {
+          node.getChildrenFrom( newNode )
+        }
 
         if( ( (ctx.expressionLevel()) == 0 ) ) {
           ctx.lastBlockOp = node

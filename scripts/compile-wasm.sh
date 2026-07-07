@@ -31,7 +31,7 @@ if [[ ! -x "$WAT2WASM" ]]; then
   if command -v wat2wasm >/dev/null 2>&1; then
     WAT2WASM="$(command -v wat2wasm)"
   else
-    echo "error: wat2wasm not found  run: npm install" >&2
+    echo "error: wat2wasm not found ï¿½ run: npm install" >&2
     exit 1
   fi
 fi

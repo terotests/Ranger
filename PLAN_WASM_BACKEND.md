@@ -1,6 +1,6 @@
-# WASM-backend  vlidokumentaatio
+# WASM-backend ï¿½ vï¿½lidokumentaatio
 
-Tm dokumentti kuvaa Rangerin LLVM/WASM-pipelinen nykytilan (kes 2026). Katso mys [PLAN_WASM_PLUGINS.md](./PLAN_WASM_PLUGINS.md) pitkn aikavlin visiosta (pluginit ennen koodigenerointia).
+Tï¿½mï¿½ dokumentti kuvaa Rangerin LLVM/WASM-pipelinen nykytilan (kesï¿½ 2026). Katso myï¿½s [PLAN_WASM_PLUGINS.md](./PLAN_WASM_PLUGINS.md) pitkï¿½n aikavï¿½lin visiosta (pluginit ennen koodigenerointia).
 
 ## Pipeline
 
@@ -14,20 +14,20 @@ Low IR (ng_LowIR.rgr, ng_LowIRBuilder.rgr)
 Host (selain, Node, natiivi) kutsuu exportattuja funktioita
 ```
 
-**Freestanding-malli:** ei I/O-runtimea. Staattiset `sfn`-metodit exportataan; host hoitaa `main`, sytteet ja tulosteen.
+**Freestanding-malli:** ei I/O-runtimea. Staattiset `sfn`-metodit exportataan; host hoitaa `main`, syï¿½tteet ja tulosteen.
 
 ## Liput
 
 | Lippu | Vaikutus |
 |-------|----------|
 | `-l=llvm` | Low IR ? LLVM IR teksti |
-| `-wat` | Low IR ? WAT (tiedosto silytt `.ll`-ptteen toistaiseksi) |
+| `-wat` | Low IR ? WAT (tiedosto sï¿½ilyttï¿½ï¿½ `.ll`-pï¿½ï¿½tteen toistaiseksi) |
 | `-freestanding` | Exportaa kaikki kelvolliset staattiset metodit |
 
-## Mit Low IR tukee nyt
+## Mitï¿½ Low IR tukee nyt
 
-- Primitiivit: `int`, `bool`, `double` (WAT: vain i32 kytnnss)
-- Staattiset metodit, rekursio, vlilliset kutsut
+- Primitiivit: `int`, `bool`, `double` (WAT: vain i32 kï¿½ytï¿½nnï¿½ssï¿½)
+- Staattiset metodit, rekursio, vï¿½lilliset kutsut
 - `if` / `while`, paikalliset muuttujat (`alloca` / `load` / `store`)
 - `@(main)` ? LLVM `@main` (ei WAT-demossa pakollinen)
 
@@ -36,17 +36,17 @@ Host (selain, Node, natiivi) kutsuu exportattuja funktioita
 ### Toimii
 
 - Lineaariset funktiot (add, mul, ketjutetut kutsut)
-- **`if` ilman else-haaraa**  strukturoitu `(if (then ...) )`, mys kun then-haara `return`
-- **`while`-silmukka**  `(block $exit (loop $cond ... br_if $exit ... br $cond))` + exit-koodi blockin jlkeen
+- **`if` ilman else-haaraa** ï¿½ strukturoitu `(if (then ...) )`, myï¿½s kun then-haara `return`
+- **`while`-silmukka** ï¿½ `(block $exit (loop $cond ... br_if $exit ... br $cond))` + exit-koodi blockin jï¿½lkeen
 - Rekursiivinen fibonacci / factorial (`llvm_mathlib.rgr`)
 - Iteratiivinen while-factorial (`llvm_factorial_while.rgr`)
 
 ### Rajoitukset
 
-- Ei `if-else` molemmilla haaroilla (ei viel tuettu strukturoituna)
-- Ei stringej, taulukoita, pointtereita
+- Ei `if-else` molemmilla haaroilla (ei vielï¿½ tuettu strukturoituna)
+- Ei stringejï¿½, taulukoita, pointtereita
 - Ei WASI / I/O
-- Ei koko kntjn WASM-kohdetta (ks. alla)
+- Ei koko kï¿½ï¿½ntï¿½jï¿½n WASM-kohdetta (ks. alla)
 
 ### WASM-validointi
 
@@ -56,7 +56,7 @@ npm run demo:wasm:collections  # IntList/IntMap demo -> tmp/wasm-collections/
 npm run demo:wasm:serve        # compile + http://127.0.0.1:8765/
 ```
 
-Avaa `tmp/wasm-demo/index.html` suoraan selaimessa (WASM upotettu base64:n  ei vaadi palvelinta). Vaihtoehtoisesti `demo:wasm:serve` kytt `fetch('./demo.wasm')`.
+Avaa `tmp/wasm-demo/index.html` suoraan selaimessa (WASM upotettu base64:nï¿½ ï¿½ ei vaadi palvelinta). Vaihtoehtoisesti `demo:wasm:serve` kï¿½yttï¿½ï¿½ `fetch('./demo.wasm')`.
 
 Vaatii `wabt` (`npm install`, devDependency).
 
@@ -71,8 +71,8 @@ npm run demo:native        # @main tai C-wrapper
 
 | Tiedosto | Kuvaus |
 |----------|--------|
-| `tests/fixtures/llvm_wasm_demo.rgr` | add/mul/sq/hypot  yksinkertainen WASM-demo |
-| `tests/fixtures/llvm_mathlib.rgr` | fib + fact  haarat ja rekursio |
+| `tests/fixtures/llvm_wasm_demo.rgr` | add/mul/sq/hypot ï¿½ yksinkertainen WASM-demo |
+| `tests/fixtures/llvm_mathlib.rgr` | fib + fact ï¿½ haarat ja rekursio |
 | `tests/fixtures/llvm_factorial_while.rgr` | while + assignment |
 | `tests/fixtures/llvm_main.rgr` | `@main` natiividemo |
 | `tests/fixtures/llvm_collections.rgr` | `IntList` + `IntMap` (heap, `Mem` intrinsics) |
@@ -85,20 +85,20 @@ npm run demo:native        # @main tai C-wrapper
 npm run test:llvm
 ```
 
-Sislt LLVM golden-testit, WAT-rakenteen tarkistukset ja `wat2wasm` + `WebAssembly.Instance` -ajon (fib, factorial, while).
+Sisï¿½ltï¿½ï¿½ LLVM golden-testit, WAT-rakenteen tarkistukset ja `wat2wasm` + `WebAssembly.Instance` -ajon (fib, factorial, while).
 
-## Koko kntj WASM:ksi?
+## Koko kï¿½ï¿½ntï¿½jï¿½ WASM:ksi?
 
-**Ei realistinen lyhyell aikavlill.**
+**Ei realistinen lyhyellï¿½ aikavï¿½lillï¿½.**
 
 | Este | Arvio |
 |------|--------|
-| Koodikoko | Parser + flow + writer = satoja tuhansia rivi |
-| Runtime | Hashmap, string, tiedostot, pluginit  ei Low IR:ss |
-| Nykyinen host | Kntj ajetaan Node/JS:n |
-| WASM-koko | Arvio: kymmeni MB + hidas knns |
+| Koodikoko | Parser + flow + writer = satoja tuhansia riviï¿½ |
+| Runtime | Hashmap, string, tiedostot, pluginit ï¿½ ei Low IR:ssï¿½ |
+| Nykyinen host | Kï¿½ï¿½ntï¿½jï¿½ ajetaan Node/JS:nï¿½ |
+| WASM-koko | Arvio: kymmeniï¿½ MB + hidas kï¿½ï¿½nnï¿½s |
 
-Suositeltu jrjestys: export-funktiot ? haarat WASM:ssa ? string/struct Low IR ? **erilliset** moduulit (parser lib) ? koko pipeline.
+Suositeltu jï¿½rjestys: export-funktiot ? haarat WASM:ssa ? string/struct Low IR ? **erilliset** moduulit (parser lib) ? koko pipeline.
 
 ## Seuraavat askeleet
 

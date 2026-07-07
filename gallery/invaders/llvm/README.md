@@ -1,4 +1,4 @@
-# Space Invaders — LLVM IR sample
+# Space Invaders ï¿½ LLVM IR sample
 
 Checked-in example of Ranger's **experimental LLVM backend** output for [`../invaders.rgr`](../invaders.rgr).
 
@@ -6,7 +6,7 @@ Checked-in example of Ranger's **experimental LLVM backend** output for [`../inv
 | --- | --- |
 | `invaders.ll` | Human-readable LLVM IR (~1,700 lines). Generated on **arm64-apple-macos**; `target triple` reflects the host used at build time. |
 
-This is **not** WebAssembly. It is LLVM intermediate representation — the same kind of text IR that `clang` consumes before linking a native executable.
+This is **not** WebAssembly. It is LLVM intermediate representation ï¿½ the same kind of text IR that `clang` consumes before linking a native executable.
 
 ## Regenerate
 
@@ -30,7 +30,7 @@ npm run game:build:llvm
 
 - String constants (`@.str.*`) for terminal messages
 - `declare` lines for libc and `ranger_*` terminal helpers
-- Struct layouts (`%struct.Alien`, `%struct.Invaders`, …)
+- Struct layouts (`%struct.Alien`, `%struct.Invaders`, ï¿½)
 - Lowered game logic: `Invaders_gameLoop`, `Invaders_render`, `RtPtrArray_*` runtime calls
 
 See the main [README](../../../README.md#experimental-llvm-backend-space-invaders) for WASM/freestanding experiments and test commands (`npm run test:llvm`).
