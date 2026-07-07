@@ -58,7 +58,8 @@ Controls: **W/S** (or **↑/↓**) move, **Q/Esc** quit. For CI / headless boxes
 binary takes an optional frame count and honours the SDL dummy driver:
 
 ```bash
-npm run engine:sdl                                   # build only -> tmp/pong-sdl/pong_sdl
+npm run engine:compile:sdl                           # Ranger -> C++ only (pong_sdl.cpp)
+npm run engine:sdl                                    # compile + build -> tmp/pong-sdl/pong_sdl
 SDL_VIDEODRIVER=dummy tmp/pong-sdl/pong_sdl 120       # render 120 frames, then exit
 ```
 
