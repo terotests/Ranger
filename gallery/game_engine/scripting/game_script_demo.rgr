@@ -1,0 +1,64 @@
+; ==============================================================================
+; game_script_demo - proves the game-scripting namespace injection.
+; ==============================================================================
+;
+; Shows the host (Ranger) side of the scripting layer:
+;   1. inject a `game` global object into the script namespace,
+;   2. load a TS game script that defines event functions,
+;   3. drive the script by calling those functions with a state object.
+;
+; This is the mechanism behind script-driven game screens (see
+; gallery/game_engine/scripting/game.d.ts for the authoring API types).
+; ==============================================================================
+
+Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class GameScriptDemo {
+
+    sfn m@(main):void () {
+        def engine (new ComponentEngine())
+
+        ; --- 1. Inject a `game` global object into the script namespace ---
+        def gk:[string]
+        def gv:[EvalValue]
+        push gk "title"
+        push gv (EvalValue.string("Ranger Pong"))
+        push gk "maxScore"
+        push gv (EvalValue.fromInt(3))
+        engine.registerGlobal("game" (EvalValue.object(gk gv)))
+
+        ; --- 2. A tiny game script: initial state + a button transition ---
+        def s:string ""
+        s = (s + "function initState() {\n")
+        s = (s + "  return { score: 0, screen: \"menu\", title: game.title };\n")
+        s = (s + "}\n")
+        s = (s + "function onButton(props) {\n")
+        s = (s + "  if (props.button == \"action\") {\n")
+        s = (s + "    return { score: props.state.score + 1, screen: \"play\", title: props.state.title };\n")
+        s = (s + "  }\n")
+        s = (s + "  return props.state;\n")
+        s = (s + "}\n")
+        engine.loadScript(s)
+
+        ; --- 3. Drive the script from the host ---
+        def st0 (engine.callFunction("initState" (EvalValue.null())))
+        def title ((st0.getMember("title")).stringValue)
+        def screen0 ((st0.getMember("screen")).stringValue)
+        print ("title=" + title)
+        print ("screen0=" + screen0)
+
+        ; press the "action" button -> transition to the play screen, score+1
+        def pk:[string]
+        def pv:[EvalValue]
+        push pk "state"
+        push pv st0
+        push pk "button"
+        push pv (EvalValue.string("action"))
+        def st1 (engine.callFunction("onButton" (EvalValue.object(pk pv))))
+        def screen1 ((st1.getMember("screen")).stringValue)
+        def score1 (to_int ((st1.getMember("score")).numberValue))
+        print ("screen1=" + screen1)
+        print ("score1=" + score1)
+    }
+}
