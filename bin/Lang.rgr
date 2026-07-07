@@ -60,7 +60,7 @@ language {
         llvm        LLVM IR         ll
     }
 
-    toplevel_keywords (class systemclass Constructor fn sfn Import Extend Enum def let operators)
+    toplevel_keywords (class record systemclass Constructor fn sfn Import Extend Enum def let operators)
     annotation_keywors (weak strong lives temp)
     
     ; transformations for the reserved words for function names or other keywords

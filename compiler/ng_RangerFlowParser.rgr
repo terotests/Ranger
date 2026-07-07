@@ -5034,6 +5034,21 @@ class RangerFlowParser {
 
   }
 
+  ; A field or local variable may be named the same as a Ranger system type
+  ; such as `buffer` (defined in Lang.rgr as `systemclass buffer`), which is
+  ; also registered as a defined class. When resolving the receiver of a member
+  ; access (e.g. `buffer.writeByte(...)`) the variable/field must win over the
+  ; type, otherwise the call resolves against the empty system type and the
+  ; method is reported as "not found". Only primitive/system type names can
+  ; collide this way — ordinary user classes are never primitive types — so
+  ; this guard is intentionally narrow and leaves all other resolution intact.
+  fn varShadowsSystemType:boolean (strname:string ctx:RangerAppWriterContext) {
+    if (false == (ctx.isPrimitiveType(strname))) {
+      return false
+    }
+    return (ctx.isVarDefined(strname))
+  }
+
   fn findFunctionDesc@(weak optional):RangerAppFunctionDesc (obj:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def varDesc:RangerAppParamDesc
     def varFnDesc:RangerAppFunctionDesc
@@ -5049,7 +5064,7 @@ class RangerFlowParser {
             if (strname == (this.getThisName())) {
               classDesc = (ctx.getCurrentClass())           
             } {
-              if (ctx.isDefinedClass(strname)) {
+              if ( (ctx.isDefinedClass(strname)) && (false == (this.varShadowsSystemType(strname ctx))) ) {
                 classDesc = (ctx.findClass(strname))
                 continue _
               }
@@ -5126,7 +5141,7 @@ class RangerFlowParser {
                 push obj.nsp (unwrap classDesc)
               }
             } {
-              if (ctx.isDefinedClass(strname)) {
+              if ( (ctx.isDefinedClass(strname)) && (false == (this.varShadowsSystemType(strname ctx))) ) {
                 classDesc = (ctx.findClass(strname))
                 if set_nsp {
                   push obj.nsp (unwrap classDesc)

@@ -13239,6 +13239,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         singletonCl.is_singleton = true;
       }
     };
+    varShadowsSystemType (strname, ctx) {
+      if ( false == ctx.isPrimitiveType(strname) ) {
+        return false;
+      }
+      return ctx.isVarDefined(strname);
+    };
     findFunctionDesc (obj, ctx, wr) {
       let varDesc;
       let varFnDesc;
@@ -13253,7 +13259,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               if ( strname == this.getThisName() ) {
                 classDesc = ctx.getCurrentClass();
               } else {
-                if ( ctx.isDefinedClass(strname) ) {
+                if ( ctx.isDefinedClass(strname) && (false == this.varShadowsSystemType(strname, ctx)) ) {
                   classDesc = ctx.findClass(strname);
                   continue;
                 }
@@ -13327,7 +13333,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   obj.nsp.push(classDesc);
                 }
               } else {
-                if ( ctx.isDefinedClass(strname) ) {
+                if ( ctx.isDefinedClass(strname) && (false == this.varShadowsSystemType(strname, ctx)) ) {
                   classDesc = ctx.findClass(strname);
                   if ( set_nsp ) {
                     obj.nsp.push(classDesc);
