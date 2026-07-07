@@ -18801,7 +18801,26 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           wr.out("", false);
         }
         await this.writeTypeDef(p.nameNode, ctx, wr);
-        if ( p.needs_cpp_reference ) {
+        let useCppRef = p.needs_cpp_reference && p.is_assigned_from_member;
+        if ( (node.children.length) > 2 ) {
+          const initNode = node.getThird();
+          if ( initNode.hasNewOper ) {
+            useCppRef = false;
+          }
+          if ( initNode.hasFnCall ) {
+            useCppRef = false;
+          }
+          if ( initNode.has_call ) {
+            useCppRef = false;
+          }
+          if ( (typeof(p.nameNode) !== "undefined" && p.nameNode != null )  ) {
+            const typeNode = p.nameNode;
+            if ( ((typeNode.type_name == "buffer") || (typeNode.type_name == "int_buffer")) || (typeNode.type_name == "double_buffer") ) {
+              useCppRef = false;
+            }
+          }
+        }
+        if ( useCppRef ) {
           wr.out("&", false);
         }
         wr.out(" ", false);
@@ -19063,7 +19082,22 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         wr.out(" ", false);
         await this.writeTypeDef(arg.nameNode, ctx, wr);
         if ( arg.needs_cpp_reference ) {
-          wr.out("&", false);
+          let emitRef = true;
+          if ( (typeof(arg.nameNode) !== "undefined" && arg.nameNode != null )  ) {
+            const typeNode = arg.nameNode;
+            const v_type = typeNode.value_type;
+            if ( (v_type == 10) || (v_type == 11) ) {
+              emitRef = false;
+            }
+            if ( (typeNode.type_name.length) > 0 ) {
+              if ( ctx.isDefinedClass(typeNode.type_name) ) {
+                emitRef = false;
+              }
+            }
+          }
+          if ( emitRef ) {
+            wr.out("&", false);
+          }
         }
         wr.out((" " + arg.compiledName) + " ", false);
       };
@@ -37291,6 +37325,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       return "";
     };
     isMemberAccess (node) {
+      if ( node.hasNewOper ) {
+        return false;
+      }
+      if ( node.hasFnCall ) {
+        return false;
+      }
       if ( (node.ns.length) >= 2 ) {
         return true;
       }
@@ -37303,6 +37343,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       if ( node.expression ) {
         if ( (node.children.length) >= 2 ) {
           const first = node.getFirst();
+          if ( (first.vref.length) > 0 ) {
+            if ( ((first.vref == "buffer_alloc") || (first.vref == "int_buffer_alloc")) || (first.vref == "double_buffer_alloc") ) {
+              return false;
+            }
+          }
           if ( (first.vref.length) > 0 ) {
             const second = node.getSecond();
             if ( (second.vref.length) > 0 ) {

@@ -91,6 +91,13 @@ class StaticAnalyzer {
   
   ; Check if a node looks like a member access (obj.field pattern)
   fn isMemberAccess:boolean (node:CodeNode) {
+    ; new T(...) is not member access — avoid false positive on (new Token) shape
+    if node.hasNewOper {
+      return false
+    }
+    if node.hasFnCall {
+      return false
+    }
     ; Check namespace array - this is how member access is represented in the AST
     ; e.g., currentChunk.data would have ns = ["currentChunk", "data"]
     if ((array_length node.ns) >= 2) {
@@ -107,6 +114,11 @@ class StaticAnalyzer {
     if node.expression {
       if ((array_length node.children) >= 2) {
         def first:CodeNode (node.getFirst())
+        if ((strlen first.vref) > 0) {
+          if ((first.vref == "buffer_alloc") || (first.vref == "int_buffer_alloc") || (first.vref == "double_buffer_alloc")) {
+            return false
+          }
+        }
         ; If first child looks like a variable or "this", it might be member access
         if ((strlen first.vref) > 0) {
           def second:CodeNode (node.getSecond())
