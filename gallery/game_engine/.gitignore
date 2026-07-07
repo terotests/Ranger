@@ -4,6 +4,8 @@ pong.cpp
 pong.rs
 pong.go
 pong.ll
+pong_sdl.cpp
+pong_sdl
 variant.hpp
 *.o
 *.exe

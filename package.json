@@ -94,6 +94,8 @@
     "engine:compile:rust": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -l=rust ./gallery/game_engine/pong.rgr -d=./gallery/game_engine -o=pong.rs -nodecli",
     "engine:build:native": "bash gallery/game_engine/scripts/build-native.sh",
     "engine:run": "node ./gallery/game_engine/pong.js",
+    "engine:sdl": "bash gallery/game_engine/scripts/build-sdl.sh",
+    "engine:sdl:run": "bash gallery/game_engine/scripts/build-sdl.sh --run",
     "engine": "npm run engine:compile && npm run engine:run",
     "jsparser:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/js_parser/js_parser_main.rgr -d=./gallery/js_parser -o=js_parser.js -nodecli",
     "jsparser:compile:cpp": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -l=cpp ./gallery/js_parser/js_parser_main.rgr -d=./gallery/js_parser -o=js_parser -nodecli",

@@ -1,0 +1,151 @@
+; ==============================================================================
+; SoftCanvas - a tiny, portable RGBA8888 software framebuffer.
+; ==============================================================================
+;
+; This is the "render to a native buffer" layer of the PoC. It owns a raw byte
+; buffer laid out as tightly-packed RGBA (4 bytes per pixel, row-major) - i.e.
+; exactly the format an SDL2 streaming texture (SDL_PIXELFORMAT_RGBA32) or a
+; browser canvas ImageData expects. The platform layer just uploads `raw()`.
+;
+; It is pure Ranger built only on the `buffer` primitive (buffer_alloc /
+; buffer_set), so it compiles cleanly to every target (JS, C++, Go, Rust, LLVM)
+; and produces bit-identical pixels everywhere - the foundation for
+; golden-frame tests across Mac and Raspberry Pi.
+;
+; It deliberately mirrors a subset of the EVG raster API (clear / fillRect /
+; fillCircle) so game code can later swap in the full EVG vector renderer
+; without changing call sites, once the EVG stack builds natively (see
+; RENDERING_EVG.md).
+; ==============================================================================
+
+class SoftCanvas {
+    def w:int 0
+    def h:int 0
+    ; initialised so the field is a concrete (non-optional) buffer; init()
+    ; reallocates it to the real frame size.
+    def px:buffer (buffer_alloc 4)
+
+    fn init:void (width:int height:int) {
+        w = width
+        h = height
+        ; size kept in a local: the es6 buffer_alloc template inlines its
+        ; argument into an IIFE, so a bare `this.w * this.h` would lose `this`.
+        def total:int (w * h * 4)
+        px = (buffer_alloc total)
+    }
+
+    fn getWidth:int () {
+        return w
+    }
+
+    fn getHeight:int () {
+        return h
+    }
+
+    ; The tightly-packed RGBA bytes to hand straight to the display backend.
+    fn raw:buffer () {
+        return px
+    }
+
+    ; Fill the whole frame with an opaque colour.
+    fn clear:void (r:int g:int b:int) {
+        def n (w * h)
+        def i 0
+        while (i < n) {
+            def o (i * 4)
+            buffer_set px o r
+            buffer_set px (o + 1) g
+            buffer_set px (o + 2) b
+            buffer_set px (o + 3) 255
+            i = (i + 1)
+        }
+    }
+
+    ; Set one pixel (opaque). Out-of-bounds writes are ignored so callers can
+    ; draw shapes that run off the edge without special-casing.
+    fn setPixel:void (x:int y:int r:int g:int b:int) {
+        if (x < 0) {
+            return
+        }
+        if (x >= w) {
+            return
+        }
+        if (y < 0) {
+            return
+        }
+        if (y >= h) {
+            return
+        }
+        def o (((y * w) + x) * 4)
+        buffer_set px o r
+        buffer_set px (o + 1) g
+        buffer_set px (o + 2) b
+        buffer_set px (o + 3) 255
+    }
+
+    fn fillRect:void (x:int y:int rw:int rh:int r:int g:int b:int) {
+        def yy y
+        def yEnd (y + rh)
+        def xEnd (x + rw)
+        while (yy < yEnd) {
+            def xx x
+            while (xx < xEnd) {
+                this.setPixel(xx yy r g b)
+                xx = (xx + 1)
+            }
+            yy = (yy + 1)
+        }
+    }
+
+    fn fillCircle:void (cx:int cy:int rad:int r:int g:int b:int) {
+        def r2 (rad * rad)
+        def yy (cy - rad)
+        def yEnd (cy + rad)
+        while (yy <= yEnd) {
+            def xx (cx - rad)
+            def xEnd (cx + rad)
+            while (xx <= xEnd) {
+                def dx (xx - cx)
+                def dy (yy - cy)
+                if (((dx * dx) + (dy * dy)) <= r2) {
+                    this.setPixel(xx yy r g b)
+                }
+                xx = (xx + 1)
+            }
+            yy = (yy + 1)
+        }
+    }
+
+    ; Read one pixel's red channel - used by golden-frame / rendering tests.
+    fn pixelR:int (x:int y:int) {
+        def o (((y * w) + x) * 4)
+        return (buffer_get px o)
+    }
+    fn pixelG:int (x:int y:int) {
+        def o (((y * w) + x) * 4)
+        return (buffer_get px (o + 1))
+    }
+    fn pixelB:int (x:int y:int) {
+        def o (((y * w) + x) * 4)
+        return (buffer_get px (o + 2))
+    }
+
+    ; Count pixels whose channel sum (r+g+b) exceeds minSum - a cheap,
+    ; deterministic "did we actually draw foreground" signal for tests.
+    fn litPixels:int (minSum:int) {
+        def n (w * h)
+        def i 0
+        def count 0
+        while (i < n) {
+            def o (i * 4)
+            def r (buffer_get px o)
+            def g (buffer_get px (o + 1))
+            def b (buffer_get px (o + 2))
+            if (((r + g) + b) > minSum) {
+                count = (count + 1)
+            }
+            i = (i + 1)
+        }
+        return count
+    }
+}
