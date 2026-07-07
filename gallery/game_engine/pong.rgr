@@ -1,0 +1,389 @@
+; ==============================================================================
+; Ranger Game Engine - Pong (reference game)
+; ==============================================================================
+;
+; This file demonstrates the portability contract of the game engine base:
+;
+;   1. Buttons   - an abstract, platform-independent input snapshot.
+;   2. Pong      - PURE game logic. It contains NO I/O operators (no write,
+;                  move_cursor, poll_keypress...). It only reads a Buttons
+;                  snapshot and mutates its own state. Because it is pure, the
+;                  exact same code runs and behaves identically on every Ranger
+;                  target (JS on your Mac, native binary on the Raspberry Pi).
+;   3. Terminal  - the platform layer / backend. It is the ONLY place that
+;                  touches the outside world (drawing + reading the keyboard).
+;                  On the Pi this backend is swapped for the SDL2 backend
+;                  (HDMI framebuffer + game controller) without changing Pong.
+;
+; Movement uses integer Bresenham-style accumulators (no floating point, no
+; division) so the simulation is bit-for-bit deterministic across all targets.
+;
+; Build (see gallery/game_engine/README.md):
+;   npm run engine:compile        ; -> pong.js  (test on Mac / any desktop)
+;   npm run engine:run            ; run the JS build with node
+;   npm run engine:compile:go     ; -> pong.go  (native path for Raspberry Pi)
+; ==============================================================================
+
+; ------------------------------------------------------------------------------
+; Buttons - the abstract controller state for a single player.
+; A gamepad D-pad, arrow keys, or WASD all map onto these same fields, which is
+; what keeps the game logic independent from any concrete input device.
+; ------------------------------------------------------------------------------
+class Buttons {
+    def up:boolean false
+    def down:boolean false
+    def action:boolean false
+    def quit:boolean false
+
+    fn reset:void () {
+        up = false
+        down = false
+        action = false
+        quit = false
+    }
+}
+
+; ------------------------------------------------------------------------------
+; Pong - pure, portable game logic.
+; ------------------------------------------------------------------------------
+class Pong {
+    ; --- field geometry (character cells) ---
+    def W:int 60
+    def H:int 24
+    def PADDLE_H:int 5
+
+    ; --- fixed-point accumulator resolution for smooth integer motion ---
+    def STEP:int 3
+
+    ; --- paddles (y = top row of the paddle) ---
+    def leftY:int 9
+    def rightY:int 9
+
+    ; --- ball position (cells) + integer velocity accumulators ---
+    def ballX:int 30
+    def ballY:int 12
+    def vxDir:int 1
+    def vyDir:int 1
+    def vxMag:int 2
+    def vyMag:int 1
+    def axAcc:int 0
+    def ayAcc:int 0
+
+    ; --- score + lifecycle ---
+    def leftScore:int 0
+    def rightScore:int 0
+    def running:boolean true
+    def frame:int 0
+    def serveDir:int 1
+    def netX:int 30
+
+    Constructor () {
+        ; derive geometry from W/H with portable integer math (see half())
+        netX = this.half(W)
+        this.serveBall(1)
+    }
+
+    ; Integer division by two that behaves identically on every target.
+    ; Ranger's "/" is floating point, and "to_int" is not lowered by the LLVM
+    ; backend, so we halve with subtraction to keep the logic 100% portable.
+    fn half:int (n:int) {
+        def result 0
+        def rem n
+        while (rem >= 2) {
+            rem = (rem - 2)
+            result = (result + 1)
+        }
+        return result
+    }
+
+    ; Place the ball at center and send it toward `dir` (-1 left, +1 right).
+    fn serveBall:void (dir:int) {
+        ballX = netX
+        ballY = this.half(H)
+        vxDir = dir
+        vyDir = serveDir
+        vxMag = 2
+        vyMag = 1
+        axAcc = 0
+        ayAcc = 0
+        ; alternate the vertical serve direction each time for variety
+        serveDir = (0 - serveDir)
+    }
+
+    fn clampPaddle:int (y:int) {
+        def maxY (H - 1 - PADDLE_H)
+        if (y < 1) {
+            return 1
+        }
+        if (y > maxY) {
+            return maxY
+        }
+        return y
+    }
+
+    ; Compute the new vertical spin from where the ball struck the paddle.
+    ; Offset from the paddle center maps to a steeper or shallower bounce.
+    fn bounceFrom:void (paddleTop:int) {
+        def center (paddleTop + 2)
+        def offset (ballY - center)
+        if (offset < 0) {
+            vyDir = -1
+            vyMag = (0 - offset)
+        } {
+            vyDir = 1
+            vyMag = offset
+        }
+        if (vyMag > 2) {
+            vyMag = 2
+        }
+        if (vyMag < 1) {
+            vyMag = 1
+        }
+    }
+
+    ; The AI drives the right paddle: it tracks the ball with a small delay so it
+    ; is beatable. This keeps the reference build playable with a single input.
+    fn stepAI:void () {
+        def target (ballY - 2)
+        if (rightY < target) {
+            rightY = (rightY + 1)
+        }
+        if (rightY > target) {
+            rightY = (rightY - 1)
+        }
+        rightY = this.clampPaddle(rightY)
+    }
+
+    ; Advance the ball by one frame using integer accumulators (no division).
+    fn moveBall:void () {
+        axAcc = (axAcc + vxMag)
+        while (axAcc >= STEP) {
+            axAcc = (axAcc - STEP)
+            ballX = (ballX + vxDir)
+            this.resolveHorizontal()
+        }
+        ayAcc = (ayAcc + vyMag)
+        while (ayAcc >= STEP) {
+            ayAcc = (ayAcc - STEP)
+            ballY = (ballY + vyDir)
+            this.resolveVertical()
+        }
+    }
+
+    fn resolveVertical:void () {
+        if (ballY <= 1) {
+            ballY = 1
+            vyDir = 1
+        }
+        def bottom (H - 2)
+        if (ballY >= bottom) {
+            ballY = bottom
+            vyDir = -1
+        }
+    }
+
+    fn resolveHorizontal:void () {
+        ; left paddle sits in column 2, ball bounces when it reaches column 2
+        if (ballX <= 2) {
+            def hitLeft ((ballY >= leftY) && (ballY < (leftY + PADDLE_H)))
+            if (hitLeft) {
+                ballX = 2
+                vxDir = 1
+                vxMag = 2
+                this.bounceFrom(leftY)
+            } {
+                ; missed -> right player scores, re-serve toward the left
+                rightScore = (rightScore + 1)
+                this.serveBall(-1)
+            }
+        }
+        ; right paddle sits in column W-3
+        def rightCol (W - 3)
+        if (ballX >= rightCol) {
+            def hitRight ((ballY >= rightY) && (ballY < (rightY + PADDLE_H)))
+            if (hitRight) {
+                ballX = rightCol
+                vxDir = -1
+                vxMag = 2
+                this.bounceFrom(rightY)
+            } {
+                ; missed -> left player scores, re-serve toward the right
+                leftScore = (leftScore + 1)
+                this.serveBall(1)
+            }
+        }
+    }
+
+    ; The single public update entry point. PURE: given an input snapshot it
+    ; advances the whole simulation by one tick and touches nothing else.
+    fn step:void (input:Buttons) {
+        if (input.quit) {
+            running = false
+            return
+        }
+        frame = (frame + 1)
+        if (input.up) {
+            leftY = this.clampPaddle(leftY - 1)
+        }
+        if (input.down) {
+            leftY = this.clampPaddle(leftY + 1)
+        }
+        this.stepAI()
+        this.moveBall()
+    }
+
+    ; Pure "view query": what character belongs in cell (x, y)?
+    ; The renderer calls this; it performs no I/O itself.
+    fn cellAt:string (x:int y:int) {
+        if (y == 0) {
+            return "="
+        }
+        if (y == (H - 1)) {
+            return "="
+        }
+        if ((x == ballX) && (y == ballY)) {
+            return "O"
+        }
+        if (x == 1) {
+            if ((y >= leftY) && (y < (leftY + PADDLE_H))) {
+                return "#"
+            }
+        }
+        if (x == (W - 2)) {
+            if ((y >= rightY) && (y < (rightY + PADDLE_H))) {
+                return "#"
+            }
+        }
+        if (x == netX) {
+            def even ((y % 2) == 0)
+            if (even) {
+                return ":"
+            }
+        }
+        return " "
+    }
+}
+
+; ------------------------------------------------------------------------------
+; Terminal - the platform layer / backend (I/O lives ONLY here).
+; On the Raspberry Pi this whole class is replaced by an SDL2 backend that
+; draws to the HDMI framebuffer and reads a USB/Bluetooth game controller.
+; ------------------------------------------------------------------------------
+class Terminal {
+    def firstFrame:boolean true
+
+    fn init:void () {
+        hide_cursor
+        clear_screen
+    }
+
+    fn shutdown:void () {
+        show_cursor
+        move_cursor 1 (24 + 3)
+    }
+
+    ; Drain the keyboard queue into an abstract Buttons snapshot for this frame.
+    ; Terminals only deliver key-press events, so held movement is approximated
+    ; as one step per event; the SDL backend reports true held-button state.
+    fn readInput:void (btns:Buttons) {
+        btns.reset()
+        def key (poll_keypress)
+        while (key != "") {
+            this.applyKey(key btns)
+            key = (poll_keypress)
+        }
+    }
+
+    fn applyKey:void (key:string btns:Buttons) {
+        if (key == "w") {
+            btns.up = true
+        }
+        if (key == "W") {
+            btns.up = true
+        }
+        if (key == "up") {
+            btns.up = true
+        }
+        if (key == "s") {
+            btns.down = true
+        }
+        if (key == "S") {
+            btns.down = true
+        }
+        if (key == "down") {
+            btns.down = true
+        }
+        if (key == " ") {
+            btns.action = true
+        }
+        if (key == "space") {
+            btns.action = true
+        }
+        if (key == "q") {
+            btns.quit = true
+        }
+        if (key == "Q") {
+            btns.quit = true
+        }
+    }
+
+    fn render:void (game:Pong) {
+        def y 0
+        while (y < game.H) {
+            move_cursor 1 (y + 1)
+            def line ""
+            def x 0
+            while (x < game.W) {
+                def ch:string (game.cellAt(x y))
+                line = (line + ch)
+                x = (x + 1)
+            }
+            write line
+            y = (y + 1)
+        }
+        def statusY (game.H + 1)
+        move_cursor 1 statusY
+        def status ("  P1 " + game.leftScore)
+        status = (status + "   -   CPU ")
+        status = (status + game.rightScore)
+        status = (status + "     [W/S move  Q quit]      ")
+        write status
+    }
+
+    ; The frame loop lives in the platform layer: it is inherently platform
+    ; code (timing + I/O), while Pong.step() stays pure and portable.
+    fn run@(async):void (game:Pong btns:Buttons) {
+        this.init()
+        while (game.running) {
+            this.readInput(btns)
+            game.step(btns)
+            this.render(game)
+            sleep_ms 40
+        }
+        this.shutdown()
+    }
+
+    ; Entry point - wires the pure game logic to the terminal backend.
+    sfn m@(main):void () {
+        def game (new Pong)
+        def term (new Terminal)
+        def btns (new Buttons)
+
+        print "=== RANGER PONG (engine base) ==="
+        print "Move your paddle with W / S. Press Q to quit."
+        print "Starting..."
+
+        def key:string ""
+        on_keypress key {
+            ; sets up the raw-mode key queue that readInput() polls each frame
+        }
+
+        term.run(game btns)
+
+        print "=== GAME OVER ==="
+        def finalMsg ("Final score  P1 " + game.leftScore)
+        finalMsg = (finalMsg + "  CPU ")
+        finalMsg = (finalMsg + game.rightScore)
+        print finalMsg
+    }
+}
