@@ -97,13 +97,45 @@ from a script with:
 /// <reference path="./game.d.ts" />
 ```
 
+## Retained-mode runner (GameRunner)
+
+[`game_runtime.rgr`](./game_runtime.rgr) turns the above into a working
+**retained-mode runner** for real-time games:
+
+- **`sprites()` runs once** and defines the on-screen objects; the runner
+  creates a retained `GameEntity` per sprite. Their shapes are never rebuilt.
+- **each frame gets `time` + `dt`** and calls `update({ time, dt, up, down, state })`,
+  which returns the next state (pure reducer). The runner just applies
+  `state.entities[id] = { x, y }` to the existing entities — **moving objects
+  without re-rendering the sprite**.
+- **scores render as text** via a tiny built-in 3x5 digit font.
+- the frame is drawn into the RGBA `SoftCanvas`, i.e. the same buffer the SDL /
+  HDMI present path blits (see [`../pong_sdl.rgr`](../pong_sdl.rgr)).
+
+Working example: [`pong.game.tsx`](./pong.game.tsx) (scripted, time-based Pong)
+driven by [`pong_runner_demo.rgr`](./pong_runner_demo.rgr), covered by
+[`tests/game-runner.test.ts`](../../../tests/game-runner.test.ts). Run it and
+dump a PNG:
+
+```bash
+# compile + run on Node (writes pong_frame.rgba next to the script)
+RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr \
+  node bin/output.js -es6 ./gallery/game_engine/scripting/pong_runner_demo.rgr \
+  -d=./tests/.output -o=pong_runner_demo.js -nodecli
+node ./tests/.output/pong_runner_demo.js 300
+ffmpeg -f rawvideo -pixel_format rgba -video_size 480x270 \
+  -i gallery/game_engine/scripting/pong_frame.rgba -y pong.png
+```
+
 ## Roadmap
 
 1. **Done:** namespace injection (`registerGlobal`), script loading + function
    dispatch (`loadScript` / `callFunction` / `callRender`), value-returning
    control flow, TS typings, apostrophe-in-JSX-text parser fix.
-2. **Next:** a `GameScriptRunner` backend that wires the injected `Buttons` from
-   the engine's `Buttons` snapshot and renders `render()` output through the SDL
-   framebuffer each frame.
-3. **Later:** native (C++) evaluation once the EVG/eval stack builds for the C++
+2. **Done:** retained-mode `GameRunner` (time/dt-driven `update`, retained
+   sprites moved via returned state, text scores) + scripted Pong demo.
+3. **Next:** drive the runner from the native SDL backend (feed `up`/`down` from
+   the engine's `Buttons`, present each frame in the window); a JSX `hud()` path
+   through `callRender` + `EVGLayout` for richer text/UI.
+4. **Later:** native (C++) evaluation once the EVG/eval stack builds for the C++
    target (see `RENDERING_EVG.md`); host-callback `EvalValue` for richer APIs.
