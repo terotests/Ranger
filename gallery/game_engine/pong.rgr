@@ -1,0 +1,204 @@
+; ==============================================================================
+; Ranger Game Engine - Pong (reference game)
+; ==============================================================================
+;
+; This file demonstrates the portability contract of the game engine base:
+;
+;   1. Buttons   - an abstract, platform-independent input snapshot.
+;   2. Pong      - PURE game logic. It contains NO I/O operators (no write,
+;                  move_cursor, poll_keypress...). It only reads a Buttons
+;                  snapshot and mutates its own state. Because it is pure, the
+;                  exact same code runs and behaves identically on every Ranger
+;                  target (JS on your Mac, native binary on the Raspberry Pi).
+;   3. Terminal  - the platform layer / backend. It is the ONLY place that
+;                  touches the outside world (drawing + reading the keyboard).
+;                  On the Pi this backend is swapped for the SDL2 backend
+;                  (HDMI framebuffer + game controller) without changing Pong.
+;
+; Movement uses integer Bresenham-style accumulators (no floating point, no
+; division) so the simulation is bit-for-bit deterministic across all targets.
+;
+; Build (see gallery/game_engine/README.md):
+;   npm run engine:compile        ; -> pong.js  (test on Mac / any desktop)
+;   npm run engine:run            ; run the JS build with node
+;   npm run engine:compile:go     ; -> pong.go  (native path for Raspberry Pi)
+;
+; The portable game logic (Buttons + Pong) lives in pong_core.rgr and is shared
+; with the native SDL2 backend (pong_sdl.rgr). This file is the terminal backend.
+; ==============================================================================
+
+Import "./pong_core.rgr"
+
+; ------------------------------------------------------------------------------
+; Terminal - the platform layer / backend (I/O lives ONLY here).
+; On the Raspberry Pi this whole class is replaced by an SDL2 backend that
+; draws to the HDMI framebuffer and reads a USB/Bluetooth game controller.
+; ------------------------------------------------------------------------------
+class Terminal {
+    def firstFrame:boolean true
+    def showDebug:boolean false
+
+    fn init:void () {
+        hide_cursor
+        clear_screen
+    }
+
+    fn shutdown:void () {
+        show_cursor
+        move_cursor 1 (24 + 3)
+    }
+
+    ; Drain the keyboard queue into an abstract Buttons snapshot for this frame.
+    ; Terminals only deliver key-press events, so held movement is approximated
+    ; as one step per event; the SDL backend reports true held-button state.
+    fn readInput:void (btns:Buttons) {
+        btns.reset()
+        def key (poll_keypress)
+        while (key != "") {
+            this.applyKey(key btns)
+            key = (poll_keypress)
+        }
+    }
+
+    fn applyKey:void (key:string btns:Buttons) {
+        if (key == "w") {
+            btns.up = true
+        }
+        if (key == "W") {
+            btns.up = true
+        }
+        if (key == "up") {
+            btns.up = true
+        }
+        if (key == "s") {
+            btns.down = true
+        }
+        if (key == "S") {
+            btns.down = true
+        }
+        if (key == "down") {
+            btns.down = true
+        }
+        if (key == " ") {
+            btns.action = true
+        }
+        if (key == "space") {
+            btns.action = true
+        }
+        if (key == "q") {
+            btns.quit = true
+        }
+        if (key == "Q") {
+            btns.quit = true
+        }
+        ; 'd' toggles the debug overlay. This is a platform/render concern, not
+        ; a gameplay input, so it lives in the backend rather than in Buttons.
+        if (key == "d") {
+            this.toggleDebug()
+        }
+        if (key == "D") {
+            this.toggleDebug()
+        }
+    }
+
+    fn toggleDebug:void () {
+        if (showDebug) {
+            showDebug = false
+        } {
+            showDebug = true
+        }
+    }
+
+    ; Debug HUD: composites live game state on top of the frame. Because Pong's
+    ; state is plain public fields, the backend can inspect it for free - no
+    ; special hooks in the (pure) game logic. Toggle with 'd'.
+    fn renderDebug:void (game:Pong) {
+        def hudY (game.H + 2)
+        move_cursor 1 hudY
+        def dbg ("  DEBUG f=" + game.frame)
+        dbg = (dbg + " ball=(")
+        dbg = (dbg + game.ballX)
+        dbg = (dbg + ",")
+        dbg = (dbg + game.ballY)
+        dbg = (dbg + ") vx=")
+        dbg = (dbg + game.vxDir)
+        dbg = (dbg + " vyDir=")
+        dbg = (dbg + game.vyDir)
+        dbg = (dbg + " vyMag=")
+        dbg = (dbg + game.vyMag)
+        dbg = (dbg + " lY=")
+        dbg = (dbg + game.leftY)
+        dbg = (dbg + " rY=")
+        dbg = (dbg + game.rightY)
+        dbg = (dbg + "        ")
+        write dbg
+    }
+
+    fn render:void (game:Pong) {
+        def y 0
+        while (y < game.H) {
+            move_cursor 1 (y + 1)
+            def line ""
+            def x 0
+            while (x < game.W) {
+                def ch:string (game.cellAt(x y))
+                line = (line + ch)
+                x = (x + 1)
+            }
+            write line
+            y = (y + 1)
+        }
+        def statusY (game.H + 1)
+        move_cursor 1 statusY
+        def status ("  P1 " + game.leftScore)
+        status = (status + "   -   CPU ")
+        status = (status + game.rightScore)
+        status = (status + "     [W/S move  D debug  Q quit]      ")
+        write status
+        if (showDebug) {
+            this.renderDebug(game)
+        } {
+            ; erase the HUD line when the overlay is off
+            def hudY (game.H + 2)
+            move_cursor 1 hudY
+            write "                                                            "
+        }
+    }
+
+    ; The frame loop lives in the platform layer: it is inherently platform
+    ; code (timing + I/O), while Pong.step() stays pure and portable.
+    fn run@(async):void (game:Pong btns:Buttons) {
+        this.init()
+        while (game.running) {
+            this.readInput(btns)
+            game.step(btns)
+            this.render(game)
+            sleep_ms 40
+        }
+        this.shutdown()
+    }
+
+    ; Entry point - wires the pure game logic to the terminal backend.
+    sfn m@(main):void () {
+        def game (new Pong)
+        def term (new Terminal)
+        def btns (new Buttons)
+
+        print "=== RANGER PONG (engine base) ==="
+        print "Move your paddle with W / S. Press Q to quit."
+        print "Starting..."
+
+        def key:string ""
+        on_keypress key {
+            ; sets up the raw-mode key queue that readInput() polls each frame
+        }
+
+        term.run(game btns)
+
+        print "=== GAME OVER ==="
+        def finalMsg ("Final score  P1 " + game.leftScore)
+        finalMsg = (finalMsg + "  CPU ")
+        finalMsg = (finalMsg + game.rightScore)
+        print finalMsg
+    }
+}

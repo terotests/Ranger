@@ -1,0 +1,46 @@
+; Regression fixture: a class field named `buffer` must resolve method calls
+; against the field, not against the built-in `systemclass buffer` type.
+;
+; `buffer` is declared in compiler/Lang.rgr as a `systemclass`, so it is also a
+; defined class. Member access on a field named `buffer` (e.g.
+; `buffer.writeByte(...)`, as used by gallery/pdf_writer BitWriter) used to
+; resolve to the empty system type and report the method as "not found".
+; A field/local must shadow a same-named system type in receiver position.
+;
+; Also exercises a genuine static call (Maths.square) to guard against the
+; resolver preferring variables over real class/static calls.
+
+class Maths {
+    sfn square:int (x:int) {
+        return (x * x)
+    }
+}
+
+class GrowBuf {
+    def n:int 0
+    fn writeByte:void (b:int) {
+        n = (n + b)
+    }
+    fn total:int () {
+        return n
+    }
+}
+
+class BitWriter {
+    def buffer:GrowBuf (new GrowBuf())
+    fn go:int () {
+        buffer.writeByte(10)
+        buffer.writeByte(32)
+        return (buffer.total())
+    }
+}
+
+class App {
+    sfn m@(main):void () {
+        def sq:int (Maths.square(7))
+        def w:BitWriter (new BitWriter())
+        def t:int (w.go())
+        print (("square=" + sq) + (" bufTotal=" + t))
+        print "Done"
+    }
+}

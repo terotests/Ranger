@@ -1,0 +1,14 @@
+# Generated native build artifacts (regenerate with the engine:* npm scripts).
+# The ES6 build (pong.js) is committed as the desktop reference.
+pong.cpp
+pong.rs
+pong.go
+pong.ll
+pong_sdl.cpp
+pong_sdl
+variant.hpp
+*.o
+*.exe
+pong
+pong_cpp
+pong_rs

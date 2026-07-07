@@ -1,0 +1,33 @@
+; Regression fixture for the LLVM boolean-field-store bug.
+;
+; Assigning a boolean literal to a class field via a BARE field name (e.g.
+; `ready = true`, not `this.ready = true`) used to emit a double
+; `zext i1 <i32-value> to i32`, producing invalid LLVM IR that clang rejected.
+; See gallery/game_engine/LLVM_BUGS.md.
+;
+; Expected native exit code: 42.
+class Flags {
+    def ready:boolean false
+    def count:int 0
+
+    fn enable:void () {
+        ready = true
+    }
+
+    fn disable:void () {
+        ready = false
+    }
+
+    sfn m@(main):void () {
+        def f (new Flags)
+        f.enable()
+        if (f.ready) {
+            f.count = 42
+        }
+        f.disable()
+        if (f.ready) {
+            f.count = 7
+        }
+        exit f.count
+    }
+}

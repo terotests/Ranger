@@ -13239,6 +13239,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         singletonCl.is_singleton = true;
       }
     };
+    varShadowsSystemType (strname, ctx) {
+      if ( false == ctx.isPrimitiveType(strname) ) {
+        return false;
+      }
+      return ctx.isVarDefined(strname);
+    };
     findFunctionDesc (obj, ctx, wr) {
       let varDesc;
       let varFnDesc;
@@ -13253,7 +13259,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               if ( strname == this.getThisName() ) {
                 classDesc = ctx.getCurrentClass();
               } else {
-                if ( ctx.isDefinedClass(strname) ) {
+                if ( ctx.isDefinedClass(strname) && (false == this.varShadowsSystemType(strname, ctx)) ) {
                   classDesc = ctx.findClass(strname);
                   continue;
                 }
@@ -13327,7 +13333,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   obj.nsp.push(classDesc);
                 }
               } else {
-                if ( ctx.isDefinedClass(strname) ) {
+                if ( ctx.isDefinedClass(strname) && (false == this.varShadowsSystemType(strname, ctx)) ) {
                   classDesc = ctx.findClass(strname);
                   if ( set_nsp ) {
                     obj.nsp.push(classDesc);
@@ -18360,6 +18366,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           wr.addImport("<vector>");
           wr.addImport("<cstdint>");
           wr.out("std::vector<uint8_t>", false);
+          break;
+        case 17 : 
+          wr.addImport("<vector>");
+          wr.addImport("<cstdint>");
+          wr.out("std::vector<int64_t>", false);
+          break;
+        case 18 : 
+          wr.addImport("<vector>");
+          wr.out("std::vector<double>", false);
           break;
         case 2 : 
           if ( node.hasFlag("optional") ) {
@@ -32064,9 +32079,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         }
       }
       if ( this.isClassField(varName, lctx.className, this.irModule) ) {
-        if ( rhs.value_type == 5 ) {
-          tmp = builder.emitZextI1ToI32(tmp);
-        }
         this.emitFieldStore(varName, tmp, lctx);
         return;
       }

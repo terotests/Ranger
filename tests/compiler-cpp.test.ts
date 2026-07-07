@@ -37,6 +37,19 @@ describe("Ranger Compiler - C++ Target", () => {
     });
   });
 
+  describe("Buffer system types", () => {
+    it("maps int_buffer / double_buffer to native std::vector types", () => {
+      const result = getGeneratedCppCode(`${FIXTURES_DIR}/cpp_int_buffer.rgr`);
+
+      expect(result.success, `Compile failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("std::vector<int64_t>");
+      expect(result.code).toContain("std::vector<double>");
+      // Must NOT treat the systemclass as an undeclared user class
+      expect(result.code).not.toContain("shared_ptr<int_buffer>");
+      expect(result.code).not.toContain("shared_ptr<double_buffer>");
+    });
+  });
+
   describe("UTF-8 String Handling Polyfills", () => {
     it("should generate r_utf8_char_at for single character access", () => {
       const result = getGeneratedCppCode(`${FIXTURES_DIR}/string_at.rgr`);

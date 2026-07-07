@@ -74,6 +74,25 @@ describe("Ranger Compiler - Basic Features", () => {
     });
   });
 
+  describe("Name Resolution", () => {
+    it("resolves method calls on a field named like a system type (buffer)", () => {
+      const { compile, run } = compileAndRun(
+        `${FIXTURES_DIR}/field_named_buffer.rgr`
+      );
+
+      expect(
+        compile.success,
+        `Compile failed: ${compile.error || compile.output}`
+      ).toBe(true);
+      expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+      // buffer.writeByte(10) + buffer.writeByte(32) -> field method resolved
+      expect(run?.output).toContain("bufTotal=42");
+      // Maths.square(7) -> genuine static call still resolves
+      expect(run?.output).toContain("square=49");
+      expect(run?.output).toContain("Done");
+    });
+  });
+
   describe("Constructor Features", () => {
     it("should support forward reference in constructor", () => {
       const { compile, run } = compileAndRun(`${FIXTURES_DIR}/forward_ref.rgr`);
