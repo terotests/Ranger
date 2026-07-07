@@ -186,6 +186,15 @@ class RangerCppClassWriter {
         wr.addImport("<cstdint>")
         wr.out("std::vector<uint8_t>" false)
       }            
+      case RangerNodeType.IntBuffer {
+        wr.addImport("<vector>")
+        wr.addImport("<cstdint>")
+        wr.out("std::vector<int64_t>" false)
+      }
+      case RangerNodeType.DoubleBuffer {
+        wr.addImport("<vector>")
+        wr.out("std::vector<double>" false)
+      }
       case RangerNodeType.Double {
         if(node.hasFlag("optional")) {
           wr.out(" r_optional_primitive<double> " false)

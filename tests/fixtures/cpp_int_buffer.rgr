@@ -1,0 +1,29 @@
+; Regression fixture: int_buffer / double_buffer must map to native C++ vector
+; types, not be treated as an (undeclared) class.
+;
+; `int_buffer` / `double_buffer` / `charbuffer` are `systemclass` types in
+; compiler/Lang.rgr. The C++ writer handled RangerNodeType.Buffer but had no
+; case for IntBuffer / DoubleBuffer, so an `int_buffer` field fell through to
+; the "defined class" branch and was emitted as `std::shared_ptr<int_buffer>`,
+; producing C++ that referenced the undeclared type `int_buffer`.
+
+class Tables {
+    def cosTable:int_buffer (int_buffer_alloc 8)
+    def weights:double_buffer (double_buffer_alloc 4)
+
+    fn build:void () {
+        int_buffer_set cosTable 0 1024
+        int_buffer_set cosTable 1 512
+        double_buffer_set weights 0 0.5
+    }
+
+    fn firstCos:int () {
+        return (int_buffer_get cosTable 0)
+    }
+
+    sfn m@(main):void () {
+        def t (new Tables)
+        t.build()
+        print ("cos0=" + (t.firstCos()))
+    }
+}

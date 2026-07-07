@@ -18367,6 +18367,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           wr.addImport("<cstdint>");
           wr.out("std::vector<uint8_t>", false);
           break;
+        case 17 : 
+          wr.addImport("<vector>");
+          wr.addImport("<cstdint>");
+          wr.out("std::vector<int64_t>", false);
+          break;
+        case 18 : 
+          wr.addImport("<vector>");
+          wr.out("std::vector<double>", false);
+          break;
         case 2 : 
           if ( node.hasFlag("optional") ) {
             wr.out(" r_optional_primitive<double> ", false);
