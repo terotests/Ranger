@@ -113,6 +113,14 @@ better and requires no logic change.
   `cellAt`; the terminal renderer implements `fillRect` as block characters,
   the SDL2 renderer as real pixels. Gameplay code stays identical.
 
+  **Recommended concrete backing:** rather than hand-writing a pixel renderer,
+  reuse the gallery's existing **EVG** vector stack (RGBA `RasterBuffer`,
+  gradients, shadows, alpha compositing, SVG paths, TrueType fonts, flexbox
+  layout, and the `l`/JSX component engine). It already produces a game-ready
+  framebuffer and makes the engine much easier to program (declarative UI +
+  rich 2D), with a clear path to a WebGL/GLES2 GPU backend on the Pi. See
+  **[`RENDERING_EVG.md`](./RENDERING_EVG.md)**.
+
 ## 6. Raspberry Pi + HDMI + gamepad backend (SDL2) — the target path
 
 **Why SDL2:** on Raspberry Pi OS, SDL2 renders through **KMS/DRM** so it drives
@@ -258,4 +266,7 @@ into a non-problem:
 2. Add the `gfx_*` / `pad_*` operator family + `runtime/ranger_gfx.c` (SDL2)
    and a `<canvas>` es6 backend.
 3. Implement the `Renderer` platform class and give `Pong` a `draw(Renderer)`.
-4. Two-player + real gamepad; `systemd` autostart recipe for the Pi.
+4. Adopt the **EVG** vector stack as the rich renderer (RGBA framebuffer +
+   declarative `l`/JSX UI), then a **WebGL/GLES2** GPU backend on the Pi — see
+   [`RENDERING_EVG.md`](./RENDERING_EVG.md).
+5. Two-player + real gamepad; `systemd` autostart recipe for the Pi.

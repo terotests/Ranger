@@ -116,5 +116,6 @@ In short:
 | `pong.rgr` | Reference game: pure `Pong`/`Buttons` logic + `Terminal` platform layer |
 | `pong.js` | Committed ES6 build (desktop / Mac) |
 | `PLAN_GAME_ENGINE.md` | Full architecture: layers, input/render abstractions, SDL2/HDMI + gamepad backend, roadmap |
+| `RENDERING_EVG.md` | Rich renderer design: reuse the gallery EVG stack (gradients/shadows/fonts/`l`-JSX) as the game framebuffer, with a WebGL/GLES2 path for the Pi |
 | `LLVM_BUGS.md` | LLVM backend bugs found while enabling the native path (one fixed, two worked around) |
 | `scripts/build-native.sh` | One-shot LLVM → clang → native binary build |
