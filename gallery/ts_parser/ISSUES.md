@@ -2,13 +2,22 @@
 
 ## Issue #1: Apostrophe in JSX Text Content Breaks Parsing
 
-**Status:** Open  
-**Severity:** Medium  
+**Status:** ✅ FIXED (2026-07-07)
+**Severity:** Medium
 **Date Discovered:** 2024-12-17
+
+### Fix Applied
+
+In `ts_lexer.rgr`, a single quote that is **flanked by letters** (e.g. `Rusty's`,
+`don't`, `it's`) is now emitted as a punctuator token rather than starting a
+string literal. Real string literals are effectively never `letter'...`, so
+strings like `'abc'`, `f('a')`, and `x = 'y'` are unaffected (verified by
+`test/jsx_apostrophe.test.js`). This lets JSX text such as
+`<span>Rusty's heart raced</span>` and every element after it parse correctly.
 
 ### Description
 
-When JSX text content contains an apostrophe character (`'`), the parser produces multiple parse errors and fails to correctly parse subsequent elements.
+When JSX text content contains an apostrophe character (`'`), the parser produced multiple parse errors and failed to correctly parse subsequent elements.
 
 ### Reproduction
 

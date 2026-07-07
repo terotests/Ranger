@@ -80,6 +80,22 @@ class TSLexer {
         return false
     }
 
+    ; True for ASCII letter codes (a-z, A-Z). Works on an explicit char code
+    ; (unlike isAlpha, which reads the char at the current position).
+    fn isLetterCode:boolean (code:int) {
+        if (code >= 97) {
+            if (code <= 122) {
+                return true
+            }
+        }
+        if (code >= 65) {
+            if (code <= 90) {
+                return true
+            }
+        }
+        return false
+    }
+
     fn isAlphaNumCh:boolean (ch:string) {
         if (this.isDigit(ch)) { return true }
         if (ch == "_") { return true }
@@ -412,7 +428,28 @@ class TSLexer {
 
         ; Strings
         if (ch == "\"") { return (this.readString("\"")) }
-        if (ch == "'") { return (this.readString("'")) }
+        if (ch == "'") {
+            ; A single quote flanked by letters (e.g. "Rusty's", "don't") is a
+            ; word-internal apostrophe in JSX text, not a string delimiter.
+            ; Treating it as a string used to swallow the rest of the line
+            ; (ISSUES.md #1). Real string literals are effectively never
+            ; letter-'-... , so emit the apostrophe as a punctuator instead.
+            def wordApostrophe:boolean false
+            if (pos > 0) {
+                if ((pos + 1) < len) {
+                    def prevCode:int (charAt source (pos - 1))
+                    def nextCode:int (charAt source (pos + 1))
+                    if ((this.isLetterCode(prevCode)) && (this.isLetterCode(nextCode))) {
+                        wordApostrophe = true
+                    }
+                }
+            }
+            if wordApostrophe {
+                this.advance()
+                return (this.makeToken("Punctuator" "'" startPos startLine startCol))
+            }
+            return (this.readString("'"))
+        }
         
         ; Template literals
         if (ch == "`") { return (this.readTemplateLiteral()) }

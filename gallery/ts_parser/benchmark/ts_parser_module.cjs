@@ -104,6 +104,19 @@ class TSLexer  {
     }
     return false;
   };
+  isLetterCode (code) {
+    if ( code >= 97 ) {
+      if ( code <= 122 ) {
+        return true;
+      }
+    }
+    if ( code >= 65 ) {
+      if ( code <= 90 ) {
+        return true;
+      }
+    }
+    return false;
+  };
   isAlphaNumCh (ch) {
     if ( this.isDigit(ch) ) {
       return true;
@@ -564,6 +577,20 @@ class TSLexer  {
       return this.readString("\"");
     }
     if ( ch == "'" ) {
+      let wordApostrophe = false;
+      if ( this.pos > 0 ) {
+        if ( (this.pos + 1) < this.__len ) {
+          const prevCode = this.source.charCodeAt((this.pos - 1) );
+          const nextCode = this.source.charCodeAt((this.pos + 1) );
+          if ( this.isLetterCode(prevCode) && this.isLetterCode(nextCode) ) {
+            wordApostrophe = true;
+          }
+        }
+      }
+      if ( wordApostrophe ) {
+        this.advance();
+        return this.makeToken("Punctuator", "'", startPos, startLine, startCol);
+      }
       return this.readString("'");
     }
     if ( ch == "`" ) {
@@ -3553,6 +3580,7 @@ class TSParserSimple  {
         this.expectValue("]");
         const computed = new TSNode();
         computed.nodeType = "MemberExpression";
+        computed.computed = true;
         computed.left = expr;
         computed.right = indexExpr_1;
         computed.start = expr.start;
@@ -4606,7 +4634,7 @@ TSParserMain.parseFile = async function(filename, showTokens) {
   };
 };
 TSParserMain.runDemo = function() {
-  const code = "\r\ninterface Person {\r\n  readonly id: number;\r\n  name: string;\r\n  age?: number;\r\n}\r\n\r\ntype ID = string | number;\r\n\r\ntype Result = Person | null;\r\n\r\nlet count: number = 42;\r\n\r\nconst message: string = 'hello';\r\n\r\nfunction greet(name: string, age?: number): string {\r\n  return name;\r\n}\r\n\r\nlet data: Array<string>;\r\n";
+  const code = "\ninterface Person {\n  readonly id: number;\n  name: string;\n  age?: number;\n}\n\ntype ID = string | number;\n\ntype Result = Person | null;\n\nlet count: number = 42;\n\nconst message: string = 'hello';\n\nfunction greet(name: string, age?: number): string {\n  return name;\n}\n\nlet data: Array<string>;\n";
   console.log("=== TypeScript Parser Demo ===");
   console.log("");
   console.log("Input:");
