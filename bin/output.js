@@ -32064,9 +32064,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         }
       }
       if ( this.isClassField(varName, lctx.className, this.irModule) ) {
-        if ( rhs.value_type == 5 ) {
-          tmp = builder.emitZextI1ToI32(tmp);
-        }
         this.emitFieldStore(varName, tmp, lctx);
         return;
       }
