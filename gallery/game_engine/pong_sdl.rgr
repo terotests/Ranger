@@ -86,7 +86,7 @@ class SdlBackend {
                     game.running = false
                 }
             }
-            gfx_delay 16
+            ; SDL_RENDERER_PRESENTVSYNC already blocks until vblank — no extra delay.
         }
         gfx_close
     }
