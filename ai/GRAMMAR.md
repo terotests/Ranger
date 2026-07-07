@@ -22,10 +22,20 @@ This document provides a formal grammar specification for the Ranger language.
 <import>        ::= 'Import' <string>
 
 <top-level-def> ::= <class-def>
+                  | <record-def>
                   | <extension-def>
                   | <enum-def>
                   | <systemclass-def>
                   | <operators-def>
+```
+
+## Record Definition
+
+```bnf
+<record-def>    ::= 'record' <identifier> '{' <property-def>* '}'
+
+; Records are nominal product types with auto-generated keyword constructors.
+; Construction: (new Point xpos 3 ypos 4) or positional shorthand (new Point 3 4)
 ```
 
 ## Class Definition
@@ -297,6 +307,23 @@ sfn main@(main):void () {
 ```bnf
 <new-expression>::= '(' 'new' <identifier> ')'
                   | '(' 'new' <identifier> '(' <arg-list>? ')' ')'
+
+; Record keyword construction mirrors operator keyword args:
+; (new Point xpos 3 ypos 4) — xpos/ypos are @(keyword) markers in the auto-constructor
+```
+
+---
+
+## Records (quick)
+
+```clojure
+record Mourner {
+    def id:string ""
+    def name:string ""
+}
+
+def m (new Mourner id "npc1" name "Kaisa")   ; keyword fields
+def p (new Point 3 4)                        ; positional shorthand
 ```
 
 ---

@@ -203,7 +203,15 @@ operator type:RangerFlowParser all {
           def b1 (( cn.eval_type == RangerNodeType.Char &&  defaultArg.eval_type == RangerNodeType.Integer ))
           def b2 ( cn.eval_type == RangerNodeType.Integer &&  defaultArg.eval_type == RangerNodeType.Char )
           if( false == ( b1 || b2 ) )  {
-            ctx.addError(node ((('Variable was assigned an incompatible type. Types were ' + cn.eval_type) + ' vs ') + defaultArg.eval_type))
+            def cnTypeName:string (TTypes.valueAsString(cn.eval_type))
+            if ((strlen cn.eval_type_name) > 0) {
+              cnTypeName = cn.eval_type_name
+            }
+            def defTypeName:string (TTypes.valueAsString(defaultArg.eval_type))
+            if ((strlen defaultArg.eval_type_name) > 0) {
+              defTypeName = defaultArg.eval_type_name
+            }
+            ctx.addError(node ((('Variable was assigned an incompatible type. Types were ' + cnTypeName) + ' vs ') + defTypeName))
           }          
         }
       } {

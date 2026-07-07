@@ -22,6 +22,7 @@ Import "ng_RangerAppOperatorDesc.rgr"
 
 Import "TFiles.rgr"
 Import "TTypes.rgr"
+Import "TTypeRegistry.rgr"
 
 Import "FlowEnterVarDef.rgr"
 
@@ -593,6 +594,9 @@ class RangerFlowParser {
         case 'class' {
           this.EnterClass(node ctx wr)
         }
+        case 'record' {
+          this.EnterClass(node ctx wr)
+        }
         case 'defn' {
           this.DefineOpFn(node ctx wr)
         }
@@ -1156,6 +1160,28 @@ class RangerFlowParser {
     node.evalTypeClass = (TFactory.new_scalar_signature( node ctx wr ))
   }
  
+  fn normalizeNewArgList:void (node:CodeNode) {
+    if ((node.chlen()) <= 3) {
+      return
+    }
+    def third:CodeNode (node.getThird())
+    if (third.expression && ((size third.children) > 0)) {
+      return
+    }
+    def argList:CodeNode (new CodeNode ( (unwrap node.code) node.sp node.ep))
+    argList.expression = true
+    def ci 2
+    def chlen (node.chlen())
+    while (ci < chlen) {
+      push argList.children (at node.children ci)
+      ci = ci + 1
+    }
+    while ((node.chlen()) > 2) {
+      removeLast node.children
+    }
+    push node.children argList
+  }
+
   fn cmdNew:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if (node.tryDesugarNewMethodChain()) {
       node.flow_done = false
@@ -1170,12 +1196,11 @@ class RangerFlowParser {
       def expr (new CodeNode ( (unwrap node.code) node.sp node.ep))
       expr.expression = true
       push node.children expr
-;      ctx.addError(node "the new operator expects at lest two arguments")
-;      return
     }
+    this.normalizeNewArgList(node)
     def obj:CodeNode (node.getSecond())
     def params:CodeNode (node.getThird())
-    def currC@(lives):RangerAppClassDesc
+    def currC@(lives optional):RangerAppClassDesc
     def b_template:boolean false
 
     def expects_error:boolean false
@@ -1189,7 +1214,34 @@ class RangerFlowParser {
       this.CheckVRefTypeAnnotationOf( obj ctx wr )
     }    
     this.WalkNode(obj ctx wr)
+
+    if (b_template == false) {
+      currC = (ctx.findClass(obj.vref))
+    }
+    def fnDescr@(optional):RangerAppFunctionDesc
+    if (!null? currC) {
+      def clTmp:RangerAppClassDesc (unwrap currC)
+      fnDescr = clTmp.constructor_fn
+    }
+    if (!null? fnDescr) {
+      def ctorFn:RangerAppFunctionDesc (unwrap fnDescr)
+      if (!null? currC) {
+        def newCl:RangerAppClassDesc (unwrap currC)
+        this.expandRecordCtorArgsIfNeeded(newCl ctorFn params node)
+      }
+      ctorFn.params.forEach({
+        if(item.nameNode.hasFlag('keyword')) {
+          if ((size params.children) > index) {
+            ( (at params.children index) .setFlag('keyword'))
+          }
+        }
+      })
+    }
+
     for params.children arg:CodeNode i {
+      if (arg.hasFlag('keyword')) {
+        continue
+      }
       ctx.setInExpr()
       this.WalkNode(arg ctx wr)
       ctx.unsetInExpr()
@@ -1197,7 +1249,9 @@ class RangerFlowParser {
     node.eval_type = RangerNodeType.Object
     node.eval_type_name = obj.vref
     if (b_template == false) {
-      currC = (ctx.findClass(obj.vref))
+      if (null? currC) {
+        currC = (ctx.findClass(obj.vref))
+      }
       def currM (ctx.getCurrentMethod())
       currM.addClassUsage( (unwrap currC) ctx )
     }
@@ -1211,13 +1265,13 @@ class RangerFlowParser {
         procCodegen.validateProcessNewSite(node newCl ctx)
       }
     }
-    def fnDescr:RangerAppFunctionDesc currC.constructor_fn
     if (!null? fnDescr) {
-      if( (size fnDescr.params) > (size params.children)) {
-        ctx.addError(node 'Not enough arguments for class constructor ' + (fnDescr.node.getLineAsString()))
+      def ctorFn:RangerAppFunctionDesc (unwrap fnDescr)
+      if( (size ctorFn.params) > (size params.children)) {
+        ctx.addError(node 'Not enough arguments for class constructor ' + (ctorFn.node.getLineAsString()))
         return
       }
-      for fnDescr.params param:RangerAppParamDesc i {
+      for ctorFn.params param:RangerAppParamDesc i {
         def has_default:boolean false
         if (param.nameNode.hasFlag('default')) {
           has_default = true
@@ -3765,6 +3819,185 @@ class RangerFlowParser {
     }
   }
 
+  fn registerLangSystemClasses:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    this.walkLangDefinitions(node ctx)
+  }
+
+  fn walkLangDefinitions:void (node:CodeNode ctx:RangerAppWriterContext) {
+    if (node.isFirstVref("systemclass")) {
+      this.registerSystemClassFromNode(node ctx)
+      return
+    }
+    if (node.isFirstVref("systemunion")) {
+      this.registerSystemUnionFromNode(node ctx)
+      return
+    }
+    for node.children ch:CodeNode i {
+      this.walkLangDefinitions(ch ctx)
+    }
+  }
+
+  fn registerSystemClassFromNode:void (node:CodeNode ctx:RangerAppWriterContext) {
+    def nameNode@(lives):CodeNode (node.getSecond())
+    if(ctx.isDefinedClass(nameNode.vref)) {
+      def cl (ctx.findClass(nameNode.vref))
+      if( cl.is_system_union == false ) {
+        ctx.addError(node "Class already defined and it was not a systemunion.")
+      }
+      cl.is_system = true
+      def instances:CodeNode (node.getThird())
+      for instances.children ch@(lives):CodeNode i {
+        def langName:CodeNode (ch.getFirst())
+        def langClassName:CodeNode (ch.getSecond())
+        set cl.systemNodes langName.vref ch
+        if( (strlen langClassName.vref ) > 0 ) {
+          set cl.systemNames langName.vref langClassName.vref
+        }
+        if( (strlen langClassName.string_value ) > 0 ) {
+          set cl.systemNames langName.vref langClassName.string_value
+        }
+      }
+      return
+    }
+    def instances:CodeNode (node.getThird())
+    def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
+    new_class.name = nameNode.vref
+    new_class.nameNode = nameNode
+    ctx.addClass(nameNode.vref new_class)
+    new_class.is_system = true
+    for instances.children ch@(lives):CodeNode i {
+      def langName:CodeNode (ch.getFirst())
+      def langClassName:CodeNode (ch.getSecond())
+      set new_class.systemNodes langName.vref ch
+      if( (strlen langClassName.vref ) > 0 ) {
+        set new_class.systemNames langName.vref langClassName.vref
+      }
+      if( (strlen langClassName.string_value ) > 0 ) {
+        set new_class.systemNames langName.vref langClassName.string_value
+      }
+    }
+    nameNode.is_system_class = true
+    nameNode.clDesc = new_class
+  }
+
+  fn registerSystemUnionFromNode:void (node:CodeNode ctx:RangerAppWriterContext) {
+    def nameNode@(lives):CodeNode (node.getSecond())
+    if(ctx.isDefinedClass(nameNode.vref)) {
+      def cl (ctx.findClass(nameNode.vref))
+      if( cl.is_system == false ) {
+        ctx.addError(node "Only system classes can be systemunions")
+      }
+      cl.is_system_union = true
+      def instances:CodeNode (node.getThird())
+      for instances.children ch:CodeNode i {
+        push cl.is_union_of ch.vref
+      }
+      return
+    }
+    def instances:CodeNode (node.getThird())
+    def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
+    new_class.name = nameNode.vref
+    new_class.nameNode = nameNode
+    ctx.addClass(nameNode.vref new_class)
+    new_class.is_system_union = true
+    for instances.children ch:CodeNode i {
+      push new_class.is_union_of ch.vref
+    }
+    nameNode.clDesc = new_class
+  }
+
+  fn finalizeRecordClasses:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    def rootCtx (ctx.getRoot())
+    for rootCtx.definedClassList cname:string i {
+      def cl:RangerAppClassDesc (rootCtx.findClass(cname))
+      if (cl.is_record) {
+        if (cl.has_constructor == false) {
+          this.buildRecordConstructor(cl ctx wr)
+        }
+      }
+    }
+  }
+
+  fn expandRecordCtorArgsIfNeeded:void (cl:RangerAppClassDesc fnDescr:RangerAppFunctionDesc params:CodeNode node:CodeNode) {
+    if (cl.is_record == false) {
+      return
+    }
+    if ((size params.children) == 0) {
+      return
+    }
+    def fc:CodeNode (first params.children)
+    if (fc.hasFlag("keyword")) {
+      return
+    }
+    def valueCnt 0
+    for fnDescr.params p:RangerAppParamDesc i {
+      if (p.nameNode.hasFlag("keyword") == false) {
+        valueCnt = valueCnt + 1
+      }
+    }
+    if ((size params.children) != valueCnt) {
+      return
+    }
+    def expanded:[CodeNode]
+    def vi 0
+    for fnDescr.params p:RangerAppParamDesc i {
+      if (p.nameNode.hasFlag("keyword")) {
+        def kw:CodeNode (node.newVRefNode(p.name))
+        kw.setFlag("keyword")
+        push expanded kw
+      } {
+        push expanded (at params.children vi)
+        vi = vi + 1
+      }
+    }
+    clear params.children
+    for expanded item:CodeNode i {
+      push params.children item
+    }
+  }
+
+  fn buildRecordConstructor:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((size cl.variables) == 0) {
+      return
+    }
+    def sig:string "Constructor ("
+    def body:string "{\n"
+    def i 0
+    def cnt (size cl.variables)
+    while (i < cnt) {
+      def v:RangerAppParamDesc (at cl.variables i)
+      def tname:string v.nameNode.type_name
+      if ((strlen tname) == 0) {
+        tname = "string"
+      }
+      if (i > 0) {
+        sig = sig + " "
+      }
+      sig = sig + v.name + "@(keyword) " + v.name + ":" + tname
+      body = body + "this." + v.name + " = " + v.name + "\n"
+      i = i + 1
+    }
+    sig = sig + ") "
+    def code:string (sig + body + "}")
+    def src:SourceCode (new SourceCode (code))
+    src.filename = ("record_ctor_" + cl.name + ".rgr")
+    def parser:RangerLispParser (new RangerLispParser (src))
+    parser.parse(false)
+    def rn@(optional):CodeNode parser.rootNode
+    if (null? rn) {
+      return
+    }
+    def subCtx:RangerAppWriterContext (unwrap cl.ctx)
+    subCtx.setCurrentClass(cl)
+    for rn.children ch:CodeNode ci {
+      if (ch.isFirstVref("Constructor")) {
+        this.WalkCollectMethods(ch subCtx wr)
+        this.Constructor(ch subCtx wr)
+        return
+      }
+    }
+  }
+
   fn mergeImports:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
     def envOpt (ctx.getEnv())
@@ -4144,6 +4377,7 @@ class RangerFlowParser {
     }
     Anynn.clDesc = new_class
 
+    this.finalizeRecordClasses(ctx wr)
     
     ; initialize the operator root 
   }
@@ -4459,77 +4693,11 @@ class RangerFlowParser {
     }    
 
     if (node.isFirstVref("systemunion")) {
-
-      def nameNode@(lives):CodeNode (node.getSecond())
-      if(ctx.isDefinedClass(nameNode.vref)) {
-        def cl (ctx.findClass(nameNode.vref))
-        if( cl.is_system == false ) {
-          ctx.addError(node "Only system classes can be systemunions")
-        }
-        cl.is_system_union = true
-        def instances:CodeNode (node.getThird())
-        for instances.children ch:CodeNode i {
-          push cl.is_union_of ch.vref
-        }
-        return
-      }
-
-      def nameNode@(lives):CodeNode (node.getSecond())
-      def instances:CodeNode (node.getThird())
-      def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
-      new_class.name = nameNode.vref
-      new_class.nameNode = nameNode
-      ctx.addClass(nameNode.vref new_class)
-      new_class.is_system_union = true
-      for instances.children ch:CodeNode i {
-        push new_class.is_union_of ch.vref
-      }
-      nameNode.clDesc = new_class
+      this.registerSystemUnionFromNode(node ctx)
       return
     }
     if (node.isFirstVref("systemclass")) {
-      def nameNode@(lives):CodeNode (node.getSecond())
-      if(ctx.isDefinedClass(nameNode.vref)) {
-        def cl (ctx.findClass(nameNode.vref))
-        if( cl.is_system_union == false ) {
-          ctx.addError(node "Class already defined and it was not a systemunion.")
-        }
-        cl.is_system = true
-        def instances:CodeNode (node.getThird())
-        for instances.children ch@(lives):CodeNode i {
-          def langName:CodeNode (ch.getFirst())
-          def langClassName:CodeNode (ch.getSecond())
-          set cl.systemNodes langName.vref ch
-          if( (strlen langClassName.vref ) > 0 ) {
-            set cl.systemNames langName.vref langClassName.vref
-          }
-          if( (strlen langClassName.string_value ) > 0 ) {
-            set cl.systemNames langName.vref langClassName.string_value
-          }
-        }
-        return
-      }
-      def instances:CodeNode (node.getThird())
-      def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
-      new_class.name = nameNode.vref
-      new_class.nameNode = nameNode
-      ctx.addClass(nameNode.vref new_class)
-      new_class.is_system = true
-      for instances.children ch@(lives):CodeNode i {
-        def langName:CodeNode (ch.getFirst())
-        def langClassName:CodeNode (ch.getSecond())
-        set new_class.systemNodes langName.vref ch
-        ; set new_class.systemNames langName.vref langClassName.vref
-        if( (strlen langClassName.vref ) > 0 ) {
-          set new_class.systemNames langName.vref langClassName.vref
-        }
-        if( (strlen langClassName.string_value ) > 0 ) {
-          set new_class.systemNames langName.vref langClassName.string_value
-        }
-
-      }
-      nameNode.is_system_class = true
-      nameNode.clDesc = new_class
+      this.registerSystemClassFromNode(node ctx)
       return
     }
     if (node.isFirstVref("extends")) {
@@ -4629,7 +4797,7 @@ class RangerFlowParser {
       new_class.is_trait = true
     }
 
-    if ((node.isFirstVref("CreateClass")) || (node.isFirstVref("class"))) {
+    if ((node.isFirstVref("CreateClass")) || (node.isFirstVref("class")) || (node.isFirstVref("record"))) {
 
       if( (size node.children) < 3) {
         ctx.addError(node "Not enough arguments for creating a class")
@@ -4641,6 +4809,9 @@ class RangerFlowParser {
       def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
       new_class.name = s
       new_class.compiledName = s
+      if (node.isFirstVref("record")) {
+        new_class.is_record = true
+      }
 
       classNameNode.evalTypeClass = (TFactory.new_class_signature(classNameNode ctx wr))
       def notOkNames ([] 'main')
@@ -5078,6 +5249,21 @@ class RangerFlowParser {
 
   }
 
+  ; A field or local variable may be named the same as a Ranger system type
+  ; such as `buffer` (defined in Lang.rgr as `systemclass buffer`), which is
+  ; also registered as a defined class. When resolving the receiver of a member
+  ; access (e.g. `buffer.writeByte(...)`) the variable/field must win over the
+  ; type, otherwise the call resolves against the empty system type and the
+  ; method is reported as "not found". Only primitive/system type names can
+  ; collide this way — ordinary user classes are never primitive types — so
+  ; this guard is intentionally narrow and leaves all other resolution intact.
+  fn varShadowsSystemType:boolean (strname:string ctx:RangerAppWriterContext) {
+    if (false == (ctx.isPrimitiveType(strname))) {
+      return false
+    }
+    return (ctx.isVarDefined(strname))
+  }
+
   fn findFunctionDesc@(weak optional):RangerAppFunctionDesc (obj:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def varDesc:RangerAppParamDesc
     def varFnDesc:RangerAppFunctionDesc
@@ -5093,7 +5279,7 @@ class RangerFlowParser {
             if (strname == (this.getThisName())) {
               classDesc = (ctx.getCurrentClass())           
             } {
-              if (ctx.isDefinedClass(strname)) {
+              if ( (ctx.isDefinedClass(strname)) && (false == (this.varShadowsSystemType(strname ctx))) ) {
                 classDesc = (ctx.findClass(strname))
                 continue _
               }
@@ -5170,7 +5356,7 @@ class RangerFlowParser {
                 push obj.nsp (unwrap classDesc)
               }
             } {
-              if (ctx.isDefinedClass(strname)) {
+              if ( (ctx.isDefinedClass(strname)) && (false == (this.varShadowsSystemType(strname ctx))) ) {
                 classDesc = (ctx.findClass(strname))
                 if set_nsp {
                   push obj.nsp (unwrap classDesc)

@@ -1,0 +1,209 @@
+
+; Central registry for primitive and buffer type names.
+; New types should be registered here once; callers query instead of hardcoding lists.
+
+class TTypeRegistry {
+
+  static fn scalarPrimitiveNames:[string] () {
+    def names:[string]
+    push names "double"
+    push names "string"
+    push names "int"
+    push names "char"
+    push names "boolean"
+    return names
+  }
+
+  static fn bufferTypeNames:[string] () {
+    def names:[string]
+    push names "charbuffer"
+    push names "buffer"
+    push names "int_buffer"
+    push names "double_buffer"
+    return names
+  }
+
+  static fn isScalarPrimitive:boolean (typeName:string) {
+    for (TTypeRegistry.scalarPrimitiveNames()) n:string i {
+      if (typeName == n) {
+        return true
+      }
+    }
+    return false
+  }
+
+  static fn isBufferType:boolean (typeName:string) {
+    for (TTypeRegistry.bufferTypeNames()) n:string i {
+      if (typeName == n) {
+        return true
+      }
+    }
+    return false
+  }
+
+  static fn isPrimitiveTypeName:boolean (typeName:string) {
+    if (TTypeRegistry.isScalarPrimitive(typeName)) {
+      return true
+    }
+    if (TTypeRegistry.isBufferType(typeName)) {
+      return true
+    }
+    return false
+  }
+
+  static fn isKnownTypeName:boolean (typeName:string) {
+    return (TTypeRegistry.isPrimitiveTypeName(typeName))
+  }
+
+  static fn nameToNodeType:RangerNodeType (name:string) {
+    switch name {
+      case "double" {
+        return RangerNodeType.Double
+      }
+      case "int" {
+        return RangerNodeType.Integer
+      }
+      case "string" {
+        return RangerNodeType.String
+      }
+      case "boolean" {
+        return RangerNodeType.Boolean
+      }
+      case "char" {
+        return RangerNodeType.Char
+      }
+      case "charbuffer" {
+        return RangerNodeType.CharBuffer
+      }
+      case "buffer" {
+        return RangerNodeType.Buffer
+      }
+      case "int_buffer" {
+        return RangerNodeType.IntBuffer
+      }
+      case "double_buffer" {
+        return RangerNodeType.DoubleBuffer
+      }
+    }
+    return RangerNodeType.NoType
+  }
+
+  static fn nodeTypeToName:string (valueType:RangerNodeType) {
+    switch valueType {
+      case RangerNodeType.Double {
+        return "double"
+      }
+      case RangerNodeType.String {
+        return "string"
+      }
+      case RangerNodeType.Integer {
+        return "int"
+      }
+      case RangerNodeType.Boolean {
+        return "boolean"
+      }
+      case RangerNodeType.Char {
+        return "char"
+      }
+      case RangerNodeType.CharBuffer {
+        return "charbuffer"
+      }
+      case RangerNodeType.Buffer {
+        return "buffer"
+      }
+      case RangerNodeType.IntBuffer {
+        return "int_buffer"
+      }
+      case RangerNodeType.DoubleBuffer {
+        return "double_buffer"
+      }
+    }
+    return ""
+  }
+
+  static fn isNodePrimitive:boolean (valueType:RangerNodeType) {
+    def name:string (TTypeRegistry.nodeTypeToName(valueType))
+    if ((strlen name) > 0) {
+      return true
+    }
+    if (valueType == RangerNodeType.Enum) {
+      return true
+    }
+    return false
+  }
+
+  static fn targetTypeString:string (lang:string typeName:string) {
+    if (lang == "es6") {
+      switch typeName {
+        case "int" {
+          return "number"
+        }
+        case "string" {
+          return "string"
+        }
+        case "charbuffer" {
+          return "string"
+        }
+        case "buffer" {
+          return "Uint8Array"
+        }
+        case "int_buffer" {
+          return "BigInt64Array"
+        }
+        case "double_buffer" {
+          return "Float64Array"
+        }
+        case "char" {
+          return "number"
+        }
+        case "boolean" {
+          return "boolean"
+        }
+        case "double" {
+          return "number"
+        }
+      }
+    }
+    if (lang == "go") {
+      switch typeName {
+        case "int" {
+          return "int"
+        }
+        case "string" {
+          return "string"
+        }
+        case "charbuffer" {
+          return "string"
+        }
+        case "buffer" {
+          return "[]byte"
+        }
+        case "int_buffer" {
+          return "[]int64"
+        }
+        case "double_buffer" {
+          return "[]float64"
+        }
+        case "char" {
+          return "rune"
+        }
+        case "boolean" {
+          return "bool"
+        }
+        case "double" {
+          return "float64"
+        }
+      }
+    }
+    return ""
+  }
+
+  static fn listContains:boolean (list:[string] value:string) {
+    for list item:string i {
+      if (item == value) {
+        return true
+      }
+    }
+    return false
+  }
+}

@@ -559,16 +559,19 @@ class RangerGenericClassWriter {
       wr.out("(" false)
       def constr:RangerAppFunctionDesc cl.constructor_fn
       def givenArgs:CodeNode (node.getThird())
-      if (!null? constr) {
-        for constr.params arg:RangerAppParamDesc i {
-          def n:CodeNode (itemAt givenArgs.children i)
-          if (i > 0) {
-            wr.out(", " false)
-          }
-          if( true || (!null? arg.nameNode)) {
-            this.WalkNode(n ctx wr)
-          }       
+      def pms (filter (givenArgs.children) {
+        if( item.hasFlag('keyword')) {
+          return false
         }
+        return true
+      })
+      def cnt 0
+      for pms n:CodeNode i {
+        if (cnt > 0) {
+          wr.out(", " false)
+        }
+        cnt = cnt + 1
+        this.WalkNode(n ctx wr)
       }
       wr.out(")" false)
     }

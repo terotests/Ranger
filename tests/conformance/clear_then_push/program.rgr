@@ -1,0 +1,13 @@
+; Conformance: clear resets collection then push refills (Issue #59)
+class ClearThenPushTest {
+    sfn m@(main):void () {
+        def xs:[int]
+        push xs 1
+        push xs 2
+        clear xs
+        push xs 7
+        print (to_string (array_length xs))
+        print (to_string (at xs 0))
+        print "Done"
+    }
+}

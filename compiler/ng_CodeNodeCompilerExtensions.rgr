@@ -748,53 +748,14 @@ extension CodeNode {
         return
     }
 
+    def regType:RangerNodeType (TTypes.nameToValue(type_name))
+    if (regType != RangerNodeType.NoType) {
+      node.value_type = regType
+      node.eval_type = regType
+      node.eval_type_name = type_name
+      return
+    }
     switch type_name {
-      case "double" {
-        node.value_type = RangerNodeType.Double
-        node.eval_type = RangerNodeType.Double
-        node.eval_type_name = "double"
-      }
-      case "int" {
-        node.value_type = RangerNodeType.Integer
-        node.eval_type = RangerNodeType.Integer
-        node.eval_type_name = "int"
-      }
-      case "char" {
-        node.value_type = RangerNodeType.Char
-        node.eval_type = RangerNodeType.Char
-        node.eval_type_name = "char"
-      }
-      case "charbuffer" {
-        node.value_type = RangerNodeType.CharBuffer
-        node.eval_type = RangerNodeType.CharBuffer
-        node.eval_type_name = "charbuffer"
-      }
-      case "buffer" {
-        node.value_type = RangerNodeType.Buffer
-        node.eval_type = RangerNodeType.Buffer
-        node.eval_type_name = "buffer"
-      }
-      case "int_buffer" {
-        node.value_type = RangerNodeType.IntBuffer
-        node.eval_type = RangerNodeType.IntBuffer
-        node.eval_type_name = "int_buffer"
-      }
-      case "double_buffer" {
-        node.value_type = RangerNodeType.DoubleBuffer
-        node.eval_type = RangerNodeType.DoubleBuffer
-        node.eval_type_name = "double_buffer"
-      }
-      case "string" {
-        node.value_type = RangerNodeType.String
-        node.eval_type = RangerNodeType.String
-        node.eval_type_name = "string"
-      }
-      case "boolean" {
-        node.value_type = RangerNodeType.Boolean
-        node.eval_type = RangerNodeType.Boolean
-        node.eval_type_name = "string"
-      }
-
       default {
         if (true == expression) {
           node.value_type = RangerNodeType.ExpressionType

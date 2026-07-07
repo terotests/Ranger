@@ -195,6 +195,45 @@ describe("Ranger Compiler - LLVM / Low IR backend", () => {
     expect(exitCode).toBe("50");
   });
 
+  it("does not double zext boolean literals stored to class fields", () => {
+    // Regression: `field = true` (bare field name) used to emit an invalid
+    // `zext i1 <already-i32> to i32`. The IR must widen the i1 exactly once.
+    const ll = compileToLl(`${FIXTURES}/llvm_bool_field.rgr`);
+    // A zext-of-a-zext temp (%z<n> feeding another zext i1) is the bug.
+    expect(ll).not.toMatch(/zext i1 %z\d+ to i32/);
+  });
+
+  it("native boolean field binary returns 42", () => {
+    if (!isLlvmAvailable()) {
+      return;
+    }
+    const outDir = path.join(__dirname, ".output-bool-field");
+    fs.mkdirSync(outDir, { recursive: true });
+    const target =
+      process.platform === "darwin"
+        ? process.arch === "arm64"
+          ? "arm64-apple-macos"
+          : "x86_64-apple-macos"
+        : "native-linux-gnu";
+    const result = compileRangerWithFlags(
+      `${FIXTURES}/llvm_bool_field.rgr`,
+      "llvm",
+      outDir,
+      [`-target=${target}`]
+    );
+    expect(result.success, result.error || result.output).toBe(true);
+    const llPath = path.join(outDir, "llvm_bool_field.ll");
+    const binPath = path.join(outDir, "bool_field");
+    execSync(`clang "${llPath}" -o "${binPath}" -Wno-override-module`, {
+      stdio: "pipe",
+    });
+    const exitCode = execSync(`"${binPath}"; echo $?`, {
+      shell: "/bin/bash",
+      encoding: "utf-8",
+    }).trim();
+    expect(exitCode).toBe("42");
+  });
+
   it("matches golden LLVM IR for add", () => {
     const ll = normalizeLl(compileToLl(`${FIXTURES}/llvm_add.rgr`));
     const goldenPath = path.join(GOLDEN_DIR, "add.ll");

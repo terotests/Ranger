@@ -24,6 +24,11 @@ Import "dependency.clj"     ; imports
 
 Enum MyEnum ( Val1 Val2 )   ; enum
 
+record Point {              ; lightweight record (fields only)
+    def x:int 0
+    def y:int 0
+}
+
 class MyClass {             ; class
     def prop:Type value     ; property
     Constructor (p:T) {}    ; constructor
@@ -82,7 +87,7 @@ sfn m@(main):void () { }    ; entry point
 (? cond then else)         ; ternary
 ```
 
-## Classes
+## Classes and Records
 
 ```clojure
 def obj (new MyClass)       ; no-arg constructor
@@ -90,6 +95,10 @@ def obj (new MyClass(arg))  ; with args
 obj.method()                ; call method
 MyClass.staticMethod()      ; static call
 Extends(ParentClass)        ; inheritance
+
+record Point { def x:int 0 def y:int 0 }
+def p (new Point xpos 3 ypos 4)   ; keyword record construction
+def q (new Point 3 4)             ; positional shorthand
 ```
 
 ## Arrays

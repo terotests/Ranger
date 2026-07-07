@@ -1,0 +1,41 @@
+; Headless rendering probe for the SDL PoC's portable render layer.
+;
+; Drives the pure Pong logic a fixed number of deterministic steps, paints the
+; frame into an RGBA SoftCanvas via PongRenderer (no window / SDL / PNG), and
+; prints frame dimensions + pixel samples so a test can assert the buffer was
+; actually rendered. This is the same render path the SDL2 window presents.
+
+Import "../../gallery/game_engine/pong_render.rgr"
+
+class RenderProbe {
+    sfn m@(main):void () {
+        def game (new Pong)
+        def r (new PongRenderer)
+        def cv (new SoftCanvas)
+        def pw (r.pixelWidth(game))
+        def ph (r.pixelHeight(game))
+        cv.init(pw ph)
+
+        ; advance the deterministic simulation (no input) to a known frame
+        def btns (new Buttons)
+        def i 0
+        while (i < 20) {
+            game.step(btns)
+            i = (i + 1)
+        }
+
+        r.draw(game cv)
+
+        print (("dims=" + pw) + ("x" + ph))
+        print ("lit=" + (cv.litPixels(300)))
+
+        ; the ball centre pixel must be the bright-yellow ball colour
+        def hs (r.half(r.scale))
+        def bx ((game.ballX * r.scale) + hs)
+        def by ((game.ballY * r.scale) + hs)
+        print (((("ballpx=" + (cv.pixelR(bx by))) + ",") + (cv.pixelG(bx by))) + ("," + (cv.pixelB(bx by))))
+
+        ; a background pixel (top-left interior, away from walls/objects)
+        print (((("bgpx=" + (cv.pixelR(2 (ph - (r.scale) - 2)))) + ",") + (cv.pixelG(2 (ph - (r.scale) - 2)))) + ("," + (cv.pixelB(2 (ph - (r.scale) - 2)))))
+    }
+}

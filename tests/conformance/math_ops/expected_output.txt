@@ -1,0 +1,8 @@
+Sum: 13
+Diff: 7
+Prod: 30
+Quot: 3.3333333333333335
+a is greater
+a is at least 10
+x is true and y is false
+Done

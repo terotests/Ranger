@@ -84,6 +84,23 @@ The project can target `JavaScript`, `Java`, `Go`, `Swift`, `PHP`, `C++`, `C#`, 
 | **LLVM / WASM** (`-l=llvm`) | **Experimental.** Lowers to LLVM IR; optional WAT export for freestanding WASM. Native libc builds work for demos like Space Invaders; browser WASM is still rough. See `npm run test:llvm`, `npm run game:build:llvm`. |
 | Gallery examples | Good for understanding direction and capability, but some require manual setup or platform-specific tooling |
 
+### Conformance suite (Track 1)
+
+Cross-target semantic fixtures live in `tests/conformance/`. Run `npx vitest run tests/compiler-conformance.test.ts`.
+Regenerate the fixture list with `node scripts/generate-conformance-table.mjs`.
+
+<!-- BEGIN CONFORMANCE_TABLE -->
+| Fixture | Topic | Targets |
+| --- | --- | --- |
+| `array_param_mutate` | array parameters use reference semantics (Issue #58; Go known gap) | ES6, Go, Kotlin (when toolchain present) |
+| `clear_then_push` | clear resets slice without nil, push refills (Issue #59) | ES6, Go, Kotlin (when toolchain present) |
+| `int_division_to_double` | Conformance: integer division promoted to double (Issue #4) | ES6, Go, Kotlin (when toolchain present) |
+| `lf_line_endings` | LF-only source (Issue #12 class must not break operator spacing) | ES6, Go, Kotlin (when toolchain present) |
+| `math_ops` | Conformance: arithmetic and comparisons | ES6, Go, Kotlin (when toolchain present) |
+| `string_codepoint_index` | Conformance: Unicode code-point string indexing (Issue #57) | ES6, Go, Kotlin (when toolchain present) |
+| `while_loop` | Conformance: while loop control flow | ES6, Go, Kotlin (when toolchain present) |
+<!-- END CONFORMANCE_TABLE -->
+
 ## What's New in Version 3.0
 
 - **New File Extension** - Transitioning from `.clj` to `.rgr` for Ranger identity

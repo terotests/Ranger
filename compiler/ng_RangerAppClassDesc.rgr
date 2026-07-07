@@ -29,6 +29,7 @@ class RangerAppClassDesc {
   def process_path:string ""
   def is_singleton:boolean false
   def is_trait:boolean false
+  def is_record:boolean false
   def is_operator_class false
   def is_generic_instance false
   def is_union false

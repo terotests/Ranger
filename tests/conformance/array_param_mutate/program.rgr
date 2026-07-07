@@ -1,0 +1,13 @@
+; Conformance: array parameters use reference semantics (Issue #58)
+class ArrayParamMutateTest {
+    sfn grow:void (arr:[int]) {
+        push arr 42
+    }
+
+    sfn m@(main):void () {
+        def xs:[int]
+        ArrayParamMutateTest.grow(xs)
+        print (to_string (array_length xs))
+        print "Done"
+    }
+}

@@ -642,6 +642,7 @@ class tester {
       def lang_parser:RangerLispParser (new RangerLispParser (lang_code))
       lang_parser.parse(false)
       appCtx.langOperators = (unwrap lang_parser.rootNode)
+      flowParser.registerLangSystemClasses( (unwrap lang_parser.rootNode) appCtx (unwrap wr))
       appCtx.setRootFile( root_file )
 
       def ops (new RangerActiveOperators)

@@ -3229,8 +3229,11 @@ class LowIRBuilderPass {
       }
     }
     if (this.isClassField(varName lctx.className this.irModule)) {
-      ; emitFieldStoreOn widens an i1 value for boolean fields itself, so do not
-      ; pre-zext here (that produced a double zext: i1->i32 then i32-as-i1->i32).
+      ; NOTE: do not zext boolean rhs here. emitFieldStore ->
+      ; emitFieldStoreOn already widens an i1 value to the i32 storage slot
+      ; for boolean fields. Pre-zexting produced an invalid double
+      ; "zext i1 <i32> to i32" (the receiver "recv.fld" path above never did
+      ; this, which is why only bare field assignments miscompiled).
       this.emitFieldStore(varName tmp lctx)
       return
     }
