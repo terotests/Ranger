@@ -162,16 +162,30 @@ Observed while prototyping:
   `tests/fixtures/field_named_buffer.rgr` +
   `tests/compiler.test.ts` ("resolves method calls on a field named like a
   system type").
-* The tree is mid-rename: `PLAN_*` docs reference `src/l/` while the code is
-  `src/jsx/` — align these before depending on the module paths above.
+* The `PLAN_*` docs reference `src/l/` while the code lives under `src/jsx/`;
+  the module paths above use the real `src/jsx/` layout.
 
-With the `writeByte` fix in place, `src/raster/EVGRasterRenderer.rgr` and
-`src/jpeg/JPEGEncoder.rgr` compile cleanly (`-es6`); the remaining Phase 0 item
-is the `src/l`↔`src/jsx` path alignment before a working EVG game frame lands.
+With the `writeByte` fix in place the **whole EVG tool chain now builds and
+renders**. Verified against the clean self-hosted compiler (`-es6`):
+
+* `src/raster/EVGRasterRenderer.rgr` and `src/jpeg/JPEGEncoder.rgr` compile.
+* Every real tool compiles: `evg_png_tool`, `evg_html_tool`, `evg_pdf_tool`,
+  `evg_component_tool`, `evg_tool`, `evg_preview_server`, plus the font, jpeg
+  and raster tests.
+* End-to-end render works: `evg_png_tool sample.tsx out.png` runs the JSX→EVG
+  layout + font + rasterizer + `PNGEncoder` pipeline and writes a valid PNG.
+
+(The earlier `EVGUnit` "no description for called object" symptom was an
+artifact of a half-rebuilt compiler during debugging — a clean build of the
+resolver fix resolves `EVGUnit.create(...)` static calls correctly.) The only
+remaining non-compiling files are throwaway scratch experiments
+(`tools/minimal_test.rgr`, `tools/test_import.rgr`, `tools/test_eval_value.rgr`)
+whose failures (`print` arg mismatch, unknown type, stale call arity) are
+pre-existing content bugs unrelated to the renderer.
 
 ## 9. Roadmap
 
-1. **Phase 0 — fix EVG build** (`writeByte` resolution ✅ done; `src/l`↔`src/jsx` remaining).
+1. **Phase 0 — fix EVG build** ✅ done: `writeByte`/`buffer` resolution fixed; the full EVG tool chain compiles and `evg_png_tool` renders a PNG end-to-end.
 2. **Phase 1 — software EVG frame.** `EVGRenderer` interface; port Pong's `draw`
    to `EVGRasterRenderer`; `gfx_present_rgba` operator + `runtime/ranger_gfx.c`
    (SDL2) and `es6` canvas backend. Terminal downsample fallback.
