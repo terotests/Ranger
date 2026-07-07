@@ -126,6 +126,13 @@ class ComponentEngine {
     
     ; Primitive EVG elements (not components)
     def primitives:[string]
+
+    ; Value-returning control flow: set when a `return` executes while running a
+    ; statement list, so returns inside if/else and nested blocks propagate the
+    ; returned value out of the function (not just JSX). Saved/restored per
+    ; function body so nested calls are reentrancy-safe.
+    def scriptDidReturn:boolean false
+    def scriptReturnValue:EvalValue (EvalValue.null())
     
     Constructor () {
         def p:TSParserSimple (new TSParserSimple())
@@ -263,7 +270,74 @@ class ComponentEngine {
         ; 5. Evaluate render function and return EVG tree
         return (this.evaluateFunction(renderFn))
     }
-    
+
+    ; ==========================================================================
+    ; Scripting API (game engine / host integration)
+    ; --------------------------------------------------------------------------
+    ; These let a Ranger host inject globals into the evaluation namespace and
+    ; drive a loaded script by calling its functions - the foundation for a
+    ; script-driven game screen layer (see gallery/game_engine/scripting).
+    ; ==========================================================================
+
+    ; Inject a global binding (object/function/value) into the top-level scope
+    ; so evaluated scripts can reference it by name, e.g. registerGlobal("game",
+    ; EvalValue.object(...)) exposes `game` to the script.
+    fn registerGlobal:void (name:string value:EvalValue) {
+        context.define(name value)
+    }
+
+    ; Convenience: read back a registered / script-defined global by name.
+    fn getGlobal:EvalValue (name:string) {
+        return (context.lookup(name))
+    }
+
+    ; Parse a script and register its imports, components/functions and
+    ; top-level variables WITHOUT requiring or evaluating a render() function.
+    ; After this, callFunction()/callRender() can invoke the script's functions.
+    fn loadScript:void (src:string) {
+        source = src
+        def lexer (new TSLexer(src))
+        def tokens:[Token] (lexer.tokenize())
+        parser.initParser(tokens)
+        parser.tsxMode = true
+        def ast:TSNode (parser.parseProgram())
+        this.processImports(ast)
+        this.registerComponents(ast)
+        this.processVariables(ast)
+    }
+
+    ; Call a script function by name, passing a single props/state object (React
+    ; style: params are bound from the object's members / a destructured
+    ; pattern). Returns the function's value (object/array/primitive). Unknown or
+    ; non-function names return null.
+    fn callFunction:EvalValue (name:string props:EvalValue) {
+        def fnValue:EvalValue (context.lookup(name))
+        if (false == (fnValue.isFunction())) {
+            return (EvalValue.null())
+        }
+        if (null? fnValue.functionNode) {
+            return (EvalValue.null())
+        }
+        def fnNode:TSNode (unwrap fnValue.functionNode)
+        return (this.evaluateFunctionCall(fnNode props))
+    }
+
+    ; Call a script function by name and evaluate its returned JSX into an EVG
+    ; element tree (for screen render functions).
+    fn callRender:EVGElement (name:string props:EvalValue) {
+        def fnValue:EvalValue (context.lookup(name))
+        if (false == (fnValue.isFunction())) {
+            def empty (new EVGElement())
+            return empty
+        }
+        if (null? fnValue.functionNode) {
+            def empty2 (new EVGElement())
+            return empty2
+        }
+        def fnNode:TSNode (unwrap fnValue.functionNode)
+        return (this.evaluateFunctionWithProps(fnNode props))
+    }
+
     ; ==========================================================================
     ; Component Registration
     ; ==========================================================================
@@ -718,12 +792,24 @@ class ComponentEngine {
     ; Evaluate function body and return result as EvalValue (not EVGElement)
     ; This allows functions to return arrays, primitives, etc.
     fn evaluateFunctionBodyValue:EvalValue (body:TSNode) {
-        ; Process statements
+        ; Value-returning control flow: a `return` inside an if/else or nested
+        ; block propagates its value out of the function. Save/restore the flags
+        ; so nested function calls during evaluation stay reentrancy-safe.
+        if (body.nodeType == "BlockStatement") {
+            def savedDidReturn:boolean scriptDidReturn
+            def savedReturnValue:EvalValue scriptReturnValue
+            scriptDidReturn = false
+            scriptReturnValue = (EvalValue.null())
+            this.runStatementList(body.children)
+            def blockOut:EvalValue scriptReturnValue
+            scriptDidReturn = savedDidReturn
+            scriptReturnValue = savedReturnValue
+            return blockOut
+        }
+        ; Non-block (arrow expression) bodies fall through to the tail below.
         def i:int 0
-        print "evaluateFunctionBodyValue: body has " + (to_string (array_length body.children)) + " children"
         while (i < (array_length body.children)) {
             def stmt:TSNode (itemAt body.children i)
-            print "  Statement " + (to_string i) + ": " + stmt.nodeType
             
             ; Process variable declarations
             if (stmt.nodeType == "VariableDeclaration") {
@@ -795,6 +881,89 @@ class ComponentEngine {
     ; If Statement Evaluation
     ; ==========================================================================
     
+    ; --------------------------------------------------------------------------
+    ; Value-returning statement execution (used by evaluateFunctionBodyValue).
+    ; A `return` anywhere - including inside if/else and nested blocks - sets
+    ; scriptReturnValue and halts execution, so script control flow (e.g. a game
+    ; reducer's onButton) returns the correct value.
+    ; --------------------------------------------------------------------------
+    fn runStatementList:void (stmts:[TSNode]) {
+        def i:int 0
+        while (i < (array_length stmts)) {
+            if scriptDidReturn {
+                return
+            }
+            this.runStatementValue((itemAt stmts i))
+            i = i + 1
+        }
+    }
+
+    fn runStatementValue:void (stmt:TSNode) {
+        if scriptDidReturn {
+            return
+        }
+        if (stmt.nodeType == "ReturnStatement") {
+            if stmt.left {
+                scriptReturnValue = (this.evaluateExpr((unwrap stmt.left)))
+            } {
+                scriptReturnValue = (EvalValue.null())
+            }
+            scriptDidReturn = true
+            return
+        }
+        if (stmt.nodeType == "VariableDeclaration") {
+            this.processVariableDeclaration(stmt)
+            return
+        }
+        if (stmt.nodeType == "ExpressionStatement") {
+            if stmt.left {
+                this.evaluateExprForSideEffect((unwrap stmt.left))
+            }
+            return
+        }
+        if (stmt.nodeType == "IfStatement") {
+            this.runIfValue(stmt)
+            return
+        }
+        if (stmt.nodeType == "BlockStatement") {
+            this.runStatementList(stmt.children)
+            return
+        }
+        ; Loops run for side effects; value-returns from inside a loop are not
+        ; propagated (uncommon in screen/reducer scripts).
+        if (stmt.nodeType == "ForStatement") {
+            def fr:EVGElement (this.evaluateForStatement(stmt))
+            return
+        }
+        if (stmt.nodeType == "ForOfStatement") {
+            def fo:EVGElement (this.evaluateForOfStatement(stmt))
+            return
+        }
+    }
+
+    fn runIfValue:void (node:TSNode) {
+        if node.left {
+            def cond:EvalValue (this.evaluateExpr((unwrap node.left)))
+            if (cond.toBool()) {
+                if node.body {
+                    this.runBlockOrStatement((unwrap node.body))
+                }
+            } {
+                if node.right {
+                    this.runBlockOrStatement((unwrap node.right))
+                }
+            }
+        }
+    }
+
+    fn runBlockOrStatement:void (blk:TSNode) {
+        if (blk.nodeType == "BlockStatement") {
+            this.runStatementList(blk.children)
+        } {
+            this.runStatementValue(blk)
+        }
+    }
+
     ; Evaluates an if statement
     ; Returns EVGElement with hasReturn flag set if a return was executed
     fn evaluateIfStatement:EVGElement (node:TSNode) {
@@ -2369,8 +2538,6 @@ class ComponentEngine {
             def leftExpr:TSNode (unwrap node.left)
             def obj:EvalValue (this.evaluateExpr(leftExpr))
             def propName:string node.name
-            
-            print ("evaluateMemberExpr: propName=" + propName + " computed=" + (to_string node.computed) + " obj.type=" + (to_string obj.valueType))
             
             ; Check for computed access [index]
             if node.computed {
