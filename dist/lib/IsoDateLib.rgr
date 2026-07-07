@@ -1,0 +1,15 @@
+
+; Portable ISO-8601 calendar library (date-only, no timezone).
+; Convention: IsoDate = string "YYYY-MM-DD"
+;
+; Modules:
+;   IsoDate/DateMath.rgr      — addDays, compareIso, isBetween
+;   IsoDate/IsoDateParse.rgr  — toIsoDateOnly, datePartsToISO
+;   IsoDate/IsoCalendar.rgr   — ISO week, day-of-week
+;
+; Compiler intrinsics (Lang.rgr): iso_add_days, iso_compare, iso_between
+; Prefer DateMath.addDays in library code; intrinsics optimize hot paths per target.
+
+Import "IsoDate/DateMath.rgr"
+Import "IsoDate/IsoDateParse.rgr"
+Import "IsoDate/IsoCalendar.rgr"

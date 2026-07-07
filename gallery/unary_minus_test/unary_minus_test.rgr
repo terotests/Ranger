@@ -1,0 +1,14 @@
+
+class UnaryMinusTest {
+  fn absInt:int (x:int) {
+    def dx:int x
+    if (dx < 0) {
+      dx = -dx
+    }
+    return dx
+  }
+
+  fn negReturn:int (x:int) {
+    return -x
+  }
+}

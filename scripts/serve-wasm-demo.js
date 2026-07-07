@@ -39,7 +39,7 @@ const server = http.createServer((req, res) => {
 });
 
 if (!fs.existsSync(ROOT)) {
-  console.error("error: " + ROOT + " missing — run: npm run demo:wasm");
+  console.error("error: " + ROOT + " missing ï¿½ run: npm run demo:wasm");
   process.exit(1);
 }
 

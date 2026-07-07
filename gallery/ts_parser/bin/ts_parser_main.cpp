@@ -103,6 +103,14 @@ class TSNode : public std::enable_shared_from_this<TSNode>  {
     std::string kind;
     bool optional;
     bool readonly;
+    bool prefix;
+    bool shorthand;
+    bool computed;
+    bool method;
+    bool generator;
+    bool async;
+    bool delegate;
+    bool await;
     std::vector<std::shared_ptr<TSNode>> children;
     std::vector<std::shared_ptr<TSNode>> params;
     std::vector<std::shared_ptr<TSNode>> decorators;
@@ -111,6 +119,9 @@ class TSNode : public std::enable_shared_from_this<TSNode>  {
     std::shared_ptr<TSNode> body;
     std::shared_ptr<TSNode> init;
     std::shared_ptr<TSNode> typeAnnotation;
+    std::shared_ptr<TSNode> test;
+    std::shared_ptr<TSNode> consequent;
+    std::shared_ptr<TSNode> alternate;
     /* class constructor */ 
     TSNode( );
 };
@@ -131,6 +142,7 @@ class TSParserSimple : public std::enable_shared_from_this<TSParserSimple>  {
     std::string peekType();
     std::string peekValue();
     void advance();
+    void skipIgnoredTokens();
     std::shared_ptr<Token> expect( std::string expectedType );
     std::shared_ptr<Token> expectValue( std::string expectedValue );
     bool isAtEnd();
@@ -138,6 +150,7 @@ class TSParserSimple : public std::enable_shared_from_this<TSParserSimple>  {
     bool matchValue( std::string value );
     std::shared_ptr<TSNode> parseProgram();
     std::shared_ptr<TSNode> parseStatement();
+    std::shared_ptr<TSNode> parseLabeledStatement();
     std::string peekNextValue();
     std::shared_ptr<TSNode> parseReturn();
     std::shared_ptr<TSNode> parseImport();
@@ -146,6 +159,8 @@ class TSParserSimple : public std::enable_shared_from_this<TSParserSimple>  {
     std::shared_ptr<TSNode> parseInterfaceBody();
     std::vector<std::shared_ptr<TSNode>> parseTypeParams();
     std::shared_ptr<TSNode> parsePropertySig();
+    std::shared_ptr<TSNode> parseCallSignature( int startPos , int startLine , int startCol );
+    std::shared_ptr<TSNode> parseConstructSignature( int startPos , int startLine , int startCol );
     std::shared_ptr<TSNode> parseTypeAlias();
     std::shared_ptr<TSNode> parseDecorator();
     std::shared_ptr<TSNode> parseClass();
@@ -163,7 +178,9 @@ class TSParserSimple : public std::enable_shared_from_this<TSParserSimple>  {
     std::shared_ptr<TSNode> parseSwitchStatement();
     std::shared_ptr<TSNode> parseTryStatement();
     std::shared_ptr<TSNode> parseVarDecl();
-    std::shared_ptr<TSNode> parseFuncDecl();
+    std::shared_ptr<TSNode> parseObjectPattern();
+    std::shared_ptr<TSNode> parseArrayPattern();
+    std::shared_ptr<TSNode> parseFuncDecl( bool isAsync );
     std::shared_ptr<TSNode> parseParam();
     std::shared_ptr<TSNode> parseBlock();
     std::shared_ptr<TSNode> parseExprStmt();
@@ -179,6 +196,8 @@ class TSParserSimple : public std::enable_shared_from_this<TSParserSimple>  {
     std::shared_ptr<TSNode> parseTupleType();
     std::shared_ptr<TSNode> parseParenOrFunctionType();
     std::shared_ptr<TSNode> parseFunctionType( int startPos , int startLine , int startCol );
+    std::shared_ptr<TSNode> parseConstructorType();
+    std::shared_ptr<TSNode> parseImportType();
     std::shared_ptr<TSNode> parseTypeLiteral();
     std::shared_ptr<TSNode> parseTypeLiteralMember();
     std::shared_ptr<TSNode> parseMappedType( bool isReadonly , std::string readonlyMod , std::string paramName , int startPos , int startLine , int startCol );
@@ -187,7 +206,13 @@ class TSParserSimple : public std::enable_shared_from_this<TSParserSimple>  {
     std::shared_ptr<TSNode> parseExpr();
     std::shared_ptr<TSNode> parseAssign();
     std::shared_ptr<TSNode> parseNullishCoalescing();
-    std::shared_ptr<TSNode> parseBinary();
+    std::shared_ptr<TSNode> parseTernary();
+    std::shared_ptr<TSNode> parseLogicalOr();
+    std::shared_ptr<TSNode> parseLogicalAnd();
+    std::shared_ptr<TSNode> parseEquality();
+    std::shared_ptr<TSNode> parseComparison();
+    std::shared_ptr<TSNode> parseAdditive();
+    std::shared_ptr<TSNode> parseMultiplicative();
     std::shared_ptr<TSNode> parseUnary();
     std::shared_ptr<TSNode> parsePostfix();
     std::shared_ptr<TSNode> parsePrimary();
@@ -198,6 +223,9 @@ class TSParserSimple : public std::enable_shared_from_this<TSParserSimple>  {
     std::shared_ptr<TSNode> parseArrowFunction();
     std::shared_ptr<TSNode> parseNewExpression();
     std::string peekNextType();
+    std::string peekAheadValue( int offset );
+    bool startsWithLowerCase( std::string s );
+    bool looksLikeGenericCall();
     std::shared_ptr<TSNode> parseJSXElement();
     std::shared_ptr<TSNode> parseJSXOpeningElement();
     std::shared_ptr<TSNode> parseJSXClosingElement();
@@ -324,6 +352,9 @@ bool  TSLexer::isAlpha( std::string ch ) {
   if ( ch == std::string("$") ) {
     return true;
   }
+  if ( code > 127 ) {
+    return true;
+  }
   return false;
 }
 bool  TSLexer::isAlphaNumCh( std::string ch ) {
@@ -349,6 +380,9 @@ bool  TSLexer::isAlphaNumCh( std::string ch ) {
     if ( code <= 90 ) {
       return true;
     }
+  }
+  if ( code > 127 ) {
+    return true;
   }
   return false;
 }
@@ -378,10 +412,10 @@ void  TSLexer::skipWhitespace() {
     } else {
       return;
     }
-  }
+  };
 }
 std::shared_ptr<Token>  TSLexer::makeToken( std::string tokType , std::string value , int startPos , int startLine , int startCol ) {
-  std::shared_ptr<Token> tok =  std::make_shared<Token>();
+  std::shared_ptr<Token>& tok =  std::make_shared<Token>();
   tok->tokenType = tokType;
   tok->value = value;
   tok->start = startPos;
@@ -406,7 +440,7 @@ std::shared_ptr<Token>  TSLexer::readLineComment() {
       return this->makeToken(std::string("LineComment"), value, startPos, startLine, startCol);
     }
     value = value + this->advance();
-  }
+  };
   return this->makeToken(std::string("LineComment"), value, startPos, startLine, startCol);
 }
 std::shared_ptr<Token>  TSLexer::readBlockComment() {
@@ -426,7 +460,7 @@ std::shared_ptr<Token>  TSLexer::readBlockComment() {
       }
     }
     value = value + this->advance();
-  }
+  };
   return this->makeToken(std::string("BlockComment"), value, startPos, startLine, startCol);
 }
 std::shared_ptr<Token>  TSLexer::readString( std::string quote ) {
@@ -468,7 +502,7 @@ std::shared_ptr<Token>  TSLexer::readString( std::string quote ) {
     } else {
       value = value + this->advance();
     }
-  }
+  };
   return this->makeToken(std::string("String"), value, startPos, startLine, startCol);
 }
 std::shared_ptr<Token>  TSLexer::readTemplateLiteral() {
@@ -506,7 +540,7 @@ std::shared_ptr<Token>  TSLexer::readTemplateLiteral() {
     } else {
       value = value + this->advance();
     }
-  }
+  };
   return this->makeToken(std::string("Template"), value, startPos, startLine, startCol);
 }
 std::shared_ptr<Token>  TSLexer::readNumber() {
@@ -519,13 +553,21 @@ std::shared_ptr<Token>  TSLexer::readNumber() {
     if ( this->isDigit(ch) ) {
       value = value + this->advance();
     } else {
-      if ( ch == std::string(".") ) {
+      if ( ch == std::string("_") ) {
         value = value + this->advance();
       } else {
-        return this->makeToken(std::string("Number"), value, startPos, startLine, startCol);
+        if ( ch == std::string(".") ) {
+          value = value + this->advance();
+        } else {
+          if ( ch == std::string("n") ) {
+            value = value + this->advance();
+            return this->makeToken(std::string("BigInt"), value, startPos, startLine, startCol);
+          }
+          return this->makeToken(std::string("Number"), value, startPos, startLine, startCol);
+        }
       }
     }
-  }
+  };
   return this->makeToken(std::string("Number"), value, startPos, startLine, startCol);
 }
 std::shared_ptr<Token>  TSLexer::readIdentifier() {
@@ -540,7 +582,7 @@ std::shared_ptr<Token>  TSLexer::readIdentifier() {
     } else {
       return this->makeToken(this->identType(value), value, startPos, startLine, startCol);
     }
-  }
+  };
   return this->makeToken(this->identType(value), value, startPos, startLine, startCol);
 }
 std::string  TSLexer::identType( std::string value ) {
@@ -846,6 +888,10 @@ std::shared_ptr<Token>  TSLexer::nextToken() {
     if ( next_1 == std::string("&") ) {
       this->advance();
       this->advance();
+      if ( this->peek() == std::string("=") ) {
+        this->advance();
+        return this->makeToken(std::string("Punctuator"), std::string("&&="), startPos, startLine, startCol);
+      }
       return this->makeToken(std::string("Punctuator"), std::string("&&"), startPos, startLine, startCol);
     }
   }
@@ -853,6 +899,10 @@ std::shared_ptr<Token>  TSLexer::nextToken() {
     if ( next_1 == std::string("|") ) {
       this->advance();
       this->advance();
+      if ( this->peek() == std::string("=") ) {
+        this->advance();
+        return this->makeToken(std::string("Punctuator"), std::string("||="), startPos, startLine, startCol);
+      }
       return this->makeToken(std::string("Punctuator"), std::string("||"), startPos, startLine, startCol);
     }
   }
@@ -860,6 +910,10 @@ std::shared_ptr<Token>  TSLexer::nextToken() {
     if ( next_1 == std::string("?") ) {
       this->advance();
       this->advance();
+      if ( this->peek() == std::string("=") ) {
+        this->advance();
+        return this->makeToken(std::string("Punctuator"), std::string("??="), startPos, startLine, startCol);
+      }
       return this->makeToken(std::string("Punctuator"), std::string("??"), startPos, startLine, startCol);
     }
     if ( next_1 == std::string(".") ) {
@@ -874,12 +928,48 @@ std::shared_ptr<Token>  TSLexer::nextToken() {
       this->advance();
       return this->makeToken(std::string("Punctuator"), std::string("++"), startPos, startLine, startCol);
     }
+    if ( next_1 == std::string("=") ) {
+      this->advance();
+      this->advance();
+      return this->makeToken(std::string("Punctuator"), std::string("+="), startPos, startLine, startCol);
+    }
   }
   if ( ch == std::string("-") ) {
     if ( next_1 == std::string("-") ) {
       this->advance();
       this->advance();
       return this->makeToken(std::string("Punctuator"), std::string("--"), startPos, startLine, startCol);
+    }
+    if ( next_1 == std::string("=") ) {
+      this->advance();
+      this->advance();
+      return this->makeToken(std::string("Punctuator"), std::string("-="), startPos, startLine, startCol);
+    }
+  }
+  if ( ch == std::string("*") ) {
+    if ( next_1 == std::string("*") ) {
+      this->advance();
+      this->advance();
+      return this->makeToken(std::string("Punctuator"), std::string("**"), startPos, startLine, startCol);
+    }
+    if ( next_1 == std::string("=") ) {
+      this->advance();
+      this->advance();
+      return this->makeToken(std::string("Punctuator"), std::string("*="), startPos, startLine, startCol);
+    }
+  }
+  if ( ch == std::string("/") ) {
+    if ( next_1 == std::string("=") ) {
+      this->advance();
+      this->advance();
+      return this->makeToken(std::string("Punctuator"), std::string("/="), startPos, startLine, startCol);
+    }
+  }
+  if ( ch == std::string("%") ) {
+    if ( next_1 == std::string("=") ) {
+      this->advance();
+      this->advance();
+      return this->makeToken(std::string("Punctuator"), std::string("%="), startPos, startLine, startCol);
     }
   }
   if ( ch == std::string(".") ) {
@@ -903,7 +993,7 @@ std::vector<std::shared_ptr<Token>>  TSLexer::tokenize() {
     if ( tok->tokenType == std::string("EOF") ) {
       return tokens;
     }
-  }
+  };
   return tokens;
 }
 TSNode::TSNode( ) {
@@ -917,6 +1007,14 @@ TSNode::TSNode( ) {
   this->kind = std::string("");
   this->optional = false;
   this->readonly = false;
+  this->prefix = false;
+  this->shorthand = false;
+  this->computed = false;
+  this->method = false;
+  this->generator = false;
+  this->async = false;
+  this->delegate = false;
+  this->await = false;
 }
 TSParserSimple::TSParserSimple( ) {
   this->pos = 0;
@@ -929,6 +1027,7 @@ void  TSParserSimple::initParser( std::vector<std::shared_ptr<Token>> toks ) {
   this->quiet = false;
   if ( ((int)(toks.size())) > 0 ) {
     this->currentToken  = toks.at(0);
+    this->skipIgnoredTokens();
   }
 }
 void  TSParserSimple::setQuiet( bool q ) {
@@ -964,6 +1063,27 @@ void  TSParserSimple::advance() {
     eof->value = std::string("");
     this->currentToken  = eof;
   }
+  this->skipIgnoredTokens();
+}
+void  TSParserSimple::skipIgnoredTokens() {
+  while (this->pos < ((int)(this->tokens.size()))) {
+    std::shared_ptr<Token> tok = this->peek();
+    std::string tokType = tok->tokenType;
+    if ( (tokType == std::string("LineComment")) || (tokType == std::string("BlockComment")) ) {
+      this->pos = this->pos + 1;
+      if ( this->pos < ((int)(this->tokens.size())) ) {
+        this->currentToken  = this->tokens.at(this->pos);
+      } else {
+        std::shared_ptr<Token> eof =  std::make_shared<Token>();
+        eof->tokenType = std::string("EOF");
+        eof->value = std::string("");
+        this->currentToken  = eof;
+        return;
+      }
+    } else {
+      return;
+    }
+  };
 }
 std::shared_ptr<Token>  TSParserSimple::expect( std::string expectedType ) {
   std::shared_ptr<Token> tok = this->peek();
@@ -998,12 +1118,12 @@ bool  TSParserSimple::matchValue( std::string value ) {
   return v == value;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseProgram() {
-  std::shared_ptr<TSNode> prog =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& prog =  std::make_shared<TSNode>();
   prog->nodeType = std::string("Program");
   while (this->isAtEnd() == false) {
     std::shared_ptr<TSNode> stmt = this->parseStatement();
     prog->children.push_back( stmt  );
-  }
+  };
   return prog;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseStatement() {
@@ -1013,7 +1133,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseStatement() {
     while (this->matchValue(std::string("@"))) {
       std::shared_ptr<TSNode> dec = this->parseDecorator();
       decorators.push_back( dec  );
-    }
+    };
     std::shared_ptr<TSNode> decorated = this->parseStatement();
     decorated->decorators = decorators;
     return decorated;
@@ -1058,7 +1178,14 @@ std::shared_ptr<TSNode>  TSParserSimple::parseStatement() {
     return this->parseVarDecl();
   }
   if ( tokVal == std::string("function") ) {
-    return this->parseFuncDecl();
+    return this->parseFuncDecl(false);
+  }
+  if ( tokVal == std::string("async") ) {
+    std::string nextVal_2 = this->peekNextValue();
+    if ( nextVal_2 == std::string("function") ) {
+      this->advance();
+      return this->parseFuncDecl(true);
+    }
   }
   if ( tokVal == std::string("return") ) {
     return this->parseReturn();
@@ -1093,7 +1220,28 @@ std::shared_ptr<TSNode>  TSParserSimple::parseStatement() {
     empty->nodeType = std::string("EmptyStatement");
     return empty;
   }
+  std::string tokType = this->peekType();
+  if ( tokType == std::string("Identifier") ) {
+    std::string nextVal_3 = this->peekNextValue();
+    if ( nextVal_3 == std::string(":") ) {
+      return this->parseLabeledStatement();
+    }
+  }
   return this->parseExprStmt();
+}
+std::shared_ptr<TSNode>  TSParserSimple::parseLabeledStatement() {
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
+  node->nodeType = std::string("LabeledStatement");
+  std::shared_ptr<Token> startTok = this->peek();
+  node->start = startTok->start;
+  node->line = startTok->line;
+  node->col = startTok->col;
+  std::shared_ptr<Token> labelTok = this->expect(std::string("Identifier"));
+  node->name = labelTok->value;
+  this->expectValue(std::string(":"));
+  std::shared_ptr<TSNode> body = this->parseStatement();
+  node->body  = body;
+  return node;
 }
 std::string  TSParserSimple::peekNextValue() {
   int nextPos = this->pos + 1;
@@ -1104,7 +1252,7 @@ std::string  TSParserSimple::peekNextValue() {
   return std::string("");
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseReturn() {
-  std::shared_ptr<TSNode> node =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
   node->nodeType = std::string("ReturnStatement");
   std::shared_ptr<Token> startTok = this->peek();
   node->start = startTok->start;
@@ -1122,7 +1270,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseReturn() {
   return node;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseImport() {
-  std::shared_ptr<TSNode> node =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
   node->nodeType = std::string("ImportDeclaration");
   std::shared_ptr<Token> startTok = this->peek();
   node->start = startTok->start;
@@ -1157,7 +1305,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseImport() {
       if ( this->matchValue(std::string(",")) ) {
         this->advance();
       }
-    }
+    };
     this->expectValue(std::string("}"));
     node->children = specifiers;
   }
@@ -1196,7 +1344,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseImport() {
           if ( this->matchValue(std::string(",")) ) {
             this->advance();
           }
-        }
+        };
         this->expectValue(std::string("}"));
       }
     }
@@ -1215,7 +1363,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseImport() {
   return node;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseExport() {
-  std::shared_ptr<TSNode> node =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
   node->nodeType = std::string("ExportNamedDeclaration");
   std::shared_ptr<Token> startTok = this->peek();
   node->start = startTok->start;
@@ -1265,7 +1413,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseExport() {
       if ( this->matchValue(std::string(",")) ) {
         this->advance();
       }
-    }
+    };
     this->expectValue(std::string("}"));
     node->children = specifiers;
     if ( this->matchValue(std::string("from")) ) {
@@ -1313,7 +1461,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseExport() {
   return node;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseInterface() {
-  std::shared_ptr<TSNode> node =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
   node->nodeType = std::string("TSInterfaceDeclaration");
   std::shared_ptr<Token> startTok = this->peek();
   node->start = startTok->start;
@@ -1335,21 +1483,21 @@ std::shared_ptr<TSNode>  TSParserSimple::parseInterface() {
       this->advance();
       std::shared_ptr<TSNode> nextType = this->parseType();
       extendsList.push_back( nextType  );
-    }
-    for ( int ext_1 = 0; ext_1 != (int)(extendsList.size()); ext_1++) {
-      std::shared_ptr<TSNode> ext = extendsList.at(ext_1);
+    };
+    for ( int i = 0; i != (int)(extendsList.size()); i++) {
+      std::shared_ptr<TSNode> ext = extendsList.at(i);
       std::shared_ptr<TSNode> wrapper =  std::make_shared<TSNode>();
       wrapper->nodeType = std::string("TSExpressionWithTypeArguments");
-      wrapper->left  = ext_1;
+      wrapper->left  = ext;
       node->children.push_back( wrapper  );
-    }
+    };
   }
   std::shared_ptr<TSNode> body = this->parseInterfaceBody();
   node->body  = body;
   return node;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseInterfaceBody() {
-  std::shared_ptr<TSNode> body =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& body =  std::make_shared<TSNode>();
   body->nodeType = std::string("TSInterfaceBody");
   std::shared_ptr<Token> startTok = this->peek();
   body->start = startTok->start;
@@ -1362,7 +1510,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseInterfaceBody() {
     if ( this->matchValue(std::string(";")) || this->matchValue(std::string(",")) ) {
       this->advance();
     }
-  }
+  };
   this->expectValue(std::string("}"));
   return body;
 }
@@ -1391,21 +1539,37 @@ std::vector<std::shared_ptr<TSNode>>  TSParserSimple::parseTypeParams() {
       param->init  = defaultType;
     }
     params.push_back( param  );
-  }
+  };
   this->expectValue(std::string(">"));
   return params;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parsePropertySig() {
-  std::shared_ptr<TSNode> prop =  std::make_shared<TSNode>();
-  prop->nodeType = std::string("TSPropertySignature");
   std::shared_ptr<Token> startTok = this->peek();
-  prop->start = startTok->start;
-  prop->line = startTok->line;
-  prop->col = startTok->col;
+  int startPos = startTok->start;
+  int startLine = startTok->line;
+  int startCol = startTok->col;
+  bool isReadonly = false;
   if ( this->matchValue(std::string("readonly")) ) {
-    prop->readonly = true;
+    isReadonly = true;
     this->advance();
   }
+  if ( this->matchValue(std::string("[")) ) {
+    this->advance();
+    std::shared_ptr<Token> paramTok = this->expect(std::string("Identifier"));
+    return this->parseIndexSignatureRest(isReadonly, paramTok, startPos, startLine, startCol);
+  }
+  if ( this->matchValue(std::string("(")) ) {
+    return this->parseCallSignature(startPos, startLine, startCol);
+  }
+  if ( this->matchValue(std::string("new")) ) {
+    return this->parseConstructSignature(startPos, startLine, startCol);
+  }
+  std::shared_ptr<TSNode>& prop =  std::make_shared<TSNode>();
+  prop->nodeType = std::string("TSPropertySignature");
+  prop->start = startPos;
+  prop->line = startLine;
+  prop->col = startCol;
+  prop->readonly = isReadonly;
   std::shared_ptr<Token> nameTok = this->expect(std::string("Identifier"));
   prop->name = nameTok->value;
   if ( this->matchValue(std::string("?")) ) {
@@ -1418,8 +1582,59 @@ std::shared_ptr<TSNode>  TSParserSimple::parsePropertySig() {
   }
   return prop;
 }
+std::shared_ptr<TSNode>  TSParserSimple::parseCallSignature( int startPos , int startLine , int startCol ) {
+  std::shared_ptr<TSNode>& sig =  std::make_shared<TSNode>();
+  sig->nodeType = std::string("TSCallSignatureDeclaration");
+  sig->start = startPos;
+  sig->line = startLine;
+  sig->col = startCol;
+  if ( this->matchValue(std::string("<")) ) {
+    std::vector<std::shared_ptr<TSNode>> typeParams = this->parseTypeParams();
+    sig->params = typeParams;
+  }
+  this->expectValue(std::string("("));
+  while ((this->matchValue(std::string(")")) == false) && (this->isAtEnd() == false)) {
+    if ( ((int)(sig->children.size())) > 0 ) {
+      this->expectValue(std::string(","));
+    }
+    std::shared_ptr<TSNode> param = this->parseParam();
+    sig->children.push_back( param  );
+  };
+  this->expectValue(std::string(")"));
+  if ( this->matchValue(std::string(":")) ) {
+    std::shared_ptr<TSNode> typeAnnot = this->parseTypeAnnotation();
+    sig->typeAnnotation  = typeAnnot;
+  }
+  return sig;
+}
+std::shared_ptr<TSNode>  TSParserSimple::parseConstructSignature( int startPos , int startLine , int startCol ) {
+  std::shared_ptr<TSNode>& sig =  std::make_shared<TSNode>();
+  sig->nodeType = std::string("TSConstructSignatureDeclaration");
+  sig->start = startPos;
+  sig->line = startLine;
+  sig->col = startCol;
+  this->expectValue(std::string("new"));
+  if ( this->matchValue(std::string("<")) ) {
+    std::vector<std::shared_ptr<TSNode>> typeParams = this->parseTypeParams();
+    sig->params = typeParams;
+  }
+  this->expectValue(std::string("("));
+  while ((this->matchValue(std::string(")")) == false) && (this->isAtEnd() == false)) {
+    if ( ((int)(sig->children.size())) > 0 ) {
+      this->expectValue(std::string(","));
+    }
+    std::shared_ptr<TSNode> param = this->parseParam();
+    sig->children.push_back( param  );
+  };
+  this->expectValue(std::string(")"));
+  if ( this->matchValue(std::string(":")) ) {
+    std::shared_ptr<TSNode> typeAnnot = this->parseTypeAnnotation();
+    sig->typeAnnotation  = typeAnnot;
+  }
+  return sig;
+}
 std::shared_ptr<TSNode>  TSParserSimple::parseTypeAlias() {
-  std::shared_ptr<TSNode> node =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
   node->nodeType = std::string("TSTypeAliasDeclaration");
   std::shared_ptr<Token> startTok = this->peek();
   node->start = startTok->start;
@@ -1441,7 +1656,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseTypeAlias() {
   return node;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseDecorator() {
-  std::shared_ptr<TSNode> node =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
   node->nodeType = std::string("Decorator");
   std::shared_ptr<Token> startTok = this->peek();
   node->start = startTok->start;
@@ -1453,7 +1668,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseDecorator() {
   return node;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseClass() {
-  std::shared_ptr<TSNode> node =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
   node->nodeType = std::string("ClassDeclaration");
   std::shared_ptr<Token> startTok = this->peek();
   node->start = startTok->start;
@@ -1492,14 +1707,14 @@ std::shared_ptr<TSNode>  TSParserSimple::parseClass() {
       nextImplNode->nodeType = std::string("TSExpressionWithTypeArguments");
       nextImplNode->left  = nextImpl;
       node->children.push_back( nextImplNode  );
-    }
+    };
   }
   std::shared_ptr<TSNode> body = this->parseClassBody();
   node->body  = body;
   return node;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseClassBody() {
-  std::shared_ptr<TSNode> body =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& body =  std::make_shared<TSNode>();
   body->nodeType = std::string("ClassBody");
   std::shared_ptr<Token> startTok = this->peek();
   body->start = startTok->start;
@@ -1512,12 +1727,12 @@ std::shared_ptr<TSNode>  TSParserSimple::parseClassBody() {
     if ( this->matchValue(std::string(";")) ) {
       this->advance();
     }
-  }
+  };
   this->expectValue(std::string("}"));
   return body;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseClassMember() {
-  std::shared_ptr<TSNode> member =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& member =  std::make_shared<TSNode>();
   std::shared_ptr<Token> startTok = this->peek();
   member->start = startTok->start;
   member->line = startTok->line;
@@ -1526,13 +1741,14 @@ std::shared_ptr<TSNode>  TSParserSimple::parseClassMember() {
   while (this->matchValue(std::string("@"))) {
     std::shared_ptr<TSNode> dec = this->parseDecorator();
     decorators.push_back( dec  );
-  }
+  };
   if ( ((int)(decorators.size())) > 0 ) {
     member->decorators = decorators;
   }
   bool isStatic = false;
   bool isAbstract = false;
   bool isReadonly = false;
+  bool isAsync = false;
   std::string accessibility = std::string("");
   bool keepParsing = true;
   while (keepParsing) {
@@ -1552,6 +1768,14 @@ std::shared_ptr<TSNode>  TSParserSimple::parseClassMember() {
     if ( tokVal == std::string("static") ) {
       isStatic = true;
       this->advance();
+      if ( this->matchValue(std::string("{")) ) {
+        member->nodeType = std::string("StaticBlock");
+        member->body  = this->parseBlock();
+        member->start = startTok->start;
+        member->line = startTok->line;
+        member->col = startTok->col;
+        return member;
+      }
     }
     if ( tokVal == std::string("abstract") ) {
       isAbstract = true;
@@ -1561,11 +1785,15 @@ std::shared_ptr<TSNode>  TSParserSimple::parseClassMember() {
       isReadonly = true;
       this->advance();
     }
+    if ( tokVal == std::string("async") ) {
+      isAsync = true;
+      this->advance();
+    }
     std::string newTokVal = this->peekValue();
-    if ( (((((newTokVal != std::string("public")) && (newTokVal != std::string("private"))) && (newTokVal != std::string("protected"))) && (newTokVal != std::string("static"))) && (newTokVal != std::string("abstract"))) && (newTokVal != std::string("readonly")) ) {
+    if ( ((((((newTokVal != std::string("public")) && (newTokVal != std::string("private"))) && (newTokVal != std::string("protected"))) && (newTokVal != std::string("static"))) && (newTokVal != std::string("abstract"))) && (newTokVal != std::string("readonly"))) && (newTokVal != std::string("async")) ) {
       keepParsing = false;
     }
-  }
+  };
   if ( this->matchValue(std::string("constructor")) ) {
     member->nodeType = std::string("MethodDefinition");
     member->kind = std::string("constructor");
@@ -1577,7 +1805,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseClassMember() {
       }
       std::shared_ptr<TSNode> param = this->parseConstructorParam();
       member->params.push_back( param  );
-    }
+    };
     this->expectValue(std::string(")"));
     if ( this->matchValue(std::string("{")) ) {
       std::shared_ptr<TSNode> bodyNode = this->parseBlock();
@@ -1603,6 +1831,9 @@ std::shared_ptr<TSNode>  TSParserSimple::parseClassMember() {
     if ( isAbstract ) {
       member->kind = std::string("abstract");
     }
+    if ( isAsync ) {
+      member->async = true;
+    }
     this->expectValue(std::string("("));
     while ((this->matchValue(std::string(")")) == false) && (this->isAtEnd() == false)) {
       if ( ((int)(member->params.size())) > 0 ) {
@@ -1610,7 +1841,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseClassMember() {
       }
       std::shared_ptr<TSNode> param_1 = this->parseParam();
       member->params.push_back( param_1  );
-    }
+    };
     this->expectValue(std::string(")"));
     if ( this->matchValue(std::string(":")) ) {
       std::shared_ptr<TSNode> returnType = this->parseTypeAnnotation();
@@ -1638,7 +1869,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseClassMember() {
   return member;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseConstructorParam() {
-  std::shared_ptr<TSNode> param =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& param =  std::make_shared<TSNode>();
   param->nodeType = std::string("Parameter");
   std::shared_ptr<Token> startTok = this->peek();
   param->start = startTok->start;
@@ -1672,7 +1903,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseConstructorParam() {
   return param;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseEnum() {
-  std::shared_ptr<TSNode> node =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
   node->nodeType = std::string("TSEnumDeclaration");
   std::shared_ptr<Token> startTok = this->peek();
   node->start = startTok->start;
@@ -1703,12 +1934,12 @@ std::shared_ptr<TSNode>  TSParserSimple::parseEnum() {
     if ( this->matchValue(std::string(",")) ) {
       this->advance();
     }
-  }
+  };
   this->expectValue(std::string("}"));
   return node;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseNamespace() {
-  std::shared_ptr<TSNode> node =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
   node->nodeType = std::string("TSModuleDeclaration");
   std::shared_ptr<Token> startTok = this->peek();
   node->start = startTok->start;
@@ -1718,12 +1949,12 @@ std::shared_ptr<TSNode>  TSParserSimple::parseNamespace() {
   std::shared_ptr<Token> nameTok = this->expect(std::string("Identifier"));
   node->name = nameTok->value;
   this->expectValue(std::string("{"));
-  std::shared_ptr<TSNode> body =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& body =  std::make_shared<TSNode>();
   body->nodeType = std::string("TSModuleBlock");
   while ((this->matchValue(std::string("}")) == false) && (this->isAtEnd() == false)) {
     std::shared_ptr<TSNode> stmt = this->parseStatement();
     body->children.push_back( stmt  );
-  }
+  };
   this->expectValue(std::string("}"));
   node->body  = body;
   return node;
@@ -1754,7 +1985,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseDeclare() {
     while ((this->matchValue(std::string("}")) == false) && (this->isAtEnd() == false)) {
       std::shared_ptr<TSNode> stmt = this->parseStatement();
       body->children.push_back( stmt  );
-    }
+    };
     this->expectValue(std::string("}"));
     node->body  = body;
     return node;
@@ -1764,7 +1995,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseDeclare() {
   return node_1;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseIfStatement() {
-  std::shared_ptr<TSNode> node =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
   node->nodeType = std::string("IfStatement");
   std::shared_ptr<Token> startTok = this->peek();
   node->start = startTok->start;
@@ -1785,7 +2016,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseIfStatement() {
   return node;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseWhileStatement() {
-  std::shared_ptr<TSNode> node =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
   node->nodeType = std::string("WhileStatement");
   std::shared_ptr<Token> startTok = this->peek();
   node->start = startTok->start;
@@ -1801,7 +2032,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseWhileStatement() {
   return node;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseDoWhileStatement() {
-  std::shared_ptr<TSNode> node =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
   node->nodeType = std::string("DoWhileStatement");
   std::shared_ptr<Token> startTok = this->peek();
   node->start = startTok->start;
@@ -1821,7 +2052,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseDoWhileStatement() {
   return node;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseThrow() {
-  std::shared_ptr<TSNode> node =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
   node->nodeType = std::string("ThrowStatement");
   std::shared_ptr<Token> startTok = this->peek();
   node->start = startTok->start;
@@ -1836,12 +2067,17 @@ std::shared_ptr<TSNode>  TSParserSimple::parseThrow() {
   return node;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseForStatement() {
-  std::shared_ptr<TSNode> node =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
   std::shared_ptr<Token> startTok = this->peek();
   node->start = startTok->start;
   node->line = startTok->line;
   node->col = startTok->col;
   this->expectValue(std::string("for"));
+  bool isAwait = false;
+  if ( this->matchValue(std::string("await")) ) {
+    this->advance();
+    isAwait = true;
+  }
   this->expectValue(std::string("("));
   std::string tokVal = this->peekValue();
   if ( ((tokVal == std::string("let")) || (tokVal == std::string("const"))) || (tokVal == std::string("var")) ) {
@@ -1851,6 +2087,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseForStatement() {
     std::string nextVal = this->peekValue();
     if ( nextVal == std::string("of") ) {
       node->nodeType = std::string("ForOfStatement");
+      node->await = isAwait;
       this->advance();
       std::shared_ptr<TSNode> left =  std::make_shared<TSNode>();
       left->nodeType = std::string("VariableDeclaration");
@@ -1926,7 +2163,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseForStatement() {
   return node;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseSwitchStatement() {
-  std::shared_ptr<TSNode> node =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
   node->nodeType = std::string("SwitchStatement");
   std::shared_ptr<Token> startTok = this->peek();
   node->start = startTok->start;
@@ -1966,14 +2203,14 @@ std::shared_ptr<TSNode>  TSParserSimple::parseSwitchStatement() {
         std::shared_ptr<TSNode> stmt = this->parseStatement();
         caseNode->children.push_back( stmt  );
       }
-    }
+    };
     node->children.push_back( caseNode  );
-  }
+  };
   this->expectValue(std::string("}"));
   return node;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseTryStatement() {
-  std::shared_ptr<TSNode> node =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
   node->nodeType = std::string("TryStatement");
   std::shared_ptr<Token> startTok = this->peek();
   node->start = startTok->start;
@@ -2008,7 +2245,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseTryStatement() {
   return node;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseVarDecl() {
-  std::shared_ptr<TSNode> node =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
   node->nodeType = std::string("VariableDeclaration");
   std::shared_ptr<Token> startTok = this->peek();
   node->start = startTok->start;
@@ -2016,13 +2253,30 @@ std::shared_ptr<TSNode>  TSParserSimple::parseVarDecl() {
   node->col = startTok->col;
   node->kind = startTok->value;
   this->advance();
-  std::shared_ptr<TSNode> declarator =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& declarator =  std::make_shared<TSNode>();
   declarator->nodeType = std::string("VariableDeclarator");
-  std::shared_ptr<Token> nameTok = this->expect(std::string("Identifier"));
-  declarator->name = nameTok->value;
-  declarator->start = nameTok->start;
-  declarator->line = nameTok->line;
-  declarator->col = nameTok->col;
+  std::string nextVal = this->peekValue();
+  if ( nextVal == std::string("{") ) {
+    std::shared_ptr<TSNode> pattern = this->parseObjectPattern();
+    declarator->left  = pattern;
+    declarator->start = pattern->start;
+    declarator->line = pattern->line;
+    declarator->col = pattern->col;
+  } else {
+    if ( nextVal == std::string("[") ) {
+      std::shared_ptr<TSNode> pattern_1 = this->parseArrayPattern();
+      declarator->left  = pattern_1;
+      declarator->start = pattern_1->start;
+      declarator->line = pattern_1->line;
+      declarator->col = pattern_1->col;
+    } else {
+      std::shared_ptr<Token> nameTok = this->expect(std::string("Identifier"));
+      declarator->name = nameTok->value;
+      declarator->start = nameTok->start;
+      declarator->line = nameTok->line;
+      declarator->col = nameTok->col;
+    }
+  }
   if ( this->matchValue(std::string(":")) ) {
     std::shared_ptr<TSNode> typeAnnot = this->parseTypeAnnotation();
     declarator->typeAnnotation  = typeAnnot;
@@ -2038,14 +2292,119 @@ std::shared_ptr<TSNode>  TSParserSimple::parseVarDecl() {
   }
   return node;
 }
-std::shared_ptr<TSNode>  TSParserSimple::parseFuncDecl() {
-  std::shared_ptr<TSNode> node =  std::make_shared<TSNode>();
+std::shared_ptr<TSNode>  TSParserSimple::parseObjectPattern() {
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
+  node->nodeType = std::string("ObjectPattern");
+  std::shared_ptr<Token> startTok = this->peek();
+  node->start = startTok->start;
+  node->line = startTok->line;
+  node->col = startTok->col;
+  this->expectValue(std::string("{"));
+  while ((this->matchValue(std::string("}")) == false) && (this->isAtEnd() == false)) {
+    if ( ((int)(node->children.size())) > 0 ) {
+      this->expectValue(std::string(","));
+      if ( this->matchValue(std::string("}")) ) {
+        break;
+      }
+    }
+    if ( this->matchValue(std::string("...")) ) {
+      this->advance();
+      std::shared_ptr<TSNode> restProp =  std::make_shared<TSNode>();
+      restProp->nodeType = std::string("RestElement");
+      std::shared_ptr<Token> restName = this->expect(std::string("Identifier"));
+      restProp->name = restName->value;
+      node->children.push_back( restProp  );
+    } else {
+      std::shared_ptr<TSNode> prop =  std::make_shared<TSNode>();
+      prop->nodeType = std::string("Property");
+      std::shared_ptr<Token> keyTok = this->expect(std::string("Identifier"));
+      prop->name = keyTok->value;
+      if ( this->matchValue(std::string(":")) ) {
+        this->advance();
+        std::shared_ptr<Token> valueTok = this->expect(std::string("Identifier"));
+        std::shared_ptr<TSNode> valueId =  std::make_shared<TSNode>();
+        valueId->nodeType = std::string("Identifier");
+        valueId->name = valueTok->value;
+        prop->right  = valueId;
+      } else {
+        prop->shorthand = true;
+      }
+      if ( this->matchValue(std::string("=")) ) {
+        this->advance();
+        std::shared_ptr<TSNode> defaultExpr = this->parseExpr();
+        prop->init  = defaultExpr;
+        prop->left  = defaultExpr;
+      }
+      node->children.push_back( prop  );
+    }
+  };
+  this->expectValue(std::string("}"));
+  return node;
+}
+std::shared_ptr<TSNode>  TSParserSimple::parseArrayPattern() {
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
+  node->nodeType = std::string("ArrayPattern");
+  std::shared_ptr<Token> startTok = this->peek();
+  node->start = startTok->start;
+  node->line = startTok->line;
+  node->col = startTok->col;
+  this->expectValue(std::string("["));
+  while ((this->matchValue(std::string("]")) == false) && (this->isAtEnd() == false)) {
+    if ( ((int)(node->children.size())) > 0 ) {
+      this->expectValue(std::string(","));
+      if ( this->matchValue(std::string("]")) ) {
+        break;
+      }
+    }
+    if ( this->matchValue(std::string(",")) ) {
+      std::shared_ptr<TSNode> hole =  std::make_shared<TSNode>();
+      hole->nodeType = std::string("Elision");
+      node->children.push_back( hole  );
+    } else {
+      if ( this->matchValue(std::string("...")) ) {
+        this->advance();
+        std::shared_ptr<TSNode> restElem =  std::make_shared<TSNode>();
+        restElem->nodeType = std::string("RestElement");
+        std::shared_ptr<Token> restName = this->expect(std::string("Identifier"));
+        restElem->name = restName->value;
+        node->children.push_back( restElem  );
+      } else {
+        std::shared_ptr<TSNode> elem =  std::make_shared<TSNode>();
+        std::shared_ptr<Token> elemTok = this->expect(std::string("Identifier"));
+        elem->nodeType = std::string("Identifier");
+        elem->name = elemTok->value;
+        if ( this->matchValue(std::string("=")) ) {
+          this->advance();
+          std::shared_ptr<TSNode> defaultExpr = this->parseExpr();
+          std::shared_ptr<TSNode> assignPat =  std::make_shared<TSNode>();
+          assignPat->nodeType = std::string("AssignmentPattern");
+          assignPat->left  = elem;
+          assignPat->right  = defaultExpr;
+          node->children.push_back( assignPat  );
+        } else {
+          node->children.push_back( elem  );
+        }
+      }
+    }
+  };
+  this->expectValue(std::string("]"));
+  return node;
+}
+std::shared_ptr<TSNode>  TSParserSimple::parseFuncDecl( bool isAsync ) {
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
   node->nodeType = std::string("FunctionDeclaration");
   std::shared_ptr<Token> startTok = this->peek();
   node->start = startTok->start;
   node->line = startTok->line;
   node->col = startTok->col;
+  if ( isAsync ) {
+    node->async = true;
+  }
   this->expectValue(std::string("function"));
+  if ( this->matchValue(std::string("*")) ) {
+    this->advance();
+    node->generator = true;
+  }
   std::shared_ptr<Token> nameTok = this->expect(std::string("Identifier"));
   node->name = nameTok->value;
   if ( this->matchValue(std::string("<")) ) {
@@ -2053,7 +2412,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseFuncDecl() {
     for ( int i = 0; i != (int)(typeParams.size()); i++) {
       std::shared_ptr<TSNode> tp = typeParams.at(i);
       node->children.push_back( tp  );
-    }
+    };
   }
   this->expectValue(std::string("("));
   while ((this->matchValue(std::string(")")) == false) && (this->isAtEnd() == false)) {
@@ -2062,7 +2421,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseFuncDecl() {
     }
     std::shared_ptr<TSNode> param = this->parseParam();
     node->params.push_back( param  );
-  }
+  };
   this->expectValue(std::string(")"));
   if ( this->matchValue(std::string(":")) ) {
     std::shared_ptr<TSNode> returnType = this->parseTypeAnnotation();
@@ -2073,17 +2432,55 @@ std::shared_ptr<TSNode>  TSParserSimple::parseFuncDecl() {
   return node;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseParam() {
-  std::shared_ptr<TSNode> param =  std::make_shared<TSNode>();
-  param->nodeType = std::string("Parameter");
+  std::vector<std::shared_ptr<TSNode>> decorators;
   while (this->matchValue(std::string("@"))) {
     std::shared_ptr<TSNode> dec = this->parseDecorator();
-    param->decorators.push_back( dec  );
-  }
+    decorators.push_back( dec  );
+  };
+  bool isRest = false;
   if ( this->matchValue(std::string("...")) ) {
     this->advance();
+    isRest = true;
+  }
+  if ( this->matchValue(std::string("{")) ) {
+    std::shared_ptr<TSNode> pattern = this->parseObjectPattern();
+    for ( int i = 0; i != (int)(decorators.size()); i++) {
+      std::shared_ptr<TSNode> d = decorators.at(i);
+      pattern->decorators.push_back( d  );
+    };
+    if ( isRest ) {
+      std::shared_ptr<TSNode> restElem =  std::make_shared<TSNode>();
+      restElem->nodeType = std::string("RestElement");
+      restElem->left  = pattern;
+      return restElem;
+    }
+    return pattern;
+  }
+  if ( this->matchValue(std::string("[")) ) {
+    std::shared_ptr<TSNode> pattern_1 = this->parseArrayPattern();
+    for ( int i_1 = 0; i_1 != (int)(decorators.size()); i_1++) {
+      std::shared_ptr<TSNode> d_1 = decorators.at(i_1);
+      pattern_1->decorators.push_back( d_1  );
+    };
+    if ( isRest ) {
+      std::shared_ptr<TSNode> restElem_1 =  std::make_shared<TSNode>();
+      restElem_1->nodeType = std::string("RestElement");
+      restElem_1->left  = pattern_1;
+      return restElem_1;
+    }
+    return pattern_1;
+  }
+  std::shared_ptr<TSNode>& param =  std::make_shared<TSNode>();
+  if ( isRest ) {
     param->nodeType = std::string("RestElement");
     param->kind = std::string("rest");
+  } else {
+    param->nodeType = std::string("Parameter");
   }
+  for ( int i_2 = 0; i_2 != (int)(decorators.size()); i_2++) {
+    std::shared_ptr<TSNode> d_2 = decorators.at(i_2);
+    param->decorators.push_back( d_2  );
+  };
   std::shared_ptr<Token> nameTok = this->expect(std::string("Identifier"));
   param->name = nameTok->value;
   param->start = nameTok->start;
@@ -2097,10 +2494,14 @@ std::shared_ptr<TSNode>  TSParserSimple::parseParam() {
     std::shared_ptr<TSNode> typeAnnot = this->parseTypeAnnotation();
     param->typeAnnotation  = typeAnnot;
   }
+  if ( this->matchValue(std::string("=")) ) {
+    this->advance();
+    param->init  = this->parseExpr();
+  }
   return param;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseBlock() {
-  std::shared_ptr<TSNode> block =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& block =  std::make_shared<TSNode>();
   block->nodeType = std::string("BlockStatement");
   std::shared_ptr<Token> startTok = this->peek();
   block->start = startTok->start;
@@ -2110,12 +2511,12 @@ std::shared_ptr<TSNode>  TSParserSimple::parseBlock() {
   while ((this->matchValue(std::string("}")) == false) && (this->isAtEnd() == false)) {
     std::shared_ptr<TSNode> stmt = this->parseStatement();
     block->children.push_back( stmt  );
-  }
+  };
   this->expectValue(std::string("}"));
   return block;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseExprStmt() {
-  std::shared_ptr<TSNode> stmt =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& stmt =  std::make_shared<TSNode>();
   stmt->nodeType = std::string("ExpressionStatement");
   std::shared_ptr<Token> startTok = this->peek();
   stmt->start = startTok->start;
@@ -2129,15 +2530,56 @@ std::shared_ptr<TSNode>  TSParserSimple::parseExprStmt() {
   return stmt;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseTypeAnnotation() {
-  std::shared_ptr<TSNode> annot =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& annot =  std::make_shared<TSNode>();
   annot->nodeType = std::string("TSTypeAnnotation");
   std::shared_ptr<Token> startTok = this->peek();
   annot->start = startTok->start;
   annot->line = startTok->line;
   annot->col = startTok->col;
   this->expectValue(std::string(":"));
-  std::shared_ptr<TSNode> typeExpr = this->parseType();
-  annot->typeAnnotation  = typeExpr;
+  std::string nextVal = this->peekValue();
+  if ( nextVal == std::string("asserts") ) {
+    std::shared_ptr<Token> assertsTok = this->peek();
+    this->advance();
+    std::shared_ptr<TSNode> predicate =  std::make_shared<TSNode>();
+    predicate->nodeType = std::string("TSTypePredicate");
+    predicate->start = assertsTok->start;
+    predicate->line = assertsTok->line;
+    predicate->col = assertsTok->col;
+    predicate->value = std::string("asserts");
+    std::shared_ptr<Token> paramTok = this->expect(std::string("Identifier"));
+    predicate->name = paramTok->value;
+    if ( this->matchValue(std::string("is")) ) {
+      this->advance();
+      std::shared_ptr<TSNode> assertType = this->parseType();
+      predicate->typeAnnotation  = assertType;
+    }
+    annot->typeAnnotation  = predicate;
+    return annot;
+  }
+  if ( this->matchType(std::string("Identifier")) ) {
+    int savedPos = this->pos;
+    std::shared_ptr<Token> savedTok = this->currentToken;
+    std::shared_ptr<Token> paramTok_1 = this->peek();
+    this->advance();
+    if ( this->matchValue(std::string("is")) ) {
+      this->advance();
+      std::shared_ptr<TSNode> predicate_1 =  std::make_shared<TSNode>();
+      predicate_1->nodeType = std::string("TSTypePredicate");
+      predicate_1->start = paramTok_1->start;
+      predicate_1->line = paramTok_1->line;
+      predicate_1->col = paramTok_1->col;
+      predicate_1->name = paramTok_1->value;
+      std::shared_ptr<TSNode> typeExpr = this->parseType();
+      predicate_1->typeAnnotation  = typeExpr;
+      annot->typeAnnotation  = predicate_1;
+      return annot;
+    }
+    this->pos = savedPos;
+    this->currentToken  = savedTok;
+  }
+  std::shared_ptr<TSNode> typeExpr_1 = this->parseType();
+  annot->typeAnnotation  = typeExpr_1;
   return annot;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseType() {
@@ -2179,7 +2621,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseUnionType() {
       this->advance();
       std::shared_ptr<TSNode> right = this->parseIntersectionType();
       _union->children.push_back( right  );
-    }
+    };
     return _union;
   }
   return left;
@@ -2197,7 +2639,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseIntersectionType() {
       this->advance();
       std::shared_ptr<TSNode> right = this->parseArrayType();
       intersection->children.push_back( right  );
-    }
+    };
     return intersection;
   }
   return left;
@@ -2228,7 +2670,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseArrayType() {
       indexedAccess->right  = indexType;
       elemType = indexedAccess;
     }
-  }
+  };
   return elemType;
 }
 bool  TSParserSimple::checkNext( std::string value ) {
@@ -2422,6 +2864,12 @@ std::shared_ptr<TSNode>  TSParserSimple::parsePrimaryType() {
     node_15->value = tok->value;
     return node_15;
   }
+  if ( tokVal == std::string("new") ) {
+    return this->parseConstructorType();
+  }
+  if ( tokVal == std::string("import") ) {
+    return this->parseImportType();
+  }
   if ( tokVal == std::string("(") ) {
     return this->parseParenOrFunctionType();
   }
@@ -2435,12 +2883,12 @@ std::shared_ptr<TSNode>  TSParserSimple::parsePrimaryType() {
     std::cout << std::string("Unknown type: ") + tokVal << std::endl;
   }
   this->advance();
-  std::shared_ptr<TSNode> errNode =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& errNode =  std::make_shared<TSNode>();
   errNode->nodeType = std::string("TSAnyKeyword");
   return errNode;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseTypeRef() {
-  std::shared_ptr<TSNode> _ref =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& _ref =  std::make_shared<TSNode>();
   _ref->nodeType = std::string("TSTypeReference");
   std::shared_ptr<Token> tok = this->peek();
   _ref->start = tok->start;
@@ -2456,13 +2904,13 @@ std::shared_ptr<TSNode>  TSParserSimple::parseTypeRef() {
       }
       std::shared_ptr<TSNode> typeArg = this->parseType();
       _ref->params.push_back( typeArg  );
-    }
+    };
     this->expectValue(std::string(">"));
   }
   return _ref;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseTupleType() {
-  std::shared_ptr<TSNode> tuple =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& tuple =  std::make_shared<TSNode>();
   tuple->nodeType = std::string("TSTupleType");
   std::shared_ptr<Token> startTok = this->peek();
   tuple->start = startTok->start;
@@ -2474,31 +2922,84 @@ std::shared_ptr<TSNode>  TSParserSimple::parseTupleType() {
       this->expectValue(std::string(","));
     }
     if ( this->matchValue(std::string("...")) ) {
+      std::shared_ptr<Token> restTok = this->peek();
       this->advance();
+      std::string restName = std::string("");
+      if ( this->matchType(std::string("Identifier")) ) {
+        int savedPos = this->pos;
+        std::shared_ptr<Token> savedTok = this->currentToken;
+        std::shared_ptr<Token> nameTok = this->peek();
+        this->advance();
+        if ( this->matchValue(std::string(":")) ) {
+          restName = nameTok->value;
+          this->advance();
+        } else {
+          this->pos = savedPos;
+          this->currentToken  = savedTok;
+        }
+      }
       std::shared_ptr<TSNode> innerType = this->parseType();
       std::shared_ptr<TSNode> restType =  std::make_shared<TSNode>();
       restType->nodeType = std::string("TSRestType");
-      restType->start = innerType->start;
-      restType->line = innerType->line;
-      restType->col = innerType->col;
+      restType->start = restTok->start;
+      restType->line = restTok->line;
+      restType->col = restTok->col;
       restType->typeAnnotation  = innerType;
+      if ( restName != std::string("") ) {
+        restType->name = restName;
+      }
       tuple->children.push_back( restType  );
     } else {
-      std::shared_ptr<TSNode> elemType = this->parseType();
-      if ( this->matchValue(std::string("?")) ) {
+      bool isNamed = false;
+      std::string elemName = std::string("");
+      bool elemOptional = false;
+      std::shared_ptr<Token> elemStart = this->peek();
+      if ( this->matchType(std::string("Identifier")) ) {
+        int savedPos_1 = this->pos;
+        std::shared_ptr<Token> savedTok_1 = this->currentToken;
+        std::shared_ptr<Token> nameTok_1 = this->peek();
         this->advance();
-        std::shared_ptr<TSNode> optType =  std::make_shared<TSNode>();
-        optType->nodeType = std::string("TSOptionalType");
-        optType->start = elemType->start;
-        optType->line = elemType->line;
-        optType->col = elemType->col;
-        optType->typeAnnotation  = elemType;
-        tuple->children.push_back( optType  );
+        if ( this->matchValue(std::string("?")) ) {
+          this->advance();
+          elemOptional = true;
+        }
+        if ( this->matchValue(std::string(":")) ) {
+          isNamed = true;
+          elemName = nameTok_1->value;
+          this->advance();
+        } else {
+          this->pos = savedPos_1;
+          this->currentToken  = savedTok_1;
+          elemOptional = false;
+        }
+      }
+      std::shared_ptr<TSNode> elemType = this->parseType();
+      if ( isNamed ) {
+        std::shared_ptr<TSNode> namedElem =  std::make_shared<TSNode>();
+        namedElem->nodeType = std::string("TSNamedTupleMember");
+        namedElem->start = elemStart->start;
+        namedElem->line = elemStart->line;
+        namedElem->col = elemStart->col;
+        namedElem->name = elemName;
+        namedElem->optional = elemOptional;
+        namedElem->typeAnnotation  = elemType;
+        tuple->children.push_back( namedElem  );
       } else {
-        tuple->children.push_back( elemType  );
+        if ( this->matchValue(std::string("?")) ) {
+          this->advance();
+          std::shared_ptr<TSNode> optType =  std::make_shared<TSNode>();
+          optType->nodeType = std::string("TSOptionalType");
+          optType->start = elemType->start;
+          optType->line = elemType->line;
+          optType->col = elemType->col;
+          optType->typeAnnotation  = elemType;
+          tuple->children.push_back( optType  );
+        } else {
+          tuple->children.push_back( elemType  );
+        }
       }
     }
-  }
+  };
   this->expectValue(std::string("]"));
   return tuple;
 }
@@ -2549,7 +3050,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseParenOrFunctionType() {
         if ( depth > 0 ) {
           this->advance();
         }
-      }
+      };
       if ( this->matchValue(std::string(")")) ) {
         this->advance();
         if ( this->matchValue(std::string("=>")) ) {
@@ -2580,7 +3081,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseParenOrFunctionType() {
   return innerType;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseFunctionType( int startPos , int startLine , int startCol ) {
-  std::shared_ptr<TSNode> funcType =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& funcType =  std::make_shared<TSNode>();
   funcType->nodeType = std::string("TSFunctionType");
   funcType->start = startPos;
   funcType->line = startLine;
@@ -2605,7 +3106,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseFunctionType( int startPos , int s
       param->typeAnnotation  = typeAnnot;
     }
     funcType->params.push_back( param  );
-  }
+  };
   this->expectValue(std::string(")"));
   if ( this->matchValue(std::string("=>")) ) {
     this->advance();
@@ -2614,8 +3115,66 @@ std::shared_ptr<TSNode>  TSParserSimple::parseFunctionType( int startPos , int s
   }
   return funcType;
 }
+std::shared_ptr<TSNode>  TSParserSimple::parseConstructorType() {
+  std::shared_ptr<TSNode>& ctorType =  std::make_shared<TSNode>();
+  ctorType->nodeType = std::string("TSConstructorType");
+  std::shared_ptr<Token> startTok = this->peek();
+  ctorType->start = startTok->start;
+  ctorType->line = startTok->line;
+  ctorType->col = startTok->col;
+  this->expectValue(std::string("new"));
+  if ( this->matchValue(std::string("<")) ) {
+    std::vector<std::shared_ptr<TSNode>> typeParams = this->parseTypeParams();
+    ctorType->children = typeParams;
+  }
+  this->expectValue(std::string("("));
+  while ((this->matchValue(std::string(")")) == false) && (this->isAtEnd() == false)) {
+    if ( ((int)(ctorType->params.size())) > 0 ) {
+      this->expectValue(std::string(","));
+    }
+    std::shared_ptr<TSNode> param = this->parseParam();
+    ctorType->params.push_back( param  );
+  };
+  this->expectValue(std::string(")"));
+  if ( this->matchValue(std::string("=>")) ) {
+    this->advance();
+    std::shared_ptr<TSNode> returnType = this->parseType();
+    ctorType->typeAnnotation  = returnType;
+  }
+  return ctorType;
+}
+std::shared_ptr<TSNode>  TSParserSimple::parseImportType() {
+  std::shared_ptr<TSNode>& importType =  std::make_shared<TSNode>();
+  importType->nodeType = std::string("TSImportType");
+  std::shared_ptr<Token> startTok = this->peek();
+  importType->start = startTok->start;
+  importType->line = startTok->line;
+  importType->col = startTok->col;
+  this->expectValue(std::string("import"));
+  this->expectValue(std::string("("));
+  std::shared_ptr<Token> sourceTok = this->expect(std::string("String"));
+  importType->value = sourceTok->value;
+  this->expectValue(std::string(")"));
+  if ( this->matchValue(std::string(".")) ) {
+    this->advance();
+    std::shared_ptr<Token> memberTok = this->expect(std::string("Identifier"));
+    importType->name = memberTok->value;
+    if ( this->matchValue(std::string("<")) ) {
+      this->advance();
+      while ((this->matchValue(std::string(">")) == false) && (this->isAtEnd() == false)) {
+        if ( ((int)(importType->params.size())) > 0 ) {
+          this->expectValue(std::string(","));
+        }
+        std::shared_ptr<TSNode> typeArg = this->parseType();
+        importType->params.push_back( typeArg  );
+      };
+      this->expectValue(std::string(">"));
+    }
+  }
+  return importType;
+}
 std::shared_ptr<TSNode>  TSParserSimple::parseTypeLiteral() {
-  std::shared_ptr<TSNode> literal =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& literal =  std::make_shared<TSNode>();
   literal->nodeType = std::string("TSTypeLiteral");
   std::shared_ptr<Token> startTok = this->peek();
   literal->start = startTok->start;
@@ -2628,7 +3187,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseTypeLiteral() {
     if ( this->matchValue(std::string(";")) || this->matchValue(std::string(",")) ) {
       this->advance();
     }
-  }
+  };
   this->expectValue(std::string("}"));
   return literal;
 }
@@ -2669,7 +3228,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseTypeLiteralMember() {
   if ( this->matchValue(std::string("(")) ) {
     return this->parseMethodSignature(memberName, isOptional, startPos, startLine, startCol);
   }
-  std::shared_ptr<TSNode> prop =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& prop =  std::make_shared<TSNode>();
   prop->nodeType = std::string("TSPropertySignature");
   prop->start = startPos;
   prop->line = startLine;
@@ -2684,7 +3243,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseTypeLiteralMember() {
   return prop;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseMappedType( bool isReadonly , std::string readonlyMod , std::string paramName , int startPos , int startLine , int startCol ) {
-  std::shared_ptr<TSNode> mapped =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& mapped =  std::make_shared<TSNode>();
   mapped->nodeType = std::string("TSMappedType");
   mapped->start = startPos;
   mapped->line = startLine;
@@ -2694,7 +3253,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseMappedType( bool isReadonly , std:
     mapped->kind = readonlyMod;
   }
   this->expectValue(std::string("in"));
-  std::shared_ptr<TSNode> typeParam =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& typeParam =  std::make_shared<TSNode>();
   typeParam->nodeType = std::string("TSTypeParameter");
   typeParam->name = paramName;
   std::shared_ptr<TSNode> constraint = this->parseType();
@@ -2726,13 +3285,13 @@ std::shared_ptr<TSNode>  TSParserSimple::parseMappedType( bool isReadonly , std:
   return mapped;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseIndexSignatureRest( bool isReadonly , std::shared_ptr<Token> paramTok , int startPos , int startLine , int startCol ) {
-  std::shared_ptr<TSNode> indexSig =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& indexSig =  std::make_shared<TSNode>();
   indexSig->nodeType = std::string("TSIndexSignature");
   indexSig->start = startPos;
   indexSig->line = startLine;
   indexSig->col = startCol;
   indexSig->readonly = isReadonly;
-  std::shared_ptr<TSNode> param =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& param =  std::make_shared<TSNode>();
   param->nodeType = std::string("Parameter");
   param->name = paramTok->value;
   param->start = paramTok->start;
@@ -2751,7 +3310,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseIndexSignatureRest( bool isReadonl
   return indexSig;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseMethodSignature( std::string methodName , bool isOptional , int startPos , int startLine , int startCol ) {
-  std::shared_ptr<TSNode> method =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& method =  std::make_shared<TSNode>();
   method->nodeType = std::string("TSMethodSignature");
   method->start = startPos;
   method->line = startLine;
@@ -2765,7 +3324,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseMethodSignature( std::string metho
     }
     std::shared_ptr<TSNode> param = this->parseParam();
     method->params.push_back( param  );
-  }
+  };
   this->expectValue(std::string(")"));
   if ( this->matchValue(std::string(":")) ) {
     std::shared_ptr<TSNode> returnType = this->parseTypeAnnotation();
@@ -2778,7 +3337,8 @@ std::shared_ptr<TSNode>  TSParserSimple::parseExpr() {
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseAssign() {
   std::shared_ptr<TSNode> left = this->parseNullishCoalescing();
-  if ( this->matchValue(std::string("=")) ) {
+  std::string tokVal = this->peekValue();
+  if ( tokVal == std::string("=") ) {
     this->advance();
     std::shared_ptr<TSNode> right = this->parseAssign();
     std::shared_ptr<TSNode> assign =  std::make_shared<TSNode>();
@@ -2791,13 +3351,39 @@ std::shared_ptr<TSNode>  TSParserSimple::parseAssign() {
     assign->col = left->col;
     return assign;
   }
+  if ( ((((tokVal == std::string("+=")) || (tokVal == std::string("-="))) || (tokVal == std::string("*="))) || (tokVal == std::string("/="))) || (tokVal == std::string("%=")) ) {
+    this->advance();
+    std::shared_ptr<TSNode> right_1 = this->parseAssign();
+    std::shared_ptr<TSNode> assign_1 =  std::make_shared<TSNode>();
+    assign_1->nodeType = std::string("AssignmentExpression");
+    assign_1->value = tokVal;
+    assign_1->left  = left;
+    assign_1->right  = right_1;
+    assign_1->start = left->start;
+    assign_1->line = left->line;
+    assign_1->col = left->col;
+    return assign_1;
+  }
+  if ( ((tokVal == std::string("&&=")) || (tokVal == std::string("||="))) || (tokVal == std::string("??=")) ) {
+    this->advance();
+    std::shared_ptr<TSNode> right_2 = this->parseAssign();
+    std::shared_ptr<TSNode> assign_2 =  std::make_shared<TSNode>();
+    assign_2->nodeType = std::string("AssignmentExpression");
+    assign_2->value = tokVal;
+    assign_2->left  = left;
+    assign_2->right  = right_2;
+    assign_2->start = left->start;
+    assign_2->line = left->line;
+    assign_2->col = left->col;
+    return assign_2;
+  }
   return left;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseNullishCoalescing() {
-  std::shared_ptr<TSNode> left = this->parseBinary();
+  std::shared_ptr<TSNode> left = this->parseTernary();
   while (this->matchValue(std::string("??"))) {
     this->advance();
-    std::shared_ptr<TSNode> right = this->parseBinary();
+    std::shared_ptr<TSNode> right = this->parseTernary();
     std::shared_ptr<TSNode> nullish =  std::make_shared<TSNode>();
     nullish->nodeType = std::string("LogicalExpression");
     nullish->value = std::string("??");
@@ -2807,13 +3393,140 @@ std::shared_ptr<TSNode>  TSParserSimple::parseNullishCoalescing() {
     nullish->line = left->line;
     nullish->col = left->col;
     left = nullish;
-  }
+  };
   return left;
 }
-std::shared_ptr<TSNode>  TSParserSimple::parseBinary() {
+std::shared_ptr<TSNode>  TSParserSimple::parseTernary() {
+  std::shared_ptr<TSNode> testExpr = this->parseLogicalOr();
+  if ( this->matchValue(std::string("?")) ) {
+    this->advance();
+    std::shared_ptr<TSNode> consequentExpr = this->parseAssign();
+    if ( this->matchValue(std::string(":")) ) {
+      this->advance();
+      std::shared_ptr<TSNode> alternateExpr = this->parseAssign();
+      std::shared_ptr<TSNode> cond =  std::make_shared<TSNode>();
+      cond->nodeType = std::string("ConditionalExpression");
+      cond->start = testExpr->start;
+      cond->line = testExpr->line;
+      cond->col = testExpr->col;
+      cond->left  = testExpr;
+      cond->test  = testExpr;
+      cond->consequent  = consequentExpr;
+      cond->alternate  = alternateExpr;
+      return cond;
+    }
+  }
+  return testExpr;
+}
+std::shared_ptr<TSNode>  TSParserSimple::parseLogicalOr() {
+  std::shared_ptr<TSNode> left = this->parseLogicalAnd();
+  while (this->matchValue(std::string("||"))) {
+    this->advance();
+    std::shared_ptr<TSNode> right = this->parseLogicalAnd();
+    std::shared_ptr<TSNode> expr =  std::make_shared<TSNode>();
+    expr->nodeType = std::string("BinaryExpression");
+    expr->value = std::string("||");
+    expr->left  = left;
+    expr->right  = right;
+    expr->start = left->start;
+    expr->line = left->line;
+    expr->col = left->col;
+    left = expr;
+  };
+  return left;
+}
+std::shared_ptr<TSNode>  TSParserSimple::parseLogicalAnd() {
+  std::shared_ptr<TSNode> left = this->parseEquality();
+  while (this->matchValue(std::string("&&"))) {
+    this->advance();
+    std::shared_ptr<TSNode> right = this->parseEquality();
+    std::shared_ptr<TSNode> expr =  std::make_shared<TSNode>();
+    expr->nodeType = std::string("BinaryExpression");
+    expr->value = std::string("&&");
+    expr->left  = left;
+    expr->right  = right;
+    expr->start = left->start;
+    expr->line = left->line;
+    expr->col = left->col;
+    left = expr;
+  };
+  return left;
+}
+std::shared_ptr<TSNode>  TSParserSimple::parseEquality() {
+  std::shared_ptr<TSNode> left = this->parseComparison();
+  std::string tokVal = this->peekValue();
+  while ((((tokVal == std::string("==")) || (tokVal == std::string("!="))) || (tokVal == std::string("==="))) || (tokVal == std::string("!=="))) {
+    std::shared_ptr<Token> opTok = this->peek();
+    this->advance();
+    std::shared_ptr<TSNode> right = this->parseComparison();
+    std::shared_ptr<TSNode> expr =  std::make_shared<TSNode>();
+    expr->nodeType = std::string("BinaryExpression");
+    expr->value = opTok->value;
+    expr->left  = left;
+    expr->right  = right;
+    expr->start = left->start;
+    expr->line = left->line;
+    expr->col = left->col;
+    left = expr;
+    tokVal = this->peekValue();
+  };
+  return left;
+}
+std::shared_ptr<TSNode>  TSParserSimple::parseComparison() {
+  std::shared_ptr<TSNode> left = this->parseAdditive();
+  std::string tokVal = this->peekValue();
+  while ((((tokVal == std::string("<")) || (tokVal == std::string(">"))) || (tokVal == std::string("<="))) || (tokVal == std::string(">="))) {
+    if ( tokVal == std::string("<") ) {
+      if ( this->tsxMode == true ) {
+        if ( left->nodeType == std::string("Identifier") ) {
+          if ( this->startsWithLowerCase(left->name) ) {
+            if ( this->looksLikeGenericCall() ) {
+              return left;
+            }
+          }
+        }
+      }
+    }
+    std::shared_ptr<Token> opTok = this->peek();
+    this->advance();
+    std::shared_ptr<TSNode> right = this->parseAdditive();
+    std::shared_ptr<TSNode> expr =  std::make_shared<TSNode>();
+    expr->nodeType = std::string("BinaryExpression");
+    expr->value = opTok->value;
+    expr->left  = left;
+    expr->right  = right;
+    expr->start = left->start;
+    expr->line = left->line;
+    expr->col = left->col;
+    left = expr;
+    tokVal = this->peekValue();
+  };
+  return left;
+}
+std::shared_ptr<TSNode>  TSParserSimple::parseAdditive() {
+  std::shared_ptr<TSNode> left = this->parseMultiplicative();
+  std::string tokVal = this->peekValue();
+  while ((tokVal == std::string("+")) || (tokVal == std::string("-"))) {
+    std::shared_ptr<Token> opTok = this->peek();
+    this->advance();
+    std::shared_ptr<TSNode> right = this->parseMultiplicative();
+    std::shared_ptr<TSNode> binExpr =  std::make_shared<TSNode>();
+    binExpr->nodeType = std::string("BinaryExpression");
+    binExpr->value = opTok->value;
+    binExpr->left  = left;
+    binExpr->right  = right;
+    binExpr->start = left->start;
+    binExpr->line = left->line;
+    binExpr->col = left->col;
+    left = binExpr;
+    tokVal = this->peekValue();
+  };
+  return left;
+}
+std::shared_ptr<TSNode>  TSParserSimple::parseMultiplicative() {
   std::shared_ptr<TSNode> left = this->parseUnary();
   std::string tokVal = this->peekValue();
-  while ((((((((tokVal == std::string("+")) || (tokVal == std::string("-"))) || (tokVal == std::string("*"))) || (tokVal == std::string("/"))) || (tokVal == std::string("==="))) || (tokVal == std::string("!=="))) || (tokVal == std::string("<"))) || (tokVal == std::string(">"))) {
+  while ((((tokVal == std::string("*")) || (tokVal == std::string("/"))) || (tokVal == std::string("%"))) || (tokVal == std::string("**"))) {
     std::shared_ptr<Token> opTok = this->peek();
     this->advance();
     std::shared_ptr<TSNode> right = this->parseUnary();
@@ -2827,37 +3540,82 @@ std::shared_ptr<TSNode>  TSParserSimple::parseBinary() {
     binExpr->col = left->col;
     left = binExpr;
     tokVal = this->peekValue();
-  }
+  };
   return left;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseUnary() {
   std::string tokVal = this->peekValue();
-  if ( (tokVal == std::string("!")) || (tokVal == std::string("-")) ) {
+  if ( (tokVal == std::string("++")) || (tokVal == std::string("--")) ) {
     std::shared_ptr<Token> opTok = this->peek();
     this->advance();
     std::shared_ptr<TSNode> arg = this->parseUnary();
+    std::shared_ptr<TSNode> update =  std::make_shared<TSNode>();
+    update->nodeType = std::string("UpdateExpression");
+    update->value = opTok->value;
+    update->left  = arg;
+    update->prefix = true;
+    update->start = opTok->start;
+    update->line = opTok->line;
+    update->col = opTok->col;
+    return update;
+  }
+  if ( (tokVal == std::string("!")) || (tokVal == std::string("-")) ) {
+    std::shared_ptr<Token> opTok_1 = this->peek();
+    this->advance();
+    std::shared_ptr<TSNode> arg_1 = this->parseUnary();
     std::shared_ptr<TSNode> unary =  std::make_shared<TSNode>();
     unary->nodeType = std::string("UnaryExpression");
-    unary->value = opTok->value;
-    unary->left  = arg;
-    unary->start = opTok->start;
-    unary->line = opTok->line;
-    unary->col = opTok->col;
+    unary->value = opTok_1->value;
+    unary->left  = arg_1;
+    unary->start = opTok_1->start;
+    unary->line = opTok_1->line;
+    unary->col = opTok_1->col;
     return unary;
+  }
+  if ( tokVal == std::string("yield") ) {
+    std::shared_ptr<Token> yieldTok = this->peek();
+    this->advance();
+    std::shared_ptr<TSNode> yieldExpr =  std::make_shared<TSNode>();
+    yieldExpr->nodeType = std::string("YieldExpression");
+    yieldExpr->start = yieldTok->start;
+    yieldExpr->line = yieldTok->line;
+    yieldExpr->col = yieldTok->col;
+    if ( this->matchValue(std::string("*")) ) {
+      this->advance();
+      yieldExpr->delegate = true;
+    }
+    std::string nextVal = this->peekValue();
+    if ( (((nextVal != std::string(";")) && (nextVal != std::string("}"))) && (nextVal != std::string(","))) && (nextVal != std::string(")")) ) {
+      yieldExpr->left  = this->parseAssign();
+    }
+    return yieldExpr;
   }
   if ( tokVal == std::string("await") ) {
     std::shared_ptr<Token> awaitTok = this->peek();
     this->advance();
-    std::shared_ptr<TSNode> arg_1 = this->parseUnary();
+    std::shared_ptr<TSNode> arg_2 = this->parseUnary();
     std::shared_ptr<TSNode> awaitExpr =  std::make_shared<TSNode>();
     awaitExpr->nodeType = std::string("AwaitExpression");
-    awaitExpr->left  = arg_1;
+    awaitExpr->left  = arg_2;
     awaitExpr->start = awaitTok->start;
     awaitExpr->line = awaitTok->line;
     awaitExpr->col = awaitTok->col;
     return awaitExpr;
   }
   if ( tokVal == std::string("<") ) {
+    if ( this->tsxMode == true ) {
+      std::string peekNext = this->peekNextValue();
+      std::string peekNextT = this->peekNextType();
+      if ( peekNext == std::string(">") ) {
+        return this->parsePostfix();
+      }
+      if ( peekNextT == std::string("Identifier") ) {
+        std::string peekTwoAhead = this->peekAheadValue(2);
+        if ( peekTwoAhead != std::string("extends") ) {
+          return this->parsePostfix();
+        }
+      }
+    }
     std::shared_ptr<Token> startTok = this->peek();
     this->advance();
     std::string nextType = this->peekType();
@@ -2865,11 +3623,11 @@ std::shared_ptr<TSNode>  TSParserSimple::parseUnary() {
       std::shared_ptr<TSNode> typeNode = this->parseType();
       if ( this->matchValue(std::string(">")) ) {
         this->advance();
-        std::shared_ptr<TSNode> arg_2 = this->parseUnary();
+        std::shared_ptr<TSNode> arg_3 = this->parseUnary();
         std::shared_ptr<TSNode> assertion =  std::make_shared<TSNode>();
         assertion->nodeType = std::string("TSTypeAssertion");
         assertion->typeAnnotation  = typeNode;
-        assertion->left  = arg_2;
+        assertion->left  = arg_3;
         assertion->start = startTok->start;
         assertion->line = startTok->line;
         assertion->col = startTok->col;
@@ -2884,23 +3642,94 @@ std::shared_ptr<TSNode>  TSParserSimple::parsePostfix() {
   bool keepParsing = true;
   while (keepParsing) {
     std::string tokVal = this->peekValue();
+    if ( tokVal == std::string("<") ) {
+      bool shouldParseAsGenericCall = false;
+      if ( this->tsxMode == false ) {
+        /** unused:  std::string next1 = this->peekAheadValue(1)   **/ ;
+        std::string next2 = this->peekAheadValue(2);
+        if ( ((next2 == std::string(">")) || (next2 == std::string(","))) || (next2 == std::string("extends")) ) {
+          shouldParseAsGenericCall = true;
+        }
+      } else {
+        if ( expr->nodeType == std::string("Identifier") ) {
+          if ( this->startsWithLowerCase(expr->name) ) {
+            if ( this->looksLikeGenericCall() ) {
+              shouldParseAsGenericCall = true;
+            }
+          }
+        }
+        if ( expr->nodeType == std::string("MemberExpression") ) {
+          if ( this->looksLikeGenericCall() ) {
+            shouldParseAsGenericCall = true;
+          }
+        }
+      }
+      if ( shouldParseAsGenericCall ) {
+        this->advance();
+        std::shared_ptr<TSNode> call =  std::make_shared<TSNode>();
+        call->nodeType = std::string("CallExpression");
+        call->left  = expr;
+        call->start = expr->start;
+        call->line = expr->line;
+        call->col = expr->col;
+        while ((this->matchValue(std::string(">")) == false) && (this->isAtEnd() == false)) {
+          if ( ((int)(call->params.size())) > 0 ) {
+            this->expectValue(std::string(","));
+          }
+          std::shared_ptr<TSNode> typeArg = this->parseType();
+          call->params.push_back( typeArg  );
+        };
+        this->expectValue(std::string(">"));
+        if ( this->matchValue(std::string("(")) ) {
+          this->advance();
+          while ((this->matchValue(std::string(")")) == false) && (this->isAtEnd() == false)) {
+            if ( ((int)(call->children.size())) > 0 ) {
+              this->expectValue(std::string(","));
+            }
+            if ( this->matchValue(std::string("...")) ) {
+              this->advance();
+              std::shared_ptr<TSNode> spreadArg = this->parseExpr();
+              std::shared_ptr<TSNode> spread =  std::make_shared<TSNode>();
+              spread->nodeType = std::string("SpreadElement");
+              spread->left  = spreadArg;
+              call->children.push_back( spread  );
+            } else {
+              std::shared_ptr<TSNode> arg = this->parseExpr();
+              call->children.push_back( arg  );
+            }
+          };
+          this->expectValue(std::string(")"));
+          expr = call;
+        }
+      }
+    }
+    tokVal = this->peekValue();
     if ( tokVal == std::string("(") ) {
       this->advance();
-      std::shared_ptr<TSNode> call =  std::make_shared<TSNode>();
-      call->nodeType = std::string("CallExpression");
-      call->left  = expr;
-      call->start = expr->start;
-      call->line = expr->line;
-      call->col = expr->col;
+      std::shared_ptr<TSNode> call_1 =  std::make_shared<TSNode>();
+      call_1->nodeType = std::string("CallExpression");
+      call_1->left  = expr;
+      call_1->start = expr->start;
+      call_1->line = expr->line;
+      call_1->col = expr->col;
       while ((this->matchValue(std::string(")")) == false) && (this->isAtEnd() == false)) {
-        if ( ((int)(call->children.size())) > 0 ) {
+        if ( ((int)(call_1->children.size())) > 0 ) {
           this->expectValue(std::string(","));
         }
-        std::shared_ptr<TSNode> arg = this->parseExpr();
-        call->children.push_back( arg  );
-      }
+        if ( this->matchValue(std::string("...")) ) {
+          this->advance();
+          std::shared_ptr<TSNode> spreadArg_1 = this->parseExpr();
+          std::shared_ptr<TSNode> spread_1 =  std::make_shared<TSNode>();
+          spread_1->nodeType = std::string("SpreadElement");
+          spread_1->left  = spreadArg_1;
+          call_1->children.push_back( spread_1  );
+        } else {
+          std::shared_ptr<TSNode> arg_1 = this->parseExpr();
+          call_1->children.push_back( arg_1  );
+        }
+      };
       this->expectValue(std::string(")"));
-      expr = call;
+      expr = call_1;
     }
     if ( tokVal == std::string(".") ) {
       this->advance();
@@ -2930,9 +3759,9 @@ std::shared_ptr<TSNode>  TSParserSimple::parsePostfix() {
           if ( ((int)(optCall->children.size())) > 0 ) {
             this->expectValue(std::string(","));
           }
-          std::shared_ptr<TSNode> arg_1 = this->parseExpr();
-          optCall->children.push_back( arg_1  );
-        }
+          std::shared_ptr<TSNode> arg_2 = this->parseExpr();
+          optCall->children.push_back( arg_2  );
+        };
         this->expectValue(std::string(")"));
         expr = optCall;
       }
@@ -2969,6 +3798,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parsePostfix() {
       this->expectValue(std::string("]"));
       std::shared_ptr<TSNode> computed =  std::make_shared<TSNode>();
       computed->nodeType = std::string("MemberExpression");
+      computed->computed = true;
       computed->left  = expr;
       computed->right  = indexExpr_1;
       computed->start = expr->start;
@@ -3011,18 +3841,44 @@ std::shared_ptr<TSNode>  TSParserSimple::parsePostfix() {
       satisfiesExpr->col = expr->col;
       expr = satisfiesExpr;
     }
+    std::string tokType = this->peekType();
+    if ( tokType == std::string("Template") ) {
+      std::shared_ptr<TSNode> quasi = this->parseTemplateLiteral();
+      std::shared_ptr<TSNode> tagged =  std::make_shared<TSNode>();
+      tagged->nodeType = std::string("TaggedTemplateExpression");
+      tagged->left  = expr;
+      tagged->right  = quasi;
+      tagged->start = expr->start;
+      tagged->line = expr->line;
+      tagged->col = expr->col;
+      expr = tagged;
+    }
+    if ( (tokVal == std::string("++")) || (tokVal == std::string("--")) ) {
+      std::shared_ptr<Token> opTok = this->peek();
+      this->advance();
+      std::shared_ptr<TSNode> update =  std::make_shared<TSNode>();
+      update->nodeType = std::string("UpdateExpression");
+      update->value = opTok->value;
+      update->left  = expr;
+      update->prefix = false;
+      update->start = expr->start;
+      update->line = expr->line;
+      update->col = expr->col;
+      expr = update;
+    }
     std::string newTokVal = this->peekValue();
-    if ( ((((((newTokVal != std::string("(")) && (newTokVal != std::string("."))) && (newTokVal != std::string("?."))) && (newTokVal != std::string("["))) && (newTokVal != std::string("!"))) && (newTokVal != std::string("as"))) && (newTokVal != std::string("satisfies")) ) {
+    std::string newTokType = this->peekType();
+    if ( (((((((((newTokVal != std::string("(")) && (newTokVal != std::string("."))) && (newTokVal != std::string("?."))) && (newTokVal != std::string("["))) && (newTokVal != std::string("!"))) && (newTokVal != std::string("as"))) && (newTokVal != std::string("satisfies"))) && (newTokVal != std::string("++"))) && (newTokVal != std::string("--"))) && (newTokType != std::string("Template")) ) {
       keepParsing = false;
     }
-  }
+  };
   return expr;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parsePrimary() {
   std::string tokType = this->peekType();
   std::string tokVal = this->peekValue();
   std::shared_ptr<Token> tok = this->peek();
-  if ( tokType == std::string("Identifier") ) {
+  if ( (tokType == std::string("Identifier")) || (tokType == std::string("TSType")) ) {
     this->advance();
     std::shared_ptr<TSNode> id =  std::make_shared<TSNode>();
     id->nodeType = std::string("Identifier");
@@ -3043,6 +3899,17 @@ std::shared_ptr<TSNode>  TSParserSimple::parsePrimary() {
     num->line = tok->line;
     num->col = tok->col;
     return num;
+  }
+  if ( tokType == std::string("BigInt") ) {
+    this->advance();
+    std::shared_ptr<TSNode> bigint =  std::make_shared<TSNode>();
+    bigint->nodeType = std::string("BigIntLiteral");
+    bigint->value = tok->value;
+    bigint->start = tok->start;
+    bigint->end = tok->end;
+    bigint->line = tok->line;
+    bigint->col = tok->col;
+    return bigint;
   }
   if ( tokType == std::string("String") ) {
     this->advance();
@@ -3103,7 +3970,10 @@ std::shared_ptr<TSNode>  TSParserSimple::parsePrimary() {
       return this->parseJSXFragment();
     }
     if ( (nextType == std::string("Identifier")) || (nextType == std::string("Keyword")) ) {
-      return this->parseJSXElement();
+      std::string peekTwoAhead = this->peekAheadValue(2);
+      if ( peekTwoAhead != std::string("extends") ) {
+        return this->parseJSXElement();
+      }
     }
   }
   if ( tokVal == std::string("(") ) {
@@ -3119,6 +3989,36 @@ std::shared_ptr<TSNode>  TSParserSimple::parsePrimary() {
   if ( tokVal == std::string("new") ) {
     return this->parseNewExpression();
   }
+  if ( tokVal == std::string("import") ) {
+    std::shared_ptr<Token> importTok = this->peek();
+    this->advance();
+    if ( this->matchValue(std::string(".")) ) {
+      this->advance();
+      if ( this->matchValue(std::string("meta")) ) {
+        this->advance();
+        std::shared_ptr<TSNode> metaProp =  std::make_shared<TSNode>();
+        metaProp->nodeType = std::string("MetaProperty");
+        metaProp->name = std::string("import");
+        metaProp->value = std::string("meta");
+        metaProp->start = importTok->start;
+        metaProp->line = importTok->line;
+        metaProp->col = importTok->col;
+        return metaProp;
+      }
+    }
+    if ( this->matchValue(std::string("(")) ) {
+      this->advance();
+      std::shared_ptr<TSNode> source = this->parseExpr();
+      this->expectValue(std::string(")"));
+      std::shared_ptr<TSNode> importExpr =  std::make_shared<TSNode>();
+      importExpr->nodeType = std::string("ImportExpression");
+      importExpr->left  = source;
+      importExpr->start = importTok->start;
+      importExpr->line = importTok->line;
+      importExpr->col = importTok->col;
+      return importExpr;
+    }
+  }
   if ( tokVal == std::string("this") ) {
     this->advance();
     std::shared_ptr<TSNode> thisExpr =  std::make_shared<TSNode>();
@@ -3133,27 +4033,27 @@ std::shared_ptr<TSNode>  TSParserSimple::parsePrimary() {
     std::cout << std::string("Unexpected token: ") + tokVal << std::endl;
   }
   this->advance();
-  std::shared_ptr<TSNode> errId =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& errId =  std::make_shared<TSNode>();
   errId->nodeType = std::string("Identifier");
   errId->name = std::string("error");
   return errId;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseTemplateLiteral() {
-  std::shared_ptr<TSNode> node =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
   node->nodeType = std::string("TemplateLiteral");
   std::shared_ptr<Token> tok = this->peek();
   node->start = tok->start;
   node->line = tok->line;
   node->col = tok->col;
   this->advance();
-  std::shared_ptr<TSNode> quasi =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& quasi =  std::make_shared<TSNode>();
   quasi->nodeType = std::string("TemplateElement");
   quasi->value = tok->value;
   node->children.push_back( quasi  );
   return node;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseArrayLiteral() {
-  std::shared_ptr<TSNode> node =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
   node->nodeType = std::string("ArrayExpression");
   std::shared_ptr<Token> tok = this->peek();
   node->start = tok->start;
@@ -3178,12 +4078,12 @@ std::shared_ptr<TSNode>  TSParserSimple::parseArrayLiteral() {
     if ( this->matchValue(std::string(",")) ) {
       this->advance();
     }
-  }
+  };
   this->expectValue(std::string("]"));
   return node;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseObjectLiteral() {
-  std::shared_ptr<TSNode> node =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
   node->nodeType = std::string("ObjectExpression");
   std::shared_ptr<Token> tok = this->peek();
   node->start = tok->start;
@@ -3201,7 +4101,45 @@ std::shared_ptr<TSNode>  TSParserSimple::parseObjectLiteral() {
     } else {
       std::shared_ptr<TSNode> prop =  std::make_shared<TSNode>();
       prop->nodeType = std::string("Property");
+      bool isComputed = false;
+      bool isMethod = false;
+      bool isGetter = false;
+      bool isSetter = false;
+      std::string currVal = this->peekValue();
+      std::string nextType = this->peekNextType();
+      std::string nextVal = this->peekNextValue();
+      if ( currVal == std::string("async") ) {
+        if ( ((nextType == std::string("Identifier")) || (nextVal == std::string("["))) || (nextVal == std::string("(")) ) {
+          this->advance();
+          prop->async = true;
+          currVal = this->peekValue();
+          nextType = this->peekNextType();
+          nextVal = this->peekNextValue();
+        }
+      }
+      if ( currVal == std::string("get") ) {
+        if ( (nextType == std::string("Identifier")) || (nextVal == std::string("[")) ) {
+          this->advance();
+          isGetter = true;
+          prop->kind = std::string("get");
+        }
+      }
+      if ( currVal == std::string("set") ) {
+        if ( (nextType == std::string("Identifier")) || (nextVal == std::string("[")) ) {
+          this->advance();
+          isSetter = true;
+          prop->kind = std::string("set");
+        }
+      }
       std::shared_ptr<Token> keyTok = this->peek();
+      if ( this->matchValue(std::string("[")) ) {
+        this->advance();
+        std::shared_ptr<TSNode> keyExpr = this->parseExpr();
+        this->expectValue(std::string("]"));
+        prop->right  = keyExpr;
+        isComputed = true;
+        prop->computed = true;
+      }
       if ( this->matchType(std::string("Identifier")) ) {
         prop->name = keyTok->value;
         this->advance();
@@ -3214,23 +4152,54 @@ std::shared_ptr<TSNode>  TSParserSimple::parseObjectLiteral() {
         prop->name = keyTok->value;
         this->advance();
       }
-      if ( this->matchValue(std::string(":")) ) {
+      if ( this->matchValue(std::string("(")) ) {
+        isMethod = true;
+        prop->method = true;
+        std::shared_ptr<TSNode> fnNode =  std::make_shared<TSNode>();
+        fnNode->nodeType = std::string("FunctionExpression");
         this->advance();
-        std::shared_ptr<TSNode> valueExpr = this->parseExpr();
-        prop->left  = valueExpr;
-      } else {
-        std::shared_ptr<TSNode> shorthandVal =  std::make_shared<TSNode>();
-        shorthandVal->nodeType = std::string("Identifier");
-        shorthandVal->name = prop->name;
-        prop->left  = shorthandVal;
-        prop->kind = std::string("shorthand");
+        while ((this->matchValue(std::string(")")) == false) && (this->isAtEnd() == false)) {
+          if ( ((int)(fnNode->params.size())) > 0 ) {
+            this->expectValue(std::string(","));
+          }
+          fnNode->params.push_back( this->parseParam()  );
+        };
+        this->expectValue(std::string(")"));
+        if ( this->matchValue(std::string(":")) ) {
+          this->advance();
+          fnNode->typeAnnotation  = this->parseType();
+        }
+        if ( this->matchValue(std::string("{")) ) {
+          fnNode->body  = this->parseBlock();
+        }
+        prop->left  = fnNode;
+        if ( (isGetter == false) && (isSetter == false) ) {
+          prop->kind = std::string("init");
+        }
+      }
+      if ( isMethod == false ) {
+        if ( this->matchValue(std::string(":")) ) {
+          this->advance();
+          std::shared_ptr<TSNode> valueExpr = this->parseExpr();
+          prop->left  = valueExpr;
+          prop->kind = std::string("init");
+        } else {
+          if ( isComputed == false ) {
+            std::shared_ptr<TSNode> shorthandVal =  std::make_shared<TSNode>();
+            shorthandVal->nodeType = std::string("Identifier");
+            shorthandVal->name = prop->name;
+            prop->left  = shorthandVal;
+            prop->shorthand = true;
+            prop->kind = std::string("init");
+          }
+        }
       }
       node->children.push_back( prop  );
     }
     if ( this->matchValue(std::string(",")) ) {
       this->advance();
     }
-  }
+  };
   this->expectValue(std::string("}"));
   return node;
 }
@@ -3251,7 +4220,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseParenOrArrow() {
     if ( parenDepth > 0 ) {
       this->advance();
     }
-  }
+  };
   if ( this->matchValue(std::string(")")) == false ) {
     this->pos = savedPos;
     this->currentToken  = savedTok;
@@ -3278,7 +4247,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseParenOrArrow() {
   return expr_1;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseArrowFunction() {
-  std::shared_ptr<TSNode> node =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
   node->nodeType = std::string("ArrowFunctionExpression");
   std::shared_ptr<Token> startTok = this->peek();
   node->start = startTok->start;
@@ -3296,7 +4265,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseArrowFunction() {
       }
       std::shared_ptr<TSNode> param = this->parseParam();
       node->params.push_back( param  );
-    }
+    };
     this->expectValue(std::string(")"));
   } else {
     std::shared_ptr<Token> paramTok = this->expect(std::string("Identifier"));
@@ -3321,13 +4290,23 @@ std::shared_ptr<TSNode>  TSParserSimple::parseArrowFunction() {
   return node;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseNewExpression() {
-  std::shared_ptr<TSNode> node =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
   node->nodeType = std::string("NewExpression");
   std::shared_ptr<Token> tok = this->peek();
   node->start = tok->start;
   node->line = tok->line;
   node->col = tok->col;
   this->expectValue(std::string("new"));
+  if ( this->matchValue(std::string(".")) ) {
+    this->advance();
+    if ( this->matchValue(std::string("target")) ) {
+      this->advance();
+      node->nodeType = std::string("MetaProperty");
+      node->name = std::string("new");
+      node->value = std::string("target");
+      return node;
+    }
+  }
   std::shared_ptr<TSNode> callee = this->parsePrimary();
   node->left  = callee;
   if ( this->matchValue(std::string("<")) ) {
@@ -3342,7 +4321,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseNewExpression() {
         depth = depth - 1;
       }
       this->advance();
-    }
+    };
   }
   if ( this->matchValue(std::string("(")) ) {
     this->advance();
@@ -3352,7 +4331,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseNewExpression() {
       }
       std::shared_ptr<TSNode> arg = this->parseExpr();
       node->children.push_back( arg  );
-    }
+    };
     this->expectValue(std::string(")"));
   }
   return node;
@@ -3365,8 +4344,54 @@ std::string  TSParserSimple::peekNextType() {
   }
   return std::string("EOF");
 }
+std::string  TSParserSimple::peekAheadValue( int offset ) {
+  int aheadPos = this->pos + offset;
+  if ( aheadPos < ((int)(this->tokens.size())) ) {
+    std::shared_ptr<Token> tok = this->tokens.at(aheadPos);
+    return tok->value;
+  }
+  return std::string("");
+}
+bool  TSParserSimple::startsWithLowerCase( std::string s ) {
+  if ( ((int)(s.length())) == 0 ) {
+    return false;
+  }
+  int code = s.at(0);
+  if ( (code >= 97) && (code <= 122) ) {
+    return true;
+  }
+  return false;
+}
+bool  TSParserSimple::looksLikeGenericCall() {
+  int depth = 1;
+  int offset = 1;
+  int maxLookahead = 20;
+  while ((depth > 0) && (offset < maxLookahead)) {
+    std::string ahead = this->peekAheadValue(offset);
+    if ( ahead == std::string("") ) {
+      return false;
+    }
+    if ( ahead == std::string("<") ) {
+      depth = depth + 1;
+    }
+    if ( ahead == std::string(">") ) {
+      depth = depth - 1;
+    }
+    if ( (((ahead == std::string("{")) || (ahead == std::string("}"))) || (ahead == std::string(";"))) || (ahead == std::string("=>")) ) {
+      return false;
+    }
+    offset = offset + 1;
+  };
+  if ( depth == 0 ) {
+    std::string afterClose = this->peekAheadValue(offset);
+    if ( afterClose == std::string("(") ) {
+      return true;
+    }
+  }
+  return false;
+}
 std::shared_ptr<TSNode>  TSParserSimple::parseJSXElement() {
-  std::shared_ptr<TSNode> node =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
   node->nodeType = std::string("JSXElement");
   std::shared_ptr<Token> tok = this->peek();
   node->start = tok->start;
@@ -3402,13 +4427,13 @@ std::shared_ptr<TSNode>  TSParserSimple::parseJSXElement() {
         }
       }
     }
-  }
+  };
   std::shared_ptr<TSNode> closing = this->parseJSXClosingElement();
   node->right  = closing;
   return node;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseJSXOpeningElement() {
-  std::shared_ptr<TSNode> node =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
   node->nodeType = std::string("JSXOpeningElement");
   std::shared_ptr<Token> tok = this->peek();
   node->start = tok->start;
@@ -3425,7 +4450,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseJSXOpeningElement() {
     }
     std::shared_ptr<TSNode> attr = this->parseJSXAttribute();
     node->children.push_back( attr  );
-  }
+  };
   if ( this->matchValue(std::string("/")) ) {
     this->advance();
     node->kind = std::string("self-closing");
@@ -3434,7 +4459,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseJSXOpeningElement() {
   return node;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseJSXClosingElement() {
-  std::shared_ptr<TSNode> node =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
   node->nodeType = std::string("JSXClosingElement");
   std::shared_ptr<Token> tok = this->peek();
   node->start = tok->start;
@@ -3449,7 +4474,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseJSXClosingElement() {
   return node;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseJSXElementName() {
-  std::shared_ptr<TSNode> node =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
   node->nodeType = std::string("JSXIdentifier");
   std::shared_ptr<Token> tok = this->peek();
   node->start = tok->start;
@@ -3463,12 +4488,12 @@ std::shared_ptr<TSNode>  TSParserSimple::parseJSXElementName() {
     namePart = (namePart + std::string(".")) + nextTok->value;
     this->advance();
     node->nodeType = std::string("JSXMemberExpression");
-  }
+  };
   node->name = namePart;
   return node;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseJSXAttribute() {
-  std::shared_ptr<TSNode> node =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
   node->nodeType = std::string("JSXAttribute");
   std::shared_ptr<Token> tok = this->peek();
   node->start = tok->start;
@@ -3510,7 +4535,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseJSXAttribute() {
   return node;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseJSXExpressionContainer() {
-  std::shared_ptr<TSNode> node =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
   node->nodeType = std::string("JSXExpressionContainer");
   std::shared_ptr<Token> tok = this->peek();
   node->start = tok->start;
@@ -3529,7 +4554,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseJSXExpressionContainer() {
   return node;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseJSXText() {
-  std::shared_ptr<TSNode> node =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
   node->nodeType = std::string("JSXText");
   std::shared_ptr<Token> tok = this->peek();
   node->start = tok->start;
@@ -3540,7 +4565,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseJSXText() {
   return node;
 }
 std::shared_ptr<TSNode>  TSParserSimple::parseJSXFragment() {
-  std::shared_ptr<TSNode> node =  std::make_shared<TSNode>();
+  std::shared_ptr<TSNode>& node =  std::make_shared<TSNode>();
   node->nodeType = std::string("JSXFragment");
   std::shared_ptr<Token> tok = this->peek();
   node->start = tok->start;
@@ -3571,7 +4596,7 @@ std::shared_ptr<TSNode>  TSParserSimple::parseJSXFragment() {
         }
       }
     }
-  }
+  };
   this->expectValue(std::string("<"));
   this->expectValue(std::string("/"));
   this->expectValue(std::string(">"));
@@ -3668,10 +4693,10 @@ void  TSParserMain::listInterfaces( std::shared_ptr<TSNode> program ) {
             }
             std::cout << propInfo << std::endl;
           }
-        }
+        };
       }
     }
-  }
+  };
   std::cout << std::string("") << std::endl;
   std::cout << (std::string("Total: ") + std::to_string(count)) + std::string(" interface(s)") << std::endl;
 }
@@ -3690,7 +4715,7 @@ void  TSParserMain::listTypeAliases( std::shared_ptr<TSNode> program ) {
       typeInfo = ((typeInfo + std::string(" [line ")) + line) + std::string("]");
       std::cout << typeInfo << std::endl;
     }
-  }
+  };
   std::cout << std::string("") << std::endl;
   std::cout << (std::string("Total: ") + std::to_string(count)) + std::string(" type alias(es)") << std::endl;
 }
@@ -3721,7 +4746,7 @@ void  TSParserMain::listFunctions( std::shared_ptr<TSNode> program ) {
           }
         }
         pi = pi + 1;
-      }
+      };
       funcInfo = funcInfo + std::string(")");
       if ( stmt->typeAnnotation != NULL  ) {
         std::shared_ptr<TSNode> retType = stmt->typeAnnotation;
@@ -3733,7 +4758,7 @@ void  TSParserMain::listFunctions( std::shared_ptr<TSNode> program ) {
       funcInfo = ((funcInfo + std::string(" [line ")) + line) + std::string("]");
       std::cout << funcInfo << std::endl;
     }
-  }
+  };
   std::cout << std::string("") << std::endl;
   std::cout << (std::string("Total: ") + std::to_string(count)) + std::string(" function(s)") << std::endl;
 }
@@ -3772,7 +4797,7 @@ std::string  TSParserMain::getTypeName( std::shared_ptr<TSNode> typeNode ) {
         }
         result = result + TSParserMain::getTypeName(gp);
         gi = gi + 1;
-      }
+      };
       result = result + std::string(">");
     }
     return result;
@@ -3787,7 +4812,7 @@ std::string  TSParserMain::getTypeName( std::shared_ptr<TSNode> typeNode ) {
       }
       result_1 = result_1 + TSParserMain::getTypeName(ut);
       ui = ui + 1;
-    }
+    };
     return result_1;
   }
   return nodeType;
@@ -3809,7 +4834,7 @@ void  TSParserMain::parseFile( std::string filename , bool showTokens ) {
       std::shared_ptr<Token> tok = tokens.at(ti);
       std::string output = ((tok->tokenType + std::string(": '")) + tok->value) + std::string("'");
       std::cout << output << std::endl;
-    }
+    };
     std::cout << std::string("") << std::endl;
   }
   std::shared_ptr<TSParserSimple> parser =  std::make_shared<TSParserSimple>();
@@ -3821,7 +4846,7 @@ void  TSParserMain::parseFile( std::string filename , bool showTokens ) {
   for ( int idx = 0; idx != (int)(program->children.size()); idx++) {
     std::shared_ptr<TSNode> stmt = program->children.at(idx);
     TSParserMain::printNode(stmt, 0);
-  }
+  };
 }
 void  TSParserMain::runDemo() {
   std::string code = std::string("\r\ninterface Person {\r\n  readonly id: number;\r\n  name: string;\r\n  age?: number;\r\n}\r\n\r\ntype ID = string | number;\r\n\r\ntype Result = Person | null;\r\n\r\nlet count: number = 42;\r\n\r\nconst message: string = 'hello';\r\n\r\nfunction greet(name: string, age?: number): string {\r\n  return name;\r\n}\r\n\r\nlet data: Array<string>;\r\n");
@@ -3837,7 +4862,7 @@ void  TSParserMain::runDemo() {
     std::shared_ptr<Token> tok = tokens.at(i);
     std::string output = ((tok->tokenType + std::string(": '")) + tok->value) + std::string("'");
     std::cout << output << std::endl;
-  }
+  };
   std::cout << std::string("") << std::endl;
   std::cout << std::string("--- AST ---") << std::endl;
   std::shared_ptr<TSParserSimple> parser =  std::make_shared<TSParserSimple>();
@@ -3848,7 +4873,7 @@ void  TSParserMain::runDemo() {
   for ( int idx = 0; idx != (int)(program->children.size()); idx++) {
     std::shared_ptr<TSNode> stmt = program->children.at(idx);
     TSParserMain::printNode(stmt, 0);
-  }
+  };
 }
 void  TSParserMain::printNode( std::shared_ptr<TSNode> node , int depth ) {
   std::string indent = std::string("");
@@ -3856,7 +4881,7 @@ void  TSParserMain::printNode( std::shared_ptr<TSNode> node , int depth ) {
   while (i < depth) {
     indent = indent + std::string("  ");
     i = i + 1;
-  }
+  };
   std::string nodeType = node->nodeType;
   std::string loc = (((std::string("[") + std::to_string(node->line)) + std::string(":")) + std::to_string(node->col)) + std::string("]");
   if ( nodeType == std::string("TSInterfaceDeclaration") ) {
@@ -3871,7 +4896,7 @@ void  TSParserMain::printNode( std::shared_ptr<TSNode> node , int depth ) {
     for ( int mi = 0; mi != (int)(node->children.size()); mi++) {
       std::shared_ptr<TSNode> member = node->children.at(mi);
       TSParserMain::printNode(member, depth + 1);
-    }
+    };
     return;
   }
   if ( nodeType == std::string("TSPropertySignature") ) {
@@ -3907,7 +4932,7 @@ void  TSParserMain::printNode( std::shared_ptr<TSNode> node , int depth ) {
     for ( int ti = 0; ti != (int)(node->children.size()); ti++) {
       std::shared_ptr<TSNode> typeNode = node->children.at(ti);
       TSParserMain::printNode(typeNode, depth + 1);
-    }
+    };
     return;
   }
   if ( nodeType == std::string("TSTypeReference") ) {
@@ -3915,7 +4940,7 @@ void  TSParserMain::printNode( std::shared_ptr<TSNode> node , int depth ) {
     for ( int pi = 0; pi != (int)(node->params.size()); pi++) {
       std::shared_ptr<TSNode> param = node->params.at(pi);
       TSParserMain::printNode(param, depth + 1);
-    }
+    };
     return;
   }
   if ( nodeType == std::string("TSArrayType") ) {
@@ -3954,7 +4979,7 @@ void  TSParserMain::printNode( std::shared_ptr<TSNode> node , int depth ) {
     for ( int di = 0; di != (int)(node->children.size()); di++) {
       std::shared_ptr<TSNode> declarator = node->children.at(di);
       TSParserMain::printNode(declarator, depth + 1);
-    }
+    };
     return;
   }
   if ( nodeType == std::string("VariableDeclarator") ) {
@@ -3979,7 +5004,7 @@ void  TSParserMain::printNode( std::shared_ptr<TSNode> node , int depth ) {
       if ( p->optional ) {
         paramNames = paramNames + std::string("?");
       }
-    }
+    };
     std::cout << (((((indent + std::string("FunctionDeclaration: ")) + node->name) + std::string("(")) + paramNames) + std::string(") ")) + loc << std::endl;
     if ( node->typeAnnotation != NULL  ) {
       std::cout << indent + std::string("  returnType:") << std::endl;
@@ -3995,7 +5020,7 @@ void  TSParserMain::printNode( std::shared_ptr<TSNode> node , int depth ) {
     for ( int si = 0; si != (int)(node->children.size()); si++) {
       std::shared_ptr<TSNode> stmt = node->children.at(si);
       TSParserMain::printNode(stmt, depth + 1);
-    }
+    };
     return;
   }
   if ( nodeType == std::string("ExpressionStatement") ) {
@@ -4081,7 +5106,7 @@ int main(int argc, char* argv[]) {
         }
       }
     }
-  }
+  };
   if ( runDefault ) {
     TSParserMain::runDemo();
     return 0;

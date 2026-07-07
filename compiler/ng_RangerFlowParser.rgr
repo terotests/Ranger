@@ -2420,9 +2420,66 @@ class RangerFlowParser {
     return true
   }
 
+  fn repairUnaryMinusExpr:void (node:CodeNode) {
+    def chCnt (size node.children)
+    if (chCnt != 2) {
+      return
+    }
+    def fc (node.getFirst())
+    if (fc.vref != "-") {
+      return
+    }
+    def operand:CodeNode (at node.children 1)
+    def zero:CodeNode (CodeNode.newInt(0))
+    def minus:CodeNode (fc.copy())
+    clear node.children
+    push node.children zero
+    push node.children minus
+    push node.children (operand.copy())
+    node.expression = true
+    node.flow_done = false
+    for node.children ch@(lives):CodeNode i {
+      ch.flow_done = false
+    }
+  }
+
+  fn repairAssignUnaryMinusRhs:void (node:CodeNode) {
+    def chCnt (size node.children)
+    if (chCnt != 4) {
+      return
+    }
+    def fc (node.getFirst())
+    if (fc.vref != "=") {
+      return
+    }
+    def mid:CodeNode (at node.children 2)
+    if (mid.vref != "-") {
+      return
+    }
+    def operand:CodeNode (at node.children 3)
+    def rhs:CodeNode (node.newExpressionNode())
+    def zero:CodeNode (CodeNode.newInt(0))
+    push rhs.children zero
+    push rhs.children (mid.copy())
+    push rhs.children (operand.copy())
+    removeLast node.children
+    removeLast node.children
+    push node.children rhs
+    node.flow_done = false
+    rhs.flow_done = false
+  }
+
   fn repairAssignMethodCallRhs:void (node:CodeNode) {
+    this.repairAssignUnaryMinusRhs(node)
     def chCnt (size node.children)
     if (chCnt < 4) {
+      if ((size node.children) > 2) {
+        def fc (node.getFirst())
+        if ((fc.vref == "=") || (fc.vref == "def")) {
+          def rhsNode:CodeNode (at node.children 2)
+          this.repairUnaryMinusExpr(rhsNode)
+        }
+      }
       return
     }
     def fc (node.getFirst())
@@ -2454,6 +2511,10 @@ class RangerFlowParser {
     rhs.flow_done = false
     for rhs.children ch:CodeNode ci {
       ch.flow_done = false
+    }
+    if ((size node.children) > rhsStart) {
+      def rhsNode:CodeNode (at node.children rhsStart)
+      this.repairUnaryMinusExpr(rhsNode)
     }
   }
 
@@ -3605,6 +3666,9 @@ class RangerFlowParser {
     for op_list cmd:CodeNode i {
       def cmdName:CodeNode (cmd.getFirst())
       if (cmdName.vref == fc.vref && (! (ctx.isVarDefined(cmdName.vref)))) {
+        if (fc.vref == "-") {
+          this.repairUnaryMinusExpr(node)
+        }
         if (fc.vref == "=") {
           this.repairAssignMethodCallRhs(node)
         }

@@ -515,6 +515,7 @@ class LowIRRuntimeGen {
     LowIRRuntimeGen.buildRtPtrArrayNew(module)
     LowIRRuntimeGen.buildRtPtrArrayPush(module)
     LowIRRuntimeGen.buildRtPtrArrayGet(module)
+    LowIRRuntimeGen.buildRtPtrArraySet(module)
     LowIRRuntimeGen.buildRtPtrArrayLen(module)
   }
 
@@ -583,6 +584,47 @@ class LowIRRuntimeGen {
     def val (builder.emitPtrLoadTyped(slot pt))
     builder.terminateRet(pt val)
     LowIRRuntimeGen.finishFn(builder module "RtPtrArray_get" pt params false)
+  }
+
+  static fn buildRtPtrArraySet:void (module:LowIRModule) {
+    def builder@(lives):LowIRBuilder (new LowIRBuilder(module))
+    builder.reset()
+    def pt (module.ptrType)
+    def pb (LowIRRuntimeGen.ptrBytes(module))
+    def params:[LowIRParam]
+    def descP@(lives):LowIRParam (new LowIRParam())
+    descP.name = "desc"
+    descP.irType = pt
+    push params descP
+    def idxP@(lives):LowIRParam (new LowIRParam())
+    idxP.name = "idx"
+    idxP.irType = "i32"
+    push params idxP
+    def valP@(lives):LowIRParam (new LowIRParam())
+    valP.name = "val"
+    valP.irType = pt
+    push params valP
+    def meta (LowIRRuntimeGen.descMetaOff(module))
+    builder.startBlock("entry")
+    def data (builder.emitPtrLoad("%desc"))
+    def elemBytes (builder.emitConst("i32" ("" + pb)))
+    def offI32 (builder.emitBin("mul" "i32" "%idx" elemBytes))
+    def off (builder.emitZextI32ToPtr(offI32))
+    def slot (builder.emitBin("add" pt data off))
+    builder.emitPtrStore(slot "%val")
+    def oldLen (builder.emitI32At("%desc" meta))
+    def one (builder.emitConst("i32" "1"))
+    def idxPlus (builder.emitBin("add" "i32" "%idx" one))
+    def needBump (builder.emitIcmp("slt" oldLen idxPlus))
+    def bumpLabel (builder.freshLabel("ptrset_bump"))
+    def doneLabel (builder.freshLabel("ptrset_done"))
+    builder.terminateBrIf(needBump bumpLabel doneLabel)
+    builder.startBlock(bumpLabel)
+    builder.emitStoreI32At("%desc" meta idxPlus)
+    builder.terminateBr(doneLabel)
+    builder.startBlock(doneLabel)
+    builder.terminateRet("void" "")
+    LowIRRuntimeGen.finishFn(builder module "RtPtrArray_set" "void" params false)
   }
 
   static fn buildRtPtrArrayPush:void (module:LowIRModule) {

@@ -1,3 +1,7 @@
+/**
+ * LLVM / WAT backend tests — excluded from default `npm test` (see tests/vitest.config.ts).
+ * Run explicitly: npm run test:llvm
+ */
 import { describe, it, expect, beforeAll } from "vitest";
 import { execSync } from "child_process";
 import * as path from "path";

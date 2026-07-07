@@ -1,0 +1,7 @@
+class DoubleConv {
+    sfn m@(main):void () {
+        def x:double (to_double 5)
+        def y:int (to_int (x * 2.5))
+        print y
+    }
+}

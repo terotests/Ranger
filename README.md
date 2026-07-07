@@ -1,6 +1,6 @@
 # Ranger cross language compiler
 
-**Version 3.1.0** | Status: `experimental`
+**Version 3.1.1** | Status: `experimental`
 
 Ranger is a self-hosting cross-language compiler for writing portable algorithms, parsers, generators, and small tools once and compiling them to multiple target languages.
 

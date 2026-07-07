@@ -2,6 +2,10 @@
 ; Usage: jpeg_scaler -width 800 input.jpg output.jpg
 ;    or: jpeg_scaler -height 600 input.jpg output.jpg
 ;    or: jpeg_scaler -scale 2.0 input.jpg output.jpg
+;
+; Supported targets: ES6, Go (see package.json jpegscaler:* scripts).
+; LLVM/native (-l=llvm): EXPERIMENTAL — IR links but decode hangs and may use >1 GB RAM.
+; See gallery/pdf_writer/docs/JPEG_SCALER_LLVM.md and scripts/compile-jpeg-scaler-llvm.sh
 
 Import "../jpeg/JPEGDecoder.rgr"
 Import "../jpeg/JPEGEncoder.rgr"

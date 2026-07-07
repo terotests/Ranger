@@ -1,0 +1,10 @@
+
+; String-based regex search (pattern as string, not /literal/ syntax).
+;
+; Modules:
+;   Regex/RegexMatch.rgr — testIgnoreCase (portable subset on ranger target)
+;
+; Compiler intrinsic (Lang.rgr): regex_test(pattern, haystack)
+; Prefer regex_test in hot paths; RegexMatch.testIgnoreCase for library code on ranger target.
+
+Import "Regex/RegexMatch.rgr"

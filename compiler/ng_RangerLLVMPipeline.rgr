@@ -25,6 +25,6 @@ class RangerLLVMClassWriter {
   def compiler:LiveCompiler
 
   fn writeClass:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-    ; LLVM pipeline emits the whole module at once — skip per-class text codegen.
+    ; LLVM pipeline emits the whole module at once ï¿½ skip per-class text codegen.
   }
 }
