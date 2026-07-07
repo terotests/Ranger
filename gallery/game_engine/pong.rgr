@@ -271,6 +271,7 @@ class Pong {
 ; ------------------------------------------------------------------------------
 class Terminal {
     def firstFrame:boolean true
+    def showDebug:boolean false
 
     fn init:void () {
         hide_cursor
@@ -325,6 +326,47 @@ class Terminal {
         if (key == "Q") {
             btns.quit = true
         }
+        ; 'd' toggles the debug overlay. This is a platform/render concern, not
+        ; a gameplay input, so it lives in the backend rather than in Buttons.
+        if (key == "d") {
+            this.toggleDebug()
+        }
+        if (key == "D") {
+            this.toggleDebug()
+        }
+    }
+
+    fn toggleDebug:void () {
+        if (showDebug) {
+            showDebug = false
+        } {
+            showDebug = true
+        }
+    }
+
+    ; Debug HUD: composites live game state on top of the frame. Because Pong's
+    ; state is plain public fields, the backend can inspect it for free - no
+    ; special hooks in the (pure) game logic. Toggle with 'd'.
+    fn renderDebug:void (game:Pong) {
+        def hudY (game.H + 2)
+        move_cursor 1 hudY
+        def dbg ("  DEBUG f=" + game.frame)
+        dbg = (dbg + " ball=(")
+        dbg = (dbg + game.ballX)
+        dbg = (dbg + ",")
+        dbg = (dbg + game.ballY)
+        dbg = (dbg + ") vx=")
+        dbg = (dbg + game.vxDir)
+        dbg = (dbg + " vyDir=")
+        dbg = (dbg + game.vyDir)
+        dbg = (dbg + " vyMag=")
+        dbg = (dbg + game.vyMag)
+        dbg = (dbg + " lY=")
+        dbg = (dbg + game.leftY)
+        dbg = (dbg + " rY=")
+        dbg = (dbg + game.rightY)
+        dbg = (dbg + "        ")
+        write dbg
     }
 
     fn render:void (game:Pong) {
@@ -346,8 +388,16 @@ class Terminal {
         def status ("  P1 " + game.leftScore)
         status = (status + "   -   CPU ")
         status = (status + game.rightScore)
-        status = (status + "     [W/S move  Q quit]      ")
+        status = (status + "     [W/S move  D debug  Q quit]      ")
         write status
+        if (showDebug) {
+            this.renderDebug(game)
+        } {
+            ; erase the HUD line when the overlay is off
+            def hudY (game.H + 2)
+            move_cursor 1 hudY
+            write "                                                            "
+        }
     }
 
     ; The frame loop lives in the platform layer: it is inherently platform

@@ -146,6 +146,80 @@ platform layer uses them — the game logic stays pure.
 **Build/link:** `clang pong.ll runtime/ranger_rt.c runtime/ranger_gfx.c \
 $(pkg-config --cflags --libs sdl2)`. On the Pi: `sudo apt install libsdl2-dev`.
 
+## 6b. Display, rendering & debugging
+
+This is the part that makes "develop on Mac, run on the TV" practical.
+
+### Display — how the picture reaches the TV over HDMI
+
+There are three display paths, in increasing order of "real game" fidelity;
+all three drive the same HDMI output:
+
+1. **Console framebuffer (works today).** The terminal backend prints ANSI to
+   the Linux virtual console on tty1. Raspberry Pi OS shows that console on
+   HDMI at boot, so a terminal game already appears on the TV with **zero extra
+   dependencies** — great for the first bring-up. Set a large console font
+   (`sudo dpkg-reconfigure console-setup`) so cells are readable across the room.
+2. **SDL2 via KMS/DRM (target path).** SDL2 opens the HDMI framebuffer directly
+   through the kernel's KMS/DRM driver — **no X/desktop required**, which is
+   what you want for a console/kiosk boot. `gfx_init` creates a fullscreen
+   surface at the TV's native mode.
+3. **SDL2 under a desktop / browser-kiosk.** For debugging convenience you can
+   also run windowed under the Pi desktop, or run the `es6` build in a
+   full-screen Chromium kiosk. Same game logic.
+
+TV-specific concerns handled in the backend, never in game logic:
+* **Resolution/scaling.** Logic works in a fixed **logical** grid (e.g. Pong's
+  60×24 cells, or a virtual 320×180 for pixel mode). The renderer scales the
+  logical space to the physical mode (1080p/4K) with integer scale + letterbox.
+* **Overscan.** Many TVs crop edges; keep a safe-area margin and expose an
+  overscan offset in the backend (`config.txt` `overscan_*` on the Pi).
+* **VSync/tearing.** `gfx_present` swaps on vblank (`SDL_RENDERER_PRESENTVSYNC`).
+
+### Rendering pipeline
+
+* **Fixed logical timestep.** `step()` is called at a fixed rate (Pong: ~25 Hz
+  via `sleep_ms 40`); rendering happens once per step. Because motion is
+  integer and deterministic, a fixed timestep keeps every target in sync. The
+  target path can decouple render rate from `step()` (render at the TV refresh,
+  step at the logic rate) without touching logic.
+* **Double buffering.** Terminal: home the cursor and repaint every cell each
+  frame (no `clear_screen` flicker after the first frame). SDL2:
+  clear → draw → `present` (back buffer swap).
+* **Dirty-cell option.** For large scenes the terminal backend can diff against
+  the previous frame and only rewrite changed cells (as `gallery/invaders`
+  does) — a pure backend optimisation.
+* **Compositing / overlays.** The renderer draws the world first, then overlays
+  (score, HUD). See the debug overlay below.
+
+### Debugging — the payoff of pure, deterministic logic
+
+Debugging an embedded game is awkward because **the TV is showing the game**,
+not your logs, and a debugger on the Pi is slow. The architecture turns this
+into a non-problem:
+
+* **Debug the logic on the Mac, not the Pi.** `Pong.step()` is pure and has no
+  device dependencies, so 99% of gameplay bugs reproduce under Node with a
+  normal debugger/unit test. You only need the Pi to debug the *backend*
+  (display/input), which is small.
+* **Deterministic record & replay.** Because `step(Buttons)` is integer-
+  deterministic, record the per-frame `Buttons` stream (a few bytes/frame) on
+  the Pi when a bug happens, copy that tiny log to the Mac, and replay it to
+  reproduce the **exact** state in your debugger. The platform layer swaps a
+  "live input" source for a "recorded input" source; logic is untouched. This
+  is the single most powerful debugging tool the design enables.
+* **Headless frame dumps / golden frames.** A backend can render `cellAt` to a
+  text grid and dump frame N to stdout (no TV needed), diffable in CI. This is
+  how rendering is regression-tested without hardware.
+* **On-screen debug HUD (implemented).** Press **`d`** in `pong.rgr` to overlay
+  live state (frame, ball x/y, velocities, paddle rows). Since game state is
+  plain public fields, the backend inspects it for free — no hooks in the pure
+  logic. This is the "printf on the TV" that works even with no shell attached.
+* **Remote debugging on the Pi.** SSH in and run the native binary under
+  `gdb`/`lldb`; because the TV owns stdout, send diagnostics to a **file or a
+  second SSH tty** (`2>/tmp/game.log`) rather than the game's screen. LLVM/C++
+  builds carry DWARF symbols (`clang -g`) for source-level debugging.
+
 ## 7. Build & deploy pipeline
 
 * **Desktop dev (Mac):** `npm run engine:compile && npm run engine:run` (ES6).

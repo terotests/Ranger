@@ -194,6 +194,7 @@ class Pong  {
 class Terminal  {
   constructor() {
     this.firstFrame = true;     /** note: unused */
+    this.showDebug = false;
   }
   init () {
     process.stdout.write("\x1b[?25l");
@@ -242,6 +243,40 @@ class Terminal  {
     if ( key == "Q" ) {
       btns.quit = true;
     }
+    if ( key == "d" ) {
+      this.toggleDebug();
+    }
+    if ( key == "D" ) {
+      this.toggleDebug();
+    }
+  };
+  toggleDebug () {
+    if ( this.showDebug ) {
+      this.showDebug = false;
+    } else {
+      this.showDebug = true;
+    }
+  };
+  renderDebug (game) {
+    const hudY = game.H + 2;
+    process.stdout.write(`\x1b[${hudY};${1}H`);
+    let dbg = "  DEBUG f=" + game.frame;
+    dbg = dbg + " ball=(";
+    dbg = dbg + game.ballX;
+    dbg = dbg + ",";
+    dbg = dbg + game.ballY;
+    dbg = dbg + ") vx=";
+    dbg = dbg + game.vxDir;
+    dbg = dbg + " vyDir=";
+    dbg = dbg + game.vyDir;
+    dbg = dbg + " vyMag=";
+    dbg = dbg + game.vyMag;
+    dbg = dbg + " lY=";
+    dbg = dbg + game.leftY;
+    dbg = dbg + " rY=";
+    dbg = dbg + game.rightY;
+    dbg = dbg + "        ";
+    process.stdout.write(dbg);
   };
   render (game) {
     let y = 0;
@@ -262,8 +297,15 @@ class Terminal  {
     let status = "  P1 " + game.leftScore;
     status = status + "   -   CPU ";
     status = status + game.rightScore;
-    status = status + "     [W/S move  Q quit]      ";
+    status = status + "     [W/S move  D debug  Q quit]      ";
     process.stdout.write(status);
+    if ( this.showDebug ) {
+      this.renderDebug(game);
+    } else {
+      const hudY = game.H + 2;
+      process.stdout.write(`\x1b[${hudY};${1}H`);
+      process.stdout.write("                                                            ");
+    }
   };
   async run (game, btns) {
     this.init();

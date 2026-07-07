@@ -31,8 +31,11 @@ targets. On the Pi the `Terminal` backend is replaced by the SDL2 backend
 ```bash
 npm install
 npm run engine:compile     # pong.rgr -> pong.js
-npm run engine:run         # play in your terminal (W/S to move, Q to quit)
+npm run engine:run         # play in your terminal
 ```
+
+Controls: **W/S** move, **D** toggle the debug HUD (live ball/paddle state
+overlaid on the frame), **Q** quit.
 
 ## Which target for the Raspberry Pi? (C++, Go, Rust, or LLVM)
 
@@ -88,6 +91,23 @@ npm run engine:compile:rust        # -> pong.rs
 rustc gallery/game_engine/pong.rs -o /tmp/pong_rs
 /tmp/pong_rs
 ```
+
+## Display, rendering & debugging
+
+See [`PLAN_GAME_ENGINE.md` §6b](./PLAN_GAME_ENGINE.md) for the full treatment.
+In short:
+
+* **Display over HDMI:** the terminal backend already shows on the TV via the
+  Pi console at boot (zero deps); the target path is **SDL2 via KMS/DRM**
+  (direct HDMI framebuffer, no desktop). The renderer owns resolution scaling,
+  TV overscan safe-area, and vsync — game logic stays in a fixed logical grid.
+* **Rendering:** fixed logical timestep + double buffering; world drawn first,
+  then overlays (score, HUD).
+* **Debugging:** because `Pong.step()` is pure and integer-deterministic, you
+  debug gameplay **on the Mac** (Node debugger / unit tests). Record the
+  per-frame `Buttons` stream on the Pi and **replay** it on the Mac to
+  reproduce a bug exactly. An on-screen **debug HUD** (press `D`) shows live
+  state on the TV itself when no shell is attached.
 
 ## Files
 
