@@ -21,25 +21,8 @@ class LpcPalette {
         return ((dr + dg) + db)
     }
 
-    ; TODO: accept hex palette arrays from catalog; map per-pixel with tolerance.
-    fn recolorCopy:ImageBuffer (src:ImageBuffer) {
-        def out:ImageBuffer (new ImageBuffer())
-        out.init(src.width src.height)
-        out.fill(0 0 0 0)
-        def y 0
-        while (y < src.height) {
-            def x 0
-            while (x < src.width) {
-                def c:Color (src.getPixel(x y))
-                out.setPixel(x y c)
-                x = (x + 1)
-            }
-            y = (y + 1)
-        }
-        return out
-    }
-
+    ; Identity until catalog palette arrays are wired; skip full-buffer copy.
     fn apply:ImageBuffer (src:ImageBuffer itemId:string) {
-        return (this.recolorCopy(src))
+        return src
     }
 }

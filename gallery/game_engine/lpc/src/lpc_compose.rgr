@@ -5,6 +5,7 @@
 Import "lpc_anim.rgr"
 Import "lpc_blit.rgr"
 Import "lpc_draw.rgr"
+Import "lpc_layer_cache.rgr"
 Import "lpc_palette.rgr"
 Import "png_decoder.rgr"
 Import "../../../pdf_writer/src/jpeg/ImageBuffer.rgr"
@@ -41,15 +42,22 @@ class LpcCompositor {
             return result
         }
 
+        def layerCache:LpcLayerCache (LpcLayerCache.__singleton())
+        layerCache.clearIfRootChanged(spritesheetsRoot)
+
         def i 0
         while (i < (array_length calls)) {
             def call:LpcDrawCall (itemAt calls i)
-            def img:ImageBuffer (this.png.decodeRelative(spritesheetsRoot call.spritePath))
+            def img:ImageBuffer (layerCache.getOrDecode(this.png spritesheetsRoot call.spritePath))
             if ((img.width <= 1) && (img.height <= 1)) {
                 print ("[lpc_compose] failed: " + call.spritePath)
             } {
                 def tinted:ImageBuffer (this.palette.apply(img call.itemId))
-                this.blit.blitImage(result.buffer tinted 0 call.animY)
+                if (i == 0) {
+                    this.blit.blitFirstLayer(result.buffer tinted 0 call.animY)
+                } {
+                    this.blit.blitImage(result.buffer tinted 0 call.animY)
+                }
             }
             i = (i + 1)
         }

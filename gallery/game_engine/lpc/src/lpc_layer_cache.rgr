@@ -1,0 +1,61 @@
+; ==============================================================================
+; lpc_layer_cache — decoded layer RGBA buffers for the current LPC session.
+; ==============================================================================
+; Singleton: same process reuses ImageBuffers per (spritesheetsRoot + path).
+; Demo male walk pack has 5 PNG layers; each is decoded at most once per root.
+
+Import "png_decoder.rgr"
+
+class LpcLayerCache @singleton(true) {
+    def keys:[string]
+    def images:[ImageBuffer]
+    def spritesheetsRoot:string ""
+
+    fn makeKey:string (root:string relPath:string) {
+        return (root + relPath)
+    }
+
+    fn findIndex:int (key:string) {
+        def i 0
+        while (i < (array_length keys)) {
+            if ((itemAt keys i) == key) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn clear:void () {
+        def emptyKeys:[string]
+        def emptyImages:[ImageBuffer]
+        keys = emptyKeys
+        images = emptyImages
+    }
+
+    fn clearIfRootChanged:void (root:string) {
+        if ((strlen spritesheetsRoot) > 0) {
+            if (root != spritesheetsRoot) {
+                this.clear()
+            }
+        }
+        spritesheetsRoot = root
+    }
+
+    fn getOrDecode:ImageBuffer (decoder:PNGDecoder root:string relPath:string) {
+        this.clearIfRootChanged(root)
+        def key:string (this.makeKey(root relPath))
+        def idx:int (this.findIndex(key))
+        if (idx >= 0) {
+            return (itemAt images idx)
+        }
+        def img:ImageBuffer (decoder.decodeRelative(root relPath))
+        push keys key
+        push images img
+        return img
+    }
+
+    fn cachedCount:int () {
+        return (array_length keys)
+    }
+}

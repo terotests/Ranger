@@ -49,13 +49,7 @@ class RasterBuffer {
         height = h
         def size:int (w * h * 4)
         pixels = (buffer_alloc size)
-        
-        ; Initialize to transparent black
-        def i:int 0
-        while (i < size) {
-            buffer_set pixels i 0
-            i = i + 1
-        }
+        buffer_fill pixels 0 0 size
     }
     
     ; Create and fill with a color
@@ -223,11 +217,7 @@ class RasterBuffer {
         def copy:RasterBuffer (new RasterBuffer())
         copy.create(width height)
         def size:int (width * height * 4)
-        def i:int 0
-        while (i < size) {
-            buffer_set copy.pixels i (buffer_get pixels i)
-            i = i + 1
-        }
+        buffer_copy copy.pixels 0 pixels 0 size
         return copy
     }
     

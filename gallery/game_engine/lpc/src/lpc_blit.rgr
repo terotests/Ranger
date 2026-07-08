@@ -1,32 +1,23 @@
 ; ==============================================================================
-; lpc_blit — alpha blit ImageBuffer → RasterBuffer (draft).
+; lpc_blit — alpha blit ImageBuffer → RasterBuffer (fast buffer path).
 ; ==============================================================================
 
 Import "../../../pdf_writer/src/jpeg/ImageBuffer.rgr"
 Import "../../../pdf_writer/src/raster/RasterBuffer.rgr"
-Import "../../../pdf_writer/src/raster/RasterCompositing.rgr"
+Import "../../rgba_fast_blit.rgr"
 
 class LpcBlit {
-    def compositor:RasterCompositor (new RasterCompositor())
+    def fast:RgbaFastBlit (new RgbaFastBlit())
 
-    ; Blit source rectangle to dest position with alpha.
     fn blit:void (dest:RasterBuffer src:ImageBuffer sx:int sy:int sw:int sh:int dx:int dy:int) {
-        def y 0
-        while (y < sh) {
-            def x 0
-            while (x < sw) {
-                def c:Color (src.getPixel((sx + x) (sy + y)))
-                if (c.a > 0) {
-                    this.compositor.blendSourceOver(dest (dx + x) (dy + y) c.r c.g c.b c.a)
-                }
-                x = (x + 1)
-            }
-            y = (y + 1)
-        }
+        this.fast.blitRect(dest src sx sy sw sh dx dy)
     }
 
-    ; Full image at offset.
     fn blitImage:void (dest:RasterBuffer src:ImageBuffer dx:int dy:int) {
-        this.blit(dest src 0 0 src.width src.height dx dy)
+        this.fast.blitImage(dest src dx dy)
+    }
+
+    fn blitFirstLayer:void (dest:RasterBuffer src:ImageBuffer dx:int dy:int) {
+        this.fast.blitFirstLayer(dest src dx dy)
     }
 }
