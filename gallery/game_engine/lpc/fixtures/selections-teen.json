@@ -1,0 +1,51 @@
+{
+  "version": 2,
+  "bodyType": "teen",
+  "selections": {
+    "body": {
+      "itemId": "body",
+      "variant": "",
+      "recolor": "amber",
+      "name": "Body (amber)"
+    },
+    "head": {
+      "itemId": "heads_human_male",
+      "variant": "",
+      "recolor": "amber",
+      "name": "Human Male teen (amber)"
+    },
+    "hair": {
+      "itemId": "hair_messy",
+      "variant": "black",
+      "recolor": "",
+      "name": "Messy (black)"
+    },
+    "torso": {
+      "itemId": "torso_shirt_short",
+      "variant": "green",
+      "recolor": "",
+      "name": "Short shirt (green)"
+    },
+    "legs": {
+      "itemId": "legs_shorts",
+      "variant": "",
+      "recolor": "denim",
+      "name": "Shorts (denim)"
+    },
+    "feet": {
+      "itemId": "feet_sandals",
+      "variant": "brown",
+      "recolor": "",
+      "name": "Sandals (brown)"
+    }
+  },
+  "selectedAnimation": "walk",
+  "matchBodyColorEnabled": true,
+  "enabledLicenses": {
+    "CC0": true,
+    "CC-BY": true,
+    "OGA-BY": true,
+    "GPL": false,
+    "CC-BY-SA": false
+  }
+}

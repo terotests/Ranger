@@ -1,0 +1,31 @@
+; ==============================================================================
+; lpc_config — paths to LPC spritesheets (embedded pack or external checkout).
+; ==============================================================================
+
+class LpcConfig {
+    def lpcRoot:string ""
+    def spritesheetsDir:string ""
+
+    ; Full Universal-LPC checkout (dev).
+    fn defaultLpcRoot:string () {
+        return "../Universal-LPC-Spritesheet-Character-Generator"
+    }
+
+    ; Minimal pack shipped in Ranger repo (~28 KB, male walk demo).
+    fn embeddedPackRoot:string () {
+        return "gallery/game_engine/lpc/pack/demo-male-walk"
+    }
+
+    fn setLpcRoot:void (root:string) {
+        lpcRoot = root
+        spritesheetsDir = (root + "/spritesheets/")
+    }
+
+  fn applyDefault:void () {
+        this.setLpcRoot((this.defaultLpcRoot()))
+    }
+
+    fn applyEmbeddedPack:void () {
+        this.setLpcRoot((this.embeddedPackRoot()))
+    }
+}

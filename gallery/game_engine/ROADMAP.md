@@ -124,7 +124,7 @@ backend. Kaikki muu on portable.
 
 - Scene graph
 - Fysiikkamoottori
-- Asset pipeline (kuvat, äänet, kartat)
+- Asset pipeline (kuvat, äänet, kartat) — LPC bake suunniteltu: [`LPC_HEADLESS_SPRITESHEET.md`](./LPC_HEADLESS_SPRITESHEET.md)
 
 Nämä ovat tulevia kerroksia tai pelikohtaisia ratkaisuja, ei base-moottorin osia.
 
@@ -175,6 +175,7 @@ Nämä ovat tulevia kerroksia tai pelikohtaisia ratkaisuja, ei base-moottorin os
 | 1.3 | SoftCanvas optimointi: span-fill / rivikohtainen täyttö | `framebuffer.rgr` | 🟡 Keskitaso |
 | 1.4 | Invaders-refaktorointi: 1 sprite/alien (ei pixel-per-rect) | `invaders.game.tsx` | 🟡 Keskitaso |
 | 1.5 | Dirty rectangle -seuranta (backend-optimointi) | `framebuffer.rgr`, backends | 🟢 Matala |
+| 1.6 | LPC headless spritesheet bake + `kind: "sheet"` | [`lpc/`](./lpc/), `game_sprite.rgr`, [`LPC_HEADLESS_SPRITESHEET.md`](./LPC_HEADLESS_SPRITESHEET.md) | 🟡 Keskitaso |
 
 **Onnistumiskriteerit:**
 

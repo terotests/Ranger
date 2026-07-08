@@ -1,0 +1,45 @@
+; ==============================================================================
+; lpc_palette — CPU palette recolor (draft; port of LPC palette-recolor.ts).
+; ==============================================================================
+
+Import "../../../pdf_writer/src/jpeg/ImageBuffer.rgr"
+
+class LpcPalette {
+    fn clamp255:int (n:int) {
+        if (n < 0) { return 0 }
+        if (n > 255) { return 255 }
+        return n
+    }
+
+    fn colorDist:int (r1:int g1:int b1:int r2:int g2:int b2:int) {
+        def dr (r1 - r2)
+        def dg (g1 - g2)
+        def db (b1 - b2)
+        if (dr < 0) { dr = (0 - dr) }
+        if (dg < 0) { dg = (0 - dg) }
+        if (db < 0) { db = (0 - db) }
+        return ((dr + dg) + db)
+    }
+
+    ; TODO: accept hex palette arrays from catalog; map per-pixel with tolerance.
+    fn recolorCopy:ImageBuffer (src:ImageBuffer) {
+        def out:ImageBuffer (new ImageBuffer())
+        out.init(src.width src.height)
+        out.fill(0 0 0 0)
+        def y 0
+        while (y < src.height) {
+            def x 0
+            while (x < src.width) {
+                def c:Color (src.getPixel(x y))
+                out.setPixel(x y c)
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        return out
+    }
+
+    fn apply:ImageBuffer (src:ImageBuffer itemId:string) {
+        return (this.recolorCopy(src))
+    }
+}

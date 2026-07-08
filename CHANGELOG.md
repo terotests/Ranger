@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **LPC spritesheet compositor (standalone MVP)** — Ranger-native `gallery/game_engine/lpc/` (`png_decoder.rgr`, layer blit, male walk demo); embedded `pack/demo-male-walk` (~28 KB); `npm run engine:lpc:build` / `engine:lpc:run`; design doc [`LPC_HEADLESS_SPRITESHEET.md`](./gallery/game_engine/LPC_HEADLESS_SPRITESHEET.md)
+
+- **JPEG background loading for scripted games** — `GameImageLoader` + `GameRunner` asset queue (`resources()`, `backgroundImage()`, `onLoading()`); `splash_demo.game.tsx` smoke test; `game.d.ts` `ResourceDef` / `LoadingProps` types
+
 - **In-process TS hot reload (Path A)** — `TSAstPatcher` (`ts_ast_patch.rgr`), `ComponentEngine.patchScript()`, `GameRunner` runtime options (`setHotReload`, `trackScriptFile`, `maybeHotReload`); `game_sdl --hot-reload` / `--no-hot-reload`; default on for interactive SDL, off for `maxFrames` smoke runs
 
 - **SDL + native compiled games (Path B)** — `game_sdl_native_host.rgr`, `invaders_native_sdl_runner.rgr`, `build-game-sdl-native.sh`; `npm run engine:game-sdl-native:run:invaders` runs emitter output in an SDL window without `ComponentEngine`

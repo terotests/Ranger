@@ -1,0 +1,7 @@
+{
+  "lpcRoot": "../Universal-LPC-Spritesheet-Character-Generator",
+  "outputDir": "output",
+  "fixturesDir": "fixtures",
+  "packDir": "pack",
+  "_comment": "CLI käyttää LPC_ROOT-ympäristömuuttujaa tai build-lpc.sh oletusta (Ranger/../Universal-LPC-...)"
+}

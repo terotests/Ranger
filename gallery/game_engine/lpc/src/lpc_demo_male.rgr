@@ -1,0 +1,23 @@
+; ==============================================================================
+; lpc_demo_male — hardcoded male walk layers for first animated character MVP.
+; ==============================================================================
+
+class LpcDemoMale {
+    fn addCall:void (list:[LpcDrawCall] path:string z:int) {
+        def call:LpcDrawCall (new LpcDrawCall())
+        call.spritePath = path
+        call.zPos = z
+        call.animY = 0
+        push list call
+    }
+
+    fn buildCalls:[LpcDrawCall] () {
+        def list:[LpcDrawCall]
+        this.addCall(list "body/bodies/male/walk.png" 10)
+        this.addCall(list "legs/pants/male/walk.png" 20)
+        this.addCall(list "feet/boots/basic/male/walk.png" 25)
+        this.addCall(list "head/heads/human/male/walk.png" 100)
+        this.addCall(list "hair/natural/adult/walk.png" 120)
+        return list
+    }
+}

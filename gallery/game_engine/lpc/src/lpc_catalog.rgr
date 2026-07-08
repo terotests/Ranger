@@ -1,0 +1,23 @@
+; ==============================================================================
+; lpc_catalog — read curated pack metadata (draft).
+; ==============================================================================
+
+Import "../../../zip/ZipReader.rgr"
+
+class LpcCatalog {
+    def packPath:string ""
+    def loaded:boolean false
+
+    fn loadFromZip:boolean (dir:string fileName:string) {
+        def z:ZipReader (new ZipReader())
+        def ok:boolean (z.open(dir fileName))
+        if (ok == false) {
+            print "[lpc_catalog] failed to open pack"
+            return false
+        }
+        packPath = (dir + fileName)
+        loaded = true
+        print "[lpc_catalog] TODO: parse meta/items-lite.json from zip"
+        return true
+    }
+}

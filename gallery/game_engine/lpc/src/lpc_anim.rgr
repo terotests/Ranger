@@ -1,0 +1,34 @@
+; ==============================================================================
+; lpc_anim — LPC universal sheet layout constants (from LPC constants.ts).
+; ==============================================================================
+
+class LpcAnim {
+    def frameSize:int 64
+    ; Per-animation walk.png strips: 9 frames × 64px
+    def framesPerRow:int 9
+    def sheetWidth:int 576
+    def sheetHeight:int 3456
+
+    ; walk animation: row index 8, 4 directions, 9 frames in cycle
+    def walkRow:int 8
+    def walkDirections:int 4
+    def walkFrameCount:int 9
+
+    fn walkStripWidth:int () {
+        return (framesPerRow * frameSize)
+    }
+
+    fn walkStripHeight:int () {
+        return (walkDirections * frameSize)
+    }
+
+    fn animationYOffset:int (animName:string) {
+        if (animName == "spellcast") { return 0 }
+        if (animName == "thrust") { return (4 * frameSize) }
+        if (animName == "walk") { return (8 * frameSize) }
+        if (animName == "slash") { return (12 * frameSize) }
+        if (animName == "shoot") { return (16 * frameSize) }
+        if (animName == "hurt") { return (20 * frameSize) }
+        return 0
+    }
+}

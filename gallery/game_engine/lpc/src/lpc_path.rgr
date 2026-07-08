@@ -1,0 +1,23 @@
+; ==============================================================================
+; lpc_path — resolve spritesheets/... path from catalog item (draft).
+; ==============================================================================
+; Full port: LPC sources/state/path.ts (variantToFilename, bodyType layer paths).
+
+class LpcPath {
+    fn variantFilename:string (variant:string) {
+        if ((strlen variant) == 0) {
+            return ".png"
+        }
+        return ("_" + variant + ".png")
+    }
+
+    ; Example: basePath "body/bodies/male/", variant "" → file stem walk.png layout
+    fn layerPath:string (spritesheetsRoot:string basePath:string variant:string animation:string) {
+        def vfile:string (this.variantFilename(variant))
+        def stem:string animation
+        if ((strlen stem) == 0) {
+            stem = "walk"
+        }
+        return (spritesheetsRoot + basePath + stem + vfile)
+    }
+}
