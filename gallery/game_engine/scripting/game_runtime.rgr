@@ -3,17 +3,15 @@
 ; ==============================================================================
 ;
 ; Bridges a TypeScript game script (evaluated by ComponentEngine) to the RGBA
-; SoftCanvas. The model matches the request:
+; SoftCanvas. Supports two modes:
 ;
-;   * sprites() is evaluated ONCE and creates retained GameEntity objects
-;     (the sprite definition). Their JSX/shape is not rebuilt every frame.
-;   * each frame gets the absolute time + elapsed dt and calls update(props);
-;     the returned state carries entity positions, which the runner simply
-;     APPLIES to the existing entities (move objects without re-rendering).
-;   * scores are drawn as text via a tiny built-in digit font.
+;   * Single-screen (legacy): sprites() once, state.entities each frame.
+;   * Multi-screen: named screens like HTML pages. Each screen has its own
+;     retained sprites (lazy-loaded on first visit) and sub-state in
+;     state.screens[name]. Switching screen freezes the old one in memory.
 ;
-; Runs on the ES6/Node target today (where the eval + raster stack is proven);
-; the same SoftCanvas buffer feeds the SDL/HDMI present path (see pong_sdl.rgr).
+;   * update() returns the next state; state.screen selects the active page.
+;   * hud() / render JSX is composited on top (game_hud.rgr).
 ; ==============================================================================
 
 Import "../framebuffer.rgr"
@@ -25,6 +23,7 @@ Import "./game_hud.rgr"
 ; A retained on-screen object. Created once from sprites(); only x/y change.
 class GameEntity {
     def id:string ""
+    def screen:string ""        ; owning screen name (empty = legacy single-screen)
     def kind:string "rect"      ; "rect" | "circle"
     def x:int 0
     def y:int 0
@@ -44,6 +43,7 @@ class GameRunner {
     def canvas:SoftCanvas (new SoftCanvas)
     def hudBlitter:GameHudBlitter (new GameHudBlitter)
     def entities:[GameEntity]
+    def screenSpritesLoaded:[string]
     def state:EvalValue (EvalValue.null())
     def pw:int 0
     def ph:int 0
@@ -52,6 +52,7 @@ class GameRunner {
     def fpsShown:int 0
     def timeMs:int 0
     def hudEnabled:boolean false
+    def currentScreen:string ""
 
     fn init:void (w:int h:int) {
         engine.quiet = true
@@ -88,6 +89,10 @@ class GameRunner {
         return (canvas.raw())
     }
 
+    fn getCurrentScreen:string () {
+        return currentScreen
+    }
+
     ; --- entity lookup (for tests / host queries) ---
     fn entityX:int (id:string) {
         def i 0
@@ -120,9 +125,66 @@ class GameRunner {
         fpsShown = fps
     }
 
-    ; Build retained entities from the script's sprites() (called ONCE).
-    fn setupScene:void () {
-        def sprites:EvalValue (engine.callFunction("sprites" (EvalValue.null())))
+    ; True when initState/update use { screen, screens: { ... } }.
+    fn multiScreenMode:boolean () {
+        def screens:EvalValue (state.getMember("screens"))
+        return (screens.isObject())
+    }
+
+    fn memString:string (obj:EvalValue key:string dflt:string) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isNull()) {
+            return dflt
+        }
+        if (v.isString()) {
+            return v.stringValue
+        }
+        return dflt
+    }
+
+    fn currentScreenName:string () {
+        if (false == (this.multiScreenMode())) {
+            return ""
+        }
+        return (this.memString(state "screen" ""))
+    }
+
+    ; Sub-state for the active screen, or root state in legacy mode.
+    fn activeState:EvalValue () {
+        if (false == (this.multiScreenMode())) {
+            return state
+        }
+        def name:string (this.currentScreenName())
+        def screens:EvalValue (state.getMember("screens"))
+        def sub:EvalValue (screens.getMember(name))
+        if (sub.isNull()) {
+            return state
+        }
+        return sub
+    }
+
+    fn screenHasSprites:boolean (name:string) {
+        def i 0
+        while (i < (array_length screenSpritesLoaded)) {
+            if ((itemAt screenSpritesLoaded i) == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; Lazy-load retained sprites for a named screen (first visit only).
+    fn loadScreenSprites:void (name:string) {
+        if (this.screenHasSprites(name)) {
+            return
+        }
+        def k:[string]
+        def v:[EvalValue]
+        push k "screen"
+        push v (EvalValue.string(name))
+        def props:EvalValue (EvalValue.object(k v))
+        def sprites:EvalValue (engine.callFunction("sprites" props))
         if (sprites.isArray()) {
             def arr:[EvalValue] sprites.arrayValue
             def i 0
@@ -132,6 +194,7 @@ class GameRunner {
                 def idv:EvalValue (d.getMember("id"))
                 def kindv:EvalValue (d.getMember("kind"))
                 e.id = idv.stringValue
+                e.screen = name
                 e.kind = kindv.stringValue
                 e.w = (this.memInt(d "w" 8))
                 e.h = (this.memInt(d "h" 8))
@@ -143,11 +206,46 @@ class GameRunner {
                 i = (i + 1)
             }
         }
+        push screenSpritesLoaded name
+    }
+
+    fn onScreenChanged:void (prev:string next:string) {
+        currentScreen = next
+        this.loadScreenSprites(next)
+    }
+
+    ; Build retained entities from sprites() and init state.
+    fn setupScene:void () {
         state = (engine.callFunction("initState" (EvalValue.null())))
+        if (this.multiScreenMode()) {
+            currentScreen = (this.currentScreenName())
+            this.loadScreenSprites(currentScreen)
+        } {
+            def sprites:EvalValue (engine.callFunction("sprites" (EvalValue.null())))
+            if (sprites.isArray()) {
+                def arr:[EvalValue] sprites.arrayValue
+                def i 0
+                while (i < (array_length arr)) {
+                    def d:EvalValue (itemAt arr i)
+                    def e:GameEntity (new GameEntity)
+                    def idv:EvalValue (d.getMember("id"))
+                    def kindv:EvalValue (d.getMember("kind"))
+                    e.id = idv.stringValue
+                    e.kind = kindv.stringValue
+                    e.w = (this.memInt(d "w" 8))
+                    e.h = (this.memInt(d "h" 8))
+                    e.rad = (this.memInt(d "rad" 4))
+                    e.cr = (this.memInt(d "r" 255))
+                    e.cg = (this.memInt(d "g" 255))
+                    e.cb = (this.memInt(d "b" 255))
+                    push entities e
+                    i = (i + 1)
+                }
+            }
+        }
         this.syncFromState()
     }
 
-    ; Read an integer member with a default when absent.
     fn memInt:int (obj:EvalValue key:string dflt:int) {
         def v:EvalValue (obj.getMember(key))
         if (v.isNull()) {
@@ -156,12 +254,19 @@ class GameRunner {
         return (to_int v.numberValue)
     }
 
-    ; Apply the positions/scores from `state` onto the retained entities.
     fn syncFromState:void () {
-        def ent:EvalValue (state.getMember("entities"))
+        def active:EvalValue (this.activeState())
+        def ent:EvalValue (active.getMember("entities"))
+        def cur:string (this.currentScreenName())
         def i 0
         while (i < (array_length entities)) {
             def e:GameEntity (itemAt entities i)
+            if (this.multiScreenMode()) {
+                if (e.screen != cur) {
+                    i = (i + 1)
+                    continue
+                }
+            }
             def pos:EvalValue (ent.getMember(e.id))
             if (false == (pos.isNull())) {
                 def nx:int (this.memInt(pos "x" e.x))
@@ -191,12 +296,12 @@ class GameRunner {
             }
             i = (i + 1)
         }
-        score1 = (this.memInt(state "score1" score1))
-        score2 = (this.memInt(state "score2" score2))
+        score1 = (this.memInt(active "score1" (this.memInt(state "score1" score1))))
+        score2 = (this.memInt(active "score2" (this.memInt(state "score2" score2))))
     }
 
-    ; Advance one frame: pass time + dt + input to update(), apply the result.
-    fn frame:void (dtMs:int up:boolean down:boolean left:boolean right:boolean) {
+    fn frame:void (dtMs:int up:boolean down:boolean left:boolean right:boolean action:boolean) {
+        def prevScreen:string (this.currentScreenName())
         timeMs = (timeMs + dtMs)
         def k:[string]
         def v:[EvalValue]
@@ -212,20 +317,28 @@ class GameRunner {
         push v (EvalValue.boolean(left))
         push k "right"
         push v (EvalValue.boolean(right))
+        push k "action"
+        push v (EvalValue.boolean(action))
         push k "state"
         push v state
         def props:EvalValue (EvalValue.object(k v))
         state = (engine.callFunction("update" props))
+        def nextScreen:string (this.currentScreenName())
+        if (nextScreen != prevScreen) {
+            this.onScreenChanged(prevScreen nextScreen)
+        }
         this.syncFromState()
     }
 
-    ; Draw the current scene into the RGBA buffer.
     fn draw:void () {
         canvas.clear(12 16 32)
-        ; optional center net (Pong layout; skip for other games)
-        def layout:EvalValue (state.getMember("layout"))
+        def active:EvalValue (this.activeState())
+        def layout:EvalValue (active.getMember("layout"))
         def showNet true
         if (layout.stringValue == "invaders") {
+            showNet = false
+        }
+        if (layout.stringValue == "breakout") {
             showNet = false
         }
         if (showNet) {
@@ -236,10 +349,16 @@ class GameRunner {
                 ny = (ny + 12)
             }
         }
-        ; retained entities (positioned by state, sprite defined once)
+        def cur:string (this.currentScreenName())
         def i 0
         while (i < (array_length entities)) {
             def e:GameEntity (itemAt entities i)
+            if (this.multiScreenMode()) {
+                if (e.screen != cur) {
+                    i = (i + 1)
+                    continue
+                }
+            }
             if (e.visible) {
                 if (e.kind == "circle") {
                     canvas.fillCircle(e.x e.y e.rad e.cr e.cg e.cb)
@@ -249,7 +368,6 @@ class GameRunner {
             }
             i = (i + 1)
         }
-        ; scores as text (mini font) unless a JSX hud() handles UI
         if (false == hudEnabled) {
             def netX (this.half(pw))
             if (layout.stringValue == "invaders") {
@@ -269,12 +387,13 @@ class GameRunner {
         }
     }
 
-    ; Composite the script's JSX hud() tree (View/Label) on top of the world.
     fn drawHud:void () {
         def k:[string]
         def v:[EvalValue]
         push k "state"
         push v state
+        push k "screen"
+        push v (EvalValue.string(currentScreen))
         push k "time"
         push v (EvalValue.fromInt(timeMs))
         push k "dt"
@@ -285,7 +404,6 @@ class GameRunner {
         hudBlitter.drawTree(root pw ph)
     }
 
-    ; --- tiny 3x5 bitmap digit font -----------------------------------------
     fn digitBits:string (d:int) {
         if (d == 0) { return "111101101101111" }
         if (d == 1) { return "010110010010111" }
@@ -318,7 +436,6 @@ class GameRunner {
     }
 
     fn drawNumber:void (x:int y:int scale:int n:int r:int g:int b:int) {
-        ; collect digits (least-significant first)
         def ds:[int]
         def m n
         if (m <= 0) {

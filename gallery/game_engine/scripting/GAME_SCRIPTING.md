@@ -131,9 +131,9 @@ Space Invaders variant: [`invaders.game.tsx`](./invaders.game.tsx) via
 [`invaders_runner_demo.rgr`](./invaders_runner_demo.rgr) (same runner API; many
 retained pixel sprites).
 
-Breakout + JSX HUD: [`breakout.game.tsx`](./breakout.game.tsx) via
-[`breakout_runner_demo.rgr`](./breakout_runner_demo.rgr) — retained bricks/paddle/ball
-with a `hud()` JSX overlay (see [`GAME_ENGINE_DESIGN.md`](./GAME_ENGINE_DESIGN.md)).
+Breakout + JSX HUD + screens: [`breakout.game.tsx`](./breakout.game.tsx) via
+[`breakout_runner_demo.rgr`](./breakout_runner_demo.rgr) — `play` and `gameOver`
+screens with lazy per-screen sprites (see [`GAME_ENGINE_DESIGN.md`](./GAME_ENGINE_DESIGN.md)).
 
 Engine quirks and fixes: [`TSX_ENGINE_ISSUES.md`](./TSX_ENGINE_ISSUES.md).
 

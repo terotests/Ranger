@@ -204,3 +204,52 @@ node ./tests/.output/breakout_runner_demo.js 420
 
 **Sprites kerran alussa, sijainnit reducerilla joka framella, JSX vain HUD:iin —
 älä koskaan rakenna satoja rect-spritejä uudelleen joka frame.**
+
+---
+
+## Nimetty screen-malli (HTML-sivujen kaltainen)
+
+Peli voi koostua useista **nimetyistä screeneistä** (`play`, `gameOver`, `menu`, …).
+Vaihtaessa screeniä edellinen jää muistiin jäädytettynä; uudelle screenille
+alustetaan omat spritet ja tila.
+
+### Rakenne
+
+```tsx
+function screens() {
+  return ["play", "gameOver"];
+}
+
+function initState() {
+  return {
+    screen: "play",
+    screens: { play: initPlayState() }
+  };
+}
+
+function sprites(props) {
+  if (props.screen == "play") { return [ /* paddle, ball, bricks */ ]; }
+  return [];
+}
+
+function update(props) {
+  if (props.state.screen == "gameOver" && props.action) {
+    return { screen: "play", screens: { gameOver: ..., play: initPlayState() } };
+  }
+  // play -> gameOver when lives == 0 or all bricks gone
+}
+```
+
+### Engine (`game_runtime.rgr`)
+
+| Toiminto | Kuvaus |
+|----------|--------|
+| `state.screen` | Aktiivinen screen-nimi |
+| `state.screens[name]` | Kunkin screenin oma tila |
+| `sprites({ screen })` | Lazy sprite load ensimmäisellä vierailulla |
+| `syncFromState()` / `draw()` | Vain aktiivisen screenin entityt |
+| `props.action` | Space (SDL bit 4) |
+
+Taaksepäin yhteensopiva: ilman `state.screens` toimii Pong/Invaders.
+
+Esimerkki: [`breakout.game.tsx`](./breakout.game.tsx).

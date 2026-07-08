@@ -1,18 +1,17 @@
 /// <reference path="./game.d.ts" />
 //
-// Breakout - third GameRunner example with JSX HUD.
+// Breakout - multi-screen GameRunner example (play + gameOver).
 //
-// World layer (retained-mode, fast):
-//   * sprites() runs ONCE - paddle, ball and brick rects are created at startup.
-//   * update() only returns new positions; the runner moves existing entities.
+// Screen model (like HTML pages):
+//   * initState() returns { screen, screens: { play: {...} } }
+//   * sprites({ screen }) defines retained objects per screen (lazy on first visit)
+//   * update() returns next state; changing screen freezes the old one in memory
+//   * hud() renders JSX per active screen
 //
-// UI layer (declarative JSX):
-//   * hud() returns a View/Label tree each frame; GameRunner composites it on
-//     top via callRender + EVGLayout (see game_hud.rgr).
+// Controls: Left/Right or A/D move paddle. Space = action (restart on game over).
 //
 // Run:
 //   npm run engine:game-sdl:run -- gallery/game_engine/scripting/breakout.game.tsx
-//   SDL_VIDEODRIVER=dummy tmp/game-sdl/game_sdl gallery/game_engine/scripting/breakout.game.tsx 300
 
 const COLS = 10;
 const ROWS = 5;
@@ -30,6 +29,10 @@ const BRICK_COLORS = [
   { r: 120, g: 220, b: 140 },
   { r: 90, g: 170, b: 255 }
 ];
+
+function screens() {
+  return ["play", "gameOver"];
+}
 
 function brickId(i) {
   return ("b" + i);
@@ -73,11 +76,14 @@ function buildBrickSprites() {
   return list;
 }
 
-function sprites() {
-  const list = buildBrickSprites();
-  list.push({ id: "paddle", kind: "rect", w: 64, h: 10, r: 120, g: 220, b: 255 });
-  list.push({ id: "ball", kind: "circle", rad: 5, r: 245, g: 245, b: 130 });
-  return list;
+function sprites(props) {
+  if (props.screen == "play") {
+    const list = buildBrickSprites();
+    list.push({ id: "paddle", kind: "rect", w: 64, h: 10, r: 120, g: 220, b: 255 });
+    list.push({ id: "ball", kind: "circle", rad: 5, r: 245, g: 245, b: 130 });
+    return list;
+  }
+  return [];
 }
 
 function makeAlive() {
@@ -102,7 +108,7 @@ function initEntities() {
   return entities;
 }
 
-function initState() {
+function initPlayState() {
   return {
     layout: "breakout",
     entities: initEntities(),
@@ -115,8 +121,17 @@ function initState() {
     alive: makeAlive(),
     score: 0,
     lives: 3,
-    gameOver: 0,
-    won: 0
+    score1: 0,
+    score2: 3
+  };
+}
+
+function initState() {
+  return {
+    screen: "play",
+    screens: {
+      play: initPlayState()
+    }
   };
 }
 
@@ -157,24 +172,33 @@ function hitBrick(bx, by, i) {
   return 1;
 }
 
-function update(props) {
-  const s = props.state;
-  if (s.gameOver == 1) {
-    return s;
-  }
+function goToGameOver(s, play, won) {
+  return {
+    screen: "gameOver",
+    screens: {
+      play: play,
+      gameOver: {
+        layout: "breakout",
+        score: play.score,
+        won: won,
+        lives: play.lives
+      }
+    }
+  };
+}
 
+function updatePlay(s, props) {
+  const play = s.screens.play;
   const dt = props.dt;
-  let px = s.px;
-  let py = s.py;
-  let bx = s.bx;
-  let by = s.by;
-  let vx = s.vx;
-  let vy = s.vy;
-  let score = s.score;
-  let lives = s.lives;
-  let gameOver = s.gameOver;
-  let won = s.won;
-  const alive = s.alive;
+  let px = play.px;
+  let py = play.py;
+  let bx = play.bx;
+  let by = play.by;
+  let vx = play.vx;
+  let vy = play.vy;
+  let score = play.score;
+  let lives = play.lives;
+  const alive = play.alive;
 
   if (props.left || props.up) { px = px - dt * 0.34; }
   if (props.right || props.down) { px = px + dt * 0.34; }
@@ -207,8 +231,22 @@ function update(props) {
     vx = reset.vx;
     vy = reset.vy;
     if (lives <= 0) {
-      lives = 0;
-      gameOver = 1;
+      const frozen = {
+        layout: "breakout",
+        entities: play.entities,
+        px: px,
+        py: py,
+        bx: bx,
+        by: by,
+        vx: vx,
+        vy: vy,
+        alive: alive,
+        score: score,
+        lives: 0,
+        score1: score,
+        score2: 0
+      };
+      return goToGameOver(s, frozen, 0);
     }
   }
 
@@ -225,8 +263,22 @@ function update(props) {
   }
 
   if (countAlive(alive) == 0) {
-    won = 1;
-    gameOver = 1;
+    const frozen = {
+      layout: "breakout",
+      entities: play.entities,
+      px: px,
+      py: py,
+      bx: bx,
+      by: by,
+      vx: vx,
+      vy: vy,
+      alive: alive,
+      score: score,
+      lives: lives,
+      score1: score,
+      score2: lives
+    };
+    return goToGameOver(s, frozen, 1);
   }
 
   const entities = {};
@@ -234,7 +286,7 @@ function update(props) {
   entities.ball = { x: bx, y: by };
   placeBricks(entities, alive);
 
-  return {
+  const nextPlay = {
     layout: "breakout",
     entities: entities,
     px: px,
@@ -246,32 +298,71 @@ function update(props) {
     alive: alive,
     score: score,
     lives: lives,
-    gameOver: gameOver,
-    won: won,
     score1: score,
     score2: lives
   };
+
+  return {
+    screen: "play",
+    screens: {
+      play: nextPlay
+    }
+  };
+}
+
+function updateGameOver(s, props) {
+  if (props.action) {
+    return {
+      screen: "play",
+      screens: {
+        gameOver: s.screens.gameOver,
+        play: initPlayState()
+      }
+    };
+  }
+  return s;
+}
+
+function update(props) {
+  const s = props.state;
+  const sc = s.screen;
+  if (sc == "play") {
+    return updatePlay(s, props);
+  }
+  if (sc == "gameOver") {
+    return updateGameOver(s, props);
+  }
+  return s;
 }
 
 function hud(props) {
   const s = props.state;
-  let status = "BREAKOUT";
-  if (s.gameOver == 1) {
-    if (s.won == 1) {
-      status = "YOU WIN";
-    } else {
-      status = "GAME OVER";
+  const sc = s.screen;
+  if (sc == "gameOver") {
+    const go = s.screens.gameOver;
+    let title = "GAME OVER";
+    if (go.won == 1) {
+      title = "YOU WIN";
     }
+    return (
+      <View flexDirection="column" padding="20px" background="#0b1020">
+        <Label color="#8fd3ff">{title}</Label>
+        <Label color="#ffffff">SCORE</Label>
+        <Label color="#8fd3ff">{go.score}</Label>
+        <Label color="#ff8899">SPACE TO PLAY AGAIN</Label>
+      </View>
+    );
   }
+  const play = s.screens.play;
   return (
     <View flexDirection="row" padding="6px" background="#0b1020cc">
-      <Label color="#8fd3ff">{status}</Label>
+      <Label color="#8fd3ff">BREAKOUT</Label>
       <Label flex="1" />
       <Label color="#ffffff">SCORE</Label>
-      <Label color="#8fd3ff">{s.score}</Label>
+      <Label color="#8fd3ff">{play.score}</Label>
       <Label flex="1" />
       <Label color="#ff8899">LIVES</Label>
-      <Label color="#ff8899">{s.lives}</Label>
+      <Label color="#ff8899">{play.lives}</Label>
     </View>
   );
 }

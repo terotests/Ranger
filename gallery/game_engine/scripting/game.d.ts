@@ -45,6 +45,8 @@ export interface Screen {
 export interface GameState {
   screen: string;
   score: number;
+  /** Per-screen sub-state when using the multi-screen model. */
+  screens?: Record<string, unknown>;
   [key: string]: unknown;
 }
 
@@ -52,10 +54,19 @@ export interface GameState {
 export interface EventProps {
   /** Current game state. */
   state: GameState;
+  /** Active screen name (multi-screen games). */
+  screen?: string;
   /** The button for `onButton` events. */
   button?: GameButton;
+  /** Space / ACTION button (restart, confirm, fire). */
+  action?: boolean;
   /** Delta-time (ticks) for `update`. */
   dt?: number;
+  /** Directional input (GameRunner / SDL host). */
+  up?: boolean;
+  down?: boolean;
+  left?: boolean;
+  right?: boolean;
 }
 
 /**
@@ -73,7 +84,9 @@ export interface GameScript {
   /** Render the current state to a UI tree (JSX -> EVG). */
   render?(props: EventProps): JSX.Element;
   /** Retained-mode: define sprites once (GameRunner). */
-  sprites?(): Array<Record<string, unknown>>;
+  sprites?(props: { screen: string }): Array<Record<string, unknown>>;
+  /** Optional list of named screens (documentation / tooling). */
+  screens?(): string[];
   /** Retained-mode: JSX HUD overlay each frame (GameRunner). */
   hud?(props: EventProps): JSX.Element;
 }

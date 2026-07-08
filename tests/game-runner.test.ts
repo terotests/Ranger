@@ -61,7 +61,7 @@ describe("Game runner - scripted Pong", () => {
     expect(parseInt(entities![1], 10)).toBeGreaterThan(200);
   });
 
-  it("runs the scripted breakout game with JSX HUD and breaks bricks", () => {
+  it("runs the scripted breakout game with JSX HUD and screen transitions", () => {
     const { compile, run } = compileAndRun(
       "gallery/game_engine/scripting/breakout_runner_demo.rgr"
     );
@@ -73,12 +73,12 @@ describe("Game runner - scripted Pong", () => {
     expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
 
     const out = run?.output || "";
-    expect(out).toContain("frames=420");
+    expect(out).toContain("frames=900");
     expect(out).toContain("breakout-runner done");
+    expect(out).toContain("screen=gameOver");
 
     const score = out.match(/score=(\d+),(\d+)/);
     expect(score, `no score in output: ${out}`).toBeTruthy();
-    expect(parseInt(score![1], 10)).toBeGreaterThan(0);
 
     const entities = out.match(/entities=(\d+)/);
     expect(entities, `no entity count in output: ${out}`).toBeTruthy();

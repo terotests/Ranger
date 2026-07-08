@@ -91,10 +91,14 @@ class GameSdlRunner {
             if ((bit_and m 32) != 0) {
                 right = true
             }
+            def action:boolean false
+            if ((bit_and m 4) != 0) {
+                action = true
+            }
             if ((bit_and m 8) != 0) {
                 running = false
             }
-            runner.frame(16 up down left right)
+            runner.frame(16 up down left right action)
             this.updateFps()
             this.draw()
             frames = (frames + 1)
