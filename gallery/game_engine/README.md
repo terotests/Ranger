@@ -274,6 +274,8 @@ In short:
 | `gfx_sdl.rgr` | SDL2 window/present operators (C++ templates + shim); no `Lang.rgr` change |
 | `pong_sdl.rgr` | Native SDL2 backend: renders the RGBA buffer into a real window |
 | `ROADMAP.md` | **Roadmap:** nykytila, puutteet, prioriteetit ja vaiheittainen jatkokehitys |
+| `lpc/` | **LPC spritesheet compositor** (Ranger): PNG-generointi, myöhemmin dynaaminen hahmoluonti — [`lpc/TODO.md`](./lpc/TODO.md) |
+| `LPC_HEADLESS_SPRITESHEET.md` | LPC-arkkitehtuuri, lisenssi ja Ranger-native compositor -suunnitelma |
 | `PLAN_GAME_ENGINE.md` | Full architecture: layers, input/render abstractions, SDL2/HDMI + gamepad backend, roadmap |
 | `RENDERING_EVG.md` | Rich renderer design: reuse the gallery EVG stack (gradients/shadows/fonts/`l`-JSX) as the game framebuffer, with a WebGL/GLES2 path for the Pi |
 | `LLVM_BUGS.md` | LLVM backend bugs found while enabling the native path (one fixed, two worked around) |

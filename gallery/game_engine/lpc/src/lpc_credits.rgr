@@ -1,0 +1,17 @@
+; ==============================================================================
+; lpc_credits — attribution list for composed character (draft).
+; ==============================================================================
+
+class LpcCreditEntry {
+    def fileName:string ""
+    def authors:string ""
+    def licenses:string ""
+    def url:string ""
+}
+
+class LpcCredits {
+    ; TODO: load credits-lite.json from pack; filter by used sprite paths.
+    fn forSelectionCount:int (bodyType:string) {
+        return 0
+    }
+}

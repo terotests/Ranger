@@ -1,0 +1,10 @@
+# Generoidut spritesheetit
+output/
+tmp/
+
+# Upotetut pack-assetit (repo root *.png gitignore)
+!pack/
+!pack/**/*.png
+
+# Älä commitoi node_modules — tässä hakemistossa ei ole package.jsonia
+node_modules/

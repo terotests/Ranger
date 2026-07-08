@@ -1,0 +1,32 @@
+; ==============================================================================
+; lpc_blit — alpha blit ImageBuffer → RasterBuffer (draft).
+; ==============================================================================
+
+Import "../../../pdf_writer/src/jpeg/ImageBuffer.rgr"
+Import "../../../pdf_writer/src/raster/RasterBuffer.rgr"
+Import "../../../pdf_writer/src/raster/RasterCompositing.rgr"
+
+class LpcBlit {
+    def compositor:RasterCompositor (new RasterCompositor())
+
+    ; Blit source rectangle to dest position with alpha.
+    fn blit:void (dest:RasterBuffer src:ImageBuffer sx:int sy:int sw:int sh:int dx:int dy:int) {
+        def y 0
+        while (y < sh) {
+            def x 0
+            while (x < sw) {
+                def c:Color (src.getPixel((sx + x) (sy + y)))
+                if (c.a > 0) {
+                    this.compositor.blendSourceOver(dest (dx + x) (dy + y) c.r c.g c.b c.a)
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+    }
+
+    ; Full image at offset.
+    fn blitImage:void (dest:RasterBuffer src:ImageBuffer dx:int dy:int) {
+        this.blit(dest src 0 0 src.width src.height dx dy)
+    }
+}

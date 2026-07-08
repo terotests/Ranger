@@ -1,0 +1,69 @@
+; ==============================================================================
+; lpc_compose_runner — CLI: compile with Ranger, run with Node (-nodecli).
+; ==============================================================================
+;
+; Build + run (Ranger repo root):
+;   npm run engine:lpc:run
+;   npm run engine:lpc:run -- female gallery/game_engine/lpc/output/female.png
+;
+; Args (shell_arg):
+;   0 bodyType     (default: male)
+;   1 output path  (default: gallery/game_engine/lpc/output/compose.png)
+;   2 lpc root     (default: ../Universal-LPC-Spritesheet-Character-Generator)
+;
+; TODO: lukea fixtures/*.json kun JSON-import on käytössä.
+
+Import "lpc_config.rgr"
+Import "lpc_compose.rgr"
+Import "../../../pdf_writer/src/raster/PNGEncoder.rgr"
+
+class LpcComposeRunner {
+    def outDir:string "gallery/game_engine/lpc/output"
+    def outFile:string "compose.png"
+
+    fn parseOutputPath:void (fullPath:string) {
+        def slash:int (lastIndexOf fullPath "/")
+        if (slash < 0) {
+            outDir = "."
+            outFile = fullPath
+            return
+        }
+        outDir = (substring fullPath 0 slash)
+        outFile = (substring fullPath (slash + 1) (strlen fullPath))
+    }
+
+    sfn m@(main):void () {
+        def cfg:LpcConfig (new LpcConfig())
+        def bodyType:string "male"
+        def runner:LpcComposeRunner (new LpcComposeRunner())
+
+        if ((shell_arg_cnt) > 0) {
+            bodyType = (shell_arg 0)
+        }
+        if ((shell_arg_cnt) > 1) {
+            runner.parseOutputPath((shell_arg 1))
+        }
+        if ((shell_arg_cnt) > 2) {
+            cfg.setLpcRoot((shell_arg 2))
+        } {
+            cfg.applyDefault()
+        }
+
+        print ("[lpc] bodyType=" + bodyType)
+        print ("[lpc] lpcRoot=" + cfg.lpcRoot)
+        print ("[lpc] out=" + runner.outDir + "/" + runner.outFile)
+
+        def comp:LpcCompositor (new LpcCompositor())
+        comp.spritesheetsRoot = cfg.spritesheetsDir
+
+        def composed:LpcComposeResult (comp.composeWalkStrip(bodyType))
+        if (composed.ok == false) {
+            print "Compose failed"
+            return
+        }
+
+        def enc:PNGEncoder (new PNGEncoder())
+        enc.encode(composed.buffer runner.outDir runner.outFile)
+        print "Done."
+    }
+}
