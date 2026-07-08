@@ -37534,7 +37534,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
   }
   class StaticAnalyzer  {
     constructor() {
-      this.debug = true;
+      this.debug = false;
       this.mutatingOps = {};
     }
     initMutatingOps () {
@@ -38007,37 +38007,51 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     };
     walkForTransitiveWeak (node, fnCtx) {
       const isCall = node.has_call || node.hasFnCall;
-      if ( (node.has_call == true) || (node.hasFnCall == true) ) {
-        console.log((((("StaticAnalysis: found call node has_call=" + ((node.has_call.toString()))) + " hasFnCall=") + ((node.hasFnCall.toString()))) + " vref=") + node.vref);
+      if ( this.debug ) {
+        if ( (node.has_call == true) || (node.hasFnCall == true) ) {
+          console.log((((("StaticAnalysis: found call node has_call=" + ((node.has_call.toString()))) + " hasFnCall=") + ((node.hasFnCall.toString()))) + " vref=") + node.vref);
+        }
       }
       if ( isCall ) {
         if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
           const fnDesc = node.fnDesc;
           const childCnt = node.children.length;
-          console.log((("StaticAnalysis: transitive check call to " + fnDesc.name) + " childCnt=") + ((childCnt.toString())));
+          if ( this.debug ) {
+            console.log((("StaticAnalysis: transitive check call to " + fnDesc.name) + " childCnt=") + ((childCnt.toString())));
+          }
           if ( node.hasFnCall ) {
             if ( childCnt >= 2 ) {
               const callParams = node.children[1];
               const argCnt = callParams.children.length;
               const paramCnt = fnDesc.params.length;
-              console.log("StaticAnalysis:   hasFnCall style, argCnt=" + ((argCnt.toString())));
+              if ( this.debug ) {
+                console.log("StaticAnalysis:   hasFnCall style, argCnt=" + ((argCnt.toString())));
+              }
               for ( let i = 0; i < callParams.children.length; i++) {
                 var arg = callParams.children[i];
                 const argVref = arg.vref;
-                console.log((((("StaticAnalysis:   arg[" + ((i.toString()))) + "]=") + argVref) + " hasParamDesc=") + ((arg.hasParamDesc.toString())));
+                if ( this.debug ) {
+                  console.log((((("StaticAnalysis:   arg[" + ((i.toString()))) + "]=") + argVref) + " hasParamDesc=") + ((arg.hasParamDesc.toString())));
+                }
                 if ( (argVref.length) > 0 ) {
                   if ( arg.hasParamDesc ) {
                     const argParam = arg.paramDesc;
                     const isFunctionParam = argParam.varType == 4;
                     const isLocalVar = argParam.varType == 5;
-                    console.log((("StaticAnalysis:   is FunctionParameter=" + ((isFunctionParam.toString()))) + " isLocalVar=") + ((isLocalVar.toString())));
+                    if ( this.debug ) {
+                      console.log((("StaticAnalysis:   is FunctionParameter=" + ((isFunctionParam.toString()))) + " isLocalVar=") + ((isLocalVar.toString())));
+                    }
                     if ( isFunctionParam || isLocalVar ) {
                       if ( i < paramCnt ) {
                         const calledParam = fnDesc.params[i];
-                        console.log("StaticAnalysis:   calledParam.rust_needs_rc_wrap=" + ((calledParam.rust_needs_rc_wrap.toString())));
+                        if ( this.debug ) {
+                          console.log("StaticAnalysis:   calledParam.rust_needs_rc_wrap=" + ((calledParam.rust_needs_rc_wrap.toString())));
+                        }
                         if ( calledParam.rust_needs_rc_wrap ) {
                           argParam.rust_needs_rc_wrap = true;
-                          console.log(((("StaticAnalysis: transitive weak - " + argVref) + " passed to ") + fnDesc.name) + " which needs Rc wrap");
+                          if ( this.debug ) {
+                            console.log(((("StaticAnalysis: transitive weak - " + argVref) + " passed to ") + fnDesc.name) + " which needs Rc wrap");
+                          }
                         }
                       }
                     }
@@ -38062,7 +38076,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         const calledParam_1 = fnDesc.params[i_1];
                         if ( calledParam_1.rust_needs_rc_wrap ) {
                           argParam_1.rust_needs_rc_wrap = true;
-                          console.log(((("StaticAnalysis: transitive weak - " + argVref_1) + " passed to ") + fnDesc.name) + " which needs Rc wrap");
+                          if ( this.debug ) {
+                            console.log(((("StaticAnalysis: transitive weak - " + argVref_1) + " passed to ") + fnDesc.name) + " which needs Rc wrap");
+                          }
                         }
                       }
                     }
