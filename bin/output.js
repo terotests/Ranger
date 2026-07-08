@@ -17599,6 +17599,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       return tn;
     };
     getObjectTypeString (type_string, ctx) {
+      if ( (type_string.length) >= 2 ) {
+        if ( (type_string.charCodeAt(0 )) == (91) ) {
+          return this.collectionTypeStringToSwift(type_string, ctx);
+        }
+      }
       if ( ctx.isDefinedClass(type_string) ) {
         const cc = ctx.findClass(type_string);
         if ( cc.is_union ) {
@@ -17638,6 +17643,33 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           return "Double";
       };
       return type_string;
+    };
+    collectionTypeStringToSwift (type_string, ctx) {
+      const n = type_string.length;
+      const inner = type_string.substring(1, (n - 1) );
+      const il = inner.length;
+      let depth = 0;
+      let sep = 0 - 1;
+      let i = 0;
+      while (i < il) {
+        const c = inner.charCodeAt(i );
+        if ( c == (91) ) {
+          depth = depth + 1;
+        }
+        if ( c == (93) ) {
+          depth = depth - 1;
+        }
+        if ( (c == (58)) && (depth == 0) ) {
+          sep = i;
+        }
+        i = i + 1;
+      };
+      if ( sep >= 0 ) {
+        const kt = inner.substring(0, sep );
+        const vt = inner.substring((sep + 1), il );
+        return ((("[" + this.getObjectTypeString(kt, ctx)) + ":") + this.getObjectTypeString(vt, ctx)) + "]";
+      }
+      return ("[" + this.getObjectTypeString(inner, ctx)) + "]";
     };
     getTypeString (type_string) {
       switch (type_string ) { 
@@ -18662,6 +18694,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       };
     };
     getObjectTypeString (type_string, ctx) {
+      if ( (type_string.length) >= 2 ) {
+        if ( (type_string.charCodeAt(0 )) == (91) ) {
+          return this.collectionTypeStringToCpp(type_string, ctx);
+        }
+      }
       switch (type_string ) { 
         case "char" : 
           return "char";
@@ -18693,6 +18730,33 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         return ("std::shared_ptr<" + type_string) + ">";
       }
       return type_string;
+    };
+    collectionTypeStringToCpp (type_string, ctx) {
+      const n = type_string.length;
+      const inner = type_string.substring(1, (n - 1) );
+      const il = inner.length;
+      let depth = 0;
+      let sep = 0 - 1;
+      let i = 0;
+      while (i < il) {
+        const c = inner.charCodeAt(i );
+        if ( c == (91) ) {
+          depth = depth + 1;
+        }
+        if ( c == (93) ) {
+          depth = depth - 1;
+        }
+        if ( (c == (58)) && (depth == 0) ) {
+          sep = i;
+        }
+        i = i + 1;
+      };
+      if ( sep >= 0 ) {
+        const kt = inner.substring(0, sep );
+        const vt = inner.substring((sep + 1), il );
+        return ((("std::map<" + this.getObjectTypeString(kt, ctx)) + ",") + this.getObjectTypeString(vt, ctx)) + ">";
+      }
+      return ("std::vector<" + this.getObjectTypeString(inner, ctx)) + ">";
     };
     getTypeString2 (type_string, ctx) {
       switch (type_string ) { 
@@ -22685,6 +22749,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       return tn;
     };
     getObjectTypeString (type_string, ctx) {
+      if ( (type_string.length) >= 2 ) {
+        if ( (type_string.charCodeAt(0 )) == (91) ) {
+          return this.collectionTypeStringToKotlin(type_string, ctx);
+        }
+      }
       switch (type_string ) { 
         case "int" : 
           return "Int";
@@ -22706,6 +22775,33 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           return "Double";
       };
       return type_string;
+    };
+    collectionTypeStringToKotlin (type_string, ctx) {
+      const n = type_string.length;
+      const inner = type_string.substring(1, (n - 1) );
+      const il = inner.length;
+      let depth = 0;
+      let sep = 0 - 1;
+      let i = 0;
+      while (i < il) {
+        const c = inner.charCodeAt(i );
+        if ( c == (91) ) {
+          depth = depth + 1;
+        }
+        if ( c == (93) ) {
+          depth = depth - 1;
+        }
+        if ( (c == (58)) && (depth == 0) ) {
+          sep = i;
+        }
+        i = i + 1;
+      };
+      if ( sep >= 0 ) {
+        const kt = inner.substring(0, sep );
+        const vt = inner.substring((sep + 1), il );
+        return ((("MutableMap<" + this.getObjectTypeString(kt, ctx)) + ",") + this.getObjectTypeString(vt, ctx)) + ">";
+      }
+      return ("MutableList<" + this.getObjectTypeString(inner, ctx)) + ">";
     };
     getTypeString (type_string) {
       switch (type_string ) { 
