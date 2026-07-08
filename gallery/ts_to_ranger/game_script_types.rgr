@@ -29,6 +29,15 @@ class SpriteDefNative {
     def p0:int 0
     def p1:int 0
     def p2:int 0
+    ; bitmap sprites (invaders): pixel scale + body/eye palette. Frame bitmaps are
+    ; not stored natively (the native runner tracks logic/positions, not pixels).
+    def px:int 0
+    def br:int -1
+    def bg:int -1
+    def bb:int -1
+    def er:int -1
+    def eg:int -1
+    def eb:int -1
 }
 
 class NativeGameState {
@@ -45,6 +54,10 @@ class NativeGameState {
     ; Arbitrary numeric fields (TS `number`) not covered by the fixed schema:
     ; e.g. invaders px/py/waveX/waveTick/anim. Stored as double, keyed by name.
     def numbers:[string:double]
+    ; Arbitrary string fields (e.g. invaders `layout`).
+    def strings:[string:string]
+    ; Script-owned integer arrays (e.g. invaders `alive`); nested map-of-array.
+    def intArrays:[string:[int]]
     ; Transient events emitted this frame; host drains + clears.
     def events:[GameEventNative]
 }
@@ -109,6 +122,20 @@ class NativeGameStateOps {
             set out.numbers nk (unwrap (get src.numbers nk))
             n = (n + 1)
         }
+        def skeys:[string] (keys src.strings)
+        def si 0
+        while (si < (array_length skeys)) {
+            def sk:string (itemAt skeys si)
+            set out.strings sk (unwrap (get src.strings sk))
+            si = (si + 1)
+        }
+        def akeys:[string] (keys src.intArrays)
+        def ai 0
+        while (ai < (array_length akeys)) {
+            def ak:string (itemAt akeys ai)
+            set out.intArrays ak (unwrap (get src.intArrays ak))
+            ai = (ai + 1)
+        }
         return out
     }
 
@@ -151,6 +178,20 @@ class NativeGameStateOps {
             def nk:string (itemAt pnkeys m)
             set out.numbers nk (unwrap (get patch.numbers nk))
             m = (m + 1)
+        }
+        def pskeys:[string] (keys patch.strings)
+        def ps 0
+        while (ps < (array_length pskeys)) {
+            def sk:string (itemAt pskeys ps)
+            set out.strings sk (unwrap (get patch.strings sk))
+            ps = (ps + 1)
+        }
+        def pakeys:[string] (keys patch.intArrays)
+        def pa 0
+        while (pa < (array_length pakeys)) {
+            def ak:string (itemAt pakeys pa)
+            set out.intArrays ak (unwrap (get patch.intArrays ak))
+            pa = (pa + 1)
         }
         ; Events are transient: take the patch's list (host drains it).
         out.events = patch.events
