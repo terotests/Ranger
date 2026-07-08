@@ -107,6 +107,22 @@ describe("Game runner - scripted Pong", () => {
     expect(out).toContain("lastSound=win");
   });
 
+  it("does not replay sticky state.events on later frames", () => {
+    const { compile, run } = compileAndRun(
+      "gallery/game_engine/scripting/event_drain_runner_demo.rgr"
+    );
+
+    expect(
+      compile.success,
+      `Compile failed: ${compile.error || compile.output}`
+    ).toBe(true);
+    expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+
+    const out = run?.output || "";
+    expect(out).toContain("event-drain-runner done");
+    expect(out).toContain("soundPlays=1");
+  });
+
   it("runs the scripted pacman game and eats dots", () => {
     const { compile, run } = compileAndRun(
       "gallery/game_engine/scripting/pacman_runner_demo.rgr"

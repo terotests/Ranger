@@ -6,7 +6,26 @@ Import "./game_audio.rgr"
 Import "../gfx_sdl.rgr"
 
 class SdlGameAudioSink extends GameAudioSink {
+    ; Reuse a class-field buffer so gfx_audio_queue gets a C++-compatible buffer
+    ; (local buffer_alloc temporaries do not match operator signatures yet).
+    def queuedPcm:buffer (buffer_alloc 16384)
+
+    fn raw:buffer () {
+        return queuedPcm
+    }
+
+    fn copyPcm:void (pcm:buffer byteCount:int) {
+        def i 0
+        while (i < byteCount) {
+            def v:int (buffer_get pcm i)
+            buffer_set queuedPcm i v
+            i = (i + 1)
+        }
+    }
+
     fn onSynthPlay:void (soundId:string sampleRate:int sampleCount:int pcm:buffer) {
-        gfx_audio_queue(pcm (sampleCount * 2))
+        def byteCount:int (sampleCount * 2)
+        this.copyPcm(pcm byteCount)
+        gfx_audio_queue (this.raw()) byteCount)
     }
 }

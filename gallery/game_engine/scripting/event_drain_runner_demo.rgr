@@ -1,0 +1,36 @@
+; ==============================================================================
+; event_drain_runner_demo - sticky state.events must not replay after drain.
+; ==============================================================================
+
+Import "./game_runtime.rgr"
+
+class EventDrainRunnerDemo {
+    sfn m@(main):void () {
+        def runner:GameRunner (new GameRunner)
+        runner.init(320 240)
+
+        def src:string ""
+        src = (src + "function initState() { return { entities: { dot: { x: 10, y: 10 } }, t: 0, events: [] }; }\n")
+        src = (src + "function sprites() { return [{ id: \"dot\", kind: \"circle\", rad: 4, r: 255, g: 200, b: 80 }]; }\n")
+        src = (src + "function update(props) {\n")
+        src = (src + "  const s = props.state;\n")
+        src = (src + "  const next = (s.t || 0) + 1;\n")
+        src = (src + "  let ev = s.events || [];\n")
+        src = (src + "  if (next == 1) { ev = [{ kind: \"playSound\", id: \"lose\" }]; }\n")
+        src = (src + "  return { entities: s.entities, t: next, events: ev };\n")
+        src = (src + "}\n")
+
+        runner.loadScript(src)
+        runner.setupScene()
+
+        def i 0
+        while (i < 6) {
+            runner.frame(16 false false false false false)
+            i = (i + 1)
+        }
+
+        def host:GameHost (runner.hostRef())
+        print (("soundPlays=" + (host.soundPlayCount())))
+        print "event-drain-runner done"
+    }
+}
