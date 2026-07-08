@@ -32,7 +32,7 @@ The host injects **globals** into the script namespace (no import needed):
 | Global | Type | Purpose |
 |--------|------|---------|
 | `game` | `Game` | title, `maxScore`, field `width`/`height` |
-| `screen` | `Screen` | pixel `width`/`height` of the frame buffer |
+| `screen` | `Framebuffer` | pixel `width`/`height` of the frame buffer (not `state.screen`) |
 | `Buttons` | consts | `Buttons.UP / DOWN / ACTION / QUIT` |
 
 See [`game.d.ts`](./game.d.ts) for the full types and [`menu.game.tsx`](./menu.game.tsx)
@@ -119,8 +119,27 @@ each file (the runtime parser does not evaluate `import type` yet):
 import { brickId } from "./breakout_bricks";
 ```
 
-Per-game screen state (e.g. `BreakoutState`, `BreakoutPlayScreen`) lives in
-`game.d.ts` or a sibling `*.d.ts` / shared module.
+Generic engine types (`GameState`, `MultiScreenState`, `SpriteDef`, `GameScript`,
+`Framebuffer`, …) live in [`engine.d.ts`](./engine.d.ts). [`game.d.ts`](./game.d.ts)
+is the usual entry reference for scripts. Per-game screen state (e.g.
+`BreakoutState`) belongs in a sibling `*.d.ts` — see [`breakout.d.ts`](./breakout.d.ts).
+
+For multi-screen games, use helpers from [`game_helpers.tsx`](./game_helpers.tsx)
+instead of raw `state.screens[name]` (avoids confusing `state.screen` — active
+screen name — with the injected `screen` global — framebuffer size):
+
+```tsx
+import { getScreen, activeScreen, isActiveScreen } from "./game_helpers";
+
+function update(props: EventProps): BreakoutState {
+  const s = props.state as BreakoutState;
+  if (isActiveScreen(s, "play")) {
+    const play = getScreen(s, "play");
+    // play.px, play.score, …
+  }
+  return s;
+}
+```
 
 ### Relative `import` between scripts
 

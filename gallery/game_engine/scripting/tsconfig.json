@@ -11,7 +11,10 @@
     "skipLibCheck": true
   },
   "include": [
+    "engine.d.ts",
     "game.d.ts",
+    "breakout.d.ts",
+    "game_helpers.tsx",
     "breakout.game.tsx",
     "breakout_bricks.tsx"
   ]

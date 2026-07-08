@@ -1,4 +1,5 @@
 /// <reference path="./game.d.ts" />
+/// <reference path="./breakout.d.ts" />
 //
 // Breakout - multi-screen GameRunner example (play + gameOver).
 //
@@ -25,6 +26,7 @@ import {
   makeAlive,
   placeBricks
 } from "./breakout_bricks";
+import { getScreen, isActiveScreen } from "./game_helpers";
 
 function screens(): string[] {
   return ["play", "gameOver"];
@@ -104,7 +106,7 @@ function goToGameOver(
 }
 
 function updatePlay(s: BreakoutState, props: EventProps): BreakoutState {
-  const play = s.screens.play;
+  const play = getScreen(s, "play");
   const dt = props.dt as number;
   let px = play.px;
   let py = play.py;
@@ -226,12 +228,12 @@ function updatePlay(s: BreakoutState, props: EventProps): BreakoutState {
   };
 }
 
-function updateGameOver(s: BreakoutState, props: EventProps): BreakoutState {
+function updateGameOver(s: BreakoutState, props: TypedEventProps<BreakoutState>): BreakoutState {
   if (props.action) {
     return {
       screen: "play",
       screens: {
-        gameOver: s.screens.gameOver,
+        gameOver: getScreen(s, "gameOver"),
         play: initPlayState()
       }
     };
@@ -239,23 +241,21 @@ function updateGameOver(s: BreakoutState, props: EventProps): BreakoutState {
   return s;
 }
 
-function update(props: EventProps): BreakoutState {
-  const s = props.state as BreakoutState;
-  const sc = s.screen;
-  if (sc == "play") {
+function update(props: TypedEventProps<BreakoutState>): BreakoutState {
+  const s = props.state;
+  if (isActiveScreen(s, "play")) {
     return updatePlay(s, props);
   }
-  if (sc == "gameOver") {
+  if (isActiveScreen(s, "gameOver")) {
     return updateGameOver(s, props);
   }
   return s;
 }
 
-function hud(props: EventProps): JSX.Element {
-  const s = props.state as BreakoutState;
-  const sc = s.screen;
-  if (sc == "gameOver") {
-    const go = s.screens.gameOver!;
+function hud(props: TypedEventProps<BreakoutState>): JSX.Element {
+  const s = props.state;
+  if (isActiveScreen(s, "gameOver")) {
+    const go = getScreen(s, "gameOver")!;
     let title = "PELI OHI!!";
     if (go.won == 1) {
       title = "YOU WIN";
@@ -271,7 +271,7 @@ function hud(props: EventProps): JSX.Element {
       </View>
     );
   }
-  const play = s.screens.play;
+  const play = getScreen(s, "play");
   return (
     <View flexDirection="column" padding="6px" align="center" width="100%">
       <View align="center" width="100%" flexDirection="row">
