@@ -72,6 +72,10 @@ export interface GameScript {
   update?(props: EventProps): GameState;
   /** Render the current state to a UI tree (JSX -> EVG). */
   render?(props: EventProps): JSX.Element;
+  /** Retained-mode: define sprites once (GameRunner). */
+  sprites?(): Array<Record<string, unknown>>;
+  /** Retained-mode: JSX HUD overlay each frame (GameRunner). */
+  hud?(props: EventProps): JSX.Element;
 }
 
 // --- Injected globals (available without importing) -------------------------

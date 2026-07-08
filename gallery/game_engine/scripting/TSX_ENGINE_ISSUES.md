@@ -155,3 +155,5 @@ See project `ISSUES.md` #6 — parenthesise exponent expressions.
 | `game_runtime.rgr` | Retained-mode GameRunner |
 | `GAME_SCRIPTING.md` | Authoring guide for game scripts |
 | `invaders.game.tsx` | Stress test: module const arrays + while loops |
+| `breakout.game.tsx` | Retained bricks + JSX `hud()` overlay |
+| `GAME_ENGINE_DESIGN.md` | Design notes: retained sprites + JSX HUD, performance |

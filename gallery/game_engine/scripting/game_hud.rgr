@@ -1,0 +1,191 @@
+; ==============================================================================
+; GameHudBlitter - composite a JSX/EVG HUD tree onto a SoftCanvas.
+; ==============================================================================
+;
+; GameRunner calls engine.callRender("hud", props) each frame, runs EVGLayout
+; at screen size, then blits View backgrounds and Label text onto the world
+; buffer. This is the lightweight bridge toward full EVGRasterRenderer
+; integration (see GAME_ENGINE_DESIGN.md).
+; ==============================================================================
+
+Import "../framebuffer.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGColor.rgr"
+
+class GameHudBlitter {
+    def layout:EVGLayout (new EVGLayout)
+    def canvas:SoftCanvas
+
+    fn attach:void (c:SoftCanvas) {
+        canvas = c
+    }
+
+    fn half:int (n:int) {
+        def result 0
+        def rem n
+        while (rem >= 2) {
+            rem = (rem - 2)
+            result = (result + 1)
+        }
+        return result
+    }
+
+    ; Layout + draw the EVG tree returned by callRender("hud", ...).
+    fn drawTree:void (root:EVGElement w:int h:int) {
+        layout.setPageSize((to_double w) (to_double h))
+        layout.layout(root)
+        this.drawElement(root)
+    }
+
+    fn drawElement:void (el:EVGElement) {
+        def x:int (to_int el.calculatedX)
+        def y:int (to_int el.calculatedY)
+        def rw:int (to_int el.calculatedWidth)
+        def rh:int (to_int el.calculatedHeight)
+
+        if (el.backgroundColor.isSet) {
+            if (rw > 0) {
+                if (rh > 0) {
+                    def br:int (el.backgroundColor.red())
+                    def bg:int (el.backgroundColor.green())
+                    def bb:int (el.backgroundColor.blue())
+                    def ba:double (el.backgroundColor.alpha())
+                    if (ba >= 0.99) {
+                        canvas.fillRect(x y rw rh br bg bb)
+                    } {
+                        this.fillRectAlpha(x y rw rh br bg bb ba)
+                    }
+                }
+            }
+        }
+
+        def txt:string el.textContent
+        if ((strlen txt) > 0) {
+            if (el.color.isSet) {
+                def tr:int (el.color.red())
+                def tg:int (el.color.green())
+                def tb:int (el.color.blue())
+                def scale 2
+                if (el.fontSize.isSet) {
+                    def fs (el.fontSize.pixels)
+                    if (fs >= 14.0) {
+                        scale = 3
+                    }
+                }
+                this.drawText(x y scale txt tr tg tb)
+            }
+        }
+
+        def i 0
+        while (i < (array_length el.children)) {
+            def child:EVGElement (itemAt el.children i)
+            this.drawElement(child)
+            i = (i + 1)
+        }
+    }
+
+    fn fillRectAlpha:void (x:int y:int rw:int rh:int r:int g:int b:int a:double) {
+        def ai:int (to_int (a * 255.0))
+        def yy y
+        def yEnd (y + rh)
+        def xEnd (x + rw)
+        while (yy < yEnd) {
+            def xx x
+            while (xx < xEnd) {
+                this.blendPixel(xx yy r g b ai)
+                xx = (xx + 1)
+            }
+            yy = (yy + 1)
+        }
+    }
+
+    fn blendPixel:void (x:int y:int r:int g:int b:int a:int) {
+        def cw:int (canvas.getWidth())
+        def ch:int (canvas.getHeight())
+        if (x < 0) { return }
+        if (y < 0) { return }
+        if (x >= cw) { return }
+        if (y >= ch) { return }
+        if (a <= 0) { return }
+        if (a >= 255) {
+            canvas.setPixel(x y r g b)
+            return
+        }
+        def or:int (canvas.pixelR(x y))
+        def og:int (canvas.pixelG(x y))
+        def ob:int (canvas.pixelB(x y))
+        def inv (255 - a)
+        def nr (to_int (((r * a) + (or * inv)) / 255))
+        def ng (to_int (((g * a) + (og * inv)) / 255))
+        def nb (to_int (((b * a) + (ob * inv)) / 255))
+        canvas.setPixel(x y nr ng nb)
+    }
+
+    ; Tiny 3x5 uppercase / digit font for HUD labels.
+    fn glyphBits:string (ch:string) {
+        if (ch == "0") { return "111101101101111" }
+        if (ch == "1") { return "010110010010111" }
+        if (ch == "2") { return "111001111100111" }
+        if (ch == "3") { return "111001111001111" }
+        if (ch == "4") { return "101101111001001" }
+        if (ch == "5") { return "111100111001111" }
+        if (ch == "6") { return "111100111101111" }
+        if (ch == "7") { return "111001010010010" }
+        if (ch == "8") { return "111101111101111" }
+        if (ch == "9") { return "111101111001111" }
+        if (ch == "A") { return "111101101111101" }
+        if (ch == "B") { return "110101110101110" }
+        if (ch == "C") { return "111100100100111" }
+        if (ch == "D") { return "110101101101110" }
+        if (ch == "E") { return "111100111100111" }
+        if (ch == "F") { return "111100111100100" }
+        if (ch == "G") { return "111100101101111" }
+        if (ch == "H") { return "101101111101101" }
+        if (ch == "I") { return "111010010010111" }
+        if (ch == "K") { return "101101110101101" }
+        if (ch == "L") { return "100100100100111" }
+        if (ch == "M") { return "101111111101101" }
+        if (ch == "N") { return "101111101111101" }
+        if (ch == "O") { return "111101101101111" }
+        if (ch == "P") { return "111101111100100" }
+        if (ch == "R") { return "111101111101101" }
+        if (ch == "S") { return "111100111001111" }
+        if (ch == "T") { return "111010010010010" }
+        if (ch == "U") { return "101101101101111" }
+        if (ch == "V") { return "101101101010010" }
+        if (ch == "X") { return "101101010101101" }
+        if (ch == "Y") { return "101101010010010" }
+        if (ch == ":") { return "000010000010000" }
+        if (ch == " ") { return "000000000000000" }
+        return "000000000000000"
+    }
+
+    fn drawGlyph:void (x:int y:int scale:int ch:string r:int g:int b:int) {
+        def bits:string (this.glyphBits(ch))
+        def row 0
+        while (row < 5) {
+            def col 0
+            while (col < 3) {
+                def idx ((row * 3) + col)
+                def pixel:string (substring bits idx (idx + 1))
+                if (pixel == "1") {
+                    canvas.fillRect((x + (col * scale)) (y + (row * scale)) scale scale r g b)
+                }
+                col = (col + 1)
+            }
+            row = (row + 1)
+        }
+    }
+
+    fn drawText:void (x:int y:int scale:int text:string r:int g:int b:int) {
+        def step ((scale * 3) + scale)
+        def i 0
+        def len:int (strlen text)
+        while (i < len) {
+            def ch:string (substring text i (i + 1))
+            this.drawGlyph((x + (i * step)) y scale ch r g b)
+            i = (i + 1)
+        }
+    }
+}

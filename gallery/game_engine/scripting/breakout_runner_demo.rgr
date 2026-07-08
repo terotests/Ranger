@@ -1,0 +1,46 @@
+; ==============================================================================
+; breakout_runner_demo - runs breakout.game.tsx via GameRunner (JSX HUD).
+; ==============================================================================
+
+Import "./game_runtime.rgr"
+
+class BreakoutRunnerDemo {
+    sfn m@(main):void () {
+        def runner:GameRunner (new GameRunner)
+        runner.init(480 270)
+
+        def buf:buffer (buffer_read_file "gallery/game_engine/scripting" "breakout.game.tsx")
+        def src:string (buffer_to_string buf)
+        runner.loadScript(src)
+        runner.setupScene()
+
+        def frames:int 420
+        if ((shell_arg_cnt) > 0) {
+            def parsed@(optional):int (to_int (shell_arg 0))
+            if (!null? parsed) {
+                frames = (unwrap parsed)
+            }
+        }
+
+        def i 0
+        while (i < frames) {
+            def phase (i % 90)
+            def left (phase < 30)
+            def right (phase >= 60)
+            runner.frame(16 left false right false)
+            i = (i + 1)
+        }
+
+        runner.draw()
+        buffer_write_file "gallery/game_engine/scripting" "breakout_frame.rgba" (runner.raw())
+
+        def bx:int (runner.entityX("ball"))
+        def by:int (runner.entityY("ball"))
+        print ("frames=" + frames)
+        print (("ball=" + bx) + ("," + by))
+        print (("score=" + runner.score1) + ("," + runner.score2))
+        def ec:int (runner.entityCount())
+        print (("entities=" + ec))
+        print "breakout-runner done"
+    }
+}
