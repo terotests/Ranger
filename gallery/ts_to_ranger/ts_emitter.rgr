@@ -425,9 +425,10 @@ class TSEmitter {
                 if (lbase.nodeType == "Identifier") {
                     if (lbase.name == stateVarName) {
                         if ((this.isNativeStateField(node.name)) == false) {
-                            if ((this.isStateArrayField(node.name)) == false) {
-                                return "double"
+                            if (this.isStateArrayField(node.name)) {
+                                return (this.stateArrayType(node.name))
                             }
+                            return "double"
                         }
                     }
                 }
@@ -464,6 +465,11 @@ class TSEmitter {
             }
             if (node.right) {
                 rt = (this.exprType((unwrap node.right)))
+            }
+            if (op == "+") {
+                if ((lt == "string") || (rt == "string")) {
+                    return "string"
+                }
             }
             if ((lt == "double") || (rt == "double")) {
                 return "double"
@@ -617,6 +623,12 @@ class TSEmitter {
         def rt:string "int"
         if (node.typeAnnotation) {
             rt = (this.annotType((unwrap node.typeAnnotation)))
+        } {
+            ; No annotation: infer from the function body's return statements.
+            def inferred:string (this.inferHelperReturnType(node))
+            if (this.isPositiveType(inferred)) {
+                rt = inferred
+            }
         }
         set fnReturnTypes node.name rt
         def types:[string]
@@ -631,6 +643,194 @@ class TSEmitter {
             i = (i + 1)
         }
         set fnParamTypesCsv node.name (this.joinCsv(types))
+    }
+
+    ; A "positive" type is one worth overriding the default int with.
+    fn isPositiveType:boolean (t:string) {
+        if ((strlen t) == 0) { return false }
+        if (t == "int") { return false }
+        if (t == "void") { return false }
+        if ((substring t 0 1) == "[") { return true }
+        if (t == "string") { return true }
+        if (t == "double") { return true }
+        if (t == "boolean") { return true }
+        if (this.endsWith(t "Native")) { return true }
+        return false
+    }
+
+    ; Infer a helper's return type from its body when it has no annotation.
+    ; Handles string (incl. concatenation), arrays (literal or local array
+    ; built with push), const arrays and known-helper calls. Object-returning
+    ; helpers stay "int" (object-literal returns are not yet modelled).
+    fn inferHelperReturnType:string (node:TSNode) {
+        if (null? node.body) {
+            return "int"
+        }
+        def body:TSNode (unwrap node.body)
+        def saved:[string:string] varTypes
+        def local:[string:string]
+        varTypes = local
+        this.collectLocalVarTypes(body body)
+        def result:string (this.findReturnType(body))
+        varTypes = saved
+        return result
+    }
+
+    fn collectLocalVarTypes:void (block:TSNode root:TSNode) {
+        def i 0
+        while (i < (array_length block.children)) {
+            def stmt:TSNode (itemAt block.children i)
+            if (stmt.nodeType == "VariableDeclaration") {
+                def j 0
+                while (j < (array_length stmt.children)) {
+                    def d:TSNode (itemAt stmt.children j)
+                    if (d.nodeType == "VariableDeclarator") {
+                        if (d.init) {
+                            def vt:string (this.localInitType((unwrap d.init) d.name root))
+                            if ((strlen vt) > 0) {
+                                set varTypes d.name vt
+                            }
+                        }
+                    }
+                    j = (j + 1)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn localInitType:string (initNode:TSNode name:string root:TSNode) {
+        if (initNode.nodeType == "ArrayExpression") {
+            def elem:string ""
+            if ((array_length initNode.children) > 0) {
+                elem = (this.exprType((itemAt initNode.children 0)))
+            } {
+                elem = (this.findPushArgType(root name))
+            }
+            if ((strlen elem) == 0) {
+                elem = "int"
+            }
+            return (("[" + elem) + "]")
+        }
+        return (this.exprType(initNode))
+    }
+
+    ; Find the element type pushed into a named local array anywhere in a block.
+    fn findPushArgType:string (block:TSNode name:string) {
+        def i 0
+        while (i < (array_length block.children)) {
+            def stmt:TSNode (itemAt block.children i)
+            def r:string (this.findPushArgTypeInStmt(stmt name))
+            if ((strlen r) > 0) {
+                return r
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn findPushArgTypeInStmt:string (stmt:TSNode name:string) {
+        def t:string stmt.nodeType
+        if (t == "BlockStatement") {
+            return (this.findPushArgType(stmt name))
+        }
+        if (t == "ExpressionStatement") {
+            if (stmt.left) {
+                def expr:TSNode (unwrap stmt.left)
+                if (expr.nodeType == "CallExpression") {
+                    if (expr.left) {
+                        def callee:TSNode (unwrap expr.left)
+                        if (callee.nodeType == "MemberExpression") {
+                            if (callee.name == "push") {
+                                if (callee.left) {
+                                    def base:TSNode (unwrap callee.left)
+                                    if (base.nodeType == "Identifier") {
+                                        if (base.name == name) {
+                                            if ((array_length expr.children) > 0) {
+                                                return (this.exprType((itemAt expr.children 0)))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return ""
+        }
+        if (t == "IfStatement") {
+            if (stmt.body) {
+                def r1:string (this.findPushArgTypeInStmt((unwrap stmt.body) name))
+                if ((strlen r1) > 0) {
+                    return r1
+                }
+            }
+            if (stmt.right) {
+                def r2:string (this.findPushArgTypeInStmt((unwrap stmt.right) name))
+                if ((strlen r2) > 0) {
+                    return r2
+                }
+            }
+            return ""
+        }
+        if (t == "WhileStatement") {
+            if (stmt.body) {
+                return (this.findPushArgTypeInStmt((unwrap stmt.body) name))
+            }
+            return ""
+        }
+        return ""
+    }
+
+    ; First positively-typed return value found in a block (recursing into
+    ; if/while/block bodies).
+    fn findReturnType:string (block:TSNode) {
+        def i 0
+        while (i < (array_length block.children)) {
+            def stmt:TSNode (itemAt block.children i)
+            def rt:string (this.findReturnTypeInStmt(stmt))
+            if (this.isPositiveType(rt)) {
+                return rt
+            }
+            i = (i + 1)
+        }
+        return "int"
+    }
+
+    fn findReturnTypeInStmt:string (stmt:TSNode) {
+        def t:string stmt.nodeType
+        if (t == "ReturnStatement") {
+            if (stmt.left) {
+                return (this.exprType((unwrap stmt.left)))
+            }
+            return "void"
+        }
+        if (t == "BlockStatement") {
+            return (this.findReturnType(stmt))
+        }
+        if (t == "IfStatement") {
+            if (stmt.body) {
+                def r1:string (this.findReturnTypeInStmt((unwrap stmt.body)))
+                if (this.isPositiveType(r1)) {
+                    return r1
+                }
+            }
+            if (stmt.right) {
+                def r2:string (this.findReturnTypeInStmt((unwrap stmt.right)))
+                if (this.isPositiveType(r2)) {
+                    return r2
+                }
+            }
+            return "int"
+        }
+        if (t == "WhileStatement") {
+            if (stmt.body) {
+                return (this.findReturnTypeInStmt((unwrap stmt.body)))
+            }
+            return "int"
+        }
+        return "int"
     }
 
     fn recordModuleConst:void (node:TSNode) {

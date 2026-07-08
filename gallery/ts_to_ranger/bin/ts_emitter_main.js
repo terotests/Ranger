@@ -4856,9 +4856,10 @@ class TSEmitter  {
         if ( lbase.nodeType == "Identifier" ) {
           if ( lbase.name == this.stateVarName ) {
             if ( this.isNativeStateField(node.name) == false ) {
-              if ( this.isStateArrayField(node.name) == false ) {
-                return "double";
+              if ( this.isStateArrayField(node.name) ) {
+                return this.stateArrayType(node.name);
               }
+              return "double";
             }
           }
         }
@@ -4894,6 +4895,11 @@ class TSEmitter  {
       }
       if ( typeof(node.right) != "undefined" ) {
         rt = this.exprType((node.right));
+      }
+      if ( op == "+" ) {
+        if ( (lt == "string") || (rt == "string") ) {
+          return "string";
+        }
       }
       if ( (lt == "double") || (rt == "double") ) {
         return "double";
@@ -5035,6 +5041,11 @@ class TSEmitter  {
     let rt = "int";
     if ( typeof(node.typeAnnotation) != "undefined" ) {
       rt = this.annotType((node.typeAnnotation));
+    } else {
+      const inferred = this.inferHelperReturnType(node);
+      if ( this.isPositiveType(inferred) ) {
+        rt = inferred;
+      }
     }
     this.fnReturnTypes[node.name] = rt;
     let types = [];
@@ -5049,6 +5060,194 @@ class TSEmitter  {
       i = i + 1;
     };
     this.fnParamTypesCsv[node.name] = this.joinCsv(types);
+  };
+  isPositiveType (t) {
+    if ( (t.length) == 0 ) {
+      return false;
+    }
+    if ( t == "int" ) {
+      return false;
+    }
+    if ( t == "void" ) {
+      return false;
+    }
+    if ( (t.substring(0, 1 )) == "[" ) {
+      return true;
+    }
+    if ( t == "string" ) {
+      return true;
+    }
+    if ( t == "double" ) {
+      return true;
+    }
+    if ( t == "boolean" ) {
+      return true;
+    }
+    if ( (this).endsWith(t, "Native") ) {
+      return true;
+    }
+    return false;
+  };
+  inferHelperReturnType (node) {
+    if ( typeof(node.body) === "undefined" ) {
+      return "int";
+    }
+    const body = node.body;
+    const saved = this.varTypes;
+    let local = {};
+    this.varTypes = local;
+    this.collectLocalVarTypes(body, body);
+    const result = this.findReturnType(body);
+    this.varTypes = saved;
+    return result;
+  };
+  collectLocalVarTypes (block, root) {
+    let i = 0;
+    while (i < (block.children.length)) {
+      const stmt = block.children[i];
+      if ( stmt.nodeType == "VariableDeclaration" ) {
+        let j = 0;
+        while (j < (stmt.children.length)) {
+          const d = stmt.children[j];
+          if ( d.nodeType == "VariableDeclarator" ) {
+            if ( typeof(d.init) != "undefined" ) {
+              const vt = this.localInitType((d.init), d.name, root);
+              if ( (vt.length) > 0 ) {
+                this.varTypes[d.name] = vt;
+              }
+            }
+          }
+          j = j + 1;
+        };
+      }
+      i = i + 1;
+    };
+  };
+  localInitType (initNode, name, root) {
+    if ( initNode.nodeType == "ArrayExpression" ) {
+      let elem = "";
+      if ( (initNode.children.length) > 0 ) {
+        elem = this.exprType((initNode.children[0]));
+      } else {
+        elem = this.findPushArgType(root, name);
+      }
+      if ( (elem.length) == 0 ) {
+        elem = "int";
+      }
+      return ("[" + elem) + "]";
+    }
+    return this.exprType(initNode);
+  };
+  findPushArgType (block, name) {
+    let i = 0;
+    while (i < (block.children.length)) {
+      const stmt = block.children[i];
+      const r = this.findPushArgTypeInStmt(stmt, name);
+      if ( (r.length) > 0 ) {
+        return r;
+      }
+      i = i + 1;
+    };
+    return "";
+  };
+  findPushArgTypeInStmt (stmt, name) {
+    const t = stmt.nodeType;
+    if ( t == "BlockStatement" ) {
+      return this.findPushArgType(stmt, name);
+    }
+    if ( t == "ExpressionStatement" ) {
+      if ( typeof(stmt.left) != "undefined" ) {
+        const expr = stmt.left;
+        if ( expr.nodeType == "CallExpression" ) {
+          if ( typeof(expr.left) != "undefined" ) {
+            const callee = expr.left;
+            if ( callee.nodeType == "MemberExpression" ) {
+              if ( callee.name == "push" ) {
+                if ( typeof(callee.left) != "undefined" ) {
+                  const base = callee.left;
+                  if ( base.nodeType == "Identifier" ) {
+                    if ( base.name == name ) {
+                      if ( (expr.children.length) > 0 ) {
+                        return this.exprType((expr.children[0]));
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      return "";
+    }
+    if ( t == "IfStatement" ) {
+      if ( typeof(stmt.body) != "undefined" ) {
+        const r1 = this.findPushArgTypeInStmt((stmt.body), name);
+        if ( (r1.length) > 0 ) {
+          return r1;
+        }
+      }
+      if ( typeof(stmt.right) != "undefined" ) {
+        const r2 = this.findPushArgTypeInStmt((stmt.right), name);
+        if ( (r2.length) > 0 ) {
+          return r2;
+        }
+      }
+      return "";
+    }
+    if ( t == "WhileStatement" ) {
+      if ( typeof(stmt.body) != "undefined" ) {
+        return this.findPushArgTypeInStmt((stmt.body), name);
+      }
+      return "";
+    }
+    return "";
+  };
+  findReturnType (block) {
+    let i = 0;
+    while (i < (block.children.length)) {
+      const stmt = block.children[i];
+      const rt = this.findReturnTypeInStmt(stmt);
+      if ( this.isPositiveType(rt) ) {
+        return rt;
+      }
+      i = i + 1;
+    };
+    return "int";
+  };
+  findReturnTypeInStmt (stmt) {
+    const t = stmt.nodeType;
+    if ( t == "ReturnStatement" ) {
+      if ( typeof(stmt.left) != "undefined" ) {
+        return this.exprType((stmt.left));
+      }
+      return "void";
+    }
+    if ( t == "BlockStatement" ) {
+      return this.findReturnType(stmt);
+    }
+    if ( t == "IfStatement" ) {
+      if ( typeof(stmt.body) != "undefined" ) {
+        const r1 = this.findReturnTypeInStmt((stmt.body));
+        if ( this.isPositiveType(r1) ) {
+          return r1;
+        }
+      }
+      if ( typeof(stmt.right) != "undefined" ) {
+        const r2 = this.findReturnTypeInStmt((stmt.right));
+        if ( this.isPositiveType(r2) ) {
+          return r2;
+        }
+      }
+      return "int";
+    }
+    if ( t == "WhileStatement" ) {
+      if ( typeof(stmt.body) != "undefined" ) {
+        return this.findReturnTypeInStmt((stmt.body));
+      }
+      return "int";
+    }
+    return "int";
   };
   recordModuleConst (node) {
     let i = 0;
