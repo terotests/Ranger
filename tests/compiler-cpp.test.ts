@@ -101,6 +101,30 @@ describe("Ranger Compiler - C++ Target", () => {
       expect(charAtDefs).toBeLessThanOrEqual(1);
       expect(substrDefs).toBeLessThanOrEqual(1);
     });
+
+    it("should use size_t in r_utf8_substr polyfill (no npos tautology warnings)", () => {
+      const result = getGeneratedCppCode(
+        `${FIXTURES_DIR}/string_substring.rgr`
+      );
+
+      expect(result.success, `Compile failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("size_t start = (size_t)start_i");
+      expect(result.code).not.toContain(
+        "unsigned int c, i, ix, q, min= (unsigned int) std::string::npos"
+      );
+    });
+  });
+
+  describe("C++ string literal safety", () => {
+    it("should escape trigraph sequences in string literals", () => {
+      const result = getGeneratedCppCode(
+        `${FIXTURES_DIR}/cpp_trigraph_string.rgr`
+      );
+
+      expect(result.success, `Compile failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain('std::string("\\?\\?=")');
+      expect(result.code).not.toMatch(/std::string\("[^"]*\?\?=/)
+    });
   });
 
   describe("C++ Specific Code Generation", () => {

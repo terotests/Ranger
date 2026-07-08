@@ -18678,7 +18678,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           wr.out("" + node.double_value, false);
           break;
         case 4 : 
-          const s = this.EncodeString(node, ctx, wr);
+          let s = this.EncodeString(node, ctx, wr);
+          s = s.replace("??=", "\\?\\?=");
+          s = s.replace("??(", "\\?\\?(");
+          s = s.replace("??/", "\\?\\?/");
+          s = s.replace("??)", "\\?\\?)");
+          s = s.replace("??'", "\\?\\?'");
+          s = s.replace("??<", "\\?\\?<");
+          s = s.replace("??!", "\\?\\?!");
+          s = s.replace("??>", "\\?\\?>");
+          s = s.replace("??-", "\\?\\?-");
           wr.out(("std::string(" + (("\"" + s) + "\"")) + ")", false);
           break;
         case 3 : 
