@@ -1,0 +1,284 @@
+; ==============================================================================
+; GameRunner - a retained-mode runner for script-driven games.
+; ==============================================================================
+;
+; Bridges a TypeScript game script (evaluated by ComponentEngine) to the RGBA
+; SoftCanvas. The model matches the request:
+;
+;   * sprites() is evaluated ONCE and creates retained GameEntity objects
+;     (the sprite definition). Their JSX/shape is not rebuilt every frame.
+;   * each frame gets the absolute time + elapsed dt and calls update(props);
+;     the returned state carries entity positions, which the runner simply
+;     APPLIES to the existing entities (move objects without re-rendering).
+;   * scores are drawn as text via a tiny built-in digit font.
+;
+; Runs on the ES6/Node target today (where the eval + raster stack is proven);
+; the same SoftCanvas buffer feeds the SDL/HDMI present path (see pong_sdl.rgr).
+; ==============================================================================
+
+Import "../framebuffer.rgr"
+Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+
+; A retained on-screen object. Created once from sprites(); only x/y change.
+class GameEntity {
+    def id:string ""
+    def kind:string "rect"      ; "rect" | "circle"
+    def x:int 0
+    def y:int 0
+    def w:int 8
+    def h:int 8
+    def rad:int 4
+    def cr:int 255
+    def cg:int 255
+    def cb:int 255
+}
+
+class GameRunner {
+    def engine:ComponentEngine (new ComponentEngine())
+    def canvas:SoftCanvas (new SoftCanvas)
+    def entities:[GameEntity]
+    def state:EvalValue (EvalValue.null())
+    def pw:int 0
+    def ph:int 0
+    def score1:int 0
+    def score2:int 0
+    def fpsShown:int 0
+    def timeMs:int 0
+
+    fn init:void (w:int h:int) {
+        engine.quiet = true
+        pw = w
+        ph = h
+        canvas.init(w h)
+    }
+
+    fn half:int (n:int) {
+        def result 0
+        def rem n
+        while (rem >= 2) {
+            rem = (rem - 2)
+            result = (result + 1)
+        }
+        return result
+    }
+
+    fn registerGlobal:void (name:string value:EvalValue) {
+        engine.registerGlobal(name value)
+    }
+
+    fn loadScript:void (src:string) {
+        engine.loadScript(src)
+    }
+
+    fn raw:buffer () {
+        return (canvas.raw())
+    }
+
+    ; --- entity lookup (for tests / host queries) ---
+    fn entityX:int (id:string) {
+        def i 0
+        while (i < (array_length entities)) {
+            def e:GameEntity (itemAt entities i)
+            if (e.id == id) {
+                return e.x
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+    fn entityY:int (id:string) {
+        def i 0
+        while (i < (array_length entities)) {
+            def e:GameEntity (itemAt entities i)
+            if (e.id == id) {
+                return e.y
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn entityCount:int () {
+        return (array_length entities)
+    }
+
+    fn setFpsShown:void (fps:int) {
+        fpsShown = fps
+    }
+
+    ; Build retained entities from the script's sprites() (called ONCE).
+    fn setupScene:void () {
+        def sprites:EvalValue (engine.callFunction("sprites" (EvalValue.null())))
+        if (sprites.isArray()) {
+            def arr:[EvalValue] sprites.arrayValue
+            def i 0
+            while (i < (array_length arr)) {
+                def d:EvalValue (itemAt arr i)
+                def e:GameEntity (new GameEntity)
+                def idv:EvalValue (d.getMember("id"))
+                def kindv:EvalValue (d.getMember("kind"))
+                e.id = idv.stringValue
+                e.kind = kindv.stringValue
+                e.w = (this.memInt(d "w" 8))
+                e.h = (this.memInt(d "h" 8))
+                e.rad = (this.memInt(d "rad" 4))
+                e.cr = (this.memInt(d "r" 255))
+                e.cg = (this.memInt(d "g" 255))
+                e.cb = (this.memInt(d "b" 255))
+                push entities e
+                i = (i + 1)
+            }
+        }
+        state = (engine.callFunction("initState" (EvalValue.null())))
+        this.syncFromState()
+    }
+
+    ; Read an integer member with a default when absent.
+    fn memInt:int (obj:EvalValue key:string dflt:int) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isNull()) {
+            return dflt
+        }
+        return (to_int v.numberValue)
+    }
+
+    ; Apply the positions/scores from `state` onto the retained entities.
+    fn syncFromState:void () {
+        def ent:EvalValue (state.getMember("entities"))
+        def i 0
+        while (i < (array_length entities)) {
+            def e:GameEntity (itemAt entities i)
+            def pos:EvalValue (ent.getMember(e.id))
+            if (false == (pos.isNull())) {
+                e.x = (this.memInt(pos "x" e.x))
+                e.y = (this.memInt(pos "y" e.y))
+            }
+            i = (i + 1)
+        }
+        score1 = (this.memInt(state "score1" score1))
+        score2 = (this.memInt(state "score2" score2))
+    }
+
+    ; Advance one frame: pass time + dt + input to update(), apply the result.
+    fn frame:void (dtMs:int up:boolean down:boolean left:boolean right:boolean) {
+        timeMs = (timeMs + dtMs)
+        def k:[string]
+        def v:[EvalValue]
+        push k "time"
+        push v (EvalValue.fromInt(timeMs))
+        push k "dt"
+        push v (EvalValue.fromInt(dtMs))
+        push k "up"
+        push v (EvalValue.boolean(up))
+        push k "down"
+        push v (EvalValue.boolean(down))
+        push k "left"
+        push v (EvalValue.boolean(left))
+        push k "right"
+        push v (EvalValue.boolean(right))
+        push k "state"
+        push v state
+        def props:EvalValue (EvalValue.object(k v))
+        state = (engine.callFunction("update" props))
+        this.syncFromState()
+    }
+
+    ; Draw the current scene into the RGBA buffer.
+    fn draw:void () {
+        canvas.clear(12 16 32)
+        ; optional center net (Pong layout; skip for other games)
+        def layout:EvalValue (state.getMember("layout"))
+        def showNet true
+        if (layout.stringValue == "invaders") {
+            showNet = false
+        }
+        if (showNet) {
+            def ny 0
+            def netX (this.half(pw))
+            while (ny < ph) {
+                canvas.fillRect((netX - 1) ny 2 6 40 55 95)
+                ny = (ny + 12)
+            }
+        }
+        ; retained entities (positioned by state, sprite defined once)
+        def i 0
+        while (i < (array_length entities)) {
+            def e:GameEntity (itemAt entities i)
+            if (e.kind == "circle") {
+                canvas.fillCircle(e.x e.y e.rad e.cr e.cg e.cb)
+            } {
+                canvas.fillRect((e.x - (this.half(e.w))) (e.y - (this.half(e.h))) e.w e.h e.cr e.cg e.cb)
+            }
+            i = (i + 1)
+        }
+        ; scores as text (mini font)
+        def netX (this.half(pw))
+        if (layout.stringValue == "invaders") {
+            this.drawNumber(16 10 4 score1 120 220 160)
+            this.drawNumber((pw - 40) 10 4 score2 255 180 80)
+        } {
+            this.drawNumber((netX - 44) 10 4 score1 120 220 160)
+            this.drawNumber((netX + 20) 10 4 score2 220 140 120)
+        }
+        if (fpsShown > 0) {
+            def fx (this.half(pw))
+            def fy (ph - 22)
+            this.drawNumber((fx - 14) fy 3 fpsShown 160 170 190)
+        }
+    }
+
+    ; --- tiny 3x5 bitmap digit font -----------------------------------------
+    fn digitBits:string (d:int) {
+        if (d == 0) { return "111101101101111" }
+        if (d == 1) { return "010110010010111" }
+        if (d == 2) { return "111001111100111" }
+        if (d == 3) { return "111001111001111" }
+        if (d == 4) { return "101101111001001" }
+        if (d == 5) { return "111100111001111" }
+        if (d == 6) { return "111100111101111" }
+        if (d == 7) { return "111001010010010" }
+        if (d == 8) { return "111101111101111" }
+        if (d == 9) { return "111101111001111" }
+        return "000000000000000"
+    }
+
+    fn drawDigit:void (x:int y:int scale:int d:int r:int g:int b:int) {
+        def bits:string (this.digitBits(d))
+        def row 0
+        while (row < 5) {
+            def col 0
+            while (col < 3) {
+                def idx ((row * 3) + col)
+                def ch:string (substring bits idx (idx + 1))
+                if (ch == "1") {
+                    canvas.fillRect((x + (col * scale)) (y + (row * scale)) scale scale r g b)
+                }
+                col = (col + 1)
+            }
+            row = (row + 1)
+        }
+    }
+
+    fn drawNumber:void (x:int y:int scale:int n:int r:int g:int b:int) {
+        ; collect digits (least-significant first)
+        def ds:[int]
+        def m n
+        if (m <= 0) {
+            push ds 0
+        } {
+            while (m > 0) {
+                push ds (m % 10)
+                m = (to_int (m / 10))
+            }
+        }
+        def cnt (array_length ds)
+        def j 0
+        def step ((scale * 3) + scale)
+        while (j < cnt) {
+            def d:int (itemAt ds (cnt - 1 - j))
+            this.drawDigit((x + (j * step)) y scale d r g b)
+            j = (j + 1)
+        }
+    }
+}

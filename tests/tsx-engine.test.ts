@@ -1,0 +1,28 @@
+import { describe, it, expect } from "vitest";
+import { compileAndRun } from "./helpers/compiler";
+
+describe("TSX engine - ComponentEngine regressions", () => {
+  it("executes while loops and reads module-level const from functions", () => {
+    const { compile, run } = compileAndRun(
+      "gallery/game_engine/scripting/tsx_engine_demo.rgr"
+    );
+
+    expect(
+      compile.success,
+      `Compile failed: ${compile.error || compile.output}`
+    ).toBe(true);
+    expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+
+    const out = run?.output || "";
+    expect(out).toContain("whileLen=15");
+    expect(out).toContain("constSum=20");
+    expect(out).toContain("computed=15");
+    expect(out).toContain("arrLen=3");
+    expect(out).toContain("arrFirst=..XXX..");
+    expect(out).toContain("objSum=60");
+    expect(out).toContain("whileConst=15");
+    expect(out).toContain("memberAssign=19");
+    expect(out).toContain("helperSide=1");
+    expect(out).toContain("tsx-engine-demo done");
+  });
+});

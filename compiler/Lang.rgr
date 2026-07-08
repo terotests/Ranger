@@ -2123,7 +2123,7 @@ case class customException(smth:String)  extends Exception
                 php ( "trim(" (e 1 ) ")")
                 cpp ( "r_cpp_trim( " (e 1) ")" (imp "<cctype>") (imp "<string>") (imp "<algorithm>")
 (create_polyfill "
-inline std::string  r_cpp_trim(std::string &s) 
+inline std::string  r_cpp_trim(const std::string &s) 
 {
    auto wsfront=std::find_if_not(s.begin(),s.end(),[](int c){return std::isspace(c);});
    auto wsback=std::find_if_not(s.rbegin(),s.rend(),[](int c){return std::isspace(c);}).base();
@@ -5007,6 +5007,20 @@ fun r_read_key(): String {
                 swift6 ((e 1) ".lowercased()")
                 scala ((e 1) ".toLowerCase()")
                 python ((e 1) ".lower()")
+                cpp (
+                    "r_cpp_str_to_lowercase(" (e 1) ")"
+                        (imp "<algorithm>")
+                        (imp "<string>")
+(create_polyfill "
+std::string r_cpp_str_to_lowercase(std::string original)
+{
+    std::string str = original;
+    std::transform(str.begin(), str.end(), str.begin(), ::tolower);
+    return str;
+}
+    ")
+
+                    )
             }
         }
         to_uppercase _:string (s:string) {

@@ -70,10 +70,16 @@ static int rgfx_poll_mask() {
     if (ks[SDL_SCANCODE_S] || ks[SDL_SCANCODE_DOWN]) { m |= 2; }
     if (ks[SDL_SCANCODE_SPACE])                      { m |= 4; }
     if (ks[SDL_SCANCODE_Q])                          { m |= 8; }
+    if (ks[SDL_SCANCODE_A] || ks[SDL_SCANCODE_LEFT])  { m |= 16; }
+    if (ks[SDL_SCANCODE_D] || ks[SDL_SCANCODE_RIGHT]) { m |= 32; }
     return m;
 }
 static int rgfx_should_close() { return g_rgfx_should_close; }
 static void rgfx_delay(int ms) { SDL_Delay((Uint32) ms); }
+static uint32_t rgfx_ticks_ms() { return SDL_GetTicks(); }
+static void rgfx_set_title(const std::string& title) {
+    if (g_rgfx_win != nullptr) { SDL_SetWindowTitle(g_rgfx_win, title.c_str()); }
+}
 static void rgfx_close() {
     if (g_rgfx_tex) { SDL_DestroyTexture(g_rgfx_tex); g_rgfx_tex = nullptr; }
     if (g_rgfx_ren) { SDL_DestroyRenderer(g_rgfx_ren); g_rgfx_ren = nullptr; }
@@ -95,7 +101,7 @@ static void rgfx_close() {
     }
 
     ; Pump events and return a bitmask of currently-pressed buttons:
-    ;   1 = up, 2 = down, 4 = action, 8 = quit
+    ;   1 = up, 2 = down, 4 = action, 8 = quit, 16 = left, 32 = right
     gfx_poll_mask _:int () {
         templates {
             cpp ( "rgfx_poll_mask()" (imp "<SDL2/SDL.h>") )
@@ -115,6 +121,22 @@ static void rgfx_close() {
     gfx_delay _:void (ms:int) {
         templates {
             cpp ( "rgfx_delay(" (e 1) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Milliseconds since SDL_Init (wall clock for FPS).
+    gfx_ticks_ms _:int () {
+        templates {
+            cpp ( "(int) rgfx_ticks_ms()" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+
+    ; Update the window title (e.g. append live FPS).
+    gfx_set_title _:void (title:string) {
+        templates {
+            cpp ( "rgfx_set_title(" (e 1) ")" (imp "<SDL2/SDL.h>") (imp "<string>") )
             es6 ( "undefined" )
         }
     }

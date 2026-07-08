@@ -31,6 +31,8 @@ class EvalContext {
     def variables:[string]
     def values:[EvalValue]
     def parent@(optional):EvalContext
+    ; Root module scope for this script (propagated to child scopes).
+    def moduleRoot@(optional):EvalContext
     
     Constructor () {
         def v:[string]
@@ -63,12 +65,19 @@ class EvalContext {
             }
             i = i + 1
         }
-        ; Check parent scope
+        ; Check parent scope (function locals -> outer -> … -> module root)
         if parent {
             def p:EvalContext (unwrap parent)
             return (p.lookup(name))
         }
         return (EvalValue.null())
+    }
+    
+    fn moduleScope:EvalContext () {
+        if moduleRoot {
+            return (unwrap moduleRoot)
+        }
+        return this
     }
     
     fn has:boolean (name:string) {
@@ -86,10 +95,16 @@ class EvalContext {
         return false
     }
     
-    ; Create child context (for function calls)
+    ; Create child context (for function calls). Inherits moduleRoot so nested
+    ; functions always resolve module-level const/let/array/object bindings.
     fn createChild:EvalContext () {
         def child (new EvalContext())
         child.parent = this
+        if moduleRoot {
+            child.moduleRoot = moduleRoot
+        } {
+            child.moduleRoot = this
+        }
         return child
     }
 }
@@ -123,9 +138,29 @@ class ComponentEngine {
     
     ; Evaluation context
     def context:EvalContext
+    ; Host-injected globals (registerGlobal) — survives loadScript resets.
+    def hostScope:EvalContext
+    ; Top-level script bindings (const/let/functions) — reset per loadScript.
+    def moduleScope:EvalContext
     
     ; Primitive EVG elements (not components)
     def primitives:[string]
+
+    ; Value-returning control flow: set when a `return` executes while running a
+    ; statement list, so returns inside if/else and nested blocks propagate the
+    ; returned value out of the function (not just JSX). Saved/restored per
+    ; function body so nested calls are reentrancy-safe.
+    def scriptDidReturn:boolean false
+    def scriptReturnValue:EvalValue (EvalValue.null())
+
+    ; When true, suppress verbose evaluation trace (game scripts, tests).
+    def quiet:boolean false
+    
+    fn trace:void (msg:string) {
+        if (quiet == false) {
+            print msg
+        }
+    }
     
     Constructor () {
         def p:TSParserSimple (new TSParserSimple())
@@ -137,8 +172,14 @@ class ComponentEngine {
         localComponents = loc
         def lf:[string]
         loadedFiles = lf
-        def ctx:EvalContext (new EvalContext())
-        context = ctx
+        def host:EvalContext (new EvalContext())
+        host.moduleRoot = host
+        hostScope = host
+        def mod:EvalContext (new EvalContext())
+        mod.parent = hostScope
+        mod.moduleRoot = mod
+        moduleScope = mod
+        context = mod
         def prim:[string]
         primitives = prim
         def ap:[string]
@@ -263,7 +304,90 @@ class ComponentEngine {
         ; 5. Evaluate render function and return EVG tree
         return (this.evaluateFunction(renderFn))
     }
-    
+
+    ; ==========================================================================
+    ; Scripting API (game engine / host integration)
+    ; --------------------------------------------------------------------------
+    ; These let a Ranger host inject globals into the evaluation namespace and
+    ; drive a loaded script by calling its functions - the foundation for a
+    ; script-driven game screen layer (see gallery/game_engine/scripting).
+    ; ==========================================================================
+
+    ; Inject a global binding (object/function/value) into the top-level scope
+    ; so evaluated scripts can reference it by name, e.g. registerGlobal("game",
+    ; EvalValue.object(...)) exposes `game` to the script.
+    fn registerGlobal:void (name:string value:EvalValue) {
+        hostScope.define(name value)
+    }
+
+    ; Bind a name at module scope (top-level const/let/function).
+    fn defineModuleBinding:void (name:string value:EvalValue) {
+        moduleScope.define(name value)
+    }
+
+    ; Convenience: read back a registered / script-defined global by name.
+    fn getGlobal:EvalValue (name:string) {
+        def v:EvalValue (context.lookup(name))
+        if (false == (v.isNull())) {
+            return v
+        }
+        return (hostScope.lookup(name))
+    }
+
+    ; Parse a script and register its imports, components/functions and
+    ; top-level variables WITHOUT requiring or evaluating a render() function.
+    ; After this, callFunction()/callRender() can invoke the script's functions.
+    fn loadScript:void (src:string) {
+        source = src
+        def lexer (new TSLexer(src))
+        def tokens:[Token] (lexer.tokenize())
+        parser.initParser(tokens)
+        parser.tsxMode = true
+        def ast:TSNode (parser.parseProgram())
+        ; Fresh module scope for this script; hostScope (registerGlobal) is kept.
+        def scope:EvalContext (new EvalContext())
+        scope.parent = hostScope
+        scope.moduleRoot = scope
+        moduleScope = scope
+        context = scope
+        this.processImports(ast)
+        ; Functions first so const initializers may call helpers.
+        this.registerComponents(ast)
+        this.processVariables(ast)
+    }
+
+    ; Call a script function by name, passing a single props/state object (React
+    ; style: params are bound from the object's members / a destructured
+    ; pattern). Returns the function's value (object/array/primitive). Unknown or
+    ; non-function names return null.
+    fn callFunction:EvalValue (name:string props:EvalValue) {
+        def fnValue:EvalValue (context.lookup(name))
+        if (false == (fnValue.isFunction())) {
+            return (EvalValue.null())
+        }
+        if (null? fnValue.functionNode) {
+            return (EvalValue.null())
+        }
+        def fnNode:TSNode (unwrap fnValue.functionNode)
+        return (this.evaluateFunctionCall(fnNode props))
+    }
+
+    ; Call a script function by name and evaluate its returned JSX into an EVG
+    ; element tree (for screen render functions).
+    fn callRender:EVGElement (name:string props:EvalValue) {
+        def fnValue:EvalValue (context.lookup(name))
+        if (false == (fnValue.isFunction())) {
+            def empty (new EVGElement())
+            return empty
+        }
+        if (null? fnValue.functionNode) {
+            def empty2 (new EVGElement())
+            return empty2
+        }
+        def fnNode:TSNode (unwrap fnValue.functionNode)
+        return (this.evaluateFunctionWithProps(fnNode props))
+    }
+
     ; ==========================================================================
     ; Component Registration
     ; ==========================================================================
@@ -463,26 +587,41 @@ class ComponentEngine {
         def i:int 0
         while (i < (array_length ast.children)) {
             def node:TSNode (itemAt ast.children i)
-            
-            if (node.nodeType == "FunctionDeclaration") {
-                ; Skip render function
-                if (node.name != "render") {
-                    def sym (new ImportedSymbol())
-                    sym.name = node.name
-                    sym.originalName = node.name
-                    sym.symbolType = "component"
-                    sym.functionNode = node
-                    push localComponents sym
-                    
-                    ; Also register in context as callable function
-                    context.define(node.name (EvalValue.function(node)))
-                    
-                    print ("Registered local component: " + node.name)
-                }
-            }
-            
+            this.registerTopLevelNode(node)
             i = i + 1
         }
+    }
+    
+    fn registerTopLevelNode:void (node:TSNode) {
+        if (node.nodeType == "FunctionDeclaration") {
+            this.registerFunctionDeclaration(node)
+            return
+        }
+        if (node.nodeType == "ExportNamedDeclaration") {
+            if node.left {
+                this.registerTopLevelNode((unwrap node.left))
+            }
+            return
+        }
+        if (node.nodeType == "ExportDefaultDeclaration") {
+            if node.left {
+                this.registerTopLevelNode((unwrap node.left))
+            }
+        }
+    }
+    
+    fn registerFunctionDeclaration:void (node:TSNode) {
+        if (node.name == "render") {
+            return
+        }
+        def sym (new ImportedSymbol())
+        sym.name = node.name
+        sym.originalName = node.name
+        sym.symbolType = "component"
+        sym.functionNode = node
+        push localComponents sym
+        this.defineModuleBinding(node.name (EvalValue.function(node)))
+        this.trace("Registered local component: " + node.name)
     }
     
     fn findRenderFunction:TSNode (ast:TSNode) {
@@ -510,11 +649,47 @@ class ComponentEngine {
         def i:int 0
         while (i < (array_length ast.children)) {
             def node:TSNode (itemAt ast.children i)
-            if (node.nodeType == "VariableDeclaration") {
-                this.processVariableDeclaration(node)
+            this.processTopLevelVarNode(node)
+            i = i + 1
+        }
+    }
+    
+    fn processTopLevelVarNode:void (node:TSNode) {
+        if (node.nodeType == "VariableDeclaration") {
+            this.processModuleVariableDeclaration(node)
+            return
+        }
+        if (node.nodeType == "ExportNamedDeclaration") {
+            if node.left {
+                this.processTopLevelVarNode((unwrap node.left))
+            }
+            return
+        }
+        if (node.nodeType == "ExportDefaultDeclaration") {
+            if node.left {
+                this.processTopLevelVarNode((unwrap node.left))
+            }
+        }
+    }
+    
+    fn processModuleVariableDeclaration:void (node:TSNode) {
+        def saved:EvalContext context
+        context = moduleScope
+        def i:int 0
+        while (i < (array_length node.children)) {
+            def decl:TSNode (itemAt node.children i)
+            if (decl.nodeType == "VariableDeclarator") {
+                def varName:string decl.name
+                if decl.init {
+                    def initNode:TSNode (unwrap decl.init)
+                    def value:EvalValue (this.evaluateExpr(initNode))
+                    moduleScope.define(varName value)
+                    this.trace("Defined module binding: " + varName + " = " + (value.toString()))
+                }
             }
             i = i + 1
         }
+        context = saved
     }
     
     fn processVariableDeclaration:void (node:TSNode) {
@@ -527,7 +702,7 @@ class ComponentEngine {
                     def initNode:TSNode (unwrap decl.init)
                     def value:EvalValue (this.evaluateExpr(initNode))
                     context.define(varName value)
-                    print ("Defined variable: " + varName + " = " + (value.toString()))
+                    this.trace("Defined variable: " + varName + " = " + (value.toString()))
                 }
             }
             i = i + 1
@@ -574,8 +749,15 @@ class ComponentEngine {
     ; Evaluate a function call and return the result as EvalValue
     ; This supports functions that return arrays, not just JSX elements
     fn evaluateFunctionCall:EvalValue (fnNode:TSNode props:EvalValue) {
-        ; Create new context for function scope
+        ; Nested calls (e.g. countAlive() in an if condition) must not leave
+        ; scriptDidReturn set — that would skip the rest of the caller body.
         def savedContext:EvalContext context
+        def savedDidReturn:boolean scriptDidReturn
+        def savedReturnValue:EvalValue scriptReturnValue
+        savedDidReturn = scriptDidReturn
+        savedReturnValue = scriptReturnValue
+        scriptDidReturn = false
+        scriptReturnValue = (EvalValue.null())
         context = (context.createChild())
         
         ; Process function parameters and bind props (if any)
@@ -588,8 +770,10 @@ class ComponentEngine {
         def body:TSNode (this.getFunctionBody(fnNode))
         def result:EvalValue (this.evaluateFunctionBodyValue(body))
         
-        ; Restore context
+        ; Restore caller context and return flags
         context = savedContext
+        scriptDidReturn = savedDidReturn
+        scriptReturnValue = savedReturnValue
         
         return result
     }
@@ -688,6 +872,14 @@ class ComponentEngine {
                 }
             }
             
+            ; Process while loop
+            if (stmt.nodeType == "WhileStatement") {
+                def whileResult:EVGElement (this.evaluateWhileStatement(stmt))
+                if whileResult.hasReturn {
+                    return whileResult
+                }
+            }
+            
             ; Process expression statement (e.g., arr.push(x))
             if (stmt.nodeType == "ExpressionStatement") {
                 if stmt.left {
@@ -718,12 +910,24 @@ class ComponentEngine {
     ; Evaluate function body and return result as EvalValue (not EVGElement)
     ; This allows functions to return arrays, primitives, etc.
     fn evaluateFunctionBodyValue:EvalValue (body:TSNode) {
-        ; Process statements
+        ; Value-returning control flow: a `return` inside an if/else or nested
+        ; block propagates its value out of the function. Save/restore the flags
+        ; so nested function calls during evaluation stay reentrancy-safe.
+        if (body.nodeType == "BlockStatement") {
+            def savedDidReturn:boolean scriptDidReturn
+            def savedReturnValue:EvalValue scriptReturnValue
+            scriptDidReturn = false
+            scriptReturnValue = (EvalValue.null())
+            this.runStatementList(body.children)
+            def blockOut:EvalValue scriptReturnValue
+            scriptDidReturn = savedDidReturn
+            scriptReturnValue = savedReturnValue
+            return blockOut
+        }
+        ; Non-block (arrow expression) bodies fall through to the tail below.
         def i:int 0
-        print "evaluateFunctionBodyValue: body has " + (to_string (array_length body.children)) + " children"
         while (i < (array_length body.children)) {
             def stmt:TSNode (itemAt body.children i)
-            print "  Statement " + (to_string i) + ": " + stmt.nodeType
             
             ; Process variable declarations
             if (stmt.nodeType == "VariableDeclaration") {
@@ -741,20 +945,17 @@ class ComponentEngine {
             
             ; Process for loop
             if (stmt.nodeType == "ForStatement") {
-                def forResult:EVGElement (this.evaluateForStatement(stmt))
-                ; Check if loop returned early (though we continue processing)
-                if forResult.hasReturn {
-                    ; For now, continue - loops with early returns need special handling
-                }
+                this.runForStatementValue(stmt)
             }
             
             ; Process for...of loop
             if (stmt.nodeType == "ForOfStatement") {
-                def forOfResult:EVGElement (this.evaluateForOfStatement(stmt))
-                ; Check if loop returned early
-                if forOfResult.hasReturn {
-                    ; For now, continue
-                }
+                this.runForOfStatementValue(stmt)
+            }
+            
+            ; Process while loop
+            if (stmt.nodeType == "WhileStatement") {
+                this.runWhileStatementValue(stmt)
             }
             
             ; Process expression statement (e.g., arr.push(x))
@@ -795,6 +996,105 @@ class ComponentEngine {
     ; If Statement Evaluation
     ; ==========================================================================
     
+    ; Void wrappers: assigning loop results to an unused local is dead-code-
+    ; eliminated by clang++ (while/for become no-ops in native game_sdl).
+    fn runForStatementValue:void (stmt:TSNode) {
+        this.evaluateForStatement(stmt)
+    }
+    fn runForOfStatementValue:void (stmt:TSNode) {
+        this.evaluateForOfStatement(stmt)
+    }
+    fn runWhileStatementValue:void (stmt:TSNode) {
+        this.evaluateWhileStatement(stmt)
+    }
+    
+    ; --------------------------------------------------------------------------
+    ; Value-returning statement execution (used by evaluateFunctionBodyValue).
+    ; A `return` anywhere - including inside if/else and nested blocks - sets
+    ; scriptReturnValue and halts execution, so script control flow (e.g. a game
+    ; reducer's onButton) returns the correct value.
+    ; --------------------------------------------------------------------------
+    fn runStatementList:void (stmts:[TSNode]) {
+        def i:int 0
+        while (i < (array_length stmts)) {
+            if scriptDidReturn {
+                return
+            }
+            this.runStatementValue((itemAt stmts i))
+            i = i + 1
+        }
+    }
+
+    fn runStatementValue:void (stmt:TSNode) {
+        if scriptDidReturn {
+            return
+        }
+        if (stmt.nodeType == "ReturnStatement") {
+            if stmt.left {
+                scriptReturnValue = (this.evaluateExpr((unwrap stmt.left)))
+            } {
+                scriptReturnValue = (EvalValue.null())
+            }
+            scriptDidReturn = true
+            return
+        }
+        if (stmt.nodeType == "VariableDeclaration") {
+            this.processVariableDeclaration(stmt)
+            return
+        }
+        if (stmt.nodeType == "ExpressionStatement") {
+            if stmt.left {
+                this.evaluateExprForSideEffect((unwrap stmt.left))
+            }
+            return
+        }
+        if (stmt.nodeType == "IfStatement") {
+            this.runIfValue(stmt)
+            return
+        }
+        if (stmt.nodeType == "BlockStatement") {
+            this.runStatementList(stmt.children)
+            return
+        }
+        ; Loops run for side effects; value-returns from inside a loop are not
+        ; propagated (uncommon in screen/reducer scripts).
+        if (stmt.nodeType == "ForStatement") {
+            this.runForStatementValue(stmt)
+            return
+        }
+        if (stmt.nodeType == "ForOfStatement") {
+            this.runForOfStatementValue(stmt)
+            return
+        }
+        if (stmt.nodeType == "WhileStatement") {
+            this.runWhileStatementValue(stmt)
+            return
+        }
+    }
+
+    fn runIfValue:void (node:TSNode) {
+        if node.left {
+            def cond:EvalValue (this.evaluateExpr((unwrap node.left)))
+            if (cond.toBool()) {
+                if node.body {
+                    this.runBlockOrStatement((unwrap node.body))
+                }
+            } {
+                if node.right {
+                    this.runBlockOrStatement((unwrap node.right))
+                }
+            }
+        }
+    }
+
+    fn runBlockOrStatement:void (blk:TSNode) {
+        if (blk.nodeType == "BlockStatement") {
+            this.runStatementList(blk.children)
+        } {
+            this.runStatementValue(blk)
+        }
+    }
+
     ; Evaluates an if statement
     ; Returns EVGElement with hasReturn flag set if a return was executed
     fn evaluateIfStatement:EVGElement (node:TSNode) {
@@ -881,6 +1181,13 @@ class ComponentEngine {
                     }
                 }
                 
+                if (stmt.nodeType == "WhileStatement") {
+                    def whileResult:EVGElement (this.evaluateWhileStatement(stmt))
+                    if whileResult.hasReturn {
+                        return whileResult
+                    }
+                }
+                
                 if (stmt.nodeType == "ExpressionStatement") {
                     if stmt.left {
                         def exprNode:TSNode (unwrap stmt.left)
@@ -922,7 +1229,7 @@ class ComponentEngine {
         }
     }
     
-    ; Evaluates a call expression for side effects (e.g., arr.push(x))
+    ; Evaluates a call expression for side effects (e.g., arr.push(x), placeShip(...))
     fn evaluateCallExprForSideEffect:void (node:TSNode) {
         ; Check if it's a method call: arr.push(x)
         if node.left {
@@ -948,11 +1255,14 @@ class ComponentEngine {
                                 ; Update the context (in case of reassignment)
                                 context.define(objName objValue)
                             }
+                            return
                         }
                     }
                 }
             }
         }
+        ; Plain function-call statements (helpers that mutate objects passed in).
+        this.evaluateCallExpr(node)
     }
     
     ; ==========================================================================
@@ -965,12 +1275,12 @@ class ComponentEngine {
         def result (new EVGElement())
         result.hasReturn = false
         
-        print "evaluateForStatement called"
+        this.trace("evaluateForStatement called")
         
         ; Process init (usually VariableDeclaration)
         if node.init {
             def initNode:TSNode (unwrap node.init)
-            print "For init nodeType: " + initNode.nodeType
+            this.trace("For init nodeType: " + initNode.nodeType)
             if (initNode.nodeType == "VariableDeclaration") {
                 this.processVariableDeclaration(initNode)
             }
@@ -1060,6 +1370,40 @@ class ComponentEngine {
         return result
     }
     
+    ; Evaluates a while statement: while (test) body
+    ; Returns EVGElement with hasReturn flag set if a return was executed
+    fn evaluateWhileStatement:EVGElement (node:TSNode) {
+        def result (new EVGElement())
+        result.hasReturn = false
+        
+        def maxIterations:int 100000  ; Safety limit
+        def iterations:int 0
+        
+        while (iterations < maxIterations) {
+            if node.left {
+                def testNode:TSNode (unwrap node.left)
+                def testResult:EvalValue (this.evaluateExpr(testNode))
+                if ((testResult.toBool()) == false) {
+                    return result
+                }
+            } {
+                return result
+            }
+            
+            if node.body {
+                def bodyNode:TSNode (unwrap node.body)
+                def bodyResult:EVGElement (this.evaluateStatementBlock(bodyNode))
+                if bodyResult.hasReturn {
+                    return bodyResult
+                }
+            }
+            
+            iterations = iterations + 1
+        }
+        
+        return result
+    }
+    
     ; Evaluates update expressions like i++, i += 1, etc.
     fn evaluateUpdateExpr:void (node:TSNode) {
         if (node.nodeType == "UpdateExpression") {
@@ -1082,7 +1426,7 @@ class ComponentEngine {
         }
         
         if (node.nodeType == "AssignmentExpression") {
-            ; i += 1, i = i + 1, etc.
+            ; i += 1, i = i + 1, obj.prop = v, arr[i] = v, etc.
             if node.left {
                 def leftNode:TSNode (unwrap node.left)
                 if (leftNode.nodeType == "Identifier") {
@@ -1119,6 +1463,43 @@ class ComponentEngine {
                             def rightNum:double (rightValue.toNumber())
                             if (rightNum != 0.0) {
                                 context.define(varName (EvalValue.number((current.toNumber()) / rightNum)))
+                            }
+                        }
+                    }
+                }
+                if (leftNode.nodeType == "MemberExpression") {
+                    def op:string node.value
+                    if (op == "=") {
+                        if node.right {
+                            def rightNode:TSNode (unwrap node.right)
+                            def rightValue:EvalValue (this.evaluateExpr(rightNode))
+                            def obj:EvalValue (EvalValue.null())
+                            def objName:string ""
+                            if leftNode.left {
+                                def objNode:TSNode (unwrap leftNode.left)
+                                if (objNode.nodeType == "Identifier") {
+                                    objName = objNode.name
+                                    obj = (context.lookup(objName))
+                                } {
+                                    obj = (this.evaluateExpr(objNode))
+                                }
+                            }
+                            if leftNode.computed {
+                                if leftNode.right {
+                                    def indexExpr:TSNode (unwrap leftNode.right)
+                                    def indexVal:EvalValue (this.evaluateExpr(indexExpr))
+                                    if (indexVal.isNumber()) {
+                                        obj.setIndexAt((to_int (indexVal.toNumber())) rightValue)
+                                    }
+                                    if (indexVal.isString()) {
+                                        obj.setMember(indexVal.stringValue rightValue)
+                                    }
+                                }
+                            } {
+                                obj.setMember(leftNode.name rightValue)
+                            }
+                            if ((strlen objName) > 0) {
+                                context.define(objName obj)
                             }
                         }
                     }
@@ -1933,7 +2314,7 @@ class ComponentEngine {
                     }
                 }
                 
-                print "Method call: " + methodName + " on value type=" + (to_string obj.valueType)
+                this.trace("Method call: " + methodName + " on value type=" + (to_string obj.valueType))
                 
                 ; Handle Number methods
                 if (methodName == "toFixed") {
@@ -2150,7 +2531,7 @@ class ComponentEngine {
             ; Handle regular function calls
             if (callee.nodeType == "Identifier") {
                 def fnName:string callee.name
-                print "Evaluating function call: " + fnName
+                this.trace("Evaluating function call: " + fnName)
                 
                 ; ============================================================
                 ; Handle built-in hooks
@@ -2163,30 +2544,35 @@ class ComponentEngine {
                     def srcArg:string ""
                     if ((array_length node.children) > 0) {
                         def argNode:TSNode (itemAt node.children 0)
-                        print "useImage arg nodeType: " + argNode.nodeType
+                        this.trace("useImage arg nodeType: " + argNode.nodeType)
                         def argValue:EvalValue (this.evaluateExpr(argNode))
-                        print "useImage arg value: " + (argValue.toString()) + " type=" + (to_string argValue.valueType)
+                        this.trace("useImage arg value: " + (argValue.toString()) + " type=" + (to_string argValue.valueType))
                         srcArg = argValue.stringValue
-                        print "useImage srcArg: " + srcArg
+                        this.trace("useImage srcArg: " + srcArg)
                     }
                     return (this.evaluateUseImage(srcArg))
                 }
                 
                 ; Look up the function in context
                 def fnValue:EvalValue (context.lookup(fnName))
-                print "Lookup function '" + fnName + "' -> type=" + (to_string fnValue.valueType) + " isFunction=" + (to_string (fnValue.isFunction()))
+                this.trace("Lookup function '" + fnName + "' -> type=" + (to_string fnValue.valueType) + " isFunction=" + (to_string (fnValue.isFunction())))
                 if (fnValue.isFunction()) {
                     if fnValue.functionNode {
                         def fnNode:TSNode (unwrap fnValue.functionNode)
                         
-                        ; Create new context for function scope
                         def savedContext:EvalContext context
+                        def savedDidReturn:boolean scriptDidReturn
+                        def savedReturnValue:EvalValue scriptReturnValue
+                        savedDidReturn = scriptDidReturn
+                        savedReturnValue = scriptReturnValue
+                        scriptDidReturn = false
+                        scriptReturnValue = (EvalValue.null())
                         context = (context.createChild())
                         
                         ; Bind function arguments to parameters
                         def numArgs:int (array_length node.children)
                         def numParams:int (array_length fnNode.params)
-                        print "Function " + fnName + " called with " + (to_string numArgs) + " args, has " + (to_string numParams) + " params"
+                        this.trace("Function " + fnName + " called with " + (to_string numArgs) + " args, has " + (to_string numParams) + " params")
                         
                         def argIdx:int 0
                         while (argIdx < numParams) {
@@ -2198,7 +2584,7 @@ class ComponentEngine {
                                 ; Get the parameter name
                                 def paramNode:TSNode (itemAt fnNode.params argIdx)
                                 def paramName:string paramNode.name
-                                print "Binding param '" + paramName + "' = " + (argValue.toString())
+                                this.trace("Binding param '" + paramName + "' = " + (argValue.toString()))
                                 
                                 ; Define the parameter in the new context
                                 context.define(paramName argValue)
@@ -2210,8 +2596,9 @@ class ComponentEngine {
                         def body:TSNode (this.getFunctionBody(fnNode))
                         def result:EvalValue (this.evaluateFunctionBodyValue(body))
                         
-                        ; Restore context
                         context = savedContext
+                        scriptDidReturn = savedDidReturn
+                        scriptReturnValue = savedReturnValue
                         
                         return result
                     }
@@ -2370,17 +2757,15 @@ class ComponentEngine {
             def obj:EvalValue (this.evaluateExpr(leftExpr))
             def propName:string node.name
             
-            print ("evaluateMemberExpr: propName=" + propName + " computed=" + (to_string node.computed) + " obj.type=" + (to_string obj.valueType))
-            
             ; Check for computed access [index]
             if node.computed {
                 if node.right {
                     def indexExpr:TSNode (unwrap node.right)
                     def indexVal:EvalValue (this.evaluateExpr(indexExpr))
-                    print ("  Index value: " + (indexVal.toString()) + " type=" + (to_string indexVal.valueType))
+                    this.trace("  Index value: " + (indexVal.toString()) + " type=" + (to_string indexVal.valueType))
                     if (indexVal.isNumber()) {
                         def idx:int (to_int (indexVal.toNumber()))
-                        print ("  Getting index " + (to_string idx) + " from array of length " + (to_string (array_length obj.arrayValue)))
+                        this.trace("  Getting index " + (to_string idx) + " from array of length " + (to_string (array_length obj.arrayValue)))
                         return (obj.getIndex(idx))
                     }
                     if (indexVal.isString()) {

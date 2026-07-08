@@ -347,8 +347,28 @@ class RangerCppClassWriter {
         wr.out("" false)
       }
       this.writeTypeDef((unwrap p.nameNode) ctx wr)
-      ; Add reference if static analysis determined this variable needs it
-      if p.needs_cpp_reference {
+      ; Only member-alias locals need C++ &. Exclude new/fn-call inits (is_assigned_from_member
+      ; false-positives on (new T) and (fn arg) AST shapes).
+      def useCppRef:boolean (p.needs_cpp_reference && p.is_assigned_from_member)
+      if ((array_length node.children) > 2) {
+        def initNode:CodeNode (node.getThird())
+        if initNode.hasNewOper {
+          useCppRef = false
+        }
+        if initNode.hasFnCall {
+          useCppRef = false
+        }
+        if initNode.has_call {
+          useCppRef = false
+        }
+        if (!null? p.nameNode) {
+          def typeNode:CodeNode (unwrap p.nameNode)
+          if ((typeNode.type_name == "buffer") || (typeNode.type_name == "int_buffer") || (typeNode.type_name == "double_buffer")) {
+            useCppRef = false
+          }
+        }
+      }
+      if useCppRef {
         wr.out("&" false)
       }
       wr.out(" " false)
@@ -680,9 +700,25 @@ class RangerCppClassWriter {
       }
       wr.out(" " false)
       this.writeTypeDef( (unwrap arg.nameNode) ctx wr)
-      ; Add reference if static analysis determined this parameter needs it
+      ; Add reference for container params that are mutated. Object types use shared_ptr
+      ; and should be passed by value — mutation goes through operator->.
       if arg.needs_cpp_reference {
-        wr.out("&" false)
+        def emitRef:boolean true
+        if (!null? arg.nameNode) {
+          def typeNode:CodeNode (unwrap arg.nameNode)
+          def v_type:RangerNodeType typeNode.value_type
+          if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef)) {
+            emitRef = false
+          }
+          if ((strlen typeNode.type_name) > 0) {
+            if (ctx.isDefinedClass(typeNode.type_name)) {
+              emitRef = false
+            }
+          }
+        }
+        if emitRef {
+          wr.out("&" false)
+        }
       }
       wr.out(((" " + arg.compiledName) + " ") false)
     }

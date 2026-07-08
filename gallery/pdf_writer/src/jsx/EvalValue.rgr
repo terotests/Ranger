@@ -266,6 +266,54 @@ class EvalValue {
         return (EvalValue.null())
     }
     
+    ; Set or replace an object property (mutates in place).
+    fn setMember:void (key:string value:EvalValue) {
+        if (valueType != 5) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length objectKeys)) {
+            if ((itemAt objectKeys i) == key) {
+                def newVals:[EvalValue]
+                def j:int 0
+                while (j < (array_length objectValues)) {
+                    if (j == i) {
+                        push newVals value
+                    } {
+                        push newVals (itemAt objectValues j)
+                    }
+                    j = (j + 1)
+                }
+                objectValues = newVals
+                return
+            }
+            i = (i + 1)
+        }
+        push objectKeys key
+        push objectValues value
+    }
+    
+    ; Set an array element by index (extends with null when needed).
+    fn setIndexAt:void (index:int value:EvalValue) {
+        if (valueType != 4) {
+            return
+        }
+        while (index >= (array_length arrayValue)) {
+            push arrayValue (EvalValue.null())
+        }
+        def newArr:[EvalValue]
+        def i:int 0
+        while (i < (array_length arrayValue)) {
+            if (i == index) {
+                push newArr value
+            } {
+                push newArr (itemAt arrayValue i)
+            }
+            i = (i + 1)
+        }
+        arrayValue = newArr
+    }
+    
     ; Array index access
     fn getIndex:EvalValue (index:int) {
         if (valueType == 4) {
