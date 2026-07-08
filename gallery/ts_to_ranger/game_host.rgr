@@ -14,7 +14,12 @@
 ; This file is native Ranger. The interpreter path fills these structs from
 ; EvalValue; the static path fills them from generated code. Nothing here is
 ; game-specific.
+;
+; playSound events route to GameAudio (built-in synth ids) when audio is wired.
+; File-based sound resources are still registered for future loaders.
 ; ==============================================================================
+
+Import "../game_engine/scripting/game_audio.rgr"
 
 ; A declared engine resource. `kind` selects the registry.
 class ResourceDefNative {
@@ -47,6 +52,7 @@ class GameHost {
     def destroyRequests:[string]
     def eventCount:int 0
     def verbose:boolean false
+    def audio@(optional):GameAudio
 
     fn registerResource:void (r:ResourceDefNative) {
         if (r.kind == "image") {
@@ -83,6 +89,14 @@ class GameHost {
         eventCount = (eventCount + 1)
         if (e.kind == "playSound") {
             push soundsPlayed e.id
+            if audio {
+                def a:GameAudio (unwrap audio)
+                if (a.hasBuiltin(e.id)) {
+                    a.play(e.id)
+                } {
+                    if verbose { print ("[host] playSound (no builtin) " + e.id) }
+                }
+            }
             if verbose { print ("[host] playSound " + e.id) }
             return
         }

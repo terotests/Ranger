@@ -115,6 +115,32 @@ interface GameState {
   screen?: string;
   /** Per-screen frozen sub-state (multi-screen model). */
   screens?: object;
+  /** Transient per-frame events drained by the host (sounds, spawn, …). */
+  events?: GameEvent[];
+}
+
+/** Built-in synthetic sound ids (no file resources required). */
+type BuiltinSoundId =
+  | "blip"
+  | "brick"
+  | "bounce"
+  | "wall"
+  | "lose"
+  | "win";
+
+/** Transient event emitted from update() and drained by GameHost each frame. */
+interface GameEvent {
+  kind: string;
+  id: string;
+  x?: number;
+  y?: number;
+  amount?: number;
+}
+
+/** Convenience type for playSound events using built-in synth ids. */
+interface PlaySoundEvent extends GameEvent {
+  kind: "playSound";
+  id: BuiltinSoundId | string;
 }
 
 /**

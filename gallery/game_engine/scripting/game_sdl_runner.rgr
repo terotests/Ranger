@@ -23,6 +23,7 @@
 
 Import "./game_runtime.rgr"
 Import "../gfx_sdl.rgr"
+Import "./game_audio_sdl.rgr"
 
 class GameSdlRunner {
     def runner:GameRunner (new GameRunner)
@@ -72,6 +73,7 @@ class GameSdlRunner {
         def buf:buffer (buffer_read_file dir file)
         def src:string (buffer_to_string buf)
         runner.init(pw ph)
+        runner.audio.setSink((new SdlGameAudioSink))
         runner.setScriptDir(dir)
         runner.loadScript(src)
         runner.setupScene()
@@ -99,6 +101,7 @@ class GameSdlRunner {
         if (ok == 0) {
             print "gfx_open failed (no display?) - still rendering into the RGBA buffer"
         }
+        gfx_audio_open(22050)
         while (running) {
             runner.maybeHotReload()
             def now:int (gfx_ticks_ms)

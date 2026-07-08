@@ -32,10 +32,32 @@ operators {
 static SDL_Window*   g_rgfx_win = nullptr;
 static SDL_Renderer* g_rgfx_ren = nullptr;
 static SDL_Texture*  g_rgfx_tex = nullptr;
+static SDL_AudioDeviceID g_rgfx_audio = 0;
 static int g_rgfx_should_close = 0;
 
+static int rgfx_audio_open(int sampleRate) {
+    if (g_rgfx_audio != 0) { return 1; }
+    SDL_AudioSpec want, have;
+    SDL_zero(want);
+    want.freq = sampleRate > 0 ? sampleRate : 22050;
+    want.format = AUDIO_S16SYS;
+    want.channels = 1;
+    want.samples = 512;
+    want.callback = nullptr;
+    want.userdata = nullptr;
+    g_rgfx_audio = SDL_OpenAudioDevice(nullptr, 0, &want, &have, 0);
+    if (g_rgfx_audio == 0) { return 0; }
+    SDL_PauseAudioDevice(g_rgfx_audio, 0);
+    return 1;
+}
+static void rgfx_audio_queue(const uint8_t* pcm, int byteCount) {
+    if (g_rgfx_audio == 0) { return; }
+    if (pcm == nullptr || byteCount <= 0) { return; }
+    SDL_QueueAudio(g_rgfx_audio, pcm, (Uint32) byteCount);
+}
+
 static int rgfx_open(const std::string& title, int w, int h) {
-    if (SDL_Init(SDL_INIT_VIDEO) != 0) { return 0; }
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0) { return 0; }
     g_rgfx_win = SDL_CreateWindow(title.c_str(),
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, w, h, SDL_WINDOW_SHOWN);
     if (g_rgfx_win == nullptr) { return 0; }
@@ -81,6 +103,7 @@ static void rgfx_set_title(const std::string& title) {
     if (g_rgfx_win != nullptr) { SDL_SetWindowTitle(g_rgfx_win, title.c_str()); }
 }
 static void rgfx_close() {
+    if (g_rgfx_audio) { SDL_CloseAudioDevice(g_rgfx_audio); g_rgfx_audio = 0; }
     if (g_rgfx_tex) { SDL_DestroyTexture(g_rgfx_tex); g_rgfx_tex = nullptr; }
     if (g_rgfx_ren) { SDL_DestroyRenderer(g_rgfx_ren); g_rgfx_ren = nullptr; }
     if (g_rgfx_win) { SDL_DestroyWindow(g_rgfx_win); g_rgfx_win = nullptr; }
@@ -145,6 +168,22 @@ static void rgfx_close() {
     gfx_close _:void () {
         templates {
             cpp ( "rgfx_close()" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Open a mono S16 audio output device (call once after gfx_open).
+    gfx_audio_open _:int (sampleRate:int) {
+        templates {
+            cpp ( "rgfx_audio_open(" (e 1) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+
+    ; Queue raw PCM bytes (mono int16 little-endian) for playback.
+    gfx_audio_queue _:void (pcm:buffer byteCount:int) {
+        templates {
+            cpp ( "rgfx_audio_queue(" (e 1) ".data(), " (e 2) ")" (imp "<SDL2/SDL.h>") (imp "<cstdint>") )
             es6 ( "undefined" )
         }
     }

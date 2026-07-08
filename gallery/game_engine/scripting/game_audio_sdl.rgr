@@ -1,0 +1,12 @@
+; ==============================================================================
+; game_audio_sdl - SDL audio sink for GameAudio synth playback.
+; ==============================================================================
+
+Import "./game_audio.rgr"
+Import "../gfx_sdl.rgr"
+
+class SdlGameAudioSink extends GameAudioSink {
+    fn onSynthPlay:void (soundId:string sampleRate:int sampleCount:int pcm:buffer) {
+        gfx_audio_queue(pcm (sampleCount * 2))
+    }
+}

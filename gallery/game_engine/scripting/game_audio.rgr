@@ -1,0 +1,241 @@
+; ==============================================================================
+; game_audio - built-in synthetic sounds + host callback sink.
+; ==============================================================================
+;
+; No file-based resource management yet. Games emit { kind: "playSound", id }
+; events (or call GameAudio.play directly from the host). Built-in ids are
+; synthesised on demand as mono PCM and delivered to an optional sink callback
+; (SDL runner queues them; headless tests count plays).
+;
+; Built-in sound ids:
+;   blip, brick, bounce, wall, lose, win
+; ==============================================================================
+
+; Waveform selector for the tone generator.
+class SynthWave {
+    sfn sine:int () { return 0 }
+    sfn square:int () { return 1 }
+    sfn triangle:int () { return 2 }
+    sfn noise:int () { return 3 }
+}
+
+; Parameters for a single synthetic tone burst.
+class SynthToneSpec {
+    def freqHz:double 440.0
+    def durationMs:int 80
+    def volume:double 0.35
+    def wave:int 0
+    def slideHz:double 0.0        ; linear freq slide to this value over duration
+}
+
+; Host callback interface. Override onSynthPlay in a subclass (e.g. SDL sink).
+class GameAudioSink {
+    fn onSynthPlay:void (soundId:string sampleRate:int sampleCount:int pcm:buffer) {
+    }
+}
+
+class GameAudio {
+    def sampleRate:int 22050
+    def sink:GameAudioSink (new GameAudioSink)
+    def playCount:int 0
+    def lastId:string ""
+    def verbose:boolean false
+    def sineTable:[double]
+
+    fn init:void () {
+        sineTable = (this.buildSineTable())
+    }
+
+    fn buildSineTable:[double] () {
+        def table:[double]
+        def i 0
+        while (i < 64) {
+            def angle:double ((to_double i) / 64.0)
+            angle = (angle * 6.283185307)
+            ; Taylor-ish sine approximation (good enough for blips).
+            def x:double angle
+            def x3:double (x * x * x)
+            def x5:double (x3 * x * x)
+            def s:double (x - (x3 / 6.0) + (x5 / 120.0))
+            push table s
+            i = (i + 1)
+        }
+        return table
+    }
+
+    fn setSink:void (s:GameAudioSink) {
+        sink = s
+    }
+
+    fn hasBuiltin:boolean (id:string) {
+        if (id == "blip") { return true }
+        if (id == "brick") { return true }
+        if (id == "bounce") { return true }
+        if (id == "wall") { return true }
+        if (id == "lose") { return true }
+        if (id == "win") { return true }
+        return false
+    }
+
+    fn lookupSpec:SynthToneSpec (id:string) {
+        def spec:SynthToneSpec (new SynthToneSpec)
+        if (id == "blip") {
+            spec.freqHz = 660.0
+            spec.durationMs = 40
+            spec.volume = 0.30
+            spec.wave = (SynthWave.square())
+            return spec
+        }
+        if (id == "brick") {
+            spec.freqHz = 880.0
+            spec.durationMs = 55
+            spec.volume = 0.32
+            spec.wave = (SynthWave.square())
+            return spec
+        }
+        if (id == "bounce") {
+            spec.freqHz = 330.0
+            spec.durationMs = 45
+            spec.volume = 0.28
+            spec.wave = (SynthWave.triangle())
+            return spec
+        }
+        if (id == "wall") {
+            spec.freqHz = 220.0
+            spec.durationMs = 25
+            spec.volume = 0.18
+            spec.wave = (SynthWave.triangle())
+            return spec
+        }
+        if (id == "lose") {
+            spec.freqHz = 420.0
+            spec.durationMs = 280
+            spec.volume = 0.30
+            spec.wave = (SynthWave.sine())
+            spec.slideHz = 160.0
+            return spec
+        }
+        if (id == "win") {
+            spec.freqHz = 523.0
+            spec.durationMs = 120
+            spec.volume = 0.30
+            spec.wave = (SynthWave.sine())
+            return spec
+        }
+        spec.freqHz = 440.0
+        spec.durationMs = 60
+        spec.volume = 0.25
+        spec.wave = (SynthWave.sine())
+        return spec
+    }
+
+    fn writeInt16LE:void (buf:buffer offset:int value:int) {
+        def v value
+        if (v < 0) {
+            v = (65536 + v)
+        }
+        def lo:int (bit_and v 255)
+        def hi:int (bit_and (to_int (v / 256)) 255)
+        buffer_set buf offset lo
+        buffer_set buf (offset + 1) hi
+    }
+
+    fn sampleWave:double (wave:int phase:double noiseSeed:int) {
+        if (wave == (SynthWave.square())) {
+            if (phase < 0.5) {
+                return 1.0
+            }
+            return -1.0
+        }
+        if (wave == (SynthWave.triangle())) {
+            if (phase < 0.25) {
+                return (phase * 4.0)
+            }
+            if (phase < 0.75) {
+                return (1.0 - ((phase - 0.25) * 4.0))
+            }
+            return (-1.0 + ((phase - 0.75) * 4.0))
+        }
+        if (wave == (SynthWave.noise())) {
+            def n:int (bit_and ((noiseSeed * 1103515245) + 12345) 255)
+            return ((to_double n) / 127.5) - 1.0
+        }
+        def idx:int (bit_and (to_int (phase * 64.0)) 63)
+        return (itemAt sineTable idx)
+    }
+
+    fn synthTone:buffer (spec:SynthToneSpec) {
+        def frames:int (to_int (((to_double spec.durationMs) * (to_double sampleRate)) / 1000.0))
+        if (frames < 1) {
+            frames = 1
+        }
+        def pcm:buffer (buffer_alloc (frames * 2))
+        def phase:double 0.0
+        def freq:double spec.freqHz
+        def slidePerFrame:double 0.0
+        if (spec.slideHz != 0.0) {
+            slidePerFrame = ((spec.slideHz - spec.freqHz) / (to_double frames))
+        }
+        def i 0
+        while (i < frames) {
+            def t:double ((to_double i) / (to_double frames))
+            def env:double (1.0 - t)
+            env = (env * env)
+            def sample:double (this.sampleWave(spec.wave phase i))
+            def amp:double (sample * spec.volume * env * 32767.0)
+            def iv:int (to_int amp)
+            if (iv > 32767) { iv = 32767 }
+            if (iv < -32768) { iv = -32768 }
+            this.writeInt16LE(pcm (i * 2) iv)
+            freq = (freq + slidePerFrame)
+            if (freq < 40.0) { freq = 40.0 }
+            phase = (phase + (freq / (to_double sampleRate)))
+            while (phase >= 1.0) {
+                phase = (phase - 1.0)
+            }
+            i = (i + 1)
+        }
+        return pcm
+    }
+
+    fn queueSpec:void (id:string spec:SynthToneSpec) {
+        def pcm:buffer (this.synthTone(spec))
+        def frames:int (to_int (((to_double spec.durationMs) * (to_double sampleRate)) / 1000.0))
+        if (frames < 1) {
+            frames = 1
+        }
+        sink.onSynthPlay(id sampleRate frames pcm)
+    }
+
+    fn play:void (id:string) {
+        playCount = (playCount + 1)
+        lastId = id
+        if verbose {
+            print ("[audio] play " + id)
+        }
+        if (id == "win") {
+            this.playWinArpeggio()
+            return
+        }
+        def spec:SynthToneSpec (this.lookupSpec(id))
+        this.queueSpec(id spec)
+    }
+
+    fn playWinArpeggio:void () {
+        def notes:[double]
+        push notes 523.0
+        push notes 659.0
+        push notes 784.0
+        push notes 1046.0
+        def i 0
+        while (i < (array_length notes)) {
+            def spec:SynthToneSpec (new SynthToneSpec)
+            spec.freqHz = (itemAt notes i)
+            spec.durationMs = 90
+            spec.volume = 0.28
+            spec.wave = (SynthWave.sine())
+            this.queueSpec("win" spec)
+            i = (i + 1)
+        }
+    }
+}

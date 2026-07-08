@@ -26,3 +26,8 @@ export function isActiveScreen<TActive extends string>(
 ): state is { screen: TActive } {
   return state.screen === name;
 }
+
+/** Build a playSound event for a built-in synthetic sound id. */
+export function soundEvent(id: BuiltinSoundId): PlaySoundEvent {
+  return { kind: "playSound", id: id };
+}

@@ -21,6 +21,7 @@ Import "../../evg/EVGElement.rgr"
 Import "./game_sprite.rgr"
 Import "./game_hud.rgr"
 Import "../../ts_to_ranger/game_host.rgr"
+Import "./game_audio.rgr"
 
 ; Runtime options for script-driven games (SDL host, tests, custom hosts).
 class GameRuntimeOptions {
@@ -39,6 +40,7 @@ class GameRunner {
     def hudBlitter:GameHudBlitter (new GameHudBlitter)
     def spriteRenderer:GameSpriteRenderer (new GameSpriteRenderer)
     def host:GameHost (new GameHost)
+    def audio:GameAudio (new GameAudio)
     def entities:[GameEntity]
     def screenSpritesLoaded:[string]
     def state:EvalValue (EvalValue.null())
@@ -53,6 +55,7 @@ class GameRunner {
 
     fn init:void (w:int h:int) {
         engine.quiet = true
+        audio.init()
         pw = w
         ph = h
         canvas.init(w h)
@@ -135,6 +138,7 @@ class GameRunner {
         def emptyScreens:[string]
         screenSpritesLoaded = emptyScreens
         host = (new GameHost)
+        host.audio = audio
         currentScreen = ""
         state = (EvalValue.null())
     }
@@ -280,6 +284,14 @@ class GameRunner {
         return host
     }
 
+    fn audioRef:GameAudio () {
+        return audio
+    }
+
+    fn wireHostAudio:void () {
+        host.audio = audio
+    }
+
     fn memDouble:double (obj:EvalValue key:string dflt:double) {
         def v:EvalValue (obj.getMember(key))
         if (v.isNull()) {
@@ -342,6 +354,7 @@ class GameRunner {
 
     ; Build retained entities from sprites() and init state.
     fn setupScene:void () {
+        this.wireHostAudio()
         this.setupResources()
         state = (engine.callFunction("initState" (EvalValue.null())))
         if (this.multiScreenMode()) {
