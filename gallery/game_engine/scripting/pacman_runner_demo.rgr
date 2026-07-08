@@ -1,0 +1,67 @@
+; ==============================================================================
+; pacman_runner_demo - headless GameRunner smoke for pacman.game.tsx
+; ==============================================================================
+
+Import "./game_runtime.rgr"
+
+class PacmanRunnerDemo {
+    sfn m@(main):void () {
+        def runner:GameRunner (new GameRunner)
+        runner.init(480 270)
+
+        def buf:buffer (buffer_read_file "gallery/game_engine/scripting" "pacman.game.tsx")
+        def src:string (buffer_to_string buf)
+        runner.loadScript(src)
+        runner.setupScene()
+
+        def frames:int 420
+        if ((shell_arg_cnt) > 0) {
+            def parsed@(optional):int (to_int (shell_arg 0))
+            if (!null? parsed) {
+                frames = (unwrap parsed)
+            }
+        }
+
+        def i 0
+        while (i < frames) {
+            def phase (i % 120)
+            def up false
+            def down false
+            def left false
+            def right false
+            def action false
+            if (i == 0) {
+                action = true
+            }
+            if (phase < 30) {
+                right = true
+            }
+            if (phase >= 30) {
+                if (phase < 60) {
+                    up = true
+                }
+            }
+            if (phase >= 60) {
+                if (phase < 90) {
+                    left = true
+                }
+            }
+            if (phase >= 90) {
+                down = true
+            }
+            runner.frame(16 up down left right action)
+            i = (i + 1)
+        }
+
+        runner.draw()
+
+        def px:int (runner.entityX("pac"))
+        def py:int (runner.entityY("pac"))
+        print ("frames=" + frames)
+        print (("pac=" + px) + ("," + py))
+        print (("score=" + runner.score1) + ("," + runner.score2))
+        def ec:int (runner.entityCount())
+        print (("entities=" + ec))
+        print "pacman-runner done"
+    }
+}

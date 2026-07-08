@@ -38,7 +38,7 @@ class InvadersRunnerDemo {
         runner.draw()
         buffer_write_file "gallery/game_engine/scripting" "invaders_frame.rgba" (runner.raw())
 
-        def sx:int (runner.entityX("ship4"))
+        def sx:int (runner.entityX("ship"))
         def sy:int (runner.entityY("ship4"))
         def ec:int (runner.entityCount())
         print ("frames=" + frames)

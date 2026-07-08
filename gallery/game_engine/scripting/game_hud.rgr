@@ -12,6 +12,7 @@ Import "../framebuffer.rgr"
 Import "../../evg/EVGLayout.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGColor.rgr"
+Import "../../evg/EVGUnit.rgr"
 
 class GameHudBlitter {
     def layout:EVGLayout (new EVGLayout)
@@ -31,10 +32,20 @@ class GameHudBlitter {
         return result
     }
 
-    ; Layout + draw the EVG tree returned by callRender("hud", ...).
+    ; Layout HUD as a top/content-sized strip — NOT full framebuffer height.
+    ; EVGLayout.layout() forces root to page size and alpha backgrounds dim the game.
     fn drawTree:void (root:EVGElement w:int h:int) {
-        layout.setPageSize((to_double w) (to_double h))
-        layout.layout(root)
+        def fw:double (to_double w)
+        def fh:double (to_double h)
+        layout.setPageSize(fw fh)
+        root.calculatedX = 0.0
+        root.calculatedY = 0.0
+        root.height.isSet = false
+        if (root.width.isSet == false) {
+            root.width = (EVGUnit.px(fw))
+            root.width.isSet = true
+        }
+        layout.layoutElement(root 0.0 0.0 fw fh)
         this.drawElement(root)
     }
 
@@ -44,17 +55,20 @@ class GameHudBlitter {
         def rw:int (to_int el.calculatedWidth)
         def rh:int (to_int el.calculatedHeight)
 
+        ; View background defaults to transparent — only blit when explicitly set and alpha > 0.
         if (el.backgroundColor.isSet) {
-            if (rw > 0) {
-                if (rh > 0) {
-                    def br:int (el.backgroundColor.red())
-                    def bg:int (el.backgroundColor.green())
-                    def bb:int (el.backgroundColor.blue())
-                    def ba:double (el.backgroundColor.alpha())
-                    if (ba >= 0.99) {
-                        canvas.fillRect(x y rw rh br bg bb)
-                    } {
-                        this.fillRectAlpha(x y rw rh br bg bb ba)
+            def ba:double (el.backgroundColor.alpha())
+            if (ba > 0.0) {
+                if (rw > 0) {
+                    if (rh > 0) {
+                        def br:int (el.backgroundColor.red())
+                        def bg:int (el.backgroundColor.green())
+                        def bb:int (el.backgroundColor.blue())
+                        if (ba >= 0.99) {
+                            canvas.fillRect(x y rw rh br bg bb)
+                        } {
+                            this.fillRectAlpha(x y rw rh br bg bb ba)
+                        }
                     }
                 }
             }
@@ -180,11 +194,20 @@ class GameHudBlitter {
 
     fn drawText:void (x:int y:int scale:int text:string r:int g:int b:int) {
         def step ((scale * 3) + scale)
+        def lineStep ((scale * 5) + scale)
         def i 0
         def len:int (strlen text)
+        def cx x
+        def cy y
         while (i < len) {
             def ch:string (substring text i (i + 1))
-            this.drawGlyph((x + (i * step)) y scale ch r g b)
+            if (ch == "\n") {
+                cy = cy + lineStep
+                cx = x
+            } {
+                this.drawGlyph(cx cy scale ch r g b)
+                cx = cx + step
+            }
             i = (i + 1)
         }
     }

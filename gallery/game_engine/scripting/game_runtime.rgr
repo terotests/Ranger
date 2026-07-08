@@ -18,30 +18,14 @@ Import "../framebuffer.rgr"
 Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
 Import "../../pdf_writer/src/jsx/EvalValue.rgr"
 Import "../../evg/EVGElement.rgr"
+Import "./game_sprite.rgr"
 Import "./game_hud.rgr"
-
-; A retained on-screen object. Created once from sprites(); only x/y change.
-class GameEntity {
-    def id:string ""
-    def screen:string ""        ; owning screen name (empty = legacy single-screen)
-    def kind:string "rect"      ; "rect" | "circle"
-    def x:int 0
-    def y:int 0
-    def lastX:int -9999         ; skip sync when position unchanged
-    def lastY:int -9999
-    def w:int 8
-    def h:int 8
-    def rad:int 4
-    def cr:int 255
-    def cg:int 255
-    def cb:int 255
-    def visible:boolean true
-}
 
 class GameRunner {
     def engine:ComponentEngine (new ComponentEngine())
     def canvas:SoftCanvas (new SoftCanvas)
     def hudBlitter:GameHudBlitter (new GameHudBlitter)
+    def spriteRenderer:GameSpriteRenderer (new GameSpriteRenderer)
     def entities:[GameEntity]
     def screenSpritesLoaded:[string]
     def state:EvalValue (EvalValue.null())
@@ -191,17 +175,8 @@ class GameRunner {
             while (i < (array_length arr)) {
                 def d:EvalValue (itemAt arr i)
                 def e:GameEntity (new GameEntity)
-                def idv:EvalValue (d.getMember("id"))
-                def kindv:EvalValue (d.getMember("kind"))
-                e.id = idv.stringValue
+                spriteRenderer.applyDef(e d)
                 e.screen = name
-                e.kind = kindv.stringValue
-                e.w = (this.memInt(d "w" 8))
-                e.h = (this.memInt(d "h" 8))
-                e.rad = (this.memInt(d "rad" 4))
-                e.cr = (this.memInt(d "r" 255))
-                e.cg = (this.memInt(d "g" 255))
-                e.cb = (this.memInt(d "b" 255))
                 push entities e
                 i = (i + 1)
             }
@@ -228,16 +203,7 @@ class GameRunner {
                 while (i < (array_length arr)) {
                     def d:EvalValue (itemAt arr i)
                     def e:GameEntity (new GameEntity)
-                    def idv:EvalValue (d.getMember("id"))
-                    def kindv:EvalValue (d.getMember("kind"))
-                    e.id = idv.stringValue
-                    e.kind = kindv.stringValue
-                    e.w = (this.memInt(d "w" 8))
-                    e.h = (this.memInt(d "h" 8))
-                    e.rad = (this.memInt(d "rad" 4))
-                    e.cr = (this.memInt(d "r" 255))
-                    e.cg = (this.memInt(d "g" 255))
-                    e.cb = (this.memInt(d "b" 255))
+                    spriteRenderer.applyDef(e d)
                     push entities e
                     i = (i + 1)
                 }
@@ -269,30 +235,7 @@ class GameRunner {
             }
             def pos:EvalValue (ent.getMember(e.id))
             if (false == (pos.isNull())) {
-                def nx:int (this.memInt(pos "x" e.x))
-                def ny:int (this.memInt(pos "y" e.y))
-                if (nx != e.lastX) {
-                    e.x = nx
-                    e.lastX = nx
-                }
-                if (ny != e.lastY) {
-                    e.y = ny
-                    e.lastY = ny
-                }
-                def vis:EvalValue (pos.getMember("visible"))
-                if (false == (vis.isNull())) {
-                    if (vis.isBoolean()) {
-                        e.visible = vis.boolValue
-                    } {
-                        e.visible = ((to_int vis.numberValue) != 0)
-                    }
-                } {
-                    e.visible = true
-                    if (nx < -16) { e.visible = false }
-                    if (ny < -16) { e.visible = false }
-                    if (nx > (pw + 16)) { e.visible = false }
-                    if (ny > (ph + 16)) { e.visible = false }
-                }
+                spriteRenderer.syncPose(e pos pw ph)
             }
             i = (i + 1)
         }
@@ -334,14 +277,11 @@ class GameRunner {
         canvas.clear(12 16 32)
         def active:EvalValue (this.activeState())
         def layout:EvalValue (active.getMember("layout"))
-        def showNet true
-        if (layout.stringValue == "invaders") {
-            showNet = false
+        def showNet (this.memInt(active "showNet" 0))
+        if (layout.stringValue == "pong") {
+            showNet = 1
         }
-        if (layout.stringValue == "breakout") {
-            showNet = false
-        }
-        if (showNet) {
+        if (showNet != 0) {
             def ny 0
             def netX (this.half(pw))
             while (ny < ph) {
@@ -360,11 +300,7 @@ class GameRunner {
                 }
             }
             if (e.visible) {
-                if (e.kind == "circle") {
-                    canvas.fillCircle(e.x e.y e.rad e.cr e.cg e.cb)
-                } {
-                    canvas.fillRect((e.x - (this.half(e.w))) (e.y - (this.half(e.h))) e.w e.h e.cr e.cg e.cb)
-                }
+                spriteRenderer.drawEntity(e canvas)
             }
             i = (i + 1)
         }

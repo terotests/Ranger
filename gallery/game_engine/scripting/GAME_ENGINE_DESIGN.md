@@ -131,7 +131,10 @@ Invaders rikkoo useita suunnittelusääntöjä tarkoituksella (stressitesti):
 | Off-screen / `visible` culling | ✅ (2026-07-08) | Ohita piirto ja synkka kun ei näy |
 | `lastX`/`lastY` skip | ✅ | Vältä turhaa kirjoitusta |
 | JSX `hud()` | ✅ (kevyt) | `game_hud.rgr` — View/Label, ei täyttä EVG:ä |
+| Geneerinen sprite-protokolla | ✅ (2026-07-08) | `game_sprite.rgr` — `rect`/`circle`/`wedge`, pose `{x,y,r,g,b,rad,p0..p2}` |
+| `showNet` state-flag | ✅ | Ei pelikohtaisia layout-haaruja verkkoon |
 | Todellinen `dt` SDL-hostissa | ❌ | `game_sdl_runner.rgr` käyttää kiinteää 16 |
+| **Äänet** | ❌ | Engine-tason API (ei peliskripteissä) |
 | `EVGRasterRenderer` HUD:lle | ❌ | TTF-fontit, varjot, gradientit |
 | Sprite atlas / `blit` | ❌ | Bitmap-spritet ilman tuhansia rectejä |
 

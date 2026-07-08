@@ -111,6 +111,7 @@ function initEntities() {
 function initPlayState() {
   return {
     layout: "breakout",
+    showNet: 0,
     entities: initEntities(),
     px: 240,
     py: 248,
@@ -345,7 +346,7 @@ function hud(props) {
       title = "YOU WIN";
     }
     return (
-      <View flexDirection="column" padding="20px" background="#0b1020">
+      <View flexDirection="column" padding="20px">
         <Label color="#8fd3ff">{title}</Label>
         <Label color="#ffffff">SCORE</Label>
         <Label color="#8fd3ff">{go.score}</Label>
@@ -355,7 +356,7 @@ function hud(props) {
   }
   const play = s.screens.play;
   return (
-    <View flexDirection="row" padding="6px" background="#0b1020cc">
+    <View flexDirection="row" padding="6px">
       <Label color="#8fd3ff">BREAKOUT</Label>
       <Label flex="1" />
       <Label color="#ffffff">SCORE</Label>

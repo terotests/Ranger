@@ -69,11 +69,15 @@ function total() { return PALETTE.r + PALETTE.g; }
 
 **Symptom:** Native SDL (`tmp/game-sdl/game_sdl`) floods `Unexpected token: c/o/X/…` when loading an otherwise valid script. Node runner may work.
 
-**Cause:** A Unicode character inside a line comment (e.g. em dash `—` U+2014) is not treated as comment text by `TSLexer`. The lexer falls out of comment mode and re-tokenizes the rest of the file as code (string literals in `INVADER_*` arrays then appear as stray `c`, `o`, `X` tokens).
+**Cause:** `TSLexer` used UTF-8 **byte** length (`strlen`) as `len` while `pos` tracked **code units** via `r_utf8_char_at`. After a multi-byte character (e.g. em dash `—`), `pos` and `source.at(pos)` diverged — `isAlpha` / `isAlphaNumCh` read the wrong byte and identifiers like `const` were split into `c`, `o`, `nst…`. String literals in sprite arrays were then tokenized character-by-character.
 
-**Fix:** Use ASCII-only text in `*.game.tsx` comments (replace `—` with `-`, avoid smart quotes, etc.). Fixed in [`invaders.game.tsx`](./invaders.game.tsx) header comment.
+**Fix:** [`gallery/ts_parser/ts_lexer.rgr`](../../../gallery/ts_parser/ts_lexer.rgr):
 
-**Engine follow-up (optional):** Teach `TSLexer` to skip any non-newline byte/UTF-8 code point after `//`.
+- `countCodeUnits()` sets `len` to code-unit count (C++ UTF-8 walk; ES6 BMP-safe).
+- `isAlpha` / `isAlphaNumCh` classify the peeked `ch` (`charAt ch 0`), not `charAt source pos`.
+- JSX apostrophe heuristic uses `peekAt(±1)` instead of byte offsets.
+
+**Regression:** [`tests/ts-lexer.test.ts`](../../../tests/ts-lexer.test.ts) (`tokenizes line comments with UTF-8 punctuation`).
 
 ---
 

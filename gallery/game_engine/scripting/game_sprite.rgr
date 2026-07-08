@@ -1,0 +1,265 @@
+; ==============================================================================
+; game_sprite - generic retained sprite schema + sync + draw dispatch.
+; ==============================================================================
+;
+; Game scripts (TypeScript) declare shapes once in sprites() and drive runtime
+; pose via state.entities[id]. The engine understands a small, game-agnostic
+; vocabulary of kinds and numeric params (p0..p2). Pac-Man, Breakout, etc.
+; compose these primitives in TS — nothing game-specific lives here.
+;
+; Sprite definition (sprites()):
+;   { id, kind, w?, h?, rad?, r?, g?, b?, p0?, p1?, p2? }
+;   bitmap: { px?, br,bg,bb, er,eg,eb, frames: [ [row strings...], ... ] }
+;
+; Runtime pose (state.entities[id]):
+;   { x, y, visible?, r?, g?, b?, p0?, p1?, p2? }
+;   bitmap: p0 = animation frame index (0..frameCount-1)
+;
+; Kinds:
+;   rect   - axis-aligned rectangle (w x h), center at (x,y)
+;   circle - filled circle (rad)
+;   wedge  - circle with a directional bite removed (p0=dir 0..3, p1=open 0..3)
+;   ghost  - domed sprite with scalloped hem and plus eyes (p0=dir, p1=0 full / 1 eyes-only)
+;   bitmap - cached pixel-art with animated frame set (p0=frame)
+; ==============================================================================
+
+Import "../framebuffer.rgr"
+
+; Retained on-screen object: static shape from sprites(), runtime pose from state.
+class GameEntity {
+    def id:string ""
+    def screen:string ""
+    def kind:string "rect"
+    def x:int 0
+    def y:int 0
+    def lastX:int -9999
+    def lastY:int -9999
+    def w:int 8
+    def h:int 8
+    def rad:int 4
+    def cr:int 255
+    def cg:int 255
+    def cb:int 255
+    def p0:int 0
+    def p1:int 0
+    def p2:int 0
+    def visible:boolean true
+    def bmPx:int 3
+    def bmFrameCount:int 0
+    def bmFrameLen:[int]
+    def bmFrameStart:[int]
+    def bmPixels:[int]
+}
+
+class GameSpriteRenderer {
+    fn half:int (n:int) {
+        def result 0
+        def rem n
+        while (rem >= 2) {
+            rem = (rem - 2)
+            result = (result + 1)
+        }
+        return result
+    }
+
+    fn memInt:int (obj:EvalValue key:string dflt:int) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isNull()) {
+            return dflt
+        }
+        return (to_int v.numberValue)
+    }
+
+    fn appendBitmapPixel:void (e:GameEntity dx:int dy:int r:int g:int b:int) {
+        push e.bmPixels dx
+        push e.bmPixels dy
+        push e.bmPixels r
+        push e.bmPixels g
+        push e.bmPixels b
+    }
+
+    ; Parse one frame (array of row strings). Chars: X=body O=eye ./space=skip.
+    fn cacheOneBitmapFrame:int (e:GameEntity frameVal:EvalValue bodyR:int bodyG:int bodyB:int eyeR:int eyeG:int eyeB:int) {
+        if (false == (frameVal.isArray())) {
+            return 0
+        }
+        def rows:[EvalValue] frameVal.arrayValue
+        def rowCount (array_length rows)
+        def count 0
+        def row 0
+        while (row < rowCount) {
+            def rowVal:EvalValue (itemAt rows row)
+            def line:string rowVal.stringValue
+            def colCount:int (strlen line)
+            def col 0
+            def midCol (this.half(colCount))
+            def midRow (this.half(rowCount))
+            while (col < colCount) {
+                def ch:string (substring line col (col + 1))
+                def dx ((col - midCol) * e.bmPx)
+                def dy ((row - midRow) * e.bmPx)
+                if (ch == "X") {
+                    this.appendBitmapPixel(e dx dy bodyR bodyG bodyB)
+                    count = (count + 1)
+                }
+                if (ch == "O") {
+                    this.appendBitmapPixel(e dx dy eyeR eyeG eyeB)
+                    count = (count + 1)
+                }
+                col = (col + 1)
+            }
+            row = (row + 1)
+        }
+        return count
+    }
+
+    fn cacheBitmapFrames:void (e:GameEntity d:EvalValue) {
+        e.bmPx = (this.memInt(d "px" 3))
+        e.bmFrameCount = 0
+        clear e.bmFrameLen
+        clear e.bmFrameStart
+        clear e.bmPixels
+        def framesVal:EvalValue (d.getMember("frames"))
+        if (false == (framesVal.isArray())) {
+            return
+        }
+        def bodyR (this.memInt(d "br" 255))
+        def bodyG (this.memInt(d "bg" 255))
+        def bodyB (this.memInt(d "bb" 255))
+        def eyeR (this.memInt(d "er" 255))
+        def eyeG (this.memInt(d "eg" 255))
+        def eyeB (this.memInt(d "eb" 255))
+        def arr:[EvalValue] framesVal.arrayValue
+        def fi 0
+        while (fi < (array_length arr)) {
+            if (fi >= 8) {
+                break
+            }
+            push e.bmFrameStart (array_length e.bmPixels)
+            def count (this.cacheOneBitmapFrame(e (itemAt arr fi) bodyR bodyG bodyB eyeR eyeG eyeB))
+            push e.bmFrameLen count
+            e.bmFrameCount = (e.bmFrameCount + 1)
+            fi = (fi + 1)
+        }
+    }
+
+    ; Apply a sprites() entry to a fresh GameEntity (defaults + static fields).
+    fn applyDef:void (e:GameEntity d:EvalValue) {
+        def idv:EvalValue (d.getMember("id"))
+        def kindv:EvalValue (d.getMember("kind"))
+        e.id = idv.stringValue
+        e.kind = kindv.stringValue
+        if (e.kind == "bitmap") {
+            this.cacheBitmapFrames(e d)
+            return
+        }
+        e.w = (this.memInt(d "w" 8))
+        e.h = (this.memInt(d "h" 8))
+        e.rad = (this.memInt(d "rad" 4))
+        e.cr = (this.memInt(d "r" 255))
+        e.cg = (this.memInt(d "g" 255))
+        e.cb = (this.memInt(d "b" 255))
+        e.p0 = (this.memInt(d "p0" 0))
+        e.p1 = (this.memInt(d "p1" 0))
+        e.p2 = (this.memInt(d "p2" 0))
+    }
+
+    ; Merge state.entities[id] into a retained entity (pose + optional overrides).
+    fn syncPose:void (e:GameEntity pos:EvalValue pw:int ph:int) {
+        def nx:int (this.memInt(pos "x" e.x))
+        def ny:int (this.memInt(pos "y" e.y))
+        if (nx != e.lastX) {
+            e.x = nx
+            e.lastX = nx
+        }
+        if (ny != e.lastY) {
+            e.y = ny
+            e.lastY = ny
+        }
+        def vis:EvalValue (pos.getMember("visible"))
+        if (false == (vis.isNull())) {
+            if (vis.isBoolean()) {
+                e.visible = vis.boolValue
+            } {
+                e.visible = ((to_int vis.numberValue) != 0)
+            }
+        } {
+            e.visible = true
+            if (nx < -24) { e.visible = false }
+            if (ny < -24) { e.visible = false }
+            if (nx > (pw + 24)) { e.visible = false }
+            if (ny > (ph + 24)) { e.visible = false }
+        }
+        def rv:EvalValue (pos.getMember("r"))
+        if (false == (rv.isNull())) {
+            e.cr = (this.memInt(pos "r" e.cr))
+            e.cg = (this.memInt(pos "g" e.cg))
+            e.cb = (this.memInt(pos "b" e.cb))
+        }
+        def p0v:EvalValue (pos.getMember("p0"))
+        if (false == (p0v.isNull())) {
+            e.p0 = (this.memInt(pos "p0" e.p0))
+        }
+        def p1v:EvalValue (pos.getMember("p1"))
+        if (false == (p1v.isNull())) {
+            e.p1 = (this.memInt(pos "p1" e.p1))
+        }
+        def p2v:EvalValue (pos.getMember("p2"))
+        if (false == (p2v.isNull())) {
+            e.p2 = (this.memInt(pos "p2" e.p2))
+        }
+        def radv:EvalValue (pos.getMember("rad"))
+        if (false == (radv.isNull())) {
+            e.rad = (this.memInt(pos "rad" e.rad))
+        }
+    }
+
+    fn drawBitmap:void (e:GameEntity canvas:SoftCanvas) {
+        if (e.bmFrameCount <= 0) {
+            return
+        }
+        def frame (e.p0 % e.bmFrameCount)
+        if (frame < 0) {
+            frame = 0
+        }
+        def start (itemAt e.bmFrameStart frame)
+        def count (itemAt e.bmFrameLen frame)
+        def px e.bmPx
+        def half (this.half(px))
+        def i 0
+        def idx start
+        while (i < count) {
+            def dx (itemAt e.bmPixels idx)
+            def dy (itemAt e.bmPixels (idx + 1))
+            def pr (itemAt e.bmPixels (idx + 2))
+            def pg (itemAt e.bmPixels (idx + 3))
+            def pb (itemAt e.bmPixels (idx + 4))
+            canvas.fillRect((e.x + dx - half) (e.y + dy - half) px px pr pg pb)
+            idx = (idx + 5)
+            i = (i + 1)
+        }
+    }
+
+    fn drawEntity:void (e:GameEntity canvas:SoftCanvas) {
+        if (false == e.visible) {
+            return
+        }
+        if (e.kind == "bitmap") {
+            this.drawBitmap(e canvas)
+            return
+        }
+        if (e.kind == "circle") {
+            canvas.fillCircle(e.x e.y e.rad e.cr e.cg e.cb)
+            return
+        }
+        if (e.kind == "wedge") {
+            canvas.fillWedgeCircle(e.x e.y e.rad e.p0 e.p1 e.cr e.cg e.cb)
+            return
+        }
+        if (e.kind == "ghost") {
+            canvas.fillGhost(e.x e.y e.rad e.p0 e.p1 e.cr e.cg e.cb)
+            return
+        }
+        canvas.fillRect((e.x - (this.half(e.w))) (e.y - (this.half(e.h))) e.w e.h e.cr e.cg e.cb)
+    }
+}
