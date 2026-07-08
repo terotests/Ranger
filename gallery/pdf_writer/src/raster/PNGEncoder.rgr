@@ -208,9 +208,19 @@ class PNGEncoder {
             def x:int 0
             while (x < buf.width) {
                 def idx:int ((y * buf.width + x) * 4)
-                rawData.writeByte((buffer_get buf.pixels idx))        ; R
-                rawData.writeByte((buffer_get buf.pixels (idx + 1)))  ; G
-                rawData.writeByte((buffer_get buf.pixels (idx + 2)))  ; B
+                def r:int (buffer_get buf.pixels idx)
+                def g:int (buffer_get buf.pixels (idx + 1))
+                def b:int (buffer_get buf.pixels (idx + 2))
+                def a:int (buffer_get buf.pixels (idx + 3))
+                if (a < 255) {
+                    def inv:int (255 - a)
+                    r = (bit_shr (r * a) 8)
+                    g = (bit_shr (g * a) 8)
+                    b = (bit_shr (b * a) 8)
+                }
+                rawData.writeByte(r)
+                rawData.writeByte(g)
+                rawData.writeByte(b)
                 x = x + 1
             }
             y = y + 1

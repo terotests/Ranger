@@ -147,10 +147,9 @@ class PNGDecoder {
         return c
     }
 
-    fn clampByte:int (n:int) {
-        if (n < 0) { return 0 }
-        if (n > 255) { return 255 }
-        return n
+    fn filterByte:int (n:int) {
+        ; PNG scanline reconstruction wraps at 256 (not clamp to 0..255).
+        return (bit_and n 255)
     }
 
     fn unfilter:buffer (raw:buffer rowBytes:int imgHeight:int) {
@@ -222,7 +221,7 @@ class PNGDecoder {
                     }
                     recon = (fv + (this.paeth(left up upLeft)))
                 }
-                recon = (this.clampByte(recon))
+                recon = (this.filterByte(recon))
                 set curRow x recon
                 x = (x + 1)
             }
