@@ -32,6 +32,7 @@ class NativeGameEntity {
 class NativeGameRunner {
     def canvas:SoftCanvas (new SoftCanvas)
     def stateOps:NativeGameStateOps (new NativeGameStateOps)
+    def host:GameHost (new GameHost)
     def entities:[NativeGameEntity]
     def state:NativeGameState (new NativeGameState)
     def pw:int 0
@@ -172,6 +173,11 @@ class NativeGameRunner {
         entities = next
     }
 
+    ; Register declared resources (images/sounds/sprites/collision) once.
+    fn setupResources:void (list:[ResourceDefNative]) {
+        host.registerResources(list)
+    }
+
     fn setupScene:void (initState:NativeGameState sprites:[SpriteDefNative]) {
         state = initState
         this.setupSprites(sprites)
@@ -179,8 +185,14 @@ class NativeGameRunner {
     }
 
     fn applyUpdate:void (patch:NativeGameState) {
+        ; Drain transient events emitted this frame before merging them away.
+        host.drainEvents(patch.events)
         state = (stateOps.mergeState(state patch))
         this.syncFromState()
+    }
+
+    fn hostRef:GameHost () {
+        return host
     }
 
     fn buildProps:UpdatePropsNative (dtMs:int up:boolean down:boolean left:boolean right:boolean action:boolean) {

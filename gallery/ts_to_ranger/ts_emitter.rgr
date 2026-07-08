@@ -22,6 +22,7 @@ class TSEmitter {
     def inSpritesFn:boolean false
     def inInitFn:boolean false
     def inUpdateFn:boolean false
+    def inResourcesFn:boolean false
     def varTypes:[string:string]
     def stateVarName:string "s"
     def readEntityIds:[string]
@@ -61,6 +62,25 @@ class TSEmitter {
         inSpritesFn = false
         inInitFn = false
         inUpdateFn = false
+        inResourcesFn = false
+    }
+
+    ; Fields that exist as first-class members of NativeGameState. Anything else
+    ; a script stores on state is routed to the generic `numbers` map (double).
+    fn isNativeStateField:boolean (prop:string) {
+        if (prop == "screen") { return true }
+        if (prop == "showNet") { return true }
+        if (prop == "score1") { return true }
+        if (prop == "score2") { return true }
+        if (prop == "score") { return true }
+        if (prop == "vx") { return true }
+        if (prop == "vy") { return true }
+        if (prop == "hasVx") { return true }
+        if (prop == "hasVy") { return true }
+        if (prop == "entities") { return true }
+        if (prop == "numbers") { return true }
+        if (prop == "events") { return true }
+        return false
     }
 
     ; ==========================================================================
@@ -85,7 +105,7 @@ class TSEmitter {
         if ((prop == "hasVx") || (prop == "hasVy")) {
             return "boolean"
         }
-        if ((prop == "id") || (prop == "kind") || (prop == "screen")) {
+        if ((prop == "id") || (prop == "kind") || (prop == "screen") || (prop == "path")) {
             return "string"
         }
         if (prop == "state") {
@@ -143,6 +163,17 @@ class TSEmitter {
             return "int"
         }
         if (t == "MemberExpression") {
+            ; Custom scalar read from state.numbers is always double.
+            if (node.left) {
+                def lbase:TSNode (unwrap node.left)
+                if (lbase.nodeType == "Identifier") {
+                    if (lbase.name == stateVarName) {
+                        if ((this.isNativeStateField(node.name)) == false) {
+                            return "double"
+                        }
+                    }
+                }
+            }
             return (this.fieldType(node.name))
         }
         if (t == "UnaryExpression") {
@@ -225,6 +256,7 @@ class TSEmitter {
         inSpritesFn = (currentFn == "sprites")
         inInitFn = (currentFn == "initState")
         inUpdateFn = (currentFn == "update")
+        inResourcesFn = (currentFn == "resources")
         def fresh:[string:string]
         varTypes = fresh
         stateVarName = "s"
@@ -236,6 +268,9 @@ class TSEmitter {
         def retType:string "void"
         if (inSpritesFn) {
             retType = "[SpriteDefNative]"
+        }
+        if (inResourcesFn) {
+            retType = "[ResourceDefNative]"
         }
         if (inInitFn) {
             retType = "NativeGameState"
@@ -569,6 +604,10 @@ class TSEmitter {
             this.emitSpriteArrayReturn(val)
             return
         }
+        if (inResourcesFn) {
+            this.emitResourceArrayReturn(val)
+            return
+        }
         if (inInitFn) {
             this.emitStateReturn(val false)
             return
@@ -598,6 +637,42 @@ class TSEmitter {
             i = (i + 1)
         }
         this.emitLine("return list")
+    }
+
+    fn emitResourceArrayReturn:void (node:TSNode) {
+        this.emitLine("def list:[ResourceDefNative]")
+        if (node.nodeType != "ArrayExpression") {
+            this.emitLine("return list")
+            return
+        }
+        def i 0
+        while (i < (array_length node.children)) {
+            def elem:TSNode (itemAt node.children i)
+            this.emitResourceFromObject(elem ("r" + ("" + i)))
+            i = (i + 1)
+        }
+        this.emitLine("return list")
+    }
+
+    fn emitResourceFromObject:void (node:TSNode varName:string) {
+        if (node.nodeType != "ObjectExpression") {
+            return
+        }
+        this.emitLine(("def " + varName) + ":ResourceDefNative (new ResourceDefNative)")
+        def i 0
+        while (i < (array_length node.children)) {
+            def prop:TSNode (itemAt node.children i)
+            if (prop.nodeType != "Property") {
+                i = (i + 1)
+                continue
+            }
+            def key:string (this.propKey(prop))
+            def expected:string (this.fieldType(key))
+            def val:string (this.emitPropertyValue(prop expected))
+            this.emitLine((varName + ".") + (key + (" = " + val)))
+            i = (i + 1)
+        }
+        this.emitLine(("push list " + varName))
     }
 
     fn emitSpriteFromObject:void (node:TSNode varName:string) {
@@ -644,19 +719,73 @@ class TSEmitter {
             if (key == "entities") {
                 this.emitEntitiesMap(valNode target)
             } {
-                def expected:string (this.fieldType(key))
-                def val:string (this.emitExpr(valNode expected))
-                this.emitLine((target + ".") + (key + (" = " + val)))
-                if (key == "vx") {
-                    this.emitLine((target + ".hasVx = true"))
-                }
-                if (key == "vy") {
-                    this.emitLine((target + ".hasVy = true"))
+                if (key == "events") {
+                    this.emitEventsArray(valNode target)
+                } {
+                    if (this.isNativeStateField(key)) {
+                        def expected:string (this.fieldType(key))
+                        def val:string (this.emitExpr(valNode expected))
+                        this.emitLine((target + ".") + (key + (" = " + val)))
+                        if (key == "vx") {
+                            this.emitLine((target + ".hasVx = true"))
+                        }
+                        if (key == "vy") {
+                            this.emitLine((target + ".hasVy = true"))
+                        }
+                    } {
+                        ; custom numeric field -> generic numbers map (double)
+                        def dval:string (this.emitExpr(valNode "double"))
+                        this.emitLine(((("set " + target) + ".numbers \"") + key) + ("\" " + dval))
+                    }
                 }
             }
             i = (i + 1)
         }
         this.emitLine(("return " + target))
+    }
+
+    fn emitEventsArray:void (node:TSNode target:string) {
+        this.emitLine(("def " + target) + "_events:[GameEventNative]")
+        if (node.nodeType == "ArrayExpression") {
+            def i 0
+            while (i < (array_length node.children)) {
+                def elem:TSNode (itemAt node.children i)
+                this.emitEventFromObject(elem (target + ("_ev" + ("" + i))))
+                i = (i + 1)
+            }
+        }
+        this.emitLine(((target + ".events = ") + target) + "_events")
+    }
+
+    fn emitEventFromObject:void (node:TSNode varName:string) {
+        if (node.nodeType != "ObjectExpression") {
+            return
+        }
+        this.emitLine(("def " + varName) + ":GameEventNative (new GameEventNative)")
+        def i 0
+        while (i < (array_length node.children)) {
+            def prop:TSNode (itemAt node.children i)
+            if (prop.nodeType == "Property") {
+                def key:string (this.propKey(prop))
+                def expected:string (this.fieldType(key))
+                def val:string (this.emitPropertyValue(prop expected))
+                this.emitLine((varName + ".") + (key + (" = " + val)))
+            }
+            i = (i + 1)
+        }
+        ; extract enclosing list var name (varName is "<target>_ev<i>")
+        def listName:string (this.eventListNameFor(varName))
+        this.emitLine(("push " + listName) + (" " + varName))
+    }
+
+    ; "patch_ev0" -> "patch_events"; "s_ev2" -> "s_events"
+    fn eventListNameFor:string (varName:string) {
+        def idx:int (indexOf varName "_ev")
+        if (idx < 0) {
+            return "events"
+        }
+        def prefix:string (substring varName 0 idx)
+        return (prefix + "_events")
     }
 
     fn emitEntitiesMap:void (node:TSNode target:string) {
@@ -779,6 +908,16 @@ class TSEmitter {
         if (leftNode.nodeType == "MemberExpression") {
             if (leftNode.name == "entities") {
                 return ("in_" + node.name)
+            }
+        }
+        ; <stateVar>.<customField> -> read from generic numbers map (double)
+        if (leftNode.nodeType == "Identifier") {
+            if (leftNode.name == stateVarName) {
+                if ((this.isNativeStateField(node.name)) == false) {
+                    if ((strlen node.name) > 0) {
+                        return (((("(unwrap (get " + stateVarName) + ".numbers \"") + node.name) + "\"))")
+                    }
+                }
             }
         }
         def base:string (this.emitExpr(leftNode "int"))

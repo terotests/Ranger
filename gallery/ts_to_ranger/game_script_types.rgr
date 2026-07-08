@@ -2,6 +2,8 @@
 ; game_script_types - typed bridge between native Ranger game logic and GameRunner.
 ; ==============================================================================
 
+Import "game_host.rgr"
+
 class EntityPoseNative {
     def x:double 0.0
     def y:double 0.0
@@ -40,6 +42,11 @@ class NativeGameState {
     def hasVx:boolean false
     def hasVy:boolean false
     def entities:[string:EntityPoseNative]
+    ; Arbitrary numeric fields (TS `number`) not covered by the fixed schema:
+    ; e.g. invaders px/py/waveX/waveTick/anim. Stored as double, keyed by name.
+    def numbers:[string:double]
+    ; Transient events emitted this frame; host drains + clears.
+    def events:[GameEventNative]
 }
 
 class UpdatePropsNative {
@@ -95,6 +102,13 @@ class NativeGameStateOps {
             set out.entities id copy
             i = (i + 1)
         }
+        def nkeys:[string] (keys src.numbers)
+        def n 0
+        while (n < (array_length nkeys)) {
+            def nk:string (itemAt nkeys n)
+            set out.numbers nk (unwrap (get src.numbers nk))
+            n = (n + 1)
+        }
         return out
     }
 
@@ -130,6 +144,24 @@ class NativeGameStateOps {
             }
             j = (j + 1)
         }
+        ; Arbitrary numeric fields: patch wins per key.
+        def pnkeys:[string] (keys patch.numbers)
+        def m 0
+        while (m < (array_length pnkeys)) {
+            def nk:string (itemAt pnkeys m)
+            set out.numbers nk (unwrap (get patch.numbers nk))
+            m = (m + 1)
+        }
+        ; Events are transient: take the patch's list (host drains it).
+        out.events = patch.events
         return out
+    }
+
+    fn getNumber:double (s:NativeGameState key:string dflt:double) {
+        def v@(optional):double (get s.numbers key)
+        if (!null? v) {
+            return (unwrap v)
+        }
+        return dflt
     }
 }

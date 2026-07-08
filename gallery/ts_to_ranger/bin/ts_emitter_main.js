@@ -4437,6 +4437,7 @@ class TSEmitter  {
     this.inSpritesFn = false;
     this.inInitFn = false;
     this.inUpdateFn = false;
+    this.inResourcesFn = false;
     this.varTypes = {};
     this.stateVarName = "s";
     this.readEntityIds = [];
@@ -4471,6 +4472,46 @@ class TSEmitter  {
     this.inSpritesFn = false;
     this.inInitFn = false;
     this.inUpdateFn = false;
+    this.inResourcesFn = false;
+  };
+  isNativeStateField (prop) {
+    if ( prop == "screen" ) {
+      return true;
+    }
+    if ( prop == "showNet" ) {
+      return true;
+    }
+    if ( prop == "score1" ) {
+      return true;
+    }
+    if ( prop == "score2" ) {
+      return true;
+    }
+    if ( prop == "score" ) {
+      return true;
+    }
+    if ( prop == "vx" ) {
+      return true;
+    }
+    if ( prop == "vy" ) {
+      return true;
+    }
+    if ( prop == "hasVx" ) {
+      return true;
+    }
+    if ( prop == "hasVy" ) {
+      return true;
+    }
+    if ( prop == "entities" ) {
+      return true;
+    }
+    if ( prop == "numbers" ) {
+      return true;
+    }
+    if ( prop == "events" ) {
+      return true;
+    }
+    return false;
   };
   fieldType (prop) {
     if ( (prop == "x") || (prop == "y") ) {
@@ -4488,7 +4529,7 @@ class TSEmitter  {
     if ( (prop == "hasVx") || (prop == "hasVy") ) {
       return "boolean";
     }
-    if ( ((prop == "id") || (prop == "kind")) || (prop == "screen") ) {
+    if ( (((prop == "id") || (prop == "kind")) || (prop == "screen")) || (prop == "path") ) {
       return "string";
     }
     if ( prop == "state" ) {
@@ -4561,6 +4602,16 @@ class TSEmitter  {
       return "int";
     }
     if ( t == "MemberExpression" ) {
+      if ( typeof(node.left) != "undefined" ) {
+        const lbase = node.left;
+        if ( lbase.nodeType == "Identifier" ) {
+          if ( lbase.name == this.stateVarName ) {
+            if ( this.isNativeStateField(node.name) == false ) {
+              return "double";
+            }
+          }
+        }
+      }
       return this.fieldType(node.name);
     }
     if ( t == "UnaryExpression" ) {
@@ -4633,6 +4684,7 @@ class TSEmitter  {
     this.inSpritesFn = this.currentFn == "sprites";
     this.inInitFn = this.currentFn == "initState";
     this.inUpdateFn = this.currentFn == "update";
+    this.inResourcesFn = this.currentFn == "resources";
     let fresh = {};
     this.varTypes = fresh;
     this.stateVarName = "s";
@@ -4643,6 +4695,9 @@ class TSEmitter  {
     let retType = "void";
     if ( this.inSpritesFn ) {
       retType = "[SpriteDefNative]";
+    }
+    if ( this.inResourcesFn ) {
+      retType = "[ResourceDefNative]";
     }
     if ( this.inInitFn ) {
       retType = "NativeGameState";
@@ -4946,6 +5001,10 @@ class TSEmitter  {
       this.emitSpriteArrayReturn(val);
       return;
     }
+    if ( this.inResourcesFn ) {
+      this.emitResourceArrayReturn(val);
+      return;
+    }
     if ( this.inInitFn ) {
       this.emitStateReturn(val, false);
       return;
@@ -4970,6 +5029,40 @@ class TSEmitter  {
       i = i + 1;
     };
     this.emitLine("return list");
+  };
+  emitResourceArrayReturn (node) {
+    this.emitLine("def list:[ResourceDefNative]");
+    if ( node.nodeType != "ArrayExpression" ) {
+      this.emitLine("return list");
+      return;
+    }
+    let i = 0;
+    while (i < (node.children.length)) {
+      const elem = node.children[i];
+      this.emitResourceFromObject(elem, "r" + ("" + i));
+      i = i + 1;
+    };
+    this.emitLine("return list");
+  };
+  emitResourceFromObject (node, varName) {
+    if ( node.nodeType != "ObjectExpression" ) {
+      return;
+    }
+    this.emitLine(("def " + varName) + ":ResourceDefNative (new ResourceDefNative)");
+    let i = 0;
+    while (i < (node.children.length)) {
+      const prop = node.children[i];
+      if ( prop.nodeType != "Property" ) {
+        i = i + 1;
+        continue;
+      }
+      const key = this.propKey(prop);
+      const expected = this.fieldType(key);
+      const val = this.emitPropertyValue(prop, expected);
+      this.emitLine((varName + ".") + (key + (" = " + val)));
+      i = i + 1;
+    };
+    this.emitLine("push list " + varName);
   };
   emitSpriteFromObject (node, varName) {
     if ( node.nodeType != "ObjectExpression" ) {
@@ -5014,19 +5107,67 @@ class TSEmitter  {
       if ( key == "entities" ) {
         this.emitEntitiesMap(valNode, target);
       } else {
-        const expected = this.fieldType(key);
-        const val = this.emitExpr(valNode, expected);
-        this.emitLine((target + ".") + (key + (" = " + val)));
-        if ( key == "vx" ) {
-          this.emitLine(target + ".hasVx = true");
-        }
-        if ( key == "vy" ) {
-          this.emitLine(target + ".hasVy = true");
+        if ( key == "events" ) {
+          this.emitEventsArray(valNode, target);
+        } else {
+          if ( this.isNativeStateField(key) ) {
+            const expected = this.fieldType(key);
+            const val = this.emitExpr(valNode, expected);
+            this.emitLine((target + ".") + (key + (" = " + val)));
+            if ( key == "vx" ) {
+              this.emitLine(target + ".hasVx = true");
+            }
+            if ( key == "vy" ) {
+              this.emitLine(target + ".hasVy = true");
+            }
+          } else {
+            const dval = this.emitExpr(valNode, "double");
+            this.emitLine(((("set " + target) + ".numbers \"") + key) + ("\" " + dval));
+          }
         }
       }
       i = i + 1;
     };
     this.emitLine("return " + target);
+  };
+  emitEventsArray (node, target) {
+    this.emitLine(("def " + target) + "_events:[GameEventNative]");
+    if ( node.nodeType == "ArrayExpression" ) {
+      let i = 0;
+      while (i < (node.children.length)) {
+        const elem = node.children[i];
+        this.emitEventFromObject(elem, target + ("_ev" + ("" + i)));
+        i = i + 1;
+      };
+    }
+    this.emitLine(((target + ".events = ") + target) + "_events");
+  };
+  emitEventFromObject (node, varName) {
+    if ( node.nodeType != "ObjectExpression" ) {
+      return;
+    }
+    this.emitLine(("def " + varName) + ":GameEventNative (new GameEventNative)");
+    let i = 0;
+    while (i < (node.children.length)) {
+      const prop = node.children[i];
+      if ( prop.nodeType == "Property" ) {
+        const key = this.propKey(prop);
+        const expected = this.fieldType(key);
+        const val = this.emitPropertyValue(prop, expected);
+        this.emitLine((varName + ".") + (key + (" = " + val)));
+      }
+      i = i + 1;
+    };
+    const listName = this.eventListNameFor(varName);
+    this.emitLine(("push " + listName) + (" " + varName));
+  };
+  eventListNameFor (varName) {
+    const idx = varName.indexOf("_ev");
+    if ( idx < 0 ) {
+      return "events";
+    }
+    const prefix = varName.substring(0, idx );
+    return prefix + "_events";
   };
   emitEntitiesMap (node, target) {
     if ( node.nodeType != "ObjectExpression" ) {
@@ -5137,6 +5278,15 @@ class TSEmitter  {
     if ( leftNode.nodeType == "MemberExpression" ) {
       if ( leftNode.name == "entities" ) {
         return "in_" + node.name;
+      }
+    }
+    if ( leftNode.nodeType == "Identifier" ) {
+      if ( leftNode.name == this.stateVarName ) {
+        if ( this.isNativeStateField(node.name) == false ) {
+          if ( (node.name.length) > 0 ) {
+            return ((("(unwrap (get " + this.stateVarName) + ".numbers \"") + node.name) + "\"))";
+          }
+        }
       }
     }
     const base = this.emitExpr(leftNode, "int");

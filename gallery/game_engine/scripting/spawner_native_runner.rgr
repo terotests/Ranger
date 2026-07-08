@@ -1,0 +1,70 @@
+; ==============================================================================
+; spawner_native_runner - host-bridge parity demo (static-compiled path).
+; ==============================================================================
+;
+; Runs the STATICALLY COMPILED spawner script (emitted from spawner.game.tsx)
+; and prints host state: registered resources + drained events. The interpreter
+; path (game_runtime.rgr) drives the same script and must report the same
+; resource/event totals. Regenerate the script with:
+;   npm run ts2ranger:emit -- gallery/game_engine/scripting/spawner.game.tsx
+; ==============================================================================
+
+Import "./game_native_runtime.rgr"
+Import "../../ts_to_ranger/generated/spawner_generated.rgr"
+
+class SpawnerNativeRunner {
+    def runner:NativeGameRunner (new NativeGameRunner)
+    def script:GeneratedGameScript (new GeneratedGameScript)
+
+    fn setupScene:void () {
+        def res:[ResourceDefNative] (script.resources())
+        runner.setupResources(res)
+        def init:NativeGameState (script.initState())
+        def defs:[SpriteDefNative] (script.sprites())
+        runner.setupScene(init defs)
+    }
+
+    fn frame:void (dtMs:int up:boolean down:boolean left:boolean right:boolean action:boolean) {
+        runner.advanceTime(dtMs)
+        def props:UpdatePropsNative (runner.buildProps(dtMs up down left right action))
+        def patch:NativeGameState (script.update(props))
+        runner.applyUpdate(patch)
+    }
+
+    fn entityX:int (id:string) {
+        return (runner.entityX(id))
+    }
+}
+
+class SpawnerNativeRunnerDemo {
+    sfn m@(main):void () {
+        def demo:SpawnerNativeRunner (new SpawnerNativeRunner)
+        demo.runner.init(320 240)
+        demo.setupScene()
+
+        def frames:int 30
+        if ((shell_arg_cnt) > 0) {
+            def parsed@(optional):int (to_int (shell_arg 0))
+            if (!null? parsed) {
+                frames = (unwrap parsed)
+            }
+        }
+
+        def i 0
+        while (i < frames) {
+            demo.frame(16 false false false false false)
+            i = (i + 1)
+        }
+
+        def host:GameHost (demo.runner.hostRef())
+        print (("images=" + (host.imageCount())))
+        print (("sounds=" + (host.soundCount())))
+        print (("sprites=" + (host.spriteCount())))
+        print (("hasImage_bg=" + (to_string (host.hasImage("bg")))))
+        print (("hasSound_blip=" + (to_string (host.hasSound("blip")))))
+        print (("events=" + host.eventCount))
+        print (("soundPlays=" + (host.soundPlayCount())))
+        print (("dotX=" + (demo.entityX("dot"))))
+        print "spawner-native-runner done"
+    }
+}
