@@ -1,0 +1,41 @@
+; ==============================================================================
+; audio_runner_demo - exercises built-in synth sounds via playSound events.
+; ==============================================================================
+
+Import "./game_runtime.rgr"
+
+class AudioRunnerDemo {
+    sfn m@(main):void () {
+        def runner:GameRunner (new GameRunner)
+        runner.init(320 240)
+
+        def src:string ""
+        src = (src + "function initState() { return { entities: { dot: { x: 10, y: 10 } } }; }\n")
+        src = (src + "function sprites() { return [{ id: \"dot\", kind: \"circle\", rad: 4, r: 255, g: 200, b: 80 }]; }\n")
+        src = (src + "function update(props) {\n")
+        src = (src + "  const t = props.state.t || 0;\n")
+        src = (src + "  const next = t + 1;\n")
+        src = (src + "  let ev = [];\n")
+        src = (src + "  if (next == 1) { ev = [{ kind: \"playSound\", id: \"brick\" }]; }\n")
+        src = (src + "  if (next == 2) { ev = [{ kind: \"playSound\", id: \"bounce\" }]; }\n")
+        src = (src + "  if (next == 3) { ev = [{ kind: \"playSound\", id: \"win\" }]; }\n")
+        src = (src + "  return { entities: { dot: { x: 10 + next, y: 10 } }, t: next, events: ev };\n")
+        src = (src + "}\n")
+
+        runner.loadScript(src)
+        runner.setupScene()
+
+        def i 0
+        while (i < 5) {
+            runner.frame(16 false false false false false)
+            i = (i + 1)
+        }
+
+        def host:GameHost (runner.hostRef())
+        def audio:GameAudio (runner.audioRef())
+        print (("soundPlays=" + (host.soundPlayCount())))
+        print (("audioPlays=" + audio.playCount))
+        print (("lastSound=" + audio.lastId))
+        print "audio-runner done"
+    }
+}

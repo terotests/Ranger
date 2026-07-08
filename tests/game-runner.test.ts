@@ -83,6 +83,28 @@ describe("Game runner - scripted Pong", () => {
     const entities = out.match(/entities=(\d+)/);
     expect(entities, `no entity count in output: ${out}`).toBeTruthy();
     expect(parseInt(entities![1], 10)).toBe(52);
+
+    const audioPlays = out.match(/audioPlays=(\d+)/);
+    expect(audioPlays, `no audioPlays in output: ${out}`).toBeTruthy();
+    expect(parseInt(audioPlays![1], 10)).toBeGreaterThan(0);
+  });
+
+  it("plays built-in synth sounds via playSound events", () => {
+    const { compile, run } = compileAndRun(
+      "gallery/game_engine/scripting/audio_runner_demo.rgr"
+    );
+
+    expect(
+      compile.success,
+      `Compile failed: ${compile.error || compile.output}`
+    ).toBe(true);
+    expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+
+    const out = run?.output || "";
+    expect(out).toContain("audio-runner done");
+    expect(out).toContain("soundPlays=3");
+    expect(out).toContain("audioPlays=3");
+    expect(out).toContain("lastSound=win");
   });
 
   it("runs the scripted pacman game and eats dots", () => {

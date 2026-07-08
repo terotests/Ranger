@@ -41,6 +41,9 @@ class BreakoutRunnerDemo {
         print (("score=" + runner.score1) + ("," + runner.score2))
         def ec:int (runner.entityCount())
         print (("entities=" + ec))
+        def audio:GameAudio (runner.audioRef())
+        def audioPlays:int audio.playCount
+        print (("audioPlays=" + audioPlays))
         print "breakout-runner done"
     }
 }

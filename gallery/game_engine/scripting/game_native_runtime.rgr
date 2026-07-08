@@ -10,11 +10,13 @@ Import "../framebuffer.rgr"
 Import "../../ts_to_ranger/game_script_types.rgr"
 Import "../../pdf_writer/src/jsx/EvalValue.rgr"
 Import "./game_sprite.rgr"
+Import "./game_audio.rgr"
 
 class NativeGameRunner {
     def canvas:SoftCanvas (new SoftCanvas)
     def stateOps:NativeGameStateOps (new NativeGameStateOps)
     def host:GameHost (new GameHost)
+    def audio:GameAudio (new GameAudio)
     def spriteRenderer:GameSpriteRenderer (new GameSpriteRenderer)
     def entities:[GameEntity]
     def state:NativeGameState (new NativeGameState)
@@ -28,9 +30,11 @@ class NativeGameRunner {
     def currentScreen:string ""
 
     fn init:void (w:int h:int) {
+        audio.init()
         pw = w
         ph = h
         canvas.init(w h)
+        host.audio = audio
     }
 
     fn half:int (n:int) {
@@ -201,6 +205,7 @@ class NativeGameRunner {
     }
 
     fn setupScene:void (initState:NativeGameState sprites:[SpriteDefNative]) {
+        host.audio = audio
         state = initState
         this.setupSprites(sprites)
         this.syncFromState()
