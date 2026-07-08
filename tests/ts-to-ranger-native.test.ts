@@ -98,4 +98,52 @@ describe("TS -> Ranger -> native (compiled game script)", () => {
     expect(out).toContain("score=");
     expect(out).toContain("invaders-native-runner done");
   });
+
+  function has(cmd: string): boolean {
+    try {
+      execSync(cmd, { stdio: ["pipe", "pipe", "pipe"] });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  const gppAvailable = has("g++ --version");
+  const cppIt = gppAvailable ? it : it.skip;
+
+  cppIt("native Invaders builds and runs as C++ binary (g++)", () => {
+    const outDir = path.join(ROOT, "tests", ".output-cpp-native");
+    fs.mkdirSync(outDir, { recursive: true });
+
+    const compile = compileRanger(
+      "gallery/game_engine/scripting/invaders_native_runner.rgr",
+      "cpp",
+      outDir
+    );
+    expect(
+      compile.success,
+      `C++ codegen failed: ${compile.error || compile.output}`
+    ).toBe(true);
+
+    const cpp = path.join(outDir, "invaders_native_runner.cpp");
+    fs.copyFileSync(
+      path.join(ROOT, "gallery/invaders/variant.hpp"),
+      path.join(outDir, "variant.hpp")
+    );
+
+    const bin = path.join(outDir, "invaders_native_runner");
+    execSync(`g++ -std=c++17 -pthread "${cpp}" -o "${bin}"`, {
+      cwd: outDir,
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 120000,
+    });
+
+    const output = execSync(`"${bin}" 600`, {
+      cwd: ROOT,
+      encoding: "utf-8",
+      timeout: 60000,
+    });
+    expect(output).toContain("entities=17");
+    expect(output).toContain("invaders-native-runner done");
+  });
 });

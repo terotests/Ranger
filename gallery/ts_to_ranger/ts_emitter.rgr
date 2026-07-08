@@ -1272,7 +1272,7 @@ class TSEmitter {
     }
 
     ; const string-array (and array-of-array) tables -> methods returning a fresh
-    ; list. References to the name are rewritten to `(this.NAME)`.
+    ; list. References to the name are rewritten to `(this.NAME())`.
     fn emitConstArrayMethods:void (node:TSNode) {
         def j 0
         while (j < (array_length node.children)) {
@@ -2209,7 +2209,7 @@ class TSEmitter {
         if (t == "Identifier") {
             def ca@(optional):boolean (get constArrayNames node.name)
             if (!null? ca) {
-                return ("(this." + node.name) + ")"
+                return ("(this." + node.name) + "())"
             }
             def cst@(optional):string (get constScalarTypes node.name)
             if (!null? cst) {

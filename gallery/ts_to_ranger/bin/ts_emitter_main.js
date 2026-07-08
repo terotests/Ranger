@@ -6546,7 +6546,7 @@ class TSEmitter  {
     if ( t == "Identifier" ) {
       const ca = ( this.constArrayNames.hasOwnProperty(node.name) ? this.constArrayNames[node.name] : undefined );
       if ( (typeof(ca) !== "undefined" && ca != null )  ) {
-        return ("(this." + node.name) + ")";
+        return ("(this." + node.name) + "())";
       }
       const cst = ( this.constScalarTypes.hasOwnProperty(node.name) ? this.constScalarTypes[node.name] : undefined );
       if ( (typeof(cst) !== "undefined" && cst != null )  ) {

@@ -112,20 +112,20 @@ class GeneratedGameScript {
         def odd:int ((frame % 2))
         if ((kind == 0)) {
             if ((odd == 0)) {
-                return (this.INVADER_A)
+                return (this.INVADER_A())
             }
-            return (this.INVADER_B)
+            return (this.INVADER_B())
         }
         if ((kind == 1)) {
             if ((odd == 0)) {
-                return (this.INVADER_B)
+                return (this.INVADER_B())
             }
-            return (this.INVADER_A)
+            return (this.INVADER_A())
         }
         if ((odd == 0)) {
-            return (this.INVADER_C)
+            return (this.INVADER_C())
         }
-        return (this.INVADER_B)
+        return (this.INVADER_B())
     }
 
     fn alienId:string (alien:int) {
@@ -177,7 +177,7 @@ class GeneratedGameScript {
         tmp5.eg = 255
         tmp5.eb = 255
         def tmp6:[[string]]
-        push tmp6 (this.SHIP_ART)
+        push tmp6 (this.SHIP_ART())
         tmp5.frames = tmp6
         push list tmp5
         def tmp7:SpriteDefNative (new SpriteDefNative)
