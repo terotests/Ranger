@@ -78,11 +78,21 @@ class ImageBuffer {
     fn init:void (w:int h:int) {
         width = w
         height = h
-        ; RGBA = 4 bytes per pixel
         def size:int (w * h * 4)
         pixels = (buffer_alloc size)
-        ; Initialize to white
         this.fill(255 255 255 255)
+    }
+
+    ; Allocate RGBA storage without initializing pixels (caller fills).
+    fn initClear:void (w:int h:int) {
+        width = w
+        height = h
+        pixels = (buffer_alloc (w * h * 4))
+    }
+
+    fn fillTransparent:void () {
+        def size:int (width * height * 4)
+        buffer_fill pixels 0 0 size
     }
     
     fn getPixelOffset:int (x:int y:int) {
@@ -127,6 +137,20 @@ class ImageBuffer {
             buffer_set pixels (off + 2) b
             buffer_set pixels (off + 3) 255
         }
+    }
+
+    fn setPixelRGBA:void (x:int y:int r:int g:int b:int a:int) {
+        if (this.isValidCoord(x y)) {
+            def off:int (this.getPixelOffset(x y))
+            buffer_set pixels off r
+            buffer_set pixels (off + 1) g
+            buffer_set pixels (off + 2) b
+            buffer_set pixels (off + 3) a
+        }
+    }
+
+    fn getRawBuffer:buffer () {
+        return pixels
     }
     
     fn fill:void (r:int g:int b:int a:int) {

@@ -37,6 +37,7 @@ Merkitse valmiit kohdat `[x]`. Pidä tämä tiedosto ajan tasalla kun vaihe eten
 ### 1c — Blit + palette (R1)
 
 - [x] `src/lpc_blit.rgr`, `src/lpc_palette.rgr` — alpha blit toimii
+- [x] `rgba_fast_blit.rgr` + `src/lpc_layer_cache.rgr` — buffer-tason blit, singleton layer-cache
 - [ ] Täysi palettivaihto (porttaus LPC-algoritmista Rangeriin, ei TS-kopiota)
 - [x] Viisi layeria oikeassa z-järjestyksessä (`lpc_demo_male.rgr`)
 

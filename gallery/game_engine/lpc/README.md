@@ -56,8 +56,10 @@ npm run engine:lpc:run -- male gallery/game_engine/lpc/output/test.png \
   gallery/game_engine/lpc/pack/demo-male-walk
 ```
 
-Tuottaa **walk-strip** PNG:n (576×256, male demo). Tunnettuja bugeja ja hitaus
-jää myöhempään työhön — katso `TODO.md`.
+Tuottaa **walk-strip** PNG:n (576×256, male demo). Suorituskyky: buffer-tason blit
+(`rgba_fast_blit.rgr`), dekoodatut kerrokset singleton-cachessa (`lpc_layer_cache.rgr`).
+Ensimmäinen compose on edelleen hidas (Ranger-zlib PNG-dekoodaus); sama prosessi
+hyötyy cachesta uudelleenajossa. Katso `TODO.md`.
 
 ## Lisenssi
 
