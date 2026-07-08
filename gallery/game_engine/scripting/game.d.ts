@@ -15,10 +15,10 @@
 // ============================================================================
 
 /** Abstract controller buttons delivered to the script (device-independent). */
-export type GameButton = "up" | "down" | "action" | "quit";
+type GameButton = "up" | "down" | "action" | "quit";
 
 /** Read-only game configuration / host info, injected as the `game` global. */
-export interface Game {
+interface Game {
   /** Window / screen title. */
   readonly title: string;
   /** Score at which the match ends (0 = unbounded). */
@@ -30,7 +30,7 @@ export interface Game {
 }
 
 /** Read-only render-surface info, injected as the `screen` global. */
-export interface Screen {
+interface Screen {
   /** Pixel width of the frame buffer. */
   readonly width: number;
   /** Pixel height of the frame buffer. */
@@ -38,10 +38,10 @@ export interface Screen {
 }
 
 /** Retained sprite kinds understood by game_sprite.rgr / GameRunner. */
-export type SpriteKind = "rect" | "circle" | "wedge" | "ghost" | "bitmap";
+type SpriteKind = "rect" | "circle" | "wedge" | "ghost" | "bitmap";
 
 /** Static sprite definition returned from sprites(). */
-export interface SpriteDef {
+interface SpriteDef {
   id: string;
   kind: SpriteKind;
   w?: number;
@@ -67,7 +67,7 @@ export interface SpriteDef {
 }
 
 /** Per-frame entity pose written by update() into state.entities[id]. */
-export interface EntityPose {
+interface EntityPose {
   x: number;
   y: number;
   visible?: number;
@@ -86,7 +86,7 @@ export interface EntityPose {
  * booleans, arrays, plain objects) so it stays portable and deterministic
  * across every Ranger target. `screen` selects which screen is active.
  */
-export interface GameState {
+interface GameState {
   screen?: string;
   score?: number;
   /** 0 hides Pong-style centre net (GameRunner). */
@@ -95,11 +95,72 @@ export interface GameState {
   entities?: Record<string, EntityPose>;
   /** Per-screen sub-state when using the multi-screen model. */
   screens?: Record<string, unknown>;
-  [key: string]: unknown;
 }
 
+/**
+ * Multi-screen root state: `screen` selects the active page and each page
+ * keeps its own frozen sub-state under `screens[name]`.
+ */
+interface MultiScreenState<
+  TScreen extends string,
+  TScreens extends Record<TScreen, unknown>
+> {
+  screen: TScreen;
+  screens: TScreens;
+}
+
+/** RGB colour triple used by retained sprites and HUD. */
+interface RgbColor {
+  r: number;
+  g: number;
+  b: number;
+}
+
+/** Breakout play-screen sub-state (paddle, ball, bricks). */
+interface BreakoutPlayScreen {
+  layout: "breakout";
+  showNet?: number;
+  entities: Record<string, EntityPose>;
+  px: number;
+  py: number;
+  bx: number;
+  by: number;
+  vx: number;
+  vy: number;
+  alive: number[];
+  score: number;
+  lives: number;
+  score1: number;
+  score2: number;
+}
+
+/** Breakout game-over screen sub-state. */
+interface BreakoutGameOverScreen {
+  layout: "breakout";
+  score: number;
+  won: number;
+  lives: number;
+}
+
+/** Full Breakout multi-screen state. */
+type BreakoutScreens = {
+  play: BreakoutPlayScreen;
+  gameOver?: BreakoutGameOverScreen;
+};
+
+type BreakoutState = {
+  screen: "play" | "gameOver";
+  screens: BreakoutScreens;
+};
+
+/** Screen update helper: receives full state + per-frame props, returns next state. */
+type ScreenUpdateFn<TState extends GameState = GameState> = (
+  s: TState,
+  props: EventProps
+) => TState;
+
 /** Props object passed to every event handler (React-style single argument). */
-export interface EventProps {
+interface EventProps {
   /** Current game state. */
   state: GameState;
   /** Active screen name (multi-screen games). */
@@ -124,7 +185,7 @@ export interface EventProps {
  * optional; the host calls the ones that exist. State transitions are pure:
  * return the NEW state (reducer style) rather than mutating in place.
  */
-export interface GameScript {
+interface GameScript {
   /** Return the initial state (called once at start). */
   initState?(): GameState;
   /** Handle a button event; return the next state. */
@@ -151,3 +212,18 @@ declare const Buttons: {
   readonly ACTION: "action";
   readonly QUIT: "quit";
 };
+
+// Minimal JSX surface for HUD overlays (View / Label used by game_hud.rgr).
+declare namespace JSX {
+  interface Element {}
+  interface IntrinsicElements {
+    View: Record<string, unknown>;
+    Label: Record<string, unknown>;
+    [elemName: string]: Record<string, unknown>;
+  }
+}
+
+/** EVG layout primitive (injected by ComponentEngine JSX expansion). */
+declare function View(props: Record<string, unknown>): JSX.Element;
+/** EVG text primitive. */
+declare function Label(props: Record<string, unknown>): JSX.Element;
