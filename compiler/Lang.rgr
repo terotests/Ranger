@@ -713,7 +713,7 @@ func r_dir_exists(pathName string) bool {
            }
         }
 
-        ; Returns the file modification time as Unix timestamp (seconds since epoch)
+        ; Returns the file modification time (ms on es6/cpp; seconds on go)
         file_mtime          cmdFileMTime:int (path:string filename:string) {
             templates {
                 go ( "r_file_mtime(" (e 1) ", " (e 2) ")"
@@ -730,6 +730,18 @@ func r_file_mtime(pathName string, fileName string) int64 {
 )                    
                 )
                 es6 ( "require('fs').statSync(" (e 1) " + '/' + " (e 2) ").mtimeMs" )
+                cpp ( "r_file_mtime(" (e 1) ", " (e 2) ")" (imp "<sys/stat.h>") (imp "<string>")
+(create_polyfill "
+int64_t r_file_mtime(const std::string& path, const std::string& filename) {
+    struct stat st;
+    std::string full = path + \"/\" + filename;
+    if (stat(full.c_str(), &st) != 0) {
+        return 0;
+    }
+    return (int64_t)st.st_mtime * 1000;
+}
+")
+                )
                 ranger ( "(file_mtime " (e 1) " " (e 2) ")" )
            }
         }

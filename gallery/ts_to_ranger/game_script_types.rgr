@@ -29,8 +29,7 @@ class SpriteDefNative {
     def p0:int 0
     def p1:int 0
     def p2:int 0
-    ; bitmap sprites (invaders): pixel scale + body/eye palette. Frame bitmaps are
-    ; not stored natively (the native runner tracks logic/positions, not pixels).
+    ; bitmap sprites: pixel scale + body/eye palette + animated frame strings.
     def px:int 0
     def br:int -1
     def bg:int -1

@@ -1,0 +1,137 @@
+; ==============================================================================
+; game_sdl_native_host - SDL2 loop for static-compiled native game scripts.
+; ==============================================================================
+;
+; Drives a NativeGameBridge subclass (emitter output compiled into the binary).
+; No ComponentEngine / .tsx load at runtime.
+;
+; Controls: Arrow keys / A,D, W/S alt, Space = action, Q/Esc = quit.
+; Optional first CLI arg = max frames (headless smoke with SDL_VIDEODRIVER=dummy).
+; ==============================================================================
+
+Import "../gfx_sdl.rgr"
+Import "./native_game_bridge.rgr"
+
+class GameSdlNativeHost {
+    def pw:int 480
+    def ph:int 270
+    def maxFrames:int 0
+    def frames:int 0
+    def running:boolean true
+    def fpsShown:int 0
+    def fpsWindowStart:int 0
+    def fpsWindowFrames:int 0
+    ; Wall-clock dt: milliseconds since previous frame *start* (start-to-start).
+    def lastFrameStart:int 0
+    def defaultDtMs:int 16
+    def minDtMs:int 1
+    def maxDtMs:int 100
+
+    fn updateFps:void (runner:NativeGameRunner titlePrefix:string) {
+        def now:int (gfx_ticks_ms)
+        if (fpsWindowStart <= 0) {
+            fpsWindowStart = now
+            fpsWindowFrames = 0
+        }
+        fpsWindowFrames = (fpsWindowFrames + 1)
+        def elapsed (now - fpsWindowStart)
+        if (elapsed >= 1000) {
+            fpsShown = (to_int ((fpsWindowFrames * 1000) / elapsed))
+            fpsWindowStart = now
+            fpsWindowFrames = 0
+            def title:string (titlePrefix + " - ")
+            title = (title + (to_string fpsShown))
+            title = (title + " FPS")
+            gfx_set_title(title)
+        }
+        runner.setFpsShown(fpsShown)
+    }
+
+    fn run:void (game:NativeGameBridge windowTitle:string probeEntityId:string) {
+        game.runner.init(pw ph)
+        game.setupScene()
+        def ok:int (gfx_open windowTitle pw ph)
+        if (ok == 0) {
+            print "gfx_open failed (no display?) - still rendering into the RGBA buffer"
+        }
+        while (running) {
+            def now:int (gfx_ticks_ms)
+            def dtMs:int defaultDtMs
+            if (lastFrameStart > 0) {
+                dtMs = (now - lastFrameStart)
+                if (dtMs < minDtMs) {
+                    dtMs = minDtMs
+                }
+                if (dtMs > maxDtMs) {
+                    dtMs = maxDtMs
+                }
+            }
+            lastFrameStart = now
+            def up:boolean false
+            def down:boolean false
+            def left:boolean false
+            def right:boolean false
+            def m:int (gfx_poll_mask)
+            if ((bit_and m 1) != 0) {
+                up = true
+            }
+            if ((bit_and m 2) != 0) {
+                down = true
+            }
+            if ((bit_and m 16) != 0) {
+                left = true
+            }
+            if ((bit_and m 32) != 0) {
+                right = true
+            }
+            def action:boolean false
+            if ((bit_and m 4) != 0) {
+                action = true
+            }
+            if ((bit_and m 8) != 0) {
+                running = false
+            }
+            game.frame(dtMs up down left right action)
+            if (game.runner.gameOverFlag == 1) {
+                def goTitle:string (windowTitle + " - GAME OVER (Space restart)")
+                gfx_set_title(goTitle)
+            } {
+                this.updateFps(game.runner windowTitle)
+            }
+            game.draw()
+            gfx_present (game.raw()) pw ph
+            frames = (frames + 1)
+            if (gfx_should_close) {
+                running = false
+            }
+            if (maxFrames > 0) {
+                if (frames >= maxFrames) {
+                    running = false
+                }
+            }
+        }
+        gfx_close
+    }
+
+    fn printSummary:void (game:NativeGameBridge probeEntityId:string) {
+        def msg:string ("game-sdl-native done: frames=" + frames)
+        msg = (msg + " | entities=" + (game.entityCount()))
+        def sx:int (game.entityX(probeEntityId))
+        def sy:int (game.entityY(probeEntityId))
+        msg = (msg + " | ")
+        msg = (msg + probeEntityId)
+        msg = (msg + "=")
+        msg = (msg + sx)
+        msg = (msg + ",")
+        msg = (msg + sy)
+        msg = (msg + " | score ")
+        msg = (msg + game.runner.score1)
+        msg = (msg + " - ")
+        msg = (msg + game.runner.score2)
+        if (fpsShown > 0) {
+            msg = (msg + " | fps=")
+            msg = (msg + (to_string fpsShown))
+        }
+        print msg
+    }
+}

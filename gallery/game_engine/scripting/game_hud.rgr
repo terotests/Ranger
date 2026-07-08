@@ -40,7 +40,7 @@ class GameHudBlitter {
         layout.setPageSize(fw fh)
         root.calculatedX = 0.0
         root.calculatedY = 0.0
-        root.height.isSet = false
+        ; Keep script-defined height (e.g. height="100%" splash screens). Auto-height when unset.
         if (root.width.isSet == false) {
             root.width = (EVGUnit.px(fw))
             root.width.isSet = true

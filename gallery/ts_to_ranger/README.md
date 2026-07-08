@@ -86,6 +86,12 @@ npm run ts2ranger:compile
 
 # Headless native pong
 npm run engine:pong:native
+
+# SDL + native compiled Invaders (emitter output baked in, no .tsx at runtime)
+npm run engine:game-sdl-native:run:invaders
+
+# SDL + TS interpreter (loads .tsx via ComponentEngine)
+npm run engine:game-sdl:run:invaders
 ```
 
 ## Bridge contract
@@ -243,7 +249,6 @@ gallery/game_engine/scripting/
    indexing/`push` on script arrays.
 2. Richer events/resources: typed spawn payloads, sprite frame bitmap upload,
    collision geometry registration consumed by the SDL host.
-3. `game_sdl_native_runner.rgr` — SDL host that imports generated script instead
-   of `loadScript(.tsx)`.
+3. **`game_sdl_native_host.rgr`** — SDL host for generated scripts ✅ (`invaders_native_sdl_runner.rgr`, `pong_native_sdl_runner.rgr`; `npm run engine:game-sdl-native:run:invaders`)
 4. LLVM path: `game_native_runtime + generated/*.rgr` → single native binary.
 5. Optional: codegen `hud()` to `game_hud` EVG tree builder (static JSX).

@@ -110,6 +110,8 @@ export interface EventProps {
   action?: boolean;
   /** Delta-time (ticks) for `update`. */
   dt?: number;
+  /** Milliseconds since game start (monotonic wall clock from host). */
+  time?: number;
   /** Directional input (GameRunner / SDL host). */
   up?: boolean;
   down?: boolean;

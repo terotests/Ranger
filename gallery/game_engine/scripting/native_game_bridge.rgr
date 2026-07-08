@@ -1,0 +1,35 @@
+; ==============================================================================
+; native_game_bridge - shared hook surface for headless + SDL native game hosts.
+; ==============================================================================
+
+Import "./game_native_runtime.rgr"
+
+class NativeGameBridge {
+    def runner:NativeGameRunner (new NativeGameRunner)
+
+    fn setupScene:void () {
+    }
+
+    fn frame:void (dtMs:int up:boolean down:boolean left:boolean right:boolean action:boolean) {
+    }
+
+    fn draw:void () {
+        runner.draw()
+    }
+
+    fn entityX:int (id:string) {
+        return (runner.entityX(id))
+    }
+
+    fn entityY:int (id:string) {
+        return (runner.entityY(id))
+    }
+
+    fn entityCount:int () {
+        return (runner.entityCount())
+    }
+
+    fn raw:buffer () {
+        return (runner.raw())
+    }
+}

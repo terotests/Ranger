@@ -108,4 +108,29 @@ describe("Game runner - scripted Pong", () => {
     expect(pac, `no pac position in output: ${out}`).toBeTruthy();
     expect(parseInt(pac![1], 10)).toBeGreaterThan(0);
   });
+
+  it("hot-reloads update() via AST diff without scene reset", () => {
+    const { compile, run } = compileAndRun(
+      "gallery/game_engine/scripting/hot_reload_runner_demo.rgr"
+    );
+
+    expect(
+      compile.success,
+      `Compile failed: ${compile.error || compile.output}`
+    ).toBe(true);
+    expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+
+    const out = run?.output || "";
+    expect(out).toContain("hot-reload-runner done");
+    expect(out).toContain("sceneReset=false");
+    expect(out).toContain("entitiesBefore=1");
+    expect(out).toContain("entitiesAfter=1");
+
+    const bxBefore = out.match(/bxBefore=(\d+)/);
+    const bxAfter = out.match(/bxAfter=(\d+)/);
+    expect(bxBefore, `no bxBefore in output: ${out}`).toBeTruthy();
+    expect(bxAfter, `no bxAfter in output: ${out}`).toBeTruthy();
+    expect(parseInt(bxBefore![1], 10)).toBe(20);
+    expect(parseInt(bxAfter![1], 10)).toBe(70);
+  });
 });

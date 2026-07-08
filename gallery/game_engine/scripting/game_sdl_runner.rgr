@@ -7,10 +7,18 @@
 ; the native SDL2 backend (gfx_sdl.rgr).
 ;
 ;   ./game_sdl gallery/game_engine/scripting/pong.game.tsx
+;   ./game_sdl --hot-reload gallery/game_engine/scripting/pong.game.tsx
 ;   SDL_VIDEODRIVER=dummy ./game_sdl gallery/game_engine/scripting/pong.game.tsx 300
 ;
 ; Controls: Arrow keys / A,D = move (game-specific), W/S = alt, Space = action, Q/Esc = quit.
-; Optional second CLI arg = max frames (headless smoke / CI).
+;
+; Runtime options (flags before the .tsx path):
+;   --hot-reload     poll .tsx mtime each frame; AST-patch in-process on save
+;   --no-hot-reload  disable hot reload (default for headless maxFrames runs)
+;
+; Positional args after flags:
+;   <game.tsx>   script path (required)
+;   [maxFrames]  optional frame cap (headless smoke / CI; disables hot reload)
 ; ==============================================================================
 
 Import "./game_runtime.rgr"
@@ -26,6 +34,12 @@ class GameSdlRunner {
     def fpsShown:int 0
     def fpsWindowStart:int 0
     def fpsWindowFrames:int 0
+    def lastFrameStart:int 0
+    def defaultDtMs:int 16
+    def minDtMs:int 1
+    def maxDtMs:int 100
+    def hotReloadExplicit:boolean false
+    def hotReloadWanted:boolean true
 
     fn updateFps:void () {
         def now:int (gfx_ticks_ms)
@@ -60,6 +74,17 @@ class GameSdlRunner {
         runner.init(pw ph)
         runner.loadScript(src)
         runner.setupScene()
+        runner.trackScriptFile(tsxPath)
+        def enableHotReload:boolean hotReloadWanted
+        if (maxFrames > 0) {
+            if (hotReloadExplicit == false) {
+                enableHotReload = false
+            }
+        }
+        runner.setHotReload(enableHotReload)
+        if (enableHotReload) {
+            print ("[game-engine] hot reload enabled: " + tsxPath)
+        }
     }
 
     fn draw:void () {
@@ -74,6 +99,19 @@ class GameSdlRunner {
             print "gfx_open failed (no display?) - still rendering into the RGBA buffer"
         }
         while (running) {
+            runner.maybeHotReload()
+            def now:int (gfx_ticks_ms)
+            def dtMs:int defaultDtMs
+            if (lastFrameStart > 0) {
+                dtMs = (now - lastFrameStart)
+                if (dtMs < minDtMs) {
+                    dtMs = minDtMs
+                }
+                if (dtMs > maxDtMs) {
+                    dtMs = maxDtMs
+                }
+            }
+            lastFrameStart = now
             def up:boolean false
             def down:boolean false
             def left:boolean false
@@ -98,7 +136,7 @@ class GameSdlRunner {
             if ((bit_and m 8) != 0) {
                 running = false
             }
-            runner.frame(16 up down left right action)
+            runner.frame(dtMs up down left right action)
             this.updateFps()
             this.draw()
             frames = (frames + 1)
@@ -114,20 +152,64 @@ class GameSdlRunner {
         gfx_close
     }
 
+    fn isTsxPath:boolean (arg:string) {
+        def len:int (strlen arg)
+        if (len < 4) {
+            return false
+        }
+        def tail:string (substring arg (len - 4) len)
+        if (tail == ".tsx") {
+            return true
+        }
+        return false
+    }
+
+    fn parseArgs:void () {
+        def tsxPath:string ""
+        def i:int 0
+        while (i < (shell_arg_cnt)) {
+            def arg:string (shell_arg i)
+            if (arg == "--hot-reload") {
+                hotReloadExplicit = true
+                hotReloadWanted = true
+            } {
+                if (arg == "--no-hot-reload") {
+                    hotReloadExplicit = true
+                    hotReloadWanted = false
+                } {
+                    if (this.isTsxPath(arg)) {
+                        tsxPath = arg
+                    } {
+                        if ((strlen tsxPath) > 0) {
+                            def parsed@(optional):int (to_int arg)
+                            if (!null? parsed) {
+                                maxFrames = (unwrap parsed)
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if ((strlen tsxPath) == 0) {
+            print "usage: game_sdl [--hot-reload|--no-hot-reload] <path/to/game.tsx> [maxFrames]"
+            print "example: game_sdl gallery/game_engine/scripting/pong.game.tsx"
+            print "         game_sdl --hot-reload gallery/game_engine/scripting/pacman.game.tsx"
+            return
+        }
+        this.loadGame(tsxPath)
+    }
+
     sfn m@(main):void () {
         if ((shell_arg_cnt) < 1) {
-            print "usage: game_sdl <path/to/game.tsx> [maxFrames]"
+            print "usage: game_sdl [--hot-reload|--no-hot-reload] <path/to/game.tsx> [maxFrames]"
             print "example: game_sdl gallery/game_engine/scripting/pong.game.tsx"
             return
         }
         def be:GameSdlRunner (new GameSdlRunner)
-        def tsxPath:string (shell_arg 0)
-        be.loadGame(tsxPath)
-        if ((shell_arg_cnt) > 1) {
-            def parsed@(optional):int (to_int (shell_arg 1))
-            if (!null? parsed) {
-                be.maxFrames = (unwrap parsed)
-            }
+        be.parseArgs()
+        if ((strlen be.runner.options.scriptPath) == 0) {
+            return
         }
         be.run()
         def msg:string ("game-sdl done: frames=" + be.frames)

@@ -179,6 +179,33 @@ Space Invaders ([`invaders.game.tsx`](./invaders.game.tsx)) uses `kind: "bitmap"
 retained sprite per alien with two cached animation frames (`p0` toggles frame), not
 one rect per pixel. Audio is reserved for a future engine-level API (not per-game).
 
+## Hot reload (runtime option, Path A)
+
+TS-interpreter games can reload **in-process** without restarting SDL:
+
+```ranger
+def runner:GameRunner (new GameRunner)
+runner.trackScriptFile("gallery/game_engine/scripting/pong.game.tsx")
+runner.setHotReload(true)
+; each frame:
+runner.maybeHotReload()
+```
+
+On save, `ComponentEngine.patchScript()` re-parses the file, diffs top-level AST
+declarations, and swaps changed `functionNode` / const bindings. `GameRunner.hotReloadScript()`
+rebuilds the scene only when `initState`, `sprites`, `resources`, or module `const`s change.
+
+SDL host (`game_sdl_runner.rgr`):
+
+```bash
+npm run engine:game-sdl:run:pacman          # hot reload on by default
+npm run engine:game:watch:invaders          # dev launcher (same behaviour)
+./tmp/game-sdl/game_sdl --no-hot-reload ... # disable
+npm run engine:game-sdl:smoke:pacman        # maxFrames → hot reload off
+```
+
+Native compiled path (Path B) does not support this — rebuild + restart required.
+
 ## Roadmap
 
 1. **Done:** namespace injection (`registerGlobal`), script loading + function

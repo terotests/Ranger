@@ -1,0 +1,295 @@
+; =============================================================================
+; ts_ast_patch - Top-level AST diff for in-process script hot reload.
+; =============================================================================
+; Compares two parsed Program ASTs by declaration name and source text slice.
+; Used by ComponentEngine.patchScript() to swap only changed bindings.
+
+Import "ts_parser_simple.rgr"
+
+class TSTopLevelDecl {
+    def name:string ""
+    def declKind:string ""   ; "function" | "variable"
+    def node:TSNode (new TSNode())
+    def text:string ""
+}
+
+class TSAstPatchChange {
+    def changeKind:string "" ; "added" | "removed" | "modified"
+    def name:string ""
+    def declKind:string ""
+    def newNode@(optional):TSNode
+}
+
+class TSAstPatchResult {
+    def changes:[TSAstPatchChange]
+    def functionsChanged:boolean false
+    def variablesChanged:boolean false
+    def sceneAffecting:boolean false
+    def hasChanges:boolean false
+}
+
+class TSAstPatcher {
+
+    fn nodeSpanEnd:int (node:TSNode) {
+        def best:int node.end
+        if (best < node.start) {
+            best = node.start
+        }
+        if node.body {
+            def bodyEnd:int (this.nodeSpanEnd((unwrap node.body)))
+            if (bodyEnd > best) {
+                best = bodyEnd
+            }
+        }
+        if node.left {
+            def leftEnd:int (this.nodeSpanEnd((unwrap node.left)))
+            if (leftEnd > best) {
+                best = leftEnd
+            }
+        }
+        if node.right {
+            def rightEnd:int (this.nodeSpanEnd((unwrap node.right)))
+            if (rightEnd > best) {
+                best = rightEnd
+            }
+        }
+        if node.init {
+            def initEnd:int (this.nodeSpanEnd((unwrap node.init)))
+            if (initEnd > best) {
+                best = initEnd
+            }
+        }
+        if node.test {
+            def testEnd:int (this.nodeSpanEnd((unwrap node.test)))
+            if (testEnd > best) {
+                best = testEnd
+            }
+        }
+        if node.consequent {
+            def consEnd:int (this.nodeSpanEnd((unwrap node.consequent)))
+            if (consEnd > best) {
+                best = consEnd
+            }
+        }
+        if node.alternate {
+            def altEnd:int (this.nodeSpanEnd((unwrap node.alternate)))
+            if (altEnd > best) {
+                best = altEnd
+            }
+        }
+        def i:int 0
+        while (i < (array_length node.children)) {
+            def childEnd:int (this.nodeSpanEnd((itemAt node.children i)))
+            if (childEnd > best) {
+                best = childEnd
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    fn declText:string (src:string node:TSNode) {
+        def start:int node.start
+        def end:int (this.nodeSpanEnd(node))
+        def len:int (strlen src)
+        if (start < 0) {
+            start = 0
+        }
+        if (end > len) {
+            end = len
+        }
+        if (end <= start) {
+            return ""
+        }
+        return (substring src start end)
+    }
+
+    fn isSceneAffectingFunction:boolean (name:string) {
+        if (name == "initState") {
+            return true
+        }
+        if (name == "sprites") {
+            return true
+        }
+        if (name == "resources") {
+            return true
+        }
+        if (name == "screens") {
+            return true
+        }
+        return false
+    }
+
+    fn collectFromNode:void (src:string node:TSNode decls:[TSTopLevelDecl]) {
+        if (node.nodeType == "FunctionDeclaration") {
+            if (node.name == "render") {
+                return
+            }
+            def d:TSTopLevelDecl (new TSTopLevelDecl())
+            d.name = node.name
+            d.declKind = "function"
+            d.node = node
+            d.text = (this.declText(src node))
+            push decls d
+            return
+        }
+        if (node.nodeType == "VariableDeclaration") {
+            def i:int 0
+            while (i < (array_length node.children)) {
+                def decl:TSNode (itemAt node.children i)
+                if (decl.nodeType == "VariableDeclarator") {
+                    def d2:TSTopLevelDecl (new TSTopLevelDecl())
+                    d2.name = decl.name
+                    d2.declKind = "variable"
+                    d2.node = node
+                    d2.text = (this.declText(src node))
+                    push decls d2
+                }
+                i = (i + 1)
+            }
+            return
+        }
+        if (node.nodeType == "ExportNamedDeclaration") {
+            if node.left {
+                this.collectFromNode(src (unwrap node.left) decls)
+            }
+            return
+        }
+        if (node.nodeType == "ExportDefaultDeclaration") {
+            if node.left {
+                this.collectFromNode(src (unwrap node.left) decls)
+            }
+        }
+    }
+
+    fn collectTopLevelDecls:[TSTopLevelDecl] (ast:TSNode src:string) {
+        def decls:[TSTopLevelDecl]
+        def i:int 0
+        while (i < (array_length ast.children)) {
+            def node:TSNode (itemAt ast.children i)
+            this.collectFromNode(src node decls)
+            i = (i + 1)
+        }
+        return decls
+    }
+
+    fn findDeclByName:TSNode (decls:[TSTopLevelDecl] name:string) {
+        def empty (new TSNode())
+        def i:int 0
+        while (i < (array_length decls)) {
+            def d:TSTopLevelDecl (itemAt decls i)
+            if (d.name == name) {
+                return d.node
+            }
+            i = (i + 1)
+        }
+        return empty
+    }
+
+    fn findDeclMeta:TSNode (decls:[TSTopLevelDecl] name:string) {
+        def i:int 0
+        while (i < (array_length decls)) {
+            def d:TSTopLevelDecl (itemAt decls i)
+            if (d.name == name) {
+                return d.node
+            }
+            i = (i + 1)
+        }
+        def empty (new TSNode())
+        return empty
+    }
+
+    fn hasDeclByName:boolean (decls:[TSTopLevelDecl] name:string) {
+        def i:int 0
+        while (i < (array_length decls)) {
+            def d:TSTopLevelDecl (itemAt decls i)
+            if (d.name == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn findDeclText:string (decls:[TSTopLevelDecl] name:string) {
+        def i:int 0
+        while (i < (array_length decls)) {
+            def d:TSTopLevelDecl (itemAt decls i)
+            if (d.name == name) {
+                return d.text
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn findDeclKind:string (decls:[TSTopLevelDecl] name:string) {
+        def i:int 0
+        while (i < (array_length decls)) {
+            def d:TSTopLevelDecl (itemAt decls i)
+            if (d.name == name) {
+                return d.declKind
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn pushChange:void (result:TSAstPatchResult kind:string name:string declKind:string newNode:TSNode) {
+        def ch:TSAstPatchChange (new TSAstPatchChange())
+        ch.changeKind = kind
+        ch.name = name
+        ch.declKind = declKind
+        ch.newNode = newNode
+        push result.changes ch
+        result.hasChanges = true
+        if (declKind == "function") {
+            result.functionsChanged = true
+            if (this.isSceneAffectingFunction(name)) {
+                result.sceneAffecting = true
+            }
+        }
+        if (declKind == "variable") {
+            result.variablesChanged = true
+            result.sceneAffecting = true
+        }
+    }
+
+  ; Diff top-level declarations between two parsed programs.
+    fn diffTopLevel:TSAstPatchResult (oldAst:TSNode oldSrc:string newAst:TSNode newSrc:string) {
+        def result:TSAstPatchResult (new TSAstPatchResult())
+        def emptyChanges:[TSAstPatchChange]
+        result.changes = emptyChanges
+
+        def oldDecls:[TSTopLevelDecl] (this.collectTopLevelDecls(oldAst oldSrc))
+        def newDecls:[TSTopLevelDecl] (this.collectTopLevelDecls(newAst newSrc))
+
+        ; Added / modified
+        def i:int 0
+        while (i < (array_length newDecls)) {
+            def nd:TSTopLevelDecl (itemAt newDecls i)
+            if (this.hasDeclByName(oldDecls nd.name) == false) {
+                this.pushChange(result "added" nd.name nd.declKind nd.node)
+            } {
+                def oldText:string (this.findDeclText(oldDecls nd.name))
+                if (oldText != nd.text) {
+                    this.pushChange(result "modified" nd.name nd.declKind nd.node)
+                }
+            }
+            i = (i + 1)
+        }
+
+        ; Removed
+        def j:int 0
+        while (j < (array_length oldDecls)) {
+            def od:TSTopLevelDecl (itemAt oldDecls j)
+            if (this.hasDeclByName(newDecls od.name) == false) {
+                def emptyNode (new TSNode())
+                this.pushChange(result "removed" od.name od.declKind emptyNode)
+            }
+            j = (j + 1)
+        }
+
+        return result
+    }
+}
