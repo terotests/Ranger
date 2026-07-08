@@ -4,6 +4,7 @@
 Import "../game_script_types.rgr"
 
 class GeneratedGameScript {
+
     fn resources:[ResourceDefNative] () {
         def list:[ResourceDefNative]
         def r0:ResourceDefNative (new ResourceDefNative)

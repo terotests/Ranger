@@ -4,6 +4,7 @@
 Import "../game_script_types.rgr"
 
 class GeneratedGameScript {
+
     fn sprites:[SpriteDefNative] () {
         def list:[SpriteDefNative]
         def d0:SpriteDefNative (new SpriteDefNative)

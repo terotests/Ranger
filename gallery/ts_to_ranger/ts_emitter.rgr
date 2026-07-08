@@ -27,6 +27,139 @@ class TSEmitter {
     def stateVarName:string "s"
     def readEntityIds:[string]
     def readEntitySeen:[string:boolean]
+    ; Helper-function signature registry (prepass over the program).
+    def fnReturnTypes:[string:string]
+    def fnParamTypesCsv:[string:string]
+    def isHelperFn:[string:boolean]
+    ; Module-level const registries.
+    def constScalarTypes:[string:string]
+    def constArrayNames:[string:boolean]
+    def constArrayElemType:[string:string]
+    ; Interface/struct registry: name -> csv of "field:type" pairs.
+    def interfaceFieldsCsv:[string:string]
+    def interfaceNames:[string]
+    ; State fields that hold script-owned arrays -> stored in state.intArrays.
+    def stateArrayFieldType:[string:string]
+    def tmpCounter:int 0
+
+    ; ==========================================================================
+    ; TS type annotation -> Ranger type
+    ; ==========================================================================
+
+    ; Extract the Ranger type string from a param/var/return typeAnnotation.
+    fn annotType:string (annot:TSNode) {
+        def node:TSNode annot
+        if (annot.nodeType == "TSTypeAnnotation") {
+            if (annot.typeAnnotation) {
+                node = (unwrap annot.typeAnnotation)
+            }
+        }
+        return (this.typeNodeToRanger(node))
+    }
+
+    fn typeNodeToRanger:string (node:TSNode) {
+        def t:string node.nodeType
+        if (t == "TSNumberKeyword") {
+            return "double"
+        }
+        if (t == "TSStringKeyword") {
+            return "string"
+        }
+        if (t == "TSBooleanKeyword") {
+            return "boolean"
+        }
+        if (t == "TSArrayType") {
+            def elem:string "double"
+            if (node.left) {
+                elem = (this.typeNodeToRanger((unwrap node.left)))
+            }
+            return ("[" + elem) + "]"
+        }
+        if (t == "TSTypeReference") {
+            return (this.typeRefToRanger(node.name))
+        }
+        return "int"
+    }
+
+    ; Named TS types -> Ranger. `int`/`float` are game-dialect aliases for
+    ; number (declared in game.d.ts) that pin the numeric representation.
+    fn typeRefToRanger:string (name:string) {
+        if (name == "int") { return "int" }
+        if (name == "float") { return "double" }
+        if (name == "double") { return "double" }
+        if (name == "number") { return "double" }
+        if (name == "string") { return "string" }
+        if (name == "boolean") { return "boolean" }
+        if (name == "bool") { return "boolean" }
+        if (name == "EntityPose") { return "EntityPoseNative" }
+        if (name == "SpriteDef") { return "SpriteDefNative" }
+        if (name == "GameState") { return "NativeGameState" }
+        if (name == "UpdateProps") { return "UpdatePropsNative" }
+        if (name == "IntMap") { return "[string:int]" }
+        if (name == "EntityMap") { return "[string:EntityPoseNative]" }
+        ; Script interface -> synthesized native struct.
+        return (name + "Native")
+    }
+
+    ; --- tiny CSV helpers (Ranger maps can't hold list values directly) ---
+    fn splitCsv:[string] (s:string) {
+        def out:[string]
+        if ((strlen s) == 0) {
+            return out
+        }
+        def cur:string ""
+        def i 0
+        while (i < (strlen s)) {
+            def ch:string (substring s i (i + 1))
+            if (ch == ",") {
+                push out cur
+                cur = ""
+            } {
+                cur = (cur + ch)
+            }
+            i = (i + 1)
+        }
+        push out cur
+        return out
+    }
+
+    fn joinCsv:string (items:[string]) {
+        def out:string ""
+        def i 0
+        while (i < (array_length items)) {
+            if (i > 0) {
+                out = (out + ",")
+            }
+            out = (out + (itemAt items i))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn helperReturnType:string (name:string) {
+        def t@(optional):string (get fnReturnTypes name)
+        if (!null? t) {
+            return (unwrap t)
+        }
+        return "int"
+    }
+
+    fn helperParamType:string (name:string idx:int) {
+        def csv@(optional):string (get fnParamTypesCsv name)
+        if (null? csv) {
+            return ""
+        }
+        def parts:[string] (this.splitCsv((unwrap csv)))
+        if (idx < (array_length parts)) {
+            return (itemAt parts idx)
+        }
+        return ""
+    }
+
+    fn isKnownHelper:boolean (name:string) {
+        def h@(optional):boolean (get isHelperFn name)
+        return (!null? h)
+    }
 
     fn emit:void (text:string) {
         output = output + text
@@ -63,6 +196,35 @@ class TSEmitter {
         inInitFn = false
         inUpdateFn = false
         inResourcesFn = false
+        def fr:[string:string]
+        fnReturnTypes = fr
+        def fp:[string:string]
+        fnParamTypesCsv = fp
+        def fh:[string:boolean]
+        isHelperFn = fh
+        def cs:[string:string]
+        constScalarTypes = cs
+        def ca:[string:boolean]
+        constArrayNames = ca
+        def cae:[string:string]
+        constArrayElemType = cae
+        def ifc:[string:string]
+        interfaceFieldsCsv = ifc
+        def ifn:[string]
+        interfaceNames = ifn
+        def saf:[string:string]
+        stateArrayFieldType = saf
+        tmpCounter = 0
+        this.seedBridgeStructs()
+    }
+
+    ; Register bridge struct field types so struct-literal emission is type-aware
+    ; (keyed by the interface-style name = struct minus the "Native" suffix).
+    fn seedBridgeStructs:void () {
+        set interfaceFieldsCsv "SpriteDef" "id:string,kind:string,w:int,h:int,rad:int,r:int,g:int,b:int,p0:int,p1:int,p2:int,px:int,br:int,bg:int,bb:int,er:int,eg:int,eb:int,frames:[[string]]"
+        set interfaceFieldsCsv "EntityPose" "x:double,y:double,visible:int,r:int,g:int,b:int,rad:int,p0:int,p1:int,p2:int"
+        set interfaceFieldsCsv "ResourceDef" "kind:string,id:string,path:string,px:int,frameCount:int,w:int,h:int"
+        set interfaceFieldsCsv "GameEvent" "kind:string,id:string,x:double,y:double,amount:int"
     }
 
     ; Fields that exist as first-class members of NativeGameState. Anything else
@@ -122,6 +284,73 @@ class TSEmitter {
         return ""
     }
 
+    fn callExprType:string (node:TSNode) {
+        if (null? node.left) {
+            return "int"
+        }
+        def callee:TSNode (unwrap node.left)
+        if (callee.nodeType == "Identifier") {
+            if (this.isKnownHelper(callee.name)) {
+                return (this.helperReturnType(callee.name))
+            }
+        }
+        if (callee.nodeType == "MemberExpression") {
+            ; a.push(...) etc. return void
+            return "void"
+        }
+        return "int"
+    }
+
+    fn elemTypeOf:string (arrType:string) {
+        if ((strlen arrType) < 3) {
+            return "int"
+        }
+        def first:string (substring arrType 0 1)
+        if (first == "[") {
+            return (substring arrType 1 ((strlen arrType) - 1))
+        }
+        return "int"
+    }
+
+    ; Field type of a struct (interface) member, or "" if unknown.
+    fn structFieldType:string (structType:string field:string) {
+        if ((this.endsWith(structType "Native")) == false) {
+            return ""
+        }
+        def iface:string (substring structType 0 ((strlen structType) - 6))
+        def csv@(optional):string (get interfaceFieldsCsv iface)
+        if (null? csv) {
+            return ""
+        }
+        def pairs:[string] (this.splitCsv((unwrap csv)))
+        def i 0
+        while (i < (array_length pairs)) {
+            def pair:string (itemAt pairs i)
+            def colon:int (indexOf pair ":")
+            if (colon > 0) {
+                def fname:string (substring pair 0 colon)
+                if (fname == field) {
+                    return (substring pair (colon + 1) (strlen pair))
+                }
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn isStateArrayField:boolean (name:string) {
+        def t@(optional):string (get stateArrayFieldType name)
+        return (!null? t)
+    }
+
+    fn stateArrayType:string (name:string) {
+        def t@(optional):string (get stateArrayFieldType name)
+        if (!null? t) {
+            return (unwrap t)
+        }
+        return "[int]"
+    }
+
     fn isComparisonOp:boolean (op:string) {
         if (op == "<") { return true }
         if (op == ">") { return true }
@@ -160,18 +389,53 @@ class TSEmitter {
             if ((strlen vt) > 0) {
                 return vt
             }
+            def ca@(optional):boolean (get constArrayNames node.name)
+            if (!null? ca) {
+                def et@(optional):string (get constArrayElemType node.name)
+                if (!null? et) {
+                    return ("[" + (unwrap et)) + "]"
+                }
+            }
+            def cst@(optional):string (get constScalarTypes node.name)
+            if (!null? cst) {
+                return (unwrap cst)
+            }
             return "int"
         }
+        if (t == "CallExpression") {
+            return (this.callExprType(node))
+        }
         if (t == "MemberExpression") {
+            ; a.length -> int
+            if (node.name == "length") {
+                if (node.left) {
+                    return "int"
+                }
+            }
+            ; computed read a[i] -> element type of a
+            if (node.computed) {
+                if (node.left) {
+                    def bt:string (this.exprType((unwrap node.left)))
+                    return (this.elemTypeOf(bt))
+                }
+            }
             ; Custom scalar read from state.numbers is always double.
             if (node.left) {
                 def lbase:TSNode (unwrap node.left)
                 if (lbase.nodeType == "Identifier") {
                     if (lbase.name == stateVarName) {
                         if ((this.isNativeStateField(node.name)) == false) {
-                            return "double"
+                            if ((this.isStateArrayField(node.name)) == false) {
+                                return "double"
+                            }
                         }
                     }
+                }
+                ; struct field access (palette.br etc.)
+                def baseT:string (this.exprType(lbase))
+                def sf:string (this.structFieldType(baseT node.name))
+                if ((strlen sf) > 0) {
+                    return sf
                 }
             }
             return (this.fieldType(node.name))
@@ -231,24 +495,302 @@ class TSEmitter {
 
     fn emitProgram:string (ast:TSNode) {
         this.reset()
+        this.prescanProgram(ast)
         this.emitLine("; Generated by gallery/ts_to_ranger/ts_emitter.rgr")
         this.emitLine("; Source: game script (.game.tsx) - do not edit by hand.")
         this.emitLine("")
         this.emitLine("Import \"../game_script_types.rgr\"")
         this.emitLine("")
+
+        ; 1. Interfaces -> native structs (before the script class).
+        this.emitInterfaces()
+
         this.emitLine("class GeneratedGameScript {")
 
+        ; 2. Module-level const scalars -> class fields.
+        this.emitConstFields(ast)
+
+        ; 3. Const arrays -> methods (return a fresh list), and functions.
         def i 0
         while (i < (array_length ast.children)) {
             def node:TSNode (itemAt ast.children i)
             if (node.nodeType == "FunctionDeclaration") {
                 this.emitFunction(node)
             }
+            if (node.nodeType == "VariableDeclaration") {
+                this.emitConstArrayMethods(node)
+            }
             i = (i + 1)
         }
 
         this.emitLine("}")
         return output
+    }
+
+    fn isSpecialFn:boolean (name:string) {
+        if (name == "sprites") { return true }
+        if (name == "resources") { return true }
+        if (name == "initState") { return true }
+        if (name == "update") { return true }
+        if (name == "hud") { return true }
+        return false
+    }
+
+    ; Build helper/const/interface registries before emitting anything.
+    fn prescanProgram:void (ast:TSNode) {
+        def i 0
+        while (i < (array_length ast.children)) {
+            def node:TSNode (itemAt ast.children i)
+            def t:string node.nodeType
+            if (t == "TSInterfaceDeclaration") {
+                this.recordInterface(node)
+            }
+            if (t == "FunctionDeclaration") {
+                if ((this.isSpecialFn(node.name)) == false) {
+                    this.recordHelper(node)
+                }
+            }
+            if (t == "VariableDeclaration") {
+                this.recordModuleConst(node)
+            }
+            i = (i + 1)
+        }
+        ; Second pass: discover state array fields from initState's return object.
+        def j 0
+        while (j < (array_length ast.children)) {
+            def node:TSNode (itemAt ast.children j)
+            if (node.nodeType == "FunctionDeclaration") {
+                if (node.name == "initState") {
+                    this.scanStateArrays(node)
+                }
+            }
+            j = (j + 1)
+        }
+    }
+
+    fn scanStateArrays:void (node:TSNode) {
+        if (null? node.body) {
+            return
+        }
+        def body:TSNode (unwrap node.body)
+        def i 0
+        while (i < (array_length body.children)) {
+            def stmt:TSNode (itemAt body.children i)
+            if (stmt.nodeType == "ReturnStatement") {
+                if (stmt.left) {
+                    def val:TSNode (unwrap stmt.left)
+                    if (val.nodeType == "ObjectExpression") {
+                        this.scanStateArrayProps(val)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn scanStateArrayProps:void (obj:TSNode) {
+        def i 0
+        while (i < (array_length obj.children)) {
+            def prop:TSNode (itemAt obj.children i)
+            if (prop.nodeType == "Property") {
+                def key:string (this.propKey(prop))
+                if ((this.isNativeStateField(key)) == false) {
+                    if (key != "entities") {
+                        def valNode:TSNode (this.propertyValueNode(prop))
+                        def vt:string (this.exprType(valNode))
+                        def first:string ""
+                        if ((strlen vt) > 0) {
+                            first = (substring vt 0 1)
+                        }
+                        if (first == "[") {
+                            set stateArrayFieldType key vt
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn recordHelper:void (node:TSNode) {
+        set isHelperFn node.name true
+        def rt:string "int"
+        if (node.typeAnnotation) {
+            rt = (this.annotType((unwrap node.typeAnnotation)))
+        }
+        set fnReturnTypes node.name rt
+        def types:[string]
+        def i 0
+        while (i < (array_length node.params)) {
+            def p:TSNode (itemAt node.params i)
+            def pt:string "int"
+            if (p.typeAnnotation) {
+                pt = (this.annotType((unwrap p.typeAnnotation)))
+            }
+            push types pt
+            i = (i + 1)
+        }
+        set fnParamTypesCsv node.name (this.joinCsv(types))
+    }
+
+    fn recordModuleConst:void (node:TSNode) {
+        def i 0
+        while (i < (array_length node.children)) {
+            def d:TSNode (itemAt node.children i)
+            if (d.nodeType == "VariableDeclarator") {
+                if (d.init) {
+                    def initNode:TSNode (unwrap d.init)
+                    if (initNode.nodeType == "ArrayExpression") {
+                        set constArrayNames d.name true
+                        set constArrayElemType d.name (this.constArrayElem(d initNode))
+                    } {
+                        set constScalarTypes d.name (this.exprType(initNode))
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Element type for a const array (annotation wins, else infer from first item).
+    fn constArrayElem:string (d:TSNode arr:TSNode) {
+        if (d.typeAnnotation) {
+            def full:string (this.annotType((unwrap d.typeAnnotation)))
+            ; full is like "[string]" -> strip brackets
+            if ((strlen full) > 2) {
+                return (substring full 1 ((strlen full) - 1))
+            }
+        }
+        if ((array_length arr.children) > 0) {
+            def first:TSNode (itemAt arr.children 0)
+            if (first.nodeType == "StringLiteral") { return "string" }
+            if (first.nodeType == "ArrayExpression") { return "[string]" }
+            if (first.nodeType == "NumericLiteral") {
+                if (this.containsChar(first.value 46)) { return "double" }
+                return "int"
+            }
+        }
+        return "int"
+    }
+
+    fn recordInterface:void (node:TSNode) {
+        push interfaceNames node.name
+        def pairs:[string]
+        if (node.body) {
+            def body:TSNode (unwrap node.body)
+            def i 0
+            while (i < (array_length body.children)) {
+                def prop:TSNode (itemAt body.children i)
+                if ((strlen prop.name) > 0) {
+                    def pt:string "int"
+                    if (prop.typeAnnotation) {
+                        pt = (this.annotType((unwrap prop.typeAnnotation)))
+                    }
+                    push pairs ((prop.name + ":") + pt)
+                }
+                i = (i + 1)
+            }
+        }
+        set interfaceFieldsCsv node.name (this.joinCsv(pairs))
+    }
+
+    fn emitInterfaces:void () {
+        def i 0
+        while (i < (array_length interfaceNames)) {
+            def name:string (itemAt interfaceNames i)
+            this.emitLine(("class " + (name + "Native {")))
+            def csv@(optional):string (get interfaceFieldsCsv name)
+            if (!null? csv) {
+                def pairs:[string] (this.splitCsv((unwrap csv)))
+                def j 0
+                while (j < (array_length pairs)) {
+                    def pair:string (itemAt pairs j)
+                    def colon:int (indexOf pair ":")
+                    if (colon > 0) {
+                        def fname:string (substring pair 0 colon)
+                        def ftype:string (substring pair (colon + 1) (strlen pair))
+                        this.emitLine(("    def " + fname) + ((":" + ftype) + (" " + (this.zeroFor(ftype)))))
+                    }
+                    j = (j + 1)
+                }
+            }
+            this.emitLine("}")
+            this.emitLine("")
+            i = (i + 1)
+        }
+    }
+
+    fn zeroFor:string (t:string) {
+        if (t == "double") { return "0.0" }
+        if (t == "int") { return "0" }
+        if (t == "string") { return "\"\"" }
+        if (t == "boolean") { return "false" }
+        ; arrays / structs: default-constructed
+        def first:string (substring t 0 1)
+        if (first == "[") { return "" }
+        return ("(new " + (t + ")"))
+    }
+
+    fn emitConstFields:void (ast:TSNode) {
+        def i 0
+        while (i < (array_length ast.children)) {
+            def node:TSNode (itemAt ast.children i)
+            if (node.nodeType == "VariableDeclaration") {
+                def j 0
+                while (j < (array_length node.children)) {
+                    def d:TSNode (itemAt node.children j)
+                    if (d.nodeType == "VariableDeclarator") {
+                        def isArr@(optional):boolean (get constArrayNames d.name)
+                        if (null? isArr) {
+                            if (d.init) {
+                                def initNode:TSNode (unwrap d.init)
+                                def ct:string (this.exprType(initNode))
+                                def rhs:string (this.emitExpr(initNode ct))
+                                this.emitLine((("    def " + d.name) + (":" + ct)) + ((" " + rhs)))
+                            }
+                        }
+                    }
+                    j = (j + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        this.emitLine("")
+    }
+
+    ; const string-array (and array-of-array) tables -> methods returning a fresh
+    ; list. References to the name are rewritten to `(this.NAME)`.
+    fn emitConstArrayMethods:void (node:TSNode) {
+        def j 0
+        while (j < (array_length node.children)) {
+            def d:TSNode (itemAt node.children j)
+            if (d.nodeType == "VariableDeclarator") {
+                def isArr@(optional):boolean (get constArrayNames d.name)
+                if (!null? isArr) {
+                    def elem@(optional):string (get constArrayElemType d.name)
+                    def et:string "int"
+                    if (!null? elem) { et = (unwrap elem) }
+                    this.emitLine(((("    fn " + d.name) + ":[") + et) + "] () {")
+                    this.emitLine(("        def out:[" + et) + "]")
+                    if (d.init) {
+                        def arr:TSNode (unwrap d.init)
+                        if (arr.nodeType == "ArrayExpression") {
+                            def k 0
+                            while (k < (array_length arr.children)) {
+                                def el:TSNode (itemAt arr.children k)
+                                def ev:string (this.emitExpr(el et))
+                                this.emitLine((("        push out " + ev)))
+                                k = (k + 1)
+                            }
+                        }
+                    }
+                    this.emitLine("        return out")
+                    this.emitLine("    }")
+                    this.emitLine("")
+                }
+            }
+            j = (j + 1)
+        }
     }
 
     fn emitFunction:void (node:TSNode) {
@@ -265,6 +807,8 @@ class TSEmitter {
         def freshSeen:[string:boolean]
         readEntitySeen = freshSeen
 
+        def isHelper:boolean ((this.isSpecialFn(currentFn)) == false)
+
         def retType:string "void"
         if (inSpritesFn) {
             retType = "[SpriteDefNative]"
@@ -277,6 +821,9 @@ class TSEmitter {
         }
         if (inUpdateFn) {
             retType = "NativeGameState"
+        }
+        if (isHelper) {
+            retType = (this.helperReturnType(currentFn))
         }
 
         def params:string (this.emitParams(node.params))
@@ -454,9 +1001,35 @@ class TSEmitter {
 
     fn emitParams:string (params:[TSNode]) {
         if (inUpdateFn) {
+            set varTypes "props" "UpdatePropsNative"
             return "props:UpdatePropsNative"
         }
-        return ""
+        def parts:[string]
+        def i 0
+        while (i < (array_length params)) {
+            def p:TSNode (itemAt params i)
+            def pt:string "int"
+            if (p.typeAnnotation) {
+                pt = (this.annotType((unwrap p.typeAnnotation)))
+            }
+            set varTypes p.name pt
+            push parts ((p.name + ":") + pt)
+            i = (i + 1)
+        }
+        return (this.joinSpace(parts))
+    }
+
+    fn joinSpace:string (items:[string]) {
+        def out:string ""
+        def i 0
+        while (i < (array_length items)) {
+            if (i > 0) {
+                out = (out + " ")
+            }
+            out = (out + (itemAt items i))
+            i = (i + 1)
+        }
+        return out
     }
 
     fn emitBlockBody:void (block:TSNode) {
@@ -527,15 +1100,139 @@ class TSEmitter {
         def expr:TSNode (unwrap stmt.left)
         if (expr.nodeType == "AssignmentExpression") {
             this.emitAssignment(expr)
+            return
         }
+        if (expr.nodeType == "CallExpression") {
+            this.emitCallStatement(expr)
+            return
+        }
+    }
+
+    fn emitCallStatement:void (node:TSNode) {
+        if (null? node.left) {
+            return
+        }
+        def callee:TSNode (unwrap node.left)
+        ; a.push(x) -> push a x
+        if (callee.nodeType == "MemberExpression") {
+            if (callee.name == "push") {
+                if (callee.left) {
+                    def base:string (this.emitExpr((unwrap callee.left) "int"))
+                    def et:string (this.elemTypeOf((this.exprType((unwrap callee.left)))))
+                    def argStr:string ""
+                    if ((array_length node.children) > 0) {
+                        argStr = (this.emitExpr((itemAt node.children 0) et))
+                    }
+                    this.emitLine(((("push " + base) + " ") + argStr))
+                    return
+                }
+            }
+        }
+        ; void helper call as a statement
+        this.emitLine((this.emitCall(node)))
     }
 
     fn emitAssignment:void (node:TSNode) {
         def targetNode:TSNode (unwrap node.left)
+        def rhsNode:TSNode (unwrap node.right)
+        if (targetNode.nodeType == "MemberExpression") {
+            this.emitMemberAssign(targetNode rhsNode)
+            return
+        }
         def lhs:string (this.emitAssignTarget(targetNode))
         def expected:string (this.assignTargetType(targetNode))
-        def rhs:string (this.emitExpr((unwrap node.right) expected))
+        def rhs:string (this.emitExpr(rhsNode expected))
         this.emitLine((lhs + " = ") + rhs)
+    }
+
+    fn emitMemberAssign:void (target:TSNode rhs:TSNode) {
+        if (null? target.left) {
+            return
+        }
+        def baseNode:TSNode (unwrap target.left)
+        def baseType:string (this.exprType(baseNode))
+        def base:string (this.emitExpr(baseNode "int"))
+        ; state array field write: s.alive = ... (rare)
+        ; map with string key: entities.shot = {...} or entities[id] = {...}
+        if (this.startsWith(baseType "[string:")) {
+            def valType:string (this.elemTypeOf(baseType))
+            def key:string ""
+            if (target.computed) {
+                if (target.right) {
+                    key = (this.emitExpr((unwrap target.right) "string"))
+                }
+            } {
+                key = ("\"" + target.name) + "\""
+            }
+            def valExpr:string (this.emitRhsValue(rhs valType))
+            this.emitLine((((("set " + base) + " ") + key) + " ") + valExpr)
+            return
+        }
+        ; array element write: a[i] = v
+        if (target.computed) {
+            def et:string (this.elemTypeOf(baseType))
+            def idxT:string "int"
+            def idx:string "0"
+            if (target.right) {
+                idxT = (this.exprType((unwrap target.right)))
+                idx = (this.emitExpr((unwrap target.right) idxT))
+                if (idxT == "double") {
+                    idx = (("(to_int " + idx) + ")")
+                }
+            }
+            def valExpr:string (this.emitRhsValue(rhs et))
+            this.emitLine((((("set " + base) + " ") + idx) + " ") + valExpr)
+            return
+        }
+        ; struct field assignment: obj.prop = v
+        def ft:string (this.structFieldType(baseType target.name))
+        if ((strlen ft) == 0) {
+            ft = (this.fieldType(target.name))
+        }
+        def v:string (this.emitExpr(rhs ft))
+        this.emitLine(((base + ".") + target.name) + (" = " + v))
+    }
+
+    fn emitRhsValue:string (node:TSNode expected:string) {
+        return (this.emitValueExpr(node expected))
+    }
+
+    ; Materialize a value into an expression string, emitting temp bindings for
+    ; nested object/array literals so they get correct static types.
+    fn emitValueExpr:string (node:TSNode expected:string) {
+        if (node.nodeType == "ObjectExpression") {
+            if (this.endsWith(expected "Native")) {
+                def tmp:string ("tmp" + ("" + tmpCounter))
+                tmpCounter = (tmpCounter + 1)
+                this.emitStructFromObject(node tmp expected)
+                return tmp
+            }
+        }
+        if (node.nodeType == "ArrayExpression") {
+            if (this.startsWith(expected "[")) {
+                def et:string (this.elemTypeOf(expected))
+                def tmp2:string ("tmp" + ("" + tmpCounter))
+                tmpCounter = (tmpCounter + 1)
+                this.emitLine((("def " + tmp2) + ":") + expected)
+                def k 0
+                while (k < (array_length node.children)) {
+                    def el:TSNode (itemAt node.children k)
+                    def ev:string (this.emitValueExpr(el et))
+                    this.emitLine(((("push " + tmp2) + " ") + ev))
+                    k = (k + 1)
+                }
+                return tmp2
+            }
+        }
+        return (this.emitExpr(node expected))
+    }
+
+    fn startsWith:boolean (s:string prefix:string) {
+        def plen (strlen prefix)
+        if (plen > (strlen s)) {
+            return false
+        }
+        return ((substring s 0 plen) == prefix)
     }
 
     fn assignTargetType:string (node:TSNode) {
@@ -571,16 +1268,74 @@ class TSEmitter {
                 continue
             }
             def name:string d.name
+            def hasAnnot:boolean false
             def rtype:string "int"
-            if (d.init) {
-                def initNode:TSNode (unwrap d.init)
-                rtype = (this.exprType(initNode))
-                def rhs:string (this.emitExpr(initNode rtype))
-                set varTypes name rtype
-                this.emitLine((("def " + name) + (":" + rtype)) + ((" (" + rhs) + ")"))
-            } {
+            if (d.typeAnnotation) {
+                rtype = (this.annotType((unwrap d.typeAnnotation)))
+                hasAnnot = true
+            }
+            if (null? d.init) {
                 set varTypes name rtype
                 this.emitLine(("def " + name) + (":" + rtype))
+                i = (i + 1)
+                continue
+            }
+            def initNode:TSNode (unwrap d.init)
+            if (hasAnnot == false) {
+                rtype = (this.exprType(initNode))
+            }
+            set varTypes name rtype
+            ; array literal initializer
+            if (initNode.nodeType == "ArrayExpression") {
+                def et:string (this.elemTypeOf(rtype))
+                this.emitLine((("def " + name) + ":") + rtype)
+                def k 0
+                while (k < (array_length initNode.children)) {
+                    def el:TSNode (itemAt initNode.children k)
+                    def ev:string (this.emitExpr(el et))
+                    this.emitLine(((("push " + name) + " ") + ev))
+                    k = (k + 1)
+                }
+                i = (i + 1)
+                continue
+            }
+            ; object literal bound to a synthesized struct
+            if (initNode.nodeType == "ObjectExpression") {
+                if (this.endsWith(rtype "Native")) {
+                    this.emitStructFromObject(initNode name rtype)
+                    i = (i + 1)
+                    continue
+                }
+                ; empty object as a map/array -> default-constructed
+                if ((array_length initNode.children) == 0) {
+                    if (this.startsWith(rtype "[")) {
+                        this.emitLine((("def " + name) + ":") + rtype)
+                        i = (i + 1)
+                        continue
+                    }
+                }
+            }
+            def rhs:string (this.emitExpr(initNode rtype))
+            this.emitLine((("def " + name) + (":" + rtype)) + ((" (" + rhs) + ")"))
+            i = (i + 1)
+        }
+    }
+
+    ; def <var>:<StructNative> (new <StructNative>) + field assignments.
+    fn emitStructFromObject:void (node:TSNode varName:string structType:string) {
+        this.emitLine(((("def " + varName) + ":") + structType) + ((" (new " + structType) + ")"))
+        def i 0
+        while (i < (array_length node.children)) {
+            def prop:TSNode (itemAt node.children i)
+            if (prop.nodeType == "Property") {
+                def key:string (this.propKey(prop))
+                def ft:string (this.structFieldType(structType key))
+                if ((strlen ft) == 0) {
+                    ft = (this.fieldType(key))
+                }
+                def valNode:TSNode (this.propertyValueNode(prop))
+                def v:string (this.emitValueExpr(valNode ft))
+                this.emitLine((varName + ".") + (key + (" = " + v)))
             }
             i = (i + 1)
         }
@@ -640,7 +1395,9 @@ class TSEmitter {
             this.emitStateReturn(val true)
             return
         }
-        def expr:string (this.emitExpr(val "int"))
+        ; helper function: return with the declared return type
+        def rt:string (this.helperReturnType(currentFn))
+        def expr:string (this.emitValueExpr(val rt))
         this.emitLine(("return " + expr))
     }
 
@@ -741,7 +1498,12 @@ class TSEmitter {
             def key:string (this.propKey(prop))
             def valNode:TSNode (this.propertyValueNode(prop))
             if (key == "entities") {
-                this.emitEntitiesMap(valNode target)
+                if (valNode.nodeType == "ObjectExpression") {
+                    this.emitEntitiesMap(valNode target)
+                } {
+                    def ev:string (this.emitExpr(valNode "int"))
+                    this.emitLine(((target + ".entities = ") + ev))
+                }
             } {
                 if (key == "events") {
                     this.emitEventsArray(valNode target)
@@ -757,9 +1519,20 @@ class TSEmitter {
                             this.emitLine((target + ".hasVy = true"))
                         }
                     } {
-                        ; custom numeric field -> generic numbers map (double)
-                        def dval:string (this.emitExpr(valNode "double"))
-                        this.emitLine(((("set " + target) + ".numbers \"") + key) + ("\" " + dval))
+                        if (this.isStateArrayField(key)) {
+                            def at:string (this.stateArrayType(key))
+                            def aval:string (this.emitExpr(valNode at))
+                            this.emitLine(((("set " + target) + ".intArrays \"") + key) + ("\" " + aval))
+                        } {
+                            def vt:string (this.exprType(valNode))
+                            if (vt == "string") {
+                                def sval:string (this.emitExpr(valNode "string"))
+                                this.emitLine(((("set " + target) + ".strings \"") + key) + ("\" " + sval))
+                            } {
+                                def dval:string (this.emitExpr(valNode "double"))
+                                this.emitLine(((("set " + target) + ".numbers \"") + key) + ("\" " + dval))
+                            }
+                        }
                     }
                 }
             }
@@ -892,7 +1665,14 @@ class TSEmitter {
             return ("\"" + node.value) + "\""
         }
         if (t == "Identifier") {
+            def ca@(optional):boolean (get constArrayNames node.name)
+            if (!null? ca) {
+                return ("(this." + node.name) + ")"
+            }
             return node.name
+        }
+        if (t == "CallExpression") {
+            return (this.emitCall(node))
         }
         if (t == "MemberExpression") {
             return (this.emitMember(node))
@@ -912,6 +1692,31 @@ class TSEmitter {
         return "0"
     }
 
+    ; foo(a b) -> (this.foo a b) with args coerced to the helper's param types.
+    fn emitCall:string (node:TSNode) {
+        if (null? node.left) {
+            return "0"
+        }
+        def callee:TSNode (unwrap node.left)
+        if (callee.nodeType == "Identifier") {
+            def name:string callee.name
+            def args:[string]
+            def i 0
+            while (i < (array_length node.children)) {
+                def arg:TSNode (itemAt node.children i)
+                def pexp:string (this.helperParamType(name i))
+                if ((strlen pexp) == 0) {
+                    pexp = (this.exprType(arg))
+                }
+                push args (this.emitExpr(arg pexp))
+                i = (i + 1)
+            }
+            return ((("this." + name) + "(") + ((this.joinSpace(args)) + ")"))
+        }
+        ; member call like x.toFixed / a.push handled elsewhere; fallback
+        return "0"
+    }
+
     fn emitNumber:string (raw:string expected:string) {
         def hasDot:boolean (this.containsChar(raw 46))
         if (expected == "double") {
@@ -927,16 +1732,38 @@ class TSEmitter {
         if (null? node.left) {
             return ""
         }
-        ; <stateVar>.entities.<id> -> hoisted typed local `in_<id>`
         def leftNode:TSNode (unwrap node.left)
+        ; computed access a[i]
+        if (node.computed) {
+            if (node.right) {
+                def idxNode:TSNode (unwrap node.right)
+                def base:string (this.emitExpr(leftNode "int"))
+                def idxT:string (this.exprType(idxNode))
+                def idx:string (this.emitExpr(idxNode idxT))
+                if (idxT == "double") {
+                    idx = (("(to_int " + idx) + ")")
+                }
+                return (((("(itemAt " + base) + " ") + idx) + ")")
+            }
+        }
+        ; .length -> (array_length base)
+        if (node.name == "length") {
+            def base:string (this.emitExpr(leftNode "int"))
+            return (("(array_length " + base) + ")")
+        }
+        ; <stateVar>.entities.<id> -> hoisted typed local `in_<id>`
         if (leftNode.nodeType == "MemberExpression") {
             if (leftNode.name == "entities") {
                 return ("in_" + node.name)
             }
         }
-        ; <stateVar>.<customField> -> read from generic numbers map (double)
         if (leftNode.nodeType == "Identifier") {
             if (leftNode.name == stateVarName) {
+                ; state array field -> intArrays map
+                if (this.isStateArrayField(node.name)) {
+                    return (((("(unwrap (get " + stateVarName) + ".intArrays \"") + node.name) + "\"))")
+                }
+                ; custom scalar -> numbers map (double)
                 if ((this.isNativeStateField(node.name)) == false) {
                     if ((strlen node.name) > 0) {
                         return (((("(unwrap (get " + stateVarName) + ".numbers \"") + node.name) + "\"))")
@@ -948,9 +1775,6 @@ class TSEmitter {
         def prop:string node.name
         if ((strlen prop) == 0) {
             return base
-        }
-        if (node.computed) {
-            return (("(get " + base) + (" " + prop)) + ")"
         }
         if (base == "props") {
             return ("props." + prop)
@@ -1001,17 +1825,24 @@ class TSEmitter {
             return op
         }
         def argType:string (this.exprType((unwrap node.left)))
-        def arg:string (this.emitExpr((unwrap node.left) argType))
         if (op == "-") {
-            if (argType == "double") {
+            def useDouble:boolean (argType == "double")
+            if (expected == "double") {
+                useDouble = true
+            }
+            if (useDouble) {
+                def arg:string (this.emitExpr((unwrap node.left) "double"))
                 return ("(0.0 - " + arg) + ")"
             }
-            return ("(0 - " + arg) + ")"
+            def arg2:string (this.emitExpr((unwrap node.left) "int"))
+            return ("(0 - " + arg2) + ")"
         }
         if (op == "!") {
-            return ("(false == " + arg) + ")"
+            def argB:string (this.emitExpr((unwrap node.left) "boolean"))
+            return ("(false == " + argB) + ")"
         }
-        return (op + arg)
+        def argD:string (this.emitExpr((unwrap node.left) argType))
+        return (op + argD)
     }
 
     fn containsChar:boolean (s:string ch:int) {
