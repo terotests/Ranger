@@ -46,6 +46,8 @@ class InvadersRunnerDemo {
         print (("ship=" + sx) + ("," + sy))
         print (("entities=" + ec))
         print (("score=" + runner.score1) + ("," + runner.score2))
+        def audio:GameAudio (runner.audioRef())
+        print (("audioPlays=" + audio.playCount))
         print "invaders-runner done"
     }
 }

@@ -5,6 +5,8 @@
 //
 // Run: npm run engine:game-sdl:run:pacman
 
+import { soundEvent } from "./game_helpers";
+
 const TILE = 14;
 const PACE = 2.0;
 const STEP_MS = 110 * PACE;
@@ -694,7 +696,8 @@ function updateSplash(s, props) {
       screens: {
         splash: s.screens.splash,
         play: initPlayState()
-      }
+      },
+      events: [soundEvent("blip")]
     };
   }
   return s;
@@ -702,6 +705,7 @@ function updateSplash(s, props) {
 
 function updatePlay(s, props) {
   const play = s.screens.play;
+  const events = [];
   const dt = props.dt;
   let nextDir = readInputDir(props, play.nextDir);
   let pacCol = play.pacCol;
@@ -764,6 +768,9 @@ function updatePlay(s, props) {
         if (eat.powered == 1) {
           powered = 1;
           powerLeft = POWER_MS;
+          events.push(soundEvent("brick"));
+        } else if (eat.score > 0) {
+          events.push(soundEvent("blip"));
         }
       } else {
         pacFrac = 0;
@@ -797,8 +804,10 @@ function updatePlay(s, props) {
         score = score + 200;
         ghosts[gh].eyes = 1;
         ghosts[gh].frac = 0;
+        events.push(soundEvent("bounce"));
       } else {
         lives = lives - 1;
+        events.push(soundEvent("lose"));
         if (lives <= 0) {
           play.pacCol = pacCol;
           play.pacRow = pacRow;
@@ -806,7 +815,12 @@ function updatePlay(s, props) {
           play.lives = 0;
           play.score1 = score;
           play.score2 = 0;
-          return goToGameOver(s, play, 0);
+          const over = goToGameOver(s, play, 0);
+          return {
+            screen: over.screen,
+            screens: over.screens,
+            events: events
+          };
         }
         resetAfterHurt(play, spawns);
         pacCol = play.pacCol;
@@ -825,7 +839,13 @@ function updatePlay(s, props) {
     play.score = score;
     play.score1 = score;
     play.score2 = lives;
-    return goToGameOver(s, play, 1);
+    events.push(soundEvent("win"));
+    const over = goToGameOver(s, play, 1);
+    return {
+      screen: over.screen,
+      screens: over.screens,
+      events: events
+    };
   }
 
   const entities = {};
@@ -862,7 +882,8 @@ function updatePlay(s, props) {
     screen: "play",
     screens: {
       play: nextPlay
-    }
+    },
+    events: events
   };
 }
 
