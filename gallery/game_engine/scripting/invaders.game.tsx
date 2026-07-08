@@ -2,21 +2,18 @@
 //
 // Mini Space Invaders for the retained-mode GameRunner.
 //
-// Aliens are built from many small coloured rects (pixel-art style) - the runner
-// keeps each pixel as a retained sprite and only moves them each frame.
+// Aliens and ship use kind "bitmap" — one retained sprite per actor with cached
+// animation frames in the engine (not one rect per pixel).
 //
 // Controls (game_sdl_runner): Left/Right arrows (or A/D) move the cannon.
-// W/S and Up/Down work too. Firing is automatic. score1 = points, score2 = lives.
+// Firing is automatic. score1 = points, score2 = lives.
 //
 // Run:
-//   npm run engine:game-sdl:run -- gallery/game_engine/scripting/invaders.game.tsx
-//   SDL_VIDEODRIVER=dummy tmp/game-sdl/game_sdl gallery/game_engine/scripting/invaders.game.tsx 600
+//   npm run engine:game-sdl:run:invaders
 
-const PX = 3;
 const COLS = 5;
 const ROWS = 3;
 const ALIEN_COUNT = COLS * ROWS;
-const PIXELS_PER_ALIEN = 32;
 
 const INVADER_A = [
   "..XXX..",
@@ -45,6 +42,14 @@ const INVADER_C = [
   "X.X.X.X"
 ];
 
+const SHIP_ART = [
+  "..XX..",
+  "..XX..",
+  ".XXXX.",
+  "XXXXXX",
+  "XX..XX"
+];
+
 function alienType(row, col) {
   if (row == 0) { return 0; }
   if (row == 1) { return 1; }
@@ -61,31 +66,6 @@ function paletteFor(kind) {
   return { br: 180, bg: 90, bb: 255, er: 255, eg: 240, eb: 80 };
 }
 
-function pixelsFromBitmap(bitmap, pal) {
-  const parts = [];
-  let row = 0;
-  while (row < bitmap.length) {
-    const line = bitmap[row];
-    let col = 0;
-    while (col < line.length) {
-      const ch = line.charAt(col);
-      if (ch == "X" || ch == "O") {
-        const isEye = ch == "O";
-        parts.push({
-          dx: (col - 3) * PX,
-          dy: (row - 2) * PX,
-          r: isEye ? pal.er : pal.br,
-          g: isEye ? pal.eg : pal.bg,
-          b: isEye ? pal.eb : pal.bb
-        });
-      }
-      col = col + 1;
-    }
-    row = row + 1;
-  }
-  return parts;
-}
-
 function alienBitmap(kind, frame) {
   const odd = frame % 2;
   if (kind == 0) {
@@ -100,71 +80,56 @@ function alienBitmap(kind, frame) {
   return INVADER_B;
 }
 
-function spriteId(alien, pix) {
-  return ("a" + alien + "p" + pix);
+function alienId(alien) {
+  return ("a" + alien);
+}
+
+function alienSpriteDef(alien) {
+  const col = alien % COLS;
+  const row = (alien - col) / COLS;
+  const kind = alienType(row, col);
+  const pal = paletteFor(kind);
+  return {
+    id: alienId(alien),
+    kind: "bitmap",
+    px: 3,
+    br: pal.br,
+    bg: pal.bg,
+    bb: pal.bb,
+    er: pal.er,
+    eg: pal.eg,
+    eb: pal.eb,
+    frames: [
+      alienBitmap(kind, 0),
+      alienBitmap(kind, 1)
+    ]
+  };
 }
 
 function buildAlienSprites() {
   const list = [];
   let alien = 0;
   while (alien < ALIEN_COUNT) {
-    const col = alien % COLS;
-    const row = (alien - col) / COLS;
-    const kind = alienType(row, col);
-    const pal = paletteFor(kind);
-    const parts = pixelsFromBitmap(alienBitmap(kind, 0), pal);
-    let pix = 0;
-    while (pix < parts.length) {
-      if (pix < PIXELS_PER_ALIEN) {
-        const p = parts[pix];
-        list.push({
-          id: spriteId(alien, pix),
-          kind: "rect",
-          w: PX,
-          h: PX,
-          r: p.r,
-          g: p.g,
-          b: p.b
-        });
-      }
-      pix = pix + 1;
-    }
-    while (pix < PIXELS_PER_ALIEN) {
-      list.push({
-        id: spriteId(alien, pix),
-        kind: "rect",
-        w: 1,
-        h: 1,
-        r: 0,
-        g: 0,
-        b: 0
-      });
-      pix = pix + 1;
-    }
+    list.push(alienSpriteDef(alien));
     alien = alien + 1;
   }
   return list;
 }
 
-function buildShipSprites() {
-  return [
-    { id: "ship0", kind: "rect", w: 4, h: 4, r: 120, g: 220, b: 255 },
-    { id: "ship1", kind: "rect", w: 4, h: 4, r: 120, g: 220, b: 255 },
-    { id: "ship2", kind: "rect", w: 4, h: 4, r: 120, g: 220, b: 255 },
-    { id: "ship3", kind: "rect", w: 6, h: 6, r: 80, g: 180, b: 255 },
-    { id: "ship4", kind: "rect", w: 8, h: 8, r: 40, g: 120, b: 220 },
-    { id: "ship5", kind: "rect", w: 4, h: 10, r: 200, g: 255, b: 255 }
-  ];
-}
-
 function sprites() {
   const list = buildAlienSprites();
-  const ship = buildShipSprites();
-  let i = 0;
-  while (i < ship.length) {
-    list.push(ship[i]);
-    i = i + 1;
-  }
+  list.push({
+    id: "ship",
+    kind: "bitmap",
+    px: 4,
+    br: 40,
+    bg: 120,
+    bb: 220,
+    er: 200,
+    eg: 255,
+    eb: 255,
+    frames: [SHIP_ART]
+  });
   list.push({ id: "shot", kind: "rect", w: 3, h: 10, r: 255, g: 255, b: 120 });
   return list;
 }
@@ -182,33 +147,17 @@ function makeAlive() {
 function initEntities(waveX, waveY, px, py, shotY) {
   const entities = {};
   entities.shot = { x: px, y: shotY };
-  entities.ship0 = { x: px - 10, y: py + 6 };
-  entities.ship1 = { x: px - 4, y: py + 6 };
-  entities.ship2 = { x: px + 4, y: py + 6 };
-  entities.ship3 = { x: px - 3, y: py + 2 };
-  entities.ship4 = { x: px - 4, y: py - 2 };
-  entities.ship5 = { x: px - 2, y: py - 10 };
+  entities.ship = { x: px, y: py, p0: 0 };
 
   let alien = 0;
   while (alien < ALIEN_COUNT) {
     const col = alien % COLS;
     const row = (alien - col) / COLS;
-    const ax = waveX + col * 40;
-    const ay = waveY + row * 30;
-    const kind = alienType(row, col);
-    const pal = paletteFor(kind);
-    const parts = pixelsFromBitmap(alienBitmap(kind, 0), pal);
-    let pix = 0;
-    while (pix < PIXELS_PER_ALIEN) {
-      const id = spriteId(alien, pix);
-      if (pix < parts.length) {
-        const p = parts[pix];
-        entities[id] = { x: ax + p.dx, y: ay + p.dy };
-      } else {
-        entities[id] = { x: -20, y: -20 };
-      }
-      pix = pix + 1;
-    }
+    entities[alienId(alien)] = {
+      x: waveX + col * 40,
+      y: waveY + row * 30,
+      p0: 0
+    };
     alien = alien + 1;
   }
   return entities;
@@ -219,6 +168,7 @@ function initState() {
   const py = 248;
   return {
     layout: "invaders",
+    showNet: 0,
     entities: initEntities(70, 48, px, py, -30),
     px: px,
     py: py,
@@ -257,38 +207,24 @@ function resetWave(alive) {
   return { waveX: 70, waveY: 48, waveDir: 1, waveTick: 0 };
 }
 
-function placeAlienPixels(entities, alien, waveX, waveY, alive, anim) {
+function placeAlien(entities, alien, waveX, waveY, alive, anim) {
   const col = alien % COLS;
   const row = (alien - col) / COLS;
-  const ax = waveX + col * 40;
-  const ay = waveY + row * 30;
-  const kind = alienType(row, col);
-  const pal = paletteFor(kind);
-  const parts = pixelsFromBitmap(alienBitmap(kind, anim), pal);
-  let pix = 0;
-  while (pix < PIXELS_PER_ALIEN) {
-    const id = spriteId(alien, pix);
-    if (alive[alien] == 0) {
-      entities[id] = { x: -30, y: -30 };
-    } else {
-      if (pix < parts.length) {
-        const p = parts[pix];
-        entities[id] = { x: ax + p.dx, y: ay + p.dy };
-      } else {
-        entities[id] = { x: -30, y: -30 };
-      }
-    }
-    pix = pix + 1;
+  const id = alienId(alien);
+  if (alive[alien] == 0) {
+    entities[id] = { x: -30, y: -30, visible: 0, p0: 0 };
+  } else {
+    entities[id] = {
+      x: waveX + col * 40,
+      y: waveY + row * 30,
+      p0: anim % 2,
+      visible: 1
+    };
   }
 }
 
 function placeShip(entities, px, py) {
-  entities.ship0 = { x: px - 10, y: py + 6 };
-  entities.ship1 = { x: px - 4, y: py + 6 };
-  entities.ship2 = { x: px + 4, y: py + 6 };
-  entities.ship3 = { x: px - 3, y: py + 2 };
-  entities.ship4 = { x: px - 4, y: py - 2 };
-  entities.ship5 = { x: px - 2, y: py - 10 };
+  entities.ship = { x: px, y: py, p0: 0, visible: 1 };
 }
 
 function hitAlien(alien, waveX, waveY, sx, sy) {
@@ -398,18 +334,19 @@ function update(props) {
   const entities = {};
   placeShip(entities, px, py);
   if (shotActive == 1) {
-    entities.shot = { x: shotX, y: shotY };
+    entities.shot = { x: shotX, y: shotY, visible: 1 };
   } else {
-    entities.shot = { x: -20, y: -30 };
+    entities.shot = { x: -20, y: -30, visible: 0 };
   }
   let alien2 = 0;
   while (alien2 < ALIEN_COUNT) {
-    placeAlienPixels(entities, alien2, waveX, waveY, alive, anim);
+    placeAlien(entities, alien2, waveX, waveY, alive, anim);
     alien2 = alien2 + 1;
   }
 
   return {
     layout: "invaders",
+    showNet: 0,
     entities: entities,
     px: px,
     py: py,

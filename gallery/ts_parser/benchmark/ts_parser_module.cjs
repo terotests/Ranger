@@ -16,8 +16,41 @@ class TSLexer  {
     this.col = 1;
     this.__len = 0;
     this.source = src;
-    this.__len = src.length;
+    this.__len = this.countCodeUnits(src);
   }
+  utf8WidthFromLead (lead) {
+    if ( lead <= 127 ) {
+      return 1;
+    }
+    if ( lead >= 192 ) {
+      if ( lead <= 223 ) {
+        return 2;
+      }
+    }
+    if ( lead >= 224 ) {
+      if ( lead <= 239 ) {
+        return 3;
+      }
+    }
+    if ( lead >= 240 ) {
+      if ( lead <= 247 ) {
+        return 4;
+      }
+    }
+    return 1;
+  };
+  countCodeUnits (text) {
+    const byteLen = text.length;
+    let bytePos = 0;
+    let count = 0;
+    while (bytePos < byteLen) {
+      const lead = text.charCodeAt(bytePos );
+      const w = this.utf8WidthFromLead(lead);
+      bytePos = bytePos + w;
+      count = count + 1;
+    };
+    return count;
+  };
   peek () {
     if ( this.pos >= this.__len ) {
       return "";
@@ -82,7 +115,7 @@ class TSLexer  {
     if ( (ch.length) == 0 ) {
       return false;
     }
-    const code = this.source.charCodeAt(this.pos );
+    const code = ch.charCodeAt(0 );
     if ( code >= 97 ) {
       if ( code <= 122 ) {
         return true;
@@ -130,7 +163,7 @@ class TSLexer  {
     if ( (ch.length) == 0 ) {
       return false;
     }
-    const code = this.source.charCodeAt(this.pos );
+    const code = ch.charCodeAt(0 );
     if ( code >= 97 ) {
       if ( code <= 122 ) {
         return true;
@@ -580,10 +613,16 @@ class TSLexer  {
       let wordApostrophe = false;
       if ( this.pos > 0 ) {
         if ( (this.pos + 1) < this.__len ) {
-          const prevCode = this.source.charCodeAt((this.pos - 1) );
-          const nextCode = this.source.charCodeAt((this.pos + 1) );
-          if ( this.isLetterCode(prevCode) && this.isLetterCode(nextCode) ) {
-            wordApostrophe = true;
+          const prevCh = this.peekAt(-1);
+          const nextCh = this.peekAt(1);
+          if ( (prevCh.length) > 0 ) {
+            if ( (nextCh.length) > 0 ) {
+              const prevCode = prevCh.charCodeAt(0 );
+              const nextCode = nextCh.charCodeAt(0 );
+              if ( this.isLetterCode(prevCode) && this.isLetterCode(nextCode) ) {
+                wordApostrophe = true;
+              }
+            }
           }
         }
       }
@@ -755,6 +794,9 @@ class TSLexer  {
           return this.makeToken("Punctuator", "...", startPos, startLine, startCol);
         }
       }
+    }
+    if ( (ch.length) == 0 ) {
+      return this.makeToken("EOF", "", this.pos, this.line, this.col);
     }
     this.advance();
     return this.makeToken("Punctuator", ch, startPos, startLine, startCol);

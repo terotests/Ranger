@@ -96,6 +96,21 @@ describe("TypeScript Lexer", () => {
     const tokens = lexer.tokenize();
     expect(tokens[0].tokenType).toBe("String");
   });
+
+  it("tokenizes line comments with UTF-8 punctuation (em dash)", () => {
+    const code = "// comment — em dash\nfunction alienType() {}\nconst type = 1;";
+    const lexer = new TSLexer(code);
+    const tokens = lexer
+      .tokenize()
+      .filter((t: any) => t.tokenType !== "EOF" && t.tokenType !== "LineComment");
+    expect(tokens[0].tokenType).toBe("Keyword");
+    expect(tokens[0].value).toBe("function");
+    expect(tokens[1].tokenType).toBe("Identifier");
+    expect(tokens[1].value).toBe("alienType");
+    expect(tokens.some((t: any) => t.value === "type" && t.tokenType === "TSKeyword")).toBe(
+      true
+    );
+  });
 });
 
 /**

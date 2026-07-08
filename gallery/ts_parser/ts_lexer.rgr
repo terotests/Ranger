@@ -12,7 +12,36 @@ class TSLexer {
 
     Constructor (src:string) {
         source = src
-        len = (strlen src)
+        len = (this.countCodeUnits(src))
+    }
+
+    ; UTF-8 lead byte width (also correct for ES6 BMP code units via charCodeAt).
+    fn utf8WidthFromLead:int (lead:int) {
+        if (lead <= 127) { return 1 }
+        if (lead >= 192) {
+            if (lead <= 223) { return 2 }
+        }
+        if (lead >= 224) {
+            if (lead <= 239) { return 3 }
+        }
+        if (lead >= 240) {
+            if (lead <= 247) { return 4 }
+        }
+        return 1
+    }
+
+    ; Character/code-unit count — pos indexes code units, not raw UTF-8 bytes.
+    fn countCodeUnits:int (text:string) {
+        def byteLen:int (strlen text)
+        def bytePos:int 0
+        def count:int 0
+        while (bytePos < byteLen) {
+            def lead:int (charAt text bytePos)
+            def w:int (this.utf8WidthFromLead(lead))
+            bytePos = bytePos + w
+            count = count + 1
+        }
+        return count
     }
 
     fn peek:string () {
@@ -61,7 +90,7 @@ class TSLexer {
 
     fn isAlpha:boolean (ch:string) {
         if ((strlen ch) == 0) { return false }
-        def code:int (charAt source pos)
+        def code:int (charAt ch 0)
         ; a-z: 97-122, A-Z: 65-90
         if (code >= 97) {
             if (code <= 122) {
@@ -101,7 +130,7 @@ class TSLexer {
         if (ch == "_") { return true }
         if (ch == "$") { return true }
         if ((strlen ch) == 0) { return false }
-        def code:int (charAt source pos)
+        def code:int (charAt ch 0)
         if (code >= 97) {
             if (code <= 122) {
                 return true
@@ -437,10 +466,16 @@ class TSLexer {
             def wordApostrophe:boolean false
             if (pos > 0) {
                 if ((pos + 1) < len) {
-                    def prevCode:int (charAt source (pos - 1))
-                    def nextCode:int (charAt source (pos + 1))
-                    if ((this.isLetterCode(prevCode)) && (this.isLetterCode(nextCode))) {
-                        wordApostrophe = true
+                    def prevCh:string (this.peekAt(-1))
+                    def nextCh:string (this.peekAt(1))
+                    if ((strlen prevCh) > 0) {
+                        if ((strlen nextCh) > 0) {
+                            def prevCode:int (charAt prevCh 0)
+                            def nextCode:int (charAt nextCh 0)
+                            if ((this.isLetterCode(prevCode)) && (this.isLetterCode(nextCode))) {
+                                wordApostrophe = true
+                            }
+                        }
                     }
                 }
             }
@@ -636,6 +671,9 @@ class TSLexer {
         }
 
         ; Single char punctuators (includes : for type annotations)
+        if ((strlen ch) == 0) {
+            return (this.makeToken("EOF" "" pos line col))
+        }
         this.advance()
         return (this.makeToken("Punctuator" ch startPos startLine startCol))
     }

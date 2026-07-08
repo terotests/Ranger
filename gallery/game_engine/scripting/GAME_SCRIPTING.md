@@ -131,9 +131,53 @@ Space Invaders variant: [`invaders.game.tsx`](./invaders.game.tsx) via
 [`invaders_runner_demo.rgr`](./invaders_runner_demo.rgr) (same runner API; many
 retained pixel sprites).
 
+Breakout + JSX HUD + screens: [`breakout.game.tsx`](./breakout.game.tsx) via
+[`breakout_runner_demo.rgr`](./breakout_runner_demo.rgr) — `play` and `gameOver`
+screens with lazy per-screen sprites (see [`GAME_ENGINE_DESIGN.md`](./GAME_ENGINE_DESIGN.md)).
+
 Engine quirks and fixes: [`TSX_ENGINE_ISSUES.md`](./TSX_ENGINE_ISSUES.md).
 
 Top-level **`const` / array / object** structures are supported — define them at module scope and read them from any script function (see issue log for `moduleScope` vs `hostScope`).
+
+## Generic sprite protocol (`game_sprite.rgr`)
+
+Game-specific visuals are **not** hard-coded in the engine. Scripts declare shapes;
+the runner syncs pose each frame.
+
+**Definition (`sprites()` — once):**
+
+| Field | Role |
+|-------|------|
+| `id` | Entity id (matches `state.entities[id]`) |
+| `kind` | `rect` \| `circle` \| `wedge` \| `ghost` \| `bitmap` |
+| `w`, `h` | Rectangle size (centered at `x,y`) |
+| `rad` | Circle / wedge / ghost radius |
+| `r`, `g`, `b` | Default colour |
+| `p0`, `p1`, `p2` | Kind-specific params (e.g. wedge: direction + opening) |
+| `px`, `br/bg/bb`, `er/eg/eb`, `frames` | **bitmap only:** pixel size, body/eye palette, animated frame set (array of row-string arrays) |
+
+**Runtime pose (`update()` → `state.entities[id]`):**
+
+| Field | Role |
+|-------|------|
+| `x`, `y` | Center position (pixels) |
+| `visible` | `0` hides sprite |
+| `r`, `g`, `b`, `rad` | Optional runtime overrides |
+| `p0`, `p1`, `p2` | Optional runtime params (**bitmap:** `p0` = animation frame index) |
+
+**State flags (any game):**
+
+| Field | Role |
+|-------|------|
+| `showNet` | `0` = hide centre net (default `1` for Pong layout) |
+| `score1`, `score2` | Built-in digit HUD when no `hud()` |
+
+Pac-Man ([`pacman.game.tsx`](./pacman.game.tsx)) uses `kind: "wedge"` + `p0`/`p1` for
+mouth animation; maze, ghost AI, tunnels and modes are **pure TypeScript**.
+
+Space Invaders ([`invaders.game.tsx`](./invaders.game.tsx)) uses `kind: "bitmap"` — one
+retained sprite per alien with two cached animation frames (`p0` toggles frame), not
+one rect per pixel. Audio is reserved for a future engine-level API (not per-game).
 
 ## Roadmap
 
@@ -144,6 +188,7 @@ Top-level **`const` / array / object** structures are supported — define them 
    sprites moved via returned state, text scores) + scripted Pong demo.
 3. **Next:** drive the runner from the native SDL backend (feed `up`/`down` from
    the engine's `Buttons`, present each frame in the window); a JSX `hud()` path
-   through `callRender` + `EVGLayout` for richer text/UI.
+   through `callRender` + `EVGLayout` for richer text/UI (**done for Breakout**,
+   see `game_hud.rgr`).
 4. **Later:** native (C++) evaluation once the EVG/eval stack builds for the C++
    target (see `RENDERING_EVG.md`); host-callback `EvalValue` for richer APIs.

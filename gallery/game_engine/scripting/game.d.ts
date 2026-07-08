@@ -37,14 +37,64 @@ export interface Screen {
   readonly height: number;
 }
 
+/** Retained sprite kinds understood by game_sprite.rgr / GameRunner. */
+export type SpriteKind = "rect" | "circle" | "wedge" | "ghost" | "bitmap";
+
+/** Static sprite definition returned from sprites(). */
+export interface SpriteDef {
+  id: string;
+  kind: SpriteKind;
+  w?: number;
+  h?: number;
+  rad?: number;
+  r?: number;
+  g?: number;
+  b?: number;
+  /** wedge/ghost runtime params in defs; bitmap uses frames. */
+  p0?: number;
+  p1?: number;
+  p2?: number;
+  /** bitmap: pixel size (default 3). */
+  px?: number;
+  br?: number;
+  bg?: number;
+  bb?: number;
+  er?: number;
+  eg?: number;
+  eb?: number;
+  /** bitmap: animated frame set — array of row-string arrays. */
+  frames?: string[][];
+}
+
+/** Per-frame entity pose written by update() into state.entities[id]. */
+export interface EntityPose {
+  x: number;
+  y: number;
+  visible?: number;
+  r?: number;
+  g?: number;
+  b?: number;
+  rad?: number;
+  /** bitmap: animation frame (p0). wedge: facing. ghost: dir. */
+  p0?: number;
+  p1?: number;
+  p2?: number;
+}
+
 /**
  * The game state your script owns. Keep it JSON-like (numbers, strings,
  * booleans, arrays, plain objects) so it stays portable and deterministic
  * across every Ranger target. `screen` selects which screen is active.
  */
 export interface GameState {
-  screen: string;
-  score: number;
+  screen?: string;
+  score?: number;
+  /** 0 hides Pong-style centre net (GameRunner). */
+  showNet?: number;
+  /** Entity poses keyed by sprites()[].id */
+  entities?: Record<string, EntityPose>;
+  /** Per-screen sub-state when using the multi-screen model. */
+  screens?: Record<string, unknown>;
   [key: string]: unknown;
 }
 
@@ -52,10 +102,19 @@ export interface GameState {
 export interface EventProps {
   /** Current game state. */
   state: GameState;
+  /** Active screen name (multi-screen games). */
+  screen?: string;
   /** The button for `onButton` events. */
   button?: GameButton;
+  /** Space / ACTION button (restart, confirm, fire). */
+  action?: boolean;
   /** Delta-time (ticks) for `update`. */
   dt?: number;
+  /** Directional input (GameRunner / SDL host). */
+  up?: boolean;
+  down?: boolean;
+  left?: boolean;
+  right?: boolean;
 }
 
 /**
@@ -72,6 +131,12 @@ export interface GameScript {
   update?(props: EventProps): GameState;
   /** Render the current state to a UI tree (JSX -> EVG). */
   render?(props: EventProps): JSX.Element;
+  /** Retained-mode: define sprites once (GameRunner). */
+  sprites?(props: { screen: string }): SpriteDef[];
+  /** Optional list of named screens (documentation / tooling). */
+  screens?(): string[];
+  /** Retained-mode: JSX HUD overlay each frame (GameRunner). View background is transparent by default. */
+  hud?(props: EventProps): JSX.Element;
 }
 
 // --- Injected globals (available without importing) -------------------------

@@ -75,6 +75,9 @@ if [[ "${1:-}" == "--run" ]]; then
     "$BIN_FILE" "$TSX"
   fi
 else
-  echo "Run:            $BIN_FILE gallery/game_engine/scripting/pong.game.tsx"
-  echo "Headless smoke: SDL_VIDEODRIVER=dummy $BIN_FILE gallery/game_engine/scripting/pong.game.tsx 300"
+  echo "Run:            npm run engine:game-sdl:run:pacman"
+  echo "                npm run engine:game-sdl:run:invaders"
+  echo "                npm run engine:game-sdl:run:breakout"
+  echo "                npm run engine:game-sdl:run:pong"
+  echo "Headless smoke: npm run engine:game-sdl:smoke:pacman"
 fi

@@ -24,6 +24,7 @@ function sprites() {
 
 function initState() {
   return {
+    showNet: 1,
     entities: {
       ball: { x: 240, y: 135 },
       p1: { x: 18, y: 135 },

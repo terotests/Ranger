@@ -28,7 +28,7 @@ function onButton(props) {
 // Render the current screen as a UI tree (JSX -> EVG).
 function render(props) {
   return (
-    <View flexDirection="column" padding="16px" background="#0b1020">
+    <View flexDirection="column" padding="16px">
       <Label color="#ffffff">{props.state.title}</Label>
       <Label color="#8fd3ff">Let's play! Press ACTION to start.</Label>
       <Label color="#8fd3ff">Score: {props.state.score}</Label>

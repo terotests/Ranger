@@ -58,6 +58,54 @@ describe("Game runner - scripted Pong", () => {
 
     const entities = out.match(/entities=(\d+)/);
     expect(entities, `no entity count in output: ${out}`).toBeTruthy();
-    expect(parseInt(entities![1], 10)).toBeGreaterThan(200);
+    expect(parseInt(entities![1], 10)).toBe(17);
+  });
+
+  it("runs the scripted breakout game with JSX HUD and screen transitions", () => {
+    const { compile, run } = compileAndRun(
+      "gallery/game_engine/scripting/breakout_runner_demo.rgr"
+    );
+
+    expect(
+      compile.success,
+      `Compile failed: ${compile.error || compile.output}`
+    ).toBe(true);
+    expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+
+    const out = run?.output || "";
+    expect(out).toContain("frames=900");
+    expect(out).toContain("breakout-runner done");
+    expect(out).toContain("screen=gameOver");
+
+    const score = out.match(/score=(\d+),(\d+)/);
+    expect(score, `no score in output: ${out}`).toBeTruthy();
+
+    const entities = out.match(/entities=(\d+)/);
+    expect(entities, `no entity count in output: ${out}`).toBeTruthy();
+    expect(parseInt(entities![1], 10)).toBe(52);
+  });
+
+  it("runs the scripted pacman game and eats dots", () => {
+    const { compile, run } = compileAndRun(
+      "gallery/game_engine/scripting/pacman_runner_demo.rgr"
+    );
+
+    expect(
+      compile.success,
+      `Compile failed: ${compile.error || compile.output}`
+    ).toBe(true);
+    expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+
+    const out = run?.output || "";
+    expect(out).toContain("frames=420");
+    expect(out).toContain("pacman-runner done");
+
+    const score = out.match(/score=(\d+),(\d+)/);
+    expect(score, `no score in output: ${out}`).toBeTruthy();
+    expect(parseInt(score![1], 10)).toBeGreaterThan(0);
+
+    const pac = out.match(/pac=(-?\d+),(-?\d+)/);
+    expect(pac, `no pac position in output: ${out}`).toBeTruthy();
+    expect(parseInt(pac![1], 10)).toBeGreaterThan(0);
   });
 });

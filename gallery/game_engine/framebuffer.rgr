@@ -116,6 +116,235 @@ class SoftCanvas {
         }
     }
 
+    ; Directional wedge cut from a filled circle (mouth, pie slice, radar sweep).
+    ; wedgeDir: 0=up 1=right 2=down 3=left. wedgeOpen: 0=closed .. 3=wide.
+    fn wedgeSkipPixel:boolean (cx:int cy:int px:int py:int wedgeDir:int wedgeOpen:int) {
+        if (wedgeOpen <= 0) {
+            return false
+        }
+        def dx (px - cx)
+        def dy (py - cy)
+        def adx dx
+        def ady dy
+        if (adx < 0) { adx = 0 - adx }
+        if (ady < 0) { ady = 0 - ady }
+        def gap (wedgeOpen + 1)
+        if (wedgeDir == 1) {
+            if (dx <= 0) { return false }
+            if (ady * gap < dx) { return true }
+            return false
+        }
+        if (wedgeDir == 3) {
+            if (dx >= 0) { return false }
+            if (ady * gap < (0 - dx)) { return true }
+            return false
+        }
+        if (wedgeDir == 0) {
+            if (dy >= 0) { return false }
+            if (adx * gap < (0 - dy)) { return true }
+            return false
+        }
+        if (dy <= 0) { return false }
+        if (adx * gap < dy) { return true }
+        return false
+    }
+
+    fn fillWedgeCircle:void (cx:int cy:int rad:int wedgeDir:int wedgeOpen:int r:int g:int b:int) {
+        def r2 (rad * rad)
+        def yy (cy - rad)
+        def yEnd (cy + rad)
+        while (yy <= yEnd) {
+            def xx (cx - rad)
+            def xEnd (cx + rad)
+            while (xx <= xEnd) {
+                def dx (xx - cx)
+                def dy (yy - cy)
+                if (((dx * dx) + (dy * dy)) <= r2) {
+                    if (false == (this.wedgeSkipPixel(cx cy xx yy wedgeDir wedgeOpen))) {
+                        this.setPixel(xx yy r g b)
+                    }
+                }
+                xx = (xx + 1)
+            }
+            yy = (yy + 1)
+        }
+    }
+
+    fn clampChan:int (n:int) {
+        if (n < 0) {
+            return 0
+        }
+        if (n > 255) {
+            return 255
+        }
+        return n
+    }
+
+    ; Pac-style ghost: domed head, straight sides, scalloped hem, plus-shaped eyes.
+    ; faceDir: 0=up 1=right 2=down 3=left. eyesOnly: 0=full body, 1=small fleeing eyes.
+    fn ghostBodyAt:boolean (cx:int cy:int px:int py:int rad:int) {
+        def dx (px - cx)
+        def adx dx
+        if (adx < 0) {
+            adx = 0 - adx
+        }
+        if (py > (cy + rad)) {
+            return false
+        }
+        if (py < (cy - rad)) {
+            return false
+        }
+        if (px < (cx - rad)) {
+            return false
+        }
+        if (px > (cx + rad)) {
+            return false
+        }
+        def domeY (cy - 1)
+        def ddx (px - cx)
+        def ddy (py - domeY)
+        def r2 (rad * rad)
+        if (py <= (cy + 1)) {
+            if (((ddx * ddx) + (ddy * ddy)) <= r2) {
+                return true
+            }
+        }
+        if (py <= (cy + rad - 1)) {
+            if (adx <= rad) {
+                return true
+            }
+        }
+        if (py == (cy + rad - 1)) {
+            def wave ((px - cx + rad) % 4)
+            if (wave == 0) {
+                return false
+            }
+            if (wave == 3) {
+                return false
+            }
+            if (adx <= rad) {
+                return true
+            }
+        }
+        if (py == (cy + rad)) {
+            def wave2 ((px - cx + rad + 1) % 4)
+            if (wave2 == 1) {
+                return true
+            }
+            if (wave2 == 2) {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn ghostEyePlus:boolean (ex:int ey:int px:int py:int) {
+        if (px == ex) {
+            if (py >= (ey - 1)) {
+                if (py <= (ey + 1)) {
+                    return true
+                }
+            }
+        }
+        if (py == ey) {
+            if (px >= (ex - 1)) {
+                if (px <= (ex + 1)) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    fn fillGhost:void (cx:int cy:int rad:int faceDir:int eyesOnly:int r:int g:int b:int) {
+        if (eyesOnly != 0) {
+            this.fillCircle(cx cy rad 255 255 255)
+        } {
+            def yy (cy - rad)
+            def yEnd (cy + rad)
+            while (yy <= yEnd) {
+                def xx (cx - rad)
+                def xEnd (cx + rad)
+                while (xx <= xEnd) {
+                    if (this.ghostBodyAt(cx cy xx yy rad)) {
+                        def br:int r
+                        def bg:int g
+                        def bb:int b
+                        if (yy <= (cy - 2)) {
+                            if (xx <= (cx - 1)) {
+                                br = (this.clampChan(r + 40))
+                                bg = (this.clampChan(g + 40))
+                                bb = (this.clampChan(b + 40))
+                            }
+                        }
+                        if (yy <= cy) {
+                            if (br == r) {
+                                br = (this.clampChan(r + 18))
+                                bg = (this.clampChan(g + 18))
+                                bb = (this.clampChan(b + 18))
+                            }
+                        }
+                        this.setPixel(xx yy br bg bb)
+                    }
+                    xx = (xx + 1)
+                }
+                yy = (yy + 1)
+            }
+        }
+        def le (cx - 3)
+        def re (cx + 3)
+        def ey (cy - 1)
+        if (eyesOnly != 0) {
+            le = (cx - 2)
+            re = (cx + 2)
+            ey = cy
+        }
+        def pOffX 0
+        def pOffY 0
+        if (faceDir == 0) {
+            pOffY = 0 - 1
+        }
+        if (faceDir == 1) {
+            pOffX = 1
+        }
+        if (faceDir == 2) {
+            pOffY = 1
+        }
+        if (faceDir == 3) {
+            pOffX = 0 - 1
+        }
+        def pr (this.clampChan(r - 90))
+        def pg (this.clampChan(g - 90))
+        def pb (this.clampChan(b - 90))
+        if (pr < 16) {
+            pr = 16
+        }
+        if (pg < 16) {
+            pg = 16
+        }
+        if (pb < 16) {
+            pb = 16
+        }
+        def py (ey - 2)
+        def pyEnd (ey + 2)
+        while (py <= pyEnd) {
+            def px (cx - rad)
+            def pxEnd (cx + rad)
+            while (px <= pxEnd) {
+                if (this.ghostEyePlus(le ey px py)) {
+                    this.setPixel(px py 235 245 255)
+                }
+                if (this.ghostEyePlus(re ey px py)) {
+                    this.setPixel(px py 235 245 255)
+                }
+                px = (px + 1)
+            }
+            py = (py + 1)
+        }
+        this.setPixel((le + pOffX) (ey + pOffY) pr pg pb)
+        this.setPixel((re + pOffX) (ey + pOffY) pr pg pb)
+    }
+
     ; Read one pixel's red channel - used by golden-frame / rendering tests.
     fn pixelR:int (x:int y:int) {
         def o (((y * w) + x) * 4)
