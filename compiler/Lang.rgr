@@ -3028,10 +3028,10 @@ std::vector<std::string> r_get_keys_of_map(  std::map<std::string, T> orig_map )
 (create_polyfill '
 std::string r_utf8_substr(const std::string& str, int start_i, int leng_i)
 {
-    unsigned int start ((unsigned int)start_i);
-    unsigned int leng ((unsigned int)leng_i);
+    size_t start = (size_t)start_i;
+    size_t leng = (size_t)leng_i;
     if (leng==0) { return ""; }
-    unsigned int c, i, ix, q, min= (unsigned int) std::string::npos, max=(unsigned int)std::string::npos;
+    size_t c, i, ix, q, min= std::string::npos, max= std::string::npos;
     for (q=0, i=0, ix=str.length(); i < ix; i++, q++)
     {
         if (q==start){ min=i; }

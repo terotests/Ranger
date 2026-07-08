@@ -1,0 +1,11 @@
+class TrigraphTest {
+  fn run:string () {
+    def op:string "??="
+    return op
+  }
+}
+
+fn main:void () {
+  def t:TrigraphTest (new TrigraphTest)
+  print (t.run())
+}
