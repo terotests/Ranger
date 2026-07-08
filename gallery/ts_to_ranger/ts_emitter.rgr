@@ -2,6 +2,11 @@
 ; TSEmitter - TS AST (TSNode) -> Ranger source for game scripts.
 ; ==============================================================================
 ;
+; Architecture: TypeScript is read at *emitter runtime* (this tool) and the
+; produced Ranger is compiled *statically* into the native game binary. The
+; emitter is therefore type-aware: it must produce Ranger that the compiler
+; accepts without int/double coercion errors.
+;
 ; PoC subset: function decls, const/let, if, return, literals, member access,
 ; binary/unary ops, object/array literals used by *.game.tsx retained-mode games.
 ; Does NOT emit JSX/hud() (native path uses game_hud separately).
@@ -17,6 +22,10 @@ class TSEmitter {
     def inSpritesFn:boolean false
     def inInitFn:boolean false
     def inUpdateFn:boolean false
+    def varTypes:[string:string]
+    def stateVarName:string "s"
+    def readEntityIds:[string]
+    def readEntitySeen:[string:boolean]
 
     fn emit:void (text:string) {
         output = output + text
@@ -54,12 +63,147 @@ class TSEmitter {
         inUpdateFn = false
     }
 
+    ; ==========================================================================
+    ; Type model - bridge struct fields have known Ranger types. The emitter
+    ; uses these to decide numeric literal form (int vs double) so the generated
+    ; code type-checks statically.
+    ; ==========================================================================
+
+    fn fieldType:string (prop:string) {
+        if ((prop == "x") || (prop == "y")) {
+            return "double"
+        }
+        if ((prop == "vx") || (prop == "vy")) {
+            return "double"
+        }
+        if (prop == "dt") {
+            return "double"
+        }
+        if ((prop == "up") || (prop == "down") || (prop == "left") || (prop == "right") || (prop == "action")) {
+            return "boolean"
+        }
+        if ((prop == "hasVx") || (prop == "hasVy")) {
+            return "boolean"
+        }
+        if ((prop == "id") || (prop == "kind") || (prop == "screen")) {
+            return "string"
+        }
+        if (prop == "state") {
+            return "NativeGameState"
+        }
+        return "int"
+    }
+
+    fn lookupVarType:string (name:string) {
+        def t@(optional):string (get varTypes name)
+        if (!null? t) {
+            return (unwrap t)
+        }
+        return ""
+    }
+
+    fn isComparisonOp:boolean (op:string) {
+        if (op == "<") { return true }
+        if (op == ">") { return true }
+        if (op == "<=") { return true }
+        if (op == ">=") { return true }
+        if (op == "==") { return true }
+        if (op == "!=") { return true }
+        if (op == "===") { return true }
+        if (op == "!==") { return true }
+        return false
+    }
+
+    fn isLogicalOp:boolean (op:string) {
+        if (op == "&&") { return true }
+        if (op == "||") { return true }
+        return false
+    }
+
+    ; Natural Ranger type of an expression node.
+    fn exprType:string (node:TSNode) {
+        def t:string node.nodeType
+        if (t == "NumericLiteral") {
+            if (this.containsChar(node.value 46)) {
+                return "double"
+            }
+            return "int"
+        }
+        if (t == "BooleanLiteral") {
+            return "boolean"
+        }
+        if (t == "StringLiteral") {
+            return "string"
+        }
+        if (t == "Identifier") {
+            def vt:string (this.lookupVarType(node.name))
+            if ((strlen vt) > 0) {
+                return vt
+            }
+            return "int"
+        }
+        if (t == "MemberExpression") {
+            return (this.fieldType(node.name))
+        }
+        if (t == "UnaryExpression") {
+            if (node.value == "!") {
+                return "boolean"
+            }
+            if (node.left) {
+                return (this.exprType((unwrap node.left)))
+            }
+            return "int"
+        }
+        if (t == "BinaryExpression") {
+            def op:string node.value
+            if (this.isComparisonOp(op)) {
+                return "boolean"
+            }
+            if (this.isLogicalOp(op)) {
+                return "boolean"
+            }
+            def lt:string "int"
+            def rt:string "int"
+            if (node.left) {
+                lt = (this.exprType((unwrap node.left)))
+            }
+            if (node.right) {
+                rt = (this.exprType((unwrap node.right)))
+            }
+            if ((lt == "double") || (rt == "double")) {
+                return "double"
+            }
+            return "int"
+        }
+        return "int"
+    }
+
+    ; Common numeric type for a binary operation's operands.
+    fn numericCommon:string (node:TSNode) {
+        def lt:string "int"
+        def rt:string "int"
+        if (node.left) {
+            lt = (this.exprType((unwrap node.left)))
+        }
+        if (node.right) {
+            rt = (this.exprType((unwrap node.right)))
+        }
+        if ((lt == "double") || (rt == "double")) {
+            return "double"
+        }
+        return "int"
+    }
+
+    ; ==========================================================================
+    ; Program / functions
+    ; ==========================================================================
+
     fn emitProgram:string (ast:TSNode) {
         this.reset()
         this.emitLine("; Generated by gallery/ts_to_ranger/ts_emitter.rgr")
-        this.emitLine("; Source: game script (.game.tsx)")
+        this.emitLine("; Source: game script (.game.tsx) - do not edit by hand.")
         this.emitLine("")
-        this.emitLine("Import \"../../ts_to_ranger/game_script_types.rgr\"")
+        this.emitLine("Import \"../game_script_types.rgr\"")
         this.emitLine("")
         this.emitLine("class GeneratedGameScript {")
 
@@ -81,6 +225,13 @@ class TSEmitter {
         inSpritesFn = (currentFn == "sprites")
         inInitFn = (currentFn == "initState")
         inUpdateFn = (currentFn == "update")
+        def fresh:[string:string]
+        varTypes = fresh
+        stateVarName = "s"
+        def freshIds:[string]
+        readEntityIds = freshIds
+        def freshSeen:[string:boolean]
+        readEntitySeen = freshSeen
 
         def retType:string "void"
         if (inSpritesFn) {
@@ -94,26 +245,181 @@ class TSEmitter {
         }
 
         def params:string (this.emitParams(node.params))
-        this.emitLine(("fn " + currentFn) + (":" + retType) + (" (" + params) + ") {")
+        this.emitLine((("    fn " + currentFn) + (":" + retType)) + ((" (" + params) + ") {"))
 
         if (null? node.body) {
-            this.emitLine("}")
+            this.emitLine("    }")
             return
         }
         def body:TSNode (unwrap node.body)
-        this.indent()
-        this.emitBlockBody(body)
-        this.dedent()
-        this.emitLine("}")
+        this.indentLevel = 2
+        if (inUpdateFn) {
+            this.prescanStateVar(body)
+            this.collectEntityReads(body)
+            this.emitStateBinding(body)
+            this.emitEntityHoists()
+            this.emitBlockBodySkippingStateDecl(body)
+        } {
+            this.emitBlockBody(body)
+        }
+        this.indentLevel = 0
+        this.emitLine("    }")
         this.emitLine("")
+    }
+
+    ; Emit `def s:NativeGameState (props.state)` if the script declared it.
+    fn emitStateBinding:void (body:TSNode) {
+        this.emitLine((("def " + stateVarName) + ":NativeGameState (props.state)"))
+        set varTypes stateVarName "NativeGameState"
+    }
+
+    ; Hoist entity reads to typed locals so `.field` access is legal Ranger.
+    fn emitEntityHoists:void () {
+        def i 0
+        while (i < (array_length readEntityIds)) {
+            def id:string (itemAt readEntityIds i)
+            this.emitLine(((("def in_" + id) + ":EntityPoseNative (unwrap (get ") + stateVarName) + (".entities \"" + id) + "\"))")
+            i = (i + 1)
+        }
+    }
+
+    fn emitBlockBodySkippingStateDecl:void (block:TSNode) {
+        def i 0
+        while (i < (array_length block.children)) {
+            def stmt:TSNode (itemAt block.children i)
+            if (this.isStateVarDecl(stmt)) {
+                i = (i + 1)
+                continue
+            }
+            this.emitStatement(stmt)
+            i = (i + 1)
+        }
+    }
+
+    fn isStateVarDecl:boolean (stmt:TSNode) {
+        if (stmt.nodeType != "VariableDeclaration") {
+            return false
+        }
+        def i 0
+        while (i < (array_length stmt.children)) {
+            def d:TSNode (itemAt stmt.children i)
+            if (d.nodeType == "VariableDeclarator") {
+                if (d.name == stateVarName) {
+                    if (d.init) {
+                        def initNode:TSNode (unwrap d.init)
+                        if (this.isPropsStateMember(initNode)) {
+                            return true
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn isPropsStateMember:boolean (node:TSNode) {
+        if (node.nodeType != "MemberExpression") {
+            return false
+        }
+        if (node.name != "state") {
+            return false
+        }
+        if (null? node.left) {
+            return false
+        }
+        def base:TSNode (unwrap node.left)
+        if (base.nodeType == "Identifier") {
+            return (base.name == "props")
+        }
+        return false
+    }
+
+    ; Find `const <x> = props.state` and record x as the state variable name.
+    fn prescanStateVar:void (node:TSNode) {
+        if (node.nodeType == "VariableDeclaration") {
+            def i 0
+            while (i < (array_length node.children)) {
+                def d:TSNode (itemAt node.children i)
+                if (d.nodeType == "VariableDeclarator") {
+                    if (d.init) {
+                        if (this.isPropsStateMember((unwrap d.init))) {
+                            stateVarName = d.name
+                        }
+                    }
+                }
+                i = (i + 1)
+            }
+        }
+        this.walkChildren(node "prescanStateVar")
+    }
+
+    ; Collect entity ids read via <stateVar>.entities.<id>.
+    fn collectEntityReads:void (node:TSNode) {
+        if (node.nodeType == "MemberExpression") {
+            if (node.left) {
+                def base:TSNode (unwrap node.left)
+                if (base.nodeType == "MemberExpression") {
+                    if (base.name == "entities") {
+                        def id:string node.name
+                        if ((strlen id) > 0) {
+                            def seen@(optional):boolean (get readEntitySeen id)
+                            if (null? seen) {
+                                set readEntitySeen id true
+                                push readEntityIds id
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        this.walkChildren(node "collectEntityReads")
+    }
+
+    ; Generic child walk dispatching to a named visitor.
+    fn walkChildren:void (node:TSNode visitor:string) {
+        if (node.left) {
+            this.dispatchVisit((unwrap node.left) visitor)
+        }
+        if (node.right) {
+            this.dispatchVisit((unwrap node.right) visitor)
+        }
+        if (node.body) {
+            this.dispatchVisit((unwrap node.body) visitor)
+        }
+        if (node.init) {
+            this.dispatchVisit((unwrap node.init) visitor)
+        }
+        if (node.test) {
+            this.dispatchVisit((unwrap node.test) visitor)
+        }
+        if (node.consequent) {
+            this.dispatchVisit((unwrap node.consequent) visitor)
+        }
+        if (node.alternate) {
+            this.dispatchVisit((unwrap node.alternate) visitor)
+        }
+        def i 0
+        while (i < (array_length node.children)) {
+            this.dispatchVisit((itemAt node.children i) visitor)
+            i = (i + 1)
+        }
+    }
+
+    fn dispatchVisit:void (node:TSNode visitor:string) {
+        if (visitor == "prescanStateVar") {
+            this.prescanStateVar(node)
+            return
+        }
+        if (visitor == "collectEntityReads") {
+            this.collectEntityReads(node)
+            return
+        }
     }
 
     fn emitParams:string (params:[TSNode]) {
         if (inUpdateFn) {
             return "props:UpdatePropsNative"
-        }
-        if (inSpritesFn) {
-            return ""
         }
         return ""
     }
@@ -151,6 +457,10 @@ class TSEmitter {
         }
     }
 
+    ; ==========================================================================
+    ; Statements
+    ; ==========================================================================
+
     fn emitExpressionStatement:void (stmt:TSNode) {
         if (null? stmt.left) {
             return
@@ -162,9 +472,25 @@ class TSEmitter {
     }
 
     fn emitAssignment:void (node:TSNode) {
-        def lhs:string (this.emitAssignTarget((unwrap node.left)))
-        def rhs:string (this.emitExpr((unwrap node.right) "expr"))
+        def targetNode:TSNode (unwrap node.left)
+        def lhs:string (this.emitAssignTarget(targetNode))
+        def expected:string (this.assignTargetType(targetNode))
+        def rhs:string (this.emitExpr((unwrap node.right) expected))
         this.emitLine((lhs + " = ") + rhs)
+    }
+
+    fn assignTargetType:string (node:TSNode) {
+        if (node.nodeType == "Identifier") {
+            def vt:string (this.lookupVarType(node.name))
+            if ((strlen vt) > 0) {
+                return vt
+            }
+            return "int"
+        }
+        if (node.nodeType == "MemberExpression") {
+            return (this.fieldType(node.name))
+        }
+        return "int"
     }
 
     fn emitAssignTarget:string (node:TSNode) {
@@ -186,102 +512,25 @@ class TSEmitter {
                 continue
             }
             def name:string d.name
-            def rhs:string ""
+            def rtype:string "int"
             if (d.init) {
                 def initNode:TSNode (unwrap d.init)
-                rhs = (this.emitExpr(initNode "expr"))
-            }
-            def rtype:string (this.inferType(name rhs))
-            if ((strlen rhs) > 0) {
-                if ((name == "dt") && (this.containsSubstring(rhs "props.dt"))) {
-                    rhs = "(to_double props.dt)"
-                }
-                this.emitLine(("def " + name) + (":" + rtype) + (" (" + rhs) + ")")
+                rtype = (this.exprType(initNode))
+                def rhs:string (this.emitExpr(initNode rtype))
+                set varTypes name rtype
+                this.emitLine((("def " + name) + (":" + rtype)) + ((" (" + rhs) + ")"))
             } {
+                set varTypes name rtype
                 this.emitLine(("def " + name) + (":" + rtype))
             }
             i = (i + 1)
         }
     }
 
-    fn inferType:string (name:string rhs:string) {
-        if (inUpdateFn) {
-            if (name == "s") {
-                return "NativeGameState"
-            }
-            if (name == "dt") {
-                return "double"
-            }
-            if ((name == "bx") || (name == "by") || (name == "vx") || (name == "vy") || (name == "p1y") || (name == "p2y")) {
-                return "double"
-            }
-            if ((name == "s1") || (name == "s2")) {
-                return "int"
-            }
-        }
-        if ((strlen rhs) > 0) {
-            if (this.exprLooksDouble(rhs)) {
-                return "double"
-            }
-        }
-        return "int"
-    }
-
-    fn exprLooksDouble:boolean (expr:string) {
-        if (this.containsChar(expr 46)) {
-            return true
-        }
-        if (this.containsSubstring(expr "to_double")) {
-            return true
-        }
-        if (this.containsSubstring(expr ".x")) {
-            return true
-        }
-        if (this.containsSubstring(expr ".y")) {
-            return true
-        }
-        if (this.containsSubstring(expr ".vx")) {
-            return true
-        }
-        if (this.containsSubstring(expr ".vy")) {
-            return true
-        }
-        return false
-    }
-
-    fn containsChar:boolean (s:string ch:int) {
-        def i 0
-        while (i < (strlen s)) {
-            def c:int (charAt s i)
-            if (c == ch) {
-                return true
-            }
-            i = (i + 1)
-        }
-        return false
-    }
-
-    fn containsSubstring:boolean (hay:string needle:string) {
-        def hlen (strlen hay)
-        def nlen (strlen needle)
-        if (nlen > hlen) {
-            return false
-        }
-        def i 0
-        while (i <= (hlen - nlen)) {
-            def ch:string (substring hay i (i + nlen))
-            if (ch == needle) {
-                return true
-            }
-            i = (i + 1)
-        }
-        return false
-    }
-
     fn emitIf:void (node:TSNode) {
         def cond:string ""
         if (node.left) {
-            cond = (this.emitExpr((unwrap node.left) "expr"))
+            cond = (this.emitExpr((unwrap node.left) "boolean"))
         }
         this.emitLine(("if (" + cond) + ") {")
         this.indent()
@@ -328,9 +577,13 @@ class TSEmitter {
             this.emitStateReturn(val true)
             return
         }
-        def expr:string (this.emitExpr(val "expr"))
+        def expr:string (this.emitExpr(val "int"))
         this.emitLine(("return " + expr))
     }
+
+    ; ==========================================================================
+    ; Structured returns (sprites / state)
+    ; ==========================================================================
 
     fn emitSpriteArrayReturn:void (node:TSNode) {
         this.emitLine("def list:[SpriteDefNative]")
@@ -360,7 +613,8 @@ class TSEmitter {
                 continue
             }
             def key:string (this.propKey(prop))
-            def val:string (this.emitPropertyValue(prop))
+            def expected:string (this.fieldType(key))
+            def val:string (this.emitPropertyValue(prop expected))
             this.emitLine((varName + ".") + (key + (" = " + val)))
             i = (i + 1)
         }
@@ -368,20 +622,16 @@ class TSEmitter {
     }
 
     fn emitStateReturn:void (node:TSNode patch:boolean) {
-        if (node.nodeType != "ObjectExpression") {
-            this.emitLine("def s:NativeGameState (new NativeGameState)")
-            this.emitLine("return s")
-            return
-        }
-        if (patch) {
-            this.emitLine("def patch:NativeGameState (new NativeGameState)")
-        } {
-            this.emitLine("def s:NativeGameState (new NativeGameState)")
-        }
         def target:string "s"
         if (patch) {
             target = "patch"
         }
+        if (node.nodeType != "ObjectExpression") {
+            this.emitLine(("def " + target) + ":NativeGameState (new NativeGameState)")
+            this.emitLine(("return " + target))
+            return
+        }
+        this.emitLine(("def " + target) + ":NativeGameState (new NativeGameState)")
         def i 0
         while (i < (array_length node.children)) {
             def prop:TSNode (itemAt node.children i)
@@ -394,18 +644,14 @@ class TSEmitter {
             if (key == "entities") {
                 this.emitEntitiesMap(valNode target)
             } {
-                if ((key == "vx") || (key == "vy")) {
-                    def val:string (this.emitExpr(valNode "expr"))
-                    this.emitLine((target + ".") + (key + (" = " + val)))
-                    if (key == "vx") {
-                        this.emitLine((target + ".hasVx = true"))
-                    }
-                    if (key == "vy") {
-                        this.emitLine((target + ".hasVy = true"))
-                    }
-                } {
-                    def val2:string (this.emitExpr(valNode "expr"))
-                    this.emitLine((target + ".") + (key + (" = " + val2)))
+                def expected:string (this.fieldType(key))
+                def val:string (this.emitExpr(valNode expected))
+                this.emitLine((target + ".") + (key + (" = " + val)))
+                if (key == "vx") {
+                    this.emitLine((target + ".hasVx = true"))
+                }
+                if (key == "vy") {
+                    this.emitLine((target + ".hasVy = true"))
                 }
             }
             i = (i + 1)
@@ -434,7 +680,8 @@ class TSEmitter {
                     def p2:TSNode (itemAt valNode.children j)
                     if (p2.nodeType == "Property") {
                         def k:string (this.propKey(p2))
-                        def v:string (this.emitPropertyValue(p2))
+                        def expected:string (this.fieldType(k))
+                        def v:string (this.emitPropertyValue(p2 expected))
                         this.emitLine((poseName + ".") + (k + (" = " + v)))
                     }
                     j = (j + 1)
@@ -453,9 +700,9 @@ class TSEmitter {
         return empty
     }
 
-    fn emitPropertyValue:string (prop:TSNode) {
+    fn emitPropertyValue:string (prop:TSNode expected:string) {
         if (prop.left) {
-            return (this.emitExpr((unwrap prop.left) "expr"))
+            return (this.emitExpr((unwrap prop.left) expected))
         }
         return "0"
     }
@@ -476,10 +723,14 @@ class TSEmitter {
         return ""
     }
 
-    fn emitExpr:string (node:TSNode ctx:string) {
+    ; ==========================================================================
+    ; Expressions (type-directed: `expected` is the Ranger type of the context)
+    ; ==========================================================================
+
+    fn emitExpr:string (node:TSNode expected:string) {
         def t:string node.nodeType
         if (t == "NumericLiteral") {
-            return (this.emitNumber(node.value))
+            return (this.emitNumber(node.value expected))
         }
         if (t == "BooleanLiteral") {
             return node.value
@@ -488,19 +739,16 @@ class TSEmitter {
             return ("\"" + node.value) + "\""
         }
         if (t == "Identifier") {
-            if (node.name == "props") {
-                return "props"
-            }
             return node.name
         }
         if (t == "MemberExpression") {
             return (this.emitMember(node))
         }
         if (t == "BinaryExpression") {
-            return (this.emitBinary(node))
+            return (this.emitBinary(node expected))
         }
         if (t == "UnaryExpression") {
-            return (this.emitUnary(node))
+            return (this.emitUnary(node expected))
         }
         if (t == "ObjectExpression") {
             return "{}"
@@ -511,12 +759,13 @@ class TSEmitter {
         return "0"
     }
 
-    fn emitNumber:string (raw:string) {
-        if (this.containsChar(raw 46)) {
+    fn emitNumber:string (raw:string expected:string) {
+        def hasDot:boolean (this.containsChar(raw 46))
+        if (expected == "double") {
+            if (hasDot == false) {
+                return (raw + ".0")
+            }
             return raw
-        }
-        if (inUpdateFn) {
-            return (raw + ".0")
         }
         return raw
     }
@@ -525,7 +774,14 @@ class TSEmitter {
         if (null? node.left) {
             return ""
         }
-        def base:string (this.emitExpr((unwrap node.left) "expr"))
+        ; <stateVar>.entities.<id> -> hoisted typed local `in_<id>`
+        def leftNode:TSNode (unwrap node.left)
+        if (leftNode.nodeType == "MemberExpression") {
+            if (leftNode.name == "entities") {
+                return ("in_" + node.name)
+            }
+        }
+        def base:string (this.emitExpr(leftNode "int"))
         def prop:string node.name
         if ((strlen prop) == 0) {
             return base
@@ -533,28 +789,10 @@ class TSEmitter {
         if (node.computed) {
             return (("(get " + base) + (" " + prop)) + ")"
         }
-        if (this.isEntitiesBase(base)) {
-            return (("(get " + base) + (" \"" + prop)) + "\")"
-        }
         if (base == "props") {
             return ("props." + prop)
         }
         return (base + ".") + prop
-    }
-
-    fn isEntitiesBase:boolean (base:string) {
-        if (base == "s.entities") {
-            return true
-        }
-        if (this.endsWith(base ".entities")) {
-            return true
-        }
-        if (this.containsSubstring(base "(get ")) {
-            if (this.containsSubstring(base " entities")) {
-                return true
-            }
-        }
-        return false
     }
 
     fn endsWith:boolean (s:string suffix:string) {
@@ -568,28 +806,60 @@ class TSEmitter {
         return (tail == suffix)
     }
 
-    fn emitBinary:string (node:TSNode) {
+    fn emitBinary:string (node:TSNode expected:string) {
         def op:string node.value
-        def left:string (this.emitExpr((unwrap node.left) "expr"))
-        def right:string (this.emitExpr((unwrap node.right) "expr"))
         if (op == "===") {
             op = "=="
         }
         if (op == "!==") {
             op = "!="
         }
+        def operandExpected:string expected
+        if ((this.isComparisonOp(op)) || (this.isArithmeticOp(op))) {
+            operandExpected = (this.numericCommon(node))
+        }
+        def left:string (this.emitExpr((unwrap node.left) operandExpected))
+        def right:string (this.emitExpr((unwrap node.right) operandExpected))
         return (("(" + left) + (" " + op)) + ((" " + right) + ")")
     }
 
-    fn emitUnary:string (node:TSNode) {
+    fn isArithmeticOp:boolean (op:string) {
+        if (op == "+") { return true }
+        if (op == "-") { return true }
+        if (op == "*") { return true }
+        if (op == "/") { return true }
+        if (op == "%") { return true }
+        return false
+    }
+
+    fn emitUnary:string (node:TSNode expected:string) {
         def op:string node.value
         if (null? node.left) {
             return op
         }
-        def arg:string (this.emitExpr((unwrap node.left) "expr"))
+        def argType:string (this.exprType((unwrap node.left)))
+        def arg:string (this.emitExpr((unwrap node.left) argType))
         if (op == "-") {
-            return ("(0.0 - " + arg) + ")"
+            if (argType == "double") {
+                return ("(0.0 - " + arg) + ")"
+            }
+            return ("(0 - " + arg) + ")"
+        }
+        if (op == "!") {
+            return ("(false == " + arg) + ")"
         }
         return (op + arg)
+    }
+
+    fn containsChar:boolean (s:string ch:int) {
+        def i 0
+        while (i < (strlen s)) {
+            def c:int (charAt s i)
+            if (c == ch) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
     }
 }

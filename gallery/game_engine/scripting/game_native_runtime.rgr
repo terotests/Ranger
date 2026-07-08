@@ -186,7 +186,7 @@ class NativeGameRunner {
     fn buildProps:UpdatePropsNative (dtMs:int up:boolean down:boolean left:boolean right:boolean action:boolean) {
         def props:UpdatePropsNative (new UpdatePropsNative)
         props.time = timeMs
-        props.dt = dtMs
+        props.dt = (to_double dtMs)
         props.up = up
         props.down = down
         props.left = left

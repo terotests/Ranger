@@ -44,7 +44,7 @@ class NativeGameState {
 
 class UpdatePropsNative {
     def time:int 0
-    def dt:int 16
+    def dt:double 16.0
     def up:boolean false
     def down:boolean false
     def left:boolean false

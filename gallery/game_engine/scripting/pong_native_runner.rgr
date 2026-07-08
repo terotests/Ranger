@@ -1,13 +1,18 @@
 ; ==============================================================================
 ; pong_native_runner - headless parity demo: native Pong vs TS-interpreter path.
 ; ==============================================================================
+;
+; The game logic is the STATICALLY COMPILED output of the emitter (read from
+; pong.game.tsx at emitter runtime). Regenerate with:
+;   npm run ts2ranger:emit -- gallery/game_engine/scripting/pong.game.tsx
+; ==============================================================================
 
 Import "./game_native_runtime.rgr"
-Import "./pong_game_native.rgr"
+Import "../../ts_to_ranger/generated/pong_generated.rgr"
 
 class PongNativeRunner {
     def runner:NativeGameRunner (new NativeGameRunner)
-    def script:PongGameScript (new PongGameScript)
+    def script:GeneratedGameScript (new GeneratedGameScript)
 
     fn setupScene:void () {
         def init:NativeGameState (script.initState())
