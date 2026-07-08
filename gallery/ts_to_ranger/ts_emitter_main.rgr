@@ -1,0 +1,111 @@
+; ==============================================================================
+; ts_emitter_main - CLI: parse .game.tsx and emit native Ranger game script.
+; ==============================================================================
+;
+; Usage:
+;   node ts_emitter_main.js -i path/to/game.game.tsx [-o out.rgr]
+;   node ts_emitter_main.js -i pong.game.tsx --stdout
+;
+; Does not modify the input TypeScript file.
+; ==============================================================================
+
+Import "../ts_parser/ts_lexer.rgr"
+Import "../ts_parser/ts_parser_simple.rgr"
+Import "ts_emitter.rgr"
+
+class TSEmitterMain {
+    sfn m@(main):void () {
+        def inputFile:string ""
+        def outputFile:string ""
+        def toStdout:boolean false
+        def argCnt:int (shell_arg_cnt)
+        def i:int 0
+        while (i < argCnt) {
+            def arg:string (shell_arg i)
+            if (arg == "-i") {
+                i = (i + 1)
+                if (i < argCnt) {
+                    inputFile = (shell_arg i)
+                }
+            } {
+                if (arg == "-o") {
+                    i = (i + 1)
+                    if (i < argCnt) {
+                        outputFile = (shell_arg i)
+                    }
+                } {
+                    if (arg == "--stdout") {
+                        toStdout = true
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+
+        if ((strlen inputFile) == 0) {
+            print "Usage: ts_emitter_main -i <file.game.tsx> [-o out.rgr] [--stdout]"
+            return
+        }
+
+        def slash:int (TSEmitterMain.lastSlash(inputFile))
+        def dir:string (substring inputFile 0 slash)
+        def base:string (substring inputFile (slash + 1) (strlen inputFile))
+        def dot:int (TSEmitterMain.lastDot(base))
+        def stem:string base
+        if (dot > 0) {
+            stem = (substring base 0 dot)
+        }
+
+        def buf:buffer (buffer_read_file dir base)
+        def src:string (buffer_to_string buf)
+
+        def lexer:TSLexer (new TSLexer(src))
+        def tokens:[Token] (lexer.tokenize())
+        def parser:TSParserSimple (new TSParserSimple())
+        parser.initParser(tokens)
+        parser.tsxMode = true
+        def ast:TSNode (parser.parseProgram())
+
+        def emitter:TSEmitter (new TSEmitter())
+        def code:string (emitter.emitProgram(ast))
+
+        if (toStdout) {
+            print code
+            return
+        }
+
+        if ((strlen outputFile) == 0) {
+            outputFile = (stem + "_generated.rgr")
+        }
+
+        def outDir:string "gallery/ts_to_ranger/generated"
+        buffer_write_file outDir outputFile (buffer_from_string code)
+        print ("Wrote gallery/ts_to_ranger/generated/" + outputFile)
+    }
+
+    sfn lastSlash:int (path:string) {
+        def best -1
+        def i 0
+        while (i < (strlen path)) {
+            def ch:string (substring path i (i + 1))
+            if (ch == "/") {
+                best = i
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    sfn lastDot:int (name:string) {
+        def best -1
+        def i 0
+        while (i < (strlen name)) {
+            def ch:string (substring name i (i + 1))
+            if (ch == ".") {
+                best = i
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+}

@@ -1,0 +1,153 @@
+; ==============================================================================
+; PongGameScript - native Ranger game logic (compiled path).
+; ==============================================================================
+;
+; Mirrors gallery/game_engine/scripting/pong.game.tsx. Regenerate via:
+;   npm run ts2ranger:emit -- gallery/game_engine/scripting/pong.game.tsx
+; ==============================================================================
+
+Import "../../ts_to_ranger/game_script_types.rgr"
+
+class PongGameScript {
+    fn sprites:[SpriteDefNative] () {
+        def list:[SpriteDefNative]
+        def ball:SpriteDefNative (new SpriteDefNative)
+        ball.id = "ball"
+        ball.kind = "circle"
+        ball.rad = 6
+        ball.r = 245
+        ball.g = 245
+        ball.b = 130
+        push list ball
+        def p1:SpriteDefNative (new SpriteDefNative)
+        p1.id = "p1"
+        p1.kind = "rect"
+        p1.w = 10
+        p1.h = 56
+        p1.r = 120
+        p1.g = 220
+        p1.b = 160
+        push list p1
+        def p2:SpriteDefNative (new SpriteDefNative)
+        p2.id = "p2"
+        p2.kind = "rect"
+        p2.w = 10
+        p2.h = 56
+        p2.r = 220
+        p2.g = 140
+        p2.b = 120
+        push list p2
+        return list
+    }
+
+    fn initState:NativeGameState () {
+        def s:NativeGameState (new NativeGameState)
+        s.showNet = 1
+        s.score1 = 0
+        s.score2 = 0
+        s.vx = 0.16
+        s.vy = 0.10
+        s.hasVx = true
+        s.hasVy = true
+        def ball:EntityPoseNative (new EntityPoseNative)
+        ball.x = 240.0
+        ball.y = 135.0
+        set s.entities "ball" ball
+        def p1:EntityPoseNative (new EntityPoseNative)
+        p1.x = 18.0
+        p1.y = 135.0
+        set s.entities "p1" p1
+        def p2:EntityPoseNative (new EntityPoseNative)
+        p2.x = 462.0
+        p2.y = 135.0
+        set s.entities "p2" p2
+        return s
+    }
+
+    fn update:NativeGameState (props:UpdatePropsNative) {
+        def s:NativeGameState (props.state)
+        def dt:double (to_double props.dt)
+        def ball:EntityPoseNative (unwrap (get s.entities "ball"))
+        def p1:EntityPoseNative (unwrap (get s.entities "p1"))
+        def p2:EntityPoseNative (unwrap (get s.entities "p2"))
+
+        def bx:double (ball.x + (s.vx * dt))
+        def by:double (ball.y + (s.vy * dt))
+        def vx:double s.vx
+        def vy:double s.vy
+        def s1:int s.score1
+        def s2:int s.score2
+
+        if (by < 6.0) {
+            by = 6.0
+            vy = (0.0 - vy)
+        }
+        if (by > 264.0) {
+            by = 264.0
+            vy = (0.0 - vy)
+        }
+
+        def p1y:double p1.y
+        if (props.up) { p1y = (p1y - (dt * 0.30)) }
+        if (props.down) { p1y = (p1y + (dt * 0.30)) }
+        if (p1y < 28.0) { p1y = 28.0 }
+        if (p1y > 242.0) { p1y = 242.0 }
+
+        def p2y:double p2.y
+        if (p2y < by) { p2y = (p2y + (dt * 0.22)) }
+        if (p2y > by) { p2y = (p2y - (dt * 0.22)) }
+        if (p2y < 28.0) { p2y = 28.0 }
+        if (p2y > 242.0) { p2y = 242.0 }
+
+        if (bx < 24.0) {
+            if (by > (p1y - 34.0)) {
+                if (by < (p1y + 34.0)) {
+                    bx = 24.0
+                    vx = (0.0 - vx)
+                }
+            }
+        }
+        if (bx > 456.0) {
+            if (by > (p2y - 34.0)) {
+                if (by < (p2y + 34.0)) {
+                    bx = 456.0
+                    vx = (0.0 - vx)
+                }
+            }
+        }
+
+        if (bx < 0.0) {
+            s2 = (s2 + 1)
+            bx = 240.0
+            by = 135.0
+            vx = 0.16
+        }
+        if (bx > 480.0) {
+            s1 = (s1 + 1)
+            bx = 240.0
+            by = 135.0
+            vx = (0.0 - 0.16)
+        }
+
+        def patch:NativeGameState (new NativeGameState)
+        patch.score1 = s1
+        patch.score2 = s2
+        patch.vx = vx
+        patch.vy = vy
+        patch.hasVx = true
+        patch.hasVy = true
+        def ballOut:EntityPoseNative (new EntityPoseNative)
+        ballOut.x = bx
+        ballOut.y = by
+        set patch.entities "ball" ballOut
+        def p1Out:EntityPoseNative (new EntityPoseNative)
+        p1Out.x = 18.0
+        p1Out.y = p1y
+        set patch.entities "p1" p1Out
+        def p2Out:EntityPoseNative (new EntityPoseNative)
+        p2Out.x = 462.0
+        p2Out.y = p2y
+        set patch.entities "p2" p2Out
+        return patch
+    }
+}
