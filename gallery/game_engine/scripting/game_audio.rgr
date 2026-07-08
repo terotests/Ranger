@@ -129,17 +129,6 @@ class GameAudio {
         return spec
     }
 
-    fn writeInt16LE:void (buf:buffer offset:int value:int) {
-        def v value
-        if (v < 0) {
-            v = (65536 + v)
-        }
-        def lo:int (bit_and v 255)
-        def hi:int (bit_and (to_int (v / 256)) 255)
-        buffer_set buf offset lo
-        buffer_set buf (offset + 1) hi
-    }
-
     fn sampleWave:double (wave:int phase:double noiseSeed:int) {
         if (wave == (SynthWave.square())) {
             if (phase < 0.5) {
@@ -186,7 +175,17 @@ class GameAudio {
             def iv:int (to_int amp)
             if (iv > 32767) { iv = 32767 }
             if (iv < -32768) { iv = -32768 }
-            this.writeInt16LE(pcm (i * 2) iv)
+            ; Inline LE int16 write: C++ passes buffer method args by value, so keep
+            ; buffer_set in the same method that owns the local pcm buffer.
+            def v:int iv
+            if (v < 0) {
+                v = (65536 + v)
+            }
+            def lo:int (bit_and v 255)
+            def hi:int (bit_and (to_int (v / 256)) 255)
+            def off:int (i * 2)
+            buffer_set pcm off lo
+            buffer_set pcm (off + 1) hi
             freq = (freq + slidePerFrame)
             if (freq < 40.0) { freq = 40.0 }
             phase = (phase + (freq / (to_double sampleRate)))
