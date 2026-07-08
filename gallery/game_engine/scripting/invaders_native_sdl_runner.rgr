@@ -1,0 +1,28 @@
+; ==============================================================================
+; invaders_native_sdl_runner - SDL2 + static-compiled Invaders (Path B).
+; ==============================================================================
+;
+; Regenerate emitter output when invaders.game.tsx changes:
+;   npm run ts2ranger:emit -- gallery/game_engine/scripting/invaders.game.tsx
+;
+; Build + run:
+;   npm run engine:game-sdl-native:run:invaders
+; ==============================================================================
+
+Import "./game_sdl_native_host.rgr"
+Import "./invaders_native_game.rgr"
+
+class InvadersNativeSdlRunner {
+    sfn m@(main):void () {
+        def game:InvadersNativeGame (new InvadersNativeGame)
+        def host:GameSdlNativeHost (new GameSdlNativeHost)
+        if ((shell_arg_cnt) > 0) {
+            def parsed@(optional):int (to_int (shell_arg 0))
+            if (!null? parsed) {
+                host.maxFrames = (unwrap parsed)
+            }
+        }
+        host.run(game "Space Invaders (native SDL)" "ship")
+        host.printSummary(game "ship")
+    }
+}

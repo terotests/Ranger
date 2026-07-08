@@ -331,8 +331,7 @@ class GeneratedGameScript {
     fn update:NativeGameState (props:UpdatePropsNative) {
         def s:NativeGameState (props.state)
         if (((unwrap (get s.numbers "gameOver")) == 1.0)) {
-            def patch:NativeGameState (new NativeGameState)
-            return patch
+            return s
         }
         def dt:double (props.dt)
         def px:double ((unwrap (get s.numbers "px")))
@@ -371,7 +370,7 @@ class GeneratedGameScript {
             waveTick = 0.0
             waveX = (waveX + (waveDir * 6.0))
             if ((waveX > 300.0)) {
-                waveDir = (0.0 - 1.0)
+                waveDir = (to_double (0.0 - 1.0))
                 waveY = (waveY + 8.0)
             }
             if ((waveX < 40.0)) {
@@ -407,7 +406,7 @@ class GeneratedGameScript {
             shotY = (shotY - (dt * 0.45))
             if ((shotY < 0.0)) {
                 shotActive = 0.0
-                shotY = (0.0 - 30.0)
+                shotY = (to_double (0.0 - 30.0))
             }
         }
         if ((shotActive == 1.0)) {
@@ -417,7 +416,7 @@ class GeneratedGameScript {
                     if (((this.hitAlien(alien (to_int waveX) (to_int waveY) (to_int shotX) (to_int shotY))) == 1)) {
                         set alive alien 0
                         shotActive = 0.0
-                        shotY = (0.0 - 30.0)
+                        shotY = (to_double (0.0 - 30.0))
                         score1 = (score1 + 10)
                     }
                 }

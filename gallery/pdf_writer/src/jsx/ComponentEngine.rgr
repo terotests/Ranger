@@ -8,6 +8,7 @@
 
 Import "../../../ts_parser/ts_parser_simple.rgr"
 Import "../../../ts_parser/ts_lexer.rgr"
+Import "../../../ts_parser/ts_ast_patch.rgr"
 Import "../../../evg/EVGElement.rgr"
 Import "EvalValue.rgr"
 Import "../jpeg/JPEGMetadata.rgr"
@@ -155,6 +156,10 @@ class ComponentEngine {
 
     ; When true, suppress verbose evaluation trace (game scripts, tests).
     def quiet:boolean false
+
+    ; Parsed program AST kept for in-process hot reload (patchScript).
+    def programAst@(optional):TSNode
+    def astPatcher:TSAstPatcher (new TSAstPatcher())
     
     fn trace:void (msg:string) {
         if (quiet == false) {
@@ -337,23 +342,95 @@ class ComponentEngine {
     ; Parse a script and register its imports, components/functions and
     ; top-level variables WITHOUT requiring or evaluating a render() function.
     ; After this, callFunction()/callRender() can invoke the script's functions.
-    fn loadScript:void (src:string) {
-        source = src
+    fn parseProgramFromSrc:TSNode (src:string) {
         def lexer (new TSLexer(src))
         def tokens:[Token] (lexer.tokenize())
         parser.initParser(tokens)
         parser.tsxMode = true
-        def ast:TSNode (parser.parseProgram())
+        return (parser.parseProgram())
+    }
+
+    fn clearLocalComponents:void () {
+        def empty:[ImportedSymbol]
+        localComponents = empty
+    }
+
+    fn loadScript:void (src:string) {
+        source = src
+        def ast:TSNode (this.parseProgramFromSrc(src))
+        programAst = ast
         ; Fresh module scope for this script; hostScope (registerGlobal) is kept.
         def scope:EvalContext (new EvalContext())
         scope.parent = hostScope
         scope.moduleRoot = scope
         moduleScope = scope
         context = scope
+        this.clearLocalComponents()
         this.processImports(ast)
         ; Functions first so const initializers may call helpers.
         this.registerComponents(ast)
         this.processVariables(ast)
+    }
+
+    fn updateLocalComponentNode:void (name:string node:TSNode) {
+        def i:int 0
+        while (i < (array_length localComponents)) {
+            def sym:ImportedSymbol (itemAt localComponents i)
+            if (sym.name == name) {
+                sym.functionNode = node
+                return
+            }
+            i = (i + 1)
+        }
+        this.registerFunctionDeclaration(node)
+    }
+
+    ; Re-parse source, diff against cached programAst, and swap changed bindings.
+    ; Returns true when GameRunner should rebuild scene (initState/sprites/consts).
+    fn patchScript:boolean (src:string) {
+        if (null? programAst) {
+            this.loadScript(src)
+            return true
+        }
+        def oldAst:TSNode (unwrap programAst)
+        def oldSrc:string source
+        def newAst:TSNode (this.parseProgramFromSrc(src))
+        def patch:TSAstPatchResult (astPatcher.diffTopLevel(oldAst oldSrc newAst src))
+        if (patch.hasChanges == false) {
+            return false
+        }
+        source = src
+        programAst = newAst
+        this.processImports(newAst)
+        def ci:int 0
+        while (ci < (array_length patch.changes)) {
+            def ch:TSAstPatchChange (itemAt patch.changes ci)
+            if (ch.changeKind == "removed") {
+                ; Dev reload rarely removes declarations; leave stale binding.
+            } {
+                if (ch.declKind == "function") {
+                    if (ch.changeKind != "removed") {
+                        if ch.newNode {
+                            def fnNode:TSNode (unwrap ch.newNode)
+                            this.updateLocalComponentNode(ch.name fnNode)
+                            moduleScope.define(ch.name (EvalValue.function(fnNode)))
+                            this.trace("Patched function: " + ch.name)
+                        }
+                    }
+                }
+                if (ch.declKind == "variable") {
+                    if (ch.changeKind != "removed") {
+                        if ch.newNode {
+                            def varNode:TSNode (unwrap ch.newNode)
+                            this.processModuleVariableDeclaration(varNode)
+                            this.trace("Patched variable: " + ch.name)
+                        }
+                    }
+                }
+            }
+            ci = (ci + 1)
+        }
+        return patch.sceneAffecting
     }
 
     ; Call a script function by name, passing a single props/state object (React

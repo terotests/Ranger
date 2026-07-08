@@ -466,6 +466,10 @@ class EVGLayout {
         ; For column direction: justifyContent = vertical (main axis), alignItems = horizontal (cross axis)
         def verticalAlign:string parent.justifyContent
         def horizontalAlign:string parent.alignItems
+        ; Legacy align= center|left|right (EVG spec horizontal alignment)
+        if ((strlen parent.align) > 0) {
+            horizontalAlign = parent.align
+        }
         
         ; Calculate vertical offset based on justifyContent
         def availableHeight:double innerHeight

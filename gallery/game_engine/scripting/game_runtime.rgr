@@ -22,8 +22,19 @@ Import "./game_sprite.rgr"
 Import "./game_hud.rgr"
 Import "../../ts_to_ranger/game_host.rgr"
 
+; Runtime options for script-driven games (SDL host, tests, custom hosts).
+class GameRuntimeOptions {
+    ; Poll script file mtime each frame and AST-patch on change (TS interpreter path only).
+    def hotReload:boolean false
+    def scriptPath:string ""
+    def scriptDir:string ""
+    def scriptFile:string ""
+    def scriptMtime:int 0
+}
+
 class GameRunner {
     def engine:ComponentEngine (new ComponentEngine())
+    def options:GameRuntimeOptions (new GameRuntimeOptions())
     def canvas:SoftCanvas (new SoftCanvas)
     def hudBlitter:GameHudBlitter (new GameHudBlitter)
     def spriteRenderer:GameSpriteRenderer (new GameSpriteRenderer)
@@ -64,6 +75,71 @@ class GameRunner {
     fn loadScript:void (src:string) {
         engine.loadScript(src)
         hudEnabled = (this.scriptHasFunction("hud"))
+    }
+
+    fn setHotReload:void (enabled:boolean) {
+        options.hotReload = enabled
+    }
+
+  ; Track a .tsx/.game.tsx on disk for mtime polling (used by SDL host and dev watch).
+    fn trackScriptFile:void (path:string) {
+        options.scriptPath = path
+        def dir:string ""
+        def file:string path
+        def slash:int (lastIndexOf path "/")
+        if (slash >= 0) {
+            dir = (substring path 0 slash)
+            file = (substring path (slash + 1) (strlen path))
+        }
+        options.scriptDir = dir
+        options.scriptFile = file
+        if ((strlen file) > 0) {
+            options.scriptMtime = (file_mtime dir file)
+        }
+    }
+
+    fn maybeHotReload:void () {
+        if (options.hotReload == false) {
+            return
+        }
+        if ((strlen options.scriptFile) == 0) {
+            return
+        }
+        def mtime:int (file_mtime options.scriptDir options.scriptFile)
+        if (mtime <= options.scriptMtime) {
+            return
+        }
+        options.scriptMtime = mtime
+        def buf:buffer (buffer_read_file options.scriptDir options.scriptFile)
+        def src:string (buffer_to_string buf)
+        def sceneReset:boolean (this.hotReloadScript(src))
+        if (sceneReset) {
+            print ("[hot-reload] scene reset: " + options.scriptPath)
+        } {
+            print ("[hot-reload] patched in-process: " + options.scriptPath)
+        }
+    }
+
+    fn resetScene:void () {
+        def emptyEnt:[GameEntity]
+        entities = emptyEnt
+        def emptyScreens:[string]
+        screenSpritesLoaded = emptyScreens
+        host = (new GameHost)
+        currentScreen = ""
+        state = (EvalValue.null())
+    }
+
+    ; In-process hot reload: AST diff + swap changed bindings. Rebuilds scene only
+    ; when initState/sprites/resources/consts changed; update/hud-only edits keep state.
+    fn hotReloadScript:boolean (src:string) {
+        def sceneReset:boolean (engine.patchScript(src))
+        hudEnabled = (this.scriptHasFunction("hud"))
+        if (sceneReset) {
+            this.resetScene()
+            this.setupScene()
+        }
+        return sceneReset
     }
 
     fn scriptHasFunction:boolean (name:string) {

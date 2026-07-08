@@ -37,6 +37,21 @@ class EVGUnit  {
     }
     this.pixels = this.value;
   };
+  resolveForHeight (parentWidth, parentHeight, fontSize) {
+    if ( this.isSet == false ) {
+      this.pixels = 0.0;
+      return;
+    }
+    if ( this.unitType == 3 ) {
+      this.pixels = (parentHeight * this.value) / 100.0;
+      return;
+    }
+    if ( this.unitType == 1 ) {
+      this.pixels = (parentHeight * this.value) / 100.0;
+      return;
+    }
+    this.resolve(parentWidth, fontSize);
+  };
   resolveWithHeight (parentWidth, parentHeight, fontSize) {
     if ( this.isSet == false ) {
       this.pixels = 0.0;
@@ -92,7 +107,7 @@ EVGUnit.create = function(val, uType) {
   unit.isSet = true;
   return unit;
 };
-EVGUnit.pixels = function(val) {
+EVGUnit.px = function(val) {
   return EVGUnit.create(val, 0);
 };
 EVGUnit.percent = function(val) {
@@ -125,13 +140,18 @@ EVGUnit.parse = function(str) {
     unit.isSet = true;
     return unit;
   }
+  if ( trimmed == "auto" ) {
+    return unit;
+  }
   const lastChar = trimmed.charCodeAt((__len - 1) );
   if ( lastChar == 37 ) {
     const numStr = trimmed.substring(0, (__len - 1) );
     const numVal = isNaN( parseFloat(numStr) ) ? undefined : parseFloat(numStr);
-    unit.value = numVal;
-    unit.unitType = 1;
-    unit.isSet = true;
+    if ( typeof(numVal) != "undefined" ) {
+      unit.value = numVal;
+      unit.unitType = 1;
+      unit.isSet = true;
+    }
     return unit;
   }
   if ( __len >= 2 ) {
@@ -139,32 +159,42 @@ EVGUnit.parse = function(str) {
     if ( suffix == "em" ) {
       const numStr_1 = trimmed.substring(0, (__len - 2) );
       const numVal_1 = isNaN( parseFloat(numStr_1) ) ? undefined : parseFloat(numStr_1);
-      unit.value = numVal_1;
-      unit.unitType = 2;
-      unit.isSet = true;
+      if ( typeof(numVal_1) != "undefined" ) {
+        unit.value = numVal_1;
+        unit.unitType = 2;
+        unit.isSet = true;
+      }
       return unit;
     }
     if ( suffix == "px" ) {
       const numStr_2 = trimmed.substring(0, (__len - 2) );
       const numVal_2 = isNaN( parseFloat(numStr_2) ) ? undefined : parseFloat(numStr_2);
-      unit.value = numVal_2;
-      unit.unitType = 0;
-      unit.isSet = true;
+      if ( typeof(numVal_2) != "undefined" ) {
+        unit.value = numVal_2;
+        unit.pixels = unit.value;
+        unit.unitType = 0;
+        unit.isSet = true;
+      }
       return unit;
     }
     if ( suffix == "hp" ) {
       const numStr_3 = trimmed.substring(0, (__len - 2) );
       const numVal_3 = isNaN( parseFloat(numStr_3) ) ? undefined : parseFloat(numStr_3);
-      unit.value = numVal_3;
-      unit.unitType = 3;
-      unit.isSet = true;
+      if ( typeof(numVal_3) != "undefined" ) {
+        unit.value = numVal_3;
+        unit.unitType = 3;
+        unit.isSet = true;
+      }
       return unit;
     }
   }
   const numVal_4 = isNaN( parseFloat(trimmed) ) ? undefined : parseFloat(trimmed);
-  unit.value = numVal_4;
-  unit.unitType = 0;
-  unit.isSet = true;
+  if ( typeof(numVal_4) != "undefined" ) {
+    unit.value = numVal_4;
+    unit.pixels = unit.value;
+    unit.unitType = 0;
+    unit.isSet = true;
+  }
   return unit;
 };
 class EVGColor  {
@@ -764,11 +794,164 @@ class EVGBox  {
     return ((((((((((((((((("Box[margin:" + ((this.marginTopPx.toString()))) + "/") + ((this.marginRightPx.toString()))) + "/") + ((this.marginBottomPx.toString()))) + "/") + ((this.marginLeftPx.toString()))) + " padding:") + ((this.paddingTopPx.toString()))) + "/") + ((this.paddingRightPx.toString()))) + "/") + ((this.paddingBottomPx.toString()))) + "/") + ((this.paddingLeftPx.toString()))) + " border:") + ((this.borderWidthPx.toString()))) + "]";
   };
 }
+class EVGGradientStop  {
+  constructor() {
+    this.percentage = 0.0;
+    this.color = new EVGColor();
+  }
+}
+EVGGradientStop.create = function(pct, col) {
+  const stop = new EVGGradientStop();
+  stop.percentage = pct;
+  stop.color = col;
+  return stop;
+};
+class EVGGradient  {
+  constructor() {
+    this.isSet = false;
+    this.isLinear = true;
+    this.angle = 0.0;
+    this.stops = [];
+    let s = [];
+    this.stops = s;
+  }
+  getStartColor () {
+    if ( (this.stops.length) > 0 ) {
+      const stop = this.stops[0];
+      return stop.color;
+    }
+    return EVGColor.noColor();
+  };
+  getEndColor () {
+    const __len = this.stops.length;
+    if ( __len > 0 ) {
+      const stop = this.stops[(__len - 1)];
+      return stop.color;
+    }
+    return EVGColor.noColor();
+  };
+  getStopCount () {
+    return this.stops.length;
+  };
+  getStop (index) {
+    return this.stops[index];
+  };
+  addStop (percentage, color) {
+    const stop = EVGGradientStop.create(percentage, color);
+    this.stops.push(stop);
+  };
+  toCSSString () {
+    if ( this.isSet == false ) {
+      return "";
+    }
+    let result = "";
+    if ( this.isLinear ) {
+      result = ("linear-gradient(" + ((this.angle.toString()))) + "deg";
+    } else {
+      result = "radial-gradient(circle";
+    }
+    const numStops = this.stops.length;
+    let i = 0;
+    while (i < numStops) {
+      const stop = this.stops[i];
+      result = (result + ", ") + stop.color.toCSSString();
+      i = i + 1;
+    };
+    result = result + ")";
+    return result;
+  };
+}
+EVGGradient.parse = function(gradStr) {
+  const grad = new EVGGradient();
+  const __len = gradStr.length;
+  if ( __len == 0 ) {
+    return grad;
+  }
+  const linearIdx = gradStr.indexOf("linear-gradient");
+  const radialIdx = gradStr.indexOf("radial-gradient");
+  if ( linearIdx >= 0 ) {
+    grad.isLinear = true;
+    grad.isSet = true;
+  }
+  if ( radialIdx >= 0 ) {
+    grad.isLinear = false;
+    grad.isSet = true;
+  }
+  if ( grad.isSet == false ) {
+    return grad;
+  }
+  if ( grad.isLinear ) {
+    const degIdx = gradStr.indexOf("deg");
+    if ( degIdx > 0 ) {
+      const startIdx = gradStr.indexOf("(");
+      if ( startIdx >= 0 ) {
+        const angleStr = gradStr.substring((startIdx + 1), degIdx );
+        const angleVal = isNaN( parseFloat((angleStr.trim())) ) ? undefined : parseFloat((angleStr.trim()));
+        if ( typeof(angleVal) != "undefined" ) {
+          grad.angle = angleVal;
+        }
+      }
+    }
+  }
+  let colors = [];
+  let i = 0;
+  while (i < __len) {
+    const ch = gradStr.charCodeAt(i );
+    if ( ch == 35 ) {
+      const colorStart = i;
+      let colorEnd = i + 1;
+      while (colorEnd < __len) {
+        const c = gradStr.charCodeAt(colorEnd );
+        let isHex = false;
+        if ( (c >= 48) && (c <= 57) ) {
+          isHex = true;
+        }
+        if ( (c >= 65) && (c <= 70) ) {
+          isHex = true;
+        }
+        if ( (c >= 97) && (c <= 102) ) {
+          isHex = true;
+        }
+        if ( isHex ) {
+          colorEnd = colorEnd + 1;
+        } else {
+          break;
+        }
+      };
+      const colorStr = gradStr.substring(colorStart, colorEnd );
+      const parsedColor = EVGColor.parseHex(colorStr);
+      if ( parsedColor.isSet ) {
+        colors.push(parsedColor);
+      }
+      i = colorEnd;
+    } else {
+      i = i + 1;
+    }
+  };
+  const numColors = colors.length;
+  if ( numColors > 0 ) {
+    let colorIdx = 0;
+    while (colorIdx < numColors) {
+      let pct = 0.0;
+      if ( numColors > 1 ) {
+        pct = (colorIdx) / ((numColors - 1));
+      }
+      const col = colors[colorIdx];
+      grad.addStop(pct, col);
+      colorIdx = colorIdx + 1;
+    };
+  }
+  return grad;
+};
 class EVGElement  {
   constructor() {
     this.id = "";
     this.tagName = "div";
     this.elementType = 0;
+    this.format = "";
+    this.orientation = "";
+    this.pageWidth = 0.0;
+    this.pageHeight = 0.0;
     this.children = [];
     this.opacity = 1.0;
     this.direction = "row";
@@ -777,18 +960,51 @@ class EVGElement  {
     this.isInline = false;
     this.lineBreak = false;
     this.overflow = "visible";
-    this.fontFamily = "Helvetica";
+    this.fontFamily = "Noto Sans";
+    this.fontWeight = "normal";
+    this.lineHeight = 1.2;
+    this.textAlign = "left";
+    this.textContent = "";
+    this.display = "block";     /** note: unused */
+    this.flex = 0.0;
+    this.flexDirection = "column";
+    this.justifyContent = "flex-start";
+    this.alignItems = "flex-start";
+    this.position = "relative";     /** note: unused */
+    this.src = "";
+    this.alt = "";     /** note: unused */
+    this.imageViewBox = "";     /** note: unused */
+    this.imageViewBoxX = 0.0;     /** note: unused */
+    this.imageViewBoxY = 0.0;     /** note: unused */
+    this.imageViewBoxW = 1.0;     /** note: unused */
+    this.imageViewBoxH = 1.0;     /** note: unused */
+    this.imageViewBoxSet = false;     /** note: unused */
+    this.objectFit = "cover";
+    this.sourceWidth = 0.0;
+    this.sourceHeight = 0.0;
+    this.svgPath = "";
+    this.viewBox = "";
+    this.strokeWidth = 0.0;
+    this.clipPath = "";
+    this.className = "";     /** note: unused */
+    this.imageQuality = 0;
+    this.maxImageSize = 0;
     this.rotate = 0.0;
     this.scale = 1.0;
+    this.backgroundGradient = "";
+    this.gradient = new EVGGradient();
     this.calculatedX = 0.0;
     this.calculatedY = 0.0;
     this.calculatedWidth = 0.0;
     this.calculatedHeight = 0.0;
     this.calculatedInnerWidth = 0.0;
     this.calculatedInnerHeight = 0.0;
+    this.calculatedFlexWidth = 0.0;
     this.calculatedPage = 0;
     this.isAbsolute = false;
     this.isLayoutComplete = false;
+    this.unitsResolved = false;
+    this.hasReturn = false;     /** note: unused */
     this.inheritedFontSize = 14.0;
     this.tagName = "div";
     this.elementType = 0;
@@ -808,15 +1024,32 @@ class EVGElement  {
     this.box = newBox;
     this.backgroundColor = EVGColor.noColor();
     this.color = EVGColor.black();
-    this.fontSize = EVGUnit.pixels(14.0);
+    this.fontSize = EVGUnit.px(14.0);
     this.shadowRadius = EVGUnit.unset();
     this.shadowColor = EVGColor.noColor();
     this.shadowOffsetX = EVGUnit.unset();
     this.shadowOffsetY = EVGUnit.unset();
+    this.imageOffsetX = EVGUnit.unset();
+    this.imageOffsetY = EVGUnit.unset();
+    this.fillColor = EVGColor.noColor();
+    this.strokeColor = EVGColor.noColor();
   }
   addChild (child) {
     child.parent = this;
     this.children.push(child);
+  };
+  resetLayoutState () {
+    this.unitsResolved = false;
+    this.calculatedX = 0.0;
+    this.calculatedY = 0.0;
+    this.calculatedWidth = 0.0;
+    this.calculatedHeight = 0.0;
+    let i = 0;
+    while (i < (this.children.length)) {
+      const child = this.children[i];
+      child.resetLayoutState();
+      i = i + 1;
+    };
   };
   getChildCount () {
     return this.children.length;
@@ -843,6 +1076,9 @@ class EVGElement  {
     return this.elementType == 3;
   };
   hasAbsolutePosition () {
+    if ( (this.tagName == "layer") || (this.tagName == "Layer") ) {
+      return true;
+    }
     if ( this.left.isSet ) {
       return true;
     }
@@ -863,8 +1099,82 @@ class EVGElement  {
     }
     return false;
   };
+  resolveBookFormat () {
+    let w = 595.0;
+    let h = 842.0;
+    if ( this.format == "a4" ) {
+      w = 595.0;
+      h = 842.0;
+    }
+    if ( this.format == "letter" ) {
+      w = 612.0;
+      h = 792.0;
+    }
+    if ( this.format == "trade-5x8" ) {
+      w = 360.0;
+      h = 576.0;
+    }
+    if ( this.format == "trade-6x9" ) {
+      w = 432.0;
+      h = 648.0;
+    }
+    if ( this.format == "trade-8x10" ) {
+      w = 576.0;
+      h = 720.0;
+    }
+    if ( this.format == "mini-square" ) {
+      w = 360.0;
+      h = 360.0;
+    }
+    if ( this.format == "small-square" ) {
+      w = 504.0;
+      h = 504.0;
+    }
+    if ( this.format == "standard-portrait" ) {
+      w = 576.0;
+      h = 720.0;
+    }
+    if ( this.format == "standard-landscape" ) {
+      w = 720.0;
+      h = 576.0;
+    }
+    if ( this.format == "large-landscape" ) {
+      w = 936.0;
+      h = 792.0;
+    }
+    if ( this.format == "large-square" ) {
+      w = 864.0;
+      h = 864.0;
+    }
+    if ( this.format == "magazine" ) {
+      w = 612.0;
+      h = 792.0;
+    }
+    if ( this.orientation == "landscape" ) {
+      if ( w < h ) {
+        const temp = w;
+        w = h;
+        h = temp;
+      }
+    }
+    if ( this.orientation == "portrait" ) {
+      if ( w > h ) {
+        const temp_1 = w;
+        w = h;
+        h = temp_1;
+      }
+    }
+    if ( this.pageWidth > 0.0 ) {
+      w = this.pageWidth;
+    }
+    if ( this.pageHeight > 0.0 ) {
+      h = this.pageHeight;
+    }
+    this.pageWidth = w;
+    this.pageHeight = h;
+  };
   inheritProperties (parentEl) {
-    if ( this.fontFamily == "Helvetica" ) {
+    if ( this.fontFamily == "Noto Sans" ) {
       this.fontFamily = parentEl.fontFamily;
     }
     if ( this.color.isSet == false ) {
@@ -877,9 +1187,13 @@ class EVGElement  {
     }
   };
   resolveUnits (parentWidth, parentHeight) {
+    if ( this.unitsResolved ) {
+      return;
+    }
+    this.unitsResolved = true;
     const fs = this.inheritedFontSize;
     this.width.resolveWithHeight(parentWidth, parentHeight, fs);
-    this.height.resolveWithHeight(parentWidth, parentHeight, fs);
+    this.height.resolveForHeight(parentWidth, parentHeight, fs);
     this.minWidth.resolve(parentWidth, fs);
     this.minHeight.resolve(parentHeight, fs);
     this.maxWidth.resolve(parentWidth, fs);
@@ -899,6 +1213,28 @@ class EVGElement  {
   setAttribute (name, value) {
     if ( name == "id" ) {
       this.id = value;
+      return;
+    }
+    if ( name == "format" ) {
+      this.format = value.toLowerCase();
+      return;
+    }
+    if ( name == "orientation" ) {
+      this.orientation = value.toLowerCase();
+      return;
+    }
+    if ( name == "pageWidth" ) {
+      const pw = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
+      if ( typeof(pw) != "undefined" ) {
+        this.pageWidth = pw;
+      }
+      return;
+    }
+    if ( name == "pageHeight" ) {
+      const ph = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
+      if ( typeof(ph) != "undefined" ) {
+        this.pageHeight = ph;
+      }
       return;
     }
     if ( name == "width" ) {
@@ -1005,6 +1341,20 @@ class EVGElement  {
       this.backgroundColor = EVGColor.parse(value);
       return;
     }
+    if ( (name == "background-gradient") || (name == "backgroundGradient") ) {
+      this.backgroundGradient = value;
+      this.gradient = EVGGradient.parse(value);
+      return;
+    }
+    if ( name == "background" ) {
+      if ( (value.includes("linear-gradient")) || (value.includes("radial-gradient")) ) {
+        this.backgroundGradient = value;
+        this.gradient = EVGGradient.parse(value);
+      } else {
+        this.backgroundColor = EVGColor.parse(value);
+      }
+      return;
+    }
     if ( name == "color" ) {
       this.color = EVGColor.parse(value);
       return;
@@ -1012,6 +1362,18 @@ class EVGElement  {
     if ( name == "opacity" ) {
       const val = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
       this.opacity = val;
+      return;
+    }
+    if ( (name == "object-fit") || (name == "objectFit") ) {
+      this.objectFit = value;
+      return;
+    }
+    if ( (name == "image-offset-x") || (name == "imageOffsetX") ) {
+      this.imageOffsetX = EVGUnit.parse(value);
+      return;
+    }
+    if ( (name == "image-offset-y") || (name == "imageOffsetY") ) {
+      this.imageOffsetY = EVGUnit.parse(value);
       return;
     }
     if ( name == "direction" ) {
@@ -1038,6 +1400,29 @@ class EVGElement  {
       this.overflow = value;
       return;
     }
+    if ( (name == "flex-direction") || (name == "flexDirection") ) {
+      this.flexDirection = value;
+      return;
+    }
+    if ( name == "flex" ) {
+      const val_1 = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
+      if ( typeof(val_1) != "undefined" ) {
+        this.flex = val_1;
+      }
+      return;
+    }
+    if ( name == "gap" ) {
+      this.gap = EVGUnit.parse(value);
+      return;
+    }
+    if ( (name == "justify-content") || (name == "justifyContent") ) {
+      this.justifyContent = value;
+      return;
+    }
+    if ( (name == "align-items") || (name == "alignItems") ) {
+      this.alignItems = value;
+      return;
+    }
     if ( (name == "font-size") || (name == "fontSize") ) {
       this.fontSize = EVGUnit.parse(value);
       return;
@@ -1046,14 +1431,29 @@ class EVGElement  {
       this.fontFamily = value;
       return;
     }
+    if ( (name == "font-weight") || (name == "fontWeight") ) {
+      this.fontWeight = value;
+      return;
+    }
+    if ( (name == "text-align") || (name == "textAlign") ) {
+      this.textAlign = value;
+      return;
+    }
+    if ( (name == "line-height") || (name == "lineHeight") ) {
+      const val_2 = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
+      if ( typeof(val_2) != "undefined" ) {
+        this.lineHeight = val_2;
+      }
+      return;
+    }
     if ( name == "rotate" ) {
-      const val_1 = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
-      this.rotate = val_1;
+      const val_3 = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
+      this.rotate = val_3;
       return;
     }
     if ( name == "scale" ) {
-      const val_2 = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
-      this.scale = val_2;
+      const val_4 = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
+      this.scale = val_4;
       return;
     }
     if ( (name == "shadow-radius") || (name == "shadowRadius") ) {
@@ -1070,6 +1470,47 @@ class EVGElement  {
     }
     if ( (name == "shadow-offset-y") || (name == "shadowOffsetY") ) {
       this.shadowOffsetY = EVGUnit.parse(value);
+      return;
+    }
+    if ( (name == "clip-path") || (name == "clipPath") ) {
+      this.clipPath = value;
+      return;
+    }
+    if ( name == "imageQuality" ) {
+      const val_5 = isNaN( parseInt(value) ) ? undefined : parseInt(value);
+      if ( typeof(val_5) != "undefined" ) {
+        this.imageQuality = val_5;
+      }
+      return;
+    }
+    if ( name == "maxImageSize" ) {
+      const val_6 = isNaN( parseInt(value) ) ? undefined : parseInt(value);
+      if ( typeof(val_6) != "undefined" ) {
+        this.maxImageSize = val_6;
+      }
+      return;
+    }
+    if ( (name == "d") || (name == "svgPath") ) {
+      this.svgPath = value;
+      return;
+    }
+    if ( name == "viewBox" ) {
+      this.viewBox = value;
+      return;
+    }
+    if ( name == "fill" ) {
+      this.fillColor = EVGColor.parse(value);
+      return;
+    }
+    if ( name == "stroke" ) {
+      this.strokeColor = EVGColor.parse(value);
+      return;
+    }
+    if ( (name == "stroke-width") || (name == "strokeWidth") ) {
+      const val_7 = isNaN( parseFloat(value) ) ? undefined : parseFloat(value);
+      if ( typeof(val_7) != "undefined" ) {
+        this.strokeWidth = val_7;
+      }
       return;
     }
   };
@@ -1096,6 +1537,12 @@ EVGElement.createImg = function() {
   const el = new EVGElement();
   el.tagName = "img";
   el.elementType = 2;
+  return el;
+};
+EVGElement.createPath = function() {
+  const el = new EVGElement();
+  el.tagName = "path";
+  el.elementType = 3;
   return el;
 };
 class EVGTextMetrics  {
@@ -1267,7 +1714,7 @@ class EVGText  {
     this.text = content;
   };
   setFontSize (size) {
-    this.element.fontSize = EVGUnit.pixels(size);
+    this.element.fontSize = EVGUnit.px(size);
     this.element.inheritedFontSize = size;
   };
   setFontFamily (family) {
@@ -1320,6 +1767,70 @@ EVGText.create = function(content) {
   t.text = content;
   return t;
 };
+class EVGImageDimensions  {
+  constructor() {
+    this.width = 0;
+    this.height = 0;
+    this.aspectRatio = 1.0;
+    this.isValid = false;
+    this.width = 0;
+    this.height = 0;
+    this.aspectRatio = 1.0;
+    this.isValid = false;
+  }
+}
+EVGImageDimensions.create = function(w, h) {
+  const d = new EVGImageDimensions();
+  d.width = w;
+  d.height = h;
+  if ( h > 0 ) {
+    d.aspectRatio = (w) / (h);
+  }
+  d.isValid = true;
+  return d;
+};
+class EVGImageMeasurer  {
+  constructor() {
+  }
+  getImageDimensions (src) {
+    const dims = new EVGImageDimensions();
+    return dims;
+  };
+  calculateHeightForWidth (src, targetWidth) {
+    const dims = this.getImageDimensions(src);
+    if ( dims.isValid ) {
+      return targetWidth / dims.aspectRatio;
+    }
+    return targetWidth;
+  };
+  calculateWidthForHeight (src, targetHeight) {
+    const dims = this.getImageDimensions(src);
+    if ( dims.isValid ) {
+      return targetHeight * dims.aspectRatio;
+    }
+    return targetHeight;
+  };
+  calculateFitDimensions (src, maxWidth, maxHeight) {
+    const dims = this.getImageDimensions(src);
+    if ( dims.isValid == false ) {
+      return EVGImageDimensions.create((Math.floor( maxWidth)), (Math.floor( maxHeight)));
+    }
+    const scaleW = maxWidth / (dims.width);
+    const scaleH = maxHeight / (dims.height);
+    let scale = scaleW;
+    if ( scaleH < scaleW ) {
+      scale = scaleH;
+    }
+    const newW = Math.floor( ((dims.width) * scale));
+    const newH = Math.floor( ((dims.height) * scale));
+    return EVGImageDimensions.create(newW, newH);
+  };
+}
+class SimpleImageMeasurer  extends EVGImageMeasurer {
+  constructor() {
+    super()
+  }
+}
 class EVGLayout  {
   constructor() {
     this.pageWidth = 612.0;
@@ -1328,9 +1839,14 @@ class EVGLayout  {
     this.debug = false;
     const m = new SimpleTextMeasurer();
     this.measurer = m;
+    const im = new SimpleImageMeasurer();
+    this.imageMeasurer = im;
   }
   setMeasurer (m) {
     this.measurer = m;
+  };
+  setImageMeasurer (m) {
+    this.imageMeasurer = m;
   };
   setPageSize (w, h) {
     this.pageWidth = w;
@@ -1348,11 +1864,13 @@ class EVGLayout  {
     this.log("EVGLayout: Starting layout");
     this.currentPage = 0;
     if ( root.width.isSet == false ) {
-      root.width = EVGUnit.pixels(this.pageWidth);
+      root.width = EVGUnit.px(this.pageWidth);
     }
     if ( root.height.isSet == false ) {
-      root.height = EVGUnit.pixels(this.pageHeight);
+      root.height = EVGUnit.px(this.pageHeight);
     }
+    root.calculatedX = 0.0;
+    root.calculatedY = 0.0;
     this.layoutElement(root, 0.0, 0.0, this.pageWidth, this.pageHeight);
     this.log("EVGLayout: Layout complete");
   };
@@ -1364,9 +1882,66 @@ class EVGLayout  {
     }
     let height = 0.0;
     let autoHeight = true;
+    if ( (element.tagName == "Page") || (element.tagName == "page") ) {
+      if ( element.width.isSet == false ) {
+        width = this.pageWidth;
+      }
+      if ( element.height.isSet == false ) {
+        height = this.pageHeight;
+        autoHeight = false;
+      }
+    }
     if ( element.height.isSet ) {
       height = element.height.pixels;
       autoHeight = false;
+    }
+    if ( ((element.tagName == "image") || (element.tagName == "Image")) || (element.tagName == "img") ) {
+      const imgSrc = element.src;
+      if ( (imgSrc.length) > 0 ) {
+        const dims = this.imageMeasurer.getImageDimensions(imgSrc);
+        if ( dims.isValid ) {
+          element.sourceWidth = dims.width;
+          element.sourceHeight = dims.height;
+          if ( element.width.isSet && (element.height.isSet == false) ) {
+            if ( parentHeight > 0.0 ) {
+              height = parentHeight;
+              this.log((("  Image container using parent height: " + ((width.toString()))) + "x") + ((height.toString())));
+            } else {
+              height = width / dims.aspectRatio;
+              this.log((("  Image aspect ratio: " + ((dims.aspectRatio.toString()))) + " -> height=") + ((height.toString())));
+            }
+            autoHeight = false;
+          }
+          if ( (element.width.isSet == false) && element.height.isSet ) {
+            if ( parentWidth > 0.0 ) {
+              width = parentWidth;
+              this.log((("  Image container using parent width: " + ((width.toString()))) + "x") + ((height.toString())));
+            } else {
+              width = height * dims.aspectRatio;
+              this.log((("  Image aspect ratio: " + ((dims.aspectRatio.toString()))) + " -> width=") + ((width.toString())));
+            }
+          }
+          if ( (element.width.isSet == false) && (element.height.isSet == false) ) {
+            if ( (parentWidth > 0.0) && (parentHeight > 0.0) ) {
+              width = parentWidth;
+              height = parentHeight;
+              this.log((("  Image filling parent: " + ((width.toString()))) + "x") + ((height.toString())));
+            } else {
+              width = dims.width;
+              height = dims.height;
+              if ( width > parentWidth ) {
+                if ( parentWidth > 0.0 ) {
+                  const scale = parentWidth / width;
+                  width = parentWidth;
+                  height = height * scale;
+                }
+              }
+              this.log((("  Image natural size: " + ((width.toString()))) + "x") + ((height.toString())));
+            }
+            autoHeight = false;
+          }
+        }
+      }
     }
     if ( element.minWidth.isSet ) {
       if ( width < element.minWidth.pixels ) {
@@ -1380,6 +1955,10 @@ class EVGLayout  {
     }
     element.calculatedWidth = width;
     element.calculatedInnerWidth = element.box.getInnerWidth(width);
+    if ( autoHeight == false ) {
+      element.calculatedHeight = height;
+      element.calculatedInnerHeight = element.box.getInnerHeight(height);
+    }
     if ( element.isAbsolute ) {
       this.layoutAbsolute(element, parentWidth, parentHeight);
     }
@@ -1387,6 +1966,25 @@ class EVGLayout  {
     let contentHeight = 0.0;
     if ( childCount > 0 ) {
       contentHeight = this.layoutChildren(element);
+    } else {
+      const textContent = element.textContent;
+      if ( (textContent.length) > 0 ) {
+        let fontSize = element.inheritedFontSize;
+        if ( element.fontSize.isSet ) {
+          fontSize = element.fontSize.pixels;
+        }
+        if ( fontSize <= 0.0 ) {
+          fontSize = 14.0;
+        }
+        let lineHeightFactor = element.lineHeight;
+        if ( lineHeightFactor <= 0.0 ) {
+          lineHeightFactor = 1.2;
+        }
+        const lineSpacing = fontSize * lineHeightFactor;
+        const availableWidth = (width - element.box.paddingLeftPx) - element.box.paddingRightPx;
+        const lineCount = this.estimateLineCount(textContent, availableWidth, fontSize);
+        contentHeight = lineSpacing * (lineCount);
+      }
     }
     if ( autoHeight ) {
       height = ((contentHeight + element.box.paddingTopPx) + element.box.paddingBottomPx) + (element.box.borderWidthPx * 2.0);
@@ -1414,32 +2012,90 @@ class EVGLayout  {
     }
     const innerWidth = parent.calculatedInnerWidth;
     const innerHeight = parent.calculatedInnerHeight;
-    const startX = ((parent.calculatedX + parent.box.marginLeftPx) + parent.box.borderWidthPx) + parent.box.paddingLeftPx;
-    const startY = ((parent.calculatedY + parent.box.marginTopPx) + parent.box.borderWidthPx) + parent.box.paddingTopPx;
+    const startX = (parent.calculatedX + parent.box.borderWidthPx) + parent.box.paddingLeftPx;
+    const startY = (parent.calculatedY + parent.box.borderWidthPx) + parent.box.paddingTopPx;
     let currentX = startX;
     let currentY = startY;
     let rowHeight = 0.0;
     let rowElements = [];
     let totalHeight = 0.0;
-    const isColumn = parent.direction == "column";
+    const isColumn = parent.flexDirection == "column";
+    if ( isColumn == false ) {
+      let fixedWidth = 0.0;
+      let totalFlex = 0.0;
+      let j = 0;
+      while (j < childCount) {
+        const c = parent.getChild(j);
+        c.resolveUnits(innerWidth, innerHeight);
+        if ( c.width.isSet ) {
+          fixedWidth = ((fixedWidth + c.width.pixels) + c.box.marginLeftPx) + c.box.marginRightPx;
+        } else {
+          if ( c.flex > 0.0 ) {
+            totalFlex = totalFlex + c.flex;
+            fixedWidth = (fixedWidth + c.box.marginLeftPx) + c.box.marginRightPx;
+          } else {
+            fixedWidth = ((fixedWidth + innerWidth) + c.box.marginLeftPx) + c.box.marginRightPx;
+          }
+        }
+        j = j + 1;
+      };
+      let availableForFlex = innerWidth - fixedWidth;
+      if ( availableForFlex < 0.0 ) {
+        availableForFlex = 0.0;
+      }
+      if ( totalFlex > 0.0 ) {
+        j = 0;
+        while (j < childCount) {
+          const c_1 = parent.getChild(j);
+          if ( (c_1.width.isSet == false) && (c_1.flex > 0.0) ) {
+            const flexWidth = (availableForFlex * c_1.flex) / totalFlex;
+            c_1.calculatedFlexWidth = flexWidth;
+          }
+          j = j + 1;
+        };
+      }
+    }
     let i = 0;
     while (i < childCount) {
       const child = parent.getChild(i);
       child.inheritProperties(parent);
       child.resolveUnits(innerWidth, innerHeight);
       if ( child.isAbsolute ) {
-        this.layoutAbsolute(child, innerWidth, innerHeight);
-        child.calculatedX = child.calculatedX + startX;
-        child.calculatedY = child.calculatedY + startY;
+        if ( (child.tagName == "layer") || (child.tagName == "Layer") ) {
+          child.unitsResolved = false;
+          child.resolveUnits(parent.calculatedWidth, parent.calculatedHeight);
+          child.calculatedWidth = parent.calculatedWidth;
+          child.calculatedHeight = parent.calculatedHeight;
+          child.calculatedInnerWidth = child.box.getInnerWidth(child.calculatedWidth);
+          child.calculatedInnerHeight = child.box.getInnerHeight(child.calculatedHeight);
+          child.height.isSet = true;
+          child.height.pixels = child.calculatedHeight;
+          this.layoutAbsolute(child, parent.calculatedWidth, parent.calculatedHeight);
+          child.calculatedX = child.calculatedX + parent.calculatedX;
+          child.calculatedY = child.calculatedY + parent.calculatedY;
+        } else {
+          this.layoutAbsolute(child, innerWidth, innerHeight);
+          child.calculatedX = child.calculatedX + startX;
+          child.calculatedY = child.calculatedY + startY;
+        }
         if ( child.getChildCount() > 0 ) {
           this.layoutChildren(child);
         }
         i = i + 1;
         continue;
       }
-      let childWidth = innerWidth;
+      const availableForChild = (innerWidth - child.box.marginLeftPx) - child.box.marginRightPx;
+      let childWidth = availableForChild;
       if ( child.width.isSet ) {
-        childWidth = child.width.pixels;
+        if ( child.width.pixels >= innerWidth ) {
+          childWidth = availableForChild;
+        } else {
+          childWidth = child.width.pixels;
+        }
+      } else {
+        if ( child.calculatedFlexWidth > 0.0 ) {
+          childWidth = child.calculatedFlexWidth;
+        }
       }
       const childTotalWidth = (childWidth + child.box.marginLeftPx) + child.box.marginRightPx;
       if ( isColumn == false ) {
@@ -1484,7 +2140,58 @@ class EVGLayout  {
       this.alignRow(rowElements, parent, rowHeight, startX, innerWidth);
       totalHeight = totalHeight + rowHeight;
     }
+    if ( isColumn ) {
+      this.alignColumn(parent, totalHeight, startX, startY, innerWidth, innerHeight);
+    }
     return totalHeight;
+  };
+  alignColumn (parent, contentHeight, startX, startY, innerWidth, innerHeight) {
+    const childCount = parent.getChildCount();
+    if ( childCount == 0 ) {
+      return;
+    }
+    const verticalAlign = parent.justifyContent;
+    let horizontalAlign = parent.alignItems;
+    if ( (parent.align.length) > 0 ) {
+      horizontalAlign = parent.align;
+    }
+    let availableHeight = innerHeight;
+    if ( parent.height.isSet ) {
+      availableHeight = parent.calculatedInnerHeight;
+    }
+    let offsetY = 0.0;
+    if ( verticalAlign == "center" ) {
+      offsetY = (availableHeight - contentHeight) / 2.0;
+    }
+    if ( (verticalAlign == "flex-end") || (verticalAlign == "end") ) {
+      offsetY = availableHeight - contentHeight;
+    }
+    if ( verticalAlign == "space-between" ) {
+      offsetY = 0.0;
+    }
+    let i = 0;
+    while (i < childCount) {
+      const child = parent.getChild(i);
+      if ( child.isAbsolute == false ) {
+        if ( offsetY != 0.0 ) {
+          child.calculatedY = child.calculatedY + offsetY;
+          this.propagateOffsetToChildren(child, 0.0, offsetY);
+        }
+        const childTotalWidth = (child.calculatedWidth + child.box.marginLeftPx) + child.box.marginRightPx;
+        let offsetX = 0.0;
+        if ( horizontalAlign == "center" ) {
+          offsetX = (innerWidth - childTotalWidth) / 2.0;
+        }
+        if ( (horizontalAlign == "flex-end") || (horizontalAlign == "end") ) {
+          offsetX = innerWidth - childTotalWidth;
+        }
+        if ( offsetX != 0.0 ) {
+          child.calculatedX = child.calculatedX + offsetX;
+          this.propagateOffsetToChildren(child, offsetX, 0.0);
+        }
+      }
+      i = i + 1;
+    };
   };
   alignRow (rowElements, parent, rowHeight, startX, innerWidth) {
     const elementCount = rowElements.length;
@@ -1498,30 +2205,73 @@ class EVGLayout  {
       rowWidth = ((rowWidth + el.calculatedWidth) + el.box.marginLeftPx) + el.box.marginRightPx;
       i = i + 1;
     };
+    const isColumn = parent.flexDirection == "column";
+    const mainAxisAlign = parent.justifyContent;
+    const crossAxisAlign = parent.alignItems;
+    let horizontalAlign = mainAxisAlign;
+    if ( isColumn ) {
+      horizontalAlign = crossAxisAlign;
+    }
+    if ( (parent.align.length) > 0 ) {
+      horizontalAlign = parent.align;
+    }
     let offsetX = 0.0;
-    if ( parent.align == "center" ) {
+    if ( horizontalAlign == "center" ) {
       offsetX = (innerWidth - rowWidth) / 2.0;
     }
-    if ( parent.align == "right" ) {
+    if ( (horizontalAlign == "flex-end") || (horizontalAlign == "right") ) {
       offsetX = innerWidth - rowWidth;
+    }
+    let verticalAlignVal = crossAxisAlign;
+    if ( isColumn ) {
+      verticalAlignVal = mainAxisAlign;
+    }
+    if ( (parent.verticalAlign.length) > 0 ) {
+      if ( parent.verticalAlign != "top" ) {
+        verticalAlignVal = parent.verticalAlign;
+      }
+    }
+    let effectiveRowHeight = rowHeight;
+    if ( parent.height.isSet ) {
+      const parentInnerHeight = parent.calculatedInnerHeight;
+      if ( parentInnerHeight > rowHeight ) {
+        effectiveRowHeight = parentInnerHeight;
+      }
     }
     i = 0;
     while (i < elementCount) {
       const el_1 = rowElements[i];
       if ( offsetX != 0.0 ) {
         el_1.calculatedX = el_1.calculatedX + offsetX;
+        this.propagateOffsetToChildren(el_1, offsetX, 0.0);
       }
       const childTotalHeight = (el_1.calculatedHeight + el_1.box.marginTopPx) + el_1.box.marginBottomPx;
       let offsetY = 0.0;
-      if ( parent.verticalAlign == "center" ) {
-        offsetY = (rowHeight - childTotalHeight) / 2.0;
+      if ( verticalAlignVal == "center" ) {
+        offsetY = (effectiveRowHeight - childTotalHeight) / 2.0;
       }
-      if ( parent.verticalAlign == "bottom" ) {
-        offsetY = rowHeight - childTotalHeight;
+      if ( (verticalAlignVal == "flex-end") || (verticalAlignVal == "bottom") ) {
+        offsetY = effectiveRowHeight - childTotalHeight;
       }
       if ( offsetY != 0.0 ) {
         el_1.calculatedY = el_1.calculatedY + offsetY;
+        this.propagateOffsetToChildren(el_1, 0.0, offsetY);
       }
+      i = i + 1;
+    };
+  };
+  propagateOffsetToChildren (parent, offsetX, offsetY) {
+    const childCount = parent.getChildCount();
+    let i = 0;
+    while (i < childCount) {
+      const child = parent.getChild(i);
+      if ( offsetX != 0.0 ) {
+        child.calculatedX = child.calculatedX + offsetX;
+      }
+      if ( offsetY != 0.0 ) {
+        child.calculatedY = child.calculatedY + offsetY;
+      }
+      this.propagateOffsetToChildren(child, offsetX, offsetY);
       i = i + 1;
     };
   };
@@ -1576,6 +2326,36 @@ class EVGLayout  {
       this.printLayout(child, indent + 1);
       i = i + 1;
     };
+  };
+  estimateLineCount (text, maxWidth, fontSize) {
+    if ( (text.length) == 0 ) {
+      return 1;
+    }
+    if ( maxWidth <= 0.0 ) {
+      return 1;
+    }
+    const words = text.split(" ");
+    let lineCount = 1;
+    let currentLineWidth = 0.0;
+    const spaceWidth = fontSize * 0.3;
+    let i = 0;
+    while (i < (words.length)) {
+      const word = words[i];
+      const wordWidth = this.measurer.measureTextWidth(word, "Helvetica", fontSize);
+      if ( currentLineWidth == 0.0 ) {
+        currentLineWidth = wordWidth;
+      } else {
+        const testWidth = (currentLineWidth + spaceWidth) + wordWidth;
+        if ( testWidth > maxWidth ) {
+          lineCount = lineCount + 1;
+          currentLineWidth = wordWidth;
+        } else {
+          currentLineWidth = testWidth;
+        }
+      }
+      i = i + 1;
+    };
+    return lineCount;
   };
 }
 class EVGTest  {
@@ -1642,9 +2422,9 @@ class EVGTest  {
   testBox () {
     console.log("--- Box Model Tests ---");
     const box = new EVGBox();
-    box.setMargin(EVGUnit.pixels(10.0));
-    box.setPadding(EVGUnit.pixels(20.0));
-    box.borderWidth = EVGUnit.pixels(2.0);
+    box.setMargin(EVGUnit.px(10.0));
+    box.setPadding(EVGUnit.px(20.0));
+    box.borderWidth = EVGUnit.px(2.0);
     box.resolveUnits(400.0, 300.0, 14.0);
     console.log("  Box: " + (box).toString());
     console.log("  Inner width of 200: " + ((box.getInnerWidth(200.0).toString())));
@@ -1675,23 +2455,23 @@ class EVGTest  {
     console.log("--- Simple Layout Test ---");
     const root = new EVGElement();
     root.id = "root";
-    root.width = EVGUnit.pixels(400.0);
-    root.height = EVGUnit.pixels(300.0);
+    root.width = EVGUnit.px(400.0);
+    root.height = EVGUnit.px(300.0);
     root.backgroundColor = EVGColor.parse("#f0f0f0");
-    root.box.setPadding(EVGUnit.pixels(20.0));
+    root.box.setPadding(EVGUnit.px(20.0));
     const child1 = new EVGElement();
     child1.id = "box1";
-    child1.width = EVGUnit.pixels(100.0);
-    child1.height = EVGUnit.pixels(80.0);
+    child1.width = EVGUnit.px(100.0);
+    child1.height = EVGUnit.px(80.0);
     child1.backgroundColor = EVGColor.parse("#3498db");
-    child1.box.setMargin(EVGUnit.pixels(10.0));
+    child1.box.setMargin(EVGUnit.px(10.0));
     root.addChild(child1);
     const child2 = new EVGElement();
     child2.id = "box2";
-    child2.width = EVGUnit.pixels(100.0);
-    child2.height = EVGUnit.pixels(80.0);
+    child2.width = EVGUnit.px(100.0);
+    child2.height = EVGUnit.px(80.0);
     child2.backgroundColor = EVGColor.parse("#e74c3c");
-    child2.box.setMargin(EVGUnit.pixels(10.0));
+    child2.box.setMargin(EVGUnit.px(10.0));
     root.addChild(child2);
     const layout = new EVGLayout();
     layout.layout(root);
@@ -1703,39 +2483,39 @@ class EVGTest  {
     console.log("--- Nested Layout Test ---");
     const root = new EVGElement();
     root.id = "page";
-    root.width = EVGUnit.pixels(400.0);
-    root.height = EVGUnit.pixels(400.0);
-    root.box.setPadding(EVGUnit.pixels(10.0));
+    root.width = EVGUnit.px(400.0);
+    root.height = EVGUnit.px(400.0);
+    root.box.setPadding(EVGUnit.px(10.0));
     root.direction = "column";
     const header = new EVGElement();
     header.id = "header";
     header.width = EVGUnit.parse("100%");
-    header.height = EVGUnit.pixels(50.0);
+    header.height = EVGUnit.px(50.0);
     header.backgroundColor = EVGColor.parse("#2c3e50");
     root.addChild(header);
     const content = new EVGElement();
     content.id = "content";
     content.width = EVGUnit.parse("100%");
-    content.height = EVGUnit.pixels(250.0);
+    content.height = EVGUnit.px(250.0);
     content.direction = "row";
     root.addChild(content);
     const leftCol = new EVGElement();
     leftCol.id = "sidebar";
-    leftCol.width = EVGUnit.pixels(100.0);
+    leftCol.width = EVGUnit.px(100.0);
     leftCol.height = EVGUnit.parse("100%");
     leftCol.backgroundColor = EVGColor.parse("#34495e");
     content.addChild(leftCol);
     const rightCol = new EVGElement();
     rightCol.id = "main";
-    rightCol.width = EVGUnit.pixels(270.0);
+    rightCol.width = EVGUnit.px(270.0);
     rightCol.height = EVGUnit.parse("100%");
     rightCol.backgroundColor = EVGColor.parse("#ecf0f1");
-    rightCol.box.setPadding(EVGUnit.pixels(10.0));
+    rightCol.box.setPadding(EVGUnit.px(10.0));
     content.addChild(rightCol);
     const footer = new EVGElement();
     footer.id = "footer";
     footer.width = EVGUnit.parse("100%");
-    footer.height = EVGUnit.pixels(40.0);
+    footer.height = EVGUnit.px(40.0);
     footer.backgroundColor = EVGColor.parse("#2c3e50");
     root.addChild(footer);
     const layout = new EVGLayout();
@@ -1748,15 +2528,15 @@ class EVGTest  {
     console.log("--- Alignment Test ---");
     const root = new EVGElement();
     root.id = "centered";
-    root.width = EVGUnit.pixels(400.0);
-    root.height = EVGUnit.pixels(200.0);
+    root.width = EVGUnit.px(400.0);
+    root.height = EVGUnit.px(200.0);
     root.align = "center";
     root.verticalAlign = "center";
-    root.box.setPadding(EVGUnit.pixels(10.0));
+    root.box.setPadding(EVGUnit.px(10.0));
     const box = new EVGElement();
     box.id = "box";
-    box.width = EVGUnit.pixels(100.0);
-    box.height = EVGUnit.pixels(50.0);
+    box.width = EVGUnit.px(100.0);
+    box.height = EVGUnit.px(50.0);
     box.backgroundColor = EVGColor.parse("#9b59b6");
     root.addChild(box);
     const layout = new EVGLayout();
@@ -1765,14 +2545,14 @@ class EVGTest  {
     layout.printLayout(root, 2);
     const root2 = new EVGElement();
     root2.id = "rightAlign";
-    root2.width = EVGUnit.pixels(400.0);
-    root2.height = EVGUnit.pixels(100.0);
+    root2.width = EVGUnit.px(400.0);
+    root2.height = EVGUnit.px(100.0);
     root2.align = "right";
-    root2.box.setPadding(EVGUnit.pixels(10.0));
+    root2.box.setPadding(EVGUnit.px(10.0));
     const box2 = new EVGElement();
     box2.id = "rightBox";
-    box2.width = EVGUnit.pixels(80.0);
-    box2.height = EVGUnit.pixels(40.0);
+    box2.width = EVGUnit.px(80.0);
+    box2.height = EVGUnit.px(40.0);
     root2.addChild(box2);
     const layout2 = new EVGLayout();
     layout2.layout(root2);

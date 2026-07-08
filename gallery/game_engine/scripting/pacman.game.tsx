@@ -6,8 +6,9 @@
 // Run: npm run engine:game-sdl:run:pacman
 
 const TILE = 14;
-const STEP_MS = 110;
-const GHOST_STEP_MS = 110;
+const PACE = 2.0;
+const STEP_MS = 110 * PACE;
+const GHOST_STEP_MS = 110 * PACE;
 const POWER_MS = 6000;
 const SCATTER_MS = 7000;
 const CHASE_MS = 20000;
@@ -16,7 +17,7 @@ const HURT_MS = 1500;
 const MAZE = [
   "###################",
   "#O.......#.......O#",
-  "#.###.##.#.##.###.#",
+  "#.###.##.#.##.#.#.#",
   "#.................#",
   "#.###.#.###.#.###.#",
   "#.....#..S..#.....#",
@@ -905,10 +906,12 @@ function hud(props) {
   const sc = hudScreen(props);
 
   if (sc == "splash") {
-    const splashText = "PAC-MAN\nRANGER DEMO\nARROWS WASD\nSPACE START";
     return (
-      <View flexDirection="column" padding="56px">
-        <Label color="#fff060">{splashText}</Label>
+      <View width="100%" height="100%" flexDirection="column" justifyContent="center" align="center">
+        <Label color="#fff060">PAC-MAN</Label>
+        <Label color="#fff060">RANGER DEMO</Label>
+        <Label color="#fff060">ARROWS WASD</Label>
+        <Label color="#fff060">SPACE START</Label>
       </View>
     );
   }

@@ -1,0 +1,69 @@
+; ==============================================================================
+; hot_reload_runner_demo - AST diff + in-process patch without SDL restart.
+; ==============================================================================
+
+Import "./game_runtime.rgr"
+
+class HotReloadRunnerDemo {
+    fn buildSrc1:string () {
+        def s:string ""
+        s = (s + "function initState() { return { entities: { ball: { x: 10, y: 10 } }, step: 1 }; }\n")
+        s = (s + "function sprites() { return [{ id: \"ball\", kind: \"rect\", w: 4, h: 4, color: \"#fff\" }]; }\n")
+        s = (s + "function update(props) {\n")
+        s = (s + "  const s = props.state;\n")
+        s = (s + "  const ball = s.entities.ball;\n")
+        s = (s + "  return { entities: { ball: { x: ball.x + s.step, y: ball.y } }, step: s.step };\n")
+        s = (s + "}\n")
+        return s
+    }
+
+    fn buildSrc2:string () {
+        def s:string ""
+        s = (s + "function initState() { return { entities: { ball: { x: 10, y: 10 } }, step: 1 }; }\n")
+        s = (s + "function sprites() { return [{ id: \"ball\", kind: \"rect\", w: 4, h: 4, color: \"#fff\" }]; }\n")
+        s = (s + "function update(props) {\n")
+        s = (s + "  const s = props.state;\n")
+        s = (s + "  const ball = s.entities.ball;\n")
+        s = (s + "  return { entities: { ball: { x: ball.x + 5, y: ball.y } }, step: s.step };\n")
+        s = (s + "}\n")
+        return s
+    }
+
+    sfn m@(main):void () {
+        def demo:HotReloadRunnerDemo (new HotReloadRunnerDemo)
+        def runner:GameRunner (new GameRunner)
+        runner.init(160 90)
+        def src1:string (demo.buildSrc1())
+        runner.loadScript(src1)
+        runner.setupScene()
+        def entitiesBefore:int (runner.entityCount())
+
+        def i 0
+        while (i < 10) {
+            runner.frame(16 false false false false false)
+            i = (i + 1)
+        }
+        def bxBefore:int (runner.entityX("ball"))
+
+        def sceneReset:boolean (runner.hotReloadScript((demo.buildSrc2())))
+        def entitiesAfter:int (runner.entityCount())
+
+        def j 0
+        while (j < 10) {
+            runner.frame(16 false false false false false)
+            j = (j + 1)
+        }
+        def bxAfter:int (runner.entityX("ball"))
+
+        print ("entitiesBefore=" + entitiesBefore)
+        print ("entitiesAfter=" + entitiesAfter)
+        if (sceneReset) {
+            print "sceneReset=true"
+        } {
+            print "sceneReset=false"
+        }
+        print ("bxBefore=" + bxBefore)
+        print ("bxAfter=" + bxAfter)
+        print "hot-reload-runner done"
+    }
+}

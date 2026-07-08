@@ -8,37 +8,21 @@
 
 Import "../framebuffer.rgr"
 Import "../../ts_to_ranger/game_script_types.rgr"
-
-; Retained sprite instance (same schema as game_sprite.rgr GameEntity).
-class NativeGameEntity {
-    def id:string ""
-    def kind:string "rect"
-    def x:double 0.0
-    def y:double 0.0
-    def lastX:double -9999.0
-    def lastY:double -9999.0
-    def w:int 8
-    def h:int 8
-    def rad:int 4
-    def cr:int 255
-    def cg:int 255
-    def cb:int 255
-    def p0:int 0
-    def p1:int 0
-    def p2:int 0
-    def visible:boolean true
-}
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "./game_sprite.rgr"
 
 class NativeGameRunner {
     def canvas:SoftCanvas (new SoftCanvas)
     def stateOps:NativeGameStateOps (new NativeGameStateOps)
     def host:GameHost (new GameHost)
-    def entities:[NativeGameEntity]
+    def spriteRenderer:GameSpriteRenderer (new GameSpriteRenderer)
+    def entities:[GameEntity]
     def state:NativeGameState (new NativeGameState)
     def pw:int 0
     def ph:int 0
     def score1:int 0
     def score2:int 0
+    def gameOverFlag:int 0
     def fpsShown:int 0
     def timeMs:int 0
     def currentScreen:string ""
@@ -66,9 +50,9 @@ class NativeGameRunner {
     fn entityX:int (id:string) {
         def i 0
         while (i < (array_length entities)) {
-            def e:NativeGameEntity (itemAt entities i)
+            def e:GameEntity (itemAt entities i)
             if (e.id == id) {
-                return (to_int e.x)
+                return e.x
             }
             i = (i + 1)
         }
@@ -78,9 +62,9 @@ class NativeGameRunner {
     fn entityY:int (id:string) {
         def i 0
         while (i < (array_length entities)) {
-            def e:NativeGameEntity (itemAt entities i)
+            def e:GameEntity (itemAt entities i)
             if (e.id == id) {
-                return (to_int e.y)
+                return e.y
             }
             i = (i + 1)
         }
@@ -95,60 +79,80 @@ class NativeGameRunner {
         fpsShown = fps
     }
 
-    fn applySpriteDef:void (e:NativeGameEntity d:SpriteDefNative) {
-        e.id = d.id
-        e.kind = d.kind
-        e.w = d.w
-        e.h = d.h
-        e.rad = d.rad
-        e.cr = d.r
-        e.cg = d.g
-        e.cb = d.b
-        e.p0 = d.p0
-        e.p1 = d.p1
-        e.p2 = d.p2
+    fn pushDefField:void (keys:[string] values:[EvalValue] key:string val:EvalValue) {
+        push keys key
+        push values val
     }
 
-    fn syncPoseNative:void (e:NativeGameEntity pos:EntityPoseNative) {
-        def nx:double pos.x
-        def ny:double pos.y
-        if (nx != e.lastX) {
-            e.x = nx
-            e.lastX = nx
-        }
-        if (ny != e.lastY) {
-            e.y = ny
-            e.lastY = ny
-        }
-        if (pos.visible >= 0) {
-            e.visible = (pos.visible != 0)
+    fn spriteDefEval:EvalValue (d:SpriteDefNative) {
+        def keys:[string]
+        def values:[EvalValue]
+        this.pushDefField(keys values "id" (EvalValue.string(d.id)))
+        this.pushDefField(keys values "kind" (EvalValue.string(d.kind)))
+        if (d.kind == "bitmap") {
+            this.pushDefField(keys values "px" (EvalValue.fromInt(d.px)))
+            this.pushDefField(keys values "br" (EvalValue.fromInt(d.br)))
+            this.pushDefField(keys values "bg" (EvalValue.fromInt(d.bg)))
+            this.pushDefField(keys values "bb" (EvalValue.fromInt(d.bb)))
+            this.pushDefField(keys values "er" (EvalValue.fromInt(d.er)))
+            this.pushDefField(keys values "eg" (EvalValue.fromInt(d.eg)))
+            this.pushDefField(keys values "eb" (EvalValue.fromInt(d.eb)))
+            def frameItems:[EvalValue]
+            def fi 0
+            while (fi < (array_length d.frames)) {
+                def rows:[string] (itemAt d.frames fi)
+                def rowItems:[EvalValue]
+                def ri 0
+                while (ri < (array_length rows)) {
+                    push rowItems (EvalValue.string((itemAt rows ri)))
+                    ri = (ri + 1)
+                }
+                push frameItems (EvalValue.array(rowItems))
+                fi = (fi + 1)
+            }
+            this.pushDefField(keys values "frames" (EvalValue.array(frameItems)))
         } {
-            e.visible = true
-            if (nx < -24.0) { e.visible = false }
-            if (ny < -24.0) { e.visible = false }
-            if (nx > (to_double (pw + 24))) { e.visible = false }
-            if (ny > (to_double (ph + 24))) { e.visible = false }
+            this.pushDefField(keys values "w" (EvalValue.fromInt(d.w)))
+            this.pushDefField(keys values "h" (EvalValue.fromInt(d.h)))
+            this.pushDefField(keys values "rad" (EvalValue.fromInt(d.rad)))
+            this.pushDefField(keys values "r" (EvalValue.fromInt(d.r)))
+            this.pushDefField(keys values "g" (EvalValue.fromInt(d.g)))
+            this.pushDefField(keys values "b" (EvalValue.fromInt(d.b)))
+            this.pushDefField(keys values "p0" (EvalValue.fromInt(d.p0)))
+            this.pushDefField(keys values "p1" (EvalValue.fromInt(d.p1)))
+            this.pushDefField(keys values "p2" (EvalValue.fromInt(d.p2)))
         }
+        return (EvalValue.object(keys values))
+    }
+
+    fn poseEval:EvalValue (pos:EntityPoseNative) {
+        def keys:[string]
+        def values:[EvalValue]
+        this.pushDefField(keys values "x" (EvalValue.number(pos.x)))
+        this.pushDefField(keys values "y" (EvalValue.number(pos.y)))
+        this.pushDefField(keys values "visible" (EvalValue.fromInt(pos.visible)))
         if (pos.r >= 0) {
-            e.cr = pos.r
-            e.cg = pos.g
-            e.cb = pos.b
+            this.pushDefField(keys values "r" (EvalValue.fromInt(pos.r)))
+            this.pushDefField(keys values "g" (EvalValue.fromInt(pos.g)))
+            this.pushDefField(keys values "b" (EvalValue.fromInt(pos.b)))
         }
         if (pos.rad >= 0) {
-            e.rad = pos.rad
+            this.pushDefField(keys values "rad" (EvalValue.fromInt(pos.rad)))
         }
-        e.p0 = pos.p0
-        e.p1 = pos.p1
-        e.p2 = pos.p2
+        this.pushDefField(keys values "p0" (EvalValue.fromInt(pos.p0)))
+        this.pushDefField(keys values "p1" (EvalValue.fromInt(pos.p1)))
+        this.pushDefField(keys values "p2" (EvalValue.fromInt(pos.p2)))
+        return (EvalValue.object(keys values))
     }
 
     fn syncFromState:void () {
         def i 0
         while (i < (array_length entities)) {
-            def e:NativeGameEntity (itemAt entities i)
+            def e:GameEntity (itemAt entities i)
             def pose@(optional):EntityPoseNative (get state.entities e.id)
             if (!null? pose) {
-                this.syncPoseNative(e (unwrap pose))
+                def posEval:EvalValue (this.poseEval((unwrap pose)))
+                spriteRenderer.syncPose(e posEval pw ph)
             }
             i = (i + 1)
         }
@@ -158,15 +162,33 @@ class NativeGameRunner {
         if (state.score2 >= 0) {
             score2 = state.score2
         }
+        gameOverFlag = (this.readIntArray0("gameOver"))
+    }
+
+    fn readIntArray0:int (key:string) {
+        def ks:[string] (keys state.intArrays)
+        def i 0
+        while (i < (array_length ks)) {
+            if ((itemAt ks i) == key) {
+                def arr:[int] (unwrap (get state.intArrays key))
+                if ((array_length arr) > 0) {
+                    return (itemAt arr 0)
+                }
+                return 0
+            }
+            i = (i + 1)
+        }
+        return 0
     }
 
     fn setupSprites:void (defs:[SpriteDefNative]) {
-        def next:[NativeGameEntity]
+        def next:[GameEntity]
         def i 0
         while (i < (array_length defs)) {
             def d:SpriteDefNative (itemAt defs i)
-            def e:NativeGameEntity (new NativeGameEntity)
-            this.applySpriteDef(e d)
+            def e:GameEntity (new GameEntity)
+            def dEval:EvalValue (this.spriteDefEval(d))
+            spriteRenderer.applyDef(e dEval)
             push next e
             i = (i + 1)
         }
@@ -212,27 +234,6 @@ class NativeGameRunner {
         timeMs = (timeMs + dtMs)
     }
 
-    fn drawEntity:void (e:NativeGameEntity) {
-        if (false == e.visible) {
-            return
-        }
-        def ix:int (to_int e.x)
-        def iy:int (to_int e.y)
-        if (e.kind == "circle") {
-            canvas.fillCircle(ix iy e.rad e.cr e.cg e.cb)
-            return
-        }
-        if (e.kind == "wedge") {
-            canvas.fillWedgeCircle(ix iy e.rad e.p0 e.p1 e.cr e.cg e.cb)
-            return
-        }
-        if (e.kind == "ghost") {
-            canvas.fillGhost(ix iy e.rad e.p0 e.p1 e.cr e.cg e.cb)
-            return
-        }
-        canvas.fillRect((ix - (this.half(e.w))) (iy - (this.half(e.h))) e.w e.h e.cr e.cg e.cb)
-    }
-
     fn draw:void () {
         canvas.clear(12 16 32)
         def showNet 0
@@ -249,10 +250,8 @@ class NativeGameRunner {
         }
         def i 0
         while (i < (array_length entities)) {
-            def e:NativeGameEntity (itemAt entities i)
-            if (e.visible) {
-                this.drawEntity(e)
-            }
+            def e:GameEntity (itemAt entities i)
+            spriteRenderer.drawEntity(e canvas)
             i = (i + 1)
         }
         def netX2 (this.half(pw))
@@ -262,6 +261,12 @@ class NativeGameRunner {
             def fx (this.half(pw))
             def fy (ph - 22)
             this.drawNumber((fx - 14) fy 3 fpsShown 160 170 190)
+        }
+        if (gameOverFlag == 1) {
+            def bx (this.half(pw))
+            def by (this.half(ph))
+            canvas.fillRect((bx - 70) (by - 10) 140 20 180 40 60)
+            this.drawNumber((bx - 62) (by - 6) 2 score1 255 240 60)
         }
     }
 

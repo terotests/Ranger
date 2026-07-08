@@ -41,6 +41,8 @@ class TSEmitter {
     def interfaceNames:[string]
     ; State fields that hold script-owned arrays -> stored in state.intArrays.
     def stateArrayFieldType:[string:string]
+    ; initState body `const foo = makeFoo()` names -> array type (prescan only).
+    def initStateLocalTypes:[string:string]
     def tmpCounter:int 0
     ; Synthesized struct interface names (fnName + "Ret") already registered.
     def synthStructDone:[string:boolean]
@@ -221,6 +223,8 @@ class TSEmitter {
         interfaceNames = ifn
         def saf:[string:string]
         stateArrayFieldType = saf
+        def isl:[string:string]
+        initStateLocalTypes = isl
         def ssd:[string:boolean]
         synthStructDone = ssd
         tmpCounter = 0
@@ -419,6 +423,10 @@ class TSEmitter {
             if ((strlen vt) > 0) {
                 return vt
             }
+            def ist@(optional):string (get initStateLocalTypes node.name)
+            if (!null? ist) {
+                return (unwrap ist)
+            }
             def ca@(optional):boolean (get constArrayNames node.name)
             if (!null? ca) {
                 def et@(optional):string (get constArrayElemType node.name)
@@ -529,6 +537,45 @@ class TSEmitter {
         return "int"
     }
 
+    fn rhsValueType:string (node:TSNode) {
+        if (node.nodeType == "BinaryExpression") {
+            return (this.numericCommon(node))
+        }
+        return (this.exprType(node))
+    }
+
+    fn coerceToType:string (expr:string node:TSNode target:string) {
+        if (target == "int") {
+            def rt:string (this.rhsValueType(node))
+            if (rt == "double") {
+                if ((strlen expr) >= 7) {
+                    if ((substring expr 0 7) == "(to_int") {
+                        return expr
+                    }
+                }
+                return ("(to_int " + expr) + ")"
+            }
+        }
+        if (target == "double") {
+            def rt2:string (this.rhsValueType(node))
+            if (rt2 == "int") {
+                if (node.nodeType == "NumericLiteral") {
+                    return expr
+                }
+                if (node.nodeType == "Identifier") {
+                    return expr
+                }
+                if ((strlen expr) >= 10) {
+                    if ((substring expr 0 10) == "(to_double") {
+                        return expr
+                    }
+                }
+                return ("(to_double " + expr) + ")"
+            }
+        }
+        return expr
+    }
+
     ; ==========================================================================
     ; Program / functions
     ; ==========================================================================
@@ -606,16 +653,32 @@ class TSEmitter {
             }
             j = (j + 1)
         }
+        ; Third pass: refine helper param types from call sites (struct + array args).
+        def k 0
+        while (k < (array_length ast.children)) {
+            def node2:TSNode (itemAt ast.children k)
+            if (node2.nodeType == "FunctionDeclaration") {
+                if ((this.isSpecialFn(node2.name)) == false) {
+                    this.inferParamTypesFromProgram(node2.name ast)
+                }
+            }
+            k = (k + 1)
+        }
     }
 
     fn scanStateArrays:void (node:TSNode) {
         if (null? node.body) {
             return
         }
+        def empty:[string:string]
+        initStateLocalTypes = empty
         def body:TSNode (unwrap node.body)
         def i 0
         while (i < (array_length body.children)) {
             def stmt:TSNode (itemAt body.children i)
+            if (stmt.nodeType == "VariableDeclaration") {
+                this.scanInitStateLocalVar(stmt)
+            }
             if (stmt.nodeType == "ReturnStatement") {
                 if (stmt.left) {
                     def val:TSNode (unwrap stmt.left)
@@ -628,6 +691,31 @@ class TSEmitter {
         }
     }
 
+    fn scanInitStateLocalVar:void (stmt:TSNode) {
+        def j 0
+        while (j < (array_length stmt.children)) {
+            def decl:TSNode (itemAt stmt.children j)
+            if (decl.nodeType == "VariableDeclarator") {
+                if (decl.init) {
+                    def vt:string (this.exprType((unwrap decl.init)))
+                    set initStateLocalTypes decl.name vt
+                }
+            }
+            j = (j + 1)
+        }
+    }
+
+    fn stateArrayTypeFromValueNode:string (valNode:TSNode) {
+        def vt:string (this.exprType(valNode))
+        if (valNode.nodeType == "Identifier") {
+            def lt@(optional):string (get initStateLocalTypes valNode.name)
+            if (!null? lt) {
+                vt = (unwrap lt)
+            }
+        }
+        return vt
+    }
+
     fn scanStateArrayProps:void (obj:TSNode) {
         def i 0
         while (i < (array_length obj.children)) {
@@ -637,7 +725,7 @@ class TSEmitter {
                 if ((this.isNativeStateField(key)) == false) {
                     if (key != "entities") {
                         def valNode:TSNode (this.propertyValueNode(prop))
-                        def vt:string (this.exprType(valNode))
+                        def vt:string (this.stateArrayTypeFromValueNode(valNode))
                         def first:string ""
                         if ((strlen vt) > 0) {
                             first = (substring vt 0 1)
@@ -788,13 +876,82 @@ class TSEmitter {
         set fnParamTypesCsv node.name (this.joinCsv(newTypes))
     }
 
+    fn inferParamTypesFromProgram:void (fnName:string ast:TSNode) {
+        this.inferParamTypesFromCallsWalk(fnName ast)
+    }
+
+    fn inferParamTypesFromCallsWalk:void (fnName:string node:TSNode) {
+        if (node.nodeType == "CallExpression") {
+            if (node.left) {
+                def callee:TSNode (unwrap node.left)
+                if (callee.nodeType == "Identifier") {
+                    if (callee.name == fnName) {
+                        this.mergeCallArgTypes(fnName node)
+                    }
+                }
+            }
+        }
+        def i 0
+        while (i < (array_length node.children)) {
+            this.inferParamTypesFromCallsWalk(fnName (itemAt node.children i))
+            i = (i + 1)
+        }
+        if (node.left) {
+            this.inferParamTypesFromCallsWalk(fnName (unwrap node.left))
+        }
+        if (node.right) {
+            this.inferParamTypesFromCallsWalk(fnName (unwrap node.right))
+        }
+        if (node.body) {
+            this.inferParamTypesFromCallsWalk(fnName (unwrap node.body))
+        }
+    }
+
+    fn mergeCallArgTypes:void (fnName:string call:TSNode) {
+        def csv@(optional):string (get fnParamTypesCsv fnName)
+        if (null? csv) {
+            return
+        }
+        def types:[string] (this.splitCsv((unwrap csv)))
+        def newTypes:[string]
+        def i 0
+        while (i < (array_length types)) {
+            def pt:string (itemAt types i)
+            if (i < (array_length call.children)) {
+                def arg:TSNode (itemAt call.children i)
+                def at:string (this.exprType(arg))
+                if (this.isPositiveType(at)) {
+                    pt = at
+                }
+            }
+            push newTypes pt
+            i = (i + 1)
+        }
+        set fnParamTypesCsv fnName (this.joinCsv(newTypes))
+    }
+
     fn inferParamTypeFromBody:string (param:string body:TSNode) {
         if (param == "entities") {
             return "[string:EntityPoseNative]"
         }
+        if (param == "props") {
+            return "UpdatePropsNative"
+        }
         if (param == "alive") {
             return "[int]"
         }
+        if (param == "dotCol") { return "[int]" }
+        if (param == "dotRow") { return "[int]" }
+        if (param == "dotAlive") { return "[int]" }
+        if (param == "powerCol") { return "[int]" }
+        if (param == "powerRow") { return "[int]" }
+        if (param == "powerAlive") { return "[int]" }
+        if (param == "ghostCol") { return "[int]" }
+        if (param == "ghostRow") { return "[int]" }
+        if (param == "ghostDir") { return "[int]" }
+        if (param == "ghostFrac") { return "[int]" }
+        if (param == "ghostEyes") { return "[int]" }
+        if (param == "a") { return "[int]" }
         def fromUse:string (this.inferParamTypeWalk(param body))
         if ((strlen fromUse) > 0) {
             return fromUse
@@ -809,10 +966,15 @@ class TSEmitter {
                 def base:TSNode (unwrap node.left)
                 if (base.nodeType == "Identifier") {
                     if (base.name == param) {
+                        if (node.computed) {
+                            return "[int]"
+                        }
                         if (node.name == "length") {
                             return "[int]"
                         }
-                        return "[string:EntityPoseNative]"
+                        if (param == "entities") {
+                            return "[string:EntityPoseNative]"
+                        }
                     }
                 }
             }
@@ -1335,6 +1497,13 @@ class TSEmitter {
         if (inUpdateFn) {
             retType = "NativeGameState"
         }
+        if (currentFn == "hud") {
+            this.emitLine(("    fn hud:void (props:UpdatePropsNative) {"))
+            this.emitLine("        ; omitted on native path (score drawn by NativeGameRunner)")
+            this.emitLine("    }")
+            this.emitLine("")
+            return
+        }
         if (isHelper) {
             retType = (this.helperReturnType(currentFn))
         }
@@ -1665,6 +1834,7 @@ class TSEmitter {
         def lhs:string (this.emitAssignTarget(targetNode))
         def expected:string (this.assignTargetType(targetNode))
         def rhs:string (this.emitExpr(rhsNode expected))
+        rhs = (this.coerceToType(rhs rhsNode expected))
         this.emitLine((lhs + " = ") + rhs)
     }
 
@@ -1708,6 +1878,7 @@ class TSEmitter {
                 }
             }
             def valExpr:string (this.emitRhsValue(rhs et))
+            valExpr = (this.coerceToType(valExpr rhs et))
             this.emitLine((((("set " + base) + " ") + idx) + " ") + valExpr)
             return
         }
@@ -1717,6 +1888,29 @@ class TSEmitter {
             ft = (this.fieldType(target.name))
         }
         def v:string (this.emitExpr(rhs ft))
+        if (ft == "double") {
+            def rt:string (this.exprType(rhs))
+            if (rt == "int") {
+                if (rhs.nodeType != "NumericLiteral") {
+                    if (rhs.nodeType != "Identifier") {
+                        def skip:boolean false
+                        if ((strlen v) >= 4) {
+                            if ((substring v 0 4) == "(0.0") {
+                                skip = true
+                            }
+                        }
+                        if ((strlen v) >= 10) {
+                            if ((substring v 0 10) == "(to_double") {
+                                skip = true
+                            }
+                        }
+                        if (skip == false) {
+                            v = ("(to_double " + v) + ")"
+                        }
+                    }
+                }
+            }
+        }
         this.emitLine(((base + ".") + target.name) + (" = " + v))
     }
 
@@ -1872,6 +2066,29 @@ class TSEmitter {
                 }
                 def valNode:TSNode (this.propertyValueNode(prop))
                 def v:string (this.emitValueExpr(valNode ft))
+                if (ft == "double") {
+                    def rt:string (this.exprType(valNode))
+                    if (rt == "int") {
+                        if (valNode.nodeType != "NumericLiteral") {
+                            if (valNode.nodeType != "Identifier") {
+                                def skip:boolean false
+                                if ((strlen v) >= 4) {
+                                    if ((substring v 0 4) == "(0.0") {
+                                        skip = true
+                                    }
+                                }
+                                if ((strlen v) >= 10) {
+                                    if ((substring v 0 10) == "(to_double") {
+                                        skip = true
+                                    }
+                                }
+                                if (skip == false) {
+                                    v = ("(to_double " + v) + ")"
+                                }
+                            }
+                        }
+                    }
+                }
                 this.emitLine((varName + ".") + (key + (" = " + v)))
             }
             i = (i + 1)
@@ -2025,6 +2242,27 @@ class TSEmitter {
             target = "patch"
         }
         if (node.nodeType != "ObjectExpression") {
+            if (node.nodeType == "CallExpression") {
+                if (node.left) {
+                    def callee:TSNode (unwrap node.left)
+                    if (callee.nodeType == "Identifier") {
+                        if (callee.name == "initState") {
+                            def callExpr:string (this.emitCall(node))
+                            this.emitLine(("return " + callExpr))
+                            return
+                        }
+                        if (this.isKnownHelper(callee.name)) {
+                            def callExpr:string (this.emitCall(node))
+                            this.emitLine(("return " + callExpr))
+                            return
+                        }
+                    }
+                }
+            }
+            if (node.nodeType == "Identifier") {
+                this.emitLine(("return " + node.name))
+                return
+            }
             this.emitLine(("def " + target) + ":NativeGameState (new NativeGameState)")
             this.emitLine(("return " + target))
             return
@@ -2279,6 +2517,26 @@ class TSEmitter {
             def inner:string (("this." + name) + "(") + ((this.joinSpace(args)) + ")")
             return (("(" + inner) + ")")
         }
+        if (callee.nodeType == "MemberExpression") {
+            if (callee.name == "substring") {
+                if (callee.left) {
+                    def recv:TSNode (unwrap callee.left)
+                    def recvT:string (this.exprType(recv))
+                    def recvExpr:string (this.emitExpr(recv recvT))
+                    def a0:string "0"
+                    def a1:string "0"
+                    if ((array_length node.children) > 0) {
+                        def n0:TSNode (itemAt node.children 0)
+                        a0 = (this.emitExpr(n0 "int"))
+                    }
+                    if ((array_length node.children) > 1) {
+                        def n1:TSNode (itemAt node.children 1)
+                        a1 = (this.emitExpr(n1 "int"))
+                    }
+                    return (((("(substring " + recvExpr) + " ") + a0) + " ") + a1)
+                }
+            }
+        }
         ; member call like x.toFixed / a.push handled elsewhere; fallback
         return "0"
     }
@@ -2303,13 +2561,21 @@ class TSEmitter {
         if (node.computed) {
             if (node.right) {
                 def idxNode:TSNode (unwrap node.right)
+                def baseType:string (this.exprType(leftNode))
                 def base:string (this.emitExpr(leftNode "int"))
                 def idxT:string (this.exprType(idxNode))
                 def idx:string (this.emitExpr(idxNode idxT))
                 if (idxT == "double") {
                     idx = (("(to_int " + idx) + ")")
                 }
-                return (((("(itemAt " + base) + " ") + idx) + ")")
+                def elemT:string (this.elemTypeOf(baseType))
+                def access:string (((("(itemAt " + base) + " ") + idx) + ")")
+                if (expected == "double") {
+                    if (elemT == "int") {
+                        return ("(to_double " + access) + ")"
+                    }
+                }
+                return access
             }
         }
         ; .length -> (array_length base)

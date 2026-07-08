@@ -341,29 +341,21 @@ function hud(props) {
   const sc = s.screen;
   if (sc == "gameOver") {
     const go = s.screens.gameOver;
-    let title = "GAME OVER";
+    let title = "PELI OHI!!";
     if (go.won == 1) {
       title = "YOU WIN";
     }
     return (
-      <View flexDirection="column" padding="20px">
-        <Label color="#8fd3ff">{title}</Label>
-        <Label color="#ffffff">SCORE</Label>
-        <Label color="#8fd3ff">{go.score}</Label>
-        <Label color="#ff8899">SPACE TO PLAY AGAIN</Label>
+      <View flexDirection="row" padding="20px">
+        <Label color="#8fd3ff">{title} HOT RELOAD {go.score}</Label>
       </View>
     );
   }
   const play = s.screens.play;
   return (
-    <View flexDirection="row" padding="6px">
-      <Label color="#8fd3ff">BREAKOUT</Label>
-      <Label flex="1" />
-      <Label color="#ffffff">SCORE</Label>
-      <Label color="#8fd3ff">{play.score}</Label>
-      <Label flex="1" />
-      <Label color="#ff8899">LIVES</Label>
-      <Label color="#ff8899">{play.lives}</Label>
+    <View flexDirection="column" padding="6px">
+      <Label color="#ffffff" padding="2px">SCORE {play.score}</Label>
+      <Label color="#ff8899" padding="2px">LIVES {play.lives}</Label>
     </View>
   );
 }

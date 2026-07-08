@@ -2,51 +2,14 @@
 ; pong_native_runner - headless parity demo: native Pong vs TS-interpreter path.
 ; ==============================================================================
 ;
-; The game logic is the STATICALLY COMPILED output of the emitter (read from
-; pong.game.tsx at emitter runtime). Regenerate with:
-;   npm run ts2ranger:emit -- gallery/game_engine/scripting/pong.game.tsx
+; For SDL window: npm run engine:game-sdl-native:run:pong
 ; ==============================================================================
 
-Import "./game_native_runtime.rgr"
-Import "../../ts_to_ranger/generated/pong_generated.rgr"
-
-class PongNativeRunner {
-    def runner:NativeGameRunner (new NativeGameRunner)
-    def script:GeneratedGameScript (new GeneratedGameScript)
-
-    fn setupScene:void () {
-        def init:NativeGameState (script.initState())
-        def defs:[SpriteDefNative] (script.sprites())
-        runner.setupScene(init defs)
-    }
-
-    fn frame:void (dtMs:int up:boolean down:boolean left:boolean right:boolean action:boolean) {
-        runner.advanceTime(dtMs)
-        def props:UpdatePropsNative (runner.buildProps(dtMs up down left right action))
-        def patch:NativeGameState (script.update(props))
-        runner.applyUpdate(patch)
-    }
-
-    fn draw:void () {
-        runner.draw()
-    }
-
-    fn entityX:int (id:string) {
-        return (runner.entityX(id))
-    }
-
-    fn entityY:int (id:string) {
-        return (runner.entityY(id))
-    }
-
-    fn raw:buffer () {
-        return (runner.raw())
-    }
-}
+Import "./pong_native_game.rgr"
 
 class PongNativeRunnerDemo {
     sfn m@(main):void () {
-        def demo:PongNativeRunner (new PongNativeRunner)
+        def demo:PongNativeGame (new PongNativeGame)
         demo.runner.init(480 270)
         demo.setupScene()
 

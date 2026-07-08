@@ -1,0 +1,23 @@
+; ==============================================================================
+; pong_native_game - static-compiled Pong logic (emitter output).
+; ==============================================================================
+
+Import "./native_game_bridge.rgr"
+Import "../../ts_to_ranger/generated/pong_generated.rgr"
+
+class PongNativeGame extends NativeGameBridge {
+    def script:GeneratedGameScript (new GeneratedGameScript)
+
+    fn setupScene:void () {
+        def init:NativeGameState (script.initState())
+        def defs:[SpriteDefNative] (script.sprites())
+        runner.setupScene(init defs)
+    }
+
+    fn frame:void (dtMs:int up:boolean down:boolean left:boolean right:boolean action:boolean) {
+        runner.advanceTime(dtMs)
+        def props:UpdatePropsNative (runner.buildProps(dtMs up down left right action))
+        def patch:NativeGameState (script.update(props))
+        runner.applyUpdate(patch)
+    }
+}

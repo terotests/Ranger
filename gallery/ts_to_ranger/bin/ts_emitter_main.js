@@ -4452,6 +4452,7 @@ class TSEmitter  {
     this.interfaceFieldsCsv = {};
     this.interfaceNames = [];
     this.stateArrayFieldType = {};
+    this.initStateLocalTypes = {};
     this.tmpCounter = 0;
     this.synthStructDone = {};
     this.currentEmitBlock = new TSNode();
@@ -4634,6 +4635,8 @@ class TSEmitter  {
     this.interfaceNames = ifn;
     let saf = {};
     this.stateArrayFieldType = saf;
+    let isl = {};
+    this.initStateLocalTypes = isl;
     let ssd = {};
     this.synthStructDone = ssd;
     this.tmpCounter = 0;
@@ -4851,6 +4854,10 @@ class TSEmitter  {
       if ( (vt.length) > 0 ) {
         return vt;
       }
+      const ist = ( this.initStateLocalTypes.hasOwnProperty(node.name) ? this.initStateLocalTypes[node.name] : undefined );
+      if ( (typeof(ist) !== "undefined" && ist != null )  ) {
+        return ist;
+      }
       const ca = ( this.constArrayNames.hasOwnProperty(node.name) ? this.constArrayNames[node.name] : undefined );
       if ( (typeof(ca) !== "undefined" && ca != null )  ) {
         const et = ( this.constArrayElemType.hasOwnProperty(node.name) ? this.constArrayElemType[node.name] : undefined );
@@ -4956,6 +4963,43 @@ class TSEmitter  {
     }
     return "int";
   };
+  rhsValueType (node) {
+    if ( node.nodeType == "BinaryExpression" ) {
+      return this.numericCommon(node);
+    }
+    return this.exprType(node);
+  };
+  coerceToType (expr, node, target) {
+    if ( target == "int" ) {
+      const rt = this.rhsValueType(node);
+      if ( rt == "double" ) {
+        if ( (expr.length) >= 7 ) {
+          if ( (expr.substring(0, 7 )) == "(to_int" ) {
+            return expr;
+          }
+        }
+        return ("(to_int " + expr) + ")";
+      }
+    }
+    if ( target == "double" ) {
+      const rt2 = this.rhsValueType(node);
+      if ( rt2 == "int" ) {
+        if ( node.nodeType == "NumericLiteral" ) {
+          return expr;
+        }
+        if ( node.nodeType == "Identifier" ) {
+          return expr;
+        }
+        if ( (expr.length) >= 10 ) {
+          if ( (expr.substring(0, 10 )) == "(to_double" ) {
+            return expr;
+          }
+        }
+        return ("(to_double " + expr) + ")";
+      }
+    }
+    return expr;
+  };
   emitProgram (ast) {
     this.reset();
     this.prescanProgram(ast);
@@ -5027,15 +5071,30 @@ class TSEmitter  {
       }
       j = j + 1;
     };
+    let k = 0;
+    while (k < (ast.children.length)) {
+      const node2 = ast.children[k];
+      if ( node2.nodeType == "FunctionDeclaration" ) {
+        if ( this.isSpecialFn(node2.name) == false ) {
+          this.inferParamTypesFromProgram(node2.name, ast);
+        }
+      }
+      k = k + 1;
+    };
   };
   scanStateArrays (node) {
     if ( typeof(node.body) === "undefined" ) {
       return;
     }
+    let empty = {};
+    this.initStateLocalTypes = empty;
     const body = node.body;
     let i = 0;
     while (i < (body.children.length)) {
       const stmt = body.children[i];
+      if ( stmt.nodeType == "VariableDeclaration" ) {
+        this.scanInitStateLocalVar(stmt);
+      }
       if ( stmt.nodeType == "ReturnStatement" ) {
         if ( typeof(stmt.left) != "undefined" ) {
           const val = stmt.left;
@@ -5047,6 +5106,29 @@ class TSEmitter  {
       i = i + 1;
     };
   };
+  scanInitStateLocalVar (stmt) {
+    let j = 0;
+    while (j < (stmt.children.length)) {
+      const decl = stmt.children[j];
+      if ( decl.nodeType == "VariableDeclarator" ) {
+        if ( typeof(decl.init) != "undefined" ) {
+          const vt = this.exprType((decl.init));
+          this.initStateLocalTypes[decl.name] = vt;
+        }
+      }
+      j = j + 1;
+    };
+  };
+  stateArrayTypeFromValueNode (valNode) {
+    let vt = this.exprType(valNode);
+    if ( valNode.nodeType == "Identifier" ) {
+      const lt = ( this.initStateLocalTypes.hasOwnProperty(valNode.name) ? this.initStateLocalTypes[valNode.name] : undefined );
+      if ( (typeof(lt) !== "undefined" && lt != null )  ) {
+        vt = lt;
+      }
+    }
+    return vt;
+  };
   scanStateArrayProps (obj) {
     let i = 0;
     while (i < (obj.children.length)) {
@@ -5056,7 +5138,7 @@ class TSEmitter  {
         if ( this.isNativeStateField(key) == false ) {
           if ( key != "entities" ) {
             const valNode = this.propertyValueNode(prop);
-            const vt = this.exprType(valNode);
+            const vt = this.stateArrayTypeFromValueNode(valNode);
             let first = "";
             if ( (vt.length) > 0 ) {
               first = vt.substring(0, 1 );
@@ -5202,11 +5284,101 @@ class TSEmitter  {
     };
     this.fnParamTypesCsv[node.name] = this.joinCsv(newTypes);
   };
+  inferParamTypesFromProgram (fnName, ast) {
+    this.inferParamTypesFromCallsWalk(fnName, ast);
+  };
+  inferParamTypesFromCallsWalk (fnName, node) {
+    if ( node.nodeType == "CallExpression" ) {
+      if ( typeof(node.left) != "undefined" ) {
+        const callee = node.left;
+        if ( callee.nodeType == "Identifier" ) {
+          if ( callee.name == fnName ) {
+            this.mergeCallArgTypes(fnName, node);
+          }
+        }
+      }
+    }
+    let i = 0;
+    while (i < (node.children.length)) {
+      this.inferParamTypesFromCallsWalk(fnName, node.children[i]);
+      i = i + 1;
+    };
+    if ( typeof(node.left) != "undefined" ) {
+      this.inferParamTypesFromCallsWalk(fnName, node.left);
+    }
+    if ( typeof(node.right) != "undefined" ) {
+      this.inferParamTypesFromCallsWalk(fnName, node.right);
+    }
+    if ( typeof(node.body) != "undefined" ) {
+      this.inferParamTypesFromCallsWalk(fnName, node.body);
+    }
+  };
+  mergeCallArgTypes (fnName, call) {
+    const csv = ( this.fnParamTypesCsv.hasOwnProperty(fnName) ? this.fnParamTypesCsv[fnName] : undefined );
+    if ( typeof(csv) === "undefined" ) {
+      return;
+    }
+    const types = this.splitCsv((csv));
+    let newTypes = [];
+    let i = 0;
+    while (i < (types.length)) {
+      let pt = types[i];
+      if ( i < (call.children.length) ) {
+        const arg = call.children[i];
+        const at = this.exprType(arg);
+        if ( this.isPositiveType(at) ) {
+          pt = at;
+        }
+      }
+      newTypes.push(pt);
+      i = i + 1;
+    };
+    this.fnParamTypesCsv[fnName] = this.joinCsv(newTypes);
+  };
   inferParamTypeFromBody (param, body) {
     if ( param == "entities" ) {
       return "[string:EntityPoseNative]";
     }
+    if ( param == "props" ) {
+      return "UpdatePropsNative";
+    }
     if ( param == "alive" ) {
+      return "[int]";
+    }
+    if ( param == "dotCol" ) {
+      return "[int]";
+    }
+    if ( param == "dotRow" ) {
+      return "[int]";
+    }
+    if ( param == "dotAlive" ) {
+      return "[int]";
+    }
+    if ( param == "powerCol" ) {
+      return "[int]";
+    }
+    if ( param == "powerRow" ) {
+      return "[int]";
+    }
+    if ( param == "powerAlive" ) {
+      return "[int]";
+    }
+    if ( param == "ghostCol" ) {
+      return "[int]";
+    }
+    if ( param == "ghostRow" ) {
+      return "[int]";
+    }
+    if ( param == "ghostDir" ) {
+      return "[int]";
+    }
+    if ( param == "ghostFrac" ) {
+      return "[int]";
+    }
+    if ( param == "ghostEyes" ) {
+      return "[int]";
+    }
+    if ( param == "a" ) {
       return "[int]";
     }
     const fromUse = this.inferParamTypeWalk(param, body);
@@ -5222,10 +5394,15 @@ class TSEmitter  {
         const base = node.left;
         if ( base.nodeType == "Identifier" ) {
           if ( base.name == param ) {
+            if ( node.computed ) {
+              return "[int]";
+            }
             if ( node.name == "length" ) {
               return "[int]";
             }
-            return "[string:EntityPoseNative]";
+            if ( param == "entities" ) {
+              return "[string:EntityPoseNative]";
+            }
           }
         }
       }
@@ -5749,6 +5926,13 @@ class TSEmitter  {
     if ( this.inUpdateFn ) {
       retType = "NativeGameState";
     }
+    if ( this.currentFn == "hud" ) {
+      this.emitLine("    fn hud:void (props:UpdatePropsNative) {");
+      this.emitLine("        ; omitted on native path (score drawn by NativeGameRunner)");
+      this.emitLine("    }");
+      this.emitLine("");
+      return;
+    }
     if ( isHelper ) {
       retType = this.helperReturnType(this.currentFn);
     }
@@ -6047,7 +6231,8 @@ class TSEmitter  {
     }
     const lhs = this.emitAssignTarget(targetNode);
     const expected = this.assignTargetType(targetNode);
-    const rhs = this.emitExpr(rhsNode, expected);
+    let rhs = this.emitExpr(rhsNode, expected);
+    rhs = this.coerceToType(rhs, rhsNode, expected);
     this.emitLine((lhs + " = ") + rhs);
   };
   emitMemberAssign (target, rhs) {
@@ -6086,7 +6271,8 @@ class TSEmitter  {
           idx = ("(to_int " + idx) + ")";
         }
       }
-      const valExpr_1 = this.emitRhsValue(rhs, et);
+      let valExpr_1 = this.emitRhsValue(rhs, et);
+      valExpr_1 = this.coerceToType(valExpr_1, rhs, et);
       this.emitLine((((("set " + base) + " ") + idx) + " ") + valExpr_1);
       return;
     }
@@ -6094,7 +6280,30 @@ class TSEmitter  {
     if ( (ft.length) == 0 ) {
       ft = this.fieldType(target.name);
     }
-    const v = this.emitExpr(rhs, ft);
+    let v = this.emitExpr(rhs, ft);
+    if ( ft == "double" ) {
+      const rt = this.exprType(rhs);
+      if ( rt == "int" ) {
+        if ( rhs.nodeType != "NumericLiteral" ) {
+          if ( rhs.nodeType != "Identifier" ) {
+            let skip = false;
+            if ( (v.length) >= 4 ) {
+              if ( (v.substring(0, 4 )) == "(0.0" ) {
+                skip = true;
+              }
+            }
+            if ( (v.length) >= 10 ) {
+              if ( (v.substring(0, 10 )) == "(to_double" ) {
+                skip = true;
+              }
+            }
+            if ( skip == false ) {
+              v = ("(to_double " + v) + ")";
+            }
+          }
+        }
+      }
+    }
     this.emitLine(((base + ".") + target.name) + (" = " + v));
   };
   emitRhsValue (node, expected) {
@@ -6234,7 +6443,30 @@ class TSEmitter  {
           ft = this.fieldType(key);
         }
         const valNode = this.propertyValueNode(prop);
-        const v = this.emitValueExpr(valNode, ft);
+        let v = this.emitValueExpr(valNode, ft);
+        if ( ft == "double" ) {
+          const rt = this.exprType(valNode);
+          if ( rt == "int" ) {
+            if ( valNode.nodeType != "NumericLiteral" ) {
+              if ( valNode.nodeType != "Identifier" ) {
+                let skip = false;
+                if ( (v.length) >= 4 ) {
+                  if ( (v.substring(0, 4 )) == "(0.0" ) {
+                    skip = true;
+                  }
+                }
+                if ( (v.length) >= 10 ) {
+                  if ( (v.substring(0, 10 )) == "(to_double" ) {
+                    skip = true;
+                  }
+                }
+                if ( skip == false ) {
+                  v = ("(to_double " + v) + ")";
+                }
+              }
+            }
+          }
+        }
         this.emitLine((varName + ".") + (key + (" = " + v)));
       }
       i = i + 1;
@@ -6376,6 +6608,27 @@ class TSEmitter  {
       target = "patch";
     }
     if ( node.nodeType != "ObjectExpression" ) {
+      if ( node.nodeType == "CallExpression" ) {
+        if ( typeof(node.left) != "undefined" ) {
+          const callee = node.left;
+          if ( callee.nodeType == "Identifier" ) {
+            if ( callee.name == "initState" ) {
+              const callExpr = this.emitCall(node);
+              this.emitLine("return " + callExpr);
+              return;
+            }
+            if ( this.isKnownHelper(callee.name) ) {
+              const callExpr_1 = this.emitCall(node);
+              this.emitLine("return " + callExpr_1);
+              return;
+            }
+          }
+        }
+      }
+      if ( node.nodeType == "Identifier" ) {
+        this.emitLine("return " + node.name);
+        return;
+      }
       this.emitLine(("def " + target) + ":NativeGameState (new NativeGameState)");
       this.emitLine("return " + target);
       return;
@@ -6614,6 +6867,26 @@ class TSEmitter  {
       const inner = (("this." + name) + "(") + (this.joinSpace(args) + ")");
       return ("(" + inner) + ")";
     }
+    if ( callee.nodeType == "MemberExpression" ) {
+      if ( callee.name == "substring" ) {
+        if ( typeof(callee.left) != "undefined" ) {
+          const recv = callee.left;
+          const recvT = this.exprType(recv);
+          const recvExpr = this.emitExpr(recv, recvT);
+          let a0 = "0";
+          let a1 = "0";
+          if ( (node.children.length) > 0 ) {
+            const n0 = node.children[0];
+            a0 = this.emitExpr(n0, "int");
+          }
+          if ( (node.children.length) > 1 ) {
+            const n1 = node.children[1];
+            a1 = this.emitExpr(n1, "int");
+          }
+          return (((("(substring " + recvExpr) + " ") + a0) + " ") + a1;
+        }
+      }
+    }
     return "0";
   };
   emitNumber (raw, expected) {
@@ -6634,13 +6907,21 @@ class TSEmitter  {
     if ( node.computed ) {
       if ( typeof(node.right) != "undefined" ) {
         const idxNode = node.right;
+        const baseType = this.exprType(leftNode);
         const base = this.emitExpr(leftNode, "int");
         const idxT = this.exprType(idxNode);
         let idx = this.emitExpr(idxNode, idxT);
         if ( idxT == "double" ) {
           idx = ("(to_int " + idx) + ")";
         }
-        return ((("(itemAt " + base) + " ") + idx) + ")";
+        const elemT = this.elemTypeOf(baseType);
+        const access = ((("(itemAt " + base) + " ") + idx) + ")";
+        if ( expected == "double" ) {
+          if ( elemT == "int" ) {
+            return ("(to_double " + access) + ")";
+          }
+        }
+        return access;
       }
     }
     if ( node.name == "length" ) {

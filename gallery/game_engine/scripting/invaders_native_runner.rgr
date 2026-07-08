@@ -4,55 +4,20 @@
 ;
 ; Game logic is the STATICALLY COMPILED emitter output from invaders.game.tsx.
 ; Regenerate with:
-;   node gallery/ts_to_ranger/bin/ts_emitter_main.js \
-;     -i gallery/game_engine/scripting/invaders.game.tsx \
-;     -o invaders_generated.rgr
+;   npm run ts2ranger:emit -- gallery/game_engine/scripting/invaders.game.tsx
+;
+; For SDL window use: npm run engine:game-sdl-native:run:invaders
 ; ==============================================================================
 
-Import "./game_native_runtime.rgr"
-Import "../../ts_to_ranger/generated/invaders_generated.rgr"
-
-class InvadersNativeRunner {
-    def runner:NativeGameRunner (new NativeGameRunner)
-    def script:GeneratedGameScript (new GeneratedGameScript)
-
-    fn setupScene:void () {
-        def init:NativeGameState (script.initState())
-        def defs:[SpriteDefNative] (script.sprites())
-        runner.setupScene(init defs)
-    }
-
-    fn frame:void (dtMs:int up:boolean down:boolean left:boolean right:boolean action:boolean) {
-        runner.advanceTime(dtMs)
-        def props:UpdatePropsNative (runner.buildProps(dtMs up down left right action))
-        def patch:NativeGameState (script.update(props))
-        runner.applyUpdate(patch)
-    }
-
-    fn draw:void () {
-        runner.draw()
-    }
-
-    fn entityX:int (id:string) {
-        return (runner.entityX(id))
-    }
-
-    fn entityY:int (id:string) {
-        return (runner.entityY(id))
-    }
-
-    fn entityCount:int () {
-        return (runner.entityCount())
-    }
-
-    fn raw:buffer () {
-        return (runner.raw())
-    }
-}
+Import "./invaders_native_game.rgr"
 
 class InvadersNativeRunnerDemo {
     sfn m@(main):void () {
-        def demo:InvadersNativeRunner (new InvadersNativeRunner)
+        print "invaders-native-runner: headless (no SDL window)"
+        print "For SDL + native compiled logic: npm run engine:game-sdl-native:run:invaders"
+        print "For SDL + TS interpreter: npm run engine:game-sdl:run:invaders"
+        print "Writes gallery/game_engine/scripting/invaders_native_frame.rgba after run"
+        def demo:InvadersNativeGame (new InvadersNativeGame)
         demo.runner.init(480 270)
         demo.setupScene()
 

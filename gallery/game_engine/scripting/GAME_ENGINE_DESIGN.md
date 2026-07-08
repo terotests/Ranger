@@ -189,10 +189,14 @@ Vaiheittainen polku:
 ## Ajaminen
 
 ```bash
-# SDL-ikkuna
-npm run engine:game-sdl:run -- gallery/game_engine/scripting/breakout.game.tsx
+# SDL-ikkuna (hot reload oletuksena päällä — tallenna .game.tsx → AST-patch lennossa)
+npm run engine:game-sdl:run:pacman
+npm run engine:game:watch:invaders   # sama, dev-launcher
 
-# Headless-smoke
+# Eksplisiittinen lippu
+./tmp/game-sdl/game_sdl --hot-reload gallery/game_engine/scripting/breakout.game.tsx
+
+# Headless-smoke (hot reload pois, maxFrames)
 npm run engine:game-sdl:smoke:breakout
 
 # Node-runner (testit)
@@ -200,6 +204,22 @@ node bin/output.js -es6 gallery/game_engine/scripting/breakout_runner_demo.rgr \
   -d=./tests/.output -o=breakout_runner_demo.js -nodecli
 node ./tests/.output/breakout_runner_demo.js 420
 ```
+
+### Hot reload (runtime-optio, TS-interpreter / Path A)
+
+`GameRunner` + `ComponentEngine.patchScript()`:
+
+| Optio | Oletus | Kuvaus |
+|-------|--------|--------|
+| `options.hotReload` | `false` (aseta hostissa) | Pollaa `trackScriptFile()`-polun mtime |
+| `setHotReload(true)` | SDL-interaktiivinen | AST-diff + vaihda muuttuneet funktiot/constit |
+| `--hot-reload` / `--no-hot-reload` | `game_sdl` CLI | Yliajaa oletuksen |
+| `maxFrames` > 0 | hot reload **pois** | CI/smoke ei pollaa tiedostoa |
+
+Scene reset vain kun muuttuu `initState`, `sprites`, `resources` tai top-level `const`.
+Pelkkä `update()` / `hud()` säilyttää pelitilan.
+
+Toteutus: `gallery/ts_parser/ts_ast_patch.rgr`, testi `hot_reload_runner_demo.rgr`.
 
 ---
 

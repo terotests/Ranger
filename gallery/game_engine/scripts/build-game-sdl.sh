@@ -79,5 +79,6 @@ else
   echo "                npm run engine:game-sdl:run:invaders"
   echo "                npm run engine:game-sdl:run:breakout"
   echo "                npm run engine:game-sdl:run:pong"
+  echo "Dev watch:        npm run engine:game:watch:pacman  (in-process hot reload)"
   echo "Headless smoke: npm run engine:game-sdl:smoke:pacman"
 fi
