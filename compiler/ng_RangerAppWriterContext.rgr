@@ -1002,6 +1002,11 @@ class RangerAppWriterContext {
     if( typeName == "Any") {
       return true
     }
+    if ((strlen typeName) > 0) {
+      if ((charAt typeName 0) == (ccode "[")) {
+        return (this.isDefinedCollectionType(typeName))
+      }
+    }
     if (TTypeRegistry.isKnownTypeName(typeName)) {
       return true
     }
@@ -1012,6 +1017,49 @@ class RangerAppWriterContext {
       return true
     }
     return false
+  }
+  ; Validate a nested collection type string such as "[string]",
+  ; "[int]", "[string:int]", "[[string]]" or "[string:[int]]".
+  ; The element/value type is validated recursively so arbitrary
+  ; nesting depth is supported.
+  fn isDefinedCollectionType:boolean (typeName:string) {
+    def n:int (strlen typeName)
+    if (n < 2) {
+      return false
+    }
+    if ((charAt typeName 0) != (ccode "[")) {
+      return false
+    }
+    if ((charAt typeName (n - 1)) != (ccode "]")) {
+      return false
+    }
+    def inner:string (substring typeName 1 (n - 1))
+    def il:int (strlen inner)
+    def depth:int 0
+    def sep:int (0 - 1)
+    def i:int 0
+    while (i < il) {
+      def c:int (charAt inner i)
+      if (c == (ccode "[")) {
+        depth = depth + 1
+      }
+      if (c == (ccode "]")) {
+        depth = depth - 1
+      }
+      if ((c == (ccode ":")) && (depth == 0)) {
+        sep = i
+      }
+      i = i + 1
+    }
+    if (sep >= 0) {
+      def keyt:string (substring inner 0 sep)
+      def valt:string (substring inner (sep + 1) il)
+      if ((this.isPrimitiveType(keyt)) && (this.isDefinedType(valt))) {
+        return true
+      }
+      return false
+    }
+    return (this.isDefinedType(inner))
   }
   fn hadValidType:boolean (node@(weak):CodeNode) {
     if ((node.isPrimitiveType()) || (node.isPrimitive())) {

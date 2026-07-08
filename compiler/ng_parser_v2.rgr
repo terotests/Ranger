@@ -1101,17 +1101,33 @@ class RangerLispParser {
             vt_sp = i
             def hash_sep:int 0
             def had_array_type_ann:boolean false
+            ; track bracket depth so nested collection types parse correctly,
+            ; e.g. [[string]] or [string:[int]]. The outer '[' is already
+            ; consumed above, so we start at depth 1 and stop at its match.
+            def type_depth:int 1
             c = (charAt s i)
-            while ((i < len) && (c > 32) && (c != 93)) {
-              i = 1 + i
+            while ((i < len) && (type_depth > 0)) {
               c = (charAt s i)
-              if (c == ((ccode ":"))) {
+              if (c <= 32) {
+                break
+              }
+              if (c == ((ccode "["))) {
+                type_depth = type_depth + 1
+              }
+              if (c == 93) {
+                type_depth = type_depth - 1
+                if (type_depth == 0) {
+                  break
+                }
+              }
+              if ((c == ((ccode ":"))) && (type_depth == 1)) {
                 hash_sep = i
               }
-              if (c == ((ccode "@"))) {
+              if ((c == ((ccode "@"))) && (type_depth == 1)) {
                 had_array_type_ann = true
                 break
               }
+              i = 1 + i
             }
             vt_ep = i
             if (hash_sep > 0 ) {

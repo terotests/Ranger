@@ -3993,6 +3993,11 @@ class RangerAppWriterContext  {
     if ( typeName == "Any" ) {
       return true;
     }
+    if ( (typeName.length) > 0 ) {
+      if ( (typeName.charCodeAt(0 )) == (91) ) {
+        return this.isDefinedCollectionType(typeName);
+      }
+    }
     if ( TTypeRegistry.isKnownTypeName(typeName) ) {
       return true;
     }
@@ -4003,6 +4008,45 @@ class RangerAppWriterContext  {
       return true;
     }
     return false;
+  };
+  isDefinedCollectionType (typeName) {
+    const n = typeName.length;
+    if ( n < 2 ) {
+      return false;
+    }
+    if ( (typeName.charCodeAt(0 )) != (91) ) {
+      return false;
+    }
+    if ( (typeName.charCodeAt((n - 1) )) != (93) ) {
+      return false;
+    }
+    const inner = typeName.substring(1, (n - 1) );
+    const il = inner.length;
+    let depth = 0;
+    let sep = 0 - 1;
+    let i = 0;
+    while (i < il) {
+      const c = inner.charCodeAt(i );
+      if ( c == (91) ) {
+        depth = depth + 1;
+      }
+      if ( c == (93) ) {
+        depth = depth - 1;
+      }
+      if ( (c == (58)) && (depth == 0) ) {
+        sep = i;
+      }
+      i = i + 1;
+    };
+    if ( sep >= 0 ) {
+      const keyt = inner.substring(0, sep );
+      const valt = inner.substring((sep + 1), il );
+      if ( this.isPrimitiveType(keyt) && this.isDefinedType(valt) ) {
+        return true;
+      }
+      return false;
+    }
+    return this.isDefinedType(inner);
   };
   hadValidType (node) {
     if ( node.isPrimitiveType() || node.isPrimitive() ) {
@@ -6487,17 +6531,30 @@ class RangerLispParser  {
             vt_sp = this.i;
             let hash_sep = 0;
             let had_array_type_ann = false;
+            let type_depth = 1;
             c = s.charCodeAt(this.i );
-            while (((this.i < this.__len) && (c > 32)) && (c != 93)) {
-              this.i = 1 + this.i;
+            while ((this.i < this.__len) && (type_depth > 0)) {
               c = s.charCodeAt(this.i );
-              if ( c == (58) ) {
+              if ( c <= 32 ) {
+                break;
+              }
+              if ( c == (91) ) {
+                type_depth = type_depth + 1;
+              }
+              if ( c == 93 ) {
+                type_depth = type_depth - 1;
+                if ( type_depth == 0 ) {
+                  break;
+                }
+              }
+              if ( (c == (58)) && (type_depth == 1) ) {
                 hash_sep = this.i;
               }
-              if ( c == (64) ) {
+              if ( (c == (64)) && (type_depth == 1) ) {
                 had_array_type_ann = true;
                 break;
               }
+              this.i = 1 + this.i;
             };
             vt_ep = this.i;
             if ( hash_sep > 0 ) {
@@ -6997,7 +7054,11 @@ class RangerArgMatch  {
         if ( this._debug ) {
           console.log("-> trying to add type " + arg.type_name);
         }
-        if ( false == this.add(arg.type_name, callArg.eval_type_name, ctx) ) {
+        let callArgTypeName = callArg.eval_type_name;
+        if ( (callArg.eval_type == 6) || (callArg.eval_type == 7) ) {
+          callArgTypeName = this.nodeTypeString(callArg);
+        }
+        if ( false == this.add(arg.type_name, callArgTypeName, ctx) ) {
           all_matched = false;
           return all_matched;
         }
@@ -7146,7 +7207,11 @@ class RangerArgMatch  {
       }
     }
     if ( (arg.value_type != 7) && (arg.value_type != 6) ) {
-      const eq = this.areEqualTypes(arg.type_name, node.eval_type_name, ctx);
+      let nodeTypeName = node.eval_type_name;
+      if ( (node.eval_type == 6) || (node.eval_type == 7) ) {
+        nodeTypeName = this.nodeTypeString(node);
+      }
+      const eq = this.areEqualTypes(arg.type_name, nodeTypeName, ctx);
       const t_name = arg.type_name;
       switch (t_name ) { 
         case "expression" : 
@@ -7369,8 +7434,13 @@ class RangerArgMatch  {
         node.expression_value = lam.copy();
         return true;
       }
+      const rvName = this.getTypeName(arg.type_name);
+      if ( this.isCollectionTypeString(rvName) ) {
+        this.applyTypeStringToNode(node, rvName);
+        return true;
+      }
       node.eval_type = this.getType(arg.type_name);
-      node.eval_type_name = this.getTypeName(arg.type_name);
+      node.eval_type_name = rvName;
       return true;
     }
     if ( arg.value_type == 6 ) {
@@ -7385,6 +7455,70 @@ class RangerArgMatch  {
       return true;
     }
     return false;
+  };
+  nodeTypeString (node) {
+    if ( node.eval_type == 6 ) {
+      let at = node.eval_array_type;
+      if ( (at.length) == 0 ) {
+        at = node.array_type;
+      }
+      return ("[" + at) + "]";
+    }
+    if ( node.eval_type == 7 ) {
+      let kt = node.eval_key_type;
+      if ( (kt.length) == 0 ) {
+        kt = node.key_type;
+      }
+      let at2 = node.eval_array_type;
+      if ( (at2.length) == 0 ) {
+        at2 = node.array_type;
+      }
+      return ((("[" + kt) + ":") + at2) + "]";
+    }
+    return node.eval_type_name;
+  };
+  isCollectionTypeString (s) {
+    if ( (s.length) < 2 ) {
+      return false;
+    }
+    if ( (s.charCodeAt(0 )) != (91) ) {
+      return false;
+    }
+    return true;
+  };
+  applyTypeStringToNode (node, typeStr) {
+    const n = typeStr.length;
+    if ( (n < 2) || ((typeStr.charCodeAt(0 )) != (91)) ) {
+      node.eval_type = this.getType(typeStr);
+      node.eval_type_name = typeStr;
+      return;
+    }
+    const inner = typeStr.substring(1, (n - 1) );
+    const il = inner.length;
+    let depth = 0;
+    let sep = 0 - 1;
+    let i = 0;
+    while (i < il) {
+      const c = inner.charCodeAt(i );
+      if ( c == (91) ) {
+        depth = depth + 1;
+      }
+      if ( c == (93) ) {
+        depth = depth - 1;
+      }
+      if ( (c == (58)) && (depth == 0) ) {
+        sep = i;
+      }
+      i = i + 1;
+    };
+    if ( sep >= 0 ) {
+      node.eval_type = 7;
+      node.eval_key_type = inner.substring(0, sep );
+      node.eval_array_type = inner.substring((sep + 1), il );
+    } else {
+      node.eval_type = 6;
+      node.eval_array_type = inner;
+    }
   };
 }
 class DictNode  {
@@ -27724,6 +27858,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }
     };
     getObjectTypeString (type_string, ctx) {
+      if ( (type_string.length) >= 2 ) {
+        if ( (type_string.charCodeAt(0 )) == (91) ) {
+          return this.collectionTypeStringToTs(type_string, ctx);
+        }
+      }
       const mapped = TTypeRegistry.targetTypeString("es6", type_string);
       if ( (mapped.length) > 0 ) {
         return mapped;
@@ -27769,6 +27908,33 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         }
       }
       return type_string;
+    };
+    collectionTypeStringToTs (type_string, ctx) {
+      const n = type_string.length;
+      const inner = type_string.substring(1, (n - 1) );
+      const il = inner.length;
+      let depth = 0;
+      let sep = 0 - 1;
+      let i = 0;
+      while (i < il) {
+        const c = inner.charCodeAt(i );
+        if ( c == (91) ) {
+          depth = depth + 1;
+        }
+        if ( c == (93) ) {
+          depth = depth - 1;
+        }
+        if ( (c == (58)) && (depth == 0) ) {
+          sep = i;
+        }
+        i = i + 1;
+      };
+      if ( sep >= 0 ) {
+        const kt = inner.substring(0, sep );
+        const vt = inner.substring((sep + 1), il );
+        return ((("{[key:" + this.getObjectTypeString(kt, ctx)) + "]:") + this.getObjectTypeString(vt, ctx)) + "}";
+      }
+      return ("Array<" + this.getObjectTypeString(inner, ctx)) + ">";
     };
     getTypeString (type_string) {
       switch (type_string ) { 

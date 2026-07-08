@@ -1,0 +1,61 @@
+; Test: Nested collection types
+; Exercises [[string]], [string:[int]] and [[string:int]] declarations
+; together with push / get / set / itemAt / size over the nested values.
+; Expected output contains: "rows=2 first=2 val=a", "bucket total=60 size=3", "nested map x=5", "Done"
+
+class NestedHolder {
+    def rows:[[string]]
+    def buckets:[string:[int]]
+
+    fn addRow:void (row:[string]) {
+        push rows row
+    }
+    fn firstRow:[string] () {
+        return (itemAt rows 0)
+    }
+    fn putBucket:void (key:string values:[int]) {
+        set buckets key values
+    }
+    fn bucket:[int] (key:string) {
+        return (unwrap (get buckets key))
+    }
+}
+
+class Test_NestedCollections {
+    sfn m@(main):void () {
+        def h:NestedHolder (new NestedHolder)
+
+        def row:[string]
+        push row "a"
+        push row "b"
+        h.addRow(row)
+
+        def row2:[string]
+        push row2 "c"
+        h.addRow(row2)
+
+        def first:[string] (h.firstRow())
+        print (((("rows=" + (size h.rows)) + " first=") + (size first)) + (" val=" + (itemAt first 0)))
+
+        def nums:[int]
+        push nums 10
+        push nums 20
+        push nums 30
+        h.putBucket("k" nums)
+        def got:[int] (h.bucket("k"))
+        def total:int 0
+        for got v:int i {
+            total = total + v
+        }
+        print (("bucket total=" + total) + (" size=" + (size got)))
+
+        def rowsOfMaps:[[string:int]]
+        def m0:[string:int]
+        set m0 "x" 5
+        push rowsOfMaps m0
+        def gm:[string:int] (itemAt rowsOfMaps 0)
+        print ("nested map x=" + (unwrap (get gm "x")))
+
+        print "Done"
+    }
+}
