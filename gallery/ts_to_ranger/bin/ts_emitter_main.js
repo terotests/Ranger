@@ -4446,6 +4446,7 @@ class TSEmitter  {
     this.fnParamTypesCsv = {};
     this.isHelperFn = {};
     this.constScalarTypes = {};
+    this.constScalarValues = {};
     this.constArrayNames = {};
     this.constArrayElemType = {};
     this.interfaceFieldsCsv = {};
@@ -4621,6 +4622,8 @@ class TSEmitter  {
     this.isHelperFn = fh;
     let cs = {};
     this.constScalarTypes = cs;
+    let csv = {};
+    this.constScalarValues = csv;
     let ca = {};
     this.constArrayNames = ca;
     let cae = {};
@@ -5506,6 +5509,10 @@ class TSEmitter  {
             this.constArrayElemType[d.name] = this.constArrayElem(d, initNode);
           } else {
             this.constScalarTypes[d.name] = this.exprType(initNode);
+            const folded = this.tryFoldIntExpr(initNode);
+            if ( (folded.length) > 0 ) {
+              this.constScalarValues[d.name] = folded;
+            }
           }
         }
       }
@@ -5535,6 +5542,55 @@ class TSEmitter  {
       }
     }
     return "int";
+  };
+  tryFoldIntExpr (node) {
+    const t = node.nodeType;
+    if ( t == "NumericLiteral" ) {
+      if ( this.containsChar(node.value, 46) ) {
+        return "";
+      }
+      return node.value;
+    }
+    if ( t == "Identifier" ) {
+      const v = ( this.constScalarValues.hasOwnProperty(node.name) ? this.constScalarValues[node.name] : undefined );
+      if ( (typeof(v) !== "undefined" && v != null )  ) {
+        return v;
+      }
+      return "";
+    }
+    if ( t == "BinaryExpression" ) {
+      if ( typeof(node.left) === "undefined" ) {
+        return "";
+      }
+      if ( typeof(node.right) === "undefined" ) {
+        return "";
+      }
+      const lv = this.tryFoldIntExpr((node.left));
+      const rv = this.tryFoldIntExpr((node.right));
+      if ( (lv.length) == 0 ) {
+        return "";
+      }
+      if ( (rv.length) == 0 ) {
+        return "";
+      }
+      const li = this.parseIntStr(lv);
+      const ri = this.parseIntStr(rv);
+      const op = node.value;
+      if ( op == "*" ) {
+        return this.formatIntStr((li * ri));
+      }
+      if ( op == "+" ) {
+        return this.formatIntStr((li + ri));
+      }
+      if ( op == "-" ) {
+        return this.formatIntStr((li - ri));
+      }
+      if ( op == "/" ) {
+        return this.formatIntStr(this.divInt(li, ri));
+      }
+      return "";
+    }
+    return "";
   };
   recordInterface (node) {
     this.interfaceNames.push(node.name);
@@ -5614,7 +5670,13 @@ class TSEmitter  {
               if ( typeof(d.init) != "undefined" ) {
                 const initNode = d.init;
                 const ct = this.exprType(initNode);
-                const rhs = this.emitExpr(initNode, ct);
+                let rhs = "";
+                const fv = ( this.constScalarValues.hasOwnProperty(d.name) ? this.constScalarValues[d.name] : undefined );
+                if ( (typeof(fv) !== "undefined" && fv != null )  ) {
+                  rhs = fv;
+                } else {
+                  rhs = this.emitExpr(initNode, ct);
+                }
                 this.emitLine((("    def " + d.name) + (":" + ct)) + (" " + rhs));
               }
             }
@@ -6709,6 +6771,107 @@ class TSEmitter  {
       i = i + 1;
     };
     return false;
+  };
+  foldDigitChar (d) {
+    if ( d == 0 ) {
+      return "0";
+    }
+    if ( d == 1 ) {
+      return "1";
+    }
+    if ( d == 2 ) {
+      return "2";
+    }
+    if ( d == 3 ) {
+      return "3";
+    }
+    if ( d == 4 ) {
+      return "4";
+    }
+    if ( d == 5 ) {
+      return "5";
+    }
+    if ( d == 6 ) {
+      return "6";
+    }
+    if ( d == 7 ) {
+      return "7";
+    }
+    if ( d == 8 ) {
+      return "8";
+    }
+    return "9";
+  };
+  parseIntStr (s) {
+    let out = 0;
+    let i = 0;
+    let neg = false;
+    if ( (s.length) > 0 ) {
+      const c0 = s.charCodeAt(0 );
+      if ( c0 == 45 ) {
+        neg = true;
+        i = 1;
+      }
+    }
+    while (i < (s.length)) {
+      const ch = s.charCodeAt(i );
+      out = (out * 10) + (ch - 48);
+      i = i + 1;
+    };
+    if ( neg ) {
+      return 0 - out;
+    }
+    return out;
+  };
+  divInt (a, b) {
+    if ( b == 0 ) {
+      return 0;
+    }
+    let count = 0;
+    let rem = a;
+    if ( rem < 0 ) {
+      rem = 0 - rem;
+    }
+    let absB = b;
+    if ( b < 0 ) {
+      absB = 0 - b;
+    }
+    while (rem >= absB) {
+      rem = rem - absB;
+      count = count + 1;
+    };
+    if ( ((a < 0) && (b > 0)) || ((a > 0) && (b < 0)) ) {
+      return 0 - count;
+    }
+    return count;
+  };
+  formatIntStr (n) {
+    if ( n == 0 ) {
+      return "0";
+    }
+    let neg = false;
+    let v = n;
+    if ( n < 0 ) {
+      neg = true;
+      v = 0 - n;
+    }
+    let digits = [];
+    while (v > 0) {
+      const digit = v % 10;
+      digits.push(this.foldDigitChar(digit));
+      v = this.divInt((v - digit), 10);
+    };
+    let out = "";
+    const cnt = digits.length;
+    let i = cnt - 1;
+    while (i >= 0) {
+      out = out + (digits[i]);
+      i = i - 1;
+    };
+    if ( neg ) {
+      return "-" + out;
+    }
+    return out;
   };
 }
 class TSEmitterMain  {

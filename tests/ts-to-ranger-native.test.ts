@@ -72,6 +72,7 @@ describe("TS -> Ranger -> native (compiled game script)", () => {
     expect(src).toContain("def alive:[int]");
     expect(src).toContain("set s.intArrays \"alive\"");
     expect(src).toContain("set alive alien 0");
+    expect(src).toContain("def ALIEN_COUNT:int 15");
 
     const { success, error } = compileRanger(
       invadersRgr,
@@ -79,5 +80,22 @@ describe("TS -> Ranger -> native (compiled game script)", () => {
       path.join(ROOT, "tests/.output")
     );
     expect(success, `Compile failed: ${error}`).toBe(true);
+  });
+
+  it("native Invaders (generated .rgr) runs headless after 600 frames", () => {
+    const { compile, run } = compileAndRun(
+      "gallery/game_engine/scripting/invaders_native_runner.rgr"
+    );
+
+    expect(
+      compile.success,
+      `Compile failed: ${compile.error || compile.output}`
+    ).toBe(true);
+    expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+
+    const out = run?.output || "";
+    expect(out).toContain("entities=17");
+    expect(out).toContain("score=");
+    expect(out).toContain("invaders-native-runner done");
   });
 });

@@ -22,7 +22,7 @@ class resetWaveRetNative {
 class GeneratedGameScript {
     def COLS:int 5
     def ROWS:int 3
-    def ALIEN_COUNT:int (this.COLS * this.ROWS)
+    def ALIEN_COUNT:int 15
 
     fn INVADER_A:[string] () {
         def out:[string]

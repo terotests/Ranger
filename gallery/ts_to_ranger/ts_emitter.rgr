@@ -33,6 +33,7 @@ class TSEmitter {
     def isHelperFn:[string:boolean]
     ; Module-level const registries.
     def constScalarTypes:[string:string]
+    def constScalarValues:[string:string]
     def constArrayNames:[string:boolean]
     def constArrayElemType:[string:string]
     ; Interface/struct registry: name -> csv of "field:type" pairs.
@@ -208,6 +209,8 @@ class TSEmitter {
         isHelperFn = fh
         def cs:[string:string]
         constScalarTypes = cs
+        def csv:[string:string]
+        constScalarValues = csv
         def ca:[string:boolean]
         constArrayNames = ca
         def cae:[string:string]
@@ -1093,6 +1096,10 @@ class TSEmitter {
                         set constArrayElemType d.name (this.constArrayElem(d initNode))
                     } {
                         set constScalarTypes d.name (this.exprType(initNode))
+                        def folded:string (this.tryFoldIntExpr(initNode))
+                        if ((strlen folded) > 0) {
+                            set constScalarValues d.name folded
+                        }
                     }
                 }
             }
@@ -1119,6 +1126,58 @@ class TSEmitter {
             }
         }
         return "int"
+    }
+
+    ; Fold module-level int const expressions (e.g. COLS*ROWS) to a literal
+    ; so field initializers never reference sibling fields (illegal in imports).
+    fn tryFoldIntExpr:string (node:TSNode) {
+        def t:string node.nodeType
+        if (t == "NumericLiteral") {
+            if (this.containsChar(node.value 46)) {
+                return ""
+            }
+            return node.value
+        }
+        if (t == "Identifier") {
+            def v@(optional):string (get constScalarValues node.name)
+            if (!null? v) {
+                return (unwrap v)
+            }
+            return ""
+        }
+        if (t == "BinaryExpression") {
+            if (null? node.left) {
+                return ""
+            }
+            if (null? node.right) {
+                return ""
+            }
+            def lv:string (this.tryFoldIntExpr((unwrap node.left)))
+            def rv:string (this.tryFoldIntExpr((unwrap node.right)))
+            if ((strlen lv) == 0) {
+                return ""
+            }
+            if ((strlen rv) == 0) {
+                return ""
+            }
+            def li:int (this.parseIntStr(lv))
+            def ri:int (this.parseIntStr(rv))
+            def op:string node.value
+            if (op == "*") {
+                return (this.formatIntStr((li * ri)))
+            }
+            if (op == "+") {
+                return (this.formatIntStr((li + ri)))
+            }
+            if (op == "-") {
+                return (this.formatIntStr((li - ri)))
+            }
+            if (op == "/") {
+                return (this.formatIntStr((this.divInt(li ri))))
+            }
+            return ""
+        }
+        return ""
     }
 
     fn recordInterface:void (node:TSNode) {
@@ -1193,7 +1252,13 @@ class TSEmitter {
                             if (d.init) {
                                 def initNode:TSNode (unwrap d.init)
                                 def ct:string (this.exprType(initNode))
-                                def rhs:string (this.emitExpr(initNode ct))
+                                def rhs:string ""
+                                def fv@(optional):string (get constScalarValues d.name)
+                                if (!null? fv) {
+                                    rhs = (unwrap fv)
+                                } {
+                                    rhs = (this.emitExpr(initNode ct))
+                                }
                                 this.emitLine((("    def " + d.name) + (":" + ct)) + ((" " + rhs)))
                             }
                         }
@@ -2374,5 +2439,92 @@ class TSEmitter {
             i = (i + 1)
         }
         return false
+    }
+
+    fn foldDigitChar:string (d:int) {
+        if (d == 0) { return "0" }
+        if (d == 1) { return "1" }
+        if (d == 2) { return "2" }
+        if (d == 3) { return "3" }
+        if (d == 4) { return "4" }
+        if (d == 5) { return "5" }
+        if (d == 6) { return "6" }
+        if (d == 7) { return "7" }
+        if (d == 8) { return "8" }
+        return "9"
+    }
+
+    fn parseIntStr:int (s:string) {
+        def out:int 0
+        def i:int 0
+        def neg:boolean false
+        if ((strlen s) > 0) {
+            def c0:int (charAt s 0)
+            if (c0 == 45) {
+                neg = true
+                i = 1
+            }
+        }
+        while (i < (strlen s)) {
+            def ch:int (charAt s i)
+            out = ((out * 10) + (ch - 48))
+            i = (i + 1)
+        }
+        if (neg) {
+            return (0 - out)
+        }
+        return out
+    }
+
+    fn divInt:int (a:int b:int) {
+        if (b == 0) {
+            return 0
+        }
+        def count:int 0
+        def rem:int a
+        if (rem < 0) {
+            rem = (0 - rem)
+        }
+        def absB:int b
+        if (b < 0) {
+            absB = (0 - b)
+        }
+        while (rem >= absB) {
+            rem = (rem - absB)
+            count = (count + 1)
+        }
+        if (((a < 0) && (b > 0)) || ((a > 0) && (b < 0))) {
+            return (0 - count)
+        }
+        return count
+    }
+
+    fn formatIntStr:string (n:int) {
+        if (n == 0) {
+            return "0"
+        }
+        def neg:boolean false
+        def v:int n
+        if (n < 0) {
+            neg = true
+            v = (0 - n)
+        }
+        def digits:[string]
+        while (v > 0) {
+            def digit (v % 10)
+            push digits (this.foldDigitChar(digit))
+            v = (this.divInt((v - digit) 10))
+        }
+        def out:string ""
+        def cnt (array_length digits)
+        def i:int (cnt - 1)
+        while (i >= 0) {
+            out = (out + (itemAt digits i))
+            i = (i - 1)
+        }
+        if (neg) {
+            return ("-" + out)
+        }
+        return out
     }
 }
