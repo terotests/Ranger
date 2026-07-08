@@ -51,11 +51,16 @@ fi
 
 echo "==> 1/3 Ranger -> C++"
 cd "$ROOT"
-RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr" node "$ROOT/bin/output.js" \
+RANGER_OUT="$(RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr" node "$ROOT/bin/output.js" \
   -l=cpp "$SOURCE" \
   -nodecli \
   -d="tmp/game-sdl" \
-  -o="game_sdl.cpp"
+  -o="game_sdl.cpp" 2>&1)" || true
+echo "$RANGER_OUT" | tail -20
+if echo "$RANGER_OUT" | grep -q '\[FAIL\]'; then
+  echo "error: Ranger compilation failed (see output above)" >&2
+  exit 1
+fi
 
 cp "$ROOT/gallery/invaders/variant.hpp" "$OUT_DIR/variant.hpp"
 

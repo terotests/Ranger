@@ -11,13 +11,22 @@
  */
 
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const BUILD = path.join(ROOT, 'gallery/game_engine/scripts/build-game-sdl.sh');
 const BIN = path.join(ROOT, 'tmp/game-sdl/game_sdl');
+
+/** Ranger sources that compile into the native host — rebuild when newer than the binary. */
+const HOST_SOURCES = [
+  'gallery/game_engine/scripting/game_sdl_runner.rgr',
+  'gallery/game_engine/scripting/game_runtime.rgr',
+  'gallery/game_engine/scripting/game_hud.rgr',
+  'gallery/evg/EVGLayout.rgr',
+  'gallery/evg/EVGElement.rgr',
+];
 
 const GAMES = {
   invaders: 'gallery/game_engine/scripting/invaders.game.tsx',
@@ -41,12 +50,24 @@ function stopChild() {
   child = null;
 }
 
+function hostSourcesStale() {
+  if (!existsSync(BIN)) return true;
+  const binMtime = statSync(BIN).mtimeMs;
+  for (const rel of HOST_SOURCES) {
+    const abs = path.join(ROOT, rel);
+    if (existsSync(abs) && statSync(abs).mtimeMs > binMtime) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function ensureHostBinary(cb) {
-  if (existsSync(BIN)) {
+  if (existsSync(BIN) && !hostSourcesStale()) {
     cb();
     return;
   }
-  console.log('==> [watch] building game_sdl host (first run) ...');
+  console.log('==> [watch] building game_sdl host (missing or stale .rgr sources) ...');
   const build = spawn('bash', [BUILD], { cwd: ROOT, stdio: 'inherit' });
   build.on('exit', (code) => {
     if (code !== 0) {

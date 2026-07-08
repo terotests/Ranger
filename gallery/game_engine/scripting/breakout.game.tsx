@@ -261,15 +261,23 @@ function hud(props: EventProps): JSX.Element {
       title = "YOU WIN";
     }
     return (
-      <View flexDirection="row" padding="20px">
-        <Label color="#8fd3ff">{title} HOT RELOAD {go.score}</Label>
+      <View>
+        <View flexDirection="row" padding="20px" width="100%" align="center">
+          <Label color="#8fd3ff">PISTEET {go.score}</Label>
+        </View>
+        <View flexDirection="row" padding="2px" width="100%" align="center">
+          <View align="center" width="100%"><Label color="#8fd3ff">PAINA SPACE</Label></View>
+        </View>
       </View>
     );
   }
   const play = s.screens.play;
   return (
-    <View flexDirection="column" padding="6px">
-      <Label color="#ffffff" padding="2px">SCORE {play.score}</Label>
+    <View flexDirection="column" padding="6px" align="center" width="100%">
+      <View align="center" width="100%" flexDirection="row">
+        <Label color="#ff22ff" padding="2px" align="center">SCORE</Label>
+        <Label color="#ffffff" padding="2px">{play.score}</Label>
+      </View>
       <Label color="#ff8899" padding="2px">LIVES {play.lives}</Label>
     </View>
   );
