@@ -59,6 +59,10 @@ describe("Game runner - scripted Pong", () => {
     const entities = out.match(/entities=(\d+)/);
     expect(entities, `no entity count in output: ${out}`).toBeTruthy();
     expect(parseInt(entities![1], 10)).toBe(17);
+
+    const audioPlays = out.match(/audioPlays=(\d+)/);
+    expect(audioPlays, `no audioPlays in output: ${out}`).toBeTruthy();
+    expect(parseInt(audioPlays![1], 10)).toBeGreaterThan(0);
   });
 
   it("runs the scripted breakout game with JSX HUD and screen transitions", () => {

@@ -11,6 +11,8 @@
 // Run:
 //   npm run engine:game-sdl:run:invaders
 
+import { soundEvent } from "./game_helpers";
+
 const COLS = 5;
 const ROWS = 3;
 const ALIEN_COUNT = COLS * ROWS;
@@ -245,6 +247,7 @@ function update(props) {
     return s;
   }
 
+  const events = [];
   const dt = props.dt;
   let px = s.px;
   let py = s.py;
@@ -278,6 +281,7 @@ function update(props) {
     if (waveX < 40) { waveDir = 1; waveY = waveY + 8; }
     if (waveY > 190) {
       score2 = score2 - 1;
+      events.push(soundEvent("lose"));
       const reset = resetWave(alive);
       waveX = reset.waveX;
       waveY = reset.waveY;
@@ -317,6 +321,7 @@ function update(props) {
           shotActive = 0;
           shotY = -30;
           score1 = score1 + 10;
+          events.push(soundEvent("brick"));
         }
       }
       alien = alien + 1;
@@ -324,6 +329,7 @@ function update(props) {
   }
 
   if (countAlive(alive) == 0) {
+    events.push(soundEvent("bounce"));
     const reset = resetWave(alive);
     waveX = reset.waveX;
     waveY = reset.waveY;
@@ -362,6 +368,7 @@ function update(props) {
     alive: alive,
     score1: score1,
     score2: score2,
-    gameOver: gameOver
+    gameOver: gameOver,
+    events: events
   };
 }
