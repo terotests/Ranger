@@ -112,13 +112,13 @@ class GameHudBlitter {
             canvas.setPixel(x y r g b)
             return
         }
-        def or:int (canvas.pixelR(x y))
-        def og:int (canvas.pixelG(x y))
-        def ob:int (canvas.pixelB(x y))
+        def oldR:int (canvas.pixelR(x y))
+        def oldG:int (canvas.pixelG(x y))
+        def oldB:int (canvas.pixelB(x y))
         def inv (255 - a)
-        def nr (to_int (((r * a) + (or * inv)) / 255))
-        def ng (to_int (((g * a) + (og * inv)) / 255))
-        def nb (to_int (((b * a) + (ob * inv)) / 255))
+        def nr (to_int (((r * a) + (oldR * inv)) / 255))
+        def ng (to_int (((g * a) + (oldG * inv)) / 255))
+        def nb (to_int (((b * a) + (oldB * inv)) / 255))
         canvas.setPixel(x y nr ng nb)
     }
 
