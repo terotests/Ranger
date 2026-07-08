@@ -278,6 +278,19 @@ class ComponentEngine {
         def src:string (buffer_to_string fileContent)
         return (this.parse(src))
     }
+
+    ; Set the directory used to resolve relative `import "./module"` paths.
+    ; GameRunner calls this before loadScript() when loading from disk.
+    fn setBasePath:void (dirPath:string) {
+        basePath = dirPath
+        if ((strlen dirPath) > 0) {
+            def last:int (strlen dirPath)
+            def lastCh:string (substring dirPath (last - 1) last)
+            if (lastCh != "/") {
+                basePath = (dirPath + "/")
+            }
+        }
+    }
     
     fn parse:EVGElement (src:string) {
         source = src
@@ -484,6 +497,11 @@ class ComponentEngine {
     }
     
     fn processImportDeclaration:void (node:TSNode) {
+        ; Skip type-only imports (import type { ... } from "...")
+        if (node.kind == "type") {
+            return
+        }
+
         ; Get the module path from node.left (StringLiteral - 'from' clause)
         def modulePath:string ""
         if node.left {
@@ -501,6 +519,9 @@ class ComponentEngine {
         if ((indexOf modulePath "evg_") >= 0) {
             return
         }
+        if ((indexOf modulePath ".d.ts") >= 0) {
+            return
+        }
         
         ; Get imported symbols from node.children (import specifiers)
         def importedNames:[string]
@@ -508,7 +529,9 @@ class ComponentEngine {
         while (j < (array_length node.children)) {
             def spec:TSNode (itemAt node.children j)
             if (spec.nodeType == "ImportSpecifier") {
-                push importedNames spec.name
+                if (spec.kind != "type") {
+                    push importedNames spec.name
+                }
             }
             if (spec.nodeType == "ImportDefaultSpecifier") {
                 push importedNames spec.name
@@ -558,6 +581,10 @@ class ComponentEngine {
         importParser.tsxMode = true
         def importAst:TSNode (importParser.parseProgram())
         
+        ; Register all top-level bindings from the imported module so script
+        ; code can call imported functions and read imported constants.
+        this.materializeImportedModule(importAst)
+        
         ; Collect all non-exported helper functions from the file
         def helperFns:[TSNode]
         def hk:int 0
@@ -596,6 +623,7 @@ class ComponentEngine {
                             sym.functionNode = declNode
                             sym.helperFunctions = helperFns
                             push localComponents sym
+                            this.defineModuleBinding(fnName (EvalValue.function(declNode)))
                             print ("Imported component: " + fnName + " from " + fullPath)
                         }
                     }
@@ -614,11 +642,49 @@ class ComponentEngine {
                     sym.functionNode = stmt
                     sym.helperFunctions = helperFns
                     push localComponents sym
+                    this.defineModuleBinding(fnName (EvalValue.function(stmt)))
                     print ("Imported component: " + fnName + " from " + fullPath)
                 }
             }
             
             k = k + 1
+        }
+    }
+
+    ; Bind every top-level function/const from an imported module into moduleScope.
+    fn materializeImportedModule:void (ast:TSNode) {
+        def saved:EvalContext context
+        context = moduleScope
+        def i:int 0
+        while (i < (array_length ast.children)) {
+            def node:TSNode (itemAt ast.children i)
+            this.materializeImportedNode(node)
+            i = i + 1
+        }
+        context = saved
+    }
+
+    fn materializeImportedNode:void (node:TSNode) {
+        if (node.nodeType == "FunctionDeclaration") {
+            if (node.name != "render") {
+                this.defineModuleBinding(node.name (EvalValue.function(node)))
+            }
+            return
+        }
+        if (node.nodeType == "VariableDeclaration") {
+            this.processModuleVariableDeclaration(node)
+            return
+        }
+        if (node.nodeType == "ExportNamedDeclaration") {
+            if node.left {
+                this.materializeImportedNode((unwrap node.left))
+            }
+            return
+        }
+        if (node.nodeType == "ExportDefaultDeclaration") {
+            if node.left {
+                this.materializeImportedNode((unwrap node.left))
+            }
         }
     }
     
@@ -2336,6 +2402,20 @@ class ComponentEngine {
                 return (this.evaluateExpr(inner))
             }
         }
+
+        ; Type assertion (expr as Type) — runtime ignores the type
+        if (node.nodeType == "TSAsExpression") {
+            if node.left {
+                return (this.evaluateExpr((unwrap node.left)))
+            }
+        }
+
+        ; Non-null assertion (expr!) — runtime evaluates the operand
+        if (node.nodeType == "TSNonNullExpression") {
+            if node.left {
+                return (this.evaluateExpr((unwrap node.left)))
+            }
+        }
         
         ; JSX Element as expression (for props like children={<View/>})
         if (node.nodeType == "JSXElement") {
@@ -2709,6 +2789,20 @@ class ComponentEngine {
                 def leftExpr:TSNode (unwrap node.left)
                 def left:EvalValue (this.evaluateExpr(leftExpr))
                 if (left.toBool()) {
+                    return left
+                }
+                if node.right {
+                    def rightExpr:TSNode (unwrap node.right)
+                    return (this.evaluateExpr(rightExpr))
+                }
+            }
+        }
+
+        if (op == "??") {
+            if node.left {
+                def leftExpr:TSNode (unwrap node.left)
+                def left:EvalValue (this.evaluateExpr(leftExpr))
+                if (false == (left.isNull())) {
                     return left
                 }
                 if node.right {

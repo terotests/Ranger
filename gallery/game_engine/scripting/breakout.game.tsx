@@ -13,70 +13,24 @@
 // Run:
 //   npm run engine:game-sdl:run -- gallery/game_engine/scripting/breakout.game.tsx
 
-const COLS = 10;
-const ROWS = 5;
-const BRICK_COUNT = COLS * ROWS;
-const BRICK_W = 40;
-const BRICK_H = 12;
-const BRICK_GAP = 4;
-const BRICK_TOP = 52;
-const BRICK_LEFT = 40;
+import {
+  BRICK_COUNT,
+  BRICK_W,
+  brickId,
+  brickX,
+  brickY,
+  buildBrickSprites,
+  countAlive,
+  hitBrick,
+  makeAlive,
+  placeBricks
+} from "./breakout_bricks";
 
-const BRICK_COLORS = [
-  { r: 220, g: 80, b: 90 },
-  { r: 255, g: 150, b: 60 },
-  { r: 255, g: 220, b: 80 },
-  { r: 120, g: 220, b: 140 },
-  { r: 90, g: 170, b: 255 }
-];
-
-function screens() {
+function screens(): string[] {
   return ["play", "gameOver"];
 }
 
-function brickId(i) {
-  return ("b" + i);
-}
-
-function brickCol(i) {
-  return i % COLS;
-}
-
-function brickRow(i) {
-  return (i - brickCol(i)) / COLS;
-}
-
-function brickX(i) {
-  const c = brickCol(i);
-  return BRICK_LEFT + c * (BRICK_W + BRICK_GAP);
-}
-
-function brickY(i) {
-  const r = brickRow(i);
-  return BRICK_TOP + r * (BRICK_H + BRICK_GAP);
-}
-
-function buildBrickSprites() {
-  const list = [];
-  let i = 0;
-  while (i < BRICK_COUNT) {
-    const row = brickRow(i);
-    const pal = BRICK_COLORS[row % BRICK_COLORS.length];
-    list.push({
-      id: brickId(i),
-      kind: "rect",
-      w: BRICK_W,
-      h: BRICK_H,
-      r: pal.r,
-      g: pal.g,
-      b: pal.b
-    });
-    i = i + 1;
-  }
-  return list;
-}
-
-function sprites(props) {
+function sprites(props: { screen: string }): SpriteDef[] {
   if (props.screen == "play") {
     const list = buildBrickSprites();
     list.push({ id: "paddle", kind: "rect", w: 64, h: 10, r: 120, g: 220, b: 255 });
@@ -86,18 +40,8 @@ function sprites(props) {
   return [];
 }
 
-function makeAlive() {
-  const alive = [];
-  let i = 0;
-  while (i < BRICK_COUNT) {
-    alive.push(1);
-    i = i + 1;
-  }
-  return alive;
-}
-
-function initEntities() {
-  const entities = {};
+function initEntities(): Record<string, EntityPose> {
+  const entities: Record<string, EntityPose> = {};
   entities.paddle = { x: 240, y: 248 };
   entities.ball = { x: 240, y: 220 };
   let i = 0;
@@ -108,7 +52,7 @@ function initEntities() {
   return entities;
 }
 
-function initPlayState() {
+function initPlayState(): BreakoutPlayScreen {
   return {
     layout: "breakout",
     showNet: 0,
@@ -127,7 +71,7 @@ function initPlayState() {
   };
 }
 
-function initState() {
+function initState(): BreakoutState {
   return {
     screen: "play",
     screens: {
@@ -136,44 +80,15 @@ function initState() {
   };
 }
 
-function countAlive(alive) {
-  let n = 0;
-  let i = 0;
-  while (i < alive.length) {
-    if (alive[i] == 1) { n = n + 1; }
-    i = i + 1;
-  }
-  return n;
-}
-
-function resetBall(px, py) {
+function resetBall(px: number, py: number): { bx: number; by: number; vx: number; vy: number } {
   return { bx: px, by: py - 24, vx: 0.18, vy: 0.14 };
 }
 
-function placeBricks(entities, alive) {
-  let i = 0;
-  while (i < BRICK_COUNT) {
-    const id = brickId(i);
-    if (alive[i] == 0) {
-      entities[id] = { x: -40, y: -40, visible: 0 };
-    } else {
-      entities[id] = { x: brickX(i), y: brickY(i) };
-    }
-    i = i + 1;
-  }
-}
-
-function hitBrick(bx, by, i) {
-  const x = brickX(i);
-  const y = brickY(i);
-  if (bx < x - 4) { return 0; }
-  if (bx > x + BRICK_W + 4) { return 0; }
-  if (by < y - 4) { return 0; }
-  if (by > y + BRICK_H + 4) { return 0; }
-  return 1;
-}
-
-function goToGameOver(s, play, won) {
+function goToGameOver(
+  s: BreakoutState,
+  play: BreakoutPlayScreen,
+  won: number
+): BreakoutState {
   return {
     screen: "gameOver",
     screens: {
@@ -188,9 +103,9 @@ function goToGameOver(s, play, won) {
   };
 }
 
-function updatePlay(s, props) {
+function updatePlay(s: BreakoutState, props: EventProps): BreakoutState {
   const play = s.screens.play;
-  const dt = props.dt;
+  const dt = props.dt as number;
   let px = play.px;
   let py = play.py;
   let bx = play.bx;
@@ -232,7 +147,7 @@ function updatePlay(s, props) {
     vx = reset.vx;
     vy = reset.vy;
     if (lives <= 0) {
-      const frozen = {
+      const frozen: BreakoutPlayScreen = {
         layout: "breakout",
         entities: play.entities,
         px: px,
@@ -264,7 +179,7 @@ function updatePlay(s, props) {
   }
 
   if (countAlive(alive) == 0) {
-    const frozen = {
+    const frozen: BreakoutPlayScreen = {
       layout: "breakout",
       entities: play.entities,
       px: px,
@@ -282,12 +197,12 @@ function updatePlay(s, props) {
     return goToGameOver(s, frozen, 1);
   }
 
-  const entities = {};
+  const entities: Record<string, EntityPose> = {};
   entities.paddle = { x: px, y: py };
   entities.ball = { x: bx, y: by };
   placeBricks(entities, alive);
 
-  const nextPlay = {
+  const nextPlay: BreakoutPlayScreen = {
     layout: "breakout",
     entities: entities,
     px: px,
@@ -311,7 +226,7 @@ function updatePlay(s, props) {
   };
 }
 
-function updateGameOver(s, props) {
+function updateGameOver(s: BreakoutState, props: EventProps): BreakoutState {
   if (props.action) {
     return {
       screen: "play",
@@ -324,8 +239,8 @@ function updateGameOver(s, props) {
   return s;
 }
 
-function update(props) {
-  const s = props.state;
+function update(props: EventProps): BreakoutState {
+  const s = props.state as BreakoutState;
   const sc = s.screen;
   if (sc == "play") {
     return updatePlay(s, props);
@@ -336,11 +251,11 @@ function update(props) {
   return s;
 }
 
-function hud(props) {
-  const s = props.state;
+function hud(props: EventProps): JSX.Element {
+  const s = props.state as BreakoutState;
   const sc = s.screen;
   if (sc == "gameOver") {
-    const go = s.screens.gameOver;
+    const go = s.screens.gameOver!;
     let title = "PELI OHI!!";
     if (go.won == 1) {
       title = "YOU WIN";

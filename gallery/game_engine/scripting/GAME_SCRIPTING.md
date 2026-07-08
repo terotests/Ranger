@@ -90,12 +90,58 @@ function calls, and JSX. Known constraints:
 
 `game.d.ts` gives editor autocomplete/type-checking while authoring. The runtime
 ignores annotations (the parser records them but the evaluator does not use
-them), exactly like the existing `evg_types.tsx` intellisense file. Reference it
-from a script with:
+them), exactly like the existing `evg_types.tsx` intellisense file.
+
+### Local `tsconfig.json`
+
+[`tsconfig.json`](./tsconfig.json) enables **strict** checking (`noImplicitAny`,
+etc.) for annotated scripts. Add your `*.game.tsx` to `"include"` as you add
+type annotations — start with [`breakout.game.tsx`](./breakout.game.tsx) as the
+reference example.
+
+```bash
+cd gallery/game_engine/scripting && npx tsc --noEmit
+```
+
+### Referencing types
+
+Reference globals (`game`, `screen`, `Buttons`, `View`, `Label`) via:
 
 ```tsx
 /// <reference path="./game.d.ts" />
 ```
+
+When a script uses runtime `import`, add a triple-slash reference at the top of
+each file (the runtime parser does not evaluate `import type` yet):
+
+```tsx
+/// <reference path="./game.d.ts" />
+import { brickId } from "./breakout_bricks";
+```
+
+Per-game screen state (e.g. `BreakoutState`, `BreakoutPlayScreen`) lives in
+`game.d.ts` or a sibling `*.d.ts` / shared module.
+
+### Relative `import` between scripts
+
+`ComponentEngine.processImports()` resolves **relative** paths from the script
+directory on disk:
+
+```tsx
+import { brickId, BRICK_COUNT } from "./breakout_bricks";
+```
+
+Requirements:
+
+1. Host calls `runner.setScriptDir("gallery/game_engine/scripting")` **before**
+   `loadScript()` (SDL runner and all `*_runner_demo.rgr` files do this).
+2. Paths must start with `./` (or `../`).
+3. `import type { ... } from "./game.d.ts"` is stripped at runtime (type-only).
+4. Exported `function` / `const` bindings from the imported file are registered
+   into the script module scope.
+
+Example split: [`breakout_bricks.tsx`](./breakout_bricks.tsx) (shared brick
+helpers) imported by [`breakout.game.tsx`](./breakout.game.tsx).
 
 ## Retained-mode runner (GameRunner)
 

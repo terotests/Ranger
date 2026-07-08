@@ -77,6 +77,12 @@ class GameRunner {
         hudEnabled = (this.scriptHasFunction("hud"))
     }
 
+    ; Directory of the loaded .game.tsx on disk — required for relative imports.
+    fn setScriptDir:void (dir:string) {
+        options.scriptDir = dir
+        engine.setBasePath(dir)
+    }
+
     fn setHotReload:void (enabled:boolean) {
         options.hotReload = enabled
     }
@@ -93,6 +99,9 @@ class GameRunner {
         }
         options.scriptDir = dir
         options.scriptFile = file
+        if ((strlen dir) > 0) {
+            engine.setBasePath(dir)
+        }
         if ((strlen file) > 0) {
             options.scriptMtime = (file_mtime dir file)
         }

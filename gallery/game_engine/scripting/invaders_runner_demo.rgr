@@ -15,6 +15,7 @@ class InvadersRunnerDemo {
 
         def buf:buffer (buffer_read_file "gallery/game_engine/scripting" "invaders.game.tsx")
         def src:string (buffer_to_string buf)
+        runner.setScriptDir("gallery/game_engine/scripting")
         runner.loadScript(src)
         runner.setupScene()
 
