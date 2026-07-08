@@ -20,12 +20,14 @@ Import "../../pdf_writer/src/jsx/EvalValue.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "./game_sprite.rgr"
 Import "./game_hud.rgr"
+Import "../../ts_to_ranger/game_host.rgr"
 
 class GameRunner {
     def engine:ComponentEngine (new ComponentEngine())
     def canvas:SoftCanvas (new SoftCanvas)
     def hudBlitter:GameHudBlitter (new GameHudBlitter)
     def spriteRenderer:GameSpriteRenderer (new GameSpriteRenderer)
+    def host:GameHost (new GameHost)
     def entities:[GameEntity]
     def screenSpritesLoaded:[string]
     def state:EvalValue (EvalValue.null())
@@ -189,8 +191,73 @@ class GameRunner {
         this.loadScreenSprites(next)
     }
 
+    fn hostRef:GameHost () {
+        return host
+    }
+
+    fn memDouble:double (obj:EvalValue key:string dflt:double) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isNull()) {
+            return dflt
+        }
+        return v.numberValue
+    }
+
+    fn resourceFromEval:ResourceDefNative (d:EvalValue) {
+        def r:ResourceDefNative (new ResourceDefNative)
+        r.kind = (this.memString(d "kind" ""))
+        r.id = (this.memString(d "id" ""))
+        r.path = (this.memString(d "path" ""))
+        r.px = (this.memInt(d "px" 0))
+        r.frameCount = (this.memInt(d "frameCount" 0))
+        r.w = (this.memInt(d "w" 0))
+        r.h = (this.memInt(d "h" 0))
+        return r
+    }
+
+    ; Declare engine resources (images/sounds/sprites/collision) once, if the
+    ; script exposes a resources() function. Same contract as the native path.
+    fn setupResources:void () {
+        if (false == (this.scriptHasFunction("resources"))) {
+            return
+        }
+        def res:EvalValue (engine.callFunction("resources" (EvalValue.null())))
+        if (res.isArray()) {
+            def arr:[EvalValue] res.arrayValue
+            def i 0
+            while (i < (array_length arr)) {
+                host.registerResource((this.resourceFromEval((itemAt arr i))))
+                i = (i + 1)
+            }
+        }
+    }
+
+    fn eventFromEval:GameEventNative (d:EvalValue) {
+        def e:GameEventNative (new GameEventNative)
+        e.kind = (this.memString(d "kind" ""))
+        e.id = (this.memString(d "id" ""))
+        e.x = (this.memDouble(d "x" 0.0))
+        e.y = (this.memDouble(d "y" 0.0))
+        e.amount = (this.memInt(d "amount" 0))
+        return e
+    }
+
+    ; Drain transient events emitted by update() this frame into the host.
+    fn drainStateEvents:void () {
+        def evs:EvalValue (state.getMember("events"))
+        if (evs.isArray()) {
+            def arr:[EvalValue] evs.arrayValue
+            def i 0
+            while (i < (array_length arr)) {
+                host.handleEvent((this.eventFromEval((itemAt arr i))))
+                i = (i + 1)
+            }
+        }
+    }
+
     ; Build retained entities from sprites() and init state.
     fn setupScene:void () {
+        this.setupResources()
         state = (engine.callFunction("initState" (EvalValue.null())))
         if (this.multiScreenMode()) {
             currentScreen = (this.currentScreenName())
@@ -270,6 +337,7 @@ class GameRunner {
         if (nextScreen != prevScreen) {
             this.onScreenChanged(prevScreen nextScreen)
         }
+        this.drainStateEvents()
         this.syncFromState()
     }
 

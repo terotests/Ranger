@@ -1,0 +1,209 @@
+; ==============================================================================
+; game_script_types - typed bridge between native Ranger game logic and GameRunner.
+; ==============================================================================
+
+Import "game_host.rgr"
+
+class EntityPoseNative {
+    def x:double 0.0
+    def y:double 0.0
+    def visible:int 1
+    def r:int -1
+    def g:int -1
+    def b:int -1
+    def rad:int -1
+    def p0:int 0
+    def p1:int 0
+    def p2:int 0
+}
+
+class SpriteDefNative {
+    def id:string ""
+    def kind:string "rect"
+    def w:int 8
+    def h:int 8
+    def rad:int 4
+    def r:int 255
+    def g:int 255
+    def b:int 255
+    def p0:int 0
+    def p1:int 0
+    def p2:int 0
+    ; bitmap sprites (invaders): pixel scale + body/eye palette. Frame bitmaps are
+    ; not stored natively (the native runner tracks logic/positions, not pixels).
+    def px:int 0
+    def br:int -1
+    def bg:int -1
+    def bb:int -1
+    def er:int -1
+    def eg:int -1
+    def eb:int -1
+    def frames:[[string]]
+}
+
+class NativeGameState {
+    def screen:string ""
+    def showNet:int -1
+    def score1:int -1
+    def score2:int -1
+    def score:int -1
+    def vx:double 0.0
+    def vy:double 0.0
+    def hasVx:boolean false
+    def hasVy:boolean false
+    def entities:[string:EntityPoseNative]
+    ; Arbitrary numeric fields (TS `number`) not covered by the fixed schema:
+    ; e.g. invaders px/py/waveX/waveTick/anim. Stored as double, keyed by name.
+    def numbers:[string:double]
+    ; Arbitrary string fields (e.g. invaders `layout`).
+    def strings:[string:string]
+    ; Script-owned integer arrays (e.g. invaders `alive`); nested map-of-array.
+    def intArrays:[string:[int]]
+    ; Transient events emitted this frame; host drains + clears.
+    def events:[GameEventNative]
+}
+
+class UpdatePropsNative {
+    def time:int 0
+    def dt:double 16.0
+    def up:boolean false
+    def down:boolean false
+    def left:boolean false
+    def right:boolean false
+    def action:boolean false
+    def state:NativeGameState (new NativeGameState)
+}
+
+class NativeGameStateOps {
+    fn mergeScalarInt:int (prev:int next:int) {
+        if (next < 0) {
+            return prev
+        }
+        return next
+    }
+
+    fn copyEntityPose:void (dst:EntityPoseNative src:EntityPoseNative) {
+        dst.x = src.x
+        dst.y = src.y
+        dst.visible = src.visible
+        dst.r = src.r
+        dst.g = src.g
+        dst.b = src.b
+        dst.rad = src.rad
+        dst.p0 = src.p0
+        dst.p1 = src.p1
+        dst.p2 = src.p2
+    }
+
+    fn cloneState:NativeGameState (src:NativeGameState) {
+        def out:NativeGameState (new NativeGameState)
+        out.screen = src.screen
+        out.showNet = src.showNet
+        out.score1 = src.score1
+        out.score2 = src.score2
+        out.score = src.score
+        out.vx = src.vx
+        out.vy = src.vy
+        out.hasVx = src.hasVx
+        out.hasVy = src.hasVy
+        def keyList:[string] (keys src.entities)
+        def i 0
+        while (i < (array_length keyList)) {
+            def id:string (itemAt keyList i)
+            def pose:EntityPoseNative (unwrap (get src.entities id))
+            def copy:EntityPoseNative (new EntityPoseNative)
+            this.copyEntityPose(copy pose)
+            set out.entities id copy
+            i = (i + 1)
+        }
+        def nkeys:[string] (keys src.numbers)
+        def n 0
+        while (n < (array_length nkeys)) {
+            def nk:string (itemAt nkeys n)
+            set out.numbers nk (unwrap (get src.numbers nk))
+            n = (n + 1)
+        }
+        def skeys:[string] (keys src.strings)
+        def si 0
+        while (si < (array_length skeys)) {
+            def sk:string (itemAt skeys si)
+            set out.strings sk (unwrap (get src.strings sk))
+            si = (si + 1)
+        }
+        def akeys:[string] (keys src.intArrays)
+        def ai 0
+        while (ai < (array_length akeys)) {
+            def ak:string (itemAt akeys ai)
+            set out.intArrays ak (unwrap (get src.intArrays ak))
+            ai = (ai + 1)
+        }
+        return out
+    }
+
+    fn mergeState:NativeGameState (prev:NativeGameState patch:NativeGameState) {
+        def out:NativeGameState (this.cloneState(prev))
+        if ((strlen patch.screen) > 0) {
+            out.screen = patch.screen
+        }
+        out.showNet = (this.mergeScalarInt(prev.showNet patch.showNet))
+        out.score1 = (this.mergeScalarInt(prev.score1 patch.score1))
+        out.score2 = (this.mergeScalarInt(prev.score2 patch.score2))
+        out.score = (this.mergeScalarInt(prev.score patch.score))
+        if (patch.hasVx) {
+            out.vx = patch.vx
+            out.hasVx = true
+        }
+        if (patch.hasVy) {
+            out.vy = patch.vy
+            out.hasVy = true
+        }
+        def keyList:[string] (keys patch.entities)
+        def j 0
+        while (j < (array_length keyList)) {
+            def id:string (itemAt keyList j)
+            def pose:EntityPoseNative (unwrap (get patch.entities id))
+            def existing@(optional):EntityPoseNative (get out.entities id)
+            if (!null? existing) {
+                this.copyEntityPose((unwrap existing) pose)
+            } {
+                def copy:EntityPoseNative (new EntityPoseNative)
+                this.copyEntityPose(copy pose)
+                set out.entities id copy
+            }
+            j = (j + 1)
+        }
+        ; Arbitrary numeric fields: patch wins per key.
+        def pnkeys:[string] (keys patch.numbers)
+        def m 0
+        while (m < (array_length pnkeys)) {
+            def nk:string (itemAt pnkeys m)
+            set out.numbers nk (unwrap (get patch.numbers nk))
+            m = (m + 1)
+        }
+        def pskeys:[string] (keys patch.strings)
+        def ps 0
+        while (ps < (array_length pskeys)) {
+            def sk:string (itemAt pskeys ps)
+            set out.strings sk (unwrap (get patch.strings sk))
+            ps = (ps + 1)
+        }
+        def pakeys:[string] (keys patch.intArrays)
+        def pa 0
+        while (pa < (array_length pakeys)) {
+            def ak:string (itemAt pakeys pa)
+            set out.intArrays ak (unwrap (get patch.intArrays ak))
+            pa = (pa + 1)
+        }
+        ; Events are transient: take the patch's list (host drains it).
+        out.events = patch.events
+        return out
+    }
+
+    fn getNumber:double (s:NativeGameState key:string dflt:double) {
+        def v@(optional):double (get s.numbers key)
+        if (!null? v) {
+            return (unwrap v)
+        }
+        return dflt
+    }
+}

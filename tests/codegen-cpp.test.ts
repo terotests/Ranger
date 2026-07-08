@@ -25,6 +25,21 @@ describe("C++ Code Generation", () => {
     });
   });
 
+  describe("Nested Collections", () => {
+    it("should render nested vector/map element types", () => {
+      const result = getGeneratedCppCode(
+        `${FIXTURES_DIR}/nested_collections.rgr`
+      );
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("std::vector<std::vector<std::string>>");
+      expect(result.code).toContain("std::map<std::string,std::vector<int>>");
+      expect(result.code).toContain("std::vector<std::map<std::string,int>>");
+      // no raw Ranger collection type strings should leak through
+      expect(result.code).not.toContain("[string]");
+      expect(result.code).not.toContain("[int]");
+    });
+  });
+
   describe("String Operations", () => {
     it("should use std::string type", () => {
       const result = getGeneratedCppCode(`${FIXTURES_DIR}/string_ops.rgr`);

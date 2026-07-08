@@ -164,7 +164,15 @@ class RangerArgMatch {
         if _debug {
           print "-> trying to add type " + arg.type_name 
         }
-        if (false == (this.add(arg.type_name callArg.eval_type_name ctx))) {
+        ; a generic scalar type variable (e.g. T) may be bound to a whole
+        ; collection value such as [string] or [string:int]. In that case the
+        ; caller node carries its type in eval_array_type/eval_key_type, so
+        ; build the canonical collection type string to unify against.
+        def callArgTypeName:string callArg.eval_type_name
+        if ((callArg.eval_type == RangerNodeType.Array) || (callArg.eval_type == RangerNodeType.Hash)) {
+          callArgTypeName = (this.nodeTypeString(callArg))
+        }
+        if (false == (this.add(arg.type_name callArgTypeName ctx))) {
           all_matched = false
           return all_matched
         }
@@ -349,7 +357,13 @@ class RangerArgMatch {
     }
 
     if ((arg.value_type != RangerNodeType.Hash) && (arg.value_type != RangerNodeType.Array)) {
-      def eq:boolean (this.areEqualTypes(arg.type_name node.eval_type_name ctx))
+      ; a scalar (generic) parameter may receive a whole collection value;
+      ; compare against the caller's canonical collection type string.
+      def nodeTypeName:string node.eval_type_name
+      if ((node.eval_type == RangerNodeType.Array) || (node.eval_type == RangerNodeType.Hash)) {
+        nodeTypeName = (this.nodeTypeString(node))
+      }
+      def eq:boolean (this.areEqualTypes(arg.type_name nodeTypeName ctx))
       def t_name:string arg.type_name
       switch t_name {
         case "expression" {
@@ -622,8 +636,16 @@ class RangerArgMatch {
         return true
       }
 
+      ; a generic return type variable may resolve to a collection type
+      ; string (e.g. itemAt over [[string]] yields [string]); expand it back
+      ; into proper eval_type/eval_array_type so downstream matching works.
+      def rvName:string (this.getTypeName(arg.type_name))
+      if (this.isCollectionTypeString(rvName)) {
+        this.applyTypeStringToNode(node rvName)
+        return true
+      }
       node.eval_type = (this.getType(arg.type_name))
-      node.eval_type_name = (this.getTypeName(arg.type_name))
+      node.eval_type_name = rvName
       return true
     }
     if (arg.value_type == RangerNodeType.Array) {
@@ -638,6 +660,75 @@ class RangerArgMatch {
       return true
     }
     return false
+  }
+  ; Build the canonical Ranger type string for a collection node,
+  ; e.g. "[string]", "[[string]]" or "[string:int]". Falls back to the
+  ; declared type fields when eval_ fields are not yet populated.
+  fn nodeTypeString:string (node:CodeNode) {
+    if (node.eval_type == RangerNodeType.Array) {
+      def at:string node.eval_array_type
+      if ((strlen at) == 0) {
+        at = node.array_type
+      }
+      return (("[" + at) + "]")
+    }
+    if (node.eval_type == RangerNodeType.Hash) {
+      def kt:string node.eval_key_type
+      if ((strlen kt) == 0) {
+        kt = node.key_type
+      }
+      def at2:string node.eval_array_type
+      if ((strlen at2) == 0) {
+        at2 = node.array_type
+      }
+      return (((("[" + kt) + ":") + at2) + "]")
+    }
+    return node.eval_type_name
+  }
+  fn isCollectionTypeString:boolean (s:string) {
+    if ((strlen s) < 2) {
+      return false
+    }
+    if ((charAt s 0) != (ccode "[")) {
+      return false
+    }
+    return true
+  }
+  ; Expand a collection type string (e.g. "[string]" or "[string:[int]]")
+  ; into the node's eval_type / eval_array_type / eval_key_type fields.
+  fn applyTypeStringToNode:void (node:CodeNode typeStr:string) {
+    def n:int (strlen typeStr)
+    if ((n < 2) || ((charAt typeStr 0) != (ccode "["))) {
+      node.eval_type = (this.getType(typeStr))
+      node.eval_type_name = typeStr
+      return
+    }
+    def inner:string (substring typeStr 1 (n - 1))
+    def il:int (strlen inner)
+    def depth:int 0
+    def sep:int (0 - 1)
+    def i:int 0
+    while (i < il) {
+      def c:int (charAt inner i)
+      if (c == (ccode "[")) {
+        depth = depth + 1
+      }
+      if (c == (ccode "]")) {
+        depth = depth - 1
+      }
+      if ((c == (ccode ":")) && (depth == 0)) {
+        sep = i
+      }
+      i = i + 1
+    }
+    if (sep >= 0) {
+      node.eval_type = RangerNodeType.Hash
+      node.eval_key_type = (substring inner 0 sep)
+      node.eval_array_type = (substring inner (sep + 1) il)
+    } {
+      node.eval_type = RangerNodeType.Array
+      node.eval_array_type = inner
+    }
   }
 }
 

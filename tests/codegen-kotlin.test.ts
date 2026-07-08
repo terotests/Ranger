@@ -25,6 +25,21 @@ describe("Kotlin Code Generation", () => {
     });
   });
 
+  describe("Nested Collections", () => {
+    it("should render nested list/map element types", () => {
+      const result = getGeneratedKotlinCode(
+        `${FIXTURES_DIR}/nested_collections.rgr`
+      );
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("MutableList<MutableList<String>>");
+      expect(result.code).toContain("MutableMap<String,MutableList<Int>>");
+      expect(result.code).toContain("MutableList<MutableMap<String,Int>>");
+      // no raw Ranger collection type strings should leak through
+      expect(result.code).not.toContain("[string]");
+      expect(result.code).not.toContain("[int]");
+    });
+  });
+
   describe("String Operations", () => {
     it("should use string concatenation", () => {
       const result = getGeneratedKotlinCode(`${FIXTURES_DIR}/string_ops.rgr`);

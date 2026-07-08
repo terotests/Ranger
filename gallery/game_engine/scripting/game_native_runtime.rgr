@@ -1,0 +1,319 @@
+; ==============================================================================
+; game_native_runtime - GameRunner without ComponentEngine (native script path).
+; ==============================================================================
+;
+; Same retained-mode loop as game_runtime.rgr, but calls compiled Ranger game
+; logic (NativeGameState / SpriteDefNative) instead of interpreting TS AST.
+; ==============================================================================
+
+Import "../framebuffer.rgr"
+Import "../../ts_to_ranger/game_script_types.rgr"
+
+; Retained sprite instance (same schema as game_sprite.rgr GameEntity).
+class NativeGameEntity {
+    def id:string ""
+    def kind:string "rect"
+    def x:double 0.0
+    def y:double 0.0
+    def lastX:double -9999.0
+    def lastY:double -9999.0
+    def w:int 8
+    def h:int 8
+    def rad:int 4
+    def cr:int 255
+    def cg:int 255
+    def cb:int 255
+    def p0:int 0
+    def p1:int 0
+    def p2:int 0
+    def visible:boolean true
+}
+
+class NativeGameRunner {
+    def canvas:SoftCanvas (new SoftCanvas)
+    def stateOps:NativeGameStateOps (new NativeGameStateOps)
+    def host:GameHost (new GameHost)
+    def entities:[NativeGameEntity]
+    def state:NativeGameState (new NativeGameState)
+    def pw:int 0
+    def ph:int 0
+    def score1:int 0
+    def score2:int 0
+    def fpsShown:int 0
+    def timeMs:int 0
+    def currentScreen:string ""
+
+    fn init:void (w:int h:int) {
+        pw = w
+        ph = h
+        canvas.init(w h)
+    }
+
+    fn half:int (n:int) {
+        def result 0
+        def rem n
+        while (rem >= 2) {
+            rem = (rem - 2)
+            result = (result + 1)
+        }
+        return result
+    }
+
+    fn raw:buffer () {
+        return (canvas.raw())
+    }
+
+    fn entityX:int (id:string) {
+        def i 0
+        while (i < (array_length entities)) {
+            def e:NativeGameEntity (itemAt entities i)
+            if (e.id == id) {
+                return (to_int e.x)
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn entityY:int (id:string) {
+        def i 0
+        while (i < (array_length entities)) {
+            def e:NativeGameEntity (itemAt entities i)
+            if (e.id == id) {
+                return (to_int e.y)
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn entityCount:int () {
+        return (array_length entities)
+    }
+
+    fn setFpsShown:void (fps:int) {
+        fpsShown = fps
+    }
+
+    fn applySpriteDef:void (e:NativeGameEntity d:SpriteDefNative) {
+        e.id = d.id
+        e.kind = d.kind
+        e.w = d.w
+        e.h = d.h
+        e.rad = d.rad
+        e.cr = d.r
+        e.cg = d.g
+        e.cb = d.b
+        e.p0 = d.p0
+        e.p1 = d.p1
+        e.p2 = d.p2
+    }
+
+    fn syncPoseNative:void (e:NativeGameEntity pos:EntityPoseNative) {
+        def nx:double pos.x
+        def ny:double pos.y
+        if (nx != e.lastX) {
+            e.x = nx
+            e.lastX = nx
+        }
+        if (ny != e.lastY) {
+            e.y = ny
+            e.lastY = ny
+        }
+        if (pos.visible >= 0) {
+            e.visible = (pos.visible != 0)
+        } {
+            e.visible = true
+            if (nx < -24.0) { e.visible = false }
+            if (ny < -24.0) { e.visible = false }
+            if (nx > (to_double (pw + 24))) { e.visible = false }
+            if (ny > (to_double (ph + 24))) { e.visible = false }
+        }
+        if (pos.r >= 0) {
+            e.cr = pos.r
+            e.cg = pos.g
+            e.cb = pos.b
+        }
+        if (pos.rad >= 0) {
+            e.rad = pos.rad
+        }
+        e.p0 = pos.p0
+        e.p1 = pos.p1
+        e.p2 = pos.p2
+    }
+
+    fn syncFromState:void () {
+        def i 0
+        while (i < (array_length entities)) {
+            def e:NativeGameEntity (itemAt entities i)
+            def pose@(optional):EntityPoseNative (get state.entities e.id)
+            if (!null? pose) {
+                this.syncPoseNative(e (unwrap pose))
+            }
+            i = (i + 1)
+        }
+        if (state.score1 >= 0) {
+            score1 = state.score1
+        }
+        if (state.score2 >= 0) {
+            score2 = state.score2
+        }
+    }
+
+    fn setupSprites:void (defs:[SpriteDefNative]) {
+        def next:[NativeGameEntity]
+        def i 0
+        while (i < (array_length defs)) {
+            def d:SpriteDefNative (itemAt defs i)
+            def e:NativeGameEntity (new NativeGameEntity)
+            this.applySpriteDef(e d)
+            push next e
+            i = (i + 1)
+        }
+        entities = next
+    }
+
+    ; Register declared resources (images/sounds/sprites/collision) once.
+    fn setupResources:void (list:[ResourceDefNative]) {
+        host.registerResources(list)
+    }
+
+    fn setupScene:void (initState:NativeGameState sprites:[SpriteDefNative]) {
+        state = initState
+        this.setupSprites(sprites)
+        this.syncFromState()
+    }
+
+    fn applyUpdate:void (patch:NativeGameState) {
+        ; Drain transient events emitted this frame before merging them away.
+        host.drainEvents(patch.events)
+        state = (stateOps.mergeState(state patch))
+        this.syncFromState()
+    }
+
+    fn hostRef:GameHost () {
+        return host
+    }
+
+    fn buildProps:UpdatePropsNative (dtMs:int up:boolean down:boolean left:boolean right:boolean action:boolean) {
+        def props:UpdatePropsNative (new UpdatePropsNative)
+        props.time = timeMs
+        props.dt = (to_double dtMs)
+        props.up = up
+        props.down = down
+        props.left = left
+        props.right = right
+        props.action = action
+        props.state = state
+        return props
+    }
+
+    fn advanceTime:void (dtMs:int) {
+        timeMs = (timeMs + dtMs)
+    }
+
+    fn drawEntity:void (e:NativeGameEntity) {
+        if (false == e.visible) {
+            return
+        }
+        def ix:int (to_int e.x)
+        def iy:int (to_int e.y)
+        if (e.kind == "circle") {
+            canvas.fillCircle(ix iy e.rad e.cr e.cg e.cb)
+            return
+        }
+        if (e.kind == "wedge") {
+            canvas.fillWedgeCircle(ix iy e.rad e.p0 e.p1 e.cr e.cg e.cb)
+            return
+        }
+        if (e.kind == "ghost") {
+            canvas.fillGhost(ix iy e.rad e.p0 e.p1 e.cr e.cg e.cb)
+            return
+        }
+        canvas.fillRect((ix - (this.half(e.w))) (iy - (this.half(e.h))) e.w e.h e.cr e.cg e.cb)
+    }
+
+    fn draw:void () {
+        canvas.clear(12 16 32)
+        def showNet 0
+        if (state.showNet >= 0) {
+            showNet = state.showNet
+        }
+        if (showNet != 0) {
+            def ny 0
+            def netX (this.half(pw))
+            while (ny < ph) {
+                canvas.fillRect((netX - 1) ny 2 6 40 55 95)
+                ny = (ny + 12)
+            }
+        }
+        def i 0
+        while (i < (array_length entities)) {
+            def e:NativeGameEntity (itemAt entities i)
+            if (e.visible) {
+                this.drawEntity(e)
+            }
+            i = (i + 1)
+        }
+        def netX2 (this.half(pw))
+        this.drawNumber((netX2 - 44) 10 4 score1 120 220 160)
+        this.drawNumber((netX2 + 20) 10 4 score2 220 140 120)
+        if (fpsShown > 0) {
+            def fx (this.half(pw))
+            def fy (ph - 22)
+            this.drawNumber((fx - 14) fy 3 fpsShown 160 170 190)
+        }
+    }
+
+    fn digitBits:string (d:int) {
+        if (d == 0) { return "111101101101111" }
+        if (d == 1) { return "010110010010111" }
+        if (d == 2) { return "111001111100111" }
+        if (d == 3) { return "111001111001111" }
+        if (d == 4) { return "101101111001001" }
+        if (d == 5) { return "111100111001111" }
+        if (d == 6) { return "111100111101111" }
+        if (d == 7) { return "111001010010010" }
+        if (d == 8) { return "111101111101111" }
+        if (d == 9) { return "111101111001111" }
+        return "000000000000000"
+    }
+
+    fn drawDigit:void (x:int y:int scale:int d:int r:int g:int b:int) {
+        def bits:string (this.digitBits(d))
+        def row 0
+        while (row < 5) {
+            def col 0
+            while (col < 3) {
+                def idx ((row * 3) + col)
+                def ch:string (substring bits idx (idx + 1))
+                if (ch == "1") {
+                    canvas.fillRect((x + (col * scale)) (y + (row * scale)) scale scale r g b)
+                }
+                col = (col + 1)
+            }
+            row = (row + 1)
+        }
+    }
+
+    fn drawNumber:void (x:int y:int scale:int n:int r:int g:int b:int) {
+        def ds:[int]
+        def m n
+        if (m <= 0) {
+            push ds 0
+        } {
+            while (m > 0) {
+                push ds (m % 10)
+                m = (to_int (m / 10))
+            }
+        }
+        def cnt (array_length ds)
+        def j 0
+        def step ((scale * 3) + scale)
+        while (j < cnt) {
+            def d:int (itemAt ds (cnt - 1 - j))
+            this.drawDigit((x + (j * step)) y scale d r g b)
+            j = (j + 1)
+        }
+    }
+}

@@ -27,6 +27,21 @@ describe("Swift6 Code Generation", () => {
     });
   });
 
+  describe("Nested Collections", () => {
+    it("should render nested array/dictionary element types", () => {
+      const result = getGeneratedSwiftCode(
+        `${FIXTURES_DIR}/nested_collections.rgr`
+      );
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("[[String]]");
+      expect(result.code).toContain("[String:[Int]]");
+      expect(result.code).toContain("[[String:Int]]");
+      // no raw Ranger collection type strings should leak through
+      expect(result.code).not.toContain("[string]");
+      expect(result.code).not.toContain("[int]");
+    });
+  });
+
   describe("String Operations", () => {
     it("should use string concatenation or String() conversion", () => {
       const result = getGeneratedSwiftCode(`${FIXTURES_DIR}/string_ops.rgr`);

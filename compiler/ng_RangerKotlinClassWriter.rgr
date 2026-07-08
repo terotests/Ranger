@@ -29,6 +29,11 @@ class RangerKotlinClassWriter {
     return tn
   }
   fn getObjectTypeString:string (type_string:string ctx:RangerAppWriterContext) {
+    if ((strlen type_string) >= 2) {
+      if ((charAt type_string 0) == (ccode "[")) {
+        return (this.collectionTypeStringToKotlin(type_string ctx))
+      }
+    }
     switch type_string {
       case "int" {
         return "Int"
@@ -59,6 +64,36 @@ class RangerKotlinClassWriter {
       }
     }
     return type_string
+  }
+  ; Convert a nested collection type string such as "[string]" or
+  ; "[string:[int]]" into the corresponding Kotlin type, recursing on the
+  ; element/value types.
+  fn collectionTypeStringToKotlin:string (type_string:string ctx:RangerAppWriterContext) {
+    def n:int (strlen type_string)
+    def inner:string (substring type_string 1 (n - 1))
+    def il:int (strlen inner)
+    def depth:int 0
+    def sep:int (0 - 1)
+    def i:int 0
+    while (i < il) {
+      def c:int (charAt inner i)
+      if (c == (ccode "[")) {
+        depth = depth + 1
+      }
+      if (c == (ccode "]")) {
+        depth = depth - 1
+      }
+      if ((c == (ccode ":")) && (depth == 0)) {
+        sep = i
+      }
+      i = i + 1
+    }
+    if (sep >= 0) {
+      def kt:string (substring inner 0 sep)
+      def vt:string (substring inner (sep + 1) il)
+      return (((("MutableMap<" + (this.getObjectTypeString(kt ctx))) + ",") + (this.getObjectTypeString(vt ctx))) + ">")
+    }
+    return (("MutableList<" + (this.getObjectTypeString(inner ctx))) + ">")
   }
   fn getTypeString:string (type_string:string) {
     switch type_string {

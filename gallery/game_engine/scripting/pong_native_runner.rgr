@@ -1,0 +1,80 @@
+; ==============================================================================
+; pong_native_runner - headless parity demo: native Pong vs TS-interpreter path.
+; ==============================================================================
+;
+; The game logic is the STATICALLY COMPILED output of the emitter (read from
+; pong.game.tsx at emitter runtime). Regenerate with:
+;   npm run ts2ranger:emit -- gallery/game_engine/scripting/pong.game.tsx
+; ==============================================================================
+
+Import "./game_native_runtime.rgr"
+Import "../../ts_to_ranger/generated/pong_generated.rgr"
+
+class PongNativeRunner {
+    def runner:NativeGameRunner (new NativeGameRunner)
+    def script:GeneratedGameScript (new GeneratedGameScript)
+
+    fn setupScene:void () {
+        def init:NativeGameState (script.initState())
+        def defs:[SpriteDefNative] (script.sprites())
+        runner.setupScene(init defs)
+    }
+
+    fn frame:void (dtMs:int up:boolean down:boolean left:boolean right:boolean action:boolean) {
+        runner.advanceTime(dtMs)
+        def props:UpdatePropsNative (runner.buildProps(dtMs up down left right action))
+        def patch:NativeGameState (script.update(props))
+        runner.applyUpdate(patch)
+    }
+
+    fn draw:void () {
+        runner.draw()
+    }
+
+    fn entityX:int (id:string) {
+        return (runner.entityX(id))
+    }
+
+    fn entityY:int (id:string) {
+        return (runner.entityY(id))
+    }
+
+    fn raw:buffer () {
+        return (runner.raw())
+    }
+}
+
+class PongNativeRunnerDemo {
+    sfn m@(main):void () {
+        def demo:PongNativeRunner (new PongNativeRunner)
+        demo.runner.init(480 270)
+        demo.setupScene()
+
+        def frames:int 180
+        if ((shell_arg_cnt) > 0) {
+            def parsed@(optional):int (to_int (shell_arg 0))
+            if (!null? parsed) {
+                frames = (unwrap parsed)
+            }
+        }
+
+        def i 0
+        while (i < frames) {
+            def phase (i % 120)
+            def up (phase < 40)
+            def down (phase >= 80)
+            demo.frame(16 up down false false false)
+            i = (i + 1)
+        }
+
+        demo.draw()
+        buffer_write_file "gallery/game_engine/scripting" "pong_native_frame.rgba" (demo.raw())
+
+        def bx:int (demo.entityX("ball"))
+        def by:int (demo.entityY("ball"))
+        print ("frames=" + frames)
+        print (("ball=" + bx) + ("," + by))
+        print (("score=" + demo.runner.score1) + ("," + demo.runner.score2))
+        print "pong-native-runner done"
+    }
+}

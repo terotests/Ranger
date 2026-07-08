@@ -1,0 +1,139 @@
+; ==============================================================================
+; game_host - engine-side bridge for resources and events (shared by both paths).
+; ==============================================================================
+;
+; Design: the reducer model already passes plain JSON-like data between script
+; and host. We keep resources and events as DATA so the identical contract works
+; in the TS-interpreter path (EvalValue) and the static-compiled path (structs):
+;
+;   * resources()      - declared once (like sprites()); host registers images,
+;                        sounds, sprites (multi-frame animation), collision maps.
+;   * state.events[]   - update() returns transient events each frame; the host
+;                        drains them (play sound, spawn/destroy, custom).
+;
+; This file is native Ranger. The interpreter path fills these structs from
+; EvalValue; the static path fills them from generated code. Nothing here is
+; game-specific.
+; ==============================================================================
+
+; A declared engine resource. `kind` selects the registry.
+class ResourceDefNative {
+    def kind:string ""        ; "image" | "sound" | "sprite" | "collision"
+    def id:string ""
+    def path:string ""
+    def px:int 0              ; sprite pixel scale
+    def frameCount:int 0     ; sprite: number of animation frames (levels)
+    def w:int 0              ; collision/geometry width
+    def h:int 0              ; collision/geometry height
+}
+
+; A transient event emitted by update() and drained by the host each frame.
+class GameEventNative {
+    def kind:string ""        ; "playSound" | "spawn" | "destroy" | custom
+    def id:string ""
+    def x:double 0.0
+    def y:double 0.0
+    def amount:int 0
+}
+
+; Engine-side registry + event sink. Both runners own one GameHost.
+class GameHost {
+    def images:[string:string]
+    def sounds:[string:string]
+    def spriteFrames:[string:int]
+    def collisions:[string:boolean]
+    def soundsPlayed:[string]
+    def spawnRequests:[GameEventNative]
+    def destroyRequests:[string]
+    def eventCount:int 0
+    def verbose:boolean false
+
+    fn registerResource:void (r:ResourceDefNative) {
+        if (r.kind == "image") {
+            set images r.id r.path
+            if verbose { print ("[host] image " + r.id) }
+            return
+        }
+        if (r.kind == "sound") {
+            set sounds r.id r.path
+            if verbose { print ("[host] sound " + r.id) }
+            return
+        }
+        if (r.kind == "sprite") {
+            set spriteFrames r.id r.frameCount
+            if verbose { print ("[host] sprite " + r.id) }
+            return
+        }
+        if (r.kind == "collision") {
+            set collisions r.id true
+            if verbose { print ("[host] collision " + r.id) }
+            return
+        }
+    }
+
+    fn registerResources:void (list:[ResourceDefNative]) {
+        def i 0
+        while (i < (array_length list)) {
+            this.registerResource((itemAt list i))
+            i = (i + 1)
+        }
+    }
+
+    fn handleEvent:void (e:GameEventNative) {
+        eventCount = (eventCount + 1)
+        if (e.kind == "playSound") {
+            push soundsPlayed e.id
+            if verbose { print ("[host] playSound " + e.id) }
+            return
+        }
+        if (e.kind == "spawn") {
+            push spawnRequests e
+            if verbose { print ("[host] spawn " + e.id) }
+            return
+        }
+        if (e.kind == "destroy") {
+            push destroyRequests e.id
+            if verbose { print ("[host] destroy " + e.id) }
+            return
+        }
+        ; custom events are counted; hosts may inspect via subclass hooks later.
+    }
+
+    fn drainEvents:void (list:[GameEventNative]) {
+        def i 0
+        while (i < (array_length list)) {
+            this.handleEvent((itemAt list i))
+            i = (i + 1)
+        }
+    }
+
+    fn imageCount:int () {
+        return (array_length (keys images))
+    }
+
+    fn soundCount:int () {
+        return (array_length (keys sounds))
+    }
+
+    fn spriteCount:int () {
+        return (array_length (keys spriteFrames))
+    }
+
+    fn collisionCount:int () {
+        return (array_length (keys collisions))
+    }
+
+    fn hasImage:boolean (id:string) {
+        def v@(optional):string (get images id)
+        return (!null? v)
+    }
+
+    fn hasSound:boolean (id:string) {
+        def v@(optional):string (get sounds id)
+        return (!null? v)
+    }
+
+    fn soundPlayCount:int () {
+        return (array_length soundsPlayed)
+    }
+}

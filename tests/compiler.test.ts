@@ -41,6 +41,21 @@ describe("Ranger Compiler - Basic Features", () => {
       expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
       expect(run?.output).toContain("Done");
     });
+    it("should compile and run nested collection types", () => {
+      const { compile, run } = compileAndRun(
+        `${FIXTURES_DIR}/nested_collections.rgr`
+      );
+
+      expect(
+        compile.success,
+        `Compile failed: ${compile.error || compile.output}`
+      ).toBe(true);
+      expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+      expect(run?.output).toContain("rows=2 first=2 val=a");
+      expect(run?.output).toContain("bucket total=60 size=3");
+      expect(run?.output).toContain("nested map x=5");
+      expect(run?.output).toContain("Done");
+    });
   });
 
   describe("Static Factory Methods", () => {
