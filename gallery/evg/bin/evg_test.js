@@ -1880,6 +1880,25 @@ class EVGLayout  {
     if ( element.width.isSet ) {
       width = element.width.pixels;
     }
+    if ( element.width.isSet == false ) {
+      const textContent = element.textContent;
+      if ( (textContent.length) > 0 ) {
+        if ( element.getChildCount() == 0 ) {
+          let fontSize = element.inheritedFontSize;
+          if ( element.fontSize.isSet ) {
+            fontSize = element.fontSize.pixels;
+          }
+          if ( fontSize <= 0.0 ) {
+            fontSize = 14.0;
+          }
+          const contentW = this.measureTextContentWidth(textContent, fontSize);
+          const measuredW = ((contentW + element.box.paddingLeftPx) + element.box.paddingRightPx) + (element.box.borderWidthPx * 2.0);
+          if ( measuredW < parentWidth ) {
+            width = measuredW;
+          }
+        }
+      }
+    }
     let height = 0.0;
     let autoHeight = true;
     if ( (element.tagName == "Page") || (element.tagName == "page") ) {
@@ -1967,22 +1986,22 @@ class EVGLayout  {
     if ( childCount > 0 ) {
       contentHeight = this.layoutChildren(element);
     } else {
-      const textContent = element.textContent;
-      if ( (textContent.length) > 0 ) {
-        let fontSize = element.inheritedFontSize;
+      const textContent_1 = element.textContent;
+      if ( (textContent_1.length) > 0 ) {
+        let fontSize_1 = element.inheritedFontSize;
         if ( element.fontSize.isSet ) {
-          fontSize = element.fontSize.pixels;
+          fontSize_1 = element.fontSize.pixels;
         }
-        if ( fontSize <= 0.0 ) {
-          fontSize = 14.0;
+        if ( fontSize_1 <= 0.0 ) {
+          fontSize_1 = 14.0;
         }
         let lineHeightFactor = element.lineHeight;
         if ( lineHeightFactor <= 0.0 ) {
           lineHeightFactor = 1.2;
         }
-        const lineSpacing = fontSize * lineHeightFactor;
+        const lineSpacing = fontSize_1 * lineHeightFactor;
         const availableWidth = (width - element.box.paddingLeftPx) - element.box.paddingRightPx;
-        const lineCount = this.estimateLineCount(textContent, availableWidth, fontSize);
+        const lineCount = this.estimateLineCount(textContent_1, availableWidth, fontSize_1);
         contentHeight = lineSpacing * (lineCount);
       }
     }
@@ -2326,6 +2345,24 @@ class EVGLayout  {
       this.printLayout(child, indent + 1);
       i = i + 1;
     };
+  };
+  measureTextContentWidth (text, fontSize) {
+    if ( (text.length) == 0 ) {
+      return 0.0;
+    }
+    const fontFamily = "Helvetica";
+    const lines = text.split("\n");
+    let maxW = 0.0;
+    let i = 0;
+    while (i < (lines.length)) {
+      const line = lines[i];
+      const lineW = this.measurer.measureTextWidth(line, fontFamily, fontSize);
+      if ( lineW > maxW ) {
+        maxW = lineW;
+      }
+      i = i + 1;
+    };
+    return maxW;
   };
   estimateLineCount (text, maxWidth, fontSize) {
     if ( (text.length) == 0 ) {

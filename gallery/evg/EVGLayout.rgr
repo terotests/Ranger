@@ -77,6 +77,27 @@ class EVGLayout {
             width = element.width.pixels
         }
         
+        ; Text leaf nodes without explicit width shrink-wrap to measured content
+        if (element.width.isSet == false) {
+            def textContent:string element.textContent
+            if ((strlen textContent) > 0) {
+                if ((element.getChildCount()) == 0) {
+                    def fontSize:double element.inheritedFontSize
+                    if element.fontSize.isSet {
+                        fontSize = element.fontSize.pixels
+                    }
+                    if (fontSize <= 0.0) {
+                        fontSize = 14.0
+                    }
+                    def contentW:double (this.measureTextContentWidth(textContent fontSize))
+                    def measuredW:double (contentW + element.box.paddingLeftPx + element.box.paddingRightPx + (element.box.borderWidthPx * 2.0))
+                    if (measuredW < parentWidth) {
+                        width = measuredW
+                    }
+                }
+            }
+        }
+        
         def height:double 0.0
         def autoHeight:boolean true
         
@@ -281,6 +302,7 @@ class EVGLayout {
             def j:int 0
             while (j < childCount) {
                 def c:EVGElement (parent.getChild(j))
+                c.inheritProperties(parent)
                 c.resolveUnits(innerWidth innerHeight)
                 if c.width.isSet {
                     fixedWidth = fixedWidth + c.width.pixels + c.box.marginLeftPx + c.box.marginRightPx
@@ -289,8 +311,9 @@ class EVGLayout {
                         totalFlex = totalFlex + c.flex
                         fixedWidth = fixedWidth + c.box.marginLeftPx + c.box.marginRightPx
                     } {
-                        ; No width and no flex - treat as taking full width (will wrap)
-                        fixedWidth = fixedWidth + innerWidth + c.box.marginLeftPx + c.box.marginRightPx
+                        def avail:double (innerWidth - c.box.marginLeftPx - c.box.marginRightPx)
+                        def estW:double (this.estimateChildWidth(c avail))
+                        fixedWidth = fixedWidth + estW + c.box.marginLeftPx + c.box.marginRightPx
                     }
                 }
                 j = j + 1
@@ -362,9 +385,8 @@ class EVGLayout {
             }
             
             ; Calculate child dimensions
-            ; Start with available inner width minus child's margins
             def availableForChild:double (innerWidth - child.box.marginLeftPx - child.box.marginRightPx)
-            def childWidth:double availableForChild
+            def childWidth:double (this.estimateChildWidth(child availableForChild))
             
             if child.width.isSet {
                 ; If width is explicitly set and it's 100% (resolved to innerWidth), 
@@ -383,7 +405,7 @@ class EVGLayout {
                 }
             }
             
-            ; Total width including margins
+            ; Total width including margins (estimated before layout)
             def childTotalWidth:double (childWidth + child.box.marginLeftPx + child.box.marginRightPx)
             
             ; Check if we need to wrap to next row (for row direction)
@@ -411,6 +433,8 @@ class EVGLayout {
             ; Get actual child height after layout
             def childHeight:double child.calculatedHeight
             def childTotalHeight:double (childHeight + child.box.marginTopPx + child.box.marginBottomPx)
+            ; After shrink-wrap, use real width for row cursor advance
+            def placedWidth:double (child.calculatedWidth + child.box.marginLeftPx + child.box.marginRightPx)
             
             ; Update position tracking
             if isColumn {
@@ -419,7 +443,7 @@ class EVGLayout {
                 totalHeight = totalHeight + childTotalHeight
             } {
                 ; Row direction: advance horizontally
-                currentX = currentX + childTotalWidth
+                currentX = currentX + placedWidth
                 push rowElements child
                 if (childTotalHeight > rowHeight) {
                     rowHeight = childTotalHeight
@@ -702,6 +726,54 @@ class EVGLayout {
             this.printLayout(child (indent + 1))
             i = i + 1
         }
+    }
+    
+    fn estimateChildWidth:double (child:EVGElement maxInnerWidth:double) {
+        ; Width used for row flow / flex pre-calc — matches layoutElement shrink-wrap
+        if child.width.isSet {
+            return child.width.pixels
+        }
+        if (child.calculatedFlexWidth > 0.0) {
+            return child.calculatedFlexWidth
+        }
+        def textContent:string child.textContent
+        if ((strlen textContent) > 0) {
+            if ((child.getChildCount()) == 0) {
+                def fontSize:double child.inheritedFontSize
+                if child.fontSize.isSet {
+                    fontSize = child.fontSize.pixels
+                }
+                if (fontSize <= 0.0) {
+                    fontSize = 14.0
+                }
+                def contentW:double (this.measureTextContentWidth(textContent fontSize))
+                def measuredW:double (contentW + child.box.paddingLeftPx + child.box.paddingRightPx + (child.box.borderWidthPx * 2.0))
+                if (measuredW < maxInnerWidth) {
+                    return measuredW
+                }
+            }
+        }
+        return maxInnerWidth
+    }
+    
+    fn measureTextContentWidth:double (text:string fontSize:double) {
+        ; Widest line width for shrink-wrapped text nodes
+        if ((strlen text) == 0) {
+            return 0.0
+        }
+        def fontFamily:string "Helvetica"
+        def lines:[string] (strsplit text "\n")
+        def maxW:double 0.0
+        def i:int 0
+        while (i < (array_length lines)) {
+            def line:string (itemAt lines i)
+            def lineW:double (measurer.measureTextWidth(line fontFamily fontSize))
+            if (lineW > maxW) {
+                maxW = lineW
+            }
+            i = i + 1
+        }
+        return maxW
     }
     
     fn estimateLineCount:int (text:string maxWidth:double fontSize:double) {
