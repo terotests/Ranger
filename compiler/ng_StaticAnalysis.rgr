@@ -13,7 +13,7 @@ class StaticAnalyzer {
   def ctx@(optional):RangerAppWriterContext
   def currentFunction@(weak optional):RangerAppFunctionDesc
   def currentClass@(weak optional):RangerAppClassDesc
-  def debug:boolean true
+  def debug:boolean false
   
   ; Registry of operators that mutate their first argument
   def mutatingOps:[string:boolean]
@@ -649,8 +649,10 @@ class StaticAnalyzer {
     def isCall:boolean (node.has_call || node.hasFnCall)
     
     ; Debug: show what we're checking
-    if ((node.has_call == true) || (node.hasFnCall == true)) {
-      print ("StaticAnalysis: found call node has_call=" + (to_string node.has_call) + " hasFnCall=" + (to_string node.hasFnCall) + " vref=" + node.vref)
+    if debug {
+      if ((node.has_call == true) || (node.hasFnCall == true)) {
+        print ("StaticAnalysis: found call node has_call=" + (to_string node.has_call) + " hasFnCall=" + (to_string node.hasFnCall) + " vref=" + node.vref)
+      }
     }
     
     if isCall {
@@ -662,7 +664,9 @@ class StaticAnalyzer {
         def childCnt:int (array_length node.children)
         
         ; Debug: print all function calls being checked
-        print ("StaticAnalysis: transitive check call to " + fnDesc.name + " childCnt=" + (to_string childCnt))
+        if debug {
+          print ("StaticAnalysis: transitive check call to " + fnDesc.name + " childCnt=" + (to_string childCnt))
+        }
         
         ; For hasFnCall (obj.method(args) style), structure is:
         ; node.children[0] = fnNode (method reference like obj.method)
@@ -677,28 +681,38 @@ class StaticAnalyzer {
             def argCnt:int (array_length callParams.children)
             def paramCnt:int (array_length fnDesc.params)
             
-            print ("StaticAnalysis:   hasFnCall style, argCnt=" + (to_string argCnt))
+            if debug {
+              print ("StaticAnalysis:   hasFnCall style, argCnt=" + (to_string argCnt))
+            }
             
             for callParams.children arg:CodeNode i {
               ; This is an argument to the function call
               def argVref:string arg.vref
-              print ("StaticAnalysis:   arg[" + (to_string i) + "]=" + argVref + " hasParamDesc=" + (to_string arg.hasParamDesc))
+              if debug {
+                print ("StaticAnalysis:   arg[" + (to_string i) + "]=" + argVref + " hasParamDesc=" + (to_string arg.hasParamDesc))
+              }
               if ((strlen argVref) > 0) {
                 ; Check if argument is a function parameter OR local variable from our context
                 if arg.hasParamDesc {
                   def argParam:RangerAppParamDesc arg.paramDesc
                   def isFunctionParam:boolean (argParam.varType == RangerContextVarType.FunctionParameter)
                   def isLocalVar:boolean (argParam.varType == RangerContextVarType.LocalVariable)
-                  print ("StaticAnalysis:   is FunctionParameter=" + (to_string isFunctionParam) + " isLocalVar=" + (to_string isLocalVar))
+                  if debug {
+                    print ("StaticAnalysis:   is FunctionParameter=" + (to_string isFunctionParam) + " isLocalVar=" + (to_string isLocalVar))
+                  }
                   if (isFunctionParam || isLocalVar) {
                     ; Check if the called function's corresponding parameter has rust_needs_rc_wrap
                     if (i < paramCnt) {
                       def calledParam:RangerAppParamDesc (itemAt fnDesc.params i)
-                      print ("StaticAnalysis:   calledParam.rust_needs_rc_wrap=" + (to_string calledParam.rust_needs_rc_wrap))
+                      if debug {
+                        print ("StaticAnalysis:   calledParam.rust_needs_rc_wrap=" + (to_string calledParam.rust_needs_rc_wrap))
+                      }
                       if calledParam.rust_needs_rc_wrap {
                         ; The called method expects Rc<RefCell<T>>, so our arg needs it too
                         argParam.rust_needs_rc_wrap = true
-                        print ("StaticAnalysis: transitive weak - " + argVref + " passed to " + fnDesc.name + " which needs Rc wrap")
+                        if debug {
+                          print ("StaticAnalysis: transitive weak - " + argVref + " passed to " + fnDesc.name + " which needs Rc wrap")
+                        }
                       }
                     }
                   }
@@ -724,7 +738,9 @@ class StaticAnalyzer {
                       def calledParam:RangerAppParamDesc (itemAt fnDesc.params i)
                       if calledParam.rust_needs_rc_wrap {
                         argParam.rust_needs_rc_wrap = true
-                        print ("StaticAnalysis: transitive weak - " + argVref + " passed to " + fnDesc.name + " which needs Rc wrap")
+                        if debug {
+                          print ("StaticAnalysis: transitive weak - " + argVref + " passed to " + fnDesc.name + " which needs Rc wrap")
+                        }
                       }
                     }
                   }
