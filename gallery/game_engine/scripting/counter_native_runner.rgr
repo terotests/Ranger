@@ -1,0 +1,35 @@
+; ==============================================================================
+; counter_native_runner - while-loop demo (static-compiled path).
+; ==============================================================================
+
+Import "./game_native_runtime.rgr"
+Import "../../ts_to_ranger/generated/counter_generated.rgr"
+
+class CounterNativeRunner {
+    def runner:NativeGameRunner (new NativeGameRunner)
+    def script:GeneratedGameScript (new GeneratedGameScript)
+
+    fn setupScene:void () {
+        def init:NativeGameState (script.initState())
+        def defs:[SpriteDefNative] (script.sprites())
+        runner.setupScene(init defs)
+    }
+
+    fn frame:void () {
+        runner.advanceTime(16)
+        def props:UpdatePropsNative (runner.buildProps(16 false false false false false))
+        def patch:NativeGameState (script.update(props))
+        runner.applyUpdate(patch)
+    }
+}
+
+class CounterNativeRunnerDemo {
+    sfn m@(main):void () {
+        def demo:CounterNativeRunner (new CounterNativeRunner)
+        demo.runner.init(64 64)
+        demo.setupScene()
+        demo.frame()
+        print (("score1=" + demo.runner.score1))
+        print "counter-native-runner done"
+    }
+}

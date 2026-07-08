@@ -486,10 +486,34 @@ class TSEmitter {
             this.emitExpressionStatement(stmt)
             return
         }
+        if (t == "WhileStatement") {
+            this.emitWhile(stmt)
+            return
+        }
         if (t == "BlockStatement") {
             this.emitBlockBody(stmt)
             return
         }
+    }
+
+    ; while (cond) { body } - Ranger shares this exact form.
+    fn emitWhile:void (node:TSNode) {
+        def cond:string "false"
+        if (node.left) {
+            cond = (this.emitExpr((unwrap node.left) "boolean"))
+        }
+        this.emitLine(("while (" + cond) + ") {")
+        this.indent()
+        if (node.body) {
+            def b:TSNode (unwrap node.body)
+            if (b.nodeType == "BlockStatement") {
+                this.emitBlockBody(b)
+            } {
+                this.emitStatement(b)
+            }
+        }
+        this.dedent()
+        this.emitLine("}")
     }
 
     ; ==========================================================================

@@ -102,3 +102,39 @@ describe("Host bridge: resources + events (both paths)", () => {
     }
   });
 });
+
+const COUNTER_GEN = path.join(
+  ROOT,
+  "gallery/ts_to_ranger/generated/counter_generated.rgr"
+);
+
+describe("Emitter: while loops (invaders foundation)", () => {
+  beforeAll(() => {
+    if (fs.existsSync(EMITTER_JS)) {
+      execSync(
+        `node ${EMITTER_JS} -i gallery/game_engine/scripting/counter.game.tsx -o counter_generated.rgr`,
+        { cwd: ROOT, stdio: "pipe" }
+      );
+    }
+  }, 60000);
+
+  it("emits a Ranger while loop with integer locals", () => {
+    const src = fs.readFileSync(COUNTER_GEN, "utf8");
+    expect(src).toContain("while ((i < 5)) {");
+    expect(src).toContain("n = (n + i)");
+    expect(src).toContain("patch.score1 = n");
+  });
+
+  it("while loop yields identical results on both paths (sum 0..4 = 10)", () => {
+    const native = compileAndRun(
+      "gallery/game_engine/scripting/counter_native_runner.rgr"
+    );
+    const interp = compileAndRun(
+      "gallery/game_engine/scripting/counter_runner_demo.rgr"
+    );
+    expect(native.run?.success, native.run?.error).toBe(true);
+    expect(interp.run?.success, interp.run?.error).toBe(true);
+    expect(native.run?.output).toContain("score1=10");
+    expect(interp.run?.output).toContain("score1=10");
+  });
+});

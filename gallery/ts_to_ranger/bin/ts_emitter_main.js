@@ -4894,10 +4894,32 @@ class TSEmitter  {
       this.emitExpressionStatement(stmt);
       return;
     }
+    if ( t == "WhileStatement" ) {
+      this.emitWhile(stmt);
+      return;
+    }
     if ( t == "BlockStatement" ) {
       this.emitBlockBody(stmt);
       return;
     }
+  };
+  emitWhile (node) {
+    let cond = "false";
+    if ( typeof(node.left) != "undefined" ) {
+      cond = this.emitExpr((node.left), "boolean");
+    }
+    this.emitLine(("while (" + cond) + ") {");
+    this.indent();
+    if ( typeof(node.body) != "undefined" ) {
+      const b = node.body;
+      if ( b.nodeType == "BlockStatement" ) {
+        this.emitBlockBody(b);
+      } else {
+        this.emitStatement(b);
+      }
+    }
+    this.dedent();
+    this.emitLine("}");
   };
   emitExpressionStatement (stmt) {
     if ( typeof(stmt.left) === "undefined" ) {

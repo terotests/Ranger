@@ -96,8 +96,54 @@ The host (`GameRunner` / `NativeGameRunner`) calls the same script surface as
 | Function | Native signature |
 |----------|------------------|
 | `sprites()` | `fn sprites:[SpriteDefNative] ()` |
+| `resources()` | `fn resources:[ResourceDefNative] ()` |
 | `initState()` | `fn initState:NativeGameState ()` |
 | `update(props)` | `fn update:NativeGameState (props:UpdatePropsNative)` |
+
+### Engine host bridge — resources & events (both paths)
+
+The engine bridge lets scripts create engine objects/resources and send events.
+It is **data-driven** so the identical contract runs in the TS interpreter and in
+the static-compiled binary (no per-path glue, reducer-friendly):
+
+- **`resources()`** — declared once (like `sprites()`); returns resource defs the
+  host registers into its tables. `kind` selects the table:
+
+  ```ts
+  function resources() {
+    return [
+      { kind: "image",     id: "bg",   path: "space.png" },
+      { kind: "sound",     id: "blip", path: "blip.wav" },
+      { kind: "sprite",    id: "star", px: 2, frameCount: 3 },  // animation frames
+      { kind: "collision", id: "star", w: 8, h: 8 }             // registered for later
+    ];
+  }
+  ```
+
+- **`state.events[]`** — `update()` returns transient events each frame; the host
+  drains them after the reducer step (`playSound`, `spawn`, `destroy`, custom):
+
+  ```ts
+  return { entities, t, events: [
+    { kind: "playSound", id: "blip" },
+    { kind: "spawn", id: "shot", x: px, y: py }
+  ] };
+  ```
+
+`GameHost` (`game_host.rgr`) owns the registries (`images`, `sounds`,
+`spriteFrames`, `collisions`) and event sink (`soundsPlayed`, `spawnRequests`,
+`destroyRequests`, `eventCount`). Both `GameRunner` (interpreter) and
+`NativeGameRunner` (compiled) register `resources()` at setup and drain
+`state.events` each frame into the same `GameHost`. The `spawner.game.tsx` demo
+verifies byte-identical host state across paths.
+
+### Arbitrary scalar state fields
+
+TS state may carry any numeric field (invaders `px`, `waveX`, `anim`, …). Fields
+not in the fixed `NativeGameState` schema are routed to a generic
+`numbers:[string:double]` map: `set patch.numbers "t" (...)` on write and
+`(unwrap (get s.numbers "t"))` on read. So scripts are not limited to the
+predefined score/velocity fields.
 
 ### State merge
 
@@ -113,9 +159,12 @@ merges via `NativeGameStateOps.mergeState()`:
 - Top-level `function` declarations
 - `const` / `let` → `def`
 - `if` / `return` / assignment statements
+- `while` loops (with integer/double locals + reassignment)
 - Literals, member access, `+ - * < >`, unary `-`
-- Object literals → `NativeGameState` / `SpriteDefNative` / entity map
-- Array literal in `sprites()`
+- Object literals → `NativeGameState` / `SpriteDefNative` / `ResourceDefNative` /
+  `GameEventNative` / entity map
+- Array literals in `sprites()`, `resources()`, and `state.events`
+- Arbitrary scalar state fields via the `numbers` map
 
 ### Type-aware emission (why the output compiles statically)
 
@@ -135,8 +184,15 @@ has a single `number` type. The emitter therefore:
 ### Not yet emitted
 
 - `hud()` / JSX (keep on interpreter path or separate EVG codegen)
-- `while` / `for`, helper calls, module-level `const` arrays
+- `for` loops, helper `function` calls with params, module-level `const`
+  arrays (invaders bitmap tables), dynamic entity keys (`entities[id]`),
+  array indexing/`push` on script-owned arrays
 - Multi-screen `state.screen` / `screens`
+
+Full Invaders compilation needs the above (helpers, `const` arrays, dynamic
+keys). The host bridge, `while`, and the `numbers` map are the foundation; the
+`spawner.game.tsx` and `counter.game.tsx` demos exercise them end-to-end on both
+paths.
 
 ## Recommended Ranger language changes
 
@@ -165,20 +221,29 @@ emitter emit near-verbatim TS.
 
 ```
 gallery/ts_to_ranger/
-  game_script_types.rgr        # shared bridge types
+  game_script_types.rgr        # shared bridge types (+ numbers map, events)
+  game_host.rgr                # GameHost registry + ResourceDefNative/GameEventNative
   ts_emitter.rgr               # type-aware AST → Ranger
   ts_emitter_main.rgr          # CLI
   generated/pong_generated.rgr # emitter output — statically compiled
+  generated/spawner_generated.rgr
+  generated/counter_generated.rgr
 gallery/game_engine/scripting/
-  game_native_runtime.rgr      # native host (no interpreter)
+  game_native_runtime.rgr      # native host (no interpreter) + GameHost
+  game_runtime.rgr             # interpreter host + GameHost
   pong_native_runner.rgr       # imports generated class, headless parity
+  spawner.game.tsx / *_runner  # resources + events demo (both paths)
+  counter.game.tsx / *_runner  # while-loop demo (both paths)
 ```
 
 ## Next steps
 
-1. Expand emitter: `while`, module `const`, helper `function` calls.
-2. `game_sdl_native_runner.rgr` — SDL host that imports generated script instead
+1. Full Invaders: helper `function` calls with params, module-level `const`
+   arrays (bitmap tables), dynamic entity keys (`entities[alienId(i)]`), array
+   indexing/`push` on script arrays.
+2. Richer events/resources: typed spawn payloads, sprite frame bitmap upload,
+   collision geometry registration consumed by the SDL host.
+3. `game_sdl_native_runner.rgr` — SDL host that imports generated script instead
    of `loadScript(.tsx)`.
-3. LLVM path: `game_native_runtime + generated/pong_generated.rgr` → single
-   native binary (~same as `build-game-sdl.sh` but without interpreter).
-4. Optional: codegen `hud()` to `game_hud` EVG tree builder (static JSX).
+4. LLVM path: `game_native_runtime + generated/*.rgr` → single native binary.
+5. Optional: codegen `hud()` to `game_hud` EVG tree builder (static JSX).
