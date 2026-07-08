@@ -46,6 +46,7 @@ class GameRunner {
     def timeMs:int 0
 
     fn init:void (w:int h:int) {
+        engine.quiet = true
         pw = w
         ph = h
         canvas.init(w h)
@@ -95,6 +96,10 @@ class GameRunner {
             i = (i + 1)
         }
         return -1
+    }
+
+    fn entityCount:int () {
+        return (array_length entities)
     }
 
     ; Build retained entities from the script's sprites() (called ONCE).
@@ -151,7 +156,7 @@ class GameRunner {
     }
 
     ; Advance one frame: pass time + dt + input to update(), apply the result.
-    fn frame:void (dtMs:int up:boolean down:boolean) {
+    fn frame:void (dtMs:int up:boolean down:boolean left:boolean right:boolean) {
         timeMs = (timeMs + dtMs)
         def k:[string]
         def v:[EvalValue]
@@ -163,6 +168,10 @@ class GameRunner {
         push v (EvalValue.boolean(up))
         push k "down"
         push v (EvalValue.boolean(down))
+        push k "left"
+        push v (EvalValue.boolean(left))
+        push k "right"
+        push v (EvalValue.boolean(right))
         push k "state"
         push v state
         def props:EvalValue (EvalValue.object(k v))
@@ -173,12 +182,19 @@ class GameRunner {
     ; Draw the current scene into the RGBA buffer.
     fn draw:void () {
         canvas.clear(12 16 32)
-        ; center net
-        def ny 0
-        def netX (this.half(pw))
-        while (ny < ph) {
-            canvas.fillRect((netX - 1) ny 2 6 40 55 95)
-            ny = (ny + 12)
+        ; optional center net (Pong layout; skip for other games)
+        def layout:EvalValue (state.getMember("layout"))
+        def showNet true
+        if (layout.stringValue == "invaders") {
+            showNet = false
+        }
+        if (showNet) {
+            def ny 0
+            def netX (this.half(pw))
+            while (ny < ph) {
+                canvas.fillRect((netX - 1) ny 2 6 40 55 95)
+                ny = (ny + 12)
+            }
         }
         ; retained entities (positioned by state, sprite defined once)
         def i 0
@@ -192,8 +208,14 @@ class GameRunner {
             i = (i + 1)
         }
         ; scores as text (mini font)
-        this.drawNumber((netX - 44) 10 4 score1 120 220 160)
-        this.drawNumber((netX + 20) 10 4 score2 220 140 120)
+        def netX (this.half(pw))
+        if (layout.stringValue == "invaders") {
+            this.drawNumber(16 10 4 score1 120 220 160)
+            this.drawNumber((pw - 40) 10 4 score2 255 180 80)
+        } {
+            this.drawNumber((netX - 44) 10 4 score1 120 220 160)
+            this.drawNumber((netX + 20) 10 4 score2 220 140 120)
+        }
     }
 
     ; --- tiny 3x5 bitmap digit font -----------------------------------------

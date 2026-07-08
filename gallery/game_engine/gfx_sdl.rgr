@@ -70,6 +70,8 @@ static int rgfx_poll_mask() {
     if (ks[SDL_SCANCODE_S] || ks[SDL_SCANCODE_DOWN]) { m |= 2; }
     if (ks[SDL_SCANCODE_SPACE])                      { m |= 4; }
     if (ks[SDL_SCANCODE_Q])                          { m |= 8; }
+    if (ks[SDL_SCANCODE_A] || ks[SDL_SCANCODE_LEFT])  { m |= 16; }
+    if (ks[SDL_SCANCODE_D] || ks[SDL_SCANCODE_RIGHT]) { m |= 32; }
     return m;
 }
 static int rgfx_should_close() { return g_rgfx_should_close; }
@@ -95,7 +97,7 @@ static void rgfx_close() {
     }
 
     ; Pump events and return a bitmask of currently-pressed buttons:
-    ;   1 = up, 2 = down, 4 = action, 8 = quit
+    ;   1 = up, 2 = down, 4 = action, 8 = quit, 16 = left, 32 = right
     gfx_poll_mask _:int () {
         templates {
             cpp ( "rgfx_poll_mask()" (imp "<SDL2/SDL.h>") )

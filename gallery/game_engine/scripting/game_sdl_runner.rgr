@@ -9,7 +9,7 @@
 ;   ./game_sdl gallery/game_engine/scripting/pong.game.tsx
 ;   SDL_VIDEODRIVER=dummy ./game_sdl gallery/game_engine/scripting/pong.game.tsx 300
 ;
-; Controls: W/Up = up, S/Down = down, Space = action, Q/Esc = quit.
+; Controls: Arrow keys / A,D = move (game-specific), W/S = alt, Space = action, Q/Esc = quit.
 ; Optional second CLI arg = max frames (headless smoke / CI).
 ; ==============================================================================
 
@@ -53,6 +53,8 @@ class GameSdlRunner {
         while (running) {
             def up:boolean false
             def down:boolean false
+            def left:boolean false
+            def right:boolean false
             def m:int (gfx_poll_mask)
             if ((bit_and m 1) != 0) {
                 up = true
@@ -60,10 +62,16 @@ class GameSdlRunner {
             if ((bit_and m 2) != 0) {
                 down = true
             }
+            if ((bit_and m 16) != 0) {
+                left = true
+            }
+            if ((bit_and m 32) != 0) {
+                right = true
+            }
             if ((bit_and m 8) != 0) {
                 running = false
             }
-            runner.frame(16 up down)
+            runner.frame(16 up down left right)
             this.draw()
             frames = (frames + 1)
             if (gfx_should_close) {
@@ -95,6 +103,13 @@ class GameSdlRunner {
         }
         be.run()
         def msg:string ("game-sdl done: frames=" + be.frames)
+        msg = (msg + " | entities=" + (be.runner.entityCount()))
+        def sx:int (be.runner.entityX("ship4"))
+        def sy:int (be.runner.entityY("ship4"))
+        msg = (msg + " | ship=")
+        msg = (msg + sx)
+        msg = (msg + ",")
+        msg = (msg + sy)
         msg = (msg + " | score ")
         msg = (msg + be.runner.score1)
         msg = (msg + " - ")

@@ -127,6 +127,14 @@ ffmpeg -f rawvideo -pixel_format rgba -video_size 480x270 \
   -i gallery/game_engine/scripting/pong_frame.rgba -y pong.png
 ```
 
+Space Invaders variant: [`invaders.game.tsx`](./invaders.game.tsx) via
+[`invaders_runner_demo.rgr`](./invaders_runner_demo.rgr) (same runner API; many
+retained pixel sprites).
+
+Engine quirks and fixes: [`TSX_ENGINE_ISSUES.md`](./TSX_ENGINE_ISSUES.md).
+
+Top-level **`const` / array / object** structures are supported — define them at module scope and read them from any script function (see issue log for `moduleScope` vs `hostScope`).
+
 ## Roadmap
 
 1. **Done:** namespace injection (`registerGlobal`), script loading + function

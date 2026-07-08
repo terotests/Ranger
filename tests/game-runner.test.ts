@@ -36,4 +36,28 @@ describe("Game runner - scripted Pong", () => {
     expect(by).toBeLessThan(270);
     expect(`${bx},${by}`).not.toBe("240,135");
   });
+
+  it("runs the scripted invaders game and scores kills", () => {
+    const { compile, run } = compileAndRun(
+      "gallery/game_engine/scripting/invaders_runner_demo.rgr"
+    );
+
+    expect(
+      compile.success,
+      `Compile failed: ${compile.error || compile.output}`
+    ).toBe(true);
+    expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+
+    const out = run?.output || "";
+    expect(out).toContain("frames=600");
+    expect(out).toContain("invaders-runner done");
+
+    const score = out.match(/score=(\d+),(\d+)/);
+    expect(score, `no score in output: ${out}`).toBeTruthy();
+    expect(parseInt(score![1], 10)).toBeGreaterThan(0);
+
+    const entities = out.match(/entities=(\d+)/);
+    expect(entities, `no entity count in output: ${out}`).toBeTruthy();
+    expect(parseInt(entities![1], 10)).toBeGreaterThan(200);
+  });
 });
