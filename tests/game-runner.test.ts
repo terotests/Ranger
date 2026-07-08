@@ -145,6 +145,10 @@ describe("Game runner - scripted Pong", () => {
     const pac = out.match(/pac=(-?\d+),(-?\d+)/);
     expect(pac, `no pac position in output: ${out}`).toBeTruthy();
     expect(parseInt(pac![1], 10)).toBeGreaterThan(0);
+
+    const audioPlays = out.match(/audioPlays=(\d+)/);
+    expect(audioPlays, `no audioPlays in output: ${out}`).toBeTruthy();
+    expect(parseInt(audioPlays![1], 10)).toBeGreaterThan(0);
   });
 
   it("hot-reloads update() via AST diff without scene reset", () => {
