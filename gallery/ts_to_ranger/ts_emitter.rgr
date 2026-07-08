@@ -41,6 +41,10 @@ class TSEmitter {
     ; State fields that hold script-owned arrays -> stored in state.intArrays.
     def stateArrayFieldType:[string:string]
     def tmpCounter:int 0
+    ; Synthesized struct interface names (fnName + "Ret") already registered.
+    def synthStructDone:[string:boolean]
+    ; Block currently being emitted (for empty-array element-type inference).
+    def currentEmitBlock:TSNode (new TSNode())
 
     ; ==========================================================================
     ; TS type annotation -> Ranger type
@@ -214,6 +218,8 @@ class TSEmitter {
         interfaceNames = ifn
         def saf:[string:string]
         stateArrayFieldType = saf
+        def ssd:[string:boolean]
+        synthStructDone = ssd
         tmpCounter = 0
         this.seedBridgeStructs()
     }
@@ -306,10 +312,31 @@ class TSEmitter {
             return "int"
         }
         def first:string (substring arrType 0 1)
-        if (first == "[") {
-            return (substring arrType 1 ((strlen arrType) - 1))
+        if (first != "[") {
+            return "int"
         }
-        return "int"
+        def inner:string (substring arrType 1 ((strlen arrType) - 1))
+        def il:int (strlen inner)
+        def depth:int 0
+        def sep:int (0 - 1)
+        def i:int 0
+        while (i < il) {
+            def c:int (charAt inner i)
+            if (c == (ccode "[")) {
+                depth = depth + 1
+            }
+            if (c == 93) {
+                depth = depth - 1
+            }
+            if ((c == (ccode ":")) && (depth == 0)) {
+                sep = i
+            }
+            i = i + 1
+        }
+        if (sep >= 0) {
+            return (substring inner (sep + 1) il)
+        }
+        return inner
     }
 
     ; Field type of a struct (interface) member, or "" if unknown.
@@ -476,10 +503,14 @@ class TSEmitter {
             }
             return "int"
         }
+        if (t == "ObjectExpression") {
+            if ((array_length node.children) == 0) {
+                return "[string:EntityPoseNative]"
+            }
+            return (this.inferObjectStructType(node ""))
+        }
         return "int"
     }
-
-    ; Common numeric type for a binary operation's operands.
     fn numericCommon:string (node:TSNode) {
         def lt:string "int"
         def rt:string "int"
@@ -643,13 +674,177 @@ class TSEmitter {
             i = (i + 1)
         }
         set fnParamTypesCsv node.name (this.joinCsv(types))
+        this.inferParamTypes(node)
+    }
+
+    ; ==========================================================================
+    ; Object-literal struct synthesis + param type inference
+    ; ==========================================================================
+
+    ; Match an object literal to a known bridge struct, or synthesize fnName+"Ret".
+    fn inferObjectStructType:string (obj:TSNode fnName:string) {
+        def known:string (this.matchKnownStruct(obj))
+        if ((strlen known) > 0) {
+            return known
+        }
+        if ((strlen fnName) == 0) {
+            return "int"
+        }
+        return (this.registerSynthStruct(obj fnName))
+    }
+
+    fn matchKnownStruct:string (obj:TSNode) {
+        if (obj.nodeType != "ObjectExpression") {
+            return ""
+        }
+        def hasId:boolean false
+        def hasKind:boolean false
+        def hasX:boolean false
+        def hasY:boolean false
+        def i 0
+        while (i < (array_length obj.children)) {
+            def prop:TSNode (itemAt obj.children i)
+            if (prop.nodeType == "Property") {
+                def key:string (this.propKey(prop))
+                if (key == "id") { hasId = true }
+                if (key == "kind") { hasKind = true }
+                if (key == "x") { hasX = true }
+                if (key == "y") { hasY = true }
+            }
+            i = (i + 1)
+        }
+        if (hasId && hasKind) {
+            return "SpriteDefNative"
+        }
+        if (hasX && hasY) {
+            return "EntityPoseNative"
+        }
+        return ""
+    }
+
+    fn registerSynthStruct:string (obj:TSNode fnName:string) {
+        def baseName:string (fnName + "Ret")
+        def structType:string (baseName + "Native")
+        def done@(optional):boolean (get synthStructDone baseName)
+        if (null? done) {
+            def csv:string (this.objectFieldsCsv(obj))
+            set interfaceFieldsCsv baseName csv
+            push interfaceNames baseName
+            set synthStructDone baseName true
+        }
+        return structType
+    }
+
+    fn objectFieldsCsv:string (obj:TSNode) {
+        def pairs:[string]
+        def i 0
+        while (i < (array_length obj.children)) {
+            def prop:TSNode (itemAt obj.children i)
+            if (prop.nodeType == "Property") {
+                def key:string (this.propKey(prop))
+                if ((strlen key) > 0) {
+                    def valNode:TSNode (this.propertyValueNode(prop))
+                    def ft:string (this.exprType(valNode))
+                    push pairs ((key + ":") + ft)
+                }
+            }
+            i = (i + 1)
+        }
+        return (this.joinCsv(pairs))
+    }
+
+    fn inferParamTypes:void (node:TSNode) {
+        if (null? node.body) {
+            return
+        }
+        def body:TSNode (unwrap node.body)
+        def csv@(optional):string (get fnParamTypesCsv node.name)
+        def oldTypes:[string]
+        if (!null? csv) {
+            oldTypes = (this.splitCsv((unwrap csv)))
+        }
+        def newTypes:[string]
+        def i 0
+        while (i < (array_length node.params)) {
+            def p:TSNode (itemAt node.params i)
+            def pt:string "int"
+            if (p.typeAnnotation) {
+                pt = (this.annotType((unwrap p.typeAnnotation)))
+            } {
+                if (i < (array_length oldTypes)) {
+                    pt = (itemAt oldTypes i)
+                }
+                def inferred:string (this.inferParamTypeFromBody(p.name body))
+                if ((strlen inferred) > 0) {
+                    pt = inferred
+                }
+            }
+            push newTypes pt
+            i = (i + 1)
+        }
+        set fnParamTypesCsv node.name (this.joinCsv(newTypes))
+    }
+
+    fn inferParamTypeFromBody:string (param:string body:TSNode) {
+        if (param == "entities") {
+            return "[string:EntityPoseNative]"
+        }
+        if (param == "alive") {
+            return "[int]"
+        }
+        def fromUse:string (this.inferParamTypeWalk(param body))
+        if ((strlen fromUse) > 0) {
+            return fromUse
+        }
+        return ""
+    }
+
+    fn inferParamTypeWalk:string (param:string node:TSNode) {
+        def t:string node.nodeType
+        if (t == "MemberExpression") {
+            if (node.left) {
+                def base:TSNode (unwrap node.left)
+                if (base.nodeType == "Identifier") {
+                    if (base.name == param) {
+                        if (node.name == "length") {
+                            return "[int]"
+                        }
+                        return "[string:EntityPoseNative]"
+                    }
+                }
+            }
+        }
+        def i 0
+        while (i < (array_length node.children)) {
+            def r:string (this.inferParamTypeWalk(param (itemAt node.children i)))
+            if ((strlen r) > 0) {
+                return r
+            }
+            i = (i + 1)
+        }
+        if (node.left) {
+            def r2:string (this.inferParamTypeWalk(param (unwrap node.left)))
+            if ((strlen r2) > 0) {
+                return r2
+            }
+        }
+        if (node.right) {
+            def r3:string (this.inferParamTypeWalk(param (unwrap node.right)))
+            if ((strlen r3) > 0) {
+                return r3
+            }
+        }
+        if (node.body) {
+            return (this.inferParamTypeWalk(param (unwrap node.body)))
+        }
+        return ""
     }
 
     ; A "positive" type is one worth overriding the default int with.
     fn isPositiveType:boolean (t:string) {
         if ((strlen t) == 0) { return false }
+        if (t == "void") { return true }
         if (t == "int") { return false }
-        if (t == "void") { return false }
         if ((substring t 0 1) == "[") { return true }
         if (t == "string") { return true }
         if (t == "double") { return true }
@@ -659,9 +854,6 @@ class TSEmitter {
     }
 
     ; Infer a helper's return type from its body when it has no annotation.
-    ; Handles string (incl. concatenation), arrays (literal or local array
-    ; built with push), const arrays and known-helper calls. Object-returning
-    ; helpers stay "int" (object-literal returns are not yet modelled).
     fn inferHelperReturnType:string (node:TSNode) {
         if (null? node.body) {
             return "int"
@@ -671,9 +863,53 @@ class TSEmitter {
         def local:[string:string]
         varTypes = local
         this.collectLocalVarTypes(body body)
-        def result:string (this.findReturnType(body))
+        if (this.functionHasValueReturn(body) == false) {
+            return "void"
+        }
+        def result:string (this.findReturnType(body node.name))
         varTypes = saved
         return result
+    }
+
+    fn functionHasValueReturn:boolean (block:TSNode) {
+        def i 0
+        while (i < (array_length block.children)) {
+            if (this.stmtHasValueReturn((itemAt block.children i))) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn stmtHasValueReturn:boolean (stmt:TSNode) {
+        def t:string stmt.nodeType
+        if (t == "ReturnStatement") {
+            return (!null? stmt.left)
+        }
+        if (t == "BlockStatement") {
+            return (this.functionHasValueReturn(stmt))
+        }
+        if (t == "IfStatement") {
+            if (stmt.body) {
+                if (this.stmtHasValueReturn((unwrap stmt.body))) {
+                    return true
+                }
+            }
+            if (stmt.right) {
+                if (this.stmtHasValueReturn((unwrap stmt.right))) {
+                    return true
+                }
+            }
+            return false
+        }
+        if (t == "WhileStatement") {
+            if (stmt.body) {
+                return (this.stmtHasValueReturn((unwrap stmt.body)))
+            }
+            return false
+        }
+        return false
     }
 
     fn collectLocalVarTypes:void (block:TSNode root:TSNode) {
@@ -700,6 +936,14 @@ class TSEmitter {
     }
 
     fn localInitType:string (initNode:TSNode name:string root:TSNode) {
+        if (initNode.nodeType == "ObjectExpression") {
+            if ((array_length initNode.children) == 0) {
+                if (name == "entities") {
+                    return "[string:EntityPoseNative]"
+                }
+                return "[string:EntityPoseNative]"
+            }
+        }
         if (initNode.nodeType == "ArrayExpression") {
             def elem:string ""
             if ((array_length initNode.children) > 0) {
@@ -785,11 +1029,11 @@ class TSEmitter {
 
     ; First positively-typed return value found in a block (recursing into
     ; if/while/block bodies).
-    fn findReturnType:string (block:TSNode) {
+    fn findReturnType:string (block:TSNode fnName:string) {
         def i 0
         while (i < (array_length block.children)) {
             def stmt:TSNode (itemAt block.children i)
-            def rt:string (this.findReturnTypeInStmt(stmt))
+            def rt:string (this.findReturnTypeInStmt(stmt fnName))
             if (this.isPositiveType(rt)) {
                 return rt
             }
@@ -798,26 +1042,30 @@ class TSEmitter {
         return "int"
     }
 
-    fn findReturnTypeInStmt:string (stmt:TSNode) {
+    fn findReturnTypeInStmt:string (stmt:TSNode fnName:string) {
         def t:string stmt.nodeType
         if (t == "ReturnStatement") {
             if (stmt.left) {
-                return (this.exprType((unwrap stmt.left)))
+                def val:TSNode (unwrap stmt.left)
+                if (val.nodeType == "ObjectExpression") {
+                    return (this.inferObjectStructType(val fnName))
+                }
+                return (this.exprType(val))
             }
             return "void"
         }
         if (t == "BlockStatement") {
-            return (this.findReturnType(stmt))
+            return (this.findReturnType(stmt fnName))
         }
         if (t == "IfStatement") {
             if (stmt.body) {
-                def r1:string (this.findReturnTypeInStmt((unwrap stmt.body)))
+                def r1:string (this.findReturnTypeInStmt((unwrap stmt.body) fnName))
                 if (this.isPositiveType(r1)) {
                     return r1
                 }
             }
             if (stmt.right) {
-                def r2:string (this.findReturnTypeInStmt((unwrap stmt.right)))
+                def r2:string (this.findReturnTypeInStmt((unwrap stmt.right) fnName))
                 if (this.isPositiveType(r2)) {
                     return r2
                 }
@@ -826,7 +1074,7 @@ class TSEmitter {
         }
         if (t == "WhileStatement") {
             if (stmt.body) {
-                return (this.findReturnTypeInStmt((unwrap stmt.body)))
+                return (this.findReturnTypeInStmt((unwrap stmt.body) fnName))
             }
             return "int"
         }
@@ -1211,6 +1459,11 @@ class TSEmitter {
             def pt:string "int"
             if (p.typeAnnotation) {
                 pt = (this.annotType((unwrap p.typeAnnotation)))
+            } {
+                def fromReg:string (this.helperParamType(currentFn i))
+                if ((strlen fromReg) > 0) {
+                    pt = fromReg
+                }
             }
             set varTypes p.name pt
             push parts ((p.name + ":") + pt)
@@ -1233,6 +1486,7 @@ class TSEmitter {
     }
 
     fn emitBlockBody:void (block:TSNode) {
+        currentEmitBlock = block
         def i 0
         while (i < (array_length block.children)) {
             def stmt:TSNode (itemAt block.children i)
@@ -1321,7 +1575,11 @@ class TSEmitter {
                     def et:string (this.elemTypeOf((this.exprType((unwrap callee.left)))))
                     def argStr:string ""
                     if ((array_length node.children) > 0) {
-                        argStr = (this.emitExpr((itemAt node.children 0) et))
+                        def argNode:TSNode (itemAt node.children 0)
+                        argStr = (this.emitValueExpr(argNode et))
+                        if (argNode.nodeType == "CallExpression") {
+                            argStr = (("(" + argStr) + ")")
+                        }
                     }
                     this.emitLine(((("push " + base) + " ") + argStr))
                     return
@@ -1359,7 +1617,11 @@ class TSEmitter {
             def key:string ""
             if (target.computed) {
                 if (target.right) {
-                    key = (this.emitExpr((unwrap target.right) "string"))
+                    def keyNode:TSNode (unwrap target.right)
+                    key = (this.emitExpr(keyNode "string"))
+                    if (keyNode.nodeType == "CallExpression") {
+                        key = (("(" + key) + ")")
+                    }
                 }
             } {
                 key = ("\"" + target.name) + "\""
@@ -1454,7 +1716,7 @@ class TSEmitter {
             return node.name
         }
         if (node.nodeType == "MemberExpression") {
-            return (this.emitMember(node))
+            return (this.emitMember(node "int"))
         }
         return "tmp"
     }
@@ -1484,6 +1746,16 @@ class TSEmitter {
             if (hasAnnot == false) {
                 rtype = (this.exprType(initNode))
             }
+            ; Empty array literal: infer element type from later push() calls
+            ; in this block (same logic as prescan localInitType).
+            if (initNode.nodeType == "ArrayExpression") {
+                if ((array_length initNode.children) == 0) {
+                    def pushed:string (this.findPushArgType(currentEmitBlock name))
+                    if ((strlen pushed) > 0) {
+                        rtype = (("[" + pushed) + "]")
+                    }
+                }
+            }
             set varTypes name rtype
             ; array literal initializer
             if (initNode.nodeType == "ArrayExpression") {
@@ -1492,7 +1764,7 @@ class TSEmitter {
                 def k 0
                 while (k < (array_length initNode.children)) {
                     def el:TSNode (itemAt initNode.children k)
-                    def ev:string (this.emitExpr(el et))
+                    def ev:string (this.emitValueExpr(el et))
                     this.emitLine(((("push " + name) + " ") + ev))
                     k = (k + 1)
                 }
@@ -1580,7 +1852,12 @@ class TSEmitter {
         }
         def val:TSNode (unwrap node.left)
         if (inSpritesFn) {
-            this.emitSpriteArrayReturn(val)
+            if (val.nodeType == "ArrayExpression") {
+                this.emitSpriteArrayReturn(val)
+            } {
+                def rs:string (this.emitExpr(val "[SpriteDefNative]"))
+                this.emitLine(("return " + rs))
+            }
             return
         }
         if (inResourcesFn) {
@@ -1828,7 +2105,7 @@ class TSEmitter {
 
     fn emitPropertyValue:string (prop:TSNode expected:string) {
         if (prop.left) {
-            return (this.emitExpr((unwrap prop.left) expected))
+            return (this.emitValueExpr((unwrap prop.left) expected))
         }
         return "0"
     }
@@ -1869,13 +2146,23 @@ class TSEmitter {
             if (!null? ca) {
                 return ("(this." + node.name) + ")"
             }
+            def cst@(optional):string (get constScalarTypes node.name)
+            if (!null? cst) {
+                return ("this." + node.name)
+            }
+            if (expected == "double") {
+                def vt:string (this.lookupVarType(node.name))
+                if (vt == "int") {
+                    return ("(to_double " + node.name) + ")"
+                }
+            }
             return node.name
         }
         if (t == "CallExpression") {
             return (this.emitCall(node))
         }
         if (t == "MemberExpression") {
-            return (this.emitMember(node))
+            return (this.emitMember(node expected))
         }
         if (t == "BinaryExpression") {
             return (this.emitBinary(node expected))
@@ -1908,10 +2195,24 @@ class TSEmitter {
                 if ((strlen pexp) == 0) {
                     pexp = (this.exprType(arg))
                 }
-                push args (this.emitExpr(arg pexp))
+                def argExpr:string (this.emitExpr(arg pexp))
+                if (pexp == "int") {
+                    def at:string (this.exprType(arg))
+                    if (at == "double") {
+                        argExpr = ("(to_int " + argExpr) + ")"
+                    }
+                }
+                if (pexp == "double") {
+                    def at2:string (this.exprType(arg))
+                    if (at2 == "int") {
+                        argExpr = ("(to_double " + argExpr) + ")"
+                    }
+                }
+                push args argExpr
                 i = (i + 1)
             }
-            return ((("this." + name) + "(") + ((this.joinSpace(args)) + ")"))
+            def inner:string (("this." + name) + "(") + ((this.joinSpace(args)) + ")")
+            return (("(" + inner) + ")")
         }
         ; member call like x.toFixed / a.push handled elsewhere; fallback
         return "0"
@@ -1928,7 +2229,7 @@ class TSEmitter {
         return raw
     }
 
-    fn emitMember:string (node:TSNode) {
+    fn emitMember:string (node:TSNode expected:string) {
         if (null? node.left) {
             return ""
         }
@@ -1979,7 +2280,15 @@ class TSEmitter {
         if (base == "props") {
             return ("props." + prop)
         }
-        return (base + ".") + prop
+        def result:string (base + ".") + prop
+        if (expected == "double") {
+            def baseT:string (this.exprType(leftNode))
+            def sf:string (this.structFieldType(baseT prop))
+            if (sf == "int") {
+                return ("(to_double " + result) + ")"
+            }
+        }
+        return result
     }
 
     fn endsWith:boolean (s:string suffix:string) {
@@ -2007,7 +2316,17 @@ class TSEmitter {
         }
         def left:string (this.emitExpr((unwrap node.left) operandExpected))
         def right:string (this.emitExpr((unwrap node.right) operandExpected))
-        return (("(" + left) + (" " + op)) + ((" " + right) + ")")
+        def result:string (("(" + left) + (" " + op)) + ((" " + right) + ")")
+        if ((expected == "int") && (op == "/")) {
+            return ("(to_int " + result) + ")")
+        }
+        if (expected == "double") {
+            def nc:string (this.numericCommon(node))
+            if (nc == "int") {
+                return ("(to_double " + result) + ")"
+            }
+        }
+        return result
     }
 
     fn isArithmeticOp:boolean (op:string) {

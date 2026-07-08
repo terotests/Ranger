@@ -3,7 +3,7 @@ import { execSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
-import { compileAndRun } from "./helpers/compiler";
+import { compileAndRun, compileRanger } from "./helpers/compiler";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -56,5 +56,28 @@ describe("TS -> Ranger -> native (compiled game script)", () => {
     expect(out).toContain("ball=212,105");
     expect(out).toContain("score=0,0");
     expect(out).toContain("pong-native-runner done");
+  });
+
+  it("invaders.game.tsx emits and compiles to ES6 (nested types + set/push)", () => {
+    const invadersRgr = path.join(
+      ROOT,
+      "gallery/ts_to_ranger/generated/invaders_generated.rgr"
+    );
+    expect(fs.existsSync(EMITTER_JS)).toBe(true);
+    execSync(
+      `node ${EMITTER_JS} -i gallery/game_engine/scripting/invaders.game.tsx -o invaders_generated.rgr`,
+      { cwd: ROOT, stdio: "pipe" }
+    );
+    const src = fs.readFileSync(invadersRgr, "utf8");
+    expect(src).toContain("def alive:[int]");
+    expect(src).toContain("set s.intArrays \"alive\"");
+    expect(src).toContain("set alive alien 0");
+
+    const { success, error } = compileRanger(
+      invadersRgr,
+      "es6",
+      path.join(ROOT, "tests/.output")
+    );
+    expect(success, `Compile failed: ${error}`).toBe(true);
   });
 });

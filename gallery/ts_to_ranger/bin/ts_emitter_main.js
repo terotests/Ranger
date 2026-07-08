@@ -4452,6 +4452,8 @@ class TSEmitter  {
     this.interfaceNames = [];
     this.stateArrayFieldType = {};
     this.tmpCounter = 0;
+    this.synthStructDone = {};
+    this.currentEmitBlock = new TSNode();
   }
   annotType (annot) {
     let node = annot;
@@ -4629,6 +4631,8 @@ class TSEmitter  {
     this.interfaceNames = ifn;
     let saf = {};
     this.stateArrayFieldType = saf;
+    let ssd = {};
+    this.synthStructDone = ssd;
     this.tmpCounter = 0;
     this.seedBridgeStructs();
   };
@@ -4728,10 +4732,31 @@ class TSEmitter  {
       return "int";
     }
     const first = arrType.substring(0, 1 );
-    if ( first == "[" ) {
-      return arrType.substring(1, ((arrType.length) - 1) );
+    if ( first != "[" ) {
+      return "int";
     }
-    return "int";
+    const inner = arrType.substring(1, ((arrType.length) - 1) );
+    const il = inner.length;
+    let depth = 0;
+    let sep = 0 - 1;
+    let i = 0;
+    while (i < il) {
+      const c = inner.charCodeAt(i );
+      if ( c == (91) ) {
+        depth = depth + 1;
+      }
+      if ( c == 93 ) {
+        depth = depth - 1;
+      }
+      if ( (c == (58)) && (depth == 0) ) {
+        sep = i;
+      }
+      i = i + 1;
+    };
+    if ( sep >= 0 ) {
+      return inner.substring((sep + 1), il );
+    }
+    return inner;
   };
   structFieldType (structType, field) {
     if ( (this).endsWith(structType, "Native") == false ) {
@@ -4906,6 +4931,12 @@ class TSEmitter  {
       }
       return "int";
     }
+    if ( t == "ObjectExpression" ) {
+      if ( (node.children.length) == 0 ) {
+        return "[string:EntityPoseNative]";
+      }
+      return this.inferObjectStructType(node, "");
+    }
     return "int";
   };
   numericCommon (node) {
@@ -5060,15 +5091,175 @@ class TSEmitter  {
       i = i + 1;
     };
     this.fnParamTypesCsv[node.name] = this.joinCsv(types);
+    this.inferParamTypes(node);
+  };
+  inferObjectStructType (obj, fnName) {
+    const known = this.matchKnownStruct(obj);
+    if ( (known.length) > 0 ) {
+      return known;
+    }
+    if ( (fnName.length) == 0 ) {
+      return "int";
+    }
+    return this.registerSynthStruct(obj, fnName);
+  };
+  matchKnownStruct (obj) {
+    if ( obj.nodeType != "ObjectExpression" ) {
+      return "";
+    }
+    let hasId = false;
+    let hasKind = false;
+    let hasX = false;
+    let hasY = false;
+    let i = 0;
+    while (i < (obj.children.length)) {
+      const prop = obj.children[i];
+      if ( prop.nodeType == "Property" ) {
+        const key = this.propKey(prop);
+        if ( key == "id" ) {
+          hasId = true;
+        }
+        if ( key == "kind" ) {
+          hasKind = true;
+        }
+        if ( key == "x" ) {
+          hasX = true;
+        }
+        if ( key == "y" ) {
+          hasY = true;
+        }
+      }
+      i = i + 1;
+    };
+    if ( hasId && hasKind ) {
+      return "SpriteDefNative";
+    }
+    if ( hasX && hasY ) {
+      return "EntityPoseNative";
+    }
+    return "";
+  };
+  registerSynthStruct (obj, fnName) {
+    const baseName = fnName + "Ret";
+    const structType = baseName + "Native";
+    const done = ( this.synthStructDone.hasOwnProperty(baseName) ? this.synthStructDone[baseName] : undefined );
+    if ( typeof(done) === "undefined" ) {
+      const csv = this.objectFieldsCsv(obj);
+      this.interfaceFieldsCsv[baseName] = csv;
+      this.interfaceNames.push(baseName);
+      this.synthStructDone[baseName] = true;
+    }
+    return structType;
+  };
+  objectFieldsCsv (obj) {
+    let pairs = [];
+    let i = 0;
+    while (i < (obj.children.length)) {
+      const prop = obj.children[i];
+      if ( prop.nodeType == "Property" ) {
+        const key = this.propKey(prop);
+        if ( (key.length) > 0 ) {
+          const valNode = this.propertyValueNode(prop);
+          const ft = this.exprType(valNode);
+          pairs.push((key + ":") + ft);
+        }
+      }
+      i = i + 1;
+    };
+    return this.joinCsv(pairs);
+  };
+  inferParamTypes (node) {
+    if ( typeof(node.body) === "undefined" ) {
+      return;
+    }
+    const body = node.body;
+    const csv = ( this.fnParamTypesCsv.hasOwnProperty(node.name) ? this.fnParamTypesCsv[node.name] : undefined );
+    let oldTypes = [];
+    if ( (typeof(csv) !== "undefined" && csv != null )  ) {
+      oldTypes = this.splitCsv((csv));
+    }
+    let newTypes = [];
+    let i = 0;
+    while (i < (node.params.length)) {
+      const p = node.params[i];
+      let pt = "int";
+      if ( typeof(p.typeAnnotation) != "undefined" ) {
+        pt = this.annotType((p.typeAnnotation));
+      } else {
+        if ( i < (oldTypes.length) ) {
+          pt = oldTypes[i];
+        }
+        const inferred = this.inferParamTypeFromBody(p.name, body);
+        if ( (inferred.length) > 0 ) {
+          pt = inferred;
+        }
+      }
+      newTypes.push(pt);
+      i = i + 1;
+    };
+    this.fnParamTypesCsv[node.name] = this.joinCsv(newTypes);
+  };
+  inferParamTypeFromBody (param, body) {
+    if ( param == "entities" ) {
+      return "[string:EntityPoseNative]";
+    }
+    if ( param == "alive" ) {
+      return "[int]";
+    }
+    const fromUse = this.inferParamTypeWalk(param, body);
+    if ( (fromUse.length) > 0 ) {
+      return fromUse;
+    }
+    return "";
+  };
+  inferParamTypeWalk (param, node) {
+    const t = node.nodeType;
+    if ( t == "MemberExpression" ) {
+      if ( typeof(node.left) != "undefined" ) {
+        const base = node.left;
+        if ( base.nodeType == "Identifier" ) {
+          if ( base.name == param ) {
+            if ( node.name == "length" ) {
+              return "[int]";
+            }
+            return "[string:EntityPoseNative]";
+          }
+        }
+      }
+    }
+    let i = 0;
+    while (i < (node.children.length)) {
+      const r = this.inferParamTypeWalk(param, (node.children[i]));
+      if ( (r.length) > 0 ) {
+        return r;
+      }
+      i = i + 1;
+    };
+    if ( typeof(node.left) != "undefined" ) {
+      const r2 = this.inferParamTypeWalk(param, (node.left));
+      if ( (r2.length) > 0 ) {
+        return r2;
+      }
+    }
+    if ( typeof(node.right) != "undefined" ) {
+      const r3 = this.inferParamTypeWalk(param, (node.right));
+      if ( (r3.length) > 0 ) {
+        return r3;
+      }
+    }
+    if ( typeof(node.body) != "undefined" ) {
+      return this.inferParamTypeWalk(param, (node.body));
+    }
+    return "";
   };
   isPositiveType (t) {
     if ( (t.length) == 0 ) {
       return false;
     }
-    if ( t == "int" ) {
-      return false;
-    }
     if ( t == "void" ) {
+      return true;
+    }
+    if ( t == "int" ) {
       return false;
     }
     if ( (t.substring(0, 1 )) == "[" ) {
@@ -5097,9 +5288,51 @@ class TSEmitter  {
     let local = {};
     this.varTypes = local;
     this.collectLocalVarTypes(body, body);
-    const result = this.findReturnType(body);
+    if ( this.functionHasValueReturn(body) == false ) {
+      return "void";
+    }
+    const result = this.findReturnType(body, node.name);
     this.varTypes = saved;
     return result;
+  };
+  functionHasValueReturn (block) {
+    let i = 0;
+    while (i < (block.children.length)) {
+      if ( this.stmtHasValueReturn((block.children[i])) ) {
+        return true;
+      }
+      i = i + 1;
+    };
+    return false;
+  };
+  stmtHasValueReturn (stmt) {
+    const t = stmt.nodeType;
+    if ( t == "ReturnStatement" ) {
+      return (typeof(stmt.left) !== "undefined" && stmt.left != null ) ;
+    }
+    if ( t == "BlockStatement" ) {
+      return this.functionHasValueReturn(stmt);
+    }
+    if ( t == "IfStatement" ) {
+      if ( typeof(stmt.body) != "undefined" ) {
+        if ( this.stmtHasValueReturn((stmt.body)) ) {
+          return true;
+        }
+      }
+      if ( typeof(stmt.right) != "undefined" ) {
+        if ( this.stmtHasValueReturn((stmt.right)) ) {
+          return true;
+        }
+      }
+      return false;
+    }
+    if ( t == "WhileStatement" ) {
+      if ( typeof(stmt.body) != "undefined" ) {
+        return this.stmtHasValueReturn((stmt.body));
+      }
+      return false;
+    }
+    return false;
   };
   collectLocalVarTypes (block, root) {
     let i = 0;
@@ -5124,6 +5357,14 @@ class TSEmitter  {
     };
   };
   localInitType (initNode, name, root) {
+    if ( initNode.nodeType == "ObjectExpression" ) {
+      if ( (initNode.children.length) == 0 ) {
+        if ( name == "entities" ) {
+          return "[string:EntityPoseNative]";
+        }
+        return "[string:EntityPoseNative]";
+      }
+    }
     if ( initNode.nodeType == "ArrayExpression" ) {
       let elem = "";
       if ( (initNode.children.length) > 0 ) {
@@ -5203,11 +5444,11 @@ class TSEmitter  {
     }
     return "";
   };
-  findReturnType (block) {
+  findReturnType (block, fnName) {
     let i = 0;
     while (i < (block.children.length)) {
       const stmt = block.children[i];
-      const rt = this.findReturnTypeInStmt(stmt);
+      const rt = this.findReturnTypeInStmt(stmt, fnName);
       if ( this.isPositiveType(rt) ) {
         return rt;
       }
@@ -5215,26 +5456,30 @@ class TSEmitter  {
     };
     return "int";
   };
-  findReturnTypeInStmt (stmt) {
+  findReturnTypeInStmt (stmt, fnName) {
     const t = stmt.nodeType;
     if ( t == "ReturnStatement" ) {
       if ( typeof(stmt.left) != "undefined" ) {
-        return this.exprType((stmt.left));
+        const val = stmt.left;
+        if ( val.nodeType == "ObjectExpression" ) {
+          return this.inferObjectStructType(val, fnName);
+        }
+        return this.exprType(val);
       }
       return "void";
     }
     if ( t == "BlockStatement" ) {
-      return this.findReturnType(stmt);
+      return this.findReturnType(stmt, fnName);
     }
     if ( t == "IfStatement" ) {
       if ( typeof(stmt.body) != "undefined" ) {
-        const r1 = this.findReturnTypeInStmt((stmt.body));
+        const r1 = this.findReturnTypeInStmt((stmt.body), fnName);
         if ( this.isPositiveType(r1) ) {
           return r1;
         }
       }
       if ( typeof(stmt.right) != "undefined" ) {
-        const r2 = this.findReturnTypeInStmt((stmt.right));
+        const r2 = this.findReturnTypeInStmt((stmt.right), fnName);
         if ( this.isPositiveType(r2) ) {
           return r2;
         }
@@ -5243,7 +5488,7 @@ class TSEmitter  {
     }
     if ( t == "WhileStatement" ) {
       if ( typeof(stmt.body) != "undefined" ) {
-        return this.findReturnTypeInStmt((stmt.body));
+        return this.findReturnTypeInStmt((stmt.body), fnName);
       }
       return "int";
     }
@@ -5614,6 +5859,11 @@ class TSEmitter  {
       let pt = "int";
       if ( typeof(p.typeAnnotation) != "undefined" ) {
         pt = this.annotType((p.typeAnnotation));
+      } else {
+        const fromReg = this.helperParamType(this.currentFn, i);
+        if ( (fromReg.length) > 0 ) {
+          pt = fromReg;
+        }
       }
       this.varTypes[p.name] = pt;
       parts.push((p.name + ":") + pt);
@@ -5634,6 +5884,7 @@ class TSEmitter  {
     return out;
   };
   emitBlockBody (block) {
+    this.currentEmitBlock = block;
     let i = 0;
     while (i < (block.children.length)) {
       const stmt = block.children[i];
@@ -5712,7 +5963,11 @@ class TSEmitter  {
           const et = this.elemTypeOf(this.exprType((callee.left)));
           let argStr = "";
           if ( (node.children.length) > 0 ) {
-            argStr = this.emitExpr((node.children[0]), et);
+            const argNode = node.children[0];
+            argStr = this.emitValueExpr(argNode, et);
+            if ( argNode.nodeType == "CallExpression" ) {
+              argStr = ("(" + argStr) + ")";
+            }
           }
           this.emitLine((("push " + base) + " ") + argStr);
           return;
@@ -5745,7 +6000,11 @@ class TSEmitter  {
       let key = "";
       if ( target.computed ) {
         if ( typeof(target.right) != "undefined" ) {
-          key = this.emitExpr((target.right), "string");
+          const keyNode = target.right;
+          key = this.emitExpr(keyNode, "string");
+          if ( keyNode.nodeType == "CallExpression" ) {
+            key = ("(" + key) + ")";
+          }
         }
       } else {
         key = ("\"" + target.name) + "\"";
@@ -5831,7 +6090,7 @@ class TSEmitter  {
       return node.name;
     }
     if ( node.nodeType == "MemberExpression" ) {
-      return this.emitMember(node);
+      return this.emitMember(node, "int");
     }
     return "tmp";
   };
@@ -5860,6 +6119,14 @@ class TSEmitter  {
       if ( hasAnnot == false ) {
         rtype = this.exprType(initNode);
       }
+      if ( initNode.nodeType == "ArrayExpression" ) {
+        if ( (initNode.children.length) == 0 ) {
+          const pushed = this.findPushArgType(this.currentEmitBlock, name);
+          if ( (pushed.length) > 0 ) {
+            rtype = ("[" + pushed) + "]";
+          }
+        }
+      }
       this.varTypes[name] = rtype;
       if ( initNode.nodeType == "ArrayExpression" ) {
         const et = this.elemTypeOf(rtype);
@@ -5867,7 +6134,7 @@ class TSEmitter  {
         let k = 0;
         while (k < (initNode.children.length)) {
           const el = initNode.children[k];
-          const ev = this.emitExpr(el, et);
+          const ev = this.emitValueExpr(el, et);
           this.emitLine((("push " + name) + " ") + ev);
           k = k + 1;
         };
@@ -5949,7 +6216,12 @@ class TSEmitter  {
     }
     const val = node.left;
     if ( this.inSpritesFn ) {
-      this.emitSpriteArrayReturn(val);
+      if ( val.nodeType == "ArrayExpression" ) {
+        this.emitSpriteArrayReturn(val);
+      } else {
+        const rs = this.emitExpr(val, "[SpriteDefNative]");
+        this.emitLine("return " + rs);
+      }
       return;
     }
     if ( this.inResourcesFn ) {
@@ -6179,7 +6451,7 @@ class TSEmitter  {
   };
   emitPropertyValue (prop, expected) {
     if ( typeof(prop.left) != "undefined" ) {
-      return this.emitExpr((prop.left), expected);
+      return this.emitValueExpr((prop.left), expected);
     }
     return "0";
   };
@@ -6214,13 +6486,23 @@ class TSEmitter  {
       if ( (typeof(ca) !== "undefined" && ca != null )  ) {
         return ("(this." + node.name) + ")";
       }
+      const cst = ( this.constScalarTypes.hasOwnProperty(node.name) ? this.constScalarTypes[node.name] : undefined );
+      if ( (typeof(cst) !== "undefined" && cst != null )  ) {
+        return "this." + node.name;
+      }
+      if ( expected == "double" ) {
+        const vt = this.lookupVarType(node.name);
+        if ( vt == "int" ) {
+          return ("(to_double " + node.name) + ")";
+        }
+      }
       return node.name;
     }
     if ( t == "CallExpression" ) {
       return this.emitCall(node);
     }
     if ( t == "MemberExpression" ) {
-      return this.emitMember(node);
+      return this.emitMember(node, expected);
     }
     if ( t == "BinaryExpression" ) {
       return this.emitBinary(node, expected);
@@ -6251,10 +6533,24 @@ class TSEmitter  {
         if ( (pexp.length) == 0 ) {
           pexp = this.exprType(arg);
         }
-        args.push(this.emitExpr(arg, pexp));
+        let argExpr = this.emitExpr(arg, pexp);
+        if ( pexp == "int" ) {
+          const at = this.exprType(arg);
+          if ( at == "double" ) {
+            argExpr = ("(to_int " + argExpr) + ")";
+          }
+        }
+        if ( pexp == "double" ) {
+          const at2 = this.exprType(arg);
+          if ( at2 == "int" ) {
+            argExpr = ("(to_double " + argExpr) + ")";
+          }
+        }
+        args.push(argExpr);
         i = i + 1;
       };
-      return (("this." + name) + "(") + (this.joinSpace(args) + ")");
+      const inner = (("this." + name) + "(") + (this.joinSpace(args) + ")");
+      return ("(" + inner) + ")";
     }
     return "0";
   };
@@ -6268,7 +6564,7 @@ class TSEmitter  {
     }
     return raw;
   };
-  emitMember (node) {
+  emitMember (node, expected) {
     if ( typeof(node.left) === "undefined" ) {
       return "";
     }
@@ -6314,7 +6610,15 @@ class TSEmitter  {
     if ( base_2 == "props" ) {
       return "props." + prop;
     }
-    return (base_2 + ".") + prop;
+    const result = (base_2 + ".") + prop;
+    if ( expected == "double" ) {
+      const baseT = this.exprType(leftNode);
+      const sf = this.structFieldType(baseT, prop);
+      if ( sf == "int" ) {
+        return ("(to_double " + result) + ")";
+      }
+    }
+    return result;
   };
   endsWith (s, suffix) {
     const slen = s.length;
@@ -6340,7 +6644,17 @@ class TSEmitter  {
     }
     const left = this.emitExpr((node.left), operandExpected);
     const right = this.emitExpr((node.right), operandExpected);
-    return (("(" + left) + (" " + op)) + ((" " + right) + ")");
+    const result = (("(" + left) + (" " + op)) + ((" " + right) + ")");
+    if ( (expected == "int") && (op == "/") ) {
+      return ("(to_int " + result) + ")";
+    }
+    if ( expected == "double" ) {
+      const nc = this.numericCommon(node);
+      if ( nc == "int" ) {
+        return ("(to_double " + result) + ")";
+      }
+    }
+    return result;
   };
   isArithmeticOp (op) {
     if ( op == "+" ) {

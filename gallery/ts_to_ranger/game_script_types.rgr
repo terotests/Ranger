@@ -38,6 +38,7 @@ class SpriteDefNative {
     def er:int -1
     def eg:int -1
     def eb:int -1
+    def frames:[[string]]
 }
 
 class NativeGameState {
