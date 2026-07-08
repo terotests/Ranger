@@ -43,6 +43,7 @@ class GameRunner {
     def ph:int 0
     def score1:int 0
     def score2:int 0
+    def fpsShown:int 0
     def timeMs:int 0
 
     fn init:void (w:int h:int) {
@@ -100,6 +101,10 @@ class GameRunner {
 
     fn entityCount:int () {
         return (array_length entities)
+    }
+
+    fn setFpsShown:void (fps:int) {
+        fpsShown = fps
     }
 
     ; Build retained entities from the script's sprites() (called ONCE).
@@ -215,6 +220,11 @@ class GameRunner {
         } {
             this.drawNumber((netX - 44) 10 4 score1 120 220 160)
             this.drawNumber((netX + 20) 10 4 score2 220 140 120)
+        }
+        if (fpsShown > 0) {
+            def fx (this.half(pw))
+            def fy (ph - 22)
+            this.drawNumber((fx - 14) fy 3 fpsShown 160 170 190)
         }
     }
 

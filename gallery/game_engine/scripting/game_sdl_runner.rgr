@@ -23,6 +23,29 @@ class GameSdlRunner {
     def maxFrames:int 0
     def frames:int 0
     def running:boolean true
+    def fpsShown:int 0
+    def fpsWindowStart:int 0
+    def fpsWindowFrames:int 0
+
+    fn updateFps:void () {
+        def now:int (gfx_ticks_ms)
+        if (fpsWindowStart <= 0) {
+            fpsWindowStart = now
+            fpsWindowFrames = 0
+        }
+        fpsWindowFrames = (fpsWindowFrames + 1)
+        def elapsed (now - fpsWindowStart)
+        if (elapsed >= 1000) {
+            fpsShown = (to_int ((fpsWindowFrames * 1000) / elapsed))
+            fpsWindowStart = now
+            fpsWindowFrames = 0
+            def title:string ("Ranger Game (SDL2) - ")
+            title = (title + (to_string fpsShown))
+            title = (title + " FPS")
+            gfx_set_title(title)
+        }
+        runner.setFpsShown(fpsShown)
+    }
 
     fn loadGame:void (tsxPath:string) {
         def dir:string ""
@@ -72,6 +95,7 @@ class GameSdlRunner {
                 running = false
             }
             runner.frame(16 up down left right)
+            this.updateFps()
             this.draw()
             frames = (frames + 1)
             if (gfx_should_close) {
@@ -114,6 +138,10 @@ class GameSdlRunner {
         msg = (msg + be.runner.score1)
         msg = (msg + " - ")
         msg = (msg + be.runner.score2)
+        if (be.fpsShown > 0) {
+            msg = (msg + " | fps=")
+            msg = (msg + (to_string be.fpsShown))
+        }
         print msg
     }
 }

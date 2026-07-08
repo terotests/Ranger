@@ -16,7 +16,7 @@ const PX = 3;
 const COLS = 5;
 const ROWS = 3;
 const ALIEN_COUNT = COLS * ROWS;
-const PIXELS_PER_ALIEN = 18;
+const PIXELS_PER_ALIEN = 32;
 
 const INVADER_A = [
   "..XXX..",
@@ -24,25 +24,25 @@ const INVADER_A = [
   "XXOXXX.",
   "XXXXXXX",
   ".X.X.X.",
-  "X..X..X"
+  "..XXX.."
 ];
 
 const INVADER_B = [
-  "..XXX..",
   ".XXXXX.",
+  "X.XXX.X",
   "XXXXXXX",
-  ".XX.XX.",
-  ".XXXXX.",
-  "..X.X.."
+  "XX.X.XX",
+  "X.X.X.X",
+  ".X...X."
 ];
 
 const INVADER_C = [
+  "..XXX..",
   ".XXXXX.",
+  "XXOXXX.",
   "XXXXXXX",
-  "XOXXXOX",
-  "XXXXXXX",
-  ".X...X.",
-  "X.....X"
+  "X.XXX.X",
+  "X.X.X.X"
 ];
 
 function alienType(row, col) {
