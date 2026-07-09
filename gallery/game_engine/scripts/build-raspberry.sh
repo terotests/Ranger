@@ -3,7 +3,9 @@
 # aarch64 binary ready to copy onto a microSD card.
 #
 # Produces a small LLVM terminal Pong binary (~70 KB) with no runtime deps beyond
-# libc. SDL builds need libsdl2 on the Pi — use engine:sdl on-device instead.
+# libc, plus a self-contained runtime tree (games/, menu/, scripting/, lib/,
+# compiler) for SDL/TSX launcher builds on the Pi. SDL builds need libsdl2 on
+# the device — use gallery/game_engine/scripts/build-sdl.sh from the bundle root.
 #
 # Usage:
 #   ./gallery/game_engine/scripts/build-raspberry.sh
@@ -72,7 +74,7 @@ else
   exit 1
 fi
 
-echo "==> 1/3 Ranger -> LLVM IR ($TARGET)"
+echo "==> 1/4 Ranger -> LLVM IR ($TARGET)"
 cd "$ROOT"
 RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr" node "$ROOT/bin/output.js" \
   -l=llvm "$SOURCE" \
@@ -81,10 +83,13 @@ RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr" node "$ROOT/bin/output
   -o="pong.ll" \
   -target="$TARGET"
 
-echo "==> 2/3 ${CC[*]} -> $BIN_FILE"
+echo "==> 2/4 ${CC[*]} -> $BIN_FILE"
 "${CC[@]}" "$LL_FILE" "$RT_C" "$MEM_C" -o "$BIN_FILE" -Wno-override-module
 
-echo "==> 3/3 Package deploy bundle"
+echo "==> 3/4 Sync runtime assets (games, menu, scripting, lib, compiler)"
+bash "$ROOT/gallery/game_engine/scripts/sync-game-engine-runtime.sh" "$OUT_DIR"
+
+echo "==> 4/4 Package deploy bundle"
 chmod +x "$BIN_FILE"
 
 cat > "$OUT_DIR/DEPLOY.md" <<'EOF'
@@ -92,9 +97,17 @@ cat > "$OUT_DIR/DEPLOY.md" <<'EOF'
 
 ## Contents
 
-| File | Description |
+| Path | Description |
 |------|-------------|
 | `pong` | Terminal Pong (ANSI on HDMI console). aarch64 ELF, dynamically linked. |
+| `gallery/game_engine/games/` | TSX game scripts (launcher scans `*/index.tsx`). |
+| `gallery/game_engine/menu/` | Launcher menu (`index.tsx`). |
+| `gallery/game_engine/scripting/` | Shared TSX helpers, types, and image assets. |
+| `gallery/game_engine/*.rgr` | Engine modules for on-device SDL/native rebuilds. |
+| `lib/` | Ranger standard library (`stdops.rgr`, …) for on-device compiles. |
+| `compiler/Lang.rgr`, `bin/output.js` | Minimal Ranger compiler bundle. |
+| `runtime/ranger_rt.c`, `runtime/ranger_mem.c` | C runtime for native/SDL links. |
+| `gallery/invaders/variant.hpp` | C++ helper header for SDL builds. |
 | `ranger-game.service.example` | Example systemd unit for autostart on boot. |
 
 ## Copy to microSD
@@ -103,22 +116,25 @@ From your dev machine (after `npm run build:raspberry`):
 
 ```bash
 # Replace PI_HOST with the Pi's hostname or IP (or mount the boot/root partition).
-scp dist/raspberry-pi5/pong pi@PI_HOST:/home/pi/ranger-pong
+# Copy the whole bundle so games/menu/lib paths resolve.
+scp -r dist/raspberry-pi5 pi@PI_HOST:/home/pi/ranger-game
 ```
 
 Or mount the microSD root partition and copy directly:
 
 ```bash
-sudo cp dist/raspberry-pi5/pong /mnt/rootfs/home/pi/ranger-pong
-sudo chmod +x /mnt/rootfs/home/pi/ranger-pong
+sudo cp -a dist/raspberry-pi5 /mnt/rootfs/home/pi/ranger-game
+sudo chmod +x /mnt/rootfs/home/pi/ranger-game/pong
 ```
 
 ## Run on the Pi
 
-**Console / HDMI (tty1):** log in on the physical console or SSH without X11:
+**Console / HDMI (tty1):** log in on the physical console or SSH without X11.
+Run from the bundle root so relative paths match:
 
 ```bash
-./ranger-pong
+cd ~/ranger-game
+./pong
 ```
 
 Controls: W/S move paddle, Q quit, D toggle debug HUD.
@@ -135,14 +151,30 @@ journalctl -u ranger-game -f    # stdout/stderr logs
 
 ## Build on the Pi instead of cross-compile
 
-If you prefer building on-device (no cross toolchain needed):
+If you prefer building on-device (no cross toolchain needed), copy this bundle
+(or clone the full repo) and run from the bundle root:
 
 ```bash
-git clone <repo> && cd <repo> && npm install
-npm run build:raspberry    # detects aarch64 and links natively
+cd ~/ranger-game
+# Rebuild terminal Pong (needs Node.js):
+node bin/output.js -l=llvm gallery/game_engine/pong.rgr -nodecli \
+  -d=. -o=pong.ll -target=aarch64-linux-gnu
+clang pong.ll runtime/ranger_rt.c runtime/ranger_mem.c -o pong -Wno-override-module
 ```
 
-SDL window builds (`npm run engine:sdl`) still require `libsdl2-dev` on the Pi.
+SDL window builds need `libsdl2-dev` on the Pi:
+
+```bash
+sudo apt-get install libsdl2-dev clang
+./gallery/game_engine/scripts/build-sdl.sh          # SDL Pong window
+./gallery/game_engine/scripts/build-game-sdl.sh     # TSX game launcher
+./tmp/game-sdl/game_sdl                             # menu (from repo root layout)
+```
+
+The bundle includes `games/`, `menu/`, `scripting/`, and `lib/` so the
+launcher default paths (`gallery/game_engine/games`, etc.) work when CWD is the
+bundle root. For a full repo checkout with `npm run engine:*`, clone the repo and
+`npm install` instead.
 
 ## Requirements on Pi
 
@@ -158,8 +190,8 @@ After=local-fs.target
 [Service]
 Type=simple
 User=pi
-WorkingDirectory=/home/pi
-ExecStart=/home/pi/ranger-pong
+WorkingDirectory=/home/pi/ranger-game
+ExecStart=/home/pi/ranger-game/pong
 Restart=on-failure
 RestartSec=3
 StandardOutput=journal
