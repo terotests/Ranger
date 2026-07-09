@@ -24,6 +24,20 @@ class GeneratedGameScript {
     def ROWS:int 3
     def ALIEN_COUNT:int 15
 
+    fn resources:[ResourceDefNative] () {
+        def list:[ResourceDefNative]
+        def r0:ResourceDefNative (new ResourceDefNative)
+        r0.kind = "image"
+        r0.id = "bg"
+        r0.path = "assets/invaders_bg.png"
+        push list r0
+        return list
+    }
+
+    fn backgroundImage:string () {
+        return "bg"
+    }
+
     fn INVADER_A:[string] () {
         def out:[string]
         push out "..XXX.."
@@ -333,6 +347,7 @@ class GeneratedGameScript {
         if (((unwrap (get s.numbers "gameOver")) == 1.0)) {
             return s
         }
+        def events:int
         def dt:double (props.dt)
         def px:double ((unwrap (get s.numbers "px")))
         def py:double ((unwrap (get s.numbers "py")))
@@ -379,6 +394,7 @@ class GeneratedGameScript {
             }
             if ((waveY > 190.0)) {
                 score2 = (score2 - 1)
+                push events ((this.soundEvent("lose")))
                 def reset:resetWaveRetNative ((this.resetWave(alive)))
                 waveX = (to_double reset.waveX)
                 waveY = (to_double reset.waveY)
@@ -418,12 +434,14 @@ class GeneratedGameScript {
                         shotActive = 0.0
                         shotY = (to_double (0.0 - 30.0))
                         score1 = (score1 + 10)
+                        push events ((this.soundEvent("brick")))
                     }
                 }
                 alien = (alien + 1)
             }
         }
         if (((this.countAlive(alive)) == 0)) {
+            push events ((this.soundEvent("bounce")))
             def reset:resetWaveRetNative ((this.resetWave(alive)))
             waveX = (to_double reset.waveX)
             waveY = (to_double reset.waveY)
@@ -469,6 +487,8 @@ class GeneratedGameScript {
         patch.score1 = score1
         patch.score2 = score2
         set patch.numbers "gameOver" gameOver
+        def patch_events:[GameEventNative]
+        patch.events = patch_events
         return patch
     }
 

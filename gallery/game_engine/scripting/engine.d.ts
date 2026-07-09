@@ -9,8 +9,36 @@
 // Per-game screen/state types belong in a sibling *.d.ts (see breakout.d.ts).
 // ============================================================================
 
-/** Abstract controller buttons delivered to the script (device-independent). */
-type GameButton = "up" | "down" | "action" | "quit";
+/** Abstract per-player controller snapshot (keyboard or gamepad). */
+interface PlayerButtons {
+  up: boolean;
+  down: boolean;
+  left: boolean;
+  right: boolean;
+  action: boolean;
+  quit: boolean;
+  a: boolean;
+  b: boolean;
+  x: boolean;
+  y: boolean;
+  start: boolean;
+  select: boolean;
+}
+
+/** Multi-player input delivered to update() each frame. */
+interface InputState {
+  /** Active player slots (length = playerCount). */
+  players: PlayerButtons[];
+  /** How many local player slots the host mapped this frame (from state.playerSlots). */
+  playerCount: number;
+  /** Connected SDL GameController count. */
+  padCount: number;
+  /** 1 when gamepad i is connected (same length as players). */
+  connected: number[];
+}
+
+/** @deprecated Use PlayerButtons — kept as alias for the injected `Buttons` global. */
+type Buttons = PlayerButtons;
 
 /** Read-only game configuration / host info, injected as the `game` global. */
 interface Game {
@@ -119,6 +147,11 @@ interface GameState {
   events?: GameEvent[];
   /** Active background: resources() image id or relative PNG/JPEG path. */
   background?: string;
+  /**
+   * Local player slots for SDL input mapping (1–8). Default 1 when unset.
+   * Set in initState or change from an in-game menu; host reads each frame.
+   */
+  playerSlots?: number;
 }
 
 /** Built-in synthetic sound ids (no file resources required). */
@@ -179,6 +212,9 @@ interface MultiScreenState<
   screens: TScreens;
 }
 
+/** Abstract controller button id for onButton handlers. */
+type GameButton = "up" | "down" | "action" | "quit";
+
 /** Props object passed to every event handler (React-style single argument). */
 interface EventProps {
   /** Current game state. Narrow with a per-game type in your handlers. */
@@ -187,6 +223,8 @@ interface EventProps {
   screen?: string;
   /** The button for `onButton` events. */
   button?: GameButton;
+  /** Multi-player input snapshot (SDL host). */
+  input?: InputState;
   /** Space / ACTION button (restart, confirm, fire). */
   action?: boolean;
   /** Delta-time (ticks) for `update`. */
@@ -236,6 +274,11 @@ interface GameScript<TState extends GameState = GameState> {
   resources?(): ResourceDef[];
   /** Retained-mode: select initial background (resources() id or path). */
   backgroundImage?(): string;
+  /**
+   * Optional fallback when state.playerSlots is unset. Prefer setting
+   * playerSlots in initState / update (or an in-game menu).
+   */
+  playerCount?(props: TypedEventProps<GameState>): number;
 }
 
 // --- Injected globals (available without importing) -------------------------

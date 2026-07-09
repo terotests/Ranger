@@ -230,7 +230,7 @@ function placeAlien(entities, alien, waveX, waveY, alive, anim) {
     entities[id] = {
       x: waveX + col * 40,
       y: waveY + row * 30,
-      p0: anim % 2,
+      p0: anim,
       visible: 1
     };
   }
@@ -281,12 +281,10 @@ function update(props) {
   if (px < 24) { px = 24; }
   if (px > 456) { px = 456; }
 
-  anim = anim + 1;
-  if (anim > 18) { anim = 0; }
-
   waveTick = waveTick + 1;
   if (waveTick > 14) {
     waveTick = 0;
+    if (anim == 0) { anim = 1; } else { anim = 0; }
     waveX = waveX + waveDir * 6;
     if (waveX > 300) { waveDir = -1; waveY = waveY + 8; }
     if (waveX < 40) { waveDir = 1; waveY = waveY + 8; }

@@ -31,3 +31,14 @@ export function isActiveScreen<TActive extends string>(
 export function soundEvent(id: BuiltinSoundId): PlaySoundEvent {
   return { kind: "playSound", id: id };
 }
+
+/** Clamp local player slots to the engine maximum (1–8). */
+export function clampPlayerSlots(n: number): number {
+  if (n < 1) {
+    return 1;
+  }
+  if (n > 8) {
+    return 8;
+  }
+  return n;
+}

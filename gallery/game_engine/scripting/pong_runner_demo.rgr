@@ -53,6 +53,9 @@ class PongRunnerDemo {
         print ("frames=" + frames)
         print (("ball=" + bx) + ("," + by))
         print (("score=" + runner.score1) + ("," + runner.score2))
+        def audio:GameAudio (runner.audioRef())
+        def audioPlays:int audio.playCount
+        print (("audioPlays=" + audioPlays))
         print "pong-runner done"
     }
 }

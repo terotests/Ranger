@@ -23,6 +23,7 @@ Import "./game_hud.rgr"
 Import "../../ts_to_ranger/game_host.rgr"
 Import "./game_audio.rgr"
 Import "./game_image_loader.rgr"
+Import "./game_input.rgr"
 
 ; Runtime options for script-driven games (SDL host, tests, custom hosts).
 class GameRuntimeOptions {
@@ -503,7 +504,48 @@ class GameRunner {
         return (this.memInt(state key dflt))
     }
 
+    fn resolvePlayerCount:int () {
+        def n:int (this.memInt(state "playerSlots" 0))
+        if (n <= 0) {
+            n = (this.memInt(state "playerCount" 0))
+        }
+        if (n <= 0) {
+            if (this.multiScreenMode()) {
+                def active:EvalValue (this.activeState())
+                n = (this.memInt(active "playerSlots" 0))
+                if (n <= 0) {
+                    n = (this.memInt(active "playerCount" 0))
+                }
+            }
+        }
+        if (n <= 0) {
+            if (this.scriptHasFunction("playerCount")) {
+                def k:[string]
+                def v:[EvalValue]
+                push k "state"
+                push v state
+                def props:EvalValue (EvalValue.object(k v))
+                def rv:EvalValue (engine.callFunction("playerCount" props))
+                if (rv.isNumber()) {
+                    n = (to_int rv.numberValue)
+                }
+            }
+        }
+        if (n < 1) {
+            return 1
+        }
+        if (n > 8) {
+            return 8
+        }
+        return n
+    }
+
     fn frame:void (dtMs:int up:boolean down:boolean left:boolean right:boolean action:boolean quit:boolean) {
+        def snap:GameInputSnapshot (GameInputSnapshot.forPlayer0(up down left right action quit))
+        this.frameWithInput(dtMs snap)
+    }
+
+    fn frameWithInput:void (dtMs:int snap:GameInputSnapshot) {
         def prevScreen:string (this.currentScreenName())
         timeMs = (timeMs + dtMs)
         def k:[string]
@@ -513,17 +555,19 @@ class GameRunner {
         push k "dt"
         push v (EvalValue.fromInt(dtMs))
         push k "up"
-        push v (EvalValue.boolean(up))
+        push v (EvalValue.boolean(snap.p0.up))
         push k "down"
-        push v (EvalValue.boolean(down))
+        push v (EvalValue.boolean(snap.p0.down))
         push k "left"
-        push v (EvalValue.boolean(left))
+        push v (EvalValue.boolean(snap.p0.left))
         push k "right"
-        push v (EvalValue.boolean(right))
+        push v (EvalValue.boolean(snap.p0.right))
         push k "action"
-        push v (EvalValue.boolean(action))
+        push v (EvalValue.boolean(snap.p0.action))
         push k "quit"
-        push v (EvalValue.boolean(quit))
+        push v (EvalValue.boolean(snap.p0.quit))
+        push k "input"
+        push v (snap.toEval())
         push k "state"
         push v state
         def props:EvalValue (EvalValue.object(k v))

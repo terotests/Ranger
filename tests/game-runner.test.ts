@@ -35,6 +35,10 @@ describe("Game runner - scripted Pong", () => {
     expect(by).toBeGreaterThan(0);
     expect(by).toBeLessThan(270);
     expect(`${bx},${by}`).not.toBe("240,135");
+
+    const audioPlays = out.match(/audioPlays=(\d+)/);
+    expect(audioPlays, `no audioPlays in output: ${out}`).toBeTruthy();
+    expect(parseInt(audioPlays![1], 10)).toBeGreaterThan(0);
   });
 
   it("runs the scripted invaders game and scores kills", () => {
