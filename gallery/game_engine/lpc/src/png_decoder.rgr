@@ -152,7 +152,15 @@ class PNGDecoder {
         return (bit_and n 255)
     }
 
-    fn unfilter:buffer (raw:buffer rowBytes:int imgHeight:int) {
+    fn filterBpp:int (ctype:int) {
+        ; PNG filter neighbors are prior *pixels* (same channel), not prior bytes.
+        if (ctype == 6) {
+            return 4
+        }
+        return 1
+    }
+
+    fn unfilter:buffer (raw:buffer rowBytes:int imgHeight:int bpp:int) {
         def out:buffer (buffer_alloc (rowBytes * imgHeight))
         def rawLen:int (buffer_length raw)
         def rawPos:int 0
@@ -183,8 +191,8 @@ class PNGDecoder {
 
                 if (filterType == 1) {
                     def left:int 0
-                    if (x > 0) {
-                        left = (itemAt curRow (x - 1))
+                    if (x >= bpp) {
+                        left = (itemAt curRow (x - bpp))
                     }
                     recon = (fv + left)
                 }
@@ -198,8 +206,8 @@ class PNGDecoder {
                 if (filterType == 3) {
                     def left:int 0
                     def up:int 0
-                    if (x > 0) {
-                        left = (itemAt curRow (x - 1))
+                    if (x >= bpp) {
+                        left = (itemAt curRow (x - bpp))
                     }
                     if (y > 0) {
                         up = (itemAt prevRow x)
@@ -210,14 +218,14 @@ class PNGDecoder {
                     def left:int 0
                     def up:int 0
                     def upLeft:int 0
-                    if (x > 0) {
-                        left = (itemAt curRow (x - 1))
+                    if (x >= bpp) {
+                        left = (itemAt curRow (x - bpp))
                     }
                     if (y > 0) {
                         up = (itemAt prevRow x)
                     }
-                    if ((x > 0) && (y > 0)) {
-                        upLeft = (itemAt prevRow (x - 1))
+                    if ((x >= bpp) && (y > 0)) {
+                        upLeft = (itemAt prevRow (x - bpp))
                     }
                     recon = (fv + (this.paeth(left up upLeft)))
                 }
@@ -453,7 +461,8 @@ class PNGDecoder {
         }
 
         def rowBytes:int (this.rowByteCount(width bitDepth colorType))
-        def indices:buffer (this.unfilter(inflated rowBytes height))
+        def bpp:int (this.filterBpp(colorType))
+        def indices:buffer (this.unfilter(inflated rowBytes height bpp))
         def need:int (rowBytes * height)
         if ((buffer_length indices) < need) {
             print "[png_decoder] unfilter short"
