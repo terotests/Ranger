@@ -28,7 +28,7 @@ class BreakoutRunnerDemo {
             def phase (i % 90)
             def left (phase < 30)
             def right (phase >= 60)
-            runner.frame(16 left false right false false)
+            runner.frame(16 left false right false false false)
             i = (i + 1)
         }
 

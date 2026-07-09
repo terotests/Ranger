@@ -2,32 +2,27 @@
 ; game_sdl_runner - SDL2 host for script-driven games (.tsx / .game.tsx).
 ; ==============================================================================
 ;
-; Loads a TypeScript game script from the first CLI argument, evaluates it via
-; GameRunner (retained sprites + update reducer), and presents each frame through
-; the native SDL2 backend (gfx_sdl.rgr).
+; Launcher flow:
+;   1. Load gallery/game_engine/menu/index.tsx (menu game, EVG hud).
+;   2. Host scans --games-dir and injects `gameCatalog` global into the menu.
+;   3. Menu sets state.launchPath → host loads that game's index.tsx.
+;   4. Q/Esc in a sub-game → back to menu game.
+;   5. Q/Esc in menu → quit app.
 ;
-;   ./game_sdl gallery/game_engine/scripting/pong.game.tsx
-;   ./game_sdl --hot-reload gallery/game_engine/scripting/pong.game.tsx
-;   SDL_VIDEODRIVER=dummy ./game_sdl gallery/game_engine/scripting/pong.game.tsx 300
+; Direct launch (no menu):
+;   ./game_sdl path/to/game.tsx
 ;
-; Controls: Arrow keys / A,D = move (game-specific), W/S = alt, Space = action,
-;   F11 or Alt/Cmd+Enter = fullscreen toggle, Esc = exit fullscreen / quit, Q = quit.
-;
-; Runtime options (flags before the .tsx path):
-;   --hot-reload     poll .tsx mtime each frame; AST-patch in-process on save
-;   --no-hot-reload  disable hot reload (default for headless maxFrames runs)
-;
-; Positional args after flags:
-;   <game.tsx>   script path (required)
-;   [maxFrames]  optional frame cap (headless smoke / CI; disables hot reload)
+;   ./game_sdl [--games-dir=DIR] [--hot-reload|--no-hot-reload] [maxFrames]
 ; ==============================================================================
 
 Import "./game_runtime.rgr"
 Import "../gfx_sdl.rgr"
 Import "./game_audio_sdl.rgr"
+Import "./game_catalog.rgr"
 
 class GameSdlRunner {
     def runner:GameRunner (new GameRunner)
+    def catalog:GameCatalog (new GameCatalog)
     def pw:int 480
     def ph:int 270
     def maxFrames:int 0
@@ -42,6 +37,12 @@ class GameSdlRunner {
     def maxDtMs:int 100
     def hotReloadExplicit:boolean false
     def hotReloadWanted:boolean true
+    def gamesDir:string "gallery/game_engine/games"
+    def menuPath:string "gallery/game_engine/menu/index.tsx"
+    def launcherMode:boolean false
+    def inMenu:boolean false
+    def inGame:boolean false
+    def prevQuitHeld:boolean false
 
     fn updateFps:void () {
         def now:int (gfx_ticks_ms)
@@ -55,7 +56,7 @@ class GameSdlRunner {
             fpsShown = (to_int ((fpsWindowFrames * 1000) / elapsed))
             fpsWindowStart = now
             fpsWindowFrames = 0
-            def title:string ("Ranger Game (SDL2) - ")
+            def title:string "Ranger Game (SDL2) - "
             title = (title + (to_string fpsShown))
             title = (title + " FPS")
             gfx_set_title(title)
@@ -63,7 +64,7 @@ class GameSdlRunner {
         runner.setFpsShown(fpsShown)
     }
 
-    fn loadGame:void (tsxPath:string) {
+    fn loadScriptAt:void (tsxPath:string injectCatalog:boolean) {
         def dir:string ""
         def file:string tsxPath
         def slash:int (lastIndexOf tsxPath "/")
@@ -73,9 +74,13 @@ class GameSdlRunner {
         }
         def buf:buffer (buffer_read_file dir file)
         def src:string (buffer_to_string buf)
+        runner = (new GameRunner)
         runner.init(pw ph)
         runner.audio.setSink((new SdlGameAudioSink))
         runner.setScriptDir(dir)
+        if (injectCatalog) {
+            runner.registerGlobal("gameCatalog" (catalog.toEvalArray()))
+        }
         runner.loadScript(src)
         runner.setupScene()
         runner.trackScriptFile(tsxPath)
@@ -89,6 +94,24 @@ class GameSdlRunner {
         if (enableHotReload) {
             print ("[game-engine] hot reload enabled: " + tsxPath)
         }
+        prevQuitHeld = false
+        gfx_clear_should_close
+    }
+
+    fn loadMenuGame:void () {
+        catalog.setGamesDir(gamesDir)
+        catalog.scan()
+        print ("[game-engine] menu: " + (to_string (catalog.entryCount())) + " games in " + gamesDir)
+        this.loadScriptAt(menuPath true)
+        inMenu = true
+        inGame = false
+        gfx_set_title("Ranger Game Engine")
+    }
+
+    fn loadGame:void (tsxPath:string) {
+        this.loadScriptAt(tsxPath false)
+        inMenu = false
+        inGame = true
     }
 
     fn draw:void () {
@@ -96,13 +119,95 @@ class GameSdlRunner {
         gfx_present (runner.raw()) pw ph
     }
 
-    fn run:void () {
-        def title:string "Ranger Game (SDL2)"
-        def ok:int (gfx_open title pw ph)
-        if (ok == 0) {
-            print "gfx_open failed (no display?) - still rendering into the RGBA buffer"
+    fn quitEdge:boolean (quitHeld:boolean) {
+        if (quitHeld) {
+            if (prevQuitHeld == false) {
+                prevQuitHeld = true
+                return true
+            }
+        } {
+            prevQuitHeld = false
         }
-        gfx_audio_open(22050)
+        return false
+    }
+
+    fn runMenuLoop:void () {
+        this.loadMenuGame()
+        while (running) {
+            def now:int (gfx_ticks_ms)
+            def dtMs:int defaultDtMs
+            if (lastFrameStart > 0) {
+                dtMs = (now - lastFrameStart)
+                if (dtMs < minDtMs) {
+                    dtMs = minDtMs
+                }
+                if (dtMs > maxDtMs) {
+                    dtMs = maxDtMs
+                }
+            }
+            lastFrameStart = now
+
+            def up:boolean false
+            def down:boolean false
+            def left:boolean false
+            def right:boolean false
+            def action:boolean false
+            def quitHeld:boolean false
+            def m:int (gfx_poll_mask)
+            if ((bit_and m 1) != 0) {
+                up = true
+            }
+            if ((bit_and m 2) != 0) {
+                down = true
+            }
+            if ((bit_and m 16) != 0) {
+                left = true
+            }
+            if ((bit_and m 32) != 0) {
+                right = true
+            }
+            if ((bit_and m 4) != 0) {
+                action = true
+            }
+            if ((bit_and m 8) != 0) {
+                quitHeld = true
+            }
+
+            def quitPulse:boolean (this.quitEdge(quitHeld))
+            runner.frame(dtMs up down left right action quitPulse)
+            this.draw()
+
+            def launchPath:string (runner.stateString("launchPath" ""))
+            if ((strlen launchPath) > 0) {
+                this.loadGame(launchPath)
+                this.runGameLoop()
+                if (running == false) {
+                    return
+                }
+                this.loadMenuGame()
+            }
+
+            def quitApp:int (runner.stateInt("quitApp" 0))
+            if (quitApp != 0) {
+                running = false
+            }
+            if (quitPulse) {
+                running = false
+            }
+
+            if (gfx_should_close) {
+                running = false
+            }
+            frames = (frames + 1)
+            if (maxFrames > 0) {
+                if (frames >= maxFrames) {
+                    running = false
+                }
+            }
+        }
+    }
+
+    fn runGameLoop:void () {
         while (running) {
             runner.maybeHotReload()
             def now:int (gfx_ticks_ms)
@@ -117,10 +222,13 @@ class GameSdlRunner {
                 }
             }
             lastFrameStart = now
+
             def up:boolean false
             def down:boolean false
             def left:boolean false
             def right:boolean false
+            def action:boolean false
+            def quitHeld:boolean false
             def m:int (gfx_poll_mask)
             if ((bit_and m 1) != 0) {
                 up = true
@@ -134,14 +242,19 @@ class GameSdlRunner {
             if ((bit_and m 32) != 0) {
                 right = true
             }
-            def action:boolean false
             if ((bit_and m 4) != 0) {
                 action = true
             }
             if ((bit_and m 8) != 0) {
-                running = false
+                quitHeld = true
             }
-            runner.frame(dtMs up down left right action)
+
+            if (this.quitEdge(quitHeld)) {
+                inGame = false
+                gfx_clear_should_close
+                return
+            }
+            runner.frame(dtMs up down left right action false)
             this.updateFps()
             this.draw()
             frames = (frames + 1)
@@ -153,6 +266,20 @@ class GameSdlRunner {
                     running = false
                 }
             }
+        }
+    }
+
+    fn run:void () {
+        def title:string "Ranger Game (SDL2)"
+        def ok:int (gfx_open title pw ph)
+        if (ok == 0) {
+            print "gfx_open failed (no display?) - still rendering into the RGBA buffer"
+        }
+        gfx_audio_open(22050)
+        if (launcherMode) {
+            this.runMenuLoop()
+        } {
+            this.runGameLoop()
         }
         gfx_close
     }
@@ -169,26 +296,53 @@ class GameSdlRunner {
         return false
     }
 
+    fn startsWith:boolean (s:string prefix:string) {
+        def plen:int (strlen prefix)
+        if ((strlen s) < plen) {
+            return false
+        }
+        def head:string (substring s 0 plen)
+        return (head == prefix)
+    }
+
     fn parseArgs:void () {
         def tsxPath:string ""
         def i:int 0
+        def pendingGamesDir:boolean false
         while (i < (shell_arg_cnt)) {
             def arg:string (shell_arg i)
-            if (arg == "--hot-reload") {
-                hotReloadExplicit = true
-                hotReloadWanted = true
+            if (pendingGamesDir) {
+                gamesDir = arg
+                launcherMode = true
+                pendingGamesDir = false
             } {
-                if (arg == "--no-hot-reload") {
+                if (arg == "--hot-reload") {
                     hotReloadExplicit = true
-                    hotReloadWanted = false
+                    hotReloadWanted = true
                 } {
-                    if (this.isTsxPath(arg)) {
-                        tsxPath = arg
+                    if (arg == "--no-hot-reload") {
+                        hotReloadExplicit = true
+                        hotReloadWanted = false
                     } {
-                        if ((strlen tsxPath) > 0) {
-                            def parsed@(optional):int (to_int arg)
-                            if (!null? parsed) {
-                                maxFrames = (unwrap parsed)
+                        if (arg == "--games-dir") {
+                            pendingGamesDir = true
+                            launcherMode = true
+                        } {
+                            if (this.startsWith(arg "--games-dir=")) {
+                                def plen:int (strlen "--games-dir=")
+                                gamesDir = (substring arg plen (strlen arg))
+                                launcherMode = true
+                            } {
+                                if (this.isTsxPath(arg)) {
+                                    tsxPath = arg
+                                } {
+                                    if ((strlen tsxPath) > 0) {
+                                        def parsed@(optional):int (to_int arg)
+                                        if (!null? parsed) {
+                                            maxFrames = (unwrap parsed)
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -196,43 +350,30 @@ class GameSdlRunner {
             }
             i = (i + 1)
         }
-        if ((strlen tsxPath) == 0) {
-            print "usage: game_sdl [--hot-reload|--no-hot-reload] <path/to/game.tsx> [maxFrames]"
-            print "example: game_sdl gallery/game_engine/scripting/pong.game.tsx"
-            print "         game_sdl --hot-reload gallery/game_engine/scripting/pacman.game.tsx"
+        if ((strlen tsxPath) > 0) {
+            launcherMode = false
+            this.loadGame(tsxPath)
             return
         }
-        this.loadGame(tsxPath)
+        launcherMode = true
     }
 
     sfn m@(main):void () {
-        if ((shell_arg_cnt) < 1) {
-            print "usage: game_sdl [--hot-reload|--no-hot-reload] <path/to/game.tsx> [maxFrames]"
-            print "example: game_sdl gallery/game_engine/scripting/pong.game.tsx"
-            return
-        }
         def be:GameSdlRunner (new GameSdlRunner)
         be.parseArgs()
-        if ((strlen be.runner.options.scriptPath) == 0) {
-            return
-        }
         be.run()
-        def msg:string ("game-sdl done: frames=" + be.frames)
-        msg = (msg + " | entities=" + (be.runner.entityCount()))
-        def sx:int (be.runner.entityX("ship4"))
-        def sy:int (be.runner.entityY("ship4"))
-        msg = (msg + " | ship=")
-        msg = (msg + sx)
-        msg = (msg + ",")
-        msg = (msg + sy)
-        msg = (msg + " | score ")
-        msg = (msg + be.runner.score1)
-        msg = (msg + " - ")
-        msg = (msg + be.runner.score2)
-        if (be.fpsShown > 0) {
-            msg = (msg + " | fps=")
-            msg = (msg + (to_string be.fpsShown))
+        if (be.inGame) {
+            def msg:string ("game-sdl done: frames=" + be.frames)
+            msg = (msg + " | entities=" + (be.runner.entityCount()))
+            msg = (msg + " | score ")
+            msg = (msg + be.runner.score1)
+            msg = (msg + " - ")
+            msg = (msg + be.runner.score2)
+            if (be.fpsShown > 0) {
+                msg = (msg + " | fps=")
+                msg = (msg + (to_string be.fpsShown))
+            }
+            print msg
         }
-        print msg
     }
 }

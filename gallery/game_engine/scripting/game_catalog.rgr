@@ -1,0 +1,232 @@
+; ==============================================================================
+; game_catalog — discover games under a games/ directory.
+; ==============================================================================
+;
+; Each game lives in its own subfolder and must contain index.tsx at the root.
+; Optional game.info (key=value lines) for display metadata:
+;   name=My Game Title
+;   icon=icon.png
+;
+; Folder name is used as the default title when name is omitted.
+; ==============================================================================
+
+Import "../../../lib/ranger-dir.rgr"
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class GameCatalogEntry {
+    def id:string ""
+    def dir:string ""
+    def entryFile:string "index.tsx"
+    def title:string ""
+    def iconPath:string ""
+    def entryPath:string ""
+}
+
+class GameCatalog {
+    def gamesDir:string ""
+    def entries:[GameCatalogEntry]
+
+    fn setGamesDir:void (dir:string) {
+        gamesDir = dir
+    }
+
+    fn entryCount:int () {
+        return (array_length entries)
+    }
+
+    fn entryAt:GameCatalogEntry (idx:int) {
+        def fail:GameCatalogEntry (new GameCatalogEntry)
+        if (idx < 0) {
+            return fail
+        }
+        if (idx >= (array_length entries)) {
+            return fail
+        }
+        return (itemAt entries idx)
+    }
+
+    fn trim:string (s:string) {
+        def start:int 0
+        def end:int (strlen s)
+        while (start < end) {
+            def ch:string (substring s start (start + 1))
+            if (ch == " ") {
+                start = (start + 1)
+            } {
+                if (ch == "\t") {
+                    start = (start + 1)
+                } {
+                    break
+                }
+            }
+        }
+        while (end > start) {
+            def ch2:string (substring s (end - 1) end)
+            if (ch2 == " ") {
+                end = (end - 1)
+            } {
+                if (ch2 == "\t") {
+                    end = (end - 1)
+                } {
+                    break
+                }
+            }
+        }
+        if (end <= start) {
+            return ""
+        }
+        return (substring s start end)
+    }
+
+    fn joinPath:string (dir:string file:string) {
+        if ((strlen dir) == 0) {
+            return file
+        }
+        def last:int (strlen dir)
+        last = (last - 1)
+        def tail:string (substring dir last (last + 1))
+        if (tail == "/") {
+            return (dir + file)
+        }
+        return (dir + "/" + file)
+    }
+
+    fn parseInfoLine:void (entry:GameCatalogEntry line:string) {
+        def eq:int (indexOf line "=")
+        if (eq < 0) {
+            return
+        }
+        def key:string (this.trim((substring line 0 eq)))
+        def val:string (this.trim((substring line (eq + 1) (strlen line))))
+        if (key == "name") {
+            if ((strlen val) > 0) {
+                entry.title = val
+            }
+        }
+        if (key == "icon") {
+            entry.iconPath = val
+        }
+    }
+
+    fn readMetadata:void (entry:GameCatalogEntry) {
+        if (file_exists entry.dir "game.info") {
+            def buf:buffer (buffer_read_file entry.dir "game.info")
+            def txt:string (buffer_to_string buf)
+            def lines:[string] (strsplit txt "\n")
+            def i:int 0
+            while (i < (array_length lines)) {
+                this.parseInfoLine(entry (itemAt lines i))
+                i = (i + 1)
+            }
+        }
+        if ((strlen entry.title) == 0) {
+            entry.title = entry.id
+        }
+        entry.entryPath = (this.joinPath(entry.dir entry.entryFile))
+    }
+
+    fn isGameFolder:boolean (parentDir:string id:string) {
+        if (id == ".") {
+            return false
+        }
+        if (id == "..") {
+            return false
+        }
+        def gameDir:string (this.joinPath(parentDir id))
+        def hasIndex:boolean (file_exists gameDir "index.tsx")
+        return hasIndex
+    }
+
+    fn scan:void () {
+        def empty:[GameCatalogEntry]
+        entries = empty
+        if ((strlen gamesDir) == 0) {
+            return
+        }
+        def names:[string] (list_dir_files gamesDir)
+        def i:int 0
+        while (i < (array_length names)) {
+            def id:string (itemAt names i)
+            if (this.isGameFolder(gamesDir id)) {
+                def entry:GameCatalogEntry (new GameCatalogEntry)
+                entry.id = id
+                entry.dir = (this.joinPath(gamesDir id))
+                this.readMetadata(entry)
+                push entries entry
+            }
+            i = (i + 1)
+        }
+        this.sortEntries()
+    }
+
+    fn strLess:boolean (a:string b:string) {
+        def la:int (strlen a)
+        def lb:int (strlen b)
+        def n:int la
+        if (lb < n) {
+            n = lb
+        }
+        def j:int 0
+        while (j < n) {
+            def ca:int (charAt a j)
+            def cb:int (charAt b j)
+            if (ca < cb) {
+                return true
+            }
+            if (ca > cb) {
+                return false
+            }
+            j = (j + 1)
+        }
+        if (la < lb) {
+            return true
+        }
+        return false
+    }
+
+    fn titleLess:boolean (a:GameCatalogEntry b:GameCatalogEntry) {
+        return (this.strLess(a.title b.title))
+    }
+
+    fn sortEntries:void () {
+        def n:int (array_length entries)
+        def i:int 0
+        while (i < n) {
+            def j:int (i + 1)
+            while (j < n) {
+                def a:GameCatalogEntry (itemAt entries i)
+                def b:GameCatalogEntry (itemAt entries j)
+                if (this.titleLess(b a)) {
+                    set entries i b
+                    set entries j a
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Build EvalValue array for injection as the `gameCatalog` TS global.
+    fn toEvalArray:EvalValue () {
+        def items:[EvalValue]
+        def i:int 0
+        while (i < (array_length entries)) {
+            def e:GameCatalogEntry (itemAt entries i)
+            def keys:[string]
+            def vals:[EvalValue]
+            push keys "id"
+            push vals (EvalValue.string(e.id))
+            push keys "title"
+            push vals (EvalValue.string(e.title))
+            push keys "path"
+            push vals (EvalValue.string(e.entryPath))
+            if ((strlen e.iconPath) > 0) {
+                push keys "icon"
+                push vals (EvalValue.string(e.iconPath))
+            }
+            push items (EvalValue.object(keys vals))
+            i = (i + 1)
+        }
+        return (EvalValue.array(items))
+    }
+}

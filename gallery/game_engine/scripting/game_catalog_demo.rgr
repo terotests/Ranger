@@ -1,0 +1,44 @@
+; Headless smoke: scan games dir + run menu game a few frames.
+Import "./game_runtime.rgr"
+Import "./game_catalog.rgr"
+Import "./game_audio.rgr"
+
+class GameCatalogDemo {
+    sfn m@(main):void () {
+        def catalog:GameCatalog (new GameCatalog)
+        catalog.setGamesDir("gallery/game_engine/games")
+        catalog.scan()
+        def cnt:int (catalog.entryCount())
+        print ("catalog entries: " + (to_string cnt))
+        if (cnt < 1) {
+            print "FAIL: expected at least one game"
+            return
+        }
+        def e0:GameCatalogEntry (catalog.entryAt(0))
+        print ("first game: " + e0.title)
+        print ("path: " + e0.entryPath)
+
+        def runner:GameRunner (new GameRunner)
+        runner.init(480 270)
+        runner.audio.init()
+        runner.registerGlobal("gameCatalog" (catalog.toEvalArray()))
+        def buf:buffer (buffer_read_file "gallery/game_engine/menu" "index.tsx")
+        def src:string (buffer_to_string buf)
+        runner.setScriptDir("gallery/game_engine/menu")
+        runner.loadScript(src)
+        runner.setupScene()
+        def i:int 0
+        while (i < 5) {
+            runner.frame(16 false true false false false false)
+            i = (i + 1)
+        }
+        def launch:string (runner.stateString("launchPath" ""))
+        print ("launchPath after frames: " + launch)
+        def menuText:string (runner.stateString("menuText" ""))
+        if ((strlen menuText) == 0) {
+            print "FAIL: menuText empty"
+            return
+        }
+        print "menu game OK"
+    }
+}

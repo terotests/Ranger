@@ -495,7 +495,15 @@ class GameRunner {
         score2 = (this.memInt(active "score2" (this.memInt(state "score2" score2))))
     }
 
-    fn frame:void (dtMs:int up:boolean down:boolean left:boolean right:boolean action:boolean) {
+    fn stateString:string (key:string dflt:string) {
+        return (this.memString(state key dflt))
+    }
+
+    fn stateInt:int (key:string dflt:int) {
+        return (this.memInt(state key dflt))
+    }
+
+    fn frame:void (dtMs:int up:boolean down:boolean left:boolean right:boolean action:boolean quit:boolean) {
         def prevScreen:string (this.currentScreenName())
         timeMs = (timeMs + dtMs)
         def k:[string]
@@ -514,6 +522,8 @@ class GameRunner {
         push v (EvalValue.boolean(right))
         push k "action"
         push v (EvalValue.boolean(action))
+        push k "quit"
+        push v (EvalValue.boolean(quit))
         push k "state"
         push v state
         def props:EvalValue (EvalValue.object(k v))

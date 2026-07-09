@@ -10,7 +10,9 @@
 #
 # Usage:
 #   ./gallery/game_engine/scripts/build-game-sdl.sh [--run [tsx] [frames]]
-#   ./tmp/game-sdl/game_sdl gallery/game_engine/scripting/pong.game.tsx
+#   ./tmp/game-sdl/game_sdl                                    # launcher menu
+#   ./tmp/game-sdl/game_sdl --games-dir=./mygames
+#   ./tmp/game-sdl/game_sdl gallery/game_engine/games/pong/index.tsx
 #   SDL_VIDEODRIVER=dummy ./tmp/game-sdl/game_sdl gallery/game_engine/scripting/pong.game.tsx 300
 
 set -euo pipefail

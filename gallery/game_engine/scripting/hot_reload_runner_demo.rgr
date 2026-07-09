@@ -40,7 +40,7 @@ class HotReloadRunnerDemo {
 
         def i 0
         while (i < 10) {
-            runner.frame(16 false false false false false)
+            runner.frame(16 false false false false false false)
             i = (i + 1)
         }
         def bxBefore:int (runner.entityX("ball"))
@@ -50,7 +50,7 @@ class HotReloadRunnerDemo {
 
         def j 0
         while (j < 10) {
-            runner.frame(16 false false false false false)
+            runner.frame(16 false false false false false false)
             j = (j + 1)
         }
         def bxAfter:int (runner.entityX("ball"))
