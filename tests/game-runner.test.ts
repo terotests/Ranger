@@ -227,4 +227,26 @@ describe("Game runner - scripted Pong", () => {
     expect(parseInt(bxBefore![1], 10)).toBe(20);
     expect(parseInt(bxAfter![1], 10)).toBe(70);
   });
+
+  it("runs the Ylos platformer with static level bg", () => {
+    const { compile, run } = compileAndRun(
+      "gallery/game_engine/scripting/ylos_runner_demo.rgr"
+    );
+
+    expect(
+      compile.success,
+      `Compile failed: ${compile.error || compile.output}`
+    ).toBe(true);
+    expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+
+    const out = run?.output || "";
+    expect(out).toContain("ylos-runner done");
+    expect(out).toContain("frames=400");
+
+    const p1 = out.match(/p1=(-?\d+),(-?\d+)/);
+    expect(p1, `no p1 position in output: ${out}`).toBeTruthy();
+    const entities = out.match(/entities=(\d+)/);
+    expect(entities, `no entities in output: ${out}`).toBeTruthy();
+    expect(parseInt(entities![1], 10)).toBeGreaterThan(10);
+  });
 });

@@ -117,6 +117,15 @@ class TSAstPatcher {
         if (name == "screens") {
             return true
         }
+        if (name == "createStaticBg") {
+            return true
+        }
+        if (name == "staticLevelHeight") {
+            return true
+        }
+        if (name == "backgroundImage") {
+            return true
+        }
         return false
     }
 
