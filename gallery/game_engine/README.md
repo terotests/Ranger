@@ -248,7 +248,7 @@ LLVM-ongelmat ja korjaukset: [`LLVM_BUGS.md`](./LLVM_BUGS.md).
 
 ```bash
 npm run build:raspberry
-# → dist/raspberry-pi5/pong + DEPLOY.md
+# → dist/raspberry-pi5/ (pong + games/menu/scripting + lib + compiler + DEPLOY.md)
 ```
 
 Kopioi `pong` Pi:lle ja aja HDMI-konsolissa. SDL-pelit (`engine:game-sdl`) vaativat Pi:llä `libsdl2-dev` ja käännöksen laitteella tai vastaavan cross-buildin.
@@ -289,4 +289,5 @@ npm run engine:lpc:run
 | `scripts/build-game-sdl.sh` | TSX-pelien SDL-binääri |
 | `scripts/build-sdl.sh` | Käännetty Pong SDL |
 | `scripts/build-native.sh` | LLVM Pong |
-| `scripts/build-raspberry.sh` | Pi 5 aarch64 -paketti |
+| `scripts/build-raspberry.sh` | Pi 5 aarch64 -paketti (pong + runtime-assetit) |
+| `scripts/sync-game-engine-runtime.sh` | Kopioi games/menu/scripting/lib deploy-hakemistoon |

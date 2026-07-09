@@ -10,6 +10,7 @@ data_folder/
 *.png
 *.ppm
 !gallery/game_engine/scripting/assets/**
+!gallery/game_engine/games/**/assets/**
 !tests/fixtures/game_bg_8x8.png
 
 # MacOS
