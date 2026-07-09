@@ -103,12 +103,9 @@ static int rgfx_poll_mask() {
                     rgfx_toggle_fullscreen();
                 }
             }
-            if (ev.key.keysym.sym == SDLK_q) { g_rgfx_should_close = 1; }
             if (ev.key.keysym.sym == SDLK_ESCAPE) {
                 if (g_rgfx_fullscreen) {
                     rgfx_set_fullscreen(0);
-                } else {
-                    g_rgfx_should_close = 1;
                 }
             }
         }
@@ -119,11 +116,13 @@ static int rgfx_poll_mask() {
     if (ks[SDL_SCANCODE_S] || ks[SDL_SCANCODE_DOWN]) { m |= 2; }
     if (ks[SDL_SCANCODE_SPACE])                      { m |= 4; }
     if (ks[SDL_SCANCODE_Q])                          { m |= 8; }
+    if (ks[SDL_SCANCODE_ESCAPE])                     { m |= 8; }
     if (ks[SDL_SCANCODE_A] || ks[SDL_SCANCODE_LEFT])  { m |= 16; }
     if (ks[SDL_SCANCODE_D] || ks[SDL_SCANCODE_RIGHT]) { m |= 32; }
     return m;
 }
 static int rgfx_should_close() { return g_rgfx_should_close; }
+static void rgfx_clear_should_close() { g_rgfx_should_close = 0; }
 static void rgfx_delay(int ms) { SDL_Delay((Uint32) ms); }
 static uint32_t rgfx_ticks_ms() { return SDL_GetTicks(); }
 static void rgfx_set_title(const std::string& title) {
@@ -151,9 +150,9 @@ static void rgfx_close() {
     }
 
     ; Pump events and return a bitmask of currently-pressed buttons:
-    ;   1 = up, 2 = down, 4 = action, 8 = quit, 16 = left, 32 = right
+    ;   1 = up, 2 = down, 4 = action, 8 = quit/back (Q or Esc), 16 = left, 32 = right
     ; Fullscreen toggle (edge): F11, Alt+Enter, Cmd+Enter (macOS). Esc exits
-    ; fullscreen first, then quits when already windowed.
+    ; fullscreen first; when windowed, Q/Esc set bit 8 for the host to handle.
     gfx_poll_mask _:int () {
         templates {
             cpp ( "rgfx_poll_mask()" (imp "<SDL2/SDL.h>") )
@@ -166,6 +165,14 @@ static void rgfx_close() {
         templates {
             cpp ( "(rgfx_should_close() != 0)" (imp "<SDL2/SDL.h>") )
             es6 ( "true" )
+        }
+    }
+
+    ; Clear a prior window-close request (e.g. after returning to the launcher menu).
+    gfx_clear_should_close _:void () {
+        templates {
+            cpp ( "rgfx_clear_should_close()" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
         }
     }
 

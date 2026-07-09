@@ -27,7 +27,7 @@ class AudioRunnerDemo {
 
         def i 0
         while (i < 5) {
-            runner.frame(16 false false false false false)
+            runner.frame(16 false false false false false false)
             i = (i + 1)
         }
 

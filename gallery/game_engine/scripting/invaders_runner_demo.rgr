@@ -32,7 +32,7 @@ class InvadersRunnerDemo {
             def phase (i % 160)
             def up (phase < 50)
             def down (phase >= 110)
-            runner.frame(16 up down false false false)
+            runner.frame(16 up down false false false false)
             i = (i + 1)
         }
 

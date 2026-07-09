@@ -13,7 +13,7 @@ class CounterRunnerDemo {
         runner.setScriptDir("gallery/game_engine/scripting")
         runner.loadScript(src)
         runner.setupScene()
-        runner.frame(16 false false false false false)
+        runner.frame(16 false false false false false false)
         print (("score1=" + runner.score1))
         print "counter-runner done"
     }

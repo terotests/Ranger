@@ -50,7 +50,7 @@ class PacmanRunnerDemo {
             if (phase >= 90) {
                 down = true
             }
-            runner.frame(16 up down left right action)
+            runner.frame(16 up down left right action false)
             i = (i + 1)
         }
 

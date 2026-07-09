@@ -9,6 +9,6 @@ pong_sdl
 variant.hpp
 *.o
 *.exe
-pong
+/pong
 pong_cpp
 pong_rs

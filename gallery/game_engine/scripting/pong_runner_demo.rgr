@@ -41,7 +41,7 @@ class PongRunnerDemo {
             def phase (i % 120)
             def up (phase < 40)
             def down (phase >= 80)
-            runner.frame(16 up down false false false)
+            runner.frame(16 up down false false false false)
             i = (i + 1)
         }
 
