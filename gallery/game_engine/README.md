@@ -124,9 +124,11 @@ Katalogi päivittyy ajon aikana (oletus ~10 s välein); uusi `games/mygame/index
 ```
 gallery/game_engine/games/mygame/
 ├── index.tsx       # pakollinen — pelin pääskripti
-├── game.info       # valinnainen — name=Otsikko valikossa
-├── gamedata.json   # luodaan automaattisesti tallennuksella
-└── assets/         # valinnainen — taustakuvat, äänet, …
+├── game.info
+├── gamedata.json       # luodaan saveGameData-kutsulla
+├── level2.tsx          # valinnainen — erillinen ruututiedosto (pushGame)
+├── win.tsx             # valinnainen — voittoruutu (loadGame)
+└── assets/             # taustakuvat (resources)
 ```
 
 `game.info`-esimerkki:
@@ -195,11 +197,13 @@ Valikosta peli näkyy automaattisesti, kun `index.tsx` on paikallaan.
 | Ominaisuus | Miten |
 |------------|-------|
 | **Ääni** | `import { soundEvent } from "../../scripting/game_helpers"` → `events: [soundEvent("bounce")]` `update()`-palautuksessa |
-| **Taustakuva** | `resources()` + `backgroundImage()` tai `setBackground` hostin kautta — katso [`scripting/background_demo.game.tsx`](./scripting/background_demo.game.tsx) |
-| **Tallennus** | `loadGameData()` / `saveGameData(obj)` / `resetGameData()` → `gamedata.json` pelikansiossa |
-| **Multi-screen** | `state.screen` + `state.screens[name]`; apurit `getScreen`, `isActiveScreen` — katso Breakout |
+| **Taustakuva** | `resources()` + `backgroundImage()` — katso [`scripting/background_demo.game.tsx`](./scripting/background_demo.game.tsx) |
+| **Tallennus** | `loadGameData()` / `saveGameData(obj)` → `gamedata.json` pelikansiossa |
+| **Ruututiedostot** | `loadGame` / `pushGame` / `popGame` — erilliset `.tsx`-ruudut samassa pelikansiossa |
+| **Multi-screen (yksi tiedosto)** | `state.screen` + `state.screens[name]`; apurit `getScreen`, `isActiveScreen` — katso Breakout |
 | **Useampi pelaaja** | `state.playerSlots` + `props.input.players[]` |
-| **Navigointi toiseen peliin** | `loadGame(path)`, `pushGame(path)`, `popGame()` (host-native API) |
+
+Tiedostopohjaiset ruudut (`level2.tsx`, `win.tsx`), taustakuvat ja `gamedata.json`: **[`scripting/GAME_SCREENS_AND_STORAGE.md`](./scripting/GAME_SCREENS_AND_STORAGE.md)**.
 
 Täydet tyypit: [`scripting/engine.d.ts`](./scripting/engine.d.ts). TS-tarkistus:
 
@@ -274,6 +278,7 @@ npm run engine:lpc:run
 | [`PLAN_GAME_ENGINE.md`](./PLAN_GAME_ENGINE.md) | Arkkitehtuuri, HDMI, gamepad-suunnitelma |
 | [`RENDERING_EVG.md`](./RENDERING_EVG.md) | EVG/vektori-renderöinnin integraatio (tuleva) |
 | [`scripting/GAME_SCRIPTING.md`](./scripting/GAME_SCRIPTING.md) | TSX-skriptaus, GameRunner, importit |
+| [`scripting/GAME_SCREENS_AND_STORAGE.md`](./scripting/GAME_SCREENS_AND_STORAGE.md) | Ruutujen lataus (`loadGame`/`pushGame`) ja `gamedata.json` |
 | [`scripting/GAME_ENGINE_DESIGN.md`](./scripting/GAME_ENGINE_DESIGN.md) | Retained mode + JSX HUD -malli |
 | [`scripting/TSX_ENGINE_ISSUES.md`](./scripting/TSX_ENGINE_ISSUES.md) | Tunnetut evaluator-rajoitukset |
 | [`LLVM_BUGS.md`](./LLVM_BUGS.md) | LLVM-backendin bugit |
