@@ -1,20 +1,21 @@
 /// <reference path="../../scripting/game.d.ts" />
 //
 // Pac-Man - multi-screen demo (splash / play / gameOver).
-// Logic in TypeScript; rendering via generic sprite kinds (game_sprite.rgr).
+// Single player — keyboard (arrows/WASD) or gamepad.
 //
-// Run: npm run engine:game-sdl:run:pacman
+// Run: npm run engine:game-sdl:launcher → Pac-Man
 
 import { soundEvent } from "../../scripting/game_helpers";
 
 const TILE = 14;
 const PACE = 2.0;
 const STEP_MS = 110 * PACE;
-const GHOST_STEP_MS = 110 * PACE;
+const GHOST_STEP_MS = 200 * PACE ;
 const POWER_MS = 6000;
 const SCATTER_MS = 7000;
 const CHASE_MS = 20000;
 const HURT_MS = 1500;
+const DEATH_MS = 1200;
 
 const MAZE = [
   "###################",
@@ -24,9 +25,9 @@ const MAZE = [
   "#.###.#.###.#.###.#",
   "#.....#..S..#.....#",
   "#.#######.#######.#",
-  "#G......#......G..#",
-  "#.###.#.###.#.###.#",
   "#.................#",
+  "#.###.#.###.#.###.#",
+  "#O...............O#",
   "###################"
 ];
 
@@ -46,12 +47,15 @@ const GHOST_PAL = [
   { r: 255, g: 160, b: 60 }
 ];
 
-const SCATTER_TARGETS = [
-  { col: 17, row: 0 },
-  { col: 1, row: 0 },
-  { col: 17, row: 10 },
-  { col: 1, row: 10 }
+// Corner tunnel tiles — ghost home + scatter targets (walkable, not wall rows).
+const GHOST_STARTS = [
+  { col: 1, row: 3 },
+  { col: 17, row: 3 },
+  { col: 1, row: 9 },
+  { col: 17, row: 9 }
 ];
+
+const SCATTER_TARGETS = GHOST_STARTS;
 
 function screens() {
   return ["splash", "play", "gameOver"];
@@ -126,8 +130,10 @@ function lerpTile(col, row, frac, dir) {
   const cx = tileX(col);
   const cy = tileY(row);
   const d = dirDelta(dir);
-  const tx = tileX(col + d.dc);
-  const ty = tileY(row + d.dr);
+  const nc = wrapCol(col + d.dc, row + d.dr);
+  const nr = row + d.dr;
+  const tx = tileX(nc);
+  const ty = tileY(nr);
   const t = frac / 1000.0;
   return { x: cx + (tx - cx) * t, y: cy + (ty - cy) * t };
 }
@@ -302,25 +308,6 @@ function findStart() {
   return { col: 9, row: 5 };
 }
 
-function findGhostSpawns() {
-  const spawns = [];
-  let row = 0;
-  while (row < ROWS) {
-    let col = 0;
-    while (col < COLS) {
-      if (cellAt(col, row) == "G") {
-        spawns.push({ col: col, row: row });
-      }
-      col = col + 1;
-    }
-    row = row + 1;
-  }
-  while (spawns.length < 4) {
-    spawns.push({ col: 9, row: 7 });
-  }
-  return spawns;
-}
-
 function initGhosts(spawns) {
   const ghosts = [];
   let i = 0;
@@ -375,6 +362,20 @@ function placeDots(entities, dots, powers) {
 function pacMouth(frameSeed, moving) {
   if (moving == 0) { return 0; }
   return 1 + (frameSeed % 3);
+}
+
+function placePacDeath(entities, col, row, frac, dir, frameSeed) {
+  const pos = lerpIfMoving(col, row, frac, dir);
+  if ((frameSeed % 8) < 4) {
+    entities.pac = { x: -40, y: -40, visible: 0 };
+    return;
+  }
+  entities.pac = {
+    x: pos.x,
+    y: pos.y,
+    p0: dir,
+    p1: 3
+  };
 }
 
 function placePac(entities, col, row, frac, dir, frameSeed, moving, blink) {
@@ -438,7 +439,7 @@ function initSplashState() {
   const start = findStart();
   const dots = initDots();
   const powers = initPowers();
-  const spawns = findGhostSpawns();
+  const spawns = GHOST_STARTS;
   const ghosts = initGhosts(spawns);
   return {
     showNet: 0,
@@ -453,7 +454,7 @@ function initPlayState() {
   const startDir = firstOpenDir(start.col, start.row);
   const dots = initDots();
   const powers = initPowers();
-  const spawns = findGhostSpawns();
+  const spawns = GHOST_STARTS;
   const ghosts = initGhosts(spawns);
   return {
     showNet: 0,
@@ -475,6 +476,11 @@ function initPlayState() {
     powered: 0,
     powerLeft: 0,
     hurtTimer: 0,
+    deathTimer: 0,
+    deathPacCol: start.col,
+    deathPacRow: start.row,
+    deathPacFrac: 0,
+    deathPacDir: startDir,
     score1: 0,
     score2: 3
   };
@@ -611,7 +617,7 @@ function pickGhostDir(g, gi, pacCol, pacRow, pacDir, globalMode, powered) {
 
 function stepGhostGrid(g, gi, pacCol, pacRow, pacDir, globalMode, powered) {
   if (g.eyes == 1) {
-    const sp = findGhostSpawns()[gi];
+    const sp = GHOST_STARTS[gi];
     const dir = pickGhostDir(g, gi, sp.col, sp.row, 1, MODE_CHASE, 0);
     const mv = tryMove(g.col, g.row, dir);
     if (mv.ok == 1) {
@@ -636,19 +642,63 @@ function stepGhostGrid(g, gi, pacCol, pacRow, pacDir, globalMode, powered) {
   return g;
 }
 
-function hitGhostAt(px, py, ghosts) {
+function hitGhostAt(pacCol, pacRow, pacFrac, pacDir, ghosts) {
+  let found = -1;
   let i = 0;
   while (i < 4) {
-    const g = ghosts[i];
-    if (g.eyes == 0) {
-      const pos = lerpIfMoving(g.col, g.row, g.frac, g.dir);
-      const dx = absVal(px - pos.x);
-      const dy = absVal(py - pos.y);
-      if (dx + dy < 14) { return i; }
+    if (found < 0) {
+      const g = ghosts[i];
+      if (g.eyes != 1) {
+        if (g.col == pacCol) {
+          if (g.row == pacRow) {
+            found = i;
+          }
+        }
+        if (found < 0) {
+          let dc = g.col - pacCol;
+          let dr = g.row - pacRow;
+          if (dc < 0) { dc = 0 - dc; }
+          if (dr < 0) { dr = 0 - dr; }
+          if ((dc + dr) <= 1) {
+            found = i;
+          }
+        }
+      }
     }
     i = i + 1;
   }
-  return -1;
+  return found;
+}
+
+function applyGhostTouch(gh, powered, ghosts, score, lives, pacCol, pacRow, pacFrac, pacDir, events) {
+  if (powered > 0) {
+    ghosts[gh].eyes = 1;
+    ghosts[gh].frac = 0;
+    events.push(soundEvent("bounce"));
+    return {
+      score: score + 200,
+      lives: lives,
+      powered: powered,
+      deathTimer: 0,
+      deathPacCol: pacCol,
+      deathPacRow: pacRow,
+      deathPacFrac: pacFrac,
+      deathPacDir: pacDir,
+      hit: 1
+    };
+  }
+  events.push(soundEvent("lose"));
+  return {
+    score: score,
+    lives: lives - 1,
+    powered: powered,
+    deathTimer: DEATH_MS,
+    deathPacCol: pacCol,
+    deathPacRow: pacRow,
+    deathPacFrac: pacFrac,
+    deathPacDir: pacDir,
+    hit: 1
+  };
 }
 
 function countAliveDots(dots) {
@@ -675,7 +725,7 @@ function goToGameOver(s, play, won) {
   };
 }
 
-function resetAfterHurt(play, spawns) {
+function resetAfterHurt(play) {
   const start = findStart();
   const startDir = firstOpenDir(start.col, start.row);
   play.pacCol = start.col;
@@ -683,10 +733,13 @@ function resetAfterHurt(play, spawns) {
   play.pacDir = startDir;
   play.nextDir = startDir;
   play.pacFrac = 0;
-  play.ghosts = initGhosts(spawns);
+  play.ghosts = initGhosts(GHOST_STARTS);
   play.powered = 0;
   play.powerLeft = 0;
   play.hurtTimer = HURT_MS;
+  play.deathTimer = 0;
+  play.globalMode = MODE_SCATTER;
+  play.modeTimer = SCATTER_MS;
 }
 
 function updateSplash(s, props) {
@@ -720,42 +773,74 @@ function updatePlay(s, props) {
   let globalMode = play.globalMode;
   let modeTimer = play.modeTimer - dt;
   let hurtTimer = play.hurtTimer;
+  let deathTimer = play.deathTimer;
+  let deathPacCol = play.deathPacCol;
+  let deathPacRow = play.deathPacRow;
+  let deathPacFrac = play.deathPacFrac;
+  let deathPacDir = play.deathPacDir;
   const dots = play.dots;
   const powers = play.powers;
   const ghosts = play.ghosts;
-  const spawns = findGhostSpawns();
   let moving = 0;
   let blink = 0;
 
-  if (hurtTimer > 0) {
-    hurtTimer = hurtTimer - dt;
-    if ((frameSeed % 8) < 4) { blink = 1; }
-  }
-
-  if (powered > 0) {
-    powerLeft = powerLeft - dt;
-    if (powerLeft <= 0) {
+  if (deathTimer > 0) {
+    deathTimer = deathTimer - dt;
+    if (deathTimer <= 0) {
+      if (lives <= 0) {
+        play.score = score;
+        play.lives = 0;
+        play.score1 = score;
+        play.score2 = 0;
+        const over = goToGameOver(s, play, 0);
+        return {
+          screen: over.screen,
+          screens: over.screens,
+          events: events
+        };
+      }
+      resetAfterHurt(play);
+      pacCol = play.pacCol;
+      pacRow = play.pacRow;
+      pacDir = play.pacDir;
+      nextDir = play.nextDir;
+      pacFrac = play.pacFrac;
+      hurtTimer = play.hurtTimer;
       powered = 0;
       powerLeft = 0;
+      globalMode = play.globalMode;
+      modeTimer = play.modeTimer;
+      deathTimer = 0;
     }
+  } else if (hurtTimer > 0) {
+    hurtTimer = hurtTimer - dt;
+    if ((frameSeed % 8) < 4) { blink = 1; }
   } else {
-    if (modeTimer <= 0) {
-      if (globalMode == MODE_SCATTER) {
-        globalMode = MODE_CHASE;
-        modeTimer = CHASE_MS;
-      } else {
-        globalMode = MODE_SCATTER;
-        modeTimer = SCATTER_MS;
+    if (powered > 0) {
+      powerLeft = powerLeft - dt;
+      if (powerLeft <= 0) {
+        powered = 0;
+        powerLeft = 0;
+      }
+    } else {
+      if (modeTimer <= 0) {
+        if (globalMode == MODE_SCATTER) {
+          globalMode = MODE_CHASE;
+          modeTimer = CHASE_MS;
+        } else {
+          globalMode = MODE_SCATTER;
+          modeTimer = SCATTER_MS;
+        }
       }
     }
-  }
 
-  if (hurtTimer <= 0) {
+    let hitGh = -1;
+
     if (pacFrac < 80) {
       pacDir = tryTurn(pacCol, pacRow, pacDir, nextDir);
     }
     pacFrac = pacFrac + ((1000 * dt) / STEP_MS);
-    while (pacFrac >= 1000) {
+    while (pacFrac >= 1000 && hitGh < 0) {
       pacDir = tryTurn(pacCol, pacRow, pacDir, nextDir);
       const mv = tryMove(pacCol, pacRow, pacDir);
       if (mv.ok == 1) {
@@ -772,86 +857,74 @@ function updatePlay(s, props) {
         } else if (eat.score > 0) {
           events.push(soundEvent("blip"));
         }
+        hitGh = hitGhostAt(pacCol, pacRow, pacFrac, pacDir, ghosts);
       } else {
         pacFrac = 0;
       }
     }
 
-    let gi = 0;
-    while (gi < 4) {
-      ghosts[gi].frac = ghosts[gi].frac + ((1000 * dt) / GHOST_STEP_MS);
-      while (ghosts[gi].frac >= 1000) {
-        const beforeCol = ghosts[gi].col;
-        const beforeRow = ghosts[gi].row;
-        ghosts[gi] = stepGhostGrid(ghosts[gi], gi, pacCol, pacRow, pacDir, globalMode, powered);
-        if (ghosts[gi].col == beforeCol) {
-          if (ghosts[gi].row == beforeRow) {
-            ghosts[gi].frac = 0;
+    if (hitGh < 0) {
+      let gi = 0;
+      while (gi < 4 && hitGh < 0) {
+        ghosts[gi].frac = ghosts[gi].frac + ((1000 * dt) / GHOST_STEP_MS);
+        while (ghosts[gi].frac >= 1000 && hitGh < 0) {
+          const beforeCol = ghosts[gi].col;
+          const beforeRow = ghosts[gi].row;
+          ghosts[gi] = stepGhostGrid(ghosts[gi], gi, pacCol, pacRow, pacDir, globalMode, powered);
+          if (ghosts[gi].col == beforeCol) {
+            if (ghosts[gi].row == beforeRow) {
+              ghosts[gi].frac = 0;
+            } else {
+              ghosts[gi].frac = ghosts[gi].frac - 1000;
+            }
           } else {
             ghosts[gi].frac = ghosts[gi].frac - 1000;
           }
-        } else {
-          ghosts[gi].frac = ghosts[gi].frac - 1000;
+          hitGh = hitGhostAt(pacCol, pacRow, pacFrac, pacDir, ghosts);
         }
+        gi = gi + 1;
       }
-      gi = gi + 1;
     }
 
-    const pacPos = lerpIfMoving(pacCol, pacRow, pacFrac, pacDir);
-    const gh = hitGhostAt(pacPos.x, pacPos.y, ghosts);
-    if (gh >= 0) {
-      if (powered > 0) {
-        score = score + 200;
-        ghosts[gh].eyes = 1;
-        ghosts[gh].frac = 0;
-        events.push(soundEvent("bounce"));
-      } else {
-        lives = lives - 1;
-        events.push(soundEvent("lose"));
-        if (lives <= 0) {
-          play.pacCol = pacCol;
-          play.pacRow = pacRow;
-          play.score = score;
-          play.lives = 0;
-          play.score1 = score;
-          play.score2 = 0;
-          const over = goToGameOver(s, play, 0);
-          return {
-            screen: over.screen,
-            screens: over.screens,
-            events: events
-          };
-        }
-        resetAfterHurt(play, spawns);
-        pacCol = play.pacCol;
-        pacRow = play.pacRow;
-        pacDir = play.pacDir;
-        nextDir = play.nextDir;
-        pacFrac = play.pacFrac;
-        hurtTimer = play.hurtTimer;
-        powered = 0;
-        powerLeft = 0;
-      }
+    if (hitGh < 0) {
+      hitGh = hitGhostAt(pacCol, pacRow, pacFrac, pacDir, ghosts);
+    }
+
+    if (hitGh >= 0) {
+      const touch = applyGhostTouch(hitGh, powered, ghosts, score, lives, pacCol, pacRow, pacFrac, pacDir, events);
+      score = touch.score;
+      lives = touch.lives;
+      deathTimer = touch.deathTimer;
+      deathPacCol = touch.deathPacCol;
+      deathPacRow = touch.deathPacRow;
+      deathPacFrac = touch.deathPacFrac;
+      deathPacDir = touch.deathPacDir;
     }
   }
 
-  if (countAliveDots(dots) == 0) {
-    play.score = score;
-    play.score1 = score;
-    play.score2 = lives;
-    events.push(soundEvent("win"));
-    const over = goToGameOver(s, play, 1);
-    return {
-      screen: over.screen,
-      screens: over.screens,
-      events: events
-    };
+  if (deathTimer <= 0) {
+    if (countAliveDots(dots) == 0) {
+      play.score = score;
+      play.score1 = score;
+      play.score2 = lives;
+      events.push(soundEvent("win"));
+      const over = goToGameOver(s, play, 1);
+      return {
+        screen: over.screen,
+        screens: over.screens,
+        events: events
+      };
+    }
   }
 
   const entities = {};
   placeWalls(entities);
   placeDots(entities, dots, powers);
-  placePac(entities, pacCol, pacRow, pacFrac, pacDir, frameSeed, moving, blink);
+  if (deathTimer > 0) {
+    placePacDeath(entities, deathPacCol, deathPacRow, deathPacFrac, deathPacDir, frameSeed);
+  } else {
+    placePac(entities, pacCol, pacRow, pacFrac, pacDir, frameSeed, moving, blink);
+  }
   placeGhosts(entities, ghosts, powered, frameSeed);
 
   const nextPlay = {
@@ -874,6 +947,11 @@ function updatePlay(s, props) {
     powered: powered,
     powerLeft: powerLeft,
     hurtTimer: hurtTimer,
+    deathTimer: deathTimer,
+    deathPacCol: deathPacCol,
+    deathPacRow: deathPacRow,
+    deathPacFrac: deathPacFrac,
+    deathPacDir: deathPacDir,
     score1: score,
     score2: lives
   };
@@ -957,7 +1035,9 @@ function hud(props) {
   const play = s.screens.play;
   const tag = modeLabel(play.globalMode, play.powered);
   let hurtLabel = "";
-  if (play.hurtTimer > 0) {
+  if (play.deathTimer > 0) {
+    hurtLabel = " DEAD";
+  } else if (play.hurtTimer > 0) {
     hurtLabel = " OUCH";
   }
   return (

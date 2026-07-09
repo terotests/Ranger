@@ -36,6 +36,86 @@ static SDL_AudioDeviceID g_rgfx_audio = 0;
 static int g_rgfx_should_close = 0;
 static int g_rgfx_fullscreen = 0;
 
+#define RGFX_MAX_PADS 8
+#define RGFX_SRC_KB_P1 0
+#define RGFX_SRC_KB_P2 1
+#define RGFX_SRC_PAD0 2
+#define RGFX_SRC_COUNT 10
+
+#define RGFX_UP    1
+#define RGFX_DOWN  2
+#define RGFX_ACT   4
+#define RGFX_QUIT  8
+#define RGFX_LEFT  16
+#define RGFX_RIGHT 32
+#define RGFX_B     64
+#define RGFX_X     128
+#define RGFX_Y     256
+#define RGFX_START 512
+#define RGFX_SELECT 1024
+
+static SDL_GameController* g_pads[RGFX_MAX_PADS];
+static int g_pad_count = 0;
+static int g_src_mask[RGFX_SRC_COUNT];
+
+static void rgfx_close_pad_slot(int idx) {
+    if (idx < 0 || idx >= g_pad_count) { return; }
+    if (g_pads[idx] != nullptr) {
+        SDL_GameControllerClose(g_pads[idx]);
+    }
+    for (int j = idx + 1; j < g_pad_count; ++j) {
+        g_pads[j - 1] = g_pads[j];
+    }
+    if (g_pad_count > 0) {
+        g_pads[g_pad_count - 1] = nullptr;
+        --g_pad_count;
+    }
+}
+
+static void rgfx_open_pad_index(int jsIndex) {
+    if (g_pad_count >= RGFX_MAX_PADS) { return; }
+    if (!SDL_IsGameController(jsIndex)) { return; }
+    SDL_GameController* c = SDL_GameControllerOpen(jsIndex);
+    if (c == nullptr) { return; }
+    g_pads[g_pad_count++] = c;
+}
+
+static void rgfx_scan_pads() {
+    for (int i = 0; i < g_pad_count; ++i) {
+        if (g_pads[i] != nullptr) {
+            SDL_GameControllerClose(g_pads[i]);
+            g_pads[i] = nullptr;
+        }
+    }
+    g_pad_count = 0;
+    const int n = SDL_NumJoysticks();
+    for (int i = 0; i < n && g_pad_count < RGFX_MAX_PADS; ++i) {
+        rgfx_open_pad_index(i);
+    }
+}
+
+static int rgfx_map_pad(SDL_GameController* pad) {
+    if (pad == nullptr) { return 0; }
+    int m = 0;
+    if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_UP)) { m |= RGFX_UP; }
+    if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_DOWN)) { m |= RGFX_DOWN; }
+    if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_LEFT)) { m |= RGFX_LEFT; }
+    if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_RIGHT)) { m |= RGFX_RIGHT; }
+    if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_A)) { m |= RGFX_ACT; }
+    if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_B)) { m |= RGFX_B; }
+    if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_X)) { m |= RGFX_X; }
+    if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_Y)) { m |= RGFX_Y; }
+    if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_START)) { m |= RGFX_START; }
+    if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_BACK)) { m |= RGFX_SELECT; }
+    const Sint16 ly = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY);
+    const Sint16 lx = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX);
+    if (ly < -8000) { m |= RGFX_UP; }
+    if (ly > 8000) { m |= RGFX_DOWN; }
+    if (lx < -8000) { m |= RGFX_LEFT; }
+    if (lx > 8000) { m |= RGFX_RIGHT; }
+    return m;
+}
+
 static void rgfx_set_fullscreen(int on) {
     if (g_rgfx_win == nullptr) { return; }
     Uint32 flags = on ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0;
@@ -47,6 +127,74 @@ static int rgfx_toggle_fullscreen() {
     return g_rgfx_fullscreen;
 }
 static int rgfx_is_fullscreen() { return g_rgfx_fullscreen; }
+
+static void rgfx_pump_events() {
+    SDL_Event ev;
+    while (SDL_PollEvent(&ev)) {
+        if (ev.type == SDL_QUIT) { g_rgfx_should_close = 1; }
+        if (ev.type == SDL_CONTROLLERDEVICEADDED) {
+            rgfx_open_pad_index((int) ev.cdevice.which);
+        }
+        if (ev.type == SDL_CONTROLLERDEVICEREMOVED) {
+            const SDL_JoystickID jid = ev.cdevice.which;
+            for (int i = 0; i < g_pad_count; ++i) {
+                if (g_pads[i] != nullptr) {
+                    SDL_Joystick* js = SDL_GameControllerGetJoystick(g_pads[i]);
+                    if (js != nullptr && SDL_JoystickInstanceID(js) == jid) {
+                        rgfx_close_pad_slot(i);
+                        break;
+                    }
+                }
+            }
+        }
+        if (ev.type == SDL_KEYDOWN) {
+            if (ev.key.keysym.sym == SDLK_F11) {
+                rgfx_toggle_fullscreen();
+            }
+            if (ev.key.keysym.sym == SDLK_RETURN) {
+                if ((ev.key.keysym.mod & KMOD_ALT) || (ev.key.keysym.mod & KMOD_GUI)) {
+                    rgfx_toggle_fullscreen();
+                }
+            }
+            if (ev.key.keysym.sym == SDLK_ESCAPE) {
+                if (g_rgfx_fullscreen) {
+                    rgfx_set_fullscreen(0);
+                }
+            }
+        }
+    }
+}
+
+static void rgfx_input_recompute() {
+    for (int i = 0; i < RGFX_SRC_COUNT; ++i) { g_src_mask[i] = 0; }
+    const Uint8* ks = SDL_GetKeyboardState(nullptr);
+    int kb1 = 0;
+    if (ks[SDL_SCANCODE_W]) { kb1 |= RGFX_UP; }
+    if (ks[SDL_SCANCODE_S]) { kb1 |= RGFX_DOWN; }
+    if (ks[SDL_SCANCODE_A]) { kb1 |= RGFX_LEFT; }
+    if (ks[SDL_SCANCODE_D]) { kb1 |= RGFX_RIGHT; }
+    if (ks[SDL_SCANCODE_SPACE]) { kb1 |= RGFX_ACT; }
+    if (ks[SDL_SCANCODE_Q]) { kb1 |= RGFX_QUIT; }
+    if (ks[SDL_SCANCODE_ESCAPE]) { kb1 |= RGFX_QUIT; }
+    g_src_mask[RGFX_SRC_KB_P1] = kb1;
+
+    int kb2 = 0;
+    if (ks[SDL_SCANCODE_UP]) { kb2 |= RGFX_UP; }
+    if (ks[SDL_SCANCODE_DOWN]) { kb2 |= RGFX_DOWN; }
+    if (ks[SDL_SCANCODE_LEFT]) { kb2 |= RGFX_LEFT; }
+    if (ks[SDL_SCANCODE_RIGHT]) { kb2 |= RGFX_RIGHT; }
+    if (ks[SDL_SCANCODE_RETURN]) { kb2 |= RGFX_ACT; }
+    g_src_mask[RGFX_SRC_KB_P2] = kb2;
+
+    for (int i = 0; i < g_pad_count && i < RGFX_MAX_PADS; ++i) {
+        g_src_mask[RGFX_SRC_PAD0 + i] = rgfx_map_pad(g_pads[i]);
+    }
+}
+
+static void rgfx_input_poll() {
+    rgfx_pump_events();
+    rgfx_input_recompute();
+}
 
 static int rgfx_audio_open(int sampleRate) {
     if (g_rgfx_audio != 0) { return 1; }
@@ -68,9 +216,13 @@ static void rgfx_audio_queue(const uint8_t* pcm, int byteCount) {
     if (pcm == nullptr || byteCount <= 0) { return; }
     SDL_QueueAudio(g_rgfx_audio, pcm, (Uint32) byteCount);
 }
+static void rgfx_audio_clear() {
+    if (g_rgfx_audio != 0) { SDL_ClearQueuedAudio(g_rgfx_audio); }
+}
 
 static int rgfx_open(const std::string& title, int w, int h) {
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0) { return 0; }
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0) { return 0; }
+    rgfx_scan_pads();
     g_rgfx_win = SDL_CreateWindow(title.c_str(),
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, w, h, SDL_WINDOW_SHOWN);
     if (g_rgfx_win == nullptr) { return 0; }
@@ -91,35 +243,17 @@ static void rgfx_present(const uint8_t* pixels, int w, int h) {
     SDL_RenderPresent(g_rgfx_ren);
 }
 static int rgfx_poll_mask() {
-    SDL_Event ev;
-    while (SDL_PollEvent(&ev)) {
-        if (ev.type == SDL_QUIT) { g_rgfx_should_close = 1; }
-        if (ev.type == SDL_KEYDOWN) {
-            if (ev.key.keysym.sym == SDLK_F11) {
-                rgfx_toggle_fullscreen();
-            }
-            if (ev.key.keysym.sym == SDLK_RETURN) {
-                if ((ev.key.keysym.mod & KMOD_ALT) || (ev.key.keysym.mod & KMOD_GUI)) {
-                    rgfx_toggle_fullscreen();
-                }
-            }
-            if (ev.key.keysym.sym == SDLK_ESCAPE) {
-                if (g_rgfx_fullscreen) {
-                    rgfx_set_fullscreen(0);
-                }
-            }
-        }
-    }
-    int m = 0;
-    const Uint8* ks = SDL_GetKeyboardState(nullptr);
-    if (ks[SDL_SCANCODE_W] || ks[SDL_SCANCODE_UP])   { m |= 1; }
-    if (ks[SDL_SCANCODE_S] || ks[SDL_SCANCODE_DOWN]) { m |= 2; }
-    if (ks[SDL_SCANCODE_SPACE])                      { m |= 4; }
-    if (ks[SDL_SCANCODE_Q])                          { m |= 8; }
-    if (ks[SDL_SCANCODE_ESCAPE])                     { m |= 8; }
-    if (ks[SDL_SCANCODE_A] || ks[SDL_SCANCODE_LEFT])  { m |= 16; }
-    if (ks[SDL_SCANCODE_D] || ks[SDL_SCANCODE_RIGHT]) { m |= 32; }
-    return m;
+    rgfx_input_poll();
+    return g_src_mask[RGFX_SRC_KB_P1];
+}
+static int rgfx_input_source_mask(int source) {
+    rgfx_input_poll();
+    if (source < 0 || source >= RGFX_SRC_COUNT) { return 0; }
+    return g_src_mask[source];
+}
+static int rgfx_input_pad_count() {
+    rgfx_input_poll();
+    return g_pad_count;
 }
 static int rgfx_should_close() { return g_rgfx_should_close; }
 static void rgfx_clear_should_close() { g_rgfx_should_close = 0; }
@@ -130,6 +264,13 @@ static void rgfx_set_title(const std::string& title) {
 }
 static void rgfx_close() {
     if (g_rgfx_audio) { SDL_CloseAudioDevice(g_rgfx_audio); g_rgfx_audio = 0; }
+    for (int i = 0; i < g_pad_count; ++i) {
+        if (g_pads[i] != nullptr) {
+            SDL_GameControllerClose(g_pads[i]);
+            g_pads[i] = nullptr;
+        }
+    }
+    g_pad_count = 0;
     if (g_rgfx_tex) { SDL_DestroyTexture(g_rgfx_tex); g_rgfx_tex = nullptr; }
     if (g_rgfx_ren) { SDL_DestroyRenderer(g_rgfx_ren); g_rgfx_ren = nullptr; }
     if (g_rgfx_win) { SDL_DestroyWindow(g_rgfx_win); g_rgfx_win = nullptr; }
@@ -151,11 +292,37 @@ static void rgfx_close() {
 
     ; Pump events and return a bitmask of currently-pressed buttons:
     ;   1 = up, 2 = down, 4 = action, 8 = quit/back (Q or Esc), 16 = left, 32 = right
-    ; Fullscreen toggle (edge): F11, Alt+Enter, Cmd+Enter (macOS). Esc exits
-    ; fullscreen first; when windowed, Q/Esc set bit 8 for the host to handle.
+    ; Player-1 keyboard only (W/S/A/D/Space/Q/Esc). Use gfx_input_source_mask for
+    ; arrows, gamepads, and multi-player mapping via game_input.rgr.
     gfx_poll_mask _:int () {
         templates {
             cpp ( "rgfx_poll_mask()" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+
+    ; Refresh keyboard + up to 8 SDL GameController sources.
+    gfx_input_poll _:void () {
+        templates {
+            cpp ( "rgfx_input_poll()" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Raw input source mask. Sources: 0=keyboard P1, 1=keyboard P2 (arrows),
+    ; 2..9 = gamepad 0..7. Bits: 1 up, 2 down, 4 action/A, 8 quit, 16 left,
+    ; 32 right, 64 B, 128 X, 256 Y, 512 start, 1024 select/back.
+    gfx_input_source_mask _:int (source:int) {
+        templates {
+            cpp ( "rgfx_input_source_mask(" (e 1) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+
+    ; Number of connected SDL GameController devices.
+    gfx_input_pad_count _:int () {
+        templates {
+            cpp ( "rgfx_input_pad_count()" (imp "<SDL2/SDL.h>") )
             es6 ( "0" )
         }
     }
@@ -236,6 +403,14 @@ static void rgfx_close() {
     gfx_audio_queue _:void (pcm:buffer byteCount:int) {
         templates {
             cpp ( "rgfx_audio_queue(" (e 1) ".data(), " (e 2) ")" (imp "<SDL2/SDL.h>") (imp "<cstdint>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Drop queued PCM (e.g. when returning from a sub-game to the launcher menu).
+    gfx_audio_clear _:void () {
+        templates {
+            cpp ( "rgfx_audio_clear()" (imp "<SDL2/SDL.h>") )
             es6 ( "undefined" )
         }
     }

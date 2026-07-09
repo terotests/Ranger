@@ -9,10 +9,10 @@
 //   * update() returns next state; changing screen freezes the old one in memory
 //   * hud() renders JSX per active screen
 //
-// Controls: Left/Right or A/D move paddle. Space = action (restart on game over).
+// Controls: Left/Right or A/D move paddle (keyboard or gamepad). Space = restart.
 //
 // Run:
-//   npm run engine:game-sdl:run -- gallery/game_engine/scripting/breakout.game.tsx
+//   npm run engine:game-sdl:launcher → Breakout
 
 import {
   BRICK_COUNT,

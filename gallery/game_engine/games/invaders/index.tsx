@@ -5,17 +5,16 @@
 // Aliens and ship use kind "bitmap" — one retained sprite per actor with cached
 // animation frames in the engine (not one rect per pixel).
 //
-// Controls (game_sdl_runner): Left/Right arrows (or A/D) move the cannon.
-// Firing is automatic. score1 = points, score2 = lives.
+// Controls: Left/Right or A/D (keyboard or gamepad). Auto-fire. score1 = points, score2 = lives.
 //
 // Run:
-//   npm run engine:game-sdl:run:invaders
+//   npm run engine:game-sdl:launcher → Invaders
 
 import { soundEvent } from "../../scripting/game_helpers";
 
 function resources() {
   return [
-    // Path relative to this .tsx directory: scripting/assets/invaders_bg.png
+    // Path relative to this .tsx directory: assets/invaders_bg.png
     { kind: "image", id: "bg", path: "assets/invaders_bg.png" }
   ];
 }
@@ -230,7 +229,7 @@ function placeAlien(entities, alien, waveX, waveY, alive, anim) {
     entities[id] = {
       x: waveX + col * 40,
       y: waveY + row * 30,
-      p0: anim % 2,
+      p0: anim,
       visible: 1
     };
   }
@@ -281,12 +280,10 @@ function update(props) {
   if (px < 24) { px = 24; }
   if (px > 456) { px = 456; }
 
-  anim = anim + 1;
-  if (anim > 18) { anim = 0; }
-
   waveTick = waveTick + 1;
   if (waveTick > 14) {
     waveTick = 0;
+    if (anim == 0) { anim = 1; } else { anim = 0; }
     waveX = waveX + waveDir * 6;
     if (waveX > 300) { waveDir = -1; waveY = waveY + 8; }
     if (waveX < 40) { waveDir = 1; waveY = waveY + 8; }

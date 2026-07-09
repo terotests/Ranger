@@ -1,0 +1,277 @@
+; ==============================================================================
+; game_input - multi-player abstract controller snapshots for script games.
+; ==============================================================================
+;
+; SDL host fills raw input sources (gfx_sdl.rgr); this module maps them onto
+; per-player Buttons slots based on state.playerSlots (1–8, default 1).
+;
+; Mapping policy:
+;   1 player  — keyboard P1 + gamepad 0 merged into players[0];
+;               keyboard P2 (arrows) still on players[1] for join detection
+;   2 players — players[0]=keyboard WASD, players[1]=arrows + gamepad 0
+;   3–8       — players[i]=gamepad i, plus keyboard merged into players[0]
+; ==============================================================================
+
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "../gfx_sdl.rgr"
+
+; Bit layout shared with gfx_sdl C++ shim (per source mask).
+class InputMask {
+    sfn UP:int () { return 1 }
+    sfn DOWN:int () { return 2 }
+    sfn ACTION:int () { return 4 }
+    sfn QUIT:int () { return 8 }
+    sfn LEFT:int () { return 16 }
+    sfn RIGHT:int () { return 32 }
+    sfn B:int () { return 64 }
+    sfn X:int () { return 128 }
+    sfn Y:int () { return 256 }
+    sfn START:int () { return 512 }
+    sfn SELECT:int () { return 1024 }
+}
+
+class PlayerButtons {
+    def up:boolean false
+    def down:boolean false
+    def left:boolean false
+    def right:boolean false
+    def action:boolean false
+    def quit:boolean false
+    def a:boolean false
+    def b:boolean false
+    def x:boolean false
+    def y:boolean false
+    def start:boolean false
+    def select:boolean false
+
+    fn fromMask:void (m:int) {
+        up = ((bit_and m (InputMask.UP())) != 0)
+        down = ((bit_and m (InputMask.DOWN())) != 0)
+        left = ((bit_and m (InputMask.LEFT())) != 0)
+        right = ((bit_and m (InputMask.RIGHT())) != 0)
+        action = ((bit_and m (InputMask.ACTION())) != 0)
+        quit = ((bit_and m (InputMask.QUIT())) != 0)
+        a = action
+        b = ((bit_and m (InputMask.B())) != 0)
+        x = ((bit_and m (InputMask.X())) != 0)
+        y = ((bit_and m (InputMask.Y())) != 0)
+        start = ((bit_and m (InputMask.START())) != 0)
+        select = ((bit_and m (InputMask.SELECT())) != 0)
+    }
+
+    fn toEval:EvalValue () {
+        def k:[string]
+        def v:[EvalValue]
+        push k "up"
+        push v (EvalValue.boolean(up))
+        push k "down"
+        push v (EvalValue.boolean(down))
+        push k "left"
+        push v (EvalValue.boolean(left))
+        push k "right"
+        push v (EvalValue.boolean(right))
+        push k "action"
+        push v (EvalValue.boolean(action))
+        push k "quit"
+        push v (EvalValue.boolean(quit))
+        push k "a"
+        push v (EvalValue.boolean(a))
+        push k "b"
+        push v (EvalValue.boolean(b))
+        push k "x"
+        push v (EvalValue.boolean(x))
+        push k "y"
+        push v (EvalValue.boolean(y))
+        push k "start"
+        push v (EvalValue.boolean(start))
+        push k "select"
+        push v (EvalValue.boolean(select))
+        return (EvalValue.object(k v))
+    }
+}
+
+class GameInputSnapshot {
+    def maxPlayers:int 8
+    def playerCount:int 1
+    def padCount:int 0
+    def p0:PlayerButtons (new PlayerButtons)
+    def p1:PlayerButtons (new PlayerButtons)
+    def p2:PlayerButtons (new PlayerButtons)
+    def p3:PlayerButtons (new PlayerButtons)
+    def p4:PlayerButtons (new PlayerButtons)
+    def p5:PlayerButtons (new PlayerButtons)
+    def p6:PlayerButtons (new PlayerButtons)
+    def p7:PlayerButtons (new PlayerButtons)
+
+    fn playerAt:PlayerButtons (idx:int) {
+        if (idx == 0) { return p0 }
+        if (idx == 1) { return p1 }
+        if (idx == 2) { return p2 }
+        if (idx == 3) { return p3 }
+        if (idx == 4) { return p4 }
+        if (idx == 5) { return p5 }
+        if (idx == 6) { return p6 }
+        return p7
+    }
+
+    fn setPlayerMask:void (idx:int m:int) {
+        def pb:PlayerButtons (this.playerAt(idx))
+        pb.fromMask(m)
+    }
+
+    fn playerMask:int (idx:int) {
+        def pb:PlayerButtons (this.playerAt(idx))
+        def m 0
+        if pb.up { m = (bit_or m (InputMask.UP())) }
+        if pb.down { m = (bit_or m (InputMask.DOWN())) }
+        if pb.left { m = (bit_or m (InputMask.LEFT())) }
+        if pb.right { m = (bit_or m (InputMask.RIGHT())) }
+        if pb.action { m = (bit_or m (InputMask.ACTION())) }
+        if pb.quit { m = (bit_or m (InputMask.QUIT())) }
+        return m
+    }
+
+    fn sourceMask:int (source:int) {
+        return (gfx_input_source_mask source)
+    }
+
+    fn padSourceMask:int (padIdx:int) {
+        def src (2 + padIdx)
+        return (this.sourceMask(src))
+    }
+
+    fn buildMenu:void () {
+        playerCount = 1
+        padCount = (gfx_input_pad_count)
+        this.setPlayerMask(0 (this.sourceMask(0)))
+    }
+
+    ; Map SDL raw sources onto player slots for the requested player count.
+    fn buildFromSdl:void (count:int) {
+        padCount = (gfx_input_pad_count)
+        playerCount = count
+        if (count < 1) {
+            playerCount = 1
+        }
+        if (count > maxPlayers) {
+            playerCount = maxPlayers
+        }
+
+        def kbP1:int (this.sourceMask(0))
+        def kbP2:int (this.sourceMask(1))
+
+        if (playerCount == 1) {
+            def merged:int (bit_or kbP1 (this.padSourceMask(0)))
+            this.setPlayerMask(0 merged)
+            ; Expose P2 keyboard (arrows) even in 1-slot mode so scripted games
+            ; (e.g. Pong) can detect a second human joining before playerSlots=2.
+            this.setPlayerMask(1 kbP2)
+            playerCount = 2
+            return
+        }
+
+        if (playerCount == 2) {
+            this.setPlayerMask(0 kbP1)
+            def p2:int (bit_or kbP2 (this.padSourceMask(0)))
+            this.setPlayerMask(1 p2)
+            return
+        }
+
+        ; 3–8 players: gamepad i -> player i; keyboard merged into player 0.
+        def i 0
+        while (i < playerCount) {
+            def mask 0
+            if (i == 0) {
+                mask = (bit_or kbP1 (this.padSourceMask(0)))
+            } {
+                if (i == 1) {
+                    mask = (bit_or kbP2 (this.padSourceMask(1)))
+                } {
+                    mask = (this.padSourceMask(i))
+                }
+            }
+            this.setPlayerMask(i mask)
+            i = (i + 1)
+        }
+    }
+
+    ; Legacy single-player props (props.up / down / …) for scripts that do not
+    ; read props.input yet. Uses players[0] only.
+    fn legacyUp:boolean () {
+        return p0.up
+    }
+
+    fn legacyDown:boolean () {
+        return p0.down
+    }
+
+    fn legacyLeft:boolean () {
+        return p0.left
+    }
+
+    fn legacyRight:boolean () {
+        return p0.right
+    }
+
+    fn legacyAction:boolean () {
+        return p0.action
+    }
+
+    fn legacyQuit:boolean () {
+        return p0.quit
+    }
+
+    sfn forPlayer0:GameInputSnapshot (up:boolean down:boolean left:boolean right:boolean action:boolean quit:boolean) {
+        def snap:GameInputSnapshot (new GameInputSnapshot)
+        snap.playerCount = 1
+        snap.p0.up = up
+        snap.p0.down = down
+        snap.p0.left = left
+        snap.p0.right = right
+        snap.p0.action = action
+        snap.p0.quit = quit
+        snap.p0.a = action
+        return snap
+    }
+
+    fn toEval:EvalValue () {
+        def players:[EvalValue]
+        def connected:[EvalValue]
+        def i 0
+        while (i < playerCount) {
+            def pb:PlayerButtons (this.playerAt(i))
+            push players (pb.toEval())
+            def hasPad 0
+            if (playerCount == 1) {
+                if (padCount > 0) {
+                    hasPad = 1
+                }
+            } {
+                if (playerCount == 2) {
+                    if (i == 1) {
+                        if (padCount > 0) {
+                            hasPad = 1
+                        }
+                    }
+                } {
+                    if (i < padCount) {
+                        hasPad = 1
+                    }
+                }
+            }
+            push connected (EvalValue.fromInt(hasPad))
+            i = (i + 1)
+        }
+        def k:[string]
+        def v:[EvalValue]
+        push k "players"
+        push v (EvalValue.array(players))
+        push k "playerCount"
+        push v (EvalValue.fromInt(playerCount))
+        push k "padCount"
+        push v (EvalValue.fromInt(padCount))
+        push k "connected"
+        push v (EvalValue.array(connected))
+        return (EvalValue.object(k v))
+    }
+}
