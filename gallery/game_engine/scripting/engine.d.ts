@@ -117,6 +117,8 @@ interface GameState {
   screens?: object;
   /** Transient per-frame events drained by the host (sounds, spawn, …). */
   events?: GameEvent[];
+  /** Active background: resources() image id or relative PNG/JPEG path. */
+  background?: string;
 }
 
 /** Built-in synthetic sound ids (no file resources required). */
@@ -135,6 +137,17 @@ interface GameEvent {
   x?: number;
   y?: number;
   amount?: number;
+}
+
+/** Engine resource declared once in resources(). */
+interface ResourceDef {
+  kind: "image" | "sound" | "sprite" | "collision";
+  id: string;
+  path?: string;
+  px?: number;
+  frameCount?: number;
+  w?: number;
+  h?: number;
 }
 
 /** Convenience type for playSound events using built-in synth ids. */
@@ -219,6 +232,10 @@ interface GameScript<TState extends GameState = GameState> {
   screens?(): string[];
   /** Retained-mode: JSX HUD overlay each frame (GameRunner). */
   hud?(props: TypedEventProps<TState>): JSX.Element;
+  /** Retained-mode: declare engine resources once (images, sounds, …). */
+  resources?(): ResourceDef[];
+  /** Retained-mode: select initial background (resources() id or path). */
+  backgroundImage?(): string;
 }
 
 // --- Injected globals (available without importing) -------------------------

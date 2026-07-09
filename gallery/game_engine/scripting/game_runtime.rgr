@@ -22,6 +22,7 @@ Import "./game_sprite.rgr"
 Import "./game_hud.rgr"
 Import "../../ts_to_ranger/game_host.rgr"
 Import "./game_audio.rgr"
+Import "./game_image_loader.rgr"
 
 ; Runtime options for script-driven games (SDL host, tests, custom hosts).
 class GameRuntimeOptions {
@@ -52,6 +53,10 @@ class GameRunner {
     def timeMs:int 0
     def hudEnabled:boolean false
     def currentScreen:string ""
+    def imageLoader:GameImageLoader (new GameImageLoader)
+    def backgroundImg:ImageBuffer (new ImageBuffer)
+    def backgroundLoaded:boolean false
+    def backgroundKey:string ""
 
     fn init:void (w:int h:int) {
         engine.quiet = true
@@ -84,6 +89,7 @@ class GameRunner {
     fn setScriptDir:void (dir:string) {
         options.scriptDir = dir
         engine.setBasePath(dir)
+        imageLoader.setBaseDir(dir)
     }
 
     fn setHotReload:void (enabled:boolean) {
@@ -104,6 +110,7 @@ class GameRunner {
         options.scriptFile = file
         if ((strlen dir) > 0) {
             engine.setBasePath(dir)
+            imageLoader.setBaseDir(dir)
         }
         if ((strlen file) > 0) {
             options.scriptMtime = (file_mtime dir file)
@@ -141,6 +148,74 @@ class GameRunner {
         host.audio = audio
         currentScreen = ""
         state = (EvalValue.null())
+        this.clearBackground()
+    }
+
+    fn clearBackground:void () {
+        backgroundLoaded = false
+        backgroundKey = ""
+        backgroundImg = (new ImageBuffer)
+    }
+
+    ; Load (or reuse cached) image by resources() id or relative PNG/JPEG path.
+    fn setBackground:void (idOrPath:string) {
+        if ((strlen idOrPath) == 0) {
+            this.clearBackground()
+            return
+        }
+        if ((strlen options.scriptDir) > 0) {
+            imageLoader.setBaseDir(options.scriptDir)
+        }
+        def img:ImageBuffer (imageLoader.loadByIdOrPath(host idOrPath))
+        if (imageLoader.isValidImage(img)) {
+            backgroundImg = img
+            backgroundLoaded = true
+            backgroundKey = idOrPath
+        } {
+            print ("[GameRunner] setBackground failed: " + idOrPath)
+            this.clearBackground()
+        }
+    }
+
+    fn hasBackground:boolean () {
+        return backgroundLoaded
+    }
+
+    fn backgroundCacheCount:int () {
+        return (imageLoader.cacheCount())
+    }
+
+    fn applyBackgroundFromScript:void () {
+        if (false == (this.scriptHasFunction("backgroundImage"))) {
+            return
+        }
+        def v:EvalValue (engine.callFunction("backgroundImage" (EvalValue.null())))
+        if (v.isString()) {
+            def id:string v.stringValue
+            if ((strlen id) > 0) {
+                this.setBackground(id)
+            }
+        }
+    }
+
+    fn syncBackgroundFromState:void () {
+        def active:EvalValue (this.activeState())
+        def bg:string (this.memString(active "background" ""))
+        if ((strlen bg) == 0) {
+            return
+        }
+        if (bg == backgroundKey) {
+            return
+        }
+        this.setBackground(bg)
+    }
+
+    fn drawBackground:void () {
+        if (backgroundLoaded) {
+            imageLoader.blitCover(canvas backgroundImg)
+        } {
+            canvas.clear(12 16 32)
+        }
     }
 
     ; In-process hot reload: AST diff + swap changed bindings. Rebuilds scene only
@@ -360,7 +435,9 @@ class GameRunner {
     fn setupScene:void () {
         this.wireHostAudio()
         this.setupResources()
+        this.applyBackgroundFromScript()
         state = (engine.callFunction("initState" (EvalValue.null())))
+        this.syncBackgroundFromState()
         if (this.multiScreenMode()) {
             currentScreen = (this.currentScreenName())
             this.loadScreenSprites(currentScreen)
@@ -441,10 +518,11 @@ class GameRunner {
         }
         this.drainStateEvents()
         this.syncFromState()
+        this.syncBackgroundFromState()
     }
 
     fn draw:void () {
-        canvas.clear(12 16 32)
+        this.drawBackground()
         def active:EvalValue (this.activeState())
         def layout:EvalValue (active.getMember("layout"))
         def showNet (this.memInt(active "showNet" 0))
