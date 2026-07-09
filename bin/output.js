@@ -30748,6 +30748,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       t.arch = "arm64";
       return;
     }
+    if ( (triple.indexOf("aarch64")) >= 0 ) {
+      t.arch = "arm64";
+      return;
+    }
     if ( (triple.indexOf("x86_64")) >= 0 ) {
       t.arch = "x86_64";
       return;
@@ -30772,6 +30776,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     }
     if ( name == "x86_64-linux-gnu" ) {
       LowIRTarget.applyNameKnown(t, "native-linux-gnu");
+      return;
+    }
+    if ( name == "aarch64-linux-gnu" ) {
+      t.arch = "arm64";
+      t.env = "libc";
+      t.triple = "aarch64-unknown-linux-gnu";
+      t.ptrType = "i64";
+      t.usesLibc = true;
+      t.ioFn = "printf";
+      t.ioFnRet = "i32";
+      t.ioFnVararg = true;
       return;
     }
     if ( name == "native-macos" ) {

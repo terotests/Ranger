@@ -15,6 +15,7 @@ OUT_DIR="$ROOT/tmp/pong-native"
 LL_FILE="$OUT_DIR/pong.ll"
 BIN_FILE="$OUT_DIR/pong"
 RT_C="$ROOT/runtime/ranger_rt.c"
+MEM_C="$ROOT/runtime/ranger_mem.c"
 
 mkdir -p "$OUT_DIR"
 
@@ -39,7 +40,7 @@ RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr" node "$ROOT/bin/output
   -target="$TARGET"
 
 echo "==> 2/3 clang -> executable"
-clang "$LL_FILE" "$RT_C" -o "$BIN_FILE" -Wno-override-module
+clang "$LL_FILE" "$RT_C" "$MEM_C" -o "$BIN_FILE" -Wno-override-module
 
 echo "==> 3/3 Ready: $BIN_FILE"
 
