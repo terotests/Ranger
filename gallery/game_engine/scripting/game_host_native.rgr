@@ -1,0 +1,193 @@
+; ==============================================================================
+; game_host_native — host-native APIs exposed to game .tsx scripts.
+; ==============================================================================
+;
+;   loadGame(path)       replace current screen (fresh init)
+;   pushGame(path)       push current screen, open new one
+;   popGame()            return to previous screen (or exit to menu)
+;   loadGameData()       read gamedata.json from the game folder
+;   saveGameData(obj)    write gamedata.json
+;   resetGameData()      delete gamedata.json
+; ==============================================================================
+
+Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "./game_persistence.rgr"
+
+class GameHostNativeBridge extends EvalNativeBridge {
+    def gameDir:string ""
+    def persistence:GamePersistence (new GamePersistence)
+    def pendingNavOp:string ""
+    def pendingNavPath:string ""
+    def pendingPopToMenu:boolean false
+
+    fn setGameDir:void (dir:string) {
+        gameDir = dir
+    }
+
+    fn joinPath:string (dir:string file:string) {
+        if ((strlen dir) == 0) {
+            return file
+        }
+        def last:int (strlen dir)
+        last = (last - 1)
+        def tail:string (substring dir last (last + 1))
+        if (tail == "/") {
+            return (dir + file)
+        }
+        return (dir + "/" + file)
+    }
+
+    fn isAbsolutePath:boolean (path:string) {
+        if ((strlen path) == 0) {
+            return false
+        }
+        def first:string (substring path 0 1)
+        if (first == "/") {
+            return true
+        }
+        return false
+    }
+
+    fn resolveScreenPath:string (relPath:string) {
+        if ((strlen relPath) == 0) {
+            return ""
+        }
+        if (this.isAbsolutePath(relPath)) {
+            return relPath
+        }
+        if ((strlen gameDir) == 0) {
+            return relPath
+        }
+        return (this.joinPath(gameDir relPath))
+    }
+
+    fn requestLoadGame:void (path:string) {
+        pendingNavOp = "load"
+        pendingNavPath = path
+        pendingPopToMenu = false
+    }
+
+    fn requestPushGame:void (path:string) {
+        pendingNavOp = "push"
+        pendingNavPath = path
+        pendingPopToMenu = false
+    }
+
+    fn requestPopGame:void () {
+        pendingNavOp = "pop"
+        pendingNavPath = ""
+        pendingPopToMenu = false
+    }
+
+    fn clearPendingNav:void () {
+        pendingNavOp = ""
+        pendingNavPath = ""
+        pendingPopToMenu = false
+    }
+
+    fn hasPendingNav:boolean () {
+        if ((strlen pendingNavOp) > 0) {
+            return true
+        }
+        return pendingPopToMenu
+    }
+
+    fn takePendingNavOp:string () {
+        def op:string pendingNavOp
+        pendingNavOp = ""
+        return op
+    }
+
+    fn takePendingNavPath:string () {
+        def path:string pendingNavPath
+        pendingNavPath = ""
+        return path
+    }
+
+    fn takePendingPopToMenu:boolean () {
+        def v:boolean pendingPopToMenu
+        pendingPopToMenu = false
+        return v
+    }
+
+    fn has:boolean (name:string) {
+        if (name == "loadGame") {
+            return true
+        }
+        if (name == "pushGame") {
+            return true
+        }
+        if (name == "popGame") {
+            return true
+        }
+        if (name == "loadGameData") {
+            return true
+        }
+        if (name == "saveGameData") {
+            return true
+        }
+        if (name == "resetGameData") {
+            return true
+        }
+        return false
+    }
+
+    fn firstArgString:string (args:[EvalValue]) {
+        if ((array_length args) < 1) {
+            return ""
+        }
+        def v:EvalValue (itemAt args 0)
+        if (v.isString()) {
+            return v.stringValue
+        }
+        return ""
+    }
+
+    fn firstArgObject:EvalValue (args:[EvalValue]) {
+        if ((array_length args) < 1) {
+            return (EvalValue.null())
+        }
+        def v:EvalValue (itemAt args 0)
+        if (v.isObject()) {
+            return v
+        }
+        return (EvalValue.null())
+    }
+
+    fn invoke:EvalValue (name:string args:[EvalValue]) {
+        if (name == "loadGame") {
+            def path:string (this.resolveScreenPath((this.firstArgString(args))))
+            if ((strlen path) > 0) {
+                this.requestLoadGame(path)
+            }
+            return (EvalValue.null())
+        }
+        if (name == "pushGame") {
+            def path:string (this.resolveScreenPath((this.firstArgString(args))))
+            if ((strlen path) > 0) {
+                this.requestPushGame(path)
+            }
+            return (EvalValue.null())
+        }
+        if (name == "popGame") {
+            this.requestPopGame()
+            return (EvalValue.null())
+        }
+        if (name == "loadGameData") {
+            return (persistence.loadFromDir(gameDir))
+        }
+        if (name == "saveGameData") {
+            def data:EvalValue (this.firstArgObject(args))
+            if (data.isObject()) {
+                persistence.saveToDir(gameDir data)
+            }
+            return (EvalValue.null())
+        }
+        if (name == "resetGameData") {
+            persistence.resetInDir(gameDir)
+            return (EvalValue.null())
+        }
+        return (EvalValue.null())
+    }
+}

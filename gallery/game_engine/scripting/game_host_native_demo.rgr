@@ -1,0 +1,52 @@
+; Headless smoke: game persistence + native bridge APIs.
+Import "./game_runtime.rgr"
+Import "./game_persistence.rgr"
+Import "./game_host_native.rgr"
+Import "./game_audio.rgr"
+
+class GameHostNativeDemo {
+    sfn m@(main):void () {
+        def persist:GamePersistence (new GamePersistence)
+        def keys:[string]
+        def vals:[EvalValue]
+        push keys "highScore"
+        push vals (EvalValue.fromInt(42))
+        push keys "name"
+        push vals (EvalValue.string("player"))
+        def obj:EvalValue (EvalValue.object(keys vals))
+        def json:string (persist.evalToJson(obj))
+        if ((indexOf json "42") < 0) {
+            print "FAIL: json missing score"
+            return
+        }
+        def parsed:EvalValue (persist.parseJson(json))
+        def score:int (to_int ((parsed.getMember("highScore")).numberValue))
+        if (score != 42) {
+            print "FAIL: parse roundtrip score"
+            return
+        }
+        print "persistence roundtrip OK"
+
+        def bridge:GameHostNativeBridge (new GameHostNativeBridge)
+        bridge.setGameDir("gallery/game_engine/games/counter")
+        def args:[EvalValue]
+        push args (EvalValue.string("extra.tsx"))
+        bridge.invoke("loadGame" args)
+        if (bridge.takePendingNavOp() != "load") {
+            print "FAIL: loadGame pending op"
+            return
+        }
+        def navPath:string (bridge.takePendingNavPath())
+        if ((indexOf navPath "extra.tsx") < 0) {
+            print "FAIL: loadGame path resolve"
+            return
+        }
+        def emptyArgs:[EvalValue]
+        def loaded:EvalValue (bridge.invoke("loadGameData" emptyArgs))
+        if (false == (loaded.isObject())) {
+            print "FAIL: loadGameData object"
+            return
+        }
+        print "native bridge OK"
+    }
+}
