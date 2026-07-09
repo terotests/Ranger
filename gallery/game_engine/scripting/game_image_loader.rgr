@@ -2,7 +2,10 @@
 ; game_image_loader — cached PNG/JPEG decode + cover blit for GameRunner.
 ; ==============================================================================
 ;
-; Loads images relative to the script directory (with optional assets/ fallback),
+; Loads images relative to the script directory (setScriptDir = folder of .game.tsx).
+; Resolution order for path "assets/foo.png":
+;   1) <scriptDir>/assets/foo.png
+;   2) fallback: <scriptDir>/assets/<basename> if path was bare "foo.png"
 ; caches decoded ImageBuffer instances by resolved path, and draws them as a
 ; cover-fit background onto SoftCanvas.
 ; ==============================================================================
@@ -11,6 +14,7 @@ Import "../framebuffer.rgr"
 Import "../lpc/src/png_decoder.rgr"
 Import "../../pdf_writer/src/core/ImageUtils.rgr"
 Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
+Import "../../pdf_writer/src/jpeg/JPEGDecoder.rgr"
 Import "../../ts_to_ranger/game_host.rgr"
 
 class GameImageLoader {
@@ -18,11 +22,24 @@ class GameImageLoader {
     def cacheKeys:[string]
     def cacheImages:[ImageBuffer]
     def pngDecoder:PNGDecoder (new PNGDecoder())
+    def jpegDecoder:JPEGDecoder (new JPEGDecoder())
     def jpegUtils:ImageUtils (new ImageUtils())
 
     fn setBaseDir:void (dir:string) {
-        baseDir = dir
-        jpegUtils.setBaseDir(dir)
+        if ((strlen dir) == 0) {
+            baseDir = dir
+            jpegUtils.setBaseDir(dir)
+            return
+        }
+        def last:int (strlen dir)
+        last = (last - 1)
+        def tail:string (substring dir last (last + 1))
+        if (tail == "/") {
+            baseDir = dir
+        } {
+            baseDir = (dir + "/")
+        }
+        jpegUtils.setBaseDir(baseDir)
     }
 
     fn cacheCount:int () {
@@ -105,7 +122,7 @@ class GameImageLoader {
         if (this.isPngPath(file)) {
             return (pngDecoder.decode(dir file))
         }
-        return (jpegUtils.decodeImage((dir + file)))
+        return (jpegDecoder.decode(dir file))
     }
 
     fn decodeResolved:ImageBuffer (resolved:string) {
@@ -142,12 +159,17 @@ class GameImageLoader {
         def resolved:string (this.resolvePath(src))
         def key:string resolved
         if (this.isCached(key)) {
-            return (this.findCached(key))
+            def cached:ImageBuffer (this.findCached(key))
+            print (("[GameImageLoader] cache hit: " + key) + (" " + (to_string cached.width)) + ("x" + (to_string cached.height)))
+            return cached
         }
+        print ("[GameImageLoader] reading file: " + resolved)
         def img:ImageBuffer (this.decodeResolved(resolved))
         if (img.width <= 1) {
+            print ("[GameImageLoader] decode failed: " + resolved)
             return fail
         }
+        print (("[GameImageLoader] decoded: " + (to_string img.width)) + ("x" + (to_string img.height)))
         this.storeCache(key img)
         return img
     }
@@ -207,18 +229,16 @@ class GameImageLoader {
         def offX:int 0
         def offY:int 0
 
+        ; object-fit: cover — fill the canvas, crop overflow (no letterbox bars).
         if ((cw * ih) >= (ch * iw)) {
-            renderH = ch
-            renderW = (to_int ((to_double (iw * ch)) / (to_double ih)))
-            offX = (to_int ((to_double (cw - renderW)) / 2.0))
-        } {
             renderW = cw
             renderH = (to_int ((to_double (ih * cw)) / (to_double iw)))
             offY = (to_int ((to_double (ch - renderH)) / 2.0))
+        } {
+            renderH = ch
+            renderW = (to_int ((to_double (iw * ch)) / (to_double ih)))
+            offX = (to_int ((to_double (cw - renderW)) / 2.0))
         }
-
-        def dstBuf:buffer (canvas.raw())
-        def srcBuf:buffer img.pixels
 
         def y 0
         while (y < ch) {
@@ -248,12 +268,12 @@ class GameImageLoader {
                                 }
                                 def sOff:int (srcRowOff + (sx * 4))
                                 def dOff:int (dstRowOff + (x * 4))
-                                def a:int (buffer_get srcBuf (sOff + 3))
+                                def a:int (buffer_get img.pixels (sOff + 3))
                                 if (a > 0) {
-                                    buffer_set dstBuf dOff (buffer_get srcBuf sOff)
-                                    buffer_set dstBuf (dOff + 1) (buffer_get srcBuf (sOff + 1))
-                                    buffer_set dstBuf (dOff + 2) (buffer_get srcBuf (sOff + 2))
-                                    buffer_set dstBuf (dOff + 3) 255
+                                    buffer_set canvas.px dOff (buffer_get img.pixels sOff)
+                                    buffer_set canvas.px (dOff + 1) (buffer_get img.pixels (sOff + 1))
+                                    buffer_set canvas.px (dOff + 2) (buffer_get img.pixels (sOff + 2))
+                                    buffer_set canvas.px (dOff + 3) 255
                                 }
                                 x = (x + 1)
                             }
@@ -269,8 +289,6 @@ class GameImageLoader {
     fn blitOpaque:void (canvas:SoftCanvas src:ImageBuffer sx:int sy:int sw:int sh:int dx:int dy:int) {
         def cw:int (canvas.getWidth())
         def ch:int (canvas.getHeight())
-        def dstBuf:buffer (canvas.raw())
-        def srcBuf:buffer src.pixels
         def srcW:int src.width
 
         def y 0
@@ -295,12 +313,12 @@ class GameImageLoader {
                             } {
                                 def sOff:int (srcRowOff + (x * 4))
                                 def dOff:int (dstRowOff + (dstX * 4))
-                                def a:int (buffer_get srcBuf (sOff + 3))
+                                def a:int (buffer_get src.pixels (sOff + 3))
                                 if (a > 0) {
-                                    buffer_set dstBuf dOff (buffer_get srcBuf sOff)
-                                    buffer_set dstBuf (dOff + 1) (buffer_get srcBuf (sOff + 1))
-                                    buffer_set dstBuf (dOff + 2) (buffer_get srcBuf (sOff + 2))
-                                    buffer_set dstBuf (dOff + 3) 255
+                                    buffer_set canvas.px dOff (buffer_get src.pixels sOff)
+                                    buffer_set canvas.px (dOff + 1) (buffer_get src.pixels (sOff + 1))
+                                    buffer_set canvas.px (dOff + 2) (buffer_get src.pixels (sOff + 2))
+                                    buffer_set canvas.px (dOff + 3) 255
                                 }
                                 x = (x + 1)
                             }

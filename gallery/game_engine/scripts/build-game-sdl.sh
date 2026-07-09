@@ -73,7 +73,7 @@ echo "==> 3/3 Ready: $BIN_FILE"
 if [[ "${1:-}" == "--run" ]]; then
   TSX="${2:-gallery/game_engine/scripting/pong.game.tsx}"
   FRAMES="${3:-}"
-  echo "==> Running $TSX (W/S move, Q/Esc quit)"
+  echo "==> Running $TSX (W/S move, F11 fullscreen, Q/Esc quit)"
   if [[ -n "$FRAMES" ]]; then
     SDL_VIDEODRIVER=dummy "$BIN_FILE" "$TSX" "$FRAMES"
   else

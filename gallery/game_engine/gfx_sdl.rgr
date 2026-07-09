@@ -34,6 +34,19 @@ static SDL_Renderer* g_rgfx_ren = nullptr;
 static SDL_Texture*  g_rgfx_tex = nullptr;
 static SDL_AudioDeviceID g_rgfx_audio = 0;
 static int g_rgfx_should_close = 0;
+static int g_rgfx_fullscreen = 0;
+
+static void rgfx_set_fullscreen(int on) {
+    if (g_rgfx_win == nullptr) { return; }
+    Uint32 flags = on ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0;
+    SDL_SetWindowFullscreen(g_rgfx_win, flags);
+    g_rgfx_fullscreen = on ? 1 : 0;
+}
+static int rgfx_toggle_fullscreen() {
+    rgfx_set_fullscreen(g_rgfx_fullscreen ? 0 : 1);
+    return g_rgfx_fullscreen;
+}
+static int rgfx_is_fullscreen() { return g_rgfx_fullscreen; }
 
 static int rgfx_audio_open(int sampleRate) {
     if (g_rgfx_audio != 0) { return 1; }
@@ -82,8 +95,22 @@ static int rgfx_poll_mask() {
     while (SDL_PollEvent(&ev)) {
         if (ev.type == SDL_QUIT) { g_rgfx_should_close = 1; }
         if (ev.type == SDL_KEYDOWN) {
+            if (ev.key.keysym.sym == SDLK_F11) {
+                rgfx_toggle_fullscreen();
+            }
+            if (ev.key.keysym.sym == SDLK_RETURN) {
+                if ((ev.key.keysym.mod & KMOD_ALT) || (ev.key.keysym.mod & KMOD_GUI)) {
+                    rgfx_toggle_fullscreen();
+                }
+            }
             if (ev.key.keysym.sym == SDLK_q) { g_rgfx_should_close = 1; }
-            if (ev.key.keysym.sym == SDLK_ESCAPE) { g_rgfx_should_close = 1; }
+            if (ev.key.keysym.sym == SDLK_ESCAPE) {
+                if (g_rgfx_fullscreen) {
+                    rgfx_set_fullscreen(0);
+                } else {
+                    g_rgfx_should_close = 1;
+                }
+            }
         }
     }
     int m = 0;
@@ -125,6 +152,8 @@ static void rgfx_close() {
 
     ; Pump events and return a bitmask of currently-pressed buttons:
     ;   1 = up, 2 = down, 4 = action, 8 = quit, 16 = left, 32 = right
+    ; Fullscreen toggle (edge): F11, Alt+Enter, Cmd+Enter (macOS). Esc exits
+    ; fullscreen first, then quits when already windowed.
     gfx_poll_mask _:int () {
         templates {
             cpp ( "rgfx_poll_mask()" (imp "<SDL2/SDL.h>") )
@@ -169,6 +198,22 @@ static void rgfx_close() {
         templates {
             cpp ( "rgfx_close()" (imp "<SDL2/SDL.h>") )
             es6 ( "undefined" )
+        }
+    }
+
+    ; Toggle desktop fullscreen (scaled). Returns 1 when fullscreen, 0 windowed.
+    gfx_toggle_fullscreen _:int () {
+        templates {
+            cpp ( "rgfx_toggle_fullscreen()" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+
+    ; True when the SDL window is in fullscreen desktop mode.
+    gfx_is_fullscreen _:boolean () {
+        templates {
+            cpp ( "(rgfx_is_fullscreen() != 0)" (imp "<SDL2/SDL.h>") )
+            es6 ( "false" )
         }
     }
 

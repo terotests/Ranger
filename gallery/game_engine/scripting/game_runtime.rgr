@@ -166,13 +166,16 @@ class GameRunner {
         if ((strlen options.scriptDir) > 0) {
             imageLoader.setBaseDir(options.scriptDir)
         }
+        def src:string (imageLoader.resolveIdOrPath(host idOrPath))
+        print (("[GameRunner] background: load id=" + idOrPath) + (" path=" + src) + (" dir=" + options.scriptDir))
         def img:ImageBuffer (imageLoader.loadByIdOrPath(host idOrPath))
         if (imageLoader.isValidImage(img)) {
             backgroundImg = img
             backgroundLoaded = true
             backgroundKey = idOrPath
+            print (("[GameRunner] background: ok " + (to_string img.width)) + ("x" + (to_string img.height)))
         } {
-            print ("[GameRunner] setBackground failed: " + idOrPath)
+            print ("[GameRunner] background: failed id=" + idOrPath)
             this.clearBackground()
         }
     }
@@ -193,7 +196,10 @@ class GameRunner {
         if (v.isString()) {
             def id:string v.stringValue
             if ((strlen id) > 0) {
+                print ("[GameRunner] background: backgroundImage() -> " + id)
                 this.setBackground(id)
+            } {
+                print "[GameRunner] background: backgroundImage() returned empty string"
             }
         }
     }

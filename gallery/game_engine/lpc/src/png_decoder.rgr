@@ -157,6 +157,9 @@ class PNGDecoder {
         if (ctype == 6) {
             return 4
         }
+        if (ctype == 2) {
+            return 3
+        }
         return 1
     }
 
@@ -250,12 +253,14 @@ class PNGDecoder {
         if (ctype == 6) {
             return (w * 4)
         }
+        if (ctype == 2) {
+            return (w * 3)
+        }
         def bits:int (w * depth)
         return (to_int ((to_double (bits + 7)) / 8.0))
     }
 
     fn decodeIndexedPixels:void (img:ImageBuffer indices:buffer rowBytes:int depth:int) {
-        def pixBuf:buffer (img.getRawBuffer())
         def imgW:int (img.width)
         def y 0
         while (y < height) {
@@ -267,10 +272,10 @@ class PNGDecoder {
                         def a:int (itemAt paletteA idx)
                         if (a > 0) {
                             def off:int (((y * imgW) + x) * 4)
-                            buffer_set pixBuf off (itemAt paletteR idx)
-                            buffer_set pixBuf (off + 1) (itemAt paletteG idx)
-                            buffer_set pixBuf (off + 2) (itemAt paletteB idx)
-                            buffer_set pixBuf (off + 3) a
+                            buffer_set img.pixels off (itemAt paletteR idx)
+                            buffer_set img.pixels (off + 1) (itemAt paletteG idx)
+                            buffer_set img.pixels (off + 2) (itemAt paletteB idx)
+                            buffer_set img.pixels (off + 3) a
                         }
                     }
                     x = (x + 1)
@@ -287,10 +292,10 @@ class PNGDecoder {
                         def aHi:int (itemAt paletteA hi)
                         if (aHi > 0) {
                             def offHi:int (((y * imgW) + x) * 4)
-                            buffer_set pixBuf offHi (itemAt paletteR hi)
-                            buffer_set pixBuf (offHi + 1) (itemAt paletteG hi)
-                            buffer_set pixBuf (offHi + 2) (itemAt paletteB hi)
-                            buffer_set pixBuf (offHi + 3) aHi
+                            buffer_set img.pixels offHi (itemAt paletteR hi)
+                            buffer_set img.pixels (offHi + 1) (itemAt paletteG hi)
+                            buffer_set img.pixels (offHi + 2) (itemAt paletteB hi)
+                            buffer_set img.pixels (offHi + 3) aHi
                         }
                     }
                     def x2:int (x + 1)
@@ -299,10 +304,10 @@ class PNGDecoder {
                             def aLo:int (itemAt paletteA lo)
                             if (aLo > 0) {
                                 def offLo:int (((y * imgW) + x2) * 4)
-                                buffer_set pixBuf offLo (itemAt paletteR lo)
-                                buffer_set pixBuf (offLo + 1) (itemAt paletteG lo)
-                                buffer_set pixBuf (offLo + 2) (itemAt paletteB lo)
-                                buffer_set pixBuf (offLo + 3) aLo
+                                buffer_set img.pixels offLo (itemAt paletteR lo)
+                                buffer_set img.pixels (offLo + 1) (itemAt paletteG lo)
+                                buffer_set img.pixels (offLo + 2) (itemAt paletteB lo)
+                                buffer_set img.pixels (offLo + 3) aLo
                             }
                         }
                     }
@@ -315,7 +320,6 @@ class PNGDecoder {
     }
 
     fn decodeRgbaPixels:void (img:ImageBuffer indices:buffer rowBytes:int) {
-        def pixBuf:buffer (img.getRawBuffer())
         def imgW:int (img.width)
         def y 0
         while (y < height) {
@@ -325,11 +329,29 @@ class PNGDecoder {
                 def a:int (buffer_get indices (off + 3))
                 if (a > 0) {
                     def dstOff:int (((y * imgW) + x) * 4)
-                    buffer_set pixBuf dstOff (buffer_get indices off)
-                    buffer_set pixBuf (dstOff + 1) (buffer_get indices (off + 1))
-                    buffer_set pixBuf (dstOff + 2) (buffer_get indices (off + 2))
-                    buffer_set pixBuf (dstOff + 3) a
+                    buffer_set img.pixels dstOff (buffer_get indices off)
+                    buffer_set img.pixels (dstOff + 1) (buffer_get indices (off + 1))
+                    buffer_set img.pixels (dstOff + 2) (buffer_get indices (off + 2))
+                    buffer_set img.pixels (dstOff + 3) a
                 }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+    }
+
+    fn decodeRgbPixels:void (img:ImageBuffer indices:buffer rowBytes:int) {
+        def imgW:int (img.width)
+        def y 0
+        while (y < height) {
+            def x 0
+            while (x < width) {
+                def off:int (((y * rowBytes) + (x * 3)))
+                def dstOff:int (((y * imgW) + x) * 4)
+                buffer_set img.pixels dstOff (buffer_get indices off)
+                buffer_set img.pixels (dstOff + 1) (buffer_get indices (off + 1))
+                buffer_set img.pixels (dstOff + 2) (buffer_get indices (off + 2))
+                buffer_set img.pixels (dstOff + 3) 255
                 x = (x + 1)
             }
             y = (y + 1)
@@ -448,7 +470,13 @@ class PNGDecoder {
                 return fail
             }
         }
-        if ((colorType != 3) && (colorType != 6)) {
+        if (colorType == 2) {
+            if (bitDepth != 8) {
+                print "[png_decoder] RGB requires 8-bit channels"
+                return fail
+            }
+        }
+        if ((colorType != 3) && (colorType != 6) && (colorType != 2)) {
             print ("[png_decoder] unsupported color type " + (to_string colorType))
             return fail
         }
@@ -477,6 +505,9 @@ class PNGDecoder {
         }
         if (colorType == 6) {
             this.decodeRgbaPixels(img indices rowBytes)
+        }
+        if (colorType == 2) {
+            this.decodeRgbPixels(img indices rowBytes)
         }
         return img
     }
