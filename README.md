@@ -69,6 +69,7 @@ host.notifyPath = (path) => { /* sync view model + re-render */ };
 - `gallery/js_parser` - substantial parser example with benchmarks and README
 - `gallery/pdf_writer` - EVG / TSX document tooling and preview server
 - `gallery/invaders` - cross-target demo game
+- `gallery/game_engine` - retained-mode game runner, SDL launcher, and TSX games (Pong, Breakout, Invaders, Pac-Man); see `gallery/game_engine/scripting/GAME_SCRIPTING.md`
 - `gallery/invaders/llvm/invaders.ll` - checked-in LLVM IR sample from the experimental `-l=llvm` backend
 
 ## Compatibility Snapshot
