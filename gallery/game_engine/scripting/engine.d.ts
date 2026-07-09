@@ -264,3 +264,17 @@ declare namespace JSX {
 declare function View(props: Record<string, unknown>): JSX.Element;
 /** EVG text primitive. */
 declare function Label(props: Record<string, unknown>): JSX.Element;
+
+/** Replace the current game screen (fresh init, clears navigation stack). */
+declare function loadGame(screenPath: string): void;
+/** Push current screen and open another (returns via popGame). */
+declare function pushGame(screenPath: string): void;
+/** Pop back to the previous screen, or exit to menu when stack is empty. */
+declare function popGame(): void;
+
+/** Load persistent JSON from gamedata.json in the game folder. */
+declare function loadGameData(): Record<string, unknown>;
+/** Save persistent JSON to gamedata.json in the game folder. */
+declare function saveGameData(data: Record<string, unknown>): void;
+/** Delete gamedata.json in the game folder. */
+declare function resetGameData(): void;

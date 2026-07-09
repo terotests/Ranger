@@ -19,10 +19,12 @@ Import "./game_runtime.rgr"
 Import "../gfx_sdl.rgr"
 Import "./game_audio_sdl.rgr"
 Import "./game_catalog.rgr"
+Import "./game_host_native.rgr"
 
 class GameSdlRunner {
     def runner:GameRunner (new GameRunner)
     def catalog:GameCatalog (new GameCatalog)
+    def nativeBridge:GameHostNativeBridge (new GameHostNativeBridge)
     def pw:int 480
     def ph:int 270
     def maxFrames:int 0
@@ -43,6 +45,10 @@ class GameSdlRunner {
     def inMenu:boolean false
     def inGame:boolean false
     def prevQuitHeld:boolean false
+    def currentScriptPath:string ""
+    def navStack:[string]
+    def catalogPollMs:int 10000
+    def lastCatalogPoll:int 0
 
     fn updateFps:void () {
         def now:int (gfx_ticks_ms)
@@ -64,6 +70,38 @@ class GameSdlRunner {
         runner.setFpsShown(fpsShown)
     }
 
+    fn clearNavStack:void () {
+        def empty:[string]
+        navStack = empty
+    }
+
+    fn pushNavStack:void (path:string) {
+        if ((strlen path) > 0) {
+            push navStack path
+        }
+    }
+
+    fn popNavStack:string () {
+        def cnt:int (array_length navStack)
+        if (cnt <= 0) {
+            return ""
+        }
+        def top:string (itemAt navStack (cnt - 1))
+        def trimmed:[string]
+        def i:int 0
+        while (i < (cnt - 1)) {
+            push trimmed (itemAt navStack i)
+            i = (i + 1)
+        }
+        navStack = trimmed
+        return top
+    }
+
+    fn wireNativeBridge:void (scriptDir:string) {
+        nativeBridge.setGameDir(scriptDir)
+        runner.setNativeBridge(nativeBridge)
+    }
+
     fn loadScriptAt:void (tsxPath:string injectCatalog:boolean) {
         def dir:string ""
         def file:string tsxPath
@@ -78,12 +116,14 @@ class GameSdlRunner {
         runner.init(pw ph)
         runner.audio.setSink((new SdlGameAudioSink))
         runner.setScriptDir(dir)
+        this.wireNativeBridge(dir)
         if (injectCatalog) {
             runner.registerGlobal("gameCatalog" (catalog.toEvalArray()))
         }
         runner.loadScript(src)
         runner.setupScene()
         runner.trackScriptFile(tsxPath)
+        currentScriptPath = tsxPath
         def enableHotReload:boolean hotReloadWanted
         if (maxFrames > 0) {
             if (hotReloadExplicit == false) {
@@ -101,17 +141,80 @@ class GameSdlRunner {
     fn loadMenuGame:void () {
         catalog.setGamesDir(gamesDir)
         catalog.scan()
+        this.clearNavStack()
+        nativeBridge.clearPendingNav()
         print ("[game-engine] menu: " + (to_string (catalog.entryCount())) + " games in " + gamesDir)
         this.loadScriptAt(menuPath true)
         inMenu = true
         inGame = false
+        lastCatalogPoll = (gfx_ticks_ms)
         gfx_set_title("Ranger Game Engine")
     }
 
     fn loadGame:void (tsxPath:string) {
+        this.clearNavStack()
+        nativeBridge.clearPendingNav()
         this.loadScriptAt(tsxPath false)
         inMenu = false
         inGame = true
+    }
+
+    fn applyPushGame:void (tsxPath:string) {
+        this.pushNavStack(currentScriptPath)
+        this.loadScriptAt(tsxPath false)
+        inMenu = false
+        inGame = true
+    }
+
+    fn applyPopGame:void () {
+        def prev:string (this.popNavStack())
+        if ((strlen prev) == 0) {
+            inGame = false
+            return
+        }
+        this.loadScriptAt(prev false)
+        inMenu = false
+        inGame = true
+    }
+
+    fn drainScriptNavigation:void () {
+        if (false == (nativeBridge.hasPendingNav())) {
+            return
+        }
+        def op:string (nativeBridge.takePendingNavOp())
+        def path:string (nativeBridge.takePendingNavPath())
+        nativeBridge.takePendingPopToMenu()
+        if (op == "load") {
+            if ((strlen path) > 0) {
+                this.clearNavStack()
+                this.loadScriptAt(path false)
+                inMenu = false
+                inGame = true
+            }
+            return
+        }
+        if (op == "push") {
+            if ((strlen path) > 0) {
+                this.applyPushGame(path)
+            }
+            return
+        }
+        if (op == "pop") {
+            this.applyPopGame()
+            return
+        }
+    }
+
+    fn maybePollCatalog:void () {
+        def now:int (gfx_ticks_ms)
+        if ((now - lastCatalogPoll) < catalogPollMs) {
+            return
+        }
+        lastCatalogPoll = now
+        if (catalog.scanIfChanged()) {
+            runner.registerGlobal("gameCatalog" (catalog.toEvalArray()))
+            print ("[game-engine] catalog updated: " + (to_string (catalog.entryCount())) + " games")
+        }
     }
 
     fn draw:void () {
@@ -176,6 +279,7 @@ class GameSdlRunner {
             def quitPulse:boolean (this.quitEdge(quitHeld))
             runner.frame(dtMs up down left right action quitPulse)
             this.draw()
+            this.maybePollCatalog()
 
             def launchPath:string (runner.stateString("launchPath" ""))
             if ((strlen launchPath) > 0) {
@@ -250,11 +354,18 @@ class GameSdlRunner {
             }
 
             if (this.quitEdge(quitHeld)) {
+                this.clearNavStack()
+                nativeBridge.clearPendingNav()
                 inGame = false
                 gfx_clear_should_close
                 return
             }
             runner.frame(dtMs up down left right action false)
+            this.drainScriptNavigation()
+            if (false == inGame) {
+                gfx_clear_should_close
+                return
+            }
             this.updateFps()
             this.draw()
             frames = (frames + 1)

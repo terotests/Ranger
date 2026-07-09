@@ -81,6 +81,9 @@ function update(props) {
         selected = 0;
       }
     }
+    if (selected >= count) {
+      selected = count - 1;
+    }
     if (selected < scroll) {
       scroll = selected;
     }

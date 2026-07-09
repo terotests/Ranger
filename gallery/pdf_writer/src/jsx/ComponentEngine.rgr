@@ -110,6 +110,16 @@ class EvalContext {
     }
 }
 
+; Optional host-native functions callable from evaluated scripts (loadGame, etc.).
+class EvalNativeBridge {
+    fn has:boolean (name:string) {
+        return false
+    }
+    fn invoke:EvalValue (name:string args:[EvalValue]) {
+        return (EvalValue.null())
+    }
+}
+
 ; =============================================================================
 ; ComponentEngine - Main engine for JSX processing with components
 ; =============================================================================
@@ -143,6 +153,8 @@ class ComponentEngine {
     def hostScope:EvalContext
     ; Top-level script bindings (const/let/functions) — reset per loadScript.
     def moduleScope:EvalContext
+    ; Optional bridge for host-native script calls (game engine navigation, I/O).
+    def nativeBridge@(optional):EvalNativeBridge
     
     ; Primitive EVG elements (not components)
     def primitives:[string]
@@ -336,6 +348,21 @@ class ComponentEngine {
     ; EvalValue.object(...)) exposes `game` to the script.
     fn registerGlobal:void (name:string value:EvalValue) {
         hostScope.define(name value)
+    }
+
+    fn setNativeBridge:void (bridge:EvalNativeBridge) {
+        nativeBridge = bridge
+    }
+
+    fn collectCallArgs:[EvalValue] (node:TSNode) {
+        def args:[EvalValue]
+        def i:int 0
+        while (i < (array_length node.children)) {
+            def argNode:TSNode (itemAt node.children i)
+            push args (this.evaluateExpr(argNode))
+            i = (i + 1)
+        }
+        return args
     }
 
     ; Bind a name at module scope (top-level const/let/function).
@@ -2708,6 +2735,14 @@ class ComponentEngine {
                         this.trace("useImage srcArg: " + srcArg)
                     }
                     return (this.evaluateUseImage(srcArg))
+                }
+
+                if (nativeBridge) {
+                    def bridge:EvalNativeBridge (unwrap nativeBridge)
+                    if (bridge.has(fnName)) {
+                        def nativeArgs:[EvalValue] (this.collectCallArgs(node))
+                        return (bridge.invoke(fnName nativeArgs))
+                    }
                 }
                 
                 ; Look up the function in context

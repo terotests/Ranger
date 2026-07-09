@@ -80,6 +80,10 @@ class GameRunner {
         engine.registerGlobal(name value)
     }
 
+    fn setNativeBridge:void (bridge:EvalNativeBridge) {
+        engine.setNativeBridge(bridge)
+    }
+
     fn loadScript:void (src:string) {
         engine.loadScript(src)
         hudEnabled = (this.scriptHasFunction("hud"))

@@ -1,0 +1,382 @@
+; ==============================================================================
+; game_persistence — per-game JSON storage (gamedata.json in the game folder).
+; ==============================================================================
+;
+; Games call loadGameData() / saveGameData() / resetGameData() from TSX; the host
+; reads and writes a single JSON object the game can use freely (high scores, etc.).
+; ==============================================================================
+
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class GamePersistence {
+    def dataFile:string "gamedata.json"
+
+    fn joinPath:string (dir:string file:string) {
+        if ((strlen dir) == 0) {
+            return file
+        }
+        def last:int (strlen dir)
+        last = (last - 1)
+        def tail:string (substring dir last (last + 1))
+        if (tail == "/") {
+            return (dir + file)
+        }
+        return (dir + "/" + file)
+    }
+
+    fn emptyObject:EvalValue () {
+        def keys:[string]
+        def vals:[EvalValue]
+        return (EvalValue.object(keys vals))
+    }
+
+    fn jsonEscape:string (s:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen s)) {
+            def ch:string (substring s i (i + 1))
+            if (ch == "\\") {
+                out = (out + "\\\\")
+            } {
+                if (ch == "\"") {
+                    out = (out + "\\\"")
+                } {
+                    if (ch == "\n") {
+                        out = (out + "\\n")
+                    } {
+                        if (ch == "\r") {
+                            out = (out + "\\r")
+                        } {
+                            if (ch == "\t") {
+                                out = (out + "\\t")
+                            } {
+                                out = (out + ch)
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn evalToJson:string (v:EvalValue) {
+        if (v.isNull()) {
+            return "null"
+        }
+        if (v.isBoolean()) {
+            if v.boolValue {
+                return "true"
+            }
+            return "false"
+        }
+        if (v.isNumber()) {
+            return (v.toString())
+        }
+        if (v.isString()) {
+            def esc:string (this.jsonEscape(v.stringValue))
+            return ("\"" + esc + "\"")
+        }
+        if (v.isArray()) {
+            def arr:[EvalValue] v.arrayValue
+            def out:string "["
+            def i:int 0
+            while (i < (array_length arr)) {
+                if (i > 0) {
+                    out = (out + ",")
+                }
+                out = (out + (this.evalToJson((itemAt arr i))))
+                i = (i + 1)
+            }
+            return (out + "]")
+        }
+        if (v.isObject()) {
+            def out2:string "{"
+            def j:int 0
+            while (j < (array_length v.objectKeys)) {
+                if (j > 0) {
+                    out2 = (out2 + ",")
+                }
+                def key:string (itemAt v.objectKeys j)
+                def val:EvalValue (itemAt v.objectValues j)
+                def keyEsc:string (this.jsonEscape(key))
+                out2 = (out2 + "\"" + keyEsc + "\":")
+                out2 = (out2 + (this.evalToJson(val)))
+                j = (j + 1)
+            }
+            return (out2 + "}")
+        }
+        return "null"
+    }
+
+    fn skipWs:int (src:string pos:int) {
+        while (pos < (strlen src)) {
+            def ch:string (substring src pos (pos + 1))
+            if (ch == " ") {
+                pos = (pos + 1)
+            } {
+                if (ch == "\t") {
+                    pos = (pos + 1)
+                } {
+                    if (ch == "\n") {
+                        pos = (pos + 1)
+                    } {
+                        if (ch == "\r") {
+                            pos = (pos + 1)
+                        } {
+                            break
+                        }
+                    }
+                }
+            }
+        }
+        return pos
+    }
+
+    fn parseValueAt:ParseResult (src:string pos:int) {
+        def res:ParseResult (new ParseResult)
+        pos = (this.skipWs(src pos))
+        if (pos >= (strlen src)) {
+            res.value = (EvalValue.null())
+            res.pos = pos
+            return res
+        }
+        def ch0:string (substring src pos (pos + 1))
+        if (ch0 == "{") {
+            return (this.parseObject(src (pos + 1)))
+        }
+        if (ch0 == "[") {
+            return (this.parseArray(src (pos + 1)))
+        }
+        if (ch0 == "\"") {
+            return (this.parseString(src (pos + 1)))
+        }
+        if (ch0 == "t") {
+            if ((substring src pos (pos + 4)) == "true") {
+                res.value = (EvalValue.boolean(true))
+                res.pos = (pos + 4)
+                return res
+            }
+        }
+        if (ch0 == "f") {
+            if ((substring src pos (pos + 5)) == "false") {
+                res.value = (EvalValue.boolean(false))
+                res.pos = (pos + 5)
+                return res
+            }
+        }
+        if (ch0 == "n") {
+            if ((substring src pos (pos + 4)) == "null") {
+                res.value = (EvalValue.null())
+                res.pos = (pos + 4)
+                return res
+            }
+        }
+        def numEnd:int (this.parseNumberEnd(src pos))
+        if (numEnd > pos) {
+            def numStr:string (substring src pos numEnd)
+            def parsedNum@(optional):double (to_double numStr)
+            if (!null? parsedNum) {
+                res.value = (EvalValue.number((unwrap parsedNum)))
+                res.pos = numEnd
+                return res
+            }
+        }
+        res.value = (EvalValue.null())
+        res.pos = pos
+        return res
+    }
+
+    fn parseNumberEnd:int (src:string pos:int) {
+        def start:int pos
+        def ch:string (substring src pos (pos + 1))
+        if (ch == "-") {
+            pos = (pos + 1)
+        }
+        while (pos < (strlen src)) {
+            def c:string (substring src pos (pos + 1))
+            if (c == ".") {
+                pos = (pos + 1)
+            } {
+                def code:int (charAt src pos)
+                if ((code >= 48) && (code <= 57)) {
+                    pos = (pos + 1)
+                } {
+                    break
+                }
+            }
+        }
+        if (pos == start) {
+            return start
+        }
+        return pos
+    }
+
+    fn parseString:ParseResult (src:string pos:int) {
+        def res:ParseResult (new ParseResult)
+        def out:string ""
+        while (pos < (strlen src)) {
+            def ch:string (substring src pos (pos + 1))
+            if (ch == "\"") {
+                res.value = (EvalValue.string(out))
+                res.pos = (pos + 1)
+                return res
+            }
+            if (ch == "\\") {
+                pos = (pos + 1)
+                if (pos < (strlen src)) {
+                    def esc:string (substring src pos (pos + 1))
+                    if (esc == "n") {
+                        out = (out + "\n")
+                    } {
+                        if (esc == "r") {
+                            out = (out + "\r")
+                        } {
+                            if (esc == "t") {
+                                out = (out + "\t")
+                            } {
+                                if (esc == "\"") {
+                                    out = (out + "\"")
+                                } {
+                                    if (esc == "\\") {
+                                        out = (out + "\\")
+                                    } {
+                                        out = (out + esc)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } {
+                out = (out + ch)
+            }
+            pos = (pos + 1)
+        }
+        res.value = (EvalValue.string(out))
+        res.pos = pos
+        return res
+    }
+
+    fn parseArray:ParseResult (src:string pos:int) {
+        def res:ParseResult (new ParseResult)
+        def items:[EvalValue]
+        pos = (this.skipWs(src pos))
+        def ch:string (substring src pos (pos + 1))
+        if (ch == "]") {
+            res.value = (EvalValue.array(items))
+            res.pos = (pos + 1)
+            return res
+        }
+        while (pos < (strlen src)) {
+            def itemParsed (this.parseValueAt(src pos))
+            push items itemParsed.value
+            pos = (this.skipWs(src itemParsed.pos))
+            def sep:string (substring src pos (pos + 1))
+            if (sep == "]") {
+                res.value = (EvalValue.array(items))
+                res.pos = (pos + 1)
+                return res
+            }
+            if (sep == ",") {
+                pos = (pos + 1)
+            } {
+                break
+            }
+        }
+        res.value = (EvalValue.array(items))
+        res.pos = pos
+        return res
+    }
+
+    fn parseObject:ParseResult (src:string pos:int) {
+        def res:ParseResult (new ParseResult)
+        def keys:[string]
+        def vals:[EvalValue]
+        pos = (this.skipWs(src pos))
+        def ch:string (substring src pos (pos + 1))
+        if (ch == "}") {
+            res.value = (EvalValue.object(keys vals))
+            res.pos = (pos + 1)
+            return res
+        }
+        while (pos < (strlen src)) {
+            pos = (this.skipWs(src pos))
+            def keyParsed (this.parseString(src (pos + 1)))
+            def key:string keyParsed.value.stringValue
+            pos = (this.skipWs(src keyParsed.pos))
+            pos = (pos + 1)
+            pos = (this.skipWs(src pos))
+            def valParsed (this.parseValueAt(src pos))
+            push keys key
+            push vals valParsed.value
+            pos = (this.skipWs(src valParsed.pos))
+            def sep:string (substring src pos (pos + 1))
+            if (sep == "}") {
+                res.value = (EvalValue.object(keys vals))
+                res.pos = (pos + 1)
+                return res
+            }
+            if (sep == ",") {
+                pos = (pos + 1)
+            } {
+                break
+            }
+        }
+        res.value = (EvalValue.object(keys vals))
+        res.pos = pos
+        return res
+    }
+
+    fn parseJson:EvalValue (src:string) {
+        if ((strlen src) == 0) {
+            return (this.emptyObject())
+        }
+        def parsed (this.parseValueAt(src 0))
+        return parsed.value
+    }
+
+    fn loadFromDir:EvalValue (dir:string) {
+        if ((strlen dir) == 0) {
+            return (this.emptyObject())
+        }
+        if (false == (file_exists dir dataFile)) {
+            return (this.emptyObject())
+        }
+        def buf:buffer (buffer_read_file dir dataFile)
+        def txt:string (buffer_to_string buf)
+        if ((strlen txt) == 0) {
+            return (this.emptyObject())
+        }
+        def parsed:EvalValue (this.parseJson(txt))
+        if (parsed.isObject()) {
+            return parsed
+        }
+        return (this.emptyObject())
+    }
+
+    fn saveToDir:void (dir:string data:EvalValue) {
+        if ((strlen dir) == 0) {
+            return
+        }
+        if (false == (data.isObject())) {
+            return
+        }
+        def json:string (this.evalToJson(data))
+        def buf:buffer (buffer_from_string json)
+        buffer_write_file dir dataFile buf
+    }
+
+    fn resetInDir:void (dir:string) {
+        if ((strlen dir) == 0) {
+            return
+        }
+        this.saveToDir(dir (this.emptyObject()))
+    }
+}
+
+class ParseResult {
+    def value:EvalValue (EvalValue.null())
+    def pos:int 0
+}

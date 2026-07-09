@@ -25,6 +25,7 @@ class GameCatalogEntry {
 class GameCatalog {
     def gamesDir:string ""
     def entries:[GameCatalogEntry]
+    def lastFingerprint:string ""
 
     fn setGamesDir:void (dir:string) {
         gamesDir = dir
@@ -141,6 +142,7 @@ class GameCatalog {
         def empty:[GameCatalogEntry]
         entries = empty
         if ((strlen gamesDir) == 0) {
+            lastFingerprint = ""
             return
         }
         def names:[string] (list_dir_files gamesDir)
@@ -157,6 +159,42 @@ class GameCatalog {
             i = (i + 1)
         }
         this.sortEntries()
+        lastFingerprint = (this.dirFingerprint())
+    }
+
+    fn dirFingerprint:string () {
+        if ((strlen gamesDir) == 0) {
+            return ""
+        }
+        def names:[string] (list_dir_files gamesDir)
+        def ids:[string]
+        def i:int 0
+        while (i < (array_length names)) {
+            def id:string (itemAt names i)
+            if (this.isGameFolder(gamesDir id)) {
+                push ids id
+            }
+            i = (i + 1)
+        }
+        def fp:string ""
+        def j:int 0
+        while (j < (array_length ids)) {
+            if (j > 0) {
+                fp = (fp + "\n")
+            }
+            fp = (fp + (itemAt ids j))
+            j = (j + 1)
+        }
+        return fp
+    }
+
+    fn scanIfChanged:boolean () {
+        def fp:string (this.dirFingerprint())
+        if (fp == lastFingerprint) {
+            return false
+        }
+        this.scan()
+        return true
     }
 
     fn strLess:boolean (a:string b:string) {
