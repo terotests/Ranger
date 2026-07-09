@@ -1,5 +1,4 @@
 /// <reference path="./game.d.ts" />
-/// <reference path="./breakout.d.ts" />
 //
 // Breakout - multi-screen GameRunner example (play + gameOver).
 //
@@ -26,7 +25,6 @@ import {
   makeAlive,
   placeBricks
 } from "./breakout_bricks";
-import { getScreen, isActiveScreen, soundEvent } from "./game_helpers";
 
 function screens(): string[] {
   return ["play", "gameOver"];
@@ -106,8 +104,8 @@ function goToGameOver(
 }
 
 function updatePlay(s: BreakoutState, props: EventProps): BreakoutState {
-  const play = getScreen(s, "play");
-  const events: GameEvent[] = [];
+
+  const play = s.screens.play;
   const dt = props.dt as number;
   let px = play.px;
   let py = play.py;
@@ -127,9 +125,9 @@ function updatePlay(s: BreakoutState, props: EventProps): BreakoutState {
   bx = bx + vx * dt;
   by = by + vy * dt;
 
-  if (by < 8) { by = 8; vy = 0 - vy; events.push(soundEvent("wall")); }
-  if (bx < 6) { bx = 6; vx = 0 - vx; events.push(soundEvent("wall")); }
-  if (bx > 474) { bx = 474; vx = 0 - vx; events.push(soundEvent("wall")); }
+  if (by < 8) { by = 8; vy = 0 - vy; }
+  if (bx < 6) { bx = 6; vx = 0 - vx; }
+  if (bx > 474) { bx = 474; vx = 0 - vx; }
 
   if (by > py - 14) {
     if (bx > px - 36) {
@@ -138,14 +136,12 @@ function updatePlay(s: BreakoutState, props: EventProps): BreakoutState {
         vy = 0 - vy;
         const hit = (bx - px) / 36.0;
         vx = vx + hit * 0.06;
-        events.push(soundEvent("bounce"));
       }
     }
   }
 
   if (by > 270) {
     lives = lives - 1;
-    events.push(soundEvent("lose"));
     const reset = resetBall(px, py);
     bx = reset.bx;
     by = reset.by;
@@ -167,12 +163,7 @@ function updatePlay(s: BreakoutState, props: EventProps): BreakoutState {
         score1: score,
         score2: 0
       };
-      const over = goToGameOver(s, frozen, 0);
-      return {
-        screen: over.screen,
-        screens: over.screens,
-        events: events
-      };
+      return goToGameOver(s, frozen, 0);
     }
   }
 
@@ -183,7 +174,6 @@ function updatePlay(s: BreakoutState, props: EventProps): BreakoutState {
         alive[i] = 0;
         vy = 0 - vy;
         score = score + 10;
-        events.push(soundEvent("brick"));
       }
     }
     i = i + 1;
@@ -205,13 +195,7 @@ function updatePlay(s: BreakoutState, props: EventProps): BreakoutState {
       score1: score,
       score2: lives
     };
-    const over = goToGameOver(s, frozen, 1);
-    events.push(soundEvent("win"));
-    return {
-      screen: over.screen,
-      screens: over.screens,
-      events: events
-    };
+    return goToGameOver(s, frozen, 1);
   }
 
   const entities: Record<string, EntityPose> = {};
@@ -239,17 +223,16 @@ function updatePlay(s: BreakoutState, props: EventProps): BreakoutState {
     screen: "play",
     screens: {
       play: nextPlay
-    },
-    events: events
+    }
   };
 }
 
-function updateGameOver(s: BreakoutState, props: TypedEventProps<BreakoutState>): BreakoutState {
+function updateGameOver(s: BreakoutState, props: EventProps): BreakoutState {
   if (props.action) {
     return {
       screen: "play",
       screens: {
-        gameOver: getScreen(s, "gameOver"),
+        gameOver: s.screens.gameOver,
         play: initPlayState()
       }
     };
@@ -257,21 +240,23 @@ function updateGameOver(s: BreakoutState, props: TypedEventProps<BreakoutState>)
   return s;
 }
 
-function update(props: TypedEventProps<BreakoutState>): BreakoutState {
+function update(props) {
   const s = props.state;
-  if (isActiveScreen(s, "play")) {
+  const sc = s.screen;
+  if (sc == "play") {
     return updatePlay(s, props);
   }
-  if (isActiveScreen(s, "gameOver")) {
+  if (sc == "gameOver") {
     return updateGameOver(s, props);
   }
   return s;
 }
 
-function hud(props: TypedEventProps<BreakoutState>): JSX.Element {
+function hud(props) {
   const s = props.state;
-  if (isActiveScreen(s, "gameOver")) {
-    const go = getScreen(s, "gameOver")!;
+  const sc = s.screen;
+  if (sc == "gameOver") {
+    const go = s.screens.gameOver!;
     let title = "PELI OHI!!";
     if (go.won == 1) {
       title = "YOU WIN";
@@ -287,7 +272,7 @@ function hud(props: TypedEventProps<BreakoutState>): JSX.Element {
       </View>
     );
   }
-  const play = getScreen(s, "play");
+  const play = s.screens.play;
   return (
     <View flexDirection="column" padding="6px" align="center" width="100%">
       <View align="center" width="100%" flexDirection="row">

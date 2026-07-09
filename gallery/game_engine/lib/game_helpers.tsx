@@ -1,7 +1,9 @@
-/// <reference path="./engine.d.ts" />
+/// <reference path="../scripting/engine.d.ts" />
 //
-// Small runtime helpers for multi-screen game scripts.
-// Import from game scripts: import { getScreen, activeScreen } from "./game_helpers";
+// Shared runtime helpers for game scripts. Import with a bare module name:
+//   import { soundEvent } from "game_helpers";
+// or a relative path from the game folder:
+//   import { soundEvent } from "../../lib/game_helpers";
 //
 
 /** Active screen name (`state.screen`). */

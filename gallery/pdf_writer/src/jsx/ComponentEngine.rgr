@@ -228,6 +228,21 @@ class ComponentEngine {
     ; Asset Path Management
     ; ==========================================================================
     
+    ; Append a single directory searched for bare imports (e.g. "game_helpers").
+    fn addAssetPath:void (path:string) {
+        if ((strlen path) == 0) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length assetPaths)) {
+            if ((itemAt assetPaths i) == path) {
+                return
+            }
+            i = i + 1
+        }
+        push assetPaths path
+    }
+
     ; Set multiple asset directories from semicolon-separated string
     ; Example: "./Fonts;./components;./images"
     fn setAssetPaths:void (paths:string) {
@@ -574,19 +589,13 @@ class ComponentEngine {
             return
         }
         
-        ; Save basePath to local variable to avoid 'this' binding issue in closure
-        def dirPath:string basePath
-        print ("Loading import: " + dirPath + fullPath)
-        
-        ; Track loaded file for file watching
-        def loadedFilePath:string (dirPath + fullPath)
-        push loadedFiles loadedFilePath
-        
-        def fileContent:buffer (buffer_read_file dirPath fullPath)
-        def src:string (buffer_to_string fileContent)
+        ; Resolve import: script dir first, then registered asset/lib paths.
+        resolvedImportDir = basePath
+        def src:string (this.readImportSource(basePath fullPath))
+        def dirPath:string resolvedImportDir
         if ((strlen src) == 0) {
             print ""
-            print ("ERROR: Could not load component module: " + dirPath + fullPath)
+            print ("ERROR: Could not load component module: " + basePath + fullPath)
             print ""
             print "Please ensure the imported file exists. You may need to:"
             print "  1. Check that the import path is correct in your TSX file"
@@ -599,6 +608,12 @@ class ComponentEngine {
             print ""
             return
         }
+
+        print ("Loading import: " + dirPath + fullPath)
+
+        ; Track loaded file for file watching
+        def loadedFilePath:string (dirPath + fullPath)
+        push loadedFiles loadedFilePath
         
         ; Parse the imported file
         def lexer (new TSLexer(src))
@@ -607,6 +622,9 @@ class ComponentEngine {
         importParser.initParser(tokens)
         importParser.tsxMode = true
         def importAst:TSNode (importParser.parseProgram())
+        
+        ; Resolve transitive imports (e.g. invaders_shared → game_helpers).
+        this.processImports(importAst)
         
         ; Register all top-level bindings from the imported module so script
         ; code can call imported functions and read imported constants.
@@ -715,6 +733,35 @@ class ComponentEngine {
         }
     }
     
+    ; Directory where the last successful readImportSource() found its module.
+    def resolvedImportDir:string "./"
+
+    ; Read an import file from basePath, falling back to assetPaths.
+    fn readImportSource:string (dirPath:string fullPath:string) {
+        if (file_exists dirPath fullPath) {
+            def content:buffer (buffer_read_file dirPath fullPath)
+            def src:string (buffer_to_string content)
+            if ((strlen src) > 0) {
+                resolvedImportDir = dirPath
+                return src
+            }
+        }
+        def i:int 0
+        while (i < (array_length assetPaths)) {
+            def assetDir:string (itemAt assetPaths i)
+            if (file_exists assetDir fullPath) {
+                def tryBuf:buffer (buffer_read_file assetDir fullPath)
+                def trySrc:string (buffer_to_string tryBuf)
+                if ((strlen trySrc) > 0) {
+                    resolvedImportDir = assetDir
+                    return trySrc
+                }
+            }
+            i = i + 1
+        }
+        return ""
+    }
+
     fn resolveModulePath:string (modulePath:string) {
         ; Handle relative paths
         if ((indexOf modulePath "./") == 0) {
@@ -1699,6 +1746,15 @@ class ComponentEngine {
             if node.left {
                 def inner:TSNode (unwrap node.left)
                 return (this.evaluateJSX(inner))
+            }
+        }
+        
+        ; Fallback: any other expression (e.g. a helper call that returns JSX,
+        ; like hud() -> playHud(...)). Evaluate it and unwrap the element result.
+        def val:EvalValue (this.evaluateExpr(node))
+        if (val.isElement()) {
+            if val.evgElement {
+                return (unwrap val.evgElement)
             }
         }
         

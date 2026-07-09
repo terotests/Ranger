@@ -106,7 +106,25 @@ class GameSdlRunner {
         runner.setNativeBridge(nativeBridge)
     }
 
+    fn presentLoadingScreen:void (label:string) {
+        if (pw <= 0) {
+            return
+        }
+        if (ph <= 0) {
+            return
+        }
+        def ticks:int (gfx_ticks_ms)
+        runner.drawLoadingScreen(label ticks)
+        gfx_present (runner.raw()) pw ph
+    }
+
     fn loadScriptAt:void (tsxPath:string injectCatalog:boolean) {
+        if (inGame) {
+            this.presentLoadingScreen("LOADING")
+        }
+        if (inMenu) {
+            this.presentLoadingScreen("LOADING")
+        }
         def dir:string ""
         def file:string tsxPath
         def slash:int (lastIndexOf tsxPath "/")
@@ -124,7 +142,9 @@ class GameSdlRunner {
         if (injectCatalog) {
             runner.registerGlobal("gameCatalog" (catalog.toEvalArray()))
         }
+        this.presentLoadingScreen("LOADING")
         runner.loadScript(src)
+        this.presentLoadingScreen("LOADING")
         runner.setupScene()
         runner.trackScriptFile(tsxPath)
         currentScriptPath = tsxPath

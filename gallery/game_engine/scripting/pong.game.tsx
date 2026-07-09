@@ -40,60 +40,97 @@ function initState() {
   };
 }
 
-function tryLeftPaddleBounce(prevBx, bx, by, p1y, vx) {
+function tryLeftPaddleBounce(prevBx, bx, by, p1y, p1vy, vx, vy) {
   const paddleL = 18;
   const paddleR = 28;
   const half = 34;
   if (vx >= 0) {
-    return { bx: bx, vx: vx, hit: false };
+    return { bx: bx, vx: vx, vy: vy, hit: false };
   }
   if (by <= p1y - half) {
-    return { bx: bx, vx: vx, hit: false };
+    return { bx: bx, vx: vx, vy: vy, hit: false };
   }
   if (by >= p1y + half) {
-    return { bx: bx, vx: vx, hit: false };
+    return { bx: bx, vx: vx, vy: vy, hit: false };
   }
+  let hit = false;
   if (prevBx > paddleR) {
     if (bx <= paddleR) {
-      return { bx: paddleR, vx: 0 - vx, hit: true };
+      hit = true;
     }
   }
-  if (bx <= paddleR) {
-    if (bx >= paddleL) {
-      if (prevBx >= bx) {
-        return { bx: paddleR, vx: 0 - vx, hit: true };
+  if (!hit) {
+    if (bx <= paddleR) {
+      if (bx >= paddleL) {
+        if (prevBx >= bx) {
+          hit = true;
+        }
       }
     }
   }
-  return { bx: bx, vx: vx, hit: false };
+  if (!hit) {
+    return { bx: bx, vx: vx, vy: vy, hit: false };
+  }
+  const deflected = deflectFromPaddle(vx, vy, by, p1y, p1vy, half, true);
+  return { bx: paddleR, vx: deflected.vx, vy: deflected.vy, hit: true };
 }
 
-function tryRightPaddleBounce(prevBx, bx, by, p2y, vx) {
+function tryRightPaddleBounce(prevBx, bx, by, p2y, p2vy, vx, vy) {
   const paddleL = 462;
   const paddleR = 472;
   const half = 34;
   if (vx <= 0) {
-    return { bx: bx, vx: vx, hit: false };
+    return { bx: bx, vx: vx, vy: vy, hit: false };
   }
   if (by <= p2y - half) {
-    return { bx: bx, vx: vx, hit: false };
+    return { bx: bx, vx: vx, vy: vy, hit: false };
   }
   if (by >= p2y + half) {
-    return { bx: bx, vx: vx, hit: false };
+    return { bx: bx, vx: vx, vy: vy, hit: false };
   }
+  let hit = false;
   if (prevBx < paddleL) {
     if (bx >= paddleL) {
-      return { bx: paddleL, vx: 0 - vx, hit: true };
+      hit = true;
     }
   }
-  if (bx >= paddleL) {
-    if (bx <= paddleR) {
-      if (prevBx <= bx) {
-        return { bx: paddleL, vx: 0 - vx, hit: true };
+  if (!hit) {
+    if (bx >= paddleL) {
+      if (bx <= paddleR) {
+        if (prevBx <= bx) {
+          hit = true;
+        }
       }
     }
   }
-  return { bx: bx, vx: vx, hit: false };
+  if (!hit) {
+    return { bx: bx, vx: vx, vy: vy, hit: false };
+  }
+  const deflected = deflectFromPaddle(vx, vy, by, p2y, p2vy, half, false);
+  return { bx: paddleL, vx: deflected.vx, vy: deflected.vy, hit: true };
+}
+
+function deflectFromPaddle(vx, vy, by, paddleY, paddleVy, half, leftSide) {
+  const offset = (by - paddleY) / half;
+  let newVx = 0 - vx;
+  if (leftSide) {
+    if (newVx < 0) {
+      newVx = 0 - newVx;
+    }
+  } else {
+    if (newVx > 0) {
+      newVx = 0 - newVx;
+    }
+  }
+  let newVy = vy + offset * 0.07 + paddleVy * 0.9;
+  const maxVy = 0.26;
+  if (newVy > maxVy) {
+    newVy = maxVy;
+  }
+  if (newVy < 0 - maxVy) {
+    newVy = 0 - maxVy;
+  }
+  return { vx: newVx, vy: newVy };
 }
 
 function update(props) {
@@ -129,27 +166,31 @@ function update(props) {
   if (by > 264) { by = 264; vy = 0 - vy; events.push(soundEvent("wall")); }
 
   let p1y = s.entities.p1.y;
-  if (p1up) { p1y = p1y - dt * 0.30; }
-  if (p1down) { p1y = p1y + dt * 0.30; }
+  let p1vy = 0;
+  if (p1up) { p1vy = -0.30; p1y = p1y - dt * 0.30; }
+  if (p1down) { p1vy = 0.30; p1y = p1y + dt * 0.30; }
   if (p1y < 28) { p1y = 28; }
   if (p1y > 242) { p1y = 242; }
 
   let p2y = s.entities.p2.y;
-  if (p2up) { p2y = p2y - dt * 0.30; }
-  if (p2down) { p2y = p2y + dt * 0.30; }
+  let p2vy = 0;
+  if (p2up) { p2vy = -0.30; p2y = p2y - dt * 0.30; }
+  if (p2down) { p2vy = 0.30; p2y = p2y + dt * 0.30; }
   if (p2y < 28) { p2y = 28; }
   if (p2y > 242) { p2y = 242; }
 
-  const leftHit = tryLeftPaddleBounce(prevBx, bx, by, p1y, vx);
+  const leftHit = tryLeftPaddleBounce(prevBx, bx, by, p1y, p1vy, vx, vy);
   bx = leftHit.bx;
   vx = leftHit.vx;
+  vy = leftHit.vy;
   if (leftHit.hit) {
     events.push(soundEvent("bounce"));
   }
 
-  const rightHit = tryRightPaddleBounce(prevBx, bx, by, p2y, vx);
+  const rightHit = tryRightPaddleBounce(prevBx, bx, by, p2y, p2vy, vx, vy);
   bx = rightHit.bx;
   vx = rightHit.vx;
+  vy = rightHit.vy;
   if (rightHit.hit) {
     events.push(soundEvent("bounce"));
   }

@@ -490,9 +490,12 @@ class EVGLayout {
         ; For column direction: justifyContent = vertical (main axis), alignItems = horizontal (cross axis)
         def verticalAlign:string parent.justifyContent
         def horizontalAlign:string parent.alignItems
-        ; Legacy align= center|left|right (EVG spec horizontal alignment)
+        ; Legacy align= center|left|right (EVG spec horizontal alignment).
+        ; Default "left" must not clobber a set alignItems (left == flex-start).
         if ((strlen parent.align) > 0) {
-            horizontalAlign = parent.align
+            if (parent.align != "left") {
+                horizontalAlign = parent.align
+            }
         }
         
         ; Calculate vertical offset based on justifyContent
@@ -508,25 +511,61 @@ class EVGLayout {
         if ((verticalAlign == "flex-end") || (verticalAlign == "end")) {
             offsetY = (availableHeight - contentHeight)
         }
-        if (verticalAlign == "space-between") {
-            ; Space between is handled differently - distribute space between items
-            ; For now, just don't offset
-            offsetY = 0.0
+
+        ; Count non-absolute children for space distribution.
+        def flowCount:int 0
+        def fc:int 0
+        while (fc < childCount) {
+            def fchild:EVGElement (parent.getChild(fc))
+            if (fchild.isAbsolute == false) {
+                flowCount = (flowCount + 1)
+            }
+            fc = (fc + 1)
         }
+
+        ; Space distribution (justifyContent) along the vertical main axis.
+        def freeSpaceY:double (availableHeight - contentHeight)
+        if (freeSpaceY < 0.0) {
+            freeSpaceY = 0.0
+        }
+        def distributeGapY:double 0.0
+        def distributeFirstY:double 0.0
+        if (verticalAlign == "space-between") {
+            if (flowCount > 1) {
+                distributeGapY = (freeSpaceY / (to_double (flowCount - 1)))
+            }
+        }
+        if (verticalAlign == "space-around") {
+            if (flowCount > 0) {
+                distributeGapY = (freeSpaceY / (to_double flowCount))
+                distributeFirstY = (distributeGapY / 2.0)
+            }
+        }
+        if (verticalAlign == "space-evenly") {
+            distributeGapY = (freeSpaceY / (to_double (flowCount + 1)))
+            distributeFirstY = distributeGapY
+        }
+        def usesDistributeY:boolean ((distributeGapY > 0.0) || (distributeFirstY > 0.0))
         
         ; Apply offsets to all non-absolute children
         def i:int 0
+        def flowIndex:int 0
         while (i < childCount) {
             def child:EVGElement (parent.getChild(i))
             
             ; Skip absolute positioned elements (they're handled separately)
             if (child.isAbsolute == false) {
                 ; Apply vertical offset
-                if (offsetY != 0.0) {
-                    child.calculatedY = child.calculatedY + offsetY
-                    ; Propagate to descendants
-                    this.propagateOffsetToChildren(child 0.0 offsetY)
+                def elemOffsetY:double offsetY
+                if usesDistributeY {
+                    elemOffsetY = (distributeFirstY + (distributeGapY * (to_double flowIndex)))
                 }
+                if (elemOffsetY != 0.0) {
+                    child.calculatedY = child.calculatedY + elemOffsetY
+                    ; Propagate to descendants
+                    this.propagateOffsetToChildren(child 0.0 elemOffsetY)
+                }
+                flowIndex = (flowIndex + 1)
                 
                 ; Apply horizontal alignment (alignItems)
                 def childTotalWidth:double (child.calculatedWidth + child.box.marginLeftPx + child.box.marginRightPx)
@@ -580,9 +619,12 @@ class EVGLayout {
         if isColumn {
             horizontalAlign = crossAxisAlign
         }
-        ; Also check legacy 'align' property
+        ; Legacy 'align' override — but default "left" must not clobber a set
+        ; justifyContent/alignItems (left == flex-start is a no-op anyway).
         if ((strlen parent.align) > 0) {
-            horizontalAlign = parent.align
+            if (parent.align != "left") {
+                horizontalAlign = parent.align
+            }
         }
         
         def offsetX:double 0.0
@@ -592,6 +634,29 @@ class EVGLayout {
         if ((horizontalAlign == "flex-end") || (horizontalAlign == "right")) {
             offsetX = (innerWidth - rowWidth)
         }
+
+        ; Space distribution (justifyContent). Applied as an incremental per-item
+        ; gap on top of the sequential flow position.
+        def freeSpace:double (innerWidth - rowWidth)
+        if (freeSpace < 0.0) {
+            freeSpace = 0.0
+        }
+        def distributeGap:double 0.0
+        def distributeFirst:double 0.0
+        if (horizontalAlign == "space-between") {
+            if (elementCount > 1) {
+                distributeGap = (freeSpace / (to_double (elementCount - 1)))
+            }
+        }
+        if (horizontalAlign == "space-around") {
+            distributeGap = (freeSpace / (to_double elementCount))
+            distributeFirst = (distributeGap / 2.0)
+        }
+        if (horizontalAlign == "space-evenly") {
+            distributeGap = (freeSpace / (to_double (elementCount + 1)))
+            distributeFirst = distributeGap
+        }
+        def usesDistribute:boolean ((distributeGap > 0.0) || (distributeFirst > 0.0))
         
         ; Vertical alignment (alignItems for row, justifyContent for column)
         def verticalAlignVal:string crossAxisAlign
@@ -621,10 +686,14 @@ class EVGLayout {
             def el:EVGElement (itemAt rowElements i)
             
             ; Horizontal offset - also propagate to children!
-            if (offsetX != 0.0) {
-                el.calculatedX = el.calculatedX + offsetX
+            def elemOffsetX:double offsetX
+            if usesDistribute {
+                elemOffsetX = (distributeFirst + (distributeGap * (to_double i)))
+            }
+            if (elemOffsetX != 0.0) {
+                el.calculatedX = el.calculatedX + elemOffsetX
                 ; Propagate offset to all descendants
-                this.propagateOffsetToChildren(el offsetX 0.0)
+                this.propagateOffsetToChildren(el elemOffsetX 0.0)
             }
             
             ; Vertical alignment within row

@@ -14,7 +14,8 @@
 // MultiScreenState, SpriteDef, GameScript, …). Per-game screen types belong in
 // a sibling *.d.ts — see breakout.d.ts.
 //
-// Multi-screen helpers (getScreen, activeScreen): import from game_helpers.tsx.
+// Multi-screen helpers (getScreen, activeScreen): import from "game_helpers"
+// (resolved via gallery/game_engine/lib/ at runtime).
 //
 // The host injects the `game`, `Buttons` and `screen` (framebuffer) globals into
 // the script namespace (via ComponentEngine.registerGlobal), so no import is

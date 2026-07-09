@@ -26,13 +26,13 @@ import {
   makeAlive,
   placeBricks
 } from "./breakout_bricks";
-import { getScreen, isActiveScreen, soundEvent } from "../../scripting/game_helpers";
+import { getScreen, soundEvent } from "game_helpers";
 
 function screens(): string[] {
   return ["play", "gameOver"];
 }
 
-function sprites(props: { screen: string }): SpriteDef[] {
+function sprites(props) {
   if (props.screen == "play") {
     const list = buildBrickSprites();
     list.push({ id: "paddle", kind: "rect", w: 64, h: 10, r: 120, g: 220, b: 255 });
@@ -244,7 +244,7 @@ function updatePlay(s: BreakoutState, props: EventProps): BreakoutState {
   };
 }
 
-function updateGameOver(s: BreakoutState, props: TypedEventProps<BreakoutState>): BreakoutState {
+function updateGameOver(s, props) {
   if (props.action) {
     return {
       screen: "play",
@@ -257,44 +257,34 @@ function updateGameOver(s: BreakoutState, props: TypedEventProps<BreakoutState>)
   return s;
 }
 
-function update(props: TypedEventProps<BreakoutState>): BreakoutState {
+function update(props) {
   const s = props.state;
-  if (isActiveScreen(s, "play")) {
+  if (s.screen == "play") {
     return updatePlay(s, props);
   }
-  if (isActiveScreen(s, "gameOver")) {
+  if (s.screen == "gameOver") {
     return updateGameOver(s, props);
   }
   return s;
 }
 
-function hud(props: TypedEventProps<BreakoutState>): JSX.Element {
+function hud(props) {
   const s = props.state;
-  if (isActiveScreen(s, "gameOver")) {
-    const go = getScreen(s, "gameOver")!;
-    let title = "PELI OHI!!";
-    if (go.won == 1) {
-      title = "YOU WIN";
-    }
+  if (s.screen == "gameOver") {
+    const go = s.screens.gameOver;
     return (
-      <View>
-        <View flexDirection="row" padding="20px" width="100%" align="center">
-          <Label color="#8fd3ff">PISTEET {go.score}</Label>
-        </View>
-        <View flexDirection="row" padding="2px" width="100%" align="center">
-          <View align="center" width="100%"><Label color="#8fd3ff">PAINA SPACE</Label></View>
-        </View>
+      <View flexDirection="column" padding="8px" width="100%" align="center">
+        <Label color="#8fd3ff">PISTEET {go.score}</Label>
+        <Label color="#8fd3ff">PAINA SPACE</Label>
       </View>
     );
   }
-  const play = getScreen(s, "play");
+  const play = s.screens.play;
   return (
-    <View flexDirection="column" padding="6px" align="center" width="100%">
-      <View align="center" width="100%" flexDirection="row">
-        <Label color="#ff22ff" padding="2px" align="center">SCORE</Label>
-        <Label color="#ffffff" padding="2px">{play.score}</Label>
-      </View>
-      <Label color="#ff8899" padding="2px">LIVES {play.lives}</Label>
+    <View flexDirection="row" padding="8px" width="100%" justifyContent="space-between">
+      <Label color="#ff22ff">SCORE</Label>
+      <Label color="#ffffff">{play.score}</Label>
+      <Label color="#ff8899">LIVES {play.lives}</Label>
     </View>
   );
 }
