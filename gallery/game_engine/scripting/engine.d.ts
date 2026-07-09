@@ -147,6 +147,8 @@ interface GameState {
   events?: GameEvent[];
   /** Active background: resources() image id or relative PNG/JPEG path. */
   background?: string;
+  /** Vertical scroll offset for static level backgrounds (pixels). */
+  cameraY?: number;
   /**
    * Local player slots for SDL input mapping (1–8). Default 1 when unset.
    * Set in initState or change from an in-game menu; host reads each frame.
@@ -275,6 +277,17 @@ interface GameScript<TState extends GameState = GameState> {
   /** Retained-mode: select initial background (resources() id or path). */
   backgroundImage?(): string;
   /**
+   * Retained-mode: world height in pixels for the static level buffer.
+   * Defaults to screen height when omitted.
+   */
+  staticLevelHeight?(): number;
+  /**
+   * Retained-mode init hook: draw the level once into an off-screen buffer.
+   * Use bgClear / bgFillRect / bgFillCircle (native) plus bgWidth / bgHeight globals.
+   * The engine blits the visible slice each frame using state.cameraY.
+   */
+  createStaticBg?(): void;
+  /**
    * Optional fallback when state.playerSlots is unset. Prefer setting
    * playerSlots in initState / update (or an in-game menu).
    */
@@ -321,3 +334,29 @@ declare function loadGameData(): Record<string, unknown>;
 declare function saveGameData(data: Record<string, unknown>): void;
 /** Delete gamedata.json in the game folder. */
 declare function resetGameData(): void;
+
+/** Static level buffer width (pixels), set during createStaticBg init. */
+declare const bgWidth: number;
+/** Static level buffer height (pixels), set during createStaticBg init. */
+declare const bgHeight: number;
+/** Draw an opaque rect into the static level buffer (world coordinates). */
+declare function bgFillRect(
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+  g: number,
+  b: number
+): void;
+/** Fill the static level buffer with a solid colour. */
+declare function bgClear(r: number, g: number, b: number): void;
+/** Draw a filled circle into the static level buffer. */
+declare function bgFillCircle(
+  cx: number,
+  cy: number,
+  rad: number,
+  r: number,
+  g: number,
+  b: number
+): void;

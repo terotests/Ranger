@@ -24,6 +24,8 @@ Import "../../ts_to_ranger/game_host.rgr"
 Import "./game_audio.rgr"
 Import "./game_image_loader.rgr"
 Import "./game_input.rgr"
+Import "./game_composite_bridge.rgr"
+Import "./game_static_bg_bridge.rgr"
 
 ; Runtime options for script-driven games (SDL host, tests, custom hosts).
 class GameRuntimeOptions {
@@ -60,6 +62,12 @@ class GameRunner {
     def backgroundImg:ImageBuffer (new ImageBuffer)
     def backgroundLoaded:boolean false
     def backgroundKey:string ""
+    def staticBgCanvas:SoftCanvas (new SoftCanvas)
+    def staticBgReady:boolean false
+    def staticBgH:int 0
+    def staticBgBridge:GameStaticBgNativeBridge (new GameStaticBgNativeBridge)
+    def compositeBridge:CompositeEvalNativeBridge (new CompositeEvalNativeBridge)
+    def hostBridge@(optional):EvalNativeBridge
 
     fn init:void (w:int h:int) {
         engine.quiet = true
@@ -84,7 +92,13 @@ class GameRunner {
     }
 
     fn setNativeBridge:void (bridge:EvalNativeBridge) {
-        engine.setNativeBridge(bridge)
+        hostBridge = bridge
+        compositeBridge.clearBridges()
+        compositeBridge.addBridge(staticBgBridge)
+        if (hostBridge) {
+            compositeBridge.addBridge((unwrap hostBridge))
+        }
+        engine.setNativeBridge(compositeBridge)
     }
 
     fn loadScript:void (src:string) {
@@ -158,6 +172,13 @@ class GameRunner {
         currentScreen = ""
         state = (EvalValue.null())
         this.clearBackground()
+        this.clearStaticBg()
+    }
+
+    fn clearStaticBg:void () {
+        staticBgReady = false
+        staticBgH = 0
+        staticBgCanvas = (new SoftCanvas)
     }
 
     fn clearBackground:void () {
@@ -226,11 +247,57 @@ class GameRunner {
     }
 
     fn drawBackground:void () {
+        if (staticBgReady) {
+            def cam:int (this.memInt(state "cameraY" 0))
+            if (cam < 0) {
+                cam = 0
+            }
+            def maxCam:int (staticBgH - ph)
+            if (maxCam < 0) {
+                maxCam = 0
+            }
+            if (cam > maxCam) {
+                cam = maxCam
+            }
+            canvas.copyRectFrom(staticBgCanvas 0 cam pw ph 0 0)
+            return
+        }
         if (backgroundLoaded) {
             imageLoader.blitCover(canvas backgroundImg)
         } {
             canvas.clear(12 16 32)
         }
+    }
+
+    ; Optional init hook: createStaticBg() draws once into a tall off-screen buffer.
+    fn applyCreateStaticBg:void () {
+        if (false == (this.scriptHasFunction("createStaticBg"))) {
+            return
+        }
+        def levelH:int ph
+        if (this.scriptHasFunction("staticLevelHeight")) {
+            def hv:EvalValue (engine.callFunction("staticLevelHeight" (EvalValue.null())))
+            if (hv.isNumber()) {
+                levelH = (to_int hv.numberValue)
+            }
+        }
+        if (levelH < ph) {
+            levelH = ph
+        }
+        staticBgCanvas.init(pw levelH)
+        staticBgH = levelH
+        staticBgBridge.setCanvas(staticBgCanvas)
+        def wk:[string]
+        def wv:[EvalValue]
+        push wk "width"
+        push wv (EvalValue.fromInt(pw))
+        push wk "height"
+        push wv (EvalValue.fromInt(levelH))
+        engine.registerGlobal("bgWidth" (EvalValue.fromInt(pw)))
+        engine.registerGlobal("bgHeight" (EvalValue.fromInt(levelH)))
+        engine.callFunction("createStaticBg" (EvalValue.null()))
+        staticBgReady = true
+        print (("[GameRunner] staticBg: ok " + (to_string pw)) + ("x" + (to_string levelH)))
     }
 
     ; In-process hot reload: AST diff + swap changed bindings. Rebuilds scene only
@@ -451,6 +518,7 @@ class GameRunner {
         this.wireHostAudio()
         this.setupResources()
         this.applyBackgroundFromScript()
+        this.applyCreateStaticBg()
         state = (engine.callFunction("initState" (EvalValue.null())))
         this.syncBackgroundFromState()
         if (this.multiScreenMode()) {

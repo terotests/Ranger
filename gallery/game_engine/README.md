@@ -1,283 +1,293 @@
-# Ranger Game Engine base
+# Ranger Game Engine
 
-A minimal, **portable** game-engine base whose goal is exactly the one in the
-brief: write the game logic once in Ranger, iterate on a **Mac/desktop**, then
-run the *same* logic as a **native binary on a Raspberry Pi driving a TV over
-HDMI**, with room to add **game-controller** input.
+Ohut, portable 2D-pelimoottorin pohja Ranger-kääntäjäprojektin `gallery/game_engine/`-hakemistossa.
 
-The design is documented in [`PLAN_GAME_ENGINE.md`](./PLAN_GAME_ENGINE.md). The
-LLVM backend bugs found (and fixed) while getting the native path working are in
-[`LLVM_BUGS.md`](./LLVM_BUGS.md).
+Tavoite on yksinkertainen: **pelilogiikka kirjoitetaan kerran**, kehitys tapahtuu Macilla tai työpöydällä, ja sama logiikka voidaan ajaa natiivina binäärinä (esim. Raspberry Pi + HDMI). Moottori ei ole erillinen tuotantovalmis Unity/Godot-korvike, vaan kehitysalusta ja portability-demonstraatio.
 
-## The portability contract
+Tarkempi suunnitelma: [`PLAN_GAME_ENGINE.md`](./PLAN_GAME_ENGINE.md). Nykytila ja jatkokehitys: [`ROADMAP.md`](./ROADMAP.md).
 
-The pure game logic lives once in [`pong_core.rgr`](./pong_core.rgr) and is
-driven by two interchangeable backends:
-
-| Part | File / classes | Touches I/O? | Portable? |
-|------|----------------|--------------|-----------|
-| **Game logic** | `pong_core.rgr` — `Pong`, `Buttons` | No | 100% — identical on every target |
-| **Render layer** | `framebuffer.rgr` (`SoftCanvas`) + `pong_render.rgr` (`PongRenderer`) | No (writes an RGBA buffer only) | 100% — bit-identical frames everywhere |
-| **Terminal backend** | `pong.rgr` — `Terminal` | Yes (ANSI draw + keys + timing) | desktop / Pi console |
-| **SDL2 backend** | `pong_sdl.rgr` — `SdlBackend` + `gfx_sdl.rgr` | Yes (SDL2 window + keyboard) | **native window on macOS / Linux / Pi HDMI** |
-
-`Pong.step(input:Buttons)` is pure: it reads an abstract controller snapshot and
-advances the simulation. It never calls `write`, `move_cursor`, `poll_keypress`,
-or `gfx_present`. That is what lets the exact same logic run under Node on your
-Mac and as a native binary on the Pi. Motion uses **integer accumulators** (no
-floats, no division), so the simulation is bit-for-bit deterministic across
-targets and backends.
-
-## How the engine is built
-
-The engine is not a monolithic runtime library. It is a **thin stack of Ranger
-files** that share one pure game core and swap only the platform boundary at the
-bottom. The reference game is Pong, but the same layering is meant to carry over
-to a real title (e.g. Koodisampo on the Pi).
-
-### Layer stack
+## Hakemistorakenne
 
 ```
-  ┌─────────────────────────────────────────────────────────────┐
-  │  Platform backend (pick one)                                 │
-  │  pong.rgr (terminal)  OR  pong_sdl.rgr (SDL2 window)         │
-  │  — frame loop, input polling, timing, present to screen      │
-  └───────────────────────────┬─────────────────────────────────┘
-                              │ reads Buttons, calls step/draw
-  ┌───────────────────────────▼─────────────────────────────────┐
-  │  pong_core.rgr — Pong + Buttons                              │
-  │  Pure simulation: paddles, ball, scoring, AI. No I/O.        │
-  └───────────────────────────┬─────────────────────────────────┘
-                              │ game state (ints, booleans)
-  ┌───────────────────────────▼─────────────────────────────────┐
-  │  pong_render.rgr — PongRenderer                               │
-  │  Paints one frame into a SoftCanvas (RGBA byte buffer).      │
-  └───────────────────────────┬─────────────────────────────────┘
-                              │ raw RGBA pixels
-  ┌───────────────────────────▼─────────────────────────────────┐
-  │  framebuffer.rgr — SoftCanvas                                │
-  │  Portable raster: clear, fillRect, fillCircle on `buffer`.   │
-  └───────────────────────────┬─────────────────────────────────┘
-                              │ (SDL path only)
-  ┌───────────────────────────▼─────────────────────────────────┐
-  │  gfx_sdl.rgr — gfx_open / gfx_present / gfx_poll_mask …      │
-  │  C++ operator templates → tiny SDL2 shim (no Lang.rgr edit).  │
-  └─────────────────────────────────────────────────────────────┘
+gallery/game_engine/
+├── games/              # Launcher-skannattavat pelit (index.tsx per kansio)
+├── menu/               # Käynnistysvalikko (index.tsx)
+├── scripting/          # Moottorin runtime + TSX-tyypit + vanhat *.game.tsx-demot
+├── lpc/                # LPC-spritesheet-compositor (erillinen työkalu)
+├── pong_*.rgr          # Käännetty Pong-viite (terminaali + SDL2)
+├── framebuffer.rgr     # SoftCanvas (RGBA8888)
+├── gfx_sdl.rgr         # SDL2-shim (C++ polyfill)
+└── scripts/            # build-skriptit (SDL, native, Pi, LPC, …)
 ```
 
-**Rule of thumb:** if a file imports `write`, `poll_keypress`, or `gfx_present`,
-it is a backend. If it only mutates `Pong` fields or writes pixels into
-`SoftCanvas`, it is portable.
+## Kaksi kehityspolkua
 
-### One frame (SDL backend)
+| Polku | Milloin | Tiedostot |
+|-------|---------|-----------|
+| **TSX-skriptaus** (pääpolku) | Uudet pelit, nopea iterointi, valikko, ääni, tallennus | `games/*/index.tsx`, `scripting/game_runtime.rgr`, `scripting/game_sdl_runner.rgr` |
+| **Käännetty Ranger-ydin** | Matalan tason viite, LLVM/terminaali-Pi | `pong_core.rgr`, `pong.rgr`, `pong_sdl.rgr` |
 
-`SdlBackend.run()` in `pong_sdl.rgr` is the game loop:
+Useimmat demot ja uudet pelit käyttävät TSX-polkuja. Käännetty Pong on edelleen hyvä esimerkki siitä, miten pelilogiikka erotetaan alustasta (katso [Käännetty Pong-viite](#käännetty-pong-viite) alempana).
 
-1. **Input** — `gfx_poll_mask()` pumps SDL events and returns a bitmask; the
-   backend maps that to a fresh `Buttons` snapshot (`up`, `down`, `quit`, …).
-2. **Logic** — `game.step(btns)` advances the simulation by one tick. This is
-   the only place game rules run.
-3. **Draw** — `PongRenderer.draw(game, cv)` clears the `SoftCanvas`, paints
-   walls/paddles/ball into the RGBA buffer, then `gfx_present(cv.raw(), w, h)`
-   uploads the buffer to an SDL streaming texture and swaps the window
-   (`SDL_RENDERER_PRESENTVSYNC` — no extra `SDL_Delay`; vsync paces frames).
-4. **Repeat** until quit or an optional frame limit (for headless CI).
+## Arkkitehtuuri
 
-The terminal backend (`pong.rgr`) runs the same `Pong.step()` but draws via
-`cellAt()` + ANSI escape codes instead of `SoftCanvas` + SDL.
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Platform-backend                                            │
+│  game_sdl_runner.rgr (SDL2 + launcher)  |  pong_sdl.rgr     │
+│  pong.rgr (terminaali)                                       │
+└───────────────────────────┬─────────────────────────────────┘
+                            │ input, timing, present
+┌───────────────────────────▼─────────────────────────────────┐
+│  Pelilogiikka — pure, portable                               │
+│  TSX: initState / update / sprites / hud                     │
+│  Ranger: pong_core.rgr — Pong.step(Buttons)                  │
+└───────────────────────────┬─────────────────────────────────┘
+                            │ tila
+┌───────────────────────────▼─────────────────────────────────┐
+│  Piirtokerros — portable                                     │
+│  game_sprite.rgr, game_hud.rgr  |  pong_render.rgr           │
+└───────────────────────────┬─────────────────────────────────┘
+                            │ RGBA8888
+┌───────────────────────────▼─────────────────────────────────┐
+│  framebuffer.rgr — SoftCanvas                                │
+└───────────────────────────┬─────────────────────────────────┘
+                            │ (SDL-polku)
+┌───────────────────────────▼─────────────────────────────────┐
+│  gfx_sdl.rgr — SDL2-ikkuna, gamepad, ääni                    │
+└─────────────────────────────────────────────────────────────┘
+```
 
-### Motion: logic vs rendering
+**Raja:** jos tiedosto kutsuu `write`, `poll_keypress` tai `gfx_present`, se on backend. Kaikki muu on portable.
 
-Ball speed uses **integer Bresenham-style accumulators** in `pong_core.rgr`:
+TSX-pelien yksityiskohtainen malli (reducer-tyyli, retained spritet, JSX HUD): [`scripting/GAME_SCRIPTING.md`](./scripting/GAME_SCRIPTING.md) ja [`scripting/GAME_ENGINE_DESIGN.md`](./scripting/GAME_ENGINE_DESIGN.md).
 
-- `axAcc` / `ayAcc` accumulate each frame by `vxMag` / `vyMag`.
-- When an accumulator reaches `STEP` (3), the ball moves one **logical cell**
-  and the accumulator wraps.
+## Käynnistäminen
 
-Collision and scoring use the cell-snapped `ballX` / `ballY` so every target
-stays deterministic. For smooth graphics, `PongRenderer` adds a **render-only**
-sub-pixel offset from the accumulators (`ballCenterX` / `ballCenterY`): the ball
-slides smoothly between cells without changing simulation behaviour. Golden-frame
-tests still sample the same centre pixel via those helpers.
-
-### SoftCanvas → screen
-
-`SoftCanvas` (`framebuffer.rgr`) owns a tightly-packed **RGBA8888** buffer
-(`buffer_alloc` / `buffer_set`). Layout matches `SDL_PIXELFORMAT_RGBA32`, so the
-SDL path is a straight memory upload — no colour swizzle, no PNG, no Node at
-runtime.
-
-`gfx_sdl.rgr` declares **operators** with `cpp` templates and a one-shot C
-polyfill (`rgfx_open`, `rgfx_present`, …). Ranger emits the shim into the
-generated `.cpp`; linking against `libsdl2` is the only external step. The ES6
-templates in the same file are stubs so the sources still type-check for the web
-target.
-
-### Build pipeline (SDL window)
-
-`scripts/build-sdl.sh` (also `npm run engine:sdl` / `engine:sdl:run`):
-
-| Step | What happens |
-|------|----------------|
-| 1. Ranger → C++ | `node bin/output.js -l=cpp pong_sdl.rgr` → `tmp/pong-sdl/pong_sdl.cpp` |
-| 2. Copy helper | `variant.hpp` (Ranger tagged-union helper for C++ codegen) |
-| 3. Compile + link | `clang++` or `g++` + `pkg-config --cflags --libs sdl2` → `tmp/pong-sdl/pong_sdl` |
-| 4. Run (optional) | `./pong_sdl` or `./pong_sdl 120` for a fixed frame count |
-
-The terminal path is simpler: `npm run engine:compile` emits `pong.js`, then
-`npm run engine:run` plays it under Node.
-
-The LLVM path (`scripts/build-native.sh`, `npm run engine:build:native`) compiles
-`pong.rgr` (terminal backend) to a small native binary via the LLVM backend +
-`runtime/ranger_rt.c` — useful on the Pi before SDL2 is wired for production.
-
-### Adding a new game
-
-1. Put **pure logic** in `my_game_core.rgr` (`step(input:Buttons)` or similar).
-2. Put **portable drawing** in `my_game_render.rgr` (target: `SoftCanvas` only).
-3. Add a **backend** that owns the loop: poll input → `step` → draw → present.
-4. Reuse `gfx_sdl.rgr` for any native window build; reuse `framebuffer.rgr` for
-   any raster game until EVG lands (see `RENDERING_EVG.md`).
-
-See [`PLAN_GAME_ENGINE.md`](./PLAN_GAME_ENGINE.md) for HDMI/gamepad roadmap and
-[`tests/game-engine-render.test.ts`](../../tests/game-engine-render.test.ts) for
-the headless render regression.
-
-## Quick start (Mac / any desktop — JavaScript)
+Vaatimukset SDL-ikkunalle: C++17-kääntäjä ja SDL2 (`brew install sdl2` / `libsdl2-dev`).
 
 ```bash
 npm install
-npm run engine:compile     # pong.rgr -> pong.js
-npm run engine:run         # play in your terminal
+
+# Käynnistysvalikko (skannaa games/, palaa valikkoon Q/Esc)
+npm run engine:game-sdl:launcher
+
+# Yksittäinen peli suoraan
+npm run engine:game-sdl:run:pong
+npm run engine:game-sdl:run:breakout
+npm run engine:game-sdl:run:pacman
+npm run engine:game-sdl:run:invaders
+
+# Kehitys: hot reload (TSX-muutokset latautuvat lennossa)
+npm run engine:game:watch:pong
+npm run engine:game:watch:breakout
 ```
 
-Controls: **W/S** move, **D** toggle the debug HUD (live ball/paddle state
-overlaid on the frame), **Q** quit.
+Yleiset näppäimet SDL-hostissa: **W/S** tai nuolinäppäimet, **F11** fullscreen, **Q/Esc** poistu (pelistä takaisin valikkoon, valikosta sulkee sovelluksen). Gamepad-tuki on käytössä (`scripting/game_input.rgr`).
 
-## Native graphics window (SDL2) — the "real" PoC
-
-`pong_sdl.rgr` renders the game into an **RGBA software framebuffer**
-(`SoftCanvas`) and blits that buffer to a **native SDL2 window** every frame
-(Ranger → C++ → SDL2). This is the desktop/Pi PoC: a real window, no Node, no
-PNG — the render target is an in-memory byte buffer handed straight to an SDL
-streaming texture (`SDL_PIXELFORMAT_RGBA32`). On the Pi the same SDL2 backend
-drives the HDMI framebuffer via KMS/DRM.
+Headless / CI: binääri hyväksyy valinnaisen frameluvun ja `SDL_VIDEODRIVER=dummy`:
 
 ```bash
-# macOS:   brew install sdl2
-# Ubuntu:  sudo apt-get install libsdl2-dev
-npm run engine:sdl:run     # Ranger -> C++ -> SDL2 binary, then open the window
+npm run engine:game-sdl:smoke:pong    # 300 framea dummy-ajossa
 ```
 
-Controls: **W/S** (or **↑/↓**) move, **Q/Esc** quit. For CI / headless boxes the
-binary takes an optional frame count and honours the SDL dummy driver:
+Käännetty terminaali-Pong (Node):
 
 ```bash
-npm run engine:compile:sdl                           # Ranger -> C++ only (pong_sdl.cpp)
-npm run engine:sdl                                    # compile + build -> tmp/pong-sdl/pong_sdl
-SDL_VIDEODRIVER=dummy tmp/pong-sdl/pong_sdl 120       # render 120 frames, then exit
+npm run engine:compile && npm run engine:run
+# W/S liiku, D debug-HUD, Q lopeta
 ```
 
-The portable render layer is covered by
-[`tests/game-engine-render.test.ts`](../../tests/game-engine-render.test.ts): it
-renders a deterministic frame into the buffer on Node (asserting exact pixel
-colours) and, when SDL2 + a C++ compiler are present, builds and runs the native
-binary headlessly.
+## Pelivalikko ja `games/`-hakemisto
 
-> The design doc [`RENDERING_EVG.md`](./RENDERING_EVG.md) describes swapping
-> `SoftCanvas` for the gallery's full **EVG** vector renderer (gradients,
-> shadows, TrueType fonts). That stack renders today on the ES6 target; making it
-> build for **native C++** needs a couple more C++-backend fixes (one — the
-> `int_buffer`/`double_buffer` type mapping — landed with this work).
+`game_sdl_runner.rgr` käynnistää oletuksena [`menu/index.tsx`](./menu/index.tsx)-valikon. Host skannaa `gallery/game_engine/games/`-kansion (tai `--games-dir=...`) ja injektoi listan `gameCatalog`-globaalina.
 
-## Which target for the Raspberry Pi? (C++, Go, Rust, or LLVM)
+Launcher-polku:
 
-All targets share the identical `Pong` logic. They differ only in the platform
-backend and toolchain. Measured on this repo (Linux x86-64, `pong.rgr`,
-terminal backend):
+1. Valikko latautuu → näyttää löydetyt pelit.
+2. Nuoli ylös/alas valitsee, **Space/Enter** käynnistää pelin.
+3. Pelissä **Q/Esc** → takaisin valikkoon.
+4. Valikossa **Q/Esc** → sulkee sovelluksen.
 
-| Target | Builds native on Linux/Pi? | Notes | Binary size |
-|--------|:--:|-------|------------|
-| **LLVM + C runtime** | ✅ (after the fix in `LLVM_BUGS.md`) | Smallest binary, no external deps, uses `runtime/ranger_rt.c` (POSIX `termios`). **Recommended for the Pi.** | ~22 KB |
-| **C++** (`g++`) | ✅ | Needs `variant.hpp` (auto-fetched by the makefile plugin). Natural fit for future SDL2 C++ bindings. | ~137 KB |
-| **Rust** (`rustc`) | ✅ | Proper `cfg(unix)`/`cfg(windows)` keyboard polyfill; large static binary. | ~4.1 MB |
-| **Go** (`go build`) | ❌ | `on_keypress` polyfill is Windows-only (`syscall.NewLazyDLL`); fails on Linux. See `LLVM_BUGS.md`. | — |
-| **Node / ES6** | ✅ (needs Node) | Best for desktop iteration; also fine on the Pi under Node. | — |
-
-**Recommendation:** develop on the Mac with the **ES6/Node** build, ship to the
-Pi with the **LLVM + C runtime** build (or **C++** if you prefer a C/C++
-toolchain for the eventual SDL2 backend). Avoid **Go** for on-device keyboard
-input until the polyfill gains a POSIX branch.
-
-### Build a native binary (LLVM + C runtime — recommended)
+Pelin voi ajaa myös suoraan ilman valikkoa:
 
 ```bash
-npm run engine:build:native        # -> tmp/pong-native/pong  (then run it)
+./tmp/game-sdl/game_sdl gallery/game_engine/games/pong/index.tsx
 ```
 
-or manually:
+Katalogi päivittyy ajon aikana (oletus ~10 s välein); uusi `games/mygame/index.tsx` ilmestyy listaan ilman uudelleenkäännöstä.
+
+## Uuden pelin lisääminen
+
+### 1. Luo kansio
+
+```
+gallery/game_engine/games/mygame/
+├── index.tsx       # pakollinen — pelin pääskripti
+├── game.info
+├── gamedata.json       # luodaan saveGameData-kutsulla
+├── level2.tsx          # valinnainen — erillinen ruututiedosto (pushGame)
+├── win.tsx             # valinnainen — voittoruutu (loadGame)
+└── assets/             # taustakuvat (resources)
+```
+
+`game.info`-esimerkki:
+
+```ini
+name=My Game
+```
+
+Ilman `name=`-kenttää käytetään kansion nimeä.
+
+### 2. Kirjoita `index.tsx`
+
+Aloita olemassa olevasta pelistä (esim. [`games/pong/index.tsx`](./games/pong/index.tsx) — yksinkertainen; [`games/breakout/index.tsx`](./games/breakout/index.tsx) — multi-screen + JSX HUD).
+
+Tyypitykset:
+
+```tsx
+/// <reference path="../../scripting/game.d.ts" />
+```
+
+Pakolliset / tyypilliset funktiot (`GameRunner`):
+
+| Funktio | Kutsutaan | Tehtävä |
+|---------|-----------|---------|
+| `sprites()` tai `sprites({ screen })` | kerran per ruutu | retained-objektit (`rect`, `circle`, `bitmap`, …) |
+| `initState()` | käynnistyksessä | alkutila |
+| `update(props)` | jokainen frame | palauttaa **uuden** tilan (`props.dt`, `props.input`, näppäimet) |
+| `hud(props)` | jokainen frame (valinnainen) | JSX-overlay (`View`, `Label`) |
+| `resources()` | kerran (valinnainen) | taustakuvat, äänet |
+| `screens()` | dokumentaatio (valinnainen) | multi-screen-pelien ruutunimet |
+
+Perussilmukka:
+
+```tsx
+function sprites() {
+  return [{ id: "ball", kind: "circle", rad: 6, r: 245, g: 245, b: 130 }];
+}
+
+function initState() {
+  return { entities: { ball: { x: 240, y: 135 } }, vx: 0.16, vy: 0.10 };
+}
+
+function update(props) {
+  const s = props.state;
+  let { x, y } = s.entities.ball;
+  x = x + s.vx * props.dt;
+  y = y + s.vy * props.dt;
+  return { ...s, entities: { ball: { x, y } } };
+}
+```
+
+Jaetut apurit: [`scripting/game_helpers.tsx`](./scripting/game_helpers.tsx) (`getScreen`, `soundEvent`, …). Jaetut moduulit: `import { foo } from "./utils"` (polku suhteessa pelikansioon).
+
+### 3. Aja ja testaa
 
 ```bash
-RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr \
-  node bin/output.js -l=llvm ./gallery/game_engine/pong.rgr \
-  -d=tmp/pong-native -o=pong.ll -target=native-linux-gnu -nodecli
-clang tmp/pong-native/pong.ll runtime/ranger_rt.c -o tmp/pong-native/pong -Wno-override-module
-tmp/pong-native/pong
+npm run engine:game-sdl:run:mygame   # lisää vastaava rivi package.json:iin tai:
+npm run engine:game-sdl -- --run gallery/game_engine/games/mygame/index.tsx
+npm run engine:game:watch:mygame   # jos watch-skripti lisätty
 ```
 
-On a Raspberry Pi (Raspberry Pi OS) the same commands work — use
-`-target=native-linux-gnu` (aarch64) and the distro `clang`.
+Valikosta peli näkyy automaattisesti, kun `index.tsx` on paikallaan.
 
-### Build a native binary (C++)
+### 4. Valinnaiset ominaisuudet
+
+| Ominaisuus | Miten |
+|------------|-------|
+| **Ääni** | `import { soundEvent } from "../../scripting/game_helpers"` → `events: [soundEvent("bounce")]` `update()`-palautuksessa |
+| **Taustakuva** | `resources()` + `backgroundImage()` — katso [`scripting/background_demo.game.tsx`](./scripting/background_demo.game.tsx) |
+| **Tallennus** | `loadGameData()` / `saveGameData(obj)` → `gamedata.json` pelikansiossa |
+| **Ruututiedostot** | `loadGame` / `pushGame` / `popGame` — erilliset `.tsx`-ruudut samassa pelikansiossa |
+| **Multi-screen (yksi tiedosto)** | `state.screen` + `state.screens[name]`; apurit `getScreen`, `isActiveScreen` — katso Breakout |
+| **Useampi pelaaja** | `state.playerSlots` + `props.input.players[]` |
+
+Tiedostopohjaiset ruudut (`level2.tsx`, `win.tsx`), taustakuvat ja `gamedata.json`: **[`scripting/GAME_SCREENS_AND_STORAGE.md`](./scripting/GAME_SCREENS_AND_STORAGE.md)**.
+
+Täydet tyypit: [`scripting/engine.d.ts`](./scripting/engine.d.ts). TS-tarkistus:
 
 ```bash
-npm run engine:compile:cpp         # -> pong.cpp
-cp gallery/invaders/variant.hpp gallery/game_engine/   # if not auto-fetched
-g++ -std=c++17 -pthread gallery/game_engine/pong.cpp -o /tmp/pong_cpp
-/tmp/pong_cpp
+cd gallery/game_engine/scripting && npx tsc --noEmit
 ```
 
-### Build a native binary (Rust)
+## Käännetty Pong-viite
+
+Alkuperäinen portability-PoC: pelilogiikka kerran [`pong_core.rgr`](./pong_core.rgr):ssä, kaksi backendia.
+
+| Kerros | Tiedosto | I/O? |
+|--------|----------|------|
+| Logiikka | `pong_core.rgr` | Ei |
+| Piirto | `framebuffer.rgr` + `pong_render.rgr` | Ei (RGBA-puskuri) |
+| Terminaali | `pong.rgr` | Kyllä (ANSI + näppäimistö) |
+| SDL2 | `pong_sdl.rgr` + `gfx_sdl.rgr` | Kyllä (ikkuna) |
+
+`Pong.step(input:Buttons)` on puhdas: kokonaisluku-Bresenham-liike, ei floatteja simulaatiossa. Piirto voi käyttää render-only subpixel-offsettia (`PongRenderer`).
 
 ```bash
-npm run engine:compile:rust        # -> pong.rs
-rustc gallery/game_engine/pong.rs -o /tmp/pong_rs
-/tmp/pong_rs
+npm run engine:sdl:run          # SDL2-ikkuna
+npm run engine:build:native     # LLVM → terminaalibinääri
+npm run build:raspberry         # Pi 5 aarch64 -paketti (terminaali-Pong)
 ```
 
-## Display, rendering & debugging
+LLVM-ongelmat ja korjaukset: [`LLVM_BUGS.md`](./LLVM_BUGS.md).
 
-See [`PLAN_GAME_ENGINE.md` §6b](./PLAN_GAME_ENGINE.md) for the full treatment.
-In short:
+### Build-targetit (Pong, terminaali)
 
-* **Display over HDMI:** the terminal backend already shows on the TV via the
-  Pi console at boot (zero deps); the target path is **SDL2 via KMS/DRM**
-  (direct HDMI framebuffer, no desktop). The renderer owns resolution scaling,
-  TV overscan safe-area, and vsync — game logic stays in a fixed logical grid.
-* **Rendering:** fixed logical timestep + double buffering; world drawn first,
-  then overlays (score, HUD).
-* **Debugging:** because `Pong.step()` is pure and integer-deterministic, you
-  debug gameplay **on the Mac** (Node debugger / unit tests). Record the
-  per-frame `Buttons` stream on the Pi and **replay** it on the Mac to
-  reproduce a bug exactly. An on-screen **debug HUD** (press `D`) shows live
-  state on the TV itself when no shell is attached.
+| Target | Pi-native? | Huomio |
+|--------|:----------:|--------|
+| ES6 / Node | ✅ (tarvitsee Node) | Nopein dev |
+| LLVM + C runtime | ✅ | Pienin binääri, suositus Pi:lle (terminaali) |
+| C++ | ✅ | SDL2-polku |
+| Rust | ✅ | Iso binääri |
+| Go | ❌ | Näppäimistöpolyfill vain Windows |
 
-## Files
+## Raspberry Pi
 
-| File | Purpose |
-|------|---------|
-| `pong_core.rgr` | **Pure, portable game logic** (`Pong`, `Buttons`) shared by all backends |
-| `pong.rgr` | Terminal (ANSI) backend + frame loop; imports `pong_core.rgr` |
-| `pong.js` | Committed ES6 build of the terminal game (desktop / Mac) |
-| `framebuffer.rgr` | `SoftCanvas`: a tiny portable RGBA8888 software framebuffer (`buffer` ops) |
-| `pong_render.rgr` | `PongRenderer`: paints Pong state into a `SoftCanvas` (no platform I/O) |
-| `gfx_sdl.rgr` | SDL2 window/present operators (C++ templates + shim); no `Lang.rgr` change |
-| `pong_sdl.rgr` | Native SDL2 backend: renders the RGBA buffer into a real window |
-| `ROADMAP.md` | **Roadmap:** nykytila, puutteet, prioriteetit ja vaiheittainen jatkokehitys |
-| `lpc/` | **LPC spritesheet compositor** (Ranger): PNG-generointi, myöhemmin dynaaminen hahmoluonti — [`lpc/TODO.md`](./lpc/TODO.md) |
-| `LPC_HEADLESS_SPRITESHEET.md` | LPC-arkkitehtuuri, lisenssi ja Ranger-native compositor -suunnitelma |
-| `PLAN_GAME_ENGINE.md` | Full architecture: layers, input/render abstractions, SDL2/HDMI + gamepad backend, roadmap |
-| `RENDERING_EVG.md` | Rich renderer design: reuse the gallery EVG stack (gradients/shadows/fonts/`l`-JSX) as the game framebuffer, with a WebGL/GLES2 path for the Pi |
-| `LLVM_BUGS.md` | LLVM backend bugs found while enabling the native path (one fixed, two worked around) |
-| `scripts/build-native.sh` | One-shot LLVM → clang → native binary build |
-| `scripts/build-sdl.sh` | One-shot Ranger → C++ → native SDL2 window build |
+**Terminaali-Pong** (ei SDL-riippuvuuksia, vain libc):
+
+```bash
+npm run build:raspberry
+# → dist/raspberry-pi5/ (pong + games/menu/scripting + lib + compiler + DEPLOY.md)
+```
+
+Kopioi `pong` Pi:lle ja aja HDMI-konsolissa. SDL-pelit (`engine:game-sdl`) vaativat Pi:llä `libsdl2-dev` ja käännöksen laitteella tai vastaavan cross-buildin.
+
+## LPC-spritesheet-compositor
+
+[`lpc/`](./lpc/) on erillinen Ranger-pohjainen työkalu LPC-hahmospritesheettien generointiin. Se ei ole pakollinen pelien ajamiseen. Dokumentaatio: [`lpc/README.md`](./lpc/README.md), [`LPC_HEADLESS_SPRITESHEET.md`](./LPC_HEADLESS_SPRITESHEET.md).
+
+```bash
+npm run engine:lpc:build
+npm run engine:lpc:run
+```
+
+## Testit
+
+| Testi | Mitä kattaa |
+|-------|-------------|
+| [`tests/game-engine-render.test.ts`](../../tests/game-engine-render.test.ts) | SoftCanvas / Pong-renderöinti |
+| [`tests/game-runner.test.ts`](../../tests/game-runner.test.ts) | GameRunner + TSX |
+| [`tests/game-scripting.test.ts`](../../tests/game-scripting.test.ts) | ComponentEngine-skriptaus |
+
+## Dokumentaatio ja tiedostot
+
+| Tiedosto | Sisältö |
+|----------|---------|
+| [`ROADMAP.md`](./ROADMAP.md) | Nykytila, puutteet, prioriteetit |
+| [`PLAN_GAME_ENGINE.md`](./PLAN_GAME_ENGINE.md) | Arkkitehtuuri, HDMI, gamepad-suunnitelma |
+| [`RENDERING_EVG.md`](./RENDERING_EVG.md) | EVG/vektori-renderöinnin integraatio (tuleva) |
+| [`scripting/GAME_SCRIPTING.md`](./scripting/GAME_SCRIPTING.md) | TSX-skriptaus, GameRunner, importit |
+| [`scripting/GAME_SCREENS_AND_STORAGE.md`](./scripting/GAME_SCREENS_AND_STORAGE.md) | Ruutujen lataus (`loadGame`/`pushGame`) ja `gamedata.json` |
+| [`scripting/GAME_ENGINE_DESIGN.md`](./scripting/GAME_ENGINE_DESIGN.md) | Retained mode + JSX HUD -malli |
+| [`scripting/TSX_ENGINE_ISSUES.md`](./scripting/TSX_ENGINE_ISSUES.md) | Tunnetut evaluator-rajoitukset |
+| [`LLVM_BUGS.md`](./LLVM_BUGS.md) | LLVM-backendin bugit |
+| `scripting/game_runtime.rgr` | GameRunner (sprites, update, hud, ääni, tausta) |
+| `scripting/game_sdl_runner.rgr` | SDL2-host + launcher + hot reload |
+| `scripting/game_catalog.rgr` | `games/`-hakemiston skannaus |
+| `scripting/game_persistence.rgr` | `gamedata.json` tallennus |
+| `scripts/build-game-sdl.sh` | TSX-pelien SDL-binääri |
+| `scripts/build-sdl.sh` | Käännetty Pong SDL |
+| `scripts/build-native.sh` | LLVM Pong |
+| `scripts/build-raspberry.sh` | Pi 5 aarch64 -paketti (pong + runtime-assetit) |
+| `scripts/sync-game-engine-runtime.sh` | Kopioi games/menu/scripting/lib deploy-hakemistoon |

@@ -271,6 +271,31 @@ npm run engine:game-sdl:smoke:pacman        # maxFrames → hot reload off
 
 Native compiled path (Path B) does not support this — rebuild + restart required.
 
+## File-based screens and per-game storage
+
+Separate from the **multi-screen model** inside one script (`state.screen` +
+`state.screens`, see Breakout), a game can split **levels or overlays into
+multiple `.tsx` files** in the same game folder and navigate with host-native
+globals (no import):
+
+| API | Role |
+|-----|------|
+| `loadGame(path)` | Replace current screen; clear nav stack |
+| `pushGame(path)` | Push current path, open another screen |
+| `popGame()` | Return to previous screen (or launcher menu when stack empty) |
+| `loadGameData()` | Read `gamedata.json` from the game folder |
+| `saveGameData(obj)` | Write `gamedata.json` |
+| `resetGameData()` | Delete `gamedata.json` |
+
+Paths are relative to the game directory (`"level2.tsx"`, `"win.tsx"`). Each
+screen file is a full GameRunner script with its own `resources()`,
+`backgroundImage()`, `sprites()`, `initState()`, etc. Shared logic lives in
+imported modules (e.g. `./invaders_shared.tsx`).
+
+Full walkthrough with Invaders-style examples (background images, score
+persistence, `pushGame` → `loadGame` → `popGame`):
+[`GAME_SCREENS_AND_STORAGE.md`](./GAME_SCREENS_AND_STORAGE.md).
+
 ## Roadmap
 
 1. **Done:** namespace injection (`registerGlobal`), script loading + function

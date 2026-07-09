@@ -1,0 +1,71 @@
+; ==============================================================================
+; game_static_bg_bridge — native bg* drawing calls for createStaticBg().
+; ==============================================================================
+
+Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "../framebuffer.rgr"
+
+class GameStaticBgNativeBridge extends EvalNativeBridge {
+    def canvas:SoftCanvas (new SoftCanvas)
+
+    fn setCanvas:void (c:SoftCanvas) {
+        canvas = c
+    }
+
+    fn argInt:int (args:[EvalValue] idx:int dflt:int) {
+        if (idx >= (array_length args)) {
+            return dflt
+        }
+        def v:EvalValue (itemAt args idx)
+        if (v.isNumber()) {
+            return (to_int v.numberValue)
+        }
+        return dflt
+    }
+
+    fn has:boolean (name:string) {
+        if (name == "bgFillRect") {
+            return true
+        }
+        if (name == "bgClear") {
+            return true
+        }
+        if (name == "bgFillCircle") {
+            return true
+        }
+        return false
+    }
+
+    fn invoke:EvalValue (name:string args:[EvalValue]) {
+        if (name == "bgFillRect") {
+            def x:int (this.argInt(args 0 0))
+            def y:int (this.argInt(args 1 0))
+            def rw:int (this.argInt(args 2 0))
+            def rh:int (this.argInt(args 3 0))
+            def r:int (this.argInt(args 4 0))
+            def g:int (this.argInt(args 5 0))
+            def b:int (this.argInt(args 6 0))
+            canvas.fillRect(x y rw rh r g b)
+            return (EvalValue.null())
+        }
+        if (name == "bgClear") {
+            def r:int (this.argInt(args 0 12))
+            def g:int (this.argInt(args 1 16))
+            def b:int (this.argInt(args 2 32))
+            canvas.clear(r g b)
+            return (EvalValue.null())
+        }
+        if (name == "bgFillCircle") {
+            def cx:int (this.argInt(args 0 0))
+            def cy:int (this.argInt(args 1 0))
+            def rad:int (this.argInt(args 2 4))
+            def r:int (this.argInt(args 3 255))
+            def g:int (this.argInt(args 4 255))
+            def b:int (this.argInt(args 5 255))
+            canvas.fillCircle(cx cy rad r g b)
+            return (EvalValue.null())
+        }
+        return (EvalValue.null())
+    }
+}

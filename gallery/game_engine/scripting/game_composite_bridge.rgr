@@ -1,0 +1,43 @@
+; ==============================================================================
+; game_composite_bridge — chain multiple EvalNativeBridge handlers.
+; ==============================================================================
+
+Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class CompositeEvalNativeBridge extends EvalNativeBridge {
+    def bridges:[EvalNativeBridge]
+
+    fn addBridge:void (bridge:EvalNativeBridge) {
+        push bridges bridge
+    }
+
+    fn clearBridges:void () {
+        def empty:[EvalNativeBridge]
+        bridges = empty
+    }
+
+    fn has:boolean (name:string) {
+        def i 0
+        while (i < (array_length bridges)) {
+            def b:EvalNativeBridge (itemAt bridges i)
+            if (b.has(name)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn invoke:EvalValue (name:string args:[EvalValue]) {
+        def i 0
+        while (i < (array_length bridges)) {
+            def b:EvalNativeBridge (itemAt bridges i)
+            if (b.has(name)) {
+                return (b.invoke(name args))
+            }
+            i = (i + 1)
+        }
+        return (EvalValue.null())
+    }
+}
