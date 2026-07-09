@@ -28,6 +28,7 @@ tests/.output*/
 
 # Local scratch / compiler experiments
 tmp/
+dist/raspberry-pi5/
 
 # Generated binary output
 generated/bin/

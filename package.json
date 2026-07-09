@@ -93,6 +93,7 @@
     "engine:compile:cpp": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -l=cpp ./gallery/game_engine/pong.rgr -d=./gallery/game_engine -o=pong.cpp -nodecli",
     "engine:compile:rust": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -l=rust ./gallery/game_engine/pong.rgr -d=./gallery/game_engine -o=pong.rs -nodecli",
     "engine:build:native": "bash gallery/game_engine/scripts/build-native.sh",
+    "build:raspberry": "bash gallery/game_engine/scripts/build-raspberry.sh",
     "engine:run": "node ./gallery/game_engine/pong.js",
     "engine:compile:sdl": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -l=cpp ./gallery/game_engine/pong_sdl.rgr -d=./gallery/game_engine -o=pong_sdl.cpp -nodecli",
     "engine:sdl": "bash gallery/game_engine/scripts/build-sdl.sh",
