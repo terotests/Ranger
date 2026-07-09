@@ -10,7 +10,8 @@
 ;   ./game_sdl --hot-reload gallery/game_engine/scripting/pong.game.tsx
 ;   SDL_VIDEODRIVER=dummy ./game_sdl gallery/game_engine/scripting/pong.game.tsx 300
 ;
-; Controls: Arrow keys / A,D = move (game-specific), W/S = alt, Space = action, Q/Esc = quit.
+; Controls: Arrow keys / A,D = move (game-specific), W/S = alt, Space = action,
+;   F11 or Alt/Cmd+Enter = fullscreen toggle, Esc = exit fullscreen / quit, Q = quit.
 ;
 ; Runtime options (flags before the .tsx path):
 ;   --hot-reload     poll .tsx mtime each frame; AST-patch in-process on save

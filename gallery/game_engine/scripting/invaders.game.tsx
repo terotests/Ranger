@@ -13,6 +13,17 @@
 
 import { soundEvent } from "./game_helpers";
 
+function resources() {
+  return [
+    // Path relative to this .tsx directory: scripting/assets/invaders_bg.png
+    { kind: "image", id: "bg", path: "assets/invaders_bg.png" }
+  ];
+}
+
+function backgroundImage() {
+  return "bg";
+}
+
 const COLS = 5;
 const ROWS = 3;
 const ALIEN_COUNT = COLS * ROWS;
