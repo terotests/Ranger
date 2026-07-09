@@ -30,7 +30,7 @@ const HOST_SOURCES = [
 
 const GAMES = {
   invaders: 'gallery/game_engine/scripting/invaders.game.tsx',
-  pacman: 'gallery/game_engine/scripting/pacman.game.tsx',
+  pacman: 'gallery/game_engine/games/pacman/index.tsx',
   pong: 'gallery/game_engine/scripting/pong.game.tsx',
   breakout: 'gallery/game_engine/scripting/breakout.game.tsx',
 };

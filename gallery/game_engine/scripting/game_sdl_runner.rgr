@@ -20,6 +20,7 @@ Import "../gfx_sdl.rgr"
 Import "./game_audio_sdl.rgr"
 Import "./game_catalog.rgr"
 Import "./game_host_native.rgr"
+Import "./game_input.rgr"
 
 class GameSdlRunner {
     def runner:GameRunner (new GameRunner)
@@ -49,6 +50,9 @@ class GameSdlRunner {
     def navStack:[string]
     def catalogPollMs:int 10000
     def lastCatalogPoll:int 0
+    def prevUpHeld:boolean false
+    def prevDownHeld:boolean false
+    def prevActionHeld:boolean false
 
     fn updateFps:void () {
         def now:int (gfx_ticks_ms)
@@ -134,16 +138,42 @@ class GameSdlRunner {
         if (enableHotReload) {
             print ("[game-engine] hot reload enabled: " + tsxPath)
         }
-        prevQuitHeld = false
+        this.syncInputEdges()
         gfx_clear_should_close
     }
 
+    ; After script swap, match edge state to keys still held (avoids double Q:
+    ; game exit on Q then immediate menu quit while the key is still down).
+    fn syncInputEdges:void () {
+        def m:int (gfx_poll_mask)
+        prevQuitHeld = ((bit_and m 8) != 0)
+        prevUpHeld = ((bit_and m 1) != 0)
+        prevDownHeld = ((bit_and m 2) != 0)
+        prevActionHeld = ((bit_and m 4) != 0)
+    }
+
+    fn pollGameInput:GameInputSnapshot () {
+        gfx_input_poll
+        def snap:GameInputSnapshot (new GameInputSnapshot)
+        def count:int (runner.resolvePlayerCount())
+        snap.buildFromSdl(count)
+        return snap
+    }
+
     fn loadMenuGame:void () {
+        gfx_audio_clear
         catalog.setGamesDir(gamesDir)
         catalog.scan()
         this.clearNavStack()
         nativeBridge.clearPendingNav()
-        print ("[game-engine] menu: " + (to_string (catalog.entryCount())) + " games in " + gamesDir)
+        print ("[menu] games dir: " + gamesDir)
+        print ("[menu] catalog entries: " + (to_string (catalog.entryCount())))
+        def li 0
+        while (li < (catalog.entryCount())) {
+            def entry:GameCatalogEntry (catalog.entryAt(li))
+            print ("[menu]   " + (to_string li) + ": " + entry.title + " -> " + entry.entryPath)
+            li = (li + 1)
+        }
         this.loadScriptAt(menuPath true)
         inMenu = true
         inGame = false
@@ -152,6 +182,7 @@ class GameSdlRunner {
     }
 
     fn loadGame:void (tsxPath:string) {
+        gfx_audio_clear
         this.clearNavStack()
         nativeBridge.clearPendingNav()
         this.loadScriptAt(tsxPath false)
@@ -234,6 +265,43 @@ class GameSdlRunner {
         return false
     }
 
+    ; Menu navigation: one step per key press (not while held).
+    fn upEdge:boolean (held:boolean) {
+        if (held) {
+            if (prevUpHeld == false) {
+                prevUpHeld = true
+                return true
+            }
+        } {
+            prevUpHeld = false
+        }
+        return false
+    }
+
+    fn downEdge:boolean (held:boolean) {
+        if (held) {
+            if (prevDownHeld == false) {
+                prevDownHeld = true
+                return true
+            }
+        } {
+            prevDownHeld = false
+        }
+        return false
+    }
+
+    fn actionEdge:boolean (held:boolean) {
+        if (held) {
+            if (prevActionHeld == false) {
+                prevActionHeld = true
+                return true
+            }
+        } {
+            prevActionHeld = false
+        }
+        return false
+    }
+
     fn runMenuLoop:void () {
         this.loadMenuGame()
         while (running) {
@@ -277,7 +345,10 @@ class GameSdlRunner {
             }
 
             def quitPulse:boolean (this.quitEdge(quitHeld))
-            runner.frame(dtMs up down left right action quitPulse)
+            def upPulse:boolean (this.upEdge(up))
+            def downPulse:boolean (this.downEdge(down))
+            def actionPulse:boolean (this.actionEdge(action))
+            runner.frame(dtMs upPulse downPulse false false actionPulse quitPulse)
             this.draw()
             this.maybePollCatalog()
 
@@ -360,7 +431,8 @@ class GameSdlRunner {
                 gfx_clear_should_close
                 return
             }
-            runner.frame(dtMs up down left right action false)
+            def gameInput:GameInputSnapshot (this.pollGameInput())
+            runner.frameWithInput(dtMs gameInput)
             this.drainScriptNavigation()
             if (false == inGame) {
                 gfx_clear_should_close

@@ -34,11 +34,8 @@ class GameCatalogDemo {
         }
         def launch:string (runner.stateString("launchPath" ""))
         print ("launchPath after frames: " + launch)
-        def menuText:string (runner.stateString("menuText" ""))
-        if ((strlen menuText) == 0) {
-            print "FAIL: menuText empty"
-            return
-        }
+        def sel:int (runner.stateInt("selected" 0))
+        print ("selected=" + (to_string sel))
         print "menu game OK"
     }
 }

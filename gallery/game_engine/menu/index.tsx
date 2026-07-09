@@ -2,7 +2,7 @@
 /// <reference path="./menu.d.ts" />
 //
 // Launcher menu game — first game loaded by game_sdl; returned to after each sub-game.
-// Host injects `gameCatalog` (scanned from --games-dir). EVG hud() draws the list.
+// Host injects `gameCatalog` (scanned from --games-dir). EVG hud() draws one Label/row.
 //
 // Controls: Up/Down = scroll, Space/Enter = play, Q/Esc = quit app.
 
@@ -14,39 +14,37 @@ function initState() {
     scroll: 0,
     launchPath: "",
     quitApp: 0,
-    menuText: "",
+    visibleRows: [],
     hintText: "Up/Down select   Space play   Q quit"
   };
 }
 
-function buildMenuText(selected: number, scroll: number) {
+function buildVisibleRows(selected: number, scroll: number) {
   const list = gameCatalog;
   const count = list.length;
+  const rows = [];
   if (count === 0) {
-    return "No games found.\nAdd subfolders with index.tsx\nto the games directory.";
+    rows.push("No games found.");
+    rows.push("Add index.tsx under games/");
+    return rows;
   }
-  let text = "";
+  if (scroll > 0) {
+    rows.push("^ more above ^");
+  }
   let i = scroll;
-  const end = scroll + VISIBLE_ROWS;
-  if (end > count) {
-    i = scroll;
-  }
   while (i < count && i < scroll + VISIBLE_ROWS) {
     const entry = list[i];
     let prefix = "  ";
     if (i === selected) {
       prefix = "> ";
     }
-    text = text + prefix + entry.title + "\n";
+    rows.push(prefix + entry.title);
     i = i + 1;
   }
-  if (scroll > 0) {
-    text = "^ more above ^\n" + text;
-  }
   if (scroll + VISIBLE_ROWS < count) {
-    text = text + "v more below v\n";
+    rows.push("v more below v");
   }
-  return text;
+  return rows;
 }
 
 function update(props) {
@@ -60,7 +58,7 @@ function update(props) {
       scroll: state.scroll,
       launchPath: "",
       quitApp: 1,
-      menuText: state.menuText,
+      visibleRows: state.visibleRows,
       hintText: state.hintText
     };
   }
@@ -97,42 +95,31 @@ function update(props) {
     launchPath = list[selected].path;
   }
 
-  const menuText = buildMenuText(selected, scroll);
+  const visibleRows = buildVisibleRows(selected, scroll);
 
   return {
     selected: selected,
     scroll: scroll,
     launchPath: launchPath,
     quitApp: 0,
-    menuText: menuText,
+    visibleRows: visibleRows,
     hintText: state.hintText
   };
 }
 
 function hud(props) {
   const s = props.state;
+  const list = gameCatalog;
   return (
-    <View
-      flexDirection="column"
-      padding="14px"
-      width="100%"
-      height="100%"
-      backgroundColor="#0c1020"
-    >
-      <Label color="#8cd3ff" padding="2px">
-        Ranger Game Engine
-      </Label>
-      <Label color="#6a8aaa" padding="2px">
-        {s.hintText}
-      </Label>
-      <View flexDirection="column" padding="8px" width="100%" flex="1">
-        <Label color="#dce8ff" padding="2px">
-          {s.menuText}
-        </Label>
+    <View flexDirection="column" padding="10px" backgroundColor="#0c1020">
+      <Label color="#8cd3ff" padding="2px">Ranger Game Engine</Label>
+      <Label color="#6a8aaa" padding="2px">{s.hintText}</Label>
+      <View flexDirection="column" padding="6px">
+        {s.visibleRows.map((line) => (
+          <Label color="#dce8ff" padding="2px">{line}</Label>
+        ))}
       </View>
-      <Label color="#5a6a8a" padding="2px">
-        {gameCatalog.length} games
-      </Label>
+      <Label color="#5a6a8a" padding="2px">{list.length} games</Label>
     </View>
   );
 }

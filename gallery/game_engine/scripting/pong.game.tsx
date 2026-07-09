@@ -14,6 +14,8 @@
 // Coordinates are in pixels of a 480x270 buffer. Motion is time-based (uses dt),
 // so it is framerate-independent.
 
+import { soundEvent } from "./game_helpers";
+
 function sprites() {
   return [
     { id: "ball", kind: "circle", rad: 6, r: 245, g: 245, b: 130 },
@@ -25,6 +27,7 @@ function sprites() {
 function initState() {
   return {
     showNet: 1,
+    playerSlots: 1,
     entities: {
       ball: { x: 240, y: 135 },
       p1: { x: 18, y: 135 },
@@ -37,52 +40,127 @@ function initState() {
   };
 }
 
+function tryLeftPaddleBounce(prevBx, bx, by, p1y, vx) {
+  const paddleL = 18;
+  const paddleR = 28;
+  const half = 34;
+  if (vx >= 0) {
+    return { bx: bx, vx: vx, hit: false };
+  }
+  if (by <= p1y - half) {
+    return { bx: bx, vx: vx, hit: false };
+  }
+  if (by >= p1y + half) {
+    return { bx: bx, vx: vx, hit: false };
+  }
+  if (prevBx > paddleR) {
+    if (bx <= paddleR) {
+      return { bx: paddleR, vx: 0 - vx, hit: true };
+    }
+  }
+  if (bx <= paddleR) {
+    if (bx >= paddleL) {
+      if (prevBx >= bx) {
+        return { bx: paddleR, vx: 0 - vx, hit: true };
+      }
+    }
+  }
+  return { bx: bx, vx: vx, hit: false };
+}
+
+function tryRightPaddleBounce(prevBx, bx, by, p2y, vx) {
+  const paddleL = 462;
+  const paddleR = 472;
+  const half = 34;
+  if (vx <= 0) {
+    return { bx: bx, vx: vx, hit: false };
+  }
+  if (by <= p2y - half) {
+    return { bx: bx, vx: vx, hit: false };
+  }
+  if (by >= p2y + half) {
+    return { bx: bx, vx: vx, hit: false };
+  }
+  if (prevBx < paddleL) {
+    if (bx >= paddleL) {
+      return { bx: paddleL, vx: 0 - vx, hit: true };
+    }
+  }
+  if (bx >= paddleL) {
+    if (bx <= paddleR) {
+      if (prevBx <= bx) {
+        return { bx: paddleL, vx: 0 - vx, hit: true };
+      }
+    }
+  }
+  return { bx: bx, vx: vx, hit: false };
+}
+
 function update(props) {
   const s = props.state;
   const dt = props.dt;
+  const events = [];
+  const input = props.input;
+  let p1up = props.up;
+  let p1down = props.down;
+  let p2up = false;
+  let p2down = false;
+  if (input) {
+    if (input.players[0]) {
+      p1up = input.players[0].up;
+      p1down = input.players[0].down;
+    }
+    if (input.players[1]) {
+      p2up = input.players[1].up;
+      p2down = input.players[1].down;
+    }
+  }
 
   let bx = s.entities.ball.x + s.vx * dt;
   let by = s.entities.ball.y + s.vy * dt;
+  const prevBx = s.entities.ball.x;
   let vx = s.vx;
   let vy = s.vy;
   let s1 = s.score1;
   let s2 = s.score2;
 
   // top / bottom walls
-  if (by < 6) { by = 6; vy = 0 - vy; }
-  if (by > 264) { by = 264; vy = 0 - vy; }
+  if (by < 6) { by = 6; vy = 0 - vy; events.push(soundEvent("wall")); }
+  if (by > 264) { by = 264; vy = 0 - vy; events.push(soundEvent("wall")); }
 
-  // player paddle (left) driven by input
   let p1y = s.entities.p1.y;
-  if (props.up) { p1y = p1y - dt * 0.30; }
-  if (props.down) { p1y = p1y + dt * 0.30; }
+  if (p1up) { p1y = p1y - dt * 0.30; }
+  if (p1down) { p1y = p1y + dt * 0.30; }
   if (p1y < 28) { p1y = 28; }
   if (p1y > 242) { p1y = 242; }
 
-  // cpu paddle (right) tracks the ball
   let p2y = s.entities.p2.y;
-  if (p2y < by) { p2y = p2y + dt * 0.22; }
-  if (p2y > by) { p2y = p2y - dt * 0.22; }
+  if (p2up) { p2y = p2y - dt * 0.30; }
+  if (p2down) { p2y = p2y + dt * 0.30; }
   if (p2y < 28) { p2y = 28; }
   if (p2y > 242) { p2y = 242; }
 
-  // paddle bounces
-  if (bx < 24) {
-    if (by > p1y - 34) {
-      if (by < p1y + 34) { bx = 24; vx = 0 - vx; }
-    }
+  const leftHit = tryLeftPaddleBounce(prevBx, bx, by, p1y, vx);
+  bx = leftHit.bx;
+  vx = leftHit.vx;
+  if (leftHit.hit) {
+    events.push(soundEvent("bounce"));
   }
-  if (bx > 456) {
-    if (by > p2y - 34) {
-      if (by < p2y + 34) { bx = 456; vx = 0 - vx; }
-    }
+
+  const rightHit = tryRightPaddleBounce(prevBx, bx, by, p2y, vx);
+  bx = rightHit.bx;
+  vx = rightHit.vx;
+  if (rightHit.hit) {
+    events.push(soundEvent("bounce"));
   }
 
   // scoring + serve
-  if (bx < 0) { s2 = s2 + 1; bx = 240; by = 135; vx = 0.16; }
-  if (bx > 480) { s1 = s1 + 1; bx = 240; by = 135; vx = 0 - 0.16; }
+  if (bx < 0) { s2 = s2 + 1; bx = 240; by = 135; vx = 0.16; events.push(soundEvent("lose")); }
+  if (bx > 480) { s1 = s1 + 1; bx = 240; by = 135; vx = 0 - 0.16; events.push(soundEvent("lose")); }
 
   return {
+    showNet: 1,
+    playerSlots: 1,
     entities: {
       ball: { x: bx, y: by },
       p1: { x: 18, y: p1y },
@@ -91,6 +169,7 @@ function update(props) {
     vx: vx,
     vy: vy,
     score1: s1,
-    score2: s2
+    score2: s2,
+    events: events
   };
 }

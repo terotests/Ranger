@@ -73,15 +73,25 @@ echo "==> 2/3 $CXX -> native binary (SDL2)"
 echo "==> 3/3 Ready: $BIN_FILE"
 
 if [[ "${1:-}" == "--run" ]]; then
-  TSX="${2:-gallery/game_engine/scripting/pong.game.tsx}"
+  TSX="${2:-}"
   FRAMES="${3:-}"
-  echo "==> Running $TSX (W/S move, F11 fullscreen, Q/Esc quit)"
-  if [[ -n "$FRAMES" ]]; then
-    SDL_VIDEODRIVER=dummy "$BIN_FILE" "$TSX" "$FRAMES"
+  if [[ -z "$TSX" ]]; then
+    echo "==> Running game launcher menu (arrows/space, F11 fullscreen, Q/Esc quit)"
+    if [[ -n "$FRAMES" ]]; then
+      SDL_VIDEODRIVER=dummy "$BIN_FILE" "$FRAMES"
+    else
+      "$BIN_FILE"
+    fi
   else
-    "$BIN_FILE" "$TSX"
+    echo "==> Running $TSX (W/S move, F11 fullscreen, Q/Esc quit)"
+    if [[ -n "$FRAMES" ]]; then
+      SDL_VIDEODRIVER=dummy "$BIN_FILE" "$TSX" "$FRAMES"
+    else
+      "$BIN_FILE" "$TSX"
+    fi
   fi
 else
+  echo "Launcher:       npm run engine:game-sdl:launcher"
   echo "Run:            npm run engine:game-sdl:run:pacman"
   echo "                npm run engine:game-sdl:run:invaders"
   echo "                npm run engine:game-sdl:run:breakout"
