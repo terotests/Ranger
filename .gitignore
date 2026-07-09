@@ -9,6 +9,8 @@ data_folder/
 *.jpg
 *.png
 *.ppm
+!gallery/game_engine/scripting/assets/**
+!tests/fixtures/game_bg_8x8.png
 
 # MacOS
 .DS_Store

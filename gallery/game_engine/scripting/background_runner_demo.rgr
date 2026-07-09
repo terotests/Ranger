@@ -1,0 +1,35 @@
+; ==============================================================================
+; background_runner_demo - GameRunner.setBackground() smoke test.
+; ==============================================================================
+;
+; Loads an 8x8 RGBA PNG from tests/fixtures/, caches it, cover-blits to a
+; 32x32 canvas, and prints a sample pixel so Vitest can verify the background
+; replaced the default clear colour (12,16,32).
+; ==============================================================================
+
+Import "./game_runtime.rgr"
+
+class BackgroundRunnerDemo {
+    sfn m@(main):void () {
+        def runner:GameRunner (new GameRunner)
+        runner.init(32 32)
+        runner.setScriptDir("tests/fixtures")
+
+        runner.setBackground("game_bg_8x8.png")
+        runner.draw()
+
+        def px:int (runner.canvas.pixelR(16 16))
+        def py:int (runner.canvas.pixelG(16 16))
+        def pz:int (runner.canvas.pixelB(16 16))
+
+        print (("bgLoaded=" + (to_string (runner.hasBackground()))))
+        print (("cacheCount=" + (to_string (runner.backgroundCacheCount()))))
+        print (("centerPx=" + px) + ("," + py) + ("," + pz))
+
+        ; second load must hit cache (same count)
+        runner.setBackground("game_bg_8x8.png")
+        print (("cacheAfter=" + (to_string (runner.backgroundCacheCount()))))
+
+        print "background-runner done"
+    }
+}

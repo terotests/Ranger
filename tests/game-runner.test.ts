@@ -155,6 +155,50 @@ describe("Game runner - scripted Pong", () => {
     expect(parseInt(audioPlays![1], 10)).toBeGreaterThan(0);
   });
 
+  it("loads and draws a PNG background via setBackground()", () => {
+    const { compile, run } = compileAndRun(
+      "gallery/game_engine/scripting/background_runner_demo.rgr"
+    );
+
+    expect(
+      compile.success,
+      `Compile failed: ${compile.error || compile.output}`
+    ).toBe(true);
+    expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+
+    const out = run?.output || "";
+    expect(out).toContain("background-runner done");
+    expect(out).toContain("bgLoaded=true");
+    expect(out).toContain("cacheAfter=1");
+
+    const px = out.match(/centerPx=(\d+),(\d+),(\d+)/);
+    expect(px, `no centerPx in output: ${out}`).toBeTruthy();
+    // 8x8 image scaled to 32x32: center samples the right (blue) half
+    expect(parseInt(px![1], 10)).toBe(40);
+    expect(parseInt(px![2], 10)).toBe(40);
+    expect(parseInt(px![3], 10)).toBe(200);
+  });
+
+  it("applies backgroundImage() from a TS game script", () => {
+    const { compile, run } = compileAndRun(
+      "gallery/game_engine/scripting/background_script_runner_demo.rgr"
+    );
+
+    expect(
+      compile.success,
+      `Compile failed: ${compile.error || compile.output}`
+    ).toBe(true);
+    expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+
+    const out = run?.output || "";
+    expect(out).toContain("background-script-runner done");
+    expect(out).toContain("bgLoaded=true");
+
+    const px = out.match(/centerPx=(\d+),(\d+),(\d+)/);
+    expect(px, `no centerPx in output: ${out}`).toBeTruthy();
+    expect(parseInt(px![3], 10)).toBe(200);
+  });
+
   it("hot-reloads update() via AST diff without scene reset", () => {
     const { compile, run } = compileAndRun(
       "gallery/game_engine/scripting/hot_reload_runner_demo.rgr"

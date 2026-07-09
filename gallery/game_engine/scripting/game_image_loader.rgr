@@ -1,0 +1,314 @@
+; ==============================================================================
+; game_image_loader — cached PNG/JPEG decode + cover blit for GameRunner.
+; ==============================================================================
+;
+; Loads images relative to the script directory (with optional assets/ fallback),
+; caches decoded ImageBuffer instances by resolved path, and draws them as a
+; cover-fit background onto SoftCanvas.
+; ==============================================================================
+
+Import "../framebuffer.rgr"
+Import "../lpc/src/png_decoder.rgr"
+Import "../../pdf_writer/src/core/ImageUtils.rgr"
+Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
+Import "../../ts_to_ranger/game_host.rgr"
+
+class GameImageLoader {
+    def baseDir:string ""
+    def cacheKeys:[string]
+    def cacheImages:[ImageBuffer]
+    def pngDecoder:PNGDecoder (new PNGDecoder())
+    def jpegUtils:ImageUtils (new ImageUtils())
+
+    fn setBaseDir:void (dir:string) {
+        baseDir = dir
+        jpegUtils.setBaseDir(dir)
+    }
+
+    fn cacheCount:int () {
+        return (array_length cacheKeys)
+    }
+
+    fn findCached:ImageBuffer (key:string) {
+        def fail:ImageBuffer (new ImageBuffer())
+        fail.init(1 1)
+        def i 0
+        while (i < (array_length cacheKeys)) {
+            if ((itemAt cacheKeys i) == key) {
+                return (itemAt cacheImages i)
+            }
+            i = (i + 1)
+        }
+        return fail
+    }
+
+    fn isCached:boolean (key:string) {
+        def i 0
+        while (i < (array_length cacheKeys)) {
+            if ((itemAt cacheKeys i) == key) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn storeCache:void (key:string img:ImageBuffer) {
+        if (this.isCached(key)) {
+            return
+        }
+        push cacheKeys key
+        push cacheImages img
+    }
+
+    fn endsWithLower:boolean (path:string suffix:string) {
+        def plen:int (strlen path)
+        def slen:int (strlen suffix)
+        if (plen < slen) {
+            return false
+        }
+        def tail:string (substring path (plen - slen) plen)
+        return (tail == suffix)
+    }
+
+    fn isPngPath:boolean (path:string) {
+        if (this.endsWithLower(path ".png")) {
+            return true
+        }
+        if (this.endsWithLower(path ".PNG")) {
+            return true
+        }
+        return false
+    }
+
+    fn parseResolvedPath:string (resolved:string idx:int) {
+        def sepIdx:int (indexOf resolved "|")
+        if (sepIdx < 0) {
+            return ""
+        }
+        if (idx == 0) {
+            return (substring resolved 0 sepIdx)
+        }
+        return (substring resolved (sepIdx + 1) (strlen resolved))
+    }
+
+    fn resolvePath:string (src:string) {
+        return (jpegUtils.resolveImagePath(src))
+    }
+
+    fn tryDecodeFile:ImageBuffer (dir:string file:string) {
+        def fail:ImageBuffer (new ImageBuffer())
+        fail.init(1 1)
+        if ((strlen file) == 0) {
+            return fail
+        }
+        if (this.isPngPath(file)) {
+            return (pngDecoder.decode(dir file))
+        }
+        return (jpegUtils.decodeImage((dir + file)))
+    }
+
+    fn decodeResolved:ImageBuffer (resolved:string) {
+        def dir:string (this.parseResolvedPath(resolved 0))
+        def file:string (this.parseResolvedPath(resolved 1))
+        def img:ImageBuffer (this.tryDecodeFile(dir file))
+        if (img.width > 1) {
+            return img
+        }
+
+        ; assets/ fallback (same convention as ImageUtils.decodeImage)
+        def altSrc:string file
+        if ((indexOf file "./") == 0) {
+            altSrc = (substring file 2 (strlen file))
+        } {
+            altSrc = file
+        }
+        def altDir:string (baseDir + "assets/")
+        def altFile:string altSrc
+        def slash:int (lastIndexOf altSrc "/")
+        if (slash >= 0) {
+            altDir = (baseDir + "assets/" + (substring altSrc 0 (slash + 1)))
+            altFile = (substring altSrc (slash + 1) (strlen altSrc))
+        }
+        return (this.tryDecodeFile(altDir altFile))
+    }
+
+    fn load:ImageBuffer (src:string) {
+        def fail:ImageBuffer (new ImageBuffer())
+        fail.init(1 1)
+        if ((strlen src) == 0) {
+            return fail
+        }
+        def resolved:string (this.resolvePath(src))
+        def key:string resolved
+        if (this.isCached(key)) {
+            return (this.findCached(key))
+        }
+        def img:ImageBuffer (this.decodeResolved(resolved))
+        if (img.width <= 1) {
+            return fail
+        }
+        this.storeCache(key img)
+        return img
+    }
+
+    fn resolveIdOrPath:string (host:GameHost idOrPath:string) {
+        if (host.hasImage(idOrPath)) {
+            def p@(optional):string (get host.images idOrPath)
+            if (!null? p) {
+                return (unwrap p)
+            }
+        }
+        return idOrPath
+    }
+
+    fn loadByIdOrPath:ImageBuffer (host:GameHost idOrPath:string) {
+        def src:string (this.resolveIdOrPath(host idOrPath))
+        return (this.load(src))
+    }
+
+    fn isValidImage:boolean (img:ImageBuffer) {
+        if (img.width <= 1) {
+            return false
+        }
+        if (img.height <= 1) {
+            return false
+        }
+        return true
+    }
+
+    ; Nearest-neighbour cover blit onto canvas (clears first).
+    fn blitCover:void (canvas:SoftCanvas img:ImageBuffer) {
+        def cw:int (canvas.getWidth())
+        def ch:int (canvas.getHeight())
+        def iw:int img.width
+        def ih:int img.height
+        if (cw <= 0) {
+            return
+        }
+        if (ch <= 0) {
+            return
+        }
+        if (false == (this.isValidImage(img))) {
+            canvas.clear(12 16 32)
+            return
+        }
+
+        canvas.clear(12 16 32)
+
+        ; 1:1 fast path
+        if ((iw == cw) && (ih == ch)) {
+            this.blitOpaque(canvas img 0 0 iw ih 0 0)
+            return
+        }
+
+        def renderW:int cw
+        def renderH:int ch
+        def offX:int 0
+        def offY:int 0
+
+        if ((cw * ih) >= (ch * iw)) {
+            renderH = ch
+            renderW = (to_int ((to_double (iw * ch)) / (to_double ih)))
+            offX = (to_int ((to_double (cw - renderW)) / 2.0))
+        } {
+            renderW = cw
+            renderH = (to_int ((to_double (ih * cw)) / (to_double iw)))
+            offY = (to_int ((to_double (ch - renderH)) / 2.0))
+        }
+
+        def dstBuf:buffer (canvas.raw())
+        def srcBuf:buffer img.pixels
+
+        def y 0
+        while (y < ch) {
+            if (y < offY) {
+                y = (y + 1)
+            } {
+                if (y >= (offY + renderH)) {
+                    y = (y + 1)
+                } {
+                    def sy:int (to_int ((to_double ((y - offY) * ih)) / (to_double renderH)))
+                    if (sy >= ih) {
+                        sy = (ih - 1)
+                    }
+                    def srcRowOff:int (sy * iw * 4)
+                    def dstRowOff:int (y * cw * 4)
+                    def x 0
+                    while (x < cw) {
+                        if (x < offX) {
+                            x = (x + 1)
+                        } {
+                            if (x >= (offX + renderW)) {
+                                x = (x + 1)
+                            } {
+                                def sx:int (to_int ((to_double ((x - offX) * iw)) / (to_double renderW)))
+                                if (sx >= iw) {
+                                    sx = (iw - 1)
+                                }
+                                def sOff:int (srcRowOff + (sx * 4))
+                                def dOff:int (dstRowOff + (x * 4))
+                                def a:int (buffer_get srcBuf (sOff + 3))
+                                if (a > 0) {
+                                    buffer_set dstBuf dOff (buffer_get srcBuf sOff)
+                                    buffer_set dstBuf (dOff + 1) (buffer_get srcBuf (sOff + 1))
+                                    buffer_set dstBuf (dOff + 2) (buffer_get srcBuf (sOff + 2))
+                                    buffer_set dstBuf (dOff + 3) 255
+                                }
+                                x = (x + 1)
+                            }
+                        }
+                    }
+                    y = (y + 1)
+                }
+            }
+        }
+    }
+
+    ; Opaque 1:1 blit (no alpha blend — background layer).
+    fn blitOpaque:void (canvas:SoftCanvas src:ImageBuffer sx:int sy:int sw:int sh:int dx:int dy:int) {
+        def cw:int (canvas.getWidth())
+        def ch:int (canvas.getHeight())
+        def dstBuf:buffer (canvas.raw())
+        def srcBuf:buffer src.pixels
+        def srcW:int src.width
+
+        def y 0
+        while (y < sh) {
+            def dstY:int (dy + y)
+            if (dstY < 0) {
+                y = (y + 1)
+            } {
+                if (dstY >= ch) {
+                    y = (y + 1)
+                } {
+                    def srcRowOff:int (((sy + y) * srcW) + sx) * 4
+                    def dstRowOff:int (dstY * cw * 4)
+                    def x 0
+                    while (x < sw) {
+                        def dstX:int (dx + x)
+                        if (dstX < 0) {
+                            x = (x + 1)
+                        } {
+                            if (dstX >= cw) {
+                                x = (x + 1)
+                            } {
+                                def sOff:int (srcRowOff + (x * 4))
+                                def dOff:int (dstRowOff + (dstX * 4))
+                                def a:int (buffer_get srcBuf (sOff + 3))
+                                if (a > 0) {
+                                    buffer_set dstBuf dOff (buffer_get srcBuf sOff)
+                                    buffer_set dstBuf (dOff + 1) (buffer_get srcBuf (sOff + 1))
+                                    buffer_set dstBuf (dOff + 2) (buffer_get srcBuf (sOff + 2))
+                                    buffer_set dstBuf (dOff + 3) 255
+                                }
+                                x = (x + 1)
+                            }
+                        }
+                    }
+                    y = (y + 1)
+                }
+            }
+        }
+    }
+}
