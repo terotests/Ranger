@@ -14,16 +14,18 @@
 //
 // In a narrow 240 px pane it runs as single-player.
 // In a 480 px pane it enables a second player.
+// Split-screen (game.info): each pane is solo with its own camera; peerCar shows
+// the other player's car from the opposite pane.
 
 import { soundEvent } from "../../scripting/game_helpers";
 
 const BASE_W = 480;
-const WORLD_H = 3600;
+const WORLD_H = 6000;
 const VIEW_H = 270;
 
-const MAX_TRAFFIC = 6;
-const MAX_PICKUPS = 8;
-const MAX_OBSTACLES = 9;
+const MAX_TRAFFIC = 8;
+const MAX_PICKUPS = 20;
+const MAX_OBSTACLES = 13;
 const MAX_FX = 8;
 
 const START_Y = WORLD_H - 150;
@@ -45,49 +47,80 @@ const TURBO_ACCEL = 0.00070;
 const TURBO_DRAIN = 0.040;
 const TURBO_RECHARGE = 0.010;
 
-const CHECKPOINTS = [2700, 1800, 900];
-const CHECKPOINT_BONUS = 18000;
+const CHECKPOINTS = [4800, 3600, 2400, 1200];
+const CHECKPOINT_BONUS = 20000;
 
 const ROAD_POINTS = [
-  { y: 3600, x: 240, half: 104, zone: 0 },
-  { y: 3380, x: 190, half: 102, zone: 0 },
-  { y: 3160, x: 300, half: 96, zone: 0 },
-  { y: 2940, x: 210, half: 92, zone: 0 },
+  // The first bends are close to the start so the road visibly turns immediately.
+  { y: 6000, x: 240, half: 106, zone: 0 },
+  { y: 5800, x: 170, half: 104, zone: 0 },
+  { y: 5580, x: 310, half: 100, zone: 0 },
+  { y: 5360, x: 185, half: 98, zone: 0 },
+  { y: 5140, x: 300, half: 94, zone: 0 },
+  { y: 4920, x: 220, half: 92, zone: 0 },
 
-  { y: 2700, x: 165, half: 84, zone: 1 },
-  { y: 2460, x: 295, half: 82, zone: 1 },
-  { y: 2220, x: 220, half: 78, zone: 1 },
-  { y: 1980, x: 315, half: 80, zone: 1 },
+  { y: 4700, x: 150, half: 84, zone: 1 },
+  { y: 4480, x: 315, half: 82, zone: 1 },
+  { y: 4260, x: 190, half: 80, zone: 1 },
+  { y: 4040, x: 325, half: 78, zone: 1 },
+  { y: 3820, x: 205, half: 82, zone: 1 },
+  { y: 3600, x: 285, half: 86, zone: 1 },
 
-  { y: 1740, x: 235, half: 100, zone: 2 },
-  { y: 1500, x: 155, half: 106, zone: 2 },
-  { y: 1260, x: 295, half: 102, zone: 2 },
-  { y: 1020, x: 225, half: 94, zone: 2 },
+  { y: 3380, x: 165, half: 102, zone: 2 },
+  { y: 3160, x: 310, half: 106, zone: 2 },
+  { y: 2940, x: 190, half: 102, zone: 2 },
+  { y: 2720, x: 325, half: 98, zone: 2 },
+  { y: 2500, x: 180, half: 96, zone: 2 },
+  { y: 2280, x: 285, half: 92, zone: 2 },
 
-  { y: 780, x: 325, half: 74, zone: 3 },
-  { y: 540, x: 180, half: 70, zone: 3 },
-  { y: 300, x: 295, half: 72, zone: 3 },
-  { y: 100, x: 240, half: 88, zone: 3 }
+  { y: 2060, x: 145, half: 76, zone: 3 },
+  { y: 1840, x: 325, half: 72, zone: 3 },
+  { y: 1620, x: 175, half: 70, zone: 3 },
+  { y: 1400, x: 315, half: 72, zone: 3 },
+  { y: 1180, x: 190, half: 74, zone: 3 },
+  { y: 960, x: 305, half: 76, zone: 3 },
+  { y: 740, x: 165, half: 78, zone: 3 },
+  { y: 520, x: 300, half: 82, zone: 3 },
+  { y: 300, x: 195, half: 86, zone: 3 },
+  { y: 100, x: 240, half: 92, zone: 3 }
 ];
 
 const TRAFFIC_DEFS = [
-  { xOff: -28, y: 3260, speed: 0.18, lane: -1 },
-  { xOff:  34, y: 2860, speed: 0.15, lane: 1 },
-  { xOff: -20, y: 2380, speed: 0.20, lane: -1 },
-  { xOff:  30, y: 1940, speed: 0.17, lane: 1 },
-  { xOff: -36, y: 1320, speed: 0.19, lane: -1 },
-  { xOff:  22, y: 720, speed: 0.16, lane: 1 }
+  { xOff: -30, y: 5640, speed: 0.18, lane: -1 },
+  { xOff:  34, y: 5160, speed: 0.15, lane: 1 },
+  { xOff: -22, y: 4520, speed: 0.20, lane: -1 },
+  { xOff:  30, y: 3980, speed: 0.17, lane: 1 },
+  { xOff: -36, y: 3260, speed: 0.19, lane: -1 },
+  { xOff:  24, y: 2660, speed: 0.16, lane: 1 },
+  { xOff: -28, y: 1780, speed: 0.21, lane: -1 },
+  { xOff:  32, y: 900, speed: 0.18, lane: 1 }
 ];
 
 const PICKUP_DEFS = [
-  { xOff: -42, y: 3340, kind: 0 },
-  { xOff:  40, y: 2920, kind: 1 },
-  { xOff: -36, y: 2480, kind: 0 },
-  { xOff:  28, y: 2050, kind: 1 },
-  { xOff: -45, y: 1600, kind: 0 },
-  { xOff:  38, y: 1180, kind: 1 },
-  { xOff: -30, y: 720, kind: 0 },
-  { xOff:  26, y: 340, kind: 1 }
+  // kind 0 = fuel/score, 1 = turbo, 2 = valuable gem
+  { xOff: -42, y: 5740, kind: 2 },
+  { xOff:  36, y: 5520, kind: 0 },
+  { xOff: -30, y: 5280, kind: 2 },
+  { xOff:  42, y: 4980, kind: 1 },
+  { xOff: -38, y: 4660, kind: 2 },
+
+  { xOff:  34, y: 4380, kind: 2 },
+  { xOff: -44, y: 4100, kind: 0 },
+  { xOff:  28, y: 3820, kind: 2 },
+  { xOff: -34, y: 3520, kind: 1 },
+  { xOff:  40, y: 3260, kind: 2 },
+
+  { xOff: -42, y: 2980, kind: 2 },
+  { xOff:  36, y: 2700, kind: 0 },
+  { xOff: -28, y: 2420, kind: 2 },
+  { xOff:  42, y: 2140, kind: 1 },
+  { xOff: -36, y: 1860, kind: 2 },
+
+  { xOff:  34, y: 1560, kind: 2 },
+  { xOff: -40, y: 1280, kind: 0 },
+  { xOff:  28, y: 980, kind: 2 },
+  { xOff: -34, y: 680, kind: 1 },
+  { xOff:  36, y: 380, kind: 2 }
 ];
 
 //
@@ -95,15 +128,19 @@ const PICKUP_DEFS = [
 // xOff is relative to the road centre, so these follow the bends.
 //
 const OBSTACLE_DEFS = [
-  { xOff: -34, y: 3240, kind: 0 },
-  { xOff:  22, y: 3000, kind: 2 },
-  { xOff:  44, y: 2700, kind: 0 },
-  { xOff: -18, y: 2320, kind: 1 },
-  { xOff:  28, y: 1980, kind: 2 },
-  { xOff: -42, y: 1560, kind: 0 },
-  { xOff:  16, y: 1180, kind: 1 },
-  { xOff: -24, y: 760, kind: 2 },
-  { xOff:  38, y: 420, kind: 0 }
+  { xOff: -34, y: 5600, kind: 0 },
+  { xOff:  24, y: 5320, kind: 2 },
+  { xOff:  46, y: 5000, kind: 0 },
+  { xOff: -20, y: 4620, kind: 1 },
+  { xOff:  30, y: 4200, kind: 2 },
+  { xOff: -44, y: 3780, kind: 0 },
+  { xOff:  18, y: 3380, kind: 1 },
+  { xOff: -26, y: 3000, kind: 2 },
+  { xOff:  40, y: 2540, kind: 0 },
+  { xOff: -32, y: 2080, kind: 1 },
+  { xOff:  20, y: 1640, kind: 2 },
+  { xOff: -38, y: 1080, kind: 0 },
+  { xOff:  30, y: 560, kind: 2 }
 ];
 
 const CAR_STRAIGHT = [
@@ -167,6 +204,15 @@ const PICKUP_TURBO = [
   "..OO.."
 ];
 
+const PICKUP_VALUE = [
+  "..OO..",
+  ".OXXO.",
+  "OXXXXO",
+  ".OXXO.",
+  "..OO..",
+  "...O.."
+];
+
 const SPARK = [
   ".O.O.",
   "..O..",
@@ -202,7 +248,14 @@ function worldW() {
   return bgWidth;
 }
 
+function isSplitPane() {
+  return paneIndex >= 0;
+}
+
 function isDualMode() {
+  if (isSplitPane()) {
+    return false;
+  }
   return worldW() > 300;
 }
 
@@ -243,8 +296,8 @@ function computeRoadAtRaw(y) {
 
       // One smooth procedural bend layered over the authored control points.
       const wave =
-        Math.sin(progress * 0.0085) * 30 +
-        Math.sin(progress * 0.0035 + 1.2) * 16;
+        Math.sin(progress * 0.0105) * 38 +
+        Math.sin(progress * 0.0042 + 1.2) * 22;
 
       const half = scaleX(lerp(a.half, b.half, t));
       const rawCenter = scaleX(lerp(a.x, b.x, t) + wave);
@@ -400,7 +453,7 @@ function drawRoadSlice(y, step) {
 
 function createStaticBg() {
   let y = 0;
-  const step = 8;
+  const step = 10;
 
   while (y < bgHeight) {
     drawRoadSlice(y, step);
@@ -487,17 +540,32 @@ function pickupSprite(id, kind) {
     };
   }
 
+  if (kind == 1) {
+    return {
+      id: id,
+      kind: "bitmap",
+      px: 2,
+      br: 70,
+      bg: 220,
+      bb: 255,
+      er: 20,
+      eg: 50,
+      eb: 70,
+      frames: [PICKUP_TURBO]
+    };
+  }
+
   return {
     id: id,
     kind: "bitmap",
-    px: 2,
-    br: 70,
-    bg: 220,
-    bb: 255,
-    er: 20,
-    eg: 50,
-    eb: 70,
-    frames: [PICKUP_TURBO]
+    px: 3,
+    br: 255,
+    bg: 90,
+    bb: 220,
+    er: 255,
+    eg: 230,
+    eb: 90,
+    frames: [PICKUP_VALUE]
   };
 }
 
@@ -642,9 +710,19 @@ function spawnFx(fx, x, y) {
   }
 }
 
+function localStartX() {
+  if (isSplitPane()) {
+    if (paneIndex == 1) {
+      return 270;
+    }
+    return 210;
+  }
+  return 210;
+}
+
 function initState() {
   const slots = playerSlots();
-  const p1 = makePlayer(210, 1);
+  const p1 = makePlayer(localStartX(), 1);
   const p2 = makePlayer(270, -1);
   const traffic = makeTraffic();
   const pickups = makePickups();
@@ -667,7 +745,7 @@ function initState() {
     pickups: pickups,
     fx: fx,
     entities: entities,
-    timeLeft: 75000,
+    timeLeft: 105000,
     winner: 0,
     message: "ARCTIC RUSH",
     messageTick: 1600
@@ -1057,7 +1135,7 @@ function applyPickups(pl, pickups, events) {
             finishTick: out.finishTick,
             invuln: out.invuln
           };
-        } else {
+        } else if (p.kind == 1) {
           out = {
             x: out.x,
             y: out.y,
@@ -1067,6 +1145,21 @@ function applyPickups(pl, pickups, events) {
             turbo: clamp(out.turbo + 50, 0, 100),
             damage: out.damage,
             score: out.score + 300,
+            checkpoint: out.checkpoint,
+            finished: out.finished,
+            finishTick: out.finishTick,
+            invuln: out.invuln
+          };
+        } else {
+          out = {
+            x: out.x,
+            y: out.y,
+            speed: out.speed,
+            steer: out.steer,
+            face: out.face,
+            turbo: clamp(out.turbo + 10, 0, 100),
+            damage: out.damage,
+            score: out.score + 1500,
             checkpoint: out.checkpoint,
             finished: out.finished,
             finishTick: out.finishTick,
@@ -1143,6 +1236,12 @@ function updateFx(fx, dt) {
 }
 
 function computeCamera(p1, p2, dual) {
+  if (isSplitPane()) {
+    let cam = p1.y - VIEW_H + 105;
+    cam = clamp(cam, 0, WORLD_H - VIEW_H);
+    return cam;
+  }
+
   let leadY = p1.y;
 
   if (dual && p2.y < leadY) {
@@ -1158,6 +1257,34 @@ function computeCamera(p1, p2, dual) {
 function inCameraRange(worldY, cam, margin) {
   const screenY = worldY - cam;
   return screenY >= 0 - margin && screenY <= VIEW_H + margin;
+}
+
+function peerCarAnim(peer) {
+  if (peer.steer < -0.18) { return 1; }
+  if (peer.steer > 0.18) { return 2; }
+  return 0;
+}
+
+function placePeerCar(entities, cam) {
+  if (false == isSplitPane()) {
+    return;
+  }
+  if (peerCar.active != 1) {
+    entities.p2 = { x: -40, y: -40, p0: 0, visible: 0 };
+    return;
+  }
+
+  const p2Lift = peerCar.finishTick > 0
+    ? Math.sin((peerCar.finishTick / 720) * Math.PI) * 24
+    : 0;
+  const visible = inCameraRange(peerCar.y, cam, 96) ? 1 : 0;
+
+  entities.p2 = {
+    x: peerCar.x,
+    y: peerCar.y - cam - p2Lift,
+    p0: peerCarAnim(peerCar),
+    visible: visible
+  };
 }
 
 function placeEntities(s, cam, slots) {
@@ -1186,6 +1313,7 @@ function placeEntities(s, cam, slots) {
     };
   } else {
     entities.p2 = { x: -40, y: -40, p0: 0, visible: 0 };
+    placePeerCar(entities, cam);
   }
 
   let i = 0;
@@ -1280,7 +1408,13 @@ function hud(props) {
   let second =
     "P1 " + p1Speed + " KM/H  TURBO [" + bar(s.p1.turbo, 100, 8) + "]  DMG " + s.p1.damage;
 
-  if (s.playerSlots == 2) {
+  if (isSplitPane()) {
+    if (paneIndex == 0) {
+      top = "LEFT  TIME " + sec + "   SCORE " + p1Score;
+    } else {
+      top = "RIGHT TIME " + sec + "   SCORE " + p1Score;
+    }
+  } else if (s.playerSlots == 2) {
     second =
       "P1 " + p1Speed + "  P2 " + speedKmh(s.p2.speed) +
       "  LEAD " + (((s.p2.y - s.p1.y) / 10) | 0);

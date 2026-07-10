@@ -101,6 +101,51 @@ class GameRunner {
         engine.registerGlobal(name value)
     }
 
+    fn inactivePeerCar:EvalValue () {
+        def k:[string]
+        def v:[EvalValue]
+        push k "active"
+        push v (EvalValue.fromInt(0))
+        return (EvalValue.object(k v))
+    }
+
+    ; Default globals for non-split games (paneIndex=-1, inactive peerCar).
+    fn registerDefaultPaneGlobals:void () {
+        engine.registerGlobal("paneIndex" (EvalValue.fromInt(-1)))
+        this.setPeerCar((this.inactivePeerCar()))
+    }
+
+    ; Split-screen pane setup: inject paneIndex (0=left, 1=right) and empty peerCar.
+    fn registerSplitPane:void (paneIndex:int) {
+        engine.registerGlobal("paneIndex" (EvalValue.fromInt(paneIndex)))
+        this.setPeerCar((this.inactivePeerCar()))
+    }
+
+    ; Opposite pane's local car (state.p1) for ghost rendering in split-screen races.
+    fn exportPeerCar:EvalValue () {
+        def p1:EvalValue (state.getMember("p1"))
+        if (false == (p1.isObject())) {
+            return (this.inactivePeerCar())
+        }
+        def k:[string]
+        def v:[EvalValue]
+        push k "active"
+        push v (EvalValue.fromInt(1))
+        push k "x"
+        push v (p1.getMember("x"))
+        push k "y"
+        push v (p1.getMember("y"))
+        push k "steer"
+        push v (p1.getMember("steer"))
+        push k "finishTick"
+        push v (p1.getMember("finishTick"))
+        return (EvalValue.object(k v))
+    }
+
+    fn setPeerCar:void (peer:EvalValue) {
+        engine.registerGlobal("peerCar" peer)
+    }
+
     fn setNativeBridge:void (bridge:EvalNativeBridge) {
         hostBridge = bridge
         compositeBridge.clearBridges()

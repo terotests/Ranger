@@ -82,7 +82,7 @@ class SplitScreenHost {
         right.setProfileEnabled(on)
     }
 
-    fn loadScriptAt:void (runner:GameRunner bridge:GameHostNativeBridge tsxPath:string) {
+    fn loadScriptAt:void (runner:GameRunner bridge:GameHostNativeBridge tsxPath:string paneIndex:int) {
         def dir:string ""
         def file:string tsxPath
         def slash:int (lastIndexOf tsxPath "/")
@@ -97,13 +97,14 @@ class SplitScreenHost {
         runner.setNativeBridge(bridge)
         runner.loadScript(src)
         runner.setupScene()
+        runner.registerSplitPane(paneIndex)
         runner.trackScriptFile(tsxPath)
     }
 
   ; Load the same script (or different paths) into both panes.
     fn loadPanes:void (leftPath:string rightPath:string) {
-        this.loadScriptAt(left leftBridge leftPath)
-        this.loadScriptAt(right rightBridge rightPath)
+        this.loadScriptAt(left leftBridge leftPath 0)
+        this.loadScriptAt(right rightBridge rightPath 1)
         leftScriptPath = leftPath
         rightScriptPath = rightPath
     }
@@ -126,6 +127,8 @@ class SplitScreenHost {
     }
 
     fn frameWithInput:void (dtMs:int) {
+        left.setPeerCar((right.exportPeerCar()))
+        right.setPeerCar((left.exportPeerCar()))
         def leftSnap:GameInputSnapshot (this.snapForPane(0))
         def rightSnap:GameInputSnapshot (this.snapForPane(1))
         left.frameWithInput(dtMs leftSnap)

@@ -339,6 +339,19 @@ declare function resetGameData(): void;
 declare const bgWidth: number;
 /** Static level buffer height (pixels), set during createStaticBg init. */
 declare const bgHeight: number;
+
+/** Split-screen pane index (-1=full screen, 0=left, 1=right); injected by host. */
+declare const paneIndex: number;
+
+/** Opposite pane's car in split-screen mode (updated each frame by the host). */
+declare const peerCar: {
+  active: number;
+  x?: number;
+  y?: number;
+  steer?: number;
+  finishTick?: number;
+};
+
 /** Draw an opaque rect into the static level buffer (world coordinates). */
 declare function bgFillRect(
   x: number,
