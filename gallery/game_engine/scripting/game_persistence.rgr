@@ -94,13 +94,13 @@ class GamePersistence {
         if (v.isObject()) {
             def out2:string "{"
             def j:int 0
-            while (j < (array_length v.objectKeys)) {
+            def keyList:[string] (keys v.objectMap)
+            for keyList kk:string idx {
                 if (j > 0) {
                     out2 = (out2 + ",")
                 }
-                def key:string (itemAt v.objectKeys j)
-                def val:EvalValue (itemAt v.objectValues j)
-                def keyEsc:string (this.jsonEscape(key))
+                def val:EvalValue (unwrap (get v.objectMap kk))
+                def keyEsc:string (this.jsonEscape(kk))
                 out2 = (out2 + "\"" + keyEsc + "\":")
                 out2 = (out2 + (this.evalToJson(val)))
                 j = (j + 1)

@@ -17,8 +17,41 @@ class TSLexer  {
     this.col = 1;
     this.__len = 0;
     this.source = src;
-    this.__len = src.length;
+    this.__len = this.countCodeUnits(src);
   }
+  utf8WidthFromLead (lead) {
+    if ( lead <= 127 ) {
+      return 1;
+    }
+    if ( lead >= 192 ) {
+      if ( lead <= 223 ) {
+        return 2;
+      }
+    }
+    if ( lead >= 224 ) {
+      if ( lead <= 239 ) {
+        return 3;
+      }
+    }
+    if ( lead >= 240 ) {
+      if ( lead <= 247 ) {
+        return 4;
+      }
+    }
+    return 1;
+  };
+  countCodeUnits (text) {
+    const byteLen = text.length;
+    let bytePos = 0;
+    let count = 0;
+    while (bytePos < byteLen) {
+      const lead = text.charCodeAt(bytePos );
+      const w = this.utf8WidthFromLead(lead);
+      bytePos = bytePos + w;
+      count = count + 1;
+    };
+    return count;
+  };
   peek () {
     if ( this.pos >= this.__len ) {
       return "";
@@ -83,7 +116,7 @@ class TSLexer  {
     if ( (ch.length) == 0 ) {
       return false;
     }
-    const code = this.source.charCodeAt(this.pos );
+    const code = ch.charCodeAt(0 );
     if ( code >= 97 ) {
       if ( code <= 122 ) {
         return true;
@@ -105,6 +138,19 @@ class TSLexer  {
     }
     return false;
   };
+  isLetterCode (code) {
+    if ( code >= 97 ) {
+      if ( code <= 122 ) {
+        return true;
+      }
+    }
+    if ( code >= 65 ) {
+      if ( code <= 90 ) {
+        return true;
+      }
+    }
+    return false;
+  };
   isAlphaNumCh (ch) {
     if ( this.isDigit(ch) ) {
       return true;
@@ -118,7 +164,7 @@ class TSLexer  {
     if ( (ch.length) == 0 ) {
       return false;
     }
-    const code = this.source.charCodeAt(this.pos );
+    const code = ch.charCodeAt(0 );
     if ( code >= 97 ) {
       if ( code <= 122 ) {
         return true;
@@ -565,6 +611,26 @@ class TSLexer  {
       return this.readString("\"");
     }
     if ( ch == "'" ) {
+      let wordApostrophe = false;
+      if ( this.pos > 0 ) {
+        if ( (this.pos + 1) < this.__len ) {
+          const prevCh = this.peekAt(-1);
+          const nextCh = this.peekAt(1);
+          if ( (prevCh.length) > 0 ) {
+            if ( (nextCh.length) > 0 ) {
+              const prevCode = prevCh.charCodeAt(0 );
+              const nextCode = nextCh.charCodeAt(0 );
+              if ( this.isLetterCode(prevCode) && this.isLetterCode(nextCode) ) {
+                wordApostrophe = true;
+              }
+            }
+          }
+        }
+      }
+      if ( wordApostrophe ) {
+        this.advance();
+        return this.makeToken("Punctuator", "'", startPos, startLine, startCol);
+      }
       return this.readString("'");
     }
     if ( ch == "`" ) {
@@ -729,6 +795,9 @@ class TSLexer  {
           return this.makeToken("Punctuator", "...", startPos, startLine, startCol);
         }
       }
+    }
+    if ( (ch.length) == 0 ) {
+      return this.makeToken("EOF", "", this.pos, this.line, this.col);
     }
     this.advance();
     return this.makeToken("Punctuator", ch, startPos, startLine, startCol);
@@ -946,6 +1015,12 @@ class TSParserSimple  {
     if ( tokVal == "return" ) {
       return this.parseReturn();
     }
+    if ( tokVal == "break" ) {
+      return this.parseBreak();
+    }
+    if ( tokVal == "continue" ) {
+      return this.parseContinue();
+    }
     if ( tokVal == "throw" ) {
       return this.parseThrow();
     }
@@ -1020,6 +1095,32 @@ class TSParserSimple  {
       const arg = this.parseExpr();
       node.left = arg;
     }
+    if ( this.matchValue(";") ) {
+      this.advance();
+    }
+    return node;
+  };
+  parseBreak () {
+    const node = new TSNode();
+    node.nodeType = "BreakStatement";
+    const startTok = this.peek();
+    node.start = startTok.start;
+    node.line = startTok.line;
+    node.col = startTok.col;
+    this.expectValue("break");
+    if ( this.matchValue(";") ) {
+      this.advance();
+    }
+    return node;
+  };
+  parseContinue () {
+    const node = new TSNode();
+    node.nodeType = "ContinueStatement";
+    const startTok = this.peek();
+    node.start = startTok.start;
+    node.line = startTok.line;
+    node.col = startTok.col;
+    this.expectValue("continue");
     if ( this.matchValue(";") ) {
       this.advance();
     }
@@ -2529,63 +2630,61 @@ class TSParserSimple  {
       node_7.col = tok.col;
       return node_7;
     }
-    if ( tokVal == "void" ) {
+    if ( tokVal == "object" ) {
       this.advance();
       const node_8 = new TSNode();
-      node_8.nodeType = "TSVoidKeyword";
+      node_8.nodeType = "TSObjectKeyword";
       node_8.start = tok.start;
       node_8.end = tok.end;
       node_8.line = tok.line;
       node_8.col = tok.col;
       return node_8;
     }
-    if ( tokVal == "null" ) {
+    if ( tokVal == "void" ) {
       this.advance();
       const node_9 = new TSNode();
-      node_9.nodeType = "TSNullKeyword";
+      node_9.nodeType = "TSVoidKeyword";
       node_9.start = tok.start;
       node_9.end = tok.end;
       node_9.line = tok.line;
       node_9.col = tok.col;
       return node_9;
     }
-    if ( tokVal == "never" ) {
+    if ( tokVal == "null" ) {
       this.advance();
       const node_10 = new TSNode();
-      node_10.nodeType = "TSNeverKeyword";
+      node_10.nodeType = "TSNullKeyword";
       node_10.start = tok.start;
       node_10.end = tok.end;
       node_10.line = tok.line;
       node_10.col = tok.col;
       return node_10;
     }
-    if ( tokVal == "undefined" ) {
+    if ( tokVal == "never" ) {
       this.advance();
       const node_11 = new TSNode();
-      node_11.nodeType = "TSUndefinedKeyword";
+      node_11.nodeType = "TSNeverKeyword";
       node_11.start = tok.start;
       node_11.end = tok.end;
       node_11.line = tok.line;
       node_11.col = tok.col;
       return node_11;
     }
+    if ( tokVal == "undefined" ) {
+      this.advance();
+      const node_12 = new TSNode();
+      node_12.nodeType = "TSUndefinedKeyword";
+      node_12.start = tok.start;
+      node_12.end = tok.end;
+      node_12.line = tok.line;
+      node_12.col = tok.col;
+      return node_12;
+    }
     const tokType = this.peekType();
     if ( tokType == "Identifier" ) {
       return this.parseTypeRef();
     }
     if ( tokType == "String" ) {
-      this.advance();
-      const node_12 = new TSNode();
-      node_12.nodeType = "TSLiteralType";
-      node_12.start = tok.start;
-      node_12.end = tok.end;
-      node_12.line = tok.line;
-      node_12.col = tok.col;
-      node_12.value = tok.value;
-      node_12.kind = "string";
-      return node_12;
-    }
-    if ( tokType == "Number" ) {
       this.advance();
       const node_13 = new TSNode();
       node_13.nodeType = "TSLiteralType";
@@ -2594,10 +2693,10 @@ class TSParserSimple  {
       node_13.line = tok.line;
       node_13.col = tok.col;
       node_13.value = tok.value;
-      node_13.kind = "number";
+      node_13.kind = "string";
       return node_13;
     }
-    if ( (tokVal == "true") || (tokVal == "false") ) {
+    if ( tokType == "Number" ) {
       this.advance();
       const node_14 = new TSNode();
       node_14.nodeType = "TSLiteralType";
@@ -2605,20 +2704,32 @@ class TSParserSimple  {
       node_14.end = tok.end;
       node_14.line = tok.line;
       node_14.col = tok.col;
-      node_14.value = tokVal;
-      node_14.kind = "boolean";
+      node_14.value = tok.value;
+      node_14.kind = "number";
       return node_14;
     }
-    if ( tokType == "Template" ) {
+    if ( (tokVal == "true") || (tokVal == "false") ) {
       this.advance();
       const node_15 = new TSNode();
-      node_15.nodeType = "TSTemplateLiteralType";
+      node_15.nodeType = "TSLiteralType";
       node_15.start = tok.start;
       node_15.end = tok.end;
       node_15.line = tok.line;
       node_15.col = tok.col;
-      node_15.value = tok.value;
+      node_15.value = tokVal;
+      node_15.kind = "boolean";
       return node_15;
+    }
+    if ( tokType == "Template" ) {
+      this.advance();
+      const node_16 = new TSNode();
+      node_16.nodeType = "TSTemplateLiteralType";
+      node_16.start = tok.start;
+      node_16.end = tok.end;
+      node_16.line = tok.line;
+      node_16.col = tok.col;
+      node_16.value = tok.value;
+      return node_16;
     }
     if ( tokVal == "new" ) {
       return this.parseConstructorType();
@@ -3192,13 +3303,64 @@ class TSParserSimple  {
     return left;
   };
   parseLogicalAnd () {
-    let left = this.parseEquality();
+    let left = this.parseBitwiseOr();
     while (this.matchValue("&&")) {
+      this.advance();
+      const right = this.parseBitwiseOr();
+      const expr = new TSNode();
+      expr.nodeType = "BinaryExpression";
+      expr.value = "&&";
+      expr.left = left;
+      expr.right = right;
+      expr.start = left.start;
+      expr.line = left.line;
+      expr.col = left.col;
+      left = expr;
+    };
+    return left;
+  };
+  parseBitwiseOr () {
+    let left = this.parseBitwiseXor();
+    while (this.matchValue("|")) {
+      this.advance();
+      const right = this.parseBitwiseXor();
+      const expr = new TSNode();
+      expr.nodeType = "BinaryExpression";
+      expr.value = "|";
+      expr.left = left;
+      expr.right = right;
+      expr.start = left.start;
+      expr.line = left.line;
+      expr.col = left.col;
+      left = expr;
+    };
+    return left;
+  };
+  parseBitwiseXor () {
+    let left = this.parseBitwiseAnd();
+    while (this.matchValue("^")) {
+      this.advance();
+      const right = this.parseBitwiseAnd();
+      const expr = new TSNode();
+      expr.nodeType = "BinaryExpression";
+      expr.value = "^";
+      expr.left = left;
+      expr.right = right;
+      expr.start = left.start;
+      expr.line = left.line;
+      expr.col = left.col;
+      left = expr;
+    };
+    return left;
+  };
+  parseBitwiseAnd () {
+    let left = this.parseEquality();
+    while (this.matchValue("&")) {
       this.advance();
       const right = this.parseEquality();
       const expr = new TSNode();
       expr.nodeType = "BinaryExpression";
-      expr.value = "&&";
+      expr.value = "&";
       expr.left = left;
       expr.right = right;
       expr.start = left.start;
@@ -3315,7 +3477,7 @@ class TSParserSimple  {
       update.col = opTok.col;
       return update;
     }
-    if ( (tokVal == "!") || (tokVal == "-") ) {
+    if ( ((tokVal == "!") || (tokVal == "-")) || (tokVal == "+") ) {
       const opTok_1 = this.peek();
       this.advance();
       const arg_1 = this.parseUnary();
@@ -3327,6 +3489,19 @@ class TSParserSimple  {
       unary.line = opTok_1.line;
       unary.col = opTok_1.col;
       return unary;
+    }
+    if ( tokVal == "typeof" ) {
+      const opTok_2 = this.peek();
+      this.advance();
+      const arg_2 = this.parseUnary();
+      const unary_1 = new TSNode();
+      unary_1.nodeType = "UnaryExpression";
+      unary_1.value = "typeof";
+      unary_1.left = arg_2;
+      unary_1.start = opTok_2.start;
+      unary_1.line = opTok_2.line;
+      unary_1.col = opTok_2.col;
+      return unary_1;
     }
     if ( tokVal == "yield" ) {
       const yieldTok = this.peek();
@@ -3349,10 +3524,10 @@ class TSParserSimple  {
     if ( tokVal == "await" ) {
       const awaitTok = this.peek();
       this.advance();
-      const arg_2 = this.parseUnary();
+      const arg_3 = this.parseUnary();
       const awaitExpr = new TSNode();
       awaitExpr.nodeType = "AwaitExpression";
-      awaitExpr.left = arg_2;
+      awaitExpr.left = arg_3;
       awaitExpr.start = awaitTok.start;
       awaitExpr.line = awaitTok.line;
       awaitExpr.col = awaitTok.col;
@@ -3379,11 +3554,11 @@ class TSParserSimple  {
         const typeNode = this.parseType();
         if ( this.matchValue(">") ) {
           this.advance();
-          const arg_3 = this.parseUnary();
+          const arg_4 = this.parseUnary();
           const assertion = new TSNode();
           assertion.nodeType = "TSTypeAssertion";
           assertion.typeAnnotation = typeNode;
-          assertion.left = arg_3;
+          assertion.left = arg_4;
           assertion.start = startTok.start;
           assertion.line = startTok.line;
           assertion.col = startTok.col;
@@ -5340,8 +5515,8 @@ class EVGElement  {
     this.imageViewBoxH = 1.0;     /** note: unused */
     this.imageViewBoxSet = false;     /** note: unused */
     this.objectFit = "cover";
-    this.sourceWidth = 0.0;     /** note: unused */
-    this.sourceHeight = 0.0;     /** note: unused */
+    this.sourceWidth = 0.0;
+    this.sourceHeight = 0.0;
     this.svgPath = "";
     this.viewBox = "";
     this.strokeWidth = 0.0;
@@ -5365,6 +5540,8 @@ class EVGElement  {
     this.isLayoutComplete = false;
     this.unitsResolved = false;
     this.hasReturn = false;
+    this.hasBreak = false;
+    this.hasContinue = false;
     this.inheritedFontSize = 14.0;
     this.tagName = "div";
     this.elementType = 0;
@@ -7504,6 +7681,8 @@ class EVGLayout  {
     if ( root.height.isSet == false ) {
       root.height = EVGUnit.px(this.pageHeight);
     }
+    root.calculatedX = 0.0;
+    root.calculatedY = 0.0;
     this.layoutElement(root, 0.0, 0.0, this.pageWidth, this.pageHeight);
     this.log("EVGLayout: Layout complete");
   };
@@ -7512,6 +7691,25 @@ class EVGLayout  {
     let width = parentWidth;
     if ( element.width.isSet ) {
       width = element.width.pixels;
+    }
+    if ( element.width.isSet == false ) {
+      const textContent = element.textContent;
+      if ( (textContent.length) > 0 ) {
+        if ( element.getChildCount() == 0 ) {
+          let fontSize = element.inheritedFontSize;
+          if ( element.fontSize.isSet ) {
+            fontSize = element.fontSize.pixels;
+          }
+          if ( fontSize <= 0.0 ) {
+            fontSize = 14.0;
+          }
+          const contentW = this.measureTextContentWidth(textContent, fontSize);
+          const measuredW = ((contentW + element.box.paddingLeftPx) + element.box.paddingRightPx) + (element.box.borderWidthPx * 2.0);
+          if ( measuredW < parentWidth ) {
+            width = measuredW;
+          }
+        }
+      }
     }
     let height = 0.0;
     let autoHeight = true;
@@ -7533,25 +7731,45 @@ class EVGLayout  {
       if ( (imgSrc.length) > 0 ) {
         const dims = this.imageMeasurer.getImageDimensions(imgSrc);
         if ( dims.isValid ) {
+          element.sourceWidth = dims.width;
+          element.sourceHeight = dims.height;
           if ( element.width.isSet && (element.height.isSet == false) ) {
-            height = width / dims.aspectRatio;
-            autoHeight = false;
-            this.log((("  Image aspect ratio: " + ((dims.aspectRatio.toString()))) + " -> height=") + ((height.toString())));
-          }
-          if ( (element.width.isSet == false) && element.height.isSet ) {
-            width = height * dims.aspectRatio;
-            this.log((("  Image aspect ratio: " + ((dims.aspectRatio.toString()))) + " -> width=") + ((width.toString())));
-          }
-          if ( (element.width.isSet == false) && (element.height.isSet == false) ) {
-            width = dims.width;
-            height = dims.height;
-            if ( width > parentWidth ) {
-              const scale = parentWidth / width;
-              width = parentWidth;
-              height = height * scale;
+            if ( parentHeight > 0.0 ) {
+              height = parentHeight;
+              this.log((("  Image container using parent height: " + ((width.toString()))) + "x") + ((height.toString())));
+            } else {
+              height = width / dims.aspectRatio;
+              this.log((("  Image aspect ratio: " + ((dims.aspectRatio.toString()))) + " -> height=") + ((height.toString())));
             }
             autoHeight = false;
-            this.log((("  Image natural size: " + ((width.toString()))) + "x") + ((height.toString())));
+          }
+          if ( (element.width.isSet == false) && element.height.isSet ) {
+            if ( parentWidth > 0.0 ) {
+              width = parentWidth;
+              this.log((("  Image container using parent width: " + ((width.toString()))) + "x") + ((height.toString())));
+            } else {
+              width = height * dims.aspectRatio;
+              this.log((("  Image aspect ratio: " + ((dims.aspectRatio.toString()))) + " -> width=") + ((width.toString())));
+            }
+          }
+          if ( (element.width.isSet == false) && (element.height.isSet == false) ) {
+            if ( (parentWidth > 0.0) && (parentHeight > 0.0) ) {
+              width = parentWidth;
+              height = parentHeight;
+              this.log((("  Image filling parent: " + ((width.toString()))) + "x") + ((height.toString())));
+            } else {
+              width = dims.width;
+              height = dims.height;
+              if ( width > parentWidth ) {
+                if ( parentWidth > 0.0 ) {
+                  const scale = parentWidth / width;
+                  width = parentWidth;
+                  height = height * scale;
+                }
+              }
+              this.log((("  Image natural size: " + ((width.toString()))) + "x") + ((height.toString())));
+            }
+            autoHeight = false;
           }
         }
       }
@@ -7580,22 +7798,22 @@ class EVGLayout  {
     if ( childCount > 0 ) {
       contentHeight = this.layoutChildren(element);
     } else {
-      const textContent = element.textContent;
-      if ( (textContent.length) > 0 ) {
-        let fontSize = element.inheritedFontSize;
+      const textContent_1 = element.textContent;
+      if ( (textContent_1.length) > 0 ) {
+        let fontSize_1 = element.inheritedFontSize;
         if ( element.fontSize.isSet ) {
-          fontSize = element.fontSize.pixels;
+          fontSize_1 = element.fontSize.pixels;
         }
-        if ( fontSize <= 0.0 ) {
-          fontSize = 14.0;
+        if ( fontSize_1 <= 0.0 ) {
+          fontSize_1 = 14.0;
         }
         let lineHeightFactor = element.lineHeight;
         if ( lineHeightFactor <= 0.0 ) {
           lineHeightFactor = 1.2;
         }
-        const lineSpacing = fontSize * lineHeightFactor;
+        const lineSpacing = fontSize_1 * lineHeightFactor;
         const availableWidth = (width - element.box.paddingLeftPx) - element.box.paddingRightPx;
-        const lineCount = this.estimateLineCount(textContent, availableWidth, fontSize);
+        const lineCount = this.estimateLineCount(textContent_1, availableWidth, fontSize_1);
         contentHeight = lineSpacing * (lineCount);
       }
     }
@@ -7639,6 +7857,7 @@ class EVGLayout  {
       let j = 0;
       while (j < childCount) {
         const c = parent.getChild(j);
+        c.inheritProperties(parent);
         c.resolveUnits(innerWidth, innerHeight);
         if ( c.width.isSet ) {
           fixedWidth = ((fixedWidth + c.width.pixels) + c.box.marginLeftPx) + c.box.marginRightPx;
@@ -7647,7 +7866,9 @@ class EVGLayout  {
             totalFlex = totalFlex + c.flex;
             fixedWidth = (fixedWidth + c.box.marginLeftPx) + c.box.marginRightPx;
           } else {
-            fixedWidth = ((fixedWidth + innerWidth) + c.box.marginLeftPx) + c.box.marginRightPx;
+            const avail = (innerWidth - c.box.marginLeftPx) - c.box.marginRightPx;
+            const estW = this.estimateChildWidth(c, avail);
+            fixedWidth = ((fixedWidth + estW) + c.box.marginLeftPx) + c.box.marginRightPx;
           }
         }
         j = j + 1;
@@ -7698,7 +7919,7 @@ class EVGLayout  {
         continue;
       }
       const availableForChild = (innerWidth - child.box.marginLeftPx) - child.box.marginRightPx;
-      let childWidth = availableForChild;
+      let childWidth = this.estimateChildWidth(child, availableForChild);
       if ( child.width.isSet ) {
         if ( child.width.pixels >= innerWidth ) {
           childWidth = availableForChild;
@@ -7727,11 +7948,12 @@ class EVGLayout  {
       this.layoutElement(child, child.calculatedX, child.calculatedY, childWidth, innerHeight);
       const childHeight = child.calculatedHeight;
       const childTotalHeight = (childHeight + child.box.marginTopPx) + child.box.marginBottomPx;
+      const placedWidth = (child.calculatedWidth + child.box.marginLeftPx) + child.box.marginRightPx;
       if ( isColumn ) {
         currentY = currentY + childTotalHeight;
         totalHeight = totalHeight + childTotalHeight;
       } else {
-        currentX = currentX + childTotalWidth;
+        currentX = currentX + placedWidth;
         rowElements.push(child);
         if ( childTotalHeight > rowHeight ) {
           rowHeight = childTotalHeight;
@@ -7764,7 +7986,12 @@ class EVGLayout  {
       return;
     }
     const verticalAlign = parent.justifyContent;
-    const horizontalAlign = parent.alignItems;
+    let horizontalAlign = parent.alignItems;
+    if ( (parent.align.length) > 0 ) {
+      if ( parent.align != "left" ) {
+        horizontalAlign = parent.align;
+      }
+    }
     let availableHeight = innerHeight;
     if ( parent.height.isSet ) {
       availableHeight = parent.calculatedInnerHeight;
@@ -7776,17 +8003,51 @@ class EVGLayout  {
     if ( (verticalAlign == "flex-end") || (verticalAlign == "end") ) {
       offsetY = availableHeight - contentHeight;
     }
-    if ( verticalAlign == "space-between" ) {
-      offsetY = 0.0;
+    let flowCount = 0;
+    let fc = 0;
+    while (fc < childCount) {
+      const fchild = parent.getChild(fc);
+      if ( fchild.isAbsolute == false ) {
+        flowCount = flowCount + 1;
+      }
+      fc = fc + 1;
+    };
+    let freeSpaceY = availableHeight - contentHeight;
+    if ( freeSpaceY < 0.0 ) {
+      freeSpaceY = 0.0;
     }
+    let distributeGapY = 0.0;
+    let distributeFirstY = 0.0;
+    if ( verticalAlign == "space-between" ) {
+      if ( flowCount > 1 ) {
+        distributeGapY = freeSpaceY / ((flowCount - 1));
+      }
+    }
+    if ( verticalAlign == "space-around" ) {
+      if ( flowCount > 0 ) {
+        distributeGapY = freeSpaceY / (flowCount);
+        distributeFirstY = distributeGapY / 2.0;
+      }
+    }
+    if ( verticalAlign == "space-evenly" ) {
+      distributeGapY = freeSpaceY / ((flowCount + 1));
+      distributeFirstY = distributeGapY;
+    }
+    const usesDistributeY = (distributeGapY > 0.0) || (distributeFirstY > 0.0);
     let i = 0;
+    let flowIndex = 0;
     while (i < childCount) {
       const child = parent.getChild(i);
       if ( child.isAbsolute == false ) {
-        if ( offsetY != 0.0 ) {
-          child.calculatedY = child.calculatedY + offsetY;
-          this.propagateOffsetToChildren(child, 0.0, offsetY);
+        let elemOffsetY = offsetY;
+        if ( usesDistributeY ) {
+          elemOffsetY = distributeFirstY + (distributeGapY * (flowIndex));
         }
+        if ( elemOffsetY != 0.0 ) {
+          child.calculatedY = child.calculatedY + elemOffsetY;
+          this.propagateOffsetToChildren(child, 0.0, elemOffsetY);
+        }
+        flowIndex = flowIndex + 1;
         const childTotalWidth = (child.calculatedWidth + child.box.marginLeftPx) + child.box.marginRightPx;
         let offsetX = 0.0;
         if ( horizontalAlign == "center" ) {
@@ -7823,7 +8084,9 @@ class EVGLayout  {
       horizontalAlign = crossAxisAlign;
     }
     if ( (parent.align.length) > 0 ) {
-      horizontalAlign = parent.align;
+      if ( parent.align != "left" ) {
+        horizontalAlign = parent.align;
+      }
     }
     let offsetX = 0.0;
     if ( horizontalAlign == "center" ) {
@@ -7832,6 +8095,26 @@ class EVGLayout  {
     if ( (horizontalAlign == "flex-end") || (horizontalAlign == "right") ) {
       offsetX = innerWidth - rowWidth;
     }
+    let freeSpace = innerWidth - rowWidth;
+    if ( freeSpace < 0.0 ) {
+      freeSpace = 0.0;
+    }
+    let distributeGap = 0.0;
+    let distributeFirst = 0.0;
+    if ( horizontalAlign == "space-between" ) {
+      if ( elementCount > 1 ) {
+        distributeGap = freeSpace / ((elementCount - 1));
+      }
+    }
+    if ( horizontalAlign == "space-around" ) {
+      distributeGap = freeSpace / (elementCount);
+      distributeFirst = distributeGap / 2.0;
+    }
+    if ( horizontalAlign == "space-evenly" ) {
+      distributeGap = freeSpace / ((elementCount + 1));
+      distributeFirst = distributeGap;
+    }
+    const usesDistribute = (distributeGap > 0.0) || (distributeFirst > 0.0);
     let verticalAlignVal = crossAxisAlign;
     if ( isColumn ) {
       verticalAlignVal = mainAxisAlign;
@@ -7851,9 +8134,13 @@ class EVGLayout  {
     i = 0;
     while (i < elementCount) {
       const el_1 = rowElements[i];
-      if ( offsetX != 0.0 ) {
-        el_1.calculatedX = el_1.calculatedX + offsetX;
-        this.propagateOffsetToChildren(el_1, offsetX, 0.0);
+      let elemOffsetX = offsetX;
+      if ( usesDistribute ) {
+        elemOffsetX = distributeFirst + (distributeGap * (i));
+      }
+      if ( elemOffsetX != 0.0 ) {
+        el_1.calculatedX = el_1.calculatedX + elemOffsetX;
+        this.propagateOffsetToChildren(el_1, elemOffsetX, 0.0);
       }
       const childTotalHeight = (el_1.calculatedHeight + el_1.box.marginTopPx) + el_1.box.marginBottomPx;
       let offsetY = 0.0;
@@ -7936,6 +8223,50 @@ class EVGLayout  {
       this.printLayout(child, indent + 1);
       i = i + 1;
     };
+  };
+  estimateChildWidth (child, maxInnerWidth) {
+    if ( child.width.isSet ) {
+      return child.width.pixels;
+    }
+    if ( child.calculatedFlexWidth > 0.0 ) {
+      return child.calculatedFlexWidth;
+    }
+    const textContent = child.textContent;
+    if ( (textContent.length) > 0 ) {
+      if ( child.getChildCount() == 0 ) {
+        let fontSize = child.inheritedFontSize;
+        if ( child.fontSize.isSet ) {
+          fontSize = child.fontSize.pixels;
+        }
+        if ( fontSize <= 0.0 ) {
+          fontSize = 14.0;
+        }
+        const contentW = this.measureTextContentWidth(textContent, fontSize);
+        const measuredW = ((contentW + child.box.paddingLeftPx) + child.box.paddingRightPx) + (child.box.borderWidthPx * 2.0);
+        if ( measuredW < maxInnerWidth ) {
+          return measuredW;
+        }
+      }
+    }
+    return maxInnerWidth;
+  };
+  measureTextContentWidth (text, fontSize) {
+    if ( (text.length) == 0 ) {
+      return 0.0;
+    }
+    const fontFamily = "Helvetica";
+    const lines = text.split("\n");
+    let maxW = 0.0;
+    let i = 0;
+    while (i < (lines.length)) {
+      const line = lines[i];
+      const lineW = this.measurer.measureTextWidth(line, fontFamily, fontSize);
+      if ( lineW > maxW ) {
+        maxW = lineW;
+      }
+      i = i + 1;
+    };
+    return maxW;
   };
   estimateLineCount (text, maxWidth, fontSize) {
     if ( (text.length) == 0 ) {
@@ -8863,10 +9194,19 @@ class FontManager  {
       }
       i = i + 1;
     };
-    const fullPath_1 = (this.fontsDirectory + "/") + relativePath;
+    let separator = "/";
+    const dirLen = this.fontsDirectory.length;
+    if ( dirLen > 0 ) {
+      const lastChar = this.fontsDirectory.substring((dirLen - 1), dirLen );
+      if ( lastChar == "/" ) {
+        separator = "";
+      }
+    }
+    const fullPath_1 = (this.fontsDirectory + separator) + relativePath;
+    console.log("FontManager: Trying to load font from: " + fullPath_1);
     const font_1 = new TrueTypeFont();
     if ( font_1.loadFromFile(fullPath_1) == false ) {
-      console.log("FontManager: Failed to load font: " + relativePath);
+      console.log(((("FontManager: Failed to load font: " + relativePath) + " (full path: ") + fullPath_1) + ")");
       return false;
     }
     this.fonts.push(font_1);
@@ -8882,19 +9222,62 @@ class FontManager  {
     this.loadFont(((familyDir + "/") + familyDir) + "-Regular.ttf");
   };
   getFont (fontFamily) {
+    const slashIdx = fontFamily.indexOf("/");
+    let searchFamily = fontFamily;
+    let searchStyle = "";
+    if ( slashIdx >= 0 ) {
+      searchFamily = fontFamily.substring(0, slashIdx );
+      const afterSlash = fontFamily.substring((slashIdx + 1), (fontFamily.length) );
+      const dashIdx = afterSlash.indexOf("-");
+      if ( dashIdx >= 0 ) {
+        searchStyle = afterSlash.substring((dashIdx + 1), (afterSlash.length) );
+      }
+    } else {
+      const dashIdx_1 = fontFamily.indexOf("-");
+      if ( dashIdx_1 >= 0 ) {
+        searchFamily = fontFamily.substring(0, dashIdx_1 );
+        searchStyle = fontFamily.substring((dashIdx_1 + 1), (fontFamily.length) );
+      }
+    }
     let i = 0;
     while (i < (this.fonts.length)) {
       const f = this.fonts[i];
-      if ( f.fontFamily == fontFamily ) {
-        return f;
+      if ( f.fontFamily == searchFamily ) {
+        if ( (searchStyle.length) > 0 ) {
+          if ( f.fontStyle == searchStyle ) {
+            return f;
+          }
+        } else {
+          return f;
+        }
       }
       i = i + 1;
     };
     i = 0;
     while (i < (this.fonts.length)) {
       const f_1 = this.fonts[i];
-      if ( (f_1.fontFamily.indexOf(fontFamily)) >= 0 ) {
-        return f_1;
+      if ( f_1.fontFamily == searchFamily ) {
+        if ( (searchStyle.length) > 0 ) {
+          if ( (f_1.fontStyle.indexOf(searchStyle)) >= 0 ) {
+            return f_1;
+          }
+        }
+      }
+      i = i + 1;
+    };
+    i = 0;
+    while (i < (this.fonts.length)) {
+      const f_2 = this.fonts[i];
+      if ( f_2.fontFamily == fontFamily ) {
+        return f_2;
+      }
+      i = i + 1;
+    };
+    i = 0;
+    while (i < (this.fonts.length)) {
+      const f_3 = this.fonts[i];
+      if ( (f_3.fontFamily.indexOf(fontFamily)) >= 0 ) {
+        return f_3;
       }
       i = i + 1;
     };
@@ -8948,7 +9331,7 @@ class FontManager  {
 }
 class TTFTextMeasurer  extends EVGTextMeasurer {
   constructor(fm) {
-    super()
+    super(fm)
     this.fontManager = fm;
   }
   measureText (text, fontFamily, fontSize) {
@@ -9481,6 +9864,15 @@ class ImageBuffer  {
     this.pixels = (function(){ var b = new ArrayBuffer(size); b._view = new DataView(b); return b; })();
     this.fill(255, 255, 255, 255);
   };
+  initClear (w, h) {
+    this.width = w;
+    this.height = h;
+    this.pixels = (function(){ var b = new ArrayBuffer(((w * h) * 4)); b._view = new DataView(b); return b; })();
+  };
+  fillTransparent () {
+    const size = (this.width * this.height) * 4;
+    (function(b,v,s,e){ var arr = new Uint8Array(b); for(var i=s;i<e;i++) arr[i]=v; })(this.pixels,0,0,size);
+  };
   getPixelOffset (x, y) {
     return ((y * this.width) + x) * 4;
   };
@@ -9527,6 +9919,18 @@ class ImageBuffer  {
       this.pixels._view.setUint8(off + 2, b);
       this.pixels._view.setUint8(off + 3, 255);
     }
+  };
+  setPixelRGBA (x, y, r, g, b, a) {
+    if ( this.isValidCoord(x, y) ) {
+      const off = this.getPixelOffset(x, y);
+      this.pixels._view.setUint8(off, r);
+      this.pixels._view.setUint8(off + 1, g);
+      this.pixels._view.setUint8(off + 2, b);
+      this.pixels._view.setUint8(off + 3, a);
+    }
+  };
+  getRawBuffer () {
+    return this.pixels;
   };
   fill (r, g, b, a) {
     const size = (this.width * this.height) * 4;
@@ -10197,6 +10601,37 @@ class JPEGDecoder  {
       i_2 = i_2 + 1;
     };
   }
+  reset () {
+    this.width = 0;
+    this.height = 0;
+    this.numComponents = 0;
+    this.precision = 8;
+    this.scanDataStart = 0;
+    this.scanDataLen = 0;
+    this.mcuWidth = 8;
+    this.mcuHeight = 8;
+    this.mcusPerRow = 0;
+    this.mcusPerCol = 0;
+    this.maxHSamp = 1;
+    this.maxVSamp = 1;
+    this.restartInterval = 0;
+    this.components.length = 0;
+    this.huffman.dcTable0.resetArrays();
+    this.huffman.dcTable1.resetArrays();
+    this.huffman.acTable0.resetArrays();
+    this.huffman.acTable1.resetArrays();
+    let i = 0;
+    while (i < 4) {
+      const qt = this.quantTables[i];
+      qt.values.length = 0;
+      let j = 0;
+      while (j < 64) {
+        qt.values.push(1);
+        j = j + 1;
+      };
+      i = i + 1;
+    };
+  };
   readUint16BE (pos) {
     const high = this.data._view.getUint8(pos);
     const low = this.data._view.getUint8((pos + 1));
@@ -10426,6 +10861,7 @@ class JPEGDecoder  {
     return coeffs;
   };
   decode (dirPath, fileName) {
+    this.reset();
     this.data = (function(){ var b = require('fs').readFileSync(dirPath + '/' + fileName); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })();
     this.dataLen = this.data.byteLength;
     console.log(((("Decoding JPEG: " + fileName) + " (") + ((this.dataLen.toString()))) + " bytes)");
@@ -12241,13 +12677,13 @@ class EVGPDFRenderer  {
     if ( section.width.isSet ) {
       return section.width.pixels;
     }
-    return 595.0;
+    return this.pageWidth;
   };
   getSectionPageHeight (section) {
     if ( section.height.isSet ) {
       return section.height.pixels;
     }
-    return 842.0;
+    return this.pageHeight;
   };
   getSectionMargin (section) {
     const m = section.box.marginTop;
@@ -12921,11 +13357,31 @@ class EVGPDFRenderer  {
       this.streamBuffer.writeString("q\n");
       this.applyClipPath(el.clipPath, x, pdfY, w, h);
     }
+    let hasOverflowClip = false;
+    if ( el.overflow == "hidden" ) {
+      hasOverflowClip = true;
+      this.streamBuffer.writeString("q\n");
+      if ( borderRadius > 0.0 ) {
+        this.drawRoundedRectPath(x, pdfY, w, h, borderRadius);
+        this.streamBuffer.writeString("W n\n");
+      } else {
+        this.streamBuffer.writeString(((((((((x.toString())) + " ") + ((pdfY.toString()))) + " ") + ((w.toString()))) + " ") + ((h.toString()))) + " re W n\n");
+      }
+    }
     if ( el.tagName != "text" ) {
       this.renderShadow(el, x, pdfY, w, h, borderRadius);
     }
     if ( (el.backgroundGradient.length) > 0 ) {
-      this.renderGradientBackground(el, x, pdfY, w, h, borderRadius);
+      let hasOpacity = false;
+      if ( el.backgroundGradient.includes("rgba") ) {
+        hasOpacity = true;
+      }
+      if ( el.backgroundGradient.includes("transparent") ) {
+        hasOpacity = true;
+      }
+      if ( hasOpacity == false ) {
+        this.renderGradientBackground(el, x, pdfY, w, h, borderRadius);
+      }
     } else {
       const bgColor = el.backgroundColor;
       if ( this.debug ) {
@@ -12958,6 +13414,9 @@ class EVGPDFRenderer  {
     if ( hasClipPath ) {
       this.streamBuffer.writeString("Q\n");
     }
+    if ( hasOverflowClip ) {
+      this.streamBuffer.writeString("Q\n");
+    }
   };
   getImagePdfName (src) {
     let i = 0;
@@ -12972,14 +13431,83 @@ class EVGPDFRenderer  {
     this.embeddedImages.push(newImg);
     return "/Im" + (((this.embeddedImages.length).toString()));
   };
+  getEmbeddedImage (src) {
+    let i = 0;
+    while (i < (this.embeddedImages.length)) {
+      const embImg = this.embeddedImages[i];
+      if ( embImg.src == src ) {
+        return embImg;
+      }
+      i = i + 1;
+    };
+    const empty = new EmbeddedImage("");
+    return empty;
+  };
   renderImage (el, x, y, w, h) {
     const src = el.src;
     if ( (src.length) == 0 ) {
       return;
     }
     const imgName = this.getImagePdfName(src);
+    let origW = 0.0;
+    let origH = 0.0;
+    const dims = this.loadImageDimensions(src);
+    if ( dims.isValid ) {
+      origW = dims.width;
+      origH = dims.height;
+    }
+    let renderW = w;
+    let renderH = h;
+    let offsetX = 0.0;
+    let offsetY = 0.0;
+    console.log((((((((("renderImage: src=" + src) + " container=") + ((w.toString()))) + "x") + ((h.toString()))) + " origImg=") + ((origW.toString()))) + "x") + ((origH.toString())));
+    if ( origW > 0.0 ) {
+      if ( origH > 0.0 ) {
+        let objectFit = el.objectFit;
+        if ( (objectFit.length) == 0 ) {
+          objectFit = "cover";
+        }
+        const containerRatio = w / h;
+        const imageRatio = origW / origH;
+        console.log((((("  objectFit=" + objectFit) + " containerRatio=") + ((containerRatio.toString()))) + " imageRatio=") + ((imageRatio.toString())));
+        if ( objectFit == "cover" ) {
+          if ( imageRatio > containerRatio ) {
+            renderH = h;
+            renderW = h * imageRatio;
+            offsetX = (w - renderW) / 2.0;
+          } else {
+            renderW = w;
+            renderH = w / imageRatio;
+            offsetY = (h - renderH) / 2.0;
+          }
+        }
+        if ( objectFit == "contain" ) {
+          if ( imageRatio > containerRatio ) {
+            renderW = w;
+            renderH = w / imageRatio;
+            offsetY = (h - renderH) / 2.0;
+          } else {
+            renderH = h;
+            renderW = h * imageRatio;
+            offsetX = (w - renderW) / 2.0;
+          }
+        }
+      }
+    }
     this.streamBuffer.writeString("q\n");
-    this.streamBuffer.writeString(((((((this.formatNum(w) + " 0 0 ") + this.formatNum(h)) + " ") + this.formatNum(x)) + " ") + this.formatNum(y)) + " cm\n");
+    let borderRadius = 0.0;
+    if ( el.box.borderRadius.isSet ) {
+      borderRadius = el.box.borderRadius.pixels;
+    }
+    if ( borderRadius > 0.0 ) {
+      this.drawRoundedRectPath(x, y, w, h, borderRadius);
+      this.streamBuffer.writeString("W n\n");
+    } else {
+      this.streamBuffer.writeString(((((((this.formatNum(x) + " ") + this.formatNum(y)) + " ") + this.formatNum(w)) + " ") + this.formatNum(h)) + " re W n\n");
+    }
+    const finalX = x + offsetX;
+    const finalY = y + offsetY;
+    this.streamBuffer.writeString(((((((this.formatNum(renderW) + " 0 0 ") + this.formatNum(renderH)) + " ") + this.formatNum(finalX)) + " ") + this.formatNum(finalY)) + " cm\n");
     this.streamBuffer.writeString(imgName + " Do\n");
     this.streamBuffer.writeString("Q\n");
   };
@@ -13371,6 +13899,12 @@ class EVGPDFRenderer  {
     }
     const lines = this.wrapText(text, w, fontSize, fontFamily);
     const fontName = this.getPdfFontName(fontFamily);
+    const ttfFontDebug = this.fontManager.getFont(fontFamily);
+    if ( ttfFontDebug.unitsPerEm > 0 ) {
+      console.log(((((("PDF Font: requested='" + fontFamily) + "' -> resolved='") + ttfFontDebug.fontFamily) + "' style='") + ttfFontDebug.fontStyle) + "'");
+    } else {
+      console.log(("PDF Font: requested='" + fontFamily) + "' -> FALLBACK (font not found)");
+    }
     let hasShadow = false;
     let shadowOffsetX = 0.0;
     let shadowOffsetY = 0.0;
@@ -13584,6 +14118,287 @@ class EVGPDFRenderer  {
     return result;
   };
 }
+class TSTopLevelDecl  {
+  constructor() {
+    this.name = "";
+    this.declKind = "";
+    this.node = new TSNode();
+    this.text = "";
+  }
+}
+class TSAstPatchChange  {
+  constructor() {
+    this.changeKind = "";
+    this.name = "";
+    this.declKind = "";
+  }
+}
+class TSAstPatchResult  {
+  constructor() {
+    this.changes = [];
+    this.functionsChanged = false;
+    this.variablesChanged = false;
+    this.sceneAffecting = false;
+    this.hasChanges = false;
+  }
+}
+class TSAstPatcher  {
+  constructor() {
+  }
+  nodeSpanEnd (node) {
+    let best = node.end;
+    if ( best < node.start ) {
+      best = node.start;
+    }
+    if ( typeof(node.body) != "undefined" ) {
+      const bodyEnd = this.nodeSpanEnd((node.body));
+      if ( bodyEnd > best ) {
+        best = bodyEnd;
+      }
+    }
+    if ( typeof(node.left) != "undefined" ) {
+      const leftEnd = this.nodeSpanEnd((node.left));
+      if ( leftEnd > best ) {
+        best = leftEnd;
+      }
+    }
+    if ( typeof(node.right) != "undefined" ) {
+      const rightEnd = this.nodeSpanEnd((node.right));
+      if ( rightEnd > best ) {
+        best = rightEnd;
+      }
+    }
+    if ( typeof(node.init) != "undefined" ) {
+      const initEnd = this.nodeSpanEnd((node.init));
+      if ( initEnd > best ) {
+        best = initEnd;
+      }
+    }
+    if ( typeof(node.test) != "undefined" ) {
+      const testEnd = this.nodeSpanEnd((node.test));
+      if ( testEnd > best ) {
+        best = testEnd;
+      }
+    }
+    if ( typeof(node.consequent) != "undefined" ) {
+      const consEnd = this.nodeSpanEnd((node.consequent));
+      if ( consEnd > best ) {
+        best = consEnd;
+      }
+    }
+    if ( typeof(node.alternate) != "undefined" ) {
+      const altEnd = this.nodeSpanEnd((node.alternate));
+      if ( altEnd > best ) {
+        best = altEnd;
+      }
+    }
+    let i = 0;
+    while (i < (node.children.length)) {
+      const childEnd = this.nodeSpanEnd((node.children[i]));
+      if ( childEnd > best ) {
+        best = childEnd;
+      }
+      i = i + 1;
+    };
+    return best;
+  };
+  declText (src, node) {
+    let start = node.start;
+    let end = this.nodeSpanEnd(node);
+    const __len = src.length;
+    if ( start < 0 ) {
+      start = 0;
+    }
+    if ( end > __len ) {
+      end = __len;
+    }
+    if ( end <= start ) {
+      return "";
+    }
+    return src.substring(start, end );
+  };
+  isSceneAffectingFunction (name) {
+    if ( name == "initState" ) {
+      return true;
+    }
+    if ( name == "sprites" ) {
+      return true;
+    }
+    if ( name == "resources" ) {
+      return true;
+    }
+    if ( name == "screens" ) {
+      return true;
+    }
+    if ( name == "createStaticBg" ) {
+      return true;
+    }
+    if ( name == "staticLevelHeight" ) {
+      return true;
+    }
+    if ( name == "backgroundImage" ) {
+      return true;
+    }
+    return false;
+  };
+  collectFromNode (src, node, decls) {
+    if ( node.nodeType == "FunctionDeclaration" ) {
+      if ( node.name == "render" ) {
+        return;
+      }
+      const d = new TSTopLevelDecl();
+      d.name = node.name;
+      d.declKind = "function";
+      d.node = node;
+      d.text = this.declText(src, node);
+      decls.push(d);
+      return;
+    }
+    if ( node.nodeType == "VariableDeclaration" ) {
+      let i = 0;
+      while (i < (node.children.length)) {
+        const decl = node.children[i];
+        if ( decl.nodeType == "VariableDeclarator" ) {
+          const d2 = new TSTopLevelDecl();
+          d2.name = decl.name;
+          d2.declKind = "variable";
+          d2.node = node;
+          d2.text = this.declText(src, node);
+          decls.push(d2);
+        }
+        i = i + 1;
+      };
+      return;
+    }
+    if ( node.nodeType == "ExportNamedDeclaration" ) {
+      if ( typeof(node.left) != "undefined" ) {
+        this.collectFromNode(src, node.left, decls);
+      }
+      return;
+    }
+    if ( node.nodeType == "ExportDefaultDeclaration" ) {
+      if ( typeof(node.left) != "undefined" ) {
+        this.collectFromNode(src, node.left, decls);
+      }
+    }
+  };
+  collectTopLevelDecls (ast, src) {
+    let decls = [];
+    let i = 0;
+    while (i < (ast.children.length)) {
+      const node = ast.children[i];
+      this.collectFromNode(src, node, decls);
+      i = i + 1;
+    };
+    return decls;
+  };
+  findDeclByName (decls, name) {
+    const empty = new TSNode();
+    let i = 0;
+    while (i < (decls.length)) {
+      const d = decls[i];
+      if ( d.name == name ) {
+        return d.node;
+      }
+      i = i + 1;
+    };
+    return empty;
+  };
+  findDeclMeta (decls, name) {
+    let i = 0;
+    while (i < (decls.length)) {
+      const d = decls[i];
+      if ( d.name == name ) {
+        return d.node;
+      }
+      i = i + 1;
+    };
+    const empty = new TSNode();
+    return empty;
+  };
+  hasDeclByName (decls, name) {
+    let i = 0;
+    while (i < (decls.length)) {
+      const d = decls[i];
+      if ( d.name == name ) {
+        return true;
+      }
+      i = i + 1;
+    };
+    return false;
+  };
+  findDeclText (decls, name) {
+    let i = 0;
+    while (i < (decls.length)) {
+      const d = decls[i];
+      if ( d.name == name ) {
+        return d.text;
+      }
+      i = i + 1;
+    };
+    return "";
+  };
+  findDeclKind (decls, name) {
+    let i = 0;
+    while (i < (decls.length)) {
+      const d = decls[i];
+      if ( d.name == name ) {
+        return d.declKind;
+      }
+      i = i + 1;
+    };
+    return "";
+  };
+  pushChange (result, kind, name, declKind, newNode) {
+    const ch = new TSAstPatchChange();
+    ch.changeKind = kind;
+    ch.name = name;
+    ch.declKind = declKind;
+    ch.newNode = newNode;
+    result.changes.push(ch);
+    result.hasChanges = true;
+    if ( declKind == "function" ) {
+      result.functionsChanged = true;
+      if ( this.isSceneAffectingFunction(name) ) {
+        result.sceneAffecting = true;
+      }
+    }
+    if ( declKind == "variable" ) {
+      result.variablesChanged = true;
+      result.sceneAffecting = true;
+    }
+  };
+  diffTopLevel (oldAst, oldSrc, newAst, newSrc) {
+    const result = new TSAstPatchResult();
+    let emptyChanges = [];
+    result.changes = emptyChanges;
+    const oldDecls = this.collectTopLevelDecls(oldAst, oldSrc);
+    const newDecls = this.collectTopLevelDecls(newAst, newSrc);
+    let i = 0;
+    while (i < (newDecls.length)) {
+      const nd = newDecls[i];
+      if ( this.hasDeclByName(oldDecls, nd.name) == false ) {
+        this.pushChange(result, "added", nd.name, nd.declKind, nd.node);
+      } else {
+        const oldText = this.findDeclText(oldDecls, nd.name);
+        if ( oldText != nd.text ) {
+          this.pushChange(result, "modified", nd.name, nd.declKind, nd.node);
+        }
+      }
+      i = i + 1;
+    };
+    let j = 0;
+    while (j < (oldDecls.length)) {
+      const od = oldDecls[j];
+      if ( this.hasDeclByName(newDecls, od.name) == false ) {
+        const emptyNode = new TSNode();
+        this.pushChange(result, "removed", od.name, od.declKind, emptyNode);
+      }
+      j = j + 1;
+    };
+    return result;
+  };
+}
 class EvalValue  {
   constructor() {
     this.valueType = 0;
@@ -13591,8 +14406,7 @@ class EvalValue  {
     this.stringValue = "";
     this.boolValue = false;
     this.arrayValue = [];
-    this.objectKeys = [];
-    this.objectValues = [];
+    this.objectMap = {};
     this.functionName = "";
     this.functionBody = "";     /** note: unused */
   }
@@ -13620,6 +14434,9 @@ class EvalValue  {
   isElement () {
     return this.valueType == 7;
   };
+  isUndefined () {
+    return this.valueType == 8;
+  };
   toNumber () {
     if ( this.valueType == 1 ) {
       return this.numberValue;
@@ -13639,6 +14456,9 @@ class EvalValue  {
   toString () {
     if ( this.valueType == 0 ) {
       return "null";
+    }
+    if ( this.valueType == 8 ) {
+      return "undefined";
     }
     if ( this.valueType == 1 ) {
       const s = (this.numberValue.toString());
@@ -13673,15 +14493,16 @@ class EvalValue  {
     }
     if ( this.valueType == 5 ) {
       let result_1 = "{";
+      const keyList = Object.keys(this.objectMap);
       let i_1 = 0;
-      while (i_1 < (this.objectKeys.length)) {
+      for ( let idx = 0; idx < keyList.length; idx++) {
+        var kk = keyList[idx];
         if ( i_1 > 0 ) {
           result_1 = result_1 + ", ";
         }
-        const key = this.objectKeys[i_1];
-        const val = this.objectValues[i_1];
+        const val = (( this.objectMap.hasOwnProperty(kk) ? this.objectMap[kk] : undefined ));
         const valStr = (val).toString();
-        result_1 = ((result_1 + key) + ": ") + valStr;
+        result_1 = ((result_1 + kk) + ": ") + valStr;
         i_1 = i_1 + 1;
       };
       return result_1 + "}";
@@ -13700,6 +14521,9 @@ class EvalValue  {
   };
   toBool () {
     if ( this.valueType == 0 ) {
+      return false;
+    }
+    if ( this.valueType == 8 ) {
       return false;
     }
     if ( this.valueType == 1 ) {
@@ -13727,13 +14551,9 @@ class EvalValue  {
   };
   getMember (key) {
     if ( this.valueType == 5 ) {
-      let i = 0;
-      while (i < (this.objectKeys.length)) {
-        if ( (this.objectKeys[i]) == key ) {
-          return this.objectValues[i];
-        }
-        i = i + 1;
-      };
+      if ( ( typeof(this.objectMap[key] ) != "undefined" && this.objectMap.hasOwnProperty(key) ) ) {
+        return (( this.objectMap.hasOwnProperty(key) ? this.objectMap[key] : undefined ));
+      }
     }
     if ( this.valueType == 4 ) {
       if ( key == "length" ) {
@@ -13746,6 +14566,21 @@ class EvalValue  {
       }
     }
     return EvalValue.null();
+  };
+  setMember (key, value) {
+    if ( this.valueType != 5 ) {
+      return;
+    }
+    this.objectMap[key] = value;
+  };
+  setIndexAt (index, value) {
+    if ( this.valueType != 4 ) {
+      return;
+    }
+    while (index >= (this.arrayValue.length)) {
+      this.arrayValue.push(EvalValue.null());
+    };
+    this.arrayValue[index] = value;
   };
   getIndex (index) {
     if ( this.valueType == 4 ) {
@@ -13767,6 +14602,9 @@ class EvalValue  {
     }
     if ( this.valueType == 0 ) {
       return true;
+    }
+    if ( this.valueType == 8 ) {
+      return other.valueType == 8;
     }
     if ( this.valueType == 1 ) {
       return this.numberValue == other.numberValue;
@@ -13818,8 +14656,13 @@ EvalValue.array = function(items) {
 EvalValue.object = function(keys, values) {
   const v = new EvalValue();
   v.valueType = 5;
-  v.objectKeys = keys;
-  v.objectValues = values;
+  let i = 0;
+  while (i < (keys.length)) {
+    if ( i < (values.length) ) {
+      v.objectMap[keys[i]] = values[i];
+    }
+    i = i + 1;
+  };
   return v;
 };
 EvalValue.function = function(fnNode) {
@@ -13833,6 +14676,11 @@ EvalValue.element = function(el) {
   const v = new EvalValue();
   v.valueType = 7;
   v.evgElement = el;
+  return v;
+};
+EvalValue.undefined = function() {
+  const v = new EvalValue();
+  v.valueType = 8;
   return v;
 };
 class ImportedSymbol  {
@@ -13879,6 +14727,59 @@ class EvalContext  {
     }
     return EvalValue.null();
   };
+  assignExisting (name, value) {
+    let i = 0;
+    while (i < (this.variables.length)) {
+      if ( (this.variables[i]) == name ) {
+        this.values[i] = value;
+        return true;
+      }
+      i = i + 1;
+    };
+    if ( typeof(this.parent) != "undefined" ) {
+      const p = this.parent;
+      return p.assignExisting(name, value);
+    }
+    return false;
+  };
+  assign (name, value) {
+    if ( this.assignExisting(name, value) ) {
+      return;
+    }
+    this.define(name, value);
+  };
+  removeBinding (name) {
+    let i = 0;
+    while (i < (this.variables.length)) {
+      if ( (this.variables[i]) == name ) {
+        let newVars = [];
+        let newVals = [];
+        let j = 0;
+        while (j < (this.variables.length)) {
+          if ( j != i ) {
+            newVars.push(this.variables[j]);
+            newVals.push(this.values[j]);
+          }
+          j = j + 1;
+        };
+        this.variables = newVars;
+        this.values = newVals;
+        return true;
+      }
+      i = i + 1;
+    };
+    if ( typeof(this.parent) != "undefined" ) {
+      const p = this.parent;
+      return p.removeBinding(name);
+    }
+    return false;
+  };
+  moduleScope () {
+    if ( typeof(this.moduleRoot) != "undefined" ) {
+      return this.moduleRoot;
+    }
+    return this;
+  };
   has (name) {
     let i = 0;
     while (i < (this.variables.length)) {
@@ -13896,7 +14797,22 @@ class EvalContext  {
   createChild () {
     const child = new EvalContext();
     child.parent = this;
+    if ( typeof(this.moduleRoot) != "undefined" ) {
+      child.moduleRoot = this.moduleRoot;
+    } else {
+      child.moduleRoot = this;
+    }
     return child;
+  };
+}
+class EvalNativeBridge  {
+  constructor() {
+  }
+  has (name) {
+    return false;
+  };
+  invoke (name, args) {
+    return EvalValue.null();
   };
 }
 class ComponentEngine  {
@@ -13916,7 +14832,16 @@ class ComponentEngine  {
     this.imports = [];
     this.localComponents = [];
     this.loadedFiles = [];
+    this.importLoading = [];
+    this.importLoaded = [];
     this.primitives = [];
+    this.scriptDidReturn = false;
+    this.scriptReturnValue = EvalValue.null();
+    this.loopBreak = false;
+    this.loopContinue = false;
+    this.quiet = false;
+    this.astPatcher = new TSAstPatcher();
+    this.resolvedImportDir = "./";
     const p = new TSParserSimple();
     this.parser = p;
     this.parser.tsxMode = true;
@@ -13926,8 +14851,18 @@ class ComponentEngine  {
     this.localComponents = loc;
     let lf = [];
     this.loadedFiles = lf;
-    const ctx = new EvalContext();
-    this.context = ctx;
+    let il = [];
+    this.importLoading = il;
+    let id = [];
+    this.importLoaded = id;
+    const host = new EvalContext();
+    host.moduleRoot = host;
+    this.hostScope = host;
+    const mod = new EvalContext();
+    mod.parent = this.hostScope;
+    mod.moduleRoot = mod;
+    this.moduleScope = mod;
+    this.context = mod;
     let prim = [];
     this.primitives = prim;
     let ap_1 = [];
@@ -13952,6 +14887,24 @@ class ComponentEngine  {
     this.primitives.push("path");
     this.primitives.push("layer");
   }
+  trace (msg) {
+    if ( this.quiet == false ) {
+      console.log(msg);
+    }
+  };
+  addAssetPath (path) {
+    if ( (path.length) == 0 ) {
+      return;
+    }
+    let i = 0;
+    while (i < (this.assetPaths.length)) {
+      if ( (this.assetPaths[i]) == path ) {
+        return;
+      }
+      i = i + 1;
+    };
+    this.assetPaths.push(path);
+  };
   setAssetPaths (paths) {
     let start = 0;
     let i = 0;
@@ -13984,15 +14937,201 @@ class ComponentEngine  {
   getLoadedFiles () {
     return this.loadedFiles;
   };
+  normalizeDirPath (dirPath) {
+    if ( (dirPath.length) == 0 ) {
+      return "./";
+    }
+    const last = dirPath.length;
+    const lastCh = dirPath.substring((last - 1), last );
+    if ( lastCh != "/" ) {
+      return dirPath + "/";
+    }
+    return dirPath;
+  };
+  dirnameOfModulePath (fullPath) {
+    let lastSlash = -1;
+    let i = 0;
+    while (i < (fullPath.length)) {
+      const ch = fullPath.substring(i, (i + 1) );
+      if ( ch == "/" ) {
+        lastSlash = i;
+      }
+      i = i + 1;
+    };
+    if ( lastSlash < 0 ) {
+      return "";
+    }
+    return fullPath.substring(0, (lastSlash + 1) );
+  };
+  moduleDirFromRead (searchDir, fullPath) {
+    const subDir = this.dirnameOfModulePath(fullPath);
+    return this.normalizeDirPath((searchDir + subDir));
+  };
+  isInStringList (value, list) {
+    let i = 0;
+    while (i < (list.length)) {
+      if ( (list[i]) == value ) {
+        return true;
+      }
+      i = i + 1;
+    };
+    return false;
+  };
+  listWithoutString (list, value) {
+    let out = [];
+    let i = 0;
+    while (i < (list.length)) {
+      const item = list[i];
+      if ( item != value ) {
+        out.push(item);
+      }
+      i = i + 1;
+    };
+    return out;
+  };
+  listWithStringIfMissing (list, value) {
+    if ( this.isInStringList(value, list) ) {
+      return list;
+    }
+    let out = [];
+    let i = 0;
+    while (i < (list.length)) {
+      out.push(list[i]);
+      i = i + 1;
+    };
+    out.push(value);
+    return out;
+  };
+  clearImportState () {
+    let empty = [];
+    this.importLoading = empty;
+    this.importLoaded = empty;
+  };
+  resetParseState () {
+    const scope = new EvalContext();
+    scope.parent = this.hostScope;
+    scope.moduleRoot = scope;
+    this.moduleScope = scope;
+    this.context = scope;
+    this.clearLocalComponents();
+    this.clearImportState();
+    let emptyFiles = [];
+    this.loadedFiles = emptyFiles;
+  };
+  upsertLocalComponent (sym) {
+    let i = 0;
+    while (i < (this.localComponents.length)) {
+      const existing = this.localComponents[i];
+      if ( existing.name == sym.name ) {
+        existing.functionNode = sym.functionNode;
+        existing.originalName = sym.originalName;
+        existing.sourcePath = sym.sourcePath;
+        existing.symbolType = sym.symbolType;
+        existing.helperFunctions = sym.helperFunctions;
+        return;
+      }
+      i = i + 1;
+    };
+    this.localComponents.push(sym);
+  };
+  removeLocalComponentByName (name) {
+    let out = [];
+    let i = 0;
+    while (i < (this.localComponents.length)) {
+      const sym = this.localComponents[i];
+      if ( sym.name != name ) {
+        out.push(sym);
+      }
+      i = i + 1;
+    };
+    this.localComponents = out;
+  };
+  localNameForImport (exportName, exportNames, localNames) {
+    let i = 0;
+    while (i < (exportNames.length)) {
+      if ( (exportNames[i]) == exportName ) {
+        return localNames[i];
+      }
+      i = i + 1;
+    };
+    return exportName;
+  };
+  bindImportedFunction (exportName, localName, fnNode, helperFns, sourcePath) {
+    const sym = new ImportedSymbol();
+    sym.name = localName;
+    sym.originalName = exportName;
+    sym.sourcePath = sourcePath;
+    sym.symbolType = "component";
+    sym.functionNode = fnNode;
+    sym.helperFunctions = helperFns;
+    this.upsertLocalComponent(sym);
+    this.defineModuleBinding(localName, EvalValue.function(fnNode));
+    this.trace((((("Imported: " + localName) + " (") + exportName) + ") from ") + sourcePath);
+  };
+  rebindImportDeclaration (node) {
+    let exportNames = [];
+    let localNames = [];
+    let j = 0;
+    while (j < (node.children.length)) {
+      const spec = node.children[j];
+      if ( spec.nodeType == "ImportSpecifier" ) {
+        if ( spec.kind != "type" ) {
+          const exportName = spec.name;
+          let localName = spec.name;
+          if ( (spec.value.length) > 0 ) {
+            localName = spec.value;
+          }
+          exportNames.push(exportName);
+          localNames.push(localName);
+        }
+      }
+      if ( spec.nodeType == "ImportDefaultSpecifier" ) {
+        exportNames.push("default");
+        localNames.push(spec.name);
+      }
+      j = j + 1;
+    };
+    let k = 0;
+    while (k < (exportNames.length)) {
+      const exportName_1 = exportNames[k];
+      const localName_1 = localNames[k];
+      const existing = this.moduleScope.lookup(exportName_1);
+      if ( existing.isFunction() ) {
+        if ( typeof(existing.functionNode) === "undefined" ) {
+        } else {
+          const fnNode = existing.functionNode;
+          let emptyHelpers = [];
+          this.bindImportedFunction(exportName_1, localName_1, fnNode, emptyHelpers, "");
+        }
+      } else {
+        if ( false == existing.isNull() ) {
+          this.defineModuleBinding(localName_1, existing);
+        }
+      }
+      k = k + 1;
+    };
+  };
   parseFile (dirPath, fileName) {
-    this.basePath = dirPath;
-    const mainFilePath = dirPath + fileName;
+    this.resetParseState();
+    this.setBasePath(dirPath);
+    const mainFilePath = this.basePath + fileName;
     this.loadedFiles.push(mainFilePath);
     const fileContent = (function(){ var b = require('fs').readFileSync(dirPath + '/' + fileName); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })();
     const src = (function(b){ var v = new Uint8Array(b); return String.fromCharCode.apply(null, v); })(fileContent);
     return this.parse(src);
   };
+  setBasePath (dirPath) {
+    this.basePath = dirPath;
+    if ( (dirPath.length) > 0 ) {
+      const last = dirPath.length;
+      const lastCh = dirPath.substring((last - 1), last );
+      if ( lastCh != "/" ) {
+        this.basePath = dirPath + "/";
+      }
+    }
+  };
   parse (src) {
+    this.resetParseState();
     this.source = src;
     const lexer = new TSLexer(src);
     const tokens = lexer.tokenize();
@@ -14010,6 +15149,148 @@ class ComponentEngine  {
     }
     return this.evaluateFunction(renderFn);
   };
+  registerGlobal (name, value) {
+    this.hostScope.define(name, value);
+  };
+  removeGlobal (name) {
+    this.hostScope.removeBinding(name);
+  };
+  setNativeBridge (bridge) {
+    this.nativeBridge = bridge;
+  };
+  collectCallArgs (node) {
+    let args = [];
+    let i = 0;
+    while (i < (node.children.length)) {
+      const argNode = node.children[i];
+      args.push(this.evaluateExpr(argNode));
+      i = i + 1;
+    };
+    return args;
+  };
+  defineModuleBinding (name, value) {
+    this.moduleScope.define(name, value);
+  };
+  getGlobal (name) {
+    const v = this.context.lookup(name);
+    if ( false == v.isNull() ) {
+      return v;
+    }
+    return this.hostScope.lookup(name);
+  };
+  parseProgramFromSrc (src) {
+    const lexer = new TSLexer(src);
+    const tokens = lexer.tokenize();
+    this.parser.initParser(tokens);
+    this.parser.tsxMode = true;
+    return this.parser.parseProgram();
+  };
+  clearLocalComponents () {
+    let empty = [];
+    this.localComponents = empty;
+  };
+  loadScript (src) {
+    this.source = src;
+    const ast = this.parseProgramFromSrc(src);
+    this.programAst = ast;
+    const scope = new EvalContext();
+    scope.parent = this.hostScope;
+    scope.moduleRoot = scope;
+    this.moduleScope = scope;
+    this.context = scope;
+    this.clearLocalComponents();
+    this.clearImportState();
+    let emptyFiles = [];
+    this.loadedFiles = emptyFiles;
+    this.processImports(ast);
+    this.registerComponents(ast);
+    this.processVariables(ast);
+  };
+  updateLocalComponentNode (name, node) {
+    let i = 0;
+    while (i < (this.localComponents.length)) {
+      const sym = this.localComponents[i];
+      if ( sym.name == name ) {
+        sym.functionNode = node;
+        return;
+      }
+      i = i + 1;
+    };
+    this.registerFunctionDeclaration(node);
+  };
+  patchScript (src) {
+    if ( typeof(this.programAst) === "undefined" ) {
+      this.loadScript(src);
+      return true;
+    }
+    const oldAst = this.programAst;
+    const oldSrc = this.source;
+    const newAst = this.parseProgramFromSrc(src);
+    const patch = this.astPatcher.diffTopLevel(oldAst, oldSrc, newAst, src);
+    if ( patch.hasChanges == false ) {
+      return false;
+    }
+    this.source = src;
+    this.programAst = newAst;
+    this.clearLocalComponents();
+    this.clearImportState();
+    this.processImports(newAst);
+    let ci = 0;
+    while (ci < (patch.changes.length)) {
+      const ch = patch.changes[ci];
+      if ( ch.changeKind == "removed" ) {
+        this.moduleScope.removeBinding(ch.name);
+        this.removeLocalComponentByName(ch.name);
+        this.trace("Removed binding: " + ch.name);
+      } else {
+        if ( ch.declKind == "function" ) {
+          if ( ch.changeKind != "removed" ) {
+            if ( typeof(ch.newNode) != "undefined" ) {
+              const fnNode = ch.newNode;
+              this.updateLocalComponentNode(ch.name, fnNode);
+              this.moduleScope.define(ch.name, EvalValue.function(fnNode));
+              this.trace("Patched function: " + ch.name);
+            }
+          }
+        }
+        if ( ch.declKind == "variable" ) {
+          if ( ch.changeKind != "removed" ) {
+            if ( typeof(ch.newNode) != "undefined" ) {
+              const varNode = ch.newNode;
+              this.processModuleVariableDeclaration(varNode);
+              this.trace("Patched variable: " + ch.name);
+            }
+          }
+        }
+      }
+      ci = ci + 1;
+    };
+    return patch.sceneAffecting;
+  };
+  callFunction (name, props) {
+    const fnValue = this.context.lookup(name);
+    if ( false == fnValue.isFunction() ) {
+      return EvalValue.null();
+    }
+    if ( typeof(fnValue.functionNode) === "undefined" ) {
+      return EvalValue.null();
+    }
+    const fnNode = fnValue.functionNode;
+    return this.evaluateFunctionCall(fnNode, props);
+  };
+  callRender (name, props) {
+    const fnValue = this.context.lookup(name);
+    if ( false == fnValue.isFunction() ) {
+      const empty = new EVGElement();
+      return empty;
+    }
+    if ( typeof(fnValue.functionNode) === "undefined" ) {
+      const empty2 = new EVGElement();
+      return empty2;
+    }
+    const fnNode = fnValue.functionNode;
+    return this.evaluateFunctionWithProps(fnNode, props);
+  };
   processImports (ast) {
     let i = 0;
     while (i < (ast.children.length)) {
@@ -14021,6 +15302,9 @@ class ComponentEngine  {
     };
   };
   processImportDeclaration (node) {
+    if ( node.kind == "type" ) {
+      return;
+    }
     let modulePath = "";
     if ( typeof(node.left) != "undefined" ) {
       const srcNode = node.left;
@@ -14035,15 +15319,28 @@ class ComponentEngine  {
     if ( (modulePath.indexOf("evg_")) >= 0 ) {
       return;
     }
-    let importedNames = [];
+    if ( (modulePath.indexOf(".d.ts")) >= 0 ) {
+      return;
+    }
+    let importExportNames = [];
+    let importLocalNames = [];
     let j = 0;
     while (j < (node.children.length)) {
       const spec = node.children[j];
       if ( spec.nodeType == "ImportSpecifier" ) {
-        importedNames.push(spec.name);
+        if ( spec.kind != "type" ) {
+          const exportName = spec.name;
+          let localName = spec.name;
+          if ( (spec.value.length) > 0 ) {
+            localName = spec.value;
+          }
+          importExportNames.push(exportName);
+          importLocalNames.push(localName);
+        }
       }
       if ( spec.nodeType == "ImportDefaultSpecifier" ) {
-        importedNames.push(spec.name);
+        importExportNames.push("default");
+        importLocalNames.push(spec.name);
       }
       j = j + 1;
     };
@@ -14051,15 +15348,27 @@ class ComponentEngine  {
     if ( (fullPath.length) == 0 ) {
       return;
     }
-    const dirPath = this.basePath;
-    console.log(("Loading import: " + dirPath) + fullPath);
-    const loadedFilePath = dirPath + fullPath;
-    this.loadedFiles.push(loadedFilePath);
-    const fileContent = (function(){ var b = require('fs').readFileSync(dirPath + '/' + fullPath); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })();
-    const src = (function(b){ var v = new Uint8Array(b); return String.fromCharCode.apply(null, v); })(fileContent);
+    const importerBase = this.normalizeDirPath(this.basePath);
+    this.resolvedImportDir = importerBase;
+    const canonicalPath = importerBase + fullPath;
+    if ( this.isInStringList(canonicalPath, this.importLoading) ) {
+      this.trace("Import cycle skipped: " + canonicalPath);
+      this.rebindImportDeclaration(node);
+      return;
+    }
+    if ( this.isInStringList(canonicalPath, this.importLoaded) ) {
+      this.rebindImportDeclaration(node);
+      return;
+    }
+    this.importLoading.push(canonicalPath);
+    const src = this.readImportSource(importerBase, fullPath);
+    const foundDir = this.resolvedImportDir;
+    const dirPath = this.moduleDirFromRead(foundDir, fullPath);
+    this.resolvedImportDir = dirPath;
     if ( (src.length) == 0 ) {
+      this.importLoading = this.listWithoutString(this.importLoading, canonicalPath);
       console.log("");
-      console.log(("ERROR: Could not load component module: " + dirPath) + fullPath);
+      console.log(("ERROR: Could not load component module: " + importerBase) + fullPath);
       console.log("");
       console.log("Please ensure the imported file exists. You may need to:");
       console.log("  1. Check that the import path is correct in your TSX file");
@@ -14072,19 +15381,27 @@ class ComponentEngine  {
       console.log("");
       return;
     }
+    console.log(("Loading import: " + dirPath) + fullPath);
+    const loadedFilePath = dirPath + fullPath;
+    this.loadedFiles = this.listWithStringIfMissing(this.loadedFiles, loadedFilePath);
     const lexer = new TSLexer(src);
     const tokens = lexer.tokenize();
     const importParser = new TSParserSimple();
     importParser.initParser(tokens);
     importParser.tsxMode = true;
     const importAst = importParser.parseProgram();
+    const savedBasePath = this.basePath;
+    this.basePath = dirPath;
+    this.processImports(importAst);
+    this.basePath = savedBasePath;
+    this.materializeImportedModule(importAst);
     let helperFns = [];
     let hk = 0;
     while (hk < (importAst.children.length)) {
       const hstmt = importAst.children[hk];
       if ( hstmt.nodeType == "FunctionDeclaration" ) {
         const hfnName = hstmt.name;
-        if ( this.isInList(hfnName, importedNames) == false ) {
+        if ( this.isInList(hfnName, importExportNames) == false ) {
           helperFns.push(hstmt);
           console.log("  Found helper function: " + hfnName);
         }
@@ -14099,36 +15416,82 @@ class ComponentEngine  {
           const declNode = stmt.left;
           if ( declNode.nodeType == "FunctionDeclaration" ) {
             const fnName = declNode.name;
-            if ( this.isInList(fnName, importedNames) ) {
-              const sym = new ImportedSymbol();
-              sym.name = fnName;
-              sym.originalName = fnName;
-              sym.sourcePath = fullPath;
-              sym.symbolType = "component";
-              sym.functionNode = declNode;
-              sym.helperFunctions = helperFns;
-              this.localComponents.push(sym);
-              console.log((("Imported component: " + fnName) + " from ") + fullPath);
+            if ( this.isInList(fnName, importExportNames) ) {
+              const localName_1 = this.localNameForImport(fnName, importExportNames, importLocalNames);
+              this.bindImportedFunction(fnName, localName_1, declNode, helperFns, fullPath);
             }
           }
         }
       }
       if ( stmt.nodeType == "FunctionDeclaration" ) {
         const fnName_1 = stmt.name;
-        if ( this.isInList(fnName_1, importedNames) ) {
-          const sym_1 = new ImportedSymbol();
-          sym_1.name = fnName_1;
-          sym_1.originalName = fnName_1;
-          sym_1.sourcePath = fullPath;
-          sym_1.symbolType = "component";
-          sym_1.functionNode = stmt;
-          sym_1.helperFunctions = helperFns;
-          this.localComponents.push(sym_1);
-          console.log((("Imported component: " + fnName_1) + " from ") + fullPath);
+        if ( this.isInList(fnName_1, importExportNames) ) {
+          const localName_2 = this.localNameForImport(fnName_1, importExportNames, importLocalNames);
+          this.bindImportedFunction(fnName_1, localName_2, stmt, helperFns, fullPath);
         }
       }
       k = k + 1;
     };
+    this.importLoading = this.listWithoutString(this.importLoading, canonicalPath);
+    this.importLoaded = this.listWithStringIfMissing(this.importLoaded, canonicalPath);
+  };
+  materializeImportedModule (ast) {
+    const saved = this.context;
+    this.context = this.moduleScope;
+    let i = 0;
+    while (i < (ast.children.length)) {
+      const node = ast.children[i];
+      this.materializeImportedNode(node);
+      i = i + 1;
+    };
+    this.context = saved;
+  };
+  materializeImportedNode (node) {
+    if ( node.nodeType == "FunctionDeclaration" ) {
+      if ( node.name != "render" ) {
+        this.defineModuleBinding(node.name, EvalValue.function(node));
+      }
+      return;
+    }
+    if ( node.nodeType == "VariableDeclaration" ) {
+      this.processModuleVariableDeclaration(node);
+      return;
+    }
+    if ( node.nodeType == "ExportNamedDeclaration" ) {
+      if ( typeof(node.left) != "undefined" ) {
+        this.materializeImportedNode(node.left);
+      }
+      return;
+    }
+    if ( node.nodeType == "ExportDefaultDeclaration" ) {
+      if ( typeof(node.left) != "undefined" ) {
+        this.materializeImportedNode(node.left);
+      }
+    }
+  };
+  readImportSource (dirPath, fullPath) {
+    if ( require("fs").existsSync(dirPath + "/" + fullPath ) ) {
+      const content = (function(){ var b = require('fs').readFileSync(dirPath + '/' + fullPath); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })();
+      const src = (function(b){ var v = new Uint8Array(b); return String.fromCharCode.apply(null, v); })(content);
+      if ( (src.length) > 0 ) {
+        this.resolvedImportDir = dirPath;
+        return src;
+      }
+    }
+    let i = 0;
+    while (i < (this.assetPaths.length)) {
+      const assetDir = this.assetPaths[i];
+      if ( require("fs").existsSync(assetDir + "/" + fullPath ) ) {
+        const tryBuf = (function(){ var b = require('fs').readFileSync(assetDir + '/' + fullPath); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })();
+        const trySrc = (function(b){ var v = new Uint8Array(b); return String.fromCharCode.apply(null, v); })(tryBuf);
+        if ( (trySrc.length) > 0 ) {
+          this.resolvedImportDir = assetDir;
+          return trySrc;
+        }
+      }
+      i = i + 1;
+    };
+    return "";
   };
   resolveModulePath (modulePath) {
     if ( (modulePath.indexOf("./")) == 0 ) {
@@ -14164,20 +15527,39 @@ class ComponentEngine  {
     let i = 0;
     while (i < (ast.children.length)) {
       const node = ast.children[i];
-      if ( node.nodeType == "FunctionDeclaration" ) {
-        if ( node.name != "render" ) {
-          const sym = new ImportedSymbol();
-          sym.name = node.name;
-          sym.originalName = node.name;
-          sym.symbolType = "component";
-          sym.functionNode = node;
-          this.localComponents.push(sym);
-          this.context.define(node.name, EvalValue.function(node));
-          console.log("Registered local component: " + node.name);
-        }
-      }
+      this.registerTopLevelNode(node);
       i = i + 1;
     };
+  };
+  registerTopLevelNode (node) {
+    if ( node.nodeType == "FunctionDeclaration" ) {
+      this.registerFunctionDeclaration(node);
+      return;
+    }
+    if ( node.nodeType == "ExportNamedDeclaration" ) {
+      if ( typeof(node.left) != "undefined" ) {
+        this.registerTopLevelNode(node.left);
+      }
+      return;
+    }
+    if ( node.nodeType == "ExportDefaultDeclaration" ) {
+      if ( typeof(node.left) != "undefined" ) {
+        this.registerTopLevelNode(node.left);
+      }
+    }
+  };
+  registerFunctionDeclaration (node) {
+    if ( node.name == "render" ) {
+      return;
+    }
+    const sym = new ImportedSymbol();
+    sym.name = node.name;
+    sym.originalName = node.name;
+    sym.symbolType = "component";
+    sym.functionNode = node;
+    this.upsertLocalComponent(sym);
+    this.defineModuleBinding(node.name, EvalValue.function(node));
+    this.trace("Registered local component: " + node.name);
   };
   findRenderFunction (ast) {
     const empty = new TSNode();
@@ -14197,11 +15579,45 @@ class ComponentEngine  {
     let i = 0;
     while (i < (ast.children.length)) {
       const node = ast.children[i];
-      if ( node.nodeType == "VariableDeclaration" ) {
-        this.processVariableDeclaration(node);
+      this.processTopLevelVarNode(node);
+      i = i + 1;
+    };
+  };
+  processTopLevelVarNode (node) {
+    if ( node.nodeType == "VariableDeclaration" ) {
+      this.processModuleVariableDeclaration(node);
+      return;
+    }
+    if ( node.nodeType == "ExportNamedDeclaration" ) {
+      if ( typeof(node.left) != "undefined" ) {
+        this.processTopLevelVarNode(node.left);
+      }
+      return;
+    }
+    if ( node.nodeType == "ExportDefaultDeclaration" ) {
+      if ( typeof(node.left) != "undefined" ) {
+        this.processTopLevelVarNode(node.left);
+      }
+    }
+  };
+  processModuleVariableDeclaration (node) {
+    const saved = this.context;
+    this.context = this.moduleScope;
+    let i = 0;
+    while (i < (node.children.length)) {
+      const decl = node.children[i];
+      if ( decl.nodeType == "VariableDeclarator" ) {
+        const varName = decl.name;
+        if ( typeof(decl.init) != "undefined" ) {
+          const initNode = decl.init;
+          const value = this.evaluateExpr(initNode);
+          this.moduleScope.define(varName, value);
+          this.trace((("Defined module binding: " + varName) + " = ") + (value).toString());
+        }
       }
       i = i + 1;
     };
+    this.context = saved;
   };
   processVariableDeclaration (node) {
     let i = 0;
@@ -14213,7 +15629,7 @@ class ComponentEngine  {
           const initNode = decl.init;
           const value = this.evaluateExpr(initNode);
           this.context.define(varName, value);
-          console.log((("Defined variable: " + varName) + " = ") + (value).toString());
+          this.trace((("Defined variable: " + varName) + " = ") + (value).toString());
         }
       }
       i = i + 1;
@@ -14238,6 +15654,12 @@ class ComponentEngine  {
   };
   evaluateFunctionCall (fnNode, props) {
     const savedContext = this.context;
+    let savedDidReturn = this.scriptDidReturn;
+    let savedReturnValue = this.scriptReturnValue;
+    savedDidReturn = this.scriptDidReturn;
+    savedReturnValue = this.scriptReturnValue;
+    this.scriptDidReturn = false;
+    this.scriptReturnValue = EvalValue.null();
     this.context = this.context.createChild();
     if ( props.valueType != 0 ) {
       this.bindFunctionParams(fnNode, props);
@@ -14245,6 +15667,8 @@ class ComponentEngine  {
     const body = this.getFunctionBody(fnNode);
     const result = this.evaluateFunctionBodyValue(body);
     this.context = savedContext;
+    this.scriptDidReturn = savedDidReturn;
+    this.scriptReturnValue = savedReturnValue;
     return result;
   };
   bindFunctionParams (fnNode, props) {
@@ -14314,6 +15738,12 @@ class ComponentEngine  {
           return forOfResult;
         }
       }
+      if ( stmt.nodeType == "WhileStatement" ) {
+        const whileResult = this.evaluateWhileStatement(stmt);
+        if ( whileResult.hasReturn ) {
+          return whileResult;
+        }
+      }
       if ( stmt.nodeType == "ExpressionStatement" ) {
         if ( typeof(stmt.left) != "undefined" ) {
           const exprNode = stmt.left;
@@ -14324,6 +15754,10 @@ class ComponentEngine  {
         if ( typeof(stmt.left) != "undefined" ) {
           const returnExpr = stmt.left;
           return this.evaluateJSX(returnExpr);
+        } else {
+          const bareReturn = new EVGElement();
+          bareReturn.hasReturn = true;
+          return bareReturn;
         }
       }
       i = i + 1;
@@ -14334,11 +15768,20 @@ class ComponentEngine  {
     return empty;
   };
   evaluateFunctionBodyValue (body) {
+    if ( body.nodeType == "BlockStatement" ) {
+      const savedDidReturn = this.scriptDidReturn;
+      const savedReturnValue = this.scriptReturnValue;
+      this.scriptDidReturn = false;
+      this.scriptReturnValue = EvalValue.null();
+      this.runStatementList(body.children);
+      const blockOut = this.scriptReturnValue;
+      this.scriptDidReturn = savedDidReturn;
+      this.scriptReturnValue = savedReturnValue;
+      return blockOut;
+    }
     let i = 0;
-    console.log(("evaluateFunctionBodyValue: body has " + (((body.children.length).toString()))) + " children");
     while (i < (body.children.length)) {
       const stmt = body.children[i];
-      console.log((("  Statement " + ((i.toString()))) + ": ") + stmt.nodeType);
       if ( stmt.nodeType == "VariableDeclaration" ) {
         this.processVariableDeclaration(stmt);
       }
@@ -14348,14 +15791,13 @@ class ComponentEngine  {
         }
       }
       if ( stmt.nodeType == "ForStatement" ) {
-        const forResult = this.evaluateForStatement(stmt);
-        if ( forResult.hasReturn ) {
-        }
+        this.runForStatementValue(stmt);
       }
       if ( stmt.nodeType == "ForOfStatement" ) {
-        const forOfResult = this.evaluateForOfStatement(stmt);
-        if ( forOfResult.hasReturn ) {
-        }
+        this.runForOfStatementValue(stmt);
+      }
+      if ( stmt.nodeType == "WhileStatement" ) {
+        this.runWhileStatementValue(stmt);
       }
       if ( stmt.nodeType == "ExpressionStatement" ) {
         if ( typeof(stmt.left) != "undefined" ) {
@@ -14381,6 +15823,239 @@ class ComponentEngine  {
     }
     return EvalValue.null();
   };
+  runForStatementValue (stmt) {
+    const savedBreak = this.loopBreak;
+    const savedContinue = this.loopContinue;
+    this.loopBreak = false;
+    this.loopContinue = false;
+    if ( typeof(stmt.init) != "undefined" ) {
+      const initNode = stmt.init;
+      if ( initNode.nodeType == "VariableDeclaration" ) {
+        this.processVariableDeclaration(initNode);
+      }
+    }
+    const maxIterations = 100000;
+    let iterations = 0;
+    let looping = true;
+    while ((iterations < maxIterations) && looping) {
+      if ( this.scriptDidReturn ) {
+        looping = false;
+      } else {
+        let proceed = true;
+        if ( typeof(stmt.left) != "undefined" ) {
+          const testResult = this.evaluateExpr((stmt.left));
+          if ( testResult.toBool() == false ) {
+            proceed = false;
+          }
+        }
+        if ( proceed == false ) {
+          looping = false;
+        } else {
+          this.loopContinue = false;
+          if ( typeof(stmt.body) != "undefined" ) {
+            this.runBlockOrStatement(stmt.body);
+          }
+          if ( this.scriptDidReturn ) {
+            looping = false;
+          } else {
+            if ( this.loopBreak ) {
+              looping = false;
+            } else {
+              if ( typeof(stmt.right) != "undefined" ) {
+                this.evaluateUpdateExpr(stmt.right);
+              }
+              iterations = iterations + 1;
+            }
+          }
+        }
+      }
+    };
+    this.loopBreak = savedBreak;
+    this.loopContinue = savedContinue;
+  };
+  runForOfStatementValue (stmt) {
+    const savedBreak = this.loopBreak;
+    const savedContinue = this.loopContinue;
+    this.loopBreak = false;
+    this.loopContinue = false;
+    let varName = "";
+    if ( typeof(stmt.left) != "undefined" ) {
+      const leftNode = stmt.left;
+      if ( leftNode.nodeType == "VariableDeclaration" ) {
+        if ( (leftNode.children.length) > 0 ) {
+          const decl = leftNode.children[0];
+          varName = decl.name;
+        }
+      }
+    }
+    if ( typeof(stmt.right) != "undefined" ) {
+      const rightNode = stmt.right;
+      const arrayValue = this.evaluateExpr(rightNode);
+      if ( (arrayValue).isArray() ) {
+        let i = 0;
+        let looping = true;
+        while ((i < (arrayValue.arrayValue.length)) && looping) {
+          if ( this.scriptDidReturn ) {
+            looping = false;
+          } else {
+            if ( this.loopBreak ) {
+              looping = false;
+            } else {
+              const item = arrayValue.arrayValue[i];
+              if ( (varName.length) > 0 ) {
+                this.context.define(varName, item);
+              }
+              this.loopContinue = false;
+              if ( typeof(stmt.body) != "undefined" ) {
+                this.runBlockOrStatement(stmt.body);
+              }
+              if ( this.scriptDidReturn ) {
+                looping = false;
+              } else {
+                if ( this.loopBreak ) {
+                  looping = false;
+                } else {
+                  i = i + 1;
+                }
+              }
+            }
+          }
+        };
+      }
+    }
+    this.loopBreak = savedBreak;
+    this.loopContinue = savedContinue;
+  };
+  runWhileStatementValue (stmt) {
+    const savedBreak = this.loopBreak;
+    const savedContinue = this.loopContinue;
+    this.loopBreak = false;
+    this.loopContinue = false;
+    const maxIterations = 100000;
+    let iterations = 0;
+    let looping = true;
+    while ((iterations < maxIterations) && looping) {
+      if ( this.scriptDidReturn ) {
+        looping = false;
+      } else {
+        let proceed = true;
+        if ( typeof(stmt.left) != "undefined" ) {
+          const testResult = this.evaluateExpr((stmt.left));
+          if ( testResult.toBool() == false ) {
+            proceed = false;
+          }
+        }
+        if ( proceed == false ) {
+          looping = false;
+        } else {
+          this.loopContinue = false;
+          if ( typeof(stmt.body) != "undefined" ) {
+            this.runBlockOrStatement(stmt.body);
+          }
+          if ( this.scriptDidReturn ) {
+            looping = false;
+          } else {
+            if ( this.loopBreak ) {
+              looping = false;
+            } else {
+              iterations = iterations + 1;
+            }
+          }
+        }
+      }
+    };
+    this.loopBreak = savedBreak;
+    this.loopContinue = savedContinue;
+  };
+  runStatementList (stmts) {
+    let i = 0;
+    while (i < (stmts.length)) {
+      if ( this.scriptDidReturn ) {
+        return;
+      }
+      if ( this.loopBreak ) {
+        return;
+      }
+      if ( this.loopContinue ) {
+        return;
+      }
+      this.runStatementValue(stmts[i]);
+      i = i + 1;
+    };
+  };
+  runStatementValue (stmt) {
+    if ( this.scriptDidReturn ) {
+      return;
+    }
+    if ( stmt.nodeType == "ReturnStatement" ) {
+      if ( typeof(stmt.left) != "undefined" ) {
+        this.scriptReturnValue = this.evaluateExpr((stmt.left));
+      } else {
+        this.scriptReturnValue = EvalValue.null();
+      }
+      this.scriptDidReturn = true;
+      return;
+    }
+    if ( stmt.nodeType == "VariableDeclaration" ) {
+      this.processVariableDeclaration(stmt);
+      return;
+    }
+    if ( stmt.nodeType == "ExpressionStatement" ) {
+      if ( typeof(stmt.left) != "undefined" ) {
+        this.evaluateExprForSideEffect(stmt.left);
+      }
+      return;
+    }
+    if ( stmt.nodeType == "IfStatement" ) {
+      this.runIfValue(stmt);
+      return;
+    }
+    if ( stmt.nodeType == "BlockStatement" ) {
+      this.runStatementList(stmt.children);
+      return;
+    }
+    if ( stmt.nodeType == "BreakStatement" ) {
+      this.loopBreak = true;
+      return;
+    }
+    if ( stmt.nodeType == "ContinueStatement" ) {
+      this.loopContinue = true;
+      return;
+    }
+    if ( stmt.nodeType == "ForStatement" ) {
+      this.runForStatementValue(stmt);
+      return;
+    }
+    if ( stmt.nodeType == "ForOfStatement" ) {
+      this.runForOfStatementValue(stmt);
+      return;
+    }
+    if ( stmt.nodeType == "WhileStatement" ) {
+      this.runWhileStatementValue(stmt);
+      return;
+    }
+  };
+  runIfValue (node) {
+    if ( typeof(node.left) != "undefined" ) {
+      const cond = this.evaluateExpr((node.left));
+      if ( cond.toBool() ) {
+        if ( typeof(node.body) != "undefined" ) {
+          this.runBlockOrStatement(node.body);
+        }
+      } else {
+        if ( typeof(node.right) != "undefined" ) {
+          this.runBlockOrStatement(node.right);
+        }
+      }
+    }
+  };
+  runBlockOrStatement (blk) {
+    if ( blk.nodeType == "BlockStatement" ) {
+      this.runStatementList(blk.children);
+    } else {
+      this.runStatementValue(blk);
+    }
+  };
   evaluateIfStatement (node) {
     const result = new EVGElement();
     result.hasReturn = false;
@@ -14394,16 +16069,38 @@ class ComponentEngine  {
           if ( blockResult.hasReturn ) {
             return blockResult;
           }
+          if ( blockResult.hasBreak ) {
+            return blockResult;
+          }
+          if ( blockResult.hasContinue ) {
+            return blockResult;
+          }
         }
       } else {
         if ( typeof(node.right) != "undefined" ) {
           const elseBlock = node.right;
           if ( elseBlock.nodeType == "IfStatement" ) {
-            return this.evaluateIfStatement(elseBlock);
-          }
-          const blockResult_1 = this.evaluateStatementBlock(elseBlock);
-          if ( blockResult_1.hasReturn ) {
-            return blockResult_1;
+            const elseIfResult = this.evaluateIfStatement(elseBlock);
+            if ( elseIfResult.hasReturn ) {
+              return elseIfResult;
+            }
+            if ( elseIfResult.hasBreak ) {
+              return elseIfResult;
+            }
+            if ( elseIfResult.hasContinue ) {
+              return elseIfResult;
+            }
+          } else {
+            const blockResult_1 = this.evaluateStatementBlock(elseBlock);
+            if ( blockResult_1.hasReturn ) {
+              return blockResult_1;
+            }
+            if ( blockResult_1.hasBreak ) {
+              return blockResult_1;
+            }
+            if ( blockResult_1.hasContinue ) {
+              return blockResult_1;
+            }
           }
         }
       }
@@ -14413,12 +16110,23 @@ class ComponentEngine  {
   evaluateStatementBlock (block) {
     const result = new EVGElement();
     result.hasReturn = false;
+    if ( block.nodeType == "ContinueStatement" ) {
+      result.hasContinue = true;
+      return result;
+    }
+    if ( block.nodeType == "BreakStatement" ) {
+      result.hasBreak = true;
+      return result;
+    }
     if ( block.nodeType == "ReturnStatement" ) {
       if ( typeof(block.left) != "undefined" ) {
         const returnExpr = block.left;
         const returnedEl = this.evaluateJSX(returnExpr);
         returnedEl.hasReturn = true;
         return returnedEl;
+      } else {
+        result.hasReturn = true;
+        return result;
       }
     }
     if ( block.nodeType == "BlockStatement" ) {
@@ -14433,10 +16141,22 @@ class ComponentEngine  {
           if ( ifResult.hasReturn ) {
             return ifResult;
           }
+          if ( ifResult.hasBreak ) {
+            return ifResult;
+          }
+          if ( ifResult.hasContinue ) {
+            return ifResult;
+          }
         }
         if ( stmt.nodeType == "ForStatement" ) {
           const forResult = this.evaluateForStatement(stmt);
           if ( forResult.hasReturn ) {
+            return forResult;
+          }
+          if ( forResult.hasBreak ) {
+            return forResult;
+          }
+          if ( forResult.hasContinue ) {
             return forResult;
           }
         }
@@ -14444,6 +16164,24 @@ class ComponentEngine  {
           const forOfResult = this.evaluateForOfStatement(stmt);
           if ( forOfResult.hasReturn ) {
             return forOfResult;
+          }
+          if ( forOfResult.hasBreak ) {
+            return forOfResult;
+          }
+          if ( forOfResult.hasContinue ) {
+            return forOfResult;
+          }
+        }
+        if ( stmt.nodeType == "WhileStatement" ) {
+          const whileResult = this.evaluateWhileStatement(stmt);
+          if ( whileResult.hasReturn ) {
+            return whileResult;
+          }
+          if ( whileResult.hasBreak ) {
+            return whileResult;
+          }
+          if ( whileResult.hasContinue ) {
+            return whileResult;
           }
         }
         if ( stmt.nodeType == "ExpressionStatement" ) {
@@ -14458,7 +16196,18 @@ class ComponentEngine  {
             const returnedEl_1 = this.evaluateJSX(returnExpr_1);
             returnedEl_1.hasReturn = true;
             return returnedEl_1;
+          } else {
+            result.hasReturn = true;
+            return result;
           }
+        }
+        if ( stmt.nodeType == "ContinueStatement" ) {
+          result.hasContinue = true;
+          return result;
+        }
+        if ( stmt.nodeType == "BreakStatement" ) {
+          result.hasBreak = true;
+          return result;
         }
         i = i + 1;
       };
@@ -14491,21 +16240,23 @@ class ComponentEngine  {
                 const argNode = node.children[0];
                 const argValue = this.evaluateExpr(argNode);
                 objValue.arrayValue.push(argValue);
-                this.context.define(objName, objValue);
+                this.context.assign(objName, objValue);
               }
+              return;
             }
           }
         }
       }
     }
+    this.evaluateCallExpr(node);
   };
   evaluateForStatement (node) {
     const result = new EVGElement();
     result.hasReturn = false;
-    console.log("evaluateForStatement called");
+    this.trace("evaluateForStatement called");
     if ( typeof(node.init) != "undefined" ) {
       const initNode = node.init;
-      console.log("For init nodeType: " + initNode.nodeType);
+      this.trace("For init nodeType: " + initNode.nodeType);
       if ( initNode.nodeType == "VariableDeclaration" ) {
         this.processVariableDeclaration(initNode);
       }
@@ -14526,12 +16277,25 @@ class ComponentEngine  {
         if ( bodyResult.hasReturn ) {
           return bodyResult;
         }
+        if ( bodyResult.hasBreak ) {
+          return result;
+        }
+        if ( bodyResult.hasContinue ) {
+          if ( typeof(node.right) != "undefined" ) {
+            const updateNode = node.right;
+            this.evaluateUpdateExpr(updateNode);
+          }
+          iterations = iterations + 1;
+        } else {
+          if ( typeof(node.right) != "undefined" ) {
+            const updateNode_1 = node.right;
+            this.evaluateUpdateExpr(updateNode_1);
+          }
+          iterations = iterations + 1;
+        }
+      } else {
+        iterations = iterations + 1;
       }
-      if ( typeof(node.right) != "undefined" ) {
-        const updateNode = node.right;
-        this.evaluateUpdateExpr(updateNode);
-      }
-      iterations = iterations + 1;
     };
     return result;
   };
@@ -14562,11 +16326,55 @@ class ComponentEngine  {
             if ( bodyResult.hasReturn ) {
               return bodyResult;
             }
+            if ( bodyResult.hasBreak ) {
+              return result;
+            }
+            if ( bodyResult.hasContinue ) {
+              i = i + 1;
+            } else {
+              i = i + 1;
+            }
+          } else {
+            i = i + 1;
           }
-          i = i + 1;
         };
       }
     }
+    return result;
+  };
+  evaluateWhileStatement (node) {
+    const result = new EVGElement();
+    result.hasReturn = false;
+    const maxIterations = 100000;
+    let iterations = 0;
+    while (iterations < maxIterations) {
+      if ( typeof(node.left) != "undefined" ) {
+        const testNode = node.left;
+        const testResult = this.evaluateExpr(testNode);
+        if ( testResult.toBool() == false ) {
+          return result;
+        }
+      } else {
+        return result;
+      }
+      if ( typeof(node.body) != "undefined" ) {
+        const bodyNode = node.body;
+        const bodyResult = this.evaluateStatementBlock(bodyNode);
+        if ( bodyResult.hasReturn ) {
+          return bodyResult;
+        }
+        if ( bodyResult.hasBreak ) {
+          return result;
+        }
+        if ( bodyResult.hasContinue ) {
+          iterations = iterations + 1;
+        } else {
+          iterations = iterations + 1;
+        }
+      } else {
+        iterations = iterations + 1;
+      }
+    };
     return result;
   };
   evaluateUpdateExpr (node) {
@@ -14578,10 +16386,10 @@ class ComponentEngine  {
           const current = this.context.lookup(varName);
           const currentNum = current.toNumber();
           if ( node.value == "++" ) {
-            this.context.define(varName, EvalValue.number((currentNum + 1.0)));
+            this.context.assign(varName, EvalValue.number((currentNum + 1.0)));
           }
           if ( node.value == "--" ) {
-            this.context.define(varName, EvalValue.number((currentNum - 1.0)));
+            this.context.assign(varName, EvalValue.number((currentNum - 1.0)));
           }
         }
       }
@@ -14596,31 +16404,68 @@ class ComponentEngine  {
             const rightNode = node.right;
             const rightValue = this.evaluateExpr(rightNode);
             if ( op == "=" ) {
-              this.context.define(varName_1, rightValue);
+              this.context.assign(varName_1, rightValue);
             }
             if ( op == "+=" ) {
               const current_1 = this.context.lookup(varName_1);
               const isLeftStr = current_1.isString();
               const isRightStr = rightValue.isString();
               if ( isLeftStr || isRightStr ) {
-                this.context.define(varName_1, EvalValue.string(((current_1).toString() + (rightValue).toString())));
+                this.context.assign(varName_1, EvalValue.string(((current_1).toString() + (rightValue).toString())));
               } else {
-                this.context.define(varName_1, EvalValue.number((current_1.toNumber() + rightValue.toNumber())));
+                this.context.assign(varName_1, EvalValue.number((current_1.toNumber() + rightValue.toNumber())));
               }
             }
             if ( op == "-=" ) {
               const current_2 = this.context.lookup(varName_1);
-              this.context.define(varName_1, EvalValue.number((current_2.toNumber() - rightValue.toNumber())));
+              this.context.assign(varName_1, EvalValue.number((current_2.toNumber() - rightValue.toNumber())));
             }
             if ( op == "*=" ) {
               const current_3 = this.context.lookup(varName_1);
-              this.context.define(varName_1, EvalValue.number((current_3.toNumber() * rightValue.toNumber())));
+              this.context.assign(varName_1, EvalValue.number((current_3.toNumber() * rightValue.toNumber())));
             }
             if ( op == "/=" ) {
               const current_4 = this.context.lookup(varName_1);
               const rightNum = rightValue.toNumber();
               if ( rightNum != 0.0 ) {
-                this.context.define(varName_1, EvalValue.number((current_4.toNumber() / rightNum)));
+                this.context.assign(varName_1, EvalValue.number((current_4.toNumber() / rightNum)));
+              }
+            }
+          }
+        }
+        if ( leftNode.nodeType == "MemberExpression" ) {
+          const op_1 = node.value;
+          if ( op_1 == "=" ) {
+            if ( typeof(node.right) != "undefined" ) {
+              const rightNode_1 = node.right;
+              const rightValue_1 = this.evaluateExpr(rightNode_1);
+              let obj = EvalValue.null();
+              let objName = "";
+              if ( typeof(leftNode.left) != "undefined" ) {
+                const objNode = leftNode.left;
+                if ( objNode.nodeType == "Identifier" ) {
+                  objName = objNode.name;
+                  obj = this.context.lookup(objName);
+                } else {
+                  obj = this.evaluateExpr(objNode);
+                }
+              }
+              if ( leftNode.computed ) {
+                if ( typeof(leftNode.right) != "undefined" ) {
+                  const indexExpr = leftNode.right;
+                  const indexVal = this.evaluateExpr(indexExpr);
+                  if ( indexVal.isNumber() ) {
+                    obj.setIndexAt(Math.floor( indexVal.toNumber()), rightValue_1);
+                  }
+                  if ( indexVal.isString() ) {
+                    obj.setMember(indexVal.stringValue, rightValue_1);
+                  }
+                }
+              } else {
+                obj.setMember(leftNode.name, rightValue_1);
+              }
+              if ( (objName.length) > 0 ) {
+                this.context.assign(objName, obj);
               }
             }
           }
@@ -14642,6 +16487,12 @@ class ComponentEngine  {
       if ( typeof(node.left) != "undefined" ) {
         const inner = node.left;
         return this.evaluateJSX(inner);
+      }
+    }
+    const val = this.evaluateExpr(node);
+    if ( val.isElement() ) {
+      if ( typeof(val.evgElement) != "undefined" ) {
+        return val.evgElement;
       }
     }
     return element;
@@ -14707,27 +16558,32 @@ class ComponentEngine  {
     return false;
   };
   expandComponent (name, jsxNode) {
+    let foundIdx = -1;
     let i = 0;
     while (i < (this.localComponents.length)) {
       const sym = this.localComponents[i];
       if ( sym.name == name ) {
-        const props = this.evaluateProps(jsxNode);
-        if ( typeof(sym.functionNode) != "undefined" ) {
-          const fnNode = sym.functionNode;
-          let hi = 0;
-          while (hi < (sym.helperFunctions.length)) {
-            const helperFn = sym.helperFunctions[hi];
-            const helperName = helperFn.name;
-            const helperValue = EvalValue.function(helperFn);
-            this.context.define(helperName, helperValue);
-            console.log("Registered helper function: " + helperName);
-            hi = hi + 1;
-          };
-          return this.evaluateFunctionWithProps(fnNode, props);
-        }
+        foundIdx = i;
       }
       i = i + 1;
     };
+    if ( foundIdx >= 0 ) {
+      const sym_1 = this.localComponents[foundIdx];
+      const props = this.evaluateProps(jsxNode);
+      if ( typeof(sym_1.functionNode) != "undefined" ) {
+        const fnNode = sym_1.functionNode;
+        let hi = 0;
+        while (hi < (sym_1.helperFunctions.length)) {
+          const helperFn = sym_1.helperFunctions[hi];
+          const helperName = helperFn.name;
+          const helperValue = EvalValue.function(helperFn);
+          this.context.define(helperName, helperValue);
+          console.log("Registered helper function: " + helperName);
+          hi = hi + 1;
+        };
+        return this.evaluateFunctionWithProps(fnNode, props);
+      }
+    }
     console.log("Warning: Unknown component: " + name);
     const empty = new EVGElement();
     empty.tagName = "div";
@@ -15163,6 +17019,9 @@ class ComponentEngine  {
       return EvalValue.null();
     }
     if ( node.nodeType == "Identifier" ) {
+      if ( node.name == "undefined" ) {
+        return EvalValue.undefined();
+      }
       return this.context.lookup(node.name);
     }
     if ( node.nodeType == "BinaryExpression" ) {
@@ -15187,6 +17046,16 @@ class ComponentEngine  {
       if ( typeof(node.left) != "undefined" ) {
         const inner = node.left;
         return this.evaluateExpr(inner);
+      }
+    }
+    if ( node.nodeType == "TSAsExpression" ) {
+      if ( typeof(node.left) != "undefined" ) {
+        return this.evaluateExpr((node.left));
+      }
+    }
+    if ( node.nodeType == "TSNonNullExpression" ) {
+      if ( typeof(node.left) != "undefined" ) {
+        return this.evaluateExpr((node.left));
       }
     }
     if ( node.nodeType == "JSXElement" ) {
@@ -15224,7 +17093,7 @@ class ComponentEngine  {
             }
           }
         }
-        console.log((("Method call: " + methodName) + " on value type=") + ((obj.valueType.toString())));
+        this.trace((("Method call: " + methodName) + " on value type=") + ((obj.valueType.toString())));
         if ( methodName == "toFixed" ) {
           const numVal = obj.toNumber();
           let decimals = 0;
@@ -15375,38 +17244,44 @@ class ComponentEngine  {
           }
           return EvalValue.string((str_3 + padding_1));
         }
-        if ( obj.isObject() ) {
-          let objName = "";
-          if ( typeof(callee.left) != "undefined" ) {
-            const objNode_1 = callee.left;
-            if ( objNode_1.nodeType == "Identifier" ) {
-              objName = objNode_1.name;
-            }
+        let mathObjName = "";
+        if ( typeof(callee.left) != "undefined" ) {
+          const mathObjNode = callee.left;
+          if ( mathObjNode.nodeType == "Identifier" ) {
+            mathObjName = mathObjNode.name;
           }
-          if ( objName == "Math" ) {
-            if ( (node.children.length) > 0 ) {
-              const argNode_5 = node.children[0];
-              const argVal_5 = this.evaluateExpr(argNode_5);
-              const num = argVal_5.toNumber();
-              if ( methodName == "round" ) {
-                return EvalValue.number(((Math.floor( (num + 0.5)))));
+        }
+        if ( mathObjName == "Math" ) {
+          if ( (node.children.length) > 0 ) {
+            const argNode_5 = node.children[0];
+            const argVal_5 = this.evaluateExpr(argNode_5);
+            const num = argVal_5.toNumber();
+            if ( methodName == "round" ) {
+              return EvalValue.number(((Math.floor( (num + 0.5)))));
+            }
+            if ( methodName == "floor" ) {
+              return EvalValue.number(((Math.floor( num))));
+            }
+            if ( methodName == "ceil" ) {
+              const intPart = Math.floor( num);
+              if ( num > (intPart) ) {
+                return EvalValue.number(((intPart + 1)));
               }
-              if ( methodName == "floor" ) {
-                return EvalValue.number(((Math.floor( num))));
+              return EvalValue.number((intPart));
+            }
+            if ( methodName == "abs" ) {
+              if ( num < 0.0 ) {
+                return EvalValue.number((0.0 - num));
               }
-              if ( methodName == "ceil" ) {
-                const intPart = Math.floor( num);
-                if ( num > (intPart) ) {
-                  return EvalValue.number(((intPart + 1)));
-                }
-                return EvalValue.number((intPart));
-              }
-              if ( methodName == "abs" ) {
-                if ( num < 0.0 ) {
-                  return EvalValue.number((0.0 - num));
-                }
-                return EvalValue.number(num);
-              }
+              return EvalValue.number(num);
+            }
+            if ( methodName == "sin" ) {
+              const s = Math.sin(num);
+              return EvalValue.number(s);
+            }
+            if ( methodName == "cos" ) {
+              const c = Math.cos(num);
+              return EvalValue.number(c);
             }
           }
         }
@@ -15415,7 +17290,7 @@ class ComponentEngine  {
       }
       if ( callee.nodeType == "Identifier" ) {
         const fnName = callee.name;
-        console.log("Evaluating function call: " + fnName);
+        this.trace("Evaluating function call: " + fnName);
         if ( fnName == "usePrintSettings" ) {
           return this.evaluateUsePrintSettings();
         }
@@ -15423,24 +17298,37 @@ class ComponentEngine  {
           let srcArg = "";
           if ( (node.children.length) > 0 ) {
             const argNode_6 = node.children[0];
-            console.log("useImage arg nodeType: " + argNode_6.nodeType);
+            this.trace("useImage arg nodeType: " + argNode_6.nodeType);
             const argValue = this.evaluateExpr(argNode_6);
-            console.log((("useImage arg value: " + (argValue).toString()) + " type=") + ((argValue.valueType.toString())));
+            this.trace((("useImage arg value: " + (argValue).toString()) + " type=") + ((argValue.valueType.toString())));
             srcArg = argValue.stringValue;
-            console.log("useImage srcArg: " + srcArg);
+            this.trace("useImage srcArg: " + srcArg);
           }
           return this.evaluateUseImage(srcArg);
         }
+        if ( typeof(this.nativeBridge) != "undefined" ) {
+          const bridge = this.nativeBridge;
+          if ( (bridge).has(fnName) ) {
+            const nativeArgs = this.collectCallArgs(node);
+            return bridge.invoke(fnName, nativeArgs);
+          }
+        }
         const fnValue = this.context.lookup(fnName);
-        console.log((((("Lookup function '" + fnName) + "' -> type=") + ((fnValue.valueType.toString()))) + " isFunction=") + ((fnValue.isFunction().toString())));
+        this.trace((((("Lookup function '" + fnName) + "' -> type=") + ((fnValue.valueType.toString()))) + " isFunction=") + ((fnValue.isFunction().toString())));
         if ( fnValue.isFunction() ) {
           if ( typeof(fnValue.functionNode) != "undefined" ) {
             const fnNode = fnValue.functionNode;
             const savedContext = this.context;
+            let savedDidReturn = this.scriptDidReturn;
+            let savedReturnValue = this.scriptReturnValue;
+            savedDidReturn = this.scriptDidReturn;
+            savedReturnValue = this.scriptReturnValue;
+            this.scriptDidReturn = false;
+            this.scriptReturnValue = EvalValue.null();
             this.context = this.context.createChild();
             const numArgs = node.children.length;
             const numParams = fnNode.params.length;
-            console.log(((((("Function " + fnName) + " called with ") + ((numArgs.toString()))) + " args, has ") + ((numParams.toString()))) + " params");
+            this.trace(((((("Function " + fnName) + " called with ") + ((numArgs.toString()))) + " args, has ") + ((numParams.toString()))) + " params");
             let argIdx = 0;
             while (argIdx < numParams) {
               if ( argIdx < numArgs ) {
@@ -15448,7 +17336,7 @@ class ComponentEngine  {
                 const argValue_1 = this.evaluateExpr(argNode_7);
                 const paramNode = fnNode.params[argIdx];
                 const paramName = paramNode.name;
-                console.log((("Binding param '" + paramName) + "' = ") + (argValue_1).toString());
+                this.trace((("Binding param '" + paramName) + "' = ") + (argValue_1).toString());
                 this.context.define(paramName, argValue_1);
               }
               argIdx = argIdx + 1;
@@ -15456,6 +17344,8 @@ class ComponentEngine  {
             const body = this.getFunctionBody(fnNode);
             const result_1 = this.evaluateFunctionBodyValue(body);
             this.context = savedContext;
+            this.scriptDidReturn = savedDidReturn;
+            this.scriptReturnValue = savedReturnValue;
             return result_1;
           }
         }
@@ -15491,67 +17381,150 @@ class ComponentEngine  {
         }
       }
     }
-    let left_2 = EvalValue.null();
+    if ( op == "??" ) {
+      if ( typeof(node.left) != "undefined" ) {
+        const leftExpr_2 = node.left;
+        const left_2 = this.evaluateExpr(leftExpr_2);
+        if ( false == left_2.isNull() ) {
+          return left_2;
+        }
+        if ( typeof(node.right) != "undefined" ) {
+          const rightExpr_2 = node.right;
+          return this.evaluateExpr(rightExpr_2);
+        }
+      }
+    }
+    let left_3 = EvalValue.null();
     let right = EvalValue.null();
     if ( typeof(node.left) != "undefined" ) {
-      const leftExpr_2 = node.left;
-      left_2 = this.evaluateExpr(leftExpr_2);
+      const leftExpr_3 = node.left;
+      left_3 = this.evaluateExpr(leftExpr_3);
     }
     if ( typeof(node.right) != "undefined" ) {
-      const rightExpr_2 = node.right;
-      right = this.evaluateExpr(rightExpr_2);
+      const rightExpr_3 = node.right;
+      right = this.evaluateExpr(rightExpr_3);
     }
     if ( op == "+" ) {
-      const isLeftStr = left_2.isString();
+      const isLeftStr = left_3.isString();
       const isRightStr = right.isString();
       if ( isLeftStr || isRightStr ) {
-        return EvalValue.string(((left_2).toString() + (right).toString()));
+        return EvalValue.string(((left_3).toString() + (right).toString()));
       }
-      return EvalValue.number((left_2.toNumber() + right.toNumber()));
+      return EvalValue.number((left_3.toNumber() + right.toNumber()));
     }
     if ( op == "-" ) {
-      return EvalValue.number((left_2.toNumber() - right.toNumber()));
+      return EvalValue.number((left_3.toNumber() - right.toNumber()));
     }
     if ( op == "*" ) {
-      return EvalValue.number((left_2.toNumber() * right.toNumber()));
+      return EvalValue.number((left_3.toNumber() * right.toNumber()));
     }
     if ( op == "/" ) {
       const rightNum = right.toNumber();
       if ( rightNum != 0.0 ) {
-        return EvalValue.number((left_2.toNumber() / rightNum));
+        return EvalValue.number((left_3.toNumber() / rightNum));
       }
       return EvalValue.number(0.0);
     }
     if ( op == "%" ) {
-      const leftInt = Math.floor( left_2.toNumber());
+      const leftInt = Math.floor( left_3.toNumber());
       const rightInt = Math.floor( right.toNumber());
       if ( rightInt != 0 ) {
         return EvalValue.fromInt((leftInt % rightInt));
       }
       return EvalValue.number(0.0);
     }
+    if ( op == "|" ) {
+      const leftInt_1 = Math.floor( left_3.toNumber());
+      const rightInt_1 = Math.floor( right.toNumber());
+      return EvalValue.fromInt(((leftInt_1 | rightInt_1)));
+    }
+    if ( op == "&" ) {
+      const leftInt_2 = Math.floor( left_3.toNumber());
+      const rightInt_2 = Math.floor( right.toNumber());
+      return EvalValue.fromInt(((leftInt_2 & rightInt_2)));
+    }
+    if ( op == "^" ) {
+      const leftInt_3 = Math.floor( left_3.toNumber());
+      const rightInt_3 = Math.floor( right.toNumber());
+      return EvalValue.fromInt(((leftInt_3 ^ rightInt_3)));
+    }
     if ( op == "<" ) {
-      return EvalValue.boolean((left_2.toNumber() < right.toNumber()));
+      return EvalValue.boolean((left_3.toNumber() < right.toNumber()));
     }
     if ( op == ">" ) {
-      return EvalValue.boolean((left_2.toNumber() > right.toNumber()));
+      return EvalValue.boolean((left_3.toNumber() > right.toNumber()));
     }
     if ( op == "<=" ) {
-      return EvalValue.boolean((left_2.toNumber() <= right.toNumber()));
+      return EvalValue.boolean((left_3.toNumber() <= right.toNumber()));
     }
     if ( op == ">=" ) {
-      return EvalValue.boolean((left_2.toNumber() >= right.toNumber()));
+      return EvalValue.boolean((left_3.toNumber() >= right.toNumber()));
     }
     if ( (op == "==") || (op == "===") ) {
-      return EvalValue.boolean(left_2.equals(right));
+      return EvalValue.boolean(left_3.equals(right));
     }
     if ( (op == "!=") || (op == "!==") ) {
-      return EvalValue.boolean((left_2.equals(right) == false));
+      return EvalValue.boolean((left_3.equals(right) == false));
     }
     return EvalValue.null();
   };
+  bindingExists (name) {
+    return (this.context).has(name);
+  };
+  typeofTag (val) {
+    if ( val.isUndefined() ) {
+      return "undefined";
+    }
+    if ( val.isNull() ) {
+      return "object";
+    }
+    if ( val.isNumber() ) {
+      return "number";
+    }
+    if ( val.isString() ) {
+      return "string";
+    }
+    if ( val.isBoolean() ) {
+      return "boolean";
+    }
+    if ( val.isFunction() ) {
+      return "function";
+    }
+    if ( (val).isArray() ) {
+      return "object";
+    }
+    if ( val.isObject() ) {
+      return "object";
+    }
+    if ( val.isElement() ) {
+      return "object";
+    }
+    return "undefined";
+  };
+  evaluateTypeofExpr (node) {
+    if ( typeof(node.left) != "undefined" ) {
+      const argNode = node.left;
+      if ( argNode.nodeType == "Identifier" ) {
+        const name = argNode.name;
+        if ( name == "undefined" ) {
+          return EvalValue.string("undefined");
+        }
+        if ( false == this.bindingExists(name) ) {
+          return EvalValue.string("undefined");
+        }
+        const val = this.context.lookup(name);
+        return EvalValue.string(this.typeofTag(val));
+      }
+      const val_1 = this.evaluateExpr(argNode);
+      return EvalValue.string(this.typeofTag(val_1));
+    }
+    return EvalValue.string("undefined");
+  };
   evaluateUnaryExpr (node) {
     const op = node.value;
+    if ( op == "typeof" ) {
+      return this.evaluateTypeofExpr(node);
+    }
     if ( typeof(node.left) != "undefined" ) {
       const argExpr = node.left;
       const arg = this.evaluateExpr(argExpr);
@@ -15588,17 +17561,24 @@ class ComponentEngine  {
   evaluateMemberExpr (node) {
     if ( typeof(node.left) != "undefined" ) {
       const leftExpr = node.left;
-      const obj = this.evaluateExpr(leftExpr);
       const propName = node.name;
-      console.log((((("evaluateMemberExpr: propName=" + propName) + " computed=") + ((node.computed.toString()))) + " obj.type=") + ((obj.valueType.toString())));
+      if ( leftExpr.nodeType == "Identifier" ) {
+        if ( leftExpr.name == "Math" ) {
+          if ( propName == "PI" ) {
+            const pi = Math.PI;
+            return EvalValue.number(pi);
+          }
+        }
+      }
+      const obj = this.evaluateExpr(leftExpr);
       if ( node.computed ) {
         if ( typeof(node.right) != "undefined" ) {
           const indexExpr = node.right;
           const indexVal = this.evaluateExpr(indexExpr);
-          console.log((("  Index value: " + (indexVal).toString()) + " type=") + ((indexVal.valueType.toString())));
+          this.trace((("  Index value: " + (indexVal).toString()) + " type=") + ((indexVal.valueType.toString())));
           if ( indexVal.isNumber() ) {
             const idx = Math.floor( indexVal.toNumber());
-            console.log((("  Getting index " + ((idx.toString()))) + " from array of length ") + (((obj.arrayValue.length).toString())));
+            this.trace((("  Getting index " + ((idx.toString()))) + " from array of length ") + (((obj.arrayValue.length).toString())));
             return obj.getIndex(idx);
           }
           if ( indexVal.isString() ) {

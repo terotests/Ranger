@@ -24,8 +24,7 @@ class EvalValue {
     def stringValue:string ""
     def boolValue:boolean false
     def arrayValue:[EvalValue]
-    def objectKeys:[string]
-    def objectValues:[EvalValue]
+    def objectMap:[string:EvalValue]
     def functionName:string ""
     def functionBody:string ""  ; For parsed functions
     def functionNode@(optional):TSNode  ; For function AST nodes
@@ -76,8 +75,13 @@ class EvalValue {
     sfn object:EvalValue (keys:[string] values:[EvalValue]) {
         def v:EvalValue (new EvalValue())
         v.valueType = 5
-        v.objectKeys = keys
-        v.objectValues = values
+        def i:int 0
+        while (i < (array_length keys)) {
+            if (i < (array_length values)) {
+                set v.objectMap (itemAt keys i) (itemAt values i)
+            }
+            i = (i + 1)
+        }
         return v
     }
     
@@ -200,15 +204,15 @@ class EvalValue {
         }
         if (valueType == 5) {
             def result:string "{"
+            def keyList:[string] (keys objectMap)
             def i:int 0
-            while (i < (array_length objectKeys)) {
+            for keyList kk:string idx {
                 if (i > 0) {
                     result = result + ", "
                 }
-                def key:string (itemAt objectKeys i)
-                def val:EvalValue (itemAt objectValues i)
+                def val:EvalValue (unwrap (get objectMap kk))
                 def valStr:string (val.toString())
-                result = result + key + ": " + valStr
+                result = result + kk + ": " + valStr
                 i = i + 1
             }
             return result + "}"
@@ -260,12 +264,8 @@ class EvalValue {
     ; Object member access
     fn getMember:EvalValue (key:string) {
         if (valueType == 5) {
-            def i:int 0
-            while (i < (array_length objectKeys)) {
-                if ((itemAt objectKeys i) == key) {
-                    return (itemAt objectValues i)
-                }
-                i = i + 1
+            if (has objectMap key) {
+                return (unwrap (get objectMap key))
             }
         }
         ; Array length property
@@ -288,26 +288,7 @@ class EvalValue {
         if (valueType != 5) {
             return
         }
-        def i:int 0
-        while (i < (array_length objectKeys)) {
-            if ((itemAt objectKeys i) == key) {
-                def newVals:[EvalValue]
-                def j:int 0
-                while (j < (array_length objectValues)) {
-                    if (j == i) {
-                        push newVals value
-                    } {
-                        push newVals (itemAt objectValues j)
-                    }
-                    j = (j + 1)
-                }
-                objectValues = newVals
-                return
-            }
-            i = (i + 1)
-        }
-        push objectKeys key
-        push objectValues value
+        set objectMap key value
     }
     
     ; Set an array element by index (extends with null when needed).
@@ -318,17 +299,7 @@ class EvalValue {
         while (index >= (array_length arrayValue)) {
             push arrayValue (EvalValue.null())
         }
-        def newArr:[EvalValue]
-        def i:int 0
-        while (i < (array_length arrayValue)) {
-            if (i == index) {
-                push newArr value
-            } {
-                push newArr (itemAt arrayValue i)
-            }
-            i = (i + 1)
-        }
-        arrayValue = newArr
+        set arrayValue index value
     }
     
     ; Array index access

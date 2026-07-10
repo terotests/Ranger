@@ -181,6 +181,19 @@ class TestEvalValue {
         
         def missing:EvalValue (obj.getMember("unknown"))
         t.expectTrue(missing.isNull(), "unknown key returns null")
+
+        def obj2:EvalValue (EvalValue.object(keys values))
+        obj2.setMember("age" (EvalValue.number(31.0)))
+        def age2:EvalValue (obj2.getMember("age"))
+        t.expectNumEq(age2.numberValue, 31.0, "setMember updates existing key")
+        obj2.setMember("city" (EvalValue.string("Helsinki")))
+        def cityVal:EvalValue (obj2.getMember("city"))
+        t.expectStrEq(cityVal.stringValue, "Helsinki", "setMember adds new key")
+
+        def arr2:EvalValue (EvalValue.array(items))
+        arr2.setIndexAt(1 (EvalValue.number(99.0)))
+        def mid:EvalValue (arr2.getIndex(1))
+        t.expectNumEq(mid.numberValue, 99.0, "setIndexAt mutates in place")
         
         t.header("Object toString")
         def objStr:string (obj.toString())

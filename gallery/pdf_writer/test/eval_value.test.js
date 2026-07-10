@@ -178,6 +178,28 @@ describe("EvalValue Arrays", () => {
     const arr = EvalValue.array(items);
     expect(arr.toString()).toBe("[1, 2, 3]");
   });
+
+  it("setIndexAt mutates array in place", () => {
+    const items = [
+      EvalValue.number(1.0),
+      EvalValue.number(2.0),
+      EvalValue.number(3.0),
+    ];
+    const arr = EvalValue.array(items);
+    arr.setIndexAt(1, EvalValue.number(99.0));
+    expect(arr.getIndex(1).numberValue).toBe(99.0);
+    expect(arr.getIndex(0).numberValue).toBe(1.0);
+    expect(arr.getIndex(2).numberValue).toBe(3.0);
+    expect(arr.getMember("length").numberValue).toBe(3.0);
+  });
+
+  it("setIndexAt extends sparse arrays with null", () => {
+    const arr = EvalValue.array([EvalValue.number(1.0)]);
+    arr.setIndexAt(2, EvalValue.number(7.0));
+    expect(arr.getMember("length").numberValue).toBe(3.0);
+    expect(arr.getIndex(1).isNull()).toBe(true);
+    expect(arr.getIndex(2).numberValue).toBe(7.0);
+  });
 });
 
 describe("EvalValue Objects", () => {
@@ -205,6 +227,23 @@ describe("EvalValue Objects", () => {
   it("getMember unknown key returns null", () => {
     const obj = EvalValue.object(["a"], [EvalValue.number(1.0)]);
     expect(obj.getMember("unknown").isNull()).toBe(true);
+  });
+
+  it("setMember updates existing property in place", () => {
+    const obj = EvalValue.object(
+      ["name", "age"],
+      [EvalValue.string("Alice"), EvalValue.number(30.0)]
+    );
+    obj.setMember("age", EvalValue.number(31.0));
+    expect(obj.getMember("age").numberValue).toBe(31.0);
+    expect(obj.getMember("name").stringValue).toBe("Alice");
+  });
+
+  it("setMember adds new property", () => {
+    const obj = EvalValue.object(["a"], [EvalValue.number(1.0)]);
+    obj.setMember("b", EvalValue.number(2.0));
+    expect(obj.getMember("a").numberValue).toBe(1.0);
+    expect(obj.getMember("b").numberValue).toBe(2.0);
   });
 });
 
