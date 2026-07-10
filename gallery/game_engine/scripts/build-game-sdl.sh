@@ -66,9 +66,15 @@ fi
 
 cp "$ROOT/gallery/invaders/variant.hpp" "$OUT_DIR/variant.hpp"
 
-echo "==> 2/3 $CXX -> native binary (SDL2)"
+echo "==> 2/3 $CXX -> native binary (SDL2 + OpenGL)"
+GL_FLAGS=""
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  GL_FLAGS="-framework OpenGL"
+elif ldconfig -p 2>/dev/null | grep -q 'libGL\.so'; then
+  GL_FLAGS="-lGL"
+fi
 # shellcheck disable=SC2086
-"$CXX" -std=c++17 "$CPP_FILE" -o "$BIN_FILE" $SDL_FLAGS
+"$CXX" -std=c++17 "$CPP_FILE" -o "$BIN_FILE" $SDL_FLAGS $GL_FLAGS
 
 echo "==> 3/3 Ready: $BIN_FILE"
 

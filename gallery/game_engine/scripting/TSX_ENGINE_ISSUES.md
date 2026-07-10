@@ -105,24 +105,87 @@ function total() { return PALETTE.r + PALETTE.g; }
 
 ---
 
+### 11. Value-`return` inside `for` / `while` loops (value path) ✅ (2026-07-10, PR #159)
+
+**Fix:** Value-path loop runners (`runWhileStatementValue`, `runForStatementValue`, `runForOfStatementValue`) honour `scriptDidReturn`; `runStatementList` stops on `loopBreak` / `loopContinue`.
+
+**Regression:** `whileReturn=5` in [`tsx_engine_demo`](./tsx_engine_demo.rgr).
+
+---
+
+### 18. Transitive import relative paths ✅ (2026-07-10, PR #159)
+
+**Fix:** Save/restore `basePath` per import frame; nested relative imports resolve from the importer directory (`moduleDirFromRead()`).
+
+**Regression:** [`import_chain_demo.rgr`](./import_chain_demo.rgr) — `importChain=7`.
+
+---
+
+### 19. Cyclic import protection ✅ (2026-07-10, PR #159)
+
+**Fix:** `importLoading` / `importLoaded` canonical-path sets guard re-entry in `processImportDeclaration()`.
+
+---
+
+### 20. Hot reload (`patchScript`) duplicates ✅ (2026-07-10, PR #159)
+
+**Fix:** `patchScript()` clears import/component state; `upsertLocalComponent()`; `expandComponent()` uses the **last** name match.
+
+---
+
+### 21. Removed declarations on hot reload ✅ (2026-07-10, PR #159)
+
+**Fix:** `removeBinding()` on removed declarations during `patchScript()`.
+
+---
+
+### 22. Bare `return;` on JSX/EVG path ✅ (2026-07-10, PR #159)
+
+**Fix:** JSX-path `ReturnStatement` without expression sets `hasReturn`.
+
+---
+
+### 23. Import alias (`import { X as Y }`) ✅ partial (2026-07-10, PR #159)
+
+**Fix:** Named import aliases bind under local name (`spec.value`).
+
+**Still missing:** default export imports (`import Y from "./module"`).
+
+---
+
+### 25. Engine reuse leaks state between parse/load cycles ✅ (2026-07-10, PR #159)
+
+**Fix:** `resetParseState()` in `parse()` / `parseFile()`.
+
+---
+
+### 26. `typeof` operator + optional `paneIndex` global ✅ (2026-07-10, PR #159)
+
+**Symptom:** Split-screen games could not use `typeof paneIndex !== "undefined"` to detect pane mode.
+
+**Fix:** `typeof` parsed and evaluated; missing identifiers return `"undefined"` without throwing; `EvalValue.undefined()`; `GameRunner.setPaneIndex(n)` / `clearPaneIndex()`; split-screen host injects pane index per runner.
+
+**Regression:** `splitNoPane=0`, `splitWithPane=1` in [`tsx_engine_demo`](./tsx_engine_demo.rgr).
+
+---
+
 ## Known limitations (open)
 
-_Validated against `master` @ 2026-07-10 (merge PR #156, Arctic Rush interpreter fixes)._
+_Validated against `master` @ 2026-07-10, including PR #156 (master) and PR #159 (pending merge)._
 
 ### Recommended fix order
 
-| Priority | Issue | Status on master |
-|----------|-------|------------------|
-| ~~P0~~ | ~~Outer-scope assignment~~ | ✅ Fixed (#14) |
-| **P0** | [#18 Transitive import paths](#18-transitive-import-relative-paths-resolved-from-wrong-directory) | Open |
-| **P0** | [#20 Hot reload duplicates](#20-hot-reload-patchscript-duplicates-imports-and-components) | Open |
-| **P1** | [#19 Cyclic imports](#19-no-cycle-protection-on-import-graph) | Open |
-| **P1** | [#21 Removed bindings stale](#21-removed-declarations-left-intentionally-stale-on-hot-reload) | Open |
-| **P1** | [#11 Return inside loops (value path)](#11-value-return-inside-for--while-loops-not-propagated-value-path) | Open |
-| **P2** | [#22 Bare `return;` on JSX path](#22-bare-return-ignored-on-jsxevg-evaluation-path) | Open |
-| **P2** | [#23 Import alias / default export](#23-import-alias-and-default-export-handling-incomplete) | Open |
+| Priority | Issue | Status |
+|----------|-------|--------|
+| ~~P0~~ | ~~Outer-scope assignment~~ | ✅ Fixed (#14, master) |
+| ~~P0~~ | ~~Transitive import paths~~ | ✅ Fixed (#18, PR #159) |
+| ~~P0~~ | ~~Hot reload duplicates~~ | ✅ Fixed (#20, PR #159) |
+| ~~P1~~ | ~~Cyclic imports~~ | ✅ Fixed (#19, PR #159) |
+| ~~P1~~ | ~~Removed bindings stale~~ | ✅ Fixed (#21, PR #159) |
+| ~~P1~~ | ~~Return inside loops (value path)~~ | ✅ Fixed (#11, PR #159) |
+| ~~P2~~ | ~~Bare `return;` on JSX path~~ | ✅ Fixed (#22, PR #159) |
+| **P2** | [#23 Default export imports](#23-import-alias-and-default-export-handling-incomplete) | Partial (`as` aliases done) |
 | **P2** | [#24 Shared `moduleScope`](#24-imported-modules-not-isolated-shared-modulescope) | Open |
-| **P2** | [#25 `parse()` state leaks](#25-engine-reuse-leaks-state-between-parse-load-cycles) | Open |
 | **P3** | [#13 `**` operator](#13--operator-parsed-not-evaluated) | Open |
 | **P3** | Bitwise `<<` `>>` `~` | Open (partial: `\|` `&` `^` done) |
 | **P3** | `Math.random` and other Math helpers | Open (partial: `sin`/`cos`/`PI` done) |
@@ -243,24 +306,9 @@ function hud(props) {
 
 ### 11. Value-`return` inside `for` / `while` loops not propagated (value path)
 
-**Status:** Still open on master (2026-07-10).
+**Status:** ✅ Fixed (PR #159). See [Fixed #11](#11-value-return-inside-for--while-loops-value-path--2026-07-10-pr-159).
 
-Documented in [`GAME_SCRIPTING.md`](./GAME_SCRIPTING.md).
-
-**Symptom:** `for (…) { return value; }` or `while (…) { return value; }` inside a value-returning function (`update`, `initState`, …) does **not** exit the enclosing function.
-
-**Cause:** `runStatementValue()` delegates loops to `runWhileStatementValue()` / `runForStatementValue()`, which call the JSX-oriented loop evaluators but **ignore** `hasReturn`. The comment in `ComponentEngine.rgr` still applies:
-
-```rgr
-; Loops run for side effects; value-returns from inside a loop are not
-; propagated (uncommon in screen/reducer scripts).
-```
-
-Additionally, `evaluateStatementBlock()` evaluates loop-body `return` via `evaluateJSX()`, not `evaluateExpr()` — wrong for non-JSX reducer returns.
-
-**Note:** `break` / `continue` inside loops **do** work (fixed #17). Bare `return;` at statement level in value functions **does** set `scriptDidReturn` (#22 does not apply to value path).
-
-**Workaround:** Avoid `return` inside loops; use `if` + early `return` at statement level, or a flag.
+---
 
 ### 12. Single-statement loop bodies without `{ … }`
 
@@ -278,69 +326,37 @@ See project `ISSUES.md` #6 — parenthesise exponent expressions. Parser accepts
 
 ### 18. Transitive import relative paths resolved from wrong directory
 
-**Status:** Still open on master.
-
-**Symptom:** Nested imports fail when an imported module imports a sibling.
-
-**Example:** Entry `games/foo/index.tsx` imports `./components/A.tsx`. Inside `A.tsx`, `import { helper } from "./B"` — `B.tsx` is resolved from the **entry** script directory, not `components/`.
-
-**Cause:** `processImportDeclaration()` calls `readImportSource(basePath, fullPath)` using the global `basePath` (entry script dir). Recursive `processImports(importAst)` does not push/pop `basePath` to the importer's directory (`resolvedImportDir` is set on read but not used for nested relative paths).
-
-**Workaround:** Flatten imports so all relative paths resolve from the entry script directory.
+**Status:** ✅ Fixed (PR #159). See [Fixed #18](#18-transitive-import-relative-paths--2026-07-10-pr-159).
 
 ---
 
 ### 19. No cycle protection on import graph
 
-**Status:** Still open on master.
-
-**Symptom:** `A → B → A` can recurse until stack overflow.
-
-**Cause:** `loadedFiles` is append-only for file-watching; no `loading` / `loaded` set guards re-entry in `processImportDeclaration()`.
+**Status:** ✅ Fixed (PR #159). See [Fixed #19](#19-cyclic-import-protection--2026-07-10-pr-159).
 
 ---
 
 ### 20. Hot reload (`patchScript`) duplicates imports and components
 
-**Status:** Still open on master.
-
-**Symptom:** After hot reload, stale component versions or duplicate helpers.
-
-**Cause:** `patchScript()` calls `processImports(newAst)` without `clearLocalComponents()` (unlike `loadScript()`). New `ImportedSymbol` entries are **pushed**; `expandComponent()` returns the **first** name match — possibly stale. `updateLocalComponentNode()` updates existing symbols but duplicates remain.
+**Status:** ✅ Fixed (PR #159). See [Fixed #20](#20-hot-reload-patchscript-duplicates--2026-07-10-pr-159).
 
 ---
 
 ### 21. Removed declarations left intentionally stale on hot reload
 
-**Status:** Still open on master.
-
-**Cause:** Explicit in `patchScript()`:
-
-```rgr
-if (ch.changeKind == "removed") {
-    ; Dev reload rarely removes declarations; leave stale binding.
-}
-```
-
-Deleted functions, `const`s, and imports remain callable after patch.
+**Status:** ✅ Fixed (PR #159). See [Fixed #21](#21-removed-declarations-on-hot-reload--2026-07-10-pr-159).
 
 ---
 
 ### 22. Bare `return;` ignored on JSX/EVG evaluation path
 
-**Status:** Still open on master.
-
-**Symptom:** `return;` (no expression) in JSX/render helpers does not stop execution.
-
-**Cause:** JSX-path handlers only set `hasReturn` when `stmt.left` is present. The **value-function path** (`runStatementValue`) correctly sets `scriptDidReturn = true` even without `stmt.left` — asymmetry between paths.
-
-**Workaround:** Use `return null;` or `return <Fragment />;` in JSX helpers.
+**Status:** ✅ Fixed (PR #159). See [Fixed #22](#22-bare-return-on-jsxevg-path--2026-07-10-pr-159).
 
 ---
 
 ### 23. Import alias and default export handling incomplete
 
-**Status:** Still open on master.
+**Status:** Partial — named `import { X as Y }` fixed (PR #159); default export still open.
 
 **Risky patterns:**
 
@@ -367,9 +383,7 @@ import Local from "./module";
 
 ### 25. Engine reuse leaks state between parse/load cycles
 
-**Status:** Still open on master.
-
-**Cause:** `parse()` does not reset `moduleScope`, `localComponents`, or `loadedFiles`. `parseFile()` appends to `loadedFiles` without clearing. `parseFile()` assigns `basePath` without trailing-`/` normalization (unlike `setBasePath()`). `loadScript()` is safe — `GameRunner` uses that path.
+**Status:** ✅ Fixed (PR #159). See [Fixed #25](#25-engine-reuse-leaks-state-between-parse-load-cycles--2026-07-10-pr-159).
 
 ---
 
@@ -377,12 +391,14 @@ import Local from "./module";
 
 | File | Role |
 |------|------|
-| `ComponentEngine.rgr` | Evaluator + JSX; `EvalContext.assign`, imports, `patchScript` |
-| `EvalValue.rgr` | Runtime value model |
+| `ComponentEngine.rgr` | Evaluator + JSX; `typeof`, imports, `patchScript` |
+| `EvalValue.rgr` | Runtime value model (`undefined`, `setMember`) |
 | `ts_ast_patch.rgr` | Hot-reload AST diff |
-| `ts_parser_simple.rgr` | Parser (`break`/`continue`, bitwise precedence) |
-| `game_runtime.rgr` | GameRunner (`loadScript`, `hotReloadScript`) |
-| `games/ar/index.tsx` | Arctic Rush — stress test for `Math.sin`, `\|` int cast, `continue` |
+| `ts_parser_simple.rgr` | Parser (`typeof`, `break`/`continue`, bitwise) |
+| `game_runtime.rgr` | GameRunner (`loadScript`, `setPaneIndex`, hot reload) |
+| `game_split_screen.rgr` | Split-screen host (`paneIndex` injection) |
+| `games/ar/index.tsx` | Arctic Rush — `Math.sin`, `\|` int cast, `continue` |
 | `GAME_SCRIPTING.md` | Authoring guide |
 | `invaders.game.tsx` | Module const arrays + while loops |
+| `import_chain_demo.rgr` | Transitive import regression |
 | `breakout_bricks.tsx` | Relative `import` between scripts |
