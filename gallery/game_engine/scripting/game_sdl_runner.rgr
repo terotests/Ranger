@@ -6,7 +6,7 @@
 ;   1. Load gallery/game_engine/menu/index.tsx (menu game, EVG hud).
 ;   2. Host scans --games-dir and injects `gameCatalog` global into the menu.
 ;   3. Menu sets state.launchPath → host loads that game's index.tsx.
-;   4. Q/Esc in a sub-game → back to menu game.
+;   4. Q/Esc or gamepad Select/B in a sub-game → back to menu game.
 ;   5. Q/Esc in menu → quit app.
 ;
 ; Direct launch (no menu):
@@ -42,6 +42,7 @@ class GameSdlRunner {
     def maxDtMs:int 100
     def hotReloadExplicit:boolean false
     def hotReloadWanted:boolean true
+    def startFullscreen:boolean false
     def gamesDir:string "gallery/game_engine/games"
     def menuPath:string "gallery/game_engine/menu/index.tsx"
     def launcherMode:boolean false
@@ -457,6 +458,29 @@ class GameSdlRunner {
         return false
     }
 
+    ; Menu navigation: keyboard P1 (WASD/arrows) + gamepad 0 merged.
+    fn launcherNavMask:int () {
+        def kb:int (gfx_input_source_mask(0))
+        def pad:int (gfx_input_source_mask(2))
+        return (bit_or kb pad)
+    }
+
+    ; Return to launcher menu: Q/Esc, or gamepad Select / B.
+    fn gameMenuBackHeld:boolean () {
+        def kb:int (gfx_input_source_mask(0))
+        if ((bit_and kb 8) != 0) {
+            return true
+        }
+        def pad:int (gfx_input_source_mask(2))
+        if ((bit_and pad 1024) != 0) {
+            return true
+        }
+        if ((bit_and pad 64) != 0) {
+            return true
+        }
+        return false
+    }
+
     fn runMenuLoop:void () {
         this.loadMenuGame()
         while (running) {
@@ -479,7 +503,7 @@ class GameSdlRunner {
             def right:boolean false
             def action:boolean false
             def quitHeld:boolean false
-            def m:int (gfx_poll_mask)
+            def m:int (this.launcherNavMask())
             if ((bit_and m 1) != 0) {
                 up = true
             }
@@ -495,7 +519,8 @@ class GameSdlRunner {
             if ((bit_and m 4) != 0) {
                 action = true
             }
-            if ((bit_and m 8) != 0) {
+            def kb:int (gfx_input_source_mask(0))
+            if ((bit_and kb 8) != 0) {
                 quitHeld = true
             }
 
@@ -562,26 +587,7 @@ class GameSdlRunner {
             def left:boolean false
             def right:boolean false
             def action:boolean false
-            def quitHeld:boolean false
-            def m:int (gfx_poll_mask)
-            if ((bit_and m 1) != 0) {
-                up = true
-            }
-            if ((bit_and m 2) != 0) {
-                down = true
-            }
-            if ((bit_and m 16) != 0) {
-                left = true
-            }
-            if ((bit_and m 32) != 0) {
-                right = true
-            }
-            if ((bit_and m 4) != 0) {
-                action = true
-            }
-            if ((bit_and m 8) != 0) {
-                quitHeld = true
-            }
+            def quitHeld:boolean (this.gameMenuBackHeld())
 
             if (this.quitEdge(quitHeld)) {
                 this.clearNavStack()
@@ -633,6 +639,9 @@ class GameSdlRunner {
         if (ok == 0) {
             print "gfx_open failed (no display?) - still rendering into the RGBA buffer"
         }
+        if (startFullscreen) {
+            gfx_set_fullscreen(1)
+        }
         gfx_audio_open(22050)
         if (launcherMode) {
             this.runMenuLoop()
@@ -682,22 +691,30 @@ class GameSdlRunner {
                         hotReloadExplicit = true
                         hotReloadWanted = false
                     } {
-                        if (arg == "--games-dir") {
-                            pendingGamesDir = true
-                            launcherMode = true
+                        if (arg == "--fullscreen") {
+                            startFullscreen = true
                         } {
-                            if (this.startsWith(arg "--games-dir=")) {
-                                def plen:int (strlen "--games-dir=")
-                                gamesDir = (substring arg plen (strlen arg))
-                                launcherMode = true
+                            if (arg == "--windowed") {
+                                startFullscreen = false
                             } {
-                                if (this.isTsxPath(arg)) {
-                                    tsxPath = arg
+                                if (arg == "--games-dir") {
+                                    pendingGamesDir = true
+                                    launcherMode = true
                                 } {
-                                    if ((strlen tsxPath) > 0) {
-                                        def parsed@(optional):int (to_int arg)
-                                        if (!null? parsed) {
-                                            maxFrames = (unwrap parsed)
+                                    if (this.startsWith(arg "--games-dir=")) {
+                                        def plen:int (strlen "--games-dir=")
+                                        gamesDir = (substring arg plen (strlen arg))
+                                        launcherMode = true
+                                    } {
+                                        if (this.isTsxPath(arg)) {
+                                            tsxPath = arg
+                                        } {
+                                            if ((strlen tsxPath) > 0) {
+                                                def parsed@(optional):int (to_int arg)
+                                                if (!null? parsed) {
+                                                    maxFrames = (unwrap parsed)
+                                                }
+                                            }
                                         }
                                     }
                                 }
