@@ -32,6 +32,12 @@ export function soundEvent(id) {
   return { kind: "playSound", id: id };
 }
 
+/** Built-in particle burst presets (GPU overlay or SoftCanvas circles). */
+export function particleEvent(id, x, y, amount?) {
+  const n = amount == null ? 0 : amount;
+  return { kind: "particles", id: id, x: x, y: y, amount: n };
+}
+
 /** Clamp local player slots to the engine maximum (1–8). */
 export function clampPlayerSlots(n: number): number {
   if (n < 1) {

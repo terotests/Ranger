@@ -14,7 +14,8 @@ import {
 
 function resources() {
   return [
-    { kind: "image", id: "bg", path: "assets/image.png" }
+    { kind: "image", id: "bg", path: "assets/image.png" },
+    { kind: "image", id: "win", path: "assets/win2.png" }
   ];
 }
 
@@ -47,5 +48,5 @@ function update(props) {
 
 function hud(props) {
   const s = props.state;
-  return playHud(s.levelLabel, s.score1, s.score2);
+  return playHud(s.levelLabel, s.score1, s.score2, s.levelCleared);
 }

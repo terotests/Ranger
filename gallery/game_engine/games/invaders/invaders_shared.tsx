@@ -9,6 +9,7 @@ export const ROWS = 3;
 export const ALIEN_COUNT = COLS * ROWS;
 const SHOT_COOLDOWN = 42;
 const WAVE_STEP_DOWN = 12;
+const LEVEL_LOAD_MS = 1800;
 
 const INVADER_A = [
   "..XXX..",
@@ -181,7 +182,51 @@ export function makePlayState(score1, score2, levelLabel) {
     score2: score2,
     gameOver: 0,
     levelLabel: levelLabel,
-    levelCleared: 0
+    levelCleared: 0,
+    celebrateMs: 0,
+    loadQueued: 0,
+    background: ""
+  };
+}
+
+function emptyEntities() {
+  const entities = {};
+  entities.shot = { x: -20, y: -30, visible: 0 };
+  entities.ship = { x: -30, y: -30, p0: 0, visible: 0 };
+  let alien = 0;
+  while (alien < ALIEN_COUNT) {
+    entities[alienId(alien)] = { x: -30, y: -30, visible: 0, p0: 0 };
+    alien = alien + 1;
+  }
+  return entities;
+}
+
+function levelLoadState(s, celebrateMs, loadQueued, events) {
+  return {
+    layout: "invaders",
+    showNet: 0,
+    entities: emptyEntities(),
+    px: s.px,
+    py: s.py,
+    waveX: s.waveX,
+    waveY: s.waveY,
+    waveDir: s.waveDir,
+    waveTick: s.waveTick,
+    anim: s.anim,
+    shotX: s.shotX,
+    shotY: s.shotY,
+    shotActive: 0,
+    fireCd: s.fireCd,
+    alive: s.alive,
+    score1: s.score1,
+    score2: s.score2,
+    gameOver: s.gameOver,
+    levelLabel: s.levelLabel,
+    levelCleared: 1,
+    celebrateMs: celebrateMs,
+    loadQueued: loadQueued,
+    background: "win",
+    events: events
   };
 }
 
@@ -264,6 +309,24 @@ export function runPlayUpdate(props, baseWavePeriod, levelMode) {
     return s;
   }
 
+  if (s.levelCleared == 1) {
+    let celebrateMs = s.celebrateMs - props.dt;
+    let loadQueued = s.loadQueued;
+    if (celebrateMs <= 0) {
+      celebrateMs = 0;
+      if (loadQueued == 0) {
+        if (levelMode == "level1") {
+          pushGame("level2.tsx");
+        }
+        if (levelMode == "level2") {
+          loadGame("win.tsx");
+        }
+        loadQueued = 1;
+      }
+    }
+    return levelLoadState(s, celebrateMs, loadQueued, []);
+  }
+
   let minWavePeriod = 4;
   if (levelMode == "level2") {
     minWavePeriod = 3;
@@ -285,7 +348,6 @@ export function runPlayUpdate(props, baseWavePeriod, levelMode) {
   let score1 = s.score1;
   let score2 = s.score2;
   let gameOver = s.gameOver;
-  let levelCleared = s.levelCleared;
   const alive = s.alive;
   const aliveCount = countAlive(alive);
   const wavePeriod = wavePeriodFor(baseWavePeriod, waveY, aliveCount, minWavePeriod);
@@ -374,17 +436,32 @@ export function runPlayUpdate(props, baseWavePeriod, levelMode) {
   }
 
   if (countAlive(alive) == 0) {
-    if (levelCleared == 0) {
+    if (s.levelCleared == 0) {
       events.push(soundEvent("win"));
-      levelCleared = 1;
       if (levelMode == "level1") {
         saveGameData({ score1: score1, score2: score2, level: 2 });
-        pushGame("level2.tsx");
       }
       if (levelMode == "level2") {
         saveGameData({ score1: score1, score2: score2, level: 0, won: 1 });
-        loadGame("win.tsx");
       }
+      const cleared = {
+        px: px,
+        py: py,
+        waveX: waveX,
+        waveY: waveY,
+        waveDir: waveDir,
+        waveTick: waveTick,
+        anim: anim,
+        shotX: shotX,
+        shotY: shotY,
+        fireCd: fireCd,
+        alive: alive,
+        score1: score1,
+        score2: score2,
+        gameOver: gameOver,
+        levelLabel: s.levelLabel
+      };
+      return levelLoadState(cleared, LEVEL_LOAD_MS, 0, events);
     }
   }
 
@@ -421,12 +498,22 @@ export function runPlayUpdate(props, baseWavePeriod, levelMode) {
     score2: score2,
     gameOver: gameOver,
     levelLabel: s.levelLabel,
-    levelCleared: levelCleared,
+    levelCleared: s.levelCleared,
+    celebrateMs: s.celebrateMs,
+    loadQueued: s.loadQueued,
+    background: s.background,
     events: events
   };
 }
 
-export function playHud(levelLabel, score1, score2) {
+export function playHud(levelLabel, score1, score2, levelCleared) {
+  if (levelCleared == 1) {
+    return (
+      <View width="100%" height="100%" flexDirection="column" justifyContent="center" align="center">
+        <Label color="#ffffff">LOADING...</Label>
+      </View>
+    );
+  }
   return (
     <View flexDirection="row" padding="8px" width="100%" justifyContent="space-between">
       <Label color="#8fd3ff">{levelLabel}</Label>

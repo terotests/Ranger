@@ -821,21 +821,21 @@ function updatePlayer(pl, inp, dt, fx) {
     if (jumpTick < 0) { jumpTick = 0; }
   }
 
-  if (inp.accelerate) {
+  if (inp.accelerate && false == inp.brake) {
     if (speed < 0) {
-      // Throttle acts as a strong brake while reversing, then accelerates forward.
+      // Cancel reverse, then keep throttle in the same frame once forward.
       speed = speed + BRAKE * 1.8 * dt;
-      if (speed > 0) { speed = 0; }
+      if (speed > 0) {
+        speed = speed + ACCEL * dt;
+      }
     } else {
       speed = speed + ACCEL * dt;
     }
-  } else if (inp.brake) {
-    if (speed > 0.015) {
-      // First brake the forward motion.
+  } else if (inp.brake && false == inp.accelerate) {
+    if (speed > 0) {
       speed = speed - BRAKE * dt;
       if (speed < 0) { speed = 0; }
     } else {
-      // Only start reversing once the car has almost stopped.
       speed = speed - ACCEL * 0.65 * dt;
     }
   } else {
@@ -886,8 +886,9 @@ function updatePlayer(pl, inp, dt, fx) {
   x = clamp(x, 10, worldW() - 10);
 
   const offroad = isOffroad({ x: x, y: y });
-  if (offroad) {
+  if (offroad && speed > 0) {
     speed = speed - OFFROAD_DRAG * dt;
+    if (speed < 0) { speed = 0; }
     if (speed > MAX_OFFROAD_SPEED) {
       speed = MAX_OFFROAD_SPEED;
     }
@@ -1259,29 +1260,53 @@ function inCameraRange(worldY, cam, margin) {
   return screenY >= 0 - margin && screenY <= VIEW_H + margin;
 }
 
+function hiddenEntity() {
+  return { x: -40, y: -40, p0: 0, visible: 0 };
+}
+
+function localCarEntityId() {
+  if (isSplitPane()) {
+    if (paneIndex == 1) {
+      return "p2";
+    }
+    return "p1";
+  }
+  return "p1";
+}
+
+function peerCarEntityId() {
+  if (isSplitPane()) {
+    if (paneIndex == 1) {
+      return "p1";
+    }
+    return "p2";
+  }
+  return "p2";
+}
+
 function peerCarAnim(peer) {
   if (peer.steer < -0.18) { return 1; }
   if (peer.steer > 0.18) { return 2; }
   return 0;
 }
 
-function placePeerCar(entities, cam) {
+function placePeerCar(entities, cam, peerId) {
   if (false == isSplitPane()) {
     return;
   }
   if (peerCar.active != 1) {
-    entities.p2 = { x: -40, y: -40, p0: 0, visible: 0 };
+    entities[peerId] = hiddenEntity();
     return;
   }
 
-  const p2Lift = peerCar.finishTick > 0
+  const lift = peerCar.finishTick > 0
     ? Math.sin((peerCar.finishTick / 720) * Math.PI) * 24
     : 0;
   const visible = inCameraRange(peerCar.y, cam, 96) ? 1 : 0;
 
-  entities.p2 = {
+  entities[peerId] = {
     x: peerCar.x,
-    y: peerCar.y - cam - p2Lift,
+    y: peerCar.y - cam - lift,
     p0: peerCarAnim(peerCar),
     visible: visible
   };
@@ -1290,18 +1315,19 @@ function placePeerCar(entities, cam) {
 function placeEntities(s, cam, slots) {
   const entities = {};
 
-  const p1Lift = s.p1.finishTick > 0
+  const localLift = s.p1.finishTick > 0
     ? Math.sin((s.p1.finishTick / 720) * Math.PI) * 24
     : 0;
 
-  entities.p1 = {
+  const localCar = {
     x: s.p1.x,
-    y: s.p1.y - cam - p1Lift,
+    y: s.p1.y - cam - localLift,
     p0: playerAnim(s.p1),
     visible: 1
   };
 
   if (slots == 2) {
+    entities.p1 = localCar;
     const p2Lift = s.p2.finishTick > 0
       ? Math.sin((s.p2.finishTick / 720) * Math.PI) * 24
       : 0;
@@ -1311,9 +1337,16 @@ function placeEntities(s, cam, slots) {
       p0: playerAnim(s.p2),
       visible: 1
     };
+  } else if (isSplitPane()) {
+    const localId = localCarEntityId();
+    const peerId = peerCarEntityId();
+    entities.p1 = hiddenEntity();
+    entities.p2 = hiddenEntity();
+    entities[localId] = localCar;
+    placePeerCar(entities, cam, peerId);
   } else {
-    entities.p2 = { x: -40, y: -40, p0: 0, visible: 0 };
-    placePeerCar(entities, cam);
+    entities.p1 = localCar;
+    entities.p2 = hiddenEntity();
   }
 
   let i = 0;

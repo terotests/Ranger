@@ -512,6 +512,21 @@ static int g_rgfx_fb_w = 0;
 static int g_rgfx_fb_h = 0;
 static std::vector<GLuint> g_rgfx_gl_textures;
 
+struct RgfxGpuParticle {
+    float x, y, size;
+    uint8_t r, g, b, a;
+};
+static std::vector<RgfxGpuParticle> g_rgfx_particles;
+static int g_rgfx_part_fb_w = 0;
+static int g_rgfx_part_fb_h = 0;
+static GLuint g_rgfx_part_program = 0;
+static GLint g_rgfx_part_corner_attr = 0;
+static GLint g_rgfx_part_center_attr = 0;
+static GLint g_rgfx_part_size_attr = 0;
+static GLint g_rgfx_part_color_attr = 0;
+static GLint g_rgfx_part_res_uniform = 0;
+static GLuint g_rgfx_part_vbo = 0;
+
 static GLuint rgfx_gl_compile(GLenum type, const char* src) {
     GLuint s = glCreateShader(type);
     glShaderSource(s, 1, &src, nullptr);
@@ -587,6 +602,110 @@ static int rgfx_gpu_upload_texture(const uint8_t* pixels, int w, int h) {
     GLuint tex = rgfx_gl_make_tex(pixels, w, h);
     g_rgfx_gl_textures.push_back(tex);
     return (int) g_rgfx_gl_textures.size();
+}
+
+static int rgfx_particles_gl_init() {
+    if (g_rgfx_part_program != 0) { return 1; }
+    const char* vs =
+        \"#version 120\\n\"
+        \"attribute vec2 aCorner;\\n\"
+        \"attribute vec2 aCenter;\\n\"
+        \"attribute float aSize;\\n\"
+        \"attribute vec4 aColor;\\n\"
+        \"uniform vec2 uResolution;\\n\"
+        \"varying vec2 vCorner;\\n\"
+        \"varying vec4 vColor;\\n\"
+        \"void main() {\\n\"
+        \"  vec2 pix = aCenter + aCorner * aSize;\\n\"
+        \"  vec2 ndc;\\n\"
+        \"  ndc.x = (pix.x / uResolution.x) * 2.0 - 1.0;\\n\"
+        \"  ndc.y = 1.0 - (pix.y / uResolution.y) * 2.0;\\n\"
+        \"  gl_Position = vec4(ndc, 0.0, 1.0);\\n\"
+        \"  vCorner = aCorner;\\n\"
+        \"  vColor = aColor;\\n\"
+        \"}\\n\";
+    const char* fs =
+        \"#version 120\\n\"
+        \"varying vec2 vCorner;\\n\"
+        \"varying vec4 vColor;\\n\"
+        \"void main() {\\n\"
+        \"  float d = dot(vCorner, vCorner);\\n\"
+        \"  if (d > 1.0) discard;\\n\"
+        \"  float alpha = vColor.a * (1.0 - d);\\n\"
+        \"  gl_FragColor = vec4(vColor.rgb, alpha);\\n\"
+        \"}\\n\";
+    GLuint vsId = rgfx_gl_compile(GL_VERTEX_SHADER, vs);
+    GLuint fsId = rgfx_gl_compile(GL_FRAGMENT_SHADER, fs);
+    g_rgfx_part_program = glCreateProgram();
+    glAttachShader(g_rgfx_part_program, vsId);
+    glAttachShader(g_rgfx_part_program, fsId);
+    glLinkProgram(g_rgfx_part_program);
+    glDeleteShader(vsId);
+    glDeleteShader(fsId);
+    g_rgfx_part_corner_attr = glGetAttribLocation(g_rgfx_part_program, \"aCorner\");
+    g_rgfx_part_center_attr = glGetAttribLocation(g_rgfx_part_program, \"aCenter\");
+    g_rgfx_part_size_attr = glGetAttribLocation(g_rgfx_part_program, \"aSize\");
+    g_rgfx_part_color_attr = glGetAttribLocation(g_rgfx_part_program, \"aColor\");
+    g_rgfx_part_res_uniform = glGetUniformLocation(g_rgfx_part_program, \"uResolution\");
+    glGenBuffers(1, &g_rgfx_part_vbo);
+    return 1;
+}
+
+static void rgfx_particles_begin(int w, int h) {
+    g_rgfx_particles.clear();
+    g_rgfx_part_fb_w = w;
+    g_rgfx_part_fb_h = h;
+}
+
+static void rgfx_particles_push(float x, float y, float size, int r, int g, int b, int a) {
+    if (a <= 0 || size <= 0.f) { return; }
+    RgfxGpuParticle p;
+    p.x = x; p.y = y; p.size = size;
+    p.r = (uint8_t) r; p.g = (uint8_t) g; p.b = (uint8_t) b; p.a = (uint8_t) a;
+    g_rgfx_particles.push_back(p);
+}
+
+static void rgfx_particles_draw_overlay() {
+    if (g_rgfx_particles.empty() || g_rgfx_part_fb_w <= 0 || g_rgfx_part_fb_h <= 0) { return; }
+    if (!g_rgfx_gpu_mode) { return; }
+    rgfx_particles_gl_init();
+    static const float corners[6][2] = {
+        {-1.f, -1.f}, {1.f, -1.f}, {1.f, 1.f},
+        {-1.f, -1.f}, {1.f, 1.f}, {-1.f, 1.f}
+    };
+    std::vector<float> verts;
+    verts.reserve(g_rgfx_particles.size() * 6u * 9u);
+    for (const RgfxGpuParticle& p : g_rgfx_particles) {
+        float cr = p.r / 255.f, cg = p.g / 255.f, cb = p.b / 255.f, ca = p.a / 255.f;
+        for (int i = 0; i < 6; ++i) {
+            verts.push_back(corners[i][0]);
+            verts.push_back(corners[i][1]);
+            verts.push_back(p.x);
+            verts.push_back(p.y);
+            verts.push_back(p.size);
+            verts.push_back(cr);
+            verts.push_back(cg);
+            verts.push_back(cb);
+            verts.push_back(ca);
+        }
+    }
+    glUseProgram(g_rgfx_part_program);
+    glUniform2f((GLint) g_rgfx_part_res_uniform, (float) g_rgfx_part_fb_w, (float) g_rgfx_part_fb_h);
+    glBindBuffer(GL_ARRAY_BUFFER, g_rgfx_part_vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr) (verts.size() * sizeof(float)), verts.data(), GL_DYNAMIC_DRAW);
+    const GLsizei stride = (GLsizei) (9 * sizeof(float));
+    glEnableVertexAttribArray((GLuint) g_rgfx_part_corner_attr);
+    glVertexAttribPointer((GLuint) g_rgfx_part_corner_attr, 2, GL_FLOAT, GL_FALSE, stride, (void*) 0);
+    glEnableVertexAttribArray((GLuint) g_rgfx_part_center_attr);
+    glVertexAttribPointer((GLuint) g_rgfx_part_center_attr, 2, GL_FLOAT, GL_FALSE, stride, (void*) (2 * sizeof(float)));
+    glEnableVertexAttribArray((GLuint) g_rgfx_part_size_attr);
+    glVertexAttribPointer((GLuint) g_rgfx_part_size_attr, 1, GL_FLOAT, GL_FALSE, stride, (void*) (4 * sizeof(float)));
+    glEnableVertexAttribArray((GLuint) g_rgfx_part_color_attr);
+    glVertexAttribPointer((GLuint) g_rgfx_part_color_attr, 4, GL_FLOAT, GL_FALSE, stride, (void*) (5 * sizeof(float)));
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDrawArrays(GL_TRIANGLES, 0, (GLsizei) (g_rgfx_particles.size() * 6));
+    g_rgfx_particles.clear();
 }
 
 static void rgfx_gpu_draw_quad_tex(GLuint tex, float x, float y, float qw, float qh) {
@@ -676,6 +795,7 @@ static void rgfx_gpu_present_split(const uint8_t* left, const uint8_t* right, in
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, right);
     rgfx_gpu_draw_quad_tex(g_rgfx_base_tex_r, (float) halfW, 0.f, (float) (g_rgfx_fb_w - halfW), (float) g_rgfx_fb_h);
+    rgfx_particles_draw_overlay();
     rgfx_gpu_finish_frame();
 }
 
@@ -700,6 +820,15 @@ static void rgfx_gl_cleanup() {
         glDeleteProgram(g_rgfx_gl_program);
         g_rgfx_gl_program = 0;
     }
+    if (g_rgfx_part_vbo != 0) {
+        glDeleteBuffers(1, &g_rgfx_part_vbo);
+        g_rgfx_part_vbo = 0;
+    }
+    if (g_rgfx_part_program != 0) {
+        glDeleteProgram(g_rgfx_part_program);
+        g_rgfx_part_program = 0;
+    }
+    g_rgfx_particles.clear();
     if (g_rgfx_glctx != nullptr) {
         SDL_GL_DeleteContext(g_rgfx_glctx);
         g_rgfx_glctx = nullptr;
@@ -727,6 +856,7 @@ static void rgfx_present(const uint8_t* pixels, int w, int h) {
     if (g_rgfx_gpu_mode) {
         rgfx_gpu_start_frame(w, h);
         rgfx_gpu_blit_base(pixels, w, h);
+        rgfx_particles_draw_overlay();
         rgfx_gpu_finish_frame();
         return;
     }
@@ -965,6 +1095,31 @@ static void rgfx_close() {
             cpp ( "rgfx_gpu_upload_texture(" (e 1) ".data(), " (e 2) ", " (e 3) ")"
                   (imp "<SDL2/SDL.h>") (imp "<cstdint>") )
             es6 ( "0" )
+        }
+    }
+
+    ; Begin collecting GPU particles for the next present (OpenGL path only).
+    gfx_particles_begin _:void (fbW:int fbH:int) {
+        templates {
+            cpp ( "rgfx_particles_begin(" (e 1) ", " (e 2) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Queue one soft-circle particle (screen pixels, 0..255 colour/alpha).
+    gfx_particles_push _:void (x:double y:double size:double r:int g:int b:int alpha:int) {
+        templates {
+            cpp ( "rgfx_particles_push((float)" (e 1) ", (float)" (e 2) ", (float)" (e 3) ", "
+                  (e 4) ", " (e 5) ", " (e 6) ", " (e 7) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Finish particle collection (draw happens during gfx_present on GPU path).
+    gfx_particles_end _:void () {
+        templates {
+            cpp ( "/* particles collected */" )
+            es6 ( "undefined" )
         }
     }
 }

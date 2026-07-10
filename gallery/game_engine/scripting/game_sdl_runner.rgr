@@ -440,6 +440,7 @@ class GameSdlRunner {
         }
         def s0:int (gfx_ticks_ms)
         runner.draw()
+        runner.flushGpuParticles()
         def s1:int (gfx_ticks_ms)
         gfx_present (runner.raw()) pw ph
         def s2:int (gfx_ticks_ms)

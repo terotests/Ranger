@@ -5,7 +5,7 @@
 //
 // Split pane: WASD/arrows + Space + B  |  Dual: P1 WASD, P2 arrows + Start to join
 
-import { soundEvent } from "../../scripting/game_helpers";
+import { soundEvent, particleEvent } from "../../scripting/game_helpers";
 
 const BASE_W = 480;
 const WORLD_H = 1890;
@@ -835,6 +835,7 @@ function update(props) {
         score1 = score1 + 1;
         events.push(soundEvent("blip"));
         events.push(soundEvent("win"));
+        events.push(particleEvent("fruit", fd.x, fd.y, 22));
       }
       if (dual) {
         if (hitFruit(p2.x, p2.y, fd.x, fd.y)) {
@@ -842,6 +843,7 @@ function update(props) {
           score2 = score2 + 1;
           events.push(soundEvent("blip"));
           events.push(soundEvent("win"));
+          events.push(particleEvent("fruit", fd.x, fd.y, 22));
         }
       }
     }
