@@ -146,6 +146,26 @@ class GameInputSnapshot {
         this.setPlayerMask(0 (this.sourceMask(0)))
     }
 
+    ; Single-pane split-screen input: one player slot per half of the display.
+    ;   pane 0 — keyboard P1 (WASD) + gamepad 0
+    ;   pane 1 — keyboard P2 (arrows) + gamepad 1 (arrows only when one pad)
+    fn buildForPane:void (paneIndex:int) {
+        padCount = (gfx_input_pad_count)
+        playerCount = 1
+        def kbP1:int (this.sourceMask(0))
+        def kbP2:int (this.sourceMask(1))
+        if (paneIndex == 0) {
+            def merged:int (bit_or kbP1 (this.padSourceMask(0)))
+            this.setPlayerMask(0 merged)
+            return
+        }
+        def mask:int kbP2
+        if (padCount > 1) {
+            mask = (bit_or kbP2 (this.padSourceMask(1)))
+        }
+        this.setPlayerMask(0 mask)
+    }
+
     ; Map SDL raw sources onto player slots for the requested player count.
     fn buildFromSdl:void (count:int) {
         padCount = (gfx_input_pad_count)

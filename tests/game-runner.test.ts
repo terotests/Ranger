@@ -249,4 +249,22 @@ describe("Game runner - scripted Pong", () => {
     expect(entities, `no entities in output: ${out}`).toBeTruthy();
     expect(parseInt(entities![1], 10)).toBeGreaterThan(10);
   });
+
+  it("runs split-screen host with two independent solo panes", () => {
+    const { compile, run } = compileAndRun(
+      "gallery/game_engine/scripting/split_screen_runner_demo.rgr"
+    );
+
+    expect(
+      compile.success,
+      `Compile failed: ${compile.error || compile.output}`
+    ).toBe(true);
+    expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+
+    const out = run?.output || "";
+    expect(out).toContain("split-screen-runner done");
+    expect(out).toContain("frames=120");
+    expect(out).toContain("leftHeroY=");
+    expect(out).toContain("rightHeroY=");
+  });
 });

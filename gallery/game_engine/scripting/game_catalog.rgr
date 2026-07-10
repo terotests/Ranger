@@ -20,6 +20,10 @@ class GameCatalogEntry {
     def title:string ""
     def iconPath:string ""
     def entryPath:string ""
+    ; splitScreen: auto | always | never — host picks two-pane mode when supported
+    def splitScreen:string ""
+    ; Relative path to a single-player script for split-screen panes (from games dir).
+    def soloScript:string ""
 }
 
 class GameCatalog {
@@ -92,6 +96,29 @@ class GameCatalog {
         return (dir + "/" + file)
     }
 
+    fn findByPath:GameCatalogEntry (path:string) {
+        def fail:GameCatalogEntry (new GameCatalogEntry)
+        def i:int 0
+        while (i < (array_length entries)) {
+            def e:GameCatalogEntry (itemAt entries i)
+            if (e.entryPath == path) {
+                return e
+            }
+            i = (i + 1)
+        }
+        return fail
+    }
+
+    fn resolveSoloPath:string (entry:GameCatalogEntry) {
+        if ((strlen entry.soloScript) == 0) {
+            return ""
+        }
+        if ((strlen gamesDir) == 0) {
+            return entry.soloScript
+        }
+        return (this.joinPath(gamesDir entry.soloScript))
+    }
+
     fn parseInfoLine:void (entry:GameCatalogEntry line:string) {
         def eq:int (indexOf line "=")
         if (eq < 0) {
@@ -106,6 +133,12 @@ class GameCatalog {
         }
         if (key == "icon") {
             entry.iconPath = val
+        }
+        if (key == "splitScreen") {
+            entry.splitScreen = val
+        }
+        if (key == "soloScript") {
+            entry.soloScript = val
         }
     }
 

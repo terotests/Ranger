@@ -1,0 +1,140 @@
+; ==============================================================================
+; game_split_screen — generic two-pane split-screen host for script games.
+; ==============================================================================
+;
+; Runs two independent GameRunner instances side-by-side (left / right). Each
+; pane is a full single-player game state at half the framebuffer width, so two
+; children can progress at their own pace. Input mapping per pane:
+;   left  — keyboard WASD + gamepad 0
+;   right — keyboard arrows + gamepad 1 (arrows only when one pad)
+;
+; The host composites both panes into one RGBA buffer with a centre divider.
+; ==============================================================================
+
+Import "./game_runtime.rgr"
+Import "./game_input.rgr"
+Import "../framebuffer.rgr"
+Import "./game_host_native.rgr"
+
+class SplitScreenHost {
+    def left:GameRunner (new GameRunner)
+    def right:GameRunner (new GameRunner)
+    def leftBridge:GameHostNativeBridge (new GameHostNativeBridge)
+    def rightBridge:GameHostNativeBridge (new GameHostNativeBridge)
+    def canvas:SoftCanvas (new SoftCanvas)
+    def pw:int 480
+    def ph:int 270
+    def paneW:int 240
+    def paneH:int 270
+    def fpsShown:int 0
+    def leftScriptPath:string ""
+    def rightScriptPath:string ""
+
+    fn half:int (n:int) {
+        def result 0
+        def rem n
+        while (rem >= 2) {
+            rem = (rem - 2)
+            result = (result + 1)
+        }
+        return result
+    }
+
+    fn init:void (w:int h:int) {
+        pw = w
+        ph = h
+        paneW = (this.half(w))
+        paneH = h
+        canvas.init(w h)
+        left.init(paneW paneH)
+        right.init(paneW paneH)
+    }
+
+    fn setAudioSink:void (sink:GameAudioSink) {
+        left.audio.setSink(sink)
+        right.audio.setSink(sink)
+    }
+
+    fn setFpsShown:void (fps:int) {
+        fpsShown = fps
+        left.setFpsShown(fps)
+        right.setFpsShown(fps)
+    }
+
+    fn loadScriptAt:void (runner:GameRunner bridge:GameHostNativeBridge tsxPath:string) {
+        def dir:string ""
+        def file:string tsxPath
+        def slash:int (lastIndexOf tsxPath "/")
+        if (slash >= 0) {
+            dir = (substring tsxPath 0 slash)
+            file = (substring tsxPath (slash + 1) (strlen tsxPath))
+        }
+        def buf:buffer (buffer_read_file dir file)
+        def src:string (buffer_to_string buf)
+        runner.setScriptDir(dir)
+        bridge.setGameDir(dir)
+        runner.setNativeBridge(bridge)
+        runner.loadScript(src)
+        runner.setupScene()
+        runner.trackScriptFile(tsxPath)
+    }
+
+  ; Load the same script (or different paths) into both panes.
+    fn loadPanes:void (leftPath:string rightPath:string) {
+        this.loadScriptAt(left leftBridge leftPath)
+        this.loadScriptAt(right rightBridge rightPath)
+        leftScriptPath = leftPath
+        rightScriptPath = rightPath
+    }
+
+    fn setHotReload:void (enabled:boolean) {
+        left.setHotReload(enabled)
+        right.setHotReload(enabled)
+    }
+
+    fn maybeHotReload:void () {
+        left.maybeHotReload()
+        right.maybeHotReload()
+    }
+
+  ; Build a single-player input snapshot for one pane.
+    fn snapForPane:GameInputSnapshot (paneIndex:int) {
+        def snap:GameInputSnapshot (new GameInputSnapshot)
+        snap.buildForPane(paneIndex)
+        return snap
+    }
+
+    fn frameWithInput:void (dtMs:int) {
+        def leftSnap:GameInputSnapshot (this.snapForPane(0))
+        def rightSnap:GameInputSnapshot (this.snapForPane(1))
+        left.frameWithInput(dtMs leftSnap)
+        right.frameWithInput(dtMs rightSnap)
+    }
+
+    fn draw:void () {
+        left.draw()
+        right.draw()
+        canvas.copyRectFrom((left.canvas) 0 0 paneW paneH 0 0)
+        canvas.copyRectFrom((right.canvas) 0 0 paneW paneH paneW 0)
+        def ny 0
+        def divX paneW
+        while (ny < ph) {
+            canvas.fillRect((divX - 1) ny 2 8 50 65 110)
+            ny = (ny + 10)
+        }
+    }
+
+    fn raw:buffer () {
+        return (canvas.raw())
+    }
+
+    fn hasPendingNav:boolean () {
+        if (leftBridge.hasPendingNav()) {
+            return true
+        }
+        if (rightBridge.hasPendingNav()) {
+            return true
+        }
+        return false
+    }
+}
