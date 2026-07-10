@@ -12,7 +12,7 @@
 ; Direct launch (no menu):
 ;   ./game_sdl path/to/game.tsx
 ;
-;   ./game_sdl [--games-dir=DIR] [--hot-reload|--no-hot-reload] [maxFrames]
+;   ./game_sdl [--software] [--games-dir=DIR] [--hot-reload|--no-hot-reload] [maxFrames]
 ; ==============================================================================
 
 Import "./game_runtime.rgr"
@@ -68,7 +68,7 @@ class GameSdlRunner {
     def prevUpHeld:boolean false
     def prevDownHeld:boolean false
     def prevActionHeld:boolean false
-    def gpuModeWanted:boolean false
+    def gpuModeWanted:boolean true
     def gpuModeActive:boolean false
 
     fn setProfileOnRunners:void () {
@@ -700,7 +700,7 @@ class GameSdlRunner {
             def okGpu:int (gfx_open_gpu title pw ph)
             if (okGpu != 0) {
                 gpuModeActive = true
-                print "[game-engine] hybrid GPU sprite path enabled (--gpu)"
+                print "[game-engine] OpenGL present (default)"
             } {
                 print "[game-engine] gfx_open_gpu failed — falling back to software present"
                 gpuModeActive = false
@@ -710,6 +710,8 @@ class GameSdlRunner {
             def ok:int (gfx_open title pw ph)
             if (ok == 0) {
                 print "gfx_open failed (no display?) - still rendering into the RGBA buffer"
+            } {
+                print "[game-engine] SDL software present (--software)"
             }
         }
         if (startFullscreen) {
@@ -767,31 +769,39 @@ class GameSdlRunner {
                         hotReloadExplicit = true
                         hotReloadWanted = false
                     } {
-                        if (arg == "--gpu") {
-                            gpuModeWanted = true
+                        if (arg == "--software") {
+                            gpuModeWanted = false
                         } {
-                            if (arg == "--fullscreen") {
-                                startFullscreen = true
+                            if (arg == "--no-gpu") {
+                                gpuModeWanted = false
                             } {
-                                if (arg == "--windowed") {
-                                    startFullscreen = false
+                                if (arg == "--gpu") {
+                                    gpuModeWanted = true
                                 } {
-                                    if (arg == "--games-dir") {
-                                        pendingGamesDir = true
-                                        launcherMode = true
+                                    if (arg == "--fullscreen") {
+                                        startFullscreen = true
                                     } {
-                                        if (this.startsWith(arg "--games-dir=")) {
-                                            def plen:int (strlen "--games-dir=")
-                                            gamesDir = (substring arg plen (strlen arg))
-                                            launcherMode = true
+                                        if (arg == "--windowed") {
+                                            startFullscreen = false
                                         } {
-                                            if (this.isTsxPath(arg)) {
-                                                tsxPath = arg
+                                            if (arg == "--games-dir") {
+                                                pendingGamesDir = true
+                                                launcherMode = true
                                             } {
-                                                if ((strlen tsxPath) > 0) {
-                                                    def parsed@(optional):int (to_int arg)
-                                                    if (!null? parsed) {
-                                                        maxFrames = (unwrap parsed)
+                                                if (this.startsWith(arg "--games-dir=")) {
+                                                    def plen:int (strlen "--games-dir=")
+                                                    gamesDir = (substring arg plen (strlen arg))
+                                                    launcherMode = true
+                                                } {
+                                                    if (this.isTsxPath(arg)) {
+                                                        tsxPath = arg
+                                                    } {
+                                                        if ((strlen tsxPath) > 0) {
+                                                            def parsed@(optional):int (to_int arg)
+                                                            if (!null? parsed) {
+                                                                maxFrames = (unwrap parsed)
+                                                            }
+                                                        }
                                                     }
                                                 }
                                             }

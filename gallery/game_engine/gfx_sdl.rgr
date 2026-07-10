@@ -16,8 +16,8 @@
 ; Build (macOS / Linux): see scripts/build-game-sdl.sh. On the Raspberry Pi the same
 ; SDL2 backend drives the HDMI framebuffer via KMS/DRM.
 ;
-; Optional GPU present: pass --gpu to game_sdl_runner to open an OpenGL context
-; (gfx_open_gpu) and upload frames via GLES2 instead of SDL_Renderer textures.
+; Default present path: OpenGL 2.1 / GLES2 via gfx_open_gpu (game_sdl_runner).
+; Pass --software to force the SDL_Renderer texture-upload path instead.
 ;
 ; es6 templates are harmless stubs so the file still type-checks for the web
 ; target; the real window only exists in the native (C++) build.
