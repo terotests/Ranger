@@ -4,7 +4,7 @@
 
 function resources() {
   return [
-    { kind: "image", id: "bg", path: "assets/image.png" }
+    { kind: "image", id: "bg", path: "assets/win2.png" }
   ];
 }
 

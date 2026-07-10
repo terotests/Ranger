@@ -1,0 +1,266 @@
+; ==============================================================================
+; game_particles - lightweight burst particle pool for script-driven games.
+; ==============================================================================
+;
+; Games emit { kind: "particles", id: "<preset>", x, y, amount? } from update().
+; GameRunner drains events, converts world Y via cameraY, and drives this pool.
+;
+; Software path: draw soft circles into SoftCanvas (SDL_Renderer present).
+; GPU path: flushGpu() uploads active particles for GL overlay in gfx_sdl.rgr
+; (PixiJS ParticleContainer-style batched quads + alpha fade in the fragment shader).
+; ==============================================================================
+
+Import "../framebuffer.rgr"
+Import "../gfx_sdl.rgr"
+
+class GameParticle {
+    def active:int 0
+    def x:double 0.0
+    def y:double 0.0
+    def vx:double 0.0
+    def vy:double 0.0
+    def life:int 0
+    def maxLife:int 1
+    def size:double 3.0
+    def r:int 255
+    def g:int 220
+    def b:int 80
+}
+
+class GameParticleSystem {
+    def pool:[GameParticle]
+    def maxCount:int 96
+    def seed:int 9973
+
+    fn init:void (capacity:int) {
+        if (capacity > 0) {
+            maxCount = capacity
+        }
+        while ((array_length pool) < maxCount) {
+            push pool (new GameParticle)
+        }
+    }
+
+    fn nextRand:int () {
+        seed = ((seed * 1103515245) + 12345)
+        def v:int seed
+        if (v < 0) {
+            v = (0 - v)
+        }
+        return v
+    }
+
+    fn randUnit:double () {
+        def r:int (this.nextRand())
+        def t:int (r % 10000)
+        return ((to_double t) / 10000.0)
+    }
+
+    fn randRange:double (lo:double hi:double) {
+        def t:double (this.randUnit())
+        return (lo + (t * (hi - lo)))
+    }
+
+    fn allocSlot:int () {
+        def i 0
+        while (i < maxCount) {
+            def p:GameParticle (itemAt pool i)
+            if (p.active == 0) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return 0
+    }
+
+    fn activate:void (slot:int x:double y:double vx:double vy:double life:int size:double r:int g:int b:int) {
+        if (slot < 0) {
+            return
+        }
+        if (slot >= maxCount) {
+            return
+        }
+        def p:GameParticle (itemAt pool slot)
+        p.active = 1
+        p.x = x
+        p.y = y
+        p.vx = vx
+        p.vy = vy
+        p.life = life
+        p.maxLife = life
+        p.size = size
+        p.r = r
+        p.g = g
+        p.b = b
+    }
+
+    fn spawnPreset:void (preset:string x:double y:double amount:int) {
+        if (preset == "fruit") {
+            this.spawnFruit(x y amount)
+            return
+        }
+        if (preset == "sparkle") {
+            this.spawnSparkle(x y amount)
+            return
+        }
+        this.spawnBurst(x y amount)
+    }
+
+    fn spawnBurst:void (x:double y:double amount:int) {
+        def count:int amount
+        if (count <= 0) {
+            count = 14
+        }
+        if (count > 32) {
+            count = 32
+        }
+        def i 0
+        while (i < count) {
+            def slot:int (this.allocSlot())
+            def ang:double ((to_double i) / (to_double count))
+            ang = (ang * 6.28318)
+            def spd:double (this.randRange(0.08 0.22))
+            def vx:double (cos(ang) * spd)
+            def vy:double (sin(ang) * spd)
+            def life:int (to_int (this.randRange(220.0 420.0)))
+            def size:double (this.randRange(2.0 4.5))
+            def tone:int (to_int (this.randRange(180.0 255.0)))
+            this.activate(slot x y vx vy life size tone tone tone)
+            i = (i + 1)
+        }
+    }
+
+    fn spawnSparkle:void (x:double y:double amount:int) {
+        def count:int amount
+        if (count <= 0) {
+            count = 12
+        }
+        if (count > 28) {
+            count = 28
+        }
+        def i 0
+        while (i < count) {
+            def slot:int (this.allocSlot())
+            def ang:double (this.randRange(0.0 6.28318))
+            def spd:double (this.randRange(0.05 0.18))
+            def vx:double (cos(ang) * spd)
+            def vy:double (sin(ang) * spd)
+            def life:int (to_int (this.randRange(180.0 360.0)))
+            def size:double (this.randRange(1.5 3.5))
+            this.activate(slot x y vx vy life size 255 230 120)
+            i = (i + 1)
+        }
+    }
+
+    fn spawnFruit:void (x:double y:double amount:int) {
+        def count:int amount
+        if (count <= 0) {
+            count = 20
+        }
+        if (count > 36) {
+            count = 36
+        }
+        def i 0
+        while (i < count) {
+            def slot:int (this.allocSlot())
+            def ang:double (this.randRange(0.0 6.28318))
+            def spd:double (this.randRange(0.04 0.16))
+            def vx:double (cos(ang) * spd)
+            def vy:double (this.randRange(-0.22 -0.04))
+            vy = (vy + (sin(ang) * spd * 0.35))
+            def life:int (to_int (this.randRange(350.0 700.0)))
+            def size:double (this.randRange(2.0 5.0))
+            def pick:int (to_int (this.randRange(0.0 3.0)))
+            def pr:int 80
+            def pg:int 200
+            def pb:int 60
+            if (pick == 1) {
+                pr = 240
+                pg = 200
+                pb = 40
+            }
+            if (pick == 2) {
+                pr = 220
+                pg = 70
+                pb = 70
+            }
+            this.activate(slot x y vx vy life size pr pg pb)
+            i = (i + 1)
+        }
+    }
+
+    fn update:void (dtMs:int) {
+        if (dtMs <= 0) {
+            return
+        }
+        def dt:double (to_double dtMs)
+        def grav:double 0.00028
+        def i 0
+        while (i < maxCount) {
+            def p:GameParticle (itemAt pool i)
+            if (p.active != 0) {
+                p.x = (p.x + (p.vx * dt))
+                p.y = (p.y + (p.vy * dt))
+                p.vy = (p.vy + (grav * dt))
+                p.life = (p.life - dtMs)
+                if (p.life <= 0) {
+                    p.active = 0
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn lifeRatio:double (p:GameParticle) {
+        if (p.maxLife <= 0) {
+            return 0.0
+        }
+        def rem:double (to_double p.life)
+        def maxL:double (to_double p.maxLife)
+        return (rem / maxL)
+    }
+
+    fn draw:void (canvas:SoftCanvas) {
+        def i 0
+        while (i < maxCount) {
+            def p:GameParticle (itemAt pool i)
+            if (p.active != 0) {
+                def ratio:double (this.lifeRatio(p))
+                if (ratio > 0.0) {
+                    def rad:int (to_int (p.size * ratio))
+                    if (rad < 1) {
+                        rad = 1
+                    }
+                    def rr:int (to_int ((to_double p.r) * ratio))
+                    def rg:int (to_int ((to_double p.g) * ratio))
+                    def rb:int (to_int ((to_double p.b) * ratio))
+                    if (rr < 0) { rr = 0 }
+                    if (rg < 0) { rg = 0 }
+                    if (rb < 0) { rb = 0 }
+                    canvas.fillCircle((to_int p.x) (to_int p.y) rad rr rg rb)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn flushGpu:void (fbW:int fbH:int) {
+        gfx_particles_begin fbW fbH
+        def i 0
+        while (i < maxCount) {
+            def p:GameParticle (itemAt pool i)
+            if (p.active != 0) {
+                def ratio:double (this.lifeRatio(p))
+                if (ratio > 0.02) {
+                    def alpha:int (to_int (ratio * 255.0))
+                    if (alpha > 255) {
+                        alpha = 255
+                    }
+                    gfx_particles_push p.x p.y p.size p.r p.g p.b alpha
+                }
+            }
+            i = (i + 1)
+        }
+        gfx_particles_end
+    }
+}

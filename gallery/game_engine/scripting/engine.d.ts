@@ -165,6 +165,9 @@ type BuiltinSoundId =
   | "lose"
   | "win";
 
+/** Particle burst presets understood by game_particles.rgr. */
+type ParticlePresetId = "burst" | "sparkle" | "fruit";
+
 /** Transient event emitted from update() and drained by GameHost each frame. */
 interface GameEvent {
   kind: string;
@@ -189,6 +192,15 @@ interface ResourceDef {
 interface PlaySoundEvent extends GameEvent {
   kind: "playSound";
   id: BuiltinSoundId | string;
+}
+
+/** One-shot particle burst (world x/y; host subtracts cameraY). */
+interface ParticleEvent extends GameEvent {
+  kind: "particles";
+  id: ParticlePresetId | string;
+  x: number;
+  y: number;
+  amount?: number;
 }
 
 /**

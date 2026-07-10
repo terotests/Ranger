@@ -2441,6 +2441,17 @@ class TSParserSimple {
       node.col = tok.col
       return node
     }
+
+    if (tokVal == "object") {
+      this.advance()
+      def node (new TSNode())
+      node.nodeType = "TSObjectKeyword"
+      node.start = tok.start
+      node.end = tok.end
+      node.line = tok.line
+      node.col = tok.col
+      return node
+    }
     
     if (tokVal == "void") {
       this.advance()

@@ -26,6 +26,7 @@ Import "./game_image_loader.rgr"
 Import "./game_input.rgr"
 Import "./game_composite_bridge.rgr"
 Import "./game_static_bg_bridge.rgr"
+Import "./game_particles.rgr"
 
 ; Runtime options for script-driven games (SDL host, tests, custom hosts).
 class GameRuntimeOptions {
@@ -38,6 +39,8 @@ class GameRuntimeOptions {
     ; Hybrid GPU path: CPU SoftCanvas for primitives/HUD, GL textured quads for
     ; bitmap sprites (when implemented). OpenGL present is the default in game_sdl.
     def gpuMode:boolean false
+    ; When true and gpuMode is on, particles are GL-overlaid at present (not SoftCanvas).
+    def particlesGpuOverlay:boolean true
 }
 
 class GameRunner {
@@ -78,6 +81,7 @@ class GameRunner {
     def staticBgBridge:GameStaticBgNativeBridge (new GameStaticBgNativeBridge)
     def compositeBridge:CompositeEvalNativeBridge (new CompositeEvalNativeBridge)
     def hostBridge@(optional):EvalNativeBridge
+    def particles:GameParticleSystem (new GameParticleSystem)
 
     fn init:void (w:int h:int) {
         engine.quiet = true
@@ -85,6 +89,7 @@ class GameRunner {
         pw = w
         ph = h
         canvas.init(w h)
+        particles.init(96)
     }
 
     fn half:int (n:int) {
@@ -127,6 +132,7 @@ class GameRunner {
     fn registerSplitPane:void (paneIndex:int) {
         this.setPaneIndex(paneIndex)
         this.setPeerCar((this.inactivePeerCar()))
+        options.particlesGpuOverlay = false
     }
 
     ; Opposite pane's local car (state.p1) for ghost rendering in split-screen races.
@@ -388,6 +394,14 @@ class GameRunner {
         return (canvas.raw())
     }
 
+    fn flushGpuParticles:void () {
+        if (options.gpuMode) {
+            if (options.particlesGpuOverlay) {
+                particles.flushGpu(pw ph)
+            }
+        }
+    }
+
     fn getCurrentScreen:string () {
         return currentScreen
     }
@@ -572,9 +586,20 @@ class GameRunner {
         def evs:EvalValue (state.getMember("events"))
         if (evs.isArray()) {
             def arr:[EvalValue] evs.arrayValue
+            def cam:double (this.memDouble((this.activeState()) "cameraY" 0.0))
             def i 0
             while (i < (array_length arr)) {
-                host.handleEvent((this.eventFromEval((itemAt arr i))))
+                def ev:EvalValue (itemAt arr i)
+                def kind:string (this.memString(ev "kind" ""))
+                if (kind == "particles") {
+                    def pid:string (this.memString(ev "id" "burst"))
+                    def px:double (this.memDouble(ev "x" 0.0))
+                    def py:double (this.memDouble(ev "y" 0.0))
+                    py = (py - cam)
+                    def amt:int (this.memInt(ev "amount" 0))
+                    particles.spawnPreset(pid px py amt)
+                }
+                host.handleEvent((this.eventFromEval(ev)))
                 i = (i + 1)
             }
             if ((array_length arr) > 0) {
@@ -732,6 +757,7 @@ class GameRunner {
             this.onScreenChanged(prevScreen nextScreen)
         }
         this.drainStateEvents()
+        particles.update(dtMs)
         this.syncFromState()
         this.syncBackgroundFromState()
         if (profileEnabled) {
@@ -780,6 +806,13 @@ class GameRunner {
                 spriteRenderer.drawEntity(e canvas)
             }
             i = (i + 1)
+        }
+        if (options.gpuMode) {
+            if (false == options.particlesGpuOverlay) {
+                particles.draw(canvas)
+            }
+        } {
+            particles.draw(canvas)
         }
         def tSpr1:int 0
         if (profileEnabled) {
@@ -834,7 +867,11 @@ class GameRunner {
 
     ; Default loading splash while a screen's resources are being prepared.
     fn drawLoadingScreen:void (label:string ticks:int) {
-        canvas.clear(14 18 36)
+        if (backgroundLoaded) {
+            imageLoader.blitCover(canvas backgroundImg)
+        } {
+            canvas.clear(14 18 36)
+        }
         hudBlitter.attach(canvas)
         def line:string label
         if ((strlen line) == 0) {
