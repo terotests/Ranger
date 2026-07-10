@@ -23,6 +23,24 @@ describe("TSX engine - ComponentEngine regressions", () => {
     expect(out).toContain("whileConst=15");
     expect(out).toContain("memberAssign=19");
     expect(out).toContain("helperSide=1");
+    expect(out).toContain("modCount2=2");
+    expect(out).toContain("whileReturn=5");
     expect(out).toContain("tsx-engine-demo done");
+  });
+
+  it("resolves transitive relative imports from the importer directory", () => {
+    const { compile, run } = compileAndRun(
+      "gallery/game_engine/scripting/import_chain_demo.rgr"
+    );
+
+    expect(
+      compile.success,
+      `Compile failed: ${compile.error || compile.output}`
+    ).toBe(true);
+    expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+
+    const out = run?.output || "";
+    expect(out).toContain("importChain=7");
+    expect(out).toContain("import-chain-demo done");
   });
 });

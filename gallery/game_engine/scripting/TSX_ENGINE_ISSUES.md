@@ -199,24 +199,11 @@ function hud(props) {
 
 **Impact:** Harmless at runtime (types are ignored); noisy in test output.
 
-### 11. Value-`return` inside `for` / `while` loops not propagated
+### 11. Value-`return` inside `for` / `while` loops not propagated ✅ (2026-07-10)
 
-Documented in [`GAME_SCRIPTING.md`](./GAME_SCRIPTING.md).
+**Fix:** Value-path loop runners (`runWhileStatementValue`, `runForStatementValue`, `runForOfStatementValue`) execute bodies via `runBlockOrStatement()` and honour `scriptDidReturn`, `loopBreak`, `loopContinue`.
 
-**Symptom:** `for (…) { return value; }` or `while (…) { return value; }` inside a value-returning function (`update`, `initState`, …) does **not** exit the enclosing function. Execution may continue after the loop or return `null`.
-
-**Cause:** `runStatementValue()` runs loop bodies for side effects only. The comment in `ComponentEngine.rgr` admits this:
-
-```rgr
-; Loops run for side effects; value-returns from inside a loop are not
-; propagated (uncommon in screen/reducer scripts).
-```
-
-Loop evaluators on the JSX/EVG path (`evaluateForStatement`, `evaluateWhileStatement`) propagate `hasReturn` from the loop body, but the **value-function path** (`evaluateFunctionBodyValue` → `runStatementValue`) does not wire `scriptDidReturn` through loop iterations the way `if` blocks do.
-
-**Fix direction:** Loop evaluators in the value path should check `scriptDidReturn` after each iteration (same mechanism as nested `callFunction` save/restore in issue #6).
-
-**Workaround:** Avoid `return` inside loops; use `if` + early `return` at statement level, or a flag variable.
+**Regression:** `whileReturn=5` in [`tsx_engine_demo`](./tsx_engine_demo.rgr).
 
 ### 12. Single-statement loop bodies without `{ … }`
 
@@ -228,132 +215,47 @@ See project `ISSUES.md` #6 — parenthesise exponent expressions. The parser acc
 
 ---
 
-### 14. Outer-scope assignment via `define()`, not `assign`
+### 14. Outer-scope assignment via `define()`, not `assign` ✅ (2026-07-10, PR #156)
 
-**Symptom:** Assigning to a variable declared in an outer scope (module or enclosing function) from an inner function creates a **new local binding** instead of updating the existing one.
-
-**Example:**
-
-```ts
-let counter = 0;
-function inc() {
-  counter += 1;   // or counter = counter + 1
-}
-```
-
-After `inc()`, `counter` at module scope is still `0`; a shadow `counter` exists only inside `inc()`.
-
-**Cause:** `evaluateUpdateExpr()` (and `++`/`--` paths) always call `context.define(name, value)`. `EvalContext.define()` only updates bindings in the **current** scope's variable list; if the name is not already defined locally, it **pushes a new entry** into the current scope. It does not walk the parent chain to find an existing binding.
-
-`lookup()` correctly walks `parent` scopes, so reads see the outer value but writes go to a fresh local.
-
-**Fix direction:** Add `EvalContext.assign(name, value)` that finds the scope owning the binding (walk parents with `has()`) and updates there; use `define()` only for declarations. Member/index assignment (`obj.x = v`) is separate and works when the object reference is written back.
-
-**Impact on games:** Current game scripts mostly return new state objects (reducer style) rather than mutating module-level `let` bindings, so this is latent — but any shared mutable module state (`let score`, counters, caches) will silently fail.
+**Fix:** `EvalContext.assign()` / `assignExisting()`; `evaluateUpdateExpr()` uses `context.assign()`.
 
 ---
 
-### 15. Transitive import relative paths resolved from wrong directory
+### 15. Transitive import relative paths resolved from wrong directory ✅ (2026-07-10)
 
-**Symptom:** Nested imports fail or load the wrong file when an imported module imports a sibling.
+**Fix:** Save/restore `basePath` per import frame; `moduleDirFromRead()` resolves nested paths (e.g. `import_fixtures/mid.tsx`).
 
-**Example:** Main script `games/foo/index.tsx` imports `./components/A.tsx`. Inside `A.tsx`:
-
-```ts
-import { helper } from "./B";
-```
-
-`B.tsx` lives next to `A.tsx` in `components/`, but resolution looks in the **main script's** directory (`games/foo/`), not `components/`.
-
-**Cause:** `processImportDeclaration()` sets `resolvedImportDir = basePath` and calls `readImportSource(basePath, fullPath)` using the engine's global `basePath` (the entry script directory). After loading `A.tsx`, recursive `processImports(importAst)` runs **without** temporarily setting `basePath` (or an import stack) to `components/`. `resolvedImportDir` is updated on successful read but is not used as the base for nested relative imports.
-
-**Fix direction:** Save/restore `basePath` per import frame: `push basePath = dirname(currentModulePath)` before `processImports(importAst)`, pop after.
-
-**Workaround:** Flatten imports so all relative paths resolve from the entry script directory, or duplicate shared helpers.
+**Regression:** [`import_chain_demo.rgr`](./import_chain_demo.rgr).
 
 ---
 
-### 16. No cycle protection on import graph
+### 16. No cycle protection on import graph ✅ (2026-07-10)
 
-**Symptom:** Circular imports (`A.tsx → B.tsx → A.tsx`) can recurse until stack overflow.
-
-**Cause:** `loadedFiles` is appended on each load (`push loadedFiles loadedFilePath`) for file-watching, but nothing checks whether a canonical path is already **loading** or **loaded** before re-entering `processImportDeclaration()`.
-
-**Fix direction:** Maintain `loading:Set<canonicalPath>` and `loaded:Set<canonicalPath>`; skip or error on re-entry; optionally return already-materialized bindings for loaded modules.
+**Fix:** `importLoading` / `importLoaded` canonical-path sets; skip cycles and re-bind from existing `moduleScope`.
 
 ---
 
-### 17. Hot reload (`patchScript`) duplicates imports and components
+### 17. Hot reload (`patchScript`) duplicates imports and components ✅ (2026-07-10)
 
-**Symptom:** After hot reload, behaviour is inconsistent — old component version used, duplicate helpers, or growing `localComponents` list.
-
-**Cause:** `patchScript()` calls `processImports(newAst)` on every patch **without** clearing or replacing prior import state:
-
-- `localComponents` is not reset (unlike `loadScript()` which calls `clearLocalComponents()`).
-- `loadedFiles` keeps growing.
-- Each re-import **pushes** new `ImportedSymbol` entries; `expandComponent()` returns the **first** name match in `localComponents`, which may be the **old** AST node.
-- `updateLocalComponentNode()` only updates an existing symbol; newly pushed duplicates remain.
-
-**Fix direction:** On patch, either (a) re-run the `loadScript()` registration path for imports, or (b) upsert by `(sourcePath, exportName)` and remove stale symbols; always replace `functionNode` on name collision instead of appending.
+**Fix:** `patchScript()` clears import/component state before re-import; `upsertLocalComponent()`; `expandComponent()` uses last match.
 
 ---
 
-### 18. Removed declarations left intentionally stale on hot reload
+### 18. Removed declarations left stale on hot reload ✅ (2026-07-10)
 
-**Symptom:** Deleting a top-level function, `const`, or import from source does not remove it from the runtime namespace after hot reload. Old bindings remain callable.
-
-**Cause:** Explicit comment in `patchScript()`:
-
-```rgr
-if (ch.changeKind == "removed") {
-    ; Dev reload rarely removes declarations; leave stale binding.
-}
-```
-
-The patcher detects removals but the evaluator deliberately does nothing. Same applies to imports re-processed by `processImports()` without unregistering removed modules.
-
-**Fix direction:** On `"removed"`, `moduleScope` / `localComponents` / import registry should drop the binding (or full reload when any import graph node changes).
+**Fix:** `moduleScope.removeBinding()` + `removeLocalComponentByName()` on `"removed"` patch entries.
 
 ---
 
-### 19. Bare `return;` ignored on JSX/EVG evaluation path
+### 19. Bare `return;` ignored on JSX/EVG evaluation path ✅ (2026-07-10)
 
-**Symptom:** `return;` (no expression) inside a JSX/render helper does not stop execution; statements after the return may still run.
-
-**Cause:** Multiple JSX-path handlers only treat `ReturnStatement` when `stmt.left` is present:
-
-```rgr
-if (stmt.nodeType == "ReturnStatement") {
-    if stmt.left {
-        ...
-        returnedEl.hasReturn = true
-    }
-}
-```
-
-A bare `return;` never sets `hasReturn` or returns early. The value-function path (`runStatementValue`) **does** set `scriptDidReturn = true` even without `stmt.left` — asymmetry between paths.
-
-**Workaround:** Always `return null;` or `return <Fragment />;` in JSX helpers.
+**Fix:** JSX paths set `hasReturn` even when `ReturnStatement` has no expression.
 
 ---
 
 ### 20. Import alias and default export handling incomplete
 
-**Symptom:** Renamed or default imports may not bind the expected name, or fail to match exported symbols.
-
-**Risky patterns:**
-
-```ts
-import { Original as Local } from "./module";
-import Local from "./module";
-export default function () {}
-```
-
-**Cause:** `processImportDeclaration()` collects `importedNames` from `ImportSpecifier.name` (the **exported** name in the source module), but registers bindings under the export's `fnName`, not the local alias (`spec.value`). Default exports (`ImportDefaultSpecifier`) are pushed by local name but `materializeImportedModule()` / export matching logic primarily handles `ExportNamedDeclaration` and plain `FunctionDeclaration` by **source name** equality with `importedNames`.
-
-`ImportedSymbol.originalName` exists but is always set equal to `name`; alias mapping is unused.
-
-**Workaround:** Import without `as` aliases; use named exports matching the import identifier.
+**Status:** Named `import { X as Y }` aliases bind under local name `Y` (2026-07-10). **Default exports** (`import Local from "./module"`) still fragile.
 
 ---
 
@@ -371,19 +273,9 @@ export default function () {}
 
 ---
 
-### 22. Engine reuse leaks state between parse/load cycles
+### 22. Engine reuse leaks state between parse/load cycles ✅ (2026-07-10)
 
-**Symptom:** Calling `parse()` or `parseFile()` multiple times on the same `ComponentEngine` instance accumulates stale imports, components, and file-watch entries. Differs from `loadScript()` which resets `moduleScope` and `localComponents`.
-
-**Cause:**
-
-- `parse()` does **not** reset `moduleScope`, `localComponents`, or `loadedFiles`.
-- `parseFile()` pushes to `loadedFiles` without clearing prior entries.
-- `parseFile()` assigns `basePath = dirPath` **without** normalizing a trailing `/`, unlike `setBasePath()` used by `GameRunner`.
-
-**Impact:** PDF/component tooling that reuses one engine instance may see cross-document leakage. `GameRunner` uses `loadScript()` (safe) but hot reload + `parse()` paths in tests/tools should reset explicitly.
-
-**Fix direction:** Extract a `resetModuleState()` shared by `loadScript()` and the start of `parse()`, or document that `ComponentEngine` is single-shot per document.
+**Fix:** `resetParseState()` in `parse()` / `parseFile()`; `parseFile()` uses `setBasePath()`.
 
 ---
 

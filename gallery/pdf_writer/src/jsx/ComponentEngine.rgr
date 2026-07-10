@@ -101,6 +101,34 @@ class EvalContext {
         }
         this.define(name value)
     }
+
+    ; Remove a binding from the nearest scope that owns it (parent chain walk).
+    fn removeBinding:boolean (name:string) {
+        def i:int 0
+        while (i < (array_length variables)) {
+            if ((itemAt variables i) == name) {
+                def newVars:[string]
+                def newVals:[EvalValue]
+                def j:int 0
+                while (j < (array_length variables)) {
+                    if (j != i) {
+                        push newVars (itemAt variables j)
+                        push newVals (itemAt values j)
+                    }
+                    j = j + 1
+                }
+                variables = newVars
+                values = newVals
+                return true
+            }
+            i = i + 1
+        }
+        if parent {
+            def p:EvalContext (unwrap parent)
+            return (p.removeBinding(name))
+        }
+        return false
+    }
     
     fn moduleScope:EvalContext () {
         if moduleRoot {
@@ -174,6 +202,9 @@ class ComponentEngine {
     
     ; Track all loaded files for file watching
     def loadedFiles:[string]
+    ; Canonical import paths currently loading / fully materialized (cycle guard).
+    def importLoading:[string]
+    def importLoaded:[string]
     
     ; Evaluation context
     def context:EvalContext
@@ -193,6 +224,8 @@ class ComponentEngine {
     ; function body so nested calls are reentrancy-safe.
     def scriptDidReturn:boolean false
     def scriptReturnValue:EvalValue (EvalValue.null())
+    def loopBreak:boolean false
+    def loopContinue:boolean false
 
     ; When true, suppress verbose evaluation trace (game scripts, tests).
     def quiet:boolean false
@@ -217,6 +250,10 @@ class ComponentEngine {
         localComponents = loc
         def lf:[string]
         loadedFiles = lf
+        def il:[string]
+        importLoading = il
+        def id:[string]
+        importLoaded = id
         def host:EvalContext (new EvalContext())
         host.moduleRoot = host
         hostScope = host
@@ -317,16 +354,205 @@ class ComponentEngine {
     fn getLoadedFiles:[string] () {
         return loadedFiles
     }
+
+    fn normalizeDirPath:string (dirPath:string) {
+        if ((strlen dirPath) == 0) {
+            return "./"
+        }
+        def last:int (strlen dirPath)
+        def lastCh:string (substring dirPath (last - 1) last)
+        if (lastCh != "/") {
+            return (dirPath + "/")
+        }
+        return dirPath
+    }
+
+    ; Directory prefix of a resolved module path (e.g. "import_fixtures/mid.tsx" → "import_fixtures/").
+    fn dirnameOfModulePath:string (fullPath:string) {
+        def lastSlash:int -1
+        def i:int 0
+        while (i < (strlen fullPath)) {
+            def ch:string (substring fullPath i (i + 1))
+            if (ch == "/") {
+                lastSlash = i
+            }
+            i = i + 1
+        }
+        if (lastSlash < 0) {
+            return ""
+        }
+        return (substring fullPath 0 (lastSlash + 1))
+    }
+
+    fn moduleDirFromRead:string (searchDir:string fullPath:string) {
+        def subDir:string (this.dirnameOfModulePath(fullPath))
+        return (this.normalizeDirPath(searchDir + subDir))
+    }
+
+    fn isInStringList:boolean (value:string list:[string]) {
+        def i:int 0
+        while (i < (array_length list)) {
+            if ((itemAt list i) == value) {
+                return true
+            }
+            i = i + 1
+        }
+        return false
+    }
+
+    fn listWithoutString:[string] (list:[string] value:string) {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length list)) {
+            def item:string (itemAt list i)
+            if (item != value) {
+                push out item
+            }
+            i = i + 1
+        }
+        return out
+    }
+
+    fn listWithStringIfMissing:[string] (list:[string] value:string) {
+        if (this.isInStringList(value list)) {
+            return list
+        }
+        def out:[string]
+        def i:int 0
+        while (i < (array_length list)) {
+            push out (itemAt list i)
+            i = i + 1
+        }
+        push out value
+        return out
+    }
+
+    fn clearImportState:void () {
+        def empty:[string]
+        importLoading = empty
+        importLoaded = empty
+    }
+
+    fn resetParseState:void () {
+        def scope:EvalContext (new EvalContext())
+        scope.parent = hostScope
+        scope.moduleRoot = scope
+        moduleScope = scope
+        context = scope
+        this.clearLocalComponents()
+        this.clearImportState()
+        def emptyFiles:[string]
+        loadedFiles = emptyFiles
+    }
+
+    fn upsertLocalComponent:void (sym:ImportedSymbol) {
+        def i:int 0
+        while (i < (array_length localComponents)) {
+            def existing:ImportedSymbol (itemAt localComponents i)
+            if (existing.name == sym.name) {
+                existing.functionNode = sym.functionNode
+                existing.originalName = sym.originalName
+                existing.sourcePath = sym.sourcePath
+                existing.symbolType = sym.symbolType
+                existing.helperFunctions = sym.helperFunctions
+                return
+            }
+            i = i + 1
+        }
+        push localComponents sym
+    }
+
+    fn removeLocalComponentByName:void (name:string) {
+        def out:[ImportedSymbol]
+        def i:int 0
+        while (i < (array_length localComponents)) {
+            def sym:ImportedSymbol (itemAt localComponents i)
+            if (sym.name != name) {
+                push out sym
+            }
+            i = i + 1
+        }
+        localComponents = out
+    }
+
+    fn localNameForImport:string (exportName:string exportNames:[string] localNames:[string]) {
+        def i:int 0
+        while (i < (array_length exportNames)) {
+            if ((itemAt exportNames i) == exportName) {
+                return (itemAt localNames i)
+            }
+            i = i + 1
+        }
+        return exportName
+    }
+
+    fn bindImportedFunction:void (exportName:string localName:string fnNode:TSNode helperFns:[TSNode] sourcePath:string) {
+        def sym (new ImportedSymbol())
+        sym.name = localName
+        sym.originalName = exportName
+        sym.sourcePath = sourcePath
+        sym.symbolType = "component"
+        sym.functionNode = fnNode
+        sym.helperFunctions = helperFns
+        this.upsertLocalComponent(sym)
+        this.defineModuleBinding(localName (EvalValue.function(fnNode)))
+        this.trace("Imported: " + localName + " (" + exportName + ") from " + sourcePath)
+    }
+
+    fn rebindImportDeclaration:void (node:TSNode) {
+        def exportNames:[string]
+        def localNames:[string]
+        def j:int 0
+        while (j < (array_length node.children)) {
+            def spec:TSNode (itemAt node.children j)
+            if (spec.nodeType == "ImportSpecifier") {
+                if (spec.kind != "type") {
+                    def exportName:string spec.name
+                    def localName:string spec.name
+                    if ((strlen spec.value) > 0) {
+                        localName = spec.value
+                    }
+                    push exportNames exportName
+                    push localNames localName
+                }
+            }
+            if (spec.nodeType == "ImportDefaultSpecifier") {
+                push exportNames "default"
+                push localNames spec.name
+            }
+            j = j + 1
+        }
+        def k:int 0
+        while (k < (array_length exportNames)) {
+            def exportName:string (itemAt exportNames k)
+            def localName:string (itemAt localNames k)
+            def existing:EvalValue (moduleScope.lookup(exportName))
+            if (existing.isFunction()) {
+                if (null? existing.functionNode) {
+                } {
+                    def fnNode:TSNode (unwrap existing.functionNode)
+                    def emptyHelpers:[TSNode]
+                    this.bindImportedFunction(exportName localName fnNode emptyHelpers "")
+                }
+            } {
+                if (false == (existing.isNull())) {
+                    this.defineModuleBinding(localName existing)
+                }
+            }
+            k = k + 1
+        }
+    }
     
     ; ==========================================================================
     ; Main Entry Points
     ; ==========================================================================
     
     fn parseFile:EVGElement (dirPath:string fileName:string) {
-        basePath = dirPath
+        this.resetParseState()
+        this.setBasePath(dirPath)
         
         ; Track main file for watching
-        def mainFilePath:string (dirPath + fileName)
+        def mainFilePath:string (basePath + fileName)
         push loadedFiles mainFilePath
         
         def fileContent:buffer (buffer_read_file dirPath fileName)
@@ -348,6 +574,7 @@ class ComponentEngine {
     }
     
     fn parse:EVGElement (src:string) {
+        this.resetParseState()
         source = src
         
         ; Tokenize and parse
@@ -449,6 +676,9 @@ class ComponentEngine {
         moduleScope = scope
         context = scope
         this.clearLocalComponents()
+        this.clearImportState()
+        def emptyFiles:[string]
+        loadedFiles = emptyFiles
         this.processImports(ast)
         ; Functions first so const initializers may call helpers.
         this.registerComponents(ast)
@@ -484,12 +714,16 @@ class ComponentEngine {
         }
         source = src
         programAst = newAst
+        this.clearLocalComponents()
+        this.clearImportState()
         this.processImports(newAst)
         def ci:int 0
         while (ci < (array_length patch.changes)) {
             def ch:TSAstPatchChange (itemAt patch.changes ci)
             if (ch.changeKind == "removed") {
-                ; Dev reload rarely removes declarations; leave stale binding.
+                moduleScope.removeBinding(ch.name)
+                this.removeLocalComponentByName(ch.name)
+                this.trace("Removed binding: " + ch.name)
             } {
                 if (ch.declKind == "function") {
                     if (ch.changeKind != "removed") {
@@ -594,17 +828,25 @@ class ComponentEngine {
         }
         
         ; Get imported symbols from node.children (import specifiers)
-        def importedNames:[string]
+        def importExportNames:[string]
+        def importLocalNames:[string]
         def j:int 0
         while (j < (array_length node.children)) {
             def spec:TSNode (itemAt node.children j)
             if (spec.nodeType == "ImportSpecifier") {
                 if (spec.kind != "type") {
-                    push importedNames spec.name
+                    def exportName:string spec.name
+                    def localName:string spec.name
+                    if ((strlen spec.value) > 0) {
+                        localName = spec.value
+                    }
+                    push importExportNames exportName
+                    push importLocalNames localName
                 }
             }
             if (spec.nodeType == "ImportDefaultSpecifier") {
-                push importedNames spec.name
+                push importExportNames "default"
+                push importLocalNames spec.name
             }
             j = j + 1
         }
@@ -617,13 +859,31 @@ class ComponentEngine {
             return
         }
         
-        ; Resolve import: script dir first, then registered asset/lib paths.
-        resolvedImportDir = basePath
-        def src:string (this.readImportSource(basePath fullPath))
-        def dirPath:string resolvedImportDir
+        ; Resolve import relative to the current importer's directory.
+        def importerBase:string (this.normalizeDirPath(basePath))
+        resolvedImportDir = importerBase
+        def canonicalPath:string (importerBase + fullPath)
+
+        if (this.isInStringList(canonicalPath importLoading)) {
+            this.trace("Import cycle skipped: " + canonicalPath)
+            this.rebindImportDeclaration(node)
+            return
+        }
+
+        if (this.isInStringList(canonicalPath importLoaded)) {
+            this.rebindImportDeclaration(node)
+            return
+        }
+
+        push importLoading canonicalPath
+
+        def src:string (this.readImportSource(importerBase fullPath))
+        def dirPath:string (this.moduleDirFromRead(importerBase fullPath))
+        resolvedImportDir = dirPath
         if ((strlen src) == 0) {
+            importLoading = (this.listWithoutString(importLoading canonicalPath))
             print ""
-            print ("ERROR: Could not load component module: " + basePath + fullPath)
+            print ("ERROR: Could not load component module: " + importerBase + fullPath)
             print ""
             print "Please ensure the imported file exists. You may need to:"
             print "  1. Check that the import path is correct in your TSX file"
@@ -641,7 +901,7 @@ class ComponentEngine {
 
         ; Track loaded file for file watching
         def loadedFilePath:string (dirPath + fullPath)
-        push loadedFiles loadedFilePath
+        loadedFiles = (this.listWithStringIfMissing(loadedFiles loadedFilePath))
         
         ; Parse the imported file
         def lexer (new TSLexer(src))
@@ -651,8 +911,11 @@ class ComponentEngine {
         importParser.tsxMode = true
         def importAst:TSNode (importParser.parseProgram())
         
-        ; Resolve transitive imports (e.g. invaders_shared → game_helpers).
+        ; Resolve transitive imports using this module's directory as basePath.
+        def savedBasePath:string basePath
+        basePath = dirPath
         this.processImports(importAst)
+        basePath = savedBasePath
         
         ; Register all top-level bindings from the imported module so script
         ; code can call imported functions and read imported constants.
@@ -666,8 +929,7 @@ class ComponentEngine {
             ; Collect non-exported function declarations as helpers
             if (hstmt.nodeType == "FunctionDeclaration") {
                 def hfnName:string hstmt.name
-                ; Only add if not in import list (those will be the main components)
-                if ((this.isInList(hfnName importedNames)) == false) {
+                if ((this.isInList(hfnName importExportNames)) == false) {
                     push helperFns hstmt
                     print ("  Found helper function: " + hfnName)
                 }
@@ -686,18 +948,9 @@ class ComponentEngine {
                     def declNode:TSNode (unwrap stmt.left)
                     if (declNode.nodeType == "FunctionDeclaration") {
                         def fnName:string declNode.name
-                        ; Check if this function is in our import list
-                        if (this.isInList(fnName importedNames)) {
-                            def sym (new ImportedSymbol())
-                            sym.name = fnName
-                            sym.originalName = fnName
-                            sym.sourcePath = fullPath
-                            sym.symbolType = "component"
-                            sym.functionNode = declNode
-                            sym.helperFunctions = helperFns
-                            push localComponents sym
-                            this.defineModuleBinding(fnName (EvalValue.function(declNode)))
-                            print ("Imported component: " + fnName + " from " + fullPath)
+                        if (this.isInList(fnName importExportNames)) {
+                            def localName:string (this.localNameForImport(fnName importExportNames importLocalNames))
+                            this.bindImportedFunction(fnName localName declNode helperFns fullPath)
                         }
                     }
                 }
@@ -706,22 +959,17 @@ class ComponentEngine {
             ; Also check for regular function declarations (may be exported separately)
             if (stmt.nodeType == "FunctionDeclaration") {
                 def fnName:string stmt.name
-                if (this.isInList(fnName importedNames)) {
-                    def sym (new ImportedSymbol())
-                    sym.name = fnName
-                    sym.originalName = fnName
-                    sym.sourcePath = fullPath
-                    sym.symbolType = "component"
-                    sym.functionNode = stmt
-                    sym.helperFunctions = helperFns
-                    push localComponents sym
-                    this.defineModuleBinding(fnName (EvalValue.function(stmt)))
-                    print ("Imported component: " + fnName + " from " + fullPath)
+                if (this.isInList(fnName importExportNames)) {
+                    def localName:string (this.localNameForImport(fnName importExportNames importLocalNames))
+                    this.bindImportedFunction(fnName localName stmt helperFns fullPath)
                 }
             }
             
             k = k + 1
         }
+
+        importLoading = (this.listWithoutString(importLoading canonicalPath))
+        importLoaded = (this.listWithStringIfMissing(importLoaded canonicalPath))
     }
 
     ; Bind every top-level function/const from an imported module into moduleScope.
@@ -864,7 +1112,7 @@ class ComponentEngine {
         sym.originalName = node.name
         sym.symbolType = "component"
         sym.functionNode = node
-        push localComponents sym
+        this.upsertLocalComponent(sym)
         this.defineModuleBinding(node.name (EvalValue.function(node)))
         this.trace("Registered local component: " + node.name)
     }
@@ -1138,6 +1386,10 @@ class ComponentEngine {
                 if stmt.left {
                     def returnExpr:TSNode (unwrap stmt.left)
                     return (this.evaluateJSX(returnExpr))
+                } {
+                    def bareReturn (new EVGElement())
+                    bareReturn.hasReturn = true
+                    return bareReturn
                 }
             }
             
@@ -1244,13 +1496,137 @@ class ComponentEngine {
     ; Void wrappers: assigning loop results to an unused local is dead-code-
     ; eliminated by clang++ (while/for become no-ops in native game_sdl).
     fn runForStatementValue:void (stmt:TSNode) {
-        this.evaluateForStatement(stmt)
+        def savedBreak:boolean loopBreak
+        def savedContinue:boolean loopContinue
+        loopBreak = false
+        loopContinue = false
+        if stmt.init {
+            def initNode:TSNode (unwrap stmt.init)
+            if (initNode.nodeType == "VariableDeclaration") {
+                this.processVariableDeclaration(initNode)
+            }
+        }
+        def maxIterations:int 100000
+        def iterations:int 0
+        while (iterations < maxIterations) {
+            if scriptDidReturn {
+                return
+            }
+            if stmt.left {
+                def testResult:EvalValue (this.evaluateExpr((unwrap stmt.left)))
+                if ((testResult.toBool()) == false) {
+                    return
+                }
+            }
+            loopContinue = false
+            if stmt.body {
+                this.runBlockOrStatement((unwrap stmt.body))
+            }
+            if scriptDidReturn {
+                return
+            }
+            if loopBreak {
+                return
+            }
+            if stmt.right {
+                this.evaluateUpdateExpr((unwrap stmt.right))
+            }
+            if loopContinue {
+                iterations = iterations + 1
+            } {
+                iterations = iterations + 1
+            }
+        }
+        loopBreak = savedBreak
+        loopContinue = savedContinue
     }
     fn runForOfStatementValue:void (stmt:TSNode) {
-        this.evaluateForOfStatement(stmt)
+        def savedBreak:boolean loopBreak
+        def savedContinue:boolean loopContinue
+        loopBreak = false
+        loopContinue = false
+        def varName:string ""
+        if stmt.left {
+            def leftNode:TSNode (unwrap stmt.left)
+            if (leftNode.nodeType == "VariableDeclaration") {
+                if ((array_length leftNode.children) > 0) {
+                    def decl:TSNode (itemAt leftNode.children 0)
+                    varName = decl.name
+                }
+            }
+        }
+        if stmt.right {
+            def rightNode:TSNode (unwrap stmt.right)
+            def arrayValue:EvalValue (this.evaluateExpr(rightNode))
+            if (arrayValue.isArray()) {
+                def i:int 0
+                while (i < (array_length arrayValue.arrayValue)) {
+                    if scriptDidReturn {
+                        return
+                    }
+                    if loopBreak {
+                        return
+                    }
+                    def item:EvalValue (itemAt arrayValue.arrayValue i)
+                    if ((strlen varName) > 0) {
+                        context.define(varName item)
+                    }
+                    loopContinue = false
+                    if stmt.body {
+                        this.runBlockOrStatement((unwrap stmt.body))
+                    }
+                    if scriptDidReturn {
+                        return
+                    }
+                    if loopBreak {
+                        return
+                    }
+                    if loopContinue {
+                        i = i + 1
+                    } {
+                        i = i + 1
+                    }
+                }
+            }
+        }
+        loopBreak = savedBreak
+        loopContinue = savedContinue
     }
     fn runWhileStatementValue:void (stmt:TSNode) {
-        this.evaluateWhileStatement(stmt)
+        def savedBreak:boolean loopBreak
+        def savedContinue:boolean loopContinue
+        loopBreak = false
+        loopContinue = false
+        def maxIterations:int 100000
+        def iterations:int 0
+        while (iterations < maxIterations) {
+            if scriptDidReturn {
+                return
+            }
+            if stmt.left {
+                def testResult:EvalValue (this.evaluateExpr((unwrap stmt.left)))
+                if ((testResult.toBool()) == false) {
+                    return
+                }
+            }
+            loopContinue = false
+            if stmt.body {
+                this.runBlockOrStatement((unwrap stmt.body))
+            }
+            if scriptDidReturn {
+                return
+            }
+            if loopBreak {
+                return
+            }
+            if loopContinue {
+                iterations = iterations + 1
+            } {
+                iterations = iterations + 1
+            }
+        }
+        loopBreak = savedBreak
+        loopContinue = savedContinue
     }
     
     ; --------------------------------------------------------------------------
@@ -1301,8 +1677,14 @@ class ComponentEngine {
             this.runStatementList(stmt.children)
             return
         }
-        ; Loops run for side effects; value-returns from inside a loop are not
-        ; propagated (uncommon in screen/reducer scripts).
+        if (stmt.nodeType == "BreakStatement") {
+            loopBreak = true
+            return
+        }
+        if (stmt.nodeType == "ContinueStatement") {
+            loopContinue = true
+            return
+        }
         if (stmt.nodeType == "ForStatement") {
             this.runForStatementValue(stmt)
             return
@@ -1422,6 +1804,9 @@ class ComponentEngine {
                 def returnedEl:EVGElement (this.evaluateJSX(returnExpr))
                 returnedEl.hasReturn = true
                 return returnedEl
+            } {
+                result.hasReturn = true
+                return result
             }
         }
         
@@ -1500,6 +1885,9 @@ class ComponentEngine {
                         def returnedEl:EVGElement (this.evaluateJSX(returnExpr))
                         returnedEl.hasReturn = true
                         return returnedEl
+                    } {
+                        result.hasReturn = true
+                        return result
                     }
                 }
                 
@@ -1966,31 +2354,32 @@ class ComponentEngine {
     }
     
     fn expandComponent:EVGElement (name:string jsxNode:TSNode) {
-        ; Find the component definition
+        ; Use the last registered match (hot reload upserts may leave older entries).
+        def foundIdx:int -1
         def i:int 0
         while (i < (array_length localComponents)) {
             def sym:ImportedSymbol (itemAt localComponents i)
             if (sym.name == name) {
-                ; Found the component - evaluate it
-                def props:EvalValue (this.evaluateProps(jsxNode))
-                if sym.functionNode {
-                    def fnNode:TSNode (unwrap sym.functionNode)
-                    
-                    ; Register helper functions from the component's file in the context
-                    def hi:int 0
-                    while (hi < (array_length sym.helperFunctions)) {
-                        def helperFn:TSNode (itemAt sym.helperFunctions hi)
-                        def helperName:string helperFn.name
-                        def helperValue:EvalValue (EvalValue.function(helperFn))
-                        context.define(helperName helperValue)
-                        print ("Registered helper function: " + helperName)
-                        hi = hi + 1
-                    }
-                    
-                    return (this.evaluateFunctionWithProps(fnNode props))
-                }
+                foundIdx = i
             }
             i = i + 1
+        }
+        if (foundIdx >= 0) {
+            def sym:ImportedSymbol (itemAt localComponents foundIdx)
+            def props:EvalValue (this.evaluateProps(jsxNode))
+            if sym.functionNode {
+                def fnNode:TSNode (unwrap sym.functionNode)
+                def hi:int 0
+                while (hi < (array_length sym.helperFunctions)) {
+                    def helperFn:TSNode (itemAt sym.helperFunctions hi)
+                    def helperName:string helperFn.name
+                    def helperValue:EvalValue (EvalValue.function(helperFn))
+                    context.define(helperName helperValue)
+                    print ("Registered helper function: " + helperName)
+                    hi = hi + 1
+                }
+                return (this.evaluateFunctionWithProps(fnNode props))
+            }
         }
         
         ; Not found - return empty element

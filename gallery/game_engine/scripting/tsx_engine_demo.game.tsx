@@ -63,3 +63,21 @@ function helperSideEffect() {
 function bumpBag(b) {
   b.n = 1;
 }
+
+let moduleCounter = 0;
+
+function bumpModuleCounter() {
+  moduleCounter = moduleCounter + 1;
+  return moduleCounter;
+}
+
+function returnFromWhile() {
+  let i = 0;
+  while (i < 10) {
+    if (i == 5) {
+      return i;
+    }
+    i = i + 1;
+  }
+  return -1;
+}
