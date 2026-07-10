@@ -3903,6 +3903,11 @@ class LowIRBuilderPass {
       case "/" {
         return (this.lowerArithF64OrI32("sdiv" "fdiv" node lctx))
       }
+      case "idiv" {
+        def a (this.lowerExpr((node.getSecond()) lctx))
+        def b (this.lowerExpr((node.getThird()) lctx))
+        return (builder.emitBin("sdiv" irI32 a b))
+      }
       case "%" {
         def a (this.lowerExpr((node.getSecond()) lctx))
         def b (this.lowerExpr((node.getThird()) lctx))

@@ -383,6 +383,46 @@ class SoftCanvas {
         }
     }
 
+    ; Nearest-neighbour scale-blit (split-screen autoscale: 480x270 → 240x270).
+    fn copyRectScaledFrom:void (src:SoftCanvas sx:int sy:int sw:int sh:int dx:int dy:int dw:int dh:int) {
+        def row 0
+        while (row < dh) {
+            def col 0
+            while (col < dw) {
+                def srcCol:int (idiv (col * sw) dw)
+                def srcRow:int (idiv (row * sh) dh)
+                def pxX (sx + srcCol)
+                def pxY (sy + srcRow)
+                def dstX (dx + col)
+                def dstY (dy + row)
+                if (pxX >= 0) {
+                    if (pxX < src.w) {
+                        if (pxY >= 0) {
+                            if (pxY < src.h) {
+                                if (dstX >= 0) {
+                                    if (dstX < w) {
+                                        if (dstY >= 0) {
+                                            if (dstY < h) {
+                                                def sOff (((pxY * src.w) + pxX) * 4)
+                                                def dOff (((dstY * w) + dstX) * 4)
+                                                buffer_set px dOff (buffer_get src.px sOff)
+                                                buffer_set px (dOff + 1) (buffer_get src.px (sOff + 1))
+                                                buffer_set px (dOff + 2) (buffer_get src.px (sOff + 2))
+                                                buffer_set px (dOff + 3) 255
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                col = (col + 1)
+            }
+            row = (row + 1)
+        }
+    }
+
     ; Read one pixel's red channel - used by golden-frame / rendering tests.
     fn pixelR:int (x:int y:int) {
         def o (((y * w) + x) * 4)

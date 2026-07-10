@@ -3,12 +3,15 @@
 ; ==============================================================================
 ;
 ; Runs two independent GameRunner instances side-by-side (left / right). Each
-; pane is a full single-player game state at half the framebuffer width, so two
-; children can progress at their own pace. Input mapping per pane:
-;   left  — keyboard WASD + gamepad 0
-;   right — keyboard arrows + gamepad 1 (arrows only when one pad)
+; pane has its own input (WASD / arrows + separate gamepads).
 ;
-; The host composites both panes into one RGBA buffer with a centre divider.
+; Autoscale (default): each runner renders at full framebuffer size (480x270)
+; into its own RGBA bitmap; the host then scale-blits that bitmap into the
+; half-width pane (240x270). Games need no bgWidth logic — createStaticBg,
+; sprites, HUD and custom canvas draws all work unchanged.
+;
+; autoscale=off: runner canvas matches pane size (240x270); game script scales
+; layout itself (e.g. Ylos via bgWidth).
 ; ==============================================================================
 
 Import "./game_runtime.rgr"
@@ -26,6 +29,7 @@ class SplitScreenHost {
     def ph:int 270
     def paneW:int 240
     def paneH:int 270
+    def autoscale:boolean true
     def fpsShown:int 0
     def leftScriptPath:string ""
     def rightScriptPath:string ""
@@ -40,14 +44,20 @@ class SplitScreenHost {
         return result
     }
 
-    fn init:void (w:int h:int) {
+    fn init:void (w:int h:int scaleToPane:boolean) {
         pw = w
         ph = h
         paneW = (this.half(w))
         paneH = h
+        autoscale = scaleToPane
         canvas.init(w h)
-        left.init(paneW paneH)
-        right.init(paneW paneH)
+        if (autoscale) {
+            left.init(w h)
+            right.init(w h)
+        } {
+            left.init(paneW paneH)
+            right.init(paneW paneH)
+        }
     }
 
     fn setAudioSink:void (sink:GameAudioSink) {
@@ -114,8 +124,13 @@ class SplitScreenHost {
     fn draw:void () {
         left.draw()
         right.draw()
-        canvas.copyRectFrom((left.canvas) 0 0 paneW paneH 0 0)
-        canvas.copyRectFrom((right.canvas) 0 0 paneW paneH paneW 0)
+        if (autoscale) {
+            canvas.copyRectScaledFrom((left.canvas) 0 0 pw ph 0 0 paneW paneH)
+            canvas.copyRectScaledFrom((right.canvas) 0 0 pw ph paneW 0 paneW paneH)
+        } {
+            canvas.copyRectFrom((left.canvas) 0 0 paneW paneH 0 0)
+            canvas.copyRectFrom((right.canvas) 0 0 paneW paneH paneW 0)
+        }
         def ny 0
         def divX paneW
         while (ny < ph) {

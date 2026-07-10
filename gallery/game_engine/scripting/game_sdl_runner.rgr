@@ -49,8 +49,9 @@ class GameSdlRunner {
     def inGame:boolean false
     def splitScreenActive:boolean false
     def dualPlayerMode:boolean false
-    def splitScreenPref:string "auto"
+    def splitScreenPref:string "never"
     def soloScriptPath:string ""
+    def splitAutoscale:boolean true
     def currentGamePath:string ""
     def prevQuitHeld:boolean false
     def currentScriptPath:string ""
@@ -215,6 +216,17 @@ class GameSdlRunner {
         gfx_set_title("Ranger Game Engine")
     }
 
+    fn resolveSplitAutoscale:boolean (entry:GameCatalogEntry) {
+        if (entry.autoscale == "false") {
+            return false
+        }
+        if (entry.autoscale == "true") {
+            return true
+        }
+        ; Default: host scales full-width framebuffer down to each pane.
+        return true
+    }
+
     fn resolveSplitMetadata:void (tsxPath:string) {
         if ((strlen gamesDir) > 0) {
             if ((catalog.entryCount()) == 0) {
@@ -222,13 +234,15 @@ class GameSdlRunner {
                 catalog.scan()
             }
         }
-        splitScreenPref = "auto"
+        splitScreenPref = "never"
         soloScriptPath = ""
+        splitAutoscale = true
         def entry:GameCatalogEntry (catalog.findByPath(tsxPath))
         if ((strlen entry.splitScreen) > 0) {
             splitScreenPref = entry.splitScreen
         }
         soloScriptPath = (catalog.resolveSoloPath(entry))
+        splitAutoscale = (this.resolveSplitAutoscale(entry))
     }
 
     fn shouldUseSplitScreen:boolean () {
@@ -239,13 +253,9 @@ class GameSdlRunner {
             return false
         }
         if (splitScreenPref == "always") {
-            if ((strlen soloScriptPath) > 0) {
-                return true
-            }
-            return false
+            return true
         }
-        ; auto: default split when a solo script exists (two kids, own pace)
-        if ((strlen soloScriptPath) > 0) {
+        if (splitScreenPref == "auto") {
             return true
         }
         return false
@@ -274,7 +284,7 @@ class GameSdlRunner {
         }
         this.presentLoadingScreen("SPLIT")
         splitHost = (new SplitScreenHost)
-        splitHost.init(pw ph)
+        splitHost.init(pw ph splitAutoscale)
         splitHost.setAudioSink((new SdlGameAudioSink))
         splitHost.loadPanes(panePath panePath)
         def enableHotReload:boolean hotReloadWanted
@@ -292,6 +302,11 @@ class GameSdlRunner {
         gfx_clear_should_close
         print ("[split-screen] left=" + panePath)
         print ("[split-screen] right=" + panePath)
+        if (splitAutoscale) {
+            print "[split-screen] autoscale=on"
+        } {
+            print "[split-screen] autoscale=off"
+        }
     }
 
     fn loadGame:void (tsxPath:string) {
