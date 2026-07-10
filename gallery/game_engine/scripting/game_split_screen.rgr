@@ -82,7 +82,7 @@ class SplitScreenHost {
         right.setProfileEnabled(on)
     }
 
-    fn loadScriptAt:void (runner:GameRunner bridge:GameHostNativeBridge tsxPath:string paneIndex:int) {
+    fn loadScriptAt:void (runner:GameRunner bridge:GameHostNativeBridge tsxPath:string pane:int) {
         def dir:string ""
         def file:string tsxPath
         def slash:int (lastIndexOf tsxPath "/")
@@ -97,7 +97,7 @@ class SplitScreenHost {
         runner.setNativeBridge(bridge)
         runner.loadScript(src)
         runner.setupScene()
-        runner.registerSplitPane(paneIndex)
+        runner.registerSplitPane(pane)
         runner.trackScriptFile(tsxPath)
     }
 

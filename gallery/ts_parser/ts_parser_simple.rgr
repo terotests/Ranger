@@ -3565,7 +3565,7 @@ class TSParserSimple {
       return update
     }
     
-    if ((tokVal == "!") || (tokVal == "-")) {
+    if ((tokVal == "!") || (tokVal == "-") || (tokVal == "+")) {
       def opTok (this.peek())
       this.advance()
       def arg (this.parseUnary())
@@ -3573,6 +3573,20 @@ class TSParserSimple {
       def unary (new TSNode())
       unary.nodeType = "UnaryExpression"
       unary.value = opTok.value
+      unary.left = arg
+      unary.start = opTok.start
+      unary.line = opTok.line
+      unary.col = opTok.col
+      return unary
+    }
+
+    if (tokVal == "typeof") {
+      def opTok (this.peek())
+      this.advance()
+      def arg (this.parseUnary())
+      def unary (new TSNode())
+      unary.nodeType = "UnaryExpression"
+      unary.value = "typeof"
       unary.left = arg
       unary.start = opTok.start
       unary.line = opTok.line

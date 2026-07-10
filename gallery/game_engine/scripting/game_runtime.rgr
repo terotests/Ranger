@@ -101,6 +101,14 @@ class GameRunner {
         engine.registerGlobal(name value)
     }
 
+    fn setPaneIndex:void (index:int) {
+        engine.registerGlobal("paneIndex" (EvalValue.fromInt(index)))
+    }
+
+    fn clearPaneIndex:void () {
+        engine.removeGlobal("paneIndex")
+    }
+
     fn inactivePeerCar:EvalValue () {
         def k:[string]
         def v:[EvalValue]
@@ -111,13 +119,13 @@ class GameRunner {
 
     ; Default globals for non-split games (paneIndex=-1, inactive peerCar).
     fn registerDefaultPaneGlobals:void () {
-        engine.registerGlobal("paneIndex" (EvalValue.fromInt(-1)))
+        this.setPaneIndex(-1)
         this.setPeerCar((this.inactivePeerCar()))
     }
 
     ; Split-screen pane setup: inject paneIndex (0=left, 1=right) and empty peerCar.
     fn registerSplitPane:void (paneIndex:int) {
-        engine.registerGlobal("paneIndex" (EvalValue.fromInt(paneIndex)))
+        this.setPaneIndex(paneIndex)
         this.setPeerCar((this.inactivePeerCar()))
     }
 

@@ -171,7 +171,7 @@ function total() { return PALETTE.r + PALETTE.g; }
 
 ## Known limitations (open)
 
-_Validated against `master` @ 2026-07-10, including PR #156 (master) and PR #159 (pending merge)._
+_Validated against `master` @ 2026-07-10 (PR #156, #158 merged); PR #159 fixes documented below._
 
 ### Recommended fix order
 
@@ -365,7 +365,7 @@ import { Original as Local } from "./module";
 import Local from "./module";
 ```
 
-**Cause:** `importedNames` collects `ImportSpecifier.name` (exported name), bindings registered under export name not local alias (`spec.value`). `originalName` on `ImportedSymbol` is unused for aliasing. Default export matching is fragile.
+**Cause:** Default export matching is still fragile.
 
 **Workaround:** Import without `as` aliases; use named exports matching the import identifier.
 

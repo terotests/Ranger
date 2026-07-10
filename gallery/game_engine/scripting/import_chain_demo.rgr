@@ -1,0 +1,20 @@
+; Regression: transitive relative imports resolve from the importer's directory.
+
+Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class ImportChainDemo {
+    sfn m@(main):void () {
+        def engine (new ComponentEngine())
+        engine.quiet = true
+        engine.setBasePath("gallery/game_engine/scripting/")
+
+        def buf:buffer (buffer_read_file "gallery/game_engine/scripting" "import_chain_demo.game.tsx")
+        def src:string (buffer_to_string buf)
+        engine.loadScript(src)
+
+        def leafVal:EvalValue (engine.callFunction("getLeafValue" (EvalValue.null())))
+        print ("importChain=" + (to_int (leafVal.numberValue)))
+        print "import-chain-demo done"
+    }
+}
