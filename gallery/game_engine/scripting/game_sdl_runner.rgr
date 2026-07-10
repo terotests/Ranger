@@ -21,9 +21,11 @@ Import "./game_audio_sdl.rgr"
 Import "./game_catalog.rgr"
 Import "./game_host_native.rgr"
 Import "./game_input.rgr"
+Import "./game_split_screen.rgr"
 
 class GameSdlRunner {
     def runner:GameRunner (new GameRunner)
+    def splitHost:SplitScreenHost (new SplitScreenHost)
     def catalog:GameCatalog (new GameCatalog)
     def nativeBridge:GameHostNativeBridge (new GameHostNativeBridge)
     def pw:int 480
@@ -45,6 +47,11 @@ class GameSdlRunner {
     def launcherMode:boolean false
     def inMenu:boolean false
     def inGame:boolean false
+    def splitScreenActive:boolean false
+    def dualPlayerMode:boolean false
+    def splitScreenPref:string "auto"
+    def soloScriptPath:string ""
+    def currentGamePath:string ""
     def prevQuitHeld:boolean false
     def currentScriptPath:string ""
     def navStack:[string]
@@ -69,9 +76,16 @@ class GameSdlRunner {
             def title:string "Ranger Game (SDL2) - "
             title = (title + (to_string fpsShown))
             title = (title + " FPS")
+            if (splitScreenActive) {
+                title = (title + " [split]")
+            }
             gfx_set_title(title)
         }
-        runner.setFpsShown(fpsShown)
+        if (splitScreenActive) {
+            splitHost.setFpsShown(fpsShown)
+        } {
+            runner.setFpsShown(fpsShown)
+        }
     }
 
     fn clearNavStack:void () {
@@ -201,10 +215,96 @@ class GameSdlRunner {
         gfx_set_title("Ranger Game Engine")
     }
 
+    fn resolveSplitMetadata:void (tsxPath:string) {
+        if ((strlen gamesDir) > 0) {
+            if ((catalog.entryCount()) == 0) {
+                catalog.setGamesDir(gamesDir)
+                catalog.scan()
+            }
+        }
+        splitScreenPref = "auto"
+        soloScriptPath = ""
+        def entry:GameCatalogEntry (catalog.findByPath(tsxPath))
+        if ((strlen entry.splitScreen) > 0) {
+            splitScreenPref = entry.splitScreen
+        }
+        soloScriptPath = (catalog.resolveSoloPath(entry))
+    }
+
+    fn shouldUseSplitScreen:boolean () {
+        if (dualPlayerMode) {
+            return false
+        }
+        if (splitScreenPref == "never") {
+            return false
+        }
+        if (splitScreenPref == "always") {
+            if ((strlen soloScriptPath) > 0) {
+                return true
+            }
+            return false
+        }
+        ; auto: default split when a solo script exists (two kids, own pace)
+        if ((strlen soloScriptPath) > 0) {
+            return true
+        }
+        return false
+    }
+
+    fn splitPanePath:string () {
+        if ((strlen soloScriptPath) > 0) {
+            return soloScriptPath
+        }
+        return currentGamePath
+    }
+
+    fn loadSplitGame:void (tsxPath:string) {
+        gfx_audio_clear
+        this.clearNavStack()
+        nativeBridge.clearPendingNav()
+        currentGamePath = tsxPath
+        this.resolveSplitMetadata(tsxPath)
+        def panePath:string (this.splitPanePath())
+        if ((strlen panePath) == 0) {
+            splitScreenActive = false
+            this.loadScriptAt(tsxPath false)
+            inMenu = false
+            inGame = true
+            return
+        }
+        this.presentLoadingScreen("SPLIT")
+        splitHost = (new SplitScreenHost)
+        splitHost.init(pw ph)
+        splitHost.setAudioSink((new SdlGameAudioSink))
+        splitHost.loadPanes(panePath panePath)
+        def enableHotReload:boolean hotReloadWanted
+        if (maxFrames > 0) {
+            if (hotReloadExplicit == false) {
+                enableHotReload = false
+            }
+        }
+        splitHost.setHotReload(enableHotReload)
+        currentScriptPath = tsxPath
+        inMenu = false
+        inGame = true
+        splitScreenActive = true
+        this.syncInputEdges()
+        gfx_clear_should_close
+        print ("[split-screen] left=" + panePath)
+        print ("[split-screen] right=" + panePath)
+    }
+
     fn loadGame:void (tsxPath:string) {
         gfx_audio_clear
         this.clearNavStack()
         nativeBridge.clearPendingNav()
+        currentGamePath = tsxPath
+        this.resolveSplitMetadata(tsxPath)
+        if (this.shouldUseSplitScreen()) {
+            this.loadSplitGame(tsxPath)
+            return
+        }
+        splitScreenActive = false
         this.loadScriptAt(tsxPath false)
         inMenu = false
         inGame = true
@@ -269,8 +369,28 @@ class GameSdlRunner {
     }
 
     fn draw:void () {
+        if (splitScreenActive) {
+            splitHost.draw()
+            gfx_present (splitHost.raw()) pw ph
+            return
+        }
         runner.draw()
         gfx_present (runner.raw()) pw ph
+    }
+
+    ; Both panes press START on the same frame → switch to shared dual-player mode.
+    fn dualModeToggleEdge:boolean () {
+        gfx_input_poll
+        def left:GameInputSnapshot (new GameInputSnapshot)
+        left.buildForPane(0)
+        def right:GameInputSnapshot (new GameInputSnapshot)
+        right.buildForPane(1)
+        if (left.p0.start) {
+            if (right.p0.start) {
+                return true
+            }
+        }
+        return false
     }
 
     fn quitEdge:boolean (quitHeld:boolean) {
@@ -404,7 +524,11 @@ class GameSdlRunner {
 
     fn runGameLoop:void () {
         while (running) {
-            runner.maybeHotReload()
+            if (splitScreenActive) {
+                splitHost.maybeHotReload()
+            } {
+                runner.maybeHotReload()
+            }
             def now:int (gfx_ticks_ms)
             def dtMs:int defaultDtMs
             if (lastFrameStart > 0) {
@@ -448,12 +572,28 @@ class GameSdlRunner {
                 this.clearNavStack()
                 nativeBridge.clearPendingNav()
                 inGame = false
+                splitScreenActive = false
+                dualPlayerMode = false
                 gfx_clear_should_close
                 return
             }
-            def gameInput:GameInputSnapshot (this.pollGameInput())
-            runner.frameWithInput(dtMs gameInput)
-            this.drainScriptNavigation()
+
+            if (splitScreenActive) {
+                if (this.dualModeToggleEdge()) {
+                    print "[split-screen] switching to dual-player mode"
+                    dualPlayerMode = true
+                    splitScreenActive = false
+                    this.loadScriptAt(currentGamePath false)
+                    this.syncInputEdges()
+                } {
+                    splitHost.frameWithInput(dtMs)
+                }
+            } {
+                def gameInput:GameInputSnapshot (this.pollGameInput())
+                runner.frameWithInput(dtMs gameInput)
+                this.drainScriptNavigation()
+            }
+
             if (false == inGame) {
                 gfx_clear_should_close
                 return
