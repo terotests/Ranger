@@ -70,8 +70,22 @@ echo "==> 2/3 $CXX -> native binary (SDL2 + OpenGL)"
 GL_FLAGS=""
 if [[ "$(uname -s)" == "Darwin" ]]; then
   GL_FLAGS="-framework OpenGL"
-elif ldconfig -p 2>/dev/null | grep -q 'libGL\.so'; then
-  GL_FLAGS="-lGL"
+else
+  ARCH="$(uname -m)"
+  if [[ "$ARCH" == "aarch64" || "$ARCH" == arm* ]]; then
+    # gfx_sdl.rgr uses GLES2/gl2.h on ARM (Raspberry Pi).
+    if command -v pkg-config >/dev/null 2>&1 && pkg-config --exists glesv2; then
+      GL_FLAGS="$(pkg-config --libs glesv2)"
+    else
+      GL_FLAGS="-lGLESv2"
+    fi
+  elif ldconfig -p 2>/dev/null | grep -q 'libGL\.so'; then
+    GL_FLAGS="-lGL"
+  fi
+fi
+if [[ -z "$GL_FLAGS" ]]; then
+  echo "error: OpenGL not found. On Raspberry Pi: sudo apt-get install libgles2-mesa-dev" >&2
+  exit 1
 fi
 # shellcheck disable=SC2086
 "$CXX" -std=c++17 "$CPP_FILE" -o "$BIN_FILE" $SDL_FLAGS $GL_FLAGS

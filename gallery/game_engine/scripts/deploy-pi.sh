@@ -24,8 +24,8 @@ AUDIO_DEV="${RANGER_AUDIO_DEVICE:-plughw:1,0}"
 echo "==> 1/4 Test SSH: $TARGET"
 ssh -o ConnectTimeout=10 -o BatchMode=yes "$TARGET" 'echo ok; uname -m'
 
-echo "==> 2/4 Install Pi packages (clang, SDL2, node, npm)"
-ssh "$TARGET" 'sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git clang pkg-config libsdl2-dev nodejs npm'
+echo "==> 2/4 Install Pi packages (clang, SDL2, GLES2, node, npm)"
+ssh "$TARGET" 'sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git clang pkg-config libsdl2-dev libgles2-mesa-dev nodejs npm'
 
 echo "==> 3/4 Rsync repo -> ~/$REMOTE_DIR"
 ssh "$TARGET" "mkdir -p ~/$REMOTE_DIR"
