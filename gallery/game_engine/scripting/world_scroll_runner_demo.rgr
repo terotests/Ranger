@@ -1,0 +1,46 @@
+; ==============================================================================
+; world_scroll_runner_demo - Phase 1 world-mode entity store + camera test.
+; ==============================================================================
+
+Import "./game_runtime.rgr"
+
+class WorldScrollRunnerDemo {
+    sfn m@(main):void () {
+        def runner:GameRunner (new GameRunner)
+        runner.init(480 270)
+
+        def buf:buffer (buffer_read_file "gallery/game_engine/scripting" "world_scroll.game.tsx")
+        def src:string (buffer_to_string buf)
+        runner.setScriptDir("gallery/game_engine/scripting")
+        runner.loadScript(src)
+        runner.setupScene()
+
+        def frames:int 240
+        if ((shell_arg_cnt) > 0) {
+            def parsed@(optional):int (to_int (shell_arg 0))
+            if (!null? parsed) {
+                frames = (unwrap parsed)
+            }
+        }
+
+        def i 0
+        while (i < frames) {
+            def phase (i % 90)
+            def left (phase < 30)
+            def right (phase >= 60)
+            def action (phase == 45)
+            runner.frame(16 left false right false action false)
+            i = (i + 1)
+        }
+
+        runner.draw()
+
+        def px:int (runner.entityX("player"))
+        def py:int (runner.entityY("player"))
+        def camY:int (runner.stateInt("cameraY" 0))
+        print ("frames=" + frames)
+        print (("player=" + px) + ("," + py))
+        print ("cameraY=" + camY)
+        print "world-scroll-runner done"
+    }
+}

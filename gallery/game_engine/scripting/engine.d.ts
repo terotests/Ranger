@@ -100,6 +100,7 @@ interface EntityPose {
   x: number;
   y: number;
   visible?: number;
+  active?: number;
   r?: number;
   g?: number;
   b?: number;
@@ -108,6 +109,38 @@ interface EntityPose {
   p0?: number;
   p1?: number;
   p2?: number;
+  /** Alias for p0 in world-mode entity definitions. */
+  frame?: number;
+}
+
+/** World-space spawn definition returned from entities(). */
+interface EntityDef {
+  id: string;
+  /** sprites()[].id — defaults to id when omitted. */
+  sprite?: string;
+  position: { x: number; y: number };
+  tags?: string[];
+  visible?: number;
+  frame?: number;
+}
+
+/** Engine-managed camera (world → screen). */
+interface CameraConfig {
+  follow?: string;
+  mode?: "vertical" | "horizontal" | "both" | "none";
+  offsetX?: number;
+  offsetY?: number;
+  /** 0 = snap, 0.12 = smooth follow per frame. */
+  smoothing?: number;
+  bounds?: { x: number; y: number; w: number; h: number };
+}
+
+/** Optional game + physics configuration. */
+interface GameConfig {
+  width?: number;
+  height?: number;
+  world?: { width: number; height: number };
+  physics?: { gravity?: number; fixedStep?: number };
 }
 
 /** RGB colour triple used by retained sprites and HUD. */
@@ -139,6 +172,13 @@ interface GameState {
   showNet?: number;
   /** Entity poses keyed by sprites()[].id (single-screen / flat model). */
   entities?: Record<string, EntityPose>;
+  /**
+   * World-space entity poses (world-mode). The engine applies camera offset
+   * when rendering. Use with entities() spawn list — no manual placeEntities().
+   */
+  worldEntities?: Record<string, EntityPose>;
+  /** Horizontal scroll offset (written by engine camera when enabled). */
+  cameraX?: number;
   /** Active screen name when using the multi-screen model. */
   screen?: string;
   /** Per-screen frozen sub-state (multi-screen model). */
@@ -292,6 +332,16 @@ interface GameScript<TState extends GameState = GameState> {
    * playerSlots in initState / update (or an in-game menu).
    */
   playerCount?(props: TypedEventProps<GameState>): number;
+  /**
+   * World-mode: unified entity spawn list (world coordinates). When present,
+   * the engine seeds state.worldEntities and applies camera offset at render.
+   * Legacy games keep using sprites() + state.entities (screen space).
+   */
+  entities?(): EntityDef[];
+  /** Engine-managed camera for world-mode games. */
+  camera?(): CameraConfig;
+  /** Optional physics / world configuration (fixed timestep, bounds). */
+  config?(): GameConfig;
 }
 
 // --- Injected globals (available without importing) -------------------------
