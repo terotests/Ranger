@@ -12,7 +12,7 @@
 ; Direct launch (no menu):
 ;   ./game_sdl path/to/game.tsx
 ;
-;   ./game_sdl [--games-dir=DIR] [--hot-reload|--no-hot-reload] [maxFrames]
+;   ./game_sdl [--software] [--games-dir=DIR] [--hot-reload|--no-hot-reload] [maxFrames]
 ; ==============================================================================
 
 Import "./game_runtime.rgr"
@@ -68,6 +68,8 @@ class GameSdlRunner {
     def prevUpHeld:boolean false
     def prevDownHeld:boolean false
     def prevActionHeld:boolean false
+    def gpuModeWanted:boolean true
+    def gpuModeActive:boolean false
 
     fn setProfileOnRunners:void () {
         runner.setProfileEnabled(profileEnabled)
@@ -181,6 +183,7 @@ class GameSdlRunner {
         def src:string (buffer_to_string buf)
         runner = (new GameRunner)
         runner.init(pw ph)
+        runner.setGpuMode(gpuModeActive)
         runner.audio.setSink((new SdlGameAudioSink))
         runner.setScriptDir(dir)
         this.wireNativeBridge(dir)
@@ -693,9 +696,23 @@ class GameSdlRunner {
 
     fn run:void () {
         def title:string "Ranger Game (SDL2)"
-        def ok:int (gfx_open title pw ph)
-        if (ok == 0) {
-            print "gfx_open failed (no display?) - still rendering into the RGBA buffer"
+        if (gpuModeWanted) {
+            def okGpu:int (gfx_open_gpu title pw ph)
+            if (okGpu != 0) {
+                gpuModeActive = true
+                print "[game-engine] OpenGL present (default)"
+            } {
+                print "[game-engine] gfx_open_gpu failed — falling back to software present"
+                gpuModeActive = false
+            }
+        }
+        if (false == gpuModeActive) {
+            def ok:int (gfx_open title pw ph)
+            if (ok == 0) {
+                print "gfx_open failed (no display?) - still rendering into the RGBA buffer"
+            } {
+                print "[game-engine] SDL software present (--software)"
+            }
         }
         if (startFullscreen) {
             gfx_set_fullscreen(1)
@@ -752,28 +769,40 @@ class GameSdlRunner {
                         hotReloadExplicit = true
                         hotReloadWanted = false
                     } {
-                        if (arg == "--fullscreen") {
-                            startFullscreen = true
+                        if (arg == "--software") {
+                            gpuModeWanted = false
                         } {
-                            if (arg == "--windowed") {
-                                startFullscreen = false
+                            if (arg == "--no-gpu") {
+                                gpuModeWanted = false
                             } {
-                                if (arg == "--games-dir") {
-                                    pendingGamesDir = true
-                                    launcherMode = true
+                                if (arg == "--gpu") {
+                                    gpuModeWanted = true
                                 } {
-                                    if (this.startsWith(arg "--games-dir=")) {
-                                        def plen:int (strlen "--games-dir=")
-                                        gamesDir = (substring arg plen (strlen arg))
-                                        launcherMode = true
+                                    if (arg == "--fullscreen") {
+                                        startFullscreen = true
                                     } {
-                                        if (this.isTsxPath(arg)) {
-                                            tsxPath = arg
+                                        if (arg == "--windowed") {
+                                            startFullscreen = false
                                         } {
-                                            if ((strlen tsxPath) > 0) {
-                                                def parsed@(optional):int (to_int arg)
-                                                if (!null? parsed) {
-                                                    maxFrames = (unwrap parsed)
+                                            if (arg == "--games-dir") {
+                                                pendingGamesDir = true
+                                                launcherMode = true
+                                            } {
+                                                if (this.startsWith(arg "--games-dir=")) {
+                                                    def plen:int (strlen "--games-dir=")
+                                                    gamesDir = (substring arg plen (strlen arg))
+                                                    launcherMode = true
+                                                } {
+                                                    if (this.isTsxPath(arg)) {
+                                                        tsxPath = arg
+                                                    } {
+                                                        if ((strlen tsxPath) > 0) {
+                                                            def parsed@(optional):int (to_int arg)
+                                                            if (!null? parsed) {
+                                                                maxFrames = (unwrap parsed)
+                                                            }
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }

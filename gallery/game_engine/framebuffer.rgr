@@ -16,7 +16,13 @@
 ; fillCircle) so game code can later swap in the full EVG vector renderer
 ; without changing call sites, once the EVG stack builds natively (see
 ; RENDERING_EVG.md).
+;
+; blitImage() composes RGBA ImageBuffer sprites via RgbaFastBlit (alpha-aware).
 ; ==============================================================================
+
+Import "./rgba_fast_blit.rgr"
+Import "../pdf_writer/src/jpeg/ImageBuffer.rgr"
+Import "../pdf_writer/src/raster/RasterBuffer.rgr"
 
 class SoftCanvas {
     def w:int 0
@@ -24,6 +30,7 @@ class SoftCanvas {
     ; initialised so the field is a concrete (non-optional) buffer; init()
     ; reallocates it to the real frame size.
     def px:buffer (buffer_alloc 4)
+    def blitter:RgbaFastBlit (new RgbaFastBlit)
 
     fn init:void (width:int height:int) {
         w = width
@@ -84,17 +91,93 @@ class SoftCanvas {
     }
 
     fn fillRect:void (x:int y:int rw:int rh:int r:int g:int b:int) {
-        def yy y
-        def yEnd (y + rh)
-        def xEnd (x + rw)
-        while (yy < yEnd) {
-            def xx x
-            while (xx < xEnd) {
-                this.setPixel(xx yy r g b)
+        if (rw <= 0) {
+            return
+        }
+        if (rh <= 0) {
+            return
+        }
+        def x0 x
+        def y0 y
+        def x1 (x + rw)
+        def y1 (y + rh)
+        if (x0 < 0) {
+            x0 = 0
+        }
+        if (y0 < 0) {
+            y0 = 0
+        }
+        if (x1 > w) {
+            x1 = w
+        }
+        if (y1 > h) {
+            y1 = h
+        }
+        if (x0 >= x1) {
+            return
+        }
+        if (y0 >= y1) {
+            return
+        }
+        def yy y0
+        while (yy < y1) {
+            def rowBase (((yy * w) + x0) * 4)
+            def o rowBase
+            def xx x0
+            while (xx < x1) {
+                buffer_set px o r
+                buffer_set px (o + 1) g
+                buffer_set px (o + 2) b
+                buffer_set px (o + 3) 255
+                o = (o + 4)
                 xx = (xx + 1)
             }
             yy = (yy + 1)
         }
+    }
+
+    ; Alpha-composite an RGBA ImageBuffer onto this canvas (top-left at dx,dy).
+    ; Clips to the framebuffer here because RgbaFastBlit.blitRect does not bounds
+    ; check the destination — an off-screen sprite would otherwise wrap rows or
+    ; write past the buffer.
+    fn blitImage:void (src:ImageBuffer dx:int dy:int) {
+        if (src.width <= 0) {
+            return
+        }
+        if (src.height <= 0) {
+            return
+        }
+        def sx:int 0
+        def sy:int 0
+        def ddx:int dx
+        def ddy:int dy
+        if (ddx < 0) {
+            sx = (0 - ddx)
+            ddx = 0
+        }
+        if (ddy < 0) {
+            sy = (0 - ddy)
+            ddy = 0
+        }
+        def sw:int (src.width - sx)
+        def sh:int (src.height - sy)
+        if ((ddx + sw) > w) {
+            sw = (w - ddx)
+        }
+        if ((ddy + sh) > h) {
+            sh = (h - ddy)
+        }
+        if (sw <= 0) {
+            return
+        }
+        if (sh <= 0) {
+            return
+        }
+        def view:RasterBuffer (new RasterBuffer)
+        view.width = w
+        view.height = h
+        view.pixels = px
+        blitter.blitRect(view src sx sy sw sh ddx ddy)
     }
 
     fn fillCircle:void (cx:int cy:int rad:int r:int g:int b:int) {
