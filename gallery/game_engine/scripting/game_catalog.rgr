@@ -22,6 +22,8 @@ class GameCatalogEntry {
     def entryPath:string ""
     ; splitScreen: auto | always | never — host picks two-pane mode when supported
     def splitScreen:string ""
+    ; autoscale: true | false — host renders at full width and scales to pane (default true)
+    def autoscale:string ""
     ; Relative path to a single-player script for split-screen panes (from games dir).
     def soloScript:string ""
 }
@@ -113,10 +115,18 @@ class GameCatalog {
         if ((strlen entry.soloScript) == 0) {
             return ""
         }
-        if ((strlen gamesDir) == 0) {
-            return entry.soloScript
+        ; Path with "/" is relative to games/ (e.g. other_game/index.tsx).
+        if ((indexOf entry.soloScript "/") >= 0) {
+            if ((strlen gamesDir) == 0) {
+                return entry.soloScript
+            }
+            return (this.joinPath(gamesDir entry.soloScript))
         }
-        return (this.joinPath(gamesDir entry.soloScript))
+        ; Bare filename is relative to this game's folder (e.g. index.tsx).
+        if ((strlen entry.dir) > 0) {
+            return (this.joinPath(entry.dir entry.soloScript))
+        }
+        return entry.soloScript
     }
 
     fn parseInfoLine:void (entry:GameCatalogEntry line:string) {
@@ -136,6 +146,9 @@ class GameCatalog {
         }
         if (key == "splitScreen") {
             entry.splitScreen = val
+        }
+        if (key == "autoscale") {
+            entry.autoscale = val
         }
         if (key == "soloScript") {
             entry.soloScript = val

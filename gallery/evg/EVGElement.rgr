@@ -163,6 +163,8 @@ class EVGElement {
     
     ; For statement evaluation: indicates if a return was executed
     def hasReturn:boolean false
+    def hasBreak:boolean false
+    def hasContinue:boolean false
     
     ; Inherited font size in pixels
     def inheritedFontSize:double 14.0

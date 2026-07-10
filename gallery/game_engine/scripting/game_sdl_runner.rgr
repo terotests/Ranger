@@ -6,7 +6,7 @@
 ;   1. Load gallery/game_engine/menu/index.tsx (menu game, EVG hud).
 ;   2. Host scans --games-dir and injects `gameCatalog` global into the menu.
 ;   3. Menu sets state.launchPath → host loads that game's index.tsx.
-;   4. Q/Esc in a sub-game → back to menu game.
+;   4. Q/Esc or gamepad Select/B in a sub-game → back to menu game.
 ;   5. Q/Esc in menu → quit app.
 ;
 ; Direct launch (no menu):
@@ -33,6 +33,12 @@ class GameSdlRunner {
     def maxFrames:int 0
     def frames:int 0
     def running:boolean true
+    def profUpdateMs:int 0
+    def profDrawMs:int 0
+    def profRenderMs:int 0
+    def profPresentMs:int 0
+    def profFrames:int 0
+    def profileEnabled:boolean false
     def fpsShown:int 0
     def fpsWindowStart:int 0
     def fpsWindowFrames:int 0
@@ -42,6 +48,7 @@ class GameSdlRunner {
     def maxDtMs:int 100
     def hotReloadExplicit:boolean false
     def hotReloadWanted:boolean true
+    def startFullscreen:boolean false
     def gamesDir:string "gallery/game_engine/games"
     def menuPath:string "gallery/game_engine/menu/index.tsx"
     def launcherMode:boolean false
@@ -49,8 +56,9 @@ class GameSdlRunner {
     def inGame:boolean false
     def splitScreenActive:boolean false
     def dualPlayerMode:boolean false
-    def splitScreenPref:string "auto"
+    def splitScreenPref:string "never"
     def soloScriptPath:string ""
+    def splitAutoscale:boolean true
     def currentGamePath:string ""
     def prevQuitHeld:boolean false
     def currentScriptPath:string ""
@@ -60,6 +68,29 @@ class GameSdlRunner {
     def prevUpHeld:boolean false
     def prevDownHeld:boolean false
     def prevActionHeld:boolean false
+
+    fn setProfileOnRunners:void () {
+        runner.setProfileEnabled(profileEnabled)
+        splitHost.setProfileEnabled(profileEnabled)
+    }
+
+    fn printRunnerProfile:void (label:string r:GameRunner) {
+        if (false == profileEnabled) {
+            return
+        }
+        if (r.profFrames <= 0) {
+            return
+        }
+        def pf:int r.profFrames
+        def line:string ("[profile:" + label + "] updateScript=" + r.profUpdateScriptMs + "ms")
+        line = (line + " sync=" + r.profUpdateSyncMs + "ms")
+        line = (line + " drawBg=" + r.profDrawBgMs + "ms")
+        line = (line + " drawSprites=" + r.profDrawSpritesMs + "ms")
+        line = (line + " drawHud(interp)=" + r.profDrawHudMs + "ms")
+        line = (line + " | updateScript/frame=" + (idiv r.profUpdateScriptMs pf) + "ms")
+        line = (line + " hud/frame=" + (idiv r.profDrawHudMs pf) + "ms")
+        print line
+    }
 
     fn updateFps:void () {
         def now:int (gfx_ticks_ms)
@@ -174,6 +205,7 @@ class GameSdlRunner {
         }
         this.syncInputEdges()
         gfx_clear_should_close
+        this.setProfileOnRunners()
     }
 
     ; After script swap, match edge state to keys still held (avoids double Q:
@@ -215,6 +247,17 @@ class GameSdlRunner {
         gfx_set_title("Ranger Game Engine")
     }
 
+    fn resolveSplitAutoscale:boolean (entry:GameCatalogEntry) {
+        if (entry.autoscale == "false") {
+            return false
+        }
+        if (entry.autoscale == "true") {
+            return true
+        }
+        ; Default: host scales full-width framebuffer down to each pane.
+        return true
+    }
+
     fn resolveSplitMetadata:void (tsxPath:string) {
         if ((strlen gamesDir) > 0) {
             if ((catalog.entryCount()) == 0) {
@@ -222,13 +265,15 @@ class GameSdlRunner {
                 catalog.scan()
             }
         }
-        splitScreenPref = "auto"
+        splitScreenPref = "never"
         soloScriptPath = ""
+        splitAutoscale = true
         def entry:GameCatalogEntry (catalog.findByPath(tsxPath))
         if ((strlen entry.splitScreen) > 0) {
             splitScreenPref = entry.splitScreen
         }
         soloScriptPath = (catalog.resolveSoloPath(entry))
+        splitAutoscale = (this.resolveSplitAutoscale(entry))
     }
 
     fn shouldUseSplitScreen:boolean () {
@@ -239,13 +284,9 @@ class GameSdlRunner {
             return false
         }
         if (splitScreenPref == "always") {
-            if ((strlen soloScriptPath) > 0) {
-                return true
-            }
-            return false
+            return true
         }
-        ; auto: default split when a solo script exists (two kids, own pace)
-        if ((strlen soloScriptPath) > 0) {
+        if (splitScreenPref == "auto") {
             return true
         }
         return false
@@ -274,7 +315,7 @@ class GameSdlRunner {
         }
         this.presentLoadingScreen("SPLIT")
         splitHost = (new SplitScreenHost)
-        splitHost.init(pw ph)
+        splitHost.init(pw ph splitAutoscale)
         splitHost.setAudioSink((new SdlGameAudioSink))
         splitHost.loadPanes(panePath panePath)
         def enableHotReload:boolean hotReloadWanted
@@ -292,6 +333,12 @@ class GameSdlRunner {
         gfx_clear_should_close
         print ("[split-screen] left=" + panePath)
         print ("[split-screen] right=" + panePath)
+        if (splitAutoscale) {
+            print "[split-screen] autoscale=on"
+        } {
+            print "[split-screen] autoscale=off"
+        }
+        this.setProfileOnRunners()
     }
 
     fn loadGame:void (tsxPath:string) {
@@ -370,12 +417,30 @@ class GameSdlRunner {
 
     fn draw:void () {
         if (splitScreenActive) {
+            def r0:int (gfx_ticks_ms)
             splitHost.draw()
-            gfx_present (splitHost.raw()) pw ph
+            def r1:int (gfx_ticks_ms)
+            if (splitHost.isAutoscale()) {
+                gfx_present_split (splitHost.leftRaw()) (splitHost.rightRaw()) pw ph
+            } {
+                gfx_present (splitHost.raw()) pw ph
+            }
+            def r2:int (gfx_ticks_ms)
+            if (profileEnabled) {
+                profRenderMs = (profRenderMs + (r1 - r0))
+                profPresentMs = (profPresentMs + (r2 - r1))
+            }
             return
         }
+        def s0:int (gfx_ticks_ms)
         runner.draw()
+        def s1:int (gfx_ticks_ms)
         gfx_present (runner.raw()) pw ph
+        def s2:int (gfx_ticks_ms)
+        if (profileEnabled) {
+            profRenderMs = (profRenderMs + (s1 - s0))
+            profPresentMs = (profPresentMs + (s2 - s1))
+        }
     }
 
     ; Both panes press START on the same frame → switch to shared dual-player mode.
@@ -442,6 +507,29 @@ class GameSdlRunner {
         return false
     }
 
+    ; Menu navigation: keyboard P1 (WASD/arrows) + gamepad 0 merged.
+    fn launcherNavMask:int () {
+        def kb:int (gfx_input_source_mask(0))
+        def pad:int (gfx_input_source_mask(2))
+        return (bit_or kb pad)
+    }
+
+    ; Return to launcher menu: Q/Esc, or gamepad Select / B.
+    fn gameMenuBackHeld:boolean () {
+        def kb:int (gfx_input_source_mask(0))
+        if ((bit_and kb 8) != 0) {
+            return true
+        }
+        def pad:int (gfx_input_source_mask(2))
+        if ((bit_and pad 1024) != 0) {
+            return true
+        }
+        if ((bit_and pad 64) != 0) {
+            return true
+        }
+        return false
+    }
+
     fn runMenuLoop:void () {
         this.loadMenuGame()
         while (running) {
@@ -464,7 +552,7 @@ class GameSdlRunner {
             def right:boolean false
             def action:boolean false
             def quitHeld:boolean false
-            def m:int (gfx_poll_mask)
+            def m:int (this.launcherNavMask())
             if ((bit_and m 1) != 0) {
                 up = true
             }
@@ -480,7 +568,8 @@ class GameSdlRunner {
             if ((bit_and m 4) != 0) {
                 action = true
             }
-            if ((bit_and m 8) != 0) {
+            def kb:int (gfx_input_source_mask(0))
+            if ((bit_and kb 8) != 0) {
                 quitHeld = true
             }
 
@@ -547,26 +636,7 @@ class GameSdlRunner {
             def left:boolean false
             def right:boolean false
             def action:boolean false
-            def quitHeld:boolean false
-            def m:int (gfx_poll_mask)
-            if ((bit_and m 1) != 0) {
-                up = true
-            }
-            if ((bit_and m 2) != 0) {
-                down = true
-            }
-            if ((bit_and m 16) != 0) {
-                left = true
-            }
-            if ((bit_and m 32) != 0) {
-                right = true
-            }
-            if ((bit_and m 4) != 0) {
-                action = true
-            }
-            if ((bit_and m 8) != 0) {
-                quitHeld = true
-            }
+            def quitHeld:boolean (this.gameMenuBackHeld())
 
             if (this.quitEdge(quitHeld)) {
                 this.clearNavStack()
@@ -578,6 +648,7 @@ class GameSdlRunner {
                 return
             }
 
+            def tUpdateStart:int (gfx_ticks_ms)
             if (splitScreenActive) {
                 if (this.dualModeToggleEdge()) {
                     print "[split-screen] switching to dual-player mode"
@@ -593,13 +664,21 @@ class GameSdlRunner {
                 runner.frameWithInput(dtMs gameInput)
                 this.drainScriptNavigation()
             }
+            def tUpdateEnd:int (gfx_ticks_ms)
 
             if (false == inGame) {
                 gfx_clear_should_close
                 return
             }
             this.updateFps()
+            def tDrawStart:int (gfx_ticks_ms)
             this.draw()
+            def tDrawEnd:int (gfx_ticks_ms)
+            if (profileEnabled) {
+                profUpdateMs = (profUpdateMs + (tUpdateEnd - tUpdateStart))
+                profDrawMs = (profDrawMs + (tDrawEnd - tDrawStart))
+                profFrames = (profFrames + 1)
+            }
             frames = (frames + 1)
             if (gfx_should_close) {
                 running = false
@@ -617,6 +696,9 @@ class GameSdlRunner {
         def ok:int (gfx_open title pw ph)
         if (ok == 0) {
             print "gfx_open failed (no display?) - still rendering into the RGBA buffer"
+        }
+        if (startFullscreen) {
+            gfx_set_fullscreen(1)
         }
         gfx_audio_open(22050)
         if (launcherMode) {
@@ -659,6 +741,9 @@ class GameSdlRunner {
                 launcherMode = true
                 pendingGamesDir = false
             } {
+                if (arg == "--profile") {
+                    profileEnabled = true
+                } {
                 if (arg == "--hot-reload") {
                     hotReloadExplicit = true
                     hotReloadWanted = true
@@ -667,22 +752,30 @@ class GameSdlRunner {
                         hotReloadExplicit = true
                         hotReloadWanted = false
                     } {
-                        if (arg == "--games-dir") {
-                            pendingGamesDir = true
-                            launcherMode = true
+                        if (arg == "--fullscreen") {
+                            startFullscreen = true
                         } {
-                            if (this.startsWith(arg "--games-dir=")) {
-                                def plen:int (strlen "--games-dir=")
-                                gamesDir = (substring arg plen (strlen arg))
-                                launcherMode = true
+                            if (arg == "--windowed") {
+                                startFullscreen = false
                             } {
-                                if (this.isTsxPath(arg)) {
-                                    tsxPath = arg
+                                if (arg == "--games-dir") {
+                                    pendingGamesDir = true
+                                    launcherMode = true
                                 } {
-                                    if ((strlen tsxPath) > 0) {
-                                        def parsed@(optional):int (to_int arg)
-                                        if (!null? parsed) {
-                                            maxFrames = (unwrap parsed)
+                                    if (this.startsWith(arg "--games-dir=")) {
+                                        def plen:int (strlen "--games-dir=")
+                                        gamesDir = (substring arg plen (strlen arg))
+                                        launcherMode = true
+                                    } {
+                                        if (this.isTsxPath(arg)) {
+                                            tsxPath = arg
+                                        } {
+                                            if ((strlen tsxPath) > 0) {
+                                                def parsed@(optional):int (to_int arg)
+                                                if (!null? parsed) {
+                                                    maxFrames = (unwrap parsed)
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -690,21 +783,59 @@ class GameSdlRunner {
                         }
                     }
                 }
+                }
             }
             i = (i + 1)
         }
         if ((strlen tsxPath) > 0) {
             launcherMode = false
             this.loadGame(tsxPath)
+            this.setProfileOnRunners()
             return
         }
         launcherMode = true
+        this.setProfileOnRunners()
     }
 
     sfn m@(main):void () {
         def be:GameSdlRunner (new GameSdlRunner)
         be.parseArgs()
         be.run()
+        if (be.profileEnabled) {
+            if (be.profFrames > 0) {
+                def pmsg:string ("[profile] frames=" + be.profFrames)
+                pmsg = (pmsg + " | update(all)=" + be.profUpdateMs + "ms")
+                pmsg = (pmsg + " | draw(all)=" + be.profDrawMs + "ms")
+                pmsg = (pmsg + " | render(no present)=" + be.profRenderMs + "ms")
+                pmsg = (pmsg + " | present(SDL)=" + be.profPresentMs + "ms")
+                pmsg = (pmsg + " | update/frame=" + (idiv be.profUpdateMs be.profFrames) + "ms")
+                pmsg = (pmsg + " | draw/frame=" + (idiv be.profDrawMs be.profFrames) + "ms")
+                pmsg = (pmsg + " | render/frame=" + (idiv be.profRenderMs be.profFrames) + "ms")
+                pmsg = (pmsg + " | present/frame=" + (idiv be.profPresentMs be.profFrames) + "ms")
+                print pmsg
+            }
+            if (be.splitScreenActive) {
+                if (be.splitHost.profFrames > 0) {
+                    def sf:int be.splitHost.profFrames
+                    def splitLine:string ("[profile:split] leftDraw=" + be.splitHost.profLeftDrawMs + "ms")
+                    splitLine = (splitLine + " rightDraw=" + be.splitHost.profRightDrawMs + "ms")
+                    splitLine = (splitLine + " blit=" + be.splitHost.profBlitMs + "ms")
+                    splitLine = (splitLine + " | leftDraw/frame=" + (idiv be.splitHost.profLeftDrawMs sf) + "ms")
+                    splitLine = (splitLine + " | rightDraw/frame=" + (idiv be.splitHost.profRightDrawMs sf) + "ms")
+                    splitLine = (splitLine + " | blit/frame=" + (idiv be.splitHost.profBlitMs sf) + "ms")
+                    if (be.splitAutoscale) {
+                        splitLine = (splitLine + " autoscale=on")
+                    } {
+                        splitLine = (splitLine + " autoscale=off")
+                    }
+                    print splitLine
+                }
+                be.printRunnerProfile("left" be.splitHost.left)
+                be.printRunnerProfile("right" be.splitHost.right)
+            } {
+                be.printRunnerProfile("game" be.runner)
+            }
+        }
         if (be.inGame) {
             def msg:string ("game-sdl done: frames=" + be.frames)
             msg = (msg + " | entities=" + (be.runner.entityCount()))

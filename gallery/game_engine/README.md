@@ -202,24 +202,30 @@ Valikosta peli näkyy automaattisesti, kun `index.tsx` on paikallaan.
 | **Ruututiedostot** | `loadGame` / `pushGame` / `popGame` — erilliset `.tsx`-ruudut samassa pelikansiossa |
 | **Multi-screen (yksi tiedosto)** | `state.screen` + `state.screens[name]`; apurit `getScreen`, `isActiveScreen` — katso Breakout |
 | **Useampi pelaaja** | `state.playerSlots` + `props.input.players[]` |
-| **Split screen (kaksi lasta)** | `game.info`: `splitScreen=auto` + `soloScript=…/index.tsx` — katso alla |
+| **Split screen (kaksi lasta)** | `game.info`: `splitScreen=auto` — katso alla |
 
 ### Split screen (kaksi itsenäistä pelitilaa)
 
-Kun pelissä on `soloScript`-polku `game.info`:ssa, SDL-host käynnistää oletuksena **split screen -tilan**: vasen ja oikea puoli (240×270 kumpikin) ajavat erillistä yksinpelitilaa omalla ohjaimellaan. Kukin lapsi etenee omaan tahtiinsa.
+Kun `game.info`:ssa on `splitScreen=auto` tai `always`, SDL-host käynnistää **split screen -tilan**: vasen ja oikea puoli (240×270) ajavat erillistä yksinpelitilaa omalla ohjaimellaan.
 
 | `game.info` | Merkitys |
 |-------------|----------|
-| `splitScreen=auto` | Split oletuksena kun `soloScript` on määritelty |
-| `splitScreen=always` | Aina split (vaatii `soloScript`) |
-| `splitScreen=never` | Ei koskaan split (esim. solo-variantti listassa) |
-| `soloScript=ylos_solo/index.tsx` | Yksinpeliversio split-ruuduille (suhteessa `games/`) |
+| `splitScreen=auto` | Split oletuksena |
+| `splitScreen=always` | Aina split |
+| `splitScreen=never` | Ei koskaan split (tai rivi puuttuu) |
+| `autoscale=true` | Host renderöi 480×270-bitmappiin ja skaalaa paneeliin (oletus) |
+| `autoscale=false` | Paneeli = 240×270; peli skaalaa itse (`bgWidth`) |
+| `soloScript=index.tsx` | Valinnainen eri skripti split-ruuduille |
+
+**Autoscale (bitmap):** peli piirtää normaalisti täysleveään framebufferiin (`bgWidth=480`). Host kopioi valmiin RGBA-bitmappin puolikkaaseen leveyteen `copyRectScaledFrom`-blitillä. Toimii kaikilla piirtotavoilla: spritet, `createStaticBg`, HUD, suora canvas.
+
+**Ilman autoscalea:** peli saa `bgWidth=240` ja vastaa itse layoutista (esim. Ylos).
 
 **Ohjaus split-tilassa:** vasen ruutu = WASD + gamepad 0, oikea = nuolet + gamepad 1.
 
-**Dual-player -tila:** molemmat painavat **Start** samalla framella → jaettu ruutu (esim. Ylos! kahdella pelaajalla samalla kentällä).
+**Dual-player -tila:** molemmat painavat **Start** samalla framella → jaettu ruutu (esim. Ylos kahdella pelaajalla).
 
-Esimerkki: [`games/ylos/game.info`](./games/ylos/game.info) + [`games/ylos_solo/`](./games/ylos_solo/).
+Esimerkit: Pac-Man (`splitScreen=auto`, autoscale oletuksena päällä), Ylos (`autoscale=false`).
 
 Tiedostopohjaiset ruudut (`level2.tsx`, `win.tsx`), taustakuvat ja `gamedata.json`: **[`scripting/GAME_SCREENS_AND_STORAGE.md`](./scripting/GAME_SCREENS_AND_STORAGE.md)**.
 
