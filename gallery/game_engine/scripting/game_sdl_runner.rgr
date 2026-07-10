@@ -420,7 +420,11 @@ class GameSdlRunner {
             def r0:int (gfx_ticks_ms)
             splitHost.draw()
             def r1:int (gfx_ticks_ms)
-            gfx_present (splitHost.raw()) pw ph
+            if (splitHost.isAutoscale()) {
+                gfx_present_split (splitHost.leftRaw()) (splitHost.rightRaw()) pw ph
+            } {
+                gfx_present (splitHost.raw()) pw ph
+            }
             def r2:int (gfx_ticks_ms)
             if (profileEnabled) {
                 profRenderMs = (profRenderMs + (r1 - r0))

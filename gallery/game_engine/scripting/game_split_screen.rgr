@@ -132,6 +132,10 @@ class SplitScreenHost {
         right.frameWithInput(dtMs rightSnap)
     }
 
+    ; Render both panes. In autoscale mode the composite/blit is skipped — the
+    ; host GPU-presents each full-res pane into its half (gfx_present_split), so
+    ; the expensive CPU downscale never runs. Non-autoscale panes are already
+    ; pane-sized, so they are composited into the shared canvas here.
     fn draw:void () {
         def t0:int 0
         if (profileEnabled) {
@@ -147,22 +151,19 @@ class SplitScreenHost {
         if (profileEnabled) {
             t2 = (gfx_ticks_ms)
         }
-        if (autoscale) {
-            canvas.copyRectScaledFrom((left.canvas) 0 0 pw ph 0 0 paneW paneH)
-            canvas.copyRectScaledFrom((right.canvas) 0 0 pw ph paneW 0 paneW paneH)
-        } {
+        if (false == autoscale) {
             canvas.copyRectFrom((left.canvas) 0 0 paneW paneH 0 0)
             canvas.copyRectFrom((right.canvas) 0 0 paneW paneH paneW 0)
+            def ny 0
+            def divX paneW
+            while (ny < ph) {
+                canvas.fillRect((divX - 1) ny 2 8 50 65 110)
+                ny = (ny + 10)
+            }
         }
         def t3:int 0
         if (profileEnabled) {
             t3 = (gfx_ticks_ms)
-        }
-        def ny 0
-        def divX paneW
-        while (ny < ph) {
-            canvas.fillRect((divX - 1) ny 2 8 50 65 110)
-            ny = (ny + 10)
         }
         if (profileEnabled) {
             profLeftDrawMs = (profLeftDrawMs + (t1 - t0))
@@ -170,6 +171,18 @@ class SplitScreenHost {
             profBlitMs = (profBlitMs + (t3 - t2))
             profFrames = (profFrames + 1)
         }
+    }
+
+    fn isAutoscale:boolean () {
+        return autoscale
+    }
+
+    fn leftRaw:buffer () {
+        return (left.raw())
+    }
+
+    fn rightRaw:buffer () {
+        return (right.raw())
     }
 
     fn raw:buffer () {

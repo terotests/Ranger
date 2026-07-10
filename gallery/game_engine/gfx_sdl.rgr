@@ -505,6 +505,27 @@ static void rgfx_present(const uint8_t* pixels, int w, int h) {
     SDL_RenderCopy(g_rgfx_ren, g_rgfx_tex, nullptr, nullptr);
     SDL_RenderPresent(g_rgfx_ren);
 }
+// Split-screen present: upload each full-res pane once and let the GPU scale it
+// into its half of the window. Avoids the CPU 480→240 downscale blit entirely —
+// the scale is free on the GPU during SDL_RenderCopy.
+static void rgfx_present_split(const uint8_t* left, const uint8_t* right, int w, int h) {
+    if (g_rgfx_tex == nullptr) { return; }
+    int outW = w;
+    int outH = h;
+    SDL_GetRendererOutputSize(g_rgfx_ren, &outW, &outH);
+    const int halfW = outW / 2;
+    SDL_Rect dstL; dstL.x = 0;     dstL.y = 0; dstL.w = halfW;        dstL.h = outH;
+    SDL_Rect dstR; dstR.x = halfW; dstR.y = 0; dstR.w = outW - halfW; dstR.h = outH;
+    SDL_RenderClear(g_rgfx_ren);
+    SDL_UpdateTexture(g_rgfx_tex, nullptr, left, w * 4);
+    SDL_RenderCopy(g_rgfx_ren, g_rgfx_tex, nullptr, &dstL);
+    SDL_UpdateTexture(g_rgfx_tex, nullptr, right, w * 4);
+    SDL_RenderCopy(g_rgfx_ren, g_rgfx_tex, nullptr, &dstR);
+    SDL_SetRenderDrawColor(g_rgfx_ren, 50, 65, 110, 255);
+    SDL_Rect divider; divider.x = halfW - 1; divider.y = 0; divider.w = 2; divider.h = outH;
+    SDL_RenderFillRect(g_rgfx_ren, &divider);
+    SDL_RenderPresent(g_rgfx_ren);
+}
 static int rgfx_poll_mask() {
     rgfx_input_poll();
     return g_src_mask[RGFX_SRC_KB_P1];
@@ -546,6 +567,15 @@ static void rgfx_close() {
     gfx_present _:void (pixels:buffer w:int h:int) {
         templates {
             cpp ( "rgfx_present(" (e 1) ".data(), " (e 2) ", " (e 3) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Present two full-res panes side-by-side, GPU-scaled into each window half.
+    ; left/right are w*h*4 RGBA buffers; the GPU downscale replaces the CPU blit.
+    gfx_present_split _:void (left:buffer right:buffer w:int h:int) {
+        templates {
+            cpp ( "rgfx_present_split(" (e 1) ".data(), " (e 2) ".data(), " (e 3) ", " (e 4) ")" (imp "<SDL2/SDL.h>") )
             es6 ( "undefined" )
         }
     }
