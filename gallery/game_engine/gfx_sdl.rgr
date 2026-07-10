@@ -488,8 +488,15 @@ static void rgfx_audio_clear() {
 #include <vector>
 #if defined(__APPLE__)
 #include <OpenGL/gl3.h>
+#elif defined(__arm__) || defined(__aarch64__)
+// Raspberry Pi / embedded: OpenGL ES 2.0 (prototypes are exported directly).
+#include <GLES2/gl2.h>
 #else
+// Desktop Linux (Mesa): GL 2.0 entry points live in glext; ask for prototypes
+// so glCreateShader/glBufferData/glVertexAttribPointer resolve at link time.
+#define GL_GLEXT_PROTOTYPES 1
 #include <GL/gl.h>
+#include <GL/glext.h>
 #endif
 
 static int g_rgfx_gpu_mode = 0;
@@ -500,6 +507,7 @@ static GLint g_rgfx_gl_uv_attr = 0;
 static GLint g_rgfx_gl_tex_uniform = 0;
 static GLuint g_rgfx_gl_vbo = 0;
 static GLuint g_rgfx_base_tex = 0;
+static GLuint g_rgfx_base_tex_r = 0;
 static int g_rgfx_fb_w = 0;
 static int g_rgfx_fb_h = 0;
 static std::vector<GLuint> g_rgfx_gl_textures;
@@ -542,7 +550,8 @@ static int rgfx_gl_init() {
 }
 
 static int rgfx_open_gpu(const std::string& title, int w, int h) {
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0) { return 0; }
+    rgfx_prepare_audio_env();
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK) != 0) { return 0; }
     rgfx_scan_pads();
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
@@ -641,6 +650,30 @@ static void rgfx_gpu_finish_frame() {
     SDL_GL_SwapWindow(g_rgfx_win);
 }
 
+// GPU split present: upload each full-res pane to its own texture and scale it
+// into a window half via a textured quad (the GPU downscale replaces the CPU
+// blit, matching rgfx_present_split's SDL_Renderer path).
+static void rgfx_gpu_present_split(const uint8_t* left, const uint8_t* right, int w, int h) {
+    if (!g_rgfx_gpu_mode || left == nullptr || right == nullptr || w <= 0 || h <= 0) { return; }
+    rgfx_gpu_start_frame(w, h);
+    const int halfW = w / 2;
+    if (g_rgfx_base_tex == 0) { glGenTextures(1, &g_rgfx_base_tex); }
+    glBindTexture(GL_TEXTURE_2D, g_rgfx_base_tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, left);
+    rgfx_gpu_draw_quad_tex(g_rgfx_base_tex, 0.f, 0.f, (float) halfW, (float) h);
+    if (g_rgfx_base_tex_r == 0) { glGenTextures(1, &g_rgfx_base_tex_r); }
+    glBindTexture(GL_TEXTURE_2D, g_rgfx_base_tex_r);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, right);
+    rgfx_gpu_draw_quad_tex(g_rgfx_base_tex_r, (float) halfW, 0.f, (float) (w - halfW), (float) h);
+    rgfx_gpu_finish_frame();
+}
+
 static void rgfx_gl_cleanup() {
     for (GLuint t : g_rgfx_gl_textures) {
         glDeleteTextures(1, &t);
@@ -649,6 +682,10 @@ static void rgfx_gl_cleanup() {
     if (g_rgfx_base_tex != 0) {
         glDeleteTextures(1, &g_rgfx_base_tex);
         g_rgfx_base_tex = 0;
+    }
+    if (g_rgfx_base_tex_r != 0) {
+        glDeleteTextures(1, &g_rgfx_base_tex_r);
+        g_rgfx_base_tex_r = 0;
     }
     if (g_rgfx_gl_vbo != 0) {
         glDeleteBuffers(1, &g_rgfx_gl_vbo);
@@ -698,6 +735,10 @@ static void rgfx_present(const uint8_t* pixels, int w, int h) {
 // into its half of the window. Avoids the CPU 480→240 downscale blit entirely —
 // the scale is free on the GPU during SDL_RenderCopy.
 static void rgfx_present_split(const uint8_t* left, const uint8_t* right, int w, int h) {
+    if (g_rgfx_gpu_mode) {
+        rgfx_gpu_present_split(left, right, w, h);
+        return;
+    }
     if (g_rgfx_tex == nullptr) { return; }
     int outW = w;
     int outH = h;

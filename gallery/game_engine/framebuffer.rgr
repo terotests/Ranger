@@ -137,6 +137,9 @@ class SoftCanvas {
     }
 
     ; Alpha-composite an RGBA ImageBuffer onto this canvas (top-left at dx,dy).
+    ; Clips to the framebuffer here because RgbaFastBlit.blitRect does not bounds
+    ; check the destination — an off-screen sprite would otherwise wrap rows or
+    ; write past the buffer.
     fn blitImage:void (src:ImageBuffer dx:int dy:int) {
         if (src.width <= 0) {
             return
@@ -144,11 +147,37 @@ class SoftCanvas {
         if (src.height <= 0) {
             return
         }
+        def sx:int 0
+        def sy:int 0
+        def ddx:int dx
+        def ddy:int dy
+        if (ddx < 0) {
+            sx = (0 - ddx)
+            ddx = 0
+        }
+        if (ddy < 0) {
+            sy = (0 - ddy)
+            ddy = 0
+        }
+        def sw:int (src.width - sx)
+        def sh:int (src.height - sy)
+        if ((ddx + sw) > w) {
+            sw = (w - ddx)
+        }
+        if ((ddy + sh) > h) {
+            sh = (h - ddy)
+        }
+        if (sw <= 0) {
+            return
+        }
+        if (sh <= 0) {
+            return
+        }
         def view:RasterBuffer (new RasterBuffer)
         view.width = w
         view.height = h
         view.pixels = px
-        blitter.blitImage(view src dx dy)
+        blitter.blitRect(view src sx sy sw sh ddx ddy)
     }
 
     fn fillCircle:void (cx:int cy:int rad:int r:int g:int b:int) {
