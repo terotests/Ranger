@@ -70,6 +70,7 @@ class GameSdlRunner {
     def prevActionHeld:boolean false
     def gpuModeWanted:boolean true
     def gpuModeActive:boolean false
+    def gameInputSnap:GameInputSnapshot (new GameInputSnapshot)
 
     fn setProfileOnRunners:void () {
         runner.setProfileEnabled(profileEnabled)
@@ -194,6 +195,7 @@ class GameSdlRunner {
         runner.loadScript(src)
         this.presentLoadingScreen("LOADING")
         runner.setupScene()
+        runner.registerDefaultPaneGlobals()
         runner.trackScriptFile(tsxPath)
         currentScriptPath = tsxPath
         def enableHotReload:boolean hotReloadWanted
@@ -207,6 +209,7 @@ class GameSdlRunner {
             print ("[game-engine] hot reload enabled: " + tsxPath)
         }
         this.syncInputEdges()
+        gameInputSnap.resetSoloPad()
         gfx_clear_should_close
         this.setProfileOnRunners()
     }
@@ -223,10 +226,9 @@ class GameSdlRunner {
 
     fn pollGameInput:GameInputSnapshot () {
         gfx_input_poll
-        def snap:GameInputSnapshot (new GameInputSnapshot)
         def count:int (runner.resolvePlayerCount())
-        snap.buildFromSdl(count)
-        return snap
+        gameInputSnap.buildFromSdl(count)
+        return gameInputSnap
     }
 
     fn loadMenuGame:void () {
@@ -333,6 +335,7 @@ class GameSdlRunner {
         inGame = true
         splitScreenActive = true
         this.syncInputEdges()
+        gameInputSnap.resetSoloPad()
         gfx_clear_should_close
         print ("[split-screen] left=" + panePath)
         print ("[split-screen] right=" + panePath)

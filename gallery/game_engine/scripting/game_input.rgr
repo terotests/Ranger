@@ -6,9 +6,11 @@
 ; per-player Buttons slots based on state.playerSlots (1–8, default 1).
 ;
 ; Mapping policy:
-;   1 player  — keyboard P1 + gamepad 0 merged into players[0];
-;               keyboard P2 (arrows) still on players[1] for join detection
-;   2 players — players[0]=keyboard WASD, players[1]=arrows + gamepad 0
+;   1 player  — keyboard P1 + active gamepad into players[0]; active pad switches
+;               when another connected pad sends steering input this frame;
+;               players[1] = keyboard P2 + other pads (join / second player detect)
+;   2 players — players[0]=keyboard P1 + gamepad 0, players[1]=arrows + gamepad 1
+;               (one pad: P2 gets gamepad 0 as before)
 ;   3–8       — players[i]=gamepad i, plus keyboard merged into players[0]
 ; ==============================================================================
 
@@ -94,6 +96,8 @@ class GameInputSnapshot {
     def maxPlayers:int 8
     def playerCount:int 1
     def padCount:int 0
+    ; Active gamepad index for 1-player mode (-1 = keyboard P1 only last frame).
+    def soloActivePad:int 0
     def p0:PlayerButtons (new PlayerButtons)
     def p1:PlayerButtons (new PlayerButtons)
     def p2:PlayerButtons (new PlayerButtons)
@@ -140,6 +144,52 @@ class GameInputSnapshot {
         return (this.sourceMask(src))
     }
 
+    fn resetSoloPad:void () {
+        soloActivePad = 0
+    }
+
+    ; Steering / action bits used to pick the active pad in 1-player mode.
+    fn steeringMask:int () {
+        def m:int (InputMask.UP())
+        m = (bit_or m (InputMask.DOWN()))
+        m = (bit_or m (InputMask.LEFT()))
+        m = (bit_or m (InputMask.RIGHT()))
+        m = (bit_or m (InputMask.ACTION()))
+        m = (bit_or m (InputMask.B()))
+        m = (bit_or m (InputMask.X()))
+        m = (bit_or m (InputMask.Y()))
+        m = (bit_or m (InputMask.START()))
+        return m
+    }
+
+    fn maskHasSteering:boolean (m:int) {
+        def steer:int (this.steeringMask())
+        return ((bit_and m steer) != 0)
+    }
+
+    ; When any pad or keyboard P1 sends steering, update soloActivePad (-1 = keys).
+    fn updateSoloActivePad:void (kbP1:int) {
+        def steer:int (this.steeringMask())
+        def sawInput:boolean false
+        def nextPad:int soloActivePad
+        if ((bit_and kbP1 steer) != 0) {
+            sawInput = true
+            nextPad = -1
+        }
+        def pi:int 0
+        while (pi < padCount) {
+            def pm:int (this.padSourceMask(pi))
+            if ((bit_and pm steer) != 0) {
+                sawInput = true
+                nextPad = pi
+            }
+            pi = (pi + 1)
+        }
+        if sawInput {
+            soloActivePad = nextPad
+        }
+    }
+
     fn buildMenu:void () {
         playerCount = 1
         padCount = (gfx_input_pad_count)
@@ -181,19 +231,49 @@ class GameInputSnapshot {
         def kbP2:int (this.sourceMask(1))
 
         if (playerCount == 1) {
-            def merged:int (bit_or kbP1 (this.padSourceMask(0)))
-            this.setPlayerMask(0 merged)
-            ; Expose P2 keyboard (arrows) even in 1-slot mode so scripted games
-            ; (e.g. Pong) can detect a second human joining before playerSlots=2.
-            this.setPlayerMask(1 kbP2)
+            if (padCount == 0) {
+                soloActivePad = -1
+            } {
+                if (soloActivePad < 0) {
+                    soloActivePad = 0
+                }
+                if (soloActivePad >= padCount) {
+                    soloActivePad = (padCount - 1)
+                }
+            }
+            this.updateSoloActivePad(kbP1)
+            def p0:int kbP1
+            if (soloActivePad >= 0) {
+                if (soloActivePad < padCount) {
+                    p0 = (bit_or kbP1 (this.padSourceMask(soloActivePad)))
+                }
+            }
+            this.setPlayerMask(0 p0)
+            ; Join / P2 detect: arrows + any pad not currently steering P1.
+            def p2Join:int kbP2
+            def pj:int 0
+            while (pj < padCount) {
+                if (pj != soloActivePad) {
+                    p2Join = (bit_or p2Join (this.padSourceMask(pj)))
+                }
+                pj = (pj + 1)
+            }
+            this.setPlayerMask(1 p2Join)
             playerCount = 2
             return
         }
 
         if (playerCount == 2) {
-            this.setPlayerMask(0 kbP1)
-            def p2:int (bit_or kbP2 (this.padSourceMask(0)))
-            this.setPlayerMask(1 p2)
+            if (padCount >= 2) {
+                def p0:int (bit_or kbP1 (this.padSourceMask(0)))
+                def p2:int (bit_or kbP2 (this.padSourceMask(1)))
+                this.setPlayerMask(0 p0)
+                this.setPlayerMask(1 p2)
+            } {
+                this.setPlayerMask(0 kbP1)
+                def p2:int (bit_or kbP2 (this.padSourceMask(0)))
+                this.setPlayerMask(1 p2)
+            }
             return
         }
 
@@ -264,13 +344,23 @@ class GameInputSnapshot {
             def hasPad 0
             if (playerCount == 1) {
                 if (padCount > 0) {
-                    hasPad = 1
+                    if (soloActivePad >= 0) {
+                        if (soloActivePad < padCount) {
+                            hasPad = 1
+                        }
+                    }
                 }
             } {
                 if (playerCount == 2) {
-                    if (i == 1) {
+                    if (i == 0) {
                         if (padCount > 0) {
                             hasPad = 1
+                        }
+                    } {
+                        if (i == 1) {
+                            if (padCount > 0) {
+                                hasPad = 1
+                            }
                         }
                     }
                 } {

@@ -6,9 +6,9 @@
 // Switches to 2 when a second human takes the right paddle.
 //
 // Controls:
-//   1 player (vs CPU) — W/S or gamepad for left paddle
-//   Join as P2       — press arrow up/down once (right paddle; CPU stops)
-//   2 players        — P1 W/S, P2 arrows or gamepad
+//   1 player (vs CPU) — W/S, arrows, or either gamepad for left paddle
+//   Join as P2       — arrow up/down, Start, or the non-active gamepad
+//   2 players        — P1 WASD + gamepad 0, P2 arrows + gamepad 1
 //
 // Coordinates are in pixels of a 480x270 buffer. Motion is time-based (uses dt),
 // so it is framerate-independent.
@@ -57,8 +57,8 @@ function readPlayerInput(props, index) {
   return { up: up, down: down };
 }
 
-function p2WantsHuman(p2up, p2down) {
-  if (p2up || p2down) {
+function p2WantsHuman(p2) {
+  if (p2.up || p2.down || p2.start || p2.action) {
     return 1;
   }
   return 0;
@@ -167,7 +167,7 @@ function update(props) {
 
   let p2Human = s.p2Human;
   if (p2Human == 0) {
-    p2Human = p2WantsHuman(p2.up, p2.down);
+    p2Human = p2WantsHuman(p2);
   }
 
   let playerSlots = 1;
