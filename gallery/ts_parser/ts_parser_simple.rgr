@@ -266,6 +266,14 @@ class TSParserSimple {
       return (this.parseReturn())
     }
     
+    if (tokVal == "break") {
+      return (this.parseBreak())
+    }
+    
+    if (tokVal == "continue") {
+      return (this.parseContinue())
+    }
+    
     if (tokVal == "throw") {
       return (this.parseThrow())
     }
@@ -367,6 +375,40 @@ class TSParserSimple {
       def arg (this.parseExpr())
       node.left = arg
     }
+    
+    if (this.matchValue(";")) {
+      this.advance()
+    }
+    
+    return node
+  }
+  
+  fn parseBreak:TSNode () {
+    def node (new TSNode())
+    node.nodeType = "BreakStatement"
+    def startTok (this.peek())
+    node.start = startTok.start
+    node.line = startTok.line
+    node.col = startTok.col
+    
+    this.expectValue("break")
+    
+    if (this.matchValue(";")) {
+      this.advance()
+    }
+    
+    return node
+  }
+  
+  fn parseContinue:TSNode () {
+    def node (new TSNode())
+    node.nodeType = "ContinueStatement"
+    def startTok (this.peek())
+    node.start = startTok.start
+    node.line = startTok.line
+    node.col = startTok.col
+    
+    this.expectValue("continue")
     
     if (this.matchValue(";")) {
       this.advance()
@@ -3291,15 +3333,86 @@ class TSParserSimple {
   ; === Logical AND (&&) ===
   
   fn parseLogicalAnd:TSNode () {
-    def left (this.parseEquality())
+    def left (this.parseBitwiseOr())
     
     while (this.matchValue("&&")) {
+      this.advance()
+      def right (this.parseBitwiseOr())
+      
+      def expr (new TSNode())
+      expr.nodeType = "BinaryExpression"
+      expr.value = "&&"
+      expr.left = left
+      expr.right = right
+      expr.start = left.start
+      expr.line = left.line
+      expr.col = left.col
+      left = expr
+    }
+    
+    return left
+  }
+  
+  ; === Bitwise OR (|) ===
+  ; Lower precedence than bitwise XOR; higher than logical AND.
+  ; Single "|" only — union types are parsed separately in type context.
+  
+  fn parseBitwiseOr:TSNode () {
+    def left (this.parseBitwiseXor())
+    
+    while (this.matchValue("|")) {
+      this.advance()
+      def right (this.parseBitwiseXor())
+      
+      def expr (new TSNode())
+      expr.nodeType = "BinaryExpression"
+      expr.value = "|"
+      expr.left = left
+      expr.right = right
+      expr.start = left.start
+      expr.line = left.line
+      expr.col = left.col
+      left = expr
+    }
+    
+    return left
+  }
+  
+  ; === Bitwise XOR (^) ===
+  
+  fn parseBitwiseXor:TSNode () {
+    def left (this.parseBitwiseAnd())
+    
+    while (this.matchValue("^")) {
+      this.advance()
+      def right (this.parseBitwiseAnd())
+      
+      def expr (new TSNode())
+      expr.nodeType = "BinaryExpression"
+      expr.value = "^"
+      expr.left = left
+      expr.right = right
+      expr.start = left.start
+      expr.line = left.line
+      expr.col = left.col
+      left = expr
+    }
+    
+    return left
+  }
+  
+  ; === Bitwise AND (&) ===
+  
+  fn parseBitwiseAnd:TSNode () {
+    def left (this.parseEquality())
+    
+    while (this.matchValue("&")) {
       this.advance()
       def right (this.parseEquality())
       
       def expr (new TSNode())
       expr.nodeType = "BinaryExpression"
-      expr.value = "&&"
+      expr.value = "&"
       expr.left = left
       expr.right = right
       expr.start = left.start
