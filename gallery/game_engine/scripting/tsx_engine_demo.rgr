@@ -23,6 +23,14 @@ class TsxEngineDemo {
         def whileConst:EvalValue (engine.callFunction("whileWithModuleConst" (EvalValue.null())))
         def memberAssign:EvalValue (engine.callFunction("memberAssign" (EvalValue.null())))
         def helperSide:EvalValue (engine.callFunction("helperSideEffect" (EvalValue.null())))
+        def modCount1:EvalValue (engine.callFunction("bumpModuleCounter" (EvalValue.null())))
+        def modCount2:EvalValue (engine.callFunction("bumpModuleCounter" (EvalValue.null())))
+        def whileReturn:EvalValue (engine.callFunction("returnFromWhile" (EvalValue.null())))
+        def nestedBreak:EvalValue (engine.callFunction("nestedLoopBreak" (EvalValue.null())))
+        def continueSkip:EvalValue (engine.callFunction("loopContinueSkip" (EvalValue.null())))
+        def splitNoPane:EvalValue (engine.callFunction("isSplitPane" (EvalValue.null())))
+        engine.registerGlobal("paneIndex" (EvalValue.fromInt(1)))
+        def splitWithPane:EvalValue (engine.callFunction("isSplitPane" (EvalValue.null())))
 
         print ("whileLen=" + (to_int (whileLen.numberValue)))
         print ("constSum=" + (to_int (constSum.numberValue)))
@@ -33,6 +41,20 @@ class TsxEngineDemo {
         print ("whileConst=" + (to_int (whileConst.numberValue)))
         print ("memberAssign=" + (to_int (memberAssign.numberValue)))
         print ("helperSide=" + (to_int (helperSide.numberValue)))
+        print ("modCount2=" + (to_int (modCount2.numberValue)))
+        print ("whileReturn=" + (to_int (whileReturn.numberValue)))
+        print ("nestedBreak=" + (to_int (nestedBreak.numberValue)))
+        print ("continueSkip=" + (to_int (continueSkip.numberValue)))
+        if (splitNoPane.toBool()) {
+            print "splitNoPane=1"
+        } {
+            print "splitNoPane=0"
+        }
+        if (splitWithPane.toBool()) {
+            print "splitWithPane=1"
+        } {
+            print "splitWithPane=0"
+        }
         print "tsx-engine-demo done"
     }
 }
