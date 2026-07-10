@@ -3,6 +3,10 @@
     "target": "ES2015",
     "module": "ESNext",
     "moduleResolution": "node",
+    "baseUrl": ".",
+    "paths": {
+      "game_helpers": ["../lib/game_helpers.tsx"]
+    },
     "noEmit": true,
     "strict": true,
     "noImplicitAny": true,

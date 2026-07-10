@@ -1,3 +1,6 @@
+# Per-game runtime save data (written by loadGameData/saveGameData).
+**/gamedata.json
+
 # Generated native build artifacts (regenerate with the engine:* npm scripts).
 # The ES6 build (pong.js) is committed as the desktop reference.
 pong.cpp

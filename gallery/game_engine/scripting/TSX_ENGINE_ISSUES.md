@@ -131,21 +131,63 @@ function total() { return PALETTE.r + PALETTE.g; }
 
 ---
 
-### 8. `/// <reference path="./game.d.ts" />` parse noise
+### 9. Generic / complex types on engine callback signatures (e.g. `hud`, `update`)
+
+**Symptom:** JSX HUD does not render at all — no score text in the top strip. Parser may print errors such as `Parse error: expected '{' but got '.'` or `Unknown type: object` while loading imports. `scriptHasFunction("hud")` can fail or the function body never binds correctly.
+
+**Cause:** `TSParserSimple` / `ComponentEngine` do not fully parse TypeScript generic type annotations on function parameters and return types. Signatures like:
+
+```tsx
+function hud(props: TypedEventProps<BreakoutState>): JSX.Element { … }
+function update(props: TypedEventProps<BreakoutState>): BreakoutState { … }
+```
+
+break parsing (angle brackets, nested generics). The engine silently skips or mis-registers the function.
+
+**Workaround:** Use **untyped** signatures for functions the GameRunner calls by name (`initState`, `sprites`, `update`, `hud`, …). Keep types in `*.d.ts` + `/// <reference path="…" />` for IDE checking only:
+
+```tsx
+/// <reference path="../../scripting/game.d.ts" />
+/// <reference path="./breakout.d.ts" />
+
+function update(props) {
+  const s = props.state;
+  …
+}
+
+function hud(props) {
+  const s = props.state;
+  return (
+    <View flexDirection="row" padding="8px" width="100%" justifyContent="space-between">
+      <Label color="#ffffff">SCORE {s.screens.play.score}</Label>
+    </View>
+  );
+}
+```
+
+**Good reference:** [`games/invaders/index.tsx`](../games/invaders/index.tsx) — `function update(props)` / `function hud(props)`.
+
+**Also avoid in runtime scripts:** non-null assertions (`getScreen(s, "gameOver")!`) — prefer `s.screens.gameOver` or guard without `!`.
+
+**Fixed in:** [`games/breakout/index.tsx`](../games/breakout/index.tsx), [`breakout.game.tsx`](./breakout.game.tsx) (2026-07-09).
+
+---
+
+### 10. `/// <reference path="./game.d.ts" />` parse noise
 
 **Symptom:** Loading a script that references `game.d.ts` prints `Parse error: expected Identifier but got TSKeyword` for `type` / `interface` lines.
 
 **Impact:** Harmless at runtime (types are ignored); noisy in test output.
 
-### 9. Value-`return` inside `for` / `while` loops not propagated
+### 11. Value-`return` inside `for` / `while` loops not propagated
 
 Documented in [`GAME_SCRIPTING.md`](./GAME_SCRIPTING.md). Loops run for side effects only in `runStatementValue`; early `return` inside a loop body does not exit the enclosing function.
 
-### 10. Single-statement loop bodies without `{ … }`
+### 12. Single-statement loop bodies without `{ … }`
 
 `evaluateStatementBlock()` only executes children of a `BlockStatement`. Prefer braced loop bodies in game scripts.
 
-### 11. `**` operator precedence
+### 13. `**` operator precedence
 
 See project `ISSUES.md` #6 — parenthesise exponent expressions.
 
@@ -159,5 +201,6 @@ See project `ISSUES.md` #6 — parenthesise exponent expressions.
 | `game_runtime.rgr` | Retained-mode GameRunner |
 | `GAME_SCRIPTING.md` | Authoring guide for game scripts |
 | `invaders.game.tsx` | Stress test: module const arrays + while loops |
-| `breakout.game.tsx` | Retained bricks + JSX `hud()` overlay |
+| `games/invaders/index.tsx` | Untyped `update` / `hud` callbacks (parser-safe) |
+| `breakout.game.tsx` / `games/breakout/index.tsx` | Retained bricks + JSX `hud()` overlay |
 | `GAME_ENGINE_DESIGN.md` | Design notes: retained sprites + JSX HUD, performance |

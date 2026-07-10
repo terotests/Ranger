@@ -40,6 +40,8 @@ class GameRuntimeOptions {
 class GameRunner {
     def engine:ComponentEngine (new ComponentEngine())
     def options:GameRuntimeOptions (new GameRuntimeOptions())
+    ; Shared TSX helpers (game_helpers) resolve from this path at import time.
+    def engineLibPath:string "gallery/game_engine/lib"
     def canvas:SoftCanvas (new SoftCanvas)
     def hudBlitter:GameHudBlitter (new GameHudBlitter)
     def spriteRenderer:GameSpriteRenderer (new GameSpriteRenderer)
@@ -109,6 +111,7 @@ class GameRunner {
         options.scriptDir = dir
         engine.setBasePath(dir)
         imageLoader.setBaseDir(dir)
+        engine.addAssetPath(engineLibPath)
     }
 
     fn setHotReload:void (enabled:boolean) {
@@ -130,6 +133,7 @@ class GameRunner {
         if ((strlen dir) > 0) {
             engine.setBasePath(dir)
             imageLoader.setBaseDir(dir)
+            engine.addAssetPath(engineLibPath)
         }
         if ((strlen file) > 0) {
             options.scriptMtime = (file_mtime dir file)
@@ -718,6 +722,38 @@ class GameRunner {
         def root:EVGElement (engine.callRender("hud" props))
         hudBlitter.attach(canvas)
         hudBlitter.drawTree(root pw ph)
+    }
+
+    fn textWidth:int (scale:int text:string) {
+        def step ((scale * 3) + scale)
+        return ((strlen text) * step)
+    }
+
+    ; Default loading splash while a screen's resources are being prepared.
+    fn drawLoadingScreen:void (label:string ticks:int) {
+        canvas.clear(14 18 36)
+        hudBlitter.attach(canvas)
+        def line:string label
+        if ((strlen line) == 0) {
+            line = "LOADING"
+        }
+        def tickPhase:int (to_int (ticks / 400))
+        def dotCount:int (tickPhase % 4)
+        def dots:string ""
+        def di 0
+        while (di < dotCount) {
+            dots = (dots + ".")
+            di = (di + 1)
+        }
+        line = (line + dots)
+        def scale 3
+        def tw:int (this.textWidth(scale line))
+        def th:int ((scale * 5) + scale)
+        def tx:int (this.half(pw))
+        tx = (tx - (this.half(tw)))
+        def ty:int (this.half(ph))
+        ty = (ty - (this.half(th)))
+        hudBlitter.drawText(tx ty scale line 220 230 255)
     }
 
     fn digitBits:string (d:int) {

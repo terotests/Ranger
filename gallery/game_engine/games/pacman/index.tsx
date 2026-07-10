@@ -5,7 +5,7 @@
 //
 // Run: npm run engine:game-sdl:launcher → Pac-Man
 
-import { soundEvent } from "../../scripting/game_helpers";
+import { soundEvent } from "game_helpers";
 
 const TILE = 14;
 const PACE = 2.0;
@@ -1007,10 +1007,7 @@ function hud(props) {
   if (sc == "splash") {
     return (
       <View width="100%" height="100%" flexDirection="column" justifyContent="center" align="center">
-        <Label color="#fff060">PAC-MAN</Label>
-        <Label color="#fff060">RANGER DEMO</Label>
-        <Label color="#fff060">ARROWS WASD</Label>
-        <Label color="#fff060">SPACE START</Label>
+        <Label color="#fff060">PRESS SPACE TO START</Label>
       </View>
     );
   }

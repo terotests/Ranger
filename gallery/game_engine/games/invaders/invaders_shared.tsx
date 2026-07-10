@@ -1,32 +1,14 @@
-/// <reference path="./game.d.ts" />
+/// <reference path="../../scripting/game.d.ts" />
 //
-// Mini Space Invaders for the retained-mode GameRunner.
-//
-// Aliens and ship use kind "bitmap" — one retained sprite per actor with cached
-// animation frames in the engine (not one rect per pixel).
-//
-// Controls (game_sdl_runner): Left/Right arrows (or A/D) move the cannon.
-// Firing is automatic. score1 = points, score2 = lives.
-//
-// Run:
-//   npm run engine:game-sdl:run:invaders
+// Shared Invaders play logic for index.tsx (level 1) and level2.tsx.
 
-import { soundEvent } from "./game_helpers";
+import { soundEvent } from "game_helpers";
 
-function resources() {
-  return [
-    // Path relative to this .tsx directory: scripting/assets/invaders_bg.png
-    { kind: "image", id: "bg", path: "assets/invaders_bg.png" }
-  ];
-}
-
-function backgroundImage() {
-  return "bg";
-}
-
-const COLS = 5;
-const ROWS = 3;
-const ALIEN_COUNT = COLS * ROWS;
+export const COLS = 5;
+export const ROWS = 3;
+export const ALIEN_COUNT = COLS * ROWS;
+const SHOT_COOLDOWN = 42;
+const WAVE_STEP_DOWN = 12;
 
 const INVADER_A = [
   "..XXX..",
@@ -55,7 +37,7 @@ const INVADER_C = [
   "X.X.X.X"
 ];
 
-const SHIP_ART = [
+export const SHIP_ART = [
   "..XX..",
   "..XX..",
   ".XXXX.",
@@ -119,7 +101,7 @@ function alienSpriteDef(alien) {
   };
 }
 
-function buildAlienSprites() {
+export function buildAlienSprites() {
   const list = [];
   let alien = 0;
   while (alien < ALIEN_COUNT) {
@@ -129,7 +111,7 @@ function buildAlienSprites() {
   return list;
 }
 
-function sprites() {
+export function buildSprites() {
   const list = buildAlienSprites();
   list.push({
     id: "ship",
@@ -147,7 +129,7 @@ function sprites() {
   return list;
 }
 
-function makeAlive() {
+export function makeAlive() {
   const alive = [];
   let i = 0;
   while (i < ALIEN_COUNT) {
@@ -157,7 +139,7 @@ function makeAlive() {
   return alive;
 }
 
-function initEntities(waveX, waveY, px, py, shotY) {
+export function initEntities(waveX, waveY, px, py, shotY) {
   const entities = {};
   entities.shot = { x: px, y: shotY };
   entities.ship = { x: px, y: py, p0: 0 };
@@ -176,7 +158,7 @@ function initEntities(waveX, waveY, px, py, shotY) {
   return entities;
 }
 
-function initState() {
+export function makePlayState(score1, score2, levelLabel) {
   const px = 240;
   const py = 248;
   return {
@@ -195,9 +177,11 @@ function initState() {
     shotActive: 0,
     fireCd: 0,
     alive: makeAlive(),
-    score1: 0,
-    score2: 3,
-    gameOver: 0
+    score1: score1,
+    score2: score2,
+    gameOver: 0,
+    levelLabel: levelLabel,
+    levelCleared: 0
   };
 }
 
@@ -209,6 +193,28 @@ function countAlive(alive) {
     i = i + 1;
   }
   return n;
+}
+
+// Classic invaders: formation speeds up as it steps down and as aliens are killed.
+function wavePeriodFor(baseWavePeriod, waveY, aliveCount, minWavePeriod) {
+  let descents = (waveY - 48) / WAVE_STEP_DOWN;
+  let killed = ALIEN_COUNT - aliveCount;
+  let killBoost = killed / 4;
+  let period = baseWavePeriod - descents - killBoost;
+  if (period < minWavePeriod) {
+    period = minWavePeriod;
+  }
+  return period;
+}
+
+function stepWaveDown(waveY, waveDir) {
+  if (waveDir > 0) {
+    waveDir = -1;
+  } else {
+    waveDir = 1;
+  }
+  waveY = waveY + WAVE_STEP_DOWN;
+  return { waveY: waveY, waveDir: waveDir };
 }
 
 function resetWave(alive) {
@@ -252,10 +258,15 @@ function hitAlien(alien, waveX, waveY, sx, sy) {
   return 1;
 }
 
-function update(props) {
+export function runPlayUpdate(props, baseWavePeriod, levelMode) {
   const s = props.state;
   if (s.gameOver == 1) {
     return s;
+  }
+
+  let minWavePeriod = 4;
+  if (levelMode == "level2") {
+    minWavePeriod = 3;
   }
 
   const events = [];
@@ -274,7 +285,10 @@ function update(props) {
   let score1 = s.score1;
   let score2 = s.score2;
   let gameOver = s.gameOver;
+  let levelCleared = s.levelCleared;
   const alive = s.alive;
+  const aliveCount = countAlive(alive);
+  const wavePeriod = wavePeriodFor(baseWavePeriod, waveY, aliveCount, minWavePeriod);
 
   if (props.left || props.up) { px = px - dt * 0.22; }
   if (props.right || props.down) { px = px + dt * 0.22; }
@@ -282,7 +296,7 @@ function update(props) {
   if (px > 456) { px = 456; }
 
   waveTick = waveTick + 1;
-  if (waveTick > 14) {
+  if (waveTick > wavePeriod) {
     waveTick = 0;
     if (anim == 0) { anim = 1; } else { anim = 0; }
     waveX = waveX + waveDir * 6;
@@ -291,9 +305,23 @@ function update(props) {
     } else {
       events.push(soundEvent("bounce"));
     }
-    if (waveX > 300) { waveDir = -1; waveY = waveY + 12; }
-    if (waveX < 40) { waveDir = 1; waveY = waveY + 12; }
-    if (waveY > 190) {
+    let steppedDown = 0;
+    if (waveX > 300) {
+      const step = stepWaveDown(waveY, waveDir);
+      waveDir = step.waveDir;
+      waveY = step.waveY;
+      steppedDown = 1;
+    }
+    if (waveX < 40) {
+      if (steppedDown == 0) {
+        const step = stepWaveDown(waveY, waveDir);
+        waveDir = step.waveDir;
+        waveY = step.waveY;
+      } else {
+        waveDir = 1;
+      }
+    }
+    if (waveY > 140) {
       score2 = score2 - 1;
       events.push(soundEvent("lose"));
       const reset = resetWave(alive);
@@ -311,12 +339,14 @@ function update(props) {
   fireCd = fireCd - 1;
   if (fireCd < 0) { fireCd = 0; }
   if (shotActive == 0) {
-    if (fireCd == 0) {
-      shotActive = 1;
-      shotX = px;
-      shotY = py - 16;
-      fireCd = 22;
-      events.push(soundEvent("blip"));
+    if (props.action) {
+      if (fireCd == 0) {
+        shotActive = 1;
+        shotX = px;
+        shotY = py - 16;
+        fireCd = SHOT_COOLDOWN;
+        events.push(soundEvent("blip"));
+      }
     }
   }
   if (shotActive == 1) {
@@ -344,12 +374,18 @@ function update(props) {
   }
 
   if (countAlive(alive) == 0) {
-    events.push(soundEvent("win"));
-    const reset = resetWave(alive);
-    waveX = reset.waveX;
-    waveY = reset.waveY;
-    waveDir = reset.waveDir;
-    waveTick = reset.waveTick;
+    if (levelCleared == 0) {
+      events.push(soundEvent("win"));
+      levelCleared = 1;
+      if (levelMode == "level1") {
+        saveGameData({ score1: score1, score2: score2, level: 2 });
+        pushGame("level2.tsx");
+      }
+      if (levelMode == "level2") {
+        saveGameData({ score1: score1, score2: score2, level: 0, won: 1 });
+        loadGame("win.tsx");
+      }
+    }
   }
 
   const entities = {};
@@ -384,6 +420,18 @@ function update(props) {
     score1: score1,
     score2: score2,
     gameOver: gameOver,
+    levelLabel: s.levelLabel,
+    levelCleared: levelCleared,
     events: events
   };
+}
+
+export function playHud(levelLabel, score1, score2) {
+  return (
+    <View flexDirection="row" padding="8px" width="100%" justifyContent="space-between">
+      <Label color="#8fd3ff">{levelLabel}</Label>
+      <Label color="#ffffff">SCORE {score1}</Label>
+      <Label color="#ff8899">LIVES {score2}</Label>
+    </View>
+  );
 }
