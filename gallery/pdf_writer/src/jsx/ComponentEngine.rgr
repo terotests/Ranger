@@ -29,42 +29,18 @@ class ImportedSymbol {
 ; EvalContext - Variable scope for expression evaluation
 ; =============================================================================
 class EvalContext {
-    def variables:[string]
-    def values:[EvalValue]
+    def bindings:[string:EvalValue]
     def parent@(optional):EvalContext
     ; Root module scope for this script (propagated to child scopes).
     def moduleRoot@(optional):EvalContext
     
-    Constructor () {
-        def v:[string]
-        variables = v
-        def vl:[EvalValue]
-        values = vl
-    }
-    
     fn define:void (name:string value:EvalValue) {
-        ; Check if already defined
-        def i:int 0
-        while (i < (array_length variables)) {
-            if ((itemAt variables i) == name) {
-                ; Update existing
-                set values i value
-                return
-            }
-            i = i + 1
-        }
-        ; Add new
-        push variables name
-        push values value
+        set bindings name value
     }
     
     fn lookup:EvalValue (name:string) {
-        def i:int 0
-        while (i < (array_length variables)) {
-            if ((itemAt variables i) == name) {
-                return (itemAt values i)
-            }
-            i = i + 1
+        if (has bindings name) {
+            return (unwrap (get bindings name))
         }
         ; Check parent scope (function locals -> outer -> … -> module root)
         if parent {
@@ -77,13 +53,9 @@ class EvalContext {
     ; Update an existing binding in the nearest enclosing scope that owns it.
     ; Returns false when the name is not declared anywhere up the parent chain.
     fn assignExisting:boolean (name:string value:EvalValue) {
-        def i:int 0
-        while (i < (array_length variables)) {
-            if ((itemAt variables i) == name) {
-                set values i value
-                return true
-            }
-            i = i + 1
+        if (has bindings name) {
+            set bindings name value
+            return true
         }
         if parent {
             def p:EvalContext (unwrap parent)
@@ -104,24 +76,16 @@ class EvalContext {
 
     ; Remove a binding from the nearest scope that owns it (parent chain walk).
     fn removeBinding:boolean (name:string) {
-        def i:int 0
-        while (i < (array_length variables)) {
-            if ((itemAt variables i) == name) {
-                def newVars:[string]
-                def newVals:[EvalValue]
-                def j:int 0
-                while (j < (array_length variables)) {
-                    if (j != i) {
-                        push newVars (itemAt variables j)
-                        push newVals (itemAt values j)
-                    }
-                    j = j + 1
+        if (has bindings name) {
+            def newBindings:[string:EvalValue]
+            def keyList:[string] (keys bindings)
+            for keyList kk:string idx {
+                if (kk != name) {
+                    set newBindings kk (unwrap (get bindings kk))
                 }
-                variables = newVars
-                values = newVals
-                return true
             }
-            i = i + 1
+            bindings = newBindings
+            return true
         }
         if parent {
             def p:EvalContext (unwrap parent)
@@ -138,12 +102,8 @@ class EvalContext {
     }
     
     fn has:boolean (name:string) {
-        def i:int 0
-        while (i < (array_length variables)) {
-            if ((itemAt variables i) == name) {
-                return true
-            }
-            i = i + 1
+        if (has bindings name) {
+            return true
         }
         if parent {
             def p:EvalContext (unwrap parent)
