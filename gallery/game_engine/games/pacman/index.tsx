@@ -100,12 +100,35 @@ function canWalk(col, row) {
   return isWall(col, row) == 0 ? 1 : 0;
 }
 
+function tileLeft(col) {
+  return ORIGIN_X + col * TILE;
+}
+
+function tileTop(row) {
+  return ORIGIN_Y + row * TILE;
+}
+
 function tileX(col) {
-  return ORIGIN_X + col * TILE + (TILE / 2);
+  return tileLeft(col) + (TILE / 2);
 }
 
 function tileY(row) {
-  return ORIGIN_Y + row * TILE + (TILE / 2);
+  return tileTop(row) + (TILE / 2);
+}
+
+function createStaticBg() {
+  bgClear(12, 16, 32);
+  let row = 0;
+  while (row < ROWS) {
+    let col = 0;
+    while (col < COLS) {
+      if (cellAt(col, row) == "#") {
+        bgFillRect(tileLeft(col), tileTop(row), TILE, TILE, 32, 56, 190);
+      }
+      col = col + 1;
+    }
+    row = row + 1;
+  }
 }
 
 function dirDelta(dir) {
@@ -174,10 +197,6 @@ function dist(col, row, tc, tr) {
   return absVal(col - tc) + absVal(row - tr);
 }
 
-function wallId(col, row) {
-  return ("w" + col + "x" + row);
-}
-
 function dotId(i) {
   return ("d" + i);
 }
@@ -190,31 +209,11 @@ function ghostId(i) {
   return ("g" + i);
 }
 
-function buildPlaySprites() {
+function buildDynamicSprites() {
   const list = [];
-  let row = 0;
-  while (row < ROWS) {
-    let col = 0;
-    while (col < COLS) {
-      if (cellAt(col, row) == "#") {
-        list.push({
-          id: wallId(col, row),
-          kind: "rect",
-          w: TILE,
-          h: TILE,
-          r: 32,
-          g: 56,
-          b: 190
-        });
-      }
-      col = col + 1;
-    }
-    row = row + 1;
-  }
-
   let dotIdx = 0;
   let powIdx = 0;
-  row = 0;
+  let row = 0;
   while (row < ROWS) {
     let col = 0;
     while (col < COLS) {
@@ -253,10 +252,10 @@ function buildPlaySprites() {
 
 function sprites(props) {
   if (props.screen == "splash") {
-    return buildPlaySprites();
+    return buildDynamicSprites();
   }
   if (props.screen == "play") {
-    return buildPlaySprites();
+    return buildDynamicSprites();
   }
   return [];
 }
@@ -322,20 +321,6 @@ function initGhosts(spawns) {
     i = i + 1;
   }
   return ghosts;
-}
-
-function placeWalls(entities) {
-  let row = 0;
-  while (row < ROWS) {
-    let col = 0;
-    while (col < COLS) {
-      if (cellAt(col, row) == "#") {
-        entities[wallId(col, row)] = { x: tileX(col), y: tileY(row) };
-      }
-      col = col + 1;
-    }
-    row = row + 1;
-  }
 }
 
 function placeDots(entities, dots, powers) {
@@ -428,7 +413,6 @@ function placeGhosts(entities, ghosts, powered, frameSeed) {
 
 function initPlayEntities(start, dots, powers, ghosts) {
   const entities = {};
-  placeWalls(entities);
   placeDots(entities, dots, powers);
   placePac(entities, start.col, start.row, 0, 0, 0, 0, 0);
   placeGhosts(entities, ghosts, 0, 0);
@@ -918,7 +902,6 @@ function updatePlay(s, props) {
   }
 
   const entities = {};
-  placeWalls(entities);
   placeDots(entities, dots, powers);
   if (deathTimer > 0) {
     placePacDeath(entities, deathPacCol, deathPacRow, deathPacFrac, deathPacDir, frameSeed);
