@@ -164,6 +164,22 @@ Nämä ovat tulevia kerroksia tai pelikohtaisia ratkaisuja, ei base-moottorin os
 
 ---
 
+### Vaihe 1b — Entity-kerros ja kamera (heinäkuu 2026, osittain)
+
+**Tavoite:** yhtenäinen world-entity store; kamera engineen; fixed timestep.
+Taaksepäin yhteensopiva vanhan `state.entities`-polun kanssa.
+
+| # | Tehtävä | Tila |
+|---|---------|------|
+| 1b.1 | `entities()` spawn + `state.worldEntities` | ✅ |
+| 1b.2 | Engine-kamera (`camera()`, follow, smoothing, bounds) | ✅ |
+| 1b.3 | Automaattinen world→screen + culling | ✅ |
+| 1b.4 | `config().physics.fixedStep` fixed timestep | ✅ |
+| 1b.5 | body/collider/trigger-komponentit | ❌ Vaihe 2 |
+| 1b.6 | Valmiit controllerit (platformer, top-down, …) | ❌ Vaihe 3 |
+
+---
+
 ### Vaihe 1 — Suorituskyky ja oikeellisuus (lyhyt aikaväli)
 
 **Tavoite:** skriptatut pelit skaalautuvat 60 FPS:iin; simulaatio riippumaton frameratesta.

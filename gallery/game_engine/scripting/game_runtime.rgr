@@ -27,6 +27,8 @@ Import "./game_input.rgr"
 Import "./game_composite_bridge.rgr"
 Import "./game_static_bg_bridge.rgr"
 Import "./game_particles.rgr"
+Import "./game_camera.rgr"
+Import "./game_entity_store.rgr"
 
 ; Runtime options for script-driven games (SDL host, tests, custom hosts).
 class GameRuntimeOptions {
@@ -82,6 +84,11 @@ class GameRunner {
     def compositeBridge:CompositeEvalNativeBridge (new CompositeEvalNativeBridge)
     def hostBridge@(optional):EvalNativeBridge
     def particles:GameParticleSystem (new GameParticleSystem)
+    def camera:GameCamera (new GameCamera)
+    def entityStore:GameEntityStore (new GameEntityStore)
+    def fixedStepMs:int 0
+    def timeAccumulator:int 0
+    def worldHeight:int 0
 
     fn init:void (w:int h:int) {
         engine.quiet = true
@@ -257,6 +264,11 @@ class GameRunner {
         host.audio = audio
         currentScreen = ""
         state = (EvalValue.null())
+        camera = (new GameCamera)
+        entityStore = (new GameEntityStore)
+        fixedStepMs = 0
+        timeAccumulator = 0
+        worldHeight = 0
         this.clearBackground()
         this.clearStaticBg()
     }
@@ -602,6 +614,52 @@ class GameRunner {
         return e
     }
 
+    ; Optional config() — physics.fixedStep enables fixed-timestep simulation.
+    fn applyConfig:void () {
+        if (false == (this.scriptHasFunction("config"))) {
+            return
+        }
+        def cfg:EvalValue (engine.callFunction("config" (EvalValue.null())))
+        if (false == (cfg.isObject())) {
+            return
+        }
+        def phys:EvalValue (cfg.getMember("physics"))
+        if (phys.isObject()) {
+            def step:double (this.memDouble(phys "fixedStep" 0.0))
+            if (step > 0.0) {
+                fixedStepMs = (to_int step)
+            }
+        }
+        def world:EvalValue (cfg.getMember("world"))
+        if (world.isObject()) {
+            def wh:int (this.memInt(world "height" 0))
+            if (wh > 0) {
+                worldHeight = wh
+            }
+        }
+    }
+
+    fn applyCamera:void () {
+        camera.disable()
+        if (false == (this.scriptHasFunction("camera"))) {
+            return
+        }
+        def cfg:EvalValue (engine.callFunction("camera" (EvalValue.null())))
+        if (cfg.isObject()) {
+            camera.loadFromEval(cfg)
+        }
+    }
+
+    fn resolveWorldHeight:int () {
+        if (worldHeight > 0) {
+            return worldHeight
+        }
+        if (staticBgH > 0) {
+            return staticBgH
+        }
+        return ph
+    }
+
     ; Drain transient events emitted by update() this frame into the host.
     fn drainStateEvents:void () {
         def evs:EvalValue (state.getMember("events"))
@@ -634,24 +692,37 @@ class GameRunner {
     fn setupScene:void () {
         this.wireHostAudio()
         this.setupResources()
+        this.applyConfig()
         this.applyBackgroundFromScript()
         this.applyCreateStaticBg()
+        this.applyCamera()
         state = (engine.callFunction("initState" (EvalValue.null())))
+        def hasEntitiesFn:boolean (this.scriptHasFunction("entities"))
+        if (hasEntitiesFn) {
+            def spawn:EvalValue (engine.callFunction("entities" (EvalValue.null())))
+            entityStore.activateFromScript(spawn)
+            entityStore.seedWorldEntities(state spawn)
+        }
         this.syncBackgroundFromState()
         if (this.multiScreenMode()) {
             currentScreen = (this.currentScreenName())
             this.loadScreenSprites(currentScreen)
         } {
             def sprites:EvalValue (engine.callFunction("sprites" (EvalValue.null())))
-            if (sprites.isArray()) {
-                def arr:[EvalValue] sprites.arrayValue
-                def i 0
-                while (i < (array_length arr)) {
-                    def d:EvalValue (itemAt arr i)
-                    def e:GameEntity (new GameEntity)
-                    spriteRenderer.applyDef(e d)
-                    push entities e
-                    i = (i + 1)
+            if (hasEntitiesFn) {
+                def spawn:EvalValue (engine.callFunction("entities" (EvalValue.null())))
+                entities = (entityStore.spawnRetained(spawn sprites spriteRenderer))
+            } {
+                if (sprites.isArray()) {
+                    def arr:[EvalValue] sprites.arrayValue
+                    def i 0
+                    while (i < (array_length arr)) {
+                        def d:EvalValue (itemAt arr i)
+                        def e:GameEntity (new GameEntity)
+                        spriteRenderer.applyDef(e d)
+                        push entities e
+                        i = (i + 1)
+                    }
                 }
             }
         }
@@ -668,22 +739,51 @@ class GameRunner {
 
     fn syncFromState:void () {
         def active:EvalValue (this.activeState())
-        def ent:EvalValue (active.getMember("entities"))
-        def cur:string (this.currentScreenName())
-        def i 0
-        while (i < (array_length entities)) {
-            def e:GameEntity (itemAt entities i)
-            if (this.multiScreenMode()) {
-                if (e.screen != cur) {
-                    i = (i + 1)
-                    continue
+        if (entityStore.worldMode) {
+            def world:EvalValue (active.getMember("worldEntities"))
+            if (world.isNull()) {
+                world = (active.getMember("entities"))
+            }
+            if (camera.enabled == false) {
+                camera.readLegacyFromState(state)
+            } {
+                def wh:int (this.resolveWorldHeight())
+                camera.update(world pw ph wh)
+                camera.writeToState(state)
+            }
+            def camX:int camera.camX
+            def camY:int camera.camY
+            def cur:string (this.currentScreenName())
+            def i 0
+            while (i < (array_length entities)) {
+                def e:GameEntity (itemAt entities i)
+                if (this.multiScreenMode()) {
+                    if (e.screen != cur) {
+                        i = (i + 1)
+                        continue
+                    }
                 }
+                entityStore.syncEntity(e world camX camY pw ph spriteRenderer)
+                i = (i + 1)
             }
-            def pos:EvalValue (ent.getMember(e.id))
-            if (false == (pos.isNull())) {
-                spriteRenderer.syncPose(e pos pw ph)
+        } {
+            def ent:EvalValue (active.getMember("entities"))
+            def cur:string (this.currentScreenName())
+            def i 0
+            while (i < (array_length entities)) {
+                def e:GameEntity (itemAt entities i)
+                if (this.multiScreenMode()) {
+                    if (e.screen != cur) {
+                        i = (i + 1)
+                        continue
+                    }
+                }
+                def pos:EvalValue (ent.getMember(e.id))
+                if (false == (pos.isNull())) {
+                    spriteRenderer.syncPose(e pos pw ph)
+                }
+                i = (i + 1)
             }
-            i = (i + 1)
         }
         score1 = (this.memInt(active "score1" (this.memInt(state "score1" score1))))
         score2 = (this.memInt(active "score2" (this.memInt(state "score2" score2))))
@@ -738,7 +838,7 @@ class GameRunner {
         this.frameWithInput(dtMs snap)
     }
 
-    fn frameWithInput:void (dtMs:int snap:GameInputSnapshot) {
+    fn stepUpdate:void (dtMs:int snap:GameInputSnapshot) {
         def prevScreen:string (this.currentScreenName())
         timeMs = (timeMs + dtMs)
         def k:[string]
@@ -788,6 +888,23 @@ class GameRunner {
             profUpdateSyncMs = (profUpdateSyncMs + (tSync1 - tScript1))
             profFrames = (profFrames + 1)
         }
+    }
+
+    fn frameWithInput:void (dtMs:int snap:GameInputSnapshot) {
+        if (fixedStepMs > 0) {
+            timeAccumulator = (timeAccumulator + dtMs)
+            def steps:int 0
+            while (timeAccumulator >= fixedStepMs) {
+                this.stepUpdate(fixedStepMs snap)
+                timeAccumulator = (timeAccumulator - fixedStepMs)
+                steps = (steps + 1)
+            }
+            if (steps == 0) {
+                this.syncFromState()
+            }
+            return
+        }
+        this.stepUpdate(dtMs snap)
     }
 
     fn draw:void () {
