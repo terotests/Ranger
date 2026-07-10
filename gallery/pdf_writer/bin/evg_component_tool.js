@@ -14694,33 +14694,15 @@ class ImportedSymbol  {
 }
 class EvalContext  {
   constructor() {
-    this.variables = [];
-    this.values = [];
-    let v = [];
-    this.variables = v;
-    let vl = [];
-    this.values = vl;
+    this.bindings = {};
   }
   define (name, value) {
-    let i = 0;
-    while (i < (this.variables.length)) {
-      if ( (this.variables[i]) == name ) {
-        this.values[i] = value;
-        return;
-      }
-      i = i + 1;
-    };
-    this.variables.push(name);
-    this.values.push(value);
+    this.bindings[name] = value;
   };
   lookup (name) {
-    let i = 0;
-    while (i < (this.variables.length)) {
-      if ( (this.variables[i]) == name ) {
-        return this.values[i];
-      }
-      i = i + 1;
-    };
+    if ( ( typeof(this.bindings[name] ) != "undefined" && this.bindings.hasOwnProperty(name) ) ) {
+      return (( this.bindings.hasOwnProperty(name) ? this.bindings[name] : undefined ));
+    }
     if ( typeof(this.parent) != "undefined" ) {
       const p = this.parent;
       return p.lookup(name);
@@ -14728,14 +14710,10 @@ class EvalContext  {
     return EvalValue.null();
   };
   assignExisting (name, value) {
-    let i = 0;
-    while (i < (this.variables.length)) {
-      if ( (this.variables[i]) == name ) {
-        this.values[i] = value;
-        return true;
-      }
-      i = i + 1;
-    };
+    if ( ( typeof(this.bindings[name] ) != "undefined" && this.bindings.hasOwnProperty(name) ) ) {
+      this.bindings[name] = value;
+      return true;
+    }
     if ( typeof(this.parent) != "undefined" ) {
       const p = this.parent;
       return p.assignExisting(name, value);
@@ -14749,25 +14727,18 @@ class EvalContext  {
     this.define(name, value);
   };
   removeBinding (name) {
-    let i = 0;
-    while (i < (this.variables.length)) {
-      if ( (this.variables[i]) == name ) {
-        let newVars = [];
-        let newVals = [];
-        let j = 0;
-        while (j < (this.variables.length)) {
-          if ( j != i ) {
-            newVars.push(this.variables[j]);
-            newVals.push(this.values[j]);
-          }
-          j = j + 1;
-        };
-        this.variables = newVars;
-        this.values = newVals;
-        return true;
-      }
-      i = i + 1;
-    };
+    if ( ( typeof(this.bindings[name] ) != "undefined" && this.bindings.hasOwnProperty(name) ) ) {
+      let newBindings = {};
+      const keyList = Object.keys(this.bindings);
+      for ( let idx = 0; idx < keyList.length; idx++) {
+        var kk = keyList[idx];
+        if ( kk != name ) {
+          newBindings[kk] = (( this.bindings.hasOwnProperty(kk) ? this.bindings[kk] : undefined ));
+        }
+      };
+      this.bindings = newBindings;
+      return true;
+    }
     if ( typeof(this.parent) != "undefined" ) {
       const p = this.parent;
       return p.removeBinding(name);
@@ -14781,13 +14752,9 @@ class EvalContext  {
     return this;
   };
   has (name) {
-    let i = 0;
-    while (i < (this.variables.length)) {
-      if ( (this.variables[i]) == name ) {
-        return true;
-      }
-      i = i + 1;
-    };
+    if ( ( typeof(this.bindings[name] ) != "undefined" && this.bindings.hasOwnProperty(name) ) ) {
+      return true;
+    }
     if ( typeof(this.parent) != "undefined" ) {
       const p = this.parent;
       return (p).has(name);
