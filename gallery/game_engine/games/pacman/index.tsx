@@ -500,6 +500,8 @@ function tryTurn(col, row, curDir, wantDir) {
 function eatAt(col, row, dots, powers) {
   let score = 0;
   let powered = 0;
+  let eatenDot = -1;
+  let eatenPow = -1;
   let i = 0;
   while (i < dots.length) {
     const d = dots[i];
@@ -508,6 +510,7 @@ function eatAt(col, row, dots, powers) {
         if (d.row == row) {
           d.alive = 0;
           score = score + 10;
+          eatenDot = i;
         }
       }
     }
@@ -522,12 +525,13 @@ function eatAt(col, row, dots, powers) {
           p.alive = 0;
           score = score + 50;
           powered = 1;
+          eatenPow = i;
         }
       }
     }
     i = i + 1;
   }
-  return { score: score, powered: powered };
+  return { score: score, powered: powered, eatenDot: eatenDot, eatenPow: eatenPow };
 }
 
 function listDirs(g, forbidReverse) {
@@ -767,6 +771,11 @@ function updatePlay(s, props) {
   const ghosts = play.ghosts;
   let moving = 0;
   let blink = 0;
+  // Only dots/powers eaten this frame are re-emitted; the rest keep their
+  // retained pose (dots never move), which keeps the interpreted entities
+  // object tiny (~5 objects) instead of rebuilding all ~150 tiles per frame.
+  const eatenDots = [];
+  const eatenPowers = [];
 
   if (deathTimer > 0) {
     deathTimer = deathTimer - dt;
@@ -834,6 +843,12 @@ function updatePlay(s, props) {
         moving = 1;
         const eat = eatAt(pacCol, pacRow, dots, powers);
         score = score + eat.score;
+        if (eat.eatenDot >= 0) {
+          eatenDots.push(eat.eatenDot);
+        }
+        if (eat.eatenPow >= 0) {
+          eatenPowers.push(eat.eatenPow);
+        }
         if (eat.powered == 1) {
           powered = 1;
           powerLeft = POWER_MS;
@@ -902,7 +917,16 @@ function updatePlay(s, props) {
   }
 
   const entities = {};
-  placeDots(entities, dots, powers);
+  let hd = 0;
+  while (hd < eatenDots.length) {
+    entities[dotId(eatenDots[hd])] = { x: -40, y: -40, visible: 0 };
+    hd = hd + 1;
+  }
+  let hp = 0;
+  while (hp < eatenPowers.length) {
+    entities[powerId(eatenPowers[hp])] = { x: -40, y: -40, visible: 0 };
+    hp = hp + 1;
+  }
   if (deathTimer > 0) {
     placePacDeath(entities, deathPacCol, deathPacRow, deathPacFrac, deathPacDir, frameSeed);
   } else {

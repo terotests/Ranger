@@ -96,12 +96,35 @@ function canWalk(col, row) {
   return isWall(col, row) == 0 ? 1 : 0;
 }
 
+function tileLeft(col) {
+  return ORIGIN_X + col * TILE;
+}
+
+function tileTop(row) {
+  return ORIGIN_Y + row * TILE;
+}
+
 function tileX(col) {
-  return ORIGIN_X + col * TILE + (TILE / 2);
+  return tileLeft(col) + (TILE / 2);
 }
 
 function tileY(row) {
-  return ORIGIN_Y + row * TILE + (TILE / 2);
+  return tileTop(row) + (TILE / 2);
+}
+
+function createStaticBg() {
+  bgClear(12, 16, 32);
+  let row = 0;
+  while (row < ROWS) {
+    let col = 0;
+    while (col < COLS) {
+      if (cellAt(col, row) == "#") {
+        bgFillRect(tileLeft(col), tileTop(row), TILE, TILE, 32, 56, 190);
+      }
+      col = col + 1;
+    }
+    row = row + 1;
+  }
 }
 
 function dirDelta(dir) {
@@ -168,10 +191,6 @@ function dist(col, row, tc, tr) {
   return absVal(col - tc) + absVal(row - tr);
 }
 
-function wallId(col, row) {
-  return ("w" + col + "x" + row);
-}
-
 function dotId(i) {
   return ("d" + i);
 }
@@ -186,29 +205,9 @@ function ghostId(i) {
 
 function buildPlaySprites() {
   const list = [];
-  let row = 0;
-  while (row < ROWS) {
-    let col = 0;
-    while (col < COLS) {
-      if (cellAt(col, row) == "#") {
-        list.push({
-          id: wallId(col, row),
-          kind: "rect",
-          w: TILE,
-          h: TILE,
-          r: 32,
-          g: 56,
-          b: 190
-        });
-      }
-      col = col + 1;
-    }
-    row = row + 1;
-  }
-
   let dotIdx = 0;
   let powIdx = 0;
-  row = 0;
+  let row = 0;
   while (row < ROWS) {
     let col = 0;
     while (col < COLS) {
@@ -337,20 +336,6 @@ function initGhosts(spawns) {
   return ghosts;
 }
 
-function placeWalls(entities) {
-  let row = 0;
-  while (row < ROWS) {
-    let col = 0;
-    while (col < COLS) {
-      if (cellAt(col, row) == "#") {
-        entities[wallId(col, row)] = { x: tileX(col), y: tileY(row) };
-      }
-      col = col + 1;
-    }
-    row = row + 1;
-  }
-}
-
 function placeDots(entities, dots, powers) {
   let i = 0;
   while (i < dots.length) {
@@ -427,7 +412,6 @@ function placeGhosts(entities, ghosts, powered, frameSeed) {
 
 function initPlayEntities(start, dots, powers, ghosts) {
   const entities = {};
-  placeWalls(entities);
   placeDots(entities, dots, powers);
   placePac(entities, start.col, start.row, 0, 0, 0, 0, 0);
   placeGhosts(entities, ghosts, 0, 0);
@@ -510,6 +494,8 @@ function tryTurn(col, row, curDir, wantDir) {
 function eatAt(col, row, dots, powers) {
   let score = 0;
   let powered = 0;
+  let eatenDot = -1;
+  let eatenPow = -1;
   let i = 0;
   while (i < dots.length) {
     const d = dots[i];
@@ -518,6 +504,7 @@ function eatAt(col, row, dots, powers) {
         if (d.row == row) {
           d.alive = 0;
           score = score + 10;
+          eatenDot = i;
         }
       }
     }
@@ -532,12 +519,13 @@ function eatAt(col, row, dots, powers) {
           p.alive = 0;
           score = score + 50;
           powered = 1;
+          eatenPow = i;
         }
       }
     }
     i = i + 1;
   }
-  return { score: score, powered: powered };
+  return { score: score, powered: powered, eatenDot: eatenDot, eatenPow: eatenPow };
 }
 
 function listDirs(g, forbidReverse) {
@@ -726,6 +714,11 @@ function updatePlay(s, props) {
   const spawns = findGhostSpawns();
   let moving = 0;
   let blink = 0;
+  // Only dots/powers eaten this frame are re-emitted; the rest keep their
+  // retained pose (dots never move), which keeps the interpreted entities
+  // object tiny (~5 objects) instead of rebuilding all ~150 tiles per frame.
+  const eatenDots = [];
+  const eatenPowers = [];
 
   if (hurtTimer > 0) {
     hurtTimer = hurtTimer - dt;
@@ -765,6 +758,12 @@ function updatePlay(s, props) {
         moving = 1;
         const eat = eatAt(pacCol, pacRow, dots, powers);
         score = score + eat.score;
+        if (eat.eatenDot >= 0) {
+          eatenDots.push(eat.eatenDot);
+        }
+        if (eat.eatenPow >= 0) {
+          eatenPowers.push(eat.eatenPow);
+        }
         if (eat.powered == 1) {
           powered = 1;
           powerLeft = POWER_MS;
@@ -849,8 +848,16 @@ function updatePlay(s, props) {
   }
 
   const entities = {};
-  placeWalls(entities);
-  placeDots(entities, dots, powers);
+  let hd = 0;
+  while (hd < eatenDots.length) {
+    entities[dotId(eatenDots[hd])] = { x: -40, y: -40, visible: 0 };
+    hd = hd + 1;
+  }
+  let hp = 0;
+  while (hp < eatenPowers.length) {
+    entities[powerId(eatenPowers[hp])] = { x: -40, y: -40, visible: 0 };
+    hp = hp + 1;
+  }
   placePac(entities, pacCol, pacRow, pacFrac, pacDir, frameSeed, moving, blink);
   placeGhosts(entities, ghosts, powered, frameSeed);
 
