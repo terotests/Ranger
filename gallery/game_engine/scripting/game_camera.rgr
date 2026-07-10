@@ -1,0 +1,174 @@
+; ==============================================================================
+; game_camera - engine-managed world-to-screen camera for world-mode games.
+; ==============================================================================
+;
+; Scripts may define camera() once:
+;   { follow: "player", mode: "vertical", offsetY: -120, smoothing: 0.12,
+;     bounds: { x: 0, y: 0, w: 480, h: 1890 } }
+;
+; Legacy games keep setting state.cameraY manually — when camera() is absent the
+; runner reads cameraY from state unchanged (backwards compatible).
+; ==============================================================================
+
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class GameCamera {
+    def enabled:boolean false
+    def followId:string ""
+    def mode:string "vertical"
+    def offsetX:int 0
+    def offsetY:int 0
+    ; smoothing 0 = snap, 1000 = full lerp per frame (fixed-point / 1000).
+    def smoothing:int 0
+    def boundsX:int 0
+    def boundsY:int 0
+    def boundsW:int 0
+    def boundsH:int 0
+    def camX:int 0
+    def camY:int 0
+    def targetCamX:int 0
+    def targetCamY:int 0
+
+    fn memString:string (obj:EvalValue key:string dflt:string) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isNull()) {
+            return dflt
+        }
+        if (v.isString()) {
+            return v.stringValue
+        }
+        return dflt
+    }
+
+    fn memInt:int (obj:EvalValue key:string dflt:int) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isNull()) {
+            return dflt
+        }
+        return (to_int v.numberValue)
+    }
+
+    fn memDouble:double (obj:EvalValue key:string dflt:double) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isNull()) {
+            return dflt
+        }
+        return v.numberValue
+    }
+
+    fn loadFromEval:void (cfg:EvalValue) {
+        enabled = true
+        followId = (this.memString(cfg "follow" ""))
+        mode = (this.memString(cfg "mode" "vertical"))
+        offsetX = (this.memInt(cfg "offsetX" 0))
+        offsetY = (this.memInt(cfg "offsetY" 0))
+        def sm:double (this.memDouble(cfg "smoothing" 0.0))
+        smoothing = (to_int (sm * 1000.0))
+        if (smoothing < 0) {
+            smoothing = 0
+        }
+        if (smoothing > 1000) {
+            smoothing = 1000
+        }
+        def b:EvalValue (cfg.getMember("bounds"))
+        if (b.isObject()) {
+            boundsX = (this.memInt(b "x" 0))
+            boundsY = (this.memInt(b "y" 0))
+            boundsW = (this.memInt(b "w" 0))
+            boundsH = (this.memInt(b "h" 0))
+        }
+    }
+
+    fn disable:void () {
+        enabled = false
+        followId = ""
+        camX = 0
+        camY = 0
+        targetCamX = 0
+        targetCamY = 0
+    }
+
+    fn clampCam:void (pw:int ph:int worldH:int) {
+        if (boundsW > 0) {
+            def maxX:int (boundsW - pw)
+            if (maxX < 0) {
+                maxX = 0
+            }
+            if (targetCamX < boundsX) {
+                targetCamX = boundsX
+            }
+            if (targetCamX > (boundsX + maxX)) {
+                targetCamX = (boundsX + maxX)
+            }
+        }
+        def maxY:int worldH
+        if (boundsH > 0) {
+            maxY = boundsH
+        }
+        def maxCamY:int (maxY - ph)
+        if (maxCamY < 0) {
+            maxCamY = 0
+        }
+        if (targetCamY < 0) {
+            targetCamY = 0
+        }
+        if (targetCamY > maxCamY) {
+            targetCamY = maxCamY
+        }
+    }
+
+    ; Compute target camera from follow entity world position.
+    fn update:void (world:EvalValue pw:int ph:int worldH:int) {
+        if (enabled == false) {
+            return
+        }
+        if ((strlen followId) == 0) {
+            return
+        }
+        def pos:EvalValue (world.getMember(followId))
+        if (pos.isNull()) {
+            return
+        }
+        def fx:int (this.memInt(pos "x" 0))
+        def fy:int (this.memInt(pos "y" 0))
+        if (mode == "horizontal") {
+            targetCamX = (fx + offsetX - (idiv pw 2))
+            targetCamY = 0
+        } {
+            if (mode == "both") {
+                targetCamX = (fx + offsetX - (idiv pw 2))
+                targetCamY = (fy + offsetY - (idiv ph 2))
+            } {
+                ; vertical (default) and unknown modes
+                targetCamX = 0
+                targetCamY = (fy + offsetY - (idiv ph 2))
+            }
+        }
+        this.clampCam(pw ph worldH)
+        if (smoothing <= 0) {
+            camX = targetCamX
+            camY = targetCamY
+            return
+        }
+        def dx:int (targetCamX - camX)
+        def dy:int (targetCamY - camY)
+        camX = (camX + (idiv (dx * smoothing) 1000))
+        camY = (camY + (idiv (dy * smoothing) 1000))
+    }
+
+    fn writeToState:void (state:EvalValue) {
+        if (enabled == false) {
+            return
+        }
+        state.setMember("cameraY" (EvalValue.fromInt(camY)))
+        state.setMember("cameraX" (EvalValue.fromInt(camX)))
+    }
+
+    fn readLegacyFromState:void (state:EvalValue) {
+        if (enabled) {
+            return
+        }
+        camY = (this.memInt(state "cameraY" 0))
+        camX = (this.memInt(state "cameraX" 0))
+    }
+}

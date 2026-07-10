@@ -296,6 +296,42 @@ Full walkthrough with Invaders-style examples (background images, score
 persistence, `pushGame` → `loadGame` → `popGame`):
 [`GAME_SCREENS_AND_STORAGE.md`](./GAME_SCREENS_AND_STORAGE.md).
 
+## World-mode entities and engine camera (Phase 1)
+
+Legacy games (Pong, Ylos, …) keep using **`sprites()` + `state.entities`** in
+**screen space** and may subtract `cameraY` manually (`placeEntities()`). That
+path is unchanged.
+
+New optional hooks separate **world simulation** from **rendering**:
+
+| Function | Role |
+|----------|------|
+| `entities()` | Spawn list in **world coordinates** (`id`, `sprite`, `position`, `tags`) |
+| `camera()` | Engine-managed follow camera (`follow`, `mode`, `offsetY`, `smoothing`, `bounds`) |
+| `config()` | `physics.fixedStep` (ms) for fixed-timestep updates; `world.height` for bounds |
+
+Per frame the game updates **`state.worldEntities[id]`** (same shape as
+`EntityPose`, but world `x`/`y`). The runner applies the camera offset, culls
+off-screen entities, and syncs retained sprites — no `placeEntities()` copy step.
+
+Minimal example: [`world_scroll.game.tsx`](./world_scroll.game.tsx) (headless test:
+[`world_scroll_runner_demo.rgr`](./world_scroll_runner_demo.rgr)).
+
+```tsx
+function entities() {
+  return [
+    { id: "player", sprite: "hero", position: { x: 240, y: 730 }, tags: ["player"] }
+  ];
+}
+function camera() {
+  return { follow: "player", mode: "vertical", offsetY: -40, smoothing: 0.18 };
+}
+function update(props) {
+  const we = props.state.worldEntities;
+  // ... simulate in world space, return { worldEntities: { player: { x, y } } }
+}
+```
+
 ## Roadmap
 
 1. **Done:** namespace injection (`registerGlobal`), script loading + function
