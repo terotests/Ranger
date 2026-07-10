@@ -35,6 +35,8 @@ class GameRuntimeOptions {
     def scriptDir:string ""
     def scriptFile:string ""
     def scriptMtime:int 0
+    ; Hybrid GPU path: CPU SoftCanvas for primitives/HUD, GL textured quads for bitmap sprites.
+    def gpuMode:boolean false
 }
 
 class GameRunner {
@@ -116,6 +118,10 @@ class GameRunner {
 
     fn setHotReload:void (enabled:boolean) {
         options.hotReload = enabled
+    }
+
+    fn setGpuMode:void (enabled:boolean) {
+        options.gpuMode = enabled
     }
 
   ; Track a .tsx/.game.tsx on disk for mtime polling (used by SDL host and dev watch).

@@ -13,8 +13,11 @@
 ; The RGBA byte order matches SoftCanvas (SDL_PIXELFORMAT_RGBA32 == R,G,B,A in
 ; memory), so `gfx_present (canvas.raw()) w h` blits the frame directly.
 ;
-; Build (macOS / Linux): see scripts/build-sdl.sh. On the Raspberry Pi the same
+; Build (macOS / Linux): see scripts/build-game-sdl.sh. On the Raspberry Pi the same
 ; SDL2 backend drives the HDMI framebuffer via KMS/DRM.
+;
+; Optional GPU present: pass --gpu to game_sdl_runner to open an OpenGL context
+; (gfx_open_gpu) and upload frames via GLES2 instead of SDL_Renderer textures.
 ;
 ; es6 templates are harmless stubs so the file still type-checks for the web
 ; target; the real window only exists in the native (C++) build.
@@ -220,6 +223,186 @@ static void rgfx_audio_clear() {
     if (g_rgfx_audio != 0) { SDL_ClearQueuedAudio(g_rgfx_audio); }
 }
 
+#include <vector>
+#if defined(__APPLE__)
+#include <OpenGL/gl3.h>
+#else
+#include <GL/gl.h>
+#endif
+
+static int g_rgfx_gpu_mode = 0;
+static SDL_GLContext g_rgfx_glctx = nullptr;
+static GLuint g_rgfx_gl_program = 0;
+static GLint g_rgfx_gl_pos_attr = 0;
+static GLint g_rgfx_gl_uv_attr = 0;
+static GLint g_rgfx_gl_tex_uniform = 0;
+static GLuint g_rgfx_gl_vbo = 0;
+static GLuint g_rgfx_base_tex = 0;
+static int g_rgfx_fb_w = 0;
+static int g_rgfx_fb_h = 0;
+static std::vector<GLuint> g_rgfx_gl_textures;
+
+static GLuint rgfx_gl_compile(GLenum type, const char* src) {
+    GLuint s = glCreateShader(type);
+    glShaderSource(s, 1, &src, nullptr);
+    glCompileShader(s);
+    return s;
+}
+
+static int rgfx_gl_init() {
+    if (g_rgfx_gl_program != 0) { return 1; }
+    const char* vs =
+        \"#version 120\\n\"
+        \"attribute vec2 aPos;\\n\"
+        \"attribute vec2 aUv;\\n\"
+        \"varying vec2 vUv;\\n\"
+        \"void main() { gl_Position = vec4(aPos, 0.0, 1.0); vUv = aUv; }\\n\";
+    const char* fs =
+        \"#version 120\\n\"
+        \"varying vec2 vUv;\\n\"
+        \"uniform sampler2D uTex;\\n\"
+        \"void main() { gl_FragColor = texture2D(uTex, vUv); }\\n\";
+    GLuint vsId = rgfx_gl_compile(GL_VERTEX_SHADER, vs);
+    GLuint fsId = rgfx_gl_compile(GL_FRAGMENT_SHADER, fs);
+    g_rgfx_gl_program = glCreateProgram();
+    glAttachShader(g_rgfx_gl_program, vsId);
+    glAttachShader(g_rgfx_gl_program, fsId);
+    glLinkProgram(g_rgfx_gl_program);
+    glDeleteShader(vsId);
+    glDeleteShader(fsId);
+    g_rgfx_gl_pos_attr = glGetAttribLocation(g_rgfx_gl_program, \"aPos\");
+    g_rgfx_gl_uv_attr = glGetAttribLocation(g_rgfx_gl_program, \"aUv\");
+    g_rgfx_gl_tex_uniform = glGetUniformLocation(g_rgfx_gl_program, \"uTex\");
+    glGenBuffers(1, &g_rgfx_gl_vbo);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    return 1;
+}
+
+static int rgfx_open_gpu(const std::string& title, int w, int h) {
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0) { return 0; }
+    rgfx_scan_pads();
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
+    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+    g_rgfx_win = SDL_CreateWindow(title.c_str(),
+        SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, w, h,
+        SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN);
+    if (g_rgfx_win == nullptr) { return 0; }
+    g_rgfx_glctx = SDL_GL_CreateContext(g_rgfx_win);
+    if (g_rgfx_glctx == nullptr) { return 0; }
+    SDL_GL_SetSwapInterval(1);
+    g_rgfx_gpu_mode = 1;
+    g_rgfx_fb_w = w;
+    g_rgfx_fb_h = h;
+    return rgfx_gl_init();
+}
+
+static GLuint rgfx_gl_make_tex(const uint8_t* pixels, int w, int h) {
+    GLuint tex = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    return tex;
+}
+
+static int rgfx_gpu_upload_texture(const uint8_t* pixels, int w, int h) {
+    if (!g_rgfx_gpu_mode || pixels == nullptr || w <= 0 || h <= 0) { return 0; }
+    GLuint tex = rgfx_gl_make_tex(pixels, w, h);
+    g_rgfx_gl_textures.push_back(tex);
+    return (int) g_rgfx_gl_textures.size();
+}
+
+static void rgfx_gpu_draw_quad_tex(GLuint tex, float x, float y, float qw, float qh) {
+    if (g_rgfx_fb_w <= 0 || g_rgfx_fb_h <= 0) { return; }
+    float x0 = (x / (float) g_rgfx_fb_w) * 2.0f - 1.0f;
+    float y0 = 1.0f - (y / (float) g_rgfx_fb_h) * 2.0f;
+    float x1 = ((x + qw) / (float) g_rgfx_fb_w) * 2.0f - 1.0f;
+    float y1 = 1.0f - ((y + qh) / (float) g_rgfx_fb_h) * 2.0f;
+    float verts[] = {
+        x0, y0, 0.f, 0.f,
+        x1, y0, 1.f, 0.f,
+        x1, y1, 1.f, 1.f,
+        x0, y0, 0.f, 0.f,
+        x1, y1, 1.f, 1.f,
+        x0, y1, 0.f, 1.f,
+    };
+    glUseProgram(g_rgfx_gl_program);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glUniform1i(g_rgfx_gl_tex_uniform, 0);
+    glBindBuffer(GL_ARRAY_BUFFER, g_rgfx_gl_vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr) sizeof(verts), verts, GL_DYNAMIC_DRAW);
+    glEnableVertexAttribArray((GLuint) g_rgfx_gl_pos_attr);
+    glVertexAttribPointer((GLuint) g_rgfx_gl_pos_attr, 2, GL_FLOAT, GL_FALSE, 4 * (GLsizei) sizeof(float), (void*) 0);
+    glEnableVertexAttribArray((GLuint) g_rgfx_gl_uv_attr);
+    glVertexAttribPointer((GLuint) g_rgfx_gl_uv_attr, 2, GL_FLOAT, GL_FALSE, 4 * (GLsizei) sizeof(float), (void*) (2 * sizeof(float)));
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+}
+
+static void rgfx_gpu_start_frame(int w, int h) {
+    if (!g_rgfx_gpu_mode) { return; }
+    g_rgfx_fb_w = w;
+    g_rgfx_fb_h = h;
+    glViewport(0, 0, w, h);
+    glClearColor(0.f, 0.f, 0.f, 1.f);
+    glClear(GL_COLOR_BUFFER_BIT);
+}
+
+static void rgfx_gpu_blit_base(const uint8_t* pixels, int w, int h) {
+    if (!g_rgfx_gpu_mode || pixels == nullptr || w <= 0 || h <= 0) { return; }
+    if (g_rgfx_base_tex == 0) {
+        glGenTextures(1, &g_rgfx_base_tex);
+    }
+    glBindTexture(GL_TEXTURE_2D, g_rgfx_base_tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    rgfx_gpu_draw_quad_tex(g_rgfx_base_tex, 0.f, 0.f, (float) w, (float) h);
+}
+
+static void rgfx_gpu_draw_texture(int texId, int x, int y, int tw, int th) {
+    if (!g_rgfx_gpu_mode || texId <= 0) { return; }
+    if (texId > (int) g_rgfx_gl_textures.size()) { return; }
+    GLuint tex = g_rgfx_gl_textures[(size_t) (texId - 1)];
+    rgfx_gpu_draw_quad_tex(tex, (float) x, (float) y, (float) tw, (float) th);
+}
+
+static void rgfx_gpu_finish_frame() {
+    if (!g_rgfx_gpu_mode || g_rgfx_win == nullptr) { return; }
+    SDL_GL_SwapWindow(g_rgfx_win);
+}
+
+static void rgfx_gl_cleanup() {
+    for (GLuint t : g_rgfx_gl_textures) {
+        glDeleteTextures(1, &t);
+    }
+    g_rgfx_gl_textures.clear();
+    if (g_rgfx_base_tex != 0) {
+        glDeleteTextures(1, &g_rgfx_base_tex);
+        g_rgfx_base_tex = 0;
+    }
+    if (g_rgfx_gl_vbo != 0) {
+        glDeleteBuffers(1, &g_rgfx_gl_vbo);
+        g_rgfx_gl_vbo = 0;
+    }
+    if (g_rgfx_gl_program != 0) {
+        glDeleteProgram(g_rgfx_gl_program);
+        g_rgfx_gl_program = 0;
+    }
+    if (g_rgfx_glctx != nullptr) {
+        SDL_GL_DeleteContext(g_rgfx_glctx);
+        g_rgfx_glctx = nullptr;
+    }
+    g_rgfx_gpu_mode = 0;
+}
+
 static int rgfx_open(const std::string& title, int w, int h) {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0) { return 0; }
     rgfx_scan_pads();
@@ -236,6 +419,12 @@ static int rgfx_open(const std::string& title, int w, int h) {
     return 1;
 }
 static void rgfx_present(const uint8_t* pixels, int w, int h) {
+    if (g_rgfx_gpu_mode) {
+        rgfx_gpu_start_frame(w, h);
+        rgfx_gpu_blit_base(pixels, w, h);
+        rgfx_gpu_finish_frame();
+        return;
+    }
     if (g_rgfx_tex == nullptr) { return; }
     SDL_UpdateTexture(g_rgfx_tex, nullptr, pixels, w * 4);
     SDL_RenderClear(g_rgfx_ren);
@@ -263,6 +452,7 @@ static void rgfx_set_title(const std::string& title) {
     if (g_rgfx_win != nullptr) { SDL_SetWindowTitle(g_rgfx_win, title.c_str()); }
 }
 static void rgfx_close() {
+    rgfx_gl_cleanup();
     if (g_rgfx_audio) { SDL_CloseAudioDevice(g_rgfx_audio); g_rgfx_audio = 0; }
     for (int i = 0; i < g_pad_count; ++i) {
         if (g_pads[i] != nullptr) {
@@ -412,6 +602,25 @@ static void rgfx_close() {
         templates {
             cpp ( "rgfx_audio_clear()" (imp "<SDL2/SDL.h>") )
             es6 ( "undefined" )
+        }
+    }
+
+    ; Open an SDL window with an OpenGL 2.1 context for hybrid GPU sprite present.
+    ; Returns 1 on success, 0 on failure (caller may fall back to gfx_open).
+    gfx_open_gpu _:int (title:string w:int h:int) {
+        templates {
+            cpp ( "rgfx_open_gpu(" (e 1) ", " (e 2) ", " (e 3) ")"
+                  (imp "<SDL2/SDL.h>") (imp "<cstdint>") (imp "<string>") )
+            es6 ( "0" )
+        }
+    }
+
+    ; Upload an RGBA buffer as a persistent GL texture (1-based id, 0 on failure).
+    gfx_gpu_upload_texture _:int (pixels:buffer w:int h:int) {
+        templates {
+            cpp ( "rgfx_gpu_upload_texture(" (e 1) ".data(), " (e 2) ", " (e 3) ")"
+                  (imp "<SDL2/SDL.h>") (imp "<cstdint>") )
+            es6 ( "0" )
         }
     }
 }
