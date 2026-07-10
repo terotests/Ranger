@@ -81,3 +81,34 @@ function returnFromWhile() {
   }
   return -1;
 }
+
+function nestedLoopBreak() {
+  let total = 0;
+  let o = 0;
+  while (o < 3) {
+    let inner = 0;
+    while (inner < 5) {
+      if (inner == 2) {
+        break;
+      }
+      total = total + 1;
+      inner = inner + 1;
+    }
+    total = total + 100;
+    o = o + 1;
+  }
+  return total;
+}
+
+function loopContinueSkip() {
+  let total = 0;
+  let i = 0;
+  while (i < 5) {
+    i = i + 1;
+    if (i == 3) {
+      continue;
+    }
+    total = total + i;
+  }
+  return total;
+}

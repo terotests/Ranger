@@ -26,6 +26,8 @@ class TsxEngineDemo {
         def modCount1:EvalValue (engine.callFunction("bumpModuleCounter" (EvalValue.null())))
         def modCount2:EvalValue (engine.callFunction("bumpModuleCounter" (EvalValue.null())))
         def whileReturn:EvalValue (engine.callFunction("returnFromWhile" (EvalValue.null())))
+        def nestedBreak:EvalValue (engine.callFunction("nestedLoopBreak" (EvalValue.null())))
+        def continueSkip:EvalValue (engine.callFunction("loopContinueSkip" (EvalValue.null())))
 
         print ("whileLen=" + (to_int (whileLen.numberValue)))
         print ("constSum=" + (to_int (constSum.numberValue)))
@@ -38,6 +40,8 @@ class TsxEngineDemo {
         print ("helperSide=" + (to_int (helperSide.numberValue)))
         print ("modCount2=" + (to_int (modCount2.numberValue)))
         print ("whileReturn=" + (to_int (whileReturn.numberValue)))
+        print ("nestedBreak=" + (to_int (nestedBreak.numberValue)))
+        print ("continueSkip=" + (to_int (continueSkip.numberValue)))
         print "tsx-engine-demo done"
     }
 }

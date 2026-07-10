@@ -25,6 +25,8 @@ describe("TSX engine - ComponentEngine regressions", () => {
     expect(out).toContain("helperSide=1");
     expect(out).toContain("modCount2=2");
     expect(out).toContain("whileReturn=5");
+    expect(out).toContain("nestedBreak=306");
+    expect(out).toContain("continueSkip=12");
     expect(out).toContain("tsx-engine-demo done");
   });
 

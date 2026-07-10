@@ -878,7 +878,11 @@ class ComponentEngine {
         push importLoading canonicalPath
 
         def src:string (this.readImportSource(importerBase fullPath))
-        def dirPath:string (this.moduleDirFromRead(importerBase fullPath))
+        ; readImportSource sets resolvedImportDir to the search dir where the
+        ; file was found (importer dir or an asset path); base the module dir on
+        ; that so bare/asset imports and nested subdirectories resolve correctly.
+        def foundDir:string resolvedImportDir
+        def dirPath:string (this.moduleDirFromRead(foundDir fullPath))
         resolvedImportDir = dirPath
         if ((strlen src) == 0) {
             importLoading = (this.listWithoutString(importLoading canonicalPath))
@@ -1508,35 +1512,42 @@ class ComponentEngine {
         }
         def maxIterations:int 100000
         def iterations:int 0
-        while (iterations < maxIterations) {
+        def looping:boolean true
+        while ((iterations < maxIterations) && looping) {
             if scriptDidReturn {
-                return
-            }
-            if stmt.left {
-                def testResult:EvalValue (this.evaluateExpr((unwrap stmt.left)))
-                if ((testResult.toBool()) == false) {
-                    return
+                looping = false
+            } {
+                def proceed:boolean true
+                if stmt.left {
+                    def testResult:EvalValue (this.evaluateExpr((unwrap stmt.left)))
+                    if ((testResult.toBool()) == false) {
+                        proceed = false
+                    }
+                }
+                if (proceed == false) {
+                    looping = false
+                } {
+                    loopContinue = false
+                    if stmt.body {
+                        this.runBlockOrStatement((unwrap stmt.body))
+                    }
+                    if scriptDidReturn {
+                        looping = false
+                    } {
+                        if loopBreak {
+                            looping = false
+                        } {
+                            ; `continue` still runs the update clause.
+                            if stmt.right {
+                                this.evaluateUpdateExpr((unwrap stmt.right))
+                            }
+                            iterations = iterations + 1
+                        }
+                    }
                 }
             }
-            loopContinue = false
-            if stmt.body {
-                this.runBlockOrStatement((unwrap stmt.body))
-            }
-            if scriptDidReturn {
-                return
-            }
-            if loopBreak {
-                return
-            }
-            if stmt.right {
-                this.evaluateUpdateExpr((unwrap stmt.right))
-            }
-            if loopContinue {
-                iterations = iterations + 1
-            } {
-                iterations = iterations + 1
-            }
         }
+        ; Consume break/continue at the loop boundary (do not leak to outer loop).
         loopBreak = savedBreak
         loopContinue = savedContinue
     }
@@ -1560,31 +1571,32 @@ class ComponentEngine {
             def arrayValue:EvalValue (this.evaluateExpr(rightNode))
             if (arrayValue.isArray()) {
                 def i:int 0
-                while (i < (array_length arrayValue.arrayValue)) {
+                def looping:boolean true
+                while ((i < (array_length arrayValue.arrayValue)) && looping) {
                     if scriptDidReturn {
-                        return
-                    }
-                    if loopBreak {
-                        return
-                    }
-                    def item:EvalValue (itemAt arrayValue.arrayValue i)
-                    if ((strlen varName) > 0) {
-                        context.define(varName item)
-                    }
-                    loopContinue = false
-                    if stmt.body {
-                        this.runBlockOrStatement((unwrap stmt.body))
-                    }
-                    if scriptDidReturn {
-                        return
-                    }
-                    if loopBreak {
-                        return
-                    }
-                    if loopContinue {
-                        i = i + 1
+                        looping = false
                     } {
-                        i = i + 1
+                        if loopBreak {
+                            looping = false
+                        } {
+                            def item:EvalValue (itemAt arrayValue.arrayValue i)
+                            if ((strlen varName) > 0) {
+                                context.define(varName item)
+                            }
+                            loopContinue = false
+                            if stmt.body {
+                                this.runBlockOrStatement((unwrap stmt.body))
+                            }
+                            if scriptDidReturn {
+                                looping = false
+                            } {
+                                if loopBreak {
+                                    looping = false
+                                } {
+                                    i = i + 1
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1599,30 +1611,35 @@ class ComponentEngine {
         loopContinue = false
         def maxIterations:int 100000
         def iterations:int 0
-        while (iterations < maxIterations) {
+        def looping:boolean true
+        while ((iterations < maxIterations) && looping) {
             if scriptDidReturn {
-                return
-            }
-            if stmt.left {
-                def testResult:EvalValue (this.evaluateExpr((unwrap stmt.left)))
-                if ((testResult.toBool()) == false) {
-                    return
-                }
-            }
-            loopContinue = false
-            if stmt.body {
-                this.runBlockOrStatement((unwrap stmt.body))
-            }
-            if scriptDidReturn {
-                return
-            }
-            if loopBreak {
-                return
-            }
-            if loopContinue {
-                iterations = iterations + 1
+                looping = false
             } {
-                iterations = iterations + 1
+                def proceed:boolean true
+                if stmt.left {
+                    def testResult:EvalValue (this.evaluateExpr((unwrap stmt.left)))
+                    if ((testResult.toBool()) == false) {
+                        proceed = false
+                    }
+                }
+                if (proceed == false) {
+                    looping = false
+                } {
+                    loopContinue = false
+                    if stmt.body {
+                        this.runBlockOrStatement((unwrap stmt.body))
+                    }
+                    if scriptDidReturn {
+                        looping = false
+                    } {
+                        if loopBreak {
+                            looping = false
+                        } {
+                            iterations = iterations + 1
+                        }
+                    }
+                }
             }
         }
         loopBreak = savedBreak
@@ -1638,7 +1655,15 @@ class ComponentEngine {
     fn runStatementList:void (stmts:[TSNode]) {
         def i:int 0
         while (i < (array_length stmts)) {
+            ; Stop the block on return or a pending loop break/continue so the
+            ; rest of the block is skipped (the enclosing loop consumes the flag).
             if scriptDidReturn {
+                return
+            }
+            if loopBreak {
+                return
+            }
+            if loopContinue {
                 return
             }
             this.runStatementValue((itemAt stmts i))
