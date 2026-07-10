@@ -16,6 +16,7 @@ Import "../../../ts_parser/ts_parser_simple.rgr"
 ; 5 = object
 ; 6 = function
 ; 7 = evgElement (for JSX elements as props)
+; 8 = undefined (distinct from null for typeof / optional globals)
 
 class EvalValue {
     def valueType:int 0         ; Type tag
@@ -94,6 +95,12 @@ class EvalValue {
         v.evgElement = el
         return v
     }
+
+    sfn undefined:EvalValue () {
+        def v:EvalValue (new EvalValue())
+        v.valueType = 8
+        return v
+    }
     
     ; Type checks
     fn isNull:boolean () {
@@ -127,6 +134,10 @@ class EvalValue {
     fn isElement:boolean () {
         return (valueType == 7)
     }
+
+    fn isUndefined:boolean () {
+        return (valueType == 8)
+    }
     
     ; Type coercion
     fn toNumber:double () {
@@ -150,6 +161,9 @@ class EvalValue {
     fn toString:string () {
         if (valueType == 0) {
             return "null"
+        }
+        if (valueType == 8) {
+            return "undefined"
         }
         if (valueType == 1) {
             ; Format number - remove trailing zeros
@@ -214,6 +228,9 @@ class EvalValue {
     
     fn toBool:boolean () {
         if (valueType == 0) {
+            return false
+        }
+        if (valueType == 8) {
             return false
         }
         if (valueType == 1) {
@@ -338,6 +355,9 @@ class EvalValue {
         }
         if (valueType == 0) {
             return true
+        }
+        if (valueType == 8) {
+            return (other.valueType == 8)
         }
         if (valueType == 1) {
             return (numberValue == other.numberValue)

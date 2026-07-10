@@ -620,6 +620,10 @@ class ComponentEngine {
         hostScope.define(name value)
     }
 
+    fn removeGlobal:void (name:string) {
+        hostScope.removeBinding(name)
+    }
+
     fn setNativeBridge:void (bridge:EvalNativeBridge) {
         nativeBridge = bridge
     }
@@ -2979,6 +2983,9 @@ class ComponentEngine {
         
         ; Identifier (variable lookup)
         if (node.nodeType == "Identifier") {
+            if (node.name == "undefined") {
+                return (EvalValue.undefined())
+            }
             return (context.lookup(node.name))
         }
         
@@ -3529,8 +3536,66 @@ class ComponentEngine {
         return (EvalValue.null())
     }
     
+    fn bindingExists:boolean (name:string) {
+        return (context.has(name))
+    }
+
+    fn typeofTag:string (val:EvalValue) {
+        if (val.isUndefined()) {
+            return "undefined"
+        }
+        if (val.isNull()) {
+            return "object"
+        }
+        if (val.isNumber()) {
+            return "number"
+        }
+        if (val.isString()) {
+            return "string"
+        }
+        if (val.isBoolean()) {
+            return "boolean"
+        }
+        if (val.isFunction()) {
+            return "function"
+        }
+        if (val.isArray()) {
+            return "object"
+        }
+        if (val.isObject()) {
+            return "object"
+        }
+        if (val.isElement()) {
+            return "object"
+        }
+        return "undefined"
+    }
+
+    fn evaluateTypeofExpr:EvalValue (node:TSNode) {
+        if node.left {
+            def argNode:TSNode (unwrap node.left)
+            if (argNode.nodeType == "Identifier") {
+                def name:string argNode.name
+                if (name == "undefined") {
+                    return (EvalValue.string("undefined"))
+                }
+                if (false == (this.bindingExists(name))) {
+                    return (EvalValue.string("undefined"))
+                }
+                def val:EvalValue (context.lookup(name))
+                return (EvalValue.string((this.typeofTag(val))))
+            }
+            def val:EvalValue (this.evaluateExpr(argNode))
+            return (EvalValue.string((this.typeofTag(val))))
+        }
+        return (EvalValue.string("undefined"))
+    }
+    
     fn evaluateUnaryExpr:EvalValue (node:TSNode) {
         def op:string node.value
+        if (op == "typeof") {
+            return (this.evaluateTypeofExpr(node))
+        }
         if node.left {
             def argExpr:TSNode (unwrap node.left)
             def arg:EvalValue (this.evaluateExpr(argExpr))

@@ -112,3 +112,7 @@ function loopContinueSkip() {
   }
   return total;
 }
+
+function isSplitPane() {
+  return typeof paneIndex !== "undefined";
+}

@@ -98,6 +98,14 @@ class GameRunner {
         engine.registerGlobal(name value)
     }
 
+    fn setPaneIndex:void (index:int) {
+        engine.registerGlobal("paneIndex" (EvalValue.fromInt(index)))
+    }
+
+    fn clearPaneIndex:void () {
+        engine.removeGlobal("paneIndex")
+    }
+
     fn setNativeBridge:void (bridge:EvalNativeBridge) {
         hostBridge = bridge
         compositeBridge.clearBridges()

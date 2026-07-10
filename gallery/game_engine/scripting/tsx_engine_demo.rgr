@@ -28,6 +28,9 @@ class TsxEngineDemo {
         def whileReturn:EvalValue (engine.callFunction("returnFromWhile" (EvalValue.null())))
         def nestedBreak:EvalValue (engine.callFunction("nestedLoopBreak" (EvalValue.null())))
         def continueSkip:EvalValue (engine.callFunction("loopContinueSkip" (EvalValue.null())))
+        def splitNoPane:EvalValue (engine.callFunction("isSplitPane" (EvalValue.null())))
+        engine.registerGlobal("paneIndex" (EvalValue.fromInt(1)))
+        def splitWithPane:EvalValue (engine.callFunction("isSplitPane" (EvalValue.null())))
 
         print ("whileLen=" + (to_int (whileLen.numberValue)))
         print ("constSum=" + (to_int (constSum.numberValue)))
@@ -42,6 +45,16 @@ class TsxEngineDemo {
         print ("whileReturn=" + (to_int (whileReturn.numberValue)))
         print ("nestedBreak=" + (to_int (nestedBreak.numberValue)))
         print ("continueSkip=" + (to_int (continueSkip.numberValue)))
+        if (splitNoPane.toBool()) {
+            print "splitNoPane=1"
+        } {
+            print "splitNoPane=0"
+        }
+        if (splitWithPane.toBool()) {
+            print "splitWithPane=1"
+        } {
+            print "splitWithPane=0"
+        }
         print "tsx-engine-demo done"
     }
 }
