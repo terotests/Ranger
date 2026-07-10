@@ -1,4 +1,5 @@
-name=Ylos!
+name=Raketti
 icon=icon.png
 splitScreen=auto
-soloScript=ylos_solo/index.tsx
+autoscale=false
+soloScript=index.tsx

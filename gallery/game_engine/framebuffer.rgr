@@ -400,38 +400,95 @@ class SoftCanvas {
     }
 
     ; Copy a rectangle from another canvas (opaque). Used for static level layers.
+    ; One contiguous row copy (native memcpy) per scanline instead of per-pixel
+    ; channel writes — the source is tightly-packed RGBA so a whole row is one span.
     fn copyRectFrom:void (src:SoftCanvas sx:int sy:int sw:int sh:int dx:int dy:int) {
+        def srcW (src.w)
+        def srcH (src.h)
         def row 0
         while (row < sh) {
-            def col 0
-            while (col < sw) {
-                def pxX (sx + col)
-                def pxY (sy + row)
-                def dstX (dx + col)
-                def dstY (dy + row)
-                if (pxX >= 0) {
-                    if (pxX < src.w) {
-                        if (pxY >= 0) {
-                            if (pxY < src.h) {
-                                if (dstX >= 0) {
-                                    if (dstX < w) {
-                                        if (dstY >= 0) {
-                                            if (dstY < h) {
-                                                def sOff (((pxY * src.w) + pxX) * 4)
-                                                def dOff (((dstY * w) + dstX) * 4)
-                                                buffer_set px dOff (buffer_get src.px sOff)
-                                                buffer_set px (dOff + 1) (buffer_get src.px (sOff + 1))
-                                                buffer_set px (dOff + 2) (buffer_get src.px (sOff + 2))
-                                                buffer_set px (dOff + 3) 255
-                                            }
-                                        }
-                                    }
-                                }
+            def pxY (sy + row)
+            def dstY (dy + row)
+            if (pxY >= 0) {
+                if (pxY < srcH) {
+                    if (dstY >= 0) {
+                        if (dstY < h) {
+                            ; clip the horizontal span to both buffers once per row
+                            def cStart 0
+                            def cEnd sw
+                            if ((sx + cStart) < 0) {
+                                cStart = (0 - sx)
+                            }
+                            if ((dx + cStart) < 0) {
+                                cStart = (0 - dx)
+                            }
+                            if ((sx + cEnd) > srcW) {
+                                cEnd = (srcW - sx)
+                            }
+                            if ((dx + cEnd) > w) {
+                                cEnd = (w - dx)
+                            }
+                            if (cEnd > cStart) {
+                                def sOff (((pxY * srcW) + (sx + cStart)) * 4)
+                                def dOff (((dstY * w) + (dx + cStart)) * 4)
+                                def len ((cEnd - cStart) * 4)
+                                buffer_copy px dOff (src.px) sOff len
                             }
                         }
                     }
                 }
-                col = (col + 1)
+            }
+            row = (row + 1)
+        }
+    }
+
+    ; Nearest-neighbour scale-blit (split-screen autoscale: 480x270 → 240x270).
+    ; The per-pixel source-column mapping is constant across rows, so it is
+    ; precomputed once into a LUT — this removes both integer divisions from the
+    ; inner loop (the hot path that was dropping split-screen to ~30fps).
+    fn copyRectScaledFrom:void (src:SoftCanvas sx:int sy:int sw:int sh:int dx:int dy:int dw:int dh:int) {
+        if (dw <= 0) {
+            return
+        }
+        if (dh <= 0) {
+            return
+        }
+        def srcW (src.w)
+        def srcH (src.h)
+        ; LUT: source byte offset (within a row) for each destination column.
+        def colOff:int_buffer (int_buffer_alloc dw)
+        def c 0
+        while (c < dw) {
+            def srcCol:int (idiv (c * sw) dw)
+            int_buffer_set colOff c ((sx + srcCol) * 4)
+            c = (c + 1)
+        }
+        def row 0
+        while (row < dh) {
+            def srcRow:int (idiv (row * sh) dh)
+            def pxY (sy + srcRow)
+            def dstY (dy + row)
+            if (pxY >= 0) {
+                if (pxY < srcH) {
+                    if (dstY >= 0) {
+                        if (dstY < h) {
+                            def srcRowBase ((pxY * srcW) * 4)
+                            def dstRowBase (((dstY * w) + dx) * 4)
+                            def col 0
+                            while (col < dw) {
+                                def dstX (dx + col)
+                                if (dstX >= 0) {
+                                    if (dstX < w) {
+                                        def sOff (srcRowBase + (int_buffer_get colOff col))
+                                        def dOff (dstRowBase + (col * 4))
+                                        buffer_copy px dOff (src.px) sOff 4
+                                    }
+                                }
+                                col = (col + 1)
+                            }
+                        }
+                    }
+                }
             }
             row = (row + 1)
         }

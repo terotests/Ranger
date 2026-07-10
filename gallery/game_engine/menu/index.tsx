@@ -4,7 +4,8 @@
 // Launcher menu game — first game loaded by game_sdl; returned to after each sub-game.
 // Host injects `gameCatalog` (scanned from --games-dir). EVG hud() draws one Label/row.
 //
-// Controls: Up/Down = scroll, Space/Enter = play, Q/Esc = quit app.
+// Controls: Up/Down or D-pad = scroll, A/Space = play, Q/Esc = quit app.
+// In games: Select/B = back to this menu.
 
 const VISIBLE_ROWS = 8;
 
@@ -15,7 +16,7 @@ function initState() {
     launchPath: "",
     quitApp: 0,
     visibleRows: [],
-    hintText: "Up/Down select   Space play   Q quit"
+    hintText: "D-pad / Up-Down   A / Space play   Q quit"
   };
 }
 

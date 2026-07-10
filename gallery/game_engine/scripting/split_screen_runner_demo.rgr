@@ -2,7 +2,7 @@
 ; split_screen_runner_demo — headless smoke test for SplitScreenHost.
 ; ==============================================================================
 ;
-; Loads ylos_solo into both panes, advances frames with pane-specific input,
+; Loads ylos/index.tsx into both panes, advances frames with pane-specific input,
 ; composites the split framebuffer and prints entity positions.
 ; ==============================================================================
 
@@ -11,9 +11,9 @@ Import "./game_split_screen.rgr"
 class SplitScreenRunnerDemo {
     sfn m@(main):void () {
         def host:SplitScreenHost (new SplitScreenHost)
-        host.init(480 270)
+        host.init(480 270 false)
 
-        def soloPath:string "gallery/game_engine/games/ylos_solo/index.tsx"
+        def soloPath:string "gallery/game_engine/games/ylos/index.tsx"
         host.loadPanes(soloPath soloPath)
 
         def frames:int 120
@@ -33,8 +33,8 @@ class SplitScreenRunnerDemo {
         host.draw()
         buffer_write_file "gallery/game_engine/scripting" "split_screen_frame.rgba" (host.raw())
 
-        def leftY:int (host.left.entityY("hero"))
-        def rightY:int (host.right.entityY("hero"))
+        def leftY:int (host.left.entityY("p1"))
+        def rightY:int (host.right.entityY("p1"))
         print ("frames=" + frames)
         print (("leftHeroY=" + leftY))
         print (("rightHeroY=" + rightY))

@@ -30,7 +30,7 @@ operators {
     gfx_open _:int (title:string w:int h:int) {
         templates {
             cpp ( "rgfx_open(" (e 1) ", " (e 2) ", " (e 3) ")"
-                  (imp "<SDL2/SDL.h>") (imp "<cstdint>") (imp "<string>")
+                  (imp "<SDL2/SDL.h>") (imp "<cstdint>") (imp "<string>") (imp "<cstdio>") (imp "<cstdlib>") (imp "<cstring>") (imp "<unistd.h>")
 (polyfill "after_imports" "
 static SDL_Window*   g_rgfx_win = nullptr;
 static SDL_Renderer* g_rgfx_ren = nullptr;
@@ -58,43 +58,118 @@ static int g_rgfx_fullscreen = 0;
 #define RGFX_SELECT 1024
 
 static SDL_GameController* g_pads[RGFX_MAX_PADS];
+static SDL_Joystick* g_joys[RGFX_MAX_PADS];
+static int g_pad_gc[RGFX_MAX_PADS];
 static int g_pad_count = 0;
 static int g_src_mask[RGFX_SRC_COUNT];
 
 static void rgfx_close_pad_slot(int idx) {
     if (idx < 0 || idx >= g_pad_count) { return; }
-    if (g_pads[idx] != nullptr) {
-        SDL_GameControllerClose(g_pads[idx]);
+    if (g_pad_gc[idx]) {
+        if (g_pads[idx] != nullptr) { SDL_GameControllerClose(g_pads[idx]); }
+    } else {
+        if (g_joys[idx] != nullptr) { SDL_JoystickClose(g_joys[idx]); }
     }
+    g_pads[idx] = nullptr;
+    g_joys[idx] = nullptr;
+    g_pad_gc[idx] = 0;
     for (int j = idx + 1; j < g_pad_count; ++j) {
         g_pads[j - 1] = g_pads[j];
+        g_joys[j - 1] = g_joys[j];
+        g_pad_gc[j - 1] = g_pad_gc[j];
     }
     if (g_pad_count > 0) {
         g_pads[g_pad_count - 1] = nullptr;
+        g_joys[g_pad_count - 1] = nullptr;
+        g_pad_gc[g_pad_count - 1] = 0;
         --g_pad_count;
+    }
+}
+
+static void rgfx_remove_pad_by_joystick_id(SDL_JoystickID jid) {
+    for (int i = 0; i < g_pad_count; ++i) {
+        SDL_Joystick* js = nullptr;
+        if (g_pad_gc[i] && g_pads[i] != nullptr) {
+            js = SDL_GameControllerGetJoystick(g_pads[i]);
+        } else if (!g_pad_gc[i]) {
+            js = g_joys[i];
+        }
+        if (js != nullptr && SDL_JoystickInstanceID(js) == jid) {
+            rgfx_close_pad_slot(i);
+            break;
+        }
     }
 }
 
 static void rgfx_open_pad_index(int jsIndex) {
     if (g_pad_count >= RGFX_MAX_PADS) { return; }
-    if (!SDL_IsGameController(jsIndex)) { return; }
-    SDL_GameController* c = SDL_GameControllerOpen(jsIndex);
-    if (c == nullptr) { return; }
-    g_pads[g_pad_count++] = c;
+    const SDL_JoystickID devId = SDL_JoystickGetDeviceInstanceID(jsIndex);
+    for (int i = 0; i < g_pad_count; ++i) {
+        SDL_Joystick* js = nullptr;
+        if (g_pad_gc[i] && g_pads[i] != nullptr) {
+            js = SDL_GameControllerGetJoystick(g_pads[i]);
+        } else {
+            js = g_joys[i];
+        }
+        if (js != nullptr && SDL_JoystickInstanceID(js) == devId) { return; }
+    }
+    if (SDL_IsGameController(jsIndex)) {
+        SDL_GameController* c = SDL_GameControllerOpen(jsIndex);
+        if (c == nullptr) { return; }
+        g_pads[g_pad_count] = c;
+        g_joys[g_pad_count] = nullptr;
+        g_pad_gc[g_pad_count] = 1;
+        ++g_pad_count;
+        return;
+    }
+    SDL_Joystick* j = SDL_JoystickOpen(jsIndex);
+    if (j == nullptr) { return; }
+    g_pads[g_pad_count] = nullptr;
+    g_joys[g_pad_count] = j;
+    g_pad_gc[g_pad_count] = 0;
+    ++g_pad_count;
 }
 
 static void rgfx_scan_pads() {
-    for (int i = 0; i < g_pad_count; ++i) {
-        if (g_pads[i] != nullptr) {
-            SDL_GameControllerClose(g_pads[i]);
-            g_pads[i] = nullptr;
-        }
+    for (int i = g_pad_count - 1; i >= 0; --i) {
+        rgfx_close_pad_slot(i);
     }
     g_pad_count = 0;
     const int n = SDL_NumJoysticks();
     for (int i = 0; i < n && g_pad_count < RGFX_MAX_PADS; ++i) {
         rgfx_open_pad_index(i);
     }
+    fprintf(stderr, \"[rgfx] gamepads: %d / joysticks: %d\\n\", g_pad_count, n);
+}
+
+static int rgfx_map_joy(SDL_Joystick* joy) {
+    if (joy == nullptr) { return 0; }
+    int m = 0;
+    if (SDL_JoystickNumAxes(joy) > 0) {
+        const Sint16 lx = SDL_JoystickGetAxis(joy, 0);
+        if (lx < -8000) { m |= RGFX_LEFT; }
+        if (lx > 8000) { m |= RGFX_RIGHT; }
+    }
+    if (SDL_JoystickNumAxes(joy) > 1) {
+        const Sint16 ly = SDL_JoystickGetAxis(joy, 1);
+        if (ly < -8000) { m |= RGFX_UP; }
+        if (ly > 8000) { m |= RGFX_DOWN; }
+    }
+    if (SDL_JoystickNumHats(joy) > 0) {
+        const Uint8 hat = SDL_JoystickGetHat(joy, 0);
+        if ((hat & SDL_HAT_UP) != 0) { m |= RGFX_UP; }
+        if ((hat & SDL_HAT_DOWN) != 0) { m |= RGFX_DOWN; }
+        if ((hat & SDL_HAT_LEFT) != 0) { m |= RGFX_LEFT; }
+        if ((hat & SDL_HAT_RIGHT) != 0) { m |= RGFX_RIGHT; }
+    }
+    const int btnCount = SDL_JoystickNumButtons(joy);
+    if (btnCount > 0 && SDL_JoystickGetButton(joy, 0)) { m |= RGFX_ACT; }
+    if (btnCount > 1 && SDL_JoystickGetButton(joy, 1)) { m |= RGFX_B; }
+    if (btnCount > 2 && SDL_JoystickGetButton(joy, 2)) { m |= RGFX_X; }
+    if (btnCount > 3 && SDL_JoystickGetButton(joy, 3)) { m |= RGFX_Y; }
+    if (btnCount > 6 && SDL_JoystickGetButton(joy, 6)) { m |= RGFX_START; }
+    if (btnCount > 7 && SDL_JoystickGetButton(joy, 7)) { m |= RGFX_SELECT; }
+    return m;
 }
 
 static int rgfx_map_pad(SDL_GameController* pad) {
@@ -138,17 +213,14 @@ static void rgfx_pump_events() {
         if (ev.type == SDL_CONTROLLERDEVICEADDED) {
             rgfx_open_pad_index((int) ev.cdevice.which);
         }
+        if (ev.type == SDL_JOYDEVICEADDED) {
+            rgfx_open_pad_index((int) ev.jdevice.which);
+        }
         if (ev.type == SDL_CONTROLLERDEVICEREMOVED) {
-            const SDL_JoystickID jid = ev.cdevice.which;
-            for (int i = 0; i < g_pad_count; ++i) {
-                if (g_pads[i] != nullptr) {
-                    SDL_Joystick* js = SDL_GameControllerGetJoystick(g_pads[i]);
-                    if (js != nullptr && SDL_JoystickInstanceID(js) == jid) {
-                        rgfx_close_pad_slot(i);
-                        break;
-                    }
-                }
-            }
+            rgfx_remove_pad_by_joystick_id(ev.cdevice.which);
+        }
+        if (ev.type == SDL_JOYDEVICEREMOVED) {
+            rgfx_remove_pad_by_joystick_id(ev.jdevice.which);
         }
         if (ev.type == SDL_KEYDOWN) {
             if (ev.key.keysym.sym == SDLK_F11) {
@@ -190,7 +262,11 @@ static void rgfx_input_recompute() {
     g_src_mask[RGFX_SRC_KB_P2] = kb2;
 
     for (int i = 0; i < g_pad_count && i < RGFX_MAX_PADS; ++i) {
-        g_src_mask[RGFX_SRC_PAD0 + i] = rgfx_map_pad(g_pads[i]);
+        if (g_pad_gc[i]) {
+            g_src_mask[RGFX_SRC_PAD0 + i] = rgfx_map_pad(g_pads[i]);
+        } else {
+            g_src_mask[RGFX_SRC_PAD0 + i] = rgfx_map_joy(g_joys[i]);
+        }
     }
 }
 
@@ -199,20 +275,206 @@ static void rgfx_input_poll() {
     rgfx_input_recompute();
 }
 
-static int rgfx_audio_open(int sampleRate) {
-    if (g_rgfx_audio != 0) { return 1; }
+static int rgfx_str_icontains(const char* hay, const char* needle) {
+    if (hay == nullptr || needle == nullptr) { return 0; }
+    const int nlen = (int) strlen(needle);
+    if (nlen <= 0) { return 0; }
+    for (const char* p = hay; *p != '\\0'; ++p) {
+        int ok = 1;
+        for (int i = 0; i < nlen; ++i) {
+            char a = p[i];
+            char b = needle[i];
+            if (a >= 'A' && a <= 'Z') { a = (char) (a + 32); }
+            if (b >= 'A' && b <= 'Z') { b = (char) (b + 32); }
+            if (a != b) { ok = 0; break; }
+        }
+        if (ok) { return 1; }
+    }
+    return 0;
+}
+
+static int rgfx_using_pulse_driver() {
+    const char* drv = getenv(\"SDL_AUDIODRIVER\");
+    if (drv == nullptr || drv[0] == '\\0') { return 0; }
+    if (rgfx_str_icontains(drv, \"pulse\")) { return 1; }
+    if (rgfx_str_icontains(drv, \"pipewire\")) { return 1; }
+    return 0;
+}
+
+static void rgfx_prepare_audio_env() {
+    // PipeWire/Pulse socket lives at $XDG_RUNTIME_DIR/pulse/native; when launched
+    // over SSH this is often unset, so the pulse driver falls back to dummy.
+    const char* xrd = getenv(\"XDG_RUNTIME_DIR\");
+    if (xrd == nullptr || xrd[0] == '\\0') {
+        char buf[64];
+        snprintf(buf, sizeof(buf), \"/run/user/%d\", (int) getuid());
+        SDL_setenv(\"XDG_RUNTIME_DIR\", buf, 1);
+        fprintf(stderr, \"[rgfx] XDG_RUNTIME_DIR=%s (auto)\\n\", buf);
+    }
+    const char* dev = getenv(\"RANGER_AUDIO_DEVICE\");
+    if (dev != nullptr && dev[0] != '\\0') {
+        SDL_setenv(\"SDL_AUDIODRIVER\", \"alsa\", 1);
+        fprintf(stderr, \"[rgfx] RANGER_AUDIO_DEVICE=%s → SDL_AUDIODRIVER=alsa\\n\", dev);
+        return;
+    }
+    const char* existing = getenv(\"SDL_AUDIODRIVER\");
+    if (existing != nullptr && existing[0] != '\\0') {
+        fprintf(stderr, \"[rgfx] SDL_AUDIODRIVER=%s (from env)\\n\", existing);
+        return;
+    }
+    const char* ranger = getenv(\"RANGER_SDL_AUDIO_DRIVER\");
+    if (ranger != nullptr && ranger[0] != '\\0') {
+        SDL_setenv(\"SDL_AUDIODRIVER\", ranger, 1);
+        fprintf(stderr, \"[rgfx] SDL_AUDIODRIVER=%s (RANGER_SDL_AUDIO_DRIVER)\\n\", ranger);
+        return;
+    }
+#if defined(__linux__)
+    // Prefer pulse (PipeWire-Pulse); SDL2 falls through the list if the first
+    // driver cannot connect, so alsa still works on setups without PipeWire.
+    SDL_setenv(\"SDL_AUDIODRIVER\", \"pulse,pipewire,alsa\", 1);
+    fprintf(stderr, \"[rgfx] SDL_AUDIODRIVER=pulse,pipewire,alsa (linux default)\\n\");
+#endif
+}
+
+static void rgfx_log_audio_devices() {
+    const int n = SDL_GetNumAudioDevices(0);
+    fprintf(stderr, \"[rgfx] SDL playback devices: %d\\n\", n);
+    int i = 0;
+    while (i < n) {
+        const char* name = SDL_GetAudioDeviceName(i, 0);
+        if (name != nullptr) {
+            fprintf(stderr, \"[rgfx]   [%d] %s\\n\", i, name);
+        }
+        i = (i + 1);
+    }
+    if (n <= 0) {
+        fprintf(stderr, \"[rgfx]   (none — try: SDL_AUDIODRIVER=pulse or apt install libsdl2-2.0-0)\\n\");
+    }
+}
+
+static int rgfx_audio_dummy_only() {
+    const int n = SDL_GetNumAudioDevices(0);
+    if (n <= 0) { return 1; }
+    int i = 0;
+    while (i < n) {
+        const char* name = SDL_GetAudioDeviceName(i, 0);
+        if (name != nullptr) {
+            if (!rgfx_str_icontains(name, \"dummy\")) { return 0; }
+        }
+        i = (i + 1);
+    }
+    return 1;
+}
+
+static void rgfx_audio_reinit_driver(const char* driver) {
+    if (g_rgfx_audio != 0) {
+        SDL_CloseAudioDevice(g_rgfx_audio);
+        g_rgfx_audio = 0;
+    }
+    SDL_AudioQuit();
+    SDL_setenv(\"SDL_AUDIODRIVER\", driver, 1);
+    if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) {
+        fprintf(stderr, \"[rgfx] SDL_InitSubSystem(AUDIO) failed: %s\\n\", SDL_GetError());
+    } {
+        fprintf(stderr, \"[rgfx] audio driver: %s\\n\", driver);
+    }
+}
+
+static int rgfx_try_alsa_audidev(int sampleRate, const char* audidev);
+
+static const char* rgfx_pick_audio_device() {
+    // Pulse/PipeWire: use system default sink (wpctl / taskbar HDMI selection).
+    if (rgfx_using_pulse_driver()) { return nullptr; }
+    const int n = SDL_GetNumAudioDevices(0);
+    int i = 0;
+    while (i < n) {
+        const char* name = SDL_GetAudioDeviceName(i, 0);
+        if (name != nullptr) {
+            if (rgfx_str_icontains(name, \"hdmi\")) { return name; }
+            if (rgfx_str_icontains(name, \"vc4\")) { return name; }
+        }
+        i = (i + 1);
+    }
+    return nullptr;
+}
+
+static int rgfx_try_open_audio_device(int sampleRate, const char* dev, int channels) {
     SDL_AudioSpec want, have;
     SDL_zero(want);
     want.freq = sampleRate > 0 ? sampleRate : 22050;
     want.format = AUDIO_S16SYS;
-    want.channels = 1;
+    want.channels = (Uint8) channels;
     want.samples = 512;
     want.callback = nullptr;
     want.userdata = nullptr;
-    g_rgfx_audio = SDL_OpenAudioDevice(nullptr, 0, &want, &have, 0);
-    if (g_rgfx_audio == 0) { return 0; }
+    SDL_AudioDeviceID id = SDL_OpenAudioDevice(dev, 0, &want, &have, 0);
+    if (id == 0) {
+        fprintf(stderr, \"[rgfx] audio open failed (%s, %d ch): %s\\n\",
+            dev != nullptr ? dev : \"default\", channels, SDL_GetError());
+        return 0;
+    }
+    g_rgfx_audio = id;
+    const char* label = dev;
+    if (label == nullptr) {
+        const char* ad = getenv(\"AUDIODEV\");
+        if (ad != nullptr && ad[0] != '\\0') { label = ad; }
+    }
+    if (label == nullptr) { label = \"(default)\"; }
+    fprintf(stderr, \"[rgfx] audio opened: %s @ %d Hz, %d ch\\n\",
+        label, have.freq, have.channels);
     SDL_PauseAudioDevice(g_rgfx_audio, 0);
     return 1;
+}
+
+static void rgfx_close_audio_device() {
+    if (g_rgfx_audio != 0) {
+        SDL_CloseAudioDevice(g_rgfx_audio);
+        g_rgfx_audio = 0;
+    }
+}
+
+static int rgfx_try_alsa_audidev(int sampleRate, const char* audidev) {
+    rgfx_close_audio_device();
+    SDL_setenv(\"AUDIODEV\", audidev, 1);
+    fprintf(stderr, \"[rgfx] trying AUDIODEV=%s\\n\", audidev);
+    if (rgfx_try_open_audio_device(sampleRate, nullptr, 2)) { return 1; }
+    rgfx_close_audio_device();
+    SDL_setenv(\"AUDIODEV\", audidev, 1);
+    return rgfx_try_open_audio_device(sampleRate, nullptr, 1);
+}
+
+static int rgfx_audio_open(int sampleRate) {
+    if (g_rgfx_audio != 0) { return 1; }
+
+    const char* envDev = getenv(\"RANGER_AUDIO_DEVICE\");
+    if (envDev != nullptr && envDev[0] != '\\0') {
+        if (rgfx_using_pulse_driver()) {
+            rgfx_audio_reinit_driver(\"alsa\");
+        }
+        rgfx_log_audio_devices();
+        if (rgfx_try_alsa_audidev(sampleRate, envDev)) { return 1; }
+        fprintf(stderr, \"[rgfx] audio: RANGER_AUDIO_DEVICE failed: %s\\n\", envDev);
+        return 0;
+    }
+
+    rgfx_log_audio_devices();
+
+    if (rgfx_audio_dummy_only()) {
+        fprintf(stderr, \"[rgfx] Pulse/PipeWire unavailable (Dummy Output)\\n\");
+        fprintf(stderr, \"[rgfx] set RANGER_AUDIO_DEVICE=plughw:N,0 (see: aplay -l)\\n\");
+        return 0;
+    }
+
+    const char* dev = rgfx_pick_audio_device();
+    if (rgfx_try_open_audio_device(sampleRate, dev, 2)) { return 1; }
+    if (rgfx_try_open_audio_device(sampleRate, dev, 1)) { return 1; }
+    if (dev != nullptr) {
+        if (rgfx_try_open_audio_device(sampleRate, nullptr, 2)) { return 1; }
+        if (rgfx_try_open_audio_device(sampleRate, nullptr, 1)) { return 1; }
+    }
+
+    fprintf(stderr, \"[rgfx] audio: no device — set RANGER_AUDIO_DEVICE=plughw:N,0 (aplay -l)\\n\");
+    return 0;
 }
 static void rgfx_audio_queue(const uint8_t* pcm, int byteCount) {
     if (g_rgfx_audio == 0) { return; }
@@ -404,7 +666,8 @@ static void rgfx_gl_cleanup() {
 }
 
 static int rgfx_open(const std::string& title, int w, int h) {
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0) { return 0; }
+    rgfx_prepare_audio_env();
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK) != 0) { return 0; }
     rgfx_scan_pads();
     g_rgfx_win = SDL_CreateWindow(title.c_str(),
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, w, h, SDL_WINDOW_SHOWN);
@@ -431,6 +694,27 @@ static void rgfx_present(const uint8_t* pixels, int w, int h) {
     SDL_RenderCopy(g_rgfx_ren, g_rgfx_tex, nullptr, nullptr);
     SDL_RenderPresent(g_rgfx_ren);
 }
+// Split-screen present: upload each full-res pane once and let the GPU scale it
+// into its half of the window. Avoids the CPU 480→240 downscale blit entirely —
+// the scale is free on the GPU during SDL_RenderCopy.
+static void rgfx_present_split(const uint8_t* left, const uint8_t* right, int w, int h) {
+    if (g_rgfx_tex == nullptr) { return; }
+    int outW = w;
+    int outH = h;
+    SDL_GetRendererOutputSize(g_rgfx_ren, &outW, &outH);
+    const int halfW = outW / 2;
+    SDL_Rect dstL; dstL.x = 0;     dstL.y = 0; dstL.w = halfW;        dstL.h = outH;
+    SDL_Rect dstR; dstR.x = halfW; dstR.y = 0; dstR.w = outW - halfW; dstR.h = outH;
+    SDL_RenderClear(g_rgfx_ren);
+    SDL_UpdateTexture(g_rgfx_tex, nullptr, left, w * 4);
+    SDL_RenderCopy(g_rgfx_ren, g_rgfx_tex, nullptr, &dstL);
+    SDL_UpdateTexture(g_rgfx_tex, nullptr, right, w * 4);
+    SDL_RenderCopy(g_rgfx_ren, g_rgfx_tex, nullptr, &dstR);
+    SDL_SetRenderDrawColor(g_rgfx_ren, 50, 65, 110, 255);
+    SDL_Rect divider; divider.x = halfW - 1; divider.y = 0; divider.w = 2; divider.h = outH;
+    SDL_RenderFillRect(g_rgfx_ren, &divider);
+    SDL_RenderPresent(g_rgfx_ren);
+}
 static int rgfx_poll_mask() {
     rgfx_input_poll();
     return g_src_mask[RGFX_SRC_KB_P1];
@@ -454,11 +738,8 @@ static void rgfx_set_title(const std::string& title) {
 static void rgfx_close() {
     rgfx_gl_cleanup();
     if (g_rgfx_audio) { SDL_CloseAudioDevice(g_rgfx_audio); g_rgfx_audio = 0; }
-    for (int i = 0; i < g_pad_count; ++i) {
-        if (g_pads[i] != nullptr) {
-            SDL_GameControllerClose(g_pads[i]);
-            g_pads[i] = nullptr;
-        }
+    for (int i = g_pad_count - 1; i >= 0; --i) {
+        rgfx_close_pad_slot(i);
     }
     g_pad_count = 0;
     if (g_rgfx_tex) { SDL_DestroyTexture(g_rgfx_tex); g_rgfx_tex = nullptr; }
@@ -476,6 +757,15 @@ static void rgfx_close() {
     gfx_present _:void (pixels:buffer w:int h:int) {
         templates {
             cpp ( "rgfx_present(" (e 1) ".data(), " (e 2) ", " (e 3) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Present two full-res panes side-by-side, GPU-scaled into each window half.
+    ; left/right are w*h*4 RGBA buffers; the GPU downscale replaces the CPU blit.
+    gfx_present_split _:void (left:buffer right:buffer w:int h:int) {
+        templates {
+            cpp ( "rgfx_present_split(" (e 1) ".data(), " (e 2) ".data(), " (e 3) ", " (e 4) ")" (imp "<SDL2/SDL.h>") )
             es6 ( "undefined" )
         }
     }
@@ -561,6 +851,14 @@ static void rgfx_close() {
     gfx_close _:void () {
         templates {
             cpp ( "rgfx_close()" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Set desktop fullscreen on/off (1 = fullscreen, 0 = windowed).
+    gfx_set_fullscreen _:void (on:int) {
+        templates {
+            cpp ( "rgfx_set_fullscreen(" (e 1) ")" (imp "<SDL2/SDL.h>") )
             es6 ( "undefined" )
         }
     }

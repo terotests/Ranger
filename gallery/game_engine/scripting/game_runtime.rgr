@@ -59,6 +59,13 @@ class GameRunner {
     def fpsShown:int 0
     def timeMs:int 0
     def hudEnabled:boolean false
+    def profileEnabled:boolean false
+    def profUpdateScriptMs:int 0
+    def profUpdateSyncMs:int 0
+    def profDrawBgMs:int 0
+    def profDrawSpritesMs:int 0
+    def profDrawHudMs:int 0
+    def profFrames:int 0
     def currentScreen:string ""
     def imageLoader:GameImageLoader (new GameImageLoader)
     def backgroundImg:ImageBuffer (new ImageBuffer)
@@ -363,6 +370,10 @@ class GameRunner {
         fpsShown = fps
     }
 
+    fn setProfileEnabled:void (on:boolean) {
+        profileEnabled = on
+    }
+
     ; True when initState/update use { screen, screens: { ... } }.
     fn multiScreenMode:boolean () {
         def screens:EvalValue (state.getMember("screens"))
@@ -653,7 +664,15 @@ class GameRunner {
         push k "state"
         push v state
         def props:EvalValue (EvalValue.object(k v))
+        def tScript0:int 0
+        if (profileEnabled) {
+            tScript0 = (gfx_ticks_ms)
+        }
         state = (engine.callFunction("update" props))
+        def tScript1:int 0
+        if (profileEnabled) {
+            tScript1 = (gfx_ticks_ms)
+        }
         def nextScreen:string (this.currentScreenName())
         if (nextScreen != prevScreen) {
             this.onScreenChanged(prevScreen nextScreen)
@@ -661,10 +680,24 @@ class GameRunner {
         this.drainStateEvents()
         this.syncFromState()
         this.syncBackgroundFromState()
+        if (profileEnabled) {
+            def tSync1:int (gfx_ticks_ms)
+            profUpdateScriptMs = (profUpdateScriptMs + (tScript1 - tScript0))
+            profUpdateSyncMs = (profUpdateSyncMs + (tSync1 - tScript1))
+            profFrames = (profFrames + 1)
+        }
     }
 
     fn draw:void () {
+        def tBg0:int 0
+        if (profileEnabled) {
+            tBg0 = (gfx_ticks_ms)
+        }
         this.drawBackground()
+        def tBg1:int 0
+        if (profileEnabled) {
+            tBg1 = (gfx_ticks_ms)
+        }
         def active:EvalValue (this.activeState())
         def layout:EvalValue (active.getMember("layout"))
         def showNet (this.memInt(active "showNet" 0))
@@ -694,6 +727,10 @@ class GameRunner {
             }
             i = (i + 1)
         }
+        def tSpr1:int 0
+        if (profileEnabled) {
+            tSpr1 = (gfx_ticks_ms)
+        }
         if (false == hudEnabled) {
             def netX (this.half(pw))
             if (layout.stringValue == "invaders") {
@@ -710,6 +747,12 @@ class GameRunner {
             def fx (this.half(pw))
             def fy (ph - 22)
             this.drawNumber((fx - 14) fy 3 fpsShown 160 170 190)
+        }
+        if (profileEnabled) {
+            def tHud1:int (gfx_ticks_ms)
+            profDrawBgMs = (profDrawBgMs + (tBg1 - tBg0))
+            profDrawSpritesMs = (profDrawSpritesMs + (tSpr1 - tBg1))
+            profDrawHudMs = (profDrawHudMs + (tHud1 - tSpr1))
         }
     }
 
