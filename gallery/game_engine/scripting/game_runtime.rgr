@@ -350,12 +350,16 @@ class GameRunner {
     }
 
     ; Optional init hook: createStaticBg() draws once into a tall off-screen buffer.
+    ; staticLevelHeight() alone enables a scrollable buffer; when backgroundImage() is
+    ; set, the image is scaled into that buffer first (procedural overlays optional).
     fn applyCreateStaticBg:void () {
-        if (false == (this.scriptHasFunction("createStaticBg"))) {
+        def hasCreate:boolean (this.scriptHasFunction("createStaticBg"))
+        def hasTall:boolean (this.scriptHasFunction("staticLevelHeight"))
+        if ((false == hasCreate) && (false == hasTall)) {
             return
         }
         def levelH:int ph
-        if (this.scriptHasFunction("staticLevelHeight")) {
+        if (hasTall) {
             def hv:EvalValue (engine.callFunction("staticLevelHeight" (EvalValue.null())))
             if (hv.isNumber()) {
                 levelH = (to_int hv.numberValue)
@@ -367,15 +371,17 @@ class GameRunner {
         staticBgCanvas.init(pw levelH)
         staticBgH = levelH
         staticBgBridge.setCanvas(staticBgCanvas)
-        def wk:[string]
-        def wv:[EvalValue]
-        push wk "width"
-        push wv (EvalValue.fromInt(pw))
-        push wk "height"
-        push wv (EvalValue.fromInt(levelH))
         engine.registerGlobal("bgWidth" (EvalValue.fromInt(pw)))
         engine.registerGlobal("bgHeight" (EvalValue.fromInt(levelH)))
-        engine.callFunction("createStaticBg" (EvalValue.null()))
+        if (backgroundLoaded) {
+            staticBgCanvas.blitImageRectScaled(
+                backgroundImg 0 0 backgroundImg.width backgroundImg.height
+                0 0 pw levelH
+            )
+        }
+        if (hasCreate) {
+            engine.callFunction("createStaticBg" (EvalValue.null()))
+        }
         staticBgReady = true
     }
 

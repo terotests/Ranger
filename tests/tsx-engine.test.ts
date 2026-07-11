@@ -29,6 +29,8 @@ describe("TSX engine - ComponentEngine regressions", () => {
     expect(out).toContain("continueSkip=12");
     expect(out).toContain("splitNoPane=0");
     expect(out).toContain("splitWithPane=1");
+    expect(out).toContain("mathSqrt=4");
+    expect(out).toContain("anyObjectKey=1");
     expect(out).toContain("tsx-engine-demo done");
   });
 
