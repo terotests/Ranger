@@ -8,7 +8,7 @@
 #   RANGER_AUDIO_DEVICE=plughw:0,0 bash gallery/game_engine/scripts/deploy-pi.sh pelit
 #
 # Copies the local repo (excl. node_modules/tmp), installs deps on the Pi,
-# runs npm install + compile + engine:game-sdl build, writes ~/ranger/start.sh.
+# runs npm install + compile + engine:game-sdl build (-O3), writes ~/ranger/start.sh.
 
 set -euo pipefail
 
@@ -20,6 +20,7 @@ fi
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 REMOTE_DIR="ranger"
 AUDIO_DEV="${RANGER_AUDIO_DEVICE:-plughw:1,0}"
+CXX_OPT="${CXX_OPT:--O3}"
 
 echo "==> 1/4 Test SSH: $TARGET"
 ssh -o ConnectTimeout=10 -o BatchMode=yes "$TARGET" 'echo ok; uname -m'
@@ -36,8 +37,8 @@ rsync -az --delete \
   --exclude .git/objects \
   "$ROOT/" "$TARGET:~/$REMOTE_DIR/"
 
-echo "==> 4/4 Build game launcher on Pi"
-ssh "$TARGET" "cd ~/$REMOTE_DIR && npm install && npm run compile && npm run engine:game-sdl"
+echo "==> 4/4 Build game launcher on Pi (CXX_OPT=$CXX_OPT)"
+ssh "$TARGET" "cd ~/$REMOTE_DIR && npm install && npm run compile && CXX_OPT=$CXX_OPT npm run engine:game-sdl"
 
 echo "==> Write ~/ranger/start.sh (RANGER_AUDIO_DEVICE=$AUDIO_DEV)"
 ssh "$TARGET" "cat > ~/$REMOTE_DIR/start.sh" <<EOF

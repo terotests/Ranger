@@ -1,0 +1,69 @@
+; =============================================================================
+; pac_render_bench - native (C++) micro-benchmark for per-frame game rendering.
+; =============================================================================
+; Mirrors a PacMan-style per-frame redraw (the 60fps hot path): clear the frame,
+; draw many small dots (fillCircle), ghosts (fillGhost), pac (fillWedgeCircle)
+; and maze walls (fillRect). Unlike createStaticBg this runs EVERY frame, so it
+; is dominated by many *small* fills rather than a few big ones.
+
+Import "../../game_engine/framebuffer.rgr"
+
+class PacRenderBench {
+    sfn drawFrame:void (canvas:SoftCanvas t:int) {
+        canvas.clear(8 8 24)
+
+        ; Maze walls: a grid of small rectangles.
+        def gy:int 0
+        while (gy < 270) {
+            def gx:int 0
+            while (gx < 480) {
+                canvas.fillRect(gx gy 20 4 40 40 120)
+                gx = (gx + 40)
+            }
+            gy = (gy + 30)
+        }
+
+        ; Dots: small circles on a grid (the bulk of per-frame fill calls).
+        def dy:int 12
+        while (dy < 264) {
+            def dx:int 12
+            while (dx < 476) {
+                canvas.fillCircle(dx dy 2 240 220 160)
+                dx = (dx + 16)
+            }
+            dy = (dy + 16)
+        }
+
+        ; Four ghosts + pac, moving with t.
+        def gx2:int (40 + (t % 400))
+        canvas.fillGhost(gx2 60 10 1 0 255 60 60)
+        canvas.fillGhost((gx2 + 30) 90 10 2 0 60 200 255)
+        canvas.fillGhost((gx2 + 60) 120 10 3 0 255 160 60)
+        canvas.fillGhost((gx2 + 90) 150 10 0 0 255 120 200)
+        canvas.fillWedgeCircle((gx2 + 120) 200 12 (t % 4) 2 245 245 60)
+    }
+
+    sfn m@(main):void () {
+        def frames:int 100
+        def argCount:int (shell_arg_cnt)
+        if (argCount > 0) {
+            def parsed@(optional):int (to_int (shell_arg 0))
+            if parsed {
+                frames = (unwrap parsed)
+            }
+        }
+
+        def canvas:SoftCanvas (new SoftCanvas)
+        canvas.init(480 270)
+
+        def i:int 0
+        while (i < frames) {
+            PacRenderBench.drawFrame(canvas i)
+            i = (i + 1)
+        }
+
+        def lit:int (canvas.litPixels(120))
+        print ("lit=" + (to_string lit))
+        print ("frames=" + (to_string frames))
+    }
+}

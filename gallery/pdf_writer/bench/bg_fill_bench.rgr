@@ -1,0 +1,84 @@
+; =============================================================================
+; bg_fill_bench - native (C++) micro-benchmark for the SoftCanvas blit layer.
+; =============================================================================
+; Mirrors the "ar" (Arctic Rush) createStaticBg() workload: fill a tall vertical
+; background with full-width road slices + many small circles/rects (trees,
+; rocks, checkpoints). This is the color-data-copying / blitting hot path the
+; interpreter drives through bgFillRect / bgFillCircle.
+;
+; Build & run:
+;   RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js \
+;     -l=cpp gallery/pdf_writer/bench/bg_fill_bench.rgr -nodecli \
+;     -d=tmp/bg-bench -o=bench.cpp
+;   cp gallery/invaders/variant.hpp tmp/bg-bench/
+;   g++ -O2 -std=c++17 tmp/bg-bench/bench.cpp -o tmp/bg-bench/bench
+;   ./tmp/bg-bench/bench 20
+
+Import "../../game_engine/framebuffer.rgr"
+
+class BgFillBench {
+    ; One createStaticBg-like pass over a WORLD_H tall background.
+    sfn buildBg:void (canvas:SoftCanvas) {
+        def bgWidth:int (canvas.getWidth())
+        def bgHeight:int (canvas.getHeight())
+
+        ; Road slices: full-width ground + edge + road + centre line, every 10px.
+        def y:int 0
+        def step:int 10
+        while (y < bgHeight) {
+            def center:int (idiv bgWidth 2)
+            def half:int 90
+            def left:int (center - half)
+            def right:int (center + half)
+
+            canvas.fillRect(0 y bgWidth step 24 46 40)
+            canvas.fillRect((left - 5) y ((right - left) + 10) step 170 186 176)
+            canvas.fillRect(left y (right - left) step 58 66 68)
+            if (((idiv y 28) % 2) == 0) {
+                canvas.fillRect((center - 2) y 4 step 245 210 100)
+            }
+            y = (y + step)
+        }
+
+        ; Trees + rocks along the road (many small circles / rects).
+        def d:int 0
+        while (d < 28) {
+            def rx:int (30 + (d * 15))
+            def ry:int (100 + (d * 200))
+            canvas.fillRect((rx - 2) (ry + 8) 4 12 80 58 42)
+            canvas.fillCircle(rx (ry + 7) 8 28 76 50)
+            canvas.fillCircle(rx (ry + 1) 6 36 104 65)
+            canvas.fillCircle((rx + 40) (ry + 6) 7 78 76 86)
+            canvas.fillRect((rx + 34) (ry + 6) 12 6 60 58 68)
+            d = (d + 1)
+        }
+    }
+
+    sfn m@(main):void () {
+        def iters:int 20
+        def argCount:int (shell_arg_cnt)
+        if (argCount > 0) {
+            def parsed@(optional):int (to_int (shell_arg 0))
+            if parsed {
+                iters = (unwrap parsed)
+            }
+        }
+
+        def W:int 480
+        def H:int 6000
+
+        def canvas:SoftCanvas (new SoftCanvas)
+        canvas.init(W H)
+
+        def i:int 0
+        while (i < iters) {
+            BgFillBench.buildBg(canvas)
+            i = (i + 1)
+        }
+
+        ; Cheap checksum so nothing is optimized away.
+        def lit:int (canvas.litPixels(120))
+        print ("lit=" + (to_string lit))
+        print ("iterations=" + (to_string iters))
+    }
+}
