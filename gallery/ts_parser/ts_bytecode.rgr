@@ -1,0 +1,100 @@
+; =============================================================================
+; ts_bytecode - Stack bytecode format for expression evaluation
+; =============================================================================
+
+class TSBytecodeChunk {
+    def ops:[int]
+    def operands:[int]
+    def constNums:[double]
+    def constStrs:[string]
+    def nameRefs:[string]
+    def ready:boolean false
+
+    Constructor () {
+        def emptyOps:[int]
+        ops = emptyOps
+        def emptyOperands:[int]
+        operands = emptyOperands
+        def emptyNums:[double]
+        constNums = emptyNums
+        def emptyStrs:[string]
+        constStrs = emptyStrs
+        def emptyNames:[string]
+        nameRefs = emptyNames
+    }
+
+    fn emit:void (op:int operand:int) {
+        push ops op
+        push operands operand
+    }
+
+    fn setOperandAt:void (index:int value:int) {
+        if (index < (array_length operands)) {
+            def rebuilt:[int]
+            def i:int 0
+            while (i < (array_length operands)) {
+                if (i == index) {
+                    push rebuilt value
+                } {
+                    push rebuilt (itemAt operands i)
+                }
+                i = (i + 1)
+            }
+            operands = rebuilt
+        }
+    }
+
+    fn addNumConst:int (n:double) {
+        push constNums n
+        return ((array_length constNums) - 1)
+    }
+
+    fn addStrConst:int (s:string) {
+        push constStrs s
+        return ((array_length constStrs) - 1)
+    }
+
+    fn addNameRef:int (name:string) {
+        push nameRefs name
+        return ((array_length nameRefs) - 1)
+    }
+}
+
+class TSBytecodeOp {
+    ; Stack / literal ops
+    sfn PUSH_NULL:int () { return 1 }
+    sfn PUSH_TRUE:int () { return 2 }
+    sfn PUSH_FALSE:int () { return 3 }
+    sfn PUSH_UNDEFINED:int () { return 4 }
+    sfn PUSH_NUM:int () { return 10 }
+    sfn PUSH_STR:int () { return 11 }
+    sfn LOAD_SLOT:int () { return 20 }
+    sfn LOAD_NAME:int () { return 21 }
+    sfn GET_MEMBER:int () { return 30 }
+    sfn GET_INDEX:int () { return 31 }
+    sfn MAKE_ARRAY:int () { return 40 }
+    sfn MAKE_OBJECT:int () { return 41 }
+
+    ; Arithmetic / compare
+    sfn ADD:int () { return 50 }
+    sfn SUB:int () { return 51 }
+    sfn MUL:int () { return 52 }
+    sfn DIV:int () { return 53 }
+    sfn MOD:int () { return 54 }
+    sfn EQ:int () { return 60 }
+    sfn NEQ:int () { return 61 }
+    sfn LT:int () { return 62 }
+    sfn GT:int () { return 63 }
+    sfn LTE:int () { return 64 }
+    sfn GTE:int () { return 65 }
+
+    ; Logical / unary
+    sfn JUMP_IF_FALSE:int () { return 70 }
+    sfn JUMP:int () { return 71 }
+    sfn NOT:int () { return 80 }
+    sfn NEG:int () { return 81 }
+    sfn POS:int () { return 82 }
+
+    sfn POP:int () { return 200 }
+    sfn DONE:int () { return 255 }
+}

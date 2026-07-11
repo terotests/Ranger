@@ -814,9 +814,157 @@ class TSLexer  {
     return tokens;
   };
 }
+class TSBytecodeChunk  {
+  constructor() {
+    this.ops = [];
+    this.operands = [];
+    this.constNums = [];
+    this.constStrs = [];
+    this.nameRefs = [];
+    this.ready = false;
+    let emptyOps = [];
+    this.ops = emptyOps;
+    let emptyOperands = [];
+    this.operands = emptyOperands;
+    let emptyNums = [];
+    this.constNums = emptyNums;
+    let emptyStrs = [];
+    this.constStrs = emptyStrs;
+    let emptyNames = [];
+    this.nameRefs = emptyNames;
+  }
+  emit (op, operand) {
+    this.ops.push(op);
+    this.operands.push(operand);
+  };
+  setOperandAt (index, value) {
+    if ( index < (this.operands.length) ) {
+      let rebuilt = [];
+      let i = 0;
+      while (i < (this.operands.length)) {
+        if ( i == index ) {
+          rebuilt.push(value);
+        } else {
+          rebuilt.push(this.operands[i]);
+        }
+        i = i + 1;
+      };
+      this.operands = rebuilt;
+    }
+  };
+  addNumConst (n) {
+    this.constNums.push(n);
+    return (this.constNums.length) - 1;
+  };
+  addStrConst (s) {
+    this.constStrs.push(s);
+    return (this.constStrs.length) - 1;
+  };
+  addNameRef (name) {
+    this.nameRefs.push(name);
+    return (this.nameRefs.length) - 1;
+  };
+}
+class TSBytecodeOp  {
+  constructor() {
+  }
+}
+TSBytecodeOp.PUSH_NULL = function() {
+  return 1;
+};
+TSBytecodeOp.PUSH_TRUE = function() {
+  return 2;
+};
+TSBytecodeOp.PUSH_FALSE = function() {
+  return 3;
+};
+TSBytecodeOp.PUSH_UNDEFINED = function() {
+  return 4;
+};
+TSBytecodeOp.PUSH_NUM = function() {
+  return 10;
+};
+TSBytecodeOp.PUSH_STR = function() {
+  return 11;
+};
+TSBytecodeOp.LOAD_SLOT = function() {
+  return 20;
+};
+TSBytecodeOp.LOAD_NAME = function() {
+  return 21;
+};
+TSBytecodeOp.GET_MEMBER = function() {
+  return 30;
+};
+TSBytecodeOp.GET_INDEX = function() {
+  return 31;
+};
+TSBytecodeOp.MAKE_ARRAY = function() {
+  return 40;
+};
+TSBytecodeOp.MAKE_OBJECT = function() {
+  return 41;
+};
+TSBytecodeOp.ADD = function() {
+  return 50;
+};
+TSBytecodeOp.SUB = function() {
+  return 51;
+};
+TSBytecodeOp.MUL = function() {
+  return 52;
+};
+TSBytecodeOp.DIV = function() {
+  return 53;
+};
+TSBytecodeOp.MOD = function() {
+  return 54;
+};
+TSBytecodeOp.EQ = function() {
+  return 60;
+};
+TSBytecodeOp.NEQ = function() {
+  return 61;
+};
+TSBytecodeOp.LT = function() {
+  return 62;
+};
+TSBytecodeOp.GT = function() {
+  return 63;
+};
+TSBytecodeOp.LTE = function() {
+  return 64;
+};
+TSBytecodeOp.GTE = function() {
+  return 65;
+};
+TSBytecodeOp.JUMP_IF_FALSE = function() {
+  return 70;
+};
+TSBytecodeOp.JUMP = function() {
+  return 71;
+};
+TSBytecodeOp.NOT = function() {
+  return 80;
+};
+TSBytecodeOp.NEG = function() {
+  return 81;
+};
+TSBytecodeOp.POS = function() {
+  return 82;
+};
+TSBytecodeOp.POP = function() {
+  return 200;
+};
+TSBytecodeOp.DONE = function() {
+  return 255;
+};
 class TSNode  {
   constructor() {
     this.nodeType = "";
+    this.nodeTypeId = 0;
+    this.bindingSlot = -1;
+    this.bytecodeReady = false;
     this.start = 0;
     this.end = 0;
     this.line = 0;
@@ -14399,6 +14547,848 @@ class TSAstPatcher  {
     return result;
   };
 }
+class TSNodeType  {
+  constructor() {
+  }
+  annotateNode (node) {
+    node.nodeTypeId = TSNodeType.idOf(node.nodeType);
+    let i = 0;
+    while (i < (node.children.length)) {
+      this.annotateNode(node.children[i]);
+      i = i + 1;
+    };
+    let pi = 0;
+    while (pi < (node.params.length)) {
+      this.annotateNode(node.params[pi]);
+      pi = pi + 1;
+    };
+    if ( typeof(node.left) != "undefined" ) {
+      this.annotateNode(node.left);
+    }
+    if ( typeof(node.right) != "undefined" ) {
+      this.annotateNode(node.right);
+    }
+    if ( typeof(node.body) != "undefined" ) {
+      this.annotateNode(node.body);
+    }
+    if ( typeof(node.init) != "undefined" ) {
+      this.annotateNode(node.init);
+    }
+    if ( typeof(node.test) != "undefined" ) {
+      this.annotateNode(node.test);
+    }
+    if ( typeof(node.consequent) != "undefined" ) {
+      this.annotateNode(node.consequent);
+    }
+    if ( typeof(node.alternate) != "undefined" ) {
+      this.annotateNode(node.alternate);
+    }
+  };
+  annotateTree (root) {
+    this.annotateNode(root);
+  };
+  bindModuleSlots (node, nameToSlot) {
+    const tid = TSNodeType.ensureId(node);
+    if ( tid == TSNodeType.NT_IDENTIFIER() ) {
+      if ( ( typeof(nameToSlot[node.name] ) != "undefined" && nameToSlot.hasOwnProperty(node.name) ) ) {
+        node.bindingSlot = (( nameToSlot.hasOwnProperty(node.name) ? nameToSlot[node.name] : undefined ));
+      }
+    }
+    let i = 0;
+    while (i < (node.children.length)) {
+      this.bindModuleSlots(node.children[i], nameToSlot);
+      i = i + 1;
+    };
+    let pi = 0;
+    while (pi < (node.params.length)) {
+      this.bindModuleSlots(node.params[pi], nameToSlot);
+      pi = pi + 1;
+    };
+    if ( typeof(node.left) != "undefined" ) {
+      this.bindModuleSlots(node.left, nameToSlot);
+    }
+    if ( typeof(node.right) != "undefined" ) {
+      this.bindModuleSlots(node.right, nameToSlot);
+    }
+    if ( typeof(node.body) != "undefined" ) {
+      this.bindModuleSlots(node.body, nameToSlot);
+    }
+    if ( typeof(node.init) != "undefined" ) {
+      this.bindModuleSlots(node.init, nameToSlot);
+    }
+    if ( typeof(node.test) != "undefined" ) {
+      this.bindModuleSlots(node.test, nameToSlot);
+    }
+    if ( typeof(node.consequent) != "undefined" ) {
+      this.bindModuleSlots(node.consequent, nameToSlot);
+    }
+    if ( typeof(node.alternate) != "undefined" ) {
+      this.bindModuleSlots(node.alternate, nameToSlot);
+    }
+  };
+}
+TSNodeType.NT_UNKNOWN = function() {
+  return 0;
+};
+TSNodeType.NT_PROGRAM = function() {
+  return 1;
+};
+TSNodeType.NT_NUMERIC_LITERAL = function() {
+  return 10;
+};
+TSNodeType.NT_STRING_LITERAL = function() {
+  return 11;
+};
+TSNodeType.NT_BOOLEAN_LITERAL = function() {
+  return 12;
+};
+TSNodeType.NT_NULL_LITERAL = function() {
+  return 13;
+};
+TSNodeType.NT_TEMPLATE_LITERAL = function() {
+  return 14;
+};
+TSNodeType.NT_IDENTIFIER = function() {
+  return 20;
+};
+TSNodeType.NT_BINARY_EXPRESSION = function() {
+  return 21;
+};
+TSNodeType.NT_UNARY_EXPRESSION = function() {
+  return 22;
+};
+TSNodeType.NT_CONDITIONAL_EXPRESSION = function() {
+  return 23;
+};
+TSNodeType.NT_MEMBER_EXPRESSION = function() {
+  return 24;
+};
+TSNodeType.NT_ARRAY_EXPRESSION = function() {
+  return 25;
+};
+TSNodeType.NT_OBJECT_EXPRESSION = function() {
+  return 26;
+};
+TSNodeType.NT_CALL_EXPRESSION = function() {
+  return 27;
+};
+TSNodeType.NT_PARENTHESES = function() {
+  return 28;
+};
+TSNodeType.NT_ARROW_FUNCTION = function() {
+  return 29;
+};
+TSNodeType.NT_UPDATE_EXPRESSION = function() {
+  return 30;
+};
+TSNodeType.NT_ASSIGNMENT_EXPRESSION = function() {
+  return 31;
+};
+TSNodeType.NT_TS_AS_EXPRESSION = function() {
+  return 32;
+};
+TSNodeType.NT_TS_NON_NULL_EXPRESSION = function() {
+  return 33;
+};
+TSNodeType.NT_JSX_ELEMENT = function() {
+  return 40;
+};
+TSNodeType.NT_JSX_FRAGMENT = function() {
+  return 41;
+};
+TSNodeType.NT_JSX_TEXT = function() {
+  return 42;
+};
+TSNodeType.NT_JSX_EXPRESSION_CONTAINER = function() {
+  return 43;
+};
+TSNodeType.NT_JSX_ATTRIBUTE = function() {
+  return 44;
+};
+TSNodeType.NT_BLOCK_STATEMENT = function() {
+  return 50;
+};
+TSNodeType.NT_RETURN_STATEMENT = function() {
+  return 51;
+};
+TSNodeType.NT_IF_STATEMENT = function() {
+  return 52;
+};
+TSNodeType.NT_FOR_STATEMENT = function() {
+  return 53;
+};
+TSNodeType.NT_FOR_OF_STATEMENT = function() {
+  return 54;
+};
+TSNodeType.NT_WHILE_STATEMENT = function() {
+  return 55;
+};
+TSNodeType.NT_VARIABLE_DECLARATION = function() {
+  return 56;
+};
+TSNodeType.NT_VARIABLE_DECLARATOR = function() {
+  return 57;
+};
+TSNodeType.NT_EXPRESSION_STATEMENT = function() {
+  return 58;
+};
+TSNodeType.NT_BREAK_STATEMENT = function() {
+  return 59;
+};
+TSNodeType.NT_CONTINUE_STATEMENT = function() {
+  return 60;
+};
+TSNodeType.NT_FUNCTION_DECLARATION = function() {
+  return 61;
+};
+TSNodeType.NT_PROPERTY = function() {
+  return 62;
+};
+TSNodeType.NT_IMPORT_DECLARATION = function() {
+  return 70;
+};
+TSNodeType.NT_IMPORT_SPECIFIER = function() {
+  return 71;
+};
+TSNodeType.NT_IMPORT_DEFAULT_SPECIFIER = function() {
+  return 72;
+};
+TSNodeType.NT_EXPORT_NAMED_DECLARATION = function() {
+  return 73;
+};
+TSNodeType.NT_EXPORT_DEFAULT_DECLARATION = function() {
+  return 74;
+};
+TSNodeType.NT_TEMPLATE_ELEMENT = function() {
+  return 80;
+};
+TSNodeType.NT_OBJECT_PATTERN = function() {
+  return 81;
+};
+TSNodeType.NT_PARAMETER = function() {
+  return 82;
+};
+TSNodeType.idOf = function(typeName) {
+  if ( typeName == "Program" ) {
+    return TSNodeType.NT_PROGRAM();
+  }
+  if ( typeName == "NumericLiteral" ) {
+    return TSNodeType.NT_NUMERIC_LITERAL();
+  }
+  if ( typeName == "StringLiteral" ) {
+    return TSNodeType.NT_STRING_LITERAL();
+  }
+  if ( typeName == "BooleanLiteral" ) {
+    return TSNodeType.NT_BOOLEAN_LITERAL();
+  }
+  if ( typeName == "NullLiteral" ) {
+    return TSNodeType.NT_NULL_LITERAL();
+  }
+  if ( typeName == "TemplateLiteral" ) {
+    return TSNodeType.NT_TEMPLATE_LITERAL();
+  }
+  if ( typeName == "Identifier" ) {
+    return TSNodeType.NT_IDENTIFIER();
+  }
+  if ( typeName == "BinaryExpression" ) {
+    return TSNodeType.NT_BINARY_EXPRESSION();
+  }
+  if ( typeName == "UnaryExpression" ) {
+    return TSNodeType.NT_UNARY_EXPRESSION();
+  }
+  if ( typeName == "ConditionalExpression" ) {
+    return TSNodeType.NT_CONDITIONAL_EXPRESSION();
+  }
+  if ( typeName == "MemberExpression" ) {
+    return TSNodeType.NT_MEMBER_EXPRESSION();
+  }
+  if ( typeName == "ArrayExpression" ) {
+    return TSNodeType.NT_ARRAY_EXPRESSION();
+  }
+  if ( typeName == "ObjectExpression" ) {
+    return TSNodeType.NT_OBJECT_EXPRESSION();
+  }
+  if ( typeName == "CallExpression" ) {
+    return TSNodeType.NT_CALL_EXPRESSION();
+  }
+  if ( typeName == "ParenthesizedExpression" ) {
+    return TSNodeType.NT_PARENTHESES();
+  }
+  if ( typeName == "ArrowFunctionExpression" ) {
+    return TSNodeType.NT_ARROW_FUNCTION();
+  }
+  if ( typeName == "UpdateExpression" ) {
+    return TSNodeType.NT_UPDATE_EXPRESSION();
+  }
+  if ( typeName == "AssignmentExpression" ) {
+    return TSNodeType.NT_ASSIGNMENT_EXPRESSION();
+  }
+  if ( typeName == "TSAsExpression" ) {
+    return TSNodeType.NT_TS_AS_EXPRESSION();
+  }
+  if ( typeName == "TSNonNullExpression" ) {
+    return TSNodeType.NT_TS_NON_NULL_EXPRESSION();
+  }
+  if ( typeName == "JSXElement" ) {
+    return TSNodeType.NT_JSX_ELEMENT();
+  }
+  if ( typeName == "JSXFragment" ) {
+    return TSNodeType.NT_JSX_FRAGMENT();
+  }
+  if ( typeName == "JSXText" ) {
+    return TSNodeType.NT_JSX_TEXT();
+  }
+  if ( typeName == "JSXExpressionContainer" ) {
+    return TSNodeType.NT_JSX_EXPRESSION_CONTAINER();
+  }
+  if ( typeName == "JSXAttribute" ) {
+    return TSNodeType.NT_JSX_ATTRIBUTE();
+  }
+  if ( typeName == "BlockStatement" ) {
+    return TSNodeType.NT_BLOCK_STATEMENT();
+  }
+  if ( typeName == "ReturnStatement" ) {
+    return TSNodeType.NT_RETURN_STATEMENT();
+  }
+  if ( typeName == "IfStatement" ) {
+    return TSNodeType.NT_IF_STATEMENT();
+  }
+  if ( typeName == "ForStatement" ) {
+    return TSNodeType.NT_FOR_STATEMENT();
+  }
+  if ( typeName == "ForOfStatement" ) {
+    return TSNodeType.NT_FOR_OF_STATEMENT();
+  }
+  if ( typeName == "WhileStatement" ) {
+    return TSNodeType.NT_WHILE_STATEMENT();
+  }
+  if ( typeName == "VariableDeclaration" ) {
+    return TSNodeType.NT_VARIABLE_DECLARATION();
+  }
+  if ( typeName == "VariableDeclarator" ) {
+    return TSNodeType.NT_VARIABLE_DECLARATOR();
+  }
+  if ( typeName == "ExpressionStatement" ) {
+    return TSNodeType.NT_EXPRESSION_STATEMENT();
+  }
+  if ( typeName == "BreakStatement" ) {
+    return TSNodeType.NT_BREAK_STATEMENT();
+  }
+  if ( typeName == "ContinueStatement" ) {
+    return TSNodeType.NT_CONTINUE_STATEMENT();
+  }
+  if ( typeName == "FunctionDeclaration" ) {
+    return TSNodeType.NT_FUNCTION_DECLARATION();
+  }
+  if ( typeName == "Property" ) {
+    return TSNodeType.NT_PROPERTY();
+  }
+  if ( typeName == "ImportDeclaration" ) {
+    return TSNodeType.NT_IMPORT_DECLARATION();
+  }
+  if ( typeName == "ImportSpecifier" ) {
+    return TSNodeType.NT_IMPORT_SPECIFIER();
+  }
+  if ( typeName == "ImportDefaultSpecifier" ) {
+    return TSNodeType.NT_IMPORT_DEFAULT_SPECIFIER();
+  }
+  if ( typeName == "ExportNamedDeclaration" ) {
+    return TSNodeType.NT_EXPORT_NAMED_DECLARATION();
+  }
+  if ( typeName == "ExportDefaultDeclaration" ) {
+    return TSNodeType.NT_EXPORT_DEFAULT_DECLARATION();
+  }
+  if ( typeName == "TemplateElement" ) {
+    return TSNodeType.NT_TEMPLATE_ELEMENT();
+  }
+  if ( typeName == "ObjectPattern" ) {
+    return TSNodeType.NT_OBJECT_PATTERN();
+  }
+  if ( typeName == "Parameter" ) {
+    return TSNodeType.NT_PARAMETER();
+  }
+  return TSNodeType.NT_UNKNOWN();
+};
+TSNodeType.ensureId = function(node) {
+  if ( node.nodeTypeId > 0 ) {
+    return node.nodeTypeId;
+  }
+  const id = TSNodeType.idOf(node.nodeType);
+  node.nodeTypeId = id;
+  return id;
+};
+class TSBytecodeCompiler  {
+  constructor() {
+    this.chunk = new TSBytecodeChunk();
+  }
+  reset () {
+    this.chunk = new TSBytecodeChunk();
+  };
+  canCompile (node) {
+    const tid = TSNodeType.ensureId(node);
+    if ( tid == TSNodeType.NT_NUMERIC_LITERAL() ) {
+      return true;
+    }
+    if ( tid == TSNodeType.NT_STRING_LITERAL() ) {
+      return true;
+    }
+    if ( tid == TSNodeType.NT_BOOLEAN_LITERAL() ) {
+      return true;
+    }
+    if ( tid == TSNodeType.NT_NULL_LITERAL() ) {
+      return true;
+    }
+    if ( tid == TSNodeType.NT_IDENTIFIER() ) {
+      return true;
+    }
+    if ( tid == TSNodeType.NT_BINARY_EXPRESSION() ) {
+      return this.canCompileBinary(node);
+    }
+    if ( tid == TSNodeType.NT_UNARY_EXPRESSION() ) {
+      return this.canCompileUnary(node);
+    }
+    if ( tid == TSNodeType.NT_CONDITIONAL_EXPRESSION() ) {
+      return this.canCompileConditional(node);
+    }
+    if ( tid == TSNodeType.NT_MEMBER_EXPRESSION() ) {
+      return this.canCompileMember(node);
+    }
+    if ( tid == TSNodeType.NT_ARRAY_EXPRESSION() ) {
+      return this.canCompileArray(node);
+    }
+    if ( tid == TSNodeType.NT_OBJECT_EXPRESSION() ) {
+      return this.canCompileObject(node);
+    }
+    if ( tid == TSNodeType.NT_PARENTHESES() ) {
+      return this.canCompileParen(node);
+    }
+    if ( tid == TSNodeType.NT_TS_AS_EXPRESSION() ) {
+      return this.canCompileAs(node);
+    }
+    if ( tid == TSNodeType.NT_TS_NON_NULL_EXPRESSION() ) {
+      return this.canCompileAs(node);
+    }
+    return false;
+  };
+  canCompileBinary (node) {
+    if ( typeof(node.left) != "undefined" ) {
+      if ( false == this.canCompile((node.left)) ) {
+        return false;
+      }
+    }
+    if ( typeof(node.right) != "undefined" ) {
+      if ( false == this.canCompile((node.right)) ) {
+        return false;
+      }
+    }
+    return true;
+  };
+  canCompileUnary (node) {
+    if ( typeof(node.left) != "undefined" ) {
+      return this.canCompile((node.left));
+    }
+    return false;
+  };
+  canCompileConditional (node) {
+    if ( typeof(node.test) != "undefined" ) {
+      if ( false == this.canCompile((node.test)) ) {
+        return false;
+      }
+    }
+    if ( typeof(node.consequent) != "undefined" ) {
+      if ( false == this.canCompile((node.consequent)) ) {
+        return false;
+      }
+    }
+    if ( typeof(node.alternate) != "undefined" ) {
+      if ( false == this.canCompile((node.alternate)) ) {
+        return false;
+      }
+    }
+    return true;
+  };
+  canCompileMember (node) {
+    if ( typeof(node.left) != "undefined" ) {
+      if ( false == this.canCompile((node.left)) ) {
+        return false;
+      }
+    }
+    if ( node.computed ) {
+      if ( typeof(node.right) != "undefined" ) {
+        return this.canCompile((node.right));
+      }
+      return false;
+    }
+    return true;
+  };
+  canCompileArray (node) {
+    let i = 0;
+    while (i < (node.children.length)) {
+      if ( false == this.canCompile((node.children[i])) ) {
+        return false;
+      }
+      i = i + 1;
+    };
+    return true;
+  };
+  canCompileObject (node) {
+    let i = 0;
+    while (i < (node.children.length)) {
+      const prop = node.children[i];
+      if ( typeof(prop.left) != "undefined" ) {
+        if ( false == this.canCompile((prop.left)) ) {
+          return false;
+        }
+      }
+      i = i + 1;
+    };
+    return true;
+  };
+  canCompileParen (node) {
+    if ( typeof(node.left) != "undefined" ) {
+      return this.canCompile((node.left));
+    }
+    return false;
+  };
+  canCompileAs (node) {
+    if ( typeof(node.left) != "undefined" ) {
+      return this.canCompile((node.left));
+    }
+    return false;
+  };
+  compileExpr (node) {
+    const result = new TSBytecodeChunk();
+    this.chunk = result;
+    this.emitExpr(node);
+    this.chunk.emit(TSBytecodeOp.DONE(), 0);
+    this.chunk.ready = true;
+    return result;
+  };
+  emitExpr (node) {
+    const tid = TSNodeType.ensureId(node);
+    if ( tid == TSNodeType.NT_NUMERIC_LITERAL() ) {
+      const numVal = isNaN( parseFloat(node.value) ) ? undefined : parseFloat(node.value);
+      let n = 0.0;
+      if ( typeof(numVal) != "undefined" ) {
+        n = numVal;
+      }
+      const idx = this.chunk.addNumConst(n);
+      this.chunk.emit(TSBytecodeOp.PUSH_NUM(), idx);
+      return;
+    }
+    if ( tid == TSNodeType.NT_STRING_LITERAL() ) {
+      const idx_1 = this.chunk.addStrConst(node.value);
+      this.chunk.emit(TSBytecodeOp.PUSH_STR(), idx_1);
+      return;
+    }
+    if ( tid == TSNodeType.NT_BOOLEAN_LITERAL() ) {
+      if ( node.value == "true" ) {
+        this.chunk.emit(TSBytecodeOp.PUSH_TRUE(), 0);
+      } else {
+        this.chunk.emit(TSBytecodeOp.PUSH_FALSE(), 0);
+      }
+      return;
+    }
+    if ( tid == TSNodeType.NT_NULL_LITERAL() ) {
+      this.chunk.emit(TSBytecodeOp.PUSH_NULL(), 0);
+      return;
+    }
+    if ( tid == TSNodeType.NT_IDENTIFIER() ) {
+      if ( node.bindingSlot >= 0 ) {
+        this.chunk.emit(TSBytecodeOp.LOAD_SLOT(), node.bindingSlot);
+      } else {
+        const idx_2 = this.chunk.addNameRef(node.name);
+        this.chunk.emit(TSBytecodeOp.LOAD_NAME(), idx_2);
+      }
+      return;
+    }
+    if ( tid == TSNodeType.NT_BINARY_EXPRESSION() ) {
+      this.emitBinary(node);
+      return;
+    }
+    if ( tid == TSNodeType.NT_UNARY_EXPRESSION() ) {
+      this.emitUnary(node);
+      return;
+    }
+    if ( tid == TSNodeType.NT_CONDITIONAL_EXPRESSION() ) {
+      this.emitConditional(node);
+      return;
+    }
+    if ( tid == TSNodeType.NT_MEMBER_EXPRESSION() ) {
+      this.emitMember(node);
+      return;
+    }
+    if ( tid == TSNodeType.NT_ARRAY_EXPRESSION() ) {
+      this.emitArray(node);
+      return;
+    }
+    if ( tid == TSNodeType.NT_OBJECT_EXPRESSION() ) {
+      this.emitObject(node);
+      return;
+    }
+    if ( tid == TSNodeType.NT_PARENTHESES() ) {
+      if ( typeof(node.left) != "undefined" ) {
+        this.emitExpr(node.left);
+      }
+      return;
+    }
+    if ( tid == TSNodeType.NT_TS_AS_EXPRESSION() ) {
+      if ( typeof(node.left) != "undefined" ) {
+        this.emitExpr(node.left);
+      }
+      return;
+    }
+    if ( tid == TSNodeType.NT_TS_NON_NULL_EXPRESSION() ) {
+      if ( typeof(node.left) != "undefined" ) {
+        this.emitExpr(node.left);
+      }
+    }
+  };
+  emitBinary (node) {
+    const op = node.value;
+    if ( op == "&&" ) {
+      if ( typeof(node.left) != "undefined" ) {
+        this.emitExpr(node.left);
+      }
+      const jumpFalse = this.chunk.ops.length;
+      this.chunk.emit(TSBytecodeOp.JUMP_IF_FALSE(), 0);
+      if ( typeof(node.right) != "undefined" ) {
+        this.emitExpr(node.right);
+      }
+      const endPos = this.chunk.ops.length;
+      this.chunk.setOperandAt(jumpFalse, endPos);
+      return;
+    }
+    if ( op == "||" ) {
+      if ( typeof(node.left) != "undefined" ) {
+        this.emitExpr(node.left);
+      }
+      const jumpIfTrue = this.chunk.ops.length;
+      this.chunk.emit(TSBytecodeOp.JUMP_IF_FALSE(), 0);
+      const jumpEnd = this.chunk.ops.length;
+      this.chunk.emit(TSBytecodeOp.JUMP(), 0);
+      const elsePos = this.chunk.ops.length;
+      this.chunk.setOperandAt(jumpIfTrue, elsePos);
+      this.chunk.emit(TSBytecodeOp.POP(), 0);
+      if ( typeof(node.right) != "undefined" ) {
+        this.emitExpr(node.right);
+      }
+      const endPos_1 = this.chunk.ops.length;
+      this.chunk.setOperandAt(jumpEnd, endPos_1);
+      return;
+    }
+    if ( typeof(node.left) != "undefined" ) {
+      this.emitExpr(node.left);
+    }
+    if ( typeof(node.right) != "undefined" ) {
+      this.emitExpr(node.right);
+    }
+    if ( op == "+" ) {
+      this.chunk.emit(TSBytecodeOp.ADD(), 0);
+    }
+    if ( op == "-" ) {
+      this.chunk.emit(TSBytecodeOp.SUB(), 0);
+    }
+    if ( op == "*" ) {
+      this.chunk.emit(TSBytecodeOp.MUL(), 0);
+    }
+    if ( op == "/" ) {
+      this.chunk.emit(TSBytecodeOp.DIV(), 0);
+    }
+    if ( op == "%" ) {
+      this.chunk.emit(TSBytecodeOp.MOD(), 0);
+    }
+    if ( op == "==" ) {
+      this.chunk.emit(TSBytecodeOp.EQ(), 0);
+    }
+    if ( op == "===" ) {
+      this.chunk.emit(TSBytecodeOp.EQ(), 0);
+    }
+    if ( op == "!=" ) {
+      this.chunk.emit(TSBytecodeOp.NEQ(), 0);
+    }
+    if ( op == "!==" ) {
+      this.chunk.emit(TSBytecodeOp.NEQ(), 0);
+    }
+    if ( op == "<" ) {
+      this.chunk.emit(TSBytecodeOp.LT(), 0);
+    }
+    if ( op == ">" ) {
+      this.chunk.emit(TSBytecodeOp.GT(), 0);
+    }
+    if ( op == "<=" ) {
+      this.chunk.emit(TSBytecodeOp.LTE(), 0);
+    }
+    if ( op == ">=" ) {
+      this.chunk.emit(TSBytecodeOp.GTE(), 0);
+    }
+    if ( op == "??" ) {
+      this.chunk.emit(TSBytecodeOp.NEQ(), 0);
+    }
+  };
+  emitUnary (node) {
+    if ( typeof(node.left) != "undefined" ) {
+      this.emitExpr(node.left);
+    }
+    const op = node.value;
+    if ( op == "!" ) {
+      this.chunk.emit(TSBytecodeOp.NOT(), 0);
+    }
+    if ( op == "-" ) {
+      this.chunk.emit(TSBytecodeOp.NEG(), 0);
+    }
+    if ( op == "+" ) {
+      this.chunk.emit(TSBytecodeOp.POS(), 0);
+    }
+  };
+  emitConditional (node) {
+    if ( typeof(node.test) != "undefined" ) {
+      this.emitExpr(node.test);
+    }
+    const jumpFalse = this.chunk.ops.length;
+    this.chunk.emit(TSBytecodeOp.JUMP_IF_FALSE(), 0);
+    if ( typeof(node.consequent) != "undefined" ) {
+      this.emitExpr(node.consequent);
+    }
+    const jumpEnd = this.chunk.ops.length;
+    this.chunk.emit(TSBytecodeOp.JUMP(), 0);
+    const elsePos = this.chunk.ops.length;
+    this.chunk.setOperandAt(jumpFalse, elsePos);
+    if ( typeof(node.alternate) != "undefined" ) {
+      this.emitExpr(node.alternate);
+    }
+    const endPos = this.chunk.ops.length;
+    this.chunk.setOperandAt(jumpEnd, endPos);
+  };
+  emitMember (node) {
+    if ( typeof(node.left) != "undefined" ) {
+      this.emitExpr(node.left);
+    }
+    if ( node.computed ) {
+      if ( typeof(node.right) != "undefined" ) {
+        this.emitExpr(node.right);
+      }
+      this.chunk.emit(TSBytecodeOp.GET_INDEX(), 0);
+    } else {
+      let propName = node.name;
+      if ( (propName.length) == 0 ) {
+        if ( typeof(node.right) != "undefined" ) {
+          const propNode = node.right;
+          propName = propNode.name;
+          if ( (propName.length) == 0 ) {
+            propName = propNode.value;
+          }
+        }
+      }
+      const idx = this.chunk.addNameRef(propName);
+      this.chunk.emit(TSBytecodeOp.GET_MEMBER(), idx);
+    }
+  };
+  emitArray (node) {
+    const count = node.children.length;
+    let i = 0;
+    while (i < count) {
+      this.emitExpr(node.children[i]);
+      i = i + 1;
+    };
+    this.chunk.emit(TSBytecodeOp.MAKE_ARRAY(), count);
+  };
+  emitObject (node) {
+    const count = node.children.length;
+    let i = 0;
+    while (i < count) {
+      const prop = node.children[i];
+      const keyName = prop.name;
+      const keyIdx = this.chunk.addStrConst(keyName);
+      this.chunk.emit(TSBytecodeOp.PUSH_STR(), keyIdx);
+      if ( typeof(prop.left) != "undefined" ) {
+        this.emitExpr(prop.left);
+      } else {
+        this.chunk.emit(TSBytecodeOp.PUSH_NULL(), 0);
+      }
+      i = i + 1;
+    };
+    this.chunk.emit(TSBytecodeOp.MAKE_OBJECT(), count);
+  };
+}
+class EvalValueCache  {
+  constructor() {
+    if (EvalValueCache.__singleton_instance != null) {
+      return EvalValueCache.__singleton_instance;
+    }
+    this.nullVal = new EvalValue();
+    this.trueVal = new EvalValue();
+    this.falseVal = new EvalValue();
+    this.undefinedVal = new EvalValue();
+    this.intCache = {};
+    this.strCache = {};
+    this.initialized = false;
+    EvalValueCache.__singleton_instance = this;
+  }
+  ensureInit () {
+    if ( this.initialized ) {
+      return;
+    }
+    this.nullVal.valueType = 0;
+    this.trueVal.valueType = 3;
+    this.trueVal.boolValue = true;
+    this.falseVal.valueType = 3;
+    this.falseVal.boolValue = false;
+    this.undefinedVal.valueType = 8;
+    this.initialized = true;
+  };
+  cachedNull () {
+    this.ensureInit();
+    return this.nullVal;
+  };
+  cachedTrue () {
+    this.ensureInit();
+    return this.trueVal;
+  };
+  cachedFalse () {
+    this.ensureInit();
+    return this.falseVal;
+  };
+  cachedUndefined () {
+    this.ensureInit();
+    return this.undefinedVal;
+  };
+  cachedInt (n) {
+    const key = (n.toString());
+    if ( ( typeof(this.intCache[key] ) != "undefined" && this.intCache.hasOwnProperty(key) ) ) {
+      return (( this.intCache.hasOwnProperty(key) ? this.intCache[key] : undefined ));
+    }
+    const v = EvalValue.fromInt(n);
+    this.intCache[key] = v;
+    return v;
+  };
+  internString (raw) {
+    let s = raw;
+    if ( (s.length) >= 2 ) {
+      const first = s.substring(0, 1 );
+      const last = s.substring(((s.length) - 1), (s.length) );
+      if ( (first == "\"") && (last == "\"") ) {
+        s = s.substring(1, ((s.length) - 1) );
+      }
+      if ( (first == "'") && (last == "'") ) {
+        s = s.substring(1, ((s.length) - 1) );
+      }
+    }
+    if ( ( typeof(this.strCache[s] ) != "undefined" && this.strCache.hasOwnProperty(s) ) ) {
+      return (( this.strCache.hasOwnProperty(s) ? this.strCache[s] : undefined ));
+    }
+    const v = EvalValue.string(s);
+    this.strCache[s] = v;
+    return v;
+  };
+}
+EvalValueCache.__singleton_instance = null;
+EvalValueCache.__singleton = function() {
+  if (EvalValueCache.__singleton_instance == null) {
+    EvalValueCache.__singleton_instance = new EvalValueCache();
+  }
+  return EvalValueCache.__singleton_instance;
+};
 class EvalValue  {
   constructor() {
     this.valueType = 0;
@@ -14618,10 +15608,32 @@ class EvalValue  {
     return false;
   };
 }
+EvalValue.cachedNull = function() {
+  const cache = EvalValueCache.__singleton();
+  return cache.cachedNull();
+};
+EvalValue.cachedTrue = function() {
+  const cache = EvalValueCache.__singleton();
+  return cache.cachedTrue();
+};
+EvalValue.cachedFalse = function() {
+  const cache = EvalValueCache.__singleton();
+  return cache.cachedFalse();
+};
+EvalValue.cachedUndefined = function() {
+  const cache = EvalValueCache.__singleton();
+  return cache.cachedUndefined();
+};
+EvalValue.cachedInt = function(n) {
+  const cache = EvalValueCache.__singleton();
+  return cache.cachedInt(n);
+};
+EvalValue.internString = function(raw) {
+  const cache = EvalValueCache.__singleton();
+  return cache.internString(raw);
+};
 EvalValue.null = function() {
-  const v = new EvalValue();
-  v.valueType = 0;
-  return v;
+  return EvalValue.cachedNull();
 };
 EvalValue.number = function(n) {
   const v = new EvalValue();
@@ -14642,10 +15654,10 @@ EvalValue.string = function(s) {
   return v;
 };
 EvalValue.boolean = function(b) {
-  const v = new EvalValue();
-  v.valueType = 3;
-  v.boolValue = b;
-  return v;
+  if ( b ) {
+    return EvalValue.cachedTrue();
+  }
+  return EvalValue.cachedFalse();
 };
 EvalValue.array = function(items) {
   const v = new EvalValue();
@@ -14679,9 +15691,7 @@ EvalValue.element = function(el) {
   return v;
 };
 EvalValue.undefined = function() {
-  const v = new EvalValue();
-  v.valueType = 8;
-  return v;
+  return EvalValue.cachedUndefined();
 };
 class ImportedSymbol  {
   constructor() {
@@ -14695,11 +15705,49 @@ class ImportedSymbol  {
 class EvalContext  {
   constructor() {
     this.bindings = {};
+    this.slotValues = [];
+    this.nameToSlot = {};
+    this.nextSlot = 0;
   }
   define (name, value) {
     this.bindings[name] = value;
   };
+  defineSlot (name, value) {
+    if ( ( typeof(this.nameToSlot[name] ) != "undefined" && this.nameToSlot.hasOwnProperty(name) ) ) {
+      const idx = (( this.nameToSlot.hasOwnProperty(name) ? this.nameToSlot[name] : undefined ));
+      this.updateSlotAt(idx, value);
+      this.bindings[name] = value;
+      return;
+    }
+    const idx_1 = this.nextSlot;
+    this.nextSlot = this.nextSlot + 1;
+    this.nameToSlot[name] = idx_1;
+    this.slotValues.push(value);
+    this.bindings[name] = value;
+  };
+  updateSlotAt (idx, value) {
+    let rebuilt = [];
+    let i = 0;
+    while (i < (this.slotValues.length)) {
+      if ( i == idx ) {
+        rebuilt.push(value);
+      } else {
+        rebuilt.push(this.slotValues[i]);
+      }
+      i = i + 1;
+    };
+    this.slotValues = rebuilt;
+  };
+  lookupSlot (slot) {
+    if ( slot < (this.slotValues.length) ) {
+      return this.slotValues[slot];
+    }
+    return EvalValue.cachedNull();
+  };
   lookup (name) {
+    if ( ( typeof(this.nameToSlot[name] ) != "undefined" && this.nameToSlot.hasOwnProperty(name) ) ) {
+      return this.lookupSlot(((( this.nameToSlot.hasOwnProperty(name) ? this.nameToSlot[name] : undefined ))));
+    }
     if ( ( typeof(this.bindings[name] ) != "undefined" && this.bindings.hasOwnProperty(name) ) ) {
       return (( this.bindings.hasOwnProperty(name) ? this.bindings[name] : undefined ));
     }
@@ -14707,9 +15755,15 @@ class EvalContext  {
       const p = this.parent;
       return p.lookup(name);
     }
-    return EvalValue.null();
+    return EvalValue.cachedNull();
   };
   assignExisting (name, value) {
+    if ( ( typeof(this.nameToSlot[name] ) != "undefined" && this.nameToSlot.hasOwnProperty(name) ) ) {
+      const idx = (( this.nameToSlot.hasOwnProperty(name) ? this.nameToSlot[name] : undefined ));
+      this.updateSlotAt(idx, value);
+      this.bindings[name] = value;
+      return true;
+    }
     if ( ( typeof(this.bindings[name] ) != "undefined" && this.bindings.hasOwnProperty(name) ) ) {
       this.bindings[name] = value;
       return true;
@@ -14727,13 +15781,39 @@ class EvalContext  {
     this.define(name, value);
   };
   removeBinding (name) {
+    if ( ( typeof(this.nameToSlot[name] ) != "undefined" && this.nameToSlot.hasOwnProperty(name) ) ) {
+      const idx = (( this.nameToSlot.hasOwnProperty(name) ? this.nameToSlot[name] : undefined ));
+      let newSlots = [];
+      let si = 0;
+      while (si < (this.slotValues.length)) {
+        if ( si != idx ) {
+          newSlots.push(this.slotValues[si]);
+        }
+        si = si + 1;
+      };
+      this.slotValues = newSlots;
+      let newMap = {};
+      const keyList = Object.keys(this.nameToSlot);
+      for ( let idx2 = 0; idx2 < keyList.length; idx2++) {
+        var kk = keyList[idx2];
+        if ( kk != name ) {
+          const oldIdx = (( this.nameToSlot.hasOwnProperty(kk) ? this.nameToSlot[kk] : undefined ));
+          if ( oldIdx > idx ) {
+            newMap[kk] = oldIdx - 1;
+          } else {
+            newMap[kk] = oldIdx;
+          }
+        }
+      };
+      this.nameToSlot = newMap;
+    }
     if ( ( typeof(this.bindings[name] ) != "undefined" && this.bindings.hasOwnProperty(name) ) ) {
       let newBindings = {};
-      const keyList = Object.keys(this.bindings);
-      for ( let idx = 0; idx < keyList.length; idx++) {
-        var kk = keyList[idx];
-        if ( kk != name ) {
-          newBindings[kk] = (( this.bindings.hasOwnProperty(kk) ? this.bindings[kk] : undefined ));
+      const keyList_1 = Object.keys(this.bindings);
+      for ( let idx_1 = 0; idx_1 < keyList_1.length; idx_1++) {
+        var kk_1 = keyList_1[idx_1];
+        if ( kk_1 != name ) {
+          newBindings[kk_1] = (( this.bindings.hasOwnProperty(kk_1) ? this.bindings[kk_1] : undefined ));
         }
       };
       this.bindings = newBindings;
@@ -14802,6 +15882,12 @@ class ComponentEngine  {
     this.importLoading = [];
     this.importLoaded = [];
     this.primitives = [];
+    this.primitiveSet = {};
+    this.componentMap = {};
+    this.bytecodeCompiler = new TSBytecodeCompiler();
+    this.bytecodeStack = [];
+    this.bytecodeStackTop = 0;
+    this.nodeTypeHelper = new TSNodeType();
     this.scriptDidReturn = false;
     this.scriptReturnValue = EvalValue.null();
     this.loopBreak = false;
@@ -14832,32 +15918,60 @@ class ComponentEngine  {
     this.context = mod;
     let prim = [];
     this.primitives = prim;
+    let primSet = {};
+    this.primitiveSet = primSet;
+    let compMap = {};
+    this.componentMap = compMap;
     let ap_1 = [];
     this.assetPaths = ap_1;
+    let bcStack = [];
+    this.bytecodeStack = bcStack;
     this.primitives.push("View");
+    this.markPrimitive("View");
     this.primitives.push("Label");
+    this.markPrimitive("Label");
     this.primitives.push("Print");
+    this.markPrimitive("Print");
     this.primitives.push("Section");
+    this.markPrimitive("Section");
     this.primitives.push("Page");
+    this.markPrimitive("Page");
     this.primitives.push("Image");
+    this.markPrimitive("Image");
     this.primitives.push("Path");
+    this.markPrimitive("Path");
     this.primitives.push("Spacer");
+    this.markPrimitive("Spacer");
     this.primitives.push("Divider");
+    this.markPrimitive("Divider");
     this.primitives.push("Layer");
+    this.markPrimitive("Layer");
     this.primitives.push("div");
+    this.markPrimitive("div");
     this.primitives.push("span");
+    this.markPrimitive("span");
     this.primitives.push("p");
+    this.markPrimitive("p");
     this.primitives.push("h1");
+    this.markPrimitive("h1");
     this.primitives.push("h2");
+    this.markPrimitive("h2");
     this.primitives.push("h3");
+    this.markPrimitive("h3");
     this.primitives.push("img");
+    this.markPrimitive("img");
     this.primitives.push("path");
+    this.markPrimitive("path");
     this.primitives.push("layer");
+    this.markPrimitive("layer");
   }
   trace (msg) {
     if ( this.quiet == false ) {
       console.log(msg);
     }
+  };
+  markPrimitive (name) {
+    this.primitiveSet[name] = true;
   };
   addAssetPath (path) {
     if ( (path.length) == 0 ) {
@@ -14995,11 +16109,13 @@ class ComponentEngine  {
         existing.sourcePath = sym.sourcePath;
         existing.symbolType = sym.symbolType;
         existing.helperFunctions = sym.helperFunctions;
+        this.componentMap[sym.name] = existing;
         return;
       }
       i = i + 1;
     };
     this.localComponents.push(sym);
+    this.componentMap[sym.name] = sym;
   };
   removeLocalComponentByName (name) {
     let out = [];
@@ -15136,7 +16252,44 @@ class ComponentEngine  {
     return args;
   };
   defineModuleBinding (name, value) {
-    this.moduleScope.define(name, value);
+    this.moduleScope.defineSlot(name, value);
+  };
+  rebindModuleSlots (ast) {
+    this.nodeTypeHelper.bindModuleSlots(ast, this.moduleScope.nameToSlot);
+  };
+  invalidateNodeBytecode (node) {
+    node.bytecodeReady = false;
+    let i = 0;
+    while (i < (node.children.length)) {
+      this.invalidateNodeBytecode(node.children[i]);
+      i = i + 1;
+    };
+    let pi = 0;
+    while (pi < (node.params.length)) {
+      this.invalidateNodeBytecode(node.params[pi]);
+      pi = pi + 1;
+    };
+    if ( typeof(node.left) != "undefined" ) {
+      this.invalidateNodeBytecode(node.left);
+    }
+    if ( typeof(node.right) != "undefined" ) {
+      this.invalidateNodeBytecode(node.right);
+    }
+    if ( typeof(node.body) != "undefined" ) {
+      this.invalidateNodeBytecode(node.body);
+    }
+    if ( typeof(node.init) != "undefined" ) {
+      this.invalidateNodeBytecode(node.init);
+    }
+    if ( typeof(node.test) != "undefined" ) {
+      this.invalidateNodeBytecode(node.test);
+    }
+    if ( typeof(node.consequent) != "undefined" ) {
+      this.invalidateNodeBytecode(node.consequent);
+    }
+    if ( typeof(node.alternate) != "undefined" ) {
+      this.invalidateNodeBytecode(node.alternate);
+    }
   };
   getGlobal (name) {
     const v = this.context.lookup(name);
@@ -15150,11 +16303,15 @@ class ComponentEngine  {
     const tokens = lexer.tokenize();
     this.parser.initParser(tokens);
     this.parser.tsxMode = true;
-    return this.parser.parseProgram();
+    const ast = this.parser.parseProgram();
+    this.nodeTypeHelper.annotateTree(ast);
+    return ast;
   };
   clearLocalComponents () {
     let empty = [];
     this.localComponents = empty;
+    let emptyMap = {};
+    this.componentMap = emptyMap;
   };
   loadScript (src) {
     this.source = src;
@@ -15172,6 +16329,7 @@ class ComponentEngine  {
     this.processImports(ast);
     this.registerComponents(ast);
     this.processVariables(ast);
+    this.rebindModuleSlots(ast);
   };
   updateLocalComponentNode (name, node) {
     let i = 0;
@@ -15232,7 +16390,12 @@ class ComponentEngine  {
       }
       ci = ci + 1;
     };
+    this.finishPatchScript(newAst);
     return patch.sceneAffecting;
+  };
+  finishPatchScript (ast) {
+    this.rebindModuleSlots(ast);
+    this.invalidateNodeBytecode(ast);
   };
   callFunction (name, props) {
     const fnValue = this.context.lookup(name);
@@ -16511,13 +17674,9 @@ class ComponentEngine  {
     if ( (name.length) == 0 ) {
       return false;
     }
-    let i = 0;
-    while (i < (this.primitives.length)) {
-      if ( (this.primitives[i]) == name ) {
-        return false;
-      }
-      i = i + 1;
-    };
+    if ( ( typeof(this.primitiveSet[name] ) != "undefined" && this.primitiveSet.hasOwnProperty(name) ) ) {
+      return false;
+    }
     const firstChar = name.charCodeAt(0 );
     if ( (firstChar >= 65) && (firstChar <= 90) ) {
       return true;
@@ -16525,29 +17684,11 @@ class ComponentEngine  {
     return false;
   };
   expandComponent (name, jsxNode) {
-    let foundIdx = -1;
-    let i = 0;
-    while (i < (this.localComponents.length)) {
-      const sym = this.localComponents[i];
-      if ( sym.name == name ) {
-        foundIdx = i;
-      }
-      i = i + 1;
-    };
-    if ( foundIdx >= 0 ) {
-      const sym_1 = this.localComponents[foundIdx];
+    if ( ( typeof(this.componentMap[name] ) != "undefined" && this.componentMap.hasOwnProperty(name) ) ) {
+      const sym = (( this.componentMap.hasOwnProperty(name) ? this.componentMap[name] : undefined ));
       const props = this.evaluateProps(jsxNode);
-      if ( typeof(sym_1.functionNode) != "undefined" ) {
-        const fnNode = sym_1.functionNode;
-        let hi = 0;
-        while (hi < (sym_1.helperFunctions.length)) {
-          const helperFn = sym_1.helperFunctions[hi];
-          const helperName = helperFn.name;
-          const helperValue = EvalValue.function(helperFn);
-          this.context.define(helperName, helperValue);
-          console.log("Registered helper function: " + helperName);
-          hi = hi + 1;
-        };
+      if ( typeof(sym.functionNode) != "undefined" ) {
+        const fnNode = sym.functionNode;
         return this.evaluateFunctionWithProps(fnNode, props);
       }
     }
@@ -16951,94 +18092,369 @@ class ComponentEngine  {
       }
     }
   };
+  tryEvaluateBytecode (node) {
+    if ( node.bytecodeReady ) {
+      if ( typeof(node.exprBytecode) != "undefined" ) {
+        return this.executeBytecode((node.exprBytecode));
+      }
+    }
+    if ( this.bytecodeCompiler.canCompile(node) ) {
+      const chunk = this.bytecodeCompiler.compileExpr(node);
+      node.exprBytecode = chunk;
+      node.bytecodeReady = true;
+      return this.executeBytecode(chunk);
+    }
+    return EvalValue.cachedNull();
+  };
+  bytecodePush (v) {
+    this.bytecodeStack.push(v);
+    this.bytecodeStackTop = this.bytecodeStackTop + 1;
+  };
+  bytecodePop () {
+    if ( this.bytecodeStackTop > 0 ) {
+      this.bytecodeStackTop = this.bytecodeStackTop - 1;
+      return this.bytecodeStack[this.bytecodeStackTop];
+    }
+    return EvalValue.cachedNull();
+  };
+  bytecodePeek () {
+    if ( this.bytecodeStackTop > 0 ) {
+      return this.bytecodeStack[(this.bytecodeStackTop - 1)];
+    }
+    return EvalValue.cachedNull();
+  };
+  executeBytecode (chunk) {
+    let emptyStack = [];
+    this.bytecodeStack = emptyStack;
+    this.bytecodeStackTop = 0;
+    if ( chunk.ready == false ) {
+      return EvalValue.cachedNull();
+    }
+    let ip = 0;
+    const opCount = chunk.ops.length;
+    while (ip < opCount) {
+      const op = chunk.ops[ip];
+      const operand = chunk.operands[ip];
+      ip = ip + 1;
+      if ( op == TSBytecodeOp.PUSH_NULL() ) {
+        this.bytecodePush(EvalValue.cachedNull());
+        continue;
+      }
+      if ( op == TSBytecodeOp.PUSH_TRUE() ) {
+        this.bytecodePush(EvalValue.cachedTrue());
+        continue;
+      }
+      if ( op == TSBytecodeOp.PUSH_FALSE() ) {
+        this.bytecodePush(EvalValue.cachedFalse());
+        continue;
+      }
+      if ( op == TSBytecodeOp.PUSH_UNDEFINED() ) {
+        this.bytecodePush(EvalValue.cachedUndefined());
+        continue;
+      }
+      if ( op == TSBytecodeOp.PUSH_NUM() ) {
+        const n = chunk.constNums[operand];
+        this.bytecodePush(EvalValue.number(n));
+        continue;
+      }
+      if ( op == TSBytecodeOp.PUSH_STR() ) {
+        const raw = chunk.constStrs[operand];
+        this.bytecodePush(EvalValue.internString(raw));
+        continue;
+      }
+      if ( op == TSBytecodeOp.LOAD_SLOT() ) {
+        this.bytecodePush(this.moduleScope.lookupSlot(operand));
+        continue;
+      }
+      if ( op == TSBytecodeOp.LOAD_NAME() ) {
+        const nm = chunk.nameRefs[operand];
+        this.bytecodePush(this.context.lookup(nm));
+        continue;
+      }
+      if ( op == TSBytecodeOp.GET_MEMBER() ) {
+        const obj = this.bytecodePop();
+        const propName = chunk.nameRefs[operand];
+        this.bytecodePush(obj.getMember(propName));
+        continue;
+      }
+      if ( op == TSBytecodeOp.GET_INDEX() ) {
+        const idxVal = this.bytecodePop();
+        const obj_1 = this.bytecodePop();
+        if ( idxVal.isNumber() ) {
+          this.bytecodePush(obj_1.getIndex((Math.floor( idxVal.toNumber()))));
+        } else {
+          if ( idxVal.isString() ) {
+            this.bytecodePush(obj_1.getMember(idxVal.stringValue));
+          } else {
+            this.bytecodePush(EvalValue.cachedNull());
+          }
+        }
+        continue;
+      }
+      if ( op == TSBytecodeOp.MAKE_ARRAY() ) {
+        let items = [];
+        let ci = 0;
+        while (ci != operand) {
+          items.push(this.bytecodePop());
+          ci = ci + 1;
+        };
+        let reversed = [];
+        let ri = (items.length) - 1;
+        while (ri > -1) {
+          reversed.push(items[ri]);
+          ri = ri - 1;
+        };
+        this.bytecodePush(EvalValue.array(reversed));
+        continue;
+      }
+      if ( op == TSBytecodeOp.MAKE_OBJECT() ) {
+        let keys = [];
+        let values = [];
+        let oi = 0;
+        while (oi != operand) {
+          const val = this.bytecodePop();
+          const keyVal = this.bytecodePop();
+          keys.push(keyVal.stringValue);
+          values.push(val);
+          oi = oi + 1;
+        };
+        let rKeys = [];
+        let rVals = [];
+        let rj = (keys.length) - 1;
+        while (rj > -1) {
+          rKeys.push(keys[rj]);
+          rVals.push(values[rj]);
+          rj = rj - 1;
+        };
+        this.bytecodePush(EvalValue.object(rKeys, rVals));
+        continue;
+      }
+      if ( op == TSBytecodeOp.ADD() ) {
+        const right = this.bytecodePop();
+        const left = this.bytecodePop();
+        const isLeftStr = left.isString();
+        const isRightStr = right.isString();
+        if ( isLeftStr || isRightStr ) {
+          this.bytecodePush(EvalValue.string(((left).toString() + (right).toString())));
+        } else {
+          this.bytecodePush(EvalValue.number((left.toNumber() + right.toNumber())));
+        }
+        continue;
+      }
+      if ( op == TSBytecodeOp.SUB() ) {
+        const right_1 = this.bytecodePop();
+        const left_1 = this.bytecodePop();
+        this.bytecodePush(EvalValue.number((left_1.toNumber() - right_1.toNumber())));
+        continue;
+      }
+      if ( op == TSBytecodeOp.MUL() ) {
+        const right_2 = this.bytecodePop();
+        const left_2 = this.bytecodePop();
+        this.bytecodePush(EvalValue.number((left_2.toNumber() * right_2.toNumber())));
+        continue;
+      }
+      if ( op == TSBytecodeOp.DIV() ) {
+        const right_3 = this.bytecodePop();
+        const left_3 = this.bytecodePop();
+        const rn = right_3.toNumber();
+        if ( rn != 0.0 ) {
+          this.bytecodePush(EvalValue.number((left_3.toNumber() / rn)));
+        } else {
+          this.bytecodePush(EvalValue.number(0.0));
+        }
+        continue;
+      }
+      if ( op == TSBytecodeOp.MOD() ) {
+        const right_4 = this.bytecodePop();
+        const left_4 = this.bytecodePop();
+        const li = Math.floor( left_4.toNumber());
+        const ri_1 = Math.floor( right_4.toNumber());
+        if ( ri_1 != 0 ) {
+          this.bytecodePush(EvalValue.fromInt((li % ri_1)));
+        } else {
+          this.bytecodePush(EvalValue.number(0.0));
+        }
+        continue;
+      }
+      if ( op == TSBytecodeOp.EQ() ) {
+        const right_5 = this.bytecodePop();
+        const left_5 = this.bytecodePop();
+        this.bytecodePush(EvalValue.boolean(left_5.equals(right_5)));
+        continue;
+      }
+      if ( op == TSBytecodeOp.NEQ() ) {
+        const right_6 = this.bytecodePop();
+        const left_6 = this.bytecodePop();
+        this.bytecodePush(EvalValue.boolean((false == left_6.equals(right_6))));
+        continue;
+      }
+      if ( op == TSBytecodeOp.LT() ) {
+        const right_7 = this.bytecodePop();
+        const left_7 = this.bytecodePop();
+        this.bytecodePush(EvalValue.boolean((left_7.toNumber() < right_7.toNumber())));
+        continue;
+      }
+      if ( op == TSBytecodeOp.GT() ) {
+        const right_8 = this.bytecodePop();
+        const left_8 = this.bytecodePop();
+        this.bytecodePush(EvalValue.boolean((left_8.toNumber() > right_8.toNumber())));
+        continue;
+      }
+      if ( op == TSBytecodeOp.LTE() ) {
+        const right_9 = this.bytecodePop();
+        const left_9 = this.bytecodePop();
+        this.bytecodePush(EvalValue.boolean((left_9.toNumber() <= right_9.toNumber())));
+        continue;
+      }
+      if ( op == TSBytecodeOp.GTE() ) {
+        const right_10 = this.bytecodePop();
+        const left_10 = this.bytecodePop();
+        this.bytecodePush(EvalValue.boolean((left_10.toNumber() >= right_10.toNumber())));
+        continue;
+      }
+      if ( op == TSBytecodeOp.JUMP_IF_FALSE() ) {
+        const val_1 = this.bytecodePeek();
+        if ( false == val_1.toBool() ) {
+          ip = operand;
+        }
+        continue;
+      }
+      if ( op == TSBytecodeOp.JUMP() ) {
+        ip = operand;
+        continue;
+      }
+      if ( op == TSBytecodeOp.POP() ) {
+        this.bytecodePop();
+        continue;
+      }
+      if ( op == TSBytecodeOp.NOT() ) {
+        const arg = this.bytecodePop();
+        this.bytecodePush(EvalValue.boolean((false == arg.toBool())));
+        continue;
+      }
+      if ( op == TSBytecodeOp.NEG() ) {
+        const arg_1 = this.bytecodePop();
+        this.bytecodePush(EvalValue.number((0.0 - arg_1.toNumber())));
+        continue;
+      }
+      if ( op == TSBytecodeOp.POS() ) {
+        const arg_2 = this.bytecodePop();
+        this.bytecodePush(EvalValue.number(arg_2.toNumber()));
+        continue;
+      }
+      if ( op == TSBytecodeOp.DONE() ) {
+        if ( this.bytecodeStackTop > 0 ) {
+          return this.bytecodePeek();
+        }
+        return EvalValue.cachedNull();
+      }
+    };
+    if ( this.bytecodeStackTop > 0 ) {
+      return this.bytecodePeek();
+    }
+    return EvalValue.cachedNull();
+  };
   evaluateExpr (node) {
-    if ( node.nodeType == "NumericLiteral" ) {
+    if ( node.bytecodeReady ) {
+      if ( typeof(node.exprBytecode) != "undefined" ) {
+        return this.executeBytecode((node.exprBytecode));
+      }
+    } else {
+      if ( this.bytecodeCompiler.canCompile(node) ) {
+        const chunk = this.bytecodeCompiler.compileExpr(node);
+        node.exprBytecode = chunk;
+        node.bytecodeReady = true;
+        return this.executeBytecode(chunk);
+      }
+    }
+    const tid = TSNodeType.ensureId(node);
+    if ( tid == TSNodeType.NT_NUMERIC_LITERAL() ) {
       const numVal = isNaN( parseFloat(node.value) ) ? undefined : parseFloat(node.value);
       if ( typeof(numVal) != "undefined" ) {
         return EvalValue.number((numVal));
       }
       return EvalValue.number(0.0);
     }
-    if ( node.nodeType == "StringLiteral" ) {
-      return EvalValue.string(this.unquote(node.value));
+    if ( tid == TSNodeType.NT_STRING_LITERAL() ) {
+      return EvalValue.internString(node.value);
     }
-    if ( node.nodeType == "TemplateLiteral" ) {
-      console.log(("TemplateLiteral: processing template with " + (((node.children.length).toString()))) + " children");
+    if ( tid == TSNodeType.NT_TEMPLATE_LITERAL() ) {
       let templateText = "";
       let ti = 0;
       while (ti < (node.children.length)) {
         const templateChild = node.children[ti];
-        console.log((((("TemplateLiteral child " + ((ti.toString()))) + ": nodeType=") + templateChild.nodeType) + " value=") + templateChild.value);
-        if ( templateChild.nodeType == "TemplateElement" ) {
+        if ( TSNodeType.ensureId(templateChild) == TSNodeType.NT_TEMPLATE_ELEMENT() ) {
           const rawText = templateChild.value;
           const processedText = this.evaluateTemplateExpressions(rawText);
           templateText = templateText + processedText;
         }
         ti = ti + 1;
       };
-      console.log(("TemplateLiteral: result = '" + templateText) + "'");
       return EvalValue.string(templateText);
     }
-    if ( node.nodeType == "BooleanLiteral" ) {
+    if ( tid == TSNodeType.NT_BOOLEAN_LITERAL() ) {
       return EvalValue.boolean((node.value == "true"));
     }
-    if ( node.nodeType == "NullLiteral" ) {
-      return EvalValue.null();
+    if ( tid == TSNodeType.NT_NULL_LITERAL() ) {
+      return EvalValue.cachedNull();
     }
-    if ( node.nodeType == "Identifier" ) {
+    if ( tid == TSNodeType.NT_IDENTIFIER() ) {
       if ( node.name == "undefined" ) {
-        return EvalValue.undefined();
+        return EvalValue.cachedUndefined();
+      }
+      if ( node.bindingSlot > -1 ) {
+        return this.moduleScope.lookupSlot(node.bindingSlot);
       }
       return this.context.lookup(node.name);
     }
-    if ( node.nodeType == "BinaryExpression" ) {
+    if ( tid == TSNodeType.NT_BINARY_EXPRESSION() ) {
       return this.evaluateBinaryExpr(node);
     }
-    if ( node.nodeType == "UnaryExpression" ) {
+    if ( tid == TSNodeType.NT_UNARY_EXPRESSION() ) {
       return this.evaluateUnaryExpr(node);
     }
-    if ( node.nodeType == "ConditionalExpression" ) {
+    if ( tid == TSNodeType.NT_CONDITIONAL_EXPRESSION() ) {
       return this.evaluateConditionalExpr(node);
     }
-    if ( node.nodeType == "MemberExpression" ) {
+    if ( tid == TSNodeType.NT_MEMBER_EXPRESSION() ) {
       return this.evaluateMemberExpr(node);
     }
-    if ( node.nodeType == "ArrayExpression" ) {
+    if ( tid == TSNodeType.NT_ARRAY_EXPRESSION() ) {
       return this.evaluateArrayExpr(node);
     }
-    if ( node.nodeType == "ObjectExpression" ) {
+    if ( tid == TSNodeType.NT_OBJECT_EXPRESSION() ) {
       return this.evaluateObjectExpr(node);
     }
-    if ( node.nodeType == "ParenthesizedExpression" ) {
+    if ( tid == TSNodeType.NT_PARENTHESES() ) {
       if ( typeof(node.left) != "undefined" ) {
         const inner = node.left;
         return this.evaluateExpr(inner);
       }
     }
-    if ( node.nodeType == "TSAsExpression" ) {
+    if ( tid == TSNodeType.NT_TS_AS_EXPRESSION() ) {
       if ( typeof(node.left) != "undefined" ) {
         return this.evaluateExpr((node.left));
       }
     }
-    if ( node.nodeType == "TSNonNullExpression" ) {
+    if ( tid == TSNodeType.NT_TS_NON_NULL_EXPRESSION() ) {
       if ( typeof(node.left) != "undefined" ) {
         return this.evaluateExpr((node.left));
       }
     }
-    if ( node.nodeType == "JSXElement" ) {
+    if ( tid == TSNodeType.NT_JSX_ELEMENT() ) {
       const el = this.evaluateJSXElement(node);
       return EvalValue.element(el);
     }
-    if ( node.nodeType == "JSXFragment" ) {
+    if ( tid == TSNodeType.NT_JSX_FRAGMENT() ) {
       const el_1 = new EVGElement();
       el_1.tagName = "div";
       this.evaluateChildren(el_1, node);
       return EvalValue.element(el_1);
     }
-    if ( node.nodeType == "CallExpression" ) {
+    if ( tid == TSNodeType.NT_CALL_EXPRESSION() ) {
       return this.evaluateCallExpr(node);
     }
-    return EvalValue.null();
+    return EvalValue.cachedNull();
   };
   evaluateCallExpr (node) {
     if ( typeof(node.left) != "undefined" ) {

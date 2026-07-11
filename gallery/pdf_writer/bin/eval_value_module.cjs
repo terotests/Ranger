@@ -2361,9 +2361,142 @@ class TSLexer  {
     return tokens;
   };
 }
+class TSBytecodeChunk  {
+  constructor() {
+    this.ops = [];
+    this.operands = [];
+    this.constNums = [];
+    this.constStrs = [];
+    this.nameRefs = [];
+    this.ready = false;     /** note: unused */
+    let emptyOps = [];
+    this.ops = emptyOps;
+    let emptyOperands = [];
+    this.operands = emptyOperands;
+    let emptyNums = [];
+    this.constNums = emptyNums;
+    let emptyStrs = [];
+    this.constStrs = emptyStrs;
+    let emptyNames = [];
+    this.nameRefs = emptyNames;
+  }
+  emit (op, operand) {
+    this.ops.push(op);
+    this.operands.push(operand);
+  };
+  addNumConst (n) {
+    this.constNums.push(n);
+    return (this.constNums.length) - 1;
+  };
+  addStrConst (s) {
+    this.constStrs.push(s);
+    return (this.constStrs.length) - 1;
+  };
+  addNameRef (name) {
+    this.nameRefs.push(name);
+    return (this.nameRefs.length) - 1;
+  };
+}
+class TSBytecodeOp  {
+  constructor() {
+  }
+}
+TSBytecodeOp.PUSH_NULL = function() {
+  return 1;
+};
+TSBytecodeOp.PUSH_TRUE = function() {
+  return 2;
+};
+TSBytecodeOp.PUSH_FALSE = function() {
+  return 3;
+};
+TSBytecodeOp.PUSH_UNDEFINED = function() {
+  return 4;
+};
+TSBytecodeOp.PUSH_NUM = function() {
+  return 10;
+};
+TSBytecodeOp.PUSH_STR = function() {
+  return 11;
+};
+TSBytecodeOp.LOAD_SLOT = function() {
+  return 20;
+};
+TSBytecodeOp.LOAD_NAME = function() {
+  return 21;
+};
+TSBytecodeOp.GET_MEMBER = function() {
+  return 30;
+};
+TSBytecodeOp.GET_INDEX = function() {
+  return 31;
+};
+TSBytecodeOp.MAKE_ARRAY = function() {
+  return 40;
+};
+TSBytecodeOp.MAKE_OBJECT = function() {
+  return 41;
+};
+TSBytecodeOp.ADD = function() {
+  return 50;
+};
+TSBytecodeOp.SUB = function() {
+  return 51;
+};
+TSBytecodeOp.MUL = function() {
+  return 52;
+};
+TSBytecodeOp.DIV = function() {
+  return 53;
+};
+TSBytecodeOp.MOD = function() {
+  return 54;
+};
+TSBytecodeOp.EQ = function() {
+  return 60;
+};
+TSBytecodeOp.NEQ = function() {
+  return 61;
+};
+TSBytecodeOp.LT = function() {
+  return 62;
+};
+TSBytecodeOp.GT = function() {
+  return 63;
+};
+TSBytecodeOp.LTE = function() {
+  return 64;
+};
+TSBytecodeOp.GTE = function() {
+  return 65;
+};
+TSBytecodeOp.JUMP_IF_FALSE = function() {
+  return 70;
+};
+TSBytecodeOp.JUMP = function() {
+  return 71;
+};
+TSBytecodeOp.NOT = function() {
+  return 80;
+};
+TSBytecodeOp.NEG = function() {
+  return 81;
+};
+TSBytecodeOp.POS = function() {
+  return 82;
+};
+TSBytecodeOp.POP = function() {
+  return 200;
+};
+TSBytecodeOp.DONE = function() {
+  return 255;
+};
 class TSNode  {
   constructor() {
     this.nodeType = "";
+    this.nodeTypeId = 0;     /** note: unused */
+    this.bindingSlot = -1;     /** note: unused */
+    this.bytecodeReady = false;     /** note: unused */
     this.start = 0;
     this.end = 0;
     this.line = 0;
@@ -6081,6 +6214,84 @@ class TSParserSimple  {
     return node;
   };
 }
+class EvalValueCache  {
+  constructor() {
+    if (EvalValueCache.__singleton_instance != null) {
+      return EvalValueCache.__singleton_instance;
+    }
+    this.nullVal = new EvalValue();
+    this.trueVal = new EvalValue();
+    this.falseVal = new EvalValue();
+    this.undefinedVal = new EvalValue();
+    this.intCache = {};
+    this.strCache = {};
+    this.initialized = false;
+    EvalValueCache.__singleton_instance = this;
+  }
+  ensureInit () {
+    if ( this.initialized ) {
+      return;
+    }
+    this.nullVal.valueType = 0;
+    this.trueVal.valueType = 3;
+    this.trueVal.boolValue = true;
+    this.falseVal.valueType = 3;
+    this.falseVal.boolValue = false;
+    this.undefinedVal.valueType = 8;
+    this.initialized = true;
+  };
+  cachedNull () {
+    this.ensureInit();
+    return this.nullVal;
+  };
+  cachedTrue () {
+    this.ensureInit();
+    return this.trueVal;
+  };
+  cachedFalse () {
+    this.ensureInit();
+    return this.falseVal;
+  };
+  cachedUndefined () {
+    this.ensureInit();
+    return this.undefinedVal;
+  };
+  cachedInt (n) {
+    const key = (n.toString());
+    if ( ( typeof(this.intCache[key] ) != "undefined" && this.intCache.hasOwnProperty(key) ) ) {
+      return (( this.intCache.hasOwnProperty(key) ? this.intCache[key] : undefined ));
+    }
+    const v = EvalValue.fromInt(n);
+    this.intCache[key] = v;
+    return v;
+  };
+  internString (raw) {
+    let s = raw;
+    if ( (s.length) >= 2 ) {
+      const first = s.substring(0, 1 );
+      const last = s.substring(((s.length) - 1), (s.length) );
+      if ( (first == "\"") && (last == "\"") ) {
+        s = s.substring(1, ((s.length) - 1) );
+      }
+      if ( (first == "'") && (last == "'") ) {
+        s = s.substring(1, ((s.length) - 1) );
+      }
+    }
+    if ( ( typeof(this.strCache[s] ) != "undefined" && this.strCache.hasOwnProperty(s) ) ) {
+      return (( this.strCache.hasOwnProperty(s) ? this.strCache[s] : undefined ));
+    }
+    const v = EvalValue.string(s);
+    this.strCache[s] = v;
+    return v;
+  };
+}
+EvalValueCache.__singleton_instance = null;
+EvalValueCache.__singleton = function() {
+  if (EvalValueCache.__singleton_instance == null) {
+    EvalValueCache.__singleton_instance = new EvalValueCache();
+  }
+  return EvalValueCache.__singleton_instance;
+};
 class EvalValue  {
   constructor() {
     this.valueType = 0;
@@ -6300,10 +6511,32 @@ class EvalValue  {
     return false;
   };
 }
+EvalValue.cachedNull = function() {
+  const cache = EvalValueCache.__singleton();
+  return cache.cachedNull();
+};
+EvalValue.cachedTrue = function() {
+  const cache = EvalValueCache.__singleton();
+  return cache.cachedTrue();
+};
+EvalValue.cachedFalse = function() {
+  const cache = EvalValueCache.__singleton();
+  return cache.cachedFalse();
+};
+EvalValue.cachedUndefined = function() {
+  const cache = EvalValueCache.__singleton();
+  return cache.cachedUndefined();
+};
+EvalValue.cachedInt = function(n) {
+  const cache = EvalValueCache.__singleton();
+  return cache.cachedInt(n);
+};
+EvalValue.internString = function(raw) {
+  const cache = EvalValueCache.__singleton();
+  return cache.internString(raw);
+};
 EvalValue.null = function() {
-  const v = new EvalValue();
-  v.valueType = 0;
-  return v;
+  return EvalValue.cachedNull();
 };
 EvalValue.number = function(n) {
   const v = new EvalValue();
@@ -6324,10 +6557,10 @@ EvalValue.string = function(s) {
   return v;
 };
 EvalValue.boolean = function(b) {
-  const v = new EvalValue();
-  v.valueType = 3;
-  v.boolValue = b;
-  return v;
+  if ( b ) {
+    return EvalValue.cachedTrue();
+  }
+  return EvalValue.cachedFalse();
 };
 EvalValue.array = function(items) {
   const v = new EvalValue();
@@ -6361,9 +6594,7 @@ EvalValue.element = function(el) {
   return v;
 };
 EvalValue.undefined = function() {
-  const v = new EvalValue();
-  v.valueType = 8;
-  return v;
+  return EvalValue.cachedUndefined();
 };
 class EvalValueModule  {
   constructor() {
@@ -6377,7 +6608,10 @@ module.exports.EVGGradient = EVGGradient;
 module.exports.EVGElement = EVGElement;
 module.exports.Token = Token;
 module.exports.TSLexer = TSLexer;
+module.exports.TSBytecodeChunk = TSBytecodeChunk;
+module.exports.TSBytecodeOp = TSBytecodeOp;
 module.exports.TSNode = TSNode;
 module.exports.TSParserSimple = TSParserSimple;
+module.exports.EvalValueCache = EvalValueCache;
 module.exports.EvalValue = EvalValue;
 module.exports.EvalValueModule = EvalValueModule;

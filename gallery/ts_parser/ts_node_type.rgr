@@ -1,0 +1,207 @@
+; =============================================================================
+; ts_node_type - Numeric node type tags for fast AST dispatch
+; =============================================================================
+; Replaces hot-path string comparisons (node.nodeType == "...") with integer
+; comparisons. Annotate via TSNodeType.annotateTree() after parsing.
+
+Import "ts_parser_simple.rgr"
+
+class TSNodeType {
+    ; --- Expression / literal types (hot path) ---
+    sfn NT_UNKNOWN:int () { return 0 }
+    sfn NT_PROGRAM:int () { return 1 }
+    sfn NT_NUMERIC_LITERAL:int () { return 10 }
+    sfn NT_STRING_LITERAL:int () { return 11 }
+    sfn NT_BOOLEAN_LITERAL:int () { return 12 }
+    sfn NT_NULL_LITERAL:int () { return 13 }
+    sfn NT_TEMPLATE_LITERAL:int () { return 14 }
+    sfn NT_IDENTIFIER:int () { return 20 }
+    sfn NT_BINARY_EXPRESSION:int () { return 21 }
+    sfn NT_UNARY_EXPRESSION:int () { return 22 }
+    sfn NT_CONDITIONAL_EXPRESSION:int () { return 23 }
+    sfn NT_MEMBER_EXPRESSION:int () { return 24 }
+    sfn NT_ARRAY_EXPRESSION:int () { return 25 }
+    sfn NT_OBJECT_EXPRESSION:int () { return 26 }
+    sfn NT_CALL_EXPRESSION:int () { return 27 }
+    sfn NT_PARENTHESES:int () { return 28 }
+    sfn NT_ARROW_FUNCTION:int () { return 29 }
+    sfn NT_UPDATE_EXPRESSION:int () { return 30 }
+    sfn NT_ASSIGNMENT_EXPRESSION:int () { return 31 }
+    sfn NT_TS_AS_EXPRESSION:int () { return 32 }
+    sfn NT_TS_NON_NULL_EXPRESSION:int () { return 33 }
+
+    ; --- JSX ---
+    sfn NT_JSX_ELEMENT:int () { return 40 }
+    sfn NT_JSX_FRAGMENT:int () { return 41 }
+    sfn NT_JSX_TEXT:int () { return 42 }
+    sfn NT_JSX_EXPRESSION_CONTAINER:int () { return 43 }
+    sfn NT_JSX_ATTRIBUTE:int () { return 44 }
+
+    ; --- Statements ---
+    sfn NT_BLOCK_STATEMENT:int () { return 50 }
+    sfn NT_RETURN_STATEMENT:int () { return 51 }
+    sfn NT_IF_STATEMENT:int () { return 52 }
+    sfn NT_FOR_STATEMENT:int () { return 53 }
+    sfn NT_FOR_OF_STATEMENT:int () { return 54 }
+    sfn NT_WHILE_STATEMENT:int () { return 55 }
+    sfn NT_VARIABLE_DECLARATION:int () { return 56 }
+    sfn NT_VARIABLE_DECLARATOR:int () { return 57 }
+    sfn NT_EXPRESSION_STATEMENT:int () { return 58 }
+    sfn NT_BREAK_STATEMENT:int () { return 59 }
+    sfn NT_CONTINUE_STATEMENT:int () { return 60 }
+    sfn NT_FUNCTION_DECLARATION:int () { return 61 }
+    sfn NT_PROPERTY:int () { return 62 }
+
+    ; --- Module / import ---
+    sfn NT_IMPORT_DECLARATION:int () { return 70 }
+    sfn NT_IMPORT_SPECIFIER:int () { return 71 }
+    sfn NT_IMPORT_DEFAULT_SPECIFIER:int () { return 72 }
+    sfn NT_EXPORT_NAMED_DECLARATION:int () { return 73 }
+    sfn NT_EXPORT_DEFAULT_DECLARATION:int () { return 74 }
+
+    ; --- Misc ---
+    sfn NT_TEMPLATE_ELEMENT:int () { return 80 }
+    sfn NT_OBJECT_PATTERN:int () { return 81 }
+    sfn NT_PARAMETER:int () { return 82 }
+
+    ; Map nodeType string -> numeric id (built once per process).
+  sfn idOf:int (typeName:string) {
+        if (typeName == "Program") { return (TSNodeType.NT_PROGRAM()) }
+        if (typeName == "NumericLiteral") { return (TSNodeType.NT_NUMERIC_LITERAL()) }
+        if (typeName == "StringLiteral") { return (TSNodeType.NT_STRING_LITERAL()) }
+        if (typeName == "BooleanLiteral") { return (TSNodeType.NT_BOOLEAN_LITERAL()) }
+        if (typeName == "NullLiteral") { return (TSNodeType.NT_NULL_LITERAL()) }
+        if (typeName == "TemplateLiteral") { return (TSNodeType.NT_TEMPLATE_LITERAL()) }
+        if (typeName == "Identifier") { return (TSNodeType.NT_IDENTIFIER()) }
+        if (typeName == "BinaryExpression") { return (TSNodeType.NT_BINARY_EXPRESSION()) }
+        if (typeName == "UnaryExpression") { return (TSNodeType.NT_UNARY_EXPRESSION()) }
+        if (typeName == "ConditionalExpression") { return (TSNodeType.NT_CONDITIONAL_EXPRESSION()) }
+        if (typeName == "MemberExpression") { return (TSNodeType.NT_MEMBER_EXPRESSION()) }
+        if (typeName == "ArrayExpression") { return (TSNodeType.NT_ARRAY_EXPRESSION()) }
+        if (typeName == "ObjectExpression") { return (TSNodeType.NT_OBJECT_EXPRESSION()) }
+        if (typeName == "CallExpression") { return (TSNodeType.NT_CALL_EXPRESSION()) }
+        if (typeName == "ParenthesizedExpression") { return (TSNodeType.NT_PARENTHESES()) }
+        if (typeName == "ArrowFunctionExpression") { return (TSNodeType.NT_ARROW_FUNCTION()) }
+        if (typeName == "UpdateExpression") { return (TSNodeType.NT_UPDATE_EXPRESSION()) }
+        if (typeName == "AssignmentExpression") { return (TSNodeType.NT_ASSIGNMENT_EXPRESSION()) }
+        if (typeName == "TSAsExpression") { return (TSNodeType.NT_TS_AS_EXPRESSION()) }
+        if (typeName == "TSNonNullExpression") { return (TSNodeType.NT_TS_NON_NULL_EXPRESSION()) }
+        if (typeName == "JSXElement") { return (TSNodeType.NT_JSX_ELEMENT()) }
+        if (typeName == "JSXFragment") { return (TSNodeType.NT_JSX_FRAGMENT()) }
+        if (typeName == "JSXText") { return (TSNodeType.NT_JSX_TEXT()) }
+        if (typeName == "JSXExpressionContainer") { return (TSNodeType.NT_JSX_EXPRESSION_CONTAINER()) }
+        if (typeName == "JSXAttribute") { return (TSNodeType.NT_JSX_ATTRIBUTE()) }
+        if (typeName == "BlockStatement") { return (TSNodeType.NT_BLOCK_STATEMENT()) }
+        if (typeName == "ReturnStatement") { return (TSNodeType.NT_RETURN_STATEMENT()) }
+        if (typeName == "IfStatement") { return (TSNodeType.NT_IF_STATEMENT()) }
+        if (typeName == "ForStatement") { return (TSNodeType.NT_FOR_STATEMENT()) }
+        if (typeName == "ForOfStatement") { return (TSNodeType.NT_FOR_OF_STATEMENT()) }
+        if (typeName == "WhileStatement") { return (TSNodeType.NT_WHILE_STATEMENT()) }
+        if (typeName == "VariableDeclaration") { return (TSNodeType.NT_VARIABLE_DECLARATION()) }
+        if (typeName == "VariableDeclarator") { return (TSNodeType.NT_VARIABLE_DECLARATOR()) }
+        if (typeName == "ExpressionStatement") { return (TSNodeType.NT_EXPRESSION_STATEMENT()) }
+        if (typeName == "BreakStatement") { return (TSNodeType.NT_BREAK_STATEMENT()) }
+        if (typeName == "ContinueStatement") { return (TSNodeType.NT_CONTINUE_STATEMENT()) }
+        if (typeName == "FunctionDeclaration") { return (TSNodeType.NT_FUNCTION_DECLARATION()) }
+        if (typeName == "Property") { return (TSNodeType.NT_PROPERTY()) }
+        if (typeName == "ImportDeclaration") { return (TSNodeType.NT_IMPORT_DECLARATION()) }
+        if (typeName == "ImportSpecifier") { return (TSNodeType.NT_IMPORT_SPECIFIER()) }
+        if (typeName == "ImportDefaultSpecifier") { return (TSNodeType.NT_IMPORT_DEFAULT_SPECIFIER()) }
+        if (typeName == "ExportNamedDeclaration") { return (TSNodeType.NT_EXPORT_NAMED_DECLARATION()) }
+        if (typeName == "ExportDefaultDeclaration") { return (TSNodeType.NT_EXPORT_DEFAULT_DECLARATION()) }
+        if (typeName == "TemplateElement") { return (TSNodeType.NT_TEMPLATE_ELEMENT()) }
+        if (typeName == "ObjectPattern") { return (TSNodeType.NT_OBJECT_PATTERN()) }
+        if (typeName == "Parameter") { return (TSNodeType.NT_PARAMETER()) }
+        return (TSNodeType.NT_UNKNOWN())
+    }
+
+    ; Ensure node.nodeTypeId is set; returns the id.
+    sfn ensureId:int (node:TSNode) {
+        if (node.nodeTypeId > 0) {
+            return node.nodeTypeId
+        }
+        def id:int (TSNodeType.idOf(node.nodeType))
+        node.nodeTypeId = id
+        return id
+    }
+
+    fn annotateNode:void (node:TSNode) {
+        node.nodeTypeId = (TSNodeType.idOf(node.nodeType))
+        def i:int 0
+        while (i < (array_length node.children)) {
+            this.annotateNode((itemAt node.children i))
+            i = (i + 1)
+        }
+        def pi:int 0
+        while (pi < (array_length node.params)) {
+            this.annotateNode((itemAt node.params pi))
+            pi = (pi + 1)
+        }
+        if node.left {
+            this.annotateNode((unwrap node.left))
+        }
+        if node.right {
+            this.annotateNode((unwrap node.right))
+        }
+        if node.body {
+            this.annotateNode((unwrap node.body))
+        }
+        if node.init {
+            this.annotateNode((unwrap node.init))
+        }
+        if node.test {
+            this.annotateNode((unwrap node.test))
+        }
+        if node.consequent {
+            this.annotateNode((unwrap node.consequent))
+        }
+        if node.alternate {
+            this.annotateNode((unwrap node.alternate))
+        }
+    }
+
+    fn annotateTree:void (root:TSNode) {
+        this.annotateNode(root)
+    }
+
+    ; Assign bindingSlot on Identifier nodes using module scope slot table.
+    fn bindModuleSlots:void (node:TSNode nameToSlot:[string:int]) {
+        def tid:int (TSNodeType.ensureId(node))
+        if (tid == (TSNodeType.NT_IDENTIFIER())) {
+            if (has nameToSlot node.name) {
+                node.bindingSlot = (unwrap (get nameToSlot node.name))
+            }
+        }
+        def i:int 0
+        while (i < (array_length node.children)) {
+            this.bindModuleSlots((itemAt node.children i) nameToSlot)
+            i = (i + 1)
+        }
+        def pi:int 0
+        while (pi < (array_length node.params)) {
+            this.bindModuleSlots((itemAt node.params pi) nameToSlot)
+            pi = (pi + 1)
+        }
+        if node.left {
+            this.bindModuleSlots((unwrap node.left) nameToSlot)
+        }
+        if node.right {
+            this.bindModuleSlots((unwrap node.right) nameToSlot)
+        }
+        if node.body {
+            this.bindModuleSlots((unwrap node.body) nameToSlot)
+        }
+        if node.init {
+            this.bindModuleSlots((unwrap node.init) nameToSlot)
+        }
+        if node.test {
+            this.bindModuleSlots((unwrap node.test) nameToSlot)
+        }
+        if node.consequent {
+            this.bindModuleSlots((unwrap node.consequent) nameToSlot)
+        }
+        if node.alternate {
+            this.bindModuleSlots((unwrap node.alternate) nameToSlot)
+        }
+    }
+}

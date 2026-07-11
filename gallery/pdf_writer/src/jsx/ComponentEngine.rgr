@@ -9,6 +9,9 @@
 Import "../../../ts_parser/ts_parser_simple.rgr"
 Import "../../../ts_parser/ts_lexer.rgr"
 Import "../../../ts_parser/ts_ast_patch.rgr"
+Import "../../../ts_parser/ts_node_type.rgr"
+Import "../../../ts_parser/ts_bytecode.rgr"
+Import "../../../ts_parser/ts_bytecode_compiler.rgr"
 Import "../../../evg/EVGElement.rgr"
 Import "EvalValue.rgr"
 Import "../jpeg/JPEGMetadata.rgr"
@@ -33,12 +36,55 @@ class EvalContext {
     def parent@(optional):EvalContext
     ; Root module scope for this script (propagated to child scopes).
     def moduleRoot@(optional):EvalContext
+    ; Fast module-scope slot table (A2): index -> value.
+    def slotValues:[EvalValue]
+    def nameToSlot:[string:int]
+    def nextSlot:int 0
     
     fn define:void (name:string value:EvalValue) {
         set bindings name value
     }
+
+    ; Assign a module-scope slot (fast path for top-level bindings).
+    fn defineSlot:void (name:string value:EvalValue) {
+        if (has nameToSlot name) {
+            def idx:int (unwrap (get nameToSlot name))
+            this.updateSlotAt(idx value)
+            set bindings name value
+            return
+        }
+        def idx:int nextSlot
+        nextSlot = (nextSlot + 1)
+        set nameToSlot name idx
+        push slotValues value
+        set bindings name value
+    }
+
+    fn updateSlotAt:void (idx:int value:EvalValue) {
+        def rebuilt:[EvalValue]
+        def i:int 0
+        while (i < (array_length slotValues)) {
+            if (i == idx) {
+                push rebuilt value
+            } {
+                push rebuilt (itemAt slotValues i)
+            }
+            i = (i + 1)
+        }
+        slotValues = rebuilt
+    }
+
+    fn lookupSlot:EvalValue (slot:int) {
+        if (slot < (array_length slotValues)) {
+            return (itemAt slotValues slot)
+        }
+        return (EvalValue.cachedNull())
+    }
     
     fn lookup:EvalValue (name:string) {
+        if (has nameToSlot name) {
+            return (this.lookupSlot((unwrap (get nameToSlot name))))
+        }
         if (has bindings name) {
             return (unwrap (get bindings name))
         }
@@ -47,12 +93,18 @@ class EvalContext {
             def p:EvalContext (unwrap parent)
             return (p.lookup(name))
         }
-        return (EvalValue.null())
+        return (EvalValue.cachedNull())
     }
 
     ; Update an existing binding in the nearest enclosing scope that owns it.
     ; Returns false when the name is not declared anywhere up the parent chain.
     fn assignExisting:boolean (name:string value:EvalValue) {
+        if (has nameToSlot name) {
+            def idx:int (unwrap (get nameToSlot name))
+            this.updateSlotAt(idx value)
+            set bindings name value
+            return true
+        }
         if (has bindings name) {
             set bindings name value
             return true
@@ -76,6 +128,31 @@ class EvalContext {
 
     ; Remove a binding from the nearest scope that owns it (parent chain walk).
     fn removeBinding:boolean (name:string) {
+        if (has nameToSlot name) {
+            def idx:int (unwrap (get nameToSlot name))
+            def newSlots:[EvalValue]
+            def si:int 0
+            while (si < (array_length slotValues)) {
+                if (si != idx) {
+                    push newSlots (itemAt slotValues si)
+                }
+                si = (si + 1)
+            }
+            slotValues = newSlots
+            def newMap:[string:int]
+            def keyList:[string] (keys nameToSlot)
+            for keyList kk:string idx2 {
+                if (kk != name) {
+                    def oldIdx:int (unwrap (get nameToSlot kk))
+                    if (oldIdx > idx) {
+                        set newMap kk (oldIdx - 1)
+                    } {
+                        set newMap kk oldIdx
+                    }
+                }
+            }
+            nameToSlot = newMap
+        }
         if (has bindings name) {
             def newBindings:[string:EvalValue]
             def keyList:[string] (keys bindings)
@@ -177,6 +254,16 @@ class ComponentEngine {
     
     ; Primitive EVG elements (not components)
     def primitives:[string]
+    ; Fast primitive tag lookup (A3).
+    def primitiveSet:[string:boolean]
+    ; Fast component registry by name (A3).
+    def componentMap:[string:ImportedSymbol]
+
+    ; Bytecode compiler + VM stack (B tier).
+    def bytecodeCompiler:TSBytecodeCompiler (new TSBytecodeCompiler())
+    def bytecodeStack:[EvalValue]
+    def bytecodeStackTop:int 0
+    def nodeTypeHelper:TSNodeType (new TSNodeType())
 
     ; Value-returning control flow: set when a `return` executes while running a
     ; statement list, so returns inside if/else and nested blocks propagate the
@@ -224,29 +311,58 @@ class ComponentEngine {
         context = mod
         def prim:[string]
         primitives = prim
+        def primSet:[string:boolean]
+        primitiveSet = primSet
+        def compMap:[string:ImportedSymbol]
+        componentMap = compMap
         def ap:[string]
         assetPaths = ap
+        def bcStack:[EvalValue]
+        bytecodeStack = bcStack
         
         ; Register primitive element names
         push primitives "View"
+        this.markPrimitive("View")
         push primitives "Label"
+        this.markPrimitive("Label")
         push primitives "Print"
+        this.markPrimitive("Print")
         push primitives "Section"
+        this.markPrimitive("Section")
         push primitives "Page"
+        this.markPrimitive("Page")
         push primitives "Image"
+        this.markPrimitive("Image")
         push primitives "Path"
+        this.markPrimitive("Path")
         push primitives "Spacer"
+        this.markPrimitive("Spacer")
         push primitives "Divider"
+        this.markPrimitive("Divider")
         push primitives "Layer"
+        this.markPrimitive("Layer")
         push primitives "div"
+        this.markPrimitive("div")
         push primitives "span"
+        this.markPrimitive("span")
         push primitives "p"
+        this.markPrimitive("p")
         push primitives "h1"
+        this.markPrimitive("h1")
         push primitives "h2"
+        this.markPrimitive("h2")
         push primitives "h3"
+        this.markPrimitive("h3")
         push primitives "img"
+        this.markPrimitive("img")
         push primitives "path"
+        this.markPrimitive("path")
         push primitives "layer"
+        this.markPrimitive("layer")
+    }
+
+    fn markPrimitive:void (name:string) {
+        set primitiveSet name true
     }
     
     ; ==========================================================================
@@ -415,11 +531,13 @@ class ComponentEngine {
                 existing.sourcePath = sym.sourcePath
                 existing.symbolType = sym.symbolType
                 existing.helperFunctions = sym.helperFunctions
+                set componentMap sym.name existing
                 return
             }
             i = i + 1
         }
         push localComponents sym
+        set componentMap sym.name sym
     }
 
     fn removeLocalComponentByName:void (name:string) {
@@ -601,7 +719,46 @@ class ComponentEngine {
 
     ; Bind a name at module scope (top-level const/let/function).
     fn defineModuleBinding:void (name:string value:EvalValue) {
-        moduleScope.define(name value)
+        moduleScope.defineSlot(name value)
+    }
+
+    fn rebindModuleSlots:void (ast:TSNode) {
+        nodeTypeHelper.bindModuleSlots(ast moduleScope.nameToSlot)
+    }
+
+    fn invalidateNodeBytecode:void (node:TSNode) {
+        node.bytecodeReady = false
+        def i:int 0
+        while (i < (array_length node.children)) {
+            this.invalidateNodeBytecode((itemAt node.children i))
+            i = (i + 1)
+        }
+        def pi:int 0
+        while (pi < (array_length node.params)) {
+            this.invalidateNodeBytecode((itemAt node.params pi))
+            pi = (pi + 1)
+        }
+        if node.left {
+            this.invalidateNodeBytecode((unwrap node.left))
+        }
+        if node.right {
+            this.invalidateNodeBytecode((unwrap node.right))
+        }
+        if node.body {
+            this.invalidateNodeBytecode((unwrap node.body))
+        }
+        if node.init {
+            this.invalidateNodeBytecode((unwrap node.init))
+        }
+        if node.test {
+            this.invalidateNodeBytecode((unwrap node.test))
+        }
+        if node.consequent {
+            this.invalidateNodeBytecode((unwrap node.consequent))
+        }
+        if node.alternate {
+            this.invalidateNodeBytecode((unwrap node.alternate))
+        }
     }
 
     ; Convenience: read back a registered / script-defined global by name.
@@ -621,12 +778,16 @@ class ComponentEngine {
         def tokens:[Token] (lexer.tokenize())
         parser.initParser(tokens)
         parser.tsxMode = true
-        return (parser.parseProgram())
+        def ast:TSNode (parser.parseProgram())
+        nodeTypeHelper.annotateTree(ast)
+        return ast
     }
 
     fn clearLocalComponents:void () {
         def empty:[ImportedSymbol]
         localComponents = empty
+        def emptyMap:[string:ImportedSymbol]
+        componentMap = emptyMap
     }
 
     fn loadScript:void (src:string) {
@@ -647,6 +808,7 @@ class ComponentEngine {
         ; Functions first so const initializers may call helpers.
         this.registerComponents(ast)
         this.processVariables(ast)
+        this.rebindModuleSlots(ast)
     }
 
     fn updateLocalComponentNode:void (name:string node:TSNode) {
@@ -711,7 +873,13 @@ class ComponentEngine {
             }
             ci = (ci + 1)
         }
+        this.finishPatchScript(newAst)
         return patch.sceneAffecting
+    }
+
+    fn finishPatchScript:void (ast:TSNode) {
+        this.rebindModuleSlots(ast)
+        this.invalidateNodeBytecode(ast)
     }
 
     ; Call a script function by name, passing a single props/state object (React
@@ -2323,50 +2491,22 @@ class ComponentEngine {
         if ((strlen name) == 0) {
             return false
         }
-        
-        ; Check if it's a primitive
-        def i:int 0
-        while (i < (array_length primitives)) {
-            if ((itemAt primitives i) == name) {
-                return false
-            }
-            i = i + 1
+        if (has primitiveSet name) {
+            return false
         }
-        
-        ; Check if first character is uppercase (A-Z is 65-90)
         def firstChar:int (charAt name 0)
         if ((firstChar >= 65) && (firstChar <= 90)) {
             return true
         }
-        
         return false
     }
     
     fn expandComponent:EVGElement (name:string jsxNode:TSNode) {
-        ; Use the last registered match (hot reload upserts may leave older entries).
-        def foundIdx:int -1
-        def i:int 0
-        while (i < (array_length localComponents)) {
-            def sym:ImportedSymbol (itemAt localComponents i)
-            if (sym.name == name) {
-                foundIdx = i
-            }
-            i = i + 1
-        }
-        if (foundIdx >= 0) {
-            def sym:ImportedSymbol (itemAt localComponents foundIdx)
+        if (has componentMap name) {
+            def sym:ImportedSymbol (unwrap (get componentMap name))
             def props:EvalValue (this.evaluateProps(jsxNode))
             if sym.functionNode {
                 def fnNode:TSNode (unwrap sym.functionNode)
-                def hi:int 0
-                while (hi < (array_length sym.helperFunctions)) {
-                    def helperFn:TSNode (itemAt sym.helperFunctions hi)
-                    def helperName:string helperFn.name
-                    def helperValue:EvalValue (EvalValue.function(helperFn))
-                    context.define(helperName helperValue)
-                    print ("Registered helper function: " + helperName)
-                    hi = hi + 1
-                }
                 return (this.evaluateFunctionWithProps(fnNode props))
             }
         }
@@ -2897,10 +3037,293 @@ class ComponentEngine {
     ; ==========================================================================
     ; Expression Evaluation
     ; ==========================================================================
+
+    fn tryEvaluateBytecode:EvalValue (node:TSNode) {
+        if (node.bytecodeReady) {
+            if node.exprBytecode {
+                return (this.executeBytecode((unwrap node.exprBytecode)))
+            }
+        }
+        if (bytecodeCompiler.canCompile(node)) {
+            def chunk:TSBytecodeChunk (bytecodeCompiler.compileExpr(node))
+            node.exprBytecode = chunk
+            node.bytecodeReady = true
+            return (this.executeBytecode(chunk))
+        }
+        return (EvalValue.cachedNull())
+    }
+
+    fn bytecodePush:void (v:EvalValue) {
+        push bytecodeStack v
+        bytecodeStackTop = (bytecodeStackTop + 1)
+    }
+
+    fn bytecodePop:EvalValue () {
+        if (bytecodeStackTop > 0) {
+            bytecodeStackTop = (bytecodeStackTop - 1)
+            return (itemAt bytecodeStack bytecodeStackTop)
+        }
+        return (EvalValue.cachedNull())
+    }
+
+    fn bytecodePeek:EvalValue () {
+        if (bytecodeStackTop > 0) {
+            return (itemAt bytecodeStack (bytecodeStackTop - 1))
+        }
+        return (EvalValue.cachedNull())
+    }
+
+    fn executeBytecode:EvalValue (chunk:TSBytecodeChunk) {
+        def emptyStack:[EvalValue]
+        bytecodeStack = emptyStack
+        bytecodeStackTop = 0
+        if (chunk.ready == false) {
+            return (EvalValue.cachedNull())
+        }
+        def ip:int 0
+        def opCount:int (array_length chunk.ops)
+        while (ip < opCount) {
+            def op:int (itemAt chunk.ops ip)
+            def operand:int (itemAt chunk.operands ip)
+            ip = (ip + 1)
+
+            if (op == (TSBytecodeOp.PUSH_NULL())) {
+                this.bytecodePush((EvalValue.cachedNull()))
+                continue
+            }
+            if (op == (TSBytecodeOp.PUSH_TRUE())) {
+                this.bytecodePush((EvalValue.cachedTrue()))
+                continue
+            }
+            if (op == (TSBytecodeOp.PUSH_FALSE())) {
+                this.bytecodePush((EvalValue.cachedFalse()))
+                continue
+            }
+            if (op == (TSBytecodeOp.PUSH_UNDEFINED())) {
+                this.bytecodePush((EvalValue.cachedUndefined()))
+                continue
+            }
+            if (op == (TSBytecodeOp.PUSH_NUM())) {
+                def n:double (itemAt chunk.constNums operand)
+                this.bytecodePush((EvalValue.number(n)))
+                continue
+            }
+            if (op == (TSBytecodeOp.PUSH_STR())) {
+                def raw:string (itemAt chunk.constStrs operand)
+                this.bytecodePush((EvalValue.internString(raw)))
+                continue
+            }
+            if (op == (TSBytecodeOp.LOAD_SLOT())) {
+                this.bytecodePush((moduleScope.lookupSlot(operand)))
+                continue
+            }
+            if (op == (TSBytecodeOp.LOAD_NAME())) {
+                def nm:string (itemAt chunk.nameRefs operand)
+                this.bytecodePush((context.lookup(nm)))
+                continue
+            }
+            if (op == (TSBytecodeOp.GET_MEMBER())) {
+                def obj:EvalValue (this.bytecodePop())
+                def propName:string (itemAt chunk.nameRefs operand)
+                this.bytecodePush((obj.getMember(propName)))
+                continue
+            }
+            if (op == (TSBytecodeOp.GET_INDEX())) {
+                def idxVal:EvalValue (this.bytecodePop())
+                def obj:EvalValue (this.bytecodePop())
+                if (idxVal.isNumber()) {
+                    this.bytecodePush((obj.getIndex((to_int (idxVal.toNumber())))))
+                } {
+                    if (idxVal.isString()) {
+                        this.bytecodePush((obj.getMember(idxVal.stringValue)))
+                    } {
+                        this.bytecodePush((EvalValue.cachedNull()))
+                    }
+                }
+                continue
+            }
+            if (op == (TSBytecodeOp.MAKE_ARRAY())) {
+                def items:[EvalValue]
+                def ci:int 0
+                while (ci != operand) {
+                    push items (this.bytecodePop())
+                    ci = (ci + 1)
+                }
+                def reversed:[EvalValue]
+                def ri:int ((array_length items) - 1)
+                while (ri > -1) {
+                    push reversed (itemAt items ri)
+                    ri = (ri - 1)
+                }
+                this.bytecodePush((EvalValue.array(reversed)))
+                continue
+            }
+            if (op == (TSBytecodeOp.MAKE_OBJECT())) {
+                def keys:[string]
+                def values:[EvalValue]
+                def oi:int 0
+                while (oi != operand) {
+                    def val:EvalValue (this.bytecodePop())
+                    def keyVal:EvalValue (this.bytecodePop())
+                    push keys (keyVal.stringValue)
+                    push values val
+                    oi = (oi + 1)
+                }
+                def rKeys:[string]
+                def rVals:[EvalValue]
+                def rj:int ((array_length keys) - 1)
+                while (rj > -1) {
+                    push rKeys (itemAt keys rj)
+                    push rVals (itemAt values rj)
+                    rj = (rj - 1)
+                }
+                this.bytecodePush((EvalValue.object(rKeys rVals)))
+                continue
+            }
+            if (op == (TSBytecodeOp.ADD())) {
+                def right:EvalValue (this.bytecodePop())
+                def left:EvalValue (this.bytecodePop())
+                def isLeftStr:boolean (left.isString())
+                def isRightStr:boolean (right.isString())
+                if (isLeftStr || isRightStr) {
+                    this.bytecodePush((EvalValue.string((left.toString()) + (right.toString()))))
+                } {
+                    this.bytecodePush((EvalValue.number((left.toNumber()) + (right.toNumber()))))
+                }
+                continue
+            }
+            if (op == (TSBytecodeOp.SUB())) {
+                def right:EvalValue (this.bytecodePop())
+                def left:EvalValue (this.bytecodePop())
+                this.bytecodePush((EvalValue.number((left.toNumber()) - (right.toNumber()))))
+                continue
+            }
+            if (op == (TSBytecodeOp.MUL())) {
+                def right:EvalValue (this.bytecodePop())
+                def left:EvalValue (this.bytecodePop())
+                this.bytecodePush((EvalValue.number((left.toNumber()) * (right.toNumber()))))
+                continue
+            }
+            if (op == (TSBytecodeOp.DIV())) {
+                def right:EvalValue (this.bytecodePop())
+                def left:EvalValue (this.bytecodePop())
+                def rn:double (right.toNumber())
+                if (rn != 0.0) {
+                    this.bytecodePush((EvalValue.number((left.toNumber()) / rn)))
+                } {
+                    this.bytecodePush((EvalValue.number(0.0)))
+                }
+                continue
+            }
+            if (op == (TSBytecodeOp.MOD())) {
+                def right:EvalValue (this.bytecodePop())
+                def left:EvalValue (this.bytecodePop())
+                def li:int (to_int (left.toNumber()))
+                def ri:int (to_int (right.toNumber()))
+                if (ri != 0) {
+                    this.bytecodePush((EvalValue.fromInt((li % ri))))
+                } {
+                    this.bytecodePush((EvalValue.number(0.0)))
+                }
+                continue
+            }
+            if (op == (TSBytecodeOp.EQ())) {
+                def right:EvalValue (this.bytecodePop())
+                def left:EvalValue (this.bytecodePop())
+                this.bytecodePush((EvalValue.boolean((left.equals(right)))))
+                continue
+            }
+            if (op == (TSBytecodeOp.NEQ())) {
+                def right:EvalValue (this.bytecodePop())
+                def left:EvalValue (this.bytecodePop())
+                this.bytecodePush((EvalValue.boolean((false == (left.equals(right))))))
+                continue
+            }
+            if (op == (TSBytecodeOp.LT())) {
+                def right:EvalValue (this.bytecodePop())
+                def left:EvalValue (this.bytecodePop())
+                this.bytecodePush((EvalValue.boolean(((left.toNumber()) < (right.toNumber())))))
+                continue
+            }
+            if (op == (TSBytecodeOp.GT())) {
+                def right:EvalValue (this.bytecodePop())
+                def left:EvalValue (this.bytecodePop())
+                this.bytecodePush((EvalValue.boolean(((left.toNumber()) > (right.toNumber())))))
+                continue
+            }
+            if (op == (TSBytecodeOp.LTE())) {
+                def right:EvalValue (this.bytecodePop())
+                def left:EvalValue (this.bytecodePop())
+                this.bytecodePush((EvalValue.boolean(((left.toNumber()) <= (right.toNumber())))))
+                continue
+            }
+            if (op == (TSBytecodeOp.GTE())) {
+                def right:EvalValue (this.bytecodePop())
+                def left:EvalValue (this.bytecodePop())
+                this.bytecodePush((EvalValue.boolean(((left.toNumber()) >= (right.toNumber())))))
+                continue
+            }
+            if (op == (TSBytecodeOp.JUMP_IF_FALSE())) {
+                def val:EvalValue (this.bytecodePeek())
+                if (false == (val.toBool())) {
+                    ip = operand
+                }
+                continue
+            }
+            if (op == (TSBytecodeOp.JUMP())) {
+                ip = operand
+                continue
+            }
+            if (op == (TSBytecodeOp.POP())) {
+                this.bytecodePop()
+                continue
+            }
+            if (op == (TSBytecodeOp.NOT())) {
+                def arg:EvalValue (this.bytecodePop())
+                this.bytecodePush((EvalValue.boolean((false == (arg.toBool())))))
+                continue
+            }
+            if (op == (TSBytecodeOp.NEG())) {
+                def arg:EvalValue (this.bytecodePop())
+                this.bytecodePush((EvalValue.number((0.0 - (arg.toNumber())))))
+                continue
+            }
+            if (op == (TSBytecodeOp.POS())) {
+                def arg:EvalValue (this.bytecodePop())
+                this.bytecodePush((EvalValue.number((arg.toNumber()))))
+                continue
+            }
+            if (op == (TSBytecodeOp.DONE())) {
+                if (bytecodeStackTop > 0) {
+                    return (this.bytecodePeek())
+                }
+                return (EvalValue.cachedNull())
+            }
+        }
+        if (bytecodeStackTop > 0) {
+            return (this.bytecodePeek())
+        }
+        return (EvalValue.cachedNull())
+    }
     
     fn evaluateExpr:EvalValue (node:TSNode) {
-        ; Literals
-        if (node.nodeType == "NumericLiteral") {
+        ; Bytecode fast path (B tier) — compile-on-first-use for pure expressions.
+        if (node.bytecodeReady) {
+            if node.exprBytecode {
+                return (this.executeBytecode((unwrap node.exprBytecode)))
+            }
+        } {
+            if (bytecodeCompiler.canCompile(node)) {
+                def chunk:TSBytecodeChunk (bytecodeCompiler.compileExpr(node))
+                node.exprBytecode = chunk
+                node.bytecodeReady = true
+                return (this.executeBytecode(chunk))
+            }
+        }
+
+        def tid:int (TSNodeType.ensureId(node))
+
+        if (tid == (TSNodeType.NT_NUMERIC_LITERAL())) {
             def numVal@(optional):double (to_double node.value)
             if numVal {
                 return (EvalValue.number((unwrap numVal)))
@@ -2908,120 +3331,103 @@ class ComponentEngine {
             return (EvalValue.number(0.0))
         }
         
-        if (node.nodeType == "StringLiteral") {
-            return (EvalValue.string((this.unquote(node.value))))
+        if (tid == (TSNodeType.NT_STRING_LITERAL())) {
+            return (EvalValue.internString(node.value))
         }
         
-        if (node.nodeType == "TemplateLiteral") {
-            ; Template literals have TemplateElement children with the text
-            ; The text may contain ${...} expressions that need to be evaluated
-            print "TemplateLiteral: processing template with " + (to_string (array_length node.children)) + " children"
+        if (tid == (TSNodeType.NT_TEMPLATE_LITERAL())) {
             def templateText:string ""
             def ti:int 0
             while (ti < (array_length node.children)) {
                 def templateChild:TSNode (itemAt node.children ti)
-                print "TemplateLiteral child " + (to_string ti) + ": nodeType=" + templateChild.nodeType + " value=" + templateChild.value
-                if (templateChild.nodeType == "TemplateElement") {
-                    ; Parse and evaluate any ${...} expressions in the template text
+                if ((TSNodeType.ensureId(templateChild)) == (TSNodeType.NT_TEMPLATE_ELEMENT())) {
                     def rawText:string templateChild.value
                     def processedText:string (this.evaluateTemplateExpressions(rawText))
                     templateText = templateText + processedText
                 }
                 ti = ti + 1
             }
-            print "TemplateLiteral: result = '" + templateText + "'"
             return (EvalValue.string(templateText))
         }
         
-        if (node.nodeType == "BooleanLiteral") {
+        if (tid == (TSNodeType.NT_BOOLEAN_LITERAL())) {
             return (EvalValue.boolean((node.value == "true")))
         }
         
-        if (node.nodeType == "NullLiteral") {
-            return (EvalValue.null())
+        if (tid == (TSNodeType.NT_NULL_LITERAL())) {
+            return (EvalValue.cachedNull())
         }
         
-        ; Identifier (variable lookup)
-        if (node.nodeType == "Identifier") {
+        if (tid == (TSNodeType.NT_IDENTIFIER())) {
             if (node.name == "undefined") {
-                return (EvalValue.undefined())
+                return (EvalValue.cachedUndefined())
+            }
+            if (node.bindingSlot > -1) {
+                return (moduleScope.lookupSlot(node.bindingSlot))
             }
             return (context.lookup(node.name))
         }
         
-        ; Binary expression
-        if (node.nodeType == "BinaryExpression") {
+        if (tid == (TSNodeType.NT_BINARY_EXPRESSION())) {
             return (this.evaluateBinaryExpr(node))
         }
         
-        ; Unary expression
-        if (node.nodeType == "UnaryExpression") {
+        if (tid == (TSNodeType.NT_UNARY_EXPRESSION())) {
             return (this.evaluateUnaryExpr(node))
         }
         
-        ; Conditional expression (ternary)
-        if (node.nodeType == "ConditionalExpression") {
+        if (tid == (TSNodeType.NT_CONDITIONAL_EXPRESSION())) {
             return (this.evaluateConditionalExpr(node))
         }
         
-        ; Member expression
-        if (node.nodeType == "MemberExpression") {
+        if (tid == (TSNodeType.NT_MEMBER_EXPRESSION())) {
             return (this.evaluateMemberExpr(node))
         }
         
-        ; Array expression
-        if (node.nodeType == "ArrayExpression") {
+        if (tid == (TSNodeType.NT_ARRAY_EXPRESSION())) {
             return (this.evaluateArrayExpr(node))
         }
         
-        ; Object expression
-        if (node.nodeType == "ObjectExpression") {
+        if (tid == (TSNodeType.NT_OBJECT_EXPRESSION())) {
             return (this.evaluateObjectExpr(node))
         }
         
-        ; Parenthesized expression
-        if (node.nodeType == "ParenthesizedExpression") {
+        if (tid == (TSNodeType.NT_PARENTHESES())) {
             if node.left {
                 def inner:TSNode (unwrap node.left)
                 return (this.evaluateExpr(inner))
             }
         }
 
-        ; Type assertion (expr as Type) — runtime ignores the type
-        if (node.nodeType == "TSAsExpression") {
+        if (tid == (TSNodeType.NT_TS_AS_EXPRESSION())) {
             if node.left {
                 return (this.evaluateExpr((unwrap node.left)))
             }
         }
 
-        ; Non-null assertion (expr!) — runtime evaluates the operand
-        if (node.nodeType == "TSNonNullExpression") {
+        if (tid == (TSNodeType.NT_TS_NON_NULL_EXPRESSION())) {
             if node.left {
                 return (this.evaluateExpr((unwrap node.left)))
             }
         }
         
-        ; JSX Element as expression (for props like children={<View/>})
-        if (node.nodeType == "JSXElement") {
+        if (tid == (TSNodeType.NT_JSX_ELEMENT())) {
             def el:EVGElement (this.evaluateJSXElement(node))
             return (EvalValue.element(el))
         }
         
-        ; JSX Fragment as expression
-        if (node.nodeType == "JSXFragment") {
-            ; Create a container div for the fragment
+        if (tid == (TSNodeType.NT_JSX_FRAGMENT())) {
             def el (new EVGElement())
             el.tagName = "div"
             this.evaluateChildren(el node)
             return (EvalValue.element(el))
         }
         
-        ; Call Expression (function calls)
-        if (node.nodeType == "CallExpression") {
+        if (tid == (TSNodeType.NT_CALL_EXPRESSION())) {
             return (this.evaluateCallExpr(node))
         }
         
-        return (EvalValue.null())
+        return (EvalValue.cachedNull())
     }
     
     ; Evaluate a call expression (function call)

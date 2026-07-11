@@ -18,6 +18,80 @@ Import "../../../ts_parser/ts_parser_simple.rgr"
 ; 7 = evgElement (for JSX elements as props)
 ; 8 = undefined (distinct from null for typeof / optional globals)
 
+; Singleton / interned literal cache (A5 optimization).
+class EvalValueCache @singleton(true) {
+    def nullVal:EvalValue (new EvalValue())
+    def trueVal:EvalValue (new EvalValue())
+    def falseVal:EvalValue (new EvalValue())
+    def undefinedVal:EvalValue (new EvalValue())
+    def intCache:[string:EvalValue]
+    def strCache:[string:EvalValue]
+    def initialized:boolean false
+
+    fn ensureInit:void () {
+        if initialized {
+            return
+        }
+        nullVal.valueType = 0
+        trueVal.valueType = 3
+        trueVal.boolValue = true
+        falseVal.valueType = 3
+        falseVal.boolValue = false
+        undefinedVal.valueType = 8
+        initialized = true
+    }
+
+    fn cachedNull:EvalValue () {
+        this.ensureInit()
+        return nullVal
+    }
+
+    fn cachedTrue:EvalValue () {
+        this.ensureInit()
+        return trueVal
+    }
+
+    fn cachedFalse:EvalValue () {
+        this.ensureInit()
+        return falseVal
+    }
+
+    fn cachedUndefined:EvalValue () {
+        this.ensureInit()
+        return undefinedVal
+    }
+
+    fn cachedInt:EvalValue (n:int) {
+        def key:string (to_string n)
+        if (has intCache key) {
+            return (unwrap (get intCache key))
+        }
+        def v:EvalValue (EvalValue.fromInt(n))
+        set intCache key v
+        return v
+    }
+
+    fn internString:EvalValue (raw:string) {
+        def s:string raw
+        if ((strlen s) >= 2) {
+            def first:string (substring s 0 1)
+            def last:string (substring s ((strlen s) - 1) (strlen s))
+            if ((first == "\"") && (last == "\"")) {
+                s = (substring s 1 ((strlen s) - 1))
+            }
+            if ((first == "'") && (last == "'")) {
+                s = (substring s 1 ((strlen s) - 1))
+            }
+        }
+        if (has strCache s) {
+            return (unwrap (get strCache s))
+        }
+        def v:EvalValue (EvalValue.string(s))
+        set strCache s v
+        return v
+    }
+}
+
 class EvalValue {
     def valueType:int 0         ; Type tag
     def numberValue:double 0.0
@@ -31,10 +105,38 @@ class EvalValue {
     def evgElement@(optional):EVGElement  ; For JSX elements passed as props
     
     ; Constructors
+    sfn cachedNull:EvalValue () {
+        def cache:EvalValueCache (EvalValueCache.__singleton())
+        return (cache.cachedNull())
+    }
+
+    sfn cachedTrue:EvalValue () {
+        def cache:EvalValueCache (EvalValueCache.__singleton())
+        return (cache.cachedTrue())
+    }
+
+    sfn cachedFalse:EvalValue () {
+        def cache:EvalValueCache (EvalValueCache.__singleton())
+        return (cache.cachedFalse())
+    }
+
+    sfn cachedUndefined:EvalValue () {
+        def cache:EvalValueCache (EvalValueCache.__singleton())
+        return (cache.cachedUndefined())
+    }
+
+    sfn cachedInt:EvalValue (n:int) {
+        def cache:EvalValueCache (EvalValueCache.__singleton())
+        return (cache.cachedInt(n))
+    }
+
+    sfn internString:EvalValue (raw:string) {
+        def cache:EvalValueCache (EvalValueCache.__singleton())
+        return (cache.internString(raw))
+    }
+    
     sfn null:EvalValue () {
-        def v:EvalValue (new EvalValue())
-        v.valueType = 0
-        return v
+        return (EvalValue.cachedNull())
     }
     
     sfn number:EvalValue (n:double) {
@@ -59,10 +161,10 @@ class EvalValue {
     }
     
     sfn boolean:EvalValue (b:boolean) {
-        def v:EvalValue (new EvalValue())
-        v.valueType = 3
-        v.boolValue = b
-        return v
+        if b {
+            return (EvalValue.cachedTrue())
+        }
+        return (EvalValue.cachedFalse())
     }
     
     sfn array:EvalValue (items:[EvalValue]) {
@@ -101,9 +203,7 @@ class EvalValue {
     }
 
     sfn undefined:EvalValue () {
-        def v:EvalValue (new EvalValue())
-        v.valueType = 8
-        return v
+        return (EvalValue.cachedUndefined())
     }
     
     ; Type checks

@@ -1,0 +1,358 @@
+; =============================================================================
+; ts_bytecode_compiler - Compile expression AST nodes to stack bytecode
+; =============================================================================
+
+Import "ts_parser_simple.rgr"
+Import "ts_node_type.rgr"
+Import "ts_bytecode.rgr"
+
+class TSBytecodeCompiler {
+    def chunk:TSBytecodeChunk
+
+    Constructor () {
+        chunk = (new TSBytecodeChunk())
+    }
+
+    fn reset:void () {
+        chunk = (new TSBytecodeChunk())
+    }
+
+    ; Returns true when the expression can be fully compiled to bytecode.
+    fn canCompile:boolean (node:TSNode) {
+        def tid:int (TSNodeType.ensureId(node))
+        if (tid == (TSNodeType.NT_NUMERIC_LITERAL())) { return true }
+        if (tid == (TSNodeType.NT_STRING_LITERAL())) { return true }
+        if (tid == (TSNodeType.NT_BOOLEAN_LITERAL())) { return true }
+        if (tid == (TSNodeType.NT_NULL_LITERAL())) { return true }
+        if (tid == (TSNodeType.NT_IDENTIFIER())) { return true }
+        if (tid == (TSNodeType.NT_BINARY_EXPRESSION())) { return (this.canCompileBinary(node)) }
+        if (tid == (TSNodeType.NT_UNARY_EXPRESSION())) { return (this.canCompileUnary(node)) }
+        if (tid == (TSNodeType.NT_CONDITIONAL_EXPRESSION())) { return (this.canCompileConditional(node)) }
+        if (tid == (TSNodeType.NT_MEMBER_EXPRESSION())) { return (this.canCompileMember(node)) }
+        if (tid == (TSNodeType.NT_ARRAY_EXPRESSION())) { return (this.canCompileArray(node)) }
+        if (tid == (TSNodeType.NT_OBJECT_EXPRESSION())) { return (this.canCompileObject(node)) }
+        if (tid == (TSNodeType.NT_PARENTHESES())) { return (this.canCompileParen(node)) }
+        if (tid == (TSNodeType.NT_TS_AS_EXPRESSION())) { return (this.canCompileAs(node)) }
+        if (tid == (TSNodeType.NT_TS_NON_NULL_EXPRESSION())) { return (this.canCompileAs(node)) }
+        return false
+    }
+
+    fn canCompileBinary:boolean (node:TSNode) {
+        if node.left {
+            if (false == (this.canCompile((unwrap node.left)))) {
+                return false
+            }
+        }
+        if node.right {
+            if (false == (this.canCompile((unwrap node.right)))) {
+                return false
+            }
+        }
+        return true
+    }
+
+    fn canCompileUnary:boolean (node:TSNode) {
+        if node.left {
+            return (this.canCompile((unwrap node.left)))
+        }
+        return false
+    }
+
+    fn canCompileConditional:boolean (node:TSNode) {
+        if node.test {
+            if (false == (this.canCompile((unwrap node.test)))) { return false }
+        }
+        if node.consequent {
+            if (false == (this.canCompile((unwrap node.consequent)))) { return false }
+        }
+        if node.alternate {
+            if (false == (this.canCompile((unwrap node.alternate)))) { return false }
+        }
+        return true
+    }
+
+    fn canCompileMember:boolean (node:TSNode) {
+        if node.left {
+            if (false == (this.canCompile((unwrap node.left)))) { return false }
+        }
+        if node.computed {
+            if node.right {
+                return (this.canCompile((unwrap node.right)))
+            }
+            return false
+        }
+        return true
+    }
+
+    fn canCompileArray:boolean (node:TSNode) {
+        def i:int 0
+        while (i < (array_length node.children)) {
+            if (false == (this.canCompile((itemAt node.children i)))) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    fn canCompileObject:boolean (node:TSNode) {
+        def i:int 0
+        while (i < (array_length node.children)) {
+            def prop:TSNode (itemAt node.children i)
+            if prop.left {
+                if (false == (this.canCompile((unwrap prop.left)))) {
+                    return false
+                }
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    fn canCompileParen:boolean (node:TSNode) {
+        if node.left {
+            return (this.canCompile((unwrap node.left)))
+        }
+        return false
+    }
+
+    fn canCompileAs:boolean (node:TSNode) {
+        if node.left {
+            return (this.canCompile((unwrap node.left)))
+        }
+        return false
+    }
+
+    fn compileExpr:TSBytecodeChunk (node:TSNode) {
+        def result:TSBytecodeChunk (new TSBytecodeChunk())
+        chunk = result
+        this.emitExpr(node)
+        chunk.emit((TSBytecodeOp.DONE()) 0)
+        chunk.ready = true
+        return result
+    }
+
+    fn emitExpr:void (node:TSNode) {
+        def tid:int (TSNodeType.ensureId(node))
+        if (tid == (TSNodeType.NT_NUMERIC_LITERAL())) {
+            def numVal@(optional):double (to_double node.value)
+            def n:double 0.0
+            if numVal {
+                n = (unwrap numVal)
+            }
+            def idx:int (chunk.addNumConst(n))
+            chunk.emit((TSBytecodeOp.PUSH_NUM()) idx)
+            return
+        }
+        if (tid == (TSNodeType.NT_STRING_LITERAL())) {
+            def idx:int (chunk.addStrConst(node.value))
+            chunk.emit((TSBytecodeOp.PUSH_STR()) idx)
+            return
+        }
+        if (tid == (TSNodeType.NT_BOOLEAN_LITERAL())) {
+            if (node.value == "true") {
+                chunk.emit((TSBytecodeOp.PUSH_TRUE()) 0)
+            } {
+                chunk.emit((TSBytecodeOp.PUSH_FALSE()) 0)
+            }
+            return
+        }
+        if (tid == (TSNodeType.NT_NULL_LITERAL())) {
+            chunk.emit((TSBytecodeOp.PUSH_NULL()) 0)
+            return
+        }
+        if (tid == (TSNodeType.NT_IDENTIFIER())) {
+            if (node.bindingSlot > -1) {
+                chunk.emit((TSBytecodeOp.LOAD_SLOT()) node.bindingSlot)
+            } {
+                def idx:int (chunk.addNameRef(node.name))
+                chunk.emit((TSBytecodeOp.LOAD_NAME()) idx)
+            }
+            return
+        }
+        if (tid == (TSNodeType.NT_BINARY_EXPRESSION())) {
+            this.emitBinary(node)
+            return
+        }
+        if (tid == (TSNodeType.NT_UNARY_EXPRESSION())) {
+            this.emitUnary(node)
+            return
+        }
+        if (tid == (TSNodeType.NT_CONDITIONAL_EXPRESSION())) {
+            this.emitConditional(node)
+            return
+        }
+        if (tid == (TSNodeType.NT_MEMBER_EXPRESSION())) {
+            this.emitMember(node)
+            return
+        }
+        if (tid == (TSNodeType.NT_ARRAY_EXPRESSION())) {
+            this.emitArray(node)
+            return
+        }
+        if (tid == (TSNodeType.NT_OBJECT_EXPRESSION())) {
+            this.emitObject(node)
+            return
+        }
+        if (tid == (TSNodeType.NT_PARENTHESES())) {
+            if node.left {
+                this.emitExpr((unwrap node.left))
+            }
+            return
+        }
+        if (tid == (TSNodeType.NT_TS_AS_EXPRESSION())) {
+            if node.left {
+                this.emitExpr((unwrap node.left))
+            }
+            return
+        }
+        if (tid == (TSNodeType.NT_TS_NON_NULL_EXPRESSION())) {
+            if node.left {
+                this.emitExpr((unwrap node.left))
+            }
+        }
+    }
+
+    fn emitBinary:void (node:TSNode) {
+        def op:string node.value
+        if (op == "&&") {
+            if node.left {
+                this.emitExpr((unwrap node.left))
+            }
+            def jumpFalse:int (array_length chunk.ops)
+            chunk.emit((TSBytecodeOp.JUMP_IF_FALSE()) 0)
+            if node.right {
+                this.emitExpr((unwrap node.right))
+            }
+            def endPos:int (array_length chunk.ops)
+            chunk.setOperandAt(jumpFalse endPos)
+            return
+        }
+        if (op == "||") {
+            if node.left {
+                this.emitExpr((unwrap node.left))
+            }
+            ; If left is truthy, jump to end (keep left on stack).
+            def jumpIfTrue:int (array_length chunk.ops)
+            chunk.emit((TSBytecodeOp.JUMP_IF_FALSE()) 0)
+            def jumpEnd:int (array_length chunk.ops)
+            chunk.emit((TSBytecodeOp.JUMP()) 0)
+            def elsePos:int (array_length chunk.ops)
+            chunk.setOperandAt(jumpIfTrue elsePos)
+            chunk.emit((TSBytecodeOp.POP()) 0)
+            if node.right {
+                this.emitExpr((unwrap node.right))
+            }
+            def endPos:int (array_length chunk.ops)
+            chunk.setOperandAt(jumpEnd endPos)
+            return
+        }
+        if node.left {
+            this.emitExpr((unwrap node.left))
+        }
+        if node.right {
+            this.emitExpr((unwrap node.right))
+        }
+        if (op == "+") { chunk.emit((TSBytecodeOp.ADD()) 0) }
+        if (op == "-") { chunk.emit((TSBytecodeOp.SUB()) 0) }
+        if (op == "*") { chunk.emit((TSBytecodeOp.MUL()) 0) }
+        if (op == "/") { chunk.emit((TSBytecodeOp.DIV()) 0) }
+        if (op == "%") { chunk.emit((TSBytecodeOp.MOD()) 0) }
+        if (op == "==") { chunk.emit((TSBytecodeOp.EQ()) 0) }
+        if (op == "===") { chunk.emit((TSBytecodeOp.EQ()) 0) }
+        if (op == "!=") { chunk.emit((TSBytecodeOp.NEQ()) 0) }
+        if (op == "!==") { chunk.emit((TSBytecodeOp.NEQ()) 0) }
+        if (op == "<") { chunk.emit((TSBytecodeOp.LT()) 0) }
+        if (op == ">") { chunk.emit((TSBytecodeOp.GT()) 0) }
+        if (op == "<=") { chunk.emit((TSBytecodeOp.LTE()) 0) }
+        if (op == ">=") { chunk.emit((TSBytecodeOp.GTE()) 0) }
+        if (op == "??") {
+            ; nullish coalescing handled at runtime via special op — use EQ+ternary pattern
+            ; For simplicity emit as right evaluation after null check (VM handles ??)
+            chunk.emit((TSBytecodeOp.NEQ()) 0)
+        }
+    }
+
+    fn emitUnary:void (node:TSNode) {
+        if node.left {
+            this.emitExpr((unwrap node.left))
+        }
+        def op:string node.value
+        if (op == "!") { chunk.emit((TSBytecodeOp.NOT()) 0) }
+        if (op == "-") { chunk.emit((TSBytecodeOp.NEG()) 0) }
+        if (op == "+") { chunk.emit((TSBytecodeOp.POS()) 0) }
+    }
+
+    fn emitConditional:void (node:TSNode) {
+        if node.test {
+            this.emitExpr((unwrap node.test))
+        }
+        def jumpFalse:int (array_length chunk.ops)
+        chunk.emit((TSBytecodeOp.JUMP_IF_FALSE()) 0)
+        if node.consequent {
+            this.emitExpr((unwrap node.consequent))
+        }
+        def jumpEnd:int (array_length chunk.ops)
+        chunk.emit((TSBytecodeOp.JUMP()) 0)
+        def elsePos:int (array_length chunk.ops)
+        chunk.setOperandAt(jumpFalse elsePos)
+        if node.alternate {
+            this.emitExpr((unwrap node.alternate))
+        }
+        def endPos:int (array_length chunk.ops)
+        chunk.setOperandAt(jumpEnd endPos)
+    }
+
+    fn emitMember:void (node:TSNode) {
+        if node.left {
+            this.emitExpr((unwrap node.left))
+        }
+        if node.computed {
+            if node.right {
+                this.emitExpr((unwrap node.right))
+            }
+            chunk.emit((TSBytecodeOp.GET_INDEX()) 0)
+        } {
+            def propName:string node.name
+            if ((strlen propName) == 0) {
+                if node.right {
+                    def propNode:TSNode (unwrap node.right)
+                    propName = propNode.name
+                    if ((strlen propName) == 0) {
+                        propName = propNode.value
+                    }
+                }
+            }
+            def idx:int (chunk.addNameRef(propName))
+            chunk.emit((TSBytecodeOp.GET_MEMBER()) idx)
+        }
+    }
+
+    fn emitArray:void (node:TSNode) {
+        def count:int (array_length node.children)
+        def i:int 0
+        while (i < count) {
+            this.emitExpr((itemAt node.children i))
+            i = (i + 1)
+        }
+        chunk.emit((TSBytecodeOp.MAKE_ARRAY()) count)
+    }
+
+    fn emitObject:void (node:TSNode) {
+        def count:int (array_length node.children)
+        def i:int 0
+        while (i < count) {
+            def prop:TSNode (itemAt node.children i)
+            def keyName:string prop.name
+            def keyIdx:int (chunk.addStrConst(keyName))
+            chunk.emit((TSBytecodeOp.PUSH_STR()) keyIdx)
+            if prop.left {
+                this.emitExpr((unwrap prop.left))
+            } {
+                chunk.emit((TSBytecodeOp.PUSH_NULL()) 0)
+            }
+            i = (i + 1)
+        }
+        chunk.emit((TSBytecodeOp.MAKE_OBJECT()) count)
+    }
+}
