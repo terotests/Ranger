@@ -7550,8 +7550,9 @@ class EvalContext  {
     this.bindings[name] = value;
   };
   lookup (name) {
-    if ( ( typeof(this.bindings[name] ) != "undefined" && this.bindings.hasOwnProperty(name) ) ) {
-      return (( this.bindings.hasOwnProperty(name) ? this.bindings[name] : undefined ));
+    const found = ( this.bindings.hasOwnProperty(name) ? this.bindings[name] : undefined );
+    if ( typeof(found) != "undefined" ) {
+      return found;
     }
     if ( typeof(this.parent) != "undefined" ) {
       const p = this.parent;
@@ -9806,6 +9807,29 @@ class ComponentEngine  {
     }
   };
   evaluateExpr (node) {
+    const nt = node.nodeType;
+    if ( nt == "Identifier" ) {
+      if ( node.name == "undefined" ) {
+        return EvalValue.undefined();
+      }
+      return this.context.lookup(node.name);
+    }
+    if ( nt == "MemberExpression" ) {
+      return this.evaluateMemberExpr(node);
+    }
+    if ( nt == "CallExpression" ) {
+      return this.evaluateCallExpr(node);
+    }
+    if ( nt == "BinaryExpression" ) {
+      return this.evaluateBinaryExpr(node);
+    }
+    if ( nt == "NumericLiteral" ) {
+      const fastNum = isNaN( parseFloat(node.value) ) ? undefined : parseFloat(node.value);
+      if ( typeof(fastNum) != "undefined" ) {
+        return EvalValue.number((fastNum));
+      }
+      return EvalValue.number(0.0);
+    }
     if ( node.nodeType == "NumericLiteral" ) {
       const numVal = isNaN( parseFloat(node.value) ) ? undefined : parseFloat(node.value);
       if ( typeof(numVal) != "undefined" ) {

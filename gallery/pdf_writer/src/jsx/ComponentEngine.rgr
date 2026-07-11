@@ -39,8 +39,10 @@ class EvalContext {
     }
     
     fn lookup:EvalValue (name:string) {
-        if (has bindings name) {
-            return (unwrap (get bindings name))
+        ; Single map probe (avoids a second hasOwnProperty via `has` + `get`).
+        def found@(optional):EvalValue (get bindings name)
+        if found {
+            return (unwrap found)
         }
         ; Check parent scope (function locals -> outer -> … -> module root)
         if parent {
@@ -2903,6 +2905,34 @@ class ComponentEngine {
     ; ==========================================================================
     
     fn evaluateExpr:EvalValue (node:TSNode) {
+        ; Fast dispatch: the node types that dominate evaluation of real scripts
+        ; (variable reads, member/array access, calls, arithmetic) are checked
+        ; first so the common case does not fall through the whole if-chain.
+        def nt:string node.nodeType
+
+        if (nt == "Identifier") {
+            if (node.name == "undefined") {
+                return (EvalValue.undefined())
+            }
+            return (context.lookup(node.name))
+        }
+        if (nt == "MemberExpression") {
+            return (this.evaluateMemberExpr(node))
+        }
+        if (nt == "CallExpression") {
+            return (this.evaluateCallExpr(node))
+        }
+        if (nt == "BinaryExpression") {
+            return (this.evaluateBinaryExpr(node))
+        }
+        if (nt == "NumericLiteral") {
+            def fastNum@(optional):double (to_double node.value)
+            if fastNum {
+                return (EvalValue.number((unwrap fastNum)))
+            }
+            return (EvalValue.number(0.0))
+        }
+
         ; Literals
         if (node.nodeType == "NumericLiteral") {
             def numVal@(optional):double (to_double node.value)
