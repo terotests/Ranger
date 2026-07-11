@@ -38,10 +38,22 @@ export function musicEvent(id, loop?) {
   return { kind: "playMusic", id: id, amount: amount };
 }
 
-/** Start music from inline soundscore text. */
-export function musicScoreEvent(scoreText, loop?) {
+/** Prepend a global transpose line (semitones; e.g. -2 = two half-steps down). */
+export function transposeScore(scoreText, semitones) {
+  if (semitones == null || semitones === 0) {
+    return scoreText;
+  }
+  return "transpose " + semitones + "\n" + scoreText;
+}
+
+/** Start music from inline soundscore text. Optional `transpose` shifts all pitches. */
+export function musicScoreEvent(scoreText, loop?, transpose?) {
   const amount = loop === false ? 0 : 1;
-  return { kind: "playMusic", id: "inline", text: scoreText, amount: amount };
+  let text = scoreText;
+  if (transpose != null && transpose !== 0) {
+    text = transposeScore(scoreText, transpose);
+  }
+  return { kind: "playMusic", id: "inline", text: text, amount: amount };
 }
 
 /** Stop the current soundscore playback. */
@@ -53,6 +65,27 @@ export function stopMusicEvent() {
 export function particleEvent(id, x, y, amount?) {
   const n = amount == null ? 0 : amount;
   return { kind: "particles", id: id, x: x, y: y, amount: n };
+}
+
+/** Gamepad rumble. pad: 0..7 or -1 for all; strength 0..65535. */
+export function rumbleEvent(pad, low, high, ms) {
+  let p = pad;
+  if (p == null) {
+    p = -1;
+  }
+  let lo = low;
+  if (lo == null) {
+    lo = 24000;
+  }
+  let hi = high;
+  if (hi == null) {
+    hi = lo;
+  }
+  let dur = ms;
+  if (dur == null) {
+    dur = 120;
+  }
+  return { kind: "rumble", pad: p, low: lo, high: hi, ms: dur };
 }
 
 /** Clamp local player slots to the engine maximum (1–8). */

@@ -103,6 +103,10 @@ class GameParticleSystem {
             this.spawnSparkle(x y amount)
             return
         }
+        if (preset == "celebrate") {
+            this.spawnCelebrate(x y amount)
+            return
+        }
         this.spawnBurst(x y amount)
     }
 
@@ -142,12 +146,92 @@ class GameParticleSystem {
         while (i < count) {
             def slot:int (this.allocSlot())
             def ang:double (this.randRange(0.0 6.28318))
-            def spd:double (this.randRange(0.05 0.18))
+            def spd:double (this.randRange(0.05 0.20))
             def vx:double (cos(ang) * spd)
             def vy:double (sin(ang) * spd)
-            def life:int (to_int (this.randRange(180.0 360.0)))
-            def size:double (this.randRange(1.5 3.5))
-            this.activate(slot x y vx vy life size 255 230 120)
+            vy = (vy + (this.randRange(-0.18 -0.04)))
+            def life:int (to_int (this.randRange(200.0 420.0)))
+            def size:double (this.randRange(1.5 4.0))
+            def pick:int (to_int (this.randRange(0.0 3.0)))
+            def pr:int 255
+            def pg:int 230
+            def pb:int 120
+            if (pick == 1) {
+                pr = 255
+                pg = 200
+                pb = 80
+            }
+            if (pick == 2) {
+                pr = 180
+                pg = 240
+                pb = 255
+            }
+            if (pick == 3) {
+                pr = 255
+                pg = 255
+                pb = 220
+            }
+            this.activate(slot x y vx vy life size pr pg pb)
+            i = (i + 1)
+        }
+    }
+
+    fn spawnCelebrate:void (x:double y:double amount:int) {
+        def count:int amount
+        if (count <= 0) {
+            count = 36
+        }
+        if (count > 48) {
+            count = 48
+        }
+        def i 0
+        while (i < count) {
+            def slot:int (this.allocSlot())
+            def vx:double 0.0
+            def vy:double 0.0
+            def mode:int (to_int (this.randRange(0.0 10.0)))
+            if (mode < 6) {
+                ; confetti fountain — mostly up and outward
+                vx = (this.randRange(-0.26 0.26))
+                vy = (this.randRange(-0.36 -0.10))
+            } {
+                def ang:double (this.randRange(0.0 6.28318))
+                def spd:double (this.randRange(0.06 0.22))
+                vx = (cos(ang) * spd)
+                vy = (sin(ang) * spd)
+            }
+            def life:int (to_int (this.randRange(420.0 980.0)))
+            def size:double (this.randRange(2.0 6.5))
+            def pick:int (to_int (this.randRange(0.0 5.0)))
+            def pr:int 255
+            def pg:int 220
+            def pb:int 80
+            if (pick == 1) {
+                pr = 120
+                pg = 220
+                pb = 255
+            }
+            if (pick == 2) {
+                pr = 255
+                pg = 120
+                pb = 200
+            }
+            if (pick == 3) {
+                pr = 255
+                pg = 240
+                pb = 120
+            }
+            if (pick == 4) {
+                pr = 180
+                pg = 255
+                pb = 140
+            }
+            if (pick == 5) {
+                pr = 255
+                pg = 90
+                pb = 90
+            }
+            this.activate(slot x y vx vy life size pr pg pb)
             i = (i + 1)
         }
     }

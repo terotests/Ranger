@@ -1,0 +1,5 @@
+name=Pomppija
+icon=icon.png
+splitScreen=auto
+autoscale=false
+soloScript=index.tsx

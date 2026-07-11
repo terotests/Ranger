@@ -1,0 +1,26 @@
+; ==============================================================================
+; lpc_demo_female — female walk strip with basic clothes.
+; ==============================================================================
+; Bake: npm run engine:lpc:run -- female gallery/game_engine/lpc/output/compose_female.png
+
+class LpcDemoFemale {
+    fn addCall:void (list:[LpcDrawCall] path:string z:int) {
+        def call:LpcDrawCall (new LpcDrawCall())
+        call.spritePath = path
+        call.zPos = z
+        call.animY = 0
+        push list call
+    }
+
+    fn buildCalls:[LpcDrawCall] () {
+        def list:[LpcDrawCall]
+        this.addCall(list "body/bodies/female/walk.png" 10)
+        this.addCall(list "torso/clothes/longsleeve/longsleeve/female/walk.png" 15)
+        this.addCall(list "legs/pants/female/walk/blue.png" 20)
+        this.addCall(list "feet/boots/basic/thin/walk.png" 25)
+        this.addCall(list "head/heads/human/female/walk.png" 100)
+        this.addCall(list "hair/long_tied/adult/bg/walk.png" 95)
+        this.addCall(list "hair/long_tied/adult/fg/walk.png" 120)
+        return list
+    }
+}

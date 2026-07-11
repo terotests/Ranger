@@ -6,23 +6,20 @@
 ;
 ;   tempo 100
 ;   beats 4/4
+;   transpose -2          ; global semitones (negative = down)
 ;
-;   @melody piano
+;   @melody piano -2      ; optional per-track semitones (adds to global)
 ;   1:C4 1:E4 1:G4 1:C5
-;   1:D4 1:F4 1:A4 1:D5
 ;
 ;   @harmony violin
 ;   4:C3 4:G3
 ;
-;   @bass square
-;   2:C2 2:G2 2:C2 2:G2
+;   @arp harp
+;   1:C3 1:E3 1:G3 1:C4
 ;
-;   @drums drums
-;   1:K 1:_ 1:S 1:_ 1:K 1:K 1:S 1:_
-;
-; Each token is beats:note where beats is duration in quarter-note beats.
-; Notes use scientific pitch (C4, C#4, Db4). _ is a rest. Drum hits: K S H.
-; Track instrument selects the synth voice (piano, violin, square, drums, sine).
+; Instruments: piano, violin, harp, flute, guitar, brass, organ, pad, bell,
+;              square, triangle, sine, drums (K/S/H)
+; Note duration: beats:note — beats may be fractional (e.g. 0.5:G4).
 ; ==============================================================================
 
 Import "./game_audio.rgr"
@@ -35,6 +32,7 @@ class ScoreNote {
 class ScoreTrack {
     def name:string ""
     def instrument:string "piano"
+    def transpose:int 0
     def notes:[ScoreNote]
 }
 
@@ -42,6 +40,7 @@ class SoundScore {
     def tempo:int 120
     def beatsNum:int 4
     def beatsDen:int 4
+    def transpose:int 0
     def tracks:[ScoreTrack]
     def totalBeats:double 0.0
 }
@@ -55,6 +54,71 @@ class ScheduledNote {
 }
 
 class SoundScoreParser {
+    def pitchNames:NoteNames (new NoteNames)
+    def pitchNamesReady:boolean false
+
+    fn ensurePitchNames:void () {
+        if (false == pitchNamesReady) {
+            pitchNames.init()
+            pitchNamesReady = true
+        }
+    }
+
+    fn parseSignedIntStr:int (s:string) {
+        if ((strlen s) == 0) {
+            return 0
+        }
+        def neg:boolean false
+        def start:int 0
+        def ch0:string (substring s 0 1)
+        if (ch0 == "-") {
+            neg = true
+            start = 1
+        } {
+            if (ch0 == "+") {
+                start = 1
+            }
+        }
+        if (start >= (strlen s)) {
+            return 0
+        }
+        def val:int (this.parseIntStr((substring s start (strlen s))))
+        if (neg) {
+            val = (0 - val)
+        }
+        return val
+    }
+
+    fn looksLikeSignedInt:boolean (s:string) {
+        if ((strlen s) == 0) {
+            return false
+        }
+        def start:int 0
+        def ch0:string (substring s 0 1)
+        if (ch0 == "-") {
+            start = 1
+        } {
+            if (ch0 == "+") {
+                start = 1
+            }
+        }
+        if (start >= (strlen s)) {
+            return false
+        }
+        def i:int start
+        while (i < (strlen s)) {
+            def ch:int (charAt s i)
+            if (ch < 48) {
+                return false
+            }
+            if (ch > 57) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
     fn parseIntStr:int (s:string) {
         def out:int 0
         def i:int 0
@@ -68,6 +132,33 @@ class SoundScoreParser {
             i = (i + 1)
         }
         return out
+    }
+
+    fn parseDoubleStr:double (s:string) {
+        def whole:double 0.0
+        def frac:double 0.0
+        def fracDiv:double 0.1
+        def seenDot:boolean false
+        def i:int 0
+        while (i < (strlen s)) {
+            def ch:int (charAt s i)
+            if (ch == 46) {
+                seenDot = true
+            } {
+                if (ch >= 48) {
+                    if (ch <= 57) {
+                        if (seenDot) {
+                            frac = (frac + ((to_double (ch - 48)) * fracDiv))
+                            fracDiv = (fracDiv * 0.1)
+                        } {
+                            whole = ((whole * 10.0) + (to_double (ch - 48)))
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (whole + frac)
     }
 
     fn trim:string (s:string) {
@@ -169,8 +260,7 @@ class SoundScoreParser {
         }
         def beatsStr:string (substring tok 0 colon)
         def pitch:string (substring tok (colon + 1) (strlen tok))
-        def beatsInt:int (this.parseIntStr(beatsStr))
-        noteOut.beats = (to_double beatsInt)
+        noteOut.beats = (this.parseDoubleStr(beatsStr))
         if (noteOut.beats <= 0.0) {
             noteOut.beats = 1.0
         }
@@ -231,6 +321,19 @@ class SoundScoreParser {
         return true
     }
 
+    fn parseTranspose:boolean (line:string score:SoundScore) {
+        if ((strlen line) < 11) {
+            return false
+        }
+        def head:string (substring line 0 10)
+        if (head != "transpose ") {
+            return false
+        }
+        def valStr:string (this.trim((substring line 10 (strlen line))))
+        score.transpose = (this.parseSignedIntStr(valStr))
+        return true
+    }
+
     fn parseTrackHeader:boolean (line:string trackOut:ScoreTrack) {
         if ((strlen line) < 2) {
             return false
@@ -240,21 +343,23 @@ class SoundScoreParser {
             return false
         }
         def rest:string (this.trim((substring line 1 (strlen line))))
-        def sp:int -1
-        def i 0
-        while (i < (strlen rest)) {
-            def ch:string (substring rest i (i + 1))
-            if (ch == " ") {
-                sp = i
-                break
-            }
-            i = (i + 1)
-        }
-        if (sp < 1) {
+        def toks:[string] (this.splitTokens(rest))
+        if ((array_length toks) < 2) {
             return false
         }
-        trackOut.name = (substring rest 0 sp)
-        trackOut.instrument = (this.trim((substring rest (sp + 1) (strlen rest))))
+        trackOut.name = (itemAt toks 0)
+        trackOut.transpose = 0
+        trackOut.instrument = "piano"
+        def lastIdx:int ((array_length toks) - 1)
+        def lastTok:string (itemAt toks lastIdx)
+        if (this.looksLikeSignedInt(lastTok)) {
+            trackOut.transpose = (this.parseSignedIntStr(lastTok))
+            if (lastIdx > 1) {
+                trackOut.instrument = (itemAt toks 1)
+            }
+        } {
+            trackOut.instrument = (itemAt toks 1)
+        }
         if ((strlen trackOut.instrument) == 0) {
             trackOut.instrument = "piano"
         }
@@ -294,6 +399,8 @@ class SoundScoreParser {
                     } {
                         if (this.parseBeats(line score)) {
                         } {
+                            if (this.parseTranspose(line score)) {
+                            } {
                             def hdr:ScoreTrack (new ScoreTrack)
                             if (this.parseTrackHeader(line hdr)) {
                                 push score.tracks hdr
@@ -312,6 +419,7 @@ class SoundScoreParser {
                                     }
                                 }
                             }
+                            }
                         }
                     }
                 }
@@ -323,10 +431,12 @@ class SoundScoreParser {
     }
 
     fn buildSchedule:[ScheduledNote] (score:SoundScore) {
+        this.ensurePitchNames()
         def out:[ScheduledNote]
         def ti 0
         while (ti < (array_length score.tracks)) {
             def tr:ScoreTrack (itemAt score.tracks ti)
+            def semi:int (score.transpose + tr.transpose)
             def beat:double 0.0
             def ni 0
             while (ni < (array_length tr.notes)) {
@@ -336,7 +446,7 @@ class SoundScoreParser {
                     ev.beat = beat
                     ev.beats = n.beats
                     ev.instrument = tr.instrument
-                    ev.pitch = n.pitch
+                    ev.pitch = (pitchNames.transposePitch(n.pitch semi))
                     push out ev
                 }
                 beat = (beat + n.beats)
@@ -344,7 +454,26 @@ class SoundScoreParser {
             }
             ti = (ti + 1)
         }
+        this.sortScheduleByBeat(out)
         return out
+    }
+
+    fn sortScheduleByBeat:void (schedule:[ScheduledNote]) {
+        def n:int (array_length schedule)
+        def i 0
+        while (i < n) {
+            def j (i + 1)
+            while (j < n) {
+                def a:ScheduledNote (itemAt schedule i)
+                def b:ScheduledNote (itemAt schedule j)
+                if (b.beat < a.beat) {
+                    set schedule i b
+                    set schedule j a
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
     }
 }
 
@@ -360,6 +489,40 @@ class SoundScorePlayer {
     def loop:boolean true
     def noteStarts:int 0
 
+    fn startPendingVoices:void (pending:[ScheduledNote]) {
+        def n:int (array_length pending)
+        if (n <= 0) {
+            return
+        }
+        if (n == 1) {
+            def src:ScheduledNote (itemAt pending 0)
+            def durMs:int (to_int (src.beats * msPerBeat))
+            if (durMs < 40) {
+                durMs = 40
+            }
+            audio.playScoreNote(src.instrument src.pitch durMs)
+            noteStarts = (noteStarts + 1)
+            return
+        }
+        def hits:[ScoreVoiceHit]
+        def head:ScheduledNote (itemAt pending 0)
+        def durMs:int (to_int (head.beats * msPerBeat))
+        if (durMs < 40) {
+            durMs = 40
+        }
+        def i 0
+        while (i < n) {
+            def src:ScheduledNote (itemAt pending i)
+            def hit:ScoreVoiceHit (new ScoreVoiceHit)
+            hit.instrument = src.instrument
+            hit.pitch = src.pitch
+            push hits hit
+            i = (i + 1)
+        }
+        audio.playScoreChord(hits durMs)
+        noteStarts = (noteStarts + n)
+    }
+
     fn load:void (text:string) {
         score = (parser.parse(text))
         schedule = (parser.buildSchedule(score))
@@ -374,12 +537,6 @@ class SoundScorePlayer {
         playing = true
         nextIdx = 0
         beatPos = 0.0
-        def i 0
-        while (i < (array_length schedule)) {
-            def ev:ScheduledNote (itemAt schedule i)
-            ev.played = false
-            i = (i + 1)
-        }
     }
 
     fn stop:void () {
@@ -393,31 +550,7 @@ class SoundScorePlayer {
     }
 
     fn flushPending:void (pending:[ScheduledNote]) {
-        def n:int (array_length pending)
-        if (n <= 0) {
-            return
-        }
-        if (n == 1) {
-            def one:ScheduledNote (itemAt pending 0)
-            def durMs:int (to_int (one.beats * msPerBeat))
-            audio.playScoreNote(one.instrument one.pitch durMs)
-            noteStarts = (noteStarts + 1)
-            return
-        }
-        def hits:[ScoreVoiceHit]
-        def i 0
-        while (i < n) {
-            def src:ScheduledNote (itemAt pending i)
-            def hit:ScoreVoiceHit (new ScoreVoiceHit)
-            hit.instrument = src.instrument
-            hit.pitch = src.pitch
-            push hits hit
-            i = (i + 1)
-        }
-        def head:ScheduledNote (itemAt pending 0)
-        def durMs:int (to_int (head.beats * msPerBeat))
-        audio.playScoreChord(hits durMs)
-        noteStarts = (noteStarts + n)
+        this.startPendingVoices(pending)
     }
 
     fn tick:void (dtMs:int) {
@@ -428,32 +561,31 @@ class SoundScorePlayer {
             playing = false
             return
         }
-        def prevBeat:double beatPos
         beatPos = (beatPos + ((to_double dtMs) / msPerBeat))
-        def pending:[ScheduledNote]
-        def i 0
-        while (i < (array_length schedule)) {
-            def ev:ScheduledNote (itemAt schedule i)
-            if (ev.played == false) {
-                if (ev.beat <= beatPos) {
-                    if (ev.beat >= prevBeat) {
-                        push pending ev
-                        ev.played = true
-                    }
-                }
+        while (nextIdx < (array_length schedule)) {
+            def ev:ScheduledNote (itemAt schedule nextIdx)
+            if (ev.beat > beatPos) {
+                break
             }
-            i = (i + 1)
+            def targetBeat:double ev.beat
+            def pending:[ScheduledNote]
+            while (nextIdx < (array_length schedule)) {
+                def cand:ScheduledNote (itemAt schedule nextIdx)
+                if (cand.beat > beatPos) {
+                    break
+                }
+                if (cand.beat != targetBeat) {
+                    break
+                }
+                push pending cand
+                nextIdx = (nextIdx + 1)
+            }
+            this.startPendingVoices(pending)
         }
-        this.flushPending(pending)
         if (beatPos >= score.totalBeats) {
             if (loop) {
                 beatPos = 0.0
-                def ri 0
-                while (ri < (array_length schedule)) {
-                    def rev:ScheduledNote (itemAt schedule ri)
-                    rev.played = false
-                    ri = (ri + 1)
-                }
+                nextIdx = 0
             } {
                 playing = false
             }

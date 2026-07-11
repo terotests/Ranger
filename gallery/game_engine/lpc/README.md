@@ -43,6 +43,7 @@ Build-skriptit (bash, kuten muu game engine): `gallery/game_engine/scripts/build
 npm run engine:lpc:build
 npm run engine:lpc:run
 npm run engine:lpc:run -- female gallery/game_engine/lpc/output/female.png
+npm run engine:lpc:run -- super gallery/game_engine/lpc/output/compose_super.png
 
 # Useita bodyType-esimerkkejä
 ./gallery/game_engine/scripts/build-lpc-batch.sh

@@ -275,6 +275,26 @@ describe("Game runner - scripted Pong", () => {
     expect(parseInt(entities![1], 10)).toBeGreaterThan(10);
   });
 
+  it("runs Ylos 2 with LPC sheet sprites and diamonds", () => {
+    const { compile, run } = compileAndRun(
+      "gallery/game_engine/scripting/ylos2_runner_demo.rgr"
+    );
+
+    expect(
+      compile.success,
+      `Compile failed: ${compile.error || compile.output}`
+    ).toBe(true);
+    expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+
+    const out = run?.output || "";
+    expect(out).toContain("ylos2-runner done");
+    expect(out).toContain("frames=400");
+
+    const entities = out.match(/entities=(\d+)/);
+    expect(entities, `no entities in output: ${out}`).toBeTruthy();
+    expect(parseInt(entities![1], 10)).toBeGreaterThan(14);
+  });
+
   it("runs split-screen host with two independent solo panes", () => {
     const { compile, run } = compileAndRun(
       "gallery/game_engine/scripting/split_screen_runner_demo.rgr"

@@ -4,6 +4,10 @@
 ; Port target: LPC renderer.ts drawCalls loop (zPos sort).
 
 Import "lpc_demo_male.rgr"
+Import "lpc_demo_female.rgr"
+Import "lpc_demo_super.rgr"
+Import "lpc_demo_super_female.rgr"
+Import "lpc_demo_skeleton.rgr"
 
 class LpcDrawCall {
     def itemId:string ""
@@ -18,6 +22,22 @@ class LpcDraw {
         if (bodyType == "male") {
             def demo:LpcDemoMale (new LpcDemoMale())
             return (demo.buildCalls())
+        }
+        if (bodyType == "female") {
+            def demo:LpcDemoFemale (new LpcDemoFemale())
+            return (demo.buildCalls())
+        }
+        if (bodyType == "super") {
+            def hero:LpcDemoSuper (new LpcDemoSuper())
+            return (hero.buildCalls())
+        }
+        if (bodyType == "super_female") {
+            def hero:LpcDemoSuperFemale (new LpcDemoSuperFemale())
+            return (hero.buildCalls())
+        }
+        if (bodyType == "skeleton") {
+            def skel:LpcDemoSkeleton (new LpcDemoSkeleton())
+            return (skel.buildCalls())
         }
         def list:[LpcDrawCall]
         print ("[lpc_draw] no preset for bodyType=" + bodyType)

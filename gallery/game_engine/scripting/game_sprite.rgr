@@ -21,9 +21,12 @@
 ;   wedge  - circle with a directional bite removed (p0=dir 0..3, p1=open 0..3)
 ;   ghost  - domed sprite with scalloped hem and plus eyes (p0=dir, p1=0 full / 1 eyes-only)
 ;   bitmap - cached pixel-art with animated frame set (p0=frame)
+;   sheet  - PNG spritesheet sub-rect blit (p0=frame col, p1=row, path/frameW/H)
 ; ==============================================================================
 
 Import "../framebuffer.rgr"
+Import "./game_image_loader.rgr"
+Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
 
 ; Retained on-screen object: static shape from sprites(), runtime pose from state.
 class GameEntity {
@@ -49,9 +52,23 @@ class GameEntity {
     def bmFrameLen:[int]
     def bmFrameStart:[int]
     def bmPixels:[int]
+    def shPath:string ""
+    def shFrameW:int 64
+    def shFrameH:int 64
+    def shCols:int 9
+    def shRows:int 4
+    def shScale:int 50
+    def shFeetTrim:int 0
+    def shJumpFrame:int 0
+    def shImg:ImageBuffer (new ImageBuffer())
 }
 
 class GameSpriteRenderer {
+    def imageLoader:GameImageLoader (new GameImageLoader())
+
+    fn setImageLoader:void (loader:GameImageLoader) {
+        imageLoader = loader
+    }
     fn half:int (n:int) {
         def result 0
         def rem n
@@ -143,6 +160,21 @@ class GameSpriteRenderer {
         }
     }
 
+    fn loadSheetImage:void (e:GameEntity d:EvalValue) {
+        def pathv:EvalValue (d.getMember("path"))
+        e.shPath = pathv.stringValue
+        e.shFrameW = (this.memInt(d "frameW" 64))
+        e.shFrameH = (this.memInt(d "frameH" 64))
+        e.shCols = (this.memInt(d "cols" 9))
+        e.shRows = (this.memInt(d "rows" 4))
+        e.shScale = (this.memInt(d "scale" 50))
+        e.shFeetTrim = (this.memInt(d "feetTrim" 0))
+        e.shJumpFrame = (this.memInt(d "jumpFrame" 0))
+        if ((strlen e.shPath) > 0) {
+            e.shImg = (imageLoader.load(e.shPath))
+        }
+    }
+
     ; Apply a sprites() entry to a fresh GameEntity (defaults + static fields).
     fn applyDef:void (e:GameEntity d:EvalValue) {
         def idv:EvalValue (d.getMember("id"))
@@ -151,6 +183,10 @@ class GameSpriteRenderer {
         e.kind = kindv.stringValue
         if (e.kind == "bitmap") {
             this.cacheBitmapFrames(e d)
+            return
+        }
+        if (e.kind == "sheet") {
+            this.loadSheetImage(e d)
             return
         }
         e.w = (this.memInt(d "w" 8))
@@ -240,8 +276,54 @@ class GameSpriteRenderer {
         }
     }
 
+    fn sheetImageReady:boolean (e:GameEntity) {
+        if (e.shImg.width <= 1) {
+            return false
+        }
+        if (e.shImg.height <= 1) {
+            return false
+        }
+        return true
+    }
+
+    fn drawSheet:void (e:GameEntity canvas:SoftCanvas) {
+        if (false == (this.sheetImageReady(e))) {
+            return
+        }
+        def col:int (e.p0 % e.shCols)
+        if (col < 0) {
+            col = 0
+        }
+        def row:int (e.p1 % e.shRows)
+        if (row < 0) {
+            row = 0
+        }
+        if (e.p2 != 0) {
+            col = e.shJumpFrame
+        }
+        def sx:int (col * e.shFrameW)
+        def sy:int (row * e.shFrameH)
+        def dw:int (to_int ((to_double (e.shFrameW * e.shScale)) / 100.0))
+        def dh:int (to_int ((to_double (e.shFrameH * e.shScale)) / 100.0))
+        if (dw < 1) {
+            dw = 1
+        }
+        if (dh < 1) {
+            dh = 1
+        }
+        def dx:int (e.x - (this.half(dw)))
+        ; Feet at (x,y). feetTrim shaves transparent LPC padding from the frame bottom.
+        def trim:int (to_int ((to_double (e.shFeetTrim * e.shScale)) / 100.0))
+        def dy:int ((e.y - dh) + trim)
+        canvas.blitImageRectScaled(e.shImg sx sy e.shFrameW e.shFrameH dx dy dw dh)
+    }
+
     fn drawEntity:void (e:GameEntity canvas:SoftCanvas) {
         if (false == e.visible) {
+            return
+        }
+        if (e.kind == "sheet") {
+            this.drawSheet(e canvas)
             return
         }
         if (e.kind == "bitmap") {

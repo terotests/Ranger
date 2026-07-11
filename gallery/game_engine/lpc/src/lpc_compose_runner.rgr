@@ -63,7 +63,7 @@ class LpcComposeRunner {
         }
 
         def enc:PNGEncoder (new PNGEncoder())
-        enc.encode(composed.buffer runner.outDir runner.outFile)
+        enc.encodeRgba(composed.buffer runner.outDir runner.outFile)
         print "Done."
     }
 }

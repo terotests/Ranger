@@ -457,7 +457,9 @@ class Inflate {
         reader.alignToByte()
         def len:int (reader.readUint16LE())
         def nlen:int (reader.readUint16LE())
-        ; nlen should be one's complement of len (we could verify)
+        if ((len + nlen) != 65535) {
+            ; NLEN read advances the bitstream even when LEN/NLEN do not match.
+        }
         
         this.ensureCapacity(len)
         def i 0

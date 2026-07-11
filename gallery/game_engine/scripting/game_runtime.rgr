@@ -90,6 +90,15 @@ class GameRunner {
         ph = h
         canvas.init(w h)
         particles.init(96)
+        this.initSessionGlobal()
+    }
+
+    fn initSessionGlobal:void () {
+        def keys:[string]
+        def vals:[EvalValue]
+        push keys "musicId"
+        push vals (EvalValue.string(""))
+        engine.registerGlobal("session" (EvalValue.object(keys vals)))
     }
 
     fn half:int (n:int) {
@@ -181,6 +190,7 @@ class GameRunner {
         engine.setBasePath(dir)
         imageLoader.setBaseDir(dir)
         host.musicDir = dir
+        spriteRenderer.setImageLoader(imageLoader)
         engine.addAssetPath(engineLibPath)
     }
 
@@ -208,6 +218,7 @@ class GameRunner {
             engine.setBasePath(dir)
             imageLoader.setBaseDir(dir)
             host.musicDir = dir
+            spriteRenderer.setImageLoader(imageLoader)
             engine.addAssetPath(engineLibPath)
         }
         if ((strlen file) > 0) {
@@ -271,14 +282,11 @@ class GameRunner {
         if ((strlen options.scriptDir) > 0) {
             imageLoader.setBaseDir(options.scriptDir)
         }
-        def src:string (imageLoader.resolveIdOrPath(host idOrPath))
-        print (("[GameRunner] background: load id=" + idOrPath) + (" path=" + src) + (" dir=" + options.scriptDir))
         def img:ImageBuffer (imageLoader.loadByIdOrPath(host idOrPath))
         if (imageLoader.isValidImage(img)) {
             backgroundImg = img
             backgroundLoaded = true
             backgroundKey = idOrPath
-            print (("[GameRunner] background: ok " + (to_string img.width)) + ("x" + (to_string img.height)))
         } {
             print ("[GameRunner] background: failed id=" + idOrPath)
             this.clearBackground()
@@ -301,10 +309,7 @@ class GameRunner {
         if (v.isString()) {
             def id:string v.stringValue
             if ((strlen id) > 0) {
-                print ("[GameRunner] background: backgroundImage() -> " + id)
                 this.setBackground(id)
-            } {
-                print "[GameRunner] background: backgroundImage() returned empty string"
             }
         }
     }
@@ -372,7 +377,6 @@ class GameRunner {
         engine.registerGlobal("bgHeight" (EvalValue.fromInt(levelH)))
         engine.callFunction("createStaticBg" (EvalValue.null()))
         staticBgReady = true
-        print (("[GameRunner] staticBg: ok " + (to_string pw)) + ("x" + (to_string levelH)))
     }
 
     ; In-process hot reload: AST diff + swap changed bindings. Rebuilds scene only
@@ -582,6 +586,13 @@ class GameRunner {
         e.y = (this.memDouble(d "y" 0.0))
         e.amount = (this.memInt(d "amount" 0))
         e.text = (this.memString(d "text" ""))
+        e.pad = (this.memInt(d "pad" -1))
+        e.low = (this.memInt(d "low" 24000))
+        e.high = (this.memInt(d "high" 24000))
+        e.ms = (this.memInt(d "ms" 0))
+        if (e.ms <= 0) {
+            e.ms = (this.memInt(d "amount" 120))
+        }
         return e
     }
 
