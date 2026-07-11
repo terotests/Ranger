@@ -247,6 +247,121 @@ class SoftCanvas {
         blitter.blitRect(view src sx sy sw sh ddx ddy)
     }
 
+    ; Alpha-composite a source sub-rectangle onto this canvas (centered draw uses
+    ; dx/dy as the top-left of the blitted region after caller offset).
+    fn blitImageRect:void (src:ImageBuffer sx:int sy:int sw:int sh:int dx:int dy:int) {
+        if (src.width <= 0) {
+            return
+        }
+        if (src.height <= 0) {
+            return
+        }
+        if (sw <= 0) {
+            return
+        }
+        if (sh <= 0) {
+            return
+        }
+        def ddx:int dx
+        def ddy:int dy
+        def ssx:int sx
+        def ssy:int sy
+        def ssw:int sw
+        def ssh:int sh
+        if (ddx < 0) {
+            ssx = (ssx + (0 - ddx))
+            ssw = (ssw - (0 - ddx))
+            ddx = 0
+        }
+        if (ddy < 0) {
+            ssy = (ssy + (0 - ddy))
+            ssh = (ssh - (0 - ddy))
+            ddy = 0
+        }
+        if ((ddx + ssw) > w) {
+            ssw = (w - ddx)
+        }
+        if ((ddy + ssh) > h) {
+            ssh = (h - ddy)
+        }
+        if (ssw <= 0) {
+            return
+        }
+        if (ssh <= 0) {
+            return
+        }
+        def view:RasterBuffer (new RasterBuffer)
+        view.width = w
+        view.height = h
+        view.pixels = px
+        blitter.blitRect(view src ssx ssy ssw ssh ddx ddy)
+    }
+
+    ; Nearest-neighbour scale-blit of a source sub-rectangle (sw×sh → dw×dh).
+    fn blitImageRectScaled:void (src:ImageBuffer sx:int sy:int sw:int sh:int dx:int dy:int dw:int dh:int) {
+        if (sw <= 0) {
+            return
+        }
+        if (sh <= 0) {
+            return
+        }
+        if (dw <= 0) {
+            return
+        }
+        if (dh <= 0) {
+            return
+        }
+        def y 0
+        while (y < dh) {
+            def dstY:int (dy + y)
+            if (dstY < 0) {
+                y = (y + 1)
+            } {
+                if (dstY >= h) {
+                    y = (y + 1)
+                } {
+                    def syOff:int (sy + (to_int ((to_double (y * sh)) / (to_double dh))))
+                    if (syOff >= src.height) {
+                        syOff = (src.height - 1)
+                    }
+                    def x 0
+                    while (x < dw) {
+                        def dstX:int (dx + x)
+                        if (dstX < 0) {
+                            x = (x + 1)
+                        } {
+                            if (dstX >= w) {
+                                x = (x + 1)
+                            } {
+                                def sxOff:int (sx + (to_int ((to_double (x * sw)) / (to_double dw))))
+                                if (sxOff >= src.width) {
+                                    sxOff = (src.width - 1)
+                                }
+                                def srcBuf:buffer (src.getRawBuffer())
+                                def sOff:int (((syOff * src.width) + sxOff) * 4)
+                                def srcA:int (buffer_get srcBuf (sOff + 3))
+                                if (srcA > 0) {
+                                    def dOff:int (((dstY * w) + dstX) * 4)
+                                    if (srcA >= 255) {
+                                        blitter.copyOpaquePixel(px dOff srcBuf sOff)
+                                    } {
+                                        blitter.blendOverBytes(px dOff
+                                            (buffer_get srcBuf sOff)
+                                            (buffer_get srcBuf (sOff + 1))
+                                            (buffer_get srcBuf (sOff + 2))
+                                            srcA)
+                                    }
+                                }
+                                x = (x + 1)
+                            }
+                        }
+                    }
+                    y = (y + 1)
+                }
+            }
+        }
+    }
+
     fn fillCircle:void (cx:int cy:int rad:int r:int g:int b:int) {
         def r2 (rad * rad)
         def yy (cy - rad)

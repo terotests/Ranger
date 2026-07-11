@@ -181,6 +181,7 @@ class GameRunner {
         engine.setBasePath(dir)
         imageLoader.setBaseDir(dir)
         host.musicDir = dir
+        spriteRenderer.setImageLoader(imageLoader)
         engine.addAssetPath(engineLibPath)
     }
 
@@ -208,6 +209,7 @@ class GameRunner {
             engine.setBasePath(dir)
             imageLoader.setBaseDir(dir)
             host.musicDir = dir
+            spriteRenderer.setImageLoader(imageLoader)
             engine.addAssetPath(engineLibPath)
         }
         if ((strlen file) > 0) {

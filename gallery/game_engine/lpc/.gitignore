@@ -1,5 +1,6 @@
 # Generoidut spritesheetit
 output/
+!output/compose.png
 tmp/
 
 # Upotetut pack-assetit (repo root *.png gitignore)

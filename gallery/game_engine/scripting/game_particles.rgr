@@ -103,6 +103,10 @@ class GameParticleSystem {
             this.spawnSparkle(x y amount)
             return
         }
+        if (preset == "celebrate") {
+            this.spawnCelebrate(x y amount)
+            return
+        }
         this.spawnBurst(x y amount)
     }
 
@@ -148,6 +152,52 @@ class GameParticleSystem {
             def life:int (to_int (this.randRange(180.0 360.0)))
             def size:double (this.randRange(1.5 3.5))
             this.activate(slot x y vx vy life size 255 230 120)
+            i = (i + 1)
+        }
+    }
+
+    fn spawnCelebrate:void (x:double y:double amount:int) {
+        def count:int amount
+        if (count <= 0) {
+            count = 36
+        }
+        if (count > 48) {
+            count = 48
+        }
+        def i 0
+        while (i < count) {
+            def slot:int (this.allocSlot())
+            def ang:double (this.randRange(0.0 6.28318))
+            def spd:double (this.randRange(0.10 0.28))
+            def vx:double (cos(ang) * spd)
+            def vy:double (sin(ang) * spd)
+            def life:int (to_int (this.randRange(400.0 900.0)))
+            def size:double (this.randRange(2.5 6.0))
+            def pick:int (to_int (this.randRange(0.0 4.0)))
+            def pr:int 255
+            def pg:int 220
+            def pb:int 80
+            if (pick == 1) {
+                pr = 120
+                pg = 220
+                pb = 255
+            }
+            if (pick == 2) {
+                pr = 255
+                pg = 120
+                pb = 200
+            }
+            if (pick == 3) {
+                pr = 255
+                pg = 240
+                pb = 120
+            }
+            if (pick == 4) {
+                pr = 180
+                pg = 255
+                pb = 140
+            }
+            this.activate(slot x y vx vy life size pr pg pb)
             i = (i + 1)
         }
     }

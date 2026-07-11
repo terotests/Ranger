@@ -1,0 +1,5 @@
+name=Ylos 2
+icon=icon.png
+splitScreen=auto
+autoscale=false
+soloScript=index.tsx
