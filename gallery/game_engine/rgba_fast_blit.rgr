@@ -74,9 +74,53 @@ class RgbaFastBlit {
         buffer_set dstBuf (dstOff + 3) 255
     }
 
+    fn copyOpaquePixelRaster:void (dest:RasterBuffer dstOff:int srcBuf:buffer srcOff:int) {
+        buffer_set dest.pixels dstOff (buffer_get srcBuf srcOff)
+        buffer_set dest.pixels (dstOff + 1) (buffer_get srcBuf (srcOff + 1))
+        buffer_set dest.pixels (dstOff + 2) (buffer_get srcBuf (srcOff + 2))
+        buffer_set dest.pixels (dstOff + 3) 255
+    }
+
+    fn blendOverBytesRaster:void (dest:RasterBuffer dstOff:int srcR:int srcG:int srcB:int srcA:int) {
+        if (srcA <= 0) {
+            return
+        }
+        if (srcA >= 255) {
+            buffer_set dest.pixels dstOff srcR
+            buffer_set dest.pixels (dstOff + 1) srcG
+            buffer_set dest.pixels (dstOff + 2) srcB
+            buffer_set dest.pixels (dstOff + 3) 255
+            return
+        }
+
+        def dstA:int (buffer_get dest.pixels (dstOff + 3))
+        if (dstA <= 0) {
+            buffer_set dest.pixels dstOff srcR
+            buffer_set dest.pixels (dstOff + 1) srcG
+            buffer_set dest.pixels (dstOff + 2) srcB
+            buffer_set dest.pixels (dstOff + 3) srcA
+            return
+        }
+
+        def invA:int (255 - srcA)
+        def dstR:int (buffer_get dest.pixels dstOff)
+        def dstG:int (buffer_get dest.pixels (dstOff + 1))
+        def dstB:int (buffer_get dest.pixels (dstOff + 2))
+
+        def outR:int (this.blendChan(srcR dstR srcA invA))
+        def outG:int (this.blendChan(srcG dstG srcA invA))
+        def outB:int (this.blendChan(srcB dstB srcA invA))
+        def alphaMix:int (this.div256(dstA * invA))
+        def outA:int (this.clamp255(srcA + alphaMix))
+
+        buffer_set dest.pixels dstOff outR
+        buffer_set dest.pixels (dstOff + 1) outG
+        buffer_set dest.pixels (dstOff + 2) outB
+        buffer_set dest.pixels (dstOff + 3) outA
+    }
+
     ; First layer onto a cleared buffer: copy source pixels, no blending.
     fn blitFirstLayer:void (dest:RasterBuffer src:ImageBuffer dx:int dy:int) {
-        def dstBuf:buffer (dest.getRawBuffer())
         def srcBuf:buffer (src.getRawBuffer())
         def destW:int (dest.width)
         def srcW:int (src.width)
@@ -94,12 +138,12 @@ class RgbaFastBlit {
                 if (srcA > 0) {
                     def dOff:int (dstRowOff + (x * 4))
                     if (srcA >= 255) {
-                        this.copyOpaquePixel(dstBuf dOff srcBuf sOff)
+                        this.copyOpaquePixelRaster(dest dOff srcBuf sOff)
                     } {
-                        buffer_set dstBuf dOff (buffer_get srcBuf sOff)
-                        buffer_set dstBuf (dOff + 1) (buffer_get srcBuf (sOff + 1))
-                        buffer_set dstBuf (dOff + 2) (buffer_get srcBuf (sOff + 2))
-                        buffer_set dstBuf (dOff + 3) srcA
+                        buffer_set dest.pixels dOff (buffer_get srcBuf sOff)
+                        buffer_set dest.pixels (dOff + 1) (buffer_get srcBuf (sOff + 1))
+                        buffer_set dest.pixels (dOff + 2) (buffer_get srcBuf (sOff + 2))
+                        buffer_set dest.pixels (dOff + 3) srcA
                     }
                 }
                 x = (x + 1)
@@ -109,7 +153,6 @@ class RgbaFastBlit {
     }
 
     fn blitRect:void (dest:RasterBuffer src:ImageBuffer sx:int sy:int sw:int sh:int dx:int dy:int) {
-        def dstBuf:buffer (dest.getRawBuffer())
         def srcBuf:buffer (src.getRawBuffer())
         def destW:int (dest.width)
         def srcW:int (src.width)
@@ -125,10 +168,10 @@ class RgbaFastBlit {
                 if (srcA > 0) {
                     def dOff:int (dstRowOff + (x * 4))
                     if (srcA >= 255) {
-                        this.copyOpaquePixel(dstBuf dOff srcBuf sOff)
+                        this.copyOpaquePixelRaster(dest dOff srcBuf sOff)
                         x = (x + 1)
                     } {
-                        this.blendOverBytes(dstBuf dOff
+                        this.blendOverBytesRaster(dest dOff
                             (buffer_get srcBuf sOff)
                             (buffer_get srcBuf (sOff + 1))
                             (buffer_get srcBuf (sOff + 2))

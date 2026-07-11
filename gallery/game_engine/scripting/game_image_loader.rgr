@@ -159,17 +159,13 @@ class GameImageLoader {
         def resolved:string (this.resolvePath(src))
         def key:string resolved
         if (this.isCached(key)) {
-            def cached:ImageBuffer (this.findCached(key))
-            print (("[GameImageLoader] cache hit: " + key) + (" " + (to_string cached.width)) + ("x" + (to_string cached.height)))
-            return cached
+            return (this.findCached(key))
         }
-        print ("[GameImageLoader] reading file: " + resolved)
         def img:ImageBuffer (this.decodeResolved(resolved))
         if (img.width <= 1) {
             print ("[GameImageLoader] decode failed: " + resolved)
             return fail
         }
-        print (("[GameImageLoader] decoded: " + (to_string img.width)) + ("x" + (to_string img.height)))
         this.storeCache(key img)
         return img
     }

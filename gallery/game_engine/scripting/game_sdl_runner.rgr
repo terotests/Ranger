@@ -23,6 +23,18 @@ Import "./game_host_native.rgr"
 Import "./game_input.rgr"
 Import "./game_split_screen.rgr"
 
+class SdlGameHost extends GameHost {
+    fn onRumble:void (e:GameEventNative) {
+        def p:int (e.pad)
+        def strength:int (e.low)
+        if (e.high > strength) {
+            strength = e.high
+        }
+        def dur:int (e.ms)
+        gfx_rumble_pad p strength dur
+    }
+}
+
 class GameSdlRunner {
     def runner:GameRunner (new GameRunner)
     def splitHost:SplitScreenHost (new SplitScreenHost)
@@ -186,6 +198,8 @@ class GameSdlRunner {
         runner.init(pw ph)
         runner.setGpuMode(gpuModeActive)
         runner.audio.setSink((new SdlGameAudioSink))
+        runner.host = (new SdlGameHost)
+        runner.wireHostAudio()
         runner.setScriptDir(dir)
         this.wireNativeBridge(dir)
         if (injectCatalog) {
@@ -322,6 +336,7 @@ class GameSdlRunner {
         splitHost = (new SplitScreenHost)
         splitHost.init(pw ph splitAutoscale)
         splitHost.setAudioSink((new SdlGameAudioSink))
+        splitHost.setSdlHost()
         splitHost.loadPanes(panePath panePath)
         def enableHotReload:boolean hotReloadWanted
         if (maxFrames > 0) {

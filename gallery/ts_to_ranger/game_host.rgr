@@ -35,12 +35,16 @@ class ResourceDefNative {
 
 ; A transient event emitted by update() and drained by the host each frame.
 class GameEventNative {
-    def kind:string ""        ; "playSound" | "playMusic" | "stopMusic" | "spawn" | "destroy" | custom
+    def kind:string ""        ; "playSound" | "playMusic" | "stopMusic" | "rumble" | "spawn" | "destroy" | custom
     def id:string ""
     def x:double 0.0
     def y:double 0.0
     def amount:int 0
     def text:string ""        ; inline soundscore text for playMusic
+    def pad:int -1
+    def low:int 24000
+    def high:int 24000
+    def ms:int 120
 }
 
 ; Engine-side registry + event sink. Both runners own one GameHost.
@@ -167,6 +171,10 @@ class GameHost {
 
     fn handleEvent:void (e:GameEventNative) {
         eventCount = (eventCount + 1)
+        if (e.kind == "rumble") {
+            this.onRumble(e)
+            return
+        }
         if (e.kind == "playSound") {
             push soundsPlayed e.id
             if audio {
@@ -213,6 +221,9 @@ class GameHost {
             return
         }
         ; custom events are counted; hosts may inspect via subclass hooks later.
+    }
+
+    fn onRumble:void (e:GameEventNative) {
     }
 
     fn drainEvents:void (list:[GameEventNative]) {

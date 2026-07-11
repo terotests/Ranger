@@ -19340,6 +19340,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         if ( constRef ) {
           wr.out("&", false);
         }
+        if ( constRef == false ) {
+          if ( (typeof(arg.nameNode) !== "undefined" && arg.nameNode != null )  ) {
+            const bufTypeNode = arg.nameNode;
+            const bufTn = bufTypeNode.type_name;
+            if ( ((bufTn == "buffer") || (bufTn == "int_buffer")) || (bufTn == "double_buffer") ) {
+              wr.out("&", false);
+            }
+          }
+        }
         if ( arg.needs_cpp_reference ) {
           let emitRef = true;
           if ( (typeof(arg.nameNode) !== "undefined" && arg.nameNode != null )  ) {
@@ -19350,6 +19359,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             }
             if ( (typeNode.type_name.length) > 0 ) {
               if ( ctx.isDefinedClass(typeNode.type_name) ) {
+                emitRef = false;
+              }
+              const tn = typeNode.type_name;
+              if ( ((tn == "buffer") || (tn == "int_buffer")) || (tn == "double_buffer") ) {
                 emitRef = false;
               }
             }

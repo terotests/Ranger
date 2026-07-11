@@ -58,6 +58,7 @@ class GameEntity {
     def shCols:int 9
     def shRows:int 4
     def shScale:int 50
+    def shFeetTrim:int 0
     def shJumpFrame:int 0
     def shImg:ImageBuffer (new ImageBuffer())
 }
@@ -167,6 +168,7 @@ class GameSpriteRenderer {
         e.shCols = (this.memInt(d "cols" 9))
         e.shRows = (this.memInt(d "rows" 4))
         e.shScale = (this.memInt(d "scale" 50))
+        e.shFeetTrim = (this.memInt(d "feetTrim" 0))
         e.shJumpFrame = (this.memInt(d "jumpFrame" 0))
         if ((strlen e.shPath) > 0) {
             e.shImg = (imageLoader.load(e.shPath))
@@ -310,7 +312,9 @@ class GameSpriteRenderer {
             dh = 1
         }
         def dx:int (e.x - (this.half(dw)))
-        def dy:int (e.y - (this.half(dh)))
+        ; Feet at (x,y). feetTrim shaves transparent LPC padding from the frame bottom.
+        def trim:int (to_int ((to_double (e.shFeetTrim * e.shScale)) / 100.0))
+        def dy:int ((e.y - dh) + trim)
         canvas.blitImageRectScaled(e.shImg sx sy e.shFrameW e.shFrameH dx dy dw dh)
     }
 

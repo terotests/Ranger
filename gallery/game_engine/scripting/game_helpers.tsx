@@ -55,6 +55,27 @@ export function particleEvent(id, x, y, amount?) {
   return { kind: "particles", id: id, x: x, y: y, amount: n };
 }
 
+/** Gamepad rumble. pad: 0..7 or -1 for all; strength 0..65535. */
+export function rumbleEvent(pad, low, high, ms) {
+  let p = pad;
+  if (p == null) {
+    p = -1;
+  }
+  let lo = low;
+  if (lo == null) {
+    lo = 24000;
+  }
+  let hi = high;
+  if (hi == null) {
+    hi = lo;
+  }
+  let dur = ms;
+  if (dur == null) {
+    dur = 120;
+  }
+  return { kind: "rumble", pad: p, low: lo, high: hi, ms: dur };
+}
+
 /** Clamp local player slots to the engine maximum (1–8). */
 export function clampPlayerSlots(n: number): number {
   if (n < 1) {
