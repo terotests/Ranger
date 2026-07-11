@@ -256,6 +256,7 @@ Taaksepäin yhteensopiva vanhan `state.entities`-polun kanssa.
 | 4.1 | WebGL/GLES2 backend Pi:lle | EVG → GPU texture upload |
 | 4.2 | Asset pipeline | Sprite sheetit, äänipankit, collision mapit |
 | 4.3 | Collision-työkalut | Pelikohtaiset tai kevyt tile-map -kerros |
+| 4.3a | Host physics engine (Phase 1) | `game_physics.rgr` — opt-in `config().physics`, bodies, bounds, collision events |
 | 4.4 | Tuotantopeli: Koodisampo Pi:llä | README:n mainitsema seuraava oikea peli |
 | 4.5 | `<canvas>` ES6 dev-backend | Selain-kiosk debug |
 

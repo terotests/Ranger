@@ -29,6 +29,7 @@ Import "./game_static_bg_bridge.rgr"
 Import "./game_particles.rgr"
 Import "./game_camera.rgr"
 Import "./game_entity_store.rgr"
+Import "./game_physics.rgr"
 
 ; Runtime options for script-driven games (SDL host, tests, custom hosts).
 class GameRuntimeOptions {
@@ -86,9 +87,11 @@ class GameRunner {
     def particles:GameParticleSystem (new GameParticleSystem)
     def camera:GameCamera (new GameCamera)
     def entityStore:GameEntityStore (new GameEntityStore)
+    def physics:GamePhysics (new GamePhysics)
     def fixedStepMs:int 0
     def timeAccumulator:int 0
     def worldHeight:int 0
+    def physicsPassive:boolean false
 
     fn init:void (w:int h:int) {
         engine.quiet = true
@@ -266,9 +269,11 @@ class GameRunner {
         state = (EvalValue.null())
         camera = (new GameCamera)
         entityStore = (new GameEntityStore)
+        physics = (new GamePhysics)
         fixedStepMs = 0
         timeAccumulator = 0
         worldHeight = 0
+        physicsPassive = false
         this.clearBackground()
         this.clearStaticBg()
     }
@@ -629,6 +634,22 @@ class GameRunner {
             if (step > 0.0) {
                 fixedStepMs = (to_int step)
             }
+            def enabled:EvalValue (phys.getMember("enabled"))
+            if (enabled.isBoolean()) {
+                if (enabled.boolValue) {
+                    physics.enabled = true
+                }
+            } {
+                if ((to_int (this.memDouble(phys "enabled" 0.0))) != 0) {
+                    physics.enabled = true
+                }
+            }
+            def shared:EvalValue (phys.getMember("sharedWorld"))
+            if (shared.isBoolean()) {
+                if (shared.boolValue) {
+                    physics.enabled = true
+                }
+            }
         }
         def world:EvalValue (cfg.getMember("world"))
         if (world.isObject()) {
@@ -636,7 +657,89 @@ class GameRunner {
             if (wh > 0) {
                 worldHeight = wh
             }
+            def ww:int (this.memInt(world "width" 0))
+            if (ww > 0) {
+                physics.setWorldSize((to_double ww) (to_double worldHeight))
+            }
         }
+    }
+
+    fn applyPhysics:void () {
+        physics.clear()
+        if (physics.enabled == false) {
+            if (false == (this.scriptHasFunction("config"))) {
+                return
+            }
+            def cfg:EvalValue (engine.callFunction("config" (EvalValue.null())))
+            def phys:EvalValue (cfg.getMember("physics"))
+            if (phys.isObject()) {
+                def enabled:EvalValue (phys.getMember("enabled"))
+                if (enabled.isBoolean()) {
+                    physics.enabled = enabled.boolValue
+                }
+            }
+        }
+        if (physics.enabled == false) {
+            return
+        }
+        if (worldHeight > 0) {
+            physics.setWorldSize((to_double pw) (to_double worldHeight))
+        }
+        if (this.scriptHasFunction("physicsBodies")) {
+            def bodies:EvalValue (engine.callFunction("physicsBodies" (EvalValue.null())))
+            physics.loadBodies(bodies)
+        } {
+            if (this.scriptHasFunction("entities")) {
+                def spawn:EvalValue (engine.callFunction("entities" (EvalValue.null())))
+                physics.loadBodies(spawn)
+            }
+        }
+        if (this.scriptHasFunction("physicsBounds")) {
+            def bounds:EvalValue (engine.callFunction("physicsBounds" (EvalValue.null())))
+            physics.loadBounds(bounds)
+        } {
+            physics.addDefaultWorldBounds()
+        }
+        entityStore.worldMode = true
+    }
+
+    fn setPhysicsPassive:void (passive:boolean) {
+        physicsPassive = passive
+    }
+
+    fn isPhysicsEnabled:boolean () {
+        return physics.enabled
+    }
+
+    fn syncSharedPhysics:void (src:GamePhysics) {
+        physics.enabled = src.enabled
+        physics.copyBodiesFrom(src)
+        physics.setWorldSize(src.worldW src.worldH)
+    }
+
+    fn runPhysicsStep:void (dtMs:int) {
+        if (physics.enabled == false) {
+            return
+        }
+        if (physicsPassive) {
+            return
+        }
+        physics.readInputFromState(state)
+        physics.step(dtMs)
+        def active:EvalValue (this.activeState())
+        def world:EvalValue (active.getMember("worldEntities"))
+        if (world.isNull()) {
+            def emptyK:[string]
+            def emptyV:[EvalValue]
+            world = (EvalValue.object(emptyK emptyV))
+            active.setMember("worldEntities" world)
+        }
+        physics.writeWorldEntities(world)
+        physics.appendCollisionEvents(state)
+    }
+
+    fn physicsRef:GamePhysics () {
+        return physics
     }
 
     fn applyCamera:void () {
@@ -696,6 +799,7 @@ class GameRunner {
         this.applyBackgroundFromScript()
         this.applyCreateStaticBg()
         this.applyCamera()
+        this.applyPhysics()
         state = (engine.callFunction("initState" (EvalValue.null())))
         def hasEntitiesFn:boolean (this.scriptHasFunction("entities"))
         if (hasEntitiesFn) {
@@ -873,6 +977,7 @@ class GameRunner {
         if (profileEnabled) {
             tScript1 = (gfx_ticks_ms)
         }
+        this.runPhysicsStep(dtMs)
         def nextScreen:string (this.currentScreenName())
         if (nextScreen != prevScreen) {
             this.onScreenChanged(prevScreen nextScreen)

@@ -1,0 +1,715 @@
+; ==============================================================================
+; game_physics - host-side arcade physics for world-mode games.
+; ==============================================================================
+;
+; Opt-in via config().physics.enabled = true. Games declare bodies in
+; physicsBodies() and boundaries in physicsBounds(). Each frame update()
+; returns physicsInput commands; the host integrates motion, rotation,
+; boundary collisions, and appends collision events to state.events.
+;
+; Angle convention: 0 = up (-Y), 90 = right (+X). Speed is pixels/second.
+; ==============================================================================
+
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "../gfx_sdl.rgr"
+
+class GamePhysicsBody {
+    def id:string ""
+    def x:double 0.0
+    def y:double 0.0
+    ; degrees, 0 = facing up (-Y).
+    def angle:double 0.0
+    def speed:double 0.0
+    def angularVel:double 0.0
+    def hw:double 10.0
+    def hh:double 16.0
+    def maxSpeed:double 300.0
+    def accel:double 420.0
+    def brake:double 520.0
+    def drag:double 0.92
+    def steerRate:double 130.0
+    def grip:double 1.0
+    def restitution:double 0.35
+    def spinOnWall:double 220.0
+    def active:boolean true
+}
+
+class GamePhysicsBoundary {
+    def kind:string "segment"
+    def id:string ""
+    def x1:double 0.0
+    def y1:double 0.0
+    def x2:double 0.0
+    def y2:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    def restitution:double 0.4
+    def spinOnHit:double 200.0
+}
+
+class GamePhysicsCollision {
+    def bodyId:string ""
+    def targetId:string ""
+    def impact:double 0.0
+    def x:double 0.0
+    def y:double 0.0
+    def nx:double 0.0
+    def ny:double 1.0
+}
+
+class GamePhysics {
+    def enabled:boolean false
+    def bodies:[GamePhysicsBody]
+    def bounds:[GamePhysicsBoundary]
+    def pendingCollisions:[GamePhysicsCollision]
+    def worldW:double 480.0
+    def worldH:double 270.0
+    ; Per-body input for the current step (steer -1..1, throttle/brake 0..1).
+    def inputIds:[string]
+    def inputSteer:[double]
+    def inputThrottle:[double]
+    def inputBrake:[double]
+    def inputTurnLeft:[double]
+    def inputTurnRight:[double]
+
+    fn memString:string (obj:EvalValue key:string dflt:string) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isNull()) {
+            return dflt
+        }
+        if (v.isString()) {
+            return v.stringValue
+        }
+        return dflt
+    }
+
+    fn memDouble:double (obj:EvalValue key:string dflt:double) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isNull()) {
+            return dflt
+        }
+        return v.numberValue
+    }
+
+    fn memInt:int (obj:EvalValue key:string dflt:int) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isNull()) {
+            return dflt
+        }
+        return (to_int v.numberValue)
+    }
+
+    fn clear:void () {
+        enabled = false
+        clear bodies
+        clear bounds
+        clear pendingCollisions
+        clear inputIds
+        clear inputSteer
+        clear inputThrottle
+        clear inputBrake
+        clear inputTurnLeft
+        clear inputTurnRight
+        worldW = 480.0
+        worldH = 270.0
+    }
+
+    fn degToRad:double (deg:double) {
+        return (deg * 0.017453292519943295)
+    }
+
+    fn normalizeAngle:void (b:GamePhysicsBody) {
+        while (b.angle >= 360.0) {
+            b.angle = (b.angle - 360.0)
+        }
+        while (b.angle < 0.0) {
+            b.angle = (b.angle + 360.0)
+        }
+    }
+
+    fn findBody:GamePhysicsBody (id:string) {
+        def i 0
+        while (i < (array_length bodies)) {
+            def b:GamePhysicsBody (itemAt bodies i)
+            if (b.id == id) {
+                return b
+            }
+            i = (i + 1)
+        }
+        return (new GamePhysicsBody)
+    }
+
+    fn hasBody:boolean (id:string) {
+        def i 0
+        while (i < (array_length bodies)) {
+            def b:GamePhysicsBody (itemAt bodies i)
+            if (b.id == id) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn bodyFromEval:GamePhysicsBody (d:EvalValue) {
+        def b:GamePhysicsBody (new GamePhysicsBody)
+        b.id = (this.memString(d "id" ""))
+        b.x = (this.memDouble(d "x" 0.0))
+        b.y = (this.memDouble(d "y" 0.0))
+        def pos:EvalValue (d.getMember("position"))
+        if (pos.isObject()) {
+            b.x = (this.memDouble(pos "x" b.x))
+            b.y = (this.memDouble(pos "y" b.y))
+        }
+        b.angle = (this.memDouble(d "angle" 0.0))
+        b.speed = (this.memDouble(d "speed" 0.0))
+        b.hw = (this.memDouble(d "hw" 10.0))
+        b.hh = (this.memDouble(d "hh" 16.0))
+        def col:EvalValue (d.getMember("collision"))
+        if (col.isObject()) {
+            def cw:double (this.memDouble(col "w" (b.hw * 2.0)))
+            def ch:double (this.memDouble(col "h" (b.hh * 2.0)))
+            b.hw = (cw * 0.5)
+            b.hh = (ch * 0.5)
+        }
+        b.maxSpeed = (this.memDouble(d "maxSpeed" 300.0))
+        b.accel = (this.memDouble(d "accel" 420.0))
+        b.brake = (this.memDouble(d "brake" 520.0))
+        b.drag = (this.memDouble(d "drag" 0.92))
+        b.steerRate = (this.memDouble(d "steerRate" 130.0))
+        b.grip = (this.memDouble(d "grip" 1.0))
+        b.restitution = (this.memDouble(d "restitution" 0.35))
+        b.spinOnWall = (this.memDouble(d "spinOnWall" 220.0))
+        return b
+    }
+
+    fn boundaryFromEval:GamePhysicsBoundary (d:EvalValue) {
+        def b:GamePhysicsBoundary (new GamePhysicsBoundary)
+        b.kind = (this.memString(d "kind" "segment"))
+        b.id = (this.memString(d "id" ""))
+        b.x1 = (this.memDouble(d "x1" 0.0))
+        b.y1 = (this.memDouble(d "y1" 0.0))
+        b.x2 = (this.memDouble(d "x2" 0.0))
+        b.y2 = (this.memDouble(d "y2" 0.0))
+        b.w = (this.memDouble(d "w" 0.0))
+        b.h = (this.memDouble(d "h" 0.0))
+        def x:double (this.memDouble(d "x" 0.0))
+        def y:double (this.memDouble(d "y" 0.0))
+        if (b.w <= 0.0) {
+            b.w = (this.memDouble(d "width" 0.0))
+        }
+        if (b.h <= 0.0) {
+            b.h = (this.memDouble(d "height" 0.0))
+        }
+        if (b.kind == "rect") {
+            b.x1 = x
+            b.y1 = y
+            b.x2 = (x + b.w)
+            b.y2 = (y + b.h)
+        }
+        b.restitution = (this.memDouble(d "restitution" 0.4))
+        b.spinOnHit = (this.memDouble(d "spinOnHit" 200.0))
+        return b
+    }
+
+    fn loadBodies:void (list:EvalValue) {
+        clear bodies
+        if (false == (list.isArray())) {
+            return
+        }
+        def arr:[EvalValue] list.arrayValue
+        def i 0
+        while (i < (array_length arr)) {
+            def b:GamePhysicsBody (this.bodyFromEval((itemAt arr i)))
+            if ((strlen b.id) > 0) {
+                push bodies b
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn loadBounds:void (list:EvalValue) {
+        clear bounds
+        if (false == (list.isArray())) {
+            return
+        }
+        def arr:[EvalValue] list.arrayValue
+        def i 0
+        while (i < (array_length arr)) {
+            def b:GamePhysicsBoundary (this.boundaryFromEval((itemAt arr i)))
+            push bounds b
+            i = (i + 1)
+        }
+    }
+
+    fn setWorldSize:void (w:double h:double) {
+        if (w > 0.0) {
+            worldW = w
+        }
+        if (h > 0.0) {
+            worldH = h
+        }
+    }
+
+    fn addDefaultWorldBounds:void () {
+        def b:GamePhysicsBoundary (new GamePhysicsBoundary)
+        b.kind = "rect"
+        b.id = "world"
+        b.x1 = 0.0
+        b.y1 = 0.0
+        b.x2 = worldW
+        b.y2 = worldH
+        b.w = worldW
+        b.h = worldH
+        push bounds b
+    }
+
+    fn clearInput:void () {
+        clear inputIds
+        clear inputSteer
+        clear inputThrottle
+        clear inputBrake
+        clear inputTurnLeft
+        clear inputTurnRight
+    }
+
+    fn pushInput:void (id:string steer:double throttle:double brake:double turnLeft:double turnRight:double) {
+        push inputIds id
+        push inputSteer steer
+        push inputThrottle throttle
+        push inputBrake brake
+        push inputTurnLeft turnLeft
+        push inputTurnRight turnRight
+    }
+
+    fn readInputFromState:void (state:EvalValue) {
+        this.clearInput()
+        def inp:EvalValue (state.getMember("physicsInput"))
+        if (false == (inp.isObject())) {
+            return
+        }
+        def i 0
+        while (i < (array_length bodies)) {
+            def b:GamePhysicsBody (itemAt bodies i)
+            def cmd:EvalValue (inp.getMember(b.id))
+            if (cmd.isObject()) {
+                def steer:double (this.memDouble(cmd "steer" 0.0))
+                def throttle:double (this.memDouble(cmd "throttle" 0.0))
+                def brake:double (this.memDouble(cmd "brake" 0.0))
+                def tl:double (this.memDouble(cmd "turnLeft" 0.0))
+                def tr:double (this.memDouble(cmd "turnRight" 0.0))
+                this.pushInput(b.id steer throttle brake tl tr)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn inputIndex:int (id:string) {
+        def i 0
+        while (i < (array_length inputIds)) {
+            if ((itemAt inputIds i) == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn applyControls:void (b:GamePhysicsBody dtSec:double) {
+        if (b.active == false) {
+            return
+        }
+        def idx:int (this.inputIndex(b.id))
+        def steer:double 0.0
+        def throttle:double 0.0
+        def brake:double 0.0
+        def turnLeft:double 0.0
+        def turnRight:double 0.0
+        if (idx >= 0) {
+            steer = (itemAt inputSteer idx)
+            throttle = (itemAt inputThrottle idx)
+            brake = (itemAt inputBrake idx)
+            turnLeft = (itemAt inputTurnLeft idx)
+            turnRight = (itemAt inputTurnRight idx)
+        }
+        if (turnLeft > 0.0) {
+            b.angle = (b.angle - (turnLeft * dtSec))
+        }
+        if (turnRight > 0.0) {
+            b.angle = (b.angle + (turnRight * dtSec))
+        }
+        if (steer != 0.0) {
+            b.angle = (b.angle + (steer * b.steerRate * dtSec * b.grip))
+        }
+        this.normalizeAngle(b)
+        if (throttle > 0.0) {
+            b.speed = (b.speed + (b.accel * throttle * dtSec))
+        }
+        if (brake > 0.0) {
+            b.speed = (b.speed - (b.brake * brake * dtSec))
+        }
+        if (b.speed < 0.0) {
+            b.speed = 0.0
+        }
+        if (b.speed > b.maxSpeed) {
+            b.speed = b.maxSpeed
+        }
+        def dragFactor:double (1.0 - ((1.0 - b.drag) * dtSec))
+        if (dragFactor < 0.0) {
+            dragFactor = 0.0
+        }
+        b.speed = (b.speed * dragFactor)
+        b.angle = (b.angle + (b.angularVel * dtSec))
+        this.normalizeAngle(b)
+    }
+
+    fn bodyVx:double (b:GamePhysicsBody) {
+        def rad:double (this.degToRad(b.angle))
+        return (sin(rad) * b.speed)
+    }
+
+    fn bodyVy:double (b:GamePhysicsBody) {
+        def rad:double (this.degToRad(b.angle))
+        return (0.0 - (cos(rad) * b.speed))
+    }
+
+    ; Closest point on segment AB to point P; returns distance squared.
+    fn segmentDist2:double (px:double py:double ax:double ay:double bx:double by:double) {
+        def abx:double (bx - ax)
+        def aby:double (by - ay)
+        def apx:double (px - ax)
+        def apy:double (py - ay)
+        def abLen2:double ((abx * abx) + (aby * aby))
+        def t:double 0.0
+        if (abLen2 > 0.0001) {
+            t = (((apx * abx) + (apy * aby)) / abLen2)
+        }
+        if (t < 0.0) {
+            t = 0.0
+        }
+        if (t > 1.0) {
+            t = 1.0
+        }
+        def cx:double (ax + (abx * t))
+        def cy:double (ay + (aby * t))
+        def dx:double (px - cx)
+        def dy:double (py - cy)
+        return ((dx * dx) + (dy * dy))
+    }
+
+    fn resolveSegment:void (b:GamePhysicsBody bd:GamePhysicsBoundary radius:double) {
+        def rad:double (this.degToRad(b.angle))
+        def cosA:double (cos(rad))
+        def sinA:double (sin(rad))
+        def ci 0
+        while (ci < 4) {
+            def lx:double 0.0
+            def ly:double 0.0
+            if (ci == 0) {
+                lx = (0.0 - b.hw)
+                ly = (0.0 - b.hh)
+            }
+            if (ci == 1) {
+                lx = b.hw
+                ly = (0.0 - b.hh)
+            }
+            if (ci == 2) {
+                lx = b.hw
+                ly = b.hh
+            }
+            if (ci == 3) {
+                lx = (0.0 - b.hw)
+                ly = b.hh
+            }
+            def px:double (b.x + (lx * cosA) - (ly * sinA))
+            def py:double (b.y + (lx * sinA) + (ly * cosA))
+            def d2:double (this.segmentDist2(px py bd.x1 bd.y1 bd.x2 bd.y2))
+            if (d2 < (radius * radius)) {
+                def dist:double (sqrt(d2))
+                def abx:double (bd.x2 - bd.x1)
+                def aby:double (bd.y2 - bd.y1)
+                def apx:double (px - bd.x1)
+                def apy:double (py - bd.y1)
+                def abLen2:double ((abx * abx) + (aby * aby))
+                def t:double 0.0
+                if (abLen2 > 0.0001) {
+                    t = (((apx * abx) + (apy * aby)) / abLen2)
+                }
+                if (t < 0.0) {
+                    t = 0.0
+                }
+                if (t > 1.0) {
+                    t = 1.0
+                }
+                def cx:double (bd.x1 + (abx * t))
+                def cy:double (bd.y1 + (aby * t))
+                def nx:double 0.0
+                def ny:double 1.0
+                if (dist > 0.001) {
+                    nx = ((px - cx) / dist)
+                    ny = ((py - cy) / dist)
+                }
+                def pen:double (radius - dist)
+                b.x = (b.x + (nx * pen))
+                b.y = (b.y + (ny * pen))
+                def vx:double (this.bodyVx(b))
+                def vy:double (this.bodyVy(b))
+                def vdot:double ((vx * nx) + (vy * ny))
+                if (vdot < 0.0) {
+                    b.speed = (b.speed * bd.restitution)
+                    def spin:double bd.spinOnHit
+                    if (spin < 0.0) {
+                        spin = (0.0 - spin)
+                    }
+                    if (nx < 0.0) {
+                        b.angularVel = (b.angularVel - spin)
+                    } {
+                        b.angularVel = (b.angularVel + spin)
+                    }
+                    def col:GamePhysicsCollision (new GamePhysicsCollision)
+                    col.bodyId = b.id
+                    col.targetId = bd.id
+                    col.impact = b.speed
+                    col.x = px
+                    col.y = py
+                    col.nx = nx
+                    col.ny = ny
+                    push pendingCollisions col
+                }
+            }
+            ci = (ci + 1)
+        }
+    }
+
+    fn resolveRectWalls:void (b:GamePhysicsBody bd:GamePhysicsBoundary radius:double) {
+        def left:double bd.x1
+        def top:double bd.y1
+        def right:double bd.x2
+        def bottom:double bd.y2
+        if (b.x - radius < left) {
+            b.x = (left + radius)
+            b.speed = (b.speed * bd.restitution)
+            b.angularVel = (b.angularVel - bd.spinOnHit)
+            def col:GamePhysicsCollision (new GamePhysicsCollision)
+            col.bodyId = b.id
+            col.targetId = bd.id
+            col.impact = b.speed
+            col.x = b.x
+            col.y = b.y
+            col.nx = 1.0
+            col.ny = 0.0
+            push pendingCollisions col
+        }
+        if (b.x + radius > right) {
+            b.x = (right - radius)
+            b.speed = (b.speed * bd.restitution)
+            b.angularVel = (b.angularVel + bd.spinOnHit)
+            def col:GamePhysicsCollision (new GamePhysicsCollision)
+            col.bodyId = b.id
+            col.targetId = bd.id
+            col.impact = b.speed
+            col.x = b.x
+            col.y = b.y
+            col.nx = -1.0
+            col.ny = 0.0
+            push pendingCollisions col
+        }
+        if (b.y - radius < top) {
+            b.y = (top + radius)
+            b.speed = (b.speed * bd.restitution)
+            b.angularVel = (b.angularVel + bd.spinOnHit)
+            def col:GamePhysicsCollision (new GamePhysicsCollision)
+            col.bodyId = b.id
+            col.targetId = bd.id
+            col.impact = b.speed
+            col.x = b.x
+            col.y = b.y
+            col.nx = 0.0
+            col.ny = 1.0
+            push pendingCollisions col
+        }
+        if (b.y + radius > bottom) {
+            b.y = (bottom - radius)
+            b.speed = (b.speed * bd.restitution)
+            b.angularVel = (b.angularVel - bd.spinOnHit)
+            def col:GamePhysicsCollision (new GamePhysicsCollision)
+            col.bodyId = b.id
+            col.targetId = bd.id
+            col.impact = b.speed
+            col.x = b.x
+            col.y = b.y
+            col.nx = 0.0
+            col.ny = -1.0
+            push pendingCollisions col
+        }
+    }
+
+    fn resolveBoundaries:void (b:GamePhysicsBody) {
+        def radius:double b.hw
+        if (b.hh > radius) {
+            radius = b.hh
+        }
+        def bi 0
+        while (bi < (array_length bounds)) {
+            def bd:GamePhysicsBoundary (itemAt bounds bi)
+            if (bd.kind == "segment") {
+                this.resolveSegment(b bd radius)
+            }
+            if (bd.kind == "rect") {
+                this.resolveRectWalls(b bd radius)
+            }
+            bi = (bi + 1)
+        }
+    }
+
+    fn integrate:void (b:GamePhysicsBody dtSec:double) {
+        if (b.active == false) {
+            return
+        }
+        def rad:double (this.degToRad(b.angle))
+        def vx:double (sin(rad) * b.speed)
+        def vy:double (0.0 - (cos(rad) * b.speed))
+        b.x = (b.x + (vx * dtSec))
+        b.y = (b.y + (vy * dtSec))
+        this.resolveBoundaries(b)
+        def spinDecay:double (0.85)
+        b.angularVel = (b.angularVel * spinDecay)
+        if (b.angularVel > -5.0) {
+            if (b.angularVel < 5.0) {
+                b.angularVel = 0.0
+            }
+        }
+    }
+
+    fn step:void (dtMs:int) {
+        if (enabled == false) {
+            return
+        }
+        clear pendingCollisions
+        def dtSec:double ((to_double dtMs) / 1000.0)
+        if (dtSec <= 0.0) {
+            return
+        }
+        def i 0
+        while (i < (array_length bodies)) {
+            def b:GamePhysicsBody (itemAt bodies i)
+            this.applyControls(b dtSec)
+            this.integrate(b dtSec)
+            i = (i + 1)
+        }
+    }
+
+    fn writeWorldEntities:void (world:EvalValue) {
+        if (enabled == false) {
+            return
+        }
+        def i 0
+        while (i < (array_length bodies)) {
+            def b:GamePhysicsBody (itemAt bodies i)
+            def pos:EvalValue (world.getMember(b.id))
+            def k:[string]
+            def v:[EvalValue]
+            push k "x"
+            push v (EvalValue.fromInt((to_int b.x)))
+            push k "y"
+            push v (EvalValue.fromInt((to_int b.y)))
+            push k "angle"
+            push v (EvalValue.number(b.angle))
+            push k "speed"
+            push v (EvalValue.number(b.speed))
+            if (b.active == false) {
+                push k "visible"
+                push v (EvalValue.fromInt(0))
+            } {
+                if (false == (pos.isNull())) {
+                    def vis:EvalValue (pos.getMember("visible"))
+                    if (false == (vis.isNull())) {
+                        push k "visible"
+                        push v vis
+                    }
+                }
+            }
+            world.setMember(b.id (EvalValue.object(k v)))
+            i = (i + 1)
+        }
+    }
+
+    fn appendCollisionEvents:void (state:EvalValue) {
+        if ((array_length pendingCollisions) == 0) {
+            return
+        }
+        def evs:EvalValue (state.getMember("events"))
+        def arr:[EvalValue]
+        if (evs.isArray()) {
+            arr = evs.arrayValue
+        }
+        def i 0
+        while (i < (array_length pendingCollisions)) {
+            def c:GamePhysicsCollision (itemAt pendingCollisions i)
+            def k:[string]
+            def v:[EvalValue]
+            push k "kind"
+            push v (EvalValue.string("collision"))
+            push k "id"
+            push v (EvalValue.string(c.bodyId))
+            push k "target"
+            push v (EvalValue.string(c.targetId))
+            push k "impact"
+            push v (EvalValue.number(c.impact))
+            push k "x"
+            push v (EvalValue.number(c.x))
+            push k "y"
+            push v (EvalValue.number(c.y))
+            push k "nx"
+            push v (EvalValue.number(c.nx))
+            push k "ny"
+            push v (EvalValue.number(c.ny))
+            push arr (EvalValue.object(k v))
+            i = (i + 1)
+        }
+        state.setMember("events" (EvalValue.array(arr)))
+    }
+
+    fn copyBodiesFrom:void (src:GamePhysics) {
+        clear bodies
+        def i 0
+        while (i < (array_length src.bodies)) {
+            def s:GamePhysicsBody (itemAt src.bodies i)
+            def b:GamePhysicsBody (new GamePhysicsBody)
+            b.id = s.id
+            b.x = s.x
+            b.y = s.y
+            b.angle = s.angle
+            b.speed = s.speed
+            b.angularVel = s.angularVel
+            b.hw = s.hw
+            b.hh = s.hh
+            b.maxSpeed = s.maxSpeed
+            b.accel = s.accel
+            b.brake = s.brake
+            b.drag = s.drag
+            b.steerRate = s.steerRate
+            b.grip = s.grip
+            b.restitution = s.restitution
+            b.spinOnWall = s.spinOnWall
+            b.active = s.active
+            push bodies b
+            i = (i + 1)
+        }
+    }
+
+    fn syncWorldToBodies:void (world:EvalValue) {
+        def i 0
+        while (i < (array_length bodies)) {
+            def b:GamePhysicsBody (itemAt bodies i)
+            def pos:EvalValue (world.getMember(b.id))
+            if (pos.isObject()) {
+                b.x = (this.memDouble(pos "x" b.x))
+                b.y = (this.memDouble(pos "y" b.y))
+                b.angle = (this.memDouble(pos "angle" b.angle))
+                b.speed = (this.memDouble(pos "speed" b.speed))
+            }
+            i = (i + 1)
+        }
+    }
+}
