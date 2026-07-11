@@ -10251,16 +10251,14 @@ class ComponentEngine  {
         }
       }
     }
-    let left_3 = EvalValue.null();
-    let right = EvalValue.null();
-    if ( typeof(node.left) != "undefined" ) {
-      const leftExpr_3 = node.left;
-      left_3 = this.evaluateExpr(leftExpr_3);
+    if ( typeof(node.left) === "undefined" ) {
+      return EvalValue.null();
     }
-    if ( typeof(node.right) != "undefined" ) {
-      const rightExpr_3 = node.right;
-      right = this.evaluateExpr(rightExpr_3);
+    if ( typeof(node.right) === "undefined" ) {
+      return EvalValue.null();
     }
+    const left_3 = this.evaluateExpr((node.left));
+    const right = this.evaluateExpr((node.right));
     if ( op == "+" ) {
       const isLeftStr = left_3.isString();
       const isRightStr = right.isString();

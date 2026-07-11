@@ -3456,18 +3456,18 @@ class ComponentEngine {
             }
         }
         
-        ; Evaluate both sides for other operators
-        def left:EvalValue (EvalValue.null())
-        def right:EvalValue (EvalValue.null())
-        
-        if node.left {
-            def leftExpr:TSNode (unwrap node.left)
-            left = (this.evaluateExpr(leftExpr))
+        ; Evaluate both sides for other operators. Binary expressions always have
+        ; both operands; evaluate them directly instead of seeding two throwaway
+        ; null EvalValues (which used to be the single largest source of interpreter
+        ; heap allocations).
+        if (null? node.left) {
+            return (EvalValue.null())
         }
-        if node.right {
-            def rightExpr:TSNode (unwrap node.right)
-            right = (this.evaluateExpr(rightExpr))
+        if (null? node.right) {
+            return (EvalValue.null())
         }
+        def left:EvalValue (this.evaluateExpr((unwrap node.left)))
+        def right:EvalValue (this.evaluateExpr((unwrap node.right)))
         
         ; Arithmetic
         if (op == "+") {
