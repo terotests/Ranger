@@ -180,6 +180,7 @@ class GameRunner {
         options.scriptDir = dir
         engine.setBasePath(dir)
         imageLoader.setBaseDir(dir)
+        host.musicDir = dir
         engine.addAssetPath(engineLibPath)
     }
 
@@ -206,6 +207,7 @@ class GameRunner {
         if ((strlen dir) > 0) {
             engine.setBasePath(dir)
             imageLoader.setBaseDir(dir)
+            host.musicDir = dir
             engine.addAssetPath(engineLibPath)
         }
         if ((strlen file) > 0) {
@@ -532,6 +534,7 @@ class GameRunner {
 
     fn wireHostAudio:void () {
         host.audio = audio
+        host.wireMusic()
     }
 
     fn memDouble:double (obj:EvalValue key:string dflt:double) {
@@ -578,6 +581,7 @@ class GameRunner {
         e.x = (this.memDouble(d "x" 0.0))
         e.y = (this.memDouble(d "y" 0.0))
         e.amount = (this.memInt(d "amount" 0))
+        e.text = (this.memString(d "text" ""))
         return e
     }
 
@@ -757,6 +761,7 @@ class GameRunner {
             this.onScreenChanged(prevScreen nextScreen)
         }
         this.drainStateEvents()
+        host.tickMusic(dtMs)
         particles.update(dtMs)
         this.syncFromState()
         this.syncBackgroundFromState()

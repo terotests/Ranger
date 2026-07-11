@@ -165,6 +165,15 @@ type BuiltinSoundId =
   | "lose"
   | "win";
 
+/** Score instrument voices (see game_soundscore.rgr). */
+type ScoreInstrumentId =
+  | "piano"
+  | "violin"
+  | "square"
+  | "sine"
+  | "triangle"
+  | "drums";
+
 /** Particle burst presets understood by game_particles.rgr. */
 type ParticlePresetId = "burst" | "sparkle" | "fruit";
 
@@ -175,11 +184,13 @@ interface GameEvent {
   x?: number;
   y?: number;
   amount?: number;
+  /** Inline soundscore text for playMusic events. */
+  text?: string;
 }
 
 /** Engine resource declared once in resources(). */
 interface ResourceDef {
-  kind: "image" | "sound" | "sprite" | "collision";
+  kind: "image" | "sound" | "sprite" | "collision" | "music";
   id: string;
   path?: string;
   px?: number;
@@ -192,6 +203,20 @@ interface ResourceDef {
 interface PlaySoundEvent extends GameEvent {
   kind: "playSound";
   id: BuiltinSoundId | string;
+}
+
+/** Start multi-voice music from a registered score id or inline text. */
+interface PlayMusicEvent extends GameEvent {
+  kind: "playMusic";
+  id: string;
+  text?: string;
+  /** 0 = play once, 1 (default) = loop. */
+  amount?: number;
+}
+
+/** Stop the current soundscore playback. */
+interface StopMusicEvent extends GameEvent {
+  kind: "stopMusic";
 }
 
 /** One-shot particle burst (world x/y; host subtracts cameraY). */

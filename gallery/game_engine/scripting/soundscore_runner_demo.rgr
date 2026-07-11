@@ -1,0 +1,64 @@
+; ==============================================================================
+; soundscore_runner_demo - multi-voice soundscore playback.
+; ==============================================================================
+
+Import "./game_runtime.rgr"
+Import "./game_soundscore.rgr"
+
+class SoundscoreRunnerDemo {
+    sfn m@(main):void () {
+        def runner:GameRunner (new GameRunner)
+        runner.init(320 240)
+
+        def score:string ""
+        score = (score + "tempo 100\n")
+        score = (score + "beats 4/4\n")
+        score = (score + "\n")
+        score = (score + "@melody piano\n")
+        score = (score + "1:C4 1:E4 1:G4 1:C5\n")
+        score = (score + "1:D4 1:F4 1:A4 1:D5\n")
+        score = (score + "\n")
+        score = (score + "@harmony violin\n")
+        score = (score + "4:C3 4:G3\n")
+        score = (score + "\n")
+        score = (score + "@bass square\n")
+        score = (score + "2:C2 2:G2 2:C2 2:G2\n")
+        score = (score + "\n")
+        score = (score + "@drums drums\n")
+        score = (score + "1:K 1:_ 1:S 1:_ 1:K 1:K 1:S 1:_\n")
+
+        def parser:SoundScoreParser (new SoundScoreParser)
+        def parsed:SoundScore (parser.parse(score))
+        print (("tracks=" + (array_length parsed.tracks)))
+        print (("totalBeats=" + parsed.totalBeats))
+
+        def src:string ""
+        src = (src + "function initState() { return { entities: { dot: { x: 10, y: 10 } } }; }\n")
+        src = (src + "function sprites() { return [{ id: \"dot\", kind: \"circle\", rad: 4, r: 255, g: 200, b: 80 }]; }\n")
+        src = (src + "function update(props) {\n")
+        src = (src + "  return { entities: { dot: { x: 11, y: 10 } } };\n")
+        src = (src + "}\n")
+
+        runner.loadScript(src)
+        runner.setupScene()
+
+        def host:GameHost (runner.hostRef())
+        host.startMusic(score false)
+
+        def i 0
+        while (i < 120) {
+            runner.frame(16 false false false false false false)
+            i = (i + 1)
+        }
+
+        def audio:GameAudio (runner.audioRef())
+        def playing:int 0
+        if (host.music.isPlaying()) {
+            playing = 1
+        }
+        print (("musicPlaying=" + (to_string playing)))
+        print (("noteStarts=" + host.music.noteStarts))
+        print (("audioPlays=" + audio.playCount))
+        print "soundscore-runner done"
+    }
+}

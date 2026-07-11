@@ -1,0 +1,462 @@
+; ==============================================================================
+; game_soundscore - text-based multi-voice music scores for GameAudio.
+; ==============================================================================
+;
+; Score format (whitespace-separated tokens per line):
+;
+;   tempo 100
+;   beats 4/4
+;
+;   @melody piano
+;   1:C4 1:E4 1:G4 1:C5
+;   1:D4 1:F4 1:A4 1:D5
+;
+;   @harmony violin
+;   4:C3 4:G3
+;
+;   @bass square
+;   2:C2 2:G2 2:C2 2:G2
+;
+;   @drums drums
+;   1:K 1:_ 1:S 1:_ 1:K 1:K 1:S 1:_
+;
+; Each token is beats:note where beats is duration in quarter-note beats.
+; Notes use scientific pitch (C4, C#4, Db4). _ is a rest. Drum hits: K S H.
+; Track instrument selects the synth voice (piano, violin, square, drums, sine).
+; ==============================================================================
+
+Import "./game_audio.rgr"
+
+class ScoreNote {
+    def beats:double 1.0
+    def pitch:string ""
+}
+
+class ScoreTrack {
+    def name:string ""
+    def instrument:string "piano"
+    def notes:[ScoreNote]
+}
+
+class SoundScore {
+    def tempo:int 120
+    def beatsNum:int 4
+    def beatsDen:int 4
+    def tracks:[ScoreTrack]
+    def totalBeats:double 0.0
+}
+
+class ScheduledNote {
+    def beat:double 0.0
+    def beats:double 1.0
+    def instrument:string "piano"
+    def pitch:string ""
+    def played:boolean false
+}
+
+class SoundScoreParser {
+    fn parseIntStr:int (s:string) {
+        def out:int 0
+        def i:int 0
+        while (i < (strlen s)) {
+            def ch:int (charAt s i)
+            if (ch >= 48) {
+                if (ch <= 57) {
+                    out = ((out * 10) + (ch - 48))
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn trim:string (s:string) {
+        def start:int 0
+        def end:int (strlen s)
+        while (start < end) {
+            def ch:string (substring s start (start + 1))
+            if (ch == " ") {
+                start = (start + 1)
+            } {
+                if (ch == "\t") {
+                    start = (start + 1)
+                } {
+                    break
+                }
+            }
+        }
+        while (end > start) {
+            def ch2:string (substring s (end - 1) end)
+            if (ch2 == " ") {
+                end = (end - 1)
+            } {
+                if (ch2 == "\t") {
+                    end = (end - 1)
+                } {
+                    break
+                }
+            }
+        }
+        if (end <= start) {
+            return ""
+        }
+        return (substring s start end)
+    }
+
+    fn splitLines:[string] (s:string) {
+        def out:[string]
+        def cur:string ""
+        def i 0
+        while (i < (strlen s)) {
+            def ch:string (substring s i (i + 1))
+            if (ch == "\n") {
+                push out cur
+                cur = ""
+            } {
+                if (ch == "\r") {
+                } {
+                    cur = (cur + ch)
+                }
+            }
+            i = (i + 1)
+        }
+        push out cur
+        return out
+    }
+
+    fn splitTokens:[string] (s:string) {
+        def out:[string]
+        def cur:string ""
+        def i 0
+        while (i < (strlen s)) {
+            def ch:string (substring s i (i + 1))
+            if (ch == " ") {
+                if ((strlen cur) > 0) {
+                    push out cur
+                    cur = ""
+                }
+            } {
+                if (ch == "\t") {
+                    if ((strlen cur) > 0) {
+                        push out cur
+                        cur = ""
+                    }
+                } {
+                    cur = (cur + ch)
+                }
+            }
+            i = (i + 1)
+        }
+        if ((strlen cur) > 0) {
+            push out cur
+        }
+        return out
+    }
+
+    fn parseNoteToken:boolean (tok:string noteOut:ScoreNote) {
+        def colon:int -1
+        def i 0
+        while (i < (strlen tok)) {
+            def ch:string (substring tok i (i + 1))
+            if (ch == ":") {
+                colon = i
+                break
+            }
+            i = (i + 1)
+        }
+        if (colon < 1) {
+            return false
+        }
+        def beatsStr:string (substring tok 0 colon)
+        def pitch:string (substring tok (colon + 1) (strlen tok))
+        def beatsInt:int (this.parseIntStr(beatsStr))
+        noteOut.beats = (to_double beatsInt)
+        if (noteOut.beats <= 0.0) {
+            noteOut.beats = 1.0
+        }
+        noteOut.pitch = pitch
+        return true
+    }
+
+    fn parseTempo:boolean (line:string score:SoundScore) {
+        if ((strlen line) < 7) {
+            return false
+        }
+        def head:string (substring line 0 6)
+        if (head != "tempo ") {
+            return false
+        }
+        def valStr:string (this.trim((substring line 6 (strlen line))))
+        def val:int (this.parseIntStr(valStr))
+        if (val < 20) {
+            val = 20
+        }
+        if (val > 400) {
+            val = 400
+        }
+        score.tempo = val
+        return true
+    }
+
+    fn parseBeats:boolean (line:string score:SoundScore) {
+        if ((strlen line) < 7) {
+            return false
+        }
+        def head:string (substring line 0 6)
+        if (head != "beats ") {
+            return false
+        }
+        def sig:string (this.trim((substring line 6 (strlen line))))
+        def slash:int -1
+        def i 0
+        while (i < (strlen sig)) {
+            def ch:string (substring sig i (i + 1))
+            if (ch == "/") {
+                slash = i
+                break
+            }
+            i = (i + 1)
+        }
+        if (slash < 1) {
+            return false
+        }
+        score.beatsNum = (this.parseIntStr((substring sig 0 slash)))
+        score.beatsDen = (this.parseIntStr((substring sig (slash + 1) (strlen sig))))
+        if (score.beatsNum < 1) {
+            score.beatsNum = 4
+        }
+        if (score.beatsDen < 1) {
+            score.beatsDen = 4
+        }
+        return true
+    }
+
+    fn parseTrackHeader:boolean (line:string trackOut:ScoreTrack) {
+        if ((strlen line) < 2) {
+            return false
+        }
+        def ch0:string (substring line 0 1)
+        if (ch0 != "@") {
+            return false
+        }
+        def rest:string (this.trim((substring line 1 (strlen line))))
+        def sp:int -1
+        def i 0
+        while (i < (strlen rest)) {
+            def ch:string (substring rest i (i + 1))
+            if (ch == " ") {
+                sp = i
+                break
+            }
+            i = (i + 1)
+        }
+        if (sp < 1) {
+            return false
+        }
+        trackOut.name = (substring rest 0 sp)
+        trackOut.instrument = (this.trim((substring rest (sp + 1) (strlen rest))))
+        if ((strlen trackOut.instrument) == 0) {
+            trackOut.instrument = "piano"
+        }
+        return true
+    }
+
+    fn computeTotalBeats:double (score:SoundScore) {
+        def maxBeats:double 0.0
+        def ti 0
+        while (ti < (array_length score.tracks)) {
+            def tr:ScoreTrack (itemAt score.tracks ti)
+            def pos:double 0.0
+            def ni 0
+            while (ni < (array_length tr.notes)) {
+                def n:ScoreNote (itemAt tr.notes ni)
+                pos = (pos + n.beats)
+                ni = (ni + 1)
+            }
+            if (pos > maxBeats) {
+                maxBeats = pos
+            }
+            ti = (ti + 1)
+        }
+        return maxBeats
+    }
+
+    fn parse:SoundScore (text:string) {
+        def score:SoundScore (new SoundScore)
+        def curTrackIdx:int -1
+        def lines:[string] (this.splitLines(text))
+        def li 0
+        while (li < (array_length lines)) {
+            def line:string (this.trim((itemAt lines li)))
+            if ((strlen line) > 0) {
+                if ((substring line 0 1) != "#") {
+                    if (this.parseTempo(line score)) {
+                    } {
+                        if (this.parseBeats(line score)) {
+                        } {
+                            def hdr:ScoreTrack (new ScoreTrack)
+                            if (this.parseTrackHeader(line hdr)) {
+                                push score.tracks hdr
+                                curTrackIdx = ((array_length score.tracks) - 1)
+                            } {
+                                if (curTrackIdx >= 0) {
+                                    def tr:ScoreTrack (itemAt score.tracks curTrackIdx)
+                                    def toks:[string] (this.splitTokens(line))
+                                    def ti 0
+                                    while (ti < (array_length toks)) {
+                                        def note:ScoreNote (new ScoreNote)
+                                        if (this.parseNoteToken((itemAt toks ti) note)) {
+                                            push tr.notes note
+                                        }
+                                        ti = (ti + 1)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            li = (li + 1)
+        }
+        score.totalBeats = (this.computeTotalBeats(score))
+        return score
+    }
+
+    fn buildSchedule:[ScheduledNote] (score:SoundScore) {
+        def out:[ScheduledNote]
+        def ti 0
+        while (ti < (array_length score.tracks)) {
+            def tr:ScoreTrack (itemAt score.tracks ti)
+            def beat:double 0.0
+            def ni 0
+            while (ni < (array_length tr.notes)) {
+                def n:ScoreNote (itemAt tr.notes ni)
+                if (n.pitch != "_") {
+                    def ev:ScheduledNote (new ScheduledNote)
+                    ev.beat = beat
+                    ev.beats = n.beats
+                    ev.instrument = tr.instrument
+                    ev.pitch = n.pitch
+                    push out ev
+                }
+                beat = (beat + n.beats)
+                ni = (ni + 1)
+            }
+            ti = (ti + 1)
+        }
+        return out
+    }
+}
+
+class SoundScorePlayer {
+    def audio:GameAudio
+    def parser:SoundScoreParser (new SoundScoreParser)
+    def score:SoundScore (new SoundScore)
+    def schedule:[ScheduledNote]
+    def nextIdx:int 0
+    def beatPos:double 0.0
+    def msPerBeat:double 500.0
+    def playing:boolean false
+    def loop:boolean true
+    def noteStarts:int 0
+
+    fn load:void (text:string) {
+        score = (parser.parse(text))
+        schedule = (parser.buildSchedule(score))
+        msPerBeat = (60000.0 / (to_double score.tempo))
+        nextIdx = 0
+        beatPos = 0.0
+        noteStarts = 0
+    }
+
+    fn play:void (loopScore:boolean) {
+        loop = loopScore
+        playing = true
+        nextIdx = 0
+        beatPos = 0.0
+        def i 0
+        while (i < (array_length schedule)) {
+            def ev:ScheduledNote (itemAt schedule i)
+            ev.played = false
+            i = (i + 1)
+        }
+    }
+
+    fn stop:void () {
+        playing = false
+        nextIdx = 0
+        beatPos = 0.0
+    }
+
+    fn isPlaying:boolean () {
+        return playing
+    }
+
+    fn flushPending:void (pending:[ScheduledNote]) {
+        def n:int (array_length pending)
+        if (n <= 0) {
+            return
+        }
+        if (n == 1) {
+            def one:ScheduledNote (itemAt pending 0)
+            def durMs:int (to_int (one.beats * msPerBeat))
+            audio.playScoreNote(one.instrument one.pitch durMs)
+            noteStarts = (noteStarts + 1)
+            return
+        }
+        def hits:[ScoreVoiceHit]
+        def i 0
+        while (i < n) {
+            def src:ScheduledNote (itemAt pending i)
+            def hit:ScoreVoiceHit (new ScoreVoiceHit)
+            hit.instrument = src.instrument
+            hit.pitch = src.pitch
+            push hits hit
+            i = (i + 1)
+        }
+        def head:ScheduledNote (itemAt pending 0)
+        def durMs:int (to_int (head.beats * msPerBeat))
+        audio.playScoreChord(hits durMs)
+        noteStarts = (noteStarts + n)
+    }
+
+    fn tick:void (dtMs:int) {
+        if (false == playing) {
+            return
+        }
+        if ((array_length schedule) == 0) {
+            playing = false
+            return
+        }
+        def prevBeat:double beatPos
+        beatPos = (beatPos + ((to_double dtMs) / msPerBeat))
+        def pending:[ScheduledNote]
+        def i 0
+        while (i < (array_length schedule)) {
+            def ev:ScheduledNote (itemAt schedule i)
+            if (ev.played == false) {
+                if (ev.beat <= beatPos) {
+                    if (ev.beat >= prevBeat) {
+                        push pending ev
+                        ev.played = true
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        this.flushPending(pending)
+        if (beatPos >= score.totalBeats) {
+            if (loop) {
+                beatPos = 0.0
+                def ri 0
+                while (ri < (array_length schedule)) {
+                    def rev:ScheduledNote (itemAt schedule ri)
+                    rev.played = false
+                    ri = (ri + 1)
+                }
+            } {
+                playing = false
+            }
+        }
+    }
+}

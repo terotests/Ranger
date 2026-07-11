@@ -32,6 +32,23 @@ export function soundEvent(id) {
   return { kind: "playSound", id: id };
 }
 
+/** Start music from a registered score id (resources kind: music). */
+export function musicEvent(id, loop?) {
+  const amount = loop === false ? 0 : 1;
+  return { kind: "playMusic", id: id, amount: amount };
+}
+
+/** Start music from inline soundscore text. */
+export function musicScoreEvent(scoreText, loop?) {
+  const amount = loop === false ? 0 : 1;
+  return { kind: "playMusic", id: "inline", text: scoreText, amount: amount };
+}
+
+/** Stop the current soundscore playback. */
+export function stopMusicEvent() {
+  return { kind: "stopMusic", id: "" };
+}
+
 /** Built-in particle burst presets (GPU overlay or SoftCanvas circles). */
 export function particleEvent(id, x, y, amount?) {
   const n = amount == null ? 0 : amount;

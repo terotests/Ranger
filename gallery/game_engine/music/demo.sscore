@@ -1,0 +1,15 @@
+tempo 100
+beats 4/4
+
+@melody piano
+1:C4 1:E4 1:G4 1:C5
+1:D4 1:F4 1:A4 1:D5
+
+@harmony violin
+4:C3 4:G3
+
+@bass square
+2:C2 2:G2 2:C2 2:G2
+
+@drums drums
+1:K 1:_ 1:S 1:_ 1:K 1:K 1:S 1:_
