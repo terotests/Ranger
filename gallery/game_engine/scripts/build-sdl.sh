@@ -69,8 +69,11 @@ RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr" node "$ROOT/bin/output
 cp "$ROOT/gallery/invaders/variant.hpp" "$OUT_DIR/variant.hpp"
 
 echo "==> 2/3 $CXX -> native binary (SDL2)"
+# Optimize the render/game hot paths; unoptimized builds ran ~5-6x slower per
+# frame. Override via CXX_OPT.
+CXX_OPT="${CXX_OPT:--O3}"
 # shellcheck disable=SC2086
-"$CXX" -std=c++17 "$CPP_FILE" -o "$BIN_FILE" $SDL_FLAGS
+"$CXX" $CXX_OPT -std=c++17 "$CPP_FILE" -o "$BIN_FILE" $SDL_FLAGS
 
 echo "==> 3/3 Ready: $BIN_FILE"
 

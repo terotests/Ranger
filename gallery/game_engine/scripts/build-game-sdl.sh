@@ -89,9 +89,11 @@ if [[ -z "$GL_FLAGS" ]]; then
 fi
 # Optimize: the software renderer (SoftCanvas fills/blits) and interpreter are
 # hot per-frame paths — building without -O left them ~5-6x slower and could
-# push frame time past the 16.6ms vsync boundary (60 -> 30fps). -O2 lets the
-# compiler inline the buffer accessors and lower span copies to memmove/memset.
-CXX_OPT="${CXX_OPT:--O2}"
+# push frame time past the 16.6ms vsync boundary (60 -> 30fps). -O3 inlines the
+# buffer accessors, lowers span copies to memmove/memset and vectorizes the
+# pixel loops (the car game "ar" then loads almost instantly). Override via
+# CXX_OPT (e.g. CXX_OPT=-O2 or -g for debugging).
+CXX_OPT="${CXX_OPT:--O3}"
 # shellcheck disable=SC2086
 "$CXX" $CXX_OPT -std=c++17 "$CPP_FILE" -o "$BIN_FILE" $SDL_FLAGS $GL_FLAGS
 

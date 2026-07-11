@@ -111,8 +111,8 @@ cp "$ROOT/gallery/invaders/variant.hpp" "$OUT_DIR/variant.hpp"
 
 echo "==> 2/3 $CXX -> native binary (SDL2)"
 # Optimize the render/game hot paths (see build-game-sdl.sh); unoptimized
-# builds ran ~5-6x slower per frame.
-CXX_OPT="${CXX_OPT:--O2}"
+# builds ran ~5-6x slower per frame. Override via CXX_OPT.
+CXX_OPT="${CXX_OPT:--O3}"
 # shellcheck disable=SC2086
 "$CXX" $CXX_OPT -std=c++17 "$CPP_FILE" -o "$BIN_FILE" $SDL_FLAGS
 
