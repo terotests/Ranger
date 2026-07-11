@@ -13,7 +13,7 @@ const WORLD_H = 1890;
 const VIEW_H = 270;
 const MAX_ENEMIES = 12;
 const MAX_FRUITS = 7;
-const MAX_DIAMONDS = 7;
+const MAX_DIAMONDS = 5;
 const MAX_BULLETS = 4;
 const MAX_MOVING_PLATFORMS = 8;
 const MOVING_PLAT_SPEED = 0.06;
@@ -29,7 +29,9 @@ const JUMP_CUT = 0.42;
 const JUMP_HOLD_MAX_MS = 400;
 const JUMP_HOLD_MAX_SUPER_MS = 700;
 const BULLET_SPEED = 0.42;
-const SUPER_MS = 5000;
+const SUPER_MS = 8000;
+const SUPER_WARN_MS = 2500;
+const SUPER_BLINK_MS = 200;
 const CELEBRATE_INTERVAL = 520;
 const FINISH_PARTICLE_MS = 2000;
 const FINISH_CELEBRATE_MS = 3000;
@@ -105,13 +107,11 @@ const BASE_FRUIT_DEFS = [
 ];
 
 const BASE_DIAMOND_DEFS = [
-  { x: 90, y: 1675, restoreOnRestart: true },
-  { x: 200, y: 1565, restoreOnRestart: true },
-  { x: 330, y: 1455, restoreOnRestart: true },
-  { x: 70, y: 1345, restoreOnRestart: true },
-  { x: 430, y: 1740, restoreOnRestart: false },
-  { x: 300, y: 1015, restoreOnRestart: false },
-  { x: 170, y: 705, restoreOnRestart: false }
+  { x: 420, y: 1775, respawn: true },
+  { x: 300, y: 1455, respawn: true },
+  { x: 130, y: 1125, respawn: false },
+  { x: 300, y: 715, respawn: false },
+  { x: 200, y: 475, respawn: false }
 ];
 
 const P1_START_X = 120;
@@ -852,25 +852,28 @@ function makeDiamonds() {
   return out;
 }
 
-function makeRestartDiamonds(prev) {
+function respawnMarkedDiamonds(prev) {
   const out = [];
   let i = 0;
   while (i < MAX_DIAMONDS) {
     const def = BASE_DIAMOND_DEFS[i];
-    if (def.restoreOnRestart) {
-      out.push({ taken: 0 });
-    } else {
-      let taken = 0;
-      if (prev) {
-        if (prev[i]) {
-          taken = prev[i].taken;
-        }
+    let taken = 0;
+    if (prev) {
+      if (prev[i]) {
+        taken = prev[i].taken;
       }
-      out.push({ taken: taken });
     }
+    if (def.respawn && taken == 1) {
+      taken = 0;
+    }
+    out.push({ taken: taken });
     i = i + 1;
   }
   return out;
+}
+
+function makeRestartDiamonds(prev) {
+  return respawnMarkedDiamonds(prev);
 }
 
 function makeBullets() {
@@ -1052,6 +1055,7 @@ function stompBounce(pl, ey) {
 
 function applyEnemyHits(pl, owner, enemies, events) {
   let out = pl;
+  let died = 0;
   let ei = 0;
   while (ei < MAX_ENEMIES) {
     if (enemies[ei].alive == 1) {
@@ -1071,6 +1075,7 @@ function applyEnemyHits(pl, owner, enemies, events) {
             events.push(rumbleForOwner(owner, 60, 12000));
           } else {
             out = respawnPlayer(owner);
+            died = 1;
             events.push(soundEvent("lose"));
             events.push(rumbleForOwner(owner, 280, 40000));
           }
@@ -1079,7 +1084,7 @@ function applyEnemyHits(pl, owner, enemies, events) {
     }
     ei = ei + 1;
   }
-  return out;
+  return { pl: out, died: died };
 }
 
 function hitPickup(px, py, fx, fy) {
@@ -1398,9 +1403,23 @@ function computeCamera(p1, p2, dual) {
   return cam;
 }
 
+function showSuperSprite(pl) {
+  if (pl.superMs <= 0) {
+    return false;
+  }
+  if (pl.superMs > SUPER_WARN_MS) {
+    return true;
+  }
+  const phase = Math.floor(pl.superMs / SUPER_BLINK_MS);
+  if (phase % 2 == 1) {
+    return true;
+  }
+  return false;
+}
+
 function placePlayerEntity(entities, id, superId, pl, cam, moving) {
   const sheet = sheetFrameForPlayer(pl, moving);
-  const superOn = pl.superMs > 0 ? 1 : 0;
+  const superOn = showSuperSprite(pl) ? 1 : 0;
   if (superOn == 1) {
     entities[id] = { x: -40, y: -40, visible: 0, p0: 0, p1: 0, p2: 0 };
     entities[superId] = {
@@ -1868,11 +1887,19 @@ function update(props) {
   }
 
   if (p1.done == 0) {
-    p1 = applyEnemyHits(p1, owner, enemies, events);
+    const hit1 = applyEnemyHits(p1, owner, enemies, events);
+    p1 = hit1.pl;
+    if (hit1.died == 1) {
+      diamonds = respawnMarkedDiamonds(diamonds);
+    }
   }
   if (dual) {
     if (p2.done == 0) {
-      p2 = applyEnemyHits(p2, 2, enemies, events);
+      const hit2 = applyEnemyHits(p2, 2, enemies, events);
+      p2 = hit2.pl;
+      if (hit2.died == 1) {
+        diamonds = respawnMarkedDiamonds(diamonds);
+      }
     }
   }
 
