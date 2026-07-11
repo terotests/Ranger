@@ -672,8 +672,11 @@ static int rgfx_particles_gl_init() {
         \"void main() {\\n\"
         \"  float d = dot(vCorner, vCorner);\\n\"
         \"  if (d > 1.0) discard;\\n\"
-        \"  float alpha = vColor.a * (1.0 - d);\\n\"
-        \"  gl_FragColor = vec4(vColor.rgb, alpha);\\n\"
+        \"  float soft = 1.0 - d;\\n\"
+        \"  float core = 1.0 - smoothstep(0.0, 0.22, d);\\n\"
+        \"  float alpha = vColor.a * soft * soft;\\n\"
+        \"  vec3 rgb = vColor.rgb * (1.0 + core * 0.7);\\n\"
+        \"  gl_FragColor = vec4(rgb, alpha);\\n\"
         \"}\\n\";
     GLuint vsId = rgfx_gl_compile(GL_VERTEX_SHADER, vs);
     GLuint fsId = rgfx_gl_compile(GL_FRAGMENT_SHADER, fs);
@@ -744,7 +747,7 @@ static void rgfx_particles_draw_overlay() {
     glEnableVertexAttribArray((GLuint) g_rgfx_part_color_attr);
     glVertexAttribPointer((GLuint) g_rgfx_part_color_attr, 4, GL_FLOAT, GL_FALSE, stride, (void*) (5 * sizeof(float)));
     glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE);
     glDrawArrays(GL_TRIANGLES, 0, (GLsizei) (g_rgfx_particles.size() * 6));
     g_rgfx_particles.clear();
 }
