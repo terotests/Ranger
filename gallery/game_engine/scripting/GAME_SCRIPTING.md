@@ -309,3 +309,4 @@ persistence, `pushGame` → `loadGame` → `popGame`):
    see `game_hud.rgr`).
 4. **Later:** native (C++) evaluation once the EVG/eval stack builds for the C++
    target (see `RENDERING_EVG.md`); host-callback `EvalValue` for richer APIs.
+   Interpreter perf work and benchmarks: [`TS_ENGINE_OPTIMIZATION.md`](./TS_ENGINE_OPTIMIZATION.md).

@@ -1,0 +1,19 @@
+; =============================================================================
+; ComponentEngine Module - TSX/TS interpreter exported for benchmarking
+; =============================================================================
+; Compile with:
+;   RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 -nodemodule \
+;     ./gallery/pdf_writer/src/tools/component_engine_module.rgr \
+;     -d=./gallery/pdf_writer/bin -o=component_engine_module.cjs
+;
+; This creates a CommonJS module that exposes the ComponentEngine interpreter
+; (plus EvalValue / parser classes) so it can be driven from a Node benchmark.
+
+Import "../jsx/ComponentEngine.rgr"
+Import "../jsx/EvalValue.rgr"
+
+class ComponentEngineModule {
+    sfn m@(main):void () {
+        print "ComponentEngine module loaded"
+    }
+}

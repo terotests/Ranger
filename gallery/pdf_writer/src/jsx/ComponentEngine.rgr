@@ -39,8 +39,10 @@ class EvalContext {
     }
     
     fn lookup:EvalValue (name:string) {
-        if (has bindings name) {
-            return (unwrap (get bindings name))
+        ; Single map probe (avoids a second hasOwnProperty via `has` + `get`).
+        def found@(optional):EvalValue (get bindings name)
+        if found {
+            return (unwrap found)
         }
         ; Check parent scope (function locals -> outer -> … -> module root)
         if parent {
@@ -1145,7 +1147,9 @@ class ComponentEngine {
                     def initNode:TSNode (unwrap decl.init)
                     def value:EvalValue (this.evaluateExpr(initNode))
                     moduleScope.define(varName value)
-                    this.trace("Defined module binding: " + varName + " = " + (value.toString()))
+                    if (false == quiet) {
+                        this.trace("Defined module binding: " + varName + " = " + (value.toString()))
+                    }
                 }
             }
             i = i + 1
@@ -1163,7 +1167,9 @@ class ComponentEngine {
                     def initNode:TSNode (unwrap decl.init)
                     def value:EvalValue (this.evaluateExpr(initNode))
                     context.define(varName value)
-                    this.trace("Defined variable: " + varName + " = " + (value.toString()))
+                    if (false == quiet) {
+                        this.trace("Defined variable: " + varName + " = " + (value.toString()))
+                    }
                 }
             }
             i = i + 1
@@ -2899,6 +2905,34 @@ class ComponentEngine {
     ; ==========================================================================
     
     fn evaluateExpr:EvalValue (node:TSNode) {
+        ; Fast dispatch: the node types that dominate evaluation of real scripts
+        ; (variable reads, member/array access, calls, arithmetic) are checked
+        ; first so the common case does not fall through the whole if-chain.
+        def nt:string node.nodeType
+
+        if (nt == "Identifier") {
+            if (node.name == "undefined") {
+                return (EvalValue.undefined())
+            }
+            return (context.lookup(node.name))
+        }
+        if (nt == "MemberExpression") {
+            return (this.evaluateMemberExpr(node))
+        }
+        if (nt == "CallExpression") {
+            return (this.evaluateCallExpr(node))
+        }
+        if (nt == "BinaryExpression") {
+            return (this.evaluateBinaryExpr(node))
+        }
+        if (nt == "NumericLiteral") {
+            def fastNum@(optional):double (to_double node.value)
+            if fastNum {
+                return (EvalValue.number((unwrap fastNum)))
+            }
+            return (EvalValue.number(0.0))
+        }
+
         ; Literals
         if (node.nodeType == "NumericLiteral") {
             def numVal@(optional):double (to_double node.value)
@@ -3055,7 +3089,9 @@ class ComponentEngine {
                     }
                 }
                 
-                this.trace("Method call: " + methodName + " on value type=" + (to_string obj.valueType))
+                if (false == quiet) {
+                    this.trace("Method call: " + methodName + " on value type=" + (to_string obj.valueType))
+                }
                 
                 ; Handle Number methods
                 if (methodName == "toFixed") {
@@ -3278,7 +3314,9 @@ class ComponentEngine {
             ; Handle regular function calls
             if (callee.nodeType == "Identifier") {
                 def fnName:string callee.name
-                this.trace("Evaluating function call: " + fnName)
+                if (false == quiet) {
+                    this.trace("Evaluating function call: " + fnName)
+                }
                 
                 ; ============================================================
                 ; Handle built-in hooks
@@ -3293,7 +3331,9 @@ class ComponentEngine {
                         def argNode:TSNode (itemAt node.children 0)
                         this.trace("useImage arg nodeType: " + argNode.nodeType)
                         def argValue:EvalValue (this.evaluateExpr(argNode))
-                        this.trace("useImage arg value: " + (argValue.toString()) + " type=" + (to_string argValue.valueType))
+                        if (false == quiet) {
+                            this.trace("useImage arg value: " + (argValue.toString()) + " type=" + (to_string argValue.valueType))
+                        }
                         srcArg = argValue.stringValue
                         this.trace("useImage srcArg: " + srcArg)
                     }
@@ -3310,7 +3350,9 @@ class ComponentEngine {
                 
                 ; Look up the function in context
                 def fnValue:EvalValue (context.lookup(fnName))
-                this.trace("Lookup function '" + fnName + "' -> type=" + (to_string fnValue.valueType) + " isFunction=" + (to_string (fnValue.isFunction())))
+                if (false == quiet) {
+                    this.trace("Lookup function '" + fnName + "' -> type=" + (to_string fnValue.valueType) + " isFunction=" + (to_string (fnValue.isFunction())))
+                }
                 if (fnValue.isFunction()) {
                     if fnValue.functionNode {
                         def fnNode:TSNode (unwrap fnValue.functionNode)
@@ -3327,7 +3369,9 @@ class ComponentEngine {
                         ; Bind function arguments to parameters
                         def numArgs:int (array_length node.children)
                         def numParams:int (array_length fnNode.params)
-                        this.trace("Function " + fnName + " called with " + (to_string numArgs) + " args, has " + (to_string numParams) + " params")
+                        if (false == quiet) {
+                            this.trace("Function " + fnName + " called with " + (to_string numArgs) + " args, has " + (to_string numParams) + " params")
+                        }
                         
                         def argIdx:int 0
                         while (argIdx < numParams) {
@@ -3339,7 +3383,9 @@ class ComponentEngine {
                                 ; Get the parameter name
                                 def paramNode:TSNode (itemAt fnNode.params argIdx)
                                 def paramName:string paramNode.name
-                                this.trace("Binding param '" + paramName + "' = " + (argValue.toString()))
+                                if (false == quiet) {
+                                    this.trace("Binding param '" + paramName + "' = " + (argValue.toString()))
+                                }
                                 
                                 ; Define the parameter in the new context
                                 context.define(paramName argValue)
@@ -3410,18 +3456,18 @@ class ComponentEngine {
             }
         }
         
-        ; Evaluate both sides for other operators
-        def left:EvalValue (EvalValue.null())
-        def right:EvalValue (EvalValue.null())
-        
-        if node.left {
-            def leftExpr:TSNode (unwrap node.left)
-            left = (this.evaluateExpr(leftExpr))
+        ; Evaluate both sides for other operators. Binary expressions always have
+        ; both operands; evaluate them directly instead of seeding two throwaway
+        ; null EvalValues (which used to be the single largest source of interpreter
+        ; heap allocations).
+        if (null? node.left) {
+            return (EvalValue.null())
         }
-        if node.right {
-            def rightExpr:TSNode (unwrap node.right)
-            right = (this.evaluateExpr(rightExpr))
+        if (null? node.right) {
+            return (EvalValue.null())
         }
+        def left:EvalValue (this.evaluateExpr((unwrap node.left)))
+        def right:EvalValue (this.evaluateExpr((unwrap node.right)))
         
         ; Arithmetic
         if (op == "+") {
@@ -3617,10 +3663,14 @@ class ComponentEngine {
                 if node.right {
                     def indexExpr:TSNode (unwrap node.right)
                     def indexVal:EvalValue (this.evaluateExpr(indexExpr))
-                    this.trace("  Index value: " + (indexVal.toString()) + " type=" + (to_string indexVal.valueType))
+                    if (false == quiet) {
+                        this.trace("  Index value: " + (indexVal.toString()) + " type=" + (to_string indexVal.valueType))
+                    }
                     if (indexVal.isNumber()) {
                         def idx:int (to_int (indexVal.toNumber()))
-                        this.trace("  Getting index " + (to_string idx) + " from array of length " + (to_string (array_length obj.arrayValue)))
+                        if (false == quiet) {
+                            this.trace("  Getting index " + (to_string idx) + " from array of length " + (to_string (array_length obj.arrayValue)))
+                        }
                         return (obj.getIndex(idx))
                     }
                     if (indexVal.isString()) {

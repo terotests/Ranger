@@ -3618,6 +3618,21 @@ r_optional_primitive<double> cpp_get_map_string_double_value( std::map<std::stri
                 llvm ( "(get " (e 1) " " (e 2) ")")
                 java7 ( (e 1) ".get(" (e 2) ")" )
                 rust ( (e 1) ".get(" (e 2) ")" )
+                cpp ( "r_map_get_val(" (e 1) ", " (e 2) ")"
+(create_polyfill
+"
+// Map read that never inserts on miss (unlike std::map::operator[]) and does a
+// single lookup. Returns a default-constructed value (e.g. null shared_ptr)
+// when the key is absent.
+template<typename M, typename K>
+typename M::mapped_type r_map_get_val( const M & m , const K & key) {
+    auto it = m.find(key);
+    if ( it != m.end() ) { return it->second; }
+    return typename M::mapped_type();
+}
+"
+)
+                )
 
                 scala ( (e 1) ".get(" (e 2) ")" )
 
