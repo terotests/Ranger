@@ -1,0 +1,56 @@
+; ==============================================================================
+; ylos2_runner_demo - headless smoke test for Ylos 2 platformer (LPC sheets).
+; ==============================================================================
+
+Import "./game_runtime.rgr"
+
+class Ylos2RunnerDemo {
+    sfn m@(main):void () {
+        def runner:GameRunner (new GameRunner)
+        runner.init(480 270)
+
+        def buf:buffer (buffer_read_file "gallery/game_engine/games/ylos2" "index.tsx")
+        def src:string (buffer_to_string buf)
+        runner.setScriptDir("gallery/game_engine/games/ylos2")
+        runner.loadScript(src)
+        runner.setupScene()
+
+        def frames:int 400
+        if ((shell_arg_cnt) > 0) {
+            def parsed@(optional):int (to_int (shell_arg 0))
+            if (!null? parsed) {
+                frames = (unwrap parsed)
+            }
+        }
+
+        def i 0
+        while (i < frames) {
+            def phase (i % 120)
+            def left (phase < 40)
+            def right (phase >= 80)
+            def up (phase >= 40)
+            if (phase < 40) {
+                up = false
+            }
+            if (phase >= 80) {
+                up = false
+            }
+            runner.frame(16 up false left right true false)
+            i = (i + 1)
+        }
+
+        runner.draw()
+        buffer_write_file "gallery/game_engine/scripting" "ylos2_frame.rgba" (runner.raw())
+
+        def p1x:int (runner.entityX("p1"))
+        def p1y:int (runner.entityY("p1"))
+        def ec:int (runner.entityCount())
+        print ("frames=" + frames)
+        print (("p1=" + p1x) + ("," + p1y))
+        print (("entities=" + ec))
+        print (("score=" + runner.score1) + ("," + runner.score2))
+        def audio:GameAudio (runner.audioRef())
+        print (("audioPlays=" + audio.playCount))
+        print "ylos2-runner done"
+    }
+}

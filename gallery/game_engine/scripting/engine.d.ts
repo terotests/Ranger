@@ -67,7 +67,7 @@ interface Framebuffer {
 type Screen = Framebuffer;
 
 /** Retained sprite kinds understood by game_sprite.rgr / GameRunner. */
-type SpriteKind = "rect" | "circle" | "wedge" | "ghost" | "bitmap";
+type SpriteKind = "rect" | "circle" | "wedge" | "ghost" | "bitmap" | "sheet";
 
 /** Static sprite definition returned from sprites(). */
 interface SpriteDef {
@@ -93,6 +93,20 @@ interface SpriteDef {
   eb?: number;
   /** bitmap: animated frame set — array of row-string arrays. */
   frames?: string[][];
+  /** sheet: relative PNG path from game folder. */
+  path?: string;
+  /** sheet: frame width in pixels (default 64). */
+  frameW?: number;
+  /** sheet: frame height in pixels (default 64). */
+  frameH?: number;
+  /** sheet: columns per row (default 9 for LPC walk). */
+  cols?: number;
+  /** sheet: direction rows (default 4 for LPC walk). */
+  rows?: number;
+  /** sheet: draw scale percent of frame size (default 50). */
+  scale?: number;
+  /** sheet: column index used when p2 jump flag is set. */
+  jumpFrame?: number;
 }
 
 /** Per-frame entity pose written by update() into state.entities[id]. */
@@ -104,9 +118,11 @@ interface EntityPose {
   g?: number;
   b?: number;
   rad?: number;
-  /** bitmap: animation frame (p0). wedge: facing. ghost: dir. */
+  /** bitmap: animation frame (p0). wedge: facing. ghost: dir. sheet: frame col. */
   p0?: number;
+  /** sheet: direction row (LPC: 0=up 1=left 2=down 3=right). */
   p1?: number;
+  /** sheet: non-zero selects jumpFrame column while airborne. */
   p2?: number;
 }
 
@@ -163,10 +179,11 @@ type BuiltinSoundId =
   | "bounce"
   | "wall"
   | "lose"
-  | "win";
+  | "win"
+  | "celebrate";
 
 /** Particle burst presets understood by game_particles.rgr. */
-type ParticlePresetId = "burst" | "sparkle" | "fruit";
+type ParticlePresetId = "burst" | "sparkle" | "fruit" | "celebrate";
 
 /** Transient event emitted from update() and drained by GameHost each frame. */
 interface GameEvent {
