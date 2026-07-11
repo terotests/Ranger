@@ -180,6 +180,7 @@ class GameRunner {
         options.scriptDir = dir
         engine.setBasePath(dir)
         imageLoader.setBaseDir(dir)
+        spriteRenderer.setImageLoader(imageLoader)
         engine.addAssetPath(engineLibPath)
     }
 
@@ -206,6 +207,7 @@ class GameRunner {
         if ((strlen dir) > 0) {
             engine.setBasePath(dir)
             imageLoader.setBaseDir(dir)
+            spriteRenderer.setImageLoader(imageLoader)
             engine.addAssetPath(engineLibPath)
         }
         if ((strlen file) > 0) {

@@ -74,6 +74,7 @@ class GameAudio {
         if (id == "wall") { return true }
         if (id == "lose") { return true }
         if (id == "win") { return true }
+        if (id == "celebrate") { return true }
         return false
     }
 
@@ -119,6 +120,13 @@ class GameAudio {
             spec.freqHz = 523.0
             spec.durationMs = 120
             spec.volume = 0.30
+            spec.wave = (SynthWave.sine())
+            return spec
+        }
+        if (id == "celebrate") {
+            spec.freqHz = 392.0
+            spec.durationMs = 160
+            spec.volume = 0.32
             spec.wave = (SynthWave.sine())
             return spec
         }
@@ -216,6 +224,10 @@ class GameAudio {
             this.playWinArpeggio()
             return
         }
+        if (id == "celebrate") {
+            this.playCelebrateFanfare()
+            return
+        }
         def spec:SynthToneSpec (this.lookupSpec(id))
         this.queueSpec(id spec)
     }
@@ -234,6 +246,26 @@ class GameAudio {
             spec.volume = 0.28
             spec.wave = (SynthWave.sine())
             this.queueSpec("win" spec)
+            i = (i + 1)
+        }
+    }
+
+    fn playCelebrateFanfare:void () {
+        def notes:[double]
+        push notes 523.0
+        push notes 659.0
+        push notes 784.0
+        push notes 988.0
+        push notes 1174.0
+        push notes 1318.0
+        def i 0
+        while (i < (array_length notes)) {
+            def spec:SynthToneSpec (new SynthToneSpec)
+            spec.freqHz = (itemAt notes i)
+            spec.durationMs = 140
+            spec.volume = 0.30
+            spec.wave = (SynthWave.sine())
+            this.queueSpec("celebrate" spec)
             i = (i + 1)
         }
     }
