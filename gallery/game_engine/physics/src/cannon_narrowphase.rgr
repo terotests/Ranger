@@ -1,0 +1,179 @@
+; ==============================================================================
+; cannon_narrowphase — contact generation (Cannon.js port subset).
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_quaternion.rgr"
+Import "cannon_shape.rgr"
+Import "cannon_body.rgr"
+Import "cannon_contact_equation.rgr"
+Import "cannon_contact_material.rgr"
+
+class CannonNarrowphase {
+    def currentContactMaterial:CannonContactMaterial
+    def result:[CannonContactEquation]
+    def tmpQuatI:CannonQuaternion (new CannonQuaternion)
+    def tmpQuatJ:CannonQuaternion (new CannonQuaternion)
+    def tmpVecI:CannonVec3 (new CannonVec3)
+    def tmpVecJ:CannonVec3 (new CannonVec3)
+    def tmpPointOnPlane:CannonVec3 (new CannonVec3)
+    def tmpPlaneOrtho:CannonVec3 (new CannonVec3)
+
+    fn createContactEquation:CannonContactEquation (bi:CannonBody bj:CannonBody si:CannonShape sj:CannonShape) {
+        def c:CannonContactEquation (new CannonContactEquation)
+        c.initContact(bi bj)
+        def enabled:boolean true
+        if (bi.collisionResponse == false) {
+            enabled = false
+        }
+        if (bj.collisionResponse == false) {
+            enabled = false
+        }
+        if (si.collisionResponse == false) {
+            enabled = false
+        }
+        if (sj.collisionResponse == false) {
+            enabled = false
+        }
+        c.enabled = enabled
+        c.si = si
+        c.sj = sj
+        def cm:CannonContactMaterial this.currentContactMaterial
+        if (cm) {
+            c.restitution = cm.restitution
+        }
+        return c
+    }
+
+    fn sphereSphere:boolean (radiusI:double radiusJ:double xi:CannonVec3 xj:CannonVec3 bi:CannonBody bj:CannonBody si:CannonShape sj:CannonShape justTest:boolean) {
+        if (justTest) {
+            def limit:double (radiusI + radiusJ)
+            def limit2:double (limit * limit)
+            return (xi.distanceSquared(xj) < limit2)
+        }
+        def r:CannonContactEquation (this.createContactEquation(bi bj si sj))
+        def ni:CannonVec3 r.ni
+        xj.vsub(xi ni)
+        ni.normalizeSelf()
+        r.ri.copy(ni)
+        r.rj.copy(ni)
+        r.ri.scaleInto(radiusI r.ri)
+        def negRadius:double (0.0 - radiusJ)
+        r.rj.scaleInto(negRadius r.rj)
+        r.ri.vadd(xi r.ri)
+        r.ri.vsub(bi.position r.ri)
+        r.rj.vadd(xj r.rj)
+        r.rj.vsub(bj.position r.rj)
+        push this.result r
+        return true
+    }
+
+    fn spherePlane:boolean (radiusI:double xi:CannonVec3 xj:CannonVec3 qj:CannonQuaternion bi:CannonBody bj:CannonBody si:CannonShape sj:CannonShape justTest:boolean) {
+        def r:CannonContactEquation (this.createContactEquation(bi bj si sj))
+        def ni:CannonVec3 r.ni
+        ni.set(0.0 0.0 1.0)
+        qj.vmult(ni ni)
+        ni.negateInto(ni)
+        ni.normalizeSelf()
+        ni.scaleInto(radiusI r.ri)
+        def pointOnPlane:CannonVec3 this.tmpPointOnPlane
+        def planeOrtho:CannonVec3 this.tmpPlaneOrtho
+        xi.vsub(xj pointOnPlane)
+        def dotVal:double ni.dot(pointOnPlane)
+        ni.scaleInto(dotVal planeOrtho)
+        pointOnPlane.vsub(planeOrtho r.rj)
+        def dotPen:double (pointOnPlane.dot(ni))
+        def penetration:double (0.0 - dotPen)
+        if (penetration <= radiusI) {
+            if (justTest) {
+                return true
+            }
+            def ri:CannonVec3 r.ri
+            def rj:CannonVec3 r.rj
+            ri.vadd(xi ri)
+            ri.vsub(bi.position ri)
+            rj.vadd(xj rj)
+            rj.vsub(bj.position rj)
+            push this.result r
+            return true
+        }
+        return false
+    }
+
+    fn dispatchShapePair:boolean (si:CannonShape sj:CannonShape xi:CannonVec3 xj:CannonVec3 qi:CannonQuaternion qj:CannonQuaternion bi:CannonBody bj:CannonBody justTest:boolean) {
+        if (si.type == 1) {
+            if (sj.type == 1) {
+                def hitSphere:boolean (this.sphereSphere(si.radius sj.radius xi xj bi bj si sj justTest))
+                return hitSphere
+            }
+            if (sj.type == 2) {
+                def hitPlane:boolean (this.spherePlane(si.radius xi xj qj bi bj si sj justTest))
+                return hitPlane
+            }
+        }
+        if (si.type == 2) {
+            if (sj.type == 1) {
+                def hitSwap:boolean (this.spherePlane(sj.radius xj xi qi bj bi sj si justTest))
+                return hitSwap
+            }
+        }
+        return false
+    }
+
+    fn getContacts:void (p1:[CannonBody] p2:[CannonBody] result:[CannonContactEquation]) {
+        this.result = result
+        def qi:CannonQuaternion this.tmpQuatI
+        def qj:CannonQuaternion this.tmpQuatJ
+        def xi:CannonVec3 this.tmpVecI
+        def xj:CannonVec3 this.tmpVecJ
+        def pairCount:int (array_length p1)
+        def k 0
+        while (k < pairCount) {
+            def bi:CannonBody (itemAt p1 k)
+            def bj:CannonBody (itemAt p2 k)
+            def justTest:boolean false
+            if (bi.type == 4) {
+                if (bj.type == 2) {
+                    justTest = true
+                }
+            }
+            if (bi.type == 2) {
+                if (bj.type == 4) {
+                    justTest = true
+                }
+            }
+            if (bi.type == 4) {
+                if (bj.type == 4) {
+                    justTest = true
+                }
+            }
+            def shapeCountI:int (array_length bi.shapes)
+            def i 0
+            while (i < shapeCountI) {
+                def shapeOrnI:CannonQuaternion (itemAt bi.shapeOrientations i)
+                bi.quaternion.multInto(shapeOrnI qi)
+                def shapeOffI:CannonVec3 (itemAt bi.shapeOffsets i)
+                bi.quaternion.vmult(shapeOffI xi)
+                xi.vadd(bi.position xi)
+                def si:CannonShape (itemAt bi.shapes i)
+                def shapeCountJ:int (array_length bj.shapes)
+                def j 0
+                while (j < shapeCountJ) {
+                    def shapeOrnJ:CannonQuaternion (itemAt bj.shapeOrientations j)
+                    bj.quaternion.multInto(shapeOrnJ qj)
+                    def shapeOffJ:CannonVec3 (itemAt bj.shapeOffsets j)
+                    bj.quaternion.vmult(shapeOffJ xj)
+                    xj.vadd(bj.position xj)
+                    def sj:CannonShape (itemAt bj.shapes j)
+                    def boundSum:double (si.boundingSphereRadius + sj.boundingSphereRadius)
+                    if (xi.distanceTo(xj) <= boundSum) {
+                        this.dispatchShapePair(si sj xi xj qi qj bi bj justTest)
+                    }
+                    j = (j + 1)
+                }
+                i = (i + 1)
+            }
+            k = (k + 1)
+        }
+    }
+}

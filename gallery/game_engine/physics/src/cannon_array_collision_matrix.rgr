@@ -1,0 +1,60 @@
+; ==============================================================================
+; cannon_array_collision_matrix — triangular collision matrix (Cannon.js port).
+; ==============================================================================
+
+Import "cannon_body.rgr"
+
+class CannonArrayCollisionMatrix {
+    def matrix:[int]
+
+    fn matrixIndex:int (i:int j:int) {
+        if (j > i) {
+            def tmp:int j
+            j = i
+            i = tmp
+        }
+        def tri:int (to_int((i * (i + 1)) / 2))
+        return ((tri + j) - 1)
+    }
+
+    fn get:int (bodyA:CannonBody bodyB:CannonBody) {
+        def i:int bodyA.index
+        def j:int bodyB.index
+        def idx:int (this.matrixIndex(i j))
+        this.ensureIndex(idx)
+        return (itemAt this.matrix idx)
+    }
+
+    fn ensureIndex:void (idx:int) {
+        while ((array_length this.matrix) <= idx) {
+            push this.matrix 0
+        }
+    }
+
+    fn set:void (bodyA:CannonBody bodyB:CannonBody value:boolean) {
+        def i:int bodyA.index
+        def j:int bodyB.index
+        def idx:int (this.matrixIndex(i j))
+        this.ensureIndex(idx)
+        if (value) {
+            set this.matrix idx 1
+        } {
+            set this.matrix idx 0
+        }
+    }
+
+    fn reset:void () {
+        def i 0
+        while (i < (array_length this.matrix)) {
+            set this.matrix i 0
+            i = (i + 1)
+        }
+    }
+
+    fn setNumObjects:void (n:int) {
+        def size:int (to_int((n * (n - 1)) / 2))
+        while ((array_length this.matrix) < size) {
+            push this.matrix 0
+        }
+    }
+}

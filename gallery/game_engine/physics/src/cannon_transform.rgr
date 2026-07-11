@@ -1,0 +1,23 @@
+; ==============================================================================
+; cannon_transform — position + rotation frame (Cannon.js port subset).
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_quaternion.rgr"
+
+class CannonTransform {
+    def position:CannonVec3 (new CannonVec3)
+    def quaternion:CannonQuaternion (new CannonQuaternion)
+    def tmpConj:CannonQuaternion (new CannonQuaternion)
+
+    fn pointToLocal:void (worldPoint:CannonVec3 result:CannonVec3) {
+        worldPoint.vsub(this.position result)
+        this.quaternion.conjugateInto(this.tmpConj)
+        this.tmpConj.vmult(result result)
+    }
+
+    fn pointToWorld:void (localPoint:CannonVec3 result:CannonVec3) {
+        this.quaternion.vmult(localPoint result)
+        result.vadd(this.position result)
+    }
+}

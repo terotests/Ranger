@@ -1,0 +1,38 @@
+; ==============================================================================
+; cannon_sphere — sphere shape (Cannon.js port).
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_quaternion.rgr"
+Import "cannon_shape.rgr"
+
+class CannonSphere extends CannonShape {
+    def radius:double 1.0
+    def valid:boolean true
+
+    fn initSphere:boolean (radius:double) {
+        if (radius < 0.0) {
+            this.valid = false
+            return false
+        }
+        this.valid = true
+        this.radius = radius
+        this.initShape(1)
+        this.updateBoundingSphereRadius()
+        return true
+    }
+
+    fn updateBoundingSphereRadius:void () {
+        this.boundingSphereRadius = this.radius
+    }
+
+    fn calculateWorldAABB:void (pos:CannonVec3 quat:CannonQuaternion min:CannonVec3 max:CannonVec3) {
+        def r:double this.radius
+        min.x = pos.x - r
+        min.y = pos.y - r
+        min.z = pos.z - r
+        max.x = pos.x + r
+        max.y = pos.y + r
+        max.z = pos.z + r
+    }
+}

@@ -1,0 +1,54 @@
+; ==============================================================================
+; cannon_plane — infinite plane shape facing +Z (Cannon.js port subset).
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_quaternion.rgr"
+Import "cannon_shape.rgr"
+
+class CannonPlane extends CannonShape {
+    def hugeRadius:double 1000000000.0
+
+    fn initPlane:void () {
+        this.initShape(2)
+        this.boundingSphereRadius = this.hugeRadius
+    }
+
+    fn updateBoundingSphereRadius:void () {
+        this.boundingSphereRadius = this.hugeRadius
+    }
+
+    fn calculateWorldAABB:void (pos:CannonVec3 quat:CannonQuaternion min:CannonVec3 max:CannonVec3) {
+        def maxVal:double this.hugeRadius
+        min.x = (0.0 - maxVal)
+        min.y = (0.0 - maxVal)
+        min.z = (0.0 - maxVal)
+        max.x = maxVal
+        max.y = maxVal
+        max.z = maxVal
+        def nx:double 0.0
+        def ny:double 0.0
+        def nz:double 1.0
+        def tmp:CannonVec3 (new CannonVec3)
+        tmp.set(0.0 0.0 1.0)
+        quat.vmult(tmp tmp)
+        if (tmp.x == 1.0) {
+            max.x = pos.x
+        }
+        if (tmp.y == 1.0) {
+            max.y = pos.y
+        }
+        if (tmp.z == 1.0) {
+            max.z = pos.z
+        }
+        if (tmp.x == (0.0 - 1.0)) {
+            min.x = pos.x
+        }
+        if (tmp.y == (0.0 - 1.0)) {
+            min.y = pos.y
+        }
+        if (tmp.z == (0.0 - 1.0)) {
+            min.z = pos.z
+        }
+    }
+}

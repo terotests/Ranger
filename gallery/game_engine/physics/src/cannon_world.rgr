@@ -1,0 +1,130 @@
+; ==============================================================================
+; cannon_world — physics world (Cannon.js port: gravity, collisions, integration).
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_body.rgr"
+Import "cannon_shape.rgr"
+Import "cannon_contact_equation.rgr"
+Import "cannon_contact_material.rgr"
+Import "cannon_array_collision_matrix.rgr"
+Import "cannon_naive_broadphase.rgr"
+Import "cannon_narrowphase.rgr"
+Import "cannon_overlap_keeper.rgr"
+
+class CannonWorld {
+    def dt:double (1.0 / 60.0)
+    def gravity:CannonVec3 (new CannonVec3)
+    def bodies:[CannonBody]
+    def contacts:[CannonContactEquation]
+    def broadphase:CannonNaiveBroadphase
+    def narrowphase:CannonNarrowphase
+    def collisionMatrix:CannonArrayCollisionMatrix
+    def collisionMatrixPrevious:CannonArrayCollisionMatrix
+    def bodyOverlapKeeper:CannonOverlapKeeper
+    def shapeOverlapKeeper:CannonOverlapKeeper
+    def defaultContactMaterial:CannonContactMaterial
+    def time:double 0.0
+    def stepnumber:int 0
+
+    fn initWorld:void () {
+        this.gravity.set(0.0 0.0 (0.0 - 9.82))
+        this.broadphase = (new CannonNaiveBroadphase)
+        this.narrowphase = (new CannonNarrowphase)
+        this.collisionMatrix = (new CannonArrayCollisionMatrix)
+        this.collisionMatrixPrevious = (new CannonArrayCollisionMatrix)
+        this.bodyOverlapKeeper = (new CannonOverlapKeeper)
+        this.shapeOverlapKeeper = (new CannonOverlapKeeper)
+        this.defaultContactMaterial = (new CannonContactMaterial)
+        this.defaultContactMaterial.initDefault()
+    }
+
+    fn setGravity:void (x:double y:double z:double) {
+        this.gravity.set(x y z)
+    }
+
+    fn addBody:void (body:CannonBody) {
+        body.index = (array_length this.bodies)
+        body.id = body.index
+        push this.bodies body
+        this.collisionMatrix.setNumObjects((array_length this.bodies))
+        this.collisionMatrixPrevious.setNumObjects((array_length this.bodies))
+    }
+
+    fn clearForces:void () {
+        def i 0
+        while (i < (array_length this.bodies)) {
+            def body:CannonBody (itemAt this.bodies i)
+            body.force.setZero()
+            body.torque.setZero()
+            i = (i + 1)
+        }
+    }
+
+    fn collisionMatrixTick:void () {
+        def temp:CannonArrayCollisionMatrix this.collisionMatrixPrevious
+        this.collisionMatrixPrevious = this.collisionMatrix
+        this.collisionMatrix = temp
+        this.collisionMatrix.reset()
+        this.bodyOverlapKeeper.tick()
+        this.shapeOverlapKeeper.tick()
+    }
+
+    fn internalStep:void (dt:double) {
+        this.dt = dt
+        def gx:double this.gravity.x
+        def gy:double this.gravity.y
+        def gz:double this.gravity.z
+        def i 0
+        while (i < (array_length this.bodies)) {
+            def body:CannonBody (itemAt this.bodies i)
+            if (body.type == 1) {
+                body.force.x = body.force.x + (body.mass * gx)
+                body.force.y = body.force.y + (body.mass * gy)
+                body.force.z = body.force.z + (body.mass * gz)
+            }
+            i = (i + 1)
+        }
+        def p1:[CannonBody]
+        def p2:[CannonBody]
+        this.broadphase.collisionPairs(this.bodies p1 p2)
+        this.collisionMatrixTick()
+        def contacts:[CannonContactEquation]
+        this.narrowphase.currentContactMaterial = this.defaultContactMaterial
+        this.narrowphase.getContacts(p1 p2 contacts)
+        def contactCount:int (array_length contacts)
+        def k 0
+        while (k < contactCount) {
+            def c:CannonContactEquation (itemAt contacts k)
+            def bi:CannonBody c.bi
+            def bj:CannonBody c.bj
+            def si:CannonShape c.si
+            def sj:CannonShape c.sj
+            this.collisionMatrix.set(bi bj true)
+            this.bodyOverlapKeeper.set(bi.id bj.id)
+            this.shapeOverlapKeeper.set(si.id sj.id)
+            k = (k + 1)
+        }
+        i = 0
+        while (i < (array_length this.bodies)) {
+            def body:CannonBody (itemAt this.bodies i)
+            if (body.type == 1) {
+                def invM:double body.invMass
+                body.velocity.x = body.velocity.x + ((body.force.x * invM) * dt)
+                body.velocity.y = body.velocity.y + ((body.force.y * invM) * dt)
+                body.velocity.z = body.velocity.z + ((body.force.z * invM) * dt)
+                body.position.x = body.position.x + (body.velocity.x * dt)
+                body.position.y = body.position.y + (body.velocity.y * dt)
+                body.position.z = body.position.z + (body.velocity.z * dt)
+            }
+            i = (i + 1)
+        }
+        this.clearForces()
+        this.time = this.time + dt
+        this.stepnumber = (this.stepnumber + 1)
+    }
+
+    fn step:void (dt:double) {
+        this.internalStep(dt)
+    }
+}

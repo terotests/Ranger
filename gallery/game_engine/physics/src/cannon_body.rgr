@@ -1,0 +1,227 @@
+; ==============================================================================
+; cannon_body — rigid body (Cannon.js port subset for pinball / arcade).
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_quaternion.rgr"
+Import "cannon_aabb.rgr"
+Import "cannon_shape.rgr"
+Import "cannon_box.rgr"
+
+class CannonBody {
+    sdef TYPE_DYNAMIC:int 1
+    sdef TYPE_STATIC:int 2
+    sdef TYPE_KINEMATIC:int 4
+    sdef SLEEP_AWAKE:int 0
+    def id:int 0
+    def index:int 0
+    def mass:double 0.0
+    def invMass:double 0.0
+    def type:int 2
+    def boundingRadius:double 0.0
+    def collisionFilterGroup:int 1
+    def collisionFilterMask:int -1
+    def collisionResponse:boolean true
+    def allowSleep:boolean true
+    def sleepState:int 0
+    def position:CannonVec3 (new CannonVec3)
+    def velocity:CannonVec3 (new CannonVec3)
+    def angularVelocity:CannonVec3 (new CannonVec3)
+    def force:CannonVec3 (new CannonVec3)
+    def torque:CannonVec3 (new CannonVec3)
+    def quaternion:CannonQuaternion (new CannonQuaternion)
+    def inertia:CannonVec3 (new CannonVec3)
+    def invInertia:CannonVec3 (new CannonVec3)
+    def aabb:CannonAABB (new CannonAABB)
+    def shapes:[CannonShape]
+    def shapeOffsets:[CannonVec3]
+    def shapeOrientations:[CannonQuaternion]
+    def aabbNeedsUpdate:boolean true
+    def tmpOffset:CannonVec3 (new CannonVec3)
+    def tmpOrientation:CannonQuaternion (new CannonQuaternion)
+    def tmpShapeAabb:CannonAABB (new CannonAABB)
+    def tmpRotForce:CannonVec3 (new CannonVec3)
+    def tmpVelo:CannonVec3 (new CannonVec3)
+
+    fn initDynamic:void (mass:double) {
+        this.mass = mass
+        if (mass > 0.0) {
+            this.invMass = (1.0 / mass)
+            this.type = 1
+        } {
+            this.invMass = 0.0
+            this.type = 2
+        }
+    }
+
+    fn initStatic:void () {
+        this.mass = 0.0
+        this.invMass = 0.0
+        this.type = 2
+    }
+
+    fn addShape:void (shape:CannonShape) {
+        def shapeId:int (array_length this.shapes)
+        push this.shapes shape
+        shape.id = shapeId
+        def off:CannonVec3 (new CannonVec3)
+        def orn:CannonQuaternion (new CannonQuaternion)
+        orn.set(0.0 0.0 0.0 1.0)
+        push this.shapeOffsets off
+        push this.shapeOrientations orn
+        this.aabbNeedsUpdate = true
+        this.updateBoundingRadius()
+        this.updateMassProperties()
+    }
+
+    fn addShapeOffset:void (shape:CannonShape offset:CannonVec3) {
+        def shapeId:int (array_length this.shapes)
+        push this.shapes shape
+        shape.id = shapeId
+        def off:CannonVec3 (new CannonVec3)
+        off.copy(offset)
+        def orn:CannonQuaternion (new CannonQuaternion)
+        orn.set(0.0 0.0 0.0 1.0)
+        push this.shapeOffsets off
+        push this.shapeOrientations orn
+        this.aabbNeedsUpdate = true
+        this.updateBoundingRadius()
+        this.updateMassProperties()
+    }
+
+    fn updateBoundingRadius:void () {
+        def n:int (array_length this.shapes)
+        def radius:double 0.0
+        def i 0
+        while (i < n) {
+            def shape:CannonShape (itemAt this.shapes i)
+            shape.updateBoundingSphereRadius()
+            def shapeOffset:CannonVec3 (itemAt this.shapeOffsets i)
+            def offsetLen:double shapeOffset.norm()
+            def r:double shape.boundingSphereRadius
+            def total:double (offsetLen + r)
+            if (total > radius) {
+                radius = total
+            }
+            i = (i + 1)
+        }
+        this.boundingRadius = radius
+    }
+
+    fn computeAABB:void () {
+        def n:int (array_length this.shapes)
+        if (n == 0) {
+            return
+        }
+        def i 0
+        while (i < n) {
+            def shape:CannonShape (itemAt this.shapes i)
+            def shapeOffset:CannonVec3 (itemAt this.shapeOffsets i)
+            def shapeOrientation:CannonQuaternion (itemAt this.shapeOrientations i)
+            def offset:CannonVec3 this.tmpOffset
+            this.quaternion.vmult(shapeOffset offset)
+            offset.vadd(this.position offset)
+            def orientation:CannonQuaternion this.tmpOrientation
+            shapeOrientation.multInto(this.quaternion orientation)
+            def shapeAabb:CannonAABB this.tmpShapeAabb
+            shape.calculateWorldAABB(offset orientation shapeAabb.lowerBound shapeAabb.upperBound)
+            if (i == 0) {
+                this.aabb.copy(shapeAabb)
+            } {
+                this.aabb.extend(shapeAabb)
+            }
+            i = (i + 1)
+        }
+        this.aabbNeedsUpdate = false
+    }
+
+    fn updateMassProperties:void () {
+        if (this.mass > 0.0) {
+            this.invMass = (1.0 / this.mass)
+        } {
+            this.invMass = 0.0
+        }
+        this.computeAABB()
+        def half:CannonVec3 (new CannonVec3)
+        def boxHelper:CannonBox (new CannonBox)
+        half.x = (this.aabb.upperBound.x - this.aabb.lowerBound.x) * 0.5
+        half.y = (this.aabb.upperBound.y - this.aabb.lowerBound.y) * 0.5
+        half.z = (this.aabb.upperBound.z - this.aabb.lowerBound.z) * 0.5
+        boxHelper.calculateInertiaFromHalfExtents(half this.mass this.inertia)
+        if (this.inertia.x > 0.0) {
+            this.invInertia.x = (1.0 / this.inertia.x)
+        } {
+            this.invInertia.x = 0.0
+        }
+        if (this.inertia.y > 0.0) {
+            this.invInertia.y = (1.0 / this.inertia.y)
+        } {
+            this.invInertia.y = 0.0
+        }
+        if (this.inertia.z > 0.0) {
+            this.invInertia.z = (1.0 / this.inertia.z)
+        } {
+            this.invInertia.z = 0.0
+        }
+    }
+
+    fn updateInertiaWorld:void () {
+    }
+
+    fn pointToLocalFrame:void (worldPoint:CannonVec3 result:CannonVec3) {
+        worldPoint.vsub(this.position result)
+        def conj:CannonQuaternion (new CannonQuaternion)
+        this.quaternion.conjugateInto(conj)
+        conj.vmult(result result)
+    }
+
+    fn pointToWorldFrame:void (localPoint:CannonVec3 result:CannonVec3) {
+        this.quaternion.vmult(localPoint result)
+        result.vadd(this.position result)
+    }
+
+    fn vectorToWorldFrame:void (localVector:CannonVec3 result:CannonVec3) {
+        this.quaternion.vmult(localVector result)
+    }
+
+    fn applyForce:void (force:CannonVec3 relativePoint:CannonVec3) {
+        if (this.type != 1) {
+            return
+        }
+        relativePoint.crossInto(force this.tmpRotForce)
+        this.force.vadd(force this.force)
+        this.torque.vadd(this.tmpRotForce this.torque)
+    }
+
+    fn applyLocalForce:void (localForce:CannonVec3 localPoint:CannonVec3) {
+        def worldForce:CannonVec3 (new CannonVec3)
+        def worldPoint:CannonVec3 (new CannonVec3)
+        this.vectorToWorldFrame(localForce worldForce)
+        this.vectorToWorldFrame(localPoint worldPoint)
+        this.applyForce(worldForce worldPoint)
+    }
+
+    fn applyImpulse:void (impulse:CannonVec3 relativePoint:CannonVec3) {
+        if (this.type != 1) {
+            return
+        }
+        def velo:CannonVec3 this.tmpVelo
+        impulse.scaleInto(this.invMass velo)
+        this.velocity.vadd(velo this.velocity)
+    }
+
+    fn applyLocalImpulse:void (localImpulse:CannonVec3 localPoint:CannonVec3) {
+        def worldImpulse:CannonVec3 (new CannonVec3)
+        def worldPoint:CannonVec3 (new CannonVec3)
+        this.vectorToWorldFrame(localImpulse worldImpulse)
+        this.vectorToWorldFrame(localPoint worldPoint)
+        this.applyImpulse(worldImpulse worldPoint)
+    }
+
+    fn getVelocityAtWorldPoint:void (worldPoint:CannonVec3 result:CannonVec3) {
+        def r:CannonVec3 (new CannonVec3)
+        worldPoint.vsub(this.position r)
+        this.angularVelocity.crossInto(r result)
+        result.vadd(this.velocity result)
+    }
+}

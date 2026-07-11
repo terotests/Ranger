@@ -1,0 +1,51 @@
+; ==============================================================================
+; cannon_narrowphase_test — Cannon.js test/Narrowphase.js ported (subset).
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_quaternion.rgr"
+Import "cannon_sphere.rgr"
+Import "cannon_body.rgr"
+Import "cannon_contact_material.rgr"
+Import "cannon_contact_equation.rgr"
+Import "cannon_narrowphase.rgr"
+Import "cannon_test_harness.rgr"
+Import "cannon_test_filter.rgr"
+
+class CannonNarrowphaseTest {
+    def filter:CannonTestFilter (new CannonTestFilter)
+    def narrowphase:CannonNarrowphase (new CannonNarrowphase)
+    def contactMaterial:CannonContactMaterial (new CannonContactMaterial)
+
+    fn runFiltered:void (h:CannonTestHarness filter:string) {
+        if (this.filter.matches(filter "Narrowphase.sphereSphere")) { this.sphereSphere(h) }
+    }
+
+    fn sphereSphere:void (h:CannonTestHarness) {
+        h.beginTest("Narrowphase.sphereSphere")
+        def result:[CannonContactEquation]
+        this.contactMaterial.initDefault()
+        this.narrowphase.currentContactMaterial = this.contactMaterial
+        this.narrowphase.result = result
+        def sphereShape:CannonSphere (new CannonSphere)
+        sphereShape.initSphere(1.0)
+        def bodyA:CannonBody (new CannonBody)
+        bodyA.initDynamic(1.0)
+        bodyA.addShape(sphereShape)
+        def sphereShapeB:CannonSphere (new CannonSphere)
+        sphereShapeB.initSphere(1.0)
+        def bodyB:CannonBody (new CannonBody)
+        bodyB.initDynamic(1.0)
+        bodyB.addShape(sphereShapeB)
+        def xi:CannonVec3 (new CannonVec3)
+        xi.set(0.5 0.0 0.0)
+        def xj:CannonVec3 (new CannonVec3)
+        xj.set((0.0 - 0.5) 0.0 0.0)
+        def qi:CannonQuaternion (new CannonQuaternion)
+        def qj:CannonQuaternion (new CannonQuaternion)
+        this.narrowphase.sphereSphere(1.0 1.0 xi xj bodyA bodyB sphereShape sphereShapeB false)
+        def count:int (array_length result)
+        h.equal((to_double count) 1.0 "one contact")
+        h.finishTest()
+    }
+}

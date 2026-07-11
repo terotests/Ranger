@@ -1,0 +1,127 @@
+; ==============================================================================
+; cannon_quaternion_test — Cannon.js test/Quaternion.js ported to Ranger.
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_quaternion.rgr"
+Import "cannon_test_harness.rgr"
+Import "cannon_test_filter.rgr"
+
+class CannonQuaternionTest {
+    def filter:CannonTestFilter (new CannonTestFilter)
+
+    fn runFiltered:void (h:CannonTestHarness filter:string) {
+        if (this.filter.matches(filter "Quaternion.creation")) { this.creation(h) }
+        if (this.filter.matches(filter "Quaternion.conjugate")) { this.conjugate(h) }
+        if (this.filter.matches(filter "Quaternion.inverse")) { this.inverse(h) }
+        if (this.filter.matches(filter "Quaternion.setFromAxisAngle")) { this.setFromAxisAngle(h) }
+        if (this.filter.matches(filter "Quaternion.setFromVectors")) { this.setFromVectors(h) }
+        if (this.filter.matches(filter "Quaternion.slerp")) { this.slerp(h) }
+    }
+
+    fn creation:void (h:CannonTestHarness) {
+        h.beginTest("Quaternion.creation")
+        def q:CannonQuaternion (new CannonQuaternion)
+        q.set(1.0 2.0 3.0 4.0)
+        h.equal(q.x 1.0 "x")
+        h.equal(q.y 2.0 "y")
+        h.equal(q.z 3.0 "z")
+        h.equal(q.w 4.0 "w")
+        h.finishTest()
+    }
+
+    fn conjugate:void (h:CannonTestHarness) {
+        h.beginTest("Quaternion.conjugate")
+        def q:CannonQuaternion (new CannonQuaternion)
+        q.set(1.0 2.0 3.0 4.0)
+        q.conjugateInto(q)
+        h.equal(q.x (0.0 - 1.0) "x")
+        h.equal(q.y (0.0 - 2.0) "y")
+        h.equal(q.z (0.0 - 3.0) "z")
+        h.equal(q.w 4.0 "w")
+        h.finishTest()
+    }
+
+    fn inverse:void (h:CannonTestHarness) {
+        h.beginTest("Quaternion.inverse")
+        def q:CannonQuaternion (new CannonQuaternion)
+        q.set(1.0 2.0 3.0 4.0)
+        def denom:double (((1.0 * 1.0) + (2.0 * 2.0)) + (3.0 * 3.0)) + (4.0 * 4.0)
+        q.inverseInto(q)
+        h.equal(q.x ((0.0 - 1.0) / denom) "x")
+        h.equal(q.y ((0.0 - 2.0) / denom) "y")
+        h.equal(q.z ((0.0 - 3.0) / denom) "z")
+        h.equal(q.w (4.0 / denom) "w")
+        h.finishTest()
+    }
+
+    fn setFromAxisAngle:void (h:CannonTestHarness) {
+        h.beginTest("Quaternion.setFromAxisAngle")
+        def q:CannonQuaternion (new CannonQuaternion)
+        def axis:CannonVec3 (new CannonVec3)
+        axis.set(0.0 0.0 1.0)
+        def pi:double 3.141592653589793
+        q.setFromAxisAngle(axis (pi / 4.0))
+        def s:double (sin((pi / 4.0) * 0.5))
+        def c:double (cos((pi / 4.0) * 0.5))
+        h.nearEqual(q.z s 0.001 "quat z")
+        h.nearEqual(q.w c 0.001 "quat w")
+        h.finishTest()
+    }
+
+    fn setFromVectors:void (h:CannonTestHarness) {
+        h.beginTest("Quaternion.setFromVectors")
+        def q:CannonQuaternion (new CannonQuaternion)
+        def u:CannonVec3 (new CannonVec3)
+        def v:CannonVec3 (new CannonVec3)
+        def out:CannonVec3 (new CannonVec3)
+        def expected:CannonVec3 (new CannonVec3)
+
+        u.set(1.0 0.0 0.0)
+        v.set((0.0 - 1.0) 0.0 0.0)
+        q.setFromVectors(u v)
+        expected.set((0.0 - 1.0) 0.0 0.0)
+        q.vmult(u out)
+        def flipX:boolean (out.almostEquals(expected 0.001))
+        h.ok(flipX "flip x")
+
+        u.set(0.0 1.0 0.0)
+        v.set(0.0 (0.0 - 1.0) 0.0)
+        q.setFromVectors(u v)
+        expected.set(0.0 (0.0 - 1.0) 0.0)
+        q.vmult(u out)
+        def flipY:boolean (out.almostEquals(expected 0.001))
+        h.ok(flipY "flip y")
+
+        u.set(0.0 0.0 1.0)
+        v.set(0.0 0.0 (0.0 - 1.0))
+        q.setFromVectors(u v)
+        expected.set(0.0 0.0 (0.0 - 1.0))
+        q.vmult(u out)
+        def flipZ:boolean (out.almostEquals(expected 0.001))
+        h.ok(flipZ "flip z")
+        h.finishTest()
+    }
+
+    fn slerp:void (h:CannonTestHarness) {
+        h.beginTest("Quaternion.slerp")
+        def qa:CannonQuaternion (new CannonQuaternion)
+        def qb:CannonQuaternion (new CannonQuaternion)
+        def out:CannonQuaternion (new CannonQuaternion)
+        qa.slerpInto(qb 0.5 qb)
+        def same:boolean (qa.almostEquals(qb 0.0001))
+        h.ok(same "same quat slerp")
+
+        def axis:CannonVec3 (new CannonVec3)
+        axis.set(0.0 0.0 1.0)
+        def pi:double 3.141592653589793
+        qa.setFromAxisAngle(axis (pi / 4.0))
+        qb.setFromAxisAngle(axis (0.0 - (pi / 4.0)))
+        qa.slerpInto(qb 0.5 out)
+        def identity:CannonQuaternion (new CannonQuaternion)
+        identity.set(0.0 0.0 0.0 1.0)
+        def midIdentity:boolean (out.almostEquals(identity 0.05))
+        h.ok(midIdentity "mid slerp to identity")
+        h.finishTest()
+    }
+}

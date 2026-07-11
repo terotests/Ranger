@@ -1,0 +1,26 @@
+; ==============================================================================
+; cannon_contact_material — contact material (Cannon.js port subset).
+; ==============================================================================
+
+Import "cannon_material.rgr"
+
+class CannonContactMaterial {
+    def friction:double 0.3
+    def restitution:double 0.0
+    def contactEquationStiffness:double 10000000.0
+    def contactEquationRelaxation:double 3.0
+    def frictionEquationStiffness:double 10000000.0
+    def frictionEquationRelaxation:double 3.0
+
+    fn initContactMaterial:void () {
+    }
+
+    fn initDefault:void () {
+        this.friction = 0.3
+        this.restitution = 0.0
+        this.contactEquationStiffness = 10000000.0
+        this.contactEquationRelaxation = 3.0
+        this.frictionEquationStiffness = 10000000.0
+        this.frictionEquationRelaxation = 3.0
+    }
+}
