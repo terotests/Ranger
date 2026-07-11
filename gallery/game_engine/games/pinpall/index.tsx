@@ -21,7 +21,9 @@ const GRAVITY = 0.00034;
 const MAX_SPEED = 0.68;
 const WALL_BOUNCE = 0.74;
 const BUMPER_SPEED = 0.27;
-const FLIPPER_POWER = 0.26;
+const FLIPPER_POWER = 0.46;
+const FLIPPER_RESTING_SPEED = 0.11;
+const FLIPPER_MIN_UP_VY = 0.28;
 const START_X = 443;
 const START_Y = 850;
 const LAUNCH_GRACE_MS = 360;
@@ -33,7 +35,7 @@ const PHYSICS_STEPS = 4;
 const MOTION_DAMP = 0.9985;
 const PEG_BOUNCE = 0.006;
 const FLIPPER_REST_ANGLE = Math.PI / 6;
-const FLIPPER_PRESSED_ANGLE = FLIPPER_REST_ANGLE - (40 * Math.PI / 180);
+const FLIPPER_PRESSED_ANGLE = FLIPPER_REST_ANGLE - (48 * Math.PI / 180);
 const FLIPPER_MAIN_REST_LEN = 80;
 const FLIPPER_MAIN_PRESSED_LEN = 124;
 const FLIPPER_UPPER_REST_LEN = 70;
@@ -207,7 +209,7 @@ function drawRail(x1, y1, x2, y2) {
   }
 }
 
-function createStaticBgDisabledForEngineDebug() {
+function createStaticBg() {
   drawGradient();
 
   bgFillRect(4, 0, 8, WORLD_H, 30, 105, 150);
@@ -710,13 +712,25 @@ function ballOnFlipperFace(ball, norm, x1, y1, x2, y2) {
 function applyFlipperImpulse(ball, def, hit, seg) {
   let tipPower = 1.0;
   if (hit.hit) {
-    tipPower = 0.7 + hit.t * 0.55;
+    tipPower = 0.92 + hit.t * 0.45;
   }
+  const preSpeed = length2(ball.vx, ball.vy);
   const angle = flipperAngle(def, true);
   const impulse = FLIPPER_POWER * tipPower;
-  ball.vx = ball.vx + Math.cos(angle) * impulse;
-  ball.vy = ball.vy + Math.sin(angle) * impulse;
-  ball.spin = ball.spin + def.side * tipPower * 0.14;
+  const ix = Math.cos(angle) * impulse;
+  const iy = Math.sin(angle) * impulse;
+
+  if (preSpeed < FLIPPER_RESTING_SPEED) {
+    ball.vx = ix * 1.35;
+    ball.vy = iy * 1.35;
+    if (ball.vy > 0 - FLIPPER_MIN_UP_VY) {
+      ball.vy = 0 - FLIPPER_MIN_UP_VY - tipPower * 0.1;
+    }
+  } else {
+    ball.vx = ball.vx + ix;
+    ball.vy = ball.vy + iy;
+  }
+  ball.spin = ball.spin + def.side * tipPower * 0.16;
 }
 
 function flipperSegmentHit(ball, x1, y1, x2, y2, pressed) {
