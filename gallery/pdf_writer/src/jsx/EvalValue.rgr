@@ -31,9 +31,32 @@ class EvalValue {
     def evgElement@(optional):EVGElement  ; For JSX elements passed as props
     
     ; Constructors
+    ; null / undefined / true / false are immutable (never mutated in place — the
+    ; mutating ops setMember/setIndexAt/push only act on objects/arrays), so they
+    ; are returned as shared singletons instead of allocating a new value every
+    ; time. This removes the single largest source of interpreter allocations.
     sfn null:EvalValue () {
+        def pool:EvalConstPool (EvalConstPool.__singleton())
+        return pool.nullValue
+    }
+
+    ; Allocating variants used to seed the shared constant pool.
+    sfn rawNull:EvalValue () {
         def v:EvalValue (new EvalValue())
         v.valueType = 0
+        return v
+    }
+
+    sfn rawUndefined:EvalValue () {
+        def v:EvalValue (new EvalValue())
+        v.valueType = 8
+        return v
+    }
+
+    sfn rawBoolean:EvalValue (b:boolean) {
+        def v:EvalValue (new EvalValue())
+        v.valueType = 3
+        v.boolValue = b
         return v
     }
     
@@ -59,10 +82,11 @@ class EvalValue {
     }
     
     sfn boolean:EvalValue (b:boolean) {
-        def v:EvalValue (new EvalValue())
-        v.valueType = 3
-        v.boolValue = b
-        return v
+        def pool:EvalConstPool (EvalConstPool.__singleton())
+        if b {
+            return pool.trueValue
+        }
+        return pool.falseValue
     }
     
     sfn array:EvalValue (items:[EvalValue]) {
@@ -101,9 +125,8 @@ class EvalValue {
     }
 
     sfn undefined:EvalValue () {
-        def v:EvalValue (new EvalValue())
-        v.valueType = 8
-        return v
+        def pool:EvalConstPool (EvalConstPool.__singleton())
+        return pool.undefinedValue
     }
     
     ; Type checks
@@ -342,4 +365,14 @@ class EvalValue {
         ; Arrays and objects - reference equality for now
         return false
     }
+}
+
+; Shared immutable constant values (null / undefined / true / false). These are
+; never mutated in place, so a single instance of each is reused for the whole
+; program instead of allocating on every EvalValue.null()/boolean()/undefined().
+class EvalConstPool @singleton(true) {
+    def nullValue:EvalValue (EvalValue.rawNull())
+    def undefinedValue:EvalValue (EvalValue.rawUndefined())
+    def trueValue:EvalValue (EvalValue.rawBoolean(true))
+    def falseValue:EvalValue (EvalValue.rawBoolean(false))
 }

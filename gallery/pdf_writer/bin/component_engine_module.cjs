@@ -6582,8 +6582,23 @@ class EvalValue  {
   };
 }
 EvalValue.null = function() {
+  const pool = EvalConstPool.__singleton();
+  return pool.nullValue;
+};
+EvalValue.rawNull = function() {
   const v = new EvalValue();
   v.valueType = 0;
+  return v;
+};
+EvalValue.rawUndefined = function() {
+  const v = new EvalValue();
+  v.valueType = 8;
+  return v;
+};
+EvalValue.rawBoolean = function(b) {
+  const v = new EvalValue();
+  v.valueType = 3;
+  v.boolValue = b;
   return v;
 };
 EvalValue.number = function(n) {
@@ -6605,10 +6620,11 @@ EvalValue.string = function(s) {
   return v;
 };
 EvalValue.boolean = function(b) {
-  const v = new EvalValue();
-  v.valueType = 3;
-  v.boolValue = b;
-  return v;
+  const pool = EvalConstPool.__singleton();
+  if ( b ) {
+    return pool.trueValue;
+  }
+  return pool.falseValue;
 };
 EvalValue.array = function(items) {
   const v = new EvalValue();
@@ -6642,9 +6658,27 @@ EvalValue.element = function(el) {
   return v;
 };
 EvalValue.undefined = function() {
-  const v = new EvalValue();
-  v.valueType = 8;
-  return v;
+  const pool = EvalConstPool.__singleton();
+  return pool.undefinedValue;
+};
+class EvalConstPool  {
+  constructor() {
+    if (EvalConstPool.__singleton_instance != null) {
+      return EvalConstPool.__singleton_instance;
+    }
+    this.nullValue = EvalValue.rawNull();
+    this.undefinedValue = EvalValue.rawUndefined();
+    this.trueValue = EvalValue.rawBoolean(true);
+    this.falseValue = EvalValue.rawBoolean(false);
+    EvalConstPool.__singleton_instance = this;
+  }
+}
+EvalConstPool.__singleton_instance = null;
+EvalConstPool.__singleton = function() {
+  if (EvalConstPool.__singleton_instance == null) {
+    EvalConstPool.__singleton_instance = new EvalConstPool();
+  }
+  return EvalConstPool.__singleton_instance;
 };
 class BufferChunk  {
   constructor(size) {
@@ -11281,6 +11315,7 @@ module.exports.EVGGradientStop = EVGGradientStop;
 module.exports.EVGGradient = EVGGradient;
 module.exports.EVGElement = EVGElement;
 module.exports.EvalValue = EvalValue;
+module.exports.EvalConstPool = EvalConstPool;
 module.exports.BufferChunk = BufferChunk;
 module.exports.GrowableBuffer = GrowableBuffer;
 module.exports.ExifTag = ExifTag;

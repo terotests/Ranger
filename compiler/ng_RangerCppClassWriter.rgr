@@ -934,6 +934,15 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
       this.writeArgsDef(variant ctx wr)
       wr.out(");" true)
     }
+    if (cl.isSingletonClass()) {
+      wr.out((("static std::shared_ptr<" + cl.name) + "> __singleton_instance;") true)
+      wr.out((("static std::shared_ptr<" + cl.name) + "> __singleton(") false)
+      if cl.has_constructor {
+        def constr:RangerAppFunctionDesc cl.constructor_fn
+        this.writeArgsDef((unwrap constr) ctx wr)
+      }
+      wr.out(");" true)
+    }
     for cl.defined_variants fnVar:string i {
       if (i == 0) {
         wr.out("/* instance methods */ " true)
@@ -1115,6 +1124,35 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
     }
     wr.indent(-1)
     wr.out("}" true)
+    if (cl.isSingletonClass()) {
+      ; Lazily-initialized process-wide singleton instance (matches JS/Swift).
+      wr.out((((("std::shared_ptr<" + cl.name) + "> ") + cl.name) + "::__singleton_instance = nullptr;") true)
+      wr.out((((("std::shared_ptr<" + cl.name) + "> ") + cl.name) + "::__singleton(") false)
+      if cl.has_constructor {
+        def constr:RangerAppFunctionDesc cl.constructor_fn
+        this.writeArgsDef((unwrap constr) ctx wr)
+      }
+      wr.out(") {" true)
+      wr.indent(1)
+      wr.out(("if (" + cl.name + "::__singleton_instance == nullptr) {") true)
+      wr.indent(1)
+      wr.out((((cl.name + "::__singleton_instance = std::make_shared<") + cl.name) + ">(") false)
+      if cl.has_constructor {
+        def constr:RangerAppFunctionDesc cl.constructor_fn
+        for constr.params arg:RangerAppParamDesc i {
+          if (i > 0) {
+            wr.out(", " false)
+          }
+          wr.out(arg.compiledName false)
+        }
+      }
+      wr.out(");" true)
+      wr.indent(-1)
+      wr.out("}" true)
+      wr.out(("return " + cl.name + "::__singleton_instance;") true)
+      wr.indent(-1)
+      wr.out("}" true)
+    }
     for cl.static_methods variant:RangerAppFunctionDesc i {
 
       if (variant.nameNode.hasFlag("main")) {

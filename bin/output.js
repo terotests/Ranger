@@ -19480,6 +19480,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         await this.writeArgsDef(variant, ctx, wr);
         wr.out(");", true);
       };
+      if ( cl.isSingletonClass() ) {
+        wr.out(("static std::shared_ptr<" + cl.name) + "> __singleton_instance;", true);
+        wr.out(("static std::shared_ptr<" + cl.name) + "> __singleton(", false);
+        if ( cl.has_constructor ) {
+          const constr_1 = cl.constructor_fn;
+          await this.writeArgsDef(constr_1, ctx, wr);
+        }
+        wr.out(");", true);
+      }
       for ( let i_4 = 0; i_4 < cl.defined_variants.length; i_4++) {
         var fnVar = cl.defined_variants[i_4];
         if ( i_4 == 0 ) {
@@ -19622,8 +19631,37 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }
       wr.indent(-1);
       wr.out("}", true);
-      for ( let i_4 = 0; i_4 < cl.static_methods.length; i_4++) {
-        var variant = cl.static_methods[i_4];
+      if ( cl.isSingletonClass() ) {
+        wr.out(((("std::shared_ptr<" + cl.name) + "> ") + cl.name) + "::__singleton_instance = nullptr;", true);
+        wr.out(((("std::shared_ptr<" + cl.name) + "> ") + cl.name) + "::__singleton(", false);
+        if ( cl.has_constructor ) {
+          const constr_3 = cl.constructor_fn;
+          await this.writeArgsDef(constr_3, ctx, wr);
+        }
+        wr.out(") {", true);
+        wr.indent(1);
+        wr.out(("if (" + cl.name) + "::__singleton_instance == nullptr) {", true);
+        wr.indent(1);
+        wr.out(((cl.name + "::__singleton_instance = std::make_shared<") + cl.name) + ">(", false);
+        if ( cl.has_constructor ) {
+          const constr_4 = cl.constructor_fn;
+          for ( let i_4 = 0; i_4 < constr_4.params.length; i_4++) {
+            var arg_1 = constr_4.params[i_4];
+            if ( i_4 > 0 ) {
+              wr.out(", ", false);
+            }
+            wr.out(arg_1.compiledName, false);
+          };
+        }
+        wr.out(");", true);
+        wr.indent(-1);
+        wr.out("}", true);
+        wr.out(("return " + cl.name) + "::__singleton_instance;", true);
+        wr.indent(-1);
+        wr.out("}", true);
+      }
+      for ( let i_5 = 0; i_5 < cl.static_methods.length; i_5++) {
+        var variant = cl.static_methods[i_5];
         if ( variant.nameNode.hasFlag("main") ) {
           continue;
         }
@@ -19642,11 +19680,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         wr.indent(-1);
         wr.out("}", true);
       };
-      for ( let i_5 = 0; i_5 < cl.defined_variants.length; i_5++) {
-        var fnVar = cl.defined_variants[i_5];
+      for ( let i_6 = 0; i_6 < cl.defined_variants.length; i_6++) {
+        var fnVar = cl.defined_variants[i_6];
         const mVs = ( cl.method_variants.hasOwnProperty(fnVar) ? cl.method_variants[fnVar] : undefined );
-        for ( let i_6 = 0; i_6 < mVs.variants.length; i_6++) {
-          var variant_1 = mVs.variants[i_6];
+        for ( let i_7 = 0; i_7 < mVs.variants.length; i_7++) {
+          var variant_1 = mVs.variants[i_7];
           await this.writeTypeDef(variant_1.nameNode, ctx, wr);
           wr.out(" ", false);
           wr.out((" " + cl.name) + "::", false);
@@ -19663,8 +19701,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           wr.out("}", true);
         };
       };
-      for ( let i_7 = 0; i_7 < cl.static_methods.length; i_7++) {
-        var variant_2 = cl.static_methods[i_7];
+      for ( let i_8 = 0; i_8 < cl.static_methods.length; i_8++) {
+        var variant_2 = cl.static_methods[i_8];
         if ( variant_2.nameNode.hasFlag("main") && (variant_2.nameNode.code.filename == ctx.getRootFile()) ) {
           ctx.setCompilerSetting("mainclass", cl.name);
           wr.out("int main(int argc, char* argv[]) {", true);
