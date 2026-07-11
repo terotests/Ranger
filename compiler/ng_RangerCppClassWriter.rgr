@@ -786,6 +786,17 @@ class RangerCppClassWriter {
       if constRef {
         wr.out("&" false)
       }
+      ; Ranger buffer semantics are pass-by-reference (mutate in place). C++ must not
+      ; copy std::vector<uint8_t> on call — that silently drops blit writes (game_sdl).
+      if (constRef == false) {
+        if (!null? arg.nameNode) {
+          def bufTypeNode:CodeNode (unwrap arg.nameNode)
+          def bufTn:string bufTypeNode.type_name
+          if ((bufTn == "buffer") || (bufTn == "int_buffer") || (bufTn == "double_buffer")) {
+            wr.out("&" false)
+          }
+        }
+      }
       ; Add reference for container params that are mutated. Object types use shared_ptr
       ; and should be passed by value — mutation goes through operator->.
       if arg.needs_cpp_reference {
@@ -798,6 +809,11 @@ class RangerCppClassWriter {
           }
           if ((strlen typeNode.type_name) > 0) {
             if (ctx.isDefinedClass(typeNode.type_name)) {
+              emitRef = false
+            }
+            ; Buffer params already got & above — avoid double reference.
+            def tn:string typeNode.type_name
+            if ((tn == "buffer") || (tn == "int_buffer") || (tn == "double_buffer")) {
               emitRef = false
             }
           }

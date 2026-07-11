@@ -18,6 +18,7 @@ Import "./game_runtime.rgr"
 Import "./game_input.rgr"
 Import "../framebuffer.rgr"
 Import "./game_host_native.rgr"
+Import "./game_audio_sdl.rgr"
 
 class SplitScreenHost {
     def left:GameRunner (new GameRunner)
@@ -68,6 +69,13 @@ class SplitScreenHost {
     fn setAudioSink:void (sink:GameAudioSink) {
         left.audio.setSink(sink)
         right.audio.setSink(sink)
+    }
+
+    fn setSdlHost:void () {
+        left.host = (new SdlGameHost)
+        right.host = (new SdlGameHost)
+        left.wireHostAudio()
+        right.wireHostAudio()
     }
 
     fn setFpsShown:void (fps:int) {

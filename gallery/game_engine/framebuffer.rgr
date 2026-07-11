@@ -295,6 +295,7 @@ class SoftCanvas {
         view.height = h
         view.pixels = px
         blitter.blitRect(view src ssx ssy ssw ssh ddx ddy)
+        px = view.pixels
     }
 
     ; Nearest-neighbour scale-blit of a source sub-rectangle (sw×sh → dw×dh).
@@ -311,6 +312,7 @@ class SoftCanvas {
         if (dh <= 0) {
             return
         }
+        def srcW:int src.width
         def y 0
         while (y < dh) {
             def dstY:int (dy + y)
@@ -334,21 +336,23 @@ class SoftCanvas {
                                 x = (x + 1)
                             } {
                                 def sxOff:int (sx + (to_int ((to_double (x * sw)) / (to_double dw))))
-                                if (sxOff >= src.width) {
-                                    sxOff = (src.width - 1)
+                                if (sxOff >= srcW) {
+                                    sxOff = (srcW - 1)
                                 }
-                                def srcBuf:buffer (src.getRawBuffer())
-                                def sOff:int (((syOff * src.width) + sxOff) * 4)
-                                def srcA:int (buffer_get srcBuf (sOff + 3))
+                                def sOff:int (((syOff * srcW) + sxOff) * 4)
+                                def srcA:int (buffer_get src.pixels (sOff + 3))
                                 if (srcA > 0) {
                                     def dOff:int (((dstY * w) + dstX) * 4)
                                     if (srcA >= 255) {
-                                        blitter.copyOpaquePixel(px dOff srcBuf sOff)
+                                        buffer_set px dOff (buffer_get src.pixels sOff)
+                                        buffer_set px (dOff + 1) (buffer_get src.pixels (sOff + 1))
+                                        buffer_set px (dOff + 2) (buffer_get src.pixels (sOff + 2))
+                                        buffer_set px (dOff + 3) 255
                                     } {
                                         blitter.blendOverBytes(px dOff
-                                            (buffer_get srcBuf sOff)
-                                            (buffer_get srcBuf (sOff + 1))
-                                            (buffer_get srcBuf (sOff + 2))
+                                            (buffer_get src.pixels sOff)
+                                            (buffer_get src.pixels (sOff + 1))
+                                            (buffer_get src.pixels (sOff + 2))
                                             srcA)
                                     }
                                 }

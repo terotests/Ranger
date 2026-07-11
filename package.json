@@ -117,6 +117,7 @@
     "engine:lpc:build": "bash gallery/game_engine/scripts/build-lpc.sh",
     "engine:lpc:run": "bash gallery/game_engine/scripts/build-lpc.sh --run",
     "engine:lpc:batch": "bash gallery/game_engine/scripts/build-lpc-batch.sh",
+    "engine:ylos2:assets": "bash gallery/game_engine/games/ylos2/build-assets.sh",
     "engine:game-sdl-native": "bash gallery/game_engine/scripts/build-game-sdl-native.sh invaders",
     "engine:game-sdl-native:run:invaders": "bash gallery/game_engine/scripts/build-game-sdl-native.sh --run invaders",
     "engine:game-sdl-native:run:pong": "bash gallery/game_engine/scripts/build-game-sdl-native.sh --run pong",

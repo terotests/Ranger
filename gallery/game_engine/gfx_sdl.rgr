@@ -270,6 +270,22 @@ static void rgfx_input_recompute() {
     }
 }
 
+static void rgfx_pad_rumble(int padIdx, Uint16 low, Uint16 high, Uint32 durationMs) {
+    if (padIdx < 0) {
+        for (int i = 0; i < g_pad_count && i < RGFX_MAX_PADS; ++i) {
+            if (g_pad_gc[i] && g_pads[i] != nullptr) {
+                SDL_GameControllerRumble(g_pads[i], low, high, durationMs);
+            }
+        }
+        return;
+    }
+    if (padIdx >= 0 && padIdx < g_pad_count && padIdx < RGFX_MAX_PADS) {
+        if (g_pad_gc[padIdx] && g_pads[padIdx] != nullptr) {
+            SDL_GameControllerRumble(g_pads[padIdx], low, high, durationMs);
+        }
+    }
+}
+
 static void rgfx_input_poll() {
     rgfx_pump_events();
     rgfx_input_recompute();
@@ -980,6 +996,15 @@ static void rgfx_close() {
         templates {
             cpp ( "rgfx_input_pad_count()" (imp "<SDL2/SDL.h>") )
             es6 ( "0" )
+        }
+    }
+
+    ; Rumble connected gamepad(s). pad=-1 all pads; strength 0..65535; duration ms.
+    gfx_rumble_pad _:void (padIdx:int strength:int durationMs:int) {
+        templates {
+            cpp ( "rgfx_pad_rumble(" (e 1) ", (Uint16)" (e 2) ", (Uint16)" (e 2) ", (Uint32)" (e 3) ")"
+                (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
         }
     }
 

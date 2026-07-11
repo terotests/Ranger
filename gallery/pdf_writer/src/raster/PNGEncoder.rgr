@@ -114,8 +114,12 @@ class PNGEncoder {
         this.writeUInt32(crc)
     }
     
-    ; Write IHDR chunk
+    ; Write IHDR chunk (colorType 2 = RGB).
     fn writeIHDR:void (width:int height:int) {
+        this.writeIHDRColor(width height 2)
+    }
+
+    fn writeIHDRColor:void (width:int height:int colorType:int) {
         def data:GrowableBuffer (new GrowableBuffer())
         
         ; Width (4 bytes)
@@ -126,8 +130,7 @@ class PNGEncoder {
         
         ; Bit depth: 8
         data.writeByte(8)
-        ; Color type: 2 = RGB
-        data.writeByte(2)
+        data.writeByte(colorType)
         ; Compression method: 0 = deflate
         data.writeByte(0)
         ; Filter method: 0
@@ -245,8 +248,37 @@ class PNGEncoder {
         
         this.writeChunk("IDAT" zlibData)
     }
-    
-    ; Write IEND chunk
+
+    ; Write IDAT chunk with RGBA scanlines (color type 6).
+    fn writeIDATRgba:void (buf:RasterBuffer) {
+        def rawData:GrowableBuffer (new GrowableBuffer())
+        
+        def y:int 0
+        while (y < buf.height) {
+            rawData.writeByte(0)
+            def x:int 0
+            while (x < buf.width) {
+                def idx:int ((y * buf.width + x) * 4)
+                rawData.writeByte((buffer_get buf.pixels idx))
+                rawData.writeByte((buffer_get buf.pixels (idx + 1)))
+                rawData.writeByte((buffer_get buf.pixels (idx + 2)))
+                rawData.writeByte((buffer_get buf.pixels (idx + 3)))
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        
+        def zlibData:GrowableBuffer (new GrowableBuffer())
+        zlibData.writeByte(120)
+        zlibData.writeByte(1)
+        this.createDeflateData(rawData zlibData)
+        def adler:int (this.adler32(rawData))
+        zlibData.writeByte((bit_and (bit_shr adler 24) 255))
+        zlibData.writeByte((bit_and (bit_shr adler 16) 255))
+        zlibData.writeByte((bit_and (bit_shr adler 8) 255))
+        zlibData.writeByte((bit_and adler 255))
+        this.writeChunk("IDAT" zlibData)
+    }
     fn writeIEND:void () {
         def data:GrowableBuffer (new GrowableBuffer())
         this.writeChunk("IEND" data)
@@ -288,6 +320,24 @@ class PNGEncoder {
         print ("  Encoded size: " + (to_string finalSize) + " bytes")
         
         ; Write to file
+        def outBuf:buffer (output.toBuffer())
+        buffer_write_file dirPath fileName outBuf
+        print ("  Saved: " + dirPath + "/" + fileName)
+    }
+
+    ; Encode RGBA PNG (preserves alpha — use for LPC compose sheets).
+    fn encodeRgba:void (buf:RasterBuffer dirPath:string fileName:string) {
+        print ("Encoding RGBA PNG: " + fileName)
+        print ("  Image size: " + (to_string buf.width) + "x" + (to_string buf.height))
+        
+        output = (new GrowableBuffer())
+        this.writeSignature()
+        this.writeIHDRColor(buf.width buf.height 6)
+        this.writeIDATRgba(buf)
+        this.writeIEND()
+        
+        def finalSize:int (output.size())
+        print ("  Encoded size: " + (to_string finalSize) + " bytes")
         def outBuf:buffer (output.toBuffer())
         buffer_write_file dirPath fileName outBuf
         print ("  Saved: " + dirPath + "/" + fileName)

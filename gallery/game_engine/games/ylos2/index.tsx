@@ -3,26 +3,46 @@
 // Ylos 2 — vertical platformer with LPC spritesheets, diamonds (super power),
 // and per-player finish celebrations. Original Ylos stays in games/ylos/.
 //
-// Split pane: WASD/arrows + Space + B  |  Dual: P1 WASD, P2 arrows + Start to join
+// Split pane: left=P1 girl, right=P2 boy (paneIndex); WASD / arrows + Space + B
+// Dual (480px): P1 WASD, P2 arrows + Start to join
 
-import { soundEvent, particleEvent } from "../../scripting/game_helpers";
+import { soundEvent, particleEvent, rumbleEvent } from "../../scripting/game_helpers";
 
 const BASE_W = 480;
 const WORLD_H = 1890;
 const VIEW_H = 270;
-const MAX_ENEMIES = 8;
-const MAX_FRUITS = 6;
+const MAX_ENEMIES = 12;
+const MAX_FRUITS = 7;
 const MAX_DIAMONDS = 4;
 const MAX_BULLETS = 4;
+const MAX_MOVING_PLATFORMS = 8;
+const MOVING_PLAT_SPEED = 0.06;
+const JUMP_MIN_V = 0.28;
+const JUMP_MAX_V = 0.38;
+const JUMP_SUPER_MAX_V = 0.52;
+const JUMP_HOLD_LIFT = 0.00062;
+const JUMP_CUT = 0.42;
+const JUMP_HOLD_MAX_MS = 400;
+const JUMP_HOLD_MAX_SUPER_MS = 700;
+const BULLET_SPEED = 0.42;
+const SUPER_MS = 5000;
+const CELEBRATE_INTERVAL = 520;
+const FINISH_PARTICLE_MS = 2000;
+const FINISH_CELEBRATE_MS = 3000;
+const FINISH_WALK_MS = 4500;
+const FINISH_PHASE_DONE = FINISH_CELEBRATE_MS + FINISH_WALK_MS;
 
 const GRAV = 0.00045;
 const MOVE = 0.22;
-const JUMP_V = 0.38;
-const BULLET_SPEED = 0.42;
-const SUPER_MS = 5000;
-const CELEBRATE_INTERVAL = 700;
-
-const PLAYER_SHEET = "../../lpc/output/compose.png";
+const P1_SHEET = "assets/p1_walk.png";
+const P2_SHEET = "assets/p2_walk.png";
+const P1_SUPER_SHEET = "assets/p1_super.png";
+const P2_SUPER_SHEET = "assets/p2_super.png";
+const ENEMY_SHEET = "assets/enemy_walk.png";
+const ENEMY_WALK_FRAMES = 9;
+const ENEMY_FEET_TRIM = 36; // skeleton feet sit higher in 64px LPC frame than human bodies
+// P1 = girl (left), P2 = boy (right), enemies = LPC skeleton.
+// Regenerate: npm run engine:ylos2:assets
 
 const BASE_PLATFORMS = [
   { x: 0, y: 1830, w: 480, h: 60 },
@@ -40,18 +60,35 @@ const BASE_PLATFORMS = [
   { x: 140, y: 490, w: 100, h: 14 },
   { x: 320, y: 380, w: 90, h: 14 },
   { x: 60, y: 270, w: 110, h: 14 },
+  { x: 40, y: 220, w: 95, h: 12 },
   { x: 200, y: 160, w: 180, h: 20 }
 ];
 
+// Moving platforms — ping-pong between min/max (world x), landable.
+const BASE_MOVING_PLATFORMS = [
+  { x: 50, y: 980, w: 100, h: 14, min: 35, max: 310, dir: 1 },
+  { x: 220, y: 880, w: 90, h: 14, min: 70, max: 340, dir: -1 },
+  { x: 60, y: 780, w: 110, h: 14, min: 40, max: 300, dir: 1 },
+  { x: 250, y: 680, w: 85, h: 14, min: 90, max: 350, dir: -1 },
+  { x: 45, y: 560, w: 100, h: 14, min: 30, max: 290, dir: 1 },
+  { x: 230, y: 460, w: 95, h: 14, min: 80, max: 330, dir: -1 },
+  { x: 70, y: 350, w: 90, h: 14, min: 50, max: 280, dir: 1 },
+  { x: 210, y: 220, w: 110, h: 14, min: 60, max: 320, dir: -1 }
+];
+
 const BASE_ENEMY_DEFS = [
-  { x: 55, y: 1686, dir: 1, min: 35, max: 115 },
-  { x: 190, y: 1576, dir: -1, min: 175, max: 265 },
-  { x: 320, y: 1466, dir: 1, min: 315, max: 395 },
-  { x: 70, y: 1356, dir: 1, min: 55, max: 155 },
-  { x: 275, y: 1246, dir: -1, min: 265, max: 355 },
-  { x: 135, y: 1136, dir: 1, min: 125, max: 205 },
-  { x: 310, y: 1026, dir: -1, min: 305, max: 395 },
-  { x: 90, y: 696, dir: 1, min: 85, max: 175 }
+  { x: 55, y: 1700, dir: 1, min: 35, max: 115 },
+  { x: 190, y: 1590, dir: -1, min: 175, max: 265 },
+  { x: 320, y: 1480, dir: 1, min: 315, max: 395 },
+  { x: 70, y: 1370, dir: 1, min: 55, max: 155 },
+  { x: 275, y: 1260, dir: -1, min: 265, max: 355 },
+  { x: 135, y: 1150, dir: 1, min: 125, max: 205 },
+  { x: 310, y: 1040, dir: -1, min: 305, max: 395 },
+  { x: 90, y: 710, dir: 1, min: 85, max: 175 },
+  { x: 165, y: 490, dir: 1, min: 155, max: 225 },
+  { x: 355, y: 380, dir: -1, min: 335, max: 400 },
+  { x: 100, y: 270, dir: 1, min: 72, max: 158 },
+  { x: 75, y: 220, dir: 1, min: 48, max: 122 }
 ];
 
 const BASE_FRUIT_DEFS = [
@@ -60,10 +97,12 @@ const BASE_FRUIT_DEFS = [
   { x: 350, y: 1455 },
   { x: 100, y: 1245 },
   { x: 150, y: 1025 },
+  { x: 85, y: 248 },
   { x: 330, y: 365 }
 ];
 
 const BASE_DIAMOND_DEFS = [
+  { x: 430, y: 1740 },
   { x: 130, y: 1240 },
   { x: 300, y: 1015 },
   { x: 170, y: 705 },
@@ -72,39 +111,7 @@ const BASE_DIAMOND_DEFS = [
 
 const P1_START_X = 120;
 const P2_START_X = 360;
-const GOAL_Y = 175;
-
-const SUPER_A = [
-  "..OO..",
-  ".OOOO.",
-  "OOXXOO",
-  ".OOOO.",
-  "..OO..",
-  ".O..O."
-];
-
-const SUPER_B = [
-  "..OO..",
-  ".OOOO.",
-  "OOXXOO",
-  ".OOOO.",
-  "..OO..",
-  "O....O"
-];
-
-const SLUG_A = [
-  ".OOOO.",
-  "OOOOOO",
-  "OOXXOO",
-  "OOOOOO"
-];
-
-const SLUG_B = [
-  "..OO..",
-  ".OOOO.",
-  "OOOOOO",
-  ".OOOO."
-];
+const GOAL_PLATFORM = BASE_PLATFORMS[BASE_PLATFORMS.length - 1];
 
 const DIAMOND_A = [
   "..XX..",
@@ -118,7 +125,14 @@ function worldW() {
   return bgWidth;
 }
 
+function isSplitPane() {
+  return paneIndex >= 0;
+}
+
 function isDualMode() {
+  if (isSplitPane()) {
+    return false;
+  }
   return worldW() > 300;
 }
 
@@ -127,6 +141,48 @@ function playerSlots() {
     return 2;
   }
   return 1;
+}
+
+function localPlayerSlot() {
+  if (isSplitPane()) {
+    if (paneIndex == 1) {
+      return 2;
+    }
+    return 1;
+  }
+  return 1;
+}
+
+function localPlayerEntityId() {
+  if (localPlayerSlot() == 2) {
+    return "p2";
+  }
+  return "p1";
+}
+
+function localSuperEntityId() {
+  if (localPlayerSlot() == 2) {
+    return "p2s";
+  }
+  return "p1s";
+}
+
+function localStartX() {
+  if (localPlayerSlot() == 2) {
+    return P2_START_X;
+  }
+  return P1_START_X;
+}
+
+function localStartFace() {
+  if (localPlayerSlot() == 2) {
+    return -1;
+  }
+  return 1;
+}
+
+function hiddenEntity() {
+  return { x: -40, y: -40, visible: 0, p0: 0, p1: 0, p2: 0 };
 }
 
 function scaleX(v) {
@@ -191,8 +247,259 @@ function buildDiamondDefs() {
   return out;
 }
 
+function makeMovingPlatforms() {
+  const out = [];
+  let i = 0;
+  while (i < BASE_MOVING_PLATFORMS.length) {
+    const d = BASE_MOVING_PLATFORMS[i];
+    const x = scaleX(d.x);
+    out.push({
+      x: x,
+      prevX: x,
+      y: d.y,
+      w: scaleX(d.w),
+      h: d.h,
+      minX: scaleX(d.min),
+      maxX: scaleX(d.max),
+      dir: d.dir
+    });
+    i = i + 1;
+  }
+  return out;
+}
+
+function copyMovingPlatforms(s) {
+  const out = [];
+  let i = 0;
+  while (i < MAX_MOVING_PLATFORMS) {
+    if (s.movingPlatforms) {
+      if (s.movingPlatforms[i]) {
+        const mp = s.movingPlatforms[i];
+        out.push({
+          x: mp.x,
+          prevX: mp.prevX != null ? mp.prevX : mp.x,
+          y: mp.y,
+          w: mp.w,
+          h: mp.h,
+          minX: mp.minX,
+          maxX: mp.maxX,
+          dir: mp.dir
+        });
+      } else {
+        out.push(makeMovingPlatforms()[i]);
+      }
+    } else {
+      out.push(makeMovingPlatforms()[i]);
+    }
+    i = i + 1;
+  }
+  return out;
+}
+
+function updateMovingPlatforms(platforms, dt) {
+  let i = 0;
+  while (i < platforms.length) {
+    const mp = platforms[i];
+    const prevX = mp.x;
+    let x = mp.x + mp.dir * MOVING_PLAT_SPEED * dt;
+    let dir = mp.dir;
+    if (x < mp.minX) {
+      x = mp.minX;
+      dir = 1;
+    }
+    if (x + mp.w > mp.maxX) {
+      x = mp.maxX - mp.w;
+      dir = -1;
+    }
+    platforms[i] = {
+      x: x,
+      prevX: prevX,
+      y: mp.y,
+      w: mp.w,
+      h: mp.h,
+      minX: mp.minX,
+      maxX: mp.maxX,
+      dir: dir
+    };
+    i = i + 1;
+  }
+  return platforms;
+}
+
+function staticPlatformCount(platforms) {
+  let n = 0;
+  let i = 0;
+  while (i < platforms.length) {
+    if (platforms[i].vx == 0) {
+      n = n + 1;
+    }
+    i = i + 1;
+  }
+  return n;
+}
+
+function playerBodyTop(py) {
+  return py - 34;
+}
+
+function playerOverlapsPlatform(px, py, pw, p) {
+  if (px + pw <= p.x) {
+    return false;
+  }
+  if (px - pw >= p.x + p.w) {
+    return false;
+  }
+  if (py <= p.y) {
+    return false;
+  }
+  if (playerBodyTop(py) >= p.y + p.h) {
+    return false;
+  }
+  return true;
+}
+
+function isStandingOnPlatform(px, py, pw, p) {
+  if (px + pw <= p.x) {
+    return false;
+  }
+  if (px - pw >= p.x + p.w) {
+    return false;
+  }
+  if (py < p.y - 2) {
+    return false;
+  }
+  if (py > p.y + 6) {
+    return false;
+  }
+  return true;
+}
+
+function applyMovingPlatformSidePush(px, py, pw, grounded, platforms, staticCount) {
+  let x = px;
+  let g = grounded;
+  let i = staticCount;
+  while (i < platforms.length) {
+    const p = platforms[i];
+    const dx = p.x - p.prevX;
+    if (dx != 0) {
+      if (playerOverlapsPlatform(x, py, pw, p)) {
+        if (isStandingOnPlatform(x, py, pw, p) == false) {
+          x = x + dx;
+          g = 0;
+        }
+      }
+    }
+    i = i + 1;
+  }
+  return { x: x, grounded: g };
+}
+
+function mergePlatforms(staticPlats, movingPlats) {
+  const out = [];
+  let i = 0;
+  while (i < staticPlats.length) {
+    const p = staticPlats[i];
+    out.push({ x: p.x, y: p.y, w: p.w, h: p.h, vx: 0, prevX: p.x });
+    i = i + 1;
+  }
+  i = 0;
+  while (i < movingPlats.length) {
+    const mp = movingPlats[i];
+    out.push({
+      x: mp.x,
+      prevX: mp.prevX,
+      y: mp.y,
+      w: mp.w,
+      h: mp.h,
+      vx: mp.dir * MOVING_PLAT_SPEED
+    });
+    i = i + 1;
+  }
+  return out;
+}
+
+function stillOnMovingPlatform(px, py, pw, platforms, staticCount) {
+  let i = staticCount;
+  while (i < platforms.length) {
+    if (isStandingOnPlatform(px, py, pw, platforms[i])) {
+      return 1;
+    }
+    i = i + 1;
+  }
+  return 0;
+}
+
+function jumpHoldMaxMs(pl) {
+  if (pl.superMs > 0) {
+    return JUMP_HOLD_MAX_SUPER_MS;
+  }
+  return JUMP_HOLD_MAX_MS;
+}
+
+function jumpMaxV(pl) {
+  if (pl.superMs > 0) {
+    return JUMP_SUPER_MAX_V;
+  }
+  return JUMP_MAX_V;
+}
+
 function floorY() {
-  return BASE_PLATFORMS[0].y - 12;
+  return BASE_PLATFORMS[0].y;
+}
+
+function goalPlatform() {
+  return scalePlatform(GOAL_PLATFORM);
+}
+
+function goalFeetY() {
+  return goalPlatform().y;
+}
+
+function goalTriggerY() {
+  return goalPlatform().y + 22;
+}
+
+function celebrateXFor(slot) {
+  const gp = goalPlatform();
+  if (slot == 2) {
+    return gp.x + gp.w * 0.62;
+  }
+  return gp.x + gp.w * 0.38;
+}
+
+function celebrateYOffset(animTick) {
+  const t = animTick / 200;
+  return Math.sin(t) * 12 + Math.sin(t * 2.7) * 5;
+}
+
+function spawnFinishParticles(events, x, y) {
+  events.push(particleEvent("celebrate", x, y - 32, 40));
+  events.push(particleEvent("celebrate", x - 22, y - 16, 20));
+  events.push(particleEvent("celebrate", x + 22, y - 16, 20));
+  events.push(particleEvent("sparkle", x, y - 40, 18));
+  events.push(particleEvent("burst", x - 24, y - 20, 12));
+  events.push(particleEvent("burst", x + 24, y - 20, 12));
+}
+
+function spawnCelebratePulse(events, pl, burst) {
+  const phase = burst % 4;
+  const hop = pl.finishMs < FINISH_CELEBRATE_MS ? celebrateYOffset(pl.animTick) : 0;
+  const px = pl.x;
+  const py = pl.y - hop;
+  if (phase == 0) {
+    events.push(particleEvent("celebrate", px, py - 30, 22));
+    events.push(particleEvent("sparkle", px - 14, py - 18, 10));
+    events.push(particleEvent("sparkle", px + 14, py - 18, 10));
+  } else if (phase == 1) {
+    events.push(particleEvent("burst", px - 18, py - 22, 14));
+    events.push(particleEvent("burst", px + 18, py - 22, 14));
+  } else if (phase == 2) {
+    events.push(particleEvent("celebrate", px - 10, py - 26, 14));
+    events.push(particleEvent("celebrate", px + 10, py - 26, 14));
+  } else {
+    events.push(particleEvent("sparkle", px, py - 34, 16));
+    events.push(particleEvent("celebrate", px, py - 8, 12));
+  }
 }
 
 function makePlayerOnFloor(x, face) {
@@ -206,9 +513,13 @@ function makePlayerOnFloor(x, face) {
     anim: 0,
     animTick: 0,
     jumpHold: 0,
+    airJump: 0,
+    jumpBoostMs: 0,
     superMs: 0,
     done: 0,
-    celebrateMs: 0
+    finishMs: 0,
+    finishPulseMs: 0,
+    celebrateBursts: 0
   };
 }
 
@@ -232,6 +543,22 @@ function drawCloud(cx, cy) {
   bgFillCircle(cx, cy, 14, 240, 245, 255);
   bgFillCircle(cx - 16, cy + 4, 10, 235, 240, 250);
   bgFillCircle(cx + 16, cy + 4, 10, 235, 240, 250);
+}
+
+function movingPlatformSprite(id, w, h) {
+  let rw = w | 0;
+  if (rw < 12) {
+    rw = 12;
+  }
+  return {
+    id: id,
+    kind: "rect",
+    w: rw,
+    h: h,
+    r: 90,
+    g: 185,
+    b: 72
+  };
 }
 
 function createStaticBg() {
@@ -258,47 +585,64 @@ function createStaticBg() {
   bgFillRect(flagX, 96, 30, 8, 255, 210, 60);
 }
 
-function playerSheetSprite(id) {
+function playerSheetSprite(id, path) {
   return {
     id: id,
     kind: "sheet",
-    path: PLAYER_SHEET,
+    path: path,
     frameW: 64,
     frameH: 64,
     cols: 9,
     rows: 4,
-    scale: 44,
+    scale: 72,
+    feetTrim: 10,
     jumpFrame: 3
   };
 }
 
-function superSprite(id, br, bg, bb) {
+function superSheetSprite(id, path) {
   return {
     id: id,
-    kind: "bitmap",
-    px: 3,
-    br: br,
-    bg: bg,
-    bb: bb,
-    er: 255,
-    eg: 240,
-    eb: 80,
-    frames: [SUPER_A, SUPER_B]
+    kind: "sheet",
+    path: path,
+    frameW: 64,
+    frameH: 64,
+    cols: 9,
+    rows: 4,
+    scale: 72,
+    feetTrim: 10,
+    jumpFrame: 3
   };
+}
+
+function rumbleForOwner(owner, ms, strength) {
+  let pad = 0;
+  if (owner == 2) {
+    pad = 1;
+  }
+  let v = 24000;
+  if (strength != null) {
+    v = strength;
+  }
+  let dur = 120;
+  if (ms != null) {
+    dur = ms;
+  }
+  return rumbleEvent(pad, v, v, dur);
 }
 
 function enemySprite(id) {
   return {
     id: id,
-    kind: "bitmap",
-    px: 3,
-    br: 90,
-    bg: 200,
-    bb: 70,
-    er: 40,
-    eg: 30,
-    eb: 20,
-    frames: [SLUG_A, SLUG_B]
+    kind: "sheet",
+    path: ENEMY_SHEET,
+    frameW: 64,
+    frameH: 64,
+    cols: 9,
+    rows: 4,
+    scale: 60,
+    feetTrim: ENEMY_FEET_TRIM,
+    jumpFrame: 0
   };
 }
 
@@ -319,10 +663,6 @@ function diamondSprite(id) {
 
 function sprites() {
   const list = [];
-  list.push(playerSheetSprite("p1"));
-  list.push(playerSheetSprite("p2"));
-  list.push(superSprite("p1s", 255, 210, 60));
-  list.push(superSprite("p2s", 255, 170, 90));
   let e = 0;
   while (e < MAX_ENEMIES) {
     list.push(enemySprite("e" + e));
@@ -343,6 +683,17 @@ function sprites() {
     list.push({ id: "b" + b, kind: "rect", w: 6, h: 4, r: 255, g: 240, b: 120 });
     b = b + 1;
   }
+  let mpi = 0;
+  while (mpi < MAX_MOVING_PLATFORMS) {
+    const def = BASE_MOVING_PLATFORMS[mpi];
+    list.push(movingPlatformSprite("mp" + mpi, scaleX(def.w), def.h));
+    mpi = mpi + 1;
+  }
+  // Draw players last so they appear above enemies / pickups.
+  list.push(playerSheetSprite("p1", P1_SHEET));
+  list.push(playerSheetSprite("p2", P2_SHEET));
+  list.push(superSheetSprite("p1s", P1_SUPER_SHEET));
+  list.push(superSheetSprite("p2s", P2_SUPER_SHEET));
   return list;
 }
 
@@ -359,7 +710,9 @@ function makeEnemies() {
       min: d.min,
       max: d.max,
       alive: 1,
-      tick: 0
+      tick: 0,
+      anim: 0,
+      row: d.dir > 0 ? 3 : 1
     });
     i = i + 1;
   }
@@ -399,12 +752,13 @@ function makeBullets() {
 function initState() {
   const slots = playerSlots();
   const cameraY = WORLD_H - VIEW_H;
-  const p1 = makePlayerOnFloor(P1_START_X, 1);
+  const p1 = makePlayerOnFloor(localStartX(), localStartFace());
   const p2 = makePlayerOnFloor(P2_START_X, -1);
   const enemies = makeEnemies();
   const fruits = makeFruits();
   const diamonds = makeDiamonds();
   const bullets = makeBullets();
+  const movingPlatforms = makeMovingPlatforms();
   const entities = placeEntities(
     {
       p1: p1,
@@ -412,7 +766,8 @@ function initState() {
       enemies: enemies,
       fruits: fruits,
       diamonds: diamonds,
-      bullets: bullets
+      bullets: bullets,
+      movingPlatforms: movingPlatforms
     },
     cameraY,
     slots
@@ -428,6 +783,7 @@ function initState() {
     fruits: fruits,
     diamonds: diamonds,
     bullets: bullets,
+    movingPlatforms: movingPlatforms,
     score1: 0,
     score2: 0,
     fireCd1: 0,
@@ -478,23 +834,34 @@ function clampX(x) {
   return x;
 }
 
-function landOnPlatforms(pl, pw, phh, dt, platforms) {
+function landOnPlatforms(pl, pw, dt, platforms, staticCount) {
   let grounded = 0;
   let ny = pl.y;
   let nvy = pl.vy;
+  let carryVx = 0;
   if (pl.vy >= 0) {
     let i = 0;
     while (i < platforms.length) {
       const p = platforms[i];
+      const moving = i >= staticCount;
       if (pl.x + pw > p.x) {
         if (pl.x - pw < p.x + p.w) {
-          const feet = pl.y + phh;
+          const feet = pl.y;
           const prevFeet = feet - pl.vy * dt;
           if (feet >= p.y) {
             if (prevFeet <= p.y + 4) {
-              ny = p.y - phh;
-              nvy = 0;
-              grounded = 1;
+              if (moving) {
+                if (isStandingOnPlatform(pl.x, pl.y, pw, p) == false) {
+                  i = i + 1;
+                  continue;
+                }
+              }
+              if (grounded == 0 || p.y < ny) {
+                ny = p.y;
+                nvy = 0;
+                grounded = 1;
+                carryVx = p.vx;
+              }
             }
           }
         }
@@ -502,7 +869,7 @@ function landOnPlatforms(pl, pw, phh, dt, platforms) {
       i = i + 1;
     }
   }
-  return { y: ny, vy: nvy, grounded: grounded };
+  return { y: ny, vy: nvy, grounded: grounded, carryVx: carryVx };
 }
 
 function enemyCollisionKind(px, py, pvy, ex, ey) {
@@ -521,7 +888,7 @@ function enemyCollisionKind(px, py, pvy, ex, ey) {
     return "none";
   }
   if (pvy > 0) {
-    if (py < ey + 4) {
+    if (py < ey + 16) {
       return "stomp";
     }
   }
@@ -531,17 +898,21 @@ function enemyCollisionKind(px, py, pvy, ex, ey) {
 function stompBounce(pl, ey) {
   return {
     x: pl.x,
-    y: ey - 14,
+    y: ey - 2,
     vx: pl.vx,
-    vy: 0 - JUMP_V * 0.55,
+    vy: 0 - JUMP_MAX_V * 0.55,
     face: pl.face,
     grounded: 0,
     anim: 1,
     animTick: pl.animTick,
     jumpHold: pl.jumpHold,
+    airJump: 1,
+    jumpBoostMs: 0,
     superMs: pl.superMs,
     done: pl.done,
-    celebrateMs: pl.celebrateMs
+    finishMs: pl.finishMs,
+    finishPulseMs: pl.finishPulseMs,
+    celebrateBursts: pl.celebrateBursts
   };
 }
 
@@ -556,15 +927,18 @@ function applyEnemyHits(pl, owner, enemies, events) {
         out = stompBounce(out, enemies[ei].y);
         events.push(soundEvent("brick"));
         events.push(soundEvent("bounce"));
+        events.push(rumbleForOwner(owner, 90, 18000));
       } else {
         if (kind == "hurt") {
           if (out.superMs > 0) {
             enemies[ei].alive = 0;
             events.push(soundEvent("brick"));
             events.push(particleEvent("sparkle", enemies[ei].x, enemies[ei].y, 10));
+            events.push(rumbleForOwner(owner, 60, 12000));
           } else {
             out = respawnPlayer(owner);
             events.push(soundEvent("lose"));
+            events.push(rumbleForOwner(owner, 280, 40000));
           }
         }
       }
@@ -634,32 +1008,87 @@ function updatePlayer(pl, inp, dt, bullets, owner, fireCd, platforms) {
     vx = MOVE;
     face = 1;
   }
+  let superMs = pl.superMs;
+  if (superMs > 0) {
+    superMs = superMs - dt;
+    if (superMs < 0) {
+      superMs = 0;
+    }
+  }
+  const plSuper = { superMs: superMs };
   let vy = pl.vy + GRAV * dt;
+  let airJump = pl.airJump;
+  let jumpBoostMs = pl.jumpBoostMs;
+  if (pl.grounded == 1) {
+    airJump = 0;
+    jumpBoostMs = 0;
+  }
+
+  const wantJump = inp.up || inp.action;
+  let jumped = 0;
+  if (pl.grounded == 1) {
+    if (wantJump) {
+      if (pl.jumpHold == 0) {
+        vy = 0 - JUMP_MIN_V;
+        airJump = 1;
+        jumpBoostMs = 0;
+        jumped = 1;
+        events.push(soundEvent("bounce"));
+      }
+    }
+  } else if (airJump == 1) {
+    if (vy < 0) {
+      const maxV = jumpMaxV(plSuper);
+      const holdMax = jumpHoldMaxMs(plSuper);
+      if (wantJump) {
+        if (jumpBoostMs < holdMax) {
+          vy = vy - JUMP_HOLD_LIFT * dt;
+          jumpBoostMs = jumpBoostMs + dt;
+          if (vy < 0 - maxV) {
+            vy = 0 - maxV;
+          }
+        }
+      } else if (pl.jumpHold == 1) {
+        if (jumpBoostMs > 0) {
+          vy = vy * JUMP_CUT;
+          jumpBoostMs = 0;
+        }
+      }
+    }
+  }
+
+  const pw = 8;
+  const staticCount = staticPlatformCount(platforms);
   let x = pl.x + vx * dt;
-  let y = pl.y + vy * dt;
+  const side = applyMovingPlatformSidePush(x, pl.y, pw, pl.grounded, platforms, staticCount);
+  x = side.x;
+  const knockedOff = pl.grounded == 1 && side.grounded == 0 ? 1 : 0;
   x = clampX(x);
 
-  const phh = 12;
-  const pw = 8;
   const fallVy = vy;
-  const land = landOnPlatforms({ x: x, y: y, vy: vy }, pw, phh, dt, platforms);
+  let y = pl.y + vy * dt;
+  const land = landOnPlatforms({ x: x, y: y, vy: vy }, pw, dt, platforms, staticCount);
   y = land.y;
   vy = land.vy;
   let grounded = land.grounded;
+  if (knockedOff == 1) {
+    grounded = 0;
+  }
   let anim = grounded ? 0 : 1;
-
-  const wantJump = inp.up || inp.action;
   if (grounded) {
+    airJump = 0;
+    jumpBoostMs = 0;
+    if (land.carryVx != 0) {
+      x = x + land.carryVx * dt;
+      if (stillOnMovingPlatform(x, y, pw, platforms, staticCount) == 0) {
+        grounded = 0;
+        anim = 1;
+      }
+    }
+    x = clampX(x);
     if (pl.grounded == 0) {
       if (fallVy > 0.12) {
         events.push(soundEvent("wall"));
-      }
-    }
-    if (wantJump) {
-      if (pl.jumpHold == 0) {
-        vy = 0 - JUMP_V;
-        grounded = 0;
-        events.push(soundEvent("bounce"));
       }
     }
   }
@@ -669,14 +1098,6 @@ function updatePlayer(pl, inp, dt, bullets, owner, fireCd, platforms) {
   let animTick = pl.animTick + dt;
   if (vx == 0) {
     animTick = pl.animTick;
-  }
-
-  let superMs = pl.superMs;
-  if (superMs > 0) {
-    superMs = superMs - dt;
-    if (superMs < 0) {
-      superMs = 0;
-    }
   }
 
   let cd = fireCd;
@@ -703,9 +1124,13 @@ function updatePlayer(pl, inp, dt, bullets, owner, fireCd, platforms) {
       anim: anim,
       animTick: animTick,
       jumpHold: jumpHold,
+      airJump: airJump,
+      jumpBoostMs: jumpBoostMs,
       superMs: superMs,
       done: pl.done,
-      celebrateMs: pl.celebrateMs
+      finishMs: pl.finishMs,
+      finishPulseMs: pl.finishPulseMs,
+      celebrateBursts: pl.celebrateBursts
     },
     fireCd: cd,
     events: events
@@ -728,10 +1153,10 @@ function updateEnemies(enemies, dt) {
         dir = -1;
       }
       let tick = e.tick + dt;
-      let anim = 0;
-      if (tick > 200) {
-        anim = 1;
-        tick = 0;
+      let anim = Math.floor(tick / 110) % ENEMY_WALK_FRAMES;
+      let row = 3;
+      if (dir < 0) {
+        row = 1;
       }
       enemies[i] = {
         x: x,
@@ -741,7 +1166,8 @@ function updateEnemies(enemies, dt) {
         max: e.max,
         alive: 1,
         tick: tick,
-        anim: anim
+        anim: anim,
+        row: row
       };
     }
     i = i + 1;
@@ -788,6 +1214,7 @@ function updateBullets(bullets, enemies, dt) {
             enemies[e].alive = 0;
             active = 0;
             events.push(soundEvent("brick"));
+            events.push(rumbleForOwner(b.owner, 70, 14000));
           }
         }
         e = e + 1;
@@ -800,6 +1227,9 @@ function updateBullets(bullets, enemies, dt) {
 }
 
 function respawnPlayer(which) {
+  if (isSplitPane()) {
+    return makePlayerOnFloor(localStartX(), localStartFace());
+  }
   if (which == 1) {
     return makePlayerOnFloor(P1_START_X, 1);
   }
@@ -821,7 +1251,7 @@ function computeCamera(p1, p2, dual) {
     }
   }
   if (lead >= WORLD_H) {
-    lead = GOAL_Y;
+    lead = goalFeetY();
   }
   let cam = lead - 120;
   if (cam < 0) {
@@ -842,11 +1272,13 @@ function placePlayerEntity(entities, id, superId, pl, cam, moving) {
     entities[superId] = {
       x: pl.x,
       y: pl.y - cam,
-      p0: pl.anim,
+      p0: sheet.p0,
+      p1: sheet.p1,
+      p2: sheet.p2,
       visible: 1
     };
   } else {
-    entities[superId] = { x: -40, y: -40, visible: 0, p0: 0 };
+    entities[superId] = { x: -40, y: -40, visible: 0, p0: 0, p1: 0, p2: 0 };
     entities[id] = {
       x: pl.x,
       y: pl.y - cam,
@@ -862,14 +1294,28 @@ function placeEntities(s, cam, slots) {
   const fruitDefs = buildFruitDefs();
   const diamondDefs = buildDiamondDefs();
   const entities = {};
-  const p1Moving = s.p1.vx != 0 ? 1 : 0;
-  placePlayerEntity(entities, "p1", "p1s", s.p1, cam, p1Moving);
+  const p1Moving = finishPlayerMoving(s.p1) == 1 ? 1 : (s.p1.vx != 0 ? 1 : 0);
   if (slots == 2) {
-    const p2Moving = s.p2.vx != 0 ? 1 : 0;
+    placePlayerEntity(entities, "p1", "p1s", s.p1, cam, p1Moving);
+    const p2Moving = finishPlayerMoving(s.p2) == 1 ? 1 : (s.p2.vx != 0 ? 1 : 0);
     placePlayerEntity(entities, "p2", "p2s", s.p2, cam, p2Moving);
+  } else if (isSplitPane()) {
+    entities.p1 = hiddenEntity();
+    entities.p2 = hiddenEntity();
+    entities.p1s = hiddenEntity();
+    entities.p2s = hiddenEntity();
+    placePlayerEntity(
+      entities,
+      localPlayerEntityId(),
+      localSuperEntityId(),
+      s.p1,
+      cam,
+      p1Moving
+    );
   } else {
-    entities.p2 = { x: -40, y: -40, visible: 0, p0: 0, p1: 0, p2: 0 };
-    entities.p2s = { x: -40, y: -40, visible: 0, p0: 0 };
+    placePlayerEntity(entities, "p1", "p1s", s.p1, cam, p1Moving);
+    entities.p2 = hiddenEntity();
+    entities.p2s = hiddenEntity();
   }
   let e = 0;
   while (e < MAX_ENEMIES) {
@@ -879,6 +1325,7 @@ function placeEntities(s, cam, slots) {
         x: en.x,
         y: en.y - cam,
         p0: en.anim,
+        p1: en.row,
         visible: 1
       };
     } else {
@@ -916,6 +1363,23 @@ function placeEntities(s, cam, slots) {
     }
     b = b + 1;
   }
+  let mpi = 0;
+  while (mpi < MAX_MOVING_PLATFORMS) {
+    const mp = s.movingPlatforms[mpi];
+    if (mp) {
+      entities["mp" + mpi] = {
+        x: mp.x + mp.w / 2,
+        y: mp.y - cam + mp.h / 2,
+        visible: 1,
+        r: 100,
+        g: 195,
+        b: 82
+      };
+    } else {
+      entities["mp" + mpi] = hiddenEntity();
+    }
+    mpi = mpi + 1;
+  }
   return entities;
 }
 
@@ -927,75 +1391,184 @@ function pushEvents(dest, src) {
   }
 }
 
-function checkFinish(pl, events) {
+function tickGoalWalk(pl, dt) {
+  const gp = goalPlatform();
+  const minX = gp.x + 18;
+  const maxX = gp.x + gp.w - 18;
+  let x = pl.x;
+  let face = pl.face;
+  if (face == 0) {
+    face = 1;
+  }
+  const speed = MOVE * 0.9;
+  x = x + face * speed * dt;
+  if (x < minX) {
+    x = minX;
+    face = 1;
+  }
+  if (x > maxX) {
+    x = maxX;
+    face = -1;
+  }
+  return { x: x, face: face };
+}
+
+function finishPlayerMoving(pl) {
+  if (pl.done == 0) {
+    return 0;
+  }
+  if (pl.finishMs < FINISH_PHASE_DONE) {
+    return 1;
+  }
+  return 0;
+}
+
+function playerVictoryReady(pl) {
+  return pl.done == 1 && pl.finishMs >= FINISH_PHASE_DONE;
+}
+
+function showVictoryBanner(s) {
+  if (s.playerSlots == 1) {
+    return playerVictoryReady(s.p1);
+  }
+  if (s.p1.done == 0 || s.p2.done == 0) {
+    return false;
+  }
+  return playerVictoryReady(s.p1) && playerVictoryReady(s.p2);
+}
+
+function wantsRestart(props, dual) {
+  const inp0 = readPlayer(props, 0);
+  if (inp0.action || inp0.shoot) {
+    return true;
+  }
+  if (dual) {
+    const inp1 = readPlayer(props, 1);
+    if (inp1.action || inp1.shoot) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function checkFinish(pl, slot, events) {
   if (pl.done == 1) {
     return pl;
   }
-  if (pl.y <= GOAL_Y) {
+  if (pl.y <= goalTriggerY()) {
+    const feetY = goalFeetY();
+    const cx = celebrateXFor(slot);
     const next = {
-      x: pl.x,
-      y: GOAL_Y,
+      x: cx,
+      y: feetY,
       vx: 0,
       vy: 0,
-      face: pl.face,
+      face: slot == 2 ? -1 : 1,
       grounded: 1,
       anim: 0,
       animTick: pl.animTick,
       jumpHold: 0,
+      airJump: 0,
+      jumpBoostMs: 0,
       superMs: pl.superMs,
       done: 1,
-      celebrateMs: 0
+      finishMs: 0,
+      finishPulseMs: 0,
+      celebrateBursts: 0
     };
     events.push(soundEvent("celebrate"));
-    events.push(particleEvent("celebrate", pl.x, GOAL_Y, 48));
-    events.push(particleEvent("sparkle", pl.x, GOAL_Y - 20, 24));
+    events.push(rumbleForOwner(slot, 220, 32000));
+    spawnFinishParticles(events, cx, feetY);
     return next;
   }
   return pl;
 }
 
-function tickCelebrate(pl, dt, events) {
+function tickFinishPlayer(pl, dt, events) {
   if (pl.done != 1) {
     return pl;
   }
-  let ms = pl.celebrateMs + dt;
-  if (ms >= CELEBRATE_INTERVAL) {
-    ms = 0;
-    events.push(particleEvent("sparkle", pl.x, pl.y, 12));
+  const finishMs = pl.finishMs + dt;
+  let finishPulseMs = pl.finishPulseMs;
+  let bursts = pl.celebrateBursts;
+
+  if (finishMs <= FINISH_PARTICLE_MS) {
+    finishPulseMs = finishPulseMs + dt;
+    if (finishPulseMs >= CELEBRATE_INTERVAL) {
+      finishPulseMs = 0;
+      bursts = bursts + 1;
+      spawnCelebratePulse(events, pl, bursts);
+    }
+  } else {
+    finishPulseMs = 0;
   }
+
+  const feetY = goalFeetY();
+  let x = pl.x;
+  let face = pl.face;
+  let y = feetY;
+  const animTick = pl.animTick + dt;
+
+  if (finishMs < FINISH_CELEBRATE_MS) {
+    y = feetY - celebrateYOffset(animTick);
+  } else if (finishMs < FINISH_PHASE_DONE) {
+    const walk = tickGoalWalk(pl, dt);
+    x = walk.x;
+    face = walk.face;
+    y = feetY;
+  }
+
   return {
-    x: pl.x,
-    y: pl.y,
+    x: x,
+    y: y,
     vx: 0,
     vy: 0,
-    face: pl.face,
+    face: face,
     grounded: 1,
     anim: 0,
-    animTick: pl.animTick + dt,
+    animTick: animTick,
     jumpHold: 0,
+    airJump: 0,
+    jumpBoostMs: 0,
     superMs: pl.superMs,
     done: 1,
-    celebrateMs: ms
+    finishMs: finishMs,
+    finishPulseMs: finishPulseMs,
+    celebrateBursts: bursts
   };
 }
 
 function hud(props) {
   const s = props.state;
+  const victory = showVictoryBanner(s);
+  const localSlot = localPlayerSlot();
   let msg = "Ylos 2! Kerää timantteja = supervoima. LPC-hahmot.";
-  if (s.playerSlots == 2) {
-    msg = msg + " Ensimmäinen maaliin juhlii — toinen jatkaa!";
-  } else {
-    msg = msg + " Pääse maaliin!";
-  }
-  if (s.p1.done == 1) {
-    msg = "P1 MAALISSA!";
-  }
-  if (s.playerSlots == 2) {
-    if (s.p2.done == 1) {
-      if (s.p1.done == 1) {
-        msg = "MOLEMMAT MAALISSA!";
+  if (victory == 0) {
+    if (isSplitPane()) {
+      if (paneIndex == 0) {
+        msg = "Vasen — tyttö (P1). Pääse maaliin!";
       } else {
-        msg = "P2 MAALISSA!";
+        msg = "Oikea — poika (P2). Pääse maaliin!";
+      }
+    } else if (s.playerSlots == 2) {
+      msg = msg + " Ensimmäinen maaliin juhlii — toinen jatkaa!";
+    } else {
+      msg = msg + " Pääse maaliin!";
+    }
+    if (s.p1.done == 1) {
+      if (isSplitPane()) {
+        msg = localSlot == 2 ? "P2 MAALISSA!" : "P1 MAALISSA!";
+      } else {
+        msg = "P1 MAALISSA!";
+      }
+    }
+    if (s.playerSlots == 2) {
+      if (s.p2.done == 1) {
+        if (s.p1.done == 1) {
+          msg = "MOLEMMAT MAALISSA!";
+        } else {
+          msg = "P2 MAALISSA!";
+        }
       }
     }
   }
@@ -1005,7 +1578,11 @@ function hud(props) {
   }
   let superLine = "";
   if (s.p1.superMs > 0) {
-    superLine = "P1 SUPER!";
+    if (isSplitPane()) {
+      superLine = localSlot == 2 ? "P2 SUPER!" : "P1 SUPER!";
+    } else {
+      superLine = "P1 SUPER!";
+    }
   }
   if (s.playerSlots == 2) {
     if (s.p2.superMs > 0) {
@@ -1015,8 +1592,14 @@ function hud(props) {
       superLine = superLine + "P2 SUPER!";
     }
   }
+  let victoryLine = "";
+  if (victory == 1) {
+    victoryLine = "Voitto!";
+    msg = "Paina Space — pelaa uudelleen";
+  }
   return (
     <View flexDirection="column" padding="4px" background="#0b1020cc">
+      <Label text={victoryLine} color="#ffe866" fontSize="18px" />
       <Label text={msg} color="#e8f0ff" fontSize="11px" />
       <Label text={scoreLine} color="#ffd080" fontSize="10px" />
       <Label text={superLine} color="#80e8ff" fontSize="10px" />
@@ -1029,10 +1612,11 @@ function update(props) {
   const dt = props.dt;
   const slots = playerSlots();
   const events = [];
-  const platforms = buildPlatforms();
+  const staticPlatforms = buildPlatforms();
   const fruitDefs = buildFruitDefs();
   const diamondDefs = buildDiamondDefs();
   const dual = slots == 2;
+  const owner = localPlayerSlot();
 
   const bullets = [];
   let bi = 0;
@@ -1046,14 +1630,65 @@ function update(props) {
   let fireCd1 = s.fireCd1;
   let fireCd2 = s.fireCd2;
 
+  if (p1.done == 1) {
+    p1 = tickFinishPlayer(p1, dt, events);
+  }
+  if (dual) {
+    if (p2.done == 1) {
+      p2 = tickFinishPlayer(p2, dt, events);
+    }
+  }
+
+  if (showVictoryBanner({ playerSlots: slots, p1: p1, p2: p2 })) {
+    if (wantsRestart(props, dual)) {
+      const fresh = initState();
+      fresh.events = [soundEvent("blip")];
+      return fresh;
+    }
+    const cameraY = computeCamera(p1, p2, dual);
+    const entities = placeEntities(
+      {
+        p1: p1,
+        p2: p2,
+        enemies: s.enemies,
+        fruits: s.fruits,
+        diamonds: s.diamonds,
+        bullets: s.bullets,
+        movingPlatforms: s.movingPlatforms
+      },
+      cameraY,
+      slots
+    );
+    return {
+      showNet: 0,
+      playerSlots: slots,
+      cameraY: cameraY,
+      entities: entities,
+      p1: p1,
+      p2: p2,
+      enemies: s.enemies,
+      fruits: s.fruits,
+      diamonds: s.diamonds,
+      bullets: s.bullets,
+      movingPlatforms: s.movingPlatforms,
+      score1: s.score1,
+      score2: s.score2,
+      fireCd1: fireCd1,
+      fireCd2: fireCd2,
+      events: events
+    };
+  }
+
+  const movingPlatforms = copyMovingPlatforms(s);
+  updateMovingPlatforms(movingPlatforms, dt);
+  const platforms = mergePlatforms(staticPlatforms, movingPlatforms);
+
   if (p1.done == 0) {
     const inp1 = readPlayer(props, 0);
-    const u1 = updatePlayer(p1, inp1, dt, bullets, 1, fireCd1, platforms);
+    const u1 = updatePlayer(p1, inp1, dt, bullets, owner, fireCd1, platforms);
     p1 = u1.pl;
     fireCd1 = u1.fireCd;
     pushEvents(events, u1.events);
-  } else {
-    p1 = tickCelebrate(p1, dt, events);
   }
 
   if (dual) {
@@ -1063,8 +1698,6 @@ function update(props) {
       p2 = u2.pl;
       fireCd2 = u2.fireCd;
       pushEvents(events, u2.events);
-    } else {
-      p2 = tickCelebrate(p2, dt, events);
     }
   }
 
@@ -1094,7 +1727,7 @@ function update(props) {
   }
 
   if (p1.done == 0) {
-    p1 = applyEnemyHits(p1, 1, enemies, events);
+    p1 = applyEnemyHits(p1, owner, enemies, events);
   }
   if (dual) {
     if (p2.done == 0) {
@@ -1113,6 +1746,7 @@ function update(props) {
           events.push(soundEvent("blip"));
           events.push(soundEvent("win"));
           events.push(particleEvent("fruit", fd.x, fd.y, 22));
+          events.push(rumbleForOwner(owner, 50, 10000));
         }
       }
       if (dual) {
@@ -1123,6 +1757,7 @@ function update(props) {
             events.push(soundEvent("blip"));
             events.push(soundEvent("win"));
             events.push(particleEvent("fruit", fd.x, fd.y, 22));
+            events.push(rumbleForOwner(2, 50, 10000));
           }
         }
       }
@@ -1147,12 +1782,17 @@ function update(props) {
             anim: p1.anim,
             animTick: p1.animTick,
             jumpHold: p1.jumpHold,
+            airJump: p1.airJump,
+            jumpBoostMs: p1.jumpBoostMs,
             superMs: SUPER_MS,
             done: p1.done,
-            celebrateMs: p1.celebrateMs
+            finishMs: p1.finishMs,
+            finishPulseMs: p1.finishPulseMs,
+            celebrateBursts: p1.celebrateBursts
           };
           events.push(soundEvent("win"));
           events.push(particleEvent("sparkle", dd.x, dd.y, 28));
+          events.push(rumbleForOwner(owner, 160, 28000));
         }
       }
       if (dual) {
@@ -1169,12 +1809,17 @@ function update(props) {
               anim: p2.anim,
               animTick: p2.animTick,
               jumpHold: p2.jumpHold,
+              airJump: p2.airJump,
+              jumpBoostMs: p2.jumpBoostMs,
               superMs: SUPER_MS,
               done: p2.done,
-              celebrateMs: p2.celebrateMs
+              finishMs: p2.finishMs,
+              finishPulseMs: p2.finishPulseMs,
+              celebrateBursts: p2.celebrateBursts
             };
             events.push(soundEvent("win"));
             events.push(particleEvent("sparkle", dd.x, dd.y, 28));
+            events.push(rumbleForOwner(2, 160, 28000));
           }
         }
       }
@@ -1183,17 +1828,25 @@ function update(props) {
   }
 
   if (p1.done == 0) {
-    p1 = checkFinish(p1, events);
+    p1 = checkFinish(p1, owner, events);
   }
   if (dual) {
     if (p2.done == 0) {
-      p2 = checkFinish(p2, events);
+      p2 = checkFinish(p2, 2, events);
     }
   }
 
   const cameraY = computeCamera(p1, p2, dual);
   const entities = placeEntities(
-    { p1: p1, p2: p2, enemies: enemies, fruits: fruits, diamonds: diamonds, bullets: bullets },
+    {
+      p1: p1,
+      p2: p2,
+      enemies: enemies,
+      fruits: fruits,
+      diamonds: diamonds,
+      bullets: bullets,
+      movingPlatforms: movingPlatforms
+    },
     cameraY,
     slots
   );
@@ -1209,6 +1862,7 @@ function update(props) {
     fruits: fruits,
     diamonds: diamonds,
     bullets: bullets,
+    movingPlatforms: movingPlatforms,
     score1: score1,
     score2: score2,
     fireCd1: fireCd1,
