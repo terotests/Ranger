@@ -1,0 +1,48 @@
+; ==============================================================================
+; physics_race_runner_demo - headless test for host physics + camera integration.
+; ==============================================================================
+
+Import "./game_runtime.rgr"
+
+class PhysicsRaceRunnerDemo {
+    sfn m@(main):void () {
+        def runner:GameRunner (new GameRunner)
+        runner.init(480 270)
+
+        def buf:buffer (buffer_read_file "gallery/game_engine/games/physics_race" "index.tsx")
+        def src:string (buffer_to_string buf)
+        runner.setScriptDir("gallery/game_engine/games/physics_race")
+        runner.loadScript(src)
+        runner.setupScene()
+
+        def frames:int 240
+        if ((shell_arg_cnt) > 0) {
+            def parsed@(optional):int (to_int (shell_arg 0))
+            if (!null? parsed) {
+                frames = (unwrap parsed)
+            }
+        }
+
+        def i 0
+        while (i < frames) {
+            def phase (i % 90)
+            def up (phase < 70)
+            def left (phase >= 20)
+            def right (phase >= 50)
+            runner.frame(16 up false left right false false)
+            i = (i + 1)
+        }
+
+        runner.draw()
+        def py:int (runner.entityY("p1"))
+        def px:int (runner.entityX("p1"))
+        print ("frames=" + frames)
+        print (("p1=" + px) + ("," + py))
+        def physOn:int 0
+        if (runner.isPhysicsEnabled()) {
+            physOn = 1
+        }
+        print (("physics=" + (to_string physOn)))
+        print "physics-race-runner done"
+    }
+}

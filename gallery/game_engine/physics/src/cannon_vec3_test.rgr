@@ -1,0 +1,105 @@
+; ==============================================================================
+; cannon_vec3_test — Cannon.js test/Vec3.js ported to Ranger.
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_test_harness.rgr"
+Import "cannon_test_filter.rgr"
+
+class CannonVec3Test {
+    def filter:CannonTestFilter (new CannonTestFilter)
+
+    fn runFiltered:void (h:CannonTestHarness filter:string) {
+        if (this.filter.matches(filter "Vec3.creation")) { this.creation(h) }
+        if (this.filter.matches(filter "Vec3.cross")) { this.cross(h) }
+        if (this.filter.matches(filter "Vec3.dot")) { this.dot(h) }
+        if (this.filter.matches(filter "Vec3.set")) { this.set(h) }
+        if (this.filter.matches(filter "Vec3.vadd")) { this.vadd(h) }
+        if (this.filter.matches(filter "Vec3.isAntiparallelTo")) { this.isAntiparallelTo(h) }
+        if (this.filter.matches(filter "Vec3.almostEquals")) { this.almostEquals(h) }
+    }
+
+    fn creation:void (h:CannonTestHarness) {
+        h.beginTest("Vec3.creation")
+        def v:CannonVec3 (new CannonVec3)
+        v.set(1.0 2.0 3.0)
+        h.equal(v.x 1.0 "x")
+        h.equal(v.y 2.0 "y")
+        h.equal(v.z 3.0 "z")
+        h.finishTest()
+    }
+
+    fn cross:void (h:CannonTestHarness) {
+        h.beginTest("Vec3.cross")
+        def v:CannonVec3 (new CannonVec3)
+        v.set(1.0 2.0 3.0)
+        def u:CannonVec3 (new CannonVec3)
+        u.set(4.0 5.0 6.0)
+        def c:CannonVec3 (v.crossNew(u))
+        h.equal(c.x (0.0 - 3.0) "cross x")
+        h.equal(c.y 6.0 "cross y")
+        h.equal(c.z (0.0 - 3.0) "cross z")
+        h.finishTest()
+    }
+
+    fn dot:void (h:CannonTestHarness) {
+        h.beginTest("Vec3.dot")
+        def v:CannonVec3 (new CannonVec3)
+        v.set(1.0 2.0 3.0)
+        def u:CannonVec3 (new CannonVec3)
+        u.set(4.0 5.0 6.0)
+        def d1:double (v.dot(u))
+        h.equal(d1 32.0 "dot 1")
+        v.set(3.0 2.0 1.0)
+        u.set(4.0 5.0 6.0)
+        def d2:double (v.dot(u))
+        h.equal(d2 28.0 "dot 2")
+        h.finishTest()
+    }
+
+    fn set:void (h:CannonTestHarness) {
+        h.beginTest("Vec3.set")
+        def v:CannonVec3 (new CannonVec3)
+        v.set(1.0 2.0 3.0)
+        v.set(4.0 5.0 6.0)
+        h.equal(v.x 4.0 "set x")
+        h.equal(v.y 5.0 "set y")
+        h.equal(v.z 6.0 "set z")
+        h.finishTest()
+    }
+
+    fn vadd:void (h:CannonTestHarness) {
+        h.beginTest("Vec3.vadd")
+        def v:CannonVec3 (new CannonVec3)
+        v.set(1.0 2.0 3.0)
+        def u:CannonVec3 (new CannonVec3)
+        u.set(4.0 5.0 6.0)
+        def sum:CannonVec3 (v.vaddNew(u))
+        h.equal(sum.x 5.0 "vadd x")
+        h.equal(sum.y 7.0 "vadd y")
+        h.equal(sum.z 9.0 "vadd z")
+        h.finishTest()
+    }
+
+    fn isAntiparallelTo:void (h:CannonTestHarness) {
+        h.beginTest("Vec3.isAntiparallelTo")
+        def a:CannonVec3 (new CannonVec3)
+        a.set(1.0 0.0 0.0)
+        def b:CannonVec3 (new CannonVec3)
+        b.set((0.0 - 1.0) 0.0 0.0)
+        def anti:boolean (a.isAntiparallelTo(b 0.000001))
+        h.ok(anti "antiparallel")
+        h.finishTest()
+    }
+
+    fn almostEquals:void (h:CannonTestHarness) {
+        h.beginTest("Vec3.almostEquals")
+        def a:CannonVec3 (new CannonVec3)
+        a.set(1.0 0.0 0.0)
+        def b:CannonVec3 (new CannonVec3)
+        b.set(1.0 0.0 0.0)
+        def same:boolean (a.almostEquals(b 0.000001))
+        h.ok(same "almost equals")
+        h.finishTest()
+    }
+}

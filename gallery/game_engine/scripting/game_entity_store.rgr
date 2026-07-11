@@ -1,0 +1,228 @@
+; ==============================================================================
+; game_entity_store - unified world-space entity list for world-mode games.
+; ==============================================================================
+;
+; When a script defines entities(), the runner seeds state.worldEntities and
+; treats coordinates as world pixels. Rendering applies the engine camera
+; (world → screen). Legacy games keep using state.entities in screen space.
+; ==============================================================================
+
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "./game_sprite.rgr"
+
+class GameEntityStore {
+    def worldMode:boolean false
+    ; entity id -> sprite def id (when different from entity id).
+    def spriteIds:[string]
+    def spriteDefIds:[string]
+
+    fn memString:string (obj:EvalValue key:string dflt:string) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isNull()) {
+            return dflt
+        }
+        if (v.isString()) {
+            return v.stringValue
+        }
+        return dflt
+    }
+
+    fn memInt:int (obj:EvalValue key:string dflt:int) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isNull()) {
+            return dflt
+        }
+        return (to_int v.numberValue)
+    }
+
+    fn clear:void () {
+        worldMode = false
+        clear spriteIds
+        clear spriteDefIds
+    }
+
+    fn spriteDefForEntity:string (entityId:string) {
+        def i 0
+        while (i < (array_length spriteIds)) {
+            if ((itemAt spriteIds i) == entityId) {
+                return (itemAt spriteDefIds i)
+            }
+            i = (i + 1)
+        }
+        return entityId
+    }
+
+    fn findSpriteDef:EvalValue (sprites:EvalValue spriteId:string) {
+        if (false == (sprites.isArray())) {
+            return (EvalValue.null())
+        }
+        def arr:[EvalValue] sprites.arrayValue
+        def i 0
+        while (i < (array_length arr)) {
+            def d:EvalValue (itemAt arr i)
+            def id:string (this.memString(d "id" ""))
+            if (id == spriteId) {
+                return d
+            }
+            i = (i + 1)
+        }
+        return (EvalValue.null())
+    }
+
+    ; Build EvalValue pose from world entity + optional position override.
+    fn poseFromSpawn:EvalValue (ent:EvalValue) {
+        def k:[string]
+        def v:[EvalValue]
+        def pos:EvalValue (ent.getMember("position"))
+        def wx:int 0
+        def wy:int 0
+        if (pos.isObject()) {
+            wx = (this.memInt(pos "x" 0))
+            wy = (this.memInt(pos "y" 0))
+        }
+        push k "x"
+        push v (EvalValue.fromInt(wx))
+        push k "y"
+        push v (EvalValue.fromInt(wy))
+        def vis:EvalValue (ent.getMember("visible"))
+        if (false == (vis.isNull())) {
+            push k "visible"
+            push v vis
+        }
+        def p0:EvalValue (ent.getMember("frame"))
+        if (false == (p0.isNull())) {
+            push k "p0"
+            push v p0
+        }
+        return (EvalValue.object(k v))
+    }
+
+    ; Merge entities() spawn list into state.worldEntities when missing keys.
+    fn seedWorldEntities:void (state:EvalValue spawnList:EvalValue) {
+        def world:EvalValue (state.getMember("worldEntities"))
+        if (world.isNull()) {
+            def emptyK:[string]
+            def emptyV:[EvalValue]
+            world = (EvalValue.object(emptyK emptyV))
+            state.setMember("worldEntities" world)
+        }
+        if (false == (spawnList.isArray())) {
+            return
+        }
+        def arr:[EvalValue] spawnList.arrayValue
+        def i 0
+        while (i < (array_length arr)) {
+            def ent:EvalValue (itemAt arr i)
+            def eid:string (this.memString(ent "id" ""))
+            if ((strlen eid) > 0) {
+                def existing:EvalValue (world.getMember(eid))
+                if (existing.isNull()) {
+                    world.setMember(eid (this.poseFromSpawn(ent)))
+                }
+                def spriteId:string (this.memString(ent "sprite" eid))
+                push spriteIds eid
+                push spriteDefIds spriteId
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Create retained GameEntity objects from entities() spawn list.
+    fn spawnRetained:[GameEntity] (spawnList:EvalValue sprites:EvalValue renderer:GameSpriteRenderer) {
+        def out:[GameEntity]
+        if (false == (spawnList.isArray())) {
+            return out
+        }
+        def arr:[EvalValue] spawnList.arrayValue
+        def i 0
+        while (i < (array_length arr)) {
+            def ent:EvalValue (itemAt arr i)
+            def eid:string (this.memString(ent "id" ""))
+            if ((strlen eid) > 0) {
+                def spriteId:string (this.memString(ent "sprite" eid))
+                def defn:EvalValue (this.findSpriteDef(sprites spriteId))
+                if (false == (defn.isNull())) {
+                    def ge:GameEntity (new GameEntity)
+                    renderer.applyDef(ge defn)
+                    ge.id = eid
+                    push out ge
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn activateFromScript:void (spawnList:EvalValue) {
+        worldMode = true
+        clear spriteIds
+        clear spriteDefIds
+        if (false == (spawnList.isArray())) {
+            return
+        }
+        def arr:[EvalValue] spawnList.arrayValue
+        def i 0
+        while (i < (array_length arr)) {
+            def ent:EvalValue (itemAt arr i)
+            def eid:string (this.memString(ent "id" ""))
+            if ((strlen eid) > 0) {
+                def spriteId:string (this.memString(ent "sprite" eid))
+                push spriteIds eid
+                push spriteDefIds spriteId
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Read worldEntities[id], apply camera offset, write screen pose to entity.
+    fn syncEntity:void (e:GameEntity world:EvalValue camX:int camY:int pw:int ph:int renderer:GameSpriteRenderer) {
+        def pos:EvalValue (world.getMember(e.id))
+        if (pos.isNull()) {
+            return
+        }
+        def wx:int (this.memInt(pos "x" e.x))
+        def wy:int (this.memInt(pos "y" e.y))
+        def k:[string]
+        def v:[EvalValue]
+        push k "x"
+        push v (EvalValue.fromInt((wx - camX)))
+        push k "y"
+        push v (EvalValue.fromInt((wy - camY)))
+        def vis:EvalValue (pos.getMember("visible"))
+        if (false == (vis.isNull())) {
+            push k "visible"
+            push v vis
+        }
+        def active:EvalValue (pos.getMember("active"))
+        if (false == (active.isNull())) {
+            if (active.isBoolean()) {
+                if (active.boolValue == false) {
+                    push k "visible"
+                    push v (EvalValue.boolean(false))
+                }
+            } {
+                if ((to_int active.numberValue) == 0) {
+                    push k "visible"
+                    push v (EvalValue.fromInt(0))
+                }
+            }
+        }
+        def p0:EvalValue (pos.getMember("p0"))
+        if (false == (p0.isNull())) {
+            push k "p0"
+            push v p0
+        }
+        def angleV:EvalValue (pos.getMember("angle"))
+        if (false == (angleV.isNull())) {
+            push k "angle"
+            push v angleV
+        }
+        def frame:EvalValue (pos.getMember("frame"))
+        if (false == (frame.isNull())) {
+            push k "p0"
+            push v frame
+        }
+        def screenPose:EvalValue (EvalValue.object(k v))
+        renderer.syncPose(e screenPose pw ph)
+    }
+}

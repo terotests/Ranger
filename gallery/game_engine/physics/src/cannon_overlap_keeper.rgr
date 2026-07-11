@@ -1,0 +1,123 @@
+; ==============================================================================
+; cannon_overlap_keeper — overlap pair tracking (Cannon.js port).
+; ==============================================================================
+
+class CannonOverlapKeeper {
+    def current:[int]
+    def previous:[int]
+    def currentCount:int 0
+    def previousCount:int 0
+    def outAdditions:[int]
+    def outRemovals:[int]
+
+    fn getKey:int (i:int j:int) {
+        if (j < i) {
+            def tmp:int j
+            j = i
+            i = tmp
+        }
+        return ((i * 65536) + j)
+    }
+
+    fn writeAt:void (arr:[int] idx:int value:int) {
+        if (idx < (array_length arr)) {
+            set arr idx value
+        } {
+            push arr value
+        }
+    }
+
+    fn set:void (i:int j:int) {
+        def key:int (this.getKey(i j))
+        def idx 0
+        while (idx < this.currentCount) {
+            def cur:int (itemAt this.current idx)
+            if (key == cur) {
+                return
+            }
+            if (key > cur) {
+                idx = (idx + 1)
+            } {
+                break
+            }
+        }
+        def pos:int idx
+        def shift:int (this.currentCount - 1)
+        while (shift >= pos) {
+            def val:int (itemAt this.current shift)
+            this.writeAt(this.current (shift + 1) val)
+            shift = (shift - 1)
+        }
+        this.writeAt(this.current pos key)
+        this.currentCount = (this.currentCount + 1)
+    }
+
+    fn tick:void () {
+        def tmp:[int] this.previous
+        def tmpCount:int this.previousCount
+        this.previous = this.current
+        this.previousCount = this.currentCount
+        this.current = tmp
+        this.currentCount = 0
+    }
+
+    fn unpackAndPush:void (array:[int] key:int) {
+        def hi:int (to_int (key / 65536))
+        def lo:int (key % 65536)
+        push array hi
+        push array lo
+    }
+
+    fn getDiff:void (additions:[int] removals:[int]) {
+        this.outAdditions = additions
+        this.outRemovals = removals
+        def al:int this.currentCount
+        def bl:int this.previousCount
+        def j 0
+        def i 0
+        while (i < al) {
+            def keyA:int (itemAt this.current i)
+            if (bl > 0) {
+                while (keyA > (itemAt this.previous j)) {
+                    j = (j + 1)
+                    if (j >= bl) {
+                        break
+                    }
+                }
+            }
+            def found:boolean false
+            if (j < bl) {
+                if (keyA == (itemAt this.previous j)) {
+                    found = true
+                }
+            }
+            if (found == false) {
+                this.unpackAndPush(this.outAdditions keyA)
+            }
+            i = (i + 1)
+        }
+        j = 0
+        i = 0
+        while (i < bl) {
+            def keyB:int (itemAt this.previous i)
+            if (al > 0) {
+                while (keyB > (itemAt this.current j)) {
+                    j = (j + 1)
+                    if (j >= al) {
+                        break
+                    }
+                }
+            }
+            def found2:boolean false
+            if (j < al) {
+                if (keyB == (itemAt this.current j)) {
+                    found2 = true
+                }
+            }
+            if (found2 == false) {
+                this.unpackAndPush(this.outRemovals keyB)
+            }
+            i = (i + 1)
+        }
+    }
+}

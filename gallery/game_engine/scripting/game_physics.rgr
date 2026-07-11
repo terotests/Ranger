@@ -1,0 +1,101 @@
+; ==============================================================================
+; game_physics — host facade: PhysicsCore + vehicle plugin + EvalValue bridge.
+; Games supply state.physics { controls, impulses }; app maps physicsContacts.
+; ==============================================================================
+
+Import "./physics_core.rgr"
+Import "./physics_vehicle.rgr"
+Import "./game_physics_bridge.rgr"
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class GamePhysics {
+    def enabled:boolean false
+    def worldW:double 480.0
+    def worldH:double 270.0
+    def core:PhysicsCore (new PhysicsCore)
+    def vehicle:PhysicsVehicleSolver (new PhysicsVehicleSolver)
+    def bridge:GamePhysicsBridge (new GamePhysicsBridge)
+    def commands:[PhysCommand]
+
+    fn clear:void () {
+        enabled = false
+        core.clear()
+        clear commands
+        worldW = 480.0
+        worldH = 270.0
+    }
+
+    fn setWorldSize:void (w:double h:double) {
+        if (w > 0.0) {
+            worldW = w
+        }
+        if (h > 0.0) {
+            worldH = h
+        }
+    }
+
+    fn addDefaultWorldBounds:void () {
+        def b:PhysBoundary (new PhysBoundary)
+        b.kind = "rect"
+        b.id = "world"
+        b.x1 = 0.0
+        b.y1 = 0.0
+        b.x2 = worldW
+        b.y2 = worldH
+        b.w = worldW
+        b.h = worldH
+        push core.bounds b
+    }
+
+    fn loadBodies:void (list:EvalValue) {
+        bridge.loadBodies(core list)
+    }
+
+    fn loadBounds:void (list:EvalValue) {
+        bridge.loadBounds(core list)
+    }
+
+    fn readCommandsFromState:void (state:EvalValue) {
+        bridge.readCommands(core state commands)
+    }
+
+    fn writeWorldEntities:void (world:EvalValue) {
+        if (enabled == false) {
+            return
+        }
+        bridge.writeWorldEntities(core world)
+    }
+
+    fn writeContactsToState:void (state:EvalValue) {
+        bridge.writeContacts(core state)
+    }
+
+    fn copyBodiesFrom:void (src:GamePhysics) {
+        bridge.copyBodiesFrom(core src.core)
+    }
+
+    fn step:void (dtMs:int) {
+        if (enabled == false) {
+            return
+        }
+        clear core.contacts
+        def dtSec:double ((to_double dtMs) / 1000.0)
+        if (dtSec <= 0.0) {
+            return
+        }
+        vehicle.stepAll(core commands dtSec)
+        core.resolveBodyPairs()
+        def i 0
+        while (i < (array_length core.bodies)) {
+            def b:PhysBody (itemAt core.bodies i)
+            if (core.isVehicle(b) == false) {
+                if (b.static == false) {
+                    def cmd:PhysCommand (core.findCommand(commands b.id))
+                    core.stepProp(b cmd dtSec)
+                }
+            }
+            i = (i + 1)
+        }
+        core.finalizeContactFrame()
+    }
+}

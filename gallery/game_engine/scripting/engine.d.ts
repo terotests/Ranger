@@ -114,6 +114,7 @@ interface EntityPose {
   x: number;
   y: number;
   visible?: number;
+  active?: number;
   r?: number;
   g?: number;
   b?: number;
@@ -124,6 +125,195 @@ interface EntityPose {
   p1?: number;
   /** sheet: non-zero selects jumpFrame column while airborne. */
   p2?: number;
+  /** Alias for p0 in world-mode entity definitions. */
+  frame?: number;
+  /** Visual / physics rotation in degrees (Cannon sandbox, rolling balls). */
+  angle?: number;
+}
+
+/** World-space spawn definition returned from entities(). */
+interface EntityDef {
+  id: string;
+  /** sprites()[].id — defaults to id when omitted. */
+  sprite?: string;
+  position: { x: number; y: number };
+  tags?: string[];
+  visible?: number;
+  frame?: number;
+  /** Cannon bridge spawn (when config().physics.cannon is true). */
+  physics?: CannonEntityPhysics;
+}
+
+/** Offset sphere collider on a Cannon body (local X/Y from pivot, degrees at runtime). */
+interface CannonCollider {
+  radius?: number;
+  offsetX?: number;
+  offsetY?: number;
+}
+
+/** Per-entity Cannon body options (declared in entities()). */
+interface CannonEntityPhysics {
+  radius?: number;
+  mass?: number;
+  vx?: number;
+  vy?: number;
+  spin?: number;
+  angle?: number;
+  restitution?: number;
+  /** Static peg / wall (prefer isStatic — avoid `static` key in TSX, parser keyword). */
+  isStatic?: boolean;
+  /** @deprecated Use isStatic — `static` is a TS keyword and breaks the parser. */
+  static?: boolean;
+  /** Kinematic body (pivot + angle driven from cannonControl.kinematics). */
+  isKinematic?: boolean;
+  type?: "dynamic" | "static" | "kinematic";
+  /** One or more sphere colliders; default is single sphere at `radius`. */
+  colliders?: CannonCollider[];
+  /** Points credited when a dynamic body first touches this entity. */
+  score?: number;
+  /** Keep sprite upright — no physics rotation. */
+  stable?: boolean;
+  /** Inertia multiplier (>1 = harder to spin). Ignored when stable. */
+  inertiaScale?: number;
+  /** Visual roll amount 0..1 (0 = upright). Default 1 unless stable. */
+  roll?: number;
+}
+
+/** Per-frame kinematic pose (entity id → pose). */
+interface CannonKinematicPose {
+  angle?: number;
+  omega?: number;
+}
+
+/** Body-body or body-boundary contact (from physics bridge). */
+interface CollisionEvent {
+  kind: "collision";
+  /** Dynamic body id (mover). */
+  id: string;
+  /** Other entity id (peg, flipper, wall marker, …). */
+  target: string;
+  impact?: number;
+  x?: number;
+  y?: number;
+  nx?: number;
+  ny?: number;
+  /** Copied from target entity `physics.score` when set. */
+  amount?: number;
+}
+
+/** Per-frame physics input: continuous controls + one-shot impulses. */
+interface PhysicsStepInput {
+  /** Per-body arcade controls (steer −1..1, throttle/brake 0..1). */
+  controls?: Record<string, PhysicsControl>;
+  /**
+   * One-shot velocity deltas applied once per step.
+   * linear x/y: px/s added to vx/vy; angular: deg/s added to angularVel.
+   */
+  impulses?: PhysicsImpulse[];
+}
+
+interface PhysicsControl {
+  steer?: number;
+  throttle?: number;
+  brake?: number;
+  grip?: number;
+}
+
+interface PhysicsImpulse {
+  body: string;
+  linear?: { x?: number; y?: number };
+  angular?: number;
+}
+
+/** Neutral contact from physics step (app maps to its own events). */
+interface PhysicsContact {
+  /** Stable pair id, e.g. "p1|L5280". */
+  id?: string;
+  /** "begin" on first frame of touch; "persist" while still touching. */
+  phase?: "begin" | "persist";
+  bodyA: string;
+  bodyB: string;
+  /** Relative speed along contact normal (approximate impact strength). */
+  normalImpulse: number;
+  x?: number;
+  y?: number;
+  /** Normal from bodyA toward bodyB. */
+  nx?: number;
+  ny?: number;
+}
+
+/** Four-wheel vehicle block on a physics body (game_physics). */
+interface PhysicsVehicleConfig {
+  chassis?: { w?: number; h?: number };
+  mass?: number;
+  inertia?: number;
+  wheelInertia?: number;
+  maxSpeed?: number;
+  accel?: number;
+  brake?: number;
+  drag?: number;
+  steerRate?: number;
+  steerAngle?: number;
+  lateralGrip?: number;
+  maxLateralForce?: number;
+  grip?: number;
+  slipThreshold?: number;
+  slipSpin?: number;
+  angularDamping?: number;
+  angularStop?: number;
+  restitution?: number;
+  spinOnWall?: number;
+  wheels?: PhysicsVehicleWheel[];
+}
+
+interface PhysicsVehicleWheel {
+  offsetX?: number;
+  offsetY?: number;
+  w?: number;
+  h?: number;
+  drive?: number;
+  grip?: number;
+  steer?: boolean;
+}
+
+/** Runtime input for game_cannon_physics.rgr (written from update()). */
+interface CannonControl {
+  /** Per-entity kinematic angle (deg) + angular velocity (rad/s). */
+  kinematics?: Record<string, CannonKinematicPose>;
+  /** Held launch key (S / Down) — bridge edge-detects internally. */
+  launchDown?: boolean;
+  /** One-shot from TSX (optional); bridge also uses launchDown edges. */
+  launchPulse?: boolean;
+  /** @deprecated Use launchDown — kept for older scripts. */
+  downHeld?: boolean;
+  launchSpeedMin?: number;
+  launchSpeedMax?: number;
+}
+
+/** Engine-managed camera (world → screen). */
+interface CameraConfig {
+  follow?: string;
+  mode?: "vertical" | "horizontal" | "both" | "none";
+  offsetX?: number;
+  offsetY?: number;
+  /** 0 = snap, 0.12 = smooth follow per frame. */
+  smoothing?: number;
+  bounds?: { x: number; y: number; w: number; h: number };
+}
+
+/** Optional game + physics configuration. */
+interface GameConfig {
+  width?: number;
+  height?: number;
+  world?: { width: number; height: number };
+  physics?: {
+    enabled?: boolean;
+    cannon?: boolean;
+    gravity?: number;
+    gravityY?: number;
+    restitution?: number;
+    fixedStep?: number;
+  };
 }
 
 /** RGB colour triple used by retained sprites and HUD. */
@@ -155,12 +345,25 @@ interface GameState {
   showNet?: number;
   /** Entity poses keyed by sprites()[].id (single-screen / flat model). */
   entities?: Record<string, EntityPose>;
+  /**
+   * World-space entity poses (world-mode). The engine applies camera offset
+   * when rendering. Use with entities() spawn list — no manual placeEntities().
+   */
+  worldEntities?: Record<string, EntityPose>;
+  /** Horizontal scroll offset (written by engine camera when enabled). */
+  cameraX?: number;
   /** Active screen name when using the multi-screen model. */
   screen?: string;
   /** Per-screen frozen sub-state (multi-screen model). */
   screens?: object;
   /** Transient per-frame events drained by the host (sounds, spawn, …). */
   events?: GameEvent[];
+  /** Cannon contacts since last update(); read in update() then clear. */
+  collisionEvents?: CollisionEvent[];
+  /** Neutral body-body contacts from game_physics bridge (read in update()). */
+  physicsContacts?: PhysicsContact[];
+  /** Per-frame physics input written from update(); drained by host each step. */
+  physics?: PhysicsStepInput;
   /** Active background: resources() image id or relative PNG/JPEG path. */
   background?: string;
   /** Vertical scroll offset for static level backgrounds (pixels). */
@@ -170,6 +373,8 @@ interface GameState {
    * Set in initState or change from an in-game menu; host reads each frame.
    */
   playerSlots?: number;
+  /** Cannon bridge runtime (kinematics, launch — see CannonControl). */
+  cannonControl?: CannonControl;
 }
 
 /** Built-in synthetic sound ids (no file resources required). */
@@ -346,6 +551,16 @@ interface GameScript<TState extends GameState = GameState> {
    * playerSlots in initState / update (or an in-game menu).
    */
   playerCount?(props: TypedEventProps<GameState>): number;
+  /**
+   * World-mode: unified entity spawn list (world coordinates). When present,
+   * the engine seeds state.worldEntities and applies camera offset at render.
+   * Legacy games keep using sprites() + state.entities (screen space).
+   */
+  entities?(): EntityDef[];
+  /** Engine-managed camera for world-mode games. */
+  camera?(): CameraConfig;
+  /** Optional physics / world configuration (fixed timestep, bounds). */
+  config?(): GameConfig;
 }
 
 // --- Injected globals (available without importing) -------------------------
@@ -374,6 +589,12 @@ declare namespace JSX {
 declare function View(props: Record<string, unknown>): JSX.Element;
 /** EVG text primitive. */
 declare function Label(props: Record<string, unknown>): JSX.Element;
+
+/** Debug logging in TSX scripts (prints to host stdout as `[tsx] ...`). */
+declare const console: {
+  log: (...args: unknown[]) => void;
+  warn: (...args: unknown[]) => void;
+};
 
 /** Replace the current game screen (fresh init, clears navigation stack). */
 declare function loadGame(screenPath: string): void;

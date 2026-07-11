@@ -1,0 +1,54 @@
+; ==============================================================================
+; cannon_tuple_dictionary_test — Cannon.js test/TupleDictionary.js ported.
+; ==============================================================================
+
+Import "cannon_tuple_dictionary.rgr"
+Import "cannon_test_harness.rgr"
+Import "cannon_test_filter.rgr"
+
+class CannonTupleDictionaryTest {
+    def filter:CannonTestFilter (new CannonTestFilter)
+
+    fn runFiltered:void (h:CannonTestHarness filter:string) {
+        if (this.filter.matches(filter "TupleDictionary.set")) { this.setTest(h) }
+        if (this.filter.matches(filter "TupleDictionary.get")) { this.getTest(h) }
+        if (this.filter.matches(filter "TupleDictionary.reset")) { this.resetTest(h) }
+    }
+
+    fn setTest:void (h:CannonTestHarness) {
+        h.beginTest("TupleDictionary.set")
+        def t:CannonTupleDictionary (new CannonTupleDictionary)
+        t.set(1 2 "lol")
+        def v1:string (t.get(1 2))
+        h.equalString(v1 "lol" "stored value")
+        t.set(2 1 "lol2")
+        def v2:string (t.get(1 2))
+        h.equalString(v2 "lol2" "symmetric overwrite")
+        h.finishTest()
+    }
+
+    fn getTest:void (h:CannonTestHarness) {
+        h.beginTest("TupleDictionary.get")
+        def t:CannonTupleDictionary (new CannonTupleDictionary)
+        t.set(1 2 "1")
+        t.set(3 2 "2")
+        def a12:string (t.get(1 2))
+        def a21:string (t.get(2 1))
+        h.equalString(a12 a21 "1-2 symmetric get")
+        def a23:string (t.get(2 3))
+        def a32:string (t.get(3 2))
+        h.equalString(a23 a32 "2-3 symmetric get")
+        h.finishTest()
+    }
+
+    fn resetTest:void (h:CannonTestHarness) {
+        h.beginTest("TupleDictionary.reset")
+        def t:CannonTupleDictionary (new CannonTupleDictionary)
+        t.reset()
+        t.set(1 2 "1")
+        t.reset()
+        def cnt:int (t.keyCount())
+        h.equalInt(cnt 0 "empty after reset")
+        h.finishTest()
+    }
+}

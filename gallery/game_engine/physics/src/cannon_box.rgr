@@ -1,0 +1,169 @@
+; ==============================================================================
+; cannon_box — 3D box shape (Cannon.js port, Phase 1 subset).
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_quaternion.rgr"
+Import "cannon_shape.rgr"
+
+class CannonBox extends CannonShape {
+    def halfExtents:CannonVec3 (new CannonVec3)
+    def worldCornerTempPos:CannonVec3 (new CannonVec3)
+    def worldCornersTemp0:CannonVec3 (new CannonVec3)
+    def worldCornersTemp1:CannonVec3 (new CannonVec3)
+    def worldCornersTemp2:CannonVec3 (new CannonVec3)
+    def worldCornersTemp3:CannonVec3 (new CannonVec3)
+    def worldCornersTemp4:CannonVec3 (new CannonVec3)
+    def worldCornersTemp5:CannonVec3 (new CannonVec3)
+    def worldCornersTemp6:CannonVec3 (new CannonVec3)
+    def worldCornersTemp7:CannonVec3 (new CannonVec3)
+
+    fn initBox:void (halfExtents:CannonVec3) {
+        this.initShape(4)
+        this.halfExtents.copy(halfExtents)
+        this.updateBoundingSphereRadius()
+    }
+
+    fn updateBoundingSphereRadius:void () {
+        this.boundingSphereRadius = this.halfExtents.norm()
+    }
+
+    fn calculateInertiaFromHalfExtents:void (halfExtents:CannonVec3 mass:double target:CannonVec3) {
+        def ex:double (2.0 * halfExtents.x)
+        def ey:double (2.0 * halfExtents.y)
+        def ez:double (2.0 * halfExtents.z)
+        target.x = ((1.0 / 12.0) * mass) * ((ey * ey) + (ez * ez))
+        target.y = ((1.0 / 12.0) * mass) * ((ex * ex) + (ez * ez))
+        target.z = ((1.0 / 12.0) * mass) * ((ey * ey) + (ex * ex))
+    }
+
+    fn forEachWorldCorner:void (pos:CannonVec3 quat:CannonQuaternion callback:(fn:void (x:double y:double z:double))) {
+        def e:CannonVec3 this.halfExtents
+        def ex:double e.x
+        def ey:double e.y
+        def ez:double e.z
+        def temp:CannonVec3 this.worldCornerTempPos
+
+        temp.set(ex ey ez)
+        quat.vmult(temp temp)
+        pos.vadd(temp temp)
+        callback(temp.x temp.y temp.z)
+
+        temp.set((0.0 - ex) ey ez)
+        quat.vmult(temp temp)
+        pos.vadd(temp temp)
+        callback(temp.x temp.y temp.z)
+
+        temp.set((0.0 - ex) (0.0 - ey) ez)
+        quat.vmult(temp temp)
+        pos.vadd(temp temp)
+        callback(temp.x temp.y temp.z)
+
+        temp.set((0.0 - ex) (0.0 - ey) (0.0 - ez))
+        quat.vmult(temp temp)
+        pos.vadd(temp temp)
+        callback(temp.x temp.y temp.z)
+
+        temp.set(ex (0.0 - ey) (0.0 - ez))
+        quat.vmult(temp temp)
+        pos.vadd(temp temp)
+        callback(temp.x temp.y temp.z)
+
+        temp.set(ex ey (0.0 - ez))
+        quat.vmult(temp temp)
+        pos.vadd(temp temp)
+        callback(temp.x temp.y temp.z)
+
+        temp.set((0.0 - ex) ey (0.0 - ez))
+        quat.vmult(temp temp)
+        pos.vadd(temp temp)
+        callback(temp.x temp.y temp.z)
+
+        temp.set(ex (0.0 - ey) ez)
+        quat.vmult(temp temp)
+        pos.vadd(temp temp)
+        callback(temp.x temp.y temp.z)
+    }
+
+    fn calculateWorldAABB:void (pos:CannonVec3 quat:CannonQuaternion min:CannonVec3 max:CannonVec3) {
+        def e:CannonVec3 this.halfExtents
+        def ex:double e.x
+        def ey:double e.y
+        def ez:double e.z
+
+        def wc0:CannonVec3 this.worldCornersTemp0
+        def wc1:CannonVec3 this.worldCornersTemp1
+        def wc2:CannonVec3 this.worldCornersTemp2
+        def wc3:CannonVec3 this.worldCornersTemp3
+        def wc4:CannonVec3 this.worldCornersTemp4
+        def wc5:CannonVec3 this.worldCornersTemp5
+        def wc6:CannonVec3 this.worldCornersTemp6
+        def wc7:CannonVec3 this.worldCornersTemp7
+
+        wc0.set(ex ey ez)
+        wc1.set((0.0 - ex) ey ez)
+        wc2.set((0.0 - ex) (0.0 - ey) ez)
+        wc3.set((0.0 - ex) (0.0 - ey) (0.0 - ez))
+        wc4.set(ex (0.0 - ey) (0.0 - ez))
+        wc5.set(ex ey (0.0 - ez))
+        wc6.set((0.0 - ex) ey (0.0 - ez))
+        wc7.set(ex (0.0 - ey) ez)
+
+        quat.vmult(wc0 wc0)
+        pos.vadd(wc0 wc0)
+        max.copy(wc0)
+        min.copy(wc0)
+
+        quat.vmult(wc1 wc1)
+        pos.vadd(wc1 wc1)
+        this.expandAabb(min max wc1)
+
+        quat.vmult(wc2 wc2)
+        pos.vadd(wc2 wc2)
+        this.expandAabb(min max wc2)
+
+        quat.vmult(wc3 wc3)
+        pos.vadd(wc3 wc3)
+        this.expandAabb(min max wc3)
+
+        quat.vmult(wc4 wc4)
+        pos.vadd(wc4 wc4)
+        this.expandAabb(min max wc4)
+
+        quat.vmult(wc5 wc5)
+        pos.vadd(wc5 wc5)
+        this.expandAabb(min max wc5)
+
+        quat.vmult(wc6 wc6)
+        pos.vadd(wc6 wc6)
+        this.expandAabb(min max wc6)
+
+        quat.vmult(wc7 wc7)
+        pos.vadd(wc7 wc7)
+        this.expandAabb(min max wc7)
+    }
+
+    fn expandAabb:void (min:CannonVec3 max:CannonVec3 wc:CannonVec3) {
+        def x:double wc.x
+        def y:double wc.y
+        def z:double wc.z
+        if (x > max.x) {
+            max.x = x
+        }
+        if (y > max.y) {
+            max.y = y
+        }
+        if (z > max.z) {
+            max.z = z
+        }
+        if (x < min.x) {
+            min.x = x
+        }
+        if (y < min.y) {
+            min.y = y
+        }
+        if (z < min.z) {
+            min.z = z
+        }
+    }
+}

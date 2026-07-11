@@ -1,0 +1,32 @@
+; ==============================================================================
+; cannon_shape — base shape (Cannon.js port).
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_quaternion.rgr"
+
+class CannonShapeTypes {
+    sdef SPHERE:int 1
+    sdef PLANE:int 2
+    sdef BOX:int 4
+}
+
+class CannonShape {
+    def id:int 0
+    def type:int 0
+    def radius:double 0.0
+    def boundingSphereRadius:double 0.0
+    def collisionFilterGroup:int 1
+    def collisionFilterMask:int -1
+    def collisionResponse:boolean true
+
+    fn initShape:void (shapeType:int) {
+        this.type = shapeType
+    }
+
+    fn calculateWorldAABB:void (pos:CannonVec3 quat:CannonQuaternion min:CannonVec3 max:CannonVec3) {
+    }
+
+    fn updateBoundingSphereRadius:void () {
+    }
+}

@@ -46,6 +46,7 @@ class GameEntity {
     def p0:int 0
     def p1:int 0
     def p2:int 0
+    def angleDeg:double 0.0
     def visible:boolean true
     def bmPx:int 3
     def bmFrameCount:int 0
@@ -85,6 +86,14 @@ class GameSpriteRenderer {
             return dflt
         }
         return (to_int v.numberValue)
+    }
+
+    fn memDouble:double (obj:EvalValue key:string dflt:double) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isNull()) {
+            return dflt
+        }
+        return v.numberValue
     }
 
     fn appendBitmapPixel:void (e:GameEntity dx:int dy:int r:int g:int b:int) {
@@ -244,6 +253,10 @@ class GameSpriteRenderer {
         if (false == (p2v.isNull())) {
             e.p2 = (this.memInt(pos "p2" e.p2))
         }
+        def angleV:EvalValue (pos.getMember("angle"))
+        if (false == (angleV.isNull())) {
+            e.angleDeg = (this.memDouble(pos "angle" e.angleDeg))
+        }
         def radv:EvalValue (pos.getMember("rad"))
         if (false == (radv.isNull())) {
             e.rad = (this.memInt(pos "rad" e.rad))
@@ -311,11 +324,16 @@ class GameSpriteRenderer {
         if (dh < 1) {
             dh = 1
         }
-        def dx:int (e.x - (this.half(dw)))
         ; Feet at (x,y). feetTrim shaves transparent LPC padding from the frame bottom.
         def trim:int (to_int ((to_double (e.shFeetTrim * e.shScale)) / 100.0))
-        def dy:int ((e.y - dh) + trim)
-        canvas.blitImageRectScaled(e.shImg sx sy e.shFrameW e.shFrameH dx dy dw dh)
+        def pivotY:int (e.y - (this.half(dh)) + trim)
+        if (e.angleDeg == 0.0) {
+            def dx:int (e.x - (this.half(dw)))
+            def dy:int ((e.y - dh) + trim)
+            canvas.blitImageRectScaled(e.shImg sx sy e.shFrameW e.shFrameH dx dy dw dh)
+        } {
+            canvas.blitImageRectScaledRotated(e.shImg sx sy e.shFrameW e.shFrameH e.x pivotY dw dh e.angleDeg)
+        }
     }
 
     fn drawEntity:void (e:GameEntity canvas:SoftCanvas) {
@@ -332,6 +350,16 @@ class GameSpriteRenderer {
         }
         if (e.kind == "circle") {
             canvas.fillCircle(e.x e.y e.rad e.cr e.cg e.cb)
+            if (e.angleDeg != 0.0) {
+                def rad2:double (canvas.degToRad(e.angleDeg))
+                def markR:int (e.rad - 1)
+                if (markR < 2) {
+                    markR = 2
+                }
+                def ex:int (e.x + (to_int (cos(rad2) * (to_double markR))))
+                def ey:int (e.y + (to_int (sin(rad2) * (to_double markR))))
+                canvas.fillRect((ex - 1) (ey - 1) 2 2 20 20 20)
+            }
             return
         }
         if (e.kind == "wedge") {
@@ -340,6 +368,10 @@ class GameSpriteRenderer {
         }
         if (e.kind == "ghost") {
             canvas.fillGhost(e.x e.y e.rad e.p0 e.p1 e.cr e.cg e.cb)
+            return
+        }
+        if (e.angleDeg != 0.0) {
+            canvas.fillRectRotated(e.x e.y e.w e.h e.angleDeg e.cr e.cg e.cb)
             return
         }
         canvas.fillRect((e.x - (this.half(e.w))) (e.y - (this.half(e.h))) e.w e.h e.cr e.cg e.cb)

@@ -1,0 +1,38 @@
+; ==============================================================================
+; cannon_contact_equation — contact constraint (Cannon.js port subset).
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_body.rgr"
+Import "cannon_shape.rgr"
+
+class CannonContactEquation {
+    def bi:CannonBody
+    def bj:CannonBody
+    def si:CannonShape
+    def sj:CannonShape
+    def enabled:boolean true
+    def restitution:double 0.0
+    def ni:CannonVec3 (new CannonVec3)
+    def ri:CannonVec3 (new CannonVec3)
+    def rj:CannonVec3 (new CannonVec3)
+    def tmpVi:CannonVec3 (new CannonVec3)
+    def tmpVj:CannonVec3 (new CannonVec3)
+    def tmpXi:CannonVec3 (new CannonVec3)
+    def tmpXj:CannonVec3 (new CannonVec3)
+    def tmpRel:CannonVec3 (new CannonVec3)
+
+    fn initContact:void (bodyA:CannonBody bodyB:CannonBody) {
+        this.bi = bodyA
+        this.bj = bodyB
+    }
+
+    fn getImpactVelocityAlongNormal:double () {
+        this.bi.position.vadd(this.ri this.tmpXi)
+        this.bj.position.vadd(this.rj this.tmpXj)
+        this.bi.getVelocityAtWorldPoint(this.tmpXi this.tmpVi)
+        this.bj.getVelocityAtWorldPoint(this.tmpXj this.tmpVj)
+        this.tmpVi.vsub(this.tmpVj this.tmpRel)
+        return (this.ni.dot(this.tmpRel))
+    }
+}

@@ -1,0 +1,75 @@
+; ==============================================================================
+; cannon_box_test — Cannon.js test/Box.js ported to Ranger.
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_quaternion.rgr"
+Import "cannon_box.rgr"
+Import "cannon_test_harness.rgr"
+Import "cannon_test_filter.rgr"
+
+class CannonBoxTest {
+    def filter:CannonTestFilter (new CannonTestFilter)
+
+    fn runFiltered:void (h:CannonTestHarness filter:string) {
+        if (this.filter.matches(filter "Box.forEachWorldCorner")) { this.forEachWorldCorner(h) }
+        if (this.filter.matches(filter "Box.calculateWorldAABB")) { this.calculateWorldAABB(h) }
+    }
+
+    fn forEachWorldCorner:void (h:CannonTestHarness) {
+        h.beginTest("Box.forEachWorldCorner")
+        def half:CannonVec3 (new CannonVec3)
+        half.set(1.0 1.0 1.0)
+        def box:CannonBox (new CannonBox)
+        box.initBox(half)
+
+        def pos:CannonVec3 (new CannonVec3)
+        def quat:CannonQuaternion (new CannonQuaternion)
+        def axis:CannonVec3 (new CannonVec3)
+        axis.set(0.0 0.0 1.0)
+        def pi:double 3.141592653589793
+        quat.setFromAxisAngle(axis (pi * 0.25))
+
+        def unique:[CannonVec3]
+        def numCorners:int 0
+        box.forEachWorldCorner(pos quat {
+            def corner:CannonVec3 (new CannonVec3)
+            corner.set(x y z)
+            def i 0
+            while (i < (array_length unique)) {
+                def other:CannonVec3 (itemAt unique i)
+                def same:boolean (corner.almostEquals(other 0.000001))
+                if (same) {
+                    h.ok(false "duplicate world corner")
+                }
+                i = (i + 1)
+            }
+            push unique corner
+            numCorners = (numCorners + 1)
+        })
+        h.equalInt(numCorners 8 "expected 8 corners")
+        h.finishTest()
+    }
+
+    fn calculateWorldAABB:void (h:CannonTestHarness) {
+        h.beginTest("Box.calculateWorldAABB")
+        def half:CannonVec3 (new CannonVec3)
+        half.set(1.0 1.0 1.0)
+        def box:CannonBox (new CannonBox)
+        box.initBox(half)
+
+        def min:CannonVec3 (new CannonVec3)
+        def max:CannonVec3 (new CannonVec3)
+        def pos:CannonVec3 (new CannonVec3)
+        pos.set(3.0 0.0 0.0)
+        def quat:CannonQuaternion (new CannonQuaternion)
+        quat.set(0.0 0.0 0.0 1.0)
+
+        box.calculateWorldAABB(pos quat min max)
+        h.equal(min.x 2.0 "min.x")
+        h.equal(max.x 4.0 "max.x")
+        h.equal(min.y (0.0 - 1.0) "min.y")
+        h.equal(max.y 1.0 "max.y")
+        h.finishTest()
+    }
+}

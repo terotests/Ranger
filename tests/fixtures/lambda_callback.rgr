@@ -1,0 +1,54 @@
+; Test: C++ lambda callback + closure capture (used by compiler-cpp-lambda.test.ts)
+
+class LambdaCallbackDemo {
+    fn apply:void (cb:(fn:void (x:double y:double z:double))) {
+        cb(1.0 2.0 3.0)
+        cb(4.0 5.0 6.0)
+    }
+
+    fn filterSum:void (values:[double] predicate:(fn:boolean (v:double)) accum:(fn:double (sum:double v:double))) {
+        def sum:double 0.0
+        def i 0
+        while (i < (array_length values)) {
+            def v:double (itemAt values i)
+            if (predicate(v)) {
+                sum = accum(sum v)
+            }
+            i = (i + 1)
+        }
+        print ("filteredSum=" + (to_string sum))
+    }
+
+    sfn m@(main):void () {
+        def sum:double 0.0
+        def count:int 0
+        def demo:LambdaCallbackDemo (new LambdaCallbackDemo)
+
+        demo.apply({
+            sum = (sum + x + y + z)
+            count = (count + 1)
+        })
+
+        print ("count=" + (to_string count))
+        print ("sum=" + (to_string sum))
+
+        def nums:[double]
+        push nums 1.0
+        push nums 2.0
+        push nums 3.0
+        push nums 4.0
+
+        demo.filterSum(nums {
+            return (v >= 2.0)
+        } {
+            return (sum + v)
+        })
+
+        def doubler (fn:double (x:double) {
+            return (x * 2.0)
+        })
+        print ("double3=" + (to_string (doubler(3.0))))
+
+        print "lambda-callback done"
+    }
+}

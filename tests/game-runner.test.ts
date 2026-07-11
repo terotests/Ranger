@@ -295,6 +295,76 @@ describe("Game runner - scripted Pong", () => {
     expect(parseInt(entities![1], 10)).toBeGreaterThan(14);
   });
 
+  it("runs world-mode scroll demo with engine camera and worldEntities", () => {
+    const { compile, run } = compileAndRun(
+      "gallery/game_engine/scripting/world_scroll_runner_demo.rgr"
+    );
+
+    expect(
+      compile.success,
+      `Compile failed: ${compile.error || compile.output}`
+    ).toBe(true);
+    expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+
+    const out = run?.output || "";
+    expect(out).toContain("frames=240");
+    expect(out).toContain("world-scroll-runner done");
+
+    const player = out.match(/player=(-?\d+),(-?\d+)/);
+    expect(player, `no player position in output: ${out}`).toBeTruthy();
+    const px = parseInt(player![1], 10);
+    const py = parseInt(player![2], 10);
+    expect(px).toBeGreaterThan(0);
+    expect(px).toBeLessThan(480);
+    expect(py).toBeGreaterThan(0);
+    expect(py).toBeLessThan(270);
+
+    const cam = out.match(/cameraY=(\d+)/);
+    expect(cam, `no cameraY in output: ${out}`).toBeTruthy();
+    expect(parseInt(cam![1], 10)).toBeGreaterThan(0);
+  });
+
+  it("runs physics race demo with host-side physics enabled", () => {
+    const { compile, run } = compileAndRun(
+      "gallery/game_engine/scripting/physics_race_runner_demo.rgr"
+    );
+
+    expect(
+      compile.success,
+      `Compile failed: ${compile.error || compile.output}`
+    ).toBe(true);
+    expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+
+    const out = run?.output || "";
+    expect(out).toContain("frames=240");
+    expect(out).toContain("physics-race-runner done");
+    expect(out).toContain("physics=1");
+
+    const p1 = out.match(/p1=(-?\d+),(-?\d+)/);
+    expect(p1, `no p1 position in output: ${out}`).toBeTruthy();
+    const py = parseInt(p1![2], 10);
+    expect(py).toBeLessThan(3400);
+  });
+
+  it("runs physics sandbox with Cannon bodies and sheet sprites", () => {
+    const { compile, run } = compileAndRun(
+      "gallery/game_engine/scripting/physics_sandbox_runner_demo.rgr"
+    );
+
+    expect(
+      compile.success,
+      `Compile failed: ${compile.error || compile.output}`
+    ).toBe(true);
+    expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+
+    const out = run?.output || "";
+    expect(out).toContain("frames=300");
+    expect(out).toContain("physics-sandbox-runner done");
+    expect(out).toContain("physics=1");
+    expect(out).toContain("moved=true");
+    expect(out).toContain("collided=true");
+  });
+
   it("runs split-screen host with two independent solo panes", () => {
     const { compile, run } = compileAndRun(
       "gallery/game_engine/scripting/split_screen_runner_demo.rgr"
