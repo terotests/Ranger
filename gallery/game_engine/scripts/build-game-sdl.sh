@@ -87,8 +87,13 @@ if [[ -z "$GL_FLAGS" ]]; then
   echo "error: OpenGL not found. On Raspberry Pi: sudo apt-get install libgles2-mesa-dev" >&2
   exit 1
 fi
+# Optimize: the software renderer (SoftCanvas fills/blits) and interpreter are
+# hot per-frame paths — building without -O left them ~5-6x slower and could
+# push frame time past the 16.6ms vsync boundary (60 -> 30fps). -O2 lets the
+# compiler inline the buffer accessors and lower span copies to memmove/memset.
+CXX_OPT="${CXX_OPT:--O2}"
 # shellcheck disable=SC2086
-"$CXX" -std=c++17 "$CPP_FILE" -o "$BIN_FILE" $SDL_FLAGS $GL_FLAGS
+"$CXX" $CXX_OPT -std=c++17 "$CPP_FILE" -o "$BIN_FILE" $SDL_FLAGS $GL_FLAGS
 
 echo "==> 3/3 Ready: $BIN_FILE"
 

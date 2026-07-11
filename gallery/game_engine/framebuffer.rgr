@@ -55,12 +55,32 @@ class SoftCanvas {
     }
 
     ; Fill `count` consecutive opaque RGBA pixels starting at byte offset `off`.
-    ; Writes the first pixel, then doubles the filled span with buffer_copy
-    ; (a native memcpy-class span copy on every target). A W-pixel run costs
-    ; 4 byte writes + ~log2(W) span copies instead of 4*W individual byte
-    ; writes — the high-level colour-fill primitive the fill/blit paths build on.
+    ;
+    ; Small spans are written directly byte-by-byte: at low optimization levels
+    ; (the game build compiles with no -O flag) buffer_copy lowers to a real
+    ; std::copy call whose per-call overhead dominates a short run, so direct
+    ; writes are strictly faster there and never slower elsewhere.
+    ;
+    ; Large spans use exponential doubling: write the first pixel, then keep
+    ; doubling the filled run with buffer_copy (a native memmove-class span copy),
+    ; so a big run costs 4 writes + ~log2(W) copies instead of 4*W writes.
+    ; This is the high-level colour-fill primitive the fill/blit paths build on.
     fn fillSpanRGB:void (off:int count:int r:int g:int b:int) {
         if (count <= 0) {
+            return
+        }
+        ; Direct byte writes for short runs (no buffer_copy call overhead).
+        if (count <= 32) {
+            def o off
+            def i 0
+            while (i < count) {
+                buffer_set px o r
+                buffer_set px (o + 1) g
+                buffer_set px (o + 2) b
+                buffer_set px (o + 3) 255
+                o = (o + 4)
+                i = (i + 1)
+            }
             return
         }
         buffer_set px off r
@@ -148,16 +168,38 @@ class SoftCanvas {
             }
         }
 
-        ; Otherwise fill the first scanline, then replicate it down with
-        ; contiguous row copies (memcpy per row) instead of per-pixel writes.
+        ; Narrow rectangles (small sprites, bitmap pixels, thin lines) are filled
+        ; with direct byte writes: the per-row buffer_copy call overhead would
+        ; dominate a short row at low optimization levels (the game build uses no
+        ; -O flag), so a plain nested write loop is strictly faster and never
+        ; slower. Wide rectangles fill the first scanline then replicate it down
+        ; with contiguous row copies.
+        if (spanPixels < 32) {
+            def yy y0
+            while (yy < y1) {
+                def o (((yy * w) + x0) * 4)
+                def xx x0
+                while (xx < x1) {
+                    buffer_set px o r
+                    buffer_set px (o + 1) g
+                    buffer_set px (o + 2) b
+                    buffer_set px (o + 3) 255
+                    o = (o + 4)
+                    xx = (xx + 1)
+                }
+                yy = (yy + 1)
+            }
+            return
+        }
+
         def firstRowOff (((y0 * w) + x0) * 4)
         this.fillSpanRGB(firstRowOff spanPixels r g b)
         def spanBytes (spanPixels * 4)
-        def yy (y0 + 1)
-        while (yy < y1) {
-            def rowOff (((yy * w) + x0) * 4)
+        def yy2 (y0 + 1)
+        while (yy2 < y1) {
+            def rowOff (((yy2 * w) + x0) * 4)
             buffer_copy px rowOff px firstRowOff spanBytes
-            yy = (yy + 1)
+            yy2 = (yy2 + 1)
         }
     }
 
