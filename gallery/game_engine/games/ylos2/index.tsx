@@ -13,10 +13,14 @@ const WORLD_H = 1890;
 const VIEW_H = 270;
 const MAX_ENEMIES = 12;
 const MAX_FRUITS = 7;
-const MAX_DIAMONDS = 4;
+const MAX_DIAMONDS = 7;
 const MAX_BULLETS = 4;
 const MAX_MOVING_PLATFORMS = 8;
 const MOVING_PLAT_SPEED = 0.06;
+const PLAT_COLOR_BODY = { r: 72, g: 150, b: 64 };
+const PLAT_COLOR_TOP = { r: 110, g: 190, b: 86 };
+const PLAT_COLOR_BOTTOM = { r: 42, g: 96, b: 38 };
+const PLAT_EDGE_H = 4;
 const JUMP_MIN_V = 0.28;
 const JUMP_MAX_V = 0.38;
 const JUMP_SUPER_MAX_V = 0.52;
@@ -40,7 +44,6 @@ const P1_SUPER_SHEET = "assets/p1_super.png";
 const P2_SUPER_SHEET = "assets/p2_super.png";
 const ENEMY_SHEET = "assets/enemy_walk.png";
 const ENEMY_WALK_FRAMES = 9;
-const ENEMY_FEET_TRIM = 36; // skeleton feet sit higher in 64px LPC frame than human bodies
 // P1 = girl (left), P2 = boy (right), enemies = LPC skeleton.
 // Regenerate: npm run engine:ylos2:assets
 
@@ -102,11 +105,13 @@ const BASE_FRUIT_DEFS = [
 ];
 
 const BASE_DIAMOND_DEFS = [
-  { x: 430, y: 1740 },
-  { x: 130, y: 1240 },
-  { x: 300, y: 1015 },
-  { x: 170, y: 705 },
-  { x: 350, y: 355 }
+  { x: 90, y: 1675, restoreOnRestart: true },
+  { x: 200, y: 1565, restoreOnRestart: true },
+  { x: 330, y: 1455, restoreOnRestart: true },
+  { x: 70, y: 1345, restoreOnRestart: true },
+  { x: 430, y: 1740, restoreOnRestart: false },
+  { x: 300, y: 1015, restoreOnRestart: false },
+  { x: 170, y: 705, restoreOnRestart: false }
 ];
 
 const P1_START_X = 120;
@@ -296,7 +301,51 @@ function copyMovingPlatforms(s) {
   return out;
 }
 
-function updateMovingPlatforms(platforms, dt) {
+function platformsOverlap(a, b) {
+  if (a.x + a.w <= b.x) {
+    return false;
+  }
+  if (b.x + b.w <= a.x) {
+    return false;
+  }
+  if (a.y + a.h <= b.y) {
+    return false;
+  }
+  if (b.y + b.h <= a.y) {
+    return false;
+  }
+  return true;
+}
+
+function movingPlatformBox(x, mp) {
+  return { x: x, y: mp.y, w: mp.w, h: mp.h };
+}
+
+function movingPlatformHitsOthers(mp, newX, staticPlats, movingPlats, selfIndex) {
+  const box = movingPlatformBox(newX, mp);
+  let i = 0;
+  while (i < staticPlats.length) {
+    if (platformsOverlap(box, staticPlats[i])) {
+      return true;
+    }
+    i = i + 1;
+  }
+  i = 0;
+  while (i < movingPlats.length) {
+    if (i != selfIndex) {
+      const other = movingPlats[i];
+      if (other) {
+        if (platformsOverlap(box, movingPlatformBox(other.x, other))) {
+          return true;
+        }
+      }
+    }
+    i = i + 1;
+  }
+  return false;
+}
+
+function updateMovingPlatforms(platforms, dt, staticPlats) {
   let i = 0;
   while (i < platforms.length) {
     const mp = platforms[i];
@@ -310,6 +359,10 @@ function updateMovingPlatforms(platforms, dt) {
     if (x + mp.w > mp.maxX) {
       x = mp.maxX - mp.w;
       dir = -1;
+    }
+    if (movingPlatformHitsOthers(mp, x, staticPlats, platforms, i)) {
+      dir = -dir;
+      x = prevX;
     }
     platforms[i] = {
       x: x,
@@ -545,20 +598,69 @@ function drawCloud(cx, cy) {
   bgFillCircle(cx + 16, cy + 4, 10, 235, 240, 250);
 }
 
-function movingPlatformSprite(id, w, h) {
+function movingPlatformLayerSprite(id, w, h, color) {
   let rw = w | 0;
   if (rw < 12) {
     rw = 12;
+  }
+  let rh = h | 0;
+  if (rh < 1) {
+    rh = 1;
   }
   return {
     id: id,
     kind: "rect",
     w: rw,
-    h: h,
-    r: 90,
-    g: 185,
-    b: 72
+    h: rh,
+    r: color.r,
+    g: color.g,
+    b: color.b
   };
+}
+
+function movingPlatformSprites(mpi, w, h) {
+  const bodyH = h - PLAT_EDGE_H * 2;
+  return [
+    movingPlatformLayerSprite("mp" + mpi + "t", w, PLAT_EDGE_H, PLAT_COLOR_TOP),
+    movingPlatformLayerSprite("mp" + mpi + "m", w, bodyH, PLAT_COLOR_BODY),
+    movingPlatformLayerSprite("mp" + mpi + "b", w, PLAT_EDGE_H, PLAT_COLOR_BOTTOM)
+  ];
+}
+
+function placeMovingPlatformEntities(entities, mpi, mp, cam) {
+  const cx = mp.x + mp.w / 2;
+  const screenY = mp.y - cam;
+  const midH = mp.h - PLAT_EDGE_H * 2;
+  entities["mp" + mpi + "t"] = {
+    x: cx,
+    y: screenY + PLAT_EDGE_H / 2,
+    visible: 1,
+    r: PLAT_COLOR_TOP.r,
+    g: PLAT_COLOR_TOP.g,
+    b: PLAT_COLOR_TOP.b
+  };
+  entities["mp" + mpi + "m"] = {
+    x: cx,
+    y: screenY + PLAT_EDGE_H + midH / 2,
+    visible: 1,
+    r: PLAT_COLOR_BODY.r,
+    g: PLAT_COLOR_BODY.g,
+    b: PLAT_COLOR_BODY.b
+  };
+  entities["mp" + mpi + "b"] = {
+    x: cx,
+    y: screenY + mp.h - PLAT_EDGE_H / 2,
+    visible: 1,
+    r: PLAT_COLOR_BOTTOM.r,
+    g: PLAT_COLOR_BOTTOM.g,
+    b: PLAT_COLOR_BOTTOM.b
+  };
+}
+
+function hideMovingPlatformEntities(entities, mpi) {
+  entities["mp" + mpi + "t"] = hiddenEntity();
+  entities["mp" + mpi + "m"] = hiddenEntity();
+  entities["mp" + mpi + "b"] = hiddenEntity();
 }
 
 function createStaticBg() {
@@ -573,9 +675,17 @@ function createStaticBg() {
   let i = 0;
   while (i < platforms.length) {
     const p = platforms[i];
-    bgFillRect(p.x, p.y, p.w, p.h, 72, 150, 64);
-    bgFillRect(p.x, p.y, p.w, 4, 110, 190, 86);
-    bgFillRect(p.x, p.y + p.h - 4, p.w, 4, 42, 96, 38);
+    bgFillRect(p.x, p.y, p.w, p.h, PLAT_COLOR_BODY.r, PLAT_COLOR_BODY.g, PLAT_COLOR_BODY.b);
+    bgFillRect(p.x, p.y, p.w, PLAT_EDGE_H, PLAT_COLOR_TOP.r, PLAT_COLOR_TOP.g, PLAT_COLOR_TOP.b);
+    bgFillRect(
+      p.x,
+      p.y + p.h - PLAT_EDGE_H,
+      p.w,
+      PLAT_EDGE_H,
+      PLAT_COLOR_BOTTOM.r,
+      PLAT_COLOR_BOTTOM.g,
+      PLAT_COLOR_BOTTOM.b
+    );
     i = i + 1;
   }
 
@@ -641,7 +751,7 @@ function enemySprite(id) {
     cols: 9,
     rows: 4,
     scale: 60,
-    feetTrim: ENEMY_FEET_TRIM,
+    feetTrim: 10,
     jumpFrame: 0
   };
 }
@@ -686,7 +796,10 @@ function sprites() {
   let mpi = 0;
   while (mpi < MAX_MOVING_PLATFORMS) {
     const def = BASE_MOVING_PLATFORMS[mpi];
-    list.push(movingPlatformSprite("mp" + mpi, scaleX(def.w), def.h));
+    const layers = movingPlatformSprites(mpi, scaleX(def.w), def.h);
+    list.push(layers[0]);
+    list.push(layers[1]);
+    list.push(layers[2]);
     mpi = mpi + 1;
   }
   // Draw players last so they appear above enemies / pickups.
@@ -734,6 +847,27 @@ function makeDiamonds() {
   let i = 0;
   while (i < MAX_DIAMONDS) {
     out.push({ taken: 0 });
+    i = i + 1;
+  }
+  return out;
+}
+
+function makeRestartDiamonds(prev) {
+  const out = [];
+  let i = 0;
+  while (i < MAX_DIAMONDS) {
+    const def = BASE_DIAMOND_DEFS[i];
+    if (def.restoreOnRestart) {
+      out.push({ taken: 0 });
+    } else {
+      let taken = 0;
+      if (prev) {
+        if (prev[i]) {
+          taken = prev[i].taken;
+        }
+      }
+      out.push({ taken: taken });
+    }
     i = i + 1;
   }
   return out;
@@ -1367,16 +1501,9 @@ function placeEntities(s, cam, slots) {
   while (mpi < MAX_MOVING_PLATFORMS) {
     const mp = s.movingPlatforms[mpi];
     if (mp) {
-      entities["mp" + mpi] = {
-        x: mp.x + mp.w / 2,
-        y: mp.y - cam + mp.h / 2,
-        visible: 1,
-        r: 100,
-        g: 195,
-        b: 82
-      };
+      placeMovingPlatformEntities(entities, mpi, mp, cam);
     } else {
-      entities["mp" + mpi] = hiddenEntity();
+      hideMovingPlatformEntities(entities, mpi);
     }
     mpi = mpi + 1;
   }
@@ -1642,6 +1769,20 @@ function update(props) {
   if (showVictoryBanner({ playerSlots: slots, p1: p1, p2: p2 })) {
     if (wantsRestart(props, dual)) {
       const fresh = initState();
+      fresh.diamonds = makeRestartDiamonds(s.diamonds);
+      fresh.entities = placeEntities(
+        {
+          p1: fresh.p1,
+          p2: fresh.p2,
+          enemies: fresh.enemies,
+          fruits: fresh.fruits,
+          diamonds: fresh.diamonds,
+          bullets: fresh.bullets,
+          movingPlatforms: fresh.movingPlatforms
+        },
+        fresh.cameraY,
+        slots
+      );
       fresh.events = [soundEvent("blip")];
       return fresh;
     }
@@ -1680,7 +1821,7 @@ function update(props) {
   }
 
   const movingPlatforms = copyMovingPlatforms(s);
-  updateMovingPlatforms(movingPlatforms, dt);
+  updateMovingPlatforms(movingPlatforms, dt, staticPlatforms);
   const platforms = mergePlatforms(staticPlatforms, movingPlatforms);
 
   if (p1.done == 0) {
