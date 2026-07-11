@@ -397,6 +397,11 @@ declare const bgHeight: number;
 /** Split-screen pane index (-1=full screen, 0=left, 1=right); injected by host. */
 declare const paneIndex: number;
 
+/** Host session data — survives hot-reload scene resets within one runner. */
+declare const session: {
+  musicId: string;
+};
+
 /** Opposite pane's car in split-screen mode (updated each frame by the host). */
 declare const peerCar: {
   active: number;

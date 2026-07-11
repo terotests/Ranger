@@ -38,10 +38,22 @@ export function musicEvent(id, loop?) {
   return { kind: "playMusic", id: id, amount: amount };
 }
 
-/** Start music from inline soundscore text. */
-export function musicScoreEvent(scoreText, loop?) {
+/** Prepend a global transpose line (semitones; e.g. -2 = two half-steps down). */
+export function transposeScore(scoreText, semitones) {
+  if (semitones == null || semitones === 0) {
+    return scoreText;
+  }
+  return "transpose " + semitones + "\n" + scoreText;
+}
+
+/** Start music from inline soundscore text. Optional `transpose` shifts all pitches. */
+export function musicScoreEvent(scoreText, loop?, transpose?) {
   const amount = loop === false ? 0 : 1;
-  return { kind: "playMusic", id: "inline", text: scoreText, amount: amount };
+  let text = scoreText;
+  if (transpose != null && transpose !== 0) {
+    text = transposeScore(scoreText, transpose);
+  }
+  return { kind: "playMusic", id: "inline", text: text, amount: amount };
 }
 
 /** Stop the current soundscore playback. */

@@ -63,6 +63,7 @@ class GameHost {
     def musicPaths:[string:string]
     def musicTexts:[string:string]
     def musicDir:string ""
+    def activeMusicScore:string ""
 
     fn wireMusic:void () {
         if audio {
@@ -118,12 +119,25 @@ class GameHost {
             return
         }
         this.wireMusic()
+        if (music.isPlaying()) {
+            if (activeMusicScore == scoreText) {
+                return
+            }
+        }
+        def a:GameAudio (unwrap audio)
+        a.sink.onClearQueue()
+        activeMusicScore = scoreText
         music.load(scoreText)
         music.play(loopScore)
     }
 
     fn stopMusic:void () {
         music.stop()
+        if audio {
+            def a:GameAudio (unwrap audio)
+            a.sink.onClearQueue()
+        }
+        activeMusicScore = ""
     }
 
     fn tickMusic:void (dtMs:int) {

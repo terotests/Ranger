@@ -36,6 +36,8 @@ static SDL_Window*   g_rgfx_win = nullptr;
 static SDL_Renderer* g_rgfx_ren = nullptr;
 static SDL_Texture*  g_rgfx_tex = nullptr;
 static SDL_AudioDeviceID g_rgfx_audio = 0;
+static int g_rgfx_audio_channels = 1;
+static int g_rgfx_audio_freq = 44100;
 static int g_rgfx_should_close = 0;
 static int g_rgfx_fullscreen = 0;
 
@@ -430,6 +432,8 @@ static int rgfx_try_open_audio_device(int sampleRate, const char* dev, int chann
         return 0;
     }
     g_rgfx_audio = id;
+    g_rgfx_audio_channels = have.channels > 0 ? have.channels : 1;
+    g_rgfx_audio_freq = have.freq > 0 ? have.freq : want.freq;
     const char* label = dev;
     if (label == nullptr) {
         const char* ad = getenv(\"AUDIODEV\");
@@ -447,6 +451,8 @@ static void rgfx_close_audio_device() {
         SDL_CloseAudioDevice(g_rgfx_audio);
         g_rgfx_audio = 0;
     }
+    g_rgfx_audio_channels = 1;
+    g_rgfx_audio_freq = 44100;
 }
 
 static int rgfx_try_alsa_audidev(int sampleRate, const char* audidev) {
@@ -492,15 +498,34 @@ static int rgfx_audio_open(int sampleRate) {
     fprintf(stderr, \"[rgfx] audio: no device — set RANGER_AUDIO_DEVICE=plughw:N,0 (aplay -l)\\n\");
     return 0;
 }
+#include <vector>
 static void rgfx_audio_queue(const uint8_t* pcm, int byteCount) {
     if (g_rgfx_audio == 0) { return; }
     if (pcm == nullptr || byteCount <= 0) { return; }
-    SDL_QueueAudio(g_rgfx_audio, pcm, (Uint32) byteCount);
+    if (g_rgfx_audio_channels <= 1) {
+        SDL_QueueAudio(g_rgfx_audio, pcm, (Uint32) byteCount);
+        return;
+    }
+    int monoSamples = byteCount / 2;
+    if (monoSamples <= 0) { return; }
+    std::vector<uint8_t> stereo((size_t)monoSamples * 4u);
+    int i = 0;
+    while (i < monoSamples) {
+        int off = i * 2;
+        stereo[(size_t)i * 4u] = pcm[off];
+        stereo[(size_t)i * 4u + 1u] = pcm[off + 1];
+        stereo[(size_t)i * 4u + 2u] = pcm[off];
+        stereo[(size_t)i * 4u + 3u] = pcm[off + 1];
+        i = i + 1;
+    }
+    SDL_QueueAudio(g_rgfx_audio, stereo.data(), (Uint32)((size_t)monoSamples * 4u));
 }
 static void rgfx_audio_clear() {
     if (g_rgfx_audio != 0) { SDL_ClearQueuedAudio(g_rgfx_audio); }
 }
-
+static int rgfx_audio_sample_rate() {
+    return g_rgfx_audio_freq;
+}
 #include <vector>
 #if defined(__APPLE__)
 #include <OpenGL/gl3.h>
@@ -1101,6 +1126,13 @@ static void rgfx_close() {
         templates {
             cpp ( "rgfx_audio_clear()" (imp "<SDL2/SDL.h>") )
             es6 ( "undefined" )
+        }
+    }
+
+    gfx_audio_sample_rate _:int () {
+        templates {
+            cpp ( "rgfx_audio_sample_rate()" (imp "<SDL2/SDL.h>") )
+            es6 ( "44100" )
         }
     }
 

@@ -198,6 +198,10 @@ class GameSdlRunner {
         runner.init(pw ph)
         runner.setGpuMode(gpuModeActive)
         runner.audio.setSink((new SdlGameAudioSink))
+        def devRate:int (gfx_audio_sample_rate)
+        if (devRate > 0) {
+            runner.audio.sampleRate = devRate
+        }
         runner.host = (new SdlGameHost)
         runner.wireHostAudio()
         runner.setScriptDir(dir)
@@ -736,7 +740,7 @@ class GameSdlRunner {
         if (startFullscreen) {
             gfx_set_fullscreen(1)
         }
-        gfx_audio_open(22050)
+        gfx_audio_open(44100)
         if (launcherMode) {
             this.runMenuLoop()
         } {

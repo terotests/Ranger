@@ -90,6 +90,15 @@ class GameRunner {
         ph = h
         canvas.init(w h)
         particles.init(96)
+        this.initSessionGlobal()
+    }
+
+    fn initSessionGlobal:void () {
+        def keys:[string]
+        def vals:[EvalValue]
+        push keys "musicId"
+        push vals (EvalValue.string(""))
+        engine.registerGlobal("session" (EvalValue.object(keys vals)))
     }
 
     fn half:int (n:int) {

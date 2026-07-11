@@ -6,7 +6,7 @@
 // Split pane: left=P1 girl, right=P2 boy (paneIndex); WASD / arrows + Space + B
 // Dual (480px): P1 WASD, P2 arrows + Start to join
 
-import { soundEvent, particleEvent, rumbleEvent } from "../../scripting/game_helpers";
+import { soundEvent, particleEvent, rumbleEvent, musicScoreEvent, stopMusicEvent } from "../../scripting/game_helpers";
 
 const BASE_W = 480;
 const WORLD_H = 1890;
@@ -38,6 +38,16 @@ const FINISH_CELEBRATE_MS = 3000;
 const FINISH_WALK_MS = 4500;
 const FINISH_PHASE_DONE = FINISH_CELEBRATE_MS + FINISH_WALK_MS;
 
+const SUMMIT_MUSIC =
+  "tempo 152\n" +
+  "beats 4/4\n" +
+  "\n" +
+  "@melody piano\n" +
+  "0.5:E4 0.5:G4 1:A4 1:G4 1:E4\n" +
+  "0.5:D4 0.5:E4 1:G4 2:E4\n" +
+  "0.5:E4 0.5:G4 1:A4 1:C5 1:B4\n" +
+  "1:A4 1:G4 2:E4\n";
+  
 const GRAV = 0.00045;
 const MOVE = 0.22;
 const P1_SHEET = "assets/p1_walk.png";
@@ -886,6 +896,14 @@ function makeBullets() {
   return out;
 }
 
+function tryStartSummitMusic(summitMusicStarted, events) {
+  if (summitMusicStarted == 1) {
+    return 1;
+  }
+  events.push(musicScoreEvent(SUMMIT_MUSIC, false));
+  return 1;
+}
+
 function initState() {
   const slots = playerSlots();
   const cameraY = WORLD_H - VIEW_H;
@@ -924,7 +942,8 @@ function initState() {
     score1: 0,
     score2: 0,
     fireCd1: 0,
-    fireCd2: 0
+    fireCd2: 0,
+    summitMusicStarted: 0
   };
 }
 
@@ -1775,6 +1794,10 @@ function update(props) {
   let p2 = s.p2;
   let fireCd1 = s.fireCd1;
   let fireCd2 = s.fireCd2;
+  let summitMusicStarted = s.summitMusicStarted;
+  if (summitMusicStarted == null) {
+    summitMusicStarted = 0;
+  }
 
   if (p1.done == 1) {
     p1 = tickFinishPlayer(p1, dt, events);
@@ -1802,7 +1825,7 @@ function update(props) {
         fresh.cameraY,
         slots
       );
-      fresh.events = [soundEvent("blip")];
+      fresh.events = [stopMusicEvent(), soundEvent("blip")];
       return fresh;
     }
     const cameraY = computeCamera(p1, p2, dual);
@@ -1835,6 +1858,7 @@ function update(props) {
       score2: s.score2,
       fireCd1: fireCd1,
       fireCd2: fireCd2,
+      summitMusicStarted: s.summitMusicStarted,
       events: events
     };
   }
@@ -1997,10 +2021,16 @@ function update(props) {
 
   if (p1.done == 0) {
     p1 = checkFinish(p1, owner, events);
+    if (p1.done == 1) {
+      summitMusicStarted = tryStartSummitMusic(summitMusicStarted, events);
+    }
   }
   if (dual) {
     if (p2.done == 0) {
       p2 = checkFinish(p2, 2, events);
+      if (p2.done == 1) {
+        summitMusicStarted = tryStartSummitMusic(summitMusicStarted, events);
+      }
     }
   }
 
@@ -2035,6 +2065,7 @@ function update(props) {
     score2: score2,
     fireCd1: fireCd1,
     fireCd2: fireCd2,
+    summitMusicStarted: summitMusicStarted,
     events: events
   };
 }
