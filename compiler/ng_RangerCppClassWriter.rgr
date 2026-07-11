@@ -799,6 +799,10 @@ class RangerCppClassWriter {
   fn writeNewCall:void  (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasNewOper {
       def cl:RangerAppClassDesc node.clDesc
+      if (cl.isSingletonClass()) {
+        wr.out((cl.name + "::__singleton()") false)
+        return
+      }
       def fc:CodeNode (node.getSecond())
       wr.out(" std::make_shared<" false)
       wr.out(node.clDesc.name false)
@@ -889,6 +893,11 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
       wr.out(((" " + variant.compiledName) + "(") false)
       this.writeArgsDef(variant ctx wr)
       wr.out(");" true)
+    }
+    if (cl.isSingletonClass()) {
+      wr.out("static std::shared_ptr<" false)
+      wr.out(cl.name false)
+      wr.out("> __singleton();" true)
     }
     for cl.defined_variants fnVar:string i {
       if (i == 0) {
@@ -1071,6 +1080,33 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
     }
     wr.indent(-1)
     wr.out("}" true)
+    if (cl.isSingletonClass()) {
+      wr.out(("static std::shared_ptr<" + cl.name + "> s_" + cl.name + "_singleton;") true)
+      wr.out("std::shared_ptr<" false)
+      wr.out(cl.name false)
+      wr.out("> " false)
+      wr.out(cl.name false)
+      wr.out("::__singleton() {" true)
+      wr.indent(1)
+      wr.out(("if (!s_" + cl.name + "_singleton) {") true)
+      wr.indent(1)
+      wr.out(("s_" + cl.name + "_singleton = std::make_shared<" + cl.name + ">(") false)
+      if cl.has_constructor {
+        def constr:RangerAppFunctionDesc (unwrap cl.constructor_fn)
+        for constr.params arg:RangerAppParamDesc i {
+          if (i > 0) {
+            wr.out(", " false)
+          }
+          wr.out(arg.compiledName false)
+        }
+      }
+      wr.out(");" true)
+      wr.indent(-1)
+      wr.out("}" true)
+      wr.out(("return s_" + cl.name + "_singleton;") true)
+      wr.indent(-1)
+      wr.out("}" true)
+    }
     for cl.static_methods variant:RangerAppFunctionDesc i {
 
       if (variant.nameNode.hasFlag("main")) {

@@ -19344,6 +19344,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     async writeNewCall (node, ctx, wr) {
       if ( node.hasNewOper ) {
         const cl = node.clDesc;
+        if ( cl.isSingletonClass() ) {
+          wr.out(cl.name + "::__singleton()", false);
+          return;
+        }
         const fc = node.getSecond();
         wr.out(" std::make_shared<", false);
         wr.out(node.clDesc.name, false);
@@ -19428,6 +19432,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         await this.writeArgsDef(variant, ctx, wr);
         wr.out(");", true);
       };
+      if ( cl.isSingletonClass() ) {
+        wr.out("static std::shared_ptr<", false);
+        wr.out(cl.name, false);
+        wr.out("> __singleton();", true);
+      }
       for ( let i_4 = 0; i_4 < cl.defined_variants.length; i_4++) {
         var fnVar = cl.defined_variants[i_4];
         if ( i_4 == 0 ) {
@@ -19570,8 +19579,36 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }
       wr.indent(-1);
       wr.out("}", true);
-      for ( let i_4 = 0; i_4 < cl.static_methods.length; i_4++) {
-        var variant = cl.static_methods[i_4];
+      if ( cl.isSingletonClass() ) {
+        wr.out(((("static std::shared_ptr<" + cl.name) + "> s_") + cl.name) + "_singleton;", true);
+        wr.out("std::shared_ptr<", false);
+        wr.out(cl.name, false);
+        wr.out("> ", false);
+        wr.out(cl.name, false);
+        wr.out("::__singleton() {", true);
+        wr.indent(1);
+        wr.out(("if (!s_" + cl.name) + "_singleton) {", true);
+        wr.indent(1);
+        wr.out(((("s_" + cl.name) + "_singleton = std::make_shared<") + cl.name) + ">(", false);
+        if ( cl.has_constructor ) {
+          const constr_3 = cl.constructor_fn;
+          for ( let i_4 = 0; i_4 < constr_3.params.length; i_4++) {
+            var arg_1 = constr_3.params[i_4];
+            if ( i_4 > 0 ) {
+              wr.out(", ", false);
+            }
+            wr.out(arg_1.compiledName, false);
+          };
+        }
+        wr.out(");", true);
+        wr.indent(-1);
+        wr.out("}", true);
+        wr.out(("return s_" + cl.name) + "_singleton;", true);
+        wr.indent(-1);
+        wr.out("}", true);
+      }
+      for ( let i_5 = 0; i_5 < cl.static_methods.length; i_5++) {
+        var variant = cl.static_methods[i_5];
         if ( variant.nameNode.hasFlag("main") ) {
           continue;
         }
@@ -19590,11 +19627,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         wr.indent(-1);
         wr.out("}", true);
       };
-      for ( let i_5 = 0; i_5 < cl.defined_variants.length; i_5++) {
-        var fnVar = cl.defined_variants[i_5];
+      for ( let i_6 = 0; i_6 < cl.defined_variants.length; i_6++) {
+        var fnVar = cl.defined_variants[i_6];
         const mVs = ( cl.method_variants.hasOwnProperty(fnVar) ? cl.method_variants[fnVar] : undefined );
-        for ( let i_6 = 0; i_6 < mVs.variants.length; i_6++) {
-          var variant_1 = mVs.variants[i_6];
+        for ( let i_7 = 0; i_7 < mVs.variants.length; i_7++) {
+          var variant_1 = mVs.variants[i_7];
           await this.writeTypeDef(variant_1.nameNode, ctx, wr);
           wr.out(" ", false);
           wr.out((" " + cl.name) + "::", false);
@@ -19611,8 +19648,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           wr.out("}", true);
         };
       };
-      for ( let i_7 = 0; i_7 < cl.static_methods.length; i_7++) {
-        var variant_2 = cl.static_methods[i_7];
+      for ( let i_8 = 0; i_8 < cl.static_methods.length; i_8++) {
+        var variant_2 = cl.static_methods[i_8];
         if ( variant_2.nameNode.hasFlag("main") && (variant_2.nameNode.code.filename == ctx.getRootFile()) ) {
           ctx.setCompilerSetting("mainclass", cl.name);
           wr.out("int main(int argc, char* argv[]) {", true);
@@ -34492,55 +34529,59 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           return this.lowerArithF64OrI32("mul", "fmul", node, lctx);
         case "/" : 
           return this.lowerArithF64OrI32("sdiv", "fdiv", node, lctx);
-        case "%" : 
+        case "idiv" : 
           const a = this.lowerExpr(node.getSecond(), lctx);
           const b = this.lowerExpr(node.getThird(), lctx);
-          const kind = "srem";
-          return builder.emitBin(kind, irI32, a, b);
-        case "bit_and" : 
+          return builder.emitBin("sdiv", irI32, a, b);
+        case "%" : 
           const a_1 = this.lowerExpr(node.getSecond(), lctx);
           const b_1 = this.lowerExpr(node.getThird(), lctx);
-          return builder.emitBin("and", irI32, a_1, b_1);
-        case "bit_or" : 
+          const kind = "srem";
+          return builder.emitBin(kind, irI32, a_1, b_1);
+        case "bit_and" : 
           const a_2 = this.lowerExpr(node.getSecond(), lctx);
           const b_2 = this.lowerExpr(node.getThird(), lctx);
-          return builder.emitBin("or", irI32, a_2, b_2);
-        case "bit_xor" : 
+          return builder.emitBin("and", irI32, a_2, b_2);
+        case "bit_or" : 
           const a_3 = this.lowerExpr(node.getSecond(), lctx);
           const b_3 = this.lowerExpr(node.getThird(), lctx);
-          return builder.emitBin("xor", irI32, a_3, b_3);
-        case "bit_shl" : 
+          return builder.emitBin("or", irI32, a_3, b_3);
+        case "bit_xor" : 
           const a_4 = this.lowerExpr(node.getSecond(), lctx);
           const b_4 = this.lowerExpr(node.getThird(), lctx);
-          return builder.emitBin("shl", irI32, a_4, b_4);
-        case "bit_shr" : 
+          return builder.emitBin("xor", irI32, a_4, b_4);
+        case "bit_shl" : 
           const a_5 = this.lowerExpr(node.getSecond(), lctx);
           const b_5 = this.lowerExpr(node.getThird(), lctx);
-          return builder.emitBin("ashr", irI32, a_5, b_5);
-        case "bit_not" : 
+          return builder.emitBin("shl", irI32, a_5, b_5);
+        case "bit_shr" : 
           const a_6 = this.lowerExpr(node.getSecond(), lctx);
-          const neg1 = builder.emitConst(irI32, "-1");
-          return builder.emitBin("xor", irI32, a_6, neg1);
-        case "<" : 
-          const a_7 = this.lowerExpr(node.getSecond(), lctx);
           const b_6 = this.lowerExpr(node.getThird(), lctx);
-          const pred = "slt";
-          return builder.emitIcmp(pred, a_7, b_6);
-        case ">" : 
+          return builder.emitBin("ashr", irI32, a_6, b_6);
+        case "bit_not" : 
+          const a_7 = this.lowerExpr(node.getSecond(), lctx);
+          const neg1 = builder.emitConst(irI32, "-1");
+          return builder.emitBin("xor", irI32, a_7, neg1);
+        case "<" : 
           const a_8 = this.lowerExpr(node.getSecond(), lctx);
           const b_7 = this.lowerExpr(node.getThird(), lctx);
-          const pred_1 = "sgt";
-          return builder.emitIcmp(pred_1, a_8, b_7);
-        case "<=" : 
+          const pred = "slt";
+          return builder.emitIcmp(pred, a_8, b_7);
+        case ">" : 
           const a_9 = this.lowerExpr(node.getSecond(), lctx);
           const b_8 = this.lowerExpr(node.getThird(), lctx);
-          const pred_2 = "sle";
-          return builder.emitIcmp(pred_2, a_9, b_8);
-        case ">=" : 
+          const pred_1 = "sgt";
+          return builder.emitIcmp(pred_1, a_9, b_8);
+        case "<=" : 
           const a_10 = this.lowerExpr(node.getSecond(), lctx);
           const b_9 = this.lowerExpr(node.getThird(), lctx);
+          const pred_2 = "sle";
+          return builder.emitIcmp(pred_2, a_10, b_9);
+        case ">=" : 
+          const a_11 = this.lowerExpr(node.getSecond(), lctx);
+          const b_10 = this.lowerExpr(node.getThird(), lctx);
           const pred_3 = "sge";
-          return builder.emitIcmp(pred_3, a_10, b_9);
+          return builder.emitIcmp(pred_3, a_11, b_10);
         case "==" : 
           const aNode_1 = node.getSecond();
           const bNode_1 = node.getThird();
@@ -34560,13 +34601,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           }
           return this.lowerCompareI32(aNode_2, bNode_2, "ne", lctx);
         case "||" : 
-          const a_11 = this.lowerExpr(node.getSecond(), lctx);
-          const b_10 = this.lowerExpr(node.getThird(), lctx);
-          return builder.emitBin("or", "i1", a_11, b_10);
-        case "&&" : 
           const a_12 = this.lowerExpr(node.getSecond(), lctx);
           const b_11 = this.lowerExpr(node.getThird(), lctx);
-          return builder.emitBin("and", "i1", a_12, b_11);
+          return builder.emitBin("or", "i1", a_12, b_11);
+        case "&&" : 
+          const a_13 = this.lowerExpr(node.getSecond(), lctx);
+          const b_12 = this.lowerExpr(node.getThird(), lctx);
+          return builder.emitBin("and", "i1", a_13, b_12);
       };
       return "";
     };

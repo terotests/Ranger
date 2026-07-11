@@ -1322,6 +1322,24 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
             }
         }
 
+        ; Integer division (truncates toward zero). Use instead of / when both
+        ; operands are int — plain / returns double for int/int in Ranger.
+        idiv  _:int (left:int right:int) {
+            templates {
+                ranger @macro(true) ( "(/ " (e 1) " " (e 2) ")" )
+                cpp ( "((" (e 1) ") / (" (e 2) "))" )
+                llvm ( "(idiv " (e 1) " " (e 2) ")" )
+                es6 ( "((" (e 1) " / " (e 2) ") | 0)" )
+                go ( (e 1) " / " (e 2) )
+                rust ( "((" (e 1) ") / (" (e 2) "))" )
+                kotlin ( (e 1) " / " (e 2) )
+                python ( "((" (e 1) ") // (" (e 2) "))" )
+                java7 ( "((" (e 1) ") / (" (e 2) "))" )
+                php ( "intdiv(" (e 1) ", " (e 2) ")" )
+                * ( (e 1) " / " (e 2) )
+            }
+        }
+
         ; ============================================================================
         ; Bitwise operators for integer manipulation
         ; ============================================================================

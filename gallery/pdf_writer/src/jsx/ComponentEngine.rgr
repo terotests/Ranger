@@ -260,6 +260,10 @@ class ComponentEngine {
     def componentMap:[string:ImportedSymbol]
 
     ; Bytecode compiler + VM stack (B tier).
+    ; NOTE: disabled by default — the current stack VM is slower than the direct
+    ; tree-walking evaluator for the small expressions in game render/update loops
+    ; (measured ~4x fps drop). Keep off until the VM overhead is optimized.
+    def bytecodeEnabled:boolean false
     def bytecodeCompiler:TSBytecodeCompiler (new TSBytecodeCompiler())
     def bytecodeStack:[EvalValue]
     def bytecodeStackTop:int 0
@@ -3308,16 +3312,19 @@ class ComponentEngine {
     
     fn evaluateExpr:EvalValue (node:TSNode) {
         ; Bytecode fast path (B tier) — compile-on-first-use for pure expressions.
-        if (node.bytecodeReady) {
-            if node.exprBytecode {
-                return (this.executeBytecode((unwrap node.exprBytecode)))
-            }
-        } {
-            if (bytecodeCompiler.canCompile(node)) {
-                def chunk:TSBytecodeChunk (bytecodeCompiler.compileExpr(node))
-                node.exprBytecode = chunk
-                node.bytecodeReady = true
-                return (this.executeBytecode(chunk))
+        ; Gated off by default: the VM currently costs more than the tree-walker.
+        if bytecodeEnabled {
+            if (node.bytecodeReady) {
+                if node.exprBytecode {
+                    return (this.executeBytecode((unwrap node.exprBytecode)))
+                }
+            } {
+                if (bytecodeCompiler.canCompile(node)) {
+                    def chunk:TSBytecodeChunk (bytecodeCompiler.compileExpr(node))
+                    node.exprBytecode = chunk
+                    node.bytecodeReady = true
+                    return (this.executeBytecode(chunk))
+                }
             }
         }
 

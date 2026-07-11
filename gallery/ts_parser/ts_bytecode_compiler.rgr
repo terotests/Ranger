@@ -38,6 +38,11 @@ class TSBytecodeCompiler {
     }
 
     fn canCompileBinary:boolean (node:TSNode) {
+        ; Nullish coalescing has no correct stack-op lowering yet — defer to the
+        ; tree-walker instead of miscompiling it as NEQ.
+        if (node.value == "??") {
+            return false
+        }
         if node.left {
             if (false == (this.canCompile((unwrap node.left)))) {
                 return false

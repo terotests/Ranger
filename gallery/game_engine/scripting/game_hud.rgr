@@ -216,7 +216,7 @@ class GameHudBlitter {
         if (ch == "7") { return "111001010010010" }
         if (ch == "8") { return "111101111101111" }
         if (ch == "9") { return "111101111001111" }
-        if (ch == "A") { return "111101101111101" }
+        if (ch == "A") { return "111101111101101" }
         if (ch == "B") { return "110101110101110" }
         if (ch == "C") { return "111100100100111" }
         if (ch == "D") { return "110101101101110" }
@@ -227,11 +227,11 @@ class GameHudBlitter {
         if (ch == "I") { return "111010010010111" }
         if (ch == "K") { return "101101110101101" }
         if (ch == "L") { return "100100100100111" }
-        if (ch == "M") { return "101111111101101" }
-        if (ch == "N") { return "101110110101101" }
+        if (ch == "M") { return "101111101101101" }
+        if (ch == "N") { return "101110101011101" }
         if (ch == "O") { return "111101101101111" }
         if (ch == "P") { return "111101111100100" }
-        if (ch == "R") { return "111101111101101" }
+        if (ch == "R") { return "110101110101101" }
         if (ch == "S") { return "111100111001111" }
         if (ch == "T") { return "111010010010010" }
         if (ch == "U") { return "101101101101111" }
