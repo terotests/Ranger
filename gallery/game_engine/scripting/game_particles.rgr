@@ -121,9 +121,9 @@ class GameParticleSystem {
         def i 0
         while (i < count) {
             def slot:int (this.allocSlot())
-            def ang:double ((to_double i) / (to_double count))
-            ang = (ang * 6.28318)
-            def spd:double (this.randRange(0.08 0.22))
+            ; Full 360° radial burst — random angle + speed per particle.
+            def ang:double (this.randRange(0.0 6.283185307))
+            def spd:double (this.randRange(0.10 0.26))
             def vx:double (cos(ang) * spd)
             def vy:double (sin(ang) * spd)
             def life:int (to_int (this.randRange(220.0 420.0)))
@@ -145,11 +145,10 @@ class GameParticleSystem {
         def i 0
         while (i < count) {
             def slot:int (this.allocSlot())
-            def ang:double (this.randRange(0.0 6.28318))
-            def spd:double (this.randRange(0.05 0.20))
+            def ang:double (this.randRange(0.0 6.283185307))
+            def spd:double (this.randRange(0.06 0.22))
             def vx:double (cos(ang) * spd)
             def vy:double (sin(ang) * spd)
-            vy = (vy + (this.randRange(-0.18 -0.04)))
             def life:int (to_int (this.randRange(200.0 420.0)))
             def size:double (this.randRange(1.5 4.0))
             def pick:int (to_int (this.randRange(0.0 3.0)))
@@ -187,19 +186,11 @@ class GameParticleSystem {
         def i 0
         while (i < count) {
             def slot:int (this.allocSlot())
-            def vx:double 0.0
-            def vy:double 0.0
-            def mode:int (to_int (this.randRange(0.0 10.0)))
-            if (mode < 6) {
-                ; confetti fountain — mostly up and outward
-                vx = (this.randRange(-0.26 0.26))
-                vy = (this.randRange(-0.36 -0.10))
-            } {
-                def ang:double (this.randRange(0.0 6.28318))
-                def spd:double (this.randRange(0.06 0.22))
-                vx = (cos(ang) * spd)
-                vy = (sin(ang) * spd)
-            }
+            ; Omnidirectional confetti — full 360° with varied speed.
+            def ang:double (this.randRange(0.0 6.283185307))
+            def spd:double (this.randRange(0.08 0.28))
+            def vx:double (cos(ang) * spd)
+            def vy:double (sin(ang) * spd)
             def life:int (to_int (this.randRange(420.0 980.0)))
             def size:double (this.randRange(2.0 6.5))
             def pick:int (to_int (this.randRange(0.0 5.0)))
@@ -247,11 +238,10 @@ class GameParticleSystem {
         def i 0
         while (i < count) {
             def slot:int (this.allocSlot())
-            def ang:double (this.randRange(0.0 6.28318))
-            def spd:double (this.randRange(0.04 0.16))
+            def ang:double (this.randRange(0.0 6.283185307))
+            def spd:double (this.randRange(0.06 0.20))
             def vx:double (cos(ang) * spd)
-            def vy:double (this.randRange(-0.22 -0.04))
-            vy = (vy + (sin(ang) * spd * 0.35))
+            def vy:double (sin(ang) * spd)
             def life:int (to_int (this.randRange(350.0 700.0)))
             def size:double (this.randRange(2.0 5.0))
             def pick:int (to_int (this.randRange(0.0 3.0)))
@@ -278,7 +268,7 @@ class GameParticleSystem {
             return
         }
         def dt:double (to_double dtMs)
-        def grav:double 0.00028
+        def grav:double 0.00018
         def i 0
         while (i < maxCount) {
             def p:GameParticle (itemAt pool i)
