@@ -164,6 +164,30 @@ class TSParserSimple {
     def v (this.peekValue())
     return (v == value)
   }
+
+  ; Object literal keys may use reserved/type words: { any: 1, string: "x" }.
+  fn isObjectPropertyKeyToken:boolean () {
+    def t (this.peekType())
+    if (t == "Identifier") {
+      return true
+    }
+    if (t == "TSType") {
+      return true
+    }
+    if (t == "String") {
+      return true
+    }
+    if (t == "Number") {
+      return true
+    }
+    if (t == "Boolean") {
+      return true
+    }
+    if (t == "Null") {
+      return true
+    }
+    return false
+  }
   
   ; === Parse Program ===
   
@@ -172,8 +196,15 @@ class TSParserSimple {
     prog.nodeType = "Program"
     
     while ((this.isAtEnd()) == false) {
+      def beforePos:int this.pos
+      def beforeVal:string (this.peekValue())
+      def beforeType:string (this.peekType())
       def stmt (this.parseStatement())
       push prog.children stmt
+      if (this.pos == beforePos) {
+        print ("[debug] TSParserSimple.parseProgram made no progress at token '" + beforeVal + "' type=" + beforeType)
+        this.advance()
+      }
     }
     
     return prog
@@ -4331,15 +4362,7 @@ class TSParserSimple {
           isComputed = true
           prop.computed = true
         }
-        if (this.matchType("Identifier")) {
-          prop.name = keyTok.value
-          this.advance()
-        }
-        if (this.matchType("String")) {
-          prop.name = keyTok.value
-          this.advance()
-        }
-        if (this.matchType("Number")) {
+        if (this.isObjectPropertyKeyToken()) {
           prop.name = keyTok.value
           this.advance()
         }

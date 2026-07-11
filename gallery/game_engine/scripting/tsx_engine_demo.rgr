@@ -31,6 +31,8 @@ class TsxEngineDemo {
         def splitNoPane:EvalValue (engine.callFunction("isSplitPane" (EvalValue.null())))
         engine.registerGlobal("paneIndex" (EvalValue.fromInt(1)))
         def splitWithPane:EvalValue (engine.callFunction("isSplitPane" (EvalValue.null())))
+        def mathSqrt:EvalValue (engine.callFunction("mathSqrt" (EvalValue.null())))
+        def anyObjectKey:EvalValue (engine.callFunction("anyObjectKey" (EvalValue.null())))
 
         print ("whileLen=" + (to_int (whileLen.numberValue)))
         print ("constSum=" + (to_int (constSum.numberValue)))
@@ -55,6 +57,8 @@ class TsxEngineDemo {
         } {
             print "splitWithPane=0"
         }
+        print ("mathSqrt=" + (to_int (mathSqrt.numberValue)))
+        print ("anyObjectKey=" + (to_int (anyObjectKey.numberValue)))
         print "tsx-engine-demo done"
     }
 }

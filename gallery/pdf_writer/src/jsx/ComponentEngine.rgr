@@ -3303,6 +3303,10 @@ class ComponentEngine {
                             def c:double (cos num)
                             return (EvalValue.number(c))
                         }
+                        if (methodName == "sqrt") {
+                            def r:double (sqrt num)
+                            return (EvalValue.number(r))
+                        }
                     }
                 }
                 

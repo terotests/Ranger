@@ -116,3 +116,13 @@ function loopContinueSkip() {
 function isSplitPane() {
   return typeof paneIndex !== "undefined";
 }
+
+function mathSqrt() {
+  return Math.sqrt(16);
+}
+
+function anyObjectKey() {
+  const hit = { hit: 1 };
+  const hitTip = 0;
+  return { any: hit.hit || hitTip, hit: hit }.any;
+}
