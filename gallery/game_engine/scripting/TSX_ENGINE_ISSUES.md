@@ -53,11 +53,13 @@ function total() { return PALETTE.r + PALETTE.g; }
 
 ---
 
-### 3. Heavy evaluator debug logging ✅ (partial, 2026-07-08)
+### 3. Heavy evaluator debug logging ✅ (partial, 2026-07-08; hot paths, 2026-07-11)
 
 `ComponentEngine` printed every variable bind, function call, method call, and index access. Long game runs flooded stderr and could hit `ENOBUFS` in Vitest.
 
 **Fix:** Added `quiet` flag + `trace()` helper; `GameRunner.init()` sets `engine.quiet = true`. Hot-path method/index logs use `trace()`.
+
+**2026-07-11 follow-up:** Hot-path `trace()` call sites still **built** their string arguments (with `to_string` / `EvalValue.toString()`) even when `quiet=true`, which was a major perf cost on both V8 and C++. Those sites are now guarded with `if (false == quiet)`. See [`TS_ENGINE_OPTIMIZATION.md`](./TS_ENGINE_OPTIMIZATION.md).
 
 **Remaining:** Import/template-literal paths still print when not quiet.
 

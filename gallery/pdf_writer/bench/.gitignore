@@ -1,0 +1,6 @@
+isolate-*.log
+prof.txt
+*.o
+bench
+bench_prof
+gmon.out

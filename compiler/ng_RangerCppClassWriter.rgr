@@ -735,13 +735,57 @@ class RangerCppClassWriter {
       }
     }
   }
+  ; Heavy value types (string / map / vector / buffers) are expensive to copy.
+  ; When such a parameter is never reassigned or mutated, pass it as `const T&`
+  ; to avoid a per-call deep copy (huge win for hot interpreter functions that
+  ; take string keys / operators by value).
+  fn cppReadonlyValueParam:boolean (arg:RangerAppParamDesc) {
+    if (arg.set_cnt > 0) {
+      return false
+    }
+    if arg.needs_cpp_reference {
+      return false
+    }
+    if (null? arg.nameNode) {
+      return false
+    }
+    def typeNode:CodeNode (unwrap arg.nameNode)
+    if (typeNode.hasFlag("optional")) {
+      ; optional primitives/collections are wrapped — leave as-is.
+      return false
+    }
+    def vt:RangerNodeType typeNode.value_type
+    if (vt == RangerNodeType.String) { return true }
+    if (vt == RangerNodeType.Hash) { return true }
+    if (vt == RangerNodeType.Array) { return true }
+    if (vt == RangerNodeType.Buffer) { return true }
+    if (vt == RangerNodeType.IntBuffer) { return true }
+    if (vt == RangerNodeType.DoubleBuffer) { return true }
+    ; Params often carry their type in type_name with value_type still NoType.
+    def tn:string typeNode.type_name
+    if (tn == "string") { return true }
+    if ((strlen tn) > 0) {
+      ; Collection literal types "[T]" / "[K:T]" map to std::vector / std::map.
+      def firstCh:string (substring tn 0 1)
+      if (firstCh == "[") { return true }
+    }
+    return false
+  }
+
   fn writeArgsDef:void  (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
     for fnDesc.params arg:RangerAppParamDesc i {
       if (i > 0) {
         wr.out("," false)
       }
       wr.out(" " false)
+      def constRef:boolean (this.cppReadonlyValueParam(arg))
+      if constRef {
+        wr.out("const " false)
+      }
       this.writeTypeDef( (unwrap arg.nameNode) ctx wr)
+      if constRef {
+        wr.out("&" false)
+      }
       ; Add reference for container params that are mutated. Object types use shared_ptr
       ; and should be passed by value — mutation goes through operator->.
       if arg.needs_cpp_reference {
@@ -888,6 +932,15 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
       this.writeTypeDef( (unwrap variant.nameNode) ctx wr)
       wr.out(((" " + variant.compiledName) + "(") false)
       this.writeArgsDef(variant ctx wr)
+      wr.out(");" true)
+    }
+    if (cl.isSingletonClass()) {
+      wr.out((("static std::shared_ptr<" + cl.name) + "> __singleton_instance;") true)
+      wr.out((("static std::shared_ptr<" + cl.name) + "> __singleton(") false)
+      if cl.has_constructor {
+        def constr:RangerAppFunctionDesc cl.constructor_fn
+        this.writeArgsDef((unwrap constr) ctx wr)
+      }
       wr.out(");" true)
     }
     for cl.defined_variants fnVar:string i {
@@ -1071,6 +1124,35 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
     }
     wr.indent(-1)
     wr.out("}" true)
+    if (cl.isSingletonClass()) {
+      ; Lazily-initialized process-wide singleton instance (matches JS/Swift).
+      wr.out((((("std::shared_ptr<" + cl.name) + "> ") + cl.name) + "::__singleton_instance = nullptr;") true)
+      wr.out((((("std::shared_ptr<" + cl.name) + "> ") + cl.name) + "::__singleton(") false)
+      if cl.has_constructor {
+        def constr:RangerAppFunctionDesc cl.constructor_fn
+        this.writeArgsDef((unwrap constr) ctx wr)
+      }
+      wr.out(") {" true)
+      wr.indent(1)
+      wr.out(("if (" + cl.name + "::__singleton_instance == nullptr) {") true)
+      wr.indent(1)
+      wr.out((((cl.name + "::__singleton_instance = std::make_shared<") + cl.name) + ">(") false)
+      if cl.has_constructor {
+        def constr:RangerAppFunctionDesc cl.constructor_fn
+        for constr.params arg:RangerAppParamDesc i {
+          if (i > 0) {
+            wr.out(", " false)
+          }
+          wr.out(arg.compiledName false)
+        }
+      }
+      wr.out(");" true)
+      wr.indent(-1)
+      wr.out("}" true)
+      wr.out(("return " + cl.name + "::__singleton_instance;") true)
+      wr.indent(-1)
+      wr.out("}" true)
+    }
     for cl.static_methods variant:RangerAppFunctionDesc i {
 
       if (variant.nameNode.hasFlag("main")) {

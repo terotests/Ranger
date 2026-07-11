@@ -1,0 +1,48 @@
+; =============================================================================
+; level_init_bench_cpp - native (C++) micro-benchmark for the TS interpreter.
+; =============================================================================
+; Loads bench/level_init_bench.tsx into the ComponentEngine and calls
+; initLevel() many times. Mirrors the "ar" game level-init hot path
+; (road solver + entity object building) with NO native/host calls, so it
+; measures pure interpreter evaluation cost on the C++ target.
+;
+; Build & run:
+;   RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js \
+;     -l=cpp gallery/pdf_writer/bench/level_init_bench_cpp.rgr -nodecli \
+;     -d=tmp/bench-cpp -o=bench.cpp
+;   clang++ -O2 -std=c++17 tmp/bench-cpp/bench.cpp -o tmp/bench-cpp/bench
+;   ./tmp/bench-cpp/bench 300
+
+Import "../src/jsx/ComponentEngine.rgr"
+Import "../src/jsx/EvalValue.rgr"
+
+class LevelInitBenchCpp {
+    sfn m@(main):void () {
+        def iters:int 300
+        def argCount:int (shell_arg_cnt)
+        if (argCount > 0) {
+            def parsed@(optional):int (to_int (shell_arg 0))
+            if parsed {
+                iters = (unwrap parsed)
+            }
+        }
+
+        def engine (new ComponentEngine())
+        engine.quiet = true
+
+        def buf:buffer (buffer_read_file "gallery/pdf_writer/bench" "level_init_bench.tsx")
+        def src:string (buffer_to_string buf)
+        engine.loadScript(src)
+
+        def checksum:double 0.0
+        def i:int 0
+        while (i < iters) {
+            def r:EvalValue (engine.callFunction("initLevel" (EvalValue.null())))
+            checksum = r.numberValue
+            i = i + 1
+        }
+
+        print ("checksum=" + (to_int checksum))
+        print ("iterations=" + (to_string iters))
+    }
+}
