@@ -1,0 +1,101 @@
+; ==============================================================================
+; physics_sandbox_runner_demo - headless Cannon sandbox integration test.
+; ==============================================================================
+
+Import "./game_runtime.rgr"
+
+class PhysicsSandboxRunnerDemo {
+    sfn m@(main):void () {
+        def runner:GameRunner (new GameRunner)
+        runner.init(480 270)
+
+        def buf:buffer (buffer_read_file "gallery/game_engine/games/physics_sandbox" "index.tsx")
+        def src:string (buffer_to_string buf)
+        runner.setScriptDir("gallery/game_engine/games/physics_sandbox")
+        runner.loadScript(src)
+        runner.setupScene()
+
+        def ax0:int (runner.entityX("a"))
+        def ay0:int (runner.entityY("a"))
+        def bx0:int (runner.entityX("b"))
+        def by0:int (runner.entityY("b"))
+
+        def minDist:int 10000
+        def frames:int 300
+        def i 0
+        while (i < frames) {
+            runner.frame(16 false false false false false false)
+            def ax:int (runner.entityX("a"))
+            def ay:int (runner.entityY("a"))
+            def bx:int (runner.entityX("b"))
+            def by:int (runner.entityY("b"))
+            def dx:int (bx - ax)
+            def dy:int (by - ay)
+            if (dx < 0) {
+                dx = (0 - dx)
+            }
+            if (dy < 0) {
+                dy = (0 - dy)
+            }
+            def dist:int (dx + dy)
+            if (dist < minDist) {
+                minDist = dist
+            }
+            i = (i + 1)
+        }
+
+        runner.draw()
+        def ax1:int (runner.entityX("a"))
+        def ay1:int (runner.entityY("a"))
+        def bx1:int (runner.entityX("b"))
+        def by1:int (runner.entityY("b"))
+        def moved:boolean false
+        if (ax1 != ax0) {
+            moved = true
+        }
+        if (ay1 != ay0) {
+            moved = true
+        }
+        def collided:boolean false
+        if (minDist < 50) {
+            collided = true
+        }
+        if (ax0 < bx0) {
+            if (ax1 > bx1) {
+                collided = true
+            }
+        }
+        if (bx0 < ax0) {
+            if (bx1 > ax1) {
+                collided = true
+            }
+        }
+        print ("frames=300")
+        print (("a0=" + ax0) + ("," + ay0))
+        print (("a1=" + ax1) + ("," + ay1))
+        print (("b1=" + bx1) + ("," + by1))
+        print (("minDist=" + (to_string minDist)))
+        def physOn:int 0
+        if (runner.isPhysicsEnabled()) {
+            physOn = 1
+        }
+        print (("physics=" + (to_string physOn)))
+        print (("moved=" + (to_string moved)))
+        print (("collided=" + (to_string collided)))
+        def pegHits:int (runner.memInt(runner.state "pegHits" 0))
+        def collEvs:EvalValue (runner.state.getMember("collisionEvents"))
+        def evCount:int 0
+        if (collEvs.isArray()) {
+            evCount = (array_length collEvs.arrayValue)
+        }
+        print (("pegHits=" + (to_string pegHits)))
+        print (("collisionEvents=" + (to_string evCount)))
+        if (moved) {
+            if (collided) {
+                print "physics-sandbox-runner done"
+                return
+            }
+        }
+        print "physics-sandbox-runner FAIL (no body-body collision)"
+    }
+}

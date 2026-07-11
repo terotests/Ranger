@@ -28,6 +28,8 @@ class GameCamera {
     def camY:int 0
     def targetCamX:int 0
     def targetCamY:int 0
+    ; Look-ahead in ms — uses follow entity vy (px/s) when present in worldEntities.
+    def leadMs:int 0
 
     fn memString:string (obj:EvalValue key:string dflt:string) {
         def v:EvalValue (obj.getMember(key))
@@ -69,6 +71,10 @@ class GameCamera {
         }
         if (smoothing > 1000) {
             smoothing = 1000
+        }
+        leadMs = (this.memInt(cfg "leadMs" 0))
+        if (leadMs < 0) {
+            leadMs = 0
         }
         def b:EvalValue (cfg.getMember("bounds"))
         if (b.isObject()) {
@@ -118,7 +124,7 @@ class GameCamera {
     }
 
     ; Compute target camera from follow entity world position.
-    fn update:void (world:EvalValue pw:int ph:int worldH:int) {
+    fn update:void (world:EvalValue pw:int ph:int worldH:int dtMs:int) {
         if (enabled == false) {
             return
         }
@@ -131,17 +137,23 @@ class GameCamera {
         }
         def fx:int (this.memInt(pos "x" 0))
         def fy:int (this.memInt(pos "y" 0))
+        def vy:int (this.memInt(pos "vy" 0))
+        def lead:int 0
+        if (leadMs > 0) {
+            lead = (idiv (vy * leadMs) 1000)
+        }
+        def halfH:int (idiv ph 2)
         if (mode == "horizontal") {
             targetCamX = (fx + offsetX - (idiv pw 2))
             targetCamY = 0
         } {
             if (mode == "both") {
                 targetCamX = (fx + offsetX - (idiv pw 2))
-                targetCamY = (fy + offsetY - (idiv ph 2))
+                targetCamY = (fy + offsetY + lead - halfH)
             } {
                 ; vertical (default) and unknown modes
                 targetCamX = 0
-                targetCamY = (fy + offsetY - (idiv ph 2))
+                targetCamY = (fy + offsetY + lead - halfH)
             }
         }
         this.clampCam(pw ph worldH)
@@ -150,10 +162,17 @@ class GameCamera {
             camY = targetCamY
             return
         }
+        def blend:int smoothing
+        if (dtMs > 0) {
+            blend = (idiv (smoothing * dtMs) 16)
+            if (blend > 1000) {
+                blend = 1000
+            }
+        }
         def dx:int (targetCamX - camX)
         def dy:int (targetCamY - camY)
-        camX = (camX + (idiv (dx * smoothing) 1000))
-        camY = (camY + (idiv (dy * smoothing) 1000))
+        camX = (camX + (idiv (dx * blend) 1000))
+        camY = (camY + (idiv (dy * blend) 1000))
     }
 
     fn writeToState:void (state:EvalValue) {

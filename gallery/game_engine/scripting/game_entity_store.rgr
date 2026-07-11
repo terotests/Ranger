@@ -212,6 +212,11 @@ class GameEntityStore {
             push k "p0"
             push v p0
         }
+        def angleV:EvalValue (pos.getMember("angle"))
+        if (false == (angleV.isNull())) {
+            push k "angle"
+            push v angleV
+        }
         def frame:EvalValue (pos.getMember("frame"))
         if (false == (frame.isNull())) {
             push k "p0"

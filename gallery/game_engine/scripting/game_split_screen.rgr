@@ -71,6 +71,13 @@ class SplitScreenHost {
         right.audio.setSink(sink)
     }
 
+    fn setAudioSampleRate:void (rate:int) {
+        if (rate > 0) {
+            left.audio.sampleRate = rate
+            right.audio.sampleRate = rate
+        }
+    }
+
     fn setSdlHost:void () {
         left.host = (new SdlGameHost)
         right.host = (new SdlGameHost)
@@ -104,8 +111,8 @@ class SplitScreenHost {
         bridge.setGameDir(dir)
         runner.setNativeBridge(bridge)
         runner.loadScript(src)
-        runner.setupScene()
         runner.registerSplitPane(pane)
+        runner.setupScene()
         runner.trackScriptFile(tsxPath)
     }
 
@@ -134,7 +141,43 @@ class SplitScreenHost {
         return snap
     }
 
+    fn usesSharedPhysics:boolean () {
+        return (left.usesSharedPhysics())
+    }
+
+    fn frameSharedPhysics:void (dtMs:int) {
+        left.setPhysicsPassive(true)
+        right.setPhysicsPassive(true)
+        def leftSnap:GameInputSnapshot (this.snapForPane(0))
+        def rightSnap:GameInputSnapshot (this.snapForPane(1))
+        if (left.fixedStepMs > 0) {
+            left.timeAccumulator = (left.timeAccumulator + dtMs)
+            def steps:int 0
+            while (left.timeAccumulator >= left.fixedStepMs) {
+                def step:int left.fixedStepMs
+                right.stepUpdateScript(step rightSnap)
+                left.sharedPhysicsStep(step leftSnap right)
+                right.syncSharedWorldFrom(left)
+                left.timeAccumulator = (left.timeAccumulator - step)
+                steps = (steps + 1)
+            }
+            if (steps == 0) {
+                right.syncSharedWorldFrom(left)
+                left.syncFromState()
+                right.syncFromState()
+            }
+            return
+        }
+        right.stepUpdateScript(dtMs rightSnap)
+        left.sharedPhysicsStep(dtMs leftSnap right)
+        right.syncSharedWorldFrom(left)
+    }
+
     fn frameWithInput:void (dtMs:int) {
+        if (this.usesSharedPhysics()) {
+            this.frameSharedPhysics(dtMs)
+            return
+        }
         left.setPeerCar((right.exportPeerCar()))
         right.setPeerCar((left.exportPeerCar()))
         def leftSnap:GameInputSnapshot (this.snapForPane(0))

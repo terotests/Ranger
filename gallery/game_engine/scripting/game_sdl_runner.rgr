@@ -340,6 +340,8 @@ class GameSdlRunner {
         splitHost = (new SplitScreenHost)
         splitHost.init(pw ph splitAutoscale)
         splitHost.setAudioSink((new SdlGameAudioSink))
+        def splitRate:int (gfx_audio_sample_rate)
+        splitHost.setAudioSampleRate(splitRate)
         splitHost.setSdlHost()
         splitHost.loadPanes(panePath panePath)
         def enableHotReload:boolean hotReloadWanted

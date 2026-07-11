@@ -1,0 +1,666 @@
+; ==============================================================================
+; physics_core — neutral 2D top-down physics (no EvalValue / app state).
+; ==============================================================================
+
+class PhysWheel {
+    def offsetX:double 0.0
+    def offsetY:double 0.0
+    def hw:double 4.0
+    def hh:double 6.0
+    def drive:double 0.0
+    def grip:double 1.0
+    def steer:boolean false
+}
+
+class PhysBody {
+    def id:string ""
+    def x:double 0.0
+    def y:double 0.0
+    def angle:double 0.0
+    def speed:double 0.0
+    def angularVel:double 0.0
+    def vx:double 0.0
+    def vy:double 0.0
+    def hw:double 10.0
+    def hh:double 16.0
+    def maxSpeed:double 300.0
+    def accel:double 420.0
+    def brake:double 520.0
+    def drag:double 0.92
+    def steerRate:double 130.0
+    def grip:double 1.0
+    def restitution:double 0.35
+    def spinOnWall:double 220.0
+    def active:boolean true
+    def static:boolean false
+    def mass:double 1.0
+    def invMass:double 1.0
+    def inertia:double 800.0
+    def invInertia:double 0.00125
+    def wheels:[PhysWheel]
+    def steerAngle:double 0.0
+    def lateralGrip:double 0.0
+    def maxLateralForce:double 0.0
+    def slipThreshold:double 0.0
+    def slipSpin:double 0.0
+    def angularDamping:double 1.0
+    def angularStop:double 0.0
+    def wheelInertia:double 0.0
+}
+
+class PhysBoundary {
+    def kind:string "segment"
+    def id:string ""
+    def x1:double 0.0
+    def y1:double 0.0
+    def x2:double 0.0
+    def y2:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    def restitution:double 0.4
+    def spinOnHit:double 200.0
+}
+
+class PhysCommand {
+    def bodyId:string ""
+    def steer:double 0.0
+    def throttle:double 0.0
+    def brake:double 0.0
+    def grip:double -1.0
+    def impulseX:double 0.0
+    def impulseY:double 0.0
+    def impulseAngular:double 0.0
+}
+
+class PhysContact {
+    def id:string ""
+    def phase:string "begin"
+    def bodyA:string ""
+    def bodyB:string ""
+    def normalImpulse:double 0.0
+    def x:double 0.0
+    def y:double 0.0
+    def nx:double 0.0
+    def ny:double 1.0
+}
+
+class PhysicsCore {
+    def bodies:[PhysBody]
+    def bounds:[PhysBoundary]
+    def contacts:[PhysContact]
+    def prevContactKeys:[string]
+
+    fn clear:void () {
+        clear bodies
+        clear bounds
+        clear contacts
+        clear prevContactKeys
+    }
+
+    fn degToRad:double (deg:double) {
+        return (deg * 0.017453292519943295)
+    }
+
+    fn degToOmega:double (degPerSec:double) {
+        return (degPerSec * 0.017453292519943295)
+    }
+
+    fn omegaToDeg:double (radPerSec:double) {
+        return (radPerSec * 57.29577951308232)
+    }
+
+    fn normalizeAngle:void (b:PhysBody) {
+        while (b.angle >= 360.0) {
+            b.angle = (b.angle - 360.0)
+        }
+        while (b.angle < 0.0) {
+            b.angle = (b.angle + 360.0)
+        }
+    }
+
+    fn bodyIndex:int (id:string) {
+        def i 0
+        while (i < (array_length bodies)) {
+            def b:PhysBody (itemAt bodies i)
+            if (b.id == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn isVehicle:boolean (b:PhysBody) {
+        if ((array_length b.wheels) > 0) {
+            return true
+        }
+        return false
+    }
+
+    fn syncVelocityFromSpeed:void (b:PhysBody) {
+        def rad:double (this.degToRad(b.angle))
+        b.vx = (sin(rad) * b.speed)
+        b.vy = (0.0 - (cos(rad) * b.speed))
+    }
+
+    fn syncSpeedFromVelocity:void (b:PhysBody) {
+        b.speed = (sqrt(((b.vx * b.vx) + (b.vy * b.vy))))
+        if (b.speed > b.maxSpeed) {
+            def scale:double (b.maxSpeed / b.speed)
+            b.vx = (b.vx * scale)
+            b.vy = (b.vy * scale)
+            b.speed = b.maxSpeed
+        }
+    }
+
+    fn applyCommandGrip:void (b:PhysBody cmd:PhysCommand) {
+        if (cmd.grip >= 0.0) {
+            b.grip = cmd.grip
+        }
+    }
+
+    fn applyCommandImpulse:void (b:PhysBody cmd:PhysCommand) {
+        if (b.static) {
+            return
+        }
+        if (cmd.impulseX == 0.0) {
+            if (cmd.impulseY == 0.0) {
+                if (cmd.impulseAngular == 0.0) {
+                    return
+                }
+            }
+        }
+        b.vx = (b.vx + cmd.impulseX)
+        b.vy = (b.vy + cmd.impulseY)
+        b.angularVel = (b.angularVel + cmd.impulseAngular)
+        this.syncSpeedFromVelocity(b)
+    }
+
+    fn findCommand:PhysCommand (cmds:[PhysCommand] bodyId:string) {
+        def i 0
+        while (i < (array_length cmds)) {
+            def c:PhysCommand (itemAt cmds i)
+            if (c.bodyId == bodyId) {
+                return c
+            }
+            i = (i + 1)
+        }
+        def empty:PhysCommand (new PhysCommand)
+        return empty
+    }
+
+    fn applyArcadeControls:void (b:PhysBody cmd:PhysCommand dtSec:double) {
+        if (b.active == false) {
+            return
+        }
+        def steer:double cmd.steer
+        def throttle:double cmd.throttle
+        def brake:double cmd.brake
+        if (steer != 0.0) {
+            b.angle = (b.angle + (steer * b.steerRate * dtSec * b.grip))
+        }
+        if (b.slipThreshold > 0.0) {
+            if (b.grip < b.slipThreshold) {
+                if (b.slipSpin > 0.0) {
+                    if (steer != 0.0) {
+                        def slip:double (((1.0 - b.grip) * steer * b.steerRate) * b.slipSpin)
+                        b.angularVel = (b.angularVel + slip)
+                    }
+                }
+            }
+        }
+        this.normalizeAngle(b)
+        if (throttle > 0.0) {
+            b.speed = (b.speed + (b.accel * throttle * dtSec))
+        }
+        if (brake > 0.0) {
+            b.speed = (b.speed - (b.brake * brake * dtSec))
+        }
+        if (b.speed < 0.0) {
+            b.speed = 0.0
+        }
+        if (b.speed > b.maxSpeed) {
+            b.speed = b.maxSpeed
+        }
+        def dragFactor:double (1.0 - ((1.0 - b.drag) * dtSec))
+        if (dragFactor < 0.0) {
+            dragFactor = 0.0
+        }
+        b.speed = (b.speed * dragFactor)
+        b.angle = (b.angle + (b.angularVel * dtSec))
+        this.normalizeAngle(b)
+        this.syncVelocityFromSpeed(b)
+    }
+
+    fn integrateArcade:void (b:PhysBody dtSec:double) {
+        if (b.active == false) {
+            return
+        }
+        b.x = (b.x + (b.vx * dtSec))
+        b.y = (b.y + (b.vy * dtSec))
+        this.resolveBoundaries(b)
+        if (b.angularDamping < 1.0) {
+            if (b.angularDamping > 0.0) {
+                b.angularVel = (b.angularVel * b.angularDamping)
+            }
+        }
+        if (b.angularStop > 0.0) {
+            if (b.angularVel > (0.0 - b.angularStop)) {
+                if (b.angularVel < b.angularStop) {
+                    b.angularVel = 0.0
+                }
+            }
+        }
+    }
+
+    fn bodyRadius:double (b:PhysBody) {
+        def hw:double b.hw
+        def hh:double b.hh
+        return (sqrt(((hw * hw) + (hh * hh))) * 0.72)
+    }
+
+    fn bodyVx:double (b:PhysBody) {
+        return b.vx
+    }
+
+    fn bodyVy:double (b:PhysBody) {
+        return b.vy
+    }
+
+    fn reflectVelocity:void (b:PhysBody nx:double ny:double rest:double spin:double) {
+        def vdn:double ((b.vx * nx) + (b.vy * ny))
+        if (vdn >= 0.0) {
+            return
+        }
+        def tvx:double (b.vx - (nx * vdn))
+        def tvy:double (b.vy - (ny * vdn))
+        def vdn2:double ((0.0 - vdn) * rest)
+        b.vx = (tvx + (nx * vdn2))
+        b.vy = (tvy + (ny * vdn2))
+        if (nx < 0.0) {
+            b.angularVel = (b.angularVel - spin)
+        } {
+            b.angularVel = (b.angularVel + spin)
+        }
+        this.syncSpeedFromVelocity(b)
+    }
+
+    fn contactKeyFor:string (a:string b:string) {
+        if (this.strLess(a b)) {
+            return (a + "|" + b)
+        }
+        return (b + "|" + a)
+    }
+
+    fn strLess:boolean (a:string b:string) {
+        def la:int (strlen a)
+        def lb:int (strlen b)
+        def n:int la
+        if (lb < n) {
+            n = lb
+        }
+        def j:int 0
+        while (j < n) {
+            def ca:int (charAt a j)
+            def cb:int (charAt b j)
+            if (ca < cb) {
+                return true
+            }
+            if (ca > cb) {
+                return false
+            }
+            j = (j + 1)
+        }
+        if (la < lb) {
+            return true
+        }
+        return false
+    }
+
+    fn contactKeyWasActive:boolean (key:string) {
+        def i 0
+        while (i < (array_length prevContactKeys)) {
+            if ((itemAt prevContactKeys i) == key) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn pushContact:void (bodyA:string bodyB:string impulse:double px:double py:double nx:double ny:double) {
+        def c:PhysContact (new PhysContact)
+        c.bodyA = bodyA
+        c.bodyB = bodyB
+        c.id = (this.contactKeyFor(bodyA bodyB))
+        if (this.contactKeyWasActive(c.id)) {
+            c.phase = "persist"
+        } {
+            c.phase = "begin"
+        }
+        c.normalImpulse = impulse
+        c.x = px
+        c.y = py
+        c.nx = nx
+        c.ny = ny
+        push contacts c
+    }
+
+    fn finalizeContactFrame:void () {
+        clear prevContactKeys
+        def i 0
+        while (i < (array_length contacts)) {
+            def c:PhysContact (itemAt contacts i)
+            push prevContactKeys c.id
+            i = (i + 1)
+        }
+    }
+
+    fn segmentDist2:double (px:double py:double ax:double ay:double bx:double by:double) {
+        def abx:double (bx - ax)
+        def aby:double (by - ay)
+        def apx:double (px - ax)
+        def apy:double (py - ay)
+        def abLen2:double ((abx * abx) + (aby * aby))
+        def t:double 0.0
+        if (abLen2 > 0.0001) {
+            t = (((apx * abx) + (apy * aby)) / abLen2)
+        }
+        if (t < 0.0) {
+            t = 0.0
+        }
+        if (t > 1.0) {
+            t = 1.0
+        }
+        def cx:double (ax + (abx * t))
+        def cy:double (ay + (aby * t))
+        def dx:double (px - cx)
+        def dy:double (py - cy)
+        return ((dx * dx) + (dy * dy))
+    }
+
+    fn resolveSegment:void (b:PhysBody bd:PhysBoundary radius:double) {
+        def rad:double (this.degToRad(b.angle))
+        def cosA:double (cos(rad))
+        def sinA:double (sin(rad))
+        def ci 0
+        while (ci < 4) {
+            def lx:double 0.0
+            def ly:double 0.0
+            if (ci == 0) {
+                lx = (0.0 - b.hw)
+                ly = (0.0 - b.hh)
+            }
+            if (ci == 1) {
+                lx = b.hw
+                ly = (0.0 - b.hh)
+            }
+            if (ci == 2) {
+                lx = b.hw
+                ly = b.hh
+            }
+            if (ci == 3) {
+                lx = (0.0 - b.hw)
+                ly = b.hh
+            }
+            def px:double (b.x + (lx * cosA) - (ly * sinA))
+            def py:double (b.y + (lx * sinA) + (ly * cosA))
+            def d2:double (this.segmentDist2(px py bd.x1 bd.y1 bd.x2 bd.y2))
+            if (d2 < (radius * radius)) {
+                def dist:double (sqrt(d2))
+                def abx:double (bd.x2 - bd.x1)
+                def aby:double (bd.y2 - bd.y1)
+                def apx:double (px - bd.x1)
+                def apy:double (py - bd.y1)
+                def abLen2:double ((abx * abx) + (aby * aby))
+                def t:double 0.0
+                if (abLen2 > 0.0001) {
+                    t = (((apx * abx) + (apy * aby)) / abLen2)
+                }
+                if (t < 0.0) {
+                    t = 0.0
+                }
+                if (t > 1.0) {
+                    t = 1.0
+                }
+                def cx:double (bd.x1 + (abx * t))
+                def cy:double (bd.y1 + (aby * t))
+                def nx:double 0.0
+                def ny:double 1.0
+                if (dist > 0.001) {
+                    nx = ((px - cx) / dist)
+                    ny = ((py - cy) / dist)
+                }
+                def pen:double (radius - dist)
+                b.x = (b.x + (nx * pen))
+                b.y = (b.y + (ny * pen))
+                def vx:double b.vx
+                def vy:double b.vy
+                def vdot:double ((vx * nx) + (vy * ny))
+                if (vdot < 0.0) {
+                    def imp:double (0.0 - vdot)
+                    this.reflectVelocity(b nx ny bd.restitution bd.spinOnHit)
+                    this.pushContact(b.id bd.id imp px py nx ny)
+                }
+            }
+            ci = (ci + 1)
+        }
+    }
+
+    fn resolveRectWalls:void (b:PhysBody bd:PhysBoundary radius:double) {
+        def left:double bd.x1
+        def top:double bd.y1
+        def right:double bd.x2
+        def bottom:double bd.y2
+        if (b.x - radius < left) {
+            b.x = (left + radius)
+            this.reflectVelocity(b 1.0 0.0 bd.restitution bd.spinOnHit)
+            this.pushContact(b.id bd.id b.speed b.x b.y 1.0 0.0)
+        }
+        if (b.x + radius > right) {
+            b.x = (right - radius)
+            this.reflectVelocity(b -1.0 0.0 bd.restitution bd.spinOnHit)
+            this.pushContact(b.id bd.id b.speed b.x b.y -1.0 0.0)
+        }
+        if (b.y - radius < top) {
+            b.y = (top + radius)
+            this.reflectVelocity(b 0.0 1.0 bd.restitution bd.spinOnHit)
+            this.pushContact(b.id bd.id b.speed b.x b.y 0.0 1.0)
+        }
+        if (b.y + radius > bottom) {
+            b.y = (bottom - radius)
+            this.reflectVelocity(b 0.0 -1.0 bd.restitution bd.spinOnHit)
+            this.pushContact(b.id bd.id b.speed b.x b.y 0.0 -1.0)
+        }
+    }
+
+    fn resolveBoundaries:void (b:PhysBody) {
+        def radius:double b.hw
+        if (b.hh > radius) {
+            radius = b.hh
+        }
+        def bi 0
+        while (bi < (array_length bounds)) {
+            def bd:PhysBoundary (itemAt bounds bi)
+            if (bd.kind == "segment") {
+                this.resolveSegment(b bd radius)
+            }
+            if (bd.kind == "rect") {
+                this.resolveRectWalls(b bd radius)
+            }
+            bi = (bi + 1)
+        }
+    }
+
+    fn resolveBodyPair:void (a:PhysBody b:PhysBody) {
+        if (a.active == false) {
+            return
+        }
+        if (b.active == false) {
+            return
+        }
+        def dx:double (b.x - a.x)
+        def dy:double (b.y - a.y)
+        def dist2:double ((dx * dx) + (dy * dy))
+        def ra:double (this.bodyRadius(a))
+        def rb:double (this.bodyRadius(b))
+        def minD:double (ra + rb)
+        def minD2:double (minD * minD)
+        if (dist2 >= minD2) {
+            return
+        }
+        def dist:double (sqrt(dist2))
+        if (dist < 0.001) {
+            dist = 0.001
+            dx = 1.0
+            dy = 0.0
+        }
+        def nx:double (dx / dist)
+        def ny:double (dy / dist)
+        def pen:double (minD - dist)
+        def invSum:double (a.invMass + b.invMass)
+        def moveA:double 0.5
+        def moveB:double 0.5
+        if (invSum > 0.0) {
+            moveA = (b.invMass / invSum)
+            moveB = (a.invMass / invSum)
+        }
+        if (a.static) {
+            moveA = 0.0
+            moveB = 1.0
+        }
+        if (b.static) {
+            moveA = 1.0
+            moveB = 0.0
+        }
+        a.x = (a.x - (nx * pen * moveA))
+        a.y = (a.y - (ny * pen * moveA))
+        b.x = (b.x + (nx * pen * moveB))
+        b.y = (b.y + (ny * pen * moveB))
+        def vax:double a.vx
+        def vay:double a.vy
+        def vbx:double b.vx
+        def vby:double b.vy
+        def rvx:double (vbx - vax)
+        def rvy:double (vby - vay)
+        def vdn:double ((rvx * nx) + (rvy * ny))
+        if (vdn >= 0.0) {
+            if (pen > 0.05) {
+                if (a.mass > (b.mass * 8.0)) {
+                    def strike:double ((a.vx * nx) + (a.vy * ny))
+                    if (strike > 1.0) {
+                        b.vx = (b.vx + (nx * strike * 0.92))
+                        b.vy = (b.vy + (ny * strike * 0.92))
+                        this.syncSpeedFromVelocity(b)
+                    }
+                }
+                if (b.mass > (a.mass * 8.0)) {
+                    def strike2:double (0.0 - ((b.vx * nx) + (b.vy * ny)))
+                    if (strike2 > 1.0) {
+                        a.vx = (a.vx - (nx * strike2 * 0.92))
+                        a.vy = (a.vy - (ny * strike2 * 0.92))
+                        this.syncSpeedFromVelocity(a)
+                    }
+                }
+            }
+            return
+        }
+        def e:double a.restitution
+        if (b.restitution < e) {
+            e = b.restitution
+        }
+        def invSum:double (a.invMass + b.invMass)
+        def imp:double ((0.0 - (1.0 + e)) * vdn)
+        if (invSum > 0.0) {
+            imp = (imp / invSum)
+        }
+        a.vx = (a.vx - (nx * imp * a.invMass))
+        a.vy = (a.vy - (ny * imp * a.invMass))
+        b.vx = (b.vx + (nx * imp * b.invMass))
+        b.vy = (b.vy + (ny * imp * b.invMass))
+        this.syncSpeedFromVelocity(a)
+        this.syncSpeedFromVelocity(b)
+        def gripLo:double a.grip
+        if (b.grip < gripLo) {
+            gripLo = b.grip
+        }
+        def spinA:double (a.spinOnWall * (1.0 - gripLo))
+        def spinB:double (b.spinOnWall * (1.0 - gripLo))
+        a.angularVel = (a.angularVel - (imp * spinA * 0.08))
+        b.angularVel = (b.angularVel + (imp * spinB * 0.08))
+        this.pushContact(a.id b.id imp ((a.x + b.x) * 0.5) ((a.y + b.y) * 0.5) nx ny)
+    }
+
+    fn resolveBodyPairs:void () {
+        def i 0
+        while (i < (array_length bodies)) {
+            def bi:PhysBody (itemAt bodies i)
+            def j:int (i + 1)
+            while (j < (array_length bodies)) {
+                def bj:PhysBody (itemAt bodies j)
+                this.resolveBodyPair(bi bj)
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn stepProp:void (b:PhysBody cmd:PhysCommand dtSec:double) {
+        if (b.active == false) {
+            return
+        }
+        if (b.static) {
+            return
+        }
+        this.applyCommandImpulse(b cmd)
+        def dragFactor:double (1.0 - ((1.0 - b.drag) * dtSec))
+        if (dragFactor < 0.0) {
+            dragFactor = 0.0
+        }
+        b.vx = (b.vx * dragFactor)
+        b.vy = (b.vy * dragFactor)
+        this.syncSpeedFromVelocity(b)
+        b.angle = (b.angle + (b.angularVel * dtSec))
+        this.normalizeAngle(b)
+        b.x = (b.x + (b.vx * dtSec))
+        b.y = (b.y + (b.vy * dtSec))
+        this.resolveBoundaries(b)
+        if (b.angularDamping < 1.0) {
+            if (b.angularDamping > 0.0) {
+                b.angularVel = (b.angularVel * b.angularDamping)
+            }
+        }
+        if (b.angularStop > 0.0) {
+            if (b.angularVel > (0.0 - b.angularStop)) {
+                if (b.angularVel < b.angularStop) {
+                    b.angularVel = 0.0
+                }
+            }
+        }
+    }
+
+    fn stepArcade:void (b:PhysBody cmd:PhysCommand dtSec:double) {
+        this.applyCommandGrip(b cmd)
+        this.applyCommandImpulse(b cmd)
+        this.applyArcadeControls(b cmd dtSec)
+        this.integrateArcade(b dtSec)
+    }
+
+    fn step:void (dtMs:int commands:[PhysCommand]) {
+        clear contacts
+        def dtSec:double ((to_double dtMs) / 1000.0)
+        if (dtSec <= 0.0) {
+            return
+        }
+        def i 0
+        while (i < (array_length bodies)) {
+            def b:PhysBody (itemAt bodies i)
+            def cmd:PhysCommand (this.findCommand(commands b.id))
+            if (this.isVehicle(b) == false) {
+                this.stepArcade(b cmd dtSec)
+            }
+            i = (i + 1)
+        }
+        this.resolveBodyPairs()
+    }
+}

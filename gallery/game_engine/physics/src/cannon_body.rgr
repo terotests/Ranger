@@ -142,6 +142,27 @@ class CannonBody {
             this.invMass = 0.0
         }
         this.computeAABB()
+        def shapeCount:int (array_length this.shapes)
+        if (shapeCount == 1) {
+            def shape:CannonShape (itemAt this.shapes 0)
+            if (shape.type == 1) {
+                def r:double shape.radius
+                def I:double ((0.2 * this.mass) * r * r)
+                this.inertia.x = I
+                this.inertia.y = I
+                this.inertia.z = I
+                if (I > 0.0) {
+                    this.invInertia.x = (1.0 / I)
+                    this.invInertia.y = (1.0 / I)
+                    this.invInertia.z = (1.0 / I)
+                } {
+                    this.invInertia.x = 0.0
+                    this.invInertia.y = 0.0
+                    this.invInertia.z = 0.0
+                }
+                return
+            }
+        }
         def half:CannonVec3 (new CannonVec3)
         def boxHelper:CannonBox (new CannonBox)
         half.x = (this.aabb.upperBound.x - this.aabb.lowerBound.x) * 0.5
@@ -162,6 +183,21 @@ class CannonBody {
             this.invInertia.z = (1.0 / this.inertia.z)
         } {
             this.invInertia.z = 0.0
+        }
+    }
+
+    fn clampAngularVelocity:void (maxW:double) {
+        if (this.type != 1) {
+            return
+        }
+        this.angularVelocity.x = 0.0
+        this.angularVelocity.y = 0.0
+        def wz:double this.angularVelocity.z
+        if (wz > maxW) {
+            this.angularVelocity.z = maxW
+        }
+        if (wz < (0.0 - maxW)) {
+            this.angularVelocity.z = (0.0 - maxW)
         }
     }
 
@@ -208,6 +244,10 @@ class CannonBody {
         def velo:CannonVec3 this.tmpVelo
         impulse.scaleInto(this.invMass velo)
         this.velocity.vadd(velo this.velocity)
+        relativePoint.crossInto(impulse this.tmpRotForce)
+        this.angularVelocity.x = this.angularVelocity.x + (this.tmpRotForce.x * this.invInertia.x)
+        this.angularVelocity.y = this.angularVelocity.y + (this.tmpRotForce.y * this.invInertia.y)
+        this.angularVelocity.z = this.angularVelocity.z + (this.tmpRotForce.z * this.invInertia.z)
     }
 
     fn applyLocalImpulse:void (localImpulse:CannonVec3 localPoint:CannonVec3) {

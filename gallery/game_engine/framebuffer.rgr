@@ -366,6 +366,129 @@ class SoftCanvas {
         }
     }
 
+    fn degToRad:double (deg:double) {
+        return (deg * 0.017453292519943295)
+    }
+
+    ; Solid rectangle from pivot along +X (length rw), thickness rh, rotated angleDeg (Y-down).
+    fn fillRectRotated:void (pivotX:int pivotY:int rw:int rh:int angleDeg:double r:int g:int b:int) {
+        if (rw <= 0) {
+            return
+        }
+        if (rh <= 0) {
+            return
+        }
+        if (angleDeg == 0.0) {
+            def halfH:int (to_int ((to_double rh) * 0.5))
+            this.fillRect(pivotX (pivotY - halfH) rw rh r g b)
+            return
+        }
+        def rad:double (this.degToRad(angleDeg))
+        def cosA:double (cos(rad))
+        def sinA:double (sin(rad))
+        def halfTh:double ((to_double rh) * 0.5)
+        def y 0
+        while (y < rh) {
+            def ly:double ((to_double y) - halfTh)
+            def x 0
+            while (x < rw) {
+                def lx:double (to_double x)
+                def wx:double ((lx * cosA) - (ly * sinA))
+                def wy:double ((lx * sinA) + (ly * cosA))
+                def dstX:int (pivotX + (to_int wx))
+                def dstY:int (pivotY + (to_int wy))
+                if (dstX >= 0) {
+                    if (dstX < w) {
+                        if (dstY >= 0) {
+                            if (dstY < h) {
+                                this.setPixel(dstX dstY r g b)
+                            }
+                        }
+                    }
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+    }
+
+    ; Rotate + scale blit around pivot (screen pixels). angleDeg: clockwise, Y-down.
+    fn blitImageRectScaledRotated:void (src:ImageBuffer sx:int sy:int sw:int sh:int pivotX:int pivotY:int dw:int dh:int angleDeg:double) {
+        if (sw <= 0) {
+            return
+        }
+        if (sh <= 0) {
+            return
+        }
+        if (dw <= 0) {
+            return
+        }
+        if (dh <= 0) {
+            return
+        }
+        if (angleDeg == 0.0) {
+            def halfDw:int (to_int ((to_double dw) * 0.5))
+            def halfDh:int (to_int ((to_double dh) * 0.5))
+            def dx:int (pivotX - halfDw)
+            def dy:int (pivotY - halfDh)
+            this.blitImageRectScaled(src sx sy sw sh dx dy dw dh)
+            return
+        }
+        def srcW:int src.width
+        def rad:double (this.degToRad(angleDeg))
+        def cosA:double (cos(rad))
+        def sinA:double (sin(rad))
+        def hw:double ((to_double dw) * 0.5)
+        def hh:double ((to_double dh) * 0.5)
+        def y 0
+        while (y < dh) {
+            def ly:double ((to_double y) - hh)
+            def x 0
+            while (x < dw) {
+                def lx:double ((to_double x) - hw)
+                def wx:double ((lx * cosA) - (ly * sinA))
+                def wy:double ((lx * sinA) + (ly * cosA))
+                def dstX:int (pivotX + (to_int wx))
+                def dstY:int (pivotY + (to_int wy))
+                if (dstX >= 0) {
+                    if (dstX < w) {
+                        if (dstY >= 0) {
+                            if (dstY < h) {
+                                def sxOff:int (sx + (to_int ((to_double (x * sw)) / (to_double dw))))
+                                if (sxOff >= srcW) {
+                                    sxOff = (srcW - 1)
+                                }
+                                def syOff:int (sy + (to_int ((to_double (y * sh)) / (to_double dh))))
+                                if (syOff >= src.height) {
+                                    syOff = (src.height - 1)
+                                }
+                                def sOff:int (((syOff * srcW) + sxOff) * 4)
+                                def srcA:int (buffer_get src.pixels (sOff + 3))
+                                if (srcA > 0) {
+                                    def dOff:int (((dstY * w) + dstX) * 4)
+                                    if (srcA >= 255) {
+                                        buffer_set px dOff (buffer_get src.pixels sOff)
+                                        buffer_set px (dOff + 1) (buffer_get src.pixels (sOff + 1))
+                                        buffer_set px (dOff + 2) (buffer_get src.pixels (sOff + 2))
+                                        buffer_set px (dOff + 3) 255
+                                    } {
+                                        blitter.blendOverBytes(px dOff
+                                            (buffer_get src.pixels sOff)
+                                            (buffer_get src.pixels (sOff + 1))
+                                            (buffer_get src.pixels (sOff + 2))
+                                            srcA)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+    }
+
     fn fillCircle:void (cx:int cy:int rad:int r:int g:int b:int) {
         def r2 (rad * rad)
         def yy (cy - rad)

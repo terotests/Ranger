@@ -30,6 +30,7 @@ Import "./game_particles.rgr"
 Import "./game_camera.rgr"
 Import "./game_entity_store.rgr"
 Import "./game_physics.rgr"
+Import "./game_cannon_physics.rgr"
 
 ; Runtime options for script-driven games (SDL host, tests, custom hosts).
 class GameRuntimeOptions {
@@ -88,10 +89,16 @@ class GameRunner {
     def camera:GameCamera (new GameCamera)
     def entityStore:GameEntityStore (new GameEntityStore)
     def physics:GamePhysics (new GamePhysics)
+    def cannonPhysics:GameCannonPhysics (new GameCannonPhysics)
+    def useCannonPhysics:boolean false
+    def cannonGravY:double 0.0
+    def cannonRestitution:double 0.75
     def fixedStepMs:int 0
     def timeAccumulator:int 0
     def worldHeight:int 0
     def physicsPassive:boolean false
+    def physicsSharedWorld:boolean false
+    def lastStepDtMs:int 16
 
     fn init:void (w:int h:int) {
         engine.quiet = true
@@ -152,6 +159,7 @@ class GameRunner {
         this.setPaneIndex(paneIndex)
         this.setPeerCar((this.inactivePeerCar()))
         options.particlesGpuOverlay = false
+        this.applyCamera()
     }
 
     ; Opposite pane's local car (state.p1) for ghost rendering in split-screen races.
@@ -270,10 +278,13 @@ class GameRunner {
         camera = (new GameCamera)
         entityStore = (new GameEntityStore)
         physics = (new GamePhysics)
+        cannonPhysics = (new GameCannonPhysics)
+        useCannonPhysics = false
         fixedStepMs = 0
         timeAccumulator = 0
         worldHeight = 0
         physicsPassive = false
+        physicsSharedWorld = false
         this.clearBackground()
         this.clearStaticBg()
     }
@@ -630,24 +641,52 @@ class GameRunner {
         }
         def phys:EvalValue (cfg.getMember("physics"))
         if (phys.isObject()) {
-            def step:double (this.memDouble(phys "fixedStep" 0.0))
-            if (step > 0.0) {
-                fixedStepMs = (to_int step)
+            def cannonFlag:EvalValue (phys.getMember("cannon"))
+            if (cannonFlag.isBoolean()) {
+                if (cannonFlag.boolValue) {
+                    useCannonPhysics = true
+                    cannonPhysics.enabled = true
+                    cannonPhysics.initBridge()
+                }
             }
-            def enabled:EvalValue (phys.getMember("enabled"))
-            if (enabled.isBoolean()) {
-                if (enabled.boolValue) {
-                    physics.enabled = true
+            def gravY:double (this.memDouble(phys "gravityY" 0.0))
+            cannonGravY = gravY
+            def rest:double (this.memDouble(phys "restitution" 0.75))
+            cannonRestitution = rest
+            cannonPhysics.setGravityY(gravY)
+            cannonPhysics.defaultRestitution = rest
+            cannonPhysics.wallRestitution = rest
+            if (useCannonPhysics == false) {
+                def step:double (this.memDouble(phys "fixedStep" 0.0))
+                if (step > 0.0) {
+                    fixedStepMs = (to_int step)
+                }
+                def enabled:EvalValue (phys.getMember("enabled"))
+                if (enabled.isBoolean()) {
+                    if (enabled.boolValue) {
+                        physics.enabled = true
+                    }
+                } {
+                    if ((to_int (this.memDouble(phys "enabled" 0.0))) != 0) {
+                        physics.enabled = true
+                    }
+                }
+                def shared:EvalValue (phys.getMember("sharedWorld"))
+                if (shared.isBoolean()) {
+                    if (shared.boolValue) {
+                        physics.enabled = true
+                        physicsSharedWorld = true
+                    }
+                } {
+                    if ((to_int (this.memDouble(phys "sharedWorld" 0.0))) != 0) {
+                        physics.enabled = true
+                        physicsSharedWorld = true
+                    }
                 }
             } {
-                if ((to_int (this.memDouble(phys "enabled" 0.0))) != 0) {
-                    physics.enabled = true
-                }
-            }
-            def shared:EvalValue (phys.getMember("sharedWorld"))
-            if (shared.isBoolean()) {
-                if (shared.boolValue) {
-                    physics.enabled = true
+                def step2:double (this.memDouble(phys "fixedStep" 0.0))
+                if (step2 > 0.0) {
+                    fixedStepMs = (to_int step2)
                 }
             }
         }
@@ -659,12 +698,48 @@ class GameRunner {
             }
             def ww:int (this.memInt(world "width" 0))
             if (ww > 0) {
-                physics.setWorldSize((to_double ww) (to_double worldHeight))
+                if (useCannonPhysics) {
+                    cannonPhysics.setWorldSize((to_double ww) (to_double worldHeight))
+                } {
+                    physics.setWorldSize((to_double ww) (to_double worldHeight))
+                }
             }
         }
     }
 
+    fn applyCannonPhysics:void () {
+        if (useCannonPhysics == false) {
+            return
+        }
+        cannonPhysics.clear()
+        cannonPhysics.enabled = true
+        cannonPhysics.setGravityY(cannonGravY)
+        cannonPhysics.defaultRestitution = cannonRestitution
+        cannonPhysics.wallRestitution = cannonRestitution
+        cannonPhysics.world.defaultContactMaterial.restitution = cannonRestitution
+        def wh:double (to_double ph)
+        if (worldHeight > 0) {
+            wh = (to_double worldHeight)
+        }
+        cannonPhysics.setWorldSize((to_double pw) wh)
+        if (this.scriptHasFunction("entities")) {
+            def spawn:EvalValue (engine.callFunction("entities" (EvalValue.null())))
+            cannonPhysics.loadFromEntities(spawn)
+        }
+        if (this.scriptHasFunction("physicsBounds")) {
+            def bounds:EvalValue (engine.callFunction("physicsBounds" (EvalValue.null())))
+            cannonPhysics.loadBounds(bounds)
+        } {
+            cannonPhysics.addDefaultWorldBounds()
+        }
+        entityStore.worldMode = true
+    }
+
     fn applyPhysics:void () {
+        if (useCannonPhysics) {
+            this.applyCannonPhysics()
+            return
+        }
         physics.clear()
         if (physics.enabled == false) {
             if (false == (this.scriptHasFunction("config"))) {
@@ -703,11 +778,107 @@ class GameRunner {
         entityStore.worldMode = true
     }
 
+    fn usesSharedPhysics:boolean () {
+        if (physicsSharedWorld == false) {
+            return false
+        }
+        if (useCannonPhysics) {
+            return false
+        }
+        return physics.enabled
+    }
+
+    fn appendPhysicsImpulses:void (dstPhy:EvalValue srcPhy:EvalValue) {
+        def srcImps:EvalValue (srcPhy.getMember("impulses"))
+        if (false == (srcImps.isArray())) {
+            return
+        }
+        def srcArr:[EvalValue] srcImps.arrayValue
+        if ((array_length srcArr) == 0) {
+            return
+        }
+        def dstImps:EvalValue (dstPhy.getMember("impulses"))
+        def merged:[EvalValue]
+        if (dstImps.isArray()) {
+            def dstArr:[EvalValue] dstImps.arrayValue
+            def i 0
+            while (i < (array_length dstArr)) {
+                push merged (itemAt dstArr i)
+                i = (i + 1)
+            }
+        }
+        def j 0
+        while (j < (array_length srcArr)) {
+            push merged (itemAt srcArr j)
+            j = (j + 1)
+        }
+        dstPhy.setMember("impulses" (EvalValue.array(merged)))
+    }
+
+    fn mergePhysicsFromPane:void (donor:EvalValue) {
+        def dstPhy:EvalValue (state.getMember("physics"))
+        def srcPhy:EvalValue (donor.getMember("physics"))
+        if (false == (dstPhy.isObject())) {
+            return
+        }
+        if (false == (srcPhy.isObject())) {
+            return
+        }
+        def srcCtrl:EvalValue (srcPhy.getMember("controls"))
+        if (srcCtrl.isObject()) {
+            def p2:EvalValue (srcCtrl.getMember("p2"))
+            if (p2.isObject()) {
+                def dstCtrl:EvalValue (dstPhy.getMember("controls"))
+                if (dstCtrl.isObject()) {
+                    dstCtrl.setMember("p2" p2)
+                } {
+                    def ck:[string]
+                    def cv:[EvalValue]
+                    push ck "p2"
+                    push cv p2
+                    dstPhy.setMember("controls" (EvalValue.object(ck cv)))
+                }
+            }
+        }
+        this.appendPhysicsImpulses(dstPhy srcPhy)
+        def srcRamp:EvalValue (donor.getMember("rampCd"))
+        if (srcRamp.isObject()) {
+            def dstRamp:EvalValue (state.getMember("rampCd"))
+            if (dstRamp.isObject()) {
+                dstRamp.setMember("p2" (srcRamp.getMember("p2")))
+            }
+        }
+        def srcAir:EvalValue (donor.getMember("airTick"))
+        if (srcAir.isObject()) {
+            def dstAir:EvalValue (state.getMember("airTick"))
+            if (dstAir.isObject()) {
+                dstAir.setMember("p2" (srcAir.getMember("p2")))
+            }
+        }
+    }
+
+    fn syncSharedWorldFrom:void (src:GameRunner) {
+        this.syncSharedPhysics(src.physics)
+        def srcState:EvalValue src.state
+        state.setMember("worldEntities" (srcState.getMember("worldEntities")))
+        state.setMember("physicsContacts" (srcState.getMember("physicsContacts")))
+        state.setMember("hits" (srcState.getMember("hits")))
+        state.setMember("score" (srcState.getMember("score")))
+        state.setMember("someoneWon" (srcState.getMember("someoneWon")))
+        state.setMember("airTick" (srcState.getMember("airTick")))
+        state.setMember("rampCd" (srcState.getMember("rampCd")))
+        this.syncFromState()
+        this.syncBackgroundFromState()
+    }
+
     fn setPhysicsPassive:void (passive:boolean) {
         physicsPassive = passive
     }
 
     fn isPhysicsEnabled:boolean () {
+        if (useCannonPhysics) {
+            return cannonPhysics.enabled
+        }
         return physics.enabled
     }
 
@@ -717,14 +888,38 @@ class GameRunner {
         physics.setWorldSize(src.worldW src.worldH)
     }
 
+    fn runCannonPhysicsStep:void (dtMs:int) {
+        if (useCannonPhysics == false) {
+            return
+        }
+        if (cannonPhysics.enabled == false) {
+            return
+        }
+        def active:EvalValue (this.activeState())
+        cannonPhysics.step(dtMs active)
+        def world:EvalValue (active.getMember("worldEntities"))
+        if (world.isNull()) {
+            def emptyK:[string]
+            def emptyV:[EvalValue]
+            world = (EvalValue.object(emptyK emptyV))
+            active.setMember("worldEntities" world)
+        }
+        cannonPhysics.writeWorldEntities(world)
+        cannonPhysics.appendCollisionEvents(active)
+    }
+
     fn runPhysicsStep:void (dtMs:int) {
+        if (useCannonPhysics) {
+            this.runCannonPhysicsStep(dtMs)
+            return
+        }
         if (physics.enabled == false) {
             return
         }
         if (physicsPassive) {
             return
         }
-        physics.readInputFromState(state)
+        physics.readCommandsFromState(state)
         physics.step(dtMs)
         def active:EvalValue (this.activeState())
         def world:EvalValue (active.getMember("worldEntities"))
@@ -735,7 +930,7 @@ class GameRunner {
             active.setMember("worldEntities" world)
         }
         physics.writeWorldEntities(world)
-        physics.appendCollisionEvents(state)
+        physics.writeContactsToState(active)
     }
 
     fn physicsRef:GamePhysics () {
@@ -761,6 +956,41 @@ class GameRunner {
             return staticBgH
         }
         return ph
+    }
+
+    fn clearStateEvents:void (st:EvalValue) {
+        def cleared:[EvalValue]
+        st.setMember("events" (EvalValue.array(cleared)))
+    }
+
+    ; Split-screen shared physics: peer pane runs update() first; merge its events
+    ; into the authority pane before drainStateEvents() so audio/haptics are not lost.
+    fn mergeEventsFromPeer:void (peer:EvalValue) {
+        def peerEvs:EvalValue (peer.getMember("events"))
+        if (false == (peerEvs.isArray())) {
+            return
+        }
+        def peerArr:[EvalValue] peerEvs.arrayValue
+        if ((array_length peerArr) == 0) {
+            return
+        }
+        def dstEvs:EvalValue (state.getMember("events"))
+        def merged:[EvalValue]
+        if (dstEvs.isArray()) {
+            def dstArr:[EvalValue] dstEvs.arrayValue
+            def i 0
+            while (i < (array_length dstArr)) {
+                push merged (itemAt dstArr i)
+                i = (i + 1)
+            }
+        }
+        def j 0
+        while (j < (array_length peerArr)) {
+            push merged (itemAt peerArr j)
+            j = (j + 1)
+        }
+        state.setMember("events" (EvalValue.array(merged)))
+        this.clearStateEvents(peer)
     }
 
     ; Drain transient events emitted by update() this frame into the host.
@@ -852,7 +1082,7 @@ class GameRunner {
                 camera.readLegacyFromState(state)
             } {
                 def wh:int (this.resolveWorldHeight())
-                camera.update(world pw ph wh)
+                camera.update(world pw ph wh lastStepDtMs)
                 camera.writeToState(state)
             }
             def camX:int camera.camX
@@ -942,8 +1172,7 @@ class GameRunner {
         this.frameWithInput(dtMs snap)
     }
 
-    fn stepUpdate:void (dtMs:int snap:GameInputSnapshot) {
-        def prevScreen:string (this.currentScreenName())
+    fn stepUpdateScript:void (dtMs:int snap:GameInputSnapshot) {
         timeMs = (timeMs + dtMs)
         def k:[string]
         def v:[EvalValue]
@@ -967,17 +1196,18 @@ class GameRunner {
         push v (snap.toEval())
         push k "state"
         push v state
+        push k "collisionEvents"
+        push v (state.getMember("collisionEvents"))
         def props:EvalValue (EvalValue.object(k v))
-        def tScript0:int 0
-        if (profileEnabled) {
-            tScript0 = (gfx_ticks_ms)
-        }
         state = (engine.callFunction("update" props))
-        def tScript1:int 0
-        if (profileEnabled) {
-            tScript1 = (gfx_ticks_ms)
+    }
+
+    fn stepPostPhysics:void (dtMs:int prevScreen:string) {
+        if (dtMs < 1) {
+            lastStepDtMs = 1
+        } {
+            lastStepDtMs = dtMs
         }
-        this.runPhysicsStep(dtMs)
         def nextScreen:string (this.currentScreenName())
         if (nextScreen != prevScreen) {
             this.onScreenChanged(prevScreen nextScreen)
@@ -987,12 +1217,38 @@ class GameRunner {
         particles.update(dtMs)
         this.syncFromState()
         this.syncBackgroundFromState()
+    }
+
+    fn stepUpdate:void (dtMs:int snap:GameInputSnapshot) {
+        def prevScreen:string (this.currentScreenName())
+        def tScript0:int 0
+        if (profileEnabled) {
+            tScript0 = (gfx_ticks_ms)
+        }
+        this.stepUpdateScript(dtMs snap)
+        def tScript1:int 0
+        if (profileEnabled) {
+            tScript1 = (gfx_ticks_ms)
+        }
+        this.runPhysicsStep(dtMs)
+        this.stepPostPhysics(dtMs prevScreen)
         if (profileEnabled) {
             def tSync1:int (gfx_ticks_ms)
             profUpdateScriptMs = (profUpdateScriptMs + (tScript1 - tScript0))
             profUpdateSyncMs = (profUpdateSyncMs + (tSync1 - tScript1))
             profFrames = (profFrames + 1)
         }
+    }
+
+    fn sharedPhysicsStep:void (dtMs:int snap:GameInputSnapshot peer:GameRunner) {
+        def prevScreen:string (this.currentScreenName())
+        this.stepUpdateScript(dtMs snap)
+        this.mergePhysicsFromPane(peer.state)
+        this.mergeEventsFromPeer(peer.state)
+        this.setPhysicsPassive(false)
+        this.runPhysicsStep(dtMs)
+        this.setPhysicsPassive(true)
+        this.stepPostPhysics(dtMs prevScreen)
     }
 
     fn frameWithInput:void (dtMs:int snap:GameInputSnapshot) {

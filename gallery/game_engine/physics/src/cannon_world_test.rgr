@@ -16,6 +16,7 @@ class CannonWorldTest {
         if (this.filter.matches(filter "World.clearForces")) { this.clearForces(h) }
         if (this.filter.matches(filter "World.gravityStep")) { this.gravityStep(h) }
         if (this.filter.matches(filter "World.collisionMatrix")) { this.collisionMatrix(h) }
+        if (this.filter.matches(filter "World.sphereBounce")) { this.sphereBounce(h) }
     }
 
     fn clearForces:void (h:CannonTestHarness) {
@@ -148,6 +149,48 @@ class CannonWorldTest {
             }
             stepIdx = (stepIdx + 1)
         }
+        h.finishTest()
+    }
+
+    fn sphereBounce:void (h:CannonTestHarness) {
+        h.beginTest("World.sphereBounce")
+        def world:CannonWorld (new CannonWorld)
+        world.initWorld()
+        world.defaultContactMaterial.restitution = 0.9
+        def left:CannonBody (new CannonBody)
+        left.initDynamic(1.0)
+        def sphereL:CannonSphere (new CannonSphere)
+        sphereL.initSphere(20.0)
+        left.addShape(sphereL)
+        left.position.set(100.0 135.0 0.0)
+        left.velocity.set(200.0 0.0 0.0)
+        def right:CannonBody (new CannonBody)
+        right.initDynamic(1.0)
+        def sphereR:CannonSphere (new CannonSphere)
+        sphereR.initSphere(20.0)
+        right.addShape(sphereR)
+        right.position.set(300.0 135.0 0.0)
+        right.velocity.set((0.0 - 150.0) 0.0 0.0)
+        world.addBody(left)
+        world.addBody(right)
+        def step 0
+        while (step < 120) {
+            world.step(0.016666666666666666)
+            step = (step + 1)
+        }
+        def lvx:double left.velocity.x
+        def rvx:double right.velocity.x
+        def bounced:boolean false
+        if (lvx < 0.0) {
+            bounced = true
+        }
+        if (rvx > 0.0) {
+            bounced = true
+        }
+        h.ok(bounced "bodies should bounce apart")
+        def dist:double (right.position.x - left.position.x)
+        def separated:boolean (dist >= 38.0)
+        h.ok(separated "bodies should stay separated")
         h.finishTest()
     }
 }

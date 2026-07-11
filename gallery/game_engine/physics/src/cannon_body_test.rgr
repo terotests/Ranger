@@ -20,6 +20,7 @@ class CannonBodyTest {
         if (this.filter.matches(filter "Body.pointToWorldFrame")) { this.pointToWorldFrame(h) }
         if (this.filter.matches(filter "Body.applyForce")) { this.applyForce(h) }
         if (this.filter.matches(filter "Body.applyImpulse")) { this.applyImpulse(h) }
+        if (this.filter.matches(filter "Body.sphereInertia")) { this.sphereInertia(h) }
         if (this.filter.matches(filter "Body.applyLocalForce")) { this.applyLocalForce(h) }
     }
 
@@ -141,6 +142,28 @@ class CannonBodyTest {
         expected.set(imp 0.0 0.0)
         def velOk:boolean (body.velocity.almostEquals(expected 0.001))
         h.ok(velOk "velocity after impulse")
+        h.finishTest()
+    }
+
+    fn sphereInertia:void (h:CannonTestHarness) {
+        h.beginTest("Body.sphereInertia")
+        def body:CannonBody (new CannonBody)
+        body.initDynamic(2.0)
+        def sphere:CannonSphere (new CannonSphere)
+        sphere.initSphere(3.0)
+        body.addShape(sphere)
+        def expected:double 3.6
+        def diffI:double (body.inertia.z - expected)
+        if (diffI < 0.0) {
+            diffI = (0.0 - diffI)
+        }
+        h.ok((diffI < 0.001) "sphere Iz")
+        def invExpected:double 0.2777777777777778
+        def diffInv:double (body.invInertia.z - invExpected)
+        if (diffInv < 0.0) {
+            diffInv = (0.0 - diffInv)
+        }
+        h.ok((diffInv < 0.001) "sphere invIz")
         h.finishTest()
     }
 

@@ -7,6 +7,8 @@ class CannonOverlapKeeper {
     def previous:[int]
     def currentCount:int 0
     def previousCount:int 0
+    def outAdditions:[int]
+    def outRemovals:[int]
 
     fn getKey:int (i:int j:int) {
         if (j < i) {
@@ -67,6 +69,8 @@ class CannonOverlapKeeper {
     }
 
     fn getDiff:void (additions:[int] removals:[int]) {
+        this.outAdditions = additions
+        this.outRemovals = removals
         def al:int this.currentCount
         def bl:int this.previousCount
         def j 0
@@ -88,7 +92,7 @@ class CannonOverlapKeeper {
                 }
             }
             if (found == false) {
-                this.unpackAndPush(additions keyA)
+                this.unpackAndPush(this.outAdditions keyA)
             }
             i = (i + 1)
         }
@@ -111,7 +115,7 @@ class CannonOverlapKeeper {
                 }
             }
             if (found2 == false) {
-                this.unpackAndPush(removals keyB)
+                this.unpackAndPush(this.outRemovals keyB)
             }
             i = (i + 1)
         }

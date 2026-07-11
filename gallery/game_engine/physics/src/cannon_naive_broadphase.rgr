@@ -6,7 +6,9 @@ Import "cannon_broadphase.rgr"
 Import "cannon_body.rgr"
 
 class CannonNaiveBroadphase extends CannonBroadphase {
-    fn collisionPairs:void (bodies:[CannonBody] pairs1:[CannonBody] pairs2:[CannonBody]) {
+    fn collisionPairs:void (bodies:[CannonBody]) {
+        clear this.outPairs1
+        clear this.outPairs2
         def n:int (array_length bodies)
         def i 0
         while (i < n) {
@@ -15,7 +17,7 @@ class CannonNaiveBroadphase extends CannonBroadphase {
                 def bi:CannonBody (itemAt bodies i)
                 def bj:CannonBody (itemAt bodies j)
                 if (this.needBroadphaseCollision(bi bj)) {
-                    this.intersectionTest(bi bj pairs1 pairs2)
+                    this.intersectionTest(bi bj)
                 }
                 j = (j + 1)
             }

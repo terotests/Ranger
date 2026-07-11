@@ -1,0 +1,1007 @@
+; ==============================================================================
+; game_cannon_physics — Cannon.js bridge for world-mode game scripts.
+; ==============================================================================
+;
+; Games declare physics on entities(); runtime control via state.cannonControl:
+;   kinematics[id] = { angle, omega }  — per-entity kinematic pose
+;   launchDown / launchPulse             — optional dynamic launch helper
+; ==============================================================================
+
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "../physics/src/cannon_world.rgr"
+Import "../physics/src/cannon_body.rgr"
+Import "../physics/src/cannon_sphere.rgr"
+Import "../physics/src/cannon_plane.rgr"
+Import "../physics/src/cannon_vec3.rgr"
+Import "../physics/src/cannon_quaternion.rgr"
+Import "../physics/src/cannon_contact_equation.rgr"
+
+class CannonPhysicsCollision {
+    def bodyId:string ""
+    def targetId:string ""
+    def impact:double 0.0
+    def x:double 0.0
+    def y:double 0.0
+    def nx:double 0.0
+    def ny:double 1.0
+    def amount:double 0.0
+}
+
+class GameCannonPhysics {
+    def enabled:boolean false
+    def world:CannonWorld (new CannonWorld)
+    def entityIds:[string]
+    def entityRadius:[double]
+    def entityFrames:[int]
+    def entityAngles:[double]
+    def entityKinds:[int]
+    def entityScores:[double]
+    def entityRollScale:[double]
+    def pendingCollisions:[CannonPhysicsCollision]
+    def defaultRestitution:double 0.75
+    def worldW:double 480.0
+    def worldH:double 270.0
+    def wallRestitution:double 0.85
+    def launchSpeedMin:double 180.0
+    def launchSpeedMax:double 320.0
+    def launchSeed:int 1
+    def launchWasDown:boolean false
+    def hasCustomBounds:boolean false
+    def entityBodyCount:int 0
+    def launchGraceMs:int 0
+    def gravityY:double 0.0
+    def boundaryGraceSkip:[boolean]
+    def tmpAxisZ:CannonVec3 (new CannonVec3)
+
+    fn addCollidersFromPhysics:void (body:CannonBody phys:EvalValue defaultRadius:double) {
+        def colliders:EvalValue (phys.getMember("colliders"))
+        if (colliders.isArray()) {
+            def arr:[EvalValue] colliders.arrayValue
+            def j 0
+            while (j < (array_length arr)) {
+                def c:EvalValue (itemAt arr j)
+                def r:double (this.memDouble(c "radius" defaultRadius))
+                def ox:double (this.memDouble(c "offsetX" 0.0))
+                def oy:double (this.memDouble(c "offsetY" 0.0))
+                def sphere:CannonSphere (new CannonSphere)
+                sphere.initSphere(r)
+                def off:CannonVec3 (new CannonVec3)
+                off.set(ox oy 0.0)
+                body.addShapeOffset(sphere off)
+                j = (j + 1)
+            }
+            return
+        }
+        def sphere:CannonSphere (new CannonSphere)
+        sphere.initSphere(defaultRadius)
+        body.addShape(sphere)
+    }
+
+    fn maxColliderRadius:double (phys:EvalValue defaultRadius:double) {
+        def maxR:double defaultRadius
+        def colliders:EvalValue (phys.getMember("colliders"))
+        if (colliders.isArray()) {
+            def arr:[EvalValue] colliders.arrayValue
+            def j 0
+            while (j < (array_length arr)) {
+                def c:EvalValue (itemAt arr j)
+                def r:double (this.memDouble(c "radius" defaultRadius))
+                if (r > maxR) {
+                    maxR = r
+                }
+                j = (j + 1)
+            }
+        }
+        return maxR
+    }
+
+    fn setKinematicPose:void (body:CannonBody pivotX:double pivotY:double angleDeg:double omegaRad:double) {
+        body.position.set(pivotX pivotY 0.0)
+        tmpAxisZ.set(0.0 0.0 1.0)
+        def rad:double (angleDeg * 0.017453292519943295)
+        body.quaternion.setFromAxisAngle(tmpAxisZ rad)
+        body.velocity.setZero()
+        body.angularVelocity.set(0.0 0.0 omegaRad)
+    }
+
+    fn memString:string (obj:EvalValue key:string dflt:string) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isNull()) {
+            return dflt
+        }
+        if (v.isString()) {
+            return v.stringValue
+        }
+        return dflt
+    }
+
+    fn memDouble:double (obj:EvalValue key:string dflt:double) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isNull()) {
+            return dflt
+        }
+        return v.numberValue
+    }
+
+    fn memInt:int (obj:EvalValue key:string dflt:int) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isNull()) {
+            return dflt
+        }
+        return (to_int v.numberValue)
+    }
+
+    fn memBool:boolean (obj:EvalValue key:string dflt:boolean) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isNull()) {
+            return dflt
+        }
+        if (v.isBoolean()) {
+            return v.boolValue
+        }
+        if ((to_int v.numberValue) != 0) {
+            return true
+        }
+        return false
+    }
+
+    fn initBridge:void () {
+        this.world.initWorld()
+        this.world.setGravity(0.0 0.0 0.0)
+        this.world.defaultContactMaterial.restitution = this.defaultRestitution
+    }
+
+    fn clear:void () {
+        enabled = false
+        clear entityIds
+        clear entityRadius
+        clear entityFrames
+        clear entityAngles
+        clear entityKinds
+        clear entityScores
+        clear entityRollScale
+        clear pendingCollisions
+        launchWasDown = false
+        hasCustomBounds = false
+        entityBodyCount = 0
+        launchGraceMs = 0
+        clear boundaryGraceSkip
+        this.world = (new CannonWorld)
+        this.initBridge()
+    }
+
+    fn setWorldSize:void (w:double h:double) {
+        if (w > 0.0) {
+            worldW = w
+        }
+        if (h > 0.0) {
+            worldH = h
+        }
+    }
+
+    fn setGravityY:void (gy:double) {
+        gravityY = gy
+        this.world.setGravity(0.0 gy 0.0)
+    }
+
+    ; rollScale 0 = stable/upright; 1 = default arcade roll coupling.
+    fn resolveRollScale:double (phys:EvalValue) {
+        if (this.memBool(phys "stable" false)) {
+            return 0.0
+        }
+        def roll:double (this.memDouble(phys "roll" 1.0))
+        if (roll < 0.0) {
+            roll = 0.0
+        }
+        if (roll > 1.0) {
+            roll = 1.0
+        }
+        return roll
+    }
+
+    fn applyEntityInertia:void (body:CannonBody phys:EvalValue rollScale:double) {
+        if (rollScale <= 0.0) {
+            body.inertia.x = 0.0
+            body.inertia.y = 0.0
+            body.inertia.z = 0.0
+            body.invInertia.x = 0.0
+            body.invInertia.y = 0.0
+            body.invInertia.z = 0.0
+            return
+        }
+        def iScale:double (this.memDouble(phys "inertiaScale" 1.0))
+        if (iScale < 0.1) {
+            iScale = 0.1
+        }
+        if (iScale == 1.0) {
+            return
+        }
+        body.inertia.x = (body.inertia.x * iScale)
+        body.inertia.y = (body.inertia.y * iScale)
+        body.inertia.z = (body.inertia.z * iScale)
+        if (body.inertia.x > 0.0) {
+            body.invInertia.x = (1.0 / body.inertia.x)
+        }
+        if (body.inertia.y > 0.0) {
+            body.invInertia.y = (1.0 / body.inertia.y)
+        }
+        if (body.inertia.z > 0.0) {
+            body.invInertia.z = (1.0 / body.inertia.z)
+        }
+    }
+
+    fn pseudo01:double (seed:int) {
+        def s:int ((seed * 1103515245) + 12345)
+        def v:int (s % 10000)
+        if (v < 0) {
+            v = (0 - v)
+        }
+        return ((to_double v) / 10000.0)
+    }
+
+    fn initKinematicBody:CannonBody () {
+        def body:CannonBody (new CannonBody)
+        body.initStatic()
+        body.type = 4
+        body.collisionResponse = true
+        return body
+    }
+
+    fn isKinematicEntity:boolean (phys:EvalValue) {
+        if (this.memBool(phys "isKinematic" false)) {
+            return true
+        }
+        def typeStr:string (this.memString(phys "type" ""))
+        if (typeStr == "kinematic") {
+            return true
+        }
+        return false
+    }
+
+    fn findContactForPair:CannonPhysicsCollision (bodyA:int bodyB:int) {
+        def col:CannonPhysicsCollision (new CannonPhysicsCollision)
+        def n:int (array_length this.world.narrowphase.result)
+        def k 0
+        while (k < n) {
+            def c:CannonContactEquation (itemAt this.world.narrowphase.result k)
+            if (c.enabled) {
+                def ia:int c.bi.id
+                def ib:int c.bj.id
+                def match:boolean false
+                if (ia == bodyA) {
+                    if (ib == bodyB) {
+                        match = true
+                    }
+                }
+                if (ia == bodyB) {
+                    if (ib == bodyA) {
+                        match = true
+                    }
+                }
+                if (match) {
+                    def impact:double (c.getImpactVelocityAlongNormal())
+                    if (impact < 0.0) {
+                        impact = (0.0 - impact)
+                    }
+                    col.impact = impact
+                    col.nx = c.ni.x
+                    col.ny = c.ni.y
+                    def bi:CannonBody c.bi
+                    def px:double (bi.position.x + c.ri.x)
+                    def py:double (bi.position.y + c.ri.y)
+                    col.x = px
+                    col.y = py
+                    return col
+                }
+            }
+            k = (k + 1)
+        }
+        def bodyI:CannonBody (itemAt this.world.bodies bodyA)
+        def bodyJ:CannonBody (itemAt this.world.bodies bodyB)
+        col.x = ((bodyI.position.x + bodyJ.position.x) * 0.5)
+        col.y = ((bodyI.position.y + bodyJ.position.y) * 0.5)
+        return col
+    }
+
+    fn collectCollisionEvents:void () {
+        clear pendingCollisions
+        def seen:[int]
+        def i 0
+        while (i < (array_length entityIds)) {
+            def j:int (i + 1)
+            while (j < (array_length entityIds)) {
+                def bodyI:CannonBody (itemAt this.world.bodies i)
+                def bodyJ:CannonBody (itemAt this.world.bodies j)
+                def cur:int (this.world.collisionMatrix.get(bodyI bodyJ))
+                if (cur != 0) {
+                    def prev:int (this.world.collisionMatrixPrevious.get(bodyI bodyJ))
+                    if (prev == 0) {
+                        def ka:int (itemAt entityKinds i)
+                        def kb:int (itemAt entityKinds j)
+                        def bodyIdx:int (0 - 1)
+                        def targetIdx:int (0 - 1)
+                        if (ka == 0) {
+                            bodyIdx = i
+                            targetIdx = j
+                        } {
+                            if (kb == 0) {
+                                bodyIdx = j
+                                targetIdx = i
+                            }
+                        }
+                        if (bodyIdx >= 0) {
+                            def dup:boolean false
+                            def s 0
+                            while (s < (array_length seen)) {
+                                if ((itemAt seen s) == bodyIdx) {
+                                    def s2:int (s + 1)
+                                    if (s2 < (array_length seen)) {
+                                        if ((itemAt seen s2) == targetIdx) {
+                                            dup = true
+                                        }
+                                    }
+                                }
+                                s = (s + 2)
+                            }
+                            if (dup == false) {
+                                push seen bodyIdx
+                                push seen targetIdx
+                                def col:CannonPhysicsCollision (this.findContactForPair(bodyIdx targetIdx))
+                                col.bodyId = (itemAt entityIds bodyIdx)
+                                col.targetId = (itemAt entityIds targetIdx)
+                                col.amount = (itemAt entityScores targetIdx)
+                                push pendingCollisions col
+                            }
+                        }
+                    }
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn appendCollisionEvents:void (state:EvalValue) {
+        if ((array_length pendingCollisions) == 0) {
+            return
+        }
+        def evs:EvalValue (state.getMember("collisionEvents"))
+        def arr:[EvalValue]
+        if (evs.isArray()) {
+            arr = evs.arrayValue
+        }
+        def i 0
+        while (i < (array_length pendingCollisions)) {
+            def c:CannonPhysicsCollision (itemAt pendingCollisions i)
+            def k:[string]
+            def v:[EvalValue]
+            push k "kind"
+            push v (EvalValue.string("collision"))
+            push k "id"
+            push v (EvalValue.string(c.bodyId))
+            push k "target"
+            push v (EvalValue.string(c.targetId))
+            push k "impact"
+            push v (EvalValue.number(c.impact))
+            push k "x"
+            push v (EvalValue.number(c.x))
+            push k "y"
+            push v (EvalValue.number(c.y))
+            push k "nx"
+            push v (EvalValue.number(c.nx))
+            push k "ny"
+            push v (EvalValue.number(c.ny))
+            push k "amount"
+            push v (EvalValue.number(c.amount))
+            push arr (EvalValue.object(k v))
+            i = (i + 1)
+        }
+        state.setMember("collisionEvents" (EvalValue.array(arr)))
+        clear pendingCollisions
+    }
+
+    fn loadFromEntities:void (list:EvalValue) {
+        clear entityIds
+        clear entityRadius
+        clear entityFrames
+        clear entityAngles
+        clear entityKinds
+        clear entityScores
+        clear entityRollScale
+        clear pendingCollisions
+        if (false == (list.isArray())) {
+            return
+        }
+        def arr:[EvalValue] list.arrayValue
+        def i 0
+        while (i < (array_length arr)) {
+            def ent:EvalValue (itemAt arr i)
+            def phys:EvalValue (ent.getMember("physics"))
+            if (phys.isObject()) {
+                def eid:string (this.memString(ent "id" ""))
+                if ((strlen eid) > 0) {
+                    def radius:double (this.memDouble(phys "radius" 16.0))
+                    def mass:double (this.memDouble(phys "mass" 1.0))
+                    def vx:double (this.memDouble(phys "vx" 0.0))
+                    def vy:double (this.memDouble(phys "vy" 0.0))
+                    def spin:double (this.memDouble(phys "spin" 0.0))
+                    def angle:double (this.memDouble(phys "angle" 0.0))
+                    def frame:int (this.memInt(ent "frame" 0))
+                    def px:double (this.memDouble(ent "x" 0.0))
+                    def py:double (this.memDouble(ent "y" 0.0))
+                    def pos:EvalValue (ent.getMember("position"))
+                    if (pos.isObject()) {
+                        px = (this.memDouble(pos "x" px))
+                        py = (this.memDouble(pos "y" py))
+                    }
+                    def isStatic:boolean (this.memBool(phys "isStatic" false))
+                    if (isStatic == false) {
+                        isStatic = (this.memBool(phys "static" false))
+                    }
+                    def scoreVal:double (this.memDouble(phys "score" 0.0))
+                    if (this.isKinematicEntity(phys)) {
+                        def body:CannonBody (this.initKinematicBody())
+                        this.addCollidersFromPhysics(body phys radius)
+                        this.setKinematicPose(body px py angle 0.0)
+                        this.world.addBody(body)
+                        def maxR:double (this.maxColliderRadius(phys radius))
+                        push entityIds eid
+                        push entityRadius maxR
+                        push entityFrames frame
+                        push entityAngles angle
+                        push entityKinds 2
+                        push entityScores scoreVal
+                        push entityRollScale 0.0
+                    } {
+                        if (isStatic) {
+                            def body:CannonBody (new CannonBody)
+                            body.initStatic()
+                            this.addCollidersFromPhysics(body phys radius)
+                            body.position.set(px py 0.0)
+                            body.collisionResponse = true
+                            this.world.addBody(body)
+                            def maxR:double (this.maxColliderRadius(phys radius))
+                            push entityIds eid
+                            push entityRadius maxR
+                            push entityFrames frame
+                            push entityAngles angle
+                            push entityKinds 1
+                            push entityScores scoreVal
+                            push entityRollScale 0.0
+                        } {
+                            def body:CannonBody (new CannonBody)
+                            def rollScale:double (this.resolveRollScale(phys))
+                            body.initDynamic(mass)
+                            this.addCollidersFromPhysics(body phys radius)
+                            this.applyEntityInertia(body phys rollScale)
+                            body.position.set(px py 0.0)
+                            body.velocity.set(vx vy 0.0)
+                            body.angularVelocity.set(0.0 0.0 spin)
+                            body.collisionResponse = true
+                            this.world.addBody(body)
+                            def maxR:double (this.maxColliderRadius(phys radius))
+                            push entityIds eid
+                            push entityRadius maxR
+                            push entityFrames frame
+                            push entityAngles angle
+                            push entityKinds 0
+                            push entityScores scoreVal
+                            push entityRollScale rollScale
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        entityBodyCount = (array_length entityIds)
+    }
+
+    fn setBoundaryCollision:void (enabled:boolean) {
+        def i:int entityBodyCount
+        while (i < (array_length this.world.bodies)) {
+            def body:CannonBody (itemAt this.world.bodies i)
+            body.collisionResponse = enabled
+            def shapeCount:int (array_length body.shapes)
+            def j 0
+            while (j < shapeCount) {
+                def shape:CannonShape (itemAt body.shapes j)
+                shape.collisionResponse = enabled
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; During launch grace only segments marked launchGraceSkip lose collision.
+    ; Cabinet walls stay solid so the ball cannot escape through corners.
+    fn setBoundaryCollisionForGrace:void () {
+        def i:int entityBodyCount
+        while (i < (array_length this.world.bodies)) {
+            def body:CannonBody (itemAt this.world.bodies i)
+            def bi:int (i - entityBodyCount)
+            def graceSkip:boolean false
+            if (bi < (array_length boundaryGraceSkip)) {
+                graceSkip = (itemAt boundaryGraceSkip bi)
+            }
+            def enabled:boolean true
+            if (graceSkip) {
+                enabled = false
+            }
+            body.collisionResponse = enabled
+            def shapeCount:int (array_length body.shapes)
+            def j 0
+            while (j < shapeCount) {
+                def shape:CannonShape (itemAt body.shapes j)
+                shape.collisionResponse = enabled
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Rotate the default +Z plane normal to (nx, ny, 0).
+    fn setPlaneNormalFromXY:void (body:CannonBody nx:double ny:double) {
+        def axis:CannonVec3 this.tmpAxisZ
+        if (nx > 0.9) {
+            axis.set(0.0 1.0 0.0)
+            body.quaternion.setFromAxisAngle(axis 1.5707963267948966)
+            return
+        }
+        if (nx < -0.9) {
+            axis.set(0.0 -1.0 0.0)
+            body.quaternion.setFromAxisAngle(axis 1.5707963267948966)
+            return
+        }
+        if (ny > 0.9) {
+            axis.set(1.0 0.0 0.0)
+            body.quaternion.setFromAxisAngle(axis 1.5707963267948966)
+            return
+        }
+        if (ny < -0.9) {
+            axis.set(-1.0 0.0 0.0)
+            body.quaternion.setFromAxisAngle(axis 1.5707963267948966)
+            return
+        }
+        axis.set((0.0 - ny) nx 0.0)
+        def len:double axis.norm()
+        if (len > 0.0001) {
+            axis.scaleInto((1.0 / len) axis)
+            body.quaternion.setFromAxisAngle(axis 1.5707963267948966)
+        }
+    }
+
+    fn addPlaneBoundary:void (px:double py:double nx:double ny:double graceSkip:boolean) {
+        def body:CannonBody (new CannonBody)
+        body.initStatic()
+        body.position.set(px py 0.0)
+        body.collisionResponse = true
+        def plane:CannonPlane (new CannonPlane)
+        plane.initPlane()
+        body.addShape(plane)
+        this.setPlaneNormalFromXY(body nx ny)
+        this.world.addBody(body)
+        push boundaryGraceSkip graceSkip
+    }
+
+    fn addSphereChainBoundary:void (x1:double y1:double x2:double y2:double radius:double graceSkip:boolean) {
+        def dx:double (x2 - x1)
+        def dy:double (y2 - y1)
+        def len:double (sqrt(((dx * dx) + (dy * dy))))
+        if (len < 0.5) {
+            return
+        }
+        def steps:int (to_int (len / 12.0))
+        if (steps < 1) {
+            steps = 1
+        }
+        def i 0
+        while (i <= steps) {
+            def t:double ((to_double i) / (to_double steps))
+            def px:double (x1 + (dx * t))
+            def py:double (y1 + (dy * t))
+            def body:CannonBody (new CannonBody)
+            body.initStatic()
+            body.collisionResponse = true
+            def sphere:CannonSphere (new CannonSphere)
+            sphere.initSphere(radius)
+            body.addShape(sphere)
+            body.position.set(px py 0.0)
+            this.world.addBody(body)
+            push boundaryGraceSkip graceSkip
+            i = (i + 1)
+        }
+    }
+
+    fn addSegmentBoundary:void (x1:double y1:double x2:double y2:double graceSkip:boolean) {
+        def dx:double (x2 - x1)
+        def dy:double (y2 - y1)
+        def len:double (sqrt(((dx * dx) + (dy * dy))))
+        if (len < 0.5) {
+            return
+        }
+        def midX:double ((x1 + x2) * 0.5)
+        def midY:double ((y1 + y2) * 0.5)
+        def cx:double (worldW * 0.5)
+        def cy:double (worldH * 0.5)
+        def absDx:double dx
+        if (dx < 0.0) {
+            absDx = (0.0 - dx)
+        } {
+            absDx = dx
+        }
+        def absDy:double dy
+        if (dy < 0.0) {
+            absDy = (0.0 - dy)
+        } {
+            absDy = dy
+        }
+        if (absDx <= 4.0) {
+            this.addSphereChainBoundary(x1 y1 x2 y2 7.0 graceSkip)
+            return
+        }
+        if (absDy <= 4.0) {
+            this.addSphereChainBoundary(x1 y1 x2 y2 7.0 graceSkip)
+            return
+        }
+        this.addSphereChainBoundary(x1 y1 x2 y2 6.0 graceSkip)
+    }
+
+    fn loadBounds:void (list:EvalValue) {
+        hasCustomBounds = false
+        clear boundaryGraceSkip
+        if (false == (list.isArray())) {
+            return
+        }
+        def arr:[EvalValue] list.arrayValue
+        if ((array_length arr) == 0) {
+            return
+        }
+        def i 0
+        while (i < (array_length arr)) {
+            def d:EvalValue (itemAt arr i)
+            def kind:string (this.memString(d "kind" "segment"))
+            def x1:double (this.memDouble(d "x1" 0.0))
+            def y1:double (this.memDouble(d "y1" 0.0))
+            def x2:double (this.memDouble(d "x2" 0.0))
+            def y2:double (this.memDouble(d "y2" 0.0))
+            def graceSkip:boolean (this.memBool(d "launchGraceSkip" false))
+            if (kind == "rect") {
+                def x:double (this.memDouble(d "x" x1))
+                def y:double (this.memDouble(d "y" y1))
+                def w:double (this.memDouble(d "w" 0.0))
+                def h:double (this.memDouble(d "h" 0.0))
+                if (w <= 0.0) {
+                    w = (this.memDouble(d "width" 0.0))
+                }
+                if (h <= 0.0) {
+                    h = (this.memDouble(d "height" 0.0))
+                }
+                x1 = x
+                y1 = y
+                x2 = (x + w)
+                y2 = (y + h)
+            }
+            this.addSegmentBoundary(x1 y1 x2 y2 graceSkip)
+            i = (i + 1)
+        }
+        hasCustomBounds = true
+    }
+
+    fn addDefaultWorldBounds:void () {
+        def cx:double (worldW * 0.5)
+        def cy:double (worldH * 0.5)
+        this.addPlaneBoundary(0.0 cy 1.0 0.0 false)
+        this.addPlaneBoundary(worldW cy -1.0 0.0 false)
+        this.addPlaneBoundary(cx 0.0 0.0 1.0 false)
+        this.addPlaneBoundary(cx worldH 0.0 -1.0 false)
+        hasCustomBounds = true
+    }
+
+    fn applyConfigFromState:void (state:EvalValue) {
+        def ctrl:EvalValue (state.getMember("cannonControl"))
+        if (ctrl.isObject()) {
+            def minSp:double (this.memDouble(ctrl "launchSpeedMin" launchSpeedMin))
+            def maxSp:double (this.memDouble(ctrl "launchSpeedMax" launchSpeedMax))
+            if (minSp > 0.0) {
+                launchSpeedMin = minSp
+            }
+            if (maxSp > minSp) {
+                launchSpeedMax = maxSp
+            }
+        }
+    }
+
+    fn applyRespawnsFromState:void (ctrl:EvalValue) {
+        if (false == (ctrl.isObject())) {
+            return
+        }
+        def resp:EvalValue (ctrl.getMember("respawn"))
+        if (false == (resp.isObject())) {
+            return
+        }
+        def i 0
+        while (i < (array_length entityIds)) {
+            if ((itemAt entityKinds i) == 0) {
+                def eid:string (itemAt entityIds i)
+                def entry:EvalValue (resp.getMember(eid))
+                if (entry.isObject()) {
+                    def body:CannonBody (itemAt this.world.bodies i)
+                    def xVal:EvalValue (entry.getMember("x"))
+                    def yVal:EvalValue (entry.getMember("y"))
+                    def vxVal:EvalValue (entry.getMember("vx"))
+                    def vyVal:EvalValue (entry.getMember("vy"))
+                    if (false == (xVal.isNull())) {
+                        body.position.x = xVal.numberValue
+                    }
+                    if (false == (yVal.isNull())) {
+                        body.position.y = yVal.numberValue
+                    }
+                    def touchedVel:boolean false
+                    if (false == (vxVal.isNull())) {
+                        body.velocity.x = vxVal.numberValue
+                        touchedVel = true
+                    }
+                    if (false == (vyVal.isNull())) {
+                        body.velocity.y = vyVal.numberValue
+                        touchedVel = true
+                    }
+                    if (touchedVel) {
+                        body.angularVelocity.setZero()
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn updateKinematicsFromState:void (ctrl:EvalValue) {
+        if (false == (ctrl.isObject())) {
+            return
+        }
+        def kin:EvalValue (ctrl.getMember("kinematics"))
+        if (false == (kin.isObject())) {
+            return
+        }
+        def i 0
+        while (i < (array_length entityIds)) {
+            if ((itemAt entityKinds i) == 2) {
+                def eid:string (itemAt entityIds i)
+                def entry:EvalValue (kin.getMember(eid))
+                if (entry.isObject()) {
+                    def body:CannonBody (itemAt this.world.bodies i)
+                    def px:double body.position.x
+                    def py:double body.position.y
+                    def ang:double (this.memDouble(entry "angle" (itemAt entityAngles i)))
+                    def omega:double (this.memDouble(entry "omega" 0.0))
+                    set entityAngles i ang
+                    this.setKinematicPose(body px py ang omega)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn launchDynamicBodies:void () {
+        def i 0
+        while (i < (array_length entityIds)) {
+            if ((itemAt entityKinds i) == 0) {
+                launchSeed = (launchSeed + 1)
+                def seed:int ((launchSeed * 17) + i)
+                def u:double (this.pseudo01(seed))
+                ; Upward-biased arc (Y-down screen): roughly -140° .. -25°
+                def minA:double (0.0 - 2.44346)
+                def maxA:double (0.0 - 0.43633)
+                def spanA:double (maxA - minA)
+                def a:double (minA + (u * spanA))
+                def u2:double (this.pseudo01((seed + 31)))
+                def span:double (launchSpeedMax - launchSpeedMin)
+                def spd:double (launchSpeedMin + (u2 * span))
+                def vx:double (cos(a) * spd)
+                def vy:double (sin(a) * spd)
+                def body:CannonBody (itemAt this.world.bodies i)
+                body.velocity.set(vx vy 0.0)
+                body.angularVelocity.setZero()
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn readLaunchDown:boolean (ctrl:EvalValue) {
+        if (false == (ctrl.isObject())) {
+            return false
+        }
+        def down:boolean (this.memBool(ctrl "launchDown" false))
+        if (down) {
+            return true
+        }
+        return (this.memBool(ctrl "launchDownHeld" false))
+    }
+
+    fn applyControlsFromState:void (state:EvalValue dtMs:int) {
+        this.applyConfigFromState(state)
+        def ctrl:EvalValue (state.getMember("cannonControl"))
+        launchGraceMs = 0
+        def launch:boolean false
+        def downNow:boolean false
+        if (ctrl.isObject()) {
+            launchGraceMs = (this.memInt(ctrl "launchGraceMs" 0))
+            if (launchGraceMs < 0) {
+                launchGraceMs = 0
+            }
+            downNow = (this.readLaunchDown(ctrl))
+            if (downNow) {
+                if (launchWasDown == false) {
+                    launch = true
+                }
+            }
+            launchWasDown = downNow
+            if (this.memBool(ctrl "launchPulse" false)) {
+                def resp:EvalValue (ctrl.getMember("respawn"))
+                def ballResp:EvalValue (resp.getMember("ball"))
+                if (false == (ballResp.isObject())) {
+                    launch = true
+                }
+            }
+            this.updateKinematicsFromState(ctrl)
+        } {
+            launchWasDown = false
+        }
+        if (launch) {
+            this.launchDynamicBodies()
+        }
+        if (ctrl.isObject()) {
+            this.applyRespawnsFromState(ctrl)
+        }
+    }
+
+    fn clampBody:void (idx:int) {
+        def body:CannonBody (itemAt this.world.bodies idx)
+        def r:double (itemAt entityRadius idx)
+        def roll:double (itemAt entityRollScale idx)
+        def e:double wallRestitution
+        def minX:double r
+        def maxX:double (worldW - r)
+        def minY:double r
+        def maxY:double (worldH - r)
+        ; World-mode tables inset playfield from the world rect (pinball top y=28, sides x=18).
+        if (hasCustomBounds) {
+            minX = (r + 10.0)
+            minY = (r + 20.0)
+            maxX = (worldW - r - 2.0)
+        }
+        if (body.position.x < minX) {
+            body.position.x = minX
+            def vx:double body.velocity.x
+            if (vx < 0.0) {
+                body.velocity.x = (0.0 - vx) * e
+                if (roll > 0.0) {
+                    def vySide:double body.velocity.y
+                    def spinBump:double ((0.0 - vySide) / r)
+                    body.angularVelocity.z = (body.angularVelocity.z + ((spinBump * 0.35) * roll))
+                }
+            }
+        }
+        if (body.position.x > maxX) {
+            body.position.x = maxX
+            def vx2:double body.velocity.x
+            if (vx2 > 0.0) {
+                body.velocity.x = (0.0 - vx2) * e
+                if (roll > 0.0) {
+                    def vySide2:double body.velocity.y
+                    def spinBump2:double (vySide2 / r)
+                    body.angularVelocity.z = (body.angularVelocity.z + ((spinBump2 * 0.35) * roll))
+                }
+            }
+        }
+        if (body.position.y < minY) {
+            body.position.y = minY
+            def vy:double body.velocity.y
+            if (vy < 0.0) {
+                body.velocity.y = (0.0 - vy) * e
+            }
+        }
+        if (body.position.y > maxY) {
+            body.position.y = maxY
+            def vy2:double body.velocity.y
+            if (vy2 > 0.0) {
+                body.velocity.y = (0.0 - vy2) * e
+            }
+            if (roll > 0.0) {
+                def vxFloor:double body.velocity.x
+                def rollRad:double (vxFloor / r)
+                body.angularVelocity.z = rollRad
+            }
+        }
+    }
+
+    fn clampArena:void () {
+        def i 0
+        while (i < (array_length entityIds)) {
+            if ((itemAt entityKinds i) == 0) {
+                this.clampBody(i)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn step:void (dtMs:int state:EvalValue) {
+        if (enabled == false) {
+            return
+        }
+        this.applyControlsFromState(state dtMs)
+        if (gravityY != 0.0) {
+            this.world.setGravity(0.0 gravityY 0.0)
+        }
+        if (launchGraceMs > 0) {
+            this.setBoundaryCollisionForGrace()
+        } {
+            this.setBoundaryCollision(true)
+        }
+        def dt:double ((to_double dtMs) / 1000.0)
+        this.world.step(dt)
+        this.setBoundaryCollision(true)
+        this.collectCollisionEvents()
+        this.clampArena()
+        def i 0
+        while (i < (array_length entityIds)) {
+            if ((itemAt entityKinds i) == 0) {
+                def body:CannonBody (itemAt this.world.bodies i)
+                def roll:double (itemAt entityRollScale i)
+                if (roll > 0.0) {
+                    def r:double (itemAt entityRadius i)
+                    def vx:double body.velocity.x
+                    def rollRad:double (vx / r)
+                    def w:double body.angularVelocity.z
+                    def blend:double (0.1 * roll)
+                    body.angularVelocity.z = ((w * (1.0 - blend)) + (rollRad * blend))
+                    body.clampAngularVelocity(12.0)
+                    def ang:double (itemAt entityAngles i)
+                    ang = (ang + (body.angularVelocity.z * dt * 57.29577951308232))
+                    while (ang >= 360.0) {
+                        ang = (ang - 360.0)
+                    }
+                    while (ang < 0.0) {
+                        ang = (ang + 360.0)
+                    }
+                    set entityAngles i ang
+                } {
+                    body.angularVelocity.z = 0.0
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn writeWorldEntities:void (world:EvalValue) {
+        def i 0
+        while (i < (array_length entityIds)) {
+            def eid:string (itemAt entityIds i)
+            def body:CannonBody (itemAt this.world.bodies i)
+            def k:[string]
+            def v:[EvalValue]
+            def wx:int (to_int body.position.x)
+            def wy:int (to_int body.position.y)
+            push k "x"
+            push v (EvalValue.fromInt(wx))
+            push k "y"
+            push v (EvalValue.fromInt(wy))
+            def frame:int (itemAt entityFrames i)
+            push k "p0"
+            push v (EvalValue.fromInt(frame))
+            def ang:double (itemAt entityAngles i)
+            push k "angle"
+            push v (EvalValue.number(ang))
+            push k "visible"
+            push v (EvalValue.boolean(true))
+            if ((itemAt entityKinds i) == 0) {
+                push k "vx"
+                push v (EvalValue.fromInt((to_int body.velocity.x)))
+                push k "vy"
+                push v (EvalValue.fromInt((to_int body.velocity.y)))
+            }
+            def pose:EvalValue (EvalValue.object(k v))
+            world.setMember(eid pose)
+            i = (i + 1)
+        }
+    }
+}

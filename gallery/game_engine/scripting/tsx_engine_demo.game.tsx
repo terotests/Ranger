@@ -126,3 +126,12 @@ function anyObjectKey() {
   const hitTip = 0;
   return { any: hit.hit || hitTip, hit: hit }.any;
 }
+
+function staticObjectKey() {
+  return { static: true, radius: 18 }.radius;
+}
+
+function consoleLogOk() {
+  console.log("hello", 42);
+  return 1;
+}

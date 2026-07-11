@@ -1,0 +1,536 @@
+; ==============================================================================
+; game_physics_bridge — EvalValue ↔ PhysicsCore adapter (host/runtime layer).
+; No game semantics: only serialization and neutral command/contact mapping.
+;
+; App contract (state.physics per frame):
+;   controls: { [bodyId]: { steer, throttle, brake, grip? } }
+;   impulses: [{ body, linear: { x, y }, angular? }]
+;     linear x/y and angular are direct velocity deltas (px/s, deg/s) applied once
+;     per step — not force×dt or physical impulse units.
+;
+; Output physicsContacts[]:
+;   { id, phase: "begin"|"persist", bodyA, bodyB, normalImpulse, x, y, nx, ny }
+;   nx/ny point from bodyA toward bodyB; normalImpulse is relative speed along normal.
+;
+; Boundary kind "worldBounds" (alias "rect"): keep bodies inside the AABB, not a wall.
+; ==============================================================================
+
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "./physics_core.rgr"
+
+class GamePhysicsBridge {
+
+    fn memString:string (obj:EvalValue key:string dflt:string) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isNull()) {
+            return dflt
+        }
+        if (v.isString()) {
+            return v.stringValue
+        }
+        return dflt
+    }
+
+    fn memDouble:double (obj:EvalValue key:string dflt:double) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isNull()) {
+            return dflt
+        }
+        return v.numberValue
+    }
+
+    fn memInt:int (obj:EvalValue key:string dflt:int) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isNull()) {
+            return dflt
+        }
+        return (to_int v.numberValue)
+    }
+
+    fn memBool:boolean (obj:EvalValue key:string dflt:boolean) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isNull()) {
+            return dflt
+        }
+        if (v.isBoolean()) {
+            return v.boolValue
+        }
+        if ((to_int v.numberValue) != 0) {
+            return true
+        }
+        return false
+    }
+
+    fn wheelFromEval:PhysWheel (d:EvalValue) {
+        def w:PhysWheel (new PhysWheel)
+        w.offsetX = (this.memDouble(d "offsetX" 0.0))
+        w.offsetY = (this.memDouble(d "offsetY" 0.0))
+        w.hw = (this.memDouble(d "hw" 4.0))
+        w.hh = (this.memDouble(d "hh" 6.0))
+        def ww:double (this.memDouble(d "w" (w.hw * 2.0)))
+        def wh:double (this.memDouble(d "h" (w.hh * 2.0)))
+        w.hw = (ww * 0.5)
+        w.hh = (wh * 0.5)
+        w.drive = (this.memDouble(d "drive" 0.0))
+        w.grip = (this.memDouble(d "grip" 1.0))
+        w.steer = (this.memBool(d "steer" false))
+        return w
+    }
+
+    fn loadVehicle:void (b:PhysBody veh:EvalValue) {
+        clear b.wheels
+        def chassis:EvalValue (veh.getMember("chassis"))
+        if (chassis.isObject()) {
+            def cw:double (this.memDouble(chassis "w" (b.hw * 2.0)))
+            def ch:double (this.memDouble(chassis "h" (b.hh * 2.0)))
+            b.hw = (cw * 0.5)
+            b.hh = (ch * 0.5)
+        }
+        b.mass = (this.memDouble(veh "mass" 1.0))
+        if (b.mass < 0.1) {
+            b.mass = 0.1
+        }
+        b.invMass = (1.0 / b.mass)
+        b.wheelInertia = (this.memDouble(veh "wheelInertia" 0.0))
+        def wh:EvalValue (veh.getMember("wheels"))
+        if (wh.isArray()) {
+            def arr:[EvalValue] wh.arrayValue
+            def i 0
+            while (i < (array_length arr)) {
+                push b.wheels (this.wheelFromEval((itemAt arr i)))
+                i = (i + 1)
+            }
+        }
+        b.inertia = ((b.mass * ((b.hw * b.hw) + (b.hh * b.hh))) / 3.0)
+        def wi 0
+        while (wi < (array_length b.wheels)) {
+            def w:PhysWheel (itemAt b.wheels wi)
+            def rx:double w.offsetX
+            def ry:double w.offsetY
+            def r2:double ((rx * rx) + (ry * ry))
+            if (b.wheelInertia > 0.0) {
+                b.inertia = (b.inertia + (b.mass * b.wheelInertia * r2))
+            }
+            wi = (wi + 1)
+        }
+        def inertiaOverride:double (this.memDouble(veh "inertia" 0.0))
+        if (inertiaOverride > 0.0) {
+            b.inertia = inertiaOverride
+        }
+        if (b.inertia < 1.0) {
+            b.inertia = 1.0
+        }
+        b.invInertia = (1.0 / b.inertia)
+        b.maxSpeed = (this.memDouble(veh "maxSpeed" b.maxSpeed))
+        b.accel = (this.memDouble(veh "accel" b.accel))
+        b.brake = (this.memDouble(veh "brake" b.brake))
+        b.drag = (this.memDouble(veh "drag" b.drag))
+        b.steerRate = (this.memDouble(veh "steerRate" b.steerRate))
+        b.grip = (this.memDouble(veh "grip" b.grip))
+        b.restitution = (this.memDouble(veh "restitution" b.restitution))
+        b.spinOnWall = (this.memDouble(veh "spinOnWall" b.spinOnWall))
+        b.steerAngle = (this.memDouble(veh "steerAngle" 0.0))
+        b.lateralGrip = (this.memDouble(veh "lateralGrip" 0.0))
+        b.maxLateralForce = (this.memDouble(veh "maxLateralForce" 0.0))
+        b.slipThreshold = (this.memDouble(veh "slipThreshold" 0.0))
+        b.slipSpin = (this.memDouble(veh "slipSpin" 0.0))
+        b.angularDamping = (this.memDouble(veh "angularDamping" 1.0))
+        b.angularStop = (this.memDouble(veh "angularStop" 0.0))
+    }
+
+    fn bodyFromEval:PhysBody (d:EvalValue) {
+        def b:PhysBody (new PhysBody)
+        b.id = (this.memString(d "id" ""))
+        b.x = (this.memDouble(d "x" 0.0))
+        b.y = (this.memDouble(d "y" 0.0))
+        def pos:EvalValue (d.getMember("position"))
+        if (pos.isObject()) {
+            b.x = (this.memDouble(pos "x" b.x))
+            b.y = (this.memDouble(pos "y" b.y))
+        }
+        b.angle = (this.memDouble(d "angle" 0.0))
+        b.speed = (this.memDouble(d "speed" 0.0))
+        b.hw = (this.memDouble(d "hw" 10.0))
+        b.hh = (this.memDouble(d "hh" 16.0))
+        def col:EvalValue (d.getMember("collision"))
+        if (col.isObject()) {
+            def cr:double (this.memDouble(col "r" 0.0))
+            if (cr > 0.0) {
+                b.hw = cr
+                b.hh = cr
+            } {
+                def cw:double (this.memDouble(col "w" (b.hw * 2.0)))
+                def ch:double (this.memDouble(col "h" (b.hh * 2.0)))
+                b.hw = (cw * 0.5)
+                b.hh = (ch * 0.5)
+            }
+        }
+        b.static = (this.memBool(d "static" false))
+        b.maxSpeed = (this.memDouble(d "maxSpeed" 300.0))
+        b.accel = (this.memDouble(d "accel" 420.0))
+        b.brake = (this.memDouble(d "brake" 520.0))
+        b.drag = (this.memDouble(d "drag" 0.92))
+        b.steerRate = (this.memDouble(d "steerRate" 130.0))
+        b.grip = (this.memDouble(d "grip" 1.0))
+        b.slipThreshold = (this.memDouble(d "slipThreshold" 0.0))
+        b.slipSpin = (this.memDouble(d "slipSpin" 0.0))
+        b.restitution = (this.memDouble(d "restitution" 0.35))
+        b.spinOnWall = (this.memDouble(d "spinOnWall" 220.0))
+        b.angularDamping = (this.memDouble(d "angularDamping" 1.0))
+        b.angularStop = (this.memDouble(d "angularStop" 0.0))
+        def veh:EvalValue (d.getMember("vehicle"))
+        if (veh.isObject()) {
+            this.loadVehicle(b veh)
+        }
+        if (b.static) {
+            b.mass = 0.0
+            b.invMass = 0.0
+            b.invInertia = 0.0
+        } {
+            if ((array_length b.wheels) == 0) {
+                def massTop:double (this.memDouble(d "mass" 0.0))
+                if (massTop > 0.0) {
+                    b.mass = massTop
+                    if (b.mass < 0.01) {
+                        b.mass = 0.01
+                    }
+                    b.invMass = (1.0 / b.mass)
+                    def inTop:double (this.memDouble(d "inertia" 0.0))
+                    if (inTop > 0.0) {
+                        b.inertia = inTop
+                    } {
+                        b.inertia = (b.mass * ((b.hw * b.hw) + (b.hh * b.hh)))
+                    }
+                    if (b.inertia < 0.05) {
+                        b.inertia = 0.05
+                    }
+                    b.invInertia = (1.0 / b.inertia)
+                }
+            }
+        }
+        return b
+    }
+
+    fn boundaryFromEval:PhysBoundary (d:EvalValue) {
+        def b:PhysBoundary (new PhysBoundary)
+        b.kind = (this.memString(d "kind" "segment"))
+        b.id = (this.memString(d "id" ""))
+        b.x1 = (this.memDouble(d "x1" 0.0))
+        b.y1 = (this.memDouble(d "y1" 0.0))
+        b.x2 = (this.memDouble(d "x2" 0.0))
+        b.y2 = (this.memDouble(d "y2" 0.0))
+        b.w = (this.memDouble(d "w" 0.0))
+        b.h = (this.memDouble(d "h" 0.0))
+        def x:double (this.memDouble(d "x" 0.0))
+        def y:double (this.memDouble(d "y" 0.0))
+        if (b.w <= 0.0) {
+            b.w = (this.memDouble(d "width" 0.0))
+        }
+        if (b.h <= 0.0) {
+            b.h = (this.memDouble(d "height" 0.0))
+        }
+        if (b.kind == "rect") {
+            b.x1 = x
+            b.y1 = y
+            b.x2 = (x + b.w)
+            b.y2 = (y + b.h)
+        }
+        if (b.kind == "worldBounds") {
+            b.kind = "rect"
+            b.x1 = x
+            b.y1 = y
+            b.x2 = (x + b.w)
+            b.y2 = (y + b.h)
+        }
+        b.restitution = (this.memDouble(d "restitution" 0.4))
+        b.spinOnHit = (this.memDouble(d "spinOnHit" 200.0))
+        return b
+    }
+
+    fn loadBodies:void (core:PhysicsCore list:EvalValue) {
+        clear core.bodies
+        if (false == (list.isArray())) {
+            return
+        }
+        def arr:[EvalValue] list.arrayValue
+        def i 0
+        while (i < (array_length arr)) {
+            def d:EvalValue (itemAt arr i)
+            def physEv:EvalValue (d.getMember("physics"))
+            if (physEv.isBoolean()) {
+                if (physEv.boolValue == false) {
+                    i = (i + 1)
+                    continue
+                }
+            }
+            def b:PhysBody (this.bodyFromEval(d))
+            if ((strlen b.id) > 0) {
+                def vxEv:EvalValue (d.getMember("vx"))
+                def vyEv:EvalValue (d.getMember("vy"))
+                def avEv:EvalValue (d.getMember("angularVel"))
+                def hasVel:boolean false
+                if (false == (vxEv.isNull())) {
+                    b.vx = vxEv.numberValue
+                    hasVel = true
+                }
+                if (false == (vyEv.isNull())) {
+                    b.vy = vyEv.numberValue
+                    hasVel = true
+                }
+                if (false == (avEv.isNull())) {
+                    b.angularVel = avEv.numberValue
+                }
+                if (hasVel) {
+                    core.syncSpeedFromVelocity(b)
+                } {
+                    core.syncVelocityFromSpeed(b)
+                }
+                push core.bodies b
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn loadBounds:void (core:PhysicsCore list:EvalValue) {
+        clear core.bounds
+        if (false == (list.isArray())) {
+            return
+        }
+        def arr:[EvalValue] list.arrayValue
+        def i 0
+        while (i < (array_length arr)) {
+            push core.bounds (this.boundaryFromEval((itemAt arr i)))
+            i = (i + 1)
+        }
+    }
+
+    fn commandIndex:int (out:[PhysCommand] bodyId:string) {
+        def i 0
+        while (i < (array_length out)) {
+            def c:PhysCommand (itemAt out i)
+            if (c.bodyId == bodyId) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn ensureCommand:PhysCommand (out:[PhysCommand] bodyId:string) {
+        def idx:int (this.commandIndex(out bodyId))
+        if (idx >= 0) {
+            return (itemAt out idx)
+        }
+        def cmd:PhysCommand (new PhysCommand)
+        cmd.bodyId = bodyId
+        push out cmd
+        return cmd
+    }
+
+    fn readControlEntry:void (cmd:PhysCommand cmdEv:EvalValue) {
+        cmd.steer = (this.memDouble(cmdEv "steer" 0.0))
+        cmd.throttle = (this.memDouble(cmdEv "throttle" 0.0))
+        cmd.brake = (this.memDouble(cmdEv "brake" 0.0))
+        cmd.grip = (this.memDouble(cmdEv "grip" (0.0 - 1.0)))
+    }
+
+    fn readCommands:void (core:PhysicsCore state:EvalValue out:[PhysCommand]) {
+        clear out
+        def phy:EvalValue (state.getMember("physics"))
+        if (phy.isObject()) {
+            def ctrl:EvalValue (phy.getMember("controls"))
+            if (ctrl.isObject()) {
+                def i 0
+                while (i < (array_length core.bodies)) {
+                    def b:PhysBody (itemAt core.bodies i)
+                    if (b.static == false) {
+                        def cmdEv:EvalValue (ctrl.getMember(b.id))
+                        if (cmdEv.isObject()) {
+                            def cmd:PhysCommand (this.ensureCommand(out b.id))
+                            this.readControlEntry(cmd cmdEv)
+                        }
+                    }
+                    i = (i + 1)
+                }
+            }
+            def imps:EvalValue (phy.getMember("impulses"))
+            if (imps.isArray()) {
+                def arr:[EvalValue] imps.arrayValue
+                def j 0
+                while (j < (array_length arr)) {
+                    def imp:EvalValue (itemAt arr j)
+                    def bid:string (this.memString(imp "body" ""))
+                    if ((strlen bid) > 0) {
+                        def cmd:PhysCommand (this.ensureCommand(out bid))
+                        def lin:EvalValue (imp.getMember("linear"))
+                        if (lin.isObject()) {
+                            cmd.impulseX = (cmd.impulseX + (this.memDouble(lin "x" 0.0)))
+                            cmd.impulseY = (cmd.impulseY + (this.memDouble(lin "y" 0.0)))
+                        }
+                        cmd.impulseAngular = (cmd.impulseAngular + (this.memDouble(imp "angular" 0.0)))
+                    }
+                    j = (j + 1)
+                }
+            }
+            return
+        }
+    }
+
+    fn writeWorldEntities:void (core:PhysicsCore world:EvalValue) {
+        def i 0
+        while (i < (array_length core.bodies)) {
+            def b:PhysBody (itemAt core.bodies i)
+            def pos:EvalValue (world.getMember(b.id))
+            def k:[string]
+            def v:[EvalValue]
+            push k "x"
+            push v (EvalValue.number(b.x))
+            push k "y"
+            push v (EvalValue.number(b.y))
+            push k "angle"
+            push v (EvalValue.number(b.angle))
+            push k "speed"
+            push v (EvalValue.number(b.speed))
+            push k "vx"
+            push v (EvalValue.number(b.vx))
+            push k "vy"
+            push v (EvalValue.number(b.vy))
+            push k "angularVel"
+            push v (EvalValue.number(b.angularVel))
+            if (b.active == false) {
+                push k "visible"
+                push v (EvalValue.fromInt(0))
+            } {
+                if (false == (pos.isNull())) {
+                    def vis:EvalValue (pos.getMember("visible"))
+                    if (false == (vis.isNull())) {
+                        push k "visible"
+                        push v vis
+                    }
+                }
+            }
+            if ((array_length b.wheels) > 0) {
+                def wv:[EvalValue]
+                def wi 0
+                def rad:double (core.degToRad(b.angle))
+                def cosA:double (cos(rad))
+                def sinA:double (sin(rad))
+                while (wi < (array_length b.wheels)) {
+                    def wh:PhysWheel (itemAt b.wheels wi)
+                    def lx:double wh.offsetX
+                    def ly:double wh.offsetY
+                    def wx:double (b.x + ((lx * cosA) - (ly * sinA)))
+                    def wy:double (b.y + ((lx * sinA) + (ly * cosA)))
+                    def wObjK:[string]
+                    def wObjV:[EvalValue]
+                    push wObjK "x"
+                    push wObjV (EvalValue.number(wx))
+                    push wObjK "y"
+                    push wObjV (EvalValue.number(wy))
+                    push wObjK "w"
+                    push wObjV (EvalValue.number(wh.hw * 2.0))
+                    push wObjK "h"
+                    push wObjV (EvalValue.number(wh.hh * 2.0))
+                    push wv (EvalValue.object(wObjK wObjV))
+                    wi = (wi + 1)
+                }
+                push k "wheels"
+                push v (EvalValue.array(wv))
+            }
+            world.setMember(b.id (EvalValue.object(k v)))
+            i = (i + 1)
+        }
+    }
+
+    fn writeContacts:void (core:PhysicsCore state:EvalValue) {
+        def arr:[EvalValue]
+        def i 0
+        while (i < (array_length core.contacts)) {
+            def c:PhysContact (itemAt core.contacts i)
+            def k:[string]
+            def v:[EvalValue]
+            push k "bodyA"
+            push v (EvalValue.string(c.bodyA))
+            push k "bodyB"
+            push v (EvalValue.string(c.bodyB))
+            push k "id"
+            push v (EvalValue.string(c.id))
+            push k "phase"
+            push v (EvalValue.string(c.phase))
+            push k "normalImpulse"
+            push v (EvalValue.number(c.normalImpulse))
+            push k "x"
+            push v (EvalValue.number(c.x))
+            push k "y"
+            push v (EvalValue.number(c.y))
+            push k "nx"
+            push v (EvalValue.number(c.nx))
+            push k "ny"
+            push v (EvalValue.number(c.ny))
+            push arr (EvalValue.object(k v))
+            i = (i + 1)
+        }
+        state.setMember("physicsContacts" (EvalValue.array(arr)))
+    }
+
+    fn copyBody:PhysBody (s:PhysBody) {
+        def b:PhysBody (new PhysBody)
+        b.id = s.id
+        b.x = s.x
+        b.y = s.y
+        b.angle = s.angle
+        b.speed = s.speed
+        b.angularVel = s.angularVel
+        b.vx = s.vx
+        b.vy = s.vy
+        b.hw = s.hw
+        b.hh = s.hh
+        b.maxSpeed = s.maxSpeed
+        b.accel = s.accel
+        b.brake = s.brake
+        b.drag = s.drag
+        b.steerRate = s.steerRate
+        b.grip = s.grip
+        b.restitution = s.restitution
+        b.spinOnWall = s.spinOnWall
+        b.active = s.active
+        b.static = s.static
+        b.mass = s.mass
+        b.invMass = s.invMass
+        b.inertia = s.inertia
+        b.invInertia = s.invInertia
+        b.steerAngle = s.steerAngle
+        b.lateralGrip = s.lateralGrip
+        b.maxLateralForce = s.maxLateralForce
+        b.slipThreshold = s.slipThreshold
+        b.slipSpin = s.slipSpin
+        b.angularDamping = s.angularDamping
+        b.angularStop = s.angularStop
+        b.wheelInertia = s.wheelInertia
+        clear b.wheels
+        def wi 0
+        while (wi < (array_length s.wheels)) {
+            def sw:PhysWheel (itemAt s.wheels wi)
+            def w:PhysWheel (new PhysWheel)
+            w.offsetX = sw.offsetX
+            w.offsetY = sw.offsetY
+            w.hw = sw.hw
+            w.hh = sw.hh
+            w.drive = sw.drive
+            w.grip = sw.grip
+            w.steer = sw.steer
+            push b.wheels w
+            wi = (wi + 1)
+        }
+        return b
+    }
+
+    fn copyBodiesFrom:void (dst:PhysicsCore src:PhysicsCore) {
+        clear dst.bodies
+        def i 0
+        while (i < (array_length src.bodies)) {
+            push dst.bodies (this.copyBody((itemAt src.bodies i)))
+            i = (i + 1)
+        }
+    }
+}

@@ -346,6 +346,25 @@ describe("Game runner - scripted Pong", () => {
     expect(py).toBeLessThan(3400);
   });
 
+  it("runs physics sandbox with Cannon bodies and sheet sprites", () => {
+    const { compile, run } = compileAndRun(
+      "gallery/game_engine/scripting/physics_sandbox_runner_demo.rgr"
+    );
+
+    expect(
+      compile.success,
+      `Compile failed: ${compile.error || compile.output}`
+    ).toBe(true);
+    expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+
+    const out = run?.output || "";
+    expect(out).toContain("frames=300");
+    expect(out).toContain("physics-sandbox-runner done");
+    expect(out).toContain("physics=1");
+    expect(out).toContain("moved=true");
+    expect(out).toContain("collided=true");
+  });
+
   it("runs split-screen host with two independent solo panes", () => {
     const { compile, run } = compileAndRun(
       "gallery/game_engine/scripting/split_screen_runner_demo.rgr"

@@ -1,0 +1,164 @@
+; ==============================================================================
+; physics_vehicle — wheel vehicle solver plugin for PhysicsCore.
+; Longitudinal: arcade speed along body forward (matches maxSpeed/accel/drag).
+; Lateral: per-wheel side forces + yaw torque.
+; ==============================================================================
+
+Import "./physics_core.rgr"
+
+class PhysicsVehicleSolver {
+
+    fn stepVehicle:void (core:PhysicsCore b:PhysBody cmd:PhysCommand dtSec:double) {
+        if (b.static) {
+            return
+        }
+        if (b.active == false) {
+            return
+        }
+        if ((array_length b.wheels) == 0) {
+            return
+        }
+        core.applyCommandGrip(b cmd)
+        core.applyCommandImpulse(b cmd)
+        def steer:double cmd.steer
+        def throttle:double cmd.throttle
+        def brake:double cmd.brake
+        if (brake > 0.0) {
+            throttle = 0.0
+        }
+        if (steer != 0.0) {
+            b.angle = (b.angle + (steer * b.steerRate * dtSec * b.grip))
+        }
+        if (b.slipThreshold > 0.0) {
+            if (b.grip < b.slipThreshold) {
+                if (b.slipSpin > 0.0) {
+                    if (steer != 0.0) {
+                        def slip:double (((1.0 - b.grip) * steer * b.steerRate) * b.slipSpin)
+                        b.angularVel = (b.angularVel + slip)
+                    }
+                }
+            }
+        }
+        core.normalizeAngle(b)
+        def rad:double (core.degToRad(b.angle))
+        def cosA:double (cos(rad))
+        def sinA:double (sin(rad))
+        def fwdx:double sinA
+        def fwdy:double (0.0 - cosA)
+        def rightx:double cosA
+        def righty:double sinA
+        def forwardSpeed:double ((b.vx * fwdx) + (b.vy * fwdy))
+        def sideSpeed:double ((b.vx * rightx) + (b.vy * righty))
+        if (throttle > 0.0) {
+            forwardSpeed = (forwardSpeed + (b.accel * throttle * dtSec))
+        }
+        if (brake > 0.0) {
+            forwardSpeed = (forwardSpeed - (b.brake * brake * dtSec))
+            if (forwardSpeed < 0.0) {
+                forwardSpeed = 0.0
+            }
+            def sideBrake:double (1.0 - (brake * 8.0 * dtSec))
+            if (sideBrake < 0.0) {
+                sideBrake = 0.0
+            }
+            sideSpeed = (sideSpeed * sideBrake)
+            def brakeDrag:double (1.0 - (brake * 4.0 * dtSec))
+            if (brakeDrag < 0.0) {
+                brakeDrag = 0.0
+            }
+            forwardSpeed = (forwardSpeed * brakeDrag)
+        }
+        if (forwardSpeed < 0.0) {
+            forwardSpeed = 0.0
+        }
+        if (forwardSpeed > b.maxSpeed) {
+            forwardSpeed = b.maxSpeed
+        }
+        def dragFactor:double (1.0 - ((1.0 - b.drag) * dtSec))
+        if (dragFactor < 0.0) {
+            dragFactor = 0.0
+        }
+        forwardSpeed = (forwardSpeed * dragFactor)
+        def steerRad:double (steer * b.steerAngle)
+        def dSide:double 0.0
+        def omegaRad:double (core.degToOmega(b.angularVel))
+        def tau:double 0.0
+        def wi 0
+        while (wi < (array_length b.wheels)) {
+            def w:PhysWheel (itemAt b.wheels wi)
+            def lx:double w.offsetX
+            def ly:double w.offsetY
+            def relx:double ((lx * cosA) - (ly * sinA))
+            def rely:double ((lx * sinA) + (ly * cosA))
+            def vwx:double (b.vx - (omegaRad * rely))
+            def vwy:double (b.vy + (omegaRad * relx))
+            def wrx:double rightx
+            def wry:double righty
+            if (w.steer) {
+                if (steer != 0.0) {
+                    def sAng:double (rad + steerRad)
+                    wrx = (cos(sAng))
+                    wry = (sin(sAng))
+                }
+            }
+            def latVel:double ((vwx * wrx) + (vwy * wry))
+            def wgrip:double (b.grip * w.grip)
+            def latForce:double 0.0
+            if (b.lateralGrip > 0.0) {
+                latForce = ((0.0 - latVel) * b.lateralGrip * wgrip)
+                if (b.maxLateralForce > 0.0) {
+                    if (latForce > b.maxLateralForce) {
+                        latForce = b.maxLateralForce
+                    }
+                    if (latForce < (0.0 - b.maxLateralForce)) {
+                        latForce = (0.0 - b.maxLateralForce)
+                    }
+                }
+            }
+            def fxw:double (wrx * latForce)
+            def fyw:double (wry * latForce)
+            dSide = (dSide + ((latForce * b.invMass) * dtSec))
+            tau = (tau + ((relx * fyw) - (rely * fxw)))
+            wi = (wi + 1)
+        }
+        sideSpeed = (sideSpeed + dSide)
+        b.vx = ((fwdx * forwardSpeed) + (rightx * sideSpeed))
+        b.vy = ((fwdy * forwardSpeed) + (righty * sideSpeed))
+        omegaRad = (omegaRad + ((tau * b.invInertia) * dtSec))
+        b.angularVel = (core.omegaToDeg(omegaRad))
+        b.x = (b.x + (b.vx * dtSec))
+        b.y = (b.y + (b.vy * dtSec))
+        b.angle = (b.angle + (b.angularVel * dtSec))
+        core.normalizeAngle(b)
+        core.resolveBoundaries(b)
+        if (b.angularDamping < 1.0) {
+            if (b.angularDamping > 0.0) {
+                b.angularVel = (b.angularVel * b.angularDamping)
+            }
+        }
+        if (b.angularStop > 0.0) {
+            if (b.angularVel > (0.0 - b.angularStop)) {
+                if (b.angularVel < b.angularStop) {
+                    b.angularVel = 0.0
+                }
+            }
+        }
+        core.syncSpeedFromVelocity(b)
+    }
+
+    fn stepAll:void (core:PhysicsCore commands:[PhysCommand] dtSec:double) {
+        def i 0
+        while (i < (array_length core.bodies)) {
+            def b:PhysBody (itemAt core.bodies i)
+            if (b.static) {
+                i = (i + 1)
+                continue
+            }
+            if (core.isVehicle(b)) {
+                def cmd:PhysCommand (core.findCommand(commands b.id))
+                this.stepVehicle(core b cmd dtSec)
+            }
+            i = (i + 1)
+        }
+    }
+}

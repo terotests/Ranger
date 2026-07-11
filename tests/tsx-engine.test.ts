@@ -31,6 +31,9 @@ describe("TSX engine - ComponentEngine regressions", () => {
     expect(out).toContain("splitWithPane=1");
     expect(out).toContain("mathSqrt=4");
     expect(out).toContain("anyObjectKey=1");
+    expect(out).toContain("staticObjectKey=18");
+    expect(out).toContain("[tsx] hello 42");
+    expect(out).toContain("consoleLogOk=1");
     expect(out).toContain("tsx-engine-demo done");
   });
 

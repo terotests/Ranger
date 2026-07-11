@@ -26,6 +26,13 @@ class CannonSphere extends CannonShape {
         this.boundingSphereRadius = this.radius
     }
 
+    fn calculateLocalInertia:void (mass:double target:CannonVec3) {
+        def I:double (((2.0 * mass) * this.radius) * this.radius / 5.0)
+        target.x = I
+        target.y = I
+        target.z = I
+    }
+
     fn calculateWorldAABB:void (pos:CannonVec3 quat:CannonQuaternion min:CannonVec3 max:CannonVec3) {
         def r:double this.radius
         min.x = pos.x - r

@@ -106,6 +106,7 @@
     "engine:game-sdl:run:breakout": "bash gallery/game_engine/scripts/build-game-sdl.sh --run gallery/game_engine/games/breakout/index.tsx",
     "engine:game-sdl:run:ylos": "bash gallery/game_engine/scripts/build-game-sdl.sh --run gallery/game_engine/games/ylos/index.tsx",
     "engine:game-sdl:run:ylos2": "bash gallery/game_engine/scripts/build-lpc.sh --run && bash gallery/game_engine/scripts/build-game-sdl.sh --run gallery/game_engine/games/ylos2/index.tsx",
+    "engine:game-sdl:run:physics_sandbox": "bash gallery/game_engine/scripts/build-game-sdl.sh --run gallery/game_engine/games/physics_sandbox/index.tsx",
     "engine:game-sdl:smoke": "bash gallery/game_engine/scripts/build-game-sdl.sh --run gallery/game_engine/scripting/pong.game.tsx 300",
     "engine:game-sdl:smoke:invaders": "bash gallery/game_engine/scripts/build-game-sdl.sh --run gallery/game_engine/scripting/invaders.game.tsx 300",
     "engine:game-sdl:smoke:breakout": "bash gallery/game_engine/scripts/build-game-sdl.sh --run gallery/game_engine/scripting/breakout.game.tsx 300",

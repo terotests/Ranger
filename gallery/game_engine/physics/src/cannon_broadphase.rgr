@@ -9,6 +9,8 @@ class CannonBroadphase {
     def useBoundingBoxes:boolean false
     def dirty:boolean true
     def tmpRel:CannonVec3 (new CannonVec3)
+    def outPairs1:[CannonBody]
+    def outPairs2:[CannonBody]
 
     fn needBroadphaseCollision:boolean (bodyA:CannonBody bodyB:CannonBody) {
         def aStatic:boolean (bodyA.type == 2)
@@ -23,19 +25,19 @@ class CannonBroadphase {
         return true
     }
 
-    fn doBoundingSphereBroadphase:void (bodyA:CannonBody bodyB:CannonBody pairs1:[CannonBody] pairs2:[CannonBody]) {
+    fn doBoundingSphereBroadphase:void (bodyA:CannonBody bodyB:CannonBody) {
         def r:CannonVec3 this.tmpRel
         bodyB.position.vsub(bodyA.position r)
         def sum:double (bodyA.boundingRadius + bodyB.boundingRadius)
         def sum2:double (sum * sum)
         def norm2:double r.norm2()
         if (norm2 < sum2) {
-            push pairs1 bodyA
-            push pairs2 bodyB
+            push this.outPairs1 bodyA
+            push this.outPairs2 bodyB
         }
     }
 
-    fn intersectionTest:void (bodyA:CannonBody bodyB:CannonBody pairs1:[CannonBody] pairs2:[CannonBody]) {
-        this.doBoundingSphereBroadphase(bodyA bodyB pairs1 pairs2)
+    fn intersectionTest:void (bodyA:CannonBody bodyB:CannonBody) {
+        this.doBoundingSphereBroadphase(bodyA bodyB)
     }
 }

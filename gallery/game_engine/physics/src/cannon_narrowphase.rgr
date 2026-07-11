@@ -53,7 +53,7 @@ class CannonNarrowphase {
         }
         def r:CannonContactEquation (this.createContactEquation(bi bj si sj))
         def ni:CannonVec3 r.ni
-        xj.vsub(xi ni)
+        xi.vsub(xj ni)
         ni.normalizeSelf()
         r.ri.copy(ni)
         r.rj.copy(ni)
@@ -120,8 +120,8 @@ class CannonNarrowphase {
         return false
     }
 
-    fn getContacts:void (p1:[CannonBody] p2:[CannonBody] result:[CannonContactEquation]) {
-        this.result = result
+    fn getContacts:void (p1:[CannonBody] p2:[CannonBody]) {
+        clear this.result
         def qi:CannonQuaternion this.tmpQuatI
         def qj:CannonQuaternion this.tmpQuatJ
         def xi:CannonVec3 this.tmpVecI
