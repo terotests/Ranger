@@ -54,18 +54,35 @@ class SoftCanvas {
         return px
     }
 
-    ; Fill the whole frame with an opaque colour.
-    fn clear:void (r:int g:int b:int) {
-        def n (w * h)
-        def i 0
-        while (i < n) {
-            def o (i * 4)
-            buffer_set px o r
-            buffer_set px (o + 1) g
-            buffer_set px (o + 2) b
-            buffer_set px (o + 3) 255
-            i = (i + 1)
+    ; Fill `count` consecutive opaque RGBA pixels starting at byte offset `off`.
+    ; Writes the first pixel, then doubles the filled span with buffer_copy
+    ; (a native memcpy-class span copy on every target). A W-pixel run costs
+    ; 4 byte writes + ~log2(W) span copies instead of 4*W individual byte
+    ; writes — the high-level colour-fill primitive the fill/blit paths build on.
+    fn fillSpanRGB:void (off:int count:int r:int g:int b:int) {
+        if (count <= 0) {
+            return
         }
+        buffer_set px off r
+        buffer_set px (off + 1) g
+        buffer_set px (off + 2) b
+        buffer_set px (off + 3) 255
+        def filled 1
+        while (filled < count) {
+            def copyCount filled
+            def remaining (count - filled)
+            if (copyCount > remaining) {
+                copyCount = remaining
+            }
+            buffer_copy px (off + (filled * 4)) px off (copyCount * 4)
+            filled = (filled + copyCount)
+        }
+    }
+
+    ; Fill the whole frame with an opaque colour. The frame is one contiguous
+    ; RGBA span, so this is a single exponential-doubling fill.
+    fn clear:void (r:int g:int b:int) {
+        this.fillSpanRGB(0 (w * h) r g b)
     }
 
     ; Set one pixel (opaque). Out-of-bounds writes are ignored so callers can
@@ -119,19 +136,27 @@ class SoftCanvas {
         if (y0 >= y1) {
             return
         }
-        def yy y0
-        while (yy < y1) {
-            def rowBase (((yy * w) + x0) * 4)
-            def o rowBase
-            def xx x0
-            while (xx < x1) {
-                buffer_set px o r
-                buffer_set px (o + 1) g
-                buffer_set px (o + 2) b
-                buffer_set px (o + 3) 255
-                o = (o + 4)
-                xx = (xx + 1)
+        def spanPixels (x1 - x0)
+
+        ; Full-width rectangles are one contiguous RGBA region — fill in a single
+        ; span (this is the dominant createStaticBg ground-slice case).
+        if (x0 == 0) {
+            if (x1 == w) {
+                def base (((y0 * w)) * 4)
+                this.fillSpanRGB(base (spanPixels * (y1 - y0)) r g b)
+                return
             }
+        }
+
+        ; Otherwise fill the first scanline, then replicate it down with
+        ; contiguous row copies (memcpy per row) instead of per-pixel writes.
+        def firstRowOff (((y0 * w) + x0) * 4)
+        this.fillSpanRGB(firstRowOff spanPixels r g b)
+        def spanBytes (spanPixels * 4)
+        def yy (y0 + 1)
+        while (yy < y1) {
+            def rowOff (((yy * w) + x0) * 4)
+            buffer_copy px rowOff px firstRowOff spanBytes
             yy = (yy + 1)
         }
     }
@@ -185,15 +210,33 @@ class SoftCanvas {
         def yy (cy - rad)
         def yEnd (cy + rad)
         while (yy <= yEnd) {
-            def xx (cx - rad)
-            def xEnd (cx + rad)
-            while (xx <= xEnd) {
-                def dx (xx - cx)
-                def dy (yy - cy)
-                if (((dx * dx) + (dy * dy)) <= r2) {
-                    this.setPixel(xx yy r g b)
+            ; Clip the scanline to the buffer (matches setPixel's y bounds check).
+            if (yy >= 0) {
+                if (yy < h) {
+                    def dy (yy - cy)
+                    def rem (r2 - (dy * dy))
+                    if (rem >= 0) {
+                        ; Half-width of the circle at this row: largest hw with
+                        ; hw*hw <= rem (identical to the per-pixel dx*dx+dy*dy<=r2
+                        ; test, but computed once per row).
+                        def hw 0
+                        while (((hw + 1) * (hw + 1)) <= rem) {
+                            hw = (hw + 1)
+                        }
+                        def x0 (cx - hw)
+                        def x1 (cx + hw + 1)
+                        if (x0 < 0) {
+                            x0 = 0
+                        }
+                        if (x1 > w) {
+                            x1 = w
+                        }
+                        if (x0 < x1) {
+                            def rowOff (((yy * w) + x0) * 4)
+                            this.fillSpanRGB(rowOff (x1 - x0) r g b)
+                        }
+                    }
                 }
-                xx = (xx + 1)
             }
             yy = (yy + 1)
         }
