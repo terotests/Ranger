@@ -9,7 +9,66 @@
 ;
 ; Built-in sound ids:
 ;   blip, brick, bounce, wall, lose, win
+;
+; Score instruments (game_soundscore.rgr):
+;   piano, violin, square, sine, triangle, drums (K/S/H hits)
 ; ==============================================================================
+
+class ScoreVoiceHit {
+    def instrument:string "piano"
+    def pitch:string ""
+}
+
+class NoteNames {
+    def midiByPitch:[string:int]
+
+    fn init:void () {
+        this.fillMap()
+    }
+
+    fn addPitch:void (pitch:string midi:int) {
+        set midiByPitch pitch midi
+    }
+
+    fn fillMap:void () {
+        def names:[string]
+        push names "C"
+        push names "C#"
+        push names "D"
+        push names "D#"
+        push names "E"
+        push names "F"
+        push names "F#"
+        push names "G"
+        push names "G#"
+        push names "A"
+        push names "A#"
+        push names "B"
+        def oct 0
+        while (oct < 9) {
+            def suf:string (to_string oct)
+            def base:int 0
+            base = (oct + 1)
+            base = (base * 12)
+            def i 0
+            while (i < 12) {
+                def nm:string (itemAt names i)
+                def key:string (nm + suf)
+                this.addPitch(key (base + i))
+                i = (i + 1)
+            }
+            oct = (oct + 1)
+        }
+    }
+
+    fn pitchToMidi:int (pitch:string) {
+        def v@(optional):int (get midiByPitch pitch)
+        if (!null? v) {
+            return (unwrap v)
+        }
+        return 60
+    }
+}
 
 ; Waveform selector for the tone generator.
 class SynthWave {
@@ -41,9 +100,102 @@ class GameAudio {
     def lastId:string ""
     def verbose:boolean false
     def sineTable:[double]
+    def midiFreq:[double]
+    def noteNames:NoteNames (new NoteNames)
 
     fn init:void () {
         sineTable = (this.buildSineTable())
+        midiFreq = (this.buildMidiFreqTable())
+        noteNames.init()
+    }
+
+    fn semitoneRatio:double (semitones:int) {
+        def ratios:[double]
+        push ratios 1.0
+        push ratios 1.059463094359
+        push ratios 1.12246204831
+        push ratios 1.189207115
+        push ratios 1.25992105
+        push ratios 1.33483985
+        push ratios 1.41421356
+        push ratios 1.49830708
+        push ratios 1.58740105
+        push ratios 1.68179283
+        push ratios 1.78179744
+        push ratios 1.88774863
+        def octaves:int (to_int (semitones / 12))
+        def rem:int (semitones - (octaves * 12))
+        if (rem < 0) {
+            rem = (rem + 12)
+            octaves = (octaves - 1)
+        }
+        def r:double (itemAt ratios rem)
+        if (octaves > 0) {
+            def i 0
+            while (i < octaves) {
+                r = (r * 2.0)
+                i = (i + 1)
+            }
+        }
+        if (octaves < 0) {
+            def i 0
+            while (i > octaves) {
+                r = (r * 0.5)
+                i = (i - 1)
+            }
+        }
+        return r
+    }
+
+    fn buildMidiFreqTable:[double] () {
+        def table:[double]
+        def m 0
+        while (m < 128) {
+            def ratio:double (this.semitoneRatio((m - 69)))
+            push table (440.0 * ratio)
+            m = (m + 1)
+        }
+        return table
+    }
+
+    fn pitchToFreq:double (pitch:string) {
+        if (pitch == "_") {
+            return 0.0
+        }
+        def midi:int (noteNames.pitchToMidi(pitch))
+        return (itemAt midiFreq midi)
+    }
+
+    fn instrumentWave:int (instrument:string) {
+        if (instrument == "square") {
+            return 1
+        }
+        if (instrument == "triangle") {
+            return 2
+        }
+        if (instrument == "violin") {
+            return 0
+        }
+        if (instrument == "drums") {
+            return 3
+        }
+        return 0
+    }
+
+    fn instrumentVolume:double (instrument:string) {
+        if (instrument == "square") {
+            return 0.22
+        }
+        if (instrument == "violin") {
+            return 0.26
+        }
+        if (instrument == "piano") {
+            return 0.30
+        }
+        if (instrument == "drums") {
+            return 0.35
+        }
+        return 0.28
     }
 
     fn buildSineTable:[double] () {
@@ -151,6 +303,236 @@ class GameAudio {
         }
         def idx:int (bit_and (to_int (phase * 64.0)) 63)
         return (itemAt sineTable idx)
+    }
+
+    fn synthMelody:buffer (instrument:string freq:double durationMs:int volume:double) {
+        def spec:SynthToneSpec (new SynthToneSpec)
+        spec.freqHz = freq
+        spec.durationMs = durationMs
+        spec.volume = volume
+        spec.wave = (this.instrumentWave(instrument))
+        def frames:int (to_int (((to_double durationMs) * (to_double sampleRate)) / 1000.0))
+        if (frames < 1) {
+            frames = 1
+        }
+        def pcm:buffer (buffer_alloc (frames * 2))
+        def phase:double 0.0
+        def vibrato:boolean false
+        if (instrument == "violin") {
+            vibrato = true
+        }
+        def i 0
+        while (i < frames) {
+            def t:double ((to_double i) / (to_double frames))
+            def env:double 1.0
+            if (instrument == "piano") {
+                if (t < 0.02) {
+                    env = (t / 0.02)
+                } {
+                    env = (1.0 - ((t - 0.02) / 0.98))
+                    if (env < 0.0) { env = 0.0 }
+                    env = (env * env)
+                }
+            } {
+                if (instrument == "violin") {
+                    env = (0.15 + (0.85 * (1.0 - t)))
+                } {
+                    if (instrument == "square") {
+                        env = (1.0 - (t * 0.35))
+                    } {
+                        env = (1.0 - t)
+                        env = (env * env)
+                    }
+                }
+            }
+            def freqNow:double freq
+            if (vibrato) {
+                def vib:double (1.0 + (0.004 * (this.sampleWave((SynthWave.sine()) ((to_double i) / 180.0) i))))
+                freqNow = (freq * vib)
+            }
+            def sample:double (this.sampleWave(spec.wave phase i))
+            def amp:double (sample * volume * env * 32767.0)
+            def iv:int (to_int amp)
+            if (iv > 32767) { iv = 32767 }
+            if (iv < -32768) { iv = -32768 }
+            def v:int iv
+            if (v < 0) {
+                v = (65536 + v)
+            }
+            def lo:int (bit_and v 255)
+            def hi:int (bit_and (to_int (v / 256)) 255)
+            def off:int (i * 2)
+            buffer_set pcm off lo
+            buffer_set pcm (off + 1) hi
+            phase = (phase + (freqNow / (to_double sampleRate)))
+            while (phase >= 1.0) {
+                phase = (phase - 1.0)
+            }
+            i = (i + 1)
+        }
+        return pcm
+    }
+
+    fn synthDrum:buffer (hit:string durationMs:int) {
+        def spec:SynthToneSpec (new SynthToneSpec)
+        spec.durationMs = durationMs
+        spec.volume = 0.35
+        spec.wave = (SynthWave.noise())
+        if (hit == "K") {
+            spec.freqHz = 80.0
+            spec.durationMs = 90
+            spec.volume = 0.42
+            spec.wave = (SynthWave.sine())
+        }
+        if (hit == "S") {
+            spec.durationMs = 70
+            spec.volume = 0.30
+        }
+        if (hit == "H") {
+            spec.durationMs = 35
+            spec.volume = 0.16
+        }
+        def frames:int (to_int (((to_double spec.durationMs) * (to_double sampleRate)) / 1000.0))
+        if (frames < 1) {
+            frames = 1
+        }
+        def pcm:buffer (buffer_alloc (frames * 2))
+        def phase:double 0.0
+        def i 0
+        while (i < frames) {
+            def t:double ((to_double i) / (to_double frames))
+            def env:double (1.0 - t)
+            env = (env * env)
+            def sample:double 0.0
+            if (hit == "K") {
+                sample = (this.sampleWave((SynthWave.sine()) phase i))
+                phase = (phase + (spec.freqHz / (to_double sampleRate)))
+                while (phase >= 1.0) {
+                    phase = (phase - 1.0)
+                }
+            } {
+                sample = (this.sampleWave((SynthWave.noise()) phase i))
+            }
+            def amp:double (sample * spec.volume * env * 32767.0)
+            def iv:int (to_int amp)
+            if (iv > 32767) { iv = 32767 }
+            if (iv < -32768) { iv = -32768 }
+            def v:int iv
+            if (v < 0) {
+                v = (65536 + v)
+            }
+            def lo:int (bit_and v 255)
+            def hi:int (bit_and (to_int (v / 256)) 255)
+            def off:int (i * 2)
+            buffer_set pcm off lo
+            buffer_set pcm (off + 1) hi
+            i = (i + 1)
+        }
+        return pcm
+    }
+
+    fn mixBuffers:buffer (a:buffer b:buffer frames:int) {
+        def bytesA:int (buffer_length a)
+        def bytesB:int (buffer_length b)
+        def framesA:int (to_int (bytesA / 2))
+        def framesB:int (to_int (bytesB / 2))
+        def useFrames:int frames
+        if (useFrames > framesA) {
+            useFrames = framesA
+        }
+        if (useFrames > framesB) {
+            useFrames = framesB
+        }
+        def pcm:buffer (buffer_alloc (frames * 2))
+        def i 0
+        while (i < frames) {
+            def off:int (i * 2)
+            def sa:int 0
+            def sb:int 0
+            if (i < useFrames) {
+                def loA:int (buffer_get a off)
+                def hiA:int (buffer_get a (off + 1))
+                sa = (loA + (hiA * 256))
+                if (sa >= 32768) { sa = (sa - 65536) }
+                def loB:int (buffer_get b off)
+                def hiB:int (buffer_get b (off + 1))
+                sb = (loB + (hiB * 256))
+                if (sb >= 32768) { sb = (sb - 65536) }
+            }
+            def mix:int (sa + sb)
+            if (mix > 32767) { mix = 32767 }
+            if (mix < -32768) { mix = -32768 }
+            def v:int mix
+            if (v < 0) {
+                v = (65536 + v)
+            }
+            def lo:int (bit_and v 255)
+            def hi:int (bit_and (to_int (v / 256)) 255)
+            buffer_set pcm off lo
+            buffer_set pcm (off + 1) hi
+            i = (i + 1)
+        }
+        return pcm
+    }
+
+    fn playScoreNote:void (instrument:string pitch:string durationMs:int) {
+        playCount = (playCount + 1)
+        lastId = ("score:" + pitch)
+        if (instrument == "drums") {
+            def pcm:buffer (this.synthDrum(pitch durationMs))
+            def frames:int (to_int (((to_double durationMs) * (to_double sampleRate)) / 1000.0))
+            sink.onSynthPlay(lastId sampleRate frames pcm)
+            return
+        }
+        def freq:double (this.pitchToFreq(pitch))
+        if (freq <= 0.0) {
+            return
+        }
+        def vol:double (this.instrumentVolume(instrument))
+        def pcm:buffer (this.synthMelody(instrument freq durationMs vol))
+        def frames:int (to_int (((to_double durationMs) * (to_double sampleRate)) / 1000.0))
+        sink.onSynthPlay(lastId sampleRate frames pcm)
+    }
+
+    fn playScoreChord:void (notes:[ScoreVoiceHit] durationMs:int) {
+        if ((array_length notes) == 0) {
+            return
+        }
+        playCount = (playCount + 1)
+        lastId = "score:chord"
+        def frames:int (to_int (((to_double durationMs) * (to_double sampleRate)) / 1000.0))
+        if (frames < 1) {
+            frames = 1
+        }
+        def mixed:buffer (buffer_alloc (frames * 2))
+        def i 0
+        while (i < frames) {
+            buffer_set mixed (i * 2) 0
+            buffer_set mixed ((i * 2) + 1) 0
+            i = (i + 1)
+        }
+        def ni 0
+        while (ni < (array_length notes)) {
+            def ev:ScoreVoiceHit (itemAt notes ni)
+            def hasPart:boolean false
+            def part:buffer (buffer_alloc (frames * 2))
+            if (ev.instrument == "drums") {
+                part = (this.synthDrum(ev.pitch durationMs))
+                hasPart = true
+            } {
+                def freq:double (this.pitchToFreq(ev.pitch))
+                if (freq > 0.0) {
+                    def vol:double (this.instrumentVolume(ev.instrument))
+                    part = (this.synthMelody(ev.instrument freq durationMs vol))
+                    hasPart = true
+                }
+            }
+            if (hasPart) {
+                mixed = (this.mixBuffers(mixed part frames))
+            }
+            ni = (ni + 1)
+        }
+        sink.onSynthPlay(lastId sampleRate frames mixed)
     }
 
     fn synthTone:buffer (spec:SynthToneSpec) {

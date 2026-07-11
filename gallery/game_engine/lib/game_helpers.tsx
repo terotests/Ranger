@@ -34,6 +34,23 @@ export function soundEvent(id) {
   return { kind: "playSound", id: id };
 }
 
+/** Start music from a registered score id (resources kind: music). */
+export function musicEvent(id, loop?) {
+  const amount = loop === false ? 0 : 1;
+  return { kind: "playMusic", id: id, amount: amount };
+}
+
+/** Start music from inline soundscore text. */
+export function musicScoreEvent(scoreText, loop?) {
+  const amount = loop === false ? 0 : 1;
+  return { kind: "playMusic", id: "inline", text: scoreText, amount: amount };
+}
+
+/** Stop the current soundscore playback. */
+export function stopMusicEvent() {
+  return { kind: "stopMusic", id: "" };
+}
+
 /** Clamp local player slots to the engine maximum (1–8). */
 export function clampPlayerSlots(n: number): number {
   if (n < 1) {

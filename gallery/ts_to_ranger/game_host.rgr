@@ -20,10 +20,11 @@
 ; ==============================================================================
 
 Import "../game_engine/scripting/game_audio.rgr"
+Import "../game_engine/scripting/game_soundscore.rgr"
 
 ; A declared engine resource. `kind` selects the registry.
 class ResourceDefNative {
-    def kind:string ""        ; "image" | "sound" | "sprite" | "collision"
+    def kind:string ""        ; "image" | "sound" | "sprite" | "collision" | "music"
     def id:string ""
     def path:string ""
     def px:int 0              ; sprite pixel scale
@@ -34,11 +35,12 @@ class ResourceDefNative {
 
 ; A transient event emitted by update() and drained by the host each frame.
 class GameEventNative {
-    def kind:string ""        ; "playSound" | "spawn" | "destroy" | custom
+    def kind:string ""        ; "playSound" | "playMusic" | "stopMusic" | "spawn" | "destroy" | custom
     def id:string ""
     def x:double 0.0
     def y:double 0.0
     def amount:int 0
+    def text:string ""        ; inline soundscore text for playMusic
 }
 
 ; Engine-side registry + event sink. Both runners own one GameHost.
@@ -53,6 +55,79 @@ class GameHost {
     def eventCount:int 0
     def verbose:boolean false
     def audio@(optional):GameAudio
+    def music:SoundScorePlayer (new SoundScorePlayer)
+    def musicPaths:[string:string]
+    def musicTexts:[string:string]
+    def musicDir:string ""
+
+    fn wireMusic:void () {
+        if audio {
+            music.audio = (unwrap audio)
+        }
+    }
+
+    fn joinPath:string (dir:string file:string) {
+        if ((strlen dir) == 0) {
+            return file
+        }
+        def last:int (strlen dir)
+        last = (last - 1)
+        def tail:string (substring dir last (last + 1))
+        if (tail == "/") {
+            return (dir + file)
+        }
+        return (dir + "/" + file)
+    }
+
+    fn resolveMusicScore:string (id:string) {
+        def cached@(optional):string (get musicTexts id)
+        if (!null? cached) {
+            return (unwrap cached)
+        }
+        def path@(optional):string (get musicPaths id)
+        if (null? path) {
+            return ""
+        }
+        def full:string (this.joinPath(musicDir (unwrap path)))
+        def slash:int -1
+        def i 0
+        while (i < (strlen full)) {
+            def ch:string (substring full i (i + 1))
+            if (ch == "/") {
+                slash = i
+            }
+            i = (i + 1)
+        }
+        if (slash < 0) {
+            return ""
+        }
+        def dir:string (substring full 0 slash)
+        def file:string (substring full (slash + 1) (strlen full))
+        def buf:buffer (buffer_read_file dir file)
+        def txt:string (buffer_to_string buf)
+        set musicTexts id txt
+        return txt
+    }
+
+    fn startMusic:void (scoreText:string loopScore:boolean) {
+        if (null? audio) {
+            return
+        }
+        this.wireMusic()
+        music.load(scoreText)
+        music.play(loopScore)
+    }
+
+    fn stopMusic:void () {
+        music.stop()
+    }
+
+    fn tickMusic:void (dtMs:int) {
+        if audio {
+            this.wireMusic()
+            music.tick(dtMs)
+        }
+    }
 
     fn registerResource:void (r:ResourceDefNative) {
         if (r.kind == "image") {
@@ -73,6 +148,11 @@ class GameHost {
         if (r.kind == "collision") {
             set collisions r.id true
             if verbose { print ("[host] collision " + r.id) }
+            return
+        }
+        if (r.kind == "music") {
+            set musicPaths r.id r.path
+            if verbose { print ("[host] music " + r.id) }
             return
         }
     }
@@ -98,6 +178,28 @@ class GameHost {
                 }
             }
             if verbose { print ("[host] playSound " + e.id) }
+            return
+        }
+        if (e.kind == "playMusic") {
+            def scoreText:string e.text
+            if ((strlen scoreText) == 0) {
+                scoreText = (this.resolveMusicScore(e.id))
+            }
+            if ((strlen scoreText) > 0) {
+                def loopScore:boolean true
+                if (e.amount == 0) {
+                    loopScore = false
+                }
+                this.startMusic(scoreText loopScore)
+            } {
+                if verbose { print ("[host] playMusic (missing score) " + e.id) }
+            }
+            if verbose { print ("[host] playMusic " + e.id) }
+            return
+        }
+        if (e.kind == "stopMusic") {
+            this.stopMusic()
+            if verbose { print "[host] stopMusic" }
             return
         }
         if (e.kind == "spawn") {

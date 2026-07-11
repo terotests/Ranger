@@ -115,6 +115,31 @@ describe("Game runner - scripted Pong", () => {
     expect(out).toContain("lastSound=win");
   });
 
+  it("plays multi-voice soundscores with piano, violin, bass and drums", () => {
+    const { compile, run } = compileAndRun(
+      "gallery/game_engine/scripting/soundscore_runner_demo.rgr"
+    );
+
+    expect(
+      compile.success,
+      `Compile failed: ${compile.error || compile.output}`
+    ).toBe(true);
+    expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+
+    const out = run?.output || "";
+    expect(out).toContain("soundscore-runner done");
+    expect(out).toContain("tracks=4");
+    expect(out).toContain("musicPlaying=1");
+
+    const noteStarts = out.match(/noteStarts=(\d+)/);
+    expect(noteStarts, `no noteStarts in output: ${out}`).toBeTruthy();
+    expect(parseInt(noteStarts![1], 10)).toBeGreaterThan(4);
+
+    const audioPlays = out.match(/audioPlays=(\d+)/);
+    expect(audioPlays, `no audioPlays in output: ${out}`).toBeTruthy();
+    expect(parseInt(audioPlays![1], 10)).toBeGreaterThan(0);
+  });
+
   it("does not replay sticky state.events on later frames", () => {
     const { compile, run } = compileAndRun(
       "gallery/game_engine/scripting/event_drain_runner_demo.rgr"

@@ -35,6 +35,7 @@ class NativeGameRunner {
         ph = h
         canvas.init(w h)
         host.audio = audio
+        host.wireMusic()
     }
 
     fn half:int (n:int) {
@@ -214,6 +215,7 @@ class NativeGameRunner {
     fn applyUpdate:void (patch:NativeGameState) {
         ; Drain transient events emitted this frame before merging them away.
         host.drainEvents(patch.events)
+        host.tickMusic((to_int patch.dt))
         state = (stateOps.mergeState(state patch))
         this.syncFromState()
     }
