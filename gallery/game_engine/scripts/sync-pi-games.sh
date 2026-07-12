@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fast Pi sync: game TSX trees only — no npm compile, no C++ rebuild.
+# Fast Pi sync: game folders only — no npm compile, no C++ rebuild.
 #
 # Usage:
 #   bash gallery/game_engine/scripts/sync-pi-games.sh pelit
@@ -7,13 +7,18 @@
 #   bash gallery/game_engine/scripts/sync-pi-games.sh tero@192.168.1.3
 #
 # Copies (from this repo):
-#   gallery/game_engine/games/   — launcher games (index.tsx per folder)
+#   gallery/game_engine/games/   — TSX (index.tsx) and WASM (logic.wasm + assets/)
 #   gallery/game_engine/lib/     — shared game_helpers.tsx, game.d.ts
+#
+# WASM logic changes: build locally before sync (or set SYNC_WASM_BUILD=1):
+#   npm run engine:wasm:build:rust-autopeli
+#   bash gallery/game_engine/scripts/sync-pi-games.sh pelit
 #
 # Optional: LPC compose.png and other sheet assets:
 #   SYNC_LPC_OUTPUT=1 bash gallery/game_engine/scripts/sync-pi-games.sh pelit
 #
-# Engine fixes (.rgr → game_sdl) still need: CXX_OPT=-O3 npm run engine:game-sdl on the Pi.
+# Full deploy (repo + game_sdl rebuild + autostart): deploy-pi.sh
+# Engine / host fixes (.rgr → game_sdl): CXX_OPT=-O3 npm run engine:game-sdl on the Pi.
 #
 # game_sdl hot-reloads TSX when files change (default). If a game is already
 # running, exit to menu and re-launch, or restart ./start.sh.
@@ -29,6 +34,18 @@ ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 REMOTE_DIR="${RANGER_PI_REMOTE_DIR:-ranger}"
 GE="$ROOT/gallery/game_engine"
 REMOTE_BASE="~/$REMOTE_DIR/gallery/game_engine"
+
+if [[ "${SYNC_WASM_BUILD:-0}" == "1" ]]; then
+  if command -v rustup >/dev/null 2>&1 \
+    && rustup target list --installed 2>/dev/null | grep -q '^wasm32-unknown-unknown'; then
+    echo "==> Build WASM modules (SYNC_WASM_BUILD=1)"
+    (cd "$ROOT" && npm run engine:wasm:build:rust-autopeli)
+    (cd "$ROOT" && npm run engine:wasm:build:rust-pong)
+  else
+    echo "==> SYNC_WASM_BUILD=1 but wasm32-unknown-unknown missing — syncing committed logic.wasm"
+    echo "    rustup target add wasm32-unknown-unknown  # then retry"
+  fi
+fi
 
 echo "==> Test SSH: $TARGET"
 ssh -o ConnectTimeout=10 -o BatchMode=yes "$TARGET" 'echo ok'
@@ -62,8 +79,11 @@ if [[ "${SYNC_RANGER_STD_LIB:-0}" == "1" ]]; then
 fi
 
 echo ""
-echo "Done. TSX synced to ~/$REMOTE_DIR on $TARGET"
-echo "  games/  $(find "$GE/games" -name 'index.tsx' | wc -l | tr -d ' ') game(s)"
+echo "Done. Games synced to ~/$REMOTE_DIR on $TARGET"
+echo "  games/  $(find "$GE/games" -name 'index.tsx' -o -name 'logic.wasm' | wc -l | tr -d ' ') entries (tsx + wasm)"
+if [[ -f "$GE/games/autopeli_wasm/logic.wasm" ]]; then
+  echo "  wasm    autopeli_wasm/logic.wasm ($(wc -c < "$GE/games/autopeli_wasm/logic.wasm" | tr -d ' ') bytes)"
+fi
 echo "  lib/    game_helpers.tsx, game.d.ts"
 if [[ "${SYNC_LPC_OUTPUT:-0}" == "1" ]]; then
   echo "  lpc/output/  compose.png, compose_super.png, …"

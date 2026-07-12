@@ -10,6 +10,7 @@ Import "./game_audio.rgr"
 Import "./wasm_autopeli_setup.rgr"
 Import "./wasm_autopeli_render.rgr"
 Import "./wasm_sparkle_pool.rgr"
+Import "./game_input.rgr"
 Import "../../ts_to_ranger/game_host.rgr"
 
 class WasmPhysicsRunner {
@@ -31,6 +32,8 @@ class WasmPhysicsRunner {
     def cameraY:int 0
     def cameraSmoothY:double 0.0
     def camViewY:int 0
+    def camSmoothP2:double 5860.0
+    def camViewP2:int 5640
     def fixedStepMs:int 16
     def timeMs:int 0
     def fpsShown:int 0
@@ -210,10 +213,15 @@ class WasmPhysicsRunner {
         while (oi < (array_length setup.oilIds)) {
             def ox:int (itemAt setup.oilXs oi)
             def oy:int (itemAt setup.oilYs oi)
+            def rr:int 35
+            if (oi < (array_length setup.oilRs)) {
+                rr = (itemAt setup.oilRs oi)
+            }
             def dx:int (bx - ox)
             def dy:int (by - oy)
+            def limit:int (rr * rr)
             def dist:int ((dx * dx) + (dy * dy))
-            if (dist < 1225) {
+            if (dist < limit) {
                 return true
             }
             oi = (oi + 1)
@@ -409,19 +417,21 @@ class WasmPhysicsRunner {
                 def rr:int (wasm_host_res_ival handle i 6)
                 def gg:int (wasm_host_res_ival handle i 7)
                 def bb:int (wasm_host_res_ival handle i 8)
-                render.addRectTemplate(id w h rr gg bb)
+                def dl:int (wasm_host_res_ival handle i 9)
+                render.addRectTemplate(id w h rr gg bb dl)
             } {
                 def path:string (wasm_host_res_path handle i)
                 def fw:int (wasm_host_res_ival handle i 0)
                 def fh:int (wasm_host_res_ival handle i 1)
                 def scale:int (wasm_host_res_ival handle i 2)
                 def feet:int (wasm_host_res_ival handle i 3)
+                def dl:int (wasm_host_res_ival handle i 9)
                 def rdef:ResourceDefNative (new ResourceDefNative)
                 rdef.kind = "image"
                 rdef.id = id
                 rdef.path = path
                 host.registerResource(rdef)
-                render.addSheetTemplate(host id path fw fh scale feet)
+                render.addSheetTemplate(host id path fw fh scale feet dl)
             }
             i = (i + 1)
         }
@@ -431,26 +441,33 @@ class WasmPhysicsRunner {
 
     fn buildDrawEntities:void () {
         def next:[WasmVisualEntity]
-        def i 0
-        while (i < (array_length physics.core.bodies)) {
-            def b:PhysBody (itemAt physics.core.bodies i)
-            if ((strlen b.id) > 0) {
-                def sp:string (this.spriteFor(b.id))
-                def ge:WasmVisualEntity (render.spawnVisual(b.id sp (to_int b.x) (to_int b.y)))
-                push next ge
-            }
-            i = (i + 1)
-        }
         def oi 0
         while (oi < (array_length setup.oilIds)) {
             def oid:string (itemAt setup.oilIds oi)
             def ox:int (itemAt setup.oilXs oi)
             def oy:int (itemAt setup.oilYs oi)
             def oilE:WasmVisualEntity (render.spawnVisual(oid "oil" ox oy))
+            oilE.sortY = oy
             push next oilE
             oi = (oi + 1)
         }
+        def i 0
+        while (i < (array_length physics.core.bodies)) {
+            def b:PhysBody (itemAt physics.core.bodies i)
+            if ((strlen b.id) > 0) {
+                def sp:string (this.spriteFor(b.id))
+                def ge:WasmVisualEntity (render.spawnVisual(b.id sp (to_int b.x) (to_int b.y)))
+                ge.sortY = (to_int b.y)
+                push next ge
+            }
+            i = (i + 1)
+        }
         drawEntities = next
+        render.rebuildDrawOrder(drawEntities)
+    }
+
+    fn resortDrawOrder:void () {
+        render.rebuildDrawOrder(drawEntities)
     }
 
     fn setupScene:void () {
@@ -468,38 +485,41 @@ class WasmPhysicsRunner {
         this.buildDrawEntities()
         cameraSmoothY = 5860.0
         camViewY = 5640
+        camSmoothP2 = 5860.0
+        camViewP2 = 5640
         this.syncBodiesToAbi()
     }
 
-    fn syncDrawFromPhysics:void () {
-        def target:double 5860.0
-        def p1:PhysBody (this.findBody("p1"))
-        if ((strlen p1.id) > 0) {
-            target = (p1.y - 90.0)
-        }
-        cameraY = abi.getCameraY()
-        if (cameraY != 0) {
-            target = ((to_double cameraY) / 256.0)
-        }
-        def blend:double 0.12
-        cameraSmoothY = (cameraSmoothY + ((target - cameraSmoothY) * blend))
-        camViewY = (to_int cameraSmoothY)
-        if (camViewY < 0) {
-            camViewY = 0
+    fn clampCamY:int (cam:int) {
+        if (cam < 0) {
+            cam = 0
         }
         def maxCam:int (worldH - ph)
         if (maxCam < 0) {
             maxCam = 0
         }
-        if (camViewY > maxCam) {
-            camViewY = maxCam
+        if (cam > maxCam) {
+            cam = maxCam
         }
+        return cam
+    }
+
+    fn smoothCamTarget:double (followId:string smooth:double blend:double) {
+        def target:double 5860.0
+        def car:PhysBody (this.findBody(followId))
+        if ((strlen car.id) > 0) {
+            target = (car.y - 90.0)
+        }
+        return (smooth + ((target - smooth) * blend))
+    }
+
+    fn syncEntityPoses:void (camY:int) {
         def i 0
         while (i < (array_length physics.core.bodies)) {
             def b:PhysBody (itemAt physics.core.bodies i)
             def e:WasmVisualEntity (this.findDrawEntity(b.id))
             if ((strlen e.id) > 0) {
-                render.syncEntityPose(e (to_int b.x) (to_int b.y) b.angle camViewY pw ph)
+                render.syncEntityPose(e (to_int b.x) (to_int b.y) b.angle camY pw ph)
             }
             i = (i + 1)
         }
@@ -510,12 +530,31 @@ class WasmPhysicsRunner {
             if ((strlen e.id) > 0) {
                 def ox:int (itemAt setup.oilXs oi)
                 def oy:int (itemAt setup.oilYs oi)
-                render.syncEntityPose(e ox oy 0.0 camViewY pw ph)
+                render.syncEntityPose(e ox oy 0.0 camY pw ph)
             }
             oi = (oi + 1)
         }
+    }
+
+    fn updateCameras:void () {
+        def blend:double 0.12
+        cameraSmoothY = (this.smoothCamTarget("p1" cameraSmoothY blend))
+        camViewY = (this.clampCamY((to_int cameraSmoothY)))
+        camSmoothP2 = (this.smoothCamTarget("p2" camSmoothP2 blend))
+        camViewP2 = (this.clampCamY((to_int camSmoothP2)))
         score = abi.getScore()
         hits = abi.getHits()
+    }
+
+    fn syncDrawFromPhysics:void () {
+        this.updateCameras()
+        cameraY = abi.getCameraY()
+        if (cameraY != 0) {
+            def target:double ((to_double cameraY) / 256.0)
+            cameraSmoothY = target
+            camViewY = (this.clampCamY((to_int target)))
+        }
+        this.syncEntityPoses(camViewY)
     }
 
     fn physicsStep:void (dtMs:int flags:int flagsP2:int) {
@@ -576,6 +615,20 @@ class WasmPhysicsRunner {
         }
     }
 
+    fn inputFlagsFromSnapshot:int (snap:GameInputSnapshot padIdx:int) {
+        def pb:PlayerButtons snap.p0
+        if (padIdx == 1) {
+            pb = snap.p1
+        }
+        return (this.inputFlags(pb.up pb.down pb.left pb.right pb.action))
+    }
+
+    fn frameWithPaneInput:void (dtMs:int leftSnap:GameInputSnapshot rightSnap:GameInputSnapshot) {
+        def f0:int (this.inputFlagsFromSnapshot(leftSnap 0))
+        def f1:int (this.inputFlagsFromSnapshot(rightSnap 0))
+        this.frameWithFlags(dtMs f0 f1)
+    }
+
     fn frameWithInput:void (dtMs:int up:boolean down:boolean left:boolean right:boolean action:boolean) {
         this.frame(dtMs up down left right action)
     }
@@ -597,26 +650,36 @@ class WasmPhysicsRunner {
     }
 
     fn draw:void () {
-        render.drawBackground(canvas camViewY ph)
-        render.drawEntities(drawEntities canvas)
-        sparkles.draw(canvas)
-        this.drawHud()
+        this.drawTo(canvas camViewY 0 true)
     }
 
-    fn drawHud:void () {
+    fn drawTo:void (target:SoftCanvas camY:int hudBodyIdx:int drawSparkles:boolean) {
+        render.drawBackground(target camY ph)
+        render.drawEntities(drawEntities target)
+        if (drawSparkles) {
+            sparkles.draw(target)
+        }
+        this.drawHudOn(target hudBodyIdx)
+    }
+
+    fn drawHudOn:void (target:SoftCanvas bodyIdx:int) {
+        def bodyId:string "p1"
+        if (bodyIdx == 1) {
+            bodyId = "p2"
+        }
         def x:int 8
         def y:int 8
-        canvas.fillRect(x y 120 14 20 30 45)
-        def p1:PhysBody (this.findBody("p1"))
-        if ((strlen p1.id) > 0) {
-            def spd:int (to_int p1.speed)
-            def prog:int (idiv ((6000 - (to_int p1.y)) * 100) 6000)
+        target.fillRect(x y 120 14 20 30 45)
+        def car:PhysBody (this.findBody(bodyId))
+        if ((strlen car.id) > 0) {
+            def spd:int (to_int car.speed)
+            def prog:int (idiv ((6000 - (to_int car.y)) * 100) 6000)
             def spdBar:int (idiv spd 4)
             def progBar:int (idiv prog 2)
-            canvas.fillRect((x + 2) (y + 2) spdBar 4 120 220 160)
-            canvas.fillRect((x + 2) (y + 8) progBar 4 240 220 80)
+            target.fillRect((x + 2) (y + 2) spdBar 4 120 220 160)
+            target.fillRect((x + 2) (y + 8) progBar 4 240 220 80)
         }
-        canvas.fillRect((x + 90) y 24 14 40 60 90)
+        target.fillRect((x + 90) y 24 14 40 60 90)
         def hx:int 8
         if (hits > 0) {
             hx = (8 + (idiv hits 2))
@@ -624,24 +687,31 @@ class WasmPhysicsRunner {
         if (hx > 22) {
             hx = 22
         }
-        canvas.fillRect((x + 100) y hx 14 200 80 80)
-        def grip:int (idiv (abi.readControlGrip(0)) 10)
+        target.fillRect((x + 100) y hx 14 200 80 80)
+        def grip:int (idiv (abi.readControlGrip(bodyIdx)) 10)
         if (grip > 100) {
             grip = 100
         }
-        canvas.fillRect((x + 130) y 28 6 40 60 90)
+        target.fillRect((x + 130) y 28 6 40 60 90)
         def gb:int (idiv grip 5)
         if (gb > 28) {
             gb = 28
         }
-        canvas.fillRect((x + 130) (y + 6) gb 4 120 220 160)
-        if (this.playerOnOil("p1")) {
-            canvas.fillRect((x + 162) y 8 8 255 120 40)
+        target.fillRect((x + 130) (y + 6) gb 4 120 220 160)
+        if (this.playerOnOil(bodyId)) {
+            target.fillRect((x + 162) y 8 8 255 120 40)
         }
         def air:int (abi.getAirP1())
-        if (air > 0) {
-            canvas.fillRect((x + 174) y 8 8 120 240 255)
+        if (bodyIdx == 1) {
+            air = (abi.getAirP2())
         }
+        if (air > 0) {
+            target.fillRect((x + 174) y 8 8 120 240 255)
+        }
+    }
+
+    fn drawHud:void () {
+        this.drawHudOn(canvas 0)
     }
 
     fn drawLoadingScreen:void (label:string ticks:int) {

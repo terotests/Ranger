@@ -25,6 +25,7 @@ Import "./game_catalog.rgr"
 Import "./game_host_native.rgr"
 Import "./game_input.rgr"
 Import "./game_split_screen.rgr"
+Import "./wasm_split_screen.rgr"
 
 class SdlGameHost extends GameHost {
     fn onRumble:void (e:GameEventNative) {
@@ -45,6 +46,8 @@ class GameSdlRunner {
     def useWasmRunner:boolean false
     def useWasmPhysics:boolean false
     def splitHost:SplitScreenHost (new SplitScreenHost)
+    def wasmSplitHost:WasmSplitScreenHost (new WasmSplitScreenHost)
+    def wasmSplitActive:boolean false
     def catalog:GameCatalog (new GameCatalog)
     def nativeBridge:GameHostNativeBridge (new GameHostNativeBridge)
     def pw:int 480
@@ -96,6 +99,7 @@ class GameSdlRunner {
         wasmRunner.setProfileEnabled(profileEnabled)
         wasmPhysicsRunner.setProfileEnabled(profileEnabled)
         splitHost.setProfileEnabled(profileEnabled)
+        wasmSplitHost.setProfileEnabled(profileEnabled)
     }
 
     fn resolveWasmPhysics:boolean (path:string) {
@@ -168,7 +172,11 @@ class GameSdlRunner {
             gfx_set_title(title)
         }
         if (splitScreenActive) {
-            splitHost.setFpsShown(fpsShown)
+            if (wasmSplitActive) {
+                wasmSplitHost.setFpsShown(fpsShown)
+            } {
+                splitHost.setFpsShown(fpsShown)
+            }
         } {
             if (useWasmRunner) {
                 if (useWasmPhysics) {
@@ -224,6 +232,35 @@ class GameSdlRunner {
         def ticks:int (gfx_ticks_ms)
         runner.drawLoadingScreen(label ticks)
         gfx_present (runner.raw()) pw ph
+    }
+
+    fn wireWasmAudio:void (audio:GameAudio host:SdlGameHost) {
+        audio.setSink((new SdlGameAudioSink))
+        def devRate:int (gfx_audio_sample_rate)
+        if (devRate > 0) {
+            audio.sampleRate = devRate
+        }
+        host.audio = audio
+        host.wireMusic()
+    }
+
+    fn refreshWasmAudioSampleRate:void () {
+        def devRate:int (gfx_audio_sample_rate)
+        if (devRate <= 0) {
+            return
+        }
+        if (useWasmRunner == false) {
+            return
+        }
+        if (useWasmPhysics) {
+            if (wasmSplitActive) {
+                wasmSplitHost.runner.audio.sampleRate = devRate
+            } {
+                wasmPhysicsRunner.audio.sampleRate = devRate
+            }
+        } {
+            wasmRunner.audio.sampleRate = devRate
+        }
     }
 
     fn loadScriptAt:void (tsxPath:string injectCatalog:boolean) {
@@ -299,12 +336,14 @@ class GameSdlRunner {
             this.presentLoadingScreen("LOADING WASM")
             wasmPhysicsRunner.setupScene()
             def sdlHost:SdlGameHost (new SdlGameHost)
-            sdlHost.audio = wasmPhysicsRunner.audio
-            sdlHost.wireMusic()
+            this.wireWasmAudio(wasmPhysicsRunner.audio sdlHost)
             wasmPhysicsRunner.host = sdlHost
         } {
             wasmRunner = (new WasmGameRunner)
             wasmRunner.init(pw ph)
+            def sdlHost2:SdlGameHost (new SdlGameHost)
+            this.wireWasmAudio(wasmRunner.audio sdlHost2)
+            wasmRunner.host = sdlHost2
             this.presentLoadingScreen("LOADING WASM")
             wasmRunner.loadModule(wasmPath)
             this.presentLoadingScreen("LOADING WASM")
@@ -315,6 +354,7 @@ class GameSdlRunner {
         inMenu = false
         inGame = true
         splitScreenActive = false
+        wasmSplitActive = false
         this.syncInputEdges()
         gameInputSnap.resetSoloPad()
         gfx_clear_should_close
@@ -473,11 +513,40 @@ class GameSdlRunner {
         inMenu = false
         inGame = true
         splitScreenActive = true
+        wasmSplitActive = false
         this.syncInputEdges()
         gameInputSnap.resetSoloPad()
         gfx_clear_should_close
         print ("[split-screen] left=" + panePath)
         print ("[split-screen] right=" + panePath)
+        if (splitAutoscale) {
+            print "[split-screen] autoscale=on"
+        } {
+            print "[split-screen] autoscale=off"
+        }
+        this.setProfileOnRunners()
+    }
+
+    fn loadWasmSplitGame:void (wasmPath:string) {
+        gfx_audio_clear
+        useWasmRunner = true
+        useWasmPhysics = true
+        wasmSplitActive = true
+        this.presentLoadingScreen("SPLIT WASM")
+        wasmSplitHost = (new WasmSplitScreenHost)
+        wasmSplitHost.init(pw ph splitAutoscale)
+        def sdlHost:SdlGameHost (new SdlGameHost)
+        this.wireWasmAudio(wasmSplitHost.runner.audio sdlHost)
+        wasmSplitHost.loadWasm(wasmPath sdlHost)
+        currentScriptPath = wasmPath
+        currentGamePath = wasmPath
+        inMenu = false
+        inGame = true
+        splitScreenActive = true
+        this.syncInputEdges()
+        gameInputSnap.resetSoloPad()
+        gfx_clear_should_close
+        print ("[split-screen] wasm physics: " + wasmPath)
         if (splitAutoscale) {
             print "[split-screen] autoscale=on"
         } {
@@ -492,7 +561,15 @@ class GameSdlRunner {
         nativeBridge.clearPendingNav()
         currentGamePath = path
         if (this.isWasmPath(path)) {
+            this.resolveSplitMetadata(path)
+            if (this.shouldUseSplitScreen()) {
+                if (this.resolveWasmPhysics(path)) {
+                    this.loadWasmSplitGame(path)
+                    return
+                }
+            }
             splitScreenActive = false
+            wasmSplitActive = false
             this.loadWasmAt(path)
             return
         }
@@ -568,13 +645,25 @@ class GameSdlRunner {
     fn draw:void () {
         if (splitScreenActive) {
             def r0:int (gfx_ticks_ms)
-            splitHost.draw()
-            splitHost.flushGpuParticles()
-            def r1:int (gfx_ticks_ms)
-            if (splitHost.isAutoscale()) {
-                gfx_present_split (splitHost.leftRaw()) (splitHost.rightRaw()) pw ph
+            if (wasmSplitActive) {
+                wasmSplitHost.draw()
             } {
-                gfx_present (splitHost.raw()) pw ph
+                splitHost.draw()
+                splitHost.flushGpuParticles()
+            }
+            def r1:int (gfx_ticks_ms)
+            if (wasmSplitActive) {
+                if (wasmSplitHost.isAutoscale()) {
+                    gfx_present_split (wasmSplitHost.leftRaw()) (wasmSplitHost.rightRaw()) pw ph
+                } {
+                    gfx_present (wasmSplitHost.leftRaw()) pw ph
+                }
+            } {
+                if (splitHost.isAutoscale()) {
+                    gfx_present_split (splitHost.leftRaw()) (splitHost.rightRaw()) pw ph
+                } {
+                    gfx_present (splitHost.raw()) pw ph
+                }
             }
             def r2:int (gfx_ticks_ms)
             if (profileEnabled) {
@@ -782,7 +871,11 @@ class GameSdlRunner {
     fn runGameLoop:void () {
         while (running) {
             if (splitScreenActive) {
-                splitHost.maybeHotReload()
+                if (wasmSplitActive) {
+                    wasmSplitHost.maybeHotReload()
+                } {
+                    splitHost.maybeHotReload()
+                }
             } {
                 runner.maybeHotReload()
             }
@@ -811,6 +904,7 @@ class GameSdlRunner {
                 nativeBridge.clearPendingNav()
                 inGame = false
                 splitScreenActive = false
+                wasmSplitActive = false
                 dualPlayerMode = false
                 gfx_clear_should_close
                 return
@@ -822,10 +916,19 @@ class GameSdlRunner {
                     print "[split-screen] switching to dual-player mode"
                     dualPlayerMode = true
                     splitScreenActive = false
-                    this.loadScriptAt(currentGamePath false)
+                    wasmSplitActive = false
+                    if (this.isWasmPath(currentGamePath)) {
+                        this.loadWasmAt(currentGamePath)
+                    } {
+                        this.loadScriptAt(currentGamePath false)
+                    }
                     this.syncInputEdges()
                 } {
-                    splitHost.frameWithInput(dtMs)
+                    if (wasmSplitActive) {
+                        wasmSplitHost.frame(dtMs)
+                    } {
+                        splitHost.frameWithInput(dtMs)
+                    }
                 }
             } {
                 if (useWasmRunner) {
@@ -903,6 +1006,7 @@ class GameSdlRunner {
             gfx_set_fullscreen(1)
         }
         gfx_audio_open(44100)
+        this.refreshWasmAudioSampleRate()
         if (launcherMode) {
             this.runMenuLoop()
         } {

@@ -368,7 +368,25 @@ LLVM-ongelmat ja korjaukset: [`LLVM_BUGS.md`](./LLVM_BUGS.md).
 
 ## Raspberry Pi
 
-**Terminaali-Pong** (ei SDL-riippuvuuksia, vain libc):
+**SSH deploy (TSX + WASM launcher, recommended):**
+
+```bash
+bash gallery/game_engine/scripts/deploy-pi.sh pelit
+```
+
+Rsyncs repo → Pi, compiles `game_sdl` (SDL2 + GLES2 + wasm3) on device, wires `~/start.sh` autostart. WASM games use committed `logic.wasm` (no Rust needed to deploy). Rebuild wasm locally first only when needed:
+
+```bash
+RANGER_WASM_BUILD=1 bash gallery/game_engine/scripts/deploy-pi.sh pelit
+```
+
+Fast game sync only (no host rebuild):
+
+```bash
+SYNC_WASM_BUILD=1 bash gallery/game_engine/scripts/sync-pi-games.sh pelit
+```
+
+**Offline bundle (terminaali-Pong, no SDL):**
 
 ```bash
 npm run build:raspberry

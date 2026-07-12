@@ -54,6 +54,8 @@ const WIN_SCORE: i32 = 5000;
 const FINISH_Y: i32 = 140;
 const BRAKE_SCREECH_CD_MS: i32 = 900;
 const BRAKE_SCREECH_MIN_SPD: i32 = 18;
+const OIL_EFFECT_MS: i32 = 260;
+const OIL_RECOVER_MS: i32 = 380;
 
 pub const BODY_P1: i32 = 0;
 pub const BODY_P2: i32 = 1;
@@ -74,6 +76,12 @@ static mut BRAKE_CD_P2: i32 = 0;
 static mut SOMEONE_WON: bool = false;
 static mut AIR_P1: i32 = 0;
 static mut AIR_P2: i32 = 0;
+static mut OIL_CD_P1: i32 = 0;
+static mut OIL_CD_P2: i32 = 0;
+static mut OIL_RECOVER_P1: i32 = 0;
+static mut OIL_RECOVER_P2: i32 = 0;
+static mut OIL_WAS_P1: bool = false;
+static mut OIL_WAS_P2: bool = false;
 static mut EVENT_WRITE: i32 = 0;
 
 struct RoadPt {
@@ -315,7 +323,7 @@ fn on_oil(x_fp: i32, y_fp: i32) -> bool {
     false
 }
 
-fn surface_grip_milli(x_fp: i32, y_fp: i32) -> i32 {
+fn road_grip_milli(x_fp: i32, y_fp: i32) -> i32 {
     let (cx, half) = road_at(y_fp);
     let edge = half - 16 * FP;
     let off = x_fp - cx;
@@ -325,44 +333,65 @@ fn surface_grip_milli(x_fp: i32, y_fp: i32) -> i32 {
     } else if off > edge {
         grip = 450;
     }
-    let y = y_fp / FP;
-    let mut i = 0;
-    while i < OIL.len() {
-        let o = &OIL[i];
-        let px = patch_x(o);
-        let dx = (x_fp - px) as f64 / FP as f64;
-        let dy = (y - o.y) as f64;
-        if dx * dx + dy * dy < (o.r * o.r) as f64 {
-            grip = 80;
+    grip
+}
+
+fn oil_cd_for(idx: i32) -> i32 {
+    unsafe {
+        if idx == BODY_P2 {
+            OIL_CD_P2
+        } else {
+            OIL_CD_P1
         }
-        i += 1;
+    }
+}
+
+fn oil_recover_for(idx: i32) -> i32 {
+    unsafe {
+        if idx == BODY_P2 {
+            OIL_RECOVER_P2
+        } else {
+            OIL_RECOVER_P1
+        }
+    }
+}
+
+fn surface_grip_for_player(idx: i32, x_fp: i32, y_fp: i32) -> i32 {
+    let grip = road_grip_milli(x_fp, y_fp);
+    if idx > BODY_P2 && on_oil(x_fp, y_fp) && grip > 500 {
+        return 500;
     }
     grip
 }
 
-fn oil_spin(idx: i32, steer: i32, now: i32) -> i32 {
-    let spd = body_speed(idx);
-    if spd / FP < BRAKE_SCREECH_MIN_SPD {
-        return 0;
+fn oil_entry_spin(idx: i32, steer: i32, now: i32) -> i32 {
+    let mut spd_f = body_speed(idx) as f64 / FP as f64;
+    if spd_f < 40.0 {
+        spd_f = 40.0;
     }
     let x = body_x(idx) as f64 / FP as f64;
     let y = body_y(idx) as f64 / FP as f64;
-    let spd_f = spd as f64 / FP as f64;
     let phase = now as f64 * 0.012 + x * 0.06 + y * 0.04;
-    let wobble = sin_f(phase) * spd_f * 0.14;
-    let steer_spin = (steer as f64 / STEER_SCALE as f64) * spd_f * 0.32;
-    ((wobble + steer_spin) * FP as f64) as i32
+    let sign = if sin_f(phase) >= 0.0 { 1.0 } else { -1.0 };
+    let wobble = sin_f(phase) * spd_f * 0.08;
+    let steer_spin = (steer as f64 / STEER_SCALE as f64) * spd_f * 0.12;
+    ((wobble + steer_spin + sign * 22.0) * FP as f64) as i32
 }
 
-fn spin_stabilizer_fp(idx: i32) -> i32 {
+fn spin_stabilizer_fp(idx: i32, oil_recover: bool) -> i32 {
     let av_fp = body_ang_vel_fp(idx);
     let av = av_fp as f64 / FP as f64;
     let mut abs = av;
     if abs < 0.0 { abs = -abs; }
-    if abs < 200.0 { return 0; }
-    let mut t = (abs - 200.0) / (420.0 - 200.0);
+    let (start, full, base, span) = if oil_recover {
+        (35.0, 180.0, 0.28, 0.42)
+    } else {
+        (200.0, 420.0, 0.10, 0.20)
+    };
+    if abs < start { return 0; }
+    let mut t = (abs - start) / (full - start);
     t = clamp_f(t, 0.0, 1.0);
-    let strength = 0.1 + t * 0.2;
+    let strength = base + t * span;
     (-av * strength * FP as f64) as i32
 }
 
@@ -443,12 +472,13 @@ fn traffic_control(idx: i32, t: &TrafficDef, now: i32) -> (i32, i32, i32, i32) {
     let safe_r = here_cx + here_half - 16 * FP;
     if bx < safe_l { steer = STEER_SCALE; }
     if bx > safe_r { steer = -STEER_SCALE; }
-    let grip = surface_grip_milli(bx, by);
+    let grip = surface_grip_for_player(idx, bx, by);
     (steer, t.throttle_milli, 0, grip)
 }
 
 // Host imports (module "env") — linked by the wasm3 bridge. The module calls
 // these during declare_resources() so the host loads assets through GameHost.
+#[link(wasm_import_module = "env")]
 extern "C" {
     fn rg_host_register_sheet(
         id_ptr: i32,
@@ -459,11 +489,21 @@ extern "C" {
         fh: i32,
         scale: i32,
         feet: i32,
+        draw_layer: i32,
     );
-    fn rg_host_register_rect(id_ptr: i32, id_len: i32, w: i32, h: i32, r: i32, g: i32, b: i32);
+    fn rg_host_register_rect(
+        id_ptr: i32,
+        id_len: i32,
+        w: i32,
+        h: i32,
+        r: i32,
+        g: i32,
+        b: i32,
+        draw_layer: i32,
+    );
 }
 
-fn host_sheet(id: &str, path: &str, fw: i32, fh: i32, scale: i32, feet: i32) {
+fn host_sheet(id: &str, path: &str, fw: i32, fh: i32, scale: i32, feet: i32, draw_layer: i32) {
     unsafe {
         rg_host_register_sheet(
             id.as_ptr() as i32,
@@ -474,24 +514,34 @@ fn host_sheet(id: &str, path: &str, fw: i32, fh: i32, scale: i32, feet: i32) {
             fh,
             scale,
             feet,
+            draw_layer,
         );
     }
 }
 
-fn host_rect(id: &str, w: i32, h: i32, r: i32, g: i32, b: i32) {
+fn host_rect(id: &str, w: i32, h: i32, r: i32, g: i32, b: i32, draw_layer: i32) {
     unsafe {
-        rg_host_register_rect(id.as_ptr() as i32, id.len() as i32, w, h, r, g, b);
+        rg_host_register_rect(
+            id.as_ptr() as i32,
+            id.len() as i32,
+            w,
+            h,
+            r,
+            g,
+            b,
+            draw_layer,
+        );
     }
 }
 
 #[no_mangle]
 pub extern "C" fn declare_resources() {
-    host_sheet("p1", "assets/car1.png", 471, 909, 4, 454);
-    host_sheet("p2", "assets/car2.png", 471, 908, 4, 454);
-    host_sheet("trafficCar", "assets/othercar.png", 285, 625, 7, 312);
-    host_sheet("cone", "assets/cone.png", 204, 275, 9, 252);
-    host_sheet("oil", "assets/oil.png", 891, 706, 9, 353);
-    host_rect("bar", 8, 46, 210, 215, 225);
+    host_sheet("p1", "assets/car1.png", 471, 909, 4, 454, 10);
+    host_sheet("p2", "assets/car2.png", 471, 908, 4, 454, 10);
+    host_sheet("trafficCar", "assets/othercar.png", 285, 625, 7, 312, 10);
+    host_sheet("cone", "assets/cone.png", 204, 275, 9, 252, 10);
+    host_sheet("oil", "assets/oil.png", 891, 706, 9, 353, 0);
+    host_rect("bar", 8, 46, 210, 215, 225, 5);
 }
 
 #[no_mangle]
@@ -521,6 +571,12 @@ pub extern "C" fn init() {
         EVENT_WRITE = 0;
         AIR_P1 = 0;
         AIR_P2 = 0;
+        OIL_CD_P1 = 0;
+        OIL_CD_P2 = 0;
+        OIL_RECOVER_P1 = 0;
+        OIL_RECOVER_P2 = 0;
+        OIL_WAS_P1 = false;
+        OIL_WAS_P2 = false;
     }
 
     let (sx, _) = road_at((6000 - 140) * FP);
@@ -666,23 +722,45 @@ fn process_contacts() {
     wr_i32(OFF_IMPULSE_CNT, imp_cnt);
 }
 
+fn oil_tick_entry(idx: i32, oil_cd: &mut i32, oil_recover: &mut i32, oil_was: &mut bool) {
+    let on = on_oil(body_x(idx), body_y(idx));
+    if on && !*oil_was {
+        *oil_cd = OIL_EFFECT_MS;
+        *oil_recover = OIL_RECOVER_MS;
+    }
+}
+
 fn apply_player_extras(
     idx: i32,
     steer: i32,
     now: i32,
+    dt: i32,
     ramp_cd: &mut i32,
     air_tick: &mut i32,
+    oil_cd: &mut i32,
+    oil_recover: &mut i32,
+    oil_was: &mut bool,
     imp_cnt: &mut i32,
 ) {
     let x = body_x(idx);
     let y = body_y(idx);
-    if on_oil(x, y) {
-        let spin = oil_spin(idx, steer, now);
-        if spin != 0 {
-            append_impulse(imp_cnt, idx, 0, 0, spin);
+    let on = on_oil(x, y);
+    if on && !*oil_was {
+        push_sound(SND_BOUNCE);
+        let burst = oil_entry_spin(idx, steer, now);
+        if burst != 0 {
+            append_impulse(imp_cnt, idx, 0, 0, burst);
         }
     }
-    let damp = spin_stabilizer_fp(idx);
+    *oil_was = on;
+    if *oil_cd > 0 {
+        *oil_cd = decay_timer(*oil_cd, dt);
+    }
+    if *oil_recover > 0 {
+        *oil_recover = decay_timer(*oil_recover, dt);
+    }
+    let recover = *oil_recover > 0;
+    let damp = spin_stabilizer_fp(idx, recover);
     if damp != 0 {
         append_impulse(imp_cnt, idx, 0, 0, damp);
     }
@@ -724,8 +802,12 @@ pub extern "C" fn update() {
 
     let (p_steer, p_th, p_br) = drive_from_input(flags);
     let (p2_steer, p2_th, p2_br) = drive_from_input(flags_p2);
-    let p1_grip = surface_grip_milli(body_x(BODY_P1), body_y(BODY_P1));
-    let p2_grip = surface_grip_milli(body_x(BODY_P2), body_y(BODY_P2));
+    unsafe {
+        oil_tick_entry(BODY_P1, &mut OIL_CD_P1, &mut OIL_RECOVER_P1, &mut OIL_WAS_P1);
+        oil_tick_entry(BODY_P2, &mut OIL_CD_P2, &mut OIL_RECOVER_P2, &mut OIL_WAS_P2);
+    }
+    let p1_grip = surface_grip_for_player(BODY_P1, body_x(BODY_P1), body_y(BODY_P1));
+    let p2_grip = surface_grip_for_player(BODY_P2, body_x(BODY_P2), body_y(BODY_P2));
     write_control(BODY_P1, p_steer, p_th, p_br, p1_grip);
     write_control(BODY_P2, p2_steer, p2_th, p2_br, p2_grip);
 
@@ -749,8 +831,14 @@ pub extern "C" fn update() {
 
     let mut imp_extra = rd_i32(OFF_IMPULSE_CNT);
     unsafe {
-        apply_player_extras(BODY_P1, p_steer, now, &mut RAMP_CD_P1, &mut AIR_P1, &mut imp_extra);
-        apply_player_extras(BODY_P2, p2_steer, now, &mut RAMP_CD_P2, &mut AIR_P2, &mut imp_extra);
+        apply_player_extras(
+            BODY_P1, p_steer, now, dt, &mut RAMP_CD_P1, &mut AIR_P1,
+            &mut OIL_CD_P1, &mut OIL_RECOVER_P1, &mut OIL_WAS_P1, &mut imp_extra,
+        );
+        apply_player_extras(
+            BODY_P2, p2_steer, now, dt, &mut RAMP_CD_P2, &mut AIR_P2,
+            &mut OIL_CD_P2, &mut OIL_RECOVER_P2, &mut OIL_WAS_P2, &mut imp_extra,
+        );
         wr_i32(OFF_AIR_P1, AIR_P1);
         wr_i32(OFF_AIR_P2, AIR_P2);
     }

@@ -11,6 +11,7 @@ class WasmAutopeliSetup {
     def oilIds:[string]
     def oilXs:[int]
     def oilYs:[int]
+    def oilRs:[int]
     def segAy:int 6000
     def segAx:int 240
     def segAh:int 126
@@ -350,10 +351,16 @@ class WasmAutopeliSetup {
         push core.bodies b
     }
 
-    fn addOilPatch:void (id:string y:int laneMilli:int) {
+    fn addOilPatch:void (id:string y:int laneMilli:int r:int) {
         push oilIds id
         push oilXs (this.laneX(y laneMilli 18))
         push oilYs y
+        push oilRs r
+    }
+
+    fn addTraffic:void (core:PhysicsCore id:string y:int laneMilli:int) {
+        def tx:int (this.laneX(y laneMilli 22))
+        this.addVehicle(core id (to_double tx) (to_double y) true)
     }
 
     fn addAllCones:void (core:PhysicsCore) {
@@ -405,15 +412,16 @@ class WasmAutopeliSetup {
         oilIds = emptyS
         oilXs = emptyI
         oilYs = emptyI
-        this.addOilPatch("oil0" 5460 350)
-        this.addOilPatch("oil1" 5050 -450)
-        this.addOilPatch("oil2" 4300 420)
-        this.addOilPatch("oil3" 3740 -280)
-        this.addOilPatch("oil4" 3060 500)
-        this.addOilPatch("oil5" 2480 -500)
-        this.addOilPatch("oil6" 1780 340)
-        this.addOilPatch("oil7" 1080 -350)
-        this.addOilPatch("oil8" 560 250)
+        oilRs = emptyI
+        this.addOilPatch("oil0" 5460 350 34)
+        this.addOilPatch("oil1" 5050 -450 30)
+        this.addOilPatch("oil2" 4300 420 38)
+        this.addOilPatch("oil3" 3740 -280 32)
+        this.addOilPatch("oil4" 3060 500 36)
+        this.addOilPatch("oil5" 2480 -500 40)
+        this.addOilPatch("oil6" 1780 340 34)
+        this.addOilPatch("oil7" 1080 -350 31)
+        this.addOilPatch("oil8" 560 250 28)
     }
 
     fn drawRampsInStrip:void (bg:SoftCanvas y:int) {
@@ -468,29 +476,36 @@ class WasmAutopeliSetup {
         this.addVehicle(phys.core "p2" (to_double (sx + 28)) 5860.0 false)
         push bodyIds "p1"
         push bodyIds "p2"
-        def ti:int 0
-        while (ti < 15) {
-            def id:string ("t" + (to_string ti))
-            def ty:int 5520
-            if (ti == 1) { ty = 5260 }
-            if (ti == 2) { ty = 4930 }
-            if (ti == 3) { ty = 4590 }
-            if (ti == 4) { ty = 4270 }
-            if (ti == 5) { ty = 3950 }
-            if (ti == 6) { ty = 3610 }
-            if (ti == 7) { ty = 3280 }
-            if (ti == 8) { ty = 2940 }
-            if (ti == 9) { ty = 2570 }
-            if (ti == 10) { ty = 2190 }
-            if (ti == 11) { ty = 1810 }
-            if (ti == 12) { ty = 1420 }
-            if (ti == 13) { ty = 1040 }
-            if (ti == 14) { ty = 650 }
-            this.roadAt(ty)
-            this.addVehicle(phys.core id (to_double roadCx) (to_double ty) true)
-            push bodyIds id
-            ti = (ti + 1)
-        }
+        this.addTraffic(phys.core "t0" 5520 -580)
+        push bodyIds "t0"
+        this.addTraffic(phys.core "t1" 5260 500)
+        push bodyIds "t1"
+        this.addTraffic(phys.core "t2" 4930 -180)
+        push bodyIds "t2"
+        this.addTraffic(phys.core "t3" 4590 620)
+        push bodyIds "t3"
+        this.addTraffic(phys.core "t4" 4270 -580)
+        push bodyIds "t4"
+        this.addTraffic(phys.core "t5" 3950 200)
+        push bodyIds "t5"
+        this.addTraffic(phys.core "t6" 3610 -620)
+        push bodyIds "t6"
+        this.addTraffic(phys.core "t7" 3280 580)
+        push bodyIds "t7"
+        this.addTraffic(phys.core "t8" 2940 -100)
+        push bodyIds "t8"
+        this.addTraffic(phys.core "t9" 2570 620)
+        push bodyIds "t9"
+        this.addTraffic(phys.core "t10" 2190 -580)
+        push bodyIds "t10"
+        this.addTraffic(phys.core "t11" 1810 260)
+        push bodyIds "t11"
+        this.addTraffic(phys.core "t12" 1420 -620)
+        push bodyIds "t12"
+        this.addTraffic(phys.core "t13" 1040 580)
+        push bodyIds "t13"
+        this.addTraffic(phys.core "t14" 650 -200)
+        push bodyIds "t14"
         this.addAllCones(phys.core)
         this.addAllBars(phys.core)
         this.addAllOil()
