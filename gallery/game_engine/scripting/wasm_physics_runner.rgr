@@ -1,0 +1,293 @@
+; ==============================================================================
+; wasm_physics_runner — WASM linear ABI + host GamePhysics (autopeli Path C).
+; ==============================================================================
+
+Import "../framebuffer.rgr"
+Import "../wasm_runtime.rgr"
+Import "./wasm_abi_io.rgr"
+Import "./game_physics.rgr"
+Import "./game_audio.rgr"
+Import "./wasm_autopeli_setup.rgr"
+Import "../../ts_to_ranger/game_host.rgr"
+
+class WasmDrawEntity {
+    def id:string ""
+    def x:int 0
+    def y:int 0
+    def w:int 14
+    def h:int 20
+    def cr:int 200
+    def cg:int 200
+    def cb:int 200
+}
+
+class WasmPhysicsRunner {
+    def handle:int 0
+    def linearMode:boolean false
+    def abi:WasmAbiMem (new WasmAbiMem)
+    def setup:WasmAutopeliSetup (new WasmAutopeliSetup)
+    def physics:GamePhysics (new GamePhysics)
+    def bodyIds:[string]
+    def canvas:SoftCanvas (new SoftCanvas)
+    def host:GameHost (new GameHost)
+    def audio:GameAudio (new GameAudio)
+    def entities:[WasmDrawEntity]
+    def pw:int 480
+    def ph:int 270
+    def worldH:int 6000
+    def cameraY:int 0
+    def fixedStepMs:int 16
+    def timeMs:int 0
+    def fpsShown:int 0
+    def score:int 0
+    def hits:int 0
+    def profileEnabled:boolean false
+
+    fn init:void (w:int h:int) {
+        audio.init()
+        pw = w
+        ph = h
+        canvas.init(w h)
+        host.audio = audio
+        host.wireMusic()
+    }
+
+    fn setFpsShown:void (fps:int) { fpsShown = fps }
+    fn setProfileEnabled:void (on:boolean) { profileEnabled = on }
+    fn raw:buffer () { return (canvas.raw()) }
+    fn hostRef:GameHost () { return host }
+    fn maybeHotReload:void () {}
+    fn resolvePlayerCount:int () { return 1 }
+
+    fn loadModule:void (path:string) {
+        if (handle != 0) {
+            wasm_close handle
+            handle = 0
+        }
+        handle = wasm_load path
+        if (handle == 0) {
+            print ("[wasm] load failed: " + path)
+            return
+        }
+        linearMode = false
+        abi.bind(handle)
+        if (abi.base != 0) {
+            linearMode = true
+        }
+        print ("[wasm] loaded: " + path + " linear=" + (to_string linearMode))
+    }
+
+    fn findBody:PhysBody (id:string) {
+        def fail:PhysBody (new PhysBody)
+        def i 0
+        while (i < (array_length physics.core.bodies)) {
+            def b:PhysBody (itemAt physics.core.bodies i)
+            if (b.id == id) {
+                return b
+            }
+            i = (i + 1)
+        }
+        return fail
+    }
+
+    fn syncBodiesToAbi:void () {
+        if (linearMode == false) {
+            return
+        }
+        def i 0
+        while (i < (array_length bodyIds)) {
+            def id:string (itemAt bodyIds i)
+            def b:PhysBody (this.findBody(id))
+            if ((strlen b.id) > 0) {
+                def xFp:int (to_int (b.x * 256.0))
+                def yFp:int (to_int (b.y * 256.0))
+                def ang:int (to_int (b.angle * 1000.0))
+                def spd:int (to_int (b.speed * 256.0))
+                def av:int (to_int (b.angularVel * 256.0))
+                abi.writeBody(i xFp yFp ang spd av 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn applyControlsFromAbi:void () {
+        clear physics.commands
+        def i 0
+        while (i < (array_length bodyIds)) {
+            def id:string (itemAt bodyIds i)
+            def cmd:PhysCommand (new PhysCommand)
+            cmd.bodyId = id
+            cmd.steer = ((to_double (abi.readControlSteer(i))) / 1000.0)
+            cmd.throttle = ((to_double (abi.readControlThrottle(i))) / 1000.0)
+            cmd.brake = ((to_double (abi.readControlBrake(i))) / 1000.0)
+            cmd.grip = ((to_double (abi.readControlGrip(i))) / 1000.0)
+            def ic 0
+            while (ic < (abi.getImpulseCount())) {
+                if ((abi.readImpulseBody(ic)) == i) {
+                    cmd.impulseX = (cmd.impulseX + ((to_double (abi.readImpulseLinX(ic))) / 256.0))
+                    cmd.impulseY = (cmd.impulseY + ((to_double (abi.readImpulseLinY(ic))) / 256.0))
+                    cmd.impulseAngular = (cmd.impulseAngular + ((to_double (abi.readImpulseAng(ic))) / 256.0))
+                }
+                ic = (ic + 1)
+            }
+            push physics.commands cmd
+            i = (i + 1)
+        }
+    }
+
+    fn setupScene:void () {
+        if (handle == 0) {
+            return
+        }
+        def empty:[string]
+        bodyIds = empty
+        wasm_call_void handle "init" 0 0 0 0 0 0
+        if (abi.verifyMagic()) {
+            linearMode = true
+        }
+        setup.setupPhysics(physics bodyIds)
+        this.buildDrawEntities()
+        this.syncBodiesToAbi()
+    }
+
+    fn buildDrawEntities:void () {
+        def next:[WasmDrawEntity]
+        def i 0
+        while (i < (array_length bodyIds)) {
+            def e:WasmDrawEntity (new WasmDrawEntity)
+            e.id = (itemAt bodyIds i)
+            if (e.id == "p1") {
+                e.cr = 120
+                e.cg = 220
+                e.cb = 160
+            }
+            if (e.id == "p2") {
+                e.cr = 220
+                e.cg = 140
+                e.cb = 120
+            }
+            if ((indexOf e.id "t") == 0) {
+                e.cr = 180
+                e.cg = 180
+                e.cb = 200
+                e.w = 11
+                e.h = 16
+            }
+            push next e
+            i = (i + 1)
+        }
+        entities = next
+    }
+
+    fn syncDrawFromPhysics:void () {
+        def i 0
+        while (i < (array_length bodyIds)) {
+            def id:string (itemAt bodyIds i)
+            def b:PhysBody (this.findBody(id))
+            def e:WasmDrawEntity (itemAt entities i)
+            e.x = (to_int b.x)
+            e.y = (to_int b.y)
+            i = (i + 1)
+        }
+        cameraY = abi.getCameraY()
+        if (cameraY == 0) {
+            def p1:PhysBody (this.findBody("p1"))
+            if ((strlen p1.id) > 0) {
+                cameraY = ((to_int (p1.y * 256.0)) - (120 * 256))
+            }
+        }
+        score = abi.getScore()
+        hits = abi.getHits()
+    }
+
+    fn physicsStep:void (dtMs:int flags:int) {
+        this.syncBodiesToAbi()
+        abi.setDtMs(dtMs)
+        abi.setTimeMs(timeMs)
+        abi.setInputFlags(flags)
+        wasm_call_void handle "update" 0 0 0 0 0 0
+        this.applyControlsFromAbi()
+        physics.step(dtMs)
+        this.syncDrawFromPhysics()
+    }
+
+    fn frame:void (dtMs:int up:boolean down:boolean left:boolean right:boolean action:boolean) {
+        if (handle == 0) {
+            return
+        }
+        timeMs = (timeMs + dtMs)
+        def flags:int 0
+        if (up) { flags = (flags + 1) }
+        if (down) { flags = (flags + 2) }
+        if (left) { flags = (flags + 4) }
+        if (right) { flags = (flags + 8) }
+        if (action) { flags = (flags + 16) }
+        if (fixedStepMs > 0) {
+            def steps:int (idiv dtMs fixedStepMs)
+            if (steps < 1) {
+                steps = 1
+            }
+            def s 0
+            while (s < steps) {
+                this.physicsStep(fixedStepMs flags)
+                s = (s + 1)
+            }
+        } {
+            this.physicsStep(dtMs flags)
+        }
+    }
+
+    fn frameWithInput:void (dtMs:int up:boolean down:boolean left:boolean right:boolean action:boolean) {
+        this.frame(dtMs up down left right action)
+    }
+
+    fn entityY:int (id:string) {
+        def i 0
+        while (i < (array_length entities)) {
+            def e:WasmDrawEntity (itemAt entities i)
+            if (e.id == id) {
+                return e.y
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn draw:void () {
+        canvas.clear(20 30 45)
+        def cam:int (idiv cameraY 256)
+        def viewTop:int (cam - (idiv ph 2))
+        def i 0
+        while (i < (array_length entities)) {
+            def e:WasmDrawEntity (itemAt entities i)
+            def sy:int (e.y - viewTop)
+            if (sy >= -40) {
+                if (sy <= (ph + 40)) {
+                    def rx:int (e.x - (idiv e.w 2))
+                    def ry:int (sy - (idiv e.h 2))
+                    canvas.fillRect(rx ry e.w e.h e.cr e.cg e.cb)
+                }
+            }
+            i = (i + 1)
+        }
+        this.drawHud()
+    }
+
+    fn drawHud:void () {
+        def line:string ("hits=" + hits)
+        def x:int 8
+        def y:int 8
+        canvas.fillRect(x y 80 10 40 60 90)
+    }
+
+    fn drawLoadingScreen:void (label:string ticks:int) {
+        canvas.clear(8 12 24)
+    }
+
+    fn shutdown:void () {
+        if (handle != 0) {
+            wasm_close handle
+            handle = 0
+        }
+    }
+}

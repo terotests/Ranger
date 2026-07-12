@@ -18,6 +18,7 @@
 Import "./game_runtime.rgr"
 Import "../wasm_runtime.rgr"
 Import "./wasm_game_runner.rgr"
+Import "./wasm_physics_runner.rgr"
 Import "../gfx_sdl.rgr"
 Import "./game_audio_sdl.rgr"
 Import "./game_catalog.rgr"
@@ -40,7 +41,9 @@ class SdlGameHost extends GameHost {
 class GameSdlRunner {
     def runner:GameRunner (new GameRunner)
     def wasmRunner:WasmGameRunner (new WasmGameRunner)
+    def wasmPhysicsRunner:WasmPhysicsRunner (new WasmPhysicsRunner)
     def useWasmRunner:boolean false
+    def useWasmPhysics:boolean false
     def splitHost:SplitScreenHost (new SplitScreenHost)
     def catalog:GameCatalog (new GameCatalog)
     def nativeBridge:GameHostNativeBridge (new GameHostNativeBridge)
@@ -91,7 +94,39 @@ class GameSdlRunner {
     fn setProfileOnRunners:void () {
         runner.setProfileEnabled(profileEnabled)
         wasmRunner.setProfileEnabled(profileEnabled)
+        wasmPhysicsRunner.setProfileEnabled(profileEnabled)
         splitHost.setProfileEnabled(profileEnabled)
+    }
+
+    fn resolveWasmPhysics:boolean (path:string) {
+        if ((strlen gamesDir) > 0) {
+            if ((catalog.entryCount()) == 0) {
+                catalog.setGamesDir(gamesDir)
+                catalog.scan()
+            }
+        }
+        def entry:GameCatalogEntry (catalog.findByPath(path))
+        if (entry.physics == "true") {
+            return true
+        }
+        if (entry.abi == "linear") {
+            return true
+        }
+        def slash:int (lastIndexOf path "/")
+        if (slash >= 0) {
+            def dir:string (substring path 0 slash)
+            if (file_exists dir "game.info") {
+                def buf:buffer (buffer_read_file dir "game.info")
+                def txt:string (buffer_to_string buf)
+                if ((indexOf txt "physics=true") >= 0) {
+                    return true
+                }
+                if ((indexOf txt "abi=linear") >= 0) {
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     fn printRunnerProfile:void (label:string r:GameRunner) {
@@ -136,7 +171,11 @@ class GameSdlRunner {
             splitHost.setFpsShown(fpsShown)
         } {
             if (useWasmRunner) {
-                wasmRunner.setFpsShown(fpsShown)
+                if (useWasmPhysics) {
+                    wasmPhysicsRunner.setFpsShown(fpsShown)
+                } {
+                    wasmRunner.setFpsShown(fpsShown)
+                }
             } {
                 runner.setFpsShown(fpsShown)
             }
@@ -245,18 +284,28 @@ class GameSdlRunner {
 
     fn loadWasmAt:void (wasmPath:string) {
         useWasmRunner = true
+        useWasmPhysics = (this.resolveWasmPhysics(wasmPath))
         if (inGame) {
             this.presentLoadingScreen("LOADING WASM")
         }
         if (inMenu) {
             this.presentLoadingScreen("LOADING WASM")
         }
-        wasmRunner = (new WasmGameRunner)
-        wasmRunner.init(pw ph)
-        this.presentLoadingScreen("LOADING WASM")
-        wasmRunner.loadModule(wasmPath)
-        this.presentLoadingScreen("LOADING WASM")
-        wasmRunner.setupScene()
+        if (useWasmPhysics) {
+            wasmPhysicsRunner = (new WasmPhysicsRunner)
+            wasmPhysicsRunner.init(pw ph)
+            this.presentLoadingScreen("LOADING WASM")
+            wasmPhysicsRunner.loadModule(wasmPath)
+            this.presentLoadingScreen("LOADING WASM")
+            wasmPhysicsRunner.setupScene()
+        } {
+            wasmRunner = (new WasmGameRunner)
+            wasmRunner.init(pw ph)
+            this.presentLoadingScreen("LOADING WASM")
+            wasmRunner.loadModule(wasmPath)
+            this.presentLoadingScreen("LOADING WASM")
+            wasmRunner.setupScene()
+        }
         currentScriptPath = wasmPath
         currentGamePath = wasmPath
         inMenu = false
@@ -266,7 +315,11 @@ class GameSdlRunner {
         gameInputSnap.resetSoloPad()
         gfx_clear_should_close
         this.setProfileOnRunners()
-        print ("[game-engine] wasm game: " + wasmPath)
+        if (useWasmPhysics) {
+            print ("[game-engine] wasm physics game: " + wasmPath)
+        } {
+            print ("[game-engine] wasm game: " + wasmPath)
+        }
     }
 
     fn loadGameAtPath:void (path:string injectCatalog:boolean) {
@@ -513,14 +566,22 @@ class GameSdlRunner {
         }
         def s0:int (gfx_ticks_ms)
         if (useWasmRunner) {
-            wasmRunner.draw()
+            if (useWasmPhysics) {
+                wasmPhysicsRunner.draw()
+            } {
+                wasmRunner.draw()
+            }
         } {
             runner.draw()
             runner.flushGpuParticles()
         }
         def s1:int (gfx_ticks_ms)
         if (useWasmRunner) {
-            gfx_present (wasmRunner.raw()) pw ph
+            if (useWasmPhysics) {
+                gfx_present (wasmPhysicsRunner.raw()) pw ph
+            } {
+                gfx_present (wasmRunner.raw()) pw ph
+            }
         } {
             gfx_present (runner.raw()) pw ph
         }
@@ -750,7 +811,11 @@ class GameSdlRunner {
             } {
                 if (useWasmRunner) {
                     def gameInput:GameInputSnapshot (this.pollGameInput())
-                    wasmRunner.frameWithInput(dtMs gameInput.p0.up gameInput.p0.down gameInput.p0.left gameInput.p0.right gameInput.p0.action)
+                    if (useWasmPhysics) {
+                        wasmPhysicsRunner.frameWithInput(dtMs gameInput.p0.up gameInput.p0.down gameInput.p0.left gameInput.p0.right gameInput.p0.action)
+                    } {
+                        wasmRunner.frameWithInput(dtMs gameInput.p0.up gameInput.p0.down gameInput.p0.left gameInput.p0.right gameInput.p0.action)
+                    }
                 } {
                     def gameInput:GameInputSnapshot (this.pollGameInput())
                     runner.frameWithInput(dtMs gameInput)
@@ -978,7 +1043,11 @@ class GameSdlRunner {
                 be.printRunnerProfile("right" be.splitHost.right)
             } {
                 if (be.useWasmRunner) {
-                    print ("[wasm] ball=" + (be.wasmRunner.entityX("ball")) + "," + (be.wasmRunner.entityY("ball")))
+                    if (be.useWasmPhysics) {
+                        print ("[wasm] p1=" + (be.wasmPhysicsRunner.entityY("p1")))
+                    } {
+                        print ("[wasm] ball=" + (be.wasmRunner.entityX("ball")) + "," + (be.wasmRunner.entityY("ball")))
+                    }
                 } {
                     be.printRunnerProfile("game" be.runner)
                 }
@@ -987,11 +1056,16 @@ class GameSdlRunner {
         if (be.inGame) {
             def msg:string ("game-sdl done: frames=" + be.frames)
             if (be.useWasmRunner) {
-                msg = (msg + " | entities=" + (array_length be.wasmRunner.entities))
-                msg = (msg + " | score ")
-                msg = (msg + be.wasmRunner.score1)
-                msg = (msg + " - ")
-                msg = (msg + be.wasmRunner.score2)
+                if (be.useWasmPhysics) {
+                    msg = (msg + " | entities=" + (array_length be.wasmPhysicsRunner.entities))
+                    msg = (msg + " | hits=" + (to_string be.wasmPhysicsRunner.hits))
+                } {
+                    msg = (msg + " | entities=" + (array_length be.wasmRunner.entities))
+                    msg = (msg + " | score ")
+                    msg = (msg + be.wasmRunner.score1)
+                    msg = (msg + " - ")
+                    msg = (msg + be.wasmRunner.score2)
+                }
             } {
                 msg = (msg + " | entities=" + (be.runner.entityCount()))
                 msg = (msg + " | score ")

@@ -246,3 +246,56 @@ void rg_wasm_call_void(int handle, const char* name, int nargs,
         fprintf(stderr, "[wasm] call '%s': %s\n", name, r);
     }
 }
+
+static uint8_t* rg_wasm_mem(int handle) {
+    RgWasmSlot* s = rg_slot(handle);
+    if (!s) {
+        return NULL;
+    }
+    return m3_GetMemory(s->runtime, NULL, 0);
+}
+
+uint32_t rg_wasm_mem_size(int handle) {
+    RgWasmSlot* s = rg_slot(handle);
+    if (!s) {
+        return 0;
+    }
+    return m3_GetMemorySize(s->runtime);
+}
+
+int32_t rg_wasm_abi_base(int handle) {
+    return rg_wasm_call_i32(handle, "abi_base", 0, 0, 0, 0, 0, 0);
+}
+
+int32_t rg_wasm_mem_read_i32(int handle, uint32_t off) {
+    uint8_t* mem = rg_wasm_mem(handle);
+    uint32_t sz;
+    int32_t v;
+    if (!mem) {
+        return 0;
+    }
+    sz = m3_GetMemorySize(rg_slot(handle)->runtime);
+    if (off + 4 > sz) {
+        return 0;
+    }
+    memcpy(&v, mem + off, 4);
+    return v;
+}
+
+void rg_wasm_mem_write_i32(int handle, uint32_t off, int32_t val) {
+    RgWasmSlot* s = rg_slot(handle);
+    uint8_t* mem;
+    uint32_t sz;
+    if (!s) {
+        return;
+    }
+    mem = rg_wasm_mem(handle);
+    if (!mem) {
+        return;
+    }
+    sz = m3_GetMemorySize(s->runtime);
+    if (off + 4 > sz) {
+        return;
+    }
+    memcpy(mem + off, &val, 4);
+}

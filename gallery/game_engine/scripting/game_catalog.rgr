@@ -33,6 +33,10 @@ class GameCatalogEntry {
     def engine:string "tsx"
     ; WASM module filename relative to dir (when engine=wasm).
     def moduleFile:string "logic.wasm"
+    ; abi: getter (default) | linear — linear uses shared memory block (RGW1).
+    def abi:string "getter"
+    ; physics: true | false — host runs GamePhysics; WASM writes controls via ABI.
+    def physics:string "false"
 }
 
 class GameCatalog {
@@ -165,6 +169,12 @@ class GameCatalog {
         }
         if (key == "module") {
             entry.moduleFile = val
+        }
+        if (key == "abi") {
+            entry.abi = val
+        }
+        if (key == "physics") {
+            entry.physics = val
         }
     }
 

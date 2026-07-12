@@ -7,18 +7,20 @@
 extern "C" {
 #endif
 
-/* Load a .wasm file. Returns handle (>=1) or 0 on failure. */
 int rg_wasm_load(const char* path);
-
 void rg_wasm_close(int handle);
 
-/* Call an exported function returning i32. nargs in [0..5]. Unused args ignored. */
 int32_t rg_wasm_call_i32(int handle, const char* name, int nargs,
                          int32_t a0, int32_t a1, int32_t a2, int32_t a3, int32_t a4);
 
-/* Call an exported function with no return value. */
 void rg_wasm_call_void(int handle, const char* name, int nargs,
                        int32_t a0, int32_t a1, int32_t a2, int32_t a3, int32_t a4);
+
+uint32_t rg_wasm_mem_size(int handle);
+int32_t rg_wasm_abi_base(int handle);
+
+int32_t rg_wasm_mem_read_i32(int handle, uint32_t off);
+void rg_wasm_mem_write_i32(int handle, uint32_t off, int32_t val);
 
 #ifdef __cplusplus
 }
