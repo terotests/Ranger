@@ -37,6 +37,18 @@ export const IMPULSE_SIZE: i32 = 16;
 export const OFF_CONTACTS: i32 = 1600;
 export const CONTACT_SIZE: i32 = 32;
 export const MAX_CONTACTS: i32 = 14;
+export const MAX_IMPULSES: i32 = 16;
+export const OFF_EVENTS: i32 = 2048;
+export const EVENT_SIZE: i32 = 20;
+export const MAX_EVENTS: i32 = 12;
+
+// event kinds / sound ids
+export const EVT_SOUND: i32 = 1;
+export const EVT_RUMBLE: i32 = 2;
+export const EVT_PARTICLES: i32 = 3;
+export const SND_WALL: i32 = 1;
+export const SND_BOUNCE: i32 = 2;
+export const SND_WIN: i32 = 3;
 
 // body / obstacle id codes
 export const ID_WALL_L: i32 = 1000;
@@ -81,9 +93,30 @@ export function bodyY(idx: i32): i32 {
 export function bodySpeed(idx: i32): i32 {
   return rd(OFF_BODIES + idx * BODY_SIZE + 12);
 }
+export function bodyAngMilli(idx: i32): i32 {
+  return rd(OFF_BODIES + idx * BODY_SIZE + 8);
+}
+export function bodyAngVelFp(idx: i32): i32 {
+  return rd(OFF_BODIES + idx * BODY_SIZE + 16);
+}
 export function writeBodyPos(idx: i32, xFp: i32, yFp: i32): void {
   wr(OFF_BODIES + idx * BODY_SIZE, xFp);
   wr(OFF_BODIES + idx * BODY_SIZE + 4, yFp);
+}
+export function writeImpulse(slot: i32, body: i32, lxFp: i32, lyFp: i32, angFp: i32): void {
+  const base = OFF_IMPULSES + slot * IMPULSE_SIZE;
+  wr(base, body);
+  wr(base + 4, lxFp);
+  wr(base + 8, lyFp);
+  wr(base + 12, angFp);
+}
+export function writeEvent(slot: i32, kind: i32, sub: i32, a: i32, b: i32, c: i32): void {
+  const base = OFF_EVENTS + slot * EVENT_SIZE;
+  wr(base, kind);
+  wr(base + 4, sub);
+  wr(base + 8, a);
+  wr(base + 12, b);
+  wr(base + 16, c);
 }
 export function writeControl(idx: i32, steer: i32, throttle: i32, brake: i32, grip: i32): void {
   const base = OFF_CONTROLS + idx * CTRL_SIZE;
@@ -105,6 +138,21 @@ export function contactBodyB(i: i32): i32 {
 }
 export function contactPhase(i: i32): i32 {
   return rd(OFF_CONTACTS + i * CONTACT_SIZE + 8);
+}
+export function contactImpulse(i: i32): i32 {
+  return rd(OFF_CONTACTS + i * CONTACT_SIZE + 12);
+}
+export function contactX(i: i32): i32 {
+  return rd(OFF_CONTACTS + i * CONTACT_SIZE + 16);
+}
+export function contactY(i: i32): i32 {
+  return rd(OFF_CONTACTS + i * CONTACT_SIZE + 20);
+}
+export function contactNx(i: i32): i32 {
+  return rd(OFF_CONTACTS + i * CONTACT_SIZE + 24);
+}
+export function contactNy(i: i32): i32 {
+  return rd(OFF_CONTACTS + i * CONTACT_SIZE + 28);
 }
 
 // ---- classification predicates (mirror the Rust guest / the .tsx isPlayer) ----

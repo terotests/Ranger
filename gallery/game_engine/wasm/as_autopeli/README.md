@@ -91,17 +91,31 @@ subset that compiles on *both* the evaluator and `asc` is:
 
 ## Scope of this port
 
-Covered (enough to play + drive the HUD): body placement, input → player
-controls, traffic AI (`trafficControl`), road grip, contacts → per-player hit
-counts + last-collision type, and the full RGU1 two-player HUD.
+**Full feature parity with the Rust guest.** Ported 1:1 from
+`rust_autopeli/src/lib.rs`: body placement, input → player controls, traffic AI,
+road grip, oil spin/recovery, ramp jumps + air boost, cone-launch impulses
+(including the `sin/cos` velocity math), collision sounds/rumble/particles, brake
+screech, win detection, and the per-player RGU1 HUD.
 
-Omitted (mechanical follow-ons the Rust guest also has): oil spin, ramps/air
-boost, cone-launch impulses, and collision sounds/rumble. The car drives, the
-traffic weaves, collisions register, and the HUD updates — the pieces needed to
-show the AssemblyScript↔bridge path working end to end.
+## Verified — byte-for-byte parity
 
-## Verified
+Both guests are booted from the same ABI, driven with identical inputs and
+injected contacts (wall/cone/traffic, with a car angle+speed so the cone-launch
+`Math.sin/cos` path runs), then every output region is compared:
 
-`asc` build → loaded through the same host ABI → produces identical RGW1 body/
-control data and an identical RGU1 HUD tree to the Rust guest (per-player
-`HITS`/collision-type/`GRIP`, correct colors).
+```
+OK  controls (17 bodies)     OK  events         OK  camera_y
+OK  impulse count            OK  score          OK  air p1/p2
+OK  impulses                 OK  hits           OK  RGU1 HUD block
+OK  event count
+10/10 regions identical — FULL PARITY
+```
+
+The AssemblyScript guest is a **byte-exact drop-in** for the Rust guest — same
+i32/f64 results, same impulses, same HUD. Re-run the check with:
+
+```bash
+node gallery/game_engine/wasm/as_autopeli/tools/parity.cjs \
+  gallery/game_engine/wasm/rust_autopeli/target/wasm32-unknown-unknown/release/rust_autopeli.wasm \
+  gallery/game_engine/games/autopeli_as/logic.wasm
+```
