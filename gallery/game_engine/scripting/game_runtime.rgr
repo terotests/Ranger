@@ -97,6 +97,8 @@ class GameRunner {
     def cannonRestitution:double 0.75
     def fixedStepMs:int 0
     def timeAccumulator:int 0
+    ; Max fixed-update steps per rendered frame (spiral-of-death guard).
+    def maxFixedSteps:int 3
     def worldHeight:int 0
     def physicsPassive:boolean false
     def physicsSharedWorld:boolean false
@@ -1291,6 +1293,13 @@ class GameRunner {
             timeAccumulator = (timeAccumulator + dtMs)
             def steps:int 0
             while (timeAccumulator >= fixedStepMs) {
+                if (steps >= maxFixedSteps) {
+                    ; Spiral-of-death guard: on a slow device (e.g. Pi) a heavy
+                    ; frame would otherwise run many fixed steps, multiplying the
+                    ; interpreter/physics cost per rendered frame and locking fps
+                    ; low. Drop the backlog so the sim runs slightly slow instead.
+                    timeAccumulator = 0
+                }
                 this.stepUpdate(fixedStepMs snap)
                 timeAccumulator = (timeAccumulator - fixedStepMs)
                 steps = (steps + 1)
