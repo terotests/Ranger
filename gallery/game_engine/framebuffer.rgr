@@ -54,6 +54,14 @@ class SoftCanvas {
         return px
     }
 
+    ; Copy px into dst.pixels (w*h*4 bytes). Use this instead of buffer_copy on
+    ; raw(): the C++ backend returns raw() by value, so buffer ops on raw() touch
+    ; temporaries and can crash (iterator pair from different vectors).
+    fn copyPixelsToImage:void (dst:ImageBuffer) {
+        def len:int (w * h * 4)
+        buffer_copy dst.pixels 0 px 0 len
+    }
+
     ; Fill `count` consecutive opaque RGBA pixels starting at byte offset `off`.
     ;
     ; Small spans are written directly byte-by-byte: at low optimization levels

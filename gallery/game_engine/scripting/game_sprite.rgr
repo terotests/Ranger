@@ -22,9 +22,11 @@
 ;   ghost  - domed sprite with scalloped hem and plus eyes (p0=dir, p1=0 full / 1 eyes-only)
 ;   bitmap - cached pixel-art with animated frame set (p0=frame)
 ;   sheet  - PNG spritesheet sub-rect blit (p0=frame col, p1=row, path/frameW/H)
+;            scale is baked once at load (loadSheetImage); draw is 1:1 blit per frame.
 ; ==============================================================================
 
 Import "../framebuffer.rgr"
+Import "../gfx_sdl.rgr"
 Import "./game_image_loader.rgr"
 Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
 
@@ -62,13 +64,94 @@ class GameEntity {
     def shFeetTrim:int 0
     def shJumpFrame:int 0
     def shImg:ImageBuffer (new ImageBuffer())
+    def shGpuTexId:int 0
 }
 
 class GameSpriteRenderer {
     def imageLoader:GameImageLoader (new GameImageLoader())
+    def gpuSheetOverlay:boolean false
+    def sheetCachePaths:[string]
+    def sheetCacheTpl:[GameEntity]
 
     fn setImageLoader:void (loader:GameImageLoader) {
         imageLoader = loader
+    }
+
+    fn setGpuSheetOverlay:void (enabled:boolean) {
+        gpuSheetOverlay = enabled
+    }
+
+    fn beginGpuSpriteFrame:void (pw:int ph:int gpuMode:boolean) {
+        if (gpuMode) {
+            if (gpuSheetOverlay) {
+                gfx_gpu_sprites_begin pw ph
+            }
+        }
+    }
+
+    fn clearSheetCache:void () {
+        clear sheetCachePaths
+        clear sheetCacheTpl
+    }
+
+    fn sheetCacheIndex:int (path:string) {
+        def i 0
+        while (i < (array_length sheetCachePaths)) {
+            if ((itemAt sheetCachePaths i) == path) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn copySheetFields:void (dst:GameEntity src:GameEntity) {
+        dst.shPath = src.shPath
+        dst.shFrameW = src.shFrameW
+        dst.shFrameH = src.shFrameH
+        dst.shCols = src.shCols
+        dst.shRows = src.shRows
+        dst.shScale = src.shScale
+        dst.shFeetTrim = src.shFeetTrim
+        dst.shJumpFrame = src.shJumpFrame
+        dst.shImg = src.shImg
+        dst.shGpuTexId = src.shGpuTexId
+    }
+
+    fn storeSheetCache:void (e:GameEntity) {
+        if ((strlen e.shPath) == 0) {
+            return
+        }
+        if ((this.sheetCacheIndex(e.shPath)) >= 0) {
+            return
+        }
+        def t:GameEntity (new GameEntity)
+        this.copySheetFields(t e)
+        push sheetCachePaths e.shPath
+        push sheetCacheTpl t
+    }
+
+    fn updateSheetCacheTex:void (path:string texId:int) {
+        def idx:int (this.sheetCacheIndex(path))
+        if (idx < 0) {
+            return
+        }
+        def t:GameEntity (itemAt sheetCacheTpl idx)
+        t.shGpuTexId = texId
+    }
+
+    fn applySheetCache:boolean (e:GameEntity path:string) {
+        def idx:int (this.sheetCacheIndex(path))
+        if (idx < 0) {
+            return false
+        }
+        def t:GameEntity (itemAt sheetCacheTpl idx)
+        this.copySheetFields(e t)
+        return true
+    }
+
+    fn hasSheetCache:boolean () {
+        return ((array_length sheetCachePaths) > 0)
     }
     fn half:int (n:int) {
         def result 0
@@ -169,6 +252,53 @@ class GameSpriteRenderer {
         }
     }
 
+    fn scaledDim:int (base:int scalePct:int) {
+        def v:int (to_int ((to_double (base * scalePct)) / 100.0))
+        if (v < 1) {
+            return 1
+        }
+        return v
+    }
+
+    ; Bake spritesheet scale once at load so per-frame draw is 1:1 alpha blit (no live resize).
+    fn bakeSheetScale:void (e:GameEntity) {
+        if (false == (this.sheetImageReady(e))) {
+            return
+        }
+        def scale:int e.shScale
+        if (scale == 100) {
+            return
+        }
+        def src:ImageBuffer e.shImg
+        def atlasW:int (this.scaledDim(src.width scale))
+        def atlasH:int (this.scaledDim(src.height scale))
+        def scratch:SoftCanvas (new SoftCanvas)
+        scratch.init(atlasW atlasH)
+        scratch.blitImageRectScaled(src 0 0 src.width src.height 0 0 atlasW atlasH)
+        def baked:ImageBuffer (new ImageBuffer)
+        baked.initClear(atlasW atlasH)
+        scratch.copyPixelsToImage(baked)
+        e.shImg = baked
+        e.shFrameW = (this.scaledDim(e.shFrameW scale))
+        e.shFrameH = (this.scaledDim(e.shFrameH scale))
+        e.shFeetTrim = (this.scaledDim(e.shFeetTrim scale))
+        e.shScale = 100
+    }
+
+    fn uploadSheetGpuTex:void (e:GameEntity) {
+        if (false == gpuSheetOverlay) {
+            return
+        }
+        if (false == (this.sheetImageReady(e))) {
+            return
+        }
+        def tex:int (gfx_gpu_upload_texture e.shImg.pixels e.shImg.width e.shImg.height)
+        if (tex > 0) {
+            e.shGpuTexId = tex
+            this.updateSheetCacheTex(e.shPath tex)
+        }
+    }
+
     fn loadSheetImage:void (e:GameEntity d:EvalValue) {
         def pathv:EvalValue (d.getMember("path"))
         e.shPath = pathv.stringValue
@@ -180,7 +310,12 @@ class GameSpriteRenderer {
         e.shFeetTrim = (this.memInt(d "feetTrim" 0))
         e.shJumpFrame = (this.memInt(d "jumpFrame" 0))
         if ((strlen e.shPath) > 0) {
+            if (this.applySheetCache(e e.shPath)) {
+                return
+            }
             e.shImg = (imageLoader.load(e.shPath))
+            this.bakeSheetScale(e)
+            this.storeSheetCache(e)
         }
     }
 
@@ -316,23 +451,50 @@ class GameSpriteRenderer {
         }
         def sx:int (col * e.shFrameW)
         def sy:int (row * e.shFrameH)
-        def dw:int (to_int ((to_double (e.shFrameW * e.shScale)) / 100.0))
-        def dh:int (to_int ((to_double (e.shFrameH * e.shScale)) / 100.0))
-        if (dw < 1) {
-            dw = 1
-        }
-        if (dh < 1) {
-            dh = 1
+        def dw:int e.shFrameW
+        def dh:int e.shFrameH
+        if (e.shScale != 100) {
+            dw = (this.scaledDim(e.shFrameW e.shScale))
+            dh = (this.scaledDim(e.shFrameH e.shScale))
         }
         ; Feet at (x,y). feetTrim shaves transparent LPC padding from the frame bottom.
-        def trim:int (to_int ((to_double (e.shFeetTrim * e.shScale)) / 100.0))
+        def trim:int e.shFeetTrim
+        if (e.shScale != 100) {
+            trim = (this.scaledDim(e.shFeetTrim e.shScale))
+        }
+        if (gpuSheetOverlay) {
+            if (e.shGpuTexId <= 0) {
+                this.uploadSheetGpuTex(e)
+            }
+            if (e.shGpuTexId > 0) {
+                def atlasW:int e.shImg.width
+                def atlasH:int e.shImg.height
+                if (e.angleDeg == 0.0) {
+                    def dx:int (e.x - (this.half(dw)))
+                    def dy:int ((e.y - dh) + trim)
+                    gfx_gpu_sprites_push e.shGpuTexId atlasW atlasH sx sy dw dh (to_double dx) (to_double dy) (to_double dw) (to_double dh) 0.0 0
+                } {
+                    def pivotY:int (e.y - (this.half(dh)) + trim)
+                    gfx_gpu_sprites_push e.shGpuTexId atlasW atlasH sx sy dw dh (to_double e.x) (to_double pivotY) (to_double dw) (to_double dh) e.angleDeg 1
+                }
+                return
+            }
+        }
         def pivotY:int (e.y - (this.half(dh)) + trim)
         if (e.angleDeg == 0.0) {
             def dx:int (e.x - (this.half(dw)))
             def dy:int ((e.y - dh) + trim)
-            canvas.blitImageRectScaled(e.shImg sx sy e.shFrameW e.shFrameH dx dy dw dh)
+            if (e.shScale == 100) {
+                canvas.blitImageRect(e.shImg sx sy dw dh dx dy)
+            } {
+                canvas.blitImageRectScaled(e.shImg sx sy e.shFrameW e.shFrameH dx dy dw dh)
+            }
         } {
-            canvas.blitImageRectScaledRotated(e.shImg sx sy e.shFrameW e.shFrameH e.x pivotY dw dh e.angleDeg)
+            if (e.shScale == 100) {
+                canvas.blitImageRectScaledRotated(e.shImg sx sy dw dh e.x pivotY dw dh e.angleDeg)
+            } {
+                canvas.blitImageRectScaledRotated(e.shImg sx sy e.shFrameW e.shFrameH e.x pivotY dw dh e.angleDeg)
+            }
         }
     }
 

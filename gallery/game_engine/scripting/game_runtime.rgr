@@ -45,6 +45,8 @@ class GameRuntimeOptions {
     def gpuMode:boolean false
     ; When true and gpuMode is on, particles are GL-overlaid at present (not SoftCanvas).
     def particlesGpuOverlay:boolean true
+    ; When true and gpuMode is on, sheet sprites are GL-overlaid at present (not SoftCanvas).
+    def spritesGpuOverlay:boolean true
 }
 
 class GameRunner {
@@ -218,6 +220,17 @@ class GameRunner {
 
     fn setGpuMode:void (enabled:boolean) {
         options.gpuMode = enabled
+        spriteRenderer.setGpuSheetOverlay(false)
+    }
+
+    fn enableGpuSheetOverlay:void () {
+        if (options.gpuMode) {
+            if (options.spritesGpuOverlay) {
+                if (spriteRenderer.hasSheetCache()) {
+                    spriteRenderer.setGpuSheetOverlay(true)
+                }
+            }
+        }
     }
 
   ; Track a .tsx/.game.tsx on disk for mtime polling (used by SDL host and dev watch).
@@ -287,6 +300,7 @@ class GameRunner {
         physicsSharedWorld = false
         this.clearBackground()
         this.clearStaticBg()
+        spriteRenderer.clearSheetCache()
     }
 
     fn clearStaticBg:void () {
@@ -419,8 +433,10 @@ class GameRunner {
         def sceneReset:boolean (engine.patchScript(src))
         hudEnabled = (this.scriptHasFunction("hud"))
         if (sceneReset) {
+            spriteRenderer.setGpuSheetOverlay(false)
             this.resetScene()
             this.setupScene()
+            this.enableGpuSheetOverlay()
         }
         return sceneReset
     }
@@ -1273,6 +1289,7 @@ class GameRunner {
         if (profileEnabled) {
             tBg0 = (gfx_ticks_ms)
         }
+        spriteRenderer.beginGpuSpriteFrame(pw ph options.gpuMode)
         this.drawBackground()
         def tBg1:int 0
         if (profileEnabled) {
