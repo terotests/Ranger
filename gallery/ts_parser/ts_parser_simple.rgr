@@ -165,8 +165,13 @@ class TSParserSimple {
     return (v == value)
   }
 
-  ; Object literal keys may use reserved/type words: { any: 1, string: "x" }.
-  fn isObjectPropertyKeyToken:boolean () {
+  ; A token that can stand in for a name. In JS/TS reserved words (static,
+  ; class, default, get, set, new, delete, catch, finally, ...) and TS keywords
+  ; (type, interface, ...) are valid as object-literal property keys and as
+  ; member-access property names, e.g. `{ static: 1 }`, `map.delete()`,
+  ; `promise.finally()`. Treating them as names here keeps such code parsing and
+  ; stops key/name loops from stalling on a token they cannot otherwise consume.
+  fn isNameToken:boolean () {
     def t (this.peekType())
     if (t == "Identifier") {
       return true
@@ -174,6 +179,21 @@ class TSParserSimple {
     if (t == "TSType") {
       return true
     }
+    if (t == "Keyword") {
+      return true
+    }
+    if (t == "TSKeyword") {
+      return true
+    }
+    return false
+  }
+
+  ; Object literal keys may use reserved/type words: { any: 1, string: "x" }.
+  fn isObjectPropertyKeyToken:boolean () {
+    if (this.isNameToken()) {
+      return true
+    }
+    def t (this.peekType())
     if (t == "String") {
       return true
     }
@@ -186,17 +206,37 @@ class TSParserSimple {
     if (t == "Null") {
       return true
     }
-    ; Reserved words (static, class, default, get, set, new, this, ...) and TS
-    ; keywords (type, interface, ...) are all valid object-literal property keys
-    ; in JS/TS, e.g. `{ static: true, type: "x" }`. Accepting them here prevents
-    ; the parseObjectLiteral loop from stalling on a key it cannot consume.
-    if (t == "Keyword") {
-      return true
-    }
-    if (t == "TSKeyword") {
-      return true
-    }
     return false
+  }
+
+  ; Consume a member/property name after '.' or '?.'. Reserved words are legal
+  ; here (obj.default, map.delete, promise.catch/finally), so accept any name
+  ; token without an error; fall back to expect() for genuinely invalid syntax
+  ; (which still advances, so callers keep making progress).
+  fn parseMemberName:Token () {
+    if (this.isNameToken()) {
+      def tok (this.peek())
+      this.advance()
+      return tok
+    }
+    return (this.expect("Identifier"))
+  }
+
+  ; Panic-mode recovery for terminator-bounded loops. If an iteration consumed
+  ; no tokens (this.pos unchanged), the current token is one the loop body does
+  ; not know how to handle. Skip it so parsing always terminates instead of
+  ; spinning forever and exhausting memory on unexpected/invalid syntax.
+  fn guardNoProgress:void (prevPos:int) {
+    if (this.pos != prevPos) {
+      return
+    }
+    if (this.quiet == false) {
+      def tok (this.peek())
+      print ("Parser recovery: skipping unexpected token '" + tok.value + "' (type " + tok.tokenType + ")")
+    }
+    if ((this.isAtEnd()) == false) {
+      this.advance()
+    }
   }
   
   ; === Parse Program ===
@@ -207,14 +247,9 @@ class TSParserSimple {
     
     while ((this.isAtEnd()) == false) {
       def beforePos:int this.pos
-      def beforeVal:string (this.peekValue())
-      def beforeType:string (this.peekType())
       def stmt (this.parseStatement())
       push prog.children stmt
-      if (this.pos == beforePos) {
-        print ("[debug] TSParserSimple.parseProgram made no progress at token '" + beforeVal + "' type=" + beforeType)
-        this.advance()
-      }
+      this.guardNoProgress(beforePos)
     }
     
     return prog
@@ -1381,8 +1416,10 @@ class TSParserSimple {
     body.nodeType = "TSModuleBlock"
     
     while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+      def beforePos:int this.pos
       def stmt (this.parseStatement())
       push body.children stmt
+      this.guardNoProgress(beforePos)
     }
     
     this.expectValue("}")
@@ -1425,8 +1462,10 @@ class TSParserSimple {
       body.nodeType = "TSModuleBlock"
       
       while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+        def beforePos:int this.pos
         def stmt (this.parseStatement())
         push body.children stmt
+        this.guardNoProgress(beforePos)
       }
       
       this.expectValue("}")
@@ -1707,6 +1746,7 @@ class TSParserSimple {
       
       ; Parse consequent statements
       while (((this.matchValue("case")) == false) && ((this.matchValue("default")) == false) && ((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+        def beforePos:int this.pos
         if (this.matchValue("break")) {
           def breakNode (new TSNode())
           breakNode.nodeType = "BreakStatement"
@@ -1719,6 +1759,7 @@ class TSParserSimple {
           def stmt (this.parseStatement())
           push caseNode.children stmt
         }
+        this.guardNoProgress(beforePos)
       }
       
       push node.children caseNode
@@ -2128,8 +2169,10 @@ class TSParserSimple {
     this.expectValue("{")
     
     while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+      def beforePos:int this.pos
       def stmt (this.parseStatement())
       push block.children stmt
+      this.guardNoProgress(beforePos)
     }
     
     this.expectValue("}")
@@ -3862,7 +3905,7 @@ class TSParserSimple {
       ; Member access .property
       if (tokVal == ".") {
         this.advance()
-        def propTok (this.expect("Identifier"))
+        def propTok (this.parseMemberName())
         def member (new TSNode())
         member.nodeType = "MemberExpression"
         member.left = expr
@@ -3917,8 +3960,8 @@ class TSParserSimple {
         }
         
         ; Optional member access ?.property
-        if (this.matchType("Identifier")) {
-          def propTok (this.expect("Identifier"))
+        if (this.isNameToken()) {
+          def propTok (this.parseMemberName())
           def optMember (new TSNode())
           optMember.nodeType = "OptionalMemberExpression"
           optMember.optional = true
