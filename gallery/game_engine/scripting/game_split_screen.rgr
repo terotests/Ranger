@@ -166,7 +166,16 @@ class SplitScreenHost {
             def steps:int 0
             while (left.timeAccumulator >= left.fixedStepMs) {
                 def step:int left.fixedStepMs
+                def tRight0:int 0
+                if (profileEnabled) {
+                    tRight0 = (gfx_ticks_ms)
+                }
                 right.stepUpdateScript(step rightSnap)
+                if (profileEnabled) {
+                    def tRight1:int (gfx_ticks_ms)
+                    right.profUpdateScriptMs = (right.profUpdateScriptMs + (tRight1 - tRight0))
+                    right.profFrames = (right.profFrames + 1)
+                }
                 left.sharedPhysicsStep(step leftSnap right)
                 right.syncSharedWorldFrom(left)
                 left.timeAccumulator = (left.timeAccumulator - step)
@@ -179,7 +188,16 @@ class SplitScreenHost {
             }
             return
         }
+        def tRight0:int 0
+        if (profileEnabled) {
+            tRight0 = (gfx_ticks_ms)
+        }
         right.stepUpdateScript(dtMs rightSnap)
+        if (profileEnabled) {
+            def tRight1:int (gfx_ticks_ms)
+            right.profUpdateScriptMs = (right.profUpdateScriptMs + (tRight1 - tRight0))
+            right.profFrames = (right.profFrames + 1)
+        }
         left.sharedPhysicsStep(dtMs leftSnap right)
         right.syncSharedWorldFrom(left)
     }
