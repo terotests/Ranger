@@ -1030,7 +1030,98 @@ static void rgfx_gpu_sprites_push(int texId, int atlasW, int atlasH,
     g_rgfx_sprite_queues[g_rgfx_active_sprite_queue].items.push_back(s);
 }
 
-static void rgfx_gpu_sprites_draw_queue(int queueIndex, int viewportX, int viewportW, int viewportH) {
+// Append one sprite quad (6 verts of nx,ny,u,v) to a batch buffer. Vertex
+// order and UV assignment match rgfx_gpu_draw_textured_quad_corners exactly, so
+// the batched path is pixel-identical to the per-sprite path.
+static void rgfx_gpu_sprites_append_quad(std::vector<float>& verts, const RgfxGpuSprite& s, int fbW, int fbH) {
+    float u0 = (float) s.sx / (float) s.atlasW;
+    float v0 = (float) s.sy / (float) s.atlasH;
+    float u1 = (float) (s.sx + s.sw) / (float) s.atlasW;
+    float v1 = (float) (s.sy + s.sh) / (float) s.atlasH;
+    float x[4], y[4];
+    if (s.usePivot == 0) {
+        x[0] = s.px;        y[0] = s.py;
+        x[1] = s.px + s.dw; y[1] = s.py;
+        x[2] = s.px + s.dw; y[2] = s.py + s.dh;
+        x[3] = s.px;        y[3] = s.py + s.dh;
+    } else {
+        float rad = s.angleDeg * 3.14159265f / 180.f;
+        float ca = cosf(rad), sa = sinf(rad);
+        float hw = s.dw * 0.5f, hh = s.dh * 0.5f;
+        float lx[4] = {-hw, hw, hw, -hw};
+        float ly[4] = {-hh, -hh, hh, hh};
+        for (int i = 0; i < 4; ++i) {
+            x[i] = s.px + (lx[i] * ca - ly[i] * sa);
+            y[i] = s.py + (lx[i] * sa + ly[i] * ca);
+        }
+    }
+    float nx[4], ny[4];
+    for (int i = 0; i < 4; ++i) { rgfx_px_to_ndc(x[i], y[i], fbW, fbH, &nx[i], &ny[i]); }
+    float uvx[4] = { u0, u1, u1, u0 };
+    float uvy[4] = { v0, v0, v1, v1 };
+    static const int tri[6] = { 0, 1, 2, 0, 2, 3 };
+    for (int t = 0; t < 6; ++t) {
+        int c = tri[t];
+        verts.push_back(nx[c]);
+        verts.push_back(ny[c]);
+        verts.push_back(uvx[c]);
+        verts.push_back(uvy[c]);
+    }
+}
+
+// Draw one accumulated run (all quads share a single texture) in one draw call.
+static void rgfx_gpu_sprites_flush_run(GLuint tex, std::vector<float>& verts) {
+    if (verts.empty()) { return; }
+    glUseProgram(g_rgfx_gl_program);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glUniform1i(g_rgfx_gl_tex_uniform, 0);
+    glBindBuffer(GL_ARRAY_BUFFER, g_rgfx_gl_vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr) (verts.size() * sizeof(float)), verts.data(), GL_DYNAMIC_DRAW);
+    const GLsizei stride = 4 * (GLsizei) sizeof(float);
+    glEnableVertexAttribArray((GLuint) g_rgfx_gl_pos_attr);
+    glVertexAttribPointer((GLuint) g_rgfx_gl_pos_attr, 2, GL_FLOAT, GL_FALSE, stride, (void*) 0);
+    glEnableVertexAttribArray((GLuint) g_rgfx_gl_uv_attr);
+    glVertexAttribPointer((GLuint) g_rgfx_gl_uv_attr, 2, GL_FLOAT, GL_FALSE, stride, (void*) (2 * sizeof(float)));
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDrawArrays(GL_TRIANGLES, 0, (GLsizei) (verts.size() / 4));
+    verts.clear();
+}
+
+// Batched sprite draw: coalesce contiguous same-texture sprites into one draw
+// call each. Queue order is preserved (a run only flushes when the texture
+// changes), so alpha blending is identical to the per-sprite path — but an
+// atlas-based scene of N sprites collapses from N draw calls to ~one per sheet.
+static void rgfx_gpu_sprites_draw_queue_batched(int queueIndex, int viewportX, int viewportW, int viewportH) {
+    RgfxGpuSpriteQueue& q = g_rgfx_sprite_queues[queueIndex];
+    if (q.items.empty() || q.fbW <= 0 || q.fbH <= 0 || viewportW <= 0 || viewportH <= 0) { return; }
+    if (!g_rgfx_gpu_mode) { return; }
+    rgfx_gl_ensure_current();
+    if (!rgfx_gl_init()) { return; }
+    glViewport(viewportX, 0, viewportW, viewportH);
+    std::vector<float> verts;
+    verts.reserve(q.items.size() * 6u * 4u);
+    int runTex = -1;
+    GLuint runGlTex = 0;
+    for (const RgfxGpuSprite& s : q.items) {
+        if (s.texId <= 0 || s.texId > (int) g_rgfx_gl_textures.size()) { continue; }
+        GLuint tex = g_rgfx_gl_textures[(size_t) (s.texId - 1)];
+        if (s.texId != runTex && !verts.empty()) {
+            rgfx_gpu_sprites_flush_run(runGlTex, verts);
+        }
+        runTex = s.texId;
+        runGlTex = tex;
+        rgfx_gpu_sprites_append_quad(verts, s, q.fbW, q.fbH);
+    }
+    rgfx_gpu_sprites_flush_run(runGlTex, verts);
+    q.items.clear();
+}
+
+// Original one-draw-call-per-sprite path, kept as an env-selectable fallback
+// (RANGER_GFX_SPRITE_BATCH=0) so a GPU regression on real hardware can be
+// bisected without a rebuild.
+static void rgfx_gpu_sprites_draw_queue_perquad(int queueIndex, int viewportX, int viewportW, int viewportH) {
     RgfxGpuSpriteQueue& q = g_rgfx_sprite_queues[queueIndex];
     if (q.items.empty() || q.fbW <= 0 || q.fbH <= 0 || viewportW <= 0 || viewportH <= 0) { return; }
     if (!g_rgfx_gpu_mode) { return; }
@@ -1067,6 +1158,24 @@ static void rgfx_gpu_sprites_draw_queue(int queueIndex, int viewportX, int viewp
         }
     }
     q.items.clear();
+}
+
+static bool rgfx_sprite_batch_on() {
+    static int cached = -1;
+    if (cached < 0) {
+        const char* e = getenv(\"RANGER_GFX_SPRITE_BATCH\");
+        cached = (e != nullptr && e[0] == '0') ? 0 : 1;
+    }
+    return cached == 1;
+}
+
+// Dispatcher: batched by default, per-sprite when RANGER_GFX_SPRITE_BATCH=0.
+static void rgfx_gpu_sprites_draw_queue(int queueIndex, int viewportX, int viewportW, int viewportH) {
+    if (rgfx_sprite_batch_on()) {
+        rgfx_gpu_sprites_draw_queue_batched(queueIndex, viewportX, viewportW, viewportH);
+    } else {
+        rgfx_gpu_sprites_draw_queue_perquad(queueIndex, viewportX, viewportW, viewportH);
+    }
 }
 
 static void rgfx_gpu_sprites_draw_overlay() {
