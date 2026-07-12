@@ -141,6 +141,10 @@ class GameSpriteRenderer {
         this.copySheetFields(e t)
         return true
     }
+
+    fn hasSheetCache:boolean () {
+        return ((array_length sheetCachePaths) > 0)
+    }
     fn half:int (n:int) {
         def result 0
         def rem n

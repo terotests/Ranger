@@ -581,6 +581,12 @@ struct RgfxGpuSprite {
 static std::vector<RgfxGpuSprite> g_rgfx_sprites;
 static int g_rgfx_spr_fb_w = 0;
 static int g_rgfx_spr_fb_h = 0;
+#if defined(__arm__) || defined(__aarch64__)
+// GLES2 sprite overlay disabled on ARM until verified; CPU sheet blit only.
+static int g_rgfx_gpu_sprites_arm_safe = 0;
+#else
+static int g_rgfx_gpu_sprites_arm_safe = 1;
+#endif
 static GLuint g_rgfx_part_program = 0;
 static GLint g_rgfx_part_corner_attr = 0;
 static GLint g_rgfx_part_center_attr = 0;
@@ -660,7 +666,7 @@ static GLuint rgfx_gl_make_tex(const uint8_t* pixels, int w, int h) {
 }
 
 static int rgfx_gpu_upload_texture(const uint8_t* pixels, int w, int h) {
-    if (!g_rgfx_gpu_mode || pixels == nullptr || w <= 0 || h <= 0) { return 0; }
+    if (!g_rgfx_gpu_mode || !g_rgfx_gpu_sprites_arm_safe || pixels == nullptr || w <= 0 || h <= 0) { return 0; }
     rgfx_gl_ensure_current();
     GLuint tex = rgfx_gl_make_tex(pixels, w, h);
     g_rgfx_gl_textures.push_back(tex);
@@ -775,6 +781,7 @@ static void rgfx_particles_draw_overlay() {
 }
 
 static void rgfx_gpu_sprites_begin(int w, int h) {
+    if (!g_rgfx_gpu_sprites_arm_safe) { return; }
     g_rgfx_sprites.clear();
     g_rgfx_spr_fb_w = w;
     g_rgfx_spr_fb_h = h;
@@ -838,6 +845,7 @@ static void rgfx_gpu_sprites_push(int texId, int atlasW, int atlasH,
 }
 
 static void rgfx_gpu_sprites_draw_overlay() {
+    if (!g_rgfx_gpu_sprites_arm_safe) { return; }
     if (g_rgfx_sprites.empty() || g_rgfx_spr_fb_w <= 0 || g_rgfx_spr_fb_h <= 0) { return; }
     if (!g_rgfx_gpu_mode) { return; }
     rgfx_gl_ensure_current();

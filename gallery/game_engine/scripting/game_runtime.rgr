@@ -227,7 +227,9 @@ class GameRunner {
     fn enableGpuSheetOverlay:void () {
         if (options.gpuMode) {
             if (options.spritesGpuOverlay) {
-                spriteRenderer.setGpuSheetOverlay(true)
+                if (spriteRenderer.hasSheetCache()) {
+                    spriteRenderer.setGpuSheetOverlay(true)
+                }
             }
         }
     }
@@ -1289,7 +1291,7 @@ class GameRunner {
             tBg0 = (gfx_ticks_ms)
         }
         if (options.gpuMode) {
-            if (options.spritesGpuOverlay) {
+            if (spriteRenderer.gpuSheetOverlay) {
                 gfx_gpu_sprites_begin pw ph
             }
         }
