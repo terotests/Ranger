@@ -13,6 +13,9 @@ class NativeGameBridge {
     fn frame:void (dtMs:int up:boolean down:boolean left:boolean right:boolean action:boolean) {
     }
 
+    fn frameWithMasks:void (dtMs:int mask0:int mask1:int) {
+    }
+
     fn draw:void () {
         runner.draw()
     }

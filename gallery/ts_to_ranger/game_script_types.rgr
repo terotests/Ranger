@@ -38,6 +38,15 @@ class SpriteDefNative {
     def eg:int -1
     def eb:int -1
     def frames:[[string]]
+    ; sheet sprites (LPC walk / enemy sheets)
+    def path:string ""
+    def frameW:int 64
+    def frameH:int 64
+    def cols:int 9
+    def rows:int 4
+    def scale:int 50
+    def feetTrim:int 0
+    def jumpFrame:int 0
 }
 
 class NativeGameState {
@@ -50,6 +59,9 @@ class NativeGameState {
     def vy:double 0.0
     def hasVx:boolean false
     def hasVy:boolean false
+    ; Frame delta (ms) forwarded from UpdatePropsNative for host music tick.
+    def dt:double 0.0
+    def hasDt:boolean false
     def entities:[string:EntityPoseNative]
     ; Arbitrary numeric fields (TS `number`) not covered by the fixed schema:
     ; e.g. invaders px/py/waveX/waveTick/anim. Stored as double, keyed by name.
@@ -62,6 +74,21 @@ class NativeGameState {
     def events:[GameEventNative]
 }
 
+class PlayerInputNative {
+    def up:boolean false
+    def down:boolean false
+    def left:boolean false
+    def right:boolean false
+    def action:boolean false
+    def shoot:boolean false
+    def b:boolean false
+    def x:boolean false
+}
+
+class GameInputNative {
+    def players:[PlayerInputNative]
+}
+
 class UpdatePropsNative {
     def time:int 0
     def dt:double 16.0
@@ -70,6 +97,7 @@ class UpdatePropsNative {
     def left:boolean false
     def right:boolean false
     def action:boolean false
+    def input:GameInputNative (new GameInputNative)
     def state:NativeGameState (new NativeGameState)
 }
 
@@ -105,6 +133,8 @@ class NativeGameStateOps {
         out.vy = src.vy
         out.hasVx = src.hasVx
         out.hasVy = src.hasVy
+        out.dt = src.dt
+        out.hasDt = src.hasDt
         def keyList:[string] (keys src.entities)
         def i 0
         while (i < (array_length keyList)) {
@@ -155,6 +185,10 @@ class NativeGameStateOps {
         if (patch.hasVy) {
             out.vy = patch.vy
             out.hasVy = true
+        }
+        if (patch.hasDt) {
+            out.dt = patch.dt
+            out.hasDt = true
         }
         def keyList:[string] (keys patch.entities)
         def j 0
