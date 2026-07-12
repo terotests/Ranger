@@ -124,6 +124,7 @@
     "engine:wasm:build:rust-pong": "bash gallery/game_engine/wasm/rust_pong/build.sh",
     "engine:wasm:demo:pong": "bash gallery/game_engine/scripts/build-wasm-pong-demo.sh",
     "engine:wasm:build:rust-autopeli": "bash gallery/game_engine/wasm/rust_autopeli/build.sh",
+    "engine:wasm:assets:autopeli": "bash gallery/game_engine/scripts/sync-autopeli-wasm-assets.sh",
     "engine:wasm:demo:autopeli": "bash gallery/game_engine/scripts/build-wasm-autopeli-demo.sh",
     "engine:game-sdl:run:rust-pong": "bash gallery/game_engine/scripts/build-game-sdl.sh --run gallery/game_engine/games/rust_pong/logic.wasm",
     "engine:game-sdl:smoke:rust-pong": "bash gallery/game_engine/scripts/build-game-sdl.sh --run gallery/game_engine/games/rust_pong/logic.wasm 180",

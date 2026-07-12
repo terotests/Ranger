@@ -1057,7 +1057,7 @@ class GameSdlRunner {
             def msg:string ("game-sdl done: frames=" + be.frames)
             if (be.useWasmRunner) {
                 if (be.useWasmPhysics) {
-                    msg = (msg + " | entities=" + (array_length be.wasmPhysicsRunner.entities))
+                    msg = (msg + " | entities=" + (array_length be.wasmPhysicsRunner.drawEntities))
                     msg = (msg + " | hits=" + (to_string be.wasmPhysicsRunner.hits))
                 } {
                     msg = (msg + " | entities=" + (array_length be.wasmRunner.entities))

@@ -22,5 +22,6 @@ echo "==> cargo build --release (wasm32-unknown-unknown)"
 cargo build --release --target wasm32-unknown-unknown
 
 mkdir -p "$(dirname "$OUT")"
+bash "$ROOT/gallery/game_engine/scripts/sync-autopeli-wasm-assets.sh"
 cp "$CRATE/target/wasm32-unknown-unknown/release/rust_autopeli.wasm" "$OUT"
 echo "==> wrote $OUT ($(wc -c < "$OUT") bytes)"

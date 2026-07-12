@@ -8,34 +8,28 @@ Import "./wasm_abi_io.rgr"
 Import "./game_physics.rgr"
 Import "./game_audio.rgr"
 Import "./wasm_autopeli_setup.rgr"
+Import "./wasm_autopeli_render.rgr"
 Import "../../ts_to_ranger/game_host.rgr"
-
-class WasmDrawEntity {
-    def id:string ""
-    def x:int 0
-    def y:int 0
-    def w:int 14
-    def h:int 20
-    def cr:int 200
-    def cg:int 200
-    def cb:int 200
-}
 
 class WasmPhysicsRunner {
     def handle:int 0
     def linearMode:boolean false
     def abi:WasmAbiMem (new WasmAbiMem)
     def setup:WasmAutopeliSetup (new WasmAutopeliSetup)
+    def render:WasmAutopeliRender (new WasmAutopeliRender)
     def physics:GamePhysics (new GamePhysics)
     def bodyIds:[string]
+    def drawEntities:[WasmVisualEntity]
     def canvas:SoftCanvas (new SoftCanvas)
     def host:GameHost (new GameHost)
     def audio:GameAudio (new GameAudio)
-    def entities:[WasmDrawEntity]
+    def assetsDir:string "gallery/game_engine/games/autopeli_wasm"
     def pw:int 480
     def ph:int 270
     def worldH:int 6000
     def cameraY:int 0
+    def cameraSmoothY:double 0.0
+    def camViewY:int 0
     def fixedStepMs:int 16
     def timeMs:int 0
     def fpsShown:int 0
@@ -135,6 +129,71 @@ class WasmPhysicsRunner {
         }
     }
 
+    fn spriteFor:string (id:string) {
+        if (id == "p1") {
+            return "p1"
+        }
+        if (id == "p2") {
+            return "p2"
+        }
+        if ((indexOf id "t") == 0) {
+            return "trafficCar"
+        }
+        if ((indexOf id "c") == 0) {
+            return "cone"
+        }
+        if ((indexOf id "b") == 0) {
+            return "bar"
+        }
+        if ((indexOf id "oil") == 0) {
+            return "oil"
+        }
+        return "rect"
+    }
+
+    fn findDrawEntity:WasmVisualEntity (id:string) {
+        def fail:WasmVisualEntity (new WasmVisualEntity)
+        def i 0
+        while (i < (array_length drawEntities)) {
+            def e:WasmVisualEntity (itemAt drawEntities i)
+            if (e.id == id) {
+                return e
+            }
+            i = (i + 1)
+        }
+        return fail
+    }
+
+    fn initAssets:void () {
+        render.initAssets(assetsDir pw worldH)
+        render.initSprites()
+        render.buildStaticBg(setup)
+    }
+
+    fn buildDrawEntities:void () {
+        def next:[WasmVisualEntity]
+        def i 0
+        while (i < (array_length physics.core.bodies)) {
+            def b:PhysBody (itemAt physics.core.bodies i)
+            if ((strlen b.id) > 0) {
+                def sp:string (this.spriteFor(b.id))
+                def ge:WasmVisualEntity (render.spawnVisual(b.id sp (to_int b.x) (to_int b.y)))
+                push next ge
+            }
+            i = (i + 1)
+        }
+        def oi 0
+        while (oi < (array_length setup.oilIds)) {
+            def oid:string (itemAt setup.oilIds oi)
+            def ox:int (itemAt setup.oilXs oi)
+            def oy:int (itemAt setup.oilYs oi)
+            def oilE:WasmVisualEntity (render.spawnVisual(oid "oil" ox oy))
+            push next oilE
+            oi = (oi + 1)
+        }
+        drawEntities = next
+    }
+
     fn setupScene:void () {
         if (handle == 0) {
             return
@@ -146,55 +205,55 @@ class WasmPhysicsRunner {
             linearMode = true
         }
         setup.setupPhysics(physics bodyIds)
+        this.initAssets()
         this.buildDrawEntities()
+        cameraSmoothY = 5860.0
+        camViewY = 5640
         this.syncBodiesToAbi()
     }
 
-    fn buildDrawEntities:void () {
-        def next:[WasmDrawEntity]
-        def i 0
-        while (i < (array_length bodyIds)) {
-            def e:WasmDrawEntity (new WasmDrawEntity)
-            e.id = (itemAt bodyIds i)
-            if (e.id == "p1") {
-                e.cr = 120
-                e.cg = 220
-                e.cb = 160
-            }
-            if (e.id == "p2") {
-                e.cr = 220
-                e.cg = 140
-                e.cb = 120
-            }
-            if ((indexOf e.id "t") == 0) {
-                e.cr = 180
-                e.cg = 180
-                e.cb = 200
-                e.w = 11
-                e.h = 16
-            }
-            push next e
-            i = (i + 1)
-        }
-        entities = next
-    }
-
     fn syncDrawFromPhysics:void () {
-        def i 0
-        while (i < (array_length bodyIds)) {
-            def id:string (itemAt bodyIds i)
-            def b:PhysBody (this.findBody(id))
-            def e:WasmDrawEntity (itemAt entities i)
-            e.x = (to_int b.x)
-            e.y = (to_int b.y)
-            i = (i + 1)
+        def target:double 5860.0
+        def p1:PhysBody (this.findBody("p1"))
+        if ((strlen p1.id) > 0) {
+            target = (p1.y - 90.0)
         }
         cameraY = abi.getCameraY()
-        if (cameraY == 0) {
-            def p1:PhysBody (this.findBody("p1"))
-            if ((strlen p1.id) > 0) {
-                cameraY = ((to_int (p1.y * 256.0)) - (120 * 256))
+        if (cameraY != 0) {
+            target = ((to_double cameraY) / 256.0)
+        }
+        def blend:double 0.12
+        cameraSmoothY = (cameraSmoothY + ((target - cameraSmoothY) * blend))
+        camViewY = (to_int cameraSmoothY)
+        if (camViewY < 0) {
+            camViewY = 0
+        }
+        def maxCam:int (worldH - ph)
+        if (maxCam < 0) {
+            maxCam = 0
+        }
+        if (camViewY > maxCam) {
+            camViewY = maxCam
+        }
+        def i 0
+        while (i < (array_length physics.core.bodies)) {
+            def b:PhysBody (itemAt physics.core.bodies i)
+            def e:WasmVisualEntity (this.findDrawEntity(b.id))
+            if ((strlen e.id) > 0) {
+                render.syncEntityPose(e (to_int b.x) (to_int b.y) b.angle camViewY pw ph)
             }
+            i = (i + 1)
+        }
+        def oi 0
+        while (oi < (array_length setup.oilIds)) {
+            def oid:string (itemAt setup.oilIds oi)
+            def e:WasmVisualEntity (this.findDrawEntity(oid))
+            if ((strlen e.id) > 0) {
+                def ox:int (itemAt setup.oilXs oi)
+                def oy:int (itemAt setup.oilYs oi)
+                render.syncEntityPose(e ox oy 0.0 camViewY pw ph)
+            }
+            oi = (oi + 1)
         }
         score = abi.getScore()
         hits = abi.getHits()
@@ -242,11 +301,15 @@ class WasmPhysicsRunner {
     }
 
     fn entityY:int (id:string) {
+        def b:PhysBody (this.findBody(id))
+        if ((strlen b.id) > 0) {
+            return (to_int b.y)
+        }
         def i 0
-        while (i < (array_length entities)) {
-            def e:WasmDrawEntity (itemAt entities i)
+        while (i < (array_length drawEntities)) {
+            def e:WasmVisualEntity (itemAt drawEntities i)
             if (e.id == id) {
-                return e.y
+                return (e.y + camViewY)
             }
             i = (i + 1)
         }
@@ -254,30 +317,25 @@ class WasmPhysicsRunner {
     }
 
     fn draw:void () {
-        canvas.clear(20 30 45)
-        def cam:int (idiv cameraY 256)
-        def viewTop:int (cam - (idiv ph 2))
-        def i 0
-        while (i < (array_length entities)) {
-            def e:WasmDrawEntity (itemAt entities i)
-            def sy:int (e.y - viewTop)
-            if (sy >= -40) {
-                if (sy <= (ph + 40)) {
-                    def rx:int (e.x - (idiv e.w 2))
-                    def ry:int (sy - (idiv e.h 2))
-                    canvas.fillRect(rx ry e.w e.h e.cr e.cg e.cb)
-                }
-            }
-            i = (i + 1)
-        }
+        render.drawBackground(canvas camViewY ph)
+        render.drawEntities(drawEntities canvas)
         this.drawHud()
     }
 
     fn drawHud:void () {
-        def line:string ("hits=" + hits)
         def x:int 8
         def y:int 8
-        canvas.fillRect(x y 80 10 40 60 90)
+        canvas.fillRect(x y 120 14 20 30 45)
+        def p1:PhysBody (this.findBody("p1"))
+        if ((strlen p1.id) > 0) {
+            def spd:int (to_int p1.speed)
+            def prog:int (idiv ((6000 - (to_int p1.y)) * 100) 6000)
+            def spdBar:int (idiv spd 4)
+            def progBar:int (idiv prog 2)
+            canvas.fillRect((x + 2) (y + 2) spdBar 4 120 220 160)
+            canvas.fillRect((x + 2) (y + 8) progBar 4 240 220 80)
+        }
+        canvas.fillRect((x + 90) y 24 14 40 60 90)
     }
 
     fn drawLoadingScreen:void (label:string ticks:int) {

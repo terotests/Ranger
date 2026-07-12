@@ -8,6 +8,9 @@ Import "./physics_core.rgr"
 class WasmAutopeliSetup {
     def roadCx:int 240
     def roadHalf:int 126
+    def oilIds:[string]
+    def oilXs:[int]
+    def oilYs:[int]
     def segAy:int 6000
     def segAx:int 240
     def segAh:int 126
@@ -304,6 +307,156 @@ class WasmAutopeliSetup {
         }
     }
 
+    fn laneX:int (y:int laneMilli:int margin:int) {
+        this.roadAt(y)
+        def usable:int (roadHalf - margin)
+        return (roadCx + (idiv (usable * laneMilli) 1000))
+    }
+
+    fn addCone:void (core:PhysicsCore id:string y:int laneMilli:int) {
+        def b:PhysBody (new PhysBody)
+        b.id = id
+        b.x = (to_double (this.laneX(y laneMilli 16)))
+        b.y = (to_double y)
+        b.hw = 9.0
+        b.hh = 9.0
+        b.mass = 3.0
+        b.invMass = (1.0 / 3.0)
+        b.inertia = 12.0
+        b.invInertia = (1.0 / 12.0)
+        b.maxSpeed = 620.0
+        b.drag = 0.93
+        b.restitution = 0.48
+        b.spinOnWall = 28.0
+        b.angularDamping = 0.92
+        b.angularStop = 1.5
+        push core.bodies b
+    }
+
+    fn addBar:void (core:PhysicsCore id:string y:int laneMilli:int bw:int bh:int) {
+        def b:PhysBody (new PhysBody)
+        b.id = id
+        b.static = true
+        b.x = (to_double (this.laneX(y laneMilli 20)))
+        b.y = (to_double y)
+        b.hw = ((to_double bw) / 2.0)
+        b.hh = ((to_double bh) / 2.0)
+        b.mass = 0.0
+        b.invMass = 0.0
+        b.inertia = 0.0
+        b.invInertia = 0.0
+        b.restitution = 0.26
+        b.spinOnWall = 240.0
+        push core.bodies b
+    }
+
+    fn addOilPatch:void (id:string y:int laneMilli:int) {
+        push oilIds id
+        push oilXs (this.laneX(y laneMilli 18))
+        push oilYs y
+    }
+
+    fn addAllCones:void (core:PhysicsCore) {
+        this.addCone(core "c0" 5660 -550)
+        this.addCone(core "c1" 5585 500)
+        this.addCone(core "c2" 5510 -450)
+        this.addCone(core "c3" 5435 420)
+        this.addCone(core "c4" 5100 -720)
+        this.addCone(core "c5" 5100 720)
+        this.addCone(core "c6" 5015 -550)
+        this.addCone(core "c7" 5015 550)
+        this.addCone(core "c8" 4580 -550)
+        this.addCone(core "c9" 4500 520)
+        this.addCone(core "c10" 4420 -480)
+        this.addCone(core "c11" 4040 580)
+        this.addCone(core "c12" 3960 -500)
+        this.addCone(core "c13" 3880 420)
+        this.addCone(core "c14" 3330 -720)
+        this.addCone(core "c15" 3260 -350)
+        this.addCone(core "c16" 3190 350)
+        this.addCone(core "c17" 3120 720)
+        this.addCone(core "c18" 2280 580)
+        this.addCone(core "c19" 2200 -500)
+        this.addCone(core "c20" 2120 450)
+        this.addCone(core "c21" 1460 -600)
+        this.addCone(core "c22" 1380 520)
+        this.addCone(core "c23" 1300 -420)
+        this.addCone(core "c24" 760 -620)
+        this.addCone(core "c25" 700 620)
+        this.addCone(core "c26" 500 -450)
+        this.addCone(core "c27" 440 450)
+    }
+
+    fn addAllBars:void (core:PhysicsCore) {
+        this.addBar(core "b0" 5220 -420 48 6)
+        this.addBar(core "b2" 4200 -380 8 44)
+        this.addBar(core "b3" 4140 380 8 44)
+        this.addBar(core "b4" 2920 -400 8 46)
+        this.addBar(core "b5" 2860 400 8 46)
+        this.addBar(core "b6" 1900 -380 8 44)
+        this.addBar(core "b7" 1840 380 8 44)
+        this.addBar(core "b8" 980 -400 8 46)
+        this.addBar(core "b9" 920 400 8 46)
+    }
+
+    fn addAllOil:void () {
+        def emptyS:[string]
+        def emptyI:[int]
+        oilIds = emptyS
+        oilXs = emptyI
+        oilYs = emptyI
+        this.addOilPatch("oil0" 5460 350)
+        this.addOilPatch("oil1" 5050 -450)
+        this.addOilPatch("oil2" 4300 420)
+        this.addOilPatch("oil3" 3740 -280)
+        this.addOilPatch("oil4" 3060 500)
+        this.addOilPatch("oil5" 2480 -500)
+        this.addOilPatch("oil6" 1780 340)
+        this.addOilPatch("oil7" 1080 -350)
+        this.addOilPatch("oil8" 560 250)
+    }
+
+    fn drawRampsInStrip:void (bg:SoftCanvas y:int) {
+        this.drawRampAt(bg y 5350 50 38 22)
+        this.drawRampAt(bg y 4720 -420 34 20)
+        this.drawRampAt(bg y 3500 380 40 22)
+        this.drawRampAt(bg y 2640 -350 38 20)
+        this.drawRampAt(bg y 1160 320 36 20)
+    }
+
+    fn drawRampAt:void (bg:SoftCanvas stripY:int rampY:int laneMilli:int rw:int rh:int) {
+        if (rampY >= stripY) {
+            if (rampY < (stripY + 8)) {
+                def rx:int (this.laneX(rampY laneMilli 24))
+                bg.fillRect((rx - (idiv rw 2)) rampY rw rh 225 180 70)
+                bg.fillRect((rx - (idiv rw 2)) rampY rw 4 255 225 120)
+            }
+        }
+    }
+
+    fn drawBarsInStrip:void (bg:SoftCanvas y:int) {
+        this.drawBarStrip(bg y 5220 -420 48 6)
+        this.drawBarStrip(bg y 4200 -380 8 44)
+        this.drawBarStrip(bg y 4140 380 8 44)
+        this.drawBarStrip(bg y 2920 -400 8 46)
+        this.drawBarStrip(bg y 2860 400 8 46)
+        this.drawBarStrip(bg y 1900 -380 8 44)
+        this.drawBarStrip(bg y 1840 380 8 44)
+        this.drawBarStrip(bg y 980 -400 8 46)
+        this.drawBarStrip(bg y 920 400 8 46)
+    }
+
+    fn drawBarStrip:void (bg:SoftCanvas stripY:int barY:int laneMilli:int bw:int bh:int) {
+        if (barY >= stripY) {
+            if (barY < (stripY + 8)) {
+                def bx:int (this.laneX(barY laneMilli 20))
+                bg.fillRect((bx - (idiv bw 2)) (barY - (idiv bh 2)) bw bh 210 215 225)
+                bg.fillRect((bx - (idiv bw 2) - 1) (barY - (idiv bh 2)) 2 bh 255 230 70)
+                bg.fillRect((bx + (idiv bw 2) - 1) (barY - (idiv bh 2)) 2 bh 255 230 70)
+            }
+        }
+    }
+
     fn setupPhysics:void (phys:GamePhysics bodyIds:[string]) {
         phys.clear()
         phys.enabled = true
@@ -338,5 +491,8 @@ class WasmAutopeliSetup {
             push bodyIds id
             ti = (ti + 1)
         }
+        this.addAllCones(phys.core)
+        this.addAllBars(phys.core)
+        this.addAllOil()
     }
 }
