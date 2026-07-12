@@ -183,9 +183,14 @@ regression). Landed inference/codegen improvements:
 - nested return structs match recorded interfaces (`UpdatePlayerResult`, `ApplyEnemyHitsResult`)
 - `(call()).field` hoisted to temp (`goalPlatform().y` → `gp.y`)
 - if-body `itemAt` hoists share typed locals across test + consequent
+- `emitMember` only routes `stateVarName` through `NativeGameState` maps when
+  the binding is actually `NativeGameState` (fixes `s.playerSlots` on
+  `GameSnapshotNative` params)
+- `localVarType` normalizes `i32`/`u8`/… locals to Ranger `int`/`double`
+- skip `(to_double N.0)` on float literals; `x | 0` respects double context
+- int→double coercion on struct fields and binary expressions
 
-Remaining long tail (~50): bgFillRect/drawCloud int/double edges, a few
-`if(int)` truthiness sites, and scattered struct field coercions in update().
+ylos2 native compile is green (`tests/ts-to-ranger-native.test.ts`).
 
 Interpreter path works today: `npm run engine:game-sdl:run:ylos2` (Path A).
 
