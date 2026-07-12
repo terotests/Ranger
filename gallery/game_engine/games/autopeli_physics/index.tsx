@@ -191,8 +191,7 @@ const CONES = [
 
 // Static barrier poles (palkit) — solid obstacles, not movable props.
 const BARS = [
-  { id: "b0", y: 5220, lane: -0.42, w: 8, h: 46 },
-  { id: "b1", y: 5220, lane: 0.42, w: 8, h: 46 },
+  { id: "b0", y: 5220, lane: -0.42, w: 48, h: 6 },
   { id: "b2", y: 4200, lane: -0.38, w: 8, h: 44 },
   { id: "b3", y: 4140, lane: 0.38, w: 8, h: 44 },
   { id: "b4", y: 2920, lane: -0.4, w: 8, h: 46 },
