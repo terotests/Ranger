@@ -3,6 +3,25 @@
 
 Import "../../game_engine/scripting/game_engine_host.rgr"
 
+class PlayerNative {
+    def x:double 0.0
+    def y:double 0.0
+    def vx:double 0.0
+    def vy:double 0.0
+    def face:i32 0
+    def grounded:i32 0
+    def anim:i32 0
+    def animTick:i32 0
+    def jumpHold:i32 0
+    def airJump:i32 0
+    def jumpBoostMs:i32 0
+    def superMs:i32 0
+    def done:i32 0
+    def finishMs:i32 0
+    def finishPulseMs:i32 0
+    def celebrateBursts:i32 0
+}
+
 class PLAT_COLOR_BODYConstNative {
     def r:int 0
     def g:int 0
@@ -113,25 +132,6 @@ class mergePlatforms_outRetNative {
     def h:int 0
     def vx:double 0.0
     def prevX:double 0.0
-}
-
-class makePlayerOnFloorRetNative {
-    def x:double 0.0
-    def y:int 0
-    def vx:double 0.0
-    def vy:double 0.0
-    def face:int 0
-    def grounded:int 0
-    def anim:int 0
-    def animTick:int 0
-    def jumpHold:int 0
-    def airJump:int 0
-    def jumpBoostMs:int 0
-    def superMs:int 0
-    def done:int 0
-    def finishMs:int 0
-    def finishPulseMs:int 0
-    def celebrateBursts:int 0
 }
 
 class makeEnemies_outRetNative {
@@ -657,8 +657,8 @@ class Ylos2GameModule @singleton(true) {
 
 class GeneratedGameScript {
     def host:GameEngineHost (new GameEngineHost)
-    def st_p1:makePlayerOnFloorRetNative (new makePlayerOnFloorRetNative)
-    def st_p2:makePlayerOnFloorRetNative (new makePlayerOnFloorRetNative)
+    def st_p1:PlayerNative (new PlayerNative)
+    def st_p2:PlayerNative (new PlayerNative)
     def st_enemies:[makeEnemies_outRetNative]
     def st_fruits:[makeFruits_outRetNative]
     def st_diamonds:[makeDiamonds_outRetNative]
@@ -1059,7 +1059,7 @@ class GeneratedGameScript {
         return 0
     }
 
-    fn jumpHoldMaxMs:int (pl:int) {
+    fn jumpHoldMaxMs:int (pl:PlayerNative) {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
         if ((pl.superMs > 0)) {
             return _mod.JUMP_HOLD_MAX_SUPER_MS
@@ -1067,7 +1067,7 @@ class GeneratedGameScript {
         return _mod.JUMP_HOLD_MAX_MS
     }
 
-    fn jumpMaxV:double (pl:int) {
+    fn jumpMaxV:double (pl:PlayerNative) {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
         if ((pl.superMs > 0)) {
             return _mod.JUMP_SUPER_MAX_V
@@ -1152,7 +1152,7 @@ class GeneratedGameScript {
         push events (be66)
     }
 
-    fn spawnCelebratePulse:void (events:int pl:int burst:int) {
+    fn spawnCelebratePulse:void (events:int pl:PlayerNative burst:int) {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
         def phase:int ((burst % 4))
         def hop:int (0)
@@ -1232,10 +1232,10 @@ class GeneratedGameScript {
         }
     }
 
-    fn makePlayerOnFloor:makePlayerOnFloorRetNative (x:int face:int) {
-        def tmp76:makePlayerOnFloorRetNative (new makePlayerOnFloorRetNative)
-        tmp76.x = (this.scaleX((to_double x)))
-        tmp76.y = (this.floorY())
+    fn makePlayerOnFloor:PlayerNative (x:double face:i32) {
+        def tmp76:PlayerNative (new PlayerNative)
+        tmp76.x = (this.scaleX(x))
+        tmp76.y = (to_double (this.floorY()))
         tmp76.vx = 0.0
         tmp76.vy = 0.0
         tmp76.face = face
@@ -1614,8 +1614,8 @@ class GeneratedGameScript {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
         def slots:int ((this.playerSlots()))
         def cameraY:int ((_mod.WORLD_H - _mod.VIEW_H))
-        def p1:makePlayerOnFloorRetNative ((this.makePlayerOnFloor((this.localStartX()) (this.localStartFace()))))
-        def p2:makePlayerOnFloorRetNative ((this.makePlayerOnFloor(_mod.P2_START_X (0 - 1))))
+        def p1:PlayerNative ((this.makePlayerOnFloor((to_double (this.localStartX())) (this.localStartFace()))))
+        def p2:PlayerNative ((this.makePlayerOnFloor((to_double _mod.P2_START_X) (0 - 1))))
         def enemies:[makeEnemies_outRetNative] ((this.makeEnemies()))
         def fruits:[makeFruits_outRetNative] ((this.makeFruits()))
         def diamonds:[makeDiamonds_outRetNative] ((this.makeDiamonds()))
@@ -1688,7 +1688,7 @@ class GeneratedGameScript {
         return x
     }
 
-    fn landOnPlatforms:landOnPlatformsRetNative (pl:int pw:int dt:int platforms:[int] staticCount:int) {
+    fn landOnPlatforms:landOnPlatformsRetNative (pl:PlayerNative pw:int dt:double platforms:[int] staticCount:int) {
         def grounded:int (0)
         def ny:double (pl.y)
         def nvy:double (pl.vy)
@@ -1701,7 +1701,7 @@ class GeneratedGameScript {
                 if (((pl.x + (to_double pw)) > p.x)) {
                     if (((pl.x - (to_double pw)) < (p.x + p.w))) {
                         def feet:double (pl.y)
-                        def prevFeet:double ((feet - (pl.vy * (to_double dt))))
+                        def prevFeet:double ((feet - (pl.vy * dt)))
                         if ((feet >= p.y)) {
                             if ((prevFeet <= (p.y + 4.0))) {
                                 if (moving) {
@@ -1753,7 +1753,7 @@ class GeneratedGameScript {
         return "hurt"
     }
 
-    fn stompBounce:stompBounceRetNative (pl:int ey:double) {
+    fn stompBounce:stompBounceRetNative (pl:PlayerNative ey:double) {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
         def tmp98:stompBounceRetNative (new stompBounceRetNative)
         tmp98.x = pl.x
@@ -1775,15 +1775,15 @@ class GeneratedGameScript {
         return tmp98
     }
 
-    fn applyEnemyHits:applyEnemyHitsRetNative (pl:makePlayerOnFloorRetNative owner:int enemies:[makeEnemies_outRetNative] events:int) {
+    fn applyEnemyHits:applyEnemyHitsRetNative (pl:PlayerNative owner:int enemies:[makeEnemies_outRetNative] events:int) {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
-        def out:makePlayerOnFloorRetNative (pl)
+        def out:PlayerNative (pl)
         def died:int (0)
         def ei:int (0)
         while ((ei < _mod.MAX_ENEMIES)) {
             def _at2:makeEnemies_outRetNative (itemAt enemies ei)
             if ((_at2.alive == 1)) {
-                def kind:string ((this.enemyCollisionKind(out.x (to_double out.y) out.vy (itemAt enemies ei).x (itemAt enemies ei).y)))
+                def kind:string ((this.enemyCollisionKind(out.x out.y out.vy (itemAt enemies ei).x (itemAt enemies ei).y)))
                 if ((kind == "stomp")) {
                     def _at3:makeEnemies_outRetNative (itemAt enemies ei)
                     _at3.alive = 0
@@ -1865,7 +1865,7 @@ class GeneratedGameScript {
         return false
     }
 
-    fn sheetFrameForPlayer:sheetFrameForPlayerRetNative (pl:int moving:int) {
+    fn sheetFrameForPlayer:sheetFrameForPlayerRetNative (pl:PlayerNative moving:int) {
         def frame:int (0)
         if ((pl.grounded == 1)) {
             if (moving) {
@@ -1890,10 +1890,10 @@ class GeneratedGameScript {
         return tmp106
     }
 
-    fn updatePlayer:updatePlayerRetNative (pl:makePlayerOnFloorRetNative inp:int dt:int bullets:[makeBullets_outRetNative] owner:int fireCd:int platforms:int) {
+    fn updatePlayer:updatePlayerRetNative (pl:PlayerNative inp:int dt:double bullets:[makeBullets_outRetNative] owner:int fireCd:int platforms:int) {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
         def events:[GameEventNative]
-        def face:int (pl.face)
+        def face:i32 (pl.face)
         def vx:int (0)
         if (inp.left) {
             vx = (to_int (0.0 - _mod.MOVE))
@@ -1903,7 +1903,7 @@ class GeneratedGameScript {
             vx = _mod.MOVE
             face = 1
         }
-        def superMs:int (pl.superMs)
+        def superMs:i32 (pl.superMs)
         if ((superMs > 0)) {
             superMs = (superMs - dt)
             if ((superMs < 0)) {
@@ -1911,9 +1911,9 @@ class GeneratedGameScript {
             }
         }
         def plSuper:int ({})
-        def vy:double ((pl.vy + (_mod.GRAV * (to_double dt))))
-        def airJump:int (pl.airJump)
-        def jumpBoostMs:int (pl.jumpBoostMs)
+        def vy:double ((pl.vy + (_mod.GRAV * dt)))
+        def airJump:i32 (pl.airJump)
+        def jumpBoostMs:i32 (pl.jumpBoostMs)
         if ((pl.grounded == 1)) {
             airJump = 0
             jumpBoostMs = 0
@@ -1940,7 +1940,7 @@ class GeneratedGameScript {
                     def holdMax:int ((this.jumpHoldMaxMs(plSuper)))
                     if (wantJump) {
                         if ((jumpBoostMs < holdMax)) {
-                            vy = (vy - (_mod.JUMP_HOLD_LIFT * (to_double dt)))
+                            vy = (vy - (_mod.JUMP_HOLD_LIFT * dt))
                             jumpBoostMs = (jumpBoostMs + dt)
                             if ((vy < (0.0 - maxV))) {
                                 vy = (0.0 - maxV)
@@ -1959,13 +1959,13 @@ class GeneratedGameScript {
         }
         def pw:int (8)
         def staticCount:int ((this.staticPlatformCount(platforms)))
-        def x:double ((pl.x + (vx * (to_double dt))))
-        def side:applyMovingPlatformSidePushRetNative ((this.applyMovingPlatformSidePush((to_int x) (to_double pl.y) pw pl.grounded platforms staticCount)))
+        def x:double ((pl.x + (vx * dt)))
+        def side:applyMovingPlatformSidePushRetNative ((this.applyMovingPlatformSidePush((to_int x) pl.y pw pl.grounded platforms staticCount)))
         x = (to_double side.x)
         def knockedOff:int (0)
         x = (to_double (this.clampX((to_int x))))
         def fallVy:double (vy)
-        def y:double (((to_double pl.y) + (vy * (to_double dt))))
+        def y:double ((pl.y + (vy * dt)))
         def land:landOnPlatformsRetNative ((this.landOnPlatforms({} pw dt platforms staticCount)))
         y = land.y
         vy = land.vy
@@ -1978,7 +1978,7 @@ class GeneratedGameScript {
             airJump = 0
             jumpBoostMs = 0
             if ((land.carryVx != 0)) {
-                x = (x + (to_double (land.carryVx * dt)))
+                x = (x + ((to_double land.carryVx) * dt))
                 if (((this.stillOnMovingPlatform((to_int x) (to_int y) pw platforms staticCount)) == 0)) {
                     grounded = 0
                     anim = 1
@@ -1995,18 +1995,18 @@ class GeneratedGameScript {
             }
         }
         def jumpHold:int (0)
-        def animTick:int ((pl.animTick + dt))
+        def animTick:double ((pl.animTick + dt))
         if ((vx == 0.0)) {
             animTick = pl.animTick
         }
         def cd:int (fireCd)
         if ((cd > 0)) {
-            cd = (cd - dt)
+            cd = (to_int ((to_double cd) - dt))
         }
         if (inp.shoot) {
-            if ((cd <= 0)) {
+            if ((cd <= 0.0)) {
                 if ((this.spawnBullet(bullets (to_int (x + (to_double (face * 10)))) (to_int (y - 4.0)) face owner))) {
-                    cd = 220
+                    cd = 220.0
                     def be109:GameEventNative (new GameEventNative)
                     be109.kind = "playSound"
                     be109.id = "blip"
@@ -2124,23 +2124,23 @@ class GeneratedGameScript {
         return events
     }
 
-    fn respawnPlayer:makePlayerOnFloorRetNative (which:int) {
+    fn respawnPlayer:PlayerNative (which:int) {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
         if ((this.isSplitPane())) {
-            return (this.makePlayerOnFloor((this.localStartX()) (this.localStartFace())))
+            return (this.makePlayerOnFloor((to_double (this.localStartX())) (this.localStartFace())))
         }
         if ((which == 1)) {
-            return (this.makePlayerOnFloor(_mod.P1_START_X 1))
+            return (this.makePlayerOnFloor((to_double _mod.P1_START_X) 1))
         }
-        return (this.makePlayerOnFloor(_mod.P2_START_X (0 - 1)))
+        return (this.makePlayerOnFloor((to_double _mod.P2_START_X) (0 - 1)))
     }
 
-    fn computeCamera:int (p1:makePlayerOnFloorRetNative p2:makePlayerOnFloorRetNative dual:int) {
+    fn computeCamera:int (p1:PlayerNative p2:PlayerNative dual:int) {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
         def lead:int (_mod.WORLD_H)
         if ((p1.done == 0)) {
-            if ((p1.y < lead)) {
-                lead = p1.y
+            if ((p1.y < (to_double lead))) {
+                lead = (to_int p1.y)
             }
         }
         if (dual) {
@@ -2151,7 +2151,7 @@ class GeneratedGameScript {
             }
         }
         if ((lead >= _mod.WORLD_H)) {
-            lead = (to_int (this.goalFeetY()))
+            lead = (this.goalFeetY())
         }
         def cam:double ((lead - 120.0))
         if ((cam < 0.0)) {
@@ -2164,7 +2164,7 @@ class GeneratedGameScript {
         return cam
     }
 
-    fn showSuperSprite:boolean (pl:int) {
+    fn showSuperSprite:boolean (pl:PlayerNative) {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
         if ((pl.superMs <= 0)) {
             return false
@@ -2179,7 +2179,7 @@ class GeneratedGameScript {
         return false
     }
 
-    fn placePlayerEntity:void (entities:[string:EntityPoseNative] id:string superId:string pl:makePlayerOnFloorRetNative cam:int moving:int) {
+    fn placePlayerEntity:void (entities:[string:EntityPoseNative] id:string superId:string pl:PlayerNative cam:int moving:int) {
         def sheet:sheetFrameForPlayerRetNative ((this.sheetFrameForPlayer(pl moving)))
         def superOn:int (0)
         if ((superOn == 1)) {
@@ -2193,7 +2193,7 @@ class GeneratedGameScript {
             set entities id tmp114
             def tmp115:EntityPoseNative (new EntityPoseNative)
             tmp115.x = pl.x
-            tmp115.y = (to_double (pl.y - cam))
+            tmp115.y = (pl.y - (to_double cam))
             tmp115.p0 = sheet.p0
             tmp115.p1 = sheet.p1
             tmp115.p2 = sheet.p2
@@ -2210,7 +2210,7 @@ class GeneratedGameScript {
             set entities superId tmp116
             def tmp117:EntityPoseNative (new EntityPoseNative)
             tmp117.x = pl.x
-            tmp117.y = (to_double (pl.y - cam))
+            tmp117.y = (pl.y - (to_double cam))
             tmp117.p0 = sheet.p0
             tmp117.p1 = sheet.p1
             tmp117.p2 = sheet.p2
@@ -2342,18 +2342,18 @@ class GeneratedGameScript {
         }
     }
 
-    fn tickGoalWalk:tickGoalWalkRetNative (pl:int dt:int) {
+    fn tickGoalWalk:tickGoalWalkRetNative (pl:PlayerNative dt:double) {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
         def gp:scalePlatformRetNative ((this.goalPlatform()))
         def minX:double ((gp.x + 18.0))
         def maxX:double (((gp.x + gp.w) - 18.0))
         def x:double (pl.x)
-        def face:int (pl.face)
+        def face:i32 (pl.face)
         if ((face == 0)) {
             face = 1
         }
         def speed:double ((_mod.MOVE * 0.9))
-        x = (x + (((to_double face) * speed) * (to_double dt)))
+        x = (x + ((face * speed) * dt))
         if ((x < minX)) {
             x = minX
             face = 1
@@ -2368,7 +2368,7 @@ class GeneratedGameScript {
         return tmp126
     }
 
-    fn finishPlayerMoving:int (pl:makePlayerOnFloorRetNative) {
+    fn finishPlayerMoving:int (pl:PlayerNative) {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
         if ((pl.done == 0)) {
             return 0
@@ -2379,7 +2379,7 @@ class GeneratedGameScript {
         return 0
     }
 
-    fn playerVictoryReady:boolean (pl:makePlayerOnFloorRetNative) {
+    fn playerVictoryReady:boolean (pl:PlayerNative) {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
         return ((pl.done == 1) && (pl.finishMs >= _mod.FINISH_PHASE_DONE))
     }
@@ -2408,11 +2408,11 @@ class GeneratedGameScript {
         return false
     }
 
-    fn checkFinish:makePlayerOnFloorRetNative (pl:makePlayerOnFloorRetNative slot:int events:int) {
+    fn checkFinish:PlayerNative (pl:PlayerNative slot:int events:int) {
         if ((pl.done == 1)) {
             return pl
         }
-        if (((to_double pl.y) <= (this.goalTriggerY()))) {
+        if ((pl.y <= (this.goalTriggerY()))) {
             def feetY:double ((this.goalFeetY()))
             def cx:double ((this.celebrateXFor(slot)))
             def next:int ({})
@@ -2427,14 +2427,14 @@ class GeneratedGameScript {
         return pl
     }
 
-    fn tickFinishPlayer:makePlayerOnFloorRetNative (pl:makePlayerOnFloorRetNative dt:int events:int) {
+    fn tickFinishPlayer:PlayerNative (pl:PlayerNative dt:double events:int) {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
         if ((pl.done != 1)) {
             return pl
         }
-        def finishMs:int ((pl.finishMs + dt))
-        def finishPulseMs:int (pl.finishPulseMs)
-        def bursts:int (pl.celebrateBursts)
+        def finishMs:double ((pl.finishMs + dt))
+        def finishPulseMs:i32 (pl.finishPulseMs)
+        def bursts:i32 (pl.celebrateBursts)
         if ((finishMs <= _mod.FINISH_PARTICLE_MS)) {
             finishPulseMs = (finishPulseMs + dt)
             if ((finishPulseMs >= _mod.CELEBRATE_INTERVAL)) {
@@ -2447,11 +2447,11 @@ class GeneratedGameScript {
         }
         def feetY:double ((this.goalFeetY()))
         def x:double (pl.x)
-        def face:int (pl.face)
+        def face:i32 (pl.face)
         def y:double (feetY)
-        def animTick:int ((pl.animTick + dt))
+        def animTick:double ((pl.animTick + dt))
         if ((finishMs < _mod.FINISH_CELEBRATE_MS)) {
-            y = (feetY - (to_double (this.celebrateYOffset(animTick))))
+            y = (feetY - (to_double (this.celebrateYOffset((to_int animTick)))))
         } {
             if ((finishMs < _mod.FINISH_PHASE_DONE)) {
                 def walk:tickGoalWalkRetNative ((this.tickGoalWalk(pl dt)))
@@ -2460,7 +2460,7 @@ class GeneratedGameScript {
                 y = feetY
             }
         }
-        def tmp128:makePlayerOnFloorRetNative (new makePlayerOnFloorRetNative)
+        def tmp128:PlayerNative (new PlayerNative)
         tmp128.x = x
         tmp128.y = y
         tmp128.vx = 0.0
@@ -2501,8 +2501,8 @@ class GeneratedGameScript {
             push bullets (itemAt st_bullets bi)
             bi = (bi + 1)
         }
-        def p1:makePlayerOnFloorRetNative (st_p1)
-        def p2:makePlayerOnFloorRetNative (st_p2)
+        def p1:PlayerNative (st_p1)
+        def p2:PlayerNative (st_p2)
         def fireCd1:double ((unwrap (get s.numbers "fireCd1")))
         def fireCd2:double ((unwrap (get s.numbers "fireCd2")))
         def summitMusicStarted:double ((unwrap (get s.numbers "summitMusicStarted")))
@@ -2510,11 +2510,11 @@ class GeneratedGameScript {
             summitMusicStarted = 0.0
         }
         if ((p1.done == 1)) {
-            p1 = (this.tickFinishPlayer(p1 (to_int dt) events))
+            p1 = (this.tickFinishPlayer(p1 dt events))
         }
         if (dual) {
             if ((p2.done == 1)) {
-                p2 = (this.tickFinishPlayer(p2 (to_int dt) events))
+                p2 = (this.tickFinishPlayer(p2 dt events))
             }
         }
         if ((this.showVictoryBanner({}))) {
@@ -2553,7 +2553,7 @@ class GeneratedGameScript {
         def platforms:[mergePlatforms_outRetNative] ((this.mergePlatforms(staticPlatforms movingPlatforms)))
         if ((p1.done == 0)) {
             def inp1:readPlayerRetNative ((this.readPlayer(props 0)))
-            def u1:updatePlayerRetNative ((this.updatePlayer(p1 inp1 (to_int dt) bullets owner (to_int fireCd1) platforms)))
+            def u1:updatePlayerRetNative ((this.updatePlayer(p1 inp1 dt bullets owner (to_int fireCd1) platforms)))
             p1 = u1.pl
             fireCd1 = (to_double u1.fireCd)
             (this.pushEvents(events u1.events))
@@ -2561,7 +2561,7 @@ class GeneratedGameScript {
         if (dual) {
             if ((p2.done == 0)) {
                 def inp2:readPlayerRetNative ((this.readPlayer(props 1)))
-                def u2:updatePlayerRetNative ((this.updatePlayer(p2 inp2 (to_int dt) bullets 2 (to_int fireCd2) platforms)))
+                def u2:updatePlayerRetNative ((this.updatePlayer(p2 inp2 dt bullets 2 (to_int fireCd2) platforms)))
                 p2 = u2.pl
                 fireCd2 = (to_double u2.fireCd)
                 (this.pushEvents(events u2.events))
@@ -2611,7 +2611,7 @@ class GeneratedGameScript {
             if (((itemAt fruits fj).taken == 0)) {
                 def fd:EntityPoseNative ((itemAt fruitDefs fj))
                 if ((p1.done == 0)) {
-                    if ((this.hitPickup(p1.x (to_double p1.y) fd.x fd.y))) {
+                    if ((this.hitPickup(p1.x p1.y fd.x fd.y))) {
                         set fruits fj {}
                         score1 = (score1 + 1)
                         def be129:GameEventNative (new GameEventNative)
@@ -2634,7 +2634,7 @@ class GeneratedGameScript {
                 }
                 if (dual) {
                     if ((p2.done == 0)) {
-                        if ((this.hitPickup(p2.x (to_double p2.y) fd.x fd.y))) {
+                        if ((this.hitPickup(p2.x p2.y fd.x fd.y))) {
                             set fruits fj {}
                             score2 = (score2 + 1)
                             def be132:GameEventNative (new GameEventNative)
@@ -2664,7 +2664,7 @@ class GeneratedGameScript {
             if (((itemAt diamonds dk).taken == 0)) {
                 def dd:EntityPoseNative ((itemAt diamondDefs dk))
                 if ((p1.done == 0)) {
-                    if ((this.hitPickup(p1.x (to_double p1.y) dd.x dd.y))) {
+                    if ((this.hitPickup(p1.x p1.y dd.x dd.y))) {
                         set diamonds dk {}
                         p1 = {}
                         def be135:GameEventNative (new GameEventNative)
@@ -2683,7 +2683,7 @@ class GeneratedGameScript {
                 }
                 if (dual) {
                     if ((p2.done == 0)) {
-                        if ((this.hitPickup(p2.x (to_double p2.y) dd.x dd.y))) {
+                        if ((this.hitPickup(p2.x p2.y dd.x dd.y))) {
                             set diamonds dk {}
                             p2 = {}
                             def be137:GameEventNative (new GameEventNative)

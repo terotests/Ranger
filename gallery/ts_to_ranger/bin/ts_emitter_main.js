@@ -6802,6 +6802,24 @@ class TSEmitter  {
     if ( t == "int" ) {
       return "0";
     }
+    if ( t == "i32" ) {
+      return "0";
+    }
+    if ( t == "u8" ) {
+      return "0";
+    }
+    if ( t == "u16" ) {
+      return "0";
+    }
+    if ( t == "u32" ) {
+      return "0";
+    }
+    if ( t == "f32" ) {
+      return "0.0";
+    }
+    if ( t == "f64" ) {
+      return "0.0";
+    }
     if ( t == "string" ) {
       return "\"\"";
     }

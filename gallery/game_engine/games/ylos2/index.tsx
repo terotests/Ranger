@@ -1,12 +1,38 @@
 /// <reference path="../../scripting/game.d.ts" />
+/// <reference path="../../scripting/game_native_types.ts" />
 //
 // Ylos 2 — vertical platformer with LPC spritesheets, diamonds (super power),
 // and per-player finish celebrations. Original Ylos stays in games/ylos/.
 //
 // Split pane: left=P1 girl, right=P2 boy (paneIndex); WASD / arrows + Space + B
 // Dual (480px): P1 WASD, P2 arrows + Start to join
+//
+// Type annotations use the native numeric aliases (i32 / f64, see
+// game_native_types.ts) so the TS -> Ranger emitter produces precisely-typed
+// structs (and the C++ backend can pick narrow storage where marked).
 
 import { soundEvent, particleEvent, rumbleEvent, musicScoreEvent, stopMusicEvent } from "../../scripting/game_helpers";
+
+// --- Core game structs (annotated so the native emitter unifies their types) ---
+
+interface Player {
+  x: f64;
+  y: f64;
+  vx: f64;
+  vy: f64;
+  face: i32;
+  grounded: i32;
+  anim: i32;
+  animTick: i32;
+  jumpHold: i32;
+  airJump: i32;
+  jumpBoostMs: i32;
+  superMs: i32;
+  done: i32;
+  finishMs: i32;
+  finishPulseMs: i32;
+  celebrateBursts: i32;
+}
 
 const BASE_W = 480;
 const WORLD_H = 1890;
@@ -492,14 +518,14 @@ function stillOnMovingPlatform(px, py, pw, platforms, staticCount) {
   return 0;
 }
 
-function jumpHoldMaxMs(pl) {
+function jumpHoldMaxMs(pl: Player) {
   if (pl.superMs > 0) {
     return JUMP_HOLD_MAX_SUPER_MS;
   }
   return JUMP_HOLD_MAX_MS;
 }
 
-function jumpMaxV(pl) {
+function jumpMaxV(pl: Player) {
   if (pl.superMs > 0) {
     return JUMP_SUPER_MAX_V;
   }
@@ -544,7 +570,7 @@ function spawnFinishParticles(events, x, y) {
   events.push(particleEvent("burst", x + 24, y - 20, 12));
 }
 
-function spawnCelebratePulse(events, pl, burst) {
+function spawnCelebratePulse(events, pl: Player, burst) {
   const phase = burst % 4;
   const hop = pl.finishMs < FINISH_CELEBRATE_MS ? celebrateYOffset(pl.animTick) : 0;
   const px = pl.x;
@@ -565,7 +591,7 @@ function spawnCelebratePulse(events, pl, burst) {
   }
 }
 
-function makePlayerOnFloor(x, face) {
+function makePlayerOnFloor(x: f64, face: i32): Player {
   return {
     x: scaleX(x),
     y: floorY(),
@@ -990,7 +1016,7 @@ function clampX(x) {
   return x;
 }
 
-function landOnPlatforms(pl, pw, dt, platforms, staticCount) {
+function landOnPlatforms(pl: Player, pw, dt: f64, platforms, staticCount) {
   let grounded = 0;
   let ny = pl.y;
   let nvy = pl.vy;
@@ -1051,7 +1077,7 @@ function enemyCollisionKind(px, py, pvy, ex, ey) {
   return "hurt";
 }
 
-function stompBounce(pl, ey) {
+function stompBounce(pl: Player, ey) {
   return {
     x: pl.x,
     y: ey - 2,
@@ -1072,7 +1098,7 @@ function stompBounce(pl, ey) {
   };
 }
 
-function applyEnemyHits(pl, owner, enemies, events) {
+function applyEnemyHits(pl: Player, owner, enemies, events) {
   let out = pl;
   let died = 0;
   let ei = 0;
@@ -1133,7 +1159,7 @@ function spawnBullet(bullets, x, y, face, owner) {
   return false;
 }
 
-function sheetFrameForPlayer(pl, moving) {
+function sheetFrameForPlayer(pl: Player, moving) {
   let frame = 0;
   if (pl.grounded == 1) {
     if (moving) {
@@ -1154,7 +1180,7 @@ function sheetFrameForPlayer(pl, moving) {
   return { p0: frame, p1: row, p2: jump };
 }
 
-function updatePlayer(pl, inp, dt, bullets, owner, fireCd, platforms) {
+function updatePlayer(pl: Player, inp, dt: f64, bullets, owner, fireCd, platforms) {
   const events = [];
   let face = pl.face;
   let vx = 0;
@@ -1422,7 +1448,7 @@ function computeCamera(p1, p2, dual) {
   return cam;
 }
 
-function showSuperSprite(pl) {
+function showSuperSprite(pl: Player) {
   if (pl.superMs <= 0) {
     return false;
   }
@@ -1436,7 +1462,7 @@ function showSuperSprite(pl) {
   return false;
 }
 
-function placePlayerEntity(entities, id, superId, pl, cam, moving) {
+function placePlayerEntity(entities, id, superId, pl: Player, cam, moving) {
   const sheet = sheetFrameForPlayer(pl, moving);
   const superOn = showSuperSprite(pl) ? 1 : 0;
   if (superOn == 1) {
@@ -1556,7 +1582,7 @@ function pushEvents(dest, src) {
   }
 }
 
-function tickGoalWalk(pl, dt) {
+function tickGoalWalk(pl: Player, dt: f64) {
   const gp = goalPlatform();
   const minX = gp.x + 18;
   const maxX = gp.x + gp.w - 18;
@@ -1578,7 +1604,7 @@ function tickGoalWalk(pl, dt) {
   return { x: x, face: face };
 }
 
-function finishPlayerMoving(pl) {
+function finishPlayerMoving(pl: Player) {
   if (pl.done == 0) {
     return 0;
   }
@@ -1588,7 +1614,7 @@ function finishPlayerMoving(pl) {
   return 0;
 }
 
-function playerVictoryReady(pl) {
+function playerVictoryReady(pl: Player) {
   return pl.done == 1 && pl.finishMs >= FINISH_PHASE_DONE;
 }
 
@@ -1616,7 +1642,7 @@ function wantsRestart(props, dual) {
   return false;
 }
 
-function checkFinish(pl, slot, events) {
+function checkFinish(pl: Player, slot, events) {
   if (pl.done == 1) {
     return pl;
   }
@@ -1649,7 +1675,7 @@ function checkFinish(pl, slot, events) {
   return pl;
 }
 
-function tickFinishPlayer(pl, dt, events) {
+function tickFinishPlayer(pl: Player, dt: f64, events) {
   if (pl.done != 1) {
     return pl;
   }
