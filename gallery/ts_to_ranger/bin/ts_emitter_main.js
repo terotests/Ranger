@@ -4625,6 +4625,10 @@ class TSEmitter  {
     this.initStateLocalTypes = {};
     this.tmpCounter = 0;
     this.synthStructDone = {};
+    this.moduleSingletonClass = "";
+    this.moduleIdRaw = "";
+    this.moduleConstDeferred = {};
+    this.inModuleSingletonCtor = false;
     this.currentEmitBlock = new TSNode();
   }
   annotType (annot) {
@@ -4670,6 +4674,24 @@ class TSEmitter  {
       return "double";
     }
     if ( name == "number" ) {
+      return "double";
+    }
+    if ( name == "i32" ) {
+      return "int";
+    }
+    if ( name == "u8" ) {
+      return "int";
+    }
+    if ( name == "u16" ) {
+      return "int";
+    }
+    if ( name == "u32" ) {
+      return "int";
+    }
+    if ( name == "f64" ) {
+      return "double";
+    }
+    if ( name == "f32" ) {
       return "double";
     }
     if ( name == "string" ) {
@@ -4809,8 +4831,210 @@ class TSEmitter  {
     this.initStateLocalTypes = isl;
     let ssd = {};
     this.synthStructDone = ssd;
+    this.moduleSingletonClass = "";
+    let mcd = {};
+    this.moduleConstDeferred = mcd;
+    this.inModuleSingletonCtor = false;
     this.tmpCounter = 0;
     this.seedBridgeStructs();
+  };
+  setModuleSingletonId (moduleId) {
+    this.moduleIdRaw = moduleId;
+  };
+  applyModuleId () {
+    if ( (this.moduleIdRaw.length) > 0 ) {
+      const cap = this.capitalizeModuleId(this.moduleIdRaw);
+      this.moduleSingletonClass = cap + "GameModule";
+    }
+  };
+  capitalizeModuleId (id) {
+    if ( (id.length) == 0 ) {
+      return "Game";
+    }
+    let out = "";
+    let i = 0;
+    let upNext = true;
+    while (i < (id.length)) {
+      const ch = id.substring(i, (i + 1) );
+      if ( (ch == "_") || ((ch == "-") || (ch == ".")) ) {
+        upNext = true;
+      } else {
+        if ( upNext ) {
+          const uc = this.upperAscii(ch);
+          out = out + uc;
+        } else {
+          out = out + ch;
+        }
+        upNext = false;
+      }
+      i = i + 1;
+    };
+    if ( (out.length) == 0 ) {
+      return "Game";
+    }
+    const first = out.substring(0, 1 );
+    const firstUp = this.upperAscii(first);
+    return firstUp + (out.substring(1, (out.length) ));
+  };
+  upperAscii (ch) {
+    if ( ch == "a" ) {
+      return "A";
+    }
+    if ( ch == "b" ) {
+      return "B";
+    }
+    if ( ch == "c" ) {
+      return "C";
+    }
+    if ( ch == "d" ) {
+      return "D";
+    }
+    if ( ch == "e" ) {
+      return "E";
+    }
+    if ( ch == "f" ) {
+      return "F";
+    }
+    if ( ch == "g" ) {
+      return "G";
+    }
+    if ( ch == "h" ) {
+      return "H";
+    }
+    if ( ch == "i" ) {
+      return "I";
+    }
+    if ( ch == "j" ) {
+      return "J";
+    }
+    if ( ch == "k" ) {
+      return "K";
+    }
+    if ( ch == "l" ) {
+      return "L";
+    }
+    if ( ch == "m" ) {
+      return "M";
+    }
+    if ( ch == "n" ) {
+      return "N";
+    }
+    if ( ch == "o" ) {
+      return "O";
+    }
+    if ( ch == "p" ) {
+      return "P";
+    }
+    if ( ch == "q" ) {
+      return "Q";
+    }
+    if ( ch == "r" ) {
+      return "R";
+    }
+    if ( ch == "s" ) {
+      return "S";
+    }
+    if ( ch == "t" ) {
+      return "T";
+    }
+    if ( ch == "u" ) {
+      return "U";
+    }
+    if ( ch == "v" ) {
+      return "V";
+    }
+    if ( ch == "w" ) {
+      return "W";
+    }
+    if ( ch == "x" ) {
+      return "X";
+    }
+    if ( ch == "y" ) {
+      return "Y";
+    }
+    if ( ch == "z" ) {
+      return "Z";
+    }
+    return ch;
+  };
+  moduleConstAccess (name) {
+    return "_mod." + name;
+  };
+  emitModuleLocalIfNeeded (body) {
+    if ( (this.moduleSingletonClass.length) == 0 ) {
+      return;
+    }
+    if ( this.bodyUsesModuleConst(body) == false ) {
+      return;
+    }
+    this.emitLine(((("def _mod:" + this.moduleSingletonClass) + " (") + this.moduleSingletonClass) + ".__singleton())");
+  };
+  bodyUsesModuleConst (node) {
+    if ( node.nodeType == "Identifier" ) {
+      const ca = ( this.constArrayNames.hasOwnProperty(node.name) ? this.constArrayNames[node.name] : undefined );
+      if ( (typeof(ca) !== "undefined" && ca != null )  ) {
+        return true;
+      }
+      const cs = ( this.constScalarTypes.hasOwnProperty(node.name) ? this.constScalarTypes[node.name] : undefined );
+      if ( (typeof(cs) !== "undefined" && cs != null )  ) {
+        return true;
+      }
+      return false;
+    }
+    if ( typeof(node.left) != "undefined" ) {
+      if ( this.bodyUsesModuleConst((node.left)) ) {
+        return true;
+      }
+    }
+    if ( typeof(node.right) != "undefined" ) {
+      if ( this.bodyUsesModuleConst((node.right)) ) {
+        return true;
+      }
+    }
+    if ( typeof(node.body) != "undefined" ) {
+      if ( this.bodyUsesModuleConst((node.body)) ) {
+        return true;
+      }
+    }
+    if ( typeof(node.init) != "undefined" ) {
+      if ( this.bodyUsesModuleConst((node.init)) ) {
+        return true;
+      }
+    }
+    if ( typeof(node.test) != "undefined" ) {
+      if ( this.bodyUsesModuleConst((node.test)) ) {
+        return true;
+      }
+    }
+    if ( typeof(node.consequent) != "undefined" ) {
+      if ( this.bodyUsesModuleConst((node.consequent)) ) {
+        return true;
+      }
+    }
+    if ( typeof(node.alternate) != "undefined" ) {
+      if ( this.bodyUsesModuleConst((node.alternate)) ) {
+        return true;
+      }
+    }
+    let i = 0;
+    while (i < (node.children.length)) {
+      if ( this.bodyUsesModuleConst((node.children[i])) ) {
+        return true;
+      }
+      i = i + 1;
+    };
+    return false;
+  };
+  hasModuleConsts (ast) {
+    let i = 0;
+    while (i < (ast.children.length)) {
+      const node = ast.children[i];
+      if ( node.nodeType == "VariableDeclaration" ) {
+        return true;
+      }
+      i = i + 1;
+    };
+    return false;
   };
   seedBridgeStructs () {
     this.interfaceFieldsCsv["SpriteDef"] = "id:string,kind:string,w:int,h:int,rad:int,r:int,g:int,b:int,p0:int,p1:int,p2:int,px:int,br:int,bg:int,bb:int,er:int,eg:int,eb:int,frames:[[string]]";
@@ -5200,6 +5424,7 @@ class TSEmitter  {
   };
   emitProgram (ast) {
     this.reset();
+    this.applyModuleId();
     this.prescanProgram(ast);
     this.emitLine("; Generated by gallery/ts_to_ranger/ts_emitter.rgr");
     this.emitLine("; Source: game script (.game.tsx) - do not edit by hand.");
@@ -5207,16 +5432,16 @@ class TSEmitter  {
     this.emitLine("Import \"../game_script_types.rgr\"");
     this.emitLine("");
     this.emitInterfaces();
+    if ( this.hasModuleConsts(ast) && ((this.moduleSingletonClass.length) > 0) ) {
+      this.emitModuleSingleton(ast);
+      this.emitLine("");
+    }
     this.emitLine("class GeneratedGameScript {");
-    this.emitConstFields(ast);
     let i = 0;
     while (i < (ast.children.length)) {
       const node = ast.children[i];
       if ( node.nodeType == "FunctionDeclaration" ) {
         this.emitFunction(node);
-      }
-      if ( node.nodeType == "VariableDeclaration" ) {
-        this.emitConstArrayMethods(node);
       }
       i = i + 1;
     };
@@ -6205,6 +6430,9 @@ class TSEmitter  {
             if ( (folded.length) > 0 ) {
               this.constScalarValues[d.name] = folded;
             }
+            if ( this.scalarInitNeedsCtor(initNode) == true ) {
+              this.moduleConstDeferred[d.name] = true;
+            }
           }
         }
       }
@@ -6220,6 +6448,9 @@ class TSEmitter  {
     }
     if ( (arr.children.length) > 0 ) {
       const first = arr.children[0];
+      if ( first.nodeType == "ObjectExpression" ) {
+        return this.registerModuleArrayStruct(d.name, arr);
+      }
       if ( first.nodeType == "StringLiteral" ) {
         return "string";
       }
@@ -6234,6 +6465,64 @@ class TSEmitter  {
       }
     }
     return "int";
+  };
+  scalarInitNeedsCtor (node) {
+    const t = node.nodeType;
+    if ( t == "NumericLiteral" ) {
+      return false;
+    }
+    if ( t == "StringLiteral" ) {
+      return false;
+    }
+    if ( t == "BooleanLiteral" ) {
+      return false;
+    }
+    const folded = this.tryFoldIntExpr(node);
+    if ( (folded.length) > 0 ) {
+      return false;
+    }
+    return true;
+  };
+  mergeArrayObjectFieldsCsv (arr) {
+    let pairs = [];
+    let seen = {};
+    let k = 0;
+    while (k < (arr.children.length)) {
+      const el = arr.children[k];
+      if ( el.nodeType == "ObjectExpression" ) {
+        let j = 0;
+        while (j < (el.children.length)) {
+          const prop = el.children[j];
+          if ( prop.nodeType == "Property" ) {
+            const key = this.propKey(prop);
+            if ( (key.length) > 0 ) {
+              const was = ( seen.hasOwnProperty(key) ? seen[key] : undefined );
+              if ( typeof(was) === "undefined" ) {
+                seen[key] = true;
+                const valNode = this.propertyValueNode(prop);
+                const ft = this.objectFieldType(key, valNode);
+                pairs.push((key + ":") + ft);
+              }
+            }
+          }
+          j = j + 1;
+        };
+      }
+      k = k + 1;
+    };
+    return this.joinCsv(pairs);
+  };
+  registerModuleArrayStruct (arrName, arr) {
+    const baseName = arrName + "Elem";
+    const structType = baseName + "Native";
+    const done = ( this.synthStructDone.hasOwnProperty(baseName) ? this.synthStructDone[baseName] : undefined );
+    if ( typeof(done) === "undefined" ) {
+      const csv = this.mergeArrayObjectFieldsCsv(arr);
+      this.interfaceFieldsCsv[baseName] = csv;
+      this.interfaceNames.push(baseName);
+      this.synthStructDone[baseName] = true;
+    }
+    return structType;
   };
   tryFoldIntExpr (node) {
     const t = node.nodeType;
@@ -6347,6 +6636,112 @@ class TSEmitter  {
       return "";
     }
     return "(new " + (t + ")");
+  };
+  emitModuleSingleton (ast) {
+    this.emitLine(("class " + this.moduleSingletonClass) + " @singleton(true) {");
+    let needsCtor = false;
+    let i = 0;
+    while (i < (ast.children.length)) {
+      const node = ast.children[i];
+      if ( node.nodeType == "VariableDeclaration" ) {
+        let j = 0;
+        while (j < (node.children.length)) {
+          const d = node.children[j];
+          if ( d.nodeType == "VariableDeclarator" ) {
+            const isArr = ( this.constArrayNames.hasOwnProperty(d.name) ? this.constArrayNames[d.name] : undefined );
+            if ( (typeof(isArr) !== "undefined" && isArr != null )  ) {
+              needsCtor = true;
+              const elem = ( this.constArrayElemType.hasOwnProperty(d.name) ? this.constArrayElemType[d.name] : undefined );
+              let et = "int";
+              if ( (typeof(elem) !== "undefined" && elem != null )  ) {
+                et = elem;
+              }
+              this.emitLine(((("    def " + d.name) + ":[") + et) + "]");
+            } else {
+              const dep = ( this.moduleConstDeferred.hasOwnProperty(d.name) ? this.moduleConstDeferred[d.name] : undefined );
+              if ( (typeof(dep) !== "undefined" && dep != null )  ) {
+                needsCtor = true;
+                if ( typeof(d.init) != "undefined" ) {
+                  const initNode = d.init;
+                  const ct = this.exprType(initNode);
+                  this.emitLine((("    def " + d.name) + (":" + ct)) + (" " + this.zeroFor(ct)));
+                }
+              } else {
+                if ( typeof(d.init) != "undefined" ) {
+                  const initNode2 = d.init;
+                  const ct2 = this.exprType(initNode2);
+                  let rhs = "";
+                  const fv = ( this.constScalarValues.hasOwnProperty(d.name) ? this.constScalarValues[d.name] : undefined );
+                  if ( (typeof(fv) !== "undefined" && fv != null )  ) {
+                    rhs = fv;
+                  } else {
+                    rhs = this.emitExpr(initNode2, ct2);
+                  }
+                  this.emitLine((("    def " + d.name) + (":" + ct2)) + (" " + rhs));
+                }
+              }
+            }
+          }
+          j = j + 1;
+        };
+      }
+      i = i + 1;
+    };
+    if ( needsCtor ) {
+      this.emitLine("    Constructor () {");
+      this.indentLevel = 2;
+      this.inModuleSingletonCtor = true;
+      let k = 0;
+      while (k < (ast.children.length)) {
+        const node2 = ast.children[k];
+        if ( node2.nodeType == "VariableDeclaration" ) {
+          let m = 0;
+          while (m < (node2.children.length)) {
+            const d2 = node2.children[m];
+            if ( d2.nodeType == "VariableDeclarator" ) {
+              const isArr2 = ( this.constArrayNames.hasOwnProperty(d2.name) ? this.constArrayNames[d2.name] : undefined );
+              if ( (typeof(isArr2) !== "undefined" && isArr2 != null )  ) {
+                const elem2 = ( this.constArrayElemType.hasOwnProperty(d2.name) ? this.constArrayElemType[d2.name] : undefined );
+                let et2 = "int";
+                if ( (typeof(elem2) !== "undefined" && elem2 != null )  ) {
+                  et2 = elem2;
+                }
+                const tmpName = "_boot_" + d2.name;
+                this.emitLine(((("def " + tmpName) + ":[") + et2) + "]");
+                if ( typeof(d2.init) != "undefined" ) {
+                  const arr = d2.init;
+                  if ( arr.nodeType == "ArrayExpression" ) {
+                    let n = 0;
+                    while (n < (arr.children.length)) {
+                      const el = arr.children[n];
+                      const ev = this.emitValueExpr(el, et2);
+                      this.emitLine((("push " + tmpName) + " ") + ev);
+                      n = n + 1;
+                    };
+                  }
+                }
+                this.emitLine(d2.name + (" = " + tmpName));
+              }
+              const dep2 = ( this.moduleConstDeferred.hasOwnProperty(d2.name) ? this.moduleConstDeferred[d2.name] : undefined );
+              if ( (typeof(dep2) !== "undefined" && dep2 != null )  ) {
+                if ( typeof(d2.init) != "undefined" ) {
+                  const init3 = d2.init;
+                  const ct3 = this.exprType(init3);
+                  const rhs3 = this.emitExpr(init3, ct3);
+                  this.emitLine(d2.name + (" = " + rhs3));
+                }
+              }
+            }
+            m = m + 1;
+          };
+        }
+        k = k + 1;
+      };
+      this.indentLevel = 0;
+      this.inModuleSingletonCtor = false;
+      this.emitLine("    }");
+    }
+    this.emitLine("}");
   };
   emitConstFields (ast) {
     let i = 0;
@@ -6464,6 +6859,7 @@ class TSEmitter  {
     }
     const body = node.body;
     this.indentLevel = 2;
+    this.emitModuleLocalIfNeeded(body);
     if ( this.inUpdateFn ) {
       this.prescanStateVar(body);
       this.collectEntityReads(body);
@@ -7502,10 +7898,22 @@ class TSEmitter  {
     if ( t == "Identifier" ) {
       const ca = ( this.constArrayNames.hasOwnProperty(node.name) ? this.constArrayNames[node.name] : undefined );
       if ( (typeof(ca) !== "undefined" && ca != null )  ) {
+        if ( this.inModuleSingletonCtor ) {
+          return node.name;
+        }
+        if ( (this.moduleSingletonClass.length) > 0 ) {
+          return this.moduleConstAccess(node.name);
+        }
         return ("(this." + node.name) + "())";
       }
       const cst = ( this.constScalarTypes.hasOwnProperty(node.name) ? this.constScalarTypes[node.name] : undefined );
       if ( (typeof(cst) !== "undefined" && cst != null )  ) {
+        if ( this.inModuleSingletonCtor ) {
+          return node.name;
+        }
+        if ( (this.moduleSingletonClass.length) > 0 ) {
+          return this.moduleConstAccess(node.name);
+        }
         return "this." + node.name;
       }
       if ( expected == "double" ) {
@@ -7902,6 +8310,33 @@ TSEmitterMain.lastDot = function(name) {
   };
   return best;
 };
+TSEmitterMain.moduleIdFromPath = function(path, stem) {
+  const base = TSEmitterMain.stripGameSuffix(stem);
+  if ( (base != "index") && (base != "game") ) {
+    return base;
+  }
+  const slash = TSEmitterMain.lastSlash(path);
+  if ( slash < 0 ) {
+    return base;
+  }
+  const parent = path.substring(0, slash );
+  const slash2 = TSEmitterMain.lastSlash(parent);
+  if ( slash2 < 0 ) {
+    return base;
+  }
+  return parent.substring((slash2 + 1), (parent.length) );
+};
+TSEmitterMain.stripGameSuffix = function(stem) {
+  const n = stem.length;
+  if ( n <= 5 ) {
+    return stem;
+  }
+  const tail = stem.substring((n - 5), n );
+  if ( tail == ".game" ) {
+    return stem.substring(0, (n - 5) );
+  }
+  return stem;
+};
 /* static JavaSript main routine at the end of the JS file */
 function __js_main() {
   let inputFile = "";
@@ -7943,6 +8378,7 @@ function __js_main() {
     stem = base.substring(0, dot );
   }
   const src = require('fs').readFileSync(dir + '/' + base, 'utf8');
+  const moduleId = TSEmitterMain.moduleIdFromPath(inputFile, stem);
   const lexer = new TSLexer(src);
   const tokens = lexer.tokenize();
   const parser = new TSParserSimple();
@@ -7950,6 +8386,7 @@ function __js_main() {
   parser.tsxMode = true;
   const ast = parser.parseProgram();
   const emitter = new TSEmitter();
+  emitter.setModuleSingletonId(moduleId);
   const code = emitter.emitProgram(ast);
   if ( toStdout ) {
     console.log(code);

@@ -49,6 +49,11 @@ class TSEmitter {
     def tmpCounter:int 0
     ; Synthesized struct interface names (fnName + "Ret") already registered.
     def synthStructDone:[string:boolean]
+    ; Per-module @singleton(true) holder for module-level const tables (one per .tsx).
+    def moduleSingletonClass:string ""
+    def moduleIdRaw:string ""
+    def moduleConstDeferred:[string:boolean]
+    def inModuleSingletonCtor:boolean false
     ; Block currently being emitted (for empty-array element-type inference).
     def currentEmitBlock:TSNode (new TSNode())
 
@@ -98,6 +103,12 @@ class TSEmitter {
         if (name == "float") { return "double" }
         if (name == "double") { return "double" }
         if (name == "number") { return "double" }
+        if (name == "i32") { return "int" }
+        if (name == "u8") { return "int" }
+        if (name == "u16") { return "int" }
+        if (name == "u32") { return "int" }
+        if (name == "f64") { return "double" }
+        if (name == "f32") { return "double" }
         if (name == "string") { return "string" }
         if (name == "boolean") { return "boolean" }
         if (name == "bool") { return "boolean" }
@@ -230,8 +241,156 @@ class TSEmitter {
         initStateLocalTypes = isl
         def ssd:[string:boolean]
         synthStructDone = ssd
+        moduleSingletonClass = ""
+        def mcd:[string:boolean]
+        moduleConstDeferred = mcd
+        inModuleSingletonCtor = false
         tmpCounter = 0
         this.seedBridgeStructs()
+    }
+
+    fn setModuleSingletonId:void (moduleId:string) {
+        moduleIdRaw = moduleId
+    }
+
+    fn applyModuleId:void () {
+        if ((strlen moduleIdRaw) > 0) {
+            def cap:string (this.capitalizeModuleId(moduleIdRaw))
+            moduleSingletonClass = (cap + "GameModule")
+        }
+    }
+
+    fn capitalizeModuleId:string (id:string) {
+        if ((strlen id) == 0) {
+            return "Game"
+        }
+        def out:string ""
+        def i 0
+        def upNext:boolean true
+        while (i < (strlen id)) {
+            def ch:string (substring id i (i + 1))
+            if ((ch == "_") || ((ch == "-") || (ch == "."))) {
+                upNext = true
+            } {
+                if (upNext) {
+                    def uc:string (this.upperAscii(ch))
+                    out = (out + uc)
+                } {
+                    out = (out + ch)
+                }
+                upNext = false
+            }
+            i = (i + 1)
+        }
+        if ((strlen out) == 0) {
+            return "Game"
+        }
+        def first:string (substring out 0 1)
+        def firstUp:string (this.upperAscii(first))
+        return (firstUp + (substring out 1 (strlen out)))
+    }
+
+    fn upperAscii:string (ch:string) {
+        if (ch == "a") { return "A" }
+        if (ch == "b") { return "B" }
+        if (ch == "c") { return "C" }
+        if (ch == "d") { return "D" }
+        if (ch == "e") { return "E" }
+        if (ch == "f") { return "F" }
+        if (ch == "g") { return "G" }
+        if (ch == "h") { return "H" }
+        if (ch == "i") { return "I" }
+        if (ch == "j") { return "J" }
+        if (ch == "k") { return "K" }
+        if (ch == "l") { return "L" }
+        if (ch == "m") { return "M" }
+        if (ch == "n") { return "N" }
+        if (ch == "o") { return "O" }
+        if (ch == "p") { return "P" }
+        if (ch == "q") { return "Q" }
+        if (ch == "r") { return "R" }
+        if (ch == "s") { return "S" }
+        if (ch == "t") { return "T" }
+        if (ch == "u") { return "U" }
+        if (ch == "v") { return "V" }
+        if (ch == "w") { return "W" }
+        if (ch == "x") { return "X" }
+        if (ch == "y") { return "Y" }
+        if (ch == "z") { return "Z" }
+        return ch
+    }
+
+    ; Module const access goes through a per-function local bound to the
+    ; singleton — Ranger can't type-resolve `(X.__singleton()).field` inline.
+    fn moduleConstAccess:string (name:string) {
+        return ("_mod." + name)
+    }
+
+    ; Emit `def _mod:<Class> (<Class>.__singleton())` if this function reads
+    ; any module-level const (array or scalar).
+    fn emitModuleLocalIfNeeded:void (body:TSNode) {
+        if ((strlen moduleSingletonClass) == 0) {
+            return
+        }
+        if ((this.bodyUsesModuleConst(body)) == false) {
+            return
+        }
+        this.emitLine(((("def _mod:" + moduleSingletonClass) + " (") + moduleSingletonClass) + ".__singleton())")
+    }
+
+    fn bodyUsesModuleConst:boolean (node:TSNode) {
+        if (node.nodeType == "Identifier") {
+            def ca@(optional):boolean (get constArrayNames node.name)
+            if (!null? ca) {
+                return true
+            }
+            def cs@(optional):string (get constScalarTypes node.name)
+            if (!null? cs) {
+                return true
+            }
+            return false
+        }
+        if (node.left) {
+            if (this.bodyUsesModuleConst((unwrap node.left))) { return true }
+        }
+        if (node.right) {
+            if (this.bodyUsesModuleConst((unwrap node.right))) { return true }
+        }
+        if (node.body) {
+            if (this.bodyUsesModuleConst((unwrap node.body))) { return true }
+        }
+        if (node.init) {
+            if (this.bodyUsesModuleConst((unwrap node.init))) { return true }
+        }
+        if (node.test) {
+            if (this.bodyUsesModuleConst((unwrap node.test))) { return true }
+        }
+        if (node.consequent) {
+            if (this.bodyUsesModuleConst((unwrap node.consequent))) { return true }
+        }
+        if (node.alternate) {
+            if (this.bodyUsesModuleConst((unwrap node.alternate))) { return true }
+        }
+        def i 0
+        while (i < (array_length node.children)) {
+            if (this.bodyUsesModuleConst((itemAt node.children i))) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn hasModuleConsts:boolean (ast:TSNode) {
+        def i 0
+        while (i < (array_length ast.children)) {
+            def node:TSNode (itemAt ast.children i)
+            if (node.nodeType == "VariableDeclaration") {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
     }
 
     ; Register bridge struct field types so struct-literal emission is type-aware
@@ -609,6 +768,7 @@ class TSEmitter {
 
     fn emitProgram:string (ast:TSNode) {
         this.reset()
+        this.applyModuleId()
         this.prescanProgram(ast)
         this.emitLine("; Generated by gallery/ts_to_ranger/ts_emitter.rgr")
         this.emitLine("; Source: game script (.game.tsx) - do not edit by hand.")
@@ -619,20 +779,20 @@ class TSEmitter {
         ; 1. Interfaces -> native structs (before the script class).
         this.emitInterfaces()
 
+        ; 2. Module-level const scalars/arrays -> per-file @singleton(true) class.
+        if ((this.hasModuleConsts(ast)) && ((strlen moduleSingletonClass) > 0)) {
+            this.emitModuleSingleton(ast)
+            this.emitLine("")
+        }
+
         this.emitLine("class GeneratedGameScript {")
 
-        ; 2. Module-level const scalars -> class fields.
-        this.emitConstFields(ast)
-
-        ; 3. Const arrays -> methods (return a fresh list), and functions.
+        ; 3. Functions only (consts live on the module singleton).
         def i 0
         while (i < (array_length ast.children)) {
             def node:TSNode (itemAt ast.children i)
             if (node.nodeType == "FunctionDeclaration") {
                 this.emitFunction(node)
-            }
-            if (node.nodeType == "VariableDeclaration") {
-                this.emitConstArrayMethods(node)
             }
             i = (i + 1)
         }
@@ -1556,6 +1716,9 @@ class TSEmitter {
                         if ((strlen folded) > 0) {
                             set constScalarValues d.name folded
                         }
+                        if ((this.scalarInitNeedsCtor(initNode)) == true) {
+                            set moduleConstDeferred d.name true
+                        }
                     }
                 }
             }
@@ -1574,6 +1737,9 @@ class TSEmitter {
         }
         if ((array_length arr.children) > 0) {
             def first:TSNode (itemAt arr.children 0)
+            if (first.nodeType == "ObjectExpression") {
+                return (this.registerModuleArrayStruct(d.name arr))
+            }
             if (first.nodeType == "StringLiteral") { return "string" }
             if (first.nodeType == "ArrayExpression") { return "[string]" }
             if (first.nodeType == "NumericLiteral") {
@@ -1582,6 +1748,62 @@ class TSEmitter {
             }
         }
         return "int"
+    }
+
+    fn scalarInitNeedsCtor:boolean (node:TSNode) {
+        def t:string node.nodeType
+        if (t == "NumericLiteral") { return false }
+        if (t == "StringLiteral") { return false }
+        if (t == "BooleanLiteral") { return false }
+        def folded:string (this.tryFoldIntExpr(node))
+        if ((strlen folded) > 0) {
+            return false
+        }
+        return true
+    }
+
+    ; Merge object-literal keys from every element of a module const array.
+    fn mergeArrayObjectFieldsCsv:string (arr:TSNode) {
+        def pairs:[string]
+        def seen:[string:boolean]
+        def k 0
+        while (k < (array_length arr.children)) {
+            def el:TSNode (itemAt arr.children k)
+            if (el.nodeType == "ObjectExpression") {
+                def j 0
+                while (j < (array_length el.children)) {
+                    def prop:TSNode (itemAt el.children j)
+                    if (prop.nodeType == "Property") {
+                        def key:string (this.propKey(prop))
+                        if ((strlen key) > 0) {
+                            def was@(optional):boolean (get seen key)
+                            if (null? was) {
+                                set seen key true
+                                def valNode:TSNode (this.propertyValueNode(prop))
+                                def ft:string (this.objectFieldType(key valNode))
+                                push pairs ((key + ":") + ft)
+                            }
+                        }
+                    }
+                    j = (j + 1)
+                }
+            }
+            k = (k + 1)
+        }
+        return (this.joinCsv(pairs))
+    }
+
+    fn registerModuleArrayStruct:string (arrName:string arr:TSNode) {
+        def baseName:string (arrName + "Elem")
+        def structType:string (baseName + "Native")
+        def done@(optional):boolean (get synthStructDone baseName)
+        if (null? done) {
+            def csv:string (this.mergeArrayObjectFieldsCsv(arr))
+            set interfaceFieldsCsv baseName csv
+            push interfaceNames baseName
+            set synthStructDone baseName true
+        }
+        return structType
     }
 
     ; Fold module-level int const expressions (e.g. COLS*ROWS) to a literal
@@ -1692,6 +1914,109 @@ class TSEmitter {
         def first:string (substring t 0 1)
         if (first == "[") { return "" }
         return ("(new " + (t + ")"))
+    }
+
+    fn emitModuleSingleton:void (ast:TSNode) {
+        this.emitLine(("class " + moduleSingletonClass) + " @singleton(true) {")
+        def needsCtor:boolean false
+        def i 0
+        while (i < (array_length ast.children)) {
+            def node:TSNode (itemAt ast.children i)
+            if (node.nodeType == "VariableDeclaration") {
+                def j 0
+                while (j < (array_length node.children)) {
+                    def d:TSNode (itemAt node.children j)
+                    if (d.nodeType == "VariableDeclarator") {
+                        def isArr@(optional):boolean (get constArrayNames d.name)
+                        if (!null? isArr) {
+                            needsCtor = true
+                            def elem@(optional):string (get constArrayElemType d.name)
+                            def et:string "int"
+                            if (!null? elem) { et = (unwrap elem) }
+                            this.emitLine((("    def " + d.name) + ":[" + et) + "]")
+                        } {
+                            def dep@(optional):boolean (get moduleConstDeferred d.name)
+                            if (!null? dep) {
+                                needsCtor = true
+                                if (d.init) {
+                                    def initNode:TSNode (unwrap d.init)
+                                    def ct:string (this.exprType(initNode))
+                                    this.emitLine((("    def " + d.name) + (":" + ct)) + ((" " + (this.zeroFor(ct)))))
+                                }
+                            } {
+                                if (d.init) {
+                                    def initNode2:TSNode (unwrap d.init)
+                                    def ct2:string (this.exprType(initNode2))
+                                    def rhs:string ""
+                                    def fv@(optional):string (get constScalarValues d.name)
+                                    if (!null? fv) {
+                                        rhs = (unwrap fv)
+                                    } {
+                                        rhs = (this.emitExpr(initNode2 ct2))
+                                    }
+                                    this.emitLine((("    def " + d.name) + (":" + ct2)) + ((" " + rhs)))
+                                }
+                            }
+                        }
+                    }
+                    j = (j + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        if (needsCtor) {
+            this.emitLine("    Constructor () {")
+            this.indentLevel = 2
+            inModuleSingletonCtor = true
+            def k 0
+            while (k < (array_length ast.children)) {
+                def node2:TSNode (itemAt ast.children k)
+                if (node2.nodeType == "VariableDeclaration") {
+                    def m 0
+                    while (m < (array_length node2.children)) {
+                        def d2:TSNode (itemAt node2.children m)
+                        if (d2.nodeType == "VariableDeclarator") {
+                            def isArr2@(optional):boolean (get constArrayNames d2.name)
+                            if (!null? isArr2) {
+                                def elem2@(optional):string (get constArrayElemType d2.name)
+                                def et2:string "int"
+                                if (!null? elem2) { et2 = (unwrap elem2) }
+                                def tmpName:string (("_boot_" + d2.name))
+                                this.emitLine((("def " + tmpName) + ":[" + et2) + "]")
+                                if (d2.init) {
+                                    def arr:TSNode (unwrap d2.init)
+                                    if (arr.nodeType == "ArrayExpression") {
+                                        def n 0
+                                        while (n < (array_length arr.children)) {
+                                            def el:TSNode (itemAt arr.children n)
+                                            def ev:string (this.emitValueExpr(el et2))
+                                            this.emitLine(((("push " + tmpName) + " ") + ev))
+                                            n = (n + 1)
+                                        }
+                                    }
+                                }
+                                this.emitLine((d2.name + (" = " + tmpName)))
+                            }
+                            def dep2@(optional):boolean (get moduleConstDeferred d2.name)
+                            if (!null? dep2) {
+                                if (d2.init) {
+                                    def init3:TSNode (unwrap d2.init)
+                                    def ct3:string (this.exprType(init3))
+                                    def rhs3:string (this.emitExpr(init3 ct3))
+                                    this.emitLine((d2.name + (" = " + rhs3)))
+                                }
+                            }
+                        }
+                        m = (m + 1)
+                    }
+                }
+                k = (k + 1)
+            }
+            this.indentLevel = 0
+            inModuleSingletonCtor = false
+            this.emitLine("    }")
+        }
+        this.emitLine("}")
     }
 
     fn emitConstFields:void (ast:TSNode) {
@@ -1816,6 +2141,7 @@ class TSEmitter {
         }
         def body:TSNode (unwrap node.body)
         this.indentLevel = 2
+        this.emitModuleLocalIfNeeded(body)
         if (inUpdateFn) {
             this.prescanStateVar(body)
             this.collectEntityReads(body)
@@ -2935,10 +3261,22 @@ class TSEmitter {
         if (t == "Identifier") {
             def ca@(optional):boolean (get constArrayNames node.name)
             if (!null? ca) {
+                if (inModuleSingletonCtor) {
+                    return node.name
+                }
+                if ((strlen moduleSingletonClass) > 0) {
+                    return (this.moduleConstAccess(node.name))
+                }
                 return ("(this." + node.name) + "())"
             }
             def cst@(optional):string (get constScalarTypes node.name)
             if (!null? cst) {
+                if (inModuleSingletonCtor) {
+                    return node.name
+                }
+                if ((strlen moduleSingletonClass) > 0) {
+                    return (this.moduleConstAccess(node.name))
+                }
                 return ("this." + node.name)
             }
             if (expected == "double") {

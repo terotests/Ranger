@@ -23,7 +23,6 @@ class deflectFromPaddleRetNative {
 }
 
 class GeneratedGameScript {
-
     fn sprites:[SpriteDefNative] () {
         def list:[SpriteDefNative]
         def d0:SpriteDefNative (new SpriteDefNative)

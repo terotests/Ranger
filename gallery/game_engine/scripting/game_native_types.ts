@@ -11,6 +11,10 @@
 
 /** Fixed-width integer fields (Ranger `int`). */
 type i32 = number;
+type u8 = number;
+type u16 = number;
+type u32 = number;
 
 /** Floating-point physics / positions (Ranger `double`). */
 type f64 = number;
+type f32 = number;

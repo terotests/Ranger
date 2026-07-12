@@ -61,6 +61,8 @@ class TSEmitterMain {
         def buf:buffer (buffer_read_file dir base)
         def src:string (buffer_to_string buf)
 
+        def moduleId:string (TSEmitterMain.moduleIdFromPath(inputFile stem))
+
         def lexer:TSLexer (new TSLexer(src))
         def tokens:[Token] (lexer.tokenize())
         def parser:TSParserSimple (new TSParserSimple())
@@ -69,6 +71,7 @@ class TSEmitterMain {
         def ast:TSNode (parser.parseProgram())
 
         def emitter:TSEmitter (new TSEmitter())
+        emitter.setModuleSingletonId(moduleId)
         def code:string (emitter.emitProgram(ast))
 
         if (toStdout) {
@@ -109,5 +112,37 @@ class TSEmitterMain {
             i = (i + 1)
         }
         return best
+    }
+
+    ; One singleton per compiled module/file. index.tsx -> parent folder (ylos2).
+    ; `<name>.game` stems collapse to `<name>` (pong.game.tsx -> pong).
+    sfn moduleIdFromPath:string (path:string stem:string) {
+        def base:string (TSEmitterMain.stripGameSuffix(stem))
+        if ((base != "index") && (base != "game")) {
+            return base
+        }
+        def slash:int (TSEmitterMain.lastSlash(path))
+        if (slash < 0) {
+            return base
+        }
+        def parent:string (substring path 0 slash)
+        def slash2:int (TSEmitterMain.lastSlash(parent))
+        if (slash2 < 0) {
+            return base
+        }
+        return (substring parent (slash2 + 1) (strlen parent))
+    }
+
+    ; Drop a trailing ".game" from a stem so pong.game -> pong.
+    sfn stripGameSuffix:string (stem:string) {
+        def n:int (strlen stem)
+        if (n <= 5) {
+            return stem
+        }
+        def tail:string (substring stem (n - 5) n)
+        if (tail == ".game") {
+            return (substring stem 0 (n - 5))
+        }
+        return stem
     }
 }

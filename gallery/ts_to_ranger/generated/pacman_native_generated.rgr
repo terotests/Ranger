@@ -38,7 +38,7 @@ class resetAfterHurtRetNative {
     def hurtTimer:double 0.0
 }
 
-class GeneratedGameScript {
+class PacmanNativeGameModule @singleton(true) {
     def TILE:int 14
     def STEP_MS:double 220.0
     def GHOST_STEP_MS:double 220.0
@@ -60,236 +60,238 @@ class GeneratedGameScript {
     def CH_POWER:int 79
     def CH_START:int 83
     def CH_GHOST:int 71
-
-    fn MAZE_FLAT:[int] () {
-        def out:[int]
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 79
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 35
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 79
-        push out 35
-        push out 35
-        push out 46
-        push out 35
-        push out 35
-        push out 35
-        push out 46
-        push out 35
-        push out 35
-        push out 46
-        push out 35
-        push out 46
-        push out 35
-        push out 35
-        push out 46
-        push out 35
-        push out 35
-        push out 35
-        push out 46
-        push out 35
-        push out 35
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 35
-        push out 35
-        push out 46
-        push out 35
-        push out 35
-        push out 35
-        push out 46
-        push out 35
-        push out 46
-        push out 35
-        push out 35
-        push out 35
-        push out 46
-        push out 35
-        push out 46
-        push out 35
-        push out 35
-        push out 35
-        push out 46
-        push out 35
-        push out 35
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 35
-        push out 46
-        push out 46
-        push out 83
-        push out 46
-        push out 46
-        push out 35
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 35
-        push out 35
-        push out 46
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 46
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 46
-        push out 35
-        push out 35
-        push out 71
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 35
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 71
-        push out 46
-        push out 46
-        push out 35
-        push out 35
-        push out 46
-        push out 35
-        push out 35
-        push out 35
-        push out 46
-        push out 35
-        push out 46
-        push out 35
-        push out 35
-        push out 35
-        push out 46
-        push out 35
-        push out 46
-        push out 35
-        push out 35
-        push out 35
-        push out 46
-        push out 35
-        push out 35
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 46
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        push out 35
-        return out
+    def MAZE_FLAT:[int]
+    def TUNNEL_ROWS:[int]
+    Constructor () {
+        def _boot_MAZE_FLAT:[int]
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 79
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 79
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 83
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 71
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 71
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 46
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        push _boot_MAZE_FLAT 35
+        MAZE_FLAT = _boot_MAZE_FLAT
+        def _boot_TUNNEL_ROWS:[int]
+        push _boot_TUNNEL_ROWS 3
+        push _boot_TUNNEL_ROWS 9
+        TUNNEL_ROWS = _boot_TUNNEL_ROWS
     }
+}
 
-    fn TUNNEL_ROWS:[int] () {
-        def out:[int]
-        push out 3
-        push out 9
-        return out
-    }
-
+class GeneratedGameScript {
     fn mazeAt:int (col:int row:int) {
-        return (itemAt (this.MAZE_FLAT()) ((row * this.COLS) + col))
+        def _mod:PacmanNativeGameModule (PacmanNativeGameModule.__singleton())
+        return (itemAt _mod.MAZE_FLAT ((row * _mod.COLS) + col))
     }
 
     fn isTunnelRow:int (row:int) {
+        def _mod:PacmanNativeGameModule (PacmanNativeGameModule.__singleton())
         def i:int (0)
-        while ((i < (array_length (this.TUNNEL_ROWS())))) {
-            if (((itemAt (this.TUNNEL_ROWS()) i) == row)) {
+        while ((i < (array_length _mod.TUNNEL_ROWS))) {
+            if (((itemAt _mod.TUNNEL_ROWS i) == row)) {
                 return 1
             }
             i = (i + 1)
@@ -298,11 +300,12 @@ class GeneratedGameScript {
     }
 
     fn wrapCol:int (col:int row:int) {
+        def _mod:PacmanNativeGameModule (PacmanNativeGameModule.__singleton())
         if (((this.isTunnelRow(row)) == 1)) {
             if ((col < 0)) {
-                return (this.COLS - 1)
+                return (_mod.COLS - 1)
             }
-            if ((col >= this.COLS)) {
+            if ((col >= _mod.COLS)) {
                 return 0
             }
         }
@@ -310,28 +313,29 @@ class GeneratedGameScript {
     }
 
     fn isWall:int (col:int row:int) {
+        def _mod:PacmanNativeGameModule (PacmanNativeGameModule.__singleton())
         if ((row < 0)) {
             return 1
         }
-        if ((row >= this.ROWS)) {
+        if ((row >= _mod.ROWS)) {
             return 1
         }
         if (((this.isTunnelRow(row)) == 1)) {
             if ((col < 0)) {
                 return 0
             }
-            if ((col >= this.COLS)) {
+            if ((col >= _mod.COLS)) {
                 return 0
             }
         } {
             if ((col < 0)) {
                 return 1
             }
-            if ((col >= this.COLS)) {
+            if ((col >= _mod.COLS)) {
                 return 1
             }
         }
-        if (((this.mazeAt(col row)) == this.CH_WALL)) {
+        if (((this.mazeAt(col row)) == _mod.CH_WALL)) {
             return 1
         }
         return 0
@@ -345,11 +349,13 @@ class GeneratedGameScript {
     }
 
     fn tileX:int (col:int) {
-        return ((this.ORIGIN_X + (col * this.TILE)) + (to_int (this.TILE / 2)))
+        def _mod:PacmanNativeGameModule (PacmanNativeGameModule.__singleton())
+        return ((_mod.ORIGIN_X + (col * _mod.TILE)) + (to_int (_mod.TILE / 2)))
     }
 
     fn tileY:int (row:int) {
-        return ((this.ORIGIN_Y + (row * this.TILE)) + (to_int (this.TILE / 2)))
+        def _mod:PacmanNativeGameModule (PacmanNativeGameModule.__singleton())
+        return ((_mod.ORIGIN_Y + (row * _mod.TILE)) + (to_int (_mod.TILE / 2)))
     }
 
     fn dirDelta:dirDeltaRetNative (dir:int) {
@@ -545,17 +551,18 @@ class GeneratedGameScript {
     }
 
     fn buildPlaySprites:[SpriteDefNative] () {
+        def _mod:PacmanNativeGameModule (PacmanNativeGameModule.__singleton())
         def list:[SpriteDefNative]
         def row:int (0)
-        while ((row < this.ROWS)) {
+        while ((row < _mod.ROWS)) {
             def col:int (0)
-            while ((col < this.COLS)) {
-                if (((this.mazeAt(col row)) == this.CH_WALL)) {
+            while ((col < _mod.COLS)) {
+                if (((this.mazeAt(col row)) == _mod.CH_WALL)) {
                     def tmp8:SpriteDefNative (new SpriteDefNative)
                     tmp8.id = (this.wallId(col row))
                     tmp8.kind = "rect"
-                    tmp8.w = this.TILE
-                    tmp8.h = this.TILE
+                    tmp8.w = _mod.TILE
+                    tmp8.h = _mod.TILE
                     tmp8.r = 32
                     tmp8.g = 56
                     tmp8.b = 190
@@ -568,11 +575,11 @@ class GeneratedGameScript {
         def dotIdx:int (0)
         def powIdx:int (0)
         row = 0
-        while ((row < this.ROWS)) {
+        while ((row < _mod.ROWS)) {
             def col:int (0)
-            while ((col < this.COLS)) {
+            while ((col < _mod.COLS)) {
                 def ch:int ((this.mazeAt(col row)))
-                if ((ch == this.CH_DOT)) {
+                if ((ch == _mod.CH_DOT)) {
                     def tmp9:SpriteDefNative (new SpriteDefNative)
                     tmp9.id = (this.dotId(dotIdx))
                     tmp9.kind = "circle"
@@ -583,7 +590,7 @@ class GeneratedGameScript {
                     push list tmp9
                     dotIdx = (dotIdx + 1)
                 }
-                if ((ch == this.CH_POWER)) {
+                if ((ch == _mod.CH_POWER)) {
                     def tmp10:SpriteDefNative (new SpriteDefNative)
                     tmp10.id = (this.powerId(powIdx))
                     tmp10.kind = "circle"
@@ -609,7 +616,7 @@ class GeneratedGameScript {
         tmp11.p1 = 2
         push list tmp11
         def gi:int (0)
-        while ((gi < this.GHOST_COUNT)) {
+        while ((gi < _mod.GHOST_COUNT)) {
             def tmp12:SpriteDefNative (new SpriteDefNative)
             tmp12.id = (this.ghostId(gi))
             tmp12.kind = "ghost"
@@ -630,12 +637,13 @@ class GeneratedGameScript {
     }
 
     fn makeDotCol:[int] () {
+        def _mod:PacmanNativeGameModule (PacmanNativeGameModule.__singleton())
         def arr:[int]
         def row:int (0)
-        while ((row < this.ROWS)) {
+        while ((row < _mod.ROWS)) {
             def col:int (0)
-            while ((col < this.COLS)) {
-                if (((this.mazeAt(col row)) == this.CH_DOT)) {
+            while ((col < _mod.COLS)) {
+                if (((this.mazeAt(col row)) == _mod.CH_DOT)) {
                     push arr col
                 }
                 col = (col + 1)
@@ -646,12 +654,13 @@ class GeneratedGameScript {
     }
 
     fn makeDotRow:[int] () {
+        def _mod:PacmanNativeGameModule (PacmanNativeGameModule.__singleton())
         def arr:[int]
         def row:int (0)
-        while ((row < this.ROWS)) {
+        while ((row < _mod.ROWS)) {
             def col:int (0)
-            while ((col < this.COLS)) {
-                if (((this.mazeAt(col row)) == this.CH_DOT)) {
+            while ((col < _mod.COLS)) {
+                if (((this.mazeAt(col row)) == _mod.CH_DOT)) {
                     push arr row
                 }
                 col = (col + 1)
@@ -662,12 +671,13 @@ class GeneratedGameScript {
     }
 
     fn makeDotAlive:[int] () {
+        def _mod:PacmanNativeGameModule (PacmanNativeGameModule.__singleton())
         def arr:[int]
         def row:int (0)
-        while ((row < this.ROWS)) {
+        while ((row < _mod.ROWS)) {
             def col:int (0)
-            while ((col < this.COLS)) {
-                if (((this.mazeAt(col row)) == this.CH_DOT)) {
+            while ((col < _mod.COLS)) {
+                if (((this.mazeAt(col row)) == _mod.CH_DOT)) {
                     push arr 1
                 }
                 col = (col + 1)
@@ -678,12 +688,13 @@ class GeneratedGameScript {
     }
 
     fn makePowerCol:[int] () {
+        def _mod:PacmanNativeGameModule (PacmanNativeGameModule.__singleton())
         def arr:[int]
         def row:int (0)
-        while ((row < this.ROWS)) {
+        while ((row < _mod.ROWS)) {
             def col:int (0)
-            while ((col < this.COLS)) {
-                if (((this.mazeAt(col row)) == this.CH_POWER)) {
+            while ((col < _mod.COLS)) {
+                if (((this.mazeAt(col row)) == _mod.CH_POWER)) {
                     push arr col
                 }
                 col = (col + 1)
@@ -694,12 +705,13 @@ class GeneratedGameScript {
     }
 
     fn makePowerRow:[int] () {
+        def _mod:PacmanNativeGameModule (PacmanNativeGameModule.__singleton())
         def arr:[int]
         def row:int (0)
-        while ((row < this.ROWS)) {
+        while ((row < _mod.ROWS)) {
             def col:int (0)
-            while ((col < this.COLS)) {
-                if (((this.mazeAt(col row)) == this.CH_POWER)) {
+            while ((col < _mod.COLS)) {
+                if (((this.mazeAt(col row)) == _mod.CH_POWER)) {
                     push arr row
                 }
                 col = (col + 1)
@@ -710,12 +722,13 @@ class GeneratedGameScript {
     }
 
     fn makePowerAlive:[int] () {
+        def _mod:PacmanNativeGameModule (PacmanNativeGameModule.__singleton())
         def arr:[int]
         def row:int (0)
-        while ((row < this.ROWS)) {
+        while ((row < _mod.ROWS)) {
             def col:int (0)
-            while ((col < this.COLS)) {
-                if (((this.mazeAt(col row)) == this.CH_POWER)) {
+            while ((col < _mod.COLS)) {
+                if (((this.mazeAt(col row)) == _mod.CH_POWER)) {
                     push arr 1
                 }
                 col = (col + 1)
@@ -726,11 +739,12 @@ class GeneratedGameScript {
     }
 
     fn findStart:findStartRetNative () {
+        def _mod:PacmanNativeGameModule (PacmanNativeGameModule.__singleton())
         def row:int (0)
-        while ((row < this.ROWS)) {
+        while ((row < _mod.ROWS)) {
             def col:int (0)
-            while ((col < this.COLS)) {
-                if (((this.mazeAt(col row)) == this.CH_START)) {
+            while ((col < _mod.COLS)) {
+                if (((this.mazeAt(col row)) == _mod.CH_START)) {
                     def tmp13:findStartRetNative (new findStartRetNative)
                     tmp13.col = col
                     tmp13.row = row
@@ -747,12 +761,13 @@ class GeneratedGameScript {
     }
 
     fn ghostSpawnCol:int (gi:int) {
+        def _mod:PacmanNativeGameModule (PacmanNativeGameModule.__singleton())
         def n:int (0)
         def row:int (0)
-        while ((row < this.ROWS)) {
+        while ((row < _mod.ROWS)) {
             def col:int (0)
-            while ((col < this.COLS)) {
-                if (((this.mazeAt(col row)) == this.CH_GHOST)) {
+            while ((col < _mod.COLS)) {
+                if (((this.mazeAt(col row)) == _mod.CH_GHOST)) {
                     if ((n == gi)) {
                         return col
                     }
@@ -766,12 +781,13 @@ class GeneratedGameScript {
     }
 
     fn ghostSpawnRow:int (gi:int) {
+        def _mod:PacmanNativeGameModule (PacmanNativeGameModule.__singleton())
         def n:int (0)
         def row:int (0)
-        while ((row < this.ROWS)) {
+        while ((row < _mod.ROWS)) {
             def col:int (0)
-            while ((col < this.COLS)) {
-                if (((this.mazeAt(col row)) == this.CH_GHOST)) {
+            while ((col < _mod.COLS)) {
+                if (((this.mazeAt(col row)) == _mod.CH_GHOST)) {
                     if ((n == gi)) {
                         return row
                     }
@@ -785,9 +801,10 @@ class GeneratedGameScript {
     }
 
     fn makeGhostCol:[int] () {
+        def _mod:PacmanNativeGameModule (PacmanNativeGameModule.__singleton())
         def arr:[int]
         def gi:int (0)
-        while ((gi < this.GHOST_COUNT)) {
+        while ((gi < _mod.GHOST_COUNT)) {
             push arr ((this.ghostSpawnCol(gi)))
             gi = (gi + 1)
         }
@@ -795,9 +812,10 @@ class GeneratedGameScript {
     }
 
     fn makeGhostRow:[int] () {
+        def _mod:PacmanNativeGameModule (PacmanNativeGameModule.__singleton())
         def arr:[int]
         def gi:int (0)
-        while ((gi < this.GHOST_COUNT)) {
+        while ((gi < _mod.GHOST_COUNT)) {
             push arr ((this.ghostSpawnRow(gi)))
             gi = (gi + 1)
         }
@@ -846,11 +864,12 @@ class GeneratedGameScript {
     }
 
     fn placeWalls:void (entities:[string:EntityPoseNative]) {
+        def _mod:PacmanNativeGameModule (PacmanNativeGameModule.__singleton())
         def row:int (0)
-        while ((row < this.ROWS)) {
+        while ((row < _mod.ROWS)) {
             def col:int (0)
-            while ((col < this.COLS)) {
-                if (((this.mazeAt(col row)) == this.CH_WALL)) {
+            while ((col < _mod.COLS)) {
+                if (((this.mazeAt(col row)) == _mod.CH_WALL)) {
                     def tmp15:EntityPoseNative (new EntityPoseNative)
                     tmp15.x = (to_double (this.tileX(col)))
                     tmp15.y = (to_double (this.tileY(row)))
@@ -969,8 +988,9 @@ class GeneratedGameScript {
     }
 
     fn placeGhosts:void (entities:[string:EntityPoseNative] ghostCol:[int] ghostRow:[int] ghostDir:[int] ghostFrac:[int] ghostEyes:[int] powered:int frameSeed:int) {
+        def _mod:PacmanNativeGameModule (PacmanNativeGameModule.__singleton())
         def i:int (0)
-        while ((i < this.GHOST_COUNT)) {
+        while ((i < _mod.GHOST_COUNT)) {
             def pos:EntityPoseNative ((this.lerpIfMoving((itemAt ghostCol i) (itemAt ghostRow i) (itemAt ghostFrac i) (itemAt ghostDir i))))
             def tmp22:EntityPoseNative (new EntityPoseNative)
             tmp22.x = pos.x
@@ -996,6 +1016,7 @@ class GeneratedGameScript {
     }
 
     fn initState:NativeGameState () {
+        def _mod:PacmanNativeGameModule (PacmanNativeGameModule.__singleton())
         def start:findStartRetNative ((this.findStart()))
         def dotCol:[int] ((this.makeDotCol()))
         def dotRow:[int] ((this.makeDotRow()))
@@ -1019,9 +1040,9 @@ class GeneratedGameScript {
         set s.intArrays "nextDir" (this.pack1(0))
         set s.numbers "pacFrac" 0.0
         set s.intArrays "frameSeed" (this.pack1(0))
-        set s.intArrays "globalMode" (this.pack1(this.MODE_SCATTER))
-        set s.numbers "modeTimer" this.SCATTER_MS
-        set s.numbers "ghostReleaseMs" this.START_GHOST_DELAY_MS
+        set s.intArrays "globalMode" (this.pack1(_mod.MODE_SCATTER))
+        set s.numbers "modeTimer" _mod.SCATTER_MS
+        set s.numbers "ghostReleaseMs" _mod.START_GHOST_DELAY_MS
         set s.intArrays "dotCol" dotCol
         set s.intArrays "dotRow" dotRow
         set s.intArrays "dotAlive" dotAlive
@@ -1156,6 +1177,7 @@ class GeneratedGameScript {
     }
 
     fn pickGhostDir:int (gCol:int gRow:int gDir:int gi:int pacCol:int pacRow:int pacDir:int globalMode:int powered:int) {
+        def _mod:PacmanNativeGameModule (PacmanNativeGameModule.__singleton())
         def opts:[int] ((this.listDirsFor(gCol gRow gDir 1)))
         if (((array_length opts) == 0)) {
             def rev:[int] ((this.listDirsFor(gCol gRow gDir 0)))
@@ -1181,7 +1203,7 @@ class GeneratedGameScript {
         }
         def tc:int ((this.scatterCol(gi)))
         def tr:int ((this.scatterRow(gi)))
-        if ((globalMode == this.MODE_CHASE)) {
+        if ((globalMode == _mod.MODE_CHASE)) {
             tc = (this.chaseTargetCol(gi pacCol pacRow pacDir gCol gRow))
             tr = (this.chaseTargetRow(gi pacCol pacRow pacDir gCol gRow))
         }
@@ -1201,10 +1223,11 @@ class GeneratedGameScript {
     }
 
     fn stepGhostAt:stepGhostAtRetNative (gi:int gCol:int gRow:int gDir:int gEyes:int pacCol:int pacRow:int pacDir:int globalMode:int powered:int) {
+        def _mod:PacmanNativeGameModule (PacmanNativeGameModule.__singleton())
         if ((gEyes == 1)) {
             def spCol:int ((this.ghostSpawnCol(gi)))
             def spRow:int ((this.ghostSpawnRow(gi)))
-            def dir:int ((this.pickGhostDir(gCol gRow gDir gi spCol spRow 1 this.MODE_CHASE 0)))
+            def dir:int ((this.pickGhostDir(gCol gRow gDir gi spCol spRow 1 _mod.MODE_CHASE 0)))
             def mv:tryMoveRetNative ((this.tryMove(gCol gRow dir)))
             if ((mv.ok == 1)) {
                 gCol = mv.col
@@ -1239,9 +1262,10 @@ class GeneratedGameScript {
     }
 
     fn hitGhostAtGrid:int (pacCol:int pacRow:int pacFrac:int pacDir:int ghostCol:[int] ghostRow:[int] ghostFrac:[int] ghostDir:[int] ghostEyes:[int]) {
+        def _mod:PacmanNativeGameModule (PacmanNativeGameModule.__singleton())
         def pacPos:EntityPoseNative ((this.lerpIfMoving(pacCol pacRow pacFrac pacDir)))
         def i:int (0)
-        while ((i < this.GHOST_COUNT)) {
+        while ((i < _mod.GHOST_COUNT)) {
             if (((itemAt ghostEyes i) == 0)) {
                 def pos:EntityPoseNative ((this.lerpIfMoving((itemAt ghostCol i) (itemAt ghostRow i) (itemAt ghostFrac i) (itemAt ghostDir i))))
                 def dx:double ((this.absVal((pacPos.x - pos.x))))
@@ -1268,9 +1292,10 @@ class GeneratedGameScript {
     }
 
     fn resetAfterHurt:resetAfterHurtRetNative (ghostCol:[int] ghostRow:[int] ghostDir:[int] ghostFrac:[int] ghostEyes:[int]) {
+        def _mod:PacmanNativeGameModule (PacmanNativeGameModule.__singleton())
         def start:findStartRetNative ((this.findStart()))
         def gi:int (0)
-        while ((gi < this.GHOST_COUNT)) {
+        while ((gi < _mod.GHOST_COUNT)) {
             set ghostCol gi (this.ghostSpawnCol(gi))
             set ghostRow gi (this.ghostSpawnRow(gi))
             set ghostDir gi 3
@@ -1282,11 +1307,12 @@ class GeneratedGameScript {
         tmp26.pacCol = start.col
         tmp26.pacRow = start.row
         tmp26.pacFrac = 0.0
-        tmp26.hurtTimer = this.HURT_MS
+        tmp26.hurtTimer = _mod.HURT_MS
         return tmp26
     }
 
     fn update:NativeGameState (props:UpdatePropsNative) {
+        def _mod:PacmanNativeGameModule (PacmanNativeGameModule.__singleton())
         def s:NativeGameState (props.state)
         if (((this.at1((unwrap (get s.intArrays "gameOver")))) == 1)) {
             if (props.action) {
@@ -1354,14 +1380,14 @@ class GeneratedGameScript {
             }
         } {
             if ((modeTimer <= 0.0)) {
-                if ((globalMode == this.MODE_SCATTER)) {
-                    globalMode = this.MODE_CHASE
+                if ((globalMode == _mod.MODE_SCATTER)) {
+                    globalMode = _mod.MODE_CHASE
                     (this.put1(globalModeArr globalMode))
-                    modeTimer = this.CHASE_MS
+                    modeTimer = _mod.CHASE_MS
                 } {
-                    globalMode = this.MODE_SCATTER
+                    globalMode = _mod.MODE_SCATTER
                     (this.put1(globalModeArr globalMode))
-                    modeTimer = this.SCATTER_MS
+                    modeTimer = _mod.SCATTER_MS
                 }
             }
         }
@@ -1370,7 +1396,7 @@ class GeneratedGameScript {
                 pacDir = (this.tryTurn(pacCol pacRow pacDir nextDir))
                 (this.put1(pacDirArr pacDir))
             }
-            pacFrac = (pacFrac + ((1000.0 * dt) / this.STEP_MS))
+            pacFrac = (pacFrac + ((1000.0 * dt) / _mod.STEP_MS))
             while ((pacFrac >= 1000.0)) {
                 pacDir = (this.tryTurn(pacCol pacRow pacDir nextDir))
                 (this.put1(pacDirArr pacDir))
@@ -1386,7 +1412,7 @@ class GeneratedGameScript {
                     score = (score + eat.score)
                     if ((eat.powered == 1)) {
                         powered = 1.0
-                        powerLeft = this.POWER_MS
+                        powerLeft = _mod.POWER_MS
                     }
                 } {
                     pacFrac = 0.0
@@ -1394,8 +1420,8 @@ class GeneratedGameScript {
             }
             if ((ghostReleaseMs <= 0.0)) {
                 def gi:int (0)
-                while ((gi < this.GHOST_COUNT)) {
-                    set ghostFrac gi (to_int ((to_double (itemAt ghostFrac gi)) + ((1000.0 * dt) / this.GHOST_STEP_MS)))
+                while ((gi < _mod.GHOST_COUNT)) {
+                    set ghostFrac gi (to_int ((to_double (itemAt ghostFrac gi)) + ((1000.0 * dt) / _mod.GHOST_STEP_MS)))
                     while (((itemAt ghostFrac gi) >= 1000)) {
                         def beforeCol:int ((itemAt ghostCol gi))
                         def beforeRow:int ((itemAt ghostRow gi))
@@ -1445,7 +1471,7 @@ class GeneratedGameScript {
                             nextDir = 0
                             pacFrac = reset.pacFrac
                             hurtTimer = reset.hurtTimer
-                            ghostReleaseMs = (this.HURT_MS + this.RESPAWN_GHOST_DELAY_MS)
+                            ghostReleaseMs = (_mod.HURT_MS + _mod.RESPAWN_GHOST_DELAY_MS)
                             powered = 0.0
                             powerLeft = 0.0
                         }
