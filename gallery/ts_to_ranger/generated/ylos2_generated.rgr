@@ -739,7 +739,7 @@ class GeneratedGameScript {
 
     fn scaleX:double (v:double) {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
-        return ((v * (to_double (this.worldW()))) / _mod.BASE_W)
+        return ((v * (to_double (this.worldW()))) / (to_double _mod.BASE_W))
     }
 
     fn scalePlatform:scalePlatformRetNative (p:BASE_PLATFORMSElemNative) {
@@ -1321,7 +1321,7 @@ class GeneratedGameScript {
         set entities (("mp" + mpi) + "t") tmp79
         def tmp80:EntityPoseNative (new EntityPoseNative)
         tmp80.x = cx
-        tmp80.y = ((screenY + _mod.PLAT_EDGE_H) + (to_double (midH / 2)))
+        tmp80.y = ((screenY + (to_double _mod.PLAT_EDGE_H)) + (to_double (midH / 2)))
         tmp80.visible = 1
         tmp80.r = _mod.PLAT_COLOR_BODY.r
         tmp80.g = _mod.PLAT_COLOR_BODY.g
@@ -1357,7 +1357,7 @@ class GeneratedGameScript {
             def p:scalePlatformRetNative ((itemAt platforms i))
             (host.bgFillRect(p.x p.y p.w p.h _mod.PLAT_COLOR_BODY.r _mod.PLAT_COLOR_BODY.g _mod.PLAT_COLOR_BODY.b))
             (host.bgFillRect(p.x p.y p.w _mod.PLAT_EDGE_H _mod.PLAT_COLOR_TOP.r _mod.PLAT_COLOR_TOP.g _mod.PLAT_COLOR_TOP.b))
-            (host.bgFillRect(p.x ((p.y + (to_double p.h)) - _mod.PLAT_EDGE_H) p.w _mod.PLAT_EDGE_H _mod.PLAT_COLOR_BOTTOM.r _mod.PLAT_COLOR_BOTTOM.g _mod.PLAT_COLOR_BOTTOM.b))
+            (host.bgFillRect(p.x ((p.y + (to_double p.h)) - (to_double _mod.PLAT_EDGE_H)) p.w _mod.PLAT_EDGE_H _mod.PLAT_COLOR_BOTTOM.r _mod.PLAT_COLOR_BOTTOM.g _mod.PLAT_COLOR_BOTTOM.b))
             i = (i + 1)
         }
         def flagX:double ((this.scaleX((to_double 240))))
@@ -2150,7 +2150,7 @@ class GeneratedGameScript {
                 }
             }
         }
-        if ((lead >= _mod.WORLD_H)) {
+        if ((lead >= (to_double _mod.WORLD_H))) {
             lead = (this.goalFeetY())
         }
         def cam:double ((lead - 120.0))
@@ -2435,7 +2435,7 @@ class GeneratedGameScript {
         def finishMs:double ((pl.finishMs + dt))
         def finishPulseMs:i32 (pl.finishPulseMs)
         def bursts:i32 (pl.celebrateBursts)
-        if ((finishMs <= _mod.FINISH_PARTICLE_MS)) {
+        if ((finishMs <= (to_double _mod.FINISH_PARTICLE_MS))) {
             finishPulseMs = (finishPulseMs + dt)
             if ((finishPulseMs >= _mod.CELEBRATE_INTERVAL)) {
                 finishPulseMs = 0
@@ -2450,10 +2450,10 @@ class GeneratedGameScript {
         def face:i32 (pl.face)
         def y:double (feetY)
         def animTick:double ((pl.animTick + dt))
-        if ((finishMs < _mod.FINISH_CELEBRATE_MS)) {
+        if ((finishMs < (to_double _mod.FINISH_CELEBRATE_MS))) {
             y = (feetY - (to_double (this.celebrateYOffset((to_int animTick)))))
         } {
-            if ((finishMs < _mod.FINISH_PHASE_DONE)) {
+            if ((finishMs < (to_double _mod.FINISH_PHASE_DONE))) {
                 def walk:tickGoalWalkRetNative ((this.tickGoalWalk(pl dt)))
                 x = walk.x
                 face = walk.face

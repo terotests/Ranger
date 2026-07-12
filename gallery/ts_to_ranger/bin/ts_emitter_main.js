@@ -8245,13 +8245,23 @@ class TSEmitter  {
       }
       const cst = ( this.constScalarTypes.hasOwnProperty(node.name) ? this.constScalarTypes[node.name] : undefined );
       if ( (typeof(cst) !== "undefined" && cst != null )  ) {
+        const cstv = cst;
+        let caccess = node.name;
         if ( this.inModuleSingletonCtor ) {
-          return node.name;
+          caccess = node.name;
+        } else {
+          if ( (this.moduleSingletonClass.length) > 0 ) {
+            caccess = this.moduleConstAccess(node.name);
+          } else {
+            caccess = "this." + node.name;
+          }
         }
-        if ( (this.moduleSingletonClass.length) > 0 ) {
-          return this.moduleConstAccess(node.name);
+        if ( expected == "double" ) {
+          if ( cstv == "int" ) {
+            return ("(to_double " + caccess) + ")";
+          }
         }
-        return "this." + node.name;
+        return caccess;
       }
       if ( this.isEngineGlobal(node.name) ) {
         if ( expected == "double" ) {

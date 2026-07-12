@@ -3622,13 +3622,24 @@ class TSEmitter {
             }
             def cst@(optional):string (get constScalarTypes node.name)
             if (!null? cst) {
+                def cstv:string (unwrap cst)
+                def caccess:string node.name
                 if (inModuleSingletonCtor) {
-                    return node.name
+                    caccess = node.name
+                } {
+                    if ((strlen moduleSingletonClass) > 0) {
+                        caccess = (this.moduleConstAccess(node.name))
+                    } {
+                        caccess = ("this." + node.name)
+                    }
                 }
-                if ((strlen moduleSingletonClass) > 0) {
-                    return (this.moduleConstAccess(node.name))
+                ; Coerce an int const used in a double context.
+                if (expected == "double") {
+                    if (cstv == "int") {
+                        return ("(to_double " + caccess) + ")"
+                    }
                 }
-                return ("this." + node.name)
+                return caccess
             }
             ; Ambient engine globals resolve through the injected host object.
             if (this.isEngineGlobal(node.name)) {
