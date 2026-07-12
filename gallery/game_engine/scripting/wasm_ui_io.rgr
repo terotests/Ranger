@@ -1,0 +1,430 @@
+; ==============================================================================
+; wasm_ui_io — read + validate the guest's RGU1 UI document and build an EVG
+; tree from it. Offsets/layout match wasm/wasm_ui_abi.h.
+; ==============================================================================
+;
+; The guest owns the UI document; the host owns EVG + rendering. The host reads
+; the whole block once (bulk-copies it out of WASM linear memory), treats it as
+; UNTRUSTED data and validates it, then builds an EVGElement tree that the
+; existing GameHudBlitter lays out and blits. No host pointers or EVG objects
+; ever cross into the guest.
+;
+; Flow:
+;   doc.loadFromWasm(handle)     ; native: pull ptr/size/revision, copy bytes
+;   if (doc.revisionChanged(prev)) { root = builder.build(doc) ; ... }
+;
+; Snapshot-first: the guest bumps `revision` only when content changes, so the
+; host can skip re-reading + rebuilding identical frames.
+; ==============================================================================
+
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGColor.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../wasm_runtime.rgr"
+
+; ---- RGU1 constants (mirror wasm/wasm_ui_abi.h) ------------------------------
+; magic 'RGU1' little-endian = 0x31554752 = 826425682
+; node kinds
+;   VIEW=1 TEXT=2 IMAGE=3 PROGRESS_BAR=4 BUTTON=5 SPACER=6
+; property keys
+;   TEXT=1 BACKGROUND=2 COLOR=3 FONT_SIZE=4 FONT_FAMILY=5
+;   WIDTH=10 HEIGHT=11 PADDING=12 MARGIN=13
+;   FLEX=20 FLEX_DIRECTION=21 ALIGN_ITEMS=22 JUSTIFY=23
+;   IMAGE_RESOURCE=30 VALUE=40 MAX_VALUE=41
+
+class WasmUiDoc {
+    def bytes:[int]
+    def length:int 0
+    def valid:boolean false
+
+    def revision:int 0
+    def rootId:int 0
+    def nodeOffset:int 0
+    def nodeCount:int 0
+    def propOffset:int 0
+    def propCount:int 0
+    def stringOffset:int 0
+    def stringSize:int 0
+
+    ; ---- little-endian readers over the host-owned byte copy ----------------
+    fn u8:int (off:int) {
+        if (off < 0) { return 0 }
+        if (off >= length) { return 0 }
+        return (itemAt bytes off)
+    }
+
+    fn u16:int (off:int) {
+        return ((this.u8(off)) + ((this.u8(off + 1)) * 256))
+    }
+
+    ; Safe for all small unsigned fields (offsets/counts/ids/revision, whose top
+    ; byte is 0). Colors are read per-byte via colorAt to avoid int32 overflow.
+    fn u32:int (off:int) {
+        def b0 (this.u8(off))
+        def b1 (this.u8(off + 1))
+        def b2 (this.u8(off + 2))
+        def b3 (this.u8(off + 3))
+        return (b0 + ((b1 * 256) + ((b2 * 65536) + (b3 * 16777216))))
+    }
+
+    ; ---- load ---------------------------------------------------------------
+    ; Native path: pull the block out of WASM linear memory in one pass.
+    ; (In the es6 dev build the wasm_* operators are stubs and return 0.)
+    fn loadFromWasm:boolean (handle:int) {
+        def base (wasm_call_i32 handle "rg_ui_ptr" 0 0 0 0 0 0)
+        def size (wasm_call_i32 handle "rg_ui_size" 0 0 0 0 0 0)
+        if (base <= 0) { return false }
+        if (size <= 0) { return false }
+        def buf:[int]
+        def w 0
+        def words (to_int (size / 4))
+        while (w < words) {
+            def v (wasm_mem_i32 handle (base + (w * 4)))
+            push buf (bit_and v 255)
+            push buf (bit_and (bit_shr v 8) 255)
+            push buf (bit_and (bit_shr v 16) 255)
+            push buf (bit_and (bit_shr v 24) 255)
+            w = (w + 1)
+        }
+        this.loadBytes(buf size)
+        return valid
+    }
+
+    ; Testable entry point: parse + validate an already-copied byte block.
+    fn loadBytes:void (b:[int] n:int) {
+        bytes = b
+        length = n
+        this.parse()
+    }
+
+    ; ---- node / property accessors ------------------------------------------
+    fn nBase:int (i:int) {
+        return (nodeOffset + (i * 32))
+    }
+    fn nodeId:int (i:int) {
+        return (this.u32((this.nBase(i))))
+    }
+    fn nodeParent:int (i:int) {
+        return (this.u32((this.nBase(i)) + 4))
+    }
+    fn nodeKind:int (i:int) {
+        return (this.u16((this.nBase(i)) + 8))
+    }
+    fn nodeFirstProp:int (i:int) {
+        return (this.u32((this.nBase(i)) + 12))
+    }
+    fn nodePropCount:int (i:int) {
+        return (this.u16((this.nBase(i)) + 16))
+    }
+    fn nodeOrder:int (i:int) {
+        return (this.u16((this.nBase(i)) + 18))
+    }
+
+    fn pBase:int (p:int) {
+        return (propOffset + (p * 16))
+    }
+    fn propKey:int (p:int) {
+        return (this.u16((this.pBase(p))))
+    }
+    fn propType:int (p:int) {
+        return (this.u8((this.pBase(p)) + 2))
+    }
+    fn propValueA:int (p:int) {
+        return (this.u32((this.pBase(p)) + 4))
+    }
+    fn propValueB:int (p:int) {
+        return (this.u32((this.pBase(p)) + 8))
+    }
+
+    ; String property: value_a = offset into string table, value_b = length.
+    fn propString:string (p:int) {
+        def a (this.propValueA(p))
+        def n (this.propValueB(p))
+        def s ""
+        def k 0
+        while (k < n) {
+            def code (this.u8((stringOffset + a) + k))
+            s = (+ s (strfromcode code))
+            k = (k + 1)
+        }
+        return s
+    }
+
+    ; Color property: value_a is 0xRRGGBBAA, stored little-endian as [A,B,G,R].
+    fn colorAt:EVGColor (p:int) {
+        def base ((this.pBase(p)) + 4)
+        def a (this.u8(base))
+        def b (this.u8(base + 1))
+        def g (this.u8(base + 2))
+        def r (this.u8(base + 3))
+        return (EVGColor.rgba(r g b ((to_double a) / 255.0)))
+    }
+
+    fn indexOfId:int (id:int) {
+        def i 0
+        while (i < nodeCount) {
+            if ((this.nodeId(i)) == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; ---- validation: treat the block as untrusted -------------------------
+    fn parse:void () {
+        valid = false
+        if (length < 48) { return }
+        if ((this.u32(0)) != 827672402) { return }   ; magic 'RGU1' = 0x31554752
+        if ((this.u16(4)) != 1) { return }            ; major version
+
+        revision = (this.u32(8))
+        rootId = (this.u32(12))
+        nodeOffset = (this.u32(16))
+        nodeCount = (this.u32(20))
+        propOffset = (this.u32(24))
+        propCount = (this.u32(28))
+        stringOffset = (this.u32(32))
+        stringSize = (this.u32(36))
+
+        ; sane caps + every region inside the block
+        if (nodeCount > 1024) { return }
+        if (propCount > 8192) { return }
+        if ((nodeOffset + (nodeCount * 32)) > length) { return }
+        if ((propOffset + (propCount * 16)) > length) { return }
+        if ((stringOffset + stringSize) > length) { return }
+        if (nodeCount < 1) { return }
+        if ((this.indexOfId(rootId)) < 0) { return }
+
+        if ((this.validateNodes()) == false) { return }
+        valid = true
+    }
+
+    fn validateNodes:boolean () {
+        def i 0
+        while (i < nodeCount) {
+            def id (this.nodeId(i))
+            if (id == 0) { return false }
+            ; unique id (no earlier node shares it)
+            def j 0
+            while (j < i) {
+                if ((this.nodeId(j)) == id) { return false }
+                j = (j + 1)
+            }
+            ; property run stays inside the property table
+            def fp (this.nodeFirstProp(i))
+            def pc (this.nodePropCount(i))
+            if ((fp + pc) > propCount) { return false }
+            ; parent is root-sentinel(0) or an existing node; chain is acyclic
+            def parent (this.nodeParent(i))
+            if (parent != 0) {
+                if ((this.indexOfId(parent)) < 0) { return false }
+                def cur i
+                def steps 0
+                def done false
+                while (done == false) {
+                    def pp (this.nodeParent(cur))
+                    if (pp == 0) {
+                        done = true
+                    } {
+                        def ci (this.indexOfId(pp))
+                        if (ci < 0) { return false }
+                        cur = ci
+                        steps = (steps + 1)
+                        if (steps > nodeCount) { return false }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    fn revisionChanged:boolean (prev:int) {
+        if (revision == prev) {
+            return false
+        }
+        return true
+    }
+}
+
+; ==============================================================================
+; WasmUiEvgBuilder — flat RGU1 doc -> EVGElement tree.
+; PROGRESS_BAR is expanded into a track View + a fill View so the existing
+; GameHudBlitter (which only understands View backgrounds + Text) renders it
+; unchanged.
+; ==============================================================================
+class WasmUiEvgBuilder {
+
+    fn pxUnit:EVGUnit (v:int) {
+        def dv (to_double v)
+        def u (EVGUnit.px(dv))
+        u.pixels = dv
+        return u
+    }
+
+    fn build:EVGElement (doc:WasmUiDoc) {
+        if (doc.valid == false) {
+            return (EVGElement.createDiv())
+        }
+        def rootIdx (doc.indexOfId(doc.rootId))
+        if (rootIdx < 0) {
+            return (EVGElement.createDiv())
+        }
+        return (this.buildNode(doc rootIdx))
+    }
+
+    ; Build only the subtree rooted at the node with the given id (e.g. one
+    ; player's column). Returns an empty div if the id is missing.
+    fn buildFromId:EVGElement (doc:WasmUiDoc nodeId:int) {
+        if (doc.valid == false) {
+            return (EVGElement.createDiv())
+        }
+        def idx (doc.indexOfId(nodeId))
+        if (idx < 0) {
+            return (EVGElement.createDiv())
+        }
+        return (this.buildNode(doc idx))
+    }
+
+    fn buildNode:EVGElement (doc:WasmUiDoc i:int) {
+        def kind (doc.nodeKind(i))
+        def el:EVGElement (this.makeElement(doc i kind))
+        def kids:[int] (this.childrenOf(doc i))
+        def c 0
+        while (c < (array_length kids)) {
+            def ci (itemAt kids c)
+            el.addChild((this.buildNode(doc ci)))
+            c = (c + 1)
+        }
+        return el
+    }
+
+    ; Child node indices whose parent id == this node's id, sorted by child_order.
+    fn childrenOf:[int] (doc:WasmUiDoc i:int) {
+        def id (doc.nodeId(i))
+        def kids:[int]
+        def k 0
+        while (k < doc.nodeCount) {
+            if ((doc.nodeParent(k)) == id) {
+                push kids k
+            }
+            k = (k + 1)
+        }
+        def n (array_length kids)
+        def a 0
+        while (a < n) {
+            def b 0
+            while (b < (n - 1)) {
+                def x (itemAt kids b)
+                def y (itemAt kids (b + 1))
+                if ((doc.nodeOrder(x)) > (doc.nodeOrder(y))) {
+                    set kids b y
+                    set kids (b + 1) x
+                }
+                b = (b + 1)
+            }
+            a = (a + 1)
+        }
+        return kids
+    }
+
+    fn makeElement:EVGElement (doc:WasmUiDoc i:int kind:int) {
+        if (kind == 4) {
+            return (this.makeProgressBar(doc i))
+        }
+        def el (EVGElement.createDiv())
+        this.applyProps(doc i el)
+        return el
+    }
+
+    ; Apply the node's contiguous property run to a plain View/Text/Spacer.
+    fn applyProps:void (doc:WasmUiDoc i:int el:EVGElement) {
+        def fp (doc.nodeFirstProp(i))
+        def pc (doc.nodePropCount(i))
+        def p 0
+        while (p < pc) {
+            def idx (fp + p)
+            def key (doc.propKey(idx))
+            if (key == 1) {                 ; TEXT
+                el.textContent = (doc.propString(idx))
+            }
+            if (key == 2) {                 ; BACKGROUND
+                el.backgroundColor = (doc.colorAt(idx))
+            }
+            if (key == 3) {                 ; COLOR (text foreground)
+                el.color = (doc.colorAt(idx))
+            }
+            if (key == 4) {                 ; FONT_SIZE
+                el.fontSize = (this.pxUnit((doc.propValueA(idx))))
+            }
+            if (key == 10) {                ; WIDTH
+                el.width = (this.pxUnit((doc.propValueA(idx))))
+            }
+            if (key == 11) {                ; HEIGHT
+                el.height = (this.pxUnit((doc.propValueA(idx))))
+            }
+            if (key == 12) {                ; PADDING (all sides)
+                def pad (this.pxUnit((doc.propValueA(idx))))
+                el.paddingTop = pad
+                el.paddingRight = pad
+                el.paddingBottom = pad
+                el.paddingLeft = pad
+            }
+            if (key == 20) {                ; FLEX
+                el.flex = (to_double (doc.propValueA(idx)))
+            }
+            if (key == 21) {                ; FLEX_DIRECTION (0=row,1=column)
+                if ((doc.propValueA(idx)) == 0) {
+                    el.flexDirection = "row"
+                } {
+                    el.flexDirection = "column"
+                }
+            }
+            p = (p + 1)
+        }
+    }
+
+    ; Expand a progress bar: track View (background) with a fill View (color)
+    ; sized value/max of the track width.
+    fn makeProgressBar:EVGElement (doc:WasmUiDoc i:int) {
+        def value 0
+        def maxv 100
+        def w 100
+        def h 12
+        def fill (EVGColor.rgba(60 200 110 1.0))
+        def track (EVGColor.rgba(30 40 40 1.0))
+
+        def fp (doc.nodeFirstProp(i))
+        def pc (doc.nodePropCount(i))
+        def p 0
+        while (p < pc) {
+            def idx (fp + p)
+            def key (doc.propKey(idx))
+            if (key == 40) { value = (doc.propValueA(idx)) }     ; VALUE
+            if (key == 41) { maxv = (doc.propValueA(idx)) }      ; MAX_VALUE
+            if (key == 10) { w = (doc.propValueA(idx)) }         ; WIDTH
+            if (key == 11) { h = (doc.propValueA(idx)) }         ; HEIGHT
+            if (key == 3)  { fill = (doc.colorAt(idx)) }         ; COLOR (fill)
+            if (key == 2)  { track = (doc.colorAt(idx)) }        ; BACKGROUND (track)
+            p = (p + 1)
+        }
+        if (maxv < 1) { maxv = 1 }
+        if (value < 0) { value = 0 }
+        if (value > maxv) { value = maxv }
+
+        def el (EVGElement.createDiv())
+        el.width = (this.pxUnit(w))
+        el.height = (this.pxUnit(h))
+        el.backgroundColor = track
+        el.flexDirection = "row"
+
+        def fillW (to_int ((w * value) / maxv))
+        def fillEl (EVGElement.createDiv())
+        fillEl.width = (this.pxUnit(fillW))
+        fillEl.height = (this.pxUnit(h))
+        fillEl.backgroundColor = fill
+        el.addChild(fillEl)
+        return el
+    }
+}
