@@ -87,30 +87,103 @@ static mut OIL_WAS_P2: bool = false;
 static mut EVENT_WRITE: i32 = 0;
 
 // ---- RGU1 UI document (retained-mode HUD) ------------------------------
+// The HUD is authored from data the guest already sees each frame: per-player
+// collision counts + last-collision type (from the contact stream the host
+// writes into the ABI before update()), computed surface grip, and boost.
 static mut UI_BUF: [u8; ui::UI_SIZE] = [0u8; ui::UI_SIZE];
 static mut UI_REV: u32 = 0;
-static mut UI_LAST_SCORE: i32 = -1;
-static mut UI_LAST_PCT: i32 = -1;
+static mut UI_LAST_SIG: i32 = -1;
 
-// Race start/finish in world units (see init()/ROAD); progress runs 0..100.
-const UI_START_Y: i32 = 6000 - 140;
+const HIT_FLASH_MS: i32 = 260;
+
+// Per-player HUD state.
+static mut HITS_P1: i32 = 0;
+static mut HITS_P2: i32 = 0;
+static mut LAST_HIT_P1: i32 = 0; // 0 none,1 wall,2 bar,3 car,4 cone
+static mut LAST_HIT_P2: i32 = 0;
+static mut FLASH_P1: i32 = 0; // ms remaining on the crash flash
+static mut FLASH_P2: i32 = 0;
+static mut GRIP_P1: i32 = 0; // 0..1000
+static mut GRIP_P2: i32 = 0;
+
+/// Record a player collision for the HUD (called from process_contacts).
+fn hud_note_hit(player: i32, other: i32) {
+    let kind = if is_wall(other) {
+        1
+    } else if is_bar(other) {
+        2
+    } else if is_traffic(other) {
+        3
+    } else if is_cone(other) {
+        4
+    } else {
+        0
+    };
+    if kind == 0 {
+        return;
+    }
+    unsafe {
+        // Cone (kind 4) is a light bump: show the label but don't count it as a
+        // hit or flash the counter red.
+        if player == BODY_P1 {
+            LAST_HIT_P1 = kind;
+            if kind != 4 {
+                HITS_P1 += 1;
+                FLASH_P1 = HIT_FLASH_MS;
+            }
+        } else if player == BODY_P2 {
+            LAST_HIT_P2 = kind;
+            if kind != 4 {
+                HITS_P2 += 1;
+                FLASH_P2 = HIT_FLASH_MS;
+            }
+        }
+    }
+}
+
+/// A small signature of everything the HUD renders, so revision only bumps when
+/// the displayed content actually changes (snapshot-first).
+fn hud_signature(p1: ui::PlayerHud, p2: ui::PlayerHud) -> i32 {
+    let mut s: i32 = 17;
+    let mut mix = |v: i32| {
+        s = s.wrapping_mul(31).wrapping_add(v);
+    };
+    mix(p1.hits);
+    mix(p1.last_hit);
+    mix(p1.grip / 10);
+    mix(p1.boost as i32);
+    mix(p1.flash as i32);
+    mix(p2.hits);
+    mix(p2.last_hit);
+    mix(p2.grip / 10);
+    mix(p2.boost as i32);
+    mix(p2.flash as i32);
+    s
+}
 
 /// Rebuild the HUD document only when its rendered content changed, bumping
 /// `revision` so the host can skip identical frames.
 fn ui_refresh() {
-    let score = rd_i32(OFF_SCORE);
-    let cur = body_y(BODY_P1) / FP;
-    let span = UI_START_Y - FINISH_Y;
-    let mut pct = 0;
-    if span > 0 {
-        pct = clamp((UI_START_Y - cur) * 100 / span, 0, 100);
-    }
     unsafe {
-        if score != UI_LAST_SCORE || pct != UI_LAST_PCT {
-            UI_LAST_SCORE = score;
-            UI_LAST_PCT = pct;
+        let p1 = ui::PlayerHud {
+            hits: HITS_P1,
+            last_hit: LAST_HIT_P1,
+            grip: GRIP_P1,
+            boost: AIR_P1 > 0,
+            flash: FLASH_P1 > 0,
+        };
+        let p2 = ui::PlayerHud {
+            hits: HITS_P2,
+            last_hit: LAST_HIT_P2,
+            grip: GRIP_P2,
+            boost: AIR_P2 > 0,
+            flash: FLASH_P2 > 0,
+        };
+        let sig = hud_signature(p1, p2);
+        if sig != UI_LAST_SIG {
+            UI_LAST_SIG = sig;
             UI_REV += 1;
-            ui::build_hud_into(&mut UI_BUF, score, pct, UI_REV);
+            ui::build_hud_into(&mut UI_BUF, p1, p2, UI_REV);
         }
     }
 }
@@ -624,8 +697,15 @@ pub extern "C" fn init() {
         OIL_WAS_P1 = false;
         OIL_WAS_P2 = false;
         UI_REV = 0;
-        UI_LAST_SCORE = -1;
-        UI_LAST_PCT = -1;
+        UI_LAST_SIG = -1;
+        HITS_P1 = 0;
+        HITS_P2 = 0;
+        LAST_HIT_P1 = 0;
+        LAST_HIT_P2 = 0;
+        FLASH_P1 = 0;
+        FLASH_P2 = 0;
+        GRIP_P1 = 0;
+        GRIP_P2 = 0;
     }
 
     let (sx, _) = road_at((6000 - 140) * FP);
@@ -743,6 +823,7 @@ fn process_contacts() {
                 (-1, -1)
             };
             if player >= 0 {
+                hud_note_hit(player, other);
                 if is_wall(other) || is_bar(other) || is_traffic(other) {
                     hits += 1;
                     let imp = imp_fp as f64 / FP as f64;
@@ -857,6 +938,10 @@ pub extern "C" fn update() {
     }
     let p1_grip = surface_grip_for_player(BODY_P1, body_x(BODY_P1), body_y(BODY_P1));
     let p2_grip = surface_grip_for_player(BODY_P2, body_x(BODY_P2), body_y(BODY_P2));
+    unsafe {
+        GRIP_P1 = p1_grip;
+        GRIP_P2 = p2_grip;
+    }
     write_control(BODY_P1, p_steer, p_th, p_br, p1_grip);
     write_control(BODY_P2, p2_steer, p2_th, p2_br, p2_grip);
 
@@ -876,6 +961,8 @@ pub extern "C" fn update() {
         RAMP_CD_P2 = decay_timer(RAMP_CD_P2, dt);
         AIR_P1 = decay_timer(AIR_P1, dt);
         AIR_P2 = decay_timer(AIR_P2, dt);
+        FLASH_P1 = decay_timer(FLASH_P1, dt);
+        FLASH_P2 = decay_timer(FLASH_P2, dt);
     }
 
     let mut imp_extra = rd_i32(OFF_IMPULSE_CNT);

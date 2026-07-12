@@ -3,9 +3,9 @@
 //! `wasm/wasm_ui_abi.h`). The guest owns the document; the host owns EVG and
 //! rendering. No host pointers or EVG objects ever cross into the guest.
 //!
-//! Phase 1 (read-only HUD): the guest rewrites the whole document whenever the
-//! rendered content changes and bumps `revision`; the host validates the block
-//! as untrusted data, then builds an EVG tree from it.
+//! HUD content is authored entirely from data the guest already sees each
+//! frame (collision contacts, computed grip, boost) — proving a WASM game can
+//! drive dynamic, multi-colored text through the EVG pipeline.
 
 // ---- ABI constants (mirror wasm/wasm_ui_abi.h) -------------------------
 pub const UI_MAGIC: u32 = 0x3155_4752; // 'RGU1' little-endian
@@ -58,9 +58,6 @@ const P_VALUE_C: usize = 12;
 // node kinds
 pub const VIEW: u16 = 1;
 pub const TEXT: u16 = 2;
-pub const IMAGE: u16 = 3;
-pub const PROGRESS_BAR: u16 = 4;
-pub const SPACER: u16 = 6;
 
 // property types
 const T_I32: u8 = 1;
@@ -73,19 +70,29 @@ const K_TEXT: u16 = 1;
 const K_BACKGROUND: u16 = 2;
 const K_COLOR: u16 = 3;
 const K_FONT_SIZE: u16 = 4;
-const K_WIDTH: u16 = 10;
-const K_HEIGHT: u16 = 11;
 const K_PADDING: u16 = 12;
-const K_FLEX: u16 = 20;
 const K_FLEX_DIRECTION: u16 = 21;
-const K_VALUE: u16 = 40;
-const K_MAX_VALUE: u16 = 41;
 
 // flex-direction enum values
 pub const DIR_ROW: u32 = 0;
 pub const DIR_COLUMN: u32 = 1;
 
 const FLAG_VALID: u32 = 1;
+
+// ---- HUD colors (0xRRGGBBAA) ------------------------------------------
+const C_P1: u32 = 0x4C8C_FFFF; // blue  (player 1 tag / car)
+const C_P2: u32 = 0xFF5A_44FF; // red   (player 2 tag / car)
+const C_WHITE: u32 = 0xFFFF_FFFF;
+const C_HITFLASH: u32 = 0xFF30_30FF; // red flash right after a crash
+const C_WALL: u32 = 0xB0B0_B0FF; // gray
+const C_BAR: u32 = 0x40D0_FFFF; // cyan
+const C_CAR: u32 = 0xFF90_28FF; // orange
+const C_CONE: u32 = 0xFFD0_30FF; // yellow
+const C_GRIP_HI: u32 = 0x40D0_60FF; // green
+const C_GRIP_MID: u32 = 0xE0D0_40FF; // yellow
+const C_GRIP_LO: u32 = 0xFF60_40FF; // red
+const C_BOOST: u32 = 0x40E0_E0FF; // cyan
+const C_PANEL: u32 = 0x0000_00AA; // translucent black strip
 
 // ---- Byte writers ------------------------------------------------------
 fn wr_u32(buf: &mut [u8], off: usize, v: u32) {
@@ -100,21 +107,30 @@ fn wr_u16(buf: &mut [u8], off: usize, v: u16) {
     buf[off + 1] = ((v >> 8) & 0xff) as u8;
 }
 
+/// Per-player HUD state (all derived from data the guest already has).
+#[derive(Clone, Copy)]
+pub struct PlayerHud {
+    pub hits: i32,
+    pub last_hit: i32, // 0 none, 1 wall, 2 bar, 3 car(traffic), 4 cone
+    pub grip: i32,     // 0..1000
+    pub boost: bool,
+    pub flash: bool,   // recently crashed
+}
+
 /// Builder over a caller-owned buffer, so it is unit-testable without touching
-/// the guest's static UI block. Enforces the invariant that a node's
-/// properties are written contiguously, right after `node(...)`.
+/// the guest's static UI block. A node's properties are written contiguously,
+/// right after `node(...)`.
 pub struct Doc<'a> {
     buf: &'a mut [u8],
     node_count: usize,
     prop_count: usize,
     string_len: usize,
-    cur_node: usize, // byte offset of the node currently receiving properties
+    cur_node: usize,
     root_id: u32,
 }
 
 impl<'a> Doc<'a> {
     pub fn new(buf: &'a mut [u8]) -> Doc<'a> {
-        // Clear the header + table region so stale bytes never leak.
         for b in buf[0..UI_STRING_OFFSET].iter_mut() {
             *b = 0;
         }
@@ -128,8 +144,6 @@ impl<'a> Doc<'a> {
         }
     }
 
-    /// Append a node. The first node added becomes the document root.
-    /// Subsequent `prop_*` calls attach to this node until the next `node`.
     pub fn node(&mut self, id: u32, parent_id: u32, kind: u16, child_order: u16) -> &mut Self {
         if self.node_count >= UI_MAX_NODES {
             return self;
@@ -162,7 +176,6 @@ impl<'a> Doc<'a> {
         wr_u32(self.buf, pbase + P_VALUE_A, 0);
         wr_u32(self.buf, pbase + P_VALUE_B, 0);
         wr_u32(self.buf, pbase + P_VALUE_C, 0);
-        // Grow the current node's contiguous property run.
         let n = self.buf[self.cur_node + N_PROP_COUNT] as u16
             | ((self.buf[self.cur_node + N_PROP_COUNT + 1] as u16) << 8);
         wr_u16(self.buf, self.cur_node + N_PROP_COUNT, n + 1);
@@ -192,8 +205,6 @@ impl<'a> Doc<'a> {
     }
 
     pub fn prop_str(&mut self, key: u16, s: &[u8]) -> &mut Self {
-        // Reserve the property slot first so a full string table still leaves a
-        // consistent (empty) property rather than a dangling run.
         if let Some(p) = self.begin_prop(key, T_STRING) {
             let start = self.string_len;
             if start + s.len() <= UI_STRING_CAP {
@@ -209,7 +220,6 @@ impl<'a> Doc<'a> {
         self
     }
 
-    /// Finalize: write the header. `revision` is chosen by the caller.
     pub fn finish(&mut self, revision: u32) {
         wr_u32(self.buf, OFF_MAGIC, UI_MAGIC);
         wr_u16(self.buf, OFF_MAJOR, UI_MAJOR);
@@ -226,8 +236,7 @@ impl<'a> Doc<'a> {
     }
 }
 
-/// Format a non-negative integer into `out`, returning the used length.
-/// Allocation-free (the crate builds without an allocator).
+/// Format a non-negative integer, returning the used length. Allocation-free.
 fn u32_to_dec(mut v: u32, out: &mut [u8]) -> usize {
     if v == 0 {
         out[0] = b'0';
@@ -246,51 +255,95 @@ fn u32_to_dec(mut v: u32, out: &mut [u8]) -> usize {
     n
 }
 
-/// Build the HUD tree into `buf` with the given `revision`.
-/// Layout: a top row [ "SCORE <n>"  <spacer flex:1>  <progress bar> ].
-pub fn build_hud_into(buf: &mut [u8], score: i32, progress_pct: i32, revision: u32) {
-    let mut d = Doc::new(buf);
-
-    // root: row strip, translucent black, 8px padding, 28px tall
-    d.node(1, 0, VIEW, 0)
-        .prop_enum(K_FLEX_DIRECTION, DIR_ROW)
-        .prop_i32(K_PADDING, 8)
-        .prop_i32(K_HEIGHT, 28)
-        .prop_color(K_BACKGROUND, 0x0000_00AA);
-
-    // "SCORE <n>" label
-    let mut label = [0u8; 24];
-    let prefix = b"SCORE ";
+/// Append `prefix` then the decimal of `v` into `out`; returns used length.
+fn label_num(prefix: &[u8], v: i32, out: &mut [u8]) -> usize {
     let mut len = 0;
     for &c in prefix {
-        label[len] = c;
+        out[len] = c;
         len += 1;
     }
-    let sv = if score < 0 { 0 } else { score as u32 };
-    len += u32_to_dec(sv, &mut label[len..]);
-    d.node(2, 1, TEXT, 0)
-        .prop_str(K_TEXT, &label[0..len])
-        .prop_i32(K_FONT_SIZE, 14)
-        .prop_color(K_COLOR, 0xFFFF_FFFF);
+    let uv = if v < 0 { 0 } else { v as u32 };
+    len += u32_to_dec(uv, &mut out[len..]);
+    len
+}
 
-    // flexible spacer pushes the bar to the right
-    d.node(3, 1, SPACER, 1).prop_i32(K_FLEX, 1);
+fn hit_label(kind: i32) -> &'static [u8] {
+    match kind {
+        1 => b"WALL",
+        2 => b"BAR",
+        3 => b"CAR",
+        4 => b"CONE",
+        _ => b"",
+    }
+}
 
-    // progress bar: fill color in COLOR, track in BACKGROUND
-    let pct = if progress_pct < 0 {
-        0
-    } else if progress_pct > 100 {
-        100
+fn hit_color(kind: i32) -> u32 {
+    match kind {
+        1 => C_WALL,
+        2 => C_BAR,
+        3 => C_CAR,
+        4 => C_CONE,
+        _ => C_WHITE,
+    }
+}
+
+fn grip_color(grip: i32) -> u32 {
+    if grip >= 650 {
+        C_GRIP_HI
+    } else if grip >= 350 {
+        C_GRIP_MID
     } else {
-        progress_pct
-    };
-    d.node(4, 1, PROGRESS_BAR, 2)
-        .prop_i32(K_VALUE, pct)
-        .prop_i32(K_MAX_VALUE, 100)
-        .prop_i32(K_WIDTH, 160)
-        .prop_i32(K_HEIGHT, 16)
-        .prop_color(K_COLOR, 0x38C8_6EFF)
-        .prop_color(K_BACKGROUND, 0x2030_28FF);
+        C_GRIP_LO
+    }
+}
+
+fn add_text(d: &mut Doc, id: u32, parent: u32, order: u16, s: &[u8], color: u32) {
+    d.node(id, parent, TEXT, order)
+        .prop_str(K_TEXT, s)
+        .prop_i32(K_FONT_SIZE, 8)
+        .prop_color(K_COLOR, color);
+}
+
+/// Build one player's vertical column: tag, HITS, last-collision, GRIP, BOOST.
+fn player_column(d: &mut Doc, col_id: u32, order: u16, tag: &[u8], tag_color: u32, p: PlayerHud) {
+    d.node(col_id, 1, VIEW, order)
+        .prop_enum(K_FLEX_DIRECTION, DIR_COLUMN)
+        .prop_i32(K_PADDING, 4);
+
+    let base = col_id + 1;
+    add_text(d, base, col_id, 0, tag, tag_color);
+
+    let mut hbuf = [0u8; 16];
+    let hlen = label_num(b"HITS ", p.hits, &mut hbuf);
+    let hcolor = if p.flash { C_HITFLASH } else { C_WHITE };
+    add_text(d, base + 1, col_id, 1, &hbuf[0..hlen], hcolor);
+
+    let lbl = hit_label(p.last_hit);
+    if !lbl.is_empty() {
+        add_text(d, base + 2, col_id, 2, lbl, hit_color(p.last_hit));
+    }
+
+    let mut gbuf = [0u8; 16];
+    let glen = label_num(b"GRIP ", p.grip / 10, &mut gbuf);
+    add_text(d, base + 3, col_id, 3, &gbuf[0..glen], grip_color(p.grip));
+
+    if p.boost {
+        add_text(d, base + 4, col_id, 4, b"BOOST", C_BOOST);
+    }
+}
+
+/// Build the full two-player HUD into `buf` with the given `revision`.
+/// Root is a horizontal strip holding the P1 and P2 columns.
+pub fn build_hud_into(buf: &mut [u8], p1: PlayerHud, p2: PlayerHud, revision: u32) {
+    let mut d = Doc::new(buf);
+
+    d.node(1, 0, VIEW, 0)
+        .prop_enum(K_FLEX_DIRECTION, DIR_ROW)
+        .prop_i32(K_PADDING, 4)
+        .prop_color(K_BACKGROUND, C_PANEL);
+
+    player_column(&mut d, 10, 0, b"P1", C_P1, p1);
+    player_column(&mut d, 20, 1, b"P2", C_P2, p2);
 
     d.finish(revision);
 }
@@ -309,63 +362,67 @@ mod tests {
         (buf[off] as u16) | ((buf[off + 1] as u16) << 8)
     }
 
-    #[test]
-    fn header_and_counts_roundtrip() {
-        let mut buf = [0u8; UI_SIZE];
-        build_hud_into(&mut buf, 1230, 73, 17);
+    fn sample(hits: i32, last: i32) -> PlayerHud {
+        PlayerHud { hits, last_hit: last, grip: 720, boost: false, flash: false }
+    }
 
+    #[test]
+    fn header_and_root() {
+        let mut buf = [0u8; UI_SIZE];
+        build_hud_into(&mut buf, sample(2, 1), sample(0, 0), 7);
         assert_eq!(rd_u32(&buf, OFF_MAGIC), UI_MAGIC);
-        assert_eq!(rd_u16(&buf, OFF_MAJOR), UI_MAJOR);
-        assert_eq!(rd_u32(&buf, OFF_REVISION), 17);
+        assert_eq!(rd_u32(&buf, OFF_REVISION), 7);
         assert_eq!(rd_u32(&buf, OFF_ROOT_ID), 1);
-        assert_eq!(rd_u32(&buf, OFF_NODE_OFFSET), UI_NODE_OFFSET as u32);
-        assert_eq!(rd_u32(&buf, OFF_NODE_COUNT), 4);
-        assert_eq!(rd_u32(&buf, OFF_PROP_OFFSET), UI_PROP_OFFSET as u32);
-        assert_eq!(rd_u32(&buf, OFF_FLAGS), FLAG_VALID);
+        assert_eq!(rd_u16(&buf, UI_NODE_OFFSET + N_KIND), VIEW);
     }
 
     #[test]
-    fn nodes_have_stable_ids_and_parents() {
+    fn both_columns_present_with_stable_ids() {
         let mut buf = [0u8; UI_SIZE];
-        build_hud_into(&mut buf, 0, 0, 1);
-        let node = |i: usize, off: usize| UI_NODE_OFFSET + i * UI_NODE_SIZE + off;
-
-        assert_eq!(rd_u32(&buf, node(0, N_ID)), 1);
-        assert_eq!(rd_u32(&buf, node(0, N_PARENT)), 0);
-        assert_eq!(rd_u16(&buf, node(0, N_KIND)), VIEW);
-
-        assert_eq!(rd_u32(&buf, node(1, N_ID)), 2);
-        assert_eq!(rd_u32(&buf, node(1, N_PARENT)), 1);
-        assert_eq!(rd_u16(&buf, node(1, N_KIND)), TEXT);
-
-        assert_eq!(rd_u32(&buf, node(3, N_ID)), 4);
-        assert_eq!(rd_u16(&buf, node(3, N_KIND)), PROGRESS_BAR);
+        build_hud_into(&mut buf, sample(2, 3), sample(1, 1), 1);
+        let mut saw_p1 = false;
+        let mut saw_p2 = false;
+        let n = rd_u32(&buf, OFF_NODE_COUNT) as usize;
+        for i in 0..n {
+            let id = rd_u32(&buf, UI_NODE_OFFSET + i * UI_NODE_SIZE + N_ID);
+            if id == 10 {
+                saw_p1 = true;
+            }
+            if id == 20 {
+                saw_p2 = true;
+            }
+        }
+        assert!(saw_p1 && saw_p2);
     }
 
     #[test]
-    fn score_text_lands_in_string_table() {
+    fn hits_label_lands_in_string_table() {
         let mut buf = [0u8; UI_SIZE];
-        build_hud_into(&mut buf, 42, 10, 1);
-
-        // node 2 (index 1) is the text node; read its first string property.
-        let nbase = UI_NODE_OFFSET + 1 * UI_NODE_SIZE;
-        let first_prop = rd_u32(&buf, nbase + N_FIRST_PROP) as usize;
-        let pbase = UI_PROP_OFFSET + first_prop * UI_PROP_SIZE;
-        assert_eq!(rd_u16(&buf, pbase + P_KEY), K_TEXT);
-        assert_eq!(buf[pbase + P_TYPE], T_STRING);
-        let soff = rd_u32(&buf, pbase + P_VALUE_A) as usize;
-        let slen = rd_u32(&buf, pbase + P_VALUE_B) as usize;
-        let s = &buf[UI_STRING_OFFSET + soff..UI_STRING_OFFSET + soff + slen];
-        assert_eq!(s, b"SCORE 42");
+        build_hud_into(&mut buf, sample(5, 1), sample(0, 0), 1);
+        // find the "HITS 5" text (P1 column tag=11, HITS=12) and read its string.
+        let n = rd_u32(&buf, OFF_NODE_COUNT) as usize;
+        let str_off = rd_u32(&buf, OFF_STRING_OFFSET) as usize;
+        let prop_off = rd_u32(&buf, OFF_PROP_OFFSET) as usize;
+        let mut found = false;
+        for i in 0..n {
+            let nb = UI_NODE_OFFSET + i * UI_NODE_SIZE;
+            if rd_u32(&buf, nb + N_ID) != 12 {
+                continue;
+            }
+            let fp = rd_u32(&buf, nb + N_FIRST_PROP) as usize;
+            let pb = prop_off + fp * UI_PROP_SIZE;
+            let a = rd_u32(&buf, pb + P_VALUE_A) as usize;
+            let l = rd_u32(&buf, pb + P_VALUE_B) as usize;
+            assert_eq!(&buf[str_off + a..str_off + a + l], b"HITS 5");
+            found = true;
+        }
+        assert!(found);
     }
 
     #[test]
-    fn integer_formatting() {
-        let mut out = [0u8; 10];
-        let n = u32_to_dec(0, &mut out);
-        assert_eq!(&out[..n], b"0");
-        let mut out = [0u8; 10];
-        let n = u32_to_dec(1230, &mut out);
-        assert_eq!(&out[..n], b"1230");
+    fn grip_color_thresholds() {
+        assert_eq!(grip_color(900), C_GRIP_HI);
+        assert_eq!(grip_color(500), C_GRIP_MID);
+        assert_eq!(grip_color(100), C_GRIP_LO);
     }
 }

@@ -673,10 +673,7 @@ class WasmPhysicsRunner {
         if (drawSparkles) {
             sparkles.draw(target)
         }
-        def drew:boolean false
-        if (hudBodyIdx == 0) {
-            drew = (this.drawWasmHudOn(target))
-        }
+        def drew:boolean (this.drawWasmHudOn(target))
         if (drew == false) {
             this.drawHudOn(target hudBodyIdx)
         }
