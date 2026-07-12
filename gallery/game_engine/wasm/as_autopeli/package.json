@@ -1,0 +1,12 @@
+{
+  "name": "as_autopeli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "asbuild": "asc assembly/index.ts --outFile build/logic.wasm --optimize --runtime minimal --exportRuntime false"
+  },
+  "devDependencies": {
+    "assemblyscript": "^0.27.0"
+  }
+}
