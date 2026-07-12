@@ -1145,11 +1145,11 @@ class GeneratedGameScript {
     }
 
     fn movingPlatformLayerSprite:SpriteDefNative (id:string w:int h:int color:PLAT_COLOR_BOTTOMConstNative) {
-        def rw:int ((w | 0))
+        def rw:int ((to_int (to_double w)))
         if ((rw < 12)) {
             rw = 12
         }
-        def rh:int ((h | 0))
+        def rh:int ((to_int (to_double h)))
         if ((rh < 1)) {
             rh = 1
         }

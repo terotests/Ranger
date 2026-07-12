@@ -8296,6 +8296,17 @@ class TSEmitter  {
     if ( op == "!==" ) {
       op = "!=";
     }
+    if ( op == "|" ) {
+      if ( typeof(node.right) != "undefined" ) {
+        const rn = node.right;
+        if ( rn.nodeType == "NumericLiteral" ) {
+          if ( rn.value == "0" ) {
+            const lx = this.emitExpr((node.left), "double");
+            return ("(to_int " + lx) + ")";
+          }
+        }
+      }
+    }
     let operandExpected = expected;
     if ( this.isComparisonOp(op) || this.isArithmeticOp(op) ) {
       operandExpected = this.numericCommon(node);

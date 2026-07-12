@@ -3665,6 +3665,18 @@ class TSEmitter {
         if (op == "!==") {
             op = "!="
         }
+        ; `x | 0` is the JS int-truncation idiom -> (to_int x).
+        if (op == "|") {
+            if (node.right) {
+                def rn:TSNode (unwrap node.right)
+                if (rn.nodeType == "NumericLiteral") {
+                    if (rn.value == "0") {
+                        def lx:string (this.emitExpr((unwrap node.left) "double"))
+                        return ("(to_int " + lx) + ")"
+                    }
+                }
+            }
+        }
         def operandExpected:string expected
         if ((this.isComparisonOp(op)) || (this.isArithmeticOp(op))) {
             operandExpected = (this.numericCommon(node))
