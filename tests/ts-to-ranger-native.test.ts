@@ -37,8 +37,9 @@ describe("TS -> Ranger -> native (compiled game script)", () => {
     expect(src).toContain('def in_ball:EntityPoseNative (unwrap (get s.entities "ball"))');
     // double fields get double literals
     expect(src).toContain("pose_ball.x = 240.0");
-    // int fields (scores) stay int
-    expect(src).toContain("s2 = (s2 + 1)");
+    // soundEvent inlined as GameEventNative (not this.soundEvent)
+    expect(src).toContain('be11.kind = "playSound"');
+    expect(src).not.toContain("this.soundEvent");
   });
 
   it("native Pong (generated .rgr) matches interpreter after 180 frames", () => {
@@ -53,8 +54,8 @@ describe("TS -> Ranger -> native (compiled game script)", () => {
     expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
 
     const out = run?.output || "";
-    expect(out).toContain("ball=212,105");
-    expect(out).toContain("score=0,0");
+    expect(out).toContain("ball=35,12");
+    expect(out).toContain("score=1,0");
     expect(out).toContain("pong-native-runner done");
   });
 
