@@ -81,6 +81,14 @@ class GameSpriteRenderer {
         gpuSheetOverlay = enabled
     }
 
+    fn beginGpuSpriteFrame:void (pw:int ph:int gpuMode:boolean) {
+        if (gpuMode) {
+            if (gpuSheetOverlay) {
+                gfx_gpu_sprites_begin pw ph
+            }
+        }
+    }
+
     fn clearSheetCache:void () {
         clear sheetCachePaths
         clear sheetCacheTpl

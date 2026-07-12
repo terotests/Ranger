@@ -15,7 +15,6 @@
 ; ==============================================================================
 
 Import "../framebuffer.rgr"
-Import "../gfx_sdl.rgr"
 Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
 Import "../../pdf_writer/src/jsx/EvalValue.rgr"
 Import "../../evg/EVGElement.rgr"
@@ -1290,11 +1289,7 @@ class GameRunner {
         if (profileEnabled) {
             tBg0 = (gfx_ticks_ms)
         }
-        if (options.gpuMode) {
-            if (spriteRenderer.gpuSheetOverlay) {
-                gfx_gpu_sprites_begin pw ph
-            }
-        }
+        spriteRenderer.beginGpuSpriteFrame(pw ph options.gpuMode)
         this.drawBackground()
         def tBg1:int 0
         if (profileEnabled) {
