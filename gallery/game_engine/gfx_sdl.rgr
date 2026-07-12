@@ -557,9 +557,63 @@ static GLint g_rgfx_gl_tex_uniform = 0;
 static GLuint g_rgfx_gl_vbo = 0;
 static GLuint g_rgfx_base_tex = 0;
 static GLuint g_rgfx_base_tex_r = 0;
+static int g_rgfx_base_tex_w = 0;
+static int g_rgfx_base_tex_h = 0;
+static int g_rgfx_base_tex_r_w = 0;
+static int g_rgfx_base_tex_r_h = 0;
 static int g_rgfx_fb_w = 0;
 static int g_rgfx_fb_h = 0;
 static std::vector<GLuint> g_rgfx_gl_textures;
+
+// GPU-side phase profiler (enable with RANGER_GFX_PROFILE=1). Splits the present
+// path into base-texture upload, sprite overlay, particle overlay, and buffer
+// swap (vsync/GPU wait) so ARM bottlenecks can be told apart from CPU update.
+static int g_rgfx_prof_enabled = -1;
+static Uint64 g_rgfx_prof_freq = 0;
+static double g_rgfx_prof_upload_ms = 0.0;
+static double g_rgfx_prof_sprite_ms = 0.0;
+static double g_rgfx_prof_particle_ms = 0.0;
+static double g_rgfx_prof_swap_ms = 0.0;
+static int g_rgfx_prof_frames = 0;
+
+static bool rgfx_prof_on() {
+    if (g_rgfx_prof_enabled < 0) {
+        const char* e = getenv(\"RANGER_GFX_PROFILE\");
+        g_rgfx_prof_enabled = (e != nullptr && e[0] != '\\0' && e[0] != '0') ? 1 : 0;
+        g_rgfx_prof_freq = SDL_GetPerformanceFrequency();
+    }
+    return g_rgfx_prof_enabled == 1;
+}
+
+static Uint64 rgfx_prof_now() {
+    return rgfx_prof_on() ? SDL_GetPerformanceCounter() : 0;
+}
+
+static double rgfx_prof_ms(Uint64 a, Uint64 b) {
+    if (g_rgfx_prof_freq == 0) { return 0.0; }
+    return (double) (b - a) * 1000.0 / (double) g_rgfx_prof_freq;
+}
+
+// Upload a full-frame RGBA image into a reused texture. Uses glTexSubImage2D once
+// the storage is allocated (avoids a per-frame realloc) and always sets
+// CLAMP_TO_EDGE, which GLES2 requires for NPOT textures like 480x270 panes
+// (default GL_REPEAT leaves the texture incomplete → black on the Pi).
+static void rgfx_upload_frame_tex(GLuint tex, int* allocW, int* allocH,
+    const uint8_t* pixels, int w, int h, GLint filter) {
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    if (*allocW == w && *allocH == h) {
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    } else {
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        *allocW = w;
+        *allocH = h;
+    }
+}
 
 struct RgfxGpuParticle {
     float x, y, size;
@@ -1065,12 +1119,11 @@ static void rgfx_gpu_blit_base(const uint8_t* pixels, int w, int h) {
     if (!g_rgfx_gpu_mode || pixels == nullptr || w <= 0 || h <= 0) { return; }
     if (g_rgfx_base_tex == 0) {
         glGenTextures(1, &g_rgfx_base_tex);
+        g_rgfx_base_tex_w = 0;
+        g_rgfx_base_tex_h = 0;
     }
-    glBindTexture(GL_TEXTURE_2D, g_rgfx_base_tex);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    rgfx_upload_frame_tex(g_rgfx_base_tex, &g_rgfx_base_tex_w, &g_rgfx_base_tex_h,
+        pixels, w, h, GL_NEAREST);
     rgfx_gpu_draw_quad_tex(g_rgfx_base_tex, 0.f, 0.f, (float) g_rgfx_fb_w, (float) g_rgfx_fb_h);
 }
 
@@ -1081,9 +1134,30 @@ static void rgfx_gpu_draw_texture(int texId, int x, int y, int tw, int th) {
     rgfx_gpu_draw_quad_tex(tex, (float) x, (float) y, (float) tw, (float) th);
 }
 
+static void rgfx_gpu_prof_report() {
+    if (!rgfx_prof_on()) { return; }
+    g_rgfx_prof_frames++;
+    if (g_rgfx_prof_frames < 180) { return; }
+    double f = (double) g_rgfx_prof_frames;
+    SDL_Log(\"[rgfx-prof] frames=%d | upload=%.2fms sprites=%.2fms particles=%.2fms swap=%.2fms /frame\",
+        g_rgfx_prof_frames,
+        g_rgfx_prof_upload_ms / f,
+        g_rgfx_prof_sprite_ms / f,
+        g_rgfx_prof_particle_ms / f,
+        g_rgfx_prof_swap_ms / f);
+    g_rgfx_prof_upload_ms = 0.0;
+    g_rgfx_prof_sprite_ms = 0.0;
+    g_rgfx_prof_particle_ms = 0.0;
+    g_rgfx_prof_swap_ms = 0.0;
+    g_rgfx_prof_frames = 0;
+}
+
 static void rgfx_gpu_finish_frame() {
     if (!g_rgfx_gpu_mode || g_rgfx_win == nullptr) { return; }
+    Uint64 t0 = rgfx_prof_now();
     SDL_GL_SwapWindow(g_rgfx_win);
+    if (rgfx_prof_on()) { g_rgfx_prof_swap_ms += rgfx_prof_ms(t0, SDL_GetPerformanceCounter()); }
+    rgfx_gpu_prof_report();
 }
 
 // GPU split present: upload each full-res pane to its own texture and scale it
@@ -1093,24 +1167,22 @@ static void rgfx_gpu_present_split(const uint8_t* left, const uint8_t* right, in
     if (!g_rgfx_gpu_mode || left == nullptr || right == nullptr || w <= 0 || h <= 0) { return; }
     rgfx_gpu_start_frame(w, h);
     const int halfW = g_rgfx_fb_w / 2;
-    if (g_rgfx_base_tex == 0) { glGenTextures(1, &g_rgfx_base_tex); }
-    glBindTexture(GL_TEXTURE_2D, g_rgfx_base_tex);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, left);
+    Uint64 tUp0 = rgfx_prof_now();
+    if (g_rgfx_base_tex == 0) { glGenTextures(1, &g_rgfx_base_tex); g_rgfx_base_tex_w = 0; g_rgfx_base_tex_h = 0; }
+    rgfx_upload_frame_tex(g_rgfx_base_tex, &g_rgfx_base_tex_w, &g_rgfx_base_tex_h, left, w, h, GL_LINEAR);
     rgfx_gpu_draw_quad_tex(g_rgfx_base_tex, 0.f, 0.f, (float) halfW, (float) g_rgfx_fb_h);
-    if (g_rgfx_base_tex_r == 0) { glGenTextures(1, &g_rgfx_base_tex_r); }
-    glBindTexture(GL_TEXTURE_2D, g_rgfx_base_tex_r);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, right);
+    if (g_rgfx_base_tex_r == 0) { glGenTextures(1, &g_rgfx_base_tex_r); g_rgfx_base_tex_r_w = 0; g_rgfx_base_tex_r_h = 0; }
+    rgfx_upload_frame_tex(g_rgfx_base_tex_r, &g_rgfx_base_tex_r_w, &g_rgfx_base_tex_r_h, right, w, h, GL_LINEAR);
     rgfx_gpu_draw_quad_tex(g_rgfx_base_tex_r, (float) halfW, 0.f, (float) (g_rgfx_fb_w - halfW), (float) g_rgfx_fb_h);
+    if (rgfx_prof_on()) { g_rgfx_prof_upload_ms += rgfx_prof_ms(tUp0, SDL_GetPerformanceCounter()); }
+    Uint64 tSpr0 = rgfx_prof_now();
     rgfx_gpu_sprites_draw_queue(1, 0, halfW, g_rgfx_fb_h);
     rgfx_gpu_sprites_draw_queue(2, halfW, g_rgfx_fb_w - halfW, g_rgfx_fb_h);
+    if (rgfx_prof_on()) { g_rgfx_prof_sprite_ms += rgfx_prof_ms(tSpr0, SDL_GetPerformanceCounter()); }
+    Uint64 tPart0 = rgfx_prof_now();
     rgfx_particles_draw_queue(1, 0, halfW, g_rgfx_fb_h);
     rgfx_particles_draw_queue(2, halfW, g_rgfx_fb_w - halfW, g_rgfx_fb_h);
+    if (rgfx_prof_on()) { g_rgfx_prof_particle_ms += rgfx_prof_ms(tPart0, SDL_GetPerformanceCounter()); }
     glViewport(0, 0, g_rgfx_fb_w, g_rgfx_fb_h);
     rgfx_gpu_finish_frame();
 }
@@ -1123,10 +1195,14 @@ static void rgfx_gl_cleanup() {
     if (g_rgfx_base_tex != 0) {
         glDeleteTextures(1, &g_rgfx_base_tex);
         g_rgfx_base_tex = 0;
+        g_rgfx_base_tex_w = 0;
+        g_rgfx_base_tex_h = 0;
     }
     if (g_rgfx_base_tex_r != 0) {
         glDeleteTextures(1, &g_rgfx_base_tex_r);
         g_rgfx_base_tex_r = 0;
+        g_rgfx_base_tex_r_w = 0;
+        g_rgfx_base_tex_r_h = 0;
     }
     if (g_rgfx_gl_vbo != 0) {
         glDeleteBuffers(1, &g_rgfx_gl_vbo);
@@ -1174,9 +1250,15 @@ static int rgfx_open(const std::string& title, int w, int h) {
 static void rgfx_present(const uint8_t* pixels, int w, int h) {
     if (g_rgfx_gpu_mode) {
         rgfx_gpu_start_frame(w, h);
+        Uint64 tUp0 = rgfx_prof_now();
         rgfx_gpu_blit_base(pixels, w, h);
+        if (rgfx_prof_on()) { g_rgfx_prof_upload_ms += rgfx_prof_ms(tUp0, SDL_GetPerformanceCounter()); }
+        Uint64 tSpr0 = rgfx_prof_now();
         rgfx_gpu_sprites_draw_overlay();
+        if (rgfx_prof_on()) { g_rgfx_prof_sprite_ms += rgfx_prof_ms(tSpr0, SDL_GetPerformanceCounter()); }
+        Uint64 tPart0 = rgfx_prof_now();
         rgfx_particles_draw_overlay();
+        if (rgfx_prof_on()) { g_rgfx_prof_particle_ms += rgfx_prof_ms(tPart0, SDL_GetPerformanceCounter()); }
         rgfx_gpu_finish_frame();
         return;
     }

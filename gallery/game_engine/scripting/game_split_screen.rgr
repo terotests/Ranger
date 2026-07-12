@@ -178,6 +178,11 @@ class SplitScreenHost {
             left.timeAccumulator = (left.timeAccumulator + dtMs)
             def steps:int 0
             while (left.timeAccumulator >= left.fixedStepMs) {
+                if (steps >= left.maxFixedSteps) {
+                    ; Spiral-of-death guard (see GameRunner.frameWithInput): keep
+                    ; both panes in lockstep by draining the shared backlog.
+                    left.timeAccumulator = 0
+                }
                 def step:int left.fixedStepMs
                 def tRight0:int 0
                 if (profileEnabled) {
