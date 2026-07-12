@@ -160,13 +160,20 @@ synthesized type and their fields survive.
 ### Progress
 
 `games/ylos2/index.tsx` emits with `@singleton` module + host routing +
-object-state fields. Compile errors: **1486 → ~671** (no pong/invaders/pacman
-regression). Remaining is a long tail of narrower emitter gaps:
+object-state fields. Compile errors: **1486 → ~464** (no pong/invaders/pacman
+regression). Landed inference/codegen improvements:
 
-- struct-element field completeness (`diamonds[i].taken`, `enemies[i].alive`)
-- the `x | 0` int-truncation idiom
-- empty array literal element typing in more positions
-- additional int/double coercions on mixed expressions
+- element structs synthesized from `local.push({...})` (helper-built arrays)
+- `[Elem]` inferred for array-literal helper returns
+- helper return types finalized before synth-struct fields (ordering)
+- `X[i].field` hoisted to typed `_atN` locals (Ranger rejects `(itemAt a i).field`)
+- `x | 0` int-truncation idiom, `if(obj)`/`if(arr[i])` truthiness
+- int→double coercion for calls and module consts in double context
+- `.tsx` `Player` interface annotated with `i32`/`f64` (unifies the struct)
+
+Remaining long tail: consistent struct annotation for the other structs
+(Enemy/Bullet/Collectible/Platform), a few more coercions, `bgFillRect` arg
+double/int, and empty-array typing in the last positions.
 
 Interpreter path works today: `npm run engine:game-sdl:run:ylos2` (Path A).
 
