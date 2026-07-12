@@ -1,0 +1,242 @@
+; ==============================================================================
+; as_abi_bridge — native RGW1/RGU1 ABI for the .as source engine.
+; ==============================================================================
+;
+; The interpreted .as game code calls flat bridge functions (abiWrite/abiRead,
+; uiReset/uiRoot/uiText/uiFinish, ...). Those calls fall through ComponentEngine
+; to this EvalNativeBridge, which reads/writes the SAME shared-memory layout the
+; compiled WASM guest uses — so one .as file runs interpreted here or compiled by
+; asc, against an identical ABI contract.
+; ==============================================================================
+
+Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class AsAbiBridge {
+    Extends(EvalNativeBridge)
+
+    def abi:[int]          ; RGW1 block (2560 bytes)
+    def ui:[int]           ; RGU1 block (8192 bytes)
+    def ready:boolean false
+
+    ; RGU1 builder state
+    def nodeCount:int 0
+    def propCount:int 0
+    def stringLen:int 0
+    def curNode:int 0
+    def rootId:int 0
+    def revision:int 0
+
+    fn ensure:void () {
+        if (ready) { return }
+        def zero:int 0
+        def i 0
+        while (i < 2560) {
+            push abi zero
+            i = (i + 1)
+        }
+        def j 0
+        while (j < 8192) {
+            push ui zero
+            j = (j + 1)
+        }
+        ready = true
+    }
+
+    ; ---- little-endian byte access ----
+    fn aw:void (off:int v:int) {
+        set abi off (bit_and v 255)
+        set abi (off + 1) (bit_and (bit_shr v 8) 255)
+        set abi (off + 2) (bit_and (bit_shr v 16) 255)
+        set abi (off + 3) (bit_and (bit_shr v 24) 255)
+    }
+    fn ar:int (off:int) {
+        def b0:int (itemAt abi off)
+        def b1:int (itemAt abi (off + 1))
+        def b2:int (itemAt abi (off + 2))
+        def b3:int (itemAt abi (off + 3))
+        return (b0 + ((b1 * 256) + ((b2 * 65536) + (b3 * 16777216))))
+    }
+    fn uw8:void (off:int v:int) {
+        set ui off (bit_and v 255)
+    }
+    fn uw16:void (off:int v:int) {
+        set ui off (bit_and v 255)
+        set ui (off + 1) (bit_and (bit_shr v 8) 255)
+    }
+    fn uw32:void (off:int v:int) {
+        set ui off (bit_and v 255)
+        set ui (off + 1) (bit_and (bit_shr v 8) 255)
+        set ui (off + 2) (bit_and (bit_shr v 16) 255)
+        set ui (off + 3) (bit_and (bit_shr v 24) 255)
+    }
+
+    ; ---- RGU1 document builder (mirrors ui.ts / ui.rs byte layout) ----
+    fn uiReset:void () {
+        def zero:int 0
+        def i 0
+        while (i < 4160) {
+            set ui i zero
+            i = (i + 1)
+        }
+        nodeCount = 0
+        propCount = 0
+        stringLen = 0
+        curNode = 0
+        rootId = 0
+    }
+    fn uiNode:void (id:int parentId:int kind:int order:int) {
+        if (nodeCount >= 64) { return }
+        def base (64 + (nodeCount * 32))
+        this.uw32(base id)
+        this.uw32((base + 4) parentId)
+        this.uw16((base + 8) kind)
+        this.uw16((base + 10) 0)
+        this.uw32((base + 12) propCount)
+        this.uw16((base + 16) 0)
+        this.uw16((base + 18) order)
+        this.uw32((base + 20) 0)
+        if (nodeCount == 0) { rootId = id }
+        curNode = base
+        nodeCount = (nodeCount + 1)
+    }
+    fn beginProp:int (key:int ty:int) {
+        if (nodeCount == 0) { return (0 - 1) }
+        if (propCount >= 128) { return (0 - 1) }
+        def pbase (2112 + (propCount * 16))
+        this.uw16(pbase key)
+        this.uw8((pbase + 2) ty)
+        this.uw8((pbase + 3) 0)
+        this.uw32((pbase + 4) 0)
+        this.uw32((pbase + 8) 0)
+        this.uw32((pbase + 12) 0)
+        def pcOff (curNode + 16)
+        def lo:int (itemAt ui pcOff)
+        def hi:int (itemAt ui (pcOff + 1))
+        def n (lo + (hi * 256))
+        this.uw16(pcOff (n + 1))
+        propCount = (propCount + 1)
+        return pbase
+    }
+    fn uiPropI32:void (key:int v:int) {
+        def p (this.beginProp(key 1))
+        if (p >= 0) { this.uw32((p + 4) v) }
+    }
+    fn uiPropColor:void (key:int rgba:int) {
+        def p (this.beginProp(key 3))
+        if (p >= 0) { this.uw32((p + 4) rgba) }
+    }
+    fn uiPropEnum:void (key:int v:int) {
+        def p (this.beginProp(key 7))
+        if (p >= 0) { this.uw32((p + 4) v) }
+    }
+    fn uiPropStr:void (key:int s:string) {
+        def p (this.beginProp(key 4))
+        if (p < 0) { return }
+        def start stringLen
+        def len (strlen s)
+        if ((start + len) > 1024) { return }
+        def i 0
+        while (i < len) {
+            set ui ((4160 + start) + i) (charAt s i)
+            i = (i + 1)
+        }
+        stringLen = (stringLen + len)
+        this.uw32((p + 4) start)
+        this.uw32((p + 8) len)
+    }
+    ; Convenience text node: TEXT(kind 2) + text + fontSize + color.
+    fn uiText:void (id:int parent:int order:int s:string color:int) {
+        this.uiNode(id parent 2 order)
+        this.uiPropStr(1 s)          ; K_TEXT
+        this.uiPropI32(4 8)          ; K_FONT_SIZE = 8
+        this.uiPropColor(3 color)    ; K_COLOR
+    }
+    fn uiFinish:void (rev:int) {
+        revision = rev
+        this.uw32(0 827672402)       ; magic 'RGU1'
+        this.uw16(4 1)               ; major
+        this.uw16(6 0)               ; minor
+        this.uw32(8 rev)
+        this.uw32(12 rootId)
+        this.uw32(16 64)             ; node_offset
+        this.uw32(20 nodeCount)
+        this.uw32(24 2112)           ; property_offset
+        this.uw32(28 propCount)
+        this.uw32(32 4160)           ; string_offset
+        this.uw32(36 stringLen)
+        this.uw32(40 1)              ; flags = valid
+    }
+
+    ; ---- native bridge dispatch ----
+    fn argInt:int (args:[EvalValue] i:int) {
+        if (i >= (array_length args)) { return 0 }
+        def v:EvalValue (itemAt args i)
+        return (to_int v.numberValue)
+    }
+    fn argStr:string (args:[EvalValue] i:int) {
+        if (i >= (array_length args)) { return "" }
+        def v:EvalValue (itemAt args i)
+        return v.stringValue
+    }
+
+    fn has:boolean (name:string) {
+        if (name == "abiWrite") { return true }
+        if (name == "abiRead") { return true }
+        if (name == "uiReset") { return true }
+        if (name == "uiNode") { return true }
+        if (name == "uiText") { return true }
+        if (name == "uiPropI32") { return true }
+        if (name == "uiPropColor") { return true }
+        if (name == "uiPropEnum") { return true }
+        if (name == "uiPropStr") { return true }
+        if (name == "uiFinish") { return true }
+        return false
+    }
+
+    fn invoke:EvalValue (name:string args:[EvalValue]) {
+        this.ensure()
+        if (name == "abiWrite") {
+            this.aw((this.argInt(args 0)) (this.argInt(args 1)))
+            return (EvalValue.null())
+        }
+        if (name == "abiRead") {
+            def off:int (this.argInt(args 0))
+            def val:int (this.ar(off))
+            return (EvalValue.fromInt(val))
+        }
+        if (name == "uiReset") {
+            this.uiReset()
+            return (EvalValue.null())
+        }
+        if (name == "uiNode") {
+            this.uiNode((this.argInt(args 0)) (this.argInt(args 1)) (this.argInt(args 2)) (this.argInt(args 3)))
+            return (EvalValue.null())
+        }
+        if (name == "uiText") {
+            this.uiText((this.argInt(args 0)) (this.argInt(args 1)) (this.argInt(args 2)) (this.argStr(args 3)) (this.argInt(args 4)))
+            return (EvalValue.null())
+        }
+        if (name == "uiPropI32") {
+            this.uiPropI32((this.argInt(args 0)) (this.argInt(args 1)))
+            return (EvalValue.null())
+        }
+        if (name == "uiPropColor") {
+            this.uiPropColor((this.argInt(args 0)) (this.argInt(args 1)))
+            return (EvalValue.null())
+        }
+        if (name == "uiPropEnum") {
+            this.uiPropEnum((this.argInt(args 0)) (this.argInt(args 1)))
+            return (EvalValue.null())
+        }
+        if (name == "uiPropStr") {
+            this.uiPropStr((this.argInt(args 0)) (this.argStr(args 1)))
+            return (EvalValue.null())
+        }
+        if (name == "uiFinish") {
+            this.uiFinish((this.argInt(args 0)))
+            return (EvalValue.null())
+        }
+        return (EvalValue.null())
+    }
+}

@@ -1,0 +1,103 @@
+; ==============================================================================
+; as_source_runner — run a .as (AssemblyScript-subset) game via Ranger's live
+; TS interpreter (ComponentEngine), against the same RGW1/RGU1 ABI as WASM.
+; ==============================================================================
+;
+; A variation of the .tsx GameRunner: if a game folder contains a `.as` file, we
+; interpret it directly (fast start + hot reload) instead of loading a compiled
+; .wasm. The game imports the flat bridge API from "@ranger/game"; that bare
+; import is not resolved by the interpreter, so the calls fall through to
+; AsAbiBridge (native), which reads/writes the shared ABI. The exact same source
+; compiles with `asc` for shipping — one file, two run paths.
+; ==============================================================================
+
+Import "../../../lib/ranger-dir.rgr"
+Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "./as_abi_bridge.rgr"
+
+class AsSourceRunner {
+    def engine:ComponentEngine (new ComponentEngine())
+    def bridge:AsAbiBridge (new AsAbiBridge())
+    def loaded:boolean false
+    def asFile:string ""
+
+    ; True when the folder holds a .as game (how the catalog picks this engine).
+    fn folderHasAs:boolean (dir:string) {
+        return ((strlen (this.findAsFile(dir))) > 0)
+    }
+
+    fn findAsFile:string (dir:string) {
+        def names:[string] (list_dir_files dir)
+        def i 0
+        while (i < (array_length names)) {
+            def name:string (itemAt names i)
+            def n (strlen name)
+            if (n > 3) {
+                if ((substring name (n - 3) n) == ".as") {
+                    return name
+                }
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; Drop the bare "@ranger/game" import line: the interpreter gets those names
+    ; from the native bridge. Relative imports (e.g. ./abi_env) are kept.
+    fn stripBridgeImport:string (src:string) {
+        def lines:[string] (strsplit src "\n")
+        def out ""
+        def i 0
+        while (i < (array_length lines)) {
+            def line:string (itemAt lines i)
+            if ((indexOf line "@ranger/game") >= 0) {
+                ; skip this import line
+            } {
+                out = (+ out (+ line "\n"))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn bindDir:boolean (dir:string) {
+        def file:string (this.findAsFile(dir))
+        if ((strlen file) == 0) { return false }
+        asFile = file
+        def buf:buffer (buffer_read_file dir file)
+        def src:string (buffer_to_string buf)
+        src = (this.stripBridgeImport(src))
+        engine.setBasePath(dir)
+        engine.setNativeBridge(bridge)
+        engine.loadScript(src)
+        bridge.ensure()
+        loaded = true
+        return true
+    }
+
+    fn callInit:void () {
+        if (loaded == false) { return }
+        engine.callFunction("init" (EvalValue.null()))
+    }
+
+    fn callUpdate:void () {
+        if (loaded == false) { return }
+        engine.callFunction("update" (EvalValue.null()))
+    }
+
+    ; ---- host reads the shared ABI (same layout the WASM host reads) ----
+    fn abiRead:int (off:int) {
+        return (bridge.ar(off))
+    }
+    fn abiWrite:void (off:int v:int) {
+        bridge.aw(off v)
+    }
+    fn uiByte:int (off:int) {
+        def b:int (itemAt bridge.ui off)
+        return b
+    }
+    fn uiRevision:int () {
+        return bridge.revision
+    }
+}
