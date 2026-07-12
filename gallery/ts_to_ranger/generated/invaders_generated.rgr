@@ -397,7 +397,7 @@ class GeneratedGameScript {
                 push events (be16)
             }
             if ((waveX > 300.0)) {
-                waveDir = (to_double (0.0 - 1.0))
+                waveDir = (0.0 - 1.0)
                 waveY = (waveY + 12.0)
             }
             if ((waveX < 40.0)) {
@@ -441,7 +441,7 @@ class GeneratedGameScript {
             shotY = (shotY - (dt * 0.45))
             if ((shotY < 0.0)) {
                 shotActive = 0.0
-                shotY = (to_double (0.0 - 30.0))
+                shotY = (0.0 - 30.0)
             }
         }
         if ((shotActive == 1.0)) {
@@ -451,7 +451,7 @@ class GeneratedGameScript {
                     if (((this.hitAlien(alien (to_int waveX) (to_int waveY) (to_int shotX) (to_int shotY))) == 1)) {
                         set alive alien 0
                         shotActive = 0.0
-                        shotY = (to_double (0.0 - 30.0))
+                        shotY = (0.0 - 30.0)
                         score1 = (score1 + 10)
                         def be19:GameEventNative (new GameEventNative)
                         be19.kind = "playSound"

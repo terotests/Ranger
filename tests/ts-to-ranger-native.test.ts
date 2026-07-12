@@ -100,6 +100,27 @@ describe("TS -> Ranger -> native (compiled game script)", () => {
     expect(out).toContain("invaders-native-runner done");
   });
 
+  it("pacman_native.game.tsx emits and compiles to ES6", () => {
+    const pacmanRgr = path.join(
+      ROOT,
+      "gallery/ts_to_ranger/generated/pacman_native_generated.rgr"
+    );
+    expect(fs.existsSync(EMITTER_JS)).toBe(true);
+    execSync(
+      `node ${EMITTER_JS} -i gallery/game_engine/scripting/pacman_native.game.tsx -o pacman_native_generated.rgr`,
+      { cwd: ROOT, stdio: "pipe" }
+    );
+    const src = fs.readFileSync(pacmanRgr, "utf8");
+    expect(src).toContain("fn update:NativeGameState");
+
+    const { success, error } = compileRanger(
+      pacmanRgr,
+      "es6",
+      path.join(ROOT, "tests/.output")
+    );
+    expect(success, `Compile failed: ${error}`).toBe(true);
+  });
+
   function has(cmd: string): boolean {
     try {
       execSync(cmd, { stdio: ["pipe", "pipe", "pipe"] });
@@ -110,7 +131,11 @@ describe("TS -> Ranger -> native (compiled game script)", () => {
   }
 
   const gppAvailable = has("g++ --version");
-  const cppIt = gppAvailable ? it : it.skip;
+  const sdlAvailable =
+    gppAvailable &&
+    (has("pkg-config --exists sdl2 2>/dev/null") ||
+      fs.existsSync("/usr/include/SDL2/SDL.h"));
+  const cppIt = sdlAvailable ? it : it.skip;
 
   cppIt("native Invaders builds and runs as C++ binary (g++)", () => {
     const outDir = path.join(ROOT, "tests", ".output-cpp-native");

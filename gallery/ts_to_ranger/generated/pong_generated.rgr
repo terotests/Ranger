@@ -231,14 +231,23 @@ class GeneratedGameScript {
         def in_ball:EntityPoseNative (unwrap (get s.entities "ball"))
         def in_p1:EntityPoseNative (unwrap (get s.entities "p1"))
         def in_p2:EntityPoseNative (unwrap (get s.entities "p2"))
+        def in_pl0:PlayerInputNative (itemAt props.input.players 0)
+        def in_pl1:PlayerInputNative (itemAt props.input.players 1)
         def dt:double (props.dt)
         def events:[GameEventNative]
-        def input:int 0
+        def input:GameInputNative (props.input)
         def p1up:boolean (props.up)
         def p1down:boolean (props.down)
         def p2up:boolean (false)
         def p2down:boolean (false)
-        ; native path: props.input skipped
+        if ((array_length input.players) >= 1) {
+            p1up = in_pl0.up
+            p1down = in_pl0.down
+        }
+        if ((array_length input.players) >= 2) {
+            p2up = in_pl1.up
+            p2down = in_pl1.down
+        }
         def bx:double ((in_ball.x + (s.vx * dt)))
         def by:double ((in_ball.y + (s.vy * dt)))
         def prevBx:double (in_ball.x)

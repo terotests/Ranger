@@ -66,29 +66,39 @@ Callers use `runner.applyScriptPatch(patch props)` so `patch.dt = props.dt` befo
 
 ---
 
-## P3 — `props.input.players` (not yet)
+## P3 — `props.input.players`
 
-Interpreter path supports multi-player input via `props.input.players[n]`. Native bridge needs:
+Interpreter path supports multi-player input via `props.input.players[n]`. Native bridge:
 
-- `UpdatePropsNative` player slots, **or**
-- Emitter rewrite to `props.up` / `props.down` when `playerSlots === 1`.
+- `PlayerInputNative` / `GameInputNative` on `UpdatePropsNative.input`
+- `buildPropsFromMasks` + `frameWithMasks` on native game classes
+- Emitter hoists `input.players[i]` to `in_pl<i>` locals (prefix avoids collision with entity ids `p1`/`p2`)
+- Hoists use `props.input.players` (declared before local `input` binding)
 
 ---
 
 ## P4 — Invaders / Pacman emitter gaps
 
-Full compilation still needs (see `README.md` “Not yet emitted”):
+**Status (July 2026):** invaders + pacman emit and compile to ES6; headless invaders runner passes.
 
-- Module-level `const` arrays (bitmap tables)
-- Dynamic entity keys `entities[id]`
-- Helper calls with richer param inference (in progress)
+Remaining polish:
+
+- Non-fatal TS parse warnings on emit (`expected '}' but got ''`) — lexer recovery; output still written
+- Module-level `const` arrays, dynamic entity keys — see `README.md` “Not yet emitted”
 
 ---
 
 ## P5 — Duplicate game sources
 
-Canonical native inputs live under `gallery/game_engine/scripting/*.game.tsx`.
-`gallery/game_engine/games/*/index.tsx` is Path A (menu / SDL interpreter). Keep in sync manually until unified.
+**Policy:** canonical native TS inputs are `gallery/game_engine/scripting/*.game.tsx`.
+Path A menu/SDL interpreter uses `gallery/game_engine/games/*/index.tsx`.
+Keep both in sync manually until unified; do not delete either tree without a migration plan.
+
+| Game | Native (Path B) | Interpreter (Path A) |
+|------|-----------------|----------------------|
+| Pong | `scripting/pong.game.tsx` | `games/pong/index.tsx` |
+| Invaders | `scripting/invaders.game.tsx` | `games/invaders/index.tsx` |
+| Pacman | `scripting/pacman_native.game.tsx` | `games/pacman/index.tsx` |
 
 ---
 
@@ -97,13 +107,14 @@ Canonical native inputs live under `gallery/game_engine/scripting/*.game.tsx`.
 ```bash
 rm -f tmp/game-sdl-native/game_sdl_native.cpp tmp/game-sdl-native/game_sdl_native
 npm run engine:game-sdl-native:smoke:pong
-# Expect: entities=3 (not pac=240), no Ranger errors, ball≈212,105 score=0,0
+# Expect: entities=3 (not pac=240), no Ranger errors
 ```
 
 Headless parity (no SDL):
 
 ```bash
 npm test -- ts-to-ranger-native
+# ball=35,12 score=1,0 after 180 frames
 ```
 
 ---
@@ -115,13 +126,14 @@ Future: emitter reads annotations and validates integer-only ops at eval time on
 
 ---
 
-## Files touched by P0–P2
+## Files touched (P0–P5)
 
 | File | Change |
 |------|--------|
 | `gallery/game_engine/scripts/build-game-sdl-native.sh` | P0 fail-fast |
-| `gallery/ts_to_ranger/game_script_types.rgr` | P1 `dt` / `hasDt` |
-| `gallery/game_engine/scripting/game_native_runtime.rgr` | P1 `applyScriptPatch` |
-| `gallery/game_engine/scripting/*_native_*.rgr` | P1 use `applyScriptPatch` |
-| `gallery/ts_to_ranger/ts_emitter.rgr` | P2 bridge helpers + inference fixes |
+| `gallery/ts_to_ranger/game_script_types.rgr` | P1 `dt` / `hasDt`; P3 input types |
+| `gallery/game_engine/scripting/game_native_runtime.rgr` | P1 `applyScriptPatch`; P3 `buildPropsFromMasks` |
+| `gallery/game_engine/scripting/*_native_*.rgr` | P1 `applyScriptPatch`; P3 `frameWithMasks` |
+| `gallery/game_engine/scripting/game_sdl_native_host.rgr` | P3 mask-based input |
+| `gallery/ts_to_ranger/ts_emitter.rgr` | P2 helpers; P3/P4 inference + input hoists |
 | `gallery/ts_to_ranger/generated/*.rgr` | Regenerate after emitter changes |

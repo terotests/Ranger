@@ -235,14 +235,48 @@ class NativeGameRunner {
     }
 
     fn buildProps:UpdatePropsNative (dtMs:int up:boolean down:boolean left:boolean right:boolean action:boolean) {
+        def mask0:int 0
+        if (up) {
+            mask0 = (bit_or mask0 1)
+        }
+        if (down) {
+            mask0 = (bit_or mask0 2)
+        }
+        if (action) {
+            mask0 = (bit_or mask0 4)
+        }
+        if (left) {
+            mask0 = (bit_or mask0 16)
+        }
+        if (right) {
+            mask0 = (bit_or mask0 32)
+        }
+        return (this.buildPropsFromMasks(dtMs mask0 0))
+    }
+
+    fn playerFromMask:PlayerInputNative (m:int) {
+        def out:PlayerInputNative (new PlayerInputNative)
+        out.up = ((bit_and m 1) != 0)
+        out.down = ((bit_and m 2) != 0)
+        out.action = ((bit_and m 4) != 0)
+        out.left = ((bit_and m 16) != 0)
+        out.right = ((bit_and m 32) != 0)
+        return out
+    }
+
+    fn buildPropsFromMasks:UpdatePropsNative (dtMs:int mask0:int mask1:int) {
         def props:UpdatePropsNative (new UpdatePropsNative)
         props.time = timeMs
         props.dt = (to_double dtMs)
-        props.up = up
-        props.down = down
-        props.left = left
-        props.right = right
-        props.action = action
+        def p0:PlayerInputNative (this.playerFromMask(mask0))
+        push props.input.players p0
+        def p1:PlayerInputNative (this.playerFromMask(mask1))
+        push props.input.players p1
+        props.up = p0.up
+        props.down = p0.down
+        props.left = p0.left
+        props.right = p0.right
+        props.action = p0.action
         props.state = state
         return props
     }

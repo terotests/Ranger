@@ -20,4 +20,11 @@ class PongNativeGame extends NativeGameBridge {
         def patch:NativeGameState (script.update(props))
         runner.applyScriptPatch(patch props)
     }
+
+    fn frameWithMasks:void (dtMs:int mask0:int mask1:int) {
+        runner.advanceTime(dtMs)
+        def props:UpdatePropsNative (runner.buildPropsFromMasks(dtMs mask0 mask1))
+        def patch:NativeGameState (script.update(props))
+        runner.applyScriptPatch(patch props)
+    }
 }
