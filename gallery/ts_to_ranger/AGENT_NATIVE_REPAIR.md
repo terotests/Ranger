@@ -141,25 +141,32 @@ in statically; the game script logic links against it, not against a JS host.
    are accepted in scripts and mapped to Ranger `int`/`double` today. For the
    C++ target these should eventually map to `int32_t`/`uint8_t`/… — see below.
 
+### Object-valued game state (implemented)
+
+ylos2 keeps rich objects in state that `NativeGameState`'s generic maps cannot
+hold (heterogeneous static struct types):
+
+- `p1` / `p2` are **player structs** (`vx`, `vy`, `done`, `grounded`, `superMs`, …).
+- `enemies` / `fruits` / `diamonds` / `bullets` / `movingPlatforms` are
+  **arrays of structs**.
+
+**Solution:** the `GeneratedGameScript` instance persists across frames (the
+native bridge holds one `script`), so object-valued state lives as `st_<field>`
+instance fields, read/written directly rather than round-tripped through the
+generic maps. `matchKnownStruct` only collapses `{x,y,…}` to `EntityPoseNative`
+when *every* field is a pose field, so player/enemy structs keep their own
+synthesized type and their fields survive.
+
 ### Progress
 
-`games/ylos2/index.tsx` emits `generated/ylos2_generated.rgr` (with `@singleton`
-module + host routing). Compile errors: **1486 → ~1295**.
+`games/ylos2/index.tsx` emits with `@singleton` module + host routing +
+object-state fields. Compile errors: **1486 → ~671** (no pong/invaders/pacman
+regression). Remaining is a long tail of narrower emitter gaps:
 
-### Remaining blocker: object-valued game state
-
-ylos2 keeps rich objects in state that `NativeGameState` cannot represent:
-
-- `p1` / `p2` are **player structs** (`vx`, `vy`, `done`, `grounded`, `superMs`,
-  `animTick`, `face`, …) but load as `double` from `s.numbers`.
-- `enemies` / `fruits` / `diamonds` / `bullets` / `movingPlatforms` are
-  **arrays of structs**, but load as `[int]` from `s.intArrays`.
-
-Field reads (`p1.done`, `pl.vx`, `platform.min`) then fail — this accounts for
-most remaining errors. Fix requires extending `NativeGameState` with typed
-struct / array-of-struct slots (e.g. an `objects:[string:<Struct>]` +
-`objectArrays`) and teaching the emitter's `initState`/`update` read/write and
-`mergeState` to use them. This is the next large P6 piece.
+- struct-element field completeness (`diamonds[i].taken`, `enemies[i].alive`)
+- the `x | 0` int-truncation idiom
+- empty array literal element typing in more positions
+- additional int/double coercions on mixed expressions
 
 Interpreter path works today: `npm run engine:game-sdl:run:ylos2` (Path A).
 

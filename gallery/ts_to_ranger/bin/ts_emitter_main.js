@@ -8100,7 +8100,13 @@ class TSEmitter  {
       return node.name;
     }
     if ( t == "CallExpression" ) {
-      return this.emitCall(node);
+      const callStr = this.emitCall(node);
+      if ( expected == "double" ) {
+        if ( this.callExprType(node) == "int" ) {
+          return ("(to_double " + callStr) + ")";
+        }
+      }
+      return callStr;
     }
     if ( t == "MemberExpression" ) {
       return this.emitMember(node, expected);

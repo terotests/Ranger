@@ -655,7 +655,7 @@ class GeneratedGameScript {
 
     fn scaleX:double (v:double) {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
-        return ((v * (this.worldW())) / _mod.BASE_W)
+        return ((v * (to_double (this.worldW()))) / _mod.BASE_W)
     }
 
     fn scalePlatform:scalePlatformRetNative (p:BASE_PLATFORMSElemNative) {
@@ -854,7 +854,7 @@ class GeneratedGameScript {
         if (((to_double py) <= p.y)) {
             return false
         }
-        if (((this.playerBodyTop(py)) >= (p.y + p.h))) {
+        if (((to_double (this.playerBodyTop(py))) >= (p.y + p.h))) {
             return false
         }
         return true
@@ -1800,7 +1800,7 @@ class GeneratedGameScript {
         def side:applyMovingPlatformSidePushRetNative ((this.applyMovingPlatformSidePush((to_int x) (to_double pl.y) pw pl.grounded platforms staticCount)))
         x = (to_double side.x)
         def knockedOff:int (0)
-        x = (this.clampX((to_int x)))
+        x = (to_double (this.clampX((to_int x))))
         def fallVy:double (vy)
         def y:double (((to_double pl.y) + (vy * (to_double dt))))
         def land:landOnPlatformsRetNative ((this.landOnPlatforms({} pw dt platforms staticCount)))
@@ -1821,7 +1821,7 @@ class GeneratedGameScript {
                     anim = 1
                 }
             }
-            x = (this.clampX((to_int x)))
+            x = (to_double (this.clampX((to_int x))))
             if ((pl.grounded == 0)) {
                 if ((fallVy > 0.12)) {
                     def be95:GameEventNative (new GameEventNative)
@@ -1917,7 +1917,7 @@ class GeneratedGameScript {
                 if ((x < 0.0)) {
                     active = 0
                 }
-                if ((x > (this.worldW()))) {
+                if ((x > (to_double (this.worldW())))) {
                     active = 0
                 }
                 def e:int (0)
@@ -2267,7 +2267,7 @@ class GeneratedGameScript {
         def y:double (feetY)
         def animTick:int ((pl.animTick + dt))
         if ((finishMs < _mod.FINISH_CELEBRATE_MS)) {
-            y = (feetY - (this.celebrateYOffset(animTick)))
+            y = (feetY - (to_double (this.celebrateYOffset(animTick))))
         } {
             if ((finishMs < _mod.FINISH_PHASE_DONE)) {
                 def walk:tickGoalWalkRetNative ((this.tickGoalWalk(pl dt)))
@@ -2523,14 +2523,14 @@ class GeneratedGameScript {
         if ((p1.done == 0)) {
             p1 = (this.checkFinish(p1 owner events))
             if ((p1.done == 1)) {
-                summitMusicStarted = (this.tryStartSummitMusic((to_int summitMusicStarted) events))
+                summitMusicStarted = (to_double (this.tryStartSummitMusic((to_int summitMusicStarted) events)))
             }
         }
         if (dual) {
             if ((p2.done == 0)) {
                 p2 = (this.checkFinish(p2 2 events))
                 if ((p2.done == 1)) {
-                    summitMusicStarted = (this.tryStartSummitMusic((to_int summitMusicStarted) events))
+                    summitMusicStarted = (to_double (this.tryStartSummitMusic((to_int summitMusicStarted) events)))
                 }
             }
         }

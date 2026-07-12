@@ -3454,7 +3454,14 @@ class TSEmitter {
             return node.name
         }
         if (t == "CallExpression") {
-            return (this.emitCall(node))
+            def callStr:string (this.emitCall(node))
+            ; Coerce an int-returning call used in a double context.
+            if (expected == "double") {
+                if ((this.callExprType(node)) == "int") {
+                    return ("(to_double " + callStr) + ")"
+                }
+            }
+            return callStr
         }
         if (t == "MemberExpression") {
             return (this.emitMember(node expected))
