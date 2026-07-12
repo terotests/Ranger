@@ -41,6 +41,51 @@ class WasmAbiMem {
         this.setHeader(20 f)
     }
 
+    fn setInputP2:void (f:int) {
+        this.setHeader(24 f)
+    }
+
+    fn setEventCount:void (n:int) {
+        this.setHeader(52 n)
+    }
+
+    fn getEventCount:int () {
+        return (this.readHeader(52))
+    }
+
+    fn eventAddr:int (idx:int field:int) {
+        return (base + 2048 + (idx * 20) + field)
+    }
+
+    fn readEventKind:int (idx:int) {
+        def a:int (this.eventAddr(idx 0))
+        return (this.readMem(a))
+    }
+
+    fn readEventSub:int (idx:int) {
+        def a:int (this.eventAddr(idx 4))
+        return (this.readMem(a))
+    }
+
+    fn readEventA:int (idx:int) {
+        def a:int (this.eventAddr(idx 8))
+        return (this.readMem(a))
+    }
+
+    fn readEventB:int (idx:int) {
+        def a:int (this.eventAddr(idx 12))
+        return (this.readMem(a))
+    }
+
+    fn readEventC:int (idx:int) {
+        def a:int (this.eventAddr(idx 16))
+        return (this.readMem(a))
+    }
+
+    fn clearEvents:void () {
+        this.setEventCount(0)
+    }
+
     fn setBodyCount:void (n:int) {
         this.setHeader(28 n)
     }

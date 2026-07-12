@@ -210,7 +210,56 @@ class WasmPhysicsRunner {
     fn raw:buffer () { return (canvas.raw()) }
     fn hostRef:GameHost () { return host }
     fn maybeHotReload:void () {}
-    fn resolvePlayerCount:int () { return 1 }
+    fn resolvePlayerCount:int () { return 2 }
+
+    fn inputFlags:int (up:boolean down:boolean left:boolean right:boolean action:boolean) {
+        def flags:int 0
+        if (up) { flags = (flags + 1) }
+        if (down) { flags = (flags + 2) }
+        if (left) { flags = (flags + 4) }
+        if (right) { flags = (flags + 8) }
+        if (action) { flags = (flags + 16) }
+        return flags
+    }
+
+    fn drainEventsFromAbi:void () {
+        def n:int (abi.getEventCount())
+        def i 0
+        while (i < n) {
+            def kind:int (abi.readEventKind(i))
+            def ev:GameEventNative (new GameEventNative)
+            if (kind == 1) {
+                ev.kind = "playSound"
+                def sid:int (abi.readEventSub(i))
+                if (sid == 1) {
+                    ev.id = "wall"
+                }
+                if (sid == 2) {
+                    ev.id = "bounce"
+                }
+                if (sid == 3) {
+                    ev.id = "win"
+                }
+            }
+            if (kind == 2) {
+                ev.kind = "rumble"
+                ev.pad = (abi.readEventSub(i))
+                ev.low = (abi.readEventA(i))
+                ev.high = (abi.readEventB(i))
+                ev.ms = (abi.readEventC(i))
+            }
+            if (kind == 3) {
+                ev.kind = "particles"
+                ev.id = "sparkle"
+                ev.x = ((to_double (abi.readEventA(i))) / 256.0)
+                ev.y = ((to_double (abi.readEventB(i))) / 256.0)
+                ev.amount = (abi.readEventC(i))
+            }
+            host.handleEvent(ev)
+            i = (i + 1)
+        }
+        abi.clearEvents()
+    }
 
     fn loadModule:void (path:string) {
         if (handle != 0) {
@@ -397,13 +446,15 @@ class WasmPhysicsRunner {
         hits = abi.getHits()
     }
 
-    fn physicsStep:void (dtMs:int flags:int) {
+    fn physicsStep:void (dtMs:int flags:int flagsP2:int) {
         this.syncBodiesToAbi()
         abi.setDtMs(dtMs)
         abi.setTimeMs(timeMs)
         abi.setInputFlags(flags)
+        abi.setInputP2(flagsP2)
         this.writeContactsToAbi()
         wasm_call_void handle "update" 0 0 0 0 0 0
+        this.drainEventsFromAbi()
         this.applyPhysicsFromAbi()
         physics.step(dtMs)
         this.saveFrameContacts()
@@ -415,12 +466,7 @@ class WasmPhysicsRunner {
             return
         }
         timeMs = (timeMs + dtMs)
-        def flags:int 0
-        if (up) { flags = (flags + 1) }
-        if (down) { flags = (flags + 2) }
-        if (left) { flags = (flags + 4) }
-        if (right) { flags = (flags + 8) }
-        if (action) { flags = (flags + 16) }
+        def flags:int (this.inputFlags(up down left right action))
         if (fixedStepMs > 0) {
             def steps:int (idiv dtMs fixedStepMs)
             if (steps < 1) {
@@ -428,11 +474,31 @@ class WasmPhysicsRunner {
             }
             def s 0
             while (s < steps) {
-                this.physicsStep(fixedStepMs flags)
+                this.physicsStep(fixedStepMs flags 0)
                 s = (s + 1)
             }
         } {
-            this.physicsStep(dtMs flags)
+            this.physicsStep(dtMs flags 0)
+        }
+    }
+
+    fn frameWithFlags:void (dtMs:int flags:int flagsP2:int) {
+        if (handle == 0) {
+            return
+        }
+        timeMs = (timeMs + dtMs)
+        if (fixedStepMs > 0) {
+            def steps:int (idiv dtMs fixedStepMs)
+            if (steps < 1) {
+                steps = 1
+            }
+            def s 0
+            while (s < steps) {
+                this.physicsStep(fixedStepMs flags flagsP2)
+                s = (s + 1)
+            }
+        } {
+            this.physicsStep(dtMs flags flagsP2)
         }
     }
 

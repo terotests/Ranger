@@ -298,6 +298,10 @@ class GameSdlRunner {
             wasmPhysicsRunner.loadModule(wasmPath)
             this.presentLoadingScreen("LOADING WASM")
             wasmPhysicsRunner.setupScene()
+            def sdlHost:SdlGameHost (new SdlGameHost)
+            sdlHost.audio = wasmPhysicsRunner.audio
+            sdlHost.wireMusic()
+            wasmPhysicsRunner.host = sdlHost
         } {
             wasmRunner = (new WasmGameRunner)
             wasmRunner.init(pw ph)
@@ -340,9 +344,24 @@ class GameSdlRunner {
         prevActionHeld = ((bit_and m 4) != 0)
     }
 
+    fn playerInputFlags:int (pb:PlayerButtons) {
+        def flags:int 0
+        if (pb.up) { flags = (flags + 1) }
+        if (pb.down) { flags = (flags + 2) }
+        if (pb.left) { flags = (flags + 4) }
+        if (pb.right) { flags = (flags + 8) }
+        if (pb.action) { flags = (flags + 16) }
+        return flags
+    }
+
     fn pollGameInput:GameInputSnapshot () {
         gfx_input_poll
-        def count:int (runner.resolvePlayerCount())
+        def count:int 1
+        if (useWasmPhysics) {
+            count = (wasmPhysicsRunner.resolvePlayerCount())
+        } {
+            count = (runner.resolvePlayerCount())
+        }
         gameInputSnap.buildFromSdl(count)
         return gameInputSnap
     }
@@ -812,7 +831,9 @@ class GameSdlRunner {
                 if (useWasmRunner) {
                     def gameInput:GameInputSnapshot (this.pollGameInput())
                     if (useWasmPhysics) {
-                        wasmPhysicsRunner.frameWithInput(dtMs gameInput.p0.up gameInput.p0.down gameInput.p0.left gameInput.p0.right gameInput.p0.action)
+                        def f0:int (this.playerInputFlags(gameInput.p0))
+                        def f1:int (this.playerInputFlags(gameInput.p1))
+                        wasmPhysicsRunner.frameWithFlags(dtMs f0 f1)
                     } {
                         wasmRunner.frameWithInput(dtMs gameInput.p0.up gameInput.p0.down gameInput.p0.left gameInput.p0.right gameInput.p0.action)
                     }

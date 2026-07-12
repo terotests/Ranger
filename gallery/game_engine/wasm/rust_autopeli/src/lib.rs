@@ -3,7 +3,7 @@
 
 pub const ABI_MAGIC: i32 = 0x3157_4752; // 'RGW1'
 pub const ABI_VERSION: i32 = 1;
-pub const ABI_SIZE: i32 = 2048;
+pub const ABI_SIZE: i32 = 2560;
 pub const FP: i32 = 256;
 pub const STEER_SCALE: i32 = 1000;
 
@@ -13,12 +13,14 @@ pub const OFF_SIZE: i32 = 8;
 pub const OFF_DT: i32 = 12;
 pub const OFF_TIME: i32 = 16;
 pub const OFF_INPUT: i32 = 20;
+pub const OFF_INPUT_P2: i32 = 24;
 pub const OFF_BODY_COUNT: i32 = 28;
 pub const OFF_IMPULSE_CNT: i32 = 32;
 pub const OFF_CONTACT_CNT: i32 = 36;
 pub const OFF_SCORE: i32 = 40;
 pub const OFF_HITS: i32 = 44;
 pub const OFF_CAMERA_Y: i32 = 48;
+pub const OFF_EVENT_CNT: i32 = 52;
 
 pub const OFF_BODIES: i32 = 64;
 pub const BODY_SIZE: i32 = 24;
@@ -28,16 +30,28 @@ pub const OFF_IMPULSES: i32 = 1344;
 pub const IMPULSE_SIZE: i32 = 16;
 pub const OFF_CONTACTS: i32 = 1600;
 pub const CONTACT_SIZE: i32 = 32;
+pub const OFF_EVENTS: i32 = 2048;
+pub const EVENT_SIZE: i32 = 20;
 pub const MAX_CONTACTS: i32 = 14;
 pub const MAX_IMPULSES: i32 = 16;
+pub const MAX_EVENTS: i32 = 12;
 
 pub const ID_WALL_L: i32 = 1000;
 pub const ID_WALL_R: i32 = 1001;
+
+pub const EVT_SOUND: i32 = 1;
+pub const EVT_RUMBLE: i32 = 2;
+pub const EVT_PARTICLES: i32 = 3;
+pub const SND_WALL: i32 = 1;
+pub const SND_BOUNCE: i32 = 2;
+pub const SND_WIN: i32 = 3;
 
 const CAR_MASS: i32 = 1200;
 const CONE_MASS: i32 = 3;
 const WIN_SCORE: i32 = 5000;
 const FINISH_Y: i32 = 140;
+const BRAKE_SCREECH_CD_MS: i32 = 900;
+const BRAKE_SCREECH_MIN_SPD: i32 = 18;
 
 pub const BODY_P1: i32 = 0;
 pub const BODY_P2: i32 = 1;
@@ -50,7 +64,13 @@ pub const IN_DOWN: i32 = 2;
 pub const IN_LEFT: i32 = 4;
 pub const IN_RIGHT: i32 = 8;
 
-static mut ABI: [u8; 2048] = [0u8; 2048];
+static mut ABI: [u8; 2560] = [0u8; 2560];
+static mut RAMP_CD_P1: i32 = 0;
+static mut RAMP_CD_P2: i32 = 0;
+static mut BRAKE_CD_P1: i32 = 0;
+static mut BRAKE_CD_P2: i32 = 0;
+static mut SOMEONE_WON: bool = false;
+static mut EVENT_WRITE: i32 = 0;
 
 struct RoadPt {
     y: i32,
@@ -75,6 +95,39 @@ const ROAD: [RoadPt; 16] = [
     RoadPt { y: 800, x: 250, half: 88 },
     RoadPt { y: 400, x: 210, half: 74 },
     RoadPt { y: 100, x: 240, half: 112 },
+];
+
+struct OilPatch {
+    y: i32,
+    lane_milli: i32,
+    r: i32,
+}
+
+const OIL: [OilPatch; 9] = [
+    OilPatch { y: 5460, lane_milli: 350, r: 34 },
+    OilPatch { y: 5050, lane_milli: -450, r: 30 },
+    OilPatch { y: 4300, lane_milli: 420, r: 38 },
+    OilPatch { y: 3740, lane_milli: -280, r: 32 },
+    OilPatch { y: 3060, lane_milli: 500, r: 36 },
+    OilPatch { y: 2480, lane_milli: -500, r: 40 },
+    OilPatch { y: 1780, lane_milli: 340, r: 34 },
+    OilPatch { y: 1080, lane_milli: -350, r: 31 },
+    OilPatch { y: 560, lane_milli: 250, r: 28 },
+];
+
+struct RampDef {
+    y: i32,
+    lane_milli: i32,
+    w: i32,
+    h: i32,
+}
+
+const RAMPS: [RampDef; 5] = [
+    RampDef { y: 5350, lane_milli: 50, w: 38, h: 22 },
+    RampDef { y: 4720, lane_milli: -420, w: 34, h: 20 },
+    RampDef { y: 3500, lane_milli: 380, w: 40, h: 22 },
+    RampDef { y: 2640, lane_milli: -350, w: 38, h: 20 },
+    RampDef { y: 1160, lane_milli: 320, w: 36, h: 20 },
 ];
 
 struct TrafficDef {
@@ -122,12 +175,28 @@ fn clamp(v: i32, lo: i32, hi: i32) -> i32 {
     if v < lo { lo } else if v > hi { hi } else { v }
 }
 
+fn clamp_f(v: f64, lo: f64, hi: f64) -> f64 {
+    if v < lo { lo } else if v > hi { hi } else { v }
+}
+
+fn decay_timer(t: i32, dt: i32) -> i32 {
+    let next = t - dt;
+    if next < 0 { 0 } else { next }
+}
+
 fn sin_milli(phase_milli: i64) -> i32 {
     let x = (phase_milli % 6283) as f64 / 1000.0;
     let x2 = x * x;
     let x3 = x2 * x;
     let x5 = x3 * x2;
     (x - x3 / 6.0 + x5 / 120.0) as i32 * 1000
+}
+
+fn sin_f(x: f64) -> f64 {
+    let x2 = x * x;
+    let x3 = x2 * x;
+    let x5 = x3 * x2;
+    x - x3 / 6.0 + x5 / 120.0
 }
 
 fn road_at(y_fp: i32) -> (i32, i32) {
@@ -154,6 +223,12 @@ fn road_at(y_fp: i32) -> (i32, i32) {
     (cx, half)
 }
 
+fn lane_x(y: i32, lane_milli: i32, margin: i32) -> i32 {
+    let (cx, half) = road_at(y * FP);
+    let usable = half - margin * FP;
+    cx + usable * clamp(lane_milli, -1000, 1000) / 1000
+}
+
 fn body_x(idx: i32) -> i32 {
     rd_i32(OFF_BODIES + idx * BODY_SIZE)
 }
@@ -162,12 +237,47 @@ fn body_y(idx: i32) -> i32 {
     rd_i32(OFF_BODIES + idx * BODY_SIZE + 4)
 }
 
+fn body_speed(idx: i32) -> i32 {
+    rd_i32(OFF_BODIES + idx * BODY_SIZE + 12)
+}
+
+fn body_ang_vel_fp(idx: i32) -> i32 {
+    rd_i32(OFF_BODIES + idx * BODY_SIZE + 16)
+}
+
 fn write_control(idx: i32, steer: i32, throttle: i32, brake: i32, grip: i32) {
     let base = OFF_CONTROLS + idx * CTRL_SIZE;
     wr_i32(base, steer);
     wr_i32(base + 4, throttle);
     wr_i32(base + 8, brake);
     wr_i32(base + 12, grip);
+}
+
+fn push_event(kind: i32, sub: i32, a: i32, b: i32, c: i32) {
+    unsafe {
+        if EVENT_WRITE >= MAX_EVENTS {
+            return;
+        }
+        let base = OFF_EVENTS + EVENT_WRITE * EVENT_SIZE;
+        wr_i32(base, kind);
+        wr_i32(base + 4, sub);
+        wr_i32(base + 8, a);
+        wr_i32(base + 12, b);
+        wr_i32(base + 16, c);
+        EVENT_WRITE += 1;
+    }
+}
+
+fn push_sound(id: i32) {
+    push_event(EVT_SOUND, id, 0, 0, 0);
+}
+
+fn push_particles(x_fp: i32, y_fp: i32, amount: i32) {
+    push_event(EVT_PARTICLES, 0, x_fp, y_fp, amount);
+}
+
+fn push_rumble(pad: i32, ms: i32, strength: i32) {
+    push_event(EVT_RUMBLE, pad, strength, strength, ms);
 }
 
 fn drive_from_input(flags: i32) -> (i32, i32, i32) {
@@ -179,6 +289,139 @@ fn drive_from_input(flags: i32) -> (i32, i32, i32) {
     if (flags & IN_UP) != 0 { throttle = STEER_SCALE; }
     if (flags & IN_DOWN) != 0 { brake = STEER_SCALE; }
     (steer, throttle, brake)
+}
+
+fn patch_x(o: &OilPatch) -> i32 {
+    lane_x(o.y, o.lane_milli, 18)
+}
+
+fn on_oil(x_fp: i32, y_fp: i32) -> bool {
+    let y = y_fp / FP;
+    let mut i = 0;
+    while i < OIL.len() {
+        let o = &OIL[i];
+        let px = patch_x(o);
+        let dx = (x_fp - px) as f64 / FP as f64;
+        let dy = (y - o.y) as f64;
+        if dx * dx + dy * dy < (o.r * o.r) as f64 {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
+
+fn surface_grip_milli(x_fp: i32, y_fp: i32) -> i32 {
+    let (cx, half) = road_at(y_fp);
+    let edge = half - 16 * FP;
+    let off = x_fp - cx;
+    let mut grip = 1000;
+    if off < 0 {
+        if -off > edge { grip = 450; }
+    } else if off > edge {
+        grip = 450;
+    }
+    let y = y_fp / FP;
+    let mut i = 0;
+    while i < OIL.len() {
+        let o = &OIL[i];
+        let px = patch_x(o);
+        let dx = (x_fp - px) as f64 / FP as f64;
+        let dy = (y - o.y) as f64;
+        if dx * dx + dy * dy < (o.r * o.r) as f64 {
+            grip = 80;
+        }
+        i += 1;
+    }
+    grip
+}
+
+fn oil_spin(idx: i32, steer: i32, now: i32) -> i32 {
+    let spd = body_speed(idx);
+    if spd / FP < BRAKE_SCREECH_MIN_SPD {
+        return 0;
+    }
+    let x = body_x(idx) as f64 / FP as f64;
+    let y = body_y(idx) as f64 / FP as f64;
+    let spd_f = spd as f64 / FP as f64;
+    let phase = now as f64 * 0.012 + x * 0.06 + y * 0.04;
+    let wobble = sin_f(phase) * spd_f * 0.14;
+    let steer_spin = (steer as f64 / STEER_SCALE as f64) * spd_f * 0.32;
+    ((wobble + steer_spin) * FP as f64) as i32
+}
+
+fn spin_stabilizer_fp(idx: i32) -> i32 {
+    let av_fp = body_ang_vel_fp(idx);
+    let av = av_fp as f64 / FP as f64;
+    let mut abs = av;
+    if abs < 0.0 { abs = -abs; }
+    if abs < 200.0 { return 0; }
+    let mut t = (abs - 200.0) / (420.0 - 200.0);
+    t = clamp_f(t, 0.0, 1.0);
+    let strength = 0.1 + t * 0.2;
+    (-av * strength * FP as f64) as i32
+}
+
+fn hit_ramp(x_fp: i32, y_fp: i32) -> bool {
+    let y = y_fp / FP;
+    let half_w = |w: i32| (w * FP) / 2;
+    let mut i = 0;
+    while i < RAMPS.len() {
+        let r = &RAMPS[i];
+        let rx = lane_x(r.y, r.lane_milli, 24);
+        let hw = half_w(r.w);
+        if x_fp >= rx - hw && x_fp <= rx + hw {
+            if y >= r.y && y <= r.y + r.h {
+                return true;
+            }
+        }
+        i += 1;
+    }
+    false
+}
+
+fn collision_rumble(player: i32, imp_fp: i32, kind: i32) {
+    let imp = imp_fp as f64 / FP as f64;
+    if imp < 22.0 {
+        return;
+    }
+    let pad = if player == BODY_P2 { 1 } else { 0 };
+    let (ms, strength) = if kind == 1 {
+        (38, 6500 + clamp(((imp * 40.0) as i32), 0, 9000))
+    } else if kind == 2 {
+        (55 + clamp(((imp * 0.35) as i32), 0, 100), 12000 + clamp(((imp * 70.0) as i32), 0, 18000))
+    } else {
+        (60 + clamp(((imp * 0.45) as i32), 0, 130), 14000 + clamp(((imp * 90.0) as i32), 0, 24000))
+    };
+    push_rumble(pad, ms, strength);
+}
+
+fn push_collision_feedback(player: i32, other: i32, imp_fp: i32, _x_fp: i32, _y_fp: i32) {
+    if is_wall(other) || is_bar(other) || is_traffic(other) {
+        let imp = imp_fp as f64 / FP as f64;
+        if imp >= 18.0 {
+            push_sound(SND_WALL);
+        }
+        let kind = if is_traffic(other) { 2 } else { 0 };
+        collision_rumble(player, imp_fp, kind);
+        return;
+    }
+    if is_cone(other) {
+        push_sound(SND_BOUNCE);
+        collision_rumble(player, imp_fp, 1);
+    }
+}
+
+fn tick_brake_audio(player: i32, brake: i32, cd: &mut i32, dt: i32) {
+    *cd = decay_timer(*cd, dt);
+    if brake <= 0 || *cd > 0 {
+        return;
+    }
+    let spd = body_speed(player);
+    if spd / FP >= BRAKE_SCREECH_MIN_SPD {
+        push_sound(SND_BOUNCE);
+        *cd = BRAKE_SCREECH_CD_MS;
+    }
 }
 
 fn traffic_control(idx: i32, t: &TrafficDef, now: i32) -> (i32, i32, i32, i32) {
@@ -196,7 +439,8 @@ fn traffic_control(idx: i32, t: &TrafficDef, now: i32) -> (i32, i32, i32, i32) {
     let safe_r = here_cx + here_half - 16 * FP;
     if bx < safe_l { steer = STEER_SCALE; }
     if bx > safe_r { steer = -STEER_SCALE; }
-    (steer, t.throttle_milli, 0, 950)
+    let grip = surface_grip_milli(bx, by);
+    (steer, t.throttle_milli, 0, grip)
 }
 
 #[no_mangle]
@@ -212,8 +456,17 @@ pub extern "C" fn init() {
     wr_i32(OFF_BODY_COUNT, BODY_COUNT);
     wr_i32(OFF_IMPULSE_CNT, 0);
     wr_i32(OFF_CONTACT_CNT, 0);
+    wr_i32(OFF_EVENT_CNT, 0);
     wr_i32(OFF_SCORE, 0);
     wr_i32(OFF_HITS, 0);
+    unsafe {
+        RAMP_CD_P1 = 0;
+        RAMP_CD_P2 = 0;
+        BRAKE_CD_P1 = 0;
+        BRAKE_CD_P2 = 0;
+        SOMEONE_WON = false;
+        EVENT_WRITE = 0;
+    }
 
     let (sx, _) = road_at((6000 - 140) * FP);
     wr_i32(OFF_BODIES + BODY_P1 * BODY_SIZE, sx - 28 * FP);
@@ -277,6 +530,14 @@ fn write_impulse(idx: i32, body: i32, lx_fp: i32, ly_fp: i32, ang_fp: i32) {
     wr_i32(base + 12, ang_fp);
 }
 
+fn append_impulse(imp_cnt: &mut i32, body: i32, lx_fp: i32, ly_fp: i32, ang_fp: i32) {
+    if *imp_cnt >= MAX_IMPULSES {
+        return;
+    }
+    write_impulse(*imp_cnt, body, lx_fp, ly_fp, ang_fp);
+    *imp_cnt += 1;
+}
+
 fn cone_launch_impulse(player: i32, body_b: i32, nx_m: i32, ny_m: i32) -> (i32, i32, i32) {
     let mut nx = nx_m;
     let mut ny = ny_m;
@@ -310,6 +571,9 @@ fn process_contacts() {
         let body_a = rd_i32(base);
         let body_b = rd_i32(base + 4);
         let phase = rd_i32(base + 8);
+        let imp_fp = rd_i32(base + 12);
+        let x_fp = rd_i32(base + 16);
+        let y_fp = rd_i32(base + 20);
         if phase == 1 {
             let (player, other) = if is_player(body_a) {
                 (body_a, body_b)
@@ -321,14 +585,24 @@ fn process_contacts() {
             if player >= 0 {
                 if is_wall(other) || is_bar(other) || is_traffic(other) {
                     hits += 1;
+                    let imp = imp_fp as f64 / FP as f64;
+                    if is_wall(other) && imp > 80.0 {
+                        push_particles(x_fp, y_fp, 6);
+                    }
+                    if is_bar(other) && imp > 45.0 {
+                        push_particles(x_fp, y_fp, 6);
+                    }
+                    if is_traffic(other) && imp > 55.0 {
+                        push_particles(x_fp, y_fp, 5);
+                    }
                 }
-                if is_cone(other) && imp_cnt < MAX_IMPULSES {
+                if is_cone(other) {
                     let nx_m = rd_i32(base + 24);
                     let ny_m = rd_i32(base + 28);
                     let (lx, ly, ang) = cone_launch_impulse(player, body_b, nx_m, ny_m);
-                    write_impulse(imp_cnt, other, lx, ly, ang);
-                    imp_cnt += 1;
+                    append_impulse(&mut imp_cnt, other, lx, ly, ang);
                 }
+                push_collision_feedback(player, other, imp_fp, x_fp, y_fp);
             }
         }
         ci += 1;
@@ -337,25 +611,66 @@ fn process_contacts() {
     wr_i32(OFF_IMPULSE_CNT, imp_cnt);
 }
 
-fn check_win() {
-    if rd_i32(OFF_SCORE) >= WIN_SCORE {
-        return;
+fn apply_player_extras(
+    idx: i32,
+    steer: i32,
+    now: i32,
+    ramp_cd: &mut i32,
+    imp_cnt: &mut i32,
+) {
+    let x = body_x(idx);
+    let y = body_y(idx);
+    if on_oil(x, y) {
+        let spin = oil_spin(idx, steer, now);
+        if spin != 0 {
+            append_impulse(imp_cnt, idx, 0, 0, spin);
+        }
     }
-    let y_fp = rd_i32(OFF_BODIES + BODY_P1 * BODY_SIZE + 4);
-    if y_fp / FP < FINISH_Y {
+    let damp = spin_stabilizer_fp(idx);
+    if damp != 0 {
+        append_impulse(imp_cnt, idx, 0, 0, damp);
+    }
+    if *ramp_cd <= 0 && hit_ramp(x, y) {
+        append_impulse(imp_cnt, idx, 0, -95 * FP, 320 * FP);
+        *ramp_cd = 700;
+        let pad = if idx == BODY_P2 { 1 } else { 0 };
+        push_sound(SND_BOUNCE);
+        push_rumble(pad, 70, 12000);
+    }
+}
+
+fn check_win() {
+    unsafe {
+        if SOMEONE_WON {
+            return;
+        }
+    }
+    let y1 = body_y(BODY_P1) / FP;
+    let y2 = body_y(BODY_P2) / FP;
+    if y1 < FINISH_Y || y2 < FINISH_Y {
         wr_i32(OFF_SCORE, rd_i32(OFF_SCORE) + WIN_SCORE);
+        push_sound(SND_WIN);
+        unsafe { SOMEONE_WON = true; }
     }
 }
 
 #[no_mangle]
 pub extern "C" fn update() {
+    unsafe { EVENT_WRITE = 0; }
+
     process_contacts();
 
+    let dt = rd_i32(OFF_DT);
     let flags = rd_i32(OFF_INPUT);
+    let flags_p2 = rd_i32(OFF_INPUT_P2);
     let now = rd_i32(OFF_TIME);
+
     let (p_steer, p_th, p_br) = drive_from_input(flags);
-    write_control(BODY_P1, p_steer, p_th, p_br, 1000);
-    write_control(BODY_P2, 0, 350, 0, 1000);
+    let (p2_steer, p2_th, p2_br) = drive_from_input(flags_p2);
+    let p1_grip = surface_grip_milli(body_x(BODY_P1), body_y(BODY_P1));
+    let p2_grip = surface_grip_milli(body_x(BODY_P2), body_y(BODY_P2));
+    write_control(BODY_P1, p_steer, p_th, p_br, p1_grip);
+    write_control(BODY_P2, p2_steer, p2_th, p2_br, p2_grip);
 
     let mut ti = 0;
     while ti < TRAFFIC_COUNT {
@@ -366,6 +681,24 @@ pub extern "C" fn update() {
         ti += 1;
     }
 
+    unsafe {
+        tick_brake_audio(BODY_P1, p_br, &mut BRAKE_CD_P1, dt);
+        tick_brake_audio(BODY_P2, p2_br, &mut BRAKE_CD_P2, dt);
+        RAMP_CD_P1 = decay_timer(RAMP_CD_P1, dt);
+        RAMP_CD_P2 = decay_timer(RAMP_CD_P2, dt);
+    }
+
+    let mut imp_extra = rd_i32(OFF_IMPULSE_CNT);
+    unsafe {
+        apply_player_extras(BODY_P1, p_steer, now, &mut RAMP_CD_P1, &mut imp_extra);
+        apply_player_extras(BODY_P2, p2_steer, now, &mut RAMP_CD_P2, &mut imp_extra);
+    }
+    wr_i32(OFF_IMPULSE_CNT, imp_extra);
+
     wr_i32(OFF_CAMERA_Y, body_y(BODY_P1) - 120 * FP);
     check_win();
+
+    unsafe {
+        wr_i32(OFF_EVENT_CNT, EVENT_WRITE);
+    }
 }
