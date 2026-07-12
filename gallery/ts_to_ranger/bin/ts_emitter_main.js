@@ -4625,6 +4625,8 @@ class TSEmitter  {
     this.objectStateFieldType = {};
     this.objectStateFieldOrder = [];
     this.inferFnName = "";
+    this.hoistedItemAt = {};
+    this.itemAtCounter = 0;
     this.initStateLocalTypes = {};
     this.tmpCounter = 0;
     this.synthStructDone = {};
@@ -4834,6 +4836,9 @@ class TSEmitter  {
     this.objectStateFieldType = osf;
     let oso = [];
     this.objectStateFieldOrder = oso;
+    let hia = {};
+    this.hoistedItemAt = hia;
+    this.itemAtCounter = 0;
     let isl = {};
     this.initStateLocalTypes = isl;
     let ssd = {};
@@ -7323,6 +7328,7 @@ class TSEmitter  {
   };
   emitStatement (stmt) {
     const t = stmt.nodeType;
+    this.hoistStmtItemAt(stmt);
     if ( t == "VariableDeclaration" ) {
       this.emitVarDecl(stmt);
       return;
@@ -7347,6 +7353,80 @@ class TSEmitter  {
       this.emitBlockBody(stmt);
       return;
     }
+  };
+  hoistStmtItemAt (stmt) {
+    let fresh = {};
+    this.hoistedItemAt = fresh;
+    this.collectItemAtReceivers(stmt);
+  };
+  collectItemAtReceivers (node) {
+    if ( node.nodeType == "MemberExpression" ) {
+      if ( node.computed == false ) {
+        if ( typeof(node.left) != "undefined" ) {
+          const base = node.left;
+          if ( base.nodeType == "MemberExpression" ) {
+            if ( base.computed ) {
+              this.registerItemAtHoist(base);
+            }
+          }
+        }
+      }
+    }
+    if ( typeof(node.left) != "undefined" ) {
+      const ln = node.left;
+      if ( ln.nodeType != "BlockStatement" ) {
+        this.collectItemAtReceivers(ln);
+      }
+    }
+    if ( typeof(node.right) != "undefined" ) {
+      const rn = node.right;
+      if ( rn.nodeType != "BlockStatement" ) {
+        this.collectItemAtReceivers(rn);
+      }
+    }
+    if ( typeof(node.test) != "undefined" ) {
+      this.collectItemAtReceivers(node.test);
+    }
+    let i = 0;
+    while (i < (node.children.length)) {
+      const ch = node.children[i];
+      if ( ch.nodeType != "BlockStatement" ) {
+        this.collectItemAtReceivers(ch);
+      }
+      i = i + 1;
+    };
+  };
+  registerItemAtHoist (computed) {
+    if ( typeof(computed.left) === "undefined" ) {
+      return;
+    }
+    if ( typeof(computed.right) === "undefined" ) {
+      return;
+    }
+    const baseType = this.exprType((computed.left));
+    const et = this.elemTypeOf(baseType);
+    if ( (this).endsWith(et, "Native") == false ) {
+      return;
+    }
+    const raw = this.rawItemAt(computed);
+    const existing = ( this.hoistedItemAt.hasOwnProperty(raw) ? this.hoistedItemAt[raw] : undefined );
+    if ( (typeof(existing) !== "undefined" && existing != null )  ) {
+      return;
+    }
+    const localName = "_at" + ("" + this.itemAtCounter);
+    this.itemAtCounter = this.itemAtCounter + 1;
+    this.hoistedItemAt[raw] = localName;
+    this.emitLine((((("def " + localName) + ":") + et) + " ") + raw);
+  };
+  rawItemAt (computed) {
+    const base = this.emitExpr((computed.left), "int");
+    const idxNode = computed.right;
+    const idxT = this.exprType(idxNode);
+    let idx = this.emitExpr(idxNode, idxT);
+    if ( idxT == "double" ) {
+      idx = ("(to_int " + idx) + ")";
+    }
+    return ((("(itemAt " + base) + " ") + idx) + ")";
   };
   emitWhile (node) {
     let cond = "false";
@@ -8233,6 +8313,10 @@ class TSEmitter  {
         }
         const elemT = this.elemTypeOf(baseType);
         const access = ((("(itemAt " + base) + " ") + idx) + ")";
+        const hoisted = ( this.hoistedItemAt.hasOwnProperty(access) ? this.hoistedItemAt[access] : undefined );
+        if ( (typeof(hoisted) !== "undefined" && hoisted != null )  ) {
+          return hoisted;
+        }
         if ( expected == "double" ) {
           if ( elemT == "int" ) {
             return ("(to_double " + access) + ")";

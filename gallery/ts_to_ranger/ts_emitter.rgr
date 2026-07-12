@@ -54,6 +54,11 @@ class TSEmitter {
     ; Function whose body is currently being scanned/emitted, used to name
     ; struct types synthesized from `local.push({...})` (stable across passes).
     def inferFnName:string ""
+    ; Per-statement hoist of `X[i]` computed accesses that are field-access
+    ; receivers: Ranger rejects `(itemAt a i).field`, so bind to a typed local
+    ; first. Map raw `(itemAt base idx)` string -> local name.
+    def hoistedItemAt:[string:string]
+    def itemAtCounter:int 0
     ; initState body `const foo = makeFoo()` names -> array type (prescan only).
     def initStateLocalTypes:[string:string]
     def tmpCounter:int 0
@@ -254,6 +259,9 @@ class TSEmitter {
         objectStateFieldType = osf
         def oso:[string]
         objectStateFieldOrder = oso
+        def hia:[string:string]
+        hoistedItemAt = hia
+        itemAtCounter = 0
         def isl:[string:string]
         initStateLocalTypes = isl
         def ssd:[string:boolean]
@@ -2626,6 +2634,8 @@ class TSEmitter {
 
     fn emitStatement:void (stmt:TSNode) {
         def t:string stmt.nodeType
+        ; Hoist `X[i]`-as-field-receiver to typed locals before this statement.
+        this.hoistStmtItemAt(stmt)
         if (t == "VariableDeclaration") {
             this.emitVarDecl(stmt)
             return
@@ -2650,6 +2660,92 @@ class TSEmitter {
             this.emitBlockBody(stmt)
             return
         }
+    }
+
+    ; Reset + collect `X[i].field` receivers in this statement's own expressions
+    ; (test/left/right/init, not nested block bodies), emitting a typed local for
+    ; each distinct `X[i]` so `.field` reads and writes go through it.
+    fn hoistStmtItemAt:void (stmt:TSNode) {
+        def fresh:[string:string]
+        hoistedItemAt = fresh
+        this.collectItemAtReceivers(stmt)
+    }
+
+    fn collectItemAtReceivers:void (node:TSNode) {
+        ; A field access `M.field` whose base is a computed member `base[idx]`.
+        if (node.nodeType == "MemberExpression") {
+            if (node.computed == false) {
+                if (node.left) {
+                    def base:TSNode (unwrap node.left)
+                    if (base.nodeType == "MemberExpression") {
+                        if (base.computed) {
+                            this.registerItemAtHoist(base)
+                        }
+                    }
+                }
+            }
+        }
+        ; Recurse into this statement's expressions but not nested block bodies
+        ; (those hoist per-statement themselves, keeping loop indices current).
+        if (node.left) {
+            def ln:TSNode (unwrap node.left)
+            if (ln.nodeType != "BlockStatement") {
+                this.collectItemAtReceivers(ln)
+            }
+        }
+        if (node.right) {
+            def rn:TSNode (unwrap node.right)
+            if (rn.nodeType != "BlockStatement") {
+                this.collectItemAtReceivers(rn)
+            }
+        }
+        if (node.test) {
+            this.collectItemAtReceivers((unwrap node.test))
+        }
+        def i 0
+        while (i < (array_length node.children)) {
+            def ch:TSNode (itemAt node.children i)
+            if (ch.nodeType != "BlockStatement") {
+                this.collectItemAtReceivers(ch)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn registerItemAtHoist:void (computed:TSNode) {
+        if (null? computed.left) {
+            return
+        }
+        if (null? computed.right) {
+            return
+        }
+        def baseType:string (this.exprType((unwrap computed.left)))
+        def et:string (this.elemTypeOf(baseType))
+        ; Only hoist struct element types (bare .field access is illegal on them).
+        if ((this.endsWith(et "Native")) == false) {
+            return
+        }
+        def raw:string (this.rawItemAt(computed))
+        def existing@(optional):string (get hoistedItemAt raw)
+        if (!null? existing) {
+            return
+        }
+        def localName:string ("_at" + ("" + itemAtCounter))
+        itemAtCounter = (itemAtCounter + 1)
+        set hoistedItemAt raw localName
+        this.emitLine(((((("def " + localName) + ":") + et) + " ") + raw))
+    }
+
+    ; The `(itemAt base idx)` string for a computed member, without hoist rewrite.
+    fn rawItemAt:string (computed:TSNode) {
+        def base:string (this.emitExpr((unwrap computed.left) "int"))
+        def idxNode:TSNode (unwrap computed.right)
+        def idxT:string (this.exprType(idxNode))
+        def idx:string (this.emitExpr(idxNode idxT))
+        if (idxT == "double") {
+            idx = (("(to_int " + idx) + ")")
+        }
+        return (((("(itemAt " + base) + " ") + idx) + ")")
     }
 
     ; while (cond) { body } - Ranger shares this exact form.
@@ -3601,6 +3697,12 @@ class TSEmitter {
                 }
                 def elemT:string (this.elemTypeOf(baseType))
                 def access:string (((("(itemAt " + base) + " ") + idx) + ")")
+                ; If this `X[i]` was hoisted (it is a field-access receiver), use
+                ; the typed local so `.field` is legal / writes persist.
+                def hoisted@(optional):string (get hoistedItemAt access)
+                if (!null? hoisted) {
+                    return (unwrap hoisted)
+                }
                 if (expected == "double") {
                     if (elemT == "int") {
                         return ("(to_double " + access) + ")"

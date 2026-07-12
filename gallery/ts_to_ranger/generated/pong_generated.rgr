@@ -242,11 +242,15 @@ class GeneratedGameScript {
         def p2up:boolean (false)
         def p2down:boolean (false)
         if ((array_length input.players) >= 1) {
+            def _at0:PlayerInputNative (itemAt input.players 0)
             p1up = in_pl0.up
+            def _at1:PlayerInputNative (itemAt input.players 0)
             p1down = in_pl0.down
         }
         if ((array_length input.players) >= 2) {
+            def _at2:PlayerInputNative (itemAt input.players 1)
             p2up = in_pl1.up
+            def _at3:PlayerInputNative (itemAt input.players 1)
             p2down = in_pl1.down
         }
         def bx:double ((in_ball.x + (s.vx * dt)))

@@ -1077,7 +1077,8 @@ class GeneratedGameScript {
 
     fn floorY:int () {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
-        return (itemAt _mod.BASE_PLATFORMS 0).y
+        def _at0:BASE_PLATFORMSElemNative (itemAt _mod.BASE_PLATFORMS 0)
+        return _at0.y
     }
 
     fn goalPlatform:scalePlatformRetNative () {
@@ -1559,7 +1560,8 @@ class GeneratedGameScript {
             def taken:int (0)
             if (prev) {
                 if ((itemAt prev i)) {
-                    taken = (itemAt prev i).taken
+                    def _at1:makeDiamonds_outRetNative (itemAt prev i)
+                    taken = _at1.taken
                 }
             }
             if ((def.respawn && (taken == 1))) {
@@ -1783,11 +1785,14 @@ class GeneratedGameScript {
         def died:int (0)
         def ei:int (0)
         while ((ei < _mod.MAX_ENEMIES)) {
-            if (((itemAt enemies ei).alive == 1)) {
+            def _at2:makeEnemies_outRetNative (itemAt enemies ei)
+            if ((_at2.alive == 1)) {
                 def kind:string ((this.enemyCollisionKind((to_double out.x) (to_double out.y) out.vy (itemAt enemies ei).x (itemAt enemies ei).y)))
                 if ((kind == "stomp")) {
-                    (itemAt enemies ei).alive = 0
-                    out = (this.stompBounce(out (itemAt enemies ei).y))
+                    def _at3:makeEnemies_outRetNative (itemAt enemies ei)
+                    _at3.alive = 0
+                    def _at4:makeEnemies_outRetNative (itemAt enemies ei)
+                    out = (this.stompBounce(out _at4.y))
                     def be98:GameEventNative (new GameEventNative)
                     be98.kind = "playSound"
                     be98.id = "brick"
@@ -1800,16 +1805,18 @@ class GeneratedGameScript {
                 } {
                     if ((kind == "hurt")) {
                         if ((out.superMs > 0)) {
-                            (itemAt enemies ei).alive = 0
+                            def _at5:makeEnemies_outRetNative (itemAt enemies ei)
+                            _at5.alive = 0
                             def be100:GameEventNative (new GameEventNative)
                             be100.kind = "playSound"
                             be100.id = "brick"
                             push events (be100)
+                            def _at6:makeEnemies_outRetNative (itemAt enemies ei)
                             def be101:GameEventNative (new GameEventNative)
                             be101.kind = "particles"
                             be101.id = "sparkle"
-                            be101.x = (itemAt enemies ei).x
-                            be101.y = (itemAt enemies ei).y
+                            be101.x = _at6.x
+                            be101.y = _at6.y
                             be101.amount = 10
                             push events (be101)
                             push events ((this.rumbleForOwner(owner 60 12000)))
@@ -1846,7 +1853,8 @@ class GeneratedGameScript {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
         def i:int (0)
         while ((i < _mod.MAX_BULLETS)) {
-            if (((itemAt bullets i).active == 0)) {
+            def _at7:makeBullets_outRetNative (itemAt bullets i)
+            if ((_at7.active == 0)) {
                 def tmp104:makeBullets_outRetNative (new makeBullets_outRetNative)
                 tmp104.active = 1
                 tmp104.x = x
@@ -2091,9 +2099,12 @@ class GeneratedGameScript {
                 }
                 def e:int (0)
                 while ((e < _mod.MAX_ENEMIES)) {
-                    if (((itemAt enemies e).alive == 1)) {
-                        if ((this.bulletHitsEnemy(x (to_double y) (itemAt enemies e).x (itemAt enemies e).y))) {
-                            (itemAt enemies e).alive = 0
+                    def _at8:makeEnemies_outRetNative (itemAt enemies e)
+                    if ((_at8.alive == 1)) {
+                        def _at9:makeEnemies_outRetNative (itemAt enemies e)
+                        if ((this.bulletHitsEnemy(x (to_double y) _at9.x _at9.y))) {
+                            def _at10:makeEnemies_outRetNative (itemAt enemies e)
+                            _at10.alive = 0
                             active = 0
                             def be111:GameEventNative (new GameEventNative)
                             be111.kind = "playSound"
@@ -2258,7 +2269,8 @@ class GeneratedGameScript {
         }
         def f:int (0)
         while ((f < _mod.MAX_FRUITS)) {
-            if (((itemAt st_fruits f).taken == 0)) {
+            def _at11:makeFruits_outRetNative (itemAt st_fruits f)
+            if ((_at11.taken == 0)) {
                 def fd:EntityPoseNative ((itemAt fruitDefs f))
                 def tmp119:EntityPoseNative (new EntityPoseNative)
                 tmp119.x = fd.x
@@ -2276,7 +2288,8 @@ class GeneratedGameScript {
         }
         def d:int (0)
         while ((d < _mod.MAX_DIAMONDS)) {
-            if (((itemAt st_diamonds d).taken == 0)) {
+            def _at12:makeDiamonds_outRetNative (itemAt st_diamonds d)
+            if ((_at12.taken == 0)) {
                 def dd:EntityPoseNative ((itemAt diamondDefs d))
                 def tmp121:EntityPoseNative (new EntityPoseNative)
                 tmp121.x = dd.x
