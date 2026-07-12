@@ -9,6 +9,7 @@ Import "./game_physics.rgr"
 Import "./game_audio.rgr"
 Import "./wasm_autopeli_setup.rgr"
 Import "./wasm_autopeli_render.rgr"
+Import "./wasm_sparkle_pool.rgr"
 Import "../../ts_to_ranger/game_host.rgr"
 
 class WasmPhysicsRunner {
@@ -37,6 +38,8 @@ class WasmPhysicsRunner {
     def hits:int 0
     def profileEnabled:boolean false
     def frameContacts:[PhysContact]
+    def sparkles:WasmSparklePool (new WasmSparklePool)
+    def lastDtMs:int 16
 
     fn bodyIdIndex:int (id:string) {
         def i 0
@@ -196,11 +199,34 @@ class WasmPhysicsRunner {
         }
     }
 
+    fn playerOnOil:boolean (id:string) {
+        def b:PhysBody (this.findBody(id))
+        if ((strlen b.id) == 0) {
+            return false
+        }
+        def bx:int (to_int b.x)
+        def by:int (to_int b.y)
+        def oi 0
+        while (oi < (array_length setup.oilIds)) {
+            def ox:int (itemAt setup.oilXs oi)
+            def oy:int (itemAt setup.oilYs oi)
+            def dx:int (bx - ox)
+            def dy:int (by - oy)
+            def dist:int ((dx * dx) + (dy * dy))
+            if (dist < 1225) {
+                return true
+            }
+            oi = (oi + 1)
+        }
+        return false
+    }
+
     fn init:void (w:int h:int) {
         audio.init()
         pw = w
         ph = h
         canvas.init(w h)
+        sparkles.init(64)
         host.audio = audio
         host.wireMusic()
     }
@@ -254,6 +280,9 @@ class WasmPhysicsRunner {
                 ev.x = ((to_double (abi.readEventA(i))) / 256.0)
                 ev.y = ((to_double (abi.readEventB(i))) / 256.0)
                 ev.amount = (abi.readEventC(i))
+                def sx:double ev.x
+                def sy:double (ev.y - (to_double camViewY))
+                sparkles.spawnSparkle(sx sy ev.amount)
             }
             host.handleEvent(ev)
             i = (i + 1)
@@ -447,6 +476,7 @@ class WasmPhysicsRunner {
     }
 
     fn physicsStep:void (dtMs:int flags:int flagsP2:int) {
+        lastDtMs = dtMs
         this.syncBodiesToAbi()
         abi.setDtMs(dtMs)
         abi.setTimeMs(timeMs)
@@ -458,6 +488,7 @@ class WasmPhysicsRunner {
         this.applyPhysicsFromAbi()
         physics.step(dtMs)
         this.saveFrameContacts()
+        sparkles.update(dtMs)
         this.syncDrawFromPhysics()
     }
 
@@ -525,6 +556,7 @@ class WasmPhysicsRunner {
     fn draw:void () {
         render.drawBackground(canvas camViewY ph)
         render.drawEntities(drawEntities canvas)
+        sparkles.draw(canvas)
         this.drawHud()
     }
 
@@ -550,6 +582,23 @@ class WasmPhysicsRunner {
             hx = 22
         }
         canvas.fillRect((x + 100) y hx 14 200 80 80)
+        def grip:int (idiv (abi.readControlGrip(0)) 10)
+        if (grip > 100) {
+            grip = 100
+        }
+        canvas.fillRect((x + 130) y 28 6 40 60 90)
+        def gb:int (idiv grip 5)
+        if (gb > 28) {
+            gb = 28
+        }
+        canvas.fillRect((x + 130) (y + 6) gb 4 120 220 160)
+        if (this.playerOnOil("p1")) {
+            canvas.fillRect((x + 162) y 8 8 255 120 40)
+        }
+        def air:int (abi.getAirP1())
+        if (air > 0) {
+            canvas.fillRect((x + 174) y 8 8 120 240 255)
+        }
     }
 
     fn drawLoadingScreen:void (label:string ticks:int) {

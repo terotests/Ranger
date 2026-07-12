@@ -236,6 +236,14 @@ class WasmAbiMem {
         return (this.readHeader(32))
     }
 
+    fn getAirP1:int () {
+        return (this.readHeader(56))
+    }
+
+    fn getAirP2:int () {
+        return (this.readHeader(60))
+    }
+
     fn verifyMagic:boolean () {
         def magic:int (this.readHeader(0))
         if (magic == 826425682) {

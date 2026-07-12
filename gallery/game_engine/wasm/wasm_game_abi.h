@@ -43,6 +43,8 @@
 #define RG_WASM_OFF_HITS         44
 #define RG_WASM_OFF_CAMERA_Y     48
 #define RG_WASM_OFF_EVENT_CNT    52
+#define RG_WASM_OFF_AIR_P1       56
+#define RG_WASM_OFF_AIR_P2       60
 #define RG_WASM_HEADER_SIZE      64
 
 #define RG_WASM_OFF_BODIES       64

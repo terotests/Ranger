@@ -21,6 +21,8 @@ pub const OFF_SCORE: i32 = 40;
 pub const OFF_HITS: i32 = 44;
 pub const OFF_CAMERA_Y: i32 = 48;
 pub const OFF_EVENT_CNT: i32 = 52;
+pub const OFF_AIR_P1: i32 = 56;
+pub const OFF_AIR_P2: i32 = 60;
 
 pub const OFF_BODIES: i32 = 64;
 pub const BODY_SIZE: i32 = 24;
@@ -70,6 +72,8 @@ static mut RAMP_CD_P2: i32 = 0;
 static mut BRAKE_CD_P1: i32 = 0;
 static mut BRAKE_CD_P2: i32 = 0;
 static mut SOMEONE_WON: bool = false;
+static mut AIR_P1: i32 = 0;
+static mut AIR_P2: i32 = 0;
 static mut EVENT_WRITE: i32 = 0;
 
 struct RoadPt {
@@ -457,6 +461,8 @@ pub extern "C" fn init() {
     wr_i32(OFF_IMPULSE_CNT, 0);
     wr_i32(OFF_CONTACT_CNT, 0);
     wr_i32(OFF_EVENT_CNT, 0);
+    wr_i32(OFF_AIR_P1, 0);
+    wr_i32(OFF_AIR_P2, 0);
     wr_i32(OFF_SCORE, 0);
     wr_i32(OFF_HITS, 0);
     unsafe {
@@ -466,6 +472,8 @@ pub extern "C" fn init() {
         BRAKE_CD_P2 = 0;
         SOMEONE_WON = false;
         EVENT_WRITE = 0;
+        AIR_P1 = 0;
+        AIR_P2 = 0;
     }
 
     let (sx, _) = road_at((6000 - 140) * FP);
@@ -616,6 +624,7 @@ fn apply_player_extras(
     steer: i32,
     now: i32,
     ramp_cd: &mut i32,
+    air_tick: &mut i32,
     imp_cnt: &mut i32,
 ) {
     let x = body_x(idx);
@@ -633,6 +642,7 @@ fn apply_player_extras(
     if *ramp_cd <= 0 && hit_ramp(x, y) {
         append_impulse(imp_cnt, idx, 0, -95 * FP, 320 * FP);
         *ramp_cd = 700;
+        *air_tick = 900;
         let pad = if idx == BODY_P2 { 1 } else { 0 };
         push_sound(SND_BOUNCE);
         push_rumble(pad, 70, 12000);
@@ -686,12 +696,16 @@ pub extern "C" fn update() {
         tick_brake_audio(BODY_P2, p2_br, &mut BRAKE_CD_P2, dt);
         RAMP_CD_P1 = decay_timer(RAMP_CD_P1, dt);
         RAMP_CD_P2 = decay_timer(RAMP_CD_P2, dt);
+        AIR_P1 = decay_timer(AIR_P1, dt);
+        AIR_P2 = decay_timer(AIR_P2, dt);
     }
 
     let mut imp_extra = rd_i32(OFF_IMPULSE_CNT);
     unsafe {
-        apply_player_extras(BODY_P1, p_steer, now, &mut RAMP_CD_P1, &mut imp_extra);
-        apply_player_extras(BODY_P2, p2_steer, now, &mut RAMP_CD_P2, &mut imp_extra);
+        apply_player_extras(BODY_P1, p_steer, now, &mut RAMP_CD_P1, &mut AIR_P1, &mut imp_extra);
+        apply_player_extras(BODY_P2, p2_steer, now, &mut RAMP_CD_P2, &mut AIR_P2, &mut imp_extra);
+        wr_i32(OFF_AIR_P1, AIR_P1);
+        wr_i32(OFF_AIR_P2, AIR_P2);
     }
     wr_i32(OFF_IMPULSE_CNT, imp_extra);
 
