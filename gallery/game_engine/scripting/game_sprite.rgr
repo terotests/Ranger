@@ -274,11 +274,10 @@ class GameSpriteRenderer {
         def atlasH:int (this.scaledDim(src.height scale))
         def scratch:SoftCanvas (new SoftCanvas)
         scratch.init(atlasW atlasH)
-        buffer_fill (scratch.raw()) 0 0 (atlasW * atlasH * 4)
         scratch.blitImageRectScaled(src 0 0 src.width src.height 0 0 atlasW atlasH)
         def baked:ImageBuffer (new ImageBuffer)
         baked.initClear(atlasW atlasH)
-        buffer_copy baked.pixels 0 (scratch.raw()) 0 (atlasW * atlasH * 4)
+        scratch.copyPixelsToImage(baked)
         e.shImg = baked
         e.shFrameW = (this.scaledDim(e.shFrameW scale))
         e.shFrameH = (this.scaledDim(e.shFrameH scale))
