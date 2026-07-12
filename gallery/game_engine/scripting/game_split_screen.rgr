@@ -98,6 +98,11 @@ class SplitScreenHost {
         right.setGpuMode(paneGpu)
     }
 
+    fn enableGpuSheetOverlay:void () {
+        left.enableGpuSheetOverlay()
+        right.enableGpuSheetOverlay()
+    }
+
     fn flushGpuParticles:void () {
         left.flushGpuParticles()
         right.flushGpuParticles()

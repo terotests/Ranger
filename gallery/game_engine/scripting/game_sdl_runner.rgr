@@ -742,6 +742,15 @@ class GameSdlRunner {
                 print "[game-engine] SDL software present (--software)"
             }
         }
+        ; Direct-launch games are parsed before the window/GL context opens.
+        ; Re-apply the resolved mode now so cached sheets can upload textures.
+        if (splitScreenActive) {
+            splitHost.setGpuMode(gpuModeActive)
+            splitHost.enableGpuSheetOverlay()
+        } {
+            runner.setGpuMode(gpuModeActive)
+            runner.enableGpuSheetOverlay()
+        }
         if (startFullscreen) {
             gfx_set_fullscreen(1)
         }
