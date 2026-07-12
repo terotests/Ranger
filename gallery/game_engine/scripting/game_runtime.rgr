@@ -223,6 +223,11 @@ class GameRunner {
         spriteRenderer.setGpuSheetOverlay(false)
     }
 
+    fn setGpuPane:void (pane:int) {
+        spriteRenderer.setGpuPane(pane)
+        particles.setGpuPane(pane)
+    }
+
     fn enableGpuSheetOverlay:void () {
         if (options.gpuMode) {
             if (options.spritesGpuOverlay) {
