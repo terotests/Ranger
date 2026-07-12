@@ -614,7 +614,7 @@ static GLuint rgfx_gl_compile(GLenum type, const char* src) {
         char log[1024];
         GLsizei len = 0;
         glGetShaderInfoLog(s, (GLsizei) sizeof(log), &len, log);
-        SDL_Log("[rgfx] GL shader compile failed: %.*s", (int) len, log);
+        SDL_Log(\"[rgfx] GL shader compile failed: %.*s\", (int) len, log);
         glDeleteShader(s);
         return 0;
     }
@@ -666,7 +666,7 @@ static int rgfx_gl_init() {
         char log[1024];
         GLsizei len = 0;
         glGetProgramInfoLog(g_rgfx_gl_program, (GLsizei) sizeof(log), &len, log);
-        SDL_Log("[rgfx] GL program link failed: %.*s", (int) len, log);
+        SDL_Log(\"[rgfx] GL program link failed: %.*s\", (int) len, log);
         glDeleteProgram(g_rgfx_gl_program);
         g_rgfx_gl_program = 0;
         return 0;
@@ -818,7 +818,7 @@ static int rgfx_particles_gl_init() {
         char log[1024];
         GLsizei len = 0;
         glGetProgramInfoLog(g_rgfx_part_program, (GLsizei) sizeof(log), &len, log);
-        SDL_Log("[rgfx] particle program link failed: %.*s", (int) len, log);
+        SDL_Log(\"[rgfx] particle program link failed: %.*s\", (int) len, log);
         glDeleteProgram(g_rgfx_part_program);
         g_rgfx_part_program = 0;
         return 0;
