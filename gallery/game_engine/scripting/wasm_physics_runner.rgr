@@ -36,6 +36,165 @@ class WasmPhysicsRunner {
     def score:int 0
     def hits:int 0
     def profileEnabled:boolean false
+    def frameContacts:[PhysContact]
+
+    fn bodyIdIndex:int (id:string) {
+        def i 0
+        while (i < (array_length bodyIds)) {
+            if ((itemAt bodyIds i) == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn contactBodyCode:int (id:string) {
+        def idx:int (this.bodyIdIndex(id))
+        if (idx >= 0) {
+            return idx
+        }
+        if ((strlen id) > 0) {
+            def c0:string (substring id 0 1)
+            if (c0 == "L") {
+                return 1000
+            }
+            if (c0 == "R") {
+                return 1001
+            }
+            if (c0 == "c") {
+                def numOpt@(optional):int (to_int (substring id 1 (strlen id)))
+                if (numOpt) {
+                    def num:int (unwrap numOpt)
+                    return (100 + num)
+                }
+            }
+            if (c0 == "b") {
+                def numOpt2@(optional):int (to_int (substring id 1 (strlen id)))
+                if (numOpt2) {
+                    def num2:int (unwrap numOpt2)
+                    return (200 + num2)
+                }
+            }
+        }
+        return -1
+    }
+
+    fn bodyCodeToId:string (code:int) {
+        if (code == 0) {
+            return "p1"
+        }
+        if (code == 1) {
+            return "p2"
+        }
+        if (code >= 2) {
+            if (code <= 16) {
+                return ("t" + (to_string (code - 2)))
+            }
+        }
+        if (code >= 100) {
+            if (code < 200) {
+                return ("c" + (to_string (code - 100)))
+            }
+        }
+        if (code >= 200) {
+            if (code < 300) {
+                return ("b" + (to_string (code - 200)))
+            }
+        }
+        return ""
+    }
+
+    fn saveFrameContacts:void () {
+        def empty:[PhysContact]
+        frameContacts = empty
+        def i 0
+        while (i < (array_length physics.core.contacts)) {
+            def c:PhysContact (itemAt physics.core.contacts i)
+            if (c.phase == "begin") {
+                push frameContacts c
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn writeContactsToAbi:void () {
+        abi.clearContacts()
+        def n 0
+        def i 0
+        while (i < (array_length frameContacts)) {
+            if (n >= 14) {
+                break
+            }
+            def c:PhysContact (itemAt frameContacts i)
+            def ca:int (this.contactBodyCode(c.bodyA))
+            def cb:int (this.contactBodyCode(c.bodyB))
+            if (ca >= 0) {
+                if (cb >= 0) {
+                    def imp:int (to_int (c.normalImpulse * 256.0))
+                    def xfp:int (to_int (c.x * 256.0))
+                    def yfp:int (to_int (c.y * 256.0))
+                    def nx:int (to_int (c.nx * 1000.0))
+                    def ny:int (to_int (c.ny * 1000.0))
+                    abi.writeContact(n ca cb 1 imp xfp yfp nx ny)
+                    n = (n + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        abi.setContactCount(n)
+    }
+
+    fn findCommandIndex:int (cmds:[PhysCommand] bodyId:string) {
+        def i 0
+        while (i < (array_length cmds)) {
+            def cmd:PhysCommand (itemAt cmds i)
+            if (cmd.bodyId == bodyId) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn ensureCommand:PhysCommand (cmds:[PhysCommand] bodyId:string) {
+        def idx:int (this.findCommandIndex(cmds bodyId))
+        if (idx >= 0) {
+            return (itemAt cmds idx)
+        }
+        def cmd:PhysCommand (new PhysCommand)
+        cmd.bodyId = bodyId
+        push cmds cmd
+        return cmd
+    }
+
+    fn applyPhysicsFromAbi:void () {
+        clear physics.commands
+        def i 0
+        while (i < (array_length bodyIds)) {
+            def id:string (itemAt bodyIds i)
+            def cmd:PhysCommand (new PhysCommand)
+            cmd.bodyId = id
+            cmd.steer = ((to_double (abi.readControlSteer(i))) / 1000.0)
+            cmd.throttle = ((to_double (abi.readControlThrottle(i))) / 1000.0)
+            cmd.brake = ((to_double (abi.readControlBrake(i))) / 1000.0)
+            cmd.grip = ((to_double (abi.readControlGrip(i))) / 1000.0)
+            push physics.commands cmd
+            i = (i + 1)
+        }
+        def ic 0
+        while (ic < (abi.getImpulseCount())) {
+            def code:int (abi.readImpulseBody(ic))
+            def id:string (this.bodyCodeToId(code))
+            if ((strlen id) > 0) {
+                def cmd:PhysCommand (this.ensureCommand(physics.commands id))
+                cmd.impulseX = (cmd.impulseX + ((to_double (abi.readImpulseLinX(ic))) / 256.0))
+                cmd.impulseY = (cmd.impulseY + ((to_double (abi.readImpulseLinY(ic))) / 256.0))
+                cmd.impulseAngular = (cmd.impulseAngular + ((to_double (abi.readImpulseAng(ic))) / 256.0))
+            }
+            ic = (ic + 1)
+        }
+    }
 
     fn init:void (w:int h:int) {
         audio.init()
@@ -105,28 +264,7 @@ class WasmPhysicsRunner {
     }
 
     fn applyControlsFromAbi:void () {
-        clear physics.commands
-        def i 0
-        while (i < (array_length bodyIds)) {
-            def id:string (itemAt bodyIds i)
-            def cmd:PhysCommand (new PhysCommand)
-            cmd.bodyId = id
-            cmd.steer = ((to_double (abi.readControlSteer(i))) / 1000.0)
-            cmd.throttle = ((to_double (abi.readControlThrottle(i))) / 1000.0)
-            cmd.brake = ((to_double (abi.readControlBrake(i))) / 1000.0)
-            cmd.grip = ((to_double (abi.readControlGrip(i))) / 1000.0)
-            def ic 0
-            while (ic < (abi.getImpulseCount())) {
-                if ((abi.readImpulseBody(ic)) == i) {
-                    cmd.impulseX = (cmd.impulseX + ((to_double (abi.readImpulseLinX(ic))) / 256.0))
-                    cmd.impulseY = (cmd.impulseY + ((to_double (abi.readImpulseLinY(ic))) / 256.0))
-                    cmd.impulseAngular = (cmd.impulseAngular + ((to_double (abi.readImpulseAng(ic))) / 256.0))
-                }
-                ic = (ic + 1)
-            }
-            push physics.commands cmd
-            i = (i + 1)
-        }
+        this.applyPhysicsFromAbi()
     }
 
     fn spriteFor:string (id:string) {
@@ -264,9 +402,11 @@ class WasmPhysicsRunner {
         abi.setDtMs(dtMs)
         abi.setTimeMs(timeMs)
         abi.setInputFlags(flags)
+        this.writeContactsToAbi()
         wasm_call_void handle "update" 0 0 0 0 0 0
-        this.applyControlsFromAbi()
+        this.applyPhysicsFromAbi()
         physics.step(dtMs)
+        this.saveFrameContacts()
         this.syncDrawFromPhysics()
     }
 
@@ -336,6 +476,14 @@ class WasmPhysicsRunner {
             canvas.fillRect((x + 2) (y + 8) progBar 4 240 220 80)
         }
         canvas.fillRect((x + 90) y 24 14 40 60 90)
+        def hx:int 8
+        if (hits > 0) {
+            hx = (8 + (idiv hits 2))
+        }
+        if (hx > 22) {
+            hx = 22
+        }
+        canvas.fillRect((x + 100) y hx 14 200 80 80)
     }
 
     fn drawLoadingScreen:void (label:string ticks:int) {

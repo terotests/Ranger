@@ -49,6 +49,82 @@ class WasmAbiMem {
         this.setHeader(32 n)
     }
 
+    fn setContactCount:void (n:int) {
+        this.setHeader(36 n)
+    }
+
+    fn getContactCount:int () {
+        return (this.readHeader(36))
+    }
+
+    fn contactAddr:int (idx:int field:int) {
+        return (base + 1600 + (idx * 32) + field)
+    }
+
+    fn writeContact:void (idx:int bodyA:int bodyB:int phase:int impulseFp:int xFp:int yFp:int nxMilli:int nyMilli:int) {
+        def a:int (this.contactAddr(idx 0))
+        this.writeMem(a bodyA)
+        this.writeMem((a + 4) bodyB)
+        this.writeMem((a + 8) phase)
+        this.writeMem((a + 12) impulseFp)
+        this.writeMem((a + 16) xFp)
+        this.writeMem((a + 20) yFp)
+        this.writeMem((a + 24) nxMilli)
+        this.writeMem((a + 28) nyMilli)
+    }
+
+    fn readContactBodyA:int (idx:int) {
+        def a:int (this.contactAddr(idx 0))
+        return (this.readMem(a))
+    }
+
+    fn readContactBodyB:int (idx:int) {
+        def a:int (this.contactAddr(idx 4))
+        return (this.readMem(a))
+    }
+
+    fn readContactPhase:int (idx:int) {
+        def a:int (this.contactAddr(idx 8))
+        return (this.readMem(a))
+    }
+
+    fn readContactImpulse:int (idx:int) {
+        def a:int (this.contactAddr(idx 12))
+        return (this.readMem(a))
+    }
+
+    fn readContactX:int (idx:int) {
+        def a:int (this.contactAddr(idx 16))
+        return (this.readMem(a))
+    }
+
+    fn readContactY:int (idx:int) {
+        def a:int (this.contactAddr(idx 20))
+        return (this.readMem(a))
+    }
+
+    fn readContactNx:int (idx:int) {
+        def a:int (this.contactAddr(idx 24))
+        return (this.readMem(a))
+    }
+
+    fn readContactNy:int (idx:int) {
+        def a:int (this.contactAddr(idx 28))
+        return (this.readMem(a))
+    }
+
+    fn clearContacts:void () {
+        this.setContactCount(0)
+    }
+
+    fn setScore:void (n:int) {
+        this.setHeader(40 n)
+    }
+
+    fn setHits:void (n:int) {
+        this.setHeader(44 n)
+    }
+
     fn getScore:int () {
         return (this.readHeader(40))
     }

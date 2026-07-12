@@ -15,6 +15,7 @@ pub const OFF_TIME: i32 = 16;
 pub const OFF_INPUT: i32 = 20;
 pub const OFF_BODY_COUNT: i32 = 28;
 pub const OFF_IMPULSE_CNT: i32 = 32;
+pub const OFF_CONTACT_CNT: i32 = 36;
 pub const OFF_SCORE: i32 = 40;
 pub const OFF_HITS: i32 = 44;
 pub const OFF_CAMERA_Y: i32 = 48;
@@ -23,6 +24,20 @@ pub const OFF_BODIES: i32 = 64;
 pub const BODY_SIZE: i32 = 24;
 pub const OFF_CONTROLS: i32 = 832;
 pub const CTRL_SIZE: i32 = 16;
+pub const OFF_IMPULSES: i32 = 1344;
+pub const IMPULSE_SIZE: i32 = 16;
+pub const OFF_CONTACTS: i32 = 1600;
+pub const CONTACT_SIZE: i32 = 32;
+pub const MAX_CONTACTS: i32 = 14;
+pub const MAX_IMPULSES: i32 = 16;
+
+pub const ID_WALL_L: i32 = 1000;
+pub const ID_WALL_R: i32 = 1001;
+
+const CAR_MASS: i32 = 1200;
+const CONE_MASS: i32 = 3;
+const WIN_SCORE: i32 = 5000;
+const FINISH_Y: i32 = 140;
 
 pub const BODY_P1: i32 = 0;
 pub const BODY_P2: i32 = 1;
@@ -196,6 +211,9 @@ pub extern "C" fn init() {
     wr_i32(OFF_SIZE, ABI_SIZE);
     wr_i32(OFF_BODY_COUNT, BODY_COUNT);
     wr_i32(OFF_IMPULSE_CNT, 0);
+    wr_i32(OFF_CONTACT_CNT, 0);
+    wr_i32(OFF_SCORE, 0);
+    wr_i32(OFF_HITS, 0);
 
     let (sx, _) = road_at((6000 - 140) * FP);
     wr_i32(OFF_BODIES + BODY_P1 * BODY_SIZE, sx - 28 * FP);
@@ -220,8 +238,119 @@ fn cx_lane(y_fp: i32, lane_milli: i32) -> i32 {
     cx + usable * clamp(lane_milli, -1000, 1000) / 1000
 }
 
+fn is_player(code: i32) -> bool {
+    code == BODY_P1 || code == BODY_P2
+}
+
+fn is_wall(code: i32) -> bool {
+    code == ID_WALL_L || code == ID_WALL_R
+}
+
+fn is_cone(code: i32) -> bool {
+    code >= 100 && code < 200
+}
+
+fn is_bar(code: i32) -> bool {
+    code >= 200 && code < 300
+}
+
+fn is_traffic(code: i32) -> bool {
+    code >= TRAFFIC_START && code < TRAFFIC_START + TRAFFIC_COUNT
+}
+
+fn body_vx_vy_fp(idx: i32) -> (i32, i32) {
+    let ang_milli = rd_i32(OFF_BODIES + idx * BODY_SIZE + 8);
+    let speed_fp = rd_i32(OFF_BODIES + idx * BODY_SIZE + 12);
+    let ang_deg = ang_milli as f64 / 1000.0;
+    let rad = ang_deg * core::f64::consts::PI / 180.0;
+    let speed = speed_fp as f64 / FP as f64;
+    let vx = (rad.sin() * speed * FP as f64) as i32;
+    let vy = (-rad.cos() * speed * FP as f64) as i32;
+    (vx, vy)
+}
+
+fn write_impulse(idx: i32, body: i32, lx_fp: i32, ly_fp: i32, ang_fp: i32) {
+    let base = OFF_IMPULSES + idx * IMPULSE_SIZE;
+    wr_i32(base, body);
+    wr_i32(base + 4, lx_fp);
+    wr_i32(base + 8, ly_fp);
+    wr_i32(base + 12, ang_fp);
+}
+
+fn cone_launch_impulse(player: i32, body_b: i32, nx_m: i32, ny_m: i32) -> (i32, i32, i32) {
+    let mut nx = nx_m;
+    let mut ny = ny_m;
+    if body_b == player {
+        nx = -nx;
+        ny = -ny;
+    }
+    let nx_f = nx as f64 / 1000.0;
+    let ny_f = ny as f64 / 1000.0;
+    let (cvx, cvy) = body_vx_vy_fp(player);
+    let cvx_f = cvx as f64 / FP as f64;
+    let cvy_f = cvy as f64 / FP as f64;
+    let share = CAR_MASS as f64 / (CAR_MASS + CONE_MASS) as f64;
+    let lvx_f = cvx_f * share * 0.25 + nx_f * 25.0;
+    let lvy_f = cvy_f * share * 0.25 + ny_f * 25.0;
+    let ang_f = nx_f * 200.0 + ny_f * 90.0;
+    (
+        (lvx_f * FP as f64) as i32,
+        (lvy_f * FP as f64) as i32,
+        (ang_f * FP as f64) as i32,
+    )
+}
+
+fn process_contacts() {
+    let cnt = rd_i32(OFF_CONTACT_CNT);
+    let mut hits = rd_i32(OFF_HITS);
+    let mut imp_cnt = 0;
+    let mut ci = 0;
+    while ci < cnt && ci < MAX_CONTACTS {
+        let base = OFF_CONTACTS + ci * CONTACT_SIZE;
+        let body_a = rd_i32(base);
+        let body_b = rd_i32(base + 4);
+        let phase = rd_i32(base + 8);
+        if phase == 1 {
+            let (player, other) = if is_player(body_a) {
+                (body_a, body_b)
+            } else if is_player(body_b) {
+                (body_b, body_a)
+            } else {
+                (-1, -1)
+            };
+            if player >= 0 {
+                if is_wall(other) || is_bar(other) || is_traffic(other) {
+                    hits += 1;
+                }
+                if is_cone(other) && imp_cnt < MAX_IMPULSES {
+                    let nx_m = rd_i32(base + 24);
+                    let ny_m = rd_i32(base + 28);
+                    let (lx, ly, ang) = cone_launch_impulse(player, body_b, nx_m, ny_m);
+                    write_impulse(imp_cnt, other, lx, ly, ang);
+                    imp_cnt += 1;
+                }
+            }
+        }
+        ci += 1;
+    }
+    wr_i32(OFF_HITS, hits);
+    wr_i32(OFF_IMPULSE_CNT, imp_cnt);
+}
+
+fn check_win() {
+    if rd_i32(OFF_SCORE) >= WIN_SCORE {
+        return;
+    }
+    let y_fp = rd_i32(OFF_BODIES + BODY_P1 * BODY_SIZE + 4);
+    if y_fp / FP < FINISH_Y {
+        wr_i32(OFF_SCORE, rd_i32(OFF_SCORE) + WIN_SCORE);
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn update() {
+    process_contacts();
+
     let flags = rd_i32(OFF_INPUT);
     let now = rd_i32(OFF_TIME);
     let (p_steer, p_th, p_br) = drive_from_input(flags);
@@ -238,5 +367,5 @@ pub extern "C" fn update() {
     }
 
     wr_i32(OFF_CAMERA_Y, body_y(BODY_P1) - 120 * FP);
-    wr_i32(OFF_IMPULSE_CNT, 0);
+    check_win();
 }

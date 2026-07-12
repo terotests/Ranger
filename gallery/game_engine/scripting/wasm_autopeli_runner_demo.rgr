@@ -20,7 +20,7 @@ class WasmAutopeliRunnerDemo {
         def y0:int (runner.entityY("p1"))
         def i 0
         while (i < 400) {
-            runner.frame(16 true false false false false)
+            runner.frame(16 true false false true false)
             i = (i + 1)
         }
         def y1:int (runner.entityY("p1"))
@@ -31,10 +31,13 @@ class WasmAutopeliRunnerDemo {
         print (("p1 y0=" + (to_string y0)))
         print (("p1 y1=" + (to_string y1)))
         print (("hits=" + (to_string runner.hits)))
+        print (("score=" + (to_string runner.score)))
         if (moved) {
             if (runner.linearMode) {
-                print "wasm-autopeli-runner done"
-                return
+                if (runner.hits > 0) {
+                    print "wasm-autopeli-runner done"
+                    return
+                }
             }
         }
         print "wasm-autopeli-runner FAIL"

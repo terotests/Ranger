@@ -18,11 +18,13 @@
 #define RG_WASM_MAX_BODIES   32u
 #define RG_WASM_MAX_IMPULSES 16u
 #define RG_WASM_MAX_ENTITIES 64u
+#define RG_WASM_MAX_CONTACTS 14u
 
 #define RG_WASM_BODY_SIZE    24u
 #define RG_WASM_CONTROL_SIZE 16u
 #define RG_WASM_IMPULSE_SIZE 16u
 #define RG_WASM_ENTITY_SIZE  16u
+#define RG_WASM_CONTACT_SIZE 32u
 
 /* Header (64 bytes) */
 #define RG_WASM_OFF_MAGIC        0
@@ -34,7 +36,7 @@
 #define RG_WASM_OFF_PANE         24
 #define RG_WASM_OFF_BODY_COUNT   28
 #define RG_WASM_OFF_IMPULSE_CNT  32
-#define RG_WASM_OFF_ENTITY_CNT   36
+#define RG_WASM_OFF_CONTACT_CNT  36
 #define RG_WASM_OFF_SCORE        40
 #define RG_WASM_OFF_HITS         44
 #define RG_WASM_OFF_CAMERA_Y     48
@@ -44,7 +46,16 @@
 #define RG_WASM_OFF_BODIES       64
 #define RG_WASM_OFF_CONTROLS     (RG_WASM_OFF_BODIES + RG_WASM_MAX_BODIES * RG_WASM_BODY_SIZE)
 #define RG_WASM_OFF_IMPULSES     (RG_WASM_OFF_CONTROLS + RG_WASM_MAX_BODIES * RG_WASM_CONTROL_SIZE)
-#define RG_WASM_OFF_ENTITIES     (RG_WASM_OFF_IMPULSES + RG_WASM_MAX_IMPULSES * RG_WASM_IMPULSE_SIZE)
+#define RG_WASM_OFF_CONTACTS     (RG_WASM_OFF_IMPULSES + RG_WASM_MAX_IMPULSES * RG_WASM_IMPULSE_SIZE)
+
+/* contact[i]: bodyA, bodyB, phase, impulseFp, xFp, yFp, nxMilli, nyMilli (28 bytes) */
+#define RG_WASM_CONTACT_PHASE_BEGIN 1
+
+/* contact body id encoding (i32) */
+#define RG_WASM_ID_WALL_L  1000
+#define RG_WASM_ID_WALL_R  1001
+#define RG_WASM_ID_CONE0   100
+#define RG_WASM_ID_BAR0    200
 
 /* input_flags bits */
 #define RG_WASM_IN_UP     1u
