@@ -1,0 +1,61 @@
+; ==============================================================================
+; game_engine_host - injected engine environment for compiled game scripts.
+; ==============================================================================
+;
+; Path B (TS -> Ranger -> C++/SDL) compiles the game logic statically. The
+; ambient engine surface a script relies on (background raster, split-screen
+; pane index, and — later — the physics engine) is NOT global state: it is an
+; injected Host object. The emitter rewrites engine globals/functions to go
+; through `host.*`, and the native game bridge assigns the shared host so all
+; scripts in a run (e.g. both split-screen panes) render into the right buffer.
+;
+; Injection (composition) is used deliberately instead of inheritance so the
+; generated GeneratedGameScript stays a plain data-plus-logic class and the
+; engine can be swapped / shared without changing the script's base type.
+; ==============================================================================
+
+Import "../framebuffer.rgr"
+Import "../../ts_to_ranger/game_script_types.rgr"
+
+class GameEngineHost {
+    ; Static level buffer dimensions (set by the host during createStaticBg init).
+    def bgWidth:int 480
+    def bgHeight:int 270
+    ; Split-screen pane index: -1 = full screen, 0 = left, 1 = right.
+    def paneIndex:int -1
+    ; Background raster target. The native runner shares its own canvas here so
+    ; createStaticBg() draws into the frame the platform layer uploads.
+    def canvas:SoftCanvas (new SoftCanvas)
+    def canvasReady:boolean false
+
+    fn configure:void (width:int height:int pane:int) {
+        bgWidth = width
+        bgHeight = height
+        paneIndex = pane
+    }
+
+    fn setCanvas:void (c:SoftCanvas) {
+        canvas = c
+        canvasReady = true
+    }
+
+    ; --- Ambient engine drawing surface (bg* in engine.d.ts) ---
+
+    fn bgClear:void (r:int g:int b:int) {
+        if (canvasReady) {
+            canvas.clear(r g b)
+        }
+    }
+
+    fn bgFillRect:void (x:int y:int w:int h:int r:int g:int b:int) {
+        if (canvasReady) {
+            canvas.fillRect(x y w h r g b)
+        }
+    }
+
+    fn bgFillCircle:void (cx:int cy:int rad:int r:int g:int b:int) {
+        if (canvasReady) {
+            canvas.fillCircle(cx cy rad r g b)
+        }
+    }
+}

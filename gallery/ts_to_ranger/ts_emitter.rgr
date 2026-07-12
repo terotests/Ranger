@@ -27,6 +27,9 @@ class TSEmitter {
     def stateVarName:string "s"
     def readEntityIds:[string]
     def readEntitySeen:[string:boolean]
+    def readPlayerIndices:[string]
+    def readPlayerSeen:[string:boolean]
+    def inputVarName:string "input"
     ; Helper-function signature registry (prepass over the program).
     def fnReturnTypes:[string:string]
     def fnParamTypesCsv:[string:string]
@@ -41,11 +44,31 @@ class TSEmitter {
     def interfaceNames:[string]
     ; State fields that hold script-owned arrays -> stored in state.intArrays.
     def stateArrayFieldType:[string:string]
+    ; State fields holding rich objects / arrays-of-structs. These can't live in
+    ; the generic NativeGameState maps (heterogeneous static types), so they are
+    ; kept as fields on the persistent GeneratedGameScript instance and read/
+    ; written directly (name -> Ranger type, e.g. "makePlayerRetNative" or
+    ; "[enemiesElemNative]").
+    def objectStateFieldType:[string:string]
+    def objectStateFieldOrder:[string]
+    ; Function whose body is currently being scanned/emitted, used to name
+    ; struct types synthesized from `local.push({...})` (stable across passes).
+    def inferFnName:string ""
+    ; Per-statement hoist of `X[i]` computed accesses that are field-access
+    ; receivers: Ranger rejects `(itemAt a i).field`, so bind to a typed local
+    ; first. Map raw `(itemAt base idx)` string -> local name.
+    def hoistedItemAt:[string:string]
+    def itemAtCounter:int 0
     ; initState body `const foo = makeFoo()` names -> array type (prescan only).
     def initStateLocalTypes:[string:string]
     def tmpCounter:int 0
     ; Synthesized struct interface names (fnName + "Ret") already registered.
     def synthStructDone:[string:boolean]
+    ; Per-module @singleton(true) holder for module-level const tables (one per .tsx).
+    def moduleSingletonClass:string ""
+    def moduleIdRaw:string ""
+    def moduleConstDeferred:[string:boolean]
+    def inModuleSingletonCtor:boolean false
     ; Block currently being emitted (for empty-array element-type inference).
     def currentEmitBlock:TSNode (new TSNode())
 
@@ -95,6 +118,15 @@ class TSEmitter {
         if (name == "float") { return "double" }
         if (name == "double") { return "double" }
         if (name == "number") { return "double" }
+        ; Fixed-width aliases are now first-class Ranger types (compiler support
+        ; added in TTypeRegistry / C++ writer), so pass them through verbatim: the
+        ; C++ backend emits uint8_t / int32_t / float, other targets use int/double.
+        if (name == "i32") { return "i32" }
+        if (name == "u8") { return "u8" }
+        if (name == "u16") { return "u16" }
+        if (name == "u32") { return "u32" }
+        if (name == "f64") { return "double" }
+        if (name == "f32") { return "f32" }
         if (name == "string") { return "string" }
         if (name == "boolean") { return "boolean" }
         if (name == "bool") { return "boolean" }
@@ -149,6 +181,20 @@ class TSEmitter {
             return (unwrap t)
         }
         return "int"
+    }
+
+    fn fnSigType:string (t:string) {
+        return (this.localVarType(t))
+    }
+
+    ; Normalize TS scalar aliases to Ranger locals / signatures (i32 -> int, etc.).
+    fn localVarType:string (t:string) {
+        if (t == "i32") { return "int" }
+        if (t == "u8") { return "int" }
+        if (t == "u16") { return "int" }
+        if (t == "u32") { return "int" }
+        if (t == "f32") { return "double" }
+        return t
     }
 
     fn helperParamType:string (name:string idx:int) {
@@ -223,21 +269,194 @@ class TSEmitter {
         interfaceNames = ifn
         def saf:[string:string]
         stateArrayFieldType = saf
+        def osf:[string:string]
+        objectStateFieldType = osf
+        def oso:[string]
+        objectStateFieldOrder = oso
+        def hia:[string:string]
+        hoistedItemAt = hia
+        itemAtCounter = 0
         def isl:[string:string]
         initStateLocalTypes = isl
         def ssd:[string:boolean]
         synthStructDone = ssd
+        moduleSingletonClass = ""
+        def mcd:[string:boolean]
+        moduleConstDeferred = mcd
+        inModuleSingletonCtor = false
         tmpCounter = 0
         this.seedBridgeStructs()
+    }
+
+    fn setModuleSingletonId:void (moduleId:string) {
+        moduleIdRaw = moduleId
+    }
+
+    ; Ambient engine globals (engine.d.ts) provided by the injected host object.
+    fn isEngineGlobal:boolean (name:string) {
+        if (name == "bgWidth") { return true }
+        if (name == "bgHeight") { return true }
+        if (name == "paneIndex") { return true }
+        return false
+    }
+
+    ; Ambient engine functions provided by the injected host object.
+    fn isEngineFn:boolean (name:string) {
+        if (name == "bgClear") { return true }
+        if (name == "bgFillRect") { return true }
+        if (name == "bgFillCircle") { return true }
+        return false
+    }
+
+    fn applyModuleId:void () {
+        if ((strlen moduleIdRaw) > 0) {
+            def cap:string (this.capitalizeModuleId(moduleIdRaw))
+            moduleSingletonClass = (cap + "GameModule")
+        }
+    }
+
+    fn capitalizeModuleId:string (id:string) {
+        if ((strlen id) == 0) {
+            return "Game"
+        }
+        def out:string ""
+        def i 0
+        def upNext:boolean true
+        while (i < (strlen id)) {
+            def ch:string (substring id i (i + 1))
+            if ((ch == "_") || ((ch == "-") || (ch == "."))) {
+                upNext = true
+            } {
+                if (upNext) {
+                    def uc:string (this.upperAscii(ch))
+                    out = (out + uc)
+                } {
+                    out = (out + ch)
+                }
+                upNext = false
+            }
+            i = (i + 1)
+        }
+        if ((strlen out) == 0) {
+            return "Game"
+        }
+        def first:string (substring out 0 1)
+        def firstUp:string (this.upperAscii(first))
+        return (firstUp + (substring out 1 (strlen out)))
+    }
+
+    fn upperAscii:string (ch:string) {
+        if (ch == "a") { return "A" }
+        if (ch == "b") { return "B" }
+        if (ch == "c") { return "C" }
+        if (ch == "d") { return "D" }
+        if (ch == "e") { return "E" }
+        if (ch == "f") { return "F" }
+        if (ch == "g") { return "G" }
+        if (ch == "h") { return "H" }
+        if (ch == "i") { return "I" }
+        if (ch == "j") { return "J" }
+        if (ch == "k") { return "K" }
+        if (ch == "l") { return "L" }
+        if (ch == "m") { return "M" }
+        if (ch == "n") { return "N" }
+        if (ch == "o") { return "O" }
+        if (ch == "p") { return "P" }
+        if (ch == "q") { return "Q" }
+        if (ch == "r") { return "R" }
+        if (ch == "s") { return "S" }
+        if (ch == "t") { return "T" }
+        if (ch == "u") { return "U" }
+        if (ch == "v") { return "V" }
+        if (ch == "w") { return "W" }
+        if (ch == "x") { return "X" }
+        if (ch == "y") { return "Y" }
+        if (ch == "z") { return "Z" }
+        return ch
+    }
+
+    ; Module const access goes through a per-function local bound to the
+    ; singleton — Ranger can't type-resolve `(X.__singleton()).field` inline.
+    fn moduleConstAccess:string (name:string) {
+        return ("_mod." + name)
+    }
+
+    ; Emit `def _mod:<Class> (<Class>.__singleton())` if this function reads
+    ; any module-level const (array or scalar).
+    fn emitModuleLocalIfNeeded:void (body:TSNode) {
+        if ((strlen moduleSingletonClass) == 0) {
+            return
+        }
+        if ((this.bodyUsesModuleConst(body)) == false) {
+            return
+        }
+        this.emitLine(((("def _mod:" + moduleSingletonClass) + " (") + moduleSingletonClass) + ".__singleton())")
+    }
+
+    fn bodyUsesModuleConst:boolean (node:TSNode) {
+        if (node.nodeType == "Identifier") {
+            def ca@(optional):boolean (get constArrayNames node.name)
+            if (!null? ca) {
+                return true
+            }
+            def cs@(optional):string (get constScalarTypes node.name)
+            if (!null? cs) {
+                return true
+            }
+            return false
+        }
+        if (node.left) {
+            if (this.bodyUsesModuleConst((unwrap node.left))) { return true }
+        }
+        if (node.right) {
+            if (this.bodyUsesModuleConst((unwrap node.right))) { return true }
+        }
+        if (node.body) {
+            if (this.bodyUsesModuleConst((unwrap node.body))) { return true }
+        }
+        if (node.init) {
+            if (this.bodyUsesModuleConst((unwrap node.init))) { return true }
+        }
+        if (node.test) {
+            if (this.bodyUsesModuleConst((unwrap node.test))) { return true }
+        }
+        if (node.consequent) {
+            if (this.bodyUsesModuleConst((unwrap node.consequent))) { return true }
+        }
+        if (node.alternate) {
+            if (this.bodyUsesModuleConst((unwrap node.alternate))) { return true }
+        }
+        def i 0
+        while (i < (array_length node.children)) {
+            if (this.bodyUsesModuleConst((itemAt node.children i))) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn hasModuleConsts:boolean (ast:TSNode) {
+        def i 0
+        while (i < (array_length ast.children)) {
+            def node:TSNode (itemAt ast.children i)
+            if (node.nodeType == "VariableDeclaration") {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
     }
 
     ; Register bridge struct field types so struct-literal emission is type-aware
     ; (keyed by the interface-style name = struct minus the "Native" suffix).
     fn seedBridgeStructs:void () {
-        set interfaceFieldsCsv "SpriteDef" "id:string,kind:string,w:int,h:int,rad:int,r:int,g:int,b:int,p0:int,p1:int,p2:int,px:int,br:int,bg:int,bb:int,er:int,eg:int,eb:int,frames:[[string]]"
+        set interfaceFieldsCsv "SpriteDef" "id:string,kind:string,w:int,h:int,rad:int,r:int,g:int,b:int,p0:int,p1:int,p2:int,px:int,br:int,bg:int,bb:int,er:int,eg:int,eb:int,frames:[[string]],path:string,frameW:int,frameH:int,cols:int,rows:int,scale:int,feetTrim:int,jumpFrame:int"
         set interfaceFieldsCsv "EntityPose" "x:double,y:double,visible:int,r:int,g:int,b:int,rad:int,p0:int,p1:int,p2:int"
         set interfaceFieldsCsv "ResourceDef" "kind:string,id:string,path:string,px:int,frameCount:int,w:int,h:int"
         set interfaceFieldsCsv "GameEvent" "kind:string,id:string,x:double,y:double,amount:int"
+        set interfaceFieldsCsv "PlayerInput" "up:boolean,down:boolean,left:boolean,right:boolean,action:boolean,shoot:boolean,b:boolean,x:boolean"
+        set interfaceFieldsCsv "GameInput" "players:[PlayerInputNative]"
     }
 
     ; Fields that exist as first-class members of NativeGameState. Anything else
@@ -252,6 +471,8 @@ class TSEmitter {
         if (prop == "vy") { return true }
         if (prop == "hasVx") { return true }
         if (prop == "hasVy") { return true }
+        if (prop == "dt") { return true }
+        if (prop == "hasDt") { return true }
         if (prop == "entities") { return true }
         if (prop == "numbers") { return true }
         if (prop == "events") { return true }
@@ -280,11 +501,26 @@ class TSEmitter {
         if ((prop == "hasVx") || (prop == "hasVy")) {
             return "boolean"
         }
+        if ((prop == "hasDt")) {
+            return "boolean"
+        }
         if ((prop == "id") || (prop == "kind") || (prop == "screen") || (prop == "path")) {
             return "string"
         }
         if (prop == "state") {
             return "NativeGameState"
+        }
+        if (prop == "input") {
+            return "GameInputNative"
+        }
+        if (prop == "players") {
+            return "[PlayerInputNative]"
+        }
+        if (prop == "events") {
+            return "[GameEventNative]"
+        }
+        if (prop == "entities") {
+            return "[string:EntityPoseNative]"
         }
         return "int"
     }
@@ -303,6 +539,12 @@ class TSEmitter {
         }
         def callee:TSNode (unwrap node.left)
         if (callee.nodeType == "Identifier") {
+            if (this.isBridgeHelper(callee.name)) {
+                return "GameEventNative"
+            }
+            if (callee.name == "initState") {
+                return "NativeGameState"
+            }
             if (this.isKnownHelper(callee.name)) {
                 return (this.helperReturnType(callee.name))
             }
@@ -438,6 +680,9 @@ class TSEmitter {
             if (!null? cst) {
                 return (unwrap cst)
             }
+            if (this.isEngineGlobal(node.name)) {
+                return "int"
+            }
             return "int"
         }
         if (t == "CallExpression") {
@@ -461,7 +706,11 @@ class TSEmitter {
             if (node.left) {
                 def lbase:TSNode (unwrap node.left)
                 if (lbase.nodeType == "Identifier") {
-                    if (lbase.name == stateVarName) {
+                    def lvt:string (this.lookupVarType(lbase.name))
+                    if (lvt == "NativeGameState") {
+                        if (this.isObjectStateField(node.name)) {
+                            return (this.objectStateFieldTypeOf(node.name))
+                        }
                         if ((this.isNativeStateField(node.name)) == false) {
                             if (this.isStateArrayField(node.name)) {
                                 return (this.stateArrayType(node.name))
@@ -522,6 +771,21 @@ class TSEmitter {
         }
         return "int"
     }
+    fn isFloatScalar:boolean (t:string) {
+        if (t == "double") { return true }
+        if (t == "f32") { return true }
+        return false
+    }
+
+    fn isIntScalar:boolean (t:string) {
+        if (t == "int") { return true }
+        if (t == "i32") { return true }
+        if (t == "u8") { return true }
+        if (t == "u16") { return true }
+        if (t == "u32") { return true }
+        return false
+    }
+
     fn numericCommon:string (node:TSNode) {
         def lt:string "int"
         def rt:string "int"
@@ -531,7 +795,7 @@ class TSEmitter {
         if (node.right) {
             rt = (this.exprType((unwrap node.right)))
         }
-        if ((lt == "double") || (rt == "double")) {
+        if ((this.isFloatScalar(lt)) || (this.isFloatScalar(rt))) {
             return "double"
         }
         return "int"
@@ -565,6 +829,14 @@ class TSEmitter {
                 if (node.nodeType == "Identifier") {
                     return expr
                 }
+                if (this.containsChar(expr 46)) {
+                    return expr
+                }
+                if ((strlen expr) >= 4) {
+                    if ((substring expr 0 4) == "(0.0") {
+                        return expr
+                    }
+                }
                 if ((strlen expr) >= 10) {
                     if ((substring expr 0 10) == "(to_double") {
                         return expr
@@ -582,36 +854,98 @@ class TSEmitter {
 
     fn emitProgram:string (ast:TSNode) {
         this.reset()
+        this.applyModuleId()
         this.prescanProgram(ast)
         this.emitLine("; Generated by gallery/ts_to_ranger/ts_emitter.rgr")
         this.emitLine("; Source: game script (.game.tsx) - do not edit by hand.")
         this.emitLine("")
-        this.emitLine("Import \"../game_script_types.rgr\"")
+        this.emitLine("Import \"../../game_engine/scripting/game_engine_host.rgr\"")
         this.emitLine("")
 
         ; 1. Interfaces -> native structs (before the script class).
         this.emitInterfaces()
 
+        ; 2. Module-level const scalars/arrays -> per-file @singleton(true) class.
+        if ((this.hasModuleConsts(ast)) && ((strlen moduleSingletonClass) > 0)) {
+            this.emitModuleSingleton(ast)
+            this.emitLine("")
+        }
+
         this.emitLine("class GeneratedGameScript {")
+        ; Injected engine environment (bg raster, paneIndex, physics). The native
+        ; game bridge assigns the shared host; default keeps headless compiles valid.
+        this.emitLine("    def host:GameEngineHost (new GameEngineHost)")
+        ; Object-valued state fields (player structs, arrays of structs) persist on
+        ; the script instance instead of the generic NativeGameState maps.
+        this.emitObjectStateFields()
+        this.emitLine("")
 
-        ; 2. Module-level const scalars -> class fields.
-        this.emitConstFields(ast)
-
-        ; 3. Const arrays -> methods (return a fresh list), and functions.
+        ; 3. Functions only (consts live on the module singleton).
         def i 0
         while (i < (array_length ast.children)) {
             def node:TSNode (itemAt ast.children i)
             if (node.nodeType == "FunctionDeclaration") {
                 this.emitFunction(node)
             }
-            if (node.nodeType == "VariableDeclaration") {
-                this.emitConstArrayMethods(node)
-            }
             i = (i + 1)
         }
 
         this.emitLine("}")
         return output
+    }
+
+    fn emitObjectStateFields:void () {
+        def i 0
+        while (i < (array_length objectStateFieldOrder)) {
+            def name:string (itemAt objectStateFieldOrder i)
+            def t@(optional):string (get objectStateFieldType name)
+            if (!null? t) {
+                def ty:string (unwrap t)
+                def zero:string (this.zeroFor(ty))
+                if ((strlen zero) > 0) {
+                    this.emitLine((((("    def st_" + name) + ":") + ty) + " ") + zero)
+                } {
+                    this.emitLine(((("    def st_" + name) + ":") + ty))
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn isObjectStateField:boolean (name:string) {
+        def t@(optional):string (get objectStateFieldType name)
+        if (!null? t) {
+            return true
+        }
+        return false
+    }
+
+    fn objectStateFieldTypeOf:string (name:string) {
+        def t@(optional):string (get objectStateFieldType name)
+        if (!null? t) {
+            return (unwrap t)
+        }
+        return "int"
+    }
+
+    ; Read a script-state field from any NativeGameState binding (s, fresh, patch).
+    fn emitStateFieldRead:string (baseName:string field:string expected:string) {
+        if (this.isObjectStateField(field)) {
+            return ("st_" + field)
+        }
+        if (this.isStateArrayField(field)) {
+            return (((("(unwrap (get " + baseName) + ".intArrays \"") + field) + "\"))")
+        }
+        if ((this.isNativeStateField(field)) == false) {
+            if ((strlen field) > 0) {
+                def access:string (((("(unwrap (get " + baseName) + ".numbers \"") + field) + "\"))")
+                if (expected == "int") {
+                    return ("(to_int " + access) + ")")
+                }
+                return access
+            }
+        }
+        return ""
     }
 
     fn isSpecialFn:boolean (name:string) {
@@ -664,6 +998,17 @@ class TSEmitter {
             }
             k = (k + 1)
         }
+        ; Fourth pass: re-infer helper return types now that param CSV is final.
+        this.finalizeHelperReturnTypes(ast)
+        ; Fifth pass: refresh synthesized return-struct field types after call-site
+        ; inference AND finalized helper return types (so e.g. `{ x: scaleX(..) }`
+        ; picks up scaleX's double return). Run return-type inference first so
+        ; struct fields typed from helper calls resolve correctly.
+        this.finalizeSynthStructs(ast)
+        ; Helper returns may depend on struct field types too; re-run once more.
+        this.finalizeHelperReturnTypes(ast)
+        ; Seventh pass: call-site param types now that struct schemas are final.
+        this.reinferParamTypesFromCalls(ast)
     }
 
     fn scanStateArrays:void (node:TSNode) {
@@ -731,13 +1076,35 @@ class TSEmitter {
                             first = (substring vt 0 1)
                         }
                         if (first == "[") {
-                            set stateArrayFieldType key vt
+                            ; [int] / [double] -> generic intArrays slot; arrays of
+                            ; structs -> object state field (instance-held).
+                            def et:string (this.elemTypeOf(vt))
+                            if ((et == "int") || (et == "double")) {
+                                set stateArrayFieldType key vt
+                            } {
+                                set objectStateFieldType key vt
+                                push objectStateFieldOrder key
+                            }
+                        } {
+                            ; A rich object value (struct) -> object state field.
+                            if (this.endsWith(vt "Native")) {
+                                set objectStateFieldType key vt
+                                push objectStateFieldOrder key
+                            }
                         }
                     }
                 }
             }
             i = (i + 1)
         }
+    }
+
+    fn helperAnnotatedArrayElem:string (fnName:string) {
+        def rt:string (this.helperReturnType(fnName))
+        if (this.startsWith(rt "[")) {
+            return (this.elemTypeOf(rt))
+        }
+        return ""
     }
 
     fn recordHelper:void (node:TSNode) {
@@ -766,6 +1133,96 @@ class TSEmitter {
         }
         set fnParamTypesCsv node.name (this.joinCsv(types))
         this.inferParamTypes(node)
+    }
+
+    ; Imported game_helpers.tsx bridge fns — inlined as GameEventNative literals.
+    fn isBridgeHelper:boolean (name:string) {
+        if (name == "soundEvent") { return true }
+        if (name == "musicEvent") { return true }
+        if (name == "musicScoreEvent") { return true }
+        if (name == "stopMusicEvent") { return true }
+        if (name == "particleEvent") { return true }
+        if (name == "rumbleEvent") { return true }
+        return false
+    }
+
+    fn emitBridgeHelperValue:string (name:string node:TSNode) {
+        def tmp:string ("be" + ("" + tmpCounter))
+        tmpCounter = (tmpCounter + 1)
+        this.emitLine(("def " + tmp) + ":GameEventNative (new GameEventNative)")
+        if (name == "soundEvent") {
+            this.emitLine((tmp + ".kind = \"playSound\""))
+            if ((array_length node.children) > 0) {
+                def id:string (this.emitExpr((itemAt node.children 0) "string"))
+                this.emitLine((tmp + ".id = ") + id)
+            }
+            return tmp
+        }
+        if (name == "stopMusicEvent") {
+            this.emitLine((tmp + ".kind = \"stopMusic\""))
+            this.emitLine((tmp + ".id = \"\""))
+            return tmp
+        }
+        if (name == "musicEvent") {
+            this.emitLine((tmp + ".kind = \"playMusic\""))
+            if ((array_length node.children) > 0) {
+                def id:string (this.emitExpr((itemAt node.children 0) "string"))
+                this.emitLine((tmp + ".id = ") + id)
+            }
+            this.emitLine((tmp + ".amount = 1"))
+            return tmp
+        }
+        if (name == "musicScoreEvent") {
+            this.emitLine((tmp + ".kind = \"playMusic\""))
+            this.emitLine((tmp + ".id = \"inline\""))
+            if ((array_length node.children) > 0) {
+                def txt:string (this.emitExpr((itemAt node.children 0) "string"))
+                this.emitLine((tmp + ".text = ") + txt)
+            }
+            this.emitLine((tmp + ".amount = 1"))
+            return tmp
+        }
+        if (name == "particleEvent") {
+            this.emitLine((tmp + ".kind = \"particles\""))
+            if ((array_length node.children) > 0) {
+                def pid:string (this.emitExpr((itemAt node.children 0) "string"))
+                this.emitLine((tmp + ".id = ") + pid)
+            }
+            if ((array_length node.children) > 1) {
+                def px:string (this.emitExpr((itemAt node.children 1) "double"))
+                this.emitLine((tmp + ".x = ") + px)
+            }
+            if ((array_length node.children) > 2) {
+                def py:string (this.emitExpr((itemAt node.children 2) "double"))
+                this.emitLine((tmp + ".y = ") + py)
+            }
+            if ((array_length node.children) > 3) {
+                def amt:string (this.emitExpr((itemAt node.children 3) "int"))
+                this.emitLine((tmp + ".amount = ") + amt)
+            }
+            return tmp
+        }
+        if (name == "rumbleEvent") {
+            this.emitLine((tmp + ".kind = \"rumble\""))
+            if ((array_length node.children) > 0) {
+                def pad:string (this.emitExpr((itemAt node.children 0) "int"))
+                this.emitLine((tmp + ".pad = ") + pad)
+            }
+            if ((array_length node.children) > 1) {
+                def lo:string (this.emitExpr((itemAt node.children 1) "int"))
+                this.emitLine((tmp + ".low = ") + lo)
+            }
+            if ((array_length node.children) > 2) {
+                def hi:string (this.emitExpr((itemAt node.children 2) "int"))
+                this.emitLine((tmp + ".high = ") + hi)
+            }
+            if ((array_length node.children) > 3) {
+                def dur:string (this.emitExpr((itemAt node.children 3) "int"))
+                this.emitLine((tmp + ".ms = ") + dur)
+            }
+            return tmp
+        }
+        return tmp
     }
 
     ; ==========================================================================
@@ -807,10 +1264,44 @@ class TSEmitter {
         if (hasId && hasKind) {
             return "SpriteDefNative"
         }
+        ; Only collapse to EntityPoseNative when every field is part of the pose
+        ; schema. Rich game objects (players/enemies with vx/vy/done/grounded/…)
+        ; must keep a distinct synthesized struct so their fields survive.
         if (hasX && hasY) {
-            return "EntityPoseNative"
+            if (this.allFieldsArePose(obj)) {
+                return "EntityPoseNative"
+            }
         }
         return ""
+    }
+
+    fn allFieldsArePose:boolean (obj:TSNode) {
+        def i 0
+        while (i < (array_length obj.children)) {
+            def prop:TSNode (itemAt obj.children i)
+            if (prop.nodeType == "Property") {
+                def key:string (this.propKey(prop))
+                if ((this.isPoseField(key)) == false) {
+                    return false
+                }
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    fn isPoseField:boolean (key:string) {
+        if (key == "x") { return true }
+        if (key == "y") { return true }
+        if (key == "visible") { return true }
+        if (key == "r") { return true }
+        if (key == "g") { return true }
+        if (key == "b") { return true }
+        if (key == "rad") { return true }
+        if (key == "p0") { return true }
+        if (key == "p1") { return true }
+        if (key == "p2") { return true }
+        return false
     }
 
     fn registerSynthStruct:string (obj:TSNode fnName:string) {
@@ -826,6 +1317,81 @@ class TSEmitter {
         return structType
     }
 
+    fn objectFieldType:string (key:string valNode:TSNode) {
+        if (key == "hit") { return "boolean" }
+        if (key == "x") { return "double" }
+        if (key == "y") { return "double" }
+        if (key == "w") { return "double" }
+        if (key == "vx") { return "double" }
+        if (key == "vy") { return "double" }
+        if (key == "bx") { return "double" }
+        if (key == "by") { return "double" }
+        if (key == "fireCd") { return "double" }
+        if (key == "carryVx") { return "double" }
+        if (valNode.nodeType == "ObjectExpression") {
+            def known:string (this.matchKnownStruct(valNode))
+            if ((strlen known) > 0) {
+                return known
+            }
+            def iface:string (this.matchRecordedInterface(valNode))
+            if ((strlen iface) > 0) {
+                return iface
+            }
+        }
+        return (this.exprType(valNode))
+    }
+
+    ; Pick the best recorded script interface for an object literal's field set.
+    fn matchRecordedInterface:string (obj:TSNode) {
+        if (obj.nodeType != "ObjectExpression") {
+            return ""
+        }
+        def i 0
+        while (i < (array_length interfaceNames)) {
+            def iname:string (itemAt interfaceNames i)
+            if (this.objectMatchesInterface(obj iname)) {
+                return (iname + "Native")
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn objectMatchesInterface:boolean (obj:TSNode iface:string) {
+        def csv@(optional):string (get interfaceFieldsCsv iface)
+        if (null? csv) {
+            return false
+        }
+        def pairs:[string] (this.splitCsv((unwrap csv)))
+        def pi 0
+        while (pi < (array_length pairs)) {
+            def pair:string (itemAt pairs pi)
+            def colon:int (indexOf pair ":")
+            if (colon > 0) {
+                def fname:string (substring pair 0 colon)
+                if ((this.objectHasField(obj fname)) == false) {
+                    return false
+                }
+            }
+            pi = (pi + 1)
+        }
+        return true
+    }
+
+    fn objectHasField:boolean (obj:TSNode key:string) {
+        def i 0
+        while (i < (array_length obj.children)) {
+            def prop:TSNode (itemAt obj.children i)
+            if (prop.nodeType == "Property") {
+                if ((this.propKey(prop)) == key) {
+                    return true
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
     fn objectFieldsCsv:string (obj:TSNode) {
         def pairs:[string]
         def i 0
@@ -835,13 +1401,176 @@ class TSEmitter {
                 def key:string (this.propKey(prop))
                 if ((strlen key) > 0) {
                     def valNode:TSNode (this.propertyValueNode(prop))
-                    def ft:string (this.exprType(valNode))
+                    def ft:string (this.objectFieldType(key valNode))
                     push pairs ((key + ":") + ft)
                 }
             }
             i = (i + 1)
         }
         return (this.joinCsv(pairs))
+    }
+
+    ; After param-type refinement, rebuild synthesized return struct schemas.
+    fn finalizeSynthStructs:void (ast:TSNode) {
+        def i 0
+        while (i < (array_length ast.children)) {
+            def node:TSNode (itemAt ast.children i)
+            if (node.nodeType == "FunctionDeclaration") {
+                if ((this.isSpecialFn(node.name)) == false) {
+                    if (null? node.body) {
+                        i = (i + 1)
+                        continue
+                    }
+                    def body:TSNode (unwrap node.body)
+                    def saved:[string:string] varTypes
+                    def local:[string:string]
+                    varTypes = local
+                    def pi 0
+                    while (pi < (array_length node.params)) {
+                        def p:TSNode (itemAt node.params pi)
+                        def pt:string (this.helperParamType(node.name pi))
+                        if ((strlen pt) > 0) {
+                            set varTypes p.name pt
+                        }
+                        pi = (pi + 1)
+                    }
+                    def savedInfer:string inferFnName
+                    inferFnName = node.name
+                    this.collectLocalVarTypes(body body)
+                    inferFnName = savedInfer
+                    def csv:string (this.findReturnStructCsv(body node.name))
+                    if ((strlen csv) > 0) {
+                        def baseName:string (node.name + "Ret")
+                        set interfaceFieldsCsv baseName csv
+                    }
+                    this.refreshPushStructsInBlock(body node.name)
+                    varTypes = saved
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Re-scan `arr.push({...})` literals so field types pick up finalized helper
+    ; return types (e.g. scaleX -> double on x/min/max).
+    fn refreshPushStructsInBlock:void (block:TSNode fnName:string) {
+        def i 0
+        while (i < (array_length block.children)) {
+            this.refreshPushStructsInStmt((itemAt block.children i) fnName)
+            i = (i + 1)
+        }
+    }
+
+    fn refreshPushStructsInStmt:void (stmt:TSNode fnName:string) {
+        def t:string stmt.nodeType
+        if (t == "BlockStatement") {
+            this.refreshPushStructsInBlock(stmt fnName)
+            return
+        }
+        if (t == "ExpressionStatement") {
+            if (stmt.left) {
+                def expr:TSNode (unwrap stmt.left)
+                if (expr.nodeType == "CallExpression") {
+                    if (expr.left) {
+                        def callee:TSNode (unwrap expr.left)
+                        if (callee.nodeType == "MemberExpression") {
+                            if (callee.name == "push") {
+                                if (callee.left) {
+                                    def base:TSNode (unwrap callee.left)
+                                    if (base.nodeType == "Identifier") {
+                                        if ((array_length expr.children) > 0) {
+                                            def argNode:TSNode (itemAt expr.children 0)
+                                            if (argNode.nodeType == "ObjectExpression") {
+                                                def baseName:string (((fnName + "_") + base.name) + "Ret")
+                                                set interfaceFieldsCsv baseName (this.objectFieldsCsv(argNode))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return
+        }
+        if (t == "IfStatement") {
+            if (stmt.body) {
+                this.refreshPushStructsInStmt((unwrap stmt.body) fnName)
+            }
+            if (stmt.right) {
+                this.refreshPushStructsInStmt((unwrap stmt.right) fnName)
+            }
+            return
+        }
+        if (t == "WhileStatement") {
+            if (stmt.body) {
+                this.refreshPushStructsInStmt((unwrap stmt.body) fnName)
+            }
+        }
+    }
+
+    fn reinferParamTypesFromCalls:void (ast:TSNode) {
+        def i 0
+        while (i < (array_length ast.children)) {
+            def node:TSNode (itemAt ast.children i)
+            if (node.nodeType == "FunctionDeclaration") {
+                if ((this.isSpecialFn(node.name)) == false) {
+                    this.inferParamTypesFromProgram(node.name ast)
+                    this.inferParamTypes(node)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn findReturnStructCsv:string (block:TSNode fnName:string) {
+        def i 0
+        while (i < (array_length block.children)) {
+            def csv:string (this.findReturnStructCsvInStmt((itemAt block.children i) fnName))
+            if ((strlen csv) > 0) {
+                return csv
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn findReturnStructCsvInStmt:string (stmt:TSNode fnName:string) {
+        def t:string stmt.nodeType
+        if (t == "ReturnStatement") {
+            if (stmt.left) {
+                def val:TSNode (unwrap stmt.left)
+                if (val.nodeType == "ObjectExpression") {
+                    return (this.objectFieldsCsv(val))
+                }
+            }
+            return ""
+        }
+        if (t == "IfStatement") {
+            if (stmt.body) {
+                def r1:string (this.findReturnStructCsvInStmt((unwrap stmt.body) fnName))
+                if ((strlen r1) > 0) {
+                    return r1
+                }
+            }
+            if (stmt.right) {
+                def r2:string (this.findReturnStructCsvInStmt((unwrap stmt.right) fnName))
+                if ((strlen r2) > 0) {
+                    return r2
+                }
+            }
+            return ""
+        }
+        if (t == "BlockStatement") {
+            return (this.findReturnStructCsv(stmt fnName))
+        }
+        if (t == "WhileStatement") {
+            if (stmt.body) {
+                return (this.findReturnStructCsvInStmt((unwrap stmt.body) fnName))
+            }
+        }
+        return ""
     }
 
     fn inferParamTypes:void (node:TSNode) {
@@ -905,6 +1634,74 @@ class TSEmitter {
         if (node.body) {
             this.inferParamTypesFromCallsWalk(fnName (unwrap node.body))
         }
+        if (node.init) {
+            this.inferParamTypesFromCallsWalk(fnName (unwrap node.init))
+        }
+        if (node.test) {
+            this.inferParamTypesFromCallsWalk(fnName (unwrap node.test))
+        }
+        if (node.consequent) {
+            this.inferParamTypesFromCallsWalk(fnName (unwrap node.consequent))
+        }
+        if (node.alternate) {
+            this.inferParamTypesFromCallsWalk(fnName (unwrap node.alternate))
+        }
+    }
+
+    fn inferCallArgType:string (arg:TSNode fnName:string) {
+        if (arg.nodeType == "ObjectExpression") {
+            if ((strlen fnName) > 0) {
+                return (this.inferObjectStructType(arg (fnName + "_arg")))
+            }
+        }
+        def at:string (this.exprType(arg))
+        if (this.isPositiveType(at)) {
+            return at
+        }
+        if (arg.nodeType == "Identifier") {
+            if (arg.name == "vx") { return "double" }
+            if (arg.name == "vy") { return "double" }
+            if (arg.name == "bx") { return "double" }
+            if (arg.name == "by") { return "double" }
+            if (arg.name == "prevBx") { return "double" }
+        }
+        if (arg.nodeType == "MemberExpression") {
+            if (arg.computed) {
+                if (arg.left) {
+                    def base:TSNode (unwrap arg.left)
+                    if (base.nodeType == "MemberExpression") {
+                        if (base.left) {
+                            def root:TSNode (unwrap base.left)
+                            if (root.nodeType == "Identifier") {
+                                if (root.name == stateVarName) {
+                                    def ost:string (this.objectStateFieldTypeOf(base.name))
+                                    if (this.startsWith(ost "[")) {
+                                        return (this.elemTypeOf(ost))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (base.nodeType == "Identifier") {
+                        if (base.name == stateVarName) {
+                            def et:string (this.objectStateFieldTypeOf(arg.name))
+                            if (this.startsWith(et "[")) {
+                                return (this.elemTypeOf(et))
+                            }
+                        }
+                    }
+                    def bt:string (this.exprType(base))
+                    if (this.startsWith(bt "[")) {
+                        return (this.elemTypeOf(bt))
+                    }
+                }
+            }
+            if (arg.name == "x") { return "double" }
+            if (arg.name == "y") { return "double" }
+            if (arg.name == "vx") { return "double" }
+            if (arg.name == "vy") { return "double" }
+        }
+        return at
     }
 
     fn mergeCallArgTypes:void (fnName:string call:TSNode) {
@@ -919,7 +1716,7 @@ class TSEmitter {
             def pt:string (itemAt types i)
             if (i < (array_length call.children)) {
                 def arg:TSNode (itemAt call.children i)
-                def at:string (this.exprType(arg))
+                def at:string (this.inferCallArgType(arg fnName))
                 if (this.isPositiveType(at)) {
                     pt = at
                 }
@@ -934,9 +1731,23 @@ class TSEmitter {
         if (param == "entities") {
             return "[string:EntityPoseNative]"
         }
+        if (param == "events") {
+            return "[GameEventNative]"
+        }
         if (param == "props") {
             return "UpdatePropsNative"
         }
+        if (param == "vx") { return "double" }
+        if (param == "vy") { return "double" }
+        if (param == "bx") { return "double" }
+        if (param == "by") { return "double" }
+        if (param == "prevBx") { return "double" }
+        if (param == "paddleY") { return "double" }
+        if (param == "paddleVy") { return "double" }
+        if (param == "p1y") { return "double" }
+        if (param == "p1vy") { return "double" }
+        if (param == "p2y") { return "double" }
+        if (param == "p2vy") { return "double" }
         if (param == "alive") {
             return "[int]"
         }
@@ -951,7 +1762,6 @@ class TSEmitter {
         if (param == "ghostDir") { return "[int]" }
         if (param == "ghostFrac") { return "[int]" }
         if (param == "ghostEyes") { return "[int]" }
-        if (param == "a") { return "[int]" }
         def fromUse:string (this.inferParamTypeWalk(param body))
         if ((strlen fromUse) > 0) {
             return fromUse
@@ -961,6 +1771,16 @@ class TSEmitter {
 
     fn inferParamTypeWalk:string (param:string node:TSNode) {
         def t:string node.nodeType
+        if (t == "IfStatement") {
+            if (node.test) {
+                def test:TSNode (unwrap node.test)
+                if (test.nodeType == "Identifier") {
+                    if (test.name == param) {
+                        return "boolean"
+                    }
+                }
+            }
+        }
         if (t == "MemberExpression") {
             if (node.left) {
                 def base:TSNode (unwrap node.left)
@@ -1027,13 +1847,45 @@ class TSEmitter {
         def saved:[string:string] varTypes
         def local:[string:string]
         varTypes = local
+        def pi 0
+        while (pi < (array_length node.params)) {
+            def p:TSNode (itemAt node.params pi)
+            def pt:string (this.helperParamType(node.name pi))
+            if ((strlen pt) > 0) {
+                set varTypes p.name pt
+            }
+            pi = (pi + 1)
+        }
+        def savedInfer:string inferFnName
+        inferFnName = node.name
         this.collectLocalVarTypes(body body)
         if (this.functionHasValueReturn(body) == false) {
+            varTypes = saved
+            inferFnName = savedInfer
             return "void"
         }
         def result:string (this.findReturnType(body node.name))
         varTypes = saved
+        inferFnName = savedInfer
         return result
+    }
+
+    fn finalizeHelperReturnTypes:void (ast:TSNode) {
+        def i 0
+        while (i < (array_length ast.children)) {
+            def node:TSNode (itemAt ast.children i)
+            if (node.nodeType == "FunctionDeclaration") {
+                if ((this.isSpecialFn(node.name)) == false) {
+                    if (null? node.typeAnnotation) {
+                        def inferred:string (this.inferHelperReturnType(node))
+                        if (this.isPositiveType(inferred)) {
+                            set fnReturnTypes node.name inferred
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
     }
 
     fn functionHasValueReturn:boolean (block:TSNode) {
@@ -1117,6 +1969,9 @@ class TSEmitter {
                 elem = (this.findPushArgType(root name))
             }
             if ((strlen elem) == 0) {
+                elem = (this.helperAnnotatedArrayElem(inferFnName))
+            }
+            if ((strlen elem) == 0) {
                 elem = "int"
             }
             return (("[" + elem) + "]")
@@ -1156,7 +2011,22 @@ class TSEmitter {
                                     if (base.nodeType == "Identifier") {
                                         if (base.name == name) {
                                             if ((array_length expr.children) > 0) {
-                                                return (this.exprType((itemAt expr.children 0)))
+                                                def argNode:TSNode (itemAt expr.children 0)
+                                                ; Object-literal push -> synthesize a struct so the array
+                                                ; element type carries all fields (alive/taken/…).
+                                                if (argNode.nodeType == "ObjectExpression") {
+                                                    def ann:string (this.helperAnnotatedArrayElem(inferFnName))
+                                                    if ((strlen ann) > 0) {
+                                                        return ann
+                                                    }
+                                                    def sname:string ((inferFnName + "_") + name)
+                                                    return (this.inferObjectStructType(argNode sname))
+                                                }
+                                                def at:string (this.inferCallArgType(argNode inferFnName))
+                                                if ((strlen at) > 0) {
+                                                    return at
+                                                }
+                                                return (this.exprType(argNode))
                                             }
                                         }
                                     }
@@ -1215,6 +2085,20 @@ class TSEmitter {
                 if (val.nodeType == "ObjectExpression") {
                     return (this.inferObjectStructType(val fnName))
                 }
+                if (val.nodeType == "ArrayExpression") {
+                    if ((array_length val.children) > 0) {
+                        def first:TSNode (itemAt val.children 0)
+                        def et:string ""
+                        if (first.nodeType == "ObjectExpression") {
+                            et = (this.inferObjectStructType(first fnName))
+                        } {
+                            et = (this.exprType(first))
+                        }
+                        if ((strlen et) > 0) {
+                            return ("[" + et) + "]"
+                        }
+                    }
+                }
                 return (this.exprType(val))
             }
             return "void"
@@ -1257,10 +2141,19 @@ class TSEmitter {
                         set constArrayNames d.name true
                         set constArrayElemType d.name (this.constArrayElem(d initNode))
                     } {
-                        set constScalarTypes d.name (this.exprType(initNode))
-                        def folded:string (this.tryFoldIntExpr(initNode))
-                        if ((strlen folded) > 0) {
-                            set constScalarValues d.name folded
+                        if (initNode.nodeType == "ObjectExpression") {
+                            def ost:string (this.registerModuleObjectStruct(d.name initNode))
+                            set constScalarTypes d.name ost
+                            set moduleConstDeferred d.name true
+                        } {
+                            set constScalarTypes d.name (this.exprType(initNode))
+                            def folded:string (this.tryFoldIntExpr(initNode))
+                            if ((strlen folded) > 0) {
+                                set constScalarValues d.name folded
+                            }
+                            if ((this.scalarInitNeedsCtor(initNode)) == true) {
+                                set moduleConstDeferred d.name true
+                            }
                         }
                     }
                 }
@@ -1280,6 +2173,9 @@ class TSEmitter {
         }
         if ((array_length arr.children) > 0) {
             def first:TSNode (itemAt arr.children 0)
+            if (first.nodeType == "ObjectExpression") {
+                return (this.registerModuleArrayStruct(d.name arr))
+            }
             if (first.nodeType == "StringLiteral") { return "string" }
             if (first.nodeType == "ArrayExpression") { return "[string]" }
             if (first.nodeType == "NumericLiteral") {
@@ -1288,6 +2184,76 @@ class TSEmitter {
             }
         }
         return "int"
+    }
+
+    fn scalarInitNeedsCtor:boolean (node:TSNode) {
+        def t:string node.nodeType
+        if (t == "NumericLiteral") { return false }
+        if (t == "StringLiteral") { return false }
+        if (t == "BooleanLiteral") { return false }
+        def folded:string (this.tryFoldIntExpr(node))
+        if ((strlen folded) > 0) {
+            return false
+        }
+        return true
+    }
+
+    ; Merge object-literal keys from every element of a module const array.
+    fn mergeArrayObjectFieldsCsv:string (arr:TSNode) {
+        def pairs:[string]
+        def seen:[string:boolean]
+        def k 0
+        while (k < (array_length arr.children)) {
+            def el:TSNode (itemAt arr.children k)
+            if (el.nodeType == "ObjectExpression") {
+                def j 0
+                while (j < (array_length el.children)) {
+                    def prop:TSNode (itemAt el.children j)
+                    if (prop.nodeType == "Property") {
+                        def key:string (this.propKey(prop))
+                        if ((strlen key) > 0) {
+                            def was@(optional):boolean (get seen key)
+                            if (null? was) {
+                                set seen key true
+                                def valNode:TSNode (this.propertyValueNode(prop))
+                                def ft:string (this.objectFieldType(key valNode))
+                                push pairs ((key + ":") + ft)
+                            }
+                        }
+                    }
+                    j = (j + 1)
+                }
+            }
+            k = (k + 1)
+        }
+        return (this.joinCsv(pairs))
+    }
+
+    fn registerModuleArrayStruct:string (arrName:string arr:TSNode) {
+        def baseName:string (arrName + "Elem")
+        def structType:string (baseName + "Native")
+        def done@(optional):boolean (get synthStructDone baseName)
+        if (null? done) {
+            def csv:string (this.mergeArrayObjectFieldsCsv(arr))
+            set interfaceFieldsCsv baseName csv
+            push interfaceNames baseName
+            set synthStructDone baseName true
+        }
+        return structType
+    }
+
+    ; const NAME = { r, g, b } -> synth struct NAMEConstNative on the singleton.
+    fn registerModuleObjectStruct:string (constName:string obj:TSNode) {
+        def baseName:string (constName + "Const")
+        def structType:string (baseName + "Native")
+        def done@(optional):boolean (get synthStructDone baseName)
+        if (null? done) {
+            def csv:string (this.objectFieldsCsv(obj))
+            set interfaceFieldsCsv baseName csv
+            push interfaceNames baseName
+            set synthStructDone baseName true
+        }
+        return structType
     }
 
     ; Fold module-level int const expressions (e.g. COLS*ROWS) to a literal
@@ -1360,7 +2326,81 @@ class TSEmitter {
                 i = (i + 1)
             }
         }
-        set interfaceFieldsCsv node.name (this.joinCsv(pairs))
+        def ownCsv:string (this.joinCsv(pairs))
+        def extNames:[string] (this.interfaceExtendsNames(node))
+        if ((array_length extNames) > 0) {
+            set interfaceFieldsCsv node.name (this.mergeInterfaceFieldsCsv(ownCsv extNames))
+        } {
+            set interfaceFieldsCsv node.name ownCsv
+        }
+    }
+
+    ; Parent type names from `interface Foo extends Bar, Baz`.
+    fn interfaceExtendsNames:[string] (node:TSNode) {
+        def names:[string]
+        def i 0
+        while (i < (array_length node.children)) {
+            def child:TSNode (itemAt node.children i)
+            if (child.nodeType == "TSExpressionWithTypeArguments") {
+                if (child.left) {
+                    def left:TSNode (unwrap child.left)
+                    if (left.nodeType == "TSTypeReference") {
+                        push names left.name
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return names
+    }
+
+    ; Merge parent interface fields; own fields override by name.
+    fn mergeInterfaceFieldsCsv:string (ownCsv:string extendsNames:[string]) {
+        def ownOnly:[string:boolean]
+        def ownPairs:[string]
+        if ((strlen ownCsv) > 0) {
+            def opairs:[string] (this.splitCsv(ownCsv))
+            def k 0
+            while (k < (array_length opairs)) {
+                def pair2:string (itemAt opairs k)
+                def colon2:int (indexOf pair2 ":")
+                if (colon2 > 0) {
+                    def fn2:string (substring pair2 0 colon2)
+                    set ownOnly fn2 true
+                    push ownPairs pair2
+                }
+                k = (k + 1)
+            }
+        }
+        def pairs:[string]
+        def i 0
+        while (i < (array_length extendsNames)) {
+            def parent:string (itemAt extendsNames i)
+            def pcsv@(optional):string (get interfaceFieldsCsv parent)
+            if (!null? pcsv) {
+                def ppairs:[string] (this.splitCsv((unwrap pcsv)))
+                def j 0
+                while (j < (array_length ppairs)) {
+                    def pair:string (itemAt ppairs j)
+                    def colon:int (indexOf pair ":")
+                    if (colon > 0) {
+                        def fn:string (substring pair 0 colon)
+                        def was@(optional):boolean (get ownOnly fn)
+                        if (null? was) {
+                            push pairs pair
+                        }
+                    }
+                    j = (j + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        def m 0
+        while (m < (array_length ownPairs)) {
+            push pairs (itemAt ownPairs m)
+            m = (m + 1)
+        }
+        return (this.joinCsv(pairs))
     }
 
     fn emitInterfaces:void () {
@@ -1392,12 +2432,132 @@ class TSEmitter {
     fn zeroFor:string (t:string) {
         if (t == "double") { return "0.0" }
         if (t == "int") { return "0" }
+        if (t == "i32") { return "0" }
+        if (t == "u8") { return "0" }
+        if (t == "u16") { return "0" }
+        if (t == "u32") { return "0" }
+        if (t == "f32") { return "0.0" }
+        if (t == "f64") { return "0.0" }
         if (t == "string") { return "\"\"" }
         if (t == "boolean") { return "false" }
         ; arrays / structs: default-constructed
         def first:string (substring t 0 1)
         if (first == "[") { return "" }
         return ("(new " + (t + ")"))
+    }
+
+    fn emitModuleSingleton:void (ast:TSNode) {
+        this.emitLine(("class " + moduleSingletonClass) + " @singleton(true) {")
+        def needsCtor:boolean false
+        def i 0
+        while (i < (array_length ast.children)) {
+            def node:TSNode (itemAt ast.children i)
+            if (node.nodeType == "VariableDeclaration") {
+                def j 0
+                while (j < (array_length node.children)) {
+                    def d:TSNode (itemAt node.children j)
+                    if (d.nodeType == "VariableDeclarator") {
+                        def isArr@(optional):boolean (get constArrayNames d.name)
+                        if (!null? isArr) {
+                            needsCtor = true
+                            def elem@(optional):string (get constArrayElemType d.name)
+                            def et:string "int"
+                            if (!null? elem) { et = (unwrap elem) }
+                            this.emitLine((("    def " + d.name) + ":[" + et) + "]")
+                        } {
+                            def dep@(optional):boolean (get moduleConstDeferred d.name)
+                            if (!null? dep) {
+                                needsCtor = true
+                                if (d.init) {
+                                    def initNode:TSNode (unwrap d.init)
+                                    def ct:string (this.exprType(initNode))
+                                    def stored@(optional):string (get constScalarTypes d.name)
+                                    if (!null? stored) { ct = (unwrap stored) }
+                                    this.emitLine((("    def " + d.name) + (":" + ct)) + ((" " + (this.zeroFor(ct)))))
+                                }
+                            } {
+                                if (d.init) {
+                                    def initNode2:TSNode (unwrap d.init)
+                                    def ct2:string (this.exprType(initNode2))
+                                    def rhs:string ""
+                                    def fv@(optional):string (get constScalarValues d.name)
+                                    if (!null? fv) {
+                                        rhs = (unwrap fv)
+                                    } {
+                                        rhs = (this.emitExpr(initNode2 ct2))
+                                    }
+                                    this.emitLine((("    def " + d.name) + (":" + ct2)) + ((" " + rhs)))
+                                }
+                            }
+                        }
+                    }
+                    j = (j + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        if (needsCtor) {
+            this.emitLine("    Constructor () {")
+            this.indentLevel = 2
+            inModuleSingletonCtor = true
+            def k 0
+            while (k < (array_length ast.children)) {
+                def node2:TSNode (itemAt ast.children k)
+                if (node2.nodeType == "VariableDeclaration") {
+                    def m 0
+                    while (m < (array_length node2.children)) {
+                        def d2:TSNode (itemAt node2.children m)
+                        if (d2.nodeType == "VariableDeclarator") {
+                            def isArr2@(optional):boolean (get constArrayNames d2.name)
+                            if (!null? isArr2) {
+                                def elem2@(optional):string (get constArrayElemType d2.name)
+                                def et2:string "int"
+                                if (!null? elem2) { et2 = (unwrap elem2) }
+                                def tmpName:string (("_boot_" + d2.name))
+                                this.emitLine((("def " + tmpName) + ":[" + et2) + "]")
+                                if (d2.init) {
+                                    def arr:TSNode (unwrap d2.init)
+                                    if (arr.nodeType == "ArrayExpression") {
+                                        def n 0
+                                        while (n < (array_length arr.children)) {
+                                            def el:TSNode (itemAt arr.children n)
+                                            def ev:string (this.emitValueExpr(el et2))
+                                            this.emitLine(((("push " + tmpName) + " ") + ev))
+                                            n = (n + 1)
+                                        }
+                                    }
+                                }
+                                this.emitLine((d2.name + (" = " + tmpName)))
+                            }
+                            def dep2@(optional):boolean (get moduleConstDeferred d2.name)
+                            if (!null? dep2) {
+                                if (d2.init) {
+                                    def init3:TSNode (unwrap d2.init)
+                                    if (init3.nodeType == "ObjectExpression") {
+                                        def ost2@(optional):string (get constScalarTypes d2.name)
+                                        def ostype:string "int"
+                                        if (!null? ost2) { ostype = (unwrap ost2) }
+                                        def tmpO:string (("_boot_" + d2.name))
+                                        this.emitStructFromObject(init3 tmpO ostype)
+                                        this.emitLine((d2.name + (" = " + tmpO)))
+                                    } {
+                                        def ct3:string (this.exprType(init3))
+                                        def rhs3:string (this.emitExpr(init3 ct3))
+                                        this.emitLine((d2.name + (" = " + rhs3)))
+                                    }
+                                }
+                            }
+                        }
+                        m = (m + 1)
+                    }
+                }
+                k = (k + 1)
+            }
+            this.indentLevel = 0
+            inModuleSingletonCtor = false
+            this.emitLine("    }")
+        }
+        this.emitLine("}")
     }
 
     fn emitConstFields:void (ast:TSNode) {
@@ -1470,6 +2630,7 @@ class TSEmitter {
 
     fn emitFunction:void (node:TSNode) {
         currentFn = node.name
+        inferFnName = node.name
         inSpritesFn = (currentFn == "sprites")
         inInitFn = (currentFn == "initState")
         inUpdateFn = (currentFn == "update")
@@ -1481,6 +2642,11 @@ class TSEmitter {
         readEntityIds = freshIds
         def freshSeen:[string:boolean]
         readEntitySeen = freshSeen
+        def freshPlayers:[string]
+        readPlayerIndices = freshPlayers
+        def freshPlayerSeen:[string:boolean]
+        readPlayerSeen = freshPlayerSeen
+        inputVarName = "input"
 
         def isHelper:boolean ((this.isSpecialFn(currentFn)) == false)
 
@@ -1517,11 +2683,14 @@ class TSEmitter {
         }
         def body:TSNode (unwrap node.body)
         this.indentLevel = 2
+        this.emitModuleLocalIfNeeded(body)
         if (inUpdateFn) {
             this.prescanStateVar(body)
             this.collectEntityReads(body)
+            this.collectInputPlayerReads(body)
             this.emitStateBinding(body)
             this.emitEntityHoists()
+            this.emitInputPlayerHoists()
             this.emitBlockBodySkippingStateDecl(body)
         } {
             this.emitBlockBody(body)
@@ -1576,10 +2745,33 @@ class TSEmitter {
                         }
                     }
                 }
+                if (d.init) {
+                    def initNode2:TSNode (unwrap d.init)
+                    if (this.isPropsInputMember(initNode2)) {
+                        inputVarName = d.name
+                    }
+                }
             }
             i = (i + 1)
         }
         return false
+    }
+
+    fn isPropsInputMember:boolean (node:TSNode) {
+        if (node.nodeType != "MemberExpression") {
+            return false
+        }
+        if (node.name != "input") {
+            return false
+        }
+        if (null? node.left) {
+            return false
+        }
+        def base:TSNode (unwrap node.left)
+        if (base.nodeType != "Identifier") {
+            return false
+        }
+        return (base.name == "props")
     }
 
     fn isPropsStateMember:boolean (node:TSNode) {
@@ -1610,6 +2802,9 @@ class TSEmitter {
                         if (this.isPropsStateMember((unwrap d.init))) {
                             stateVarName = d.name
                         }
+                        if (this.isPropsInputMember((unwrap d.init))) {
+                            inputVarName = d.name
+                        }
                     }
                 }
                 i = (i + 1)
@@ -1638,6 +2833,74 @@ class TSEmitter {
             }
         }
         this.walkChildren(node "collectEntityReads")
+    }
+
+    ; True when `node` is `input.players[i].<field>`; returns index string via out param pattern.
+    fn inputPlayerIndex:string (node:TSNode) {
+        if (node.nodeType != "MemberExpression") {
+            return ""
+        }
+        if (null? node.left) {
+            return ""
+        }
+        def idxAccess:TSNode (unwrap node.left)
+        if (idxAccess.nodeType != "MemberExpression") {
+            return ""
+        }
+        if (idxAccess.computed == false) {
+            return ""
+        }
+        if (null? idxAccess.left) {
+            return ""
+        }
+        def playersAccess:TSNode (unwrap idxAccess.left)
+        if (playersAccess.nodeType != "MemberExpression") {
+            return ""
+        }
+        if (playersAccess.name != "players") {
+            return ""
+        }
+        if (null? playersAccess.left) {
+            return ""
+        }
+        def root:TSNode (unwrap playersAccess.left)
+        if (root.nodeType != "Identifier") {
+            return ""
+        }
+        if (root.name != inputVarName) {
+            return ""
+        }
+        if (null? idxAccess.right) {
+            return ""
+        }
+        def idxNode:TSNode (unwrap idxAccess.right)
+        if (idxNode.nodeType != "NumericLiteral") {
+            return ""
+        }
+        return idxNode.value
+    }
+
+    ; Collect input.players[i] reads for hoist locals (itemAt .field is illegal).
+    fn collectInputPlayerReads:void (node:TSNode) {
+        def idx:string (this.inputPlayerIndex(node))
+        if ((strlen idx) > 0) {
+            def seen@(optional):boolean (get readPlayerSeen idx)
+            if (null? seen) {
+                set readPlayerSeen idx true
+                push readPlayerIndices idx
+            }
+        }
+        this.walkChildren(node "collectInputPlayerReads")
+    }
+
+    fn emitInputPlayerHoists:void () {
+        def i 0
+        while (i < (array_length readPlayerIndices)) {
+            def idx:string (itemAt readPlayerIndices i)
+            def localName:string (("in_pl" + idx))
+            this.emitLine(((("def " + localName) + ":PlayerInputNative (itemAt props.input.players ") + idx) + ")")
+            i = (i + 1)
+        }
     }
 
     ; Generic child walk dispatching to a named visitor.
@@ -1679,6 +2942,10 @@ class TSEmitter {
             this.collectEntityReads(node)
             return
         }
+        if (visitor == "collectInputPlayerReads") {
+            this.collectInputPlayerReads(node)
+            return
+        }
     }
 
     fn emitParams:string (params:[TSNode]) {
@@ -1700,7 +2967,7 @@ class TSEmitter {
                 }
             }
             set varTypes p.name pt
-            push parts ((p.name + ":") + pt)
+            push parts ((p.name + ":") + (this.fnSigType(pt)))
             i = (i + 1)
         }
         return (this.joinSpace(parts))
@@ -1731,6 +2998,8 @@ class TSEmitter {
 
     fn emitStatement:void (stmt:TSNode) {
         def t:string stmt.nodeType
+        ; Hoist `X[i]`-as-field-receiver to typed locals before this statement.
+        this.hoistStmtItemAt(stmt)
         if (t == "VariableDeclaration") {
             this.emitVarDecl(stmt)
             return
@@ -1755,6 +3024,122 @@ class TSEmitter {
             this.emitBlockBody(stmt)
             return
         }
+    }
+
+    ; Reset + collect `X[i].field` receivers in this statement's own expressions
+    ; (test/left/right/init, not nested block bodies), emitting a typed local for
+    ; each distinct `X[i]` so `.field` reads and writes go through it.
+    fn hoistStmtItemAt:void (stmt:TSNode) {
+        def fresh:[string:string]
+        hoistedItemAt = fresh
+        this.collectItemAtReceivers(stmt)
+    }
+
+    fn collectItemAtReceivers:void (node:TSNode) {
+        if (node.nodeType == "IfStatement") {
+            if (node.left) {
+                this.collectItemAtReceivers((unwrap node.left))
+            }
+            if (node.body) {
+                this.collectItemAtReceiversInStmt((unwrap node.body))
+            }
+            if (node.right) {
+                this.collectItemAtReceiversInStmt((unwrap node.right))
+            }
+            return
+        }
+        if (node.nodeType == "WhileStatement") {
+            if (node.test) {
+                this.collectItemAtReceivers((unwrap node.test))
+            }
+            return
+        }
+        ; A field access `M.field` whose base is a computed member `base[idx]`.
+        if (node.nodeType == "MemberExpression") {
+            if (node.computed == false) {
+                if (node.left) {
+                    def base:TSNode (unwrap node.left)
+                    if (base.nodeType == "MemberExpression") {
+                        if (base.computed) {
+                            this.registerItemAtHoist(base)
+                        }
+                    }
+                }
+            }
+        }
+        ; Recurse into this statement's expressions but not nested block bodies
+        ; (those hoist per-statement themselves, keeping loop indices current).
+        if (node.left) {
+            def ln:TSNode (unwrap node.left)
+            if (ln.nodeType != "BlockStatement") {
+                this.collectItemAtReceivers(ln)
+            }
+        }
+        if (node.right) {
+            def rn:TSNode (unwrap node.right)
+            if (rn.nodeType != "BlockStatement") {
+                this.collectItemAtReceivers(rn)
+            }
+        }
+        if (node.test) {
+            this.collectItemAtReceivers((unwrap node.test))
+        }
+        def i 0
+        while (i < (array_length node.children)) {
+            def ch:TSNode (itemAt node.children i)
+            if (ch.nodeType != "BlockStatement") {
+                this.collectItemAtReceivers(ch)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn collectItemAtReceiversInStmt:void (stmt:TSNode) {
+        if (stmt.nodeType == "BlockStatement") {
+            def i 0
+            while (i < (array_length stmt.children)) {
+                this.collectItemAtReceivers((itemAt stmt.children i))
+                i = (i + 1)
+            }
+            return
+        }
+        this.collectItemAtReceivers(stmt)
+    }
+
+    fn registerItemAtHoist:void (computed:TSNode) {
+        if (null? computed.left) {
+            return
+        }
+        if (null? computed.right) {
+            return
+        }
+        def baseType:string (this.exprType((unwrap computed.left)))
+        def et:string (this.elemTypeOf(baseType))
+        ; Only hoist struct element types (bare .field access is illegal on them).
+        if ((this.endsWith(et "Native")) == false) {
+            return
+        }
+        def raw:string (this.rawItemAt(computed))
+        def existing@(optional):string (get hoistedItemAt raw)
+        if (!null? existing) {
+            return
+        }
+        def localName:string ("_at" + ("" + itemAtCounter))
+        itemAtCounter = (itemAtCounter + 1)
+        set hoistedItemAt raw localName
+        this.emitLine(((((("def " + localName) + ":") + et) + " ") + raw))
+    }
+
+    ; The `(itemAt base idx)` string for a computed member, without hoist rewrite.
+    fn rawItemAt:string (computed:TSNode) {
+        def base:string (this.emitExpr((unwrap computed.left) "int"))
+        def idxNode:TSNode (unwrap computed.right)
+        def idxT:string (this.exprType(idxNode))
+        def idx:string (this.emitExpr(idxNode idxT))
+        if (idxT == "double") {
+            idx = (("(to_int " + idx) + ")")
+        }
+        return (((("(itemAt " + base) + " ") + idx) + ")")
     }
 
     ; while (cond) { body } - Ranger shares this exact form.
@@ -1836,6 +3221,14 @@ class TSEmitter {
         def rhs:string (this.emitExpr(rhsNode expected))
         rhs = (this.coerceToType(rhs rhsNode expected))
         this.emitLine((lhs + " = ") + rhs)
+        if (targetNode.nodeType == "Identifier") {
+            def rhsT:string (this.exprType(rhsNode))
+            if (rhsT == "double") {
+                if (expected == "int") {
+                    set varTypes targetNode.name "double"
+                }
+            }
+        }
     }
 
     fn emitMemberAssign:void (target:TSNode rhs:TSNode) {
@@ -1882,7 +3275,33 @@ class TSEmitter {
             this.emitLine((((("set " + base) + " ") + idx) + " ") + valExpr)
             return
         }
+        ; events array on a state/local struct: materialize bridge-helper calls.
+        if (target.name == "events") {
+            if (rhs.nodeType == "ArrayExpression") {
+                def evExpr:string (this.emitRhsValue(rhs "[GameEventNative]"))
+                this.emitLine(((base + ".events = ") + evExpr))
+                return
+            }
+        }
         ; struct field assignment: obj.prop = v
+        if (baseNode.nodeType == "Identifier") {
+            def bvt:string (this.lookupVarType(baseNode.name))
+            if (bvt == "NativeGameState") {
+                if (this.isObjectStateField(target.name)) {
+                    def ost:string (this.objectStateFieldTypeOf(target.name))
+                    def valExpr:string (this.emitRhsValue(rhs ost))
+                    this.emitLine(("st_" + target.name) + (" = " + valExpr))
+                    return
+                }
+                if ((this.isNativeStateField(target.name)) == false) {
+                    if ((this.isStateArrayField(target.name)) == false) {
+                        def valNum:string (this.emitRhsValue(rhs "double"))
+                        this.emitLine((((("set " + baseNode.name) + ".numbers \"") + target.name) + "\" ") + valNum)
+                        return
+                    }
+                }
+            }
+        }
         def ft:string (this.structFieldType(baseType target.name))
         if ((strlen ft) == 0) {
             ft = (this.fieldType(target.name))
@@ -1923,6 +3342,9 @@ class TSEmitter {
     fn emitValueExpr:string (node:TSNode expected:string) {
         if (node.nodeType == "ObjectExpression") {
             if (this.endsWith(expected "Native")) {
+                if ((array_length node.children) == 0) {
+                    return ("(new " + expected) + ")")
+                }
                 def tmp:string ("tmp" + ("" + tmpCounter))
                 tmpCounter = (tmpCounter + 1)
                 this.emitStructFromObject(node tmp expected)
@@ -1996,14 +3418,35 @@ class TSEmitter {
                 hasAnnot = true
             }
             if (null? d.init) {
-                set varTypes name rtype
-                this.emitLine(("def " + name) + (":" + rtype))
+                def emitType0:string (this.localVarType(rtype))
+                set varTypes name emitType0
+                this.emitLine(("def " + name) + (":" + emitType0))
                 i = (i + 1)
                 continue
             }
             def initNode:TSNode (unwrap d.init)
             if (hasAnnot == false) {
                 rtype = (this.exprType(initNode))
+            }
+            if (initNode.nodeType == "ObjectExpression") {
+                if ((this.endsWith(rtype "Native")) == false) {
+                    def known:string (this.matchKnownStruct(initNode))
+                    if ((strlen known) > 0) {
+                        rtype = known
+                    } {
+                        def iface:string (this.matchRecordedInterface(initNode))
+                        if ((strlen iface) > 0) {
+                            rtype = iface
+                        }
+                    }
+                }
+            }
+            if (initNode.nodeType == "NumericLiteral") {
+                if (inUpdateFn) {
+                    if (this.endsWith(name "vy")) {
+                        rtype = "double"
+                    }
+                }
             }
             ; Empty array literal: infer element type from later push() calls
             ; in this block (same logic as prescan localInitType).
@@ -2013,13 +3456,33 @@ class TSEmitter {
                     if ((strlen pushed) > 0) {
                         rtype = (("[" + pushed) + "]")
                     }
+                    if ((inUpdateFn) && (name == "events")) {
+                        if ((strlen pushed) == 0) {
+                            rtype = "[GameEventNative]"
+                        }
+                    }
+                    if ((strlen pushed) == 0) {
+                        def annElem:string (this.helperAnnotatedArrayElem(currentFn))
+                        if ((strlen annElem) > 0) {
+                            rtype = (("[" + annElem) + "]")
+                        }
+                    }
+                    if ((strlen pushed) == 0) {
+                        if (inUpdateFn) {
+                            def ost:string (this.objectStateFieldTypeOf(name))
+                            if (this.startsWith(ost "[")) {
+                                rtype = ost
+                            }
+                        }
+                    }
                 }
             }
-            set varTypes name rtype
+            def emitType:string (this.localVarType(rtype))
+            set varTypes name emitType
             ; array literal initializer
             if (initNode.nodeType == "ArrayExpression") {
                 def et:string (this.elemTypeOf(rtype))
-                this.emitLine((("def " + name) + ":") + rtype)
+                this.emitLine((("def " + name) + ":") + emitType)
                 def k 0
                 while (k < (array_length initNode.children)) {
                     def el:TSNode (itemAt initNode.children k)
@@ -2033,7 +3496,7 @@ class TSEmitter {
             ; object literal bound to a synthesized struct
             if (initNode.nodeType == "ObjectExpression") {
                 if (this.endsWith(rtype "Native")) {
-                    this.emitStructFromObject(initNode name rtype)
+                    this.emitStructFromObject(initNode name emitType)
                     i = (i + 1)
                     continue
                 }
@@ -2046,8 +3509,8 @@ class TSEmitter {
                     }
                 }
             }
-            def rhs:string (this.emitExpr(initNode rtype))
-            this.emitLine((("def " + name) + (":" + rtype)) + ((" (" + rhs) + ")"))
+            def rhs:string (this.emitExpr(initNode emitType))
+            this.emitLine((("def " + name) + (":" + emitType)) + ((" (" + rhs) + ")"))
             i = (i + 1)
         }
     }
@@ -2066,26 +3529,37 @@ class TSEmitter {
                 }
                 def valNode:TSNode (this.propertyValueNode(prop))
                 def v:string (this.emitValueExpr(valNode ft))
+                if (valNode.nodeType == "Identifier") {
+                    if (valNode.name == key) {
+                        def tmpF:string ("_fv" + ("" + tmpCounter))
+                        tmpCounter = (tmpCounter + 1)
+                        def at:string (this.exprType(valNode))
+                        if ((ft == "double") && ((at == "int") || (at == "i32"))) {
+                            this.emitLine(((("def " + tmpF) + ":double (to_double ") + v) + ")")
+                        } {
+                            if (((ft == "int") || (ft == "i32")) && (at == "double")) {
+                                this.emitLine(((("def " + tmpF) + ":i32 (to_int ") + v) + ")")
+                            } {
+                                this.emitLine(((("def " + tmpF) + ":") + ft) + ((" (" + v) + ")"))
+                            }
+                        }
+                        v = tmpF
+                    }
+                }
                 if (ft == "double") {
                     def rt:string (this.exprType(valNode))
-                    if (rt == "int") {
-                        if (valNode.nodeType != "NumericLiteral") {
-                            if (valNode.nodeType != "Identifier") {
-                                def skip:boolean false
-                                if ((strlen v) >= 4) {
-                                    if ((substring v 0 4) == "(0.0") {
-                                        skip = true
-                                    }
-                                }
-                                if ((strlen v) >= 10) {
-                                    if ((substring v 0 10) == "(to_double") {
-                                        skip = true
-                                    }
-                                }
-                                if (skip == false) {
-                                    v = ("(to_double " + v) + ")"
-                                }
+                    if ((rt == "int") || (rt == "i32")) {
+                        def skip:boolean false
+                        if ((strlen v) >= 10) {
+                            if ((substring v 0 10) == "(to_double") {
+                                skip = true
                             }
+                        }
+                        if (this.containsChar(v 46)) {
+                            skip = true
+                        }
+                        if (skip == false) {
+                            v = ("(to_double " + v) + ")"
                         }
                     }
                 }
@@ -2096,9 +3570,99 @@ class TSEmitter {
     }
 
     fn emitIf:void (node:TSNode) {
+        if (inUpdateFn) {
+            if (node.left) {
+                def test:TSNode (unwrap node.left)
+                if (test.nodeType == "Identifier") {
+                    if (test.name == "input") {
+                        if (node.body) {
+                            def cons:TSNode (unwrap node.body)
+                            if (cons.nodeType == "BlockStatement") {
+                                this.emitBlockBody(cons)
+                            } {
+                                this.emitStatement(cons)
+                            }
+                        }
+                        return
+                    }
+                }
+                if (test.nodeType == "MemberExpression") {
+                    if (test.computed) {
+                        if (test.left) {
+                            def base:TSNode (unwrap test.left)
+                            if (base.nodeType == "MemberExpression") {
+                                if (base.name == "players") {
+                                    if (base.left) {
+                                        def root:TSNode (unwrap base.left)
+                                        if (root.nodeType == "Identifier") {
+                                            if (root.name == "input") {
+                                                def idxLit:string "0"
+                                                if (test.right) {
+                                                    def idxNode:TSNode (unwrap test.right)
+                                                    if (idxNode.nodeType == "NumericLiteral") {
+                                                        idxLit = idxNode.value
+                                                    }
+                                                }
+                                                def minLen:string "1"
+                                                if (idxLit == "1") {
+                                                    minLen = "2"
+                                                }
+                                                if (idxLit == "2") {
+                                                    minLen = "3"
+                                                }
+                                                def ifLine:string "if ((array_length input.players) >= "
+                                                ifLine = (ifLine + minLen)
+                                                ifLine = (ifLine + ") {")
+                                                this.emitLine(ifLine)
+                                                this.indent()
+                                                if (node.body) {
+                                                    def cons2:TSNode (unwrap node.body)
+                                                    if (cons2.nodeType == "BlockStatement") {
+                                                        this.emitBlockBody(cons2)
+                                                    } {
+                                                        this.emitStatement(cons2)
+                                                    }
+                                                }
+                                                this.dedent()
+                                                this.emitLine("}")
+                                                return
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        ; `if (obj)` / `if (arr[i])` truthiness on a struct/array value: in the
+        ; native model these are always present, so emit the body unconditionally
+        ; (Ranger `if` requires a boolean/number, not an object).
+        if (node.left) {
+            def ttest:TSNode (unwrap node.left)
+            if (this.isTruthyObjectTest(ttest)) {
+                if (null? node.right) {
+                    if (node.body) {
+                        def tcons:TSNode (unwrap node.body)
+                        if (tcons.nodeType == "BlockStatement") {
+                            this.emitBlockBody(tcons)
+                        } {
+                            this.emitStatement(tcons)
+                        }
+                    }
+                    return
+                }
+            }
+        }
         def cond:string ""
         if (node.left) {
-            cond = (this.emitExpr((unwrap node.left) "boolean"))
+            def ttest2:TSNode (unwrap node.left)
+            if (this.isTruthyObjectTest(ttest2)) {
+                cond = "true"
+            } {
+                cond = (this.emitExpr(ttest2 "boolean"))
+            }
         }
         this.emitLine(("if (" + cond) + ") {")
         this.indent()
@@ -2125,6 +3689,44 @@ class TSEmitter {
             return
         }
         this.emitLine("}")
+    }
+
+    ; True when a test expression is an object/array value used for truthiness
+    ; (`if (other)`, `if (arr[i])`) rather than a boolean/numeric condition.
+    fn isTruthyObjectTest:boolean (node:TSNode) {
+        def t:string node.nodeType
+        if (t == "Identifier") {
+            if (this.startsWith(node.name "st_")) {
+                return true
+            }
+            def vt:string (this.exprType(node))
+            return (this.isStructOrArrayType(vt))
+        }
+        if (t == "MemberExpression") {
+            ; a[i] element or a.field that resolves to a struct/array
+            def vt2:string (this.exprType(node))
+            if (this.isStructOrArrayType(vt2)) {
+                ; but not `a.length` (int) or numeric fields
+                if (node.name == "length") {
+                    return false
+                }
+                return true
+            }
+        }
+        return false
+    }
+
+    fn isStructOrArrayType:boolean (t:string) {
+        if ((strlen t) == 0) {
+            return false
+        }
+        if ((substring t 0 1) == "[") {
+            return true
+        }
+        if (this.endsWith(t "Native")) {
+            return true
+        }
+        return false
     }
 
     fn emitReturn:void (node:TSNode) {
@@ -2285,9 +3887,14 @@ class TSEmitter {
                     this.emitLine(((target + ".entities = ") + ev))
                 }
             } {
-                if (key == "events") {
-                    this.emitEventsArray(valNode target)
+                if ((key == "events") || ((key == "event") && (valNode.nodeType == "Identifier"))) {
+                    this.emitEventsFromValue(valNode target)
                 } {
+                    if (this.isObjectStateField(key)) {
+                        def ost:string (this.objectStateFieldTypeOf(key))
+                        def oval:string (this.emitValueExpr(valNode ost))
+                        this.emitLine((("st_" + key) + (" = " + oval)))
+                    } {
                     if (this.isNativeStateField(key)) {
                         def expected:string (this.fieldType(key))
                         def val:string (this.emitExpr(valNode expected))
@@ -2298,6 +3905,9 @@ class TSEmitter {
                         if (key == "vy") {
                             this.emitLine((target + ".hasVy = true"))
                         }
+                        if (key == "dt") {
+                            this.emitLine((target + ".hasDt = true"))
+                        }
                     } {
                         if (this.isStateArrayField(key)) {
                             def at:string (this.stateArrayType(key))
@@ -2305,6 +3915,14 @@ class TSEmitter {
                             this.emitLine(((("set " + target) + ".intArrays \"") + key) + ("\" " + aval))
                         } {
                             def vt:string (this.exprType(valNode))
+                            if (vt == "[GameEventNative]") {
+                                if (valNode.nodeType == "Identifier") {
+                                    def en:string (this.resolveEventsVarName(valNode.name))
+                                    this.emitLine(((target + ".events = ") + en))
+                                    i = (i + 1)
+                                    continue
+                                }
+                            }
                             if (vt == "string") {
                                 def sval:string (this.emitExpr(valNode "string"))
                                 this.emitLine(((("set " + target) + ".strings \"") + key) + ("\" " + sval))
@@ -2314,11 +3932,31 @@ class TSEmitter {
                             }
                         }
                     }
+                    }
                 }
             }
             i = (i + 1)
         }
         this.emitLine(("return " + target))
+    }
+
+    fn resolveEventsVarName:string (name:string) {
+        if (name == "event") {
+            def vt@(optional):string (get varTypes "events")
+            if (!null? vt) {
+                return "events"
+            }
+        }
+        return name
+    }
+
+    fn emitEventsFromValue:void (node:TSNode target:string) {
+        if (node.nodeType == "Identifier") {
+            def n:string (this.resolveEventsVarName(node.name))
+            this.emitLine(((target + ".events = ") + n))
+            return
+        }
+        this.emitEventsArray(node target)
     }
 
     fn emitEventsArray:void (node:TSNode target:string) {
@@ -2447,22 +4085,59 @@ class TSEmitter {
         if (t == "Identifier") {
             def ca@(optional):boolean (get constArrayNames node.name)
             if (!null? ca) {
+                if (inModuleSingletonCtor) {
+                    return node.name
+                }
+                if ((strlen moduleSingletonClass) > 0) {
+                    return (this.moduleConstAccess(node.name))
+                }
                 return ("(this." + node.name) + "())"
             }
             def cst@(optional):string (get constScalarTypes node.name)
             if (!null? cst) {
-                return ("this." + node.name)
+                def cstv:string (unwrap cst)
+                def caccess:string node.name
+                if (inModuleSingletonCtor) {
+                    caccess = node.name
+                } {
+                    if ((strlen moduleSingletonClass) > 0) {
+                        caccess = (this.moduleConstAccess(node.name))
+                    } {
+                        caccess = ("this." + node.name)
+                    }
+                }
+                ; Coerce an int const used in a double context.
+                if (expected == "double") {
+                    if (cstv == "int") {
+                        return ("(to_double " + caccess) + ")"
+                    }
+                }
+                return caccess
+            }
+            ; Ambient engine globals resolve through the injected host object.
+            if (this.isEngineGlobal(node.name)) {
+                if (expected == "double") {
+                    return ("(to_double host." + node.name) + ")"
+                }
+                return ("host." + node.name)
             }
             if (expected == "double") {
                 def vt:string (this.lookupVarType(node.name))
-                if (vt == "int") {
+                if ((vt == "int") || (vt == "i32")) {
                     return ("(to_double " + node.name) + ")"
                 }
             }
             return node.name
         }
         if (t == "CallExpression") {
-            return (this.emitCall(node))
+            def callStr:string (this.emitCall(node))
+            ; Coerce an int-returning call used in a double context.
+            if (expected == "double") {
+                if ((this.callExprType(node)) == "int") {
+                    return ("(to_double " + callStr) + ")"
+                }
+            }
+            return callStr
         }
         if (t == "MemberExpression") {
             return (this.emitMember(node expected))
@@ -2474,9 +4149,26 @@ class TSEmitter {
             return (this.emitUnary(node expected))
         }
         if (t == "ObjectExpression") {
+            if (this.endsWith(expected "Native")) {
+                if ((array_length node.children) == 0) {
+                    return ("(new " + expected) + ")")
+                }
+                def tmpObj:string ("tmp" + ("" + tmpCounter))
+                tmpCounter = (tmpCounter + 1)
+                this.emitStructFromObject(node tmpObj expected)
+                return tmpObj
+            }
             return "{}"
         }
         if (t == "ArrayExpression") {
+            if (this.startsWith(expected "[")) {
+                if ((array_length node.children) == 0) {
+                    def tmpArr:string ("tmp" + ("" + tmpCounter))
+                    tmpCounter = (tmpCounter + 1)
+                    this.emitLine((("def " + tmpArr) + ":") + expected)
+                    return tmpArr
+                }
+            }
             return "[]"
         }
         return "0"
@@ -2490,6 +4182,13 @@ class TSEmitter {
         def callee:TSNode (unwrap node.left)
         if (callee.nodeType == "Identifier") {
             def name:string callee.name
+            if (this.isBridgeHelper(name)) {
+                return (this.emitBridgeHelperValue(name node))
+            }
+            def receiver:string "this."
+            if (this.isEngineFn(name)) {
+                receiver = "host."
+            }
             def args:[string]
             def i 0
             while (i < (array_length node.children)) {
@@ -2498,23 +4197,62 @@ class TSEmitter {
                 if ((strlen pexp) == 0) {
                     pexp = (this.exprType(arg))
                 }
-                def argExpr:string (this.emitExpr(arg pexp))
-                if (pexp == "int") {
-                    def at:string (this.exprType(arg))
+                if (arg.nodeType == "ObjectExpression") {
+                    if ((this.endsWith(pexp "Native")) == false) {
+                        pexp = (this.inferObjectStructType(arg ((name + "_arg") + ("" + i))))
+                    }
+                }
+                def at:string (this.exprType(arg))
+                def emitAs:string at
+                if ((strlen emitAs) == 0) {
+                    emitAs = "int"
+                }
+                def argExpr:string ""
+                if ((strlen pexp) > 0) {
+                    argExpr = (this.emitValueExpr(arg pexp))
+                } {
+                    argExpr = (this.emitExpr(arg emitAs))
+                }
+                if (this.isEngineFn(name)) {
                     if (at == "double") {
                         argExpr = ("(to_int " + argExpr) + ")"
                     }
                 }
+                if (pexp == "int") {
+                    if (at == "double") {
+                        if (this.isEngineFn(name) == false) {
+                            argExpr = ("(to_int " + argExpr) + ")"
+                        }
+                    }
+                }
                 if (pexp == "double") {
-                    def at2:string (this.exprType(arg))
-                    if (at2 == "int") {
-                        argExpr = ("(to_double " + argExpr) + ")"
+                    if (emitAs == "int") {
+                        def alreadyDouble:boolean false
+                        if (arg.nodeType == "NumericLiteral") {
+                            alreadyDouble = true
+                        }
+                        if (this.containsChar(argExpr 46)) {
+                            alreadyDouble = true
+                        }
+                        if ((strlen argExpr) >= 10) {
+                            if ((substring argExpr 0 10) == "(to_double") {
+                                alreadyDouble = true
+                            }
+                        }
+                        if (alreadyDouble == false) {
+                            argExpr = ("(to_double " + argExpr) + ")"
+                        }
+                    }
+                }
+                if (pexp == "boolean") {
+                    if (at == "int") {
+                        argExpr = ("(" + argExpr) + " != 0)"
                     }
                 }
                 push args argExpr
                 i = (i + 1)
             }
-            def inner:string (("this." + name) + "(") + ((this.joinSpace(args)) + ")")
+            def inner:string ((receiver + name) + "(") + ((this.joinSpace(args)) + ")")
             return (("(" + inner) + ")")
         }
         if (callee.nodeType == "MemberExpression") {
@@ -2570,6 +4308,12 @@ class TSEmitter {
                 }
                 def elemT:string (this.elemTypeOf(baseType))
                 def access:string (((("(itemAt " + base) + " ") + idx) + ")")
+                ; If this `X[i]` was hoisted (it is a field-access receiver), use
+                ; the typed local so `.field` is legal / writes persist.
+                def hoisted@(optional):string (get hoistedItemAt access)
+                if (!null? hoisted) {
+                    return (unwrap hoisted)
+                }
                 if (expected == "double") {
                     if (elemT == "int") {
                         return ("(to_double " + access) + ")"
@@ -2583,14 +4327,53 @@ class TSEmitter {
             def base:string (this.emitExpr(leftNode "int"))
             return (("(array_length " + base) + ")")
         }
+        ; input.players[i].field -> hoisted `in_pl<i>.field` (not `in_p` — collides with entity ids p1/p2)
+        def pIdx:string (this.inputPlayerIndex(node))
+        if ((strlen pIdx) > 0) {
+            def localName:string (("in_pl" + pIdx) + ".")
+            return (localName + node.name)
+        }
         ; <stateVar>.entities.<id> -> hoisted typed local `in_<id>`
         if (leftNode.nodeType == "MemberExpression") {
             if (leftNode.name == "entities") {
                 return ("in_" + node.name)
             }
         }
+        ; goalPlatform().y — Ranger cannot parse `(call).field`; hoist the call.
+        if (leftNode.nodeType == "CallExpression") {
+            def ct:string (this.callExprType(leftNode))
+            if ((strlen ct) == 0) {
+                ct = "int"
+            }
+            if (this.endsWith(ct "Native")) {
+                def tmpCall:string ("tmp" + ("" + tmpCounter))
+                tmpCounter = (tmpCounter + 1)
+                def callStr:string (this.emitCall(leftNode))
+                this.emitLine(((("def " + tmpCall) + ":") + ct) + ((" (" + callStr) + ")"))
+                def result:string ((tmpCall + ".") + node.name)
+                if (expected == "double") {
+                    def sf:string (this.structFieldType(ct node.name))
+                    if ((this.isIntScalar(sf)) || (sf == "int")) {
+                        return ("(to_double " + result) + ")"
+                    }
+                }
+                return result
+            }
+        }
         if (leftNode.nodeType == "Identifier") {
-            if (leftNode.name == stateVarName) {
+            def bvt:string (this.lookupVarType(leftNode.name))
+            if (bvt == "NativeGameState") {
+                def routed:string (this.emitStateFieldRead(leftNode.name node.name expected))
+                if ((strlen routed) > 0) {
+                    return routed
+                }
+            }
+            def identLvt:string (this.lookupVarType(leftNode.name))
+            if ((leftNode.name == stateVarName) && (identLvt == "NativeGameState")) {
+                ; object-valued state field -> persistent script instance field
+                if (this.isObjectStateField(node.name)) {
+                    return ("st_" + node.name)
+                }
                 ; state array field -> intArrays map
                 if (this.isStateArrayField(node.name)) {
                     return (((("(unwrap (get " + stateVarName) + ".intArrays \"") + node.name) + "\"))")
@@ -2615,7 +4398,7 @@ class TSEmitter {
         if (expected == "double") {
             def baseT:string (this.exprType(leftNode))
             def sf:string (this.structFieldType(baseT prop))
-            if (sf == "int") {
+            if ((this.isIntScalar(sf)) || (sf == "int")) {
                 return ("(to_double " + result) + ")"
             }
         }
@@ -2641,6 +4424,26 @@ class TSEmitter {
         if (op == "!==") {
             op = "!="
         }
+        ; `x | 0` is the JS int-truncation idiom -> int trunc (to_int only for double).
+        if (op == "|") {
+            if (node.right) {
+                def rn:TSNode (unwrap node.right)
+                if (rn.nodeType == "NumericLiteral") {
+                    if (rn.value == "0") {
+                        def lt:string (this.exprType((unwrap node.left)))
+                        if (expected == "double") {
+                            def lx:string (this.emitExpr((unwrap node.left) "int"))
+                            return ("(to_double " + lx) + ")"
+                        }
+                        if (lt == "double") {
+                            def lx:string (this.emitExpr((unwrap node.left) "double"))
+                            return ("(to_int " + lx) + ")"
+                        }
+                        return (this.emitExpr((unwrap node.left) "int"))
+                    }
+                }
+            }
+        }
         def operandExpected:string expected
         if ((this.isComparisonOp(op)) || (this.isArithmeticOp(op))) {
             operandExpected = (this.numericCommon(node))
@@ -2654,6 +4457,11 @@ class TSEmitter {
         if (expected == "double") {
             def nc:string (this.numericCommon(node))
             if (nc == "int") {
+                if ((strlen result) >= 10) {
+                    if ((substring result 0 10) == "(to_double") {
+                        return result
+                    }
+                }
                 return ("(to_double " + result) + ")"
             }
         }

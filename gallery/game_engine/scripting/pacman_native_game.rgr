@@ -18,6 +18,6 @@ class PacmanNativeGame extends NativeGameBridge {
         runner.advanceTime(dtMs)
         def props:UpdatePropsNative (runner.buildProps(dtMs up down left right action))
         def patch:NativeGameState (script.update(props))
-        runner.applyUpdate(patch)
+        runner.applyScriptPatch(patch props)
     }
 }
