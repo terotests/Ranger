@@ -70,6 +70,21 @@ class RangerCppClassWriter {
       case "int" {
         return "int"
       }
+      case "u8" {
+        return "uint8_t"
+      }
+      case "u16" {
+        return "uint16_t"
+      }
+      case "u32" {
+        return "uint32_t"
+      }
+      case "i32" {
+        return "int32_t"
+      }
+      case "f32" {
+        return "float"
+      }
       case "string" {
         return "std::string"
       }
@@ -145,6 +160,21 @@ class RangerCppClassWriter {
       case "int" {
         return "int"
       }
+      case "u8" {
+        return "uint8_t"
+      }
+      case "u16" {
+        return "uint16_t"
+      }
+      case "u32" {
+        return "uint32_t"
+      }
+      case "i32" {
+        return "int32_t"
+      }
+      case "f32" {
+        return "float"
+      }
       case "string" {
         return "std::string"
       }
@@ -211,10 +241,18 @@ class RangerCppClassWriter {
         wr.out("int" false)
       }
       case RangerNodeType.Integer {
+        def intCppType:string "int"
+        if (t_name == "u8") { intCppType = "uint8_t" }
+        if (t_name == "u16") { intCppType = "uint16_t" }
+        if (t_name == "u32") { intCppType = "uint32_t" }
+        if (t_name == "i32") { intCppType = "int32_t" }
+        if (intCppType != "int") {
+          wr.addImport("<cstdint>")
+        }
         if(node.hasFlag("optional")) {
-          wr.out(" r_optional_primitive<int> " false)
+          wr.out(((" r_optional_primitive<" + intCppType) + "> ") false)
         } {
-          wr.out("int" false)
+          wr.out(intCppType false)
         }
       }
       case RangerNodeType.Char {
@@ -238,10 +276,12 @@ class RangerCppClassWriter {
         wr.out("std::vector<double>" false)
       }
       case RangerNodeType.Double {
+        def dblCppType:string "double"
+        if (t_name == "f32") { dblCppType = "float" }
         if(node.hasFlag("optional")) {
-          wr.out(" r_optional_primitive<double> " false)
+          wr.out(((" r_optional_primitive<" + dblCppType) + "> ") false)
         } {
-          wr.out("double" false)
+          wr.out(dblCppType false)
         }
       }
       case RangerNodeType.String {

@@ -5714,7 +5714,9 @@ class RangerFlowParser {
   fn shouldBeEqualTypes:void (n1:CodeNode n2:CodeNode ctx@(weak):RangerAppWriterContext msg:string) {
 
     if ((n1.eval_type != RangerNodeType.NoType) && (n2.eval_type != RangerNodeType.NoType) && ((strlen n1.eval_type_name) > 0) && ((strlen n2.eval_type_name) > 0)) {
-      if (n1.eval_type_name == n2.eval_type_name) {
+      def cn1:string (TTypeRegistry.canonicalScalar(n1.eval_type_name))
+      def cn2:string (TTypeRegistry.canonicalScalar(n2.eval_type_name))
+      if (cn1 == cn2) {
       } {
         def b_ok:boolean false
         if ((ctx.isEnumDefined(n1.eval_type_name)) && (n2.eval_type_name == "int")) {

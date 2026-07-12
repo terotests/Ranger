@@ -1,0 +1,23 @@
+; Fixed-width numeric aliases: analyze as int/double, arithmetic + collections
+; work, and (on the C++ target) emit uint8_t / uint16_t / uint32_t / int32_t /
+; float storage. This smoke test exercises the ES6 path end to end.
+
+class FixedWidthTypesSmoke {
+    sfn m@(main):void () {
+        def a:u8 200
+        def b:u16 5000
+        def c:u32 100000
+        def d:i32 (a + b)
+        def e:f32 1.5
+        def arr:[u8]
+        push arr 10
+        push arr 20
+        push arr 30
+        def total:int ((d + c) + (array_length arr))
+        if (total == 105203) {
+            print "OK fixed-width types"
+        } {
+            print ("FAIL total=" + total)
+        }
+    }
+}

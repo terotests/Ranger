@@ -395,10 +395,14 @@ class RangerArgMatch {
     }
     return false
   }
-  fn areEqualTypes:boolean (type1:string type2:string ctx:RangerAppWriterContext) {
+  fn areEqualTypes:boolean (type1o:string type2o:string ctx:RangerAppWriterContext) {
+    ; Fixed-width numeric aliases (u8/u16/u32/i32/f32) match their canonical
+    ; scalar (int/double) so arithmetic and argument binding work.
+    def type1:string (TTypeRegistry.canonicalScalar(type1o))
+    def type2:string (TTypeRegistry.canonicalScalar(type2o))
     def t_name:string type1
     if (has matched type1) {
-      t_name = (unwrap (get matched type1))
+      t_name = (TTypeRegistry.canonicalScalar((unwrap (get matched type1))))
     }
     switch t_name {
       case "string" {
@@ -493,10 +497,14 @@ class RangerArgMatch {
     return (t_name == type2)
   }
 
-  fn areEqualATypes:boolean (type1:string type2:string ctx:RangerAppWriterContext) {
+  fn areEqualATypes:boolean (type1i:string type2i:string ctx:RangerAppWriterContext) {
+    ; Fixed-width numeric aliases (u8/u16/u32/i32/f32) unify with int/double for
+    ; array element / value type matching.
+    def type1:string (TTypeRegistry.canonicalScalar(type1i))
+    def type2:string (TTypeRegistry.canonicalScalar(type2i))
     def t_name:string type1
     if (has matched type1) {
-      t_name = (unwrap (get matched type1))
+      t_name = (TTypeRegistry.canonicalScalar((unwrap (get matched type1))))
     }
     switch t_name {
       case "string" {
