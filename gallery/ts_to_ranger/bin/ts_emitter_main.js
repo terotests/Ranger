@@ -4624,6 +4624,7 @@ class TSEmitter  {
     this.stateArrayFieldType = {};
     this.objectStateFieldType = {};
     this.objectStateFieldOrder = [];
+    this.inferFnName = "";
     this.initStateLocalTypes = {};
     this.tmpCounter = 0;
     this.synthStructDone = {};
@@ -4679,22 +4680,22 @@ class TSEmitter  {
       return "double";
     }
     if ( name == "i32" ) {
-      return "int";
+      return "i32";
     }
     if ( name == "u8" ) {
-      return "int";
+      return "u8";
     }
     if ( name == "u16" ) {
-      return "int";
+      return "u16";
     }
     if ( name == "u32" ) {
-      return "int";
+      return "u32";
     }
     if ( name == "f64" ) {
       return "double";
     }
     if ( name == "f32" ) {
-      return "double";
+      return "f32";
     }
     if ( name == "string" ) {
       return "string";
@@ -6314,13 +6315,17 @@ class TSEmitter  {
       }
       pi = pi + 1;
     };
+    const savedInfer = this.inferFnName;
+    this.inferFnName = node.name;
     this.collectLocalVarTypes(body, body);
     if ( this.functionHasValueReturn(body) == false ) {
       this.varTypes = saved;
+      this.inferFnName = savedInfer;
       return "void";
     }
     const result = this.findReturnType(body, node.name);
     this.varTypes = saved;
+    this.inferFnName = savedInfer;
     return result;
   };
   finalizeHelperReturnTypes (ast) {
@@ -6455,6 +6460,10 @@ class TSEmitter  {
                     if ( base.name == name ) {
                       if ( (expr.children.length) > 0 ) {
                         const argNode = expr.children[0];
+                        if ( argNode.nodeType == "ObjectExpression" ) {
+                          const sname = (this.inferFnName + "_") + name;
+                          return this.inferObjectStructType(argNode, sname);
+                        }
                         const at = this.inferCallArgType(argNode);
                         if ( (at.length) > 0 ) {
                           return at;
@@ -6974,6 +6983,7 @@ class TSEmitter  {
   };
   emitFunction (node) {
     this.currentFn = node.name;
+    this.inferFnName = node.name;
     this.inSpritesFn = this.currentFn == "sprites";
     this.inInitFn = this.currentFn == "initState";
     this.inUpdateFn = this.currentFn == "update";

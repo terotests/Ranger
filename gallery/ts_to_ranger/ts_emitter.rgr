@@ -51,6 +51,9 @@ class TSEmitter {
     ; "[enemiesElemNative]").
     def objectStateFieldType:[string:string]
     def objectStateFieldOrder:[string]
+    ; Function whose body is currently being scanned/emitted, used to name
+    ; struct types synthesized from `local.push({...})` (stable across passes).
+    def inferFnName:string ""
     ; initState body `const foo = makeFoo()` names -> array type (prescan only).
     def initStateLocalTypes:[string:string]
     def tmpCounter:int 0
@@ -110,12 +113,15 @@ class TSEmitter {
         if (name == "float") { return "double" }
         if (name == "double") { return "double" }
         if (name == "number") { return "double" }
-        if (name == "i32") { return "int" }
-        if (name == "u8") { return "int" }
-        if (name == "u16") { return "int" }
-        if (name == "u32") { return "int" }
+        ; Fixed-width aliases are now first-class Ranger types (compiler support
+        ; added in TTypeRegistry / C++ writer), so pass them through verbatim: the
+        ; C++ backend emits uint8_t / int32_t / float, other targets use int/double.
+        if (name == "i32") { return "i32" }
+        if (name == "u8") { return "u8" }
+        if (name == "u16") { return "u16" }
+        if (name == "u32") { return "u32" }
         if (name == "f64") { return "double" }
-        if (name == "f32") { return "double" }
+        if (name == "f32") { return "f32" }
         if (name == "string") { return "string" }
         if (name == "boolean") { return "boolean" }
         if (name == "bool") { return "boolean" }
@@ -1579,13 +1585,17 @@ class TSEmitter {
             }
             pi = (pi + 1)
         }
+        def savedInfer:string inferFnName
+        inferFnName = node.name
         this.collectLocalVarTypes(body body)
         if (this.functionHasValueReturn(body) == false) {
             varTypes = saved
+            inferFnName = savedInfer
             return "void"
         }
         def result:string (this.findReturnType(body node.name))
         varTypes = saved
+        inferFnName = savedInfer
         return result
     }
 
@@ -1728,6 +1738,12 @@ class TSEmitter {
                                         if (base.name == name) {
                                             if ((array_length expr.children) > 0) {
                                                 def argNode:TSNode (itemAt expr.children 0)
+                                                ; Object-literal push -> synthesize a struct so the array
+                                                ; element type carries all fields (alive/taken/…).
+                                                if (argNode.nodeType == "ObjectExpression") {
+                                                    def sname:string ((inferFnName + "_") + name)
+                                                    return (this.inferObjectStructType(argNode sname))
+                                                }
                                                 def at:string (this.inferCallArgType(argNode))
                                                 if ((strlen at) > 0) {
                                                     return at
@@ -2242,6 +2258,7 @@ class TSEmitter {
 
     fn emitFunction:void (node:TSNode) {
         currentFn = node.name
+        inferFnName = node.name
         inSpritesFn = (currentFn == "sprites")
         inInitFn = (currentFn == "initState")
         inUpdateFn = (currentFn == "update")
