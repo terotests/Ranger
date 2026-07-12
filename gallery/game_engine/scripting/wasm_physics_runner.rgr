@@ -54,8 +54,6 @@ class WasmPhysicsRunner {
     def uiDoc:WasmUiDoc (new WasmUiDoc)
     def uiBuilder:WasmUiEvgBuilder (new WasmUiEvgBuilder)
     def hudBlitter:GameHudBlitter (new GameHudBlitter)
-    def uiRoot@(optional):EVGElement
-    def uiHasRoot:boolean false
     def uiRev:int (0 - 1)
 
     fn bodyIdIndex:int (id:string) {
@@ -673,30 +671,35 @@ class WasmPhysicsRunner {
         if (drawSparkles) {
             sparkles.draw(target)
         }
-        def drew:boolean (this.drawWasmHudOn(target))
+        def drew:boolean (this.drawWasmHudOn(target hudBodyIdx))
         if (drew == false) {
             this.drawHudOn(target hudBodyIdx)
         }
     }
 
-    ; Read + validate the guest's RGU1 document and blit its EVG tree.
-    ; Returns false (so the caller falls back to the legacy HUD) whenever the
-    ; guest exposes no valid UI document. Snapshot-first: the EVG tree is rebuilt
-    ; only when the guest bumps its revision.
-    fn drawWasmHudOn:boolean (target:SoftCanvas) {
+    ; Read + validate the guest's RGU1 document and blit the calling pane's
+    ; player column (P1 -> node id 10, P2 -> id 20). Returns false (so the caller
+    ; falls back to the legacy HUD) whenever the guest exposes no valid document.
+    ; The document is re-read only when the guest bumps its revision, so the two
+    ; panes in a split-screen frame share a single read.
+    fn drawWasmHudOn:boolean (target:SoftCanvas bodyIdx:int) {
         if (useWasmHud == false) { return false }
         if (handle == 0) { return false }
-        def ok:boolean (uiDoc.loadFromWasm(handle))
-        if (ok == false) { return false }
-        if (uiDoc.valid == false) { return false }
-        if (uiDoc.revision != uiRev) {
-            uiRoot = (uiBuilder.build(uiDoc))
-            uiHasRoot = true
-            uiRev = uiDoc.revision
+        def rev:int (wasm_call_i32 handle "rg_ui_revision" 0 0 0 0 0 0)
+        if (rev <= 0) { return false }
+        if (rev != uiRev) {
+            def ok:boolean (uiDoc.loadFromWasm(handle))
+            if (ok == false) { return false }
+            uiRev = rev
         }
-        if (uiHasRoot == false) { return false }
+        if (uiDoc.valid == false) { return false }
+        def colId:int 10
+        if (bodyIdx != 0) {
+            colId = 20
+        }
+        def root:EVGElement (uiBuilder.buildFromId(uiDoc colId))
         hudBlitter.attach(target)
-        hudBlitter.drawTree((unwrap uiRoot) pw ph)
+        hudBlitter.drawTree(root pw ph)
         return true
     }
 

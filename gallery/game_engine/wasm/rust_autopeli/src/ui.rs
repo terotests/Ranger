@@ -67,7 +67,6 @@ const T_ENUM: u8 = 7;
 
 // property keys
 const K_TEXT: u16 = 1;
-const K_BACKGROUND: u16 = 2;
 const K_COLOR: u16 = 3;
 const K_FONT_SIZE: u16 = 4;
 const K_PADDING: u16 = 12;
@@ -80,8 +79,6 @@ pub const DIR_COLUMN: u32 = 1;
 const FLAG_VALID: u32 = 1;
 
 // ---- HUD colors (0xRRGGBBAA) ------------------------------------------
-const C_P1: u32 = 0x4C8C_FFFF; // blue  (player 1 tag / car)
-const C_P2: u32 = 0xFF5A_44FF; // red   (player 2 tag / car)
 const C_WHITE: u32 = 0xFFFF_FFFF;
 const C_HITFLASH: u32 = 0xFF30_30FF; // red flash right after a crash
 const C_WALL: u32 = 0xB0B0_B0FF; // gray
@@ -92,7 +89,6 @@ const C_GRIP_HI: u32 = 0x40D0_60FF; // green
 const C_GRIP_MID: u32 = 0xE0D0_40FF; // yellow
 const C_GRIP_LO: u32 = 0xFF60_40FF; // red
 const C_BOOST: u32 = 0x40E0_E0FF; // cyan
-const C_PANEL: u32 = 0x0000_00AA; // translucent black strip
 
 // ---- Byte writers ------------------------------------------------------
 fn wr_u32(buf: &mut [u8], off: usize, v: u32) {
@@ -304,46 +300,45 @@ fn add_text(d: &mut Doc, id: u32, parent: u32, order: u16, s: &[u8], color: u32)
         .prop_color(K_COLOR, color);
 }
 
-/// Build one player's vertical column: tag, HITS, last-collision, GRIP, BOOST.
-fn player_column(d: &mut Doc, col_id: u32, order: u16, tag: &[u8], tag_color: u32, p: PlayerHud) {
+/// Build one player's vertical column: HITS, last-collision, GRIP, BOOST.
+/// No panel background — the HUD overlays the game transparently. The host
+/// renders one column per split-screen pane (P1 -> id 10, P2 -> id 20).
+fn player_column(d: &mut Doc, col_id: u32, order: u16, p: PlayerHud) {
     d.node(col_id, 1, VIEW, order)
         .prop_enum(K_FLEX_DIRECTION, DIR_COLUMN)
         .prop_i32(K_PADDING, 4);
 
     let base = col_id + 1;
-    add_text(d, base, col_id, 0, tag, tag_color);
 
     let mut hbuf = [0u8; 16];
     let hlen = label_num(b"HITS ", p.hits, &mut hbuf);
     let hcolor = if p.flash { C_HITFLASH } else { C_WHITE };
-    add_text(d, base + 1, col_id, 1, &hbuf[0..hlen], hcolor);
+    add_text(d, base, col_id, 0, &hbuf[0..hlen], hcolor);
 
     let lbl = hit_label(p.last_hit);
     if !lbl.is_empty() {
-        add_text(d, base + 2, col_id, 2, lbl, hit_color(p.last_hit));
+        add_text(d, base + 1, col_id, 1, lbl, hit_color(p.last_hit));
     }
 
     let mut gbuf = [0u8; 16];
     let glen = label_num(b"GRIP ", p.grip / 10, &mut gbuf);
-    add_text(d, base + 3, col_id, 3, &gbuf[0..glen], grip_color(p.grip));
+    add_text(d, base + 2, col_id, 2, &gbuf[0..glen], grip_color(p.grip));
 
     if p.boost {
-        add_text(d, base + 4, col_id, 4, b"BOOST", C_BOOST);
+        add_text(d, base + 3, col_id, 3, b"BOOST", C_BOOST);
     }
 }
 
-/// Build the full two-player HUD into `buf` with the given `revision`.
-/// Root is a horizontal strip holding the P1 and P2 columns.
+/// Build the two-player HUD into `buf` with the given `revision`. The root is a
+/// transparent container holding the P1 (id 10) and P2 (id 20) columns; the
+/// host picks the column matching the pane it is drawing.
 pub fn build_hud_into(buf: &mut [u8], p1: PlayerHud, p2: PlayerHud, revision: u32) {
     let mut d = Doc::new(buf);
 
-    d.node(1, 0, VIEW, 0)
-        .prop_enum(K_FLEX_DIRECTION, DIR_ROW)
-        .prop_i32(K_PADDING, 4)
-        .prop_color(K_BACKGROUND, C_PANEL);
+    d.node(1, 0, VIEW, 0).prop_enum(K_FLEX_DIRECTION, DIR_ROW);
 
-    player_column(&mut d, 10, 0, b"P1", C_P1, p1);
-    player_column(&mut d, 20, 1, b"P2", C_P2, p2);
+    player_column(&mut d, 10, 0, p1);
+    player_column(&mut d, 20, 1, p2);
 
     d.finish(revision);
 }
@@ -399,14 +394,14 @@ mod tests {
     fn hits_label_lands_in_string_table() {
         let mut buf = [0u8; UI_SIZE];
         build_hud_into(&mut buf, sample(5, 1), sample(0, 0), 1);
-        // find the "HITS 5" text (P1 column tag=11, HITS=12) and read its string.
+        // find the "HITS 5" text (P1 column id 10, first child HITS = id 11).
         let n = rd_u32(&buf, OFF_NODE_COUNT) as usize;
         let str_off = rd_u32(&buf, OFF_STRING_OFFSET) as usize;
         let prop_off = rd_u32(&buf, OFF_PROP_OFFSET) as usize;
         let mut found = false;
         for i in 0..n {
             let nb = UI_NODE_OFFSET + i * UI_NODE_SIZE;
-            if rd_u32(&buf, nb + N_ID) != 12 {
+            if rd_u32(&buf, nb + N_ID) != 11 {
                 continue;
             }
             let fp = rd_u32(&buf, nb + N_FIRST_PROP) as usize;

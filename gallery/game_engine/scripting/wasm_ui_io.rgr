@@ -274,6 +274,19 @@ class WasmUiEvgBuilder {
         return (this.buildNode(doc rootIdx))
     }
 
+    ; Build only the subtree rooted at the node with the given id (e.g. one
+    ; player's column). Returns an empty div if the id is missing.
+    fn buildFromId:EVGElement (doc:WasmUiDoc nodeId:int) {
+        if (doc.valid == false) {
+            return (EVGElement.createDiv())
+        }
+        def idx (doc.indexOfId(nodeId))
+        if (idx < 0) {
+            return (EVGElement.createDiv())
+        }
+        return (this.buildNode(doc idx))
+    }
+
     fn buildNode:EVGElement (doc:WasmUiDoc i:int) {
         def kind (doc.nodeKind(i))
         def el:EVGElement (this.makeElement(doc i kind))
