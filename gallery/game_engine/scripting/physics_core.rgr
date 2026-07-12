@@ -474,6 +474,39 @@ class PhysicsCore {
         }
     }
 
+    ; Cheap conservative broad phase for segment boundaries. resolveSegment
+    ; rotates all four body corners and calculates point-to-segment distances,
+    ; so calling it for every road segment dominates dense vehicle worlds.
+    ; The reach includes the furthest corner plus resolveSegment's radius test.
+    fn segmentNearBody:boolean (b:PhysBody bd:PhysBoundary radius:double) {
+        def reach:double ((sqrt((b.hw * b.hw) + (b.hh * b.hh))) + radius)
+        def minX:double bd.x1
+        def maxX:double bd.x2
+        if (minX > maxX) {
+            minX = bd.x2
+            maxX = bd.x1
+        }
+        def minY:double bd.y1
+        def maxY:double bd.y2
+        if (minY > maxY) {
+            minY = bd.y2
+            maxY = bd.y1
+        }
+        if ((b.x + reach) < minX) {
+            return false
+        }
+        if ((b.x - reach) > maxX) {
+            return false
+        }
+        if ((b.y + reach) < minY) {
+            return false
+        }
+        if ((b.y - reach) > maxY) {
+            return false
+        }
+        return true
+    }
+
     fn resolveBoundaries:void (b:PhysBody) {
         def radius:double b.hw
         if (b.hh > radius) {
@@ -483,7 +516,9 @@ class PhysicsCore {
         while (bi < (array_length bounds)) {
             def bd:PhysBoundary (itemAt bounds bi)
             if (bd.kind == "segment") {
-                this.resolveSegment(b bd radius)
+                if (this.segmentNearBody(b bd radius)) {
+                    this.resolveSegment(b bd radius)
+                }
             }
             if (bd.kind == "rect") {
                 this.resolveRectWalls(b bd radius)

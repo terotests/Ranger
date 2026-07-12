@@ -565,9 +565,13 @@ struct RgfxGpuParticle {
     float x, y, size;
     uint8_t r, g, b, a;
 };
-static std::vector<RgfxGpuParticle> g_rgfx_particles;
-static int g_rgfx_part_fb_w = 0;
-static int g_rgfx_part_fb_h = 0;
+struct RgfxGpuParticleQueue {
+    std::vector<RgfxGpuParticle> items;
+    int fbW = 0;
+    int fbH = 0;
+};
+static RgfxGpuParticleQueue g_rgfx_particle_queues[3];
+static int g_rgfx_active_particle_queue = 0;
 
 struct RgfxGpuSprite {
     int texId;
@@ -578,15 +582,14 @@ struct RgfxGpuSprite {
     float angleDeg;
     int usePivot;
 };
-static std::vector<RgfxGpuSprite> g_rgfx_sprites;
-static int g_rgfx_spr_fb_w = 0;
-static int g_rgfx_spr_fb_h = 0;
-#if defined(__arm__) || defined(__aarch64__)
-// GLES2 sprite overlay disabled on ARM until verified; CPU sheet blit only.
-static int g_rgfx_gpu_sprites_arm_safe = 0;
-#else
-static int g_rgfx_gpu_sprites_arm_safe = 1;
-#endif
+struct RgfxGpuSpriteQueue {
+    std::vector<RgfxGpuSprite> items;
+    int fbW = 0;
+    int fbH = 0;
+};
+// Queue 0 = normal/solo, queue 1 = split left, queue 2 = split right.
+static RgfxGpuSpriteQueue g_rgfx_sprite_queues[3];
+static int g_rgfx_active_sprite_queue = 0;
 static GLuint g_rgfx_part_program = 0;
 static GLint g_rgfx_part_corner_attr = 0;
 static GLint g_rgfx_part_center_attr = 0;
@@ -595,15 +598,43 @@ static GLint g_rgfx_part_color_attr = 0;
 static GLint g_rgfx_part_res_uniform = 0;
 static GLuint g_rgfx_part_vbo = 0;
 
+static int rgfx_gpu_queue_index(int pane) {
+    if (pane == 0) { return 1; }
+    if (pane == 1) { return 2; }
+    return 0;
+}
+
 static GLuint rgfx_gl_compile(GLenum type, const char* src) {
     GLuint s = glCreateShader(type);
     glShaderSource(s, 1, &src, nullptr);
     glCompileShader(s);
+    GLint ok = GL_FALSE;
+    glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
+    if (ok != GL_TRUE) {
+        char log[1024];
+        GLsizei len = 0;
+        glGetShaderInfoLog(s, (GLsizei) sizeof(log), &len, log);
+        SDL_Log(\"[rgfx] GL shader compile failed: %.*s\", (int) len, log);
+        glDeleteShader(s);
+        return 0;
+    }
     return s;
 }
 
 static int rgfx_gl_init() {
     if (g_rgfx_gl_program != 0) { return 1; }
+#if defined(__arm__) || defined(__aarch64__)
+    const char* vs =
+        \"attribute vec2 aPos;\\n\"
+        \"attribute vec2 aUv;\\n\"
+        \"varying vec2 vUv;\\n\"
+        \"void main() { gl_Position = vec4(aPos, 0.0, 1.0); vUv = aUv; }\\n\";
+    const char* fs =
+        \"precision mediump float;\\n\"
+        \"varying vec2 vUv;\\n\"
+        \"uniform sampler2D uTex;\\n\"
+        \"void main() { gl_FragColor = texture2D(uTex, vUv); }\\n\";
+#else
     const char* vs =
         \"#version 120\\n\"
         \"attribute vec2 aPos;\\n\"
@@ -615,14 +646,31 @@ static int rgfx_gl_init() {
         \"varying vec2 vUv;\\n\"
         \"uniform sampler2D uTex;\\n\"
         \"void main() { gl_FragColor = texture2D(uTex, vUv); }\\n\";
+#endif
     GLuint vsId = rgfx_gl_compile(GL_VERTEX_SHADER, vs);
     GLuint fsId = rgfx_gl_compile(GL_FRAGMENT_SHADER, fs);
+    if (vsId == 0 || fsId == 0) {
+        if (vsId != 0) { glDeleteShader(vsId); }
+        if (fsId != 0) { glDeleteShader(fsId); }
+        return 0;
+    }
     g_rgfx_gl_program = glCreateProgram();
     glAttachShader(g_rgfx_gl_program, vsId);
     glAttachShader(g_rgfx_gl_program, fsId);
     glLinkProgram(g_rgfx_gl_program);
+    GLint linked = GL_FALSE;
+    glGetProgramiv(g_rgfx_gl_program, GL_LINK_STATUS, &linked);
     glDeleteShader(vsId);
     glDeleteShader(fsId);
+    if (linked != GL_TRUE) {
+        char log[1024];
+        GLsizei len = 0;
+        glGetProgramInfoLog(g_rgfx_gl_program, (GLsizei) sizeof(log), &len, log);
+        SDL_Log(\"[rgfx] GL program link failed: %.*s\", (int) len, log);
+        glDeleteProgram(g_rgfx_gl_program);
+        g_rgfx_gl_program = 0;
+        return 0;
+    }
     g_rgfx_gl_pos_attr = glGetAttribLocation(g_rgfx_gl_program, \"aPos\");
     g_rgfx_gl_uv_attr = glGetAttribLocation(g_rgfx_gl_program, \"aUv\");
     g_rgfx_gl_tex_uniform = glGetUniformLocation(g_rgfx_gl_program, \"uTex\");
@@ -636,8 +684,14 @@ static int rgfx_open_gpu(const std::string& title, int w, int h) {
     rgfx_prepare_audio_env();
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK) != 0) { return 0; }
     rgfx_scan_pads();
+#if defined(__arm__) || defined(__aarch64__)
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+#else
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
+#endif
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
     g_rgfx_win = SDL_CreateWindow(title.c_str(),
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, w, h,
@@ -649,7 +703,13 @@ static int rgfx_open_gpu(const std::string& title, int w, int h) {
     g_rgfx_gpu_mode = 1;
     g_rgfx_fb_w = w;
     g_rgfx_fb_h = h;
-    return rgfx_gl_init();
+    if (rgfx_gl_init()) { return 1; }
+    SDL_GL_DeleteContext(g_rgfx_glctx);
+    g_rgfx_glctx = nullptr;
+    SDL_DestroyWindow(g_rgfx_win);
+    g_rgfx_win = nullptr;
+    g_rgfx_gpu_mode = 0;
+    return 0;
 }
 
 static GLuint rgfx_gl_make_tex(const uint8_t* pixels, int w, int h) {
@@ -666,7 +726,7 @@ static GLuint rgfx_gl_make_tex(const uint8_t* pixels, int w, int h) {
 }
 
 static int rgfx_gpu_upload_texture(const uint8_t* pixels, int w, int h) {
-    if (!g_rgfx_gpu_mode || !g_rgfx_gpu_sprites_arm_safe || pixels == nullptr || w <= 0 || h <= 0) { return 0; }
+    if (!g_rgfx_gpu_mode || pixels == nullptr || w <= 0 || h <= 0) { return 0; }
     rgfx_gl_ensure_current();
     GLuint tex = rgfx_gl_make_tex(pixels, w, h);
     g_rgfx_gl_textures.push_back(tex);
@@ -675,6 +735,38 @@ static int rgfx_gpu_upload_texture(const uint8_t* pixels, int w, int h) {
 
 static int rgfx_particles_gl_init() {
     if (g_rgfx_part_program != 0) { return 1; }
+#if defined(__arm__) || defined(__aarch64__)
+    const char* vs =
+        \"attribute vec2 aCorner;\\n\"
+        \"attribute vec2 aCenter;\\n\"
+        \"attribute float aSize;\\n\"
+        \"attribute vec4 aColor;\\n\"
+        \"uniform vec2 uResolution;\\n\"
+        \"varying vec2 vCorner;\\n\"
+        \"varying vec4 vColor;\\n\"
+        \"void main() {\\n\"
+        \"  vec2 pix = aCenter + aCorner * aSize;\\n\"
+        \"  vec2 ndc;\\n\"
+        \"  ndc.x = (pix.x / uResolution.x) * 2.0 - 1.0;\\n\"
+        \"  ndc.y = 1.0 - (pix.y / uResolution.y) * 2.0;\\n\"
+        \"  gl_Position = vec4(ndc, 0.0, 1.0);\\n\"
+        \"  vCorner = aCorner;\\n\"
+        \"  vColor = aColor;\\n\"
+        \"}\\n\";
+    const char* fs =
+        \"precision mediump float;\\n\"
+        \"varying vec2 vCorner;\\n\"
+        \"varying vec4 vColor;\\n\"
+        \"void main() {\\n\"
+        \"  float d = dot(vCorner, vCorner);\\n\"
+        \"  if (d > 1.0) discard;\\n\"
+        \"  float soft = 1.0 - d;\\n\"
+        \"  float core = 1.0 - smoothstep(0.0, 0.22, d);\\n\"
+        \"  float alpha = vColor.a * soft * soft;\\n\"
+        \"  vec3 rgb = vColor.rgb * (1.0 + core * 0.7);\\n\"
+        \"  gl_FragColor = vec4(rgb, alpha);\\n\"
+        \"}\\n\";
+#else
     const char* vs =
         \"#version 120\\n\"
         \"attribute vec2 aCorner;\\n\"
@@ -706,14 +798,31 @@ static int rgfx_particles_gl_init() {
         \"  vec3 rgb = vColor.rgb * (1.0 + core * 0.7);\\n\"
         \"  gl_FragColor = vec4(rgb, alpha);\\n\"
         \"}\\n\";
+#endif
     GLuint vsId = rgfx_gl_compile(GL_VERTEX_SHADER, vs);
     GLuint fsId = rgfx_gl_compile(GL_FRAGMENT_SHADER, fs);
+    if (vsId == 0 || fsId == 0) {
+        if (vsId != 0) { glDeleteShader(vsId); }
+        if (fsId != 0) { glDeleteShader(fsId); }
+        return 0;
+    }
     g_rgfx_part_program = glCreateProgram();
     glAttachShader(g_rgfx_part_program, vsId);
     glAttachShader(g_rgfx_part_program, fsId);
     glLinkProgram(g_rgfx_part_program);
+    GLint linked = GL_FALSE;
+    glGetProgramiv(g_rgfx_part_program, GL_LINK_STATUS, &linked);
     glDeleteShader(vsId);
     glDeleteShader(fsId);
+    if (linked != GL_TRUE) {
+        char log[1024];
+        GLsizei len = 0;
+        glGetProgramInfoLog(g_rgfx_part_program, (GLsizei) sizeof(log), &len, log);
+        SDL_Log(\"[rgfx] particle program link failed: %.*s\", (int) len, log);
+        glDeleteProgram(g_rgfx_part_program);
+        g_rgfx_part_program = 0;
+        return 0;
+    }
     g_rgfx_part_corner_attr = glGetAttribLocation(g_rgfx_part_program, \"aCorner\");
     g_rgfx_part_center_attr = glGetAttribLocation(g_rgfx_part_program, \"aCenter\");
     g_rgfx_part_size_attr = glGetAttribLocation(g_rgfx_part_program, \"aSize\");
@@ -723,10 +832,12 @@ static int rgfx_particles_gl_init() {
     return 1;
 }
 
-static void rgfx_particles_begin(int w, int h) {
-    g_rgfx_particles.clear();
-    g_rgfx_part_fb_w = w;
-    g_rgfx_part_fb_h = h;
+static void rgfx_particles_begin(int w, int h, int pane) {
+    g_rgfx_active_particle_queue = rgfx_gpu_queue_index(pane);
+    RgfxGpuParticleQueue& q = g_rgfx_particle_queues[g_rgfx_active_particle_queue];
+    q.items.clear();
+    q.fbW = w;
+    q.fbH = h;
 }
 
 static void rgfx_particles_push(float x, float y, float size, int r, int g, int b, int a) {
@@ -734,20 +845,22 @@ static void rgfx_particles_push(float x, float y, float size, int r, int g, int 
     RgfxGpuParticle p;
     p.x = x; p.y = y; p.size = size;
     p.r = (uint8_t) r; p.g = (uint8_t) g; p.b = (uint8_t) b; p.a = (uint8_t) a;
-    g_rgfx_particles.push_back(p);
+    g_rgfx_particle_queues[g_rgfx_active_particle_queue].items.push_back(p);
 }
 
-static void rgfx_particles_draw_overlay() {
-    if (g_rgfx_particles.empty() || g_rgfx_part_fb_w <= 0 || g_rgfx_part_fb_h <= 0) { return; }
+static void rgfx_particles_draw_queue(int queueIndex, int viewportX, int viewportW, int viewportH) {
+    RgfxGpuParticleQueue& q = g_rgfx_particle_queues[queueIndex];
+    if (q.items.empty() || q.fbW <= 0 || q.fbH <= 0 || viewportW <= 0 || viewportH <= 0) { return; }
     if (!g_rgfx_gpu_mode) { return; }
-    rgfx_particles_gl_init();
+    if (!rgfx_particles_gl_init()) { return; }
+    glViewport(viewportX, 0, viewportW, viewportH);
     static const float corners[6][2] = {
         {-1.f, -1.f}, {1.f, -1.f}, {1.f, 1.f},
         {-1.f, -1.f}, {1.f, 1.f}, {-1.f, 1.f}
     };
     std::vector<float> verts;
-    verts.reserve(g_rgfx_particles.size() * 6u * 9u);
-    for (const RgfxGpuParticle& p : g_rgfx_particles) {
+    verts.reserve(q.items.size() * 6u * 9u);
+    for (const RgfxGpuParticle& p : q.items) {
         float cr = p.r / 255.f, cg = p.g / 255.f, cb = p.b / 255.f, ca = p.a / 255.f;
         for (int i = 0; i < 6; ++i) {
             verts.push_back(corners[i][0]);
@@ -762,7 +875,7 @@ static void rgfx_particles_draw_overlay() {
         }
     }
     glUseProgram(g_rgfx_part_program);
-    glUniform2f((GLint) g_rgfx_part_res_uniform, (float) g_rgfx_part_fb_w, (float) g_rgfx_part_fb_h);
+    glUniform2f((GLint) g_rgfx_part_res_uniform, (float) q.fbW, (float) q.fbH);
     glBindBuffer(GL_ARRAY_BUFFER, g_rgfx_part_vbo);
     glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr) (verts.size() * sizeof(float)), verts.data(), GL_DYNAMIC_DRAW);
     const GLsizei stride = (GLsizei) (9 * sizeof(float));
@@ -776,30 +889,36 @@ static void rgfx_particles_draw_overlay() {
     glVertexAttribPointer((GLuint) g_rgfx_part_color_attr, 4, GL_FLOAT, GL_FALSE, stride, (void*) (5 * sizeof(float)));
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-    glDrawArrays(GL_TRIANGLES, 0, (GLsizei) (g_rgfx_particles.size() * 6));
-    g_rgfx_particles.clear();
+    glDrawArrays(GL_TRIANGLES, 0, (GLsizei) (q.items.size() * 6));
+    q.items.clear();
 }
 
-static void rgfx_gpu_sprites_begin(int w, int h) {
-    if (!g_rgfx_gpu_sprites_arm_safe) { return; }
-    g_rgfx_sprites.clear();
-    g_rgfx_spr_fb_w = w;
-    g_rgfx_spr_fb_h = h;
+static void rgfx_particles_draw_overlay() {
+    rgfx_particles_draw_queue(0, 0, g_rgfx_fb_w, g_rgfx_fb_h);
 }
 
-static void rgfx_px_to_ndc(float px, float py, float* nx, float* ny) {
-    *nx = (px / (float) g_rgfx_spr_fb_w) * 2.f - 1.f;
-    *ny = 1.f - (py / (float) g_rgfx_spr_fb_h) * 2.f;
+static void rgfx_gpu_sprites_begin(int w, int h, int pane) {
+    g_rgfx_active_sprite_queue = rgfx_gpu_queue_index(pane);
+    RgfxGpuSpriteQueue& q = g_rgfx_sprite_queues[g_rgfx_active_sprite_queue];
+    q.items.clear();
+    q.fbW = w;
+    q.fbH = h;
+}
+
+static void rgfx_px_to_ndc(float px, float py, int fbW, int fbH, float* nx, float* ny) {
+    *nx = (px / (float) fbW) * 2.f - 1.f;
+    *ny = 1.f - (py / (float) fbH) * 2.f;
 }
 
 static void rgfx_gpu_draw_textured_quad_corners(
     GLuint tex, float u0, float v0, float u1, float v1,
-    float x0, float y0, float x1, float y1, float x2, float y2, float x3, float y3) {
+    float x0, float y0, float x1, float y1, float x2, float y2, float x3, float y3,
+    int fbW, int fbH) {
     float nx0, ny0, nx1, ny1, nx2, ny2, nx3, ny3;
-    rgfx_px_to_ndc(x0, y0, &nx0, &ny0);
-    rgfx_px_to_ndc(x1, y1, &nx1, &ny1);
-    rgfx_px_to_ndc(x2, y2, &nx2, &ny2);
-    rgfx_px_to_ndc(x3, y3, &nx3, &ny3);
+    rgfx_px_to_ndc(x0, y0, fbW, fbH, &nx0, &ny0);
+    rgfx_px_to_ndc(x1, y1, fbW, fbH, &nx1, &ny1);
+    rgfx_px_to_ndc(x2, y2, fbW, fbH, &nx2, &ny2);
+    rgfx_px_to_ndc(x3, y3, fbW, fbH, &nx3, &ny3);
     float verts[] = {
         nx0, ny0, u0, v0,
         nx1, ny1, u1, v0,
@@ -841,16 +960,17 @@ static void rgfx_gpu_sprites_push(int texId, int atlasW, int atlasH,
     s.dh = dh;
     s.angleDeg = angleDeg;
     s.usePivot = usePivot;
-    g_rgfx_sprites.push_back(s);
+    g_rgfx_sprite_queues[g_rgfx_active_sprite_queue].items.push_back(s);
 }
 
-static void rgfx_gpu_sprites_draw_overlay() {
-    if (!g_rgfx_gpu_sprites_arm_safe) { return; }
-    if (g_rgfx_sprites.empty() || g_rgfx_spr_fb_w <= 0 || g_rgfx_spr_fb_h <= 0) { return; }
+static void rgfx_gpu_sprites_draw_queue(int queueIndex, int viewportX, int viewportW, int viewportH) {
+    RgfxGpuSpriteQueue& q = g_rgfx_sprite_queues[queueIndex];
+    if (q.items.empty() || q.fbW <= 0 || q.fbH <= 0 || viewportW <= 0 || viewportH <= 0) { return; }
     if (!g_rgfx_gpu_mode) { return; }
     rgfx_gl_ensure_current();
-    rgfx_gl_init();
-    for (const RgfxGpuSprite& s : g_rgfx_sprites) {
+    if (!rgfx_gl_init()) { return; }
+    glViewport(viewportX, 0, viewportW, viewportH);
+    for (const RgfxGpuSprite& s : q.items) {
         if (s.texId <= 0 || s.texId > (int) g_rgfx_gl_textures.size()) { continue; }
         GLuint tex = g_rgfx_gl_textures[(size_t) (s.texId - 1)];
         float u0 = (float) s.sx / (float) s.atlasW;
@@ -862,7 +982,8 @@ static void rgfx_gpu_sprites_draw_overlay() {
             float x1 = s.px + s.dw, y1 = s.py;
             float x2 = s.px + s.dw, y2 = s.py + s.dh;
             float x3 = s.px, y3 = s.py + s.dh;
-            rgfx_gpu_draw_textured_quad_corners(tex, u0, v0, u1, v1, x0, y0, x1, y1, x2, y2, x3, y3);
+            rgfx_gpu_draw_textured_quad_corners(tex, u0, v0, u1, v1,
+                x0, y0, x1, y1, x2, y2, x3, y3, q.fbW, q.fbH);
         } else {
             float rad = s.angleDeg * 3.14159265f / 180.f;
             float ca = cosf(rad), sa = sinf(rad);
@@ -875,10 +996,14 @@ static void rgfx_gpu_sprites_draw_overlay() {
                 wy[i] = s.py + (lx[i] * sa + ly[i] * ca);
             }
             rgfx_gpu_draw_textured_quad_corners(tex, u0, v0, u1, v1,
-                wx[0], wy[0], wx[1], wy[1], wx[2], wy[2], wx[3], wy[3]);
+                wx[0], wy[0], wx[1], wy[1], wx[2], wy[2], wx[3], wy[3], q.fbW, q.fbH);
         }
     }
-    g_rgfx_sprites.clear();
+    q.items.clear();
+}
+
+static void rgfx_gpu_sprites_draw_overlay() {
+    rgfx_gpu_sprites_draw_queue(0, 0, g_rgfx_fb_w, g_rgfx_fb_h);
 }
 
 static void rgfx_gpu_draw_quad_tex(GLuint tex, float x, float y, float qw, float qh) {
@@ -969,8 +1094,11 @@ static void rgfx_gpu_present_split(const uint8_t* left, const uint8_t* right, in
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, right);
     rgfx_gpu_draw_quad_tex(g_rgfx_base_tex_r, (float) halfW, 0.f, (float) (g_rgfx_fb_w - halfW), (float) g_rgfx_fb_h);
-    rgfx_gpu_sprites_draw_overlay();
-    rgfx_particles_draw_overlay();
+    rgfx_gpu_sprites_draw_queue(1, 0, halfW, g_rgfx_fb_h);
+    rgfx_gpu_sprites_draw_queue(2, halfW, g_rgfx_fb_w - halfW, g_rgfx_fb_h);
+    rgfx_particles_draw_queue(1, 0, halfW, g_rgfx_fb_h);
+    rgfx_particles_draw_queue(2, halfW, g_rgfx_fb_w - halfW, g_rgfx_fb_h);
+    glViewport(0, 0, g_rgfx_fb_w, g_rgfx_fb_h);
     rgfx_gpu_finish_frame();
 }
 
@@ -1003,8 +1131,10 @@ static void rgfx_gl_cleanup() {
         glDeleteProgram(g_rgfx_part_program);
         g_rgfx_part_program = 0;
     }
-    g_rgfx_particles.clear();
-    g_rgfx_sprites.clear();
+    for (int i = 0; i < 3; ++i) {
+        g_rgfx_particle_queues[i].items.clear();
+        g_rgfx_sprite_queues[i].items.clear();
+    }
     if (g_rgfx_glctx != nullptr) {
         SDL_GL_DeleteContext(g_rgfx_glctx);
         g_rgfx_glctx = nullptr;
@@ -1292,9 +1422,9 @@ static void rgfx_close() {
     }
 
     ; Begin collecting GPU particles for the next present (OpenGL path only).
-    gfx_particles_begin _:void (fbW:int fbH:int) {
+    gfx_particles_begin _:void (fbW:int fbH:int pane:int) {
         templates {
-            cpp ( "rgfx_particles_begin(" (e 1) ", " (e 2) ")" (imp "<SDL2/SDL.h>") )
+            cpp ( "rgfx_particles_begin(" (e 1) ", " (e 2) ", " (e 3) ")" (imp "<SDL2/SDL.h>") )
             es6 ( "undefined" )
         }
     }
@@ -1317,9 +1447,9 @@ static void rgfx_close() {
     }
 
     ; Begin collecting GPU sheet sprites for the next present (OpenGL path only).
-    gfx_gpu_sprites_begin _:void (fbW:int fbH:int) {
+    gfx_gpu_sprites_begin _:void (fbW:int fbH:int pane:int) {
         templates {
-            cpp ( "rgfx_gpu_sprites_begin(" (e 1) ", " (e 2) ")" (imp "<SDL2/SDL.h>") (imp "<cmath>") )
+            cpp ( "rgfx_gpu_sprites_begin(" (e 1) ", " (e 2) ", " (e 3) ")" (imp "<SDL2/SDL.h>") (imp "<cmath>") )
             es6 ( "undefined" )
         }
     }

@@ -66,25 +66,31 @@ const ROAD_POINTS = [
 ];
 
 function roadAt(y) {
-  let i = 0;
-  while (i < ROAD_POINTS.length - 1) {
-    const a = ROAD_POINTS[i];
-    const b = ROAD_POINTS[i + 1];
-    if (y <= a.y && y >= b.y) {
-      const span = a.y - b.y;
-      let t = 0;
-      if (span > 0) {
-        t = (a.y - y) / span;
-      }
-      return {
-        center: a.x + (b.x - a.x) * t,
-        half: a.half + (b.half - a.half) * t
-      };
-    }
-    i = i + 1;
+  const first = ROAD_POINTS[0];
+  if (y >= first.y) {
+    return { center: first.x, half: first.half };
   }
   const last = ROAD_POINTS[ROAD_POINTS.length - 1];
-  return { center: last.x, half: last.half };
+  if (y <= last.y) {
+    return { center: last.x, half: last.half };
+  }
+
+  // Points are ordered top-to-bottom at 400 world-unit intervals (the final
+  // interval is shorter). Direct indexing avoids an interpreted linear scan;
+  // traffic AI calls roadAt three times per car on every fixed update.
+  let i = ((first.y - y) / 400) | 0;
+  i = clamp(i, 0, ROAD_POINTS.length - 2);
+  const a = ROAD_POINTS[i];
+  const b = ROAD_POINTS[i + 1];
+  const span = a.y - b.y;
+  let t = 0;
+  if (span > 0) {
+    t = (a.y - y) / span;
+  }
+  return {
+    center: a.x + (b.x - a.x) * t,
+    half: a.half + (b.half - a.half) * t
+  };
 }
 
 function clamp(v, lo, hi) {

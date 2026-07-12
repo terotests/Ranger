@@ -70,6 +70,7 @@ class GameEntity {
 class GameSpriteRenderer {
     def imageLoader:GameImageLoader (new GameImageLoader())
     def gpuSheetOverlay:boolean false
+    def gpuPane:int -1
     def sheetCachePaths:[string]
     def sheetCacheTpl:[GameEntity]
 
@@ -81,10 +82,14 @@ class GameSpriteRenderer {
         gpuSheetOverlay = enabled
     }
 
+    fn setGpuPane:void (pane:int) {
+        gpuPane = pane
+    }
+
     fn beginGpuSpriteFrame:void (pw:int ph:int gpuMode:boolean) {
         if (gpuMode) {
             if (gpuSheetOverlay) {
-                gfx_gpu_sprites_begin pw ph
+                gfx_gpu_sprites_begin pw ph gpuPane
             }
         }
     }

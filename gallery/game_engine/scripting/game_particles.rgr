@@ -31,6 +31,11 @@ class GameParticleSystem {
     def pool:[GameParticle]
     def maxCount:int 96
     def seed:int 9973
+    def gpuPane:int -1
+
+    fn setGpuPane:void (pane:int) {
+        gpuPane = pane
+    }
 
     fn init:void (capacity:int) {
         if (capacity > 0) {
@@ -319,7 +324,7 @@ class GameParticleSystem {
     }
 
     fn flushGpu:void (fbW:int fbH:int) {
-        gfx_particles_begin fbW fbH
+        gfx_particles_begin fbW fbH gpuPane
         def i 0
         while (i < maxCount) {
             def p:GameParticle (itemAt pool i)

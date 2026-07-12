@@ -223,6 +223,11 @@ class GameRunner {
         spriteRenderer.setGpuSheetOverlay(false)
     }
 
+    fn setGpuPane:void (pane:int) {
+        spriteRenderer.setGpuPane(pane)
+        particles.setGpuPane(pane)
+    }
+
     fn enableGpuSheetOverlay:void () {
         if (options.gpuMode) {
             if (options.spritesGpuOverlay) {
@@ -1258,13 +1263,27 @@ class GameRunner {
 
     fn sharedPhysicsStep:void (dtMs:int snap:GameInputSnapshot peer:GameRunner) {
         def prevScreen:string (this.currentScreenName())
+        def tScript0:int 0
+        if (profileEnabled) {
+            tScript0 = (gfx_ticks_ms)
+        }
         this.stepUpdateScript(dtMs snap)
+        def tScript1:int 0
+        if (profileEnabled) {
+            tScript1 = (gfx_ticks_ms)
+        }
         this.mergePhysicsFromPane(peer.state)
         this.mergeEventsFromPeer(peer.state)
         this.setPhysicsPassive(false)
         this.runPhysicsStep(dtMs)
         this.setPhysicsPassive(true)
         this.stepPostPhysics(dtMs prevScreen)
+        if (profileEnabled) {
+            def tSync1:int (gfx_ticks_ms)
+            profUpdateScriptMs = (profUpdateScriptMs + (tScript1 - tScript0))
+            profUpdateSyncMs = (profUpdateSyncMs + (tSync1 - tScript1))
+            profFrames = (profFrames + 1)
+        }
     }
 
     fn frameWithInput:void (dtMs:int snap:GameInputSnapshot) {

@@ -64,6 +64,8 @@ class SplitScreenHost {
             left.init(paneW paneH)
             right.init(paneW paneH)
         }
+        left.setGpuPane(0)
+        right.setGpuPane(1)
     }
 
     fn setAudioSink:void (sink:GameAudioSink) {
@@ -86,8 +88,19 @@ class SplitScreenHost {
     }
 
     fn setGpuMode:void (enabled:boolean) {
-        left.setGpuMode(enabled)
-        right.setGpuMode(enabled)
+        ; Pane GPU queues are presented by gfx_present_split. Non-autoscale
+        ; split composites into one CPU canvas, so keep those runners on CPU.
+        def paneGpu:boolean enabled
+        if (false == autoscale) {
+            paneGpu = false
+        }
+        left.setGpuMode(paneGpu)
+        right.setGpuMode(paneGpu)
+    }
+
+    fn enableGpuSheetOverlay:void () {
+        left.enableGpuSheetOverlay()
+        right.enableGpuSheetOverlay()
     }
 
     fn flushGpuParticles:void () {
@@ -166,7 +179,16 @@ class SplitScreenHost {
             def steps:int 0
             while (left.timeAccumulator >= left.fixedStepMs) {
                 def step:int left.fixedStepMs
+                def tRight0:int 0
+                if (profileEnabled) {
+                    tRight0 = (gfx_ticks_ms)
+                }
                 right.stepUpdateScript(step rightSnap)
+                if (profileEnabled) {
+                    def tRight1:int (gfx_ticks_ms)
+                    right.profUpdateScriptMs = (right.profUpdateScriptMs + (tRight1 - tRight0))
+                    right.profFrames = (right.profFrames + 1)
+                }
                 left.sharedPhysicsStep(step leftSnap right)
                 right.syncSharedWorldFrom(left)
                 left.timeAccumulator = (left.timeAccumulator - step)
@@ -179,7 +201,16 @@ class SplitScreenHost {
             }
             return
         }
+        def tRight0:int 0
+        if (profileEnabled) {
+            tRight0 = (gfx_ticks_ms)
+        }
         right.stepUpdateScript(dtMs rightSnap)
+        if (profileEnabled) {
+            def tRight1:int (gfx_ticks_ms)
+            right.profUpdateScriptMs = (right.profUpdateScriptMs + (tRight1 - tRight0))
+            right.profFrames = (right.profFrames + 1)
+        }
         left.sharedPhysicsStep(dtMs leftSnap right)
         right.syncSharedWorldFrom(left)
     }
