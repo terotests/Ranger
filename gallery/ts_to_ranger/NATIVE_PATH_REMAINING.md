@@ -1,10 +1,37 @@
 # TSX → Native compilation — remaining work
 
 > Status/roadmap notes for finishing **Path B** (TS `.tsx` → Ranger → statically
-> compiled with the host → C++). Companion to
-> [`AGENT_NATIVE_REPAIR.md`](./AGENT_NATIVE_REPAIR.md) (which covers P0–P6 history).
+> compiled with the host → C++). This work lives primarily under
+> [`gallery/game_engine/`](../game_engine/) (game scripts, native runtime,
+> physics, build scripts). The emitter and generated output live in
+> [`gallery/ts_to_ranger/`](./). Companion to
+> [`AGENT_NATIVE_REPAIR.md`](./AGENT_NATIVE_REPAIR.md) (P0–P6 history; on the
+> native-repair branch / PR #189).
 >
 > **Written:** July 2026. Pick up later when there's a suitable moment.
+
+---
+
+## Related files in `gallery/game_engine/`
+
+| Area | Path | Role on the native path |
+|------|------|-------------------------|
+| **Game scripts (Path A)** | [`games/`](../game_engine/games/) | Interpreter `.tsx` sources (`pong`, `invaders`, `ylos2`, `autopeli_physics`, …) |
+| **Native TS inputs (Path B)** | [`scripting/*.game.tsx`](../game_engine/scripting/) | Canonical emit sources for pong / invaders / pacman (`pong.game.tsx`, `invaders.game.tsx`, `pacman_native.game.tsx`) |
+| **Native SDL runners** | [`scripting/*_native_sdl_runner.rgr`](../game_engine/scripting/) | Link generated script + host into one C++ binary |
+| **Native runtime** | [`scripting/game_native_runtime.rgr`](../game_engine/scripting/game_native_runtime.rgr) | Frame loop, sprite sync, state merge — **physics wiring missing (B1)** |
+| **Native bridge** | [`scripting/native_game_bridge.rgr`](../game_engine/scripting/native_game_bridge.rgr) | Wires `GeneratedGameScript` into the runner |
+| **Host physics** | [`scripting/game_physics.rgr`](../game_engine/scripting/game_physics.rgr), [`physics_core.rgr`](../game_engine/scripting/physics_core.rgr), [`game_physics_bridge.rgr`](../game_engine/scripting/game_physics_bridge.rgr) | Compiled physics + **EvalValue marshalling** (disappears on Path B) |
+| **Cannon physics** | [`scripting/game_cannon_physics.rgr`](../game_engine/scripting/game_cannon_physics.rgr), [`physics/`](../game_engine/physics/) | Pinpall, physics sandbox |
+| **Engine host** | [`scripting/game_engine_host.rgr`](../game_engine/scripting/game_engine_host.rgr) | `bgFillRect`, `paneIndex`, ambient surface for emitted scripts |
+| **Fixed-width TS types** | [`scripting/game_native_types.ts`](../game_engine/scripting/game_native_types.ts) | `u8`/`i32`/`f64` aliases for native-bound scripts |
+| **Build** | [`scripts/build-game-sdl-native.sh`](../game_engine/scripts/build-game-sdl-native.sh) | Emit `.tsx` → `generated/*.rgr` → C++ → SDL binary |
+| **Roadmap** | [`ROADMAP.md`](../game_engine/ROADMAP.md) | Engine maturity matrix (links back here) |
+| **Design** | [`scripting/GAME_ENGINE_DESIGN.md`](../game_engine/scripting/GAME_ENGINE_DESIGN.md), [`scripting/GAME_SCRIPTING.md`](../game_engine/scripting/GAME_SCRIPTING.md) | Retained sprites, reducer, TSX API |
+
+**npm (native SDL smoke):** `engine:game-sdl-native:smoke:pong|invaders|pacman` in root `package.json`.
+
+**Emitter output:** [`generated/`](./generated/) (`pong_generated.rgr`, `ylos2_generated.rgr`, …).
 
 ---
 

@@ -119,7 +119,7 @@ backend. Kaikki muu on portable.
 | Split screen (2 pane) | `game_split_screen.rgr` | ✅ auto/always/never, GPU split present |
 | JSX HUD (kevyt) | `game_hud.rgr` | ⚠️ View/Label, ei täyttä EVG:ä |
 | Host bridge (resources/events) | `game_host.rgr` | ⚠️ Data-kerros, ääni/partikkelit toimii |
-| TS→Ranger staattinen käännös | `game_native_runtime.rgr` | ⚠️ Kokeellinen |
+| TS→Ranger staattinen käännös | `game_native_runtime.rgr` | ⚠️ Kokeellinen — pong/invaders/pacman/ylos2 kääntyy; jäljellä: [`ts_to_ranger/NATIVE_PATH_REMAINING.md`](../ts_to_ranger/NATIVE_PATH_REMAINING.md) |
 | Host physics (2D top-down) | `game_physics.rgr` | ✅ Ajoneuvot, kontaktit, shared world |
 | Cannon physics | `game_cannon_physics.rgr` | ✅ Pinball, sandbox |
 | WASM Path C | `wasm_game_runner.rgr`, `wasm_physics_runner.rgr` | ✅ Getter + RGW1 linear ABI |
