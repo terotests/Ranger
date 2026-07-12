@@ -452,15 +452,15 @@ class GeneratedGameScript {
         return 0
     }
 
-    fn absVal:int (n:int) {
-        if ((n < 0)) {
-            return (0 - n)
+    fn absVal:double (n:double) {
+        if ((n < 0.0)) {
+            return (0.0 - n)
         }
         return n
     }
 
-    fn dist:int (col:int row:int tc:int tr:int) {
-        return ((this.absVal((col - tc))) + (this.absVal((row - tr))))
+    fn dist:double (col:int row:int tc:int tr:int) {
+        return ((this.absVal((to_double (col - tc)))) + (this.absVal((to_double (row - tr)))))
     }
 
     fn wallId:string (col:int row:int) {
@@ -1132,7 +1132,7 @@ class GeneratedGameScript {
         if ((gi == 2)) {
             return (pacCol + (d.dc * 2))
         }
-        if (((this.dist(gCol gRow pacCol pacRow)) > 8)) {
+        if (((this.dist(gCol gRow pacCol pacRow)) > 8.0)) {
             return (this.scatterCol(gi))
         }
         return pacCol
@@ -1149,7 +1149,7 @@ class GeneratedGameScript {
         if ((gi == 2)) {
             return (pacRow + (d.dr * 2))
         }
-        if (((this.dist(gCol gRow pacCol pacRow)) > 8)) {
+        if (((this.dist(gCol gRow pacCol pacRow)) > 8.0)) {
             return (this.scatterRow(gi))
         }
         return pacRow
@@ -1170,9 +1170,9 @@ class GeneratedGameScript {
             def i:int (0)
             while ((i < (array_length opts))) {
                 def mv:tryMoveRetNative ((this.tryMove(gCol gRow (itemAt opts i))))
-                def dd:int ((this.dist(mv.col mv.row pacCol pacRow)))
-                if ((dd > bestDist)) {
-                    bestDist = dd
+                def dd:double ((this.dist(mv.col mv.row pacCol pacRow)))
+                if ((dd > (to_double bestDist))) {
+                    bestDist = (to_int dd)
                     best = (itemAt opts i)
                 }
                 i = (i + 1)
@@ -1190,9 +1190,9 @@ class GeneratedGameScript {
         def j:int (0)
         while ((j < (array_length opts))) {
             def mv2:tryMoveRetNative ((this.tryMove(gCol gRow (itemAt opts j))))
-            def dd2:int ((this.dist(mv2.col mv2.row tc tr)))
-            if ((dd2 < bestD)) {
-                bestD = dd2
+            def dd2:double ((this.dist(mv2.col mv2.row tc tr)))
+            if ((dd2 < (to_double bestD))) {
+                bestD = (to_int dd2)
                 best2 = (itemAt opts j)
             }
             j = (j + 1)
@@ -1244,9 +1244,9 @@ class GeneratedGameScript {
         while ((i < this.GHOST_COUNT)) {
             if (((itemAt ghostEyes i) == 0)) {
                 def pos:EntityPoseNative ((this.lerpIfMoving((itemAt ghostCol i) (itemAt ghostRow i) (itemAt ghostFrac i) (itemAt ghostDir i))))
-                def dx:int ((this.absVal((to_int (pacPos.x - pos.x)))))
-                def dy:int ((this.absVal((to_int (pacPos.y - pos.y)))))
-                if (((dx + dy) < 14)) {
+                def dx:double ((this.absVal((pacPos.x - pos.x))))
+                def dy:double ((this.absVal((pacPos.y - pos.y))))
+                if (((dx + dy) < 14.0)) {
                     return i
                 }
             }

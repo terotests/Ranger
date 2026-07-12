@@ -65,6 +65,18 @@ class NativeGameState {
     def events:[GameEventNative]
 }
 
+class PlayerInputNative {
+    def up:boolean false
+    def down:boolean false
+    def left:boolean false
+    def right:boolean false
+    def action:boolean false
+}
+
+class GameInputNative {
+    def players:[PlayerInputNative]
+}
+
 class UpdatePropsNative {
     def time:int 0
     def dt:double 16.0
@@ -73,6 +85,7 @@ class UpdatePropsNative {
     def left:boolean false
     def right:boolean false
     def action:boolean false
+    def input:GameInputNative (new GameInputNative)
     def state:NativeGameState (new NativeGameState)
 }
 

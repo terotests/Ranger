@@ -4609,6 +4609,9 @@ class TSEmitter  {
     this.stateVarName = "s";
     this.readEntityIds = [];
     this.readEntitySeen = {};
+    this.readPlayerIndices = [];
+    this.readPlayerSeen = {};
+    this.inputVarName = "input";
     this.fnReturnTypes = {};
     this.fnParamTypesCsv = {};
     this.isHelperFn = {};
@@ -4814,6 +4817,8 @@ class TSEmitter  {
     this.interfaceFieldsCsv["EntityPose"] = "x:double,y:double,visible:int,r:int,g:int,b:int,rad:int,p0:int,p1:int,p2:int";
     this.interfaceFieldsCsv["ResourceDef"] = "kind:string,id:string,path:string,px:int,frameCount:int,w:int,h:int";
     this.interfaceFieldsCsv["GameEvent"] = "kind:string,id:string,x:double,y:double,amount:int";
+    this.interfaceFieldsCsv["PlayerInput"] = "up:boolean,down:boolean,left:boolean,right:boolean,action:boolean";
+    this.interfaceFieldsCsv["GameInput"] = "players:[PlayerInputNative]";
   };
   isNativeStateField (prop) {
     if ( prop == "screen" ) {
@@ -4884,6 +4889,12 @@ class TSEmitter  {
     }
     if ( prop == "state" ) {
       return "NativeGameState";
+    }
+    if ( prop == "input" ) {
+      return "GameInputNative";
+    }
+    if ( prop == "players" ) {
+      return "[PlayerInputNative]";
     }
     return "int";
   };
@@ -5169,6 +5180,14 @@ class TSEmitter  {
         if ( node.nodeType == "Identifier" ) {
           return expr;
         }
+        if ( this.containsChar(expr, 46) ) {
+          return expr;
+        }
+        if ( (expr.length) >= 4 ) {
+          if ( (expr.substring(0, 4 )) == "(0.0" ) {
+            return expr;
+          }
+        }
         if ( (expr.length) >= 10 ) {
           if ( (expr.substring(0, 10 )) == "(to_double" ) {
             return expr;
@@ -5261,6 +5280,7 @@ class TSEmitter  {
       k = k + 1;
     };
     this.finalizeSynthStructs(ast);
+    this.finalizeHelperReturnTypes(ast);
   };
   scanStateArrays (node) {
     if ( typeof(node.body) === "undefined" ) {
@@ -5930,13 +5950,40 @@ class TSEmitter  {
     const saved = this.varTypes;
     let local = {};
     this.varTypes = local;
+    let pi = 0;
+    while (pi < (node.params.length)) {
+      const p = node.params[pi];
+      const pt = this.helperParamType(node.name, pi);
+      if ( (pt.length) > 0 ) {
+        this.varTypes[p.name] = pt;
+      }
+      pi = pi + 1;
+    };
     this.collectLocalVarTypes(body, body);
     if ( this.functionHasValueReturn(body) == false ) {
+      this.varTypes = saved;
       return "void";
     }
     const result = this.findReturnType(body, node.name);
     this.varTypes = saved;
     return result;
+  };
+  finalizeHelperReturnTypes (ast) {
+    let i = 0;
+    while (i < (ast.children.length)) {
+      const node = ast.children[i];
+      if ( node.nodeType == "FunctionDeclaration" ) {
+        if ( this.isSpecialFn(node.name) == false ) {
+          if ( typeof(node.typeAnnotation) === "undefined" ) {
+            const inferred = this.inferHelperReturnType(node);
+            if ( this.isPositiveType(inferred) ) {
+              this.fnReturnTypes[node.name] = inferred;
+            }
+          }
+        }
+      }
+      i = i + 1;
+    };
   };
   functionHasValueReturn (block) {
     let i = 0;
@@ -6380,6 +6427,11 @@ class TSEmitter  {
     this.readEntityIds = freshIds;
     let freshSeen = {};
     this.readEntitySeen = freshSeen;
+    let freshPlayers = [];
+    this.readPlayerIndices = freshPlayers;
+    let freshPlayerSeen = {};
+    this.readPlayerSeen = freshPlayerSeen;
+    this.inputVarName = "input";
     const isHelper = this.isSpecialFn(this.currentFn) == false;
     let retType = "void";
     if ( this.inSpritesFn ) {
@@ -6415,8 +6467,10 @@ class TSEmitter  {
     if ( this.inUpdateFn ) {
       this.prescanStateVar(body);
       this.collectEntityReads(body);
+      this.collectInputPlayerReads(body);
       this.emitStateBinding(body);
       this.emitEntityHoists();
+      this.emitInputPlayerHoists();
       this.emitBlockBodySkippingStateDecl(body);
     } else {
       this.emitBlockBody(body);
@@ -6465,10 +6519,32 @@ class TSEmitter  {
             }
           }
         }
+        if ( typeof(d.init) != "undefined" ) {
+          const initNode2 = d.init;
+          if ( this.isPropsInputMember(initNode2) ) {
+            this.inputVarName = d.name;
+          }
+        }
       }
       i = i + 1;
     };
     return false;
+  };
+  isPropsInputMember (node) {
+    if ( node.nodeType != "MemberExpression" ) {
+      return false;
+    }
+    if ( node.name != "input" ) {
+      return false;
+    }
+    if ( typeof(node.left) === "undefined" ) {
+      return false;
+    }
+    const base = node.left;
+    if ( base.nodeType != "Identifier" ) {
+      return false;
+    }
+    return base.name == "props";
   };
   isPropsStateMember (node) {
     if ( node.nodeType != "MemberExpression" ) {
@@ -6496,6 +6572,9 @@ class TSEmitter  {
             if ( this.isPropsStateMember((d.init)) ) {
               this.stateVarName = d.name;
             }
+            if ( this.isPropsInputMember((d.init)) ) {
+              this.inputVarName = d.name;
+            }
           }
         }
         i = i + 1;
@@ -6522,6 +6601,69 @@ class TSEmitter  {
       }
     }
     this.walkChildren(node, "collectEntityReads");
+  };
+  inputPlayerIndex (node) {
+    if ( node.nodeType != "MemberExpression" ) {
+      return "";
+    }
+    if ( typeof(node.left) === "undefined" ) {
+      return "";
+    }
+    const idxAccess = node.left;
+    if ( idxAccess.nodeType != "MemberExpression" ) {
+      return "";
+    }
+    if ( idxAccess.computed == false ) {
+      return "";
+    }
+    if ( typeof(idxAccess.left) === "undefined" ) {
+      return "";
+    }
+    const playersAccess = idxAccess.left;
+    if ( playersAccess.nodeType != "MemberExpression" ) {
+      return "";
+    }
+    if ( playersAccess.name != "players" ) {
+      return "";
+    }
+    if ( typeof(playersAccess.left) === "undefined" ) {
+      return "";
+    }
+    const root = playersAccess.left;
+    if ( root.nodeType != "Identifier" ) {
+      return "";
+    }
+    if ( root.name != this.inputVarName ) {
+      return "";
+    }
+    if ( typeof(idxAccess.right) === "undefined" ) {
+      return "";
+    }
+    const idxNode = idxAccess.right;
+    if ( idxNode.nodeType != "NumericLiteral" ) {
+      return "";
+    }
+    return idxNode.value;
+  };
+  collectInputPlayerReads (node) {
+    const idx = this.inputPlayerIndex(node);
+    if ( (idx.length) > 0 ) {
+      const seen = ( this.readPlayerSeen.hasOwnProperty(idx) ? this.readPlayerSeen[idx] : undefined );
+      if ( typeof(seen) === "undefined" ) {
+        this.readPlayerSeen[idx] = true;
+        this.readPlayerIndices.push(idx);
+      }
+    }
+    this.walkChildren(node, "collectInputPlayerReads");
+  };
+  emitInputPlayerHoists () {
+    let i = 0;
+    while (i < (this.readPlayerIndices.length)) {
+      const idx = this.readPlayerIndices[i];
+      const localName = "in_pl" + idx;
+      this.emitLine(((("def " + localName) + ":PlayerInputNative (itemAt props.input.players ") + idx) + ")");
+      i = i + 1;
+    };
   };
   walkChildren (node, visitor) {
     if ( typeof(node.left) != "undefined" ) {
@@ -6558,6 +6700,10 @@ class TSEmitter  {
     }
     if ( visitor == "collectEntityReads" ) {
       this.collectEntityReads(node);
+      return;
+    }
+    if ( visitor == "collectInputPlayerReads" ) {
+      this.collectInputPlayerReads(node);
       return;
     }
   };
@@ -6863,21 +7009,6 @@ class TSEmitter  {
         continue;
       }
       const initNode = d.init;
-      if ( initNode.nodeType == "MemberExpression" ) {
-        if ( typeof(initNode.left) != "undefined" ) {
-          const base = initNode.left;
-          if ( base.nodeType == "Identifier" ) {
-            if ( base.name == "props" ) {
-              if ( initNode.name == "input" ) {
-                this.varTypes[name] = "int";
-                this.emitLine(("def " + name) + ":int 0");
-                i = i + 1;
-                continue;
-              }
-            }
-          }
-        }
-      }
       if ( hasAnnot == false ) {
         rtype = this.exprType(initNode);
       }
@@ -6981,8 +7112,63 @@ class TSEmitter  {
         const test = node.left;
         if ( test.nodeType == "Identifier" ) {
           if ( test.name == "input" ) {
-            this.emitLine("; native path: props.input skipped");
+            if ( typeof(node.body) != "undefined" ) {
+              const cons = node.body;
+              if ( cons.nodeType == "BlockStatement" ) {
+                this.emitBlockBody(cons);
+              } else {
+                this.emitStatement(cons);
+              }
+            }
             return;
+          }
+        }
+        if ( test.nodeType == "MemberExpression" ) {
+          if ( test.computed ) {
+            if ( typeof(test.left) != "undefined" ) {
+              const base = test.left;
+              if ( base.nodeType == "MemberExpression" ) {
+                if ( base.name == "players" ) {
+                  if ( typeof(base.left) != "undefined" ) {
+                    const root = base.left;
+                    if ( root.nodeType == "Identifier" ) {
+                      if ( root.name == "input" ) {
+                        let idxLit = "0";
+                        if ( typeof(test.right) != "undefined" ) {
+                          const idxNode = test.right;
+                          if ( idxNode.nodeType == "NumericLiteral" ) {
+                            idxLit = idxNode.value;
+                          }
+                        }
+                        let minLen = "1";
+                        if ( idxLit == "1" ) {
+                          minLen = "2";
+                        }
+                        if ( idxLit == "2" ) {
+                          minLen = "3";
+                        }
+                        let ifLine = "if ((array_length input.players) >= ";
+                        ifLine = ifLine + minLen;
+                        ifLine = ifLine + ") {";
+                        this.emitLine(ifLine);
+                        this.indent();
+                        if ( typeof(node.body) != "undefined" ) {
+                          const cons2 = node.body;
+                          if ( cons2.nodeType == "BlockStatement" ) {
+                            this.emitBlockBody(cons2);
+                          } else {
+                            this.emitStatement(cons2);
+                          }
+                        }
+                        this.dedent();
+                        this.emitLine("}");
+                        return;
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -6994,11 +7180,11 @@ class TSEmitter  {
     this.emitLine(("if (" + cond) + ") {");
     this.indent();
     if ( typeof(node.body) != "undefined" ) {
-      const cons = node.body;
-      if ( cons.nodeType == "BlockStatement" ) {
-        this.emitBlockBody(cons);
+      const cons_1 = node.body;
+      if ( cons_1.nodeType == "BlockStatement" ) {
+        this.emitBlockBody(cons_1);
       } else {
-        this.emitStatement(cons);
+        this.emitStatement(cons_1);
       }
     }
     this.dedent();
@@ -7456,6 +7642,11 @@ class TSEmitter  {
       const base_1 = this.emitExpr(leftNode, "int");
       return ("(array_length " + base_1) + ")";
     }
+    const pIdx = this.inputPlayerIndex(node);
+    if ( (pIdx.length) > 0 ) {
+      const localName = ("in_pl" + pIdx) + ".";
+      return localName + node.name;
+    }
     if ( leftNode.nodeType == "MemberExpression" ) {
       if ( leftNode.name == "entities" ) {
         return "in_" + node.name;
@@ -7479,9 +7670,6 @@ class TSEmitter  {
       return base_2;
     }
     if ( base_2 == "props" ) {
-      if ( prop == "input" ) {
-        return "0";
-      }
       return "props." + prop;
     }
     const result = (base_2 + ".") + prop;
