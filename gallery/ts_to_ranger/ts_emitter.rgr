@@ -939,9 +939,14 @@ class TSEmitter {
             }
             k = (k + 1)
         }
-        ; Fourth pass: refresh synthesized return-struct field types after call-site inference.
+        ; Fourth pass: re-infer helper return types now that param CSV is final.
+        this.finalizeHelperReturnTypes(ast)
+        ; Fifth pass: refresh synthesized return-struct field types after call-site
+        ; inference AND finalized helper return types (so e.g. `{ x: scaleX(..) }`
+        ; picks up scaleX's double return). Run return-type inference first so
+        ; struct fields typed from helper calls resolve correctly.
         this.finalizeSynthStructs(ast)
-        ; Fifth pass: re-infer helper return types now that param CSV is final.
+        ; Helper returns may depend on struct field types too; re-run once more.
         this.finalizeHelperReturnTypes(ast)
     }
 

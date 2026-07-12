@@ -58,9 +58,9 @@ class BASE_DIAMOND_DEFSElemNative {
 }
 
 class scalePlatformRetNative {
-    def x:int 0
+    def x:double 0.0
     def y:double 0.0
-    def w:int 0
+    def w:double 0.0
     def h:int 0
 }
 
@@ -116,7 +116,7 @@ class mergePlatforms_outRetNative {
 }
 
 class makePlayerOnFloorRetNative {
-    def x:int 0
+    def x:double 0.0
     def y:int 0
     def vx:double 0.0
     def vy:double 0.0
@@ -243,11 +243,11 @@ class tickFinishPlayerRetNative {
 }
 
 class _outRetNative {
-    def x:int 0
+    def x:double 0.0
     def y:double 0.0
     def dir:int 0
-    def min:int 0
-    def max:int 0
+    def min:double 0.0
+    def max:double 0.0
 }
 
 class Ylos2GameModule @singleton(true) {
@@ -1097,9 +1097,9 @@ class GeneratedGameScript {
     fn celebrateXFor:double (slot:int) {
         def gp:scalePlatformRetNative ((this.goalPlatform()))
         if ((slot == 2)) {
-            return ((to_double gp.x) + ((to_double gp.w) * 0.62))
+            return (gp.x + (gp.w * 0.62))
         }
-        return ((to_double gp.x) + ((to_double gp.w) * 0.38))
+        return (gp.x + (gp.w * 0.38))
     }
 
     fn celebrateYOffset:int (animTick:int) {
@@ -1791,7 +1791,7 @@ class GeneratedGameScript {
         while ((ei < _mod.MAX_ENEMIES)) {
             def _at2:makeEnemies_outRetNative (itemAt enemies ei)
             if ((_at2.alive == 1)) {
-                def kind:string ((this.enemyCollisionKind((to_double out.x) (to_double out.y) out.vy (itemAt enemies ei).x (itemAt enemies ei).y)))
+                def kind:string ((this.enemyCollisionKind(out.x (to_double out.y) out.vy (itemAt enemies ei).x (itemAt enemies ei).y)))
                 if ((kind == "stomp")) {
                     def _at3:makeEnemies_outRetNative (itemAt enemies ei)
                     _at3.alive = 0
@@ -1967,7 +1967,7 @@ class GeneratedGameScript {
         }
         def pw:int (8)
         def staticCount:int ((this.staticPlatformCount(platforms)))
-        def x:double (((to_double pl.x) + (vx * (to_double dt))))
+        def x:double ((pl.x + (vx * (to_double dt))))
         def side:applyMovingPlatformSidePushRetNative ((this.applyMovingPlatformSidePush((to_int x) (to_double pl.y) pw pl.grounded platforms staticCount)))
         x = (to_double side.x)
         def knockedOff:int (0)
@@ -2200,7 +2200,7 @@ class GeneratedGameScript {
             tmp114.p2 = 0
             set entities id tmp114
             def tmp115:EntityPoseNative (new EntityPoseNative)
-            tmp115.x = (to_double pl.x)
+            tmp115.x = pl.x
             tmp115.y = (to_double (pl.y - cam))
             tmp115.p0 = sheet.p0
             tmp115.p1 = sheet.p1
@@ -2217,7 +2217,7 @@ class GeneratedGameScript {
             tmp116.p2 = 0
             set entities superId tmp116
             def tmp117:EntityPoseNative (new EntityPoseNative)
-            tmp117.x = (to_double pl.x)
+            tmp117.x = pl.x
             tmp117.y = (to_double (pl.y - cam))
             tmp117.p0 = sheet.p0
             tmp117.p1 = sheet.p1
@@ -2353,8 +2353,8 @@ class GeneratedGameScript {
     fn tickGoalWalk:tickGoalWalkRetNative (pl:int dt:int) {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
         def gp:scalePlatformRetNative ((this.goalPlatform()))
-        def minX:int ((gp.x + 18))
-        def maxX:int (((gp.x + gp.w) - 18))
+        def minX:double ((gp.x + 18.0))
+        def maxX:double (((gp.x + gp.w) - 18.0))
         def x:double (pl.x)
         def face:int (pl.face)
         if ((face == 0)) {
@@ -2362,12 +2362,12 @@ class GeneratedGameScript {
         }
         def speed:double ((_mod.MOVE * 0.9))
         x = (x + (((to_double face) * speed) * (to_double dt)))
-        if ((x < (to_double minX))) {
-            x = (to_double minX)
+        if ((x < minX)) {
+            x = minX
             face = 1
         }
-        if ((x > (to_double maxX))) {
-            x = (to_double maxX)
+        if ((x > maxX)) {
+            x = maxX
             face = (0 - 1)
         }
         def tmp126:tickGoalWalkRetNative (new tickGoalWalkRetNative)
@@ -2454,7 +2454,7 @@ class GeneratedGameScript {
             finishPulseMs = 0
         }
         def feetY:double ((this.goalFeetY()))
-        def x:int (pl.x)
+        def x:double (pl.x)
         def face:int (pl.face)
         def y:double (feetY)
         def animTick:int ((pl.animTick + dt))
@@ -2463,7 +2463,7 @@ class GeneratedGameScript {
         } {
             if ((finishMs < _mod.FINISH_PHASE_DONE)) {
                 def walk:tickGoalWalkRetNative ((this.tickGoalWalk(pl dt)))
-                x = (to_int walk.x)
+                x = walk.x
                 face = walk.face
                 y = feetY
             }
@@ -2619,7 +2619,7 @@ class GeneratedGameScript {
             if (((itemAt fruits fj).taken == 0)) {
                 def fd:EntityPoseNative ((itemAt fruitDefs fj))
                 if ((p1.done == 0)) {
-                    if ((this.hitPickup((to_double p1.x) (to_double p1.y) fd.x fd.y))) {
+                    if ((this.hitPickup(p1.x (to_double p1.y) fd.x fd.y))) {
                         set fruits fj {}
                         score1 = (score1 + 1)
                         def be129:GameEventNative (new GameEventNative)
@@ -2642,7 +2642,7 @@ class GeneratedGameScript {
                 }
                 if (dual) {
                     if ((p2.done == 0)) {
-                        if ((this.hitPickup((to_double p2.x) (to_double p2.y) fd.x fd.y))) {
+                        if ((this.hitPickup(p2.x (to_double p2.y) fd.x fd.y))) {
                             set fruits fj {}
                             score2 = (score2 + 1)
                             def be132:GameEventNative (new GameEventNative)
@@ -2672,7 +2672,7 @@ class GeneratedGameScript {
             if (((itemAt diamonds dk).taken == 0)) {
                 def dd:EntityPoseNative ((itemAt diamondDefs dk))
                 if ((p1.done == 0)) {
-                    if ((this.hitPickup((to_double p1.x) (to_double p1.y) dd.x dd.y))) {
+                    if ((this.hitPickup(p1.x (to_double p1.y) dd.x dd.y))) {
                         set diamonds dk {}
                         p1 = {}
                         def be135:GameEventNative (new GameEventNative)
@@ -2691,7 +2691,7 @@ class GeneratedGameScript {
                 }
                 if (dual) {
                     if ((p2.done == 0)) {
-                        if ((this.hitPickup((to_double p2.x) (to_double p2.y) dd.x dd.y))) {
+                        if ((this.hitPickup(p2.x (to_double p2.y) dd.x dd.y))) {
                             set diamonds dk {}
                             p2 = {}
                             def be137:GameEventNative (new GameEventNative)

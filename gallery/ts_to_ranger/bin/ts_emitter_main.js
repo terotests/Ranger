@@ -5580,6 +5580,7 @@ class TSEmitter  {
       }
       k = k + 1;
     };
+    this.finalizeHelperReturnTypes(ast);
     this.finalizeSynthStructs(ast);
     this.finalizeHelperReturnTypes(ast);
   };
