@@ -15,6 +15,7 @@
 ; ==============================================================================
 
 Import "../framebuffer.rgr"
+Import "../gfx_sdl.rgr"
 Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
 Import "../../pdf_writer/src/jsx/EvalValue.rgr"
 Import "../../evg/EVGElement.rgr"
@@ -45,6 +46,8 @@ class GameRuntimeOptions {
     def gpuMode:boolean false
     ; When true and gpuMode is on, particles are GL-overlaid at present (not SoftCanvas).
     def particlesGpuOverlay:boolean true
+    ; When true and gpuMode is on, sheet sprites are GL-overlaid at present (not SoftCanvas).
+    def spritesGpuOverlay:boolean true
 }
 
 class GameRunner {
@@ -218,6 +221,13 @@ class GameRunner {
 
     fn setGpuMode:void (enabled:boolean) {
         options.gpuMode = enabled
+        if (enabled) {
+            if (options.spritesGpuOverlay) {
+                spriteRenderer.setGpuSheetOverlay(true)
+            }
+        } {
+            spriteRenderer.setGpuSheetOverlay(false)
+        }
     }
 
   ; Track a .tsx/.game.tsx on disk for mtime polling (used by SDL host and dev watch).
@@ -1272,6 +1282,11 @@ class GameRunner {
         def tBg0:int 0
         if (profileEnabled) {
             tBg0 = (gfx_ticks_ms)
+        }
+        if (options.gpuMode) {
+            if (options.spritesGpuOverlay) {
+                gfx_gpu_sprites_begin pw ph
+            }
         }
         this.drawBackground()
         def tBg1:int 0
