@@ -38,6 +38,15 @@ class SpriteDefNative {
     def eg:int -1
     def eb:int -1
     def frames:[[string]]
+    ; sheet sprites (LPC walk / enemy sheets)
+    def path:string ""
+    def frameW:int 64
+    def frameH:int 64
+    def cols:int 9
+    def rows:int 4
+    def scale:int 50
+    def feetTrim:int 0
+    def jumpFrame:int 0
 }
 
 class NativeGameState {

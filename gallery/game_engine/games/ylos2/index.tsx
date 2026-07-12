@@ -34,6 +34,55 @@ interface Player {
   celebrateBursts: i32;
 }
 
+interface Platform {
+  x: f64;
+  y: f64;
+  w: f64;
+  h: i32;
+}
+
+interface MovingPlatform extends Platform {
+  prevX: f64;
+  minX: f64;
+  maxX: f64;
+  dir: i32;
+}
+
+interface Enemy {
+  x: f64;
+  y: f64;
+  dir: i32;
+  min: f64;
+  max: f64;
+  alive: i32;
+  tick: i32;
+  anim: i32;
+  row: i32;
+}
+
+interface Bullet {
+  active: i32;
+  x: f64;
+  y: f64;
+  vx: f64;
+  owner: i32;
+}
+
+interface Collectible {
+  taken: i32;
+}
+
+interface GameSnapshot {
+  p1: Player;
+  p2: Player;
+  enemies: Enemy[];
+  fruits: Collectible[];
+  diamonds: Collectible[];
+  bullets: Bullet[];
+  movingPlatforms: MovingPlatform[];
+  playerSlots?: i32;
+}
+
 const BASE_W = 480;
 const WORLD_H = 1890;
 const VIEW_H = 270;
@@ -230,7 +279,7 @@ function scaleX(v) {
   return (v * worldW()) / BASE_W;
 }
 
-function scalePlatform(p) {
+function scalePlatform(p): Platform {
   return {
     x: scaleX(p.x),
     y: p.y,
@@ -239,7 +288,7 @@ function scalePlatform(p) {
   };
 }
 
-function buildPlatforms() {
+function buildPlatforms(): Platform[] {
   const out = [];
   let i = 0;
   while (i < BASE_PLATFORMS.length) {
@@ -288,7 +337,7 @@ function buildDiamondDefs() {
   return out;
 }
 
-function makeMovingPlatforms() {
+function makeMovingPlatforms(): MovingPlatform[] {
   const out = [];
   let i = 0;
   while (i < BASE_MOVING_PLATFORMS.length) {
@@ -309,7 +358,7 @@ function makeMovingPlatforms() {
   return out;
 }
 
-function copyMovingPlatforms(s) {
+function copyMovingPlatforms(s: GameSnapshot): MovingPlatform[] {
   const out = [];
   let i = 0;
   while (i < MAX_MOVING_PLATFORMS) {
@@ -337,7 +386,7 @@ function copyMovingPlatforms(s) {
   return out;
 }
 
-function platformsOverlap(a, b) {
+function platformsOverlap(a: Platform, b: Platform) {
   if (a.x + a.w <= b.x) {
     return false;
   }
@@ -353,11 +402,11 @@ function platformsOverlap(a, b) {
   return true;
 }
 
-function movingPlatformBox(x, mp) {
+function movingPlatformBox(x: f64, mp: MovingPlatform): Platform {
   return { x: x, y: mp.y, w: mp.w, h: mp.h };
 }
 
-function movingPlatformHitsOthers(mp, newX, staticPlats, movingPlats, selfIndex) {
+function movingPlatformHitsOthers(mp: MovingPlatform, newX: f64, staticPlats: Platform[], movingPlats: MovingPlatform[], selfIndex: i32) {
   const box = movingPlatformBox(newX, mp);
   let i = 0;
   while (i < staticPlats.length) {
@@ -381,7 +430,7 @@ function movingPlatformHitsOthers(mp, newX, staticPlats, movingPlats, selfIndex)
   return false;
 }
 
-function updateMovingPlatforms(platforms, dt, staticPlats) {
+function updateMovingPlatforms(platforms: MovingPlatform[], dt: f64, staticPlats: Platform[]) {
   let i = 0;
   while (i < platforms.length) {
     const mp = platforms[i];
@@ -483,7 +532,7 @@ function applyMovingPlatformSidePush(px, py, pw, grounded, platforms, staticCoun
   return { x: x, grounded: g };
 }
 
-function mergePlatforms(staticPlats, movingPlats) {
+function mergePlatforms(staticPlats: Platform[], movingPlats: MovingPlatform[]) {
   const out = [];
   let i = 0;
   while (i < staticPlats.length) {
@@ -846,7 +895,7 @@ function sprites() {
   return list;
 }
 
-function makeEnemies() {
+function makeEnemies(): Enemy[] {
   const defs = buildEnemyDefs();
   const out = [];
   let i = 0;
@@ -868,7 +917,7 @@ function makeEnemies() {
   return out;
 }
 
-function makeFruits() {
+function makeFruits(): Collectible[] {
   const out = [];
   let i = 0;
   while (i < MAX_FRUITS) {
@@ -878,7 +927,7 @@ function makeFruits() {
   return out;
 }
 
-function makeDiamonds() {
+function makeDiamonds(): Collectible[] {
   const out = [];
   let i = 0;
   while (i < MAX_DIAMONDS) {
@@ -912,7 +961,7 @@ function makeRestartDiamonds(prev) {
   return respawnMarkedDiamonds(prev);
 }
 
-function makeBullets() {
+function makeBullets(): Bullet[] {
   const out = [];
   let i = 0;
   while (i < MAX_BULLETS) {
@@ -1016,7 +1065,7 @@ function clampX(x) {
   return x;
 }
 
-function landOnPlatforms(pl: Player, pw, dt: f64, platforms, staticCount) {
+function landOnPlatforms(pl: Player, pw: f64, dt: f64, platforms: Platform[], staticCount: i32) {
   let grounded = 0;
   let ny = pl.y;
   let nvy = pl.vy;
@@ -1077,7 +1126,7 @@ function enemyCollisionKind(px, py, pvy, ex, ey) {
   return "hurt";
 }
 
-function stompBounce(pl: Player, ey) {
+function stompBounce(pl: Player, ey: f64): Player {
   return {
     x: pl.x,
     y: ey - 2,
@@ -1098,7 +1147,7 @@ function stompBounce(pl: Player, ey) {
   };
 }
 
-function applyEnemyHits(pl: Player, owner, enemies, events) {
+function applyEnemyHits(pl: Player, owner: i32, enemies: Enemy[], events: GameEvent[]) {
   let out = pl;
   let died = 0;
   let ei = 0;
@@ -1141,7 +1190,7 @@ function hitPickup(px, py, fx, fy) {
   return true;
 }
 
-function spawnBullet(bullets, x, y, face, owner) {
+function spawnBullet(bullets: Bullet[], x: f64, y: f64, face: i32, owner: i32) {
   let i = 0;
   while (i < MAX_BULLETS) {
     if (bullets[i].active == 0) {
@@ -1180,7 +1229,7 @@ function sheetFrameForPlayer(pl: Player, moving) {
   return { p0: frame, p1: row, p2: jump };
 }
 
-function updatePlayer(pl: Player, inp, dt: f64, bullets, owner, fireCd, platforms) {
+function updatePlayer(pl: Player, inp, dt: f64, bullets: Bullet[], owner: i32, fireCd: f64, platforms: Platform[]) {
   const events = [];
   let face = pl.face;
   let vx = 0;
@@ -1321,7 +1370,7 @@ function updatePlayer(pl: Player, inp, dt: f64, bullets, owner, fireCd, platform
   };
 }
 
-function updateEnemies(enemies, dt) {
+function updateEnemies(enemies: Enemy[], dt: f64) {
   let i = 0;
   while (i < MAX_ENEMIES) {
     const e = enemies[i];
@@ -1376,7 +1425,7 @@ function bulletHitsEnemy(bx, by, ex, ey) {
   return true;
 }
 
-function updateBullets(bullets, enemies, dt) {
+function updateBullets(bullets: Bullet[], enemies: Enemy[], dt: f64) {
   const events = [];
   let i = 0;
   while (i < MAX_BULLETS) {
@@ -1488,7 +1537,7 @@ function placePlayerEntity(entities, id, superId, pl: Player, cam, moving) {
   }
 }
 
-function placeEntities(s, cam, slots) {
+function placeEntities(s: GameSnapshot, cam: f64, slots: i32) {
   const fruitDefs = buildFruitDefs();
   const diamondDefs = buildDiamondDefs();
   const entities = {};
@@ -1618,7 +1667,7 @@ function playerVictoryReady(pl: Player) {
   return pl.done == 1 && pl.finishMs >= FINISH_PHASE_DONE;
 }
 
-function showVictoryBanner(s) {
+function showVictoryBanner(s: GameSnapshot) {
   if (s.playerSlots == 1) {
     return playerVictoryReady(s.p1);
   }
@@ -1642,7 +1691,7 @@ function wantsRestart(props, dual) {
   return false;
 }
 
-function checkFinish(pl: Player, slot, events) {
+function checkFinish(pl: Player, slot: i32, events: GameEvent[]) {
   if (pl.done == 1) {
     return pl;
   }
@@ -1675,7 +1724,7 @@ function checkFinish(pl: Player, slot, events) {
   return pl;
 }
 
-function tickFinishPlayer(pl: Player, dt: f64, events) {
+function tickFinishPlayer(pl: Player, dt: f64, events: GameEvent[]): Player {
   if (pl.done != 1) {
     return pl;
   }

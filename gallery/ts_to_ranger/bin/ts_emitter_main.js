@@ -4767,6 +4767,24 @@ class TSEmitter  {
     }
     return "int";
   };
+  fnSigType (t) {
+    if ( t == "i32" ) {
+      return "int";
+    }
+    if ( t == "u8" ) {
+      return "int";
+    }
+    if ( t == "u16" ) {
+      return "int";
+    }
+    if ( t == "u32" ) {
+      return "int";
+    }
+    if ( t == "f32" ) {
+      return "double";
+    }
+    return t;
+  };
   helperParamType (name, idx) {
     const csv = ( this.fnParamTypesCsv.hasOwnProperty(name) ? this.fnParamTypesCsv[name] : undefined );
     if ( typeof(csv) === "undefined" ) {
@@ -5073,7 +5091,7 @@ class TSEmitter  {
     return false;
   };
   seedBridgeStructs () {
-    this.interfaceFieldsCsv["SpriteDef"] = "id:string,kind:string,w:int,h:int,rad:int,r:int,g:int,b:int,p0:int,p1:int,p2:int,px:int,br:int,bg:int,bb:int,er:int,eg:int,eb:int,frames:[[string]]";
+    this.interfaceFieldsCsv["SpriteDef"] = "id:string,kind:string,w:int,h:int,rad:int,r:int,g:int,b:int,p0:int,p1:int,p2:int,px:int,br:int,bg:int,bb:int,er:int,eg:int,eb:int,frames:[[string]],path:string,frameW:int,frameH:int,cols:int,rows:int,scale:int,feetTrim:int,jumpFrame:int";
     this.interfaceFieldsCsv["EntityPose"] = "x:double,y:double,visible:int,r:int,g:int,b:int,rad:int,p0:int,p1:int,p2:int";
     this.interfaceFieldsCsv["ResourceDef"] = "kind:string,id:string,path:string,px:int,frameCount:int,w:int,h:int";
     this.interfaceFieldsCsv["GameEvent"] = "kind:string,id:string,x:double,y:double,amount:int";
@@ -5173,6 +5191,9 @@ class TSEmitter  {
     if ( callee.nodeType == "Identifier" ) {
       if ( this.isBridgeHelper(callee.name) ) {
         return "GameEventNative";
+      }
+      if ( callee.name == "initState" ) {
+        return "NativeGameState";
       }
       if ( this.isKnownHelper(callee.name) ) {
         return this.helperReturnType(callee.name);
@@ -5583,6 +5604,7 @@ class TSEmitter  {
     this.finalizeHelperReturnTypes(ast);
     this.finalizeSynthStructs(ast);
     this.finalizeHelperReturnTypes(ast);
+    this.reinferParamTypesFromCalls(ast);
   };
   scanStateArrays (node) {
     if ( typeof(node.body) === "undefined" ) {
@@ -5664,6 +5686,13 @@ class TSEmitter  {
       }
       i = i + 1;
     };
+  };
+  helperAnnotatedArrayElem (fnName) {
+    const rt = this.helperReturnType(fnName);
+    if ( (this).startsWith(rt, "[") ) {
+      return this.elemTypeOf(rt);
+    }
+    return "";
   };
   recordHelper (node) {
     this.isHelperFn[node.name] = true;
@@ -5952,7 +5981,76 @@ class TSEmitter  {
             const baseName = node.name + "Ret";
             this.interfaceFieldsCsv[baseName] = csv;
           }
+          this.refreshPushStructsInBlock(body, node.name);
           this.varTypes = saved;
+        }
+      }
+      i = i + 1;
+    };
+  };
+  refreshPushStructsInBlock (block, fnName) {
+    let i = 0;
+    while (i < (block.children.length)) {
+      this.refreshPushStructsInStmt(block.children[i], fnName);
+      i = i + 1;
+    };
+  };
+  refreshPushStructsInStmt (stmt, fnName) {
+    const t = stmt.nodeType;
+    if ( t == "BlockStatement" ) {
+      this.refreshPushStructsInBlock(stmt, fnName);
+      return;
+    }
+    if ( t == "ExpressionStatement" ) {
+      if ( typeof(stmt.left) != "undefined" ) {
+        const expr = stmt.left;
+        if ( expr.nodeType == "CallExpression" ) {
+          if ( typeof(expr.left) != "undefined" ) {
+            const callee = expr.left;
+            if ( callee.nodeType == "MemberExpression" ) {
+              if ( callee.name == "push" ) {
+                if ( typeof(callee.left) != "undefined" ) {
+                  const base = callee.left;
+                  if ( base.nodeType == "Identifier" ) {
+                    if ( (expr.children.length) > 0 ) {
+                      const argNode = expr.children[0];
+                      if ( argNode.nodeType == "ObjectExpression" ) {
+                        const baseName = ((fnName + "_") + base.name) + "Ret";
+                        this.interfaceFieldsCsv[baseName] = this.objectFieldsCsv(argNode);
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      return;
+    }
+    if ( t == "IfStatement" ) {
+      if ( typeof(stmt.body) != "undefined" ) {
+        this.refreshPushStructsInStmt(stmt.body, fnName);
+      }
+      if ( typeof(stmt.right) != "undefined" ) {
+        this.refreshPushStructsInStmt(stmt.right, fnName);
+      }
+      return;
+    }
+    if ( t == "WhileStatement" ) {
+      if ( typeof(stmt.body) != "undefined" ) {
+        this.refreshPushStructsInStmt(stmt.body, fnName);
+      }
+    }
+  };
+  reinferParamTypesFromCalls (ast) {
+    let i = 0;
+    while (i < (ast.children.length)) {
+      const node = ast.children[i];
+      if ( node.nodeType == "FunctionDeclaration" ) {
+        if ( this.isSpecialFn(node.name) == false ) {
+          this.inferParamTypesFromProgram(node.name, ast);
+          this.inferParamTypes(node);
         }
       }
       i = i + 1;
@@ -6077,7 +6175,12 @@ class TSEmitter  {
       this.inferParamTypesFromCallsWalk(fnName, node.alternate);
     }
   };
-  inferCallArgType (arg) {
+  inferCallArgType (arg, fnName) {
+    if ( arg.nodeType == "ObjectExpression" ) {
+      if ( (fnName.length) > 0 ) {
+        return this.inferObjectStructType(arg, (fnName + "_arg"));
+      }
+    }
     const at = this.exprType(arg);
     if ( this.isPositiveType(at) ) {
       return at;
@@ -6100,6 +6203,36 @@ class TSEmitter  {
       }
     }
     if ( arg.nodeType == "MemberExpression" ) {
+      if ( arg.computed ) {
+        if ( typeof(arg.left) != "undefined" ) {
+          const base = arg.left;
+          if ( base.nodeType == "MemberExpression" ) {
+            if ( typeof(base.left) != "undefined" ) {
+              const root = base.left;
+              if ( root.nodeType == "Identifier" ) {
+                if ( root.name == this.stateVarName ) {
+                  const ost = this.objectStateFieldTypeOf(base.name);
+                  if ( (this).startsWith(ost, "[") ) {
+                    return this.elemTypeOf(ost);
+                  }
+                }
+              }
+            }
+          }
+          if ( base.nodeType == "Identifier" ) {
+            if ( base.name == this.stateVarName ) {
+              const et = this.objectStateFieldTypeOf(arg.name);
+              if ( (this).startsWith(et, "[") ) {
+                return this.elemTypeOf(et);
+              }
+            }
+          }
+          const bt = this.exprType(base);
+          if ( (this).startsWith(bt, "[") ) {
+            return this.elemTypeOf(bt);
+          }
+        }
+      }
       if ( arg.name == "x" ) {
         return "double";
       }
@@ -6127,7 +6260,7 @@ class TSEmitter  {
       let pt = types[i];
       if ( i < (call.children.length) ) {
         const arg = call.children[i];
-        const at = this.inferCallArgType(arg);
+        const at = this.inferCallArgType(arg, fnName);
         if ( this.isPositiveType(at) ) {
           pt = at;
         }
@@ -6140,6 +6273,9 @@ class TSEmitter  {
   inferParamTypeFromBody (param, body) {
     if ( param == "entities" ) {
       return "[string:EntityPoseNative]";
+    }
+    if ( param == "events" ) {
+      return "[GameEventNative]";
     }
     if ( param == "props" ) {
       return "UpdatePropsNative";
@@ -6211,9 +6347,6 @@ class TSEmitter  {
       return "[int]";
     }
     if ( param == "ghostEyes" ) {
-      return "[int]";
-    }
-    if ( param == "a" ) {
       return "[int]";
     }
     const fromUse = this.inferParamTypeWalk(param, body);
@@ -6429,6 +6562,9 @@ class TSEmitter  {
         elem = this.findPushArgType(root, name);
       }
       if ( (elem.length) == 0 ) {
+        elem = this.helperAnnotatedArrayElem(this.inferFnName);
+      }
+      if ( (elem.length) == 0 ) {
         elem = "int";
       }
       return ("[" + elem) + "]";
@@ -6467,10 +6603,14 @@ class TSEmitter  {
                       if ( (expr.children.length) > 0 ) {
                         const argNode = expr.children[0];
                         if ( argNode.nodeType == "ObjectExpression" ) {
+                          const ann = this.helperAnnotatedArrayElem(this.inferFnName);
+                          if ( (ann.length) > 0 ) {
+                            return ann;
+                          }
                           const sname = (this.inferFnName + "_") + name;
                           return this.inferObjectStructType(argNode, sname);
                         }
-                        const at = this.inferCallArgType(argNode);
+                        const at = this.inferCallArgType(argNode, this.inferFnName);
                         if ( (at.length) > 0 ) {
                           return at;
                         }
@@ -7333,7 +7473,7 @@ class TSEmitter  {
         }
       }
       this.varTypes[p.name] = pt;
-      parts.push((p.name + ":") + pt);
+      parts.push((p.name + ":") + this.fnSigType(pt));
       i = i + 1;
     };
     return this.joinSpace(parts);
@@ -7616,6 +7756,9 @@ class TSEmitter  {
   emitValueExpr (node, expected) {
     if ( node.nodeType == "ObjectExpression" ) {
       if ( (this).endsWith(expected, "Native") ) {
+        if ( (node.children.length) == 0 ) {
+          return ("(new " + expected) + ")";
+        }
         const tmp = "tmp" + ("" + this.tmpCounter);
         this.tmpCounter = this.tmpCounter + 1;
         this.emitStructFromObject(node, tmp, expected);
@@ -7712,6 +7855,20 @@ class TSEmitter  {
               rtype = "[GameEventNative]";
             }
           }
+          if ( (pushed.length) == 0 ) {
+            const annElem = this.helperAnnotatedArrayElem(this.currentFn);
+            if ( (annElem.length) > 0 ) {
+              rtype = ("[" + annElem) + "]";
+            }
+          }
+          if ( (pushed.length) == 0 ) {
+            if ( this.inUpdateFn ) {
+              const ost = this.objectStateFieldTypeOf(name);
+              if ( (this).startsWith(ost, "[") ) {
+                rtype = ost;
+              }
+            }
+          }
         }
       }
       this.varTypes[name] = rtype;
@@ -7763,21 +7920,23 @@ class TSEmitter  {
         if ( ft == "double" ) {
           const rt = this.exprType(valNode);
           if ( rt == "int" ) {
-            if ( valNode.nodeType != "NumericLiteral" ) {
-              if ( valNode.nodeType != "Identifier" ) {
-                let skip = false;
-                if ( (v.length) >= 4 ) {
-                  if ( (v.substring(0, 4 )) == "(0.0" ) {
-                    skip = true;
+            let skip = false;
+            if ( (v.length) >= 10 ) {
+              if ( (v.substring(0, 10 )) == "(to_double" ) {
+                skip = true;
+              }
+            }
+            if ( skip == false ) {
+              if ( valNode.nodeType != "NumericLiteral" ) {
+                if ( valNode.nodeType != "Identifier" ) {
+                  if ( (v.length) >= 4 ) {
+                    if ( (v.substring(0, 4 )) == "(0.0" ) {
+                      skip = true;
+                    }
                   }
-                }
-                if ( (v.length) >= 10 ) {
-                  if ( (v.substring(0, 10 )) == "(to_double" ) {
-                    skip = true;
+                  if ( skip == false ) {
+                    v = ("(to_double " + v) + ")";
                   }
-                }
-                if ( skip == false ) {
-                  v = ("(to_double " + v) + ")";
                 }
               }
             }
@@ -8296,9 +8455,26 @@ class TSEmitter  {
       return this.emitUnary(node, expected);
     }
     if ( t == "ObjectExpression" ) {
+      if ( (this).endsWith(expected, "Native") ) {
+        if ( (node.children.length) == 0 ) {
+          return ("(new " + expected) + ")";
+        }
+        const tmpObj = "tmp" + ("" + this.tmpCounter);
+        this.tmpCounter = this.tmpCounter + 1;
+        this.emitStructFromObject(node, tmpObj, expected);
+        return tmpObj;
+      }
       return "{}";
     }
     if ( t == "ArrayExpression" ) {
+      if ( (this).startsWith(expected, "[") ) {
+        if ( (node.children.length) == 0 ) {
+          const tmpArr = "tmp" + ("" + this.tmpCounter);
+          this.tmpCounter = this.tmpCounter + 1;
+          this.emitLine((("def " + tmpArr) + ":") + expected);
+          return tmpArr;
+        }
+      }
       return "[]";
     }
     return "0";
@@ -8325,20 +8501,45 @@ class TSEmitter  {
         if ( (pexp.length) == 0 ) {
           pexp = this.exprType(arg);
         }
+        if ( arg.nodeType == "ObjectExpression" ) {
+          if ( (this).endsWith(pexp, "Native") == false ) {
+            pexp = this.inferObjectStructType(arg, ((name + "_arg") + ("" + i)));
+          }
+        }
         const at = this.exprType(arg);
         let emitAs = at;
         if ( (emitAs.length) == 0 ) {
           emitAs = "int";
         }
-        let argExpr = this.emitExpr(arg, emitAs);
-        if ( pexp == "int" ) {
+        let argExpr = "";
+        if ( (pexp.length) > 0 ) {
+          argExpr = this.emitValueExpr(arg, pexp);
+        } else {
+          argExpr = this.emitExpr(arg, emitAs);
+        }
+        if ( this.isEngineFn(name) ) {
           if ( at == "double" ) {
             argExpr = ("(to_int " + argExpr) + ")";
           }
         }
+        if ( pexp == "int" ) {
+          if ( at == "double" ) {
+            if ( this.isEngineFn(name) == false ) {
+              argExpr = ("(to_int " + argExpr) + ")";
+            }
+          }
+        }
         if ( pexp == "double" ) {
           if ( emitAs == "int" ) {
-            argExpr = ("(to_double " + argExpr) + ")";
+            let alreadyDouble = false;
+            if ( (argExpr.length) >= 10 ) {
+              if ( (argExpr.substring(0, 10 )) == "(to_double" ) {
+                alreadyDouble = true;
+              }
+            }
+            if ( alreadyDouble == false ) {
+              argExpr = ("(to_double " + argExpr) + ")";
+            }
           }
         }
         if ( pexp == "boolean" ) {
@@ -8502,6 +8703,11 @@ class TSEmitter  {
     if ( expected == "double" ) {
       const nc = this.numericCommon(node);
       if ( nc == "int" ) {
+        if ( (result.length) >= 10 ) {
+          if ( (result.substring(0, 10 )) == "(to_double" ) {
+            return result;
+          }
+        }
         return ("(to_double " + result) + ")";
       }
     }

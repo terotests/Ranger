@@ -160,7 +160,7 @@ synthesized type and their fields survive.
 ### Progress
 
 `games/ylos2/index.tsx` emits with `@singleton` module + host routing +
-object-state fields. Compile errors: **1486 → ~464** (no pong/invaders/pacman
+object-state fields. Compile errors: **1486 → ~357** (no pong/invaders/pacman
 regression). Landed inference/codegen improvements:
 
 - element structs synthesized from `local.push({...})` (helper-built arrays)
@@ -170,10 +170,17 @@ regression). Landed inference/codegen improvements:
 - `x | 0` int-truncation idiom, `if(obj)`/`if(arr[i])` truthiness
 - int→double coercion for calls and module consts in double context
 - `.tsx` `Player` interface annotated with `i32`/`f64` (unifies the struct)
+- push-synthesized struct fields refreshed after helper return types finalize
+- call-site object literals emit as typed structs (`emitValueExpr` in `emitCall`)
+- `initState()` call type → `NativeGameState`; empty `{}`/`[]` → typed defaults
+- `GameSnapshot`/`Platform`/`Enemy`/`Bullet` interfaces unify ylos2 struct types
+- `SpriteDefNative` extended with LPC sheet fields (`path`, `frameW`, …)
+- removed overly broad `param a -> [int]` hack (pacman `put1` uses body inference)
+- seventh prescan pass re-infers helper param types from finalized struct schemas
 
-Remaining long tail: consistent struct annotation for the other structs
-(Enemy/Bullet/Collectible/Platform), a few more coercions, `bgFillRect` arg
-double/int, and empty-array typing in the last positions.
+Remaining long tail (~357): merge-platform struct field doubles, a few helper
+return struct unifications (`stompBounce`→`Player`), `entities={}` map in
+`placeEntities`, and scattered int/double edges in physics helpers.
 
 Interpreter path works today: `npm run engine:game-sdl:run:ylos2` (Path A).
 

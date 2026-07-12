@@ -22,6 +22,55 @@ class PlayerNative {
     def celebrateBursts:i32 0
 }
 
+class PlatformNative {
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:i32 0
+}
+
+class MovingPlatformNative {
+    def prevX:double 0.0
+    def minX:double 0.0
+    def maxX:double 0.0
+    def dir:i32 0
+}
+
+class EnemyNative {
+    def x:double 0.0
+    def y:double 0.0
+    def dir:i32 0
+    def min:double 0.0
+    def max:double 0.0
+    def alive:i32 0
+    def tick:i32 0
+    def anim:i32 0
+    def row:i32 0
+}
+
+class BulletNative {
+    def active:i32 0
+    def x:double 0.0
+    def y:double 0.0
+    def vx:double 0.0
+    def owner:i32 0
+}
+
+class CollectibleNative {
+    def taken:i32 0
+}
+
+class GameSnapshotNative {
+    def p1:PlayerNative (new PlayerNative)
+    def p2:PlayerNative (new PlayerNative)
+    def enemies:[EnemyNative] 
+    def fruits:[CollectibleNative] 
+    def diamonds:[CollectibleNative] 
+    def bullets:[BulletNative] 
+    def movingPlatforms:[MovingPlatformNative] 
+    def playerSlots:i32 0
+}
+
 class PLAT_COLOR_BODYConstNative {
     def r:int 0
     def g:int 0
@@ -76,48 +125,12 @@ class BASE_DIAMOND_DEFSElemNative {
     def respawn:boolean false
 }
 
-class scalePlatformRetNative {
-    def x:double 0.0
-    def y:double 0.0
-    def w:double 0.0
-    def h:int 0
-}
-
 class buildEnemyDefs_outRetNative {
-    def x:int 0
-    def y:double 0.0
-    def dir:int 0
-    def min:int 0
-    def max:int 0
-}
-
-class makeMovingPlatforms_outRetNative {
-    def x:int 0
-    def prevX:int 0
-    def y:double 0.0
-    def w:int 0
-    def h:int 0
-    def minX:int 0
-    def maxX:int 0
-    def dir:int 0
-}
-
-class copyMovingPlatforms_outRetNative {
     def x:double 0.0
-    def prevX:int 0
     def y:double 0.0
-    def w:int 0
-    def h:int 0
-    def minX:int 0
-    def maxX:int 0
     def dir:int 0
-}
-
-class movingPlatformBoxRetNative {
-    def x:int 0
-    def y:double 0.0
-    def w:int 0
-    def h:int 0
+    def min:double 0.0
+    def max:double 0.0
 }
 
 class applyMovingPlatformSidePushRetNative {
@@ -127,43 +140,15 @@ class applyMovingPlatformSidePushRetNative {
 
 class mergePlatforms_outRetNative {
     def x:double 0.0
+    def prevX:int 0
     def y:double 0.0
     def w:int 0
     def h:int 0
     def vx:double 0.0
-    def prevX:double 0.0
-}
-
-class makeEnemies_outRetNative {
-    def x:double 0.0
-    def y:double 0.0
-    def dir:int 0
-    def min:int 0
-    def max:int 0
-    def alive:int 0
-    def tick:int 0
-    def anim:int 0
-    def row:int 0
-}
-
-class makeFruits_outRetNative {
-    def taken:int 0
-}
-
-class makeDiamonds_outRetNative {
-    def taken:int 0
 }
 
 class respawnMarkedDiamonds_outRetNative {
     def taken:int 0
-}
-
-class makeBullets_outRetNative {
-    def active:int 0
-    def x:int 0
-    def y:int 0
-    def vx:double 0.0
-    def owner:int 0
 }
 
 class readPlayerRetNative {
@@ -180,25 +165,6 @@ class landOnPlatformsRetNative {
     def vy:double 0.0
     def grounded:int 0
     def carryVx:int 0
-}
-
-class stompBounceRetNative {
-    def x:double 0.0
-    def y:int 0
-    def vx:double 0.0
-    def vy:double 0.0
-    def face:int 0
-    def grounded:int 0
-    def anim:int 0
-    def animTick:int 0
-    def jumpHold:int 0
-    def airJump:int 0
-    def jumpBoostMs:int 0
-    def superMs:int 0
-    def done:int 0
-    def finishMs:int 0
-    def finishPulseMs:int 0
-    def celebrateBursts:int 0
 }
 
 class applyEnemyHitsRetNative {
@@ -223,23 +189,26 @@ class tickGoalWalkRetNative {
     def face:int 0
 }
 
-class tickFinishPlayerRetNative {
-    def x:double 0.0
-    def y:double 0.0
-    def vx:double 0.0
+class landOnPlatforms_argRetNative {
+    def x:int 0
+    def y:int 0
     def vy:double 0.0
-    def face:int 0
-    def grounded:int 0
-    def anim:int 0
-    def animTick:int 0
-    def jumpHold:int 0
-    def airJump:int 0
-    def jumpBoostMs:int 0
-    def superMs:int 0
-    def done:int 0
-    def finishMs:int 0
-    def finishPulseMs:int 0
-    def celebrateBursts:int 0
+}
+
+class placeEntities_argRetNative {
+    def p1:PlayerNative (new PlayerNative)
+    def p2:PlayerNative (new PlayerNative)
+    def enemies:[EnemyNative] 
+    def fruits:[CollectibleNative] 
+    def diamonds:[CollectibleNative] 
+    def bullets:[BulletNative] 
+    def movingPlatforms:[MovingPlatformNative] 
+}
+
+class showVictoryBanner_argRetNative {
+    def playerSlots:int 0
+    def p1:PlayerNative (new PlayerNative)
+    def p2:PlayerNative (new PlayerNative)
 }
 
 class _outRetNative {
@@ -659,11 +628,11 @@ class GeneratedGameScript {
     def host:GameEngineHost (new GameEngineHost)
     def st_p1:PlayerNative (new PlayerNative)
     def st_p2:PlayerNative (new PlayerNative)
-    def st_enemies:[makeEnemies_outRetNative]
-    def st_fruits:[makeFruits_outRetNative]
-    def st_diamonds:[makeDiamonds_outRetNative]
-    def st_bullets:[makeBullets_outRetNative]
-    def st_movingPlatforms:[makeMovingPlatforms_outRetNative]
+    def st_enemies:[EnemyNative]
+    def st_fruits:[CollectibleNative]
+    def st_diamonds:[CollectibleNative]
+    def st_bullets:[BulletNative]
+    def st_movingPlatforms:[MovingPlatformNative]
 
     fn worldW:int () {
         return host.bgWidth
@@ -742,8 +711,8 @@ class GeneratedGameScript {
         return ((v * (to_double (this.worldW()))) / (to_double _mod.BASE_W))
     }
 
-    fn scalePlatform:scalePlatformRetNative (p:BASE_PLATFORMSElemNative) {
-        def tmp50:scalePlatformRetNative (new scalePlatformRetNative)
+    fn scalePlatform:PlatformNative (p:BASE_PLATFORMSElemNative) {
+        def tmp50:PlatformNative (new PlatformNative)
         tmp50.x = (this.scaleX((to_double p.x)))
         tmp50.y = (to_double p.y)
         tmp50.w = (this.scaleX((to_double p.w)))
@@ -751,9 +720,9 @@ class GeneratedGameScript {
         return tmp50
     }
 
-    fn buildPlatforms:[scalePlatformRetNative] () {
+    fn buildPlatforms:[PlatformNative] () {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
-        def out:[scalePlatformRetNative]
+        def out:[PlatformNative]
         def i:int (0)
         while ((i < (array_length _mod.BASE_PLATFORMS))) {
             push out ((this.scalePlatform((itemAt _mod.BASE_PLATFORMS i))))
@@ -810,14 +779,14 @@ class GeneratedGameScript {
         return out
     }
 
-    fn makeMovingPlatforms:[makeMovingPlatforms_outRetNative] () {
+    fn makeMovingPlatforms:[MovingPlatformNative] () {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
-        def out:[makeMovingPlatforms_outRetNative]
+        def out:[MovingPlatformNative]
         def i:int (0)
         while ((i < (array_length _mod.BASE_MOVING_PLATFORMS))) {
             def d:BASE_MOVING_PLATFORMSElemNative ((itemAt _mod.BASE_MOVING_PLATFORMS i))
             def x:double ((this.scaleX((to_double d.x))))
-            def tmp54:makeMovingPlatforms_outRetNative (new makeMovingPlatforms_outRetNative)
+            def tmp54:MovingPlatformNative (new MovingPlatformNative)
             tmp54.x = x
             tmp54.prevX = x
             tmp54.y = (to_double d.y)
@@ -832,17 +801,17 @@ class GeneratedGameScript {
         return out
     }
 
-    fn copyMovingPlatforms:[copyMovingPlatforms_outRetNative] (s:int) {
+    fn copyMovingPlatforms:[MovingPlatformNative] (s:GameSnapshotNative) {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
-        def out:[copyMovingPlatforms_outRetNative]
+        def out:[MovingPlatformNative]
         def i:int (0)
         while ((i < _mod.MAX_MOVING_PLATFORMS)) {
             if (st_movingPlatforms) {
                 if ((itemAt st_movingPlatforms i)) {
-                    def mp:makeMovingPlatforms_outRetNative ((itemAt st_movingPlatforms i))
-                    def tmp55:copyMovingPlatforms_outRetNative (new copyMovingPlatforms_outRetNative)
-                    tmp55.x = (to_double mp.x)
-                    tmp55.prevX = 0
+                    def mp:MovingPlatformNative ((itemAt st_movingPlatforms i))
+                    def tmp55:MovingPlatformNative (new MovingPlatformNative)
+                    tmp55.x = mp.x
+                    tmp55.prevX = (to_double 0)
                     tmp55.y = mp.y
                     tmp55.w = mp.w
                     tmp55.h = mp.h
@@ -861,33 +830,33 @@ class GeneratedGameScript {
         return out
     }
 
-    fn platformsOverlap:boolean (a:[int] b:movingPlatformBoxRetNative) {
-        if (((a.x + a.w) <= (to_double b.x))) {
+    fn platformsOverlap:boolean (a:PlatformNative b:PlatformNative) {
+        if (((a.x + a.w) <= b.x)) {
             return false
         }
-        if (((to_double (b.x + b.w)) <= a.x)) {
+        if (((b.x + b.w) <= a.x)) {
             return false
         }
         if (((a.y + a.h) <= b.y)) {
             return false
         }
-        if (((b.y + (to_double b.h)) <= a.y)) {
+        if (((b.y + b.h) <= a.y)) {
             return false
         }
         return true
     }
 
-    fn movingPlatformBox:movingPlatformBoxRetNative (x:double mp:int) {
-        def tmp56:movingPlatformBoxRetNative (new movingPlatformBoxRetNative)
+    fn movingPlatformBox:PlatformNative (x:double mp:MovingPlatformNative) {
+        def tmp56:PlatformNative (new PlatformNative)
         tmp56.x = x
         tmp56.y = mp.y
-        tmp56.w = mp.w
+        tmp56.w = (to_double mp.w)
         tmp56.h = mp.h
         return tmp56
     }
 
-    fn movingPlatformHitsOthers:boolean (mp:int newX:int staticPlats:[int] movingPlats:[int] selfIndex:int) {
-        def box:movingPlatformBoxRetNative ((this.movingPlatformBox((to_double newX) mp)))
+    fn movingPlatformHitsOthers:boolean (mp:MovingPlatformNative newX:double staticPlats:[PlatformNative] movingPlats:[MovingPlatformNative] selfIndex:int) {
+        def box:PlatformNative ((this.movingPlatformBox(newX mp)))
         def i:int (0)
         while ((i < (array_length staticPlats))) {
             if ((this.platformsOverlap(box (itemAt staticPlats i)))) {
@@ -898,11 +867,9 @@ class GeneratedGameScript {
         i = 0
         while ((i < (array_length movingPlats))) {
             if ((i != selfIndex)) {
-                def other:int ((itemAt movingPlats i))
-                if (other) {
-                    if ((this.platformsOverlap(box (this.movingPlatformBox(other.x other))))) {
-                        return true
-                    }
+                def other:MovingPlatformNative ((itemAt movingPlats i))
+                if ((this.platformsOverlap(box (this.movingPlatformBox(other.x other))))) {
+                    return true
                 }
             }
             i = (i + 1)
@@ -910,27 +877,27 @@ class GeneratedGameScript {
         return false
     }
 
-    fn updateMovingPlatforms:[makeMovingPlatforms_outRetNative] (platforms:[makeMovingPlatforms_outRetNative] dt:int staticPlats:int) {
+    fn updateMovingPlatforms:[MovingPlatformNative] (platforms:[MovingPlatformNative] dt:double staticPlats:[PlatformNative]) {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
         def i:int (0)
         while ((i < (array_length platforms))) {
-            def mp:makeMovingPlatforms_outRetNative ((itemAt platforms i))
-            def prevX:int (mp.x)
-            def x:double (((to_double mp.x) + (((to_double mp.dir) * _mod.MOVING_PLAT_SPEED) * (to_double dt))))
-            def dir:int (mp.dir)
-            if ((x < (to_double mp.minX))) {
-                x = (to_double mp.minX)
+            def mp:MovingPlatformNative ((itemAt platforms i))
+            def prevX:double (mp.x)
+            def x:double ((mp.x + ((mp.dir * _mod.MOVING_PLAT_SPEED) * dt)))
+            def dir:i32 (mp.dir)
+            if ((x < mp.minX)) {
+                x = mp.minX
                 dir = 1
             }
-            if (((x + (to_double mp.w)) > (to_double mp.maxX))) {
-                x = (to_double (mp.maxX - mp.w))
+            if (((x + mp.w) > mp.maxX)) {
+                x = (mp.maxX - mp.w)
                 dir = (0 - 1)
             }
-            if ((this.movingPlatformHitsOthers(mp (to_int x) staticPlats platforms i))) {
+            if ((this.movingPlatformHitsOthers(mp x staticPlats platforms i))) {
                 dir = (0 - dir)
-                x = (to_double prevX)
+                x = prevX
             }
-            def tmp57:makeMovingPlatforms_outRetNative (new makeMovingPlatforms_outRetNative)
+            def tmp57:MovingPlatformNative (new MovingPlatformNative)
             tmp57.x = x
             tmp57.prevX = prevX
             tmp57.y = mp.y
@@ -1016,12 +983,12 @@ class GeneratedGameScript {
         return tmp58
     }
 
-    fn mergePlatforms:[mergePlatforms_outRetNative] (staticPlats:[int] movingPlats:[makeMovingPlatforms_outRetNative]) {
+    fn mergePlatforms:[mergePlatforms_outRetNative] (staticPlats:[PlatformNative] movingPlats:[MovingPlatformNative]) {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
         def out:[mergePlatforms_outRetNative]
         def i:int (0)
         while ((i < (array_length staticPlats))) {
-            def p:int ((itemAt staticPlats i))
+            def p:PlatformNative ((itemAt staticPlats i))
             def tmp59:mergePlatforms_outRetNative (new mergePlatforms_outRetNative)
             tmp59.x = p.x
             tmp59.y = p.y
@@ -1034,14 +1001,14 @@ class GeneratedGameScript {
         }
         i = 0
         while ((i < (array_length movingPlats))) {
-            def mp:makeMovingPlatforms_outRetNative ((itemAt movingPlats i))
+            def mp:MovingPlatformNative ((itemAt movingPlats i))
             def tmp60:mergePlatforms_outRetNative (new mergePlatforms_outRetNative)
-            tmp60.x = (to_double mp.x)
-            tmp60.prevX = (to_double mp.prevX)
+            tmp60.x = mp.x
+            tmp60.prevX = mp.prevX
             tmp60.y = mp.y
             tmp60.w = mp.w
             tmp60.h = mp.h
-            tmp60.vx = ((to_double mp.dir) * _mod.MOVING_PLAT_SPEED)
+            tmp60.vx = (mp.dir * _mod.MOVING_PLAT_SPEED)
             push out tmp60
             i = (i + 1)
         }
@@ -1081,7 +1048,7 @@ class GeneratedGameScript {
         return _at0.y
     }
 
-    fn goalPlatform:scalePlatformRetNative () {
+    fn goalPlatform:PlatformNative () {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
         return (this.scalePlatform(_mod.GOAL_PLATFORM))
     }
@@ -1095,7 +1062,7 @@ class GeneratedGameScript {
     }
 
     fn celebrateXFor:double (slot:int) {
-        def gp:scalePlatformRetNative ((this.goalPlatform()))
+        def gp:PlatformNative ((this.goalPlatform()))
         if ((slot == 2)) {
             return (gp.x + (gp.w * 0.62))
         }
@@ -1107,7 +1074,7 @@ class GeneratedGameScript {
         return ((0 * 12) + (0 * 5))
     }
 
-    fn spawnFinishParticles:void (events:int x:int y:int) {
+    fn spawnFinishParticles:void (events:[GameEventNative] x:int y:int) {
         def be61:GameEventNative (new GameEventNative)
         be61.kind = "particles"
         be61.id = "celebrate"
@@ -1152,7 +1119,7 @@ class GeneratedGameScript {
         push events (be66)
     }
 
-    fn spawnCelebratePulse:void (events:int pl:PlayerNative burst:int) {
+    fn spawnCelebratePulse:void (events:[GameEventNative] pl:PlayerNative burst:int) {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
         def phase:int ((burst % 4))
         def hop:int (0)
@@ -1232,7 +1199,7 @@ class GeneratedGameScript {
         }
     }
 
-    fn makePlayerOnFloor:PlayerNative (x:double face:i32) {
+    fn makePlayerOnFloor:PlayerNative (x:double face:int) {
         def tmp76:PlayerNative (new PlayerNative)
         tmp76.x = (this.scaleX(x))
         tmp76.y = (to_double (this.floorY()))
@@ -1270,10 +1237,10 @@ class GeneratedGameScript {
         }
     }
 
-    fn drawCloud:void (cx:int cy:int) {
-        (host.bgFillCircle(cx cy 14 240 245 255))
-        (host.bgFillCircle((cx - 16) (cy + 4) 10 235 240 250))
-        (host.bgFillCircle((cx + 16) (cy + 4) 10 235 240 250))
+    fn drawCloud:void (cx:double cy:int) {
+        (host.bgFillCircle((to_int cx) cy 14 240 245 255))
+        (host.bgFillCircle((to_int (cx - 16.0)) (cy + 4) 10 235 240 250))
+        (host.bgFillCircle((to_int (cx + 16.0)) (cy + 4) 10 235 240 250))
     }
 
     fn movingPlatformLayerSprite:SpriteDefNative (id:string w:int h:int color:PLAT_COLOR_BOTTOMConstNative) {
@@ -1296,13 +1263,13 @@ class GeneratedGameScript {
         return tmp77
     }
 
-    fn movingPlatformSprites:[SpriteDefNative] (mpi:int w:int h:int) {
+    fn movingPlatformSprites:[SpriteDefNative] (mpi:int w:double h:int) {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
         def bodyH:int ((h - (_mod.PLAT_EDGE_H * 2)))
         def tmp78:[SpriteDefNative]
-        push tmp78 (this.movingPlatformLayerSprite((("mp" + mpi) + "t") w _mod.PLAT_EDGE_H _mod.PLAT_COLOR_TOP))
-        push tmp78 (this.movingPlatformLayerSprite((("mp" + mpi) + "m") w bodyH _mod.PLAT_COLOR_BODY))
-        push tmp78 (this.movingPlatformLayerSprite((("mp" + mpi) + "b") w _mod.PLAT_EDGE_H _mod.PLAT_COLOR_BOTTOM))
+        push tmp78 (this.movingPlatformLayerSprite((("mp" + mpi) + "t") (to_int w) _mod.PLAT_EDGE_H _mod.PLAT_COLOR_TOP))
+        push tmp78 (this.movingPlatformLayerSprite((("mp" + mpi) + "m") (to_int w) bodyH _mod.PLAT_COLOR_BODY))
+        push tmp78 (this.movingPlatformLayerSprite((("mp" + mpi) + "b") (to_int w) _mod.PLAT_EDGE_H _mod.PLAT_COLOR_BOTTOM))
         return tmp78
     }
 
@@ -1345,25 +1312,25 @@ class GeneratedGameScript {
 
     fn createStaticBg:void () {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
-        def platforms:[scalePlatformRetNative] ((this.buildPlatforms()))
+        def platforms:[PlatformNative] ((this.buildPlatforms()))
         (this.drawSkyGradient())
-        (this.drawCloud((to_int (this.scaleX((to_double 80)))) 220))
-        (this.drawCloud((to_int (this.scaleX((to_double 360)))) 420))
-        (this.drawCloud((to_int (this.scaleX((to_double 120)))) 720))
-        (this.drawCloud((to_int (this.scaleX((to_double 400)))) 980))
-        (this.drawCloud((to_int (this.scaleX((to_double 60)))) 1280))
+        (this.drawCloud((this.scaleX((to_double 80.0))) 220))
+        (this.drawCloud((this.scaleX((to_double 360.0))) 420))
+        (this.drawCloud((this.scaleX((to_double 120.0))) 720))
+        (this.drawCloud((this.scaleX((to_double 400.0))) 980))
+        (this.drawCloud((this.scaleX((to_double 60.0))) 1280))
         def i:int (0)
         while ((i < (array_length platforms))) {
-            def p:scalePlatformRetNative ((itemAt platforms i))
-            (host.bgFillRect(p.x p.y p.w p.h _mod.PLAT_COLOR_BODY.r _mod.PLAT_COLOR_BODY.g _mod.PLAT_COLOR_BODY.b))
-            (host.bgFillRect(p.x p.y p.w _mod.PLAT_EDGE_H _mod.PLAT_COLOR_TOP.r _mod.PLAT_COLOR_TOP.g _mod.PLAT_COLOR_TOP.b))
-            (host.bgFillRect(p.x ((p.y + (to_double p.h)) - (to_double _mod.PLAT_EDGE_H)) p.w _mod.PLAT_EDGE_H _mod.PLAT_COLOR_BOTTOM.r _mod.PLAT_COLOR_BOTTOM.g _mod.PLAT_COLOR_BOTTOM.b))
+            def p:PlatformNative ((itemAt platforms i))
+            (host.bgFillRect((to_int p.x) (to_int p.y) (to_int p.w) p.h _mod.PLAT_COLOR_BODY.r _mod.PLAT_COLOR_BODY.g _mod.PLAT_COLOR_BODY.b))
+            (host.bgFillRect((to_int p.x) (to_int p.y) (to_int p.w) _mod.PLAT_EDGE_H _mod.PLAT_COLOR_TOP.r _mod.PLAT_COLOR_TOP.g _mod.PLAT_COLOR_TOP.b))
+            (host.bgFillRect((to_int p.x) (to_int ((p.y + p.h) - (to_double _mod.PLAT_EDGE_H))) (to_int p.w) _mod.PLAT_EDGE_H _mod.PLAT_COLOR_BOTTOM.r _mod.PLAT_COLOR_BOTTOM.g _mod.PLAT_COLOR_BOTTOM.b))
             i = (i + 1)
         }
-        def flagX:double ((this.scaleX((to_double 240))))
-        (host.bgFillRect((flagX - 8.0) 80 8 90 160 120 70))
-        (host.bgFillRect(flagX 88 36 20 255 90 90))
-        (host.bgFillRect(flagX 96 30 8 255 210 60))
+        def flagX:double ((this.scaleX((to_double 240.0))))
+        (host.bgFillRect((to_int (flagX - 8.0)) 80 8 90 160 120 70))
+        (host.bgFillRect((to_int flagX) 88 36 20 255 90 90))
+        (host.bgFillRect((to_int flagX) 96 30 8 255 210 60))
     }
 
     fn playerSheetSprite:SpriteDefNative (id:string path:string) {
@@ -1493,7 +1460,7 @@ class GeneratedGameScript {
         def mpi:int (0)
         while ((mpi < _mod.MAX_MOVING_PLATFORMS)) {
             def def:BASE_MOVING_PLATFORMSElemNative ((itemAt _mod.BASE_MOVING_PLATFORMS mpi))
-            def layers:[SpriteDefNative] ((this.movingPlatformSprites(mpi (to_int (this.scaleX((to_double def.w)))) def.h)))
+            def layers:[SpriteDefNative] ((this.movingPlatformSprites(mpi (this.scaleX((to_double def.w))) def.h)))
             push list (itemAt layers 0)
             push list (itemAt layers 1)
             push list (itemAt layers 2)
@@ -1506,15 +1473,15 @@ class GeneratedGameScript {
         return list
     }
 
-    fn makeEnemies:[makeEnemies_outRetNative] () {
+    fn makeEnemies:[EnemyNative] () {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
         def defs:[buildEnemyDefs_outRetNative] ((this.buildEnemyDefs()))
-        def out:[makeEnemies_outRetNative]
+        def out:[EnemyNative]
         def i:int (0)
         while ((i < _mod.MAX_ENEMIES)) {
             def d:buildEnemyDefs_outRetNative ((itemAt defs i))
-            def tmp90:makeEnemies_outRetNative (new makeEnemies_outRetNative)
-            tmp90.x = (to_double d.x)
+            def tmp90:EnemyNative (new EnemyNative)
+            tmp90.x = d.x
             tmp90.y = d.y
             tmp90.dir = d.dir
             tmp90.min = d.min
@@ -1529,12 +1496,12 @@ class GeneratedGameScript {
         return out
     }
 
-    fn makeFruits:[makeFruits_outRetNative] () {
+    fn makeFruits:[CollectibleNative] () {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
-        def out:[makeFruits_outRetNative]
+        def out:[CollectibleNative]
         def i:int (0)
         while ((i < _mod.MAX_FRUITS)) {
-            def tmp91:makeFruits_outRetNative (new makeFruits_outRetNative)
+            def tmp91:CollectibleNative (new CollectibleNative)
             tmp91.taken = 0
             push out tmp91
             i = (i + 1)
@@ -1542,12 +1509,12 @@ class GeneratedGameScript {
         return out
     }
 
-    fn makeDiamonds:[makeDiamonds_outRetNative] () {
+    fn makeDiamonds:[CollectibleNative] () {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
-        def out:[makeDiamonds_outRetNative]
+        def out:[CollectibleNative]
         def i:int (0)
         while ((i < _mod.MAX_DIAMONDS)) {
-            def tmp92:makeDiamonds_outRetNative (new makeDiamonds_outRetNative)
+            def tmp92:CollectibleNative (new CollectibleNative)
             tmp92.taken = 0
             push out tmp92
             i = (i + 1)
@@ -1555,15 +1522,16 @@ class GeneratedGameScript {
         return out
     }
 
-    fn respawnMarkedDiamonds:[respawnMarkedDiamonds_outRetNative] (prev:[makeDiamonds_outRetNative]) {
+    fn respawnMarkedDiamonds:[respawnMarkedDiamonds_outRetNative] (prev:[int]) {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
         def out:[respawnMarkedDiamonds_outRetNative]
         def i:int (0)
         while ((i < _mod.MAX_DIAMONDS)) {
             def def:BASE_DIAMOND_DEFSElemNative ((itemAt _mod.BASE_DIAMOND_DEFS i))
             def taken:int (0)
-            def _at1:makeDiamonds_outRetNative (itemAt prev i)
-            taken = _at1.taken
+            if ((itemAt prev i)) {
+                taken = (itemAt prev i).taken
+            }
             if ((def.respawn && (taken == 1))) {
                 taken = 0
             }
@@ -1575,19 +1543,19 @@ class GeneratedGameScript {
         return out
     }
 
-    fn makeRestartDiamonds:[respawnMarkedDiamonds_outRetNative] (prev:[makeDiamonds_outRetNative]) {
+    fn makeRestartDiamonds:[respawnMarkedDiamonds_outRetNative] (prev:[CollectibleNative]) {
         return (this.respawnMarkedDiamonds(prev))
     }
 
-    fn makeBullets:[makeBullets_outRetNative] () {
+    fn makeBullets:[BulletNative] () {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
-        def out:[makeBullets_outRetNative]
+        def out:[BulletNative]
         def i:int (0)
         while ((i < _mod.MAX_BULLETS)) {
-            def tmp94:makeBullets_outRetNative (new makeBullets_outRetNative)
+            def tmp94:BulletNative (new BulletNative)
             tmp94.active = 0
-            tmp94.x = 0
-            tmp94.y = 0
+            tmp94.x = 0.0
+            tmp94.y = 0.0
             tmp94.vx = 0.0
             tmp94.owner = 0
             push out tmp94
@@ -1596,7 +1564,7 @@ class GeneratedGameScript {
         return out
     }
 
-    fn tryStartSummitMusic:int (summitMusicStarted:int events:int) {
+    fn tryStartSummitMusic:int (summitMusicStarted:int events:[GameEventNative]) {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
         if ((summitMusicStarted == 1)) {
             return 1
@@ -1616,12 +1584,20 @@ class GeneratedGameScript {
         def cameraY:int ((_mod.WORLD_H - _mod.VIEW_H))
         def p1:PlayerNative ((this.makePlayerOnFloor((to_double (this.localStartX())) (this.localStartFace()))))
         def p2:PlayerNative ((this.makePlayerOnFloor((to_double _mod.P2_START_X) (0 - 1))))
-        def enemies:[makeEnemies_outRetNative] ((this.makeEnemies()))
-        def fruits:[makeFruits_outRetNative] ((this.makeFruits()))
-        def diamonds:[makeDiamonds_outRetNative] ((this.makeDiamonds()))
-        def bullets:[makeBullets_outRetNative] ((this.makeBullets()))
-        def movingPlatforms:[makeMovingPlatforms_outRetNative] ((this.makeMovingPlatforms()))
-        def entities:[string:EntityPoseNative] ((this.placeEntities({} cameraY slots)))
+        def enemies:[EnemyNative] ((this.makeEnemies()))
+        def fruits:[CollectibleNative] ((this.makeFruits()))
+        def diamonds:[CollectibleNative] ((this.makeDiamonds()))
+        def bullets:[BulletNative] ((this.makeBullets()))
+        def movingPlatforms:[MovingPlatformNative] ((this.makeMovingPlatforms()))
+        def tmp96:GameSnapshotNative (new GameSnapshotNative)
+        tmp96.p1 = p1
+        tmp96.p2 = p2
+        tmp96.enemies = enemies
+        tmp96.fruits = fruits
+        tmp96.diamonds = diamonds
+        tmp96.bullets = bullets
+        tmp96.movingPlatforms = movingPlatforms
+        def entities:[string:EntityPoseNative] ((this.placeEntities(tmp96 (to_double cameraY) slots)))
         def s:NativeGameState (new NativeGameState)
         s.showNet = 0
         set s.numbers "playerSlots" (to_double slots)
@@ -1668,14 +1644,14 @@ class GeneratedGameScript {
         if (p.x) {
             shoot = true
         }
-        def tmp96:readPlayerRetNative (new readPlayerRetNative)
-        tmp96.up = up
-        tmp96.down = down
-        tmp96.left = left
-        tmp96.right = right
-        tmp96.action = action
-        tmp96.shoot = shoot
-        return tmp96
+        def tmp97:readPlayerRetNative (new readPlayerRetNative)
+        tmp97.up = up
+        tmp97.down = down
+        tmp97.left = left
+        tmp97.right = right
+        tmp97.action = action
+        tmp97.shoot = shoot
+        return tmp97
     }
 
     fn clampX:int (x:int) {
@@ -1688,7 +1664,7 @@ class GeneratedGameScript {
         return x
     }
 
-    fn landOnPlatforms:landOnPlatformsRetNative (pl:PlayerNative pw:int dt:double platforms:[int] staticCount:int) {
+    fn landOnPlatforms:landOnPlatformsRetNative (pl:PlayerNative pw:double dt:double platforms:[PlatformNative] staticCount:int) {
         def grounded:int (0)
         def ny:double (pl.y)
         def nvy:double (pl.vy)
@@ -1696,16 +1672,16 @@ class GeneratedGameScript {
         if ((pl.vy >= 0.0)) {
             def i:int (0)
             while ((i < (array_length platforms))) {
-                def p:int ((itemAt platforms i))
+                def p:PlatformNative ((itemAt platforms i))
                 def moving:boolean ((i >= staticCount))
-                if (((pl.x + (to_double pw)) > p.x)) {
-                    if (((pl.x - (to_double pw)) < (p.x + p.w))) {
+                if (((pl.x + pw) > p.x)) {
+                    if (((pl.x - pw) < (p.x + p.w))) {
                         def feet:double (pl.y)
                         def prevFeet:double ((feet - (pl.vy * dt)))
                         if ((feet >= p.y)) {
                             if ((prevFeet <= (p.y + 4.0))) {
                                 if (moving) {
-                                    if (((this.isStandingOnPlatform(pl.x pl.y pw p)) == false)) {
+                                    if (((this.isStandingOnPlatform(pl.x pl.y (to_int pw) p)) == false)) {
                                         i = (i + 1)
                                     }
                                 }
@@ -1722,12 +1698,12 @@ class GeneratedGameScript {
                 i = (i + 1)
             }
         }
-        def tmp97:landOnPlatformsRetNative (new landOnPlatformsRetNative)
-        tmp97.y = ny
-        tmp97.vy = nvy
-        tmp97.grounded = grounded
-        tmp97.carryVx = carryVx
-        return tmp97
+        def tmp98:landOnPlatformsRetNative (new landOnPlatformsRetNative)
+        tmp98.y = ny
+        tmp98.vy = nvy
+        tmp98.grounded = grounded
+        tmp98.carryVx = carryVx
+        return tmp98
     }
 
     fn enemyCollisionKind:string (px:double py:double pvy:double ex:double ey:double) {
@@ -1753,76 +1729,76 @@ class GeneratedGameScript {
         return "hurt"
     }
 
-    fn stompBounce:stompBounceRetNative (pl:PlayerNative ey:double) {
+    fn stompBounce:PlayerNative (pl:PlayerNative ey:double) {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
-        def tmp98:stompBounceRetNative (new stompBounceRetNative)
-        tmp98.x = pl.x
-        tmp98.y = (ey - 2.0)
-        tmp98.vx = pl.vx
-        tmp98.vy = (0.0 - (_mod.JUMP_MAX_V * 0.55))
-        tmp98.face = pl.face
-        tmp98.grounded = 0
-        tmp98.anim = 1
-        tmp98.animTick = pl.animTick
-        tmp98.jumpHold = pl.jumpHold
-        tmp98.airJump = 1
-        tmp98.jumpBoostMs = 0
-        tmp98.superMs = pl.superMs
-        tmp98.done = pl.done
-        tmp98.finishMs = pl.finishMs
-        tmp98.finishPulseMs = pl.finishPulseMs
-        tmp98.celebrateBursts = pl.celebrateBursts
-        return tmp98
+        def tmp99:PlayerNative (new PlayerNative)
+        tmp99.x = pl.x
+        tmp99.y = (ey - 2.0)
+        tmp99.vx = pl.vx
+        tmp99.vy = (0.0 - (_mod.JUMP_MAX_V * 0.55))
+        tmp99.face = pl.face
+        tmp99.grounded = 0
+        tmp99.anim = 1
+        tmp99.animTick = pl.animTick
+        tmp99.jumpHold = pl.jumpHold
+        tmp99.airJump = 1
+        tmp99.jumpBoostMs = 0
+        tmp99.superMs = pl.superMs
+        tmp99.done = pl.done
+        tmp99.finishMs = pl.finishMs
+        tmp99.finishPulseMs = pl.finishPulseMs
+        tmp99.celebrateBursts = pl.celebrateBursts
+        return tmp99
     }
 
-    fn applyEnemyHits:applyEnemyHitsRetNative (pl:PlayerNative owner:int enemies:[makeEnemies_outRetNative] events:int) {
+    fn applyEnemyHits:applyEnemyHitsRetNative (pl:PlayerNative owner:int enemies:[EnemyNative] events:[GameEventNative]) {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
         def out:PlayerNative (pl)
         def died:int (0)
         def ei:int (0)
         while ((ei < _mod.MAX_ENEMIES)) {
-            def _at2:makeEnemies_outRetNative (itemAt enemies ei)
-            if ((_at2.alive == 1)) {
+            def _at1:EnemyNative (itemAt enemies ei)
+            if ((_at1.alive == 1)) {
                 def kind:string ((this.enemyCollisionKind(out.x out.y out.vy (itemAt enemies ei).x (itemAt enemies ei).y)))
                 if ((kind == "stomp")) {
-                    def _at3:makeEnemies_outRetNative (itemAt enemies ei)
-                    _at3.alive = 0
-                    def _at4:makeEnemies_outRetNative (itemAt enemies ei)
-                    out = (this.stompBounce(out _at4.y))
-                    def be99:GameEventNative (new GameEventNative)
-                    be99.kind = "playSound"
-                    be99.id = "brick"
-                    push events (be99)
+                    def _at2:EnemyNative (itemAt enemies ei)
+                    _at2.alive = 0
+                    def _at3:EnemyNative (itemAt enemies ei)
+                    out = (this.stompBounce(out _at3.y))
                     def be100:GameEventNative (new GameEventNative)
                     be100.kind = "playSound"
-                    be100.id = "bounce"
+                    be100.id = "brick"
                     push events (be100)
+                    def be101:GameEventNative (new GameEventNative)
+                    be101.kind = "playSound"
+                    be101.id = "bounce"
+                    push events (be101)
                     push events ((this.rumbleForOwner(owner 90 18000)))
                 } {
                     if ((kind == "hurt")) {
                         if ((out.superMs > 0)) {
-                            def _at5:makeEnemies_outRetNative (itemAt enemies ei)
-                            _at5.alive = 0
-                            def be101:GameEventNative (new GameEventNative)
-                            be101.kind = "playSound"
-                            be101.id = "brick"
-                            push events (be101)
-                            def _at6:makeEnemies_outRetNative (itemAt enemies ei)
+                            def _at4:EnemyNative (itemAt enemies ei)
+                            _at4.alive = 0
                             def be102:GameEventNative (new GameEventNative)
-                            be102.kind = "particles"
-                            be102.id = "sparkle"
-                            be102.x = _at6.x
-                            be102.y = _at6.y
-                            be102.amount = 10
+                            be102.kind = "playSound"
+                            be102.id = "brick"
                             push events (be102)
+                            def _at5:EnemyNative (itemAt enemies ei)
+                            def be103:GameEventNative (new GameEventNative)
+                            be103.kind = "particles"
+                            be103.id = "sparkle"
+                            be103.x = _at5.x
+                            be103.y = _at5.y
+                            be103.amount = 10
+                            push events (be103)
                             push events ((this.rumbleForOwner(owner 60 12000)))
                         } {
                             out = (this.respawnPlayer(owner))
                             died = 1
-                            def be103:GameEventNative (new GameEventNative)
-                            be103.kind = "playSound"
-                            be103.id = "lose"
-                            push events (be103)
+                            def be104:GameEventNative (new GameEventNative)
+                            be104.kind = "playSound"
+                            be104.id = "lose"
+                            push events (be104)
                             push events ((this.rumbleForOwner(owner 280 40000)))
                         }
                     }
@@ -1830,10 +1806,10 @@ class GeneratedGameScript {
             }
             ei = (ei + 1)
         }
-        def tmp104:applyEnemyHitsRetNative (new applyEnemyHitsRetNative)
-        tmp104.pl = out
-        tmp104.died = died
-        return tmp104
+        def tmp105:applyEnemyHitsRetNative (new applyEnemyHitsRetNative)
+        tmp105.pl = out
+        tmp105.died = died
+        return tmp105
     }
 
     fn hitPickup:boolean (px:double py:double fx:double fy:double) {
@@ -1845,19 +1821,19 @@ class GeneratedGameScript {
         return true
     }
 
-    fn spawnBullet:boolean (bullets:[makeBullets_outRetNative] x:int y:int face:int owner:int) {
+    fn spawnBullet:boolean (bullets:[BulletNative] x:double y:double face:int owner:int) {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
         def i:int (0)
         while ((i < _mod.MAX_BULLETS)) {
-            def _at7:makeBullets_outRetNative (itemAt bullets i)
-            if ((_at7.active == 0)) {
-                def tmp105:makeBullets_outRetNative (new makeBullets_outRetNative)
-                tmp105.active = 1
-                tmp105.x = x
-                tmp105.y = y
-                tmp105.vx = ((to_double face) * _mod.BULLET_SPEED)
-                tmp105.owner = owner
-                set bullets i tmp105
+            def _at6:BulletNative (itemAt bullets i)
+            if ((_at6.active == 0)) {
+                def tmp106:BulletNative (new BulletNative)
+                tmp106.active = 1
+                tmp106.x = x
+                tmp106.y = y
+                tmp106.vx = (face * _mod.BULLET_SPEED)
+                tmp106.owner = owner
+                set bullets i tmp106
                 return true
             }
             i = (i + 1)
@@ -1883,14 +1859,14 @@ class GeneratedGameScript {
             }
         }
         def jump:int (0)
-        def tmp106:sheetFrameForPlayerRetNative (new sheetFrameForPlayerRetNative)
-        tmp106.p0 = frame
-        tmp106.p1 = row
-        tmp106.p2 = jump
-        return tmp106
+        def tmp107:sheetFrameForPlayerRetNative (new sheetFrameForPlayerRetNative)
+        tmp107.p0 = frame
+        tmp107.p1 = row
+        tmp107.p2 = jump
+        return tmp107
     }
 
-    fn updatePlayer:updatePlayerRetNative (pl:PlayerNative inp:int dt:double bullets:[makeBullets_outRetNative] owner:int fireCd:int platforms:int) {
+    fn updatePlayer:updatePlayerRetNative (pl:PlayerNative inp:int dt:double bullets:[BulletNative] owner:int fireCd:double platforms:[PlatformNative]) {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
         def events:[GameEventNative]
         def face:i32 (pl.face)
@@ -1927,10 +1903,10 @@ class GeneratedGameScript {
                     airJump = 1
                     jumpBoostMs = 0
                     jumped = 1
-                    def be107:GameEventNative (new GameEventNative)
-                    be107.kind = "playSound"
-                    be107.id = "bounce"
-                    push events (be107)
+                    def be108:GameEventNative (new GameEventNative)
+                    be108.kind = "playSound"
+                    be108.id = "bounce"
+                    push events (be108)
                 }
             }
         } {
@@ -1966,7 +1942,11 @@ class GeneratedGameScript {
         x = (to_double (this.clampX((to_int x))))
         def fallVy:double (vy)
         def y:double ((pl.y + (vy * dt)))
-        def land:landOnPlatformsRetNative ((this.landOnPlatforms({} pw dt platforms staticCount)))
+        def tmp109:PlayerNative (new PlayerNative)
+        tmp109.x = x
+        tmp109.y = y
+        tmp109.vy = vy
+        def land:landOnPlatformsRetNative ((this.landOnPlatforms(tmp109 (to_double pw) dt platforms staticCount)))
         y = land.y
         vy = land.vy
         def grounded:int (land.grounded)
@@ -1987,10 +1967,10 @@ class GeneratedGameScript {
             x = (to_double (this.clampX((to_int x))))
             if ((pl.grounded == 0)) {
                 if ((fallVy > 0.12)) {
-                    def be108:GameEventNative (new GameEventNative)
-                    be108.kind = "playSound"
-                    be108.id = "wall"
-                    push events (be108)
+                    def be110:GameEventNative (new GameEventNative)
+                    be110.kind = "playSound"
+                    be110.id = "wall"
+                    push events (be110)
                 }
             }
         }
@@ -1999,61 +1979,61 @@ class GeneratedGameScript {
         if ((vx == 0.0)) {
             animTick = pl.animTick
         }
-        def cd:int (fireCd)
-        if ((cd > 0)) {
-            cd = (to_int ((to_double cd) - dt))
+        def cd:double (fireCd)
+        if ((cd > 0.0)) {
+            cd = (cd - dt)
         }
         if (inp.shoot) {
             if ((cd <= 0.0)) {
-                if ((this.spawnBullet(bullets (to_int (x + (to_double (face * 10)))) (to_int (y - 4.0)) face owner))) {
+                if ((this.spawnBullet(bullets (x + (to_double (face * 10))) (y - 4.0) face owner))) {
                     cd = 220.0
-                    def be109:GameEventNative (new GameEventNative)
-                    be109.kind = "playSound"
-                    be109.id = "blip"
-                    push events (be109)
+                    def be111:GameEventNative (new GameEventNative)
+                    be111.kind = "playSound"
+                    be111.id = "blip"
+                    push events (be111)
                 }
             }
         }
-        def tmp110:updatePlayerRetNative (new updatePlayerRetNative)
-        tmp110.pl = {}
-        tmp110.fireCd = cd
-        tmp110.events = events
-        return tmp110
+        def tmp112:updatePlayerRetNative (new updatePlayerRetNative)
+        tmp112.pl = {}
+        tmp112.fireCd = cd
+        tmp112.events = events
+        return tmp112
     }
 
-    fn updateEnemies:void (enemies:[makeEnemies_outRetNative] dt:int) {
+    fn updateEnemies:void (enemies:[EnemyNative] dt:double) {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
         def i:int (0)
         while ((i < _mod.MAX_ENEMIES)) {
-            def e:makeEnemies_outRetNative ((itemAt enemies i))
+            def e:EnemyNative ((itemAt enemies i))
             if ((e.alive == 1)) {
-                def x:double ((e.x + ((to_double (e.dir * dt)) * 0.08)))
-                def dir:int (e.dir)
-                if ((x < (to_double e.min))) {
-                    x = (to_double e.min)
+                def x:double ((e.x + ((e.dir * dt) * 0.08)))
+                def dir:i32 (e.dir)
+                if ((x < e.min)) {
+                    x = e.min
                     dir = 1
                 }
-                if ((x > (to_double e.max))) {
-                    x = (to_double e.max)
+                if ((x > e.max)) {
+                    x = e.max
                     dir = (0 - 1)
                 }
-                def tick:int ((e.tick + dt))
+                def tick:double ((e.tick + dt))
                 def anim:int ((0 % _mod.ENEMY_WALK_FRAMES))
                 def row:int (3)
                 if ((dir < 0)) {
                     row = 1
                 }
-                def tmp111:makeEnemies_outRetNative (new makeEnemies_outRetNative)
-                tmp111.x = x
-                tmp111.y = e.y
-                tmp111.dir = dir
-                tmp111.min = e.min
-                tmp111.max = e.max
-                tmp111.alive = 1
-                tmp111.tick = tick
-                tmp111.anim = anim
-                tmp111.row = row
-                set enemies i tmp111
+                def tmp113:EnemyNative (new EnemyNative)
+                tmp113.x = x
+                tmp113.y = e.y
+                tmp113.dir = dir
+                tmp113.min = e.min
+                tmp113.max = e.max
+                tmp113.alive = 1
+                tmp113.tick = tick
+                tmp113.anim = anim
+                tmp113.row = row
+                set enemies i tmp113
             }
             i = (i + 1)
         }
@@ -2077,15 +2057,15 @@ class GeneratedGameScript {
         return true
     }
 
-    fn updateBullets:[GameEventNative] (bullets:[makeBullets_outRetNative] enemies:[makeEnemies_outRetNative] dt:int) {
+    fn updateBullets:[GameEventNative] (bullets:[BulletNative] enemies:[EnemyNative] dt:double) {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
         def events:[GameEventNative]
         def i:int (0)
         while ((i < _mod.MAX_BULLETS)) {
-            def b:makeBullets_outRetNative ((itemAt bullets i))
+            def b:BulletNative ((itemAt bullets i))
             if ((b.active == 1)) {
-                def x:double (((to_double b.x) + (b.vx * (to_double dt))))
-                def y:int (b.y)
+                def x:double ((b.x + (b.vx * dt)))
+                def y:double (b.y)
                 def active:int (1)
                 if ((x < 0.0)) {
                     active = 0
@@ -2095,29 +2075,29 @@ class GeneratedGameScript {
                 }
                 def e:int (0)
                 while ((e < _mod.MAX_ENEMIES)) {
-                    def _at8:makeEnemies_outRetNative (itemAt enemies e)
-                    if ((_at8.alive == 1)) {
-                        def _at9:makeEnemies_outRetNative (itemAt enemies e)
-                        if ((this.bulletHitsEnemy(x (to_double y) _at9.x _at9.y))) {
-                            def _at10:makeEnemies_outRetNative (itemAt enemies e)
-                            _at10.alive = 0
+                    def _at7:EnemyNative (itemAt enemies e)
+                    if ((_at7.alive == 1)) {
+                        def _at8:EnemyNative (itemAt enemies e)
+                        if ((this.bulletHitsEnemy(x y _at8.x _at8.y))) {
+                            def _at9:EnemyNative (itemAt enemies e)
+                            _at9.alive = 0
                             active = 0
-                            def be112:GameEventNative (new GameEventNative)
-                            be112.kind = "playSound"
-                            be112.id = "brick"
-                            push events (be112)
+                            def be114:GameEventNative (new GameEventNative)
+                            be114.kind = "playSound"
+                            be114.id = "brick"
+                            push events (be114)
                             push events ((this.rumbleForOwner(b.owner 70 14000)))
                         }
                     }
                     e = (e + 1)
                 }
-                def tmp113:makeBullets_outRetNative (new makeBullets_outRetNative)
-                tmp113.active = active
-                tmp113.x = x
-                tmp113.y = y
-                tmp113.vx = b.vx
-                tmp113.owner = b.owner
-                set bullets i tmp113
+                def tmp115:BulletNative (new BulletNative)
+                tmp115.active = active
+                tmp115.x = x
+                tmp115.y = y
+                tmp115.vx = b.vx
+                tmp115.owner = b.owner
+                set bullets i tmp115
             }
             i = (i + 1)
         }
@@ -2183,23 +2163,6 @@ class GeneratedGameScript {
         def sheet:sheetFrameForPlayerRetNative ((this.sheetFrameForPlayer(pl moving)))
         def superOn:int (0)
         if ((superOn == 1)) {
-            def tmp114:EntityPoseNative (new EntityPoseNative)
-            tmp114.x = (0.0 - 40.0)
-            tmp114.y = (0.0 - 40.0)
-            tmp114.visible = 0
-            tmp114.p0 = 0
-            tmp114.p1 = 0
-            tmp114.p2 = 0
-            set entities id tmp114
-            def tmp115:EntityPoseNative (new EntityPoseNative)
-            tmp115.x = pl.x
-            tmp115.y = (pl.y - (to_double cam))
-            tmp115.p0 = sheet.p0
-            tmp115.p1 = sheet.p1
-            tmp115.p2 = sheet.p2
-            tmp115.visible = 1
-            set entities superId tmp115
-        } {
             def tmp116:EntityPoseNative (new EntityPoseNative)
             tmp116.x = (0.0 - 40.0)
             tmp116.y = (0.0 - 40.0)
@@ -2207,7 +2170,7 @@ class GeneratedGameScript {
             tmp116.p0 = 0
             tmp116.p1 = 0
             tmp116.p2 = 0
-            set entities superId tmp116
+            set entities id tmp116
             def tmp117:EntityPoseNative (new EntityPoseNative)
             tmp117.x = pl.x
             tmp117.y = (pl.y - (to_double cam))
@@ -2215,117 +2178,134 @@ class GeneratedGameScript {
             tmp117.p1 = sheet.p1
             tmp117.p2 = sheet.p2
             tmp117.visible = 1
-            set entities id tmp117
+            set entities superId tmp117
+        } {
+            def tmp118:EntityPoseNative (new EntityPoseNative)
+            tmp118.x = (0.0 - 40.0)
+            tmp118.y = (0.0 - 40.0)
+            tmp118.visible = 0
+            tmp118.p0 = 0
+            tmp118.p1 = 0
+            tmp118.p2 = 0
+            set entities superId tmp118
+            def tmp119:EntityPoseNative (new EntityPoseNative)
+            tmp119.x = pl.x
+            tmp119.y = (pl.y - (to_double cam))
+            tmp119.p0 = sheet.p0
+            tmp119.p1 = sheet.p1
+            tmp119.p2 = sheet.p2
+            tmp119.visible = 1
+            set entities id tmp119
         }
     }
 
-    fn placeEntities:[string:EntityPoseNative] (s:int cam:int slots:int) {
+    fn placeEntities:[string:EntityPoseNative] (s:GameSnapshotNative cam:double slots:int) {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
         def fruitDefs:[EntityPoseNative] ((this.buildFruitDefs()))
         def diamondDefs:[EntityPoseNative] ((this.buildDiamondDefs()))
         def entities:[string:EntityPoseNative]
         def p1Moving:int (0)
         if ((slots == 2)) {
-            (this.placePlayerEntity(entities "p1" "p1s" st_p1 cam p1Moving))
+            (this.placePlayerEntity(entities "p1" "p1s" st_p1 (to_int cam) p1Moving))
             def p2Moving:int (0)
-            (this.placePlayerEntity(entities "p2" "p2s" st_p2 cam p2Moving))
+            (this.placePlayerEntity(entities "p2" "p2s" st_p2 (to_int cam) p2Moving))
         } {
             if ((this.isSplitPane())) {
                 set entities "p1" (this.hiddenEntity())
                 set entities "p2" (this.hiddenEntity())
                 set entities "p1s" (this.hiddenEntity())
                 set entities "p2s" (this.hiddenEntity())
-                (this.placePlayerEntity(entities (this.localPlayerEntityId()) (this.localSuperEntityId()) st_p1 cam p1Moving))
+                (this.placePlayerEntity(entities (this.localPlayerEntityId()) (this.localSuperEntityId()) st_p1 (to_int cam) p1Moving))
             } {
-                (this.placePlayerEntity(entities "p1" "p1s" st_p1 cam p1Moving))
+                (this.placePlayerEntity(entities "p1" "p1s" st_p1 (to_int cam) p1Moving))
                 set entities "p2" (this.hiddenEntity())
                 set entities "p2s" (this.hiddenEntity())
             }
         }
         def e:int (0)
         while ((e < _mod.MAX_ENEMIES)) {
-            def en:makeEnemies_outRetNative ((itemAt st_enemies e))
+            def en:EnemyNative ((itemAt st_enemies e))
             if ((en.alive == 1)) {
-                def tmp118:EntityPoseNative (new EntityPoseNative)
-                tmp118.x = en.x
-                tmp118.y = (en.y - (to_double cam))
-                tmp118.p0 = en.anim
-                tmp118.p1 = en.row
-                tmp118.visible = 1
-                set entities ("e" + e) tmp118
-            } {
-                def tmp119:EntityPoseNative (new EntityPoseNative)
-                tmp119.x = (0.0 - 40.0)
-                tmp119.y = (0.0 - 40.0)
-                tmp119.visible = 0
-                tmp119.p0 = 0
-                set entities ("e" + e) tmp119
-            }
-            e = (e + 1)
-        }
-        def f:int (0)
-        while ((f < _mod.MAX_FRUITS)) {
-            def _at11:makeFruits_outRetNative (itemAt st_fruits f)
-            if ((_at11.taken == 0)) {
-                def fd:EntityPoseNative ((itemAt fruitDefs f))
                 def tmp120:EntityPoseNative (new EntityPoseNative)
-                tmp120.x = fd.x
-                tmp120.y = (fd.y - (to_double cam))
+                tmp120.x = en.x
+                tmp120.y = (en.y - cam)
+                tmp120.p0 = en.anim
+                tmp120.p1 = en.row
                 tmp120.visible = 1
-                set entities ("f" + f) tmp120
+                set entities ("e" + e) tmp120
             } {
                 def tmp121:EntityPoseNative (new EntityPoseNative)
                 tmp121.x = (0.0 - 40.0)
                 tmp121.y = (0.0 - 40.0)
                 tmp121.visible = 0
-                set entities ("f" + f) tmp121
+                tmp121.p0 = 0
+                set entities ("e" + e) tmp121
             }
-            f = (f + 1)
+            e = (e + 1)
         }
-        def d:int (0)
-        while ((d < _mod.MAX_DIAMONDS)) {
-            def _at12:makeDiamonds_outRetNative (itemAt st_diamonds d)
-            if ((_at12.taken == 0)) {
-                def dd:EntityPoseNative ((itemAt diamondDefs d))
+        def f:int (0)
+        while ((f < _mod.MAX_FRUITS)) {
+            def _at10:CollectibleNative (itemAt st_fruits f)
+            if ((_at10.taken == 0)) {
+                def fd:EntityPoseNative ((itemAt fruitDefs f))
                 def tmp122:EntityPoseNative (new EntityPoseNative)
-                tmp122.x = dd.x
-                tmp122.y = (dd.y - (to_double cam))
+                tmp122.x = fd.x
+                tmp122.y = (fd.y - cam)
                 tmp122.visible = 1
-                tmp122.p0 = 0
-                set entities ("d" + d) tmp122
+                set entities ("f" + f) tmp122
             } {
                 def tmp123:EntityPoseNative (new EntityPoseNative)
                 tmp123.x = (0.0 - 40.0)
                 tmp123.y = (0.0 - 40.0)
                 tmp123.visible = 0
-                tmp123.p0 = 0
-                set entities ("d" + d) tmp123
+                set entities ("f" + f) tmp123
             }
-            d = (d + 1)
+            f = (f + 1)
         }
-        def b:int (0)
-        while ((b < _mod.MAX_BULLETS)) {
-            def bl:makeBullets_outRetNative ((itemAt st_bullets b))
-            if ((bl.active == 1)) {
+        def d:int (0)
+        while ((d < _mod.MAX_DIAMONDS)) {
+            def _at11:CollectibleNative (itemAt st_diamonds d)
+            if ((_at11.taken == 0)) {
+                def dd:EntityPoseNative ((itemAt diamondDefs d))
                 def tmp124:EntityPoseNative (new EntityPoseNative)
-                tmp124.x = (to_double bl.x)
-                tmp124.y = (to_double (bl.y - cam))
+                tmp124.x = dd.x
+                tmp124.y = (dd.y - cam)
                 tmp124.visible = 1
-                set entities ("b" + b) tmp124
+                tmp124.p0 = 0
+                set entities ("d" + d) tmp124
             } {
                 def tmp125:EntityPoseNative (new EntityPoseNative)
                 tmp125.x = (0.0 - 40.0)
                 tmp125.y = (0.0 - 40.0)
                 tmp125.visible = 0
-                set entities ("b" + b) tmp125
+                tmp125.p0 = 0
+                set entities ("d" + d) tmp125
+            }
+            d = (d + 1)
+        }
+        def b:int (0)
+        while ((b < _mod.MAX_BULLETS)) {
+            def bl:BulletNative ((itemAt st_bullets b))
+            if ((bl.active == 1)) {
+                def tmp126:EntityPoseNative (new EntityPoseNative)
+                tmp126.x = bl.x
+                tmp126.y = (bl.y - cam)
+                tmp126.visible = 1
+                set entities ("b" + b) tmp126
+            } {
+                def tmp127:EntityPoseNative (new EntityPoseNative)
+                tmp127.x = (0.0 - 40.0)
+                tmp127.y = (0.0 - 40.0)
+                tmp127.visible = 0
+                set entities ("b" + b) tmp127
             }
             b = (b + 1)
         }
         def mpi:int (0)
         while ((mpi < _mod.MAX_MOVING_PLATFORMS)) {
-            def mp:makeMovingPlatforms_outRetNative ((itemAt st_movingPlatforms mpi))
+            def mp:MovingPlatformNative ((itemAt st_movingPlatforms mpi))
             if (mp) {
-                (this.placeMovingPlatformEntities(entities mpi mp cam))
+                (this.placeMovingPlatformEntities(entities mpi mp (to_int cam)))
             } {
                 (this.hideMovingPlatformEntities(entities mpi))
             }
@@ -2344,7 +2324,7 @@ class GeneratedGameScript {
 
     fn tickGoalWalk:tickGoalWalkRetNative (pl:PlayerNative dt:double) {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
-        def gp:scalePlatformRetNative ((this.goalPlatform()))
+        def gp:PlatformNative ((this.goalPlatform()))
         def minX:double ((gp.x + 18.0))
         def maxX:double (((gp.x + gp.w) - 18.0))
         def x:double (pl.x)
@@ -2362,10 +2342,10 @@ class GeneratedGameScript {
             x = maxX
             face = (0 - 1)
         }
-        def tmp126:tickGoalWalkRetNative (new tickGoalWalkRetNative)
-        tmp126.x = x
-        tmp126.face = face
-        return tmp126
+        def tmp128:tickGoalWalkRetNative (new tickGoalWalkRetNative)
+        tmp128.x = x
+        tmp128.face = face
+        return tmp128
     }
 
     fn finishPlayerMoving:int (pl:PlayerNative) {
@@ -2384,7 +2364,7 @@ class GeneratedGameScript {
         return ((pl.done == 1) && (pl.finishMs >= _mod.FINISH_PHASE_DONE))
     }
 
-    fn showVictoryBanner:boolean (s:int) {
+    fn showVictoryBanner:boolean (s:GameSnapshotNative) {
         if (((unwrap (get s.numbers "playerSlots")) == 1.0)) {
             return (this.playerVictoryReady(st_p1))
         }
@@ -2408,7 +2388,7 @@ class GeneratedGameScript {
         return false
     }
 
-    fn checkFinish:PlayerNative (pl:PlayerNative slot:int events:int) {
+    fn checkFinish:PlayerNative (pl:PlayerNative slot:int events:[GameEventNative]) {
         if ((pl.done == 1)) {
             return pl
         }
@@ -2416,10 +2396,10 @@ class GeneratedGameScript {
             def feetY:double ((this.goalFeetY()))
             def cx:double ((this.celebrateXFor(slot)))
             def next:int ({})
-            def be127:GameEventNative (new GameEventNative)
-            be127.kind = "playSound"
-            be127.id = "celebrate"
-            push events (be127)
+            def be129:GameEventNative (new GameEventNative)
+            be129.kind = "playSound"
+            be129.id = "celebrate"
+            push events (be129)
             push events ((this.rumbleForOwner(slot 220 32000)))
             (this.spawnFinishParticles(events (to_int cx) (to_int feetY)))
             return next
@@ -2427,7 +2407,7 @@ class GeneratedGameScript {
         return pl
     }
 
-    fn tickFinishPlayer:PlayerNative (pl:PlayerNative dt:double events:int) {
+    fn tickFinishPlayer:PlayerNative (pl:PlayerNative dt:double events:[GameEventNative]) {
         def _mod:Ylos2GameModule (Ylos2GameModule.__singleton())
         if ((pl.done != 1)) {
             return pl
@@ -2460,24 +2440,24 @@ class GeneratedGameScript {
                 y = feetY
             }
         }
-        def tmp128:PlayerNative (new PlayerNative)
-        tmp128.x = x
-        tmp128.y = y
-        tmp128.vx = 0.0
-        tmp128.vy = 0.0
-        tmp128.face = face
-        tmp128.grounded = 1
-        tmp128.anim = 0
-        tmp128.animTick = animTick
-        tmp128.jumpHold = 0
-        tmp128.airJump = 0
-        tmp128.jumpBoostMs = 0
-        tmp128.superMs = pl.superMs
-        tmp128.done = 1
-        tmp128.finishMs = finishMs
-        tmp128.finishPulseMs = finishPulseMs
-        tmp128.celebrateBursts = bursts
-        return tmp128
+        def tmp130:PlayerNative (new PlayerNative)
+        tmp130.x = x
+        tmp130.y = y
+        tmp130.vx = 0.0
+        tmp130.vy = 0.0
+        tmp130.face = face
+        tmp130.grounded = 1
+        tmp130.anim = 0
+        tmp130.animTick = animTick
+        tmp130.jumpHold = 0
+        tmp130.airJump = 0
+        tmp130.jumpBoostMs = 0
+        tmp130.superMs = pl.superMs
+        tmp130.done = 1
+        tmp130.finishMs = finishMs
+        tmp130.finishPulseMs = finishPulseMs
+        tmp130.celebrateBursts = bursts
+        return tmp130
     }
 
     fn hud:void (props:UpdatePropsNative) {
@@ -2490,12 +2470,12 @@ class GeneratedGameScript {
         def dt:double (props.dt)
         def slots:int ((this.playerSlots()))
         def events:[GameEventNative]
-        def staticPlatforms:[scalePlatformRetNative] ((this.buildPlatforms()))
+        def staticPlatforms:[PlatformNative] ((this.buildPlatforms()))
         def fruitDefs:[EntityPoseNative] ((this.buildFruitDefs()))
         def diamondDefs:[EntityPoseNative] ((this.buildDiamondDefs()))
         def dual:boolean ((slots == 2))
         def owner:int ((this.localPlayerSlot()))
-        def bullets:int
+        def bullets:[BulletNative]
         def bi:int (0)
         while ((bi < _mod.MAX_BULLETS)) {
             push bullets (itemAt st_bullets bi)
@@ -2517,16 +2497,36 @@ class GeneratedGameScript {
                 p2 = (this.tickFinishPlayer(p2 dt events))
             }
         }
-        if ((this.showVictoryBanner({}))) {
+        def tmp131:GameSnapshotNative (new GameSnapshotNative)
+        tmp131.playerSlots = slots
+        tmp131.p1 = p1
+        tmp131.p2 = p2
+        if ((this.showVictoryBanner(tmp131))) {
             if ((this.wantsRestart(props dual))) {
-                def fresh:int ((this.initState()))
+                def fresh:NativeGameState ((this.initState()))
                 fresh.diamonds = (this.makeRestartDiamonds(st_diamonds))
-                fresh.entities = (this.placeEntities({} fresh.cameraY slots))
+                def tmp132:GameSnapshotNative (new GameSnapshotNative)
+                tmp132.p1 = fresh.p1
+                tmp132.p2 = fresh.p2
+                tmp132.enemies = fresh.enemies
+                tmp132.fruits = fresh.fruits
+                tmp132.diamonds = fresh.diamonds
+                tmp132.bullets = fresh.bullets
+                tmp132.movingPlatforms = fresh.movingPlatforms
+                fresh.entities = (this.placeEntities(tmp132 (to_double fresh.cameraY) slots))
                 fresh.events = []
                 return fresh
             }
             def cameraY:int ((this.computeCamera(p1 p2 dual)))
-            def entities:[string:EntityPoseNative] ((this.placeEntities({} cameraY slots)))
+            def tmp133:GameSnapshotNative (new GameSnapshotNative)
+            tmp133.p1 = p1
+            tmp133.p2 = p2
+            tmp133.enemies = st_enemies
+            tmp133.fruits = st_fruits
+            tmp133.diamonds = st_diamonds
+            tmp133.bullets = st_bullets
+            tmp133.movingPlatforms = st_movingPlatforms
+            def entities:[string:EntityPoseNative] ((this.placeEntities(tmp133 (to_double cameraY) slots)))
             def patch:NativeGameState (new NativeGameState)
             patch.showNet = 0
             set patch.numbers "playerSlots" (to_double slots)
@@ -2548,12 +2548,12 @@ class GeneratedGameScript {
             patch.events = patch_events
             return patch
         }
-        def movingPlatforms:[copyMovingPlatforms_outRetNative] ((this.copyMovingPlatforms(s)))
-        (this.updateMovingPlatforms(movingPlatforms (to_int dt) staticPlatforms))
+        def movingPlatforms:[MovingPlatformNative] ((this.copyMovingPlatforms(s)))
+        (this.updateMovingPlatforms(movingPlatforms dt staticPlatforms))
         def platforms:[mergePlatforms_outRetNative] ((this.mergePlatforms(staticPlatforms movingPlatforms)))
         if ((p1.done == 0)) {
             def inp1:readPlayerRetNative ((this.readPlayer(props 0)))
-            def u1:updatePlayerRetNative ((this.updatePlayer(p1 inp1 dt bullets owner (to_int fireCd1) platforms)))
+            def u1:updatePlayerRetNative ((this.updatePlayer(p1 inp1 dt bullets owner fireCd1 platforms)))
             p1 = u1.pl
             fireCd1 = (to_double u1.fireCd)
             (this.pushEvents(events u1.events))
@@ -2561,30 +2561,30 @@ class GeneratedGameScript {
         if (dual) {
             if ((p2.done == 0)) {
                 def inp2:readPlayerRetNative ((this.readPlayer(props 1)))
-                def u2:updatePlayerRetNative ((this.updatePlayer(p2 inp2 dt bullets 2 (to_int fireCd2) platforms)))
+                def u2:updatePlayerRetNative ((this.updatePlayer(p2 inp2 dt bullets 2 fireCd2 platforms)))
                 p2 = u2.pl
                 fireCd2 = (to_double u2.fireCd)
                 (this.pushEvents(events u2.events))
             }
         }
-        def enemies:int
+        def enemies:[EnemyNative]
         def ei:int (0)
         while ((ei < _mod.MAX_ENEMIES)) {
             push enemies (itemAt st_enemies ei)
             ei = (ei + 1)
         }
-        (this.updateEnemies(enemies (to_int dt)))
-        def bulletEvents:[GameEventNative] ((this.updateBullets(bullets enemies (to_int dt))))
+        (this.updateEnemies(enemies dt))
+        def bulletEvents:[GameEventNative] ((this.updateBullets(bullets enemies dt)))
         (this.pushEvents(events bulletEvents))
         def score1:int (s.score1)
         def score2:int (s.score2)
-        def fruits:int
+        def fruits:[CollectibleNative]
         def fi:int (0)
         while ((fi < _mod.MAX_FRUITS)) {
             push fruits (itemAt st_fruits fi)
             fi = (fi + 1)
         }
-        def diamonds:int
+        def diamonds:[CollectibleNative]
         def di:int (0)
         while ((di < _mod.MAX_DIAMONDS)) {
             push diamonds (itemAt st_diamonds di)
@@ -2608,50 +2608,55 @@ class GeneratedGameScript {
         }
         def fj:int (0)
         while ((fj < _mod.MAX_FRUITS)) {
-            if (((itemAt fruits fj).taken == 0)) {
+            def _at12:CollectibleNative (itemAt fruits fj)
+            if ((_at12.taken == 0)) {
                 def fd:EntityPoseNative ((itemAt fruitDefs fj))
                 if ((p1.done == 0)) {
                     if ((this.hitPickup(p1.x p1.y fd.x fd.y))) {
-                        set fruits fj {}
+                        def tmp134:CollectibleNative (new CollectibleNative)
+                        tmp134.taken = 1
+                        set fruits fj tmp134
                         score1 = (score1 + 1)
-                        def be129:GameEventNative (new GameEventNative)
-                        be129.kind = "playSound"
-                        be129.id = "blip"
-                        push events (be129)
-                        def be130:GameEventNative (new GameEventNative)
-                        be130.kind = "playSound"
-                        be130.id = "win"
-                        push events (be130)
-                        def be131:GameEventNative (new GameEventNative)
-                        be131.kind = "particles"
-                        be131.id = "fruit"
-                        be131.x = fd.x
-                        be131.y = fd.y
-                        be131.amount = 22
-                        push events (be131)
+                        def be135:GameEventNative (new GameEventNative)
+                        be135.kind = "playSound"
+                        be135.id = "blip"
+                        push events (be135)
+                        def be136:GameEventNative (new GameEventNative)
+                        be136.kind = "playSound"
+                        be136.id = "win"
+                        push events (be136)
+                        def be137:GameEventNative (new GameEventNative)
+                        be137.kind = "particles"
+                        be137.id = "fruit"
+                        be137.x = fd.x
+                        be137.y = fd.y
+                        be137.amount = 22
+                        push events (be137)
                         push events ((this.rumbleForOwner(owner 50 10000)))
                     }
                 }
                 if (dual) {
                     if ((p2.done == 0)) {
                         if ((this.hitPickup(p2.x p2.y fd.x fd.y))) {
-                            set fruits fj {}
+                            def tmp138:CollectibleNative (new CollectibleNative)
+                            tmp138.taken = 1
+                            set fruits fj tmp138
                             score2 = (score2 + 1)
-                            def be132:GameEventNative (new GameEventNative)
-                            be132.kind = "playSound"
-                            be132.id = "blip"
-                            push events (be132)
-                            def be133:GameEventNative (new GameEventNative)
-                            be133.kind = "playSound"
-                            be133.id = "win"
-                            push events (be133)
-                            def be134:GameEventNative (new GameEventNative)
-                            be134.kind = "particles"
-                            be134.id = "fruit"
-                            be134.x = fd.x
-                            be134.y = fd.y
-                            be134.amount = 22
-                            push events (be134)
+                            def be139:GameEventNative (new GameEventNative)
+                            be139.kind = "playSound"
+                            be139.id = "blip"
+                            push events (be139)
+                            def be140:GameEventNative (new GameEventNative)
+                            be140.kind = "playSound"
+                            be140.id = "win"
+                            push events (be140)
+                            def be141:GameEventNative (new GameEventNative)
+                            be141.kind = "particles"
+                            be141.id = "fruit"
+                            be141.x = fd.x
+                            be141.y = fd.y
+                            be141.amount = 22
+                            push events (be141)
                             push events ((this.rumbleForOwner(2 50 10000)))
                         }
                     }
@@ -2661,42 +2666,81 @@ class GeneratedGameScript {
         }
         def dk:int (0)
         while ((dk < _mod.MAX_DIAMONDS)) {
-            if (((itemAt diamonds dk).taken == 0)) {
+            def _at13:CollectibleNative (itemAt diamonds dk)
+            if ((_at13.taken == 0)) {
                 def dd:EntityPoseNative ((itemAt diamondDefs dk))
                 if ((p1.done == 0)) {
                     if ((this.hitPickup(p1.x p1.y dd.x dd.y))) {
-                        set diamonds dk {}
-                        p1 = {}
-                        def be135:GameEventNative (new GameEventNative)
-                        be135.kind = "playSound"
-                        be135.id = "win"
-                        push events (be135)
-                        def be136:GameEventNative (new GameEventNative)
-                        be136.kind = "particles"
-                        be136.id = "sparkle"
-                        be136.x = dd.x
-                        be136.y = dd.y
-                        be136.amount = 28
-                        push events (be136)
+                        def tmp142:CollectibleNative (new CollectibleNative)
+                        tmp142.taken = 1
+                        set diamonds dk tmp142
+                        def tmp143:PlayerNative (new PlayerNative)
+                        tmp143.x = p1.x
+                        tmp143.y = p1.y
+                        tmp143.vx = p1.vx
+                        tmp143.vy = p1.vy
+                        tmp143.face = p1.face
+                        tmp143.grounded = p1.grounded
+                        tmp143.anim = p1.anim
+                        tmp143.animTick = p1.animTick
+                        tmp143.jumpHold = p1.jumpHold
+                        tmp143.airJump = p1.airJump
+                        tmp143.jumpBoostMs = p1.jumpBoostMs
+                        tmp143.superMs = _mod.SUPER_MS
+                        tmp143.done = p1.done
+                        tmp143.finishMs = p1.finishMs
+                        tmp143.finishPulseMs = p1.finishPulseMs
+                        tmp143.celebrateBursts = p1.celebrateBursts
+                        p1 = tmp143
+                        def be144:GameEventNative (new GameEventNative)
+                        be144.kind = "playSound"
+                        be144.id = "win"
+                        push events (be144)
+                        def be145:GameEventNative (new GameEventNative)
+                        be145.kind = "particles"
+                        be145.id = "sparkle"
+                        be145.x = dd.x
+                        be145.y = dd.y
+                        be145.amount = 28
+                        push events (be145)
                         push events ((this.rumbleForOwner(owner 160 28000)))
                     }
                 }
                 if (dual) {
                     if ((p2.done == 0)) {
                         if ((this.hitPickup(p2.x p2.y dd.x dd.y))) {
-                            set diamonds dk {}
-                            p2 = {}
-                            def be137:GameEventNative (new GameEventNative)
-                            be137.kind = "playSound"
-                            be137.id = "win"
-                            push events (be137)
-                            def be138:GameEventNative (new GameEventNative)
-                            be138.kind = "particles"
-                            be138.id = "sparkle"
-                            be138.x = dd.x
-                            be138.y = dd.y
-                            be138.amount = 28
-                            push events (be138)
+                            def tmp146:CollectibleNative (new CollectibleNative)
+                            tmp146.taken = 1
+                            set diamonds dk tmp146
+                            def tmp147:PlayerNative (new PlayerNative)
+                            tmp147.x = p2.x
+                            tmp147.y = p2.y
+                            tmp147.vx = p2.vx
+                            tmp147.vy = p2.vy
+                            tmp147.face = p2.face
+                            tmp147.grounded = p2.grounded
+                            tmp147.anim = p2.anim
+                            tmp147.animTick = p2.animTick
+                            tmp147.jumpHold = p2.jumpHold
+                            tmp147.airJump = p2.airJump
+                            tmp147.jumpBoostMs = p2.jumpBoostMs
+                            tmp147.superMs = _mod.SUPER_MS
+                            tmp147.done = p2.done
+                            tmp147.finishMs = p2.finishMs
+                            tmp147.finishPulseMs = p2.finishPulseMs
+                            tmp147.celebrateBursts = p2.celebrateBursts
+                            p2 = tmp147
+                            def be148:GameEventNative (new GameEventNative)
+                            be148.kind = "playSound"
+                            be148.id = "win"
+                            push events (be148)
+                            def be149:GameEventNative (new GameEventNative)
+                            be149.kind = "particles"
+                            be149.id = "sparkle"
+                            be149.x = dd.x
+                            be149.y = dd.y
+                            be149.amount = 28
+                            push events (be149)
                             push events ((this.rumbleForOwner(2 160 28000)))
                         }
                     }
@@ -2719,7 +2763,15 @@ class GeneratedGameScript {
             }
         }
         def cameraY:int ((this.computeCamera(p1 p2 dual)))
-        def entities:[string:EntityPoseNative] ((this.placeEntities({} cameraY slots)))
+        def tmp150:GameSnapshotNative (new GameSnapshotNative)
+        tmp150.p1 = p1
+        tmp150.p2 = p2
+        tmp150.enemies = enemies
+        tmp150.fruits = fruits
+        tmp150.diamonds = diamonds
+        tmp150.bullets = bullets
+        tmp150.movingPlatforms = movingPlatforms
+        def entities:[string:EntityPoseNative] ((this.placeEntities(tmp150 (to_double cameraY) slots)))
         def patch:NativeGameState (new NativeGameState)
         patch.showNet = 0
         set patch.numbers "playerSlots" (to_double slots)
