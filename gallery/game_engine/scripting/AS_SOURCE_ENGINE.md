@@ -59,16 +59,51 @@ text node 3 = "AS SOURCE"
 AS SOURCE ENGINE OK
 ```
 
+## Interpreted autopeli (core)
+
+`games/autopeli_as_src/game.as` is the autopeli **core loop** (init, input →
+player controls, traffic AI, contacts → per-player HUD) running interpreted.
+`as_autopeli_src_demo.rgr` drives it headless and reads the ABI back:
+
+```
+P1 x=205 y=5860   P2 x=261 y=5860   traffic0 x=171 y=5520     (bodies placed)
+P1 steer=1000 throttle=1000   P2 steer=-1000   tr0 steer=-7 throttle=450
+HUD: HITS 1 / WALL / GRIP 100   |   HITS 0 / CONE / GRIP 100
+```
+
+— the same body positions, controls, and HUD the compiled AS guest produces.
+The bridge grew to the full RGW1 surface it needs (bodies, controls, contacts,
+plus impulse/event writers) and the reader sign-extends (`ar`) so negative
+controls come back as `-1000`, matching `wasm_mem_i32`.
+
+### Non-JSX parsing
+
+`ComponentEngine` gained a `jsxParsing` flag (default `true`); `AsSourceRunner`
+sets it `false` so `.as` is parsed as TypeScript, not TSX — `<` is comparison /
+cast, never a JSX tag.
+
+### Interpreter subset notes (what the `.as` must stay within)
+
+Verified working: module-level `let` state persists across `update()`; user
+functions call each other and mutate module state; `let arr = [..]` with
+`arr[i] = …` element writes; bitwise `&`; array literals + indexing. Watch out:
+
+- `/` is **float** division — use an `idiv(a,b)` helper (`(a/b)|0`, correct in
+  both the interpreter and asc) wherever integer division matters.
+- `<i32>x` / `<f64>x` angle-bracket casts and `: i32[]` array-type annotations
+  don't parse — use `i32(x)`-style casts and untyped array literals.
+- `import { … }` must be **single-line** (the runner strips it whole);
+  `x.toString()` returns null — rely on implicit `"" + x` concatenation.
+- `if (flags & BIT)` conditions: numbers are truthy, but prefer `!= 0` for clarity.
+
 ## Status & next steps
 
-Working: the interpreted `.as` → ABI pipeline (this is the new engine the
-project was missing). Follow-ons:
+Working: interpreted `.as` → ABI, including the autopeli core. Follow-ons:
 
-1. **asc parity** — compile the same `game.as` with a `@ranger/game` SDK and diff
-   the ABI against the interpreted run (as `tools/parity.cjs` does for Rust↔AS).
+1. **Full parity** — port the remaining autopeli extras (oil/ramps/cone-launch/
+   audio) into `game.as` and parity-check against the Rust/AS guests.
 2. **Catalog + SDL wiring** — have `game_catalog` pick `AsSourceRunner` when a
-   folder holds a `.as` file (the runner already exposes `folderHasAs`), so `.as`
-   games appear in the launcher next to `.wasm` ones.
-3. **Scale the bridge** — grow the flat SDK to the full RGW1 surface (bodies,
-   controls, contacts, impulses, events) so a real game like autopeli runs
-   interpreted, then parity-check it against the Rust/AS guests.
+   folder holds a `.as` file (`folderHasAs` is ready), so `.as` games appear in
+   the launcher and drive the real physics/render host.
+3. **asc parity** — compile the same `.as` with a `@ranger/game` SDK and diff the
+   ABI against the interpreted run.
