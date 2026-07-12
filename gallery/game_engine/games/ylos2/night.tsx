@@ -1,11 +1,7 @@
 /// <reference path="../../scripting/game.d.ts" />
 //
-// Ylos 2 — päivätaso. Voitto → yökiipeily (night.tsx).
-//
-// Split pane: left=P1 girl, right=P2 boy (paneIndex); WASD / arrows + Space + B
-// Dual (480px): P1 WASD, P2 arrows + Start to join
-//
-// Regenerate LPC assets: npm run engine:ylos2:assets
+// Ylos 2 — yökiipeily. Tummempi taivas, kapeammat lautat, nopeammat liikkuvat alustat.
+// Ladataan pushGame("night.tsx") päivätasolta. Pisteet säilyvät gamedata.jsonissa.
 
 import {
   setupYlos2Game,
@@ -16,9 +12,9 @@ import {
   createStaticBg as coreCreateStaticBg,
   staticLevelHeight as coreStaticLevelHeight
 } from "./ylos2_shared";
-import { DAY_LEVEL } from "./ylos2_level_day";
+import { NIGHT_LEVEL } from "./ylos2_level_night";
 
-setupYlos2Game(DAY_LEVEL);
+setupYlos2Game(NIGHT_LEVEL, { carryScores: true });
 
 function initState() {
   return coreInitState();
