@@ -7837,6 +7837,22 @@ class TSEmitter  {
         }
       }
     }
+    if ( typeof(node.left) != "undefined" ) {
+      if ( typeof(node.right) === "undefined" ) {
+        const ttest = node.left;
+        if ( this.isTruthyObjectTest(ttest) ) {
+          if ( typeof(node.body) != "undefined" ) {
+            const tcons = node.body;
+            if ( tcons.nodeType == "BlockStatement" ) {
+              this.emitBlockBody(tcons);
+            } else {
+              this.emitStatement(tcons);
+            }
+          }
+          return;
+        }
+      }
+    }
     let cond = "";
     if ( typeof(node.left) != "undefined" ) {
       cond = this.emitExpr((node.left), "boolean");
@@ -7866,6 +7882,35 @@ class TSEmitter  {
       return;
     }
     this.emitLine("}");
+  };
+  isTruthyObjectTest (node) {
+    const t = node.nodeType;
+    if ( t == "Identifier" ) {
+      const vt = this.exprType(node);
+      return this.isStructOrArrayType(vt);
+    }
+    if ( t == "MemberExpression" ) {
+      const vt2 = this.exprType(node);
+      if ( this.isStructOrArrayType(vt2) ) {
+        if ( node.name == "length" ) {
+          return false;
+        }
+        return true;
+      }
+    }
+    return false;
+  };
+  isStructOrArrayType (t) {
+    if ( (t.length) == 0 ) {
+      return false;
+    }
+    if ( (t.substring(0, 1 )) == "[" ) {
+      return true;
+    }
+    if ( (this).endsWith(t, "Native") ) {
+      return true;
+    }
+    return false;
   };
   emitReturn (node) {
     if ( typeof(node.left) === "undefined" ) {

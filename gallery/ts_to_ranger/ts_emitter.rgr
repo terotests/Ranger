@@ -3192,6 +3192,25 @@ class TSEmitter {
                 }
             }
         }
+        ; `if (obj)` / `if (arr[i])` truthiness on a struct/array value: in the
+        ; native model these are always present, so emit the body unconditionally
+        ; (Ranger `if` requires a boolean/number, not an object).
+        if (node.left) {
+            if (null? node.right) {
+                def ttest:TSNode (unwrap node.left)
+                if (this.isTruthyObjectTest(ttest)) {
+                    if (node.body) {
+                        def tcons:TSNode (unwrap node.body)
+                        if (tcons.nodeType == "BlockStatement") {
+                            this.emitBlockBody(tcons)
+                        } {
+                            this.emitStatement(tcons)
+                        }
+                    }
+                    return
+                }
+            }
+        }
         def cond:string ""
         if (node.left) {
             cond = (this.emitExpr((unwrap node.left) "boolean"))
@@ -3221,6 +3240,41 @@ class TSEmitter {
             return
         }
         this.emitLine("}")
+    }
+
+    ; True when a test expression is an object/array value used for truthiness
+    ; (`if (other)`, `if (arr[i])`) rather than a boolean/numeric condition.
+    fn isTruthyObjectTest:boolean (node:TSNode) {
+        def t:string node.nodeType
+        if (t == "Identifier") {
+            def vt:string (this.exprType(node))
+            return (this.isStructOrArrayType(vt))
+        }
+        if (t == "MemberExpression") {
+            ; a[i] element or a.field that resolves to a struct/array
+            def vt2:string (this.exprType(node))
+            if (this.isStructOrArrayType(vt2)) {
+                ; but not `a.length` (int) or numeric fields
+                if (node.name == "length") {
+                    return false
+                }
+                return true
+            }
+        }
+        return false
+    }
+
+    fn isStructOrArrayType:boolean (t:string) {
+        if ((strlen t) == 0) {
+            return false
+        }
+        if ((substring t 0 1) == "[") {
+            return true
+        }
+        if (this.endsWith(t "Native")) {
+            return true
+        }
+        return false
     }
 
     fn emitReturn:void (node:TSNode) {

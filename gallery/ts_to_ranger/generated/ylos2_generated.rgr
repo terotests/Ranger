@@ -1562,12 +1562,8 @@ class GeneratedGameScript {
         while ((i < _mod.MAX_DIAMONDS)) {
             def def:BASE_DIAMOND_DEFSElemNative ((itemAt _mod.BASE_DIAMOND_DEFS i))
             def taken:int (0)
-            if (prev) {
-                if ((itemAt prev i)) {
-                    def _at1:makeDiamonds_outRetNative (itemAt prev i)
-                    taken = _at1.taken
-                }
-            }
+            def _at1:makeDiamonds_outRetNative (itemAt prev i)
+            taken = _at1.taken
             if ((def.respawn && (taken == 1))) {
                 taken = 0
             }
@@ -1660,21 +1656,17 @@ class GeneratedGameScript {
             right = props.right
             action = props.action
         }
-        if (input) {
-            if ((itemAt input.players index)) {
-                def p:PlayerInputNative ((itemAt input.players index))
-                up = p.up
-                down = p.down
-                left = p.left
-                right = p.right
-                action = p.action
-                if (p.b) {
-                    shoot = true
-                }
-                if (p.x) {
-                    shoot = true
-                }
-            }
+        def p:PlayerInputNative ((itemAt input.players index))
+        up = p.up
+        down = p.down
+        left = p.left
+        right = p.right
+        action = p.action
+        if (p.b) {
+            shoot = true
+        }
+        if (p.x) {
+            shoot = true
         }
         def tmp96:readPlayerRetNative (new readPlayerRetNative)
         tmp96.up = up
