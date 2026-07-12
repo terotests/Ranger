@@ -12,6 +12,7 @@ typedef struct RgWasmRes {
     int kind;   /* 1 = sheet image, 2 = rect */
     int fw, fh, scale, feet;
     int w, h, r, g, b;
+    int drawLayer;
     char id[24];
     char path[80];
 } RgWasmRes;
@@ -63,7 +64,7 @@ static void rg_copy_wasm_str(IM3Runtime rt, void* mem, int32_t off, int32_t len,
     dst[n] = '\0';
 }
 
-/* env.rg_host_register_sheet(idOff,idLen,pathOff,pathLen,fw,fh,scale,feet) */
+/* env.rg_host_register_sheet(idOff,idLen,pathOff,pathLen,fw,fh,scale,feet,drawLayer) */
 m3ApiRawFunction(m3_rg_host_register_sheet) {
     m3ApiGetArg(int32_t, idOff)
     m3ApiGetArg(int32_t, idLen)
@@ -73,6 +74,7 @@ m3ApiRawFunction(m3_rg_host_register_sheet) {
     m3ApiGetArg(int32_t, fh)
     m3ApiGetArg(int32_t, scale)
     m3ApiGetArg(int32_t, feet)
+    m3ApiGetArg(int32_t, drawLayer)
     RgWasmSlot* s = (RgWasmSlot*)(_ctx->userdata);
     if (s && s->res_count < RG_WASM_MAX_RES) {
         RgWasmRes* rr = &s->res[s->res_count];
@@ -82,6 +84,7 @@ m3ApiRawFunction(m3_rg_host_register_sheet) {
         rr->fh = fh;
         rr->scale = scale;
         rr->feet = feet;
+        rr->drawLayer = drawLayer;
         rg_copy_wasm_str(runtime, _mem, idOff, idLen, rr->id, (int)sizeof(rr->id));
         rg_copy_wasm_str(runtime, _mem, pathOff, pathLen, rr->path, (int)sizeof(rr->path));
         s->res_count++;
@@ -89,7 +92,7 @@ m3ApiRawFunction(m3_rg_host_register_sheet) {
     m3ApiSuccess();
 }
 
-/* env.rg_host_register_rect(idOff,idLen,w,h,r,g,b) */
+/* env.rg_host_register_rect(idOff,idLen,w,h,r,g,b,drawLayer) */
 m3ApiRawFunction(m3_rg_host_register_rect) {
     m3ApiGetArg(int32_t, idOff)
     m3ApiGetArg(int32_t, idLen)
@@ -98,6 +101,7 @@ m3ApiRawFunction(m3_rg_host_register_rect) {
     m3ApiGetArg(int32_t, r)
     m3ApiGetArg(int32_t, g)
     m3ApiGetArg(int32_t, b)
+    m3ApiGetArg(int32_t, drawLayer)
     RgWasmSlot* s = (RgWasmSlot*)(_ctx->userdata);
     if (s && s->res_count < RG_WASM_MAX_RES) {
         RgWasmRes* rr = &s->res[s->res_count];
@@ -108,6 +112,7 @@ m3ApiRawFunction(m3_rg_host_register_rect) {
         rr->r = r;
         rr->g = g;
         rr->b = b;
+        rr->drawLayer = drawLayer;
         rg_copy_wasm_str(runtime, _mem, idOff, idLen, rr->id, (int)sizeof(rr->id));
         s->res_count++;
     }
@@ -120,9 +125,9 @@ static void rg_link_host_imports(RgWasmSlot* s) {
     }
     /* Suppress lookup failures: modules that don't import these still load. */
     (void)m3_LinkRawFunctionEx(s->module, "env", "rg_host_register_sheet",
-                               "v(iiiiiiii)", &m3_rg_host_register_sheet, s);
+                               "v(iiiiiiiii)", &m3_rg_host_register_sheet, s);
     (void)m3_LinkRawFunctionEx(s->module, "env", "rg_host_register_rect",
-                               "v(iiiiiii)", &m3_rg_host_register_rect, s);
+                               "v(iiiiiiii)", &m3_rg_host_register_rect, s);
 }
 
 static int rg_alloc_handle(void) {
@@ -442,6 +447,7 @@ int rg_wasm_host_res_ival(int handle, int idx, int field) {
     case 6: return rr->r;
     case 7: return rr->g;
     case 8: return rr->b;
+    case 9: return rr->drawLayer;
     default: return 0;
     }
 }

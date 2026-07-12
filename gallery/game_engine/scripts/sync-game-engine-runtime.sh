@@ -46,18 +46,21 @@ cp "$ROOT/bin/output.js" "$DEST/bin/output.js"
 cp "$ROOT/lib/stdops.rgr" "$DEST/bin/stdops.rgr"
 cp "$ROOT/bin/Lang.rgr" "$DEST/bin/Lang.rgr"
 
-# C runtime + SDL helper header for native/SDL rebuilds on the Pi.
+# C runtime + SDL/WASM helper sources for on-device rebuilds on the Pi.
 mkdir -p "$DEST/runtime" "$DEST/gallery/invaders"
 cp "$ROOT/runtime/ranger_rt.c" "$DEST/runtime/ranger_rt.c"
 cp "$ROOT/runtime/ranger_mem.c" "$DEST/runtime/ranger_mem.c"
+cp "$ROOT/runtime/rg_wasm_bridge.c" "$DEST/runtime/rg_wasm_bridge.c"
+cp "$ROOT/runtime/rg_wasm_bridge.h" "$DEST/runtime/rg_wasm_bridge.h"
+copy_tree "$ROOT/runtime/wasm3" "runtime/wasm3"
 cp "$ROOT/gallery/invaders/variant.hpp" "$DEST/gallery/invaders/variant.hpp"
 
 # Build helpers (run from bundle root on the Pi).
 mkdir -p "$DEST/gallery/game_engine/scripts"
-for script in build-native.sh build-sdl.sh build-game-sdl.sh sync-game-engine-runtime.sh; do
+for script in build-native.sh build-sdl.sh build-game-sdl.sh sync-game-engine-runtime.sh sync-pi-games.sh deploy-pi.sh; do
   cp "$GE/scripts/$script" "$DEST/gallery/game_engine/scripts/$script"
 done
 
 echo "   gallery/game_engine/{games,menu,scripting,*.rgr,scripts}"
 echo "   lib/, compiler/Lang.rgr, bin/{output.js,stdops.rgr,Lang.rgr}"
-echo "   runtime/{ranger_rt.c,ranger_mem.c}, gallery/invaders/variant.hpp"
+echo "   runtime/{ranger_rt.c,ranger_mem.c,rg_wasm_bridge.*,wasm3/}, gallery/invaders/variant.hpp"

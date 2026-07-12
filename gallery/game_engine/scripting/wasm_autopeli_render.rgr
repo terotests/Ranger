@@ -13,6 +13,8 @@ class WasmVisualEntity {
     def kind:string "rect"
     def x:int 0
     def y:int 0
+    def sortY:int 0
+    def drawLayer:int 10
     def angleDeg:double 0.0
     def visible:boolean true
     def w:int 8
@@ -37,6 +39,7 @@ class WasmAutopeliRender {
     def worldH:int 6000
     def templates:[WasmVisualEntity]
     def spritesReady:boolean false
+    def drawOrder:[int]
 
     fn scaledDim:int (base:int scalePct:int) {
         def v:int (to_int ((to_double (base * scalePct)) / 100.0))
@@ -116,10 +119,12 @@ class WasmAutopeliRender {
         this.loadSheet(cone "assets/cone.png" 204 275 9 252)
         def oil:WasmVisualEntity (new WasmVisualEntity)
         oil.id = "oil"
+        oil.drawLayer = 0
         this.loadSheet(oil "assets/oil.png" 891 706 9 353)
         def bar:WasmVisualEntity (new WasmVisualEntity)
         bar.id = "bar"
         bar.kind = "rect"
+        bar.drawLayer = 5
         bar.w = 8
         bar.h = 46
         bar.cr = 210
@@ -142,10 +147,11 @@ class WasmAutopeliRender {
         spritesReady = false
     }
 
-    fn addSheetTemplate:void (host:GameHost id:string path:string fw:int fh:int scale:int feet:int) {
+    fn addSheetTemplate:void (host:GameHost id:string path:string fw:int fh:int scale:int feet:int drawLayer:int) {
         def e:WasmVisualEntity (new WasmVisualEntity)
         e.id = id
         e.kind = "sheet"
+        e.drawLayer = drawLayer
         e.shPath = path
         e.shFrameW = fw
         e.shFrameH = fh
@@ -158,10 +164,11 @@ class WasmAutopeliRender {
         push templates e
     }
 
-    fn addRectTemplate:void (id:string w:int h:int r:int g:int b:int) {
+    fn addRectTemplate:void (id:string w:int h:int r:int g:int b:int drawLayer:int) {
         def e:WasmVisualEntity (new WasmVisualEntity)
         e.id = id
         e.kind = "rect"
+        e.drawLayer = drawLayer
         e.w = w
         e.h = h
         e.cr = r
@@ -191,8 +198,17 @@ class WasmAutopeliRender {
         return fail
     }
 
+    fn templateDrawLayer:int (spriteId:string) {
+        def tpl:WasmVisualEntity (this.findTemplate(spriteId))
+        if ((strlen tpl.id) > 0) {
+            return tpl.drawLayer
+        }
+        return 10
+    }
+
     fn copySheetFrom:void (dst:WasmVisualEntity src:WasmVisualEntity) {
         dst.kind = src.kind
+        dst.drawLayer = src.drawLayer
         dst.w = src.w
         dst.h = src.h
         dst.cr = src.cr
@@ -211,6 +227,7 @@ class WasmAutopeliRender {
         e.id = id
         def tpl:WasmVisualEntity (this.findTemplate(spriteId))
         if ((strlen tpl.id) > 0) {
+            e.drawLayer = tpl.drawLayer
             if (tpl.kind == "sheet") {
                 this.copySheetFrom(e tpl)
             } {
@@ -279,6 +296,7 @@ class WasmAutopeliRender {
     }
 
     fn syncEntityPose:void (e:WasmVisualEntity x:int y:int angle:double camY:int pw:int ph:int) {
+        e.sortY = y
         e.x = x
         e.y = (y - camY)
         e.angleDeg = angle
@@ -325,10 +343,48 @@ class WasmAutopeliRender {
         }
     }
 
-    fn drawEntities:void (drawList:[WasmVisualEntity] canvas:SoftCanvas) {
-        def i 0
-        while (i < (array_length drawList)) {
-            def e:WasmVisualEntity (itemAt drawList i)
+    fn sortKey:int (e:WasmVisualEntity) {
+        return ((e.drawLayer * 1000000) + e.sortY)
+    }
+
+    fn rebuildDrawOrder:void (entities:[WasmVisualEntity]) {
+        def n:int (array_length entities)
+        def next:[int]
+        def pi:int 0
+        while (pi < n) {
+            def best:int -1
+            def bk:int 2147483647
+            def i:int 0
+            while (i < n) {
+                def skip:boolean false
+                def u:int 0
+                while (u < pi) {
+                    if ((itemAt next u) == i) {
+                        skip = true
+                    }
+                    u = (u + 1)
+                }
+                if (false == skip) {
+                    def e:WasmVisualEntity (itemAt entities i)
+                    def k:int (this.sortKey(e))
+                    if (k < bk) {
+                        best = i
+                        bk = k
+                    }
+                }
+                i = (i + 1)
+            }
+            push next best
+            pi = (pi + 1)
+        }
+        drawOrder = next
+    }
+
+    fn drawEntities:void (entities:[WasmVisualEntity] canvas:SoftCanvas) {
+        def i:int 0
+        while (i < (array_length drawOrder)) {
+            def idx:int (itemAt drawOrder i)
+            def e:WasmVisualEntity (itemAt entities idx)
             if (e.visible) {
                 if (e.kind == "sheet") {
                     this.drawSheet(e canvas)

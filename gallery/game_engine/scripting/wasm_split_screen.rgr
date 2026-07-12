@@ -1,0 +1,101 @@
+; ==============================================================================
+; wasm_split_screen — split-screen host for WASM physics games (one world).
+; ==============================================================================
+;
+; Unlike TSX split (two GameRunner + sharedPhysicsStep), WASM uses a single
+; WasmPhysicsRunner: one GamePhysics world, one WASM update(), dual ABI input.
+; Each pane gets its own camera (p1 left, p2 right) and per-pane input mapping.
+; ==============================================================================
+
+Import "../framebuffer.rgr"
+Import "./wasm_physics_runner.rgr"
+Import "./game_input.rgr"
+Import "../../ts_to_ranger/game_host.rgr"
+
+class WasmSplitScreenHost {
+    def runner:WasmPhysicsRunner (new WasmPhysicsRunner)
+    def leftCanvas:SoftCanvas (new SoftCanvas)
+    def rightCanvas:SoftCanvas (new SoftCanvas)
+    def pw:int 480
+    def ph:int 270
+    def paneW:int 240
+    def autoscale:boolean true
+    def fpsShown:int 0
+    def profileEnabled:boolean false
+    def wasmPath:string ""
+
+    fn half:int (n:int) {
+        def result 0
+        def rem n
+        while (rem >= 2) {
+            rem = (rem - 2)
+            result = (result + 1)
+        }
+        return result
+    }
+
+    fn init:void (w:int h:int scaleToPane:boolean) {
+        pw = w
+        ph = h
+        paneW = (this.half(w))
+        autoscale = scaleToPane
+        if (autoscale) {
+            leftCanvas.init(w h)
+            rightCanvas.init(w h)
+        } {
+            leftCanvas.init(paneW h)
+            rightCanvas.init(paneW h)
+        }
+    }
+
+    fn setFpsShown:void (fps:int) {
+        fpsShown = fps
+        runner.setFpsShown(fps)
+    }
+
+    fn setProfileEnabled:void (on:boolean) {
+        profileEnabled = on
+        runner.setProfileEnabled(on)
+    }
+
+    fn isAutoscale:boolean () {
+        return autoscale
+    }
+
+    fn leftRaw:buffer () {
+        return (leftCanvas.raw())
+    }
+
+    fn rightRaw:buffer () {
+        return (rightCanvas.raw())
+    }
+
+    fn loadWasm:void (path:string host:GameHost) {
+        wasmPath = path
+        runner.init(pw ph)
+        runner.host = host
+        runner.loadModule(path)
+        runner.setupScene()
+    }
+
+    fn snapForPane:GameInputSnapshot (paneIndex:int) {
+        def snap:GameInputSnapshot (new GameInputSnapshot)
+        snap.buildForPane(paneIndex)
+        return snap
+    }
+
+    fn frame:void (dtMs:int) {
+        def leftSnap:GameInputSnapshot (this.snapForPane(0))
+        def rightSnap:GameInputSnapshot (this.snapForPane(1))
+        runner.frameWithPaneInput(dtMs leftSnap rightSnap)
+    }
+
+    fn draw:void () {
+        runner.syncEntityPoses(runner.camViewY)
+        runner.drawTo(leftCanvas runner.camViewY 0 true)
+        runner.syncEntityPoses(runner.camViewP2)
+        runner.drawTo(rightCanvas runner.camViewP2 1 false)
+    }
+
+    fn maybeHotReload:void () {}
+}

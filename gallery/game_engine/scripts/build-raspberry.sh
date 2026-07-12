@@ -100,13 +100,14 @@ cat > "$OUT_DIR/DEPLOY.md" <<'EOF'
 | Path | Description |
 |------|-------------|
 | `pong` | Terminal Pong (ANSI on HDMI console). aarch64 ELF, dynamically linked. |
-| `gallery/game_engine/games/` | TSX game scripts (launcher scans `*/index.tsx`). |
+| `gallery/game_engine/games/` | TSX games (`index.tsx`) and WASM games (`logic.wasm`, `game.info`, `assets/`) |
 | `gallery/game_engine/menu/` | Launcher menu (`index.tsx`). |
 | `gallery/game_engine/scripting/` | Shared TSX helpers, types, and image assets. |
 | `gallery/game_engine/*.rgr` | Engine modules for on-device SDL/native rebuilds. |
 | `lib/` | Ranger standard library (`stdops.rgr`, …) for on-device compiles. |
 | `compiler/Lang.rgr`, `bin/output.js` | Minimal Ranger compiler bundle. |
 | `runtime/ranger_rt.c`, `runtime/ranger_mem.c` | C runtime for native/SDL links. |
+| `runtime/wasm3/`, `runtime/rg_wasm_bridge.c` | wasm3 interpreter sources for `game_sdl` (WASM games). |
 | `gallery/invaders/variant.hpp` | C++ helper header for SDL builds. |
 | `ranger-game.service.example` | Example systemd unit for autostart on boot. |
 
@@ -165,10 +166,27 @@ clang pong.ll runtime/ranger_rt.c runtime/ranger_mem.c -o pong -Wno-override-mod
 SDL window builds need `libsdl2-dev` on the Pi:
 
 ```bash
-sudo apt-get install libsdl2-dev clang
+sudo apt-get install libsdl2-dev libgles2-mesa-dev clang g++
 ./gallery/game_engine/scripts/build-sdl.sh          # SDL Pong window
-./gallery/game_engine/scripts/build-game-sdl.sh     # TSX game launcher
+./gallery/game_engine/scripts/build-game-sdl.sh     # TSX + WASM game launcher
 ./tmp/game-sdl/game_sdl                             # menu (from repo root layout)
+./tmp/game-sdl/game_sdl gallery/game_engine/games/autopeli_wasm/logic.wasm
+```
+
+**SSH deploy from dev machine (recommended for pelit host):**
+
+```bash
+bash gallery/game_engine/scripts/deploy-pi.sh pelit
+```
+
+Rsyncs the repo, compiles `game_sdl` on the Pi (wasm3 embedded), and configures
+`~/start.sh` autostart. Deploy uses committed `logic.wasm` — no Rust on the dev
+machine unless `RANGER_WASM_BUILD=1`.
+
+Fast game-only sync (no C++ rebuild):
+
+```bash
+SYNC_WASM_BUILD=1 bash gallery/game_engine/scripts/sync-pi-games.sh pelit
 ```
 
 The bundle includes `games/`, `menu/`, `scripting/`, and `lib/` so the

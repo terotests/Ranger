@@ -7,6 +7,14 @@
 #   bash gallery/game_engine/scripts/deploy-pi.sh tero@192.168.1.3
 #   RANGER_AUDIO_DEVICE=plughw:0,0 bash gallery/game_engine/scripts/deploy-pi.sh pelit
 #
+# Deploys TSX games and WASM games (e.g. autopeli_wasm/logic.wasm). Uses committed
+# logic.wasm by default — no Rust required on the deploy machine. Optional local
+# rebuild: RANGER_WASM_BUILD=1 bash gallery/game_engine/scripts/deploy-pi.sh pelit
+#
+# On the Pi, compiles game_sdl (SDL2 + GLES2 + wasm3) and wires ~/start.sh autostart.
+#
+# Fast game-only sync (no C++ rebuild): sync-pi-games.sh
+#
 # Autostart on boot (pelit host — enabled by default):
 #   ~/initservice.sh  — wires lxsession / labwc / crontab -> ~/start.sh
 #   ~/start.sh        — launch game (manual or from autostart)
@@ -28,6 +36,7 @@ ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 REMOTE_DIR="ranger"
 AUDIO_DEV="${RANGER_AUDIO_DEVICE:-plughw:1,0}"
 CXX_OPT="${CXX_OPT:--O3}"
+GE_GAMES="$ROOT/gallery/game_engine/games"
 
 if [[ -z "${RANGER_PI_AUTOSTART:-}" ]]; then
   if [[ "$HOST_SHORT" == "pelit" ]]; then
@@ -38,10 +47,48 @@ if [[ -z "${RANGER_PI_AUTOSTART:-}" ]]; then
 fi
 
 if [[ "$RANGER_PI_AUTOSTART" == "1" ]]; then
-  TOTAL_STEPS=5
+  TOTAL_STEPS=6
 else
-  TOTAL_STEPS=4
+  TOTAL_STEPS=5
 fi
+
+wasm32_ready() {
+  command -v rustup >/dev/null 2>&1 \
+    && rustup target list --installed 2>/dev/null | grep -q '^wasm32-unknown-unknown'
+}
+
+build_wasm_modules() {
+  if [[ "${RANGER_WASM_BUILD:-0}" != "1" ]]; then
+    echo "    skip (using committed logic.wasm; RANGER_WASM_BUILD=1 to rebuild)"
+    return 0
+  fi
+  if ! wasm32_ready; then
+    echo "    RANGER_WASM_BUILD=1 but wasm32-unknown-unknown is not installed." >&2
+    echo "    rustup target add wasm32-unknown-unknown" >&2
+    return 1
+  fi
+  echo "    engine:wasm:build:rust-autopeli"
+  (cd "$ROOT" && npm run engine:wasm:build:rust-autopeli)
+  echo "    engine:wasm:build:rust-pong"
+  (cd "$ROOT" && npm run engine:wasm:build:rust-pong)
+}
+
+verify_wasm_artifacts() {
+  local missing=0
+  for wasm in \
+    "$GE_GAMES/autopeli_wasm/logic.wasm" \
+    "$GE_GAMES/rust_pong/logic.wasm"; do
+    if [[ ! -f "$wasm" ]]; then
+      echo "error: missing WASM artifact: $wasm" >&2
+      echo "  Install Rust + wasm32 target, or run:" >&2
+      echo "  npm run engine:wasm:build:rust-autopeli" >&2
+      missing=1
+    fi
+  done
+  if [[ "$missing" != "0" ]]; then
+    exit 1
+  fi
+}
 
 echo "==> 1/$TOTAL_STEPS Test SSH: $TARGET"
 ssh -o ConnectTimeout=10 -o BatchMode=yes "$TARGET" 'echo ok; uname -m'
@@ -49,7 +96,11 @@ ssh -o ConnectTimeout=10 -o BatchMode=yes "$TARGET" 'echo ok; uname -m'
 echo "==> 2/$TOTAL_STEPS Install Pi packages (clang, SDL2, GLES2, alsa-utils, x11-utils, node, npm)"
 ssh "$TARGET" 'sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git clang pkg-config libsdl2-dev libgles2-mesa-dev alsa-utils x11-utils nodejs npm'
 
-echo "==> 3/$TOTAL_STEPS Rsync repo -> ~/$REMOTE_DIR"
+echo "==> 3/$TOTAL_STEPS Verify WASM artifacts (optional RANGER_WASM_BUILD=1 rebuild)"
+build_wasm_modules
+verify_wasm_artifacts
+
+echo "==> 4/$TOTAL_STEPS Rsync repo -> ~/$REMOTE_DIR (incl. logic.wasm + runtime/wasm3)"
 ssh "$TARGET" "mkdir -p ~/$REMOTE_DIR"
 rsync -az --delete \
   --exclude node_modules \
@@ -58,7 +109,7 @@ rsync -az --delete \
   --exclude .git/objects \
   "$ROOT/" "$TARGET:~/$REMOTE_DIR/"
 
-echo "==> 4/$TOTAL_STEPS Build game launcher on Pi (CXX_OPT=$CXX_OPT)"
+echo "==> 5/$TOTAL_STEPS Build game launcher on Pi (CXX_OPT=$CXX_OPT, wasm3 embedded)"
 ssh "$TARGET" "cd ~/$REMOTE_DIR && npm install && npm run compile && CXX_OPT=$CXX_OPT npm run engine:game-sdl"
 
 echo "==> Write ~/start.sh + ~/initservice.sh (RANGER_AUDIO_DEVICE=$AUDIO_DEV)"
@@ -188,14 +239,18 @@ INITEOF
 ssh "$TARGET" "sed -i 's|AUDIO_PLACEHOLDER|$AUDIO_DEV|g' ~/start.sh && chmod +x ~/start.sh ~/initservice.sh && ln -sf ../start.sh ~/$REMOTE_DIR/start.sh"
 
 if [[ "$RANGER_PI_AUTOSTART" == "1" ]]; then
-  echo "==> 5/$TOTAL_STEPS Run ~/initservice.sh (configure autostart)"
+  echo "==> 6/$TOTAL_STEPS Run ~/initservice.sh (configure autostart)"
   ssh "$TARGET" '~/initservice.sh'
 fi
 
 echo ""
 echo "Done. On the Pi:"
-echo "  ~/start.sh       — launch game"
+echo "  ~/start.sh       — launch game launcher (TSX + WASM)"
 echo "  ~/initservice.sh — (re)configure boot autostart"
+echo ""
+echo "WASM games in launcher menu (e.g. Rust Autopeli):"
+echo "  ~/ranger/gallery/game_engine/games/autopeli_wasm/logic.wasm"
+echo "  host binary: ~/ranger/tmp/game-sdl/game_sdl (wasm3 interpreter embedded)"
 echo ""
 if [[ "$RANGER_PI_AUTOSTART" == "1" ]]; then
   echo "Autostart configured. Log: tail -f ~/ranger-game.log"
