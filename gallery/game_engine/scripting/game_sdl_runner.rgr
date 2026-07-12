@@ -213,6 +213,7 @@ class GameSdlRunner {
         runner.loadScript(src)
         this.presentLoadingScreen("LOADING")
         runner.setupScene()
+        runner.enableGpuSheetOverlay()
         runner.registerDefaultPaneGlobals()
         runner.trackScriptFile(tsxPath)
         currentScriptPath = tsxPath

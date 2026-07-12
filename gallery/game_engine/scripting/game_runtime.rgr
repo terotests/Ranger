@@ -221,12 +221,14 @@ class GameRunner {
 
     fn setGpuMode:void (enabled:boolean) {
         options.gpuMode = enabled
-        if (enabled) {
+        spriteRenderer.setGpuSheetOverlay(false)
+    }
+
+    fn enableGpuSheetOverlay:void () {
+        if (options.gpuMode) {
             if (options.spritesGpuOverlay) {
                 spriteRenderer.setGpuSheetOverlay(true)
             }
-        } {
-            spriteRenderer.setGpuSheetOverlay(false)
         }
     }
 
@@ -429,8 +431,10 @@ class GameRunner {
         def sceneReset:boolean (engine.patchScript(src))
         hudEnabled = (this.scriptHasFunction("hud"))
         if (sceneReset) {
+            spriteRenderer.setGpuSheetOverlay(false)
             this.resetScene()
             this.setupScene()
+            this.enableGpuSheetOverlay()
         }
         return sceneReset
     }

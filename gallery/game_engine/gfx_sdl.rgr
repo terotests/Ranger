@@ -527,6 +527,7 @@ static int rgfx_audio_sample_rate() {
     return g_rgfx_audio_freq;
 }
 #include <vector>
+#include <cmath>
 #if defined(__APPLE__)
 #include <OpenGL/gl3.h>
 #elif defined(__arm__) || defined(__aarch64__)
@@ -542,6 +543,13 @@ static int rgfx_audio_sample_rate() {
 
 static int g_rgfx_gpu_mode = 0;
 static SDL_GLContext g_rgfx_glctx = nullptr;
+
+static void rgfx_gl_ensure_current() {
+    if (g_rgfx_gpu_mode && g_rgfx_win != nullptr && g_rgfx_glctx != nullptr) {
+        SDL_GL_MakeCurrent(g_rgfx_win, g_rgfx_glctx);
+    }
+}
+
 static GLuint g_rgfx_gl_program = 0;
 static GLint g_rgfx_gl_pos_attr = 0;
 static GLint g_rgfx_gl_uv_attr = 0;
@@ -653,6 +661,7 @@ static GLuint rgfx_gl_make_tex(const uint8_t* pixels, int w, int h) {
 
 static int rgfx_gpu_upload_texture(const uint8_t* pixels, int w, int h) {
     if (!g_rgfx_gpu_mode || pixels == nullptr || w <= 0 || h <= 0) { return 0; }
+    rgfx_gl_ensure_current();
     GLuint tex = rgfx_gl_make_tex(pixels, w, h);
     g_rgfx_gl_textures.push_back(tex);
     return (int) g_rgfx_gl_textures.size();
@@ -831,6 +840,7 @@ static void rgfx_gpu_sprites_push(int texId, int atlasW, int atlasH,
 static void rgfx_gpu_sprites_draw_overlay() {
     if (g_rgfx_sprites.empty() || g_rgfx_spr_fb_w <= 0 || g_rgfx_spr_fb_h <= 0) { return; }
     if (!g_rgfx_gpu_mode) { return; }
+    rgfx_gl_ensure_current();
     rgfx_gl_init();
     for (const RgfxGpuSprite& s : g_rgfx_sprites) {
         if (s.texId <= 0 || s.texId > (int) g_rgfx_gl_textures.size()) { continue; }
@@ -892,6 +902,7 @@ static void rgfx_gpu_draw_quad_tex(GLuint tex, float x, float y, float qw, float
 
 static void rgfx_gpu_start_frame(int w, int h) {
     if (!g_rgfx_gpu_mode) { return; }
+    rgfx_gl_ensure_current();
     int drawW = w;
     int drawH = h;
     if (g_rgfx_win != nullptr) {

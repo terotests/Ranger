@@ -209,7 +209,6 @@ class GameSpriteRenderer {
         e.shFrameH = (this.scaledDim(e.shFrameH scale))
         e.shFeetTrim = (this.scaledDim(e.shFeetTrim scale))
         e.shScale = 100
-        this.uploadSheetGpuTex(e)
     }
 
     fn uploadSheetGpuTex:void (e:GameEntity) {
