@@ -95,17 +95,34 @@ if [[ -f "$ROOT/gallery/ts_to_ranger/bin/ts_emitter_main.js" ]]; then
         -o pacman_native_generated.rgr
       ;;
   esac
+  emit_status=$?
+  if [[ $emit_status -ne 0 ]]; then
+    echo "error: TS emitter failed (exit $emit_status)" >&2
+    exit "$emit_status"
+  fi
 else
   echo "    (skip: run npm run ts2ranger:compile first to refresh generated/*.rgr)"
 fi
 
 echo "==> 1/3 Ranger -> C++ ($GAME)"
 cd "$ROOT"
+rm -f "$CPP_FILE" "$BIN_FILE"
+set +e
 RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr" node "$ROOT/bin/output.js" \
   -l=cpp "$SOURCE" \
   -nodecli \
   -d="tmp/game-sdl-native" \
   -o="game_sdl_native.cpp"
+compile_status=$?
+set -e
+if [[ $compile_status -ne 0 ]]; then
+  echo "error: Ranger compile failed (exit $compile_status)" >&2
+  exit "$compile_status"
+fi
+if [[ ! -f "$CPP_FILE" ]]; then
+  echo "error: Ranger compile produced no output ($CPP_FILE)" >&2
+  exit 1
+fi
 
 cp "$ROOT/gallery/invaders/variant.hpp" "$OUT_DIR/variant.hpp"
 

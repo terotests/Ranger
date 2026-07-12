@@ -942,12 +942,69 @@ class TSParserSimple  {
     const v = this.peekValue();
     return v == value;
   };
+  isNameToken () {
+    const t = this.peekType();
+    if ( t == "Identifier" ) {
+      return true;
+    }
+    if ( t == "TSType" ) {
+      return true;
+    }
+    if ( t == "Keyword" ) {
+      return true;
+    }
+    if ( t == "TSKeyword" ) {
+      return true;
+    }
+    return false;
+  };
+  isObjectPropertyKeyToken () {
+    if ( this.isNameToken() ) {
+      return true;
+    }
+    const t = this.peekType();
+    if ( t == "String" ) {
+      return true;
+    }
+    if ( t == "Number" ) {
+      return true;
+    }
+    if ( t == "Boolean" ) {
+      return true;
+    }
+    if ( t == "Null" ) {
+      return true;
+    }
+    return false;
+  };
+  parseMemberName () {
+    if ( this.isNameToken() ) {
+      const tok = this.peek();
+      this.advance();
+      return tok;
+    }
+    return this.expect("Identifier");
+  };
+  guardNoProgress (prevPos) {
+    if ( this.pos != prevPos ) {
+      return;
+    }
+    if ( this.quiet == false ) {
+      const tok = this.peek();
+      console.log(((("Parser recovery: skipping unexpected token '" + tok.value) + "' (type ") + tok.tokenType) + ")");
+    }
+    if ( this.isAtEnd() == false ) {
+      this.advance();
+    }
+  };
   parseProgram () {
     const prog = new TSNode();
     prog.nodeType = "Program";
     while (this.isAtEnd() == false) {
+      const beforePos = this.pos;
       const stmt = this.parseStatement();
       prog.children.push(stmt);
+      this.guardNoProgress(beforePos);
     };
     return prog;
   };
@@ -1014,6 +1071,12 @@ class TSParserSimple  {
     }
     if ( tokVal == "return" ) {
       return this.parseReturn();
+    }
+    if ( tokVal == "break" ) {
+      return this.parseBreak();
+    }
+    if ( tokVal == "continue" ) {
+      return this.parseContinue();
     }
     if ( tokVal == "throw" ) {
       return this.parseThrow();
@@ -1089,6 +1152,32 @@ class TSParserSimple  {
       const arg = this.parseExpr();
       node.left = arg;
     }
+    if ( this.matchValue(";") ) {
+      this.advance();
+    }
+    return node;
+  };
+  parseBreak () {
+    const node = new TSNode();
+    node.nodeType = "BreakStatement";
+    const startTok = this.peek();
+    node.start = startTok.start;
+    node.line = startTok.line;
+    node.col = startTok.col;
+    this.expectValue("break");
+    if ( this.matchValue(";") ) {
+      this.advance();
+    }
+    return node;
+  };
+  parseContinue () {
+    const node = new TSNode();
+    node.nodeType = "ContinueStatement";
+    const startTok = this.peek();
+    node.start = startTok.start;
+    node.line = startTok.line;
+    node.col = startTok.col;
+    this.expectValue("continue");
     if ( this.matchValue(";") ) {
       this.advance();
     }
@@ -1777,8 +1866,10 @@ class TSParserSimple  {
     const body = new TSNode();
     body.nodeType = "TSModuleBlock";
     while ((this.matchValue("}") == false) && (this.isAtEnd() == false)) {
+      const beforePos = this.pos;
       const stmt = this.parseStatement();
       body.children.push(stmt);
+      this.guardNoProgress(beforePos);
     };
     this.expectValue("}");
     node.body = body;
@@ -1808,8 +1899,10 @@ class TSParserSimple  {
       const body = new TSNode();
       body.nodeType = "TSModuleBlock";
       while ((this.matchValue("}") == false) && (this.isAtEnd() == false)) {
+        const beforePos = this.pos;
         const stmt = this.parseStatement();
         body.children.push(stmt);
+        this.guardNoProgress(beforePos);
       };
       this.expectValue("}");
       node.body = body;
@@ -2016,6 +2109,7 @@ class TSParserSimple  {
         this.expectValue(":");
       }
       while ((((this.matchValue("case") == false) && (this.matchValue("default") == false)) && (this.matchValue("}") == false)) && (this.isAtEnd() == false)) {
+        const beforePos = this.pos;
         if ( this.matchValue("break") ) {
           const breakNode = new TSNode();
           breakNode.nodeType = "BreakStatement";
@@ -2028,6 +2122,7 @@ class TSParserSimple  {
           const stmt = this.parseStatement();
           caseNode.children.push(stmt);
         }
+        this.guardNoProgress(beforePos);
       };
       node.children.push(caseNode);
     };
@@ -2334,8 +2429,10 @@ class TSParserSimple  {
     block.col = startTok.col;
     this.expectValue("{");
     while ((this.matchValue("}") == false) && (this.isAtEnd() == false)) {
+      const beforePos = this.pos;
       const stmt = this.parseStatement();
       block.children.push(stmt);
+      this.guardNoProgress(beforePos);
     };
     this.expectValue("}");
     return block;
@@ -2598,63 +2695,61 @@ class TSParserSimple  {
       node_7.col = tok.col;
       return node_7;
     }
-    if ( tokVal == "void" ) {
+    if ( tokVal == "object" ) {
       this.advance();
       const node_8 = new TSNode();
-      node_8.nodeType = "TSVoidKeyword";
+      node_8.nodeType = "TSObjectKeyword";
       node_8.start = tok.start;
       node_8.end = tok.end;
       node_8.line = tok.line;
       node_8.col = tok.col;
       return node_8;
     }
-    if ( tokVal == "null" ) {
+    if ( tokVal == "void" ) {
       this.advance();
       const node_9 = new TSNode();
-      node_9.nodeType = "TSNullKeyword";
+      node_9.nodeType = "TSVoidKeyword";
       node_9.start = tok.start;
       node_9.end = tok.end;
       node_9.line = tok.line;
       node_9.col = tok.col;
       return node_9;
     }
-    if ( tokVal == "never" ) {
+    if ( tokVal == "null" ) {
       this.advance();
       const node_10 = new TSNode();
-      node_10.nodeType = "TSNeverKeyword";
+      node_10.nodeType = "TSNullKeyword";
       node_10.start = tok.start;
       node_10.end = tok.end;
       node_10.line = tok.line;
       node_10.col = tok.col;
       return node_10;
     }
-    if ( tokVal == "undefined" ) {
+    if ( tokVal == "never" ) {
       this.advance();
       const node_11 = new TSNode();
-      node_11.nodeType = "TSUndefinedKeyword";
+      node_11.nodeType = "TSNeverKeyword";
       node_11.start = tok.start;
       node_11.end = tok.end;
       node_11.line = tok.line;
       node_11.col = tok.col;
       return node_11;
     }
+    if ( tokVal == "undefined" ) {
+      this.advance();
+      const node_12 = new TSNode();
+      node_12.nodeType = "TSUndefinedKeyword";
+      node_12.start = tok.start;
+      node_12.end = tok.end;
+      node_12.line = tok.line;
+      node_12.col = tok.col;
+      return node_12;
+    }
     const tokType = this.peekType();
     if ( tokType == "Identifier" ) {
       return this.parseTypeRef();
     }
     if ( tokType == "String" ) {
-      this.advance();
-      const node_12 = new TSNode();
-      node_12.nodeType = "TSLiteralType";
-      node_12.start = tok.start;
-      node_12.end = tok.end;
-      node_12.line = tok.line;
-      node_12.col = tok.col;
-      node_12.value = tok.value;
-      node_12.kind = "string";
-      return node_12;
-    }
-    if ( tokType == "Number" ) {
       this.advance();
       const node_13 = new TSNode();
       node_13.nodeType = "TSLiteralType";
@@ -2663,10 +2758,10 @@ class TSParserSimple  {
       node_13.line = tok.line;
       node_13.col = tok.col;
       node_13.value = tok.value;
-      node_13.kind = "number";
+      node_13.kind = "string";
       return node_13;
     }
-    if ( (tokVal == "true") || (tokVal == "false") ) {
+    if ( tokType == "Number" ) {
       this.advance();
       const node_14 = new TSNode();
       node_14.nodeType = "TSLiteralType";
@@ -2674,20 +2769,32 @@ class TSParserSimple  {
       node_14.end = tok.end;
       node_14.line = tok.line;
       node_14.col = tok.col;
-      node_14.value = tokVal;
-      node_14.kind = "boolean";
+      node_14.value = tok.value;
+      node_14.kind = "number";
       return node_14;
     }
-    if ( tokType == "Template" ) {
+    if ( (tokVal == "true") || (tokVal == "false") ) {
       this.advance();
       const node_15 = new TSNode();
-      node_15.nodeType = "TSTemplateLiteralType";
+      node_15.nodeType = "TSLiteralType";
       node_15.start = tok.start;
       node_15.end = tok.end;
       node_15.line = tok.line;
       node_15.col = tok.col;
-      node_15.value = tok.value;
+      node_15.value = tokVal;
+      node_15.kind = "boolean";
       return node_15;
+    }
+    if ( tokType == "Template" ) {
+      this.advance();
+      const node_16 = new TSNode();
+      node_16.nodeType = "TSTemplateLiteralType";
+      node_16.start = tok.start;
+      node_16.end = tok.end;
+      node_16.line = tok.line;
+      node_16.col = tok.col;
+      node_16.value = tok.value;
+      return node_16;
     }
     if ( tokVal == "new" ) {
       return this.parseConstructorType();
@@ -3261,13 +3368,64 @@ class TSParserSimple  {
     return left;
   };
   parseLogicalAnd () {
-    let left = this.parseEquality();
+    let left = this.parseBitwiseOr();
     while (this.matchValue("&&")) {
+      this.advance();
+      const right = this.parseBitwiseOr();
+      const expr = new TSNode();
+      expr.nodeType = "BinaryExpression";
+      expr.value = "&&";
+      expr.left = left;
+      expr.right = right;
+      expr.start = left.start;
+      expr.line = left.line;
+      expr.col = left.col;
+      left = expr;
+    };
+    return left;
+  };
+  parseBitwiseOr () {
+    let left = this.parseBitwiseXor();
+    while (this.matchValue("|")) {
+      this.advance();
+      const right = this.parseBitwiseXor();
+      const expr = new TSNode();
+      expr.nodeType = "BinaryExpression";
+      expr.value = "|";
+      expr.left = left;
+      expr.right = right;
+      expr.start = left.start;
+      expr.line = left.line;
+      expr.col = left.col;
+      left = expr;
+    };
+    return left;
+  };
+  parseBitwiseXor () {
+    let left = this.parseBitwiseAnd();
+    while (this.matchValue("^")) {
+      this.advance();
+      const right = this.parseBitwiseAnd();
+      const expr = new TSNode();
+      expr.nodeType = "BinaryExpression";
+      expr.value = "^";
+      expr.left = left;
+      expr.right = right;
+      expr.start = left.start;
+      expr.line = left.line;
+      expr.col = left.col;
+      left = expr;
+    };
+    return left;
+  };
+  parseBitwiseAnd () {
+    let left = this.parseEquality();
+    while (this.matchValue("&")) {
       this.advance();
       const right = this.parseEquality();
       const expr = new TSNode();
       expr.nodeType = "BinaryExpression";
-      expr.value = "&&";
+      expr.value = "&";
       expr.left = left;
       expr.right = right;
       expr.start = left.start;
@@ -3384,7 +3542,7 @@ class TSParserSimple  {
       update.col = opTok.col;
       return update;
     }
-    if ( (tokVal == "!") || (tokVal == "-") ) {
+    if ( ((tokVal == "!") || (tokVal == "-")) || (tokVal == "+") ) {
       const opTok_1 = this.peek();
       this.advance();
       const arg_1 = this.parseUnary();
@@ -3396,6 +3554,19 @@ class TSParserSimple  {
       unary.line = opTok_1.line;
       unary.col = opTok_1.col;
       return unary;
+    }
+    if ( tokVal == "typeof" ) {
+      const opTok_2 = this.peek();
+      this.advance();
+      const arg_2 = this.parseUnary();
+      const unary_1 = new TSNode();
+      unary_1.nodeType = "UnaryExpression";
+      unary_1.value = "typeof";
+      unary_1.left = arg_2;
+      unary_1.start = opTok_2.start;
+      unary_1.line = opTok_2.line;
+      unary_1.col = opTok_2.col;
+      return unary_1;
     }
     if ( tokVal == "yield" ) {
       const yieldTok = this.peek();
@@ -3418,10 +3589,10 @@ class TSParserSimple  {
     if ( tokVal == "await" ) {
       const awaitTok = this.peek();
       this.advance();
-      const arg_2 = this.parseUnary();
+      const arg_3 = this.parseUnary();
       const awaitExpr = new TSNode();
       awaitExpr.nodeType = "AwaitExpression";
-      awaitExpr.left = arg_2;
+      awaitExpr.left = arg_3;
       awaitExpr.start = awaitTok.start;
       awaitExpr.line = awaitTok.line;
       awaitExpr.col = awaitTok.col;
@@ -3448,11 +3619,11 @@ class TSParserSimple  {
         const typeNode = this.parseType();
         if ( this.matchValue(">") ) {
           this.advance();
-          const arg_3 = this.parseUnary();
+          const arg_4 = this.parseUnary();
           const assertion = new TSNode();
           assertion.nodeType = "TSTypeAssertion";
           assertion.typeAnnotation = typeNode;
-          assertion.left = arg_3;
+          assertion.left = arg_4;
           assertion.start = startTok.start;
           assertion.line = startTok.line;
           assertion.col = startTok.col;
@@ -3558,7 +3729,7 @@ class TSParserSimple  {
       }
       if ( tokVal == "." ) {
         this.advance();
-        const propTok = this.expect("Identifier");
+        const propTok = this.parseMemberName();
         const member = new TSNode();
         member.nodeType = "MemberExpression";
         member.left = expr;
@@ -3604,8 +3775,8 @@ class TSParserSimple  {
           optIndex.col = expr.col;
           expr = optIndex;
         }
-        if ( this.matchType("Identifier") ) {
-          const propTok_1 = this.expect("Identifier");
+        if ( this.isNameToken() ) {
+          const propTok_1 = this.parseMemberName();
           const optMember = new TSNode();
           optMember.nodeType = "OptionalMemberExpression";
           optMember.optional = true;
@@ -3916,6 +4087,7 @@ class TSParserSimple  {
     node.col = tok.col;
     this.expectValue("{");
     while ((this.matchValue("}") == false) && (this.isAtEnd() == false)) {
+      const loopStartPos = this.pos;
       if ( this.matchValue("...") ) {
         this.advance();
         const spreadArg = this.parseExpr();
@@ -3965,15 +4137,7 @@ class TSParserSimple  {
           isComputed = true;
           prop.computed = true;
         }
-        if ( this.matchType("Identifier") ) {
-          prop.name = keyTok.value;
-          this.advance();
-        }
-        if ( this.matchType("String") ) {
-          prop.name = keyTok.value;
-          this.advance();
-        }
-        if ( this.matchType("Number") ) {
+        if ( this.isObjectPropertyKeyToken() ) {
           prop.name = keyTok.value;
           this.advance();
         }
@@ -4023,6 +4187,9 @@ class TSParserSimple  {
       }
       if ( this.matchValue(",") ) {
         this.advance();
+      }
+      if ( this.pos == loopStartPos ) {
+        break;
       }
     };
     this.expectValue("}");
@@ -4442,6 +4609,9 @@ class TSEmitter  {
     this.stateVarName = "s";
     this.readEntityIds = [];
     this.readEntitySeen = {};
+    this.readPlayerIndices = [];
+    this.readPlayerSeen = {};
+    this.inputVarName = "input";
     this.fnReturnTypes = {};
     this.fnParamTypesCsv = {};
     this.isHelperFn = {};
@@ -4647,6 +4817,8 @@ class TSEmitter  {
     this.interfaceFieldsCsv["EntityPose"] = "x:double,y:double,visible:int,r:int,g:int,b:int,rad:int,p0:int,p1:int,p2:int";
     this.interfaceFieldsCsv["ResourceDef"] = "kind:string,id:string,path:string,px:int,frameCount:int,w:int,h:int";
     this.interfaceFieldsCsv["GameEvent"] = "kind:string,id:string,x:double,y:double,amount:int";
+    this.interfaceFieldsCsv["PlayerInput"] = "up:boolean,down:boolean,left:boolean,right:boolean,action:boolean";
+    this.interfaceFieldsCsv["GameInput"] = "players:[PlayerInputNative]";
   };
   isNativeStateField (prop) {
     if ( prop == "screen" ) {
@@ -4676,6 +4848,12 @@ class TSEmitter  {
     if ( prop == "hasVy" ) {
       return true;
     }
+    if ( prop == "dt" ) {
+      return true;
+    }
+    if ( prop == "hasDt" ) {
+      return true;
+    }
     if ( prop == "entities" ) {
       return true;
     }
@@ -4703,11 +4881,20 @@ class TSEmitter  {
     if ( (prop == "hasVx") || (prop == "hasVy") ) {
       return "boolean";
     }
+    if ( prop == "hasDt" ) {
+      return "boolean";
+    }
     if ( (((prop == "id") || (prop == "kind")) || (prop == "screen")) || (prop == "path") ) {
       return "string";
     }
     if ( prop == "state" ) {
       return "NativeGameState";
+    }
+    if ( prop == "input" ) {
+      return "GameInputNative";
+    }
+    if ( prop == "players" ) {
+      return "[PlayerInputNative]";
     }
     return "int";
   };
@@ -4724,6 +4911,9 @@ class TSEmitter  {
     }
     const callee = node.left;
     if ( callee.nodeType == "Identifier" ) {
+      if ( this.isBridgeHelper(callee.name) ) {
+        return "GameEventNative";
+      }
       if ( this.isKnownHelper(callee.name) ) {
         return this.helperReturnType(callee.name);
       }
@@ -4990,6 +5180,14 @@ class TSEmitter  {
         if ( node.nodeType == "Identifier" ) {
           return expr;
         }
+        if ( this.containsChar(expr, 46) ) {
+          return expr;
+        }
+        if ( (expr.length) >= 4 ) {
+          if ( (expr.substring(0, 4 )) == "(0.0" ) {
+            return expr;
+          }
+        }
         if ( (expr.length) >= 10 ) {
           if ( (expr.substring(0, 10 )) == "(to_double" ) {
             return expr;
@@ -5081,6 +5279,8 @@ class TSEmitter  {
       }
       k = k + 1;
     };
+    this.finalizeSynthStructs(ast);
+    this.finalizeHelperReturnTypes(ast);
   };
   scanStateArrays (node) {
     if ( typeof(node.body) === "undefined" ) {
@@ -5178,6 +5378,105 @@ class TSEmitter  {
     this.fnParamTypesCsv[node.name] = this.joinCsv(types);
     this.inferParamTypes(node);
   };
+  isBridgeHelper (name) {
+    if ( name == "soundEvent" ) {
+      return true;
+    }
+    if ( name == "musicEvent" ) {
+      return true;
+    }
+    if ( name == "musicScoreEvent" ) {
+      return true;
+    }
+    if ( name == "stopMusicEvent" ) {
+      return true;
+    }
+    if ( name == "particleEvent" ) {
+      return true;
+    }
+    if ( name == "rumbleEvent" ) {
+      return true;
+    }
+    return false;
+  };
+  emitBridgeHelperValue (name, node) {
+    const tmp = "be" + ("" + this.tmpCounter);
+    this.tmpCounter = this.tmpCounter + 1;
+    this.emitLine(("def " + tmp) + ":GameEventNative (new GameEventNative)");
+    if ( name == "soundEvent" ) {
+      this.emitLine(tmp + ".kind = \"playSound\"");
+      if ( (node.children.length) > 0 ) {
+        const id = this.emitExpr((node.children[0]), "string");
+        this.emitLine((tmp + ".id = ") + id);
+      }
+      return tmp;
+    }
+    if ( name == "stopMusicEvent" ) {
+      this.emitLine(tmp + ".kind = \"stopMusic\"");
+      this.emitLine(tmp + ".id = \"\"");
+      return tmp;
+    }
+    if ( name == "musicEvent" ) {
+      this.emitLine(tmp + ".kind = \"playMusic\"");
+      if ( (node.children.length) > 0 ) {
+        const id_1 = this.emitExpr((node.children[0]), "string");
+        this.emitLine((tmp + ".id = ") + id_1);
+      }
+      this.emitLine(tmp + ".amount = 1");
+      return tmp;
+    }
+    if ( name == "musicScoreEvent" ) {
+      this.emitLine(tmp + ".kind = \"playMusic\"");
+      this.emitLine(tmp + ".id = \"inline\"");
+      if ( (node.children.length) > 0 ) {
+        const txt = this.emitExpr((node.children[0]), "string");
+        this.emitLine((tmp + ".text = ") + txt);
+      }
+      this.emitLine(tmp + ".amount = 1");
+      return tmp;
+    }
+    if ( name == "particleEvent" ) {
+      this.emitLine(tmp + ".kind = \"particles\"");
+      if ( (node.children.length) > 0 ) {
+        const pid = this.emitExpr((node.children[0]), "string");
+        this.emitLine((tmp + ".id = ") + pid);
+      }
+      if ( (node.children.length) > 1 ) {
+        const px = this.emitExpr((node.children[1]), "double");
+        this.emitLine((tmp + ".x = ") + px);
+      }
+      if ( (node.children.length) > 2 ) {
+        const py = this.emitExpr((node.children[2]), "double");
+        this.emitLine((tmp + ".y = ") + py);
+      }
+      if ( (node.children.length) > 3 ) {
+        const amt = this.emitExpr((node.children[3]), "int");
+        this.emitLine((tmp + ".amount = ") + amt);
+      }
+      return tmp;
+    }
+    if ( name == "rumbleEvent" ) {
+      this.emitLine(tmp + ".kind = \"rumble\"");
+      if ( (node.children.length) > 0 ) {
+        const pad = this.emitExpr((node.children[0]), "int");
+        this.emitLine((tmp + ".pad = ") + pad);
+      }
+      if ( (node.children.length) > 1 ) {
+        const lo = this.emitExpr((node.children[1]), "int");
+        this.emitLine((tmp + ".low = ") + lo);
+      }
+      if ( (node.children.length) > 2 ) {
+        const hi = this.emitExpr((node.children[2]), "int");
+        this.emitLine((tmp + ".high = ") + hi);
+      }
+      if ( (node.children.length) > 3 ) {
+        const dur = this.emitExpr((node.children[3]), "int");
+        this.emitLine((tmp + ".ms = ") + dur);
+      }
+      return tmp;
+    }
+    return tmp;
+  };
   inferObjectStructType (obj, fnName) {
     const known = this.matchKnownStruct(obj);
     if ( (known.length) > 0 ) {
@@ -5236,6 +5535,24 @@ class TSEmitter  {
     }
     return structType;
   };
+  objectFieldType (key, valNode) {
+    if ( key == "hit" ) {
+      return "boolean";
+    }
+    if ( key == "vx" ) {
+      return "double";
+    }
+    if ( key == "vy" ) {
+      return "double";
+    }
+    if ( key == "bx" ) {
+      return "double";
+    }
+    if ( key == "by" ) {
+      return "double";
+    }
+    return this.exprType(valNode);
+  };
   objectFieldsCsv (obj) {
     let pairs = [];
     let i = 0;
@@ -5245,13 +5562,86 @@ class TSEmitter  {
         const key = this.propKey(prop);
         if ( (key.length) > 0 ) {
           const valNode = this.propertyValueNode(prop);
-          const ft = this.exprType(valNode);
+          const ft = this.objectFieldType(key, valNode);
           pairs.push((key + ":") + ft);
         }
       }
       i = i + 1;
     };
     return this.joinCsv(pairs);
+  };
+  finalizeSynthStructs (ast) {
+    let i = 0;
+    while (i < (ast.children.length)) {
+      const node = ast.children[i];
+      if ( node.nodeType == "FunctionDeclaration" ) {
+        if ( this.isSpecialFn(node.name) == false ) {
+          if ( typeof(node.body) === "undefined" ) {
+            i = i + 1;
+            continue;
+          }
+          const body = node.body;
+          const saved = this.varTypes;
+          let local = {};
+          this.varTypes = local;
+          this.collectLocalVarTypes(body, body);
+          const csv = this.findReturnStructCsv(body, node.name);
+          if ( (csv.length) > 0 ) {
+            const baseName = node.name + "Ret";
+            this.interfaceFieldsCsv[baseName] = csv;
+          }
+          this.varTypes = saved;
+        }
+      }
+      i = i + 1;
+    };
+  };
+  findReturnStructCsv (block, fnName) {
+    let i = 0;
+    while (i < (block.children.length)) {
+      const csv = this.findReturnStructCsvInStmt((block.children[i]), fnName);
+      if ( (csv.length) > 0 ) {
+        return csv;
+      }
+      i = i + 1;
+    };
+    return "";
+  };
+  findReturnStructCsvInStmt (stmt, fnName) {
+    const t = stmt.nodeType;
+    if ( t == "ReturnStatement" ) {
+      if ( typeof(stmt.left) != "undefined" ) {
+        const val = stmt.left;
+        if ( val.nodeType == "ObjectExpression" ) {
+          return this.objectFieldsCsv(val);
+        }
+      }
+      return "";
+    }
+    if ( t == "IfStatement" ) {
+      if ( typeof(stmt.body) != "undefined" ) {
+        const r1 = this.findReturnStructCsvInStmt((stmt.body), fnName);
+        if ( (r1.length) > 0 ) {
+          return r1;
+        }
+      }
+      if ( typeof(stmt.right) != "undefined" ) {
+        const r2 = this.findReturnStructCsvInStmt((stmt.right), fnName);
+        if ( (r2.length) > 0 ) {
+          return r2;
+        }
+      }
+      return "";
+    }
+    if ( t == "BlockStatement" ) {
+      return this.findReturnStructCsv(stmt, fnName);
+    }
+    if ( t == "WhileStatement" ) {
+      if ( typeof(stmt.body) != "undefined" ) {
+        return this.findReturnStructCsvInStmt((stmt.body), fnName);
+      }
+    }
+    return "";
   };
   inferParamTypes (node) {
     if ( typeof(node.body) === "undefined" ) {
@@ -5312,6 +5702,56 @@ class TSEmitter  {
     if ( typeof(node.body) != "undefined" ) {
       this.inferParamTypesFromCallsWalk(fnName, node.body);
     }
+    if ( typeof(node.init) != "undefined" ) {
+      this.inferParamTypesFromCallsWalk(fnName, node.init);
+    }
+    if ( typeof(node.test) != "undefined" ) {
+      this.inferParamTypesFromCallsWalk(fnName, node.test);
+    }
+    if ( typeof(node.consequent) != "undefined" ) {
+      this.inferParamTypesFromCallsWalk(fnName, node.consequent);
+    }
+    if ( typeof(node.alternate) != "undefined" ) {
+      this.inferParamTypesFromCallsWalk(fnName, node.alternate);
+    }
+  };
+  inferCallArgType (arg) {
+    const at = this.exprType(arg);
+    if ( this.isPositiveType(at) ) {
+      return at;
+    }
+    if ( arg.nodeType == "Identifier" ) {
+      if ( arg.name == "vx" ) {
+        return "double";
+      }
+      if ( arg.name == "vy" ) {
+        return "double";
+      }
+      if ( arg.name == "bx" ) {
+        return "double";
+      }
+      if ( arg.name == "by" ) {
+        return "double";
+      }
+      if ( arg.name == "prevBx" ) {
+        return "double";
+      }
+    }
+    if ( arg.nodeType == "MemberExpression" ) {
+      if ( arg.name == "x" ) {
+        return "double";
+      }
+      if ( arg.name == "y" ) {
+        return "double";
+      }
+      if ( arg.name == "vx" ) {
+        return "double";
+      }
+      if ( arg.name == "vy" ) {
+        return "double";
+      }
+    }
+    return at;
   };
   mergeCallArgTypes (fnName, call) {
     const csv = ( this.fnParamTypesCsv.hasOwnProperty(fnName) ? this.fnParamTypesCsv[fnName] : undefined );
@@ -5325,7 +5765,7 @@ class TSEmitter  {
       let pt = types[i];
       if ( i < (call.children.length) ) {
         const arg = call.children[i];
-        const at = this.exprType(arg);
+        const at = this.inferCallArgType(arg);
         if ( this.isPositiveType(at) ) {
           pt = at;
         }
@@ -5341,6 +5781,39 @@ class TSEmitter  {
     }
     if ( param == "props" ) {
       return "UpdatePropsNative";
+    }
+    if ( param == "vx" ) {
+      return "double";
+    }
+    if ( param == "vy" ) {
+      return "double";
+    }
+    if ( param == "bx" ) {
+      return "double";
+    }
+    if ( param == "by" ) {
+      return "double";
+    }
+    if ( param == "prevBx" ) {
+      return "double";
+    }
+    if ( param == "paddleY" ) {
+      return "double";
+    }
+    if ( param == "paddleVy" ) {
+      return "double";
+    }
+    if ( param == "p1y" ) {
+      return "double";
+    }
+    if ( param == "p1vy" ) {
+      return "double";
+    }
+    if ( param == "p2y" ) {
+      return "double";
+    }
+    if ( param == "p2vy" ) {
+      return "double";
     }
     if ( param == "alive" ) {
       return "[int]";
@@ -5389,6 +5862,16 @@ class TSEmitter  {
   };
   inferParamTypeWalk (param, node) {
     const t = node.nodeType;
+    if ( t == "IfStatement" ) {
+      if ( typeof(node.test) != "undefined" ) {
+        const test = node.test;
+        if ( test.nodeType == "Identifier" ) {
+          if ( test.name == param ) {
+            return "boolean";
+          }
+        }
+      }
+    }
     if ( t == "MemberExpression" ) {
       if ( typeof(node.left) != "undefined" ) {
         const base = node.left;
@@ -5467,13 +5950,40 @@ class TSEmitter  {
     const saved = this.varTypes;
     let local = {};
     this.varTypes = local;
+    let pi = 0;
+    while (pi < (node.params.length)) {
+      const p = node.params[pi];
+      const pt = this.helperParamType(node.name, pi);
+      if ( (pt.length) > 0 ) {
+        this.varTypes[p.name] = pt;
+      }
+      pi = pi + 1;
+    };
     this.collectLocalVarTypes(body, body);
     if ( this.functionHasValueReturn(body) == false ) {
+      this.varTypes = saved;
       return "void";
     }
     const result = this.findReturnType(body, node.name);
     this.varTypes = saved;
     return result;
+  };
+  finalizeHelperReturnTypes (ast) {
+    let i = 0;
+    while (i < (ast.children.length)) {
+      const node = ast.children[i];
+      if ( node.nodeType == "FunctionDeclaration" ) {
+        if ( this.isSpecialFn(node.name) == false ) {
+          if ( typeof(node.typeAnnotation) === "undefined" ) {
+            const inferred = this.inferHelperReturnType(node);
+            if ( this.isPositiveType(inferred) ) {
+              this.fnReturnTypes[node.name] = inferred;
+            }
+          }
+        }
+      }
+      i = i + 1;
+    };
   };
   functionHasValueReturn (block) {
     let i = 0;
@@ -5589,7 +6099,12 @@ class TSEmitter  {
                   if ( base.nodeType == "Identifier" ) {
                     if ( base.name == name ) {
                       if ( (expr.children.length) > 0 ) {
-                        return this.exprType((expr.children[0]));
+                        const argNode = expr.children[0];
+                        const at = this.inferCallArgType(argNode);
+                        if ( (at.length) > 0 ) {
+                          return at;
+                        }
+                        return this.exprType(argNode);
                       }
                     }
                   }
@@ -5912,6 +6427,11 @@ class TSEmitter  {
     this.readEntityIds = freshIds;
     let freshSeen = {};
     this.readEntitySeen = freshSeen;
+    let freshPlayers = [];
+    this.readPlayerIndices = freshPlayers;
+    let freshPlayerSeen = {};
+    this.readPlayerSeen = freshPlayerSeen;
+    this.inputVarName = "input";
     const isHelper = this.isSpecialFn(this.currentFn) == false;
     let retType = "void";
     if ( this.inSpritesFn ) {
@@ -5947,8 +6467,10 @@ class TSEmitter  {
     if ( this.inUpdateFn ) {
       this.prescanStateVar(body);
       this.collectEntityReads(body);
+      this.collectInputPlayerReads(body);
       this.emitStateBinding(body);
       this.emitEntityHoists();
+      this.emitInputPlayerHoists();
       this.emitBlockBodySkippingStateDecl(body);
     } else {
       this.emitBlockBody(body);
@@ -5997,10 +6519,32 @@ class TSEmitter  {
             }
           }
         }
+        if ( typeof(d.init) != "undefined" ) {
+          const initNode2 = d.init;
+          if ( this.isPropsInputMember(initNode2) ) {
+            this.inputVarName = d.name;
+          }
+        }
       }
       i = i + 1;
     };
     return false;
+  };
+  isPropsInputMember (node) {
+    if ( node.nodeType != "MemberExpression" ) {
+      return false;
+    }
+    if ( node.name != "input" ) {
+      return false;
+    }
+    if ( typeof(node.left) === "undefined" ) {
+      return false;
+    }
+    const base = node.left;
+    if ( base.nodeType != "Identifier" ) {
+      return false;
+    }
+    return base.name == "props";
   };
   isPropsStateMember (node) {
     if ( node.nodeType != "MemberExpression" ) {
@@ -6028,6 +6572,9 @@ class TSEmitter  {
             if ( this.isPropsStateMember((d.init)) ) {
               this.stateVarName = d.name;
             }
+            if ( this.isPropsInputMember((d.init)) ) {
+              this.inputVarName = d.name;
+            }
           }
         }
         i = i + 1;
@@ -6054,6 +6601,69 @@ class TSEmitter  {
       }
     }
     this.walkChildren(node, "collectEntityReads");
+  };
+  inputPlayerIndex (node) {
+    if ( node.nodeType != "MemberExpression" ) {
+      return "";
+    }
+    if ( typeof(node.left) === "undefined" ) {
+      return "";
+    }
+    const idxAccess = node.left;
+    if ( idxAccess.nodeType != "MemberExpression" ) {
+      return "";
+    }
+    if ( idxAccess.computed == false ) {
+      return "";
+    }
+    if ( typeof(idxAccess.left) === "undefined" ) {
+      return "";
+    }
+    const playersAccess = idxAccess.left;
+    if ( playersAccess.nodeType != "MemberExpression" ) {
+      return "";
+    }
+    if ( playersAccess.name != "players" ) {
+      return "";
+    }
+    if ( typeof(playersAccess.left) === "undefined" ) {
+      return "";
+    }
+    const root = playersAccess.left;
+    if ( root.nodeType != "Identifier" ) {
+      return "";
+    }
+    if ( root.name != this.inputVarName ) {
+      return "";
+    }
+    if ( typeof(idxAccess.right) === "undefined" ) {
+      return "";
+    }
+    const idxNode = idxAccess.right;
+    if ( idxNode.nodeType != "NumericLiteral" ) {
+      return "";
+    }
+    return idxNode.value;
+  };
+  collectInputPlayerReads (node) {
+    const idx = this.inputPlayerIndex(node);
+    if ( (idx.length) > 0 ) {
+      const seen = ( this.readPlayerSeen.hasOwnProperty(idx) ? this.readPlayerSeen[idx] : undefined );
+      if ( typeof(seen) === "undefined" ) {
+        this.readPlayerSeen[idx] = true;
+        this.readPlayerIndices.push(idx);
+      }
+    }
+    this.walkChildren(node, "collectInputPlayerReads");
+  };
+  emitInputPlayerHoists () {
+    let i = 0;
+    while (i < (this.readPlayerIndices.length)) {
+      const idx = this.readPlayerIndices[i];
+      const localName = "in_pl" + idx;
+      this.emitLine(((("def " + localName) + ":PlayerInputNative (itemAt props.input.players ") + idx) + ")");
+      i = i + 1;
+    };
   };
   walkChildren (node, visitor) {
     if ( typeof(node.left) != "undefined" ) {
@@ -6090,6 +6700,10 @@ class TSEmitter  {
     }
     if ( visitor == "collectEntityReads" ) {
       this.collectEntityReads(node);
+      return;
+    }
+    if ( visitor == "collectInputPlayerReads" ) {
+      this.collectInputPlayerReads(node);
       return;
     }
   };
@@ -6234,6 +6848,14 @@ class TSEmitter  {
     let rhs = this.emitExpr(rhsNode, expected);
     rhs = this.coerceToType(rhs, rhsNode, expected);
     this.emitLine((lhs + " = ") + rhs);
+    if ( targetNode.nodeType == "Identifier" ) {
+      const rhsT = this.exprType(rhsNode);
+      if ( rhsT == "double" ) {
+        if ( expected == "int" ) {
+          this.varTypes[targetNode.name] = "double";
+        }
+      }
+    }
   };
   emitMemberAssign (target, rhs) {
     if ( typeof(target.left) === "undefined" ) {
@@ -6390,11 +7012,23 @@ class TSEmitter  {
       if ( hasAnnot == false ) {
         rtype = this.exprType(initNode);
       }
+      if ( initNode.nodeType == "NumericLiteral" ) {
+        if ( this.inUpdateFn ) {
+          if ( (this).endsWith(name, "vy") ) {
+            rtype = "double";
+          }
+        }
+      }
       if ( initNode.nodeType == "ArrayExpression" ) {
         if ( (initNode.children.length) == 0 ) {
           const pushed = this.findPushArgType(this.currentEmitBlock, name);
           if ( (pushed.length) > 0 ) {
             rtype = ("[" + pushed) + "]";
+          }
+          if ( this.inUpdateFn && (name == "events") ) {
+            if ( (pushed.length) == 0 ) {
+              rtype = "[GameEventNative]";
+            }
           }
         }
       }
@@ -6473,6 +7107,72 @@ class TSEmitter  {
     };
   };
   emitIf (node) {
+    if ( this.inUpdateFn ) {
+      if ( typeof(node.left) != "undefined" ) {
+        const test = node.left;
+        if ( test.nodeType == "Identifier" ) {
+          if ( test.name == "input" ) {
+            if ( typeof(node.body) != "undefined" ) {
+              const cons = node.body;
+              if ( cons.nodeType == "BlockStatement" ) {
+                this.emitBlockBody(cons);
+              } else {
+                this.emitStatement(cons);
+              }
+            }
+            return;
+          }
+        }
+        if ( test.nodeType == "MemberExpression" ) {
+          if ( test.computed ) {
+            if ( typeof(test.left) != "undefined" ) {
+              const base = test.left;
+              if ( base.nodeType == "MemberExpression" ) {
+                if ( base.name == "players" ) {
+                  if ( typeof(base.left) != "undefined" ) {
+                    const root = base.left;
+                    if ( root.nodeType == "Identifier" ) {
+                      if ( root.name == "input" ) {
+                        let idxLit = "0";
+                        if ( typeof(test.right) != "undefined" ) {
+                          const idxNode = test.right;
+                          if ( idxNode.nodeType == "NumericLiteral" ) {
+                            idxLit = idxNode.value;
+                          }
+                        }
+                        let minLen = "1";
+                        if ( idxLit == "1" ) {
+                          minLen = "2";
+                        }
+                        if ( idxLit == "2" ) {
+                          minLen = "3";
+                        }
+                        let ifLine = "if ((array_length input.players) >= ";
+                        ifLine = ifLine + minLen;
+                        ifLine = ifLine + ") {";
+                        this.emitLine(ifLine);
+                        this.indent();
+                        if ( typeof(node.body) != "undefined" ) {
+                          const cons2 = node.body;
+                          if ( cons2.nodeType == "BlockStatement" ) {
+                            this.emitBlockBody(cons2);
+                          } else {
+                            this.emitStatement(cons2);
+                          }
+                        }
+                        this.dedent();
+                        this.emitLine("}");
+                        return;
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
     let cond = "";
     if ( typeof(node.left) != "undefined" ) {
       cond = this.emitExpr((node.left), "boolean");
@@ -6480,11 +7180,11 @@ class TSEmitter  {
     this.emitLine(("if (" + cond) + ") {");
     this.indent();
     if ( typeof(node.body) != "undefined" ) {
-      const cons = node.body;
-      if ( cons.nodeType == "BlockStatement" ) {
-        this.emitBlockBody(cons);
+      const cons_1 = node.body;
+      if ( cons_1.nodeType == "BlockStatement" ) {
+        this.emitBlockBody(cons_1);
       } else {
-        this.emitStatement(cons);
+        this.emitStatement(cons_1);
       }
     }
     this.dedent();
@@ -6664,6 +7364,9 @@ class TSEmitter  {
             if ( key == "vy" ) {
               this.emitLine(target + ".hasVy = true");
             }
+            if ( key == "dt" ) {
+              this.emitLine(target + ".hasDt = true");
+            }
           } else {
             if ( this.isStateArrayField(key) ) {
               const at = this.stateArrayType(key);
@@ -6840,6 +7543,9 @@ class TSEmitter  {
     const callee = node.left;
     if ( callee.nodeType == "Identifier" ) {
       const name = callee.name;
+      if ( this.isBridgeHelper(name) ) {
+        return this.emitBridgeHelperValue(name, node);
+      }
       let args = [];
       let i = 0;
       while (i < (node.children.length)) {
@@ -6848,17 +7554,25 @@ class TSEmitter  {
         if ( (pexp.length) == 0 ) {
           pexp = this.exprType(arg);
         }
-        let argExpr = this.emitExpr(arg, pexp);
+        const at = this.exprType(arg);
+        let emitAs = at;
+        if ( (emitAs.length) == 0 ) {
+          emitAs = "int";
+        }
+        let argExpr = this.emitExpr(arg, emitAs);
         if ( pexp == "int" ) {
-          const at = this.exprType(arg);
           if ( at == "double" ) {
             argExpr = ("(to_int " + argExpr) + ")";
           }
         }
         if ( pexp == "double" ) {
-          const at2 = this.exprType(arg);
-          if ( at2 == "int" ) {
+          if ( emitAs == "int" ) {
             argExpr = ("(to_double " + argExpr) + ")";
+          }
+        }
+        if ( pexp == "boolean" ) {
+          if ( at == "int" ) {
+            argExpr = ("(" + argExpr) + " != 0)";
           }
         }
         args.push(argExpr);
@@ -6927,6 +7641,11 @@ class TSEmitter  {
     if ( node.name == "length" ) {
       const base_1 = this.emitExpr(leftNode, "int");
       return ("(array_length " + base_1) + ")";
+    }
+    const pIdx = this.inputPlayerIndex(node);
+    if ( (pIdx.length) > 0 ) {
+      const localName = ("in_pl" + pIdx) + ".";
+      return localName + node.name;
     }
     if ( leftNode.nodeType == "MemberExpression" ) {
       if ( leftNode.name == "entities" ) {

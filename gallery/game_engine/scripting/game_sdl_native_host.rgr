@@ -67,31 +67,12 @@ class GameSdlNativeHost {
                 }
             }
             lastFrameStart = now
-            def up:boolean false
-            def down:boolean false
-            def left:boolean false
-            def right:boolean false
-            def m:int (gfx_poll_mask)
-            if ((bit_and m 1) != 0) {
-                up = true
-            }
-            if ((bit_and m 2) != 0) {
-                down = true
-            }
-            if ((bit_and m 16) != 0) {
-                left = true
-            }
-            if ((bit_and m 32) != 0) {
-                right = true
-            }
-            def action:boolean false
-            if ((bit_and m 4) != 0) {
-                action = true
-            }
-            if ((bit_and m 8) != 0) {
+            def kbP1:int (gfx_input_source_mask(0))
+            def kbP2:int (gfx_input_source_mask(1))
+            if ((bit_and kbP1 8) != 0) {
                 running = false
             }
-            game.frame(dtMs up down left right action)
+            game.frameWithMasks(dtMs kbP1 kbP2)
             if (game.runner.gameOverFlag == 1) {
                 def goTitle:string (windowTitle + " - GAME OVER (Space restart)")
                 gfx_set_title(goTitle)

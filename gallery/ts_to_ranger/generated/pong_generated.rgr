@@ -4,21 +4,21 @@
 Import "../game_script_types.rgr"
 
 class tryLeftPaddleBounceRetNative {
-    def bx:int 0
-    def vx:int 0
-    def vy:int 0
+    def bx:double 0.0
+    def vx:double 0.0
+    def vy:double 0.0
     def hit:boolean false
 }
 
 class tryRightPaddleBounceRetNative {
-    def bx:int 0
-    def vx:int 0
-    def vy:int 0
+    def bx:double 0.0
+    def vx:double 0.0
+    def vy:double 0.0
     def hit:boolean false
 }
 
 class deflectFromPaddleRetNative {
-    def vx:int 0
+    def vx:double 0.0
     def vy:double 0.0
 }
 
@@ -80,11 +80,11 @@ class GeneratedGameScript {
         return s
     }
 
-    fn tryLeftPaddleBounce:tryLeftPaddleBounceRetNative (prevBx:int bx:int by:int p1y:int p1vy:int vx:int vy:int) {
+    fn tryLeftPaddleBounce:tryLeftPaddleBounceRetNative (prevBx:double bx:double by:double p1y:double p1vy:double vx:double vy:double) {
         def paddleL:int (18)
         def paddleR:int (28)
         def half:int (34)
-        if ((vx >= 0)) {
+        if ((vx >= 0.0)) {
             def tmp0:tryLeftPaddleBounceRetNative (new tryLeftPaddleBounceRetNative)
             tmp0.bx = bx
             tmp0.vx = vx
@@ -92,7 +92,7 @@ class GeneratedGameScript {
             tmp0.hit = false
             return tmp0
         }
-        if ((by <= (p1y - half))) {
+        if ((by <= (p1y - (to_double half)))) {
             def tmp1:tryLeftPaddleBounceRetNative (new tryLeftPaddleBounceRetNative)
             tmp1.bx = bx
             tmp1.vx = vx
@@ -100,7 +100,7 @@ class GeneratedGameScript {
             tmp1.hit = false
             return tmp1
         }
-        if ((by >= (p1y + half))) {
+        if ((by >= (p1y + (to_double half)))) {
             def tmp2:tryLeftPaddleBounceRetNative (new tryLeftPaddleBounceRetNative)
             tmp2.bx = bx
             tmp2.vx = vx
@@ -109,14 +109,14 @@ class GeneratedGameScript {
             return tmp2
         }
         def hit:boolean (false)
-        if ((prevBx > paddleR)) {
-            if ((bx <= paddleR)) {
+        if ((prevBx > (to_double paddleR))) {
+            if ((bx <= (to_double paddleR))) {
                 hit = true
             }
         }
         if ((false == hit)) {
-            if ((bx <= paddleR)) {
-                if ((bx >= paddleL)) {
+            if ((bx <= (to_double paddleR))) {
+                if ((bx >= (to_double paddleL))) {
                     if ((prevBx >= bx)) {
                         hit = true
                     }
@@ -133,18 +133,18 @@ class GeneratedGameScript {
         }
         def deflected:deflectFromPaddleRetNative ((this.deflectFromPaddle(vx vy by p1y p1vy half true)))
         def tmp4:tryLeftPaddleBounceRetNative (new tryLeftPaddleBounceRetNative)
-        tmp4.bx = paddleR
+        tmp4.bx = (to_double paddleR)
         tmp4.vx = deflected.vx
         tmp4.vy = deflected.vy
         tmp4.hit = true
         return tmp4
     }
 
-    fn tryRightPaddleBounce:tryRightPaddleBounceRetNative (prevBx:int bx:int by:int p2y:int p2vy:int vx:int vy:int) {
+    fn tryRightPaddleBounce:tryRightPaddleBounceRetNative (prevBx:double bx:double by:double p2y:double p2vy:double vx:double vy:double) {
         def paddleL:int (462)
         def paddleR:int (472)
         def half:int (34)
-        if ((vx <= 0)) {
+        if ((vx <= 0.0)) {
             def tmp5:tryRightPaddleBounceRetNative (new tryRightPaddleBounceRetNative)
             tmp5.bx = bx
             tmp5.vx = vx
@@ -152,7 +152,7 @@ class GeneratedGameScript {
             tmp5.hit = false
             return tmp5
         }
-        if ((by <= (p2y - half))) {
+        if ((by <= (p2y - (to_double half)))) {
             def tmp6:tryRightPaddleBounceRetNative (new tryRightPaddleBounceRetNative)
             tmp6.bx = bx
             tmp6.vx = vx
@@ -160,7 +160,7 @@ class GeneratedGameScript {
             tmp6.hit = false
             return tmp6
         }
-        if ((by >= (p2y + half))) {
+        if ((by >= (p2y + (to_double half)))) {
             def tmp7:tryRightPaddleBounceRetNative (new tryRightPaddleBounceRetNative)
             tmp7.bx = bx
             tmp7.vx = vx
@@ -169,14 +169,14 @@ class GeneratedGameScript {
             return tmp7
         }
         def hit:boolean (false)
-        if ((prevBx < paddleL)) {
-            if ((bx >= paddleL)) {
+        if ((prevBx < (to_double paddleL))) {
+            if ((bx >= (to_double paddleL))) {
                 hit = true
             }
         }
         if ((false == hit)) {
-            if ((bx >= paddleL)) {
-                if ((bx <= paddleR)) {
+            if ((bx >= (to_double paddleL))) {
+                if ((bx <= (to_double paddleR))) {
                     if ((prevBx <= bx)) {
                         hit = true
                     }
@@ -193,26 +193,26 @@ class GeneratedGameScript {
         }
         def deflected:deflectFromPaddleRetNative ((this.deflectFromPaddle(vx vy by p2y p2vy half false)))
         def tmp9:tryRightPaddleBounceRetNative (new tryRightPaddleBounceRetNative)
-        tmp9.bx = paddleL
+        tmp9.bx = (to_double paddleL)
         tmp9.vx = deflected.vx
         tmp9.vy = deflected.vy
         tmp9.hit = true
         return tmp9
     }
 
-    fn deflectFromPaddle:deflectFromPaddleRetNative (vx:int vy:int by:int paddleY:int paddleVy:int half:int leftSide:int) {
-        def offset:int ((to_int ((by - paddleY) / half)))
-        def newVx:int ((0 - vx))
+    fn deflectFromPaddle:deflectFromPaddleRetNative (vx:double vy:double by:double paddleY:double paddleVy:double half:int leftSide:boolean) {
+        def offset:double (((by - paddleY) / (to_double half)))
+        def newVx:double ((0.0 - vx))
         if (leftSide) {
-            if ((newVx < 0)) {
-                newVx = (0 - newVx)
+            if ((newVx < 0.0)) {
+                newVx = (0.0 - newVx)
             }
         } {
-            if ((newVx > 0)) {
-                newVx = (0 - newVx)
+            if ((newVx > 0.0)) {
+                newVx = (0.0 - newVx)
             }
         }
-        def newVy:double ((((to_double vy) + ((to_double offset) * 0.07)) + ((to_double paddleVy) * 0.9)))
+        def newVy:double (((vy + (offset * 0.07)) + (paddleVy * 0.9)))
         def maxVy:double (0.26)
         if ((newVy > maxVy)) {
             newVy = maxVy
@@ -231,22 +231,22 @@ class GeneratedGameScript {
         def in_ball:EntityPoseNative (unwrap (get s.entities "ball"))
         def in_p1:EntityPoseNative (unwrap (get s.entities "p1"))
         def in_p2:EntityPoseNative (unwrap (get s.entities "p2"))
+        def in_pl0:PlayerInputNative (itemAt props.input.players 0)
+        def in_pl1:PlayerInputNative (itemAt props.input.players 1)
         def dt:double (props.dt)
-        def events:int
-        def input:int (props.input)
+        def events:[GameEventNative]
+        def input:GameInputNative (props.input)
         def p1up:boolean (props.up)
         def p1down:boolean (props.down)
         def p2up:boolean (false)
         def p2down:boolean (false)
-        if (input) {
-            if ((itemAt input.players 0)) {
-                p1up = (itemAt input.players 0).up
-                p1down = (itemAt input.players 0).down
-            }
-            if ((itemAt input.players 1)) {
-                p2up = (itemAt input.players 1).up
-                p2down = (itemAt input.players 1).down
-            }
+        if ((array_length input.players) >= 1) {
+            p1up = in_pl0.up
+            p1down = in_pl0.down
+        }
+        if ((array_length input.players) >= 2) {
+            p2up = in_pl1.up
+            p2down = in_pl1.down
         }
         def bx:double ((in_ball.x + (s.vx * dt)))
         def by:double ((in_ball.y + (s.vy * dt)))
@@ -258,21 +258,27 @@ class GeneratedGameScript {
         if ((by < 6.0)) {
             by = 6.0
             vy = (0.0 - vy)
-            push events ((this.soundEvent("wall")))
+            def be11:GameEventNative (new GameEventNative)
+            be11.kind = "playSound"
+            be11.id = "wall"
+            push events (be11)
         }
         if ((by > 264.0)) {
             by = 264.0
             vy = (0.0 - vy)
-            push events ((this.soundEvent("wall")))
+            def be12:GameEventNative (new GameEventNative)
+            be12.kind = "playSound"
+            be12.id = "wall"
+            push events (be12)
         }
         def p1y:double (in_p1.y)
-        def p1vy:int (0)
+        def p1vy:double (0.0)
         if (p1up) {
-            p1vy = (to_int (0.0 - 0.30))
+            p1vy = (0.0 - 0.30)
             p1y = (p1y - (dt * 0.30))
         }
         if (p1down) {
-            p1vy = (to_int 0.30)
+            p1vy = 0.30
             p1y = (p1y + (dt * 0.30))
         }
         if ((p1y < 28.0)) {
@@ -282,13 +288,13 @@ class GeneratedGameScript {
             p1y = 242.0
         }
         def p2y:double (in_p2.y)
-        def p2vy:int (0)
+        def p2vy:double (0.0)
         if (p2up) {
-            p2vy = (to_int (0.0 - 0.30))
+            p2vy = (0.0 - 0.30)
             p2y = (p2y - (dt * 0.30))
         }
         if (p2down) {
-            p2vy = (to_int 0.30)
+            p2vy = 0.30
             p2y = (p2y + (dt * 0.30))
         }
         if ((p2y < 28.0)) {
@@ -297,33 +303,45 @@ class GeneratedGameScript {
         if ((p2y > 242.0)) {
             p2y = 242.0
         }
-        def leftHit:tryLeftPaddleBounceRetNative ((this.tryLeftPaddleBounce((to_int prevBx) (to_int bx) (to_int by) (to_int p1y) p1vy (to_int vx) (to_int vy))))
-        bx = (to_double leftHit.bx)
-        vx = (to_double leftHit.vx)
-        vy = (to_double leftHit.vy)
+        def leftHit:tryLeftPaddleBounceRetNative ((this.tryLeftPaddleBounce(prevBx bx by p1y p1vy vx vy)))
+        bx = leftHit.bx
+        vx = leftHit.vx
+        vy = leftHit.vy
         if (leftHit.hit) {
-            push events ((this.soundEvent("bounce")))
+            def be13:GameEventNative (new GameEventNative)
+            be13.kind = "playSound"
+            be13.id = "bounce"
+            push events (be13)
         }
-        def rightHit:tryRightPaddleBounceRetNative ((this.tryRightPaddleBounce((to_int prevBx) (to_int bx) (to_int by) (to_int p2y) p2vy (to_int vx) (to_int vy))))
-        bx = (to_double rightHit.bx)
-        vx = (to_double rightHit.vx)
-        vy = (to_double rightHit.vy)
+        def rightHit:tryRightPaddleBounceRetNative ((this.tryRightPaddleBounce(prevBx bx by p2y p2vy vx vy)))
+        bx = rightHit.bx
+        vx = rightHit.vx
+        vy = rightHit.vy
         if (rightHit.hit) {
-            push events ((this.soundEvent("bounce")))
+            def be14:GameEventNative (new GameEventNative)
+            be14.kind = "playSound"
+            be14.id = "bounce"
+            push events (be14)
         }
         if ((bx < 0.0)) {
             s2 = (s2 + 1)
             bx = 240.0
             by = 135.0
             vx = 0.16
-            push events ((this.soundEvent("lose")))
+            def be15:GameEventNative (new GameEventNative)
+            be15.kind = "playSound"
+            be15.id = "lose"
+            push events (be15)
         }
         if ((bx > 480.0)) {
             s1 = (s1 + 1)
             bx = 240.0
             by = 135.0
             vx = (0.0 - 0.16)
-            push events ((this.soundEvent("lose")))
+            def be16:GameEventNative (new GameEventNative)
+            be16.kind = "playSound"
+            be16.id = "lose"
+            push events (be16)
         }
         def patch:NativeGameState (new NativeGameState)
         patch.showNet = 1
