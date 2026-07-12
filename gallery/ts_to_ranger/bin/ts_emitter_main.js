@@ -4622,6 +4622,8 @@ class TSEmitter  {
     this.interfaceFieldsCsv = {};
     this.interfaceNames = [];
     this.stateArrayFieldType = {};
+    this.objectStateFieldType = {};
+    this.objectStateFieldOrder = [];
     this.initStateLocalTypes = {};
     this.tmpCounter = 0;
     this.synthStructDone = {};
@@ -4827,6 +4829,10 @@ class TSEmitter  {
     this.interfaceNames = ifn;
     let saf = {};
     this.stateArrayFieldType = saf;
+    let osf = {};
+    this.objectStateFieldType = osf;
+    let oso = [];
+    this.objectStateFieldOrder = oso;
     let isl = {};
     this.initStateLocalTypes = isl;
     let ssd = {};
@@ -5331,6 +5337,9 @@ class TSEmitter  {
         const lbase = node.left;
         if ( lbase.nodeType == "Identifier" ) {
           if ( lbase.name == this.stateVarName ) {
+            if ( this.isObjectStateField(node.name) ) {
+              return this.objectStateFieldTypeOf(node.name);
+            }
             if ( this.isNativeStateField(node.name) == false ) {
               if ( this.isStateArrayField(node.name) ) {
                 return this.stateArrayType(node.name);
@@ -5465,6 +5474,7 @@ class TSEmitter  {
     }
     this.emitLine("class GeneratedGameScript {");
     this.emitLine("    def host:GameEngineHost (new GameEngineHost)");
+    this.emitObjectStateFields();
     this.emitLine("");
     let i = 0;
     while (i < (ast.children.length)) {
@@ -5476,6 +5486,37 @@ class TSEmitter  {
     };
     this.emitLine("}");
     return this.output;
+  };
+  emitObjectStateFields () {
+    let i = 0;
+    while (i < (this.objectStateFieldOrder.length)) {
+      const name = this.objectStateFieldOrder[i];
+      const t = ( this.objectStateFieldType.hasOwnProperty(name) ? this.objectStateFieldType[name] : undefined );
+      if ( (typeof(t) !== "undefined" && t != null )  ) {
+        const ty = t;
+        const zero = this.zeroFor(ty);
+        if ( (zero.length) > 0 ) {
+          this.emitLine((((("    def st_" + name) + ":") + ty) + " ") + zero);
+        } else {
+          this.emitLine((("    def st_" + name) + ":") + ty);
+        }
+      }
+      i = i + 1;
+    };
+  };
+  isObjectStateField (name) {
+    const t = ( this.objectStateFieldType.hasOwnProperty(name) ? this.objectStateFieldType[name] : undefined );
+    if ( (typeof(t) !== "undefined" && t != null )  ) {
+      return true;
+    }
+    return false;
+  };
+  objectStateFieldTypeOf (name) {
+    const t = ( this.objectStateFieldType.hasOwnProperty(name) ? this.objectStateFieldType[name] : undefined );
+    if ( (typeof(t) !== "undefined" && t != null )  ) {
+      return t;
+    }
+    return "int";
   };
   isSpecialFn (name) {
     if ( name == "sprites" ) {
@@ -5598,7 +5639,18 @@ class TSEmitter  {
               first = vt.substring(0, 1 );
             }
             if ( first == "[" ) {
-              this.stateArrayFieldType[key] = vt;
+              const et = this.elemTypeOf(vt);
+              if ( (et == "int") || (et == "double") ) {
+                this.stateArrayFieldType[key] = vt;
+              } else {
+                this.objectStateFieldType[key] = vt;
+                this.objectStateFieldOrder.push(key);
+              }
+            } else {
+              if ( (this).endsWith(vt, "Native") ) {
+                this.objectStateFieldType[key] = vt;
+                this.objectStateFieldOrder.push(key);
+              }
             }
           }
         }
@@ -5773,9 +5825,58 @@ class TSEmitter  {
       return "SpriteDefNative";
     }
     if ( hasX && hasY ) {
-      return "EntityPoseNative";
+      if ( this.allFieldsArePose(obj) ) {
+        return "EntityPoseNative";
+      }
     }
     return "";
+  };
+  allFieldsArePose (obj) {
+    let i = 0;
+    while (i < (obj.children.length)) {
+      const prop = obj.children[i];
+      if ( prop.nodeType == "Property" ) {
+        const key = this.propKey(prop);
+        if ( this.isPoseField(key) == false ) {
+          return false;
+        }
+      }
+      i = i + 1;
+    };
+    return true;
+  };
+  isPoseField (key) {
+    if ( key == "x" ) {
+      return true;
+    }
+    if ( key == "y" ) {
+      return true;
+    }
+    if ( key == "visible" ) {
+      return true;
+    }
+    if ( key == "r" ) {
+      return true;
+    }
+    if ( key == "g" ) {
+      return true;
+    }
+    if ( key == "b" ) {
+      return true;
+    }
+    if ( key == "rad" ) {
+      return true;
+    }
+    if ( key == "p0" ) {
+      return true;
+    }
+    if ( key == "p1" ) {
+      return true;
+    }
+    if ( key == "p2" ) {
+      return true;
+    }
+    return false;
   };
   registerSynthStruct (obj, fnName) {
     const baseName = fnName + "Ret";
@@ -7812,32 +7913,38 @@ class TSEmitter  {
         if ( key == "events" ) {
           this.emitEventsArray(valNode, target);
         } else {
-          if ( this.isNativeStateField(key) ) {
-            const expected = this.fieldType(key);
-            const val = this.emitExpr(valNode, expected);
-            this.emitLine((target + ".") + (key + (" = " + val)));
-            if ( key == "vx" ) {
-              this.emitLine(target + ".hasVx = true");
-            }
-            if ( key == "vy" ) {
-              this.emitLine(target + ".hasVy = true");
-            }
-            if ( key == "dt" ) {
-              this.emitLine(target + ".hasDt = true");
-            }
+          if ( this.isObjectStateField(key) ) {
+            const ost = this.objectStateFieldTypeOf(key);
+            const oval = this.emitValueExpr(valNode, ost);
+            this.emitLine(("st_" + key) + (" = " + oval));
           } else {
-            if ( this.isStateArrayField(key) ) {
-              const at = this.stateArrayType(key);
-              const aval = this.emitExpr(valNode, at);
-              this.emitLine(((("set " + target) + ".intArrays \"") + key) + ("\" " + aval));
+            if ( this.isNativeStateField(key) ) {
+              const expected = this.fieldType(key);
+              const val = this.emitExpr(valNode, expected);
+              this.emitLine((target + ".") + (key + (" = " + val)));
+              if ( key == "vx" ) {
+                this.emitLine(target + ".hasVx = true");
+              }
+              if ( key == "vy" ) {
+                this.emitLine(target + ".hasVy = true");
+              }
+              if ( key == "dt" ) {
+                this.emitLine(target + ".hasDt = true");
+              }
             } else {
-              const vt = this.exprType(valNode);
-              if ( vt == "string" ) {
-                const sval = this.emitExpr(valNode, "string");
-                this.emitLine(((("set " + target) + ".strings \"") + key) + ("\" " + sval));
+              if ( this.isStateArrayField(key) ) {
+                const at = this.stateArrayType(key);
+                const aval = this.emitExpr(valNode, at);
+                this.emitLine(((("set " + target) + ".intArrays \"") + key) + ("\" " + aval));
               } else {
-                const dval = this.emitExpr(valNode, "double");
-                this.emitLine(((("set " + target) + ".numbers \"") + key) + ("\" " + dval));
+                const vt = this.exprType(valNode);
+                if ( vt == "string" ) {
+                  const sval = this.emitExpr(valNode, "string");
+                  this.emitLine(((("set " + target) + ".strings \"") + key) + ("\" " + sval));
+                } else {
+                  const dval = this.emitExpr(valNode, "double");
+                  this.emitLine(((("set " + target) + ".numbers \"") + key) + ("\" " + dval));
+                }
               }
             }
           }
@@ -8134,6 +8241,9 @@ class TSEmitter  {
     }
     if ( leftNode.nodeType == "Identifier" ) {
       if ( leftNode.name == this.stateVarName ) {
+        if ( this.isObjectStateField(node.name) ) {
+          return "st_" + node.name;
+        }
         if ( this.isStateArrayField(node.name) ) {
           return ((("(unwrap (get " + this.stateVarName) + ".intArrays \"") + node.name) + "\"))";
         }

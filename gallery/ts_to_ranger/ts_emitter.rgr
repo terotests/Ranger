@@ -44,6 +44,13 @@ class TSEmitter {
     def interfaceNames:[string]
     ; State fields that hold script-owned arrays -> stored in state.intArrays.
     def stateArrayFieldType:[string:string]
+    ; State fields holding rich objects / arrays-of-structs. These can't live in
+    ; the generic NativeGameState maps (heterogeneous static types), so they are
+    ; kept as fields on the persistent GeneratedGameScript instance and read/
+    ; written directly (name -> Ranger type, e.g. "makePlayerRetNative" or
+    ; "[enemiesElemNative]").
+    def objectStateFieldType:[string:string]
+    def objectStateFieldOrder:[string]
     ; initState body `const foo = makeFoo()` names -> array type (prescan only).
     def initStateLocalTypes:[string:string]
     def tmpCounter:int 0
@@ -237,6 +244,10 @@ class TSEmitter {
         interfaceNames = ifn
         def saf:[string:string]
         stateArrayFieldType = saf
+        def osf:[string:string]
+        objectStateFieldType = osf
+        def oso:[string]
+        objectStateFieldOrder = oso
         def isl:[string:string]
         initStateLocalTypes = isl
         def ssd:[string:boolean]
@@ -659,6 +670,9 @@ class TSEmitter {
                 def lbase:TSNode (unwrap node.left)
                 if (lbase.nodeType == "Identifier") {
                     if (lbase.name == stateVarName) {
+                        if (this.isObjectStateField(node.name)) {
+                            return (this.objectStateFieldTypeOf(node.name))
+                        }
                         if ((this.isNativeStateField(node.name)) == false) {
                             if (this.isStateArrayField(node.name)) {
                                 return (this.stateArrayType(node.name))
@@ -808,6 +822,9 @@ class TSEmitter {
         ; Injected engine environment (bg raster, paneIndex, physics). The native
         ; game bridge assigns the shared host; default keeps headless compiles valid.
         this.emitLine("    def host:GameEngineHost (new GameEngineHost)")
+        ; Object-valued state fields (player structs, arrays of structs) persist on
+        ; the script instance instead of the generic NativeGameState maps.
+        this.emitObjectStateFields()
         this.emitLine("")
 
         ; 3. Functions only (consts live on the module singleton).
@@ -822,6 +839,40 @@ class TSEmitter {
 
         this.emitLine("}")
         return output
+    }
+
+    fn emitObjectStateFields:void () {
+        def i 0
+        while (i < (array_length objectStateFieldOrder)) {
+            def name:string (itemAt objectStateFieldOrder i)
+            def t@(optional):string (get objectStateFieldType name)
+            if (!null? t) {
+                def ty:string (unwrap t)
+                def zero:string (this.zeroFor(ty))
+                if ((strlen zero) > 0) {
+                    this.emitLine((((("    def st_" + name) + ":") + ty) + " ") + zero)
+                } {
+                    this.emitLine(((("    def st_" + name) + ":") + ty))
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn isObjectStateField:boolean (name:string) {
+        def t@(optional):string (get objectStateFieldType name)
+        if (!null? t) {
+            return true
+        }
+        return false
+    }
+
+    fn objectStateFieldTypeOf:string (name:string) {
+        def t@(optional):string (get objectStateFieldType name)
+        if (!null? t) {
+            return (unwrap t)
+        }
+        return "int"
     }
 
     fn isSpecialFn:boolean (name:string) {
@@ -945,7 +996,21 @@ class TSEmitter {
                             first = (substring vt 0 1)
                         }
                         if (first == "[") {
-                            set stateArrayFieldType key vt
+                            ; [int] / [double] -> generic intArrays slot; arrays of
+                            ; structs -> object state field (instance-held).
+                            def et:string (this.elemTypeOf(vt))
+                            if ((et == "int") || (et == "double")) {
+                                set stateArrayFieldType key vt
+                            } {
+                                set objectStateFieldType key vt
+                                push objectStateFieldOrder key
+                            }
+                        } {
+                            ; A rich object value (struct) -> object state field.
+                            if (this.endsWith(vt "Native")) {
+                                set objectStateFieldType key vt
+                                push objectStateFieldOrder key
+                            }
                         }
                     }
                 }
@@ -1111,10 +1176,44 @@ class TSEmitter {
         if (hasId && hasKind) {
             return "SpriteDefNative"
         }
+        ; Only collapse to EntityPoseNative when every field is part of the pose
+        ; schema. Rich game objects (players/enemies with vx/vy/done/grounded/…)
+        ; must keep a distinct synthesized struct so their fields survive.
         if (hasX && hasY) {
-            return "EntityPoseNative"
+            if (this.allFieldsArePose(obj)) {
+                return "EntityPoseNative"
+            }
         }
         return ""
+    }
+
+    fn allFieldsArePose:boolean (obj:TSNode) {
+        def i 0
+        while (i < (array_length obj.children)) {
+            def prop:TSNode (itemAt obj.children i)
+            if (prop.nodeType == "Property") {
+                def key:string (this.propKey(prop))
+                if ((this.isPoseField(key)) == false) {
+                    return false
+                }
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    fn isPoseField:boolean (key:string) {
+        if (key == "x") { return true }
+        if (key == "y") { return true }
+        if (key == "visible") { return true }
+        if (key == "r") { return true }
+        if (key == "g") { return true }
+        if (key == "b") { return true }
+        if (key == "rad") { return true }
+        if (key == "p0") { return true }
+        if (key == "p1") { return true }
+        if (key == "p2") { return true }
+        return false
     }
 
     fn registerSynthStruct:string (obj:TSNode fnName:string) {
@@ -3153,6 +3252,11 @@ class TSEmitter {
                 if (key == "events") {
                     this.emitEventsArray(valNode target)
                 } {
+                    if (this.isObjectStateField(key)) {
+                        def ost:string (this.objectStateFieldTypeOf(key))
+                        def oval:string (this.emitValueExpr(valNode ost))
+                        this.emitLine((("st_" + key) + (" = " + oval)))
+                    } {
                     if (this.isNativeStateField(key)) {
                         def expected:string (this.fieldType(key))
                         def val:string (this.emitExpr(valNode expected))
@@ -3181,6 +3285,7 @@ class TSEmitter {
                                 this.emitLine(((("set " + target) + ".numbers \"") + key) + ("\" " + dval))
                             }
                         }
+                    }
                     }
                 }
             }
@@ -3499,6 +3604,10 @@ class TSEmitter {
         }
         if (leftNode.nodeType == "Identifier") {
             if (leftNode.name == stateVarName) {
+                ; object-valued state field -> persistent script instance field
+                if (this.isObjectStateField(node.name)) {
+                    return ("st_" + node.name)
+                }
                 ; state array field -> intArrays map
                 if (this.isStateArrayField(node.name)) {
                     return (((("(unwrap (get " + stateVarName) + ".intArrays \"") + node.name) + "\"))")
