@@ -1,0 +1,528 @@
+; ==============================================================================
+; as_abi_bridge — native RGW1/RGU1 ABI for the .as source engine.
+; ==============================================================================
+;
+; The interpreted .as game code calls flat bridge functions (abiWrite/abiRead,
+; uiReset/uiRoot/uiText/uiFinish, ...). Those calls fall through ComponentEngine
+; to this EvalNativeBridge, which reads/writes the SAME shared-memory layout the
+; compiled WASM guest uses — so one .as file runs interpreted here or compiled by
+; asc, against an identical ABI contract.
+; ==============================================================================
+
+Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class AsAbiBridge {
+    Extends(EvalNativeBridge)
+
+    def abi:[int]          ; RGW1 block (2560 bytes)
+    def ui:[int]           ; RGU1 block (8192 bytes)
+    def ready:boolean false
+
+    ; host resource manifest (filled by the .as declare_resources via hostSheet/
+    ; hostRect; read back the same way WasmPhysicsRunner reads the wasm manifest)
+    def resKinds:[int]     ; 1 = sheet, 2 = rect
+    def resIds:[string]
+    def resPaths:[string]
+    def resIvals:[int]     ; 10 ints per resource (see hostSheet/hostRect)
+
+    ; RGU1 builder state
+    def nodeCount:int 0
+    def propCount:int 0
+    def stringLen:int 0
+    def curNode:int 0
+    def rootId:int 0
+    def revision:int 0
+
+    fn ensure:void () {
+        if (ready) { return }
+        def zero:int 0
+        def i 0
+        while (i < 2560) {
+            push abi zero
+            i = (i + 1)
+        }
+        def j 0
+        while (j < 8192) {
+            push ui zero
+            j = (j + 1)
+        }
+        ready = true
+    }
+
+    ; ---- little-endian byte access ----
+    fn aw:void (off:int v:int) {
+        set abi off (bit_and v 255)
+        set abi (off + 1) (bit_and (bit_shr v 8) 255)
+        set abi (off + 2) (bit_and (bit_shr v 16) 255)
+        set abi (off + 3) (bit_and (bit_shr v 24) 255)
+    }
+    fn ar:int (off:int) {
+        def b0:int (itemAt abi off)
+        def b1:int (itemAt abi (off + 1))
+        def b2:int (itemAt abi (off + 2))
+        def b3:int (itemAt abi (off + 3))
+        def hi b3
+        if (hi >= 128) {
+            hi = (hi - 256)
+        }
+        return (b0 + ((b1 * 256) + ((b2 * 65536) + (hi * 16777216))))
+    }
+    ; ---- RGW1 typed accessors (offsets match wasm_game_abi.h) ----
+    fn bodyX:int (i:int) {
+        return (this.ar(64 + (i * 24)))
+    }
+    fn bodyY:int (i:int) {
+        return (this.ar((64 + (i * 24)) + 4))
+    }
+    fn bodySpeed:int (i:int) {
+        return (this.ar((64 + (i * 24)) + 12))
+    }
+    fn bodyAngMilli:int (i:int) {
+        return (this.ar((64 + (i * 24)) + 8))
+    }
+    fn bodyAngVelFp:int (i:int) {
+        return (this.ar((64 + (i * 24)) + 16))
+    }
+    fn writeBodyPos:void (i:int x:int y:int) {
+        this.aw((64 + (i * 24)) x)
+        this.aw(((64 + (i * 24)) + 4) y)
+    }
+    fn writeControl:void (i:int steer:int throttle:int brake:int grip:int) {
+        def b (832 + (i * 16))
+        this.aw(b steer)
+        this.aw((b + 4) throttle)
+        this.aw((b + 8) brake)
+        this.aw((b + 12) grip)
+    }
+    fn contactField:int (i:int field:int) {
+        return (this.ar((1600 + (i * 32)) + field))
+    }
+    fn writeImpulse:void (slot:int body:int lx:int ly:int ang:int) {
+        def b (1344 + (slot * 16))
+        this.aw(b body)
+        this.aw((b + 4) lx)
+        this.aw((b + 8) ly)
+        this.aw((b + 12) ang)
+    }
+    fn writeEvent:void (slot:int kind:int sub:int a:int b:int c:int) {
+        def base (2048 + (slot * 20))
+        this.aw(base kind)
+        this.aw((base + 4) sub)
+        this.aw((base + 8) a)
+        this.aw((base + 12) b)
+        this.aw((base + 16) c)
+    }
+
+    fn uw8:void (off:int v:int) {
+        set ui off (bit_and v 255)
+    }
+    fn uw16:void (off:int v:int) {
+        set ui off (bit_and v 255)
+        set ui (off + 1) (bit_and (bit_shr v 8) 255)
+    }
+    fn uw32:void (off:int v:int) {
+        set ui off (bit_and v 255)
+        set ui (off + 1) (bit_and (bit_shr v 8) 255)
+        set ui (off + 2) (bit_and (bit_shr v 16) 255)
+        set ui (off + 3) (bit_and (bit_shr v 24) 255)
+    }
+
+    ; ---- RGU1 document builder (mirrors ui.ts / ui.rs byte layout) ----
+    fn uiReset:void () {
+        def zero:int 0
+        def i 0
+        while (i < 4160) {
+            set ui i zero
+            i = (i + 1)
+        }
+        nodeCount = 0
+        propCount = 0
+        stringLen = 0
+        curNode = 0
+        rootId = 0
+    }
+    fn uiNode:void (id:int parentId:int kind:int order:int) {
+        if (nodeCount >= 64) { return }
+        def base (64 + (nodeCount * 32))
+        this.uw32(base id)
+        this.uw32((base + 4) parentId)
+        this.uw16((base + 8) kind)
+        this.uw16((base + 10) 0)
+        this.uw32((base + 12) propCount)
+        this.uw16((base + 16) 0)
+        this.uw16((base + 18) order)
+        this.uw32((base + 20) 0)
+        if (nodeCount == 0) { rootId = id }
+        curNode = base
+        nodeCount = (nodeCount + 1)
+    }
+    fn beginProp:int (key:int ty:int) {
+        if (nodeCount == 0) { return (0 - 1) }
+        if (propCount >= 128) { return (0 - 1) }
+        def pbase (2112 + (propCount * 16))
+        this.uw16(pbase key)
+        this.uw8((pbase + 2) ty)
+        this.uw8((pbase + 3) 0)
+        this.uw32((pbase + 4) 0)
+        this.uw32((pbase + 8) 0)
+        this.uw32((pbase + 12) 0)
+        def pcOff (curNode + 16)
+        def lo:int (itemAt ui pcOff)
+        def hi:int (itemAt ui (pcOff + 1))
+        def n (lo + (hi * 256))
+        this.uw16(pcOff (n + 1))
+        propCount = (propCount + 1)
+        return pbase
+    }
+    fn uiPropI32:void (key:int v:int) {
+        def p (this.beginProp(key 1))
+        if (p >= 0) { this.uw32((p + 4) v) }
+    }
+    fn uiPropColor:void (key:int rgba:int) {
+        def p (this.beginProp(key 3))
+        if (p >= 0) { this.uw32((p + 4) rgba) }
+    }
+    fn uiPropEnum:void (key:int v:int) {
+        def p (this.beginProp(key 7))
+        if (p >= 0) { this.uw32((p + 4) v) }
+    }
+    fn uiPropStr:void (key:int s:string) {
+        def p (this.beginProp(key 4))
+        if (p < 0) { return }
+        def start stringLen
+        def len (strlen s)
+        if ((start + len) > 1024) { return }
+        def i 0
+        while (i < len) {
+            set ui ((4160 + start) + i) (charAt s i)
+            i = (i + 1)
+        }
+        stringLen = (stringLen + len)
+        this.uw32((p + 4) start)
+        this.uw32((p + 8) len)
+    }
+    ; Convenience text node: TEXT(kind 2) + text + fontSize + color.
+    fn uiText:void (id:int parent:int order:int s:string color:int) {
+        this.uiNode(id parent 2 order)
+        this.uiPropStr(1 s)          ; K_TEXT
+        this.uiPropI32(4 8)          ; K_FONT_SIZE = 8
+        this.uiPropColor(3 color)    ; K_COLOR
+    }
+    ; Text node with color as r,g,b components (alpha 255) — avoids passing a
+    ; 0xRRGGBBAA value with the high bit set through the interpreter's to_int.
+    fn uiTextRgb:void (id:int parent:int order:int s:string r:int g:int b:int) {
+        this.uiNode(id parent 2 order)
+        this.uiPropStr(1 s)
+        this.uiPropI32(4 8)
+        def p (this.beginProp(3 3))   ; K_COLOR, type COLOR
+        if (p >= 0) {
+            this.uw8((p + 4) 255)     ; A (0xRRGGBBAA stored little-endian [A,B,G,R])
+            this.uw8((p + 5) b)
+            this.uw8((p + 6) g)
+            this.uw8((p + 7) r)
+        }
+    }
+    fn uiFinish:void (rev:int) {
+        revision = rev
+        this.uw32(0 827672402)       ; magic 'RGU1'
+        this.uw16(4 1)               ; major
+        this.uw16(6 0)               ; minor
+        this.uw32(8 rev)
+        this.uw32(12 rootId)
+        this.uw32(16 64)             ; node_offset
+        this.uw32(20 nodeCount)
+        this.uw32(24 2112)           ; property_offset
+        this.uw32(28 propCount)
+        this.uw32(32 4160)           ; string_offset
+        this.uw32(36 stringLen)
+        this.uw32(40 1)              ; flags = valid
+    }
+
+    ; ---- host resource manifest ----
+    fn resReset:void () {
+        def empKind:[int]
+        def empId:[string]
+        def empPath:[string]
+        def empIv:[int]
+        resKinds = empKind
+        resIds = empId
+        resPaths = empPath
+        resIvals = empIv
+    }
+    fn pushIvals:void (a:int b:int c:int d:int e:int f:int g:int h:int i:int j:int) {
+        push resIvals a
+        push resIvals b
+        push resIvals c
+        push resIvals d
+        push resIvals e
+        push resIvals f
+        push resIvals g
+        push resIvals h
+        push resIvals i
+        push resIvals j
+    }
+    fn hostSheet:void (id:string path:string fw:int fh:int scale:int feet:int dl:int) {
+        push resKinds 1
+        push resIds id
+        push resPaths path
+        def z:int 0
+        this.pushIvals(fw fh scale feet z z z z z dl)
+    }
+    fn hostRect:void (id:string w:int h:int r:int g:int b:int dl:int) {
+        push resKinds 2
+        push resIds id
+        push resPaths ""
+        def z:int 0
+        this.pushIvals(z z z z w h r g b dl)
+    }
+    fn resCount:int () {
+        return (array_length resKinds)
+    }
+    fn resKind:int (i:int) {
+        def k:int (itemAt resKinds i)
+        return k
+    }
+    fn resId:string (i:int) {
+        def s:string (itemAt resIds i)
+        return s
+    }
+    fn resPath:string (i:int) {
+        def s:string (itemAt resPaths i)
+        return s
+    }
+    fn resIval:int (i:int field:int) {
+        def v:int (itemAt resIvals ((i * 10) + field))
+        return v
+    }
+
+    ; ---- native bridge dispatch ----
+    fn argInt:int (args:[EvalValue] i:int) {
+        if (i >= (array_length args)) { return 0 }
+        def v:EvalValue (itemAt args i)
+        return (to_int v.numberValue)
+    }
+    fn argStr:string (args:[EvalValue] i:int) {
+        if (i >= (array_length args)) { return "" }
+        def v:EvalValue (itemAt args i)
+        return v.stringValue
+    }
+
+    fn has:boolean (name:string) {
+        if (name == "abiWrite") { return true }
+        if (name == "abiRead") { return true }
+        if (name == "bodyX") { return true }
+        if (name == "bodyY") { return true }
+        if (name == "bodySpeed") { return true }
+        if (name == "bodyAngMilli") { return true }
+        if (name == "bodyAngVelFp") { return true }
+        if (name == "writeBodyPos") { return true }
+        if (name == "writeControl") { return true }
+        if (name == "contactCount") { return true }
+        if (name == "contactBodyA") { return true }
+        if (name == "contactBodyB") { return true }
+        if (name == "contactPhase") { return true }
+        if (name == "contactImpulse") { return true }
+        if (name == "contactX") { return true }
+        if (name == "contactY") { return true }
+        if (name == "contactNx") { return true }
+        if (name == "contactNy") { return true }
+        if (name == "writeImpulse") { return true }
+        if (name == "writeEvent") { return true }
+        if (name == "uiReset") { return true }
+        if (name == "uiNode") { return true }
+        if (name == "uiText") { return true }
+        if (name == "uiTextRgb") { return true }
+        if (name == "uiPropI32") { return true }
+        if (name == "uiPropColor") { return true }
+        if (name == "uiPropEnum") { return true }
+        if (name == "uiPropStr") { return true }
+        if (name == "uiFinish") { return true }
+        if (name == "hostSheet") { return true }
+        if (name == "hostRect") { return true }
+        return false
+    }
+
+    fn invoke:EvalValue (name:string args:[EvalValue]) {
+        this.ensure()
+        if (name == "abiWrite") {
+            this.aw((this.argInt(args 0)) (this.argInt(args 1)))
+            return (EvalValue.null())
+        }
+        if (name == "abiRead") {
+            def off:int (this.argInt(args 0))
+            def val:int (this.ar(off))
+            return (EvalValue.fromInt(val))
+        }
+        if (name == "bodyX") {
+            def i:int (this.argInt(args 0))
+            def v:int (this.bodyX(i))
+            return (EvalValue.fromInt(v))
+        }
+        if (name == "bodyY") {
+            def i:int (this.argInt(args 0))
+            def v:int (this.bodyY(i))
+            return (EvalValue.fromInt(v))
+        }
+        if (name == "bodySpeed") {
+            def i:int (this.argInt(args 0))
+            def v:int (this.bodySpeed(i))
+            return (EvalValue.fromInt(v))
+        }
+        if (name == "bodyAngMilli") {
+            def i:int (this.argInt(args 0))
+            def v:int (this.bodyAngMilli(i))
+            return (EvalValue.fromInt(v))
+        }
+        if (name == "bodyAngVelFp") {
+            def i:int (this.argInt(args 0))
+            def v:int (this.bodyAngVelFp(i))
+            return (EvalValue.fromInt(v))
+        }
+        if (name == "writeBodyPos") {
+            def i:int (this.argInt(args 0))
+            def x:int (this.argInt(args 1))
+            def y:int (this.argInt(args 2))
+            this.writeBodyPos(i x y)
+            return (EvalValue.null())
+        }
+        if (name == "writeControl") {
+            def i:int (this.argInt(args 0))
+            def st:int (this.argInt(args 1))
+            def th:int (this.argInt(args 2))
+            def br:int (this.argInt(args 3))
+            def gr:int (this.argInt(args 4))
+            this.writeControl(i st th br gr)
+            return (EvalValue.null())
+        }
+        if (name == "contactCount") {
+            def v:int (this.ar(36))
+            return (EvalValue.fromInt(v))
+        }
+        if (name == "contactBodyA") {
+            def i:int (this.argInt(args 0))
+            def v:int (this.contactField(i 0))
+            return (EvalValue.fromInt(v))
+        }
+        if (name == "contactBodyB") {
+            def i:int (this.argInt(args 0))
+            def v:int (this.contactField(i 4))
+            return (EvalValue.fromInt(v))
+        }
+        if (name == "contactPhase") {
+            def i:int (this.argInt(args 0))
+            def v:int (this.contactField(i 8))
+            return (EvalValue.fromInt(v))
+        }
+        if (name == "contactImpulse") {
+            def i:int (this.argInt(args 0))
+            def v:int (this.contactField(i 12))
+            return (EvalValue.fromInt(v))
+        }
+        if (name == "contactX") {
+            def i:int (this.argInt(args 0))
+            def v:int (this.contactField(i 16))
+            return (EvalValue.fromInt(v))
+        }
+        if (name == "contactY") {
+            def i:int (this.argInt(args 0))
+            def v:int (this.contactField(i 20))
+            return (EvalValue.fromInt(v))
+        }
+        if (name == "contactNx") {
+            def i:int (this.argInt(args 0))
+            def v:int (this.contactField(i 24))
+            return (EvalValue.fromInt(v))
+        }
+        if (name == "contactNy") {
+            def i:int (this.argInt(args 0))
+            def v:int (this.contactField(i 28))
+            return (EvalValue.fromInt(v))
+        }
+        if (name == "writeImpulse") {
+            def slot:int (this.argInt(args 0))
+            def body:int (this.argInt(args 1))
+            def lx:int (this.argInt(args 2))
+            def ly:int (this.argInt(args 3))
+            def ang:int (this.argInt(args 4))
+            this.writeImpulse(slot body lx ly ang)
+            return (EvalValue.null())
+        }
+        if (name == "writeEvent") {
+            def slot:int (this.argInt(args 0))
+            def kind:int (this.argInt(args 1))
+            def sub:int (this.argInt(args 2))
+            def a:int (this.argInt(args 3))
+            def b:int (this.argInt(args 4))
+            def c:int (this.argInt(args 5))
+            this.writeEvent(slot kind sub a b c)
+            return (EvalValue.null())
+        }
+        if (name == "uiReset") {
+            this.uiReset()
+            return (EvalValue.null())
+        }
+        if (name == "uiNode") {
+            this.uiNode((this.argInt(args 0)) (this.argInt(args 1)) (this.argInt(args 2)) (this.argInt(args 3)))
+            return (EvalValue.null())
+        }
+        if (name == "uiText") {
+            this.uiText((this.argInt(args 0)) (this.argInt(args 1)) (this.argInt(args 2)) (this.argStr(args 3)) (this.argInt(args 4)))
+            return (EvalValue.null())
+        }
+        if (name == "uiTextRgb") {
+            def id:int (this.argInt(args 0))
+            def parent:int (this.argInt(args 1))
+            def order:int (this.argInt(args 2))
+            def s:string (this.argStr(args 3))
+            def r:int (this.argInt(args 4))
+            def g:int (this.argInt(args 5))
+            def b:int (this.argInt(args 6))
+            this.uiTextRgb(id parent order s r g b)
+            return (EvalValue.null())
+        }
+        if (name == "uiPropI32") {
+            this.uiPropI32((this.argInt(args 0)) (this.argInt(args 1)))
+            return (EvalValue.null())
+        }
+        if (name == "uiPropColor") {
+            this.uiPropColor((this.argInt(args 0)) (this.argInt(args 1)))
+            return (EvalValue.null())
+        }
+        if (name == "uiPropEnum") {
+            this.uiPropEnum((this.argInt(args 0)) (this.argInt(args 1)))
+            return (EvalValue.null())
+        }
+        if (name == "uiPropStr") {
+            this.uiPropStr((this.argInt(args 0)) (this.argStr(args 1)))
+            return (EvalValue.null())
+        }
+        if (name == "uiFinish") {
+            this.uiFinish((this.argInt(args 0)))
+            return (EvalValue.null())
+        }
+        if (name == "hostSheet") {
+            def id:string (this.argStr(args 0))
+            def path:string (this.argStr(args 1))
+            def fw:int (this.argInt(args 2))
+            def fh:int (this.argInt(args 3))
+            def scale:int (this.argInt(args 4))
+            def feet:int (this.argInt(args 5))
+            def dl:int (this.argInt(args 6))
+            this.hostSheet(id path fw fh scale feet dl)
+            return (EvalValue.null())
+        }
+        if (name == "hostRect") {
+            def id:string (this.argStr(args 0))
+            def w:int (this.argInt(args 1))
+            def h:int (this.argInt(args 2))
+            def r:int (this.argInt(args 3))
+            def g:int (this.argInt(args 4))
+            def b:int (this.argInt(args 5))
+            def dl:int (this.argInt(args 6))
+            this.hostRect(id w h r g b dl)
+            return (EvalValue.null())
+        }
+        return (EvalValue.null())
+    }
+}

@@ -3,21 +3,40 @@
 ; ==============================================================================
 
 Import "../wasm_runtime.rgr"
+Import "./as_abi_bridge.rgr"
 
 class WasmAbiMem {
     def handle:int 0
     def base:int 0
+
+    ; Alternate backend: an interpreted .as guest's byte buffer instead of a wasm
+    ; module. Same offsets, so every reader/writer above works unchanged.
+    def asBridge@(optional):AsAbiBridge
+    def useAs:boolean false
 
     fn bind:void (h:int) {
         handle = h
         base = (wasm_abi_base h)
     }
 
+    fn bindAs:void (b:AsAbiBridge) {
+        asBridge = b
+        useAs = true
+        base = 0
+    }
+
     fn readMem:int (addr:int) {
+        if (useAs) {
+            return ((unwrap asBridge).ar(addr))
+        }
         return (wasm_mem_i32 handle addr)
     }
 
     fn writeMem:void (addr:int val:int) {
+        if (useAs) {
+            (unwrap asBridge).aw(addr val)
+            return
+        }
         wasm_mem_set_i32 handle addr val
     }
 

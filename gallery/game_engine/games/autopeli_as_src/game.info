@@ -1,0 +1,8 @@
+name=Autopeli (.as interpreted)
+engine=as
+module=game.as
+abi=linear
+physics=true
+assets=assets
+splitScreen=auto
+autoscale=true

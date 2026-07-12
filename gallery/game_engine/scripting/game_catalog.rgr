@@ -192,10 +192,11 @@ class GameCatalog {
         if ((strlen entry.title) == 0) {
             entry.title = entry.id
         }
-        if (entry.engine == "wasm") {
-            entry.entryPath = (this.joinPath(entry.dir entry.moduleFile))
-        } {
+        if (entry.engine == "tsx") {
             entry.entryPath = (this.joinPath(entry.dir entry.entryFile))
+        } {
+            ; wasm (.wasm) and as (.as) both point at their module file
+            entry.entryPath = (this.joinPath(entry.dir entry.moduleFile))
         }
     }
 
@@ -203,7 +204,14 @@ class GameCatalog {
         if (file_exists gameDir "game.info") {
             def buf:buffer (buffer_read_file gameDir "game.info")
             def txt:string (buffer_to_string buf)
+            def isLinear:boolean false
             if ((indexOf txt "engine=wasm") >= 0) {
+                isLinear = true
+            }
+            if ((indexOf txt "engine=as") >= 0) {
+                isLinear = true
+            }
+            if (isLinear) {
                 def modFile:string "logic.wasm"
                 def entry:GameCatalogEntry (new GameCatalogEntry)
                 entry.dir = gameDir
