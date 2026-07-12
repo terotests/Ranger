@@ -72,6 +72,37 @@ interface Collectible {
   taken: i32;
 }
 
+interface MergedPlatform extends Platform {
+  vx: f64;
+  prevX: f64;
+}
+
+interface Color {
+  r: i32;
+  g: i32;
+  b: i32;
+}
+
+interface UpdatePlayerResult {
+  pl: Player;
+  fireCd: f64;
+  events: GameEvent[];
+}
+
+interface ApplyEnemyHitsResult {
+  pl: Player;
+  died: i32;
+}
+
+interface PlayerInput {
+  up: boolean;
+  down: boolean;
+  left: boolean;
+  right: boolean;
+  action: boolean;
+  shoot: boolean;
+}
+
 interface GameSnapshot {
   p1: Player;
   p2: Player;
@@ -92,9 +123,9 @@ const MAX_DIAMONDS = 5;
 const MAX_BULLETS = 4;
 const MAX_MOVING_PLATFORMS = 8;
 const MOVING_PLAT_SPEED = 0.06;
-const PLAT_COLOR_BODY = { r: 72, g: 150, b: 64 };
-const PLAT_COLOR_TOP = { r: 110, g: 190, b: 86 };
-const PLAT_COLOR_BOTTOM = { r: 42, g: 96, b: 38 };
+const PLAT_COLOR_BODY: Color = { r: 72, g: 150, b: 64 };
+const PLAT_COLOR_TOP: Color = { r: 110, g: 190, b: 86 };
+const PLAT_COLOR_BOTTOM: Color = { r: 42, g: 96, b: 38 };
 const PLAT_EDGE_H = 4;
 const JUMP_MIN_V = 0.28;
 const JUMP_MAX_V = 0.38;
@@ -464,7 +495,7 @@ function updateMovingPlatforms(platforms: MovingPlatform[], dt: f64, staticPlats
   return platforms;
 }
 
-function staticPlatformCount(platforms) {
+function staticPlatformCount(platforms: MergedPlatform[]) {
   let n = 0;
   let i = 0;
   while (i < platforms.length) {
@@ -480,7 +511,7 @@ function playerBodyTop(py) {
   return py - 34;
 }
 
-function playerOverlapsPlatform(px, py, pw, p) {
+function playerOverlapsPlatform(px: f64, py: f64, pw: f64, p: MergedPlatform) {
   if (px + pw <= p.x) {
     return false;
   }
@@ -496,7 +527,7 @@ function playerOverlapsPlatform(px, py, pw, p) {
   return true;
 }
 
-function isStandingOnPlatform(px, py, pw, p) {
+function isStandingOnPlatform(px: f64, py: f64, pw: f64, p: MergedPlatform) {
   if (px + pw <= p.x) {
     return false;
   }
@@ -512,7 +543,7 @@ function isStandingOnPlatform(px, py, pw, p) {
   return true;
 }
 
-function applyMovingPlatformSidePush(px, py, pw, grounded, platforms, staticCount) {
+function applyMovingPlatformSidePush(px: f64, py: f64, pw: f64, grounded: i32, platforms: MergedPlatform[], staticCount: i32) {
   let x = px;
   let g = grounded;
   let i = staticCount;
@@ -532,7 +563,7 @@ function applyMovingPlatformSidePush(px, py, pw, grounded, platforms, staticCoun
   return { x: x, grounded: g };
 }
 
-function mergePlatforms(staticPlats: Platform[], movingPlats: MovingPlatform[]) {
+function mergePlatforms(staticPlats: Platform[], movingPlats: MovingPlatform[]): MergedPlatform[] {
   const out = [];
   let i = 0;
   while (i < staticPlats.length) {
@@ -556,7 +587,7 @@ function mergePlatforms(staticPlats: Platform[], movingPlats: MovingPlatform[]) 
   return out;
 }
 
-function stillOnMovingPlatform(px, py, pw, platforms, staticCount) {
+function stillOnMovingPlatform(px: f64, py: f64, pw: f64, platforms: MergedPlatform[], staticCount: i32) {
   let i = staticCount;
   while (i < platforms.length) {
     if (isStandingOnPlatform(px, py, pw, platforms[i])) {
@@ -567,34 +598,36 @@ function stillOnMovingPlatform(px, py, pw, platforms, staticCount) {
   return 0;
 }
 
-function jumpHoldMaxMs(pl: Player) {
-  if (pl.superMs > 0) {
-    return JUMP_HOLD_MAX_SUPER_MS;
-  }
-  return JUMP_HOLD_MAX_MS;
-}
-
-function jumpMaxV(pl: Player) {
-  if (pl.superMs > 0) {
+function jumpMaxV(superMs: i32) {
+  if (superMs > 0) {
     return JUMP_SUPER_MAX_V;
   }
   return JUMP_MAX_V;
+}
+
+function jumpHoldMaxMs(superMs: i32) {
+  if (superMs > 0) {
+    return JUMP_HOLD_MAX_SUPER_MS;
+  }
+  return JUMP_HOLD_MAX_MS;
 }
 
 function floorY() {
   return BASE_PLATFORMS[0].y;
 }
 
-function goalPlatform() {
+function goalPlatform(): Platform {
   return scalePlatform(GOAL_PLATFORM);
 }
 
-function goalFeetY() {
-  return goalPlatform().y;
+function goalFeetY(): f64 {
+  const gp = goalPlatform();
+  return gp.y;
 }
 
-function goalTriggerY() {
-  return goalPlatform().y + 22;
+function goalTriggerY(): f64 {
+  const gp = goalPlatform();
+  return gp.y + 22;
 }
 
 function celebrateXFor(slot) {
@@ -619,7 +652,7 @@ function spawnFinishParticles(events, x, y) {
   events.push(particleEvent("burst", x + 24, y - 20, 12));
 }
 
-function spawnCelebratePulse(events, pl: Player, burst) {
+function spawnCelebratePulse(events: GameEvent[], pl: Player, burst: i32) {
   const phase = burst % 4;
   const hop = pl.finishMs < FINISH_CELEBRATE_MS ? celebrateYOffset(pl.animTick) : 0;
   const px = pl.x;
@@ -683,7 +716,7 @@ function drawCloud(cx, cy) {
   bgFillCircle(cx + 16, cy + 4, 10, 235, 240, 250);
 }
 
-function movingPlatformLayerSprite(id, w, h, color) {
+function movingPlatformLayerSprite(id: string, w: f64, h: f64, r: i32, g: i32, b: i32) {
   let rw = w | 0;
   if (rw < 12) {
     rw = 12;
@@ -697,22 +730,22 @@ function movingPlatformLayerSprite(id, w, h, color) {
     kind: "rect",
     w: rw,
     h: rh,
-    r: color.r,
-    g: color.g,
-    b: color.b
+    r: r,
+    g: g,
+    b: b
   };
 }
 
 function movingPlatformSprites(mpi, w, h) {
   const bodyH = h - PLAT_EDGE_H * 2;
   return [
-    movingPlatformLayerSprite("mp" + mpi + "t", w, PLAT_EDGE_H, PLAT_COLOR_TOP),
-    movingPlatformLayerSprite("mp" + mpi + "m", w, bodyH, PLAT_COLOR_BODY),
-    movingPlatformLayerSprite("mp" + mpi + "b", w, PLAT_EDGE_H, PLAT_COLOR_BOTTOM)
+    movingPlatformLayerSprite("mp" + mpi + "t", w, PLAT_EDGE_H, PLAT_COLOR_TOP.r, PLAT_COLOR_TOP.g, PLAT_COLOR_TOP.b),
+    movingPlatformLayerSprite("mp" + mpi + "m", w, bodyH, PLAT_COLOR_BODY.r, PLAT_COLOR_BODY.g, PLAT_COLOR_BODY.b),
+    movingPlatformLayerSprite("mp" + mpi + "b", w, PLAT_EDGE_H, PLAT_COLOR_BOTTOM.r, PLAT_COLOR_BOTTOM.g, PLAT_COLOR_BOTTOM.b)
   ];
 }
 
-function placeMovingPlatformEntities(entities, mpi, mp, cam) {
+function placeMovingPlatformEntities(entities, mpi: i32, mp: MergedPlatform, cam: f64) {
   const cx = mp.x + mp.w / 2;
   const screenY = mp.y - cam;
   const midH = mp.h - PLAT_EDGE_H * 2;
@@ -1022,7 +1055,7 @@ function initState() {
   };
 }
 
-function readPlayer(props, index) {
+function readPlayer(props, index: i32): PlayerInput {
   const input = props.input;
   let up = false;
   let down = false;
@@ -1065,7 +1098,7 @@ function clampX(x) {
   return x;
 }
 
-function landOnPlatforms(pl: Player, pw: f64, dt: f64, platforms: Platform[], staticCount: i32) {
+function landOnPlatforms(pl: Player, pw: f64, dt: f64, platforms: MergedPlatform[], staticCount: i32) {
   let grounded = 0;
   let ny = pl.y;
   let nvy = pl.vy;
@@ -1147,16 +1180,17 @@ function stompBounce(pl: Player, ey: f64): Player {
   };
 }
 
-function applyEnemyHits(pl: Player, owner: i32, enemies: Enemy[], events: GameEvent[]) {
+function applyEnemyHits(pl: Player, owner: i32, enemies: Enemy[], events: GameEvent[]): ApplyEnemyHitsResult {
   let out = pl;
   let died = 0;
   let ei = 0;
   while (ei < MAX_ENEMIES) {
-    if (enemies[ei].alive == 1) {
-      const kind = enemyCollisionKind(out.x, out.y, out.vy, enemies[ei].x, enemies[ei].y);
+    const e = enemies[ei];
+    if (e.alive == 1) {
+      const kind = enemyCollisionKind(out.x, out.y, out.vy, e.x, e.y);
       if (kind == "stomp") {
         enemies[ei].alive = 0;
-        out = stompBounce(out, enemies[ei].y);
+        out = stompBounce(out, e.y);
         events.push(soundEvent("brick"));
         events.push(soundEvent("bounce"));
         events.push(rumbleForOwner(owner, 90, 18000));
@@ -1165,7 +1199,7 @@ function applyEnemyHits(pl: Player, owner: i32, enemies: Enemy[], events: GameEv
           if (out.superMs > 0) {
             enemies[ei].alive = 0;
             events.push(soundEvent("brick"));
-            events.push(particleEvent("sparkle", enemies[ei].x, enemies[ei].y, 10));
+            events.push(particleEvent("sparkle", e.x, e.y, 10));
             events.push(rumbleForOwner(owner, 60, 12000));
           } else {
             out = respawnPlayer(owner);
@@ -1229,7 +1263,7 @@ function sheetFrameForPlayer(pl: Player, moving) {
   return { p0: frame, p1: row, p2: jump };
 }
 
-function updatePlayer(pl: Player, inp, dt: f64, bullets: Bullet[], owner: i32, fireCd: f64, platforms: Platform[]) {
+function updatePlayer(pl: Player, inp: PlayerInput, dt: f64, bullets: Bullet[], owner: i32, fireCd: f64, platforms: MergedPlatform[]): UpdatePlayerResult {
   const events = [];
   let face = pl.face;
   let vx = 0;
@@ -1248,7 +1282,7 @@ function updatePlayer(pl: Player, inp, dt: f64, bullets: Bullet[], owner: i32, f
       superMs = 0;
     }
   }
-  const plSuper = { superMs: superMs };
+  const plSuper = superMs | 0;
   let vy = pl.vy + GRAV * dt;
   let airJump = pl.airJump;
   let jumpBoostMs = pl.jumpBoostMs;
@@ -1469,7 +1503,7 @@ function respawnPlayer(which) {
   return makePlayerOnFloor(P2_START_X, -1);
 }
 
-function computeCamera(p1, p2, dual) {
+function computeCamera(p1: Player, p2: Player, dual: boolean): f64 {
   let lead = WORLD_H;
   if (p1.done == 0) {
     if (p1.y < lead) {
@@ -1698,7 +1732,7 @@ function checkFinish(pl: Player, slot: i32, events: GameEvent[]) {
   if (pl.y <= goalTriggerY()) {
     const feetY = goalFeetY();
     const cx = celebrateXFor(slot);
-    const next = {
+    const next: Player = {
       x: cx,
       y: feetY,
       vx: 0,

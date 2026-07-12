@@ -160,7 +160,7 @@ synthesized type and their fields survive.
 ### Progress
 
 `games/ylos2/index.tsx` emits with `@singleton` module + host routing +
-object-state fields. Compile errors: **1486 → ~357** (no pong/invaders/pacman
+object-state fields. Compile errors: **1486 → ~123** (no pong/invaders/pacman
 regression). Landed inference/codegen improvements:
 
 - element structs synthesized from `local.push({...})` (helper-built arrays)
@@ -177,10 +177,16 @@ regression). Landed inference/codegen improvements:
 - `SpriteDefNative` extended with LPC sheet fields (`path`, `frameW`, …)
 - removed overly broad `param a -> [int]` hack (pacman `put1` uses body inference)
 - seventh prescan pass re-infers helper param types from finalized struct schemas
+- interface `extends` merge (`MovingPlatform extends Platform` inherits x/y/w/h)
+- state field routing for any `NativeGameState` binding (`fresh.p1`, `fresh.cameraY`, …)
+- `finalizeSynthStructs` seeds helper param types into local var inference
+- nested return structs match recorded interfaces (`UpdatePlayerResult`, `ApplyEnemyHitsResult`)
+- `(call()).field` hoisted to temp (`goalPlatform().y` → `gp.y`)
+- if-body `itemAt` hoists share typed locals across test + consequent
 
-Remaining long tail (~357): merge-platform struct field doubles, a few helper
-return struct unifications (`stompBounce`→`Player`), `entities={}` map in
-`placeEntities`, and scattered int/double edges in physics helpers.
+Remaining long tail (~123): `spawnBullet` arg coercion, `fresh.events = []` patch
+emission, scattered int/double edges in physics/bg helpers, `placeEntities` map
+typing, and a few `update()` control-flow emission gaps.
 
 Interpreter path works today: `npm run engine:game-sdl:run:ylos2` (Path A).
 

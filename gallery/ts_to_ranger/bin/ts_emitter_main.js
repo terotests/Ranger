@@ -5363,7 +5363,8 @@ class TSEmitter  {
       if ( typeof(node.left) != "undefined" ) {
         const lbase = node.left;
         if ( lbase.nodeType == "Identifier" ) {
-          if ( lbase.name == this.stateVarName ) {
+          const lvt = this.lookupVarType(lbase.name);
+          if ( lvt == "NativeGameState" ) {
             if ( this.isObjectStateField(node.name) ) {
               return this.objectStateFieldTypeOf(node.name);
             }
@@ -5426,6 +5427,33 @@ class TSEmitter  {
     }
     return "int";
   };
+  isFloatScalar (t) {
+    if ( t == "double" ) {
+      return true;
+    }
+    if ( t == "f32" ) {
+      return true;
+    }
+    return false;
+  };
+  isIntScalar (t) {
+    if ( t == "int" ) {
+      return true;
+    }
+    if ( t == "i32" ) {
+      return true;
+    }
+    if ( t == "u8" ) {
+      return true;
+    }
+    if ( t == "u16" ) {
+      return true;
+    }
+    if ( t == "u32" ) {
+      return true;
+    }
+    return false;
+  };
   numericCommon (node) {
     let lt = "int";
     let rt = "int";
@@ -5435,7 +5463,7 @@ class TSEmitter  {
     if ( typeof(node.right) != "undefined" ) {
       rt = this.exprType((node.right));
     }
-    if ( (lt == "double") || (rt == "double") ) {
+    if ( this.isFloatScalar(lt) || this.isFloatScalar(rt) ) {
       return "double";
     }
     return "int";
@@ -5544,6 +5572,24 @@ class TSEmitter  {
       return t;
     }
     return "int";
+  };
+  emitStateFieldRead (baseName, field, expected) {
+    if ( this.isObjectStateField(field) ) {
+      return "st_" + field;
+    }
+    if ( this.isStateArrayField(field) ) {
+      return ((("(unwrap (get " + baseName) + ".intArrays \"") + field) + "\"))";
+    }
+    if ( this.isNativeStateField(field) == false ) {
+      if ( (field.length) > 0 ) {
+        const access = ((("(unwrap (get " + baseName) + ".numbers \"") + field) + "\"))";
+        if ( expected == "int" ) {
+          return ("(to_int " + access) + ")";
+        }
+        return access;
+      }
+    }
+    return "";
   };
   isSpecialFn (name) {
     if ( name == "sprites" ) {
@@ -5930,6 +5976,15 @@ class TSEmitter  {
     if ( key == "hit" ) {
       return "boolean";
     }
+    if ( key == "x" ) {
+      return "double";
+    }
+    if ( key == "y" ) {
+      return "double";
+    }
+    if ( key == "w" ) {
+      return "double";
+    }
     if ( key == "vx" ) {
       return "double";
     }
@@ -5942,7 +5997,70 @@ class TSEmitter  {
     if ( key == "by" ) {
       return "double";
     }
+    if ( key == "fireCd" ) {
+      return "double";
+    }
+    if ( key == "carryVx" ) {
+      return "double";
+    }
+    if ( valNode.nodeType == "ObjectExpression" ) {
+      const known = this.matchKnownStruct(valNode);
+      if ( (known.length) > 0 ) {
+        return known;
+      }
+      const iface = this.matchRecordedInterface(valNode);
+      if ( (iface.length) > 0 ) {
+        return iface;
+      }
+    }
     return this.exprType(valNode);
+  };
+  matchRecordedInterface (obj) {
+    if ( obj.nodeType != "ObjectExpression" ) {
+      return "";
+    }
+    let i = 0;
+    while (i < (this.interfaceNames.length)) {
+      const iname = this.interfaceNames[i];
+      if ( this.objectMatchesInterface(obj, iname) ) {
+        return iname + "Native";
+      }
+      i = i + 1;
+    };
+    return "";
+  };
+  objectMatchesInterface (obj, iface) {
+    const csv = ( this.interfaceFieldsCsv.hasOwnProperty(iface) ? this.interfaceFieldsCsv[iface] : undefined );
+    if ( typeof(csv) === "undefined" ) {
+      return false;
+    }
+    const pairs = this.splitCsv((csv));
+    let pi = 0;
+    while (pi < (pairs.length)) {
+      const pair = pairs[pi];
+      const colon = pair.indexOf(":");
+      if ( colon > 0 ) {
+        const fname = pair.substring(0, colon );
+        if ( this.objectHasField(obj, fname) == false ) {
+          return false;
+        }
+      }
+      pi = pi + 1;
+    };
+    return true;
+  };
+  objectHasField (obj, key) {
+    let i = 0;
+    while (i < (obj.children.length)) {
+      const prop = obj.children[i];
+      if ( prop.nodeType == "Property" ) {
+        if ( this.propKey(prop) == key ) {
+          return true;
+        }
+      }
+      i = i + 1;
+    };
+    return false;
   };
   objectFieldsCsv (obj) {
     let pairs = [];
@@ -5975,7 +6093,19 @@ class TSEmitter  {
           const saved = this.varTypes;
           let local = {};
           this.varTypes = local;
+          let pi = 0;
+          while (pi < (node.params.length)) {
+            const p = node.params[pi];
+            const pt = this.helperParamType(node.name, pi);
+            if ( (pt.length) > 0 ) {
+              this.varTypes[p.name] = pt;
+            }
+            pi = pi + 1;
+          };
+          const savedInfer = this.inferFnName;
+          this.inferFnName = node.name;
           this.collectLocalVarTypes(body, body);
+          this.inferFnName = savedInfer;
           const csv = this.findReturnStructCsv(body, node.name);
           if ( (csv.length) > 0 ) {
             const baseName = node.name + "Ret";
@@ -6908,7 +7038,77 @@ class TSEmitter  {
         i = i + 1;
       };
     }
-    this.interfaceFieldsCsv[node.name] = this.joinCsv(pairs);
+    const ownCsv = this.joinCsv(pairs);
+    const extNames = this.interfaceExtendsNames(node);
+    if ( (extNames.length) > 0 ) {
+      this.interfaceFieldsCsv[node.name] = this.mergeInterfaceFieldsCsv(ownCsv, extNames);
+    } else {
+      this.interfaceFieldsCsv[node.name] = ownCsv;
+    }
+  };
+  interfaceExtendsNames (node) {
+    let names = [];
+    let i = 0;
+    while (i < (node.children.length)) {
+      const child = node.children[i];
+      if ( child.nodeType == "TSExpressionWithTypeArguments" ) {
+        if ( typeof(child.left) != "undefined" ) {
+          const left = child.left;
+          if ( left.nodeType == "TSTypeReference" ) {
+            names.push(left.name);
+          }
+        }
+      }
+      i = i + 1;
+    };
+    return names;
+  };
+  mergeInterfaceFieldsCsv (ownCsv, extendsNames) {
+    let ownOnly = {};
+    let ownPairs = [];
+    if ( (ownCsv.length) > 0 ) {
+      const opairs = this.splitCsv(ownCsv);
+      let k = 0;
+      while (k < (opairs.length)) {
+        const pair2 = opairs[k];
+        const colon2 = pair2.indexOf(":");
+        if ( colon2 > 0 ) {
+          const fn2 = pair2.substring(0, colon2 );
+          ownOnly[fn2] = true;
+          ownPairs.push(pair2);
+        }
+        k = k + 1;
+      };
+    }
+    let pairs = [];
+    let i = 0;
+    while (i < (extendsNames.length)) {
+      const parent = extendsNames[i];
+      const pcsv = ( this.interfaceFieldsCsv.hasOwnProperty(parent) ? this.interfaceFieldsCsv[parent] : undefined );
+      if ( (typeof(pcsv) !== "undefined" && pcsv != null )  ) {
+        const ppairs = this.splitCsv((pcsv));
+        let j = 0;
+        while (j < (ppairs.length)) {
+          const pair = ppairs[j];
+          const colon = pair.indexOf(":");
+          if ( colon > 0 ) {
+            const fn = pair.substring(0, colon );
+            const was = ( ownOnly.hasOwnProperty(fn) ? ownOnly[fn] : undefined );
+            if ( typeof(was) === "undefined" ) {
+              pairs.push(pair);
+            }
+          }
+          j = j + 1;
+        };
+      }
+      i = i + 1;
+    };
+    let m = 0;
+    while (m < (ownPairs.length)) {
+      pairs.push(ownPairs[m]);
+      m = m + 1;
+    };
+    return this.joinCsv(pairs);
   };
   emitInterfaces () {
     let i = 0;
@@ -7533,6 +7733,24 @@ class TSEmitter  {
     this.collectItemAtReceivers(stmt);
   };
   collectItemAtReceivers (node) {
+    if ( node.nodeType == "IfStatement" ) {
+      if ( typeof(node.left) != "undefined" ) {
+        this.collectItemAtReceivers(node.left);
+      }
+      if ( typeof(node.body) != "undefined" ) {
+        this.collectItemAtReceiversInStmt(node.body);
+      }
+      if ( typeof(node.right) != "undefined" ) {
+        this.collectItemAtReceiversInStmt(node.right);
+      }
+      return;
+    }
+    if ( node.nodeType == "WhileStatement" ) {
+      if ( typeof(node.test) != "undefined" ) {
+        this.collectItemAtReceivers(node.test);
+      }
+      return;
+    }
     if ( node.nodeType == "MemberExpression" ) {
       if ( node.computed == false ) {
         if ( typeof(node.left) != "undefined" ) {
@@ -7568,6 +7786,17 @@ class TSEmitter  {
       }
       i = i + 1;
     };
+  };
+  collectItemAtReceiversInStmt (stmt) {
+    if ( stmt.nodeType == "BlockStatement" ) {
+      let i = 0;
+      while (i < (stmt.children.length)) {
+        this.collectItemAtReceivers(stmt.children[i]);
+        i = i + 1;
+      };
+      return;
+    }
+    this.collectItemAtReceivers(stmt);
   };
   registerItemAtHoist (computed) {
     if ( typeof(computed.left) === "undefined" ) {
@@ -7720,6 +7949,24 @@ class TSEmitter  {
       this.emitLine((((("set " + base) + " ") + idx) + " ") + valExpr_1);
       return;
     }
+    if ( baseNode.nodeType == "Identifier" ) {
+      const bvt = this.lookupVarType(baseNode.name);
+      if ( bvt == "NativeGameState" ) {
+        if ( this.isObjectStateField(target.name) ) {
+          const ost = this.objectStateFieldTypeOf(target.name);
+          const valExpr_2 = this.emitRhsValue(rhs, ost);
+          this.emitLine(("st_" + target.name) + (" = " + valExpr_2));
+          return;
+        }
+        if ( this.isNativeStateField(target.name) == false ) {
+          if ( this.isStateArrayField(target.name) == false ) {
+            const valNum = this.emitRhsValue(rhs, "double");
+            this.emitLine((((("set " + baseNode.name) + ".numbers \"") + target.name) + "\" ") + valNum);
+            return;
+          }
+        }
+      }
+    }
     let ft = this.structFieldType(baseType, target.name);
     if ( (ft.length) == 0 ) {
       ft = this.fieldType(target.name);
@@ -7836,6 +8083,19 @@ class TSEmitter  {
       const initNode = d.init;
       if ( hasAnnot == false ) {
         rtype = this.exprType(initNode);
+      }
+      if ( initNode.nodeType == "ObjectExpression" ) {
+        if ( (this).endsWith(rtype, "Native") == false ) {
+          const known = this.matchKnownStruct(initNode);
+          if ( (known.length) > 0 ) {
+            rtype = known;
+          } else {
+            const iface = this.matchRecordedInterface(initNode);
+            if ( (iface.length) > 0 ) {
+              rtype = iface;
+            }
+          }
+        }
       }
       if ( initNode.nodeType == "NumericLiteral" ) {
         if ( this.inUpdateFn ) {
@@ -8015,9 +8275,9 @@ class TSEmitter  {
       }
     }
     if ( typeof(node.left) != "undefined" ) {
-      if ( typeof(node.right) === "undefined" ) {
-        const ttest = node.left;
-        if ( this.isTruthyObjectTest(ttest) ) {
+      const ttest = node.left;
+      if ( this.isTruthyObjectTest(ttest) ) {
+        if ( typeof(node.right) === "undefined" ) {
           if ( typeof(node.body) != "undefined" ) {
             const tcons = node.body;
             if ( tcons.nodeType == "BlockStatement" ) {
@@ -8032,7 +8292,12 @@ class TSEmitter  {
     }
     let cond = "";
     if ( typeof(node.left) != "undefined" ) {
-      cond = this.emitExpr((node.left), "boolean");
+      const ttest2 = node.left;
+      if ( this.isTruthyObjectTest(ttest2) ) {
+        cond = "true";
+      } else {
+        cond = this.emitExpr(ttest2, "boolean");
+      }
     }
     this.emitLine(("if (" + cond) + ") {");
     this.indent();
@@ -8063,6 +8328,9 @@ class TSEmitter  {
   isTruthyObjectTest (node) {
     const t = node.nodeType;
     if ( t == "Identifier" ) {
+      if ( (this).startsWith(node.name, "st_") ) {
+        return true;
+      }
       const vt = this.exprType(node);
       return this.isStructOrArrayType(vt);
     }
@@ -8628,7 +8896,34 @@ class TSEmitter  {
         return "in_" + node.name;
       }
     }
+    if ( leftNode.nodeType == "CallExpression" ) {
+      let ct = this.callExprType(leftNode);
+      if ( (ct.length) == 0 ) {
+        ct = "int";
+      }
+      if ( (this).endsWith(ct, "Native") ) {
+        const tmpCall = "tmp" + ("" + this.tmpCounter);
+        this.tmpCounter = this.tmpCounter + 1;
+        const callStr = this.emitCall(leftNode);
+        this.emitLine(((("def " + tmpCall) + ":") + ct) + ((" (" + callStr) + ")"));
+        const result = (tmpCall + ".") + node.name;
+        if ( expected == "double" ) {
+          const sf = this.structFieldType(ct, node.name);
+          if ( this.isIntScalar(sf) || (sf == "int") ) {
+            return ("(to_double " + result) + ")";
+          }
+        }
+        return result;
+      }
+    }
     if ( leftNode.nodeType == "Identifier" ) {
+      const bvt = this.lookupVarType(leftNode.name);
+      if ( bvt == "NativeGameState" ) {
+        const routed = this.emitStateFieldRead(leftNode.name, node.name, expected);
+        if ( (routed.length) > 0 ) {
+          return routed;
+        }
+      }
       if ( leftNode.name == this.stateVarName ) {
         if ( this.isObjectStateField(node.name) ) {
           return "st_" + node.name;
@@ -8651,15 +8946,15 @@ class TSEmitter  {
     if ( base_2 == "props" ) {
       return "props." + prop;
     }
-    const result = (base_2 + ".") + prop;
+    const result_1 = (base_2 + ".") + prop;
     if ( expected == "double" ) {
       const baseT = this.exprType(leftNode);
-      const sf = this.structFieldType(baseT, prop);
-      if ( sf == "int" ) {
-        return ("(to_double " + result) + ")";
+      const sf_1 = this.structFieldType(baseT, prop);
+      if ( this.isIntScalar(sf_1) || (sf_1 == "int") ) {
+        return ("(to_double " + result_1) + ")";
       }
     }
-    return result;
+    return result_1;
   };
   endsWith (s, suffix) {
     const slen = s.length;
