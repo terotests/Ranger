@@ -307,7 +307,7 @@ class GeneratedGameScript {
             def tmp13:EntityPoseNative (new EntityPoseNative)
             tmp13.x = (to_double (waveX + (col * 40)))
             tmp13.y = (to_double (waveY + (row * 30)))
-            tmp13.p0 = (anim % 2)
+            tmp13.p0 = anim
             tmp13.visible = 1
             set entities id tmp13
         }
@@ -376,21 +376,27 @@ class GeneratedGameScript {
         if ((px > 456.0)) {
             px = 456.0
         }
-        anim = (anim + 1.0)
-        if ((anim > 18.0)) {
-            anim = 0.0
-        }
         waveTick = (waveTick + 1.0)
         if ((waveTick > 14.0)) {
             waveTick = 0.0
+            if ((anim == 0.0)) {
+                anim = 1.0
+            } {
+                anim = 0.0
+            }
             waveX = (waveX + (waveDir * 6.0))
+            if ((anim == 0.0)) {
+                push events ((this.soundEvent("wall")))
+            } {
+                push events ((this.soundEvent("bounce")))
+            }
             if ((waveX > 300.0)) {
                 waveDir = (to_double (0.0 - 1.0))
-                waveY = (waveY + 8.0)
+                waveY = (waveY + 12.0)
             }
             if ((waveX < 40.0)) {
                 waveDir = 1.0
-                waveY = (waveY + 8.0)
+                waveY = (waveY + 12.0)
             }
             if ((waveY > 190.0)) {
                 score2 = (score2 - 1)
@@ -416,6 +422,7 @@ class GeneratedGameScript {
                 shotX = px
                 shotY = (py - 16.0)
                 fireCd = 22.0
+                push events ((this.soundEvent("blip")))
             }
         }
         if ((shotActive == 1.0)) {
@@ -441,7 +448,7 @@ class GeneratedGameScript {
             }
         }
         if (((this.countAlive(alive)) == 0)) {
-            push events ((this.soundEvent("bounce")))
+            push events ((this.soundEvent("win")))
             def reset:resetWaveRetNative ((this.resetWave(alive)))
             waveX = (to_double reset.waveX)
             waveY = (to_double reset.waveY)

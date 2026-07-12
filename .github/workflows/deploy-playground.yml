@@ -3,6 +3,8 @@ name: Deploy playground to GitHub Pages
 on:
   push:
     branches: [main, master]
+    paths-ignore:
+      - 'gallery/**'
   workflow_dispatch:
 
 permissions:
