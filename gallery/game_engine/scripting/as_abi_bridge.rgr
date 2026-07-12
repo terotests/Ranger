@@ -19,6 +19,13 @@ class AsAbiBridge {
     def ui:[int]           ; RGU1 block (8192 bytes)
     def ready:boolean false
 
+    ; host resource manifest (filled by the .as declare_resources via hostSheet/
+    ; hostRect; read back the same way WasmPhysicsRunner reads the wasm manifest)
+    def resKinds:[int]     ; 1 = sheet, 2 = rect
+    def resIds:[string]
+    def resPaths:[string]
+    def resIvals:[int]     ; 10 ints per resource (see hostSheet/hostRect)
+
     ; RGU1 builder state
     def nodeCount:int 0
     def propCount:int 0
@@ -232,6 +239,63 @@ class AsAbiBridge {
         this.uw32(40 1)              ; flags = valid
     }
 
+    ; ---- host resource manifest ----
+    fn resReset:void () {
+        def empKind:[int]
+        def empId:[string]
+        def empPath:[string]
+        def empIv:[int]
+        resKinds = empKind
+        resIds = empId
+        resPaths = empPath
+        resIvals = empIv
+    }
+    fn pushIvals:void (a:int b:int c:int d:int e:int f:int g:int h:int i:int j:int) {
+        push resIvals a
+        push resIvals b
+        push resIvals c
+        push resIvals d
+        push resIvals e
+        push resIvals f
+        push resIvals g
+        push resIvals h
+        push resIvals i
+        push resIvals j
+    }
+    fn hostSheet:void (id:string path:string fw:int fh:int scale:int feet:int dl:int) {
+        push resKinds 1
+        push resIds id
+        push resPaths path
+        def z:int 0
+        this.pushIvals(fw fh scale feet z z z z z dl)
+    }
+    fn hostRect:void (id:string w:int h:int r:int g:int b:int dl:int) {
+        push resKinds 2
+        push resIds id
+        push resPaths ""
+        def z:int 0
+        this.pushIvals(z z z z w h r g b dl)
+    }
+    fn resCount:int () {
+        return (array_length resKinds)
+    }
+    fn resKind:int (i:int) {
+        def k:int (itemAt resKinds i)
+        return k
+    }
+    fn resId:string (i:int) {
+        def s:string (itemAt resIds i)
+        return s
+    }
+    fn resPath:string (i:int) {
+        def s:string (itemAt resPaths i)
+        return s
+    }
+    fn resIval:int (i:int field:int) {
+        def v:int (itemAt resIvals ((i * 10) + field))
+        return v
+    }
+
     ; ---- native bridge dispatch ----
     fn argInt:int (args:[EvalValue] i:int) {
         if (i >= (array_length args)) { return 0 }
@@ -274,6 +338,8 @@ class AsAbiBridge {
         if (name == "uiPropEnum") { return true }
         if (name == "uiPropStr") { return true }
         if (name == "uiFinish") { return true }
+        if (name == "hostSheet") { return true }
+        if (name == "hostRect") { return true }
         return false
     }
 
@@ -433,6 +499,28 @@ class AsAbiBridge {
         }
         if (name == "uiFinish") {
             this.uiFinish((this.argInt(args 0)))
+            return (EvalValue.null())
+        }
+        if (name == "hostSheet") {
+            def id:string (this.argStr(args 0))
+            def path:string (this.argStr(args 1))
+            def fw:int (this.argInt(args 2))
+            def fh:int (this.argInt(args 3))
+            def scale:int (this.argInt(args 4))
+            def feet:int (this.argInt(args 5))
+            def dl:int (this.argInt(args 6))
+            this.hostSheet(id path fw fh scale feet dl)
+            return (EvalValue.null())
+        }
+        if (name == "hostRect") {
+            def id:string (this.argStr(args 0))
+            def w:int (this.argInt(args 1))
+            def h:int (this.argInt(args 2))
+            def r:int (this.argInt(args 3))
+            def g:int (this.argInt(args 4))
+            def b:int (this.argInt(args 5))
+            def dl:int (this.argInt(args 6))
+            this.hostRect(id w h r g b dl)
             return (EvalValue.null())
         }
         return (EvalValue.null())

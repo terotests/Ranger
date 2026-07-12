@@ -2,7 +2,7 @@
 // against the same RGW1/RGU1 ABI as the compiled Rust/AS guests. Core playable
 // loop: input -> player controls, traffic AI, contacts -> per-player HUD.
 // (oil/ramps/cone-launch/audio are follow-ons, as in the first compiled slice.)
-import { abiRead, abiWrite, bodyX, bodyY, writeBodyPos, writeControl, contactCount, contactBodyA, contactBodyB, contactPhase, uiReset, uiNode, uiPropEnum, uiTextRgb, uiFinish } from "@ranger/game";
+import { abiRead, abiWrite, bodyX, bodyY, writeBodyPos, writeControl, contactCount, contactBodyA, contactBodyB, contactPhase, uiReset, uiNode, uiPropEnum, uiTextRgb, uiFinish, hostSheet, hostRect } from "@ranger/game";
 
 const FP: i32 = 256;
 const STEER: i32 = 1000;
@@ -303,4 +303,13 @@ export function update(): void {
   abiWrite(OFF_CAMERA_Y, bodyY(0) - 120 * FP);
   checkWin();
   uiRefresh();
+}
+
+export function declare_resources(): void {
+  hostSheet("p1", "assets/car1.png", 471, 909, 4, 454, 10);
+  hostSheet("p2", "assets/car2.png", 471, 908, 4, 454, 10);
+  hostSheet("trafficCar", "assets/othercar.png", 285, 625, 7, 312, 10);
+  hostSheet("cone", "assets/cone.png", 204, 275, 9, 252, 10);
+  hostSheet("oil", "assets/oil.png", 891, 706, 9, 353, 0);
+  hostRect("bar", 8, 46, 210, 215, 225, 5);
 }

@@ -87,6 +87,13 @@ class AsSourceRunner {
         engine.callFunction("update" (EvalValue.null()))
     }
 
+    ; Run the .as declare_resources(); fills the bridge resource manifest.
+    fn callDeclareResources:void () {
+        if (loaded == false) { return }
+        bridge.resReset()
+        engine.callFunction("declare_resources" (EvalValue.null()))
+    }
+
     ; ---- host reads the shared ABI (same layout the WASM host reads) ----
     fn abiRead:int (off:int) {
         return (bridge.ar(off))

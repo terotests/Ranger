@@ -96,14 +96,35 @@ functions call each other and mutate module state; `let arr = [..]` with
   `x.toString()` returns null — rely on implicit `"" + x` concatenation.
 - `if (flags & BIT)` conditions: numbers are truthy, but prefer `!= 0` for clarity.
 
+## SDL / launcher wiring (done)
+
+The `.as` guest plugs into the existing native host with no new physics/render
+code, because the ABI is identical:
+
+- `WasmAbiMem.bindAs(bridge)` — the ABI reader/writer now has an interpreted
+  backend (the `AsAbiBridge` byte buffer) alongside the wasm one; every existing
+  accessor works unchanged.
+- `WasmPhysicsRunner.loadAsGame(dir)` — loads/interprets the `.as`, points `abi`
+  at the bridge, and its `update`/`setupScene`/`initAssets`/`frame`/HUD paths all
+  branch to the interpreted guest (`useAs`). Resources come from the `.as`
+  `declare_resources()` (`hostSheet`/`hostRect` → bridge manifest).
+- `game_catalog` recognises `engine=as` folders; `game_sdl_runner` routes a
+  `.as` path (`isAsPath` → `loadAsAt`) into the same physics runner.
+
+So `games/autopeli_as_src/` (with `game.info` `engine=as`) appears in the
+launcher and runs on the real SDL host. Verified headless
+(`as_physics_integration_demo.rgr`): the car moves under interpreted `.as`
+control (`p1 y 5860 → 5709`), and the whole `game_sdl_runner` chain compiles to
+C++ (the native target).
+
 ## Status & next steps
 
-Working: interpreted `.as` → ABI, including the autopeli core. Follow-ons:
+Working: interpreted `.as` → ABI → physics/render host, autopeli core playable.
+Follow-ons:
 
 1. **Full parity** — port the remaining autopeli extras (oil/ramps/cone-launch/
-   audio) into `game.as` and parity-check against the Rust/AS guests.
-2. **Catalog + SDL wiring** — have `game_catalog` pick `AsSourceRunner` when a
-   folder holds a `.as` file (`folderHasAs` is ready), so `.as` games appear in
-   the launcher and drive the real physics/render host.
+   audio) into `game.as`.
+2. **Split-screen** — route `.as` through the split-screen host too (currently
+   single-pane).
 3. **asc parity** — compile the same `.as` with a `@ranger/game` SDK and diff the
    ABI against the interpreted run.

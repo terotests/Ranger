@@ -366,7 +366,58 @@ class GameSdlRunner {
         }
     }
 
+    fn dirOf:string (path:string) {
+        def cut (0 - 1)
+        def i 0
+        def n (strlen path)
+        while (i < n) {
+            def c:string (substring path i (i + 1))
+            if (c == "/") {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        if (cut < 0) {
+            return "."
+        }
+        return (substring path 0 cut)
+    }
+
+    ; Load an interpreted .as game folder — reuses the wasm physics/render path
+    ; (the ABI is identical); only the guest is an interpreted .as file.
+    fn loadAsAt:void (asPath:string) {
+        useWasmRunner = true
+        useWasmPhysics = true
+        def dir:string (this.dirOf(asPath))
+        wasmPhysicsRunner = (new WasmPhysicsRunner)
+        wasmPhysicsRunner.init(pw ph)
+        this.presentLoadingScreen("LOADING .AS")
+        if ((wasmPhysicsRunner.loadAsGame(dir)) == false) {
+            print ("[as] load failed: " + dir)
+            return
+        }
+        wasmPhysicsRunner.setupScene()
+        def sdlHost:SdlGameHost (new SdlGameHost)
+        this.wireWasmAudio(wasmPhysicsRunner.audio sdlHost)
+        wasmPhysicsRunner.host = sdlHost
+        currentScriptPath = asPath
+        currentGamePath = asPath
+        inMenu = false
+        inGame = true
+        splitScreenActive = false
+        wasmSplitActive = false
+        this.syncInputEdges()
+        gameInputSnap.resetSoloPad()
+        gfx_clear_should_close
+        this.setProfileOnRunners()
+        print ("[game-engine] .as game: " + asPath)
+    }
+
     fn loadGameAtPath:void (path:string injectCatalog:boolean) {
+        if (this.isAsPath(path)) {
+            this.loadAsAt(path)
+            return
+        }
         if (this.isWasmPath(path)) {
             this.loadWasmAt(path)
             return
@@ -560,6 +611,10 @@ class GameSdlRunner {
         this.clearNavStack()
         nativeBridge.clearPendingNav()
         currentGamePath = path
+        if (this.isAsPath(path)) {
+            this.loadAsAt(path)
+            return
+        }
         if (this.isWasmPath(path)) {
             this.resolveSplitMetadata(path)
             if (this.shouldUseSplitScreen()) {
@@ -1022,6 +1077,18 @@ class GameSdlRunner {
         }
         def tail:string (substring arg (len - 5) len)
         if (tail == ".wasm") {
+            return true
+        }
+        return false
+    }
+
+    fn isAsPath:boolean (arg:string) {
+        def len:int (strlen arg)
+        if (len < 3) {
+            return false
+        }
+        def tail:string (substring arg (len - 3) len)
+        if (tail == ".as") {
             return true
         }
         return false
