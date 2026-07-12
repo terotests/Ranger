@@ -85,6 +85,16 @@ class SplitScreenHost {
         right.wireHostAudio()
     }
 
+    fn setGpuMode:void (enabled:boolean) {
+        left.setGpuMode(enabled)
+        right.setGpuMode(enabled)
+    }
+
+    fn flushGpuParticles:void () {
+        left.flushGpuParticles()
+        right.flushGpuParticles()
+    }
+
     fn setFpsShown:void (fps:int) {
         fpsShown = fps
         left.setFpsShown(fps)
@@ -113,6 +123,7 @@ class SplitScreenHost {
         runner.loadScript(src)
         runner.registerSplitPane(pane)
         runner.setupScene()
+        runner.enableGpuSheetOverlay()
         runner.trackScriptFile(tsxPath)
     }
 
