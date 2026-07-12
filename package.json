@@ -162,7 +162,7 @@
     "tsparser:run": "node ./gallery/ts_parser/bin/ts_parser_main.js -d",
     "tsparser:run:rust": "./gallery/ts_parser/bin/ts_parser_rust.exe -d",
     "tsparser": "npm run tsparser:compile && npm run tsparser:run",
-    "ts2ranger:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/ts_to_ranger/ts_emitter_main.rgr -d=./gallery/ts_to_ranger/bin -o=ts_emitter_main.js -nodecli",
+    "ts2ranger:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/ts_to_ranger/ts_emitter_main.rgr -d=./gallery/ts_to_ranger/bin -o=ts_emitter_main.js -nodecli && node gallery/ts_to_ranger/scripts/patch-emitter-utf8.mjs",
     "ts2ranger:emit": "npm run ts2ranger:compile && node ./gallery/ts_to_ranger/bin/ts_emitter_main.js",
     "engine:pong:runner": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/game_engine/scripting/pong_runner_demo.rgr -d=./tests/.output -o=pong_runner_demo.js -nodecli && node ./tests/.output/pong_runner_demo.js 180",
     "engine:pong:native": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/game_engine/scripting/pong_native_runner.rgr -d=./tests/.output -o=pong_native_runner.js -nodecli && node ./tests/.output/pong_native_runner.js 180",

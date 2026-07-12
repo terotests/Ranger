@@ -65,10 +65,11 @@ describe("TS -> Ranger -> native (compiled game script)", () => {
       "gallery/ts_to_ranger/generated/invaders_generated.rgr"
     );
     expect(fs.existsSync(EMITTER_JS)).toBe(true);
-    execSync(
+    const emitOut = execSync(
       `node ${EMITTER_JS} -i gallery/game_engine/scripting/invaders.game.tsx -o invaders_generated.rgr`,
-      { cwd: ROOT, stdio: "pipe" }
+      { cwd: ROOT, encoding: "utf8" }
     );
+    expect(emitOut).not.toContain("Parse error");
     const src = fs.readFileSync(invadersRgr, "utf8");
     expect(src).toContain("def alive:[int]");
     expect(src).toContain("set s.intArrays \"alive\"");
@@ -106,10 +107,11 @@ describe("TS -> Ranger -> native (compiled game script)", () => {
       "gallery/ts_to_ranger/generated/pacman_native_generated.rgr"
     );
     expect(fs.existsSync(EMITTER_JS)).toBe(true);
-    execSync(
+    const emitOut = execSync(
       `node ${EMITTER_JS} -i gallery/game_engine/scripting/pacman_native.game.tsx -o pacman_native_generated.rgr`,
-      { cwd: ROOT, stdio: "pipe" }
+      { cwd: ROOT, encoding: "utf8" }
     );
+    expect(emitOut).not.toContain("Parse error");
     const src = fs.readFileSync(pacmanRgr, "utf8");
     expect(src).toContain("fn update:NativeGameState");
 
@@ -119,6 +121,32 @@ describe("TS -> Ranger -> native (compiled game script)", () => {
       path.join(ROOT, "tests/.output")
     );
     expect(success, `Compile failed: ${error}`).toBe(true);
+  });
+
+  it("ylos2 (P6 step 1) emits generated Ranger with update() — compile not yet ready", () => {
+    const ylos2Rgr = path.join(
+      ROOT,
+      "gallery/ts_to_ranger/generated/ylos2_generated.rgr"
+    );
+    expect(fs.existsSync(EMITTER_JS)).toBe(true);
+    execSync(
+      `node ${EMITTER_JS} -i gallery/game_engine/games/ylos2/index.tsx -o ylos2_generated.rgr`,
+      { cwd: ROOT, stdio: "pipe" }
+    );
+    const src = fs.readFileSync(ylos2Rgr, "utf8");
+    expect(src).toContain("fn update:NativeGameState");
+    expect(src).toContain("fn initState:NativeGameState");
+
+    const { success, error, output } = compileRanger(
+      ylos2Rgr,
+      "es6",
+      path.join(ROOT, "tests/.output")
+    );
+    expect(
+      success,
+      "ylos2 native compile should fail until P6 emitter gaps are closed"
+    ).toBe(false);
+    expect(output || error || "").toMatch(/Compilation FAILED/i);
   });
 
   function has(cmd: string): boolean {

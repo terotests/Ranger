@@ -56,6 +56,8 @@ class TSEmitterMain {
             stem = (substring base 0 dot)
         }
 
+        ; buffer_to_string in Node codegen reads raw bytes — breaks UTF-8 (em-dash, →).
+        ; gallery/ts_to_ranger/scripts/patch-emitter-utf8.mjs fixes bin/ts_emitter_main.js after compile.
         def buf:buffer (buffer_read_file dir base)
         def src:string (buffer_to_string buf)
 

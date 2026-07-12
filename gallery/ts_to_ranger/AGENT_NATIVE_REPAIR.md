@@ -119,7 +119,28 @@ npm test -- ts-to-ranger-native
 
 ---
 
-## Type aliases (groundwork, not blocking)
+## P6 — New games on native path (ylos2)
+
+**Step 1 status (July 2026):** `games/ylos2/index.tsx` emits `generated/ylos2_generated.rgr`
+(`fn update`, `fn initState` present) but **does not compile** yet (~1500 Ranger errors).
+
+Blockers vs pong/invaders/pacman:
+
+- Large module-level `const` arrays (`BASE_PLATFORMS`, `SUMMIT_MUSIC`, …)
+- Nested object state (`p1`/`p2` entities, `[EntityPoseNative]` arrays on patch)
+- Parser still desyncs on `update()` return object (2 non-fatal `expected '}'` warnings)
+- Emitter gaps: dynamic keys, richer helper inference, `intArrays` patch writes
+
+Interpreter path: `npm run engine:game-sdl:run:ylos2` (Path A).
+
+---
+
+## UTF-8 source reads (emitter)
+
+Node `buffer_to_string` codegen reads raw bytes → breaks `—`, `→` in comments.
+`npm run ts2ranger:compile` runs `scripts/patch-emitter-utf8.mjs` to use `fs.readFileSync(..., 'utf8')`.
+
+---
 
 `gallery/game_engine/scripting/game_native_types.ts` defines `i32` / `f64` aliases for scripts.
 Future: emitter reads annotations and validates integer-only ops at eval time on Path A.

@@ -7942,8 +7942,7 @@ function __js_main() {
   if ( dot > 0 ) {
     stem = base.substring(0, dot );
   }
-  const buf = (function(){ var b = require('fs').readFileSync(dir + '/' + base); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })();
-  const src = (function(b){ var v = new Uint8Array(b); return String.fromCharCode.apply(null, v); })(buf);
+  const src = require('fs').readFileSync(dir + '/' + base, 'utf8');
   const lexer = new TSLexer(src);
   const tokens = lexer.tokenize();
   const parser = new TSParserSimple();
