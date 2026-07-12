@@ -623,7 +623,7 @@ static GLuint rgfx_gl_compile(GLenum type, const char* src) {
 
 static int rgfx_gl_init() {
     if (g_rgfx_gl_program != 0) { return 1; }
-#if defined(__arm__) || defined(__aarch64__)
+#if (defined(__arm__) || defined(__aarch64__)) && !defined(__APPLE__)
     const char* vs =
         \"attribute vec2 aPos;\\n\"
         \"attribute vec2 aUv;\\n\"
@@ -684,7 +684,7 @@ static int rgfx_open_gpu(const std::string& title, int w, int h) {
     rgfx_prepare_audio_env();
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK) != 0) { return 0; }
     rgfx_scan_pads();
-#if defined(__arm__) || defined(__aarch64__)
+#if (defined(__arm__) || defined(__aarch64__)) && !defined(__APPLE__)
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
@@ -696,9 +696,21 @@ static int rgfx_open_gpu(const std::string& title, int w, int h) {
     g_rgfx_win = SDL_CreateWindow(title.c_str(),
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, w, h,
         SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN);
-    if (g_rgfx_win == nullptr) { return 0; }
+    if (g_rgfx_win == nullptr) {
+        // Leave the GL request state clean so the software fallback can open a
+        // plain window + SDL_Renderer instead.
+        SDL_GL_ResetAttributes();
+        return 0;
+    }
     g_rgfx_glctx = SDL_GL_CreateContext(g_rgfx_win);
-    if (g_rgfx_glctx == nullptr) { return 0; }
+    if (g_rgfx_glctx == nullptr) {
+        // Destroy the OpenGL window before falling back; otherwise it lingers as
+        // an unfocusable ghost while the software path opens a second window.
+        SDL_DestroyWindow(g_rgfx_win);
+        g_rgfx_win = nullptr;
+        SDL_GL_ResetAttributes();
+        return 0;
+    }
     SDL_GL_SetSwapInterval(1);
     g_rgfx_gpu_mode = 1;
     g_rgfx_fb_w = w;
@@ -709,6 +721,7 @@ static int rgfx_open_gpu(const std::string& title, int w, int h) {
     SDL_DestroyWindow(g_rgfx_win);
     g_rgfx_win = nullptr;
     g_rgfx_gpu_mode = 0;
+    SDL_GL_ResetAttributes();
     return 0;
 }
 
@@ -735,7 +748,7 @@ static int rgfx_gpu_upload_texture(const uint8_t* pixels, int w, int h) {
 
 static int rgfx_particles_gl_init() {
     if (g_rgfx_part_program != 0) { return 1; }
-#if defined(__arm__) || defined(__aarch64__)
+#if (defined(__arm__) || defined(__aarch64__)) && !defined(__APPLE__)
     const char* vs =
         \"attribute vec2 aCorner;\\n\"
         \"attribute vec2 aCenter;\\n\"
