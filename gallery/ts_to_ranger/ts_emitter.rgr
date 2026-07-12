@@ -184,6 +184,11 @@ class TSEmitter {
     }
 
     fn fnSigType:string (t:string) {
+        return (this.localVarType(t))
+    }
+
+    ; Normalize TS scalar aliases to Ranger locals / signatures (i32 -> int, etc.).
+    fn localVarType:string (t:string) {
         if (t == "i32") { return "int" }
         if (t == "u8") { return "int" }
         if (t == "u16") { return "int" }
@@ -3413,8 +3418,9 @@ class TSEmitter {
                 hasAnnot = true
             }
             if (null? d.init) {
-                set varTypes name rtype
-                this.emitLine(("def " + name) + (":" + rtype))
+                def emitType0:string (this.localVarType(rtype))
+                set varTypes name emitType0
+                this.emitLine(("def " + name) + (":" + emitType0))
                 i = (i + 1)
                 continue
             }
@@ -3471,11 +3477,12 @@ class TSEmitter {
                     }
                 }
             }
-            set varTypes name rtype
+            def emitType:string (this.localVarType(rtype))
+            set varTypes name emitType
             ; array literal initializer
             if (initNode.nodeType == "ArrayExpression") {
                 def et:string (this.elemTypeOf(rtype))
-                this.emitLine((("def " + name) + ":") + rtype)
+                this.emitLine((("def " + name) + ":") + emitType)
                 def k 0
                 while (k < (array_length initNode.children)) {
                     def el:TSNode (itemAt initNode.children k)
@@ -3489,7 +3496,7 @@ class TSEmitter {
             ; object literal bound to a synthesized struct
             if (initNode.nodeType == "ObjectExpression") {
                 if (this.endsWith(rtype "Native")) {
-                    this.emitStructFromObject(initNode name rtype)
+                    this.emitStructFromObject(initNode name emitType)
                     i = (i + 1)
                     continue
                 }
@@ -3502,8 +3509,8 @@ class TSEmitter {
                     }
                 }
             }
-            def rhs:string (this.emitExpr(initNode rtype))
-            this.emitLine((("def " + name) + (":" + rtype)) + ((" (" + rhs) + ")"))
+            def rhs:string (this.emitExpr(initNode emitType))
+            this.emitLine((("def " + name) + (":" + emitType)) + ((" (" + rhs) + ")"))
             i = (i + 1)
         }
     }
@@ -3541,26 +3548,18 @@ class TSEmitter {
                 }
                 if (ft == "double") {
                     def rt:string (this.exprType(valNode))
-                    if (rt == "int") {
+                    if ((rt == "int") || (rt == "i32")) {
                         def skip:boolean false
                         if ((strlen v) >= 10) {
                             if ((substring v 0 10) == "(to_double") {
                                 skip = true
                             }
                         }
+                        if (this.containsChar(v 46)) {
+                            skip = true
+                        }
                         if (skip == false) {
-                            if (valNode.nodeType != "NumericLiteral") {
-                                if (valNode.nodeType != "Identifier") {
-                                    if ((strlen v) >= 4) {
-                                        if ((substring v 0 4) == "(0.0") {
-                                            skip = true
-                                        }
-                                    }
-                                    if (skip == false) {
-                                        v = ("(to_double " + v) + ")"
-                                    }
-                                }
-                            }
+                            v = ("(to_double " + v) + ")"
                         }
                     }
                 }
@@ -4124,7 +4123,7 @@ class TSEmitter {
             }
             if (expected == "double") {
                 def vt:string (this.lookupVarType(node.name))
-                if (vt == "int") {
+                if ((vt == "int") || (vt == "i32")) {
                     return ("(to_double " + node.name) + ")"
                 }
             }
@@ -4225,15 +4224,16 @@ class TSEmitter {
                             argExpr = ("(to_int " + argExpr) + ")"
                         }
                     }
-                    if (at == "i32") {
-                        if (this.isEngineFn(name) == false) {
-                            argExpr = ("(to_int " + argExpr) + ")"
-                        }
-                    }
                 }
                 if (pexp == "double") {
                     if (emitAs == "int") {
                         def alreadyDouble:boolean false
+                        if (arg.nodeType == "NumericLiteral") {
+                            alreadyDouble = true
+                        }
+                        if (this.containsChar(argExpr 46)) {
+                            alreadyDouble = true
+                        }
                         if ((strlen argExpr) >= 10) {
                             if ((substring argExpr 0 10) == "(to_double") {
                                 alreadyDouble = true
@@ -4368,7 +4368,8 @@ class TSEmitter {
                     return routed
                 }
             }
-            if (leftNode.name == stateVarName) {
+            def identLvt:string (this.lookupVarType(leftNode.name))
+            if ((leftNode.name == stateVarName) && (identLvt == "NativeGameState")) {
                 ; object-valued state field -> persistent script instance field
                 if (this.isObjectStateField(node.name)) {
                     return ("st_" + node.name)
@@ -4423,14 +4424,22 @@ class TSEmitter {
         if (op == "!==") {
             op = "!="
         }
-        ; `x | 0` is the JS int-truncation idiom -> (to_int x).
+        ; `x | 0` is the JS int-truncation idiom -> int trunc (to_int only for double).
         if (op == "|") {
             if (node.right) {
                 def rn:TSNode (unwrap node.right)
                 if (rn.nodeType == "NumericLiteral") {
                     if (rn.value == "0") {
-                        def lx:string (this.emitExpr((unwrap node.left) "double"))
-                        return ("(to_int " + lx) + ")"
+                        def lt:string (this.exprType((unwrap node.left)))
+                        if (expected == "double") {
+                            def lx:string (this.emitExpr((unwrap node.left) "int"))
+                            return ("(to_double " + lx) + ")"
+                        }
+                        if (lt == "double") {
+                            def lx:string (this.emitExpr((unwrap node.left) "double"))
+                            return ("(to_int " + lx) + ")"
+                        }
+                        return (this.emitExpr((unwrap node.left) "int"))
                     }
                 }
             }

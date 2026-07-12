@@ -123,7 +123,7 @@ describe("TS -> Ranger -> native (compiled game script)", () => {
     expect(success, `Compile failed: ${error}`).toBe(true);
   });
 
-  it("ylos2 (P6 step 1) emits generated Ranger with update() — compile not yet ready", () => {
+  it("ylos2 (P6) emits generated Ranger with update() and compiles natively", () => {
     const ylos2Rgr = path.join(
       ROOT,
       "gallery/ts_to_ranger/generated/ylos2_generated.rgr"
@@ -142,11 +142,7 @@ describe("TS -> Ranger -> native (compiled game script)", () => {
       "es6",
       path.join(ROOT, "tests/.output")
     );
-    expect(
-      success,
-      "ylos2 native compile should fail until P6 emitter gaps are closed"
-    ).toBe(false);
-    expect(output || error || "").toMatch(/Compilation FAILED/i);
+    expect(success, `Compile failed: ${error || output}`).toBe(true);
   });
 
   function has(cmd: string): boolean {

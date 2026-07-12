@@ -4768,6 +4768,9 @@ class TSEmitter  {
     return "int";
   };
   fnSigType (t) {
+    return this.localVarType(t);
+  };
+  localVarType (t) {
     if ( t == "i32" ) {
       return "int";
     }
@@ -8088,8 +8091,9 @@ class TSEmitter  {
         hasAnnot = true;
       }
       if ( typeof(d.init) === "undefined" ) {
-        this.varTypes[name] = rtype;
-        this.emitLine(("def " + name) + (":" + rtype));
+        const emitType0 = this.localVarType(rtype);
+        this.varTypes[name] = emitType0;
+        this.emitLine(("def " + name) + (":" + emitType0));
         i = i + 1;
         continue;
       }
@@ -8144,10 +8148,11 @@ class TSEmitter  {
           }
         }
       }
-      this.varTypes[name] = rtype;
+      const emitType = this.localVarType(rtype);
+      this.varTypes[name] = emitType;
       if ( initNode.nodeType == "ArrayExpression" ) {
         const et = this.elemTypeOf(rtype);
-        this.emitLine((("def " + name) + ":") + rtype);
+        this.emitLine((("def " + name) + ":") + emitType);
         let k = 0;
         while (k < (initNode.children.length)) {
           const el = initNode.children[k];
@@ -8160,7 +8165,7 @@ class TSEmitter  {
       }
       if ( initNode.nodeType == "ObjectExpression" ) {
         if ( (this).endsWith(rtype, "Native") ) {
-          this.emitStructFromObject(initNode, name, rtype);
+          this.emitStructFromObject(initNode, name, emitType);
           i = i + 1;
           continue;
         }
@@ -8172,8 +8177,8 @@ class TSEmitter  {
           }
         }
       }
-      const rhs = this.emitExpr(initNode, rtype);
-      this.emitLine((("def " + name) + (":" + rtype)) + ((" (" + rhs) + ")"));
+      const rhs = this.emitExpr(initNode, emitType);
+      this.emitLine((("def " + name) + (":" + emitType)) + ((" (" + rhs) + ")"));
       i = i + 1;
     };
   };
@@ -8209,26 +8214,18 @@ class TSEmitter  {
         }
         if ( ft == "double" ) {
           const rt = this.exprType(valNode);
-          if ( rt == "int" ) {
+          if ( (rt == "int") || (rt == "i32") ) {
             let skip = false;
             if ( (v.length) >= 10 ) {
               if ( (v.substring(0, 10 )) == "(to_double" ) {
                 skip = true;
               }
             }
+            if ( this.containsChar(v, 46) ) {
+              skip = true;
+            }
             if ( skip == false ) {
-              if ( valNode.nodeType != "NumericLiteral" ) {
-                if ( valNode.nodeType != "Identifier" ) {
-                  if ( (v.length) >= 4 ) {
-                    if ( (v.substring(0, 4 )) == "(0.0" ) {
-                      skip = true;
-                    }
-                  }
-                  if ( skip == false ) {
-                    v = ("(to_double " + v) + ")";
-                  }
-                }
-              }
+              v = ("(to_double " + v) + ")";
             }
           }
         }
@@ -8753,7 +8750,7 @@ class TSEmitter  {
       }
       if ( expected == "double" ) {
         const vt = this.lookupVarType(node.name);
-        if ( vt == "int" ) {
+        if ( (vt == "int") || (vt == "i32") ) {
           return ("(to_double " + node.name) + ")";
         }
       }
@@ -8851,15 +8848,16 @@ class TSEmitter  {
               argExpr = ("(to_int " + argExpr) + ")";
             }
           }
-          if ( at == "i32" ) {
-            if ( this.isEngineFn(name) == false ) {
-              argExpr = ("(to_int " + argExpr) + ")";
-            }
-          }
         }
         if ( pexp == "double" ) {
           if ( emitAs == "int" ) {
             let alreadyDouble = false;
+            if ( arg.nodeType == "NumericLiteral" ) {
+              alreadyDouble = true;
+            }
+            if ( this.containsChar(argExpr, 46) ) {
+              alreadyDouble = true;
+            }
             if ( (argExpr.length) >= 10 ) {
               if ( (argExpr.substring(0, 10 )) == "(to_double" ) {
                 alreadyDouble = true;
@@ -8984,7 +8982,8 @@ class TSEmitter  {
           return routed;
         }
       }
-      if ( leftNode.name == this.stateVarName ) {
+      const identLvt = this.lookupVarType(leftNode.name);
+      if ( (leftNode.name == this.stateVarName) && (identLvt == "NativeGameState") ) {
         if ( this.isObjectStateField(node.name) ) {
           return "st_" + node.name;
         }
@@ -9039,8 +9038,16 @@ class TSEmitter  {
         const rn = node.right;
         if ( rn.nodeType == "NumericLiteral" ) {
           if ( rn.value == "0" ) {
-            const lx = this.emitExpr((node.left), "double");
-            return ("(to_int " + lx) + ")";
+            const lt = this.exprType((node.left));
+            if ( expected == "double" ) {
+              const lx = this.emitExpr((node.left), "int");
+              return ("(to_double " + lx) + ")";
+            }
+            if ( lt == "double" ) {
+              const lx_1 = this.emitExpr((node.left), "double");
+              return ("(to_int " + lx_1) + ")";
+            }
+            return this.emitExpr((node.left), "int");
           }
         }
       }

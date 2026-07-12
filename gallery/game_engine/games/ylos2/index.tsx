@@ -306,7 +306,7 @@ function hiddenEntity() {
   return { x: -40, y: -40, visible: 0, p0: 0, p1: 0, p2: 0 };
 }
 
-function scaleX(v) {
+function scaleX(v: f64): f64 {
   return (v * worldW()) / BASE_W;
 }
 
@@ -383,6 +383,26 @@ function makeMovingPlatforms(): MovingPlatform[] {
       minX: scaleX(d.min),
       maxX: scaleX(d.max),
       dir: d.dir
+    });
+    i = i + 1;
+  }
+  return out;
+}
+
+function copyMovingPlatformsList(src: MovingPlatform[]): MovingPlatform[] {
+  const out = [];
+  let i = 0;
+  while (i < MAX_MOVING_PLATFORMS) {
+    const mp = src[i];
+    out.push({
+      x: mp.x,
+      prevX: mp.prevX != null ? mp.prevX : mp.x,
+      y: mp.y,
+      w: mp.w,
+      h: mp.h,
+      minX: mp.minX,
+      maxX: mp.maxX,
+      dir: mp.dir
     });
     i = i + 1;
   }
@@ -630,7 +650,7 @@ function goalTriggerY(): f64 {
   return gp.y + 22;
 }
 
-function celebrateXFor(slot) {
+function celebrateXFor(slot: i32): f64 {
   const gp = goalPlatform();
   if (slot == 2) {
     return gp.x + gp.w * 0.62;
@@ -710,7 +730,7 @@ function drawSkyGradient() {
   }
 }
 
-function drawCloud(cx, cy) {
+function drawCloud(cx: f64, cy: i32) {
   bgFillCircle(cx, cy, 14, 240, 245, 255);
   bgFillCircle(cx - 16, cy + 4, 10, 235, 240, 250);
   bgFillCircle(cx + 16, cy + 4, 10, 235, 240, 250);
@@ -745,7 +765,7 @@ function movingPlatformSprites(mpi, w, h) {
   ];
 }
 
-function placeMovingPlatformEntities(entities, mpi: i32, mp: MergedPlatform, cam: f64) {
+function placeMovingPlatformEntities(entities, mpi: i32, mp: MovingPlatform, cam: f64) {
   const cx = mp.x + mp.w / 2;
   const screenY = mp.y - cam;
   const midH = mp.h - PLAT_EDGE_H * 2;
@@ -1494,7 +1514,7 @@ function updateBullets(bullets: Bullet[], enemies: Enemy[], dt: f64) {
   return events;
 }
 
-function respawnPlayer(which) {
+function respawnPlayer(which: i32) {
   if (isSplitPane()) {
     return makePlayerOnFloor(localStartX(), localStartFace());
   }
@@ -1505,7 +1525,7 @@ function respawnPlayer(which) {
 }
 
 function computeCamera(p1: Player, p2: Player, dual: boolean): f64 {
-  let lead = WORLD_H;
+  let lead: f64 = WORLD_H;
   if (p1.done == 0) {
     if (p1.y < lead) {
       lead = p1.y;
@@ -1539,7 +1559,7 @@ function showSuperSprite(pl: Player) {
   if (pl.superMs > SUPER_WARN_MS) {
     return true;
   }
-  const phase = Math.floor(pl.superMs / SUPER_BLINK_MS);
+  const phase = (pl.superMs / SUPER_BLINK_MS) | 0;
   if (phase % 2 == 1) {
     return true;
   }
@@ -1648,17 +1668,13 @@ function placeEntities(s: GameSnapshot, cam: f64, slots: i32) {
   let mpi = 0;
   while (mpi < MAX_MOVING_PLATFORMS) {
     const mp = s.movingPlatforms[mpi];
-    if (mp) {
-      placeMovingPlatformEntities(entities, mpi, mp, cam);
-    } else {
-      hideMovingPlatformEntities(entities, mpi);
-    }
+    placeMovingPlatformEntities(entities, mpi, mp, cam);
     mpi = mpi + 1;
   }
   return entities;
 }
 
-function pushEvents(dest, src) {
+function pushEvents(dest: GameEvent[], src: GameEvent[]) {
   let i = 0;
   while (i < src.length) {
     dest.push(src[i]);
@@ -1676,7 +1692,7 @@ function tickGoalWalk(pl: Player, dt: f64) {
     face = 1;
   }
   const speed = MOVE * 0.9;
-  x = x + face * speed * dt;
+  x = x + (face | 0) * speed * dt;
   if (x < minX) {
     x = minX;
     face = 1;
@@ -1712,7 +1728,7 @@ function showVictoryBanner(s: GameSnapshot) {
   return playerVictoryReady(s.p1) && playerVictoryReady(s.p2);
 }
 
-function wantsRestart(props, dual) {
+function wantsRestart(props, dual: boolean) {
   const inp0 = readPlayer(props, 0);
   if (inp0.action || inp0.shoot) {
     return true;
@@ -1764,7 +1780,7 @@ function tickFinishPlayer(pl: Player, dt: f64, events: GameEvent[]): Player {
     return pl;
   }
   const finishMs = pl.finishMs + dt;
-  let finishPulseMs = pl.finishPulseMs;
+  let finishPulseMs: f64 = pl.finishPulseMs;
   let bursts = pl.celebrateBursts;
 
   if (finishMs <= FINISH_PARTICLE_MS) {
@@ -1904,9 +1920,9 @@ function update(props) {
   let p2 = s.p2;
   let fireCd1 = s.fireCd1;
   let fireCd2 = s.fireCd2;
-  let summitMusicStarted = s.summitMusicStarted;
-  if (summitMusicStarted == null) {
-    summitMusicStarted = 0;
+  let summitMusicStarted: f64 = s.summitMusicStarted;
+  if (summitMusicStarted == 0) {
+    summitMusicStarted = 0.0;
   }
 
   if (p1.done == 1) {
@@ -1973,7 +1989,7 @@ function update(props) {
     };
   }
 
-  const movingPlatforms = copyMovingPlatforms(s);
+  const movingPlatforms = copyMovingPlatformsList(s.movingPlatforms);
   updateMovingPlatforms(movingPlatforms, dt, staticPlatforms);
   const platforms = mergePlatforms(staticPlatforms, movingPlatforms);
 

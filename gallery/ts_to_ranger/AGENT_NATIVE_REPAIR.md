@@ -160,7 +160,7 @@ synthesized type and their fields survive.
 ### Progress
 
 `games/ylos2/index.tsx` emits with `@singleton` module + host routing +
-object-state fields. Compile errors: **1486 → ~50** (no pong/invaders/pacman
+object-state fields. Compile errors: **1486 → 0** (no pong/invaders/pacman
 regression). Landed inference/codegen improvements:
 
 - element structs synthesized from `local.push({...})` (helper-built arrays)
@@ -184,9 +184,8 @@ regression). Landed inference/codegen improvements:
 - `(call()).field` hoisted to temp (`goalPlatform().y` → `gp.y`)
 - if-body `itemAt` hoists share typed locals across test + consequent
 
-Remaining long tail (~123): `spawnBullet` arg coercion, `fresh.events = []` patch
-emission, scattered int/double edges in physics/bg helpers, `placeEntities` map
-typing, and a few `update()` control-flow emission gaps.
+Remaining long tail (~50): bgFillRect/drawCloud int/double edges, a few
+`if(int)` truthiness sites, and scattered struct field coercions in update().
 
 Interpreter path works today: `npm run engine:game-sdl:run:ylos2` (Path A).
 
