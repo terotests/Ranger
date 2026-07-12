@@ -1,0 +1,183 @@
+; ==============================================================================
+; wasm_sparkle_pool — software-only sparkle bursts for WASM autopeli (no SDL).
+; ==============================================================================
+
+Import "../framebuffer.rgr"
+
+class WasmSparkle {
+    def active:int 0
+    def x:double 0.0
+    def y:double 0.0
+    def vx:double 0.0
+    def vy:double 0.0
+    def life:int 0
+    def maxLife:int 1
+    def size:double 3.0
+    def r:int 255
+    def g:int 220
+    def b:int 80
+}
+
+class WasmSparklePool {
+    def pool:[WasmSparkle]
+    def maxCount:int 64
+    def seed:int 9973
+
+    fn init:void (capacity:int) {
+        if (capacity > 0) {
+            maxCount = capacity
+        }
+        while ((array_length pool) < maxCount) {
+            push pool (new WasmSparkle)
+        }
+    }
+
+    fn nextRand:int () {
+        seed = ((seed * 1103515245) + 12345)
+        def v:int seed
+        if (v < 0) {
+            v = (0 - v)
+        }
+        return v
+    }
+
+    fn randUnit:double () {
+        def r:int (this.nextRand())
+        def t:int (r % 10000)
+        return ((to_double t) / 10000.0)
+    }
+
+    fn randRange:double (lo:double hi:double) {
+        def t:double (this.randUnit())
+        return (lo + (t * (hi - lo)))
+    }
+
+    fn allocSlot:int () {
+        def i 0
+        while (i < maxCount) {
+            def p:WasmSparkle (itemAt pool i)
+            if (p.active == 0) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return 0
+    }
+
+    fn activate:void (slot:int x:double y:double vx:double vy:double life:int size:double r:int g:int b:int) {
+        if (slot < 0) {
+            return
+        }
+        if (slot >= maxCount) {
+            return
+        }
+        def p:WasmSparkle (itemAt pool slot)
+        p.active = 1
+        p.x = x
+        p.y = y
+        p.vx = vx
+        p.vy = vy
+        p.life = life
+        p.maxLife = life
+        p.size = size
+        p.r = r
+        p.g = g
+        p.b = b
+    }
+
+    fn spawnSparkle:void (x:double y:double amount:int) {
+        def count:int amount
+        if (count <= 0) {
+            count = 12
+        }
+        if (count > 28) {
+            count = 28
+        }
+        def i 0
+        while (i < count) {
+            def slot:int (this.allocSlot())
+            def ang:double (this.randRange(0.0 6.283185307))
+            def spd:double (this.randRange(0.06 0.22))
+            def vx:double (cos(ang) * spd)
+            def vy:double (sin(ang) * spd)
+            def life:int (to_int (this.randRange(200.0 420.0)))
+            def size:double (this.randRange(1.5 4.0))
+            def pick:int (to_int (this.randRange(0.0 3.0)))
+            def pr:int 255
+            def pg:int 230
+            def pb:int 120
+            if (pick == 1) {
+                pr = 255
+                pg = 200
+                pb = 80
+            }
+            if (pick == 2) {
+                pr = 180
+                pg = 240
+                pb = 255
+            }
+            if (pick == 3) {
+                pr = 255
+                pg = 255
+                pb = 220
+            }
+            this.activate(slot x y vx vy life size pr pg pb)
+            i = (i + 1)
+        }
+    }
+
+    fn update:void (dtMs:int) {
+        if (dtMs <= 0) {
+            return
+        }
+        def dt:double (to_double dtMs)
+        def grav:double 0.00018
+        def i 0
+        while (i < maxCount) {
+            def p:WasmSparkle (itemAt pool i)
+            if (p.active != 0) {
+                p.x = (p.x + (p.vx * dt))
+                p.y = (p.y + (p.vy * dt))
+                p.vy = (p.vy + (grav * dt))
+                p.life = (p.life - dtMs)
+                if (p.life <= 0) {
+                    p.active = 0
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn lifeRatio:double (p:WasmSparkle) {
+        if (p.maxLife <= 0) {
+            return 0.0
+        }
+        def rem:double (to_double p.life)
+        def maxL:double (to_double p.maxLife)
+        return (rem / maxL)
+    }
+
+    fn draw:void (canvas:SoftCanvas) {
+        def i 0
+        while (i < maxCount) {
+            def p:WasmSparkle (itemAt pool i)
+            if (p.active != 0) {
+                def ratio:double (this.lifeRatio(p))
+                if (ratio > 0.0) {
+                    def rad:int (to_int (p.size * ratio))
+                    if (rad < 1) {
+                        rad = 1
+                    }
+                    def rr:int (to_int ((to_double p.r) * ratio))
+                    def rg:int (to_int ((to_double p.g) * ratio))
+                    def rb:int (to_int ((to_double p.b) * ratio))
+                    if (rr < 0) { rr = 0 }
+                    if (rg < 0) { rg = 0 }
+                    if (rb < 0) { rb = 0 }
+                    canvas.fillCircle((to_int p.x) (to_int p.y) rad rr rg rb)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+}

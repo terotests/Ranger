@@ -1,0 +1,342 @@
+; ==============================================================================
+; wasm_autopeli_render — static road background + CPU sprite drawing (no SDL/GPU).
+; ==============================================================================
+
+Import "../framebuffer.rgr"
+Import "./game_image_loader.rgr"
+Import "./wasm_autopeli_setup.rgr"
+Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class WasmVisualEntity {
+    def id:string ""
+    def kind:string "rect"
+    def x:int 0
+    def y:int 0
+    def angleDeg:double 0.0
+    def visible:boolean true
+    def w:int 8
+    def h:int 8
+    def cr:int 200
+    def cg:int 200
+    def cb:int 200
+    def shPath:string ""
+    def shFrameW:int 64
+    def shFrameH:int 64
+    def shScale:int 100
+    def shFeetTrim:int 0
+    def shImg:ImageBuffer (new ImageBuffer())
+}
+
+class WasmAutopeliRender {
+    def imageLoader:GameImageLoader (new GameImageLoader)
+    def staticBg:SoftCanvas (new SoftCanvas)
+    def staticBgReady:boolean false
+    def assetsDir:string "gallery/game_engine/games/autopeli_wasm"
+    def worldW:int 480
+    def worldH:int 6000
+    def templates:[WasmVisualEntity]
+    def spritesReady:boolean false
+
+    fn scaledDim:int (base:int scalePct:int) {
+        def v:int (to_int ((to_double (base * scalePct)) / 100.0))
+        if (v < 1) {
+            return 1
+        }
+        return v
+    }
+
+    fn sheetReady:boolean (e:WasmVisualEntity) {
+        if (e.shImg.width <= 1) {
+            return false
+        }
+        if (e.shImg.height <= 1) {
+            return false
+        }
+        return true
+    }
+
+    fn bakeSheetScale:void (e:WasmVisualEntity) {
+        if (false == (this.sheetReady(e))) {
+            return
+        }
+        if (e.shScale == 100) {
+            return
+        }
+        def src:ImageBuffer e.shImg
+        def atlasW:int (this.scaledDim(src.width e.shScale))
+        def atlasH:int (this.scaledDim(src.height e.shScale))
+        def scratch:SoftCanvas (new SoftCanvas)
+        scratch.init(atlasW atlasH)
+        scratch.blitImageRectScaled(src 0 0 src.width src.height 0 0 atlasW atlasH)
+        def baked:ImageBuffer (new ImageBuffer)
+        baked.initClear(atlasW atlasH)
+        scratch.copyPixelsToImage(baked)
+        e.shImg = baked
+        e.shFrameW = (this.scaledDim(e.shFrameW e.shScale))
+        e.shFrameH = (this.scaledDim(e.shFrameH e.shScale))
+        e.shFeetTrim = (this.scaledDim(e.shFeetTrim e.shScale))
+        e.shScale = 100
+    }
+
+    fn loadSheet:void (e:WasmVisualEntity path:string fw:int fh:int scale:int feet:int) {
+        e.kind = "sheet"
+        e.shPath = path
+        e.shFrameW = fw
+        e.shFrameH = fh
+        e.shScale = scale
+        e.shFeetTrim = feet
+        if ((strlen path) > 0) {
+            e.shImg = (imageLoader.load(path))
+            this.bakeSheetScale(e)
+        }
+    }
+
+    fn initAssets:void (dir:string pw:int wh:int) {
+        assetsDir = dir
+        worldW = pw
+        worldH = wh
+        imageLoader.setBaseDir(assetsDir)
+        spritesReady = false
+        staticBgReady = false
+    }
+
+    fn initSprites:void () {
+        def p1:WasmVisualEntity (new WasmVisualEntity)
+        p1.id = "p1"
+        this.loadSheet(p1 "assets/car1.png" 471 909 4 454)
+        def p2:WasmVisualEntity (new WasmVisualEntity)
+        p2.id = "p2"
+        this.loadSheet(p2 "assets/car2.png" 471 908 4 454)
+        def traffic:WasmVisualEntity (new WasmVisualEntity)
+        traffic.id = "trafficCar"
+        this.loadSheet(traffic "assets/othercar.png" 285 625 7 312)
+        def cone:WasmVisualEntity (new WasmVisualEntity)
+        cone.id = "cone"
+        this.loadSheet(cone "assets/cone.png" 204 275 9 252)
+        def oil:WasmVisualEntity (new WasmVisualEntity)
+        oil.id = "oil"
+        this.loadSheet(oil "assets/oil.png" 891 706 9 353)
+        def bar:WasmVisualEntity (new WasmVisualEntity)
+        bar.id = "bar"
+        bar.kind = "rect"
+        bar.w = 8
+        bar.h = 46
+        bar.cr = 210
+        bar.cg = 215
+        bar.cb = 225
+        def next:[WasmVisualEntity]
+        push next p1
+        push next p2
+        push next traffic
+        push next cone
+        push next oil
+        push next bar
+        templates = next
+        spritesReady = true
+    }
+
+    fn beginSprites:void () {
+        def next:[WasmVisualEntity]
+        templates = next
+        spritesReady = false
+    }
+
+    fn addSheetTemplate:void (host:GameHost id:string path:string fw:int fh:int scale:int feet:int) {
+        def e:WasmVisualEntity (new WasmVisualEntity)
+        e.id = id
+        e.kind = "sheet"
+        e.shPath = path
+        e.shFrameW = fw
+        e.shFrameH = fh
+        e.shScale = scale
+        e.shFeetTrim = feet
+        if ((strlen path) > 0) {
+            e.shImg = (imageLoader.loadByIdOrPath(host id))
+            this.bakeSheetScale(e)
+        }
+        push templates e
+    }
+
+    fn addRectTemplate:void (id:string w:int h:int r:int g:int b:int) {
+        def e:WasmVisualEntity (new WasmVisualEntity)
+        e.id = id
+        e.kind = "rect"
+        e.w = w
+        e.h = h
+        e.cr = r
+        e.cg = g
+        e.cb = b
+        push templates e
+    }
+
+    fn endSprites:void () {
+        spritesReady = true
+    }
+
+    fn templateCount:int () {
+        return (array_length templates)
+    }
+
+    fn findTemplate:WasmVisualEntity (spriteId:string) {
+        def fail:WasmVisualEntity (new WasmVisualEntity)
+        def i 0
+        while (i < (array_length templates)) {
+            def t:WasmVisualEntity (itemAt templates i)
+            if (t.id == spriteId) {
+                return t
+            }
+            i = (i + 1)
+        }
+        return fail
+    }
+
+    fn copySheetFrom:void (dst:WasmVisualEntity src:WasmVisualEntity) {
+        dst.kind = src.kind
+        dst.w = src.w
+        dst.h = src.h
+        dst.cr = src.cr
+        dst.cg = src.cg
+        dst.cb = src.cb
+        dst.shPath = src.shPath
+        dst.shFrameW = src.shFrameW
+        dst.shFrameH = src.shFrameH
+        dst.shScale = src.shScale
+        dst.shFeetTrim = src.shFeetTrim
+        dst.shImg = src.shImg
+    }
+
+    fn spawnVisual:WasmVisualEntity (id:string spriteId:string x:int y:int) {
+        def e:WasmVisualEntity (new WasmVisualEntity)
+        e.id = id
+        def tpl:WasmVisualEntity (this.findTemplate(spriteId))
+        if ((strlen tpl.id) > 0) {
+            if (tpl.kind == "sheet") {
+                this.copySheetFrom(e tpl)
+            } {
+                e.kind = tpl.kind
+                e.w = tpl.w
+                e.h = tpl.h
+                e.cr = tpl.cr
+                e.cg = tpl.cg
+                e.cb = tpl.cb
+            }
+        } {
+            e.kind = "rect"
+            e.w = 12
+            e.h = 16
+        }
+        e.x = x
+        e.y = y
+        e.visible = true
+        return e
+    }
+
+    fn buildStaticBg:void (world:WasmAutopeliSetup) {
+        staticBg.init(worldW worldH)
+        staticBg.clear(18 32 22)
+        def y 0
+        while (y < worldH) {
+            world.roadAt(y)
+            def cx:int world.roadCx
+            def half:int world.roadHalf
+            def left:int (cx - half)
+            def right:int (cx + half)
+            staticBg.fillRect(0 y left 8 14 28 18)
+            staticBg.fillRect(left y (half * 2) 8 52 58 64)
+            staticBg.fillRect(right y (worldW - right) 8 14 28 18)
+            if ((y % 80) == 0) {
+                staticBg.fillRect((cx - 2) y 4 24 240 220 80)
+            }
+            if ((y % 48) < 8) {
+                staticBg.fillRect((left + 5) y 3 8 225 225 225)
+                staticBg.fillRect((right - 8) y 3 8 225 225 225)
+            }
+            world.drawRampsInStrip(staticBg y)
+            world.drawBarsInStrip(staticBg y)
+            y = (y + 8)
+        }
+        staticBgReady = true
+    }
+
+    fn drawBackground:void (canvas:SoftCanvas camY:int ph:int) {
+        if (staticBgReady == false) {
+            canvas.clear(18 32 22)
+            return
+        }
+        def cam:int camY
+        if (cam < 0) {
+            cam = 0
+        }
+        def maxCam:int (worldH - ph)
+        if (maxCam < 0) {
+            maxCam = 0
+        }
+        if (cam > maxCam) {
+            cam = maxCam
+        }
+        canvas.copyRectFrom(staticBg 0 cam worldW ph 0 0)
+    }
+
+    fn syncEntityPose:void (e:WasmVisualEntity x:int y:int angle:double camY:int pw:int ph:int) {
+        e.x = x
+        e.y = (y - camY)
+        e.angleDeg = angle
+        e.visible = true
+        if (e.x < -96) {
+            e.visible = false
+        }
+        if (e.y < -96) {
+            e.visible = false
+        }
+        if (e.x > (pw + 96)) {
+            e.visible = false
+        }
+        if (e.y > (ph + 96)) {
+            e.visible = false
+        }
+    }
+
+    fn half:int (v:int) {
+        return (idiv v 2)
+    }
+
+    fn drawEntityFallback:void (e:WasmVisualEntity canvas:SoftCanvas) {
+        def rx:int (e.x - (this.half(e.w)))
+        def ry:int (e.y - (this.half(e.h)))
+        canvas.fillRect(rx ry e.w e.h e.cr e.cg e.cb)
+    }
+
+    fn drawSheet:void (e:WasmVisualEntity canvas:SoftCanvas) {
+        if (false == (this.sheetReady(e))) {
+            this.drawEntityFallback(e canvas)
+            return
+        }
+        def dw:int e.shFrameW
+        def dh:int e.shFrameH
+        def trim:int e.shFeetTrim
+        def pivotY:int (e.y - (this.half(dh)) + trim)
+        if (e.angleDeg == 0.0) {
+            def dx:int (e.x - (this.half(dw)))
+            def dy:int ((e.y - dh) + trim)
+            canvas.blitImageRect(e.shImg 0 0 dw dh dx dy)
+        } {
+            canvas.blitImageRectScaledRotated(e.shImg 0 0 e.shFrameW e.shFrameH e.x pivotY dw dh e.angleDeg)
+        }
+    }
+
+    fn drawEntities:void (drawList:[WasmVisualEntity] canvas:SoftCanvas) {
+        def i 0
+        while (i < (array_length drawList)) {
+            def e:WasmVisualEntity (itemAt drawList i)
+            if (e.visible) {
+                if (e.kind == "sheet") {
+                    this.drawSheet(e canvas)
+                } {
+                    this.drawEntityFallback(e canvas)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+}

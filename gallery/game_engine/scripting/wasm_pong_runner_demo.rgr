@@ -1,0 +1,43 @@
+; ==============================================================================
+; wasm_pong_runner_demo - headless integration test for WasmGameRunner + Rust WASM.
+; ==============================================================================
+
+Import "./wasm_game_runner.rgr"
+
+class WasmPongRunnerDemo {
+    sfn m@(main):void () {
+        def runner:WasmGameRunner (new WasmGameRunner)
+        runner.init(480 270)
+
+        def wasmPath:string "gallery/game_engine/games/rust_pong/logic.wasm"
+        runner.loadModule(wasmPath)
+        if (runner.handle == 0) {
+            print "wasm-pong-runner FAIL (load)"
+            return
+        }
+        runner.setupScene()
+
+        def y0:int (runner.entityY("ball"))
+        def i 0
+        while (i < 180) {
+            def phase (i % 120)
+            def up (phase < 40)
+            def down (phase >= 80)
+            runner.frame(16 up down false false false)
+            i = (i + 1)
+        }
+        def y1:int (runner.entityY("ball"))
+        def bx:int (runner.entityX("ball"))
+        def moved:boolean false
+        if (y1 != y0) {
+            moved = true
+        }
+        print (("ball=" + bx) + ("," + y1))
+        print (("score=" + runner.score1) + ("," + runner.score2))
+        if (moved) {
+            print "wasm-pong-runner done"
+            return
+        }
+        print "wasm-pong-runner FAIL (ball did not move)"
+    }
+}

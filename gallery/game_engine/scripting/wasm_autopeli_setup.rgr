@@ -1,0 +1,498 @@
+; ==============================================================================
+; wasm_autopeli_setup — physics world for Rust WASM autopeli (road + vehicles).
+; ==============================================================================
+
+Import "./game_physics.rgr"
+Import "./physics_core.rgr"
+
+class WasmAutopeliSetup {
+    def roadCx:int 240
+    def roadHalf:int 126
+    def oilIds:[string]
+    def oilXs:[int]
+    def oilYs:[int]
+    def segAy:int 6000
+    def segAx:int 240
+    def segAh:int 126
+    def segBy:int 100
+    def segBx:int 240
+    def segBh:int 112
+
+    fn fillRoadTop:void (i:int) {
+        segAy = 6000
+        segAx = 240
+        segAh = 126
+        if (i == 1) {
+            segAy = 5600
+            segAx = 220
+            segAh = 104
+        }
+        if (i == 2) {
+            segAy = 5200
+            segAx = 200
+            segAh = 78
+        }
+        if (i == 3) {
+            segAy = 4800
+            segAx = 250
+            segAh = 96
+        }
+        if (i == 4) {
+            segAy = 4400
+            segAx = 300
+            segAh = 114
+        }
+        if (i == 5) {
+            segAy = 4000
+            segAx = 255
+            segAh = 94
+        }
+        if (i == 6) {
+            segAy = 3600
+            segAx = 210
+            segAh = 108
+        }
+        if (i == 7) {
+            segAy = 3200
+            segAx = 250
+            segAh = 94
+        }
+        if (i == 8) {
+            segAy = 2800
+            segAx = 310
+            segAh = 110
+        }
+        if (i == 9) {
+            segAy = 2400
+            segAx = 250
+            segAh = 92
+        }
+        if (i == 10) {
+            segAy = 2000
+            segAx = 170
+            segAh = 98
+        }
+        if (i == 11) {
+            segAy = 1600
+            segAx = 220
+            segAh = 90
+        }
+        if (i == 12) {
+            segAy = 1200
+            segAx = 290
+            segAh = 104
+        }
+        if (i == 13) {
+            segAy = 800
+            segAx = 250
+            segAh = 88
+        }
+        if (i == 14) {
+            segAy = 400
+            segAx = 210
+            segAh = 74
+        }
+    }
+
+    fn fillRoadBot:void (i:int) {
+        segBy = 5600
+        segBx = 220
+        segBh = 104
+        if (i == 0) {
+            segBy = 5600
+            segBx = 220
+            segBh = 104
+        }
+        if (i == 1) {
+            segBy = 5200
+            segBx = 200
+            segBh = 78
+        }
+        if (i == 2) {
+            segBy = 4800
+            segBx = 250
+            segBh = 96
+        }
+        if (i == 3) {
+            segBy = 4400
+            segBx = 300
+            segBh = 114
+        }
+        if (i == 4) {
+            segBy = 4000
+            segBx = 255
+            segBh = 94
+        }
+        if (i == 5) {
+            segBy = 3600
+            segBx = 210
+            segBh = 108
+        }
+        if (i == 6) {
+            segBy = 3200
+            segBx = 250
+            segBh = 94
+        }
+        if (i == 7) {
+            segBy = 2800
+            segBx = 310
+            segBh = 110
+        }
+        if (i == 8) {
+            segBy = 2400
+            segBx = 250
+            segBh = 92
+        }
+        if (i == 9) {
+            segBy = 2000
+            segBx = 170
+            segBh = 98
+        }
+        if (i == 10) {
+            segBy = 1600
+            segBx = 220
+            segBh = 90
+        }
+        if (i == 11) {
+            segBy = 1200
+            segBx = 290
+            segBh = 104
+        }
+        if (i == 12) {
+            segBy = 800
+            segBx = 250
+            segBh = 88
+        }
+        if (i == 13) {
+            segBy = 400
+            segBx = 210
+            segBh = 74
+        }
+        if (i == 14) {
+            segBy = 100
+            segBx = 240
+            segBh = 112
+        }
+    }
+
+    fn roadAt:void (y:int) {
+        if (y >= 6000) {
+            roadCx = 240
+            roadHalf = 126
+            return
+        }
+        if (y <= 100) {
+            roadCx = 240
+            roadHalf = 112
+            return
+        }
+        def i:int (idiv (6000 - y) 400)
+        if (i < 0) {
+            i = 0
+        }
+        if (i > 14) {
+            i = 14
+        }
+        def ay:int segAy
+        def ax:int segAx
+        def ah:int segAh
+        this.fillRoadTop(i)
+        ay = segAy
+        ax = segAx
+        ah = segAh
+        def by:int segBy
+        def bx:int segBx
+        def bh:int segBh
+        this.fillRoadBot(i)
+        by = segBy
+        bx = segBx
+        bh = segBh
+        def span:int (ay - by)
+        def t:int 0
+        if (span > 0) {
+            t = (ay - y)
+        }
+        roadCx = (ax + (idiv ((bx - ax) * t) span))
+        roadHalf = (ah + (idiv ((bh - ah) * t) span))
+    }
+
+    fn addWheel:void (b:PhysBody ox:double oy:double hw:double hh:double drive:double steer:boolean) {
+        def w:PhysWheel (new PhysWheel)
+        w.offsetX = ox
+        w.offsetY = oy
+        w.hw = hw
+        w.hh = hh
+        w.drive = drive
+        w.steer = steer
+        push b.wheels w
+    }
+
+    fn addVehicle:void (core:PhysicsCore id:string x:double y:double ai:boolean) {
+        def b:PhysBody (new PhysBody)
+        b.id = id
+        b.x = x
+        b.y = y
+        b.mass = 1200.0
+        b.invMass = (1.0 / 1200.0)
+        b.inertia = 820.0
+        b.invInertia = (1.0 / 820.0)
+        b.wheelInertia = 0.12
+        if (ai) {
+            b.hw = 5.5
+            b.hh = 8.0
+            b.maxSpeed = 310.0
+            b.accel = 430.0
+        } {
+            b.hw = 7.0
+            b.hh = 10.0
+            b.maxSpeed = 310.0
+            b.accel = 520.0
+        }
+        b.brake = 920.0
+        b.drag = 0.94
+        b.steerRate = 118.0
+        b.steerAngle = 0.38
+        b.lateralGrip = 56.0
+        b.maxLateralForce = 195.0
+        b.grip = 1.0
+        b.slipThreshold = 0.62
+        b.slipSpin = 0.024
+        b.angularDamping = 0.94
+        b.angularStop = 4.0
+        b.restitution = 0.35
+        b.spinOnWall = 240.0
+        if (ai) {
+            this.addWheel(b -9.0 -12.0 2.5 4.5 0.0 true)
+            this.addWheel(b 9.0 -12.0 2.5 4.5 0.0 true)
+            this.addWheel(b -9.0 12.0 2.5 4.5 1.0 false)
+            this.addWheel(b 9.0 12.0 2.5 4.5 1.0 false)
+        } {
+            this.addWheel(b -9.0 -12.0 2.5 4.5 1.0 true)
+            this.addWheel(b 9.0 -12.0 2.5 4.5 1.0 true)
+            this.addWheel(b -9.0 12.0 2.5 4.5 1.0 false)
+            this.addWheel(b 9.0 12.0 2.5 4.5 1.0 false)
+        }
+        push core.bodies b
+    }
+
+    fn addRoadBounds:void (core:PhysicsCore worldH:int) {
+        def y:int 0
+        while (y < worldH) {
+            this.roadAt(y)
+            def cx1:int roadCx
+            def h1:int roadHalf
+            def y2:int (y + 80)
+            this.roadAt(y2)
+            def cx2:int roadCx
+            def h2:int roadHalf
+            def l:PhysBoundary (new PhysBoundary)
+            l.id = ("L" + (to_string y))
+            l.x1 = (to_double (cx1 - h1))
+            l.y1 = (to_double y)
+            l.x2 = (to_double (cx2 - h2))
+            l.y2 = (to_double y2)
+            l.restitution = 0.32
+            l.spinOnHit = 280.0
+            push core.bounds l
+            def r:PhysBoundary (new PhysBoundary)
+            r.id = ("R" + (to_string y))
+            r.x1 = (to_double (cx1 + h1))
+            r.y1 = (to_double y)
+            r.x2 = (to_double (cx2 + h2))
+            r.y2 = (to_double y2)
+            r.restitution = 0.32
+            r.spinOnHit = 280.0
+            push core.bounds r
+            y = (y + 80)
+        }
+    }
+
+    fn laneX:int (y:int laneMilli:int margin:int) {
+        this.roadAt(y)
+        def usable:int (roadHalf - margin)
+        return (roadCx + (idiv (usable * laneMilli) 1000))
+    }
+
+    fn addCone:void (core:PhysicsCore id:string y:int laneMilli:int) {
+        def b:PhysBody (new PhysBody)
+        b.id = id
+        b.x = (to_double (this.laneX(y laneMilli 16)))
+        b.y = (to_double y)
+        b.hw = 9.0
+        b.hh = 9.0
+        b.mass = 3.0
+        b.invMass = (1.0 / 3.0)
+        b.inertia = 12.0
+        b.invInertia = (1.0 / 12.0)
+        b.maxSpeed = 620.0
+        b.drag = 0.93
+        b.restitution = 0.48
+        b.spinOnWall = 28.0
+        b.angularDamping = 0.92
+        b.angularStop = 1.5
+        push core.bodies b
+    }
+
+    fn addBar:void (core:PhysicsCore id:string y:int laneMilli:int bw:int bh:int) {
+        def b:PhysBody (new PhysBody)
+        b.id = id
+        b.static = true
+        b.x = (to_double (this.laneX(y laneMilli 20)))
+        b.y = (to_double y)
+        b.hw = ((to_double bw) / 2.0)
+        b.hh = ((to_double bh) / 2.0)
+        b.mass = 0.0
+        b.invMass = 0.0
+        b.inertia = 0.0
+        b.invInertia = 0.0
+        b.restitution = 0.26
+        b.spinOnWall = 240.0
+        push core.bodies b
+    }
+
+    fn addOilPatch:void (id:string y:int laneMilli:int) {
+        push oilIds id
+        push oilXs (this.laneX(y laneMilli 18))
+        push oilYs y
+    }
+
+    fn addAllCones:void (core:PhysicsCore) {
+        this.addCone(core "c0" 5660 -550)
+        this.addCone(core "c1" 5585 500)
+        this.addCone(core "c2" 5510 -450)
+        this.addCone(core "c3" 5435 420)
+        this.addCone(core "c4" 5100 -720)
+        this.addCone(core "c5" 5100 720)
+        this.addCone(core "c6" 5015 -550)
+        this.addCone(core "c7" 5015 550)
+        this.addCone(core "c8" 4580 -550)
+        this.addCone(core "c9" 4500 520)
+        this.addCone(core "c10" 4420 -480)
+        this.addCone(core "c11" 4040 580)
+        this.addCone(core "c12" 3960 -500)
+        this.addCone(core "c13" 3880 420)
+        this.addCone(core "c14" 3330 -720)
+        this.addCone(core "c15" 3260 -350)
+        this.addCone(core "c16" 3190 350)
+        this.addCone(core "c17" 3120 720)
+        this.addCone(core "c18" 2280 580)
+        this.addCone(core "c19" 2200 -500)
+        this.addCone(core "c20" 2120 450)
+        this.addCone(core "c21" 1460 -600)
+        this.addCone(core "c22" 1380 520)
+        this.addCone(core "c23" 1300 -420)
+        this.addCone(core "c24" 760 -620)
+        this.addCone(core "c25" 700 620)
+        this.addCone(core "c26" 500 -450)
+        this.addCone(core "c27" 440 450)
+    }
+
+    fn addAllBars:void (core:PhysicsCore) {
+        this.addBar(core "b0" 5220 -420 48 6)
+        this.addBar(core "b2" 4200 -380 8 44)
+        this.addBar(core "b3" 4140 380 8 44)
+        this.addBar(core "b4" 2920 -400 8 46)
+        this.addBar(core "b5" 2860 400 8 46)
+        this.addBar(core "b6" 1900 -380 8 44)
+        this.addBar(core "b7" 1840 380 8 44)
+        this.addBar(core "b8" 980 -400 8 46)
+        this.addBar(core "b9" 920 400 8 46)
+    }
+
+    fn addAllOil:void () {
+        def emptyS:[string]
+        def emptyI:[int]
+        oilIds = emptyS
+        oilXs = emptyI
+        oilYs = emptyI
+        this.addOilPatch("oil0" 5460 350)
+        this.addOilPatch("oil1" 5050 -450)
+        this.addOilPatch("oil2" 4300 420)
+        this.addOilPatch("oil3" 3740 -280)
+        this.addOilPatch("oil4" 3060 500)
+        this.addOilPatch("oil5" 2480 -500)
+        this.addOilPatch("oil6" 1780 340)
+        this.addOilPatch("oil7" 1080 -350)
+        this.addOilPatch("oil8" 560 250)
+    }
+
+    fn drawRampsInStrip:void (bg:SoftCanvas y:int) {
+        this.drawRampAt(bg y 5350 50 38 22)
+        this.drawRampAt(bg y 4720 -420 34 20)
+        this.drawRampAt(bg y 3500 380 40 22)
+        this.drawRampAt(bg y 2640 -350 38 20)
+        this.drawRampAt(bg y 1160 320 36 20)
+    }
+
+    fn drawRampAt:void (bg:SoftCanvas stripY:int rampY:int laneMilli:int rw:int rh:int) {
+        if (rampY >= stripY) {
+            if (rampY < (stripY + 8)) {
+                def rx:int (this.laneX(rampY laneMilli 24))
+                bg.fillRect((rx - (idiv rw 2)) rampY rw rh 225 180 70)
+                bg.fillRect((rx - (idiv rw 2)) rampY rw 4 255 225 120)
+            }
+        }
+    }
+
+    fn drawBarsInStrip:void (bg:SoftCanvas y:int) {
+        this.drawBarStrip(bg y 5220 -420 48 6)
+        this.drawBarStrip(bg y 4200 -380 8 44)
+        this.drawBarStrip(bg y 4140 380 8 44)
+        this.drawBarStrip(bg y 2920 -400 8 46)
+        this.drawBarStrip(bg y 2860 400 8 46)
+        this.drawBarStrip(bg y 1900 -380 8 44)
+        this.drawBarStrip(bg y 1840 380 8 44)
+        this.drawBarStrip(bg y 980 -400 8 46)
+        this.drawBarStrip(bg y 920 400 8 46)
+    }
+
+    fn drawBarStrip:void (bg:SoftCanvas stripY:int barY:int laneMilli:int bw:int bh:int) {
+        if (barY >= stripY) {
+            if (barY < (stripY + 8)) {
+                def bx:int (this.laneX(barY laneMilli 20))
+                bg.fillRect((bx - (idiv bw 2)) (barY - (idiv bh 2)) bw bh 210 215 225)
+                bg.fillRect((bx - (idiv bw 2) - 1) (barY - (idiv bh 2)) 2 bh 255 230 70)
+                bg.fillRect((bx + (idiv bw 2) - 1) (barY - (idiv bh 2)) 2 bh 255 230 70)
+            }
+        }
+    }
+
+    fn setupPhysics:void (phys:GamePhysics bodyIds:[string]) {
+        phys.clear()
+        phys.enabled = true
+        phys.setWorldSize(480.0 6000.0)
+        this.addRoadBounds(phys.core 6000)
+        this.roadAt(5860)
+        def sx:int roadCx
+        this.addVehicle(phys.core "p1" (to_double (sx - 28)) 5860.0 false)
+        this.addVehicle(phys.core "p2" (to_double (sx + 28)) 5860.0 false)
+        push bodyIds "p1"
+        push bodyIds "p2"
+        def ti:int 0
+        while (ti < 15) {
+            def id:string ("t" + (to_string ti))
+            def ty:int 5520
+            if (ti == 1) { ty = 5260 }
+            if (ti == 2) { ty = 4930 }
+            if (ti == 3) { ty = 4590 }
+            if (ti == 4) { ty = 4270 }
+            if (ti == 5) { ty = 3950 }
+            if (ti == 6) { ty = 3610 }
+            if (ti == 7) { ty = 3280 }
+            if (ti == 8) { ty = 2940 }
+            if (ti == 9) { ty = 2570 }
+            if (ti == 10) { ty = 2190 }
+            if (ti == 11) { ty = 1810 }
+            if (ti == 12) { ty = 1420 }
+            if (ti == 13) { ty = 1040 }
+            if (ti == 14) { ty = 650 }
+            this.roadAt(ty)
+            this.addVehicle(phys.core id (to_double roadCx) (to_double ty) true)
+            push bodyIds id
+            ti = (ti + 1)
+        }
+        this.addAllCones(phys.core)
+        this.addAllBars(phys.core)
+        this.addAllOil()
+    }
+}
