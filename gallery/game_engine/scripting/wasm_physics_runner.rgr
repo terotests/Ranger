@@ -382,8 +382,51 @@ class WasmPhysicsRunner {
 
     fn initAssets:void () {
         render.initAssets(assetsDir pw worldH)
-        render.initSprites()
+        this.loadResourcesFromWasm()
         render.buildStaticBg(setup)
+    }
+
+    ; The WASM module declares its resources by calling host imports; the host
+    ; drains the manifest, registers each into GameHost, and builds sprite
+    ; templates that resolve images through the host registry.
+    fn loadResourcesFromWasm:void () {
+        wasm_host_res_reset handle
+        wasm_call_void handle "declare_resources" 0 0 0 0 0 0
+        def n:int (wasm_host_res_count handle)
+        if (n <= 0) {
+            render.initSprites()
+            print "[wasm] no host resources declared; using built-in sprites"
+            return
+        }
+        render.beginSprites()
+        def i 0
+        while (i < n) {
+            def kind:int (wasm_host_res_kind handle i)
+            def id:string (wasm_host_res_id handle i)
+            if (kind == 2) {
+                def w:int (wasm_host_res_ival handle i 4)
+                def h:int (wasm_host_res_ival handle i 5)
+                def rr:int (wasm_host_res_ival handle i 6)
+                def gg:int (wasm_host_res_ival handle i 7)
+                def bb:int (wasm_host_res_ival handle i 8)
+                render.addRectTemplate(id w h rr gg bb)
+            } {
+                def path:string (wasm_host_res_path handle i)
+                def fw:int (wasm_host_res_ival handle i 0)
+                def fh:int (wasm_host_res_ival handle i 1)
+                def scale:int (wasm_host_res_ival handle i 2)
+                def feet:int (wasm_host_res_ival handle i 3)
+                def rdef:ResourceDefNative (new ResourceDefNative)
+                rdef.kind = "image"
+                rdef.id = id
+                rdef.path = path
+                host.registerResource(rdef)
+                render.addSheetTemplate(host id path fw fh scale feet)
+            }
+            i = (i + 1)
+        }
+        render.endSprites()
+        print ("[wasm] host-registered resources: " + (to_string n) + " host.images=" + (to_string (host.imageCount())))
     }
 
     fn buildDrawEntities:void () {

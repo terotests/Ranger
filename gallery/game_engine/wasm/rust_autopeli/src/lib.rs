@@ -447,6 +447,53 @@ fn traffic_control(idx: i32, t: &TrafficDef, now: i32) -> (i32, i32, i32, i32) {
     (steer, t.throttle_milli, 0, grip)
 }
 
+// Host imports (module "env") — linked by the wasm3 bridge. The module calls
+// these during declare_resources() so the host loads assets through GameHost.
+extern "C" {
+    fn rg_host_register_sheet(
+        id_ptr: i32,
+        id_len: i32,
+        path_ptr: i32,
+        path_len: i32,
+        fw: i32,
+        fh: i32,
+        scale: i32,
+        feet: i32,
+    );
+    fn rg_host_register_rect(id_ptr: i32, id_len: i32, w: i32, h: i32, r: i32, g: i32, b: i32);
+}
+
+fn host_sheet(id: &str, path: &str, fw: i32, fh: i32, scale: i32, feet: i32) {
+    unsafe {
+        rg_host_register_sheet(
+            id.as_ptr() as i32,
+            id.len() as i32,
+            path.as_ptr() as i32,
+            path.len() as i32,
+            fw,
+            fh,
+            scale,
+            feet,
+        );
+    }
+}
+
+fn host_rect(id: &str, w: i32, h: i32, r: i32, g: i32, b: i32) {
+    unsafe {
+        rg_host_register_rect(id.as_ptr() as i32, id.len() as i32, w, h, r, g, b);
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn declare_resources() {
+    host_sheet("p1", "assets/car1.png", 471, 909, 4, 454);
+    host_sheet("p2", "assets/car2.png", 471, 908, 4, 454);
+    host_sheet("trafficCar", "assets/othercar.png", 285, 625, 7, 312);
+    host_sheet("cone", "assets/cone.png", 204, 275, 9, 252);
+    host_sheet("oil", "assets/oil.png", 891, 706, 9, 353);
+    host_rect("bar", 8, 46, 210, 215, 225);
+}
+
 #[no_mangle]
 pub extern "C" fn abi_base() -> i32 {
     unsafe { ABI.as_ptr() as i32 }

@@ -22,6 +22,16 @@ int32_t rg_wasm_abi_base(int handle);
 int32_t rg_wasm_mem_read_i32(int handle, uint32_t off);
 void rg_wasm_mem_write_i32(int handle, uint32_t off, int32_t val);
 
+/* Host resource manifest — populated when the WASM module calls the linked
+ * host import functions (env.rg_host_register_sheet / rg_host_register_rect).
+ * The Ranger host drains this after calling the module's declare_resources(). */
+int rg_wasm_host_res_reset(int handle);
+int rg_wasm_host_res_count(int handle);
+int rg_wasm_host_res_kind(int handle, int idx);
+int rg_wasm_host_res_ival(int handle, int idx, int field);
+const char* rg_wasm_host_res_id(int handle, int idx);
+const char* rg_wasm_host_res_path(int handle, int idx);
+
 #ifdef __cplusplus
 }
 #endif

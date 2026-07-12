@@ -75,4 +75,58 @@ operators {
             ranger ( "void" )
         }
     }
+
+    ; Host resource manifest — the WASM module fills it by calling the linked
+    ; host imports (env.rg_host_register_sheet / rg_host_register_rect).
+    wasm_host_res_reset _:int (handle:int) {
+        templates {
+            cpp ( "rg_wasm_host_res_reset(" (e 1) ")" (imp "<rg_wasm_bridge.h>") )
+            es6 ( "0" )
+            ranger ( "0" )
+        }
+    }
+
+    wasm_host_res_count _:int (handle:int) {
+        templates {
+            cpp ( "rg_wasm_host_res_count(" (e 1) ")" (imp "<rg_wasm_bridge.h>") )
+            es6 ( "0" )
+            ranger ( "0" )
+        }
+    }
+
+    wasm_host_res_kind _:int (handle:int idx:int) {
+        templates {
+            cpp ( "rg_wasm_host_res_kind(" (e 1) ", " (e 2) ")" (imp "<rg_wasm_bridge.h>") )
+            es6 ( "0" )
+            ranger ( "0" )
+        }
+    }
+
+    wasm_host_res_ival _:int (handle:int idx:int field:int) {
+        templates {
+            cpp ( "rg_wasm_host_res_ival(" (e 1) ", " (e 2) ", " (e 3) ")" (imp "<rg_wasm_bridge.h>") )
+            es6 ( "0" )
+            ranger ( "0" )
+        }
+    }
+
+    wasm_host_res_id _:string (handle:int idx:int) {
+        templates {
+            cpp ( "std::string(rg_wasm_host_res_id(" (e 1) ", " (e 2) "))"
+                  (imp "<rg_wasm_bridge.h>")
+                  (imp "<string>") )
+            es6 ( "\"\"" )
+            ranger ( "\"\"" )
+        }
+    }
+
+    wasm_host_res_path _:string (handle:int idx:int) {
+        templates {
+            cpp ( "std::string(rg_wasm_host_res_path(" (e 1) ", " (e 2) "))"
+                  (imp "<rg_wasm_bridge.h>")
+                  (imp "<string>") )
+            es6 ( "\"\"" )
+            ranger ( "\"\"" )
+        }
+    }
 }

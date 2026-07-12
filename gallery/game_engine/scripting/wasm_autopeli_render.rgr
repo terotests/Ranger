@@ -136,6 +136,48 @@ class WasmAutopeliRender {
         spritesReady = true
     }
 
+    fn beginSprites:void () {
+        def next:[WasmVisualEntity]
+        templates = next
+        spritesReady = false
+    }
+
+    fn addSheetTemplate:void (host:GameHost id:string path:string fw:int fh:int scale:int feet:int) {
+        def e:WasmVisualEntity (new WasmVisualEntity)
+        e.id = id
+        e.kind = "sheet"
+        e.shPath = path
+        e.shFrameW = fw
+        e.shFrameH = fh
+        e.shScale = scale
+        e.shFeetTrim = feet
+        if ((strlen path) > 0) {
+            e.shImg = (imageLoader.loadByIdOrPath(host id))
+            this.bakeSheetScale(e)
+        }
+        push templates e
+    }
+
+    fn addRectTemplate:void (id:string w:int h:int r:int g:int b:int) {
+        def e:WasmVisualEntity (new WasmVisualEntity)
+        e.id = id
+        e.kind = "rect"
+        e.w = w
+        e.h = h
+        e.cr = r
+        e.cg = g
+        e.cb = b
+        push templates e
+    }
+
+    fn endSprites:void () {
+        spritesReady = true
+    }
+
+    fn templateCount:int () {
+        return (array_length templates)
+    }
+
     fn findTemplate:WasmVisualEntity (spriteId:string) {
         def fail:WasmVisualEntity (new WasmVisualEntity)
         def i 0
