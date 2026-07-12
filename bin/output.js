@@ -3016,7 +3016,42 @@ TTypeRegistry.scalarPrimitiveNames = function() {
   names.push("int");
   names.push("char");
   names.push("boolean");
+  names.push("u8");
+  names.push("u16");
+  names.push("u32");
+  names.push("i32");
+  names.push("f32");
   return names;
+};
+TTypeRegistry.isIntAlias = function(typeName) {
+  if ( typeName == "u8" ) {
+    return true;
+  }
+  if ( typeName == "u16" ) {
+    return true;
+  }
+  if ( typeName == "u32" ) {
+    return true;
+  }
+  if ( typeName == "i32" ) {
+    return true;
+  }
+  return false;
+};
+TTypeRegistry.isFloatAlias = function(typeName) {
+  if ( typeName == "f32" ) {
+    return true;
+  }
+  return false;
+};
+TTypeRegistry.canonicalScalar = function(typeName) {
+  if ( TTypeRegistry.isIntAlias(typeName) ) {
+    return "int";
+  }
+  if ( TTypeRegistry.isFloatAlias(typeName) ) {
+    return "double";
+  }
+  return typeName;
 };
 TTypeRegistry.bufferTypeNames = function() {
   let names = [];
@@ -3057,6 +3092,12 @@ TTypeRegistry.isKnownTypeName = function(typeName) {
   return TTypeRegistry.isPrimitiveTypeName(typeName);
 };
 TTypeRegistry.nameToNodeType = function(name) {
+  if ( TTypeRegistry.isIntAlias(name) ) {
+    return 3;
+  }
+  if ( TTypeRegistry.isFloatAlias(name) ) {
+    return 2;
+  }
   switch (name ) { 
     case "double" : 
       return 2;
@@ -3114,6 +3155,12 @@ TTypeRegistry.isNodePrimitive = function(valueType) {
 };
 TTypeRegistry.targetTypeString = function(lang, typeName) {
   if ( lang == "es6" ) {
+    if ( TTypeRegistry.isIntAlias(typeName) ) {
+      return "number";
+    }
+    if ( TTypeRegistry.isFloatAlias(typeName) ) {
+      return "number";
+    }
     switch (typeName ) { 
       case "int" : 
         return "number";
@@ -3136,6 +3183,21 @@ TTypeRegistry.targetTypeString = function(lang, typeName) {
     };
   }
   if ( lang == "go" ) {
+    if ( typeName == "u8" ) {
+      return "uint8";
+    }
+    if ( typeName == "u16" ) {
+      return "uint16";
+    }
+    if ( typeName == "u32" ) {
+      return "uint32";
+    }
+    if ( typeName == "i32" ) {
+      return "int32";
+    }
+    if ( typeName == "f32" ) {
+      return "float32";
+    }
     switch (typeName ) { 
       case "int" : 
         return "int";
@@ -7238,10 +7300,12 @@ class RangerArgMatch  {
     }
     return false;
   };
-  areEqualTypes (type1, type2, ctx) {
+  areEqualTypes (type1o, type2o, ctx) {
+    const type1 = TTypeRegistry.canonicalScalar(type1o);
+    const type2 = TTypeRegistry.canonicalScalar(type2o);
     let t_name = type1;
     if ( ( typeof(this.matched[type1] ) != "undefined" && this.matched.hasOwnProperty(type1) ) ) {
-      t_name = (( this.matched.hasOwnProperty(type1) ? this.matched[type1] : undefined ));
+      t_name = TTypeRegistry.canonicalScalar(((( this.matched.hasOwnProperty(type1) ? this.matched[type1] : undefined ))));
     }
     switch (t_name ) { 
       case "string" : 
@@ -7315,10 +7379,12 @@ class RangerArgMatch  {
     }
     return t_name == type2;
   };
-  areEqualATypes (type1, type2, ctx) {
+  areEqualATypes (type1i, type2i, ctx) {
+    const type1 = TTypeRegistry.canonicalScalar(type1i);
+    const type2 = TTypeRegistry.canonicalScalar(type2i);
     let t_name = type1;
     if ( ( typeof(this.matched[type1] ) != "undefined" && this.matched.hasOwnProperty(type1) ) ) {
-      t_name = (( this.matched.hasOwnProperty(type1) ? this.matched[type1] : undefined ));
+      t_name = TTypeRegistry.canonicalScalar(((( this.matched.hasOwnProperty(type1) ? this.matched[type1] : undefined ))));
     }
     switch (t_name ) { 
       case "string" : 
@@ -14000,7 +14066,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     };
     shouldBeEqualTypes (n1, n2, ctx, msg) {
       if ( (((n1.eval_type != 0) && (n2.eval_type != 0)) && ((n1.eval_type_name.length) > 0)) && ((n2.eval_type_name.length) > 0) ) {
-        if ( n1.eval_type_name == n2.eval_type_name ) {
+        const cn1 = TTypeRegistry.canonicalScalar(n1.eval_type_name);
+        const cn2 = TTypeRegistry.canonicalScalar(n2.eval_type_name);
+        if ( cn1 == cn2 ) {
         } else {
           let b_ok = false;
           if ( ctx.isEnumDefined(n1.eval_type_name) && (n2.eval_type_name == "int") ) {
@@ -18721,6 +18789,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           return "std::vector<double>";
         case "int" : 
           return "int";
+        case "u8" : 
+          return "uint8_t";
+        case "u16" : 
+          return "uint16_t";
+        case "u32" : 
+          return "uint32_t";
+        case "i32" : 
+          return "int32_t";
+        case "f32" : 
+          return "float";
         case "string" : 
           return "std::string";
         case "boolean" : 
@@ -18781,6 +18859,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           return "std::vector<double>";
         case "int" : 
           return "int";
+        case "u8" : 
+          return "uint8_t";
+        case "u16" : 
+          return "uint16_t";
+        case "u32" : 
+          return "uint32_t";
+        case "i32" : 
+          return "int32_t";
+        case "f32" : 
+          return "float";
         case "string" : 
           return "std::string";
         case "boolean" : 
@@ -18840,10 +18928,26 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           wr.out("int", false);
           break;
         case 3 : 
+          let intCppType = "int";
+          if ( t_name == "u8" ) {
+            intCppType = "uint8_t";
+          }
+          if ( t_name == "u16" ) {
+            intCppType = "uint16_t";
+          }
+          if ( t_name == "u32" ) {
+            intCppType = "uint32_t";
+          }
+          if ( t_name == "i32" ) {
+            intCppType = "int32_t";
+          }
+          if ( intCppType != "int" ) {
+            wr.addImport("<cstdint>");
+          }
           if ( node.hasFlag("optional") ) {
-            wr.out(" r_optional_primitive<int> ", false);
+            wr.out((" r_optional_primitive<" + intCppType) + "> ", false);
           } else {
-            wr.out("int", false);
+            wr.out(intCppType, false);
           }
           break;
         case 14 : 
@@ -18867,10 +18971,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           wr.out("std::vector<double>", false);
           break;
         case 2 : 
+          let dblCppType = "double";
+          if ( t_name == "f32" ) {
+            dblCppType = "float";
+          }
           if ( node.hasFlag("optional") ) {
-            wr.out(" r_optional_primitive<double> ", false);
+            wr.out((" r_optional_primitive<" + dblCppType) + "> ", false);
           } else {
-            wr.out("double", false);
+            wr.out(dblCppType, false);
           }
           break;
         case 4 : 

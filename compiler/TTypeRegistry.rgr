@@ -11,7 +11,42 @@ class TTypeRegistry {
     push names "int"
     push names "char"
     push names "boolean"
+    ; Fixed-width numeric aliases (AssemblyScript-style). They behave like int /
+    ; double for analysis and arithmetic; only the native (C++) backend emits the
+    ; narrow storage type (uint8_t / uint16_t / uint32_t / int32_t / float).
+    push names "u8"
+    push names "u16"
+    push names "u32"
+    push names "i32"
+    push names "f32"
     return names
+  }
+
+  ; Fixed-width integer aliases -> canonical "int".
+  static fn isIntAlias:boolean (typeName:string) {
+    if (typeName == "u8") { return true }
+    if (typeName == "u16") { return true }
+    if (typeName == "u32") { return true }
+    if (typeName == "i32") { return true }
+    return false
+  }
+
+  ; Fixed-width float alias -> canonical "double".
+  static fn isFloatAlias:boolean (typeName:string) {
+    if (typeName == "f32") { return true }
+    return false
+  }
+
+  ; Collapse a fixed-width alias to its canonical scalar for type checking and
+  ; operator matching; non-aliases pass through unchanged.
+  static fn canonicalScalar:string (typeName:string) {
+    if (TTypeRegistry.isIntAlias(typeName)) {
+      return "int"
+    }
+    if (TTypeRegistry.isFloatAlias(typeName)) {
+      return "double"
+    }
+    return typeName
   }
 
   static fn bufferTypeNames:[string] () {
@@ -56,6 +91,12 @@ class TTypeRegistry {
   }
 
   static fn nameToNodeType:RangerNodeType (name:string) {
+    if (TTypeRegistry.isIntAlias(name)) {
+      return RangerNodeType.Integer
+    }
+    if (TTypeRegistry.isFloatAlias(name)) {
+      return RangerNodeType.Double
+    }
     switch name {
       case "double" {
         return RangerNodeType.Double
@@ -134,6 +175,12 @@ class TTypeRegistry {
 
   static fn targetTypeString:string (lang:string typeName:string) {
     if (lang == "es6") {
+      if (TTypeRegistry.isIntAlias(typeName)) {
+        return "number"
+      }
+      if (TTypeRegistry.isFloatAlias(typeName)) {
+        return "number"
+      }
       switch typeName {
         case "int" {
           return "number"
@@ -165,6 +212,11 @@ class TTypeRegistry {
       }
     }
     if (lang == "go") {
+      if (typeName == "u8") { return "uint8" }
+      if (typeName == "u16") { return "uint16" }
+      if (typeName == "u32") { return "uint32" }
+      if (typeName == "i32") { return "int32" }
+      if (typeName == "f32") { return "float32" }
       switch typeName {
         case "int" {
           return "int"
