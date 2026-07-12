@@ -16,6 +16,8 @@
 ; ==============================================================================
 
 Import "./game_runtime.rgr"
+Import "../wasm_runtime.rgr"
+Import "./wasm_game_runner.rgr"
 Import "../gfx_sdl.rgr"
 Import "./game_audio_sdl.rgr"
 Import "./game_catalog.rgr"
@@ -37,6 +39,8 @@ class SdlGameHost extends GameHost {
 
 class GameSdlRunner {
     def runner:GameRunner (new GameRunner)
+    def wasmRunner:WasmGameRunner (new WasmGameRunner)
+    def useWasmRunner:boolean false
     def splitHost:SplitScreenHost (new SplitScreenHost)
     def catalog:GameCatalog (new GameCatalog)
     def nativeBridge:GameHostNativeBridge (new GameHostNativeBridge)
@@ -86,6 +90,7 @@ class GameSdlRunner {
 
     fn setProfileOnRunners:void () {
         runner.setProfileEnabled(profileEnabled)
+        wasmRunner.setProfileEnabled(profileEnabled)
         splitHost.setProfileEnabled(profileEnabled)
     }
 
@@ -130,7 +135,11 @@ class GameSdlRunner {
         if (splitScreenActive) {
             splitHost.setFpsShown(fpsShown)
         } {
-            runner.setFpsShown(fpsShown)
+            if (useWasmRunner) {
+                wasmRunner.setFpsShown(fpsShown)
+            } {
+                runner.setFpsShown(fpsShown)
+            }
         }
     }
 
@@ -179,6 +188,7 @@ class GameSdlRunner {
     }
 
     fn loadScriptAt:void (tsxPath:string injectCatalog:boolean) {
+        useWasmRunner = false
         if (inGame) {
             this.presentLoadingScreen("LOADING")
         }
@@ -231,6 +241,40 @@ class GameSdlRunner {
         gameInputSnap.resetSoloPad()
         gfx_clear_should_close
         this.setProfileOnRunners()
+    }
+
+    fn loadWasmAt:void (wasmPath:string) {
+        useWasmRunner = true
+        if (inGame) {
+            this.presentLoadingScreen("LOADING WASM")
+        }
+        if (inMenu) {
+            this.presentLoadingScreen("LOADING WASM")
+        }
+        wasmRunner = (new WasmGameRunner)
+        wasmRunner.init(pw ph)
+        this.presentLoadingScreen("LOADING WASM")
+        wasmRunner.loadModule(wasmPath)
+        this.presentLoadingScreen("LOADING WASM")
+        wasmRunner.setupScene()
+        currentScriptPath = wasmPath
+        currentGamePath = wasmPath
+        inMenu = false
+        inGame = true
+        splitScreenActive = false
+        this.syncInputEdges()
+        gameInputSnap.resetSoloPad()
+        gfx_clear_should_close
+        this.setProfileOnRunners()
+        print ("[game-engine] wasm game: " + wasmPath)
+    }
+
+    fn loadGameAtPath:void (path:string injectCatalog:boolean) {
+        if (this.isWasmPath(path)) {
+            this.loadWasmAt(path)
+            return
+        }
+        this.loadScriptAt(path injectCatalog)
     }
 
     ; After script swap, match edge state to keys still held (avoids double Q:
@@ -370,18 +414,23 @@ class GameSdlRunner {
         this.setProfileOnRunners()
     }
 
-    fn loadGame:void (tsxPath:string) {
+    fn loadGame:void (path:string) {
         gfx_audio_clear
         this.clearNavStack()
         nativeBridge.clearPendingNav()
-        currentGamePath = tsxPath
-        this.resolveSplitMetadata(tsxPath)
+        currentGamePath = path
+        if (this.isWasmPath(path)) {
+            splitScreenActive = false
+            this.loadWasmAt(path)
+            return
+        }
+        this.resolveSplitMetadata(path)
         if (this.shouldUseSplitScreen()) {
-            this.loadSplitGame(tsxPath)
+            this.loadSplitGame(path)
             return
         }
         splitScreenActive = false
-        this.loadScriptAt(tsxPath false)
+        this.loadScriptAt(path false)
         inMenu = false
         inGame = true
     }
@@ -463,10 +512,18 @@ class GameSdlRunner {
             return
         }
         def s0:int (gfx_ticks_ms)
-        runner.draw()
-        runner.flushGpuParticles()
+        if (useWasmRunner) {
+            wasmRunner.draw()
+        } {
+            runner.draw()
+            runner.flushGpuParticles()
+        }
         def s1:int (gfx_ticks_ms)
-        gfx_present (runner.raw()) pw ph
+        if (useWasmRunner) {
+            gfx_present (wasmRunner.raw()) pw ph
+        } {
+            gfx_present (runner.raw()) pw ph
+        }
         def s2:int (gfx_ticks_ms)
         if (profileEnabled) {
             profRenderMs = (profRenderMs + (s1 - s0))
@@ -691,9 +748,14 @@ class GameSdlRunner {
                     splitHost.frameWithInput(dtMs)
                 }
             } {
-                def gameInput:GameInputSnapshot (this.pollGameInput())
-                runner.frameWithInput(dtMs gameInput)
-                this.drainScriptNavigation()
+                if (useWasmRunner) {
+                    def gameInput:GameInputSnapshot (this.pollGameInput())
+                    wasmRunner.frameWithInput(dtMs gameInput.p0.up gameInput.p0.down gameInput.p0.left gameInput.p0.right gameInput.p0.action)
+                } {
+                    def gameInput:GameInputSnapshot (this.pollGameInput())
+                    runner.frameWithInput(dtMs gameInput)
+                    this.drainScriptNavigation()
+                }
             }
             def tUpdateEnd:int (gfx_ticks_ms)
 
@@ -761,6 +823,18 @@ class GameSdlRunner {
             this.runGameLoop()
         }
         gfx_close
+    }
+
+    fn isWasmPath:boolean (arg:string) {
+        def len:int (strlen arg)
+        if (len < 5) {
+            return false
+        }
+        def tail:string (substring arg (len - 5) len)
+        if (tail == ".wasm") {
+            return true
+        }
+        return false
     }
 
     fn isTsxPath:boolean (arg:string) {
@@ -833,10 +907,14 @@ class GameSdlRunner {
                                                     if (this.isTsxPath(arg)) {
                                                         tsxPath = arg
                                                     } {
-                                                        if ((strlen tsxPath) > 0) {
-                                                            def parsed@(optional):int (to_int arg)
-                                                            if (!null? parsed) {
-                                                                maxFrames = (unwrap parsed)
+                                                        if (this.isWasmPath(arg)) {
+                                                            tsxPath = arg
+                                                        } {
+                                                            if ((strlen tsxPath) > 0) {
+                                                                def parsed@(optional):int (to_int arg)
+                                                                if (!null? parsed) {
+                                                                    maxFrames = (unwrap parsed)
+                                                                }
                                                             }
                                                         }
                                                     }
@@ -899,16 +977,28 @@ class GameSdlRunner {
                 be.printRunnerProfile("left" be.splitHost.left)
                 be.printRunnerProfile("right" be.splitHost.right)
             } {
-                be.printRunnerProfile("game" be.runner)
+                if (be.useWasmRunner) {
+                    print ("[wasm] ball=" + (be.wasmRunner.entityX("ball")) + "," + (be.wasmRunner.entityY("ball")))
+                } {
+                    be.printRunnerProfile("game" be.runner)
+                }
             }
         }
         if (be.inGame) {
             def msg:string ("game-sdl done: frames=" + be.frames)
-            msg = (msg + " | entities=" + (be.runner.entityCount()))
-            msg = (msg + " | score ")
-            msg = (msg + be.runner.score1)
-            msg = (msg + " - ")
-            msg = (msg + be.runner.score2)
+            if (be.useWasmRunner) {
+                msg = (msg + " | entities=" + (array_length be.wasmRunner.entities))
+                msg = (msg + " | score ")
+                msg = (msg + be.wasmRunner.score1)
+                msg = (msg + " - ")
+                msg = (msg + be.wasmRunner.score2)
+            } {
+                msg = (msg + " | entities=" + (be.runner.entityCount()))
+                msg = (msg + " | score ")
+                msg = (msg + be.runner.score1)
+                msg = (msg + " - ")
+                msg = (msg + be.runner.score2)
+            }
             if (be.fpsShown > 0) {
                 msg = (msg + " | fps=")
                 msg = (msg + (to_string be.fpsShown))

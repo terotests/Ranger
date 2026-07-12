@@ -1,0 +1,52 @@
+; ==============================================================================
+; wasm_runtime — load and call WebAssembly modules via wasm3 (C++ polyfill).
+; ==============================================================================
+;
+; Used by WasmGameRunner (Path C): Rust/C/… compiled .wasm games loaded at runtime.
+; Requires runtime/rg_wasm_bridge.c + runtime/wasm3/*.c linked into the SDL binary.
+; ==============================================================================
+
+operators {
+
+    ; Load a .wasm file from disk. Returns handle (>=1) or 0 on failure.
+    wasm_load _:int (path:string) {
+        templates {
+            cpp ( "rg_wasm_load(" (e 1) ".c_str())"
+                  (imp "<rg_wasm_bridge.h>")
+                  (imp "<string>") )
+            es6 ( "0" )
+            ranger ( "0" )
+        }
+    }
+
+    wasm_close _:void (handle:int) {
+        templates {
+            cpp ( "rg_wasm_close(" (e 1) ")" (imp "<rg_wasm_bridge.h>") )
+            es6 ( "void 0" )
+            ranger ( "void" )
+        }
+    }
+
+    ; Call exported fn returning i32. nargs selects how many of a0..a4 are passed.
+    wasm_call_i32 _:int (handle:int name:string nargs:int a0:int a1:int a2:int a3:int a4:int) {
+        templates {
+            cpp ( "rg_wasm_call_i32(" (e 1) ", " (e 2) ".c_str(), " (e 3) ", "
+                  (e 4) ", " (e 5) ", " (e 6) ", " (e 7) ", " (e 8) ")"
+                  (imp "<rg_wasm_bridge.h>")
+                  (imp "<string>") )
+            es6 ( "0" )
+            ranger ( "0" )
+        }
+    }
+
+    wasm_call_void _:void (handle:int name:string nargs:int a0:int a1:int a2:int a3:int a4:int) {
+        templates {
+            cpp ( "rg_wasm_call_void(" (e 1) ", " (e 2) ".c_str(), " (e 3) ", "
+                  (e 4) ", " (e 5) ", " (e 6) ", " (e 7) ", " (e 8) ")"
+                  (imp "<rg_wasm_bridge.h>")
+                  (imp "<string>") )
+            es6 ( "void 0" )
+            ranger ( "void" )
+        }
+    }
+}

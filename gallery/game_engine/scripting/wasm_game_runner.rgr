@@ -1,0 +1,330 @@
+; ==============================================================================
+; wasm_game_runner — retained-mode host for .wasm game modules (Path C).
+; ==============================================================================
+;
+; Loads a freestanding WASM module (e.g. Rust wasm32-unknown-unknown) and drives
+; the same SoftCanvas + sprite pipeline as NativeGameRunner. The module exports
+; a minimal ABI (see gallery/game_engine/wasm/rust_pong/src/lib.rs).
+; ==============================================================================
+
+Import "../framebuffer.rgr"
+Import "../wasm_runtime.rgr"
+Import "./game_audio.rgr"
+Import "../../ts_to_ranger/game_host.rgr"
+
+class WasmEntity {
+    def id:string ""
+    def kind:string "rect"
+    def x:int 0
+    def y:int 0
+    def w:int 8
+    def h:int 8
+    def rad:int 4
+    def cr:int 255
+    def cg:int 255
+    def cb:int 255
+}
+
+class WasmGameRunner {
+    def handle:int 0
+    def modulePath:string ""
+    def canvas:SoftCanvas (new SoftCanvas)
+    def host:GameHost (new GameHost)
+    def audio:GameAudio (new GameAudio)
+    def entities:[WasmEntity]
+    def pw:int 0
+    def ph:int 0
+    def score1:int 0
+    def score2:int 0
+    def fpsShown:int 0
+    def timeMs:int 0
+    def profileEnabled:boolean false
+
+    fn init:void (w:int h:int) {
+        audio.init()
+        pw = w
+        ph = h
+        canvas.init(w h)
+        host.audio = audio
+        host.wireMusic()
+    }
+
+    fn setFpsShown:void (fps:int) {
+        fpsShown = fps
+    }
+
+    fn setProfileEnabled:void (on:boolean) {
+        profileEnabled = on
+    }
+
+    fn raw:buffer () {
+        return (canvas.raw())
+    }
+
+    fn hostRef:GameHost () {
+        return host
+    }
+
+    fn maybeHotReload:void () {
+    }
+
+    fn resolvePlayerCount:int () {
+        return 2
+    }
+
+    fn loadModule:void (path:string) {
+        if (handle != 0) {
+            wasm_close handle
+            handle = 0
+        }
+        handle = wasm_load path
+        modulePath = path
+        if (handle == 0) {
+            print ("[wasm] load failed: " + path)
+            return
+        }
+        print ("[wasm] loaded: " + path + " handle=" + (to_string handle))
+    }
+
+    fn wasmI32:int (name:string nargs:int a0:int a1:int a2:int a3:int a4:int) {
+        if (handle == 0) {
+            return 0
+        }
+        return (wasm_call_i32 handle name nargs a0 a1 a2 a3 a4)
+    }
+
+    fn wasmVoid:void (name:string nargs:int a0:int a1:int a2:int a3:int a4:int) {
+        if (handle == 0) {
+            return
+        }
+        wasm_call_void handle name nargs a0 a1 a2 a3 a4
+    }
+
+    fn setupSprites:void () {
+        def next:[WasmEntity]
+        def ball:WasmEntity (new WasmEntity)
+        ball.id = "ball"
+        ball.kind = "circle"
+        ball.rad = 6
+        ball.cr = 245
+        ball.cg = 245
+        ball.cb = 130
+        push next ball
+        def p1:WasmEntity (new WasmEntity)
+        p1.id = "p1"
+        p1.kind = "rect"
+        p1.w = 10
+        p1.h = 56
+        p1.cr = 120
+        p1.cg = 220
+        p1.cb = 160
+        push next p1
+        def p2:WasmEntity (new WasmEntity)
+        p2.id = "p2"
+        p2.kind = "rect"
+        p2.w = 10
+        p2.h = 56
+        p2.cr = 220
+        p2.cg = 140
+        p2.cb = 120
+        push next p2
+        entities = next
+    }
+
+    fn setupScene:void () {
+        if (handle == 0) {
+            return
+        }
+        this.wasmVoid("init" 0 0 0 0 0 0)
+        this.setupSprites()
+        this.syncFromWasm()
+    }
+
+    fn syncFromWasm:void () {
+        def bx:int (this.wasmI32("ball_x" 0 0 0 0 0 0))
+        def by:int (this.wasmI32("ball_y" 0 0 0 0 0 0))
+        def p1y:int (this.wasmI32("paddle1_y" 0 0 0 0 0 0))
+        def p2y:int (this.wasmI32("paddle2_y" 0 0 0 0 0 0))
+        score1 = (this.wasmI32("score1" 0 0 0 0 0 0))
+        score2 = (this.wasmI32("score2" 0 0 0 0 0 0))
+        def i 0
+        while (i < (array_length entities)) {
+            def e:WasmEntity (itemAt entities i)
+            if (e.id == "ball") {
+                e.x = bx
+                e.y = by
+            }
+            if (e.id == "p1") {
+                e.x = 18
+                e.y = p1y
+            }
+            if (e.id == "p2") {
+                e.x = 462
+                e.y = p2y
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn frame:void (dtMs:int up:boolean down:boolean left:boolean right:boolean action:boolean) {
+        if (handle == 0) {
+            return
+        }
+        timeMs = (timeMs + dtMs)
+        def upI:int 0
+        def downI:int 0
+        def leftI:int 0
+        def rightI:int 0
+        if (up) {
+            upI = 1
+        }
+        if (down) {
+            downI = 1
+        }
+        if (left) {
+            leftI = 1
+        }
+        if (right) {
+            rightI = 1
+        }
+        this.wasmVoid("update" 5 dtMs upI downI leftI rightI)
+        this.syncFromWasm()
+    }
+
+    fn frameWithInput:void (dtMs:int up:boolean down:boolean left:boolean right:boolean action:boolean) {
+        this.frame(dtMs up down left right action)
+    }
+
+    fn entityX:int (id:string) {
+        def i 0
+        while (i < (array_length entities)) {
+            def e:WasmEntity (itemAt entities i)
+            if (e.id == id) {
+                return e.x
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn entityY:int (id:string) {
+        def i 0
+        while (i < (array_length entities)) {
+            def e:WasmEntity (itemAt entities i)
+            if (e.id == id) {
+                return e.y
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn half:int (n:int) {
+        def result 0
+        def rem n
+        while (rem >= 2) {
+            rem = (rem - 2)
+            result = (result + 1)
+        }
+        return result
+    }
+
+    fn drawEntity:void (e:WasmEntity) {
+        if (e.kind == "circle") {
+            canvas.fillCircle(e.x e.y e.rad e.cr e.cg e.cb)
+            return
+        }
+        def rx:int (e.x - (idiv e.w 2))
+        def ry:int (e.y - (idiv e.h 2))
+        canvas.fillRect(rx ry e.w e.h e.cr e.cg e.cb)
+    }
+
+    fn draw:void () {
+        canvas.clear(12 16 32)
+        def netX (this.half(pw))
+        def ny 0
+        while (ny < ph) {
+            canvas.fillRect((netX - 1) ny 2 6 40 55 95)
+            ny = (ny + 12)
+        }
+        def i 0
+        while (i < (array_length entities)) {
+            def e:WasmEntity (itemAt entities i)
+            this.drawEntity(e)
+            i = (i + 1)
+        }
+        this.drawNumber((netX - 44) 10 4 score1 120 220 160)
+        this.drawNumber((netX + 20) 10 4 score2 220 140 120)
+        if (fpsShown > 0) {
+            def fx (this.half(pw))
+            def fy (ph - 22)
+            this.drawNumber((fx - 14) fy 3 fpsShown 160 170 190)
+        }
+    }
+
+    fn drawLoadingScreen:void (label:string ticks:int) {
+        canvas.clear(8 12 24)
+        def cx (this.half(pw))
+        def cy (this.half(ph))
+        canvas.fillRect((cx - 40) (cy - 6) 80 12 40 80 140)
+    }
+
+    fn digitBits:string (d:int) {
+        if (d == 0) { return "111101101101111" }
+        if (d == 1) { return "010110010010111" }
+        if (d == 2) { return "111001111100111" }
+        if (d == 3) { return "111001111001111" }
+        if (d == 4) { return "101101111001001" }
+        if (d == 5) { return "111100111001111" }
+        if (d == 6) { return "111100111101111" }
+        if (d == 7) { return "111001010010010" }
+        if (d == 8) { return "111101111101111" }
+        if (d == 9) { return "111101111001111" }
+        return "000000000000000"
+    }
+
+    fn drawDigit:void (x:int y:int scale:int d:int r:int g:int b:int) {
+        def bits:string (this.digitBits(d))
+        def row 0
+        while (row < 5) {
+            def col 0
+            while (col < 3) {
+                def idx ((row * 3) + col)
+                def ch:string (substring bits idx (idx + 1))
+                if (ch == "1") {
+                    canvas.fillRect((x + (col * scale)) (y + (row * scale)) scale scale r g b)
+                }
+                col = (col + 1)
+            }
+            row = (row + 1)
+        }
+    }
+
+    fn drawNumber:void (x:int y:int scale:int n:int r:int g:int b:int) {
+        def ds:[int]
+        def m n
+        if (m <= 0) {
+            push ds 0
+        } {
+            while (m > 0) {
+                push ds (m % 10)
+                m = (to_int (m / 10))
+            }
+        }
+        def cnt (array_length ds)
+        def j 0
+        def step ((scale * 3) + scale)
+        while (j < cnt) {
+            def d:int (itemAt ds (cnt - 1 - j))
+            this.drawDigit((x + (j * step)) y scale d r g b)
+            j = (j + 1)
+        }
+    }
+
+    fn shutdown:void () {
+        if (handle != 0) {
+            wasm_close handle
+            handle = 0
+        }
+    }
+}
