@@ -186,6 +186,16 @@ class TSParserSimple {
     if (t == "Null") {
       return true
     }
+    ; Reserved words (static, class, default, get, set, new, this, ...) and TS
+    ; keywords (type, interface, ...) are all valid object-literal property keys
+    ; in JS/TS, e.g. `{ static: true, type: "x" }`. Accepting them here prevents
+    ; the parseObjectLiteral loop from stalling on a key it cannot consume.
+    if (t == "Keyword") {
+      return true
+    }
+    if (t == "TSKeyword") {
+      return true
+    }
     return false
   }
   
@@ -4300,6 +4310,7 @@ class TSParserSimple {
     this.expectValue("{")
     
     while (((this.matchValue("}")) == false) && ((this.isAtEnd()) == false)) {
+      def loopStartPos:int this.pos
       ; Check for spread property
       if (this.matchValue("...")) {
         this.advance()
@@ -4425,6 +4436,13 @@ class TSParserSimple {
       
       if (this.matchValue(",")) {
         this.advance()
+      }
+      
+      ; Safety: if an iteration consumed no tokens (e.g. an unexpected token that
+      ; is not a valid property key, comma, or "}"), bail out instead of looping
+      ; forever and exhausting memory. expectValue("}") then reports the error.
+      if (this.pos == loopStartPos) {
+        break
       }
     }
     
