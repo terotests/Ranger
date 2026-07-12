@@ -70,6 +70,8 @@ class GameEntity {
 class GameSpriteRenderer {
     def imageLoader:GameImageLoader (new GameImageLoader())
     def gpuSheetOverlay:boolean false
+    def sheetCachePaths:[string]
+    def sheetCacheTpl:[GameEntity]
 
     fn setImageLoader:void (loader:GameImageLoader) {
         imageLoader = loader
@@ -77,6 +79,67 @@ class GameSpriteRenderer {
 
     fn setGpuSheetOverlay:void (enabled:boolean) {
         gpuSheetOverlay = enabled
+    }
+
+    fn clearSheetCache:void () {
+        clear sheetCachePaths
+        clear sheetCacheTpl
+    }
+
+    fn sheetCacheIndex:int (path:string) {
+        def i 0
+        while (i < (array_length sheetCachePaths)) {
+            if ((itemAt sheetCachePaths i) == path) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn copySheetFields:void (dst:GameEntity src:GameEntity) {
+        dst.shPath = src.shPath
+        dst.shFrameW = src.shFrameW
+        dst.shFrameH = src.shFrameH
+        dst.shCols = src.shCols
+        dst.shRows = src.shRows
+        dst.shScale = src.shScale
+        dst.shFeetTrim = src.shFeetTrim
+        dst.shJumpFrame = src.shJumpFrame
+        dst.shImg = src.shImg
+        dst.shGpuTexId = src.shGpuTexId
+    }
+
+    fn storeSheetCache:void (e:GameEntity) {
+        if ((strlen e.shPath) == 0) {
+            return
+        }
+        if ((this.sheetCacheIndex(e.shPath)) >= 0) {
+            return
+        }
+        def t:GameEntity (new GameEntity)
+        this.copySheetFields(t e)
+        push sheetCachePaths e.shPath
+        push sheetCacheTpl t
+    }
+
+    fn updateSheetCacheTex:void (path:string texId:int) {
+        def idx:int (this.sheetCacheIndex(path))
+        if (idx < 0) {
+            return
+        }
+        def t:GameEntity (itemAt sheetCacheTpl idx)
+        t.shGpuTexId = texId
+    }
+
+    fn applySheetCache:boolean (e:GameEntity path:string) {
+        def idx:int (this.sheetCacheIndex(path))
+        if (idx < 0) {
+            return false
+        }
+        def t:GameEntity (itemAt sheetCacheTpl idx)
+        this.copySheetFields(e t)
+        return true
     }
     fn half:int (n:int) {
         def result 0
@@ -221,6 +284,7 @@ class GameSpriteRenderer {
         def tex:int (gfx_gpu_upload_texture e.shImg.pixels e.shImg.width e.shImg.height)
         if (tex > 0) {
             e.shGpuTexId = tex
+            this.updateSheetCacheTex(e.shPath tex)
         }
     }
 
@@ -235,8 +299,12 @@ class GameSpriteRenderer {
         e.shFeetTrim = (this.memInt(d "feetTrim" 0))
         e.shJumpFrame = (this.memInt(d "jumpFrame" 0))
         if ((strlen e.shPath) > 0) {
+            if (this.applySheetCache(e e.shPath)) {
+                return
+            }
             e.shImg = (imageLoader.load(e.shPath))
             this.bakeSheetScale(e)
+            this.storeSheetCache(e)
         }
     }
 

@@ -299,6 +299,7 @@ class GameRunner {
         physicsSharedWorld = false
         this.clearBackground()
         this.clearStaticBg()
+        spriteRenderer.clearSheetCache()
     }
 
     fn clearStaticBg:void () {
