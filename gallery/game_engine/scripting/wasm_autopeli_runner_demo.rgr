@@ -1,0 +1,45 @@
+; ==============================================================================
+; wasm_autopeli_runner_demo - headless integration test for WasmPhysicsRunner.
+; ==============================================================================
+
+Import "./wasm_physics_runner.rgr"
+
+class WasmAutopeliRunnerDemo {
+    sfn m@(main):void () {
+        def runner:WasmPhysicsRunner (new WasmPhysicsRunner)
+        runner.init(480 270)
+
+        def wasmPath:string "gallery/game_engine/games/autopeli_wasm/logic.wasm"
+        runner.loadModule(wasmPath)
+        if (runner.handle == 0) {
+            print "wasm-autopeli-runner FAIL (load)"
+            return
+        }
+        runner.setupScene()
+
+        def y0:int (runner.entityY("p1"))
+        def i 0
+        while (i < 400) {
+            runner.frame(16 true false false true false)
+            i = (i + 1)
+        }
+        def y1:int (runner.entityY("p1"))
+        def moved:boolean false
+        if (y1 != y0) {
+            moved = true
+        }
+        print (("p1 y0=" + (to_string y0)))
+        print (("p1 y1=" + (to_string y1)))
+        print (("hits=" + (to_string runner.hits)))
+        print (("score=" + (to_string runner.score)))
+        if (moved) {
+            if (runner.linearMode) {
+                if (runner.hits > 0) {
+                    print "wasm-autopeli-runner done"
+                    return
+                }
+            }
+        }
+        print "wasm-autopeli-runner FAIL"
+    }
+}

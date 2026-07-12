@@ -22,6 +22,20 @@ SOURCE="$ROOT/gallery/game_engine/scripting/game_sdl_runner.rgr"
 OUT_DIR="$ROOT/tmp/game-sdl"
 CPP_FILE="$OUT_DIR/game_sdl.cpp"
 BIN_FILE="$OUT_DIR/game_sdl"
+WASM3_DIR="$ROOT/runtime/wasm3"
+WASM3_SOURCES=(
+  "$WASM3_DIR/m3_bind.c"
+  "$WASM3_DIR/m3_code.c"
+  "$WASM3_DIR/m3_compile.c"
+  "$WASM3_DIR/m3_core.c"
+  "$WASM3_DIR/m3_env.c"
+  "$WASM3_DIR/m3_exec.c"
+  "$WASM3_DIR/m3_function.c"
+  "$WASM3_DIR/m3_info.c"
+  "$WASM3_DIR/m3_module.c"
+  "$WASM3_DIR/m3_parse.c"
+)
+WASM_BRIDGE="$ROOT/runtime/rg_wasm_bridge.c"
 
 mkdir -p "$OUT_DIR"
 
@@ -94,8 +108,22 @@ fi
 # pixel loops (the car game "ar" then loads almost instantly). Override via
 # CXX_OPT (e.g. CXX_OPT=-O2 or -g for debugging).
 CXX_OPT="${CXX_OPT:--O3}"
+WASM3_CFLAGS=(-I"$ROOT/runtime" -I"$WASM3_DIR" -Wno-unused-parameter -Wno-unused-variable)
+WASM3_OBJS=()
+OBJ_DIR="$OUT_DIR/wasm3-obj"
+mkdir -p "$OBJ_DIR"
+CC="${CXX%++}"
+if command -v gcc >/dev/null 2>&1; then
+  CC=gcc
+fi
+for src in "$WASM_BRIDGE" "${WASM3_SOURCES[@]}"; do
+  base="$(basename "$src" .c)"
+  obj="$OBJ_DIR/${base}.o"
+  "$CC" -std=c11 -c "${WASM3_CFLAGS[@]}" "$src" -o "$obj"
+  WASM3_OBJS+=("$obj")
+done
 # shellcheck disable=SC2086
-"$CXX" $CXX_OPT -std=c++17 "$CPP_FILE" -o "$BIN_FILE" $SDL_FLAGS $GL_FLAGS
+"$CXX" $CXX_OPT -std=c++17 "${WASM3_CFLAGS[@]}" "$CPP_FILE" "${WASM3_OBJS[@]}" -o "$BIN_FILE" $SDL_FLAGS $GL_FLAGS -lm
 
 echo "==> 3/3 Ready: $BIN_FILE"
 

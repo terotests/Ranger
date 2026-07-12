@@ -1,0 +1,254 @@
+; ==============================================================================
+; wasm_abi_io — linear-memory ABI helpers (offsets match wasm_game_abi.h).
+; ==============================================================================
+
+Import "../wasm_runtime.rgr"
+
+class WasmAbiMem {
+    def handle:int 0
+    def base:int 0
+
+    fn bind:void (h:int) {
+        handle = h
+        base = (wasm_abi_base h)
+    }
+
+    fn readMem:int (addr:int) {
+        return (wasm_mem_i32 handle addr)
+    }
+
+    fn writeMem:void (addr:int val:int) {
+        wasm_mem_set_i32 handle addr val
+    }
+
+    fn setHeader:void (fieldOff:int val:int) {
+        this.writeMem((base + fieldOff) val)
+    }
+
+    fn readHeader:int (fieldOff:int) {
+        return (this.readMem(base + fieldOff))
+    }
+
+    fn setDtMs:void (dt:int) {
+        this.setHeader(12 dt)
+    }
+
+    fn setTimeMs:void (t:int) {
+        this.setHeader(16 t)
+    }
+
+    fn setInputFlags:void (f:int) {
+        this.setHeader(20 f)
+    }
+
+    fn setInputP2:void (f:int) {
+        this.setHeader(24 f)
+    }
+
+    fn setEventCount:void (n:int) {
+        this.setHeader(52 n)
+    }
+
+    fn getEventCount:int () {
+        return (this.readHeader(52))
+    }
+
+    fn eventAddr:int (idx:int field:int) {
+        return (base + 2048 + (idx * 20) + field)
+    }
+
+    fn readEventKind:int (idx:int) {
+        def a:int (this.eventAddr(idx 0))
+        return (this.readMem(a))
+    }
+
+    fn readEventSub:int (idx:int) {
+        def a:int (this.eventAddr(idx 4))
+        return (this.readMem(a))
+    }
+
+    fn readEventA:int (idx:int) {
+        def a:int (this.eventAddr(idx 8))
+        return (this.readMem(a))
+    }
+
+    fn readEventB:int (idx:int) {
+        def a:int (this.eventAddr(idx 12))
+        return (this.readMem(a))
+    }
+
+    fn readEventC:int (idx:int) {
+        def a:int (this.eventAddr(idx 16))
+        return (this.readMem(a))
+    }
+
+    fn clearEvents:void () {
+        this.setEventCount(0)
+    }
+
+    fn setBodyCount:void (n:int) {
+        this.setHeader(28 n)
+    }
+
+    fn setImpulseCount:void (n:int) {
+        this.setHeader(32 n)
+    }
+
+    fn setContactCount:void (n:int) {
+        this.setHeader(36 n)
+    }
+
+    fn getContactCount:int () {
+        return (this.readHeader(36))
+    }
+
+    fn contactAddr:int (idx:int field:int) {
+        return (base + 1600 + (idx * 32) + field)
+    }
+
+    fn writeContact:void (idx:int bodyA:int bodyB:int phase:int impulseFp:int xFp:int yFp:int nxMilli:int nyMilli:int) {
+        def a:int (this.contactAddr(idx 0))
+        this.writeMem(a bodyA)
+        this.writeMem((a + 4) bodyB)
+        this.writeMem((a + 8) phase)
+        this.writeMem((a + 12) impulseFp)
+        this.writeMem((a + 16) xFp)
+        this.writeMem((a + 20) yFp)
+        this.writeMem((a + 24) nxMilli)
+        this.writeMem((a + 28) nyMilli)
+    }
+
+    fn readContactBodyA:int (idx:int) {
+        def a:int (this.contactAddr(idx 0))
+        return (this.readMem(a))
+    }
+
+    fn readContactBodyB:int (idx:int) {
+        def a:int (this.contactAddr(idx 4))
+        return (this.readMem(a))
+    }
+
+    fn readContactPhase:int (idx:int) {
+        def a:int (this.contactAddr(idx 8))
+        return (this.readMem(a))
+    }
+
+    fn readContactImpulse:int (idx:int) {
+        def a:int (this.contactAddr(idx 12))
+        return (this.readMem(a))
+    }
+
+    fn readContactX:int (idx:int) {
+        def a:int (this.contactAddr(idx 16))
+        return (this.readMem(a))
+    }
+
+    fn readContactY:int (idx:int) {
+        def a:int (this.contactAddr(idx 20))
+        return (this.readMem(a))
+    }
+
+    fn readContactNx:int (idx:int) {
+        def a:int (this.contactAddr(idx 24))
+        return (this.readMem(a))
+    }
+
+    fn readContactNy:int (idx:int) {
+        def a:int (this.contactAddr(idx 28))
+        return (this.readMem(a))
+    }
+
+    fn clearContacts:void () {
+        this.setContactCount(0)
+    }
+
+    fn setScore:void (n:int) {
+        this.setHeader(40 n)
+    }
+
+    fn setHits:void (n:int) {
+        this.setHeader(44 n)
+    }
+
+    fn getScore:int () {
+        return (this.readHeader(40))
+    }
+
+    fn getHits:int () {
+        return (this.readHeader(44))
+    }
+
+    fn getCameraY:int () {
+        return (this.readHeader(48))
+    }
+
+    fn writeBody:void (idx:int xFp:int yFp:int angle:int speedFp:int angVelFp:int flags:int) {
+        def b:int (base + 64 + (idx * 24))
+        this.writeMem(b xFp)
+        this.writeMem((b + 4) yFp)
+        this.writeMem((b + 8) angle)
+        this.writeMem((b + 12) speedFp)
+        this.writeMem((b + 16) angVelFp)
+        this.writeMem((b + 20) flags)
+    }
+
+    fn readBodyX:int (idx:int) {
+        return (this.readMem(base + 64 + (idx * 24)))
+    }
+
+    fn readBodyY:int (idx:int) {
+        return (this.readMem(base + 64 + (idx * 24) + 4))
+    }
+
+    fn readControlSteer:int (idx:int) {
+        return (this.readMem(base + 832 + (idx * 16)))
+    }
+
+    fn readControlThrottle:int (idx:int) {
+        return (this.readMem(base + 832 + (idx * 16) + 4))
+    }
+
+    fn readControlBrake:int (idx:int) {
+        return (this.readMem(base + 832 + (idx * 16) + 8))
+    }
+
+    fn readControlGrip:int (idx:int) {
+        return (this.readMem(base + 832 + (idx * 16) + 12))
+    }
+
+    fn readImpulseBody:int (idx:int) {
+        return (this.readMem(base + 1344 + (idx * 16)))
+    }
+
+    fn readImpulseLinX:int (idx:int) {
+        return (this.readMem(base + 1344 + (idx * 16) + 4))
+    }
+
+    fn readImpulseLinY:int (idx:int) {
+        return (this.readMem(base + 1344 + (idx * 16) + 8))
+    }
+
+    fn readImpulseAng:int (idx:int) {
+        return (this.readMem(base + 1344 + (idx * 16) + 12))
+    }
+
+    fn getImpulseCount:int () {
+        return (this.readHeader(32))
+    }
+
+    fn getAirP1:int () {
+        return (this.readHeader(56))
+    }
+
+    fn getAirP2:int () {
+        return (this.readHeader(60))
+    }
+
+    fn verifyMagic:boolean () {
+        def magic:int (this.readHeader(0))
+        if (magic == 826425682) {
+            return true
+        }
+        return false
+    }
+}

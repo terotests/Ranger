@@ -1,0 +1,6 @@
+name=Rust Autopeli (WASM)
+engine=wasm
+module=logic.wasm
+abi=linear
+physics=true
+assets=assets
