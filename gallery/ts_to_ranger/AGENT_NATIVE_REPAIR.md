@@ -121,17 +121,47 @@ npm test -- ts-to-ranger-native
 
 ## P6 — New games on native path (ylos2)
 
-**Step 1 status (July 2026):** `games/ylos2/index.tsx` emits `generated/ylos2_generated.rgr`
-(`fn update`, `fn initState` present) but **does not compile** yet (~1500 Ranger errors).
+**Target:** C++ is the optimal codegen target (static SDL binary). The whole
+engine — background raster, split-screen, and the physics engine — is compiled
+in statically; the game script logic links against it, not against a JS host.
 
-Blockers vs pong/invaders/pacman:
+### Architecture decisions (July 2026)
 
-- Large module-level `const` arrays (`BASE_PLATFORMS`, `SUMMIT_MUSIC`, …)
-- Nested object state (`p1`/`p2` entities, `[EntityPoseNative]` arrays on patch)
-- Parser still desyncs on `update()` return object (2 non-fatal `expected '}'` warnings)
-- Emitter gaps: dynamic keys, richer helper inference, `intArrays` patch writes
+1. **Module-level consts → per-file `@singleton(true)` class.** Each `.tsx`
+   compiles to `<Name>GameModule @singleton(true)` holding const scalars/arrays
+   (object/derived consts built in its `Constructor`). One singleton per module.
+   Access via a per-function `_mod` local because Ranger cannot type-resolve
+   `(X.__singleton()).field` inline. Verified to compile **and run in C++**.
+2. **Ambient engine surface → injected `GameEngineHost` (composition, not
+   inheritance).** `bgWidth`/`bgHeight`/`paneIndex` + `bgFillRect`/`bgClear`/
+   `bgFillCircle` live on `GameEngineHost` (over a shared `SoftCanvas`). The
+   emitter routes engine globals/functions through `host.*`; the native game
+   bridge injects the shared host so both split-screen panes render correctly.
+3. **Type aliases.** AssemblyScript-style `i32`/`u8`/`u16`/`u32`/`f64`/`f32`
+   are accepted in scripts and mapped to Ranger `int`/`double` today. For the
+   C++ target these should eventually map to `int32_t`/`uint8_t`/… — see below.
 
-Interpreter path: `npm run engine:game-sdl:run:ylos2` (Path A).
+### Progress
+
+`games/ylos2/index.tsx` emits `generated/ylos2_generated.rgr` (with `@singleton`
+module + host routing). Compile errors: **1486 → ~1295**.
+
+### Remaining blocker: object-valued game state
+
+ylos2 keeps rich objects in state that `NativeGameState` cannot represent:
+
+- `p1` / `p2` are **player structs** (`vx`, `vy`, `done`, `grounded`, `superMs`,
+  `animTick`, `face`, …) but load as `double` from `s.numbers`.
+- `enemies` / `fruits` / `diamonds` / `bullets` / `movingPlatforms` are
+  **arrays of structs**, but load as `[int]` from `s.intArrays`.
+
+Field reads (`p1.done`, `pl.vx`, `platform.min`) then fail — this accounts for
+most remaining errors. Fix requires extending `NativeGameState` with typed
+struct / array-of-struct slots (e.g. an `objects:[string:<Struct>]` +
+`objectArrays`) and teaching the emitter's `initState`/`update` read/write and
+`mergeState` to use them. This is the next large P6 piece.
+
+Interpreter path works today: `npm run engine:game-sdl:run:ylos2` (Path A).
 
 ---
 
@@ -142,8 +172,30 @@ Node `buffer_to_string` codegen reads raw bytes → breaks `—`, `→` in comme
 
 ---
 
-`gallery/game_engine/scripting/game_native_types.ts` defines `i32` / `f64` aliases for scripts.
-Future: emitter reads annotations and validates integer-only ops at eval time on Path A.
+## Type aliases (i32 / u8 / f64) and a Ranger-compiler follow-up
+
+`gallery/game_engine/scripting/game_native_types.ts` declares `i32`, `u8`,
+`u16`, `u32`, `f64`, `f32`. The emitter maps them to `int`/`double`.
+
+**Proposed Ranger-compiler change (C++ optimization).** Add real fixed-width
+numeric types so the C++ backend emits `uint8_t`/`uint16_t`/`uint32_t`/`int32_t`
+(and `float` for `f32`) — real memory/cache wins for large per-frame arrays on
+the native target. Feasibility investigated; concrete touch points:
+
+| File | Change |
+|------|--------|
+| `compiler/TTypeRegistry.rgr` | register `u8`/`u16`/`u32`/`i32`/`f32` names; `nameToNodeType` → `Integer`/`Double`; add `targetTypeString` cases (es6 `number`, go `int/float64`) |
+| `compiler/ng_RangerCppClassWriter.rgr` | `getObjectTypeString` / `getTypeString2` / scalar decls → `uint8_t` etc. |
+| `compiler/ng_FlowWork.rgr` | `shouldBeEqualTypes` / `shouldBeType`: allow `int ↔ {u8,u16,u32,i32}` and `double ↔ f32` (same pattern as existing `char ↔ int`) |
+| `compiler/Lang.rgr` | arithmetic operator overloads (`+ - * / %`, comparisons) must accept the alias types, or the analyzer canonicalizes them to int/double for operator matching (`Could not match argument types for +` otherwise) |
+
+The arithmetic-operator matching is the largest piece and the main risk; a
+storage-focused first cut (struct fields / `[u8]` arrays, promote to int for
+math) is the pragmatic starting scope. Recommended as a separate focused PR to
+keep the compiler change isolated and regression-tested on its own.
+
+Until then the emitter maps the aliases to `int`/`double` (correct, not yet
+memory-optimal).
 
 ---
 
