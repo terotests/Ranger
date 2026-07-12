@@ -1,0 +1,21 @@
+; Debug autopeli_physics load steps (prints heap-ish progress markers).
+Import "./game_runtime.rgr"
+
+class AutopeliDebugLoad {
+    sfn m@(main):void () {
+        def runner:GameRunner (new GameRunner)
+        runner.init(480 270)
+        print "step: init ok"
+
+        def buf:buffer (buffer_read_file "gallery/game_engine/games/autopeli_physics" "index.tsx")
+        def src:string (buffer_to_string buf)
+        runner.setScriptDir("gallery/game_engine/games/autopeli_physics")
+        print "step: read file ok"
+
+        runner.loadScript(src)
+        print "step: loadScript ok"
+
+        runner.setupScene()
+        print "step: setupScene ok"
+    }
+}
