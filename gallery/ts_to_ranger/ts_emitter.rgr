@@ -1815,6 +1815,20 @@ class TSEmitter {
                 if (val.nodeType == "ObjectExpression") {
                     return (this.inferObjectStructType(val fnName))
                 }
+                if (val.nodeType == "ArrayExpression") {
+                    if ((array_length val.children) > 0) {
+                        def first:TSNode (itemAt val.children 0)
+                        def et:string ""
+                        if (first.nodeType == "ObjectExpression") {
+                            et = (this.inferObjectStructType(first fnName))
+                        } {
+                            et = (this.exprType(first))
+                        }
+                        if ((strlen et) > 0) {
+                            return ("[" + et) + "]"
+                        }
+                    }
+                }
                 return (this.exprType(val))
             }
             return "void"

@@ -6528,6 +6528,20 @@ class TSEmitter  {
         if ( val.nodeType == "ObjectExpression" ) {
           return this.inferObjectStructType(val, fnName);
         }
+        if ( val.nodeType == "ArrayExpression" ) {
+          if ( (val.children.length) > 0 ) {
+            const first = val.children[0];
+            let et = "";
+            if ( first.nodeType == "ObjectExpression" ) {
+              et = this.inferObjectStructType(first, fnName);
+            } else {
+              et = this.exprType(first);
+            }
+            if ( (et.length) > 0 ) {
+              return ("[" + et) + "]";
+            }
+          }
+        }
         return this.exprType(val);
       }
       return "void";
