@@ -12,6 +12,8 @@ Import "./wasm_autopeli_render.rgr"
 Import "./wasm_sparkle_pool.rgr"
 Import "./game_input.rgr"
 Import "../../ts_to_ranger/game_host.rgr"
+Import "./wasm_ui_io.rgr"
+Import "./game_hud.rgr"
 
 class WasmPhysicsRunner {
     def handle:int 0
@@ -43,6 +45,18 @@ class WasmPhysicsRunner {
     def frameContacts:[PhysContact]
     def sparkles:WasmSparklePool (new WasmSparklePool)
     def lastDtMs:int 16
+
+    ; RGU1 retained-mode HUD driven by the WASM guest (Path C).
+    ; The guest owns the UI document; we read it, validate it, and blit the
+    ; resulting EVG tree. Falls back to the legacy fillRect HUD when the guest
+    ; exposes no valid document (e.g. the es6 dev build, where wasm_* are stubs).
+    def useWasmHud:boolean true
+    def uiDoc:WasmUiDoc (new WasmUiDoc)
+    def uiBuilder:WasmUiEvgBuilder (new WasmUiEvgBuilder)
+    def hudBlitter:GameHudBlitter (new GameHudBlitter)
+    def uiRoot@(optional):EVGElement
+    def uiHasRoot:boolean false
+    def uiRev:int (0 - 1)
 
     fn bodyIdIndex:int (id:string) {
         def i 0
@@ -659,7 +673,34 @@ class WasmPhysicsRunner {
         if (drawSparkles) {
             sparkles.draw(target)
         }
-        this.drawHudOn(target hudBodyIdx)
+        def drew:boolean false
+        if (hudBodyIdx == 0) {
+            drew = (this.drawWasmHudOn(target))
+        }
+        if (drew == false) {
+            this.drawHudOn(target hudBodyIdx)
+        }
+    }
+
+    ; Read + validate the guest's RGU1 document and blit its EVG tree.
+    ; Returns false (so the caller falls back to the legacy HUD) whenever the
+    ; guest exposes no valid UI document. Snapshot-first: the EVG tree is rebuilt
+    ; only when the guest bumps its revision.
+    fn drawWasmHudOn:boolean (target:SoftCanvas) {
+        if (useWasmHud == false) { return false }
+        if (handle == 0) { return false }
+        def ok:boolean (uiDoc.loadFromWasm(handle))
+        if (ok == false) { return false }
+        if (uiDoc.valid == false) { return false }
+        if (uiDoc.revision != uiRev) {
+            uiRoot = (uiBuilder.build(uiDoc))
+            uiHasRoot = true
+            uiRev = uiDoc.revision
+        }
+        if (uiHasRoot == false) { return false }
+        hudBlitter.attach(target)
+        hudBlitter.drawTree((unwrap uiRoot) pw ph)
+        return true
     }
 
     fn drawHudOn:void (target:SoftCanvas bodyIdx:int) {

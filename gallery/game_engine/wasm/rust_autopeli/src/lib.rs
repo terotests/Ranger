@@ -1,6 +1,8 @@
 //! Linear ABI autopeli logic (traffic AI + player controls).
 //! Host runs GamePhysics; this module reads/writes the shared ABI block.
 
+mod ui;
+
 pub const ABI_MAGIC: i32 = 0x3157_4752; // 'RGW1'
 pub const ABI_VERSION: i32 = 1;
 pub const ABI_SIZE: i32 = 2560;
@@ -83,6 +85,50 @@ static mut OIL_RECOVER_P2: i32 = 0;
 static mut OIL_WAS_P1: bool = false;
 static mut OIL_WAS_P2: bool = false;
 static mut EVENT_WRITE: i32 = 0;
+
+// ---- RGU1 UI document (retained-mode HUD) ------------------------------
+static mut UI_BUF: [u8; ui::UI_SIZE] = [0u8; ui::UI_SIZE];
+static mut UI_REV: u32 = 0;
+static mut UI_LAST_SCORE: i32 = -1;
+static mut UI_LAST_PCT: i32 = -1;
+
+// Race start/finish in world units (see init()/ROAD); progress runs 0..100.
+const UI_START_Y: i32 = 6000 - 140;
+
+/// Rebuild the HUD document only when its rendered content changed, bumping
+/// `revision` so the host can skip identical frames.
+fn ui_refresh() {
+    let score = rd_i32(OFF_SCORE);
+    let cur = body_y(BODY_P1) / FP;
+    let span = UI_START_Y - FINISH_Y;
+    let mut pct = 0;
+    if span > 0 {
+        pct = clamp((UI_START_Y - cur) * 100 / span, 0, 100);
+    }
+    unsafe {
+        if score != UI_LAST_SCORE || pct != UI_LAST_PCT {
+            UI_LAST_SCORE = score;
+            UI_LAST_PCT = pct;
+            UI_REV += 1;
+            ui::build_hud_into(&mut UI_BUF, score, pct, UI_REV);
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn rg_ui_ptr() -> i32 {
+    unsafe { UI_BUF.as_ptr() as i32 }
+}
+
+#[no_mangle]
+pub extern "C" fn rg_ui_size() -> i32 {
+    ui::UI_SIZE as i32
+}
+
+#[no_mangle]
+pub extern "C" fn rg_ui_revision() -> i32 {
+    unsafe { UI_REV as i32 }
+}
 
 struct RoadPt {
     y: i32,
@@ -577,6 +623,9 @@ pub extern "C" fn init() {
         OIL_RECOVER_P2 = 0;
         OIL_WAS_P1 = false;
         OIL_WAS_P2 = false;
+        UI_REV = 0;
+        UI_LAST_SCORE = -1;
+        UI_LAST_PCT = -1;
     }
 
     let (sx, _) = road_at((6000 - 140) * FP);
@@ -850,4 +899,6 @@ pub extern "C" fn update() {
     unsafe {
         wr_i32(OFF_EVENT_CNT, EVENT_WRITE);
     }
+
+    ui_refresh();
 }
