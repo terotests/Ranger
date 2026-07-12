@@ -160,7 +160,7 @@ synthesized type and their fields survive.
 ### Progress
 
 `games/ylos2/index.tsx` emits with `@singleton` module + host routing +
-object-state fields. Compile errors: **1486 → ~123** (no pong/invaders/pacman
+object-state fields. Compile errors: **1486 → ~50** (no pong/invaders/pacman
 regression). Landed inference/codegen improvements:
 
 - element structs synthesized from `local.push({...})` (helper-built arrays)

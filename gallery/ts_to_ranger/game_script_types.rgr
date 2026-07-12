@@ -80,6 +80,9 @@ class PlayerInputNative {
     def left:boolean false
     def right:boolean false
     def action:boolean false
+    def shoot:boolean false
+    def b:boolean false
+    def x:boolean false
 }
 
 class GameInputNative {

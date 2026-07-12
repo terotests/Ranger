@@ -717,11 +717,11 @@ function drawCloud(cx, cy) {
 }
 
 function movingPlatformLayerSprite(id: string, w: f64, h: f64, r: i32, g: i32, b: i32) {
-  let rw = w | 0;
+  let rw: i32 = w | 0;
   if (rw < 12) {
     rw = 12;
   }
-  let rh = h | 0;
+  let rh: i32 = h | 0;
   if (rh < 1) {
     rh = 1;
   }
@@ -751,7 +751,7 @@ function placeMovingPlatformEntities(entities, mpi: i32, mp: MergedPlatform, cam
   const midH = mp.h - PLAT_EDGE_H * 2;
   entities["mp" + mpi + "t"] = {
     x: cx,
-    y: screenY + PLAT_EDGE_H / 2,
+    y: screenY + PLAT_EDGE_H / 2.0,
     visible: 1,
     r: PLAT_COLOR_TOP.r,
     g: PLAT_COLOR_TOP.g,
@@ -759,7 +759,7 @@ function placeMovingPlatformEntities(entities, mpi: i32, mp: MergedPlatform, cam
   };
   entities["mp" + mpi + "m"] = {
     x: cx,
-    y: screenY + PLAT_EDGE_H + midH / 2,
+    y: screenY + PLAT_EDGE_H + midH / 2.0,
     visible: 1,
     r: PLAT_COLOR_BODY.r,
     g: PLAT_COLOR_BODY.g,
@@ -767,7 +767,7 @@ function placeMovingPlatformEntities(entities, mpi: i32, mp: MergedPlatform, cam
   };
   entities["mp" + mpi + "b"] = {
     x: cx,
-    y: screenY + mp.h - PLAT_EDGE_H / 2,
+    y: screenY + mp.h - PLAT_EDGE_H / 2.0,
     visible: 1,
     r: PLAT_COLOR_BOTTOM.r,
     g: PLAT_COLOR_BOTTOM.g,
@@ -843,7 +843,7 @@ function superSheetSprite(id, path) {
   };
 }
 
-function rumbleForOwner(owner, ms, strength) {
+function rumbleForOwner(owner: i32, ms: i32, strength: i32) {
   let pad = 0;
   if (owner == 2) {
     pad = 1;
@@ -970,15 +970,16 @@ function makeDiamonds(): Collectible[] {
   return out;
 }
 
-function respawnMarkedDiamonds(prev) {
+function respawnMarkedDiamonds(prev: Collectible[]): Collectible[] {
   const out = [];
   let i = 0;
   while (i < MAX_DIAMONDS) {
     const def = BASE_DIAMOND_DEFS[i];
     let taken = 0;
     if (prev) {
-      if (prev[i]) {
-        taken = prev[i].taken;
+      const item = prev[i];
+      if (item) {
+        taken = item.taken;
       }
     }
     if (def.respawn && taken == 1) {
@@ -990,7 +991,7 @@ function respawnMarkedDiamonds(prev) {
   return out;
 }
 
-function makeRestartDiamonds(prev) {
+function makeRestartDiamonds(prev: Collectible[]): Collectible[] {
   return respawnMarkedDiamonds(prev);
 }
 
@@ -1062,7 +1063,7 @@ function readPlayer(props, index: i32): PlayerInput {
   let left = false;
   let right = false;
   let action = false;
-  let shoot = false;
+  let wantShoot = false;
   if (index == 0) {
     up = props.up;
     left = props.left;
@@ -1078,14 +1079,14 @@ function readPlayer(props, index: i32): PlayerInput {
       right = p.right;
       action = p.action;
       if (p.b) {
-        shoot = true;
+        wantShoot = true;
       }
       if (p.x) {
-        shoot = true;
+        wantShoot = true;
       }
     }
   }
-  return { up: up, down: down, left: left, right: right, action: action, shoot: shoot };
+  return { up: up, down: down, left: left, right: right, action: action, shoot: wantShoot };
 }
 
 function clampX(x) {
@@ -1102,7 +1103,7 @@ function landOnPlatforms(pl: Player, pw: f64, dt: f64, platforms: MergedPlatform
   let grounded = 0;
   let ny = pl.y;
   let nvy = pl.vy;
-  let carryVx = 0;
+  let carryVx: f64 = 0;
   if (pl.vy >= 0) {
     let i = 0;
     while (i < platforms.length) {
@@ -1232,7 +1233,7 @@ function spawnBullet(bullets: Bullet[], x: f64, y: f64, face: i32, owner: i32) {
         active: 1,
         x: x,
         y: y,
-        vx: face * BULLET_SPEED,
+        vx: (face | 0) * BULLET_SPEED,
         owner: owner
       };
       return true;
@@ -1242,10 +1243,10 @@ function spawnBullet(bullets: Bullet[], x: f64, y: f64, face: i32, owner: i32) {
   return false;
 }
 
-function sheetFrameForPlayer(pl: Player, moving) {
+function sheetFrameForPlayer(pl: Player, moving: i32) {
   let frame = 0;
   if (pl.grounded == 1) {
-    if (moving) {
+    if (moving != 0) {
       frame = Math.floor(pl.animTick / 70) % 9;
     }
   } else {
@@ -1266,7 +1267,7 @@ function sheetFrameForPlayer(pl: Player, moving) {
 function updatePlayer(pl: Player, inp: PlayerInput, dt: f64, bullets: Bullet[], owner: i32, fireCd: f64, platforms: MergedPlatform[]): UpdatePlayerResult {
   const events = [];
   let face = pl.face;
-  let vx = 0;
+  let vx: f64 = 0;
   if (inp.left) {
     vx = 0 - MOVE;
     face = -1;
@@ -1275,17 +1276,17 @@ function updatePlayer(pl: Player, inp: PlayerInput, dt: f64, bullets: Bullet[], 
     vx = MOVE;
     face = 1;
   }
-  let superMs = pl.superMs;
+  let superMs: f64 = pl.superMs;
   if (superMs > 0) {
     superMs = superMs - dt;
     if (superMs < 0) {
       superMs = 0;
     }
   }
-  const plSuper = superMs | 0;
+  const plSuper: i32 = superMs | 0;
   let vy = pl.vy + GRAV * dt;
   let airJump = pl.airJump;
-  let jumpBoostMs = pl.jumpBoostMs;
+  let jumpBoostMs: f64 = pl.jumpBoostMs;
   if (pl.grounded == 1) {
     airJump = 0;
     jumpBoostMs = 0;
@@ -1341,8 +1342,8 @@ function updatePlayer(pl: Player, inp: PlayerInput, dt: f64, bullets: Bullet[], 
   if (knockedOff == 1) {
     grounded = 0;
   }
-  let anim = grounded ? 0 : 1;
-  if (grounded) {
+  let anim = grounded != 0 ? 0 : 1;
+  if (grounded != 0) {
     airJump = 0;
     jumpBoostMs = 0;
     if (land.carryVx != 0) {
@@ -1389,11 +1390,11 @@ function updatePlayer(pl: Player, inp: PlayerInput, dt: f64, bullets: Bullet[], 
       face: face,
       grounded: grounded,
       anim: anim,
-      animTick: animTick,
+      animTick: animTick | 0,
       jumpHold: jumpHold,
       airJump: airJump,
-      jumpBoostMs: jumpBoostMs,
-      superMs: superMs,
+      jumpBoostMs: jumpBoostMs | 0,
+      superMs: superMs | 0,
       done: pl.done,
       finishMs: pl.finishMs,
       finishPulseMs: pl.finishPulseMs,

@@ -38,7 +38,7 @@ describe("TS -> Ranger -> native (compiled game script)", () => {
     // double fields get double literals
     expect(src).toContain("pose_ball.x = 240.0");
     // soundEvent inlined as GameEventNative (not this.soundEvent)
-    expect(src).toContain('be11.kind = "playSound"');
+    expect(src).toMatch(/be\d+\.kind = "playSound"/);
     expect(src).not.toContain("this.soundEvent");
   });
 

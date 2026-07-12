@@ -450,7 +450,7 @@ class TSEmitter {
         set interfaceFieldsCsv "EntityPose" "x:double,y:double,visible:int,r:int,g:int,b:int,rad:int,p0:int,p1:int,p2:int"
         set interfaceFieldsCsv "ResourceDef" "kind:string,id:string,path:string,px:int,frameCount:int,w:int,h:int"
         set interfaceFieldsCsv "GameEvent" "kind:string,id:string,x:double,y:double,amount:int"
-        set interfaceFieldsCsv "PlayerInput" "up:boolean,down:boolean,left:boolean,right:boolean,action:boolean"
+        set interfaceFieldsCsv "PlayerInput" "up:boolean,down:boolean,left:boolean,right:boolean,action:boolean,shoot:boolean,b:boolean,x:boolean"
         set interfaceFieldsCsv "GameInput" "players:[PlayerInputNative]"
     }
 
@@ -510,6 +510,12 @@ class TSEmitter {
         }
         if (prop == "players") {
             return "[PlayerInputNative]"
+        }
+        if (prop == "events") {
+            return "[GameEventNative]"
+        }
+        if (prop == "entities") {
+            return "[string:EntityPoseNative]"
         }
         return "int"
     }
@@ -3264,6 +3270,14 @@ class TSEmitter {
             this.emitLine((((("set " + base) + " ") + idx) + " ") + valExpr)
             return
         }
+        ; events array on a state/local struct: materialize bridge-helper calls.
+        if (target.name == "events") {
+            if (rhs.nodeType == "ArrayExpression") {
+                def evExpr:string (this.emitRhsValue(rhs "[GameEventNative]"))
+                this.emitLine(((base + ".events = ") + evExpr))
+                return
+            }
+        }
         ; struct field assignment: obj.prop = v
         if (baseNode.nodeType == "Identifier") {
             def bvt:string (this.lookupVarType(baseNode.name))
@@ -3508,6 +3522,23 @@ class TSEmitter {
                 }
                 def valNode:TSNode (this.propertyValueNode(prop))
                 def v:string (this.emitValueExpr(valNode ft))
+                if (valNode.nodeType == "Identifier") {
+                    if (valNode.name == key) {
+                        def tmpF:string ("_fv" + ("" + tmpCounter))
+                        tmpCounter = (tmpCounter + 1)
+                        def at:string (this.exprType(valNode))
+                        if ((ft == "double") && ((at == "int") || (at == "i32"))) {
+                            this.emitLine(((("def " + tmpF) + ":double (to_double ") + v) + ")")
+                        } {
+                            if (((ft == "int") || (ft == "i32")) && (at == "double")) {
+                                this.emitLine(((("def " + tmpF) + ":i32 (to_int ") + v) + ")")
+                            } {
+                                this.emitLine(((("def " + tmpF) + ":") + ft) + ((" (" + v) + ")"))
+                            }
+                        }
+                        v = tmpF
+                    }
+                }
                 if (ft == "double") {
                     def rt:string (this.exprType(valNode))
                     if (rt == "int") {
@@ -3857,8 +3888,8 @@ class TSEmitter {
                     this.emitLine(((target + ".entities = ") + ev))
                 }
             } {
-                if (key == "events") {
-                    this.emitEventsArray(valNode target)
+                if ((key == "events") || ((key == "event") && (valNode.nodeType == "Identifier"))) {
+                    this.emitEventsFromValue(valNode target)
                 } {
                     if (this.isObjectStateField(key)) {
                         def ost:string (this.objectStateFieldTypeOf(key))
@@ -3885,6 +3916,14 @@ class TSEmitter {
                             this.emitLine(((("set " + target) + ".intArrays \"") + key) + ("\" " + aval))
                         } {
                             def vt:string (this.exprType(valNode))
+                            if (vt == "[GameEventNative]") {
+                                if (valNode.nodeType == "Identifier") {
+                                    def en:string (this.resolveEventsVarName(valNode.name))
+                                    this.emitLine(((target + ".events = ") + en))
+                                    i = (i + 1)
+                                    continue
+                                }
+                            }
                             if (vt == "string") {
                                 def sval:string (this.emitExpr(valNode "string"))
                                 this.emitLine(((("set " + target) + ".strings \"") + key) + ("\" " + sval))
@@ -3900,6 +3939,25 @@ class TSEmitter {
             i = (i + 1)
         }
         this.emitLine(("return " + target))
+    }
+
+    fn resolveEventsVarName:string (name:string) {
+        if (name == "event") {
+            def vt@(optional):string (get varTypes "events")
+            if (!null? vt) {
+                return "events"
+            }
+        }
+        return name
+    }
+
+    fn emitEventsFromValue:void (node:TSNode target:string) {
+        if (node.nodeType == "Identifier") {
+            def n:string (this.resolveEventsVarName(node.name))
+            this.emitLine(((target + ".events = ") + n))
+            return
+        }
+        this.emitEventsArray(node target)
     }
 
     fn emitEventsArray:void (node:TSNode target:string) {
@@ -4163,6 +4221,11 @@ class TSEmitter {
                 }
                 if (pexp == "int") {
                     if (at == "double") {
+                        if (this.isEngineFn(name) == false) {
+                            argExpr = ("(to_int " + argExpr) + ")"
+                        }
+                    }
+                    if (at == "i32") {
                         if (this.isEngineFn(name) == false) {
                             argExpr = ("(to_int " + argExpr) + ")"
                         }

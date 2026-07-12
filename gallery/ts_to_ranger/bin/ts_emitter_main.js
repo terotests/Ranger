@@ -5095,7 +5095,7 @@ class TSEmitter  {
     this.interfaceFieldsCsv["EntityPose"] = "x:double,y:double,visible:int,r:int,g:int,b:int,rad:int,p0:int,p1:int,p2:int";
     this.interfaceFieldsCsv["ResourceDef"] = "kind:string,id:string,path:string,px:int,frameCount:int,w:int,h:int";
     this.interfaceFieldsCsv["GameEvent"] = "kind:string,id:string,x:double,y:double,amount:int";
-    this.interfaceFieldsCsv["PlayerInput"] = "up:boolean,down:boolean,left:boolean,right:boolean,action:boolean";
+    this.interfaceFieldsCsv["PlayerInput"] = "up:boolean,down:boolean,left:boolean,right:boolean,action:boolean,shoot:boolean,b:boolean,x:boolean";
     this.interfaceFieldsCsv["GameInput"] = "players:[PlayerInputNative]";
   };
   isNativeStateField (prop) {
@@ -5173,6 +5173,12 @@ class TSEmitter  {
     }
     if ( prop == "players" ) {
       return "[PlayerInputNative]";
+    }
+    if ( prop == "events" ) {
+      return "[GameEventNative]";
+    }
+    if ( prop == "entities" ) {
+      return "[string:EntityPoseNative]";
     }
     return "int";
   };
@@ -7949,6 +7955,13 @@ class TSEmitter  {
       this.emitLine((((("set " + base) + " ") + idx) + " ") + valExpr_1);
       return;
     }
+    if ( target.name == "events" ) {
+      if ( rhs.nodeType == "ArrayExpression" ) {
+        const evExpr = this.emitRhsValue(rhs, "[GameEventNative]");
+        this.emitLine((base + ".events = ") + evExpr);
+        return;
+      }
+    }
     if ( baseNode.nodeType == "Identifier" ) {
       const bvt = this.lookupVarType(baseNode.name);
       if ( bvt == "NativeGameState" ) {
@@ -8177,6 +8190,23 @@ class TSEmitter  {
         }
         const valNode = this.propertyValueNode(prop);
         let v = this.emitValueExpr(valNode, ft);
+        if ( valNode.nodeType == "Identifier" ) {
+          if ( valNode.name == key ) {
+            const tmpF = "_fv" + ("" + this.tmpCounter);
+            this.tmpCounter = this.tmpCounter + 1;
+            const at = this.exprType(valNode);
+            if ( (ft == "double") && ((at == "int") || (at == "i32")) ) {
+              this.emitLine(((("def " + tmpF) + ":double (to_double ") + v) + ")");
+            } else {
+              if ( ((ft == "int") || (ft == "i32")) && (at == "double") ) {
+                this.emitLine(((("def " + tmpF) + ":i32 (to_int ") + v) + ")");
+              } else {
+                this.emitLine(((("def " + tmpF) + ":") + ft) + ((" (" + v) + ")"));
+              }
+            }
+            v = tmpF;
+          }
+        }
         if ( ft == "double" ) {
           const rt = this.exprType(valNode);
           if ( rt == "int" ) {
@@ -8505,8 +8535,8 @@ class TSEmitter  {
           this.emitLine((target + ".entities = ") + ev);
         }
       } else {
-        if ( key == "events" ) {
-          this.emitEventsArray(valNode, target);
+        if ( (key == "events") || ((key == "event") && (valNode.nodeType == "Identifier")) ) {
+          this.emitEventsFromValue(valNode, target);
         } else {
           if ( this.isObjectStateField(key) ) {
             const ost = this.objectStateFieldTypeOf(key);
@@ -8533,6 +8563,14 @@ class TSEmitter  {
                 this.emitLine(((("set " + target) + ".intArrays \"") + key) + ("\" " + aval));
               } else {
                 const vt = this.exprType(valNode);
+                if ( vt == "[GameEventNative]" ) {
+                  if ( valNode.nodeType == "Identifier" ) {
+                    const en = this.resolveEventsVarName(valNode.name);
+                    this.emitLine((target + ".events = ") + en);
+                    i = i + 1;
+                    continue;
+                  }
+                }
                 if ( vt == "string" ) {
                   const sval = this.emitExpr(valNode, "string");
                   this.emitLine(((("set " + target) + ".strings \"") + key) + ("\" " + sval));
@@ -8548,6 +8586,23 @@ class TSEmitter  {
       i = i + 1;
     };
     this.emitLine("return " + target);
+  };
+  resolveEventsVarName (name) {
+    if ( name == "event" ) {
+      const vt = ( this.varTypes.hasOwnProperty("events") ? this.varTypes["events"] : undefined );
+      if ( (typeof(vt) !== "undefined" && vt != null )  ) {
+        return "events";
+      }
+    }
+    return name;
+  };
+  emitEventsFromValue (node, target) {
+    if ( node.nodeType == "Identifier" ) {
+      const n = this.resolveEventsVarName(node.name);
+      this.emitLine((target + ".events = ") + n);
+      return;
+    }
+    this.emitEventsArray(node, target);
   };
   emitEventsArray (node, target) {
     this.emitLine(("def " + target) + "_events:[GameEventNative]");
@@ -8792,6 +8847,11 @@ class TSEmitter  {
         }
         if ( pexp == "int" ) {
           if ( at == "double" ) {
+            if ( this.isEngineFn(name) == false ) {
+              argExpr = ("(to_int " + argExpr) + ")";
+            }
+          }
+          if ( at == "i32" ) {
             if ( this.isEngineFn(name) == false ) {
               argExpr = ("(to_int " + argExpr) + ")";
             }
