@@ -19,7 +19,7 @@ class CounterNativeRunner {
         runner.advanceTime(16)
         def props:UpdatePropsNative (runner.buildProps(16 false false false false false))
         def patch:NativeGameState (script.update(props))
-        runner.applyUpdate(patch)
+        runner.applyScriptPatch(patch props)
     }
 }
 

@@ -347,7 +347,7 @@ class GeneratedGameScript {
         if (((unwrap (get s.numbers "gameOver")) == 1.0)) {
             return s
         }
-        def events:int
+        def events:[GameEventNative]
         def dt:double (props.dt)
         def px:double ((unwrap (get s.numbers "px")))
         def py:double ((unwrap (get s.numbers "py")))
@@ -386,9 +386,15 @@ class GeneratedGameScript {
             }
             waveX = (waveX + (waveDir * 6.0))
             if ((anim == 0.0)) {
-                push events ((this.soundEvent("wall")))
+                def be15:GameEventNative (new GameEventNative)
+                be15.kind = "playSound"
+                be15.id = "wall"
+                push events (be15)
             } {
-                push events ((this.soundEvent("bounce")))
+                def be16:GameEventNative (new GameEventNative)
+                be16.kind = "playSound"
+                be16.id = "bounce"
+                push events (be16)
             }
             if ((waveX > 300.0)) {
                 waveDir = (to_double (0.0 - 1.0))
@@ -400,7 +406,10 @@ class GeneratedGameScript {
             }
             if ((waveY > 190.0)) {
                 score2 = (score2 - 1)
-                push events ((this.soundEvent("lose")))
+                def be17:GameEventNative (new GameEventNative)
+                be17.kind = "playSound"
+                be17.id = "lose"
+                push events (be17)
                 def reset:resetWaveRetNative ((this.resetWave(alive)))
                 waveX = (to_double reset.waveX)
                 waveY = (to_double reset.waveY)
@@ -422,7 +431,10 @@ class GeneratedGameScript {
                 shotX = px
                 shotY = (py - 16.0)
                 fireCd = 22.0
-                push events ((this.soundEvent("blip")))
+                def be18:GameEventNative (new GameEventNative)
+                be18.kind = "playSound"
+                be18.id = "blip"
+                push events (be18)
             }
         }
         if ((shotActive == 1.0)) {
@@ -441,14 +453,20 @@ class GeneratedGameScript {
                         shotActive = 0.0
                         shotY = (to_double (0.0 - 30.0))
                         score1 = (score1 + 10)
-                        push events ((this.soundEvent("brick")))
+                        def be19:GameEventNative (new GameEventNative)
+                        be19.kind = "playSound"
+                        be19.id = "brick"
+                        push events (be19)
                     }
                 }
                 alien = (alien + 1)
             }
         }
         if (((this.countAlive(alive)) == 0)) {
-            push events ((this.soundEvent("win")))
+            def be20:GameEventNative (new GameEventNative)
+            be20.kind = "playSound"
+            be20.id = "win"
+            push events (be20)
             def reset:resetWaveRetNative ((this.resetWave(alive)))
             waveX = (to_double reset.waveX)
             waveY = (to_double reset.waveY)
@@ -458,17 +476,17 @@ class GeneratedGameScript {
         def entities:[string:EntityPoseNative]
         (this.placeShip(entities (to_int px) (to_int py)))
         if ((shotActive == 1.0)) {
-            def tmp15:EntityPoseNative (new EntityPoseNative)
-            tmp15.x = shotX
-            tmp15.y = shotY
-            tmp15.visible = 1
-            set entities "shot" tmp15
+            def tmp21:EntityPoseNative (new EntityPoseNative)
+            tmp21.x = shotX
+            tmp21.y = shotY
+            tmp21.visible = 1
+            set entities "shot" tmp21
         } {
-            def tmp16:EntityPoseNative (new EntityPoseNative)
-            tmp16.x = (0.0 - 20.0)
-            tmp16.y = (0.0 - 30.0)
-            tmp16.visible = 0
-            set entities "shot" tmp16
+            def tmp22:EntityPoseNative (new EntityPoseNative)
+            tmp22.x = (0.0 - 20.0)
+            tmp22.y = (0.0 - 30.0)
+            tmp22.visible = 0
+            set entities "shot" tmp22
         }
         def alien2:int (0)
         while ((alien2 < this.ALIEN_COUNT)) {

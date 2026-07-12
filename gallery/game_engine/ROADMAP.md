@@ -97,7 +97,7 @@ backend. Kaikki muu on portable.
 | Multi-screen flow | `breakout.game.tsx` | ✅ Valmis |
 | JSX HUD (kevyt) | `game_hud.rgr` | ⚠️ View/Label, ei täyttä EVG:ä |
 | Host bridge (resources/events) | `gallery/ts_to_ranger/game_host.rgr` | ⚠️ Data-kerros, ei toistoa |
-| TS→Ranger staattinen käännös | `game_native_runtime.rgr` | ⚠️ Kokeellinen |
+| TS→Ranger staattinen käännös | `game_native_runtime.rgr` | ⚠️ P0–P2 korjattu; invaders/pacman kesken — [`ts_to_ranger/AGENT_NATIVE_REPAIR.md`](../ts_to_ranger/AGENT_NATIVE_REPAIR.md) |
 | EVG full-frame natiivissa | `RENDERING_EVG.md` | ❌ Suunniteltu |
 | Ääni | `GameHost.playSound` | ❌ Stub (event only) |
 | Gamepad | `PLAN_GAME_ENGINE.md` §6 | ❌ Suunniteltu |

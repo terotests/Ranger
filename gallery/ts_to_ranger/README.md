@@ -1,5 +1,10 @@
 # TS → Ranger → Native (game engine PoC)
 
+> **Native SDL path (Path B) status:** experimental — see
+> [`AGENT_NATIVE_REPAIR.md`](./AGENT_NATIVE_REPAIR.md) for known issues and repair order
+> (P0 fail-fast, P1 `patch.dt`, P2 `soundEvent` inlining). Path A (`game_sdl` + interpreter)
+> remains the stable iteration loop.
+
 Proof-of-concept for compiling `*.game.tsx` scripts to native Ranger instead of
 interpreting them through `ComponentEngine` at runtime.
 

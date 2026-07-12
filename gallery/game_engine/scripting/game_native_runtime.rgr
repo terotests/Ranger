@@ -215,9 +215,19 @@ class NativeGameRunner {
     fn applyUpdate:void (patch:NativeGameState) {
         ; Drain transient events emitted this frame before merging them away.
         host.drainEvents(patch.events)
-        host.tickMusic((to_int patch.dt))
+        def tickMs:int 16
+        if (patch.hasDt) {
+            tickMs = (to_int patch.dt)
+        }
+        host.tickMusic(tickMs)
         state = (stateOps.mergeState(state patch))
         this.syncFromState()
+    }
+
+    fn applyScriptPatch:void (patch:NativeGameState props:UpdatePropsNative) {
+        patch.dt = props.dt
+        patch.hasDt = true
+        this.applyUpdate(patch)
     }
 
     fn hostRef:GameHost () {
