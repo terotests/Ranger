@@ -520,8 +520,7 @@ class GeneratedGameScript {
         patch.score1 = score1
         patch.score2 = score2
         set patch.numbers "gameOver" gameOver
-        def patch_events:[GameEventNative]
-        patch.events = patch_events
+        patch.events = events
         return patch
     }
 

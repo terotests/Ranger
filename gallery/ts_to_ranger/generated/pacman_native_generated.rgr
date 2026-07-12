@@ -399,8 +399,10 @@ class GeneratedGameScript {
         }
         def tmp5:tryMoveRetNative (new tryMoveRetNative)
         tmp5.ok = 0
-        tmp5.col = col
-        tmp5.row = row
+        def _fv6:int (col)
+        tmp5.col = _fv6
+        def _fv7:int (row)
+        tmp5.row = _fv7
         return tmp5
     }
 
@@ -411,18 +413,18 @@ class GeneratedGameScript {
         def tx:int ((this.tileX((col + d.dc))))
         def ty:int ((this.tileY((row + d.dr))))
         def t:double (((to_double frac) / 1000.0))
-        def tmp6:EntityPoseNative (new EntityPoseNative)
-        tmp6.x = ((to_double cx) + ((to_double (tx - cx)) * t))
-        tmp6.y = ((to_double cy) + ((to_double (ty - cy)) * t))
-        return tmp6
+        def tmp8:EntityPoseNative (new EntityPoseNative)
+        tmp8.x = ((to_double cx) + ((to_double (tx - cx)) * t))
+        tmp8.y = ((to_double cy) + ((to_double (ty - cy)) * t))
+        return tmp8
     }
 
     fn lerpIfMoving:EntityPoseNative (col:int row:int frac:int dir:int) {
         if (((this.canAdvance(col row dir)) == 0)) {
-            def tmp7:EntityPoseNative (new EntityPoseNative)
-            tmp7.x = (to_double (this.tileX(col)))
-            tmp7.y = (to_double (this.tileY(row)))
-            return tmp7
+            def tmp9:EntityPoseNative (new EntityPoseNative)
+            tmp9.x = (to_double (this.tileX(col)))
+            tmp9.y = (to_double (this.tileY(row)))
+            return tmp9
         }
         return (this.lerpTile(col row frac dir))
     }
@@ -560,15 +562,15 @@ class GeneratedGameScript {
             def col:int (0)
             while ((col < _mod.COLS)) {
                 if (((this.mazeAt(col row)) == _mod.CH_WALL)) {
-                    def tmp8:SpriteDefNative (new SpriteDefNative)
-                    tmp8.id = (this.wallId(col row))
-                    tmp8.kind = "rect"
-                    tmp8.w = _mod.TILE
-                    tmp8.h = _mod.TILE
-                    tmp8.r = 32
-                    tmp8.g = 56
-                    tmp8.b = 190
-                    push list tmp8
+                    def tmp10:SpriteDefNative (new SpriteDefNative)
+                    tmp10.id = (this.wallId(col row))
+                    tmp10.kind = "rect"
+                    tmp10.w = _mod.TILE
+                    tmp10.h = _mod.TILE
+                    tmp10.r = 32
+                    tmp10.g = 56
+                    tmp10.b = 190
+                    push list tmp10
                 }
                 col = (col + 1)
             }
@@ -582,53 +584,53 @@ class GeneratedGameScript {
             while ((col < _mod.COLS)) {
                 def ch:int ((this.mazeAt(col row)))
                 if ((ch == _mod.CH_DOT)) {
-                    def tmp9:SpriteDefNative (new SpriteDefNative)
-                    tmp9.id = (this.dotId(dotIdx))
-                    tmp9.kind = "circle"
-                    tmp9.rad = 2
-                    tmp9.r = 255
-                    tmp9.g = 220
-                    tmp9.b = 120
-                    push list tmp9
+                    def tmp11:SpriteDefNative (new SpriteDefNative)
+                    tmp11.id = (this.dotId(dotIdx))
+                    tmp11.kind = "circle"
+                    tmp11.rad = 2
+                    tmp11.r = 255
+                    tmp11.g = 220
+                    tmp11.b = 120
+                    push list tmp11
                     dotIdx = (dotIdx + 1)
                 }
                 if ((ch == _mod.CH_POWER)) {
-                    def tmp10:SpriteDefNative (new SpriteDefNative)
-                    tmp10.id = (this.powerId(powIdx))
-                    tmp10.kind = "circle"
-                    tmp10.rad = 5
-                    tmp10.r = 255
-                    tmp10.g = 220
-                    tmp10.b = 160
-                    push list tmp10
+                    def tmp12:SpriteDefNative (new SpriteDefNative)
+                    tmp12.id = (this.powerId(powIdx))
+                    tmp12.kind = "circle"
+                    tmp12.rad = 5
+                    tmp12.r = 255
+                    tmp12.g = 220
+                    tmp12.b = 160
+                    push list tmp12
                     powIdx = (powIdx + 1)
                 }
                 col = (col + 1)
             }
             row = (row + 1)
         }
-        def tmp11:SpriteDefNative (new SpriteDefNative)
-        tmp11.id = "pac"
-        tmp11.kind = "wedge"
-        tmp11.rad = 6
-        tmp11.r = 255
-        tmp11.g = 240
-        tmp11.b = 60
-        tmp11.p0 = 0
-        tmp11.p1 = 2
-        push list tmp11
+        def tmp13:SpriteDefNative (new SpriteDefNative)
+        tmp13.id = "pac"
+        tmp13.kind = "wedge"
+        tmp13.rad = 6
+        tmp13.r = 255
+        tmp13.g = 240
+        tmp13.b = 60
+        tmp13.p0 = 0
+        tmp13.p1 = 2
+        push list tmp13
         def gi:int (0)
         while ((gi < _mod.GHOST_COUNT)) {
-            def tmp12:SpriteDefNative (new SpriteDefNative)
-            tmp12.id = (this.ghostId(gi))
-            tmp12.kind = "ghost"
-            tmp12.rad = 7
-            tmp12.r = (this.ghostPalR(gi))
-            tmp12.g = (this.ghostPalG(gi))
-            tmp12.b = (this.ghostPalB(gi))
-            tmp12.p0 = 1
-            tmp12.p1 = 0
-            push list tmp12
+            def tmp14:SpriteDefNative (new SpriteDefNative)
+            tmp14.id = (this.ghostId(gi))
+            tmp14.kind = "ghost"
+            tmp14.rad = 7
+            tmp14.r = (this.ghostPalR(gi))
+            tmp14.g = (this.ghostPalG(gi))
+            tmp14.b = (this.ghostPalB(gi))
+            tmp14.p0 = 1
+            tmp14.p1 = 0
+            push list tmp14
             gi = (gi + 1)
         }
         return list
@@ -747,19 +749,21 @@ class GeneratedGameScript {
             def col:int (0)
             while ((col < _mod.COLS)) {
                 if (((this.mazeAt(col row)) == _mod.CH_START)) {
-                    def tmp13:findStartRetNative (new findStartRetNative)
-                    tmp13.col = col
-                    tmp13.row = row
-                    return tmp13
+                    def tmp15:findStartRetNative (new findStartRetNative)
+                    def _fv16:int (col)
+                    tmp15.col = _fv16
+                    def _fv17:int (row)
+                    tmp15.row = _fv17
+                    return tmp15
                 }
                 col = (col + 1)
             }
             row = (row + 1)
         }
-        def tmp14:findStartRetNative (new findStartRetNative)
-        tmp14.col = 9
-        tmp14.row = 5
-        return tmp14
+        def tmp18:findStartRetNative (new findStartRetNative)
+        tmp18.col = 9
+        tmp18.row = 5
+        return tmp18
     }
 
     fn ghostSpawnCol:int (gi:int) {
@@ -872,10 +876,10 @@ class GeneratedGameScript {
             def col:int (0)
             while ((col < _mod.COLS)) {
                 if (((this.mazeAt(col row)) == _mod.CH_WALL)) {
-                    def tmp15:EntityPoseNative (new EntityPoseNative)
-                    tmp15.x = (to_double (this.tileX(col)))
-                    tmp15.y = (to_double (this.tileY(row)))
-                    set entities ((this.wallId(col row))) tmp15
+                    def tmp19:EntityPoseNative (new EntityPoseNative)
+                    tmp19.x = (to_double (this.tileX(col)))
+                    tmp19.y = (to_double (this.tileY(row)))
+                    set entities ((this.wallId(col row))) tmp19
                 }
                 col = (col + 1)
             }
@@ -887,32 +891,32 @@ class GeneratedGameScript {
         def i:int (0)
         while ((i < (array_length dotCol))) {
             if (((itemAt dotAlive i) == 1)) {
-                def tmp16:EntityPoseNative (new EntityPoseNative)
-                tmp16.x = (to_double (this.tileX((itemAt dotCol i))))
-                tmp16.y = (to_double (this.tileY((itemAt dotRow i))))
-                set entities ((this.dotId(i))) tmp16
+                def tmp20:EntityPoseNative (new EntityPoseNative)
+                tmp20.x = (to_double (this.tileX((itemAt dotCol i))))
+                tmp20.y = (to_double (this.tileY((itemAt dotRow i))))
+                set entities ((this.dotId(i))) tmp20
             } {
-                def tmp17:EntityPoseNative (new EntityPoseNative)
-                tmp17.x = 0.0
-                tmp17.y = 0.0
-                tmp17.visible = 0
-                set entities ((this.dotId(i))) tmp17
+                def tmp21:EntityPoseNative (new EntityPoseNative)
+                tmp21.x = 0.0
+                tmp21.y = 0.0
+                tmp21.visible = 0
+                set entities ((this.dotId(i))) tmp21
             }
             i = (i + 1)
         }
         i = 0
         while ((i < (array_length powerCol))) {
             if (((itemAt powerAlive i) == 1)) {
-                def tmp18:EntityPoseNative (new EntityPoseNative)
-                tmp18.x = (to_double (this.tileX((itemAt powerCol i))))
-                tmp18.y = (to_double (this.tileY((itemAt powerRow i))))
-                set entities ((this.powerId(i))) tmp18
+                def tmp22:EntityPoseNative (new EntityPoseNative)
+                tmp22.x = (to_double (this.tileX((itemAt powerCol i))))
+                tmp22.y = (to_double (this.tileY((itemAt powerRow i))))
+                set entities ((this.powerId(i))) tmp22
             } {
-                def tmp19:EntityPoseNative (new EntityPoseNative)
-                tmp19.x = 0.0
-                tmp19.y = 0.0
-                tmp19.visible = 0
-                set entities ((this.powerId(i))) tmp19
+                def tmp23:EntityPoseNative (new EntityPoseNative)
+                tmp23.x = 0.0
+                tmp23.y = 0.0
+                tmp23.visible = 0
+                set entities ((this.powerId(i))) tmp23
             }
             i = (i + 1)
         }
@@ -927,20 +931,20 @@ class GeneratedGameScript {
 
     fn placePac:void (entities:[string:EntityPoseNative] col:int row:int frac:int dir:int frameSeed:int moving:int blink:int) {
         if ((blink == 1)) {
-            def tmp20:EntityPoseNative (new EntityPoseNative)
-            tmp20.x = 0.0
-            tmp20.y = 0.0
-            tmp20.visible = 0
-            set entities "pac" tmp20
+            def tmp24:EntityPoseNative (new EntityPoseNative)
+            tmp24.x = 0.0
+            tmp24.y = 0.0
+            tmp24.visible = 0
+            set entities "pac" tmp24
             return
         }
         def pos:EntityPoseNative ((this.lerpIfMoving(col row frac dir)))
-        def tmp21:EntityPoseNative (new EntityPoseNative)
-        tmp21.x = pos.x
-        tmp21.y = pos.y
-        tmp21.p0 = dir
-        tmp21.p1 = (this.pacMouth(frameSeed moving))
-        set entities "pac" tmp21
+        def tmp25:EntityPoseNative (new EntityPoseNative)
+        tmp25.x = pos.x
+        tmp25.y = pos.y
+        tmp25.p0 = dir
+        tmp25.p1 = (this.pacMouth(frameSeed moving))
+        set entities "pac" tmp25
     }
 
     fn ghostDrawR:int (gi:int powered:int frameSeed:int eyes:int) {
@@ -994,16 +998,16 @@ class GeneratedGameScript {
         def i:int (0)
         while ((i < _mod.GHOST_COUNT)) {
             def pos:EntityPoseNative ((this.lerpIfMoving((itemAt ghostCol i) (itemAt ghostRow i) (itemAt ghostFrac i) (itemAt ghostDir i))))
-            def tmp22:EntityPoseNative (new EntityPoseNative)
-            tmp22.x = pos.x
-            tmp22.y = pos.y
-            tmp22.r = (this.ghostDrawR(i powered frameSeed (itemAt ghostEyes i)))
-            tmp22.g = (this.ghostDrawG(i powered frameSeed (itemAt ghostEyes i)))
-            tmp22.b = (this.ghostDrawB(i powered frameSeed (itemAt ghostEyes i)))
-            tmp22.rad = (this.ghostDrawRad((itemAt ghostEyes i)))
-            tmp22.p0 = (itemAt ghostDir i)
-            tmp22.p1 = (itemAt ghostEyes i)
-            set entities ((this.ghostId(i))) tmp22
+            def tmp26:EntityPoseNative (new EntityPoseNative)
+            tmp26.x = pos.x
+            tmp26.y = pos.y
+            tmp26.r = (this.ghostDrawR(i powered frameSeed (itemAt ghostEyes i)))
+            tmp26.g = (this.ghostDrawG(i powered frameSeed (itemAt ghostEyes i)))
+            tmp26.b = (this.ghostDrawB(i powered frameSeed (itemAt ghostEyes i)))
+            tmp26.rad = (this.ghostDrawRad((itemAt ghostEyes i)))
+            tmp26.p0 = (itemAt ghostDir i)
+            tmp26.p1 = (itemAt ghostEyes i)
+            set entities ((this.ghostId(i))) tmp26
             i = (i + 1)
         }
     }
@@ -1117,10 +1121,12 @@ class GeneratedGameScript {
             }
             i = (i + 1)
         }
-        def tmp23:eatAtRetNative (new eatAtRetNative)
-        tmp23.score = score
-        tmp23.powered = powered
-        return tmp23
+        def tmp27:eatAtRetNative (new eatAtRetNative)
+        def _fv28:int (score)
+        tmp27.score = _fv28
+        def _fv29:int (powered)
+        tmp27.powered = _fv29
+        return tmp27
     }
 
     fn listDirsFor:[int] (gCol:int gRow:int gDir:int forbidReverse:int) {
@@ -1241,12 +1247,12 @@ class GeneratedGameScript {
                     gEyes = 0
                 }
             }
-            def tmp24:stepGhostAtRetNative (new stepGhostAtRetNative)
-            tmp24.col = gCol
-            tmp24.row = gRow
-            tmp24.dir = gDir
-            tmp24.eyes = gEyes
-            return tmp24
+            def tmp30:stepGhostAtRetNative (new stepGhostAtRetNative)
+            tmp30.col = gCol
+            tmp30.row = gRow
+            tmp30.dir = gDir
+            tmp30.eyes = gEyes
+            return tmp30
         }
         def dir2:int ((this.pickGhostDir(gCol gRow gDir gi pacCol pacRow pacDir globalMode powered)))
         def mv2:tryMoveRetNative ((this.tryMove(gCol gRow dir2)))
@@ -1255,12 +1261,12 @@ class GeneratedGameScript {
             gRow = mv2.row
             gDir = dir2
         }
-        def tmp25:stepGhostAtRetNative (new stepGhostAtRetNative)
-        tmp25.col = gCol
-        tmp25.row = gRow
-        tmp25.dir = gDir
-        tmp25.eyes = gEyes
-        return tmp25
+        def tmp31:stepGhostAtRetNative (new stepGhostAtRetNative)
+        tmp31.col = gCol
+        tmp31.row = gRow
+        tmp31.dir = gDir
+        tmp31.eyes = gEyes
+        return tmp31
     }
 
     fn hitGhostAtGrid:int (pacCol:int pacRow:int pacFrac:int pacDir:int ghostCol:[int] ghostRow:[int] ghostFrac:[int] ghostDir:[int] ghostEyes:[int]) {
@@ -1305,12 +1311,12 @@ class GeneratedGameScript {
             set ghostEyes gi 0
             gi = (gi + 1)
         }
-        def tmp26:resetAfterHurtRetNative (new resetAfterHurtRetNative)
-        tmp26.pacCol = start.col
-        tmp26.pacRow = start.row
-        tmp26.pacFrac = 0.0
-        tmp26.hurtTimer = _mod.HURT_MS
-        return tmp26
+        def tmp32:resetAfterHurtRetNative (new resetAfterHurtRetNative)
+        tmp32.pacCol = start.col
+        tmp32.pacRow = start.row
+        tmp32.pacFrac = 0.0
+        tmp32.hurtTimer = _mod.HURT_MS
+        return tmp32
     }
 
     fn update:NativeGameState (props:UpdatePropsNative) {
