@@ -137,7 +137,21 @@ class StreamingWorldRunner {
         return 16777216
     }
 
+    ; Loader lives next to the worker module, so derive its path from the
+    ; worker path's directory (games/<name>/worker.wasm -> .../resource_loader.wasm).
+    fn deriveLoaderPath:string (workerPath:string) {
+        def i:int (strlen workerPath)
+        while (i > 0) {
+            i = (i - 1)
+            if ((charAt workerPath i) == 47) {
+                return ((substring workerPath 0 (i + 1)) + "resource_loader.wasm")
+            }
+        }
+        return "resource_loader.wasm"
+    }
+
     fn loadModule:void (path:string) {
+        loaderPath = (this.deriveLoaderPath(path))
         worker = (wasm_load path)
         wasm_call_void worker "worker_init" 0 0 0 0 0 0
         wbase = (wasm_call_i32 worker "worker_ptr" 0 0 0 0 0 0)

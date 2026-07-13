@@ -22,6 +22,7 @@ Import "./wasm_physics_runner.rgr"
 Import "../gfx_sdl.rgr"
 Import "./game_audio_sdl.rgr"
 Import "./game_catalog.rgr"
+Import "./streaming_world_runner.rgr"
 Import "./game_host_native.rgr"
 Import "./game_input.rgr"
 Import "./game_split_screen.rgr"
@@ -48,6 +49,8 @@ class GameSdlRunner {
     def splitHost:SplitScreenHost (new SplitScreenHost)
     def wasmSplitHost:WasmSplitScreenHost (new WasmSplitScreenHost)
     def wasmSplitActive:boolean false
+    def streamRunner:StreamingWorldRunner (new StreamingWorldRunner)
+    def useStreamRunner:boolean false
     def catalog:GameCatalog (new GameCatalog)
     def nativeBridge:GameHostNativeBridge (new GameHostNativeBridge)
     def pw:int 480
@@ -264,6 +267,7 @@ class GameSdlRunner {
     }
 
     fn loadScriptAt:void (tsxPath:string injectCatalog:boolean) {
+        useStreamRunner = false
         useWasmRunner = false
         if (inGame) {
             this.presentLoadingScreen("LOADING")
@@ -320,6 +324,7 @@ class GameSdlRunner {
     }
 
     fn loadWasmAt:void (wasmPath:string) {
+        useStreamRunner = false
         useWasmRunner = true
         useWasmPhysics = (this.resolveWasmPhysics(wasmPath))
         if (inGame) {
@@ -367,11 +372,38 @@ class GameSdlRunner {
     }
 
     fn loadGameAtPath:void (path:string injectCatalog:boolean) {
+        if (this.isStreamingPath(path)) {
+            this.loadStreamingAt(path)
+            return
+        }
         if (this.isWasmPath(path)) {
             this.loadWasmAt(path)
             return
         }
         this.loadScriptAt(path injectCatalog)
+    }
+
+    ; Load a streaming-world game: worker.wasm + its spawned resource loader,
+    ; driven by StreamingWorldRunner and presented through the normal path.
+    fn loadStreamingAt:void (wasmPath:string) {
+        useStreamRunner = true
+        useWasmRunner = false
+        useWasmPhysics = false
+        streamRunner = (new StreamingWorldRunner)
+        streamRunner.init(pw ph)
+        this.presentLoadingScreen("LOADING STREAM")
+        streamRunner.loadModule(wasmPath)
+        streamRunner.setupScene()
+        currentScriptPath = wasmPath
+        currentGamePath = wasmPath
+        inMenu = false
+        inGame = true
+        splitScreenActive = false
+        wasmSplitActive = false
+        this.syncInputEdges()
+        gameInputSnap.resetSoloPad()
+        gfx_clear_should_close
+        print ("[game-engine] streaming world: " + wasmPath)
     }
 
     ; After script swap, match edge state to keys still held (avoids double Q:
@@ -560,6 +592,12 @@ class GameSdlRunner {
         this.clearNavStack()
         nativeBridge.clearPendingNav()
         currentGamePath = path
+        if (this.isStreamingPath(path)) {
+            splitScreenActive = false
+            wasmSplitActive = false
+            this.loadStreamingAt(path)
+            return
+        }
         if (this.isWasmPath(path)) {
             this.resolveSplitMetadata(path)
             if (this.shouldUseSplitScreen()) {
@@ -669,6 +707,18 @@ class GameSdlRunner {
             if (profileEnabled) {
                 profRenderMs = (profRenderMs + (r1 - r0))
                 profPresentMs = (profPresentMs + (r2 - r1))
+            }
+            return
+        }
+        if (useStreamRunner) {
+            def z0:int (gfx_ticks_ms)
+            streamRunner.draw()
+            def z1:int (gfx_ticks_ms)
+            gfx_present (streamRunner.raw()) pw ph
+            def z2:int (gfx_ticks_ms)
+            if (profileEnabled) {
+                profRenderMs = (profRenderMs + (z1 - z0))
+                profPresentMs = (profPresentMs + (z2 - z1))
             }
             return
         }
@@ -931,19 +981,24 @@ class GameSdlRunner {
                     }
                 }
             } {
-                if (useWasmRunner) {
-                    def gameInput:GameInputSnapshot (this.pollGameInput())
-                    if (useWasmPhysics) {
-                        def f0:int (this.playerInputFlags(gameInput.p0))
-                        def f1:int (this.playerInputFlags(gameInput.p1))
-                        wasmPhysicsRunner.frameWithFlags(dtMs f0 f1)
-                    } {
-                        wasmRunner.frameWithInput(dtMs gameInput.p0.up gameInput.p0.down gameInput.p0.left gameInput.p0.right gameInput.p0.action)
-                    }
+                if (useStreamRunner) {
+                    def gameInputS:GameInputSnapshot (this.pollGameInput())
+                    streamRunner.frameWithInput(dtMs gameInputS.p0.up gameInputS.p0.down gameInputS.p0.left gameInputS.p0.right gameInputS.p0.action)
                 } {
-                    def gameInput:GameInputSnapshot (this.pollGameInput())
-                    runner.frameWithInput(dtMs gameInput)
-                    this.drainScriptNavigation()
+                    if (useWasmRunner) {
+                        def gameInput:GameInputSnapshot (this.pollGameInput())
+                        if (useWasmPhysics) {
+                            def f0:int (this.playerInputFlags(gameInput.p0))
+                            def f1:int (this.playerInputFlags(gameInput.p1))
+                            wasmPhysicsRunner.frameWithFlags(dtMs f0 f1)
+                        } {
+                            wasmRunner.frameWithInput(dtMs gameInput.p0.up gameInput.p0.down gameInput.p0.left gameInput.p0.right gameInput.p0.action)
+                        }
+                    } {
+                        def gameInput:GameInputSnapshot (this.pollGameInput())
+                        runner.frameWithInput(dtMs gameInput)
+                        this.drainScriptNavigation()
+                    }
                 }
             }
             def tUpdateEnd:int (gfx_ticks_ms)
@@ -1023,6 +1078,29 @@ class GameSdlRunner {
         def tail:string (substring arg (len - 5) len)
         if (tail == ".wasm") {
             return true
+        }
+        return false
+    }
+
+    ; A streaming game: catalog entry engine=streaming, or (direct launch) a
+    ; game.info with engine=streaming next to the .wasm module.
+    fn isStreamingPath:boolean (path:string) {
+        def entry:GameCatalogEntry (catalog.findByPath(path))
+        if (entry.engine == "streaming") {
+            return true
+        }
+        if (this.isWasmPath(path)) {
+            def slash:int (lastIndexOf path "/")
+            if (slash >= 0) {
+                def dir:string (substring path 0 slash)
+                if (file_exists dir "game.info") {
+                    def buf:buffer (buffer_read_file dir "game.info")
+                    def txt:string (buffer_to_string buf)
+                    if ((indexOf txt "engine=streaming") >= 0) {
+                        return true
+                    }
+                }
+            }
         }
         return false
     }

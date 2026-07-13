@@ -59,6 +59,18 @@ A headless run (`SDL_VIDEODRIVER=dummy`, frame count given) dumps one frame's RG
 buffer to `tmp/streaming-world/frame.rgba` so it can be turned into a PNG without a
 display.
 
-Wiring it as an entry in the SDL launcher *menu* (a `game.info` the catalog picks
-up) is the remaining step; the runner already exposes the same
-init/frameWithInput/draw/raw surface the menu's wasm games use.
+## In the SDL Games menu
+
+This folder ships a `game.info` (`engine=streaming`, `module=worker.wasm`) plus
+its `worker.wasm` and `resource_loader.wasm`, so the catalog lists it as
+**"Streaming World"** in the launcher. `game_catalog` recognises `engine=streaming`
+and `game_sdl_runner` routes it to `StreamingWorldRunner` (its own runner, driving
+the two modules), presenting through the normal `draw()` / `gfx_present` path like
+every other game. Selecting it — or a direct launch:
+
+```bash
+./tmp/game-sdl/game_sdl gallery/game_engine/games/streaming_world/worker.wasm
+```
+
+runs the same streaming world in the launcher binary. WASD / arrow keys move the
+player; Q/Esc returns to the menu.

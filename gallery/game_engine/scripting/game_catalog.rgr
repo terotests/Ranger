@@ -192,7 +192,7 @@ class GameCatalog {
         if ((strlen entry.title) == 0) {
             entry.title = entry.id
         }
-        if (entry.engine == "wasm") {
+        if ((entry.engine == "wasm") || (entry.engine == "streaming")) {
             entry.entryPath = (this.joinPath(entry.dir entry.moduleFile))
         } {
             entry.entryPath = (this.joinPath(entry.dir entry.entryFile))
@@ -234,7 +234,35 @@ class GameCatalog {
         if (hasIndex) {
             return true
         }
-        return (this.isWasmGameFolder(gameDir))
+        if (this.isWasmGameFolder(gameDir)) {
+            return true
+        }
+        return (this.isStreamingGameFolder(gameDir))
+    }
+
+    ; A streaming game (engine=streaming) is driven by StreamingWorldRunner and
+    ; carries its worker module (module=worker.wasm) plus a spawned loader.
+    fn isStreamingGameFolder:boolean (gameDir:string) {
+        if (file_exists gameDir "game.info") {
+            def buf:buffer (buffer_read_file gameDir "game.info")
+            def txt:string (buffer_to_string buf)
+            if ((indexOf txt "engine=streaming") >= 0) {
+                def modFile:string "worker.wasm"
+                def entry:GameCatalogEntry (new GameCatalogEntry)
+                entry.dir = gameDir
+                def lines:[string] (strsplit txt "\n")
+                def i:int 0
+                while (i < (array_length lines)) {
+                    this.parseInfoLine(entry (itemAt lines i))
+                    i = (i + 1)
+                }
+                if ((strlen entry.moduleFile) > 0) {
+                    modFile = entry.moduleFile
+                }
+                return (file_exists gameDir modFile)
+            }
+        }
+        return false
     }
 
     fn scan:void () {

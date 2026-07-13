@@ -41,6 +41,11 @@ fi
 echo "==> 0/3 build worker.wasm + resource_loader.wasm"
 bash "$ROOT/gallery/game_engine/wasm/rust_worker/build.sh"
 bash "$ROOT/gallery/game_engine/wasm/as_resource_loader/build.sh"
+# Keep the SDL-menu game folder's copies in sync (games/streaming_world/).
+GAME_DIR="$ROOT/gallery/game_engine/games/streaming_world"
+mkdir -p "$GAME_DIR"
+cp "$ROOT/gallery/game_engine/games/streaming_worker/worker.wasm" "$GAME_DIR/worker.wasm"
+cp "$ROOT/gallery/game_engine/games/streaming_worker/resource_loader.wasm" "$GAME_DIR/resource_loader.wasm"
 
 echo "==> 1/3 Ranger -> C++"
 cd "$ROOT"
