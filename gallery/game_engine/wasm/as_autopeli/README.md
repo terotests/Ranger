@@ -18,18 +18,20 @@ language produced the `.wasm`.
 | File | Role | Rust counterpart |
 |------|------|------------------|
 | `assembly/abi.ts` | RGW1 bridge: raw `rd/wr` + the **object header** (`World`/`Body`/`Contact`/`Impulses`/`Events` + `Road`/`Vec2`/`Drive`/`ConeLaunch`) | `rust_autopeli/src/lib.rs` (top half) |
-| `assembly/ui.ts`  | RGU1 bridge: `Doc` builder + `buildHud()` | `rust_autopeli/src/ui.rs` |
+| `assembly/ui.ts`  | RGU1 bridge: fluent `Ui` builder (`ui.view().column().padding()`, `ui.label()`) + `buildHud()` | `rust_autopeli/src/ui.rs` |
 | `assembly/index.ts` | the game: `init` / `update`, traffic AI, contacts → HUD | `rust_autopeli/src/lib.rs` |
 
 The `abi.ts` + `ui.ts` pair is the reusable **SDK** — the AssemblyScript
 equivalent of the Rust guest's ABI helpers. New AS games import them and never
 touch raw offsets.
 
-### The object header (`abi.ts`)
+### The object header (`abi.ts` + `ui.ts`)
 
-The bottom half of `abi.ts` is a thin **object layer** over the raw
-offsets+`rd/wr` primitives, so gameplay code in `index.ts` reads in objects the
-way the original `.tsx` reducer does — not in scratch globals and index calls:
+The bottom half of **both** bridge files is a thin **object layer** over the raw
+primitives, so game code reads in objects the way the original `.tsx` reducer /
+JSX HUD does — not in scratch globals, index calls, or manual offset math.
+
+`abi.ts` (RGW1 world/physics):
 
 ```ts
 // before (low-level)                     // after (object header)
@@ -42,16 +44,80 @@ pushEvent(EVT_SOUND, id, 0,0,0);          events.sound(id);
 rd(OFF_HITS); wr(OFF_SCORE, v);           world.hits; world.score = v;
 ```
 
+`ui.ts` (RGU1 HUD):
+
+```ts
+// before (low-level Doc)                       // after (object header)
+doc.node(10, 1, VIEW, order);                   ui.view(10, 1, order)
+doc.propEnum(K_FLEX_DIRECTION, DIR_COLUMN);        .column()
+doc.propI32(K_PADDING, 4);                         .padding(4);
+doc.text(base + 2, colId, 2, s, color);         ui.label(base + 2, colId, 2, s, color);
+```
+
 Two properties keep this safe on the WASM path:
 
-- **Same emitted arithmetic.** The views are thin getters/setters over the same
-  `rd/wr`, so the numbers reaching the ABI are identical to the low-level
+- **Same emitted arithmetic / bytes.** The views are thin getters/setters over
+  the same `rd/wr` (and the fluent `Ui` methods over the same byte writers), so
+  the numbers and RGU1 bytes reaching the ABI are identical to the low-level
   version — verified byte-for-byte (see below).
-- **Zero per-frame allocation.** Every object is a module-scope singleton, and
-  the value structs (`road`/`vel`/`drive`/`coneLaunch`) are mutated-and-returned
-  rather than freshly allocated, so `--runtime minimal` (no GC) never grows
-  memory. The one rule: copy a returned value struct's fields into locals before
-  calling the same producer again (the game code already does).
+- **Zero per-frame allocation.** Every object is a module-scope singleton
+  (`world`, `P1`/`P2`, `contact`, `impulses`, `events`, `ui`), and the value
+  structs (`road`/`vel`/`drive`/`coneLaunch`) are mutated-and-returned rather
+  than freshly allocated, so `--runtime minimal` (no GC) never grows memory. The
+  one rule: copy a returned value struct's fields into locals before calling the
+  same producer again (the game code already does).
+
+### Extending the header without breaking old apps
+
+Both layers — the **wire ABI** (RGW1/RGU1, shared with the host and the Rust
+guest) and the **guest-side header API** (the classes above) — can grow, but
+they evolve under different rules. The guiding principle is the same: *old bytes
+and old call sites must keep meaning exactly what they meant.*
+
+**Wire ABI (RGW1/RGU1) — additive, version-gated.** The format is already
+self-describing: RGW1 carries `magic` + `version` + `size`; RGU1 carries `magic`
++ `major`/`minor`; every property is `(key, type, value)` and every record has a
+published stride. That gives four safe moves:
+
+- *Append, never reorder or resize in place.* New header fields go in the
+  reserved tail after `OFF_AIR_P2`; they read back as `0` on guests/hosts that
+  predate them, so `0` must be the "old behaviour" default. Existing field
+  offsets never move.
+- *Grow a record by bumping the stride + a version, not by squeezing.*
+  `BODY_SIZE`/`CONTACT_SIZE`/`EVENT_SIZE` are contract constants. To add a field
+  to a body, raise `minor`, publish the new stride, and let the host read the
+  stride from the header rather than assuming a constant — old guests emit the
+  old stride and the host handles both.
+- *Unknown keys/kinds degrade, they don't fault.* Because props are typed, a
+  host can skip a `key` it doesn't recognise (the `type` gives its size). New
+  node kinds and event kinds follow the same contract: an unknown kind is
+  ignored (or rendered as an empty `View`), never a hard error. That makes a new
+  guest safe in front of an old host and vice-versa.
+- *Version is a capability gate, not a kill switch.* The host reads `version` /
+  `minor` and lights up new behaviour only when the guest advertises it; the
+  common subset always works.
+
+**Guest-side header API (`abi.ts` / `ui.ts`) — purely additive.** This is
+ordinary TypeScript source compatibility:
+
+- *Add methods and classes; don't change or remove existing signatures.* A new
+  `Body.setAngle(...)` or a new `Particles` accumulator can't break a game that
+  never calls it.
+- *Extend a call with a defaulted parameter.* `ui.label(id, parent, order, s,
+  color, fontSize = 8)` is the worked example in `ui.ts`: every existing call
+  keeps the 8-px RGU1 look and emits identical bytes, while new games pass a
+  size. Default-valued params are the header's main non-breaking growth lever.
+- *Introduce, deprecate, delete — in that order, across versions.* Keep an old
+  method delegating to the new one for a release rather than deleting it under
+  callers.
+- *Add singletons, don't repurpose them.* Re-binding an existing singleton to a
+  new meaning is a silent break; a new named singleton is not.
+
+The safety net for all of this is `tools/selfcheck.cjs`: keep a pre-change
+`build/baseline.wasm`, and any change that is *meant* to be behaviour-preserving
+(a refactor, or an additive method left uncalled) must still print `10/10
+regions identical`. A change that legitimately alters output will diff there
+first — which is exactly where you want to notice it.
 
 ## Build & run
 
@@ -95,8 +161,8 @@ if (contactPhase(ci) == 1) {
 }
 ```
 
-HUD authoring reads like TS too — `doc.text(id, parent, order, "HITS " +
-p.hits.toString(), color)`.
+HUD authoring reads like the `.tsx` JSX too — `ui.view(10, 1, order).column()`
+then `ui.label(id, colId, order, "HITS " + p.hits.toString(), color)`.
 
 ### The differences that matter (Ranger GameScript "Profile 1")
 
