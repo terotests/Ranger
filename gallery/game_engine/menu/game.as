@@ -7,10 +7,14 @@
 // this menu reports back via OFF_LAUNCH (a catalog index). Being interpreted
 // .as, it hot-reloads like any other game - edit this file and the menu updates.
 //
+// The UI is authored with a small fluent EVG builder (`ui.view(id,parent,order)
+// .column().center().pad(22)`), the same readable style the WASM UI demos use,
+// over the flat @ranger/game bridge.
+//
 // Two screens: category tiles (Games / Tests) -> the games in that category.
-//   up/down     move selection
-//   enter/A     open a category, or launch the selected game
-//   left/back   games screen -> categories
+//   up/down/left/right   move selection
+//   enter/A              open a category, or launch the selected game
+//   left/back            games screen -> categories
 // ============================================================================
 import { abiRead, abiWrite, uiReset, uiNode, uiPropI32, uiPropEnum, uiPropStr, uiPropColorRgba, uiFinish } from "@ranger/game";
 
@@ -54,6 +58,7 @@ const ART_GAMES: string = "gallery/game_engine/menu/assets/games.png";
 const ART_TESTS: string = "gallery/game_engine/menu/assets/tools.png";
 
 const ROOT: i32 = 1;
+const ROW: i32 = 50;
 const CARD: i32 = 2;
 const SCR_CATS: i32 = 0;
 const SCR_GAMES: i32 = 1;
@@ -63,6 +68,43 @@ let SCREEN: i32 = 0;
 let SEL: i32 = 0;      // selection index on the current screen
 let CAT: i32 = 0;      // 0 = Games, 1 = Tests
 let REV: i32 = 0;
+
+// ============================================================================
+// Fluent EVG builder over the flat bridge. Each `ui.view/text/button(...)`
+// opens a node and returns an `El` whose chained setters style that node —
+// so authoring reads like `ui.view(id,parent,order).column().center().pad(22)`.
+// ============================================================================
+class El {
+  row(): El { uiPropEnum(P_FLEXDIR, DIR_ROW); return this; }
+  column(): El { uiPropEnum(P_FLEXDIR, DIR_COLUMN); return this; }
+  center(): El { uiPropEnum(P_ALIGN, ALIGN_CENTER); return this; }
+  pad(v: i32): El { uiPropI32(P_PAD, v); return this; }
+  margin(v: i32): El { uiPropI32(P_MARGIN, v); return this; }
+  width(v: i32): El { uiPropI32(P_WIDTH, v); return this; }
+  height(v: i32): El { uiPropI32(P_HEIGHT, v); return this; }
+  radius(v: i32): El { uiPropI32(P_RADIUS, v); return this; }
+  font(v: i32): El { uiPropI32(P_FONT, v); return this; }
+  text(s: string): El { uiPropStr(P_TEXT, s); return this; }
+  image(path: string): El { uiPropStr(P_BG_IMAGE, path); return this; }
+  textCenter(): El { uiPropEnum(P_TEXTALIGN, TEXTALIGN_CENTER); return this; }
+  bg(r: i32, g: i32, b: i32, a: i32): El { uiPropColorRgba(P_BG, r, g, b, a); return this; }
+  color(r: i32, g: i32, b: i32, a: i32): El { uiPropColorRgba(P_COLOR, r, g, b, a); return this; }
+  border(w: i32, r: i32, g: i32, b: i32, a: i32): El {
+    uiPropI32(P_BORDER_W, w);
+    uiPropColorRgba(P_BORDER_COLOR, r, g, b, a);
+    return this;
+  }
+}
+
+class Ui {
+  reset(): void { uiReset(); }
+  finish(rev: i32): void { uiFinish(rev); }
+  view(id: i32, parent: i32, order: i32): El { uiNode(id, parent, K_VIEW, order); return new El(); }
+  label(id: i32, parent: i32, order: i32): El { uiNode(id, parent, K_TEXT, order); return new El(); }
+  button(id: i32, parent: i32, order: i32): El { uiNode(id, parent, K_BUTTON, order); return new El(); }
+}
+
+let ui: Ui = new Ui();
 
 function catName(i: i32): string {
   if (i == 1) return "Tests";
@@ -94,72 +136,31 @@ function nthInCat(cat: string, k: i32): i32 {
   return -1;
 }
 
-// ---- RGU1 authoring helpers ----
-function column(): void {
-  uiPropEnum(P_FLEXDIR, DIR_COLUMN);
-  uiPropEnum(P_ALIGN, ALIGN_CENTER);
-}
-function label(id: i32, parent: i32, order: i32, s: string, size: i32): void {
-  uiNode(id, parent, K_TEXT, order);
-  uiPropStr(P_TEXT, s);
-  uiPropI32(P_FONT, size);
-  uiPropColorRgba(P_COLOR, 236, 240, 250, 255);
-}
-function button(id: i32, order: i32, s: string, on: i32): void {
-  uiNode(id, CARD, K_BUTTON, order);
-  uiPropStr(P_TEXT, s);
-  uiPropI32(P_FONT, 18);
-  uiPropColorRgba(P_COLOR, 236, 240, 250, 255);
-  uiPropI32(P_WIDTH, 280);
-  uiPropI32(P_PAD, 12);
-  uiPropI32(P_MARGIN, 6);
-  uiPropI32(P_RADIUS, 10);
-  uiPropI32(P_BORDER_W, 2);
-  if (on == 1) {
-    uiPropColorRgba(P_BORDER_COLOR, 255, 232, 120, 255);
-    uiPropColorRgba(P_BG, 120, 165, 230, 70);
-  } else {
-    uiPropColorRgba(P_BORDER_COLOR, 120, 150, 210, 255);
-    uiPropColorRgba(P_BG, 120, 165, 230, 40);
-  }
-  uiPropEnum(P_TEXTALIGN, TEXTALIGN_CENTER);
+// ---- screen builders ----
+
+// A big rounded art tile with a TTF label under it (imgId is what the host
+// highlights). `on` = currently selected.
+function catTile(colId: i32, imgId: i32, lblId: i32, order: i32, name: string, art: string, on: i32): void {
+  ui.view(colId, ROW, order).column().center().width(200).margin(12);
+  let br: i32 = 120; let bg: i32 = 150; let bb: i32 = 210;
+  if (on == 1) { br = 255; bg = 232; bb = 120; }
+  ui.view(imgId, colId, 0).width(176).height(176).radius(16).image(art).border(3, br, bg, bb, 255);
+  ui.label(lblId, colId, 1).text(name).font(20).color(236, 240, 250, 255).margin(6);
 }
 
-// A big rounded image tile with a TTF label under it. colId is a column holding
-// the image (imgId) and the label (lblId); the host highlights imgId.
-function catTile(colId: i32, imgId: i32, lblId: i32, order: i32, name: string, art: string, on: i32): void {
-  uiNode(colId, 50, K_VIEW, order);
-  uiPropEnum(P_FLEXDIR, DIR_COLUMN);
-  uiPropEnum(P_ALIGN, ALIGN_CENTER);
-  uiPropI32(P_WIDTH, 200);
-  uiPropI32(P_MARGIN, 12);
-  // image square (background art clipped to the rounded box)
-  uiNode(imgId, colId, K_VIEW, 0);
-  uiPropI32(P_WIDTH, 176);
-  uiPropI32(P_HEIGHT, 176);
-  uiPropI32(P_RADIUS, 16);
-  uiPropStr(P_BG_IMAGE, art);
-  uiPropI32(P_BORDER_W, 3);
-  if (on == 1) {
-    uiPropColorRgba(P_BORDER_COLOR, 255, 232, 120, 255);
-  } else {
-    uiPropColorRgba(P_BORDER_COLOR, 120, 150, 210, 255);
-  }
-  // label under it
-  uiNode(lblId, colId, K_TEXT, 1);
-  uiPropStr(P_TEXT, name);
-  uiPropI32(P_FONT, 20);
-  uiPropColorRgba(P_COLOR, 236, 240, 250, 255);
-  uiPropI32(P_MARGIN, 6);
+// A uniform menu button; `on` = currently selected.
+function gameButton(id: i32, order: i32, s: string, on: i32): void {
+  let br: i32 = 120; let bg: i32 = 150; let bb: i32 = 210; let ba: i32 = 40;
+  if (on == 1) { br = 255; bg = 232; bb = 120; ba = 70; }
+  ui.button(id, CARD, order).text(s).font(18).color(236, 240, 250, 255)
+    .width(280).pad(12).margin(6).radius(10)
+    .border(2, br, bg, bb, 255).bg(120, 165, 230, ba).textCenter();
 }
 
 function buildCats(): void {
-  uiNode(ROOT, 0, K_VIEW, 0); column(); uiPropI32(P_PAD, 24);
-  label(10, ROOT, 0, "GAMES", 34);
-  // a row of two big art tiles
-  uiNode(50, ROOT, K_VIEW, 1);
-  uiPropEnum(P_FLEXDIR, DIR_ROW);
-  uiPropEnum(P_ALIGN, ALIGN_CENTER);
+  ui.view(ROOT, 0, 0).column().center().pad(24);
+  ui.label(10, ROOT, 0).text("GAMES").font(34).color(236, 240, 250, 255);
+  ui.view(ROW, ROOT, 1).row().center();
   let on0: i32 = 0; if (SEL == 0) on0 = 1;
   let on1: i32 = 0; if (SEL == 1) on1 = 1;
   catTile(60, 61, 62, 0, "Games", ART_GAMES, on0);
@@ -169,26 +170,25 @@ function buildCats(): void {
 }
 
 function buildGames(): void {
-  uiNode(ROOT, 0, K_VIEW, 0); column(); uiPropI32(P_PAD, 18);
-  uiNode(CARD, ROOT, K_VIEW, 0); column(); uiPropI32(P_PAD, 16); uiPropI32(P_WIDTH, 340);
-  uiPropColorRgba(P_BG, 30, 34, 52, 255); uiPropI32(P_RADIUS, 16);
+  ui.view(ROOT, 0, 0).column().center().pad(18);
+  ui.view(CARD, ROOT, 0).column().center().pad(16).width(340).radius(16).bg(30, 34, 52, 255);
   let cat: string = catName(CAT);
-  label(10, CARD, 0, cat, 24);
+  ui.label(10, CARD, 0).text(cat).font(24).color(236, 240, 250, 255);
   let n: i32 = countInCat(cat);
   let k: i32 = 0;
   while (k < n) {
     let gi: i32 = nthInCat(cat, k);
     let on: i32 = 0; if (SEL == k) on = 1;
-    button(100 + k, k + 1, gameCatalog[gi].title, on);
+    gameButton(100 + k, k + 1, gameCatalog[gi].title, on);
     k = k + 1;
   }
   abiWrite(OFF_SEL, 100 + SEL);
 }
 
 function build(): void {
-  uiReset();
+  ui.reset();
   if (SCREEN == SCR_CATS) { buildCats(); } else { buildGames(); }
-  uiFinish(REV);
+  ui.finish(REV);
 }
 
 // ---- exports the host calls ----
