@@ -1,0 +1,77 @@
+; ==============================================================================
+; ui_menu_runner_demo - headless smoke test for the engine=ui game path.
+; ==============================================================================
+; Drives GameUiRunner (the class the SDL launcher uses for engine=ui games) with
+; a host-authored RGU1 document (RgUiWriter stands in for the wasm guest, which
+; can't instantiate in the es6 dev build), navigates it, and writes a PNG.
+; Run:  npm run engine:ui:game
+; ==============================================================================
+
+Import "./game_ui_runner.rgr"
+Import "../ui/RgUiWriter.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+
+class UiMenuRunnerDemo {
+    sfn buildMenu:[int] () {
+        def w:RgUiWriter (new RgUiWriter)
+        w.view(1 0 0).column().center().padding(22)
+        w.view(2 1 0).column().center().padding(18).width(280).bg(36 42 64 255).radius(16)
+        w.label(10 2 0 "EVG UI Menu" 4294967295 20).margin(8)
+        w.button(11 2 1 "New Game" 3839943679 16).onActivate().defaultSelected().width(180).padding(10).bg(120 165 230 46).border(2 120 150 210 255).radius(9).textCenter().margin(6)
+        w.button(12 2 2 "Continue" 3839943679 16).onActivate().width(180).padding(10).bg(120 165 230 46).border(2 120 150 210 255).radius(9).textCenter().margin(6)
+        w.button(13 2 3 "Options" 3839943679 16).onActivate().width(180).padding(10).bg(120 165 230 46).border(2 120 150 210 255).radius(9).textCenter().margin(6)
+        w.button(14 2 4 "Quit" 4285559039 16).onActivate().width(180).padding(10).bg(220 120 120 40).border(2 200 110 110 255).radius(9).textCenter().margin(6)
+        return (w.emit())
+    }
+
+    sfn snap:void (runner:GameUiRunner file:string) {
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.width = 360
+        rb.height = 400
+        rb.pixels = (runner.raw())
+        def png:PNGEncoder (new PNGEncoder)
+        png.encode(rb "gallery/game_engine/games/ui_menu" file)
+    }
+
+    sfn m@(main):void () {
+        def passed 0
+        def failed 0
+
+        def runner:GameUiRunner (new GameUiRunner)
+        runner.init(360 400 "gallery/game_engine/assets/fonts" "OpenSans-Regular.ttf" "Open Sans")
+        def bytes:[int] (UiMenuRunnerDemo.buildMenu())
+        def ok:boolean (runner.loadDoc(bytes (array_length bytes)))
+        if ok { passed = (passed + 1) } { failed = (failed + 1) }
+        print ("loadDoc ok = " + (to_string ok))
+        print ("default selection = " + (to_string runner.ctrl.selectedId))
+        if (runner.ctrl.selectedId == 11) { passed = (passed + 1) } { failed = (failed + 1) }
+
+        def nav:UiNavInput (new UiNavInput)
+        runner.render()
+        UiMenuRunnerDemo.snap(runner "runner_1_start.png")
+
+        nav.clear()
+        nav.down = true
+        def a1 (runner.frame(nav))
+        nav.clear()
+        nav.down = true
+        def a2 (runner.frame(nav))
+        print ("after Down x2 selectedId = " + (to_string runner.ctrl.selectedId))
+        if (runner.ctrl.selectedId == 13) { passed = (passed + 1) } { failed = (failed + 1) }
+        runner.render()
+        UiMenuRunnerDemo.snap(runner "runner_2_nav.png")
+
+        nav.clear()
+        nav.action = true
+        def act (runner.frame(nav))
+        print ("activated id = " + (to_string act))
+        if (act == 13) { passed = (passed + 1) } { failed = (failed + 1) }
+
+        print (("RESULT: " + (to_string passed) + " passed, ") + ((to_string failed) + " failed"))
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

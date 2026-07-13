@@ -1,0 +1,38 @@
+; Headless: drive WasmPhysicsRunner with an interpreted .as guest (no .wasm).
+; Proves the swap — physics + resources + HUD all run off the .as ABI.
+Import "./wasm_physics_runner.rgr"
+
+class AsPhysicsIntegrationDemo {
+    sfn m@(main):void () {
+        def runner:WasmPhysicsRunner (new WasmPhysicsRunner)
+        runner.init(480 270)
+        def dir:string "gallery/game_engine/games/autopeli_as_src"
+
+        if ((runner.loadAsGame(dir)) == false) {
+            print "FAIL: loadAsGame"
+            return
+        }
+        runner.setupScene()
+
+        def y0:int (runner.entityY("p1"))
+        def i 0
+        while (i < 200) {
+            runner.frame(16 true false false true false)   ; UP + RIGHT: drive
+            i = (i + 1)
+        }
+        def y1:int (runner.entityY("p1"))
+
+        print (+ "p1 y0=" (to_string y0))
+        print (+ "p1 y1=" (to_string y1))
+        print (+ "hits=" (to_string runner.hits))
+        def moved:boolean false
+        if (y1 != y0) {
+            moved = true
+        }
+        if (moved) {
+            print "AS PHYSICS INTEGRATION OK (car moved under interpreted .as control)"
+            return
+        }
+        print "FAIL: car did not move"
+    }
+}

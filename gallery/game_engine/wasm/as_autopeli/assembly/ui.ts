@@ -2,6 +2,13 @@
 // guest's ui.rs. Builds a flat "virtual DOM" in linear memory that the host
 // reads once per frame and turns into an EVG tree. Labels are ordinary TS
 // strings (`"HITS " + hits.toString()`), so HUD authoring reads like the .tsx.
+//
+// Like abi.ts, the bottom half is an **object header**: a fluent `Ui` builder
+// (`ui.view(id,parent,order).column().padding(4)`, `ui.label(...)`) over the raw
+// byte writers, so HUD code reads in nodes and props the way the .tsx JSX does
+// (`<View flexDirection="column"><Label color=…>`), not in manual offset math.
+// The builder is a module-scope singleton — zero per-rebuild allocation — and
+// emits the exact same RGU1 bytes as the low-level version (see selfcheck.cjs).
 
 export const UI_MAGIC: u32 = 0x31554752; // 'RGU1'
 export const UI_MAJOR: u16 = 1;
@@ -51,6 +58,17 @@ const P_VALUE_B: i32 = 8;
 // node kinds
 export const VIEW: u16 = 1;
 export const TEXT: u16 = 2;
+export const BUTTON: u16 = 5;
+
+// node flags (node.flags, u16) — interactivity is opt-in per node
+export const NODEFLAG_SELECTABLE: i32 = 0x0001;
+export const NODEFLAG_DISABLED: i32 = 0x0002;
+export const NODEFLAG_DEFAULT: i32 = 0x0004;
+
+// event mask (node.event_mask, u32) — host->guest callbacks
+export const EVENT_ACTIVATE: u32 = 0x0001;
+export const EVENT_SELECT: u32 = 0x0002;
+export const EVENT_DESELECT: u32 = 0x0004;
 
 // property types
 const T_I32: u8 = 1;
@@ -60,15 +78,35 @@ const T_ENUM: u8 = 7;
 
 // property keys
 const K_TEXT: u16 = 1;
+const K_BACKGROUND: u16 = 2;
 const K_COLOR: u16 = 3;
 const K_FONT_SIZE: u16 = 4;
+const K_WIDTH: u16 = 10;
+const K_HEIGHT: u16 = 11;
 const K_PADDING: u16 = 12;
+const K_MARGIN: u16 = 13;
+const K_BORDER_RADIUS: u16 = 14;
+const K_BORDER_COLOR: u16 = 15;
+const K_BORDER_WIDTH: u16 = 16;
 const K_FLEX_DIRECTION: u16 = 21;
+const K_ALIGN_ITEMS: u16 = 22;
+const K_JUSTIFY: u16 = 23;
+const K_TEXT_ALIGN: u16 = 24;
 
 export const DIR_ROW: u32 = 0;
 export const DIR_COLUMN: u32 = 1;
 
+// RgUiAlign
+export const ALIGN_START: u32 = 0;
+export const ALIGN_CENTER: u32 = 1;
+export const ALIGN_END: u32 = 2;
+export const ALIGN_SPACE_BETWEEN: u32 = 3;
+
 const FLAG_VALID: u32 = 1;
+
+// default label font size — a named constant so a future override
+// (`ui.label(..., fontSize)`) is an additive change, not a magic-number edit.
+export const DEFAULT_FONT_SIZE: i32 = 8;
 
 // The RGU1 block, in this module's linear memory.
 export const UI = new StaticArray<u8>(UI_SIZE);
@@ -90,6 +128,9 @@ function wu32(off: i32, v: u32): void {
   UI[off + 2] = <u8>((v >> 16) & 0xff);
   UI[off + 3] = <u8>((v >> 24) & 0xff);
 }
+function wu32read(off: i32): u32 {
+  return (<u32>UI[off]) | (<u32>UI[off + 1] << 8) | (<u32>UI[off + 2] << 16) | (<u32>UI[off + 3] << 24);
+}
 
 // ---- Per-player HUD state (plain typed struct, like the .tsx state) ----
 export class PlayerHud {
@@ -100,24 +141,36 @@ export class PlayerHud {
   flash: bool = false;
 }
 
-// ---- Document builder (port of ui.rs `Doc`) ----
-class Doc {
+// ---- Object header: fluent RGU1 document builder (port of ui.rs `Doc`) ----
+//
+// Authoring style:
+//   ui.reset();
+//   ui.view(1, 0, 0).row();                 // root: <View flexDirection="row">
+//   ui.view(10, 1, 0).column().padding(4);  //   <View flexDirection="column" padding=4>
+//   ui.label(11, 10, 0, "HITS 3", color);   //     <Label color=…>HITS 3</Label>
+//   ui.finish(revision);
+//
+// The prop-order-sensitive TEXT node (text + font-size + color) is emitted by
+// one `label()` call so the byte layout stays fixed; the container props (row/
+// column/padding) are fluent because their order is stable by construction.
+export class Ui {
   nodeCount: i32 = 0;
   propCount: i32 = 0;
   stringLen: i32 = 0;
   curNode: i32 = 0;
   rootId: u32 = 0;
 
-  reset(): void {
+  reset(): Ui {
     for (let i = 0; i < UI_STRING_OFFSET; i++) UI[i] = 0;
     this.nodeCount = 0;
     this.propCount = 0;
     this.stringLen = 0;
     this.curNode = 0;
     this.rootId = 0;
+    return this;
   }
 
-  node(id: u32, parentId: u32, kind: u16, childOrder: u16): void {
+  private node(id: u32, parentId: u32, kind: u16, childOrder: u16): void {
     if (this.nodeCount >= UI_MAX_NODES) return;
     const base = UI_NODE_OFFSET + this.nodeCount * UI_NODE_SIZE;
     wu32(base + N_ID, id);
@@ -150,20 +203,20 @@ class Doc {
     return pbase;
   }
 
-  propI32(key: u16, v: i32): void {
+  private propI32(key: u16, v: i32): void {
     const p = this.beginProp(key, T_I32);
     if (p >= 0) wu32(p + P_VALUE_A, <u32>v);
   }
-  propColor(key: u16, rgba: u32): void {
+  private propColor(key: u16, rgba: u32): void {
     const p = this.beginProp(key, T_COLOR);
     if (p >= 0) wu32(p + P_VALUE_A, rgba);
   }
-  propEnum(key: u16, v: u32): void {
+  private propEnum(key: u16, v: u32): void {
     const p = this.beginProp(key, T_ENUM);
     if (p >= 0) wu32(p + P_VALUE_A, v);
   }
   // ASCII string property (HUD labels are ASCII).
-  propStr(key: u16, s: string): void {
+  private propStr(key: u16, s: string): void {
     const p = this.beginProp(key, T_STRING);
     if (p < 0) return;
     const start = this.stringLen;
@@ -175,6 +228,75 @@ class Doc {
     this.stringLen += len;
     wu32(p + P_VALUE_A, <u32>start);
     wu32(p + P_VALUE_B, <u32>len);
+  }
+
+  // ---- fluent node openers + prop setters (apply to the current node) ----
+  view(id: u32, parent: u32, order: u16): Ui {
+    this.node(id, parent, VIEW, order);
+    return this;
+  }
+  row(): Ui { this.propEnum(K_FLEX_DIRECTION, DIR_ROW); return this; }
+  column(): Ui { this.propEnum(K_FLEX_DIRECTION, DIR_COLUMN); return this; }
+  padding(v: i32): Ui { this.propI32(K_PADDING, v); return this; }
+  margin(v: i32): Ui { this.propI32(K_MARGIN, v); return this; }
+  width(v: i32): Ui { this.propI32(K_WIDTH, v); return this; }
+  height(v: i32): Ui { this.propI32(K_HEIGHT, v); return this; }
+  background(rgba: u32): Ui { this.propColor(K_BACKGROUND, rgba); return this; }
+  radius(v: i32): Ui { this.propI32(K_BORDER_RADIUS, v); return this; }
+  borderColor(rgba: u32): Ui { this.propColor(K_BORDER_COLOR, rgba); return this; }
+  borderWidth(v: i32): Ui { this.propI32(K_BORDER_WIDTH, v); return this; }
+  border(w: i32, rgba: u32): Ui { this.propColor(K_BORDER_COLOR, rgba); this.propI32(K_BORDER_WIDTH, w); return this; }
+  alignItems(a: u32): Ui { this.propEnum(K_ALIGN_ITEMS, a); return this; }
+  justify(a: u32): Ui { this.propEnum(K_JUSTIFY, a); return this; }
+  textAlign(a: u32): Ui { this.propEnum(K_TEXT_ALIGN, a); return this; }
+  // Horizontally centre children of a column (cross-axis center).
+  center(): Ui { this.propEnum(K_ALIGN_ITEMS, ALIGN_CENTER); return this; }
+  // Centre this node's own text within its (fixed) width.
+  textCenter(): Ui { this.propEnum(K_TEXT_ALIGN, ALIGN_CENTER); return this; }
+
+  // ---- interactivity (fluent, apply to the current node) ----
+  // OR a bit into the current node's u16 flags field.
+  private orFlags(bit: i32): void {
+    if (this.nodeCount == 0) return;
+    const off = this.curNode + N_FLAGS;
+    const cur = <i32>UI[off] | (<i32>UI[off + 1] << 8);
+    wu16(off, cur | bit);
+  }
+  // OR a bit into the current node's u32 event_mask field.
+  private orEvent(bit: u32): void {
+    if (this.nodeCount == 0) return;
+    const off = this.curNode + N_EVENT_MASK;
+    const cur = wu32read(off);
+    wu32(off, cur | bit);
+  }
+
+  // Mark the current node selectable by the host's D-pad/keyboard cursor.
+  selectable(): Ui { this.orFlags(NODEFLAG_SELECTABLE); return this; }
+  // Mark it the initial selection (host picks it on the first frame).
+  defaultSelected(): Ui { this.orFlags(NODEFLAG_DEFAULT); return this; }
+  // Skip in navigation and render dimmed.
+  disabled(): Ui { this.orFlags(NODEFLAG_DISABLED); return this; }
+  // Subscribe to the ACTIVATE callback (action button while selected).
+  onActivate(): Ui { this.selectable(); this.orEvent(EVENT_ACTIVATE); return this; }
+
+  // Emit a complete TEXT node (text -> font-size -> color, fixed order).
+  // `fontSize` is a defaulted parameter: old call sites keep the RGU1 8px look,
+  // new games can override without any signature break.
+  label(id: u32, parent: u32, order: u16, s: string, color: u32, fontSize: i32 = DEFAULT_FONT_SIZE): void {
+    this.node(id, parent, TEXT, order);
+    this.propStr(K_TEXT, s);
+    this.propI32(K_FONT_SIZE, fontSize);
+    this.propColor(K_COLOR, color);
+  }
+
+  // Like label(), but a BUTTON node that RETURNS the builder so interactivity
+  // chains fluently: `ui.button(...).onActivate().defaultSelected()`.
+  button(id: u32, parent: u32, order: u16, s: string, color: u32, fontSize: i32 = DEFAULT_FONT_SIZE): Ui {
+    this.node(id, parent, BUTTON, order);
+    this.propStr(K_TEXT, s);
+    this.propI32(K_FONT_SIZE, fontSize);
+    this.propColor(K_COLOR, color);
+    return this;
   }
 
   finish(revision: u32): void {
@@ -191,16 +313,10 @@ class Doc {
     wu32(OFF_STRING_SIZE, <u32>this.stringLen);
     wu32(OFF_FLAGS, FLAG_VALID);
   }
-
-  text(id: u32, parent: u32, order: u16, s: string, color: u32): void {
-    this.node(id, parent, TEXT, order);
-    this.propStr(K_TEXT, s);
-    this.propI32(K_FONT_SIZE, 8);
-    this.propColor(K_COLOR, color);
-  }
 }
 
-const doc = new Doc();
+// The reusable builder singleton — the RGU1 half of the object header.
+export const ui = new Ui();
 
 // ---- HUD colors (0xRRGGBBAA) — same palette as the Rust guest ----
 const C_WHITE: u32 = 0xffffffff;
@@ -235,31 +351,28 @@ function gripColor(grip: i32): u32 {
 }
 
 function playerColumn(colId: u32, order: u16, p: PlayerHud): void {
-  doc.node(colId, 1, VIEW, order);
-  doc.propEnum(K_FLEX_DIRECTION, DIR_COLUMN);
-  doc.propI32(K_PADDING, 4);
+  ui.view(colId, 1, order).column().padding(4);
 
   const base = colId + 1;
-  doc.text(base, colId, 0, "HITS " + p.hits.toString(), p.flash ? C_HITFLASH : C_WHITE);
+  ui.label(base, colId, 0, "HITS " + p.hits.toString(), p.flash ? C_HITFLASH : C_WHITE);
 
   const lbl = hitLabel(p.last_hit);
   if (lbl.length > 0) {
-    doc.text(base + 1, colId, 1, lbl, hitColor(p.last_hit));
+    ui.label(base + 1, colId, 1, lbl, hitColor(p.last_hit));
   }
 
-  doc.text(base + 2, colId, 2, "GRIP " + (p.grip / 10).toString(), gripColor(p.grip));
+  ui.label(base + 2, colId, 2, "GRIP " + (p.grip / 10).toString(), gripColor(p.grip));
 
   if (p.boost) {
-    doc.text(base + 3, colId, 3, "BOOST", C_BOOST);
+    ui.label(base + 3, colId, 3, "BOOST", C_BOOST);
   }
 }
 
 // Build the two-player HUD; host renders column id 10 (P1) / 20 (P2) per pane.
 export function buildHud(p1: PlayerHud, p2: PlayerHud, revision: u32): void {
-  doc.reset();
-  doc.node(1, 0, VIEW, 0);
-  doc.propEnum(K_FLEX_DIRECTION, DIR_ROW);
+  ui.reset();
+  ui.view(1, 0, 0).row();
   playerColumn(10, 0, p1);
   playerColumn(20, 1, p2);
-  doc.finish(revision);
+  ui.finish(revision);
 }

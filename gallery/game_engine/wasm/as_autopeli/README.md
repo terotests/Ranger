@@ -17,13 +17,199 @@ language produced the `.wasm`.
 
 | File | Role | Rust counterpart |
 |------|------|------------------|
-| `assembly/abi.ts` | RGW1 bridge: constants, `rd/wr`, body/control/contact accessors, `isPlayer/isWall/…` | `rust_autopeli/src/lib.rs` (top half) |
-| `assembly/ui.ts`  | RGU1 bridge: `Doc` builder + `buildHud()` | `rust_autopeli/src/ui.rs` |
+| `assembly/abi.ts` | RGW1 bridge: raw `rd/wr` + the **object header** (`World`/`Body`/`Contact`/`Impulses`/`Events` + `Road`/`Vec2`/`Drive`/`ConeLaunch`) | `rust_autopeli/src/lib.rs` (top half) |
+| `assembly/ui.ts`  | RGU1 bridge: fluent `Ui` builder (`ui.view().column().padding()`, `ui.label()`) + `buildHud()` | `rust_autopeli/src/ui.rs` |
 | `assembly/index.ts` | the game: `init` / `update`, traffic AI, contacts → HUD | `rust_autopeli/src/lib.rs` |
 
 The `abi.ts` + `ui.ts` pair is the reusable **SDK** — the AssemblyScript
 equivalent of the Rust guest's ABI helpers. New AS games import them and never
 touch raw offsets.
+
+### The object header (`abi.ts` + `ui.ts`)
+
+The bottom half of **both** bridge files is a thin **object layer** over the raw
+primitives, so game code reads in objects the way the original `.tsx` reducer /
+JSX HUD does — not in scratch globals, index calls, or manual offset math.
+
+`abi.ts` (RGW1 world/physics):
+
+```ts
+// before (low-level)                     // after (object header)
+roadAt(y); const cx = RCX, h = RHALF;     const r = roadAt(y); r.center, r.half
+bodyX(BODY_P1); bodyY(BODY_P1);           P1.x; P1.y
+writeControl(0, s, t, b, grip);           P1.control(s, t, b, grip);
+contactBodyA(ci); contactPhase(ci);       contact.i = ci; contact.bodyA; contact.phase
+IMP_CNT = 0; appendImpulse(id,0,0,a);     impulses.reset(); impulses.angular(id, a);
+pushEvent(EVT_SOUND, id, 0,0,0);          events.sound(id);
+rd(OFF_HITS); wr(OFF_SCORE, v);           world.hits; world.score = v;
+```
+
+`ui.ts` (RGU1 HUD):
+
+```ts
+// before (low-level Doc)                       // after (object header)
+doc.node(10, 1, VIEW, order);                   ui.view(10, 1, order)
+doc.propEnum(K_FLEX_DIRECTION, DIR_COLUMN);        .column()
+doc.propI32(K_PADDING, 4);                         .padding(4);
+doc.text(base + 2, colId, 2, s, color);         ui.label(base + 2, colId, 2, s, color);
+```
+
+Two properties keep this safe on the WASM path:
+
+- **Same emitted arithmetic / bytes.** The views are thin getters/setters over
+  the same `rd/wr` (and the fluent `Ui` methods over the same byte writers), so
+  the numbers and RGU1 bytes reaching the ABI are identical to the low-level
+  version — verified byte-for-byte (see below).
+- **Zero per-frame allocation.** Every object is a module-scope singleton
+  (`world`, `P1`/`P2`, `contact`, `impulses`, `events`, `ui`), and the value
+  structs (`road`/`vel`/`drive`/`coneLaunch`) are mutated-and-returned rather
+  than freshly allocated, so `--runtime minimal` (no GC) never grows memory. The
+  one rule: copy a returned value struct's fields into locals before calling the
+  same producer again (the game code already does).
+
+### Extending the header without breaking old apps
+
+Both layers — the **wire ABI** (RGW1/RGU1, shared with the host and the Rust
+guest) and the **guest-side header API** (the classes above) — can grow, but
+they evolve under different rules. The guiding principle is the same: *old bytes
+and old call sites must keep meaning exactly what they meant.*
+
+**Wire ABI (RGW1/RGU1) — additive, version-gated.** The format is already
+self-describing: RGW1 carries `magic` + `version` + `size`; RGU1 carries `magic`
++ `major`/`minor`; every property is `(key, type, value)` and every record has a
+published stride. That gives four safe moves:
+
+- *Append, never reorder or resize in place.* New header fields go in the
+  reserved tail after `OFF_AIR_P2`; they read back as `0` on guests/hosts that
+  predate them, so `0` must be the "old behaviour" default. Existing field
+  offsets never move.
+- *Grow a record by bumping the stride + a version, not by squeezing.*
+  `BODY_SIZE`/`CONTACT_SIZE`/`EVENT_SIZE` are contract constants. To add a field
+  to a body, raise `minor`, publish the new stride, and let the host read the
+  stride from the header rather than assuming a constant — old guests emit the
+  old stride and the host handles both.
+- *Unknown keys/kinds degrade, they don't fault.* Because props are typed, a
+  host can skip a `key` it doesn't recognise (the `type` gives its size). New
+  node kinds and event kinds follow the same contract: an unknown kind is
+  ignored (or rendered as an empty `View`), never a hard error. That makes a new
+  guest safe in front of an old host and vice-versa.
+- *Version is a capability gate, not a kill switch.* The host reads `version` /
+  `minor` and lights up new behaviour only when the guest advertises it; the
+  common subset always works.
+
+**Guest-side header API (`abi.ts` / `ui.ts`) — purely additive.** This is
+ordinary TypeScript source compatibility:
+
+- *Add methods and classes; don't change or remove existing signatures.* A new
+  `Body.setAngle(...)` or a new `Particles` accumulator can't break a game that
+  never calls it.
+- *Extend a call with a defaulted parameter.* `ui.label(id, parent, order, s,
+  color, fontSize = 8)` is the worked example in `ui.ts`: every existing call
+  keeps the 8-px RGU1 look and emits identical bytes, while new games pass a
+  size. Default-valued params are the header's main non-breaking growth lever.
+- *Introduce, deprecate, delete — in that order, across versions.* Keep an old
+  method delegating to the new one for a release rather than deleting it under
+  callers.
+- *Add singletons, don't repurpose them.* Re-binding an existing singleton to a
+  new meaning is a silent break; a new named singleton is not.
+
+The safety net for all of this is `tools/selfcheck.cjs`: keep a pre-change
+`build/baseline.wasm`, and any change that is *meant* to be behaviour-preserving
+(a refactor, or an additive method left uncalled) must still print `10/10
+regions identical`. A change that legitimately alters output will diff there
+first — which is exactly where you want to notice it.
+
+### The reverse direction: old host, newer guest (don't crash)
+
+The dangerous case isn't a new host reading an old game — additive rules cover
+that. It's an **old device running a game built for a newer ABI**: a guest that
+moved an offset, emits an event kind the host never heard of, or imports a host
+function that doesn't exist. Left unchecked, that surfaces as a wrong-offset
+read, a `switch` with no default, or — for a missing import — a wasm3 link trap
+the *first time the guest calls it* (often mid-`declare_resources`/`update`, not
+at load). The defence is a **handshake at startup**, before the host trusts any
+shared memory or enters the loop. Four layers, cheapest first:
+
+1. **Catalog metadata (no instantiation).** `game.info` already carries
+   `engine=`/`abi=`; a `minHostAbi=` / `caps=` line lets the launcher gray out or
+   annotate a game it can't run *without even loading the module*. This is the
+   only layer that also protects against a broken/malicious module, since no
+   guest code runs.
+2. **Load guard.** Wrap module load so a failed instantiation (and a missing
+   *export* the host needs — `abi_base`/`init`/`update`/`rg_ui_ptr`) is caught
+   and the game is skipped with a message, never faulting the launcher. Give
+   forward-declared host imports safe no-op stubs so a missing import degrades to
+   "feature does nothing" instead of a link trap.
+3. **Version + capability probe (before `init`).** The guest exports three pure,
+   side-effect-free functions — `rg_abi_version()`, `rg_ui_abi()`,
+   `rg_required_caps()` (see `index.ts`; registry in `wasm/wasm_game_abi.h`). The
+   host reads them and rejects cleanly:
+
+   ```
+   ver  = exports rg_abi_version   ? rg_abi_version()   : 1   // legacy = v1
+   need = exports rg_required_caps ? rg_required_caps() : 0
+   if (ver  >  HOST_ABI_VERSION)  reject "game needs a newer host"
+   if (need & ~HOST_CAPS)         reject "host missing capability: <bits>"
+   ```
+
+   They touch no shared memory, so they're safe to call on an otherwise
+   incompatible guest — unlike `init()`, which assumes host features exist. And
+   because *absence* of the export means "v1, no caps", the probe is itself
+   backward-compatible with every guest already shipped (the Rust build, the
+   pre-handshake AS build).
+4. **Post-init + runtime bounds.** After `init()`, verify the RGW1 `magic` and
+   that `size` fits the host's read window before rendering; then **clamp every
+   count** (`event_cnt`, `contact_cnt`, `impulse_cnt`, RGU1 node/prop counts) to
+   the `RG_WASM_MAX_*` maxima before iterating, and **skip unknown** event/node
+   kinds and prop keys rather than asserting. A guest can always write a larger
+   count than an old host expects; clamping turns that from an out-of-bounds read
+   into a dropped tail.
+
+#### Version is not enough: capabilities as a typed query
+
+A single version number conflates two orthogonal things: *"can you parse my
+bytes"* (ordered — v2 > v1, the job of `rg_abi_version`) and *"what can this
+device do"* (an unordered set of booleans and magnitudes — GPU level, screen
+width, gamepad count, OS features). The second isn't a number, and — crucially —
+most of its answers should make the guest **adapt**, not the host **reject**. A
+narrow screen reflows the HUD; no GPU falls back to the CPU `framebuffer.rgr`
+SoftCanvas; no gamepad uses the keyboard. Only a genuine essential (this is a
+physics racer, the host runs no physics) is a hard stop.
+
+So beyond the compact `rg_required_caps()` bitmask (fixed "hard must-haves"),
+the guest can run an **open, typed key/value query** — RGCQ (layout in
+`wasm/wasm_game_abi.h`, `Capabilities` in `abi.ts`). The guest asks a *list of
+string keys* and the host answers a *list of typed values* — `bool` / `int` /
+`float` / `string`, each with a `present` flag — all in the reserved ABI tail,
+so an old host that ignores it degrades to "nothing answered" and the guest
+reads its own defaults:
+
+```ts
+// guest: declared once (rg_declare_queries); keys are convention, not ABI
+caps.request("physics"); caps.request("debugmode");
+caps.request("screen.width"); caps.request("gpu");
+// guest: read after the host answers — with a default for the unanswered case
+export function rg_check_env(): i32 {
+  if (!caps.boolOr(Q_PHYSICS, true)) return CHECK_NEED_PHYSICS;  // hard stop
+  return CHECK_OK;                                               // else: adapt
+}
+```
+
+The keys and their meaning are deliberately *not* fixed in the ABI — they grow
+by convention (a new `"hdr"` or `"debugmode"` needs no format change), which is
+the same additive discipline as new prop keys / event kinds. `tools/capq_demo.cjs`
+drives the whole round-trip (guest declares → simulated host answers →
+`rg_check_env` reacts) as a smoke test.
+
+**The honest limitation.** Forward-compat detection only works if the host
+already contains the check — a host *already in the field* that predates layer 3
+cannot be taught to probe a future guest. So the realistic strategy is: land the
+handshake now so every *future* host is safe, lean on layer 1 (catalog metadata)
+as the retrofit-friendly gate for simpler/older launchers, and treat a bumped
+`RG_WASM_ABI_VERSION` as the one-way signal that old hosts must refuse. The
+guest can't make an old host clever; it can only make itself *legible* — which
+is what the handshake exports, the RGCQ query, and the `game.info` metadata are
+for.
 
 ## Build & run
 
@@ -67,8 +253,8 @@ if (contactPhase(ci) == 1) {
 }
 ```
 
-HUD authoring reads like TS too — `doc.text(id, parent, order, "HITS " +
-p.hits.toString(), color)`.
+HUD authoring reads like the `.tsx` JSX too — `ui.view(10, 1, order).column()`
+then `ui.label(id, colId, order, "HITS " + p.hits.toString(), color)`.
 
 ### The differences that matter (Ranger GameScript "Profile 1")
 
@@ -118,4 +304,15 @@ i32/f64 results, same impulses, same HUD. Re-run the check with:
 node gallery/game_engine/wasm/as_autopeli/tools/parity.cjs \
   gallery/game_engine/wasm/rust_autopeli/target/wasm32-unknown-unknown/release/rust_autopeli.wasm \
   gallery/game_engine/games/autopeli_as/logic.wasm
+```
+
+When refactoring the AS guest (e.g. moving code onto the object header) you can
+prove the change is behaviour-preserving **without** rebuilding the Rust guest,
+by comparing two AS builds against each other over the same drive+contacts:
+
+```bash
+# keep a pre-change build, then compare the new one against it
+node gallery/game_engine/wasm/as_autopeli/tools/selfcheck.cjs \
+  build/baseline.wasm gallery/game_engine/games/autopeli_as/logic.wasm
+# → 10/10 regions identical — IDENTICAL BEHAVIOUR
 ```

@@ -143,6 +143,9 @@ class EvalNativeBridge {
 ; =============================================================================
 class ComponentEngine {
     def parser:TSParserSimple
+    ; When false, scripts are parsed in non-JSX mode: `<` is only comparison /
+    ; type-cast, never a JSX tag. Set false to run .as (AssemblyScript) sources.
+    def jsxParsing:boolean true
     def source:string ""
     def basePath:string "./"
     def assetPaths:[string]  ; Multiple asset directories for component resolution
@@ -543,7 +546,7 @@ class ComponentEngine {
         def lexer (new TSLexer(src))
         def tokens:[Token] (lexer.tokenize())
         parser.initParser(tokens)
-        parser.tsxMode = true
+        parser.tsxMode = jsxParsing
         def ast:TSNode (parser.parseProgram())
         
         ; 1. Process imports - load external components
@@ -622,7 +625,7 @@ class ComponentEngine {
         def lexer (new TSLexer(src))
         def tokens:[Token] (lexer.tokenize())
         parser.initParser(tokens)
-        parser.tsxMode = true
+        parser.tsxMode = jsxParsing
         return (parser.parseProgram())
     }
 
@@ -878,7 +881,7 @@ class ComponentEngine {
         def tokens:[Token] (lexer.tokenize())
         def importParser:TSParserSimple (new TSParserSimple())
         importParser.initParser(tokens)
-        importParser.tsxMode = true
+        importParser.tsxMode = jsxParsing
         def importAst:TSNode (importParser.parseProgram())
         
         ; Resolve transitive imports using this module's directory as basePath.

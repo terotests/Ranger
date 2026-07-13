@@ -15,3 +15,6 @@ variant.hpp
 /pong
 pong_cpp
 pong_rs
+
+# Compiled ES6 output of the headless UI game-runner demo (regenerate: npm run engine:ui:game)
+scripting/ui_menu_runner_demo.js

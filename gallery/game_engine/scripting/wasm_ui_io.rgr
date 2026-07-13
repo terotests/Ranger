@@ -119,6 +119,26 @@ class WasmUiDoc {
     fn nodeOrder:int (i:int) {
         return (this.u16((this.nBase(i)) + 18))
     }
+    fn nodeFlags:int (i:int) {
+        return (this.u16((this.nBase(i)) + 10))
+    }
+    fn nodeEventMask:int (i:int) {
+        return (this.u32((this.nBase(i)) + 20))
+    }
+
+    ; ---- interactivity helpers (RG_UI_NODEFLAG_* / RG_UI_EVENT_*) ----------
+    fn nodeIsSelectable:boolean (i:int) {
+        return ((bit_and (this.nodeFlags(i)) 1) != 0)
+    }
+    fn nodeIsDisabled:boolean (i:int) {
+        return ((bit_and (this.nodeFlags(i)) 2) != 0)
+    }
+    fn nodeIsDefault:boolean (i:int) {
+        return ((bit_and (this.nodeFlags(i)) 4) != 0)
+    }
+    fn nodeWantsActivate:boolean (i:int) {
+        return ((bit_and (this.nodeEventMask(i)) 1) != 0)
+    }
 
     fn pBase:int (p:int) {
         return (propOffset + (p * 16))
@@ -290,6 +310,9 @@ class WasmUiEvgBuilder {
     fn buildNode:EVGElement (doc:WasmUiDoc i:int) {
         def kind (doc.nodeKind(i))
         def el:EVGElement (this.makeElement(doc i kind))
+        ; stamp the stable RGU1 node id onto the element so the host can map a
+        ; selection cursor / highlight back to it after layout.
+        el.id = (to_string (doc.nodeId(i)))
         def kids:[int] (this.childrenOf(doc i))
         def c 0
         while (c < (array_length kids)) {
@@ -338,6 +361,20 @@ class WasmUiEvgBuilder {
         return el
     }
 
+    ; RgUiAlign enum (0 start,1 center,2 end,3 space-between) -> EVG string.
+    fn alignName:string (v:int) {
+        if (v == 1) { return "center" }
+        if (v == 2) { return "flex-end" }
+        if (v == 3) { return "space-between" }
+        return "flex-start"
+    }
+
+    fn textAlignName:string (v:int) {
+        if (v == 1) { return "center" }
+        if (v == 2) { return "right" }
+        return "left"
+    }
+
     ; Apply the node's contiguous property run to a plain View/Text/Spacer.
     fn applyProps:void (doc:WasmUiDoc i:int el:EVGElement) {
         def fp (doc.nodeFirstProp(i))
@@ -366,10 +403,25 @@ class WasmUiEvgBuilder {
             }
             if (key == 12) {                ; PADDING (all sides)
                 def pad (this.pxUnit((doc.propValueA(idx))))
+                ; EVGLayout reads the BOX model (box.padding*), not the top-level
+                ; el.padding* fields - set both so padding actually insets.
                 el.paddingTop = pad
                 el.paddingRight = pad
                 el.paddingBottom = pad
                 el.paddingLeft = pad
+                el.box.setPadding((this.pxUnit((doc.propValueA(idx)))))
+            }
+            if (key == 13) {                ; MARGIN (all sides) - spaces siblings
+                el.box.setMargin((this.pxUnit((doc.propValueA(idx)))))
+            }
+            if (key == 14) {                ; BORDER_RADIUS (px)
+                el.box.borderRadius = (this.pxUnit((doc.propValueA(idx))))
+            }
+            if (key == 15) {                ; BORDER_COLOR
+                el.box.borderColor = (doc.colorAt(idx))
+            }
+            if (key == 16) {                ; BORDER_WIDTH (px)
+                el.box.borderWidth = (this.pxUnit((doc.propValueA(idx))))
             }
             if (key == 20) {                ; FLEX
                 el.flex = (to_double (doc.propValueA(idx)))
@@ -380,6 +432,15 @@ class WasmUiEvgBuilder {
                 } {
                     el.flexDirection = "column"
                 }
+            }
+            if (key == 22) {                ; ALIGN_ITEMS (cross axis)
+                el.alignItems = (this.alignName((doc.propValueA(idx))))
+            }
+            if (key == 23) {                ; JUSTIFY_CONTENT (main axis)
+                el.justifyContent = (this.alignName((doc.propValueA(idx))))
+            }
+            if (key == 24) {                ; TEXT_ALIGN (0 left,1 center,2 right)
+                el.textAlign = (this.textAlignName((doc.propValueA(idx))))
             }
             p = (p + 1)
         }

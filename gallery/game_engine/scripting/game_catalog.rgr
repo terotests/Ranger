@@ -192,10 +192,11 @@ class GameCatalog {
         if ((strlen entry.title) == 0) {
             entry.title = entry.id
         }
-        if ((entry.engine == "wasm") || (entry.engine == "streaming")) {
-            entry.entryPath = (this.joinPath(entry.dir entry.moduleFile))
-        } {
+        if (entry.engine == "tsx") {
             entry.entryPath = (this.joinPath(entry.dir entry.entryFile))
+        } {
+            ; wasm/as/ui/streaming all point at their module file
+            entry.entryPath = (this.joinPath(entry.dir entry.moduleFile))
         }
     }
 
@@ -203,7 +204,23 @@ class GameCatalog {
         if (file_exists gameDir "game.info") {
             def buf:buffer (buffer_read_file gameDir "game.info")
             def txt:string (buffer_to_string buf)
+            def isLinear:boolean false
             if ((indexOf txt "engine=wasm") >= 0) {
+                isLinear = true
+            }
+            if ((indexOf txt "engine=as") >= 0) {
+                isLinear = true
+            }
+            ; engine=ui — a WASM guest that only builds an RGU1 UI document
+            ; (selectable menu), rendered + navigated by the host UI layer.
+            if ((indexOf txt "engine=ui") >= 0) {
+                isLinear = true
+            }
+            ; engine=streaming — worker.wasm + spawned loader, StreamingWorldRunner.
+            if ((indexOf txt "engine=streaming") >= 0) {
+                isLinear = true
+            }
+            if (isLinear) {
                 def modFile:string "logic.wasm"
                 def entry:GameCatalogEntry (new GameCatalogEntry)
                 entry.dir = gameDir
@@ -234,35 +251,8 @@ class GameCatalog {
         if (hasIndex) {
             return true
         }
-        if (this.isWasmGameFolder(gameDir)) {
-            return true
-        }
-        return (this.isStreamingGameFolder(gameDir))
-    }
-
-    ; A streaming game (engine=streaming) is driven by StreamingWorldRunner and
-    ; carries its worker module (module=worker.wasm) plus a spawned loader.
-    fn isStreamingGameFolder:boolean (gameDir:string) {
-        if (file_exists gameDir "game.info") {
-            def buf:buffer (buffer_read_file gameDir "game.info")
-            def txt:string (buffer_to_string buf)
-            if ((indexOf txt "engine=streaming") >= 0) {
-                def modFile:string "worker.wasm"
-                def entry:GameCatalogEntry (new GameCatalogEntry)
-                entry.dir = gameDir
-                def lines:[string] (strsplit txt "\n")
-                def i:int 0
-                while (i < (array_length lines)) {
-                    this.parseInfoLine(entry (itemAt lines i))
-                    i = (i + 1)
-                }
-                if ((strlen entry.moduleFile) > 0) {
-                    modFile = entry.moduleFile
-                }
-                return (file_exists gameDir modFile)
-            }
-        }
-        return false
+        ; isWasmGameFolder covers wasm/as/ui/streaming (all module-file games).
+        return (this.isWasmGameFolder(gameDir))
     }
 
     fn scan:void () {

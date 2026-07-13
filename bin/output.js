@@ -38488,6 +38488,45 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         this.analyzeTransitiveWeak(cl.constructor_fn);
       }
     };
+    propagateArgMutRef (calledParam, arg, fnCtx, changedParams) {
+      const calleeMut = calledParam.rust_borrow_type == 2;
+      const calleeCppRef = calledParam.needs_cpp_reference;
+      if ( calleeMut == false ) {
+        if ( calleeCppRef == false ) {
+          return;
+        }
+      }
+      const argVarName = arg.vref;
+      if ( (argVarName.length) == 0 ) {
+        return;
+      }
+      const argParam = fnCtx.getVariableDef(argVarName);
+      if ( (argParam.name.length) == 0 ) {
+        return;
+      }
+      if ( argParam.varType == 4 ) {
+        let didChange = false;
+        if ( calleeMut ) {
+          if ( argParam.rust_borrow_type != 2 ) {
+            argParam.rust_borrow_type = 2;
+            argParam.needs_cpp_reference = true;
+            didChange = true;
+          }
+        }
+        if ( calleeCppRef ) {
+          if ( argParam.needs_cpp_reference == false ) {
+            argParam.needs_cpp_reference = true;
+            didChange = true;
+          }
+        }
+        if ( didChange ) {
+          changedParams.push(argParam.name);
+          if ( this.debug ) {
+            console.log(((("StaticAnalysis: " + argParam.name) + " upgraded to mutable ref (passed to a param ") + calledParam.name) + " that requires it)");
+          }
+        }
+      }
+    };
     walkForTransitiveMutBorrow (node, fnCtx, fn, changedParams) {
       if ( node.hasFnCall ) {
         if ( (node.children.length) >= 2 ) {
@@ -38500,24 +38539,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               var arg = callParams.children[i];
               if ( i < paramCnt ) {
                 const calledParam = calledFn.params[i];
-                if ( calledParam.rust_borrow_type == 2 ) {
-                  const argVarName = arg.vref;
-                  if ( (argVarName.length) > 0 ) {
-                    const argParam = fnCtx.getVariableDef(argVarName);
-                    if ( (argParam.name.length) > 0 ) {
-                      if ( argParam.varType == 4 ) {
-                        if ( argParam.rust_borrow_type != 2 ) {
-                          argParam.rust_borrow_type = 2;
-                          argParam.needs_cpp_reference = true;
-                          changedParams.push(argParam.name);
-                          if ( this.debug ) {
-                            console.log(((((("StaticAnalysis: " + argParam.name) + " upgraded to &mut (passed to ") + calledFn.name) + " param ") + calledParam.name) + " which requires &mut)");
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
+                this.propagateArgMutRef(calledParam, arg, fnCtx, changedParams);
               }
             };
           }
@@ -38533,24 +38555,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               var arg_1 = argsNode.children[i_1];
               if ( i_1 < paramCnt_1 ) {
                 const calledParam_1 = calledFn_1.params[i_1];
-                if ( calledParam_1.rust_borrow_type == 2 ) {
-                  const argVarName_1 = arg_1.vref;
-                  if ( (argVarName_1.length) > 0 ) {
-                    const argParam_1 = fnCtx.getVariableDef(argVarName_1);
-                    if ( (argParam_1.name.length) > 0 ) {
-                      if ( argParam_1.varType == 4 ) {
-                        if ( argParam_1.rust_borrow_type != 2 ) {
-                          argParam_1.rust_borrow_type = 2;
-                          argParam_1.needs_cpp_reference = true;
-                          changedParams.push(argParam_1.name);
-                          if ( this.debug ) {
-                            console.log(((((("StaticAnalysis: " + argParam_1.name) + " upgraded to &mut (passed to ") + calledFn_1.name) + " param ") + calledParam_1.name) + " which requires &mut)");
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
+                this.propagateArgMutRef(calledParam_1, arg_1, fnCtx, changedParams);
               }
             };
           }

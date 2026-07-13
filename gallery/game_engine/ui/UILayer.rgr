@@ -1,0 +1,495 @@
+; ==============================================================================
+; UILayer - the interactive UI/HUD overlay that sits on top of the EVG/game world.
+; ==============================================================================
+;
+; Holds a retained set of widgets, consumes ONE UIInput per frame, and:
+;   * hit-tests the pointer (hover / press / release / click)
+;   * manages focus (text routing), selection (highlight) and dragging
+;   * routes characters from the hardware OR the on-screen software keyboard to
+;     the focused text field
+;   * maps common UI commands: Tab (focus next), Enter (submit), Esc (cancel),
+;     Backspace/Delete (edit or remove selection), arrows (caret or nudge box)
+;   * emits a queue of UIEvents the app reads each frame (retained-mode friendly,
+;     no callbacks across the compile-target boundary)
+;   * renders every widget through a UIContext, drawing the selection highlight
+;     ("highlight selected element") and the software keyboard on top.
+;
+; It never performs I/O: a thin platform layer fills the UIInput (SDL mouse /
+; canvas events / keyboard queue) and blits ctx.canvas.raw() to the display.
+; ==============================================================================
+
+Import "UIWidget.rgr"
+Import "UITextInput.rgr"
+Import "UISoftKeyboard.rgr"
+Import "UIInput.rgr"
+
+class UIEventType {
+    sfn none:int ()        { return 0 }
+    sfn click:int ()       { return 1 }
+    sfn dragStart:int ()   { return 2 }
+    sfn dragMove:int ()    { return 3 }
+    sfn dragEnd:int ()     { return 4 }
+    sfn select:int ()      { return 5 }
+    sfn deselect:int ()    { return 6 }
+    sfn textChanged:int () { return 7 }
+    sfn submit:int ()      { return 8 }
+    sfn focus:int ()       { return 9 }
+}
+
+class UIEvent {
+    def type:int 0
+    def widgetId:string ""
+    def x:int 0
+    def y:int 0
+    def text:string ""
+}
+
+class UILayer {
+    def ctx:UIContext (new UIContext)
+    def widgets:[UIWidget]
+    def events:[UIEvent]
+
+    def focusId:string ""
+    def selectedId:string ""
+    def dragId:string ""
+    def pressId:string ""
+    def hoverId:string ""
+    def dragOffX:int 0
+    def dragOffY:int 0
+    def frame:int 0
+
+    def keyboard:UISoftKeyboard (new UISoftKeyboard)
+    def keyboardVisible:boolean false
+
+    def nudgeStep:int 4
+
+    Constructor () {
+    }
+
+    fn attach:void (c:SoftCanvas) {
+        ctx.attach(c)
+    }
+
+    fn add:void (wgt:UIWidget) {
+        push widgets wgt
+    }
+
+    ; --- lookup ---------------------------------------------------------------
+    fn indexOf:int (id:string) {
+        def i:int 0
+        def n:int (array_length widgets)
+        while (i < n) {
+            def wg:UIWidget (itemAt widgets i)
+            if (wg.id == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    fn hasWidget:boolean (id:string) {
+        return ((this.indexOf(id)) >= 0)
+    }
+
+    fn get:UIWidget (id:string) {
+        def idx:int (this.indexOf(id))
+        if (idx >= 0) {
+            return (itemAt widgets idx)
+        }
+        def dummy:UIWidget (new UIWidget)
+        return dummy
+    }
+
+    ; Topmost visible widget index at (px,py), or -1.
+    fn topWidgetAt:int (px:int py:int) {
+        def i:int ((array_length widgets) - 1)
+        while (i >= 0) {
+            def wg:UIWidget (itemAt widgets i)
+            if (wg.visible) {
+                if (wg.enabled) {
+                    if (wg.contains(px py)) {
+                        return i
+                    }
+                }
+            }
+            i = (i - 1)
+        }
+        return (0 - 1)
+    }
+
+    ; --- keyboard control -----------------------------------------------------
+    fn showKeyboard:void (kx:int ky:int kw:int kh:int) {
+        keyboard.setBounds(kx ky kw kh)
+        keyboard.fontSize = 15.0
+        keyboardVisible = true
+    }
+
+    fn hideKeyboard:void () {
+        keyboardVisible = false
+    }
+
+    ; --- focus / selection ----------------------------------------------------
+    fn setFocus:void (id:string) {
+        def i:int 0
+        def n:int (array_length widgets)
+        while (i < n) {
+            def wg:UIWidget (itemAt widgets i)
+            wg.focused = (wg.id == id)
+            i = (i + 1)
+        }
+        focusId = id
+        ; place caret at end of a freshly focused text field
+        def w2:UIWidget (this.get(id))
+        if (w2.acceptsText()) {
+            w2.moveCaret(100000)
+        }
+    }
+
+    fn clearFocus:void () {
+        def i:int 0
+        def n:int (array_length widgets)
+        while (i < n) {
+            def wg:UIWidget (itemAt widgets i)
+            wg.focused = false
+            i = (i + 1)
+        }
+        focusId = ""
+    }
+
+    fn setSelected:void (id:string) {
+        if (selectedId == id) {
+            return
+        }
+        def i:int 0
+        def n:int (array_length widgets)
+        while (i < n) {
+            def wg:UIWidget (itemAt widgets i)
+            wg.selected = (wg.id == id)
+            i = (i + 1)
+        }
+        selectedId = id
+        this.emit((UIEventType.select()) id 0 0 "")
+    }
+
+    fn clearSelection:void () {
+        if ((strlen selectedId) == 0) {
+            return
+        }
+        def old:string selectedId
+        def i:int 0
+        def n:int (array_length widgets)
+        while (i < n) {
+            def wg:UIWidget (itemAt widgets i)
+            wg.selected = false
+            i = (i + 1)
+        }
+        selectedId = ""
+        this.emit((UIEventType.deselect()) old 0 0 "")
+    }
+
+    ; Focus the next focusable+visible widget after the current focus (wraps).
+    fn focusNext:void () {
+        def n:int (array_length widgets)
+        if (n == 0) { return }
+        def start:int (this.indexOf(focusId))
+        def i:int 1
+        while (i <= n) {
+            def idx:int (start + i)
+            ; wrap
+            while (idx >= n) {
+                idx = (idx - n)
+            }
+            def wg:UIWidget (itemAt widgets idx)
+            if (wg.visible) {
+                if (wg.enabled) {
+                    if (wg.focusable) {
+                        this.setFocus(wg.id)
+                        return
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn removeSelected:void () {
+        if ((strlen selectedId) == 0) { return }
+        def idx:int (this.indexOf(selectedId))
+        if (idx < 0) { return }
+        def gone:UIWidget (array_extract widgets idx)
+        selectedId = ""
+        if (dragId == gone.id) { dragId = "" }
+        if (pressId == gone.id) { pressId = "" }
+        if (focusId == gone.id) { focusId = "" }
+    }
+
+    ; --- events ---------------------------------------------------------------
+    fn emit:void (type:int id:string ex:int ey:int etext:string) {
+        def ev:UIEvent (new UIEvent)
+        ev.type = type
+        ev.widgetId = id
+        ev.x = ex
+        ev.y = ey
+        ev.text = etext
+        push events ev
+    }
+
+    fn eventCount:int () {
+        return (array_length events)
+    }
+
+    fn eventAt:UIEvent (i:int) {
+        return (itemAt events i)
+    }
+
+    ; --- per-frame update -----------------------------------------------------
+    fn update:void (input:UIInput) {
+        frame = (frame + 1)
+        ctx.frame = frame
+        clear events
+
+        def px:int input.pointerX
+        def py:int input.pointerY
+
+        this.updateHover(px py)
+        if input.pointerPressed {
+            this.handlePress(px py)
+        }
+        if input.pointerDown {
+            this.handleDrag(px py)
+        }
+        if input.pointerReleased {
+            this.handleRelease(px py)
+        }
+
+        this.routeText(input)
+        this.handleKeys(input)
+    }
+
+    fn updateHover:void (px:int py:int) {
+        def top:int (this.topWidgetAt(px py))
+        def i:int 0
+        def n:int (array_length widgets)
+        while (i < n) {
+            def wg:UIWidget (itemAt widgets i)
+            wg.hovered = (i == top)
+            i = (i + 1)
+        }
+        if (top >= 0) {
+            def tw:UIWidget (itemAt widgets top)
+            hoverId = tw.id
+        } {
+            hoverId = ""
+        }
+        if keyboardVisible {
+            keyboard.updateHover(px py)
+        }
+    }
+
+    fn handlePress:void (px:int py:int) {
+        ; Software keyboard takes priority when visible.
+        if keyboardVisible {
+            if (keyboard.contains(px py)) {
+                def token:string (keyboard.tokenAt(px py))
+                this.applyKeyboardToken(token)
+                return
+            }
+        }
+        def idx:int (this.topWidgetAt(px py))
+        if (idx < 0) {
+            ; clicked empty space -> cancel selection & text focus
+            this.clearSelection()
+            this.clearFocus()
+            return
+        }
+        def wg:UIWidget (itemAt widgets idx)
+        pressId = wg.id
+        wg.pressed = true
+
+        if (wg.focusable) {
+            this.setFocus(wg.id)
+        } {
+            this.clearFocus()
+        }
+        if (wg.selectable) {
+            this.setSelected(wg.id)
+        } {
+            this.clearSelection()
+        }
+        if (wg.draggable) {
+            dragId = wg.id
+            dragOffX = (px - wg.x)
+            dragOffY = (py - wg.y)
+            this.emit((UIEventType.dragStart()) wg.id wg.x wg.y "")
+        }
+    }
+
+    fn handleDrag:void (px:int py:int) {
+        if ((strlen dragId) == 0) { return }
+        def idx:int (this.indexOf(dragId))
+        if (idx < 0) { return }
+        def wg:UIWidget (itemAt widgets idx)
+        wg.x = (px - dragOffX)
+        wg.y = (py - dragOffY)
+        this.emit((UIEventType.dragMove()) wg.id wg.x wg.y "")
+    }
+
+    fn handleRelease:void (px:int py:int) {
+        if ((strlen pressId) > 0) {
+            def idx:int (this.indexOf(pressId))
+            if (idx >= 0) {
+                def wg:UIWidget (itemAt widgets idx)
+                wg.pressed = false
+                if (wg.contains(px py)) {
+                    wg.onActivate()
+                    this.emit((UIEventType.click()) wg.id px py "")
+                }
+            }
+            pressId = ""
+        }
+        if ((strlen dragId) > 0) {
+            def d:UIWidget (this.get(dragId))
+            this.emit((UIEventType.dragEnd()) dragId d.x d.y "")
+            dragId = ""
+        }
+    }
+
+    fn routeText:void (input:UIInput) {
+        if (input.hasText() == false) { return }
+        if ((strlen focusId) == 0) { return }
+        def wg:UIWidget (this.get(focusId))
+        if (wg.acceptsText()) {
+            wg.insertText(input.textInput)
+            this.emit((UIEventType.textChanged()) wg.id 0 0 wg.text)
+        }
+    }
+
+    fn handleKeys:void (input:UIInput) {
+        def focusEdits:boolean false
+        def wg:UIWidget (this.get(focusId))
+        if ((strlen focusId) > 0) {
+            focusEdits = (wg.acceptsText())
+        }
+
+        if (input.hasKey((UIKey.tab()))) {
+            this.focusNext()
+        }
+        if (input.hasKey((UIKey.escape()))) {
+            this.clearSelection()
+            this.clearFocus()
+            this.hideKeyboard()
+        }
+        if (input.hasKey((UIKey.backspace()))) {
+            if focusEdits {
+                wg.backspace()
+                this.emit((UIEventType.textChanged()) wg.id 0 0 wg.text)
+            }
+        }
+        if (input.hasKey((UIKey.enter()))) {
+            if (focusEdits) {
+                this.emit((UIEventType.submit()) wg.id 0 0 wg.text)
+            }
+        }
+        if (input.hasKey((UIKey.del()))) {
+            if focusEdits {
+                wg.deleteForward()
+                this.emit((UIEventType.textChanged()) wg.id 0 0 wg.text)
+            } {
+                this.removeSelected()
+            }
+        }
+        if (input.hasKey((UIKey.left()))) {
+            if focusEdits {
+                wg.moveCaret((0 - 1))
+            } {
+                this.nudgeSelected((0 - nudgeStep) 0)
+            }
+        }
+        if (input.hasKey((UIKey.right()))) {
+            if focusEdits {
+                wg.moveCaret(1)
+            } {
+                this.nudgeSelected(nudgeStep 0)
+            }
+        }
+        if (input.hasKey((UIKey.up()))) {
+            if (focusEdits == false) {
+                this.nudgeSelected(0 (0 - nudgeStep))
+            }
+        }
+        if (input.hasKey((UIKey.down()))) {
+            if (focusEdits == false) {
+                this.nudgeSelected(0 nudgeStep)
+            }
+        }
+    }
+
+    fn nudgeSelected:void (dx:int dy:int) {
+        if ((strlen selectedId) == 0) { return }
+        def idx:int (this.indexOf(selectedId))
+        if (idx < 0) { return }
+        def wg:UIWidget (itemAt widgets idx)
+        wg.x = (wg.x + dx)
+        wg.y = (wg.y + dy)
+        this.emit((UIEventType.dragMove()) wg.id wg.x wg.y "")
+    }
+
+    ; Route an on-screen keyboard token to the focused text field.
+    fn applyKeyboardToken:void (token:string) {
+        if ((strlen token) == 0) { return }
+        if (token == "Shift") {
+            keyboard.toggleShift()
+            return
+        }
+        def wg:UIWidget (this.get(focusId))
+        def canEdit:boolean false
+        if ((strlen focusId) > 0) {
+            canEdit = (wg.acceptsText())
+        }
+        if (token == "OK") {
+            if canEdit {
+                this.emit((UIEventType.submit()) wg.id 0 0 wg.text)
+            }
+            return
+        }
+        if (token == "back") {
+            if canEdit {
+                wg.backspace()
+                this.emit((UIEventType.textChanged()) wg.id 0 0 wg.text)
+            }
+            return
+        }
+        def ch:string (keyboard.charFor(token))
+        if ((strlen ch) > 0) {
+            if canEdit {
+                wg.insertText(ch)
+                this.emit((UIEventType.textChanged()) wg.id 0 0 wg.text)
+            }
+        }
+    }
+
+    ; --- render ---------------------------------------------------------------
+    ; Draw the whole overlay onto ctx.canvas. Call AFTER the game world has been
+    ; drawn into the same framebuffer, then blit ctx.canvas.raw() to the display.
+    fn render:void () {
+        def i:int 0
+        def n:int (array_length widgets)
+        while (i < n) {
+            def wg:UIWidget (itemAt widgets i)
+            wg.draw(ctx)
+            i = (i + 1)
+        }
+        ; selection highlight ("highlight selected element")
+        if ((strlen selectedId) > 0) {
+            def idx:int (this.indexOf(selectedId))
+            if (idx >= 0) {
+                def sw:UIWidget (itemAt widgets idx)
+                ctx.strokeRect((sw.x - 2) (sw.y - 2) (sw.w + 4) (sw.h + 4) 2 ctx.theme.accent)
+            }
+        }
+        if keyboardVisible {
+            keyboard.draw(ctx)
+        }
+    }
+}

@@ -19,6 +19,7 @@ Import "./game_runtime.rgr"
 Import "../wasm_runtime.rgr"
 Import "./wasm_game_runner.rgr"
 Import "./wasm_physics_runner.rgr"
+Import "./game_ui_runner.rgr"
 Import "../gfx_sdl.rgr"
 Import "./game_audio_sdl.rgr"
 Import "./game_catalog.rgr"
@@ -92,7 +93,11 @@ class GameSdlRunner {
     def lastCatalogPoll:int 0
     def prevUpHeld:boolean false
     def prevDownHeld:boolean false
+    def prevLeftHeld:boolean false
+    def prevRightHeld:boolean false
     def prevActionHeld:boolean false
+    def uiRunner:GameUiRunner (new GameUiRunner)
+    def uiDirectPath:string ""
     def gpuModeWanted:boolean true
     def gpuModeActive:boolean false
     def gameInputSnap:GameInputSnapshot (new GameInputSnapshot)
@@ -371,9 +376,67 @@ class GameSdlRunner {
         }
     }
 
+    fn dirOf:string (path:string) {
+        def cut (0 - 1)
+        def i 0
+        def n (strlen path)
+        while (i < n) {
+            def c:string (substring path i (i + 1))
+            if (c == "/") {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        if (cut < 0) {
+            return "."
+        }
+        return (substring path 0 cut)
+    }
+
+    ; Load an interpreted .as game folder — reuses the wasm physics/render path
+    ; (the ABI is identical); only the guest is an interpreted .as file.
+    fn loadAsAt:void (asPath:string) {
+        useStreamRunner = false
+        useWasmRunner = true
+        useWasmPhysics = true
+        def dir:string (this.dirOf(asPath))
+        wasmPhysicsRunner = (new WasmPhysicsRunner)
+        wasmPhysicsRunner.init(pw ph)
+        this.presentLoadingScreen("LOADING .AS")
+        if ((wasmPhysicsRunner.loadAsGame(dir)) == false) {
+            print ("[as] load failed: " + dir)
+            return
+        }
+        wasmPhysicsRunner.setupScene()
+        def sdlHost:SdlGameHost (new SdlGameHost)
+        this.wireWasmAudio(wasmPhysicsRunner.audio sdlHost)
+        wasmPhysicsRunner.host = sdlHost
+        currentScriptPath = asPath
+        currentGamePath = asPath
+        inMenu = false
+        inGame = true
+        splitScreenActive = false
+        wasmSplitActive = false
+        this.syncInputEdges()
+        gameInputSnap.resetSoloPad()
+        gfx_clear_should_close
+        this.setProfileOnRunners()
+        print ("[game-engine] .as game: " + asPath)
+    }
+
     fn loadGameAtPath:void (path:string injectCatalog:boolean) {
         if (this.isStreamingPath(path)) {
             this.loadStreamingAt(path)
+            return
+        }
+        ; engine=ui games are driven by runUiGame(), not the wasm/tsx runners.
+        if ((this.engineOf(path)) == "ui") {
+            uiDirectPath = path
+            currentGamePath = path
+            return
+        }
+        if (this.isAsPath(path)) {
+            this.loadAsAt(path)
             return
         }
         if (this.isWasmPath(path)) {
@@ -598,6 +661,10 @@ class GameSdlRunner {
             this.loadStreamingAt(path)
             return
         }
+        if (this.isAsPath(path)) {
+            this.loadAsAt(path)
+            return
+        }
         if (this.isWasmPath(path)) {
             this.resolveSplitMetadata(path)
             if (this.shouldUseSplitScreen()) {
@@ -814,11 +881,105 @@ class GameSdlRunner {
         return false
     }
 
+    fn leftEdge:boolean (held:boolean) {
+        if (held) {
+            if (prevLeftHeld == false) {
+                prevLeftHeld = true
+                return true
+            }
+        } {
+            prevLeftHeld = false
+        }
+        return false
+    }
+
+    fn rightEdge:boolean (held:boolean) {
+        if (held) {
+            if (prevRightHeld == false) {
+                prevRightHeld = true
+                return true
+            }
+        } {
+            prevRightHeld = false
+        }
+        return false
+    }
+
+    ; True when the game folder for `path` declares engine=ui.
+    fn engineOf:string (path:string) {
+        def dir:string (this.dirOf(path))
+        if (file_exists dir "game.info") {
+            def buf:buffer (buffer_read_file dir "game.info")
+            def txt:string (buffer_to_string buf)
+            if ((indexOf txt "engine=ui") >= 0) {
+                return "ui"
+            }
+        }
+        return ""
+    }
+
+    ; Self-contained loop for an engine=ui game: instantiate the RGU1 guest,
+    ; render its menu, move the selection with the D-pad, forward the action
+    ; button to the guest, and return to the launcher on Back/Quit.
+    fn runUiGame:void (wasmPath:string) {
+        uiRunner.init(pw ph "gallery/game_engine/assets/fonts" "OpenSans-Regular.ttf" "Open Sans")
+        if ((uiRunner.loadWasm(wasmPath)) == false) {
+            print ("[game-engine] ui game load failed: " + wasmPath)
+            return
+        }
+        print ("[game-engine] ui game: " + wasmPath)
+        currentScriptPath = wasmPath
+        currentGamePath = wasmPath
+        inMenu = false
+        inGame = true
+        gfx_clear_should_close
+        this.syncInputEdges()
+        def nav:UiNavInput (new UiNavInput)
+        while (running) {
+            def m:int (this.uiNavMask())
+            nav.clear()
+            nav.up = (this.upEdge((bit_and m 1) != 0))
+            nav.down = (this.downEdge((bit_and m 2) != 0))
+            nav.left = (this.leftEdge((bit_and m 16) != 0))
+            nav.right = (this.rightEdge((bit_and m 32) != 0))
+            nav.action = (this.actionEdge((bit_and m 4) != 0))
+            def _a:int (uiRunner.frame(nav))
+            uiRunner.render()
+            gfx_present (uiRunner.raw()) pw ph
+
+            if (this.quitEdge((this.gameMenuBackHeld()))) {
+                inGame = false
+                gfx_clear_should_close
+                return
+            }
+            if (gfx_should_close) {
+                running = false
+                return
+            }
+            frames = (frames + 1)
+            if (maxFrames > 0) {
+                if (frames >= maxFrames) {
+                    running = false
+                    return
+                }
+            }
+        }
+    }
+
     ; Menu navigation: keyboard P1 (WASD/arrows) + gamepad 0 merged.
     fn launcherNavMask:int () {
         def kb:int (gfx_input_source_mask(0))
         def pad:int (gfx_input_source_mask(2))
         return (bit_or kb pad)
+    }
+
+    ; UI-menu navigation: WASD (src 0) + arrow keys (src 1) + gamepad 0 (src 2).
+    ; The launcher mask above omits src 1, so arrows wouldn't move the selection.
+    fn uiNavMask:int () {
+        def kb1:int (gfx_input_source_mask(0))
+        def kb2:int (gfx_input_source_mask(1))
+        def pad:int (gfx_input_source_mask(2))
+        return (bit_or (bit_or kb1 kb2) pad)
     }
 
     ; Return to launcher menu: Q/Esc, or gamepad Select / B.
@@ -890,8 +1051,12 @@ class GameSdlRunner {
 
             def launchPath:string (runner.stateString("launchPath" ""))
             if ((strlen launchPath) > 0) {
-                this.loadGame(launchPath)
-                this.runGameLoop()
+                if ((this.engineOf(launchPath)) == "ui") {
+                    this.runUiGame(launchPath)
+                } {
+                    this.loadGame(launchPath)
+                    this.runGameLoop()
+                }
                 if (running == false) {
                     return
                 }
@@ -1065,7 +1230,11 @@ class GameSdlRunner {
         if (launcherMode) {
             this.runMenuLoop()
         } {
-            this.runGameLoop()
+            if ((strlen uiDirectPath) > 0) {
+                this.runUiGame(uiDirectPath)
+            } {
+                this.runGameLoop()
+            }
         }
         gfx_close
     }
@@ -1101,6 +1270,18 @@ class GameSdlRunner {
                     }
                 }
             }
+        }
+        return false
+    }
+
+    fn isAsPath:boolean (arg:string) {
+        def len:int (strlen arg)
+        if (len < 3) {
+            return false
+        }
+        def tail:string (substring arg (len - 3) len)
+        if (tail == ".as") {
+            return true
         }
         return false
     }

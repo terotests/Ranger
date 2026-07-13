@@ -191,5 +191,11 @@ pre-existing content bugs unrelated to the renderer.
    (SDL2) and `es6` canvas backend. Terminal downsample fallback.
 3. **Phase 2 — declarative UI.** HUD/menu/pause components via `l`/JSX +
    `EVGLayout`; custom TTF fonts; golden-frame tests (Mac↔Pi identical).
+   * **Interactive UI layer (done, pure Ranger).** An on-top-of-EVG widget layer
+     — buttons, text inputs, draggable boxes, an on-screen software keyboard,
+     selection highlight, and TTF text with correct wrapping + a glyph/line cache
+     for accelerated rendering. See [`ui/UI_LAYER.md`](./ui/UI_LAYER.md). It reads
+     an abstract `UIInput` (pointer + keys), so the only platform work left is a
+     `gfx_mouse_*` operator + `SDL_TEXTINPUT` channel (documented there).
 4. **Phase 3 — GPU.** `EVGGLRenderer` on GLES2 (Pi) / WebGL (web); gradient +
    blur shaders; texture atlas for glyphs/sprites; batching.

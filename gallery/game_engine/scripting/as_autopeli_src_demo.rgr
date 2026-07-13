@@ -1,0 +1,69 @@
+; Headless proof: interpret the autopeli .as core and read back RGW1 controls
+; + the RGU1 HUD (same ABI the WASM host reads).
+Import "./as_source_runner.rgr"
+
+class AsAutopeliSrcDemo {
+    sfn textAt:string (runner:AsSourceRunner nodeIndex:int) {
+        def nb (64 + (nodeIndex * 32))
+        def fp:int (runner.uiByte(nb + 12))
+        def pb (2112 + (fp * 16))
+        def a:int (runner.uiByte(pb + 4))
+        def n:int (runner.uiByte(pb + 8))
+        def s ""
+        def i 0
+        while (i < n) {
+            def code:int (runner.uiByte((4160 + a) + i))
+            s = (+ s (strfromcode code))
+            i = (i + 1)
+        }
+        return s
+    }
+
+    sfn m@(main):void () {
+        def runner:AsSourceRunner (new AsSourceRunner)
+        def dir:string "gallery/game_engine/games/autopeli_as_src"
+        if ((runner.bindDir(dir)) == false) {
+            print "bind failed"
+            return
+        }
+        runner.callInit()
+
+        print "--- init: body positions (units) ---"
+        print (+ "P1 x=" (+ (to_string (idiv (runner.abiRead(64)) 256)) (+ " y=" (to_string (idiv (runner.abiRead(68)) 256)))))
+        print (+ "P2 x=" (+ (to_string (idiv (runner.abiRead(88)) 256)) (+ " y=" (to_string (idiv (runner.abiRead(92)) 256)))))
+        print (+ "traffic0 x=" (+ (to_string (idiv (runner.abiRead(112)) 256)) (+ " y=" (to_string (idiv (runner.abiRead(116)) 256)))))
+
+        ; drive P1 UP|RIGHT (9), P2 LEFT (4); inject P1<->wall, P2<->cone
+        runner.abiWrite(12 16)      ; dt
+        runner.abiWrite(16 1234)    ; time
+        runner.abiWrite(20 9)       ; input P1 = UP|RIGHT
+        runner.abiWrite(24 4)       ; input P2 = LEFT
+        runner.abiWrite(1600 0)     ; contact0 bodyA = P1
+        runner.abiWrite(1604 1000)  ; contact0 bodyB = wall
+        runner.abiWrite(1608 1)     ; contact0 phase = begin
+        runner.abiWrite(1632 1)     ; contact1 bodyA = P2
+        runner.abiWrite(1636 100)   ; contact1 bodyB = cone
+        runner.abiWrite(1640 1)     ; contact1 phase = begin
+        runner.abiWrite(36 2)       ; contact count
+        runner.callUpdate()
+
+        print "--- update: controls (steer, throttle) ---"
+        print (+ "P1  steer=" (+ (to_string (runner.abiRead(832))) (+ " throttle=" (to_string (runner.abiRead(836))))))
+        print (+ "P2  steer=" (+ (to_string (runner.abiRead(848))) (+ " throttle=" (to_string (runner.abiRead(852))))))
+        print (+ "tr0 steer=" (+ (to_string (runner.abiRead(864))) (+ " throttle=" (to_string (runner.abiRead(868))))))
+
+        print "--- RGU1 HUD text nodes ---"
+        def nc:int (runner.uiByte(20))
+        print (+ "nodeCount=" (to_string nc))
+        def i 0
+        while (i < nc) {
+            def nb (64 + (i * 32))
+            def kind:int (runner.uiByte(nb + 8))
+            if (kind == 2) {
+                print (+ "  \"" (+ (AsAutopeliSrcDemo.textAt(runner i)) "\""))
+            }
+            i = (i + 1)
+        }
+        print "AS AUTOPELI (interpreted) OK"
+    }
+}

@@ -14,6 +14,7 @@ Import "./game_input.rgr"
 Import "../../ts_to_ranger/game_host.rgr"
 Import "./wasm_ui_io.rgr"
 Import "./game_hud.rgr"
+Import "./as_source_runner.rgr"
 
 class WasmPhysicsRunner {
     def handle:int 0
@@ -55,6 +56,12 @@ class WasmPhysicsRunner {
     def uiBuilder:WasmUiEvgBuilder (new WasmUiEvgBuilder)
     def hudBlitter:GameHudBlitter (new GameHudBlitter)
     def uiRev:int (0 - 1)
+
+    ; .as source-engine guest (interpreted). When useAs is set, the guest is an
+    ; interpreted .as file instead of a compiled .wasm module; everything else
+    ; (physics, render, HUD, split-screen) is identical because the ABI is.
+    def asRunner:AsSourceRunner (new AsSourceRunner)
+    def useAs:boolean false
 
     fn bodyIdIndex:int (id:string) {
         def i 0
@@ -328,6 +335,21 @@ class WasmPhysicsRunner {
         print ("[wasm] loaded: " + path + " linear=" + (to_string linearMode))
     }
 
+    ; Load an interpreted .as game folder instead of a .wasm module. The ABI is
+    ; identical, so setupScene/physics/render/HUD all run unchanged.
+    fn loadAsGame:boolean (dir:string) {
+        if ((asRunner.bindDir(dir)) == false) {
+            print ("[as] load failed: " + dir)
+            return false
+        }
+        useAs = true
+        linearMode = true
+        abi.bindAs(asRunner.bridge)
+        asRunner.callInit()
+        print ("[as] loaded interpreted guest: " + asRunner.asFile)
+        return true
+    }
+
     fn findBody:PhysBody (id:string) {
         def fail:PhysBody (new PhysBody)
         def i 0
@@ -409,7 +431,54 @@ class WasmPhysicsRunner {
     ; The WASM module declares its resources by calling host imports; the host
     ; drains the manifest, registers each into GameHost, and builds sprite
     ; templates that resolve images through the host registry.
+    ; .as path: run declare_resources() through the interpreter, then read the
+    ; bridge manifest exactly like the wasm one.
+    fn loadResourcesFromAs:void () {
+        asRunner.callDeclareResources()
+        def n:int (asRunner.bridge.resCount())
+        if (n <= 0) {
+            render.initSprites()
+            print "[as] no host resources declared; using built-in sprites"
+            return
+        }
+        render.beginSprites()
+        def i 0
+        while (i < n) {
+            def kind:int (asRunner.bridge.resKind(i))
+            def id:string (asRunner.bridge.resId(i))
+            if (kind == 2) {
+                def w:int (asRunner.bridge.resIval(i 4))
+                def h:int (asRunner.bridge.resIval(i 5))
+                def rr:int (asRunner.bridge.resIval(i 6))
+                def gg:int (asRunner.bridge.resIval(i 7))
+                def bb:int (asRunner.bridge.resIval(i 8))
+                def dl:int (asRunner.bridge.resIval(i 9))
+                render.addRectTemplate(id w h rr gg bb dl)
+            } {
+                def path:string (asRunner.bridge.resPath(i))
+                def fw:int (asRunner.bridge.resIval(i 0))
+                def fh:int (asRunner.bridge.resIval(i 1))
+                def scale:int (asRunner.bridge.resIval(i 2))
+                def feet:int (asRunner.bridge.resIval(i 3))
+                def dl:int (asRunner.bridge.resIval(i 9))
+                def rdef:ResourceDefNative (new ResourceDefNative)
+                rdef.kind = "image"
+                rdef.id = id
+                rdef.path = path
+                host.registerResource(rdef)
+                render.addSheetTemplate(host id path fw fh scale feet dl)
+            }
+            i = (i + 1)
+        }
+        render.endSprites()
+        print ("[as] host-registered resources: " + (to_string n))
+    }
+
     fn loadResourcesFromWasm:void () {
+        if (useAs) {
+            this.loadResourcesFromAs()
+            return
+        }
         wasm_host_res_reset handle
         wasm_call_void handle "declare_resources" 0 0 0 0 0 0
         def n:int (wasm_host_res_count handle)
@@ -483,12 +552,18 @@ class WasmPhysicsRunner {
     }
 
     fn setupScene:void () {
-        if (handle == 0) {
-            return
+        if (useAs == false) {
+            if (handle == 0) {
+                return
+            }
         }
         def empty:[string]
         bodyIds = empty
-        wasm_call_void handle "init" 0 0 0 0 0 0
+        if (useAs) {
+            asRunner.callInit()
+        } {
+            wasm_call_void handle "init" 0 0 0 0 0 0
+        }
         if (abi.verifyMagic()) {
             linearMode = true
         }
@@ -577,7 +652,11 @@ class WasmPhysicsRunner {
         abi.setInputFlags(flags)
         abi.setInputP2(flagsP2)
         this.writeContactsToAbi()
-        wasm_call_void handle "update" 0 0 0 0 0 0
+        if (useAs) {
+            asRunner.callUpdate()
+        } {
+            wasm_call_void handle "update" 0 0 0 0 0 0
+        }
         this.drainEventsFromAbi()
         this.applyPhysicsFromAbi()
         physics.step(dtMs)
@@ -587,8 +666,10 @@ class WasmPhysicsRunner {
     }
 
     fn frame:void (dtMs:int up:boolean down:boolean left:boolean right:boolean action:boolean) {
-        if (handle == 0) {
-            return
+        if (useAs == false) {
+            if (handle == 0) {
+                return
+            }
         }
         timeMs = (timeMs + dtMs)
         def flags:int (this.inputFlags(up down left right action))
@@ -608,8 +689,10 @@ class WasmPhysicsRunner {
     }
 
     fn frameWithFlags:void (dtMs:int flags:int flagsP2:int) {
-        if (handle == 0) {
-            return
+        if (useAs == false) {
+            if (handle == 0) {
+                return
+            }
         }
         timeMs = (timeMs + dtMs)
         if (fixedStepMs > 0) {
@@ -684,13 +767,22 @@ class WasmPhysicsRunner {
     ; panes in a split-screen frame share a single read.
     fn drawWasmHudOn:boolean (target:SoftCanvas bodyIdx:int) {
         if (useWasmHud == false) { return false }
-        if (handle == 0) { return false }
-        def rev:int (wasm_call_i32 handle "rg_ui_revision" 0 0 0 0 0 0)
-        if (rev <= 0) { return false }
-        if (rev != uiRev) {
-            def ok:boolean (uiDoc.loadFromWasm(handle))
-            if (ok == false) { return false }
-            uiRev = rev
+        if (useAs) {
+            def arev:int (asRunner.uiRevision())
+            if (arev <= 0) { return false }
+            if (arev != uiRev) {
+                uiDoc.loadBytes(asRunner.bridge.ui 8192)
+                uiRev = arev
+            }
+        } {
+            if (handle == 0) { return false }
+            def rev:int (wasm_call_i32 handle "rg_ui_revision" 0 0 0 0 0 0)
+            if (rev <= 0) { return false }
+            if (rev != uiRev) {
+                def ok:boolean (uiDoc.loadFromWasm(handle))
+                if (ok == false) { return false }
+                uiRev = rev
+            }
         }
         if (uiDoc.valid == false) { return false }
         def colId:int 10

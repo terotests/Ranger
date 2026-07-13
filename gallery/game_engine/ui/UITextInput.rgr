@@ -1,0 +1,107 @@
+; ==============================================================================
+; UITextInput - an editable single-line text field with a caret.
+; ==============================================================================
+;
+; Receives characters from the keyboard OR the on-screen software keyboard (both
+; funnel through UILayer -> focused widget). `text` holds the current value;
+; `caret` is the insertion index. A focused field draws a blinking caret and a
+; focus ring.
+; ==============================================================================
+
+Import "UIWidget.rgr"
+
+class UITextInput {
+    Extends(UIWidget)
+
+    def placeholder:string ""
+    def caret:int 0
+    def padX:int 7
+
+    Constructor () {
+        kind = 4
+        focusable = true
+        selectable = true
+    }
+
+    fn setValue:void (v:string) {
+        text = v
+        caret = (strlen v)
+    }
+
+    fn acceptsText:boolean () {
+        return true
+    }
+
+    fn insertText:void (s:string) {
+        def len:int (strlen text)
+        if (caret < 0) { caret = 0 }
+        if (caret > len) { caret = len }
+        def before:string (substring text 0 caret)
+        def after:string (substring text caret len)
+        text = (before + s + after)
+        caret = (caret + (strlen s))
+    }
+
+    fn backspace:void () {
+        def len:int (strlen text)
+        if (caret <= 0) { return }
+        if (caret > len) { caret = len }
+        def before:string (substring text 0 (caret - 1))
+        def after:string (substring text caret len)
+        text = (before + after)
+        caret = (caret - 1)
+    }
+
+    fn deleteForward:void () {
+        def len:int (strlen text)
+        if (caret >= len) { return }
+        def before:string (substring text 0 caret)
+        def after:string (substring text (caret + 1) len)
+        text = (before + after)
+    }
+
+    fn moveCaret:void (dir:int) {
+        def len:int (strlen text)
+        caret = (caret + dir)
+        if (caret < 0) { caret = 0 }
+        if (caret > len) { caret = len }
+    }
+
+    fn caretToEnd:void () {
+        caret = (strlen text)
+    }
+
+    fn draw:void (ctx:UIContext) {
+        if (visible == false) { return }
+        ctx.fillRect(x y w h ctx.theme.inputBg)
+        def border:EVGColor ctx.theme.inputBorder
+        if focused {
+            border = ctx.theme.focusRing
+        }
+        ctx.strokeRect(x y w h 1 border)
+
+        def lh:int (to_int (ctx.lineHeight(fontSize)))
+        def ty:int (y + (to_int ((h - lh) / 2)))
+        def tx:int (x + padX)
+
+        if ((strlen text) > 0) {
+            ctx.text(text tx ty fontSize ctx.theme.inputText)
+        } {
+            if ((strlen placeholder) > 0) {
+                ctx.text(placeholder tx ty fontSize ctx.theme.placeholder)
+            }
+        }
+
+        ; Caret: blink ~ every 30 frames while focused.
+        if focused {
+            def phase:int (to_int (ctx.frame / 30))
+            def on:int (phase - ((to_int (phase / 2)) * 2))   ; phase % 2
+            if (on == 0) {
+                def pre:string (substring text 0 caret)
+                def cw:int (to_int (ctx.measureWidth(pre fontSize)))
+                def cx:int (tx + cw)
+                ctx.fillRect(cx (ty - 1) 2 (lh + 2) ctx.theme.caret)
+            }
+        }
+    }
+}

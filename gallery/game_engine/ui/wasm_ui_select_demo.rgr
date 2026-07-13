@@ -1,0 +1,170 @@
+; ==============================================================================
+; wasm_ui_select_demo - WASM-authored selectable menu, navigated by gamepad/keys.
+; ==============================================================================
+;
+; End-to-end host demo of the RGU1 selection bridge, self-checking + PNG dumps.
+;
+; The real native path is: a WASM guest (see ../wasm/as_ui_menu) builds the RGU1
+; document, the host reads it, the player moves a highlight with the D-pad, and
+; the action button is forwarded back to the guest (rg_ui_event) which rebuilds.
+; The es6 dev build has no WASM runtime, so here we author the SAME RGU1 bytes on
+; the host with RgUiWriter (byte-for-byte the guest's format) and emulate the
+; guest's rg_ui_event by re-authoring the document after activation. This
+; exercises the whole host path — reader -> EVG tree -> layout -> selection ->
+; highlight -> activation — without a wasm engine.
+; ==============================================================================
+
+Import "WasmUiSelect.rgr"
+Import "RgUiWriter.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+
+class DemoCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+}
+
+class WasmUiSelectDemo {
+    ; Author the menu document for a given "plays" count and last-activated id.
+    ; This is exactly what the AS guest's rebuild() emits.
+    sfn buildMenu:[int] (plays:int lastId:int) {
+        def w:RgUiWriter (new RgUiWriter)
+        ; Outer root fills the frame and centres its child horizontally.
+        w.view(1 0 0).column().center().padding(22)
+        ; The menu "card": fixed width, padded, rounded, translucent panel, with
+        ; its items centred too — every visual attribute declared here (in the
+        ; guest), rendered by the host EVG.
+        w.view(2 1 0).column().center().padding(18).width(280).bg(36 42 64 255).radius(16)
+        w.label(10 2 0 "WASM UI - Main Menu" 4294967295 20).margin(8)
+        ; Uniform buttons: 180px = 50% of the 360px screen, bordered, extra
+        ; vertical padding, centred label. All declared here in the guest.
+        w.button(11 2 1 "New Game" 3839943679 16).onActivate().defaultSelected().width(180).padding(10).bg(120 165 230 46).border(2 120 150 210 255).radius(9).textCenter().margin(6)
+        w.button(12 2 2 "Continue" 3839943679 16).onActivate().width(180).padding(10).bg(120 165 230 46).border(2 120 150 210 255).radius(9).textCenter().margin(6)
+        w.button(13 2 3 "Options" 3839943679 16).onActivate().width(180).padding(10).bg(120 165 230 46).border(2 120 150 210 255).radius(9).textCenter().margin(6)
+        w.button(14 2 4 "Quit" 4285559039 16).onActivate().width(180).padding(10).bg(220 120 120 40).border(2 200 110 110 255).radius(9).textCenter().margin(6)
+        def status:string ("plays: " + (to_string plays))
+        if (lastId != 0) {
+            status = (status + "   last: #" + (to_string lastId))
+        }
+        w.label(90 2 5 status 2410771663 13).margin(8)
+        return (w.emit())
+    }
+
+    sfn statusOf:string (doc:WasmUiDoc) {
+        def idx (doc.indexOfId(90))
+        if (idx < 0) { return "" }
+        return (doc.propString((doc.nodeFirstProp(idx))))
+    }
+
+    sfn snap:void (canvas:SoftCanvas file:string) {
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.width = (canvas.getWidth())
+        rb.height = (canvas.getHeight())
+        rb.pixels = (canvas.raw())
+        def png:PNGEncoder (new PNGEncoder)
+        png.encode(rb "gallery/game_engine/ui" file)
+    }
+
+    ; Load a fresh document into the tree + relayout, keeping the controller's
+    ; selection (by stable node id). Mirrors a per-frame host refresh.
+    sfn refresh:EVGElement (ctx:UIContext ctrl:UiSelectController doc:WasmUiDoc) {
+        def builder:WasmUiEvgBuilder (new WasmUiEvgBuilder)
+        def root:EVGElement (builder.build(doc))
+        ctrl.renderer.layoutTree(ctx root 360 400)
+        ctrl.rebuild(doc root)
+        return root
+    }
+
+    sfn drawFrame:void (ctx:UIContext ctrl:UiSelectController root:EVGElement canvas:SoftCanvas file:string) {
+        canvas.clear(16 18 30)
+        ctrl.renderer.draw(ctx root)
+        ctrl.renderHighlight(ctx)
+        WasmUiSelectDemo.snap(canvas file)
+    }
+
+    sfn m@(main):void () {
+        def c:DemoCheck (new DemoCheck)
+
+        def canvas:SoftCanvas (new SoftCanvas)
+        canvas.init(360 400)
+        def ctx:UIContext (new UIContext)
+        ctx.attach(canvas)
+        ctx.tr.addFontDir("gallery/pdf_writer/assets/fonts")
+        ctx.tr.loadFont("Open Sans" "Open_Sans/OpenSans-Regular.ttf")
+
+        def ctrl:UiSelectController (new UiSelectController)
+        ; Host-side cursor look only (thickness + gap); the highlight's ROUNDING
+        ; follows the selected node's guest-declared border radius.
+        ctrl.borderWidth = 2
+        ctrl.highlightPad = 4
+
+        ; ---- frame 0: initial menu (guest revision 0) ----
+        def doc:WasmUiDoc (new WasmUiDoc)
+        def bytes0:[int] (WasmUiSelectDemo.buildMenu(0 0))
+        doc.loadBytes(bytes0 (array_length bytes0))
+        def root:EVGElement (WasmUiSelectDemo.refresh(ctx ctrl doc))
+        WasmUiSelectDemo.drawFrame(ctx ctrl root canvas "wasm_select_1_start.png")
+
+        c.ok(("selectable count == 4 (got " + (to_string (ctrl.count())) + ")") ((ctrl.count()) == 4))
+        c.ok(("default selection == New Game/11 (got " + (to_string ctrl.selectedId) + ")") (ctrl.selectedId == 11))
+
+        ; ---- navigate down twice with the D-pad ----
+        def nav:UiNavInput (new UiNavInput)
+        nav.clear()
+        nav.down = true
+        ctrl.update(nav)
+        nav.clear()
+        nav.down = true
+        ctrl.update(nav)
+        c.ok(("Down x2 -> Options/13 (got " + (to_string ctrl.selectedId) + ")") (ctrl.selectedId == 13))
+        WasmUiSelectDemo.drawFrame(ctx ctrl root canvas "wasm_select_2_nav.png")
+
+        ; navigate back up to New Game and activate it
+        nav.clear()
+        nav.up = true
+        ctrl.update(nav)
+        nav.clear()
+        nav.up = true
+        ctrl.update(nav)
+        c.ok(("Up x2 -> New Game/11 (got " + (to_string ctrl.selectedId) + ")") (ctrl.selectedId == 11))
+
+        nav.clear()
+        nav.action = true
+        def activated (ctrl.update(nav))
+        c.ok(("action activates 11 (got " + (to_string activated) + ")") (activated == 11))
+
+        ; ---- emulate the guest reacting to rg_ui_event(11, ACTIVATE) ----
+        def wantsAct (doc.nodeWantsActivate((doc.indexOfId(activated))))
+        c.ok("node 11 subscribes ACTIVATE" wantsAct)
+        def plays 0
+        if wantsAct {
+            if (activated == 11) {
+                plays = 1
+            }
+        }
+        def bytes1:[int] (WasmUiSelectDemo.buildMenu(plays activated))
+        doc.loadBytes(bytes1 (array_length bytes1))
+        def root2:EVGElement (WasmUiSelectDemo.refresh(ctx ctrl doc))
+        def st (WasmUiSelectDemo.statusOf(doc))
+        c.ok(("status reflects activation (got '" + st + "')") (st == "plays: 1   last: #11"))
+        c.ok("selection preserved after guest rebuild" (ctrl.selectedId == 11))
+        WasmUiSelectDemo.drawFrame(ctx ctrl root2 canvas "wasm_select_3_activated.png")
+
+        print "======================================"
+        print (("RESULT: " + (to_string c.passed) + " passed, ") + ((to_string c.failed) + " failed"))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+        print "wrote wasm_select_1_start.png wasm_select_2_nav.png wasm_select_3_activated.png"
+    }
+}
