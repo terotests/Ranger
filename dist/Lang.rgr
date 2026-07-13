@@ -86,6 +86,17 @@ language {
             public _public
             private _private
             protected _protected
+            signed _signed
+            unsigned _unsigned
+            register _register
+            volatile _volatile
+            mutable _mutable
+            friend _friend
+            typename _typename
+            typedef _typedef
+            extern _extern
+            explicit _explicit
+            goto _goto
         }
         go {
             type _type
