@@ -43,18 +43,30 @@ fi
 
 echo "==> [4/4] build + run native_bench (threads=$THREADS)"
 BENCH="$HERE/native_bench"
-cmake -S "$BENCH" -B "$BENCH/build" -DTENSORFLOW_SOURCE_DIR="$TF" -DCMAKE_BUILD_TYPE=Release
-cmake --build "$BENCH/build" -j"$(nproc)"
+# Build OUT OF TREE (not $BENCH/build) so it survives: deploy-pi.sh rsyncs the
+# repo with --delete, which would wipe an in-repo build/ (it's gitignored, so not
+# in the source) and force a full TFLite rebuild every deploy. This cache is
+# incremental: the first run compiles all of TFLite/XNNPACK/kleidiai (~slow, once);
+# after that only pose_bench.cc relinks (seconds). rm -rf "$BUILD_DIR" to force a
+# clean rebuild.
+BUILD_DIR="${POSE_BUILD_DIR:-$HOME/.cache/ranger-pose-bench}"
+mkdir -p "$BUILD_DIR"
+if [ -f "$BUILD_DIR/pose_bench" ]; then
+  echo "    (incremental — reusing cached TFLite build in $BUILD_DIR)"
+fi
+cmake -S "$BENCH" -B "$BUILD_DIR" -DTENSORFLOW_SOURCE_DIR="$TF" -DCMAKE_BUILD_TYPE=Release
+cmake --build "$BUILD_DIR" -j"$(nproc)"
 
+BIN="$BUILD_DIR/pose_bench"
 DET="$MODELS/tflite/pose_detector.tflite"
 LM="$MODELS/tflite/pose_landmarks_detector.tflite"
 echo ""
 echo "--- perf + landmarks (human) ---"
-"$BENCH/build/pose_bench" "$DET" "$LM" "$BENCH/pose.ppm" --threads "$THREADS"
+"$BIN" "$DET" "$LM" "$BENCH/pose.ppm" --threads "$THREADS"
 echo ""
 echo "--- accuracy vs browser reference (compare.mjs) ---"
-"$BENCH/build/pose_bench" "$DET" "$LM" "$BENCH/pose.ppm" --threads "$THREADS" --json \
+"$BIN" "$DET" "$LM" "$BENCH/pose.ppm" --threads "$THREADS" --json \
   | node "$BENCH/compare.mjs" "$HERE/mediapipe_poc/reference/landmarks.json" -
 echo ""
 echo "Thread sweep for the game budget (see NATIVE_EMBED.md): re-run with"
-echo "  POSE_THREADS=1|2|3|4 bash $(basename "$0")"
+echo "  POSE_THREADS=1|2|3|4 bash $(basename "$0")   (fast — build is cached in $BUILD_DIR)"
