@@ -35,6 +35,10 @@ class AsUiMenuSrcDemo {
     ; shared-ABI offsets (mirror games/ui_menu_as/game.as)
     def OFF_INPUT:int 20
     def OFF_SEL:int 52
+    def OFF_RECT_X:int 200
+    def OFF_RECT_Y:int 204
+    def OFF_RECT_W:int 208
+    def OFF_RECT_H:int 212
 
     def runner:AsSourceRunner (new AsSourceRunner)
     def canvas:SoftCanvas (new SoftCanvas)
@@ -84,6 +88,42 @@ class AsUiMenuSrcDemo {
         return (runner.abiRead(OFF_SEL))
     }
 
+    ; report the selected node's laid-out rect back to the guest (what the native
+    ; GameUiRunner does) so its coord-reported effect can place itself next frame.
+    fn reportRect:void () {
+        def sid (this.selId())
+        if (sid > 0) {
+            def hit:RectHit (rnd.findRect(root (to_string sid)))
+            if hit.found {
+                runner.abiWrite(OFF_RECT_X hit.x)
+                runner.abiWrite(OFF_RECT_Y hit.y)
+                runner.abiWrite(OFF_RECT_W hit.w)
+                runner.abiWrite(OFF_RECT_H hit.h)
+            }
+        }
+    }
+
+    ; true if the node with the given id carries a property with `key`
+    fn hasProp:boolean (id:int key:int) {
+        def idx (doc.indexOfId(id))
+        if (idx < 0) { return false }
+        def fp (doc.nodeFirstProp(idx))
+        def pc (doc.nodePropCount(idx))
+        def p 0
+        while (p < pc) {
+            if ((doc.propKey(fp + p)) == key) {
+                return true
+            }
+            p = (p + 1)
+        }
+        return false
+    }
+
+    ; true if a node with the given id exists in the current document
+    fn hasNode:boolean (id:int) {
+        return ((doc.indexOfId(id)) >= 0)
+    }
+
     ; text of the first TEXT prop on the node with the given id ("" if none)
     fn textOfId:string (id:int) {
         def idx (doc.indexOfId(id))
@@ -126,6 +166,7 @@ class AsUiMenuSrcDemo {
         runner.abiWrite(OFF_INPUT mask)
         runner.callUpdate()
         this.refresh()
+        this.reportRect()
     }
 
     sfn m@(main):void () {
@@ -144,6 +185,7 @@ class AsUiMenuSrcDemo {
         }
         d.runner.callInit()
         d.refresh()
+        d.reportRect()
 
         ; ---- frame 0: main menu, New Game selected ----
         c.ok("doc valid" d.doc.valid)
@@ -173,6 +215,12 @@ class AsUiMenuSrcDemo {
         d.drawFrame("as_ui_4_demo_fontsize.png")
         d.step(8)
         c.ok(("right -> Linear gradient (got '" + (d.textOfId(101)) + "')") ((indexOf (d.textOfId(101)) "Linear gradient") >= 0))
+        ; the gradient example must declare a real gradient background (GRAD_FROM)
+        c.ok("gradient example has GRAD_FROM prop" (d.hasProp(40 50)))
+        c.ok("gradient example has GRAD_TO prop" (d.hasProp(40 51)))
+        ; the coord-reported absolute effect node is present + placed (ABS_X)
+        c.ok("coord-reported effect node present" (d.hasNode(200)))
+        c.ok("effect is absolutely placed (ABS_X)" (d.hasProp(200 53)))
         d.drawFrame("as_ui_5_demo_gradient.png")
 
         ; ---- left wraps back to Font size ----

@@ -176,6 +176,51 @@ class UIContext {
         this.fillRoundRectA(x y rw rh rad (col.red()) (col.green()) (col.blue()) a)
     }
 
+    fn lerpChan:int (a:int b:int t:double) {
+        def av:double (to_double a)
+        def bv:double (to_double b)
+        return (to_int (av + ((bv - av) * t)))
+    }
+
+    ; Fill a (rounded) rect with a 2-stop linear gradient. dir 0 = vertical
+    ; (top->bottom), 1 = horizontal (left->right). Composites per pixel so it
+    ; respects the corner radius and any alpha in the stops.
+    fn fillRoundRectGrad:void (x:int y:int rw:int rh:int rad:int dir:int r1:int g1:int b1:int a1:int r2:int g2:int b2:int a2:int) {
+        if (rw <= 0) { return }
+        if (rh <= 0) { return }
+        def denomV:int (rh - 1)
+        if (denomV < 1) { denomV = 1 }
+        def denomH:int (rw - 1)
+        if (denomH < 1) { denomH = 1 }
+        def yy y
+        def yEnd (y + rh)
+        while (yy < yEnd) {
+            def xx x
+            def xEnd (x + rw)
+            while (xx < xEnd) {
+                def draw:boolean true
+                if (rad > 0) {
+                    draw = (this.roundedInside(xx yy x y rw rh rad))
+                }
+                if draw {
+                    def t:double 0.0
+                    if (dir == 1) {
+                        t = ((to_double (xx - x)) / (to_double denomH))
+                    } {
+                        t = ((to_double (yy - y)) / (to_double denomV))
+                    }
+                    def r:int (this.lerpChan(r1 r2 t))
+                    def g:int (this.lerpChan(g1 g2 t))
+                    def b:int (this.lerpChan(b1 b2 t))
+                    def a:int (this.lerpChan(a1 a2 t))
+                    this.blendPixel(xx yy r g b a)
+                }
+                xx = (xx + 1)
+            }
+            yy = (yy + 1)
+        }
+    }
+
     ; Stroke a rounded outline of `t` px (the ring between the outer rounded rect
     ; and an inner one inset by t). Composites over existing content.
     fn strokeRoundRect:void (x:int y:int rw:int rh:int rad:int t:int col:EVGColor) {
