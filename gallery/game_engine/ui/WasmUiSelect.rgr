@@ -156,6 +156,67 @@ class WasmUiRenderer {
         }
         return m
     }
+    ; Top-most / left-most laid-out edges (min), so callers can measure content
+    ; SPANS (bottom-top, right-left) rather than absolute edges — the intrinsic
+    ; content size, independent of any centring offset. Absolute overlays excluded.
+    fn contentTop:double (root:EVGElement) {
+        def m:double 1000000000.0
+        def i 0
+        def n (array_length root.children)
+        while (i < n) {
+            def c:EVGElement (itemAt root.children i)
+            if (c.absPosSet == false) {
+                def t:double (this.minTop(c))
+                if (t < m) { m = t }
+            }
+            i = (i + 1)
+        }
+        if (m > 999999999.0) { m = 0.0 }
+        return m
+    }
+    fn minTop:double (el:EVGElement) {
+        def b:double el.calculatedY
+        def i 0
+        def n (array_length el.children)
+        while (i < n) {
+            def c:EVGElement (itemAt el.children i)
+            if (c.absPosSet == false) {
+                def cb:double (this.minTop(c))
+                if (cb < b) { b = cb }
+            }
+            i = (i + 1)
+        }
+        return b
+    }
+    fn contentLeft:double (root:EVGElement) {
+        def m:double 1000000000.0
+        def i 0
+        def n (array_length root.children)
+        while (i < n) {
+            def c:EVGElement (itemAt root.children i)
+            if (c.absPosSet == false) {
+                def t:double (this.minLeft(c))
+                if (t < m) { m = t }
+            }
+            i = (i + 1)
+        }
+        if (m > 999999999.0) { m = 0.0 }
+        return m
+    }
+    fn minLeft:double (el:EVGElement) {
+        def b:double el.calculatedX
+        def i 0
+        def n (array_length el.children)
+        while (i < n) {
+            def c:EVGElement (itemAt el.children i)
+            if (c.absPosSet == false) {
+                def cb:double (this.minLeft(c))
+                if (cb < b) { b = cb }
+            }
+            i = (i + 1)
+        }
+        return b
+    }
     fn maxRight:double (el:EVGElement) {
         def b:double (el.calculatedX + el.calculatedWidth)
         def i 0

@@ -153,7 +153,7 @@ class GameUiRunner {
         ; Rebuild once at a uniform scale so every element AND its font shrink
         ; together to fit (never scales up).
         def s:double (this.fitScale())
-        if (s < 1.0) {
+        if ((s < 0.999) || (s > 1.001)) {
             def b2:WasmUiEvgBuilder (new WasmUiEvgBuilder)
             b2.scale = s
             root = (b2.build(doc))
@@ -162,27 +162,30 @@ class GameUiRunner {
         ctrl.rebuild(doc root)
     }
 
-    ; Uniform scale (<= 1) that makes the laid-out content fit the canvas, with
-    ; a small margin so nothing touches the edges. 1.0 when it already fits.
+    ; Uniform scale that makes the guest-authored (fixed-px) UI FILL the canvas —
+    ; up as well as down. The whole tree (sizes + fonts) is re-authored at this
+    ; scale, so the UI renders at the canvas's native pixel density: on a big /
+    ; high-DPI surface the text and borders stay crisp instead of being drawn small
+    ; and upscaled. Fills ~92% of the height, but never wider than ~96%.
     fn fitScale:double () {
-        def s:double 1.0
         def fh:double (to_double h)
         def fw:double (to_double w)
-        def needH:double (ctrl.renderer.contentBottom(root))
-        if (needH > 0.0) {
-            if (needH > fh) {
-                def sy:double ((fh * 0.96) / needH)
-                if (sy < s) { s = sy }
-            }
-        }
-        def needW:double (ctrl.renderer.contentRight(root))
-        if (needW > 0.0) {
-            if (needW > fw) {
-                def sx:double ((fw * 0.98) / needW)
-                if (sx < s) { s = sx }
-            }
+        ; measure the content SPAN (not absolute edges) so a centred UI scales by
+        ; its intrinsic size, not its offset position.
+        def bot:double (ctrl.renderer.contentBottom(root))
+        def top:double (ctrl.renderer.contentTop(root))
+        def rgt:double (ctrl.renderer.contentRight(root))
+        def lft:double (ctrl.renderer.contentLeft(root))
+        def ch:double (bot - top)
+        def cw:double (rgt - lft)
+        if (ch <= 0.0) { return 1.0 }
+        def s:double ((fh * 0.92) / ch)
+        if (cw > 0.0) {
+            def sx:double ((fw * 0.96) / cw)
+            if (sx < s) { s = sx }
         }
         if (s < 0.2) { s = 0.2 }
+        if (s > 6.0) { s = 6.0 }
         return s
     }
 
