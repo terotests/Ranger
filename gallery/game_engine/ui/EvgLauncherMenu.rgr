@@ -355,9 +355,9 @@ class EvgLauncherMenu {
         def lty:int (ly + (to_int (((to_double lh) - (ctx.lineHeight(lsz))) / 2.0)))
         ctx.text(shown lx lty lsz lblCol)
 
-        ; selection glow around the whole tile
+        ; selection glow around the image box only (not the label bar)
         if selected {
-            ctx.glowRoundRect((t.x - 4) (t.y - 4) (t.side + 8) (t.side + t.labelH + 8) (rad + 4) 255 232 120 14 200)
+            ctx.glowRoundRect((t.x - 4) (t.y - 4) (t.side + 8) (t.side + 8) (rad + 4) 255 232 120 14 200)
         }
     }
 
