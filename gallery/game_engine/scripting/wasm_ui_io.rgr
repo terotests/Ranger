@@ -405,6 +405,9 @@ class WasmUiEvgBuilder {
                 el.paddingLeft = pad
                 el.box.setPadding((this.pxUnit((doc.propValueA(idx)))))
             }
+            if (key == 13) {                ; MARGIN (all sides) - spaces siblings
+                el.box.setMargin((this.pxUnit((doc.propValueA(idx)))))
+            }
             if (key == 14) {                ; BORDER_RADIUS (px)
                 el.box.borderRadius = (this.pxUnit((doc.propValueA(idx))))
             }

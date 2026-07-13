@@ -201,9 +201,11 @@ visual setters `.width()`, `.height()`, `.background()`, `.radius()`,
 corner radius are RGU1 properties the guest sets (e.g. an outer `column().center()`
 root wrapping a `width(280).background(…).radius(16)` card); the host reader maps
 them onto `EVGElement` and **EVGLayout** resolves position/size — the host
-renderer carries no per-menu styling, and the selection highlight's rounding
-follows the selected node's declared `radius`. (Reader note: padding is applied
-to the **box model** `el.box.padding*`, which is what EVGLayout reads — the
+renderer carries no per-menu styling. The selection highlight is a **soft white
+glow** (feathered concentric rounded rings, `UIContext.glowRoundRect`) whose
+rounding follows the selected node's declared `radius`. Items are spaced with the
+`margin` property. (Reader note: padding/margin are applied to the **box model**
+`el.box.padding*` / `el.box.margin*`, which is what EVGLayout reads — the
 top-level `el.padding*` fields do not affect layout.)
 
 **Host pieces** (`ui/`):

@@ -94,9 +94,11 @@ class RgUiWriter {
     }
 
     ; A TEXT node (text -> font-size -> color), matching the reader's key order.
-    fn label:void (id:int parent:int order:int s:string color:int fontSize:int) {
+    ; Returns the writer so visual attrs (margin, …) can chain like button().
+    fn label:RgUiWriter (id:int parent:int order:int s:string color:int fontSize:int) {
         this.node(id parent 2 order)
         this.addTextProps(s color fontSize)
+        return this
     }
 
     fn addTextProps:void (s:string color:int fontSize:int) {
@@ -128,6 +130,10 @@ class RgUiWriter {
     }
     fn bg:RgUiWriter (r:int g:int b:int a:int) {
         this.propColorBytes(2 r g b a)
+        return this
+    }
+    fn margin:RgUiWriter (v:int) {
+        this.propI32(13 v)
         return this
     }
     fn radius:RgUiWriter (v:int) {

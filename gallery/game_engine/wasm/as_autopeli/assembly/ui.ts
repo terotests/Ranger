@@ -84,6 +84,7 @@ const K_FONT_SIZE: u16 = 4;
 const K_WIDTH: u16 = 10;
 const K_HEIGHT: u16 = 11;
 const K_PADDING: u16 = 12;
+const K_MARGIN: u16 = 13;
 const K_BORDER_RADIUS: u16 = 14;
 const K_FLEX_DIRECTION: u16 = 21;
 const K_ALIGN_ITEMS: u16 = 22;
@@ -234,6 +235,7 @@ export class Ui {
   row(): Ui { this.propEnum(K_FLEX_DIRECTION, DIR_ROW); return this; }
   column(): Ui { this.propEnum(K_FLEX_DIRECTION, DIR_COLUMN); return this; }
   padding(v: i32): Ui { this.propI32(K_PADDING, v); return this; }
+  margin(v: i32): Ui { this.propI32(K_MARGIN, v); return this; }
   width(v: i32): Ui { this.propI32(K_WIDTH, v); return this; }
   height(v: i32): Ui { this.propI32(K_HEIGHT, v); return this; }
   background(rgba: u32): Ui { this.propColor(K_BACKGROUND, rgba); return this; }

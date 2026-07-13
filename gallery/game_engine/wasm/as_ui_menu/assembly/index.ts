@@ -67,10 +67,10 @@ function rebuild(): void {
   // Selectable menu items. onActivate() marks them selectable AND subscribes to
   // the ACTIVATE callback; defaultSelected() picks the first host highlight;
   // radius() rounds the host's selection border to match.
-  ui.button(BTN_NEW, CARD, 1, "New Game", C_ITEM, 16).onActivate().defaultSelected().radius(8);
-  ui.button(BTN_CONT, CARD, 2, "Continue", C_ITEM, 16).onActivate().radius(8);
-  ui.button(BTN_OPTS, CARD, 3, "Options", C_ITEM, 16).onActivate().radius(8);
-  ui.button(BTN_QUIT, CARD, 4, "Quit", C_QUIT, 16).onActivate().radius(8);
+  ui.button(BTN_NEW, CARD, 1, "New Game", C_ITEM, 16).onActivate().defaultSelected().radius(8).margin(7);
+  ui.button(BTN_CONT, CARD, 2, "Continue", C_ITEM, 16).onActivate().radius(8).margin(7);
+  ui.button(BTN_OPTS, CARD, 3, "Options", C_ITEM, 16).onActivate().radius(8).margin(7);
+  ui.button(BTN_QUIT, CARD, 4, "Quit", C_QUIT, 16).onActivate().radius(8).margin(7);
 
   // Non-selectable status line — proves selectable is opt-in per node.
   ui.label(STATUS, CARD, 5, statusText(), C_STATUS, 13);

@@ -212,6 +212,49 @@ class UIContext {
         }
     }
 
+    ; Rounded ring with explicit RGBA (the alpha-parameterised core of a glow).
+    fn strokeRoundRectA:void (x:int y:int rw:int rh:int rad:int t:int r:int g:int b:int a:int) {
+        if (rw <= 0) { return }
+        if (rh <= 0) { return }
+        if (a <= 0) { return }
+        def innerRad (rad - t)
+        if (innerRad < 0) { innerRad = 0 }
+        def ix (x + t)
+        def iy (y + t)
+        def iw (rw - (t * 2))
+        def ih (rh - (t * 2))
+        def yy y
+        def yEnd (y + rh)
+        while (yy < yEnd) {
+            def xx x
+            def xEnd (x + rw)
+            while (xx < xEnd) {
+                if (this.roundedInside(xx yy x y rw rh rad)) {
+                    if ((this.roundedInside(xx yy ix iy iw ih innerRad)) == false) {
+                        this.blendPixel(xx yy r g b a)
+                    }
+                }
+                xx = (xx + 1)
+            }
+            yy = (yy + 1)
+        }
+    }
+
+    ; Soft glow / drop-shadow-style outline: concentric 1px rounded rings growing
+    ; outward from the rect edge, alpha fading with a quadratic falloff. Reads as
+    ; a smooth halo rather than a hard border. `spread` = glow width in px.
+    fn glowRoundRect:void (x:int y:int rw:int rh:int rad:int r:int g:int b:int spread:int maxAlpha:int) {
+        if (spread <= 0) { return }
+        def i 0
+        while (i < spread) {
+            def num (spread - i)
+            ; linear falloff: brightest ring at the edge (i=0), fading outward.
+            def a (to_int ((maxAlpha * num) / spread))
+            this.strokeRoundRectA((x - i) (y - i) (rw + (i * 2)) (rh + (i * 2)) (rad + i) 1 r g b a)
+            i = (i + 1)
+        }
+    }
+
     ; --- text ------------------------------------------------------------------
     fn text:void (s:string x:int y:int size:double col:EVGColor) {
         tr.drawLine(canvas s x y size (col.red()) (col.green()) (col.blue()) (to_int ((col.alpha()) * 255.0)))

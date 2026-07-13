@@ -43,16 +43,16 @@ class WasmUiSelectDemo {
         ; its items centred too — every visual attribute declared here (in the
         ; guest), rendered by the host EVG.
         w.view(2 1 0).column().center().padding(18).width(280).bg(36 42 64 255).radius(16)
-        w.label(10 2 0 "WASM UI - Main Menu" 4294967295 20)
-        w.button(11 2 1 "New Game" 3505978623 16).onActivate().defaultSelected().radius(8)
-        w.button(12 2 2 "Continue" 3505978623 16).onActivate().radius(8)
-        w.button(13 2 3 "Options" 3505978623 16).onActivate().radius(8)
-        w.button(14 2 4 "Quit" 4285559039 16).onActivate().radius(8)
+        w.label(10 2 0 "WASM UI - Main Menu" 4294967295 20).margin(8)
+        w.button(11 2 1 "New Game" 3505978623 16).onActivate().defaultSelected().radius(8).margin(7)
+        w.button(12 2 2 "Continue" 3505978623 16).onActivate().radius(8).margin(7)
+        w.button(13 2 3 "Options" 3505978623 16).onActivate().radius(8).margin(7)
+        w.button(14 2 4 "Quit" 4285559039 16).onActivate().radius(8).margin(7)
         def status:string ("plays: " + (to_string plays))
         if (lastId != 0) {
             status = (status + "   last: #" + (to_string lastId))
         }
-        w.label(90 2 5 status 2410771663 13)
+        w.label(90 2 5 status 2410771663 13).margin(6)
         return (w.emit())
     }
 

@@ -179,6 +179,13 @@ class UiSelectController {
     def selIndex:int 0
     def borderWidth:int 2
     def highlightPad:int 3       ; how far the border sits outside the node
+    ; soft-glow highlight (white drop-shadow style). Set glowSpread=0 for the
+    ; plain hard border.
+    def glowSpread:int 6
+    def glowAlpha:int 200
+    def glowR:int 255
+    def glowG:int 255
+    def glowB:int 255
 
     ; last activation (node id) or -1; set by update() on the action button
     def lastActivatedId:int 0
@@ -378,10 +385,14 @@ class UiSelectController {
         def bh (hgt + (pad * 2))
         ; radius follows the guest-declared radius of the selected node (+pad)
         def nodeRad (itemAt rrad selIndex)
-        if (nodeRad > 0) {
-            ctx.strokeRoundRect(bx by bw bh (nodeRad + pad) borderWidth ctx.theme.accent)
+        def rad (nodeRad + pad)
+        if (rad < 0) { rad = 0 }
+        if (glowSpread > 0) {
+            ; soft white glow (drop-shadow style): the brightest ring sits on the
+            ; node edge and fades outward into a smooth halo.
+            ctx.glowRoundRect(bx by bw bh rad glowR glowG glowB glowSpread glowAlpha)
         } {
-            ctx.strokeRect(bx by bw bh borderWidth ctx.theme.accent)
+            ctx.strokeRoundRect(bx by bw bh rad borderWidth ctx.theme.accent)
         }
     }
 }
