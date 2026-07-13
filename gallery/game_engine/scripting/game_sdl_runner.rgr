@@ -20,6 +20,7 @@ Import "../wasm_runtime.rgr"
 Import "./wasm_game_runner.rgr"
 Import "./wasm_physics_runner.rgr"
 Import "./game_ui_runner.rgr"
+Import "../ui/EvgLauncherMenu.rgr"
 Import "../gfx_sdl.rgr"
 Import "./game_audio_sdl.rgr"
 Import "./game_catalog.rgr"
@@ -97,6 +98,10 @@ class GameSdlRunner {
     def prevRightHeld:boolean false
     def prevActionHeld:boolean false
     def uiRunner:GameUiRunner (new GameUiRunner)
+    ; EVG tile front page (crisp TTF category/game tiles). Default launcher; the
+    ; old pixel-font tsx menu is still available with --classic-menu.
+    def evgMenu:EvgLauncherMenu (new EvgLauncherMenu)
+    def useEvgLauncher:boolean true
     def uiDirectPath:string ""
     def gpuModeWanted:boolean true
     def gpuModeActive:boolean false
@@ -1026,6 +1031,98 @@ class GameSdlRunner {
         return false
     }
 
+    ; Target EVG-menu canvas size = live output surface (native resolution) so the
+    ; tile art + TTF stay crisp on a big window; falls back to the pw*ph buffer.
+    fn evgMenuTargetW:int () {
+        def uw:int pw
+        def sw:int (gfx_surface_width)
+        if (sw > uw) { uw = sw }
+        if (uw > 1600) { uw = 1600 }
+        return uw
+    }
+    fn evgMenuTargetH:int () {
+        def uh:int ph
+        def sh:int (gfx_surface_height)
+        if (sh > uh) { uh = sh }
+        if (uh > 1200) { uh = 1200 }
+        return uh
+    }
+
+    ; The EVG tile launcher: crisp category tiles -> per-category game grid ->
+    ; launch. Drives EvgLauncherMenu with the launcher D-pad edges, routes the
+    ; chosen game path through the same dispatch the tsx menu uses, and returns
+    ; here when the game exits. Back walks up a level (games -> categories),
+    ; and Back on the categories page quits the app.
+    fn runEvgMenuLoop:void () {
+        gfx_audio_clear
+        this.clearNavStack()
+        nativeBridge.clearPendingNav()
+        def uw:int (this.evgMenuTargetW())
+        def uh:int (this.evgMenuTargetH())
+        evgMenu.init(uw uh "gallery/game_engine/assets/fonts" "OpenSans-Regular.ttf" "Open Sans" gamesDir)
+        print ("[menu] EVG launcher: " + (to_string (catalog.entryCount())) + " games in " + (to_string (array_length (evgMenu.cats))) + " categories")
+        inMenu = true
+        inGame = false
+        gfx_set_title("Ranger Game Engine")
+        gfx_clear_should_close
+        this.syncInputEdges()
+        def nav:UiNavInput (new UiNavInput)
+        while (running) {
+            def m:int (this.launcherNavMask())
+            nav.clear()
+            nav.up = (this.upEdge((bit_and m 1) != 0))
+            nav.down = (this.downEdge((bit_and m 2) != 0))
+            nav.left = (this.leftEdge((bit_and m 16) != 0))
+            nav.right = (this.rightEdge((bit_and m 32) != 0))
+            nav.action = (this.actionEdge((bit_and m 4) != 0))
+            evgMenu.navFrame(nav)
+            evgMenu.draw()
+            gfx_present (evgMenu.raw()) uw uh
+
+            ; Back (Q/Esc / gamepad Select|B): walk up a level, or quit from the top
+            if (this.quitEdge((this.gameMenuBackHeld()))) {
+                evgMenu.back()
+                if evgMenu.wantQuit {
+                    running = false
+                    return
+                }
+            }
+
+            ; a game tile was activated -> launch it, then come back to the menu
+            if evgMenu.chosen {
+                def launchPath:string evgMenu.chosenPath
+                evgMenu.chosen = false
+                if ((strlen launchPath) > 0) {
+                    if ((this.engineOf(launchPath)) == "ui") {
+                        this.runUiGame(launchPath)
+                    } {
+                        this.loadGame(launchPath)
+                        this.runGameLoop()
+                    }
+                    if (running == false) {
+                        return
+                    }
+                    ; returned from the game: restore the menu window + input state
+                    gfx_clear_should_close
+                    inMenu = true
+                    inGame = false
+                    gfx_set_title("Ranger Game Engine")
+                    this.syncInputEdges()
+                }
+            }
+
+            if (gfx_should_close) {
+                running = false
+            }
+            frames = (frames + 1)
+            if (maxFrames > 0) {
+                if (frames >= maxFrames) {
+                    running = false
+                }
+            }
+        }
+    }
+
     fn runMenuLoop:void () {
         this.loadMenuGame()
         while (running) {
@@ -1256,7 +1353,11 @@ class GameSdlRunner {
         gfx_audio_open(44100)
         this.refreshWasmAudioSampleRate()
         if (launcherMode) {
-            this.runMenuLoop()
+            if useEvgLauncher {
+                this.runEvgMenuLoop()
+            } {
+                this.runMenuLoop()
+            }
         } {
             if ((strlen uiDirectPath) > 0) {
                 this.runUiGame(uiDirectPath)
@@ -1341,6 +1442,13 @@ class GameSdlRunner {
         def pendingGamesDir:boolean false
         while (i < (shell_arg_cnt)) {
             def arg:string (shell_arg i)
+            ; launcher front-page style: EVG tile menu (default) vs the old tsx menu
+            if (arg == "--classic-menu") {
+                useEvgLauncher = false
+            }
+            if (arg == "--evg-menu") {
+                useEvgLauncher = true
+            }
             if (pendingGamesDir) {
                 gamesDir = arg
                 launcherMode = true
