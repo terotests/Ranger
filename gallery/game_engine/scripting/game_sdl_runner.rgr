@@ -97,11 +97,17 @@ class GameSdlRunner {
     def prevRightHeld:boolean false
     def prevActionHeld:boolean false
     def uiRunner:GameUiRunner (new GameUiRunner)
-    ; Launcher front page: the interpreted .as menu (menu/game.as), crisp EVG UI,
-    ; hot-reloadable. The old pixel-font tsx menu is still available (--classic-menu).
-    def useEvgLauncher:boolean true
+    ; Which launcher front page to run. The choice comes from menu/game.info's
+    ; `runtime` field (runtime=tsx -> the rich TypeScript menu/launcher.tsx;
+    ; runtime=as -> the interpreted menu/game.as), both rendered through the same
+    ; WasmUiRenderer. A CLI flag (--tsx-menu / --evg-menu / --classic-menu) sets
+    ; `menuModeForced` to override game.info. Empty = follow game.info; the code
+    ; default when neither resolves is "tsx" (dynamic heap tree, so a long game
+    ; list is never clipped by the .as bridge's fixed node/property caps).
+    def menuModeForced:string ""
     def menuAsDir:string "gallery/game_engine/menu"
     def menuAsMtime:int 0     ; last-seen menu/game.as mtime (live-reload poll)
+    def menuTsxMtime:int 0    ; last-seen menu/launcher.tsx mtime (live-reload poll)
     def uiDirectPath:string ""
     def gpuModeWanted:boolean true
     def gpuModeActive:boolean false
@@ -910,6 +916,38 @@ class GameSdlRunner {
         return false
     }
 
+    ; The launcher backend menu/game.info selects via its `runtime` field:
+    ; "tsx" (menu/launcher.tsx), "as" (menu/game.as), or "" if unspecified.
+    fn menuRuntimeOf:string () {
+        if (file_exists menuAsDir "game.info") {
+            def buf:buffer (buffer_read_file menuAsDir "game.info")
+            def txt:string (buffer_to_string buf)
+            if ((indexOf txt "runtime=tsx") >= 0) {
+                return "tsx"
+            }
+            if ((indexOf txt "runtime=as") >= 0) {
+                return "as"
+            }
+        }
+        return ""
+    }
+
+    ; Effective launcher mode: an explicit CLI flag wins; else menu/game.info's
+    ; runtime; else the "tsx" default (dynamic heap tree, no fixed caps).
+    fn effectiveMenuMode:string () {
+        if ((strlen menuModeForced) > 0) {
+            return menuModeForced
+        }
+        def rt:string (this.menuRuntimeOf())
+        if (rt == "as") {
+            return "as"
+        }
+        if (rt == "classic") {
+            return "classic"
+        }
+        return "tsx"
+    }
+
     ; True when the game folder for `path` declares engine=ui.
     fn engineOf:string (path:string) {
         def dir:string (this.dirOf(path))
@@ -1075,6 +1113,18 @@ class GameSdlRunner {
         return (uiRunner.loadAs(menuAsDir))
     }
 
+    ; Bind the rich TypeScript launcher (menu/launcher.tsx) with the live catalog
+    ; injected as `gameCatalog`, rendered through the same WasmUiRenderer. Returns
+    ; false if the source can't be loaded (caller falls back to the .as menu).
+    fn openTsxMenu:boolean (uw:int uh:int) {
+        catalog.setGamesDir(gamesDir)
+        catalog.scan()
+        uiRunner.init(uw uh "gallery/game_engine/assets/fonts" "OpenSans-Regular.ttf" "Open Sans")
+        uiRunner.setMenuCatalog((catalog.toEvalArray()))
+        menuTsxMtime = (file_mtime menuAsDir "launcher.tsx")
+        return (uiRunner.loadTsx(menuAsDir "launcher.tsx"))
+    }
+
     ; Run the launcher menu — a normal interpreted .as engine=ui game living in
     ; menu/ that receives the catalog and reports (via OFF_LAUNCH) which sub-app to
     ; load. Being interpreted it hot-reloads like any other game. The crisp EVG UI
@@ -1159,6 +1209,95 @@ class GameSdlRunner {
                     gfx_set_title("Ranger Game Engine")
                     this.syncInputEdges()
                 }
+            }
+
+            if (gfx_should_close) {
+                running = false
+            }
+            frames = (frames + 1)
+            if (maxFrames > 0) {
+                if (frames >= maxFrames) {
+                    running = false
+                }
+            }
+        }
+    }
+
+    ; Run the rich TypeScript launcher (menu/launcher.tsx). Same present/input loop
+    ; as runEvgMenuLoop, but the guest is a .tsx evaluated by ComponentEngine into
+    ; the EVGElement tree WasmUiRenderer draws, and it reports a launch PATH (not a
+    ; catalog index) directly in its state.
+    fn runTsxMenuLoop:void () {
+        gfx_audio_clear
+        this.clearNavStack()
+        nativeBridge.clearPendingNav()
+        def uw:int (this.evgMenuTargetW())
+        def uh:int (this.evgMenuTargetH())
+        if ((this.openTsxMenu(uw uh)) == false) {
+            print "[menu] menu/launcher.tsx failed to load — using the .as menu"
+            this.runEvgMenuLoop()
+            return
+        }
+        print ("[menu] .tsx launcher: " + (to_string (catalog.entryCount())) + " games")
+        inMenu = true
+        inGame = false
+        gfx_set_title("Ranger Game Engine")
+        gfx_clear_should_close
+        this.syncInputEdges()
+        def nav:UiNavInput (new UiNavInput)
+        while (running) {
+            ; re-open at the live output resolution on window resize (crisp tiles)
+            def nw:int (this.evgMenuTargetW())
+            def nh:int (this.evgMenuTargetH())
+            if ((nw != uw) || (nh != uh)) {
+                uw = nw
+                uh = nh
+                this.openTsxMenu(uw uh)
+            }
+            ; live-reload: re-bind when menu/launcher.tsx changes on disk
+            def curMtime:int (file_mtime menuAsDir "launcher.tsx")
+            if (curMtime > menuTsxMtime) {
+                this.openTsxMenu(uw uh)
+                print "[menu] reloaded menu/launcher.tsx"
+            }
+            def m:int (this.launcherNavMask())
+            nav.clear()
+            nav.up = (this.upEdge((bit_and m 1) != 0))
+            nav.down = (this.downEdge((bit_and m 2) != 0))
+            nav.left = (this.leftEdge((bit_and m 16) != 0))
+            nav.right = (this.rightEdge((bit_and m 32) != 0))
+            nav.action = (this.actionEdge((bit_and m 4) != 0))
+            ; feed the Back/Quit edge to the guest instead of exiting here: the
+            ; launcher decides back-vs-exit (games list -> categories; categories
+            ; -> quit app, reported as quitApp -> wantsQuitTsx).
+            uiRunner.setNavQuit((this.quitEdge((this.gameMenuBackHeld()))))
+            def _a:int (uiRunner.frame(nav))
+            uiRunner.render()
+            gfx_present (uiRunner.raw()) uw uh
+
+            if (uiRunner.wantsQuitTsx()) {
+                running = false
+                return
+            }
+
+            ; the launcher reported a game PATH to open -> dispatch + reopen
+            def lp:string (uiRunner.launchPathTsx())
+            if ((strlen lp) > 0) {
+                if ((this.engineOf(lp)) == "ui") {
+                    this.runUiGame(lp)
+                } {
+                    this.loadGame(lp)
+                    this.runGameLoop()
+                }
+                if (running == false) {
+                    return
+                }
+                this.openTsxMenu(uw uh)
+                gfx_clear_should_close
+                inMenu = true
+                inGame = false
+                gfx_set_title("Ranger Game Engine")
+                this.syncInputEdges()
             }
 
             if (gfx_should_close) {
@@ -1403,10 +1542,15 @@ class GameSdlRunner {
         gfx_audio_open(44100)
         this.refreshWasmAudioSampleRate()
         if (launcherMode) {
-            if useEvgLauncher {
+            def mode:string (this.effectiveMenuMode())
+            if (mode == "as") {
                 this.runEvgMenuLoop()
             } {
-                this.runMenuLoop()
+                if (mode == "classic") {
+                    this.runMenuLoop()
+                } {
+                    this.runTsxMenuLoop()
+                }
             }
         } {
             if ((strlen uiDirectPath) > 0) {
@@ -1494,10 +1638,13 @@ class GameSdlRunner {
             def arg:string (shell_arg i)
             ; launcher front-page style: EVG tile menu (default) vs the old tsx menu
             if (arg == "--classic-menu") {
-                useEvgLauncher = false
+                menuModeForced = "classic"
             }
             if (arg == "--evg-menu") {
-                useEvgLauncher = true
+                menuModeForced = "as"
+            }
+            if (arg == "--tsx-menu") {
+                menuModeForced = "tsx"
             }
             if (pendingGamesDir) {
                 gamesDir = arg
