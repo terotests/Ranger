@@ -1,0 +1,113 @@
+; ==============================================================================
+; pose_provider_demo — headless proof of the pose provider end to end.
+; ==============================================================================
+;
+; Wires the host-side PoseProvider (imaginary pose stream) to the interpreted
+; AssemblyScript game games/pose_demo/game.as through the RGP1 pose block:
+;
+;   each frame:  PoseProvider.writeFrame(bridge, t)   -> RGP1 pose sample
+;                runner.callUpdate()                  -> game reads RGP1, reacts
+;                read back RGW1 bodies + score         -> prove the sprite reacted
+;
+; The game moves the "hero" sprite (body 0) to the streamed head position and
+; spawns a "super" sprite (body 1) on each ARMS_UP gesture. Same wiring a real
+; MediaPipe source would use — only PoseProvider.writeFrame changes.
+; ==============================================================================
+
+Import "./as_source_runner.rgr"
+Import "./game_pose_provider.rgr"
+
+class PoseProviderDemo {
+    ; Read a UTF-8 string out of an RGU1 text node (same as the autopeli demo).
+    sfn textAt:string (runner:AsSourceRunner nodeIndex:int) {
+        def nb (64 + (nodeIndex * 32))
+        def fp:int (runner.uiByte(nb + 12))
+        def pb (2112 + (fp * 16))
+        def a:int (runner.uiByte(pb + 4))
+        def n:int (runner.uiByte(pb + 8))
+        def s ""
+        def i 0
+        while (i < n) {
+            def code:int (runner.uiByte((4160 + a) + i))
+            s = (+ s (strfromcode code))
+            i = (i + 1)
+        }
+        return s
+    }
+
+    sfn m@(main):void () {
+        def runner:AsSourceRunner (new AsSourceRunner)
+        def dir:string "gallery/game_engine/games/pose_demo"
+        if ((runner.bindDir(dir)) == false) {
+            print "bind failed"
+            return
+        }
+        runner.callDeclareResources()
+        runner.callInit()
+
+        def bridge:AsAbiBridge (runner.poseBridge())
+        def provider:PoseProvider (new PoseProvider)
+
+        def frames:int 200
+        if ((shell_arg_cnt) > 0) {
+            def parsed@(optional):int (to_int (shell_arg 0))
+            if (!null? parsed) {
+                frames = (unwrap parsed)
+            }
+        }
+
+        print (+ "provider id=" (+ (provider.id()) (+ " capBit=" (+ (to_string (provider.capBit())) (+ " dir=" (+ (to_string (provider.direction())) (+ " cadence=" (to_string (provider.cadence())))))))))
+        print "frame | gesture     | noseX | heroX heroY | bodies | supers"
+
+        def t 0
+        while (t < frames) {
+            ; --- host writes the pose sample into RGP1 (before update) ---
+            provider.writeFrame(bridge t)
+            runner.abiWrite(12 16)          ; dt ms
+            runner.abiWrite(16 (t * 16))    ; time ms
+            ; --- guest reads RGP1 and reacts ---
+            runner.callUpdate()
+
+            ; --- read the reaction back out of RGW1 ---
+            def bodies:int (runner.abiRead(28))
+            def heroX:int (idiv (runner.abiRead(64)) 256)
+            def heroY:int (idiv (runner.abiRead(68)) 256)
+            def supers:int (runner.abiRead(40))
+            def nose:int (provider.noseX(t))
+            def g:int (provider.gestureFor(t nose))
+
+            if ((t % 12) == 0) {
+                def gn:string (provider.gestureName(g))
+                def col:string (PoseProviderDemo.pad(gn))
+                def line:string (+ (to_string t) (+ "\t| " (+ col (+ "| " (+ (to_string nose) (+ "\t| " (+ (to_string heroX) (+ " " (+ (to_string heroY) (+ "\t| " (+ (to_string bodies) (+ "\t| " (to_string supers)))))))))))))
+                print line
+            }
+            t = (t + 1)
+        }
+
+        print "--- final RGU1 HUD (pose-driven) ---"
+        def nc:int (runner.uiByte(20))
+        def i 0
+        while (i < nc) {
+            def nbk (64 + (i * 32))
+            def kind:int (runner.uiByte(nbk + 8))
+            if (kind == 2) {
+                print (+ "  \"" (+ (PoseProviderDemo.textAt(runner i)) "\""))
+            }
+            i = (i + 1)
+        }
+        print (+ "total ARMS_UP reps = " (to_string (runner.abiRead(40))))
+        print "POSE PROVIDER DEMO OK"
+    }
+
+    ; right-pad a gesture name to a fixed width for readable columns
+    sfn pad:string (s:string) {
+        def out s
+        def i (strlen s)
+        while (i < 11) {
+            out = (+ out " ")
+            i = (i + 1)
+        }
+        return out
+    }
+}

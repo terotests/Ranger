@@ -1,0 +1,6 @@
+name=Pose Demo (.as interpreted)
+engine=as
+module=game.as
+abi=linear
+physics=false
+assets=assets

@@ -1,0 +1,87 @@
+; ==============================================================================
+; game_pose_provider — first host->guest streaming provider (imaginary pose).
+; ==============================================================================
+;
+; This is the pose counterpart of the resource provider (declare-once, guest->
+; host) described in PLAN_PROVIDERS.md: a HOST_TO_GUEST + FRAME provider. It owns
+; the RGP1 pose block and writes a fresh sample into it BEFORE each update(),
+; in the same slot the WASM host writes input flags. The transport is fully
+; host-side and swappable — this implementation fabricates a deterministic pose
+; sequence (no camera yet); a later one feeds MediaPipe landmarks into the exact
+; same bridge.poseWrite* calls, with zero guest change.
+;
+; Gesture enum (shared with the .as guest):
+;   0 none   1 arms_up   2 lean_left   3 lean_right
+; ==============================================================================
+
+Import "./as_abi_bridge.rgr"
+
+class PoseProvider {
+    def revision:int 0
+
+    ; ---- provider identity (see PLAN_PROVIDERS.md §3) ----
+    fn id:string () {
+        return "pose"
+    }
+    fn capBit:int () {
+        return 16          ; RG_WASM_HOST_CAP_POSE_INPUT = 0x0010
+    }
+    fn direction:int () {
+        return 2           ; host -> guest
+    }
+    fn cadence:int () {
+        return 2           ; per-frame streaming
+    }
+
+    fn gestureName:string (g:int) {
+        if (g == 1) { return "ARMS_UP" }
+        if (g == 2) { return "LEAN_LEFT" }
+        if (g == 3) { return "LEAN_RIGHT" }
+        return "NONE"
+    }
+
+    ; Imaginary nose X in world units: a triangle sweep 120..360 over 160 frames.
+    fn noseX:int (t:int) {
+        def phase:int (t % 160)
+        if (phase < 80) {
+            return (120 + (phase * 3))
+        }
+        return (360 - ((phase - 80) * 3))
+    }
+
+    fn noseY:int (t:int) {
+        ; gentle vertical bob around y=100
+        def b:int (t % 40)
+        if (b < 20) {
+            return (96 + b)
+        }
+        return (96 + (40 - b))
+    }
+
+    fn gestureFor:int (t:int x:int) {
+        ; periodic "hands up" every 90 frames for 15 frames, else lean by position
+        if ((t % 90) < 15) {
+            return 1
+        }
+        if (x < 200) {
+            return 2
+        }
+        if (x > 300) {
+            return 3
+        }
+        return 0
+    }
+
+    ; beforeUpdate(): fabricate one pose sample and stream it into the RGP1 block.
+    ; Called by the host each frame right before the guest's update() runs.
+    fn writeFrame:void (bridge:AsAbiBridge t:int) {
+        def x:int (this.noseX(t))
+        def y:int (this.noseY(t))
+        def g:int (this.gestureFor(t x))
+        revision = (revision + 1)
+        ; one landmark (nose / head), world units -> fixed-point (*256)
+        bridge.poseWriteHeader(1 g 1)
+        bridge.poseWriteLandmark(0 (x * 256) (y * 256))
+        bridge.poseBump(revision)
+    }
+}

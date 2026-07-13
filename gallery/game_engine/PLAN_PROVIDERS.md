@@ -275,3 +275,51 @@ flip.
 
 Steps 1–3 are pure refactor + the already-specified gate; the pose-specific work
 (4–5) only begins once the seam exists and is proven by the retrofit.
+
+---
+
+## 9. Working prototype (interpreted path)
+
+A first end-to-end slice of §6 is implemented and runs headless on the
+interpreted `.as` engine — no asc, no camera, no registry retrofit yet. It
+proves the RGP1 block + a host→guest streaming provider work through the exact
+bridge the compiled guest would use.
+
+Pieces:
+
+- **RGP1 block** on `AsAbiBridge` (`scripting/as_abi_bridge.rgr`): a 128-byte
+  `pose:[int]` buffer beside `abi:[int]`/`ui:[int]`, with LE `ppw`/`ppr`, host
+  writers (`poseWriteHeader`/`poseWriteLandmark`/`poseBump`) and guest readers
+  (`posePresent`/`poseGesture`/`poseX`/`poseY`/`poseRevision`) wired into the
+  native `has()`/`invoke()` dispatch. Layout: `0` magic `RGP1`, `4` version,
+  `8` revision, `12` present, `16` gesture, `20` landmark count, `32..`
+  landmark[i] = xFp, yFp (world units ×256). Gesture enum: `0` none, `1`
+  arms_up, `2` lean_left, `3` lean_right.
+- **PoseProvider** (`scripting/game_pose_provider.rgr`): the host→guest + frame
+  provider. Declares `id="pose"`, `capBit=16` (`RG_WASM_HOST_CAP_POSE_INPUT`),
+  `direction=2`, `cadence=2`, and `writeFrame(bridge, t)` fabricates a
+  deterministic pose (nose sweep + periodic arms_up) and streams it into RGP1.
+  A MediaPipe source swaps in behind the same `writeFrame` with no guest change.
+- **pose_demo game** (`games/pose_demo/game.as`, ylos2 sprites): moves the hero
+  sprite (body 0) to the tracked head position and spawns a super sprite
+  (body 1) on each ARMS_UP gesture, building a pose-driven RGU1 HUD.
+- **pose_provider_demo** (`scripting/pose_provider_demo.rgr`): wires provider →
+  RGP1 → `callUpdate()` → reads RGW1 back, printing the reaction each frame.
+  Verified: hero X tracks the streamed nose (120→348), `bodies` flips 1↔2 with
+  arms_up, the HUD shows `POSE ARMS_UP` / `SUPERS n`.
+
+### Tokenizer fix landed while building this (non-ASCII source truncation)
+
+Building the prototype surfaced a real lexer bug, now fixed in
+`gallery/ts_parser/ts_lexer.rgr`. `TSLexer` set its end-of-input `len` to a
+code-*point* count (`countCodeUnits`, which groups each multi-byte UTF-8
+sequence into one), but `peek`/`advance`/`at` walk the source one unit at a
+time over the space `strlen` counts — raw *bytes* when a `.as`/`.tsx` file is
+read from disk via `buffer_to_string`. So any non-ASCII byte (an em-dash `—` in
+a `//` comment, a `"…"` smart-quote, accented text) made `len` smaller than the
+byte-indexed source and the lexer stopped short, silently dropping the file's
+final tokens — the missing closing `}` then surfaced downstream as
+`Parse error: expected '}' but got ''`. The fix is `len = strlen(src)`, which is
+correct for both a decoded JS string (code units) and a byte string (bytes);
+it is a no-op for pure-ASCII sources (`strlen == countCodeUnits` there). `.as`
+comments may now contain quotes and non-ASCII freely.

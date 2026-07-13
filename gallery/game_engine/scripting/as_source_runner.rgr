@@ -94,6 +94,12 @@ class AsSourceRunner {
         engine.callFunction("declare_resources" (EvalValue.null()))
     }
 
+    ; The RGP1 pose block lives on the bridge; a host PoseProvider writes into it
+    ; before each callUpdate(), exactly where the WASM host would write pose bytes.
+    fn poseBridge:AsAbiBridge () {
+        return bridge
+    }
+
     ; ---- host reads the shared ABI (same layout the WASM host reads) ----
     fn abiRead:int (off:int) {
         return (bridge.ar(off))
