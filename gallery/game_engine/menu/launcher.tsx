@@ -161,7 +161,11 @@ function categoryScreen(s) {
   return (
     <View flexDirection="column" alignItems="center" padding="24px">
       <Label color="#ecf0fa" fontSize="34px">GAMES</Label>
-      <View flexDirection="row" alignItems="center">
+      {/* explicit width so the row shrink-wraps its tiles and the column can
+          centre it — an auto-width flex child stretches full-width in EVGLayout,
+          which would push the tiles to the left and defeat the fit-to-window
+          scale. Each tile is 200px wide + 12px margin each side = 224px. */}
+      <View flexDirection="row" alignItems="center" width={(cats.length * 224) + "px"}>
         {cats.map((c, i) => (
           <View flexDirection="column" alignItems="center" width="200px" margin="12px">
             <View width="176px" height="176px" borderRadius="16px"

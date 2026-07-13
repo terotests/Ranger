@@ -240,7 +240,21 @@ class GameUiRunner {
     fn refreshFromTsx:void () {
         def none:UiNavInput (new UiNavInput)
         root = (tsxEngine.callRender("hud" (this.tsxProps(none false))))
+        ; lay out the fixed-px JSX tree at 1:1, then set a uniform viewport that
+        ; scales it to fill ~the window and centres it (the JSX tree has no
+        ; WasmUiEvgBuilder.scale knob, so the fit is applied at draw time instead).
+        ctrl.renderer.setViewport(1.0 0.0 0.0)
         ctrl.renderer.layoutTree(ctx root w h)
+        def s:double (this.fitScale())
+        def top:double (ctrl.renderer.contentTop(root))
+        def bot:double (ctrl.renderer.contentBottom(root))
+        def lft:double (ctrl.renderer.contentLeft(root))
+        def rgt:double (ctrl.renderer.contentRight(root))
+        def cw:double (rgt - lft)
+        def ch:double (bot - top)
+        def offx:double ((((to_double w) - (cw * s)) / 2.0) - (lft * s))
+        def offy:double ((((to_double h) - (ch * s)) / 2.0) - (top * s))
+        ctrl.renderer.setViewport(s offx offy)
         loaded = true
     }
 
@@ -289,6 +303,8 @@ class GameUiRunner {
     }
 
     fn rebuildTree:void () {
+        ; the .as/wasm path pre-scales the tree via WasmUiEvgBuilder, so draw at 1:1
+        ctrl.renderer.setViewport(1.0 0.0 0.0)
         def builder:WasmUiEvgBuilder (new WasmUiEvgBuilder)
         root = (builder.build(doc))
         ctrl.renderer.layoutTree(ctx root w h)
