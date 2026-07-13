@@ -43,3 +43,30 @@ if(SDL2_FOUND)
 else()
   message(WARNING "SDL2 not found (apt install libsdl2-dev) — skipping pose_game; pose_bench still builds")
 endif()
+
+# ---------------------------------------------------------------------------
+# wasm3 guest path: run the pose game as a real compiled wasm3 guest.
+# ---------------------------------------------------------------------------
+set(RUNTIME_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../runtime")
+file(GLOB WASM3_SRC "${RUNTIME_DIR}/wasm3/m3_*.c")
+add_library(rg_wasm3 STATIC ${WASM3_SRC} "${RUNTIME_DIR}/rg_wasm_bridge.c")
+set_target_properties(rg_wasm3 PROPERTIES C_STANDARD 11)
+target_include_directories(rg_wasm3 PUBLIC "${RUNTIME_DIR}" "${RUNTIME_DIR}/wasm3")
+target_compile_options(rg_wasm3 PRIVATE -Wno-unused-parameter -Wno-unused-variable)
+
+# headless proof (no camera / SDL / TFLite): fabricated pose -> wasm3 guest -> RGW1
+add_executable(pose_wasm_smoke
+  wasm_host/pose_wasm_smoke.cc
+  native_provider/rg_pose.cc)
+target_link_libraries(pose_wasm_smoke rg_wasm3 pthread)
+
+# the live game as a wasm3 guest (camera + TFLite + SDL)
+if(SDL2_FOUND)
+  add_executable(pose_wasm_game
+    wasm_host/pose_wasm_game.cc
+    native_game/camera_v4l2.cc
+    native_provider/rg_pose.cc)
+  target_include_directories(pose_wasm_game PRIVATE ${SDL2_INCLUDE_DIRS})
+  target_link_directories(pose_wasm_game PRIVATE ${SDL2_LIBRARY_DIRS})
+  target_link_libraries(pose_wasm_game tensorflow-lite rg_wasm3 ${SDL2_LIBRARIES} pthread)
+endif()

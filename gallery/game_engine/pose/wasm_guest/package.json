@@ -1,0 +1,12 @@
+{
+  "name": "ranger-pose-wasm-guest",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Minimal pose game compiled to a wasm3 guest (AssemblyScript).",
+  "scripts": {
+    "build": "asc assembly/index.ts --outFile pose_guest.wasm --runtime minimal --use abort= --optimize --disable bulk-memory"
+  },
+  "devDependencies": {
+    "assemblyscript": "0.27.29"
+  }
+}
