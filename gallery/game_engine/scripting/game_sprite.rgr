@@ -71,6 +71,13 @@ class GameSpriteRenderer {
     def imageLoader:GameImageLoader (new GameImageLoader())
     def gpuSheetOverlay:boolean false
     def gpuPane:int -1
+    ; R1b: optional GPU ortho camera for the sprite overlay (pan px / zoom /
+    ; rotation about the pane centre). Off by default -> identity, no change.
+    def gpuCamEnabled:boolean false
+    def gpuCamX:double 0.0
+    def gpuCamY:double 0.0
+    def gpuCamZoom:double 1.0
+    def gpuCamAngleDeg:double 0.0
     def sheetCachePaths:[string]
     def sheetCacheTpl:[GameEntity]
 
@@ -86,10 +93,32 @@ class GameSpriteRenderer {
         gpuPane = pane
     }
 
+    fn setGpuCamera:void (x:double y:double zoom:double angleDeg:double) {
+        gpuCamEnabled = true
+        gpuCamX = x
+        gpuCamY = y
+        gpuCamZoom = zoom
+        gpuCamAngleDeg = angleDeg
+    }
+
+    fn resetGpuCamera:void () {
+        gpuCamEnabled = false
+        gpuCamX = 0.0
+        gpuCamY = 0.0
+        gpuCamZoom = 1.0
+        gpuCamAngleDeg = 0.0
+    }
+
     fn beginGpuSpriteFrame:void (pw:int ph:int gpuMode:boolean) {
         if (gpuMode) {
             if (gpuSheetOverlay) {
                 gfx_gpu_sprites_begin pw ph gpuPane
+                if (gpuCamEnabled) {
+                    gfx_gpu_camera_set gpuPane gpuCamX gpuCamY gpuCamZoom gpuCamAngleDeg
+                }
+                if (gpuCamEnabled == false) {
+                    gfx_gpu_camera_reset gpuPane
+                }
             }
         }
     }

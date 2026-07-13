@@ -83,12 +83,22 @@ describe("Game engine - SDL Pong rendering PoC", () => {
         path.join(outDir, "variant.hpp")
       );
 
-      // C++ -> native binary (link SDL2)
+      // C++ -> native binary (link SDL2 + OpenGL). gfx_sdl.rgr's GPU sprite
+      // path references GL symbols even when the software present is used at
+      // runtime, so mirror build-game-sdl.sh's GL link flags per platform.
       const bin = path.join(outDir, "pong_sdl");
       const cflags = execSync("pkg-config --cflags --libs sdl2", {
         encoding: "utf-8",
       }).trim();
-      execSync(`g++ -std=c++17 "${cpp}" -o "${bin}" ${cflags}`, {
+      let glFlags = "";
+      if (process.platform === "darwin") {
+        glFlags = "-framework OpenGL";
+      } else if (process.arch === "arm64" || process.arch === "arm") {
+        glFlags = "-lGLESv2";
+      } else {
+        glFlags = "-lGL";
+      }
+      execSync(`g++ -std=c++17 "${cpp}" -o "${bin}" ${cflags} ${glFlags}`, {
         cwd: outDir,
         stdio: ["pipe", "pipe", "pipe"],
         timeout: 60000,
