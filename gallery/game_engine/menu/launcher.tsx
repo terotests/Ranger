@@ -76,13 +76,15 @@ function update(props) {
   let cat = s.cat;
 
   // Back/quit is context-sensitive: from a category's game list it goes back up
-  // to the categories screen; only from the top categories screen does it exit
-  // the app.
+  // to the categories screen. The top categories screen is the app root — back
+  // there is a no-op so the launcher never exits itself (you'd otherwise drop to
+  // the Linux desktop with no easy way back). It stays put until the host is
+  // killed externally.
   if (props.quit) {
     if (screen === "games") {
       return { screen: "cats", sel: cat, cat, launchPath: "", quitApp: 0, now, anim: null, onDone: null };
     }
-    return { screen, sel, cat, launchPath: "", quitApp: 1, now, anim: null, onDone: null };
+    return { screen, sel, cat, launchPath: "", quitApp: 0, now, anim: null, onDone: null };
   }
 
   // A glow flash is running: when it finishes, call the stashed callback to
