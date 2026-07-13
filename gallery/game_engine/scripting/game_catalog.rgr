@@ -211,6 +211,11 @@ class GameCatalog {
             if ((indexOf txt "engine=as") >= 0) {
                 isLinear = true
             }
+            ; engine=ui — a WASM guest that only builds an RGU1 UI document
+            ; (selectable menu), rendered + navigated by the host UI layer.
+            if ((indexOf txt "engine=ui") >= 0) {
+                isLinear = true
+            }
             if (isLinear) {
                 def modFile:string "logic.wasm"
                 def entry:GameCatalogEntry (new GameCatalogEntry)

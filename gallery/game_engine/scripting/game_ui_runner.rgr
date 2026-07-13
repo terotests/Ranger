@@ -1,0 +1,128 @@
+; ==============================================================================
+; GameUiRunner - run an `engine=ui` game: a WASM guest that only builds an RGU1
+; UI document (a selectable menu), rendered + navigated by the host UI layer.
+; ==============================================================================
+;
+; The guest exports rg_ui_ptr/rg_ui_size/rg_ui_revision (the document) and an
+; optional rg_ui_event (button recognition). This runner instantiates it, pulls
+; the RGU1 block, renders it with the EVG UI layer (TTF text + soft-glow
+; selection), moves the selection with the gamepad/keyboard D-pad, and forwards
+; the action button back to the guest - which rebuilds and bumps its revision.
+;
+; It is self-contained (its own SoftCanvas); the SDL launcher drives it with a
+; small present/input loop (GameSdlRunner.runUiGame). The es6 dev build has no
+; WASM runtime (wasm_load is a stub), so loadWasm() no-ops there; loadDoc() lets
+; the whole render/nav path be exercised headlessly from host-authored bytes.
+; ==============================================================================
+
+Import "../framebuffer.rgr"
+Import "../ui/WasmUiSelect.rgr"
+
+class GameUiRunner {
+    def canvas:SoftCanvas (new SoftCanvas)
+    def ctx:UIContext (new UIContext)
+    def ctrl:UiSelectController (new UiSelectController)
+    def doc:WasmUiDoc (new WasmUiDoc)
+    def root:EVGElement (EVGElement.createDiv())
+
+    def handle:int 0
+    def w:int 0
+    def h:int 0
+    def rev:int 0
+    def loaded:boolean false
+
+    ; page background behind the menu card
+    def bgR:int 16
+    def bgG:int 18
+    def bgB:int 30
+
+    Constructor () {
+    }
+
+    fn init:void (width:int height:int fontDir:string fontRelPath:string family:string) {
+        w = width
+        h = height
+        canvas.init(width height)
+        ctx.attach(canvas)
+        if ((strlen fontDir) > 0) {
+            ctx.tr.addFontDir(fontDir)
+            ctx.tr.loadFont(family fontRelPath)
+        }
+        ctrl.borderWidth = 2
+        ctrl.highlightPad = 4
+    }
+
+    ; --- native path: instantiate the wasm guest --------------------------------
+    fn loadWasm:boolean (wasmPath:string) {
+        handle = (wasm_load wasmPath)
+        if (handle <= 0) {
+            return false
+        }
+        def _i (wasm_call_i32 handle "init" 0 0 0 0 0 0)
+        return (this.refreshFromWasm())
+    }
+
+    fn refreshFromWasm:boolean () {
+        if ((doc.loadFromWasm(handle)) == false) {
+            return false
+        }
+        this.rebuildTree()
+        rev = (wasm_call_i32 handle "rg_ui_revision" 0 0 0 0 0 0)
+        loaded = true
+        return true
+    }
+
+    ; --- headless/test path: an already-authored RGU1 byte block ----------------
+    fn loadDoc:boolean (bytes:[int] n:int) {
+        doc.loadBytes(bytes n)
+        if (doc.valid == false) {
+            return false
+        }
+        this.rebuildTree()
+        loaded = true
+        return true
+    }
+
+    fn rebuildTree:void () {
+        def builder:WasmUiEvgBuilder (new WasmUiEvgBuilder)
+        root = (builder.build(doc))
+        ctrl.renderer.layoutTree(ctx root w h)
+        ctrl.rebuild(doc root)
+    }
+
+    ; --- per-frame --------------------------------------------------------------
+    ; Advance one frame with nav input; returns the activated node id, or -1.
+    fn frame:int (nav:UiNavInput) {
+        if (loaded == false) {
+            return -1
+        }
+        def act:int (ctrl.update(nav))
+        if ctrl.didActivate {
+            if (handle > 0) {
+                def idx:int (doc.indexOfId(act))
+                if (idx >= 0) {
+                    if (doc.nodeWantsActivate(idx)) {
+                        ; button recognition: notify the guest (ACTIVATE = 1)
+                        def _e (wasm_call_i32 handle "rg_ui_event" 3 act 1 0 0 0)
+                    }
+                }
+                ; the guest may have rebuilt its document - pull it again
+                def newRev:int (wasm_call_i32 handle "rg_ui_revision" 0 0 0 0 0 0)
+                if (newRev != rev) {
+                    this.refreshFromWasm()
+                }
+            }
+        }
+        return act
+    }
+
+    fn render:void () {
+        canvas.clear(bgR bgG bgB)
+        ctrl.renderer.draw(ctx root)
+        ctrl.renderHighlight(ctx)
+    }
+
+    fn raw:buffer () {
+        return (canvas.raw())
+    }
+}

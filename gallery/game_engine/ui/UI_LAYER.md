@@ -229,7 +229,22 @@ npm run engine:ui:wasm-select   # host demo: render + navigate + activate (8 che
                                 # writes wasm_select_1_start / _2_nav / _3_activated.png
 npm run engine:ui:wasm-guest    # builds the AS guest .wasm, instantiates it, checks
                                 # the emitted flags + the activation round-trip (10 checks)
+npm run engine:ui:game          # drives GameUiRunner (the launcher's engine=ui path)
+                                # headless: load doc -> navigate -> activate (4 checks)
 ```
+
+### As a launcher game (`engine=ui`)
+
+The menu ships as a first-class entry in the games list:
+`gallery/game_engine/games/ui_menu/` (`game.info` with `engine=ui` +
+`logic.wasm`, built from `../wasm/as_ui_menu`). The catalog recognises the new
+`engine=ui`, and the SDL launcher (`GameSdlRunner.runUiGame`) instantiates the
+guest through **`game_ui_runner.rgr` (`GameUiRunner`)**: pull the RGU1 document,
+render it, move the selection with the D-pad, forward the action button to the
+guest's `rg_ui_event`, and re-pull when the guest bumps its revision. Back/Quit
+returns to the launcher. So it appears in the menu alongside Pong / Breakout /
+Invaders and runs like any other test game — the difference is its content is an
+RGU1 UI document, not a game world.
 
 The AS guest is `../wasm/as_ui_menu/` (a selectable text menu; activating
 "New Game" bumps a counter the next document shows). `wasm_ui_select_demo.rgr`
