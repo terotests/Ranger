@@ -1,0 +1,72 @@
+; ==============================================================================
+; as_lang3_demo — self-check for the third wave of interpreted-.as coverage:
+; Map/Set collections, Array#splice, lexical closures, and AssemblyScript
+; sized-integer casts. Binds a .as fixture and asserts the values it wrote to
+; the ABI. Companion to as_lang_demo, as_lang2_demo and as_class_demo.
+; ==============================================================================
+
+Import "../../scripting/as_source_runner.rgr"
+
+class AsLang3Check {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string got:int want:int) {
+        if (got == want) {
+            passed = (passed + 1)
+            print (("  PASS " + name) + (" = " + (to_string got)))
+        } {
+            failed = (failed + 1)
+            print (((("  FAIL " + name) + " got ") + (to_string got)) + (" want " + (to_string want)))
+        }
+    }
+    sfn m@(main):void () {
+        def r:AsSourceRunner (new AsSourceRunner)
+        if ((r.bindDir("gallery/game_engine/tests/interp/as_lang3_fixture")) == false) {
+            print "bind failed"
+            return
+        }
+        r.callInit()
+        def c:AsLang3Check (new AsLang3Check)
+        ; splice
+        c.ok("splice del length"  (r.abiRead(480)) 3)
+        c.ok("splice del elem"    (r.abiRead(484)) 4)
+        c.ok("splice removed"     (r.abiRead(488)) 2)
+        c.ok("splice insert"      (r.abiRead(492)) 3)
+        c.ok("splice rest kept"   (r.abiRead(496)) 2)
+        c.ok("splice rest removed" (r.abiRead(500)) 3)
+        ; map
+        c.ok("map get (updated)"  (r.abiRead(504)) 9)
+        c.ok("map size"           (r.abiRead(508)) 2)
+        c.ok("map has"            (r.abiRead(512)) 1)
+        c.ok("map delete"         (r.abiRead(516)) 0)
+        c.ok("map int keys"       (r.abiRead(520)) 200)
+        c.ok("map forEach values" (r.abiRead(524)) 7)
+        c.ok("map forEach keys"   (r.abiRead(528)) 2)
+        c.ok("map for-of destr"   (r.abiRead(532)) 60)
+        ; set
+        c.ok("set dedup size"     (r.abiRead(536)) 2)
+        c.ok("set has"            (r.abiRead(540)) 1)
+        c.ok("set delete size"    (r.abiRead(544)) 1)
+        c.ok("set init dedup"     (r.abiRead(548)) 3)
+        c.ok("set for-of sum"     (r.abiRead(552)) 6)
+        ; closures
+        c.ok("closure add5(10)"   (r.abiRead(556)) 15)
+        c.ok("closure add5(100)"  (r.abiRead(560)) 105)
+        c.ok("closure counter"    (r.abiRead(564)) 6)
+        c.ok("closure independent" (r.abiRead(568)) 15)
+        c.ok("closure as callback" (r.abiRead(572)) 30)
+        ; sized-int casts
+        c.ok("u8(300)"            (r.abiRead(576)) 44)
+        c.ok("u8(-1)"             (r.abiRead(580)) 255)
+        c.ok("i32 wrap"           (r.abiRead(584)) 7)
+        c.ok("i32(-1)"            (r.abiRead(588)) (0 - 1))
+        c.ok("u32(-1) positive"   (r.abiRead(592)) 1)
+        c.ok("i16(40000)"         (r.abiRead(596)) (0 - 25536))
+        c.ok("u8(0x1FF)"          (r.abiRead(600)) 255)
+        c.ok("as u8 cast"         (r.abiRead(604)) 44)
+        c.ok("i32 trunc"          (r.abiRead(608)) 3)
+        print "======================================"
+        print (("RESULT: " + (to_string c.passed) + " passed, ") + ((to_string c.failed) + " failed"))
+        if (c.failed == 0) { print "ALL PASS" } { print "SOME FAILED" }
+    }
+}

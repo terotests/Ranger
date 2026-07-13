@@ -1,0 +1,91 @@
+; ==============================================================================
+; as_lang_demo — self-check for interpreted-.as LANGUAGE coverage in
+; ComponentEngine (bit/shift/exponent operators, radix literals, switch/
+; do-while/for-in, the full compound-assignment set, prefix/postfix update
+; values on identifier & member targets, and String/Array/Math/global stdlib
+; methods). Binds a .as fixture and asserts the values it wrote to the ABI.
+; Companion to as_class_demo (which covers interpreted-.as classes).
+; ==============================================================================
+
+Import "../../scripting/as_source_runner.rgr"
+
+class AsLangCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string got:int want:int) {
+        if (got == want) {
+            passed = (passed + 1)
+            print (("  PASS " + name) + (" = " + (to_string got)))
+        } {
+            failed = (failed + 1)
+            print (((("  FAIL " + name) + " got ") + (to_string got)) + (" want " + (to_string want)))
+        }
+    }
+    sfn m@(main):void () {
+        def r:AsSourceRunner (new AsSourceRunner)
+        if ((r.bindDir("gallery/game_engine/tests/interp/as_lang_fixture")) == false) {
+            print "bind failed"
+            return
+        }
+        r.callInit()
+        def c:AsLangCheck (new AsLangCheck)
+        ; bit / shift
+        c.ok("shl <<"        (r.abiRead(480)) 16)
+        c.ok("shr >>"        (r.abiRead(484)) 64)
+        c.ok("ushr >>>"      (r.abiRead(488)) 128)
+        c.ok("bitnot ~"      (r.abiRead(492)) (0 - 1))
+        c.ok("bitand &"      (r.abiRead(496)) 2)
+        c.ok("bitor |"       (r.abiRead(500)) 7)
+        c.ok("bitxor ^"      (r.abiRead(504)) 4)
+        ; exponent / radix
+        c.ok("exponent **"   (r.abiRead(508)) 81)
+        c.ok("hex 0xFF"      (r.abiRead(512)) 255)
+        c.ok("binary 0b1010" (r.abiRead(516)) 10)
+        c.ok("octal 0o17"    (r.abiRead(520)) 15)
+        c.ok("separator 1_000" (r.abiRead(524)) 1000)
+        ; compound assign
+        c.ok("+="            (r.abiRead(528)) 15)
+        c.ok("%="            (r.abiRead(532)) 3)
+        c.ok("<<="           (r.abiRead(536)) 24)
+        c.ok("|="            (r.abiRead(540)) 25)
+        c.ok("&="            (r.abiRead(544)) 8)
+        c.ok("^="            (r.abiRead(548)) 7)
+        ; update values
+        c.ok("postfix c++ value"  (r.abiRead(552)) 5)
+        c.ok("postfix c after"    (r.abiRead(556)) 6)
+        c.ok("prefix ++c value"   (r.abiRead(560)) 7)
+        ; member / index targets
+        c.ok("arr[0] += 10"  (r.abiRead(564)) 11)
+        c.ok("arr[1]++"      (r.abiRead(568)) 3)
+        c.ok("obj.n *= 5"    (r.abiRead(572)) 20)
+        ; control flow
+        c.ok("switch case"   (r.abiRead(576)) 200)
+        c.ok("do-while sum"  (r.abiRead(580)) 10)
+        c.ok("for-in count"  (r.abiRead(584)) 3)
+        ; string methods
+        c.ok("str indexOf"   (r.abiRead(588)) 2)
+        c.ok("str startsWith" (r.abiRead(592)) 1)
+        c.ok("str charCodeAt" (r.abiRead(596)) 65)
+        c.ok("str split len" (r.abiRead(600)) 4)
+        c.ok("str repeat len" (r.abiRead(604)) 6)
+        ; array methods
+        c.ok("arr map"       (r.abiRead(608)) 12)
+        c.ok("arr filter"    (r.abiRead(612)) 3)
+        c.ok("arr reduce"    (r.abiRead(616)) 21)
+        c.ok("arr find"      (r.abiRead(620)) 5)
+        c.ok("arr indexOf"   (r.abiRead(624)) 3)
+        c.ok("arr includes"  (r.abiRead(628)) 1)
+        ; math / global
+        c.ok("Math.min"      (r.abiRead(632)) 4)
+        c.ok("Math.max"      (r.abiRead(636)) 9)
+        c.ok("Math.pow"      (r.abiRead(640)) 1024)
+        c.ok("Math.sign"     (r.abiRead(644)) (0 - 1))
+        c.ok("parseInt"      (r.abiRead(648)) 42)
+        ; operator-lookalike string literal
+        c.ok("dash literal"  (r.abiRead(652)) 1)
+        c.ok("helper call"   (r.abiRead(656)) 49)
+        print "======================================"
+        print (("RESULT: " + (to_string c.passed) + " passed, ") + ((to_string c.failed) + " failed"))
+        if (c.failed == 0) { print "ALL PASS" } { print "SOME FAILED" }
+    }
+}

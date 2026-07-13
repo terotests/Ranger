@@ -1,0 +1,3 @@
+name=AS language coverage fixture 2
+engine=as
+module=game.as

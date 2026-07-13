@@ -283,19 +283,79 @@ class TSLexer {
         return (this.makeToken("Template" value startPos startLine startCol))
     }
 
+    ; Value of a single digit char in any radix up to 16 (0-9, a-f, A-F); -1 if
+    ; not a digit. Used for hex/binary/octal literal parsing.
+    fn digitVal:int (ch:string) {
+        if ((strlen ch) == 0) { return (0 - 1) }
+        def code:int (charAt ch 0)
+        if (code >= 48) {
+            if (code <= 57) { return (code - 48) }
+        }
+        if (code >= 97) {
+            if (code <= 102) { return ((code - 97) + 10) }
+        }
+        if (code >= 65) {
+            if (code <= 70) { return ((code - 65) + 10) }
+        }
+        return (0 - 1)
+    }
+
+    ; Read a radix-prefixed integer literal (0x.. / 0b.. / 0o..) after the two
+    ; prefix chars, converting to a decimal string so downstream numeric parsing
+    ; (to_double / to_int) consumes it uniformly.
+    fn readRadix:Token (radix:int startPos:int startLine:int startCol:int) {
+        this.advance()
+        this.advance()
+        def acc:int 0
+        def looping:boolean true
+        while ((pos < len) && looping) {
+            def ch:string (this.peek())
+            if (ch == "_") {
+                this.advance()
+            } {
+                def d:int (this.digitVal(ch))
+                if (d >= 0) {
+                    if (d < radix) {
+                        acc = ((acc * radix) + d)
+                        this.advance()
+                    } {
+                        looping = false
+                    }
+                } {
+                    looping = false
+                }
+            }
+        }
+        return (this.makeToken("Number" (to_string acc) startPos startLine startCol))
+    }
+
     fn readNumber:Token () {
         def startPos:int pos
         def startLine:int line
         def startCol:int col
         def value:string ""
+        ; Radix-prefixed integer literals: 0x/0X hex, 0b/0B binary, 0o/0O octal.
+        if ((this.peek()) == "0") {
+            def p1:string (this.peekAt(1))
+            if ((p1 == "x") || (p1 == "X")) {
+                return (this.readRadix(16 startPos startLine startCol))
+            }
+            if ((p1 == "b") || (p1 == "B")) {
+                return (this.readRadix(2 startPos startLine startCol))
+            }
+            if ((p1 == "o") || (p1 == "O")) {
+                return (this.readRadix(8 startPos startLine startCol))
+            }
+        }
         while (pos < len) {
             def ch:string (this.peek())
             if (this.isDigit(ch)) {
                 value = value + (this.advance())
             } {
-                ; Numeric separator: 1_000_000
+                ; Numeric separator: 1_000_000 — skipped, not kept, so downstream
+                ; to_double/to_int parse the digits (they stop at a literal '_').
                 if (ch == "_") {
-                    value = value + (this.advance())
+                    this.advance()
                 } {
                     if (ch == ".") {
                         value = value + (this.advance())
@@ -525,6 +585,16 @@ class TSLexer {
             }
         }
         if (ch == "<") {
+            ; Shift-assign <<= only (bare << is combined in the parser so that
+            ; type-generics like Map<Set<T>> keep working — see parseShift).
+            if (next == "<") {
+                if ((this.peekAt(2)) == "=") {
+                    this.advance()
+                    this.advance()
+                    this.advance()
+                    return (this.makeToken("Punctuator" "<<=" startPos startLine startCol))
+                }
+            }
             if (next == "=") {
                 this.advance()
                 this.advance()
@@ -532,6 +602,24 @@ class TSLexer {
             }
         }
         if (ch == ">") {
+            ; Shift-assign >>= / >>>= only; bare >> / >>> are combined in the parser.
+            if (next == ">") {
+                if ((this.peekAt(2)) == "=") {
+                    this.advance()
+                    this.advance()
+                    this.advance()
+                    return (this.makeToken("Punctuator" ">>=" startPos startLine startCol))
+                }
+                if ((this.peekAt(2)) == ">") {
+                    if ((this.peekAt(3)) == "=") {
+                        this.advance()
+                        this.advance()
+                        this.advance()
+                        this.advance()
+                        return (this.makeToken("Punctuator" ">>>=" startPos startLine startCol))
+                    }
+                }
+            }
             if (next == "=") {
                 this.advance()
                 this.advance()
@@ -549,6 +637,12 @@ class TSLexer {
                 }
                 return (this.makeToken("Punctuator" "&&" startPos startLine startCol))
             }
+            ; Bitwise-and assign &=
+            if (next == "=") {
+                this.advance()
+                this.advance()
+                return (this.makeToken("Punctuator" "&=" startPos startLine startCol))
+            }
         }
         if (ch == "|") {
             if (next == "|") {
@@ -560,6 +654,20 @@ class TSLexer {
                     return (this.makeToken("Punctuator" "||=" startPos startLine startCol))
                 }
                 return (this.makeToken("Punctuator" "||" startPos startLine startCol))
+            }
+            ; Bitwise-or assign |=
+            if (next == "=") {
+                this.advance()
+                this.advance()
+                return (this.makeToken("Punctuator" "|=" startPos startLine startCol))
+            }
+        }
+        ; Bitwise-xor assign ^=
+        if (ch == "^") {
+            if (next == "=") {
+                this.advance()
+                this.advance()
+                return (this.makeToken("Punctuator" "^=" startPos startLine startCol))
             }
         }
         ; Nullish coalescing ?? and ??=
@@ -606,9 +714,16 @@ class TSLexer {
             }
         }
         
-        ; Exponentiation operator **
+        ; Exponentiation operator ** and **=
         if (ch == "*") {
             if (next == "*") {
+                ; Exponent-assign **=
+                if ((this.peekAt(2)) == "=") {
+                    this.advance()
+                    this.advance()
+                    this.advance()
+                    return (this.makeToken("Punctuator" "**=" startPos startLine startCol))
+                }
                 this.advance()
                 this.advance()
                 return (this.makeToken("Punctuator" "**" startPos startLine startCol))

@@ -17,6 +17,8 @@ Import "../../../ts_parser/ts_parser_simple.rgr"
 ; 6 = function
 ; 7 = evgElement (for JSX elements as props)
 ; 8 = undefined (distinct from null for typeof / optional globals)
+; 9 = Map  (ordered; keys in arrayValue, values in mapVals, matched by index)
+; 10 = Set (ordered unique elements in arrayValue)
 
 class EvalValue {
     def valueType:int 0         ; Type tag
@@ -24,12 +26,17 @@ class EvalValue {
     def stringValue:string ""
     def boolValue:boolean false
     def arrayValue:[EvalValue]
+    def mapVals:[EvalValue]     ; parallel to arrayValue for valueType 9 (Map)
     def objectMap:[string:EvalValue]
     def functionName:string ""
     def functionBody:string ""  ; For parsed functions
     ; For a bound method reference (obj.method held as a value): the receiver the
     ; method is called on. null for plain functions/closures.
     def boundThis@(optional):EvalValue
+    ; Captured defining scope for a function/arrow value (lexical closures). Held
+    ; by integer id into ComponentEngine.closureScopes to avoid a type cycle
+    ; (EvalContext lives in ComponentEngine, which imports this file). -1 = none.
+    def closureId:int (0 - 1)
     def functionNode@(optional):TSNode  ; For function AST nodes
     def evgElement@(optional):EVGElement  ; For JSX elements passed as props
     
@@ -99,6 +106,20 @@ class EvalValue {
         return v
     }
     
+    ; Empty Map (valueType 9): keys in arrayValue, values in mapVals by index.
+    sfn mapEmpty:EvalValue () {
+        def v:EvalValue (new EvalValue())
+        v.valueType = 9
+        return v
+    }
+
+    ; Empty Set (valueType 10): unique elements in arrayValue (insertion order).
+    sfn setEmpty:EvalValue () {
+        def v:EvalValue (new EvalValue())
+        v.valueType = 10
+        return v
+    }
+
     sfn object:EvalValue (keys:[string] values:[EvalValue]) {
         def v:EvalValue (new EvalValue())
         v.valueType = 5
@@ -327,6 +348,23 @@ class EvalValue {
         }
         set objectMap key value
     }
+
+    ; Remove an object property (mutates in place), rebuilding the map without it.
+    fn removeMember:void (key:string) {
+        if (valueType != 5) {
+            return
+        }
+        if (has objectMap key) {
+            def rebuilt:[string:EvalValue]
+            def ks:[string] (keys objectMap)
+            for ks kk:string idx {
+                if (kk != key) {
+                    set rebuilt kk (unwrap (get objectMap kk))
+                }
+            }
+            objectMap = rebuilt
+        }
+    }
     
     ; Set an array element by index (extends with null when needed).
     fn setIndexAt:void (index:int value:EvalValue) {
@@ -337,6 +375,129 @@ class EvalValue {
             push arrayValue (EvalValue.null())
         }
         set arrayValue index value
+    }
+
+    ; Append to the backing array in place; returns the new length (Array#push).
+    fn arrPush:int (value:EvalValue) {
+        if (valueType != 4) {
+            return 0
+        }
+        push arrayValue value
+        return (array_length arrayValue)
+    }
+
+    ; Replace the backing array items in place (keeps the same EvalValue instance
+    ; so existing references see the mutation — used by pop/shift/reverse/sort/…).
+    fn arrSetItems:void (items:[EvalValue]) {
+        valueType = 4
+        arrayValue = items
+    }
+
+    ; ---- Map (valueType 9) helpers: keys in arrayValue, values in mapVals ----
+    fn mapIndexOfKey:int (key:EvalValue) {
+        def i:int 0
+        while (i < (array_length arrayValue)) {
+            if ((key.equals((itemAt arrayValue i)))) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+    fn mapSet:void (key:EvalValue value:EvalValue) {
+        def idx:int (this.mapIndexOfKey(key))
+        if (idx >= 0) {
+            set mapVals idx value
+        } {
+            push arrayValue key
+            push mapVals value
+        }
+    }
+    fn mapGet:EvalValue (key:EvalValue) {
+        def idx:int (this.mapIndexOfKey(key))
+        if (idx >= 0) {
+            return (itemAt mapVals idx)
+        }
+        return (EvalValue.undefined())
+    }
+    fn mapHas:boolean (key:EvalValue) {
+        return ((this.mapIndexOfKey(key)) >= 0)
+    }
+    fn mapDelete:boolean (key:EvalValue) {
+        def idx:int (this.mapIndexOfKey(key))
+        if (idx < 0) {
+            return false
+        }
+        def nk:[EvalValue]
+        def nv:[EvalValue]
+        def i:int 0
+        while (i < (array_length arrayValue)) {
+            if (i != idx) {
+                push nk (itemAt arrayValue i)
+                push nv (itemAt mapVals i)
+            }
+            i = (i + 1)
+        }
+        arrayValue = nk
+        mapVals = nv
+        return true
+    }
+
+    ; ---- Set (valueType 10) helpers: unique elements in arrayValue ----
+    fn setAdd:void (value:EvalValue) {
+        def i:int 0
+        while (i < (array_length arrayValue)) {
+            if ((value.equals((itemAt arrayValue i)))) {
+                return
+            }
+            i = (i + 1)
+        }
+        push arrayValue value
+    }
+    fn setHas:boolean (value:EvalValue) {
+        def i:int 0
+        while (i < (array_length arrayValue)) {
+            if ((value.equals((itemAt arrayValue i)))) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+    fn setDelete:boolean (value:EvalValue) {
+        def idx:int (0 - 1)
+        def i:int 0
+        while (i < (array_length arrayValue)) {
+            if ((value.equals((itemAt arrayValue i)))) {
+                idx = i
+            }
+            i = (i + 1)
+        }
+        if (idx < 0) {
+            return false
+        }
+        def nk:[EvalValue]
+        def j:int 0
+        while (j < (array_length arrayValue)) {
+            if (j != idx) {
+                push nk (itemAt arrayValue j)
+            }
+            j = (j + 1)
+        }
+        arrayValue = nk
+        return true
+    }
+    fn collClear:void () {
+        def empty:[EvalValue]
+        arrayValue = empty
+        def emptyV:[EvalValue]
+        mapVals = emptyV
+    }
+    fn isMap:boolean () {
+        return (valueType == 9)
+    }
+    fn isSet:boolean () {
+        return (valueType == 10)
     }
     
     ; Array index access

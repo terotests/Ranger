@@ -1603,8 +1603,25 @@ class TSParserSimple {
     if ((tokVal == "let") || (tokVal == "const") || (tokVal == "var")) {
       def kind tokVal
       this.advance()
-      def varName (this.expect("Identifier"))
-      
+      ; Binding target: a destructuring pattern ([a,b] / {x,y}) or an identifier.
+      ; Enables for ([k,v] of map) / for ({id} of items).
+      def hasPattern:boolean false
+      def patternNode:TSNode (new TSNode())
+      def varNameStr:string ""
+      def bindTokVal (this.peekValue())
+      if (bindTokVal == "[") {
+        hasPattern = true
+        patternNode = (this.parseArrayPattern())
+      } {
+        if (bindTokVal == "{") {
+          hasPattern = true
+          patternNode = (this.parseObjectPattern())
+        } {
+          def vt (this.expect("Identifier"))
+          varNameStr = vt.value
+        }
+      }
+
       def nextVal (this.peekValue())
       if (nextVal == "of") {
         ; for...of loop
@@ -1617,7 +1634,7 @@ class TSParserSimple {
         left.kind = kind
         def declarator (new TSNode())
         declarator.nodeType = "VariableDeclarator"
-        declarator.name = varName.value
+        if hasPattern { declarator.left = patternNode } { declarator.name = varNameStr }
         push left.children declarator
         node.left = left
         
@@ -1640,7 +1657,7 @@ class TSParserSimple {
         left.kind = kind
         def declarator (new TSNode())
         declarator.nodeType = "VariableDeclarator"
-        declarator.name = varName.value
+        if hasPattern { declarator.left = patternNode } { declarator.name = varNameStr }
         push left.children declarator
         node.left = left
         
@@ -1660,8 +1677,8 @@ class TSParserSimple {
       initDecl.kind = kind
       def declarator (new TSNode())
       declarator.nodeType = "VariableDeclarator"
-      declarator.name = varName.value
-      
+      if hasPattern { declarator.left = patternNode } { declarator.name = varNameStr }
+
       ; Type annotation
       if (this.matchValue(":")) {
         def typeAnnot (this.parseTypeAnnotation())
@@ -3314,8 +3331,9 @@ class TSParserSimple {
       return assign
     }
     
-    ; Compound assignment operators: +=, -=, *=, /=, %=
-    if ((tokVal == "+=") || (tokVal == "-=") || (tokVal == "*=") || (tokVal == "/=") || (tokVal == "%=")) {
+    ; Compound assignment operators: +=, -=, *=, /=, %=, **=, and the bitwise/
+    ; shift forms &=, |=, ^=, <<=, >>=, >>>=
+    if ((tokVal == "+=") || (tokVal == "-=") || (tokVal == "*=") || (tokVal == "/=") || (tokVal == "%=") || (tokVal == "**=") || (tokVal == "&=") || (tokVal == "|=") || (tokVal == "^=") || (tokVal == "<<=") || (tokVal == ">>=") || (tokVal == ">>>=")) {
       this.advance()
       def right (this.parseAssign())
       
@@ -3548,10 +3566,10 @@ class TSParserSimple {
   ; === Comparison (<, >, <=, >=) ===
   
   fn parseComparison:TSNode () {
-    def left (this.parseAdditive())
-    
+    def left (this.parseShift())
+
     def tokVal (this.peekValue())
-    while ((tokVal == "<") || (tokVal == ">") || (tokVal == "<=") || (tokVal == ">=")) {
+    while ((tokVal == "<") || (tokVal == ">") || (tokVal == "<=") || (tokVal == ">=") || (tokVal == "instanceof") || (tokVal == "in")) {
       ; In TSX mode, check if < might be a generic call
       if (tokVal == "<") {
         if (this.tsxMode == true) {
@@ -3564,10 +3582,10 @@ class TSParserSimple {
           }
         }
       }
-      
+
       def opTok (this.peek())
       this.advance()
-      def right (this.parseAdditive())
+      def right (this.parseShift())
       
       def expr (new TSNode())
       expr.nodeType = "BinaryExpression"
@@ -3583,7 +3601,51 @@ class TSParserSimple {
     
     return left
   }
-  
+
+  ; === Shift (<< >> >>>) ===
+  ; JS precedence: below relational, above additive. The lexer emits `<`/`>` as
+  ; single-char tokens (only `<=`/`>=` are merged), so shift operators appear as
+  ; adjacent `<``<` or `>``>`(`>`). We only combine them here, never a lone `<`/`>`
+  ; (those stay relational), so type-annotation generics like Map<a,b> are intact.
+  fn parseShift:TSNode () {
+    def left (this.parseAdditive())
+
+    def cur (this.peekValue())
+    def nxt (this.peekAheadValue(1))
+    while (((this.peekType()) == "Punctuator") && (((cur == "<") && (nxt == "<")) || ((cur == ">") && (nxt == ">")))) {
+      def startTok (this.peek())
+      def op:string ""
+      if (cur == "<") {
+        this.advance()
+        this.advance()
+        op = "<<"
+      } {
+        this.advance()
+        this.advance()
+        op = ">>"
+        ; a third '>' makes it the unsigned-right-shift >>>
+        if ((this.peekValue()) == ">") {
+          this.advance()
+          op = ">>>"
+        }
+      }
+      def right (this.parseAdditive())
+      def expr (new TSNode())
+      expr.nodeType = "BinaryExpression"
+      expr.value = op
+      expr.left = left
+      expr.right = right
+      expr.start = left.start
+      expr.line = left.line
+      expr.col = left.col
+      left = expr
+      cur = (this.peekValue())
+      nxt = (this.peekAheadValue(1))
+    }
+
+    return left
+  }
+
   ; === Additive (+ -) ===
   ; Lower precedence than multiplicative
 
@@ -3642,9 +3704,13 @@ class TSParserSimple {
   
   fn parseUnary:TSNode () {
     def tokVal (this.peekValue())
-    
+    ; Only treat the token as a prefix operator when it is an actual punctuator,
+    ; never when it is a string/number literal whose text happens to equal an
+    ; operator (e.g. the literal "-" in arr.join("-") or "++" as a string).
+    def tokIsPunct:boolean ((this.peekType()) == "Punctuator")
+
     ; Handle prefix ++ and --
-    if ((tokVal == "++") || (tokVal == "--")) {
+    if (tokIsPunct && ((tokVal == "++") || (tokVal == "--"))) {
       def opTok (this.peek())
       this.advance()
       def arg (this.parseUnary())
@@ -3660,11 +3726,25 @@ class TSParserSimple {
       return update
     }
     
-    if ((tokVal == "!") || (tokVal == "-") || (tokVal == "+")) {
+    if (tokIsPunct && ((tokVal == "!") || (tokVal == "-") || (tokVal == "+") || (tokVal == "~"))) {
       def opTok (this.peek())
       this.advance()
       def arg (this.parseUnary())
-      
+
+      def unary (new TSNode())
+      unary.nodeType = "UnaryExpression"
+      unary.value = opTok.value
+      unary.left = arg
+      unary.start = opTok.start
+      unary.line = opTok.line
+      unary.col = opTok.col
+      return unary
+    }
+
+    if ((tokVal == "void") || (tokVal == "delete")) {
+      def opTok (this.peek())
+      this.advance()
+      def arg (this.parseUnary())
       def unary (new TSNode())
       unary.nodeType = "UnaryExpression"
       unary.value = opTok.value
