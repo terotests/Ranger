@@ -67,6 +67,7 @@ const P_GRAD_DIR: i32 = 52;    // 0 vertical, 1 horizontal
 const P_ABS_X: i32 = 53;       // absolute page-x
 const P_ABS_Y: i32 = 54;       // absolute page-y
 const P_GLOW: i32 = 55;        // animated glow strength 0..1000
+const P_BG_IMAGE: i32 = 56;    // background image path (clipped to rounded box)
 
 // enum values
 const DIR_COLUMN: i32 = 1;
@@ -92,7 +93,12 @@ const EX_BG: i32 = 0;
 const EX_FONT_COLOR: i32 = 1;
 const EX_FONT_SIZE: i32 = 2;
 const EX_GRADIENT: i32 = 3;
-const EX_COUNT: i32 = 4;
+const EX_BGIMAGE: i32 = 4;
+const EX_COUNT: i32 = 5;
+
+// A background image the guest can name by path; the host decodes it and clips
+// it to the rounded box. The guest is sandboxed and never touches the pixels.
+const BG_IMAGE_PATH: string = "gallery/game_engine/games/invaders/assets/invaders_bg.png";
 
 // ---- persistent state (module scope, survives update() calls) ----
 let SCREEN: i32 = 0;
@@ -227,7 +233,8 @@ function exampleName(i: i32): string {
   if (i == EX_BG) return "Background color";
   if (i == EX_FONT_COLOR) return "Font color";
   if (i == EX_FONT_SIZE) return "Font size";
-  return "Linear gradient";
+  if (i == EX_GRADIENT) return "Linear gradient";
+  return "Background image";
 }
 
 // ---- document builders ----
@@ -289,7 +296,7 @@ function buildDemo(): void {
     uiPropI32(P_MARGIN, 8);
     uiPropColorRgba(P_BG, 22, 26, 40, 255);
     label(122, PREVIEW, 0, "Big 42", 220, 224, 236, 42);
-  } else {
+  } else if (EXAMPLE == EX_GRADIENT) {
     // linear gradient: a real 2-stop vertical gradient fill in the host EVG renderer
     uiNode(PREVIEW, CARD, K_VIEW, 2);
     uiPropI32(P_WIDTH, 220);
@@ -300,6 +307,17 @@ function buildDemo(): void {
     uiPropColorRgba(P_GRAD_TO, 210, 90, 200, 255);     // magenta
     uiPropEnum(P_GRAD_DIR, 0);                          // vertical
     label(122, PREVIEW, 0, "linear gradient", 255, 255, 255, 15);
+  } else {
+    // background image: name a PNG by path; the host decodes it and clips it to
+    // the rounded box. This is the .as guest driving a real EVG image fill.
+    uiNode(PREVIEW, CARD, K_VIEW, 2);
+    uiPropI32(P_WIDTH, 220);
+    uiPropI32(P_HEIGHT, 150);
+    uiPropI32(P_RADIUS, 14);
+    uiPropI32(P_MARGIN, 8);
+    uiPropStr(P_BG_IMAGE, BG_IMAGE_PATH);
+    uiPropI32(P_BORDER_W, 2);
+    uiPropColorRgba(P_BORDER_COLOR, 120, 150, 210, 255);
   }
 
   label(130, CARD, 3, "< left/right >   enter: back", 143, 176, 208, 12);

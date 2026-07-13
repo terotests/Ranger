@@ -239,6 +239,14 @@ class AsUiMenuSrcDemo {
         c.ok("effect is absolutely placed (ABS_X)" (d.hasProp(200 53)))
         d.drawFrame("as_ui_5_demo_gradient.png")
 
+        ; ---- right -> Background image (guest names a PNG; host clips it) ----
+        d.step(8)
+        c.ok(("right -> Background image (got '" + (d.textOfId(101)) + "')") ((indexOf (d.textOfId(101)) "Background image") >= 0))
+        ; the bgimage example must declare a BG_IMAGE prop (key 56) on the preview
+        c.ok("bgimage example has BG_IMAGE prop" (d.hasProp(40 56)))
+        d.drawFrame("as_ui_5b_demo_bgimage.png")
+        d.step(4)                              ; left -> back to gradient (restore state)
+
         ; ---- left wraps back to Font size ----
         d.step(4)
         c.ok(("left -> Font size (got '" + (d.textOfId(101)) + "')") ((indexOf (d.textOfId(101)) "Font size") >= 0))
