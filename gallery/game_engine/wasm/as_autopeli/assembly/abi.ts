@@ -182,3 +182,124 @@ export function decayTimer(t: i32, dt: i32): i32 {
   const next = t - dt;
   return next < 0 ? 0 : next;
 }
+
+// ============================================================================
+// Object model — the "common header" game code builds on.
+//
+// Everything above is the raw bridge (offsets + rd/wr + index accessors). The
+// layer below wraps it so gameplay code reads in objects — `P1.x`, `road.half`,
+// `c.bodyA`, `impulses.angular(...)` — instead of scratch globals, positional
+// writers, and index calls. Two properties make this safe for the WASM path:
+//
+//   * Same emitted arithmetic. Views are thin getters/setters over rd/wr, so
+//     the numbers that reach the ABI are identical to the low-level version
+//     (verified byte-for-byte by tools/selfcheck.cjs / parity.cjs).
+//   * Zero per-frame allocation. Every object here is a module-scope singleton;
+//     result structs are mutated-and-returned, never freshly allocated in the
+//     loop. That keeps `--runtime minimal` (no GC) from growing memory.
+//
+// The one rule the singletons impose: a value struct returned from a function
+// (road/vec2/drive/coneLaunch) is shared, so copy its fields into locals before
+// calling the same producer again. The game code already works this way.
+// ============================================================================
+
+// ---- small result structs (replace the old RCX/VX/CL_/DIN_ scratch globals) ----
+export class Road { center: i32 = 0; half: i32 = 0; }
+export class Vec2 { x: i32 = 0; y: i32 = 0; }
+export class Drive { steer: i32 = 0; throttle: i32 = 0; brake: i32 = 0; }
+export class ConeLaunch { lx: i32 = 0; ly: i32 = 0; ang: i32 = 0; }
+
+// ---- header facade: named fields instead of rd(OFF_*)/wr(OFF_*) ----
+export class World {
+  get dt(): i32 { return rd(OFF_DT); }
+  get time(): i32 { return rd(OFF_TIME); }
+  get inputP1(): i32 { return rd(OFF_INPUT); }
+  get inputP2(): i32 { return rd(OFF_INPUT_P2); }
+  get hits(): i32 { return rd(OFF_HITS); }
+  set hits(v: i32) { wr(OFF_HITS, v); }
+  get score(): i32 { return rd(OFF_SCORE); }
+  set score(v: i32) { wr(OFF_SCORE, v); }
+  set cameraY(v: i32) { wr(OFF_CAMERA_Y, v); }
+  set airP1(v: i32) { wr(OFF_AIR_P1, v); }
+  set airP2(v: i32) { wr(OFF_AIR_P2, v); }
+
+  // Stamp the RGW1 header + reset the per-frame counters (called from init()).
+  initHeader(): void {
+    wr(OFF_MAGIC, ABI_MAGIC);
+    wr(OFF_VERSION, ABI_VERSION);
+    wr(OFF_SIZE, ABI_SIZE);
+    wr(OFF_BODY_COUNT, BODY_COUNT);
+    wr(OFF_IMPULSE_CNT, 0);
+    wr(OFF_CONTACT_CNT, 0);
+    wr(OFF_EVENT_CNT, 0);
+    wr(OFF_AIR_P1, 0);
+    wr(OFF_AIR_P2, 0);
+    wr(OFF_SCORE, 0);
+    wr(OFF_HITS, 0);
+  }
+}
+export const world = new World();
+
+// ---- body view: `b.x`, `b.speed`, `b.control(...)` instead of bodyX(idx)/writeControl(idx,...) ----
+export class Body {
+  idx: i32;
+  constructor(idx: i32) { this.idx = idx; }
+  get x(): i32 { return bodyX(this.idx); }
+  get y(): i32 { return bodyY(this.idx); }
+  get speed(): i32 { return bodySpeed(this.idx); }
+  get angMilli(): i32 { return bodyAngMilli(this.idx); }
+  get angVel(): i32 { return bodyAngVelFp(this.idx); }
+  setPos(xFp: i32, yFp: i32): void { writeBodyPos(this.idx, xFp, yFp); }
+  control(steer: i32, throttle: i32, brake: i32, grip: i32): void {
+    writeControl(this.idx, steer, throttle, brake, grip);
+  }
+}
+// Persistent player views + one rebindable view for the traffic loop.
+export const P1 = new Body(BODY_P1);
+export const P2 = new Body(BODY_P2);
+const TR_VIEW = new Body(TRAFFIC_START);
+export function bodyAt(idx: i32): Body { TR_VIEW.idx = idx; return TR_VIEW; }
+
+// ---- contact view: `c.bodyA`/`c.phase`/`c.nx` instead of contactBodyA(i)/… ----
+export class Contact {
+  i: i32 = 0;
+  get bodyA(): i32 { return contactBodyA(this.i); }
+  get bodyB(): i32 { return contactBodyB(this.i); }
+  get phase(): i32 { return contactPhase(this.i); }
+  get impulse(): i32 { return contactImpulse(this.i); }
+  get x(): i32 { return contactX(this.i); }
+  get y(): i32 { return contactY(this.i); }
+  get nx(): i32 { return contactNx(this.i); }
+  get ny(): i32 { return contactNy(this.i); }
+}
+export const contact = new Contact();
+
+// ---- impulse accumulator: hides the slot counter + OFF_IMPULSE_CNT ----
+export class Impulses {
+  count: i32 = 0;
+  reset(): void { this.count = 0; }
+  add(body: i32, lxFp: i32, lyFp: i32, angFp: i32): void {
+    if (this.count >= MAX_IMPULSES) return;
+    writeImpulse(this.count, body, lxFp, lyFp, angFp);
+    this.count += 1;
+  }
+  angular(body: i32, angFp: i32): void { this.add(body, 0, 0, angFp); }
+  flush(): void { wr(OFF_IMPULSE_CNT, this.count); }
+}
+export const impulses = new Impulses();
+
+// ---- event accumulator: `events.sound(id)` / `.rumble()` / `.particles()` ----
+export class Events {
+  count: i32 = 0;
+  reset(): void { this.count = 0; }
+  emit(kind: i32, sub: i32, a: i32, b: i32, c: i32): void {
+    if (this.count >= MAX_EVENTS) return;
+    writeEvent(this.count, kind, sub, a, b, c);
+    this.count += 1;
+  }
+  sound(id: i32): void { this.emit(EVT_SOUND, id, 0, 0, 0); }
+  rumble(pad: i32, ms: i32, strength: i32): void { this.emit(EVT_RUMBLE, pad, strength, strength, ms); }
+  particles(xFp: i32, yFp: i32, amount: i32): void { this.emit(EVT_PARTICLES, 0, xFp, yFp, amount); }
+  flush(): void { wr(OFF_EVENT_CNT, this.count); }
+}
+export const events = new Events();
