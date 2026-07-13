@@ -96,7 +96,42 @@ class GameUiRunner {
         def builder:WasmUiEvgBuilder (new WasmUiEvgBuilder)
         root = (builder.build(doc))
         ctrl.renderer.layoutTree(ctx root w h)
+        ; Autoscale-to-fit: the guest authors fixed px sizes; if the laid-out
+        ; menu is taller/wider than this canvas the bottom items would clip.
+        ; Rebuild once at a uniform scale so every element AND its font shrink
+        ; together to fit (never scales up).
+        def s:double (this.fitScale())
+        if (s < 1.0) {
+            def b2:WasmUiEvgBuilder (new WasmUiEvgBuilder)
+            b2.scale = s
+            root = (b2.build(doc))
+            ctrl.renderer.layoutTree(ctx root w h)
+        }
         ctrl.rebuild(doc root)
+    }
+
+    ; Uniform scale (<= 1) that makes the laid-out content fit the canvas, with
+    ; a small margin so nothing touches the edges. 1.0 when it already fits.
+    fn fitScale:double () {
+        def s:double 1.0
+        def fh:double (to_double h)
+        def fw:double (to_double w)
+        def needH:double (ctrl.renderer.contentBottom(root))
+        if (needH > 0.0) {
+            if (needH > fh) {
+                def sy:double ((fh * 0.96) / needH)
+                if (sy < s) { s = sy }
+            }
+        }
+        def needW:double (ctrl.renderer.contentRight(root))
+        if (needW > 0.0) {
+            if (needW > fw) {
+                def sx:double ((fw * 0.98) / needW)
+                if (sx < s) { s = sx }
+            }
+        }
+        if (s < 0.2) { s = 0.2 }
+        return s
     }
 
     ; --- per-frame --------------------------------------------------------------
