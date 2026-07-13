@@ -46,10 +46,10 @@ class WasmUiSelectDemo {
         w.label(10 2 0 "WASM UI - Main Menu" 4294967295 20).margin(8)
         ; Uniform buttons: 180px = 50% of the 360px screen, bordered, extra
         ; vertical padding, centred label. All declared here in the guest.
-        w.button(11 2 1 "New Game" 3839943679 16).onActivate().defaultSelected().width(180).padding(10).border(2 120 150 210 255).radius(9).textCenter().margin(6)
-        w.button(12 2 2 "Continue" 3839943679 16).onActivate().width(180).padding(10).border(2 120 150 210 255).radius(9).textCenter().margin(6)
-        w.button(13 2 3 "Options" 3839943679 16).onActivate().width(180).padding(10).border(2 120 150 210 255).radius(9).textCenter().margin(6)
-        w.button(14 2 4 "Quit" 4285559039 16).onActivate().width(180).padding(10).border(2 200 110 110 255).radius(9).textCenter().margin(6)
+        w.button(11 2 1 "New Game" 3839943679 16).onActivate().defaultSelected().width(180).padding(10).bg(120 165 230 46).border(2 120 150 210 255).radius(9).textCenter().margin(6)
+        w.button(12 2 2 "Continue" 3839943679 16).onActivate().width(180).padding(10).bg(120 165 230 46).border(2 120 150 210 255).radius(9).textCenter().margin(6)
+        w.button(13 2 3 "Options" 3839943679 16).onActivate().width(180).padding(10).bg(120 165 230 46).border(2 120 150 210 255).radius(9).textCenter().margin(6)
+        w.button(14 2 4 "Quit" 4285559039 16).onActivate().width(180).padding(10).bg(220 120 120 40).border(2 200 110 110 255).radius(9).textCenter().margin(6)
         def status:string ("plays: " + (to_string plays))
         if (lastId != 0) {
             status = (status + "   last: #" + (to_string lastId))

@@ -43,6 +43,8 @@ const C_QUIT: u32 = 0xff6a6aff;
 const C_CARD: u32 = 0x242a40ff;      // 36,42,64
 const C_BORDER: u32 = 0x7896d2ff;    // 120,150,210
 const C_BORDER_QUIT: u32 = 0xc86e6eff; // 200,110,110
+const C_BTN_BG: u32 = 0x78a5e62e;    // light blue, ~18% alpha
+const C_BTN_BG_QUIT: u32 = 0xdc787828; // light red, ~16% alpha
 
 // The guest picks its target screen width; buttons are 50% of it (uniform).
 const SCREEN_W: i32 = 360;
@@ -76,13 +78,13 @@ function rebuild(): void {
   // Uniform buttons: width = 50% screen, bordered, extra vertical padding,
   // centred label — every attribute declared here in the guest.
   ui.button(BTN_NEW, CARD, 1, "New Game", C_ITEM, 16)
-    .onActivate().defaultSelected().width(BTN_W).padding(10).border(2, C_BORDER).radius(9).textCenter().margin(6);
+    .onActivate().defaultSelected().width(BTN_W).padding(10).background(C_BTN_BG).border(2, C_BORDER).radius(9).textCenter().margin(6);
   ui.button(BTN_CONT, CARD, 2, "Continue", C_ITEM, 16)
-    .onActivate().width(BTN_W).padding(10).border(2, C_BORDER).radius(9).textCenter().margin(6);
+    .onActivate().width(BTN_W).padding(10).background(C_BTN_BG).border(2, C_BORDER).radius(9).textCenter().margin(6);
   ui.button(BTN_OPTS, CARD, 3, "Options", C_ITEM, 16)
-    .onActivate().width(BTN_W).padding(10).border(2, C_BORDER).radius(9).textCenter().margin(6);
+    .onActivate().width(BTN_W).padding(10).background(C_BTN_BG).border(2, C_BORDER).radius(9).textCenter().margin(6);
   ui.button(BTN_QUIT, CARD, 4, "Quit", C_QUIT, 16)
-    .onActivate().width(BTN_W).padding(10).border(2, C_BORDER_QUIT).radius(9).textCenter().margin(6);
+    .onActivate().width(BTN_W).padding(10).background(C_BTN_BG_QUIT).border(2, C_BORDER_QUIT).radius(9).textCenter().margin(6);
 
   // Non-selectable status line — proves selectable is opt-in per node.
   ui.label(STATUS, CARD, 5, statusText(), C_STATUS, 13);
