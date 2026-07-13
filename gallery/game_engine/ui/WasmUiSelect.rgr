@@ -191,6 +191,15 @@ class WasmUiRenderer {
 
         def rad (this.radiusOf(el))
 
+        ; guest-driven animated glow halo (drawn behind the element's own fill)
+        if (el.glowIntensity > 0.0) {
+            def gi:double el.glowIntensity
+            if (gi > 1.0) { gi = 1.0 }
+            def spread:int (to_int (4.0 + (gi * 18.0)))
+            def galpha:int (to_int (gi * 230.0))
+            ctx.glowRoundRect((x - 3) (y - 3) (rw + 6) (rh + 6) (rad + 3) 255 255 255 spread galpha)
+        }
+
         if el.gradientSet {
             ; guest-declared 2-stop linear gradient background (real EVG fill)
             def fa:int (to_int ((el.gradientFrom.alpha()) * 255.0))

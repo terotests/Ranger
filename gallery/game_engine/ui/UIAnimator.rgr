@@ -158,4 +158,29 @@ class UIAnimator {
     fn hasActive:boolean (id:string) {
         return ((this.intensityFor(id)) > 0.0)
     }
+
+    ; Distinct target ids of currently-active glow animations — the renderer walks
+    ; these to overlay the effect on each element.
+    fn activeIds:[string] () {
+        def out:[string]
+        def i 0
+        def n (array_length anims)
+        while (i < n) {
+            def a:UIAnim (itemAt anims i)
+            if (a.kind == 1) {
+                def id:string a.targetId
+                def seen:boolean false
+                def j 0
+                while (j < (array_length out)) {
+                    if ((itemAt out j) == id) { seen = true }
+                    j = (j + 1)
+                }
+                if (seen == false) {
+                    push out id
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
 }

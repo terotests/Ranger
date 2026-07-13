@@ -195,6 +195,11 @@ class ComponentEngine {
     ; When true, suppress verbose evaluation trace (game scripts, tests).
     def quiet:boolean false
 
+    ; User class declarations by name (ClassDeclaration nodes), so `new C()` can
+    ; instantiate + init fields and instance method calls can dispatch with a
+    ; bound `this`. Enables fluent OO guest code (e.g. an animation builder).
+    def classes:[string:TSNode]
+
     ; Parsed program AST kept for in-process hot reload (patchScript).
     def programAst@(optional):TSNode
     def astPatcher:TSAstPatcher (new TSAstPatcher())
@@ -1061,6 +1066,12 @@ class ComponentEngine {
     fn registerTopLevelNode:void (node:TSNode) {
         if (node.nodeType == "FunctionDeclaration") {
             this.registerFunctionDeclaration(node)
+            return
+        }
+        if (node.nodeType == "ClassDeclaration") {
+            if ((strlen node.name) > 0) {
+                set classes node.name node
+            }
             return
         }
         if (node.nodeType == "ExportNamedDeclaration") {
@@ -2925,6 +2936,12 @@ class ComponentEngine {
         if (nt == "CallExpression") {
             return (this.evaluateCallExpr(node))
         }
+        if (nt == "NewExpression") {
+            return (this.evaluateNewExpr(node))
+        }
+        if (nt == "ThisExpression") {
+            return (context.lookup("this"))
+        }
         if (nt == "BinaryExpression") {
             return (this.evaluateBinaryExpr(node))
         }
@@ -3095,7 +3112,30 @@ class ComponentEngine {
                 if (false == quiet) {
                     this.trace("Method call: " + methodName + " on value type=" + (to_string obj.valueType))
                 }
-                
+
+                ; user class instance: dispatch an instance method (with `this`),
+                ; or invoke a field that holds a function value (e.g. this.afterCb).
+                def uClsN:string (this.instanceClassName(obj))
+                if ((strlen uClsN) > 0) {
+                    def uMethod:TSNode (this.findMethodInClass(uClsN methodName))
+                    if (uMethod.nodeType == "MethodDefinition") {
+                        return (this.callUserFunctionNode(uMethod node.children obj true))
+                    }
+                    def uField:EvalValue (obj.getMember(methodName))
+                    if (uField.valueType == 6) {
+                        if uField.functionNode {
+                            def uFn:TSNode (unwrap uField.functionNode)
+                            def uHasThis:boolean false
+                            def uThis:EvalValue (EvalValue.null())
+                            if uField.boundThis {
+                                uHasThis = true
+                                uThis = (unwrap uField.boundThis)
+                            }
+                            return (this.callUserFunctionNode(uFn node.children uThis uHasThis))
+                        }
+                    }
+                }
+
                 ; Handle Number methods
                 if (methodName == "toFixed") {
                     def numVal:double (obj.toNumber())
@@ -3648,6 +3688,137 @@ class ComponentEngine {
         return (EvalValue.null())
     }
     
+    ; ---- user classes: instances, methods, `this`-bound dispatch ----------
+    ; The __class__ name stamped on an instance object, or "" for non-instances.
+    fn instanceClassName:string (obj:EvalValue) {
+        if (obj.valueType != 5) { return "" }
+        def cv@(optional):EvalValue (get obj.objectMap "__class__")
+        if cv {
+            def c:EvalValue (unwrap cv)
+            if (c.valueType == 2) {
+                return c.stringValue
+            }
+        }
+        return ""
+    }
+
+    ; The MethodDefinition node named `methodName` on class `clsName`, or an empty
+    ; node (nodeType "") when there is none.
+    fn findMethodInClass:TSNode (clsName:string methodName:string) {
+        def empty:TSNode (new TSNode())
+        def cn@(optional):TSNode (get classes clsName)
+        if (null? cn) { return empty }
+        def cls:TSNode (unwrap cn)
+        if (null? cls.body) { return empty }
+        def body:TSNode (unwrap cls.body)
+        def i 0
+        while (i < (array_length body.children)) {
+            def m:TSNode (itemAt body.children i)
+            if (m.nodeType == "MethodDefinition") {
+                if (m.name == methodName) {
+                    return m
+                }
+            }
+            i = (i + 1)
+        }
+        return empty
+    }
+
+    fn findConstructor:TSNode (clsName:string) {
+        def empty:TSNode (new TSNode())
+        def cn@(optional):TSNode (get classes clsName)
+        if (null? cn) { return empty }
+        def cls:TSNode (unwrap cn)
+        if (null? cls.body) { return empty }
+        def body:TSNode (unwrap cls.body)
+        def i 0
+        while (i < (array_length body.children)) {
+            def m:TSNode (itemAt body.children i)
+            if (m.nodeType == "MethodDefinition") {
+                if (m.kind == "constructor") {
+                    return m
+                }
+            }
+            i = (i + 1)
+        }
+        return empty
+    }
+
+    ; Invoke a function/method node: new child scope, optional `this`, bind the
+    ; argument expressions to params (evaluated in the caller's scope), run the
+    ; body, restore. Shared by method calls, bound-method values, constructors.
+    fn callUserFunctionNode:EvalValue (fnNode:TSNode argNodes:[TSNode] thisVal:EvalValue hasThis:boolean) {
+        def savedContext:EvalContext context
+        def savedDidReturn:boolean scriptDidReturn
+        def savedReturnValue:EvalValue scriptReturnValue
+        scriptDidReturn = false
+        scriptReturnValue = (EvalValue.null())
+        context = (context.createChild())
+        if hasThis {
+            context.define("this" thisVal)
+        }
+        def numArgs:int (array_length argNodes)
+        def numParams:int (array_length fnNode.params)
+        def i 0
+        while (i < numParams) {
+            if (i < numArgs) {
+                def argVal:EvalValue (this.evaluateExpr((itemAt argNodes i)))
+                def paramNode:TSNode (itemAt fnNode.params i)
+                context.define(paramNode.name argVal)
+            }
+            i = (i + 1)
+        }
+        def body:TSNode (this.getFunctionBody(fnNode))
+        def result:EvalValue (this.evaluateFunctionBodyValue(body))
+        context = savedContext
+        scriptDidReturn = savedDidReturn
+        scriptReturnValue = savedReturnValue
+        return result
+    }
+
+    ; Evaluate `new ClassName(args)` -> an instance object with initialised fields
+    ; and its constructor run.
+    fn evaluateNewExpr:EvalValue (node:TSNode) {
+        def className:string ""
+        if node.left {
+            def callee:TSNode (unwrap node.left)
+            className = callee.name
+        }
+        def cn@(optional):TSNode (get classes className)
+        if (null? cn) {
+            return (EvalValue.null())
+        }
+        def cls:TSNode (unwrap cn)
+        def keys0:[string]
+        def vals0:[EvalValue]
+        def inst:EvalValue (EvalValue.object(keys0 vals0))
+        inst.setMember("__class__" (EvalValue.string(className)))
+        ; field initialisers (PropertyDefinition) run with this=inst
+        if cls.body {
+            def body:TSNode (unwrap cls.body)
+            def savedCtx:EvalContext context
+            context = (context.createChild())
+            context.define("this" inst)
+            def i 0
+            while (i < (array_length body.children)) {
+                def m:TSNode (itemAt body.children i)
+                if (m.nodeType == "PropertyDefinition") {
+                    if m.init {
+                        def iv:EvalValue (this.evaluateExpr((unwrap m.init)))
+                        inst.setMember(m.name iv)
+                    }
+                }
+                i = (i + 1)
+            }
+            context = savedCtx
+        }
+        def ctor:TSNode (this.findConstructor(className))
+        if (ctor.nodeType == "MethodDefinition") {
+            def _r:EvalValue (this.callUserFunctionNode(ctor node.children inst true))
+        }
+        return inst
+    }
+
     fn evaluateMemberExpr:EvalValue (node:TSNode) {
         if node.left {
             def leftExpr:TSNode (unwrap node.left)
@@ -3685,13 +3856,29 @@ class ComponentEngine {
                     }
                 }
             }
-            
+
+            ; user class instance: an own field wins; otherwise a method name
+            ; becomes a `this`-bound method reference (a callable value).
+            def clsN:string (this.instanceClassName(obj))
+            if ((strlen clsN) > 0) {
+                def fieldV:EvalValue (obj.getMember(propName))
+                if (fieldV.valueType != 0) {
+                    if (fieldV.valueType != 8) {
+                        return fieldV
+                    }
+                }
+                def mnode:TSNode (this.findMethodInClass(clsN propName))
+                if (mnode.nodeType == "MethodDefinition") {
+                    return (EvalValue.boundMethod(mnode obj))
+                }
+            }
+
             return (obj.getMember(propName))
         }
-        
+
         return (EvalValue.null())
     }
-    
+
     fn evaluateArrayExpr:EvalValue (node:TSNode) {
         def items:[EvalValue]
         

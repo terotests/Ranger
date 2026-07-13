@@ -11,6 +11,7 @@
 Import "../framebuffer.rgr"
 Import "UITextRenderer.rgr"
 Import "../../evg/EVGColor.rgr"
+Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
 
 ; Named colour roles. Dark, translucent-panel theme by default (reads well as an
 ; overlay on top of a bright game world). Swap fields for a light theme.
@@ -174,6 +175,47 @@ class UIContext {
     fn fillRoundRect:void (x:int y:int rw:int rh:int rad:int col:EVGColor) {
         def a:int (to_int ((col.alpha()) * 255.0))
         this.fillRoundRectA(x y rw rh rad (col.red()) (col.green()) (col.blue()) a)
+    }
+
+    ; Draw an image stretched to fill the rect, CLIPPED to the rounded path — the
+    ; source is sampled (nearest) so any pixel outside the rounded corners is
+    ; skipped. Honors the image's own per-pixel alpha.
+    fn fillRoundRectImage:void (x:int y:int rw:int rh:int rad:int img:ImageBuffer) {
+        if (rw <= 0) { return }
+        if (rh <= 0) { return }
+        def iw:int (img.width)
+        def ih:int (img.height)
+        if (iw <= 0) { return }
+        if (ih <= 0) { return }
+        def src:buffer (img.getRawBuffer())
+        def yy y
+        def yEnd (y + rh)
+        while (yy < yEnd) {
+            def xx x
+            def xEnd (x + rw)
+            while (xx < xEnd) {
+                def draw:boolean true
+                if (rad > 0) {
+                    draw = (this.roundedInside(xx yy x y rw rh rad))
+                }
+                if draw {
+                    def u:int (to_int ((to_double ((xx - x) * iw)) / (to_double rw)))
+                    def v:int (to_int ((to_double ((yy - y) * ih)) / (to_double rh)))
+                    if (u < 0) { u = 0 }
+                    if (v < 0) { v = 0 }
+                    if (u >= iw) { u = (iw - 1) }
+                    if (v >= ih) { v = (ih - 1) }
+                    def off:int (((v * iw) + u) * 4)
+                    def r:int (buffer_get src off)
+                    def g:int (buffer_get src (off + 1))
+                    def b:int (buffer_get src (off + 2))
+                    def a:int (buffer_get src (off + 3))
+                    this.blendPixel(xx yy r g b a)
+                }
+                xx = (xx + 1)
+            }
+            yy = (yy + 1)
+        }
     }
 
     fn lerpChan:int (a:int b:int t:double) {

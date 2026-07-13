@@ -64,6 +64,11 @@ class EVGElement {
     def absPosSet:boolean false
     def absX:double 0.0
     def absY:double 0.0
+
+    ; Animated glow strength 0..1 (RGU1 GLOW prop). The guest drives this over
+    ; time (a procedural effect animation); the renderer draws a soft halo behind
+    ; the element scaled by it. 0 = no glow.
+    def glowIntensity:double 0.0
     
     ; Layout properties
     def direction:string "row"

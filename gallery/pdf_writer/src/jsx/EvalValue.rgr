@@ -27,6 +27,9 @@ class EvalValue {
     def objectMap:[string:EvalValue]
     def functionName:string ""
     def functionBody:string ""  ; For parsed functions
+    ; For a bound method reference (obj.method held as a value): the receiver the
+    ; method is called on. null for plain functions/closures.
+    def boundThis@(optional):EvalValue
     def functionNode@(optional):TSNode  ; For function AST nodes
     def evgElement@(optional):EVGElement  ; For JSX elements passed as props
     
@@ -114,6 +117,17 @@ class EvalValue {
         v.valueType = 6
         v.functionNode = fnNode
         v.functionName = fnNode.name
+        return v
+    }
+
+    ; A method captured as a value (obj.method): the function node plus the
+    ; receiver `this` it is bound to. Invoked like any function value.
+    sfn boundMethod:EvalValue (fnNode:TSNode thisVal:EvalValue) {
+        def v:EvalValue (new EvalValue())
+        v.valueType = 6
+        v.functionNode = fnNode
+        v.functionName = fnNode.name
+        v.boundThis = thisVal
         return v
     }
     

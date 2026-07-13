@@ -471,6 +471,9 @@ class WasmUiEvgBuilder {
                 el.absPosSet = true
                 el.isAbsolute = true
             }
+            if (key == 55) {                ; GLOW (animated halo strength, 0..1000)
+                el.glowIntensity = ((to_double (doc.propValueA(idx))) / 1000.0)
+            }
             p = (p + 1)
         }
     }
