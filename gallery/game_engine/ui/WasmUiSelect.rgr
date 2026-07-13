@@ -23,9 +23,89 @@
 ; ==============================================================================
 
 Import "UIContext.rgr"
+Import "UIAnimator.rgr"
 Import "../scripting/wasm_ui_io.rgr"
 Import "../../evg/EVGLayout.rgr"
 Import "../../evg/EVGElement.rgr"
+
+; -----------------------------------------------------------------------------
+; Guest-driven effects: the WASM UI guest fires env.rg_ui_glow(node,dur,delay,tag)
+; from its rg_ui_event handler; the host owns the timeline (UIAnimator) and calls
+; the guest back on completion. This is the effect bridge — the guest triggers,
+; the host animates, exactly like the Pixi.js-style UIAnimator API but driven from
+; WASM instead of host code.
+; -----------------------------------------------------------------------------
+
+; Completion binding for one guest-requested effect. When the effect finishes the
+; host calls the guest's rg_ui_effect_done(node, tag) export so it can react
+; (navigate, bump a counter) — the WASM-side equivalent of UIAnim's `after` hook.
+class WasmFxDone {
+    def handle:int 0
+    def node:int 0
+    def tag:int 0
+
+    Constructor () {
+    }
+
+    fn fire:void () {
+        wasm_call_void handle "rg_ui_effect_done" 2 node tag 0 0 0
+    }
+}
+
+; Owns the host-side effect timeline for a WASM UI guest. Per frame the host:
+;   1. calls the guest (init / rg_ui_event), which may fire env.rg_ui_glow
+;   2. drain(handle)  — turns this frame's queued requests into glow animations
+;   3. tick(dtMs)     — advances them; a completing effect calls rg_ui_effect_done
+; The renderer samples glowFor(id) to draw the animated halo.
+class WasmUiEffects {
+    def animator:UIAnimator (new UIAnimator)
+
+    Constructor () {
+    }
+
+    ; Start one glow animation and bind its completion back to the guest. Node ids
+    ; are stringified to match the EVG element ids (el.id = to_string(nodeId)).
+    ; Split out of drain() so it is drivable from a host test without a wasm engine.
+    fn startGlow:void (node:int durMs:int delayMs:int handle:int tag:int) {
+        def b:WasmFxDone (new WasmFxDone)
+        b.handle = handle
+        b.node = node
+        b.tag = tag
+        def durSec:double ((to_double durMs) / 1000.0)
+        def delaySec:double ((to_double delayMs) / 1000.0)
+        def key:string (to_string node)
+        animator.animation().glow(key).duration(durSec).delay(delaySec).after(b.fire).start()
+    }
+
+    ; Turn this frame's queued guest requests into running animations, then clear
+    ; the queue so it only ever holds the current frame's requests.
+    fn drain:void (handle:int) {
+        def n:int (wasm_fx_count handle)
+        def i 0
+        while (i < n) {
+            def node:int (wasm_fx_node handle i)
+            def durMs:int (wasm_fx_dur handle i)
+            def delayMs:int (wasm_fx_delay handle i)
+            def tag:int (wasm_fx_tag handle i)
+            this.startGlow(node durMs delayMs handle tag)
+            i = (i + 1)
+        }
+        wasm_fx_reset handle
+    }
+
+    fn tick:void (dtMs:int) {
+        animator.tick(dtMs)
+    }
+
+    ; Current 0..1 glow strength for an element id (its stringified node id).
+    fn glowFor:double (id:string) {
+        return (animator.intensityFor(id))
+    }
+
+    fn activeCount:int () {
+        return (animator.activeCount())
+    }
+}
 
 ; Directional + action edges for one frame (pressed-this-frame booleans). A
 ; platform maps PlayerButtons / keyboard edges onto this - see UI_LAYER.md.
@@ -60,6 +140,16 @@ class RectHit {
 ; -----------------------------------------------------------------------------
 class WasmUiRenderer {
     def layout:EVGLayout (new EVGLayout)
+
+    ; Optional host effect timeline. When set, drawElement overlays the animated
+    ; glow from guest-requested rg_ui_glow effects on top of any doc-declared glow.
+    def fx:WasmUiEffects
+    def hasFx:boolean false
+
+    fn setEffects:void (e:WasmUiEffects) {
+        fx = e
+        hasFx = true
+    }
 
     ; All presentation (centring, radius, colours, sizes) is declared by the
     ; guest as RGU1 properties and resolved by EVGLayout here - the host renderer
@@ -252,9 +342,15 @@ class WasmUiRenderer {
 
         def rad (this.radiusOf(el))
 
-        ; guest-driven animated glow halo (drawn behind the element's own fill)
-        if (el.glowIntensity > 0.0) {
-            def gi:double el.glowIntensity
+        ; guest-driven animated glow halo (drawn behind the element's own fill).
+        ; Two sources, combined by max: a static intensity declared on the node in
+        ; the RGU1 doc, and the live host-run UIAnimator effect (rg_ui_glow), if any.
+        def gi:double el.glowIntensity
+        if hasFx {
+            def av:double (fx.glowFor(el.id))
+            if (av > gi) { gi = av }
+        }
+        if (gi > 0.0) {
             if (gi > 1.0) { gi = 1.0 }
             def spread:int (to_int (4.0 + (gi * 18.0)))
             def galpha:int (to_int (gi * 230.0))

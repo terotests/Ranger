@@ -7,6 +7,7 @@
 #include "wasm3/wasm3.h"
 
 #define RG_WASM_MAX_RES 24
+#define RG_WASM_MAX_FX 16
 
 typedef struct RgWasmRes {
     int kind;   /* 1 = sheet image, 2 = rect */
@@ -16,6 +17,16 @@ typedef struct RgWasmRes {
     char id[24];
     char path[80];
 } RgWasmRes;
+
+/* One guest-requested UI effect (env.rg_ui_glow). The guest fires a glow on a
+ * node; the host owns the timeline (UIAnimator) and calls rg_ui_effect_done on
+ * the guest when the effect completes, passing back node + tag. */
+typedef struct RgWasmFx {
+    int node;      /* target node id (guest's stable RGU1 id) */
+    int durMs;     /* effect duration, milliseconds */
+    int delayMs;   /* delay before it starts, milliseconds */
+    int tag;       /* opaque guest tag, echoed to rg_ui_effect_done */
+} RgWasmFx;
 
 typedef struct RgWasmSlot {
     IM3Environment env;
@@ -34,6 +45,8 @@ typedef struct RgWasmSlot {
     int spawned_child;
     RgWasmRes res[RG_WASM_MAX_RES];
     int res_count;
+    RgWasmFx fx[RG_WASM_MAX_FX];
+    int fx_count;
 } RgWasmSlot;
 
 /* Load a module into a fresh slot. can_spawn gates whether this module may
@@ -159,6 +172,26 @@ m3ApiRawFunction(m3_rg_spawn_worker) {
     m3ApiReturn(result);
 }
 
+/* env.rg_ui_glow(node, durMs, delayMs, tag) — the UI guest requests a host-run
+ * glow animation on a node. Queued here; the Ranger host drains it after the
+ * guest call (rg_wasm_fx_*) and drives its UIAnimator. */
+m3ApiRawFunction(m3_rg_ui_glow) {
+    m3ApiGetArg(int32_t, node)
+    m3ApiGetArg(int32_t, durMs)
+    m3ApiGetArg(int32_t, delayMs)
+    m3ApiGetArg(int32_t, tag)
+    RgWasmSlot* s = (RgWasmSlot*)(_ctx->userdata);
+    if (s && s->fx_count < RG_WASM_MAX_FX) {
+        RgWasmFx* fx = &s->fx[s->fx_count];
+        fx->node = node;
+        fx->durMs = durMs;
+        fx->delayMs = delayMs;
+        fx->tag = tag;
+        s->fx_count++;
+    }
+    m3ApiSuccess();
+}
+
 static void rg_link_host_imports(RgWasmSlot* s) {
     if (!s || !s->module) {
         return;
@@ -170,6 +203,8 @@ static void rg_link_host_imports(RgWasmSlot* s) {
                                "v(iiiiiiii)", &m3_rg_host_register_rect, s);
     (void)m3_LinkRawFunctionEx(s->module, "env", "rg_spawn_worker",
                                "i(ii)", &m3_rg_spawn_worker, s);
+    (void)m3_LinkRawFunctionEx(s->module, "env", "rg_ui_glow",
+                               "v(iiii)", &m3_rg_ui_glow, s);
 }
 
 static int rg_alloc_handle(void) {
@@ -527,4 +562,55 @@ const char* rg_wasm_host_res_path(int handle, int idx) {
         return "";
     }
     return s->res[idx].path;
+}
+
+/* Guest-requested UI effects (env.rg_ui_glow) — drained by the Ranger host after
+ * each guest call, then cleared so the queue only holds this frame's requests. */
+int rg_wasm_fx_reset(int handle) {
+    RgWasmSlot* s = rg_slot(handle);
+    if (!s) {
+        return 0;
+    }
+    s->fx_count = 0;
+    return 0;
+}
+
+int rg_wasm_fx_count(int handle) {
+    RgWasmSlot* s = rg_slot(handle);
+    if (!s) {
+        return 0;
+    }
+    return s->fx_count;
+}
+
+int rg_wasm_fx_node(int handle, int idx) {
+    RgWasmSlot* s = rg_slot(handle);
+    if (!s || idx < 0 || idx >= s->fx_count) {
+        return 0;
+    }
+    return s->fx[idx].node;
+}
+
+int rg_wasm_fx_dur(int handle, int idx) {
+    RgWasmSlot* s = rg_slot(handle);
+    if (!s || idx < 0 || idx >= s->fx_count) {
+        return 0;
+    }
+    return s->fx[idx].durMs;
+}
+
+int rg_wasm_fx_delay(int handle, int idx) {
+    RgWasmSlot* s = rg_slot(handle);
+    if (!s || idx < 0 || idx >= s->fx_count) {
+        return 0;
+    }
+    return s->fx[idx].delayMs;
+}
+
+int rg_wasm_fx_tag(int handle, int idx) {
+    RgWasmSlot* s = rg_slot(handle);
+    if (!s || idx < 0 || idx >= s->fx_count) {
+        return 0;
+    }
+    return s->fx[idx].tag;
 }

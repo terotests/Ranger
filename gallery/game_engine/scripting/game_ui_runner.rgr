@@ -26,6 +26,11 @@ class GameUiRunner {
     def doc:WasmUiDoc (new WasmUiDoc)
     def root:EVGElement (EVGElement.createDiv())
 
+    ; Host-run effect timeline for guest-triggered rg_ui_glow. The guest fires an
+    ; effect from rg_ui_event; the host owns the timeline here and calls the guest
+    ; back (rg_ui_effect_done) on completion. The renderer samples it for the halo.
+    def effects:WasmUiEffects (new WasmUiEffects)
+
     def handle:int 0
     def w:int 0
     def h:int 0
@@ -77,6 +82,8 @@ class GameUiRunner {
         }
         ctrl.borderWidth = 2
         ctrl.highlightPad = 4
+        ; let the renderer overlay the live glow from guest-triggered effects
+        ctrl.renderer.setEffects(effects)
     }
 
     ; --- native path: instantiate the wasm guest --------------------------------
@@ -88,6 +95,8 @@ class GameUiRunner {
         ; init() returns void — must use wasm_call_void, or the native runtime
         ; rejects the (i32) call and the guest never builds its RGU1 document.
         wasm_call_void handle "init" 0 0 0 0 0 0
+        ; init() may already request effects — pick them up before the first frame.
+        effects.drain(handle)
         return (this.refreshFromWasm())
     }
 
@@ -228,6 +237,16 @@ class GameUiRunner {
             }
             return asSelId
         }
+        ; Advance host-run guest effects (~60fps). A completing effect calls the
+        ; guest's rg_ui_effect_done, which may rebuild + bump its revision, so pull
+        ; the document again when it changes.
+        if (handle > 0) {
+            effects.tick(16)
+            def fxRev:int (wasm_call_i32 handle "rg_ui_revision" 0 0 0 0 0 0)
+            if (fxRev != rev) {
+                this.refreshFromWasm()
+            }
+        }
         def act:int (ctrl.update(nav))
         if ctrl.didActivate {
             if (handle > 0) {
@@ -237,6 +256,9 @@ class GameUiRunner {
                         ; button recognition: notify the guest (ACTIVATE = 1).
                         ; rg_ui_event returns void — use wasm_call_void.
                         wasm_call_void handle "rg_ui_event" 3 act 1 0 0 0
+                        ; the guest may have fired rg_ui_glow during that call —
+                        ; turn its requests into running host animations.
+                        effects.drain(handle)
                     }
                 }
                 ; the guest may have rebuilt its document - pull it again

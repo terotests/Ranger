@@ -138,4 +138,56 @@ operators {
             ranger ( "\"\"" )
         }
     }
+
+    ; Guest-requested UI effects — the WASM UI guest fills these by calling the
+    ; linked host import env.rg_ui_glow(node, durMs, delayMs, tag). The host drains
+    ; the queue after each guest call and drives its UIAnimator; reset clears it so
+    ; only the current frame's requests remain.
+    wasm_fx_reset _:int (handle:int) {
+        templates {
+            cpp ( "rg_wasm_fx_reset(" (e 1) ")" (imp "<rg_wasm_bridge.h>") )
+            es6 ( "0" )
+            ranger ( "0" )
+        }
+    }
+
+    wasm_fx_count _:int (handle:int) {
+        templates {
+            cpp ( "rg_wasm_fx_count(" (e 1) ")" (imp "<rg_wasm_bridge.h>") )
+            es6 ( "0" )
+            ranger ( "0" )
+        }
+    }
+
+    wasm_fx_node _:int (handle:int idx:int) {
+        templates {
+            cpp ( "rg_wasm_fx_node(" (e 1) ", " (e 2) ")" (imp "<rg_wasm_bridge.h>") )
+            es6 ( "0" )
+            ranger ( "0" )
+        }
+    }
+
+    wasm_fx_dur _:int (handle:int idx:int) {
+        templates {
+            cpp ( "rg_wasm_fx_dur(" (e 1) ", " (e 2) ")" (imp "<rg_wasm_bridge.h>") )
+            es6 ( "0" )
+            ranger ( "0" )
+        }
+    }
+
+    wasm_fx_delay _:int (handle:int idx:int) {
+        templates {
+            cpp ( "rg_wasm_fx_delay(" (e 1) ", " (e 2) ")" (imp "<rg_wasm_bridge.h>") )
+            es6 ( "0" )
+            ranger ( "0" )
+        }
+    }
+
+    wasm_fx_tag _:int (handle:int idx:int) {
+        templates {
+            cpp ( "rg_wasm_fx_tag(" (e 1) ", " (e 2) ")" (imp "<rg_wasm_bridge.h>") )
+            es6 ( "0" )
+            ranger ( "0" )
+        }
+    }
 }

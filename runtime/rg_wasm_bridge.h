@@ -37,6 +37,17 @@ int rg_wasm_host_res_ival(int handle, int idx, int field);
 const char* rg_wasm_host_res_id(int handle, int idx);
 const char* rg_wasm_host_res_path(int handle, int idx);
 
+/* Guest-requested UI effects — populated when the WASM UI guest calls the linked
+ * host import env.rg_ui_glow(node, durMs, delayMs, tag). The Ranger host drains
+ * this after each guest call, drives its UIAnimator with the requests, and calls
+ * the guest's rg_ui_effect_done(node, tag) export when an effect completes. */
+int rg_wasm_fx_reset(int handle);
+int rg_wasm_fx_count(int handle);
+int rg_wasm_fx_node(int handle, int idx);
+int rg_wasm_fx_dur(int handle, int idx);
+int rg_wasm_fx_delay(int handle, int idx);
+int rg_wasm_fx_tag(int handle, int idx);
+
 #ifdef __cplusplus
 }
 #endif

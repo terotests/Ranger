@@ -1,0 +1,85 @@
+; ==============================================================================
+; wasm_ui_effects_demo — self-check for the WASM-driven UI effect bridge.
+; ==============================================================================
+; The WASM UI guest fires env.rg_ui_glow(node, dur, delay, tag) from its
+; rg_ui_event handler; the host turns that into a UIAnimator glow keyed by the
+; node's stringified id (matching el.id = to_string(nodeId)) and calls the guest
+; back (rg_ui_effect_done) when the effect completes.
+;
+; The native path routes rg_ui_glow through wasm3 and the fx queue; here (es6,
+; no wasm engine) we drive WasmUiEffects.startGlow() directly — the same code the
+; native drain() loop calls per queued request — and check the host-side timeline:
+; the glow keys off the numeric node id, runs a 0->1->0 flash, and clears itself.
+; ==============================================================================
+
+Import "WasmUiSelect.rgr"
+
+class FxCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    sfn near:boolean (a:double b:double eps:double) {
+        def d:double (a - b)
+        if (d < 0.0) { d = (0.0 - d) }
+        return (d <= eps)
+    }
+}
+
+class WasmUiEffectsDemo {
+    sfn m@(main):void () {
+        def c:FxCheck (new FxCheck)
+        def fx:WasmUiEffects (new WasmUiEffects)
+
+        ; A guest fired rg_ui_glow(node=12, dur=0.5s, delay=0.1s, tag=7). handle 0
+        ; is fine: the completion callback (rg_ui_effect_done) is a wasm call that
+        ; is a no-op in the es6 build, so firing it here is safe.
+        fx.startGlow(12 500 100 0 7)
+
+        c.ok("one active effect after startGlow" ((fx.activeCount()) == 1))
+        c.ok("keyed by numeric node id -> \"12\"" ((fx.glowFor("12")) == 0.0)) ; still in delay
+        c.ok("unrelated id has no glow" ((fx.glowFor("99")) == 0.0))
+
+        ; end of the 100ms delay: still ~0
+        fx.tick(100)
+        c.ok(("still ~0 at end of delay (got " + (to_string (fx.glowFor("12"))) + ")") (FxCheck.near((fx.glowFor("12")) 0.0 0.05)))
+
+        ; +125ms into the 500ms active window -> quarter through -> ramps to ~0.5
+        fx.tick(125)
+        c.ok(("ramps up ~0.5 (got " + (to_string (fx.glowFor("12"))) + ")") (FxCheck.near((fx.glowFor("12")) 0.5 0.06)))
+
+        ; +125ms -> halfway -> peak ~1.0
+        fx.tick(125)
+        c.ok(("peaks ~1.0 (got " + (to_string (fx.glowFor("12"))) + ")") (FxCheck.near((fx.glowFor("12")) 1.0 0.06)))
+
+        ; +125ms -> three-quarters -> fades back to ~0.5
+        fx.tick(125)
+        c.ok(("fades back ~0.5 (got " + (to_string (fx.glowFor("12"))) + ")") (FxCheck.near((fx.glowFor("12")) 0.5 0.06)))
+
+        ; +130ms -> past the end -> effect completes, clears itself, fires callback
+        fx.tick(130)
+        c.ok("glow cleared after completion" ((fx.glowFor("12")) == 0.0))
+        c.ok("effect removed after completion" ((fx.activeCount()) == 0))
+
+        ; independent second effect on another node keys separately
+        fx.startGlow(20 200 0 0 0)
+        fx.tick(100)
+        c.ok("second node glowing" ((fx.glowFor("20")) > 0.0))
+        c.ok("first node still idle" ((fx.glowFor("12")) == 0.0))
+
+        print "======================================"
+        print (("RESULT: " + (to_string c.passed)) + (" passed, " + ((to_string c.failed) + " failed")))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}
