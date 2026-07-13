@@ -1,30 +1,40 @@
 // ============================================================================
 // Shared fluent EVG builder for .as games, over the flat RGU1 bridge.
 // ============================================================================
-// A node is opened AND styled AND given its children through one `El` handle:
+// Everything is a BOX (an EVG div). You open a box, style it, and hang children
+// off it - a button is just a box that is interactive, a label is just a box
+// that carries text:
 //
-//   const card = ui.view(CARD, ROOT, 0)      // open CARD under ROOT
-//     .column().center().pad(SPACE_LARGE)    // ...style THIS node...
+//   const card = ui.box(ROOT);              // the root box (parent 0)
+//   const menu = card.box(CARD).column().center().pad(SPACE_LARGE)
 //     .bg(36, 42, 64, 255).radius(16);
-//   card.label(TITLE, 0).text("Main Menu").font(20).color(255, 255, 255, 255);
-//   card.button(BTN_NEW, 1).text("New Game").font(16).textCenter();
-//   card.button(BTN_CONT, 2).text("Continue").font(16).textCenter();
+//   menu.label(TITLE, "Main Menu").font(20).color(255, 255, 255, 255);
+//   menu.button(BTN_NEW).width(180).pad(10).radius(9)
+//     .label(CAP_NEW, "New Game").font(16).textCenter();   // caption is a child
 //
-// `ui.view/label/button(id, parent, order)` opens a node with an explicit parent
-// and returns its `El`. `el.view/label/button(childId, order)` opens a CHILD of
-// that node (parent = el.id) - so a container is authored as a value you keep and
-// hang children off, instead of repeating the parent id at every call.
+// - `parent.box(id)`     opens a plain container child (an EVG div).
+// - `parent.button(id)`  opens an INTERACTIVE box child (RGU1 kind BUTTON). It is
+//                        the same El with the same setters - "a view + a handler".
+//                        (RGU1 fixes a node's kind at creation, so this is an
+//                        opener, not a `.button()` you bolt onto an existing box.)
+// - `parent.label(id,s)` opens a TEXT box child already carrying `s`, and returns
+//                        it so you can style the text (`.font()`, `.color()`).
+//
+// Child ORDER is assigned automatically in call order (each parent counts its
+// own children), so you never pass an order. IDs stay explicit: the host maps a
+// selection cursor / glow highlight back to a node by id, and the guest reports
+// that id to the host, so those ids are part of the contract - not incidental.
 //
 // The style setters (`.column()`, `.pad()`, `.color()`, ...) apply to whichever
-// node the bridge opened LAST via uiNode(). Opening a child re-arms that "last"
-// node, so the one authoring rule is: STYLE A NODE BEFORE OPENING ITS CHILDREN.
-//   const v = ui.view(10, ROOT, 0).column();  // ok: styles node 10
-//   v.button(20, 0).text("A");                // ok: opens 20, .text styles 20
-//   v.pad(8);   // WRONG: pads node 20 (last opened), not node 10
-// Written parent-first / top-down (as above) this rule is automatic.
+// node the bridge opened LAST. Opening a child re-arms that "last" node, so the
+// one authoring rule is: STYLE A NODE (and set its glow / gradient / ... props)
+// BEFORE OPENING ITS CHILDREN. Written parent-first / top-down this is automatic:
+//   const b = card.button(BTN).width(180);  // style the button...
+//   b.propI32(P_GLOW, g);                    // ...and its own props...
+//   b.label(CAP, "Go").font(16);             // ...THEN open its caption child.
 //
 // Import into a game with:
-//   import { ui } from "./ui";
+//   import { ui, El } from "./ui";
 // (falls back to this shared file when the game's own folder has no ui.as -
 // see as_source_runner.rgr's engine.addAssetPath("gallery/game_engine/lib")).
 // ============================================================================
@@ -58,17 +68,22 @@ const DIR_COLUMN: i32 = 1;
 const ALIGN_CENTER: i32 = 1;
 const TEXTALIGN_CENTER: i32 = 1;
 
-// A handle to one opened RGU1 node. It carries its own `id` so children can be
-// hung off it (`el.button(...)`), and its style setters chain over the bridge's
-// last-opened node (see the file header for the one authoring rule). Exported so
-// games can type container handles they pass into their own authoring helpers.
+// A handle to one opened RGU1 box. It carries its own `id` (so children hang off
+// it) and an auto-incrementing child `order`; its style setters chain over the
+// bridge's last-opened node (see the file header for the one authoring rule).
+// Exported so games can type the container handles they pass into their own
+// authoring helpers.
 export class El {
   id: i32 = 0;
+  order: i32 = 0;   // next child order; bumped by every box/button/label opened
 
-  // ---- children: open a node parented to THIS one, return the child's handle --
-  view(id: i32, order: i32): El { uiNode(id, this.id, K_VIEW, order); return newEl(id); }
-  label(id: i32, order: i32): El { uiNode(id, this.id, K_TEXT, order); return newEl(id); }
-  button(id: i32, order: i32): El { uiNode(id, this.id, K_BUTTON, order); return newEl(id); }
+  // ---- children: open a box parented to THIS one, return the child's handle --
+  // A plain container.
+  box(id: i32): El { let o: i32 = this.order; this.order = o + 1; uiNode(id, this.id, K_VIEW, o); return newEl(id); }
+  // An interactive box (RGU1 BUTTON kind) - same El surface, just activatable.
+  button(id: i32): El { let o: i32 = this.order; this.order = o + 1; uiNode(id, this.id, K_BUTTON, o); return newEl(id); }
+  // A text box already carrying `s`; returned so the caller styles the text.
+  label(id: i32, s: string): El { let o: i32 = this.order; this.order = o + 1; uiNode(id, this.id, K_TEXT, o); uiPropStr(P_TEXT, s); return newEl(id); }
 
   // ---- style setters (target the last-opened node, i.e. this one) ------------
   row(): El { uiPropEnum(P_FLEXDIR, DIR_ROW); return this; }
@@ -100,16 +115,16 @@ export class El {
   propColor(key: i32, r: i32, g: i32, b: i32, a: i32): El { uiPropColorRgba(key, r, g, b, a); return this; }
 }
 
-// El allocates per opened node (each carries its own id) - constructors with
-// args aren't relied on here, so a tiny factory sets the field instead.
+// El allocates per opened node (each carries its own id + child counter) -
+// constructors with args aren't relied on here, so a tiny factory sets the id.
 function newEl(id: i32): El { let e: El = new El(); e.id = id; return e; }
 
 class Ui {
   reset(): void { uiReset(); }
   finish(rev: i32): void { uiFinish(rev); }
-  view(id: i32, parent: i32, order: i32): El { uiNode(id, parent, K_VIEW, order); return newEl(id); }
-  label(id: i32, parent: i32, order: i32): El { uiNode(id, parent, K_TEXT, order); return newEl(id); }
-  button(id: i32, parent: i32, order: i32): El { uiNode(id, parent, K_BUTTON, order); return newEl(id); }
+  // Open the root box (parent 0, order 0) and return its handle; children hang
+  // off it via .box()/.button()/.label().
+  box(id: i32): El { uiNode(id, 0, K_VIEW, 0); return newEl(id); }
 }
 
 export const ui: Ui = new Ui();
