@@ -60,6 +60,11 @@ pub const OFF_FREE_REQ: i32 = 1952;
 pub const REQ_SIZE: i32 = 8; // cx, cy
 pub const MAX_REQ: i32 = 32;
 
+// Optional loader path the host writes so the game can spawn a specific loader
+// module (len 0 => fall back to the built-in CHILD_PATH).
+pub const OFF_LOADER_PATH_LEN: i32 = 2208;
+pub const OFF_LOADER_PATH: i32 = 2212; // up to ~120 bytes
+
 pub const RGX1_SIZE: i32 = 2560;
 
 // Host import: load ONE resource-loader worker from guest code (the method a
@@ -75,12 +80,22 @@ extern "C" {
 // and its limits; a real game would point this at a dedicated loader module.
 static CHILD_PATH: &[u8] = b"gallery/game_engine/games/streaming_worker/worker.wasm";
 
-/// Spawn the resource-loader worker. Returns the child handle (>0) on success,
-/// or 0 when the host denies it (already spawned one, or this module is itself
-/// a spawned worker). Exposed so a host/game can drive the delegation.
+/// Spawn the resource-loader worker. If the host wrote a loader path into the
+/// RGX1 block (OFF_LOADER_PATH_LEN > 0) that module is spawned — this is how a
+/// game points at a dedicated loader (e.g. an AssemblyScript one); otherwise the
+/// built-in CHILD_PATH is used. Returns the child handle (>0) on success, or 0
+/// when the host denies it (already spawned one, or this is itself a worker).
 #[no_mangle]
 pub extern "C" fn spawn_loader() -> i32 {
-    unsafe { rg_spawn_worker(CHILD_PATH.as_ptr() as i32, CHILD_PATH.len() as i32) }
+    unsafe {
+        let len = rd(OFF_LOADER_PATH_LEN);
+        if len > 0 && len < 120 {
+            let ptr = BLOCK.as_ptr() as i32 + OFF_LOADER_PATH;
+            rg_spawn_worker(ptr, len)
+        } else {
+            rg_spawn_worker(CHILD_PATH.as_ptr() as i32, CHILD_PATH.len() as i32)
+        }
+    }
 }
 
 static mut BLOCK: [u8; 2560] = [0u8; 2560];

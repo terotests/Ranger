@@ -385,6 +385,14 @@ Toteutettu aitona WASM-guestina samalla wasm3-sillalla kuin autopeli (RGW1). Tod
   lisää** (spawnattu → 0). Verifioitu [`spawn_demo.c`](./wasm/rust_worker/spawn_demo.c):
   `npm run engine:wasm:demo:worker-spawn` → `SPAWN_DEMO_OK` (1. spawn onnistuu, 2. estetty,
   lapsen spawn estetty).
+- **Erillinen resurssiloader-PoC (loader voi olla AS):** [`wasm/as_resource_loader/`](./wasm/as_resource_loader/)
+  on **oma WASM-moduuli AssemblyScriptillä** (`resource_loader.wasm`, ~2 KB), jonka game-guest
+  spawnaa `rg_spawn_worker`illa (host kirjoittaa loader-polun RGX1:n `OFF_LOADER_PATH`-alueelle).
+  Loader saa pyynnön (solu + kind) RGLD-lohkossaan ja **generoi/lataa** resurssin (PoC generoi
+  deterministisen 16×16 RGBA-tilen per solu; host materialisoi kahvan). Todistaa että loader on
+  **kielineutraali** — sama wasm3-silta + lohko-ABI kuin Rust-guesteilla, ei Rust- eikä 2D-spesifiä.
+  Verifioitu [`loader_poc.c`](./wasm/rust_worker/loader_poc.c): `npm run engine:wasm:demo:loader-poc`
+  → `LOADER_POC_OK` (game spawnaa AS-loaderin, ajaa sen, 4 erillistä resurssia checksumeineen).
 - **Sivutuote:** paljasti + korjattiin `runtime/rg_wasm_bridge.c`:n teardown-double-free (wasm3
   moduuli-omistajuus) — erillinen commit; wasm-pong-demo + game-sdl regressioverifioitu.
 - **Avoin (S2:n loppuosa):** `rg_res_*`-primitiivit host-import-funktioina sillassa (nyt worker emittoi
