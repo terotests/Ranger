@@ -178,17 +178,20 @@ reads `rg_pose_*`.
 
 ## Milestones (built/measured ON THE PI — the only meaningful numbers)
 
-1. **`native_bench` perf + first-order correctness** (Option B skeleton) — time
-   both models with XNNPACK on a still image; sweep thread counts. Landmark
-   accuracy is *partial* here (see its README: heatmap refinement, smoothing,
-   tracking, world-landmarks not yet implemented).
-2. **Validate against the browser reference** — diff native landmarks vs the
-   `mediapipe_poc` output on the same images; close the gaps (heatmap refine, ROI,
-   normalization) until they match.
-3. **Tracking + smoothing + next-frame ROI** — video-mode behavior; detector runs
-   only on acquisition/loss.
-4. **Threaded PoseProvider + A/B snapshot** into `game_sdl`; game thread writes
-   RGP1 into wasm3 memory before update.
+1. **`native_bench` perf + correctness** (Option B) — time both models with
+   XNNPACK on a still image; sweep thread counts. *Now includes* heatmap
+   refinement (step 9) and world-landmark decode; smoothing/tracking live in the
+   provider (below). Build/run on the Pi via `build-pose-native-pi.sh`.
+2. **Validate against the browser reference** — `pose_bench --json | compare.mjs`
+   diffs native landmarks vs the golden `mediapipe_poc/reference/landmarks.json`;
+   close the gaps (ROI, normalization, refinement) until it reads `OK`.
+3. **Threading contract — DONE + unit-tested** (`native_provider/`): lock-free
+   `PoseChannel`, `WriteRgp1`, `OneEuroFilter`/`PoseSmoother` (step 14),
+   `RoiFromLandmarks` (steps 12–13), and `PoseWorker`. Verified on x86 (200k-frame
+   no-tearing test); re-verified on the Pi by the same test. **Remaining:** feed
+   the real TFLite pipeline in as the worker's `infer`, and V4L2 as the source.
+4. **Wire into `game_sdl`** — the game thread `Latest()`s the channel and
+   `WriteRgp1()`s into wasm3 memory before `update()`.
 5. **`pose_demo` reacts on the native host.**
 
 ## Honest status

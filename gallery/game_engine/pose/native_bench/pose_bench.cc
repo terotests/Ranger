@@ -245,19 +245,52 @@ void CropRoi(const Image& im, const Roi& roi, Model* lm) {
     }
 }
 
-// Decode the 39x5 landmark tensor back into image coordinates through the ROI.
-std::vector<Landmark> DecodeLandmarks(const float* out, int count, const Roi& roi, int in_size) {
+// Heatmap-based landmark refinement (MediaPipe RefineLandmarksFromHeatmap, step 9).
+// Soft-argmax in a window around each coarse landmark, in LANDMARK-INPUT space
+// (0..in_size), before back-projection. hm is the [1,hmH,hmW,hmK] output (HWC).
+void RefineFromHeatmap(std::vector<float>& xy /* x,y per landmark, input space */,
+                       int nland, const float* hm, int hmH, int hmW, int hmK,
+                       int in_size, int kernel = 9) {
+  int half = kernel / 2;
+  for (int k = 0; k < nland && k < hmK; k++) {
+    int cx = (int)std::lround(xy[k * 2 + 0] / in_size * hmW);
+    int cy = (int)std::lround(xy[k * 2 + 1] / in_size * hmH);
+    float vsum = 0, xsum = 0, ysum = 0, vmax = 0;
+    for (int r = cy - half; r <= cy + half; r++) {
+      if (r < 0 || r >= hmH) continue;
+      for (int c = cx - half; c <= cx + half; c++) {
+        if (c < 0 || c >= hmW) continue;
+        float v = Sigmoid(hm[(r * hmW + c) * hmK + k]);
+        vmax = std::max(vmax, v);
+        vsum += v; xsum += v * (c + 0.5f); ysum += v * (r + 0.5f);
+      }
+    }
+    if (vsum > 0 && vmax > 0.1f) {   // min confidence // VERIFY
+      xy[k * 2 + 0] = xsum / vsum / hmW * in_size;
+      xy[k * 2 + 1] = ysum / vsum / hmH * in_size;
+    }
+  }
+}
+
+// Decode the 39x5 landmark tensor -> image coords through the ROI, with optional
+// heatmap refinement (step 9). `out[i*5+..]` = x,y (0..in_size), z, visibility,
+// presence (logits).
+std::vector<Landmark> DecodeLandmarks(const float* out, int count, const Roi& roi, int in_size,
+                                      const float* hm, int hmH, int hmW, int hmK, bool refine) {
+  std::vector<float> xy(count * 2);
+  for (int i = 0; i < count; i++) { xy[i * 2] = out[i * 5 + 0]; xy[i * 2 + 1] = out[i * 5 + 1]; }
+  if (refine && hm) RefineFromHeatmap(xy, count, hm, hmH, hmW, hmK, in_size);
+
   std::vector<Landmark> lms;
   float ca = std::cos(roi.angle), sa = std::sin(roi.angle);
   for (int i = 0; i < count; i++) {
-    float x = out[i * 5 + 0], y = out[i * 5 + 1], z = out[i * 5 + 2];
-    float nx = x / in_size - 0.5f, ny = y / in_size - 0.5f;
+    float nx = xy[i * 2] / in_size - 0.5f, ny = xy[i * 2 + 1] / in_size - 0.5f;
     float rx = nx * ca - ny * sa;   // inverse rotation == same matrix (crop used +angle)
     float ry = nx * sa + ny * ca;
     Landmark lm;
     lm.x = roi.cx + rx * roi.size;
     lm.y = roi.cy + ry * roi.size;
-    lm.z = z;
+    lm.z = out[i * 5 + 2];
     lm.visibility = Sigmoid(out[i * 5 + 3]);
     lm.presence = Sigmoid(out[i * 5 + 4]);
     lms.push_back(lm);
@@ -294,16 +327,17 @@ Stat Stats(std::vector<double> v) {
 int main(int argc, char** argv) {
   if (argc < 4) {
     fprintf(stderr, "usage: %s pose_detector.tflite pose_landmarks_detector.tflite img.ppm "
-                    "[--threads N] [--iters N] [--no-detector] [--json]\n", argv[0]);
+                    "[--threads N] [--iters N] [--no-detector] [--no-refine] [--json]\n", argv[0]);
     return 1;
   }
   std::string det_path = argv[1], lm_path = argv[2], img_path = argv[3];
-  int threads = 4, iters = 30; bool use_detector = true, json = false;
+  int threads = 4, iters = 30; bool use_detector = true, json = false, refine = true;
   for (int i = 4; i < argc; i++) {
     std::string a = argv[i];
     if (a == "--threads" && i + 1 < argc) threads = std::atoi(argv[++i]);
     else if (a == "--iters" && i + 1 < argc) iters = std::atoi(argv[++i]);
     else if (a == "--no-detector") use_detector = false;
+    else if (a == "--no-refine") refine = false;   // disable heatmap refinement
     else if (a == "--json") json = true;
   }
 
@@ -378,15 +412,28 @@ int main(int argc, char** argv) {
     dt.push_back(a); lt.push_back(b); tot.push_back(a + b);
   }
 
-  // decode landmarks from the last run for reporting
+  // locate landmark / heatmap / world tensors by shape
   const float* lmout = nullptr; int lmcount = 0;
+  const float* hm = nullptr; int hmH = 0, hmW = 0, hmK = 0;
+  const float* world = nullptr; int worldCount = 0;
   for (int i = 0; i < lm.num_out(); i++) {
     const TfLiteTensor* t = lm.out(i);
     int n = 1; for (int d = 0; d < t->dims->size; d++) n *= t->dims->data[d];
-    if (n % 5 == 0 && n >= 33 * 5) { lmout = lm.out_data(i); lmcount = n / 5; break; }
+    if (t->dims->size == 4 && t->dims->data[1] <= 128 && t->dims->data[1] == t->dims->data[2]
+        && t->dims->data[3] >= 33) {            // heatmap [1,H,W,K]
+      hm = lm.out_data(i); hmH = t->dims->data[1]; hmW = t->dims->data[2]; hmK = t->dims->data[3];
+    } else if (!lmout && n % 5 == 0 && n >= 33 * 5) {   // landmarks [1,K*5]
+      lmout = lm.out_data(i); lmcount = n / 5;
+    } else if (!world && n % 3 == 0 && n >= 33 * 3 && n < 33 * 5) {  // world [1,K*3]
+      world = lm.out_data(i); worldCount = n / 3;
+    }
   }
   if (!lmout) { fprintf(stderr, "could not find landmark output tensor\n"); return 2; }
-  auto lms = DecodeLandmarks(lmout, std::min(lmcount, 33), roi, lm.in_w());
+  fprintf(stderr, "landmark tensor: %d landmarks;  heatmap: %s;  world-landmarks: %s\n",
+          lmcount, hm ? "yes" : "no", world ? "yes" : "no"); (void)world; (void)worldCount;
+  bool do_refine = refine && hm;
+  auto lms = DecodeLandmarks(lmout, std::min(lmcount, 33), roi, lm.in_w(),
+                             hm, hmH, hmW, hmK, do_refine);
 
   auto D = Stats(dt), L = Stats(lt), T = Stats(tot);
 

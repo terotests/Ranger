@@ -299,6 +299,14 @@ if [[ "$RANGER_PI_AUTOSTART" == "1" ]]; then
   ssh "$TARGET" '~/initservice.sh'
 fi
 
+# Opt-in: build + run the native pose probes on the Pi (heavy: pulls a tensorflow
+# checkout + builds TFLite the first time). See gallery/game_engine/pose/.
+if [[ "${RANGER_POSE_BENCH:-0}" == "1" ]]; then
+  echo "==> Pose native probe (RANGER_POSE_BENCH=1)"
+  ssh "$TARGET" 'sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq cmake build-essential unzip curl'
+  ssh "$TARGET" "POSE_THREADS='${POSE_THREADS:-2}' bash ~/$REMOTE_DIR/gallery/game_engine/pose/build-pose-native-pi.sh"
+fi
+
 echo ""
 echo "Done. On the Pi:"
 echo "  ~/start.sh       — launch game launcher (TSX + WASM)"
