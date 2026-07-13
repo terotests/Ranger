@@ -2,3 +2,5 @@ name=AS UI Menu (.as demo)
 engine=ui
 runtime=as
 module=game.as
+
+category=Tests
