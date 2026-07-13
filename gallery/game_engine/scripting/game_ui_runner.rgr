@@ -42,6 +42,12 @@ class GameUiRunner {
     def asSelId:int 0
     def OFF_INPUT:int 20      ; host -> guest edge mask: UP1 DOWN2 LEFT4 RIGHT8 ACT16
     def OFF_SEL:int 52        ; guest -> host selected node id (highlight)
+    ; host -> guest: laid-out rect of the selected node (page px), so the guest
+    ; can place absolute overlay effects at real screen coordinates.
+    def OFF_RECT_X:int 200
+    def OFF_RECT_Y:int 204
+    def OFF_RECT_W:int 208
+    def OFF_RECT_H:int 212
 
     ; page background behind the menu card
     def bgR:int 16
@@ -195,12 +201,23 @@ class GameUiRunner {
             if nav.action { mask = (mask + 16) }
             asRunner.abiWrite(OFF_INPUT mask)
             asRunner.callUpdate()
-            def newRev:int (asRunner.uiRevision())
-            if (newRev != rev) {
-                this.refreshFromAs()
-                rev = newRev
-            }
+            ; rebuild every frame: the guest may re-place coord-reported overlay
+            ; effects each frame from the rect we report below, so we always pull
+            ; + re-lay-out (cheap for a menu-sized document).
+            this.refreshFromAs()
+            rev = (asRunner.uiRevision())
             asSelId = (asRunner.abiRead(OFF_SEL))
+            ; report the selected node's laid-out rect back to the guest so it can
+            ; position absolute effects at exact screen coordinates next frame.
+            if (asSelId > 0) {
+                def hit:RectHit (ctrl.renderer.findRect(root (to_string asSelId)))
+                if hit.found {
+                    asRunner.abiWrite(OFF_RECT_X hit.x)
+                    asRunner.abiWrite(OFF_RECT_Y hit.y)
+                    asRunner.abiWrite(OFF_RECT_W hit.w)
+                    asRunner.abiWrite(OFF_RECT_H hit.h)
+                }
+            }
             return asSelId
         }
         def act:int (ctrl.update(nav))

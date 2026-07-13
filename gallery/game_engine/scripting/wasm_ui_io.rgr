@@ -450,6 +450,27 @@ class WasmUiEvgBuilder {
             if (key == 24) {                ; TEXT_ALIGN (0 left,1 center,2 right)
                 el.textAlign = (this.textAlignName((doc.propValueA(idx))))
             }
+            if (key == 50) {                ; GRAD_FROM (linear-gradient start color)
+                el.gradientFrom = (doc.colorAt(idx))
+                el.gradientSet = true
+            }
+            if (key == 51) {                ; GRAD_TO (linear-gradient end color)
+                el.gradientTo = (doc.colorAt(idx))
+                el.gradientSet = true
+            }
+            if (key == 52) {                ; GRAD_DIR (0 vertical, 1 horizontal)
+                el.gradientDir = (doc.propValueA(idx))
+            }
+            if (key == 53) {                ; ABS_X (page px) -> absolute placement
+                el.absX = (to_double (doc.propValueA(idx)))
+                el.absPosSet = true
+                el.isAbsolute = true
+            }
+            if (key == 54) {                ; ABS_Y (page px)
+                el.absY = (to_double (doc.propValueA(idx)))
+                el.absPosSet = true
+                el.isAbsolute = true
+            }
             p = (p + 1)
         }
     }

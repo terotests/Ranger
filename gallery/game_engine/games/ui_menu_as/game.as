@@ -26,6 +26,12 @@ import { abiRead, abiWrite, uiReset, uiNode, uiPropI32, uiPropEnum, uiPropStr, u
 // ---- shared ABI offsets ----
 const OFF_INPUT: i32 = 20;   // host -> guest: edge mask this frame
 const OFF_SEL: i32 = 52;     // guest -> host: selected node id (highlight)
+// host -> guest: laid-out rect (page px) of the selected node, so we can place
+// an absolute overlay effect at real screen coordinates.
+const OFF_RECT_X: i32 = 200;
+const OFF_RECT_Y: i32 = 204;
+const OFF_RECT_W: i32 = 208;
+const OFF_RECT_H: i32 = 212;
 
 // input edge bits
 const IN_UP: i32 = 1;
@@ -45,6 +51,7 @@ const P_BG: i32 = 2;
 const P_COLOR: i32 = 3;
 const P_FONT: i32 = 4;
 const P_WIDTH: i32 = 10;
+const P_HEIGHT: i32 = 11;
 const P_PAD: i32 = 12;
 const P_MARGIN: i32 = 13;
 const P_RADIUS: i32 = 14;
@@ -53,6 +60,11 @@ const P_BORDER_W: i32 = 16;
 const P_FLEXDIR: i32 = 21;
 const P_ALIGN: i32 = 22;
 const P_TEXTALIGN: i32 = 24;
+const P_GRAD_FROM: i32 = 50;   // linear-gradient start colour
+const P_GRAD_TO: i32 = 51;     // linear-gradient end colour
+const P_GRAD_DIR: i32 = 52;    // 0 vertical, 1 horizontal
+const P_ABS_X: i32 = 53;       // absolute page-x
+const P_ABS_Y: i32 = 54;       // absolute page-y
 
 // enum values
 const DIR_COLUMN: i32 = 1;
@@ -67,6 +79,7 @@ const BTN_CONT: i32 = 21;
 const BTN_DEMO: i32 = 22;
 const BTN_QUIT: i32 = 23;
 const PREVIEW: i32 = 40;
+const EFFECT: i32 = 200;   // coord-reported absolute overlay accent
 
 // screens
 const SCR_MENU: i32 = 0;
@@ -184,20 +197,42 @@ function buildDemo(): void {
     uiPropColorRgba(P_BG, 22, 26, 40, 255);
     label(122, PREVIEW, 0, "Big 42", 220, 224, 236, 42);
   } else {
-    // linear gradient (real gradient fill lands in the next slice)
+    // linear gradient: a real 2-stop vertical gradient fill in the host EVG renderer
     uiNode(PREVIEW, CARD, K_VIEW, 2);
     uiPropI32(P_WIDTH, 220);
     uiPropI32(P_PAD, 26);
     uiPropI32(P_RADIUS, 12);
     uiPropI32(P_MARGIN, 8);
-    uiPropColorRgba(P_BG, 40, 60, 120, 255);
-    label(122, PREVIEW, 0, "gradient (soon)", 200, 214, 240, 15);
+    uiPropColorRgba(P_GRAD_FROM, 90, 130, 245, 255);   // blue
+    uiPropColorRgba(P_GRAD_TO, 210, 90, 200, 255);     // magenta
+    uiPropEnum(P_GRAD_DIR, 0);                          // vertical
+    label(122, PREVIEW, 0, "linear gradient", 255, 255, 255, 15);
   }
 
   label(130, CARD, 3, "< left/right >   enter: back", 143, 176, 208, 12);
 
   // the preview is the focused element on this screen
   abiWrite(OFF_SEL, PREVIEW);
+}
+
+// Coord-reported effect: read the selected node's laid-out rect (the host wrote
+// it last frame) and drop a small absolute accent at its top-right corner. The
+// guest never sees the layout, only the reported rect.
+function emitEffect(): void {
+  let rw: i32 = abiRead(OFF_RECT_W);
+  if (rw > 0) {
+    let rx: i32 = abiRead(OFF_RECT_X);
+    let ry: i32 = abiRead(OFF_RECT_Y);
+    let ex: i32 = rx + rw - 7;
+    let ey: i32 = ry - 7;
+    uiNode(EFFECT, ROOT, K_VIEW, 999);   // high order -> drawn on top
+    uiPropI32(P_WIDTH, 14);
+    uiPropI32(P_HEIGHT, 14);
+    uiPropI32(P_RADIUS, 7);
+    uiPropColorRgba(P_BG, 255, 230, 120, 235);
+    uiPropI32(P_ABS_X, ex);
+    uiPropI32(P_ABS_Y, ey);
+  }
 }
 
 function build(): void {
@@ -207,6 +242,7 @@ function build(): void {
   } else {
     buildDemo();
   }
+  emitEffect();
   uiFinish(REV);
 }
 

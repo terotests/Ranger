@@ -81,6 +81,31 @@ class WasmUiRenderer {
             root.height.isSet = true
         }
         layout.layoutElement(root 0.0 0.0 fw fh)
+        ; place coord-reported overlay effects: absolute elements sit at their
+        ; declared page pixel (absX,absY) instead of in flex flow.
+        this.placeAbsolute(root)
+    }
+
+    ; Position absolute (ABS_X/ABS_Y) elements at their page coordinates; the
+    ; flex layout skips them, so size them from their width/height here too.
+    fn placeAbsolute:void (el:EVGElement) {
+        def i 0
+        def n (array_length el.children)
+        while (i < n) {
+            def c:EVGElement (itemAt el.children i)
+            if c.absPosSet {
+                c.calculatedX = c.absX
+                c.calculatedY = c.absY
+                if (c.calculatedWidth <= 0.0) {
+                    if c.width.isSet { c.calculatedWidth = c.width.pixels }
+                }
+                if (c.calculatedHeight <= 0.0) {
+                    if c.height.isSet { c.calculatedHeight = c.height.pixels }
+                }
+            }
+            this.placeAbsolute(c)
+            i = (i + 1)
+        }
     }
 
     ; Deepest laid-out bottom edge (calculatedY + calculatedHeight) among the
@@ -92,20 +117,26 @@ class WasmUiRenderer {
         def n (array_length root.children)
         while (i < n) {
             def c:EVGElement (itemAt root.children i)
-            def b:double (this.maxBottom(c))
-            if (b > m) { m = b }
+            if (c.absPosSet == false) {
+                def b:double (this.maxBottom(c))
+                if (b > m) { m = b }
+            }
             i = (i + 1)
         }
         return m
     }
+    ; Absolute overlays (coord-reported effects) are excluded so they never feed
+    ; back into the autoscale fit.
     fn maxBottom:double (el:EVGElement) {
         def b:double (el.calculatedY + el.calculatedHeight)
         def i 0
         def n (array_length el.children)
         while (i < n) {
             def c:EVGElement (itemAt el.children i)
-            def cb:double (this.maxBottom(c))
-            if (cb > b) { b = cb }
+            if (c.absPosSet == false) {
+                def cb:double (this.maxBottom(c))
+                if (cb > b) { b = cb }
+            }
             i = (i + 1)
         }
         return b
@@ -117,8 +148,10 @@ class WasmUiRenderer {
         def n (array_length root.children)
         while (i < n) {
             def c:EVGElement (itemAt root.children i)
-            def b:double (this.maxRight(c))
-            if (b > m) { m = b }
+            if (c.absPosSet == false) {
+                def b:double (this.maxRight(c))
+                if (b > m) { m = b }
+            }
             i = (i + 1)
         }
         return m
@@ -129,8 +162,10 @@ class WasmUiRenderer {
         def n (array_length el.children)
         while (i < n) {
             def c:EVGElement (itemAt el.children i)
-            def cb:double (this.maxRight(c))
-            if (cb > b) { b = cb }
+            if (c.absPosSet == false) {
+                def cb:double (this.maxRight(c))
+                if (cb > b) { b = cb }
+            }
             i = (i + 1)
         }
         return b
@@ -156,11 +191,20 @@ class WasmUiRenderer {
 
         def rad (this.radiusOf(el))
 
-        if el.backgroundColor.isSet {
-            def ba:double (el.backgroundColor.alpha())
-            if (ba > 0.0) {
-                def ai:int (to_int (ba * 255.0))
-                ctx.fillRoundRectA(x y rw rh rad (el.backgroundColor.red()) (el.backgroundColor.green()) (el.backgroundColor.blue()) ai)
+        if el.gradientSet {
+            ; guest-declared 2-stop linear gradient background (real EVG fill)
+            def fa:int (to_int ((el.gradientFrom.alpha()) * 255.0))
+            def ta:int (to_int ((el.gradientTo.alpha()) * 255.0))
+            ctx.fillRoundRectGrad(x y rw rh rad el.gradientDir
+                (el.gradientFrom.red()) (el.gradientFrom.green()) (el.gradientFrom.blue()) fa
+                (el.gradientTo.red()) (el.gradientTo.green()) (el.gradientTo.blue()) ta)
+        } {
+            if el.backgroundColor.isSet {
+                def ba:double (el.backgroundColor.alpha())
+                if (ba > 0.0) {
+                    def ai:int (to_int (ba * 255.0))
+                    ctx.fillRoundRectA(x y rw rh rad (el.backgroundColor.red()) (el.backgroundColor.green()) (el.backgroundColor.blue()) ai)
+                }
             }
         }
 

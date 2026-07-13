@@ -1,0 +1,93 @@
+; ==============================================================================
+; ui_anim_demo — self-check for the UIAnimator fluent effect/timing API.
+; ==============================================================================
+; Exercises objects + chaining, delay + duration timing, the 0->1->0 flash, and
+; the `after` hook that fires exactly once when the effect completes (so callers
+; can "react only after the effect ran").
+; ==============================================================================
+
+Import "UIAnimator.rgr"
+
+class AnimCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+}
+
+; a callback target: a method we hand to .after(...)
+class DoneFlag {
+    def fired:int 0
+    fn mark:void () {
+        fired = (fired + 1)
+    }
+}
+
+class UIAnimDemo {
+    sfn near:boolean (a:double b:double tol:double) {
+        def d (a - b)
+        if (d < 0.0) { d = (0.0 - d) }
+        return (d <= tol)
+    }
+
+    sfn m@(main):void () {
+        def c:AnimCheck (new AnimCheck)
+        def anim:UIAnimator (new UIAnimator)
+        def flag:DoneFlag (new DoneFlag)
+
+        ; ---- fluent chaining: glow #22, 0.5s after a 0.1s delay, then callback ----
+        anim.animation().glow("22").duration(0.5).delay(0.1).after(flag.mark).start()
+        c.ok("one active animation after start()" ((anim.activeCount()) == 1))
+        c.ok("intensity 0 before first tick" (UIAnimDemo.near((anim.intensityFor("22")) 0.0 0.001)))
+
+        ; during the delay (elapsed 100ms): still 0
+        anim.tick(100)
+        c.ok(("still 0 at end of delay (got " + (to_string (anim.intensityFor("22"))) + ")") (UIAnimDemo.near((anim.intensityFor("22")) 0.0 0.05)))
+
+        ; ramping up (elapsed 200ms -> p=0.2 -> intensity 0.4)
+        anim.tick(100)
+        c.ok(("ramps up ~0.4 (got " + (to_string (anim.intensityFor("22"))) + ")") (UIAnimDemo.near((anim.intensityFor("22")) 0.4 0.06)))
+
+        ; peak (elapsed 350ms -> p=0.5 -> intensity 1.0)
+        anim.tick(150)
+        c.ok(("peaks ~1.0 (got " + (to_string (anim.intensityFor("22"))) + ")") (UIAnimDemo.near((anim.intensityFor("22")) 1.0 0.06)))
+
+        ; fading (elapsed 500ms -> p=0.8 -> intensity 0.4)
+        anim.tick(150)
+        c.ok(("fades back ~0.4 (got " + (to_string (anim.intensityFor("22"))) + ")") (UIAnimDemo.near((anim.intensityFor("22")) 0.4 0.06)))
+
+        ; callback must not have fired yet (effect still running)
+        c.ok("after() has NOT fired mid-effect" (flag.fired == 0))
+
+        ; complete (elapsed 600ms >= delay+duration): callback fires, anim removed
+        anim.tick(100)
+        c.ok("after() fired exactly once on completion" (flag.fired == 1))
+        c.ok("animation removed after completion" ((anim.activeCount()) == 0))
+        c.ok("intensity 0 after completion" (UIAnimDemo.near((anim.intensityFor("22")) 0.0 0.001)))
+
+        ; extra ticks must not re-fire the callback
+        anim.tick(100)
+        c.ok("callback not re-fired after removal" (flag.fired == 1))
+
+        ; a second element's glow is independent
+        anim.animation().glow("40").duration(0.2).start()
+        anim.tick(100)
+        c.ok("second element glowing" ((anim.intensityFor("40")) > 0.0))
+        c.ok("first element still idle" (UIAnimDemo.near((anim.intensityFor("22")) 0.0 0.001)))
+
+        print "======================================"
+        print (("RESULT: " + (to_string c.passed) + " passed, ") + ((to_string c.failed) + " failed"))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

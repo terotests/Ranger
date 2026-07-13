@@ -48,6 +48,22 @@ class EVGElement {
     ; Visual properties
     def backgroundColor:EVGColor
     def opacity:double 1.0
+
+    ; Linear-gradient background (RGU1 GRAD_FROM/GRAD_TO/GRAD_DIR). When gradientSet
+    ; the renderer fills the (rounded) box with a 2-stop linear gradient instead of
+    ; the solid backgroundColor. gradientDir: 0 = vertical (top->bottom), 1 =
+    ; horizontal (left->right).
+    def gradientSet:boolean false
+    def gradientFrom:EVGColor
+    def gradientTo:EVGColor
+    def gradientDir:int 0
+
+    ; Absolute placement (RGU1 ABS_X/ABS_Y): when absPosSet the element is laid out
+    ; at (absX, absY) in page pixels instead of participating in flex flow — used
+    ; for coord-reported overlay effects.
+    def absPosSet:boolean false
+    def absX:double 0.0
+    def absY:double 0.0
     
     ; Layout properties
     def direction:string "row"
