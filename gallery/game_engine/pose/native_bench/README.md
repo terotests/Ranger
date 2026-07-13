@@ -53,6 +53,28 @@ provider will write into wasm3 memory.
 ROI. Use it to (a) isolate the **landmark model's** cost and output from the
 detector-decode logic, and (b) as a fallback if the detector ROI looks wrong.
 
+## Validate against the browser reference (the accuracy check)
+
+The browser MediaPipe PoC is the behavioral oracle. `mediapipe_poc/reference/
+landmarks.json` holds its golden 33 landmarks (normalized) for the sample images
+(regenerate with `cd ../mediapipe_poc && node dump-reference.mjs`). Diff the
+native pipeline against it — `--json` emits landmarks in the same normalized form,
+and `compare.mjs` reports per-landmark error:
+
+```bash
+./build/pose_bench \
+  ../mediapipe_poc/assets/models/tflite/pose_detector.tflite \
+  ../mediapipe_poc/assets/models/tflite/pose_landmarks_detector.tflite \
+  pose.ppm --json \
+| node compare.mjs ../mediapipe_poc/reference/landmarks.json -
+```
+
+Error is in normalized image units: mean `< 0.02` = **OK**, `< 0.06` = **CLOSE**,
+else **OFF** (exit 2). The per-landmark "worst" list localizes the bug: a global
+offset points at normalization; a bad ROI/rotation skews everything with the
+extremities worst; a single joint off is usually the missing heatmap refinement.
+Close the gaps until it reads OK, *then* the native pipeline is trustworthy.
+
 ## Reading the results honestly
 
 - **The timing is trustworthy regardless of landmark accuracy** — it's just two

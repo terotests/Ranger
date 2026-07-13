@@ -69,5 +69,35 @@ window.runBench = async function runBench(config) {
   return { model: model.split("/").pop(), delegate, initMs, perImage };
 };
 
+// dumpReference(): golden landmarks from MediaPipe for validating the native
+// pipeline (NATIVE_EMBED.md milestone 2). Emits all 33 landmarks per image in
+// NORMALIZED image coords [0,1] (+ visibility) so it can be diffed against
+// native_bench --json regardless of image resolution.
+window.dumpReference = async function dumpReference(config) {
+  const { model, images } = config;
+  const fileset = await FilesetResolver.forVisionTasks("./wasm");
+  const landmarker = await PoseLandmarker.createFromOptions(fileset, {
+    baseOptions: { modelAssetPath: model, delegate: "CPU" },
+    runningMode: "IMAGE", numPoses: 1,
+  });
+  const out = [];
+  for (const imgPath of images) {
+    const img = await loadImage(imgPath);
+    const r = landmarker.detect(img);
+    const lm = (r.landmarks && r.landmarks[0]) || [];
+    out.push({
+      image: imgPath.split("/").pop(),
+      w: img.naturalWidth, h: img.naturalHeight,
+      present: lm.length ? 1 : 0,
+      landmarks: lm.map((p) => ({
+        x: +p.x.toFixed(5), y: +p.y.toFixed(5), z: +p.z.toFixed(5),
+        v: +(p.visibility ?? 0).toFixed(4),
+      })),
+    });
+  }
+  landmarker.close();
+  return { model: model.split("/").pop(), reference: out };
+};
+
 // signal readiness to the Playwright driver
 window.__pocReady = true;

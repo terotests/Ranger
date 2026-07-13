@@ -294,31 +294,33 @@ Stat Stats(std::vector<double> v) {
 int main(int argc, char** argv) {
   if (argc < 4) {
     fprintf(stderr, "usage: %s pose_detector.tflite pose_landmarks_detector.tflite img.ppm "
-                    "[--threads N] [--iters N] [--no-detector]\n", argv[0]);
+                    "[--threads N] [--iters N] [--no-detector] [--json]\n", argv[0]);
     return 1;
   }
   std::string det_path = argv[1], lm_path = argv[2], img_path = argv[3];
-  int threads = 4, iters = 30; bool use_detector = true;
+  int threads = 4, iters = 30; bool use_detector = true, json = false;
   for (int i = 4; i < argc; i++) {
     std::string a = argv[i];
     if (a == "--threads" && i + 1 < argc) threads = std::atoi(argv[++i]);
     else if (a == "--iters" && i + 1 < argc) iters = std::atoi(argv[++i]);
     else if (a == "--no-detector") use_detector = false;
+    else if (a == "--json") json = true;
   }
 
   Image img;
   if (!LoadPPM(img_path, &img)) return 1;
-  printf("image %dx%d  threads=%d  iters=%d  detector=%s\n",
-         img.w, img.h, threads, iters, use_detector ? "on" : "off");
+  // diagnostics -> stderr so stdout stays clean for --json (or the human report)
+  fprintf(stderr, "image %dx%d  threads=%d  iters=%d  detector=%s\n",
+          img.w, img.h, threads, iters, use_detector ? "on" : "off");
 
   Model det(det_path, threads), lm(lm_path, threads);
-  printf("detector in %dx%d, %d outputs   landmark in %dx%d, %d outputs\n",
-         det.in_w(), det.in_h(), det.num_out(), lm.in_w(), lm.in_h(), lm.num_out());
+  fprintf(stderr, "detector in %dx%d, %d outputs   landmark in %dx%d, %d outputs\n",
+          det.in_w(), det.in_h(), det.num_out(), lm.in_w(), lm.in_h(), lm.num_out());
 
   // ---- preprocess: letterbox the image into the detector input (range [-1,1]) ----
   AnchorOpts aopts; aopts.input_w = det.in_w(); aopts.input_h = det.in_h();
   auto anchors = GenAnchors(aopts);
-  printf("anchors=%zu\n", anchors.size());
+  fprintf(stderr, "anchors=%zu\n", anchors.size());
 
   // fraction of the detector input covered by the scaled image, and normalized pad
   float fracX, fracY, padX, padY;
@@ -387,6 +389,23 @@ int main(int argc, char** argv) {
   auto lms = DecodeLandmarks(lmout, std::min(lmcount, 33), roi, lm.in_w());
 
   auto D = Stats(dt), L = Stats(lt), T = Stats(tot);
+
+  // --json: emit one image's landmarks in NORMALIZED coords (like the browser
+  // reference) so compare.mjs can diff native vs MediaPipe. stdout only.
+  if (json) {
+    std::string base = img_path.substr(img_path.find_last_of('/') + 1);
+    printf("{\"image\":\"%s\",\"w\":%d,\"h\":%d,\"present\":1,\"detector\":%s,",
+           base.c_str(), img.w, img.h, use_detector ? "true" : "false");
+    printf("\"timingMs\":{\"detector\":%.2f,\"landmark\":%.2f,\"total\":%.2f},",
+           D.med, L.med, T.med);
+    printf("\"landmarks\":[");
+    for (size_t i = 0; i < lms.size(); i++)
+      printf("%s{\"x\":%.5f,\"y\":%.5f,\"z\":%.5f,\"v\":%.4f}", i ? "," : "",
+             lms[i].x / img.w, lms[i].y / img.h, lms[i].z, lms[i].visibility);
+    printf("]}\n");
+    return 0;
+  }
+
   printf("\n--- timing (ms) ---\n");
   printf("  detector : min %.2f  median %.2f  mean %.2f  p95 %.2f%s\n",
          D.mn, D.med, D.mean, D.p95, use_detector ? "" : "  (skipped)");
