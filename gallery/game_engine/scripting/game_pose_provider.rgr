@@ -1,0 +1,195 @@
+; ==============================================================================
+; game_pose_provider — first host->guest streaming provider (pose input).
+; ==============================================================================
+;
+; Layering (see PLAN_PROVIDERS.md). Data flows left to right through a stable
+; "narrow waist" (RGP1); everything on the SOURCE side is swappable without
+; touching the game:
+;
+;   [ AI model ] -> [ PoseSource ] -> [ SharedPoseBuffer ] -> [ PoseProvider ] -> || RGP1 || -> [ game ]
+;    (MediaPipe        (adapter:        (SAB analog:            (host glue:          stable      guest
+;     WASM, a          drives the       seqlock latest-         copy latest          contract    reads
+;     black box)       model, writes    value snapshot)         frame -> RGP1)                   RGP1
+;                      the buffer)
+;
+; Transport = SharedArrayBuffer (primary). Game input is a REGISTER READ ("what is
+; the pose right now"), not a message stream, so the shared buffer holds ONE latest
+; frame guarded by a seqlock revision — the natural drop-to-latest an input path
+; wants, and the exact shape RGW1 input already uses. A WebSocket transport is only
+; for out-of-process / remote inference and, if ever needed, slots in as another
+; PoseSource with RGP1 and every game unchanged.
+;
+; This file is single-threaded (headless PoC): the SharedPoseBuffer is a plain
+; byte array and the seqlock never actually contends. The write/read protocol is
+; nonetheless the one the browser build uses verbatim once SharedPoseBuffer becomes
+; a real SharedArrayBuffer and PoseSource becomes a MediaPipe Web Worker.
+;
+; Gesture enum (shared with the .as guest): 0 none 1 arms_up 2 lean_left 3 lean_right
+; ==============================================================================
+
+Import "./as_abi_bridge.rgr"
+
+; ------------------------------------------------------------------------------
+; SharedPoseBuffer — the SharedArrayBuffer analog. Single writer (the source),
+; single reader (the provider). Layout (bytes):
+;    0 present   4 gesture   8 count   12 seq (seqlock)   16.. landmark[i]=x,y (fp)
+; The seqlock is odd while a write is in progress and even when a frame is stable,
+; so a reader can detect (and, on a real thread, retry) a torn read.
+; ------------------------------------------------------------------------------
+class SharedPoseBuffer {
+    def buf:[int]
+    def ready:boolean false
+
+    fn ensure:void () {
+        if (ready) { return }
+        def zero:int 0
+        def i 0
+        while (i < 128) {
+            push buf zero
+            i = (i + 1)
+        }
+        ready = true
+    }
+
+    fn wb:void (off:int v:int) {
+        set buf off (bit_and v 255)
+        set buf (off + 1) (bit_and (bit_shr v 8) 255)
+        set buf (off + 2) (bit_and (bit_shr v 16) 255)
+        set buf (off + 3) (bit_and (bit_shr v 24) 255)
+    }
+    fn rb:int (off:int) {
+        def b0:int (itemAt buf off)
+        def b1:int (itemAt buf (off + 1))
+        def b2:int (itemAt buf (off + 2))
+        def b3:int (itemAt buf (off + 3))
+        def hi b3
+        if (hi >= 128) { hi = (hi - 256) }
+        return (b0 + ((b1 * 256) + ((b2 * 65536) + (hi * 16777216))))
+    }
+
+    ; ---- seqlock (offset 12) ----
+    fn seqValue:int () {
+        this.ensure()
+        return (this.rb(12))
+    }
+    fn beginWrite:void () {
+        this.ensure()
+        this.wb(12 ((this.rb(12)) + 1))   ; -> odd: write in progress
+    }
+    fn endWrite:void () {
+        this.wb(12 ((this.rb(12)) + 1))   ; -> even: frame stable
+    }
+
+    ; ---- writer API (the PoseSource / MediaPipe worker) ----
+    fn setPresent:void (v:int) { this.wb(0 v) }
+    fn setGesture:void (v:int) { this.wb(4 v) }
+    fn setCount:void (v:int)   { this.wb(8 v) }
+    fn setLandmark:void (i:int x:int y:int) {
+        def b (16 + (i * 8))
+        this.wb(b x)
+        this.wb((b + 4) y)
+    }
+
+    ; ---- reader API (the PoseProvider) ----
+    fn getPresent:int () { return (this.rb(0)) }
+    fn getGesture:int () { return (this.rb(4)) }
+    fn getCount:int ()   { return (this.rb(8)) }
+    fn landmarkX:int (i:int) { return (this.rb(16 + (i * 8))) }
+    fn landmarkY:int (i:int) { return (this.rb((16 + (i * 8)) + 4)) }
+}
+
+; ------------------------------------------------------------------------------
+; PoseSource — the swappable seam. A source drives an AI model and writes one
+; latest pose frame into the shared buffer. Swapping the model / inference engine
+; = swapping this object; RGP1, the provider, and every game are untouched.
+; ------------------------------------------------------------------------------
+class PoseSource {
+    sfn gestureName:string (g:int) {
+        if (g == 1) { return "ARMS_UP" }
+        if (g == 2) { return "LEAN_LEFT" }
+        if (g == 3) { return "LEAN_RIGHT" }
+        return "NONE"
+    }
+    fn id:string () { return "none" }
+    ; Write one pose frame into `shared` (override in a real source).
+    fn produce:void (shared:SharedPoseBuffer t:int) { }
+}
+
+; FakePoseSource — the first adapter: a deterministic fabricated pose (no camera).
+; A MediaPipeWorkerSource later overrides produce() to write real landmarks into
+; the same shared buffer; nothing else in the chain changes.
+class FakePoseSource extends PoseSource {
+    fn id:string () { return "fake-sweep" }
+
+    ; nose X: triangle sweep 120..360 over 160 frames
+    fn noseX:int (t:int) {
+        def phase:int (t % 160)
+        if (phase < 80) { return (120 + (phase * 3)) }
+        return (360 - ((phase - 80) * 3))
+    }
+    ; nose Y: gentle bob around 100
+    fn noseY:int (t:int) {
+        def b:int (t % 40)
+        if (b < 20) { return (96 + b) }
+        return (96 + (40 - b))
+    }
+    ; periodic arms_up every 90 frames for 15, else lean by horizontal position
+    fn gestureFor:int (t:int x:int) {
+        if ((t % 90) < 15) { return 1 }
+        if (x < 200) { return 2 }
+        if (x > 300) { return 3 }
+        return 0
+    }
+
+    fn produce:void (shared:SharedPoseBuffer t:int) {
+        def x:int (this.noseX(t))
+        def y:int (this.noseY(t))
+        def g:int (this.gestureFor(t x))
+        shared.beginWrite()                        ; seq -> odd
+        shared.setPresent(1)
+        shared.setGesture(g)
+        shared.setCount(1)
+        shared.setLandmark(0 (x * 256) (y * 256))  ; one landmark: nose (fp *256)
+        shared.endWrite()                          ; seq -> even (frame published)
+    }
+}
+
+; ------------------------------------------------------------------------------
+; PoseProvider — host->guest + per-frame provider. Transport glue ONLY: it copies
+; the latest complete frame out of the shared buffer into RGP1 in the guest's
+; memory. This ~few-hundred-byte copy is the entire per-frame host cost, and it is
+; independent of which model/source produced the frame. (see PLAN_PROVIDERS.md §3)
+; ------------------------------------------------------------------------------
+class PoseProvider {
+    fn id:string ()        { return "pose" }
+    fn capBit:int ()       { return 16 }   ; RG_WASM_HOST_CAP_POSE_INPUT = 0x0010
+    fn direction:int ()    { return 2 }    ; host -> guest
+    fn cadence:int ()      { return 2 }    ; per-frame streaming
+
+    ; pump(): seqlock read of the latest stable frame, copied into RGP1. On a real
+    ; thread the retry re-reads a frame the worker was mid-writing; single-threaded
+    ; here it always succeeds on the first pass.
+    fn pump:void (shared:SharedPoseBuffer bridge:AsAbiBridge) {
+        def tries:int 0
+        while (tries < 4) {
+            def s0:int (shared.seqValue())
+            if ((bit_and s0 1) == 0) {              ; even => not mid-write
+                def present:int (shared.getPresent())
+                def gesture:int (shared.getGesture())
+                def count:int (shared.getCount())
+                bridge.poseWriteHeader(present gesture count)
+                def i 0
+                while (i < count) {
+                    bridge.poseWriteLandmark(i (shared.landmarkX(i)) (shared.landmarkY(i)))
+                    i = (i + 1)
+                }
+                def s1:int (shared.seqValue())
+                if (s0 == s1) {                     ; no write happened during copy
+                    bridge.poseBump(s1)             ; publish frame revision into RGP1
+                    return
+                }
+            }
+            tries = (tries + 1)
+        }
+    }
+}

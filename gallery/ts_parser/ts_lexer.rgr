@@ -12,36 +12,16 @@ class TSLexer {
 
     Constructor (src:string) {
         source = src
-        len = (this.countCodeUnits(src))
-    }
-
-    ; UTF-8 lead byte width (also correct for ES6 BMP code units via charCodeAt).
-    fn utf8WidthFromLead:int (lead:int) {
-        if (lead <= 127) { return 1 }
-        if (lead >= 192) {
-            if (lead <= 223) { return 2 }
-        }
-        if (lead >= 224) {
-            if (lead <= 239) { return 3 }
-        }
-        if (lead >= 240) {
-            if (lead <= 247) { return 4 }
-        }
-        return 1
-    }
-
-    ; Character/code-unit count — pos indexes code units, not raw UTF-8 bytes.
-    fn countCodeUnits:int (text:string) {
-        def byteLen:int (strlen text)
-        def bytePos:int 0
-        def count:int 0
-        while (bytePos < byteLen) {
-            def lead:int (charAt text bytePos)
-            def w:int (this.utf8WidthFromLead(lead))
-            bytePos = bytePos + w
-            count = count + 1
-        }
-        return count
+        ; `len` must match the index space that peek()/advance()/`at` walk. Those
+        ; step one unit at a time via `at source pos`, which indexes the SAME units
+        ; `strlen` counts — code units for a decoded JS string, and raw bytes for a
+        ; byte string (what `buffer_to_string` yields when a .as/.tsx file is read
+        ; from disk). Using a code-POINT count here (grouping multi-byte UTF-8 into
+        ; one) made `len` smaller than the byte-indexed source, so the lexer stopped
+        ; short and truncated the file tail — a non-ASCII char anywhere (e.g. an
+        ; em-dash in a // comment) dropped the final tokens, surfacing downstream as
+        ; "Parse error: expected '}' but got ''". `strlen` is correct for both.
+        len = (strlen src)
     }
 
     fn peek:string () {
