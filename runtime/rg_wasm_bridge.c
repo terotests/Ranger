@@ -22,6 +22,10 @@ typedef struct RgWasmSlot {
     IM3Runtime runtime;
     IM3Module module;
     int in_use;
+    /* Set once m3_LoadModule succeeds: the runtime then owns the module and
+     * m3_FreeRuntime frees it. Freeing the module separately would double-free
+     * (crash in Function_Release). Only free the module directly when this is 0. */
+    int module_in_runtime;
     RgWasmRes res[RG_WASM_MAX_RES];
     int res_count;
 } RgWasmSlot;
@@ -228,6 +232,7 @@ int rg_wasm_load(const char* path) {
         fprintf(stderr, "[wasm] load module failed: %s (%s)\n", path, r);
         goto fail;
     }
+    s->module_in_runtime = 1; /* runtime now owns the module */
 
     rg_link_host_imports(s);
 
@@ -243,10 +248,12 @@ fail:
     if (bytes) {
         free(bytes);
     }
-    if (s->module) {
+    /* Free the module directly only if the runtime does not own it yet; once
+     * m3_LoadModule succeeds, m3_FreeRuntime frees it (see module_in_runtime). */
+    if (s->module && !s->module_in_runtime) {
         m3_FreeModule(s->module);
-        s->module = NULL;
     }
+    s->module = NULL;
     if (s->runtime) {
         m3_FreeRuntime(s->runtime);
         s->runtime = NULL;
@@ -255,6 +262,7 @@ fail:
         m3_FreeEnvironment(s->env);
         s->env = NULL;
     }
+    s->module_in_runtime = 0;
     s->in_use = 0;
     return 0;
 }
@@ -264,10 +272,12 @@ void rg_wasm_close(int handle) {
     if (!s) {
         return;
     }
-    if (s->module) {
+    /* Do NOT m3_FreeModule when the runtime owns the module — m3_FreeRuntime
+     * frees it, and a second free crashes in Function_Release (double-free). */
+    if (s->module && !s->module_in_runtime) {
         m3_FreeModule(s->module);
-        s->module = NULL;
     }
+    s->module = NULL;
     if (s->runtime) {
         m3_FreeRuntime(s->runtime);
         s->runtime = NULL;
@@ -276,6 +286,7 @@ void rg_wasm_close(int handle) {
         m3_FreeEnvironment(s->env);
         s->env = NULL;
     }
+    s->module_in_runtime = 0;
     s->in_use = 0;
 }
 
