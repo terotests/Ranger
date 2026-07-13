@@ -1000,6 +1000,56 @@ class StaticAnalyzer {
   ;   fn transformWrapper(input, output) { transform(input, output) }
   ;   ; output here ALSO needs &mut because it's passed to transform's &mut param
   
+  ; Propagate a mutable-reference requirement from a callee parameter to the
+  ; argument we pass into it. A callee can require a mutable reference two ways:
+  ;   * rust_borrow_type == 2  — Rust &mut (objects whose fields are mutated)
+  ;   * needs_cpp_reference     — C++ non-const T& (arrays/buffers/maps mutated
+  ;                               in place, which markVarAsMutated flags WITHOUT
+  ;                               setting rust_borrow_type)
+  ; If our own parameter is the argument, it must carry the same requirement, or
+  ; the generated C++ passes it as `const T&` and then fails to bind it to the
+  ; callee's `T&` ("drops const"). Each marker propagates independently so this
+  ; does not change Rust borrow inference for the C++-only (array) case.
+  fn propagateArgMutRef:void (calledParam:RangerAppParamDesc arg:CodeNode fnCtx:RangerAppWriterContext changedParams:[string]) {
+    def calleeMut:boolean (calledParam.rust_borrow_type == 2)
+    def calleeCppRef:boolean calledParam.needs_cpp_reference
+    if (calleeMut == false) {
+      if (calleeCppRef == false) {
+        return
+      }
+    }
+    def argVarName:string arg.vref
+    if ((strlen argVarName) == 0) {
+      return
+    }
+    def argParam:RangerAppParamDesc (fnCtx.getVariableDef(argVarName))
+    if ((strlen argParam.name) == 0) {
+      return
+    }
+    if (argParam.varType == RangerContextVarType.FunctionParameter) {
+      def didChange:boolean false
+      if calleeMut {
+        if (argParam.rust_borrow_type != 2) {
+          argParam.rust_borrow_type = 2
+          argParam.needs_cpp_reference = true
+          didChange = true
+        }
+      }
+      if calleeCppRef {
+        if (argParam.needs_cpp_reference == false) {
+          argParam.needs_cpp_reference = true
+          didChange = true
+        }
+      }
+      if didChange {
+        push changedParams argParam.name
+        if debug {
+          print ("StaticAnalysis: " + argParam.name + " upgraded to mutable ref (passed to a param " + calledParam.name + " that requires it)")
+        }
+      }
+    }
+  }
+
   ; Walk function body to find calls where our parameters are passed to &mut params
   fn walkForTransitiveMutBorrow:void (node:CodeNode fnCtx:RangerAppWriterContext fn:RangerAppFunctionDesc changedParams:[string]) {
     ; Check for function/method calls
@@ -1020,31 +1070,9 @@ class StaticAnalyzer {
               ; Get the called function's parameter at this position
               def calledParam:RangerAppParamDesc (itemAt calledFn.params i)
               
-              ; Check if the called param requires &mut (borrow_type == 2)
-              if (calledParam.rust_borrow_type == 2) {
-                ; The called function wants &mut for this parameter
-                ; Check if our argument is one of our function's parameters
-                def argVarName:string arg.vref
-                if ((strlen argVarName) > 0) {
-                  ; Look up the argument in our function context
-                  def argParam:RangerAppParamDesc (fnCtx.getVariableDef(argVarName))
-                  if ((strlen argParam.name) > 0) {
-                    if (argParam.varType == RangerContextVarType.FunctionParameter) {
-                      ; Our parameter is passed to a &mut param
-                      ; Check if it's currently marked as immutable borrow or owned
-                      if (argParam.rust_borrow_type != 2) {
-                        ; Upgrade to &mut
-                        argParam.rust_borrow_type = 2
-                        argParam.needs_cpp_reference = true
-                        push changedParams argParam.name
-                        if debug {
-                          print ("StaticAnalysis: " + argParam.name + " upgraded to &mut (passed to " + calledFn.name + " param " + calledParam.name + " which requires &mut)")
-                        }
-                      }
-                    }
-                  }
-                }
-              }
+              ; Propagate a mutable-reference requirement (Rust &mut OR C++ non-const
+              ; T&) from the callee parameter to our argument.
+              this.propagateArgMutRef(calledParam arg fnCtx changedParams)
             }
           }
         }
@@ -1063,25 +1091,7 @@ class StaticAnalyzer {
           for argsNode.children arg:CodeNode i {
             if (i < paramCnt) {
               def calledParam:RangerAppParamDesc (itemAt calledFn.params i)
-              
-              if (calledParam.rust_borrow_type == 2) {
-                def argVarName:string arg.vref
-                if ((strlen argVarName) > 0) {
-                  def argParam:RangerAppParamDesc (fnCtx.getVariableDef(argVarName))
-                  if ((strlen argParam.name) > 0) {
-                    if (argParam.varType == RangerContextVarType.FunctionParameter) {
-                      if (argParam.rust_borrow_type != 2) {
-                        argParam.rust_borrow_type = 2
-                        argParam.needs_cpp_reference = true
-                        push changedParams argParam.name
-                        if debug {
-                          print ("StaticAnalysis: " + argParam.name + " upgraded to &mut (passed to " + calledFn.name + " param " + calledParam.name + " which requires &mut)")
-                        }
-                      }
-                    }
-                  }
-                }
-              }
+              this.propagateArgMutRef(calledParam arg fnCtx changedParams)
             }
           }
         }
