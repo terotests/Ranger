@@ -871,7 +871,7 @@ class GameSdlRunner {
     ; render its menu, move the selection with the D-pad, forward the action
     ; button to the guest, and return to the launcher on Back/Quit.
     fn runUiGame:void (wasmPath:string) {
-        uiRunner.init(pw ph "gallery/pdf_writer/assets/fonts" "Open_Sans/OpenSans-Regular.ttf" "Open Sans")
+        uiRunner.init(pw ph "gallery/game_engine/assets/fonts" "OpenSans-Regular.ttf" "Open Sans")
         if ((uiRunner.loadWasm(wasmPath)) == false) {
             print ("[game-engine] ui game load failed: " + wasmPath)
             return

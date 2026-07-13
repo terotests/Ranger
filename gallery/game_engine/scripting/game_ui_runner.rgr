@@ -46,7 +46,14 @@ class GameUiRunner {
         ctx.attach(canvas)
         if ((strlen fontDir) > 0) {
             ctx.tr.addFontDir(fontDir)
-            ctx.tr.loadFont(family fontRelPath)
+            def ok:boolean (ctx.tr.loadFont(family fontRelPath))
+            if (ok == false) {
+                ; Fallback to the shared pdf_writer font tree so the menu still
+                ; gets real TTF text if the bundled asset can't be found. If both
+                ; fail, UITextRenderer draws with its bitmap fallback font.
+                ctx.tr.addFontDir("gallery/pdf_writer/assets/fonts")
+                ctx.tr.loadFont(family "Open_Sans/OpenSans-Regular.ttf")
+            }
         }
         ctrl.borderWidth = 2
         ctrl.highlightPad = 4
@@ -58,7 +65,9 @@ class GameUiRunner {
         if (handle <= 0) {
             return false
         }
-        def _i (wasm_call_i32 handle "init" 0 0 0 0 0 0)
+        ; init() returns void — must use wasm_call_void, or the native runtime
+        ; rejects the (i32) call and the guest never builds its RGU1 document.
+        wasm_call_void handle "init" 0 0 0 0 0 0
         return (this.refreshFromWasm())
     }
 
@@ -102,8 +111,9 @@ class GameUiRunner {
                 def idx:int (doc.indexOfId(act))
                 if (idx >= 0) {
                     if (doc.nodeWantsActivate(idx)) {
-                        ; button recognition: notify the guest (ACTIVATE = 1)
-                        def _e (wasm_call_i32 handle "rg_ui_event" 3 act 1 0 0 0)
+                        ; button recognition: notify the guest (ACTIVATE = 1).
+                        ; rg_ui_event returns void — use wasm_call_void.
+                        wasm_call_void handle "rg_ui_event" 3 act 1 0 0 0
                     }
                 }
                 ; the guest may have rebuilt its document - pull it again
