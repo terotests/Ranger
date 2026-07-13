@@ -1,0 +1,230 @@
+; ==============================================================================
+; ui_editor_demo - a tiny "editor" built on the EVG UI layer.
+; ==============================================================================
+;
+; Demonstrates the whole layer as a HUD overlay: a toolbar of buttons, a name
+; text field with an on-screen keyboard, and a canvas of draggable / selectable
+; boxes with a selection highlight. The `UiEditorApp` class is the reusable part
+; (build scene, feed it a UIInput each frame, render, hand off raw() to the
+; display); `main` drives it headless with a scripted UIInput stream and writes
+; PNG snapshots so the result is inspectable without a window.
+;
+; A real platform (SDL / canvas) would replace `main` with a loop that fills a
+; UIInput from the mouse + keyboard and blits app.raw() each frame - the app
+; code below does not change. See UI_LAYER.md.
+; ==============================================================================
+
+Import "UILayer.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+
+class UiEditorApp {
+    def canvas:SoftCanvas (new SoftCanvas)
+    def layer:UILayer (new UILayer)
+    def nextBox:int 1
+    def spawnX:int 40
+    def spawnY:int 120
+    def status:string "ready"
+
+    def W:int 480
+    def H:int 320
+
+    Constructor () {
+    }
+
+    fn init:void (fontDir:string) {
+        canvas.init(W H)
+        layer.attach(canvas)
+        layer.ctx.tr.addFontDir(fontDir)
+        def ok:boolean (layer.ctx.tr.loadFont("Open Sans" "Open_Sans/OpenSans-Regular.ttf"))
+        if (ok == false) {
+            status = "no-font(bitmap fallback)"
+        }
+        this.buildScene()
+    }
+
+    fn buildScene:void () {
+        ; --- toolbar ----------------------------------------------------------
+        def title:UILabel (new UILabel)
+        title.id = "title"
+        title.text = "EVG UI Editor"
+        title.fontSize = 20.0
+        title.setBounds(16 10 300 26)
+        layer.add(title)
+
+        def addBtn:UIButton (new UIButton)
+        addBtn.id = "add"
+        addBtn.text = "Add Box"
+        addBtn.setBounds(16 44 96 30)
+        layer.add(addBtn)
+
+        def delBtn:UIButton (new UIButton)
+        delBtn.id = "del"
+        delBtn.text = "Delete"
+        delBtn.setBounds(120 44 90 30)
+        layer.add(delBtn)
+
+        def kbdBtn:UIButton (new UIButton)
+        kbdBtn.id = "kbd"
+        kbdBtn.text = "Keyboard"
+        kbdBtn.setBounds(218 44 104 30)
+        layer.add(kbdBtn)
+
+        ; --- name field -------------------------------------------------------
+        def nameLbl:UILabel (new UILabel)
+        nameLbl.id = "nameLbl"
+        nameLbl.text = "Name:"
+        nameLbl.fontSize = 14.0
+        nameLbl.setBounds(16 84 60 26)
+        layer.add(nameLbl)
+
+        def name:UITextInput (new UITextInput)
+        name.id = "name"
+        name.placeholder = "Type or tap the keyboard..."
+        name.setBounds(78 82 386 30)
+        layer.add(name)
+
+        ; --- initial boxes ----------------------------------------------------
+        this.addBox()
+        this.addBox()
+    }
+
+    fn addBox:void () {
+        def b:UIBox (new UIBox)
+        b.id = ("box" + (to_string nextBox))
+        b.text = (to_string nextBox)
+        b.fontSize = 16.0
+        b.setBounds(spawnX spawnY 58 58)
+        layer.add(b)
+        spawnX = (spawnX + 74)
+        if (spawnX > (W - 80)) {
+            spawnX = 40
+            spawnY = (spawnY + 74)
+        }
+        nextBox = (nextBox + 1)
+        status = ("added box" + (to_string (nextBox - 1)))
+    }
+
+    ; The app's own event handling - reads the layer's per-frame event queue.
+    fn handleEvents:void () {
+        def i:int 0
+        def n:int (layer.eventCount())
+        while (i < n) {
+            def ev:UIEvent (layer.eventAt(i))
+            if (ev.type == (UIEventType.click())) {
+                if (ev.widgetId == "add") {
+                    this.addBox()
+                }
+                if (ev.widgetId == "del") {
+                    layer.removeSelected()
+                    status = "deleted selection"
+                }
+                if (ev.widgetId == "kbd") {
+                    if layer.keyboardVisible {
+                        layer.hideKeyboard()
+                        status = "keyboard hidden"
+                    } {
+                        layer.showKeyboard(16 244 448 68)
+                        status = "keyboard shown"
+                    }
+                }
+            }
+            if (ev.type == (UIEventType.submit())) {
+                status = ("submitted: " + ev.text)
+            }
+            if (ev.type == (UIEventType.select())) {
+                status = ("selected " + ev.widgetId)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn update:void (input:UIInput) {
+        layer.update(input)
+        this.handleEvents()
+    }
+
+    fn render:void () {
+        canvas.clear(30 34 52)
+        ; status bar strip
+        layer.ctx.fillRectA(0 (H - 22) W 22 12 15 26 220)
+        layer.ctx.text(("status: " + status) 10 (H - 18) 13.0 layer.ctx.theme.mutedLabel)
+        layer.render()
+    }
+
+    fn raw:buffer () {
+        return (canvas.raw())
+    }
+
+    fn snapshot:void (dir:string file:string) {
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.width = W
+        rb.height = H
+        rb.pixels = (canvas.raw())
+        def png:PNGEncoder (new PNGEncoder)
+        png.encode(rb dir file)
+    }
+}
+
+class UiEditorDemo {
+    ; helper: run one full press+release "click" at (x,y) as two frames
+    sfn click:void (app:UiEditorApp input:UIInput px:int py:int) {
+        input.newFrame()
+        input.setPointerPos(px py)
+        input.setPointerDown(true)
+        app.update(input)
+        input.newFrame()
+        input.setPointerPos(px py)
+        input.setPointerDown(false)
+        app.update(input)
+    }
+
+    sfn m@(main):void () {
+        def app:UiEditorApp (new UiEditorApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        def input:UIInput (new UIInput)
+
+        ; 1) starting scene
+        app.render()
+        app.snapshot("gallery/game_engine/ui" "editor_1_start.png")
+
+        ; 2) click "Add Box" twice -> 4 boxes total
+        UiEditorDemo.click(app input 64 59)
+        UiEditorDemo.click(app input 64 59)
+
+        ; 3) focus the name field and type a name
+        UiEditorDemo.click(app input 120 97)
+        input.newFrame()
+        input.pushText("Player One")
+        app.update(input)
+
+        ; 4) select a box and drag it
+        UiEditorDemo.click(app input 60 149)
+        input.newFrame()
+        input.setPointerPos(60 149)
+        input.setPointerDown(true)
+        app.update(input)
+        input.newFrame()
+        input.setPointerPos(300 190)
+        input.setPointerDown(true)
+        app.update(input)
+        input.newFrame()
+        input.setPointerPos(300 190)
+        input.setPointerDown(false)
+        app.update(input)
+
+        app.render()
+        app.snapshot("gallery/game_engine/ui" "editor_2_edit.png")
+
+        ; 5) open the software keyboard and tap a couple of keys
+        UiEditorDemo.click(app input 270 59)   ; "Keyboard" button
+        UiEditorDemo.click(app input 120 97)   ; refocus name field
+        app.render()
+        app.snapshot("gallery/game_engine/ui" "editor_3_keyboard.png")
+
+        def nameW:UIWidget (app.layer.get("name"))
+        print ("final name = " + nameW.text)
+        print ("status = " + app.status)
+        print ("widgets = " + (to_string (array_length app.layer.widgets)))
+        print "wrote editor_1_start.png editor_2_edit.png editor_3_keyboard.png"
+    }
+}

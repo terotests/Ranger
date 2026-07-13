@@ -294,6 +294,7 @@ Taaksepäin yhteensopiva vanhan `state.entities`-polun kanssa.
 | 3.3 | `world()` JSX — staattiset taustaelementit EVG:llä | skriptaus-API | 🟡 Keskitaso |
 | 3.4 | Täysi `render({ state })` → koko frame EVG:llä | `game_runtime.rgr` | 🟡 Keskitaso |
 | 3.5 | Asset loading: kuvat/fontit `resources()`-rekisteristä | `game_host.rgr` | 🟡 Keskitaso |
+| 3.6 | **Interaktiivinen UI-kerros** (napit, tekstikentät, raahattavat laatikot, software-näppäimistö, valinnan korostus, TTF-tekstin rivitys + glyph-cache) | [`ui/UI_LAYER.md`](./ui/UI_LAYER.md) | ✅ Valmis (portable; jäljellä `gfx_mouse_*`-operaattori) |
 
 **Vaiheittainen polku** (ks. [`RENDERING_EVG.md`](./RENDERING_EVG.md)):
 

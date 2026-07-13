@@ -1,0 +1,361 @@
+; ==============================================================================
+; UITextRenderer - accelerated, font-aware text for the EVG UI layer.
+; ==============================================================================
+;
+; Two goals from the request:
+;   1. "font loading so text wraps correctly" - real TrueType metrics via
+;      FontManager + TTFTextMeasurer.wrapText (the same stack pdf_writer uses).
+;   2. "genuinely accelerated rendering" - each distinct rendered line is
+;      rasterized ONCE (TrueType outline -> anti-aliased RGBA) and cached as an
+;      ImageBuffer; subsequent frames just alpha-blit the cached bitmap. Static
+;      labels/buttons therefore cost a memcpy-blit per frame, not a full glyph
+;      rasterization. This is the CPU analogue of a glyph atlas and the natural
+;      hand-off point for the future GPU (WebGL/GLES2) path in RENDERING_EVG.md.
+;
+; If no TTF is loaded it falls back to a compact 3x5 bitmap font (same glyphs as
+; game_hud.rgr) so the UI always renders, even with zero assets - useful for
+; headless tests and a crisp retro look.
+; ==============================================================================
+
+Import "../framebuffer.rgr"
+Import "../../pdf_writer/src/raster/RasterText.rgr"
+Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+Import "../../pdf_writer/src/fonts/FontManager.rgr"
+Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
+Import "../../evg/EVGTextMeasurer.rgr"
+
+; One cached, pre-rasterized line of text (color baked in).
+class UICachedLine {
+    def key:string ""
+    def img:ImageBuffer (new ImageBuffer)
+    def w:int 0
+    def h:int 0
+}
+
+class UITextRenderer {
+    def fm:FontManager (new FontManager)
+    ; Base measurer gives rough estimates until a real font is loaded.
+    def measurer:EVGTextMeasurer (new EVGTextMeasurer)
+    def rt:RasterText (new RasterText)
+    def fontFamily:string "Open Sans"
+    def hasFont:boolean false
+    def defaultSize:double 14.0
+
+    ; Rasterized-line cache (LRU-ish: cleared wholesale when it grows too big).
+    def cache:[UICachedLine]
+    def maxCache:int 512
+    def cacheHits:int 0
+    def cacheMisses:int 0
+
+    Constructor () {
+    }
+
+    ; --- font management ------------------------------------------------------
+    fn addFontDir:void (path:string) {
+        fm.addFontsDirectory(path)
+    }
+
+    ; relativePath is resolved against the registered font dirs, e.g.
+    ; "Open_Sans/OpenSans-Regular.ttf". family is the name you draw with.
+    fn loadFont:boolean (family:string relativePath:string) {
+        def ok:boolean (fm.loadFont(relativePath))
+        if ok {
+            fontFamily = family
+            def ttf:TrueTypeFont (fm.getFont(family))
+            rt.setFont(ttf)
+            def tm:TTFTextMeasurer (new TTFTextMeasurer(fm))
+            measurer = tm
+            hasFont = true
+            this.clearCache()
+        }
+        return ok
+    }
+
+    fn setDefaultSize:void (sz:double) {
+        defaultSize = sz
+    }
+
+    fn clearCache:void () {
+        clear cache
+    }
+
+    ; --- measurement & wrapping ----------------------------------------------
+    fn measureWidth:double (text:string size:double) {
+        if hasFont {
+            return (measurer.measureTextWidth(text fontFamily size))
+        }
+        def step:double (to_double (this.bmCharStep(size)))
+        return ((to_double (strlen text)) * step)
+    }
+
+    fn lineHeight:double (size:double) {
+        if hasFont {
+            return (measurer.getLineHeight(fontFamily size))
+        }
+        return (to_double (this.bmLineStep(size)))
+    }
+
+    ; Greedy word-wrap into lines that fit maxWidth. Uses real TTF metrics when
+    ; a font is loaded, otherwise the bitmap step width.
+    fn wrap:[string] (text:string size:double maxWidth:double) {
+        if hasFont {
+            return (measurer.wrapText(text fontFamily size maxWidth))
+        }
+        return (this.bitmapWrap(text size maxWidth))
+    }
+
+    ; --- drawing --------------------------------------------------------------
+    ; Draw a single (already-wrapped) line, top-left anchored at (x, y).
+    fn drawLine:void (canvas:SoftCanvas text:string x:int y:int size:double r:int g:int b:int a:int) {
+        if ((strlen text) == 0) {
+            return
+        }
+        if (hasFont == false) {
+            def scale:int (this.bmScaleFor(size))
+            this.bitmapDrawLine(canvas x y scale text r g b)
+            return
+        }
+        def line:UICachedLine (this.getCachedLine(text size r g b a))
+        if (line.w > 0) {
+            canvas.blitImage(line.img x y)
+        }
+    }
+
+    ; Draw text, word-wrapped to maxWidth (<= 0 = single line, no wrapping).
+    ; Returns the total height consumed (so callers can stack content).
+    fn drawText:int (canvas:SoftCanvas text:string x:int y:int size:double maxWidth:double r:int g:int b:int a:int) {
+        def lh:int (to_int (this.lineHeight(size)))
+        if (lh < 1) {
+            lh = 1
+        }
+        def lines:[string]
+        if (maxWidth > 0.0) {
+            lines = (this.wrap(text size maxWidth))
+        } {
+            push lines text
+        }
+        def i:int 0
+        def cy:int y
+        def n:int (array_length lines)
+        while (i < n) {
+            def ln:string (itemAt lines i)
+            this.drawLine(canvas ln x cy size r g b a)
+            cy = (cy + lh)
+            i = (i + 1)
+        }
+        return (n * lh)
+    }
+
+    ; --- glyph/line cache -----------------------------------------------------
+    fn cacheKey:string (text:string size:double r:int g:int b:int a:int) {
+        return (text + "|" + (to_string (to_int size)) + "|" + (to_string r) + "," + (to_string g) + "," + (to_string b) + "," + (to_string a))
+    }
+
+    fn findCached:UICachedLine (key:string) {
+        def i:int 0
+        def n:int (array_length cache)
+        while (i < n) {
+            def c:UICachedLine (itemAt cache i)
+            if (c.key == key) {
+                return c
+            }
+            i = (i + 1)
+        }
+        def miss:UICachedLine (new UICachedLine)
+        return miss
+    }
+
+    fn getCachedLine:UICachedLine (text:string size:double r:int g:int b:int a:int) {
+        def key:string (this.cacheKey(text size r g b a))
+        def hit:UICachedLine (this.findCached(key))
+        if ((strlen hit.key) > 0) {
+            cacheHits = (cacheHits + 1)
+            return hit
+        }
+        cacheMisses = (cacheMisses + 1)
+        ; Rasterize once.
+        def wf:double (this.measureWidth(text size))
+        def hf:double (this.lineHeight(size))
+        def bw:int ((to_int (wf + 1.0)) + 2)
+        def bh:int ((to_int (hf + 1.0)) + 2)
+        if (bw < 1) { bw = 1 }
+        if (bh < 1) { bh = 1 }
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.create(bw bh)
+        ; renderText places the baseline at y + ascent; y=0 => text fits [0, lineH].
+        rt.renderText(rb text 0.0 0.0 size r g b a)
+        ; Wrap the rasterized RGBA bytes as an ImageBuffer WITHOUT the white
+        ; pre-blend that RasterBuffer.toImageBuffer() would apply - the UI overlay
+        ; needs the true per-pixel alpha so only the glyph coverage composites.
+        def img:ImageBuffer (new ImageBuffer)
+        img.width = rb.width
+        img.height = rb.height
+        img.pixels = rb.pixels
+        def line:UICachedLine (new UICachedLine)
+        line.key = key
+        line.img = img
+        line.w = bw
+        line.h = bh
+        if ((array_length cache) >= maxCache) {
+            this.clearCache()
+        }
+        push cache line
+        return line
+    }
+
+    ; ==========================================================================
+    ; Bitmap fallback font (compact 3x5). Ported from game_hud.rgr so the UI
+    ; renders with no external assets.
+    ; ==========================================================================
+    fn bmScaleFor:int (fontSize:double) {
+        def scale 2
+        if (fontSize >= 14.0) {
+            scale = 3
+        }
+        return scale
+    }
+
+    fn bmCharStep:int (fontSize:double) {
+        def scale (this.bmScaleFor(fontSize))
+        return (scale * 4)
+    }
+
+    fn bmLineStep:int (fontSize:double) {
+        def scale (this.bmScaleFor(fontSize))
+        return (scale * 6)
+    }
+
+    fn bitmapWrap:[string] (text:string size:double maxWidth:double) {
+        def out:[string]
+        def step:double (to_double (this.bmCharStep(size)))
+        def words:[string] (strsplit text " ")
+        def cur:string ""
+        def i:int 0
+        def n:int (array_length words)
+        while (i < n) {
+            def word:string (itemAt words i)
+            def trial:string word
+            if ((strlen cur) > 0) {
+                trial = (cur + " " + word)
+            }
+            def wpx:double ((to_double (strlen trial)) * step)
+            if ((wpx > maxWidth) && ((strlen cur) > 0)) {
+                push out cur
+                cur = word
+            } {
+                cur = trial
+            }
+            i = (i + 1)
+        }
+        if ((strlen cur) > 0) {
+            push out cur
+        }
+        if ((array_length out) == 0) {
+            push out ""
+        }
+        return out
+    }
+
+    fn bitmapDrawLine:void (canvas:SoftCanvas x:int y:int scale:int text:string r:int g:int b:int) {
+        def step ((scale * 3) + scale)
+        def i 0
+        def len:int (strlen text)
+        def cx x
+        while (i < len) {
+            def ch:string (substring text i (i + 1))
+            this.bitmapGlyph(canvas cx y scale ch r g b)
+            cx = (cx + step)
+            i = (i + 1)
+        }
+    }
+
+    fn bitmapGlyph:void (canvas:SoftCanvas x:int y:int scale:int ch:string r:int g:int b:int) {
+        def bits:string (this.bmGlyphLookup(ch))
+        def row 0
+        while (row < 5) {
+            def col 0
+            while (col < 3) {
+                def idx ((row * 3) + col)
+                def pixel:string (substring bits idx (idx + 1))
+                if (pixel == "1") {
+                    canvas.fillRect((x + (col * scale)) (y + (row * scale)) scale scale r g b)
+                }
+                col = (col + 1)
+            }
+            row = (row + 1)
+        }
+    }
+
+    fn bmGlyphLookup:string (ch:string) {
+        if ((strlen ch) == 0) {
+            return "000000000000000"
+        }
+        def code:int (charAt ch 0)
+        if ((code >= 97) && (code <= 122)) {
+            return (this.bmGlyphBits((strfromcode (code - 32))))
+        }
+        return (this.bmGlyphBits(ch))
+    }
+
+    fn bmGlyphBits:string (ch:string) {
+        if (ch == "0") { return "111101101101111" }
+        if (ch == "1") { return "010110010010111" }
+        if (ch == "2") { return "111001111100111" }
+        if (ch == "3") { return "111001111001111" }
+        if (ch == "4") { return "101101111001001" }
+        if (ch == "5") { return "111100111001111" }
+        if (ch == "6") { return "111100111101111" }
+        if (ch == "7") { return "111001010010010" }
+        if (ch == "8") { return "111101111101111" }
+        if (ch == "9") { return "111101111001111" }
+        if (ch == "A") { return "111101101111101" }
+        if (ch == "B") { return "110101110101110" }
+        if (ch == "C") { return "111100100100111" }
+        if (ch == "D") { return "110101101101110" }
+        if (ch == "E") { return "111100111100111" }
+        if (ch == "F") { return "111100111100100" }
+        if (ch == "G") { return "111100101101111" }
+        if (ch == "H") { return "101101111101101" }
+        if (ch == "I") { return "111010010010111" }
+        if (ch == "J") { return "011110010000100" }
+        if (ch == "K") { return "101101110101101" }
+        if (ch == "L") { return "100100100100111" }
+        if (ch == "M") { return "101111111101101" }
+        if (ch == "N") { return "101110110101101" }
+        if (ch == "O") { return "111101101101111" }
+        if (ch == "P") { return "111101111100100" }
+        if (ch == "Q") { return "111101111001111" }
+        if (ch == "R") { return "111101111101101" }
+        if (ch == "S") { return "111100111001111" }
+        if (ch == "T") { return "111010010010010" }
+        if (ch == "U") { return "101101101101111" }
+        if (ch == "V") { return "101101101010010" }
+        if (ch == "W") { return "101101101101101" }
+        if (ch == "X") { return "101101010101101" }
+        if (ch == "Y") { return "101101010010010" }
+        if (ch == "Z") { return "111001010110111" }
+        if (ch == ":") { return "000010000010000" }
+        if (ch == ".") { return "000000000000010" }
+        if (ch == ",") { return "000000000010100" }
+        if (ch == "-") { return "000000111000000" }
+        if (ch == "_") { return "000000000000111" }
+        if (ch == "/") { return "001001010100100" }
+        if (ch == "!") { return "010010010000010" }
+        if (ch == "?") { return "111001011000010" }
+        if (ch == "(") { return "010100100100010" }
+        if (ch == ")") { return "010001001001010" }
+        if (ch == "[") { return "110100100100110" }
+        if (ch == "]") { return "011001001001011" }
+        if (ch == "+") { return "000010111010000" }
+        if (ch == "=") { return "000111000111000" }
+        if (ch == "<") { return "001010100010001" }
+        if (ch == ">") { return "100010001010100" }
+        if (ch == "*") { return "000101010101000" }
+        if (ch == "'") { return "010010000000000" }
+        if (ch == "\"") { return "101101000000000" }
+        if (ch == "@") { return "111101101100111" }
+        if (ch == "#") { return "101111101111101" }
+        if (ch == " ") { return "000000000000000" }
+        return "000000000000000"
+    }
+}

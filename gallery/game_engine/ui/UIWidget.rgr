@@ -1,0 +1,173 @@
+; ==============================================================================
+; UIWidget - base widget + Label / Button / Box (draggable square).
+; ==============================================================================
+;
+; Widgets are plain retained-mode objects: geometry (x,y,w,h in framebuffer
+; pixels) + interaction state (hovered/pressed/focused/selected). UILayer owns
+; hit-testing, focus, drag and dispatch; a widget only knows how to draw itself
+; through a UIContext and expose a few virtual hooks (acceptsText, onActivate).
+; This mirrors the engine's retained GameEntity model (one object per element,
+; move/restyle it, never re-parse each frame).
+; ==============================================================================
+
+Import "UIContext.rgr"
+Import "UIInput.rgr"
+
+class UIKind {
+    sfn panel:int ()     { return 0 }
+    sfn label:int ()     { return 1 }
+    sfn button:int ()    { return 2 }
+    sfn box:int ()       { return 3 }
+    sfn textInput:int () { return 4 }
+    sfn keyboard:int ()  { return 5 }
+}
+
+class UIWidget {
+    def id:string ""
+    def kind:int 0
+
+    def x:int 0
+    def y:int 0
+    def w:int 0
+    def h:int 0
+
+    def visible:boolean true
+    def enabled:boolean true
+
+    def focusable:boolean false
+    def draggable:boolean false
+    def selectable:boolean false
+
+    def hovered:boolean false
+    def pressed:boolean false
+    def focused:boolean false
+    def selected:boolean false
+
+    def text:string ""
+    def fontSize:double 14.0
+
+    Constructor () {
+    }
+
+    ; --- geometry -------------------------------------------------------------
+    fn setBounds:void (px:int py:int pw:int ph:int) {
+        x = px
+        y = py
+        w = pw
+        h = ph
+    }
+
+    fn contains:boolean (px:int py:int) {
+        if (visible == false) { return false }
+        if (px < x) { return false }
+        if (py < y) { return false }
+        if (px >= (x + w)) { return false }
+        if (py >= (y + h)) { return false }
+        return true
+    }
+
+    fn centerX:int () { return (x + (to_int (w / 2))) }
+    fn centerY:int () { return (y + (to_int (h / 2))) }
+
+    ; --- virtual interaction hooks (overridden where meaningful) ---------------
+    ; Fires when the widget is clicked (press+release inside). Return an event
+    ; type the layer should emit, or UIEventType.none() for nothing.
+    fn acceptsText:boolean () { return false }
+    fn insertText:void (s:string) { }
+    fn backspace:void () { }
+    fn deleteForward:void () { }
+    fn moveCaret:void (dir:int) { }
+    fn onActivate:void () { }
+
+    ; --- virtual draw ---------------------------------------------------------
+    ; Base widget = translucent panel with a border (a HUD container).
+    fn draw:void (ctx:UIContext) {
+        if (visible == false) { return }
+        ctx.fillRect(x y w h ctx.theme.panelBg)
+        ctx.strokeRect(x y w h 1 ctx.theme.panelBorder)
+    }
+
+    ; Helper: draw `s` centered inside this widget's box.
+    fn drawCenteredText:void (ctx:UIContext s:string size:double col:EVGColor) {
+        def tw:int (to_int (ctx.measureWidth(s size)))
+        def lh:int (to_int (ctx.lineHeight(size)))
+        def tx:int (x + (to_int ((w - tw) / 2)))
+        def ty:int (y + (to_int ((h - lh) / 2)))
+        ctx.text(s tx ty size col)
+    }
+}
+
+; --- Label: text only, no background -----------------------------------------
+class UILabel {
+    Extends(UIWidget)
+
+    Constructor () {
+        kind = 1
+        focusable = false
+    }
+
+    fn draw:void (ctx:UIContext) {
+        if (visible == false) { return }
+        def lh:int (to_int (ctx.lineHeight(fontSize)))
+        def ty:int (y + (to_int ((h - lh) / 2)))
+        if (h == 0) { ty = y }
+        ctx.text(text x ty fontSize ctx.theme.label)
+    }
+}
+
+; --- Button ------------------------------------------------------------------
+class UIButton {
+    Extends(UIWidget)
+
+    Constructor () {
+        kind = 2
+        focusable = true
+    }
+
+    fn draw:void (ctx:UIContext) {
+        if (visible == false) { return }
+        def bg:EVGColor ctx.theme.buttonBg
+        if pressed {
+            bg = ctx.theme.buttonPressed
+        } {
+            if hovered {
+                bg = ctx.theme.buttonHover
+            }
+        }
+        ctx.fillRect(x y w h bg)
+        ctx.strokeRect(x y w h 1 ctx.theme.buttonBorder)
+        this.drawCenteredText(ctx text fontSize ctx.theme.buttonText)
+    }
+}
+
+; --- Box: a draggable square, the building block for an editor canvas --------
+class UIBox {
+    Extends(UIWidget)
+
+    def fillColor:EVGColor (EVGColor.rgba(70 120 190 0.9))
+    def hasCustomFill:boolean false
+
+    Constructor () {
+        kind = 3
+        draggable = true
+        selectable = true
+    }
+
+    fn setFill:void (col:EVGColor) {
+        fillColor = col
+        hasCustomFill = true
+    }
+
+    fn draw:void (ctx:UIContext) {
+        if (visible == false) { return }
+        def fill:EVGColor ctx.theme.boxFill
+        if hasCustomFill {
+            fill = fillColor
+        }
+        ctx.fillRect(x y w h fill)
+        ctx.strokeRect(x y w h 1 ctx.theme.boxBorder)
+        if ((strlen text) > 0) {
+            this.drawCenteredText(ctx text fontSize ctx.theme.label)
+        }
+    }
+}
