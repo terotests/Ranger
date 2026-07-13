@@ -43,16 +43,27 @@ fi
 
 echo "==> [4/4] build + run native_bench (threads=$THREADS)"
 BENCH="$HERE/native_bench"
-# Build OUT OF TREE (not $BENCH/build) so it survives: deploy-pi.sh rsyncs the
-# repo with --delete, which would wipe an in-repo build/ (it's gitignored, so not
-# in the source) and force a full TFLite rebuild every deploy. This cache is
-# incremental: the first run compiles all of TFLite/XNNPACK/kleidiai (~slow, once);
-# after that only pose_bench.cc relinks (seconds). rm -rf "$BUILD_DIR" to force a
-# clean rebuild.
-BUILD_DIR="${POSE_BUILD_DIR:-$HOME/.cache/ranger-pose-bench}"
+# REUSE an existing build wherever it already is — a full TFLite/XNNPACK/kleidiai
+# compile is ~1h, and we never want to repeat it. Never move a CMake build dir
+# (it bakes absolute paths and would reconfigure); build in place. Precedence:
+#   POSE_BUILD_DIR  ->  existing in-repo build/  ->  existing ~/.cache build  ->  in-repo (fresh)
+# The in-repo build/ is kept across deploys by deploy-pi.sh's rsync exclude, so
+# it survives --delete. Incremental after the first build: only pose_bench.cc
+# relinks (seconds). rm -rf the dir to force a clean rebuild.
+if [ -n "${POSE_BUILD_DIR:-}" ]; then
+  BUILD_DIR="$POSE_BUILD_DIR"
+elif [ -f "$BENCH/build/pose_bench" ]; then
+  BUILD_DIR="$BENCH/build"
+elif [ -f "$HOME/.cache/ranger-pose-bench/pose_bench" ]; then
+  BUILD_DIR="$HOME/.cache/ranger-pose-bench"
+else
+  BUILD_DIR="$BENCH/build"
+fi
 mkdir -p "$BUILD_DIR"
 if [ -f "$BUILD_DIR/pose_bench" ]; then
-  echo "    (incremental — reusing cached TFLite build in $BUILD_DIR)"
+  echo "    (incremental — reusing existing build in $BUILD_DIR; no TFLite rebuild)"
+else
+  echo "    (first build — compiles TFLite once, ~slow; cached in $BUILD_DIR after)"
 fi
 cmake -S "$BENCH" -B "$BUILD_DIR" -DTENSORFLOW_SOURCE_DIR="$TF" -DCMAKE_BUILD_TYPE=Release
 cmake --build "$BUILD_DIR" -j"$(nproc)"
