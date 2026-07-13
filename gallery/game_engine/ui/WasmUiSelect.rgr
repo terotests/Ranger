@@ -261,6 +261,20 @@ class WasmUiRenderer {
         gpuEffects = on
     }
 
+    ; Uniform draw-time viewport transform (scale about the origin, then translate)
+    ; applied to every element's laid-out pixel box + font in drawElement. Identity
+    ; by default, so the RGU1/.as path (which pre-scales via WasmUiEvgBuilder) is
+    ; untouched; the .tsx menu sets it to fit + centre its fixed-px tree in the
+    ; window without re-authoring the JSX.
+    def vScale:double 1.0
+    def vOffX:double 0.0
+    def vOffY:double 0.0
+    fn setViewport:void (s:double ox:double oy:double) {
+        vScale = s
+        vOffX = ox
+        vOffY = oy
+    }
+
     ; All presentation (centring, radius, colours, sizes) is declared by the
     ; guest as RGU1 properties and resolved by EVGLayout here - the host renderer
     ; carries no per-menu styling of its own.
@@ -458,12 +472,13 @@ class WasmUiRenderer {
     }
 
     fn drawElement:void (ctx:UIContext el:EVGElement) {
-        def x:int (to_int el.calculatedX)
-        def y:int (to_int el.calculatedY)
-        def rw:int (to_int el.calculatedWidth)
-        def rh:int (to_int el.calculatedHeight)
+        ; apply the uniform viewport transform (identity for the .as/wasm path)
+        def x:int (to_int ((el.calculatedX * vScale) + vOffX))
+        def y:int (to_int ((el.calculatedY * vScale) + vOffY))
+        def rw:int (to_int (el.calculatedWidth * vScale))
+        def rh:int (to_int (el.calculatedHeight * vScale))
 
-        def rad (this.radiusOf(el))
+        def rad:int (to_int ((to_double (this.radiusOf(el))) * vScale))
 
         ; guest-driven animated glow halo (drawn behind the element's own fill).
         ; Two sources combined by max: a static intensity declared on the node in
@@ -523,7 +538,7 @@ class WasmUiRenderer {
         }
 
         ; guest-declared border (colour + width), rounded to the element radius
-        def bpx:int (to_int el.box.borderWidthPx)
+        def bpx:int (to_int (el.box.borderWidthPx * vScale))
         if (bpx > 0) {
             if el.box.borderColor.isSet {
                 ctx.strokeRoundRectA(x y rw rh rad bpx (el.box.borderColor.red()) (el.box.borderColor.green()) (el.box.borderColor.blue()) (to_int ((el.box.borderColor.alpha()) * 255.0)))
@@ -539,13 +554,14 @@ class WasmUiRenderer {
             if (fs <= 0.0) {
                 fs = 14.0
             }
+            fs = (fs * vScale)
             def col:EVGColor (EVGColor.rgba((el.color.red()) (el.color.green()) (el.color.blue()) (el.color.alpha())))
             ; place text inside the content box (respect border + padding) and
             ; honour textAlign so a fixed-width button centres its label.
-            def padL:int (to_int el.box.paddingLeftPx)
-            def padT:int (to_int el.box.paddingTopPx)
-            def padR:int (to_int el.box.paddingRightPx)
-            def padB:int (to_int el.box.paddingBottomPx)
+            def padL:int (to_int (el.box.paddingLeftPx * vScale))
+            def padT:int (to_int (el.box.paddingTopPx * vScale))
+            def padR:int (to_int (el.box.paddingRightPx * vScale))
+            def padB:int (to_int (el.box.paddingBottomPx * vScale))
             def contentX:int (x + bpx + padL)
             def contentY:int (y + bpx + padT)
             def contentW:int (rw - (bpx * 2) - padL - padR)
