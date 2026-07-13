@@ -135,3 +135,19 @@ function consoleLogOk() {
   console.log("hello", 42);
   return 1;
 }
+
+// Concise arrow returning an object literal, invoked as an IIFE:
+// (() => ({ ... }))(). The parenthesized object body must round-trip through
+// the interpreter's call path.
+function iifeObjectReturn() {
+  const p = (() => ({ x: 3, y: 4 }))();
+  return p.x + p.y;
+}
+
+// Concise arrow returning an object literal stored as an object property,
+// invoked as a method: obj.make(). The stored closure is called directly.
+const arrowFactory = { make: () => ({ v: 9 }) };
+
+function objectMethodArrowReturn() {
+  return arrowFactory.make().v;
+}

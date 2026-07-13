@@ -35,6 +35,8 @@ class TsxEngineDemo {
         def anyObjectKey:EvalValue (engine.callFunction("anyObjectKey" (EvalValue.null())))
         def staticObjectKey:EvalValue (engine.callFunction("staticObjectKey" (EvalValue.null())))
         def consoleLogOk:EvalValue (engine.callFunction("consoleLogOk" (EvalValue.null())))
+        def iifeObjectReturn:EvalValue (engine.callFunction("iifeObjectReturn" (EvalValue.null())))
+        def objectMethodArrowReturn:EvalValue (engine.callFunction("objectMethodArrowReturn" (EvalValue.null())))
 
         print ("whileLen=" + (to_int (whileLen.numberValue)))
         print ("constSum=" + (to_int (constSum.numberValue)))
@@ -63,6 +65,8 @@ class TsxEngineDemo {
         print ("anyObjectKey=" + (to_int (anyObjectKey.numberValue)))
         print ("staticObjectKey=" + (to_int (staticObjectKey.numberValue)))
         print ("consoleLogOk=" + (to_int (consoleLogOk.numberValue)))
+        print ("iifeObjectReturn=" + (to_int (iifeObjectReturn.numberValue)))
+        print ("objectMethodArrowReturn=" + (to_int (objectMethodArrowReturn.numberValue)))
         print "tsx-engine-demo done"
     }
 }
