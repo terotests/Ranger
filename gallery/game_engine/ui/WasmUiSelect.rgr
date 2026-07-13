@@ -316,6 +316,7 @@ class UiSelectController {
     ; to the next/previous by list order.
     fn navigate:void (dir:int) {
         def n (array_length ids)
+        print (((("[nav-dbg] navigate dir=" + (to_string dir)) + (" n=" + (to_string n))) + (" curIdx=" + (to_string selIndex))) + (" curSel=" + (to_string selectedId)))
         if (n <= 1) { return }
         def curIdx selIndex
         def ccx (this.cx(curIdx))
@@ -367,6 +368,7 @@ class UiSelectController {
         if (best >= 0) {
             selIndex = best
             selectedId = (itemAt ids best)
+            print (("[nav-dbg]   -> spatial best=" + (to_string best)) + (" newSel=" + (to_string selectedId)))
             return
         }
         ; no candidate in that direction -> wrap by order along the axis
@@ -378,6 +380,7 @@ class UiSelectController {
         while (ni >= n) { ni = (ni - n) }
         selIndex = ni
         selectedId = (itemAt ids ni)
+        print (("[nav-dbg]   -> wrap ni=" + (to_string ni)) + (" newSel=" + (to_string selectedId)))
     }
 
     ; Consume one frame of nav input. Returns the activated node id, or -1.
