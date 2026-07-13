@@ -48,9 +48,10 @@ Fixtures live in `gallery/game_engine/tests/interp/` (all run from
 `tests/tsx-engine.test.ts`):
 `as_lang_fixture` (operators, control flow, base stdlib — 45 checks),
 `as_lang2_fixture` (destructuring, spread, params, array mutators, Object/JSON,
-instanceof/in/delete, try/catch, stdlib extras — 41 checks), and
-`as_class_fixture` (classes — 5 checks). Their `*_demo.rgr` runners print
-`ALL PASS`.
+instanceof/in/delete, try/catch, stdlib extras — 41 checks),
+`as_lang3_fixture` (Map/Set, Array#splice, lexical closures, sized-int casts —
+33 checks), and `as_class_fixture` (classes — 5 checks). Their `*_demo.rgr`
+runners print `ALL PASS`.
 
 To probe a single feature, drop a `game.as` that writes results to the shared
 ABI (`abiWrite(off, expr)`) into a folder and bind it with `AsSourceRunner`,
@@ -86,15 +87,20 @@ then read them back with `r.abiRead(off)`.
 
 ### Control flow
 - `if / else if / else`, `while`, C-style `for (let i=0; i<n; i++)`,
-  `for…of`, **`for…in`** (object keys / array index strings),
-  **`do…while`**, **`switch / case / default`** (with JS fall-through;
-  `break` ends the switch, `continue`/`return` propagate correctly).
+  `for…of` (arrays, `Set`, `Map` entries, and string chars; loop variable may
+  destructure: `for (const [k,v] of map)`), **`for…in`** (object keys / array
+  index strings), **`do…while`**, **`switch / case / default`** (with JS
+  fall-through; `break` ends the switch, `continue`/`return` propagate).
 - `break` / `continue` (unlabeled) in all loop forms; `return` propagates out of
   nested blocks/loops/switch.
 
 ### Functions & classes
 - Function declarations, recursion, functions as values, arrow-function
   callbacks (see array methods).
+- **Lexical closures**: a function/arrow that is returned, stored, or passed as a
+  callback captures its defining scope, so free variables resolve there (and
+  stateful captures like a counter mutate the captured binding). Each closure
+  instance is independent.
 - **Positional default parameters** (`f(x = 5)`; the default is evaluated in the
   param scope, so it can reference earlier params), **rest parameters**
   (`...args` → array), and **destructured parameters** (`{a}`/`[x]`).
@@ -118,9 +124,16 @@ then read them back with `r.abiRead(off)`.
 - **Array**: `length`, index read/write, `at`, `indexOf`, `lastIndexOf`,
   `includes`, `join`, `slice`, `concat`, `flat` (one level); mutators
   `push` (returns length, expression or statement), `pop`, `shift`, `unshift`,
-  `reverse`, `fill`, `sort` (comparator, or JS-default string order); and the
-  higher-order `map / filter / forEach / reduce / find / findIndex / some /
-  every` (arrow or named callbacks, `(el, i)` args). `Array.isArray`.
+  `splice` (remove/insert, returns removed), `reverse`, `fill`, `sort`
+  (comparator, or JS-default string order); and the higher-order
+  `map / filter / forEach / reduce / find / findIndex / some / every` (arrow or
+  named callbacks — closures included — `(el, i)` args). `Array.isArray`.
+- **Map**: `new Map([[k,v]…])`, `set` (chainable), `get`, `has`, `delete`,
+  `clear`, `size`, `keys`, `values`, `entries`, `forEach((v,k)…)`; any key type
+  (matched by value equality, insertion order preserved); iterable with
+  `for (const [k,v] of map)`.
+- **Set**: `new Set([…])`, `add` (chainable, dedups), `has`, `delete`, `clear`,
+  `size`, `values`/`keys`, `forEach`; iterable with `for (const v of set)`.
 - **Math**: `round floor ceil abs sin cos tan sqrt sign trunc`, multi-arg
   `min max pow hypot`; constant `Math.PI`.
 - **Object**: `Object.keys / values / entries / assign` (the internal
@@ -134,6 +147,13 @@ then read them back with `r.abiRead(off)`.
 ### Operators (beyond arithmetic)
 - `instanceof`, `in` (object key / array index presence), `delete obj.x`.
 
+### AssemblyScript sized-integer casts
+- Cast-call syntax `i8/u8/i16/u16/i32/u32(x)` and `x as T` / `<T>x` perform
+  bit-exact two's-complement wraparound (`u8(300) === 44`, `i32(-1) === -1`,
+  `u32(-1) === 4294967295`, `i16(40000) === -25536`). `i64/u64` truncate to an
+  integer; `f32/f64` pass through (no float32 rounding). See the standards note
+  below on *implicit* wraparound.
+
 ---
 
 ## Standards notes & deliberate divergences
@@ -144,11 +164,12 @@ knowing.
 
 | Area | Spec (JS/AS) | This interpreter |
 |---|---|---|
-| Numbers | AS has sized ints (`i32/u8/i64`) with wraparound; JS has doubles | All values are IEEE doubles. Integer truncation only via `\| 0` / bitwise / shift ops. `i32(x)` casts are **not** applied. |
+| Numbers | AS has sized ints (`i32/u8/i64`) with wraparound; JS has doubles | All values are IEEE doubles. **Explicit** casts (`i32(x)`, `x as u8`, bitwise/shift `\| 0`) wrap bit-exactly; **implicit** per-operation wraparound (e.g. an `i32` overflowing on `a + b` without a cast) is not modeled — it needs static type inference. |
 | Division by zero | `x/0 = ±Infinity`, `0/0 = NaN` | Guarded to `0` (so `isNaN(0/0)` is false). `NaN` still arises from e.g. `Math.sqrt(-1)`, and `isNaN` detects it. |
 | Destructuring default | Fires only when the value is `undefined` | Fires on `undefined` **or** `null` (missing members read as `null` here). |
-| Closures | Lexical (capture defining scope) | Dynamic (resolve against the call site). Avoid relying on captured outer locals. |
+| Closures | Lexical | Lexical — a captured scope is registered per closure value; a closure created in a hot loop adds one registry entry (not reclaimed), so avoid creating many throwaway closures per frame. |
 | `const` | Reassignment is a TypeError | Not enforced (treated like `let`). |
+| `Map` keys | Any value, identity/`SameValueZero` | Any value, matched by structural `==` (value equality). |
 | Equality | `==` (coercing) vs `===` (strict) differ | Both compare by value; no distinction. |
 | `**` | Full float exponent | Integer exponent only (repeated multiply). |
 | `Array#sort` default | UTF-16 code-unit order | Char-code string order (same for ASCII). Comparator form is exact. |
@@ -169,20 +190,21 @@ literal — the parser guards operator dispatch on token *type*, not just value.
 
 | Gap | Layer | Notes / workaround |
 |---|---|---|
-| `Map` / `Set` / `Date` / `RegExp` | evaluator | `new Map()/new Set()` return null. Use objects/arrays; no regex. |
-| Callback array methods on a **non-array** receiver | evaluator | `map/filter/…` require the receiver to evaluate to an array value. |
+| `Date` / `RegExp` | evaluator | No date or regex types. `replace/replaceAll/split` take string patterns only. |
+| `WeakMap` / `WeakSet` / typed arrays (`Int32Array` …) | evaluator | Use `Map`/`Set`/plain arrays. |
+| Callback array methods on a **non-array** receiver | evaluator | `map/filter/…` require the receiver to evaluate to an array/Map/Set value. |
 | Labeled `break outer` / labeled loops | parser+evaluator | Only unlabeled break/continue. |
 | `enum` bodies, `extends` / `super`, `static` members, get/set accessors, `#private` | evaluator (enum/`extends` parse) | Class inheritance and statics are not modeled; `instanceof` has no chain. |
-| `Array#splice`, `flat(depth)` beyond one level, `Array.from/of` | evaluator | Not wired. |
+| `flat(depth)` beyond one level, `Array.from/of`, `Map`/`Set` spread | evaluator | Single-level `flat` / explicit constructors only. |
 | `Math.log/exp/atan/atan2/asin`-family beyond the list above | evaluator | Only ops with a host builtin are exposed. |
-| Sized-integer / unsigned semantics, `const` enforcement, lexical closures | evaluator | See the standards table above. |
+| *Implicit* sized-int wraparound, `const` enforcement | evaluator | See the standards table above. Explicit casts do wrap. |
 
 ## Recommended next steps (highest value first)
 
-1. **`Map`/`Set`** — back them with the existing object map / array; add
-   `get/set/has/delete/size` dispatch.
-2. **`Array#splice`** and `Array.from` — mechanical, alongside the array block.
-3. **Lexical closures** — capture the defining `EvalContext` on the function
-   value instead of resolving against the call site.
-4. **Sized-integer semantics** — honour `i32(x)`/`as i32` truncation and
-   `u32`/`>>>` wraparound so AS integer code is bit-exact with `asc`.
+1. **Static type inference** for `let x: i32` bindings, so integer arithmetic
+   wraps implicitly (bit-exact with `asc`) without an explicit cast.
+2. **Class inheritance** (`extends`/`super`, an `instanceof` chain) and `static`
+   members.
+3. **Closure GC** — reclaim `closureScopes` entries for closures that are no
+   longer reachable (currently append-only).
+4. **`Array.from` / `Map`/`Set` spread** and multi-level `flat(depth)`.

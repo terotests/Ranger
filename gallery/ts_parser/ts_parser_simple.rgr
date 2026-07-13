@@ -1603,8 +1603,25 @@ class TSParserSimple {
     if ((tokVal == "let") || (tokVal == "const") || (tokVal == "var")) {
       def kind tokVal
       this.advance()
-      def varName (this.expect("Identifier"))
-      
+      ; Binding target: a destructuring pattern ([a,b] / {x,y}) or an identifier.
+      ; Enables for ([k,v] of map) / for ({id} of items).
+      def hasPattern:boolean false
+      def patternNode:TSNode (new TSNode())
+      def varNameStr:string ""
+      def bindTokVal (this.peekValue())
+      if (bindTokVal == "[") {
+        hasPattern = true
+        patternNode = (this.parseArrayPattern())
+      } {
+        if (bindTokVal == "{") {
+          hasPattern = true
+          patternNode = (this.parseObjectPattern())
+        } {
+          def vt (this.expect("Identifier"))
+          varNameStr = vt.value
+        }
+      }
+
       def nextVal (this.peekValue())
       if (nextVal == "of") {
         ; for...of loop
@@ -1617,7 +1634,7 @@ class TSParserSimple {
         left.kind = kind
         def declarator (new TSNode())
         declarator.nodeType = "VariableDeclarator"
-        declarator.name = varName.value
+        if hasPattern { declarator.left = patternNode } { declarator.name = varNameStr }
         push left.children declarator
         node.left = left
         
@@ -1640,7 +1657,7 @@ class TSParserSimple {
         left.kind = kind
         def declarator (new TSNode())
         declarator.nodeType = "VariableDeclarator"
-        declarator.name = varName.value
+        if hasPattern { declarator.left = patternNode } { declarator.name = varNameStr }
         push left.children declarator
         node.left = left
         
@@ -1660,8 +1677,8 @@ class TSParserSimple {
       initDecl.kind = kind
       def declarator (new TSNode())
       declarator.nodeType = "VariableDeclarator"
-      declarator.name = varName.value
-      
+      if hasPattern { declarator.left = patternNode } { declarator.name = varNameStr }
+
       ; Type annotation
       if (this.matchValue(":")) {
         def typeAnnot (this.parseTypeAnnotation())
