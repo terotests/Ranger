@@ -374,6 +374,7 @@ ajoa ei voi tehdä dev-koneella.
 |-------|--------|------|-------------|
 | **R0** | [`wasm_abi_io.rgr`](./scripting/wasm_abi_io.rgr) `verifyMagic()`: 826425682 → 827803474 (RGW1, kanoninen `wasm/wasm_game_abi.h`) | ✅ | Ranger→es6 kääntyy; korjattu vakio generoidussa JS:ssä, vanha poissa. Turvallinen: `linearMode` tulee ensisijaisesti `abi.base != 0`:sta |
 | **R1a** | [`gfx_sdl.rgr`](./gfx_sdl.rgr): batchattu sprite-polku (`rgfx_gpu_sprites_draw_queue_batched`) — coalesce peräkkäiset saman tekstuurin spritet, N draw call → ~1 per sheet. Vanha per-sprite säilyy env-fallbackina | ✅ | Ranger→cpp kääntyy; irrallinen `g++ -fsyntax-only -Wall -Wextra` puhdas; **koko generoitu `pong_sdl.cpp` kääntyy .o:ksi macOS+SDL2:lla** (baseline kaatui vain linkkiin GLES-symboleihin) |
+| **R1b** | [`gfx_sdl.rgr`](./gfx_sdl.rgr): ortho-Camera2D 4×4 viewProj-uniformina — `mat4`-avustimet (identity/mul/ortho2d/view2d), per-pane `RgfxGpuCamera2D` (pan/zoom/rot, oletus = identiteetti), oma kamera-shader-ohjelma, `rgfx_gpu_sprites_draw_queue_camera` (pikselit + GPU-ortho); dispatcher: kamera default, `RANGER_GFX_SPRITE_CAMERA=0` → CPU-NDC-batch, `RANGER_GFX_SPRITE_BATCH=0` → per-sprite. Uudet operaattorit `gfx_gpu_camera_set/reset` (cpp + es6-no-op). [`game_sprite.rgr`](./scripting/game_sprite.rgr): additiivinen `setGpuCamera/resetGpuCamera` (oletus off) | ✅ | Ranger→cpp **linkittyy natiiviksi SDL2-binääriksi (Linux+GL)**; headless pong (300 framea) + invaders (300f, 236 fps) ajavat; `game-engine-render` golden-frame vihreä; es6 kääntyy; irrotettu matriisimatikka verifioitu `rgfx_px_to_ndc`:tä vasten (identity/pan/zoom/rot) standalone-harnessissa. `game-engine-render.test.ts` linkkaa nyt GL:n (natiivitesti ei linkittynyt ennen tätä) |
 
 **R1a-suunnittelutarkkuus:** batchattu polku on **pikseli-identtinen** per-sprite-polun kanssa
 (sama nurkka-/UV-matematiikka, piirtojärjestys säilytetty — run flushataan vain tekstuurin
@@ -389,8 +390,12 @@ npm run engine:game-sdl:run:physics_sandbox # visuaalinen: batchatut sheet-sprit
 # vertaa: RANGER_GFX_SPRITE_BATCH=0 samat komennot (fallback) → identtinen kuva, enemmän draw calleja
 ```
 
-**Seuraavaksi (avoinna):** R1b (ortho-Camera2D + Transform2D→4×4 vertex-shaderin uniformina) — vie
-kameran/transformin GPU:lle ja on 3D-kelpoisen ytimen perusta. Erillinen inkrementti.
+**Seuraavaksi (avoinna):** kameran *maailma* — striimaava spatiaalinen grid, kamera-vetoinen
+culling/preload ja rinnakkainen asset-loader. Suunnitelma:
+[`PLAN_RANGER2D_STREAMING.md`](./PLAN_RANGER2D_STREAMING.md). R1b antaa kameran joka liikkuu
+GPU:lla; striimaus-suunnitelma antaa sille ison maailman jossa liikkua (culling, solujen herätys/
+nukutus, decode-worker). Ensimmäinen vaihe S1 = `WorldGrid` + culling puhtaana Rangerina (oletus 1×1
+= no-op). Myöhempi R2 (atlas + material-sort) ja S1 ovat toisistaan riippumattomat inkrementit.
 
 ---
 

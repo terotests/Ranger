@@ -1,0 +1,12 @@
+{
+  "name": "as_resource_loader",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "asbuild": "asc assembly/index.ts --outFile build/resource_loader.wasm --optimize --runtime minimal --use abort="
+  },
+  "devDependencies": {
+    "assemblyscript": "^0.27.0"
+  }
+}

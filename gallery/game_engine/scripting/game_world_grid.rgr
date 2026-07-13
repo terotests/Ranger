@@ -1,0 +1,147 @@
+; ==============================================================================
+; game_world_grid - spatial grid + camera-view culling for world-mode games.
+; ==============================================================================
+;
+; Streaming spatial world, phase S1 (see PLAN_RANGER2D_STREAMING.md).
+;
+; A game may declare a world of cols x rows cells via config().world:
+;   world: { cols: 100, rows: 100, cull: true }   ; cell size defaults to pane
+;   world: { cols: 8, rows: 8, cellW: 480, cellH: 270, cull: true, cullMargin: 128 }
+;
+; When cull is off (the default) the grid is a strict no-op: cullsEntity always
+; returns false and every world entity is synced exactly as before. This keeps
+; existing games byte-identical (golden-frame safety, PLAN_RANGER2D.md §11b A/B).
+;
+; S1 does per-entity view culling only (skip the sync work for entities clearly
+; outside the camera view). Coarse cell-level iteration and cell lifecycle /
+; streaming come in S2+; cellCol/cellRow/worldW/worldH below are the seed for
+; that and are not on the S1 hot path.
+; ==============================================================================
+
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class WorldGrid {
+    ; false => 1x1 world, cullsEntity always false (no-op, backwards compatible).
+    def enabled:boolean false
+    def cols:int 1
+    def rows:int 1
+    ; 0 => use the pane size at query time (the common "cell == screen" case).
+    def cellW:int 0
+    def cellH:int 0
+    ; World px added around the camera view rect before an entity is rejected.
+    ; Must comfortably exceed the largest sprite half-extent so nothing pops at
+    ; the edge; the per-entity max(w,h) is added on top of this per query.
+    def cullMargin:int 128
+
+    fn reset:void () {
+        enabled = false
+        cols = 1
+        rows = 1
+        cellW = 0
+        cellH = 0
+        cullMargin = 128
+    }
+
+    fn maxi:int (a:int b:int) {
+        if (a > b) {
+            return a
+        }
+        return b
+    }
+
+    fn clampi:int (v:int lo:int hi:int) {
+        if (v < lo) {
+            return lo
+        }
+        if (v > hi) {
+            return hi
+        }
+        return v
+    }
+
+    ; Configure from parsed config().world values. cull enables the culling
+    ; path; cols/rows < 1 are clamped to 1 so a malformed config stays a no-op.
+    fn configure:void (colsIn:int rowsIn:int cellWIn:int cellHIn:int marginIn:int cull:boolean) {
+        cols = (this.maxi(colsIn 1))
+        rows = (this.maxi(rowsIn 1))
+        if (cellWIn > 0) {
+            cellW = cellWIn
+        } {
+            cellW = 0
+        }
+        if (cellHIn > 0) {
+            cellH = cellHIn
+        } {
+            cellH = 0
+        }
+        if (marginIn > 0) {
+            cullMargin = marginIn
+        }
+        enabled = cull
+    }
+
+    fn effCellW:int (pw:int) {
+        if (cellW > 0) {
+            return cellW
+        }
+        return pw
+    }
+
+    fn effCellH:int (ph:int) {
+        if (cellH > 0) {
+            return cellH
+        }
+        return ph
+    }
+
+    fn worldW:int (pw:int) {
+        return (cols * (this.effCellW(pw)))
+    }
+
+    fn worldH:int (ph:int) {
+        return (rows * (this.effCellH(ph)))
+    }
+
+    ; Cell column/row containing a world x/y (clamped to the grid). Seed for the
+    ; S2 coarse cull + cell lifecycle; not used by S1's per-entity path.
+    fn cellCol:int (wx:int pw:int) {
+        def cw:int (this.effCellW(pw))
+        if (cw <= 0) {
+            return 0
+        }
+        return (this.clampi((idiv wx cw) 0 (cols - 1)))
+    }
+
+    fn cellRow:int (wy:int ph:int) {
+        def ch:int (this.effCellH(ph))
+        if (ch <= 0) {
+            return 0
+        }
+        return (this.clampi((idiv wy ch) 0 (rows - 1)))
+    }
+
+    ; True when the entity at world (wx,wy) with size (w,h) is entirely outside
+    ; the camera view rect [camX,camX+pw] x [camY,camY+ph] expanded by
+    ; cullMargin + max(w,h). Conservative: the entity is treated as a point with
+    ; a half-extent, so a sprite whose body could still touch the view is never
+    ; culled. Returns false (never culls) when the grid is disabled.
+    fn cullsEntity:boolean (wx:int wy:int w:int h:int camX:int camY:int pw:int ph:int) {
+        if (enabled == false) {
+            return false
+        }
+        def ext:int (cullMargin + (this.maxi(w h)))
+        if (wx < (camX - ext)) {
+            return true
+        }
+        if (wx > ((camX + pw) + ext)) {
+            return true
+        }
+        if (wy < (camY - ext)) {
+            return true
+        }
+        if (wy > ((camY + ph) + ext)) {
+            return true
+        }
+        return false
+    }
+}

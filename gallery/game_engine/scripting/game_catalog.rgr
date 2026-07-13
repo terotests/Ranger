@@ -195,7 +195,7 @@ class GameCatalog {
         if (entry.engine == "tsx") {
             entry.entryPath = (this.joinPath(entry.dir entry.entryFile))
         } {
-            ; wasm (.wasm) and as (.as) both point at their module file
+            ; wasm/as/ui/streaming all point at their module file
             entry.entryPath = (this.joinPath(entry.dir entry.moduleFile))
         }
     }
@@ -214,6 +214,10 @@ class GameCatalog {
             ; engine=ui — a WASM guest that only builds an RGU1 UI document
             ; (selectable menu), rendered + navigated by the host UI layer.
             if ((indexOf txt "engine=ui") >= 0) {
+                isLinear = true
+            }
+            ; engine=streaming — worker.wasm + spawned loader, StreamingWorldRunner.
+            if ((indexOf txt "engine=streaming") >= 0) {
                 isLinear = true
             }
             if (isLinear) {
@@ -247,6 +251,7 @@ class GameCatalog {
         if (hasIndex) {
             return true
         }
+        ; isWasmGameFolder covers wasm/as/ui/streaming (all module-file games).
         return (this.isWasmGameFolder(gameDir))
     }
 

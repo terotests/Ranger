@@ -22,9 +22,23 @@ typedef struct RgWasmSlot {
     IM3Runtime runtime;
     IM3Module module;
     int in_use;
+    /* Set once m3_LoadModule succeeds: the runtime then owns the module and
+     * m3_FreeRuntime frees it. Freeing the module separately would double-free
+     * (crash in Function_Release). Only free the module directly when this is 0. */
+    int module_in_runtime;
+    /* Worker spawning (rg_spawn_worker): a top-level module loaded by the host
+     * may spawn exactly ONE resource-loader worker; a spawned worker may not
+     * spawn further workers. can_spawn is 1 for host-loaded modules, 0 for
+     * spawned children; spawned_child holds the one child handle (0 = none). */
+    int can_spawn;
+    int spawned_child;
     RgWasmRes res[RG_WASM_MAX_RES];
     int res_count;
 } RgWasmSlot;
+
+/* Load a module into a fresh slot. can_spawn gates whether this module may
+ * later spawn a worker (host-loaded = 1, spawned worker = 0). */
+static int rg_wasm_load_ex(const char* path, int can_spawn);
 
 #define RG_WASM_MAX 8
 static RgWasmSlot g_slots[RG_WASM_MAX];
@@ -119,6 +133,32 @@ m3ApiRawFunction(m3_rg_host_register_rect) {
     m3ApiSuccess();
 }
 
+/* env.rg_spawn_worker(pathOff, pathLen) -> i32 child handle (0 = denied/failed).
+ * The method by which guest WASM (e.g. AS game logic) loads ONE resource-loader
+ * worker. Constraints enforced here (this stage):
+ *   - the caller may spawn at most one worker (spawned_child already set -> 0);
+ *   - a spawned worker may not spawn further workers (can_spawn == 0 -> 0).
+ * The child is loaded with can_spawn = 0, so recursion is impossible. */
+m3ApiRawFunction(m3_rg_spawn_worker) {
+    m3ApiReturnType(int32_t)
+    m3ApiGetArg(int32_t, pathOff)
+    m3ApiGetArg(int32_t, pathLen)
+    RgWasmSlot* s = (RgWasmSlot*)(_ctx->userdata);
+    int32_t result = 0;
+    if (s && s->can_spawn && s->spawned_child == 0) {
+        char path[128];
+        rg_copy_wasm_str(runtime, _mem, pathOff, pathLen, path, (int)sizeof(path));
+        if (path[0] != '\0') {
+            int child = rg_wasm_load_ex(path, 0); /* child may not spawn */
+            if (child > 0) {
+                s->spawned_child = child;
+                result = child;
+            }
+        }
+    }
+    m3ApiReturn(result);
+}
+
 static void rg_link_host_imports(RgWasmSlot* s) {
     if (!s || !s->module) {
         return;
@@ -128,6 +168,8 @@ static void rg_link_host_imports(RgWasmSlot* s) {
                                "v(iiiiiiiii)", &m3_rg_host_register_sheet, s);
     (void)m3_LinkRawFunctionEx(s->module, "env", "rg_host_register_rect",
                                "v(iiiiiiii)", &m3_rg_host_register_rect, s);
+    (void)m3_LinkRawFunctionEx(s->module, "env", "rg_spawn_worker",
+                               "i(ii)", &m3_rg_spawn_worker, s);
 }
 
 static int rg_alloc_handle(void) {
@@ -183,6 +225,10 @@ static uint8_t* rg_read_file(const char* path, size_t* out_size) {
 }
 
 int rg_wasm_load(const char* path) {
+    return rg_wasm_load_ex(path, 1); /* host-loaded modules may spawn one worker */
+}
+
+static int rg_wasm_load_ex(const char* path, int can_spawn) {
     RgWasmSlot* s;
     int handle;
     uint8_t* bytes;
@@ -205,6 +251,8 @@ int rg_wasm_load(const char* path) {
     s = &g_slots[handle - 1];
     memset(s, 0, sizeof(*s));
     s->in_use = 1;
+    s->can_spawn = can_spawn;
+    s->spawned_child = 0;
 
     s->env = m3_NewEnvironment();
     if (!s->env) {
@@ -228,6 +276,7 @@ int rg_wasm_load(const char* path) {
         fprintf(stderr, "[wasm] load module failed: %s (%s)\n", path, r);
         goto fail;
     }
+    s->module_in_runtime = 1; /* runtime now owns the module */
 
     rg_link_host_imports(s);
 
@@ -243,10 +292,12 @@ fail:
     if (bytes) {
         free(bytes);
     }
-    if (s->module) {
+    /* Free the module directly only if the runtime does not own it yet; once
+     * m3_LoadModule succeeds, m3_FreeRuntime frees it (see module_in_runtime). */
+    if (s->module && !s->module_in_runtime) {
         m3_FreeModule(s->module);
-        s->module = NULL;
     }
+    s->module = NULL;
     if (s->runtime) {
         m3_FreeRuntime(s->runtime);
         s->runtime = NULL;
@@ -255,6 +306,7 @@ fail:
         m3_FreeEnvironment(s->env);
         s->env = NULL;
     }
+    s->module_in_runtime = 0;
     s->in_use = 0;
     return 0;
 }
@@ -264,10 +316,12 @@ void rg_wasm_close(int handle) {
     if (!s) {
         return;
     }
-    if (s->module) {
+    /* Do NOT m3_FreeModule when the runtime owns the module — m3_FreeRuntime
+     * frees it, and a second free crashes in Function_Release (double-free). */
+    if (s->module && !s->module_in_runtime) {
         m3_FreeModule(s->module);
-        s->module = NULL;
     }
+    s->module = NULL;
     if (s->runtime) {
         m3_FreeRuntime(s->runtime);
         s->runtime = NULL;
@@ -276,6 +330,7 @@ void rg_wasm_close(int handle) {
         m3_FreeEnvironment(s->env);
         s->env = NULL;
     }
+    s->module_in_runtime = 0;
     s->in_use = 0;
 }
 
@@ -370,6 +425,12 @@ uint32_t rg_wasm_mem_size(int handle) {
 
 int32_t rg_wasm_abi_base(int handle) {
     return rg_wasm_call_i32(handle, "abi_base", 0, 0, 0, 0, 0, 0);
+}
+
+/* Handle of the one worker this module spawned via rg_spawn_worker (0 = none). */
+int rg_wasm_spawned_child(int handle) {
+    RgWasmSlot* s = rg_slot(handle);
+    return s ? s->spawned_child : 0;
 }
 
 int32_t rg_wasm_mem_read_i32(int handle, uint32_t off) {
