@@ -923,7 +923,23 @@ class GameSdlRunner {
     ; button to the guest, and return to the launcher on Back/Quit.
     fn runUiGame:void (wasmPath:string) {
         uiRunner.init(pw ph "gallery/game_engine/assets/fonts" "OpenSans-Regular.ttf" "Open Sans")
-        if ((uiRunner.loadWasm(wasmPath)) == false) {
+        ; engine=ui games come in two flavours: a compiled logic.wasm guest, or an
+        ; interpreted .as source (runtime=as). Pick the backend by module suffix —
+        ; loading a .as through wasm_load fails with "malformed Wasm binary".
+        def ok:boolean false
+        def n:int (strlen wasmPath)
+        def isAs:boolean false
+        if (n > 3) {
+            if ((substring wasmPath (n - 3) n) == ".as") {
+                isAs = true
+            }
+        }
+        if isAs {
+            ok = (uiRunner.loadAs((this.dirOf(wasmPath))))
+        } {
+            ok = (uiRunner.loadWasm(wasmPath))
+        }
+        if (ok == false) {
             print ("[game-engine] ui game load failed: " + wasmPath)
             return
         }
