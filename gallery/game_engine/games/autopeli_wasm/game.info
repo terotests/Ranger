@@ -1,4 +1,4 @@
-name=Autot
+name=Autot2
 engine=wasm
 module=logic.wasm
 abi=linear
@@ -7,4 +7,4 @@ assets=assets
 splitScreen=auto
 autoscale=true
 
-category=Games
+category=Tests
