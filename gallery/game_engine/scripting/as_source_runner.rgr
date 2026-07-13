@@ -83,6 +83,14 @@ class AsSourceRunner {
         return true
     }
 
+    ; Inject a host value the interpreted .as sees as a module-scope global (same
+    ; mechanism the .tsx menu uses for `gameCatalog`). Call after bindDir(), before
+    ; callInit(), so init()/update() can read it.
+    fn registerGlobal:void (name:string value:EvalValue) {
+        if (loaded == false) { return }
+        engine.registerGlobal(name value)
+    }
+
     fn callInit:void () {
         if (loaded == false) { return }
         engine.callFunction("init" (EvalValue.null()))

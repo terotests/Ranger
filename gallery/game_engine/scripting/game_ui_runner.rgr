@@ -19,6 +19,7 @@ Import "../framebuffer.rgr"
 Import "../gfx_sdl.rgr"
 Import "../ui/WasmUiSelect.rgr"
 Import "./as_source_runner.rgr"
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
 
 class GameUiRunner {
     def canvas:SoftCanvas (new SoftCanvas)
@@ -49,7 +50,14 @@ class GameUiRunner {
     def OFF_INPUT:int 20      ; host -> guest edge mask: UP1 DOWN2 LEFT4 RIGHT8 ACT16
     def OFF_TIME:int 16       ; host -> guest monotonic time (ms) for animations
     def OFF_SEL:int 52        ; guest -> host selected node id (highlight)
+    def OFF_LAUNCH:int 56     ; guest -> host: catalog index + 1 to launch (0 = none)
     def uiTimeMs:int 0        ; accumulated ms fed to the guest as a clock
+
+    ; Optional catalog injected into an interpreted .as menu as the `gameCatalog`
+    ; global (same value the .tsx menu gets). The launcher menu reads it to build
+    ; its tiles and reports a catalog index back via OFF_LAUNCH.
+    def menuCatalog:EvalValue (EvalValue.null())
+    def hasMenuCatalog:boolean false
     ; host -> guest: laid-out rect of the selected node (page px), so the guest
     ; can place absolute overlay effects at real screen coordinates.
     def OFF_RECT_X:int 200
@@ -111,11 +119,30 @@ class GameUiRunner {
         return true
     }
 
+    ; Inject the game catalog the interpreted menu reads as `gameCatalog`. Call
+    ; before loadAs() so it is registered before the guest's init()/update() run.
+    fn setMenuCatalog:void (cat:EvalValue) {
+        menuCatalog = cat
+        hasMenuCatalog = true
+    }
+
+    ; Catalog index (+1) the interpreted menu wants launched this frame (0 = none).
+    fn launchIndex:int () {
+        if (useAs == false) {
+            return 0
+        }
+        return (asRunner.abiRead(OFF_LAUNCH))
+    }
+
     ; --- interpreted .as path: bind + init the guest, pull its first document ----
     fn loadAs:boolean (dir:string) {
         useAs = true
         if ((asRunner.bindDir(dir)) == false) {
             return false
+        }
+        ; a launcher menu reads the injected catalog to build its tiles
+        if hasMenuCatalog {
+            asRunner.registerGlobal("gameCatalog" menuCatalog)
         }
         asRunner.callInit()
         if ((this.refreshFromAs()) == false) {

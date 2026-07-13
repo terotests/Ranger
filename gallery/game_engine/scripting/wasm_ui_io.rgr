@@ -474,6 +474,13 @@ class WasmUiEvgBuilder {
             if (key == 55) {                ; GLOW (animated halo strength, 0..1000)
                 el.glowIntensity = ((to_double (doc.propValueA(idx))) / 1000.0)
             }
+            if (key == 56) {                ; BG_IMAGE (file path, clipped to box)
+                def bp:string (doc.propString(idx))
+                if ((strlen bp) > 0) {
+                    el.bgImagePath = bp
+                    el.bgImageSet = true
+                }
+            }
             p = (p + 1)
         }
     }

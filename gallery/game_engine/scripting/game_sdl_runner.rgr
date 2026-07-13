@@ -20,7 +20,6 @@ Import "../wasm_runtime.rgr"
 Import "./wasm_game_runner.rgr"
 Import "./wasm_physics_runner.rgr"
 Import "./game_ui_runner.rgr"
-Import "../ui/EvgLauncherMenu.rgr"
 Import "../gfx_sdl.rgr"
 Import "./game_audio_sdl.rgr"
 Import "./game_catalog.rgr"
@@ -98,10 +97,11 @@ class GameSdlRunner {
     def prevRightHeld:boolean false
     def prevActionHeld:boolean false
     def uiRunner:GameUiRunner (new GameUiRunner)
-    ; EVG tile front page (crisp TTF category/game tiles). Default launcher; the
-    ; old pixel-font tsx menu is still available with --classic-menu.
-    def evgMenu:EvgLauncherMenu (new EvgLauncherMenu)
+    ; Launcher front page: the interpreted .as menu (menu/game.as), crisp EVG UI,
+    ; hot-reloadable. The old pixel-font tsx menu is still available (--classic-menu).
     def useEvgLauncher:boolean true
+    def menuAsDir:string "gallery/game_engine/menu"
+    def menuAsMtime:int 0     ; last-seen menu/game.as mtime (live-reload poll)
     def uiDirectPath:string ""
     def gpuModeWanted:boolean true
     def gpuModeActive:boolean false
@@ -1056,19 +1056,42 @@ class GameSdlRunner {
         return uh
     }
 
-    ; The EVG tile launcher: crisp category tiles -> per-category game grid ->
-    ; launch. Drives EvgLauncherMenu with the launcher D-pad edges, routes the
-    ; chosen game path through the same dispatch the tsx menu uses, and returns
-    ; here when the game exits. Back walks up a level (games -> categories),
-    ; and Back on the categories page quits the app.
+    ; Bind the interpreted launcher menu (menu/game.as) with the live catalog
+    ; injected as `gameCatalog`. Returns false if the menu source can't be loaded.
+    fn openEvgMenu:boolean (uw:int uh:int) {
+        catalog.setGamesDir(gamesDir)
+        catalog.scan()
+        uiRunner.init(uw uh "gallery/game_engine/assets/fonts" "OpenSans-Regular.ttf" "Open Sans")
+        ; a wide, soft, warm selection halo (drop-shadow) around the focused tile —
+        ; a tight white ring reads as hard/blocky, this is the prettier glow.
+        uiRunner.ctrl.highlightPad = 8
+        uiRunner.ctrl.glowSpread = 20
+        uiRunner.ctrl.glowAlpha = 210
+        uiRunner.ctrl.glowR = 255
+        uiRunner.ctrl.glowG = 224
+        uiRunner.ctrl.glowB = 130
+        uiRunner.setMenuCatalog((catalog.toEvalArray()))
+        menuAsMtime = (file_mtime menuAsDir "game.as")
+        return (uiRunner.loadAs(menuAsDir))
+    }
+
+    ; Run the launcher menu — a normal interpreted .as engine=ui game living in
+    ; menu/ that receives the catalog and reports (via OFF_LAUNCH) which sub-app to
+    ; load. Being interpreted it hot-reloads like any other game. The crisp EVG UI
+    ; layer renders it (same path as any .as menu); this loop just maps the chosen
+    ; catalog index to a game path and dispatches it, then reopens the menu.
     fn runEvgMenuLoop:void () {
         gfx_audio_clear
         this.clearNavStack()
         nativeBridge.clearPendingNav()
         def uw:int (this.evgMenuTargetW())
         def uh:int (this.evgMenuTargetH())
-        evgMenu.init(uw uh "gallery/game_engine/assets/fonts" "OpenSans-Regular.ttf" "Open Sans" gamesDir)
-        print ("[menu] EVG launcher: " + (to_string (catalog.entryCount())) + " games in " + (to_string (array_length (evgMenu.cats))) + " categories")
+        if ((this.openEvgMenu(uw uh)) == false) {
+            print "[menu] menu/game.as failed to load — using classic menu"
+            this.runMenuLoop()
+            return
+        }
+        print ("[menu] .as launcher: " + (to_string (catalog.entryCount())) + " games")
         inMenu = true
         inGame = false
         gfx_set_title("Ranger Game Engine")
@@ -1076,6 +1099,24 @@ class GameSdlRunner {
         this.syncInputEdges()
         def nav:UiNavInput (new UiNavInput)
         while (running) {
+            ; render at the live output resolution: if the window changed size
+            ; (resize / fullscreen toggle), re-open the menu at the new native
+            ; resolution so the tiles + glow stay crisp instead of being upscaled
+            ; from a smaller buffer (blocky).
+            def nw:int (this.evgMenuTargetW())
+            def nh:int (this.evgMenuTargetH())
+            if ((nw != uw) || (nh != uh)) {
+                uw = nw
+                uh = nh
+                this.openEvgMenu(uw uh)
+            }
+            ; live-reload: re-bind the menu when menu/game.as changes on disk, so
+            ; editing the launcher takes effect without recompiling the engine.
+            def curMtime:int (file_mtime menuAsDir "game.as")
+            if (curMtime > menuAsMtime) {
+                this.openEvgMenu(uw uh)
+                print "[menu] reloaded menu/game.as"
+            }
             def m:int (this.launcherNavMask())
             nav.clear()
             nav.up = (this.upEdge((bit_and m 1) != 0))
@@ -1083,23 +1124,22 @@ class GameSdlRunner {
             nav.left = (this.leftEdge((bit_and m 16) != 0))
             nav.right = (this.rightEdge((bit_and m 32) != 0))
             nav.action = (this.actionEdge((bit_and m 4) != 0))
-            evgMenu.navFrame(nav)
-            evgMenu.draw()
-            gfx_present (evgMenu.raw()) uw uh
+            def _a:int (uiRunner.frame(nav))
+            uiRunner.render()
+            gfx_present (uiRunner.raw()) uw uh
 
-            ; Back (Q/Esc / gamepad Select|B): walk up a level, or quit from the top
+            ; Back (Q/Esc / gamepad Select|B) quits the app; the menu handles its
+            ; own in-menu back (left = games -> categories).
             if (this.quitEdge((this.gameMenuBackHeld()))) {
-                evgMenu.back()
-                if evgMenu.wantQuit {
-                    running = false
-                    return
-                }
+                running = false
+                return
             }
 
-            ; a game tile was activated -> launch it, then come back to the menu
-            if evgMenu.chosen {
-                def launchPath:string evgMenu.chosenPath
-                evgMenu.chosen = false
+            ; the menu reported a catalog index to launch -> load that game
+            def li:int (uiRunner.launchIndex())
+            if (li > 0) {
+                def entry:GameCatalogEntry (catalog.entryAt(li - 1))
+                def launchPath:string entry.entryPath
                 if ((strlen launchPath) > 0) {
                     if ((this.engineOf(launchPath)) == "ui") {
                         this.runUiGame(launchPath)
@@ -1110,7 +1150,9 @@ class GameSdlRunner {
                     if (running == false) {
                         return
                     }
-                    ; returned from the game: restore the menu window + input state
+                    ; returned from the game: reopen the menu fresh (re-scan catalog
+                    ; + re-inject), restore window + input state
+                    this.openEvgMenu(uw uh)
                     gfx_clear_should_close
                     inMenu = true
                     inGame = false

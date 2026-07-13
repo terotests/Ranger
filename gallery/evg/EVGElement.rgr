@@ -69,7 +69,14 @@ class EVGElement {
     ; time (a procedural effect animation); the renderer draws a soft halo behind
     ; the element scaled by it. 0 = no glow.
     def glowIntensity:double 0.0
-    
+
+    ; Background image clipped to the (rounded) box (RGU1 BG_IMAGE prop). When
+    ; bgImageSet the renderer paints bgImagePath inside the rounded rect instead of
+    ; the solid/gradient fill. The path is host-resolvable (the guest is sandboxed;
+    ; the host loads the pixels), so an .as menu can show real image tiles.
+    def bgImageSet:boolean false
+    def bgImagePath:string ""
+
     ; Layout properties
     def direction:string "row"
     def align:string "left"

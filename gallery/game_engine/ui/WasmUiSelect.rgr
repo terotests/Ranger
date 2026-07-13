@@ -25,6 +25,7 @@
 Import "UIContext.rgr"
 Import "UIAnimator.rgr"
 Import "../scripting/wasm_ui_io.rgr"
+Import "../scripting/game_image_loader.rgr"
 Import "../../evg/EVGLayout.rgr"
 Import "../../evg/EVGElement.rgr"
 
@@ -179,6 +180,26 @@ class RectHit {
 ; -----------------------------------------------------------------------------
 class WasmUiRenderer {
     def layout:EVGLayout (new EVGLayout)
+
+    ; Background-image cache: a guest may declare a BG_IMAGE (path) on a node and
+    ; the tree is rebuilt every frame, so decode each PNG once and reuse it. Keyed
+    ; by path; an invalid decode is cached too (so a bad path doesn't reload).
+    def imgLoader:GameImageLoader (new GameImageLoader)
+    def imgCache:[string:ImageBuffer]
+
+    ; Decoded image for a guest-declared background path (cached across frames).
+    fn bgImageFor:ImageBuffer (path:string) {
+        if (has imgCache path) {
+            def hit@(optional):ImageBuffer (get imgCache path)
+            if (null? hit) {
+                return (imgLoader.load(path))
+            }
+            return (unwrap hit)
+        }
+        def img:ImageBuffer (imgLoader.load(path))
+        set imgCache path img
+        return img
+    }
 
     ; Optional host effect timeline. When set, drawElement overlays the animated
     ; glow from guest-requested effects on top of any doc-declared glow.
@@ -428,19 +449,32 @@ class WasmUiRenderer {
             ctx.glowRoundRect((x - 3) (y - 3) (rw + 6) (rh + 6) (rad + 3) cr cg cb spread galpha)
         }
 
-        if el.gradientSet {
-            ; guest-declared 2-stop linear gradient background (real EVG fill)
-            def fa:int (to_int ((el.gradientFrom.alpha()) * 255.0))
-            def ta:int (to_int ((el.gradientTo.alpha()) * 255.0))
-            ctx.fillRoundRectGrad(x y rw rh rad el.gradientDir
-                (el.gradientFrom.red()) (el.gradientFrom.green()) (el.gradientFrom.blue()) fa
-                (el.gradientTo.red()) (el.gradientTo.green()) (el.gradientTo.blue()) ta)
-        } {
-            if el.backgroundColor.isSet {
-                def ba:double (el.backgroundColor.alpha())
-                if (ba > 0.0) {
-                    def ai:int (to_int (ba * 255.0))
-                    ctx.fillRoundRectA(x y rw rh rad (el.backgroundColor.red()) (el.backgroundColor.green()) (el.backgroundColor.blue()) ai)
+        ; fill priority: guest-declared background image (clipped to the rounded
+        ; box) > 2-stop linear gradient > solid backgroundColor. A missing/invalid
+        ; image falls through so the panel still draws.
+        def bgDrawn:boolean false
+        if el.bgImageSet {
+            def img:ImageBuffer (this.bgImageFor(el.bgImagePath))
+            if (imgLoader.isValidImage(img)) {
+                ctx.fillRoundRectImage(x y rw rh rad img)
+                bgDrawn = true
+            }
+        }
+        if (bgDrawn == false) {
+            if el.gradientSet {
+                ; guest-declared 2-stop linear gradient background (real EVG fill)
+                def fa:int (to_int ((el.gradientFrom.alpha()) * 255.0))
+                def ta:int (to_int ((el.gradientTo.alpha()) * 255.0))
+                ctx.fillRoundRectGrad(x y rw rh rad el.gradientDir
+                    (el.gradientFrom.red()) (el.gradientFrom.green()) (el.gradientFrom.blue()) fa
+                    (el.gradientTo.red()) (el.gradientTo.green()) (el.gradientTo.blue()) ta)
+            } {
+                if el.backgroundColor.isSet {
+                    def ba:double (el.backgroundColor.alpha())
+                    if (ba > 0.0) {
+                        def ai:int (to_int (ba * 255.0))
+                        ctx.fillRoundRectA(x y rw rh rad (el.backgroundColor.red()) (el.backgroundColor.green()) (el.backgroundColor.blue()) ai)
+                    }
                 }
             }
         }
