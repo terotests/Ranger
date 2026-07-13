@@ -2,3 +2,5 @@ name=Autopeli
 splitScreen=auto
 autoscale=true
 soloScript=index.tsx
+
+category=Games
