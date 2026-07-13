@@ -236,6 +236,26 @@ jolla kamera liikkuu — tämä dokumentti antaa sille *maailman* jossa liikkua.
 | # | Vaihe | Sisältö | Validointi | Riski |
 |---|-------|---------|-----------|-------|
 | **S1** | WorldGrid + culling | `world(cols,rows)` (oletus 1×1); bucket `worldEntities` soluihin; solu-AABB + objekti-AABB cull `syncEntity`-silmukassa | 1×1 = byte-identtinen (golden-frame vihreä); iso maailma: vain kamera-AABB:n entiteetit synkataan (laskuri) | matala (puhdas Ranger, no-op oletuksena) |
+
+### S1 — toteutuksen tila (heinäkuu 2026): ✅ **objektitason culling valmis**
+
+Toteutettu ja verifioitu [`scripting/game_world_grid.rgr`](./scripting/game_world_grid.rgr) +
+kytkentä [`game_entity_store.rgr`](./scripting/game_entity_store.rgr) `syncEntity`:yn ja
+[`game_runtime.rgr`](./scripting/game_runtime.rgr) `config().world`-parsintaan.
+
+- **Peli-API:** `config().world = { cols, rows, cellW?, cellH?, cull: true, cullMargin? }`. `cull`
+  on opt-in; ilman sitä grid pysyy 1×1 ja culling on tiukka no-op.
+- **Hieno culling (objektitaso) valmis:** `WorldGrid.cullsEntity` hylkää entiteetin joka on
+  selvästi kamera-view-rectin (`[camX..camX+pw]×[camY..camY+ph]`) ulkopuolella, laajennettuna
+  `cullMargin + max(w,h)`:llä (konservatiivinen — isoa spriteä ei koskaan cullata vahingossa).
+  `syncEntity` early-returnaa (`e.visible=false`) ennen per-entiteetti-työtä.
+- **Karkea culling (solutaso) — AVOIN:** `cellCol/cellRow/worldW/worldH` ovat paikallaan S2:n
+  pohjaksi, mutta render-silmukka iteroi yhä koko `entities`-listan (per-entiteetti-reject). Solu-AABB:n
+  yli iterointi (vain kamera-AABB:n solut) tulee S2:ssa solun elinkaaren kanssa.
+- **Verifioitu:** Ranger→cpp linkittyy natiiviksi (WorldGrid + cullsEntity generoitu); headless
+  pong/invaders/breakout ajavat muuttumattomina; `game-engine-render` golden-frame **byte-identtinen**;
+  13-kohtainen `cullsEntity`-yksikkötesti es6:lla (disabled=no-op, in-view, edge-margin, far-cull,
+  kamera-relatiivinen pan, iso-sprite-suoja, solumatikka) → `ALL_OK`.
 | **S2** | Solun elinkaari + rengas | DORMANT/PRELOAD/ACTIVE-kone; kamera-solu + hystereesi; **synkroninen** lataus (ei threadeja vielä); provider-callback `cell(cx,cy)` | headless: kamera kulkee gridin poikki, solut heräävät/nukahtavat oikeilla säteillä (lokitesti) | matala–keski |
 | **S3** | Rinnakkainen decode | `RGL1` job/done-ABI; decode `std::thread`/`SDL_Thread`illa; GL-upload render-threadilla; refcount-vapautus | natiivi: iso solunvaihto ei pudota FPS:ää (profiili); `RANGER_STREAM_ASYNC=0` = synkroninen fallback (bisect) | **keski–korkea** (threadit, GL-thread-raja) |
 | **S4** | Suunta-prefetch + web | preload-AABB biasoitu nopeudella; `es6` Web Worker + `createImageBitmap` | nopea kamera: solu valmis ennen ruutua; web-parity | keski |
@@ -271,9 +291,10 @@ Sama additiivinen linja kuin `PLAN_RANGER2D.md` §11b:
    coarse-tick opt-in per entiteetti (halvempi + deterministisempi lähtökohta).
 4. **RGL1-jonon koko / sivutus:** kuinka monta yhtäaikaista load-jobia (RGU1 = 64 nodea / 8 KB)?
    Iso solunvaihto voi jonottaa satoja assetteja → jonon koko + prioriteetti (näkyvät solut ensin).
-5. **Loaderin sijainti:** aito erillinen WASM-moduli (käyttäjän toive) vai natiivi host-thread joka
-   *kutsuu* WASM-decodea? **Suositus:** host-thread ajaa decoden (natiivilla `std::thread`, webillä
-   Worker); WASM-moduli on decode-payload — näin sama koodi toimii ilman WASM:ia (LLVM-fallback).
+5. **Loaderin sijainti:** ~~aito erillinen WASM-moduli vai host-thread joka kutsuu WASM-decodea?~~
+   **PÄÄTETTY (heinäkuu 2026):** host-thread ajaa decoden — natiivilla `std::thread`/`SDL_Thread`,
+   webillä Web Worker; WASM-moduli on decode-payload jota thread kutsuu. Sama koodi toimii myös ilman
+   WASM:ia (LLVM-fallback). Yksinkertaisin GL-threadraja (decode off-thread, upload main-threadilla).
 6. **Fysiikka (Cannon) striimauksessa:** luodaanko/poistetaanko bodyt solun elinkaaren mukaan?
    Sitoutuu `PLAN_RANGER2D.md` §8 `RigidBodyLink`-identiteettiin — body syntyy solun PRELOAD:ssa.
 

@@ -9,6 +9,7 @@
 
 Import "../../pdf_writer/src/jsx/EvalValue.rgr"
 Import "./game_sprite.rgr"
+Import "./game_world_grid.rgr"
 
 class GameEntityStore {
     def worldMode:boolean false
@@ -175,13 +176,20 @@ class GameEntityStore {
     }
 
     ; Read worldEntities[id], apply camera offset, write screen pose to entity.
-    fn syncEntity:void (e:GameEntity world:EvalValue camX:int camY:int pw:int ph:int renderer:GameSpriteRenderer) {
+    ; S1 streaming: `grid` culls entities clearly outside the camera view before
+    ; the per-entity sync work runs. When the grid is disabled (default 1x1),
+    ; cullsEntity always returns false, so this is byte-identical to before.
+    fn syncEntity:void (e:GameEntity world:EvalValue camX:int camY:int pw:int ph:int grid:WorldGrid renderer:GameSpriteRenderer) {
         def pos:EvalValue (world.getMember(e.id))
         if (pos.isNull()) {
             return
         }
         def wx:int (this.memInt(pos "x" e.x))
         def wy:int (this.memInt(pos "y" e.y))
+        if (grid.cullsEntity(wx wy e.w e.h camX camY pw ph)) {
+            e.visible = false
+            return
+        }
         def k:[string]
         def v:[EvalValue]
         push k "x"

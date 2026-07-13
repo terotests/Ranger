@@ -28,6 +28,7 @@ Import "./game_composite_bridge.rgr"
 Import "./game_static_bg_bridge.rgr"
 Import "./game_particles.rgr"
 Import "./game_camera.rgr"
+Import "./game_world_grid.rgr"
 Import "./game_entity_store.rgr"
 Import "./game_physics.rgr"
 Import "./game_cannon_physics.rgr"
@@ -90,6 +91,7 @@ class GameRunner {
     def particles:GameParticleSystem (new GameParticleSystem)
     def camera:GameCamera (new GameCamera)
     def entityStore:GameEntityStore (new GameEntityStore)
+    def worldGrid:WorldGrid (new WorldGrid)
     def physics:GamePhysics (new GamePhysics)
     def cannonPhysics:GameCannonPhysics (new GameCannonPhysics)
     def useCannonPhysics:boolean false
@@ -297,6 +299,7 @@ class GameRunner {
         state = (EvalValue.null())
         camera = (new GameCamera)
         entityStore = (new GameEntityStore)
+        worldGrid = (new WorldGrid)
         physics = (new GamePhysics)
         cannonPhysics = (new GameCannonPhysics)
         useCannonPhysics = false
@@ -727,6 +730,23 @@ class GameRunner {
                     physics.setWorldSize((to_double ww) (to_double worldHeight))
                 }
             }
+            ; S1 streaming grid + culling (PLAN_RANGER2D_STREAMING.md). cull is
+            ; opt-in; without it the grid stays 1x1 and culling is a no-op.
+            def cols:int (this.memInt(world "cols" 1))
+            def rows:int (this.memInt(world "rows" 1))
+            def cellW:int (this.memInt(world "cellW" 0))
+            def cellH:int (this.memInt(world "cellH" 0))
+            def margin:int (this.memInt(world "cullMargin" 0))
+            def cullV:EvalValue (world.getMember("cull"))
+            def cull:boolean false
+            if (cullV.isBoolean()) {
+                cull = cullV.boolValue
+            } {
+                if (false == (cullV.isNull())) {
+                    cull = ((to_int cullV.numberValue) != 0)
+                }
+            }
+            worldGrid.configure(cols rows cellW cellH margin cull)
         }
     }
 
@@ -1120,7 +1140,7 @@ class GameRunner {
                         continue
                     }
                 }
-                entityStore.syncEntity(e world camX camY pw ph spriteRenderer)
+                entityStore.syncEntity(e world camX camY pw ph worldGrid spriteRenderer)
                 i = (i + 1)
             }
         } {
