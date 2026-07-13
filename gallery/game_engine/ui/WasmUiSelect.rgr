@@ -101,12 +101,21 @@ class WasmUiRenderer {
         def rw:int (to_int el.calculatedWidth)
         def rh:int (to_int el.calculatedHeight)
 
+        def rad (this.radiusOf(el))
+
         if el.backgroundColor.isSet {
             def ba:double (el.backgroundColor.alpha())
             if (ba > 0.0) {
                 def ai:int (to_int (ba * 255.0))
-                def rad (this.radiusOf(el))
                 ctx.fillRoundRectA(x y rw rh rad (el.backgroundColor.red()) (el.backgroundColor.green()) (el.backgroundColor.blue()) ai)
+            }
+        }
+
+        ; guest-declared border (colour + width), rounded to the element radius
+        def bpx:int (to_int el.box.borderWidthPx)
+        if (bpx > 0) {
+            if el.box.borderColor.isSet {
+                ctx.strokeRoundRectA(x y rw rh rad bpx (el.box.borderColor.red()) (el.box.borderColor.green()) (el.box.borderColor.blue()) (to_int ((el.box.borderColor.alpha()) * 255.0)))
             }
         }
 
@@ -120,7 +129,27 @@ class WasmUiRenderer {
                 fs = 14.0
             }
             def col:EVGColor (EVGColor.rgba((el.color.red()) (el.color.green()) (el.color.blue()) (el.color.alpha())))
-            ctx.text(txt x y fs col)
+            ; place text inside the content box (respect border + padding) and
+            ; honour textAlign so a fixed-width button centres its label.
+            def padL:int (to_int el.box.paddingLeftPx)
+            def padT:int (to_int el.box.paddingTopPx)
+            def padR:int (to_int el.box.paddingRightPx)
+            def padB:int (to_int el.box.paddingBottomPx)
+            def contentX:int (x + bpx + padL)
+            def contentY:int (y + bpx + padT)
+            def contentW:int (rw - (bpx * 2) - padL - padR)
+            def contentH:int (rh - (bpx * 2) - padT - padB)
+            def tw:int (to_int (ctx.measureWidth(txt fs)))
+            def lh:int (to_int (ctx.lineHeight(fs)))
+            def tx:int contentX
+            if (el.textAlign == "center") {
+                tx = (contentX + (to_int ((contentW - tw) / 2)))
+            }
+            if (el.textAlign == "right") {
+                tx = (contentX + (contentW - tw))
+            }
+            def ty:int (contentY + (to_int ((contentH - lh) / 2)))
+            ctx.text(txt tx ty fs col)
         }
 
         def i 0

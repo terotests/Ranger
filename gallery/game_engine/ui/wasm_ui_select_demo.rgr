@@ -44,15 +44,17 @@ class WasmUiSelectDemo {
         ; guest), rendered by the host EVG.
         w.view(2 1 0).column().center().padding(18).width(280).bg(36 42 64 255).radius(16)
         w.label(10 2 0 "WASM UI - Main Menu" 4294967295 20).margin(8)
-        w.button(11 2 1 "New Game" 3505978623 16).onActivate().defaultSelected().radius(8).margin(7)
-        w.button(12 2 2 "Continue" 3505978623 16).onActivate().radius(8).margin(7)
-        w.button(13 2 3 "Options" 3505978623 16).onActivate().radius(8).margin(7)
-        w.button(14 2 4 "Quit" 4285559039 16).onActivate().radius(8).margin(7)
+        ; Uniform buttons: 180px = 50% of the 360px screen, bordered, extra
+        ; vertical padding, centred label. All declared here in the guest.
+        w.button(11 2 1 "New Game" 3839943679 16).onActivate().defaultSelected().width(180).padding(10).border(2 120 150 210 255).radius(9).textCenter().margin(6)
+        w.button(12 2 2 "Continue" 3839943679 16).onActivate().width(180).padding(10).border(2 120 150 210 255).radius(9).textCenter().margin(6)
+        w.button(13 2 3 "Options" 3839943679 16).onActivate().width(180).padding(10).border(2 120 150 210 255).radius(9).textCenter().margin(6)
+        w.button(14 2 4 "Quit" 4285559039 16).onActivate().width(180).padding(10).border(2 200 110 110 255).radius(9).textCenter().margin(6)
         def status:string ("plays: " + (to_string plays))
         if (lastId != 0) {
             status = (status + "   last: #" + (to_string lastId))
         }
-        w.label(90 2 5 status 2410771663 13).margin(6)
+        w.label(90 2 5 status 2410771663 13).margin(8)
         return (w.emit())
     }
 
@@ -76,7 +78,7 @@ class WasmUiSelectDemo {
     sfn refresh:EVGElement (ctx:UIContext ctrl:UiSelectController doc:WasmUiDoc) {
         def builder:WasmUiEvgBuilder (new WasmUiEvgBuilder)
         def root:EVGElement (builder.build(doc))
-        ctrl.renderer.layoutTree(ctx root 360 280)
+        ctrl.renderer.layoutTree(ctx root 360 400)
         ctrl.rebuild(doc root)
         return root
     }
@@ -92,7 +94,7 @@ class WasmUiSelectDemo {
         def c:DemoCheck (new DemoCheck)
 
         def canvas:SoftCanvas (new SoftCanvas)
-        canvas.init(360 280)
+        canvas.init(360 400)
         def ctx:UIContext (new UIContext)
         ctx.attach(canvas)
         ctx.tr.addFontDir("gallery/pdf_writer/assets/fonts")

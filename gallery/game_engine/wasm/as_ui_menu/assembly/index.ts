@@ -40,7 +40,13 @@ const C_TITLE: u32 = 0xffffffff;
 const C_ITEM: u32 = 0xd0dcf0ff;
 const C_STATUS: u32 = 0x8fb0d0ff;
 const C_QUIT: u32 = 0xff6a6aff;
-const C_CARD: u32 = 0x242a40ff;   // 36,42,64
+const C_CARD: u32 = 0x242a40ff;      // 36,42,64
+const C_BORDER: u32 = 0x7896d2ff;    // 120,150,210
+const C_BORDER_QUIT: u32 = 0xc86e6eff; // 200,110,110
+
+// The guest picks its target screen width; buttons are 50% of it (uniform).
+const SCREEN_W: i32 = 360;
+const BTN_W: i32 = SCREEN_W / 2;     // 180 = 50% screen
 
 let UI_REV: u32 = 0;
 let PLAYS: i32 = 0;     // times "New Game" was activated
@@ -67,10 +73,16 @@ function rebuild(): void {
   // Selectable menu items. onActivate() marks them selectable AND subscribes to
   // the ACTIVATE callback; defaultSelected() picks the first host highlight;
   // radius() rounds the host's selection border to match.
-  ui.button(BTN_NEW, CARD, 1, "New Game", C_ITEM, 16).onActivate().defaultSelected().radius(8).margin(7);
-  ui.button(BTN_CONT, CARD, 2, "Continue", C_ITEM, 16).onActivate().radius(8).margin(7);
-  ui.button(BTN_OPTS, CARD, 3, "Options", C_ITEM, 16).onActivate().radius(8).margin(7);
-  ui.button(BTN_QUIT, CARD, 4, "Quit", C_QUIT, 16).onActivate().radius(8).margin(7);
+  // Uniform buttons: width = 50% screen, bordered, extra vertical padding,
+  // centred label — every attribute declared here in the guest.
+  ui.button(BTN_NEW, CARD, 1, "New Game", C_ITEM, 16)
+    .onActivate().defaultSelected().width(BTN_W).padding(10).border(2, C_BORDER).radius(9).textCenter().margin(6);
+  ui.button(BTN_CONT, CARD, 2, "Continue", C_ITEM, 16)
+    .onActivate().width(BTN_W).padding(10).border(2, C_BORDER).radius(9).textCenter().margin(6);
+  ui.button(BTN_OPTS, CARD, 3, "Options", C_ITEM, 16)
+    .onActivate().width(BTN_W).padding(10).border(2, C_BORDER).radius(9).textCenter().margin(6);
+  ui.button(BTN_QUIT, CARD, 4, "Quit", C_QUIT, 16)
+    .onActivate().width(BTN_W).padding(10).border(2, C_BORDER_QUIT).radius(9).textCenter().margin(6);
 
   // Non-selectable status line — proves selectable is opt-in per node.
   ui.label(STATUS, CARD, 5, statusText(), C_STATUS, 13);

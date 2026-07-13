@@ -199,11 +199,14 @@ enum RgUiPropertyKey {
     RG_UI_KEY_PADDING        = 12,  /* i32 px (all sides)                     */
     RG_UI_KEY_MARGIN         = 13,  /* i32 px (all sides)                     */
     RG_UI_KEY_BORDER_RADIUS  = 14,  /* i32 px (rounded corners)               */
+    RG_UI_KEY_BORDER_COLOR   = 15,  /* color                                  */
+    RG_UI_KEY_BORDER_WIDTH   = 16,  /* i32 px                                 */
 
     RG_UI_KEY_FLEX           = 20,  /* i32 (flex-grow)                        */
     RG_UI_KEY_FLEX_DIRECTION = 21,  /* enum RgUiFlexDirection                 */
     RG_UI_KEY_ALIGN_ITEMS    = 22,  /* enum RgUiAlign                         */
     RG_UI_KEY_JUSTIFY        = 23,  /* enum RgUiAlign                         */
+    RG_UI_KEY_TEXT_ALIGN     = 24,  /* enum RgUiAlign (0 left,1 center,2 end) */
 
     RG_UI_KEY_IMAGE_RESOURCE = 30,  /* string (host resource id)              */
 

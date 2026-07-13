@@ -194,8 +194,11 @@ key `BORDER_RADIUS`, and the optional guest export
 `rg_ui_event(node_id, event, value)`. The AS builder
 (`../wasm/as_autopeli/assembly/ui.ts`) gains a `button()` opener plus fluent
 `.selectable()`, `.onActivate()`, `.defaultSelected()`, `.disabled()`, and the
-visual setters `.width()`, `.height()`, `.background()`, `.radius()`,
-`.alignItems()`/`.center()`, `.justify()`.
+visual setters `.width()`, `.height()`, `.margin()`, `.background()`,
+`.border()`/`.borderColor()`/`.borderWidth()`, `.radius()`,
+`.alignItems()`/`.center()`, `.justify()`, `.textAlign()`/`.textCenter()`.
+The demo menu uses these to declare uniform bordered buttons (width = 50% of the
+guest's screen, centred labels, extra vertical padding).
 
 **All styling is guest-declared, host-resolved.** Centring, size, colours and
 corner radius are RGU1 properties the guest sets (e.g. an outer `column().center()`

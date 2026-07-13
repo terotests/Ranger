@@ -140,6 +140,19 @@ class RgUiWriter {
         this.propI32(14 v)
         return this
     }
+    fn borderColor:RgUiWriter (r:int g:int b:int a:int) {
+        this.propColorBytes(15 r g b a)
+        return this
+    }
+    fn borderWidth:RgUiWriter (v:int) {
+        this.propI32(16 v)
+        return this
+    }
+    fn border:RgUiWriter (wdt:int r:int g:int b:int a:int) {
+        this.propColorBytes(15 r g b a)
+        this.propI32(16 wdt)
+        return this
+    }
     ; RgUiAlign: 0 start, 1 center, 2 end, 3 space-between
     fn alignItems:RgUiWriter (a:int) {
         this.propEnum(22 a)
@@ -149,8 +162,16 @@ class RgUiWriter {
         this.propEnum(23 a)
         return this
     }
+    fn textAlign:RgUiWriter (a:int) {
+        this.propEnum(24 a)
+        return this
+    }
     fn center:RgUiWriter () {
         this.propEnum(22 1)
+        return this
+    }
+    fn textCenter:RgUiWriter () {
+        this.propEnum(24 1)
         return this
     }
 

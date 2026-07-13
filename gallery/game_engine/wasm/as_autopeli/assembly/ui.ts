@@ -86,9 +86,12 @@ const K_HEIGHT: u16 = 11;
 const K_PADDING: u16 = 12;
 const K_MARGIN: u16 = 13;
 const K_BORDER_RADIUS: u16 = 14;
+const K_BORDER_COLOR: u16 = 15;
+const K_BORDER_WIDTH: u16 = 16;
 const K_FLEX_DIRECTION: u16 = 21;
 const K_ALIGN_ITEMS: u16 = 22;
 const K_JUSTIFY: u16 = 23;
+const K_TEXT_ALIGN: u16 = 24;
 
 export const DIR_ROW: u32 = 0;
 export const DIR_COLUMN: u32 = 1;
@@ -240,10 +243,16 @@ export class Ui {
   height(v: i32): Ui { this.propI32(K_HEIGHT, v); return this; }
   background(rgba: u32): Ui { this.propColor(K_BACKGROUND, rgba); return this; }
   radius(v: i32): Ui { this.propI32(K_BORDER_RADIUS, v); return this; }
+  borderColor(rgba: u32): Ui { this.propColor(K_BORDER_COLOR, rgba); return this; }
+  borderWidth(v: i32): Ui { this.propI32(K_BORDER_WIDTH, v); return this; }
+  border(w: i32, rgba: u32): Ui { this.propColor(K_BORDER_COLOR, rgba); this.propI32(K_BORDER_WIDTH, w); return this; }
   alignItems(a: u32): Ui { this.propEnum(K_ALIGN_ITEMS, a); return this; }
   justify(a: u32): Ui { this.propEnum(K_JUSTIFY, a); return this; }
+  textAlign(a: u32): Ui { this.propEnum(K_TEXT_ALIGN, a); return this; }
   // Horizontally centre children of a column (cross-axis center).
   center(): Ui { this.propEnum(K_ALIGN_ITEMS, ALIGN_CENTER); return this; }
+  // Centre this node's own text within its (fixed) width.
+  textCenter(): Ui { this.propEnum(K_TEXT_ALIGN, ALIGN_CENTER); return this; }
 
   // ---- interactivity (fluent, apply to the current node) ----
   // OR a bit into the current node's u16 flags field.
