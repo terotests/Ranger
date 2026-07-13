@@ -1,0 +1,355 @@
+; ==============================================================================
+; WasmUiSelect - render a WASM-authored EVG UI tree + gamepad/keyboard selection.
+; ==============================================================================
+;
+; This is the interactive half of the RGU1 bridge. A WASM (AssemblyScript/Rust)
+; guest builds a flat UI document; the host reads it into an EVGElement tree
+; (see ../scripting/wasm_ui_io.rgr) where each element carries its stable node
+; id. This file:
+;
+;   * WasmUiRenderer   - lays the tree out (EVGLayout + the loaded TTF measurer)
+;                        and draws backgrounds + text onto a SoftCanvas via a
+;                        UIContext (crisp, cached TrueType text).
+;   * UiSelectController- reads which nodes the guest tagged SELECTABLE, tracks a
+;                        selection cursor over them, moves it with the D-pad /
+;                        arrow keys (spatial: nearest selectable node in the
+;                        pressed direction), draws a highlight border around the
+;                        selected node, and reports the action button as an
+;                        activation the host forwards to the guest (rg_ui_event).
+;
+; Pointer-free by design: the whole thing is driven by directional + action
+; button edges (UiNavInput), so it works on a gamepad or keyboard with the
+; engine's existing input - no mouse operator required.
+; ==============================================================================
+
+Import "UIContext.rgr"
+Import "../scripting/wasm_ui_io.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGElement.rgr"
+
+; Directional + action edges for one frame (pressed-this-frame booleans). A
+; platform maps PlayerButtons / keyboard edges onto this - see UI_LAYER.md.
+class UiNavInput {
+    def up:boolean false
+    def down:boolean false
+    def left:boolean false
+    def right:boolean false
+    def action:boolean false
+
+    fn clear:void () {
+        up = false
+        down = false
+        left = false
+        right = false
+        action = false
+    }
+}
+
+; Result of locating a node's laid-out rectangle in the tree.
+class RectHit {
+    def found:boolean false
+    def x:int 0
+    def y:int 0
+    def w:int 0
+    def h:int 0
+}
+
+; -----------------------------------------------------------------------------
+; Renderer: EVGElement tree -> SoftCanvas (via UIContext / TTF).
+; -----------------------------------------------------------------------------
+class WasmUiRenderer {
+    def layout:EVGLayout (new EVGLayout)
+
+    fn layoutTree:void (ctx:UIContext root:EVGElement w:int h:int) {
+        def fw:double (to_double w)
+        def fh:double (to_double h)
+        layout.setPageSize(fw fh)
+        ; use the same TTF metrics for layout and drawing, so wrapping matches
+        layout.setMeasurer(ctx.tr.measurer)
+        root.calculatedX = 0.0
+        root.calculatedY = 0.0
+        if (root.width.isSet == false) {
+            root.width = (EVGUnit.px(fw))
+            root.width.isSet = true
+        }
+        layout.layoutElement(root 0.0 0.0 fw fh)
+    }
+
+    fn draw:void (ctx:UIContext root:EVGElement) {
+        this.drawElement(ctx root)
+    }
+
+    fn drawElement:void (ctx:UIContext el:EVGElement) {
+        def x:int (to_int el.calculatedX)
+        def y:int (to_int el.calculatedY)
+        def rw:int (to_int el.calculatedWidth)
+        def rh:int (to_int el.calculatedHeight)
+
+        if el.backgroundColor.isSet {
+            def ba:double (el.backgroundColor.alpha())
+            if (ba > 0.0) {
+                def ai:int (to_int (ba * 255.0))
+                ctx.fillRectA(x y rw rh (el.backgroundColor.red()) (el.backgroundColor.green()) (el.backgroundColor.blue()) ai)
+            }
+        }
+
+        def txt:string el.textContent
+        if ((strlen txt) > 0) {
+            def fs:double el.inheritedFontSize
+            if el.fontSize.isSet {
+                fs = el.fontSize.pixels
+            }
+            if (fs <= 0.0) {
+                fs = 14.0
+            }
+            def col:EVGColor (EVGColor.rgba((el.color.red()) (el.color.green()) (el.color.blue()) (el.color.alpha())))
+            ctx.text(txt x y fs col)
+        }
+
+        def i 0
+        def n (array_length el.children)
+        while (i < n) {
+            def child:EVGElement (itemAt el.children i)
+            this.drawElement(ctx child)
+            i = (i + 1)
+        }
+    }
+
+    ; Locate a node's laid-out rectangle by its stamped id (string of node id).
+    fn findRect:RectHit (root:EVGElement id:string) {
+        def hit:RectHit (new RectHit)
+        this.findRectInto(root id hit)
+        return hit
+    }
+
+    fn findRectInto:void (el:EVGElement id:string hit:RectHit) {
+        if hit.found { return }
+        if (el.id == id) {
+            hit.found = true
+            hit.x = (to_int el.calculatedX)
+            hit.y = (to_int el.calculatedY)
+            hit.w = (to_int el.calculatedWidth)
+            hit.h = (to_int el.calculatedHeight)
+            return
+        }
+        def i 0
+        def n (array_length el.children)
+        while (i < n) {
+            def child:EVGElement (itemAt el.children i)
+            this.findRectInto(child id hit)
+            if hit.found { return }
+            i = (i + 1)
+        }
+    }
+}
+
+; -----------------------------------------------------------------------------
+; Selection controller: which nodes are selectable, cursor navigation, highlight.
+; -----------------------------------------------------------------------------
+class UiSelectController {
+    def renderer:WasmUiRenderer (new WasmUiRenderer)
+
+    ; selectable set (parallel arrays), rebuilt from the doc + laid-out tree
+    def ids:[int]
+    def rx:[int]
+    def ry:[int]
+    def rw:[int]
+    def rh:[int]
+
+    def selectedId:int 0
+    def selIndex:int 0
+    def borderWidth:int 2
+
+    ; last activation (node id) or -1; set by update() on the action button
+    def lastActivatedId:int 0
+    def didActivate:boolean false
+
+    Constructor () {
+    }
+
+    fn count:int () {
+        return (array_length ids)
+    }
+
+    ; Rebuild the selectable set after (re)building + laying out the tree.
+    ; Keeps the current selection if that node is still selectable; otherwise
+    ; honours the guest's DEFAULT flag; otherwise selects the first one.
+    fn rebuild:void (doc:WasmUiDoc root:EVGElement) {
+        clear ids
+        clear rx
+        clear ry
+        clear rw
+        clear rh
+        def defaultId 0
+        def i 0
+        while (i < doc.nodeCount) {
+            def sel:boolean (doc.nodeIsSelectable(i))
+            def dis:boolean (doc.nodeIsDisabled(i))
+            if sel {
+                if (dis == false) {
+                    def nid (doc.nodeId(i))
+                    def hit:RectHit (renderer.findRect(root (to_string nid)))
+                    if hit.found {
+                        push ids nid
+                        push rx hit.x
+                        push ry hit.y
+                        push rw hit.w
+                        push rh hit.h
+                        if (doc.nodeIsDefault(i)) {
+                            if (defaultId == 0) {
+                                defaultId = nid
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        ; resolve selection
+        def keepIdx (this.indexOfId(selectedId))
+        if (keepIdx >= 0) {
+            selIndex = keepIdx
+            selectedId = (itemAt ids keepIdx)
+            return
+        }
+        if (defaultId != 0) {
+            def di (this.indexOfId(defaultId))
+            if (di >= 0) {
+                selIndex = di
+                selectedId = defaultId
+                return
+            }
+        }
+        if ((array_length ids) > 0) {
+            selIndex = 0
+            selectedId = (itemAt ids 0)
+        } {
+            selIndex = 0
+            selectedId = 0
+        }
+    }
+
+    fn indexOfId:int (id:int) {
+        def i 0
+        def n (array_length ids)
+        while (i < n) {
+            if ((itemAt ids i) == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn iabs:int (v:int) {
+        if (v < 0) { return (0 - v) }
+        return v
+    }
+
+    fn cx:int (i:int) {
+        return ((itemAt rx i) + (to_int ((itemAt rw i) / 2)))
+    }
+    fn cy:int (i:int) {
+        return ((itemAt ry i) + (to_int ((itemAt rh i) / 2)))
+    }
+
+    ; Move the cursor: dir 0=up 1=down 2=left 3=right. Picks the nearest
+    ; selectable node whose centre lies in the pressed direction; if none, wraps
+    ; to the next/previous by list order.
+    fn navigate:void (dir:int) {
+        def n (array_length ids)
+        if (n <= 1) { return }
+        def curIdx selIndex
+        def ccx (this.cx(curIdx))
+        def ccy (this.cy(curIdx))
+
+        def best -1
+        def bestScore 1000000000
+        def i 0
+        while (i < n) {
+            if (i != curIdx) {
+                def ox (this.cx(i))
+                def oy (this.cy(i))
+                def dx (ox - ccx)
+                def dy (oy - ccy)
+                def inDir false
+                def primary 0
+                def secondary 0
+                if (dir == 0) {
+                    if (dy < 0) { inDir = true }
+                    primary = (this.iabs(dy))
+                    secondary = (this.iabs(dx))
+                }
+                if (dir == 1) {
+                    if (dy > 0) { inDir = true }
+                    primary = (this.iabs(dy))
+                    secondary = (this.iabs(dx))
+                }
+                if (dir == 2) {
+                    if (dx < 0) { inDir = true }
+                    primary = (this.iabs(dx))
+                    secondary = (this.iabs(dy))
+                }
+                if (dir == 3) {
+                    if (dx > 0) { inDir = true }
+                    primary = (this.iabs(dx))
+                    secondary = (this.iabs(dy))
+                }
+                if inDir {
+                    def score (primary + (secondary * 3))
+                    if (score < bestScore) {
+                        bestScore = score
+                        best = i
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+
+        if (best >= 0) {
+            selIndex = best
+            selectedId = (itemAt ids best)
+            return
+        }
+        ; no candidate in that direction -> wrap by order along the axis
+        def step 1
+        if (dir == 0) { step = (0 - 1) }
+        if (dir == 2) { step = (0 - 1) }
+        def ni (selIndex + step)
+        while (ni < 0) { ni = (ni + n) }
+        while (ni >= n) { ni = (ni - n) }
+        selIndex = ni
+        selectedId = (itemAt ids ni)
+    }
+
+    ; Consume one frame of nav input. Returns the activated node id, or -1.
+    fn update:int (nav:UiNavInput) {
+        didActivate = false
+        lastActivatedId = -1
+        if nav.up { this.navigate(0) }
+        if nav.down { this.navigate(1) }
+        if nav.left { this.navigate(2) }
+        if nav.right { this.navigate(3) }
+        if nav.action {
+            if ((array_length ids) > 0) {
+                didActivate = true
+                lastActivatedId = selectedId
+                return selectedId
+            }
+        }
+        return -1
+    }
+
+    ; Draw the highlight border around the selected node.
+    fn renderHighlight:void (ctx:UIContext) {
+        if ((array_length ids) == 0) { return }
+        if (selIndex < 0) { return }
+        if (selIndex >= (array_length ids)) { return }
+        def x (itemAt rx selIndex)
+        def y (itemAt ry selIndex)
+        def wdt (itemAt rw selIndex)
+        def hgt (itemAt rh selIndex)
+        def pad 2
+        ctx.strokeRect((x - pad) (y - pad) (wdt + (pad * 2)) (hgt + (pad * 2)) borderWidth ctx.theme.accent)
+    }
+}

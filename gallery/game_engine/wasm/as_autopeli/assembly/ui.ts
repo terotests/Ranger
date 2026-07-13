@@ -58,6 +58,17 @@ const P_VALUE_B: i32 = 8;
 // node kinds
 export const VIEW: u16 = 1;
 export const TEXT: u16 = 2;
+export const BUTTON: u16 = 5;
+
+// node flags (node.flags, u16) — interactivity is opt-in per node
+export const NODEFLAG_SELECTABLE: i32 = 0x0001;
+export const NODEFLAG_DISABLED: i32 = 0x0002;
+export const NODEFLAG_DEFAULT: i32 = 0x0004;
+
+// event mask (node.event_mask, u32) — host->guest callbacks
+export const EVENT_ACTIVATE: u32 = 0x0001;
+export const EVENT_SELECT: u32 = 0x0002;
+export const EVENT_DESELECT: u32 = 0x0004;
 
 // property types
 const T_I32: u8 = 1;
@@ -100,6 +111,9 @@ function wu32(off: i32, v: u32): void {
   UI[off + 1] = <u8>((v >> 8) & 0xff);
   UI[off + 2] = <u8>((v >> 16) & 0xff);
   UI[off + 3] = <u8>((v >> 24) & 0xff);
+}
+function wu32read(off: i32): u32 {
+  return (<u32>UI[off]) | (<u32>UI[off + 1] << 8) | (<u32>UI[off + 2] << 16) | (<u32>UI[off + 3] << 24);
 }
 
 // ---- Per-player HUD state (plain typed struct, like the .tsx state) ----
@@ -209,6 +223,31 @@ export class Ui {
   column(): Ui { this.propEnum(K_FLEX_DIRECTION, DIR_COLUMN); return this; }
   padding(v: i32): Ui { this.propI32(K_PADDING, v); return this; }
 
+  // ---- interactivity (fluent, apply to the current node) ----
+  // OR a bit into the current node's u16 flags field.
+  private orFlags(bit: i32): void {
+    if (this.nodeCount == 0) return;
+    const off = this.curNode + N_FLAGS;
+    const cur = <i32>UI[off] | (<i32>UI[off + 1] << 8);
+    wu16(off, cur | bit);
+  }
+  // OR a bit into the current node's u32 event_mask field.
+  private orEvent(bit: u32): void {
+    if (this.nodeCount == 0) return;
+    const off = this.curNode + N_EVENT_MASK;
+    const cur = wu32read(off);
+    wu32(off, cur | bit);
+  }
+
+  // Mark the current node selectable by the host's D-pad/keyboard cursor.
+  selectable(): Ui { this.orFlags(NODEFLAG_SELECTABLE); return this; }
+  // Mark it the initial selection (host picks it on the first frame).
+  defaultSelected(): Ui { this.orFlags(NODEFLAG_DEFAULT); return this; }
+  // Skip in navigation and render dimmed.
+  disabled(): Ui { this.orFlags(NODEFLAG_DISABLED); return this; }
+  // Subscribe to the ACTIVATE callback (action button while selected).
+  onActivate(): Ui { this.selectable(); this.orEvent(EVENT_ACTIVATE); return this; }
+
   // Emit a complete TEXT node (text -> font-size -> color, fixed order).
   // `fontSize` is a defaulted parameter: old call sites keep the RGU1 8px look,
   // new games can override without any signature break.
@@ -217,6 +256,16 @@ export class Ui {
     this.propStr(K_TEXT, s);
     this.propI32(K_FONT_SIZE, fontSize);
     this.propColor(K_COLOR, color);
+  }
+
+  // Like label(), but a BUTTON node that RETURNS the builder so interactivity
+  // chains fluently: `ui.button(...).onActivate().defaultSelected()`.
+  button(id: u32, parent: u32, order: u16, s: string, color: u32, fontSize: i32 = DEFAULT_FONT_SIZE): Ui {
+    this.node(id, parent, BUTTON, order);
+    this.propStr(K_TEXT, s);
+    this.propI32(K_FONT_SIZE, fontSize);
+    this.propColor(K_COLOR, color);
+    return this;
   }
 
   finish(revision: u32): void {

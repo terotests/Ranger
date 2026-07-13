@@ -111,10 +111,52 @@ enum RgUiNodeKind {
     RG_UI_TEXT         = 2,
     RG_UI_IMAGE        = 3,
     RG_UI_PROGRESS_BAR = 4,
-    RG_UI_BUTTON       = 5,  /* reserved for Phase 3 (interactive)            */
+    RG_UI_BUTTON       = 5,  /* interactive: focusable + activatable (Phase 3) */
     RG_UI_SPACER       = 6,
     RG_UI_CUSTOM       = 100
 };
+
+/* ---- Node flags (node.flags, u16) -------------------------------------- */
+/* Interactivity is opt-in per node: the guest tags which nodes the host may
+ * select, and the host drives selection with the gamepad/keyboard D-pad (no
+ * pointer required). See "Selection & activation" below. */
+#define RG_UI_NODEFLAG_SELECTABLE  0x0001u  /* host may move the cursor here   */
+#define RG_UI_NODEFLAG_DISABLED    0x0002u  /* skip in navigation, dim it      */
+#define RG_UI_NODEFLAG_DEFAULT     0x0004u  /* initial selection on first frame*/
+
+/* ---- Event mask (node.event_mask, u32) --------------------------------- */
+/* Which host->guest events a node wants. The host only calls back for nodes
+ * that subscribe, so a plain label costs nothing. */
+#define RG_UI_EVENT_ACTIVATE  0x0001u  /* action button pressed while selected */
+#define RG_UI_EVENT_SELECT    0x0002u  /* selection cursor moved onto the node */
+#define RG_UI_EVENT_DESELECT  0x0004u  /* selection cursor left the node       */
+
+/* ---- Selection & activation (host -> guest) ----------------------------
+ * The RGU1 document is guest->host (the guest builds it, the host renders it).
+ * Selection navigation and "button recognition" flow back the other way via an
+ * OPTIONAL guest export the host calls when something happens:
+ *
+ *     void rg_ui_event(uint32_t node_id, uint32_t event, uint32_t value);
+ *
+ *   event  = one of RG_UI_EVENT_* (ACTIVATE / SELECT / DESELECT)
+ *   value  = event-specific payload (0 for ACTIVATE; reserved otherwise)
+ *
+ * Flow each frame:
+ *   1. Guest builds the document, tagging selectable nodes with
+ *      RG_UI_NODEFLAG_SELECTABLE and (optionally) RG_UI_NODEFLAG_DEFAULT, and
+ *      subscribing to RG_UI_EVENT_ACTIVATE on the ones that react to a press.
+ *   2. Host reads the doc, lays it out, and tracks a selection cursor over the
+ *      selectable nodes. The D-pad / arrow keys move it (spatially: nearest
+ *      selectable node in the pressed direction); the host draws a highlight
+ *      border around the selected node.
+ *   3. On the action button, if the selected node subscribed to ACTIVATE, the
+ *      host calls rg_ui_event(selected_id, RG_UI_EVENT_ACTIVATE, 0). The guest
+ *      reacts (e.g. changes state) and the next document reflects it.
+ *
+ * If the guest does not export rg_ui_event, the host still navigates and
+ * highlights; activation is simply not delivered. Selection state lives on the
+ * HOST (keyed by stable node id) so it survives document rebuilds.
+ */
 
 /* ---- Property (16 bytes) ----------------------------------------------- */
 #define RG_UI_PROP_OFF_KEY      0   /* u16 RgUiPropertyKey                    */

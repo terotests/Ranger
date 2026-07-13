@@ -164,6 +164,68 @@ isolated:
 
 None of that touches the widget/logic code here.
 
+## WASM-driven selectable UI (gamepad / keyboard, no pointer)
+
+The widgets above are host-authored and pointer-driven. A second, complementary
+path lets a **WASM guest** (AssemblyScript / Rust) declare the UI and mark which
+elements are selectable, with the host driving **selection by gamepad/keyboard**
+and reporting the action button back to the guest. This rides the existing
+**RGU1** retained-mode bridge (`../wasm/wasm_ui_abi.h`, host reader
+`../scripting/wasm_ui_io.rgr`).
+
+```
+  WASM guest (AS/Rust)                 Host (Ranger)
+  ─────────────────────                ─────────────
+  ui.button(20,…,"New Game")           WasmUiDoc.loadFromWasm() ─┐
+    .onActivate()                      WasmUiEvgBuilder.build()  │ EVG tree
+    .defaultSelected();          ────► WasmUiRenderer (TTF)      │ (el.id = node id)
+  ui.label(90,…,"plays: 0");           UiSelectController         │
+  ui.finish(rev);                        · collect SELECTABLE nodes + rects
+                                         · D-pad moves the cursor (spatial)
+                                         · draw highlight border
+        ▲                                · action button ─────────┐
+        └── rg_ui_event(id, ACTIVATE) ◄───────────────────────────┘
+            guest reacts, bumps revision, rebuilds
+```
+
+**ABI additions** (`wasm_ui_abi.h`): node `flags` bits `SELECTABLE` / `DISABLED`
+/ `DEFAULT`, `event_mask` bits `ACTIVATE` / `SELECT` / `DESELECT`, and the
+optional guest export `rg_ui_event(node_id, event, value)`. The AS builder
+(`../wasm/as_autopeli/assembly/ui.ts`) gains fluent `.selectable()`,
+`.onActivate()`, `.defaultSelected()`, `.disabled()` and a `button()` opener.
+
+**Host pieces** (`ui/`):
+* `WasmUiSelect.rgr` — `WasmUiRenderer` (EVG tree → SoftCanvas with cached TTF
+  text) + `UiSelectController` (collect selectable nodes, D-pad navigation,
+  highlight border, activation). Driven by `UiNavInput` (up/down/left/right/
+  action edges), so it runs on the engine's existing button/gamepad input — **no
+  mouse operator needed**. Selection lives on the host, keyed by stable node id,
+  so it survives document rebuilds.
+* `RgUiWriter.rgr` — authors RGU1 bytes from Ranger (host-side authoring, and the
+  test oracle that lets the whole path run without a WASM engine in the es6 dev
+  build).
+
+**Examples & tests:**
+
+```bash
+npm run engine:ui:wasm-select   # host demo: render + navigate + activate (8 checks)
+                                # writes wasm_select_1_start / _2_nav / _3_activated.png
+npm run engine:ui:wasm-guest    # builds the AS guest .wasm, instantiates it, checks
+                                # the emitted flags + the activation round-trip (10 checks)
+```
+
+The AS guest is `../wasm/as_ui_menu/` (a selectable text menu; activating
+"New Game" bumps a counter the next document shows). `wasm_ui_select_demo.rgr`
+authors the same document on the host, navigates it with a scripted D-pad
+stream, activates the selection, and emulates the guest's `rg_ui_event` rebuild —
+proving reader → EVG tree → layout → selection → highlight → activation.
+
+> Native wiring: on the SDL/native target the host calls `rg_ui_ptr/size/
+> revision` via `wasm_call_i32` to pull the document (the es6 dev build stubs
+> these), and calls the guest's `rg_ui_event` export on activation. The D-pad
+> comes from the engine's existing `PlayerButtons`; map its up/down/left/right/
+> action edges onto `UiNavInput`.
+
 ## Roadmap / next
 
 * **SVG paths** — `EVGElement` already carries `svgPath` and there is a
