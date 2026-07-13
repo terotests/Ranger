@@ -102,6 +102,7 @@
     "engine:ui:wasm-guest": "bash gallery/game_engine/wasm/as_ui_menu/build.sh && node gallery/game_engine/wasm/as_ui_menu/tools/parity.cjs",
     "engine:ui:game": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/game_engine/scripting/ui_menu_runner_demo.rgr -d=./gallery/game_engine/scripting -o=ui_menu_runner_demo.js -nodecli && node ./gallery/game_engine/scripting/ui_menu_runner_demo.js",
     "engine:ui:as": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/game_engine/scripting/as_ui_menu_src_demo.rgr -d=./gallery/game_engine/scripting -o=as_ui_menu_src_demo.js -nodecli && node ./gallery/game_engine/scripting/as_ui_menu_src_demo.js",
+    "engine:ui:anim": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/game_engine/ui/ui_anim_demo.rgr -d=./gallery/game_engine/ui -o=ui_anim_demo.js -nodecli && node ./gallery/game_engine/ui/ui_anim_demo.js",
     "engine:compile:sdl": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -l=cpp ./gallery/game_engine/pong_sdl.rgr -d=./gallery/game_engine -o=pong_sdl.cpp -nodecli",
     "engine:sdl": "bash gallery/game_engine/scripts/build-sdl.sh",
     "engine:sdl:run": "bash gallery/game_engine/scripts/build-sdl.sh --run",
