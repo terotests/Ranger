@@ -5,7 +5,18 @@ const path = require('path');
 const wasmPath = path.join(__dirname, '..', 'build', 'logic.wasm');
 const bytes = fs.readFileSync(wasmPath);
 const mod = new WebAssembly.Module(bytes);
-const inst = new WebAssembly.Instance(mod, {});
+// The guest imports env.rg_ui_effect to trigger host-run UI effects. The real
+// host queues these and drives its UIAnimator; here we just record them so we
+// can assert the guest requests an effect on activation.
+const fxCalls = [];
+const imports = {
+  env: {
+    rg_ui_effect: (kind, target, node, durMs, delayMs, r, g, b, tag) => {
+      fxCalls.push({ kind, target, node, durMs, delayMs, r, g, b, tag });
+    },
+  },
+};
+const inst = new WebAssembly.Instance(mod, imports);
 const e = inst.exports;
 const mem = new Uint8Array(e.memory.buffer);
 const dv = () => new DataView(e.memory.buffer);
@@ -57,6 +68,18 @@ ok('plays starts 0', e.plays() === 0);
 e.rg_ui_event(20, 0x0001, 0);
 ok('plays incremented after activate', e.plays() === 1);
 ok('revision bumped', e.rg_ui_revision() === rev0 + 1);
+
+// New Game (20) requests a white node glow that navigates on completion (tag 1).
+ok('activation requested one effect', fxCalls.length === 1);
+const fx = fxCalls[0] || {};
+ok('effect is a glow (kind 1)', fx.kind === 1);
+ok('effect targets the node (target 0)', fx.target === 0);
+ok('effect targets New Game (node 20)', fx.node === 20);
+ok('effect carries the navigate tag (1)', fx.tag === 1);
+
+// The host now reports the effect finished; the guest navigates (NAVS++).
+e.rg_ui_effect_done(fx.node, fx.tag);
+ok('navigation fired on completion', e.navs() === 1);
 
 console.log('RESULT: ' + pass + ' passed, ' + fail + ' failed');
 console.log(fail === 0 ? 'ALL PASS' : 'SOME FAILED');
