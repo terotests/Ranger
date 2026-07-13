@@ -357,6 +357,32 @@ kytkentä [`game_entity_store.rgr`](./scripting/game_entity_store.rgr) `syncEnti
   13-kohtainen `cullsEntity`-yksikkötesti es6:lla (disabled=no-op, in-view, edge-margin, far-cull,
   kamera-relatiivinen pan, iso-sprite-suoja, solumatikka) → `ALL_OK`.
 | **S2** | Resurssi-ABI + observaatio + referenssi-worker | host-primitiivit `rg_res_begin/commit/free/lookup` (R5-kahvat); RGO1-observaatio-lohko (kamera+world **+** wishlist); worker-kontrakti `rg_worker_init/tick/shutdown`; **synkroninen** referenssi-worker (solu-streamer) saman ABI:n päällä (ei threadeja vielä) | headless: referenssi-worker lataa solun assetit kun kamera saapuu; peli voi korvata workerin; observaation molemmat kanavat toimivat | matala–keski |
+
+### S2 — WASM-worker-vertikaali valmis (heinäkuu 2026): ✅ **culling + load-politiikka WASM:ssa**
+
+Toteutettu aitona WASM-guestina samalla wasm3-sillalla kuin autopeli (RGW1). Todistaa ABI-mallin
+(§0b) päästä päähän ennen threadeja (S3).
+
+- **Guest:** [`wasm/rust_worker/`](./wasm/rust_worker/) (Rust → `games/streaming_worker/worker.wasm`,
+  ~5,3 KB). Omistaa kiinteän **RGX1**-lineaari­lohkon (magic `0x31584752`, versio, revision;
+  `worker_ptr/size/revision` kuten RGU1). Host kirjoittaa observaation (kamera + world-grid + entiteetit)
+  ja lukee tulokset offseteilla — bulk read/write, ei opcodeja.
+- **Culling WASM:ssa:** `worker_tick` merkitsee per-entiteetti näkyvyyslipun (kamera-AABB + `cullMargin
+  + max(w,h)`, konservatiivinen) → dimensio-agnostinen (mikään ei sano "2D").
+- **Load-politiikka WASM:ssa:** kamera-solusta (view-keskipiste) johdettu residenssirengas hystereesillä
+  — `preloadRadius`-solut ladataan, `retireRadius`-solut (Chebyshev) vapautetaan; `retire > preload`
+  estää vilkun solurajalla. Ladatut solut guestin staattisessa tilassa.
+- **Host omistaa materialisoinnin:** demo drainaa worker-pyynnöt mock-resurssikahvoiksi (oikea engine:
+  `rg_res_*` + GL-upload). *Politiikka* WASM:ssa, *materialisointi* hostilla.
+- **Demo + verifiointi:** [`wasm/rust_worker/host_demo.c`](./wasm/rust_worker/host_demo.c) ajaa workerin
+  kameralla joka panoroi 6×1-maailman poikki; tulostaa per-frame culling + solu-load/free -jäljen ja
+  assertoi (entiteettejä culled, soluja ladataan edeltä, vapautetaan takaa) → `WORKER_DEMO_OK`.
+  Aja: `npm run engine:wasm:demo:worker`.
+- **Sivutuote:** paljasti + korjattiin `runtime/rg_wasm_bridge.c`:n teardown-double-free (wasm3
+  moduuli-omistajuus) — erillinen commit; wasm-pong-demo + game-sdl regressioverifioitu.
+- **Avoin (S2:n loppuosa):** `rg_res_*`-primitiivit host-import-funktioina sillassa (nyt worker emittoi
+  pyynnöt lohkoon, host drainaa — RGW1/RGU1-linjassa); RGO1 erillisenä observaatio-lohkona (nyt osa
+  RGX1:tä); worker-kontraktin kytkentä `game_runtime`-render-silmukkaan.
 | **S3** | Rinnakkainen decode/gen | worker host-threadilla (`std::thread`/`SDL_Thread` ajaa WASM:n, §10.5); decode/gen off-frame; GL-upload render-threadilla; refcount-vapautus | natiivi: iso solunvaihto ei pudota FPS:ää (profiili); `RANGER_STREAM_ASYNC=0` = synkroninen fallback (bisect) | **keski–korkea** (threadit, GL-thread-raja) |
 | **S4** | Suunta-prefetch + web | preload-AABB biasoitu nopeudella; `es6` Web Worker + `createImageBitmap` | nopea kamera: solu valmis ennen ruutua; web-parity | keski |
 | **S5** | Sim-säde + determinismi | erillinen sim- vs render-säde; off-screen coarse tick; determinismivartija | cross-target hash (Mac↔Pi↔es6) sama striimauksesta riippumatta | keski |
