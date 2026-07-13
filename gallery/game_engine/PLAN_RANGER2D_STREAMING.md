@@ -378,6 +378,13 @@ Toteutettu aitona WASM-guestina samalla wasm3-sillalla kuin autopeli (RGW1). Tod
   kameralla joka panoroi 6×1-maailman poikki; tulostaa per-frame culling + solu-load/free -jäljen ja
   assertoi (entiteettejä culled, soluja ladataan edeltä, vapautetaan takaa) → `WORKER_DEMO_OK`.
   Aja: `npm run engine:wasm:demo:worker`.
+- **Guest voi ladata workerin (uusi host-importti):** `env.rg_spawn_worker(pathPtr, pathLen) -> i32`
+  ([`rg_wasm_bridge.c`](../../../runtime/rg_wasm_bridge.c)) — se metodi jolla peli-guest (käytännössä
+  AS) delegoi resurssien latauksen omasta WASM-koodistaan. Rajoitukset tässä vaiheessa hostin
+  valvomana: **enintään yksi worker per moduuli** (2. kutsu → 0) ja **ladattu worker ei saa ladata
+  lisää** (spawnattu → 0). Verifioitu [`spawn_demo.c`](./wasm/rust_worker/spawn_demo.c):
+  `npm run engine:wasm:demo:worker-spawn` → `SPAWN_DEMO_OK` (1. spawn onnistuu, 2. estetty,
+  lapsen spawn estetty).
 - **Sivutuote:** paljasti + korjattiin `runtime/rg_wasm_bridge.c`:n teardown-double-free (wasm3
   moduuli-omistajuus) — erillinen commit; wasm-pong-demo + game-sdl regressioverifioitu.
 - **Avoin (S2:n loppuosa):** `rg_res_*`-primitiivit host-import-funktioina sillassa (nyt worker emittoi

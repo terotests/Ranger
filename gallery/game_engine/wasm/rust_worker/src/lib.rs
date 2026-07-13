@@ -62,6 +62,27 @@ pub const MAX_REQ: i32 = 32;
 
 pub const RGX1_SIZE: i32 = 2560;
 
+// Host import: load ONE resource-loader worker from guest code (the method a
+// game guest — in practice AS — uses to delegate resource loading). The host
+// enforces the limits: at most one worker per module, and a spawned worker may
+// not call this successfully (returns 0). See runtime/rg_wasm_bridge.c.
+extern "C" {
+    fn rg_spawn_worker(path_ptr: i32, path_len: i32) -> i32;
+}
+
+// Path of the worker to spawn as the resource loader. For the demo the loader
+// is this same module (RGX1), which is enough to exercise the spawn capability
+// and its limits; a real game would point this at a dedicated loader module.
+static CHILD_PATH: &[u8] = b"gallery/game_engine/games/streaming_worker/worker.wasm";
+
+/// Spawn the resource-loader worker. Returns the child handle (>0) on success,
+/// or 0 when the host denies it (already spawned one, or this module is itself
+/// a spawned worker). Exposed so a host/game can drive the delegation.
+#[no_mangle]
+pub extern "C" fn spawn_loader() -> i32 {
+    unsafe { rg_spawn_worker(CHILD_PATH.as_ptr() as i32, CHILD_PATH.len() as i32) }
+}
+
 static mut BLOCK: [u8; 2560] = [0u8; 2560];
 
 // Guest-owned residency state: the set of cells currently considered loaded.

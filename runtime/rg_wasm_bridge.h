@@ -19,6 +19,11 @@ void rg_wasm_call_void(int handle, const char* name, int nargs,
 uint32_t rg_wasm_mem_size(int handle);
 int32_t rg_wasm_abi_base(int handle);
 
+/* Handle of the single worker a module spawned via the env.rg_spawn_worker
+ * host import (0 = none). A host-loaded module may spawn one worker; a spawned
+ * worker may not spawn further workers. */
+int rg_wasm_spawned_child(int handle);
+
 int32_t rg_wasm_mem_read_i32(int handle, uint32_t off);
 void rg_wasm_mem_write_i32(int handle, uint32_t off, int32_t val);
 

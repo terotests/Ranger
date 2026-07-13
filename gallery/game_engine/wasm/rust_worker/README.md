@@ -44,11 +44,27 @@ The guest owns a fixed 2560-byte linear block (magic `RGX1`, versioned, with a
 Loaded cells are tracked in guest static state, so the diff is stable frame to
 frame.
 
+## Spawning the loader from guest code
+
+A game guest (in practice AssemblyScript) can delegate resource loading by
+**spawning one worker from its own WASM code**, via the host import
+`env.rg_spawn_worker(pathPtr, pathLen) -> i32` (see `runtime/rg_wasm_bridge.c`).
+This module exposes `spawn_loader()` to exercise it. The host enforces the
+limits for this stage:
+
+- a module may spawn **at most one** worker (a second call returns 0);
+- a **spawned worker may not spawn further workers** (returns 0) — the loader is
+  single and non-recursive.
+
+`spawn_demo.c` verifies all three: first spawn succeeds, second is denied, and
+the spawned worker's own spawn attempt is denied.
+
 ## Build & run
 
 ```bash
-npm run engine:wasm:build:worker    # cargo build -> games/streaming_worker/worker.wasm
-npm run engine:wasm:demo:worker     # build worker + C host harness, run headless
+npm run engine:wasm:build:worker       # cargo build -> games/streaming_worker/worker.wasm
+npm run engine:wasm:demo:worker        # culling + load/free trace -> WORKER_DEMO_OK
+npm run engine:wasm:demo:worker-spawn  # guest spawns one loader (+ limits) -> SPAWN_DEMO_OK
 ```
 
 The demo (`host_demo.c`) drives `worker.wasm` over the wasm3 bridge with a camera
