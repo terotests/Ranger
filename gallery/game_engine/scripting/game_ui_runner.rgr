@@ -76,6 +76,11 @@ class GameUiRunner {
     fn init:void (width:int height:int fontDir:string fontRelPath:string family:string) {
         w = width
         h = height
+        ; start in a clean mode: this runner is reused across the launcher menu (.as)
+        ; and launched engine=ui games (wasm or .as), so reset the backend flags —
+        ; loadWasm/loadAs set them again, and setMenuCatalog re-enables injection.
+        useAs = false
+        hasMenuCatalog = false
         canvas.init(width height)
         ctx.attach(canvas)
         if ((strlen fontDir) > 0) {
@@ -97,6 +102,12 @@ class GameUiRunner {
 
     ; --- native path: instantiate the wasm guest --------------------------------
     fn loadWasm:boolean (wasmPath:string) {
+        ; this runner may be reused after an interpreted .as guest (the launcher
+        ; menu), which set useAs=true; a compiled wasm guest drives itself, so
+        ; clear the flag or frame()/render() would take the .as path and the game
+        ; would never run (appears hung).
+        useAs = false
+        hasMenuCatalog = false
         handle = (wasm_load wasmPath)
         if (handle <= 0) {
             return false
