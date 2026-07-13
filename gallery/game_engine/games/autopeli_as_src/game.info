@@ -6,3 +6,5 @@ physics=true
 assets=assets
 splitScreen=auto
 autoscale=true
+
+category=Tests

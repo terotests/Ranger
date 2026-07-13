@@ -37,6 +37,10 @@ class GameCatalogEntry {
     def abi:string "getter"
     ; physics: true | false — host runs GamePhysics; WASM writes controls via ABI.
     def physics:string "false"
+    ; category: which top-level launcher group this entry lands in ("Games",
+    ; "Tests", ...). Set by `category=` in game.info; when omitted the catalog
+    ; infers one (engine=ui/as demos -> Tests, everything else -> Games).
+    def category:string ""
 }
 
 class GameCatalog {
@@ -61,6 +65,59 @@ class GameCatalog {
             return fail
         }
         return (itemAt entries idx)
+    }
+
+    ; Distinct category names in catalog order (first-seen), so the launcher can
+    ; build one top-level tile per group. "Games" is forced first when present so
+    ; the front page always leads with the real games.
+    fn categories:[string] () {
+        def cats:[string]
+        def i:int 0
+        while (i < (array_length entries)) {
+            def e:GameCatalogEntry (itemAt entries i)
+            def c:string e.category
+            if ((strlen c) > 0) {
+                def seen:boolean false
+                def j:int 0
+                while (j < (array_length cats)) {
+                    if ((itemAt cats j) == c) { seen = true }
+                    j = (j + 1)
+                }
+                if (seen == false) { push cats c }
+            }
+            i = (i + 1)
+        }
+        ; force "Games" to the front if present
+        def ordered:[string]
+        def k:int 0
+        while (k < (array_length cats)) {
+            if ((itemAt cats k) == "Games") { push ordered "Games" }
+            k = (k + 1)
+        }
+        def m:int 0
+        while (m < (array_length cats)) {
+            def cc:string (itemAt cats m)
+            if (cc != "Games") { push ordered cc }
+            m = (m + 1)
+        }
+        return ordered
+    }
+
+    ; All entries whose category matches (in catalog order).
+    fn entriesInCategory:[GameCatalogEntry] (cat:string) {
+        def out:[GameCatalogEntry]
+        def i:int 0
+        while (i < (array_length entries)) {
+            def e:GameCatalogEntry (itemAt entries i)
+            if (e.category == cat) { push out e }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Count of entries in a category (convenience for tile subtitles).
+    fn categoryCount:int (cat:string) {
+        return (array_length (this.entriesInCategory(cat)))
     }
 
     fn trim:string (s:string) {
@@ -176,6 +233,9 @@ class GameCatalog {
         if (key == "physics") {
             entry.physics = val
         }
+        if (key == "category") {
+            entry.category = val
+        }
     }
 
     fn readMetadata:void (entry:GameCatalogEntry) {
@@ -191,6 +251,19 @@ class GameCatalog {
         }
         if ((strlen entry.title) == 0) {
             entry.title = entry.id
+        }
+        ; default category when game.info doesn't declare one: engine=ui menus and
+        ; engine=as interpreted sources are demos/tests; everything else is a game.
+        if ((strlen entry.category) == 0) {
+            if (entry.engine == "ui") {
+                entry.category = "Tests"
+            } {
+                if (entry.engine == "as") {
+                    entry.category = "Tests"
+                } {
+                    entry.category = "Games"
+                }
+            }
         }
         if (entry.engine == "tsx") {
             entry.entryPath = (this.joinPath(entry.dir entry.entryFile))
@@ -377,6 +450,8 @@ class GameCatalog {
             push vals (EvalValue.string(e.entryPath))
             push keys "engine"
             push vals (EvalValue.string(e.engine))
+            push keys "category"
+            push vals (EvalValue.string(e.category))
             if ((strlen e.iconPath) > 0) {
                 push keys "icon"
                 push vals (EvalValue.string(e.iconPath))
