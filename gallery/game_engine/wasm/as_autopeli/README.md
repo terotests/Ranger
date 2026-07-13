@@ -17,13 +17,41 @@ language produced the `.wasm`.
 
 | File | Role | Rust counterpart |
 |------|------|------------------|
-| `assembly/abi.ts` | RGW1 bridge: constants, `rd/wr`, body/control/contact accessors, `isPlayer/isWall/…` | `rust_autopeli/src/lib.rs` (top half) |
+| `assembly/abi.ts` | RGW1 bridge: raw `rd/wr` + the **object header** (`World`/`Body`/`Contact`/`Impulses`/`Events` + `Road`/`Vec2`/`Drive`/`ConeLaunch`) | `rust_autopeli/src/lib.rs` (top half) |
 | `assembly/ui.ts`  | RGU1 bridge: `Doc` builder + `buildHud()` | `rust_autopeli/src/ui.rs` |
 | `assembly/index.ts` | the game: `init` / `update`, traffic AI, contacts → HUD | `rust_autopeli/src/lib.rs` |
 
 The `abi.ts` + `ui.ts` pair is the reusable **SDK** — the AssemblyScript
 equivalent of the Rust guest's ABI helpers. New AS games import them and never
 touch raw offsets.
+
+### The object header (`abi.ts`)
+
+The bottom half of `abi.ts` is a thin **object layer** over the raw
+offsets+`rd/wr` primitives, so gameplay code in `index.ts` reads in objects the
+way the original `.tsx` reducer does — not in scratch globals and index calls:
+
+```ts
+// before (low-level)                     // after (object header)
+roadAt(y); const cx = RCX, h = RHALF;     const r = roadAt(y); r.center, r.half
+bodyX(BODY_P1); bodyY(BODY_P1);           P1.x; P1.y
+writeControl(0, s, t, b, grip);           P1.control(s, t, b, grip);
+contactBodyA(ci); contactPhase(ci);       contact.i = ci; contact.bodyA; contact.phase
+IMP_CNT = 0; appendImpulse(id,0,0,a);     impulses.reset(); impulses.angular(id, a);
+pushEvent(EVT_SOUND, id, 0,0,0);          events.sound(id);
+rd(OFF_HITS); wr(OFF_SCORE, v);           world.hits; world.score = v;
+```
+
+Two properties keep this safe on the WASM path:
+
+- **Same emitted arithmetic.** The views are thin getters/setters over the same
+  `rd/wr`, so the numbers reaching the ABI are identical to the low-level
+  version — verified byte-for-byte (see below).
+- **Zero per-frame allocation.** Every object is a module-scope singleton, and
+  the value structs (`road`/`vel`/`drive`/`coneLaunch`) are mutated-and-returned
+  rather than freshly allocated, so `--runtime minimal` (no GC) never grows
+  memory. The one rule: copy a returned value struct's fields into locals before
+  calling the same producer again (the game code already does).
 
 ## Build & run
 
@@ -118,4 +146,15 @@ i32/f64 results, same impulses, same HUD. Re-run the check with:
 node gallery/game_engine/wasm/as_autopeli/tools/parity.cjs \
   gallery/game_engine/wasm/rust_autopeli/target/wasm32-unknown-unknown/release/rust_autopeli.wasm \
   gallery/game_engine/games/autopeli_as/logic.wasm
+```
+
+When refactoring the AS guest (e.g. moving code onto the object header) you can
+prove the change is behaviour-preserving **without** rebuilding the Rust guest,
+by comparing two AS builds against each other over the same drive+contacts:
+
+```bash
+# keep a pre-change build, then compare the new one against it
+node gallery/game_engine/wasm/as_autopeli/tools/selfcheck.cjs \
+  build/baseline.wasm gallery/game_engine/games/autopeli_as/logic.wasm
+# → 10/10 regions identical — IDENTICAL BEHAVIOUR
 ```
