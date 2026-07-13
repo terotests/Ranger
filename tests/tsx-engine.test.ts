@@ -52,4 +52,35 @@ describe("TSX engine - ComponentEngine regressions", () => {
     expect(out).toContain("importChain=7");
     expect(out).toContain("import-chain-demo done");
   });
+
+  it("runs interpreted-.as language features (operators, control flow, stdlib)", () => {
+    const { compile, run } = compileAndRun(
+      "gallery/game_engine/tests/interp/as_lang_demo.rgr"
+    );
+
+    expect(
+      compile.success,
+      `Compile failed: ${compile.error || compile.output}`
+    ).toBe(true);
+    expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+
+    const out = run?.output || "";
+    expect(out, out).toContain("ALL PASS");
+    expect(out).not.toContain("SOME FAILED");
+  });
+
+  it("runs interpreted-.as class features (this, chaining, callbacks)", () => {
+    const { compile, run } = compileAndRun(
+      "gallery/game_engine/tests/interp/as_class_demo.rgr"
+    );
+
+    expect(
+      compile.success,
+      `Compile failed: ${compile.error || compile.output}`
+    ).toBe(true);
+    expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+
+    const out = run?.output || "";
+    expect(out, out).toContain("ALL PASS");
+  });
 });

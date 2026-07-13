@@ -1629,7 +1629,178 @@ class ComponentEngine {
         loopBreak = savedBreak
         loopContinue = savedContinue
     }
-    
+
+    ; switch(disc){ case v: ... [break] ; default: ... }. JS fall-through: once a
+    ; case matches (or default, if none match) execution runs from there onward
+    ; until a break/return/continue. `break` ends the switch (consumed here);
+    ; `continue`/`return` propagate to the enclosing loop/function.
+    fn runSwitchStatementValue:void (stmt:TSNode) {
+        def savedBreak:boolean loopBreak
+        loopBreak = false
+        def disc:EvalValue (EvalValue.null())
+        if stmt.left {
+            disc = (this.evaluateExpr((unwrap stmt.left)))
+        }
+        def n:int (array_length stmt.children)
+        def matchIdx:int (0 - 1)
+        def defaultIdx:int (0 - 1)
+        def ci:int 0
+        while (ci < n) {
+            def caseNode:TSNode (itemAt stmt.children ci)
+            if (caseNode.kind == "default") {
+                defaultIdx = ci
+            } {
+                if caseNode.left {
+                    def testVal:EvalValue (this.evaluateExpr((unwrap caseNode.left)))
+                    if (disc.equals(testVal)) {
+                        if (matchIdx < 0) {
+                            matchIdx = ci
+                        }
+                    }
+                }
+            }
+            ci = (ci + 1)
+        }
+        def startIdx:int matchIdx
+        if (startIdx < 0) {
+            startIdx = defaultIdx
+        }
+        if (startIdx >= 0) {
+            def si:int startIdx
+            def running:boolean true
+            while ((si < n) && running) {
+                def cn:TSNode (itemAt stmt.children si)
+                this.runStatementList(cn.children)
+                if scriptDidReturn {
+                    running = false
+                } {
+                    if loopBreak {
+                        running = false
+                    } {
+                        if loopContinue {
+                            running = false
+                        } {
+                            si = (si + 1)
+                        }
+                    }
+                }
+            }
+        }
+        ; Consume a switch-level break only; leave continue/return for the caller.
+        if loopBreak {
+            loopBreak = savedBreak
+        }
+    }
+
+    ; do { body } while (test) — body runs at least once.
+    fn runDoWhileStatementValue:void (stmt:TSNode) {
+        def savedBreak:boolean loopBreak
+        def savedContinue:boolean loopContinue
+        loopBreak = false
+        loopContinue = false
+        def maxIterations:int 100000
+        def iterations:int 0
+        def looping:boolean true
+        while ((iterations < maxIterations) && looping) {
+            if scriptDidReturn {
+                looping = false
+            } {
+                loopContinue = false
+                if stmt.body {
+                    this.runBlockOrStatement((unwrap stmt.body))
+                }
+                if scriptDidReturn {
+                    looping = false
+                } {
+                    if loopBreak {
+                        looping = false
+                    } {
+                        def proceed:boolean false
+                        if stmt.left {
+                            def testResult:EvalValue (this.evaluateExpr((unwrap stmt.left)))
+                            if (testResult.toBool()) {
+                                proceed = true
+                            }
+                        }
+                        if (proceed == false) {
+                            looping = false
+                        } {
+                            iterations = (iterations + 1)
+                        }
+                    }
+                }
+            }
+        }
+        loopBreak = savedBreak
+        loopContinue = savedContinue
+    }
+
+    ; for (k in obj/array) — iterates string keys of an object, or index strings
+    ; ("0","1",...) of an array, matching JS for-in.
+    fn runForInStatementValue:void (stmt:TSNode) {
+        def savedBreak:boolean loopBreak
+        def savedContinue:boolean loopContinue
+        loopBreak = false
+        loopContinue = false
+        def varName:string ""
+        if stmt.left {
+            def leftNode:TSNode (unwrap stmt.left)
+            if (leftNode.nodeType == "VariableDeclaration") {
+                if ((array_length leftNode.children) > 0) {
+                    def decl:TSNode (itemAt leftNode.children 0)
+                    varName = decl.name
+                }
+            }
+        }
+        if stmt.right {
+            def rightNode:TSNode (unwrap stmt.right)
+            def target:EvalValue (this.evaluateExpr(rightNode))
+            def theKeys:[string]
+            if (target.isArray()) {
+                def ai:int 0
+                while (ai < (array_length target.arrayValue)) {
+                    push theKeys (to_string ai)
+                    ai = (ai + 1)
+                }
+            } {
+                if (target.isObject()) {
+                    theKeys = (keys target.objectMap)
+                }
+            }
+            def i:int 0
+            def looping:boolean true
+            while ((i < (array_length theKeys)) && looping) {
+                if scriptDidReturn {
+                    looping = false
+                } {
+                    if loopBreak {
+                        looping = false
+                    } {
+                        def k:string (itemAt theKeys i)
+                        if ((strlen varName) > 0) {
+                            context.define(varName (EvalValue.string(k)))
+                        }
+                        loopContinue = false
+                        if stmt.body {
+                            this.runBlockOrStatement((unwrap stmt.body))
+                        }
+                        if scriptDidReturn {
+                            looping = false
+                        } {
+                            if loopBreak {
+                                looping = false
+                            } {
+                                i = (i + 1)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        loopBreak = savedBreak
+        loopContinue = savedContinue
+    }
+
     ; --------------------------------------------------------------------------
     ; Value-returning statement execution (used by evaluateFunctionBodyValue).
     ; A `return` anywhere - including inside if/else and nested blocks - sets
@@ -1704,6 +1875,18 @@ class ComponentEngine {
         }
         if (stmt.nodeType == "WhileStatement") {
             this.runWhileStatementValue(stmt)
+            return
+        }
+        if (stmt.nodeType == "SwitchStatement") {
+            this.runSwitchStatementValue(stmt)
+            return
+        }
+        if (stmt.nodeType == "DoWhileStatement") {
+            this.runDoWhileStatementValue(stmt)
+            return
+        }
+        if (stmt.nodeType == "ForInStatement") {
+            this.runForInStatementValue(stmt)
             return
         }
     }
@@ -2138,108 +2321,289 @@ class ComponentEngine {
         return result
     }
     
-    ; Evaluates update expressions like i++, i += 1, etc.
-    fn evaluateUpdateExpr:void (node:TSNode) {
-        if (node.nodeType == "UpdateExpression") {
-            ; i++ or ++i
-            if node.left {
-                def argNode:TSNode (unwrap node.left)
-                if (argNode.nodeType == "Identifier") {
-                    def varName:string argNode.name
-                    def current:EvalValue (context.lookup(varName))
-                    def currentNum:double (current.toNumber())
-                    
-                    if (node.value == "++") {
-                        context.assign(varName (EvalValue.number((currentNum + 1.0))))
-                    }
-                    if (node.value == "--") {
-                        context.assign(varName (EvalValue.number((currentNum - 1.0))))
-                    }
-                }
+    ; Integer-exponent power (base ** expn); used by ** and **=.
+    fn powNum:double (base:double expn:int) {
+        def acc:double 1.0
+        if (expn >= 0) {
+            def k:int 0
+            while (k < expn) {
+                acc = (acc * base)
+                k = (k + 1)
+            }
+            return acc
+        }
+        def k2:int 0
+        def n2:int (0 - expn)
+        while (k2 < n2) {
+            acc = (acc * base)
+            k2 = (k2 + 1)
+        }
+        if (acc != 0.0) {
+            return (1.0 / acc)
+        }
+        return 0.0
+    }
+
+    ; Compute the result of a (compound) assignment operator given the current
+    ; LHS value and the RHS value. Handles all of = += -= *= /= %= **= and the
+    ; bitwise (& | ^ << >> >>>) and logical (&& || ??) compound forms.
+    fn applyAssignOp:EvalValue (op:string current:EvalValue rightValue:EvalValue) {
+        if (op == "=") {
+            return rightValue
+        }
+        if (op == "+=") {
+            if ((current.isString()) || (rightValue.isString())) {
+                return (EvalValue.string((current.toString()) + (rightValue.toString())))
+            }
+            return (EvalValue.number((current.toNumber()) + (rightValue.toNumber())))
+        }
+        if (op == "-=") {
+            return (EvalValue.number((current.toNumber()) - (rightValue.toNumber())))
+        }
+        if (op == "*=") {
+            return (EvalValue.number((current.toNumber()) * (rightValue.toNumber())))
+        }
+        if (op == "/=") {
+            def rn:double (rightValue.toNumber())
+            if (rn != 0.0) {
+                return (EvalValue.number((current.toNumber()) / rn))
+            }
+            return current
+        }
+        if (op == "%=") {
+            def ri:int (to_int (rightValue.toNumber()))
+            if (ri != 0) {
+                return (EvalValue.fromInt(((to_int (current.toNumber())) % ri)))
+            }
+            return current
+        }
+        if (op == "**=") {
+            return (EvalValue.number((this.powNum((current.toNumber()) (to_int (rightValue.toNumber()))))))
+        }
+        if (op == "&=") {
+            return (EvalValue.fromInt((bit_and (to_int (current.toNumber())) (to_int (rightValue.toNumber())))))
+        }
+        if (op == "|=") {
+            return (EvalValue.fromInt((bit_or (to_int (current.toNumber())) (to_int (rightValue.toNumber())))))
+        }
+        if (op == "^=") {
+            return (EvalValue.fromInt((bit_xor (to_int (current.toNumber())) (to_int (rightValue.toNumber())))))
+        }
+        if (op == "<<=") {
+            return (EvalValue.fromInt((bit_shl (to_int (current.toNumber())) (bit_and (to_int (rightValue.toNumber())) 31))))
+        }
+        if (op == ">>=") {
+            return (EvalValue.fromInt((bit_shr (to_int (current.toNumber())) (bit_and (to_int (rightValue.toNumber())) 31))))
+        }
+        if (op == ">>>=") {
+            return (EvalValue.fromInt((bit_ushr (to_int (current.toNumber())) (bit_and (to_int (rightValue.toNumber())) 31))))
+        }
+        if (op == "&&=") {
+            if (current.toBool()) {
+                return rightValue
+            }
+            return current
+        }
+        if (op == "||=") {
+            if (current.toBool()) {
+                return current
+            }
+            return rightValue
+        }
+        if (op == "??=") {
+            if (current.isNull()) {
+                return rightValue
+            }
+            return current
+        }
+        return rightValue
+    }
+
+    ; Apply a (compound) assignment to a member/index target (o.x, o["k"], a[i]),
+    ; returning the assigned value. Read-modify-write for the compound forms.
+    fn assignMember:EvalValue (leftNode:TSNode op:string rightValue:EvalValue) {
+        def obj:EvalValue (EvalValue.null())
+        def objName:string ""
+        if leftNode.left {
+            def objNode:TSNode (unwrap leftNode.left)
+            if (objNode.nodeType == "Identifier") {
+                objName = objNode.name
+                obj = (context.lookup(objName))
+            } {
+                obj = (this.evaluateExpr(objNode))
             }
         }
-        
+        def result:EvalValue rightValue
+        if leftNode.computed {
+            if leftNode.right {
+                def indexVal:EvalValue (this.evaluateExpr((unwrap leftNode.right)))
+                if (indexVal.isNumber()) {
+                    def idx:int (to_int (indexVal.toNumber()))
+                    def cur:EvalValue (obj.getIndex(idx))
+                    result = (this.applyAssignOp(op cur rightValue))
+                    obj.setIndexAt(idx result)
+                } {
+                    def key:string (indexVal.toString())
+                    def cur:EvalValue (obj.getMember(key))
+                    result = (this.applyAssignOp(op cur rightValue))
+                    obj.setMember(key result)
+                }
+            }
+        } {
+            def key:string leftNode.name
+            def cur:EvalValue (obj.getMember(key))
+            result = (this.applyAssignOp(op cur rightValue))
+            obj.setMember(key result)
+        }
+        if ((strlen objName) > 0) {
+            context.assign(objName obj)
+        }
+        return result
+    }
+
+    ; Evaluate an UpdateExpression (i++, --i, a[i]++, o.x--) and RETURN its value
+    ; (postfix yields the pre-value, prefix the post-value), applying the mutation.
+    fn evaluateUpdateValue:EvalValue (node:TSNode) {
+        def op:string node.value
+        def delta:double 1.0
+        if (op == "--") {
+            delta = (0.0 - 1.0)
+        }
+        if node.left {
+            def leftNode:TSNode (unwrap node.left)
+            if (leftNode.nodeType == "Identifier") {
+                def varName:string leftNode.name
+                def oldNum:double ((context.lookup(varName)).toNumber())
+                def newVal:EvalValue (EvalValue.number((oldNum + delta)))
+                context.assign(varName newVal)
+                if node.prefix {
+                    return newVal
+                }
+                return (EvalValue.number(oldNum))
+            }
+            if (leftNode.nodeType == "MemberExpression") {
+                def one:EvalValue (EvalValue.number(1.0))
+                def cOp:string "+="
+                if (op == "--") {
+                    cOp = "-="
+                }
+                ; Capture the old value before the compound write for postfix.
+                def oldV:EvalValue (this.readMemberValue(leftNode))
+                def newV:EvalValue (this.assignMember(leftNode cOp one))
+                if node.prefix {
+                    return newV
+                }
+                return (EvalValue.number((oldV.toNumber())))
+            }
+        }
+        return (EvalValue.null())
+    }
+
+    ; Read the current value of a member/index target without mutating it.
+    fn readMemberValue:EvalValue (leftNode:TSNode) {
+        def obj:EvalValue (EvalValue.null())
+        if leftNode.left {
+            def objNode:TSNode (unwrap leftNode.left)
+            obj = (this.evaluateExpr(objNode))
+        }
+        if leftNode.computed {
+            if leftNode.right {
+                def indexVal:EvalValue (this.evaluateExpr((unwrap leftNode.right)))
+                if (indexVal.isNumber()) {
+                    return (obj.getIndex((to_int (indexVal.toNumber()))))
+                }
+                return (obj.getMember((indexVal.toString())))
+            }
+        }
+        return (obj.getMember(leftNode.name))
+    }
+
+    ; Evaluate an assignment/update as an expression, returning its value.
+    fn evaluateAssignValue:EvalValue (node:TSNode) {
+        if (node.nodeType == "UpdateExpression") {
+            return (this.evaluateUpdateValue(node))
+        }
         if (node.nodeType == "AssignmentExpression") {
-            ; i += 1, i = i + 1, obj.prop = v, arr[i] = v, etc.
             if node.left {
                 def leftNode:TSNode (unwrap node.left)
+                def op:string node.value
+                def rightValue:EvalValue (EvalValue.null())
+                if node.right {
+                    rightValue = (this.evaluateExpr((unwrap node.right)))
+                }
                 if (leftNode.nodeType == "Identifier") {
                     def varName:string leftNode.name
-                    def op:string node.value
-                    
-                    if node.right {
-                        def rightNode:TSNode (unwrap node.right)
-                        def rightValue:EvalValue (this.evaluateExpr(rightNode))
-                        
-                        if (op == "=") {
-                            context.assign(varName rightValue)
-                        }
-                        if (op == "+=") {
-                            def current:EvalValue (context.lookup(varName))
-                            def isLeftStr:boolean (current.isString())
-                            def isRightStr:boolean (rightValue.isString())
-                            if (isLeftStr || isRightStr) {
-                                context.assign(varName (EvalValue.string((current.toString()) + (rightValue.toString()))))
-                            } {
-                                context.assign(varName (EvalValue.number((current.toNumber()) + (rightValue.toNumber()))))
-                            }
-                        }
-                        if (op == "-=") {
-                            def current:EvalValue (context.lookup(varName))
-                            context.assign(varName (EvalValue.number((current.toNumber()) - (rightValue.toNumber()))))
-                        }
-                        if (op == "*=") {
-                            def current:EvalValue (context.lookup(varName))
-                            context.assign(varName (EvalValue.number((current.toNumber()) * (rightValue.toNumber()))))
-                        }
-                        if (op == "/=") {
-                            def current:EvalValue (context.lookup(varName))
-                            def rightNum:double (rightValue.toNumber())
-                            if (rightNum != 0.0) {
-                                context.assign(varName (EvalValue.number((current.toNumber()) / rightNum)))
-                            }
-                        }
-                    }
+                    def current:EvalValue (context.lookup(varName))
+                    def result:EvalValue (this.applyAssignOp(op current rightValue))
+                    context.assign(varName result)
+                    return result
                 }
                 if (leftNode.nodeType == "MemberExpression") {
-                    def op:string node.value
-                    if (op == "=") {
-                        if node.right {
-                            def rightNode:TSNode (unwrap node.right)
-                            def rightValue:EvalValue (this.evaluateExpr(rightNode))
-                            def obj:EvalValue (EvalValue.null())
-                            def objName:string ""
-                            if leftNode.left {
-                                def objNode:TSNode (unwrap leftNode.left)
-                                if (objNode.nodeType == "Identifier") {
-                                    objName = objNode.name
-                                    obj = (context.lookup(objName))
-                                } {
-                                    obj = (this.evaluateExpr(objNode))
-                                }
-                            }
-                            if leftNode.computed {
-                                if leftNode.right {
-                                    def indexExpr:TSNode (unwrap leftNode.right)
-                                    def indexVal:EvalValue (this.evaluateExpr(indexExpr))
-                                    if (indexVal.isNumber()) {
-                                        obj.setIndexAt((to_int (indexVal.toNumber())) rightValue)
-                                    }
-                                    if (indexVal.isString()) {
-                                        obj.setMember(indexVal.stringValue rightValue)
-                                    }
-                                }
-                            } {
-                                obj.setMember(leftNode.name rightValue)
-                            }
-                            if ((strlen objName) > 0) {
-                                context.assign(objName obj)
-                            }
-                        }
-                    }
+                    return (this.assignMember(leftNode op rightValue))
                 }
             }
         }
+        return (EvalValue.null())
+    }
+
+    ; Statement-position wrapper (side effect only) around evaluateAssignValue.
+    fn evaluateUpdateExpr:void (node:TSNode) {
+        def ignored:EvalValue (this.evaluateAssignValue(node))
+    }
+
+    ; Call a function/arrow node with already-evaluated argument values, returning
+    ; its result. Handles both block bodies and arrow expression bodies. Used by
+    ; the array higher-order methods (map/filter/forEach/reduce/find/...).
+    fn callFnNodeWithValues:EvalValue (fnNode:TSNode argVals:[EvalValue]) {
+        def savedContext:EvalContext context
+        def savedDidReturn:boolean scriptDidReturn
+        def savedReturnValue:EvalValue scriptReturnValue
+        scriptDidReturn = false
+        scriptReturnValue = (EvalValue.null())
+        context = (context.createChild())
+        def np:int (array_length fnNode.params)
+        def na:int (array_length argVals)
+        def i:int 0
+        while (i < np) {
+            if (i < na) {
+                def p:TSNode (itemAt fnNode.params i)
+                context.define(p.name (itemAt argVals i))
+            }
+            i = (i + 1)
+        }
+        def result:EvalValue (EvalValue.null())
+        if fnNode.body {
+            def body:TSNode (unwrap fnNode.body)
+            if (body.nodeType == "BlockStatement") {
+                result = (this.evaluateFunctionBodyValue(body))
+            } {
+                result = (this.evaluateExpr(body))
+            }
+        }
+        context = savedContext
+        scriptDidReturn = savedDidReturn
+        scriptReturnValue = savedReturnValue
+        return result
+    }
+
+    ; Resolve a callback argument node to a callable function node: an inline
+    ; arrow/function expression is used directly; anything else is evaluated and,
+    ; if it is a function value, its node is used. Returns an empty node on miss.
+    fn resolveCallbackNode:TSNode (argNode:TSNode) {
+        if (argNode.nodeType == "ArrowFunctionExpression") {
+            return argNode
+        }
+        if (argNode.nodeType == "FunctionExpression") {
+            return argNode
+        }
+        def v:EvalValue (this.evaluateExpr(argNode))
+        if (v.isFunction()) {
+            if v.functionNode {
+                return (unwrap v.functionNode)
+            }
+        }
+        def empty (new TSNode())
+        return empty
     }
 
     ; ==========================================================================
@@ -2945,6 +3309,13 @@ class ComponentEngine {
         if (nt == "BinaryExpression") {
             return (this.evaluateBinaryExpr(node))
         }
+        ; Assignment / update in value position: x = (y = 5), let d = c++, arr[i]++
+        if (nt == "AssignmentExpression") {
+            return (this.evaluateAssignValue(node))
+        }
+        if (nt == "UpdateExpression") {
+            return (this.evaluateUpdateValue(node))
+        }
         if (nt == "NumericLiteral") {
             def fastNum@(optional):double (to_double node.value)
             if fastNum {
@@ -3050,6 +3421,14 @@ class ComponentEngine {
 
         ; Non-null assertion (expr!) — runtime evaluates the operand
         if (node.nodeType == "TSNonNullExpression") {
+            if node.left {
+                return (this.evaluateExpr((unwrap node.left)))
+            }
+        }
+
+        ; Angle-bracket type assertion (<Type>expr) — runtime ignores the type,
+        ; mirroring the `expr as Type` handling above.
+        if (node.nodeType == "TSTypeAssertion") {
             if node.left {
                 return (this.evaluateExpr((unwrap node.left)))
             }
@@ -3305,6 +3684,308 @@ class ComponentEngine {
                     return (EvalValue.string(str + padding))
                 }
                 
+                ; ---- String methods (receiver is a string value) ----
+                if (obj.isString()) {
+                    def s:string (obj.stringValue)
+                    if (methodName == "indexOf") {
+                        if ((array_length node.children) > 0) {
+                            def needle:string ((this.evaluateExpr((itemAt node.children 0))).toString())
+                            return (EvalValue.fromInt((indexOf s needle)))
+                        }
+                        return (EvalValue.fromInt((0 - 1)))
+                    }
+                    if (methodName == "includes") {
+                        if ((array_length node.children) > 0) {
+                            def needle:string ((this.evaluateExpr((itemAt node.children 0))).toString())
+                            return (EvalValue.boolean(((indexOf s needle) >= 0)))
+                        }
+                        return (EvalValue.boolean(false))
+                    }
+                    if (methodName == "startsWith") {
+                        if ((array_length node.children) > 0) {
+                            def pre:string ((this.evaluateExpr((itemAt node.children 0))).toString())
+                            def pl:int (strlen pre)
+                            if (pl > (strlen s)) {
+                                return (EvalValue.boolean(false))
+                            }
+                            return (EvalValue.boolean(((substring s 0 pl) == pre)))
+                        }
+                        return (EvalValue.boolean(false))
+                    }
+                    if (methodName == "endsWith") {
+                        if ((array_length node.children) > 0) {
+                            def suf:string ((this.evaluateExpr((itemAt node.children 0))).toString())
+                            def sl:int (strlen suf)
+                            def L:int (strlen s)
+                            if (sl > L) {
+                                return (EvalValue.boolean(false))
+                            }
+                            return (EvalValue.boolean(((substring s (L - sl) L) == suf)))
+                        }
+                        return (EvalValue.boolean(false))
+                    }
+                    if (methodName == "slice") {
+                        def L:int (strlen s)
+                        def a:int 0
+                        def b:int L
+                        if ((array_length node.children) > 0) {
+                            a = (to_int ((this.evaluateExpr((itemAt node.children 0))).toNumber()))
+                        }
+                        if ((array_length node.children) > 1) {
+                            b = (to_int ((this.evaluateExpr((itemAt node.children 1))).toNumber()))
+                        }
+                        if (a < 0) { a = (L + a) }
+                        if (b < 0) { b = (L + b) }
+                        if (a < 0) { a = 0 }
+                        if (b > L) { b = L }
+                        if (a >= b) { return (EvalValue.string("")) }
+                        return (EvalValue.string((substring s a b)))
+                    }
+                    if (methodName == "charCodeAt") {
+                        def idx:int 0
+                        if ((array_length node.children) > 0) {
+                            idx = (to_int ((this.evaluateExpr((itemAt node.children 0))).toNumber()))
+                        }
+                        if (idx < (strlen s)) {
+                            return (EvalValue.fromInt((charAt s idx)))
+                        }
+                        return (EvalValue.number(0.0))
+                    }
+                    if (methodName == "repeat") {
+                        def n:int 0
+                        if ((array_length node.children) > 0) {
+                            n = (to_int ((this.evaluateExpr((itemAt node.children 0))).toNumber()))
+                        }
+                        def out:string ""
+                        def r:int 0
+                        while (r < n) {
+                            out = (out + s)
+                            r = (r + 1)
+                        }
+                        return (EvalValue.string(out))
+                    }
+                    if (methodName == "split") {
+                        def sep:string ""
+                        if ((array_length node.children) > 0) {
+                            sep = ((this.evaluateExpr((itemAt node.children 0))).toString())
+                        }
+                        def parts:[string] (strsplit s sep)
+                        def items:[EvalValue]
+                        def pi:int 0
+                        while (pi < (array_length parts)) {
+                            push items (EvalValue.string((itemAt parts pi)))
+                            pi = (pi + 1)
+                        }
+                        return (EvalValue.array(items))
+                    }
+                }
+
+                ; ---- Array methods (receiver is an array value) ----
+                if (obj.isArray()) {
+                    def alen:int (array_length obj.arrayValue)
+                    if (methodName == "indexOf") {
+                        def target:EvalValue (EvalValue.null())
+                        if ((array_length node.children) > 0) {
+                            target = (this.evaluateExpr((itemAt node.children 0)))
+                        }
+                        def ii:int 0
+                        while (ii < alen) {
+                            if ((target.equals((itemAt obj.arrayValue ii)))) {
+                                return (EvalValue.fromInt(ii))
+                            }
+                            ii = (ii + 1)
+                        }
+                        return (EvalValue.fromInt((0 - 1)))
+                    }
+                    if (methodName == "includes") {
+                        def target:EvalValue (EvalValue.null())
+                        if ((array_length node.children) > 0) {
+                            target = (this.evaluateExpr((itemAt node.children 0)))
+                        }
+                        def ii:int 0
+                        while (ii < alen) {
+                            if ((target.equals((itemAt obj.arrayValue ii)))) {
+                                return (EvalValue.boolean(true))
+                            }
+                            ii = (ii + 1)
+                        }
+                        return (EvalValue.boolean(false))
+                    }
+                    if (methodName == "join") {
+                        def sep:string ","
+                        if ((array_length node.children) > 0) {
+                            sep = ((this.evaluateExpr((itemAt node.children 0))).toString())
+                        }
+                        def out:string ""
+                        def ii:int 0
+                        while (ii < alen) {
+                            if (ii > 0) { out = (out + sep) }
+                            out = (out + ((itemAt obj.arrayValue ii).toString()))
+                            ii = (ii + 1)
+                        }
+                        return (EvalValue.string(out))
+                    }
+                    if (methodName == "slice") {
+                        def a:int 0
+                        def b:int alen
+                        if ((array_length node.children) > 0) {
+                            a = (to_int ((this.evaluateExpr((itemAt node.children 0))).toNumber()))
+                        }
+                        if ((array_length node.children) > 1) {
+                            b = (to_int ((this.evaluateExpr((itemAt node.children 1))).toNumber()))
+                        }
+                        if (a < 0) { a = (alen + a) }
+                        if (b < 0) { b = (alen + b) }
+                        if (a < 0) { a = 0 }
+                        if (b > alen) { b = alen }
+                        def items:[EvalValue]
+                        def ii:int a
+                        while (ii < b) {
+                            push items (itemAt obj.arrayValue ii)
+                            ii = (ii + 1)
+                        }
+                        return (EvalValue.array(items))
+                    }
+                    if (methodName == "forEach") {
+                        if ((array_length node.children) > 0) {
+                            def cb:TSNode (this.resolveCallbackNode((itemAt node.children 0)))
+                            def ii:int 0
+                            while (ii < alen) {
+                                def cargs:[EvalValue]
+                                push cargs (itemAt obj.arrayValue ii)
+                                push cargs (EvalValue.fromInt(ii))
+                                def unused:EvalValue (this.callFnNodeWithValues(cb cargs))
+                                ii = (ii + 1)
+                            }
+                        }
+                        return (EvalValue.undefined())
+                    }
+                    if (methodName == "map") {
+                        def items:[EvalValue]
+                        if ((array_length node.children) > 0) {
+                            def cb:TSNode (this.resolveCallbackNode((itemAt node.children 0)))
+                            def ii:int 0
+                            while (ii < alen) {
+                                def cargs:[EvalValue]
+                                push cargs (itemAt obj.arrayValue ii)
+                                push cargs (EvalValue.fromInt(ii))
+                                push items (this.callFnNodeWithValues(cb cargs))
+                                ii = (ii + 1)
+                            }
+                        }
+                        return (EvalValue.array(items))
+                    }
+                    if (methodName == "filter") {
+                        def items:[EvalValue]
+                        if ((array_length node.children) > 0) {
+                            def cb:TSNode (this.resolveCallbackNode((itemAt node.children 0)))
+                            def ii:int 0
+                            while (ii < alen) {
+                                def el:EvalValue (itemAt obj.arrayValue ii)
+                                def cargs:[EvalValue]
+                                push cargs el
+                                push cargs (EvalValue.fromInt(ii))
+                                if ((this.callFnNodeWithValues(cb cargs)).toBool()) {
+                                    push items el
+                                }
+                                ii = (ii + 1)
+                            }
+                        }
+                        return (EvalValue.array(items))
+                    }
+                    if (methodName == "find") {
+                        if ((array_length node.children) > 0) {
+                            def cb:TSNode (this.resolveCallbackNode((itemAt node.children 0)))
+                            def ii:int 0
+                            while (ii < alen) {
+                                def el:EvalValue (itemAt obj.arrayValue ii)
+                                def cargs:[EvalValue]
+                                push cargs el
+                                push cargs (EvalValue.fromInt(ii))
+                                if ((this.callFnNodeWithValues(cb cargs)).toBool()) {
+                                    return el
+                                }
+                                ii = (ii + 1)
+                            }
+                        }
+                        return (EvalValue.undefined())
+                    }
+                    if (methodName == "findIndex") {
+                        if ((array_length node.children) > 0) {
+                            def cb:TSNode (this.resolveCallbackNode((itemAt node.children 0)))
+                            def ii:int 0
+                            while (ii < alen) {
+                                def cargs:[EvalValue]
+                                push cargs (itemAt obj.arrayValue ii)
+                                push cargs (EvalValue.fromInt(ii))
+                                if ((this.callFnNodeWithValues(cb cargs)).toBool()) {
+                                    return (EvalValue.fromInt(ii))
+                                }
+                                ii = (ii + 1)
+                            }
+                        }
+                        return (EvalValue.fromInt((0 - 1)))
+                    }
+                    if (methodName == "some") {
+                        if ((array_length node.children) > 0) {
+                            def cb:TSNode (this.resolveCallbackNode((itemAt node.children 0)))
+                            def ii:int 0
+                            while (ii < alen) {
+                                def cargs:[EvalValue]
+                                push cargs (itemAt obj.arrayValue ii)
+                                push cargs (EvalValue.fromInt(ii))
+                                if ((this.callFnNodeWithValues(cb cargs)).toBool()) {
+                                    return (EvalValue.boolean(true))
+                                }
+                                ii = (ii + 1)
+                            }
+                        }
+                        return (EvalValue.boolean(false))
+                    }
+                    if (methodName == "every") {
+                        if ((array_length node.children) > 0) {
+                            def cb:TSNode (this.resolveCallbackNode((itemAt node.children 0)))
+                            def ii:int 0
+                            while (ii < alen) {
+                                def cargs:[EvalValue]
+                                push cargs (itemAt obj.arrayValue ii)
+                                push cargs (EvalValue.fromInt(ii))
+                                if (((this.callFnNodeWithValues(cb cargs)).toBool()) == false) {
+                                    return (EvalValue.boolean(false))
+                                }
+                                ii = (ii + 1)
+                            }
+                        }
+                        return (EvalValue.boolean(true))
+                    }
+                    if (methodName == "reduce") {
+                        if ((array_length node.children) > 0) {
+                            def cb:TSNode (this.resolveCallbackNode((itemAt node.children 0)))
+                            def acc:EvalValue (EvalValue.null())
+                            def startIdx:int 0
+                            if ((array_length node.children) > 1) {
+                                acc = (this.evaluateExpr((itemAt node.children 1)))
+                            } {
+                                if (alen > 0) {
+                                    acc = (itemAt obj.arrayValue 0)
+                                    startIdx = 1
+                                }
+                            }
+                            def ii:int startIdx
+                            while (ii < alen) {
+                                def cargs:[EvalValue]
+                                push cargs acc
+                                push cargs (itemAt obj.arrayValue ii)
+                                push cargs (EvalValue.fromInt(ii))
+                                acc = (this.callFnNodeWithValues(cb cargs))
+                                ii = (ii + 1)
+                            }
+                            return acc
+                        }
+                        return (EvalValue.null())
+                    }
+                }
+
                 ; Handle Math methods (Math is not a runtime object — match callee identifier)
                 def mathObjName:string ""
                 if callee.left {
@@ -3350,11 +4031,55 @@ class ComponentEngine {
                             def r:double (sqrt num)
                             return (EvalValue.number(r))
                         }
+                        if (methodName == "sign") {
+                            if (num > 0.0) { return (EvalValue.number(1.0)) }
+                            if (num < 0.0) { return (EvalValue.number((0.0 - 1.0))) }
+                            return (EvalValue.number(0.0))
+                        }
+                        if (methodName == "trunc") {
+                            return (EvalValue.number((to_double (to_int num))))
+                        }
+                    }
+                    ; Multi-argument Math methods (min/max variadic, pow 2-arg).
+                    if (methodName == "min") {
+                        def best:double 0.0
+                        def any:boolean false
+                        def mi:int 0
+                        while (mi < (array_length node.children)) {
+                            def v:double ((this.evaluateExpr((itemAt node.children mi))).toNumber())
+                            if (any == false) { best = v } { if (v < best) { best = v } }
+                            any = true
+                            mi = (mi + 1)
+                        }
+                        return (EvalValue.number(best))
+                    }
+                    if (methodName == "max") {
+                        def best:double 0.0
+                        def any:boolean false
+                        def mi:int 0
+                        while (mi < (array_length node.children)) {
+                            def v:double ((this.evaluateExpr((itemAt node.children mi))).toNumber())
+                            if (any == false) { best = v } { if (v > best) { best = v } }
+                            any = true
+                            mi = (mi + 1)
+                        }
+                        return (EvalValue.number(best))
+                    }
+                    if (methodName == "pow") {
+                        def pb:double 0.0
+                        def pe:int 0
+                        if ((array_length node.children) > 0) {
+                            pb = ((this.evaluateExpr((itemAt node.children 0))).toNumber())
+                        }
+                        if ((array_length node.children) > 1) {
+                            pe = (to_int ((this.evaluateExpr((itemAt node.children 1))).toNumber()))
+                        }
+                        return (EvalValue.number((this.powNum(pb pe))))
                     }
                 }
-                
-                ; Fallback: return null for unhandled methods
-                print "Warning: Unhandled method call: " + methodName
+
+                ; Fallback: unhandled method — respect quiet (was an unconditional print).
+                this.trace("Warning: Unhandled method call: " + methodName)
                 return (EvalValue.null())
             }
             
@@ -3365,6 +4090,24 @@ class ComponentEngine {
                     this.trace("Evaluating function call: " + fnName)
                 }
                 
+                ; ============================================================
+                ; Global numeric functions
+                ; ============================================================
+                if (fnName == "parseInt") {
+                    if ((array_length node.children) > 0) {
+                        def pv:EvalValue (this.evaluateExpr((itemAt node.children 0)))
+                        return (EvalValue.fromInt((to_int (pv.toNumber()))))
+                    }
+                    return (EvalValue.number(0.0))
+                }
+                if (fnName == "parseFloat") {
+                    if ((array_length node.children) > 0) {
+                        def pv:EvalValue (this.evaluateExpr((itemAt node.children 0)))
+                        return (EvalValue.number((pv.toNumber())))
+                    }
+                    return (EvalValue.number(0.0))
+                }
+
                 ; ============================================================
                 ; Handle built-in hooks
                 ; ============================================================
@@ -3563,7 +4306,29 @@ class ComponentEngine {
             def rightInt:int (to_int (right.toNumber()))
             return (EvalValue.fromInt((bit_xor leftInt rightInt)))
         }
-        
+        ; Shifts (JS coerces to int32; shift count masked to low 5 bits). Common in
+        ; AssemblyScript fixed-point / bit-packing code.
+        if (op == "<<") {
+            def leftInt:int (to_int (left.toNumber()))
+            def cnt:int (bit_and (to_int (right.toNumber())) 31)
+            return (EvalValue.fromInt((bit_shl leftInt cnt)))
+        }
+        if (op == ">>") {
+            def leftInt:int (to_int (left.toNumber()))
+            def cnt:int (bit_and (to_int (right.toNumber())) 31)
+            return (EvalValue.fromInt((bit_shr leftInt cnt)))
+        }
+        if (op == ">>>") {
+            def leftInt:int (to_int (left.toNumber()))
+            def cnt:int (bit_and (to_int (right.toNumber())) 31)
+            return (EvalValue.fromInt((bit_ushr leftInt cnt)))
+        }
+        ; Exponentiation (a ** b). Integer-exponent fast path (covers game/AS use);
+        ; falls back to repeated multiply for the truncated integer exponent.
+        if (op == "**") {
+            return (EvalValue.number((this.powNum((left.toNumber()) (to_int (right.toNumber()))))))
+        }
+
         ; Comparison
         if (op == "<") {
             return (EvalValue.boolean((left.toNumber()) < (right.toNumber())))
@@ -3662,11 +4427,19 @@ class ComponentEngine {
             if (op == "+") {
                 return (EvalValue.number((arg.toNumber())))
             }
+            ; Bitwise NOT (~x == -(x)-1). Coerce to int32 like JS/AS.
+            if (op == "~") {
+                return (EvalValue.fromInt((bit_not (to_int (arg.toNumber())))))
+            }
+            ; void x evaluates the operand for side effects and yields undefined.
+            if (op == "void") {
+                return (EvalValue.undefined())
+            }
         }
-        
+
         return (EvalValue.null())
     }
-    
+
     fn evaluateConditionalExpr:EvalValue (node:TSNode) {
         if node.test {
             def testExpr:TSNode (unwrap node.test)
