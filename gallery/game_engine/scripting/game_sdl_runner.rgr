@@ -885,8 +885,7 @@ class GameSdlRunner {
         this.syncInputEdges()
         def nav:UiNavInput (new UiNavInput)
         while (running) {
-            gfx_input_poll
-            def m:int (this.launcherNavMask())
+            def m:int (this.uiNavMask())
             nav.clear()
             nav.up = (this.upEdge((bit_and m 1) != 0))
             nav.down = (this.downEdge((bit_and m 2) != 0))
@@ -921,6 +920,15 @@ class GameSdlRunner {
         def kb:int (gfx_input_source_mask(0))
         def pad:int (gfx_input_source_mask(2))
         return (bit_or kb pad)
+    }
+
+    ; UI-menu navigation: WASD (src 0) + arrow keys (src 1) + gamepad 0 (src 2).
+    ; The launcher mask above omits src 1, so arrows wouldn't move the selection.
+    fn uiNavMask:int () {
+        def kb1:int (gfx_input_source_mask(0))
+        def kb2:int (gfx_input_source_mask(1))
+        def pad:int (gfx_input_source_mask(2))
+        return (bit_or (bit_or kb1 kb2) pad)
     }
 
     ; Return to launcher menu: Q/Esc, or gamepad Select / B.

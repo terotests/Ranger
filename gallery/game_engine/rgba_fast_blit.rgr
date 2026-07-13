@@ -189,4 +189,46 @@ class RgbaFastBlit {
     fn blitImage:void (dest:RasterBuffer src:ImageBuffer dx:int dy:int) {
         this.blitRect(dest src 0 0 src.width src.height dx dy)
     }
+
+    ; Alpha-composite a source sub-rectangle straight into a raw destination
+    ; buffer (RGBA8888, width destW). Unlike blitRect(dest:RasterBuffer ...),
+    ; the destination is a `buffer` passed by reference, so it works when the
+    ; caller only has the raw pixel bytes (SoftCanvas.px). This is the C++-safe
+    ; path: wrapping the canvas bytes in a temporary RasterBuffer copies the
+    ; std::vector under C++ value semantics and silently drops the writes.
+    fn blitRectBuf:void (dstBuf:buffer destW:int src:ImageBuffer sx:int sy:int sw:int sh:int dx:int dy:int) {
+        def srcBuf:buffer (src.getRawBuffer())
+        def srcW:int (src.width)
+        def y 0
+        while (y < sh) {
+            def srcRowOff:int ((((sy + y) * srcW) + sx) * 4)
+            def dstRowOff:int ((((dy + y) * destW) + dx) * 4)
+            def x 0
+            while (x < sw) {
+                def sOff:int (srcRowOff + (x * 4))
+                def srcA:int (buffer_get srcBuf (sOff + 3))
+                if (srcA > 0) {
+                    def dOff:int (dstRowOff + (x * 4))
+                    if (srcA >= 255) {
+                        ; opaque: direct copy. Writing dstBuf here (buffer_set)
+                        ; also marks the parameter as mutated so it is emitted as
+                        ; a non-const C++ reference (works without the transitive
+                        ; mutable-ref compiler pass).
+                        buffer_set dstBuf dOff (buffer_get srcBuf sOff)
+                        buffer_set dstBuf (dOff + 1) (buffer_get srcBuf (sOff + 1))
+                        buffer_set dstBuf (dOff + 2) (buffer_get srcBuf (sOff + 2))
+                        buffer_set dstBuf (dOff + 3) 255
+                    } {
+                        this.blendOverBytes(dstBuf dOff
+                            (buffer_get srcBuf sOff)
+                            (buffer_get srcBuf (sOff + 1))
+                            (buffer_get srcBuf (sOff + 2))
+                            srcA)
+                    }
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+    }
 }
