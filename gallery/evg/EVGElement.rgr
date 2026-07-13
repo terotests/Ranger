@@ -624,7 +624,38 @@ class EVGElement {
             box.borderRadius = (EVGUnit.parse(value))
             return
         }
-        
+
+        ; ---- rich EVG effect props, drawn by WasmUiRenderer from these fields.
+        ; camelCase spellings so the TSX parser (which splits '-') can carry them.
+        ; Animated glow halo strength (0..1).
+        if (name == "glow") {
+            def gv@(optional):double (to_double value)
+            glowIntensity = (unwrap gv)
+            return
+        }
+        ; Background art clipped to the rounded box (the .as menu's tile image).
+        if ((name == "background-image") || (name == "backgroundImage")) {
+            bgImageSet = true
+            bgImagePath = value
+            return
+        }
+        ; 2-stop linear gradient fill (RGU1 GRAD_FROM/GRAD_TO/GRAD_DIR).
+        if ((name == "gradient-from") || (name == "gradientFrom")) {
+            gradientFrom = (EVGColor.parse(value))
+            gradientSet = true
+            return
+        }
+        if ((name == "gradient-to") || (name == "gradientTo")) {
+            gradientTo = (EVGColor.parse(value))
+            gradientSet = true
+            return
+        }
+        if ((name == "gradient-dir") || (name == "gradientDir")) {
+            def dv@(optional):int (to_int value)
+            gradientDir = (unwrap dv)
+            return
+        }
+
         ; Colors
         if ((name == "background-color") || (name == "backgroundColor")) {
             backgroundColor = (EVGColor.parse(value))

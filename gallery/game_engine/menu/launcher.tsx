@@ -7,23 +7,28 @@
 // games), but authored with real JS: gameCatalog is filtered/mapped with array
 // methods, state is a plain object, and the layout is JSX. The host renders the
 // EVGElement tree this returns with the SAME WasmUiRenderer the .as menu uses,
-// so borders / rounded corners / TTF text (and, once wired, glow + art) all come
-// out identical — the renderer is the shared core, only the front-end language
-// changed.
+// so borders / rounded corners / TTF text / background art / the glow halo all
+// come out identical — the renderer is the shared core, only the front-end
+// language changed.
+//
+// The activation glow is a real closure callback: pressing A on a category
+// starts a glow flash and stashes an `onDone` FUNCTION in state; when the flash
+// finishes a frame later, update() calls it to perform the deferred screen
+// switch. That capture-a-callback pattern was fragile in the .as bridge (method
+// binding through asc); here it is just how JS works.
 //
 // NOTE: JSX attribute names are camelCase (flexDirection, backgroundColor,
-// borderRadius, ...). The TSX parser tokenises `-`, so kebab-case attribute
-// names (flex-direction) are NOT valid here; EVGElement.setAttribute accepts the
-// camelCase spelling.
+// borderRadius, backgroundImage, glow, ...). The TSX parser tokenises `-`, so
+// kebab-case names are NOT valid here.
 //
 //   up/down/left/right   move selection
-//   enter / A            open a category, or launch the selected game
+//   enter / A            open a category (after a glow flash), or launch a game
 //   left / back          games screen -> categories
 // ============================================================================
 
-// Distinct categories in catalog order, "Games" forced first (mirrors the .as
-// launcher's game_catalog ordering). Pure JS - the kind of thing that was
-// painful in the .as bridge.
+const FLASH_MS = 420;
+
+// Distinct categories in catalog order, "Games" forced first. Pure JS.
 function categories() {
   const seen = {};
   const order = [];
@@ -42,30 +47,77 @@ function gamesIn(cat) {
   return gameCatalog.filter((e) => (e.category || "Games") === cat);
 }
 
+// Background art for a category tile (host loads the pixels; missing = none).
+function artFor(cat) {
+  if (cat === "Games") return "gallery/game_engine/menu/assets/games.png";
+  if (cat === "Tests") return "gallery/game_engine/menu/assets/tools.png";
+  return "";
+}
+
+// A 0 -> 1 -> 0 flash sampled from the host clock; 0 when no flash is running.
+function flashLevel(anim, now) {
+  if (!anim) return 0;
+  const t = now - anim.start;
+  if (t < 0 || t >= anim.dur) return 0;
+  const p = t / anim.dur;
+  return p < 0.5 ? p * 2 : (1 - p) * 2;
+}
+
 function initState() {
-  return { screen: "cats", sel: 0, cat: 0, launchPath: "", quitApp: 0 };
+  return { screen: "cats", sel: 0, cat: 0, launchPath: "", quitApp: 0, now: 0, anim: null, onDone: null };
 }
 
 function update(props) {
   const s = props.state;
+  const now = props.time;
   const cats = categories();
   let screen = s.screen;
   let sel = s.sel;
   let cat = s.cat;
-  let launchPath = "";
 
   if (props.quit) {
-    return { screen, sel, cat, launchPath: "", quitApp: 1 };
+    return { screen, sel, cat, launchPath: "", quitApp: 1, now, anim: null, onDone: null };
   }
 
+  // A glow flash is running: when it finishes, call the stashed callback to
+  // apply the deferred transition it captured, then clear the animation.
+  if (s.anim) {
+    if (now - s.anim.start >= s.anim.dur) {
+      // Bind the callback to a local before calling it: the interpreter invokes
+      // a closure through a plain identifier, not through a member-access call
+      // (s.onDone() returns undefined; cb() runs it).
+      const cb = s.onDone;
+      const next = cb ? cb() : {};
+      return {
+        screen: next.screen ? next.screen : screen,
+        sel: next.sel === undefined ? sel : next.sel,
+        cat: next.cat === undefined ? cat : next.cat,
+        launchPath: "",
+        quitApp: 0,
+        now,
+        anim: null,
+        onDone: null
+      };
+    }
+    // hold state while the flash plays out
+    return { screen, sel, cat, launchPath: "", quitApp: 0, now, anim: s.anim, onDone: s.onDone };
+  }
+
+  let launchPath = "";
   if (screen === "cats") {
     const n = cats.length;
     if (props.up || props.left) sel = (sel + n - 1) % n;
     if (props.down || props.right) sel = (sel + 1) % n;
     if (props.action) {
-      cat = sel;
-      screen = "games";
-      sel = 0;
+      // start a flash on the selected tile; the callback opens that category
+      const targetCat = sel;
+      return {
+        screen, sel, cat, launchPath: "", quitApp: 0, now,
+        anim: { start: now, dur: FLASH_MS },
+        onDone: () => {
+          return { screen: "games", cat: targetCat, sel: 0 };
+        }
+      };
     }
   } else {
     const list = gamesIn(cats[cat]);
@@ -81,13 +133,21 @@ function update(props) {
     }
   }
 
-  return { screen, sel, cat, launchPath, quitApp: 0 };
+  return { screen, sel, cat, launchPath, quitApp: 0, now, anim: null, onDone: null };
 }
 
-// gold when selected, muted blue otherwise (the .as menu does the same so a
-// static screenshot reads the selection even before the animated glow lands).
+// gold when selected, muted blue otherwise (reads on a static screenshot even
+// before the animated glow lands).
 function borderColor(on) {
   return on ? "#ffe878" : "#7896d2";
+}
+
+// Glow for a tile: the bright animated flash while it plays, otherwise a steady
+// soft halo on the current selection.
+function glowFor(s, on) {
+  if (on && s.anim) return flashLevel(s.anim, s.now);
+  if (on) return 0.55;
+  return 0;
 }
 
 function categoryScreen(s) {
@@ -100,7 +160,8 @@ function categoryScreen(s) {
           <View flexDirection="column" alignItems="center" width="200px" margin="12px">
             <View width="176px" height="176px" borderRadius="16px"
                   borderWidth="3px" borderColor={borderColor(i === s.sel)}
-                  backgroundColor="#242a40" />
+                  backgroundColor="#242a40" backgroundImage={artFor(c)}
+                  glow={glowFor(s, i === s.sel)} />
             <Label color="#ecf0fa" fontSize="20px" margin="6px">{c}</Label>
           </View>
         ))}
@@ -120,7 +181,7 @@ function gamesScreen(s) {
         {list.map((e, i) => (
           <View width="280px" padding="12px" margin="6px" borderRadius="10px"
                 borderWidth="2px" borderColor={borderColor(i === s.sel)}
-                backgroundColor="#3c5aa0">
+                backgroundColor="#3c5aa0" glow={glowFor(s, i === s.sel)}>
             <Label color="#ecf0fa" fontSize="18px" textAlign="center">{e.title}</Label>
           </View>
         ))}

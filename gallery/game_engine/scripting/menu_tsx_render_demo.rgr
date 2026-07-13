@@ -43,11 +43,14 @@ class TsxMenuRenderDemo {
     def state:EvalValue (EvalValue.null())
     def cw:int 360
     def ch:int 460
+    def tMs:int 0            ; host clock (ms) fed via props.time, drives the glow
 
     ; input props object matching game_runtime.stepUpdateScript's shape
     fn props:EvalValue (up:boolean down:boolean left:boolean right:boolean action:boolean) {
         def k:[string]
         def v:[EvalValue]
+        push k "time"
+        push v (EvalValue.fromInt(tMs))
         push k "up"
         push v (EvalValue.boolean(up))
         push k "down"
@@ -65,17 +68,50 @@ class TsxMenuRenderDemo {
         return (EvalValue.object(k v))
     }
 
-    ; (re)build the EVGElement tree for the current state and lay it out, scaling
-    ; down to fit the canvas exactly like the .as menu demo.
+    ; (re)build the EVGElement tree for the current state and lay it out.
     fn refresh:void () {
         root = (engine.callRender("hud" (this.props(false false false false false))))
         rnd.layoutTree(ctx root cw ch)
     }
 
-    ; drive one input edge: update() advances the guest state, then rebuild.
+    ; drive one input edge (advancing the clock ~120ms so the glow flash runs);
+    ; update() advances the guest state, then rebuild.
     fn step:void (up:boolean down:boolean left:boolean right:boolean action:boolean) {
+        tMs = (tMs + 120)
         state = (engine.callFunction("update" (this.props(up down left right action))))
         this.refresh()
+    }
+
+    ; advance several idle frames so a deferred (post-flash) callback fires
+    fn settle:void () {
+        def k 0
+        while (k < 6) {
+            this.step(false false false false false)
+            k = (k + 1)
+        }
+    }
+
+    ; peak glow anywhere in the tree (proves the animated halo reached EVGElement)
+    fn maxGlow:double (el:EVGElement) {
+        def g:double el.glowIntensity
+        def c 0
+        while (c < (array_length el.children)) {
+            def cg:double (this.maxGlow((itemAt el.children c)))
+            if (cg > g) { g = cg }
+            c = (c + 1)
+        }
+        return g
+    }
+
+    ; true if any element carries a background image (the tile art)
+    fn anyBgImage:boolean (el:EVGElement) {
+        if (el.bgImageSet) { return true }
+        def c 0
+        while (c < (array_length el.children)) {
+            if (this.anyBgImage((itemAt el.children c))) { return true }
+            c = (c + 1)
+        }
+        return false
     }
 
     fn stateStr:string (key:string) {
@@ -129,14 +165,22 @@ class TsxMenuRenderDemo {
         d.state = (d.engine.callFunction("initState" (EvalValue.null())))
         d.refresh()
 
-        ; ---- categories screen ----
+        ; ---- categories screen: rich props + tile art + steady selection glow ----
         c.ok(("starts on cats screen (got '" + (d.stateStr("screen")) + "')") ((d.stateStr("screen")) == "cats"))
         c.ok("category screen has rounded EVG boxes (rich props survived JSX->EVG)" (d.anyRounded(d.root)))
+        c.ok("category tiles carry background art (backgroundImage prop)" (d.anyBgImage(d.root)))
+        c.ok("selected tile has a steady glow halo (glow prop)" ((d.maxGlow(d.root)) > 0.0))
         d.drawFrame("tsx_menu_1_cats.png")
 
-        ; ---- open the first category ----
+        ; ---- action starts a GLOW FLASH; the screen switch is DEFERRED to the
+        ; closure callback that fires only after the flash completes ----
         d.step(false false false false true)
-        c.ok(("action -> games screen (got '" + (d.stateStr("screen")) + "')") ((d.stateStr("screen")) == "games"))
+        c.ok(("stays on cats during the flash (got '" + (d.stateStr("screen")) + "')") ((d.stateStr("screen")) == "cats"))
+        d.step(false false false false false)
+        c.ok("flash glow is animating on the tile mid-flash" ((d.maxGlow(d.root)) > 0.0))
+        d.drawFrame("tsx_menu_1b_flash.png")
+        d.settle()
+        c.ok(("after the flash the callback opened the category (got '" + (d.stateStr("screen")) + "')") ((d.stateStr("screen")) == "games"))
         c.ok("games screen has rounded EVG boxes" (d.anyRounded(d.root)))
         d.drawFrame("tsx_menu_2_games.png")
 
