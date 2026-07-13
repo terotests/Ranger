@@ -848,7 +848,16 @@ class ComponentEngine {
         if ((indexOf modulePath ".d.ts") >= 0) {
             return
         }
-        
+        ; Skip the flat native-bridge import ("@ranger/game"). The entry .as
+        ; file already has this line stripped before loadScript() (see
+        ; as_source_runner.rgr's stripBridgeImport), so its names fall through
+        ; to nativeBridge at call time; a shared .as module imported via a
+        ; relative path keeps this import (for asc compile-time typing) and
+        ; would otherwise fail resolution here on every load, spamming stderr.
+        if ((indexOf modulePath "@ranger/game") >= 0) {
+            return
+        }
+
         ; Get imported symbols from node.children (import specifiers)
         def importExportNames:[string]
         def importLocalNames:[string]
@@ -1018,6 +1027,17 @@ class ComponentEngine {
             }
             return
         }
+        if (node.nodeType == "ClassDeclaration") {
+            ; `classes` is a single engine-wide name->node map (see
+            ; registerTopLevelNode / evaluateNewExpr), so a class declared in
+            ; an imported module becomes constructible (`new Foo()`) by both
+            ; that module's own top-level initializers and the importer,
+            ; exactly like a class declared in the entry script.
+            if ((strlen node.name) > 0) {
+                set classes node.name node
+            }
+            return
+        }
         if (node.nodeType == "VariableDeclaration") {
             this.processModuleVariableDeclaration(node)
             return
@@ -1073,22 +1093,38 @@ class ComponentEngine {
             if ((strlen path) == 0) {
                 return ""
             }
-            ; Add .tsx extension if needed
-            if ((indexOf path ".tsx") < 0) {
-                if ((indexOf path ".ts") < 0) {
-                    path = path + ".tsx"
-                }
-            }
-            return path
+            return (this.appendModuleExtension(path))
         }
-        
+
         ; For now, just add extension
-        if ((indexOf modulePath ".tsx") < 0) {
-            if ((indexOf modulePath ".ts") < 0) {
-                return (modulePath + ".tsx")
+        return (this.appendModuleExtension(modulePath))
+    }
+
+    ; Append the interpreter's default module extension, unless `path` already
+    ; names one explicitly (.tsx/.ts/.as pass through untouched). A `.as` game
+    ; (jsxParsing == false, set by as_source_runner.rgr) resolves an
+    ; extensionless relative import to `.as` instead of `.tsx`, so a shared
+    ; builder module can be authored as e.g. `./ui.as` and imported as
+    ; `import { ui } from "./ui"`.
+    fn appendModuleExtension:string (path:string) {
+        def n:int (strlen path)
+        if (n >= 4) {
+            if ((substring path (n - 4) n) == ".tsx") {
+                return path
             }
         }
-        return modulePath
+        if (n >= 3) {
+            if ((substring path (n - 3) n) == ".ts") {
+                return path
+            }
+            if ((substring path (n - 3) n) == ".as") {
+                return path
+            }
+        }
+        if (jsxParsing == false) {
+            return (path + ".as")
+        }
+        return (path + ".tsx")
     }
     
     fn isInList:boolean (name:string list:[string]) {

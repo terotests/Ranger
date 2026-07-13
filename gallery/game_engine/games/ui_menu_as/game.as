@@ -21,7 +21,8 @@
 //    DEMO  left/right cycle the EVG technique, action returns to the menu
 // ============================================================================
 
-import { abiRead, abiWrite, uiReset, uiNode, uiPropI32, uiPropEnum, uiPropStr, uiPropColorRgba, uiFinish } from "@ranger/game";
+import { abiRead, abiWrite, uiPropI32, uiPropEnum, uiPropColorRgba } from "@ranger/game";
+import { ui } from "./ui";
 
 // ---- shared ABI offsets ----
 const OFF_INPUT: i32 = 20;   // host -> guest: edge mask this frame
@@ -41,37 +42,15 @@ const IN_LEFT: i32 = 4;
 const IN_RIGHT: i32 = 8;
 const IN_ACT: i32 = 16;
 
-// RGU1 node kinds
-const K_VIEW: i32 = 1;
-const K_TEXT: i32 = 2;
-const K_BUTTON: i32 = 5;
-
-// RGU1 property keys
-const P_TEXT: i32 = 1;
-const P_BG: i32 = 2;
-const P_COLOR: i32 = 3;
-const P_FONT: i32 = 4;
-const P_WIDTH: i32 = 10;
-const P_HEIGHT: i32 = 11;
-const P_PAD: i32 = 12;
-const P_MARGIN: i32 = 13;
-const P_RADIUS: i32 = 14;
-const P_BORDER_COLOR: i32 = 15;
-const P_BORDER_W: i32 = 16;
-const P_FLEXDIR: i32 = 21;
-const P_ALIGN: i32 = 22;
-const P_TEXTALIGN: i32 = 24;
+// Extra RGU1 property keys this demo needs beyond the shared `ui` builder
+// (./ui.as already provides K_VIEW/K_TEXT/K_BUTTON, P_TEXT/P_BG/P_COLOR/...,
+// and the DIR_*/ALIGN_*/TEXTALIGN_* enum values via its own top-level consts).
 const P_GRAD_FROM: i32 = 50;   // linear-gradient start colour
 const P_GRAD_TO: i32 = 51;     // linear-gradient end colour
 const P_GRAD_DIR: i32 = 52;    // 0 vertical, 1 horizontal
 const P_ABS_X: i32 = 53;       // absolute page-x
 const P_ABS_Y: i32 = 54;       // absolute page-y
 const P_GLOW: i32 = 55;        // animated glow strength 0..1000
-
-// enum values
-const DIR_COLUMN: i32 = 1;
-const ALIGN_CENTER: i32 = 1;
-const TEXTALIGN_CENTER: i32 = 1;
 
 // node ids
 const ROOT: i32 = 1;
@@ -188,35 +167,19 @@ let ANIMATOR: Animator = new Animator();
 let DONE: Counter = new Counter();
 let NAV: Nav = new Nav();
 
-// ---- small RGU1 authoring helpers (props apply to the last uiNode) ----
-function view(id: i32, parent: i32, order: i32): void {
-  uiNode(id, parent, K_VIEW, order);
-}
-function column(): void {
-  uiPropEnum(P_FLEXDIR, DIR_COLUMN);
-  uiPropEnum(P_ALIGN, ALIGN_CENTER);
-}
+// ---- small authoring helpers over the shared `ui` builder (./ui.as) ----
 function label(id: i32, parent: i32, order: i32, s: string, r: i32, g: i32, b: i32, size: i32): void {
-  uiNode(id, parent, K_TEXT, order);
-  uiPropStr(P_TEXT, s);
-  uiPropI32(P_FONT, size);
-  uiPropColorRgba(P_COLOR, r, g, b, 255);
+  ui.label(id, parent, order).text(s).font(size).color(r, g, b, 255);
 }
 // A uniform menu button; `on` = currently selected (host draws the glow, but we
-// also brighten the border so it reads on a static screenshot).
+// also brighten the border so it reads on a static screenshot). P_GLOW isn't
+// part of the shared `El` chain (it's specific to this demo's animator), so it
+// is set with a raw uiPropI32() call - that's fine, it still targets whatever
+// node ui.button() just opened.
 function button(id: i32, order: i32, s: string, cr: i32, cg: i32, cb: i32, br: i32, bg: i32, bb: i32): void {
-  uiNode(id, CARD, K_BUTTON, order);
-  uiPropStr(P_TEXT, s);
-  uiPropI32(P_FONT, 16);
-  uiPropColorRgba(P_COLOR, cr, cg, cb, 255);
-  uiPropI32(P_WIDTH, 180);
-  uiPropI32(P_PAD, 10);
-  uiPropI32(P_MARGIN, 6);
-  uiPropI32(P_RADIUS, 9);
-  uiPropI32(P_BORDER_W, 2);
-  uiPropColorRgba(P_BORDER_COLOR, br, bg, bb, 255);
-  uiPropColorRgba(P_BG, 120, 165, 230, 46);
-  uiPropEnum(P_TEXTALIGN, TEXTALIGN_CENTER);
+  ui.button(id, CARD, order).text(s).font(16).color(cr, cg, cb, 255)
+    .width(180).pad(10).margin(6).radius(9)
+    .border(2, br, bg, bb, 255).bg(120, 165, 230, 46).textCenter();
   let gi: i32 = ANIMATOR.glowFor(id);
   if (gi > 0) {
     uiPropI32(P_GLOW, gi);
@@ -232,9 +195,8 @@ function exampleName(i: i32): string {
 
 // ---- document builders ----
 function buildMenu(): void {
-  view(ROOT, 0, 0); column(); uiPropI32(P_PAD, 22);
-  view(CARD, ROOT, 0); column(); uiPropI32(P_PAD, 18); uiPropI32(P_WIDTH, 280);
-  uiPropColorRgba(P_BG, 36, 42, 64, 255); uiPropI32(P_RADIUS, 16);
+  ui.view(ROOT, 0, 0).column().center().pad(22);
+  ui.view(CARD, ROOT, 0).column().center().pad(18).width(280).bg(36, 42, 64, 255).radius(16);
 
   label(10, CARD, 0, "AS UI - Main Menu", 255, 255, 255, 20);
 
@@ -254,9 +216,8 @@ function buildMenu(): void {
 }
 
 function buildDemo(): void {
-  view(ROOT, 0, 0); column(); uiPropI32(P_PAD, 18);
-  view(CARD, ROOT, 0); column(); uiPropI32(P_PAD, 18); uiPropI32(P_WIDTH, 300);
-  uiPropColorRgba(P_BG, 30, 34, 52, 255); uiPropI32(P_RADIUS, 16);
+  ui.view(ROOT, 0, 0).column().center().pad(18);
+  ui.view(CARD, ROOT, 0).column().center().pad(18).width(300).bg(30, 34, 52, 255).radius(16);
 
   label(100, CARD, 0, "EVG Demo", 255, 255, 255, 20);
   label(101, CARD, 1, (EXAMPLE + 1).toString() + "/" + EX_COUNT.toString() + "  " + exampleName(EXAMPLE), 143, 176, 208, 13);
@@ -264,38 +225,22 @@ function buildDemo(): void {
   // the preview element demonstrates the current technique
   if (EXAMPLE == EX_BG) {
     // background color: a vivid rounded panel
-    uiNode(PREVIEW, CARD, K_VIEW, 2);
-    uiPropI32(P_WIDTH, 220);
-    uiPropI32(P_PAD, 26);
-    uiPropI32(P_RADIUS, 12);
-    uiPropI32(P_MARGIN, 8);
-    uiPropColorRgba(P_BG, 232, 140, 60, 255);
+    ui.view(PREVIEW, CARD, 2).width(220).pad(26).radius(12).margin(8).bg(232, 140, 60, 255);
     label(122, PREVIEW, 0, "background", 30, 22, 12, 15);
   } else if (EXAMPLE == EX_FONT_COLOR) {
     // font color: text in a vivid colour on a neutral panel
-    uiNode(PREVIEW, CARD, K_VIEW, 2);
-    uiPropI32(P_WIDTH, 220);
-    uiPropI32(P_PAD, 26);
-    uiPropI32(P_RADIUS, 12);
-    uiPropI32(P_MARGIN, 8);
-    uiPropColorRgba(P_BG, 22, 26, 40, 255);
+    ui.view(PREVIEW, CARD, 2).width(220).pad(26).radius(12).margin(8).bg(22, 26, 40, 255);
     label(122, PREVIEW, 0, "Ranger EVG", 80, 220, 130, 22);
   } else if (EXAMPLE == EX_FONT_SIZE) {
     // font size: large glyphs
-    uiNode(PREVIEW, CARD, K_VIEW, 2);
-    uiPropI32(P_WIDTH, 220);
-    uiPropI32(P_PAD, 18);
-    uiPropI32(P_RADIUS, 12);
-    uiPropI32(P_MARGIN, 8);
-    uiPropColorRgba(P_BG, 22, 26, 40, 255);
+    ui.view(PREVIEW, CARD, 2).width(220).pad(18).radius(12).margin(8).bg(22, 26, 40, 255);
     label(122, PREVIEW, 0, "Big 42", 220, 224, 236, 42);
   } else {
-    // linear gradient: a real 2-stop vertical gradient fill in the host EVG renderer
-    uiNode(PREVIEW, CARD, K_VIEW, 2);
-    uiPropI32(P_WIDTH, 220);
-    uiPropI32(P_PAD, 26);
-    uiPropI32(P_RADIUS, 12);
-    uiPropI32(P_MARGIN, 8);
+    // linear gradient: a real 2-stop vertical gradient fill in the host EVG
+    // renderer. P_GRAD_* isn't part of the shared `El` chain, so those two
+    // props are set with raw calls right after opening the node - they still
+    // target it, exactly like the chained ones above.
+    ui.view(PREVIEW, CARD, 2).width(220).pad(26).radius(12).margin(8);
     uiPropColorRgba(P_GRAD_FROM, 90, 130, 245, 255);   // blue
     uiPropColorRgba(P_GRAD_TO, 210, 90, 200, 255);     // magenta
     uiPropEnum(P_GRAD_DIR, 0);                          // vertical
@@ -318,11 +263,7 @@ function emitEffect(): void {
     let ry: i32 = abiRead(OFF_RECT_Y);
     let ex: i32 = rx + rw - 7;
     let ey: i32 = ry - 7;
-    uiNode(EFFECT, ROOT, K_VIEW, 999);   // high order -> drawn on top
-    uiPropI32(P_WIDTH, 14);
-    uiPropI32(P_HEIGHT, 14);
-    uiPropI32(P_RADIUS, 7);
-    uiPropColorRgba(P_BG, 255, 230, 120, 235);
+    ui.view(EFFECT, ROOT, 999).width(14).height(14).radius(7).bg(255, 230, 120, 235);   // high order -> drawn on top
     uiPropI32(P_ABS_X, ex);
     uiPropI32(P_ABS_Y, ey);
   }
@@ -330,14 +271,14 @@ function emitEffect(): void {
 
 function build(): void {
   ANIMATOR.tick();          // advance effects once per frame (time-driven)
-  uiReset();
+  ui.reset();
   if (SCREEN == SCR_MENU) {
     buildMenu();
   } else {
     buildDemo();
   }
   emitEffect();
-  uiFinish(REV);
+  ui.finish(REV);
 }
 
 // ---- exports the host calls ----

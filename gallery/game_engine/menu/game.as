@@ -16,7 +16,8 @@
 //   enter/A              open a category, or launch the selected game
 //   left/back            games screen -> categories
 // ============================================================================
-import { abiRead, abiWrite, uiReset, uiNode, uiPropI32, uiPropEnum, uiPropStr, uiPropColorRgba, uiFinish } from "@ranger/game";
+import { abiRead, abiWrite } from "@ranger/game";
+import { ui } from "./ui";
 
 // shared ABI offsets (ints)
 const OFF_INPUT: i32 = 20;    // host -> guest: edge mask this frame
@@ -28,30 +29,6 @@ const IN_DOWN: i32 = 2;
 const IN_LEFT: i32 = 4;
 const IN_RIGHT: i32 = 8;
 const IN_ACT: i32 = 16;
-
-// RGU1 node kinds + property keys
-const K_VIEW: i32 = 1;
-const K_TEXT: i32 = 2;
-const K_BUTTON: i32 = 5;
-const P_TEXT: i32 = 1;
-const P_BG: i32 = 2;
-const P_COLOR: i32 = 3;
-const P_FONT: i32 = 4;
-const P_WIDTH: i32 = 10;
-const P_HEIGHT: i32 = 11;
-const P_PAD: i32 = 12;
-const P_MARGIN: i32 = 13;
-const P_RADIUS: i32 = 14;
-const P_BORDER_COLOR: i32 = 15;
-const P_BORDER_W: i32 = 16;
-const P_FLEXDIR: i32 = 21;
-const P_ALIGN: i32 = 22;
-const P_TEXTALIGN: i32 = 24;
-const P_BG_IMAGE: i32 = 56;   // background image path, clipped to the rounded box
-const DIR_ROW: i32 = 0;
-const DIR_COLUMN: i32 = 1;
-const ALIGN_CENTER: i32 = 1;
-const TEXTALIGN_CENTER: i32 = 1;
 
 // category background art (host-resolvable paths; the host loads the pixels)
 const ART_GAMES: string = "gallery/game_engine/menu/assets/games.png";
@@ -68,43 +45,6 @@ let SCREEN: i32 = 0;
 let SEL: i32 = 0;      // selection index on the current screen
 let CAT: i32 = 0;      // 0 = Games, 1 = Tests
 let REV: i32 = 0;
-
-// ============================================================================
-// Fluent EVG builder over the flat bridge. Each `ui.view/text/button(...)`
-// opens a node and returns an `El` whose chained setters style that node —
-// so authoring reads like `ui.view(id,parent,order).column().center().pad(22)`.
-// ============================================================================
-class El {
-  row(): El { uiPropEnum(P_FLEXDIR, DIR_ROW); return this; }
-  column(): El { uiPropEnum(P_FLEXDIR, DIR_COLUMN); return this; }
-  center(): El { uiPropEnum(P_ALIGN, ALIGN_CENTER); return this; }
-  pad(v: i32): El { uiPropI32(P_PAD, v); return this; }
-  margin(v: i32): El { uiPropI32(P_MARGIN, v); return this; }
-  width(v: i32): El { uiPropI32(P_WIDTH, v); return this; }
-  height(v: i32): El { uiPropI32(P_HEIGHT, v); return this; }
-  radius(v: i32): El { uiPropI32(P_RADIUS, v); return this; }
-  font(v: i32): El { uiPropI32(P_FONT, v); return this; }
-  text(s: string): El { uiPropStr(P_TEXT, s); return this; }
-  image(path: string): El { uiPropStr(P_BG_IMAGE, path); return this; }
-  textCenter(): El { uiPropEnum(P_TEXTALIGN, TEXTALIGN_CENTER); return this; }
-  bg(r: i32, g: i32, b: i32, a: i32): El { uiPropColorRgba(P_BG, r, g, b, a); return this; }
-  color(r: i32, g: i32, b: i32, a: i32): El { uiPropColorRgba(P_COLOR, r, g, b, a); return this; }
-  border(w: i32, r: i32, g: i32, b: i32, a: i32): El {
-    uiPropI32(P_BORDER_W, w);
-    uiPropColorRgba(P_BORDER_COLOR, r, g, b, a);
-    return this;
-  }
-}
-
-class Ui {
-  reset(): void { uiReset(); }
-  finish(rev: i32): void { uiFinish(rev); }
-  view(id: i32, parent: i32, order: i32): El { uiNode(id, parent, K_VIEW, order); return new El(); }
-  label(id: i32, parent: i32, order: i32): El { uiNode(id, parent, K_TEXT, order); return new El(); }
-  button(id: i32, parent: i32, order: i32): El { uiNode(id, parent, K_BUTTON, order); return new El(); }
-}
-
-let ui: Ui = new Ui();
 
 function catName(i: i32): string {
   if (i == 1) return "Tests";

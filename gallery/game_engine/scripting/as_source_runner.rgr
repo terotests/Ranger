@@ -70,6 +70,11 @@ class AsSourceRunner {
         src = (this.stripBridgeImport(src))
         engine.setBasePath(dir)
         engine.setNativeBridge(bridge)
+        ; Shared .as modules (e.g. the fluent `ui` builder) live in lib/ and
+        ; resolve via relative imports like `import { ui } from "./ui"`: found
+        ; first in the game's own dir, else here (same convention game_runtime
+        ; uses for .tsx `game_helpers`).
+        engine.addAssetPath("gallery/game_engine/lib")
         engine.jsxParsing = false      ; .as is non-JSX: `<` is comparison / cast
         ; Silence the interpreter's per-call trace: with quiet=false (the default)
         ; ComponentEngine builds a string and `print`s it on EVERY function call,
