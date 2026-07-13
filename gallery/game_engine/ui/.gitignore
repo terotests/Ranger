@@ -1,0 +1,4 @@
+# Compiled ES6 output (regenerate with the engine:ui:* npm scripts).
+# The .rgr sources are the source of truth.
+*.js
+tests/*.js

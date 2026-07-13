@@ -1,0 +1,136 @@
+; ==============================================================================
+; UIInput - portable pointer + keyboard input snapshot for the EVG UI layer.
+; ==============================================================================
+;
+; This is the ONE data shape the UI layer reads, mirroring how the game engine
+; abstracts a controller with `Buttons` / `PlayerButtons` (see
+; gallery/game_engine/scripting/game_input.rgr). The UI core never touches SDL,
+; a canvas, or `poll_keypress` directly: a thin platform layer fills a UIInput
+; each frame and hands it to `UILayer.update(input)`.
+;
+;   platform (SDL mouse / canvas events / keyboard queue)
+;        |  fills a UIInput each frame
+;        v
+;   UILayer.update(input)   <- pure, portable, unit-testable
+;
+; Because everything above the platform is integer/deterministic, a recorded
+; UIInput stream replays the exact same UI behaviour on every target - the same
+; record/replay debugging the engine already relies on.
+; ==============================================================================
+
+; Special (non-character) keys, tracked as per-frame edges. Kept as an int enum
+; so a platform can OR several together cheaply if it wants.
+class UIKey {
+    sfn none:int ()      { return 0 }
+    sfn backspace:int () { return 1 }
+    sfn enter:int ()     { return 2 }
+    sfn tab:int ()       { return 3 }
+    sfn escape:int ()    { return 4 }
+    sfn left:int ()      { return 5 }
+    sfn right:int ()     { return 6 }
+    sfn up:int ()        { return 7 }
+    sfn down:int ()      { return 8 }
+    sfn del:int ()       { return 9 }
+    sfn home:int ()      { return 10 }
+    sfn end:int ()       { return 11 }
+}
+
+class UIInput {
+    ; --- pointer (mouse / touch / virtual cursor) -----------------------------
+    def pointerX:int 0
+    def pointerY:int 0
+    def pointerDown:boolean false      ; current held state
+    def prevPointerDown:boolean false  ; held state at start of this frame
+    def pointerPressed:boolean false   ; edge: went down this frame
+    def pointerReleased:boolean false  ; edge: went up this frame
+    def scrollDelta:int 0              ; wheel notches this frame (+up / -down)
+
+    ; --- keyboard -------------------------------------------------------------
+    ; Printable characters typed this frame, in order (already de-modified:
+    ; shift/caps applied by the platform). A software keyboard appends here too.
+    def textInput:string ""
+    ; Special keys that fired this frame. Parallel-array queue so several can
+    ; arrive in one frame (e.g. autorepeat backspace).
+    def specialKeys:[int]
+    ; Modifier state (level, not edge) for shortcuts.
+    def shiftDown:boolean false
+    def ctrlDown:boolean false
+
+    Constructor () {
+    }
+
+    ; Call at the very start of each frame, BEFORE the platform writes new input.
+    ; Captures the previous held state and clears all per-frame (edge) data.
+    fn newFrame:void () {
+        prevPointerDown = pointerDown
+        pointerPressed = false
+        pointerReleased = false
+        scrollDelta = 0
+        textInput = ""
+        clear specialKeys
+    }
+
+    ; --- platform writers -----------------------------------------------------
+    fn setPointerPos:void (px:int py:int) {
+        pointerX = px
+        pointerY = py
+    }
+
+    ; Update the held state; derives pressed/released edges vs. this frame's start.
+    fn setPointerDown:void (down:boolean) {
+        if (down && (prevPointerDown == false)) {
+            pointerPressed = true
+        }
+        if ((down == false) && prevPointerDown) {
+            pointerReleased = true
+        }
+        pointerDown = down
+    }
+
+    fn addScroll:void (delta:int) {
+        scrollDelta = (scrollDelta + delta)
+    }
+
+    fn pushText:void (s:string) {
+        textInput = (textInput + s)
+    }
+
+    fn pushChar:void (code:int) {
+        textInput = (textInput + (strfromcode code))
+    }
+
+    fn pushKey:void (key:int) {
+        push specialKeys key
+    }
+
+    fn setModifiers:void (shift:boolean ctrl:boolean) {
+        shiftDown = shift
+        ctrlDown = ctrl
+    }
+
+    ; --- consumer helpers -----------------------------------------------------
+    fn hasText:boolean () {
+        return ((strlen textInput) > 0)
+    }
+
+    fn keyCount:int () {
+        return (array_length specialKeys)
+    }
+
+    fn keyAt:int (i:int) {
+        return (itemAt specialKeys i)
+    }
+
+    ; True if the given special key fired at least once this frame.
+    fn hasKey:boolean (key:int) {
+        def i 0
+        def n (array_length specialKeys)
+        while (i < n) {
+            if ((itemAt specialKeys i) == key) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+}

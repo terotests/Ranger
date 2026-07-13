@@ -1,0 +1,136 @@
+; ==============================================================================
+; UIContext - theme + paint helpers shared by every widget.
+; ==============================================================================
+;
+; Widgets never touch the SoftCanvas directly; they draw through a UIContext,
+; which owns the framebuffer, the text renderer and the colour theme. This keeps
+; alpha-compositing (HUD panels over the game world) and text in one place and
+; makes the widgets pure geometry + state.
+; ==============================================================================
+
+Import "../framebuffer.rgr"
+Import "UITextRenderer.rgr"
+Import "../../evg/EVGColor.rgr"
+
+; Named colour roles. Dark, translucent-panel theme by default (reads well as an
+; overlay on top of a bright game world). Swap fields for a light theme.
+class UITheme {
+    def panelBg:EVGColor    (EVGColor.rgba(20 24 38 0.85))
+    def panelBorder:EVGColor (EVGColor.rgba(90 110 150 0.9))
+    def label:EVGColor      (EVGColor.rgb(226 232 245))
+    def mutedLabel:EVGColor  (EVGColor.rgb(150 165 190))
+
+    def buttonBg:EVGColor    (EVGColor.rgba(46 54 82 0.95))
+    def buttonHover:EVGColor  (EVGColor.rgba(64 76 116 0.95))
+    def buttonPressed:EVGColor (EVGColor.rgba(30 36 58 0.95))
+    def buttonText:EVGColor  (EVGColor.rgb(232 238 250))
+    def buttonBorder:EVGColor (EVGColor.rgba(110 130 175 0.9))
+
+    def inputBg:EVGColor     (EVGColor.rgba(14 17 28 0.95))
+    def inputText:EVGColor   (EVGColor.rgb(236 240 250))
+    def inputBorder:EVGColor  (EVGColor.rgba(80 96 130 0.9))
+    def placeholder:EVGColor  (EVGColor.rgb(110 122 145))
+    def caret:EVGColor       (EVGColor.rgb(120 200 255))
+
+    def boxFill:EVGColor     (EVGColor.rgba(70 120 190 0.9))
+    def boxBorder:EVGColor    (EVGColor.rgba(120 170 230 0.95))
+
+    ; Selection / focus accent used for the "highlight selected element" outline.
+    def accent:EVGColor      (EVGColor.rgb(255 190 70))
+    def focusRing:EVGColor    (EVGColor.rgb(120 200 255))
+
+    def keyBg:EVGColor       (EVGColor.rgba(40 48 72 0.97))
+    def keyText:EVGColor     (EVGColor.rgb(230 236 248))
+
+    Constructor () {
+    }
+}
+
+class UIContext {
+    def canvas:SoftCanvas (new SoftCanvas)
+    def tr:UITextRenderer (new UITextRenderer)
+    def theme:UITheme (new UITheme)
+    def frame:int 0        ; frame counter, drives caret blink etc.
+
+    Constructor () {
+    }
+
+    fn attach:void (c:SoftCanvas) {
+        canvas = c
+    }
+
+    ; --- low-level fills -------------------------------------------------------
+    fn blendPixel:void (x:int y:int r:int g:int b:int a:int) {
+        if (a <= 0) { return }
+        def cw:int (canvas.getWidth())
+        def ch:int (canvas.getHeight())
+        if (x < 0) { return }
+        if (y < 0) { return }
+        if (x >= cw) { return }
+        if (y >= ch) { return }
+        if (a >= 255) {
+            canvas.setPixel(x y r g b)
+            return
+        }
+        def oldR:int (canvas.pixelR(x y))
+        def oldG:int (canvas.pixelG(x y))
+        def oldB:int (canvas.pixelB(x y))
+        def inv (255 - a)
+        def nr (to_int (((r * a) + (oldR * inv)) / 255))
+        def ng (to_int (((g * a) + (oldG * inv)) / 255))
+        def nb (to_int (((b * a) + (oldB * inv)) / 255))
+        canvas.setPixel(x y nr ng nb)
+    }
+
+    fn fillRectA:void (x:int y:int rw:int rh:int r:int g:int b:int a:int) {
+        if (rw <= 0) { return }
+        if (rh <= 0) { return }
+        if (a >= 255) {
+            canvas.fillRect(x y rw rh r g b)
+            return
+        }
+        def yy y
+        def yEnd (y + rh)
+        def xEnd (x + rw)
+        while (yy < yEnd) {
+            def xx x
+            while (xx < xEnd) {
+                this.blendPixel(xx yy r g b a)
+                xx = (xx + 1)
+            }
+            yy = (yy + 1)
+        }
+    }
+
+    fn fillRect:void (x:int y:int rw:int rh:int col:EVGColor) {
+        def a:int (to_int ((col.alpha()) * 255.0))
+        this.fillRectA(x y rw rh (col.red()) (col.green()) (col.blue()) a)
+    }
+
+    ; Stroke an outline of `t` px, inset inside the rect bounds.
+    fn strokeRect:void (x:int y:int rw:int rh:int t:int col:EVGColor) {
+        if (rw <= 0) { return }
+        if (rh <= 0) { return }
+        this.fillRect(x y rw t col)                     ; top
+        this.fillRect(x (y + rh - t) rw t col)          ; bottom
+        this.fillRect(x y t rh col)                     ; left
+        this.fillRect((x + rw - t) y t rh col)          ; right
+    }
+
+    ; --- text ------------------------------------------------------------------
+    fn text:void (s:string x:int y:int size:double col:EVGColor) {
+        tr.drawLine(canvas s x y size (col.red()) (col.green()) (col.blue()) (to_int ((col.alpha()) * 255.0)))
+    }
+
+    fn textWrapped:int (s:string x:int y:int size:double maxWidth:double col:EVGColor) {
+        return (tr.drawText(canvas s x y size maxWidth (col.red()) (col.green()) (col.blue()) (to_int ((col.alpha()) * 255.0))))
+    }
+
+    fn measureWidth:double (s:string size:double) {
+        return (tr.measureWidth(s size))
+    }
+
+    fn lineHeight:double (size:double) {
+        return (tr.lineHeight(size))
+    }
+}

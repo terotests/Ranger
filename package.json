@@ -96,6 +96,8 @@
     "build:raspberry": "bash gallery/game_engine/scripts/build-raspberry.sh",
     "deploy:pi": "bash gallery/game_engine/scripts/deploy-pi.sh",
     "engine:run": "node ./gallery/game_engine/pong.js",
+    "engine:ui:demo": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/game_engine/ui/ui_editor_demo.rgr -d=./gallery/game_engine/ui -o=ui_editor_demo.js -nodecli && node ./gallery/game_engine/ui/ui_editor_demo.js",
+    "engine:ui:test": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/game_engine/ui/tests/UITest.rgr -d=./gallery/game_engine/ui/tests -o=UITest.js -nodecli && node ./gallery/game_engine/ui/tests/UITest.js",
     "engine:compile:sdl": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -l=cpp ./gallery/game_engine/pong_sdl.rgr -d=./gallery/game_engine -o=pong_sdl.cpp -nodecli",
     "engine:sdl": "bash gallery/game_engine/scripts/build-sdl.sh",
     "engine:sdl:run": "bash gallery/game_engine/scripts/build-sdl.sh --run",
