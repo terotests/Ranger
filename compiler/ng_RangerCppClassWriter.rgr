@@ -420,7 +420,26 @@ class RangerCppClassWriter {
     if node.hasParamDesc {
       def nn:CodeNode (itemAt node.children 1)
       def p:RangerAppParamDesc nn.paramDesc
-      if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
+      ; A local whose initializer contains a call (or object construction) may
+      ; have side effects, so it must never be dead-eliminated even when its
+      ; result is unused: commenting the statement out silently drops the call
+      ; and changes behaviour (e.g. `def _a (runner.frame(nav))`, where frame()
+      ; advances state). Only side-effect-free initializers are safe to elide.
+      def initHasSideEffect:boolean false
+      if ((array_length node.children) > 2) {
+        def initChk:CodeNode (node.getThird())
+        if initChk.hasFnCall {
+          initHasSideEffect = true
+        }
+        if initChk.has_call {
+          initHasSideEffect = true
+        }
+        if initChk.hasNewOper {
+          initHasSideEffect = true
+        }
+      }
+      def elideUnused:boolean (((p.ref_cnt == 0) && (p.is_class_variable == false)) && (initHasSideEffect == false))
+      if elideUnused {
         wr.out("/** unused:  " false)
       }
       if ((p.set_cnt > 0) || p.is_class_variable) {
@@ -476,7 +495,7 @@ class RangerCppClassWriter {
       if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
         wr.out("     /** note: unused */" false)
       }
-      if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
+      if elideUnused {
         wr.out("   **/ ;" true)
       } {
         wr.out(";" false)

@@ -98,8 +98,6 @@ class GameSdlRunner {
     def prevActionHeld:boolean false
     def uiRunner:GameUiRunner (new GameUiRunner)
     def uiDirectPath:string ""
-    def uiDbg:boolean true          ; print input/selection diagnostics for engine=ui
-    def uiDbgLastMask:int -1
     def gpuModeWanted:boolean true
     def gpuModeActive:boolean false
     def gameInputSnap:GameInputSnapshot (new GameInputSnapshot)
@@ -930,16 +928,12 @@ class GameSdlRunner {
             return
         }
         print ("[game-engine] ui game: " + wasmPath)
-        if uiDbg {
-            print (("[ui-dbg] loaded selectable=" + (to_string (uiRunner.selCount()))) + (" sel=" + (to_string (uiRunner.selId()))))
-        }
         currentScriptPath = wasmPath
         currentGamePath = wasmPath
         inMenu = false
         inGame = true
         gfx_clear_should_close
         this.syncInputEdges()
-        uiDbgLastMask = -1
         def nav:UiNavInput (new UiNavInput)
         while (running) {
             def m:int (this.uiNavMask())
@@ -949,28 +943,7 @@ class GameSdlRunner {
             nav.left = (this.leftEdge((bit_and m 16) != 0))
             nav.right = (this.rightEdge((bit_and m 32) != 0))
             nav.action = (this.actionEdge((bit_and m 4) != 0))
-            ; input diagnostics: log the raw nav mask only when it changes, so we
-            ; can see whether keyboard/gamepad bits ever reach this loop natively.
-            if uiDbg {
-                if (m != uiDbgLastMask) {
-                    print (("[ui-dbg] mask=" + (to_string m)) + (" sel=" + (to_string (uiRunner.selId()))))
-                    uiDbgLastMask = m
-                }
-            }
             def _a:int (uiRunner.frame(nav))
-            ; report the resulting selection whenever a nav/action edge fired, so a
-            ; moving mask that doesn't move the cursor is immediately visible.
-            if uiDbg {
-                def fired:boolean false
-                if nav.up { fired = true }
-                if nav.down { fired = true }
-                if nav.left { fired = true }
-                if nav.right { fired = true }
-                if nav.action { fired = true }
-                if fired {
-                    print (((("[ui-dbg] edge mask=" + (to_string m)) + (" ->sel=" + (to_string (uiRunner.selId())))) + (" idx=" + (to_string (uiRunner.selIndex())))) + (" count=" + (to_string (uiRunner.selCount()))))
-                }
-            }
             uiRunner.render()
             gfx_present (uiRunner.raw()) pw ph
 

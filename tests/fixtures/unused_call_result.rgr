@@ -1,0 +1,20 @@
+; Regression: a local whose initializer is a CALL must never be dead-eliminated
+; by the C++ writer, even when its result is unused — the call has side effects.
+; A pure-expression unused local is still safe to elide.
+class UnusedCallResult {
+    def counter:int 0
+
+    fn bump:int () {
+        counter = (counter + 1)
+        return counter
+    }
+
+    sfn m@(main):void () {
+        def obj:UnusedCallResult (new UnusedCallResult)
+        ; result unused, but the call MUST survive (mutates counter)
+        def ignored:int (obj.bump())
+        ; pure unused local — safe to eliminate
+        def deadPure:int (2 + 3)
+        print (to_string obj.counter)
+    }
+}
