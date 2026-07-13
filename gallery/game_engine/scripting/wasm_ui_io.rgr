@@ -276,8 +276,16 @@ class WasmUiDoc {
 ; ==============================================================================
 class WasmUiEvgBuilder {
 
+    ; Uniform scale applied to every guest-declared px value (sizes, padding,
+    ; margins, border, radius AND font size). 1.0 = author's exact pixels; the
+    ; host lowers it to autoscale a too-large menu down to the canvas (see
+    ; GameUiRunner.rebuildTree). All px funnels through pxUnit, so this one
+    ; multiply scales the whole tree proportionally.
+    def scale:double 1.0
+
     fn pxUnit:EVGUnit (v:int) {
         def dv (to_double v)
+        dv = (dv * scale)
         def u (EVGUnit.px(dv))
         u.pixels = dv
         return u

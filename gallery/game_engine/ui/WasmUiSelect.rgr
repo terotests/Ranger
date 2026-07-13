@@ -83,6 +83,59 @@ class WasmUiRenderer {
         layout.layoutElement(root 0.0 0.0 fw fh)
     }
 
+    ; Deepest laid-out bottom edge (calculatedY + calculatedHeight) among the
+    ; root's descendants, excluding the full-page root itself. This is the true
+    ; content height used to decide autoscale-to-fit.
+    fn contentBottom:double (root:EVGElement) {
+        def m:double 0.0
+        def i 0
+        def n (array_length root.children)
+        while (i < n) {
+            def c:EVGElement (itemAt root.children i)
+            def b:double (this.maxBottom(c))
+            if (b > m) { m = b }
+            i = (i + 1)
+        }
+        return m
+    }
+    fn maxBottom:double (el:EVGElement) {
+        def b:double (el.calculatedY + el.calculatedHeight)
+        def i 0
+        def n (array_length el.children)
+        while (i < n) {
+            def c:EVGElement (itemAt el.children i)
+            def cb:double (this.maxBottom(c))
+            if (cb > b) { b = cb }
+            i = (i + 1)
+        }
+        return b
+    }
+    ; Right-most laid-out edge among the root's descendants (content width).
+    fn contentRight:double (root:EVGElement) {
+        def m:double 0.0
+        def i 0
+        def n (array_length root.children)
+        while (i < n) {
+            def c:EVGElement (itemAt root.children i)
+            def b:double (this.maxRight(c))
+            if (b > m) { m = b }
+            i = (i + 1)
+        }
+        return m
+    }
+    fn maxRight:double (el:EVGElement) {
+        def b:double (el.calculatedX + el.calculatedWidth)
+        def i 0
+        def n (array_length el.children)
+        while (i < n) {
+            def c:EVGElement (itemAt el.children i)
+            def cb:double (this.maxRight(c))
+            if (cb > b) { b = cb }
+            i = (i + 1)
+        }
+        return b
+    }
+
     ; Resolved border radius (px) declared on the element by the guest, or 0.
     fn radiusOf:int (el:EVGElement) {
         if el.box.borderRadius.isSet {
