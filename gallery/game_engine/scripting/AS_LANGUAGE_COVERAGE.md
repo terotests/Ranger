@@ -44,9 +44,13 @@ RANGER_LIB="./compiler/Lang.rgr;./lib/stdops.rgr" \
 node tests/.output/as_lang_demo.js        # expect "ALL PASS"
 ```
 
-Fixtures live in `gallery/game_engine/tests/interp/`:
-`as_lang_fixture/game.as` (language features) and `as_class_fixture/game.as`
-(classes). Both are also run from `tests/tsx-engine.test.ts`.
+Fixtures live in `gallery/game_engine/tests/interp/` (all run from
+`tests/tsx-engine.test.ts`):
+`as_lang_fixture` (operators, control flow, base stdlib — 45 checks),
+`as_lang2_fixture` (destructuring, spread, params, array mutators, Object/JSON,
+instanceof/in/delete, try/catch, stdlib extras — 41 checks), and
+`as_class_fixture` (classes — 5 checks). Their `*_demo.rgr` runners print
+`ALL PASS`.
 
 To probe a single feature, drop a `game.as` that writes results to the shared
 ABI (`abiWrite(off, expr)`) into a folder and bind it with `AsSourceRunner`,
@@ -91,47 +95,64 @@ then read them back with `r.abiRead(off)`.
 ### Functions & classes
 - Function declarations, recursion, functions as values, arrow-function
   callbacks (see array methods).
+- **Positional default parameters** (`f(x = 5)`; the default is evaluated in the
+  param scope, so it can reference earlier params), **rest parameters**
+  (`...args` → array), and **destructured parameters** (`{a}`/`[x]`).
 - Classes: `new C()`, fields with initializers, methods, `this` reads/writes,
-  fluent method chaining, bound-method references as callbacks. (See
+  fluent method chaining, bound-method references as callbacks,
+  **`instanceof`** (direct class tag; no inheritance chain). (See
   `as_class_fixture`.)
 
+### Destructuring & spread (ES2015+)
+- **Declaration destructuring**: `const [a, b, ...rest] = arr` (holes, defaults,
+  rest) and `const {x, y: alias, z = 1, ...rest} = obj`. Recursive/nested.
+- **Spread**: array `[...a, b]`, call `f(...xs)`, object `{...o, k: v}`
+  (last-write-wins on duplicate keys).
+
 ### Stdlib methods
-- **String**: `length`, `toString/toUpperCase/toLowerCase/trim`, `charAt`,
-  `charCodeAt`, `substring`, `slice` (neg indices), `indexOf`, `includes`,
-  `startsWith`, `endsWith`, `split`, `repeat`, `padStart`, `padEnd`, `toFixed`.
-- **Array**: `length`, index read/write, `push` (statement position),
-  `indexOf`, `includes`, `join`, `slice`, and the higher-order
-  `map / filter / forEach / reduce / find / findIndex / some / every`
-  (arrow or named callbacks, `(el, i)` args).
-- **Math**: `round floor ceil abs sin cos sqrt sign trunc`, and multi-arg
-  `min max pow`; constant `Math.PI`.
-- **Global**: `parseInt`, `parseFloat`; `typeof`.
+- **String**: `length`, `toString/toUpperCase/toLowerCase/trim/trimStart/trimEnd`,
+  `charAt`, `charCodeAt`, `substring`, `slice` (neg indices), `at` (neg index),
+  `indexOf`, `lastIndexOf`, `includes`, `startsWith`, `endsWith`, `split`,
+  `concat`, `repeat`, `padStart`, `padEnd`, `replace` (first), `replaceAll`,
+  `toFixed`. (`replace`/`replaceAll` are string-search only — no RegExp.)
+- **Array**: `length`, index read/write, `at`, `indexOf`, `lastIndexOf`,
+  `includes`, `join`, `slice`, `concat`, `flat` (one level); mutators
+  `push` (returns length, expression or statement), `pop`, `shift`, `unshift`,
+  `reverse`, `fill`, `sort` (comparator, or JS-default string order); and the
+  higher-order `map / filter / forEach / reduce / find / findIndex / some /
+  every` (arrow or named callbacks, `(el, i)` args). `Array.isArray`.
+- **Math**: `round floor ceil abs sin cos tan sqrt sign trunc`, multi-arg
+  `min max pow hypot`; constant `Math.PI`.
+- **Object**: `Object.keys / values / entries / assign` (the internal
+  `__class__` tag is hidden).
+- **JSON** (ECMA-404): `JSON.stringify` and `JSON.parse` (objects, arrays,
+  strings with `\n \t \r \" \\ /` escapes, numbers, booleans, null).
+- **Global**: `parseInt`, `parseFloat`, `Number()`, `String()`, `Boolean()`,
+  `isNaN`, `isFinite`, `Number.isInteger / isNaN / isFinite`; `typeof`;
+  `console.log / warn / error / info / debug` (prints, space-joined).
+
+### Operators (beyond arithmetic)
+- `instanceof`, `in` (object key / array index presence), `delete obj.x`.
 
 ---
 
-## Still missing / limited (the hard corners)
+## Standards notes & deliberate divergences
 
-Ordered roughly by how often real TS/AS code hits them.
+These are the places the interpreter intentionally differs from the ECMAScript /
+AssemblyScript spec. They are safe for typical game/UI guest code but worth
+knowing.
 
-| Gap | Layer | Notes / workaround |
+| Area | Spec (JS/AS) | This interpreter |
 |---|---|---|
-| `try / catch / finally`, `throw` | evaluator (parser OK) | No exception model. Return error codes/sentinels instead. |
-| Array `pop/shift/unshift/splice/sort/reverse/concat/flat`, `Array.isArray` | evaluator | Only the methods listed above are wired. |
-| Callback methods returning from **non-array** receivers (e.g. `this.list.map`) | evaluator | `map/filter/…` require the receiver to evaluate to an array value. |
-| `Map` / `Set` / `Date` / `RegExp` | evaluator | `new Map()/new Set()` return null; no keyed-collection type. Use objects/arrays. |
-| `JSON.stringify/parse`, `Object.keys/values/entries/assign` | evaluator | Not implemented. `for…in` covers key iteration. |
-| `console.log` as a guest function | evaluator | Not a registered global in the `.as` bridge (games use the RGU1 HUD). |
-| Destructuring in `let/const` (`const [a,b]=…`, `const {x}=…`) | evaluator (parser OK) | Object-pattern **params** work; declarations do not. Assign fields individually. |
-| Spread / rest (`...args`, `[...a]`, `f(...xs)`) | evaluator (parser OK) | Parsed as `SpreadElement`/`RestElement`, not expanded. |
-| Positional **default parameters** (`f(x = 5)`) | evaluator | Ignored unless the arg is passed. Object-pattern defaults do work. |
-| `let x;` (declaration without initializer) | evaluator | Creates no binding; a later read misses. Always initialize (`let x = 0;`). |
-| Labeled `break outer` / labeled loops | parser+evaluator | Only unlabeled break/continue. |
-| Closures capture the **call site**, not the definition scope | evaluator | Dynamic-scoped, not lexical. Avoid relying on captured outer locals. |
-| `const` immutability, sized-integer (`i32/u8/i64`) overflow/wrap semantics | evaluator | All numbers are IEEE doubles; only `x|0`-style truncation via bitwise ops. `i32(x)` casts are not applied. |
-| `**` with a fractional/large exponent | evaluator | Integer exponent only (repeated multiply). |
-| `instanceof`, `in`, `delete` | parser+evaluator | Absent. |
-| `enum` bodies, `extends` / `super`, `static` members, getters/setters | evaluator (enum parses) | Class inheritance and statics are not modeled. |
-| Hard loop cap (10k EVG / 100k value path) | evaluator | Very long loops are silently truncated. |
+| Numbers | AS has sized ints (`i32/u8/i64`) with wraparound; JS has doubles | All values are IEEE doubles. Integer truncation only via `\| 0` / bitwise / shift ops. `i32(x)` casts are **not** applied. |
+| Division by zero | `x/0 = ±Infinity`, `0/0 = NaN` | Guarded to `0` (so `isNaN(0/0)` is false). `NaN` still arises from e.g. `Math.sqrt(-1)`, and `isNaN` detects it. |
+| Destructuring default | Fires only when the value is `undefined` | Fires on `undefined` **or** `null` (missing members read as `null` here). |
+| Closures | Lexical (capture defining scope) | Dynamic (resolve against the call site). Avoid relying on captured outer locals. |
+| `const` | Reassignment is a TypeError | Not enforced (treated like `let`). |
+| Equality | `==` (coercing) vs `===` (strict) differ | Both compare by value; no distinction. |
+| `**` | Full float exponent | Integer exponent only (repeated multiply). |
+| `Array#sort` default | UTF-16 code-unit order | Char-code string order (same for ASCII). Comparator form is exact. |
+| Loops | Unbounded | Hard cap (100k value path / 10k EVG); longer loops are silently truncated. |
 
 ### Note on shifts vs. generics
 
@@ -139,22 +160,29 @@ Ordered roughly by how often real TS/AS code hits them.
 (`parseShift`), not merged in the lexer, specifically so type-generics like
 `Map<string, Array<i32>>` keep parsing. The compound `<<= >>= >>>=` (whose
 trailing `=` can never appear in a generic) are tokenized directly. A string
-literal whose text equals an operator (e.g. `"-"`, `"++"`) is now kept as a
+literal whose text equals an operator (e.g. `"-"`, `"++"`) is kept as a
 literal — the parser guards operator dispatch on token *type*, not just value.
 
 ---
 
+## Still missing / limited (the remaining hard corners)
+
+| Gap | Layer | Notes / workaround |
+|---|---|---|
+| `Map` / `Set` / `Date` / `RegExp` | evaluator | `new Map()/new Set()` return null. Use objects/arrays; no regex. |
+| Callback array methods on a **non-array** receiver | evaluator | `map/filter/…` require the receiver to evaluate to an array value. |
+| Labeled `break outer` / labeled loops | parser+evaluator | Only unlabeled break/continue. |
+| `enum` bodies, `extends` / `super`, `static` members, get/set accessors, `#private` | evaluator (enum/`extends` parse) | Class inheritance and statics are not modeled; `instanceof` has no chain. |
+| `Array#splice`, `flat(depth)` beyond one level, `Array.from/of` | evaluator | Not wired. |
+| `Math.log/exp/atan/atan2/asin`-family beyond the list above | evaluator | Only ops with a host builtin are exposed. |
+| Sized-integer / unsigned semantics, `const` enforcement, lexical closures | evaluator | See the standards table above. |
+
 ## Recommended next steps (highest value first)
 
-1. **`try/catch/throw`** — a global `scriptThrew` + `scriptThrowValue` pair
-   (mirroring `scriptDidReturn`) unwinding through `runStatementList` and the
-   loop/call boundaries. Parser already emits `TryStatement`/`ThrowStatement`.
-2. **Array mutators** `pop/shift/unshift/splice/sort/reverse` and
-   `Array.isArray` — mechanical, alongside the existing array block.
-3. **Destructuring in declarations** — reuse the existing `bindObjectPattern`
-   for `ObjectPattern`, add `ArrayPattern`, in `processVariableDeclaration`.
-4. **Positional default params** — in the two argument binders, when
-   `argIdx >= numArgs` and `param.init` exists, evaluate the default.
-5. **`let x;` binding** — define the name as `undefined` even with no
-   initializer.
-6. **`Map`/`Set`** — back them with the existing object map / array.
+1. **`Map`/`Set`** — back them with the existing object map / array; add
+   `get/set/has/delete/size` dispatch.
+2. **`Array#splice`** and `Array.from` — mechanical, alongside the array block.
+3. **Lexical closures** — capture the defining `EvalContext` on the function
+   value instead of resolving against the call site.
+4. **Sized-integer semantics** — honour `i32(x)`/`as i32` truncation and
+   `u32`/`>>>` wraparound so AS integer code is bit-exact with `asc`.

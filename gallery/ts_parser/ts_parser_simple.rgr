@@ -3552,7 +3552,7 @@ class TSParserSimple {
     def left (this.parseShift())
 
     def tokVal (this.peekValue())
-    while ((tokVal == "<") || (tokVal == ">") || (tokVal == "<=") || (tokVal == ">=")) {
+    while ((tokVal == "<") || (tokVal == ">") || (tokVal == "<=") || (tokVal == ">=") || (tokVal == "instanceof") || (tokVal == "in")) {
       ; In TSX mode, check if < might be a generic call
       if (tokVal == "<") {
         if (this.tsxMode == true) {
@@ -3724,13 +3724,13 @@ class TSParserSimple {
       return unary
     }
 
-    if (tokVal == "void") {
+    if ((tokVal == "void") || (tokVal == "delete")) {
       def opTok (this.peek())
       this.advance()
       def arg (this.parseUnary())
       def unary (new TSNode())
       unary.nodeType = "UnaryExpression"
-      unary.value = "void"
+      unary.value = opTok.value
       unary.left = arg
       unary.start = opTok.start
       unary.line = opTok.line

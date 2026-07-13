@@ -327,6 +327,23 @@ class EvalValue {
         }
         set objectMap key value
     }
+
+    ; Remove an object property (mutates in place), rebuilding the map without it.
+    fn removeMember:void (key:string) {
+        if (valueType != 5) {
+            return
+        }
+        if (has objectMap key) {
+            def rebuilt:[string:EvalValue]
+            def ks:[string] (keys objectMap)
+            for ks kk:string idx {
+                if (kk != key) {
+                    set rebuilt kk (unwrap (get objectMap kk))
+                }
+            }
+            objectMap = rebuilt
+        }
+    }
     
     ; Set an array element by index (extends with null when needed).
     fn setIndexAt:void (index:int value:EvalValue) {
@@ -337,6 +354,22 @@ class EvalValue {
             push arrayValue (EvalValue.null())
         }
         set arrayValue index value
+    }
+
+    ; Append to the backing array in place; returns the new length (Array#push).
+    fn arrPush:int (value:EvalValue) {
+        if (valueType != 4) {
+            return 0
+        }
+        push arrayValue value
+        return (array_length arrayValue)
+    }
+
+    ; Replace the backing array items in place (keeps the same EvalValue instance
+    ; so existing references see the mutation — used by pop/shift/reverse/sort/…).
+    fn arrSetItems:void (items:[EvalValue]) {
+        valueType = 4
+        arrayValue = items
     }
     
     ; Array index access

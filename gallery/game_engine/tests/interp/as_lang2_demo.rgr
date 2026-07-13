@@ -1,0 +1,83 @@
+; ==============================================================================
+; as_lang2_demo — self-check for the second wave of interpreted-.as coverage:
+; destructuring, default/rest params, spread, array mutators, Object/JSON,
+; instanceof/in/delete, try/catch/finally, and String/Math/global stdlib extras.
+; Binds a .as fixture and asserts the values it wrote to the ABI. Companion to
+; as_lang_demo (operators/control-flow) and as_class_demo (classes).
+; ==============================================================================
+
+Import "../../scripting/as_source_runner.rgr"
+
+class AsLang2Check {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string got:int want:int) {
+        if (got == want) {
+            passed = (passed + 1)
+            print (("  PASS " + name) + (" = " + (to_string got)))
+        } {
+            failed = (failed + 1)
+            print (((("  FAIL " + name) + " got ") + (to_string got)) + (" want " + (to_string want)))
+        }
+    }
+    sfn m@(main):void () {
+        def r:AsSourceRunner (new AsSourceRunner)
+        if ((r.bindDir("gallery/game_engine/tests/interp/as_lang2_fixture")) == false) {
+            print "bind failed"
+            return
+        }
+        r.callInit()
+        def c:AsLang2Check (new AsLang2Check)
+        ; destructuring
+        c.ok("array destructure"   (r.abiRead(480)) 18)
+        c.ok("array rest"          (r.abiRead(484)) 3)
+        c.ok("array defaults"      (r.abiRead(488)) 18)
+        c.ok("object destructure"  (r.abiRead(492)) 42)
+        c.ok("object alias"        (r.abiRead(496)) 55)
+        c.ok("object rest"         (r.abiRead(500)) 5)
+        ; params / spread
+        c.ok("default param"       (r.abiRead(504)) 101)
+        c.ok("default param given" (r.abiRead(508)) 3)
+        c.ok("rest param"          (r.abiRead(512)) 15)
+        c.ok("call spread"         (r.abiRead(516)) 60)
+        c.ok("array spread"        (r.abiRead(520)) 4)
+        c.ok("object spread"       (r.abiRead(524)) 3)
+        ; array mutators
+        c.ok("push returns len"    (r.abiRead(528)) 4)
+        c.ok("pop"                 (r.abiRead(532)) 4)
+        c.ok("shift"               (r.abiRead(536)) 1)
+        c.ok("unshift"             (r.abiRead(540)) 0)
+        c.ok("reverse"             (r.abiRead(544)) 3)
+        c.ok("sort comparator"     (r.abiRead(548)) 1)
+        c.ok("concat"             (r.abiRead(552)) 4)
+        c.ok("flat"               (r.abiRead(556)) 3)
+        c.ok("at(-1)"             (r.abiRead(560)) 7)
+        c.ok("Array.isArray"       (r.abiRead(564)) 1)
+        ; Object / JSON
+        c.ok("Object.keys"         (r.abiRead(568)) 3)
+        c.ok("Object.values"       (r.abiRead(572)) 6)
+        c.ok("Object.assign"       (r.abiRead(576)) 3)
+        c.ok("JSON.parse number"   (r.abiRead(580)) 8)
+        c.ok("JSON.parse array"    (r.abiRead(584)) 3)
+        c.ok("JSON roundtrip"      (r.abiRead(588)) 21)
+        ; instanceof / in / delete
+        c.ok("instanceof"          (r.abiRead(592)) 1)
+        c.ok("in operator"         (r.abiRead(596)) 1)
+        c.ok("delete"              (r.abiRead(600)) 0)
+        ; try / catch / finally
+        c.ok("catch bound value"   (r.abiRead(604)) 77)
+        c.ok("finally ran"         (r.abiRead(608)) 1)
+        ; string / math / global
+        c.ok("replace"            (r.abiRead(612)) 5)
+        c.ok("replaceAll"         (r.abiRead(616)) 3)
+        c.ok("lastIndexOf"        (r.abiRead(620)) 3)
+        c.ok("Math.hypot"         (r.abiRead(624)) 5)
+        c.ok("Number()"           (r.abiRead(628)) 65)
+        c.ok("Number.isInteger"   (r.abiRead(632)) 1)
+        c.ok("isNaN(sqrt -1)"     (r.abiRead(636)) 1)
+        c.ok("trimEnd"            (r.abiRead(640)) 2)
+        print "======================================"
+        print (("RESULT: " + (to_string c.passed) + " passed, ") + ((to_string c.failed) + " failed"))
+        if (c.failed == 0) { print "ALL PASS" } { print "SOME FAILED" }
+    }
+}
