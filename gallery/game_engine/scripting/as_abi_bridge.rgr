@@ -187,6 +187,18 @@ class AsAbiBridge {
         def p (this.beginProp(key 7))
         if (p >= 0) { this.uw32((p + 4) v) }
     }
+    ; Color prop from r,g,b,a components (0..255). Component form avoids passing a
+    ; 0xRRGGBBAA literal with the high bit set through the interpreter's to_int
+    ; (same reason uiTextRgb exists). Stored little-endian as [A,B,G,R].
+    fn uiPropColorRgba:void (key:int r:int g:int b:int a:int) {
+        def p (this.beginProp(key 3))
+        if (p >= 0) {
+            this.uw8((p + 4) a)
+            this.uw8((p + 5) b)
+            this.uw8((p + 6) g)
+            this.uw8((p + 7) r)
+        }
+    }
     fn uiPropStr:void (key:int s:string) {
         def p (this.beginProp(key 4))
         if (p < 0) { return }
@@ -335,6 +347,7 @@ class AsAbiBridge {
         if (name == "uiTextRgb") { return true }
         if (name == "uiPropI32") { return true }
         if (name == "uiPropColor") { return true }
+        if (name == "uiPropColorRgba") { return true }
         if (name == "uiPropEnum") { return true }
         if (name == "uiPropStr") { return true }
         if (name == "uiFinish") { return true }
@@ -487,6 +500,10 @@ class AsAbiBridge {
         }
         if (name == "uiPropColor") {
             this.uiPropColor((this.argInt(args 0)) (this.argInt(args 1)))
+            return (EvalValue.null())
+        }
+        if (name == "uiPropColorRgba") {
+            this.uiPropColorRgba((this.argInt(args 0)) (this.argInt(args 1)) (this.argInt(args 2)) (this.argInt(args 3)) (this.argInt(args 4)))
             return (EvalValue.null())
         }
         if (name == "uiPropEnum") {
