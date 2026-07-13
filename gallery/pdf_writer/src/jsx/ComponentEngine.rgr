@@ -5079,12 +5079,12 @@ class ComponentEngine {
                 }
                 if (arrStaticName == "console") {
                     if ((methodName == "log") || (methodName == "warn") || (methodName == "error") || (methodName == "info") || (methodName == "debug")) {
-                        def line:string ""
+                        ; Host stdout is shared with the engine; prefix with [tsx]
+                        ; so script logging is distinguishable (see engine.d.ts).
+                        def line:string "[tsx]"
                         def ci:int 0
                         while (ci < (array_length node.children)) {
-                            if (ci > 0) {
-                                line = (line + " ")
-                            }
+                            line = (line + " ")
                             line = (line + ((this.evaluateExpr((itemAt node.children ci))).toString()))
                             ci = (ci + 1)
                         }
