@@ -18,13 +18,17 @@ typedef struct RgWasmRes {
     char path[80];
 } RgWasmRes;
 
-/* One guest-requested UI effect (env.rg_ui_glow). The guest fires a glow on a
- * node; the host owns the timeline (UIAnimator) and calls rg_ui_effect_done on
- * the guest when the effect completes, passing back node + tag. */
+/* One guest-requested UI effect (env.rg_ui_glow / env.rg_ui_effect). The guest
+ * fires an effect on a node or the whole screen; the host owns the timeline
+ * (UIAnimator) and calls rg_ui_effect_done on the guest when it completes,
+ * passing back node + tag. */
 typedef struct RgWasmFx {
+    int kind;      /* 1 = glow (single flash), 2 = pulse (repeated beats) */
+    int target;    /* 0 = a UI node (node id), 1 = the whole screen */
     int node;      /* target node id (guest's stable RGU1 id) */
     int durMs;     /* effect duration, milliseconds */
     int delayMs;   /* delay before it starts, milliseconds */
+    int r, g, b;   /* effect tint, 0..255 */
     int tag;       /* opaque guest tag, echoed to rg_ui_effect_done */
 } RgWasmFx;
 
@@ -172,23 +176,49 @@ m3ApiRawFunction(m3_rg_spawn_worker) {
     m3ApiReturn(result);
 }
 
-/* env.rg_ui_glow(node, durMs, delayMs, tag) — the UI guest requests a host-run
- * glow animation on a node. Queued here; the Ranger host drains it after the
- * guest call (rg_wasm_fx_*) and drives its UIAnimator. */
+static void rg_fx_enqueue(RgWasmSlot* s, int kind, int target, int node,
+                          int durMs, int delayMs, int r, int g, int b, int tag) {
+    if (s && s->fx_count < RG_WASM_MAX_FX) {
+        RgWasmFx* fx = &s->fx[s->fx_count];
+        fx->kind = kind;
+        fx->target = target;
+        fx->node = node;
+        fx->durMs = durMs;
+        fx->delayMs = delayMs;
+        fx->r = r;
+        fx->g = g;
+        fx->b = b;
+        fx->tag = tag;
+        s->fx_count++;
+    }
+}
+
+/* env.rg_ui_glow(node, durMs, delayMs, tag) — convenience: a white glow on a
+ * node. Equivalent to rg_ui_effect(1, 0, node, dur, delay, 255,255,255, tag). */
 m3ApiRawFunction(m3_rg_ui_glow) {
     m3ApiGetArg(int32_t, node)
     m3ApiGetArg(int32_t, durMs)
     m3ApiGetArg(int32_t, delayMs)
     m3ApiGetArg(int32_t, tag)
-    RgWasmSlot* s = (RgWasmSlot*)(_ctx->userdata);
-    if (s && s->fx_count < RG_WASM_MAX_FX) {
-        RgWasmFx* fx = &s->fx[s->fx_count];
-        fx->node = node;
-        fx->durMs = durMs;
-        fx->delayMs = delayMs;
-        fx->tag = tag;
-        s->fx_count++;
-    }
+    rg_fx_enqueue((RgWasmSlot*)(_ctx->userdata), 1, 0, node, durMs, delayMs,
+                  255, 255, 255, tag);
+    m3ApiSuccess();
+}
+
+/* env.rg_ui_effect(kind, target, node, durMs, delayMs, r, g, b, tag) — the
+ * general form: kind (1 glow / 2 pulse), target (0 node / 1 screen), tint rgb. */
+m3ApiRawFunction(m3_rg_ui_effect) {
+    m3ApiGetArg(int32_t, kind)
+    m3ApiGetArg(int32_t, target)
+    m3ApiGetArg(int32_t, node)
+    m3ApiGetArg(int32_t, durMs)
+    m3ApiGetArg(int32_t, delayMs)
+    m3ApiGetArg(int32_t, r)
+    m3ApiGetArg(int32_t, g)
+    m3ApiGetArg(int32_t, b)
+    m3ApiGetArg(int32_t, tag)
+    rg_fx_enqueue((RgWasmSlot*)(_ctx->userdata), kind, target, node, durMs,
+                  delayMs, r, g, b, tag);
     m3ApiSuccess();
 }
 
@@ -205,6 +235,8 @@ static void rg_link_host_imports(RgWasmSlot* s) {
                                "i(ii)", &m3_rg_spawn_worker, s);
     (void)m3_LinkRawFunctionEx(s->module, "env", "rg_ui_glow",
                                "v(iiii)", &m3_rg_ui_glow, s);
+    (void)m3_LinkRawFunctionEx(s->module, "env", "rg_ui_effect",
+                               "v(iiiiiiiii)", &m3_rg_ui_effect, s);
 }
 
 static int rg_alloc_handle(void) {
@@ -583,34 +615,23 @@ int rg_wasm_fx_count(int handle) {
     return s->fx_count;
 }
 
-int rg_wasm_fx_node(int handle, int idx) {
+int rg_wasm_fx_ival(int handle, int idx, int field) {
     RgWasmSlot* s = rg_slot(handle);
+    RgWasmFx* fx;
     if (!s || idx < 0 || idx >= s->fx_count) {
         return 0;
     }
-    return s->fx[idx].node;
-}
-
-int rg_wasm_fx_dur(int handle, int idx) {
-    RgWasmSlot* s = rg_slot(handle);
-    if (!s || idx < 0 || idx >= s->fx_count) {
-        return 0;
+    fx = &s->fx[idx];
+    switch (field) {
+    case 0: return fx->kind;
+    case 1: return fx->target;
+    case 2: return fx->node;
+    case 3: return fx->durMs;
+    case 4: return fx->delayMs;
+    case 5: return fx->tag;
+    case 6: return fx->r;
+    case 7: return fx->g;
+    case 8: return fx->b;
+    default: return 0;
     }
-    return s->fx[idx].durMs;
-}
-
-int rg_wasm_fx_delay(int handle, int idx) {
-    RgWasmSlot* s = rg_slot(handle);
-    if (!s || idx < 0 || idx >= s->fx_count) {
-        return 0;
-    }
-    return s->fx[idx].delayMs;
-}
-
-int rg_wasm_fx_tag(int handle, int idx) {
-    RgWasmSlot* s = rg_slot(handle);
-    if (!s || idx < 0 || idx >= s->fx_count) {
-        return 0;
-    }
-    return s->fx[idx].tag;
 }

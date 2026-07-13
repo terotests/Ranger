@@ -159,33 +159,10 @@ operators {
         }
     }
 
-    wasm_fx_node _:int (handle:int idx:int) {
+    ; field: 0 kind, 1 target, 2 node, 3 durMs, 4 delayMs, 5 tag, 6 r, 7 g, 8 b
+    wasm_fx_ival _:int (handle:int idx:int field:int) {
         templates {
-            cpp ( "rg_wasm_fx_node(" (e 1) ", " (e 2) ")" (imp "<rg_wasm_bridge.h>") )
-            es6 ( "0" )
-            ranger ( "0" )
-        }
-    }
-
-    wasm_fx_dur _:int (handle:int idx:int) {
-        templates {
-            cpp ( "rg_wasm_fx_dur(" (e 1) ", " (e 2) ")" (imp "<rg_wasm_bridge.h>") )
-            es6 ( "0" )
-            ranger ( "0" )
-        }
-    }
-
-    wasm_fx_delay _:int (handle:int idx:int) {
-        templates {
-            cpp ( "rg_wasm_fx_delay(" (e 1) ", " (e 2) ")" (imp "<rg_wasm_bridge.h>") )
-            es6 ( "0" )
-            ranger ( "0" )
-        }
-    }
-
-    wasm_fx_tag _:int (handle:int idx:int) {
-        templates {
-            cpp ( "rg_wasm_fx_tag(" (e 1) ", " (e 2) ")" (imp "<rg_wasm_bridge.h>") )
+            cpp ( "rg_wasm_fx_ival(" (e 1) ", " (e 2) ", " (e 3) ")" (imp "<rg_wasm_bridge.h>") )
             es6 ( "0" )
             ranger ( "0" )
         }

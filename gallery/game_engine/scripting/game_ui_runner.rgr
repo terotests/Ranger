@@ -16,6 +16,7 @@
 ; ==============================================================================
 
 Import "../framebuffer.rgr"
+Import "../gfx_sdl.rgr"
 Import "../ui/WasmUiSelect.rgr"
 Import "./as_source_runner.rgr"
 
@@ -290,5 +291,46 @@ class GameUiRunner {
 
     fn raw:buffer () {
         return (canvas.raw())
+    }
+
+    ; GPU-accelerated effects: when on, the software renderer stops drawing the
+    ; live glow/pulse (flushGpuEffects emits them as GL overlay quads instead).
+    fn setGpuEffects:void (on:boolean) {
+        ctrl.renderer.setGpuEffects(on)
+    }
+
+    ; Emit this frame's live effects as GPU overlay quads: one soft glow per active
+    ; node, plus a whole-screen pulse. Called between render() and gfx_present on
+    ; the GPU path; the quads composite on top of the presented UI texture.
+    fn flushGpuEffects:void (fbW:int fbH:int) {
+        gfx_fx_begin fbW fbH
+        def ids:[string] (effects.activeIds())
+        def i 0
+        def n (array_length ids)
+        while (i < n) {
+            def id:string (itemAt ids i)
+            def gi:double (effects.glowFor(id))
+            if (gi > 0.0) {
+                def hit:RectHit (ctrl.renderer.findRect(root id))
+                if hit.found {
+                    if (gi > 1.0) { gi = 1.0 }
+                    def ga:int (to_int (gi * 230.0))
+                    ; expand the rect so the halo extends beyond the node edges
+                    def ex:int 8
+                    def gx:double (to_double (hit.x - ex))
+                    def gy:double (to_double (hit.y - ex))
+                    def gw:double (to_double (hit.w + (ex * 2)))
+                    def gh:double (to_double (hit.h + (ex * 2)))
+                    gfx_fx_push_glow gx gy gw gh (effects.nodeR()) (effects.nodeG()) (effects.nodeB()) ga
+                }
+            }
+            i = (i + 1)
+        }
+        def sp:double (effects.screenPulse())
+        if (sp > 0.0) {
+            if (sp > 1.0) { sp = 1.0 }
+            def sa:int (to_int (sp * 150.0))
+            gfx_fx_push_screen (effects.screenR()) (effects.screenG()) (effects.screenB()) sa
+        }
     }
 }

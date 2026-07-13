@@ -74,6 +74,35 @@ class WasmUiEffectsDemo {
         c.ok("second node glowing" ((fx.glowFor("20")) > 0.0))
         c.ok("first node still idle" ((fx.glowFor("12")) == 0.0))
 
+        ; --- colored node glow: tint is reported via nodeR/G/B ---
+        def fx2:WasmUiEffects (new WasmUiEffects)
+        ; startEffect(kind=glow target=node node=5 dur=300 delay=0 r=255 g=0 b=0 handle=0 tag=0)
+        fx2.startEffect(1 0 5 300 0 255 0 0 0 0)
+        fx2.tick(150)
+        c.ok("red node glow at peak" (FxCheck.near((fx2.glowFor("5")) 1.0 0.06)))
+        c.ok("node tint red reported" (((fx2.nodeR()) == 255) && ((fx2.nodeG()) == 0)))
+
+        ; --- whole-screen pulse: shows on screen channel, not on any node ---
+        def fx3:WasmUiEffects (new WasmUiEffects)
+        ; startEffect(kind=pulse target=screen node=0 dur=600 delay=0 r=120 g=180 b=255 handle=0 tag=0)
+        fx3.startEffect(2 1 0 600 0 120 180 255 0 0)
+        fx3.tick(50)
+        c.ok("screen pulse active" ((fx3.screenPulse()) > 0.0))
+        c.ok("screen pulse tint reported" (((fx3.screenR()) == 120) && ((fx3.screenB()) == 255)))
+        c.ok("screen pulse is not a node effect" ((fx3.glowFor("0")) == 0.0))
+
+        ; --- pulse beats: a pulse returns to 0 at each beat boundary (unlike a
+        ; single glow flash). Over a 600ms/3-beat pulse, beat 1 peaks at ~100ms
+        ; (p=1/6) and the first trough is at ~200ms (p=1/3).
+        def fx4:WasmUiEffects (new WasmUiEffects)
+        fx4.startEffect(2 0 7 600 0 255 255 255 0 0)   ; node pulse
+        fx4.tick(100)                                   ; p=1/6 -> beat 1 peak
+        c.ok(("pulse peaks mid-beat (got " + (to_string (fx4.glowFor("7"))) + ")") (FxCheck.near((fx4.glowFor("7")) 1.0 0.06)))
+        fx4.tick(100)                                   ; p=1/3 -> beat boundary trough
+        c.ok(("pulse dips to 0 between beats (got " + (to_string (fx4.glowFor("7"))) + ")") (FxCheck.near((fx4.glowFor("7")) 0.0 0.08)))
+        fx4.tick(50)                                    ; p=0.417 -> beat 2 rising
+        c.ok("pulse rises again on next beat" ((fx4.glowFor("7")) > 0.2))
+
         print "======================================"
         print (("RESULT: " + (to_string c.passed)) + (" passed, " + ((to_string c.failed) + " failed")))
         if (c.failed == 0) {

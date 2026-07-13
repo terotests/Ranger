@@ -43,10 +43,8 @@ const char* rg_wasm_host_res_path(int handle, int idx);
  * the guest's rg_ui_effect_done(node, tag) export when an effect completes. */
 int rg_wasm_fx_reset(int handle);
 int rg_wasm_fx_count(int handle);
-int rg_wasm_fx_node(int handle, int idx);
-int rg_wasm_fx_dur(int handle, int idx);
-int rg_wasm_fx_delay(int handle, int idx);
-int rg_wasm_fx_tag(int handle, int idx);
+/* field: 0 kind, 1 target, 2 node, 3 durMs, 4 delayMs, 5 tag, 6 r, 7 g, 8 b */
+int rg_wasm_fx_ival(int handle, int idx, int field);
 
 #ifdef __cplusplus
 }
