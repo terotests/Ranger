@@ -71,6 +71,12 @@ class AsSourceRunner {
         engine.setBasePath(dir)
         engine.setNativeBridge(bridge)
         engine.jsxParsing = false      ; .as is non-JSX: `<` is comparison / cast
+        ; Silence the interpreter's per-call trace: with quiet=false (the default)
+        ; ComponentEngine builds a string and `print`s it on EVERY function call,
+        ; method call, and member access. At 60fps that is thousands of stdout
+        ; writes per frame — the dominant cost that made the interpreted .as guest
+        ; run slower than the compiled/.tsx path (which sets quiet via game_runtime).
+        engine.quiet = true
         engine.loadScript(src)
         bridge.ensure()
         loaded = true
