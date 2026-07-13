@@ -23,34 +23,8 @@
 
 import { abiRead, abiWrite } from "@ranger/game";
 import { ui, El } from "./ui";
-
-// ---- shared ABI offsets ----
-const OFF_INPUT: i32 = 20;   // host -> guest: edge mask this frame
-const OFF_TIME: i32 = 16;    // host -> guest: monotonic clock (ms) for effects
-const OFF_SEL: i32 = 52;     // guest -> host: selected node id (highlight)
-// host -> guest: laid-out rect (page px) of the selected node, so we can place
-// an absolute overlay effect at real screen coordinates.
-const OFF_RECT_X: i32 = 200;
-const OFF_RECT_Y: i32 = 204;
-const OFF_RECT_W: i32 = 208;
-const OFF_RECT_H: i32 = 212;
-
-// input edge bits
-const IN_UP: i32 = 1;
-const IN_DOWN: i32 = 2;
-const IN_LEFT: i32 = 4;
-const IN_RIGHT: i32 = 8;
-const IN_ACT: i32 = 16;
-
-// Extra RGU1 property keys this demo needs beyond the shared `ui` builder
-// (./ui.as already provides K_VIEW/K_TEXT/K_BUTTON, P_TEXT/P_BG/P_COLOR/...,
-// and the DIR_*/ALIGN_*/TEXTALIGN_* enum values via its own top-level consts).
-const P_GRAD_FROM: i32 = 50;   // linear-gradient start colour
-const P_GRAD_TO: i32 = 51;     // linear-gradient end colour
-const P_GRAD_DIR: i32 = 52;    // 0 vertical, 1 horizontal
-const P_ABS_X: i32 = 53;       // absolute page-x
-const P_ABS_Y: i32 = 54;       // absolute page-y
-const P_GLOW: i32 = 55;        // animated glow strength 0..1000
+import { OFF_INPUT, OFF_TIME, OFF_SEL, OFF_RECT_X, OFF_RECT_Y, OFF_RECT_W, OFF_RECT_H, IN_UP, IN_DOWN, IN_LEFT, IN_RIGHT, IN_ACT } from "./abi";
+import { P_GRAD_FROM, P_GRAD_TO, P_GRAD_DIR, P_ABS_X, P_ABS_Y, P_GLOW } from "./uiProtocol";
 
 // node ids
 const ROOT: i32 = 1;

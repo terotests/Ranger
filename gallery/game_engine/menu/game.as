@@ -18,17 +18,7 @@
 // ============================================================================
 import { abiRead, abiWrite } from "@ranger/game";
 import { ui, El } from "./ui";
-
-// shared ABI offsets (ints)
-const OFF_INPUT: i32 = 20;    // host -> guest: edge mask this frame
-const OFF_SEL: i32 = 52;      // guest -> host: selected node id (highlight)
-const OFF_LAUNCH: i32 = 56;   // guest -> host: catalog index + 1 to launch (0 = none)
-
-const IN_UP: i32 = 1;
-const IN_DOWN: i32 = 2;
-const IN_LEFT: i32 = 4;
-const IN_RIGHT: i32 = 8;
-const IN_ACT: i32 = 16;
+import { OFF_INPUT, OFF_SEL, OFF_LAUNCH, IN_UP, IN_DOWN, IN_LEFT, IN_RIGHT, IN_ACT } from "./abi";
 
 // category background art (host-resolvable paths; the host loads the pixels)
 const ART_GAMES: string = "gallery/game_engine/menu/assets/games.png";
