@@ -216,23 +216,23 @@ function buildDemo(): void {
 }
 
 // Coord-reported effect: read the selected node's laid-out rect (the host wrote
-// it last frame) and drop a small absolute accent at its top-right corner. This
-// demonstrates "get an element's screen coordinates, then render an effect there"
-// — the guest never sees the layout, only the reported rect.
+// it last frame) and drop a small absolute accent at its top-right corner. The
+// guest never sees the layout, only the reported rect.
 function emitEffect(): void {
   let rw: i32 = abiRead(OFF_RECT_W);
-  if (rw <= 0) return;
-  let rx: i32 = abiRead(OFF_RECT_X);
-  let ry: i32 = abiRead(OFF_RECT_Y);
-  let ex: i32 = rx + rw - 7;
-  let ey: i32 = ry - 7;
-  uiNode(EFFECT, ROOT, K_VIEW, 999);   // high order -> drawn on top
-  uiPropI32(P_WIDTH, 14);
-  uiPropI32(P_HEIGHT, 14);
-  uiPropI32(P_RADIUS, 7);
-  uiPropColorRgba(P_BG, 255, 230, 120, 235);
-  uiPropI32(P_ABS_X, ex);
-  uiPropI32(P_ABS_Y, ey);
+  if (rw > 0) {
+    let rx: i32 = abiRead(OFF_RECT_X);
+    let ry: i32 = abiRead(OFF_RECT_Y);
+    let ex: i32 = rx + rw - 7;
+    let ey: i32 = ry - 7;
+    uiNode(EFFECT, ROOT, K_VIEW, 999);   // high order -> drawn on top
+    uiPropI32(P_WIDTH, 14);
+    uiPropI32(P_HEIGHT, 14);
+    uiPropI32(P_RADIUS, 7);
+    uiPropColorRgba(P_BG, 255, 230, 120, 235);
+    uiPropI32(P_ABS_X, ex);
+    uiPropI32(P_ABS_Y, ey);
+  }
 }
 
 function build(): void {
