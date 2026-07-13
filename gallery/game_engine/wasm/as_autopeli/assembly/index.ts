@@ -26,6 +26,7 @@ import {
   // object header
   Road, Vec2, Drive, ConeLaunch,
   world, P1, P2, bodyAt, contact, impulses, events,
+  caps,
 } from "./abi";
 import { PlayerHud, buildHud, UI_SIZE, uiPtr, UI_MAJOR, UI_MINOR } from "./ui";
 
@@ -457,6 +458,45 @@ function uiRefresh(): void {
 export function rg_abi_version(): i32 { return ABI_VERSION; }
 export function rg_ui_abi(): i32 { return (<i32>UI_MAJOR << 16) | <i32>UI_MINOR; }
 export function rg_required_caps(): i32 { return ABI_CAPS_REQUIRED; }
+
+// Capability query — the "what can this device do" half of the handshake. A
+// version number answers "can the host parse my bytes"; this asks the host a
+// typed key/value list. The keys are open convention (declared here, not fixed
+// in the ABI); the answers are bool/int/float/string with a "present" flag, so
+// an unanswered key falls back to the guest's default. Declaration order is the
+// read index, so these constants name the slots:
+const Q_PHYSICS: i32 = 0;   // bool  — host runs GamePhysics for the guest
+const Q_DEBUG: i32 = 1;     // bool  — developer/debug overlays wanted
+const Q_SCREEN_W: i32 = 2;  // int   — panel width in px (for HUD reflow)
+const Q_GPU: i32 = 3;       // int   — GPU accel level (0 = CPU SoftCanvas)
+
+// Called once by the host right after load, before the responses are filled.
+// An old host that never calls it simply leaves the query empty — the guest
+// then reads defaults everywhere and runs. Adding a key here is additive.
+export function rg_declare_queries(): void {
+  caps.begin();
+  caps.request("physics");
+  caps.request("debugmode");
+  caps.request("screen.width");
+  caps.request("gpu");
+}
+
+// The gate the host calls before the loop. Returning 0 means "run — I adapt to
+// whatever the host reported" (autopeli leans on host autoscale, keyboard
+// fallback, and the CPU SoftCanvas renderer, so a narrow screen / no GPU / no
+// gamepad are all soft and never gate here). A nonzero code is a HARD
+// requirement the device can't meet; the host shows it and returns to the menu
+// instead of crashing mid-frame. Policy lives here because only the game knows
+// which shortfalls are fatal vs cosmetic. Absence of this export == "no gate".
+const CHECK_OK: i32 = 0;
+const CHECK_NEED_PHYSICS: i32 = 1;
+
+export function rg_check_env(): i32 {
+  // Physics racer: without host physics there is nothing to adapt to. If the
+  // host never answered (old host), boolOr's default keeps us running.
+  if (!caps.boolOr(Q_PHYSICS, true)) return CHECK_NEED_PHYSICS;
+  return CHECK_OK;
+}
 
 // ---- exports (same surface as the Rust guest) ----
 export function abi_base(): i32 {

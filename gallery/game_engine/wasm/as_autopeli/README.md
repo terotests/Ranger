@@ -165,6 +165,42 @@ shared memory or enters the loop. Four layers, cheapest first:
    count than an old host expects; clamping turns that from an out-of-bounds read
    into a dropped tail.
 
+#### Version is not enough: capabilities as a typed query
+
+A single version number conflates two orthogonal things: *"can you parse my
+bytes"* (ordered — v2 > v1, the job of `rg_abi_version`) and *"what can this
+device do"* (an unordered set of booleans and magnitudes — GPU level, screen
+width, gamepad count, OS features). The second isn't a number, and — crucially —
+most of its answers should make the guest **adapt**, not the host **reject**. A
+narrow screen reflows the HUD; no GPU falls back to the CPU `framebuffer.rgr`
+SoftCanvas; no gamepad uses the keyboard. Only a genuine essential (this is a
+physics racer, the host runs no physics) is a hard stop.
+
+So beyond the compact `rg_required_caps()` bitmask (fixed "hard must-haves"),
+the guest can run an **open, typed key/value query** — RGCQ (layout in
+`wasm/wasm_game_abi.h`, `Capabilities` in `abi.ts`). The guest asks a *list of
+string keys* and the host answers a *list of typed values* — `bool` / `int` /
+`float` / `string`, each with a `present` flag — all in the reserved ABI tail,
+so an old host that ignores it degrades to "nothing answered" and the guest
+reads its own defaults:
+
+```ts
+// guest: declared once (rg_declare_queries); keys are convention, not ABI
+caps.request("physics"); caps.request("debugmode");
+caps.request("screen.width"); caps.request("gpu");
+// guest: read after the host answers — with a default for the unanswered case
+export function rg_check_env(): i32 {
+  if (!caps.boolOr(Q_PHYSICS, true)) return CHECK_NEED_PHYSICS;  // hard stop
+  return CHECK_OK;                                               // else: adapt
+}
+```
+
+The keys and their meaning are deliberately *not* fixed in the ABI — they grow
+by convention (a new `"hdr"` or `"debugmode"` needs no format change), which is
+the same additive discipline as new prop keys / event kinds. `tools/capq_demo.cjs`
+drives the whole round-trip (guest declares → simulated host answers →
+`rg_check_env` reacts) as a smoke test.
+
 **The honest limitation.** Forward-compat detection only works if the host
 already contains the check — a host *already in the field* that predates layer 3
 cannot be taught to probe a future guest. So the realistic strategy is: land the
@@ -172,7 +208,8 @@ handshake now so every *future* host is safe, lean on layer 1 (catalog metadata)
 as the retrofit-friendly gate for simpler/older launchers, and treat a bumped
 `RG_WASM_ABI_VERSION` as the one-way signal that old hosts must refuse. The
 guest can't make an old host clever; it can only make itself *legible* — which
-is what the three exports and the `game.info` metadata are for.
+is what the handshake exports, the RGCQ query, and the `game.info` metadata are
+for.
 
 ## Build & run
 
