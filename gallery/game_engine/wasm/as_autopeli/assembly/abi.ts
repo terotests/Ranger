@@ -10,6 +10,13 @@ export const ABI_MAGIC: i32 = 0x31574752; // 'RGW1'
 export const ABI_VERSION: i32 = 1;
 export const ABI_SIZE: i32 = 2560;
 
+// Optional host capabilities this guest *requires* to run correctly, as a
+// bitmask over the RG_WASM_HOST_CAP_* registry in wasm/wasm_game_abi.h. A host
+// reads it via the rg_required_caps() export (see index.ts) before entering the
+// game loop and refuses any guest whose bits it cannot satisfy. This guest needs
+// only the base ABI (physics + sheet/rect registration), so it requires 0.
+export const ABI_CAPS_REQUIRED: i32 = 0;
+
 // header field offsets
 export const OFF_MAGIC: i32 = 0;
 export const OFF_VERSION: i32 = 4;
@@ -41,6 +48,49 @@ export const MAX_IMPULSES: i32 = 16;
 export const OFF_EVENTS: i32 = 2048;
 export const EVENT_SIZE: i32 = 20;
 export const MAX_EVENTS: i32 = 12;
+// events occupy 2048..2288; the tail 2304..2560 is the host->guest environment
+// descriptor (below). ABI_SIZE stays 2560 — this is a pure reclaim of reserved
+// space, so no version bump and old hosts just leave it zero.
+
+// ---- host <-> guest capability query (RGCQ) ----
+// A version number answers "can the host parse my bytes". This answers "what can
+// this device do" — as an OPEN, typed key/value list, not a fixed struct, so the
+// set of keys ("physics", "debugmode", "screen.width", "gpu", ...) grows by
+// convention without an ABI change, and each value is one of four types
+// (bool/int/float/string). Protocol (all in the reserved ABI tail, so ABI_SIZE
+// and every existing offset are unchanged, and an old host that ignores it
+// degrades to "nothing answered"):
+//   1. guest writes the keys it wants in rg_declare_queries() -> request area
+//   2. host resolves each key, writes back a typed value + present flag, sets ready
+//   3. guest reads the answers by declaration index (caps.boolOr(i, dflt), ...)
+// Canonical layout + host contract: wasm/wasm_game_abi.h.
+export const OFF_CAPQ: i32 = 2304;
+export const CAPQ_MAGIC: i32 = 0x51434752;     // 'RGCQ' little-endian
+export const CAPQ_OFF_MAGIC: i32 = 0;
+export const CAPQ_OFF_COUNT: i32 = 4;          // guest: number of requested keys
+export const CAPQ_OFF_READY: i32 = 8;          // host: 1 when answers are filled
+export const CAPQ_OFF_POOL_USED: i32 = 12;     // guest: key bytes used in the pool
+export const CAPQ_ENTRIES: i32 = 2320;         // OFF_CAPQ + 16
+export const CAPQ_MAX: i32 = 6;
+export const CAPQ_ENTRY_SIZE: i32 = 20;
+export const CAPQ_POOL: i32 = 2440;            // CAPQ_ENTRIES + CAPQ_MAX*CAPQ_ENTRY_SIZE
+export const CAPQ_POOL_CAP: i32 = 120;         // ...to ABI_SIZE (2560)
+
+// entry fields (within a CAPQ_ENTRY_SIZE record)
+export const CAPQ_E_KEY_OFF: i32 = 0;   // u16 (guest) key offset into the pool
+export const CAPQ_E_KEY_LEN: i32 = 2;   // u16 (guest) key length
+export const CAPQ_E_PRESENT: i32 = 4;   // u8  (host)  1 if the host knows the key
+export const CAPQ_E_TYPE: i32 = 5;      // u8  (host)  value type tag (below)
+export const CAPQ_E_IVAL: i32 = 8;      // i32 (host)  bool(0/1)/int, or string offset
+export const CAPQ_E_FVAL: i32 = 12;     // f32 (host)  float value
+export const CAPQ_E_SLEN: i32 = 16;     // i32 (host)  string length (type == string)
+
+// value type tags
+export const CAP_NONE: i32 = 0;
+export const CAP_BOOL: i32 = 1;
+export const CAP_INT: i32 = 2;
+export const CAP_FLOAT: i32 = 3;
+export const CAP_STRING: i32 = 4;
 
 // event kinds / sound ids
 export const EVT_SOUND: i32 = 1;
@@ -303,3 +353,97 @@ export class Events {
   flush(): void { wr(OFF_EVENT_CNT, this.count); }
 }
 export const events = new Events();
+
+// ---- capability query: a typed answer object + the request/read facade ----
+// One of the four value types the host can return (the "object with up to four
+// value kinds" — only one is meaningful per `type`).
+export class CapValue {
+  present: bool = false;
+  type: i32 = 0;  // CAP_NONE | CAP_BOOL | CAP_INT | CAP_FLOAT | CAP_STRING
+  b: bool = false;
+  i: i32 = 0;
+  f: f64 = 0;
+  s: string = "";
+}
+const CAPVAL = new CapValue();
+
+export class Capabilities {
+  count: i32 = 0;
+  poolUsed: i32 = 0;
+
+  // --- guest side: declare the keys to ask (called from rg_declare_queries) ---
+  begin(): void {
+    wr(OFF_CAPQ + CAPQ_OFF_MAGIC, CAPQ_MAGIC);
+    wr(OFF_CAPQ + CAPQ_OFF_COUNT, 0);
+    wr(OFF_CAPQ + CAPQ_OFF_READY, 0);
+    wr(OFF_CAPQ + CAPQ_OFF_POOL_USED, 0);
+    this.count = 0;
+    this.poolUsed = 0;
+  }
+  // Append one requested key; returns its declaration index (or -1 if full).
+  request(key: string): i32 {
+    if (this.count >= CAPQ_MAX) return -1;
+    const len = key.length;
+    if (this.poolUsed + len > CAPQ_POOL_CAP) return -1;
+    const idx = this.count;
+    const keyOff = this.poolUsed;
+    for (let i = 0; i < len; i++) {
+      ABI[CAPQ_POOL + keyOff + i] = <u8>(key.charCodeAt(i) & 0xff);
+    }
+    const base = CAPQ_ENTRIES + idx * CAPQ_ENTRY_SIZE;
+    ABI[base + CAPQ_E_KEY_OFF] = <u8>(keyOff & 0xff);
+    ABI[base + CAPQ_E_KEY_OFF + 1] = <u8>((keyOff >> 8) & 0xff);
+    ABI[base + CAPQ_E_KEY_LEN] = <u8>(len & 0xff);
+    ABI[base + CAPQ_E_KEY_LEN + 1] = <u8>((len >> 8) & 0xff);
+    this.poolUsed += len;
+    this.count += 1;
+    wr(OFF_CAPQ + CAPQ_OFF_COUNT, this.count);
+    wr(OFF_CAPQ + CAPQ_OFF_POOL_USED, this.poolUsed);
+    return idx;
+  }
+
+  // --- guest side: read the host's answers (after it sets ready) ---
+  get ready(): bool { return rd(OFF_CAPQ + CAPQ_OFF_READY) != 0; }
+
+  // Decode entry `index` into the reused CapValue singleton.
+  resolve(index: i32): CapValue {
+    const v = CAPVAL;
+    v.present = false; v.type = CAP_NONE; v.b = false; v.i = 0; v.f = 0; v.s = "";
+    if (index < 0 || index >= rd(OFF_CAPQ + CAPQ_OFF_COUNT)) return v;
+    const base = CAPQ_ENTRIES + index * CAPQ_ENTRY_SIZE;
+    if (load<u8>(abiPtr() + base + CAPQ_E_PRESENT) == 0) return v;
+    v.present = true;
+    const ty = <i32>load<u8>(abiPtr() + base + CAPQ_E_TYPE);
+    v.type = ty;
+    const ival = rd(base + CAPQ_E_IVAL);
+    if (ty == CAP_BOOL) v.b = ival != 0;
+    else if (ty == CAP_INT) v.i = ival;
+    else if (ty == CAP_FLOAT) v.f = <f64>load<f32>(abiPtr() + base + CAPQ_E_FVAL);
+    else if (ty == CAP_STRING) {
+      const slen = rd(base + CAPQ_E_SLEN);
+      let s = "";
+      for (let k = 0; k < slen; k++) s += String.fromCharCode(<i32>ABI[CAPQ_POOL + ival + k]);
+      v.s = s;
+    }
+    return v;
+  }
+
+  // Typed reads with a default for "host didn't answer / wrong type".
+  boolOr(index: i32, dflt: bool): bool {
+    const v = this.resolve(index);
+    return (v.present && v.type == CAP_BOOL) ? v.b : dflt;
+  }
+  intOr(index: i32, dflt: i32): i32 {
+    const v = this.resolve(index);
+    return (v.present && v.type == CAP_INT) ? v.i : dflt;
+  }
+  floatOr(index: i32, dflt: f64): f64 {
+    const v = this.resolve(index);
+    return (v.present && v.type == CAP_FLOAT) ? v.f : dflt;
+  }
+  stringOr(index: i32, dflt: string): string {
+    const v = this.resolve(index);
+    return (v.present && v.type == CAP_STRING) ? v.s : dflt;
+  }
+}
+export const caps = new Capabilities();
