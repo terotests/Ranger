@@ -159,6 +159,12 @@ class UIAnimator {
         push anims a
     }
 
+    ; Drop all active animations (e.g. when the UI they animate is torn down).
+    fn reset:void () {
+        def empty:[UIAnim]
+        anims = empty
+    }
+
     fn activeCount:int () {
         return (array_length anims)
     }

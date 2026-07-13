@@ -39,11 +39,17 @@ Import "../../evg/EVGElement.rgr"
 
 ; Completion binding for one guest-requested effect. When the effect finishes the
 ; host calls the guest's rg_ui_effect_done(node, tag) export so it can react
-; (navigate, bump a counter) — the WASM-side equivalent of UIAnim's `after` hook.
+; (navigate, bump a counter). WasmUiEffects.tick() polls `anim.done` and fires
+; this once — deliberately NOT via UIAnim's `after` hook: that path compiles to a
+; capture-by-reference lambda that escapes startEffect() and use-after-frees its
+; local binding in the native build (segfault). Polling holds the binding in a
+; field for its whole lifetime, so nothing dangles.
 class WasmFxDone {
     def handle:int 0
     def node:int 0
     def tag:int 0
+    def anim:UIAnim            ; the effect this binding completes with
+    def fired:boolean false    ; rg_ui_effect_done called exactly once
 
     Constructor () {
     }
@@ -60,6 +66,11 @@ class WasmFxDone {
 ; The renderer samples glowFor(id) to draw the animated halo.
 class WasmUiEffects {
     def animator:UIAnimator (new UIAnimator)
+    ; Strong-holds the per-effect completion bindings for the lifetime of their
+    ; animations. UIAnim already retains its callback strongly; this is a second,
+    ; explicit owner so the binding can never be freed while its effect is live
+    ; (the callback would otherwise use-after-free natively -> segfault).
+    def binds:[WasmFxDone]
 
     Constructor () {
     }
@@ -68,10 +79,6 @@ class WasmUiEffects {
     ; 2 pulse. target: 0 node (node id -> stringified to match el.id), 1 screen.
     ; Split out of drain() so it is drivable from a host test without a wasm engine.
     fn startEffect:void (kind:int target:int node:int durMs:int delayMs:int r:int g:int b:int handle:int tag:int) {
-        def bind:WasmFxDone (new WasmFxDone)
-        bind.handle = handle
-        bind.node = node
-        bind.tag = tag
         def durSec:double ((to_double durMs) / 1000.0)
         def delaySec:double ((to_double delayMs) / 1000.0)
         def a:UIAnim (animator.animation())
@@ -86,7 +93,16 @@ class WasmUiEffects {
                 a.glow(key)
             }
         }
-        a.color(r g b).duration(durSec).delay(delaySec).after(bind.fire).start()
+        a.color(r g b).duration(durSec).delay(delaySec).start()
+        ; Route completion by polling this binding in tick() (not a.after(): that
+        ; escaping closure use-after-frees natively). The binding strong-holds the
+        ; anim, so a.done stays readable after the animator drops the finished anim.
+        def bind:WasmFxDone (new WasmFxDone)
+        bind.handle = handle
+        bind.node = node
+        bind.tag = tag
+        bind.anim = a
+        push binds bind
     }
 
     ; Convenience used by the host self-test: a white node glow.
@@ -117,6 +133,33 @@ class WasmUiEffects {
 
     fn tick:void (dtMs:int) {
         animator.tick(dtMs)
+        ; Poll each binding: when its effect has finished, notify the guest once
+        ; (rg_ui_effect_done) and drop the binding; keep the rest for next frame.
+        def kept:[WasmFxDone]
+        def i 0
+        def n (array_length binds)
+        while (i < n) {
+            def bind:WasmFxDone (itemAt binds i)
+            if (bind.anim.done) {
+                if (bind.fired == false) {
+                    bind.fired = true
+                    bind.fire()
+                }
+            } {
+                push kept bind
+            }
+            i = (i + 1)
+        }
+        binds = kept
+    }
+
+    ; Drop all in-flight effects + their completion bindings. Call this when the
+    ; guest is (re)loaded so no binding outlives its guest — otherwise a late
+    ; completion could fire rg_ui_effect_done into a closed or slot-reused guest.
+    fn reset:void () {
+        def empty:[WasmFxDone]
+        binds = empty
+        animator.reset()
     }
 
     ; --- render-side queries ---

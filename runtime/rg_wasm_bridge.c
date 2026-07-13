@@ -456,6 +456,9 @@ void rg_wasm_call_void(int handle, const char* name, int nargs,
     IM3Function fn;
     M3Result r;
 
+    if (!s) {
+        return;
+    }
     fn = rg_find_fn(s, name);
     if (!fn) {
         return;

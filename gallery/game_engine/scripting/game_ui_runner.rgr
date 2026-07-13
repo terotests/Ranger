@@ -147,6 +147,7 @@ class GameUiRunner {
 
     ; --- interpreted .as path: bind + init the guest, pull its first document ----
     fn loadAs:boolean (dir:string) {
+        effects.reset()
         useAs = true
         if ((asRunner.bindDir(dir)) == false) {
             return false
@@ -183,6 +184,7 @@ class GameUiRunner {
 
     ; --- headless/test path: an already-authored RGU1 byte block ----------------
     fn loadDoc:boolean (bytes:[int] n:int) {
+        effects.reset()
         doc.loadBytes(bytes n)
         if (doc.valid == false) {
             return false
