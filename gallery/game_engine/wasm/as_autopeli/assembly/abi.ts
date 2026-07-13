@@ -10,6 +10,13 @@ export const ABI_MAGIC: i32 = 0x31574752; // 'RGW1'
 export const ABI_VERSION: i32 = 1;
 export const ABI_SIZE: i32 = 2560;
 
+// Optional host capabilities this guest *requires* to run correctly, as a
+// bitmask over the RG_WASM_HOST_CAP_* registry in wasm/wasm_game_abi.h. A host
+// reads it via the rg_required_caps() export (see index.ts) before entering the
+// game loop and refuses any guest whose bits it cannot satisfy. This guest needs
+// only the base ABI (physics + sheet/rect registration), so it requires 0.
+export const ABI_CAPS_REQUIRED: i32 = 0;
+
 // header field offsets
 export const OFF_MAGIC: i32 = 0;
 export const OFF_VERSION: i32 = 4;

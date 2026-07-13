@@ -14,6 +14,7 @@
 
 import {
   FP, STEER_SCALE,
+  ABI_VERSION, ABI_CAPS_REQUIRED,
   BODY_P1, BODY_P2, TRAFFIC_START, TRAFFIC_COUNT,
   IN_UP, IN_DOWN, IN_LEFT, IN_RIGHT,
   MAX_CONTACTS,
@@ -26,7 +27,7 @@ import {
   Road, Vec2, Drive, ConeLaunch,
   world, P1, P2, bodyAt, contact, impulses, events,
 } from "./abi";
-import { PlayerHud, buildHud, UI_SIZE, uiPtr } from "./ui";
+import { PlayerHud, buildHud, UI_SIZE, uiPtr, UI_MAJOR, UI_MINOR } from "./ui";
 
 // ---- host imports (module "env") ----
 @external("env", "rg_host_register_sheet")
@@ -444,6 +445,18 @@ function uiRefresh(): void {
     buildHud(p1, p2, UI_REV);
   }
 }
+
+// ---- forward-compat handshake (old host, newer guest) ----
+// A host calls these BEFORE it trusts the shared block or enters the game loop,
+// so it can reject a guest it cannot run instead of crashing on a moved offset,
+// an unknown event kind, or a missing host import. They are pure — no side
+// effects, no shared-memory access — so they are safe to call on an otherwise
+// incompatible guest. Contract for hosts: if a guest does NOT export
+// rg_abi_version (legacy guests, e.g. the original Rust build), treat it as
+// ABI v1 with no required caps.
+export function rg_abi_version(): i32 { return ABI_VERSION; }
+export function rg_ui_abi(): i32 { return (<i32>UI_MAJOR << 16) | <i32>UI_MINOR; }
+export function rg_required_caps(): i32 { return ABI_CAPS_REQUIRED; }
 
 // ---- exports (same surface as the Rust guest) ----
 export function abi_base(): i32 {

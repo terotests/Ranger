@@ -119,6 +119,61 @@ The safety net for all of this is `tools/selfcheck.cjs`: keep a pre-change
 regions identical`. A change that legitimately alters output will diff there
 first — which is exactly where you want to notice it.
 
+### The reverse direction: old host, newer guest (don't crash)
+
+The dangerous case isn't a new host reading an old game — additive rules cover
+that. It's an **old device running a game built for a newer ABI**: a guest that
+moved an offset, emits an event kind the host never heard of, or imports a host
+function that doesn't exist. Left unchecked, that surfaces as a wrong-offset
+read, a `switch` with no default, or — for a missing import — a wasm3 link trap
+the *first time the guest calls it* (often mid-`declare_resources`/`update`, not
+at load). The defence is a **handshake at startup**, before the host trusts any
+shared memory or enters the loop. Four layers, cheapest first:
+
+1. **Catalog metadata (no instantiation).** `game.info` already carries
+   `engine=`/`abi=`; a `minHostAbi=` / `caps=` line lets the launcher gray out or
+   annotate a game it can't run *without even loading the module*. This is the
+   only layer that also protects against a broken/malicious module, since no
+   guest code runs.
+2. **Load guard.** Wrap module load so a failed instantiation (and a missing
+   *export* the host needs — `abi_base`/`init`/`update`/`rg_ui_ptr`) is caught
+   and the game is skipped with a message, never faulting the launcher. Give
+   forward-declared host imports safe no-op stubs so a missing import degrades to
+   "feature does nothing" instead of a link trap.
+3. **Version + capability probe (before `init`).** The guest exports three pure,
+   side-effect-free functions — `rg_abi_version()`, `rg_ui_abi()`,
+   `rg_required_caps()` (see `index.ts`; registry in `wasm/wasm_game_abi.h`). The
+   host reads them and rejects cleanly:
+
+   ```
+   ver  = exports rg_abi_version   ? rg_abi_version()   : 1   // legacy = v1
+   need = exports rg_required_caps ? rg_required_caps() : 0
+   if (ver  >  HOST_ABI_VERSION)  reject "game needs a newer host"
+   if (need & ~HOST_CAPS)         reject "host missing capability: <bits>"
+   ```
+
+   They touch no shared memory, so they're safe to call on an otherwise
+   incompatible guest — unlike `init()`, which assumes host features exist. And
+   because *absence* of the export means "v1, no caps", the probe is itself
+   backward-compatible with every guest already shipped (the Rust build, the
+   pre-handshake AS build).
+4. **Post-init + runtime bounds.** After `init()`, verify the RGW1 `magic` and
+   that `size` fits the host's read window before rendering; then **clamp every
+   count** (`event_cnt`, `contact_cnt`, `impulse_cnt`, RGU1 node/prop counts) to
+   the `RG_WASM_MAX_*` maxima before iterating, and **skip unknown** event/node
+   kinds and prop keys rather than asserting. A guest can always write a larger
+   count than an old host expects; clamping turns that from an out-of-bounds read
+   into a dropped tail.
+
+**The honest limitation.** Forward-compat detection only works if the host
+already contains the check — a host *already in the field* that predates layer 3
+cannot be taught to probe a future guest. So the realistic strategy is: land the
+handshake now so every *future* host is safe, lean on layer 1 (catalog metadata)
+as the retrofit-friendly gate for simpler/older launchers, and treat a bumped
+`RG_WASM_ABI_VERSION` as the one-way signal that old hosts must refuse. The
+guest can't make an old host clever; it can only make itself *legible* — which
+is what the three exports and the `game.info` metadata are for.
+
 ## Build & run
 
 ```bash

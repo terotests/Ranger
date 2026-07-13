@@ -86,4 +86,34 @@
 #define RG_WASM_BODY_TRAFFIC0 2
 #define RG_WASM_TRAFFIC_COUNT 15
 
+/* ---------------------------------------------------------------------------
+ * Forward-compat handshake (old host, newer guest)
+ *
+ * A guest MAY export these pure, side-effect-free probes. A host calls them
+ * BEFORE it trusts the shared block or enters the game loop, so it can reject a
+ * guest it cannot run instead of crashing on a moved offset / unknown event /
+ * missing host import:
+ *
+ *   i32 rg_abi_version(void);    // RGW1 version the guest was built against
+ *   i32 rg_ui_abi(void);         // (RGU1_major << 16) | RGU1_minor
+ *   i32 rg_required_caps(void);  // bitmask of RG_WASM_HOST_CAP_* it needs
+ *
+ * Backward-compatible by construction: a guest that does NOT export
+ * rg_abi_version (legacy builds) is treated as ABI v1, caps 0. Recommended host
+ * gate, run right after load and before init():
+ *
+ *   ver  = has(rg_abi_version)   ? call(rg_abi_version)   : 1;
+ *   need = has(rg_required_caps) ? call(rg_required_caps) : 0;
+ *   if (ver > RG_WASM_ABI_VERSION) reject("needs newer host");   // major/layout
+ *   if (need & ~RG_WASM_HOST_CAPS) reject("missing capability"); // feature gap
+ *   // then init(), verify RGW1 magic + size, clamp all counts to the MAX_* below.
+ * --------------------------------------------------------------------------- */
+#define RG_WASM_HOST_CAP_PHYSICS   0x0001u /* host runs GamePhysics for the guest */
+#define RG_WASM_HOST_CAP_RUMBLE    0x0002u /* gamepad rumble events honoured      */
+#define RG_WASM_HOST_CAP_PARTICLES 0x0004u /* particle events honoured            */
+#define RG_WASM_HOST_CAP_RGU1      0x0008u /* retained-mode HUD (RGU1) parsed      */
+/* Bits 0x0010.. are reserved for future host features. Assign additively and
+ * never reuse a retired bit. RG_WASM_HOST_CAPS is what a given host advertises;
+ * it is defined by the host build, not here. */
+
 #endif
