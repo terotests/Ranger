@@ -1,0 +1,367 @@
+; ==============================================================================
+; EvgLauncherMenu - the crisp EVG tile front page for the game launcher.
+; ==============================================================================
+;
+; A host-authored (not guest) EVG screen that replaces the old pixel-font tsx
+; menu front page. It renders TWO levels, both as big rounded image tiles with a
+; TTF label under each (kids read words, not pixel fonts):
+;
+;   * CATEGORIES page - one large tile per top-level group (Games, Tests, ...),
+;     each with a background image from menu/assets/<category>.png. Selecting a
+;     category drills into:
+;   * GAMES page       - one tile per game in that category (its icon image, or a
+;     coloured text tile when it has none). Selecting a game reports its launch
+;     path back to the host, which loads it through the existing dispatch.
+;
+; It draws everything itself through UIContext (rounded image fills, gradients,
+; glow highlight, TTF text) over a manual grid, so it needs no RGU1 document and
+; no guest - it reads the live GameCatalog directly. Navigation is pointer-free
+; (D-pad / arrow edges via UiNavInput), matching the rest of the EVG UI layer.
+; ==============================================================================
+
+Import "UIContext.rgr"
+Import "WasmUiSelect.rgr"
+Import "../scripting/game_catalog.rgr"
+Import "../scripting/game_image_loader.rgr"
+Import "../../evg/EVGColor.rgr"
+
+; One laid-out tile: the image square plus the label bar under it.
+class LauncherTile {
+    def x:int 0
+    def y:int 0
+    def side:int 0        ; image square side (px)
+    def labelH:int 0      ; label bar height under the square
+    def label:string ""
+    def image:string ""   ; background image path ("" = coloured text tile)
+    def path:string ""    ; launch path (games page) or category name (categories)
+    def r:int 60          ; fallback tile colour
+    def g:int 70
+    def b:int 110
+}
+
+class EvgLauncherMenu {
+    def canvas:SoftCanvas (new SoftCanvas)
+    def ctx:UIContext (new UIContext)
+    def loader:GameImageLoader (new GameImageLoader)
+    def catalog:GameCatalog (new GameCatalog)
+
+    def w:int 0
+    def h:int 0
+
+    ; page: 0 = categories, 1 = games in the current category
+    def page:int 0
+    def cats:[string]
+    def curCat:string ""
+    def sel:int 0                 ; selected tile index on the current page
+
+    ; outputs the host polls each frame
+    def chosen:boolean false      ; a game was activated this frame
+    def chosenPath:string ""      ; its launch path
+    def wantQuit:boolean false    ; back pressed on the categories page
+
+    ; where the category background images live
+    def assetsDir:string "gallery/game_engine/menu/assets"
+
+    Constructor () {
+    }
+
+    fn init:void (width:int height:int fontDir:string fontRel:string family:string gamesDir:string) {
+        w = width
+        h = height
+        canvas.init(width height)
+        ctx.attach(canvas)
+        if ((strlen fontDir) > 0) {
+            ctx.tr.addFontDir(fontDir)
+            def ok:boolean (ctx.tr.loadFont(family fontRel))
+            if (ok == false) {
+                ctx.tr.addFontDir("gallery/pdf_writer/assets/fonts")
+                ctx.tr.loadFont(family "Open_Sans/OpenSans-Regular.ttf")
+            }
+        }
+        catalog.setGamesDir(gamesDir)
+        catalog.scan()
+        cats = (catalog.categories())
+        this.reset()
+    }
+
+    ; return to the top-level categories page
+    fn reset:void () {
+        page = 0
+        curCat = ""
+        sel = 0
+        chosen = false
+        chosenPath = ""
+        wantQuit = false
+    }
+
+    ; true if an image file exists on disk (guards the loader, whose PNG/JPEG
+    ; decoders throw on a missing path rather than returning an invalid image).
+    fn fileThere:boolean (path:string) {
+        if ((strlen path) == 0) { return false }
+        def slash:int (lastIndexOf path "/")
+        if (slash < 0) { return (file_exists "." path) }
+        def dir:string (substring path 0 slash)
+        def file:string (substring path (slash + 1) (strlen path))
+        return (file_exists dir file)
+    }
+
+    ; the background image file for a category tile. Known groups map to the
+    ; authored art (Tests uses the tools/shield image); a missing/unknown asset
+    ; falls through to a coloured text tile.
+    fn assetForCategory:string (cat:string) {
+        def p:string ""
+        if (cat == "Games") { p = (assetsDir + "/games.png") }
+        if (cat == "Tests") { p = (assetsDir + "/tools.png") }
+        if (this.fileThere(p)) { return p }
+        return ""
+    }
+
+    ; --- build the tile list for the current page ------------------------------
+    fn tiles:[LauncherTile] () {
+        if (page == 0) {
+            return (this.categoryTiles())
+        }
+        return (this.gameTiles())
+    }
+
+    fn categoryTiles:[LauncherTile] () {
+        def out:[LauncherTile]
+        def i:int 0
+        while (i < (array_length cats)) {
+            def c:string (itemAt cats i)
+            def t:LauncherTile (new LauncherTile)
+            t.label = c
+            t.path = c
+            t.image = (this.assetForCategory(c))
+            ; distinct fallback colour per common category
+            if (c == "Games") {
+                t.r = 210
+                t.g = 90
+                t.b = 40
+            }
+            if (c == "Tests") {
+                t.r = 60
+                t.g = 90
+                t.b = 150
+            }
+            push out t
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn gameTiles:[LauncherTile] () {
+        def out:[LauncherTile]
+        def es:[GameCatalogEntry] (catalog.entriesInCategory(curCat))
+        def i:int 0
+        while (i < (array_length es)) {
+            def e:GameCatalogEntry (itemAt es i)
+            def t:LauncherTile (new LauncherTile)
+            t.label = e.title
+            t.path = e.entryPath
+            ; a game's own icon (relative to its folder) is its tile image, when
+            ; the file is actually present (game.info may name a missing icon)
+            if ((strlen e.iconPath) > 0) {
+                def ip:string (e.dir + "/" + e.iconPath)
+                if (this.fileThere(ip)) {
+                    t.image = ip
+                }
+            }
+            push out t
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; --- grid geometry ---------------------------------------------------------
+    ; columns for a given tile count: categories read as a bold 2-up row; game
+    ; grids use up to 4 columns.
+    fn columnsFor:int (n:int) {
+        if (page == 0) {
+            if (n <= 1) { return 1 }
+            return 2
+        }
+        if (n <= 1) { return 1 }
+        if (n <= 4) { return n }
+        if (n <= 6) { return 3 }
+        return 4
+    }
+
+    ; lay out tile rects into a centred grid and fill x/y/side/labelH
+    fn layout:[LauncherTile] () {
+        def ts:[LauncherTile] (this.tiles())
+        def n:int (array_length ts)
+        if (n == 0) { return ts }
+        def cols:int (this.columnsFor(n))
+        def rows:int (idiv (n + cols - 1) cols)
+        def marginX:int 40
+        def topArea:int 96                 ; title band at the top
+        def gap:int 22
+        def labelH:int 38
+        def availW:int (w - (marginX * 2) - ((cols - 1) * gap))
+        def side:int (idiv availW cols)
+        ; cap tile size so a 2-up categories row doesn't get absurdly tall
+        def maxSide:int (idiv (h - topArea - 60 - (rows * labelH) - ((rows - 1) * gap)) rows)
+        if (maxSide > 0) {
+            if (side > maxSide) { side = maxSide }
+        }
+        if (side < 40) { side = 40 }
+        def tileH:int (side + labelH)
+        def gridW:int ((cols * side) + ((cols - 1) * gap))
+        def gridH:int ((rows * tileH) + ((rows - 1) * gap))
+        def startX:int (idiv (w - gridW) 2)
+        def startY:int (topArea + (idiv ((h - topArea) - gridH) 2))
+        if (startY < topArea) { startY = topArea }
+        def i:int 0
+        while (i < n) {
+            def row:int (idiv i cols)
+            def col:int (i - (row * cols))
+            def t:LauncherTile (itemAt ts i)
+            t.x = (startX + (col * (side + gap)))
+            t.y = (startY + (row * (tileH + gap)))
+            t.side = side
+            t.labelH = labelH
+            i = (i + 1)
+        }
+        return ts
+    }
+
+    ; --- navigation ------------------------------------------------------------
+    fn navFrame:void (nav:UiNavInput) {
+        chosen = false
+        wantQuit = false
+        def ts:[LauncherTile] (this.tiles())
+        def n:int (array_length ts)
+        if (n == 0) { return }
+        def cols:int (this.columnsFor(n))
+        if nav.left  { this.moveSel((0 - 1) n) }
+        if nav.right { this.moveSel(1 n) }
+        if nav.up    { this.moveSel((0 - cols) n) }
+        if nav.down  { this.moveSel(cols n) }
+        if nav.action { this.activate() }
+    }
+
+    fn moveSel:void (delta:int n:int) {
+        def ns:int (sel + delta)
+        if (ns < 0) { return }
+        if (ns >= n) { return }
+        sel = ns
+    }
+
+    fn activate:void () {
+        def ts:[LauncherTile] (this.tiles())
+        if (sel >= (array_length ts)) { return }
+        def t:LauncherTile (itemAt ts sel)
+        if (page == 0) {
+            ; enter this category's games page
+            curCat = t.path
+            page = 1
+            sel = 0
+        } {
+            ; launch this game
+            chosenPath = t.path
+            chosen = true
+        }
+    }
+
+    ; back: submenu -> categories; categories -> quit signal
+    fn back:void () {
+        if (page == 1) {
+            page = 0
+            sel = 0
+        } {
+            wantQuit = true
+        }
+    }
+
+    ; --- rendering -------------------------------------------------------------
+    fn draw:void () {
+        canvas.clear(16 18 30)
+        ; title band
+        def white:EVGColor (EVGColor.rgba(236 240 250 1.0))
+        def muted:EVGColor (EVGColor.rgba(150 176 208 1.0))
+        def title:string "GAMES"
+        if (page == 1) { title = curCat }
+        def tsz:double 40.0
+        def tw:double (ctx.measureWidth(title tsz))
+        ctx.text(title (to_int (((to_double w) - tw) / 2.0)) 30 tsz white)
+        def hint:string "arrows: move    enter: open"
+        if (page == 1) { hint = "arrows: move    enter: play    back: categories" }
+        def hsz:double 15.0
+        def hw:double (ctx.measureWidth(hint hsz))
+        ctx.text(hint (to_int (((to_double w) - hw) / 2.0)) (h - 34) hsz muted)
+
+        def ts:[LauncherTile] (this.layout())
+        def i:int 0
+        while (i < (array_length ts)) {
+            def t:LauncherTile (itemAt ts i)
+            this.drawTile(t (i == sel))
+            i = (i + 1)
+        }
+    }
+
+    ; truncate a label with an ellipsis so it fits within maxw px at `size`
+    fn fitLabel:string (s:string maxw:double size:double) {
+        if ((ctx.measureWidth(s size)) <= maxw) { return s }
+        def n:int (strlen s)
+        while (n > 1) {
+            def cand:string ((substring s 0 n) + "..")
+            if ((ctx.measureWidth(cand size)) <= maxw) { return cand }
+            n = (n - 1)
+        }
+        return ".."
+    }
+
+    fn drawTile:void (t:LauncherTile selected:boolean) {
+        def rad:int 16
+        ; image square (or coloured fallback with a big initial)
+        def drawn:boolean false
+        if ((strlen t.image) > 0) {
+            def img:ImageBuffer (loader.load(t.image))
+            if (loader.isValidImage(img)) {
+                ctx.fillRoundRectImage(t.x t.y t.side t.side rad img)
+                drawn = true
+            }
+        }
+        if (drawn == false) {
+            ; gradient fallback so a text tile still looks intentional
+            ctx.fillRoundRectGrad(t.x t.y t.side t.side rad 0
+                t.r t.g t.b 255
+                (idiv (t.r * 6) 10) (idiv (t.g * 6) 10) (idiv (t.b * 6) 10) 255)
+        }
+        ; border
+        def bR:int 120
+        def bG:int 150
+        def bB:int 210
+        if selected {
+            bR = 255
+            bG = 232
+            bB = 120
+        }
+        ctx.strokeRoundRectA(t.x t.y t.side t.side rad 2 bR bG bB 255)
+
+        ; label bar under the square
+        def ly:int (t.y + t.side + 6)
+        def lh:int (t.labelH - 6)
+        def barCol:EVGColor (EVGColor.rgba(28 32 48 1.0))
+        if selected { barCol = (EVGColor.rgba(60 66 96 1.0)) }
+        ctx.fillRoundRect(t.x ly t.side lh 8 barCol)
+        def lblCol:EVGColor (EVGColor.rgba(236 240 250 1.0))
+        def lsz:double 17.0
+        ; keep the label inside the tile width (truncate long game titles)
+        def shown:string (this.fitLabel(t.label (to_double (t.side - 14)) lsz))
+        def lw:double (ctx.measureWidth(shown lsz))
+        def lx:int (t.x + (to_int (((to_double t.side) - lw) / 2.0)))
+        def lty:int (ly + (to_int (((to_double lh) - (ctx.lineHeight(lsz))) / 2.0)))
+        ctx.text(shown lx lty lsz lblCol)
+
+        ; selection glow around the whole tile
+        if selected {
+            ctx.glowRoundRect((t.x - 4) (t.y - 4) (t.side + 8) (t.side + t.labelH + 8) (rad + 4) 255 232 120 14 200)
+        }
+    }
+
+    fn raw:buffer () {
+        return (canvas.raw())
+    }
+}
