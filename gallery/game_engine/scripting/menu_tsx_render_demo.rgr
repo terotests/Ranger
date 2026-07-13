@@ -1,0 +1,156 @@
+; ==============================================================================
+; menu_tsx_render_demo - render the TSX launcher through the RICH EVG renderer.
+; ==============================================================================
+; Proves Approach A+: a menu authored in TypeScript/TSX (menu/launcher.tsx) is
+; evaluated by ComponentEngine into an EVGElement tree, then drawn with the SAME
+; WasmUiRenderer the .as menu uses (rounded corners, borders, TTF text) - NOT the
+; pixel-font game_hud. Same rendering core, JSX front-end.
+;
+;   ComponentEngine(loadScript) -> callFunction("update") -> callRender("hud")
+;     -> EVGElement -> WasmUiRenderer.layoutTree/draw -> PNG
+;
+; It injects a real game catalog exactly like the SDL host, drives the guest's
+; own screen/selection state machine with D-pad edges, and asserts the rich
+; EVGElement props (borderRadius / borderColor) survived the JSX -> EVG mapping.
+; ==============================================================================
+
+Import "../ui/WasmUiSelect.rgr"
+Import "./game_catalog.rgr"
+Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+
+class TsxCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+}
+
+class TsxMenuRenderDemo {
+    def engine:ComponentEngine (new ComponentEngine)
+    def canvas:SoftCanvas (new SoftCanvas)
+    def ctx:UIContext (new UIContext)
+    def rnd:WasmUiRenderer (new WasmUiRenderer)
+    def root:EVGElement (EVGElement.createDiv())
+    def state:EvalValue (EvalValue.null())
+    def cw:int 360
+    def ch:int 460
+
+    ; input props object matching game_runtime.stepUpdateScript's shape
+    fn props:EvalValue (up:boolean down:boolean left:boolean right:boolean action:boolean) {
+        def k:[string]
+        def v:[EvalValue]
+        push k "up"
+        push v (EvalValue.boolean(up))
+        push k "down"
+        push v (EvalValue.boolean(down))
+        push k "left"
+        push v (EvalValue.boolean(left))
+        push k "right"
+        push v (EvalValue.boolean(right))
+        push k "action"
+        push v (EvalValue.boolean(action))
+        push k "quit"
+        push v (EvalValue.boolean(false))
+        push k "state"
+        push v state
+        return (EvalValue.object(k v))
+    }
+
+    ; (re)build the EVGElement tree for the current state and lay it out, scaling
+    ; down to fit the canvas exactly like the .as menu demo.
+    fn refresh:void () {
+        root = (engine.callRender("hud" (this.props(false false false false false))))
+        rnd.layoutTree(ctx root cw ch)
+    }
+
+    ; drive one input edge: update() advances the guest state, then rebuild.
+    fn step:void (up:boolean down:boolean left:boolean right:boolean action:boolean) {
+        state = (engine.callFunction("update" (this.props(up down left right action))))
+        this.refresh()
+    }
+
+    fn stateStr:string (key:string) {
+        def mv:EvalValue (state.getMember(key))
+        return (mv.toString())
+    }
+
+    fn drawFrame:void (file:string) {
+        canvas.clear(16 18 30)
+        rnd.draw(ctx root)
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.width = (canvas.getWidth())
+        rb.height = (canvas.getHeight())
+        rb.pixels = (canvas.raw())
+        def png:PNGEncoder (new PNGEncoder)
+        png.encode(rb "gallery/game_engine/scripting" file)
+    }
+
+    ; walk the tree; true if any element has a borderRadius set
+    fn anyRounded:boolean (el:EVGElement) {
+        if (el.box.borderRadius.isSet) { return true }
+        def c 0
+        while (c < (array_length el.children)) {
+            if (this.anyRounded((itemAt el.children c))) { return true }
+            c = (c + 1)
+        }
+        return false
+    }
+
+    sfn m@(main):void () {
+        def d:TsxMenuRenderDemo (new TsxMenuRenderDemo)
+        def c:TsxCheck (new TsxCheck)
+
+        d.canvas.init(d.cw d.ch)
+        d.ctx.attach(d.canvas)
+        d.ctx.tr.addFontDir("gallery/pdf_writer/assets/fonts")
+        d.ctx.tr.loadFont("Open Sans" "Open_Sans/OpenSans-Regular.ttf")
+
+        ; real catalog, injected exactly like the SDL host
+        def catalog:GameCatalog (new GameCatalog)
+        catalog.setGamesDir("gallery/game_engine/games")
+        catalog.scan()
+        c.ok(("catalog scanned (" + (to_string (catalog.entryCount())) + ")") ((catalog.entryCount()) > 0))
+
+        def buf:buffer (buffer_read_file "gallery/game_engine/menu" "launcher.tsx")
+        def src:string (buffer_to_string buf)
+        d.engine.quiet = true
+        d.engine.registerGlobal("gameCatalog" (catalog.toEvalArray()))
+        d.engine.loadScript(src)
+
+        d.state = (d.engine.callFunction("initState" (EvalValue.null())))
+        d.refresh()
+
+        ; ---- categories screen ----
+        c.ok(("starts on cats screen (got '" + (d.stateStr("screen")) + "')") ((d.stateStr("screen")) == "cats"))
+        c.ok("category screen has rounded EVG boxes (rich props survived JSX->EVG)" (d.anyRounded(d.root)))
+        d.drawFrame("tsx_menu_1_cats.png")
+
+        ; ---- open the first category ----
+        d.step(false false false false true)
+        c.ok(("action -> games screen (got '" + (d.stateStr("screen")) + "')") ((d.stateStr("screen")) == "games"))
+        c.ok("games screen has rounded EVG boxes" (d.anyRounded(d.root)))
+        d.drawFrame("tsx_menu_2_games.png")
+
+        ; ---- move down, then launch ----
+        d.step(false true false false false)
+        d.step(false false false false true)
+        c.ok(("launch path reported (got '" + (d.stateStr("launchPath")) + "')") ((strlen (d.stateStr("launchPath"))) > 0))
+
+        ; ---- left returns to categories ----
+        d.step(false false true false false)
+        c.ok(("left -> cats (got '" + (d.stateStr("screen")) + "')") ((d.stateStr("screen")) == "cats"))
+
+        print "======================================"
+        print (("RESULT: " + (to_string c.passed) + " passed, ") + ((to_string c.failed) + " failed"))
+        if (c.failed == 0) { print "ALL PASS" } { print "SOME FAILED" }
+    }
+}
