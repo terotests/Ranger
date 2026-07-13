@@ -16,42 +16,9 @@
 //   enter/A              open a category, or launch the selected game
 //   left/back            games screen -> categories
 // ============================================================================
-import { abiRead, abiWrite, uiReset, uiNode, uiPropI32, uiPropEnum, uiPropStr, uiPropColorRgba, uiFinish } from "@ranger/game";
-
-// shared ABI offsets (ints)
-const OFF_INPUT: i32 = 20;    // host -> guest: edge mask this frame
-const OFF_SEL: i32 = 52;      // guest -> host: selected node id (highlight)
-const OFF_LAUNCH: i32 = 56;   // guest -> host: catalog index + 1 to launch (0 = none)
-
-const IN_UP: i32 = 1;
-const IN_DOWN: i32 = 2;
-const IN_LEFT: i32 = 4;
-const IN_RIGHT: i32 = 8;
-const IN_ACT: i32 = 16;
-
-// RGU1 node kinds + property keys
-const K_VIEW: i32 = 1;
-const K_TEXT: i32 = 2;
-const K_BUTTON: i32 = 5;
-const P_TEXT: i32 = 1;
-const P_BG: i32 = 2;
-const P_COLOR: i32 = 3;
-const P_FONT: i32 = 4;
-const P_WIDTH: i32 = 10;
-const P_HEIGHT: i32 = 11;
-const P_PAD: i32 = 12;
-const P_MARGIN: i32 = 13;
-const P_RADIUS: i32 = 14;
-const P_BORDER_COLOR: i32 = 15;
-const P_BORDER_W: i32 = 16;
-const P_FLEXDIR: i32 = 21;
-const P_ALIGN: i32 = 22;
-const P_TEXTALIGN: i32 = 24;
-const P_BG_IMAGE: i32 = 56;   // background image path, clipped to the rounded box
-const DIR_ROW: i32 = 0;
-const DIR_COLUMN: i32 = 1;
-const ALIGN_CENTER: i32 = 1;
-const TEXTALIGN_CENTER: i32 = 1;
+import { abiRead, abiWrite } from "@ranger/game";
+import { ui, El } from "./ui";
+import { OFF_INPUT, OFF_SEL, OFF_LAUNCH, IN_UP, IN_DOWN, IN_LEFT, IN_RIGHT, IN_ACT } from "./abi";
 
 // category background art (host-resolvable paths; the host loads the pixels)
 const ART_GAMES: string = "gallery/game_engine/menu/assets/games.png";
@@ -68,43 +35,6 @@ let SCREEN: i32 = 0;
 let SEL: i32 = 0;      // selection index on the current screen
 let CAT: i32 = 0;      // 0 = Games, 1 = Tests
 let REV: i32 = 0;
-
-// ============================================================================
-// Fluent EVG builder over the flat bridge. Each `ui.view/text/button(...)`
-// opens a node and returns an `El` whose chained setters style that node —
-// so authoring reads like `ui.view(id,parent,order).column().center().pad(22)`.
-// ============================================================================
-class El {
-  row(): El { uiPropEnum(P_FLEXDIR, DIR_ROW); return this; }
-  column(): El { uiPropEnum(P_FLEXDIR, DIR_COLUMN); return this; }
-  center(): El { uiPropEnum(P_ALIGN, ALIGN_CENTER); return this; }
-  pad(v: i32): El { uiPropI32(P_PAD, v); return this; }
-  margin(v: i32): El { uiPropI32(P_MARGIN, v); return this; }
-  width(v: i32): El { uiPropI32(P_WIDTH, v); return this; }
-  height(v: i32): El { uiPropI32(P_HEIGHT, v); return this; }
-  radius(v: i32): El { uiPropI32(P_RADIUS, v); return this; }
-  font(v: i32): El { uiPropI32(P_FONT, v); return this; }
-  text(s: string): El { uiPropStr(P_TEXT, s); return this; }
-  image(path: string): El { uiPropStr(P_BG_IMAGE, path); return this; }
-  textCenter(): El { uiPropEnum(P_TEXTALIGN, TEXTALIGN_CENTER); return this; }
-  bg(r: i32, g: i32, b: i32, a: i32): El { uiPropColorRgba(P_BG, r, g, b, a); return this; }
-  color(r: i32, g: i32, b: i32, a: i32): El { uiPropColorRgba(P_COLOR, r, g, b, a); return this; }
-  border(w: i32, r: i32, g: i32, b: i32, a: i32): El {
-    uiPropI32(P_BORDER_W, w);
-    uiPropColorRgba(P_BORDER_COLOR, r, g, b, a);
-    return this;
-  }
-}
-
-class Ui {
-  reset(): void { uiReset(); }
-  finish(rev: i32): void { uiFinish(rev); }
-  view(id: i32, parent: i32, order: i32): El { uiNode(id, parent, K_VIEW, order); return new El(); }
-  label(id: i32, parent: i32, order: i32): El { uiNode(id, parent, K_TEXT, order); return new El(); }
-  button(id: i32, parent: i32, order: i32): El { uiNode(id, parent, K_BUTTON, order); return new El(); }
-}
-
-let ui: Ui = new Ui();
 
 function catName(i: i32): string {
   if (i == 1) return "Tests";
@@ -139,47 +69,49 @@ function nthInCat(cat: string, k: i32): i32 {
 // ---- screen builders ----
 
 // A big rounded art tile with a TTF label under it (imgId is what the host
-// highlights). `on` = currently selected.
-function catTile(colId: i32, imgId: i32, lblId: i32, order: i32, name: string, art: string, on: i32): void {
-  ui.view(colId, ROW, order).column().center().width(200).margin(12);
+// highlights). `parent` is the row it sits in; `on` = currently selected.
+function catTile(parent: El, colId: i32, imgId: i32, lblId: i32, name: string, art: string, on: i32): void {
+  let col: El = parent.box(colId).column().center().width(200).margin(12);
   let br: i32 = 120; let bg: i32 = 150; let bb: i32 = 210;
   if (on == 1) { br = 255; bg = 232; bb = 120; }
-  ui.view(imgId, colId, 0).width(176).height(176).radius(16).image(art).border(3, br, bg, bb, 255);
-  ui.label(lblId, colId, 1).text(name).font(20).color(236, 240, 250, 255).margin(6);
+  col.box(imgId).width(176).height(176).radius(16).image(art).border(3, br, bg, bb, 255);
+  col.label(lblId, name).font(20).color(236, 240, 250, 255).margin(6);
 }
 
-// A uniform menu button; `on` = currently selected.
-function gameButton(id: i32, order: i32, s: string, on: i32): void {
+// A uniform menu button; `parent` is the card it lives in; `on` = selected. The
+// caption is a text child (composition), so a highlighted button is just a box.
+function gameButton(parent: El, id: i32, capId: i32, s: string, on: i32): void {
   let br: i32 = 120; let bg: i32 = 150; let bb: i32 = 210; let ba: i32 = 40;
   if (on == 1) { br = 255; bg = 232; bb = 120; ba = 70; }
-  ui.button(id, CARD, order).text(s).font(18).color(236, 240, 250, 255)
+  let b: El = parent.button(id)
     .width(280).pad(12).margin(6).radius(10)
-    .border(2, br, bg, bb, 255).bg(120, 165, 230, ba).textCenter();
+    .border(2, br, bg, bb, 255).bg(120, 165, 230, ba).column().center();
+  b.label(capId, s).font(18).color(236, 240, 250, 255).textCenter();
 }
 
-function buildCats(): void {
-  ui.view(ROOT, 0, 0).column().center().pad(24);
-  ui.label(10, ROOT, 0).text("GAMES").font(34).color(236, 240, 250, 255);
-  ui.view(ROW, ROOT, 1).row().center();
+function buildCats(root: El): void {
+  root.column().center().pad(24);
+  root.label(10, "GAMES").font(34).color(236, 240, 250, 255);
+  let row: El = root.box(ROW).row().center();
   let on0: i32 = 0; if (SEL == 0) on0 = 1;
   let on1: i32 = 0; if (SEL == 1) on1 = 1;
-  catTile(60, 61, 62, 0, "Games", ART_GAMES, on0);
-  catTile(70, 71, 72, 1, "Tests", ART_TESTS, on1);
+  catTile(row, 60, 61, 62, "Games", ART_GAMES, on0);
+  catTile(row, 70, 71, 72, "Tests", ART_TESTS, on1);
   let selId: i32 = 61; if (SEL == 1) selId = 71;
   abiWrite(OFF_SEL, selId);
 }
 
-function buildGames(): void {
-  ui.view(ROOT, 0, 0).column().center().pad(18);
-  ui.view(CARD, ROOT, 0).column().center().pad(16).width(340).radius(16).bg(30, 34, 52, 255);
+function buildGames(root: El): void {
+  root.column().center().pad(18);
+  let card: El = root.box(CARD).column().center().pad(16).width(340).radius(16).bg(30, 34, 52, 255);
   let cat: string = catName(CAT);
-  ui.label(10, CARD, 0).text(cat).font(24).color(236, 240, 250, 255);
+  card.label(10, cat).font(24).color(236, 240, 250, 255);
   let n: i32 = countInCat(cat);
   let k: i32 = 0;
   while (k < n) {
     let gi: i32 = nthInCat(cat, k);
     let on: i32 = 0; if (SEL == k) on = 1;
-    gameButton(100 + k, k + 1, gameCatalog[gi].title, on);
+    gameButton(card, 100 + k, 300 + k, gameCatalog[gi].title, on);
     k = k + 1;
   }
   abiWrite(OFF_SEL, 100 + SEL);
@@ -187,7 +119,8 @@ function buildGames(): void {
 
 function build(): void {
   ui.reset();
-  if (SCREEN == SCR_CATS) { buildCats(); } else { buildGames(); }
+  let root: El = ui.box(ROOT);
+  if (SCREEN == SCR_CATS) { buildCats(root); } else { buildGames(root); }
   ui.finish(REV);
 }
 
