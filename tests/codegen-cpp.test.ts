@@ -178,4 +178,21 @@ describe("C++ Code Generation", () => {
       expect(result.code).toContain("<vector>");
     });
   });
+
+  describe("Transitive mutable reference", () => {
+    // A parameter passed to a callee that mutates it (but not mutated directly
+    // in the caller) must still be a non-const reference, or g++ fails with
+    // "binding reference ... drops const". Regression for the RasterText
+    // flattenContour -> addEdge build break.
+    it("should not emit a const reference for a param forwarded to a mutating callee", () => {
+      const result = getGeneratedCppCode(
+        `${FIXTURES_DIR}/transitive_mut_ref.rgr`
+      );
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      // both the direct mutator and the forwarding wrapper take non-const T&
+      expect(result.code).toContain("M::addItem( std::vector<int>& arr");
+      expect(result.code).toContain("M::wrap( std::vector<int>& arr");
+      expect(result.code).not.toContain("const std::vector<int>& arr");
+    });
+  });
 });

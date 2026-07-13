@@ -1,0 +1,18 @@
+; Regression: a parameter passed to a callee that mutates it (without being
+; mutated directly in the caller) must still be emitted as a non-const C++
+; reference. Otherwise g++ fails with "binding reference ... drops const".
+class M {
+    fn addItem:void (arr:[int] v:int) {
+        push arr v
+    }
+    fn wrap:void (arr:[int]) {
+        this.addItem(arr 1)
+        this.addItem(arr 2)
+    }
+    sfn m@(main):void () {
+        def a:[int]
+        def obj (new M)
+        obj.wrap(a)
+        print (to_string (array_length a))
+    }
+}
