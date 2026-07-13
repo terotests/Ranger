@@ -312,6 +312,8 @@ Taaksepäin yhteensopiva vanhan `state.entities`-polun kanssa.
 | # | Tehtävä | Kuvaus | Tila |
 |---|---------|--------|:----:|
 | 4.1 | WebGL/GLES2 backend Pi:lle | EVG → GPU texture upload | ⚠️ sheet/base PoC |
+| 4.1a | Ranger2D GPU-camera (R1b) | ortho-Camera2D 4×4 viewProj-uniformina, [`PLAN_RANGER2D.md`](./PLAN_RANGER2D.md) | ✅ |
+| 4.1b | Striimaava spatiaalinen maailma | grid + culling + kamera-prefetch + rinnakkainen decode-worker, [`PLAN_RANGER2D_STREAMING.md`](./PLAN_RANGER2D_STREAMING.md) | ❌ Suunniteltu |
 | 4.2 | Asset pipeline | Sprite sheetit, äänipankit, collision mapit | ❌ |
 | 4.3 | Collision-työkalut | Pelikohtaiset tai kevyt tile-map -kerros | ❌ |
 | 4.3a | Host physics engine (Phase 1) | `game_physics.rgr` — bodies, bounds, contacts | ✅ |
