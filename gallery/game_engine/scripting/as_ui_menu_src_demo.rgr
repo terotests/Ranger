@@ -1,0 +1,195 @@
+; ==============================================================================
+; as_ui_menu_src_demo — interpret the .as EVG UI menu/demo guest and render it.
+; ==============================================================================
+;
+; Proves the whole interpreted-.as UI path end-to-end WITHOUT compiling to wasm:
+;   * bind + init the .as guest (ComponentEngine + AsAbiBridge)
+;   * copy the RGU1 block it built and render it with the EVG UI layer
+;   * feed input edges through the shared ABI (abiWrite OFF_INPUT), call update()
+;   * highlight whichever node the guest reports selected (abiRead OFF_SEL)
+;
+; It self-checks the guest's own navigation + screen/example state machine and
+; dumps PNGs, so it is the "simple interpreter test" counterpart of the compiled
+; wasm menu (wasm/as_ui_menu) — one .as source, exercised without asc.
+; ==============================================================================
+
+Import "../ui/WasmUiSelect.rgr"
+Import "./as_source_runner.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+
+class AsUiCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+}
+
+class AsUiMenuSrcDemo {
+    ; shared-ABI offsets (mirror games/ui_menu_as/game.as)
+    def OFF_INPUT:int 20
+    def OFF_SEL:int 52
+
+    def runner:AsSourceRunner (new AsSourceRunner)
+    def canvas:SoftCanvas (new SoftCanvas)
+    def ctx:UIContext (new UIContext)
+    def rnd:WasmUiRenderer (new WasmUiRenderer)
+    def doc:WasmUiDoc (new WasmUiDoc)
+    def root:EVGElement (EVGElement.createDiv())
+    def cw:int 360
+    def ch:int 460
+
+    ; Copy the guest's RGU1 block out of the bridge and (re)build the EVG tree,
+    ; autoscaling to fit the canvas exactly like GameUiRunner.rebuildTree.
+    fn refresh:void () {
+        def bytes:[int]
+        def i 0
+        while (i < 8192) {
+            push bytes (runner.uiByte(i))
+            i = (i + 1)
+        }
+        doc.loadBytes(bytes 8192)
+        def b1:WasmUiEvgBuilder (new WasmUiEvgBuilder)
+        root = (b1.build(doc))
+        rnd.layoutTree(ctx root cw ch)
+        def s:double (this.fitScale())
+        if (s < 1.0) {
+            def b2:WasmUiEvgBuilder (new WasmUiEvgBuilder)
+            b2.scale = s
+            root = (b2.build(doc))
+            rnd.layoutTree(ctx root cw ch)
+        }
+    }
+
+    fn fitScale:double () {
+        def s:double 1.0
+        def fh:double (to_double ch)
+        def need:double (rnd.contentBottom(root))
+        if (need > fh) {
+            def sy:double ((fh * 0.96) / need)
+            if (sy < s) { s = sy }
+        }
+        if (s < 0.2) { s = 0.2 }
+        return s
+    }
+
+    ; selected node id the guest reported this frame (0 = none)
+    fn selId:int () {
+        return (runner.abiRead(OFF_SEL))
+    }
+
+    ; text of the first TEXT prop on the node with the given id ("" if none)
+    fn textOfId:string (id:int) {
+        def idx (doc.indexOfId(id))
+        if (idx < 0) { return "" }
+        def fp (doc.nodeFirstProp(idx))
+        def pc (doc.nodePropCount(idx))
+        def p 0
+        while (p < pc) {
+            def k (doc.propKey(fp + p))
+            if (k == 1) {
+                return (doc.propString(fp + p))
+            }
+            p = (p + 1)
+        }
+        return ""
+    }
+
+    fn drawFrame:void (file:string) {
+        canvas.clear(16 18 30)
+        rnd.draw(ctx root)
+        ; glow highlight around the guest-selected node
+        def sid (this.selId())
+        if (sid > 0) {
+            def hit:RectHit (rnd.findRect(root (to_string sid)))
+            if hit.found {
+                def pad 4
+                ctx.glowRoundRect((hit.x - pad) (hit.y - pad) (hit.w + (pad * 2)) (hit.h + (pad * 2)) (hit.rad + pad) 255 255 255 6 200)
+            }
+        }
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.width = (canvas.getWidth())
+        rb.height = (canvas.getHeight())
+        rb.pixels = (canvas.raw())
+        def png:PNGEncoder (new PNGEncoder)
+        png.encode(rb "gallery/game_engine/scripting" file)
+    }
+
+    ; write an edge mask and advance the guest one frame
+    fn step:void (mask:int) {
+        runner.abiWrite(OFF_INPUT mask)
+        runner.callUpdate()
+        this.refresh()
+    }
+
+    sfn m@(main):void () {
+        def d:AsUiMenuSrcDemo (new AsUiMenuSrcDemo)
+        def c:AsUiCheck (new AsUiCheck)
+
+        d.canvas.init(d.cw d.ch)
+        d.ctx.attach(d.canvas)
+        d.ctx.tr.addFontDir("gallery/pdf_writer/assets/fonts")
+        d.ctx.tr.loadFont("Open Sans" "Open_Sans/OpenSans-Regular.ttf")
+
+        def dir:string "gallery/game_engine/games/ui_menu_as"
+        if ((d.runner.bindDir(dir)) == false) {
+            print "bind failed"
+            return
+        }
+        d.runner.callInit()
+        d.refresh()
+
+        ; ---- frame 0: main menu, New Game selected ----
+        c.ok("doc valid" d.doc.valid)
+        c.ok(("menu default sel == New Game/20 (got " + (to_string (d.selId())) + ")") ((d.selId()) == 20))
+        c.ok(("title is menu (got '" + (d.textOfId(10)) + "')") ((d.textOfId(10)) == "AS UI - Main Menu"))
+        d.drawFrame("as_ui_1_menu.png")
+
+        ; ---- Down twice -> Demo button selected ----
+        d.step(2)
+        c.ok(("Down -> Continue/21 (got " + (to_string (d.selId())) + ")") ((d.selId()) == 21))
+        d.step(2)
+        c.ok(("Down x2 -> Demo/22 (got " + (to_string (d.selId())) + ")") ((d.selId()) == 22))
+
+        ; ---- action opens the Demo screen ----
+        d.step(16)
+        c.ok(("action opens demo: sel == PREVIEW/40 (got " + (to_string (d.selId())) + ")") ((d.selId()) == 40))
+        c.ok(("demo title (got '" + (d.textOfId(100)) + "')") ((d.textOfId(100)) == "EVG Demo"))
+        c.ok(("example 0 is Background color (got '" + (d.textOfId(101)) + "')") ((indexOf (d.textOfId(101)) "Background color") >= 0))
+        d.drawFrame("as_ui_2_demo_bg.png")
+
+        ; ---- right cycles examples: font color, font size, gradient ----
+        d.step(8)
+        c.ok(("right -> Font color (got '" + (d.textOfId(101)) + "')") ((indexOf (d.textOfId(101)) "Font color") >= 0))
+        d.drawFrame("as_ui_3_demo_fontcolor.png")
+        d.step(8)
+        c.ok(("right -> Font size (got '" + (d.textOfId(101)) + "')") ((indexOf (d.textOfId(101)) "Font size") >= 0))
+        d.drawFrame("as_ui_4_demo_fontsize.png")
+        d.step(8)
+        c.ok(("right -> Linear gradient (got '" + (d.textOfId(101)) + "')") ((indexOf (d.textOfId(101)) "Linear gradient") >= 0))
+        d.drawFrame("as_ui_5_demo_gradient.png")
+
+        ; ---- left wraps back to Font size ----
+        d.step(4)
+        c.ok(("left -> Font size (got '" + (d.textOfId(101)) + "')") ((indexOf (d.textOfId(101)) "Font size") >= 0))
+
+        ; ---- action returns to the menu, selection preserved on Demo/22 ----
+        d.step(16)
+        c.ok(("back to menu: sel == Demo/22 (got " + (to_string (d.selId())) + ")") ((d.selId()) == 22))
+        c.ok(("menu title again (got '" + (d.textOfId(10)) + "')") ((d.textOfId(10)) == "AS UI - Main Menu"))
+
+        print "======================================"
+        print (("RESULT: " + (to_string c.passed) + " passed, ") + ((to_string c.failed) + " failed"))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}
