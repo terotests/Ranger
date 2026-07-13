@@ -79,6 +79,23 @@ class GameUiRunner {
         ctrl.highlightPad = 4
     }
 
+    ; Re-target the canvas to a new output resolution (fullscreen toggle / window
+    ; resize) so the UI keeps rendering 1:1 at the native pixel density instead of
+    ; being stretched from its original size. The already-loaded fonts live on the
+    ; text renderer (ctx.tr), so we only reallocate the canvas + re-lay-out the tree.
+    fn resize:void (width:int height:int) {
+        if ((width == w) && (height == h)) {
+            return
+        }
+        w = width
+        h = height
+        canvas.init(width height)
+        ctx.attach(canvas)
+        if loaded {
+            this.rebuildTree()
+        }
+    }
+
     ; --- native path: instantiate the wasm guest --------------------------------
     fn loadWasm:boolean (wasmPath:string) {
         handle = (wasm_load wasmPath)

@@ -921,19 +921,32 @@ class GameSdlRunner {
     ; Self-contained loop for an engine=ui game: instantiate the RGU1 guest,
     ; render its menu, move the selection with the D-pad, forward the action
     ; button to the guest, and return to the launcher on Back/Quit.
+    ; Target UI canvas dimensions = the live output surface size (drawable px),
+    ; falling back to the pw*ph game buffer, capped to bound the software-canvas
+    ; cost. Queried live each frame so a fullscreen toggle / window resize is
+    ; picked up and the UI is re-rendered at the new native resolution.
+    fn uiTargetW:int () {
+        def uw:int pw
+        def sw:int (gfx_surface_width)
+        if (sw > uw) { uw = sw }
+        if (uw > 1600) { uw = 1600 }
+        return uw
+    }
+    fn uiTargetH:int () {
+        def uh:int ph
+        def sh:int (gfx_surface_height)
+        if (sh > uh) { uh = sh }
+        if (uh > 1200) { uh = 1200 }
+        return uh
+    }
+
     fn runUiGame:void (wasmPath:string) {
         ; Render the UI at the actual output surface resolution (not the small pw*ph
         ; game buffer) so text/borders/effects are crisp instead of upscaled. Cap
         ; to bound the CPU cost of the software UI canvas; the guest UI scales to
         ; fill it (GameUiRunner.fitScale), so it looks identical at any resolution.
-        def uw:int pw
-        def uh:int ph
-        def sw:int (gfx_surface_width)
-        def sh:int (gfx_surface_height)
-        if (sw > uw) { uw = sw }
-        if (sh > uh) { uh = sh }
-        if (uw > 1600) { uw = 1600 }
-        if (uh > 1200) { uh = 1200 }
+        def uw:int (this.uiTargetW())
+        def uh:int (this.uiTargetH())
         uiRunner.init(uw uh "gallery/game_engine/assets/fonts" "OpenSans-Regular.ttf" "Open Sans")
         ; engine=ui games come in two flavours: a compiled logic.wasm guest, or an
         ; interpreted .as source (runtime=as). Pick the backend by module suffix —
@@ -964,6 +977,16 @@ class GameSdlRunner {
         this.syncInputEdges()
         def nav:UiNavInput (new UiNavInput)
         while (running) {
+            ; the output surface may have changed size since last frame (the user
+            ; toggled fullscreen or resized the window). Re-target the canvas so the
+            ; UI keeps rendering at the new native resolution instead of stretching.
+            def nw:int (this.uiTargetW())
+            def nh:int (this.uiTargetH())
+            if ((nw != uw) || (nh != uh)) {
+                uw = nw
+                uh = nh
+                uiRunner.resize(uw uh)
+            }
             def m:int (this.uiNavMask())
             nav.clear()
             nav.up = (this.upEdge((bit_and m 1) != 0))
