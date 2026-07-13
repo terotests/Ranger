@@ -17,6 +17,7 @@
 
 Import "../framebuffer.rgr"
 Import "../ui/WasmUiSelect.rgr"
+Import "./as_source_runner.rgr"
 
 class GameUiRunner {
     def canvas:SoftCanvas (new SoftCanvas)
@@ -30,6 +31,17 @@ class GameUiRunner {
     def h:int 0
     def rev:int 0
     def loaded:boolean false
+
+    ; --- interpreted .as backend (engine=ui, runtime=as) ---
+    ; When useAs is set the guest is an interpreted .as source (no wasm): it reads
+    ; the input edge-mask from the shared ABI and drives its own selection, so the
+    ; host renders + highlights the node the guest reports (no UiSelectController
+    ; navigation). See games/ui_menu_as/game.as.
+    def asRunner:AsSourceRunner (new AsSourceRunner)
+    def useAs:boolean false
+    def asSelId:int 0
+    def OFF_INPUT:int 20      ; host -> guest edge mask: UP1 DOWN2 LEFT4 RIGHT8 ACT16
+    def OFF_SEL:int 52        ; guest -> host selected node id (highlight)
 
     ; page background behind the menu card
     def bgR:int 16
@@ -77,6 +89,38 @@ class GameUiRunner {
         }
         this.rebuildTree()
         rev = (wasm_call_i32 handle "rg_ui_revision" 0 0 0 0 0 0)
+        loaded = true
+        return true
+    }
+
+    ; --- interpreted .as path: bind + init the guest, pull its first document ----
+    fn loadAs:boolean (dir:string) {
+        useAs = true
+        if ((asRunner.bindDir(dir)) == false) {
+            return false
+        }
+        asRunner.callInit()
+        if ((this.refreshFromAs()) == false) {
+            return false
+        }
+        rev = (asRunner.uiRevision())
+        asSelId = (asRunner.abiRead(OFF_SEL))
+        return true
+    }
+
+    ; Copy the guest's RGU1 block out of the bridge and rebuild the EVG tree.
+    fn refreshFromAs:boolean () {
+        def bytes:[int]
+        def i 0
+        while (i < 8192) {
+            push bytes (asRunner.uiByte(i))
+            i = (i + 1)
+        }
+        doc.loadBytes(bytes 8192)
+        if (doc.valid == false) {
+            return false
+        }
+        this.rebuildTree()
         loaded = true
         return true
     }
@@ -140,6 +184,25 @@ class GameUiRunner {
         if (loaded == false) {
             return -1
         }
+        if useAs {
+            ; forward the input edges to the interpreted guest via the shared ABI;
+            ; it navigates itself and reports the selected id back for highlight.
+            def mask:int 0
+            if nav.up { mask = (mask + 1) }
+            if nav.down { mask = (mask + 2) }
+            if nav.left { mask = (mask + 4) }
+            if nav.right { mask = (mask + 8) }
+            if nav.action { mask = (mask + 16) }
+            asRunner.abiWrite(OFF_INPUT mask)
+            asRunner.callUpdate()
+            def newRev:int (asRunner.uiRevision())
+            if (newRev != rev) {
+                this.refreshFromAs()
+                rev = newRev
+            }
+            asSelId = (asRunner.abiRead(OFF_SEL))
+            return asSelId
+        }
         def act:int (ctrl.update(nav))
         if ctrl.didActivate {
             if (handle > 0) {
@@ -164,7 +227,18 @@ class GameUiRunner {
     fn render:void () {
         canvas.clear(bgR bgG bgB)
         ctrl.renderer.draw(ctx root)
-        ctrl.renderHighlight(ctx)
+        if useAs {
+            ; highlight the node the interpreted guest reports selected
+            if (asSelId > 0) {
+                def hit:RectHit (ctrl.renderer.findRect(root (to_string asSelId)))
+                if hit.found {
+                    def pad:int ctrl.highlightPad
+                    ctx.glowRoundRect((hit.x - pad) (hit.y - pad) (hit.w + (pad * 2)) (hit.h + (pad * 2)) (hit.rad + pad) ctrl.glowR ctrl.glowG ctrl.glowB ctrl.glowSpread ctrl.glowAlpha)
+                }
+            }
+        } {
+            ctrl.renderHighlight(ctx)
+        }
     }
 
     fn raw:buffer () {
