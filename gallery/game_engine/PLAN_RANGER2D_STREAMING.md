@@ -22,11 +22,18 @@ Peli määrittää maailman koon (**oletus 1×1** = yksi ruutu, jolloin koko jä
 nykyiset pelit renderöityvät bittiin asti samoin). Asset-loader on **erillinen WASM-moduli** joka
 lataa/dekoodaa toisessa threadissa ja syöttää valmiit resurssit host-enginelle.
 
-Neljä osaa, jokainen erillinen de-riskattu vaihe:
+> **Arkkitehtuuripäivitys (§0b):** streaming-*politiikka* siirtyy enginestä userlandiin. Engine
+> tarjoaa resurssi-ABI:n + peli-observaation; solu-streamer on **referenssi-worker** saman ABI:n
+> päällä, ei etuoikeutettu engine-osa. Streaming-polku on **dimensio-agnostinen** (2D ei ratkaise).
 
-1. **`WorldGrid` + kaksitasoinen culling** (puhdas Ranger, ei threadeja) — S1.
-2. **Solun elinkaari + kamera-residenssirengas** (herätys/nukutus, aluksi synkroninen lataus) — S2.
-3. **Rinnakkainen decode-worker + `RGL1`-ABI** (decode off-thread, GL-upload render-threadilla) — S3.
+Osat de-riskattuina vaiheina:
+
+1. **`WorldGrid` + kaksitasoinen culling** (puhdas Ranger, ei threadeja) — S1 ✅. *Renderöintiä,
+   pysyy enginessä.*
+2. **Resurssi-ABI + observaatio + worker-kontrakti** (§0b, host-primitiivit + RGO1-observaatio +
+   worker-plugin) — S2. *Aluksi synkroninen referenssi-worker.*
+3. **Rinnakkainen decode/gen-worker** (host-thread ajaa WASM:n, decode off-thread, GL-upload
+   render-threadilla) — S3.
 4. **Suunta-tietoinen prefetch + web-Worker-backend** — S4.
 5. **Dynaamisten entiteettien simulaatiosäde + determinismivartija** — S5.
 
@@ -35,9 +42,92 @@ Kaksi kantavaa linjausta:
 - **Grid on *indeksi* olemassa olevan `worldEntities`-mallin päälle, ei uusi maailma.**
   Solutus (bucket by x,y) ja culling ovat lisäkerros nykyisen `syncEntity`-silmukan
   ([`game_entity_store.rgr`](./scripting/game_entity_store.rgr) ~177–230) ympärillä.
-- **Loader noudattaa RGW1/RGU1:n todistettua ABI-muotoa** (kiinteä lohko + `ptr()/size()/revision()`),
-  ei ad-hoc-viestijonoa. Uusi lohko + uudet exportit + uusi magic → puhtaasti additiivinen
+- **ABI on tuote, streamer on näyte (§0b).** Host-resurssiprimitiivit + observaatio-snapshot +
+  worker-kontrakti noudattavat RGW1/RGU1:n todistettua muotoa (kiinteä lohko + `ptr/size/revision`),
+  ei ad-hoc-viestijonoa. Uudet lohkot + uudet exportit + uudet magicit → puhtaasti additiivinen
   (`PLAN_RANGER2D.md` §11b vektori D).
+
+---
+
+## 0b. Arkkitehtuurilinjaus (heinäkuu 2026): resurssi-ABI + userland-worker
+
+> **Päätetty.** Streaming-*politiikka* siirtyy enginestä userlandiin. Engine ei omista
+> sisäänrakennettua solu-streameria johon pelien on mukauduttava; se tarjoaa **resurssiprimitiivit**
+> ja **peli-observaation**, ja määrittelee **ABI:n** jolla kuka tahansa kirjoittaa oman
+> **worker-WASM-paketin** joka *tarkkailee peliä* ja **lataa tai generoi** resursseja tarvittaessa.
+> Tämä on täsmälleen RGW1/RGU1:n filosofia (guest omistaa logiikan, host tarjoaa primitiivit +
+> jaetun muistin) — autopeli (RGW1) on jo worker joka omistaa *pelilogiikan*; tämä tekee saman
+> *resursseille*.
+
+**Ratkaiseva erottelu:** streaming on **resurssi-tuottajan asia, ei renderöijän asia.** 2D-ness elää
+vain render-polussa (S1-culling, R1b-kamera); streaming-polku on **dimensio-agnostinen** (2D/3D/ääni
+ei ole ratkaiseva tekijä, ABI on). Sama ABI palvelee 2D-sprite-atlaksia, 3D-mesh-LODeja, äänipankkeja
+ja proseduraalisesti generoituja tekstuureja.
+
+### Kolme ABI-pintaa (kaikki dimensio-agnostisia)
+
+**1. Host-resurssiprimitiivit** (host exports — "menetelmät resurssien tuomiseen ja lataamiseen")
+
+```
+rg_res_begin(kind, w, h, fmt) -> stagingPtr    ; varaa staging-buffer jonka worker täyttää
+rg_res_commit(stagingId, key) -> u64 handle    ; luovuta täytetty buffer hostille; host uploadaa
+                                               ;   (GL-threadilla) ja palauttaa vakaan u64-kahvan
+rg_res_free(handle)                            ; refcount-vapautus
+rg_res_lookup(key) -> handle                   ; dedup/cache avaimella
+```
+
+`kind ∈ {texture2D, mesh, audioClip, tilemap, …}` — mikään ei sano "2D". **Tämä on suoraan
+pääsuunnitelman R5** (host-allokoidut u64-resurssikahvat, `PLAN_RANGER2D.md` §5); tämä worker on
+R5:n *kuluttaja*. Laajentaa nykyistä `rg_host_register_sheet/rect`-mekanismia
+([`lib.rs`](./wasm/rust_autopeli/src/lib.rs) ~602–643).
+
+**2. Peli-observaatio-snapshot** (host tuottaa, worker lukee — "tarkkailee peliä")
+
+Read-only, revision-gated lohko jota worker pollaa (RGU1-kuvio, mutta suunta host→worker). **Molemmat
+kanavat** (päätetty):
+
+```
+Observation (magic RGO1, kiinteä lohko)
+  camera: transform (pos/zoom/rot tai 4×4) + view-volume    ; dimensio-agnostinen, ei "2D-rect"
+  world:  bounds / cols,rows / nykyinen region- tai solu-id
+  time:   frame, dt
+  wishlist[]: (resourceKey, priority)   ; VALINNAINEN — engine/peli vihjaa "tarvitsen keyn K pian"
+```
+
+- **Kanava A (kamera+world):** worker voi johtaa tarpeet itse (oma content-map) → maksimijoustavuus,
+  engine ei tiedä asseteista mitään.
+- **Kanava B (wishlist):** engine/peli emittoi tarpeet → worker on puhdas fetch/generate-suoritin.
+- Peli valitsee kumpaa käyttää (tai molempia): johtaa tarpeet workerissa **tai** vihjaa enginestä.
+
+**3. Worker-plugin-kontrakti** (worker exports, host kutsuu — "oma worker WASM-paketti")
+
+```
+rg_worker_init(configPtr)        ; setup
+rg_worker_tick(obsRevision)      ; kutsutaan worker-threadilla; worker lukee observaation,
+                                 ;   päättää, kutsuu rg_res_* -primitiivejä (tai kirjoittaa
+                                 ;   produce-jonoon jonka host drainaa)
+rg_worker_shutdown()
+```
+
+Worker = "vielä yksi guest" kuten autopeli, samalla instantiointi-/silta-koneistolla, uusi rooli.
+
+### Threading & handoff (aiempi jako säilyy, nyt ABI:n läpi)
+
+Worker ajetaan host-hallitulla threadilla (§10.5-päätös: host-thread ajaa WASM:n). Worker tekee
+CPU-työn — **decode tiedostosta TAI generoi proseduraalisesti** — täyttää staging-bufferin;
+`rg_res_commit` postaa "valmis buffer + key" done-jonoon; **host render/GL-thread** drainaa ja tekee
+`glTexImage2D`:n (GL on thread-sidottu) → u64-kahva. "Lataa tai generoi" yhdistyvät: molemmat
+tuottavat bufferin + kahvapyynnön, sama handoff.
+
+### Referenssi-worker (entinen "engine omistaa streamingin")
+
+Engine toimittaa **valmiin solu-streamerin referenssi-workerina** joka on kirjoitettu *samaa julkista
+ABI:a vasten* — ei etuoikeutettu, ei erikoispolkua. Tämä (a) todistaa ABI:n ensimmäisenä kuluttajana
+ja (b) antaa pelille heti valmiin ratkaisun (kamera→solut→atlas-lataus) ilman että sen on pakko
+kirjoittaa omaa politiikkaansa. Peli voi korvata sen omalla workerilla (esim. proseduraalinen
+generointi, verkkolataus, LOD) vaihtamatta engineä.
+
+**ABI on tuote; solu-streamer on näyte.**
 
 ---
 
@@ -140,7 +230,12 @@ ajava peli ehtii latautua ennen kuin solu on ruudulla.
 
 ---
 
-## 5. Rinnakkainen asset-loader — `RGL1` decode-worker
+## 5. Rinnakkainen asset-worker — konkreettinen decode-polku
+
+> **Huom:** §0b:n arkkitehtuuripäätöksen jälkeen tämä osa kuvaa **referenssi-workerin** (solu-streamer)
+> konkreettista decode-polkua. Julkinen rajapinta on §0b:n resurssi-ABI (`rg_res_*`) + observaatio
+> (RGO1) + worker-kontrakti; alla oleva job/done-jono on *tämän* workerin sisäinen toteutus, ei
+> pelien näkemä ABI. Peli voi korvata workerin kokonaan (esim. generoiva).
 
 **Ongelma:** `GameImageLoader` dekoodaa PNG/JPEG synkronisesti frame-polulla → iso solunvaihto
 tökkäisi. **Ratkaisu:** siirrä *decode* toiselle threadille; pidä *GL-upload* render-threadilla
@@ -214,20 +309,25 @@ Peli:  world(cols,rows) · cell(cx,cy)->{assets,spawn} · entiteetit maailmakoor
 │  bucket worldEntities → solut · cells-in-AABB · residenssirengas       │
 │  solun elinkaari (DORMANT/PRELOAD/ACTIVE/RETIRE) · culling-testit       │
 └───────┬───────────────────────────────────────┬───────────────────────┘
-        │ culled näkyvät entiteetit               │ load/free-pyynnöt (cellId, manifesti)
-┌───────▼──────────────────┐          ┌───────────▼───────────────────────┐
-│ Render (R1b GPU-camera)  │          │ AssetStreamer                      │
-│  syncEntity + cull        │          │  RGL1 job/done-jonot · u64-kahvat  │
-│  gfx_gpu_camera_set        │          │  ┌─ decode worker thread (WASM) ─┐ │
-│  batched quads             │          │  │  PNG/JPEG → RGBA (off-frame)   │ │
-└────────────────────────────┘          │  └────────────────────────────────┘ │
-                                         │  GL-upload render-threadilla → R5    │
-                                         └──────────────────────────────────────┘
+        │ culled näkyvät entiteetit               │ observaatio (kamera+world+wishlist) ↓ / resurssit ↑
+┌───────▼──────────────────┐          ┌───────────▼───────────────────────────────┐
+│ Render (R1b GPU-camera)  │          │ Resurssi-ABI + observaatio (§0b, host)      │
+│  syncEntity + cull        │          │  rg_res_begin/commit/free/lookup → u64 (R5) │
+│  gfx_gpu_camera_set        │          │  RGO1-observaatio-snapshot (host→worker)    │
+│  batched quads             │          │  GL-upload render-threadilla                │
+└────────────────────────────┘          └───────────▲─────────────────────────────────┘
+                                                     │ rg_worker_tick / rg_res_* (ABI)
+                                         ┌───────────┴─────────────────────────────────┐
+                                         │ Worker-WASM (userland, host-thread)          │
+                                         │  tarkkailee peliä → lataa TAI generoi        │
+                                         │  referenssi: solu-streamer · korvattavissa   │
+                                         └──────────────────────────────────────────────┘
 ```
 
-`WorldGrid` on portable (ei `write`/`present`/thread-kutsuja). `AssetStreamer`in worker-osa on
-backend (thread-operaattorit target-templateilla). R1b:n `gfx_gpu_camera_set` on jo se mekanismi
-jolla kamera liikkuu — tämä dokumentti antaa sille *maailman* jossa liikkua.
+`WorldGrid` + resurssi-ABI:n host-osa ovat portable/engine; **worker on userland WASM** (peli
+toimittaa, engine tarjoaa referenssi-solu-streamerin). Worker-threadin ajo on backend
+(thread-operaattorit target-templateilla, §5b). R1b:n `gfx_gpu_camera_set` on jo se mekanismi jolla
+kamera liikkuu — tämä dokumentti antaa sille *maailman* jossa liikkua ja *tavan tuottaa sen assetit*.
 
 ---
 
@@ -256,8 +356,8 @@ kytkentä [`game_entity_store.rgr`](./scripting/game_entity_store.rgr) `syncEnti
   pong/invaders/breakout ajavat muuttumattomina; `game-engine-render` golden-frame **byte-identtinen**;
   13-kohtainen `cullsEntity`-yksikkötesti es6:lla (disabled=no-op, in-view, edge-margin, far-cull,
   kamera-relatiivinen pan, iso-sprite-suoja, solumatikka) → `ALL_OK`.
-| **S2** | Solun elinkaari + rengas | DORMANT/PRELOAD/ACTIVE-kone; kamera-solu + hystereesi; **synkroninen** lataus (ei threadeja vielä); provider-callback `cell(cx,cy)` | headless: kamera kulkee gridin poikki, solut heräävät/nukahtavat oikeilla säteillä (lokitesti) | matala–keski |
-| **S3** | Rinnakkainen decode | `RGL1` job/done-ABI; decode `std::thread`/`SDL_Thread`illa; GL-upload render-threadilla; refcount-vapautus | natiivi: iso solunvaihto ei pudota FPS:ää (profiili); `RANGER_STREAM_ASYNC=0` = synkroninen fallback (bisect) | **keski–korkea** (threadit, GL-thread-raja) |
+| **S2** | Resurssi-ABI + observaatio + referenssi-worker | host-primitiivit `rg_res_begin/commit/free/lookup` (R5-kahvat); RGO1-observaatio-lohko (kamera+world **+** wishlist); worker-kontrakti `rg_worker_init/tick/shutdown`; **synkroninen** referenssi-worker (solu-streamer) saman ABI:n päällä (ei threadeja vielä) | headless: referenssi-worker lataa solun assetit kun kamera saapuu; peli voi korvata workerin; observaation molemmat kanavat toimivat | matala–keski |
+| **S3** | Rinnakkainen decode/gen | worker host-threadilla (`std::thread`/`SDL_Thread` ajaa WASM:n, §10.5); decode/gen off-frame; GL-upload render-threadilla; refcount-vapautus | natiivi: iso solunvaihto ei pudota FPS:ää (profiili); `RANGER_STREAM_ASYNC=0` = synkroninen fallback (bisect) | **keski–korkea** (threadit, GL-thread-raja) |
 | **S4** | Suunta-prefetch + web | preload-AABB biasoitu nopeudella; `es6` Web Worker + `createImageBitmap` | nopea kamera: solu valmis ennen ruutua; web-parity | keski |
 | **S5** | Sim-säde + determinismi | erillinen sim- vs render-säde; off-screen coarse tick; determinismivartija | cross-target hash (Mac↔Pi↔es6) sama striimauksesta riippumatta | keski |
 
@@ -289,13 +389,20 @@ Sama additiivinen linja kuin `PLAN_RANGER2D.md` §11b:
    vai molemmat? **Suositus:** molemmat — lista pieniin, provider "500/solu"-skaalaan.
 3. **Dynaamisten off-screen-käytös:** freeze vs. coarse-tick oletuksena? **Suositus:** freeze oletus,
    coarse-tick opt-in per entiteetti (halvempi + deterministisempi lähtökohta).
-4. **RGL1-jonon koko / sivutus:** kuinka monta yhtäaikaista load-jobia (RGU1 = 64 nodea / 8 KB)?
-   Iso solunvaihto voi jonottaa satoja assetteja → jonon koko + prioriteetti (näkyvät solut ensin).
+4. **Resurssijonon koko / sivutus:** kuinka monta yhtäaikaista `rg_res_*`-pyyntöä / observaation
+   wishlist-kokoa (RGU1 = 64 nodea / 8 KB)? Iso solunvaihto voi jonottaa satoja assetteja → jonon
+   koko + prioriteetti (näkyvät solut ensin).
 5. **Loaderin sijainti:** ~~aito erillinen WASM-moduli vai host-thread joka kutsuu WASM-decodea?~~
-   **PÄÄTETTY (heinäkuu 2026):** host-thread ajaa decoden — natiivilla `std::thread`/`SDL_Thread`,
-   webillä Web Worker; WASM-moduli on decode-payload jota thread kutsuu. Sama koodi toimii myös ilman
-   WASM:ia (LLVM-fallback). Yksinkertaisin GL-threadraja (decode off-thread, upload main-threadilla).
-6. **Fysiikka (Cannon) striimauksessa:** luodaanko/poistetaanko bodyt solun elinkaaren mukaan?
+   **PÄÄTETTY (heinäkuu 2026):** host-thread ajaa workerin — natiivilla `std::thread`/`SDL_Thread`,
+   webillä Web Worker; worker-WASM on payload jota thread ajaa. Sama koodi toimii myös ilman WASM:ia
+   (LLVM-fallback). Yksinkertaisin GL-threadraja (decode/gen off-thread, upload main-threadilla).
+6. **Observaation laajuus:** ~~ohut (kamera+world) vai wishlist vai molemmat?~~ **PÄÄTETTY (heinäkuu
+   2026):** **molemmat kanavat** (§0b) — worker voi johtaa tarpeet kamera+world:sta TAI lukea
+   engine/peli-wishlistin. Peli valitsee.
+7. **Sisäänrakennettu streamer:** ~~engine-osa vai userland?~~ **PÄÄTETTY (heinäkuu 2026):** solu-
+   streamer on **referenssi-worker julkisen ABI:n päällä** (§0b), ei etuoikeutettu; peli voi korvata
+   sen omalla workerilla vaihtamatta engineä.
+8. **Fysiikka (Cannon) striimauksessa:** luodaanko/poistetaanko bodyt solun elinkaaren mukaan?
    Sitoutuu `PLAN_RANGER2D.md` §8 `RigidBodyLink`-identiteettiin — body syntyy solun PRELOAD:ssa.
 
 ---
@@ -314,10 +421,16 @@ Sama additiivinen linja kuin `PLAN_RANGER2D.md` §11b:
 
 ## 12. Yhteenveto
 
-Kamera (R1b) saa **maailman jossa liikkua**: äärellinen `cols×rows`-grid (oletus 1×1, jolloin kaikki
-on no-op ja nykypelit muuttumattomia), jonka päälle tulee **kaksitasoinen culling**, **kamera-vetoinen
-solujen herätys/nukutus hystereesillä ja suunta-prefetchillä**, sekä **rinnakkainen decode-worker**
-(RGL1-ABI, RGW1/RGU1:n muotoa noudattaen) joka dekoodaa assetit frame-polun ulkopuolella ja jättää
-halvan GL-uploadin render-threadille. Vaiheistus alkaa puhtaasta Ranger-cullingista (S1, matala riski,
-välitön hyöty) ja eristää threadit viimeisiin, flagattuihin vaiheisiin. Kaikki additiivista — vanha
-software- ja GPU-polku pysyvät koskemattomina kunnes parity on todistettu.
+Kamera (R1b) saa **maailman jossa liikkua** ja **tavan tuottaa sen assetit**. Renderöintipuoli:
+äärellinen `cols×rows`-grid (oletus 1×1 = no-op, nykypelit muuttumattomia) + **kaksitasoinen culling**
+(S1 ✅). Resurssipuoli (§0b, päätetty): engine tarjoaa **dimensio-agnostisen resurssi-ABI:n**
+(host-primitiivit `rg_res_*` → u64-kahvat), **peli-observaation** (RGO1: kamera+world **+** wishlist,
+molemmat kanavat) ja **worker-plugin-kontraktin** — ja kuka tahansa voi kirjoittaa oman **worker-WASM-
+paketin** joka tarkkailee peliä ja **lataa tai generoi** resursseja. Solu-streamer on **referenssi-
+worker** saman ABI:n päällä, korvattavissa. Streaming-politiikka on userlandissa, joten **2D ei ole
+ratkaiseva tekijä** — sama ABI palvelee 3D-mesh-LODeja ja proseduraalista generointia.
+
+Threading säilyy: host-thread ajaa workerin, decode/gen off-frame, halpa GL-upload render-threadilla
+(§10.5). Vaiheistus alkaa puhtaasta Ranger-cullingista (S1, valmis) ja eristää threadit viimeisiin,
+flagattuihin vaiheisiin. Kaikki additiivista — vanha software- ja GPU-polku pysyvät koskemattomina
+kunnes parity on todistettu. **ABI on tuote; solu-streamer on näyte.**
