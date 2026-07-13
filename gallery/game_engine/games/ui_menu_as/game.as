@@ -136,20 +136,28 @@ class Anim {
   after(f: () => void): Anim { this.cb = f; this.hasCb = 1; return this; }
   start(): Anim { this.startMs = abiRead(OFF_TIME); this.active = 1; this.fired = 0; return this; }
 
-  // current 0..1000 flash strength; fires `after` once and deactivates at the end
-  intensity(): i32 {
-    if (this.active == 0) return 0;
+  // Advance the flash once per frame from the host clock, storing the current
+  // 0..1000 strength; fires `after` once and deactivates when it completes. This
+  // is time-driven, NOT render-driven, so the callback fires even if the target
+  // element is not currently on screen.
+  cur: i32 = 0;
+  tick(): void {
+    if (this.active == 0) { this.cur = 0; return; }
     let now: i32 = abiRead(OFF_TIME);
     let el: f64 = now - this.startMs - this.delayMs;
-    if (el < 0.0) return 0;
+    if (el < 0.0) { this.cur = 0; return; }
     if (el >= this.durMs) {
       this.active = 0;
+      this.cur = 0;
       if (this.hasCb == 1) { if (this.fired == 0) { this.fired = 1; this.cb(); } }
-      return 0;
+      return;
     }
     let p: f64 = (el * 1000.0) / this.durMs;   // 0..1000
-    if (p < 500.0) return p * 2;
-    return (1000.0 - p) * 2;
+    if (p < 500.0) { this.cur = p * 2; } else { this.cur = (1000.0 - p) * 2; }
+  }
+  intensityAt(nodeId: i32): i32 {
+    if (this.id != nodeId) return 0;
+    return this.cur;
   }
 }
 
@@ -157,16 +165,28 @@ class Animator {
   cur: Anim = new Anim();
   has: i32 = 0;
   animation(): Anim { this.cur = new Anim(); this.has = 1; return this.cur; }
+  // advance the active animation one frame (call once per frame)
+  tick(): void { if (this.has == 1) { this.cur.tick(); } }
   // glow strength for a node id (0 if it is not the animating element)
   glowFor(nodeId: i32): i32 {
     if (this.has == 0) return 0;
-    if (this.cur.id != nodeId) return 0;
-    return this.cur.intensity();
+    return this.cur.intensityAt(nodeId);
   }
+}
+
+// Deferred screen transition: an animation's `after` callback records the screen
+// to switch to; update() applies it on the next frame. This is how we "react only
+// after the effect ran" — the menu->demo switch waits for the glow to finish.
+class Nav {
+  target: i32 = 0;
+  has: i32 = 0;
+  toDemo(): void { this.target = SCR_DEMO; this.has = 1; }
+  toMenu(): void { this.target = SCR_MENU; this.has = 1; }
 }
 
 let ANIMATOR: Animator = new Animator();
 let DONE: Counter = new Counter();
+let NAV: Nav = new Nav();
 
 // ---- small RGU1 authoring helpers (props apply to the last uiNode) ----
 function view(id: i32, parent: i32, order: i32): void {
@@ -309,6 +329,7 @@ function emitEffect(): void {
 }
 
 function build(): void {
+  ANIMATOR.tick();          // advance effects once per frame (time-driven)
   uiReset();
   if (SCREEN == SCR_MENU) {
     buildMenu();
@@ -330,8 +351,18 @@ export function init(): void {
 }
 
 export function update(): void {
-  let inp: i32 = abiRead(OFF_INPUT);
   let changed: i32 = 0;
+
+  // apply a deferred transition that an animation's `after` callback requested
+  // once its effect finished (menu<->demo switch happens AFTER the glow).
+  if (NAV.has == 1) {
+    SCREEN = NAV.target;
+    if (SCREEN == SCR_DEMO) { EXAMPLE = 0; }
+    NAV.has = 0;
+    changed = 1;
+  }
+
+  let inp: i32 = abiRead(OFF_INPUT);
 
   if (SCREEN == SCR_MENU) {
     if ((inp & IN_UP) != 0) {
@@ -341,10 +372,14 @@ export function update(): void {
       SEL = SEL + 1; if (SEL > 3) SEL = 0; changed = 1;
     }
     if ((inp & IN_ACT) != 0) {
-      // fluent effect: flash a glow on the activated button, then bump a counter
-      ANIMATOR.animation().glow(menuSelId()).duration(0.42).delay(0.0).after(DONE.bump).start();
       if (SEL == 0) { PLAYS = PLAYS + 1; }
-      if (SEL == 2) { SCREEN = SCR_DEMO; EXAMPLE = 0; }
+      if (SEL == 2) {
+        // Demo: flash the button, then switch screens when the effect completes
+        ANIMATOR.animation().glow(menuSelId()).duration(0.42).delay(0.0).after(NAV.toDemo).start();
+      } else {
+        // other buttons: just flash
+        ANIMATOR.animation().glow(menuSelId()).duration(0.42).delay(0.0).after(DONE.bump).start();
+      }
       changed = 1;
     }
   } else {
@@ -355,7 +390,9 @@ export function update(): void {
       EXAMPLE = EXAMPLE + 1; if (EXAMPLE >= EX_COUNT) EXAMPLE = 0; changed = 1;
     }
     if ((inp & IN_ACT) != 0) {
-      SCREEN = SCR_MENU; changed = 1;
+      // flash the preview, then return to the menu when the effect completes
+      ANIMATOR.animation().glow(PREVIEW).duration(0.42).delay(0.0).after(NAV.toMenu).start();
+      changed = 1;
     }
   }
 

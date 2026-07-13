@@ -1633,6 +1633,17 @@ static int rgfx_open(const std::string& title, int w, int h) {
     if (g_rgfx_tex == nullptr) { return 0; }
     return 1;
 }
+// Actual output surface size in pixels (drawable / window), so UI can be
+// rendered at native resolution instead of a low internal buffer that gets
+// upscaled (blocky text). Falls back to the logical window size.
+static int rgfx_surface_dim(int wantWidth) {
+    if (g_rgfx_win == nullptr) { return 0; }
+    int w = 0; int h = 0;
+    SDL_GL_GetDrawableSize(g_rgfx_win, &w, &h);
+    if (w <= 0 || h <= 0) { SDL_GetWindowSize(g_rgfx_win, &w, &h); }
+    return wantWidth ? w : h;
+}
+
 static void rgfx_present(const uint8_t* pixels, int w, int h) {
     if (g_rgfx_gpu_mode) {
         rgfx_gpu_start_frame(w, h);
@@ -1722,6 +1733,21 @@ static void rgfx_close() {
         templates {
             cpp ( "rgfx_present(" (e 1) ".data(), " (e 2) ", " (e 3) ")" (imp "<SDL2/SDL.h>") )
             es6 ( "undefined" )
+        }
+    }
+
+    ; Actual output surface width/height in pixels (0 in es6). Lets a UI render at
+    ; native resolution rather than a small upscaled buffer.
+    gfx_surface_width _:int () {
+        templates {
+            cpp ( "rgfx_surface_dim(1)" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+    gfx_surface_height _:int () {
+        templates {
+            cpp ( "rgfx_surface_dim(0)" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
         }
     }
 

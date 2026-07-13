@@ -173,6 +173,15 @@ class AsUiMenuSrcDemo {
         this.reportRect()
     }
 
+    ; advance several idle frames so a deferred (after-effect) transition fires
+    fn settle:void () {
+        def k 0
+        while (k < 6) {
+            this.step(0)
+            k = (k + 1)
+        }
+    }
+
     sfn m@(main):void () {
         def d:AsUiMenuSrcDemo (new AsUiMenuSrcDemo)
         def c:AsUiCheck (new AsUiCheck)
@@ -203,9 +212,12 @@ class AsUiMenuSrcDemo {
         d.step(2)
         c.ok(("Down x2 -> Demo/22 (got " + (to_string (d.selId())) + ")") ((d.selId()) == 22))
 
-        ; ---- action opens the Demo screen ----
+        ; ---- action flashes the button, then opens the Demo screen AFTER the
+        ; effect finishes (the whole point of .after()) ----
         d.step(16)
-        c.ok(("action opens demo: sel == PREVIEW/40 (got " + (to_string (d.selId())) + ")") ((d.selId()) == 40))
+        c.ok(("stays on menu during the effect: sel still Demo/22 (got " + (to_string (d.selId())) + ")") ((d.selId()) == 22))
+        d.settle()
+        c.ok(("after the effect -> demo screen: sel == PREVIEW/40 (got " + (to_string (d.selId())) + ")") ((d.selId()) == 40))
         c.ok(("demo title (got '" + (d.textOfId(100)) + "')") ((d.textOfId(100)) == "EVG Demo"))
         c.ok(("example 0 is Background color (got '" + (d.textOfId(101)) + "')") ((indexOf (d.textOfId(101)) "Background color") >= 0))
         d.drawFrame("as_ui_2_demo_bg.png")
@@ -231,8 +243,9 @@ class AsUiMenuSrcDemo {
         d.step(4)
         c.ok(("left -> Font size (got '" + (d.textOfId(101)) + "')") ((indexOf (d.textOfId(101)) "Font size") >= 0))
 
-        ; ---- action returns to the menu, selection preserved on Demo/22 ----
+        ; ---- action flashes the preview, then returns to the menu AFTER it ----
         d.step(16)
+        d.settle()
         c.ok(("back to menu: sel == Demo/22 (got " + (to_string (d.selId())) + ")") ((d.selId()) == 22))
         c.ok(("menu title again (got '" + (d.textOfId(10)) + "')") ((d.textOfId(10)) == "AS UI - Main Menu"))
 

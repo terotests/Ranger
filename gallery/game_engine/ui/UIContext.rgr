@@ -335,9 +335,12 @@ class UIContext {
         def i 0
         while (i < spread) {
             def num (spread - i)
-            ; linear falloff: brightest ring at the edge (i=0), fading outward.
-            def a (to_int ((maxAlpha * num) / spread))
-            this.strokeRoundRectA((x - i) (y - i) (rw + (i * 2)) (rh + (i * 2)) (rad + i) 1 r g b a)
+            ; quadratic falloff: brightest ring at the edge (i=0), fading softly
+            ; outward (num^2) so the halo reads as a smooth drop shadow, not a
+            ; stack of hard rings. Draw a 2px-wide ring so neighbouring rings
+            ; overlap and there is no 1px gap banding at higher resolutions.
+            def a (to_int (((maxAlpha * num) * num) / (spread * spread)))
+            this.strokeRoundRectA((x - i) (y - i) (rw + (i * 2)) (rh + (i * 2)) (rad + i) 2 r g b a)
             i = (i + 1)
         }
     }

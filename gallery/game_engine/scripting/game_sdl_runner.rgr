@@ -922,7 +922,19 @@ class GameSdlRunner {
     ; render its menu, move the selection with the D-pad, forward the action
     ; button to the guest, and return to the launcher on Back/Quit.
     fn runUiGame:void (wasmPath:string) {
-        uiRunner.init(pw ph "gallery/game_engine/assets/fonts" "OpenSans-Regular.ttf" "Open Sans")
+        ; Render the UI at the actual output surface resolution (not the small pw*ph
+        ; game buffer) so text/borders/effects are crisp instead of upscaled. Cap
+        ; to bound the CPU cost of the software UI canvas; the guest UI scales to
+        ; fill it (GameUiRunner.fitScale), so it looks identical at any resolution.
+        def uw:int pw
+        def uh:int ph
+        def sw:int (gfx_surface_width)
+        def sh:int (gfx_surface_height)
+        if (sw > uw) { uw = sw }
+        if (sh > uh) { uh = sh }
+        if (uw > 1600) { uw = 1600 }
+        if (uh > 1200) { uh = 1200 }
+        uiRunner.init(uw uh "gallery/game_engine/assets/fonts" "OpenSans-Regular.ttf" "Open Sans")
         ; engine=ui games come in two flavours: a compiled logic.wasm guest, or an
         ; interpreted .as source (runtime=as). Pick the backend by module suffix —
         ; loading a .as through wasm_load fails with "malformed Wasm binary".
@@ -961,7 +973,7 @@ class GameSdlRunner {
             nav.action = (this.actionEdge((bit_and m 4) != 0))
             def _a:int (uiRunner.frame(nav))
             uiRunner.render()
-            gfx_present (uiRunner.raw()) pw ph
+            gfx_present (uiRunner.raw()) uw uh
 
             if (this.quitEdge((this.gameMenuBackHeld()))) {
                 inGame = false
