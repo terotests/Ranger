@@ -1,23 +1,27 @@
 // ============================================================================
 // Shared fluent EVG builder for .as games, over the flat RGU1 bridge.
 // ============================================================================
-// `ui.view/label/button(id, parent, order)` opens an RGU1 node and returns an
-// `El` whose chained setters style that SAME node:
+// A node is opened AND styled AND given its children through one `El` handle:
 //
-//   ui.view(imgId, colId, 0).width(176).height(176).radius(16).image(art)
-//     .border(3, br, bg, bb, 255);
-//   ui.label(lblId, colId, 1).text(name).font(20).color(236, 240, 250, 255).margin(6);
+//   const card = ui.view(CARD, ROOT, 0)      // open CARD under ROOT
+//     .column().center().pad(SPACE_LARGE)    // ...style THIS node...
+//     .bg(36, 42, 64, 255).radius(16);
+//   card.label(TITLE, 0).text("Main Menu").font(20).color(255, 255, 255, 255);
+//   card.button(BTN_NEW, 1).text("New Game").font(16).textCenter();
+//   card.button(BTN_CONT, 2).text("Continue").font(16).textCenter();
 //
-// `uiProp*()` always applies to whichever node `uiNode()` opened LAST, so `El`
-// carries no node identity of its own - it is a stateless chain API. That is
-// why every open() call below hands back the SAME shared `CURRENT` instance
-// instead of allocating a fresh `El` per node.
+// `ui.view/label/button(id, parent, order)` opens a node with an explicit parent
+// and returns its `El`. `el.view/label/button(childId, order)` opens a CHILD of
+// that node (parent = el.id) - so a container is authored as a value you keep and
+// hang children off, instead of repeating the parent id at every call.
 //
-// IMPORTANT: a chain must be used right after the `ui.view/label/button(...)`
-// call that produced it - do NOT hold a reference across a second open() call:
-//   let a = ui.view(10, ROOT, 0);
-//   ui.view(20, ROOT, 1);
-//   a.width(100);   // restyles node 20 (the last one opened), not node 10
+// The style setters (`.column()`, `.pad()`, `.color()`, ...) apply to whichever
+// node the bridge opened LAST via uiNode(). Opening a child re-arms that "last"
+// node, so the one authoring rule is: STYLE A NODE BEFORE OPENING ITS CHILDREN.
+//   const v = ui.view(10, ROOT, 0).column();  // ok: styles node 10
+//   v.button(20, 0).text("A");                // ok: opens 20, .text styles 20
+//   v.pad(8);   // WRONG: pads node 20 (last opened), not node 10
+// Written parent-first / top-down (as above) this rule is automatic.
 //
 // Import into a game with:
 //   import { ui } from "./ui";
@@ -54,7 +58,19 @@ const DIR_COLUMN: i32 = 1;
 const ALIGN_CENTER: i32 = 1;
 const TEXTALIGN_CENTER: i32 = 1;
 
-class El {
+// A handle to one opened RGU1 node. It carries its own `id` so children can be
+// hung off it (`el.button(...)`), and its style setters chain over the bridge's
+// last-opened node (see the file header for the one authoring rule). Exported so
+// games can type container handles they pass into their own authoring helpers.
+export class El {
+  id: i32 = 0;
+
+  // ---- children: open a node parented to THIS one, return the child's handle --
+  view(id: i32, order: i32): El { uiNode(id, this.id, K_VIEW, order); return newEl(id); }
+  label(id: i32, order: i32): El { uiNode(id, this.id, K_TEXT, order); return newEl(id); }
+  button(id: i32, order: i32): El { uiNode(id, this.id, K_BUTTON, order); return newEl(id); }
+
+  // ---- style setters (target the last-opened node, i.e. this one) ------------
   row(): El { uiPropEnum(P_FLEXDIR, DIR_ROW); return this; }
   column(): El { uiPropEnum(P_FLEXDIR, DIR_COLUMN); return this; }
   center(): El { uiPropEnum(P_ALIGN, ALIGN_CENTER); return this; }
@@ -74,20 +90,26 @@ class El {
     uiPropColorRgba(P_BORDER_COLOR, r, g, b, a);
     return this;
   }
+
+  // ---- escape hatches: chain a game-specific RGU1 property on this node ------
+  // Keeps app-defined props (gradient/glow/absolute placement/...) inside the
+  // fluent chain instead of a bare uiProp*() call breaking out of it.
+  propI32(key: i32, v: i32): El { uiPropI32(key, v); return this; }
+  propEnum(key: i32, v: i32): El { uiPropEnum(key, v); return this; }
+  propStr(key: i32, s: string): El { uiPropStr(key, s); return this; }
+  propColor(key: i32, r: i32, g: i32, b: i32, a: i32): El { uiPropColorRgba(key, r, g, b, a); return this; }
 }
 
-// One shared, allocation-free chain instance - see the file header for why a
-// fresh `El` per node is unnecessary (and wasteful on a managed heap at ship
-// time): uiProp*() is stateless from El's point of view, it always targets
-// whatever node uiNode() opened last.
-const CURRENT: El = new El();
+// El allocates per opened node (each carries its own id) - constructors with
+// args aren't relied on here, so a tiny factory sets the field instead.
+function newEl(id: i32): El { let e: El = new El(); e.id = id; return e; }
 
 class Ui {
   reset(): void { uiReset(); }
   finish(rev: i32): void { uiFinish(rev); }
-  view(id: i32, parent: i32, order: i32): El { uiNode(id, parent, K_VIEW, order); return CURRENT; }
-  label(id: i32, parent: i32, order: i32): El { uiNode(id, parent, K_TEXT, order); return CURRENT; }
-  button(id: i32, parent: i32, order: i32): El { uiNode(id, parent, K_BUTTON, order); return CURRENT; }
+  view(id: i32, parent: i32, order: i32): El { uiNode(id, parent, K_VIEW, order); return newEl(id); }
+  label(id: i32, parent: i32, order: i32): El { uiNode(id, parent, K_TEXT, order); return newEl(id); }
+  button(id: i32, parent: i32, order: i32): El { uiNode(id, parent, K_BUTTON, order); return newEl(id); }
 }
 
 export const ui: Ui = new Ui();

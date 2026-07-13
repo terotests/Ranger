@@ -21,8 +21,8 @@
 //    DEMO  left/right cycle the EVG technique, action returns to the menu
 // ============================================================================
 
-import { abiRead, abiWrite, uiPropI32, uiPropEnum, uiPropColorRgba } from "@ranger/game";
-import { ui } from "./ui";
+import { abiRead, abiWrite } from "@ranger/game";
+import { ui, El } from "./ui";
 
 // ---- shared ABI offsets ----
 const OFF_INPUT: i32 = 20;   // host -> guest: edge mask this frame
@@ -168,21 +168,22 @@ let DONE: Counter = new Counter();
 let NAV: Nav = new Nav();
 
 // ---- small authoring helpers over the shared `ui` builder (./ui.as) ----
-function label(id: i32, parent: i32, order: i32, s: string, r: i32, g: i32, b: i32, size: i32): void {
-  ui.label(id, parent, order).text(s).font(size).color(r, g, b, 255);
+// Both take the container `El` and hang a child off it (parent.label / .button),
+// so callers read top-down from the card they opened.
+function label(parent: El, id: i32, order: i32, s: string, r: i32, g: i32, b: i32, size: i32): void {
+  parent.label(id, order).text(s).font(size).color(r, g, b, 255);
 }
-// A uniform menu button; `on` = currently selected (host draws the glow, but we
-// also brighten the border so it reads on a static screenshot). P_GLOW isn't
-// part of the shared `El` chain (it's specific to this demo's animator), so it
-// is set with a raw uiPropI32() call - that's fine, it still targets whatever
-// node ui.button() just opened.
-function button(id: i32, order: i32, s: string, cr: i32, cg: i32, cb: i32, br: i32, bg: i32, bb: i32): void {
-  ui.button(id, CARD, order).text(s).font(16).color(cr, cg, cb, 255)
+// A uniform menu button. The host draws the glow highlight, but we also brighten
+// the border so selection reads on a static screenshot. The animated P_GLOW is
+// this demo's own protocol property, so it rides the fluent chain via the El
+// escape hatch (.propI32) rather than a bare uiProp*() call.
+function button(parent: El, id: i32, order: i32, s: string, cr: i32, cg: i32, cb: i32, br: i32, bg: i32, bb: i32): void {
+  let b: El = parent.button(id, order).text(s).font(16).color(cr, cg, cb, 255)
     .width(180).pad(10).margin(6).radius(9)
     .border(2, br, bg, bb, 255).bg(120, 165, 230, 46).textCenter();
   let gi: i32 = ANIMATOR.glowFor(id);
   if (gi > 0) {
-    uiPropI32(P_GLOW, gi);
+    b.propI32(P_GLOW, gi);
   }
 }
 
@@ -195,17 +196,17 @@ function exampleName(i: i32): string {
 
 // ---- document builders ----
 function buildMenu(): void {
-  ui.view(ROOT, 0, 0).column().center().pad(22);
-  ui.view(CARD, ROOT, 0).column().center().pad(18).width(280).bg(36, 42, 64, 255).radius(16);
+  let root: El = ui.view(ROOT, 0, 0).column().center().pad(22);
+  let card: El = root.view(CARD, 0).column().center().pad(18).width(280).bg(36, 42, 64, 255).radius(16);
 
-  label(10, CARD, 0, "AS UI - Main Menu", 255, 255, 255, 20);
+  label(card, 10, 0, "AS UI - Main Menu", 255, 255, 255, 20);
 
-  button(BTN_NEW, 1, "New Game", 208, 220, 240, 120, 150, 210);
-  button(BTN_CONT, 2, "Continue", 208, 220, 240, 120, 150, 210);
-  button(BTN_DEMO, 3, "Demo", 208, 220, 240, 120, 150, 210);
-  button(BTN_QUIT, 4, "Quit", 255, 106, 106, 200, 110, 110);
+  button(card, BTN_NEW, 1, "New Game", 208, 220, 240, 120, 150, 210);
+  button(card, BTN_CONT, 2, "Continue", 208, 220, 240, 120, 150, 210);
+  button(card, BTN_DEMO, 3, "Demo", 208, 220, 240, 120, 150, 210);
+  button(card, BTN_QUIT, 4, "Quit", 255, 106, 106, 200, 110, 110);
 
-  label(90, CARD, 5, "plays: " + PLAYS.toString(), 143, 176, 208, 13);
+  label(card, 90, 5, "plays: " + PLAYS.toString(), 143, 176, 208, 13);
 
   // report the selected button id to the host for the glow highlight
   let selId: i32 = BTN_NEW;
@@ -216,38 +217,37 @@ function buildMenu(): void {
 }
 
 function buildDemo(): void {
-  ui.view(ROOT, 0, 0).column().center().pad(18);
-  ui.view(CARD, ROOT, 0).column().center().pad(18).width(300).bg(30, 34, 52, 255).radius(16);
+  let root: El = ui.view(ROOT, 0, 0).column().center().pad(18);
+  let card: El = root.view(CARD, 0).column().center().pad(18).width(300).bg(30, 34, 52, 255).radius(16);
 
-  label(100, CARD, 0, "EVG Demo", 255, 255, 255, 20);
-  label(101, CARD, 1, (EXAMPLE + 1).toString() + "/" + EX_COUNT.toString() + "  " + exampleName(EXAMPLE), 143, 176, 208, 13);
+  label(card, 100, 0, "EVG Demo", 255, 255, 255, 20);
+  label(card, 101, 1, (EXAMPLE + 1).toString() + "/" + EX_COUNT.toString() + "  " + exampleName(EXAMPLE), 143, 176, 208, 13);
 
   // the preview element demonstrates the current technique
   if (EXAMPLE == EX_BG) {
     // background color: a vivid rounded panel
-    ui.view(PREVIEW, CARD, 2).width(220).pad(26).radius(12).margin(8).bg(232, 140, 60, 255);
-    label(122, PREVIEW, 0, "background", 30, 22, 12, 15);
+    let preview: El = card.view(PREVIEW, 2).width(220).pad(26).radius(12).margin(8).bg(232, 140, 60, 255);
+    label(preview, 122, 0, "background", 30, 22, 12, 15);
   } else if (EXAMPLE == EX_FONT_COLOR) {
     // font color: text in a vivid colour on a neutral panel
-    ui.view(PREVIEW, CARD, 2).width(220).pad(26).radius(12).margin(8).bg(22, 26, 40, 255);
-    label(122, PREVIEW, 0, "Ranger EVG", 80, 220, 130, 22);
+    let preview: El = card.view(PREVIEW, 2).width(220).pad(26).radius(12).margin(8).bg(22, 26, 40, 255);
+    label(preview, 122, 0, "Ranger EVG", 80, 220, 130, 22);
   } else if (EXAMPLE == EX_FONT_SIZE) {
     // font size: large glyphs
-    ui.view(PREVIEW, CARD, 2).width(220).pad(18).radius(12).margin(8).bg(22, 26, 40, 255);
-    label(122, PREVIEW, 0, "Big 42", 220, 224, 236, 42);
+    let preview: El = card.view(PREVIEW, 2).width(220).pad(18).radius(12).margin(8).bg(22, 26, 40, 255);
+    label(preview, 122, 0, "Big 42", 220, 224, 236, 42);
   } else {
     // linear gradient: a real 2-stop vertical gradient fill in the host EVG
-    // renderer. P_GRAD_* isn't part of the shared `El` chain, so those two
-    // props are set with raw calls right after opening the node - they still
-    // target it, exactly like the chained ones above.
-    ui.view(PREVIEW, CARD, 2).width(220).pad(26).radius(12).margin(8);
-    uiPropColorRgba(P_GRAD_FROM, 90, 130, 245, 255);   // blue
-    uiPropColorRgba(P_GRAD_TO, 210, 90, 200, 255);     // magenta
-    uiPropEnum(P_GRAD_DIR, 0);                          // vertical
-    label(122, PREVIEW, 0, "linear gradient", 255, 255, 255, 15);
+    // renderer. P_GRAD_* are this demo's own protocol props, so they ride the
+    // fluent chain through the El escape hatches (.propColor/.propEnum).
+    let preview: El = card.view(PREVIEW, 2).width(220).pad(26).radius(12).margin(8)
+      .propColor(P_GRAD_FROM, 90, 130, 245, 255)   // blue
+      .propColor(P_GRAD_TO, 210, 90, 200, 255)     // magenta
+      .propEnum(P_GRAD_DIR, 0);                     // vertical
+    label(preview, 122, 0, "linear gradient", 255, 255, 255, 15);
   }
 
-  label(130, CARD, 3, "< left/right >   enter: back", 143, 176, 208, 12);
+  label(card, 130, 3, "< left/right >   enter: back", 143, 176, 208, 12);
 
   // the preview is the focused element on this screen
   abiWrite(OFF_SEL, PREVIEW);
@@ -263,9 +263,9 @@ function emitEffect(): void {
     let ry: i32 = abiRead(OFF_RECT_Y);
     let ex: i32 = rx + rw - 7;
     let ey: i32 = ry - 7;
-    ui.view(EFFECT, ROOT, 999).width(14).height(14).radius(7).bg(255, 230, 120, 235);   // high order -> drawn on top
-    uiPropI32(P_ABS_X, ex);
-    uiPropI32(P_ABS_Y, ey);
+    // high order -> drawn on top; P_ABS_* place it at the reported screen coords
+    ui.view(EFFECT, ROOT, 999).width(14).height(14).radius(7).bg(255, 230, 120, 235)
+      .propI32(P_ABS_X, ex).propI32(P_ABS_Y, ey);
   }
 }
 
