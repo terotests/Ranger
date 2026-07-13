@@ -1,10 +1,10 @@
 // ============================================================================
-// ui_menu_as — an INTERPRETED (.as) EVG UI menu + rendering-technique demo.
+// ui_menu_as - an INTERPRETED (.as) EVG UI menu + rendering-technique demo.
 // ============================================================================
 //
 // Same RGU1 UI document the compiled WASM menu builds (see wasm/as_ui_menu),
 // but this file runs on Ranger's live .as interpreter (ComponentEngine + the
-// AsAbiBridge @ranger/game API) — no `asc` compile, so it doubles as a simple
+// AsAbiBridge @ranger/game API) - no `asc` compile, so it doubles as a simple
 // interpreter test of the whole UI path.
 //
 // Unlike the WASM menu (host drives D-pad navigation), this guest reads the
@@ -25,6 +25,7 @@ import { abiRead, abiWrite, uiReset, uiNode, uiPropI32, uiPropEnum, uiPropStr, u
 
 // ---- shared ABI offsets ----
 const OFF_INPUT: i32 = 20;   // host -> guest: edge mask this frame
+const OFF_TIME: i32 = 16;    // host -> guest: monotonic clock (ms) for effects
 const OFF_SEL: i32 = 52;     // guest -> host: selected node id (highlight)
 // host -> guest: laid-out rect (page px) of the selected node, so we can place
 // an absolute overlay effect at real screen coordinates.
@@ -65,6 +66,7 @@ const P_GRAD_TO: i32 = 51;     // linear-gradient end colour
 const P_GRAD_DIR: i32 = 52;    // 0 vertical, 1 horizontal
 const P_ABS_X: i32 = 53;       // absolute page-x
 const P_ABS_Y: i32 = 54;       // absolute page-y
+const P_GLOW: i32 = 55;        // animated glow strength 0..1000
 
 // enum values
 const DIR_COLUMN: i32 = 1;
@@ -99,6 +101,73 @@ let EXAMPLE: i32 = 0;     // demo example index 0..EX_COUNT-1
 let PLAYS: i32 = 0;
 let REV: i32 = 0;
 
+function menuSelId(): i32 {
+  if (SEL == 1) return BTN_CONT;
+  if (SEL == 2) return BTN_DEMO;
+  if (SEL == 3) return BTN_QUIT;
+  return BTN_NEW;
+}
+
+// ---- fluent effect/animation system, authored in the guest (.as classes) ----
+// A Pixi-style chaining API:
+//     ANIMATOR.animation().glow(id).duration(0.42).delay(0.0).after(DONE.bump).start();
+// Anim owns one glow: it samples the host clock (abiRead(OFF_TIME)) to produce a
+// 0->1000->0 flash and fires its `after` callback once on completion. The host
+// renders the GLOW prop; the timing + chaining + callback all live here.
+
+class Counter {
+  n: i32 = 0;
+  bump(): void { this.n = this.n + 1; }
+}
+
+class Anim {
+  id: i32 = 0;
+  durMs: f64 = 420.0;
+  delayMs: f64 = 0.0;
+  startMs: i32 = 0;
+  active: i32 = 0;
+  fired: i32 = 0;
+  hasCb: i32 = 0;
+  cb: () => void = () => {};
+
+  glow(nodeId: i32): Anim { this.id = nodeId; return this; }
+  duration(sec: f64): Anim { this.durMs = sec * 1000.0; return this; }
+  delay(sec: f64): Anim { this.delayMs = sec * 1000.0; return this; }
+  after(f: () => void): Anim { this.cb = f; this.hasCb = 1; return this; }
+  start(): Anim { this.startMs = abiRead(OFF_TIME); this.active = 1; this.fired = 0; return this; }
+
+  // current 0..1000 flash strength; fires `after` once and deactivates at the end
+  intensity(): i32 {
+    if (this.active == 0) return 0;
+    let now: i32 = abiRead(OFF_TIME);
+    let el: f64 = now - this.startMs - this.delayMs;
+    if (el < 0.0) return 0;
+    if (el >= this.durMs) {
+      this.active = 0;
+      if (this.hasCb == 1) { if (this.fired == 0) { this.fired = 1; this.cb(); } }
+      return 0;
+    }
+    let p: f64 = (el * 1000.0) / this.durMs;   // 0..1000
+    if (p < 500.0) return p * 2;
+    return (1000.0 - p) * 2;
+  }
+}
+
+class Animator {
+  cur: Anim = new Anim();
+  has: i32 = 0;
+  animation(): Anim { this.cur = new Anim(); this.has = 1; return this.cur; }
+  // glow strength for a node id (0 if it is not the animating element)
+  glowFor(nodeId: i32): i32 {
+    if (this.has == 0) return 0;
+    if (this.cur.id != nodeId) return 0;
+    return this.cur.intensity();
+  }
+}
+
+let ANIMATOR: Animator = new Animator();
+let DONE: Counter = new Counter();
+
 // ---- small RGU1 authoring helpers (props apply to the last uiNode) ----
 function view(id: i32, parent: i32, order: i32): void {
   uiNode(id, parent, K_VIEW, order);
@@ -128,6 +197,10 @@ function button(id: i32, order: i32, s: string, cr: i32, cg: i32, cb: i32, br: i
   uiPropColorRgba(P_BORDER_COLOR, br, bg, bb, 255);
   uiPropColorRgba(P_BG, 120, 165, 230, 46);
   uiPropEnum(P_TEXTALIGN, TEXTALIGN_CENTER);
+  let gi: i32 = ANIMATOR.glowFor(id);
+  if (gi > 0) {
+    uiPropI32(P_GLOW, gi);
+  }
 }
 
 function exampleName(i: i32): string {
@@ -268,6 +341,8 @@ export function update(): void {
       SEL = SEL + 1; if (SEL > 3) SEL = 0; changed = 1;
     }
     if ((inp & IN_ACT) != 0) {
+      // fluent effect: flash a glow on the activated button, then bump a counter
+      ANIMATOR.animation().glow(menuSelId()).duration(0.42).delay(0.0).after(DONE.bump).start();
       if (SEL == 0) { PLAYS = PLAYS + 1; }
       if (SEL == 2) { SCREEN = SCR_DEMO; EXAMPLE = 0; }
       changed = 1;

@@ -41,7 +41,9 @@ class GameUiRunner {
     def useAs:boolean false
     def asSelId:int 0
     def OFF_INPUT:int 20      ; host -> guest edge mask: UP1 DOWN2 LEFT4 RIGHT8 ACT16
+    def OFF_TIME:int 16       ; host -> guest monotonic time (ms) for animations
     def OFF_SEL:int 52        ; guest -> host selected node id (highlight)
+    def uiTimeMs:int 0        ; accumulated ms fed to the guest as a clock
     ; host -> guest: laid-out rect of the selected node (page px), so the guest
     ; can place absolute overlay effects at real screen coordinates.
     def OFF_RECT_X:int 200
@@ -200,6 +202,9 @@ class GameUiRunner {
             if nav.right { mask = (mask + 8) }
             if nav.action { mask = (mask + 16) }
             asRunner.abiWrite(OFF_INPUT mask)
+            ; advance the guest clock (~60fps) so it can run time-based effects
+            uiTimeMs = (uiTimeMs + 16)
+            asRunner.abiWrite(OFF_TIME uiTimeMs)
             asRunner.callUpdate()
             ; rebuild every frame: the guest may re-place coord-reported overlay
             ; effects each frame from the rect we report below, so we always pull
