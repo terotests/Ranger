@@ -28,25 +28,33 @@ check prints it, or `v4l2-ctl --list-devices` (look for the `uvcvideo` entry).
 
 ## Build (on the Pi)
 
-```bash
-# deps: SDL2 + the same tensorflow checkout native_bench uses
-sudo apt-get install -y libsdl2-dev
-# models already extracted by ../build-pose-native-pi.sh into
-#   ../mediapipe_poc/assets/models/tflite/
+**Prefer the top-level build** (`../CMakeLists.txt`) — it builds `pose_bench` and
+`pose_game` from a **single TFLite compile**, so you don't pay the ~1h TFLite
+build twice:
 
+```bash
+sudo apt-get install -y libsdl2-dev          # SDL2
+cd ..                                        # gallery/game_engine/pose
 cmake -B build -DTENSORFLOW_SOURCE_DIR=~/tensorflow -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j"$(nproc)"
+cmake --build build -j"$(nproc)"             # -> build/pose_bench and build/pose_game
 ```
 
-(First build compiles TFLite — reuse `~/tensorflow`; it's the slow one-time step
-shared with native_bench.)
+(Models come from `../build-pose-native-pi.sh` → `../mediapipe_poc/assets/models/tflite/`.)
+
+Standalone build of just the game (recompiles TFLite on its own — slower):
+
+```bash
+cmake -B build -DTENSORFLOW_SOURCE_DIR=~/tensorflow -DCMAKE_BUILD_TYPE=Release && cmake --build build -j"$(nproc)"
+```
 
 ## Run
 
+From `gallery/game_engine/pose` (top-level build → `build/pose_game`):
+
 ```bash
 ./build/pose_game \
-  ../mediapipe_poc/assets/models/tflite/pose_detector.tflite \
-  ../mediapipe_poc/assets/models/tflite/pose_landmarks_detector.tflite \
+  mediapipe_poc/assets/models/tflite/pose_detector.tflite \
+  mediapipe_poc/assets/models/tflite/pose_landmarks_detector.tflite \
   --device /dev/video0 --threads 2 --cam-w 640 --cam-h 480
 ```
 
