@@ -15,6 +15,10 @@
 #
 # Fast game-only sync (no C++ rebuild): sync-pi-games.sh
 #
+# USB camera (pose game input): the deploy verifies a capture-capable camera is
+# present on the Pi (/dev/video*, v4l2). No camera found aborts the deploy with
+# troubleshooting; skip the gate with RANGER_SKIP_CAMERA_CHECK=1.
+#
 # Autostart on boot (pelit host — enabled by default):
 #   ~/initservice.sh  — wires lxsession / labwc / crontab -> ~/start.sh
 #   ~/start.sh        — launch game (manual or from autostart)
@@ -90,11 +94,63 @@ verify_wasm_artifacts() {
   fi
 }
 
+# Verify a capture-capable USB camera on the Pi (over SSH). Returns non-zero if
+# no /dev/video* node reports a Video Capture capability. Needs v4l-utils (apt).
+check_usb_camera() {
+  ssh "$TARGET" 'bash -s' <<'CAMEOF'
+set -uo pipefail
+have_v4l2=0; command -v v4l2-ctl >/dev/null 2>&1 && have_v4l2=1
+vids=$(ls /dev/video* 2>/dev/null || true)
+if [[ -z "$vids" ]]; then
+  echo "    no /dev/video* devices — is the USB camera plugged in?"
+  echo "    try: lsusb ; dmesg | grep -i -E 'camera|uvc|video' | tail"
+  exit 3
+fi
+echo "    video nodes: $(echo $vids | tr '\n' ' ')"
+lsusb 2>/dev/null | grep -iE 'cam|webcam|video|uvc' | sed 's/^/      usb: /' || true
+found=0
+for dev in $vids; do
+  if [[ "$have_v4l2" == "1" ]]; then
+    all=$(v4l2-ctl -d "$dev" --all 2>/dev/null || true)
+    if echo "$all" | grep -qi 'Video Capture'; then
+      found=1
+      name=$(echo "$all" | grep -m1 -i 'Card type' | sed 's/.*: *//')
+      echo "    capture: $dev  ${name:-camera}"
+      v4l2-ctl -d "$dev" --list-formats-ext 2>/dev/null \
+        | grep -E 'Pixel Format|Size: Discrete' | head -4 | sed 's/^[[:space:]]*/        /' || true
+    fi
+  fi
+done
+if [[ "$found" == "0" ]]; then
+  if [[ "$have_v4l2" == "1" ]]; then
+    echo "    video nodes exist but none report Video Capture capability"
+  else
+    echo "    v4l-utils missing — cannot confirm capture capability"
+  fi
+  exit 4
+fi
+exit 0
+CAMEOF
+}
+
 echo "==> 1/$TOTAL_STEPS Test SSH: $TARGET"
 ssh -o ConnectTimeout=10 -o BatchMode=yes "$TARGET" 'echo ok; uname -m'
 
 echo "==> 2/$TOTAL_STEPS Install Pi packages (clang, SDL2, GLES2, alsa-utils, x11-utils, node, npm)"
-ssh "$TARGET" 'sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git clang pkg-config libsdl2-dev libgles2-mesa-dev alsa-utils x11-utils nodejs npm'
+ssh "$TARGET" 'sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git clang pkg-config libsdl2-dev libgles2-mesa-dev alsa-utils x11-utils nodejs npm v4l-utils'
+
+echo "==> Check USB camera (pose game input)"
+if check_usb_camera; then
+  echo "    camera OK"
+else
+  if [[ "${RANGER_SKIP_CAMERA_CHECK:-0}" == "1" ]]; then
+    echo "    no usable camera — continuing anyway (RANGER_SKIP_CAMERA_CHECK=1)" >&2
+  else
+    echo "    No usable USB camera found on the Pi. The pose game needs one." >&2
+    echo "    Plug in the camera and re-run, or skip with RANGER_SKIP_CAMERA_CHECK=1." >&2
+    exit 1
+  fi
+fi
 
 echo "==> 3/$TOTAL_STEPS Verify WASM artifacts (optional RANGER_WASM_BUILD=1 rebuild)"
 build_wasm_modules
@@ -241,6 +297,14 @@ ssh "$TARGET" "sed -i 's|AUDIO_PLACEHOLDER|$AUDIO_DEV|g' ~/start.sh && chmod +x 
 if [[ "$RANGER_PI_AUTOSTART" == "1" ]]; then
   echo "==> 6/$TOTAL_STEPS Run ~/initservice.sh (configure autostart)"
   ssh "$TARGET" '~/initservice.sh'
+fi
+
+# Opt-in: build + run the native pose probes on the Pi (heavy: pulls a tensorflow
+# checkout + builds TFLite the first time). See gallery/game_engine/pose/.
+if [[ "${RANGER_POSE_BENCH:-0}" == "1" ]]; then
+  echo "==> Pose native probe (RANGER_POSE_BENCH=1)"
+  ssh "$TARGET" 'sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq cmake build-essential unzip curl'
+  ssh "$TARGET" "POSE_THREADS='${POSE_THREADS:-2}' bash ~/$REMOTE_DIR/gallery/game_engine/pose/build-pose-native-pi.sh"
 fi
 
 echo ""

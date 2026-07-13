@@ -17,6 +17,7 @@ class AsAbiBridge {
 
     def abi:[int]          ; RGW1 block (2560 bytes)
     def ui:[int]           ; RGU1 block (8192 bytes)
+    def pose:[int]         ; RGP1 pose block (128 bytes) — host->guest streaming input
     def ready:boolean false
 
     ; host resource manifest (filled by the .as declare_resources via hostSheet/
@@ -46,6 +47,11 @@ class AsAbiBridge {
         while (j < 8192) {
             push ui zero
             j = (j + 1)
+        }
+        def p 0
+        while (p < 128) {
+            push pose zero
+            p = (p + 1)
         }
         ready = true
     }
@@ -308,6 +314,67 @@ class AsAbiBridge {
         return v
     }
 
+    ; ---- RGP1 pose block (host->guest streaming input provider) -------------
+    ; A separate, independently-versioned block (the pose counterpart of RGU1).
+    ; The host PoseProvider writes a fresh sample each frame BEFORE update(); the
+    ; interpreted .as game reads it via the guest readers below (imported from
+    ; "@ranger/game", same as the RGW1 helpers). Layout, offsets within `pose`:
+    ;    0  magic 'RGP1'    12  present (0/1)     20  landmarkCount
+    ;    4  version         16  gesture           32.. landmark[i]=xFp,yFp (*256)
+    ;    8  revision        (gesture: 0 none 1 arms_up 2 lean_left 3 lean_right)
+    fn ppw:void (off:int v:int) {
+        set pose off (bit_and v 255)
+        set pose (off + 1) (bit_and (bit_shr v 8) 255)
+        set pose (off + 2) (bit_and (bit_shr v 16) 255)
+        set pose (off + 3) (bit_and (bit_shr v 24) 255)
+    }
+    fn ppr:int (off:int) {
+        def b0:int (itemAt pose off)
+        def b1:int (itemAt pose (off + 1))
+        def b2:int (itemAt pose (off + 2))
+        def b3:int (itemAt pose (off + 3))
+        def hi b3
+        if (hi >= 128) {
+            hi = (hi - 256)
+        }
+        return (b0 + ((b1 * 256) + ((b2 * 65536) + (hi * 16777216))))
+    }
+    ; -- host writers: the PoseProvider fills these before each update() --
+    fn poseWriteHeader:void (present:int gesture:int count:int) {
+        this.ppw(0 827344722)     ; 'RGP1' little-endian
+        this.ppw(4 1)             ; version
+        this.ppw(12 present)
+        this.ppw(16 gesture)
+        this.ppw(20 count)
+    }
+    fn poseWriteLandmark:void (i:int xFp:int yFp:int) {
+        def b (32 + (i * 8))
+        this.ppw(b xFp)
+        this.ppw((b + 4) yFp)
+    }
+    fn poseBump:void (rev:int) {
+        this.ppw(8 rev)
+    }
+    ; -- guest readers: imported by the .as game from "@ranger/game" --
+    fn posePresent:int () {
+        return (this.ppr(12))
+    }
+    fn poseGesture:int () {
+        return (this.ppr(16))
+    }
+    fn poseCount:int () {
+        return (this.ppr(20))
+    }
+    fn poseX:int (i:int) {
+        return (this.ppr(32 + (i * 8)))
+    }
+    fn poseY:int (i:int) {
+        return (this.ppr((32 + (i * 8)) + 4))
+    }
+    fn poseRevision:int () {
+        return (this.ppr(8))
+    }
+
     ; ---- native bridge dispatch ----
     fn argInt:int (args:[EvalValue] i:int) {
         if (i >= (array_length args)) { return 0 }
@@ -353,6 +420,12 @@ class AsAbiBridge {
         if (name == "uiFinish") { return true }
         if (name == "hostSheet") { return true }
         if (name == "hostRect") { return true }
+        if (name == "posePresent") { return true }
+        if (name == "poseGesture") { return true }
+        if (name == "poseCount") { return true }
+        if (name == "poseX") { return true }
+        if (name == "poseY") { return true }
+        if (name == "poseRevision") { return true }
         return false
     }
 
@@ -539,6 +612,32 @@ class AsAbiBridge {
             def dl:int (this.argInt(args 6))
             this.hostRect(id w h r g b dl)
             return (EvalValue.null())
+        }
+        if (name == "posePresent") {
+            def v:int (this.posePresent())
+            return (EvalValue.fromInt(v))
+        }
+        if (name == "poseGesture") {
+            def v:int (this.poseGesture())
+            return (EvalValue.fromInt(v))
+        }
+        if (name == "poseCount") {
+            def v:int (this.poseCount())
+            return (EvalValue.fromInt(v))
+        }
+        if (name == "poseX") {
+            def i:int (this.argInt(args 0))
+            def v:int (this.poseX(i))
+            return (EvalValue.fromInt(v))
+        }
+        if (name == "poseY") {
+            def i:int (this.argInt(args 0))
+            def v:int (this.poseY(i))
+            return (EvalValue.fromInt(v))
+        }
+        if (name == "poseRevision") {
+            def v:int (this.poseRevision())
+            return (EvalValue.fromInt(v))
         }
         return (EvalValue.null())
     }
