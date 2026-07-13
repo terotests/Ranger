@@ -1,4 +1,4 @@
-name=Rust Autopeli (WASM)
+name=Autot
 engine=wasm
 module=logic.wasm
 abi=linear
