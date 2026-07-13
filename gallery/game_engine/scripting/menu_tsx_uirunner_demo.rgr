@@ -1,0 +1,72 @@
+; ==============================================================================
+; menu_tsx_uirunner_demo - drive the TSX launcher through GameUiRunner (the host
+; path), not just ComponentEngine directly.
+; ==============================================================================
+; menu_tsx_render_demo proves the tsx -> EVGElement -> WasmUiRenderer rendering.
+; This one proves the SDL HOST integration: GameUiRunner.loadTsx binds the guest,
+; frame(nav) feeds the D-pad + re-renders, render() draws the rich tree, and
+; launchPathTsx() reports the path the host launches - exactly what
+; GameSdlRunner's menu loop consumes. Runs headless (SoftCanvas, no SDL window).
+; ==============================================================================
+
+Import "./game_ui_runner.rgr"
+Import "./game_catalog.rgr"
+
+class TsxUiCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+}
+
+class MenuTsxUiRunnerDemo {
+    sfn m@(main):void () {
+        def c:TsxUiCheck (new TsxUiCheck)
+
+        def catalog:GameCatalog (new GameCatalog)
+        catalog.setGamesDir("gallery/game_engine/games")
+        catalog.scan()
+        c.ok(("catalog scanned (" + (to_string (catalog.entryCount())) + ")") ((catalog.entryCount()) > 0))
+
+        def r:GameUiRunner (new GameUiRunner)
+        r.init(360 460 "gallery/pdf_writer/assets/fonts" "Open_Sans/OpenSans-Regular.ttf" "Open Sans")
+        r.setMenuCatalog((catalog.toEvalArray()))
+        c.ok("loadTsx bound the launcher" (r.loadTsx("gallery/game_engine/menu" "launcher.tsx")))
+        c.ok("no launch on the category screen" ((strlen (r.launchPathTsx())) == 0))
+
+        ; ---- press A on a category: a glow flash starts, launch stays empty ----
+        def act:UiNavInput (new UiNavInput)
+        act.action = true
+        def _a0:int (r.frame(act))
+        c.ok("still no launch during the category flash" ((strlen (r.launchPathTsx())) == 0))
+
+        ; ---- idle frames: the flash (420ms at ~16ms/frame) completes and its
+        ; callback opens the category ----
+        def idle:UiNavInput (new UiNavInput)
+        def k 0
+        while (k < 30) {
+            def _i:int (r.frame(idle))
+            k = (k + 1)
+        }
+
+        ; ---- press A on the first game: the launcher reports its path ----
+        def _a1:int (r.frame(act))
+        def lp:string (r.launchPathTsx())
+        c.ok(("launcher reported a launch path (got '" + lp + "')") ((strlen lp) > 0))
+
+        ; the rich render path runs without error
+        r.render()
+        c.ok("render() ran on the tsx tree without error" true)
+
+        print "======================================"
+        print (("RESULT: " + (to_string c.passed) + " passed, ") + ((to_string c.failed) + " failed"))
+        if (c.failed == 0) { print "ALL PASS" } { print "SOME FAILED" }
+    }
+}

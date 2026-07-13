@@ -20,6 +20,7 @@ Import "../gfx_sdl.rgr"
 Import "../ui/WasmUiSelect.rgr"
 Import "./as_source_runner.rgr"
 Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
 
 class GameUiRunner {
     def canvas:SoftCanvas (new SoftCanvas)
@@ -65,6 +66,19 @@ class GameUiRunner {
     def OFF_RECT_W:int 208
     def OFF_RECT_H:int 212
 
+    ; --- interpreted .tsx backend (engine=ui, runtime=tsx) ---
+    ; A TypeScript/TSX guest evaluated by ComponentEngine straight into the same
+    ; EVGElement tree the renderer draws (rich glow/gradient/art) - the JS
+    ; front-end to the identical rendering core. Like the classic .tsx menu it
+    ; drives its own selection and returns a launch PATH (not a catalog index) in
+    ; its state; its glow highlight is baked into the tree (the `glow` prop), so
+    ; the host draws no extra cursor for it.
+    def tsxEngine:ComponentEngine (new ComponentEngine)
+    def useTsx:boolean false
+    def tsxState:EvalValue (EvalValue.null())
+    def tsxLaunch:string ""
+    def tsxQuit:boolean false
+
     ; page background behind the menu card
     def bgR:int 16
     def bgG:int 18
@@ -76,10 +90,12 @@ class GameUiRunner {
     fn init:void (width:int height:int fontDir:string fontRelPath:string family:string) {
         w = width
         h = height
-        ; start in a clean mode: this runner is reused across the launcher menu (.as)
-        ; and launched engine=ui games (wasm or .as), so reset the backend flags —
-        ; loadWasm/loadAs set them again, and setMenuCatalog re-enables injection.
+        ; start in a clean mode: this runner is reused across the launcher menu
+        ; (.tsx or .as) and launched engine=ui games (wasm or .as), so reset the
+        ; backend flags — loadWasm/loadAs/loadTsx set them again, and
+        ; setMenuCatalog re-enables injection.
         useAs = false
+        useTsx = false
         hasMenuCatalog = false
         canvas.init(width height)
         ctx.attach(canvas)
@@ -102,11 +118,12 @@ class GameUiRunner {
 
     ; --- native path: instantiate the wasm guest --------------------------------
     fn loadWasm:boolean (wasmPath:string) {
-        ; this runner may be reused after an interpreted .as guest (the launcher
-        ; menu), which set useAs=true; a compiled wasm guest drives itself, so
-        ; clear the flag or frame()/render() would take the .as path and the game
-        ; would never run (appears hung).
+        ; this runner may be reused after an interpreted guest (the launcher menu),
+        ; which set useAs/useTsx; a compiled wasm guest drives itself, so clear both
+        ; or frame()/render() would take an interpreted path and the game would
+        ; never run (appears hung).
         useAs = false
+        useTsx = false
         hasMenuCatalog = false
         handle = (wasm_load wasmPath)
         if (handle <= 0) {
@@ -149,6 +166,7 @@ class GameUiRunner {
     fn loadAs:boolean (dir:string) {
         effects.reset()
         useAs = true
+        useTsx = false
         if ((asRunner.bindDir(dir)) == false) {
             return false
         }
@@ -163,6 +181,71 @@ class GameUiRunner {
         rev = (asRunner.uiRevision())
         asSelId = (asRunner.abiRead(OFF_SEL))
         return true
+    }
+
+    ; --- interpreted .tsx path: bind + init the guest, render its first tree ----
+    fn loadTsx:boolean (dir:string file:string) {
+        useTsx = true
+        useAs = false
+        handle = 0
+        def buf:buffer (buffer_read_file dir file)
+        def src:string (buffer_to_string buf)
+        tsxEngine.quiet = true
+        ; a launcher menu reads the injected catalog to build its tiles
+        if hasMenuCatalog {
+            tsxEngine.registerGlobal("gameCatalog" menuCatalog)
+        }
+        tsxEngine.loadScript(src)
+        tsxState = (tsxEngine.callFunction("initState" (EvalValue.null())))
+        this.refreshFromTsx()
+        return true
+    }
+
+    ; props object handed to the guest's hud()/update(), matching the shape
+    ; game_runtime feeds a normal .tsx game (state + host clock + edge flags).
+    fn tsxProps:EvalValue (nav:UiNavInput withInput:boolean) {
+        def k:[string]
+        def v:[EvalValue]
+        push k "state"
+        push v tsxState
+        push k "time"
+        push v (EvalValue.fromInt(uiTimeMs))
+        push k "up"
+        push v (EvalValue.boolean((withInput && nav.up)))
+        push k "down"
+        push v (EvalValue.boolean((withInput && nav.down)))
+        push k "left"
+        push v (EvalValue.boolean((withInput && nav.left)))
+        push k "right"
+        push v (EvalValue.boolean((withInput && nav.right)))
+        push k "action"
+        push v (EvalValue.boolean((withInput && nav.action)))
+        push k "quit"
+        push v (EvalValue.boolean(false))
+        return (EvalValue.object(k v))
+    }
+
+    ; Re-render the guest's hud() into `root` and lay it out. No autoscale rebuild
+    ; (unlike the .as path's WasmUiEvgBuilder.scale) - the JSX tree has no scale
+    ; knob; it is authored to the menu canvas.
+    fn refreshFromTsx:void () {
+        def none:UiNavInput (new UiNavInput)
+        root = (tsxEngine.callRender("hud" (this.tsxProps(none false))))
+        ctrl.renderer.layoutTree(ctx root w h)
+        loaded = true
+    }
+
+    fn tsxStr:string (key:string) {
+        def mv:EvalValue (tsxState.getMember(key))
+        return (mv.toString())
+    }
+
+    ; launch PATH the tsx menu wants opened this frame ("" = none)
+    fn launchPathTsx:string () {
+        return tsxLaunch
+    }
+    fn wantsQuitTsx:boolean () {
+        return tsxQuit
     }
 
     ; Copy the guest's RGU1 block out of the bridge and rebuild the EVG tree.
@@ -185,6 +268,8 @@ class GameUiRunner {
     ; --- headless/test path: an already-authored RGU1 byte block ----------------
     fn loadDoc:boolean (bytes:[int] n:int) {
         effects.reset()
+        useAs = false
+        useTsx = false
         doc.loadBytes(bytes n)
         if (doc.valid == false) {
             return false
@@ -243,6 +328,16 @@ class GameUiRunner {
     ; Advance one frame with nav input; returns the activated node id, or -1.
     fn frame:int (nav:UiNavInput) {
         if (loaded == false) {
+            return -1
+        }
+        if useTsx {
+            ; advance the host clock (~60fps) so the guest's time-based glow runs,
+            ; feed the D-pad edges to update(), then re-render its hud() tree.
+            uiTimeMs = (uiTimeMs + 16)
+            tsxState = (tsxEngine.callFunction("update" (this.tsxProps(nav true))))
+            this.refreshFromTsx()
+            tsxLaunch = (this.tsxStr("launchPath"))
+            tsxQuit = ((this.tsxStr("quitApp")) == "1")
             return -1
         }
         if useAs {
@@ -315,6 +410,11 @@ class GameUiRunner {
     fn render:void () {
         canvas.clear(bgR bgG bgB)
         ctrl.renderer.draw(ctx root)
+        ; the .tsx menu bakes its selection glow into the tree (the `glow` prop),
+        ; drawn by ctrl.renderer.draw above, so it needs no host-drawn cursor.
+        if useTsx {
+            return
+        }
         if useAs {
             ; highlight the node the interpreted guest reports selected
             if (asSelId > 0) {

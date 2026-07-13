@@ -1,4 +1,4 @@
 name=Ranger Launcher
 engine=ui
-runtime=as
-module=game.as
+runtime=tsx
+module=launcher.tsx
