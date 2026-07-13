@@ -15,9 +15,9 @@
 #
 # Fast game-only sync (no C++ rebuild): sync-pi-games.sh
 #
-# USB camera (pose game input): the deploy verifies a capture-capable camera is
-# present on the Pi (/dev/video*, v4l2). No camera found aborts the deploy with
-# troubleshooting; skip the gate with RANGER_SKIP_CAMERA_CHECK=1.
+# USB camera (pose game input): the deploy checks for a capture-capable camera on
+# the Pi (/dev/video*, v4l2). By default a missing camera is only a warning and
+# the deploy continues; set RANGER_REQUIRE_CAMERA=1 to make it a hard gate.
 #
 # Autostart on boot (pelit host — enabled by default):
 #   ~/initservice.sh  — wires lxsession / labwc / crontab -> ~/start.sh
@@ -152,12 +152,14 @@ echo "==> Check USB camera (pose game input)"
 if check_usb_camera; then
   echo "    camera OK"
 else
-  if [[ "${RANGER_SKIP_CAMERA_CHECK:-0}" == "1" ]]; then
-    echo "    no usable camera — continuing anyway (RANGER_SKIP_CAMERA_CHECK=1)" >&2
-  else
+  if [[ "${RANGER_REQUIRE_CAMERA:-0}" == "1" ]]; then
     echo "    No usable USB camera found on the Pi. The pose game needs one." >&2
-    echo "    Plug in the camera and re-run, or skip with RANGER_SKIP_CAMERA_CHECK=1." >&2
+    echo "    Plug in the camera and re-run, or drop RANGER_REQUIRE_CAMERA to continue." >&2
     exit 1
+  else
+    echo "    no usable camera — continuing anyway (warning only)." >&2
+    echo "    the pose game needs one; plug in a USB webcam later, or set" >&2
+    echo "    RANGER_REQUIRE_CAMERA=1 to make this a hard deploy gate." >&2
   fi
 fi
 
