@@ -1,0 +1,5 @@
+name=EVG Effects Demo
+engine=ui
+module=logic.wasm
+
+category=Tests

@@ -940,6 +940,8 @@ class GameSdlRunner {
         if (uw > 1600) { uw = 1600 }
         if (uh > 1200) { uh = 1200 }
         uiRunner.init(uw uh "gallery/game_engine/assets/fonts" "OpenSans-Regular.ttf" "Open Sans")
+        ; draw the live UI effects on the GPU when the GL present path is active
+        uiRunner.setGpuEffects(gpuModeActive)
         ; engine=ui games come in two flavours: a compiled logic.wasm guest, or an
         ; interpreted .as source (runtime=as). Pick the backend by module suffix —
         ; loading a .as through wasm_load fails with "malformed Wasm binary".
@@ -978,6 +980,12 @@ class GameSdlRunner {
             nav.action = (this.actionEdge((bit_and m 4) != 0))
             def _a:int (uiRunner.frame(nav))
             uiRunner.render()
+            ; GPU path: emit the live glow/pulse effects as GL overlay quads that
+            ; composite on top of the presented UI texture (software path draws them
+            ; into the canvas in render() instead).
+            if gpuModeActive {
+                uiRunner.flushGpuEffects(uw uh)
+            }
             gfx_present (uiRunner.raw()) uw uh
 
             if (this.quitEdge((this.gameMenuBackHeld()))) {

@@ -23,9 +23,128 @@
 ; ==============================================================================
 
 Import "UIContext.rgr"
+Import "UIAnimator.rgr"
 Import "../scripting/wasm_ui_io.rgr"
 Import "../../evg/EVGLayout.rgr"
 Import "../../evg/EVGElement.rgr"
+
+; -----------------------------------------------------------------------------
+; Guest-driven effects: the WASM UI guest fires env.rg_ui_glow(node,dur,delay,tag)
+; from its rg_ui_event handler; the host owns the timeline (UIAnimator) and calls
+; the guest back on completion. This is the effect bridge — the guest triggers,
+; the host animates, exactly like the Pixi.js-style UIAnimator API but driven from
+; WASM instead of host code.
+; -----------------------------------------------------------------------------
+
+; Completion binding for one guest-requested effect. When the effect finishes the
+; host calls the guest's rg_ui_effect_done(node, tag) export so it can react
+; (navigate, bump a counter) — the WASM-side equivalent of UIAnim's `after` hook.
+class WasmFxDone {
+    def handle:int 0
+    def node:int 0
+    def tag:int 0
+
+    Constructor () {
+    }
+
+    fn fire:void () {
+        wasm_call_void handle "rg_ui_effect_done" 2 node tag 0 0 0
+    }
+}
+
+; Owns the host-side effect timeline for a WASM UI guest. Per frame the host:
+;   1. calls the guest (init / rg_ui_event), which may fire env.rg_ui_glow
+;   2. drain(handle)  — turns this frame's queued requests into glow animations
+;   3. tick(dtMs)     — advances them; a completing effect calls rg_ui_effect_done
+; The renderer samples glowFor(id) to draw the animated halo.
+class WasmUiEffects {
+    def animator:UIAnimator (new UIAnimator)
+
+    Constructor () {
+    }
+
+    ; Start one effect and bind its completion back to the guest. kind: 1 glow,
+    ; 2 pulse. target: 0 node (node id -> stringified to match el.id), 1 screen.
+    ; Split out of drain() so it is drivable from a host test without a wasm engine.
+    fn startEffect:void (kind:int target:int node:int durMs:int delayMs:int r:int g:int b:int handle:int tag:int) {
+        def bind:WasmFxDone (new WasmFxDone)
+        bind.handle = handle
+        bind.node = node
+        bind.tag = tag
+        def durSec:double ((to_double durMs) / 1000.0)
+        def delaySec:double ((to_double delayMs) / 1000.0)
+        def a:UIAnim (animator.animation())
+        if (target == 1) {
+            ; whole-screen effect (pulse); glow-on-screen also renders as a pulse
+            a.pulseScreen()
+        } {
+            def key:string (to_string node)
+            if (kind == 2) {
+                a.pulse(key)
+            } {
+                a.glow(key)
+            }
+        }
+        a.color(r g b).duration(durSec).delay(delaySec).after(bind.fire).start()
+    }
+
+    ; Convenience used by the host self-test: a white node glow.
+    fn startGlow:void (node:int durMs:int delayMs:int handle:int tag:int) {
+        this.startEffect(1 0 node durMs delayMs 255 255 255 handle tag)
+    }
+
+    ; Turn this frame's queued guest requests into running animations, then clear
+    ; the queue so it only ever holds the current frame's requests.
+    fn drain:void (handle:int) {
+        def n:int (wasm_fx_count handle)
+        def i 0
+        while (i < n) {
+            def kind:int (wasm_fx_ival handle i 0)
+            def target:int (wasm_fx_ival handle i 1)
+            def node:int (wasm_fx_ival handle i 2)
+            def durMs:int (wasm_fx_ival handle i 3)
+            def delayMs:int (wasm_fx_ival handle i 4)
+            def tag:int (wasm_fx_ival handle i 5)
+            def r:int (wasm_fx_ival handle i 6)
+            def g:int (wasm_fx_ival handle i 7)
+            def b:int (wasm_fx_ival handle i 8)
+            this.startEffect(kind target node durMs delayMs r g b handle tag)
+            i = (i + 1)
+        }
+        wasm_fx_reset handle
+    }
+
+    fn tick:void (dtMs:int) {
+        animator.tick(dtMs)
+    }
+
+    ; --- render-side queries ---
+    ; Current 0..1 node effect strength for an element id (its stringified node id).
+    ; After this call nodeR/G/B hold the winning effect's tint.
+    fn glowFor:double (id:string) {
+        return (animator.intensityFor(id))
+    }
+    fn nodeR:int () { return animator.nodeR }
+    fn nodeG:int () { return animator.nodeG }
+    fn nodeB:int () { return animator.nodeB }
+
+    ; Current 0..1 whole-screen pulse strength; screenR/G/B hold its tint.
+    fn screenPulse:double () {
+        return (animator.screenIntensity())
+    }
+    fn screenR:int () { return animator.scrR }
+    fn screenG:int () { return animator.scrG }
+    fn screenB:int () { return animator.scrB }
+
+    ; Distinct node ids with an active node-target effect (for the GPU flush).
+    fn activeIds:[string] () {
+        return (animator.activeIds())
+    }
+
+    fn activeCount:int () {
+        return (animator.activeCount())
+    }
+}
 
 ; Directional + action edges for one frame (pressed-this-frame booleans). A
 ; platform maps PlayerButtons / keyboard edges onto this - see UI_LAYER.md.
@@ -60,6 +179,23 @@ class RectHit {
 ; -----------------------------------------------------------------------------
 class WasmUiRenderer {
     def layout:EVGLayout (new EVGLayout)
+
+    ; Optional host effect timeline. When set, drawElement overlays the animated
+    ; glow from guest-requested effects on top of any doc-declared glow.
+    def fx:WasmUiEffects
+    def hasFx:boolean false
+    ; When true the live effects are drawn on the GPU (gfx_fx overlay), so the
+    ; software renderer skips them here to avoid drawing them twice. Doc-declared
+    ; static glowIntensity is still drawn (it is part of the UI, not an effect).
+    def gpuEffects:boolean false
+
+    fn setEffects:void (e:WasmUiEffects) {
+        fx = e
+        hasFx = true
+    }
+    fn setGpuEffects:void (on:boolean) {
+        gpuEffects = on
+    }
 
     ; All presentation (centring, radius, colours, sizes) is declared by the
     ; guest as RGU1 properties and resolved by EVGLayout here - the host renderer
@@ -242,6 +378,19 @@ class WasmUiRenderer {
 
     fn draw:void (ctx:UIContext root:EVGElement) {
         this.drawElement(ctx root)
+        ; whole-screen pulse (software fallback; GPU path draws this via gfx_fx).
+        if hasFx {
+            if (gpuEffects == false) {
+                def sp:double (fx.screenPulse())
+                if (sp > 0.0) {
+                    if (sp > 1.0) { sp = 1.0 }
+                    def sa:int (to_int (sp * 130.0))
+                    def cw:int (ctx.canvas.getWidth())
+                    def ch:int (ctx.canvas.getHeight())
+                    ctx.fillRectA(0 0 cw ch (fx.screenR()) (fx.screenG()) (fx.screenB()) sa)
+                }
+            }
+        }
     }
 
     fn drawElement:void (ctx:UIContext el:EVGElement) {
@@ -252,13 +401,31 @@ class WasmUiRenderer {
 
         def rad (this.radiusOf(el))
 
-        ; guest-driven animated glow halo (drawn behind the element's own fill)
-        if (el.glowIntensity > 0.0) {
-            def gi:double el.glowIntensity
+        ; guest-driven animated glow halo (drawn behind the element's own fill).
+        ; Two sources combined by max: a static intensity declared on the node in
+        ; the RGU1 doc, and the live host-run UIAnimator effect (glow/pulse). When
+        ; gpuEffects is on the live effect is drawn on the GPU, so only the static
+        ; doc glow is drawn here (white). The live effect carries its own tint.
+        def gi:double el.glowIntensity
+        def cr:int 255
+        def cg:int 255
+        def cb:int 255
+        if hasFx {
+            if (gpuEffects == false) {
+                def av:double (fx.glowFor(el.id))
+                if (av > gi) {
+                    gi = av
+                    cr = (fx.nodeR())
+                    cg = (fx.nodeG())
+                    cb = (fx.nodeB())
+                }
+            }
+        }
+        if (gi > 0.0) {
             if (gi > 1.0) { gi = 1.0 }
             def spread:int (to_int (4.0 + (gi * 18.0)))
             def galpha:int (to_int (gi * 230.0))
-            ctx.glowRoundRect((x - 3) (y - 3) (rw + 6) (rh + 6) (rad + 3) 255 255 255 spread galpha)
+            ctx.glowRoundRect((x - 3) (y - 3) (rw + 6) (rh + 6) (rad + 3) cr cg cb spread galpha)
         }
 
         if el.gradientSet {

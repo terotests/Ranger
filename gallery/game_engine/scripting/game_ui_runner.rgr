@@ -16,6 +16,7 @@
 ; ==============================================================================
 
 Import "../framebuffer.rgr"
+Import "../gfx_sdl.rgr"
 Import "../ui/WasmUiSelect.rgr"
 Import "./as_source_runner.rgr"
 
@@ -25,6 +26,11 @@ class GameUiRunner {
     def ctrl:UiSelectController (new UiSelectController)
     def doc:WasmUiDoc (new WasmUiDoc)
     def root:EVGElement (EVGElement.createDiv())
+
+    ; Host-run effect timeline for guest-triggered rg_ui_glow. The guest fires an
+    ; effect from rg_ui_event; the host owns the timeline here and calls the guest
+    ; back (rg_ui_effect_done) on completion. The renderer samples it for the halo.
+    def effects:WasmUiEffects (new WasmUiEffects)
 
     def handle:int 0
     def w:int 0
@@ -77,6 +83,8 @@ class GameUiRunner {
         }
         ctrl.borderWidth = 2
         ctrl.highlightPad = 4
+        ; let the renderer overlay the live glow from guest-triggered effects
+        ctrl.renderer.setEffects(effects)
     }
 
     ; --- native path: instantiate the wasm guest --------------------------------
@@ -88,6 +96,8 @@ class GameUiRunner {
         ; init() returns void — must use wasm_call_void, or the native runtime
         ; rejects the (i32) call and the guest never builds its RGU1 document.
         wasm_call_void handle "init" 0 0 0 0 0 0
+        ; init() may already request effects — pick them up before the first frame.
+        effects.drain(handle)
         return (this.refreshFromWasm())
     }
 
@@ -228,6 +238,16 @@ class GameUiRunner {
             }
             return asSelId
         }
+        ; Advance host-run guest effects (~60fps). A completing effect calls the
+        ; guest's rg_ui_effect_done, which may rebuild + bump its revision, so pull
+        ; the document again when it changes.
+        if (handle > 0) {
+            effects.tick(16)
+            def fxRev:int (wasm_call_i32 handle "rg_ui_revision" 0 0 0 0 0 0)
+            if (fxRev != rev) {
+                this.refreshFromWasm()
+            }
+        }
         def act:int (ctrl.update(nav))
         if ctrl.didActivate {
             if (handle > 0) {
@@ -237,6 +257,9 @@ class GameUiRunner {
                         ; button recognition: notify the guest (ACTIVATE = 1).
                         ; rg_ui_event returns void — use wasm_call_void.
                         wasm_call_void handle "rg_ui_event" 3 act 1 0 0 0
+                        ; the guest may have fired rg_ui_glow during that call —
+                        ; turn its requests into running host animations.
+                        effects.drain(handle)
                     }
                 }
                 ; the guest may have rebuilt its document - pull it again
@@ -268,5 +291,46 @@ class GameUiRunner {
 
     fn raw:buffer () {
         return (canvas.raw())
+    }
+
+    ; GPU-accelerated effects: when on, the software renderer stops drawing the
+    ; live glow/pulse (flushGpuEffects emits them as GL overlay quads instead).
+    fn setGpuEffects:void (on:boolean) {
+        ctrl.renderer.setGpuEffects(on)
+    }
+
+    ; Emit this frame's live effects as GPU overlay quads: one soft glow per active
+    ; node, plus a whole-screen pulse. Called between render() and gfx_present on
+    ; the GPU path; the quads composite on top of the presented UI texture.
+    fn flushGpuEffects:void (fbW:int fbH:int) {
+        gfx_fx_begin fbW fbH
+        def ids:[string] (effects.activeIds())
+        def i 0
+        def n (array_length ids)
+        while (i < n) {
+            def id:string (itemAt ids i)
+            def gi:double (effects.glowFor(id))
+            if (gi > 0.0) {
+                def hit:RectHit (ctrl.renderer.findRect(root id))
+                if hit.found {
+                    if (gi > 1.0) { gi = 1.0 }
+                    def ga:int (to_int (gi * 230.0))
+                    ; expand the rect so the halo extends beyond the node edges
+                    def ex:int 8
+                    def gx:double (to_double (hit.x - ex))
+                    def gy:double (to_double (hit.y - ex))
+                    def gw:double (to_double (hit.w + (ex * 2)))
+                    def gh:double (to_double (hit.h + (ex * 2)))
+                    gfx_fx_push_glow gx gy gw gh (effects.nodeR()) (effects.nodeG()) (effects.nodeB()) ga
+                }
+            }
+            i = (i + 1)
+        }
+        def sp:double (effects.screenPulse())
+        if (sp > 0.0) {
+            if (sp > 1.0) { sp = 1.0 }
+            def sa:int (to_int (sp * 150.0))
+            gfx_fx_push_screen (effects.screenR()) (effects.screenG()) (effects.screenB()) sa
+        }
     }
 }
