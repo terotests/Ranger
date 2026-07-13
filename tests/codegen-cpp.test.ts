@@ -71,6 +71,27 @@ describe("C++ Code Generation", () => {
     });
   });
 
+  describe("Dead-store elimination", () => {
+    it("should NOT eliminate an unused local whose initializer is a call (side effects)", () => {
+      const result = getGeneratedCppCode(
+        `${FIXTURES_DIR}/unused_call_result.rgr`
+      );
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      // the call must be emitted as a live statement, not commented out
+      expect(result.code).toContain("->bump()");
+      expect(result.code).not.toMatch(/\/\*\* unused:[^\n]*bump\(\)/);
+    });
+
+    it("should still elide a genuinely unused pure-expression local", () => {
+      const result = getGeneratedCppCode(
+        `${FIXTURES_DIR}/unused_call_result.rgr`
+      );
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      // deadPure = 2 + 3 has no side effects -> safe to comment out
+      expect(result.code).toMatch(/\/\*\* unused:[^\n]*2 \+ 3/);
+    });
+  });
+
   describe("Memory Management", () => {
     it("should use smart pointers for objects", () => {
       const result = getGeneratedCppCode(`${FIXTURES_DIR}/two_classes.rgr`);

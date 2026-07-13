@@ -132,17 +132,6 @@ class GameUiRunner {
         ctrl.renderHighlight(ctx)
     }
 
-    ; --- diagnostics (used by the SDL runner to localise native input issues) ---
-    fn selCount:int () {
-        return (ctrl.count())
-    }
-    fn selId:int () {
-        return ctrl.selectedId
-    }
-    fn selIndex:int () {
-        return ctrl.selIndex
-    }
-
     fn raw:buffer () {
         return (canvas.raw())
     }

@@ -19107,7 +19107,21 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       if ( node.hasParamDesc ) {
         const nn = node.children[1];
         const p = nn.paramDesc;
-        if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
+        let initHasSideEffect = false;
+        if ( (node.children.length) > 2 ) {
+          const initChk = node.getThird();
+          if ( initChk.hasFnCall ) {
+            initHasSideEffect = true;
+          }
+          if ( initChk.has_call ) {
+            initHasSideEffect = true;
+          }
+          if ( initChk.hasNewOper ) {
+            initHasSideEffect = true;
+          }
+        }
+        const elideUnused = ((p.ref_cnt == 0) && (p.is_class_variable == false)) && (initHasSideEffect == false);
+        if ( elideUnused ) {
           wr.out("/** unused:  ", false);
         }
         if ( (p.set_cnt > 0) || p.is_class_variable ) {
@@ -19151,7 +19165,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         if ( (p.ref_cnt == 0) && (p.is_class_variable == true) ) {
           wr.out("     /** note: unused */", false);
         }
-        if ( (p.ref_cnt == 0) && (p.is_class_variable == false) ) {
+        if ( elideUnused ) {
           wr.out("   **/ ;", true);
         } else {
           wr.out(";", false);
