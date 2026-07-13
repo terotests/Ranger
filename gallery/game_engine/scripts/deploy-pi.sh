@@ -94,39 +94,48 @@ verify_wasm_artifacts() {
   fi
 }
 
-# Verify a capture-capable USB camera on the Pi (over SSH). Returns non-zero if
-# no /dev/video* node reports a Video Capture capability. Needs v4l-utils (apt).
+# Verify a REAL camera on the Pi (over SSH). A Pi 5 exposes many /dev/video*
+# nodes for hardware codecs and the ISP (rpi-hevc-dec, pispbe, bcm2835-codec,
+# rpivid, unicam, ...) that all report "Video Capture" capability but are NOT
+# cameras. So capability alone is a false positive — key on the bus/driver: a
+# USB webcam is uvcvideo / bus_info usb-*. Needs v4l-utils (apt). Returns non-zero
+# if no such device is present.
 check_usb_camera() {
   ssh "$TARGET" 'bash -s' <<'CAMEOF'
 set -uo pipefail
-have_v4l2=0; command -v v4l2-ctl >/dev/null 2>&1 && have_v4l2=1
+if ! command -v v4l2-ctl >/dev/null 2>&1; then
+  echo "    v4l-utils missing — cannot verify a camera"; exit 5
+fi
 vids=$(ls /dev/video* 2>/dev/null || true)
 if [[ -z "$vids" ]]; then
   echo "    no /dev/video* devices — is the USB camera plugged in?"
   echo "    try: lsusb ; dmesg | grep -i -E 'camera|uvc|video' | tail"
   exit 3
 fi
-echo "    video nodes: $(echo $vids | tr '\n' ' ')"
-lsusb 2>/dev/null | grep -iE 'cam|webcam|video|uvc' | sed 's/^/      usb: /' || true
-found=0
+lsusb 2>/dev/null | grep -iE 'cam|webcam|uvc' | sed 's/^/      usb: /' || true
+found=0; skipped=""
 for dev in $vids; do
-  if [[ "$have_v4l2" == "1" ]]; then
-    all=$(v4l2-ctl -d "$dev" --all 2>/dev/null || true)
-    if echo "$all" | grep -qi 'Video Capture'; then
-      found=1
-      name=$(echo "$all" | grep -m1 -i 'Card type' | sed 's/.*: *//')
-      echo "    capture: $dev  ${name:-camera}"
-      v4l2-ctl -d "$dev" --list-formats-ext 2>/dev/null \
-        | grep -E 'Pixel Format|Size: Discrete' | head -4 | sed 's/^[[:space:]]*/        /' || true
-    fi
+  all=$(v4l2-ctl -d "$dev" --all 2>/dev/null || true)
+  echo "$all" | grep -qi 'Video Capture' || continue          # capture-capable only
+  driver=$(echo "$all" | grep -m1 -i 'Driver name' | sed 's/.*: *//')
+  bus=$(echo "$all"    | grep -m1 -i 'Bus info'    | sed 's/.*: *//')
+  card=$(echo "$all"   | grep -m1 -i 'Card type'   | sed 's/.*: *//')
+  # a real camera: UVC webcam (usb) — not a platform codec/ISP block
+  is_cam=0
+  [[ "$driver" == uvcvideo ]] && is_cam=1
+  [[ "$bus" == usb* || "$bus" == *usb* ]] && is_cam=1
+  if [[ "$is_cam" == "1" ]]; then
+    found=1
+    echo "    camera: $dev  ${card:-?}  [driver=$driver bus=$bus]"
+    v4l2-ctl -d "$dev" --list-formats-ext 2>/dev/null \
+      | grep -E 'Pixel Format|Size: Discrete' | head -4 | sed 's/^[[:space:]]*/        /' || true
+  else
+    skipped="$skipped $dev($driver)"
   fi
 done
 if [[ "$found" == "0" ]]; then
-  if [[ "$have_v4l2" == "1" ]]; then
-    echo "    video nodes exist but none report Video Capture capability"
-  else
-    echo "    v4l-utils missing — cannot confirm capture capability"
-  fi
+  echo "    no camera found — only platform codec/ISP capture nodes:${skipped:- none}"
+  echo "    plug in a USB webcam (shows as driver=uvcvideo, bus=usb-*)."
   exit 4
 fi
 exit 0
@@ -163,6 +172,8 @@ rsync -az --delete \
   --exclude tmp \
   --exclude dist \
   --exclude .git/objects \
+  --exclude 'gallery/game_engine/pose/native_bench/build' \
+  --exclude 'gallery/game_engine/pose/mediapipe_poc/assets/models' \
   "$ROOT/" "$TARGET:~/$REMOTE_DIR/"
 
 echo "==> 5/$TOTAL_STEPS Build game launcher on Pi (CXX_OPT=$CXX_OPT, wasm3 embedded)"

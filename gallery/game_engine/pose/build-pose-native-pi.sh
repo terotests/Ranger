@@ -43,18 +43,41 @@ fi
 
 echo "==> [4/4] build + run native_bench (threads=$THREADS)"
 BENCH="$HERE/native_bench"
-cmake -S "$BENCH" -B "$BENCH/build" -DTENSORFLOW_SOURCE_DIR="$TF" -DCMAKE_BUILD_TYPE=Release
-cmake --build "$BENCH/build" -j"$(nproc)"
+# REUSE an existing build wherever it already is — a full TFLite/XNNPACK/kleidiai
+# compile is ~1h, and we never want to repeat it. Never move a CMake build dir
+# (it bakes absolute paths and would reconfigure); build in place. Precedence:
+#   POSE_BUILD_DIR  ->  existing in-repo build/  ->  existing ~/.cache build  ->  in-repo (fresh)
+# The in-repo build/ is kept across deploys by deploy-pi.sh's rsync exclude, so
+# it survives --delete. Incremental after the first build: only pose_bench.cc
+# relinks (seconds). rm -rf the dir to force a clean rebuild.
+if [ -n "${POSE_BUILD_DIR:-}" ]; then
+  BUILD_DIR="$POSE_BUILD_DIR"
+elif [ -f "$BENCH/build/pose_bench" ]; then
+  BUILD_DIR="$BENCH/build"
+elif [ -f "$HOME/.cache/ranger-pose-bench/pose_bench" ]; then
+  BUILD_DIR="$HOME/.cache/ranger-pose-bench"
+else
+  BUILD_DIR="$BENCH/build"
+fi
+mkdir -p "$BUILD_DIR"
+if [ -f "$BUILD_DIR/pose_bench" ]; then
+  echo "    (incremental — reusing existing build in $BUILD_DIR; no TFLite rebuild)"
+else
+  echo "    (first build — compiles TFLite once, ~slow; cached in $BUILD_DIR after)"
+fi
+cmake -S "$BENCH" -B "$BUILD_DIR" -DTENSORFLOW_SOURCE_DIR="$TF" -DCMAKE_BUILD_TYPE=Release
+cmake --build "$BUILD_DIR" -j"$(nproc)"
 
+BIN="$BUILD_DIR/pose_bench"
 DET="$MODELS/tflite/pose_detector.tflite"
 LM="$MODELS/tflite/pose_landmarks_detector.tflite"
 echo ""
 echo "--- perf + landmarks (human) ---"
-"$BENCH/build/pose_bench" "$DET" "$LM" "$BENCH/pose.ppm" --threads "$THREADS"
+"$BIN" "$DET" "$LM" "$BENCH/pose.ppm" --threads "$THREADS"
 echo ""
 echo "--- accuracy vs browser reference (compare.mjs) ---"
-"$BENCH/build/pose_bench" "$DET" "$LM" "$BENCH/pose.ppm" --threads "$THREADS" --json \
+"$BIN" "$DET" "$LM" "$BENCH/pose.ppm" --threads "$THREADS" --json \
   | node "$BENCH/compare.mjs" "$HERE/mediapipe_poc/reference/landmarks.json" -
 echo ""
 echo "Thread sweep for the game budget (see NATIVE_EMBED.md): re-run with"
-echo "  POSE_THREADS=1|2|3|4 bash $(basename "$0")"
+echo "  POSE_THREADS=1|2|3|4 bash $(basename "$0")   (fast — build is cached in $BUILD_DIR)"
