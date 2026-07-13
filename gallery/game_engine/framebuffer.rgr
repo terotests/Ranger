@@ -248,11 +248,11 @@ class SoftCanvas {
         if (sh <= 0) {
             return
         }
-        def view:RasterBuffer (new RasterBuffer)
-        view.width = w
-        view.height = h
-        view.pixels = px
-        blitter.blitRect(view src sx sy sw sh ddx ddy)
+        ; Blit straight into our pixel buffer (passed by reference). Wrapping px
+        ; in a temporary RasterBuffer copies the std::vector under C++ value
+        ; semantics and silently drops the writes (text/sprites invisible on the
+        ; native build) — see rgba_fast_blit.blitRectBuf.
+        blitter.blitRectBuf(px w src sx sy sw sh ddx ddy)
     }
 
     ; Alpha-composite a source sub-rectangle onto this canvas (centered draw uses
