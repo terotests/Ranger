@@ -8,12 +8,23 @@ spawn/observe/produce contract is Rust- or 2D-specific.
 
 ## Role
 
-Given a request (cell coords + kind) in its RGLD block, the loader **generates or
-loads** a resource and reports it (size, dimensions, checksum) plus the produced
-bytes. This PoC *generates* a deterministic 16×16 RGBA tile per cell — self
-contained, no host asset on disk — standing in for the decode/generate step. The
-host then materialises it (`rg_res_*` / GL upload). A file-loading loader would
-add a host file-read import; the block shape is identical.
+Given a request (cell coords + kind) in its RGLD block, the loader manages a
+**bounded resource pool**: a `load`/`generate` request allocates a slot and
+produces a resource; a `free` request releases it. Freeing sprites/backgrounds is
+the loader's job, so as a player roams an infinite world (see
+`../../games/streaming_world`) live use stays bounded. This PoC *generates* a
+deterministic 16×16 RGBA tile per cell — self-contained, no host asset on disk —
+standing in for the decode/generate step; the host then materialises it
+(`rg_res_*` / GL upload). A file-loading loader would add a host file-read import;
+the block shape is identical.
+
+It reports `live` / `peak` / `totalGen` / `totalFreed` so the host (and the
+stress test) can verify the pool stays bounded and conserved (gen − freed = live).
+
+> Built **without** binaryen `--optimize`: that pass emits a global reference this
+> repo's wasm3 build rejects ("global index is too large"). The module is tiny, so
+> the optimizer is not needed. All state lives in the single linear block (no
+> extra mutable globals), so asc emits no start-time init wasm3 would choke on.
 
 ## RGLD block
 

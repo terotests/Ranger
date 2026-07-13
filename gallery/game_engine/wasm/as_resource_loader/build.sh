@@ -13,9 +13,11 @@ if [[ ! -d node_modules/assemblyscript ]]; then
   npm install --no-audit --no-fund
 fi
 
-echo "==> asc build (optimize, minimal runtime)"
+echo "==> asc build (minimal runtime, no binaryen optimize)"
+# NOTE: --optimize (binaryen) emits a global reference this repo's wasm3 build
+# rejects ("global index is too large"); the module is tiny, so we skip it.
 ./node_modules/.bin/asc assembly/index.ts \
-  --outFile build/resource_loader.wasm --runtime minimal --use abort= --optimize
+  --outFile build/resource_loader.wasm --runtime minimal --use abort=
 
 mkdir -p "$(dirname "$OUT")"
 cp "$CRATE/build/resource_loader.wasm" "$OUT"

@@ -393,6 +393,17 @@ Toteutettu aitona WASM-guestina samalla wasm3-sillalla kuin autopeli (RGW1). Tod
   **kielineutraali** — sama wasm3-silta + lohko-ABI kuin Rust-guesteilla, ei Rust- eikä 2D-spesifiä.
   Verifioitu [`loader_poc.c`](./wasm/rust_worker/loader_poc.c): `npm run engine:wasm:demo:loader-poc`
   → `LOADER_POC_OK` (game spawnaa AS-loaderin, ajaa sen, 4 erillistä resurssia checksumeineen).
+- **Ääretön-maailma stressitesti (koko putki):** [`games/streaming_world/`](./games/streaming_world/)
+  — pelaaja kävelee 1000×1000-solun (≈ääretön) maailmassa; **worker** (Rust) laskee residenssirenkaan
+  (lataa edestä / vapauta takaa, hystereesi), **AS-loader** generoi **ja vapauttaa** resurssit
+  rajattuna poolina. HUD tulostaa koordinaatit + live/peak/gen/freed + ASCII-kartan. Verifioitu
+  [`world_stress.c`](./wasm/rust_worker/world_stress.c): `npm run engine:wasm:demo:world-stress` →
+  `WORLD_STRESS_OK` — **1143 generoitu, 1130 vapautettu, vain 13 elossa** (peak 16, rengaskatto 25)
+  ~380 solun matkan jälkeen: muisti pysyy rajattuna rajattomalla matkalla (konservaatio
+  gen−freed=live). AS-loader käännetään ilman `--optimize`:a (binaryen emittoi globaaliviittauksen
+  jota tämän repon wasm3 ei sulata). **Avoin:** SDL-valikkoon renderöity versio (generoidut tilet
+  oikeina spriteinä, näppäinohjaus, ruutu-HUD) vaatii host-operaattorit worker+loaderin ajamiseen
+  `game_runtime`-silmukasta — striimauspolitiikka/generointi/vapautus on jo todistettu tässä.
 - **Sivutuote:** paljasti + korjattiin `runtime/rg_wasm_bridge.c`:n teardown-double-free (wasm3
   moduuli-omistajuus) — erillinen commit; wasm-pong-demo + game-sdl regressioverifioitu.
 - **Avoin (S2:n loppuosa):** `rg_res_*`-primitiivit host-import-funktioina sillassa (nyt worker emittoi
