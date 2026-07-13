@@ -1,0 +1,7 @@
+# Installed deps and large/generated binaries — reproduce with:
+#   npm install && bash fetch-assets.sh
+node_modules/
+wasm/
+vision_bundle.mjs
+assets/models/
+last_bench.json

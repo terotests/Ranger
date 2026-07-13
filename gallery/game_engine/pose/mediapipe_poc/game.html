@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Ranger — Pose Game (MediaPipe)</title>
+    <style>
+      body { margin: 0; background: #0b1120; color: #cfe0ff; font-family: system-ui, sans-serif; text-align: center; }
+      h1 { font-size: 16px; font-weight: 600; margin: 10px; }
+      canvas { image-rendering: pixelated; border: 1px solid #2a3550; border-radius: 6px; }
+      p { color: #6a7a9a; font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <h1>Ranger Pose Game — move your head, raise both arms to power up</h1>
+    <canvas id="game"></canvas>
+    <p>Allow the camera when prompted. No webcam? Reload with <code>?nocam=1</code>.</p>
+    <script type="module">
+      import { startGame } from "./game.mjs";
+      startGame().catch((e) => { document.body.insertAdjacentHTML("beforeend", `<pre style="color:#f88">${e}</pre>`); });
+    </script>
+  </body>
+</html>

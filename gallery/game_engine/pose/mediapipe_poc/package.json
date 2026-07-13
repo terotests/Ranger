@@ -1,0 +1,16 @@
+{
+  "name": "ranger-mediapipe-poc",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Headless MediaPipe PoseLandmarker performance PoC — runs pose inference on static images (no camera), maps landmarks into the RGP1 pose shape, and measures per-inference latency. See README.md.",
+  "scripts": {
+    "bench": "node bench.mjs",
+    "serve": "node serve.mjs",
+    "smoke": "node smoke.mjs"
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "0.10.14",
+    "playwright": "1.48.2"
+  }
+}
