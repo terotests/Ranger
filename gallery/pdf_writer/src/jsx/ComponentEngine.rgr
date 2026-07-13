@@ -3988,6 +3988,21 @@ class ComponentEngine {
                     }
                 }
 
+                ; Plain-object method call: obj.method() where the property holds
+                ; a function value (e.g. a concise arrow `{ make: () => ({...}) }`).
+                ; The stored closure already carries its lexical scope, so invoke
+                ; it directly. Placed before the built-in method table so a user
+                ; property (e.g. a custom `toString`) wins over the fallback.
+                if (obj.valueType == 5) {
+                    def objMember:EvalValue (obj.getMember(methodName))
+                    if (objMember.valueType == 6) {
+                        if objMember.functionNode {
+                            def objCargs:[EvalValue] (this.collectCallArgs(node))
+                            return (this.callFnValueWithValues(objMember objCargs))
+                        }
+                    }
+                }
+
                 ; Handle Number methods
                 if (methodName == "toFixed") {
                     def numVal:double (obj.toNumber())
@@ -5064,12 +5079,12 @@ class ComponentEngine {
                 }
                 if (arrStaticName == "console") {
                     if ((methodName == "log") || (methodName == "warn") || (methodName == "error") || (methodName == "info") || (methodName == "debug")) {
-                        def line:string ""
+                        ; Host stdout is shared with the engine; prefix with [tsx]
+                        ; so script logging is distinguishable (see engine.d.ts).
+                        def line:string "[tsx]"
                         def ci:int 0
                         while (ci < (array_length node.children)) {
-                            if (ci > 0) {
-                                line = (line + " ")
-                            }
+                            line = (line + " ")
                             line = (line + ((this.evaluateExpr((itemAt node.children ci))).toString()))
                             ci = (ci + 1)
                         }
@@ -5300,6 +5315,18 @@ class ComponentEngine {
                         def callArgVals:[EvalValue] (this.collectCallArgs(node))
                         return (this.callFnValueWithValues(fnValue callArgVals))
                     }
+                }
+            }
+
+            ; Callee is itself an expression that yields a function value, e.g.
+            ; an IIFE `(() => ({...}))()` or `(cond ? a : b)()`. Inline arrow/
+            ; function expressions capture the current scope; anything else is
+            ; evaluated. MemberExpression/Identifier callees are handled above.
+            def calleeFn:EvalValue (this.resolveCallbackValue(callee))
+            if (calleeFn.isFunction()) {
+                if calleeFn.functionNode {
+                    def calleeArgs:[EvalValue] (this.collectCallArgs(node))
+                    return (this.callFnValueWithValues(calleeFn calleeArgs))
                 }
             }
         }
