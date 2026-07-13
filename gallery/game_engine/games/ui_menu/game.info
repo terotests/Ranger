@@ -1,0 +1,3 @@
+name=EVG UI Menu
+engine=ui
+module=logic.wasm
