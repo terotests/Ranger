@@ -23,7 +23,28 @@ It is the source side of the chain, exercised in isolation:
   same bytes a real worker would publish into the `SharedPoseBuffer`.
 - Reports latency (min / median / mean / p95) per model variant.
 
-## Run it
+## Play the live game
+
+A real pose-controlled game (`game.html` / `game.mjs`) — same concept as the
+Ranger `pose_demo` game, drawn in the browser so it runs on hardware with a
+webcam. The hero sprite follows your head; **raise both arms to power up and
+score**; a HUD shows gesture, score, live FPS and inference ms.
+
+```bash
+npm install && bash fetch-assets.sh
+npm run serve               # -> http://localhost:8080/game.html
+```
+
+Open that URL and allow the camera (on `localhost` the camera works without
+https; from another host use https). No webcam? open `game.html?nocam=1` to loop
+a sample image instead. Pick a model with `?model=./assets/models/pose_landmarker_full.task`.
+
+The game uses MediaPipe **VIDEO** running mode (inter-frame tracking), which is
+roughly **2× faster than the per-image bench** — in this x86 container it holds
+~30 ms inference / ~32 fps on the `lite` model. On the Pi, run the same page in
+its Chromium to get the real figure.
+
+## Run the headless benchmark
 
 ```bash
 cd gallery/game_engine/pose/mediapipe_poc
@@ -83,8 +104,12 @@ hardware purchase.
 
 ## Files
 
-- `poc.mjs` — browser side: load model, run inference, map landmarks → RGP1.
-- `bench.mjs` — Node driver: local COOP/COEP server + Playwright + report.
-- `index.html` — tiny host page.
+- `rgp1.mjs` — shared source-side mapping: landmarks → RGP1 (used by both below).
+- `game.mjs` / `game.html` — the live pose game (camera or `?nocam=1`).
+- `serve.mjs` — static COOP/COEP server for the game.
+- `poc.mjs` — headless bench browser side: load model, run inference, map to RGP1.
+- `bench.mjs` — bench Node driver: local server + Playwright + latency report.
+- `smoke.mjs` — headless check that the game loop + inference run (no camera).
+- `index.html` — tiny host page for the bench.
 - `fetch-assets.sh` — pulls the non-committed WASM fileset + models.
-- `assets/images/` — MediaPipe public test images (committed; small).
+- `assets/images/` — MediaPipe public test images; `assets/sprites/` — ylos2 LPC sheets.
