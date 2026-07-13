@@ -27,6 +27,7 @@ import { ui, UI_SIZE, uiPtr, EVENT_ACTIVATE } from "../../as_autopeli/assembly/u
 
 // node ids
 const ROOT: u32 = 1;
+const CARD: u32 = 2;
 const TITLE: u32 = 10;
 const BTN_NEW: u32 = 20;
 const BTN_CONT: u32 = 21;
@@ -39,6 +40,7 @@ const C_TITLE: u32 = 0xffffffff;
 const C_ITEM: u32 = 0xd0dcf0ff;
 const C_STATUS: u32 = 0x8fb0d0ff;
 const C_QUIT: u32 = 0xff6a6aff;
+const C_CARD: u32 = 0x242a40ff;   // 36,42,64
 
 let UI_REV: u32 = 0;
 let PLAYS: i32 = 0;     // times "New Game" was activated
@@ -51,19 +53,26 @@ function statusText(): string {
 
 function rebuild(): void {
   ui.reset();
-  ui.view(ROOT, 0, 0).column().padding(12);
+  // Outer root fills the frame and centres its child horizontally. All visual
+  // attributes (layout, size, colour, radius) are declared HERE in the guest;
+  // the host EVG layout/renderer just resolves them.
+  ui.view(ROOT, 0, 0).column().center().padding(22);
 
-  ui.label(TITLE, ROOT, 0, "WASM UI - Main Menu", C_TITLE, 20);
+  // The menu "card": fixed width, padded, rounded, translucent panel.
+  ui.view(CARD, ROOT, 0).column().padding(18).width(280).background(C_CARD).radius(16);
+
+  ui.label(TITLE, CARD, 0, "WASM UI - Main Menu", C_TITLE, 20);
 
   // Selectable menu items. onActivate() marks them selectable AND subscribes to
-  // the ACTIVATE callback; defaultSelected() picks the first host highlight.
-  ui.button(BTN_NEW, ROOT, 1, "New Game", C_ITEM, 16).onActivate().defaultSelected();
-  ui.button(BTN_CONT, ROOT, 2, "Continue", C_ITEM, 16).onActivate();
-  ui.button(BTN_OPTS, ROOT, 3, "Options", C_ITEM, 16).onActivate();
-  ui.button(BTN_QUIT, ROOT, 4, "Quit", C_QUIT, 16).onActivate();
+  // the ACTIVATE callback; defaultSelected() picks the first host highlight;
+  // radius() rounds the host's selection border to match.
+  ui.button(BTN_NEW, CARD, 1, "New Game", C_ITEM, 16).onActivate().defaultSelected().radius(8);
+  ui.button(BTN_CONT, CARD, 2, "Continue", C_ITEM, 16).onActivate().radius(8);
+  ui.button(BTN_OPTS, CARD, 3, "Options", C_ITEM, 16).onActivate().radius(8);
+  ui.button(BTN_QUIT, CARD, 4, "Quit", C_QUIT, 16).onActivate().radius(8);
 
   // Non-selectable status line — proves selectable is opt-in per node.
-  ui.label(STATUS, ROOT, 5, statusText(), C_STATUS, 13);
+  ui.label(STATUS, CARD, 5, statusText(), C_STATUS, 13);
 
   ui.finish(UI_REV);
 }

@@ -52,6 +52,7 @@ class RectHit {
     def y:int 0
     def w:int 0
     def h:int 0
+    def rad:int 0
 }
 
 ; -----------------------------------------------------------------------------
@@ -60,6 +61,9 @@ class RectHit {
 class WasmUiRenderer {
     def layout:EVGLayout (new EVGLayout)
 
+    ; All presentation (centring, radius, colours, sizes) is declared by the
+    ; guest as RGU1 properties and resolved by EVGLayout here - the host renderer
+    ; carries no per-menu styling of its own.
     fn layoutTree:void (ctx:UIContext root:EVGElement w:int h:int) {
         def fw:double (to_double w)
         def fh:double (to_double h)
@@ -72,7 +76,19 @@ class WasmUiRenderer {
             root.width = (EVGUnit.px(fw))
             root.width.isSet = true
         }
+        if (root.height.isSet == false) {
+            root.height = (EVGUnit.px(fh))
+            root.height.isSet = true
+        }
         layout.layoutElement(root 0.0 0.0 fw fh)
+    }
+
+    ; Resolved border radius (px) declared on the element by the guest, or 0.
+    fn radiusOf:int (el:EVGElement) {
+        if el.box.borderRadius.isSet {
+            return (to_int el.box.borderRadius.pixels)
+        }
+        return 0
     }
 
     fn draw:void (ctx:UIContext root:EVGElement) {
@@ -89,7 +105,8 @@ class WasmUiRenderer {
             def ba:double (el.backgroundColor.alpha())
             if (ba > 0.0) {
                 def ai:int (to_int (ba * 255.0))
-                ctx.fillRectA(x y rw rh (el.backgroundColor.red()) (el.backgroundColor.green()) (el.backgroundColor.blue()) ai)
+                def rad (this.radiusOf(el))
+                ctx.fillRoundRectA(x y rw rh rad (el.backgroundColor.red()) (el.backgroundColor.green()) (el.backgroundColor.blue()) ai)
             }
         }
 
@@ -130,6 +147,7 @@ class WasmUiRenderer {
             hit.y = (to_int el.calculatedY)
             hit.w = (to_int el.calculatedWidth)
             hit.h = (to_int el.calculatedHeight)
+            hit.rad = (this.radiusOf(el))
             return
         }
         def i 0
@@ -155,10 +173,12 @@ class UiSelectController {
     def ry:[int]
     def rw:[int]
     def rh:[int]
+    def rrad:[int]               ; per-node border radius (guest-declared, px)
 
     def selectedId:int 0
     def selIndex:int 0
     def borderWidth:int 2
+    def highlightPad:int 3       ; how far the border sits outside the node
 
     ; last activation (node id) or -1; set by update() on the action button
     def lastActivatedId:int 0
@@ -180,6 +200,7 @@ class UiSelectController {
         clear ry
         clear rw
         clear rh
+        clear rrad
         def defaultId 0
         def i 0
         while (i < doc.nodeCount) {
@@ -195,6 +216,7 @@ class UiSelectController {
                         push ry hit.y
                         push rw hit.w
                         push rh hit.h
+                        push rrad hit.rad
                         if (doc.nodeIsDefault(i)) {
                             if (defaultId == 0) {
                                 defaultId = nid
@@ -349,7 +371,17 @@ class UiSelectController {
         def y (itemAt ry selIndex)
         def wdt (itemAt rw selIndex)
         def hgt (itemAt rh selIndex)
-        def pad 2
-        ctx.strokeRect((x - pad) (y - pad) (wdt + (pad * 2)) (hgt + (pad * 2)) borderWidth ctx.theme.accent)
+        def pad highlightPad
+        def bx (x - pad)
+        def by (y - pad)
+        def bw (wdt + (pad * 2))
+        def bh (hgt + (pad * 2))
+        ; radius follows the guest-declared radius of the selected node (+pad)
+        def nodeRad (itemAt rrad selIndex)
+        if (nodeRad > 0) {
+            ctx.strokeRoundRect(bx by bw bh (nodeRad + pad) borderWidth ctx.theme.accent)
+        } {
+            ctx.strokeRect(bx by bw bh borderWidth ctx.theme.accent)
+        }
     }
 }

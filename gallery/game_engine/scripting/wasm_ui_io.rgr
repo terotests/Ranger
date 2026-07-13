@@ -361,6 +361,14 @@ class WasmUiEvgBuilder {
         return el
     }
 
+    ; RgUiAlign enum (0 start,1 center,2 end,3 space-between) -> EVG string.
+    fn alignName:string (v:int) {
+        if (v == 1) { return "center" }
+        if (v == 2) { return "flex-end" }
+        if (v == 3) { return "space-between" }
+        return "flex-start"
+    }
+
     ; Apply the node's contiguous property run to a plain View/Text/Spacer.
     fn applyProps:void (doc:WasmUiDoc i:int el:EVGElement) {
         def fp (doc.nodeFirstProp(i))
@@ -389,10 +397,16 @@ class WasmUiEvgBuilder {
             }
             if (key == 12) {                ; PADDING (all sides)
                 def pad (this.pxUnit((doc.propValueA(idx))))
+                ; EVGLayout reads the BOX model (box.padding*), not the top-level
+                ; el.padding* fields - set both so padding actually insets.
                 el.paddingTop = pad
                 el.paddingRight = pad
                 el.paddingBottom = pad
                 el.paddingLeft = pad
+                el.box.setPadding((this.pxUnit((doc.propValueA(idx)))))
+            }
+            if (key == 14) {                ; BORDER_RADIUS (px)
+                el.box.borderRadius = (this.pxUnit((doc.propValueA(idx))))
             }
             if (key == 20) {                ; FLEX
                 el.flex = (to_double (doc.propValueA(idx)))
@@ -403,6 +417,12 @@ class WasmUiEvgBuilder {
                 } {
                     el.flexDirection = "column"
                 }
+            }
+            if (key == 22) {                ; ALIGN_ITEMS (cross axis)
+                el.alignItems = (this.alignName((doc.propValueA(idx))))
+            }
+            if (key == 23) {                ; JUSTIFY_CONTENT (main axis)
+                el.justifyContent = (this.alignName((doc.propValueA(idx))))
             }
             p = (p + 1)
         }

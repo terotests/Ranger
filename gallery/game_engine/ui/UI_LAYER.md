@@ -189,10 +189,22 @@ and reporting the action button back to the guest. This rides the existing
 ```
 
 **ABI additions** (`wasm_ui_abi.h`): node `flags` bits `SELECTABLE` / `DISABLED`
-/ `DEFAULT`, `event_mask` bits `ACTIVATE` / `SELECT` / `DESELECT`, and the
-optional guest export `rg_ui_event(node_id, event, value)`. The AS builder
-(`../wasm/as_autopeli/assembly/ui.ts`) gains fluent `.selectable()`,
-`.onActivate()`, `.defaultSelected()`, `.disabled()` and a `button()` opener.
+/ `DEFAULT`, `event_mask` bits `ACTIVATE` / `SELECT` / `DESELECT`, the property
+key `BORDER_RADIUS`, and the optional guest export
+`rg_ui_event(node_id, event, value)`. The AS builder
+(`../wasm/as_autopeli/assembly/ui.ts`) gains a `button()` opener plus fluent
+`.selectable()`, `.onActivate()`, `.defaultSelected()`, `.disabled()`, and the
+visual setters `.width()`, `.height()`, `.background()`, `.radius()`,
+`.alignItems()`/`.center()`, `.justify()`.
+
+**All styling is guest-declared, host-resolved.** Centring, size, colours and
+corner radius are RGU1 properties the guest sets (e.g. an outer `column().center()`
+root wrapping a `width(280).background(…).radius(16)` card); the host reader maps
+them onto `EVGElement` and **EVGLayout** resolves position/size — the host
+renderer carries no per-menu styling, and the selection highlight's rounding
+follows the selected node's declared `radius`. (Reader note: padding is applied
+to the **box model** `el.box.padding*`, which is what EVGLayout reads — the
+top-level `el.padding*` fields do not affect layout.)
 
 **Host pieces** (`ui/`):
 * `WasmUiSelect.rgr` — `WasmUiRenderer` (EVG tree → SoftCanvas with cached TTF

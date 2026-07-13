@@ -117,6 +117,101 @@ class UIContext {
         this.fillRect((x + rw - t) y t rh col)          ; right
     }
 
+    ; --- rounded rectangles ----------------------------------------------------
+    fn clampi:int (v:int lo:int hi:int) {
+        if (v < lo) { return lo }
+        if (v > hi) { return hi }
+        return v
+    }
+
+    ; True if (px,py) is inside the rounded rect [x,y,w,h] with corner radius rad.
+    ; The clamp-to-inner-rect + radius test also clips to the rect bounds.
+    fn roundedInside:boolean (px:int py:int x:int y:int w:int h:int rad:int) {
+        if (w <= 0) { return false }
+        if (h <= 0) { return false }
+        def r rad
+        def hw (to_int (w / 2))
+        def hh (to_int (h / 2))
+        if (r > hw) { r = hw }
+        if (r > hh) { r = hh }
+        if (r < 0) { r = 0 }
+        if (r == 0) {
+            if (px < x) { return false }
+            if (py < y) { return false }
+            if (px >= (x + w)) { return false }
+            if (py >= (y + h)) { return false }
+            return true
+        }
+        def qx (this.clampi(px (x + r) ((x + w - 1) - r)))
+        def qy (this.clampi(py (y + r) ((y + h - 1) - r)))
+        def dx (px - qx)
+        def dy (py - qy)
+        return (((dx * dx) + (dy * dy)) <= (r * r))
+    }
+
+    fn fillRoundRectA:void (x:int y:int rw:int rh:int rad:int r:int g:int b:int a:int) {
+        if (rw <= 0) { return }
+        if (rh <= 0) { return }
+        if (rad <= 0) {
+            this.fillRectA(x y rw rh r g b a)
+            return
+        }
+        def yy y
+        def yEnd (y + rh)
+        while (yy < yEnd) {
+            def xx x
+            def xEnd (x + rw)
+            while (xx < xEnd) {
+                if (this.roundedInside(xx yy x y rw rh rad)) {
+                    this.blendPixel(xx yy r g b a)
+                }
+                xx = (xx + 1)
+            }
+            yy = (yy + 1)
+        }
+    }
+
+    fn fillRoundRect:void (x:int y:int rw:int rh:int rad:int col:EVGColor) {
+        def a:int (to_int ((col.alpha()) * 255.0))
+        this.fillRoundRectA(x y rw rh rad (col.red()) (col.green()) (col.blue()) a)
+    }
+
+    ; Stroke a rounded outline of `t` px (the ring between the outer rounded rect
+    ; and an inner one inset by t). Composites over existing content.
+    fn strokeRoundRect:void (x:int y:int rw:int rh:int rad:int t:int col:EVGColor) {
+        if (rw <= 0) { return }
+        if (rh <= 0) { return }
+        if (rad <= 0) {
+            this.strokeRect(x y rw rh t col)
+            return
+        }
+        def cr:int (col.red())
+        def cg:int (col.green())
+        def cb:int (col.blue())
+        def ca:int (to_int ((col.alpha()) * 255.0))
+        def innerRad (rad - t)
+        if (innerRad < 0) { innerRad = 0 }
+        def ix (x + t)
+        def iy (y + t)
+        def iw (rw - (t * 2))
+        def ih (rh - (t * 2))
+        def yy y
+        def yEnd (y + rh)
+        while (yy < yEnd) {
+            def xx x
+            def xEnd (x + rw)
+            while (xx < xEnd) {
+                if (this.roundedInside(xx yy x y rw rh rad)) {
+                    if ((this.roundedInside(xx yy ix iy iw ih innerRad)) == false) {
+                        this.blendPixel(xx yy cr cg cb ca)
+                    }
+                }
+                xx = (xx + 1)
+            }
+            yy = (yy + 1)
+        }
+    }
+
     ; --- text ------------------------------------------------------------------
     fn text:void (s:string x:int y:int size:double col:EVGColor) {
         tr.drawLine(canvas s x y size (col.red()) (col.green()) (col.blue()) (to_int ((col.alpha()) * 255.0)))

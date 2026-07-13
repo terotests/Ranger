@@ -130,6 +130,23 @@ class RgUiWriter {
         this.propColorBytes(2 r g b a)
         return this
     }
+    fn radius:RgUiWriter (v:int) {
+        this.propI32(14 v)
+        return this
+    }
+    ; RgUiAlign: 0 start, 1 center, 2 end, 3 space-between
+    fn alignItems:RgUiWriter (a:int) {
+        this.propEnum(22 a)
+        return this
+    }
+    fn justify:RgUiWriter (a:int) {
+        this.propEnum(23 a)
+        return this
+    }
+    fn center:RgUiWriter () {
+        this.propEnum(22 1)
+        return this
+    }
 
     ; ---- fluent interactivity ------------------------------------------------
     fn selectable:RgUiWriter () {

@@ -198,6 +198,7 @@ enum RgUiPropertyKey {
     RG_UI_KEY_HEIGHT         = 11,  /* i32 px                                 */
     RG_UI_KEY_PADDING        = 12,  /* i32 px (all sides)                     */
     RG_UI_KEY_MARGIN         = 13,  /* i32 px (all sides)                     */
+    RG_UI_KEY_BORDER_RADIUS  = 14,  /* i32 px (rounded corners)               */
 
     RG_UI_KEY_FLEX           = 20,  /* i32 (flex-grow)                        */
     RG_UI_KEY_FLEX_DIRECTION = 21,  /* enum RgUiFlexDirection                 */

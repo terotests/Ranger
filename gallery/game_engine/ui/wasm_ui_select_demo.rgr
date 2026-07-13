@@ -37,17 +37,21 @@ class WasmUiSelectDemo {
     ; This is exactly what the AS guest's rebuild() emits.
     sfn buildMenu:[int] (plays:int lastId:int) {
         def w:RgUiWriter (new RgUiWriter)
-        w.view(1 0 0).column().padding(12).bg(24 28 44 255)
-        w.label(10 1 0 "WASM UI - Main Menu" 4294967295 20)
-        w.button(11 1 1 "New Game" 3505978623 16).onActivate().defaultSelected()
-        w.button(12 1 2 "Continue" 3505978623 16).onActivate()
-        w.button(13 1 3 "Options" 3505978623 16).onActivate()
-        w.button(14 1 4 "Quit" 4285559039 16).onActivate()
+        ; Outer root fills the frame and centres its child horizontally.
+        w.view(1 0 0).column().center().padding(22)
+        ; The menu "card": fixed width, padded, rounded, translucent panel — every
+        ; visual attribute declared here (in the guest), rendered by the host EVG.
+        w.view(2 1 0).column().padding(18).width(280).bg(36 42 64 255).radius(16)
+        w.label(10 2 0 "WASM UI - Main Menu" 4294967295 20)
+        w.button(11 2 1 "New Game" 3505978623 16).onActivate().defaultSelected().radius(8)
+        w.button(12 2 2 "Continue" 3505978623 16).onActivate().radius(8)
+        w.button(13 2 3 "Options" 3505978623 16).onActivate().radius(8)
+        w.button(14 2 4 "Quit" 4285559039 16).onActivate().radius(8)
         def status:string ("plays: " + (to_string plays))
         if (lastId != 0) {
             status = (status + "   last: #" + (to_string lastId))
         }
-        w.label(90 1 5 status 2410771663 13)
+        w.label(90 2 5 status 2410771663 13)
         return (w.emit())
     }
 
@@ -77,7 +81,7 @@ class WasmUiSelectDemo {
     }
 
     sfn drawFrame:void (ctx:UIContext ctrl:UiSelectController root:EVGElement canvas:SoftCanvas file:string) {
-        canvas.clear(24 28 44)
+        canvas.clear(16 18 30)
         ctrl.renderer.draw(ctx root)
         ctrl.renderHighlight(ctx)
         WasmUiSelectDemo.snap(canvas file)
@@ -94,6 +98,10 @@ class WasmUiSelectDemo {
         ctx.tr.loadFont("Open Sans" "Open_Sans/OpenSans-Regular.ttf")
 
         def ctrl:UiSelectController (new UiSelectController)
+        ; Host-side cursor look only (thickness + gap); the highlight's ROUNDING
+        ; follows the selected node's guest-declared border radius.
+        ctrl.borderWidth = 2
+        ctrl.highlightPad = 4
 
         ; ---- frame 0: initial menu (guest revision 0) ----
         def doc:WasmUiDoc (new WasmUiDoc)

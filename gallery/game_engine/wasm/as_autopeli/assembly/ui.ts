@@ -78,13 +78,25 @@ const T_ENUM: u8 = 7;
 
 // property keys
 const K_TEXT: u16 = 1;
+const K_BACKGROUND: u16 = 2;
 const K_COLOR: u16 = 3;
 const K_FONT_SIZE: u16 = 4;
+const K_WIDTH: u16 = 10;
+const K_HEIGHT: u16 = 11;
 const K_PADDING: u16 = 12;
+const K_BORDER_RADIUS: u16 = 14;
 const K_FLEX_DIRECTION: u16 = 21;
+const K_ALIGN_ITEMS: u16 = 22;
+const K_JUSTIFY: u16 = 23;
 
 export const DIR_ROW: u32 = 0;
 export const DIR_COLUMN: u32 = 1;
+
+// RgUiAlign
+export const ALIGN_START: u32 = 0;
+export const ALIGN_CENTER: u32 = 1;
+export const ALIGN_END: u32 = 2;
+export const ALIGN_SPACE_BETWEEN: u32 = 3;
 
 const FLAG_VALID: u32 = 1;
 
@@ -222,6 +234,14 @@ export class Ui {
   row(): Ui { this.propEnum(K_FLEX_DIRECTION, DIR_ROW); return this; }
   column(): Ui { this.propEnum(K_FLEX_DIRECTION, DIR_COLUMN); return this; }
   padding(v: i32): Ui { this.propI32(K_PADDING, v); return this; }
+  width(v: i32): Ui { this.propI32(K_WIDTH, v); return this; }
+  height(v: i32): Ui { this.propI32(K_HEIGHT, v); return this; }
+  background(rgba: u32): Ui { this.propColor(K_BACKGROUND, rgba); return this; }
+  radius(v: i32): Ui { this.propI32(K_BORDER_RADIUS, v); return this; }
+  alignItems(a: u32): Ui { this.propEnum(K_ALIGN_ITEMS, a); return this; }
+  justify(a: u32): Ui { this.propEnum(K_JUSTIFY, a); return this; }
+  // Horizontally centre children of a column (cross-axis center).
+  center(): Ui { this.propEnum(K_ALIGN_ITEMS, ALIGN_CENTER); return this; }
 
   // ---- interactivity (fluent, apply to the current node) ----
   // OR a bit into the current node's u16 flags field.
