@@ -38,7 +38,7 @@ class UiMenuRunnerDemo {
         def failed 0
 
         def runner:GameUiRunner (new GameUiRunner)
-        runner.init(360 400 "gallery/pdf_writer/assets/fonts" "Open_Sans/OpenSans-Regular.ttf" "Open Sans")
+        runner.init(360 400 "gallery/game_engine/assets/fonts" "OpenSans-Regular.ttf" "Open Sans")
         def bytes:[int] (UiMenuRunnerDemo.buildMenu())
         def ok:boolean (runner.loadDoc(bytes (array_length bytes)))
         if ok { passed = (passed + 1) } { failed = (failed + 1) }
