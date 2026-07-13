@@ -39,9 +39,10 @@ class WasmUiSelectDemo {
         def w:RgUiWriter (new RgUiWriter)
         ; Outer root fills the frame and centres its child horizontally.
         w.view(1 0 0).column().center().padding(22)
-        ; The menu "card": fixed width, padded, rounded, translucent panel — every
-        ; visual attribute declared here (in the guest), rendered by the host EVG.
-        w.view(2 1 0).column().padding(18).width(280).bg(36 42 64 255).radius(16)
+        ; The menu "card": fixed width, padded, rounded, translucent panel, with
+        ; its items centred too — every visual attribute declared here (in the
+        ; guest), rendered by the host EVG.
+        w.view(2 1 0).column().center().padding(18).width(280).bg(36 42 64 255).radius(16)
         w.label(10 2 0 "WASM UI - Main Menu" 4294967295 20)
         w.button(11 2 1 "New Game" 3505978623 16).onActivate().defaultSelected().radius(8)
         w.button(12 2 2 "Continue" 3505978623 16).onActivate().radius(8)

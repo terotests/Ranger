@@ -58,8 +58,9 @@ function rebuild(): void {
   // the host EVG layout/renderer just resolves them.
   ui.view(ROOT, 0, 0).column().center().padding(22);
 
-  // The menu "card": fixed width, padded, rounded, translucent panel.
-  ui.view(CARD, ROOT, 0).column().padding(18).width(280).background(C_CARD).radius(16);
+  // The menu "card": fixed width, padded, rounded, translucent panel, with its
+  // items centred (cross-axis center on the column).
+  ui.view(CARD, ROOT, 0).column().center().padding(18).width(280).background(C_CARD).radius(16);
 
   ui.label(TITLE, CARD, 0, "WASM UI - Main Menu", C_TITLE, 20);
 
