@@ -236,16 +236,72 @@ to have the taxonomy.
   interpreted `.as`, `AsAbiBridge` gains a third buffer `pose:[int]` beside
   `abi:[int]`/`ui:[int]` (`as_abi_bridge.rgr:18-19`) with the same LE accessors —
   identical to how the UI block already has an interpreted backend.
-- **Source seam:** the MediaPipe → WebSocket bridge feeds the provider a sample;
-  the provider is the only thing that touches ABI bytes, so the transport stays
-  entirely host-side and swappable (a recorded-pose provider for tests drops in
-  with no guest change — the same way a rect resource stands in for a missing
-  image).
+- **Source seam:** a `PoseSource` drives the AI model and writes one latest frame
+  into a shared buffer; the provider copies that into RGP1. The provider is the
+  only thing that touches ABI bytes, so the source is swappable (a recorded-pose
+  source for tests, or a smaller/faster model, drops in with no guest change — the
+  same way a rect resource stands in for a missing image).
 
 Pose *respects the resource provider's discipline in the other direction*: fixed
 typed layout (RGP1), no pointers cross, host owns the transport, guest reads a
 bounded snapshot. The limitations are inherited, only the direction and cadence
 flip.
+
+### 6.1 Layering & the swap boundary (what recompiles when)
+
+The chain has a **narrow waist** — RGP1. Everything on the source side is
+swappable; only RGP1's *shape* is a hard boundary.
+
+```
+[ AI model ] → [ PoseSource ] → [ shared buffer ] → [ PoseProvider ] → ‖ RGP1 ‖ → [ game ]
+  MediaPipe      adapter:         SharedArrayBuffer     host glue:         stable     guest
+  WASM, a        drives model,    (latest-value         copy latest        contract   reads
+  black box      writes buffer     snapshot)            frame → RGP1                   RGP1
+```
+
+| Change | Game recompile? | What you do |
+| --- | --- | --- |
+| Model weights, same family (lite→heavy `.task`) | **No** | load a different asset |
+| Whole inference engine (MediaPipe→ONNX→custom) | **No** | write/swap the `PoseSource` adapter; host module only |
+| Transport (SAB↔WebSocket↔native mmap) | **No** | swap the source/transport half |
+| **RGP1 layout** (new landmarks, new scale) | **Yes** | ABI change: bump RGP1 version, gate with the cap bit |
+
+Interpretation has a deliberate degree of freedom: RGP1 carries **both** raw
+landmarks **and** a computed gesture enum. A game that reads the enum lets the
+*source side* own gesture detection — so a better classifier ships without
+recompiling games; a game that reads raw landmarks interprets for itself, at the
+cost of a rebuild to change that logic. Push interpretation to the source and
+have games read the enum when you want model improvements to be runtime-only.
+
+### 6.2 Transport: SharedArrayBuffer is primary; WebSocket is a niche adapter
+
+Game input is a **register read** ("what is the pose right now"), not a message
+stream: each frame wants the latest value and to skip whatever it missed.
+
+- **SharedArrayBuffer (primary).** A MediaPipe Web Worker writes landmarks into a
+  SAB; the host reads the latest complete frame guarded by a **seqlock** (odd
+  while writing, even when stable) and copies it into RGP1. This is drop-to-latest
+  by construction, the lowest-latency handoff, single-process, and the *same shape
+  RGW1 input already uses* — RGP1's `revision` field (offset 8) is exactly that
+  seqlock counter. The payload is a few hundred bytes, so the per-frame copy is
+  negligible. Its one requirement is cross-origin isolation (`COOP`/`COEP`) to
+  enable `SharedArrayBuffer` — a config line on a kiosk you serve yourself.
+- **WebSocket (niche only).** Justified *solely* when inference cannot share the
+  runtime — native MediaPipe in a separate process, a remote/edge inference box.
+  It is a message-queue primitive, so getting latest-only means fighting it
+  (drain/coalesce/drop), it adds serialize→hop→deserialize latency and jitter, and
+  a second process to supervise — all for a payload that gains nothing from a
+  socket. Do **not** default to it.
+
+Because transport lives behind the `PoseSource` seam, this is not a one-way door:
+SAB now; a WebSocket `PoseSource` slots in later *iff* a remote/native source ever
+appears, with RGP1 and every game untouched.
+
+Two SAB flavors, for later: (a) a **separate** SAB for RGP1 + a small copy into
+the guest's linear memory each frame — simple, no special guest build, the PoC
+choice; (b) the guest's own `WebAssembly.Memory({shared:true})` *is* the SAB and
+the worker writes RGP1 in place — true zero-copy, but needs a shared-memory guest
+build. Start with (a); (b) is an optimization.
 
 ---
 
@@ -268,10 +324,15 @@ flip.
 2. Retrofit `ResourceProvider` (and `StaticWorldProvider`) onto it; verify the
    autopeli / world_scroll demos are byte-identical.
 3. Wire the capability gate through `requiredCapsSatisfied` (§5).
-4. RGP1 block header + guest exports; `PoseProvider` writing zeros; interpreted
-   `pose:[int]` backend.
-5. MediaPipe → WebSocket source feeding `PoseProvider`; recorded-pose provider
-   for headless tests.
+4. RGP1 block header + guest exports; interpreted `pose:[int]` backend;
+   `SharedPoseBuffer` (seqlock) + `PoseSource` seam + `PoseProvider.pump()`.
+   *(done — §9.)*
+5. Browser transport: `SharedPoseBuffer` becomes a real `SharedArrayBuffer`, and a
+   `MediaPipeWorkerSource` (MediaPipe WASM in a Web Worker) replaces
+   `FakePoseSource` — first fed static test images (no camera), then the USB
+   camera. `FakePoseSource` / a recorded-pose source stay as the headless-test
+   sources. A WebSocket source is added later *only if* out-of-process/remote
+   inference is ever required (§6.2).
 
 Steps 1–3 are pure refactor + the already-specified gate; the pose-specific work
 (4–5) only begins once the seam exists and is proven by the retrofit.
@@ -295,18 +356,28 @@ Pieces:
   `8` revision, `12` present, `16` gesture, `20` landmark count, `32..`
   landmark[i] = xFp, yFp (world units ×256). Gesture enum: `0` none, `1`
   arms_up, `2` lean_left, `3` lean_right.
-- **PoseProvider** (`scripting/game_pose_provider.rgr`): the host→guest + frame
-  provider. Declares `id="pose"`, `capBit=16` (`RG_WASM_HOST_CAP_POSE_INPUT`),
-  `direction=2`, `cadence=2`, and `writeFrame(bridge, t)` fabricates a
-  deterministic pose (nose sweep + periodic arms_up) and streams it into RGP1.
-  A MediaPipe source swaps in behind the same `writeFrame` with no guest change.
+- **Source / shared buffer / provider** (`scripting/game_pose_provider.rgr`),
+  the three layers from §6.1 wired but decoupled:
+  - `SharedPoseBuffer` — the SharedArrayBuffer analog: a byte buffer holding one
+    latest frame (present, gesture, count, landmarks) plus a **seqlock** at
+    offset 12 (odd while writing, even when stable). Single-threaded here, but the
+    write (`beginWrite`/`endWrite`) and read (`seqValue` before/after) protocol is
+    what the browser build uses once this becomes a real SAB.
+  - `PoseSource` / `FakePoseSource` — the swappable source seam. `FakePoseSource`
+    fabricates a deterministic pose (nose sweep + periodic arms_up) into the shared
+    buffer; a `MediaPipeWorkerSource` later overrides `produce()` with real
+    landmarks and nothing else changes.
+  - `PoseProvider` — host→guest + frame provider (`id="pose"`, `capBit=16`,
+    `direction=2`, `cadence=2`). `pump()` does *only* the seqlock read of the
+    latest frame and the copy into RGP1 — no fabrication, no model knowledge.
 - **pose_demo game** (`games/pose_demo/game.as`, ylos2 sprites): moves the hero
   sprite (body 0) to the tracked head position and spawns a super sprite
   (body 1) on each ARMS_UP gesture, building a pose-driven RGU1 HUD.
-- **pose_provider_demo** (`scripting/pose_provider_demo.rgr`): wires provider →
-  RGP1 → `callUpdate()` → reads RGW1 back, printing the reaction each frame.
-  Verified: hero X tracks the streamed nose (120→348), `bodies` flips 1↔2 with
-  arms_up, the HUD shows `POSE ARMS_UP` / `SUPERS n`.
+- **pose_provider_demo** (`scripting/pose_provider_demo.rgr`): wires
+  `source.produce → shared buffer → provider.pump → RGP1 → callUpdate()`, then
+  reads RGW1 back and prints the reaction each frame. Verified: the game's hero X
+  tracks the nose the source published into the shared buffer (120→348), `bodies`
+  flips 1↔2 with arms_up, the HUD shows `POSE ARMS_UP` / `SUPERS n`.
 
 ### Tokenizer fix landed while building this (non-ASCII source truncation)
 

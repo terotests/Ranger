@@ -46,7 +46,13 @@ class PoseProviderDemo {
         runner.callInit()
 
         def bridge:AsAbiBridge (runner.poseBridge())
-        def provider:PoseProvider (new PoseProvider)
+
+        ; The three layers, wired but decoupled. Swapping `source` (fake -> a real
+        ; MediaPipe worker) is the only change needed to drive this from a camera.
+        def source:PoseSource (new FakePoseSource)      ; AI-model adapter (source side)
+        def shared:SharedPoseBuffer (new SharedPoseBuffer)  ; SharedArrayBuffer analog
+        def provider:PoseProvider (new PoseProvider)    ; host glue: shared -> RGP1
+        shared.ensure()
 
         def frames:int 200
         if ((shell_arg_cnt) > 0) {
@@ -57,27 +63,30 @@ class PoseProviderDemo {
         }
 
         print (+ "provider id=" (+ (provider.id()) (+ " capBit=" (+ (to_string (provider.capBit())) (+ " dir=" (+ (to_string (provider.direction())) (+ " cadence=" (to_string (provider.cadence())))))))))
+        print (+ "source=" (+ (source.id()) " (swap this object to change the AI model)"))
         print "frame | gesture     | noseX | heroX heroY | bodies | supers"
 
         def t 0
         while (t < frames) {
-            ; --- host writes the pose sample into RGP1 (before update) ---
-            provider.writeFrame(bridge t)
+            ; 1) source (MediaPipe-worker analog) writes one frame into the SAB
+            source.produce(shared t)
+            ; 2) provider copies the latest SAB frame into RGP1 (before update)
+            provider.pump(shared bridge)
             runner.abiWrite(12 16)          ; dt ms
             runner.abiWrite(16 (t * 16))    ; time ms
-            ; --- guest reads RGP1 and reacts ---
+            ; 3) guest reads RGP1 and reacts
             runner.callUpdate()
 
-            ; --- read the reaction back out of RGW1 ---
+            ; --- read the reaction back out of RGW1, and the source truth from SAB ---
             def bodies:int (runner.abiRead(28))
             def heroX:int (idiv (runner.abiRead(64)) 256)
             def heroY:int (idiv (runner.abiRead(68)) 256)
             def supers:int (runner.abiRead(40))
-            def nose:int (provider.noseX(t))
-            def g:int (provider.gestureFor(t nose))
+            def nose:int (idiv (shared.landmarkX(0)) 256)   ; what the source published
+            def g:int (shared.getGesture())
 
             if ((t % 12) == 0) {
-                def gn:string (provider.gestureName(g))
+                def gn:string (PoseSource.gestureName(g))
                 def col:string (PoseProviderDemo.pad(gn))
                 def line:string (+ (to_string t) (+ "\t| " (+ col (+ "| " (+ (to_string nose) (+ "\t| " (+ (to_string heroX) (+ " " (+ (to_string heroY) (+ "\t| " (+ (to_string bodies) (+ "\t| " (to_string supers)))))))))))))
                 print line
