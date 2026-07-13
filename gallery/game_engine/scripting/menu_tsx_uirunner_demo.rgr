@@ -55,9 +55,27 @@ class MenuTsxUiRunnerDemo {
             def _i:int (r.frame(idle))
             k = (k + 1)
         }
+        c.ok(("category opened -> games screen (got '" + (r.tsxStr("screen")) + "')") ((r.tsxStr("screen")) == "games"))
 
-        ; ---- press A on the first game: the launcher reports its path ----
+        ; ---- Back/Quit in the games list goes UP to categories, NOT exit ----
+        r.setNavQuit(true)
+        def _q0:int (r.frame(idle))
+        c.ok(("back from games -> categories (got '" + (r.tsxStr("screen")) + "')") ((r.tsxStr("screen")) == "cats"))
+        c.ok("back from games did NOT quit the app" ((r.wantsQuitTsx()) == false))
+
+        ; ---- Back/Quit on the categories screen DOES request app exit ----
+        r.setNavQuit(true)
+        def _q1:int (r.frame(idle))
+        c.ok("back from categories requests quit" (r.wantsQuitTsx()))
+
+        ; ---- reopen a category and launch a game -> the launcher reports a path
         def _a1:int (r.frame(act))
+        def k2 0
+        while (k2 < 30) {
+            def _i2:int (r.frame(idle))
+            k2 = (k2 + 1)
+        }
+        def _a2:int (r.frame(act))
         def lp:string (r.launchPathTsx())
         c.ok(("launcher reported a launch path (got '" + lp + "')") ((strlen lp) > 0))
 

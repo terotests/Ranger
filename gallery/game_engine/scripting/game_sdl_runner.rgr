@@ -1267,14 +1267,14 @@ class GameSdlRunner {
             nav.left = (this.leftEdge((bit_and m 16) != 0))
             nav.right = (this.rightEdge((bit_and m 32) != 0))
             nav.action = (this.actionEdge((bit_and m 4) != 0))
+            ; feed the Back/Quit edge to the guest instead of exiting here: the
+            ; launcher decides back-vs-exit (games list -> categories; categories
+            ; -> quit app, reported as quitApp -> wantsQuitTsx).
+            uiRunner.setNavQuit((this.quitEdge((this.gameMenuBackHeld()))))
             def _a:int (uiRunner.frame(nav))
             uiRunner.render()
             gfx_present (uiRunner.raw()) uw uh
 
-            if (this.quitEdge((this.gameMenuBackHeld()))) {
-                running = false
-                return
-            }
             if (uiRunner.wantsQuitTsx()) {
                 running = false
                 return

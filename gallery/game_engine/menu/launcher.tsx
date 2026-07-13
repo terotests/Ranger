@@ -75,7 +75,13 @@ function update(props) {
   let sel = s.sel;
   let cat = s.cat;
 
+  // Back/quit is context-sensitive: from a category's game list it goes back up
+  // to the categories screen; only from the top categories screen does it exit
+  // the app.
   if (props.quit) {
+    if (screen === "games") {
+      return { screen: "cats", sel: cat, cat, launchPath: "", quitApp: 0, now, anim: null, onDone: null };
+    }
     return { screen, sel, cat, launchPath: "", quitApp: 1, now, anim: null, onDone: null };
   }
 

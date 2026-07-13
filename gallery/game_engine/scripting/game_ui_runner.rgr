@@ -220,9 +220,18 @@ class GameUiRunner {
         push v (EvalValue.boolean((withInput && nav.right)))
         push k "action"
         push v (EvalValue.boolean((withInput && nav.action)))
+        ; the back/quit edge is context-sensitive: the guest decides whether it
+        ; means "go up a screen" or "exit the app" (reported via quitApp in state).
         push k "quit"
-        push v (EvalValue.boolean(false))
+        push v (EvalValue.boolean((withInput && navQuit)))
         return (EvalValue.object(k v))
+    }
+
+    ; Host sets this from the Back/Quit edge before frame(); consumed by the tsx
+    ; guest's update() so it (not the host loop) decides back-vs-exit.
+    def navQuit:boolean false
+    fn setNavQuit:void (b:boolean) {
+        navQuit = b
     }
 
     ; Re-render the guest's hud() into `root` and lay it out. No autoscale rebuild
@@ -335,6 +344,7 @@ class GameUiRunner {
             ; feed the D-pad edges to update(), then re-render its hud() tree.
             uiTimeMs = (uiTimeMs + 16)
             tsxState = (tsxEngine.callFunction("update" (this.tsxProps(nav true))))
+            navQuit = false      ; one-shot edge, consumed by this update()
             this.refreshFromTsx()
             tsxLaunch = (this.tsxStr("launchPath"))
             tsxQuit = ((this.tsxStr("quitApp")) == "1")
