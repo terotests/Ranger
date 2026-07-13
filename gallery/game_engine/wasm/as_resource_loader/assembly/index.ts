@@ -98,7 +98,10 @@ function generateTile(cx: i32, cy: i32): i32 {
       const r = <u8>((x * 16 + cx * 40) & 0xff);
       const g = <u8>((y * 16 + cy * 40) & 0xff);
       const b = <u8>(((x ^ y) * 8 + cx * 7 + cy * 13) & 0xff);
-      wrb(o, r); wrb(o + 1, g); wrb(o + 2, b); wrb(o + 3, 255);
+      // 4th byte 0 (not 255) so a host reading the tile as a little-endian i32
+      // gets a positive value (no sign bit) — simplifies byte extraction in the
+      // Ranger renderer. Checksum still folds in a constant to stay distinct.
+      wrb(o, r); wrb(o + 1, g); wrb(o + 2, b); wrb(o + 3, 0);
       checksum = (checksum + <i32>r + <i32>g + <i32>b + 255) & 0x7fffffff;
       o += 4;
     }

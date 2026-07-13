@@ -37,10 +37,28 @@ Sample HUD (player coordinates + a live map, `@` = player cell, `#` = loaded):
 memory stayed bounded (peak 16, ring cap 25). That boundedness under unbounded
 travel is the result the test asserts (`WORLD_STRESS_OK`).
 
-## Not yet in the SDL Games menu
+## SDL rendering (the whole chain, on screen)
 
-This runs headless (the HUD is printed). Rendering it as a live SDL launcher game
-— generated tiles drawn as real sprites, keyboard-driven player, on-screen HUD —
-needs host operators that load and drive the worker + loader from the game loop
-(`game_runtime`). That wiring is the follow-on; the streaming policy, generation,
-and freeing it would drive are already proven here.
+The streaming world now renders through the engine's real SDL path — the loader's
+actual generated tiles drawn as sprites, a camera that follows the player, and a
+coordinate HUD:
+
+```bash
+npm run engine:game-sdl:streaming-world       # build worker + AS loader + SDL app, run headless
+./tmp/streaming-world/streaming_world_sdl      # windowed: WASD / arrows move, Q/Esc quits
+```
+
+- `streaming_world_sdl.rgr` — Ranger → C++ → SDL2 front-end.
+- `scripting/streaming_world_runner.rgr` — `StreamingWorldRunner`: drives
+  `worker.wasm` + the spawned `resource_loader.wasm`, captures each cell's 16×16
+  tile and blits it (scaled) onto SoftCanvas via `blitImageRectScaled`, follows
+  the player with a camera, and draws the coordinate HUD. Presented with
+  `gfx_present` — the same renderer every other game uses.
+
+A headless run (`SDL_VIDEODRIVER=dummy`, frame count given) dumps one frame's RGBA
+buffer to `tmp/streaming-world/frame.rgba` so it can be turned into a PNG without a
+display.
+
+Wiring it as an entry in the SDL launcher *menu* (a `game.info` the catalog picks
+up) is the remaining step; the runner already exposes the same
+init/frameWithInput/draw/raw surface the menu's wasm games use.

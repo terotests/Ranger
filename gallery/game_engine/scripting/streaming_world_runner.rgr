@@ -1,0 +1,365 @@
+; ==============================================================================
+; streaming_world_runner — SDL host for the streaming world (two WASM modules).
+; ==============================================================================
+;
+; Drives the whole chain through the engine's existing renderer:
+;   worker.wasm (Rust)          -> camera residency ring: load/free cells
+;   resource_loader.wasm (AS)   -> generates/frees a 16x16 RGBA tile per cell
+;   this runner                 -> blits each live cell's real tile (scaled) onto
+;                                  SoftCanvas, follows the player with a camera,
+;                                  and draws a coordinate HUD. Presented by
+;                                  game_sdl_runner via gfx_present, same as any
+;                                  wasm game.
+;
+; Same drive surface as WasmGameRunner (init / frameWithInput / draw / raw) so
+; game_sdl_runner can run it in the SDL window / Games menu.
+; ==============================================================================
+
+Import "../framebuffer.rgr"
+Import "../wasm_runtime.rgr"
+Import "./game_audio.rgr"
+Import "../../ts_to_ranger/game_host.rgr"
+Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
+
+class StreamingWorldRunner {
+    def canvas:SoftCanvas (new SoftCanvas)
+    def host:GameHost (new GameHost)
+    def audio:GameAudio (new GameAudio)
+    def worker:int 0
+    def loader:int 0
+    def wbase:int 0
+    def lbase:int 0
+    def pw:int 0
+    def ph:int 0
+    def px:int 0
+    def py:int 0
+    def cellSize:int 96
+    def preload:int 2
+    def retire:int 3
+    def autoStep:int 0
+    def fpsShown:int 0
+    def loaderPath:string "gallery/game_engine/games/streaming_worker/resource_loader.wasm"
+    ; live cells (parallel arrays) with their captured tiles
+    def cellX:[int]
+    def cellY:[int]
+    def tiles:[ImageBuffer]
+    ; RGX1 (worker) offsets
+    def X_CAM_X:int 16
+    def X_CAM_Y:int 20
+    def X_VIEW_W:int 28
+    def X_VIEW_H:int 32
+    def X_WORLD_COLS:int 36
+    def X_WORLD_ROWS:int 40
+    def X_CELL_W:int 44
+    def X_CELL_H:int 48
+    def X_PRELOAD_R:int 52
+    def X_RETIRE_R:int 56
+    def X_CULL_MARGIN:int 60
+    def X_ENT_COUNT:int 64
+    def X_LOAD_CNT:int 1680
+    def X_FREE_CNT:int 1684
+    def X_LOAD_REQ:int 1696
+    def X_FREE_REQ:int 1952
+    def X_REQ_SIZE:int 8
+    def X_LOADER_PATH_LEN:int 2208
+    def X_LOADER_PATH:int 2212
+    ; RGLD (loader) offsets
+    def L_REQ_KIND:int 16
+    def L_REQ_CELLX:int 20
+    def L_REQ_CELLY:int 24
+    def L_STATUS:int 32
+    def L_LIVE:int 56
+    def L_TOTAL_GEN:int 64
+    def L_TOTAL_FREED:int 68
+    def L_DATA:int 128
+
+    fn init:void (w:int h:int) {
+        audio.init()
+        pw = w
+        ph = h
+        canvas.init(w h)
+        host.audio = audio
+        host.wireMusic()
+        ; start the player near the middle of the (finite) 1000x1000-cell world
+        px = ((500 * cellSize) + (this.half(cellSize)))
+        py = ((500 * cellSize) + (this.half(cellSize)))
+    }
+
+    fn half:int (n:int) {
+        return (idiv n 2)
+    }
+
+    fn setFpsShown:void (fps:int) {
+        fpsShown = fps
+    }
+
+    fn setProfileEnabled:void (on:boolean) {
+    }
+
+    fn raw:buffer () {
+        return (canvas.raw())
+    }
+
+    fn hostRef:GameHost () {
+        return host
+    }
+
+    fn maybeHotReload:void () {
+    }
+
+    fn resolvePlayerCount:int () {
+        return 1
+    }
+
+    ; Write a path string into wasm linear memory as packed little-endian i32s.
+    fn writeStr:void (handle:int off:int s:string) {
+        def len:int (strlen s)
+        def i:int 0
+        while (i < len) {
+            def w:int 0
+            def b:int 0
+            while (b < 4) {
+                if ((i + b) < len) {
+                    def ch:int (charAt s (i + b))
+                    w = (w + (ch * (this.pow256(b))))
+                }
+                b = (b + 1)
+            }
+            wasm_mem_set_i32 handle (off + i) w
+            i = (i + 4)
+        }
+    }
+
+    fn pow256:int (n:int) {
+        if (n == 0) { return 1 }
+        if (n == 1) { return 256 }
+        if (n == 2) { return 65536 }
+        return 16777216
+    }
+
+    fn loadModule:void (path:string) {
+        worker = (wasm_load path)
+        wasm_call_void worker "worker_init" 0 0 0 0 0 0
+        wbase = (wasm_call_i32 worker "worker_ptr" 0 0 0 0 0 0)
+        wasm_mem_set_i32 worker (wbase + X_VIEW_W) pw
+        wasm_mem_set_i32 worker (wbase + X_VIEW_H) ph
+        wasm_mem_set_i32 worker (wbase + X_WORLD_COLS) 1000
+        wasm_mem_set_i32 worker (wbase + X_WORLD_ROWS) 1000
+        wasm_mem_set_i32 worker (wbase + X_CELL_W) cellSize
+        wasm_mem_set_i32 worker (wbase + X_CELL_H) cellSize
+        wasm_mem_set_i32 worker (wbase + X_PRELOAD_R) preload
+        wasm_mem_set_i32 worker (wbase + X_RETIRE_R) retire
+        wasm_mem_set_i32 worker (wbase + X_CULL_MARGIN) 0
+        wasm_mem_set_i32 worker (wbase + X_ENT_COUNT) 0
+        wasm_mem_set_i32 worker (wbase + X_LOADER_PATH_LEN) (strlen loaderPath)
+        this.writeStr(worker (wbase + X_LOADER_PATH) loaderPath)
+        loader = (wasm_call_i32 worker "spawn_loader" 0 0 0 0 0 0)
+        if (loader <= 0) {
+            loader = (wasm_spawned_child worker)
+        }
+        if (loader > 0) {
+            wasm_call_void loader "loader_init" 0 0 0 0 0 0
+            lbase = (wasm_call_i32 loader "loader_ptr" 0 0 0 0 0 0)
+        }
+    }
+
+    fn setupScene:void () {
+        ; prime the starting ring so the first frame already has tiles
+        this.tick()
+    }
+
+    fn findCell:int (cx:int cy:int) {
+        def i:int 0
+        while (i < (array_length cellX)) {
+            if (((itemAt cellX i) == cx) && ((itemAt cellY i) == cy)) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    fn readTile:ImageBuffer () {
+        def img:ImageBuffer (new ImageBuffer())
+        img.init(16 16)
+        def i:int 0
+        while (i < 256) {
+            def w:int (wasm_mem_i32 loader (lbase + (L_DATA + (i * 4))))
+            def r:int (bit_and w 255)
+            def g:int (bit_and (idiv w 256) 255)
+            def b:int (bit_and (idiv w 65536) 255)
+            img.setPixelRGB((i % 16) (idiv i 16) r g b)
+            i = (i + 1)
+        }
+        return img
+    }
+
+    fn loaderOp:void (kind:int cx:int cy:int) {
+        if (loader <= 0) { return }
+        wasm_mem_set_i32 loader (lbase + L_REQ_KIND) kind
+        wasm_mem_set_i32 loader (lbase + L_REQ_CELLX) cx
+        wasm_mem_set_i32 loader (lbase + L_REQ_CELLY) cy
+        wasm_call_void loader "loader_tick" 0 0 0 0 0 0
+        if (kind == 3) {
+            def idx:int (this.findCell(cx cy))
+            if (idx >= 0) {
+                remove_index cellX idx
+                remove_index cellY idx
+                remove_index tiles idx
+            }
+            return
+        }
+        def status:int (wasm_mem_i32 loader (lbase + L_STATUS))
+        if (status == 1) {
+            push cellX cx
+            push cellY cy
+            push tiles (this.readTile())
+        }
+    }
+
+    ; Drive one streaming step (worker ring -> loader gen/free), no player move.
+    fn tick:void () {
+        if (worker <= 0) { return }
+        def camX:int (px - (this.half(pw)))
+        def camY:int (py - (this.half(ph)))
+        wasm_mem_set_i32 worker (wbase + X_CAM_X) camX
+        wasm_mem_set_i32 worker (wbase + X_CAM_Y) camY
+        wasm_call_void worker "worker_tick" 0 0 0 0 0 0
+        def fn:int (wasm_mem_i32 worker (wbase + X_FREE_CNT))
+        def i:int 0
+        while (i < fn) {
+            def r:int (wbase + (X_FREE_REQ + (i * X_REQ_SIZE)))
+            this.loaderOp(3 (wasm_mem_i32 worker r) (wasm_mem_i32 worker (r + 4)))
+            i = (i + 1)
+        }
+        def ln:int (wasm_mem_i32 worker (wbase + X_LOAD_CNT))
+        i = 0
+        while (i < ln) {
+            def r2:int (wbase + (X_LOAD_REQ + (i * X_REQ_SIZE)))
+            this.loaderOp(2 (wasm_mem_i32 worker r2) (wasm_mem_i32 worker (r2 + 4)))
+            i = (i + 1)
+        }
+    }
+
+    fn frame:void (dtMs:int up:boolean down:boolean left:boolean right:boolean action:boolean) {
+        this.frameWithInput(dtMs up down left right action)
+    }
+
+    fn frameWithInput:void (dtMs:int up:boolean down:boolean left:boolean right:boolean action:boolean) {
+        def spd:int 6
+        def moved:boolean false
+        if (left) {
+            px = (px - spd)
+            moved = true
+        }
+        if (right) {
+            px = (px + spd)
+            moved = true
+        }
+        if (up) {
+            py = (py - spd)
+            moved = true
+        }
+        if (down) {
+            py = (py + spd)
+            moved = true
+        }
+        if (moved == false) {
+            ; auto-walk a serpentine so the streaming is visible with no input
+            def phase:int ((idiv autoStep 40) % 4)
+            if (phase == 0) { px = (px + spd) }
+            if (phase == 1) { py = (py + spd) }
+            if (phase == 2) { px = (px - spd) }
+            if (phase == 3) { py = (py + spd) }
+            autoStep = (autoStep + 1)
+        }
+        this.tick()
+    }
+
+    fn fiveRows:[int] (a:int b:int c:int d:int e:int) {
+        def r:[int]
+        clear r
+        push r a
+        push r b
+        push r c
+        push r d
+        push r e
+        return r
+    }
+
+    fn drawDigit:void (x:int y:int scale:int d:int r:int g:int b:int) {
+        def rows:[int] (this.fiveRows(0 0 0 0 0))
+        if (d == 0) { rows = (this.fiveRows(7 5 5 5 7)) }
+        if (d == 1) { rows = (this.fiveRows(2 2 2 2 2)) }
+        if (d == 2) { rows = (this.fiveRows(7 1 7 4 7)) }
+        if (d == 3) { rows = (this.fiveRows(7 1 7 1 7)) }
+        if (d == 4) { rows = (this.fiveRows(5 5 7 1 1)) }
+        if (d == 5) { rows = (this.fiveRows(7 4 7 1 7)) }
+        if (d == 6) { rows = (this.fiveRows(7 4 7 5 7)) }
+        if (d == 7) { rows = (this.fiveRows(7 1 1 1 1)) }
+        if (d == 8) { rows = (this.fiveRows(7 5 7 5 7)) }
+        if (d == 9) { rows = (this.fiveRows(7 5 7 1 7)) }
+        def row:int 0
+        while (row < 5) {
+            def bits:int (itemAt rows row)
+            def col:int 0
+            while (col < 3) {
+                def mask:int (this.pow2(2 - col))
+                if ((bit_and bits mask) != 0) {
+                    canvas.fillRect((x + (col * scale)) (y + (row * scale)) scale scale r g b)
+                }
+                col = (col + 1)
+            }
+            row = (row + 1)
+        }
+    }
+
+    fn pow2:int (n:int) {
+        if (n == 0) { return 1 }
+        if (n == 1) { return 2 }
+        return 4
+    }
+
+    fn drawNumber:void (x:int y:int scale:int n:int r:int g:int b:int) {
+        def v:int n
+        if (v < 0) { v = 0 }
+        def digits:[int]
+        clear digits
+        if (v == 0) { push digits 0 }
+        while (v > 0) {
+            push digits (v % 10)
+            v = (idiv v 10)
+        }
+        def count:int (array_length digits)
+        def step:int ((scale * 4))
+        def j:int 0
+        while (j < count) {
+            def d:int (itemAt digits ((count - 1) - j))
+            this.drawDigit((x + (j * step)) y scale d r g b)
+            j = (j + 1)
+        }
+    }
+
+    fn draw:void () {
+        canvas.clear(16 16 26)
+        def camX:int (px - (this.half(pw)))
+        def camY:int (py - (this.half(ph)))
+        def i:int 0
+        while (i < (array_length cellX)) {
+            def sx:int (((itemAt cellX i) * cellSize) - camX)
+            def sy:int (((itemAt cellY i) * cellSize) - camY)
+            canvas.blitImageRectScaled((itemAt tiles i) 0 0 16 16 sx sy cellSize cellSize)
+            i = (i + 1)
+        }
+        ; player marker at screen centre
+        def cx:int (this.half(pw))
+        def cy:int (this.half(ph))
+        canvas.fillRect((cx - 7) (cy - 9) 14 18 20 20 20)
+        canvas.fillRect((cx - 5) (cy - 7) 10 14 255 200 40)
+        ; HUD: player world coordinates + live cell count
+        canvas.fillRect(0 0 pw 20 12 12 20)
+        this.drawNumber(6 4 2 px 90 230 150)
+        this.drawNumber(120 4 2 py 90 230 150)
+        this.drawNumber((pw - 60) 4 2 (array_length cellX) 255 170 70)
+    }
+}
