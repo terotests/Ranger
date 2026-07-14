@@ -1255,15 +1255,22 @@ class GameSdlRunner {
         }
     }
 
-    ; Menu navigation: keyboard P1 (WASD/arrows) + gamepad 0 merged.
+    ; Menu navigation: keyboard P1 WASD (src 0) + arrow keys (src 1) + gamepad 0
+    ; (src 2) merged. The arrow keys are a distinct SDL source from WASD, so they
+    ; must be OR'd in explicitly — otherwise the launcher only responds to WASD and
+    ; the arrow keys (which the tiles' hint text advertises) do nothing. The back/
+    ; quit edge is read separately (gameMenuBackHeld, src-0 Q/Esc + pad), so the
+    ; LEFT arrow only moves the selection to the previous item; it never exits.
     fn launcherNavMask:int () {
-        def kb:int (gfx_input_source_mask(0))
+        def kb1:int (gfx_input_source_mask(0))
+        def kb2:int (gfx_input_source_mask(1))
         def pad:int (gfx_input_source_mask(2))
-        return (bit_or kb pad)
+        return (bit_or (bit_or kb1 kb2) pad)
     }
 
     ; UI-menu navigation: WASD (src 0) + arrow keys (src 1) + gamepad 0 (src 2).
-    ; The launcher mask above omits src 1, so arrows wouldn't move the selection.
+    ; Same source set as launcherNavMask above (kept separate so the two callers
+    ; can diverge if a UI game ever needs a different binding).
     fn uiNavMask:int () {
         def kb1:int (gfx_input_source_mask(0))
         def kb2:int (gfx_input_source_mask(1))
