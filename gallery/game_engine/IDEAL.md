@@ -97,6 +97,7 @@ without re-widening the leaks above.
 | **Structured logging & error levels** | Ad-hoc | Bare `print("[tag] …")` to stdout with varying prefixes and no severity; verbosity is a few inconsistent `verbose` booleans; TS gets `console.log/warn` but WASM/`.as` have no log import; failures are plain prints, not typed errors. | §2.16 |
 | **Feature flags** | Missing | The only flag-shaped construct is the inert RGCQ `debugmode` key; real toggles are ad-hoc runner booleans (`useWasmHud`, `useAs`, hot-reload) and `game.info` keys — no registry, no query, no scoping/source, not exposed to guests. | §2.16, §2.14 |
 | **Camera & transform matrices** | Fragmented | The main camera is integer pan (`state.cameraX/Y`, `screen = world - cam`); a real pan/zoom/rotate matrix camera exists only on the GLES2 sprite overlay (off by default); no per-object rotation/scale transform; the ABI carries only `camera_y`; and the `Mat3` library is stranded in unwired 3D physics. | §2.17, §5 |
+| **Particles, effects & filters** | Canned | Four hardcoded particle presets (duplicated in `wasm_sparkle_pool.rgr`; RGW1 forces `"sparkle"`), no configurable emitter; special effects are glow/pulse only (`rg_ui_effect`, GPU-only); no post-processing filter pipeline (blur/bloom/grade/vignette/CRT) at all. | §2.18 |
 | **Dynamic UI (allocate/free host EVG objects)** | Missing | RGU1 is full-snapshot rebuild only; the guest cannot allocate a persistent host `EVGElement`, mutate it by handle, or free it — any change re-serializes and rebuilds the whole tree. | §2.6 |
 | **Dynamic / streamed resource loading** | Prototype | A declare-once manifest and a synchronous frame-path decoder ship; a WASM streaming vertical (`RGX1` worker + `RGLD` loader) is proven but uses mock handles — the public `rg_res_*` primitives, the `RGO1` observation block, shared headers, and async decode are not landed. | §2.7 |
 
@@ -1677,6 +1678,86 @@ The result: placing the world becomes *"declare a camera, get back a view matrix
 placing an object becomes *"give it a local transform"* — one camera model and one affine
 transform shared by the software and GPU backends and by every guest path, invertible for
 picking, game-declared in view and host-owned in rendering (§2.5, §2.9, §2.14, §2.15, §5, §6).
+
+### 2.18 The particle system, special effects, and filters
+
+Sparkles on a pickup, a confetti burst on a win, a glow on a selected button, a red flash
+when hit — the "juice" of a game. The engine has three overlapping mechanisms for it, all
+built from **canned presets**: a particle pool with four hardcoded bursts (duplicated for
+the WASM path), a glow/pulse UI-effect overlay, and no post-processing filters at all.
+
+**Current state.**
+
+- **A particle pool of four canned presets.**
+  [`game_particles.rgr`](./scripting/game_particles.rgr) `GameParticleSystem` holds a pool
+  of 96 particles and offers exactly four presets — `spawnFruit` / `spawnSparkle` /
+  `spawnCelebrate` / `spawnBurst` — each with **baked** colours, counts, speeds, and
+  lifetimes, a fixed gravity (`0.00018`), drawn as soft circles on the CPU
+  (`fillCircle`) or as batched additive quads on the GPU (`flushGpu` →
+  `gfx_particles_*`, "PixiJS ParticleContainer-style"). A game spawns via
+  `{ kind: "particles", id, x, y, amount }`.
+- **The particle logic is duplicated for WASM.**
+  [`wasm_sparkle_pool.rgr`](./scripting/wasm_sparkle_pool.rgr) is a **second**,
+  software-only copy of the same pool ("for WASM autopeli (no SDL)") — same fields, same
+  LCG — so the same particle behaviour lives in two diverging files.
+- **The particle taxonomy is frozen in the ABI.** The RGW1 particle event
+  (`RG_WASM_EVENT_PARTICLES`, `kind==3`, `{sub, a=x, b=y, c=amount}`) is drained by
+  `wasm_physics_runner.rgr`, which **hardcodes the preset to `"sparkle"`** regardless — a
+  WASM guest cannot choose a preset, let alone define one. Presets are host code
+  (string → spawn function), not game data.
+- **No emitter model.** There is no configurable emitter — no emission rate / continuous
+  emission, spawn shape, direction cone, size-or-colour-over-life curve, blend mode, or
+  textured/sprite particles. Just four fixed bursts.
+- **Special effects are glow and pulse only.** The `gfx_fx` GPU overlay
+  (`rgfx_fx_push_glow` node halo, `rgfx_fx_push_screen` whole-screen wash) is driven by
+  `UIAnimator` (§2.12) and exposed to WASM as `rg_ui_effect(kind, target, node, durMs,
+  rgba)` (`as_ui_effects`), where `kind` is only glow/pulse and `target` only node/screen,
+  with a `rg_ui_effect_done` callback. It is **GPU-only** — `rgfx_fx_draw_overlay`
+  no-ops on the software path.
+- **There are no filters.** No post-processing pipeline exists: no blur, bloom, colour
+  grade, vignette, CRT/scanline, or distortion. The particle and fx fragment shaders are
+  fixed (an additive soft blob and a feathered quad); nothing lets a game declare a filter,
+  and nothing runs a per-frame or per-layer effect chain.
+- **Three unrelated "make it flashy" paths.** Particle events, UI effects (`rg_ui_effect`),
+  and `UIAnimator` (§2.12) overlap without a shared model, each pool carries its own
+  drifting RNG `seed`, and none is capability-negotiated.
+
+**Ideal.**
+
+1. **One data-driven particle system on every path.** Fold `game_particles` and
+   `wasm_sparkle_pool` into a single pool, and replace the four canned presets with a
+   **game-registered emitter descriptor** — emission rate / burst count, lifetime, spawn
+   shape, direction and spread, initial speed, gravity/forces, **size and colour curves
+   over life**, blend mode, and optional textured/sprite particles (§2.8). Emitters are
+   declared once and spawned by id over a shared block on RGW1/`.as`/TS, so `"sparkle"`
+   stops being hardcoded and a game defines its own bursts — the §4 transport-not-taxonomy
+   rule.
+2. **A general effects and filter pipeline, not a fixed menu.** Generalise glow / pulse /
+   screen-wash into a registered set of **effects** (node / screen / world-region targets)
+   and a **post-processing filter chain** — blur, bloom, colour grade, vignette,
+   CRT/scanline, chromatic aberration, distortion — that the game declares and the host
+   composites. Effects are §2.12 animations over a target; filters are ordered stages in a
+   per-frame or per-layer chain.
+3. **Software and GPU parity.** Particles, effects, and filters render on **both** the CPU
+   framebuffer and the GPU (today fx is GPU-only and particles have two draw paths), with
+   the backend negotiated via §2.14/§6 and degrading gracefully — a filter that cannot run
+   on software falls back or is skipped, never silently forked.
+4. **One "spawn/trigger, optionally hold a handle" contract.** Particle spawns and effect
+   triggers use the same **event + handle** shape as §2.10 audio and §2.12 animation:
+   one-shot bursts are fire-and-forget by id; continuous emitters and live filters return a
+   **handle** to update or stop; particle textures come from §2.7/§2.8 resources; and
+   completion arrives on the §2.6/§2.12 host→guest event channel (`rg_ui_effect_done`
+   generalised) — collapsing the three overlapping paths into one.
+5. **Deterministic and capability-gated.** Particle RNG uses the engine's **seeded,
+   fixed-point** convention (§5), so a burst replays identically instead of each pool
+   carrying its own drifting `seed`; effects and filters are **output-only and never feed
+   logic, RNG, or step order** (the §2.9/§2.10 rule); and a guest queries fx/particle/filter
+   caps (max particles, available filters, GPU vs software) via §2.14/§6 and adapts.
+
+The result: juice becomes *"register an emitter or a filter, spawn or trigger it by id, hold
+a handle if it lives,"* — one particle-and-effects model shared by the software and GPU
+backends and by every guest path, game-declared in vocabulary and host-owned in rendering
+(§2.7, §2.8, §2.9, §2.10, §2.12, §4, §5, §6).
 
 ---
 
