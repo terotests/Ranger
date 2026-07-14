@@ -137,8 +137,8 @@ export const CTRL_BRAKE:    i32 = RG_WASM_CTRL_OFF_CH2;
 export const CTRL_GRIP:     i32 = RG_WASM_CTRL_OFF_CH3;
 ```
 
-(A C or C++ guest, if one is ever added, is the only case that would use a
-`.h`; it is not the norm — the norm is Rust or AssemblyScript.)
+(A C or C++ guest, if one is ever added, would use a `.h`; the common guests are
+Rust and AssemblyScript.)
 
 Consequently the host side stays genre-neutral too: `wasm_abi_io.rgr` exposes
 `readControlChannel(bodyIdx, ch)` — **not** `readControlSteer/Throttle/Brake/Grip` —
@@ -265,7 +265,7 @@ what the host advertises; there is no second list to keep in sync.
 
 ## 7. "Done" is mechanically checkable
 
-The ideal is not reached by taste; it is reached when these pass:
+The target is met when these three checks pass:
 
 1. **The leak-guard grep returns nothing** for every file that claims to be core:
 
