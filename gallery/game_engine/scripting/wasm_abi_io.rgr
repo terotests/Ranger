@@ -4,10 +4,12 @@
 
 Import "../wasm_runtime.rgr"
 Import "./as_abi_bridge.rgr"
+Import "./wasm_block_validator.rgr"
 
 class WasmAbiMem {
     def handle:int 0
     def base:int 0
+    def validator:WasmBlockValidator (new WasmBlockValidator)
 
     ; Alternate backend: an interpreted .as guest's byte buffer instead of a wasm
     ; module. Same offsets, so every reader/writer above works unchanged.
@@ -273,16 +275,30 @@ class WasmAbiMem {
         return (this.readHeader(60))
     }
 
+    ; RGW1 world/physics ABI magic. Canonical source: wasm/wasm_game_abi.h
+    ;   #define RG_WASM_ABI_MAGIC 0x31574752u  ('RGW1' little-endian) = 827803474
+    ;   #define RG_WASM_ABI_VERSION 1u ; RG_WASM_ABI_SIZE 2560u
     fn verifyMagic:boolean () {
-        ; RGW1 world/physics ABI magic. Canonical source: wasm/wasm_game_abi.h
-        ;   #define RG_WASM_ABI_MAGIC 0x31574752u  ('RGW1' little-endian) = 827803474
-        ; (Previously compared against a stale 826425682 = 0x31424152 'RAB1', so it
-        ;  always returned false for a correctly-tagged block. linearMode is primarily
-        ;  set by abi.base != 0 in wasm_physics_runner, so this was a latent no-op.)
         def magic:int (this.readHeader(0))
         if (magic == 827803474) {
             return true
         }
         return false
+    }
+
+    ; Full RGW1 validation through the shared validator (IDEAL_API §0.3): magic,
+    ; version (<= host), and size are all checked before the block is trusted.
+    ; On failure validator.reason carries the diagnosis. maxVersion tracks the
+    ; RGW1 layout this host build understands.
+    fn verifyBlock:boolean () {
+        def magic:int (this.readHeader(0))
+        def version:int (this.readHeader(4))
+        def size:int (this.readHeader(8))
+        return (validator.validate(magic version size 827803474 1 2560))
+    }
+
+    ; Clamp a guest-declared count to a host buffer bound — never trust the guest.
+    fn clampCount:int (n:int max:int) {
+        return (validator.clampCount(n max))
     }
 }

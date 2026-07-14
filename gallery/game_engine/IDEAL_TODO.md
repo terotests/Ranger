@@ -121,10 +121,17 @@ Now the headers exist; make the host *use* the handshake and validate uniformly.
 - [ ] **3.2 Resolve RGCQ / `rg_check_env`** (row 5). One host resolver fills the
   typed query tail and calls `rg_check_env`; guest gets real answers, not defaults.
   *Check:* a guest querying `screen.width` reads the host's real value.
-- [ ] **3.3 Uniform block validation** (row 6, IDEAL_API §0.3). Generalise
-  `verifyMagic` into one validator (magic/version/size/counts-clamped/utf-8) used by
-  RGW1/RGSP1/RGP1/RGIN, copying RGU1's discipline.
-  *Check:* one validator function; per-block ad-hoc checks removed.
+- [~] **3.3 Uniform block validation** (row 6, IDEAL_API §0.3). New
+  `scripting/wasm_block_validator.rgr` (`WasmBlockValidator`): one `validate`
+  (magic / version≤host / size), `validateMinSize` for variable-size blocks
+  (RGP1/RGIN), and `clampCount` (never trust a guest count). Wired into
+  `wasm_abi_io.rgr` — `verifyBlock()` + `clampCount()` delegate to it; the stale
+  magic-only `verifyMagic` is kept as a thin compat shim.
+  *Check:* `wasm_block_validator_demo.rgr` self-test — 13/13 pass across RGW1 /
+  RGSP1 / RGP1 / RGIN (valid, wrong-magic, version-0, newer-version, size-mismatch,
+  min-size, count clamps); `wasm_abi_io.rgr` compiles.
+  *Remaining:* migrate RGSP1/RGP1/RGIN readers + the `.as` bridge to call
+  `verifyBlock`/`clampCount` at their read sites (replacing per-block ad-hoc checks).
 - [ ] **3.4 Provider registry** (row 7, IDEAL.md §6, IDEAL_API §7). A `GameProvider`
   interface (`id/capBit/direction/cadence/onAttach/onDeclare/beforeUpdate/
   afterUpdate/onDetach`); host advertised caps = OR of attached providers' `capBit()`.
