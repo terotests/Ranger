@@ -287,12 +287,18 @@ regression test (Phase 5.x / roadmap delta-time + gamepad gaps).
   loop so `0 <= accumulator < fixedStepMs`.
   *Test:* a large frame-dt runs ≤ `maxFixedSteps` updates and never leaves the
   accumulator negative.
-- [ ] **R.2 (High) One-player input snapshot reports two players.**
-  `game_input.rgr:262` — `buildFromSdl(1)` sets `playerCount = 2` unconditionally
-  in the 1-player branch (after building a speculative P2 "join" mask), and `toEval`
-  publishes it to the script. Fix: separate the concepts (`activePlayerCount` vs
-  `availableSlots`/`joinRequested`); minimally, bump to 2 only when `p2Join != 0`.
-  *Test:* `buildFromSdl(1)` with no join input yields `playerCount == 1`.
+- [ ] **R.2 (Low / semantics — likely intended, NOT a bug) `playerCount = 2` in
+  the 1-player branch.** `game_input.rgr:262` — `buildFromSdl(1)` builds a P2
+  "join" mask and sets `playerCount = 2`. The review read this as a bug, but it is
+  almost certainly **deliberate drop-in co-op**: a second player can join at any
+  time by pressing a button, which is exactly the behaviour wanted (esp. for kids'
+  games). **Do NOT** "fix" it by reporting 1 — that would remove always-joinable
+  P2. The only real weakness is naming: `playerCount` conflates *active players*
+  with *joinable slots*. Optional refinement (behaviour-preserving): expose
+  `activePlayerCount` / `availableSlots` / `joinRequested` so a game that needs the
+  true active count can get it, while drop-in co-op stays the default.
+  *Test (if refined):* `availableSlots == 2` while `activePlayerCount == 1` until a
+  join input arrives — and the always-joinable P2 path is unchanged.
 - [ ] **R.3 (High) Input-edge sync omits left/right.**
   `game_sdl_runner.rgr:558-564` — `syncInputEdges()` reseeds quit/up/down/action
   but not `prevLeftHeld`/`prevRightHeld`, which ARE used as edges at 981-998. After
