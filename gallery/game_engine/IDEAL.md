@@ -90,7 +90,7 @@ without re-widening the leaks above.
 | **Guest draw list / resource manifest / sound queue as first-class ABI** | Path-specific | `RGS1`, the resource manifest, and the sound queue are native-array APIs on the interpreted `.as` path only — not a shared byte block, so compiled-WASM guests cannot use them uniformly. | §2, §5 |
 | **Streaming (`RGX1`) and loader (`RGLD`)** | Unheadered | Referenced as siblings of RGW1 but have no canonical `wasm/*.h`, so their offsets are not a stable contract. | §2 |
 | **Save-state / persistence, networking, clock/RNG seed, config negotiation** | Absent | Nothing beyond `dt_ms`/`time_ms`; no deterministic seed, no persistence, no negotiated timestep/config. Game-specific storage exists only as a TS-path native bridge (whole-file `gamedata.json`), not in the binary ABI. | §2.11, §2.1 (RGCQ), §6 |
-| **RGU1 interactivity** | Optional | The document is guest→host; `rg_ui_event` (activate/select) is an optional export and selection state lives on the host. | §2.3 |
+| **RGU1 interactivity / UI events** | Optional & minimal | The document is guest→host; the only host→guest path is an optional `rg_ui_event` export limited to `ACTIVATE/SELECT/DESELECT` driven by a **D-pad selection cursor** (no pointer/hover/drag/scroll/text/focus events, reserved `value` payload), and selection state lives on the host. | §2.6, §2.15, §2.3 |
 | **Animation system & lifecycle events** | Fragmented | Three unrelated timing systems (host-only `UIAnimator` glow/pulse, RGSP1 sprite clock, RGU1 full-tree re-emit); no general tweening/easing, frozen effect + anim enums, and the only completion hook (`UIAnimator.after`) is a host closure — no `onAnimationEnd`/`onLoop`/`onFrame` over the ABI. | §2.12 |
 | **Screen navigation / view stack** | Partial | `loadGame`/`pushGame`/`popGame` exist only on the TS path; every transition is a full teardown + `initState()` reload (no suspend/resume), routes are file paths, and there are no typed args, no result on pop, and no `onEnter`/`onExit`/`onPause`/`onResume` hooks. | §2.13 |
 | **Unified HUD renderer** | Fragmented | Three HUD paths (TS `hud()`, RGU1 doc, hardcoded `fillRect`) through a limited `GameHudBlitter` (View+Label, bitmap 3×5 font); the rich EVG renderer (TTF, borders, widgets, interactivity) is reserved for menus, and the fallback HUD is autopeli-specific. | §2.15, §2.6 |
@@ -602,6 +602,16 @@ as untrusted data, and **rebuilds the whole `EVGElement` tree from scratch**
 - **No allocation or free primitive exists.** There is deliberately (§2.3) *no* way
   for the guest to create a persistent host object or release one — which is correct
   for snapshots but blocks large, animated, or editor-style UIs.
+- **The only interactivity is an optional, minimal selection channel.** RGU1 *does*
+  carry one host→guest path: a guest may export
+  `rg_ui_event(node_id, event, value)` and mark nodes `RG_UI_NODEFLAG_SELECTABLE`
+  with an `event_mask` ([`wasm_ui_abi.h`](./wasm/wasm_ui_abi.h)). But it delivers only
+  `ACTIVATE / SELECT / DESELECT`, `value` is reserved/unused, and the host drives it by
+  a **D-pad selection cursor only** — no pointer, hover, drag, scroll, text, focus/blur,
+  or value-change events (the §2.9 input gap). The export is optional (omit it and the
+  host still navigates but fires no callbacks), the selection cursor lives on the host,
+  and because a snapshot rebuild throws away every `EVGElement`, events target **node
+  ids the host must re-map after each rebuild** rather than stable objects.
 
 **Ideal.** Add a second, capability-gated mode where the guest **allocates host EVG
 objects and owns their lifetime through opaque handles** — keeping every RGU1
@@ -656,7 +666,32 @@ void     rg_evg_set_root (uint32_t h);                 /* which handle is the ro
    builds the tree; **EVGLayout** resolves position/size; the existing renderer
    (`GameHudBlitter` / `WasmUiRenderer`) draws it. `destroy` releases the element. The
    dynamic mode is new *plumbing*, not a new renderer.
-8. **Capability-gated and additive (§6).** A host advertises a
+8. **UI events are the return path of the object model.** Allocation (create / mutate /
+   free) is guest→host; **UI events are the host→guest counterpart**, and they belong to
+   the same objects — this is the `rg_ui_event` the HUD (§2.15) and other chapters refer
+   to, defined here in one place. Keep RGU1's `event_mask` opt-in discipline (a node
+   receives only the events it subscribes to, so the guest is never spammed) but widen
+   the taxonomy beyond selection to the full interaction set, and carry a **typed
+   payload** instead of today's reserved `value`:
+
+```c
+/* Host -> guest, if the guest exports it. One channel for all UI interaction.   */
+void rg_ui_event(uint32_t target, uint32_t event, uint32_t a, uint32_t b);
+/* target = §2.6 handle (dynamic mode) or RGU1 node id (snapshot mode)           */
+/* event  = RG_UI_EVENT_* :                                                       */
+/*   ACTIVATE | FOCUS | BLUR | POINTER_DOWN | POINTER_UP | POINTER_MOVE          */
+/*   | POINTER_ENTER | POINTER_LEAVE | DRAG | SCROLL | TEXT | VALUE_CHANGED       */
+/* a,b    = typed payload: pointer (x,y) | scroll (dx,dy) | text (off,len) | ...  */
+```
+
+   Events target UI objects **by the §2.6 handle** (stable across mutation, so a
+   long-lived widget keeps its identity between frames) or by node id on the snapshot
+   path; they are delivered on the **one shared host→guest event channel** the rest of
+   this document reuses (cf. `rg_anim_event` §2.12, `rg_res_*` observation §2.7); and
+   they are produced from the **one typed input snapshot** of §2.9 so pointer, touch,
+   and text reach the UI, not just the D-pad. `SELECT`/`DESELECT` remain for D-pad
+   navigation as a capability-gated subset — one event contract, every guest path.
+9. **Capability-gated and additive (§6).** A host advertises a
    `RG_WASM_HOST_CAP_UI_DYNAMIC` bit; a guest that needs handle-based UI is gated at
    load, while snapshot RGU1 (§2.3) stays the zero-dependency default. A game picks
    snapshot for small/simple screens and dynamic allocation for large, animated, or
@@ -1486,9 +1521,12 @@ renderer the engine owns is reserved for menus, not the HUD.
    hardcoded ids 10/20.
 3. **Interactive HUD, one input shape.** The HUD gains the UI layer's interactivity —
    hit-test, focus, selection, drag, text — driven by the **one typed input snapshot**
-   from §2.9 (pointer/touch/text, not just D-pad) and delivered over the ABI through
-   §2.6's `rg_ui_event`, so a HUD button, an in-game slider, and a text field work on
-   every guest path with one contract.
+   from §2.9 (pointer/touch/text, not just D-pad) and delivered back to the guest over
+   the **UI event channel defined in §2.6** (`rg_ui_event`, with `ACTIVATE / FOCUS /
+   POINTER_* / DRAG / SCROLL / TEXT / VALUE_CHANGED` and a typed payload). A HUD button,
+   an in-game slider, and a text field therefore all fire the same events, addressed by
+   the same handle/node identity, on every guest path — the HUD is no longer draw-only,
+   and interactivity stops being a menu-path privilege.
 4. **Data-driven layout and theming, host-resolved.** Position/size come from `EVGLayout`;
    colours, spacing, radius are **guest-declared RGU1 properties the host resolves** (the
    UI_LAYER "all styling is guest-declared, host-resolved" rule) — no per-game styling or
