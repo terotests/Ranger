@@ -108,11 +108,13 @@ class MenuLauncherCheck {
 
         ; ---- open Games (action) ----
         def d1:WasmUiDoc (c.step(runner 16))
-        c.ok("games screen shows first game tile" (c.hasNode(d1 100)))
+        ; index 0 is now a "Back" entry (node 100); the first game tile is node 101
+        c.ok("games screen shows the Back entry (node 100)" (c.hasNode(d1 100)))
+        c.ok("games screen shows first game tile (node 101)" (c.hasNode(d1 101)))
         c.ok("still no launch after opening a category" ((runner.abiRead(c.OFF_LAUNCH)) == 0))
 
-        ; ---- move down one, then launch ----
-        def _d2:WasmUiDoc (c.step(runner 2))     ; down
+        ; ---- move down to the first game, then launch ----
+        def _d2:WasmUiDoc (c.step(runner 2))     ; down -> first game (index 1)
         def _d3:WasmUiDoc (c.step(runner 16))    ; action -> launch selected game
         def launch:int (runner.abiRead(c.OFF_LAUNCH))
         c.ok(("a launch index was reported (got " + (to_string launch) + ")") (launch > 0))
@@ -125,9 +127,14 @@ class MenuLauncherCheck {
             c.ok(("launch entry has a path ('" + e.entryPath + "')") ((strlen e.entryPath) > 0))
         }
 
-        ; ---- back to categories ----
-        def d4:WasmUiDoc (c.step(runner 4))      ; left -> categories
-        c.ok("left returns to categories" (c.hasNode(d4 61)))
+        ; ---- left no longer exits the list: it only moves the selection ----
+        def _dl:WasmUiDoc (c.step(runner 4))     ; left -> previous selection (the Back entry)
+        c.ok("left stays on the games screen" (c.hasNode(_dl 100)))
+        c.ok("left does not jump to categories" ((c.hasNode(_dl 61)) == false))
+
+        ; ---- back to categories via the Back entry (now selected) + action ----
+        def d4:WasmUiDoc (c.step(runner 16))     ; action on Back -> categories
+        c.ok("Back entry returns to categories" (c.hasNode(d4 61)))
 
         print "======================================"
         print (("RESULT: " + (to_string c.passed) + " passed, ") + ((to_string c.failed) + " failed"))

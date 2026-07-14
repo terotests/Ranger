@@ -101,6 +101,12 @@ class GameSdlRunner {
     def prevLeftHeld:boolean false
     def prevRightHeld:boolean false
     def prevActionHeld:boolean false
+    ; Player-2 edge state (second keyboard source) for two-player sprite games.
+    def prevUpHeld2:boolean false
+    def prevDownHeld2:boolean false
+    def prevLeftHeld2:boolean false
+    def prevRightHeld2:boolean false
+    def prevActionHeld2:boolean false
     def uiRunner:GameUiRunner (new GameUiRunner)
     ; Which launcher front page to run. The choice comes from menu/game.info's
     ; `runtime` field (runtime=tsx -> the rich TypeScript menu/launcher.tsx;
@@ -574,6 +580,14 @@ class GameSdlRunner {
         prevLeftHeld = ((bit_and m 16) != 0)
         prevRightHeld = ((bit_and m 32) != 0)
         prevActionHeld = ((bit_and m 4) != 0)
+        ; Player 2 rides the second keyboard source (arrow keys); reseed its edges
+        ; too so a held key across a mode switch is not re-counted as a fresh press.
+        def m2:int (gfx_input_source_mask(1))
+        prevUpHeld2 = ((bit_and m2 1) != 0)
+        prevDownHeld2 = ((bit_and m2 2) != 0)
+        prevLeftHeld2 = ((bit_and m2 16) != 0)
+        prevRightHeld2 = ((bit_and m2 32) != 0)
+        prevActionHeld2 = ((bit_and m2 4) != 0)
     }
 
     fn playerInputFlags:int (pb:PlayerButtons) {
@@ -1039,6 +1053,117 @@ class GameSdlRunner {
         return false
     }
 
+    ; --- player-2 edge detectors (second keyboard source), same one-step-per-
+    ; press semantics as the P1 edges above but with their own held-state so the
+    ; two players never share or steal each other's presses. ---
+    fn up2Edge:boolean (held:boolean) {
+        if (held) {
+            if (prevUpHeld2 == false) {
+                prevUpHeld2 = true
+                return true
+            }
+        } {
+            prevUpHeld2 = false
+        }
+        return false
+    }
+
+    fn down2Edge:boolean (held:boolean) {
+        if (held) {
+            if (prevDownHeld2 == false) {
+                prevDownHeld2 = true
+                return true
+            }
+        } {
+            prevDownHeld2 = false
+        }
+        return false
+    }
+
+    fn action2Edge:boolean (held:boolean) {
+        if (held) {
+            if (prevActionHeld2 == false) {
+                prevActionHeld2 = true
+                return true
+            }
+        } {
+            prevActionHeld2 = false
+        }
+        return false
+    }
+
+    fn left2Edge:boolean (held:boolean) {
+        if (held) {
+            if (prevLeftHeld2 == false) {
+                prevLeftHeld2 = true
+                return true
+            }
+        } {
+            prevLeftHeld2 = false
+        }
+        return false
+    }
+
+    fn right2Edge:boolean (held:boolean) {
+        if (held) {
+            if (prevRightHeld2 == false) {
+                prevRightHeld2 = true
+                return true
+            }
+        } {
+            prevRightHeld2 = false
+        }
+        return false
+    }
+
+    ; Turn a raw poll/source mask (up=1 down=2 action=4 left=16 right=32) into the
+    ; guest input mask (up=1 down=2 left=4 right=8 action=16), edge-detected so each
+    ; key press yields exactly one guest frame with the bit set. P1/P2 variants use
+    ; their own edge state.
+    fn spriteMaskP1:int (m:int) {
+        def up:boolean (this.upEdge((bit_and m 1) != 0))
+        def down:boolean (this.downEdge((bit_and m 2) != 0))
+        def left:boolean (this.leftEdge((bit_and m 16) != 0))
+        def right:boolean (this.rightEdge((bit_and m 32) != 0))
+        def action:boolean (this.actionEdge((bit_and m 4) != 0))
+        def mask:int 0
+        if up { mask = (mask + 1) }
+        if down { mask = (mask + 2) }
+        if left { mask = (mask + 4) }
+        if right { mask = (mask + 8) }
+        if action { mask = (mask + 16) }
+        return mask
+    }
+
+    fn spriteMaskP2:int (m:int) {
+        def up:boolean (this.up2Edge((bit_and m 1) != 0))
+        def down:boolean (this.down2Edge((bit_and m 2) != 0))
+        def left:boolean (this.left2Edge((bit_and m 16) != 0))
+        def right:boolean (this.right2Edge((bit_and m 32) != 0))
+        def action:boolean (this.action2Edge((bit_and m 4) != 0))
+        def mask:int 0
+        if up { mask = (mask + 1) }
+        if down { mask = (mask + 2) }
+        if left { mask = (mask + 4) }
+        if right { mask = (mask + 8) }
+        if action { mask = (mask + 16) }
+        return mask
+    }
+
+    ; True when the sprite game at `path` declares players=2 in game.info — the
+    ; host then splits input (P1 = WASD/pad, P2 = arrows) into OFF_INPUT/OFF_INPUT2.
+    fn spriteTwoPlayerOf:boolean (path:string) {
+        def dir:string (this.dirOf(path))
+        if (file_exists dir "game.info") {
+            def buf:buffer (buffer_read_file dir "game.info")
+            def txt:string (buffer_to_string buf)
+            if ((indexOf txt "players=2") >= 0) {
+                return true
+            }
+        }
+        return false
+    }
+
     ; The launcher backend menu/game.info selects via its `runtime` field:
     ; "tsx" (menu/launcher.tsx), "as" (menu/game.as), or "" if unspecified.
     fn menuRuntimeOf:string () {
@@ -1135,20 +1260,22 @@ class GameSdlRunner {
         inGame = true
         gfx_clear_should_close
         this.syncInputEdges()
+        ; players=2 games get two independent input channels: P1 = WASD (src 0) +
+        ; gamepad 0 (src 2), P2 = arrow keys (src 1). A solo game keeps the merged
+        ; mask so either WASD or the arrows drive the single well.
+        def twoPlayer:boolean (this.spriteTwoPlayerOf(asPath))
         while (running) {
-            def m:int (this.uiNavMask())
-            def up:boolean (this.upEdge((bit_and m 1) != 0))
-            def down:boolean (this.downEdge((bit_and m 2) != 0))
-            def left:boolean (this.leftEdge((bit_and m 16) != 0))
-            def right:boolean (this.rightEdge((bit_and m 32) != 0))
-            def action:boolean (this.actionEdge((bit_and m 4) != 0))
-            def mask:int 0
-            if up { mask = (mask + 1) }
-            if down { mask = (mask + 2) }
-            if left { mask = (mask + 4) }
-            if right { mask = (mask + 8) }
-            if action { mask = (mask + 16) }
-            scene.frameMask(16 mask)
+            if twoPlayer {
+                def m0:int (bit_or (gfx_input_source_mask(0)) (gfx_input_source_mask(2)))
+                def m1:int (gfx_input_source_mask(1))
+                def mask0:int (this.spriteMaskP1(m0))
+                def mask1:int (this.spriteMaskP2(m1))
+                scene.frameMask2(16 mask0 mask1)
+            } {
+                def m:int (this.uiNavMask())
+                def mask:int (this.spriteMaskP1(m))
+                scene.frameMask(16 mask)
+            }
             scene.draw()
             gfx_present (scene.raw()) pw ph
 

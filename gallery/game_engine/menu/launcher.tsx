@@ -21,9 +21,9 @@
 // borderRadius, backgroundImage, glow, ...). The TSX parser tokenises `-`, so
 // kebab-case names are NOT valid here.
 //
-//   up/down/left/right   move selection
+//   up/down/left/right   move selection (left/right never exit the list)
 //   enter / A            open a category (after a glow flash), or launch a game
-//   left / back          games screen -> categories
+//   back (Q/Esc)         games screen -> categories
 // ============================================================================
 
 const FLASH_MS = 420;
@@ -130,12 +130,12 @@ function update(props) {
   } else {
     const list = gamesIn(cats[cat]);
     const n = Math.max(1, list.length);
-    if (props.up) sel = (sel + n - 1) % n;
-    if (props.down) sel = (sel + 1) % n;
-    if (props.left) {
-      screen = "cats";
-      sel = cat;
-    }
+    // left/up = previous, right/down = next — the SAME mapping as the categories
+    // screen, so left never surprises the player by dropping out of the list.
+    // Going back up to the categories is the Back/Quit button's job (props.quit),
+    // handled above.
+    if (props.up || props.left) sel = (sel + n - 1) % n;
+    if (props.down || props.right) sel = (sel + 1) % n;
     if (props.action && list.length > 0) {
       launchPath = list[sel].path;
     }
@@ -236,7 +236,7 @@ function gamesScreen(s) {
           );
         })}
       </View>
-      <Label color={INK_DIM} fontSize="14px" margin="6px">A pelaa, vasen takaisin</Label>
+      <Label color={INK_DIM} fontSize="14px" margin="6px">A pelaa, Q takaisin</Label>
     </View>
   );
 }

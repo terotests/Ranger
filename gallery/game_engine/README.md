@@ -142,6 +142,7 @@ npm run engine:compile && npm run engine:run
 | Autopeli (AS) | `autopeli_as` | WASM (AssemblyScript) | Sama peli AS-guestina |
 | Autopeli (`.as`) | `autopeli_as_src` | `.as` tulkittu | Sama guest tulkattuna, ei käännösvaihetta |
 | Pyörretris | `pyorretris` | `.as` (`render=sprites`) | Tetris; guest-driven kääntyvät spritet ABI:n yli, ei fysiikkaa |
+| Pyörretris 2P | `pyorretris2p` | `.as` (`render=sprites`, `players=2`) | Kaksinpeli-Tetris: kaksi kenttää heti; P1 = WASD (OFF_INPUT), P2 = nuolet (OFF_INPUT2) |
 | Sprite Test | `sprite_char` | WASM (`abi=sprite`) | Valmis hahmosetti (RGSP1): valinta + kävely/hyppy |
 | Pose Demo | `pose_demo` | `.as` + pose | Pose-input (RGP1) -demo |
 | Streaming World | `streaming_world` | `engine=streaming` | Resurssien striimaus kameran mukaan (RGX1/RGLD) |
@@ -178,6 +179,7 @@ autoscale=true            # host skaalaa 480×270 → paneeliin
 soloScript=index.tsx      # split-tilan yksinpeliskripti
 engine=wasm               # tsx (oletus) | wasm | as | ui | streaming
 render=sprites            # (engine=as) guest-driven rotatable spritet, ei fysiikkaa
+players=2                  # (render=sprites) kaksinpeli: P1 = WASD → OFF_INPUT, P2 = nuolet → OFF_INPUT2
 module=logic.wasm         # WASM-moduulin tiedosto
 abi=linear                # getter (oletus) | linear (RGW1 shared memory) | sprite (RGSP1)
 physics=true              # host GamePhysics + WASM/TSX I/O

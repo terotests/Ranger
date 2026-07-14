@@ -12,9 +12,9 @@
 // over the flat @ranger/game bridge.
 //
 // Two screens: category tiles (Games / Tests) -> the games in that category.
-//   up/down/left/right   move selection
-//   enter/A              open a category, or launch the selected game
-//   left/back            games screen -> categories
+//   up/down/left/right   move selection (left/right never exit the list)
+//   enter/A              open a category, or launch the selected game / Back entry
+//   Back entry           games screen -> categories (first item in the list)
 // ============================================================================
 import { abiRead, abiWrite } from "@ranger/game";
 import { ui, El } from "./ui";
@@ -106,12 +106,16 @@ function buildGames(root: El): void {
   let card: El = root.box(CARD).column().center().pad(16).width(340).radius(16).bg(30, 34, 52, 255);
   let cat: string = catName(CAT);
   card.label(10, cat).font(24).color(236, 240, 250, 255);
+  // Index 0 is a "Back" entry that returns to the categories screen; the games
+  // in this category follow it. So SEL 0 = back, SEL k+1 = the k-th game.
+  let onB: i32 = 0; if (SEL == 0) onB = 1;
+  gameButton(card, 100, 300, "‹ Takaisin", onB);
   let n: i32 = countInCat(cat);
   let k: i32 = 0;
   while (k < n) {
     let gi: i32 = nthInCat(cat, k);
-    let on: i32 = 0; if (SEL == k) on = 1;
-    gameButton(card, 100 + k, 300 + k, gameCatalog[gi].title, on);
+    let on: i32 = 0; if (SEL == (k + 1)) on = 1;
+    gameButton(card, 100 + k + 1, 300 + k + 1, gameCatalog[gi].title, on);
     k = k + 1;
   }
   abiWrite(OFF_SEL, 100 + SEL);
@@ -152,15 +156,22 @@ export function update(): void {
     }
   } else {
     let cat: string = catName(CAT);
-    let count: i32 = countInCat(cat);
-    if (count < 1) count = 1;
-    if ((inp & IN_UP) != 0) { SEL = SEL - 1; if (SEL < 0) SEL = count - 1; changed = 1; }
-    if ((inp & IN_DOWN) != 0) { SEL = SEL + 1; if (SEL >= count) SEL = 0; changed = 1; }
-    if ((inp & IN_LEFT) != 0) { SCREEN = SCR_CATS; SEL = CAT; changed = 1; }
+    let total: i32 = countInCat(cat) + 1;   // +1 for the "Back" entry at index 0
+    if (total < 1) total = 1;
+    // left/up = previous, right/down = next — the SAME mapping as the categories
+    // screen, so left no longer surprises the player by dropping out of the list.
+    // Returning to the categories is now the "Back" entry (SEL 0 + ACT).
+    if (((inp & IN_UP) != 0) || ((inp & IN_LEFT) != 0)) { SEL = SEL - 1; if (SEL < 0) SEL = total - 1; changed = 1; }
+    if (((inp & IN_DOWN) != 0) || ((inp & IN_RIGHT) != 0)) { SEL = SEL + 1; if (SEL >= total) SEL = 0; changed = 1; }
     if ((inp & IN_ACT) != 0) {
-      let gi: i32 = nthInCat(cat, SEL);
-      if (gi >= 0) {
-        abiWrite(OFF_LAUNCH, gi + 1);   // host loads gameCatalog[gi]
+      if (SEL == 0) {
+        SCREEN = SCR_CATS;
+        SEL = CAT;
+      } else {
+        let gi: i32 = nthInCat(cat, SEL - 1);
+        if (gi >= 0) {
+          abiWrite(OFF_LAUNCH, gi + 1);   // host loads gameCatalog[gi]
+        }
       }
       changed = 1;
     }

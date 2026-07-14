@@ -44,6 +44,7 @@ class TsxMenuRenderDemo {
     def cw:int 360
     def ch:int 460
     def tMs:int 0            ; host clock (ms) fed via props.time, drives the glow
+    def nextQuit:boolean false  ; set for one step to raise the Back/Quit edge
 
     ; input props object matching game_runtime.stepUpdateScript's shape
     fn props:EvalValue (up:boolean down:boolean left:boolean right:boolean action:boolean) {
@@ -62,7 +63,7 @@ class TsxMenuRenderDemo {
         push k "action"
         push v (EvalValue.boolean(action))
         push k "quit"
-        push v (EvalValue.boolean(false))
+        push v (EvalValue.boolean(nextQuit))
         push k "state"
         push v state
         return (EvalValue.object(k v))
@@ -80,6 +81,13 @@ class TsxMenuRenderDemo {
         tMs = (tMs + 120)
         state = (engine.callFunction("update" (this.props(up down left right action))))
         this.refresh()
+    }
+
+    ; drive one frame with the Back/Quit edge raised (the hardware back button)
+    fn stepBack:void () {
+        nextQuit = true
+        this.step(false false false false false)
+        nextQuit = false
     }
 
     ; advance several idle frames so a deferred (post-flash) callback fires
@@ -189,9 +197,13 @@ class TsxMenuRenderDemo {
         d.step(false false false false true)
         c.ok(("launch path reported (got '" + (d.stateStr("launchPath")) + "')") ((strlen (d.stateStr("launchPath"))) > 0))
 
-        ; ---- left returns to categories ----
+        ; ---- left no longer exits: it only moves the selection, staying on games ----
         d.step(false false true false false)
-        c.ok(("left -> cats (got '" + (d.stateStr("screen")) + "')") ((d.stateStr("screen")) == "cats"))
+        c.ok(("left stays on the games screen (got '" + (d.stateStr("screen")) + "')") ((d.stateStr("screen")) == "games"))
+
+        ; ---- the Back/Quit button returns to categories ----
+        d.stepBack()
+        c.ok(("Back/Quit -> cats (got '" + (d.stateStr("screen")) + "')") ((d.stateStr("screen")) == "cats"))
 
         print "======================================"
         print (("RESULT: " + (to_string c.passed) + " passed, ") + ((to_string c.failed) + " failed"))
