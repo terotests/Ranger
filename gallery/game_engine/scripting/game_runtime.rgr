@@ -1075,11 +1075,16 @@ class GameRunner {
         this.applyCamera()
         this.applyPhysics()
         state = (engine.callFunction("initState" (EvalValue.null())))
+        ; Call the script's entities() EXACTLY ONCE per scene setup and reuse the
+        ; result for both activation/seeding and retained-sprite spawn. Calling it
+        ; twice let a side-effecting or non-deterministic function diverge between
+        ; the two uses (IDEAL_TODO R.5).
         def hasEntitiesFn:boolean (this.scriptHasFunction("entities"))
+        def spawnEntities:EvalValue (EvalValue.null())
         if (hasEntitiesFn) {
-            def spawn:EvalValue (engine.callFunction("entities" (EvalValue.null())))
-            entityStore.activateFromScript(spawn)
-            entityStore.seedWorldEntities(state spawn)
+            spawnEntities = (engine.callFunction("entities" (EvalValue.null())))
+            entityStore.activateFromScript(spawnEntities)
+            entityStore.seedWorldEntities(state spawnEntities)
         }
         this.syncBackgroundFromState()
         if (this.multiScreenMode()) {
@@ -1088,8 +1093,7 @@ class GameRunner {
         } {
             def sprites:EvalValue (engine.callFunction("sprites" (EvalValue.null())))
             if (hasEntitiesFn) {
-                def spawn:EvalValue (engine.callFunction("entities" (EvalValue.null())))
-                entities = (entityStore.spawnRetained(spawn sprites spriteRenderer))
+                entities = (entityStore.spawnRetained(spawnEntities sprites spriteRenderer))
             } {
                 if (sprites.isArray()) {
                     def arr:[EvalValue] sprites.arrayValue

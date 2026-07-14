@@ -300,28 +300,26 @@ regression test (Phase 5.x / roadmap delta-time + gamepad gaps).
   true active count can get it, while drop-in co-op stays the default.
   *Test (if refined):* `availableSlots == 2` while `activePlayerCount == 1` until a
   join input arrives — and the always-joinable P2 path is unchanged.
-- [ ] **R.3 (High) Input-edge sync omits left/right.**
-  `game_sdl_runner.rgr:558-564` — `syncInputEdges()` reseeds quit/up/down/action
-  but not `prevLeftHeld`/`prevRightHeld`, which ARE used as edges at 981-998. After
-  a mode switch / view open, a held left/right registers as a phantom fresh press.
-  Fix: seed `prevLeftHeld`/`prevRightHeld` from the mask too; route every edge
-  through one shared sync helper so this can't drift again.
-  *Test:* switching mode while left/right is held produces no phantom edge.
-- [ ] **R.4 (High) Failed `.as` load leaves the runner half-switched.**
-  `game_sdl_runner.rgr:448-460` — `loadAsAt` sets `useWasmRunner`/`useWasmPhysics =
-  true` and replaces `wasmPhysicsRunner` with a fresh instance BEFORE
-  `loadAsGame()`; on failure it prints and returns, leaving WASM-physics mode
-  active with a dead runner and the old game gone. Fix: load transactionally —
-  build a candidate in a local, load+validate, and only on success tear down the
-  old backend and flip the active flags; on failure keep prior state untouched.
-  (Same shape applies to the sprite/stream/wasm loaders that set flags first.)
-  *Test:* a failing `.as` load preserves the previous runner and mode.
-- [ ] **R.5 (Medium) `entities()` called twice per scene setup.**
-  `game_runtime.rgr:1079` and `1090` — `setupScene` calls the script's `entities()`
-  once for activation/seed and again for retained-sprite spawn; a side-effecting or
-  non-deterministic function makes the two diverge. Fix: call once, reuse the one
-  `EvalValue` for both activation and retained spawn.
-  *Test:* `entities()` is invoked exactly once per scene init.
+- [x] **R.3 (High) Input-edge sync omits left/right.** Fixed:
+  `game_sdl_runner.syncInputEdges()` now reseeds `prevLeftHeld` (mask bit 16) and
+  `prevRightHeld` (bit 32) alongside quit/up/down/action, so a button held across a
+  mode switch / view open is no longer re-counted as a fresh press. Mirrors the
+  existing up/down/action pattern with the bits the edge readers actually use.
+  *Check:* `game_sdl_runner.rgr` compiles Ranger→C++. (Runtime edge behaviour needs
+  the SDL build to exercise; the fix is a direct mirror of the working edges.)
+- [x] **R.4 (High) Failed `.as` load leaves the runner half-switched.** Fixed:
+  `loadAsAt` now loads **transactionally** — it builds a `candidate`
+  `WasmPhysicsRunner` in a local, `init`s + `loadAsGame`s + `setupScene`s it
+  WITHOUT touching active state, and only on success swaps `wasmPhysicsRunner =
+  candidate` and flips the mode flags. A failed load returns with the prior runner
+  and every mode flag untouched.
+  *Check:* `game_sdl_runner.rgr` compiles Ranger→C++.
+- [x] **R.5 (Medium) `entities()` called twice per scene setup.** Fixed:
+  `setupScene` now calls the script's `entities()` exactly once, hoisting the
+  result into `spawnEntities` and reusing it for both activation/seed and the
+  retained-sprite spawn — a side-effecting/non-deterministic `entities()` can no
+  longer diverge between the two uses.
+  *Check:* `game_runtime.rgr` compiles Ranger→C++.
 - [ ] **R.6 (Medium) Runner boolean-flag soup permits illegal states.**
   `game_sdl_runner.rgr` routes TSX / WASM / `.as` / UI / sprite / stream /
   split-screen through many independent booleans (`useWasmRunner`,
