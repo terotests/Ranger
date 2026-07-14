@@ -31,11 +31,28 @@ wrong side of the engine-core ↔ game boundary, or opens a seam that was welded
 | 5 richer input · CI leak guard · conformance fixtures | ⬜ not started |
 | R runtime correctness (fixed-step, input, transactional load) | ⬜ not started — from an external review, all 8 findings re-verified against source |
 
-**Verification approach.** Every landed component ships a headless self-test
-(`scripting/*_demo.rgr`) that compiles through the Ranger compiler and runs on
-node — no SDL/WASM build needed. Current suite: **6 self-tests, 71 assertions, 0
+**Verification strategy (three tiers, no SDL/WASM build needed).** This approach
+emerged during the work and proved repeatable — new items should follow it:
+
+1. **Pure self-test** — extract the logic into a pure function/class and ship a
+   `scripting/<name>_demo.rgr` that compiles through the Ranger compiler, runs on
+   node, and prints `RESULT: N passed, 0 failed`. The tested code IS the shipped
+   code (e.g. `FixedStep.plan`, `RunnerModeClassifier`, `GameScriptContract`), so
+   the test isn't a parallel reimplementation.
+2. **Native-target compile** — compile the touched core file with `-l=cpp`
+   (Ranger→C++), which catches type/interface breakage the es6 path misses and
+   proves the change builds for the SDL/Pi target.
+3. **Real-game integration** — where a change touches the shared runtime, drive a
+   real game headlessly (`breakout_runner_demo.rgr` runs `breakout.game.tsx`
+   through the full `GameRunner`) and assert no regression / no false-positive.
+
+The ceiling is the SDL binary link (needs SDL2 headers, absent here); anything
+that can only be observed by running the SDL window is marked as a follow-up
+rather than done blind. Current suite: **10 self-tests, 120 assertions, 0
 failing** (`wasm_cap_gate` 6, `wasm_block_validator` 13, `game_provider` 12,
-`game_env_resolver` 11, `game_scene_provider` 15, `game_sound_palette` 14).
+`game_env_resolver` 11, `game_scene_provider` 15, `game_sound_palette` 14,
+`game_fixed_step` 16, `game_split_world` 6, `game_script_contract` 12,
+`game_runner_mode` 15), plus the breakout real-game integration run.
 
 **Regression check (WASM autopeli, the highest-risk path).** The cap gate was
 wired into `wasm_physics_runner` — the autopeli runner. Confirmed safe:
