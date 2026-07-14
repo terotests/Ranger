@@ -80,6 +80,17 @@ language {
             class _class
             new _new
             delete _delete
+            and _and
+            or _or
+            not _not
+            xor _xor
+            compl _compl
+            bitand _bitand
+            bitor _bitor
+            and_eq _and_eq
+            or_eq _or_eq
+            xor_eq _xor_eq
+            not_eq _not_eq
             template _template
             namespace _namespace
             virtual _virtual

@@ -56,13 +56,19 @@ class SpriteAbiBlock {
         return (b0 + ((b1 * 256) + ((b2 * 65536) + (b3 * 16777216))))
     }
 
-    ; signed 32-bit (positions may be negative)
+    ; signed 32-bit (positions may be negative). Built from bytes so it stays
+    ; correct on a 32-bit int target (C++) as well as es6 doubles — no literal
+    ; ever exceeds INT_MAX, unlike a (v - 4294967296) fixup would.
     fn i32:int (off:int) {
-        def v:int (this.u32(off))
-        if (v >= 2147483648) {
-            return (v - 4294967296)
+        def b0:int (this.u8(off))
+        def b1:int (this.u8(off + 1))
+        def b2:int (this.u8(off + 2))
+        def b3:int (this.u8(off + 3))
+        def lo:int ((b0 + (b1 * 256)) + (b2 * 65536))
+        if (b3 >= 128) {
+            return (lo + ((b3 - 256) * 16777216))
         }
-        return v
+        return (lo + (b3 * 16777216))
     }
 
     fn setLength:void (n:int) {
