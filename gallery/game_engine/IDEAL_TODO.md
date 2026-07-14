@@ -320,14 +320,22 @@ regression test (Phase 5.x / roadmap delta-time + gamepad gaps).
   retained-sprite spawn — a side-effecting/non-deterministic `entities()` can no
   longer diverge between the two uses.
   *Check:* `game_runtime.rgr` compiles Ranger→C++.
-- [ ] **R.6 (Medium) Runner boolean-flag soup permits illegal states.**
-  `game_sdl_runner.rgr` routes TSX / WASM / `.as` / UI / sprite / stream /
-  split-screen through many independent booleans (`useWasmRunner`,
-  `useWasmPhysics`, `splitScreenActive`, `wasmSplitActive`, …), so contradictory
-  combinations are representable. Fix: one explicit `RunnerMode` enum + a common
-  backend interface (`load`/`update`/`draw`/`resize`/`unload`); split
-  `game_sdl_runner` into per-backend adapters. (Complements the §7 provider work.)
-  *Check:* mode is a single value; a second backend is an adapter, not new flags.
+- [~] **R.6 (Medium) Runner boolean-flag soup permits illegal states.** First step
+  landed: `scripting/game_runner_mode.rgr` — a `RunnerMode` enum (menu / tsx /
+  tsx-split / wasm / wasm-physics / wasm-split / sprite / stream) + a **pure
+  `RunnerModeClassifier`** that collapses the flags into one canonical mode AND
+  rejects illegal combinations with a reason (two backends at once; physics
+  without wasm; wasm-split without wasm or without split-active — including the
+  review's exact example). `game_sdl_runner.loadGame` now runs
+  `checkModeConsistency()` after each dispatch, logging any illegal state the
+  instant it is set (output-only, no behaviour change).
+  *Check:* `game_runner_mode_demo.rgr` self-test — 15/15 (every canonical mode +
+  four illegal combinations rejected + the namer); `game_sdl_runner.rgr` compiles
+  Ranger→C→C++.
+  *Remaining (the larger refactor):* make the mode the single source of truth —
+  replace the independent flags with it, and split `game_sdl_runner` into a common
+  backend interface (`load`/`update`/`draw`/`resize`/`unload`) with one adapter per
+  mode (complements the §7 provider work). Needs the SDL build to verify at runtime.
 - [~] **R.7 Split-screen semantics — clarified with the maintainer; a second axis
   added.** The review read `auto == always` as a bug. Per the maintainer it is
   **not**: `"auto"` means the *engine* splits a single-player-authored game into

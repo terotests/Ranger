@@ -24,6 +24,7 @@ Import "./as_sprite_runner.rgr"
 Import "../gfx_sdl.rgr"
 Import "./game_audio_sdl.rgr"
 Import "./game_catalog.rgr"
+Import "./game_runner_mode.rgr"
 Import "./streaming_world_runner.rgr"
 Import "./sprite_wasm_runner.rgr"
 Import "./game_host_native.rgr"
@@ -756,7 +757,23 @@ class GameSdlRunner {
         this.setProfileOnRunners()
     }
 
+    ; Derive the one canonical runner mode from the current flags and warn if the
+    ; combination is illegal (IDEAL_TODO R.6). A defensive net until the flags are
+    ; replaced by the mode itself; it is output-only and never changes behaviour.
+    fn checkModeConsistency:string (ctx:string) {
+        def st:RunnerModeState (RunnerModeClassifier.classify(useWasmRunner useWasmPhysics useSpriteRunner useStreamRunner wasmSplitActive splitScreenActive inGame))
+        if (st.ok == false) {
+            print ("[runner-mode] ILLEGAL state after " + ctx + ": " + st.reason)
+        }
+        return (RunnerMode.modeName(st.mode))
+    }
+
     fn loadGame:void (path:string) {
+        this.loadGameDispatch(path)
+        this.checkModeConsistency(("loadGame " + path))
+    }
+
+    fn loadGameDispatch:void (path:string) {
         gfx_audio_clear
         this.clearNavStack()
         nativeBridge.clearPendingNav()
