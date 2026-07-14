@@ -1312,7 +1312,9 @@ class GameSdlRunner {
     fn openTsxMenu:boolean (uw:int uh:int) {
         catalog.setGamesDir(gamesDir)
         catalog.scan()
-        uiRunner.init(uw uh "gallery/game_engine/assets/fonts" "OpenSans-Regular.ttf" "Open Sans")
+        ; Chakra Petch gives the launcher a techy, game-console feel; only the TSX
+        ; launcher uses it — in-game HUDs keep Open Sans (see the other init sites).
+        uiRunner.init(uw uh "gallery/game_engine/assets/fonts" "ChakraPetch-SemiBold.ttf" "Chakra Petch")
         uiRunner.setMenuCatalog((catalog.toEvalArray()))
         menuTsxMtime = (file_mtime menuAsDir "launcher.tsx")
         return (uiRunner.loadTsx(menuAsDir "launcher.tsx"))
