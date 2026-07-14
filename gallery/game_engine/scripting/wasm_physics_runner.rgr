@@ -5,6 +5,7 @@
 Import "../framebuffer.rgr"
 Import "../wasm_runtime.rgr"
 Import "./wasm_abi_io.rgr"
+Import "./wasm_cap_gate.rgr"
 Import "./game_physics.rgr"
 Import "./game_audio.rgr"
 Import "./wasm_autopeli_setup.rgr"
@@ -62,6 +63,14 @@ class WasmPhysicsRunner {
     ; (physics, render, HUD, split-screen) is identical because the ABI is.
     def asRunner:AsSourceRunner (new AsSourceRunner)
     def useAs:boolean false
+
+    ; Forward-compat capability gate (IDEAL.md §6). Runs once at load, before
+    ; init(), rejecting a guest built against a newer ABI or one that requires a
+    ; host capability this runner does not implement. This runner provides host
+    ; GamePhysics and honours RGU1 HUDs, so it advertises those caps; a full
+    ; provider registry (Phase 3.4) will compute this by construction.
+    def capGate:WasmCapGate (new WasmCapGate)
+    def gateRejected:boolean false
 
     fn bodyIdIndex:int (id:string) {
         def i 0
@@ -327,12 +336,24 @@ class WasmPhysicsRunner {
             print ("[wasm] load failed: " + path)
             return
         }
+        ; --- capability gate (IDEAL.md §6): run once, right after load, before
+        ; init(). Advertise the caps this runner actually implements. ---
+        gateRejected = false
+        capGate.setHostCaps((bit_or 1 8))  ; PHYSICS | RGU1 (see wasm_game_abi.h)
+        if ((capGate.checkWasm(handle)) == false) {
+            print ("[wasm] REJECTED " + path + ": " + capGate.reason)
+            wasm_close handle
+            handle = 0
+            gateRejected = true
+            return
+        }
         linearMode = false
         abi.bind(handle)
         if (abi.base != 0) {
             linearMode = true
         }
-        print ("[wasm] loaded: " + path + " linear=" + (to_string linearMode))
+        print ("[wasm] loaded: " + path + " linear=" + (to_string linearMode) +
+            " abiV=" + (to_string capGate.guestVersion))
     }
 
     ; Load an interpreted .as game folder instead of a .wasm module. The ABI is

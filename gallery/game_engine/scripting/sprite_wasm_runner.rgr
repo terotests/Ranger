@@ -14,6 +14,7 @@
 
 Import "../framebuffer.rgr"
 Import "../wasm_runtime.rgr"
+Import "./wasm_cap_gate.rgr"
 Import "./game_audio.rgr"
 Import "./wasm_sprite_runner.rgr"
 Import "../lpc/src/png_decoder.rgr"
@@ -32,6 +33,11 @@ class SpriteWasmRunner {
     def fpsShown:int 0
     def backPulse:boolean false
     def assetRoot:string "gallery/game_engine/games/sprite_char/assets/"
+    ; Forward-compat capability gate (IDEAL.md §6). The sprite host renders
+    ; characters from its catalog and needs no optional RGW1 caps, so it
+    ; advertises none; a guest built against a newer ABI is rejected at load.
+    def capGate:WasmCapGate (new WasmCapGate)
+    def gateRejected:boolean false
 
     fn init:void (w:int h:int) {
         audio.init()
@@ -85,6 +91,15 @@ class SpriteWasmRunner {
         assetRoot = (this.assetDirOf(path))
         this.loadSheets()
         guest = (wasm_load path)
+        gateRejected = false
+        capGate.setHostCaps(0)
+        if ((capGate.checkWasm(guest)) == false) {
+            print ("[sprite] REJECTED " + path + ": " + capGate.reason)
+            wasm_close guest
+            guest = 0
+            gateRejected = true
+            return
+        }
         wasm_call_void guest "sprite_init" 0 0 0 0 0 0
         gbase = (wasm_call_i32 guest "sprite_ptr" 0 0 0 0 0 0)
         wasm_mem_set_i32 guest (gbase + 36) pw   ; OFF_VIEW_W

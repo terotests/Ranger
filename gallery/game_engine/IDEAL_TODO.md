@@ -103,13 +103,21 @@ Brand-new `wasm/*.h` files and additive constants. Nothing existing breaks.
 
 Now the headers exist; make the host *use* the handshake and validate uniformly.
 
-- [ ] **3.1 Activate the capability gate** (row 5, IDEAL.md §6, IDEAL_API §1.1).
-  A shared gate helper the runners call once after load, before `init()`:
-  reads `rg_abi_version` / `rg_required_caps`, rejects `ver > host` or
-  `need & ~hostCaps` with a surfaced reason. Wire it into
-  `wasm_physics_runner.rgr`, `wasm_game_runner.rgr`, `wasm_sprite_runner.rgr`,
-  `as_source_runner.rgr`.
-  *Check:* a guest that requires a missing cap is rejected at load (a fixture).
+- [~] **3.1 Activate the capability gate** (row 5, IDEAL.md §6, IDEAL_API §1.1).
+  Shared helper `scripting/wasm_cap_gate.rgr` (`WasmCapGate`): reads
+  `rg_abi_version` / `rg_required_caps` (a missing optional export = legacy
+  v1/caps 0 via the new `wasm_has_export` bridge primitive), rejects `ver > host`
+  or `need & ~hostCaps` with a surfaced reason. Wired into the three WASM runners'
+  load paths — `wasm_physics_runner.rgr` (advertises PHYSICS|RGU1),
+  `wasm_game_runner.rgr` (no optional caps), `sprite_wasm_runner.rgr` — each
+  closing the handle and bailing on rejection, before `init()`.
+  Native bridge: `rg_wasm_has_export` added to `runtime/rg_wasm_bridge.{c,h}` +
+  `wasm_has_export` op in `wasm_runtime.rgr`.
+  *Check:* `wasm_cap_gate_demo.rgr` self-test — 6/6 pass (legacy passes, present
+  cap passes, missing cap rejected, newer ABI rejected, `addCap` admits, multi-cap
+  passes); all three runners compile with the wiring.
+  *Remaining:* the interpreted `.as` path (`as_source_runner.rgr`) needs an
+  interpreted-export presence probe (EvalValue API) — tracked as a 3.1 follow-up.
 - [ ] **3.2 Resolve RGCQ / `rg_check_env`** (row 5). One host resolver fills the
   typed query tail and calls `rg_check_env`; guest gets real answers, not defaults.
   *Check:* a guest querying `screen.width` reads the host's real value.
