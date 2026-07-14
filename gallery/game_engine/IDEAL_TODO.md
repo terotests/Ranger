@@ -187,11 +187,18 @@ The structural payoff: core compiles against interfaces, the guest owns the worl
   from `RG_SPR_OFF_CAT_IDS` + `lpc_char_catalog.rgr`; anim rows/cycles from atlas
   data (`atlas.json`), documented fallbacks; no `RG_SPR_CHAR_*`.
   *Check:* adding a character = a catalog entry, no header edit.
-- [ ] **4.4 Unified sound palette** (row 11, IDEAL.md §4, IDEAL_API §2.6/§4). Fold
-  the RGW1 sound enum + `.as` sound queue into one registered per-game palette
-  (`registerSound(name, spec)`); the sound-event record (§2.6) is identical on RGW1,
-  `.as`, TS.
-  *Check:* a game registers `"brick"` with no core branch; both paths emit it.
+- [~] **4.4 Unified sound palette** (row 11, IDEAL.md §4, IDEAL_API §2.6/§4). The
+  fixed sound enum is now a registry: `GameSoundPalette` (in `game_audio.rgr`)
+  maps a sound NAME → `SynthToneSpec` as data; `registerDefaults()` installs the
+  former hardcoded set (identical tones), and `GameAudio.registerSound(name, spec)`
+  lets a game add/override sounds. The `if (id == "wall") {…}` ladder in
+  `hasBuiltin`/`lookupSpec` is gone — both now do a table lookup.
+  *Check:* `game_sound_palette_demo.rgr` self-test — 14/14 pass (empty palette,
+  defaults preserve tones, register-new, override, unknown→default, and GameAudio
+  consulting the palette + `registerSound`); `game_audio.rgr` compiles.
+  *Remaining:* fold the `.as` integer `playSound` queue and the RGW1 sound sub-id
+  into the same palette so the §2.6 sound-event record is identical on RGW1 / `.as`
+  / TS (the scene provider's `soundName(sub)` from 4.1 is the RGW1→name hop).
 
 ---
 
