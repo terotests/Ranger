@@ -46,7 +46,12 @@
 #define RG_SPR_OFF_INPUT_P2    32  /* i32 host:  second player input flags     */
 #define RG_SPR_OFF_VIEW_W      36  /* i32 host:  view width in px (layout)     */
 #define RG_SPR_OFF_VIEW_H      40  /* i32 host:  view height in px (layout)    */
+#define RG_SPR_OFF_MODE        44  /* i32 guest: 0 = menu (select), 1 = play   */
 #define RG_SPR_HEADER_SIZE     64
+
+/* guest mode values (RG_SPR_OFF_MODE) */
+#define RG_SPR_MODE_MENU       0
+#define RG_SPR_MODE_PLAY       1
 
 /* Slot array (guest writes; host reads). slot i lives at OFF_SLOTS + i*SLOT_SIZE. */
 #define RG_SPR_OFF_SLOTS       64
@@ -96,6 +101,7 @@
 #define RG_SPR_IN_LEFT   4u
 #define RG_SPR_IN_RIGHT  8u
 #define RG_SPR_IN_ACTION 16u
+#define RG_SPR_IN_BACK   32u  /* host feeds this in play mode -> guest to menu  */
 
 /* ---------------------------------------------------------------------------
  * Exports a guest SHOULD provide (host-driven, same shape as the other ABIs):
