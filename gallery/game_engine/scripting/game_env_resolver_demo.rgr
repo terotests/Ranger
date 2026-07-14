@@ -1,0 +1,77 @@
+; Headless self-test for EnvResolver (IDEAL_TODO 3.2). Run:
+;   RANGER_LIB=compiler/Lang.rgr:lib/stdops.rgr node bin/output.js -es6 \
+;     gallery/game_engine/scripting/game_env_resolver_demo.rgr \
+;     -d=gallery/game_engine/scripting -o=game_env_resolver_demo.js -nodecli \
+;   && node gallery/game_engine/scripting/game_env_resolver_demo.js
+
+Import "./game_env_resolver.rgr"
+
+class EnvCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+}
+
+class GameEnvResolverDemo {
+    sfn m@(main):void () {
+        def c:EnvCheck (new EnvCheck)
+        print "EnvResolver self-test"
+
+        ; A handheld host with a GPU and pose camera, no gamepad.
+        def r:EnvResolver (new EnvResolver)
+        r.screenW = 1280
+        r.screenH = 720
+        r.deviceType = 1
+        r.hasGpu = true
+        r.hasPose = true
+        r.gamepads = 0
+        r.logLevel = 1
+
+        def w:EnvValue (r.resolve("screen.width"))
+        c.ok("screen.width present+int" (w.present && (w.kind == 2)))
+        c.ok("screen.width value" (w.ival == 1280))
+
+        def gpu:EnvValue (r.resolve("gpu"))
+        c.ok("gpu present+bool" (gpu.present && (gpu.kind == 1)))
+        c.ok("gpu true" (gpu.ival == 1))
+
+        def pose:EnvValue (r.resolve("input.pose"))
+        c.ok("pose true" (pose.ival == 1))
+
+        def pads:EnvValue (r.resolve("input.gamepads"))
+        c.ok("gamepads int 0" ((pads.kind == 2) && (pads.ival == 0)))
+
+        def loc:EnvValue (r.resolve("locale"))
+        c.ok("locale string" ((loc.kind == 4) && (loc.sval == "en")))
+
+        def lvl:EnvValue (r.resolve("log.level"))
+        c.ok("log.level int 1" (lvl.ival == 1))
+
+        ; A key the host does not know -> not present, guest keeps its default.
+        def unknown:EnvValue (r.resolve("does.not.exist"))
+        c.ok("unknown key not present" (unknown.present == false))
+
+        ; Default resolver (unconfigured) still answers a desktop software host.
+        def d:EnvResolver (new EnvResolver)
+        def dgpu:EnvValue (d.resolve("gpu"))
+        c.ok("default gpu false" ((dgpu.kind == 1) && (dgpu.ival == 0)))
+        def dtype:EnvValue (d.resolve("device.type"))
+        c.ok("default device desktop" (dtype.ival == 0))
+
+        print "======================================"
+        print (("RESULT: " + (to_string c.passed) + " passed, ") + ((to_string c.failed) + " failed"))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

@@ -118,9 +118,19 @@ Now the headers exist; make the host *use* the handshake and validate uniformly.
   passes); all three runners compile with the wiring.
   *Remaining:* the interpreted `.as` path (`as_source_runner.rgr`) needs an
   interpreted-export presence probe (EvalValue API) — tracked as a 3.1 follow-up.
-- [ ] **3.2 Resolve RGCQ / `rg_check_env`** (row 5). One host resolver fills the
-  typed query tail and calls `rg_check_env`; guest gets real answers, not defaults.
-  *Check:* a guest querying `screen.width` reads the host's real value.
+- [~] **3.2 Resolve RGCQ / `rg_check_env`** (row 5, IDEAL_API §1.2). The
+  game-neutral answer source landed: `scripting/game_env_resolver.rgr`
+  (`EnvResolver` + `EnvValue`) resolves the documented core key set (screen.*,
+  device.type, input.*, audio/haptics/gpu/storage/network, locale,
+  clock.monotonic, log.level, debugmode) to typed values (BOOL/INT/STRING),
+  returning `present=false` for unknown keys so a guest keeps its default.
+  *Check:* `game_env_resolver_demo.rgr` self-test — 11/11 pass (typed answers,
+  configured vs default host, unknown-key fallthrough).
+  *Remaining (needs new plumbing):* the RGCQ byte exchange — read the guest's
+  declared keys from the RGW1 tail, write these answers + `present`/`type`, set
+  `READY=1`, call `rg_check_env`. Blocked on a byte/string wasm-memory read
+  primitive (only `rg_wasm_mem_read_i32` exists today) and a guest that actually
+  declares queries to verify end-to-end.
 - [~] **3.3 Uniform block validation** (row 6, IDEAL_API §0.3). New
   `scripting/wasm_block_validator.rgr` (`WasmBlockValidator`): one `validate`
   (magic / version≤host / size), `validateMinSize` for variable-size blocks

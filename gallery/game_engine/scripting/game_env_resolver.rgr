@@ -1,0 +1,97 @@
+; ==============================================================================
+; game_env_resolver — the typed environment answer source (IDEAL_API §1.2, §2.14)
+; ==============================================================================
+;
+; IDEAL.md problem #7: "RGCQ negotiation is inert." The typed capability query
+; exists in the RGW1 tail, but no host resolves rg_declare_queries / rg_check_env,
+; so every guest silently falls back to its own defaults. This class is the
+; game-neutral half of the fix: given a query KEY (a convention string), it
+; returns the host's typed answer. The RGCQ byte plumbing (read the guest's keys,
+; write these answers back, set READY, call rg_check_env) consumes it.
+;
+; Keys are OPEN and typed, but the core set is documented convention (IDEAL_API
+; §1.2), not per-host invention: screen.*, device.type, input.*, audio/haptics/
+; gpu/storage/network, locale, clock.monotonic, log.level, plus debugmode.
+;
+; Value types mirror wasm/wasm_game_abi.h RG_WASM_CAP_*:
+;   1 = BOOL, 2 = INT, 3 = FLOAT, 4 = STRING.
+; ==============================================================================
+
+class EnvValue {
+    def present:boolean false
+    def kind:int 0        ; RG_WASM_CAP_* (0 = not answered)
+    def ival:int 0        ; BOOL (0/1) or INT
+    def sval:string ""    ; STRING
+
+    fn setBool:void (b:boolean) {
+        present = true
+        kind = 1
+        if b {
+            ival = 1
+        } {
+            ival = 0
+        }
+    }
+    fn setInt:void (n:int) {
+        present = true
+        kind = 2
+        ival = n
+    }
+    fn setStr:void (s:string) {
+        present = true
+        kind = 4
+        sval = s
+    }
+}
+
+; The host's actual environment facts. A runner sets these from its real device
+; (screen size from the framebuffer, gpu from the render backend, pose from the
+; attached provider, ...) before answering queries. Defaults describe a plain
+; desktop software host so an unconfigured resolver still answers sanely.
+class EnvResolver {
+    def screenW:int 480
+    def screenH:int 270
+    def screenDpi:int 96
+    def refreshHz:int 60
+    def deviceType:int 0        ; 0=desktop 1=handheld 2=tv 3=phone 4=embedded
+    def hasKeyboard:boolean true
+    def hasPointer:boolean true
+    def hasTouch:boolean false
+    def gamepads:int 0
+    def hasPose:boolean false
+    def hasAudio:boolean true
+    def hasHaptics:boolean false
+    def hasGpu:boolean false
+    def hasStorage:boolean true
+    def hasNetwork:boolean false
+    def locale:string "en"
+    def logLevel:int 2          ; RG_LOG_INFO
+    def debugMode:boolean false
+
+    ; Resolve one query key to a typed value. An unknown key returns a value with
+    ; present=false, so the guest keeps its own default for that key (soft query).
+    fn resolve:EnvValue (key:string) {
+        def v:EnvValue (new EnvValue)
+        if (key == "screen.width")    { v.setInt(screenW) return v }
+        if (key == "screen.height")   { v.setInt(screenH) return v }
+        if (key == "screen.dpi")      { v.setInt(screenDpi) return v }
+        if (key == "screen.refreshHz") { v.setInt(refreshHz) return v }
+        if (key == "device.type")     { v.setInt(deviceType) return v }
+        if (key == "input.keyboard")  { v.setBool(hasKeyboard) return v }
+        if (key == "input.pointer")   { v.setBool(hasPointer) return v }
+        if (key == "input.touch")     { v.setBool(hasTouch) return v }
+        if (key == "input.gamepads")  { v.setInt(gamepads) return v }
+        if (key == "input.pose")      { v.setBool(hasPose) return v }
+        if (key == "audio")           { v.setBool(hasAudio) return v }
+        if (key == "haptics")         { v.setBool(hasHaptics) return v }
+        if (key == "gpu")             { v.setBool(hasGpu) return v }
+        if (key == "storage")         { v.setBool(hasStorage) return v }
+        if (key == "network")         { v.setBool(hasNetwork) return v }
+        if (key == "locale")          { v.setStr(locale) return v }
+        if (key == "clock.monotonic") { v.setBool(true) return v }
+        if (key == "log.level")       { v.setInt(logLevel) return v }
+        if (key == "debugmode")       { v.setBool(debugMode) return v }
+        ; unknown key: leave present=false, guest keeps its default.
+        return v
+    }
+}
