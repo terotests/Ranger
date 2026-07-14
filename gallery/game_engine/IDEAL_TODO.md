@@ -164,12 +164,21 @@ Now the headers exist; make the host *use* the handshake and validate uniformly.
 
 The structural payoff: core compiles against interfaces, the guest owns the world.
 
-- [ ] **4.1 `GameSceneProvider` seam** (row 8, IDEAL.md §3, IDEAL_API §7). Drop
-  `Import "./wasm_autopeli_setup.rgr"` / `wasm_autopeli_render.rgr` from
-  `wasm_physics_runner.rgr` / `wasm_game_runner.rgr`; the runner holds a
-  `GameSceneProvider` interface; autopeli logic moves to `games/autopeli_wasm/scene/`.
-  *Check:* leak-guard grep on the two runners returns nothing; a second physics
-  game drives the runner with zero core edits.
+- [~] **4.1 `GameSceneProvider` seam** (row 8, IDEAL.md §3, IDEAL_API §7). The
+  interface landed: `scripting/game_scene_provider.rgr` (`GameSceneProvider` base
+  with genre-neutral defaults) carries the game's world size, player count,
+  camera policy, body-id↔code convention, sprite mapping, and sound/particle
+  event vocabulary — the exact constants that leak into core today (6000, 5640,
+  2, wall/bounce/win, the assets path). Autopeli's implementation lives in its
+  game module: `games/autopeli_wasm/scene/autopeli_scene_provider.rgr`.
+  *Check:* `game_scene_provider_demo.rgr` conformance test — 15/15 pass: autopeli
+  AND a second `BumperSceneProvider` (800×800, 4 players, own sprites/sounds)
+  drive the SAME interface reference through one `describe()` "core" function, and
+  the base default leaks no game (§0 invariant proven).
+  *Remaining (needs SDL build to verify runtime):* rewire `wasm_physics_runner.rgr`
+  to hold a `GameSceneProvider` and read world/camera/sound/sprite through it,
+  then drop the `wasm_autopeli_setup` / `wasm_autopeli_render` imports and the
+  hardcoded wall/bounce/win map — clearing the runner's leak-guard hits.
 - [ ] **4.2 Single world owner** (row 9, IDEAL.md §5). Guest declares bodies/bounds/
   world-size/camera through the declare-once channel; delete
   `wasm_autopeli_setup.rgr`'s host copy.
