@@ -219,20 +219,30 @@ class WasmAbiMem {
         return (this.readMem(base + 64 + (idx * 24) + 4))
     }
 
+    ; Genre-neutral control read (IDEAL §2.2). The 16-byte control record is four
+    ; opaque i32 channels; the guest assigns meaning. Core reads by index only —
+    ; never steer/throttle/brake/grip. ch in 0..3 (RG_WASM_CTRL_OFF_CH0..CH3).
+    fn readControlChannel:int (idx:int ch:int) {
+        return (this.readMem(base + 832 + (idx * 16) + (ch * 4)))
+    }
+
+    ; Deprecated car-named shims — the steer/throttle/brake/grip interpretation is
+    ; an autopeli mapping and belongs in the game's scene provider (Phase 4). Kept
+    ; only until wasm_physics_runner stops holding the concrete autopeli setup.
     fn readControlSteer:int (idx:int) {
-        return (this.readMem(base + 832 + (idx * 16)))
+        return (this.readControlChannel(idx 0))
     }
 
     fn readControlThrottle:int (idx:int) {
-        return (this.readMem(base + 832 + (idx * 16) + 4))
+        return (this.readControlChannel(idx 1))
     }
 
     fn readControlBrake:int (idx:int) {
-        return (this.readMem(base + 832 + (idx * 16) + 8))
+        return (this.readControlChannel(idx 2))
     }
 
     fn readControlGrip:int (idx:int) {
-        return (this.readMem(base + 832 + (idx * 16) + 12))
+        return (this.readControlChannel(idx 3))
     }
 
     fn readImpulseBody:int (idx:int) {

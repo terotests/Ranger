@@ -58,12 +58,14 @@ risk is low and this phase can land first.
   Add `RG_WASM_CTRL_OFF_CH0..CH3` to `wasm_game_abi.h`; document the 16-byte control
   record as four opaque scalar channels named by the guest.
   *Check:* header defines `RG_WASM_CTRL_OFF_CH0`; comment names no car part.
-- [ ] **1.4 Host side genre-neutral accessor** (row 2). In
-  `scripting/wasm_abi_io.rgr` add `readControlChannel(bodyIdx, ch)`; in
-  `scripting/as_abi_bridge.rgr` make `writeControl` take indexed channels. Keep the
-  named wrappers as thin deprecated shims only in the autopeli guest/provider.
-  *Check:* core exposes `readControlChannel`; `steer/throttle/brake/grip` no longer
-  appear as method names in `scripting/`.
+- [x] **1.4 Host side genre-neutral accessor** (row 2). `scripting/wasm_abi_io.rgr`
+  now exposes `readControlChannel(bodyIdx, ch)`; the four car-named readers delegate
+  to it as thin deprecated shims (their car interpretation moves to the guest/scene
+  provider in Phase 4, when the runner stops holding the concrete autopeli setup).
+  `scripting/as_abi_bridge.rgr` gains `writeControlChannel(i, ch, v)` (guest-facing)
+  with `writeControl` delegating to it.
+  *Check:* both files compile via the Ranger compiler; core exposes the indexed
+  channel accessors. (Full removal of the named shims is gated on Phase 4.1.)
 
 ---
 
