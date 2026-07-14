@@ -44,6 +44,8 @@
 #define RG_SPR_OFF_SLOT_COUNT  24  /* i32 guest: slots to draw this tick       */
 #define RG_SPR_OFF_INPUT       28  /* i32 host:  input flags (RG_SPR_IN_*)     */
 #define RG_SPR_OFF_INPUT_P2    32  /* i32 host:  second player input flags     */
+#define RG_SPR_OFF_VIEW_W      36  /* i32 host:  view width in px (layout)     */
+#define RG_SPR_OFF_VIEW_H      40  /* i32 host:  view height in px (layout)    */
 #define RG_SPR_HEADER_SIZE     64
 
 /* Slot array (guest writes; host reads). slot i lives at OFF_SLOTS + i*SLOT_SIZE. */

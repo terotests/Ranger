@@ -2,7 +2,7 @@ name=Sprite Test
 engine=wasm
 module=sprite_char.wasm
 abi=sprite
-assets=../../lpc/pack/characters
+assets=assets
 autoscale=true
 
 category=Tests

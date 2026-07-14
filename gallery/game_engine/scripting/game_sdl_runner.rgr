@@ -25,6 +25,7 @@ Import "../gfx_sdl.rgr"
 Import "./game_audio_sdl.rgr"
 Import "./game_catalog.rgr"
 Import "./streaming_world_runner.rgr"
+Import "./sprite_wasm_runner.rgr"
 Import "./game_host_native.rgr"
 Import "./game_input.rgr"
 Import "./game_split_screen.rgr"
@@ -53,6 +54,8 @@ class GameSdlRunner {
     def wasmSplitActive:boolean false
     def streamRunner:StreamingWorldRunner (new StreamingWorldRunner)
     def useStreamRunner:boolean false
+    def spriteRunner:SpriteWasmRunner (new SpriteWasmRunner)
+    def useSpriteRunner:boolean false
     def catalog:GameCatalog (new GameCatalog)
     def nativeBridge:GameHostNativeBridge (new GameHostNativeBridge)
     def pw:int 480
@@ -121,6 +124,7 @@ class GameSdlRunner {
         wasmPhysicsRunner.setProfileEnabled(profileEnabled)
         splitHost.setProfileEnabled(profileEnabled)
         wasmSplitHost.setProfileEnabled(profileEnabled)
+        spriteRunner.setProfileEnabled(profileEnabled)
     }
 
     fn resolveWasmPhysics:boolean (path:string) {
@@ -147,6 +151,33 @@ class GameSdlRunner {
                     return true
                 }
                 if ((indexOf txt "abi=linear") >= 0) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    ; True when the game.info declares abi=sprite (RGSP1 character game). Routed
+    ; to SpriteWasmRunner instead of the physics/getter wasm runners.
+    fn resolveWasmSprite:boolean (path:string) {
+        if ((strlen gamesDir) > 0) {
+            if ((catalog.entryCount()) == 0) {
+                catalog.setGamesDir(gamesDir)
+                catalog.scan()
+            }
+        }
+        def entry:GameCatalogEntry (catalog.findByPath(path))
+        if (entry.abi == "sprite") {
+            return true
+        }
+        def slash:int (lastIndexOf path "/")
+        if (slash >= 0) {
+            def dir:string (substring path 0 slash)
+            if (file_exists dir "game.info") {
+                def buf:buffer (buffer_read_file dir "game.info")
+                def txt:string (buffer_to_string buf)
+                if ((indexOf txt "abi=sprite") >= 0) {
                     return true
                 }
             }
@@ -285,6 +316,7 @@ class GameSdlRunner {
     }
 
     fn loadScriptAt:void (tsxPath:string injectCatalog:boolean) {
+        useSpriteRunner = false
         useStreamRunner = false
         useWasmRunner = false
         if (inGame) {
@@ -342,6 +374,11 @@ class GameSdlRunner {
     }
 
     fn loadWasmAt:void (wasmPath:string) {
+        if (this.resolveWasmSprite(wasmPath)) {
+            this.loadSpriteAt(wasmPath)
+            return
+        }
+        useSpriteRunner = false
         useStreamRunner = false
         useWasmRunner = true
         useWasmPhysics = (this.resolveWasmPhysics(wasmPath))
@@ -409,6 +446,7 @@ class GameSdlRunner {
     ; Load an interpreted .as game folder — reuses the wasm physics/render path
     ; (the ABI is identical); only the guest is an interpreted .as file.
     fn loadAsAt:void (asPath:string) {
+        useSpriteRunner = false
         useStreamRunner = false
         useWasmRunner = true
         useWasmPhysics = true
@@ -466,9 +504,35 @@ class GameSdlRunner {
         this.loadScriptAt(path injectCatalog)
     }
 
+    ; Load an RGSP1 sprite game: sprite_char.wasm drives the ready character set
+    ; (menu + play), rendered by SpriteWasmRunner and presented like any wasm game.
+    fn loadSpriteAt:void (wasmPath:string) {
+        useStreamRunner = false
+        useWasmRunner = false
+        useWasmPhysics = false
+        useSpriteRunner = true
+        spriteRunner = (new SpriteWasmRunner)
+        spriteRunner.init(pw ph)
+        this.presentLoadingScreen("LOADING WASM")
+        spriteRunner.loadModule(wasmPath)
+        spriteRunner.setupScene()
+        currentScriptPath = wasmPath
+        currentGamePath = wasmPath
+        inMenu = false
+        inGame = true
+        splitScreenActive = false
+        wasmSplitActive = false
+        this.syncInputEdges()
+        gameInputSnap.resetSoloPad()
+        gfx_clear_should_close
+        this.setProfileOnRunners()
+        print ("[game-engine] sprite game: " + wasmPath)
+    }
+
     ; Load a streaming-world game: worker.wasm + its spawned resource loader,
     ; driven by StreamingWorldRunner and presented through the normal path.
     fn loadStreamingAt:void (wasmPath:string) {
+        useSpriteRunner = false
         useStreamRunner = true
         useWasmRunner = false
         useWasmPhysics = false
@@ -813,6 +877,11 @@ class GameSdlRunner {
                 profRenderMs = (profRenderMs + (z1 - z0))
                 profPresentMs = (profPresentMs + (z2 - z1))
             }
+            return
+        }
+        if (useSpriteRunner) {
+            spriteRunner.draw()
+            gfx_present (spriteRunner.raw()) pw ph
             return
         }
         def s0:int (gfx_ticks_ms)
@@ -1547,6 +1616,10 @@ class GameSdlRunner {
                     }
                 }
             } {
+                if (useSpriteRunner) {
+                    def gameInputSp:GameInputSnapshot (this.pollGameInput())
+                    spriteRunner.frameWithInput(dtMs gameInputSp.p0.up gameInputSp.p0.down gameInputSp.p0.left gameInputSp.p0.right gameInputSp.p0.action)
+                } {
                 if (useStreamRunner) {
                     def gameInputS:GameInputSnapshot (this.pollGameInput())
                     streamRunner.frameWithInput(dtMs gameInputS.p0.up gameInputS.p0.down gameInputS.p0.left gameInputS.p0.right gameInputS.p0.action)
@@ -1565,6 +1638,7 @@ class GameSdlRunner {
                         runner.frameWithInput(dtMs gameInput)
                         this.drainScriptNavigation()
                     }
+                }
                 }
             }
             def tUpdateEnd:int (gfx_ticks_ms)
