@@ -51,6 +51,21 @@ The shared ABI (`wasm/wasm_game_abi.h`, `wasm/wasm_sprite_abi.h`,
 AssemblyScript guest, the interpreted `.as` guest, and the host. Its ideal is the
 strictest.
 
+> **"guest" vs "host" — say it once, precisely.** The **guest is the game itself**,
+> compiled to a WASM module — normally written in **Rust** (`wasm/rust_*/src/lib.rs`)
+> or **AssemblyScript** (`wasm/as_*/assembly/index.ts`), or run through the interpreted
+> `.as` path. The **host** is the Ranger engine (`scripting/` `.rgr` files) that loads
+> that module and drives it each frame. The only thing crossing between them is the
+> shared linear-memory block described by the ABI header — no pointers, no objects.
+>
+> So "guest-side" below means **inside the game's own Rust crate / AssemblyScript
+> module**, next to `lib.rs` / `index.ts`, compiled into the same `.wasm`. It does
+> **not** mean a file that sits in `wasm/` next to the shared headers, and it
+> **never** means anything in `scripting/` core. The shared `.h` headers exist only
+> because C-style `#define`s are the lowest common denominator all three guests can
+> mirror; the constants a game owns do not belong in them, they belong in the game's
+> source in the game's own language.
+
 ### 2.1 Rule: the ABI defines *bytes and structure*, the guest defines *meaning*
 
 **In the ABI (generic, may stay):**
@@ -64,13 +79,18 @@ strictest.
 
 **Out of the ABI (a specific game's meaning — belongs guest-side):**
 
+In the "Ideal home" column, *guest source* means the game's own Rust crate or
+AssemblyScript module (`wasm/rust_autopeli/src/`, `wasm/as_autopeli/assembly/`) —
+compiled into the game's `.wasm`, never added to the shared `wasm/*.h` and never to
+`scripting/` core.
+
 | Currently in the header | Why it's a game, not a transport | Ideal home |
 |-------------------------|----------------------------------|------------|
-| `RG_WASM_GRIP_SCALE`, `RG_WASM_STEER_SCALE` | grip/steer are a driving game's dynamics | `autopeli_abi.h` beside the guest |
-| `RG_WASM_ID_CONE0`, `RG_WASM_ID_BAR0` | cones/bars are autopeli entities | guest constants |
-| `Standard body indices (autopeli)` — `RG_WASM_BODY_TRAFFIC0`, `RG_WASM_TRAFFIC_COUNT 15` | "traffic" and a 15-count are game design | guest constants |
-| `RG_WASM_SOUND_WALL / BOUNCE / WIN` | one game's sound vocabulary | guest enum, host maps opaquely (§4) |
-| `RG_WASM_OFF_AIR_P1/P2` | an autopeli scalar | a **generic** "guest scalar slot", documented as guest-defined |
+| `RG_WASM_GRIP_SCALE`, `RG_WASM_STEER_SCALE` | grip/steer are a driving game's dynamics | a `const` in the autopeli guest source (Rust `const` / AS `const`) |
+| `RG_WASM_ID_CONE0`, `RG_WASM_ID_BAR0` | cones/bars are autopeli entities | autopeli guest source |
+| `Standard body indices (autopeli)` — `RG_WASM_BODY_TRAFFIC0`, `RG_WASM_TRAFFIC_COUNT 15` | "traffic" and a 15-count are game design | autopeli guest source |
+| `RG_WASM_SOUND_WALL / BOUNCE / WIN` | one game's sound vocabulary | a guest enum; host maps ids opaquely (§4) |
+| `RG_WASM_OFF_AIR_P1/P2` | an autopeli scalar | a **generic** "guest scalar slot" the ABI documents as guest-defined |
 | `RG_SPR_CHAR_HERO / KNIGHT / MAGE / ROGUE` | a character roster | the character pack + its runtime catalog table (already exists: `RG_SPR_OFF_CAT_IDS`) |
 
 The header's own comments should read *"body-index meaning, id-code ranges, and
@@ -94,19 +114,36 @@ the guest:
 #define RG_WASM_CTRL_OFF_CH3    12  /* i32 fixed-point control channel 3 */
 ```
 
-A guest ships a tiny header naming *its* channels:
+The generic channel *offsets* above are the only thing the shared ABI defines. The
+game names *its* channels **inside its own guest source**, in whatever language the
+guest is written in — the naming is compiled into the `.wasm`, so it costs the host
+nothing and reaches no core file:
 
-```c
-/* autopeli_abi.h — guest-side, NOT in the shared ABI */
-#define AUTOPELI_CTRL_STEER    RG_WASM_CTRL_OFF_CH0
-#define AUTOPELI_CTRL_THROTTLE RG_WASM_CTRL_OFF_CH1
-#define AUTOPELI_CTRL_BRAKE    RG_WASM_CTRL_OFF_CH2
-#define AUTOPELI_CTRL_GRIP     RG_WASM_CTRL_OFF_CH3
+```rust
+// wasm/rust_autopeli/src/lib.rs — the game (Rust guest), compiled to .wasm.
+// These names live in the game, NOT in wasm/wasm_game_abi.h and NOT in scripting/.
+const CTRL_STEER:    usize = RG_WASM_CTRL_OFF_CH0;
+const CTRL_THROTTLE: usize = RG_WASM_CTRL_OFF_CH1;
+const CTRL_BRAKE:    usize = RG_WASM_CTRL_OFF_CH2;
+const CTRL_GRIP:     usize = RG_WASM_CTRL_OFF_CH3;
 ```
 
-Consequently `wasm_abi_io.rgr` exposes `readControlChannel(bodyIdx, ch)` — **not**
-`readControlSteer/Throttle/Brake/Grip`. Same for `as_abi_bridge.rgr`'s
-`writeControl`.
+```ts
+// wasm/as_autopeli/assembly/abi.ts — the same game as an AssemblyScript guest.
+// Same generic offsets, same game-local names; also compiled into the .wasm.
+export const CTRL_STEER:    i32 = RG_WASM_CTRL_OFF_CH0;
+export const CTRL_THROTTLE: i32 = RG_WASM_CTRL_OFF_CH1;
+export const CTRL_BRAKE:    i32 = RG_WASM_CTRL_OFF_CH2;
+export const CTRL_GRIP:     i32 = RG_WASM_CTRL_OFF_CH3;
+```
+
+(A C or C++ guest, if one is ever added, is the only case that would use a
+`.h`; it is not the norm — the norm is Rust or AssemblyScript.)
+
+Consequently the host side stays genre-neutral too: `wasm_abi_io.rgr` exposes
+`readControlChannel(bodyIdx, ch)` — **not** `readControlSteer/Throttle/Brake/Grip` —
+and `as_abi_bridge.rgr`'s `writeControl` takes indexed channels. The host transports
+four numbers; only the guest knows one of them is "steer".
 
 ### 2.3 The UI ABI (RGU1) is the model to imitate
 
