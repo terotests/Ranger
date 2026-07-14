@@ -11,6 +11,81 @@
 
 ---
 
+## The ABI today — current state, problems, and what it does not expose
+
+Before the target: a snapshot of what the shared ABI actually *is* right now, why
+it leaks, and which capabilities a game needs but the ABI never hands it (or hands
+it only through an ad-hoc, path-specific side channel). This grounds every "ideal"
+in §2–§6 against the concrete surface as of today.
+
+### The current surface
+
+Three shared headers under [`wasm/`](./wasm/) define the transport, and every guest
+(compiled Rust/AssemblyScript via [`wasm_abi_io.rgr`](./scripting/wasm_abi_io.rgr),
+or interpreted `.as` via [`as_abi_bridge.rgr`](./scripting/as_abi_bridge.rgr)) mirrors
+the same byte offsets:
+
+| Block | Header | Purpose | Size | Direction |
+|-------|--------|---------|------|-----------|
+| **RGW1** | [`wasm_game_abi.h`](./wasm/wasm_game_abi.h) | world / physics | 2560 B | mostly guest→host |
+| **RGSP1** | [`wasm_sprite_abi.h`](./wasm/wasm_sprite_abi.h) | ready-character sprites | 2560 B | host writes catalog + input, guest writes slots |
+| **RGU1** | [`wasm_ui_abi.h`](./wasm/wasm_ui_abi.h) | retained-mode UI | 8192 B | guest→host (+ optional `rg_ui_event` back) |
+
+Concretely, RGW1 is a fixed 2560-byte block: a 64-byte header, then
+`bodies[32]×24`, `controls[32]×16`, `impulses[16]×16`, `contacts[14]×32`,
+`events[12]×20` (at 2048), and a capability-query tail (RGCQ, at 2304). World
+coordinates are fixed-point (`FP_SCALE 256`). A forward-compat handshake is
+*declared* (`rg_abi_version` / `rg_ui_abi` / `rg_required_caps` /
+`rg_declare_queries` / `rg_check_env`, plus `RG_WASM_HOST_CAP_*` bits and the typed
+RGCQ query).
+
+**The host→guest channel in RGW1 is only four header words:** `dt_ms`, `time_ms`,
+`input`, `input_p2`. Everything else — bodies, controls, impulses, contacts,
+events, `score`, `hits`, `camera_y`, `air_p1/p2` — flows guest→host.
+
+Beyond those three headers, several blocks exist **only by convention in code, with
+no shared `wasm/*.h`**: `RGP1` pose input (a 128-byte host→guest block wired in
+[`as_abi_bridge.rgr`](./scripting/as_abi_bridge.rgr) and `pose/`), the `RGS1` guest
+sprite draw list, the host resource manifest (`hostSheet` / `hostRect`), and a guest
+sound queue — the last three are **native-array APIs on the interpreted `.as` path
+only**. `RGX1` (streaming) and `RGLD` (loader) are named as siblings but likewise
+have no canonical header.
+
+### Problems with the ABI as it stands
+
+| # | Problem | Evidence | Fixed by |
+|---|---------|----------|----------|
+| 1 | **Game taxonomy frozen into the transport header.** | `RG_WASM_GRIP_SCALE`, `RG_WASM_STEER_SCALE`, `RG_WASM_ID_CONE0`, `RG_WASM_ID_BAR0`, `RG_WASM_BODY_TRAFFIC0`, `RG_WASM_TRAFFIC_COUNT 15`, `RG_WASM_SOUND_WALL/BOUNCE/WIN` in `wasm_game_abi.h`; `RG_SPR_CHAR_HERO/KNIGHT/MAGE/ROGUE` in `wasm_sprite_abi.h`. | §2.1 |
+| 2 | **The control record is car-shaped.** The 16-byte record is `steer/throttle/brake/grip`, and that vocabulary leaks host-side into `readControlSteer/Throttle/Brake/Grip` ([`wasm_abi_io.rgr`](./scripting/wasm_abi_io.rgr)) and `writeControl(steer,throttle,brake,grip)` ([`as_abi_bridge.rgr`](./scripting/as_abi_bridge.rgr)). | §2.2 |
+| 3 | **Autopeli scalars sit in the shared header.** `RG_WASM_OFF_AIR_P1/P2` are one game's values living in a header every game must include. | §2.1 |
+| 4 | **A comment names a game in a shared header.** `/* Standard body indices (autopeli) */`. A game name in a transport header *is* the bug. | §2.1 |
+| 5 | **The capability gate is dead.** Guests may export `rg_abi_version` / `rg_required_caps` / `rg_check_env`, but nothing in `scripting/` ever calls them (grep = 0 hits), so a guest that needs a missing cap reads zeroed memory instead of being rejected at load. | §6 |
+| 6 | **The world is encoded twice.** The road + traffic live in both `wasm_autopeli_setup.rgr` (host) and `rust_autopeli/src/lib.rs` (guest); they agree only by convention. | §5 |
+| 7 | **RGCQ negotiation is inert.** The typed query tail exists, but no host resolves `rg_declare_queries` / `rg_check_env`, so every guest silently falls back to its own defaults. | §6 |
+
+### Interfaces the ABI does not expose, or exposes only partially
+
+These are capabilities a game realistically needs that the shared ABI hands over
+incompletely — or not at all — today. Each is a candidate seam the ideal must open
+without re-widening the leaks above.
+
+| Capability a game needs | Status today | Limitation | Ideal home |
+|-------------------------|--------------|------------|------------|
+| Declare its own **world** (bodies, bounds, world size, player count, camera hints, static-bg) | Partial | The guest declares *resources* (sheets/rects) through the manifest, but **not** bodies/bounds/world-size/player-count; those come from the host's own copy. No `worldSize()`/`playerCount()` channel. | §3, §5 |
+| Know the **viewport / screen size** in a physics guest | Missing | RGSP1 has `VIEW_W`/`VIEW_H`, but RGW1 has no view fields, so a physics guest cannot size or letterbox itself. | §2.1 (RGCQ `screen.*`) |
+| **Richer input** (analog sticks, pointer/touch, text, per-player remap) | Minimal | Only two i32 bitfields (`input`, `input_p2`); no analog axes, no pointer, no text entry. | §2.1 |
+| **Pose / body-tracking input** | Ad-hoc | Exists as an undocumented 128-byte `RGP1` block on the `.as` path only; no shared header, fixed to `present`/`gesture`/landmarks. | §2.3, §6 |
+| **Game-defined sound palette** | Rigid | A fixed enum (`RG_WASM_SOUND_WALL/BOUNCE/WIN`) in the header; the `.as` path bolts on an integer `playSound` queue instead. No way to register a per-game palette through the ABI. | §4 |
+| **Generic guest scalar slots** | Missing | Only `air_p1/air_p2` are hard-coded; there is no documented generic "guest scalar" the host transports opaquely. | §2.1 |
+| **Genre-neutral control channels** | Missing | Only the four named car channels; no indexed `readControlChannel(body, ch)`. | §2.2 |
+| **Data-driven sprite roster & animations** | Partial | A catalog-id table (`RG_SPR_OFF_CAT_IDS`) exists, but character ids are still frozen constants, and animations are limited to `WALK/RUN/JUMP` with `RUN`/`JUMP` falling back to `WALK`. | §2.1 |
+| **Guest draw list / resource manifest / sound queue as first-class ABI** | Path-specific | `RGS1`, the resource manifest, and the sound queue are native-array APIs on the interpreted `.as` path only — not a shared byte block, so compiled-WASM guests cannot use them uniformly. | §2, §5 |
+| **Streaming (`RGX1`) and loader (`RGLD`)** | Unheadered | Referenced as siblings of RGW1 but have no canonical `wasm/*.h`, so their offsets are not a stable contract. | §2 |
+| **Save-state / persistence, networking, clock/RNG seed, config negotiation** | Absent | Nothing beyond `dt_ms`/`time_ms`; no deterministic seed, no persistence, no negotiated timestep/config. | §2.1 (RGCQ), §6 |
+| **RGU1 interactivity** | Optional | The document is guest→host; `rg_ui_event` (activate/select) is an optional export and selection state lives on the host. | §2.3 |
+
+---
+
 ## Use cases — what a developer wants, and how the interface answers
 
 The point of the whole design is that each of these is *additive*: something the
