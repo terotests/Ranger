@@ -2,4 +2,4 @@ name=Rust Pong (WASM)
 engine=wasm
 module=logic.wasm
 
-category=Games
+category=Tests

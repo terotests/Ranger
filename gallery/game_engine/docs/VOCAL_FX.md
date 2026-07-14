@@ -63,11 +63,9 @@ programmatically with `GameVocalFx.registerAssetWav(id, dir, file)`).
 
 ## Demo
 
-- [`../games/comedy_club/`](../games/comedy_club/) ("Comedy Club") appears in the
-  SDL launcher; controls: `space`=laugh, `up`=cheer, `down`=boo, `left`=gasp,
-  `right`=sigh.
-- `vocal_fx_demo.game.tsx` is the same game as a Ranger test fixture;
+- `vocal_fx_demo.game.tsx` is the vocal-fx demo game as a Ranger test fixture;
   `vocal_fx_runner_demo.rgr` drives it headless and writes `vocal_fx_demo.wav`.
+  Controls: `space`=laugh, `up`=cheer, `down`=boo, `left`=gasp, `right`=sigh.
 
 ```bash
 npm run engine:vocalfx            # build + run, writes vocal_fx_demo.wav
@@ -83,7 +81,6 @@ npm run engine:vocalfx:selftest   # render every effect, print catalogue info
 | `../../ts_to_ranger/game_host.rgr` | routes `playVoice`, registers `voice` resources |
 | `vocal_fx_demo.game.tsx` | demo game (Ranger test fixture) |
 | `vocal_fx_runner_demo.rgr` | headless runner + WAV capture |
-| `../games/comedy_club/` | the launchable version in the menu |
 
 Each effect is a `VoiceSpec`: a glottal pitch glide, a vowel colour (weighted
 formant harmonics), breath-noise mix, optional vibrato, and a burst pattern
