@@ -1,10 +1,9 @@
-//! rust_sprite_char — a WASM guest that drives the RGSP1 sprite ABI.
-//!
-//! It ships NO art and NO animation code: it picks characters from the host's
-//! ready catalog by numeric id (exactly like a guest plays a sound by writing
-//! RG_WASM_SOUND_*), positions them, and sets an animation + direction. The host
-//! (scripting/wasm_sprite_runner.rgr) resolves each slot to a spritesheet frame
-//! and draws it. Layout mirrors gallery/game_engine/wasm/wasm_sprite_abi.h.
+//! rust_sprite_char — a WASM guest that drives the ready character set over the
+//! RGSP1 sprite ABI. It owns the whole little game (character-select menu + play)
+//! and ships NO art: it picks characters from the host catalog by numeric id, the
+//! same way a guest plays a sound by RG_WASM_SOUND_*. The host writes dt / input /
+//! view size into the block, calls sprite_tick, then reads the slot list and draws
+//! each slot as a spritesheet frame. Layout mirrors ../wasm_sprite_abi.h.
 //!
 //! Exports: sprite_ptr / sprite_size / sprite_init / sprite_tick, plus
 //! rg_abi_version so an older host can reject a newer guest.
@@ -16,6 +15,8 @@ const OFF_SIZE: i32 = 8;
 const OFF_DT_MS: i32 = 12;
 const OFF_SLOT_COUNT: i32 = 24;
 const OFF_INPUT: i32 = 28;
+const OFF_VIEW_W: i32 = 36;
+const OFF_VIEW_H: i32 = 40;
 const OFF_SLOTS: i32 = 64;
 const SLOT_SIZE: i32 = 32;
 
@@ -27,31 +28,21 @@ const SLOT_XFP: i32 = 16;
 const SLOT_YFP: i32 = 20;
 const SLOT_CLOCK: i32 = 24;
 
-const MAGIC: i32 = 0x5053_4752; // 'RGSP' little-endian
+const MAGIC: i32 = 0x5053_4752; // 'RGSP'
 const VERSION: i32 = 1;
 const SIZE: i32 = 2560;
 const FP: i32 = 256;
 
-// Catalog ids (mirror lpc_char_catalog.rgr)
-const CHAR_HERO: i32 = 1;
-const CHAR_KNIGHT: i32 = 2;
-const CHAR_MAGE: i32 = 3;
-const CHAR_ROGUE: i32 = 4;
-
-// Animation ids
+const CHAR_COUNT: i32 = 4;
 const ANIM_WALK: i32 = 0;
 const ANIM_JUMP: i32 = 2;
-
-// Directions
+const DIR_UP: i32 = 0;
 const DIR_LEFT: i32 = 1;
 const DIR_DOWN: i32 = 2;
 const DIR_RIGHT: i32 = 3;
-const DIR_UP: i32 = 0;
-
-// slot.flags
 const F_ACTIVE: i32 = 1;
 
-// input bits
+// input bits (RG_SPR_IN_*)
 const IN_UP: i32 = 1;
 const IN_DOWN: i32 = 2;
 const IN_LEFT: i32 = 4;
@@ -59,9 +50,21 @@ const IN_RIGHT: i32 = 8;
 const IN_ACTION: i32 = 16;
 
 const JUMP_MS: i32 = 500;
-const SLOTS: i32 = 4;
+const CELL: i32 = 64;
+
+// ---- guest state -----------------------------------------------------------
+const MODE_MENU: i32 = 0;
+const MODE_PLAY: i32 = 1;
 
 static mut BLOCK: [u8; 2560] = [0u8; 2560];
+static mut MODE: i32 = MODE_MENU;
+static mut CURSOR: i32 = 0; // 0..3 highlighted character in the menu
+static mut SEL: i32 = 1; // committed character id
+static mut PLAY_ANIM: i32 = ANIM_WALK;
+static mut PLAY_DIR: i32 = DIR_DOWN;
+static mut PLAY_CLOCK: i32 = 0;
+static mut MENU_CLOCK: i32 = 0;
+static mut PREV_IN: i32 = 0;
 
 #[inline]
 unsafe fn rd(off: i32) -> i32 {
@@ -80,14 +83,19 @@ fn slot_off(i: i32, field: i32) -> i32 {
     OFF_SLOTS + i * SLOT_SIZE + field
 }
 
-unsafe fn put_slot(i: i32, char_id: i32, anim: i32, dir: i32, x: i32, y: i32) {
+unsafe fn put_slot(i: i32, char_id: i32, anim: i32, dir: i32, x: i32, y: i32, clock: i32) {
     wr(slot_off(i, SLOT_CHARID), char_id);
     wr(slot_off(i, SLOT_ANIM), anim);
     wr(slot_off(i, SLOT_DIR), dir);
     wr(slot_off(i, SLOT_FLAGS), F_ACTIVE);
     wr(slot_off(i, SLOT_XFP), x * FP);
     wr(slot_off(i, SLOT_YFP), y * FP);
-    wr(slot_off(i, SLOT_CLOCK), 0);
+    wr(slot_off(i, SLOT_CLOCK), clock);
+}
+
+#[inline]
+unsafe fn edge(input: i32, bit: i32) -> bool {
+    (input & bit) != 0 && (PREV_IN & bit) == 0
 }
 
 #[no_mangle]
@@ -105,61 +113,117 @@ pub extern "C" fn rg_abi_version() -> i32 {
     VERSION
 }
 
-/// Stamp the header and seed the four catalog characters. Slot 0 (hero) is the
-/// player-controlled one; the rest walk in place facing different ways so the
-/// whole ready set is visible at once.
 #[no_mangle]
 pub extern "C" fn sprite_init() {
     unsafe {
         wr(OFF_MAGIC, MAGIC);
         wr(OFF_VERSION, VERSION);
         wr(OFF_SIZE, SIZE);
-        wr(OFF_SLOT_COUNT, SLOTS);
-        put_slot(0, CHAR_HERO, ANIM_WALK, DIR_RIGHT, 24, 64);
-        put_slot(1, CHAR_KNIGHT, ANIM_WALK, DIR_DOWN, 88, 64);
-        put_slot(2, CHAR_MAGE, ANIM_WALK, DIR_LEFT, 152, 64);
-        put_slot(3, CHAR_ROGUE, ANIM_WALK, DIR_UP, 216, 64);
+        MODE = MODE_MENU;
+        CURSOR = 0;
+        SEL = 1;
+        PLAY_ANIM = ANIM_WALK;
+        PLAY_DIR = DIR_DOWN;
+        PLAY_CLOCK = 0;
+        MENU_CLOCK = 0;
+        PREV_IN = 0;
     }
 }
 
-/// Advance every character's animation clock, and steer slot 0 from host input:
-/// arrow keys turn it (and keep it walking), ACTION starts a jump that reverts to
-/// walk when the hop finishes.
 #[no_mangle]
 pub extern "C" fn sprite_tick() {
     unsafe {
         let dt = rd(OFF_DT_MS).max(0);
         let input = rd(OFF_INPUT);
-
-        // advance all clocks
-        let mut i = 0;
-        while i < SLOTS {
-            let c = rd(slot_off(i, SLOT_CLOCK)) + dt;
-            wr(slot_off(i, SLOT_CLOCK), c);
-            i += 1;
+        let mut vw = rd(OFF_VIEW_W);
+        let mut vh = rd(OFF_VIEW_H);
+        if vw <= 0 {
+            vw = 480;
+        }
+        if vh <= 0 {
+            vh = 270;
         }
 
-        // steer the player (slot 0)
-        let anim0 = rd(slot_off(0, SLOT_ANIM));
-        if anim0 == ANIM_JUMP {
-            // finish the jump, then fall back to walking
-            if rd(slot_off(0, SLOT_CLOCK)) >= JUMP_MS {
-                wr(slot_off(0, SLOT_ANIM), ANIM_WALK);
-                wr(slot_off(0, SLOT_CLOCK), 0);
-            }
+        if MODE == MODE_MENU {
+            tick_menu(dt, input, vw, vh);
         } else {
-            if input & IN_ACTION != 0 {
-                wr(slot_off(0, SLOT_ANIM), ANIM_JUMP);
-                wr(slot_off(0, SLOT_CLOCK), 0);
-            } else if input & IN_LEFT != 0 {
-                wr(slot_off(0, SLOT_DIR), DIR_LEFT);
-            } else if input & IN_RIGHT != 0 {
-                wr(slot_off(0, SLOT_DIR), DIR_RIGHT);
-            } else if input & IN_UP != 0 {
-                wr(slot_off(0, SLOT_DIR), DIR_UP);
-            } else if input & IN_DOWN != 0 {
-                wr(slot_off(0, SLOT_DIR), DIR_DOWN);
-            }
+            tick_play(dt, input, vw, vh);
+        }
+
+        PREV_IN = input;
+    }
+}
+
+unsafe fn tick_menu(dt: i32, input: i32, vw: i32, vh: i32) {
+    if edge(input, IN_LEFT) {
+        CURSOR = (CURSOR + CHAR_COUNT - 1) % CHAR_COUNT;
+    }
+    if edge(input, IN_RIGHT) {
+        CURSOR = (CURSOR + 1) % CHAR_COUNT;
+    }
+    if edge(input, IN_ACTION) {
+        MODE = MODE_PLAY;
+        SEL = CURSOR + 1;
+        PLAY_ANIM = ANIM_WALK;
+        PLAY_DIR = DIR_DOWN;
+        PLAY_CLOCK = 0;
+        return;
+    }
+
+    MENU_CLOCK += dt;
+
+    // four characters in a row; the highlighted one walks in place + sits higher
+    let base_y = vh / 2 - CELL / 2;
+    wr(OFF_SLOT_COUNT, CHAR_COUNT);
+    let mut i = 0;
+    while i < CHAR_COUNT {
+        let x = vw * (i + 1) / (CHAR_COUNT + 1) - CELL / 2;
+        if i == CURSOR {
+            put_slot(i, i + 1, ANIM_WALK, DIR_DOWN, x, base_y - 10, MENU_CLOCK);
+        } else {
+            put_slot(i, i + 1, ANIM_WALK, DIR_DOWN, x, base_y, 0);
+        }
+        i += 1;
+    }
+}
+
+unsafe fn tick_play(dt: i32, input: i32, vw: i32, vh: i32) {
+    if PLAY_ANIM == ANIM_JUMP {
+        PLAY_CLOCK += dt;
+        if PLAY_CLOCK >= JUMP_MS {
+            PLAY_ANIM = ANIM_WALK;
+            PLAY_CLOCK = 0;
+        }
+    } else if edge(input, IN_ACTION) {
+        PLAY_ANIM = ANIM_JUMP;
+        PLAY_CLOCK = 0;
+    } else {
+        let mut moving = false;
+        if input & IN_LEFT != 0 {
+            PLAY_DIR = DIR_LEFT;
+            moving = true;
+        }
+        if input & IN_RIGHT != 0 {
+            PLAY_DIR = DIR_RIGHT;
+            moving = true;
+        }
+        if input & IN_UP != 0 {
+            PLAY_DIR = DIR_UP;
+            moving = true;
+        }
+        if input & IN_DOWN != 0 {
+            PLAY_DIR = DIR_DOWN;
+            moving = true;
+        }
+        if moving {
+            PLAY_CLOCK += dt;
+        } else {
+            PLAY_CLOCK = 0;
         }
     }
+
+    let x = vw / 2 - CELL / 2;
+    let y = vh * 2 / 3 - CELL / 2;
+    wr(OFF_SLOT_COUNT, 1);
+    put_slot(0, SEL, PLAY_ANIM, PLAY_DIR, x, y, PLAY_CLOCK);
 }

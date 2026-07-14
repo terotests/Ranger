@@ -1,10 +1,16 @@
-# Sprite Test (category: Tests)
+# Sprite Test (WASM, category: Tests)
 
-A PoC for trying the **ready character set** (`lpc/pack/characters/`): a
-character-select menu, then a play screen where the pad walks / turns / jumps the
-chosen character. It exercises the real WASM sprite path — the RGSP1 block + host
-bridge (`scripting/wasm_sprite_runner.rgr`) that resolves a catalog id to a
-spritesheet frame.
+A real WASM game for the launcher's **Tests** group that lets you try the ready
+character set (`lpc/pack/characters/`): a character-select menu, then a play
+screen where the pad walks / turns / jumps the chosen character.
+
+The guest (`sprite_char.wasm`, built from
+[`wasm/rust_sprite_char/`](../../wasm/rust_sprite_char/)) owns the whole game and
+ships no art: it picks characters from the host catalog by numeric id — the same
+way a guest plays a sound by `RG_WASM_SOUND_*` — and writes the RGSP1 block. The
+host (`scripting/sprite_wasm_runner.rgr`, wired into `game_sdl_runner.rgr` as
+`abi=sprite`) writes input + view size, ticks the guest, and draws each slot as a
+spritesheet frame from `assets/<slug>.png`.
 
 ## Controls
 
@@ -13,41 +19,26 @@ spritesheet frame.
 | Left / Right | pick character | turn + walk |
 | Up / Down | — | turn + walk |
 | A / Space | choose | jump |
-| Q / Esc | quit | back to menu |
+| Q / Esc | quit to launcher | quit to launcher |
 
-Keyboard (WASD/arrows + Space) or any gamepad — both feed the same input mask.
+Keyboard (WASD/arrows + Space) or any gamepad.
 
-## Run it
+## Files
 
-**Standalone SDL binary (real gamepad), today:**
+| File | Role |
+|------|------|
+| `game.info` | `engine=wasm module=sprite_char.wasm abi=sprite category=Tests` |
+| `sprite_char.wasm` | the guest (rebuild: `npm run engine:chars:guest`) |
+| `assets/<slug>.png` | baked character walk sheets (self-contained for deploy) |
 
-```bash
-npm run engine:chars:poc:sdl        # build + run (needs libsdl2-dev)
-# or headless smoke: ./tmp/sprite-char/sprite_char_sdl 120
-```
-
-**Headless (no display) — asserts + dumps frames to `lpc/output/poc_*.png`:**
-
-```bash
-npm run engine:chars:poc
-```
-
-The core lives in [`scripting/sprite_char_poc.rgr`](../../scripting/sprite_char_poc.rgr)
-(gfx-free, drives the RGSP1 host bridge); the SDL front-end is
-[`sprite_char_sdl.rgr`](../../sprite_char_sdl.rgr).
-
-## WASM guest & launcher tile
-
-The input→slot logic in the core mirrors the real guest
-[`wasm/rust_sprite_char/`](../../wasm/rust_sprite_char/) byte-for-byte, so the
-behaviour is identical whether it is driven by this host-side core or by the
-built module:
+## Build & run
 
 ```bash
-npm run engine:chars:guest          # -> games/sprite_char/sprite_char.wasm (needs wasm32 target)
+npm run engine:chars:guest    # rebuild sprite_char.wasm (needs wasm32 target)
+npm run engine:chars:verify   # run the guest in Node's WebAssembly, assert the block
+npm run engine:game-sdl:run   # build + launch the SDL launcher -> Tests -> Sprite Test
 ```
 
-The `game.info` here catalogs the test under **Tests**. Running the tile straight
-from the launcher additionally needs the `abi=sprite` runner path wired into
-`scripting/game_sdl_runner.rgr` (the standalone binary above is the runnable PoC
-until then). See the README "ready character set" section for the whole picture.
+The host side (`scripting/sprite_wasm_runner.rgr`) and the RGSP1 contract
+(`wasm/wasm_sprite_abi.h`) are shared with the catalog; adding a new character is
+a catalog + `assets/` change, never a guest change.

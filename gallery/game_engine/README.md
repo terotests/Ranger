@@ -433,20 +433,25 @@ npm run engine:chars:demo    # host-silta päästä päähän, assertit + lpc/ou
 npm run engine:chars:guest   # Rust-guest -> games/sprite_char/sprite_char.wasm (vaatii wasm-targetin)
 ```
 
-### Testipeli: hahmon valinta + ohjaimella kävely/hyppy
+### Testipeli (WASM): hahmon valinta + ohjaimella kävely/hyppy
 
-[`games/sprite_char/`](./games/sprite_char/) (kategoria **Tests**) on PoC jolla setin voi
-kokeilla: **valikko** hahmon valintaan, sitten **ohjaimella** kävely/kääntyminen/hyppy.
-Se ajaa oikeaa RGSP1-host-siltaa; input→slot-logiikka on sama kuin Rust-guestissa.
+[`games/sprite_char/`](./games/sprite_char/) on **oikea WASM-peli** launcherin **Tests**-
+ryhmässä: **valikko** hahmon valintaan, sitten **ohjaimella** kävely/kääntyminen/hyppy.
+Guest (`sprite_char.wasm`) omistaa koko pelin ja kirjoittaa RGSP1-blokin; host
+([`scripting/sprite_wasm_runner.rgr`](./scripting/sprite_wasm_runner.rgr), kytketty
+`game_sdl_runner`iin `abi=sprite`-reittinä) syöttää inputin ja piirtää slotit arkeista.
 
 ```bash
-npm run engine:chars:poc       # headless: scriptattu input, assertit + lpc/output/poc_*.png
-npm run engine:chars:poc:sdl   # standalone SDL-binääri, oikea näppäimistö/peliohjain (vaatii libsdl2-dev)
+npm run engine:chars:guest         # rakenna sprite_char.wasm (vaatii wasm32-targetin)
+npm run engine:chars:verify        # aja guest Noden WebAssemblyssa, assertoi RGSP1-blokki
+npm run engine:game-sdl:run:sprite # käännä + käynnistä SDL-launcher suoraan tähän peliin
 ```
 
 Ohjaus — valikko: vasen/oikea valitsee, A/Space vahvistaa. Peli: nuolet/D-pad kävelee ja
-kääntää, A/Space hyppää, Q/Esc takaisin. Ydin: [`scripting/sprite_char_poc.rgr`](./scripting/sprite_char_poc.rgr),
-SDL-etuosa: [`sprite_char_sdl.rgr`](./sprite_char_sdl.rgr).
+kääntää, A/Space hyppää, Q/Esc takaisin launcheriin.
+
+Host-sillan logiikan voi ajaa myös ilman wasm-toolchainia headless (renderöinti +
+assertit, dumppaa `lpc/output/poc_*.png`): `npm run engine:chars:poc`.
 
 ### Uusien hahmojen generointi
 
@@ -507,9 +512,9 @@ Kummassakaan tapauksessa **guest-koodia ei tarvitse muuttaa** — uusi hahmo on 
 | `lpc/src/lpc_char_catalog.rgr` | Hahmokatalogi (id, nimi, recolor-profiili) — valmiin setin totuuslähde |
 | `lpc/pack/characters/` | Baketut hahmoarkit + `catalog.json` + per-hahmo `credits.json` |
 | `wasm/rust_sprite_char/` | WASM-guest joka ohjaa hahmoja sprite-ABI:n yli |
-| `games/sprite_char/` | Testipeli (Tests): hahmon valinta + ohjaimella kävely/hyppy |
-| `scripting/sprite_char_poc.rgr` | Testipelin ydin (gfx-vapaa, ajaa RGSP1-siltaa) |
-| `sprite_char_sdl.rgr` | Testipelin SDL-etuosa (näppäimistö/peliohjain) |
+| `games/sprite_char/` | WASM-testipeli (Tests): hahmon valinta + ohjaimella kävely/hyppy |
+| `scripting/sprite_wasm_runner.rgr` | Host: ajaa sprite_char.wasmin, syöttää inputin, piirtää slotit (`abi=sprite`) |
+| `scripting/sprite_char_poc.rgr` | Host-sillan headless-testiydin (gfx-vapaa, ei wasmia) |
 | `scripting/game_catalog.rgr` | `games/`-hakemiston skannaus |
 | `scripting/game_persistence.rgr` | `gamedata.json` tallennus |
 | `scripts/build-game-sdl.sh` | TSX- ja WASM-pelien SDL-binääri |
