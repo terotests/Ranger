@@ -27,6 +27,7 @@ gallery/game_engine/
 | Polku | Milloin | Tiedostot |
 |-------|---------|-----------|
 | **TSX-skriptaus** (pääpolku) | Uudet pelit, nopea iterointi, valikko, ääni, tallennus | `games/*/index.tsx`, `scripting/game_runtime.rgr`, `scripting/game_sdl_runner.rgr` |
+| **TSX → natiivi (Path B)** | Staattinen C++-binääri, ei tulkkia framella | `scripting/*.game.tsx` → [`ts_to_ranger/generated/`](../ts_to_ranger/generated/), `scripting/game_native_runtime.rgr`, [`scripts/build-game-sdl-native.sh`](./scripts/build-game-sdl-native.sh) — jäljellä oleva työ: [`NATIVE_PATH_REMAINING.md`](../ts_to_ranger/NATIVE_PATH_REMAINING.md) |
 | **Käännetty Ranger-ydin** | Matalan tason viite, LLVM/terminaali-Pi | `pong_core.rgr`, `pong.rgr`, `pong_sdl.rgr` |
 | **WASM (Path C)** | Logiikka Rust/C → `.wasm`, host hoitaa piirron ja fysiikan | `wasm/rust_*`, `games/*/logic.wasm`, `scripting/wasm_game_runner.rgr` |
 | **Host-fysiikka** | Ajoneuvot, törmäykset TSX:ssä tai WASM-ABI:n kautta | `scripting/game_physics.rgr`, `scripting/physics_core.rgr` |
