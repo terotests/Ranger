@@ -131,6 +131,7 @@ npm run engine:compile && npm run engine:run
 | Autopeli Physics | TSX + host physics | Top-down racer, jaettu fysiikkamaailma |
 | Rust Pong | WASM | Path C PoC, getter-ABI |
 | Rust Autopeli | WASM + physics | RGW1 linear ABI, host rendering |
+| Pyörretris | .as (`render=sprites`) | Tetris; guest-driven rotatable sprites over the ABI, no physics |
 
 ## Pelivalikko ja `games/`-hakemisto
 
@@ -159,7 +160,8 @@ icon=icon.png
 splitScreen=auto          # auto | always | never
 autoscale=true            # host skaalaa 480×270 → paneeliin
 soloScript=index.tsx      # split-tilan yksinpeliskripti
-engine=wasm               # tsx (oletus) | wasm
+engine=wasm               # tsx (oletus) | wasm | as | ui
+render=sprites            # (engine=as) guest-driven rotatable spritet, ei fysiikkaa
 module=logic.wasm         # WASM-moduulin tiedosto
 abi=linear                # getter (oletus) | linear (RGW1 shared memory)
 physics=true              # host GamePhysics + WASM/TSX I/O
