@@ -1009,6 +1009,20 @@ from a file** is a mono-WAV voice override. Sound is the clearest example of the
   `game_vocal_fx.rgr`, see [`VOCAL_FX.md`](./scripting/VOCAL_FX.md)) and
   `playMusic`/`stopMusic` (soundscore text) have **no binary-ABI encoding** — a WASM or
   `.as` guest cannot emit a vocal or music event at all. A parity gap.
+- **Music is the soundscore system — procedural, not sampled.**
+  [`game_soundscore.rgr`](./scripting/game_soundscore.rgr) defines a **text-based,
+  multi-voice score** format: header lines (`tempo`, `beats 4/4`, `transpose`), one or
+  more `@track instrument [semitones]` tracks, and `beats:pitch` note tokens (fractional
+  beats, `_` rests, drums as `K/S/H`). `SoundScoreParser` parses the text into a
+  `SoundScore` and `buildSchedule` flattens the tracks into a beat-sorted
+  `[ScheduledNote]`; `SoundScorePlayer` advances it with `tick(dtMs)` at `msPerBeat`
+  (from `tempo`), firing chords through `GameAudio.playScoreChord`/`playScoreNote` — so
+  the music is **synthesised on the fly** by the same `GameAudio` instruments as the
+  sfx, never a decoded audio file. But: it is driven only through the TS-path
+  `playMusic`/`stopMusic` (inline score `text` or a registered `musicTexts` id); **only
+  one score plays at a time** (a new `startMusic` clears the audio queue and dedupes by
+  `activeMusicScore`); there is no mixing with a second score, no per-track volume/mute
+  at runtime, no seek, and the whole system is invisible to WASM/`.as` guests.
 - **File-based sound resources are inert.** `resources()` accepts
   `{ kind: "sound" | "music" | "voice", id, path }`, but `registerResource` only records
   the path (`set sounds r.id r.path`) — the comment says the literal quiet part out
@@ -1046,13 +1060,19 @@ from a file** is a mono-WAV voice override. Sound is the clearest example of the
    §2.7 resource handle (`rg_res_begin/commit/free/lookup`), produced by a **unified
    audio decoder** (WAV plus at least one compressed format) — for sfx, music, *and*
    voice alike. This replaces the inert `sounds` registry and the WAV-only voice
-   override. The built-in synth, soundscore music, and vocal synth become §2.7
-   **"generate" producers** (procedural resources), so a sound id resolves to a handle
-   whether it was decoded from a file or synthesised — one model, not two.
+   override. The built-in synth, the **soundscore player**, and the vocal synth become
+   §2.7 **"generate" producers** (procedural resources), so a sound id resolves to a
+   handle whether it was decoded from a file or synthesised — one model, not two. A
+   soundscore text is just a *generate* input: the guest hands the host a score (inline
+   or by resource id) and gets back a music handle, so the same procedural-music engine
+   serves every path.
 3. **Voice and music reach parity over the ABI.** `voice` is simply a sound event with
-   `kind = 1` whose id is backed by a synth-or-WAV resource; `music` is `kind = 2/3`
-   with loop/duck/crossfade parameters. Both become available to WASM and `.as` guests,
-   not just the TS path — the same channel, capability-gated.
+   `kind = 1` whose id is backed by a synth-or-WAV resource; `music` is `kind = 2/3`,
+   where the source is a **decoded track *or* a soundscore** (the §2.7 generate producer
+   above), with loop/duck/crossfade parameters. Both become available to WASM and `.as`
+   guests, not just the TS path — the same channel, capability-gated. Because music is a
+   handle (point 4), the "one score at a time" limit lifts: scores can layer, and a
+   guest can adjust tempo or per-track gain on the live handle.
 4. **Handles for time-extended audio.** One-shots stay fire-and-forget by id; loops,
    music, and long voices return a **handle** (the §2.6 discipline) so the guest can set
    gain, stop, or crossfade a specific voice instead of the current global start/stop and
