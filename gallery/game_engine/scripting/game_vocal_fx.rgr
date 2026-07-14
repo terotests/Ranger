@@ -389,10 +389,15 @@ class GameVocalFx {
         }
         def pcm:buffer (buffer_alloc (frames * 2))
         def phase:double 0.0
+        def pluck:boolean (spec.envShape == "pluck")
         def i 0
         while (i < frames) {
             def t:double ((to_double i) / (to_double frames))
             def pitch:double (spec.basePitchHz + ((spec.endPitchHz - spec.basePitchHz) * t))
+            ; Jitter: slow incommensurate wobble = vocal-fold micro-variation.
+            ; Without it a steady tone reads as a synth/harmonica, not a voice.
+            def jit:double (1.0 + (0.014 * (synth.sampleSine((to_double i) / 301.0))) + (0.008 * (synth.sampleSine((to_double i) / 173.0))))
+            pitch = (pitch * jit)
             if (spec.vibrato > 0.0) {
                 def vib:double (1.0 + (spec.vibrato * (synth.sampleSine((to_double i) / 210.0))))
                 pitch = (pitch * vib)
@@ -400,6 +405,7 @@ class GameVocalFx {
             def burstIdx:int (to_int (i / periodFrames))
             def localFrame:int (i - (burstIdx * periodFrames))
             def env:double 0.0
+            def breathNow:double spec.breath
             if (localFrame < burstFrames) {
                 def bt:double ((to_double localFrame) / (to_double burstFrames))
                 env = (this.burstEnv(spec.envShape bt))
@@ -407,15 +413,27 @@ class GameVocalFx {
                 def sag:double (1.0 - (0.12 * (to_double burstIdx)))
                 if (sag < 0.4) { sag = 0.4 }
                 env = (env * sag)
+                if (pluck) {
+                    ; Each syllable ("ha") starts high and falls — natural contour.
+                    def arc:double (1.0 + (0.22 * (1.0 - bt) * (1.0 - bt)))
+                    pitch = (pitch * arc)
+                    ; Breathy [h] aspiration at the onset, easing into the vowel.
+                    if (bt < 0.20) {
+                        def hmix:double (1.0 - (bt / 0.20))
+                        breathNow = (spec.breath + ((1.0 - spec.breath) * hmix))
+                    }
+                }
             }
             def voiced:double (this.vowelSample(spec.vowel phase))
             def noise:double (synth.sampleInstrument("drums" phase i))
-            def sample:double ((voiced * (1.0 - spec.breath)) + (noise * spec.breath))
+            def sample:double ((voiced * (1.0 - breathNow)) + (noise * breathNow))
             ; Clamp to unity: summed formants (and the shared sine table's Taylor
             ; overshoot near wrap) can exceed 1.0, which would hit the rail.
             if (sample > 1.0) { sample = 1.0 }
             if (sample < -1.0) { sample = -1.0 }
-            def amp:double (sample * spec.volume * env * 0.92 * 32767.0)
+            ; Shimmer: small amplitude wobble (also anti-synthetic).
+            def shim:double (1.0 + (0.06 * (synth.sampleSine((to_double i) / 97.0))))
+            def amp:double (sample * spec.volume * env * shim * 0.92 * 32767.0)
             ; short fade at the very end to avoid a click
             if (i >= (frames - 12)) {
                 def tail:int (frames - i)
@@ -465,21 +483,89 @@ class GameVocalFx {
         return false
     }
 
-    ; Load a 16-bit mono PCM WAV (44-byte header) as an override for `id`.
+    ; Little-endian readers over a raw file buffer.
+    fn rdU16:int (b:buffer off:int) {
+        return ((buffer_get b off) + ((buffer_get b (off + 1)) * 256))
+    }
+
+    fn rdU32:int (b:buffer off:int) {
+        def v0:int (buffer_get b off)
+        def v1:int (buffer_get b (off + 1))
+        def v2:int (buffer_get b (off + 2))
+        def v3:int (buffer_get b (off + 3))
+        return (v0 + (v1 * 256) + (v2 * 65536) + (v3 * 16777216))
+    }
+
+    ; True when the 4 bytes at off equal the given ASCII codes (chunk tag).
+    fn tag4:boolean (b:buffer off:int a:int c:int d:int e:int) {
+        if ((buffer_get b off) != a) { return false }
+        if ((buffer_get b (off + 1)) != c) { return false }
+        if ((buffer_get b (off + 2)) != d) { return false }
+        if ((buffer_get b (off + 3)) != e) { return false }
+        return true
+    }
+
+    ; Load a 16-bit PCM WAV as an override for `id`. Walks the RIFF chunks (so a
+    ; real file with LIST/fact/etc. before `data` still works), downmixes stereo
+    ; to mono. Best at the audio device rate (44100 Hz) — a different rate plays
+    ; back at the wrong speed because the SDL device rate is fixed.
     fn registerAssetWav:boolean (id:string dir:string file:string) {
         def raw:buffer (buffer_read_file dir file)
         def total:int (buffer_length raw)
-        if (total <= 44) {
-            return false
+        if (total < 44) { return false }
+        if (false == (this.tag4(raw 0 82 73 70 70))) { return false }   ; "RIFF"
+        if (false == (this.tag4(raw 8 87 65 86 69))) { return false }   ; "WAVE"
+        def channels:int 1
+        def bits:int 16
+        def dataOff:int -1
+        def dataLen:int 0
+        def p:int 12
+        while ((p + 8) <= total) {
+            def csize:int (this.rdU32(raw (p + 4)))
+            def body:int (p + 8)
+            if (this.tag4(raw p 102 109 116 32)) {    ; "fmt "
+                channels = (this.rdU16(raw (body + 2)))
+                bits = (this.rdU16(raw (body + 14)))
+            }
+            if (this.tag4(raw p 100 97 116 97)) {      ; "data"
+                dataOff = body
+                dataLen = csize
+            }
+            def adv:int csize
+            if ((bit_and adv 1) == 1) { adv = (adv + 1) }
+            p = (body + adv)
         }
-        def dataBytes:int (total - 44)
-        def pcm:buffer (buffer_alloc dataBytes)
-        def i 0
-        while (i < dataBytes) {
-            buffer_set pcm i (buffer_get raw (44 + i))
-            i = (i + 1)
+        if (dataOff < 0) { return false }
+        if (bits != 16) { return false }
+        if (channels < 1) { channels = 1 }
+        if ((dataOff + dataLen) > total) { dataLen = (total - dataOff) }
+        def frameBytes:int (2 * channels)
+        def frames:int (to_int (dataLen / frameBytes))
+        if (frames < 1) { return false }
+        def pcm:buffer (buffer_alloc (frames * 2))
+        def fi 0
+        while (fi < frames) {
+            def base:int (dataOff + (fi * frameBytes))
+            def sum:int 0
+            def ch 0
+            while (ch < channels) {
+                def o:int (base + (ch * 2))
+                def sv:int ((buffer_get raw o) + ((buffer_get raw (o + 1)) * 256))
+                if (sv >= 32768) { sv = (sv - 65536) }
+                sum = (sum + sv)
+                ch = (ch + 1)
+            }
+            def m:int (to_int (sum / channels))
+            if (m > 32767) { m = 32767 }
+            if (m < -32768) { m = -32768 }
+            def uv:int m
+            if (uv < 0) { uv = (65536 + uv) }
+            def outOff:int (fi * 2)
+            buffer_set pcm outOff (bit_and uv 255)
+            buffer_set pcm (outOff + 1) (bit_and (to_int (uv / 256)) 255)
+            fi = (fi + 1)
         }
-        this.registerAsset(id pcm (to_int (dataBytes / 2)))
+        this.registerAsset(id pcm frames)
         return true
     }
 

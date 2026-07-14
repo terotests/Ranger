@@ -221,6 +221,11 @@ class GameHost {
             dir = (substring full 0 slash)
             file = (substring full (slash + 1) (strlen full))
         }
+        ; Missing file is fine — the synth supplies the effect. Never crash the
+        ; game just because a declared override WAV has not been dropped in yet.
+        if (false == (file_exists dir file)) {
+            return false
+        }
         return (vocalFx.registerAssetWav(id dir file))
     }
 

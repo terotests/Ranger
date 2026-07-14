@@ -47,19 +47,33 @@ runner.setNativeBridge(bridge)
 
 Both routes share the same synth, WAV overrides, and audio sink.
 
-## Overriding the synth with a real WAV
+## Getting genuinely human-sounding voices (real WAV overrides)
 
-Export a **16-bit mono WAV** and declare it as a `voice` resource; the host
-loads it instead of the synth:
+The built-in synth is a placeholder — formants + breath + jitter. It is
+recognisably "ha-ha", but it is **not** a human voice. For human-sounding
+laughter you drop in real recordings; the engine then plays the file instead of
+the synth, per effect id.
+
+1. **Generate** on your own machine (paralinguistic audio needs a model that
+   interprets the tags, e.g. [Voicebox](https://github.com/jamiepine/voicebox)
+   Chatterbox Turbo: `[laugh] [chuckle] [gasp] [cough] [sigh] [groan] …`). Any
+   source works — a Voicebox render, a recording, or a CC0 clip.
+2. **Convert** to **16-bit mono PCM WAV @ 44100 Hz** (the device rate; stereo is
+   auto-downmixed, other rates play at the wrong speed):
+   `ffmpeg -i in.wav -ac 1 -ar 44100 -sample_fmt s16 voices/laugh.wav`
+3. **Declare** it — `setupResources` auto-loads it (missing files fall back to
+   the synth, so nothing crashes):
 
 ```tsx
 function resources() {
-  return [{ kind: "voice", id: "laugh", path: "laugh.wav" }];
+  return [{ kind: "voice", id: "laugh", path: "voices/laugh.wav" }];
 }
 ```
 
-Then call `host.loadVoiceAsset("laugh")` after the game dir is set (or register
-programmatically with `GameVocalFx.registerAssetWav(id, dir, file)`).
+The WAV loader walks the RIFF chunks, so real files (with `LIST`/`fact`/…
+chunks before `data`) load fine. Programmatic API:
+`GameVocalFx.registerAssetWav(id, dir, file)` / `host.loadVoiceAsset(id)`.
+Any effect id without a WAV keeps the synth, so you can replace one at a time.
 
 ## Demo
 
