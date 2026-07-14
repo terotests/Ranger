@@ -9,7 +9,7 @@
 ;   npm run engine:game-sdl-native:run:pacman
 ; ==============================================================================
 
-Import "./game_sdl_native_host.rgr"
+Import "../scripting/game_sdl_native_host.rgr"
 Import "./pacman_native_game.rgr"
 
 class PacmanNativeSdlRunner {

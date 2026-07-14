@@ -9,7 +9,7 @@
 ;   npm run ts2ranger:emit -- gallery/game_engine/scripting/spawner.game.tsx
 ; ==============================================================================
 
-Import "./game_native_runtime.rgr"
+Import "../scripting/game_native_runtime.rgr"
 Import "../../ts_to_ranger/generated/spawner_generated.rgr"
 
 class SpawnerNativeRunner {

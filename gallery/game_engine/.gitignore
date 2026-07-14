@@ -2,7 +2,9 @@
 **/gamedata.json
 
 # Generated native build artifacts (regenerate with the engine:* npm scripts).
-# The ES6 build (pong.js) is committed as the desktop reference.
+# The static-Ranger reference games live in ranger_games/; their ES6 build
+# (ranger_games/pong.js) is committed as the desktop reference. The patterns
+# below are unanchored, so they also cover generated output under ranger_games/.
 pong.cpp
 pong.rs
 pong.go
@@ -12,7 +14,7 @@ pong_sdl
 variant.hpp
 *.o
 *.exe
-/pong
+/ranger_games/pong
 pong_cpp
 pong_rs
 

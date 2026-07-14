@@ -19,7 +19,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-SOURCE="$ROOT/gallery/game_engine/pong.rgr"
+SOURCE="$ROOT/gallery/game_engine/ranger_games/pong.rgr"
 OUT_DIR="$ROOT/dist/raspberry-pi5"
 LL_FILE="$OUT_DIR/pong.ll"
 BIN_FILE="$OUT_DIR/pong"
@@ -158,7 +158,7 @@ If you prefer building on-device (no cross toolchain needed), copy this bundle
 ```bash
 cd ~/ranger-game
 # Rebuild terminal Pong (needs Node.js):
-node bin/output.js -l=llvm gallery/game_engine/pong.rgr -nodecli \
+node bin/output.js -l=llvm gallery/game_engine/ranger_games/pong.rgr -nodecli \
   -d=. -o=pong.ll -target=aarch64-linux-gnu
 clang pong.ll runtime/ranger_rt.c runtime/ranger_mem.c -o pong -Wno-override-module
 ```

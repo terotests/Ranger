@@ -12,10 +12,10 @@
 ;   ./tmp/streaming-world/streaming_world_sdl [frames] [worker.wasm]
 ; ==============================================================================
 
-Import "./framebuffer.rgr"
-Import "./gfx_sdl.rgr"
-Import "./wasm_runtime.rgr"
-Import "./scripting/streaming_world_runner.rgr"
+Import "../framebuffer.rgr"
+Import "../gfx_sdl.rgr"
+Import "../wasm_runtime.rgr"
+Import "../scripting/streaming_world_runner.rgr"
 
 class StreamingWorldApp {
     def pw:int 640

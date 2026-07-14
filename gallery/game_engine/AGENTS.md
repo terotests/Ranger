@@ -17,7 +17,7 @@ Think of three layers. Code belongs to exactly one:
 |-------|----------|----------------|--------------------|
 | **Engine core** | `scripting/` runtime files, `framebuffer.rgr`, ABI helpers, generic runners | Framebuffers, the ABI *shape*, physics primitives, sprite/HUD *mechanisms* | Any specific game: its entities, world size, track, sprites, HUD gauges, sound names, player count |
 | **Reusable subsystems** | `physics/`, `lpc/`, `menu/`, `ui/`, `pose/` | Their own domain (physics bodies, spritesheets, UI trees) | Which game is using them |
-| **A game** | `games/<name>/`, the game's WASM/`.as`/TSX guest, and any `<Name>Setup`/`<Name>Render`/`<Name>Hud` modules | Everything about itself | Nothing needs to know about it in core |
+| **A game** | `games/<name>/` (loadable TSX/WASM/`.as`) **or** `ranger_games/` (static Ranger compiled to native), plus any `<Name>Setup`/`<Name>Render`/`<Name>Hud` modules | Everything about itself | Nothing needs to know about it in core |
 
 ### Hard rules
 

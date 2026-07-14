@@ -65,7 +65,7 @@ describe("Game engine - SDL Pong rendering PoC", () => {
 
       // Ranger -> C++
       const compile = compileRanger(
-        "gallery/game_engine/pong_sdl.rgr",
+        "gallery/game_engine/ranger_games/pong_sdl.rgr",
         "cpp",
         outDir
       );

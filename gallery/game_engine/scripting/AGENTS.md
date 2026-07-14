@@ -1,11 +1,26 @@
-# `scripting/` is Ranger engine code + tests — NOT the game catalog
+# `scripting/` is Ranger engine core + tests — NOT games
 
 Read this before adding files here.
+
+`scripting/` is the **engine core**: the platform the games run on. Games live
+elsewhere. Know the three-way split before adding anything:
+
+| Put it in… | If it is… |
+|------------|-----------|
+| [`../games/<name>/`](../games/) | a **loadable** game (TSX / `.wasm` / `.as`) the launcher runs at runtime |
+| [`../ranger_games/`](../ranger_games/) | a **static-Ranger** game: logic in `.rgr`, compiled to a native binary (hand-written Pong, or an AOT `*_native_game.rgr` emitted from TSX) |
+| **`scripting/`** (here) | **engine core** only — see the list below |
+
+> The AOT native games (`*_native_game.rgr`, `*_native_sdl_runner.rgr`) used to
+> live here. They moved to [`../ranger_games/`](../ranger_games/). The reusable
+> **native host** they call (`native_game_bridge.rgr`, `game_sdl_native_host.rgr`,
+> `game_native_runtime.rgr`) is engine core and stays here.
 
 Everything in `gallery/game_engine/scripting/` is one of:
 
 - **Engine library modules** — `game_*.rgr` imported by the runtime
-  (e.g. `game_runtime.rgr`, `game_audio.rgr`, `game_vocal_fx.rgr`).
+  (e.g. `game_runtime.rgr`, `game_audio.rgr`, `game_vocal_fx.rgr`), plus the
+  native/WASM/sprite host runners.
 - **Ranger test fixtures** — loose `*.game.tsx` scripts used by headless
   runners to exercise the interpreter (e.g. `vocal_fx_demo.game.tsx`).
 - **Headless smoke runners** — `*_runner_demo.rgr` / `*_selftest.rgr` that

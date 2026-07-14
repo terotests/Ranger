@@ -10,7 +10,7 @@
 ; ==============================================================================
 
 Import "./pong_core.rgr"
-Import "./framebuffer.rgr"
+Import "../framebuffer.rgr"
 
 class PongRenderer {
     def scale:int 12

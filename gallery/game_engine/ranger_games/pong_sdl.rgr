@@ -19,9 +19,9 @@
 ; ==============================================================================
 
 Import "./pong_core.rgr"
-Import "./framebuffer.rgr"
+Import "../framebuffer.rgr"
 Import "./pong_render.rgr"
-Import "./gfx_sdl.rgr"
+Import "../gfx_sdl.rgr"
 
 ; ------------------------------------------------------------------------------
 ; SdlBackend - the platform layer. The ONLY place that touches the window and

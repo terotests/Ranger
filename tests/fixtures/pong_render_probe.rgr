@@ -5,7 +5,7 @@
 ; prints frame dimensions + pixel samples so a test can assert the buffer was
 ; actually rendered. This is the same render path the SDL2 window presents.
 
-Import "../../gallery/game_engine/pong_render.rgr"
+Import "../../gallery/game_engine/ranger_games/pong_render.rgr"
 
 class RenderProbe {
     sfn m@(main):void () {
