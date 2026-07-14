@@ -29,15 +29,17 @@
 #define RG_IN_MAX_PLAYERS 8u
 #define RG_IN_FP_SCALE    256         /* normalized axes: value * FP (§0.2)     */
 
-/* Header (16 bytes) */
+/* Header (20 bytes) — carries the standard seqlock REVISION (IDEAL_API §0.3) so
+ * a per-frame host->guest write is read tear-free. */
 #define RG_IN_OFF_MAGIC        0   /* u32 'RGIN'                                */
 #define RG_IN_OFF_VERSION      4   /* u32 ABI version the host wrote            */
 #define RG_IN_OFF_SIZE         8   /* u32 total block bytes                     */
-#define RG_IN_OFF_PLAYER_COUNT 12  /* u32 players written (host-clamped to MAX) */
-#define RG_IN_HEADER_SIZE      16
+#define RG_IN_OFF_REVISION     12  /* u32 seqlock: odd=writing, even=stable     */
+#define RG_IN_OFF_PLAYER_COUNT 16  /* u32 players written (host-clamped to MAX) */
+#define RG_IN_HEADER_SIZE      20
 
 /* record[p] at RG_IN_OFF_REC0 + p*RG_IN_STRIDE (40 bytes each) */
-#define RG_IN_OFF_REC0     16
+#define RG_IN_OFF_REC0     20
 #define RG_IN_STRIDE       40
 #define RG_IN_OFF_BUTTONS   0   /* u32 digital bitfield (D-pad, face, start/select) */
 #define RG_IN_OFF_LSTICK_X  4   /* i32 left stick x,  -FP..+FP (normalized * FP)    */

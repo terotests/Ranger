@@ -125,6 +125,13 @@ if (need & ~RG_WASM_HOST_CAPS) reject("missing capability");  /* feature gap    
 /* then init(), verify magic + size, clamp every count to its MAX_*. */
 ```
 
+The `has(...)` above requires the host to detect **export presence** — a legacy guest
+that omits `rg_abi_version` must read as v1, not as "exported and returned 0". The WASM
+host therefore needs an export-existence primitive (`rg_wasm_has_export` on the wasm3
+bridge); a host that cannot probe presence treats a `0` return as legacy v1 / caps 0.
+`RG_WASM_HOST_CAPS` is the OR of the attached providers' `capBit()`s (§7), so the gate
+consumes the provider registry and needs no separate cap list.
+
 **RGCQ typed query (shipped, RGW1 tail `wasm_game_abi.h`).** The soft-capability channel
 lives in the reserved RGW1 tail so `ABI_SIZE` is unchanged; a host that ignores it degrades
 to "nothing answered" and the guest reads its own defaults.
@@ -186,7 +193,8 @@ Shipping blocks are marked **shipped**; proposed blocks/fields are marked **prop
 | **RGW1** | `wasm/wasm_game_abi.h` | world / physics | 2560 B | mostly guest→host | shipped |
 | **RGSP1** | `wasm/wasm_sprite_abi.h` | ready-character sprites | 2560 B | host writes catalog+input, guest writes slots | shipped (§2.9) |
 | **RGU1** | `wasm/wasm_ui_abi.h` | retained-mode UI | 8192 B | guest→host (+ optional `rg_ui_event`) | shipped (§2.10) |
-| **RGP1** | `wasm/wasm_pose_abi.h` | pose / body tracking | (v2) | host→guest | proposed header (§2.4) |
+| **RGP1** | `wasm/wasm_pose_abi.h` | pose / body tracking | 856 B (read `OFF_SIZE`) | host→guest | header landed (§2.4) |
+| **RGIN** | `wasm/wasm_input_abi.h` | typed per-player input | 20 + 40·players | host→guest | header landed (§2.5) |
 | **RGO1** | `wasm/*.h` | game observation snapshot | — | host→worker | proposed (§2.7) |
 | **RGX1** | `wasm/*.h` | streaming worker observation/results | 2560 B | host↔worker | proposed header (§2.7) |
 | **RGLD** | `wasm/*.h` | resource loader requests/responses | — | host↔worker | proposed header (§2.7) |
@@ -364,8 +372,10 @@ One typed per-player input record, transported for N players. The digital
 #define RG_IN_OFF_FLAGS     36  /* u32 pointerDown, connected, ...                  */
 ```
 
-The record above is **40 B/player** (`RG_IN_STRIDE`); the block is a small header
-(`magic 'RGIN'`, version, size, `player_count`) followed by `record[player_count]`, and the
+The record above is **40 B/player** (`RG_IN_STRIDE`); the block is a 20-byte header
+(`magic 'RGIN'`, version, size, **`revision`** — the standard seqlock word §0.3, so a
+per-frame host→guest write reads tear-free — then `player_count`) followed by
+`record[player_count]`, and the
 host clamps `player_count` to the negotiated max (the host tracks up to **8** players; today
 RGW1 exposes only `input`/`input_p2` — five bits × 2 players — which becomes `record[0]` /
 `record[1]` `BUTTONS` fields). Shipped digital bits (`RG_WASM_IN_*` / `RG_SPR_IN_*`):
@@ -837,8 +847,8 @@ providers' `capBit()`s and rejects an unsatisfiable guest at load (§7).
 | `RG_WASM_HOST_CAP_PARTICLES` | `0x0004` | particle events honoured | §3.9 |
 | `RG_WASM_HOST_CAP_RGU1` | `0x0008` | retained-mode HUD (RGU1) parsed | §2.10 |
 | `RG_WASM_HOST_CAP_POSE_INPUT` | `0x0010` | RGP1 pose streaming + motion/speed | §2.4 |
-| `RG_WASM_HOST_CAP_UI_DYNAMIC` | *0x0020?* | handle-based dynamic EVG UI (`rg_evg_*`) | §2.6 |
-| `RG_WASM_HOST_CAP_RES_STREAM` | *tbd* | `rg_res_*` streaming resources / workers | §2.7 |
+| `RG_WASM_HOST_CAP_UI_DYNAMIC` | `0x0020` | handle-based dynamic EVG UI (`rg_evg_*`) | §2.6 |
+| `RG_WASM_HOST_CAP_RES_STREAM` | `0x0040` | `rg_res_*` streaming resources / workers | §2.7 |
 | GPU sheets / GPU camera / GPU fx | *tbd* | GPU sprite/camera/effect/filter paths | §2.8, §2.7, §3.9 |
 | audio / voice / music / file-decode / positional | *tbd* | audio playback classes | §2.6, §3.5 |
 | storage (scopes / binary / size) | *tbd* | persistence classes | §3.3 |

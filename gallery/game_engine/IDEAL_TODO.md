@@ -19,6 +19,54 @@ wrong side of the engine-core ↔ game boundary, or opens a seam that was welded
 
 ---
 
+## Status snapshot
+
+| Phase | State |
+|-------|-------|
+| 0 groundwork + leak guard | ✅ done |
+| 1 header taxonomy cleanup + generic control channels | ✅ done |
+| 2 new headers (RGP1, RGIN) + additive physics/input/cap fields | ✅ done |
+| 3 gate · RGCQ resolver · block validator · provider registry | ✅ core done (byte-plumbing + `.as` gate = tracked follow-ups) |
+| 4 scene-provider seam · sound palette | 🟡 seams landed + proven; runner rewire, single-owner (4.2), sprite roster (4.3) remain |
+| 5 richer input · CI leak guard · conformance fixtures | ⬜ not started |
+
+**Verification approach.** Every landed component ships a headless self-test
+(`scripting/*_demo.rgr`) that compiles through the Ranger compiler and runs on
+node — no SDL/WASM build needed. Current suite: **6 self-tests, 71 assertions, 0
+failing** (`wasm_cap_gate` 6, `wasm_block_validator` 13, `game_provider` 12,
+`game_env_resolver` 11, `game_scene_provider` 15, `game_sound_palette` 14).
+
+**Regression check (WASM autopeli, the highest-risk path).** The cap gate was
+wired into `wasm_physics_runner` — the autopeli runner. Confirmed safe:
+- the full runner compiles **Ranger→C++** (`build-wasm-autopeli-demo.sh`; the
+  final link needs SDL2 headers, absent in this env — unrelated to the changes);
+- `runtime/rg_wasm_bridge.c` + `rg_wasm_has_export` compiles against wasm3;
+- the autopeli guest exports **no** handshake functions → the gate admits it as a
+  legacy v1 / caps-0 guest, i.e. **no behaviour change**;
+- `game_sdl_runner` (ties every touched runner + audio) compiles Ranger→C++;
+- the interpreted `.as` autopeli physics demo **runs** and the car moves under
+  control (exercises the `writeControlChannel` refactor) — "AS PHYSICS
+  INTEGRATION OK".
+
+## Discoveries during implementation (fed back into the docs)
+
+- **RGIN lacked the standard `revision` word.** IDEAL_API §0.3 mandates a seqlock
+  `revision` on every block, but §2.5's RGIN header omitted it. Added
+  `RG_IN_OFF_REVISION` (header now 20 B, records at 20) and updated §2.5.
+- **The gate needs export-presence detection.** `has(rg_abi_version)` in the §1.1
+  pseudocode assumes the host can tell "not exported" from "exported and returned
+  0". Added the `rg_wasm_has_export` wasm3 primitive and noted the requirement in
+  §1.1.
+- **Reserved cap bits made concrete.** §8 left `UI_DYNAMIC` as `0x0020?` and
+  `RES_STREAM` as *tbd*; assigned `0x0020` / `0x0040` in the header and §8.
+- **RGIN was missing from the §2.1 block overview** (only specified in §2.5); added
+  it to the index table.
+- **RGCQ byte exchange is blocked on a missing primitive.** Only
+  `rg_wasm_mem_read_i32` exists; reading the guest's declared query keys needs a
+  byte/string read. Recorded as the concrete blocker on 3.2's remaining work.
+
+---
+
 ## Phase 0 — groundwork & safety net
 
 Nothing structural; just make the cleanup measurable before we start moving code.

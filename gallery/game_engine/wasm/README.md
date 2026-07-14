@@ -19,7 +19,7 @@ surface in [`../IDEAL_API.md`](../IDEAL_API.md); the migration plan in
 | **RGSP1** ready-character sprites | [`wasm_sprite_abi.h`](./wasm_sprite_abi.h) | `'RGSP'` `0x50534752` | 1 | 2560 B | host writes catalog+input, guest writes slots | frame | shipped |
 | **RGU1** retained-mode UI | [`wasm_ui_abi.h`](./wasm_ui_abi.h) | `'RGU1'` `0x31554752` | 1.0 | 8192 B | guest→host (+ optional `rg_ui_event` back) | frame | shipped |
 | **RGP1** pose / body tracking | [`wasm_pose_abi.h`](./wasm_pose_abi.h) | `'RGP1'` `0x31504752` | 2 | 856 B (read `OFF_SIZE`) | host→guest | frame | header landed (§2.4) |
-| **RGIN** typed input | [`wasm_input_abi.h`](./wasm_input_abi.h) | `'RGIN'` `0x4e494752` | 1 | 16 + 40·players | host→guest | frame | header landed (§2.9) |
+| **RGIN** typed input | [`wasm_input_abi.h`](./wasm_input_abi.h) | `'RGIN'` `0x4e494752` | 1 | 20 + 40·players | host→guest | frame | header landed (§2.9) |
 | **RGCQ** capability query | tail of `wasm_game_abi.h` | `'RGCQ'` `0x51434752` | — | RGW1 tail 2304..2560 | guest asks / host answers | setup | shipped |
 | **RGO1** observation snapshot | *proposed* | — | — | — | host→worker | frame | planned (§2.7) |
 | **RGX1** streaming worker | *proposed* | `'RGX1'` | — | 2560 B | host↔worker | frame | proven (mock handles) (§2.7) |
