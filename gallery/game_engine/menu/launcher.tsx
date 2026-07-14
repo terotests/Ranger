@@ -193,6 +193,7 @@ function gamesScreen(s) {
                 height="150px"
                 alignItems="center"
                 borderWidth="2px" borderColor={borderColor(i === s.sel)}
+                glow={glowFor(s, i === s.sel)}
                 backgroundColor="#3c5aa0" >
             {
               e.title.split(" ").map((word, index) => (
