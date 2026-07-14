@@ -88,7 +88,7 @@ without re-widening the leaks above.
 | **Sprite-sheet loading (PNG) + unified sprite handling** | Fragmented | Runtime image loading is JPEG-only (PNG decode lives only in the LPC toolchain); the emitted `atlas.json` is ignored at runtime; sheets are drawn via three unrelated models with three animation-timing sites. | §2.8 |
 | **Guest draw list / resource manifest / sound queue as first-class ABI** | Path-specific | `RGS1`, the resource manifest, and the sound queue are native-array APIs on the interpreted `.as` path only — not a shared byte block, so compiled-WASM guests cannot use them uniformly. | §2, §5 |
 | **Streaming (`RGX1`) and loader (`RGLD`)** | Unheadered | Referenced as siblings of RGW1 but have no canonical `wasm/*.h`, so their offsets are not a stable contract. | §2 |
-| **Save-state / persistence, networking, clock/RNG seed, config negotiation** | Absent | Nothing beyond `dt_ms`/`time_ms`; no deterministic seed, no persistence, no negotiated timestep/config. | §2.1 (RGCQ), §6 |
+| **Save-state / persistence, networking, clock/RNG seed, config negotiation** | Absent | Nothing beyond `dt_ms`/`time_ms`; no deterministic seed, no persistence, no negotiated timestep/config. Game-specific storage exists only as a TS-path native bridge (whole-file `gamedata.json`), not in the binary ABI. | §2.11, §2.1 (RGCQ), §6 |
 | **RGU1 interactivity** | Optional | The document is guest→host; `rg_ui_event` (activate/select) is an optional export and selection state lives on the host. | §2.3 |
 | **Dynamic UI (allocate/free host EVG objects)** | Missing | RGU1 is full-snapshot rebuild only; the guest cannot allocate a persistent host `EVGElement`, mutate it by handle, or free it — any change re-serializes and rebuilds the whole tree. | §2.6 |
 | **Dynamic / streamed resource loading** | Prototype | A declare-once manifest and a synchronous frame-path decoder ship; a WASM streaming vertical (`RGX1` worker + `RGLD` loader) is proven but uses mock handles — the public `rg_res_*` primitives, the `RGO1` observation block, shared headers, and async decode are not landed. | §2.7 |
@@ -1061,6 +1061,91 @@ The result: emitting a sound becomes *"play this registered id, with these param
 loading one becomes *"acquire a §2.7 handle — decoded or generated"* — one sound-event
 record and one resource model shared by sfx, voice, and music across every guest path,
 game-defined in vocabulary and host-owned in mixing (§2.7, §4, §6, §7).
+
+### 2.11 Game-specific storage — persistence a game owns
+
+A game needs to keep things between runs: high scores, progress, unlocks, settings.
+The engine already does this — but as a *TS-path-only convenience*, filesystem-bound and
+whole-file, with no presence in the binary ABI. Storage is the persistence counterpart
+to the input/audio parity gaps: capable on one path, absent on the others.
+
+**Current state.** (See [`GAME_SCREENS_AND_STORAGE.md`](./scripting/GAME_SCREENS_AND_STORAGE.md).)
+
+- **One mechanism, TS/EvalValue path only.** Three globals — `loadGameData()`,
+  `saveGameData(obj)`, `resetGameData()` — declared in
+  [`engine.d.ts`](./scripting/engine.d.ts) and implemented as a **native EvalValue
+  bridge** ([`game_host_native.rgr`](./scripting/game_host_native.rgr) →
+  [`game_persistence.rgr`](./scripting/game_persistence.rgr)). There is **no encoding
+  over RGW1 or the `.as` binary path**, so a compiled-WASM or `.as` guest cannot persist
+  anything at all.
+- **One JSON file per game folder.** `gamedata.json` is written to `gameDir`; every
+  screen in the folder (`index.tsx`, `level2.tsx`, `win.tsx`) shares the one file. Scope
+  is exactly one game directory — no cross-game/global settings store, and no multiple
+  named save slots.
+- **Whole-object replace, no keys.** `saveGameData(obj)` serialises the *entire* object
+  and overwrites the file (`saveToDir` → `evalToJson` → `buffer_write_file`);
+  `loadGameData()` reads and parses the *whole* file (empty `{}` when missing). No
+  per-key get/set, no partial update, no append — two screens saving different keys
+  clobber each other.
+- **Synchronous, filesystem-bound, JSON-only.** A hand-rolled parser/serialiser in
+  `game_persistence.rgr` writes via blocking `buffer_write_file` straight to a real
+  directory — no backend abstraction (nothing for a browser/WASM sandbox with no direct
+  FS), no binary blobs (JSON values only; ints round-trip as doubles).
+- **No transaction, versioning, migration, quota, or validation.** A write is not
+  atomic (a crash mid-write can corrupt the file — no temp-and-rename); an unparseable
+  file silently becomes `{}` (silent data loss); there is no format/version tag to
+  migrate an old save, no size quota, and no namespacing or isolation guarantee beyond
+  "it's one file in one folder." The top-level gap table already flags this under
+  *save-state / persistence* (§2.1, §6).
+
+**Ideal.**
+
+1. **Storage is a first-class ABI, identical on every path.** A small key/value
+   interface exposed the same over RGW1, `.as`, and TS — so WASM and `.as` guests
+   persist too, not only the interpreted path:
+
+```c
+/* Storage imports (guest <-> host). scope: 0=per-game 1=global/shared. */
+i32  rg_store_get(u32 scope, ptr keyUtf8, u32 keyLen, ptr outBuf, u32 outCap);
+                                   /* -> byte length (or -1 = absent)          */
+void rg_store_set(u32 scope, ptr keyUtf8, u32 keyLen, ptr valBuf, u32 valLen);
+void rg_store_delete(u32 scope, ptr keyUtf8, u32 keyLen);
+u32  rg_store_list(u32 scope, ptr prefix, u32 prefixLen, ptr outBuf, u32 outCap);
+void rg_store_commit(u32 scope);   /* atomically flush pending set/delete       */
+```
+
+   Values are opaque **byte blobs** (JSON *or* binary — the game chooses), and the host
+   owns the medium. The convenience `loadGameData`/`saveGameData` become a thin
+   whole-object wrapper over `get/set` on a single well-known key.
+2. **Keyed and transactional.** Get/set/delete address one key, so a screen updates its
+   own key without rewriting the rest; buffered writes flush on `commit` with an atomic
+   temp-and-rename (or a batched transaction) so a crash mid-write cannot corrupt an
+   existing save. This is the §2 block discipline (tear-free, host-validated) applied to
+   persistence.
+3. **Scopes, slots, and enforced isolation.** At minimum a **per-game** scope (today's
+   `gamedata.json`) and a **global/shared** scope for cross-game settings/profiles, with
+   optional named **slots** for multiple saves. Keys are namespaced and the host
+   enforces isolation — a game cannot read another game's data.
+4. **Pluggable backend behind the one interface.** The filesystem is one backend;
+   browser `localStorage`/IndexedDB, an in-memory store (tests), and cloud sync are
+   others — the guest sees the same imports regardless. The interface is **async-shaped**
+   (a `commit`/completion the guest can await) so a browser or cloud medium fits, with
+   the current synchronous FS as one implementation. This mirrors §2.7 (the host owns
+   the medium) and §2.6 (host-owned lifetime).
+5. **Schema-neutral, but versioned, quota'd, and capability-gated.** The engine still
+   never knows the game's schema, but the store carries a format/version tag the game
+   can read to **migrate** old saves, the host enforces a **quota** and reports it, and
+   corruption is recoverable rather than silently blanked. A guest queries storage caps
+   (available? which scopes? size? binary values?) via §6 and degrades gracefully (a
+   host with no storage makes writes a clean no-op and reads return absent). Like pose
+   and audio, a **read is a deterministic input** (the same bytes come back), while a
+   write is a side effect that must never alter logic, RNG, or step order mid-frame — so
+   a replay persists identically.
+
+The result: persisting becomes *"set this key in this scope and commit,"* and loading
+becomes *"get this key — bytes or absent"* — one storage interface shared by every guest
+path, keyed and transactional, backend-agnostic, and game-owned in schema while the host
+owns the medium and its limits (§2.1, §2.6, §2.7, §6, §7).
 
 ---
 
