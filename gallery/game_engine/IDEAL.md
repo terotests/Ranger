@@ -11,6 +11,25 @@
 
 ---
 
+## Use cases — what a developer wants, and how the interface answers
+
+The point of the whole design is that each of these is *additive*: something the
+game or its own guest supplies, with no edit to `scripting/` core. If a use case
+below forces a core edit today, that is the leak the referenced section removes.
+
+| Use case | What the developer does | How the interface answers | § |
+|----------|-------------------------|---------------------------|---|
+| Add a second physics game (e.g. a bumper arena) beside autopeli | Write a `GameSceneProvider` + a guest under `games/<name>/` | Core (`WasmPhysicsRunner`) is compiled against the interface, so it drives the new game with **zero core edits**; the leak-grep + "second game" fixture prove it. | §3, §7 |
+| Port a game from Rust to AssemblyScript (or add a C guest) | Recompile the guest against the same ABI offsets; leave the host untouched | The ABI is a byte transport shared by every guest language; the game's *names* live in its own source, so the host reads identical channels regardless of guest. | §2.1–§2.2 |
+| Change the track layout or traffic count | Edit constants in the guest source only | The world has a **single owner** (the guest); the host-side copy is deleted, so nothing can drift out of sync. | §5 |
+| Add a host capability (pose input, rumble, particles) | Register a `GameProvider` with its `capBit` / direction / cadence | The registry wires it at the three fixed seams and advertises the cap; a guest that *requires* it is gated at load instead of reading zeroed memory. | §6 |
+| A game needs a new on-screen shape (a ghost) or sound | Call `registerShape("ghost", fn)` / `registerSound("brick", spec)` at setup | Core dispatches by table lookup and ships only primitives; no `kind=="ghost"` / `"brick"` branch is added to `game_sprite.rgr` / `game_audio.rgr`. | §4 |
+| A game needs a custom HUD (score, gauges, menu) | Build a retained-mode RGU1 document each frame in the guest | The guest owns the UI document and the host renders it; no per-game HUD branch in `game_runtime.rgr`. | §2.3, §4 |
+| Ship a new playable character in the sprite game | Add it to the character pack + catalog table; select it by numeric id | The sprite ABI carries a runtime catalog (`RG_SPR_OFF_CAT_IDS`), so the roster is data — not an `RG_SPR_CHAR_*` constant frozen into the header. | §2.1 |
+| Run a game on a device missing a feature (no GPU / gamepad / pose camera) | Nothing extra — the guest queries capabilities and adapts or aborts cleanly | The typed capability query (RGCQ) + `rg_check_env` let the guest narrow behaviour or reject with a reason, instead of crashing on absent hardware. | §2.1, §6 |
+
+---
+
 ## 0. The one goal every interface must serve
 
 From [`ROADMAP.md`](./ROADMAP.md):
