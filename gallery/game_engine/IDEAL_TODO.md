@@ -1,0 +1,186 @@
+# IDEAL_TODO — the road from today's ABI to the target
+
+> Companion to [`IDEAL.md`](./IDEAL.md) (the *why*) and
+> [`IDEAL_API.md`](./IDEAL_API.md) (the *what*). This file is the *how*: the
+> ordered, checkable work list that turns the target specification into code.
+>
+> Each item names the concrete files it touches, the `IDEAL.md` / `IDEAL_API.md`
+> section it satisfies, and a check that tells us it landed. Status markers:
+> `[ ]` not started · `[~]` in progress · `[x]` done.
+
+The order follows `IDEAL.md` §"Affected areas" rows 1–14, grouped so that each
+phase is independently landable and verifiable. Rows 1–4 are ABI-surface cleanup,
+5–7 the wiring/enforcement layer, 8–11 the seam/ownership moves, 12–14 the input,
+docs, and proof that lock parity in.
+
+The guiding invariant (IDEAL.md §0): **a hypothetical *second* game of the same
+genre must reuse a core file unchanged.** Every item below moves one thing off the
+wrong side of the engine-core ↔ game boundary, or opens a seam that was welded shut.
+
+---
+
+## Phase 0 — groundwork & safety net
+
+Nothing structural; just make the cleanup measurable before we start moving code.
+
+- [x] **0.1 Write this plan** (`IDEAL_TODO.md`). Ordered, per-item checks.
+- [x] **0.2 Leak-guard grep** — `scripts/abi-leak-guard.sh` greps every *generic*
+  core file for a game name (`autopeli|pong|pacman|invaders|breakout`) and every
+  shared header for a taxonomy leak, exits non-zero on a hit.
+  *Check:* the header-taxonomy pass is now clean; it still lists the two known
+  game-name-in-core leaks (`wasm_physics_runner.rgr`, `game_runtime.rgr`) that
+  Phase 4 rows 8/9 remove. (IDEAL.md §7, row 13.)
+- [x] **0.3 Confirm the header-taxonomy constants are dead** before deleting.
+  *Check:* `grep -rn RG_WASM_ID_CONE0|RG_WASM_SOUND_WALL|RG_SPR_CHAR_HERO` finds no
+  reference outside the two headers (already verified — guests define their own).
+
+---
+
+## Phase 1 — ABI-surface cleanup (rows 1–4): the header stops being a taxonomy
+
+Additive/safe: no host or guest code references the constants being removed, so the
+risk is low and this phase can land first.
+
+- [x] **1.1 Split game taxonomy out of `wasm_game_abi.h`** (row 1, IDEAL.md §2.1).
+  Remove `RG_WASM_GRIP_SCALE`, `RG_WASM_STEER_SCALE`, `RG_WASM_ID_CONE0`,
+  `RG_WASM_ID_BAR0`, `RG_WASM_BODY_TRAFFIC0`, `RG_WASM_TRAFFIC_COUNT`,
+  `RG_WASM_SOUND_WALL/BOUNCE/WIN`, `RG_WASM_BODY_P1/P2`, and the
+  `Standard body indices (autopeli)` comment. Rewrite remaining comments to say
+  "conventions the guest defines". The autopeli guest already owns equivalents
+  (`STEER_SCALE`, `TRAFFIC_COUNT`, … in `rust_autopeli/src/lib.rs`).
+  *Check:* header contains no game noun; `grep -i autopeli wasm/wasm_game_abi.h` = 0.
+- [x] **1.2 Split roster out of `wasm_sprite_abi.h`** (row 10, IDEAL.md §2.1/§2.8).
+  Remove `RG_SPR_CHAR_HERO/KNIGHT/MAGE/ROGUE/COUNT`; the roster is the catalog table
+  `RG_SPR_OFF_CAT_IDS` (already present). Reframe `RG_SPR_ANIM_WALK/RUN/JUMP` as a
+  documented *default convention*, not a frozen enum (data-driven atlas rows target).
+  *Check:* `grep RG_SPR_CHAR_ wasm/` finds only guest sources, not the header.
+- [x] **1.3 Generic control channels** (row 2, IDEAL.md §2.2, IDEAL_API §2.2).
+  Add `RG_WASM_CTRL_OFF_CH0..CH3` to `wasm_game_abi.h`; document the 16-byte control
+  record as four opaque scalar channels named by the guest.
+  *Check:* header defines `RG_WASM_CTRL_OFF_CH0`; comment names no car part.
+- [ ] **1.4 Host side genre-neutral accessor** (row 2). In
+  `scripting/wasm_abi_io.rgr` add `readControlChannel(bodyIdx, ch)`; in
+  `scripting/as_abi_bridge.rgr` make `writeControl` take indexed channels. Keep the
+  named wrappers as thin deprecated shims only in the autopeli guest/provider.
+  *Check:* core exposes `readControlChannel`; `steer/throttle/brake/grip` no longer
+  appear as method names in `scripting/`.
+
+---
+
+## Phase 2 — give every informal block a header (row 3) + additive physics/input fields
+
+Brand-new `wasm/*.h` files and additive constants. Nothing existing breaks.
+
+- [x] **2.1 `wasm/wasm_pose_abi.h` (RGP1 v2)** (row 3, IDEAL.md §2.4, IDEAL_API §2.4).
+  Full header: magic/version/size/seqlock revision, present/gesture/lm_count/time/dt/
+  flags, aggregate body vx/vy/speed, per-landmark x/y/vx/vy/speed/conf, `FP_SCALE`/
+  `FP_VEL`, `RG_POSE_FLAG_*`, `RG_WASM_HOST_CAP_POSE_INPUT`.
+  *Check:* file exists, offsets match IDEAL_API §2.4 byte-for-byte.
+- [x] **2.2 Additive physics constants in `wasm_game_abi.h`** (row 3, IDEAL.md §2.5).
+  Add contact phases `PERSIST`/`END`; shape kinds `CIRCLE/BOX/SEGMENT/POLYGON`;
+  body flags `STATIC`/`SENSOR` (keep `ACTIVE`); document the contact record's
+  proposed manifold additions (depth, tangent impulse) and `MAX_CONTACTS`
+  drop-lowest-impulse overflow policy.
+  *Check:* header defines `RG_WASM_CONTACT_PHASE_END` and `RG_WASM_SHAPE_BOX`.
+- [x] **2.3 RGW1 view fields + input record header** (row 12, IDEAL.md §2.14/§2.9).
+  Add view-size documentation to RGW1's host→guest words and a new
+  `wasm/wasm_input_abi.h` (RGIN) per IDEAL_API §2.5 (per-player 40-byte typed record:
+  buttons, sticks, triggers, pointer, flags).
+  *Check:* `wasm_input_abi.h` exists with `RG_IN_OFF_LSTICK_X` etc.
+- [x] **2.4 New capability bits** (IDEAL_API §8). Add `RG_WASM_HOST_CAP_POSE_INPUT`
+  `0x0010` (in game header + pose header), reserve `RG_WASM_HOST_CAP_UI_DYNAMIC`
+  `0x0020` and `RG_WASM_HOST_CAP_RES_STREAM` `0x0040`.
+  *Check:* `grep POSE_INPUT wasm/wasm_game_abi.h` = 1.
+- [x] **2.5 `wasm/README.md` ABI index** (row 13, IDEAL.md §7). One table of every
+  block: name, header, magic, version, size, direction, cadence, status.
+  *Check:* file lists RGW1/RGSP1/RGU1/RGP1/RGIN with links.
+
+---
+
+## Phase 3 — the wiring/enforcement layer (rows 5–7)
+
+Now the headers exist; make the host *use* the handshake and validate uniformly.
+
+- [ ] **3.1 Activate the capability gate** (row 5, IDEAL.md §6, IDEAL_API §1.1).
+  A shared gate helper the runners call once after load, before `init()`:
+  reads `rg_abi_version` / `rg_required_caps`, rejects `ver > host` or
+  `need & ~hostCaps` with a surfaced reason. Wire it into
+  `wasm_physics_runner.rgr`, `wasm_game_runner.rgr`, `wasm_sprite_runner.rgr`,
+  `as_source_runner.rgr`.
+  *Check:* a guest that requires a missing cap is rejected at load (a fixture).
+- [ ] **3.2 Resolve RGCQ / `rg_check_env`** (row 5). One host resolver fills the
+  typed query tail and calls `rg_check_env`; guest gets real answers, not defaults.
+  *Check:* a guest querying `screen.width` reads the host's real value.
+- [ ] **3.3 Uniform block validation** (row 6, IDEAL_API §0.3). Generalise
+  `verifyMagic` into one validator (magic/version/size/counts-clamped/utf-8) used by
+  RGW1/RGSP1/RGP1/RGIN, copying RGU1's discipline.
+  *Check:* one validator function; per-block ad-hoc checks removed.
+- [ ] **3.4 Provider registry** (row 7, IDEAL.md §6, IDEAL_API §7). A `GameProvider`
+  interface (`id/capBit/direction/cadence/onAttach/onDeclare/beforeUpdate/
+  afterUpdate/onDetach`); host advertised caps = OR of attached providers' `capBit()`.
+  Refactor `game_pose_provider.rgr`, `game_image_loader.rgr` to register.
+  *Check:* adding a provider widens advertised caps with no second list edited.
+
+---
+
+## Phase 4 — seam & ownership moves (rows 8–11)
+
+The structural payoff: core compiles against interfaces, the guest owns the world.
+
+- [ ] **4.1 `GameSceneProvider` seam** (row 8, IDEAL.md §3, IDEAL_API §7). Drop
+  `Import "./wasm_autopeli_setup.rgr"` / `wasm_autopeli_render.rgr` from
+  `wasm_physics_runner.rgr` / `wasm_game_runner.rgr`; the runner holds a
+  `GameSceneProvider` interface; autopeli logic moves to `games/autopeli_wasm/scene/`.
+  *Check:* leak-guard grep on the two runners returns nothing; a second physics
+  game drives the runner with zero core edits.
+- [ ] **4.2 Single world owner** (row 9, IDEAL.md §5). Guest declares bodies/bounds/
+  world-size/camera through the declare-once channel; delete
+  `wasm_autopeli_setup.rgr`'s host copy.
+  *Check:* the road/traffic exist in exactly one file (the guest).
+- [ ] **4.3 Data-driven sprite roster & animations** (row 10, IDEAL.md §2.8). Roster
+  from `RG_SPR_OFF_CAT_IDS` + `lpc_char_catalog.rgr`; anim rows/cycles from atlas
+  data (`atlas.json`), documented fallbacks; no `RG_SPR_CHAR_*`.
+  *Check:* adding a character = a catalog entry, no header edit.
+- [ ] **4.4 Unified sound palette** (row 11, IDEAL.md §4, IDEAL_API §2.6/§4). Fold
+  the RGW1 sound enum + `.as` sound queue into one registered per-game palette
+  (`registerSound(name, spec)`); the sound-event record (§2.6) is identical on RGW1,
+  `.as`, TS.
+  *Check:* a game registers `"brick"` with no core branch; both paths emit it.
+
+---
+
+## Phase 5 — input, docs, and proof (rows 12–14)
+
+- [ ] **5.1 Richer uniform host→guest input** (row 12, IDEAL.md §2.9). Populate the
+  RGIN record on every path; games declare semantic actions mapped through a
+  remappable table; hotplug/resize as events.
+  *Check:* an analog-stick guest reads `LSTICK_X` on both WASM and `.as`.
+- [ ] **5.2 CI leak guard wired** (row 13). Phase 0.2 grep runs in CI against every
+  core file + header.
+  *Check:* a deliberately-introduced `autopeli` in a core file fails CI.
+- [ ] **5.3 Cross-path & second-game conformance fixtures** (row 14, IDEAL.md §7).
+  A test that runs one guest on WASM *and* `.as` and diffs the block bytes; a second
+  physics game under `games/`.
+  *Check:* the two paths are byte-identical; the second game needs no core edit.
+
+---
+
+## Later / larger seams (IDEAL.md §2.6–§2.18 — tracked, not yet scheduled)
+
+These are fully specified in `IDEAL_API.md` but depend on Phases 1–5 landing first:
+
+- [ ] Dynamic UI — handle-based `rg_evg_*` create/mutate/free + command block (§2.6/§3.1).
+- [ ] Dynamic/streamed resources — `rg_res_*`, RGO1/RGX1/RGLD headers (§2.7/§3.2/§2.8).
+- [ ] Body→sprite binding — one `BodyVisual` contract on every path (§2.5/§5.3).
+- [ ] Selectable physics engine behind `PhysicsWorld` (arcade / cannon / native) (§2.5).
+- [ ] Audio: file decode, positional, voice/music, soundscore producer (§2.10/§3.5).
+- [ ] Storage over the ABI (`rg_store_*`), animation (`rg_anim_*`), haptics dual-motor,
+  view navigation (`rg_view_*`), logging (`rg_log`), particles/effects/filters,
+  camera block (RG_CAM) + shared `Mat3` transform (§2.11–§2.18, §3.3–§3.9).
+- [ ] Registries for shapes / sounds / clips / haptics / routes / emitters / flags (§6).
+
+---
+
+*Progress is tracked here and mirrored in the session task list. Phase 1 and the
+additive Phase 2 headers land first because they are safe (no code references the
+removed constants) and unblock the enforcement + seam work that follows.*
