@@ -16,7 +16,7 @@
 // Controls (edge mask in OFF_INPUT): LEFT/RIGHT move, UP rotates, DOWN soft
 // drops, ACTION hard drops (and restarts after a top-out).
 // ============================================================================
-import { abiRead, abiWrite, spriteReset, drawSprite, hostRect } from "@ranger/game";
+import { abiRead, abiWrite, spriteReset, drawSprite, playSound, hostRect } from "@ranger/game";
 
 // ---- shared RGW1 header offsets (host -> guest / guest -> host) ----
 const OFF_MAGIC: i32 = 0;
@@ -145,6 +145,7 @@ function spawnPiece(): void {
   spinDeg = 0;
   if (collides(curPiece, curRot, curPx, curPy) == 1) {
     gameOver = 1;
+    playSound(4);
   }
 }
 
@@ -161,6 +162,10 @@ function lockPiece(): void {
     }
     k = k + 1;
   }
+  // every placed piece is worth points, so the score climbs even without a
+  // line clear ("more pieces -> more points").
+  score = score + 12;
+  playSound(2);
 }
 
 function spawnConfetti(r: i32, c: i32, v: i32): void {
@@ -221,6 +226,7 @@ function clearLines(): void {
     if (cleared == 4) { pts = 800; }
     score = score + pts * level;
     level = idiv(lines, 10) + 1;
+    playSound(3);
   }
 }
 
@@ -235,18 +241,21 @@ function tryRotate(): void {
   if (collides(curPiece, nrot, curPx, curPy) == 0) {
     curRot = nrot;
     spinDeg = 90;
+    playSound(1);
     return;
   }
   if (collides(curPiece, nrot, curPx - 1, curPy) == 0) {
     curPx = curPx - 1;
     curRot = nrot;
     spinDeg = 90;
+    playSound(1);
     return;
   }
   if (collides(curPiece, nrot, curPx + 1, curPy) == 0) {
     curPx = curPx + 1;
     curRot = nrot;
     spinDeg = 90;
+    playSound(1);
   }
 }
 
@@ -354,24 +363,6 @@ function drawLocked(): void {
   }
 }
 
-function drawGhost(): void {
-  if (gameOver == 1) { return; }
-  let gy: i32 = curPy;
-  while (collides(curPiece, curRot, curPx, gy + 1) == 0) {
-    gy = gy + 1;
-  }
-  if (gy <= curPy) { return; }
-  computeCells(curPiece, curRot, curPx, gy);
-  let k: i32 = 0;
-  while (k < 4) {
-    const r: i32 = AROW[k];
-    if (r >= 0) {
-      drawCellBlock(ACOL[k], r, T_GHOST, 0);
-    }
-    k = k + 1;
-  }
-}
-
 function drawActive(): void {
   if (gameOver == 1) { return; }
   computeCells(curPiece, curRot, curPx, curPy);
@@ -409,7 +400,6 @@ function renderScene(): void {
   spriteReset();
   drawWell();
   drawLocked();
-  drawGhost();
   drawActive();
   drawConfetti();
   drawNext();
@@ -473,7 +463,9 @@ export function update(): void {
   if ((inp & IN_LEFT) != 0) { tryMove(0 - 1); }
   if ((inp & IN_RIGHT) != 0) { tryMove(1); }
   if ((inp & IN_UP) != 0) { tryRotate(); }
-  if ((inp & IN_DOWN) != 0) { stepDown(); }
+  // Down = fast drop: snap the piece straight down into place (much quicker than
+  // waiting for gravity). Action/hard-drop does the same.
+  if ((inp & IN_DOWN) != 0) { hardDrop(); }
   if ((inp & IN_ACT) != 0) { hardDrop(); }
 
   if (gameOver == 0) {

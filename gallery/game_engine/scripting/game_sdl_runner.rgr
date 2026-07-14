@@ -1018,6 +1018,8 @@ class GameSdlRunner {
             print ("[game-engine] sprite game load failed: " + asPath)
             return
         }
+        scene.audio.setSink((new SdlGameAudioSink))
+        scene.audioOn = true
         print ("[game-engine] sprite game: " + asPath)
         currentScriptPath = asPath
         currentGamePath = asPath
