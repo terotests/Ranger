@@ -29,6 +29,7 @@ wrong side of the engine-core ↔ game boundary, or opens a seam that was welded
 | 3 gate · RGCQ resolver · block validator · provider registry | ✅ core done (byte-plumbing + `.as` gate = tracked follow-ups) |
 | 4 scene-provider seam · sound palette | 🟡 seams landed + proven; runner rewire, single-owner (4.2), sprite roster (4.3) remain |
 | 5 richer input · CI leak guard · conformance fixtures | ⬜ not started |
+| R runtime correctness (fixed-step, input, transactional load) | ⬜ not started — from an external review, all 8 findings re-verified against source |
 
 **Verification approach.** Every landed component ships a headless self-test
 (`scripting/*_demo.rgr`) that compiles through the Ranger compiler and runs on
@@ -263,6 +264,79 @@ The structural payoff: core compiles against interfaces, the guest owns the worl
   A test that runs one guest on WASM *and* `.as` and diffs the block bytes; a second
   physics game under `games/`.
   *Check:* the two paths are byte-identical; the second game needs no core edit.
+
+---
+
+## Phase R — runtime correctness & state management (external review, verified)
+
+A static source review (unrun) surfaced a class of bugs **orthogonal** to the
+ABI-parity work above: fixed-step timing, input/player-count semantics, and
+non-transactional backend switching in the runners. Every item below was
+**re-verified against the current source at the cited line** before listing —
+all confirmed. These are the highest production risk today (the review's words:
+"the biggest production risk is mode/lifecycle management, not the rendering or
+scripting idea"). Fix order follows the review's recommendation; each fix gets a
+regression test (Phase 5.x / roadmap delta-time + gamepad gaps).
+
+- [ ] **R.1 (High) Fixed-step loop runs one extra step + leaves accumulator
+  negative.** `game_runtime.rgr:1315-1326` — on `steps >= maxFixedSteps` it zeros
+  `timeAccumulator` but still runs `stepUpdate` and subtracts `fixedStepMs`, so it
+  executes `maxFixedSteps + 1` steps and exits with `timeAccumulator = -fixedStepMs`
+  (next frame may skip a step). Fix: `break` right after zeroing (run exactly
+  `maxFixedSteps`, leave accumulator at 0); ideally clamp the backlog before the
+  loop so `0 <= accumulator < fixedStepMs`.
+  *Test:* a large frame-dt runs ≤ `maxFixedSteps` updates and never leaves the
+  accumulator negative.
+- [ ] **R.2 (High) One-player input snapshot reports two players.**
+  `game_input.rgr:262` — `buildFromSdl(1)` sets `playerCount = 2` unconditionally
+  in the 1-player branch (after building a speculative P2 "join" mask), and `toEval`
+  publishes it to the script. Fix: separate the concepts (`activePlayerCount` vs
+  `availableSlots`/`joinRequested`); minimally, bump to 2 only when `p2Join != 0`.
+  *Test:* `buildFromSdl(1)` with no join input yields `playerCount == 1`.
+- [ ] **R.3 (High) Input-edge sync omits left/right.**
+  `game_sdl_runner.rgr:558-564` — `syncInputEdges()` reseeds quit/up/down/action
+  but not `prevLeftHeld`/`prevRightHeld`, which ARE used as edges at 981-998. After
+  a mode switch / view open, a held left/right registers as a phantom fresh press.
+  Fix: seed `prevLeftHeld`/`prevRightHeld` from the mask too; route every edge
+  through one shared sync helper so this can't drift again.
+  *Test:* switching mode while left/right is held produces no phantom edge.
+- [ ] **R.4 (High) Failed `.as` load leaves the runner half-switched.**
+  `game_sdl_runner.rgr:448-460` — `loadAsAt` sets `useWasmRunner`/`useWasmPhysics =
+  true` and replaces `wasmPhysicsRunner` with a fresh instance BEFORE
+  `loadAsGame()`; on failure it prints and returns, leaving WASM-physics mode
+  active with a dead runner and the old game gone. Fix: load transactionally —
+  build a candidate in a local, load+validate, and only on success tear down the
+  old backend and flip the active flags; on failure keep prior state untouched.
+  (Same shape applies to the sprite/stream/wasm loaders that set flags first.)
+  *Test:* a failing `.as` load preserves the previous runner and mode.
+- [ ] **R.5 (Medium) `entities()` called twice per scene setup.**
+  `game_runtime.rgr:1079` and `1090` — `setupScene` calls the script's `entities()`
+  once for activation/seed and again for retained-sprite spawn; a side-effecting or
+  non-deterministic function makes the two diverge. Fix: call once, reuse the one
+  `EvalValue` for both activation and retained spawn.
+  *Test:* `entities()` is invoked exactly once per scene init.
+- [ ] **R.6 (Medium) Runner boolean-flag soup permits illegal states.**
+  `game_sdl_runner.rgr` routes TSX / WASM / `.as` / UI / sprite / stream /
+  split-screen through many independent booleans (`useWasmRunner`,
+  `useWasmPhysics`, `splitScreenActive`, `wasmSplitActive`, …), so contradictory
+  combinations are representable. Fix: one explicit `RunnerMode` enum + a common
+  backend interface (`load`/`update`/`draw`/`resize`/`unload`); split
+  `game_sdl_runner` into per-backend adapters. (Complements the §7 provider work.)
+  *Check:* mode is a single value; a second backend is an adapter, not new flags.
+- [ ] **R.7 (Medium) `auto` split-screen == `always`; `game.info` parsed by
+  `indexOf`.** `game_sdl_runner.rgr:645-649` — `shouldUseSplitScreen()` returns
+  true for both `"always"` and `"auto"` with no actual automatic condition, so the
+  name over-promises; and `game.info` is read in several places via substring
+  `indexOf`, fragile to whitespace/comments/false matches. Fix: give `auto` a real
+  predicate (e.g. players ≥ 2) or drop it; parse `game.info` once into a validated
+  key/value map against a known schema.
+  *Check:* `auto` differs from `always`; `game.info` has one typed parser.
+- [ ] **R.8 (Medium) Script return values assigned without contract checks.**
+  `game_runtime.rgr` — `update`'s return goes straight into `state`; a null/wrong
+  type surfaces far from the cause. Fix: validate `update` / `initState` /
+  `entities` / layout / render-command returns at the boundary with a typed error
+  (`game / function / expected / received`).
+  *Check:* a script returning null from `update` fails with a located error.
 
 ---
 
