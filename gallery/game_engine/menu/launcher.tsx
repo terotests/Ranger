@@ -202,7 +202,7 @@ function categoryScreen(s) {
           );
         })}
       </View>
-      <Label color={INK_DIM} fontSize="14px" margin="6px">A avaa   ·   nuolet liikkuvat</Label>
+      <Label color={INK_DIM} fontSize="14px" margin="6px">A avaa, nuolet liikkuvat</Label>
     </View>
   );
 }
@@ -236,7 +236,7 @@ function gamesScreen(s) {
           );
         })}
       </View>
-      <Label color={INK_DIM} fontSize="14px" margin="6px">A pelaa   ·   vasen takaisin</Label>
+      <Label color={INK_DIM} fontSize="14px" margin="6px">A pelaa, vasen takaisin</Label>
     </View>
   );
 }
