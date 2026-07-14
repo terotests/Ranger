@@ -256,6 +256,11 @@ class GameHost {
             if audio {
                 def a:GameAudio (unwrap audio)
                 this.wireVoice()
+                ; Render at the device's sample rate. The SDL host retunes
+                ; a.sampleRate to the opened device (e.g. 48000); the vocal
+                ; synth has its own GameAudio, so mirror the rate or the PCM
+                ; plays back at the wrong speed and sounds like crackle.
+                vocalFx.synth.sampleRate = a.sampleRate
                 if (vocalFx.has(e.id)) {
                     vocalFx.play(e.id a.sink)
                 } {
