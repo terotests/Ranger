@@ -18,14 +18,18 @@
 
 Import "../framebuffer.rgr"
 Import "./as_source_runner.rgr"
+Import "./game_audio.rgr"
 
 class AsSpriteScene {
     def runner:AsSourceRunner (new AsSourceRunner)
     def canvas:SoftCanvas (new SoftCanvas)
+    def audio:GameAudio (new GameAudio)
+    def audioOn:boolean false
     def pw:int 480
     def ph:int 270
     def timeMs:int 0
     def loaded:boolean false
+    def OFF_SCORE:int 40
 
     ; rect templates by declaration index (only rect templates are drawn here;
     ; sheet templates fall back to a plain grey square so a game still renders).
@@ -49,6 +53,31 @@ class AsSpriteScene {
         pw = w
         ph = h
         canvas.init(w h)
+        audio.init()
+    }
+
+    ; Map a guest sound id to a synth voice. The guest emits small ints via
+    ; playSound(id); the host owns the voice choice.
+    fn soundName:string (id:int) {
+        if (id == 1) { return "blip" }     ; move / rotate
+        if (id == 2) { return "brick" }    ; piece locks
+        if (id == 3) { return "win" }      ; line cleared
+        if (id == 4) { return "lose" }     ; top-out / game over
+        return "blip"
+    }
+
+    ; Drain the guest's one-shot sound queue and play each (host clears it, so the
+    ; guest never resets it). No-op audio when no sink is wired (headless).
+    fn drainSounds:void () {
+        def n:int (runner.bridge.sndCount())
+        if audioOn {
+            def i 0
+            while (i < n) {
+                audio.play((this.soundName((runner.bridge.sndAt(i)))))
+                i = (i + 1)
+            }
+        }
+        runner.bridge.sndClear()
     }
 
     fn setBg:void (r:int g:int b:int) {
@@ -123,6 +152,7 @@ class AsSpriteScene {
         runner.abiWrite(OFF_TIME timeMs)
         runner.abiWrite(OFF_INPUT (this.inputMask(up down left right action)))
         runner.callUpdate()
+        this.drainSounds()
     }
 
     fn frameMask:void (dtMs:int mask:int) {
@@ -134,6 +164,7 @@ class AsSpriteScene {
         runner.abiWrite(OFF_TIME timeMs)
         runner.abiWrite(OFF_INPUT mask)
         runner.callUpdate()
+        this.drainSounds()
     }
 
     ; Draw the guest's current sprite list to the canvas (rotated blocks).
@@ -158,6 +189,65 @@ class AsSpriteScene {
             }
             i = (i + 1)
         }
+        this.drawScoreHud()
+    }
+
+    ; ---- score HUD: a compact 3x5 block-font readout of OFF_SCORE ----
+    fn drawScoreHud:void () {
+        def score:int (runner.abiRead(OFF_SCORE))
+        if (score < 0) { score = 0 }
+        this.drawInt(score 12 14 4 236 224 120)
+    }
+
+    fn drawInt:void (value:int x:int y:int s:int r:int g:int b:int) {
+        def digits:[int]
+        if (value == 0) {
+            push digits 0
+        } {
+            def v:int value
+            while (v > 0) {
+                def d:int (v - (idiv v 10) * 10)
+                push digits d
+                v = (idiv v 10)
+            }
+        }
+        def n:int (array_length digits)
+        def i 0
+        while (i < n) {
+            def d:int (itemAt digits (n - 1 - i))
+            this.drawDigit(d (x + (i * (s * 4))) y s r g b)
+            i = (i + 1)
+        }
+    }
+
+    fn drawDigit:void (d:int x:int y:int s:int r:int g:int b:int) {
+        def bits:string (this.digitBits(d))
+        def row 0
+        while (row < 5) {
+            def col 0
+            while (col < 3) {
+                def idx ((row * 3) + col)
+                if ((substring bits idx (idx + 1)) == "1") {
+                    canvas.fillRect((x + (col * s)) (y + (row * s)) s s r g b)
+                }
+                col = (col + 1)
+            }
+            row = (row + 1)
+        }
+    }
+
+    fn digitBits:string (d:int) {
+        if (d == 0) { return "111101101101111" }
+        if (d == 1) { return "010110010010111" }
+        if (d == 2) { return "111001111100111" }
+        if (d == 3) { return "111001111001111" }
+        if (d == 4) { return "101101111001001" }
+        if (d == 5) { return "111100111001111" }
+        if (d == 6) { return "111100111101111" }
+        if (d == 7) { return "111001010010010" }
+        if (d == 8) { return "111101111101111" }
+        if (d == 9) { return "111101111001111" }
+        return "000000000000000"
     }
 
     fn raw:buffer () {

@@ -1,4 +1,4 @@
-name=Pyörretris
+name=Pyorretris
 engine=as
 render=sprites
 module=game.as

@@ -343,7 +343,7 @@ class TrueTypeFont {
         
         ; Format 0: Byte encoding table (simple, limited to 256 chars)
         if (cmapFormat == 0) {
-            if (charCode < 256) {
+            if ((charCode >= 0) && (charCode < 256)) {
                 return (this.readUInt8(cmapOffset + 6 + charCode))
             }
         }
@@ -422,8 +422,12 @@ class TrueTypeFont {
     }
     
     fn getCharWidth:int (charCode:int) {
-        ; Get width for a character in font units
-        if (charWidthsLoaded && (charCode < 256)) {
+        ; Get width for a character in font units. The (charCode >= 0) guard is
+        ; essential: charAt can yield a NEGATIVE value for bytes >= 0x80 (a signed
+        ; char, e.g. UTF-8 lead byte 0xC3 -> -61), which passes "< 256" and would
+        ; index the 256-entry cache out of range (std::out_of_range on the native
+        ; build). Negative / >=256 codes fall through to the cmap glyph lookup.
+        if (charWidthsLoaded && (charCode >= 0) && (charCode < 256)) {
             return (itemAt charWidths charCode)
         }
         def glyphIdx:int (this.getGlyphIndex(charCode))

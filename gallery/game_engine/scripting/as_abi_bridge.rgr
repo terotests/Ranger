@@ -39,6 +39,11 @@ class AsAbiBridge {
     def sprAng:[int]       ; rotation in degrees (clockwise, Y-down)
     def sprFrame:[int]     ; sheet frame column (0 for rect templates)
 
+    ; guest sound queue: the guest calls playSound(id) for one-shot effects; the
+    ; host drains + clears it each frame (so the guest never resets it). Small
+    ; integer ids the host maps to synth voices (see AsSpriteScene.soundName).
+    def sndQueue:[int]
+
     ; RGU1 builder state
     def nodeCount:int 0
     def propCount:int 0
@@ -373,6 +378,22 @@ class AsAbiBridge {
         return v
     }
 
+    ; ---- guest sound queue -------------------------------------------------
+    fn sndPush:void (id:int) {
+        push sndQueue id
+    }
+    fn sndCount:int () {
+        return (array_length sndQueue)
+    }
+    fn sndAt:int (i:int) {
+        def v:int (itemAt sndQueue i)
+        return v
+    }
+    fn sndClear:void () {
+        def a:[int]
+        sndQueue = a
+    }
+
     ; ---- RGP1 pose block (host->guest streaming input provider) -------------
     ; A separate, independently-versioned block (the pose counterpart of RGU1).
     ; The host PoseProvider writes a fresh sample each frame BEFORE update(); the
@@ -481,6 +502,7 @@ class AsAbiBridge {
         if (name == "hostRect") { return true }
         if (name == "spriteReset") { return true }
         if (name == "drawSprite") { return true }
+        if (name == "playSound") { return true }
         if (name == "posePresent") { return true }
         if (name == "poseGesture") { return true }
         if (name == "poseCount") { return true }
@@ -680,6 +702,10 @@ class AsAbiBridge {
         }
         if (name == "drawSprite") {
             this.sprPush((this.argInt(args 0)) (this.argInt(args 1)) (this.argInt(args 2)) (this.argInt(args 3)) (this.argInt(args 4)))
+            return (EvalValue.null())
+        }
+        if (name == "playSound") {
+            this.sndPush((this.argInt(args 0)))
             return (EvalValue.null())
         }
         if (name == "posePresent") {
