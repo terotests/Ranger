@@ -27,7 +27,7 @@ autopeli*." So the north star for every interface below is a single invariant:
 > **A hypothetical *second* game of the same genre must be able to reuse a core
 > file unchanged.** If it can't, the file is a game, not core.
 
-This is testable, mechanically, and the test is part of the ideal (see §7).
+§7 turns this invariant into a grep + a regression fixture.
 
 ---
 
@@ -39,17 +39,16 @@ This is testable, mechanically, and the test is part of the ideal (see §7).
 | **Reusable subsystems** | `physics/`, `lpc/`, `menu/`, `ui/`, `pose/` | Their own domain (bodies, spritesheets, UI trees) | *Which* game is using them |
 | **A game** | `games/<name>/`, its WASM/`.as`/TSX guest, its `<Name>Scene`/`Render`/`Hud` modules | Everything about itself | Nothing in core needs to know it exists |
 
-The rest of this document specifies the **seams between these layers** — because the
-leaks are all seam violations, not internal ones.
+Every leak in this codebase is a violation at a *seam* between two of these layers,
+so §2–§6 each specify one seam. §2 is the widest (the ABI, shared by three guest
+languages and the host), so it gets the most detail.
 
 ---
 
 ## 2. The ideal WASM ABI — a *transport*, never a *taxonomy*
 
-The shared ABI (`wasm/wasm_game_abi.h`, `wasm/wasm_sprite_abi.h`,
-`wasm/wasm_ui_abi.h`) is the widest seam: it is shared by the Rust guest, the
-AssemblyScript guest, the interpreted `.as` guest, and the host. Its ideal is the
-strictest.
+The shared ABI is three headers: `wasm/wasm_game_abi.h` (RGW1, world/physics),
+`wasm/wasm_sprite_abi.h` (RGSP1, characters), `wasm/wasm_ui_abi.h` (RGU1, UI).
 
 > **"guest" vs "host" — say it once, precisely.** The **guest is the game itself**,
 > compiled to a WASM module — normally written in **Rust** (`wasm/rust_*/src/lib.rs`)
@@ -142,8 +141,7 @@ Rust and AssemblyScript.)
 
 Consequently the host side stays genre-neutral too: `wasm_abi_io.rgr` exposes
 `readControlChannel(bodyIdx, ch)` — **not** `readControlSteer/Throttle/Brake/Grip` —
-and `as_abi_bridge.rgr`'s `writeControl` takes indexed channels. The host transports
-four numbers; only the guest knows one of them is "steer".
+and `as_abi_bridge.rgr`'s `writeControl` takes indexed channels.
 
 ### 2.3 The UI ABI (RGU1) is the model to imitate
 
@@ -209,9 +207,10 @@ a leak; the ideal replaces each with a registration the game supplies.
 | `game_audio.rgr`: builtin ids `"brick"`, `"bounce"`, `"wall"` | core owns a synth; **sound *names* are a per-game palette** the game registers; core maps id→spec via that table |
 | `engine.d.ts`: `SpriteKind` includes `"wedge"|"ghost"`; `showNet?`; `BuiltinSoundId` = `brick|bounce|wall`; `declare const peerCar {…, steer, finishTick}` | the type surface names **mechanisms** only; game-specific kinds/sounds/globals live in a per-game `<game>.d.ts` (the pattern `breakout.d.ts` already establishes) |
 
-Principle: **core provides a mechanism and a registration point; the game provides
-the content.** A new shape, sound, or HUD gauge is a call into core, not an edit of
-core.
+The registration table lives in core; its entries come from the game at load time
+(the game calls `registerShape("ghost", fn)` / `registerSound("brick", spec)` during
+setup). Adding a shape, sound, or HUD gauge is then a call from the game, with no
+edit to `game_sprite.rgr` / `game_audio.rgr` / `game_runtime.rgr`.
 
 ---
 
@@ -297,9 +296,16 @@ changed in `scripting/` core.
 
 ---
 
-## 8. One-line summary
+## 8. Summary — the five concrete changes
 
-**The ABI transports bytes and the guest owns their meaning; the core asks a
-`GameSceneProvider` for the world instead of being one game; game vocabulary is data
-a game registers, never a branch in core — and a grep guard plus a second game prove
-it stays that way.**
+| # | Change | Files it touches | Section |
+|---|--------|------------------|---------|
+| 1 | Move each game-specific constant out of the shared headers into the owning guest's Rust/AS source; leave only byte offsets, record shapes, and the handshake in `wasm/*.h`. | `wasm/wasm_game_abi.h`, `wasm/wasm_sprite_abi.h` → guest crates | §2.1 |
+| 2 | Replace the `steer/throttle/brake/grip` control record with four indexed channels; `wasm_abi_io.rgr` / `as_abi_bridge.rgr` read/write channels by index. | `wasm_game_abi.h`, `wasm_abi_io.rgr`, `as_abi_bridge.rgr` | §2.2 |
+| 3 | Give `wasm_physics_runner.rgr` a `provider:GameSceneProvider` field instead of concrete `setup`/`render` autopeli types and imports; move that logic to `games/autopeli_wasm/scene/`. | `wasm_physics_runner.rgr`, `wasm_game_runner.rgr` | §3 |
+| 4 | Turn the `if (layout=="pong")`, `kind=="ghost"`, and `"brick"`-sound branches into game-supplied registrations. | `game_runtime.rgr`, `game_sprite.rgr`, `game_audio.rgr`, `engine.d.ts` | §4 |
+| 5 | Make the guest the single owner of its world (bodies/bounds/camera declared through the resource channel); delete the host-side `setupPhysics()` copy. | `wasm_autopeli_setup.rgr` (deleted), guest `lib.rs` | §5 |
+
+Enforcement (§7): a CI grep guard fails when a core file names a game, and a second
+host-physics game running through the same `WasmPhysicsRunner` is the regression
+fixture that proves the seam holds.
