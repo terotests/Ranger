@@ -1,0 +1,165 @@
+; ==============================================================================
+; wasm_sprite_runner_demo — drive the RGSP1 sprite ABI end-to-end in Node.
+; ==============================================================================
+;
+; Build + run (Ranger repo root):
+;   npm run engine:chars:demo
+;
+; No WASM toolchain is required: this file hand-writes the exact RGSP1 bytes a
+; Rust/AS guest would (see wasm/rust_sprite_char), hands them to the host bridge
+; (SpriteHost), asserts the resolved draw commands (frame timing, direction rows,
+; jump hop) and blits the resolved frames into output/characters_demo.png so the
+; whole catalog -> sheet -> frame/dir path is both checked and visible.
+
+Import "wasm_sprite_runner.rgr"
+Import "../lpc/src/png_decoder.rgr"
+Import "../rgba_fast_blit.rgr"
+Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+
+class SpriteDemo {
+    def failures:int 0
+
+    ; ---- RGSP1 block authoring (stands in for the guest) --------------------
+    fn zeroBlock:[int] (n:int) {
+        def a:[int]
+        def i 0
+        while (i < n) {
+            push a 0
+            i = (i + 1)
+        }
+        return a
+    }
+
+    fn setI32:void (a:[int] off:int val:int) {
+        set a off (bit_and val 255)
+        set a (off + 1) (bit_and (bit_shr val 8) 255)
+        set a (off + 2) (bit_and (bit_shr val 16) 255)
+        set a (off + 3) (bit_and (bit_shr val 24) 255)
+    }
+
+    ; Write one guest slot: charId/anim/dir/flags/pos/clock.
+    fn writeSlot:void (a:[int] i:int charId:int anim:int dir:int flags:int x:int y:int clock:int) {
+        def base:int (64 + (i * 32))
+        this.setI32(a (base + 0) charId)
+        this.setI32(a (base + 4) anim)
+        this.setI32(a (base + 8) dir)
+        this.setI32(a (base + 12) flags)
+        this.setI32(a (base + 16) (x * 256))
+        this.setI32(a (base + 20) (y * 256))
+        this.setI32(a (base + 24) clock)
+        this.setI32(a (base + 28) 0)
+    }
+
+    fn expectInt:void (label:string got:int want:int) {
+        if (got == want) {
+            print ("  ok   " + label + " = " + (to_string got))
+        } {
+            print ("  FAIL " + label + " = " + (to_string got) + " (want " + (to_string want) + ")")
+            failures = (failures + 1)
+        }
+    }
+
+    fn expectTrue:void (label:string got:boolean) {
+        if (got) {
+            print ("  ok   " + label)
+        } {
+            print ("  FAIL " + label)
+            failures = (failures + 1)
+        }
+    }
+
+    sfn m@(main):void () {
+        def demo:SpriteDemo (new SpriteDemo())
+        def host:SpriteHost (new SpriteHost())
+
+        ; ---- guest builds an RGSP1 block: 4 catalog characters ---------------
+        def blk:[int] (demo.zeroBlock(2560))
+        demo.setI32(blk 0 1347635026)   ; magic 'RGSP'
+        demo.setI32(blk 4 1)            ; version
+        demo.setI32(blk 8 2560)         ; size
+        demo.setI32(blk 12 16)          ; dt_ms
+        demo.setI32(blk 16 0)           ; time_ms
+        demo.setI32(blk 20 4)           ; char_count (host-provided; echoed here)
+        demo.setI32(blk 24 4)           ; slot_count
+
+        ; slot 0 hero  walk  facing RIGHT, clock 0   -> frame 0
+        ; slot 1 knight walk facing DOWN,  clock 500 -> frame 4
+        ; slot 2 mage  walk  facing LEFT,  clock 1000-> frame 0 (wrap)
+        ; slot 3 rogue JUMP  facing DOWN,  clock 250 -> hold frame 2, hop peak
+        ;   flags bit0 = ACTIVE (1)
+        demo.writeSlot(blk 0 1 0 3 1  10 24 0)
+        demo.writeSlot(blk 1 2 0 2 1  92 24 500)
+        demo.writeSlot(blk 2 3 0 1 1 174 24 1000)
+        demo.writeSlot(blk 3 4 2 2 1 256 24 250)
+
+        host.bind(blk 2560)
+
+        print "[sprite-demo] validate RGSP1"
+        def okMagic:boolean (host.magicOk())
+        def ver:int (host.version())
+        def sc:int (host.slotCount())
+        demo.expectTrue("magic ok" okMagic)
+        demo.expectInt("version" ver 1)
+        demo.expectInt("slotCount" sc 4)
+
+        print "[sprite-demo] resolve slots"
+        def d0:SpriteDraw (host.resolve(0))
+        demo.expectTrue("slot0 valid" d0.valid)
+        demo.expectInt("slot0 charId" d0.charId 1)
+        demo.expectInt("slot0 frame (walk clock0)" d0.frame 0)
+        demo.expectInt("slot0 dir=RIGHT row srcY" d0.srcY 192)   ; 3 * 64
+        demo.expectInt("slot0 srcX" d0.srcX 0)
+
+        def d1:SpriteDraw (host.resolve(1))
+        demo.expectInt("slot1 charId" d1.charId 2)
+        demo.expectInt("slot1 frame (walk clock500,fps9)" d1.frame 4)
+        demo.expectInt("slot1 dir=DOWN row srcY" d1.srcY 128) ; 2 * 64
+        demo.expectInt("slot1 srcX (frame4)" d1.srcX 256)     ; 4 * 64
+
+        def d2:SpriteDraw (host.resolve(2))
+        demo.expectInt("slot2 charId" d2.charId 3)
+        demo.expectInt("slot2 frame (walk clock1000 wraps)" d2.frame 0)
+        demo.expectInt("slot2 dir=LEFT row srcY" d2.srcY 64)  ; 1 * 64
+
+        def d3:SpriteDraw (host.resolve(3))
+        demo.expectInt("slot3 charId" d3.charId 4)
+        demo.expectInt("slot3 jump holds frame" d3.frame 2)
+        demo.expectInt("slot3 jump hop peak" d3.hopPx 14)
+        demo.expectInt("slot3 screenY lifted by hop" d3.screenY 10)  ; 24 - 14
+
+        ; ---- render the resolved frames into a visible montage --------------
+        print "[sprite-demo] render montage"
+        def png:PNGDecoder (new PNGDecoder())
+        def blit:RgbaFastBlit (new RgbaFastBlit())
+        def canvas:RasterBuffer (new RasterBuffer())
+        canvas.createWithColor(330 96 24 24 32 255)
+        def packRoot:string "gallery/game_engine/lpc/pack/characters/"
+
+        def n:int (host.slotCount())
+        def i 0
+        while (i < n) {
+            def d:SpriteDraw (host.resolve(i))
+            if (d.valid) {
+                def img:ImageBuffer (png.decodeRelative(packRoot d.sheet))
+                if ((img.width > 1) && (img.height > 1)) {
+                    blit.blitRect(canvas img d.srcX d.srcY d.frameW d.frameH d.screenX d.screenY)
+                    print ("  drew " + d.name + " @(" + (to_string d.screenX) + "," + (to_string d.screenY) + ") src(" + (to_string d.srcX) + "," + (to_string d.srcY) + ")")
+                } {
+                    print ("  FAIL decode " + d.sheet)
+                    demo.failures = (demo.failures + 1)
+                }
+            }
+            i = (i + 1)
+        }
+
+        def enc:PNGEncoder (new PNGEncoder())
+        enc.encodeRgba(canvas "gallery/game_engine/lpc/output" "characters_demo.png")
+
+        if (demo.failures == 0) {
+            print "DEMO_OK"
+        } {
+            print ("DEMO_FAILED failures=" + (to_string demo.failures))
+        }
+    }
+}

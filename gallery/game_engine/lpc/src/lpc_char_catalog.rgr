@@ -1,0 +1,78 @@
+; ==============================================================================
+; lpc_char_catalog — the "ready character set" (mirrors the fixed sound set).
+; ==============================================================================
+;
+; A small, FIXED catalog of playable characters. A game (native, or a WASM guest
+; over the sprite ABI) picks a character by numeric id — exactly like it picks a
+; sound by RG_WASM_SOUND_* — and the host resolves id -> spritesheet + recolor +
+; animation rows. New looks are added here (and mirrored in wasm/wasm_sprite_abi.h
+; + pack/characters/catalog.json), never invented at the call site.
+;
+; All four characters are baked from the ONE embedded `demo-male-walk` pack by
+; colorising the legs/feet/hair layer groups (see lpc_palette). When the full
+; Universal-LPC art is present, fixtures/selections-*.json bake richer variants
+; into the same ids without any call-site change.
+
+Import "lpc_palette.rgr"
+
+; Character ids (keep in sync with wasm/wasm_sprite_abi.h RG_SPR_CHAR_*):
+;   1 HERO   2 KNIGHT   3 MAGE   4 ROGUE   (count = 4)
+; Animation ids (atlas rows; keep in sync with RG_SPR_ANIM_*):
+;   0 WALK   1 RUN   2 JUMP   (run/jump reserve real LPC rows, fall back to walk)
+; Directions (walk-sheet row order): 0 UP  1 LEFT  2 DOWN  3 RIGHT
+; tint mode literals: 0 IDENTITY, 1 COLORIZE.
+
+class LpcCharCatalog {
+    fn charCount:int () { return 4 }
+
+    ; Human-readable name for a character id (used by credits / debug UI).
+    fn nameOf:string (charId:int) {
+        if (charId == 1) { return "Hero (Ranger)" }
+        if (charId == 2) { return "Knight" }
+        if (charId == 3) { return "Mage" }
+        if (charId == 4) { return "Rogue" }
+        return "unknown"
+    }
+
+    ; Slug used for the baked pack directory: pack/characters/<slug>/walk.png
+    fn slugOf:string (charId:int) {
+        if (charId == 1) { return "hero" }
+        if (charId == 2) { return "knight" }
+        if (charId == 3) { return "mage" }
+        if (charId == 4) { return "rogue" }
+        return "unknown"
+    }
+
+    ; Configure a palette with this character's per-group colorize profile.
+    ; body + head stay IDENTITY (skin/face preserved); legs/feet/hair carry colour.
+    fn applyProfile:void (pal:LpcPalette charId:int) {
+        pal.clearProfile()
+        pal.setGroup("body" 0 255 255 255)
+        pal.setGroup("head" 0 255 255 255)
+
+        if (charId == 1) {
+            pal.setGroup("legs" 1 70 150 60)
+            pal.setGroup("feet" 1 110 70 40)
+            pal.setGroup("hair" 1 120 80 45)
+            return
+        }
+        if (charId == 2) {
+            pal.setGroup("legs" 1 120 140 180)
+            pal.setGroup("feet" 1 70 80 100)
+            pal.setGroup("hair" 1 60 55 50)
+            return
+        }
+        if (charId == 3) {
+            pal.setGroup("legs" 1 120 70 180)
+            pal.setGroup("feet" 1 70 45 110)
+            pal.setGroup("hair" 1 215 215 225)
+            return
+        }
+        if (charId == 4) {
+            pal.setGroup("legs" 1 170 40 50)
+            pal.setGroup("feet" 1 40 40 45)
+            pal.setGroup("hair" 1 30 28 30)
+            return
+        }
+    }
+}

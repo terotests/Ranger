@@ -21,6 +21,16 @@ class LpcComposeRunner {
     def outDir:string "gallery/game_engine/lpc/output"
     def outFile:string "compose.png"
 
+    ; Map a catalog character slug to its id (see lpc_char_catalog). -1 = not a
+    ; catalog character (fall back to legacy bodyType presets).
+    fn charIdForName:int (name:string) {
+        if (name == "hero")   { return 1 }
+        if (name == "knight") { return 2 }
+        if (name == "mage")   { return 3 }
+        if (name == "rogue")  { return 4 }
+        return -1
+    }
+
     fn parseOutputPath:void (fullPath:string) {
         def slash:int (lastIndexOf fullPath "/")
         if (slash < 0) {
@@ -56,7 +66,14 @@ class LpcComposeRunner {
         def comp:LpcCompositor (new LpcCompositor())
         comp.spritesheetsRoot = cfg.spritesheetsDir
 
-        def composed:LpcComposeResult (comp.composeWalkStrip(bodyType))
+        def charId:int (runner.charIdForName(bodyType))
+        def composed:LpcComposeResult (new LpcComposeResult())
+        if (charId > 0) {
+            print ("[lpc] catalog character id=" + (to_string charId))
+            composed = (comp.composeCharacter(charId))
+        } {
+            composed = (comp.composeWalkStrip(bodyType))
+        }
         if (composed.ok == false) {
             print "Compose failed"
             return
