@@ -1,0 +1,24 @@
+{
+  "id": "characters",
+  "abi": "RGSP1",
+  "description": "Ready-to-use character set for the sprite ABI. A game (native or a WASM guest) references a character by numeric id — like it references a sound by RG_WASM_SOUND_* — and the host resolves id -> sheet + animation rows. All four are baked from the embedded demo-male-walk pack by colorising legs/feet/hair (see gallery/game_engine/lpc/src/lpc_char_catalog.rgr).",
+  "frameWidth": 64,
+  "frameHeight": 64,
+  "directions": ["up", "left", "down", "right"],
+  "animations": {
+    "walk": { "id": 0, "frameCount": 9, "fps": 9, "loop": true, "present": true,
+              "note": "The 4 sheet rows ARE the directions (compact walk-only strip)." },
+    "run":  { "id": 1, "frameCount": 9, "fps": 13, "loop": true, "present": false,
+              "fallback": "walk",
+              "note": "Reserves the real LPC run rows; falls back to walk until expanded art is baked." },
+    "jump": { "id": 2, "frameCount": 5, "fps": 10, "loop": false, "present": false,
+              "fallback": "walk", "holdFrame": 2, "hopPixels": 14,
+              "note": "Reserves the real LPC jump rows; host synthesises a hop (holdFrame + hopPixels) until art is present." }
+  },
+  "characters": [
+    { "id": 1, "slug": "hero",   "name": "Hero (Ranger)", "sheet": "hero/walk.png",   "sheetWidth": 576, "sheetHeight": 256, "credits": "hero/credits.json" },
+    { "id": 2, "slug": "knight", "name": "Knight",        "sheet": "knight/walk.png", "sheetWidth": 576, "sheetHeight": 256, "credits": "knight/credits.json" },
+    { "id": 3, "slug": "mage",   "name": "Mage",          "sheet": "mage/walk.png",   "sheetWidth": 576, "sheetHeight": 256, "credits": "mage/credits.json" },
+    { "id": 4, "slug": "rogue",  "name": "Rogue",         "sheet": "rogue/walk.png",  "sheetWidth": 576, "sheetHeight": 256, "credits": "rogue/credits.json" }
+  ]
+}

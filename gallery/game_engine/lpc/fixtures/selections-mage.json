@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "bodyType": "male",
+  "note": "Full-generator recipe for catalog character 'mage'. Bakes a richer look than the embedded-pack recolor when the Universal-LPC art is present (LPC_ROOT). Item ids follow the LPC catalog; adjust to your installed set if a layer is missing.",
+  "selections": {
+    "body": { "itemId": "body", "name": "Male body" },
+    "torso": { "itemId": "torso_robe", "recolor": "purple", "name": "Purple robe" },
+    "legs": { "itemId": "legs_pantaloons", "recolor": "purple", "name": "Pantaloons" },
+    "feet": { "itemId": "feet_shoes_basic", "recolor": "purple_dark", "name": "Shoes" },
+    "head": { "itemId": "heads_human_male", "name": "Human male head" },
+    "hair": { "itemId": "hair_natural", "recolor": "white", "name": "White hair" },
+    "hat": { "itemId": "hat_magic", "recolor": "purple", "name": "Wizard hat" }
+  },
+  "selectedAnimation": "walk"
+}

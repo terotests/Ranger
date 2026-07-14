@@ -407,6 +407,76 @@ npm run engine:lpc:build
 npm run engine:lpc:run
 ```
 
+## Valmis hahmosetti (sprite-ABI)
+
+Pelit — myös **WASM-guestit** — voivat käyttää valmista hahmojoukkoa **numeerisella
+id:llä**, täsmälleen kuten ne soittavat ääntä `RG_WASM_SOUND_*`-id:llä. Guest ei kuljeta
+taidetta eikä animaatiokoodia: se valitsee hahmon katalogista, asettaa animaation +
+suunnan + sijainnin, ja **host** resolvoi id → spritesheet → animaatioframe ja piirtää.
+
+| Osa | Tiedosto |
+|-----|----------|
+| ABI-blokki (`RGSP1`) | [`wasm/wasm_sprite_abi.h`](./wasm/wasm_sprite_abi.h) |
+| Host-silta (id → arkki, frame, suunta, jump-hop) | [`scripting/wasm_sprite_runner.rgr`](./scripting/wasm_sprite_runner.rgr) |
+| Valmis katalogi (totuuslähde) | [`lpc/src/lpc_char_catalog.rgr`](./lpc/src/lpc_char_catalog.rgr) |
+| Baketut arkit + attribuutio | [`lpc/pack/characters/`](./lpc/pack/characters/) (`catalog.json`, `<slug>/walk.png`, `<slug>/credits.json`) |
+| WASM-guest (Rust) | [`wasm/rust_sprite_char/`](./wasm/rust_sprite_char/) |
+
+Setissä on nyt **4 hahmoa**: `hero` (Ranger), `knight`, `mage`, `rogue` — kaikki
+baketaan yhdestä upotetusta walk-arkista värjäämällä housut/kengät/hiukset. Animaatiot:
+`walk` (oikea), `run`/`jump` varaavat oikeat LPC-rivit ja fallbackaavat walkiin
+(jump saa hostin synteettisen hypyn) kunnes laajennettu taide baketaan mukaan.
+
+```bash
+npm run engine:chars:bake    # bake 4 hahmoa -> lpc/pack/characters/<slug>/walk.png (+ credits)
+npm run engine:chars:demo    # host-silta päästä päähän, assertit + lpc/output/characters_demo.png
+npm run engine:chars:guest   # Rust-guest -> games/sprite_char/sprite_char.wasm (vaatii wasm-targetin)
+```
+
+### Testipeli: hahmon valinta + ohjaimella kävely/hyppy
+
+[`games/sprite_char/`](./games/sprite_char/) (kategoria **Tests**) on PoC jolla setin voi
+kokeilla: **valikko** hahmon valintaan, sitten **ohjaimella** kävely/kääntyminen/hyppy.
+Se ajaa oikeaa RGSP1-host-siltaa; input→slot-logiikka on sama kuin Rust-guestissa.
+
+```bash
+npm run engine:chars:poc       # headless: scriptattu input, assertit + lpc/output/poc_*.png
+npm run engine:chars:poc:sdl   # standalone SDL-binääri, oikea näppäimistö/peliohjain (vaatii libsdl2-dev)
+```
+
+Ohjaus — valikko: vasen/oikea valitsee, A/Space vahvistaa. Peli: nuolet/D-pad kävelee ja
+kääntää, A/Space hyppää, Q/Esc takaisin. Ydin: [`scripting/sprite_char_poc.rgr`](./scripting/sprite_char_poc.rgr),
+SDL-etuosa: [`sprite_char_sdl.rgr`](./sprite_char_sdl.rgr).
+
+### Uusien hahmojen generointi
+
+**A) Uusi väri­variantti olemassa olevasta taiteesta** (nopein, toimii ilman ulkoista LPC-taidetta):
+
+1. Lisää id + nimi + slug [`lpc/src/lpc_char_catalog.rgr`](./lpc/src/lpc_char_catalog.rgr):
+   kasvata `charCount`, lisää haara `nameOf`/`slugOf`, ja `applyProfile`-lohko jossa
+   annat `legs`/`feet`/`hair`-ryhmille colorize-tintit (`setGroup "legs" 1 R G B`).
+   `body`/`head` pidetään tunnisteella `0` (identity → iho & kasvot säilyvät).
+2. Peilaa sama id [`wasm/wasm_sprite_abi.h`](./wasm/wasm_sprite_abi.h) (`RG_SPR_CHAR_*`,
+   `RG_SPR_CHAR_COUNT`), [`lpc/pack/characters/catalog.json`](./lpc/pack/characters/catalog.json)
+   (`characters`-lista) ja tarvittaessa host-sillan `SpriteHost`.
+3. Lisää slug bake-listaan [`scripts/bake-characters.sh`](./scripts/bake-characters.sh),
+   sitten `npm run engine:chars:bake`. Uusi `walk.png` + `credits.json` syntyy pakettiin.
+4. `npm run engine:chars:demo` tarkistaa että host resolvoi id:n oikein.
+
+**B) Rikkaampi hahmo koko LPC-generaattorista** (vaatii Universal-LPC-taiteen):
+
+1. Kloonaa [Universal-LPC-Spritesheet-Character-Generator](https://github.com/liberatedpixelcup/Universal-LPC-Spritesheet-Character-Generator)
+   sisar­hakemistoksi tai osoita siihen `LPC_ROOT`-ympäristömuuttujalla.
+2. Kirjoita valinnat `lpc/fixtures/selections-<slug>.json`-muotoon (`bodyType` +
+   `selections` per layer, kuten olemassa olevat `selections-super.json`). Presetit
+   `hero`/`knight`/`mage`/`rogue` ovat jo mukana lähtökohdaksi.
+3. Lisää preset-luokka `lpc/src/lpc_demo_<slug>.rgr` (mallina `lpc_demo_super.rgr`) ja
+   reititä se `lpc/src/lpc_draw.rgr:buildCalls`-metodissa; `npm run engine:lpc:run -- <slug> <out.png>`.
+4. Lisenssit: aja `credits.json` aina pelin mukana (attribuutio pakollinen). Yksityiskohdat
+   ja `licenseFilter`-malli: [`LPC_HEADLESS_SPRITESHEET.md`](./LPC_HEADLESS_SPRITESHEET.md).
+
+Kummassakaan tapauksessa **guest-koodia ei tarvitse muuttaa** — uusi hahmo on vain uusi id.
+
 ## Testit
 
 | Testi | Mitä kattaa |
@@ -433,6 +503,13 @@ npm run engine:lpc:run
 | `scripting/game_sdl_runner.rgr` | SDL2-host + launcher + hot reload + WASM |
 | `scripting/wasm_game_runner.rgr` | WASM getter-ABI (Pong) |
 | `scripting/wasm_physics_runner.rgr` | WASM linear ABI + host physics (Autopeli) |
+| `scripting/wasm_sprite_runner.rgr` | Valmiin hahmosetin sprite-ABI (`RGSP1`): id → arkki, frame, suunta, jump |
+| `lpc/src/lpc_char_catalog.rgr` | Hahmokatalogi (id, nimi, recolor-profiili) — valmiin setin totuuslähde |
+| `lpc/pack/characters/` | Baketut hahmoarkit + `catalog.json` + per-hahmo `credits.json` |
+| `wasm/rust_sprite_char/` | WASM-guest joka ohjaa hahmoja sprite-ABI:n yli |
+| `games/sprite_char/` | Testipeli (Tests): hahmon valinta + ohjaimella kävely/hyppy |
+| `scripting/sprite_char_poc.rgr` | Testipelin ydin (gfx-vapaa, ajaa RGSP1-siltaa) |
+| `sprite_char_sdl.rgr` | Testipelin SDL-etuosa (näppäimistö/peliohjain) |
 | `scripting/game_catalog.rgr` | `games/`-hakemiston skannaus |
 | `scripting/game_persistence.rgr` | `gamedata.json` tallennus |
 | `scripts/build-game-sdl.sh` | TSX- ja WASM-pelien SDL-binääri |

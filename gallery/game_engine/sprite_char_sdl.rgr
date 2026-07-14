@@ -1,0 +1,76 @@
+; ==============================================================================
+; sprite_char_sdl — SDL front-end for the WASM sprite test game (real gamepad).
+; ==============================================================================
+;
+; Ranger -> C++ -> SDL2. Wraps the gfx-free PoC core (SpriteCharApp) in a window
+; + input loop so the ready character set can be tried with a keyboard or a
+; gamepad: pick a character in the menu (LEFT/RIGHT + A/Space), then walk/turn
+; (D-pad / arrows) and jump (A/Space). Q or Esc backs out / quits.
+;
+; Usage:
+;   ./gallery/game_engine/scripts/build-sprite-char-sdl.sh
+;   ./tmp/sprite-char/sprite_char_sdl            # interactive
+;   ./tmp/sprite-char/sprite_char_sdl 120        # headless smoke: 120 frames, dump PNG
+
+Import "./framebuffer.rgr"
+Import "./gfx_sdl.rgr"
+Import "./scripting/sprite_char_poc.rgr"
+
+class SpriteCharSdlApp {
+    def pw:int 320
+    def ph:int 200
+    def app:SpriteCharApp (new SpriteCharApp())
+    def frames:int 0
+    def hasWindow:boolean false
+
+    fn open:void () {
+        def ok (gfx_open "Ranger — Sprite Test (character set)" pw ph)
+        if (ok == 1) {
+            hasWindow = true
+        } {
+            print "gfx_open failed (no display?) - still rendering into the RGBA buffer"
+        }
+    }
+
+    fn run:void (maxFrames:int) {
+        app.init(pw ph)
+        this.open()
+        def running:boolean true
+        while (running) {
+            ; keyboard (player 1) OR any gamepad -> the mask the core expects
+            def kb:int (gfx_poll_mask)
+            def pad:int (gfx_input_source_mask 2)
+            def mask:int (bit_or kb pad)
+            app.update(16 mask)
+            app.render()
+            gfx_present (app.canvas.raw()) pw ph
+            frames = (frames + 1)
+
+            if (app.quit) { running = false }
+            def sc:boolean (gfx_should_close)
+            if sc { running = false }
+            if (maxFrames > 0) {
+                if (frames >= maxFrames) { running = false }
+            }
+        }
+        if (maxFrames > 0) {
+            buffer_write_file "tmp/sprite-char" "frame.rgba" (app.canvas.raw())
+        }
+        if (hasWindow) {
+            gfx_close
+        }
+    }
+
+    sfn m@(main):void () {
+        def a (new SpriteCharSdlApp)
+        def maxFrames:int 0
+        if ((shell_arg_cnt) > 0) {
+            def parsed@(optional):int (to_int (shell_arg 0))
+            if (!null? parsed) {
+                maxFrames = (unwrap parsed)
+            }
+        }
+        a.run(maxFrames)
+        print ("sprite-char-sdl done: frames=" + a.frames)
+    }
+}

@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "bodyType": "male",
+  "note": "Full-generator recipe for catalog character 'knight'. Bakes a richer look than the embedded-pack recolor when the Universal-LPC art is present (LPC_ROOT). Item ids follow the LPC catalog; adjust to your installed set if a layer is missing.",
+  "selections": {
+    "body": { "itemId": "body", "name": "Male body" },
+    "torso": { "itemId": "torso_armour_plate", "recolor": "steel", "name": "Plate armour" },
+    "legs": { "itemId": "legs_armour_plate", "recolor": "steel", "name": "Plate legs" },
+    "feet": { "itemId": "feet_boots_basic", "recolor": "steel", "name": "Steel boots" },
+    "head": { "itemId": "heads_human_male", "name": "Human male head" },
+    "hat": { "itemId": "hat_helmet_greathelm", "recolor": "steel", "name": "Great helm" }
+  },
+  "selectedAnimation": "walk"
+}

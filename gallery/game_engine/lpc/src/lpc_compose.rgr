@@ -5,6 +5,7 @@
 Import "lpc_anim.rgr"
 Import "lpc_blit.rgr"
 Import "lpc_draw.rgr"
+Import "lpc_char_catalog.rgr"
 Import "lpc_layer_cache.rgr"
 Import "lpc_palette.rgr"
 Import "png_decoder.rgr"
@@ -23,10 +24,47 @@ class LpcCompositor {
     def draw:LpcDraw (new LpcDraw())
     def blit:LpcBlit (new LpcBlit())
     def palette:LpcPalette (new LpcPalette())
+    def catalog:LpcCharCatalog (new LpcCharCatalog())
     def png:PNGDecoder (new PNGDecoder())
     def spritesheetsRoot:string "spritesheets/"
 
+    ; One draw call for a character layer, tagged with its palette group id.
+    fn addCharCall:void (list:[LpcDrawCall] group:string path:string z:int) {
+        def call:LpcDrawCall (new LpcDrawCall())
+        call.itemId = group
+        call.spritePath = path
+        call.zPos = z
+        call.animY = 0
+        push list call
+    }
+
+    ; Layer stack for the embedded demo-male-walk pack. The palette profile (set
+    ; by composeCharacter) is what turns this single stack into distinct looks.
+    fn buildCharCalls:[LpcDrawCall] () {
+        def list:[LpcDrawCall]
+        this.addCharCall(list "body" "body/bodies/male/walk.png" 10)
+        this.addCharCall(list "legs" "legs/pants/male/walk.png" 20)
+        this.addCharCall(list "feet" "feet/boots/basic/male/walk.png" 25)
+        this.addCharCall(list "head" "head/heads/human/male/walk.png" 100)
+        this.addCharCall(list "hair" "hair/natural/adult/walk.png" 120)
+        return list
+    }
+
+    ; Compose one catalog character's walk strip: apply its recolor profile, then
+    ; blit the shared layer stack. Same output shape as composeWalkStrip.
+    fn composeCharacter:LpcComposeResult (charId:int) {
+        this.catalog.applyProfile(this.palette charId)
+        def calls:[LpcDrawCall] (this.buildCharCalls())
+        return (this.composeCalls(calls))
+    }
+
     fn composeWalkStrip:LpcComposeResult (bodyType:string) {
+        def calls:[LpcDrawCall] (this.draw.buildCalls(bodyType))
+        return (this.composeCalls(calls))
+    }
+
+    ; Blit a (possibly unsorted) draw-call list into a fresh walk-strip buffer.
+    fn composeCalls:LpcComposeResult (calls:[LpcDrawCall]) {
         def result:LpcComposeResult (new LpcComposeResult())
         def w:int (this.anim.walkStripWidth())
         def h:int (this.anim.walkStripHeight())
@@ -34,7 +72,6 @@ class LpcCompositor {
         result.width = w
         result.height = h
 
-        def calls:[LpcDrawCall] (this.draw.buildCalls(bodyType))
         this.draw.sortByZPos(calls)
 
         if ((array_length calls) == 0) {
