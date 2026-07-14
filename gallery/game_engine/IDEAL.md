@@ -94,6 +94,8 @@ without re-widening the leaks above.
 | **Animation system & lifecycle events** | Fragmented | Three unrelated timing systems (host-only `UIAnimator` glow/pulse, RGSP1 sprite clock, RGU1 full-tree re-emit); no general tweening/easing, frozen effect + anim enums, and the only completion hook (`UIAnimator.after`) is a host closure — no `onAnimationEnd`/`onLoop`/`onFrame` over the ABI. | §2.12 |
 | **Screen navigation / view stack** | Partial | `loadGame`/`pushGame`/`popGame` exist only on the TS path; every transition is a full teardown + `initState()` reload (no suspend/resume), routes are file paths, and there are no typed args, no result on pop, and no `onEnter`/`onExit`/`onPause`/`onResume` hooks. | §2.13 |
 | **Unified HUD renderer** | Fragmented | Three HUD paths (TS `hud()`, RGU1 doc, hardcoded `fillRect`) through a limited `GameHudBlitter` (View+Label, bitmap 3×5 font); the rich EVG renderer (TTF, borders, widgets, interactivity) is reserved for menus, and the fallback HUD is autopeli-specific. | §2.15, §2.6 |
+| **Structured logging & error levels** | Ad-hoc | Bare `print("[tag] …")` to stdout with varying prefixes and no severity; verbosity is a few inconsistent `verbose` booleans; TS gets `console.log/warn` but WASM/`.as` have no log import; failures are plain prints, not typed errors. | §2.16 |
+| **Feature flags** | Missing | The only flag-shaped construct is the inert RGCQ `debugmode` key; real toggles are ad-hoc runner booleans (`useWasmHud`, `useAs`, hot-reload) and `game.info` keys — no registry, no query, no scoping/source, not exposed to guests. | §2.16, §2.14 |
 | **Dynamic UI (allocate/free host EVG objects)** | Missing | RGU1 is full-snapshot rebuild only; the guest cannot allocate a persistent host `EVGElement`, mutate it by handle, or free it — any change re-serializes and rebuilds the whole tree. | §2.6 |
 | **Dynamic / streamed resource loading** | Prototype | A declare-once manifest and a synchronous frame-path decoder ship; a WASM streaming vertical (`RGX1` worker + `RGLD` loader) is proven but uses mock handles — the public `rg_res_*` primitives, the `RGO1` observation block, shared headers, and async decode are not landed. | §2.7 |
 
@@ -1479,6 +1481,96 @@ renderer the engine owns is reserved for menus, not the HUD.
 The result: the HUD becomes *"one EVG document, one renderer, one input shape,"* — the same
 element/vector model, drawn at the same fidelity, interactive on every guest path,
 game-declared in content and host-owned in rendering (§2.6, §2.9, §2.12, §2.14, §3, §5).
+
+### 2.16 Logging, error levels, and feature flags
+
+Every subsystem above needs to *say something* when it works, misbehaves, or is switched
+on and off — and to be togglable without a recompile. Today the engine does all three by
+hand: free-text `print`s, no severity, and a handful of scattered booleans. This is the
+diagnostics-and-configuration seam, and it has the same "convention, not contract; TS-only,
+not every path" shape as the rest of the ABI.
+
+**Current state.**
+
+- **Logging is bare `print` with ad-hoc tag prefixes.** The host scatters
+  `print("[wasm] …")`, `print("[game-engine] …")`, `print("[menu] …")`,
+  `print("[hot-reload] …")`, `print("[audio] …")`, `print("[GameImageLoader] …")` across
+  the runners — the "channel" is a free-text prefix whose spelling varies by file, all
+  written unconditionally to stdout. There is no central logger, no timestamp, and no
+  structured fields.
+- **Verbosity is a handful of inconsistent booleans.** A few classes gate their prints
+  behind a local `verbose:boolean false` (`GameAudio`, `GameVocalFx`, the game host), but
+  most `print`s (loads, the menu listing, hot-reload) are ungated, and there is no global
+  switch — you cannot turn on "audio debug" from one place. `ui/UI_LAYER.md` records that
+  the per-glyph `RasterText` debug prints had to be **hand-gated behind an off-by-default
+  `debug` flag** because they "previously fired per glyph" — the ad-hoc pattern, and its
+  hot-loop cost, in miniature.
+- **Guest logging is one level, TS-only.** TS scripts get `console.log` / `console.warn`
+  → host stdout as `[tsx] …` ([`engine.d.ts`](./scripting/engine.d.ts)); WASM and `.as`
+  guests have **no logging import at all** (only `abort` and a few `rg_host_*`). There is
+  no `rg_log`, no shared stream between guest and host, and `warn` is just another prefix
+  — no INFO/DEBUG/TRACE hierarchy and no filtering.
+- **No error-level taxonomy or propagation.** There is no ERROR/WARN/INFO/DEBUG/TRACE
+  concept: a failure prints a plain line (`"[wasm] load failed: …"`,
+  `"[GameImageLoader] decode failed: …"`) at the *same* level as an informational load
+  message, then usually `return`s. Nothing carries a severity or code, nothing propagates
+  a typed error to the guest or to a surfaced UI, and `abort` simply throws.
+- **"Feature flags" are one dead key plus scattered booleans.** The only flag-shaped
+  construct is the RGCQ convention key `"debugmode"` — requested by a guest
+  (`wasm/as_autopeli`) and listed in the header — but since RGCQ is unwired (§2.14) no
+  host answers it, so it is inert. Real behaviour toggles live as ad-hoc runner fields
+  (`useWasmHud`, `useAs`, `useSpriteRunner`, `useStreamRunner`, hot-reload on/off,
+  split-screen active) set from code or `game.info` (`engine=wasm/ui`) — not a registry,
+  not queryable, not runtime-adjustable, and not exposed to guests.
+
+**Ideal.**
+
+1. **One structured logger with severity and channels, on every path.** A single
+   interface — `log(level, channel, message[, fields])` — with a fixed severity ladder and
+   **named channels** replacing the free-text `[tag]` prefixes, exposed identically to
+   WASM/`.as`/TS guests (not only TS `console.log`):
+
+```c
+/* Logging (guest -> host); one stream shared by host and guest. */
+#define RG_LOG_TRACE 0
+#define RG_LOG_DEBUG 1
+#define RG_LOG_INFO  2
+#define RG_LOG_WARN  3
+#define RG_LOG_ERROR 4
+#define RG_LOG_FATAL 5
+void rg_log(u32 level, u32 channel, ptr msgUtf8, u32 msgLen);
+```
+
+2. **Per-channel level filtering, adjustable at init and runtime.** A global level plus
+   per-channel overrides (`audio=WARN`, `physics=DEBUG`), set from the §2.14 environment (a
+   `log.level` key) and changeable at runtime — so `TRACE`/`DEBUG` calls compile in but
+   cost nothing when filtered, retiring the hand-gated `RasterText` prints and the
+   scattered `verbose` booleans.
+3. **Pluggable sinks, and output-only determinism.** The logger writes through a sink
+   interface — stdout, a file, a bounded **ring buffer**, an on-screen debug console
+   (§2.15), or a headless-test capture — behind one API, mirroring §2.7's "host owns the
+   medium." Like audio (§2.10) and haptics (§2.9), logging is **output-only and must never
+   feed logic, RNG, or step order**, so a build with logging off behaves identically.
+4. **A first-class error-level contract.** Failures become typed results carrying
+   **severity + code + channel + message**, not bare prints: `WARN` for recoverable cases
+   (a decode fallback), `ERROR` for an unavailable feature, `FATAL` for rejecting a guest —
+   the latter tying directly into the §2.14 handshake's *abort-with-reason*. Errors
+   propagate to the guest over the ABI and can surface in a HUD/console (§2.15) instead of
+   only landing on stdout.
+5. **A real feature-flag registry — queryable, scoped, sourced.** Flags are named, typed
+   values (bool/int/enum) with a defined **source precedence** — build default → config /
+   `game.info` → env / CLI → persisted (§2.11) → runtime override — queryable by host *and*
+   guest over the §2.14 typed key/value channel (so `debugmode` finally resolves), scoped
+   **per-game or global**, and capability-gated. This folds the ad-hoc
+   `useWasmHud`/`useAs`/hot-reload booleans into one inspectable system and lets a guest
+   branch on a flag deterministically — flags read at init are stable inputs, runtime
+   toggles arrive as events.
+
+The result: diagnostics become *"log at a level on a channel, filtered to a sink,"* errors
+become *"a typed severity + code, propagated, not a bare print,"* and configuration becomes
+*"query a named flag with a known source"* — one logging, error, and flag contract shared by
+every guest path, game- and operator-controllable without a recompile, and host-owned in its
+sinks and sources (§2.7, §2.10, §2.11, §2.14, §2.15, §4, §6).
 
 ---
 
