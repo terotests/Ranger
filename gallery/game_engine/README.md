@@ -430,6 +430,21 @@ npm run engine:chars:demo    # host-silta päästä päähän, assertit + lpc/ou
 npm run engine:chars:guest   # Rust-guest -> games/sprite_char/sprite_char.wasm (vaatii wasm-targetin)
 ```
 
+### Testipeli: hahmon valinta + ohjaimella kävely/hyppy
+
+[`games/sprite_char/`](./games/sprite_char/) (kategoria **Tests**) on PoC jolla setin voi
+kokeilla: **valikko** hahmon valintaan, sitten **ohjaimella** kävely/kääntyminen/hyppy.
+Se ajaa oikeaa RGSP1-host-siltaa; input→slot-logiikka on sama kuin Rust-guestissa.
+
+```bash
+npm run engine:chars:poc       # headless: scriptattu input, assertit + lpc/output/poc_*.png
+npm run engine:chars:poc:sdl   # standalone SDL-binääri, oikea näppäimistö/peliohjain (vaatii libsdl2-dev)
+```
+
+Ohjaus — valikko: vasen/oikea valitsee, A/Space vahvistaa. Peli: nuolet/D-pad kävelee ja
+kääntää, A/Space hyppää, Q/Esc takaisin. Ydin: [`scripting/sprite_char_poc.rgr`](./scripting/sprite_char_poc.rgr),
+SDL-etuosa: [`sprite_char_sdl.rgr`](./sprite_char_sdl.rgr).
+
 ### Uusien hahmojen generointi
 
 **A) Uusi väri­variantti olemassa olevasta taiteesta** (nopein, toimii ilman ulkoista LPC-taidetta):
@@ -489,6 +504,9 @@ Kummassakaan tapauksessa **guest-koodia ei tarvitse muuttaa** — uusi hahmo on 
 | `lpc/src/lpc_char_catalog.rgr` | Hahmokatalogi (id, nimi, recolor-profiili) — valmiin setin totuuslähde |
 | `lpc/pack/characters/` | Baketut hahmoarkit + `catalog.json` + per-hahmo `credits.json` |
 | `wasm/rust_sprite_char/` | WASM-guest joka ohjaa hahmoja sprite-ABI:n yli |
+| `games/sprite_char/` | Testipeli (Tests): hahmon valinta + ohjaimella kävely/hyppy |
+| `scripting/sprite_char_poc.rgr` | Testipelin ydin (gfx-vapaa, ajaa RGSP1-siltaa) |
+| `sprite_char_sdl.rgr` | Testipelin SDL-etuosa (näppäimistö/peliohjain) |
 | `scripting/game_catalog.rgr` | `games/`-hakemiston skannaus |
 | `scripting/game_persistence.rgr` | `gamedata.json` tallennus |
 | `scripts/build-game-sdl.sh` | TSX- ja WASM-pelien SDL-binääri |

@@ -1,0 +1,103 @@
+; ==============================================================================
+; sprite_char_poc_demo — drive the sprite test game headless (no gfx/SDL).
+; ==============================================================================
+;
+; Build + run (Ranger repo root):
+;   npm run engine:chars:poc
+;
+; Feeds the PoC core (SpriteCharApp) a scripted input timeline — the exact masks
+; a pad would produce — asserts the menu selection and the walk/jump state, and
+; dumps four frames (menu x2, walk, jump) to lpc/output/poc_*.png as visible
+; proof that character-select + gamepad walk/turn/jump work end-to-end.
+
+Import "./sprite_char_poc.rgr"
+Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+
+class SpriteCharPocDemo {
+    def failures:int 0
+
+    ; scripted pad mask per frame (bits: 1 up 2 down 4 action 8 back 16 left 32 right)
+    fn scriptMask:int (frame:int) {
+        if (frame == 10) { return 32 }   ; right  -> select knight
+        if (frame == 20) { return 4 }    ; action -> confirm -> play
+        if (frame >= 21) {
+            if (frame <= 49) { return 32 }   ; hold right -> walk right
+        }
+        if (frame == 60) { return 4 }    ; action -> jump
+        return 0
+    }
+
+    fn dumpFrame:void (app:SpriteCharApp name:string) {
+        def rb:RasterBuffer (new RasterBuffer())
+        rb.create(app.pw app.ph)
+        def len:int (app.pw * app.ph * 4)
+        buffer_copy rb.pixels 0 app.canvas.px 0 len
+        def enc:PNGEncoder (new PNGEncoder())
+        enc.encodeRgba(rb "gallery/game_engine/lpc/output" name)
+    }
+
+    fn expectInt:void (label:string got:int want:int) {
+        if (got == want) {
+            print ("  ok   " + label + " = " + (to_string got))
+        } {
+            print ("  FAIL " + label + " = " + (to_string got) + " (want " + (to_string want) + ")")
+            failures = (failures + 1)
+        }
+    }
+
+    fn expectTrue:void (label:string got:boolean) {
+        if (got) {
+            print ("  ok   " + label)
+        } {
+            print ("  FAIL " + label)
+            failures = (failures + 1)
+        }
+    }
+
+    sfn m@(main):void () {
+        def demo:SpriteCharPocDemo (new SpriteCharPocDemo())
+        def app:SpriteCharApp (new SpriteCharApp())
+        app.init(320 200)
+        print "[poc] sheets loaded, running scripted timeline"
+
+        def frame 0
+        while (frame < 90) {
+            def mask:int (demo.scriptMask(frame))
+            app.update(16 mask)
+            app.render()
+
+            if (frame == 5) {
+                demo.expectTrue("frame5 on select screen" (app.screen == "select"))
+                demo.expectInt("frame5 selIndex (hero)" app.selIndex 0)
+                demo.dumpFrame(app "poc_1_select_hero.png")
+            }
+            if (frame == 15) {
+                demo.expectInt("frame15 selIndex (knight)" app.selIndex 1)
+                demo.dumpFrame(app "poc_2_select_knight.png")
+            }
+            if (frame == 40) {
+                demo.expectTrue("frame40 on play screen" (app.screen == "play"))
+                demo.expectInt("frame40 selectedChar (knight)" app.selectedChar 2)
+                def dw:SpriteDraw (app.host.resolve(0))
+                demo.expectInt("frame40 facing RIGHT (dir3)" dw.dir 3)
+                demo.expectTrue("frame40 walking (frame>0)" (dw.frame > 0))
+                demo.dumpFrame(app "poc_3_walk_right.png")
+            }
+            if (frame == 75) {
+                demo.expectInt("frame75 anim JUMP" app.playAnim 2)
+                def dj:SpriteDraw (app.host.resolve(0))
+                demo.expectTrue("frame75 hop lifted (hop>0)" (dj.hopPx > 0))
+                demo.expectInt("frame75 jump holds frame2" dj.frame 2)
+                demo.dumpFrame(app "poc_4_jump.png")
+            }
+            frame = (frame + 1)
+        }
+
+        if (demo.failures == 0) {
+            print "POC_OK"
+        } {
+            print ("POC_FAILED failures=" + (to_string demo.failures))
+        }
+    }
+}
