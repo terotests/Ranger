@@ -1,0 +1,168 @@
+; ==============================================================================
+; voicebox_runner_demo - drives voicebox_demo.game.tsx and captures a WAV.
+; ==============================================================================
+;
+; Exercises the predefined vocal effects (laugh / sigh / gasp / cough / ...)
+; both ways they reach the engine ABI:
+;
+;   * event route  — voicebox_demo.game.tsx emits { kind: "playVoice", id }
+;                    each frame; GameHost renders them through GameVoicebox.
+;   * native route — GameVoiceboxBridge.invoke("laugh", ...) plays directly,
+;                    the same call a script makes when it writes laugh().
+;
+; A WavCaptureSink collects every rendered voice/sound and writes one 16-bit
+; mono WAV (voicebox_demo.wav) so the result is actually audible. Targets JS.
+; ==============================================================================
+
+Import "./game_runtime.rgr"
+Import "./game_voicebox_bridge.rgr"
+
+; Accumulates all synth PCM into one buffer and writes it out as a WAV.
+class WavCaptureSink extends GameAudioSink {
+    def sampleRate:int 44100
+    def cap:int 8000000
+    def buf:buffer (buffer_alloc 8000000)
+    def writePos:int 0
+    def clips:int 0
+
+    fn appendByte:void (b:int) {
+        if (writePos < cap) {
+            buffer_set buf writePos b
+            writePos = (writePos + 1)
+        }
+    }
+
+    fn appendSilence:int (frames:int) {
+        def i 0
+        while (i < frames) {
+            this.appendByte(0)
+            this.appendByte(0)
+            i = (i + 1)
+        }
+        return frames
+    }
+
+    fn onClearQueue:void () {
+    }
+
+    fn onSynthPlay:void (soundId:string sampleRate2:int sampleCount:int pcm:buffer) {
+        def bytes:int (sampleCount * 2)
+        def avail:int (buffer_length pcm)
+        if (bytes > avail) {
+            bytes = avail
+        }
+        def i 0
+        while (i < bytes) {
+            this.appendByte((buffer_get pcm i))
+            i = (i + 1)
+        }
+        clips = (clips + 1)
+        ; ~120 ms of breathing room between clips.
+        this.appendSilence(5000)
+    }
+
+    fn putLE32:void (out:buffer off:int val:int) {
+        buffer_set out off (bit_and val 255)
+        buffer_set out (off + 1) (bit_and (to_int (val / 256)) 255)
+        buffer_set out (off + 2) (bit_and (to_int (val / 65536)) 255)
+        buffer_set out (off + 3) (bit_and (to_int (val / 16777216)) 255)
+    }
+
+    fn putLE16:void (out:buffer off:int val:int) {
+        buffer_set out off (bit_and val 255)
+        buffer_set out (off + 1) (bit_and (to_int (val / 256)) 255)
+    }
+
+    fn putStr:void (out:buffer off:int a:int b:int c:int d:int) {
+        buffer_set out off a
+        buffer_set out (off + 1) b
+        buffer_set out (off + 2) c
+        buffer_set out (off + 3) d
+    }
+
+    fn writeWav:void (dir:string file:string) {
+        def dataBytes:int writePos
+        def total:int (44 + dataBytes)
+        def out:buffer (buffer_alloc total)
+        this.putStr(out 0 82 73 70 70)          ; "RIFF"
+        this.putLE32(out 4 (36 + dataBytes))
+        this.putStr(out 8 87 65 86 69)          ; "WAVE"
+        this.putStr(out 12 102 109 116 32)      ; "fmt "
+        this.putLE32(out 16 16)                 ; subchunk1 size
+        this.putLE16(out 20 1)                  ; PCM
+        this.putLE16(out 22 1)                  ; mono
+        this.putLE32(out 24 sampleRate)
+        this.putLE32(out 28 (sampleRate * 2))   ; byte rate
+        this.putLE16(out 32 2)                  ; block align
+        this.putLE16(out 34 16)                 ; bits per sample
+        this.putStr(out 36 100 97 116 97)       ; "data"
+        this.putLE32(out 40 dataBytes)
+        def i 0
+        while (i < dataBytes) {
+            buffer_set out (44 + i) (buffer_get buf i)
+            i = (i + 1)
+        }
+        buffer_write_file dir file out
+    }
+}
+
+class VoiceboxRunnerDemo {
+    sfn m@(main):void () {
+        def runner:GameRunner (new GameRunner)
+        runner.init(320 240)
+
+        ; Capture everything the engine plays.
+        def sink:WavCaptureSink (new WavCaptureSink)
+        def audio:GameAudio (runner.audioRef())
+        sink.sampleRate = audio.sampleRate
+        audio.setSink(sink)
+
+        def buf:buffer (buffer_read_file "gallery/game_engine/scripting" "voicebox_demo.game.tsx")
+        def src:string (buffer_to_string buf)
+        runner.setScriptDir("gallery/game_engine/scripting")
+        runner.loadScript(src)
+        runner.setupScene()
+
+        def frames:int 170
+        if ((shell_arg_cnt) > 0) {
+            def parsed@(optional):int (to_int (shell_arg 0))
+            if (!null? parsed) {
+                frames = (unwrap parsed)
+            }
+        }
+
+        def i 0
+        while (i < frames) {
+            runner.frame(16 false false false false false false)
+            i = (i + 1)
+        }
+
+        def host:GameHost (runner.hostRef())
+
+        ; --- native ABI route: call effects like a script's laugh() / voice(id).
+        def bridge:GameVoiceboxBridge (new GameVoiceboxBridge)
+        bridge.wire(host)
+        def noArgs:[EvalValue]
+        bridge.invoke("laugh" noArgs)
+        bridge.invoke("cough" noArgs)
+        def voiceArgs:[EvalValue]
+        push voiceArgs (EvalValue.string("gasp"))
+        bridge.invoke("voice" voiceArgs)
+
+        ; Write the audible artifact.
+        sink.writeWav("gallery/game_engine/scripting" "voicebox_demo.wav")
+
+        print (("catalogue=" + (array_length (host.voicebox.names()))))
+        print (("laugh_tag=" + (host.voicebox.tagFor("laugh"))))
+        print (("sigh_tag=" + (host.voicebox.tagFor("sigh"))))
+        print (("gasp_native=" + (to_string (host.voicebox.isNative("gasp")))))
+        print (("cheer_native=" + (to_string (host.voicebox.isNative("cheer")))))
+        print (("faceX=" + (runner.entityX("face"))))
+        print (("events=" + host.eventCount))
+        print (("soundPlays=" + (host.soundPlayCount())))
+        print (("voicePlays=" + (host.voicePlayCount())))
+        print (("clips=" + sink.clips))
+        print (("wavBytes=" + sink.writePos))
+        print "voicebox-runner done"
+    }
+}

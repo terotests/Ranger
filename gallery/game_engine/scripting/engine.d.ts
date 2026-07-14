@@ -399,6 +399,26 @@ type ScoreInstrumentId =
 /** Particle burst presets understood by game_particles.rgr. */
 type ParticlePresetId = "burst" | "sparkle" | "fruit" | "celebrate";
 
+/**
+ * Predefined vocal effects (game_voicebox.rgr). The first four map to real
+ * Voicebox paralinguistic tags ([laugh]/[sigh]/[gasp]/[cough]); the rest are
+ * engine-only extensions rendered by the built-in vocal synth. A pre-rendered
+ * Voicebox WAV registered as a `voice` resource overrides the synth per id.
+ * See https://github.com/jamiepine/voicebox
+ */
+type VoiceEffectId =
+  | "laugh"
+  | "giggle"
+  | "chuckle"
+  | "sigh"
+  | "gasp"
+  | "cough"
+  | "cheer"
+  | "boo"
+  | "hmm"
+  | "huh"
+  | "yawn";
+
 /** Transient event emitted from update() and drained by GameHost each frame. */
 interface GameEvent {
   kind: string;
@@ -412,7 +432,7 @@ interface GameEvent {
 
 /** Engine resource declared once in resources(). */
 interface ResourceDef {
-  kind: "image" | "sound" | "sprite" | "collision" | "music";
+  kind: "image" | "sound" | "sprite" | "collision" | "music" | "voice";
   id: string;
   path?: string;
   px?: number;
@@ -425,6 +445,12 @@ interface ResourceDef {
 interface PlaySoundEvent extends GameEvent {
   kind: "playSound";
   id: BuiltinSoundId | string;
+}
+
+/** Play a predefined vocal effect (laugh / sigh / gasp / cough / ...). */
+interface PlayVoiceEvent extends GameEvent {
+  kind: "playVoice";
+  id: VoiceEffectId | string;
 }
 
 /** Start multi-voice music from a registered score id or inline text. */
@@ -609,6 +635,22 @@ declare function loadGameData(): Record<string, unknown>;
 declare function saveGameData(data: Record<string, unknown>): void;
 /** Delete gamedata.json in the game folder. */
 declare function resetGameData(): void;
+
+// --- Voicebox vocal effects (native ABI; requires GameVoiceboxBridge wired) --
+// Alternatively emit { kind: "playVoice", id } from update() — no bridge needed.
+/** Play a predefined vocal effect by id (laugh / sigh / gasp / cough / ...). */
+declare function voice(id: VoiceEffectId | string): void;
+declare function laugh(): void;
+declare function giggle(): void;
+declare function chuckle(): void;
+declare function sigh(): void;
+declare function gasp(): void;
+declare function cough(): void;
+declare function cheer(): void;
+declare function boo(): void;
+declare function hmm(): void;
+declare function huh(): void;
+declare function yawn(): void;
 
 /** Static level buffer width (pixels), set during createStaticBg init. */
 declare const bgWidth: number;
