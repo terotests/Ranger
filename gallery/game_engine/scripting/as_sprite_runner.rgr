@@ -1,0 +1,193 @@
+; ==============================================================================
+; as_sprite_runner — render a guest-authored, rotatable 2D sprite scene from an
+; interpreted .as game, over the ABI bridge. NO physics.
+; ==============================================================================
+;
+; This is the counterpart to game_ui_runner (which renders the guest's RGU1 UI
+; document): here the guest fills a per-frame sprite draw list via the bridge
+; (spriteReset / drawSprite tpl x y angleDeg frame) and the host blits each
+; declared template at the guest-given centre AND rotation. Position and rotation
+; are authored ENTIRELY by the guest — the "rotational capabilities of sprites"
+; exposed straight to WASM/.as, with no physics engine in the loop.
+;
+; Templates come from the game's declare_resources() (hostRect -> a coloured
+; block). The scene is driven headlessly (write dt/time/input into the shared
+; RGW1 header, call update(), read the list back and draw) exactly like the WASM
+; host would, so one .as source proves the whole path without a physics world.
+; ==============================================================================
+
+Import "../framebuffer.rgr"
+Import "./as_source_runner.rgr"
+
+class AsSpriteScene {
+    def runner:AsSourceRunner (new AsSourceRunner)
+    def canvas:SoftCanvas (new SoftCanvas)
+    def pw:int 480
+    def ph:int 270
+    def timeMs:int 0
+    def loaded:boolean false
+
+    ; rect templates by declaration index (only rect templates are drawn here;
+    ; sheet templates fall back to a plain grey square so a game still renders).
+    def tplW:[int]
+    def tplH:[int]
+    def tplR:[int]
+    def tplG:[int]
+    def tplB:[int]
+
+    ; page background
+    def bgR:int 12
+    def bgG:int 14
+    def bgB:int 22
+
+    ; shared RGW1 header offsets (host -> guest)
+    def OFF_DT:int 12
+    def OFF_TIME:int 16
+    def OFF_INPUT:int 20
+
+    fn init:void (w:int h:int) {
+        pw = w
+        ph = h
+        canvas.init(w h)
+    }
+
+    fn setBg:void (r:int g:int b:int) {
+        bgR = r
+        bgG = g
+        bgB = b
+    }
+
+    fn loadTemplates:void () {
+        def a:[int]
+        def b2:[int]
+        def c:[int]
+        def d:[int]
+        def e:[int]
+        tplW = a
+        tplH = b2
+        tplR = c
+        tplG = d
+        tplB = e
+        runner.callDeclareResources()
+        def n:int (runner.bridge.resCount())
+        def i 0
+        while (i < n) {
+            def kind:int (runner.bridge.resKind(i))
+            if (kind == 2) {
+                push tplW (runner.bridge.resIval(i 4))
+                push tplH (runner.bridge.resIval(i 5))
+                push tplR (runner.bridge.resIval(i 6))
+                push tplG (runner.bridge.resIval(i 7))
+                push tplB (runner.bridge.resIval(i 8))
+            } {
+                push tplW 12
+                push tplH 12
+                push tplR 200
+                push tplG 200
+                push tplB 200
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn loadGame:boolean (dir:string) {
+        if ((runner.bindDir(dir)) == false) {
+            print ("[as-sprite] load failed: " + dir)
+            return false
+        }
+        runner.callInit()
+        this.loadTemplates()
+        loaded = true
+        print ("[as-sprite] loaded interpreted guest: " + runner.asFile + " templates=" + (to_string (array_length tplW)))
+        return true
+    }
+
+    fn inputMask:int (up:boolean down:boolean left:boolean right:boolean action:boolean) {
+        def m:int 0
+        if up { m = (m + 1) }
+        if down { m = (m + 2) }
+        if left { m = (m + 4) }
+        if right { m = (m + 8) }
+        if action { m = (m + 16) }
+        return m
+    }
+
+    ; Advance one frame: publish dt/time/input into the shared header, call the
+    ; guest's update(), which rebuilds its sprite draw list via the bridge.
+    fn frame:void (dtMs:int up:boolean down:boolean left:boolean right:boolean action:boolean) {
+        if (loaded == false) {
+            return
+        }
+        timeMs = (timeMs + dtMs)
+        runner.abiWrite(OFF_DT dtMs)
+        runner.abiWrite(OFF_TIME timeMs)
+        runner.abiWrite(OFF_INPUT (this.inputMask(up down left right action)))
+        runner.callUpdate()
+    }
+
+    fn frameMask:void (dtMs:int mask:int) {
+        if (loaded == false) {
+            return
+        }
+        timeMs = (timeMs + dtMs)
+        runner.abiWrite(OFF_DT dtMs)
+        runner.abiWrite(OFF_TIME timeMs)
+        runner.abiWrite(OFF_INPUT mask)
+        runner.callUpdate()
+    }
+
+    ; Draw the guest's current sprite list to the canvas (rotated blocks).
+    fn draw:void () {
+        canvas.clear(bgR bgG bgB)
+        def n:int (runner.bridge.sprCount())
+        def nt:int (array_length tplW)
+        def i 0
+        while (i < n) {
+            def tpl:int (runner.bridge.sprTplAt(i))
+            if (tpl >= 0) {
+                if (tpl < nt) {
+                    def x:int (runner.bridge.sprXAt(i))
+                    def y:int (runner.bridge.sprYAt(i))
+                    def ang:int (runner.bridge.sprAngAt(i))
+                    def bw:int (itemAt tplW tpl)
+                    def rr:int (itemAt tplR tpl)
+                    def gg:int (itemAt tplG tpl)
+                    def bb:int (itemAt tplB tpl)
+                    canvas.drawBlockRotated(x y bw (to_double ang) rr gg bb)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn raw:buffer () {
+        return (canvas.raw())
+    }
+
+    fn spriteCount:int () {
+        return (runner.bridge.sprCount())
+    }
+
+    fn templateCount:int () {
+        return (array_length tplW)
+    }
+
+    fn abiRead:int (off:int) {
+        return (runner.abiRead(off))
+    }
+
+    ; Max |angle| across the current sprite list (test helper: proves the guest is
+    ; actually driving rotation over the ABI).
+    fn maxAbsAngle:int () {
+        def n:int (runner.bridge.sprCount())
+        def m:int 0
+        def i 0
+        while (i < n) {
+            def a:int (runner.bridge.sprAngAt(i))
+            if (a < 0) { a = (0 - a) }
+            if (a > m) { m = a }
+            i = (i + 1)
+        }
+        return m
+    }
+}

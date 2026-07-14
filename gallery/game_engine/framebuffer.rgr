@@ -420,6 +420,94 @@ class SoftCanvas {
         }
     }
 
+    ; Centre-pivoted rotated rect fill: the rect of size rw x rh is centred on
+    ; (cx, cy) and rotated clockwise (Y-down). Unlike fillRectRotated (whose local
+    ; origin sits at the left edge / vertical centre), this rotates about the true
+    ; centre — what a guest-authored sprite needs so it spins in place.
+    fn fillRectRotatedC:void (cx:int cy:int rw:int rh:int angleDeg:double r:int g:int b:int) {
+        if (rw <= 0) {
+            return
+        }
+        if (rh <= 0) {
+            return
+        }
+        if (angleDeg == 0.0) {
+            def hx:int (to_int ((to_double rw) * 0.5))
+            def hy:int (to_int ((to_double rh) * 0.5))
+            this.fillRect((cx - hx) (cy - hy) rw rh r g b)
+            return
+        }
+        def rad:double (this.degToRad(angleDeg))
+        def cosA:double (cos(rad))
+        def sinA:double (sin(rad))
+        def hw:double ((to_double rw) * 0.5)
+        def hh:double ((to_double rh) * 0.5)
+        def y 0
+        while (y < rh) {
+            def ly:double ((to_double y) - hh)
+            def x 0
+            while (x < rw) {
+                def lx:double ((to_double x) - hw)
+                def wx:double ((lx * cosA) - (ly * sinA))
+                def wy:double ((lx * sinA) + (ly * cosA))
+                def dstX:int (cx + (to_int wx))
+                def dstY:int (cy + (to_int wy))
+                if (dstX >= 0) {
+                    if (dstX < w) {
+                        if (dstY >= 0) {
+                            if (dstY < h) {
+                                this.setPixel(dstX dstY r g b)
+                            }
+                        }
+                    }
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+    }
+
+    ; A guest-authored rotatable sprite drawn as a bevelled block: a dark base, a
+    ; bright face, and one corner "stud" — all sharing the same centre + rotation.
+    ; The stud makes the rotation legible even though a bare square is 4-fold
+    ; symmetric, so a spinning piece reads clearly. rot is clockwise degrees.
+    fn drawBlockRotated:void (cx:int cy:int size:int angleDeg:double r:int g:int b:int) {
+        if (size <= 0) {
+            return
+        }
+        def dr:int (idiv (r * 42) 100)
+        def dg:int (idiv (g * 42) 100)
+        def db:int (idiv (b * 42) 100)
+        this.fillRectRotatedC(cx cy size size angleDeg dr dg db)
+        def face:int (size - 3)
+        if (face < 1) {
+            face = 1
+        }
+        this.fillRectRotatedC(cx cy face face angleDeg r g b)
+        ; corner stud: offset toward the block's local top-left, rotated with it
+        def studSize:int (idiv size 3)
+        if (studSize < 2) {
+            studSize = 2
+        }
+        def off:double ((to_double size) * 0.26)
+        def rad:double (this.degToRad(angleDeg))
+        def cosA:double (cos(rad))
+        def sinA:double (sin(rad))
+        def lx:double (0.0 - off)
+        def ly:double (0.0 - off)
+        def wx:double ((lx * cosA) - (ly * sinA))
+        def wy:double ((lx * sinA) + (ly * cosA))
+        def sx:int (cx + (to_int wx))
+        def sy:int (cy + (to_int wy))
+        def hr:int (r + 60)
+        def hg:int (g + 60)
+        def hb:int (b + 60)
+        if (hr > 255) { hr = 255 }
+        if (hg > 255) { hg = 255 }
+        if (hb > 255) { hb = 255 }
+        this.fillRectRotatedC(sx sy studSize studSize angleDeg hr hg hb)
+    }
+
     ; Rotate + scale blit around pivot (screen pixels). angleDeg: clockwise, Y-down.
     fn blitImageRectScaledRotated:void (src:ImageBuffer sx:int sy:int sw:int sh:int pivotX:int pivotY:int dw:int dh:int angleDeg:double) {
         if (sw <= 0) {

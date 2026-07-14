@@ -21,6 +21,7 @@ class AsSourceRunner {
     def bridge:AsAbiBridge (new AsAbiBridge())
     def loaded:boolean false
     def asFile:string ""
+    def verbose:boolean false
 
     ; True when the folder holds a .as game (how the catalog picks this engine).
     fn folderHasAs:boolean (dir:string) {
@@ -82,6 +83,9 @@ class AsSourceRunner {
         ; writes per frame — the dominant cost that made the interpreted .as guest
         ; run slower than the compiled/.tsx path (which sets quiet via game_runtime).
         engine.quiet = true
+        if verbose {
+            engine.quiet = false
+        }
         engine.loadScript(src)
         bridge.ensure()
         loaded = true

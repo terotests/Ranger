@@ -22,3 +22,8 @@ scripting/ui_menu_runner_demo.js
 # Compiled ES6 output of headless .as-source demos (regenerate by recompiling the .rgr)
 scripting/pose_provider_demo.js
 scripting/as_autopeli_src_demo.js
+scripting/as_sprite_demo.js
+scripting/as_source_demo.js
+
+# Rendered PNG frames from the headless sprite demo (regenerate: npm run engine:as:sprites)
+scripting/pyorretris_*.png
