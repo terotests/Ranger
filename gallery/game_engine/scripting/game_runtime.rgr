@@ -24,6 +24,7 @@ Import "../../ts_to_ranger/game_host.rgr"
 Import "./game_audio.rgr"
 Import "./game_image_loader.rgr"
 Import "./game_input.rgr"
+Import "./game_fixed_step.rgr"
 Import "./game_composite_bridge.rgr"
 Import "./game_static_bg_bridge.rgr"
 Import "./game_particles.rgr"
@@ -1310,21 +1311,19 @@ class GameRunner {
 
     fn frameWithInput:void (dtMs:int snap:GameInputSnapshot) {
         if (fixedStepMs > 0) {
-            timeAccumulator = (timeAccumulator + dtMs)
-            def steps:int 0
-            while (timeAccumulator >= fixedStepMs) {
-                if (steps >= maxFixedSteps) {
-                    ; Spiral-of-death guard: on a slow device (e.g. Pi) a heavy
-                    ; frame would otherwise run many fixed steps, multiplying the
-                    ; interpreter/physics cost per rendered frame and locking fps
-                    ; low. Drop the backlog so the sim runs slightly slow instead.
-                    timeAccumulator = 0
-                }
+            ; Pure planner (game_fixed_step.rgr, IDEAL_TODO R.1): runs at most
+            ; maxFixedSteps steps and leaves the accumulator in [0, fixedStepMs) —
+            ; never one extra step, never a negative accumulator. The former inline
+            ; loop zeroed the accumulator on the cap but still ran + subtracted,
+            ; giving maxFixedSteps+1 steps and a negative residual.
+            def plan:FixedStepPlan (FixedStep.plan(timeAccumulator dtMs fixedStepMs maxFixedSteps))
+            def i:int 0
+            while (i < plan.steps) {
                 this.stepUpdate(fixedStepMs snap)
-                timeAccumulator = (timeAccumulator - fixedStepMs)
-                steps = (steps + 1)
+                i = (i + 1)
             }
-            if (steps == 0) {
+            timeAccumulator = plan.residualMs
+            if (plan.steps == 0) {
                 this.syncFromState()
             }
             return

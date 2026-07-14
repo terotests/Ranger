@@ -278,15 +278,16 @@ all confirmed. These are the highest production risk today (the review's words:
 scripting idea"). Fix order follows the review's recommendation; each fix gets a
 regression test (Phase 5.x / roadmap delta-time + gamepad gaps).
 
-- [ ] **R.1 (High) Fixed-step loop runs one extra step + leaves accumulator
-  negative.** `game_runtime.rgr:1315-1326` — on `steps >= maxFixedSteps` it zeros
-  `timeAccumulator` but still runs `stepUpdate` and subtracts `fixedStepMs`, so it
-  executes `maxFixedSteps + 1` steps and exits with `timeAccumulator = -fixedStepMs`
-  (next frame may skip a step). Fix: `break` right after zeroing (run exactly
-  `maxFixedSteps`, leave accumulator at 0); ideally clamp the backlog before the
-  loop so `0 <= accumulator < fixedStepMs`.
-  *Test:* a large frame-dt runs ≤ `maxFixedSteps` updates and never leaves the
-  accumulator negative.
+- [x] **R.1 (High) Fixed-step loop runs one extra step + leaves accumulator
+  negative.** Fixed by extracting the scheduling into a pure planner
+  `scripting/game_fixed_step.rgr` (`FixedStep.plan` → `FixedStepPlan{steps,
+  residualMs}`): runs at most `maxSteps`, residual always in `[0, fixedStepMs)`
+  (or 0 when the backlog is dropped at the cap) — never `maxSteps+1`, never
+  negative. `game_runtime.frameWithInput` now calls the planner and loops
+  `plan.steps` times. The tested code IS the shipped code.
+  *Check:* `game_fixed_step_demo.rgr` self-test — 16/16 pass (incl. huge-dt caps at
+  exactly `maxSteps` with residual 0, the boundary 48/49/100ms cases, and no
+  negative residual); `game_runtime.rgr` compiles Ranger→C++.
 - [ ] **R.2 (Low / semantics — likely intended, NOT a bug) `playerCount = 2` in
   the 1-player branch.** `game_input.rgr:262` — `buildFromSdl(1)` builds a P2
   "join" mask and sets `playerCount = 2`. The review read this as a bug, but it is
