@@ -1856,7 +1856,8 @@ compiled against* — never from concrete game types, imports, or constants. A
 (`initAssets`, `buildStaticBg`, `spriteFor`, `drawHud`), the **ABI conventions this guest
 chose** (`contactBodyCode`/`bodyCodeToId`, `mapEvent` for sound/particle ids, §2.1), and
 **camera policy** (`cameraFor`). The full method list is in
-[`IDEAL_API.md`](./IDEAL_API.md) §7.
+[`HOST_ARCHITECTURE.md`](./HOST_ARCHITECTURE.md) §2 (`GameSceneProvider` is a
+host-side interface, not a byte-level ABI).
 
 The rule the interface encodes: the core holds `provider:GameSceneProvider`, **never**
 `setup:WasmAutopeliSetup`, and imports the interface, **never** `wasm_autopeli_setup.rgr` —

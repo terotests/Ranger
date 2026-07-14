@@ -19,7 +19,8 @@ single-world-owner (guest) handshake, the neutral ABI header, and the
 
 - [`../IDEAL.md`](../IDEAL.md) **§3** (`GameSceneProvider` seam) and **§7**
   (leak-guard grep, allow-listing, second-game regression fixture).
-- [`../IDEAL_API.md`](../IDEAL_API.md) **§7** (provider/capability registry).
+- [`../HOST_ARCHITECTURE.md`](../HOST_ARCHITECTURE.md) **§1** (provider/capability
+  registry — a host-side interface, split out of the old `IDEAL_API.md §7`).
 
 Do not restate the interface or grep here — IDEAL §7 already carries the exact
 `grep -rniE 'autopeli|…'` command and back-references this plan for phasing.
