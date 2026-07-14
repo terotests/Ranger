@@ -91,6 +91,7 @@ without re-widening the leaks above.
 | **Save-state / persistence, networking, clock/RNG seed, config negotiation** | Absent | Nothing beyond `dt_ms`/`time_ms`; no deterministic seed, no persistence, no negotiated timestep/config. Game-specific storage exists only as a TS-path native bridge (whole-file `gamedata.json`), not in the binary ABI. | §2.11, §2.1 (RGCQ), §6 |
 | **RGU1 interactivity** | Optional | The document is guest→host; `rg_ui_event` (activate/select) is an optional export and selection state lives on the host. | §2.3 |
 | **Animation system & lifecycle events** | Fragmented | Three unrelated timing systems (host-only `UIAnimator` glow/pulse, RGSP1 sprite clock, RGU1 full-tree re-emit); no general tweening/easing, frozen effect + anim enums, and the only completion hook (`UIAnimator.after`) is a host closure — no `onAnimationEnd`/`onLoop`/`onFrame` over the ABI. | §2.12 |
+| **Screen navigation / view stack** | Partial | `loadGame`/`pushGame`/`popGame` exist only on the TS path; every transition is a full teardown + `initState()` reload (no suspend/resume), routes are file paths, and there are no typed args, no result on pop, and no `onEnter`/`onExit`/`onPause`/`onResume` hooks. | §2.13 |
 | **Dynamic UI (allocate/free host EVG objects)** | Missing | RGU1 is full-snapshot rebuild only; the guest cannot allocate a persistent host `EVGElement`, mutate it by handle, or free it — any change re-serializes and rebuilds the whole tree. | §2.6 |
 | **Dynamic / streamed resource loading** | Prototype | A declare-once manifest and a synchronous frame-path decoder ship; a WASM streaming vertical (`RGX1` worker + `RGLD` loader) is proven but uses mock handles — the public `rg_res_*` primitives, the `RGO1` observation block, shared headers, and async decode are not landed. | §2.7 |
 
@@ -1240,6 +1241,85 @@ The result: an animation becomes *"start this registered clip/tween on this targ
 handle, and receive its lifecycle events,"* — one model and one event channel shared by UI,
 sprites, and world visuals across every guest path, game-defined in vocabulary and
 host-owned in timing (§2.5, §2.6, §2.8, §4, §6, §7).
+
+### 2.13 Loading screens — pushing and popping views
+
+A game is rarely one screen: a level leads to a win screen, a pause menu overlays play, a
+confirm dialog interrupts. The engine already navigates between screen files with a
+push/pop stack — but, like storage (§2.11), it is a **TS-path-only** convenience that
+tears down and re-initialises the whole game on every transition and can only pass data
+through a save file.
+
+**Current state.** (See [`GAME_SCREENS_AND_STORAGE.md`](./scripting/GAME_SCREENS_AND_STORAGE.md).)
+
+- **Three globals, TS/EvalValue path only.** `loadGame(path)` (replace),
+  `pushGame(path)` (open over), and `popGame()` (return) — declared in
+  [`engine.d.ts`](./scripting/engine.d.ts), recorded by a native bridge
+  ([`game_host_native.rgr`](./scripting/game_host_native.rgr)) and applied by the SDL
+  runner ([`game_sdl_runner.rgr`](./scripting/game_sdl_runner.rgr)). There is **no
+  encoding over RGW1 or the `.as` path** — a compiled-WASM or `.as` guest cannot navigate
+  screens at all.
+- **Deferred to end of frame, one op at a time.** `invoke` only records a pending op
+  (`pendingNavOp`/`pendingNavPath`); the runner applies it after `update()` returns, in
+  `drainScriptNavigation()` — so calling from `update()` is safe, but a second nav call in
+  the same frame **overwrites** the first (no queue).
+- **A linear stack of script *paths*.** `navStack:[string]` holds paths; `pushGame`
+  pushes `currentScriptPath` then loads the new file, `popGame` pops and loads the
+  previous (or, when empty, sets `inGame = false` and the host returns to the launcher),
+  `loadGame` clears the stack then loads. Routes are **file paths** resolved relative to
+  the game folder — you cannot navigate to another game.
+- **Every transition is a full teardown + reload.** `loadScriptAt` builds a **new**
+  `GameRunner` and `SdlGameHost`, re-wires audio and the native bridge, and re-runs the
+  screen's `resources()` / `setupScene()` / `initState()`. So `pushGame` does **not
+  suspend** the screen underneath — it destroys its runtime state, and `popGame`
+  re-inits the previous screen from `initState()` rather than resuming it. The only state
+  that survives a transition is `gamedata.json` (§2.11).
+- **No typed args, no result, no lifecycle hooks.** You cannot pass arguments to the
+  opened screen or receive a result when it pops (a confirm dialog returning yes/no must
+  round-trip through the save file); a screen has no `onEnter`/`onExit`/`onPause`/
+  `onResume`, so it cannot tell whether it is being suspended or torn down; and there is
+  no transition animation between screens.
+
+**Ideal.**
+
+1. **View navigation is a first-class ABI, identical on every path.** A small navigation
+   interface over RGW1, `.as`, and TS — so WASM and `.as` guests navigate too, keeping
+   the safe end-of-frame semantics:
+
+```c
+/* View navigation (guest -> host); route is a registered name (see §4). */
+void rg_view_load(u32 route, ptr argsBuf, u32 argsLen);  /* replace, clear stack */
+void rg_view_push(u32 route, ptr argsBuf, u32 argsLen);  /* suspend cur, open new */
+void rg_view_pop(ptr resultBuf, u32 resultLen);          /* resume caller w/ result */
+```
+
+2. **Suspend/resume, not reload.** `push` **suspends** the current view — its runtime
+   state stays alive, paused — and overlays the new one; `pop` **resumes** it exactly
+   where it left off, so a pause menu or confirm dialog does not destroy the game beneath
+   it. `load` stays a full replace that clears the stack. Full-reload remains available as
+   a mode for memory-bounded hosts, but *resume* is the default, ending the forced
+   round-trip through `gamedata.json`.
+3. **Typed args in, result out.** `push(route, args)` hands a payload to the opened view;
+   the view returns a **result** delivered to the caller on `pop` (dialog → yes/no,
+   level-select → chosen level) — byte blobs like the rest of the ABI, instead of
+   smuggling values through the save file (§2.11).
+4. **Lifecycle events over the ABI.** A view receives `onEnter` / `onExit` / `onPause` /
+   `onResume` (with the returned result on resume), delivered the same way §2.6 delivers
+   `rg_ui_event` and §2.12 delivers `rg_anim_event` — one host→guest event path — so a
+   screen knows whether it is being suspended or torn down and can save/restore
+   accordingly. An optional between-view **transition** is just a §2.12 animation.
+5. **Modality, named routes, capability-gated.** Views can be **modal** (overlay with
+   input captured) or replace; **routes are game-registered names**, not raw file paths
+   (the §4 "transport, not taxonomy" rule); and a guest queries navigation caps (stack
+   depth, live suspend/resume, modal overlays) via §6 and degrades — a host without
+   live-suspend falls back to reload + `gamedata.json`. Navigation is a deterministic
+   control-flow input, so a replay visits the same views, with the same args, in the same
+   order.
+
+The result: navigating becomes *"push this route with these args and resume me with a
+result,"* — one view-stack interface shared by every guest path, suspending rather than
+destroying, argument- and result-passing, with lifecycle events, game-defined in routes
+and host-owned in the stack (§2.6, §2.11, §2.12, §4, §6, §7).
 
 ---
 
