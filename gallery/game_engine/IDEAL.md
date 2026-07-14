@@ -86,6 +86,50 @@ without re-widening the leaks above.
 
 ---
 
+## Affected areas — the work to reach better organisation and interface parity
+
+The state above exposes two kinds of gap, and every affected area below is chosen to
+close one or both:
+
+- **Parity across ABI *blocks*.** RGW1 / RGSP1 / RGU1 each earned a header, a
+  magic/version/size, and (for RGU1) a validation contract; `RGP1`, `RGS1`, `RGLD`,
+  `RGX1` did not. Parity means *every* block shares the same discipline — a
+  `wasm/*.h` offset header, a versioned magic, a host validator, and a capability
+  bit — so no block is a second-class citizen.
+- **Parity across guest *paths*.** The compiled-WASM path
+  ([`wasm_abi_io.rgr`](./scripting/wasm_abi_io.rgr)) and the interpreted `.as` path
+  ([`as_abi_bridge.rgr`](./scripting/as_abi_bridge.rgr)) must expose the *same*
+  capabilities against the *same* offsets. Today pose, the sprite draw list, the
+  resource manifest, and the sound queue exist only on the `.as` path — a game
+  written once does not behave identically on both backends.
+
+The areas, ordered roughly by how much they unblock the rest:
+
+| # | Affected area | Files | Organisation gain | Parity gain | Target § |
+|---|---------------|-------|-------------------|-------------|----------|
+| 1 | **Split game taxonomy out of the shared headers** | `wasm/wasm_game_abi.h`, `wasm/wasm_sprite_abi.h` → guest crates (`wasm/rust_autopeli/`, `wasm/as_autopeli/`) | Header holds only bytes/offsets/handshake; no game name or comment | — | §2.1 |
+| 2 | **Generic control channels** | `wasm/wasm_game_abi.h`, `scripting/wasm_abi_io.rgr` (`readControlSteer/…` → `readControlChannel`), `scripting/as_abi_bridge.rgr` (`writeControl`) | One record shape for all genres | Both guest paths read/write the same indexed channels | §2.2 |
+| 3 | **Give every informal block a header** (`RGP1` pose, `RGS1` draw list, `RGLD` loader, `RGX1` streaming) | new `wasm/wasm_pose_abi.h`, `wasm/wasm_sprite_list_abi.h`, `wasm/wasm_loader_abi.h`, `wasm/wasm_stream_abi.h` (siblings of the three existing headers) | Every block has one canonical offset table + versioned magic | The compiled-WASM path can implement what only `.as` has today | §2, §2.3 |
+| 4 | **Bring `.as`-only APIs to parity on both paths** (pose, draw list, resource manifest, sound queue) | `scripting/wasm_abi_io.rgr` (add readers), `scripting/as_abi_bridge.rgr` (back native-array APIs with the documented byte blocks) | One accessor per block, per path, sharing offsets | A guest runs identically compiled or interpreted | §2 |
+| 5 | **Activate the capability handshake + gate** | `scripting/wasm_physics_runner.rgr`, `scripting/wasm_game_runner.rgr`, `scripting/wasm_sprite_runner.rgr`, `scripting/as_source_runner.rgr` (shared gate helper) | One place calls `rg_abi_version`/`rg_required_caps`/`rg_check_env` + resolves RGCQ | Same gate for every guest/block/path; a missing cap rejects instead of reading zeros | §6 |
+| 6 | **Uniform block validation** (magic/version/bounds/utf-8), copying RGU1's discipline | `scripting/wasm_abi_io.rgr` (`verifyMagic` generalised), a shared validator for RGW1/RGSP1/RGP1/RGS1 | One validator, not per-block ad-hoc checks | Every block is validated the same before use, on both paths | §2.3 |
+| 7 | **Provider registry for host↔guest capabilities** | `scripting/PLAN_PROVIDERS.md`, `scripting/game_pose_provider.rgr`, `scripting/game_image_loader.rgr`, the runners in row 5 | Capabilities wire at fixed seams, not by hand | Adding a block = registering a provider (capBit/direction/cadence); parity is enforced by construction | §6 |
+| 8 | **Generic scene seam** (`GameSceneProvider` instead of concrete autopeli types) | `scripting/wasm_physics_runner.rgr`, `scripting/wasm_game_runner.rgr` (drop `Import "./wasm_autopeli_setup.rgr"` / `wasm_autopeli_render.rgr`), logic → `games/autopeli_wasm/scene/` | Core compiles against an interface, not a game | A second physics game reuses the runner unchanged | §3 |
+| 9 | **Single world owner** (guest declares bodies/bounds/world-size/camera via the declare-once channel) | `scripting/wasm_autopeli_setup.rgr` (deleted), guest `lib.rs`, the resource-manifest block from row 3 | World lives in exactly one place | Same declaration works on both paths | §5 |
+| 10 | **Data-driven sprite roster & animations** | `wasm/wasm_sprite_abi.h` (drop `RG_SPR_CHAR_*`), `lpc/src/lpc_char_catalog.rgr`, `lpc/pack/**/catalog.json` | Roster is data (`RG_SPR_OFF_CAT_IDS`), not frozen constants | Same catalog visible to every guest/path; documented anim fallbacks | §2.1 |
+| 11 | **Unified sound palette** (fold RGW1 sound enum + `.as` sound queue into one registered per-game palette) | `scripting/game_audio.rgr`, `scripting/wasm_abi_io.rgr`, `scripting/as_abi_bridge.rgr`, `wasm/wasm_game_abi.h` | Core owns a synth; names are game data | One sound mechanism on both paths, no fixed ids | §4 |
+| 12 | **Richer, uniform host→guest input** (analog/pointer/pose beyond two bitfields; add view size to RGW1) | `wasm/wasm_game_abi.h`, `wasm/wasm_sprite_abi.h`, the runners in row 5 | Input is one typed surface, not scattered header words | RGW1 and RGSP1 carry the same input + viewport fields | §2.1 |
+| 13 | **ABI index + CI leak guard** | new `wasm/README.md` (block/version/direction/header index), CI wiring of the §7 grep | One document enumerates every block; drift is caught mechanically | The guard runs against every core file and header equally | §7 |
+| 14 | **Cross-path & second-game conformance fixtures** | `games/<second_physics_game>/`, a test that runs one guest on WASM *and* `.as` and diffs the block bytes | Proof the abstraction holds becomes a permanent test | Guarantees the two paths stay byte-identical | §7 |
+
+Rows 1–4 are the ABI-surface cleanup, rows 5–7 the wiring/enforcement layer, rows
+8–11 the seam/ownership moves, and rows 12–14 the input, documentation, and proof
+that lock parity in. They map onto the concrete changes in §8 (rows 1/2/8/11/9
+correspond to summary changes 1–5) plus the parity-specific additions (rows 3–7,
+10, 12–14) that this analysis surfaces.
+
+---
+
 ## Use cases — what a developer wants, and how the interface answers
 
 The point of the whole design is that each of these is *additive*: something the
