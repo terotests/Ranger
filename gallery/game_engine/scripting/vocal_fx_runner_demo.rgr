@@ -1,21 +1,24 @@
 ; ==============================================================================
-; voicebox_runner_demo - drives voicebox_demo.game.tsx and captures a WAV.
+; vocal_fx_runner_demo - drives vocal_fx_demo.game.tsx and captures a WAV.
 ; ==============================================================================
+;
+; RANGER TEST HARNESS — not a launcher game. The playable game is
+; gallery/game_engine/games/comedy_club/. See scripting/AGENTS.md.
 ;
 ; Exercises the predefined vocal effects (laugh / sigh / gasp / cough / ...)
 ; both ways they reach the engine ABI:
 ;
-;   * event route  — voicebox_demo.game.tsx emits { kind: "playVoice", id }
-;                    each frame; GameHost renders them through GameVoicebox.
-;   * native route — GameVoiceboxBridge.invoke("laugh", ...) plays directly,
+;   * event route  — vocal_fx_demo.game.tsx emits { kind: "playVoice", id }
+;                    each frame; GameHost renders them through GameVocalFx.
+;   * native route — GameVocalFxBridge.invoke("laugh", ...) plays directly,
 ;                    the same call a script makes when it writes laugh().
 ;
 ; A WavCaptureSink collects every rendered voice/sound and writes one 16-bit
-; mono WAV (voicebox_demo.wav) so the result is actually audible. Targets JS.
+; mono WAV (vocal_fx_demo.wav) so the result is actually audible. Targets JS.
 ; ==============================================================================
 
 Import "./game_runtime.rgr"
-Import "./game_voicebox_bridge.rgr"
+Import "./game_vocal_fx_bridge.rgr"
 
 ; Accumulates all synth PCM into one buffer and writes it out as a WAV.
 class WavCaptureSink extends GameAudioSink {
@@ -117,7 +120,7 @@ class VoiceboxRunnerDemo {
         sink.sampleRate = audio.sampleRate
         audio.setSink(sink)
 
-        def buf:buffer (buffer_read_file "gallery/game_engine/scripting" "voicebox_demo.game.tsx")
+        def buf:buffer (buffer_read_file "gallery/game_engine/scripting" "vocal_fx_demo.game.tsx")
         def src:string (buffer_to_string buf)
         runner.setScriptDir("gallery/game_engine/scripting")
         runner.loadScript(src)
@@ -140,7 +143,7 @@ class VoiceboxRunnerDemo {
         def host:GameHost (runner.hostRef())
 
         ; --- native ABI route: call effects like a script's laugh() / voice(id).
-        def bridge:GameVoiceboxBridge (new GameVoiceboxBridge)
+        def bridge:GameVocalFxBridge (new GameVocalFxBridge)
         bridge.wire(host)
         def noArgs:[EvalValue]
         bridge.invoke("laugh" noArgs)
@@ -150,19 +153,19 @@ class VoiceboxRunnerDemo {
         bridge.invoke("voice" voiceArgs)
 
         ; Write the audible artifact.
-        sink.writeWav("gallery/game_engine/scripting" "voicebox_demo.wav")
+        sink.writeWav("gallery/game_engine/scripting" "vocal_fx_demo.wav")
 
-        print (("catalogue=" + (array_length (host.voicebox.names()))))
-        print (("laugh_tag=" + (host.voicebox.tagFor("laugh"))))
-        print (("sigh_tag=" + (host.voicebox.tagFor("sigh"))))
-        print (("gasp_native=" + (to_string (host.voicebox.isNative("gasp")))))
-        print (("cheer_native=" + (to_string (host.voicebox.isNative("cheer")))))
+        print (("catalogue=" + (array_length (host.vocalFx.names()))))
+        print (("laugh_tag=" + (host.vocalFx.tagFor("laugh"))))
+        print (("sigh_tag=" + (host.vocalFx.tagFor("sigh"))))
+        print (("gasp_native=" + (to_string (host.vocalFx.isNative("gasp")))))
+        print (("cheer_native=" + (to_string (host.vocalFx.isNative("cheer")))))
         print (("faceX=" + (runner.entityX("face"))))
         print (("events=" + host.eventCount))
         print (("soundPlays=" + (host.soundPlayCount())))
         print (("voicePlays=" + (host.voicePlayCount())))
         print (("clips=" + sink.clips))
         print (("wavBytes=" + sink.writePos))
-        print "voicebox-runner done"
+        print "vocalFx-runner done"
     }
 }

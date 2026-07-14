@@ -21,7 +21,7 @@
 
 Import "../game_engine/scripting/game_audio.rgr"
 Import "../game_engine/scripting/game_soundscore.rgr"
-Import "../game_engine/scripting/game_voicebox.rgr"
+Import "../game_engine/scripting/game_vocal_fx.rgr"
 
 ; A declared engine resource. `kind` selects the registry.
 class ResourceDefNative {
@@ -66,7 +66,7 @@ class GameHost {
     def musicDir:string ""
     def activeMusicScore:string ""
     ; Predefined vocal effects (laugh / sigh / gasp / cough / ...).
-    def voicebox:GameVoicebox (new GameVoicebox)
+    def vocalFx:GameVocalFx (new GameVocalFx)
     def voiceReady:boolean false
     def voicesPlayed:[string]
     def voicePaths:[string:string]
@@ -78,10 +78,10 @@ class GameHost {
         this.wireVoice()
     }
 
-    ; Build the voicebox synth tables once, lazily.
+    ; Build the vocalFx synth tables once, lazily.
     fn wireVoice:void () {
         if (false == voiceReady) {
-            voicebox.init()
+            vocalFx.init()
             voiceReady = true
         }
     }
@@ -221,7 +221,7 @@ class GameHost {
             dir = (substring full 0 slash)
             file = (substring full (slash + 1) (strlen full))
         }
-        return (voicebox.registerAssetWav(id dir file))
+        return (vocalFx.registerAssetWav(id dir file))
     }
 
     fn registerResources:void (list:[ResourceDefNative]) {
@@ -256,8 +256,8 @@ class GameHost {
             if audio {
                 def a:GameAudio (unwrap audio)
                 this.wireVoice()
-                if (voicebox.has(e.id)) {
-                    voicebox.play(e.id a.sink)
+                if (vocalFx.has(e.id)) {
+                    vocalFx.play(e.id a.sink)
                 } {
                     if verbose { print ("[host] playVoice (unknown effect) " + e.id) }
                 }

@@ -400,7 +400,7 @@ type ScoreInstrumentId =
 type ParticlePresetId = "burst" | "sparkle" | "fruit" | "celebrate";
 
 /**
- * Predefined vocal effects (game_voicebox.rgr). The first four map to real
+ * Predefined vocal effects (game_vocal_fx.rgr). The first four map to real
  * Voicebox paralinguistic tags ([laugh]/[sigh]/[gasp]/[cough]); the rest are
  * engine-only extensions rendered by the built-in vocal synth. A pre-rendered
  * Voicebox WAV registered as a `voice` resource overrides the synth per id.
@@ -636,7 +636,7 @@ declare function saveGameData(data: Record<string, unknown>): void;
 /** Delete gamedata.json in the game folder. */
 declare function resetGameData(): void;
 
-// --- Voicebox vocal effects (native ABI; requires GameVoiceboxBridge wired) --
+// --- Voicebox vocal effects (native ABI; requires GameVocalFxBridge wired) --
 // Alternatively emit { kind: "playVoice", id } from update() — no bridge needed.
 /** Play a predefined vocal effect by id (laugh / sigh / gasp / cough / ...). */
 declare function voice(id: VoiceEffectId | string): void;

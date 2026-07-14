@@ -1,5 +1,5 @@
 ; ==============================================================================
-; game_voicebox_bridge - expose predefined vocal effects as native ABI calls.
+; game_vocal_fx_bridge - expose predefined vocal effects as native ABI calls.
 ; ==============================================================================
 ;
 ; Lets a .game.tsx script trigger a Voicebox effect as a plain function call
@@ -9,7 +9,7 @@
 ;   cheer();  boo();   hmm();   huh();   yawn();  giggle();  chuckle();
 ;   voice("laugh");        // by name
 ;
-; These route through GameHost.playVoice(), so they share the same voicebox
+; These route through GameHost.playVoice(), so they share the same vocalFx
 ; synth (or WAV overrides) and the same audio sink as the event route. Wire it
 ; with GameRunner.setNativeBridge(bridge) after bridge.wire(host).
 ; ==============================================================================
@@ -18,7 +18,7 @@ Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
 Import "../../pdf_writer/src/jsx/EvalValue.rgr"
 Import "../../ts_to_ranger/game_host.rgr"
 
-class GameVoiceboxBridge extends EvalNativeBridge {
+class GameVocalFxBridge extends EvalNativeBridge {
     def host@(optional):GameHost
 
     fn wire:void (h:GameHost) {

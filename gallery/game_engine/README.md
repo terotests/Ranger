@@ -250,7 +250,7 @@ Valikosta peli näkyy automaattisesti, kun `index.tsx` on paikallaan.
 | Ominaisuus | Miten |
 |------------|-------|
 | **Ääni** | `import { soundEvent } from "../../scripting/game_helpers"` → `events: [soundEvent("bounce")]` `update()`-palautuksessa; synth-äänet `game_audio.rgr`, musiikki `game_soundscore.rgr` |
-| **Ääniefektit (Voicebox)** | Ennalta määritellyt vokaaliefektit (nauru, huokaus, haukotus…): `events: [{ kind: "playVoice", id: "laugh" }]` tai suora ABI-kutsu `laugh()` / `voice("sigh")`. Katso [`scripting/VOICEBOX.md`](./scripting/VOICEBOX.md), demo `voicebox_demo.game.tsx` (`npm run engine:voicebox`) |
+| **Vokaaliefektit** | Ennalta määritellyt vokaaliefektit (nauru, huokaus, haukotus…): `events: [{ kind: "playVoice", id: "laugh" }]` tai suora ABI-kutsu `laugh()` / `voice("sigh")`. Enginen oma syntetisaattori (`game_vocal_fx.rgr`), ei riippuvuutta Voiceboxiin — halutessa korvaa efektin Voiceboxilla renderöidyllä WAV-assetilla. Pelattava demo: `games/comedy_club/`. Katso [`scripting/VOCAL_FX.md`](./scripting/VOCAL_FX.md) (`npm run engine:vocalfx`) |
 | **Partikkelit** | `events: [{ kind: "particles", id: "sparkle", x, y }]` — CPU- tai GPU-overlay |
 | **Taustakuva** | `resources()` + `backgroundImage()` — katso [`scripting/background_demo.game.tsx`](./scripting/background_demo.game.tsx) |
 | **Tallennus** | `loadGameData()` / `saveGameData(obj)` → `gamedata.json` pelikansiossa |
