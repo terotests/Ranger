@@ -1,5 +1,5 @@
 ; ==============================================================================
-; game_voicebox - predefined vocal sound effects for the game engine.
+; game_vocal_fx - predefined vocal sound effects for the game engine.
 ; ==============================================================================
 ;
 ; Inspired by Voicebox (https://github.com/jamiepine/voicebox), whose
@@ -42,7 +42,7 @@ class VoiceSpec {
     def volume:double 0.32
 }
 
-class GameVoicebox {
+class GameVocalFx {
     ; Own a private GameAudio purely for its stateless synth helpers
     ; (sine table + noise). Playback uses the shared sink passed to play().
     def synth:GameAudio (new GameAudio)
@@ -478,7 +478,7 @@ class GameVoicebox {
         playCount = (playCount + 1)
         lastId = id
         if verbose {
-            print ("[voicebox] play " + id + " " + (this.tagFor(id)))
+            print ("[vocalfx] play " + id + " " + (this.tagFor(id)))
         }
         if (this.hasAsset(id)) {
             ; Presence already confirmed via assetFrames (int optional). Unwrap

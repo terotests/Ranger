@@ -1,7 +1,7 @@
 # Generated frame dumps from the runner demo (regenerate by running it).
 *.rgba
 *.png
-# Generated audio dump from voicebox_runner_demo (npm run engine:voicebox).
+# Generated audio dump from vocal_fx_runner_demo (npm run engine:vocalfx).
 *.wav
 !assets/
 !assets/**
