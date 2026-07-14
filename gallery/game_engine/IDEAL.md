@@ -90,6 +90,7 @@ without re-widening the leaks above.
 | **Streaming (`RGX1`) and loader (`RGLD`)** | Unheadered | Referenced as siblings of RGW1 but have no canonical `wasm/*.h`, so their offsets are not a stable contract. | §2 |
 | **Save-state / persistence, networking, clock/RNG seed, config negotiation** | Absent | Nothing beyond `dt_ms`/`time_ms`; no deterministic seed, no persistence, no negotiated timestep/config. Game-specific storage exists only as a TS-path native bridge (whole-file `gamedata.json`), not in the binary ABI. | §2.11, §2.1 (RGCQ), §6 |
 | **RGU1 interactivity** | Optional | The document is guest→host; `rg_ui_event` (activate/select) is an optional export and selection state lives on the host. | §2.3 |
+| **Animation system & lifecycle events** | Fragmented | Three unrelated timing systems (host-only `UIAnimator` glow/pulse, RGSP1 sprite clock, RGU1 full-tree re-emit); no general tweening/easing, frozen effect + anim enums, and the only completion hook (`UIAnimator.after`) is a host closure — no `onAnimationEnd`/`onLoop`/`onFrame` over the ABI. | §2.12 |
 | **Dynamic UI (allocate/free host EVG objects)** | Missing | RGU1 is full-snapshot rebuild only; the guest cannot allocate a persistent host `EVGElement`, mutate it by handle, or free it — any change re-serializes and rebuilds the whole tree. | §2.6 |
 | **Dynamic / streamed resource loading** | Prototype | A declare-once manifest and a synchronous frame-path decoder ship; a WASM streaming vertical (`RGX1` worker + `RGLD` loader) is proven but uses mock handles — the public `rg_res_*` primitives, the `RGO1` observation block, shared headers, and async decode are not landed. | §2.7 |
 
@@ -1146,6 +1147,99 @@ The result: persisting becomes *"set this key in this scope and commit,"* and lo
 becomes *"get this key — bytes or absent"* — one storage interface shared by every guest
 path, keyed and transactional, backend-agnostic, and game-owned in schema while the host
 owns the medium and its limits (§2.1, §2.6, §2.7, §6, §7).
+
+### 2.12 The animation system and animation events
+
+Animation is where the previous chapters meet: it drives §2.6's UI nodes, §2.8's sprite
+frames, and §2.5's body visuals. Today it is **three unrelated timing systems** with two
+frozen vocabularies, host-only, and with a single completion hook that cannot cross the
+ABI. The recurring parity/taxonomy gap, in the time dimension.
+
+**Current state.**
+
+- **UI effects — `UIAnimator` ([`ui/UIAnimator.rgr`](./ui/UIAnimator.rgr)).** A fluent,
+  Pixi-style effect API: `animator.animation().glow(id).duration(0.5).delay(0.2)
+  .after(cb).start()`. The host advances it with `tick(dtMs)` and the renderer reads a
+  0..1 strength via `intensityFor(id)` / `screenIntensity()` (plus a tint). But it is an
+  **effect** system, not a tween system: exactly **two hardcoded shapes** — `glow`
+  (kind 1, one 0→1→0 flash) and `pulse` (kind 2, a fixed 3-beat throb) — targeting a
+  node id or the whole screen. It cannot tween arbitrary properties (x/y/scale/rotation/
+  opacity/color), there is no easing (the curves are hand-rolled triangles), and the
+  `.after(cb)` completion callback is a **host-side Ranger closure** that cannot be
+  expressed to a WASM/`.as` guest.
+- **Sprite-sheet animation — a separate clock (RGSP1 + [`game_sprite.rgr`](./scripting/game_sprite.rgr)).**
+  RGSP1 slots carry `anim` (`RG_SPR_ANIM_WALK/RUN/JUMP` — three frozen ids, with
+  `RUN`/`JUMP` falling back to `WALK`, per §2.8), a per-slot `CLOCK`, and a `frame` the
+  host resolves (or the guest overrides via `FRAMEOVERRIDE`); `game_sprite.rgr` advances
+  bitmap frames as `p0 % frameCount`. This is a **second, unrelated timing site** with
+  its own frozen animation enum and **no completion event** — it just loops by modulo.
+- **RGU1 UI has no animation channel.** The retained-UI block (§2.6,
+  [`wasm_ui_abi.h`](./wasm/wasm_ui_abi.h)) is a full-snapshot rebuild each frame; any
+  animation over RGU1 is the guest **re-emitting a changed tree every frame** (a **third**
+  timing site, paying the full-rebuild cost of §2.6 with no host-side tween or easing),
+  because there is no `rg_anim_*` in the ABI. `UIAnimator` is reachable only on the
+  interpreted host-Ranger path.
+- **The only host→guest event is selection, not animation.** RGU1 exposes
+  `rg_ui_event(node_id, event, value)` with `RG_UI_EVENT_ACTIVATE/SELECT/DESELECT` — an
+  *input/selection* channel. There is **no animation-lifecycle event** (`onAnimationEnd`,
+  `onLoop`, `onFrame`) any guest can subscribe to; the sole completion hook is
+  `UIAnimator.after`, which never crosses the ABI. Nothing lets a WASM/`.as` guest
+  sequence "when this animation finishes, start that."
+- **Frozen taxonomy, no negotiation.** Effect kinds (`glow`/`pulse`) and sprite anims
+  (`WALK/RUN/JUMP`) are compiled-in enums, not game-registered data; animation timing
+  reads `dtMs` with no negotiated fixed step and no capability query.
+
+**Ideal.**
+
+1. **One animation model across UI, sprites, and world visuals.** A single concept of an
+   *animation* — a named **clip** or a **tween** on a target property, advanced by one
+   clock — replaces the three timing sites. Whether it drives a §2.6 UI node's opacity, a
+   §2.8 sprite's frame row, or a §2.5 `BodyVisual`'s transform is just the *target*, not a
+   separate system.
+2. **General property tweening with data-driven easing.** Beyond glow/pulse, tween
+   `x/y/scale/rotation/opacity/color` (and sprite frame) over **keyframe tracks** with a
+   registered **easing** set (linear, quad, cubic, elastic, …) and `loop`/`pingpong`/
+   `reverse` modes — the curves become data, not two hardcoded triangles.
+3. **Animation is a first-class ABI channel, with handles.** A guest on **any** path
+   starts an animation over the ABI and gets a **handle** (the §2.6 discipline) to
+   pause / cancel / retarget:
+
+```c
+/* Animation imports (guest -> host); returns an opaque handle. */
+u32  rg_anim_start(u32 target, u32 clipOrTweenId, ptr paramsBuf, u32 paramsLen);
+void rg_anim_set(u32 handle, u32 key, i32 value);   /* speed, weight, seek, ... */
+void rg_anim_stop(u32 handle, u32 flags);           /* finish | cancel | hold   */
+```
+
+   Named clips/easings are **game-registered** (`register("glow", …)` /
+   `register("walk", …)`), so the `glow/pulse` and `WALK/RUN/JUMP` enums dissolve into
+   guest data — the §4 "transport, not taxonomy" rule applied to animation.
+4. **Animation-lifecycle events over the ABI.** The host-only `.after` hook generalises
+   into an event channel the guest subscribes to per handle — delivered the same way
+   §2.6 delivers `rg_ui_event`, unifying into one host→guest event path:
+
+```c
+/* Host -> guest, if the guest exports it (cf. rg_ui_event). */
+void rg_anim_event(u32 handle, u32 event, u32 value);
+/* event: 0=END 1=LOOP 2=FRAME(value=frame) 3=LABEL(value=labelId) */
+```
+
+   so a WASM/`.as` guest can sequence "when this ends, start that," fire a footstep on a
+   labelled frame, or react to a loop boundary — instead of a Ranger closure the guest
+   cannot see.
+5. **Deterministic where it matters, capability-gated everywhere.** Animations advance on
+   the **negotiated timestep** (§2.5 world config / §6) so a replay animates identically,
+   and a guest queries animation caps (tween targets, easings, labelled frames, and the
+   software-vs-GPU effect back-end the `UIAnimator` comment already anticipates) and
+   degrades. Split **cosmetic** animations — pure output that, like haptics (§2.9) and
+   audio (§2.10), must never feed logic/RNG/step order — from **gameplay** animations
+   whose lifecycle *events* are deterministic inputs (they fire at the same step on every
+   run), exactly as input is treated.
+
+The result: an animation becomes *"start this registered clip/tween on this target, get a
+handle, and receive its lifecycle events,"* — one model and one event channel shared by UI,
+sprites, and world visuals across every guest path, game-defined in vocabulary and
+host-owned in timing (§2.5, §2.6, §2.8, §4, §6, §7).
 
 ---
 
