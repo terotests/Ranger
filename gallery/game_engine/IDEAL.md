@@ -78,6 +78,9 @@ without re-widening the leaks above.
 | **Game-defined sound palette** | Rigid | A fixed enum (`RG_WASM_SOUND_WALL/BOUNCE/WIN`) in the header; the `.as` path bolts on an integer `playSound` queue instead. No way to register a per-game palette through the ABI. | §4 |
 | **Generic guest scalar slots** | Missing | Only `air_p1/air_p2` are hard-coded; there is no documented generic "guest scalar" the host transports opaquely. | §2.1 |
 | **Genre-neutral control channels** | Missing | Only the four named car channels; no indexed `readControlChannel(body, ch)`. | §2.2 |
+| **Collision shape, filtering, sensors, full contacts** | Minimal | The body record carries pose but no shape; body↔body is circle-only; contacts define only a `BEGIN` phase (no `PERSIST`/`END`, depth, or tangent impulse); no layer/mask filtering, no sensor/trigger bodies. | §2.5 |
+| **Selectable physics engine** | Missing | A full Cannon.js rigid-body port exists (`physics/src/cannon_*.rgr`) but no interface lets a game choose it over the arcade core; the ABI is tied to one engine's output. | §2.5 |
+| **Body→sprite binding** | Fragmented | Three unrelated models (host `spriteFor` templates, RGSP1 catalog, `.as` RGS1 draw list); no single contract that makes a body's pose drive a sprite/character on every path. | §2.5 |
 | **Data-driven sprite roster & animations** | Partial | A catalog-id table (`RG_SPR_OFF_CAT_IDS`) exists, but character ids are still frozen constants, and animations are limited to `WALK/RUN/JUMP` with `RUN`/`JUMP` falling back to `WALK`. | §2.1 |
 | **Guest draw list / resource manifest / sound queue as first-class ABI** | Path-specific | `RGS1`, the resource manifest, and the sound queue are native-array APIs on the interpreted `.as` path only — not a shared byte block, so compiled-WASM guests cannot use them uniformly. | §2, §5 |
 | **Streaming (`RGX1`) and loader (`RGLD`)** | Unheadered | Referenced as siblings of RGW1 but have no canonical `wasm/*.h`, so their offsets are not a stable contract. | §2 |
@@ -428,6 +431,136 @@ transport fixes so every host computes and every guest reads the same thing:
 This keeps pose a *transport*: the ABI defines position, velocity, speed, timing and
 confidence as bytes; what a *gesture* means, and which landmark drives the game, stay
 the guest's decision.
+
+### 2.5 Physics, collision detection, and binding bodies to sprites
+
+RGW1 is the "world/physics" block, so how the ABI carries **bodies, collisions, and
+the link from a body to the sprite that draws it** is the core of the whole engine.
+Three things have to be genre-neutral here — the simulation, the contact model, and
+the body→visual binding — and today each leaks or is missing.
+
+**Current state.**
+
+- **The core is good; there are two of them.** [`physics_core.rgr`](./scripting/physics_core.rgr)
+  is a genuinely neutral 2D top-down core (`PhysBody` / `PhysBoundary` /
+  `PhysCommand` / `PhysContact`), wrapped by the [`GamePhysics`](./scripting/game_physics.rgr)
+  facade and a game-free EvalValue adapter
+  ([`game_physics_bridge.rgr`](./scripting/game_physics_bridge.rgr)). But a *second*,
+  much richer engine — a Cannon.js-style 3D rigid-body port — sits fully implemented
+  and unit-tested under [`physics/src/cannon_*.rgr`](./physics/src/) (Vec3, Quaternion,
+  Box/Sphere/Plane, AABB, broad/narrow phase, contact equations, `World`) and is
+  wired to **nothing**: no ABI, no game. There is no interface that lets a game pick
+  an engine, so the arcade core is the only one anything can reach.
+- **Collision is circle-approximate and boundary-typed.** `PhysicsCore` runs a cheap
+  broad phase (`segmentNearBody` AABB reach) and a narrow phase that is
+  point-to-segment for `segment` bounds, wall clamps for `rect` bounds, and a
+  **circle** overlap for body↔body (`bodyRadius` = diagonal × 0.72) — even though a
+  body owns box half-extents `hw/hh`. Shapes are limited to segment / rect / implicit
+  circle; there is no box-box (OBB), no polygon, no per-body shape *type*.
+- **The body record carries pose, not shape.** The RGW1 body record (24 B) is
+  `x, y, angle, speed, angVel, flags` — pose only. Collision geometry (`hw/hh`,
+  vehicle wheels, restitution) lives host-side in `PhysBody` and/or in the guest's
+  own source, so the two must agree **by convention** — the world-encoded-twice leak
+  (§5) applied to shape.
+- **The contact model is half-defined.** `PhysContact` has `begin`/`persist` phases
+  (tracked via `prevContactKeys`) and a manifold (`bodyA/B`, `normalImpulse`, point,
+  normal), but the shared header only defines `RG_WASM_CONTACT_PHASE_BEGIN` — there
+  is **no `PERSIST`, no `END`**, no penetration depth, no tangent impulse, and body
+  ids are the autopeli `L`/`R`/`c`/`b`/`p1`/`p2` encoding (§2.1). `RG_WASM_MAX_CONTACTS`
+  is a hard 14 with no documented truncation policy. There are **no collision layers/
+  masks** and **no sensor/trigger** bodies — every body is solid and collides with
+  every other.
+- **Three unrelated ways to bind a body to a sprite.** (1) The WASM physics render
+  reads a body's pose from RGW1 and drives a `WasmVisualEntity` template chosen by
+  `spriteFor(id)` ([`wasm_autopeli_render.rgr`](./scripting/wasm_autopeli_render.rgr),
+  host-driven). (2) The RGSP1 character ABI is a **separate** catalog+slots path
+  ([`wasm_sprite_abi.h`](./wasm/wasm_sprite_abi.h)) with no link to any physics body.
+  (3) The interpreted `.as` path exposes an RGS1 guest draw list
+  (`drawSprite(tpl, x, y, angleDeg, frame)` in
+  [`as_abi_bridge.rgr`](./scripting/as_abi_bridge.rgr)) where the guest authors the
+  transform directly, with no physics in between. A game written once does not bind
+  the same way across backends.
+
+**Ideal.**
+
+1. **One neutral core, the engine behind an interface.** `physics_core` stays the
+   arcade default, but simulation sits behind a `PhysicsWorld` interface (`addBody` /
+   `setBounds` / `step(dt)` / `contacts()`) so a game can select the arcade core *or*
+   the `cannon` rigid-body port *or* the host-native engine with **no ABI change** —
+   the ABI transports *results* (poses + contacts), never an engine's internals. This
+   also gives the tested `cannon` port a way to actually be used.
+2. **Shape is declared once, pose streams per frame.** The guest owns collision
+   geometry and declares it through the same declare-once channel it uses for
+   resources (§5): a typed **shape descriptor** per body (circle / box / segment /
+   polygon). The 24-byte RGW1 body record then keeps streaming *only* pose, and host
+   and guest can never disagree on geometry because there is exactly one copy.
+3. **A complete, genre-neutral contact model.** The header defines all three phases
+   and a full manifold, and body ids are guest conventions (§2.1):
+
+```c
+/* Contact phases (RGW1) — today only BEGIN exists. */
+#define RG_WASM_CONTACT_PHASE_BEGIN   1   /* pair started touching this step   */
+#define RG_WASM_CONTACT_PHASE_PERSIST 2   /* still touching                    */
+#define RG_WASM_CONTACT_PHASE_END     3   /* separated this step               */
+
+/* Per-body collision descriptor (declared once, guest-owned). */
+#define RG_WASM_SHAPE_CIRCLE   1   /* a = radius (fp)                          */
+#define RG_WASM_SHAPE_BOX      2   /* a = halfW, b = halfH (fp)                */
+#define RG_WASM_SHAPE_SEGMENT  3   /* a..d = x1,y1,x2,y2 (fp)                  */
+#define RG_WASM_SHAPE_POLYGON  4   /* a = vertex count -> a side vertex table  */
+
+/* body.flags — additive, genre-neutral. */
+#define RG_WASM_BODY_ACTIVE    1u
+#define RG_WASM_BODY_STATIC    2u  /* infinite mass                            */
+#define RG_WASM_BODY_SENSOR    4u  /* report overlaps but apply NO response     */
+/* plus a u16 layer + u16 mask per body: "which layers am I, which do I hit".  */
+```
+
+   The contact record gains penetration depth and a tangent (friction) impulse
+   alongside the existing normal impulse, and `MAX_CONTACTS` is either raised or its
+   overflow policy (drop-lowest-impulse) is documented — not a silent clamp.
+4. **Filtering and sensors are first-class.** Layer/mask bits let a body choose what
+   it collides with, and a `SENSOR` flag turns a body into a trigger that emits
+   begin/end overlap contacts with no physical response — pickups, finish lines, and
+   damage zones stop needing bespoke host code.
+5. **World config is negotiated, not hard-coded.** Gravity, the fixed timestep,
+   solver iterations, and world bounds come through the declare-once channel / RGCQ
+   (§2.1, §6), replacing the hard-coded `worldW/worldH` default (480×270) and the
+   `6000`-tall autopeli track baked into the runner (§5). A generic runner steps the
+   world at the negotiated timestep with an accumulator, so simulation is
+   deterministic regardless of frame rate.
+6. **One body→visual binding, identical on every path.** Binding is a single declared
+   map the provider owns, not three code paths. A physics body names a **visual** —
+   either a sprite template *or* an RGSP1 catalog character — and the host applies the
+   body's pose to that visual's transform every frame:
+
+```
+interface BodyVisual {                 ; provided by the game (§3), not core
+    fn visualFor(bodyId:string) : VisualRef        ; template id | RGSP1 charId
+    fn animFor(bodyId:string st:BodyState) : (anim dir flip)  ; guest rule, §4
+}
+; Host loop, backend-agnostic:
+;   for each active body: read (x,y,angle) from RGW1,
+;     resolve BodyVisual.visualFor(id),
+;     write that transform into the sprite template  OR  the RGSP1 slot xFp/yFp,
+;     pick anim/dir from BodyVisual.animFor(id, {speed, vx, vy, lastContact}).
+```
+
+   This folds the three current models into one contract: the host-driven
+   `spriteFor` mapping, the RGS1 guest draw list, and the RGSP1 character path all
+   become *"a drawable has a transform; a physics body may drive that transform."*
+   Animation choice (walk vs run by speed, a hit-flash on a `BEGIN` contact) is a
+   guest rule over body state — never a `kind == "car"` branch in core (§4).
+7. **RGW1 and RGSP1 stop being strangers.** Because a body can bind to a catalog
+   character, physics and character animation share one entity: the runner writes the
+   body's pose into the character slot and selects the animation/direction from the
+   body's velocity and contacts. A walking hero, a rolling boulder, and a racing car
+   are then the *same* mechanism with different guest-declared visuals.
+
+The result keeps RGW1 a transport: it carries body pose and a complete, typed contact
+stream; *what* a body is shaped like, *which* engine simulates it, and *how* it is
+drawn are all data the guest declares — so a second physics game, with different
+shapes, filters, and sprites, reuses the runner unchanged (§3, §7).
 
 ---
 
