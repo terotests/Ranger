@@ -19,9 +19,11 @@ spritesheet frame from `assets/<slug>.png`.
 | Left / Right | pick character | turn + walk |
 | Up / Down | — | turn + walk |
 | A / Space | choose | jump |
-| Q / Esc | quit to launcher | quit to launcher |
+| Q / Esc | quit to launcher | **back to character select** |
 
-Keyboard (WASD/arrows + Space) or any gamepad.
+Keyboard (WASD/arrows + Space) or any gamepad. In play, Q/Esc returns to the
+character-select menu; press it again in the menu to quit to the launcher. The
+menu ignores the A/Space still held from launching (no instant skip).
 
 ## Files
 

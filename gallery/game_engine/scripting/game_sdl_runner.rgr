@@ -1583,14 +1583,25 @@ class GameSdlRunner {
             def quitHeld:boolean (this.gameMenuBackHeld())
 
             if (this.quitEdge(quitHeld)) {
-                this.clearNavStack()
-                nativeBridge.clearPendingNav()
-                inGame = false
-                splitScreenActive = false
-                wasmSplitActive = false
-                dualPlayerMode = false
-                gfx_clear_should_close
-                return
+                ; Sprite game: Q in play returns to its character-select menu; Q in
+                ; that menu falls through to the normal exit-to-launcher below.
+                def spriteBack:boolean false
+                if (useSpriteRunner) {
+                    if ((spriteRunner.guestMode()) == 1) {
+                        spriteRunner.requestBack()
+                        spriteBack = true
+                    }
+                }
+                if (spriteBack == false) {
+                    this.clearNavStack()
+                    nativeBridge.clearPendingNav()
+                    inGame = false
+                    splitScreenActive = false
+                    wasmSplitActive = false
+                    dualPlayerMode = false
+                    gfx_clear_should_close
+                    return
+                }
             }
 
             def tUpdateStart:int (gfx_ticks_ms)

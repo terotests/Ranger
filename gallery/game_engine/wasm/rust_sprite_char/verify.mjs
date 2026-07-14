@@ -32,14 +32,21 @@ const tick = (input, dt = 16) => {
   wr(40, 270); // OFF_VIEW_H
   ex.sprite_tick();
 };
-const IN = { UP: 1, DOWN: 2, LEFT: 4, RIGHT: 8, ACTION: 16 };
+const IN = { UP: 1, DOWN: 2, LEFT: 4, RIGHT: 8, ACTION: 16, BACK: 32 };
 
 ex.sprite_init();
 ok("abi version 1", ex.rg_abi_version() === 1);
 ok("magic RGSP", (rd(0) >>> 0) === 0x50534752);
 
+// launch button still held: ACTION on the very first frames must NOT skip the
+// menu (arming requires a release first)
+tick(IN.ACTION);
+tick(IN.ACTION);
+ok("held launch ACTION does not skip menu", rd(44) === 0 && rd(24) === 4);
+
 tick(0);
 ok("menu shows 4 slots", rd(24) === 4);
+ok("mode = menu (0)", rd(44) === 0);
 ok("menu slot0 is hero (id1)", slot(0, 0) === 1);
 ok("menu slot3 is rogue (id4)", slot(3, 0) === 4);
 // cursor starts at 0 -> slot0 raised (smaller y) vs slot1
@@ -50,10 +57,11 @@ tick(IN.RIGHT);
 tick(0);
 ok("cursor moved to knight (slot1 raised)", slot(1, 20) < slot(0, 20));
 
-// confirm -> play
+// confirm -> play (menu is armed now: an earlier input=0 frame happened)
 tick(IN.ACTION);
 tick(0);
 ok("play shows 1 slot", rd(24) === 1);
+ok("mode = play (1)", rd(44) === 1);
 ok("selected knight (id2)", slot(0, 0) === 2);
 
 // walk right
@@ -69,6 +77,11 @@ ok("anim = jump (2)", slot(0, 4) === 2);
 // hold through the hop; after ~500ms it reverts to walk
 for (let i = 0; i < 40; i++) tick(0);
 ok("jump reverted to walk", slot(0, 4) === 0);
+
+// back (Q in play) returns to the character-select menu
+tick(IN.BACK);
+ok("back -> menu (mode 0)", rd(44) === 0);
+ok("back -> menu shows 4 slots", rd(24) === 4);
 
 console.log(fails === 0 ? "WASM_OK" : `WASM_FAILED failures=${fails}`);
 process.exit(fails === 0 ? 0 : 1);

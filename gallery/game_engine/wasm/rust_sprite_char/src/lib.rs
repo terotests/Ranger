@@ -17,6 +17,7 @@ const OFF_SLOT_COUNT: i32 = 24;
 const OFF_INPUT: i32 = 28;
 const OFF_VIEW_W: i32 = 36;
 const OFF_VIEW_H: i32 = 40;
+const OFF_MODE: i32 = 44;
 const OFF_SLOTS: i32 = 64;
 const SLOT_SIZE: i32 = 32;
 
@@ -48,6 +49,7 @@ const IN_DOWN: i32 = 2;
 const IN_LEFT: i32 = 4;
 const IN_RIGHT: i32 = 8;
 const IN_ACTION: i32 = 16;
+const IN_BACK: i32 = 32;
 
 const JUMP_MS: i32 = 500;
 const CELL: i32 = 64;
@@ -65,6 +67,9 @@ static mut PLAY_DIR: i32 = DIR_DOWN;
 static mut PLAY_CLOCK: i32 = 0;
 static mut MENU_CLOCK: i32 = 0;
 static mut PREV_IN: i32 = 0;
+// Require ACTION to be released once before a menu confirm counts, so the
+// button still held from launching the game doesn't instantly skip the menu.
+static mut MENU_ARMED: bool = false;
 
 #[inline]
 unsafe fn rd(off: i32) -> i32 {
@@ -127,6 +132,8 @@ pub extern "C" fn sprite_init() {
         PLAY_CLOCK = 0;
         MENU_CLOCK = 0;
         PREV_IN = 0;
+        MENU_ARMED = false;
+        wr(OFF_MODE, MODE_MENU);
     }
 }
 
@@ -150,18 +157,24 @@ pub extern "C" fn sprite_tick() {
             tick_play(dt, input, vw, vh);
         }
 
+        wr(OFF_MODE, MODE);
         PREV_IN = input;
     }
 }
 
 unsafe fn tick_menu(dt: i32, input: i32, vw: i32, vh: i32) {
+    // arm the confirm only once ACTION has been released (ignores the button
+    // still held from launching the game)
+    if input & IN_ACTION == 0 {
+        MENU_ARMED = true;
+    }
     if edge(input, IN_LEFT) {
         CURSOR = (CURSOR + CHAR_COUNT - 1) % CHAR_COUNT;
     }
     if edge(input, IN_RIGHT) {
         CURSOR = (CURSOR + 1) % CHAR_COUNT;
     }
-    if edge(input, IN_ACTION) {
+    if MENU_ARMED && edge(input, IN_ACTION) {
         MODE = MODE_PLAY;
         SEL = CURSOR + 1;
         PLAY_ANIM = ANIM_WALK;
@@ -188,6 +201,14 @@ unsafe fn tick_menu(dt: i32, input: i32, vw: i32, vh: i32) {
 }
 
 unsafe fn tick_play(dt: i32, input: i32, vw: i32, vh: i32) {
+    // Back (host feeds IN_BACK when the player presses Q/Esc in play) returns to
+    // the character-select menu instead of quitting to the launcher.
+    if edge(input, IN_BACK) {
+        MODE = MODE_MENU;
+        MENU_ARMED = false;
+        tick_menu(dt, input, vw, vh);
+        return;
+    }
     if PLAY_ANIM == ANIM_JUMP {
         PLAY_CLOCK += dt;
         if PLAY_CLOCK >= JUMP_MS {

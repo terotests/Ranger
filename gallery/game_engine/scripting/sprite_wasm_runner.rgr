@@ -30,6 +30,7 @@ class SpriteWasmRunner {
     def pw:int 0
     def ph:int 0
     def fpsShown:int 0
+    def backPulse:boolean false
     def assetRoot:string "gallery/game_engine/games/sprite_char/assets/"
 
     fn init:void (w:int h:int) {
@@ -133,7 +134,22 @@ class SpriteWasmRunner {
 
     fn frameWithInput:void (dtMs:int up:boolean down:boolean left:boolean right:boolean action:boolean) {
         def flags:int (this.inputFlags(up down left right action))
+        if (backPulse) {
+            flags = (flags + 32)      ; RG_SPR_IN_BACK
+            backPulse = false
+        }
         this.tickGuest(dtMs flags)
+    }
+
+    ; Guest's current screen: 0 = character-select menu, 1 = play (RG_SPR_OFF_MODE).
+    fn guestMode:int () {
+        return (host.block.i32(44))
+    }
+
+    ; Ask the guest to return to the character-select menu on the next tick (the
+    ; launcher calls this on Q/Esc while in play, instead of exiting the game).
+    fn requestBack:void () {
+        backPulse = true
     }
 
     fn sheetFor:ImageBuffer (charId:int) {
