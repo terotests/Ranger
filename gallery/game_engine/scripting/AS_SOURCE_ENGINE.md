@@ -117,6 +117,47 @@ launcher and runs on the real SDL host. Verified headless
 control (`p1 y 5860 → 5709`), and the whole `game_sdl_runner` chain compiles to
 C++ (the native target).
 
+## Rotatable sprites (`render=sprites`) — no physics
+
+The `.as` guest can also drive a **rotatable 2D sprite scene directly over the
+ABI, with no physics engine in the loop**. This closes a gap: previously a
+sprite's rotation was sourced from a host *physics body* (`syncEntityPoses` feeds
+`body.angle`), and the guest ABI had no way to set a sprite pose — so "just
+rotate a sprite from the guest" was impossible without the car physics.
+
+Two additive pieces provide it:
+
+- **Guest sprite draw list on `AsAbiBridge`** — `spriteReset()` clears the frame,
+  then `drawSprite(tpl, x, y, angleDeg, frame)` pushes each instance (`tpl` is a
+  0-based index into the templates declared in `declare_resources()`; `x`/`y` are
+  page-pixel centres; `angleDeg` is clockwise rotation). It is a native-array API
+  like the resource manifest, so a game can push far more instances than the
+  2560 B RGW1 block would hold. Position **and rotation** are authored entirely by
+  the guest.
+- **`AsSpriteScene`** (`as_sprite_runner.rgr`) + **`GameSdlRunner.runSpriteGame`**
+  — publish `dt`/`time`/`input` into the shared RGW1 header, call `update()`, read
+  the sprite list back and blit each template rotated
+  (`framebuffer.drawBlockRotated` → `blitImageRectScaledRotated`). A game opts in
+  with `game.info`:
+
+  ```ini
+  engine=as
+  render=sprites
+  module=game.as
+  ```
+
+Headless proof + PNG frames (`scripting/as_sprite_demo.rgr`):
+
+```bash
+npm run engine:as:sprites   # -> ALL PASS (rotate input -> guest-driven angle 78°)
+```
+
+Example game: **`games/pyorretris/`** — a Tetris clone ("pyörre" = a whirl) whose
+well, settled stack, active piece and line-clear confetti are all guest-authored
+rotatable sprites. Rotating a piece eases 90°→0° so it whirls into place; cleared
+rows burst into tumbling blocks. Runs in the SDL launcher (routed by
+`render=sprites`) or headless via the demo above.
+
 ## Status & next steps
 
 Working: interpreted `.as` → ABI → physics/render host, autopeli core playable.

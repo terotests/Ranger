@@ -27,6 +27,18 @@ class AsAbiBridge {
     def resPaths:[string]
     def resIvals:[int]     ; 10 ints per resource (see hostSheet/hostRect)
 
+    ; guest-authored sprite list (RGS1): a per-frame draw list the guest fills with
+    ; drawSprite(tpl,x,y,angleDeg,frame) and the host renders directly — position
+    ; AND rotation come from the guest, with NO physics in between. This is the
+    ; counterpart to the RGU1 UI doc for rotatable 2D sprites, and (like the
+    ; resource manifest) it is a native-array-backed API rather than a fixed byte
+    ; block, so a game can push far more instances than the 2560 B RGW1 block holds.
+    def sprTpl:[int]       ; template index (declaration order in declare_resources)
+    def sprX:[int]         ; centre x in page pixels
+    def sprY:[int]         ; centre y in page pixels
+    def sprAng:[int]       ; rotation in degrees (clockwise, Y-down)
+    def sprFrame:[int]     ; sheet frame column (0 for rect templates)
+
     ; RGU1 builder state
     def nodeCount:int 0
     def propCount:int 0
@@ -314,6 +326,53 @@ class AsAbiBridge {
         return v
     }
 
+    ; ---- guest sprite draw list (RGS1) --------------------------------------
+    ; The guest calls spriteReset() once per frame, then drawSprite(...) for each
+    ; visible instance; the host reads the list back and blits each template at the
+    ; given centre + rotation. Rotation is authored ENTIRELY by the guest here.
+    fn sprReset:void () {
+        def a:[int]
+        def b:[int]
+        def c:[int]
+        def d:[int]
+        def e:[int]
+        sprTpl = a
+        sprX = b
+        sprY = c
+        sprAng = d
+        sprFrame = e
+    }
+    fn sprPush:void (tpl:int x:int y:int angleDeg:int frame:int) {
+        push sprTpl tpl
+        push sprX x
+        push sprY y
+        push sprAng angleDeg
+        push sprFrame frame
+    }
+    fn sprCount:int () {
+        return (array_length sprTpl)
+    }
+    fn sprTplAt:int (i:int) {
+        def v:int (itemAt sprTpl i)
+        return v
+    }
+    fn sprXAt:int (i:int) {
+        def v:int (itemAt sprX i)
+        return v
+    }
+    fn sprYAt:int (i:int) {
+        def v:int (itemAt sprY i)
+        return v
+    }
+    fn sprAngAt:int (i:int) {
+        def v:int (itemAt sprAng i)
+        return v
+    }
+    fn sprFrameAt:int (i:int) {
+        def v:int (itemAt sprFrame i)
+        return v
+    }
+
     ; ---- RGP1 pose block (host->guest streaming input provider) -------------
     ; A separate, independently-versioned block (the pose counterpart of RGU1).
     ; The host PoseProvider writes a fresh sample each frame BEFORE update(); the
@@ -420,6 +479,8 @@ class AsAbiBridge {
         if (name == "uiFinish") { return true }
         if (name == "hostSheet") { return true }
         if (name == "hostRect") { return true }
+        if (name == "spriteReset") { return true }
+        if (name == "drawSprite") { return true }
         if (name == "posePresent") { return true }
         if (name == "poseGesture") { return true }
         if (name == "poseCount") { return true }
@@ -611,6 +672,14 @@ class AsAbiBridge {
             def b:int (this.argInt(args 5))
             def dl:int (this.argInt(args 6))
             this.hostRect(id w h r g b dl)
+            return (EvalValue.null())
+        }
+        if (name == "spriteReset") {
+            this.sprReset()
+            return (EvalValue.null())
+        }
+        if (name == "drawSprite") {
+            this.sprPush((this.argInt(args 0)) (this.argInt(args 1)) (this.argInt(args 2)) (this.argInt(args 3)) (this.argInt(args 4)))
             return (EvalValue.null())
         }
         if (name == "posePresent") {

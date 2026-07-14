@@ -20,6 +20,7 @@ Import "../wasm_runtime.rgr"
 Import "./wasm_game_runner.rgr"
 Import "./wasm_physics_runner.rgr"
 Import "./game_ui_runner.rgr"
+Import "./as_sprite_runner.rgr"
 Import "../gfx_sdl.rgr"
 Import "./game_audio_sdl.rgr"
 Import "./game_catalog.rgr"
@@ -109,6 +110,7 @@ class GameSdlRunner {
     def menuAsMtime:int 0     ; last-seen menu/game.as mtime (live-reload poll)
     def menuTsxMtime:int 0    ; last-seen menu/launcher.tsx mtime (live-reload poll)
     def uiDirectPath:string ""
+    def spriteDirectPath:string ""
     def gpuModeWanted:boolean true
     def gpuModeActive:boolean false
     def gameInputSnap:GameInputSnapshot (new GameInputSnapshot)
@@ -440,6 +442,13 @@ class GameSdlRunner {
             this.loadStreamingAt(path)
             return
         }
+        ; render=sprites .as games are driven by runSpriteGame() (guest-authored
+        ; rotatable sprite scene, no physics), not the wasm/tsx runners.
+        if ((this.renderOf(path)) == "sprites") {
+            spriteDirectPath = path
+            currentGamePath = path
+            return
+        }
         ; engine=ui games are driven by runUiGame(), not the wasm/tsx runners.
         if ((this.engineOf(path)) == "ui") {
             uiDirectPath = path
@@ -670,6 +679,12 @@ class GameSdlRunner {
             splitScreenActive = false
             wasmSplitActive = false
             this.loadStreamingAt(path)
+            return
+        }
+        if ((this.renderOf(path)) == "sprites") {
+            splitScreenActive = false
+            wasmSplitActive = false
+            spriteDirectPath = path
             return
         }
         if (this.isAsPath(path)) {
@@ -961,6 +976,91 @@ class GameSdlRunner {
         return ""
     }
 
+    ; Render mode declared in a game's game.info (render=sprites -> the guest
+    ; authors a rotatable 2D sprite scene over the ABI, driven by runSpriteGame).
+    fn renderOf:string (path:string) {
+        def dir:string (this.dirOf(path))
+        if (file_exists dir "game.info") {
+            def buf:buffer (buffer_read_file dir "game.info")
+            def txt:string (buffer_to_string buf)
+            if ((indexOf txt "render=sprites") >= 0) {
+                return "sprites"
+            }
+        }
+        return ""
+    }
+
+    ; Dispatch a menu/launcher selection to the right self-contained loop: a
+    ; guest-driven sprite scene (render=sprites), an RGU1 UI game (engine=ui), or
+    ; the normal wasm/tsx game loop.
+    fn launchSelected:void (path:string) {
+        if ((this.renderOf(path)) == "sprites") {
+            this.runSpriteGame(path)
+            return
+        }
+        if ((this.engineOf(path)) == "ui") {
+            this.runUiGame(path)
+            return
+        }
+        this.loadGame(path)
+        this.runGameLoop()
+    }
+
+    ; Self-contained loop for a render=sprites .as game: interpret the guest, feed
+    ; it input edges + a clock over the ABI, read its guest-authored sprite draw
+    ; list back and present it (rotated). No physics — pure sprite rendering, the
+    ; counterpart to runUiGame for rotatable 2D sprites. Renders at the 480x270
+    ; game buffer (the guest lays out in those page pixels); the host scales it.
+    fn runSpriteGame:void (asPath:string) {
+        def scene:AsSpriteScene (new AsSpriteScene)
+        scene.init(pw ph)
+        if ((scene.loadGame((this.dirOf(asPath)))) == false) {
+            print ("[game-engine] sprite game load failed: " + asPath)
+            return
+        }
+        print ("[game-engine] sprite game: " + asPath)
+        currentScriptPath = asPath
+        currentGamePath = asPath
+        inMenu = false
+        inGame = true
+        gfx_clear_should_close
+        this.syncInputEdges()
+        while (running) {
+            def m:int (this.uiNavMask())
+            def up:boolean (this.upEdge((bit_and m 1) != 0))
+            def down:boolean (this.downEdge((bit_and m 2) != 0))
+            def left:boolean (this.leftEdge((bit_and m 16) != 0))
+            def right:boolean (this.rightEdge((bit_and m 32) != 0))
+            def action:boolean (this.actionEdge((bit_and m 4) != 0))
+            def mask:int 0
+            if up { mask = (mask + 1) }
+            if down { mask = (mask + 2) }
+            if left { mask = (mask + 4) }
+            if right { mask = (mask + 8) }
+            if action { mask = (mask + 16) }
+            scene.frameMask(16 mask)
+            scene.draw()
+            gfx_present (scene.raw()) pw ph
+
+            if (this.quitEdge((this.gameMenuBackHeld()))) {
+                inGame = false
+                gfx_clear_should_close
+                return
+            }
+            if (gfx_should_close) {
+                running = false
+                return
+            }
+            frames = (frames + 1)
+            if (maxFrames > 0) {
+                if (frames >= maxFrames) {
+                    running = false
+                    return
+                }
+            }
+        }
+    }
+
     ; Self-contained loop for an engine=ui game: instantiate the RGU1 guest,
     ; render its menu, move the selection with the D-pad, forward the action
     ; button to the guest, and return to the launcher on Back/Quit.
@@ -1191,12 +1291,7 @@ class GameSdlRunner {
                 def entry:GameCatalogEntry (catalog.entryAt(li - 1))
                 def launchPath:string entry.entryPath
                 if ((strlen launchPath) > 0) {
-                    if ((this.engineOf(launchPath)) == "ui") {
-                        this.runUiGame(launchPath)
-                    } {
-                        this.loadGame(launchPath)
-                        this.runGameLoop()
-                    }
+                    this.launchSelected(launchPath)
                     if (running == false) {
                         return
                     }
@@ -1283,12 +1378,7 @@ class GameSdlRunner {
             ; the launcher reported a game PATH to open -> dispatch + reopen
             def lp:string (uiRunner.launchPathTsx())
             if ((strlen lp) > 0) {
-                if ((this.engineOf(lp)) == "ui") {
-                    this.runUiGame(lp)
-                } {
-                    this.loadGame(lp)
-                    this.runGameLoop()
-                }
+                this.launchSelected(lp)
                 if (running == false) {
                     return
                 }
@@ -1365,12 +1455,7 @@ class GameSdlRunner {
 
             def launchPath:string (runner.stateString("launchPath" ""))
             if ((strlen launchPath) > 0) {
-                if ((this.engineOf(launchPath)) == "ui") {
-                    this.runUiGame(launchPath)
-                } {
-                    this.loadGame(launchPath)
-                    this.runGameLoop()
-                }
+                this.launchSelected(launchPath)
                 if (running == false) {
                     return
                 }
@@ -1553,10 +1638,14 @@ class GameSdlRunner {
                 }
             }
         } {
-            if ((strlen uiDirectPath) > 0) {
-                this.runUiGame(uiDirectPath)
+            if ((strlen spriteDirectPath) > 0) {
+                this.runSpriteGame(spriteDirectPath)
             } {
-                this.runGameLoop()
+                if ((strlen uiDirectPath) > 0) {
+                    this.runUiGame(uiDirectPath)
+                } {
+                    this.runGameLoop()
+                }
             }
         }
         gfx_close
@@ -1689,16 +1778,20 @@ class GameSdlRunner {
                                                     if (this.isTsxPath(arg)) {
                                                         tsxPath = arg
                                                     } {
-                                                        if (this.isWasmPath(arg)) {
-                                                            tsxPath = arg
-                                                        } {
-                                                            if ((strlen tsxPath) > 0) {
-                                                                def parsed@(optional):int (to_int arg)
-                                                                if (!null? parsed) {
-                                                                    maxFrames = (unwrap parsed)
-                                                                }
-                                                            }
-                                                        }
+                                        if (this.isWasmPath(arg)) {
+                                            tsxPath = arg
+                                        } {
+                                            if (this.isAsPath(arg)) {
+                                                tsxPath = arg
+                                            } {
+                                                if ((strlen tsxPath) > 0) {
+                                                    def parsed@(optional):int (to_int arg)
+                                                    if (!null? parsed) {
+                                                        maxFrames = (unwrap parsed)
+                                                    }
+                                                }
+                                            }
+                                        }
                                                     }
                                                 }
                                             }
