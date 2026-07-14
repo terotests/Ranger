@@ -53,6 +53,11 @@ class GameVocalFx {
     ; Pre-rendered Voicebox WAV overrides (16-bit mono PCM), keyed by effect name.
     def assetPcm:[string:buffer]
     def assetFrames:[string:int]
+    ; Registered override ids. A string-list membership test is reliable on every
+    ; target; probing an int/buffer map for a MISSING key returns has_value=true
+    ; under the C++ backend (empty map), which wrongly sent every effect down the
+    ; empty-asset path -> 0 bytes -> silent voices in the SDL host.
+    def assetIds:[string]
 
     fn init:void () {
         synth.init()
@@ -443,14 +448,21 @@ class GameVocalFx {
     fn registerAsset:void (id:string pcm:buffer frames:int) {
         set assetPcm id pcm
         set assetFrames id frames
+        if (false == (this.hasAsset(id))) {
+            push assetIds id
+        }
     }
 
     fn hasAsset:boolean (id:string) {
-        ; Probe the int frames map, not the buffer map: optional<int> lowers to
-        ; a proper has_value flag on every target, while a map<string,buffer>
-        ; value is a bare vector in C++ and cannot be null-checked.
-        def fr@(optional):int (get assetFrames id)
-        return (!null? fr)
+        ; Explicit membership test — reliable on every target (see assetIds note).
+        def i 0
+        while (i < (array_length assetIds)) {
+            if ((itemAt assetIds i) == id) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
     }
 
     ; Load a 16-bit mono PCM WAV (44-byte header) as an override for `id`.
@@ -477,27 +489,24 @@ class GameVocalFx {
     fn play:void (id:string sink:GameAudioSink) {
         playCount = (playCount + 1)
         lastId = id
-        print ("[VFX] vocalFx.play id=" + id + " hasAsset=" + (to_string (this.hasAsset(id))) + " rate=" + (to_string synth.sampleRate))
         if verbose {
             print ("[vocalfx] play " + id + " " + (this.tagFor(id)))
         }
         if (this.hasAsset(id)) {
-            ; Presence already confirmed via assetFrames (int optional). Unwrap
-            ; the buffer WITHOUT a null? check: `unwrap` is identity on the C++
-            ; vector, whereas null? would emit an invalid `vector != NULL`.
             def pcm@(optional):buffer (get assetPcm id)
             def fr@(optional):int (get assetFrames id)
             def frames:int 0
             if (!null? fr) {
                 frames = (unwrap fr)
             }
-            sink.onSynthPlay(("voice:" + id) synth.sampleRate frames (unwrap pcm))
-            return
+            ; Only use the override when it truly has audio; otherwise synthesize.
+            if (frames > 0) {
+                sink.onSynthPlay(("voice:" + id) synth.sampleRate frames (unwrap pcm))
+                return
+            }
         }
         def rendered:ScoreVoiceRender (this.render(id))
-        print ("[VFX] vocalFx.play rendered id=" + id + " frames=" + (to_string rendered.frames) + " pcmLen=" + (to_string (buffer_length rendered.pcm)))
         if (rendered.frames <= 0) {
-            print ("[VFX] vocalFx.play ZERO frames id=" + id)
             return
         }
         sink.onSynthPlay(("voice:" + id) synth.sampleRate rendered.frames rendered.pcm)
