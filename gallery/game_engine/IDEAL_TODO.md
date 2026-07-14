@@ -356,12 +356,20 @@ regression test (Phase 5.x / roadmap delta-time + gamepad gaps).
   (Note: `game.info` for these fields is already a clean `key=value` parser
   (`parseInfoLine`), so 7b's "fragile `indexOf`" concern does not apply to them; the
   raw-text `indexOf "engine=…"` fallback is the only substring path left.)
-- [ ] **R.8 (Medium) Script return values assigned without contract checks.**
-  `game_runtime.rgr` — `update`'s return goes straight into `state`; a null/wrong
-  type surfaces far from the cause. Fix: validate `update` / `initState` /
-  `entities` / layout / render-command returns at the boundary with a typed error
-  (`game / function / expected / received`).
-  *Check:* a script returning null from `update` fails with a located error.
+- [x] **R.8 (Medium) Script return values assigned without contract checks.**
+  Fixed: new `scripting/game_script_contract.rgr` (`GameScriptContract`) validates a
+  script return at the boundary and builds a **located** error
+  (`game / function / expected / received`). `game_runtime` now validates
+  `initState`'s and `update`'s returns — on an invalid `update` the previous state
+  is **kept** (a broken frame no longer corrupts the runtime); on invalid
+  `initState` the error is surfaced immediately. Both are guarded by
+  `scriptHasFunction`, so a game that omits the function is never falsely flagged.
+  *Check:* `game_script_contract_demo.rgr` self-test — 12/12 (valid object passes,
+  null/number rejected with a located error, array checks, `typeName`);
+  `game_runtime.rgr` + `game_sdl_runner.rgr` compile Ranger→C++; and the **real
+  breakout TSX game runs 300 frames through the full runtime with no false-positive
+  contract error** (score/entities/screen progress normally).
+  *Remaining (optional):* extend to `entities` / layout / render-command returns.
 
 ---
 

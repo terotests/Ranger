@@ -25,6 +25,7 @@ Import "./game_audio.rgr"
 Import "./game_image_loader.rgr"
 Import "./game_input.rgr"
 Import "./game_fixed_step.rgr"
+Import "./game_script_contract.rgr"
 Import "./game_composite_bridge.rgr"
 Import "./game_static_bg_bridge.rgr"
 Import "./game_particles.rgr"
@@ -64,6 +65,8 @@ class GameRunner {
     def entities:[GameEntity]
     def screenSpritesLoaded:[string]
     def state:EvalValue (EvalValue.null())
+    ; Validates script return values at the boundary (IDEAL_TODO R.8).
+    def scriptContract:GameScriptContract (new GameScriptContract)
     def pw:int 0
     def ph:int 0
     def score1:int 0
@@ -1075,6 +1078,17 @@ class GameRunner {
         this.applyCamera()
         this.applyPhysics()
         state = (engine.callFunction("initState" (EvalValue.null())))
+        ; R.8: validate initState's return at the boundary. There is no prior state
+        ; to fall back to, so we keep the value but surface a located error the
+        ; instant it is wrong. Only checked when the game defines initState() — a
+        ; game that omits it legitimately yields no state and is not flagged.
+        if (this.scriptHasFunction("initState")) {
+            scriptContract.game = options.scriptPath
+            def initChk:ScriptContractResult (scriptContract.expectState("initState" state))
+            if (initChk.ok == false) {
+                scriptContract.report(initChk.error)
+            }
+        }
         ; Call the script's entities() EXACTLY ONCE per scene setup and reuse the
         ; result for both activation/seeding and retained-sprite spawn. Calling it
         ; twice let a side-effecting or non-deterministic function diverge between
@@ -1247,7 +1261,21 @@ class GameRunner {
         push k "collisionEvents"
         push v (state.getMember("collisionEvents"))
         def props:EvalValue (EvalValue.object(k v))
-        state = (engine.callFunction("update" props))
+        def next:EvalValue (engine.callFunction("update" props))
+        ; R.8: validate the returned state at the boundary. A broken frame keeps
+        ; the previous state instead of corrupting the runtime with a garbage value.
+        ; Only games that actually define update() are checked (no false positives).
+        if (this.scriptHasFunction("update")) {
+            scriptContract.game = options.scriptPath
+            def chk:ScriptContractResult (scriptContract.expectState("update" next))
+            if (chk.ok) {
+                state = next
+            } {
+                scriptContract.report(chk.error)
+            }
+        } {
+            state = next
+        }
     }
 
     fn stepPostPhysics:void (dtMs:int prevScreen:string) {

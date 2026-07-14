@@ -1,0 +1,76 @@
+; ==============================================================================
+; game_script_contract — validate script return values at the boundary (R.8)
+; ==============================================================================
+;
+; A game script's update()/initState()/entities() returns flow straight into
+; runtime state today; a script that returns null or the wrong type surfaces the
+; real failure later and far from the cause. This validates a return value the
+; instant it crosses back from the script, and produces a LOCATED error:
+;
+;   game: <id>
+;   function: <fn>
+;   expected: <kind>
+;   received: <actual type>
+;
+; so a broken script fails where it broke. The caller keeps the previous state
+; (for update) or starts with a reported error (for initState) instead of
+; corrupting the runtime with a garbage value.
+; ==============================================================================
+
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class ScriptContractResult {
+    def ok:boolean true
+    def error:string ""
+}
+
+class GameScriptContract {
+    def game:string ""   ; game id / path, for the located error
+
+    ; Human name of an EvalValue's runtime type, for the "received:" line.
+    sfn typeName:string (val:EvalValue) {
+        if (val.isNull()) { return "null" }
+        if (val.isUndefined()) { return "undefined" }
+        if (val.isArray()) { return "array" }
+        if (val.isObject()) { return "object" }
+        if (val.isString()) { return "string" }
+        if (val.isNumber()) { return "number" }
+        if (val.isBoolean()) { return "boolean" }
+        if (val.isFunction()) { return "function" }
+        return "unknown"
+    }
+
+    fn located:string (fn:string expected:string val:EvalValue) {
+        return ("[script-contract]\n  game: " + game +
+            "\n  function: " + fn +
+            "\n  expected: " + expected +
+            "\n  received: " + (GameScriptContract.typeName(val)))
+    }
+
+    ; A state object (initState / update must return an object).
+    fn expectState:ScriptContractResult (fn:string val:EvalValue) {
+        def r:ScriptContractResult (new ScriptContractResult)
+        if (val.isObject()) {
+            return r
+        }
+        r.ok = false
+        r.error = (this.located(fn "object/state" val))
+        return r
+    }
+
+    ; An array (entities / sprites should return an array of defs).
+    fn expectArray:ScriptContractResult (fn:string val:EvalValue) {
+        def r:ScriptContractResult (new ScriptContractResult)
+        if (val.isArray()) {
+            return r
+        }
+        r.ok = false
+        r.error = (this.located(fn "array" val))
+        return r
+    }
+
+    ; Report a contract failure to the log (output-only, never feeds logic).
+    fn report:void (msg:string) {
+        print msg
+    }
+}
