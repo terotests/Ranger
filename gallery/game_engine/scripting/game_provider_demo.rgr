@@ -1,0 +1,77 @@
+; Headless self-test for the provider registry (IDEAL_TODO 3.4). Proves the key
+; property: the host's advertised caps ARE the OR of attached providers' capBits,
+; and the capability gate consumes that — so attaching a provider widens what the
+; host offers, with no second list. Run:
+;   RANGER_LIB=compiler/Lang.rgr:lib/stdops.rgr node bin/output.js -es6 \
+;     gallery/game_engine/scripting/game_provider_demo.rgr \
+;     -d=gallery/game_engine/scripting -o=game_provider_demo.js -nodecli \
+;   && node gallery/game_engine/scripting/game_provider_demo.js
+
+Import "./game_provider.rgr"
+Import "./wasm_cap_gate.rgr"
+
+class ProviderCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+}
+
+class GameProviderDemo {
+    def CAP_PHYSICS:int 1
+    def CAP_RGU1:int 8
+    def CAP_POSE:int 16
+
+    sfn m@(main):void () {
+        def d:GameProviderDemo (new GameProviderDemo)
+        def c:ProviderCheck (new ProviderCheck)
+        print "GameProviderRegistry self-test"
+
+        def reg:GameProviderRegistry (new GameProviderRegistry)
+        c.ok("empty registry advertises nothing" ((reg.advertisedCaps()) == 0))
+
+        ; A pose guest is rejected while no pose provider is attached.
+        def gate:WasmCapGate (new WasmCapGate)
+        gate.setHostCapsFromRegistry(reg)
+        c.ok("pose guest rejected with no provider" ((gate.evaluate(1 d.CAP_POSE)) == false))
+
+        ; Attach physics + RGU1 providers.
+        reg.attach((new PhysicsProvider))
+        reg.attach((new Rgu1Provider))
+        c.ok("two providers attached" ((reg.count()) == 2))
+        c.ok("advertises physics|rgu1" ((reg.advertisedCaps()) == (bit_or d.CAP_PHYSICS d.CAP_RGU1)))
+        c.ok("provides physics" (reg.provides(d.CAP_PHYSICS)))
+        c.ok("does not provide pose yet" ((reg.provides(d.CAP_POSE)) == false))
+
+        ; Gate rebuilt from the registry now admits a physics guest, still rejects pose.
+        gate.setHostCapsFromRegistry(reg)
+        c.ok("physics guest admitted" (gate.evaluate(1 d.CAP_PHYSICS)))
+        c.ok("pose guest still rejected" ((gate.evaluate(1 d.CAP_POSE)) == false))
+
+        ; Attaching the pose provider WIDENS advertised caps by construction.
+        reg.attach((new PoseInputProvider))
+        gate.setHostCapsFromRegistry(reg)
+        c.ok("attaching pose provider admits pose guest" (gate.evaluate(1 d.CAP_POSE)))
+        c.ok("advertises all three" ((reg.advertisedCaps()) == (bit_or d.CAP_PHYSICS (bit_or d.CAP_RGU1 d.CAP_POSE))))
+
+        ; Lookup + metadata.
+        def pose:GameProvider (reg.byId("pose"))
+        c.ok("byId finds pose" ((pose.id()) == "pose"))
+        c.ok("pose direction is host->guest" ((pose.direction()) == 2))
+
+        print "======================================"
+        print (("RESULT: " + (to_string c.passed) + " passed, ") + ((to_string c.failed) + " failed"))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

@@ -132,11 +132,21 @@ Now the headers exist; make the host *use* the handshake and validate uniformly.
   min-size, count clamps); `wasm_abi_io.rgr` compiles.
   *Remaining:* migrate RGSP1/RGP1/RGIN readers + the `.as` bridge to call
   `verifyBlock`/`clampCount` at their read sites (replacing per-block ad-hoc checks).
-- [ ] **3.4 Provider registry** (row 7, IDEAL.md §6, IDEAL_API §7). A `GameProvider`
-  interface (`id/capBit/direction/cadence/onAttach/onDeclare/beforeUpdate/
-  afterUpdate/onDetach`); host advertised caps = OR of attached providers' `capBit()`.
-  Refactor `game_pose_provider.rgr`, `game_image_loader.rgr` to register.
-  *Check:* adding a provider widens advertised caps with no second list edited.
+- [~] **3.4 Provider registry** (row 7, IDEAL.md §6, IDEAL_API §7). New
+  `scripting/game_provider.rgr`: `GameProvider` base/interface (`id / capBit /
+  direction / cadence / onAttach / onDeclare / beforeUpdate / afterUpdate /
+  onDetach`), a `GameProviderRegistry` (`attach / advertisedCaps / provides /
+  byId / *All` lifecycle fan-out), and concrete `PhysicsProvider` (0x1),
+  `Rgu1Provider` (0x8), `PoseInputProvider` (0x10). `WasmCapGate` gains
+  `setHostCapsFromRegistry(reg)` so advertised caps = OR of providers by
+  construction. `wasm_physics_runner.rgr` now attaches its providers and derives
+  the gate's caps from the registry (no hardcoded cap list).
+  *Check:* `game_provider_demo.rgr` self-test — 12/12 pass, proving attaching a
+  provider widens advertised caps and the gate admits the newly-covered guest;
+  `wasm_physics_runner.rgr` compiles.
+  *Remaining:* migrate the existing `game_pose_provider.rgr` / `game_image_loader.rgr`
+  onto `GameProvider` and route the runners' per-frame drain through the registry's
+  `beforeUpdateAll` / `afterUpdateAll` (overlaps Phase 4 seam work).
 
 ---
 

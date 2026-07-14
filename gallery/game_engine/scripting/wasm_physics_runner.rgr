@@ -71,6 +71,10 @@ class WasmPhysicsRunner {
     ; provider registry (Phase 3.4) will compute this by construction.
     def capGate:WasmCapGate (new WasmCapGate)
     def gateRejected:boolean false
+    ; Provider registry (IDEAL_API §7): the advertised caps ARE the OR of the
+    ; providers this runner attaches, so the gate needs no separate cap list.
+    def providers:GameProviderRegistry (new GameProviderRegistry)
+    def providersReady:boolean false
 
     fn bodyIdIndex:int (id:string) {
         def i 0
@@ -326,6 +330,18 @@ class WasmPhysicsRunner {
         abi.clearEvents()
     }
 
+    ; Attach the host capabilities this runner implements, once. The gate reads
+    ; the registry's advertised caps (IDEAL_API §7), so a guest that requires a
+    ; capability with no attached provider is rejected at load.
+    fn ensureProviders:void () {
+        if (providersReady) {
+            return
+        }
+        providers.attach((new PhysicsProvider))  ; host GamePhysics (cap 0x1)
+        providers.attach((new Rgu1Provider))     ; retained-mode RGU1 HUD (cap 0x8)
+        providersReady = true
+    }
+
     fn loadModule:void (path:string) {
         if (handle != 0) {
             wasm_close handle
@@ -337,9 +353,11 @@ class WasmPhysicsRunner {
             return
         }
         ; --- capability gate (IDEAL.md §6): run once, right after load, before
-        ; init(). Advertise the caps this runner actually implements. ---
+        ; init(). The advertised caps are the OR of the attached providers — this
+        ; runner provides host physics and parses RGU1 HUDs. ---
         gateRejected = false
-        capGate.setHostCaps((bit_or 1 8))  ; PHYSICS | RGU1 (see wasm_game_abi.h)
+        this.ensureProviders()
+        capGate.setHostCapsFromRegistry(providers)
         if ((capGate.checkWasm(handle)) == false) {
             print ("[wasm] REJECTED " + path + ": " + capGate.reason)
             wasm_close handle

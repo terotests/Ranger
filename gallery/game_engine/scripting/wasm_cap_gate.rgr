@@ -19,6 +19,7 @@
 ; ==============================================================================
 
 Import "../wasm_runtime.rgr"
+Import "./game_provider.rgr"
 
 class WasmCapGate {
     ; The RGW1 ABI version this host build understands. A guest built against a
@@ -42,6 +43,14 @@ class WasmCapGate {
     ; Advertise one more capability bit (what a provider's capBit() contributes).
     fn addCap:void (bit:int) {
         hostCaps = (bit_or hostCaps bit)
+    }
+
+    ; Derive advertised caps from the provider registry (IDEAL_API §7): the host's
+    ; capabilities ARE the OR of every attached provider's capBit(). This is the
+    ; by-construction wiring — a runner attaches its providers and the gate needs
+    ; no separate cap list to keep in sync.
+    fn setHostCapsFromRegistry:void (reg:GameProviderRegistry) {
+        hostCaps = (reg.advertisedCaps())
     }
 
     fn hasCap:boolean (bit:int) {
