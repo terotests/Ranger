@@ -11,7 +11,7 @@
 // game_native_types.ts) so the TS -> Ranger emitter produces precisely-typed
 // structs (and the C++ backend can pick narrow storage where marked).
 
-import { soundEvent, particleEvent, rumbleEvent, musicScoreEvent, stopMusicEvent } from "../../scripting/game_helpers";
+import { soundEvent, voiceEvent, particleEvent, rumbleEvent, musicScoreEvent, stopMusicEvent } from "../../scripting/game_helpers";
 
 // --- Core game structs (annotated so the native emitter unifies their types) ---
 
@@ -1214,6 +1214,7 @@ function applyEnemyHits(pl: Player, owner: i32, enemies: Enemy[], events: GameEv
         out = stompBounce(out, e.y);
         events.push(soundEvent("brick"));
         events.push(soundEvent("bounce"));
+        events.push(voiceEvent("chuckle"));
         events.push(rumbleForOwner(owner, 90, 18000));
       } else {
         if (kind == "hurt") {
@@ -1226,6 +1227,7 @@ function applyEnemyHits(pl: Player, owner: i32, enemies: Enemy[], events: GameEv
             out = respawnPlayer(owner);
             died = 1;
             events.push(soundEvent("lose"));
+            events.push(voiceEvent("gasp"));
             events.push(rumbleForOwner(owner, 280, 40000));
           }
         }
