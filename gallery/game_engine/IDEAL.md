@@ -93,6 +93,7 @@ without re-widening the leaks above.
 | **RGU1 interactivity** | Optional | The document is guest→host; `rg_ui_event` (activate/select) is an optional export and selection state lives on the host. | §2.3 |
 | **Animation system & lifecycle events** | Fragmented | Three unrelated timing systems (host-only `UIAnimator` glow/pulse, RGSP1 sprite clock, RGU1 full-tree re-emit); no general tweening/easing, frozen effect + anim enums, and the only completion hook (`UIAnimator.after`) is a host closure — no `onAnimationEnd`/`onLoop`/`onFrame` over the ABI. | §2.12 |
 | **Screen navigation / view stack** | Partial | `loadGame`/`pushGame`/`popGame` exist only on the TS path; every transition is a full teardown + `initState()` reload (no suspend/resume), routes are file paths, and there are no typed args, no result on pop, and no `onEnter`/`onExit`/`onPause`/`onResume` hooks. | §2.13 |
+| **Unified HUD renderer** | Fragmented | Three HUD paths (TS `hud()`, RGU1 doc, hardcoded `fillRect`) through a limited `GameHudBlitter` (View+Label, bitmap 3×5 font); the rich EVG renderer (TTF, borders, widgets, interactivity) is reserved for menus, and the fallback HUD is autopeli-specific. | §2.15, §2.6 |
 | **Dynamic UI (allocate/free host EVG objects)** | Missing | RGU1 is full-snapshot rebuild only; the guest cannot allocate a persistent host `EVGElement`, mutate it by handle, or free it — any change re-serializes and rebuilds the whole tree. | §2.6 |
 | **Dynamic / streamed resource loading** | Prototype | A declare-once manifest and a synchronous frame-path decoder ship; a WASM streaming vertical (`RGX1` worker + `RGLD` loader) is proven but uses mock handles — the public `rg_res_*` primitives, the `RGO1` observation block, shared headers, and async decode are not landed. | §2.7 |
 
@@ -1406,6 +1407,78 @@ The result: starting a game becomes *"tell me the ABI you speak and the features
 have, read the device you landed on, adapt or bow out"* — one init handshake and one
 documented environment descriptor shared by every guest path, so a game knows its screen,
 its device, and its channels before the first frame instead of guessing (§2.1, §4, §6, §7).
+
+### 2.15 The HUD and its relationship to EVG
+
+The HUD — score, bars, gauges, menus overlaid on the world — is where the game meets EVG,
+the host's element/vector graphics model. Everything is already *expressed* in EVG, but it
+is drawn through **three different paths of two different fidelities**, and the richest EVG
+renderer the engine owns is reserved for menus, not the HUD.
+
+**Current state.**
+
+- **Three HUD paths.**
+  1. *TS `hud()` → `GameHudBlitter` ([`game_hud.rgr`](./scripting/game_hud.rgr)).* A game's
+     `hud(props)` returns a JSX/EVG tree; `GameRunner` runs `EVGLayout` at screen size and
+     the blitter composites `View` backgrounds and `Label` text onto the world
+     `SoftCanvas`. Its own comment calls it *"the lightweight bridge toward full
+     `EVGRasterRenderer` integration"* — it draws only backgrounds + text, in a **bitmap
+     3×5 font** (`HudBitmapTextMeasurer`), with no TTF, images, borders, radius, or clip.
+  2. *WASM/`.as` RGU1 → same blitter.* A guest declares an RGU1 document (§2.6); the host
+     validates it ([`wasm_ui_io.rgr`](./scripting/wasm_ui_io.rgr)), rebuilds an
+     `EVGElement` tree on a revision bump, and blits it through the **same limited
+     `GameHudBlitter`** (`wasm_physics_runner.rgr` `drawWasmHudOn`).
+  3. *Hardcoded `fillRect` fallback.* When no RGU1 doc exists, the "generic" runner draws a
+     **fully autopeli-specific HUD** by hand — speed/progress/hits bars, a `readControlGrip`
+     gauge, oil and `air_p1/p2` indicators — all `target.fillRect(...)` at magic
+     coordinates (`drawHudOn`). This is the HUD form of the autopeli leak (§5).
+- **The rich EVG renderer exists, but only for menus.** The interactive UI layer
+  ([`ui/UI_LAYER.md`](./ui/UI_LAYER.md)) has everything the HUD lacks — **TTF text with a
+  glyph/line cache**, borders/radius, a selection highlight, real widgets (button, text
+  field, soft keyboard), and `WasmUiSelect` D-pad navigation over RGU1 — but it is wired
+  as the **menu/editor** stack (`engine=ui`), *not* as the game HUD renderer. So the HUD
+  gets the weak renderer and menus get the strong one, from the *same* EVG model.
+- **The HUD is draw-only; interactivity lives elsewhere.** `GameHudBlitter` only paints;
+  hit-testing, focus, drag, and text entry live in the separate UI layer that games do not
+  use for their HUD. RGU1 selection exists but only on the menu path and only via D-pad
+  (no pointer, no text — the §2.9 input gap).
+- **Autopeli taxonomy in the generic host.** Per-player HUD columns are mapped by
+  **hardcoded node ids** (P1 → 10, P2 → 20) in the runner, and the fallback HUD reads
+  autopeli fields (`grip`, `oil`, `air`) — game specifics baked into a "generic" runner.
+
+**Ideal.**
+
+1. **One EVG renderer for HUD and UI.** Fold the limited `GameHudBlitter` and the rich
+   UI-layer renderer into a **single EVG rasterizer** (TTF glyph/line cache, backgrounds,
+   borders/radius, images, clip, and later SVG + the GPU path) that draws *both* the game
+   HUD and menus — so a `Label` in a HUD renders identically to a `Label` in the editor,
+   at full fidelity. The HUD stops being a "lightweight bridge," and the bitmap font
+   becomes a negotiated fallback (§2.14), not the HUD's ceiling.
+2. **One HUD contract across every path.** The HUD is an EVG/RGU1 document the game
+   declares; TS `hud()` and WASM/`.as` RGU1 produce the **same tree for the same
+   renderer**, collapsing the three paths into one. The hand-drawn `fillRect` autopeli HUD
+   is deleted in favour of a game-declared document — the §3 `GameSceneProvider` / §5
+   leak-removal rule, applied to the HUD; per-player columns are guest *structure*, not
+   hardcoded ids 10/20.
+3. **Interactive HUD, one input shape.** The HUD gains the UI layer's interactivity —
+   hit-test, focus, selection, drag, text — driven by the **one typed input snapshot**
+   from §2.9 (pointer/touch/text, not just D-pad) and delivered over the ABI through
+   §2.6's `rg_ui_event`, so a HUD button, an in-game slider, and a text field work on
+   every guest path with one contract.
+4. **Data-driven layout and theming, host-resolved.** Position/size come from `EVGLayout`;
+   colours, spacing, radius are **guest-declared RGU1 properties the host resolves** (the
+   UI_LAYER "all styling is guest-declared, host-resolved" rule) — no per-game styling or
+   magic coordinates in the host, and the HUD sizes itself from the negotiated viewport
+   (§2.14), not baked pixels.
+5. **Dynamic, animated, capability-gated, deterministic.** HUD updates use §2.6's
+   handle/mutation model for cheap incremental changes instead of full-snapshot rebuilds;
+   HUD motion is a §2.12 animation; renderer fidelity (TTF vs bitmap, GPU vs software) is
+   negotiated via §2.14/§6 and degrades gracefully; and HUD input events are deterministic
+   like the rest of input, so a recorded session replays the HUD identically.
+
+The result: the HUD becomes *"one EVG document, one renderer, one input shape,"* — the same
+element/vector model, drawn at the same fidelity, interactive on every guest path,
+game-declared in content and host-owned in rendering (§2.6, §2.9, §2.12, §2.14, §3, §5).
 
 ---
 
