@@ -21,10 +21,11 @@
 
 Import "../game_engine/scripting/game_audio.rgr"
 Import "../game_engine/scripting/game_soundscore.rgr"
+Import "../game_engine/scripting/game_voicebox.rgr"
 
 ; A declared engine resource. `kind` selects the registry.
 class ResourceDefNative {
-    def kind:string ""        ; "image" | "sound" | "sprite" | "collision" | "music"
+    def kind:string ""        ; "image" | "sound" | "sprite" | "collision" | "music" | "voice"
     def id:string ""
     def path:string ""
     def px:int 0              ; sprite pixel scale
@@ -35,7 +36,7 @@ class ResourceDefNative {
 
 ; A transient event emitted by update() and drained by the host each frame.
 class GameEventNative {
-    def kind:string ""        ; "playSound" | "playMusic" | "stopMusic" | "rumble" | "spawn" | "destroy" | custom
+    def kind:string ""        ; "playSound" | "playVoice" | "playMusic" | "stopMusic" | "rumble" | "spawn" | "destroy" | custom
     def id:string ""
     def x:double 0.0
     def y:double 0.0
@@ -64,10 +65,24 @@ class GameHost {
     def musicTexts:[string:string]
     def musicDir:string ""
     def activeMusicScore:string ""
+    ; Predefined vocal effects (laugh / sigh / gasp / cough / ...).
+    def voicebox:GameVoicebox (new GameVoicebox)
+    def voiceReady:boolean false
+    def voicesPlayed:[string]
+    def voicePaths:[string:string]
 
     fn wireMusic:void () {
         if audio {
             music.audio = (unwrap audio)
+        }
+        this.wireVoice()
+    }
+
+    ; Build the voicebox synth tables once, lazily.
+    fn wireVoice:void () {
+        if (false == voiceReady) {
+            voicebox.init()
+            voiceReady = true
         }
     }
 
@@ -173,6 +188,40 @@ class GameHost {
             if verbose { print ("[host] music " + r.id) }
             return
         }
+        if (r.kind == "voice") {
+            ; A pre-rendered Voicebox WAV override for a predefined effect id.
+            set voicePaths r.id r.path
+            if verbose { print ("[host] voice " + r.id) }
+            return
+        }
+    }
+
+    ; Load a registered voice WAV override from disk (16-bit mono PCM). Returns
+    ; false when no path is registered or the file is unusable; the synth then
+    ; supplies the effect. Call after musicDir is set.
+    fn loadVoiceAsset:boolean (id:string) {
+        def path@(optional):string (get voicePaths id)
+        if (null? path) {
+            return false
+        }
+        this.wireVoice()
+        def full:string (this.joinPath(musicDir (unwrap path)))
+        def slash:int -1
+        def i 0
+        while (i < (strlen full)) {
+            def ch:string (substring full i (i + 1))
+            if (ch == "/") {
+                slash = i
+            }
+            i = (i + 1)
+        }
+        def dir:string "."
+        def file:string full
+        if (slash >= 0) {
+            dir = (substring full 0 slash)
+            file = (substring full (slash + 1) (strlen full))
+        }
+        return (voicebox.registerAssetWav(id dir file))
     }
 
     fn registerResources:void (list:[ResourceDefNative]) {
@@ -200,6 +249,20 @@ class GameHost {
                 }
             }
             if verbose { print ("[host] playSound " + e.id) }
+            return
+        }
+        if (e.kind == "playVoice") {
+            push voicesPlayed e.id
+            if audio {
+                def a:GameAudio (unwrap audio)
+                this.wireVoice()
+                if (voicebox.has(e.id)) {
+                    voicebox.play(e.id a.sink)
+                } {
+                    if verbose { print ("[host] playVoice (unknown effect) " + e.id) }
+                }
+            }
+            if verbose { print ("[host] playVoice " + e.id) }
             return
         }
         if (e.kind == "playMusic") {
@@ -276,5 +339,17 @@ class GameHost {
 
     fn soundPlayCount:int () {
         return (array_length soundsPlayed)
+    }
+
+    fn voicePlayCount:int () {
+        return (array_length voicesPlayed)
+    }
+
+    ; Trigger a predefined vocal effect straight from host / native code.
+    fn playVoice:void (id:string) {
+        def e:GameEventNative (new GameEventNative)
+        e.kind = "playVoice"
+        e.id = id
+        this.handleEvent(e)
     }
 }

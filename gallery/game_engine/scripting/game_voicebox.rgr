@@ -1,0 +1,498 @@
+; ==============================================================================
+; game_voicebox - predefined vocal sound effects for the game engine.
+; ==============================================================================
+;
+; Inspired by Voicebox (https://github.com/jamiepine/voicebox), whose
+; "Chatterbox Turbo" TTS interprets paralinguistic tags such as [laugh],
+; [sigh], [gasp] and [cough]. This module gives the Ranger game engine a small
+; catalogue of *named* vocal effects that a game reaches through the engine ABI:
+;
+;   * event route   : update() emits { kind: "playVoice", id: "laugh" }
+;   * native route  : a script calls laugh() / voice("sigh") (see the bridge)
+;
+; Each effect maps to a Voicebox paralinguistic tag when one exists (laugh,
+; sigh, gasp, cough) and otherwise to an engine-only extension (cheer, boo,
+; hmm, huh, yawn, giggle, chuckle). So the same catalogue can drive:
+;
+;   * a built-in procedural VOICE SYNTH (works headless / SDL, no desktop app),
+;   * or a real Voicebox render dropped in as a 16-bit mono WAV asset, which
+;     overrides the synth when registered (registerAssetWav).
+;
+; The synth is deliberately small: a glottal pitch glide + a few vowel formant
+; harmonics + breath noise, gated into bursts. It is not speech, but "ha-ha",
+; a breathy sigh, a sharp gasp and a cough are all clearly recognisable.
+; ==============================================================================
+
+Import "./game_audio.rgr"
+
+; One predefined vocal expression.
+class VoiceSpec {
+    def name:string ""
+    def tag:string ""          ; Voicebox paralinguistic tag, e.g. "[laugh]"
+    def native:boolean false   ; true = real Voicebox tag; false = engine extension
+    def vowel:string "ah"      ; formant colour: ah | oo | ee | uh | mm
+    def envShape:string "pluck" ; pluck | swell | rise | fall
+    def basePitchHz:double 300.0
+    def endPitchHz:double 300.0 ; linear pitch glide target across the effect
+    def bursts:int 1           ; repeated syllables ("ha-ha-ha")
+    def burstMs:int 200        ; voiced length of one burst
+    def gapMs:int 0            ; silence between bursts
+    def breath:double 0.3      ; 0..1 mix of breath noise over the voiced tone
+    def vibrato:double 0.0     ; pitch wobble depth
+    def volume:double 0.32
+}
+
+class GameVoicebox {
+    ; Own a private GameAudio purely for its stateless synth helpers
+    ; (sine table + noise). Playback uses the shared sink passed to play().
+    def synth:GameAudio (new GameAudio)
+    def playCount:int 0
+    def lastId:string ""
+    def verbose:boolean false
+
+    ; Pre-rendered Voicebox WAV overrides (16-bit mono PCM), keyed by effect name.
+    def assetPcm:[string:buffer]
+    def assetFrames:[string:int]
+
+    fn init:void () {
+        synth.init()
+    }
+
+    fn sampleRate:int () {
+        return synth.sampleRate
+    }
+
+    ; --- catalogue -----------------------------------------------------------
+
+    fn names:[string] () {
+        def out:[string]
+        push out "laugh"
+        push out "giggle"
+        push out "chuckle"
+        push out "sigh"
+        push out "gasp"
+        push out "cough"
+        push out "cheer"
+        push out "boo"
+        push out "hmm"
+        push out "huh"
+        push out "yawn"
+        return out
+    }
+
+    fn has:boolean (id:string) {
+        def all:[string] (this.names())
+        def i 0
+        while (i < (array_length all)) {
+            if ((itemAt all i) == id) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn tagFor:string (id:string) {
+        def spec:VoiceSpec (this.lookupSpec(id))
+        return spec.tag
+    }
+
+    fn isNative:boolean (id:string) {
+        def spec:VoiceSpec (this.lookupSpec(id))
+        return spec.native
+    }
+
+    ; Named expression -> synth + tag parameters. Mirrors GameAudio.lookupSpec.
+    fn lookupSpec:VoiceSpec (id:string) {
+        def s:VoiceSpec (new VoiceSpec)
+        s.name = id
+        if (id == "laugh") {
+            s.tag = "[laugh]"
+            s.native = true
+            s.vowel = "ah"
+            s.envShape = "pluck"
+            s.basePitchHz = 320.0
+            s.endPitchHz = 250.0
+            s.bursts = 4
+            s.burstMs = 120
+            s.gapMs = 70
+            s.breath = 0.25
+            s.vibrato = 0.02
+            s.volume = 0.34
+            return s
+        }
+        if (id == "giggle") {
+            s.tag = "[laugh]"
+            s.native = true
+            s.vowel = "ee"
+            s.envShape = "pluck"
+            s.basePitchHz = 500.0
+            s.endPitchHz = 440.0
+            s.bursts = 5
+            s.burstMs = 80
+            s.gapMs = 55
+            s.breath = 0.2
+            s.vibrato = 0.03
+            s.volume = 0.30
+            return s
+        }
+        if (id == "chuckle") {
+            s.tag = "[laugh]"
+            s.native = true
+            s.vowel = "uh"
+            s.envShape = "pluck"
+            s.basePitchHz = 250.0
+            s.endPitchHz = 210.0
+            s.bursts = 3
+            s.burstMs = 135
+            s.gapMs = 95
+            s.breath = 0.3
+            s.vibrato = 0.015
+            s.volume = 0.30
+            return s
+        }
+        if (id == "sigh") {
+            s.tag = "[sigh]"
+            s.native = true
+            s.vowel = "ah"
+            s.envShape = "swell"
+            s.basePitchHz = 300.0
+            s.endPitchHz = 185.0
+            s.bursts = 1
+            s.burstMs = 750
+            s.gapMs = 0
+            s.breath = 0.55
+            s.vibrato = 0.01
+            s.volume = 0.30
+            return s
+        }
+        if (id == "gasp") {
+            s.tag = "[gasp]"
+            s.native = true
+            s.vowel = "ah"
+            s.envShape = "rise"
+            s.basePitchHz = 340.0
+            s.endPitchHz = 620.0
+            s.bursts = 1
+            s.burstMs = 260
+            s.gapMs = 0
+            s.breath = 0.6
+            s.vibrato = 0.0
+            s.volume = 0.34
+            return s
+        }
+        if (id == "cough") {
+            s.tag = "[cough]"
+            s.native = true
+            s.vowel = "uh"
+            s.envShape = "pluck"
+            s.basePitchHz = 180.0
+            s.endPitchHz = 150.0
+            s.bursts = 2
+            s.burstMs = 110
+            s.gapMs = 95
+            s.breath = 0.5
+            s.vibrato = 0.0
+            s.volume = 0.40
+            return s
+        }
+        if (id == "cheer") {
+            s.tag = "[cheer]"
+            s.native = false
+            s.vowel = "ah"
+            s.envShape = "rise"
+            s.basePitchHz = 400.0
+            s.endPitchHz = 700.0
+            s.bursts = 1
+            s.burstMs = 620
+            s.gapMs = 0
+            s.breath = 0.3
+            s.vibrato = 0.04
+            s.volume = 0.32
+            return s
+        }
+        if (id == "boo") {
+            s.tag = "[boo]"
+            s.native = false
+            s.vowel = "oo"
+            s.envShape = "fall"
+            s.basePitchHz = 260.0
+            s.endPitchHz = 150.0
+            s.bursts = 1
+            s.burstMs = 520
+            s.gapMs = 0
+            s.breath = 0.25
+            s.vibrato = 0.02
+            s.volume = 0.32
+            return s
+        }
+        if (id == "hmm") {
+            s.tag = "[hmm]"
+            s.native = false
+            s.vowel = "mm"
+            s.envShape = "swell"
+            s.basePitchHz = 210.0
+            s.endPitchHz = 190.0
+            s.bursts = 1
+            s.burstMs = 430
+            s.gapMs = 0
+            s.breath = 0.15
+            s.vibrato = 0.01
+            s.volume = 0.26
+            return s
+        }
+        if (id == "huh") {
+            s.tag = "[huh]"
+            s.native = false
+            s.vowel = "uh"
+            s.envShape = "rise"
+            s.basePitchHz = 240.0
+            s.endPitchHz = 300.0
+            s.bursts = 1
+            s.burstMs = 300
+            s.gapMs = 0
+            s.breath = 0.35
+            s.vibrato = 0.0
+            s.volume = 0.30
+            return s
+        }
+        if (id == "yawn") {
+            s.tag = "[yawn]"
+            s.native = false
+            s.vowel = "ah"
+            s.envShape = "swell"
+            s.basePitchHz = 240.0
+            s.endPitchHz = 200.0
+            s.bursts = 1
+            s.burstMs = 850
+            s.gapMs = 0
+            s.breath = 0.4
+            s.vibrato = 0.02
+            s.volume = 0.30
+            return s
+        }
+        ; Unknown id -> neutral short "uh".
+        s.tag = "[speak]"
+        s.native = false
+        s.vowel = "uh"
+        s.envShape = "pluck"
+        s.basePitchHz = 240.0
+        s.endPitchHz = 220.0
+        s.bursts = 1
+        s.burstMs = 200
+        s.gapMs = 0
+        s.breath = 0.3
+        s.vibrato = 0.0
+        s.volume = 0.30
+        return s
+    }
+
+    ; --- vocal synthesis -----------------------------------------------------
+
+    ; Weighted formant harmonics approximate a vowel colour.
+    fn vowelSample:double (vowel:string phase:double) {
+        def s:double (synth.sampleSine(phase))
+        def p2:double (synth.harmPhase(phase 2))
+        def p3:double (synth.harmPhase(phase 3))
+        def p4:double (synth.harmPhase(phase 4))
+        def p5:double (synth.harmPhase(phase 5))
+        if (vowel == "ah") {
+            s = (s + (0.60 * (synth.sampleSine(p2))))
+            s = (s + (0.40 * (synth.sampleSine(p3))))
+            s = (s + (0.24 * (synth.sampleSine(p4))))
+            s = (s + (0.14 * (synth.sampleSine(p5))))
+            return (s * 0.42)
+        }
+        if (vowel == "ee") {
+            s = (s * 0.7)
+            s = (s + (0.50 * (synth.sampleSine(p2))))
+            s = (s + (0.62 * (synth.sampleSine(p3))))
+            s = (s + (0.34 * (synth.sampleSine(p4))))
+            return (s * 0.40)
+        }
+        if (vowel == "oo") {
+            s = (s + (0.30 * (synth.sampleSine(p2))))
+            s = (s + (0.10 * (synth.sampleSine(p3))))
+            return (s * 0.58)
+        }
+        if (vowel == "mm") {
+            s = (s + (0.20 * (synth.sampleSine(p2))))
+            return (s * 0.62)
+        }
+        ; "uh" — mid, slightly darker than ah.
+        s = (s + (0.45 * (synth.sampleSine(p2))))
+        s = (s + (0.22 * (synth.sampleSine(p3))))
+        s = (s + (0.10 * (synth.sampleSine(p4))))
+        return (s * 0.46)
+    }
+
+    ; Burst amplitude envelope in [0,1] for local burst time bt in [0,1].
+    fn burstEnv:double (shape:string bt:double) {
+        if (shape == "swell") {
+            ; smooth hump: 0 -> 1 -> 0
+            def x:double (bt * 3.14159265)
+            return (synth.sampleSine((x / 6.283185307)))
+        }
+        if (shape == "rise") {
+            def atk:double 0.75
+            if (bt < atk) {
+                def u:double (bt / atk)
+                return (u * u)
+            }
+            def d:double ((bt - atk) / (1.0 - atk))
+            return (1.0 - d)
+        }
+        if (shape == "fall") {
+            def atk:double 0.12
+            if (bt < atk) {
+                return (bt / atk)
+            }
+            def d:double ((bt - atk) / (1.0 - atk))
+            return (1.0 - (d * d))
+        }
+        ; "pluck" — fast attack, quadratic decay.
+        def atk:double 0.10
+        if (bt < atk) {
+            return (bt / atk)
+        }
+        def d:double ((bt - atk) / (1.0 - atk))
+        def env:double (1.0 - d)
+        return (env * env)
+    }
+
+    ; Render one expression to mono 16-bit PCM.
+    fn render:ScoreVoiceRender (id:string) {
+        def out:ScoreVoiceRender (new ScoreVoiceRender)
+        def spec:VoiceSpec (this.lookupSpec(id))
+        def sr:int synth.sampleRate
+        def periodMs:int (spec.burstMs + spec.gapMs)
+        def totalMs:int (periodMs * spec.bursts)
+        if (totalMs < 40) {
+            totalMs = 40
+        }
+        def frames:int (to_int (((to_double totalMs) * (to_double sr)) / 1000.0))
+        if (frames < 1) {
+            frames = 1
+        }
+        def burstFrames:int (to_int (((to_double spec.burstMs) * (to_double sr)) / 1000.0))
+        if (burstFrames < 1) {
+            burstFrames = 1
+        }
+        def periodFrames:int (to_int (((to_double periodMs) * (to_double sr)) / 1000.0))
+        if (periodFrames < 1) {
+            periodFrames = 1
+        }
+        def pcm:buffer (buffer_alloc (frames * 2))
+        def phase:double 0.0
+        def i 0
+        while (i < frames) {
+            def t:double ((to_double i) / (to_double frames))
+            def pitch:double (spec.basePitchHz + ((spec.endPitchHz - spec.basePitchHz) * t))
+            if (spec.vibrato > 0.0) {
+                def vib:double (1.0 + (spec.vibrato * (synth.sampleSine((to_double i) / 210.0))))
+                pitch = (pitch * vib)
+            }
+            def burstIdx:int (to_int (i / periodFrames))
+            def localFrame:int (i - (burstIdx * periodFrames))
+            def env:double 0.0
+            if (localFrame < burstFrames) {
+                def bt:double ((to_double localFrame) / (to_double burstFrames))
+                env = (this.burstEnv(spec.envShape bt))
+                ; later syllables of a laugh sag a little
+                def sag:double (1.0 - (0.12 * (to_double burstIdx)))
+                if (sag < 0.4) { sag = 0.4 }
+                env = (env * sag)
+            }
+            def voiced:double (this.vowelSample(spec.vowel phase))
+            def noise:double (synth.sampleInstrument("drums" phase i))
+            def sample:double ((voiced * (1.0 - spec.breath)) + (noise * spec.breath))
+            ; Clamp to unity: summed formants (and the shared sine table's Taylor
+            ; overshoot near wrap) can exceed 1.0, which would hit the rail.
+            if (sample > 1.0) { sample = 1.0 }
+            if (sample < -1.0) { sample = -1.0 }
+            def amp:double (sample * spec.volume * env * 0.92 * 32767.0)
+            ; short fade at the very end to avoid a click
+            if (i >= (frames - 12)) {
+                def tail:int (frames - i)
+                amp = (amp * ((to_double tail) / 12.0))
+            }
+            def iv:int (to_int amp)
+            if (iv > 32767) { iv = 32767 }
+            if (iv < -32768) { iv = -32768 }
+            def v:int iv
+            if (v < 0) {
+                v = (65536 + v)
+            }
+            def lo:int (bit_and v 255)
+            def hi:int (bit_and (to_int (v / 256)) 255)
+            def off:int (i * 2)
+            buffer_set pcm off lo
+            buffer_set pcm (off + 1) hi
+            phase = (phase + (pitch / (to_double sr)))
+            phase = (synth.wrapPhase(phase))
+            i = (i + 1)
+        }
+        out.pcm = pcm
+        out.frames = frames
+        return out
+    }
+
+    ; --- Voicebox WAV asset overrides ---------------------------------------
+
+    ; Register pre-rendered PCM (e.g. exported from the Voicebox desktop app).
+    fn registerAsset:void (id:string pcm:buffer frames:int) {
+        set assetPcm id pcm
+        set assetFrames id frames
+    }
+
+    fn hasAsset:boolean (id:string) {
+        def v@(optional):buffer (get assetPcm id)
+        return (!null? v)
+    }
+
+    ; Load a 16-bit mono PCM WAV (44-byte header) as an override for `id`.
+    fn registerAssetWav:boolean (id:string dir:string file:string) {
+        def raw:buffer (buffer_read_file dir file)
+        def total:int (buffer_length raw)
+        if (total <= 44) {
+            return false
+        }
+        def dataBytes:int (total - 44)
+        def pcm:buffer (buffer_alloc dataBytes)
+        def i 0
+        while (i < dataBytes) {
+            buffer_set pcm i (buffer_get raw (44 + i))
+            i = (i + 1)
+        }
+        this.registerAsset(id pcm (to_int (dataBytes / 2)))
+        return true
+    }
+
+    ; --- playback ------------------------------------------------------------
+
+    ; Render (or fetch the WAV override) and hand the PCM to a shared sink.
+    fn play:void (id:string sink:GameAudioSink) {
+        playCount = (playCount + 1)
+        lastId = id
+        if verbose {
+            print ("[voicebox] play " + id + " " + (this.tagFor(id)))
+        }
+        if (this.hasAsset(id)) {
+            def pcm@(optional):buffer (get assetPcm id)
+            def fr@(optional):int (get assetFrames id)
+            if (!null? pcm) {
+                def frames:int 0
+                if (!null? fr) {
+                    frames = (unwrap fr)
+                }
+                sink.onSynthPlay(("voice:" + id) synth.sampleRate frames (unwrap pcm))
+                return
+            }
+        }
+        def rendered:ScoreVoiceRender (this.render(id))
+        if (rendered.frames <= 0) {
+            return
+        }
+        sink.onSynthPlay(("voice:" + id) synth.sampleRate rendered.frames rendered.pcm)
+    }
+}
