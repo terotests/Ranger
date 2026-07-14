@@ -96,6 +96,7 @@ without re-widening the leaks above.
 | **Unified HUD renderer** | Fragmented | Three HUD paths (TS `hud()`, RGU1 doc, hardcoded `fillRect`) through a limited `GameHudBlitter` (View+Label, bitmap 3×5 font); the rich EVG renderer (TTF, borders, widgets, interactivity) is reserved for menus, and the fallback HUD is autopeli-specific. | §2.15, §2.6 |
 | **Structured logging & error levels** | Ad-hoc | Bare `print("[tag] …")` to stdout with varying prefixes and no severity; verbosity is a few inconsistent `verbose` booleans; TS gets `console.log/warn` but WASM/`.as` have no log import; failures are plain prints, not typed errors. | §2.16 |
 | **Feature flags** | Missing | The only flag-shaped construct is the inert RGCQ `debugmode` key; real toggles are ad-hoc runner booleans (`useWasmHud`, `useAs`, hot-reload) and `game.info` keys — no registry, no query, no scoping/source, not exposed to guests. | §2.16, §2.14 |
+| **Camera & transform matrices** | Fragmented | The main camera is integer pan (`state.cameraX/Y`, `screen = world - cam`); a real pan/zoom/rotate matrix camera exists only on the GLES2 sprite overlay (off by default); no per-object rotation/scale transform; the ABI carries only `camera_y`; and the `Mat3` library is stranded in unwired 3D physics. | §2.17, §5 |
 | **Dynamic UI (allocate/free host EVG objects)** | Missing | RGU1 is full-snapshot rebuild only; the guest cannot allocate a persistent host `EVGElement`, mutate it by handle, or free it — any change re-serializes and rebuilds the whole tree. | §2.6 |
 | **Dynamic / streamed resource loading** | Prototype | A declare-once manifest and a synchronous frame-path decoder ship; a WASM streaming vertical (`RGX1` worker + `RGLD` loader) is proven but uses mock handles — the public `rg_res_*` primitives, the `RGO1` observation block, shared headers, and async decode are not landed. | §2.7 |
 
@@ -1591,6 +1592,91 @@ become *"a typed severity + code, propagated, not a bare print,"* and configurat
 *"query a named flag with a known source"* — one logging, error, and flag contract shared by
 every guest path, game- and operator-controllable without a recompile, and host-owned in its
 sinks and sources (§2.7, §2.10, §2.11, §2.14, §2.15, §4, §6).
+
+### 2.17 The camera and transformation matrices
+
+Everything the player sees is placed by a transform: the **camera** maps the world into the
+view, and each **game object** sits at its own position, rotation, and scale. The engine has
+both — but as a *scalar pan* on the main path and a *real matrix camera* only on the GPU
+sprite overlay, with a full transform-matrix library stranded in the unwired 3D physics.
+Capability forked by backend, and none of it exposed over the ABI.
+
+**Current state.**
+
+- **The 2D game camera is scalar pan only.** [`game_camera.rgr`](./scripting/game_camera.rgr)
+  `GameCamera` takes a `camera()` config (`follow`, `mode: vertical/horizontal/both`,
+  `offsetX/Y`, `smoothing`, `bounds`, `leadMs`), computes a target `camX/camY` from the
+  follow entity, clamps to bounds, lerps by `smoothing`, and writes `state.cameraX/cameraY`
+  — **integer pan, no zoom, no rotation**. Every renderer then applies the transform as a
+  hardcoded **subtraction** (`screen = world - cam`); legacy games set `state.cameraY` by
+  hand.
+- **No transform matrix on the main path.** Entities carry world `x/y`; physics bodies even
+  carry an `angle` (§2.5), but sprites are drawn **axis-aligned** — `game_sprite.rgr` bakes
+  a sheet **scale once at load** and then blits 1:1. There is no local→world→view→screen
+  chain, no per-object rotation/scale/pivot, no parent/child transform — position is just
+  `x - camX`, `y - camY` with a fixed per-sheet scale percentage.
+- **A real matrix camera exists, but GPU-only and off by default.** `game_sprite.rgr`
+  `setGpuCamera(x, y, zoom, angleDeg)` → `gfx_sdl.rgr` `rgfx_gpu_camera_set` builds a
+  **4×4 view-projection uniform** per pane (pan `= world - cam`, zoom, and rotation about
+  the pane centre). So genuine pan/zoom/rotate exists — but only on the **GLES2 sprite
+  queue**, only when enabled (default is identity), driven by host code, and **not applied**
+  to the software framebuffer, the world entities, or the HUD. The CPU path cannot zoom or
+  rotate at all.
+- **The ABI carries one camera scalar, no transforms.** RGW1 exposes `RG_WASM_OFF_CAMERA_Y`
+  (a single i32 the guest writes); RGSP1 has only `VIEW_W/VIEW_H`. There is **no** camera
+  position/zoom/rotation, no viewport/projection, and no per-object transform in any ABI
+  block — a guest can nudge a vertical scroll and nothing else.
+- **The matrix library is walled off in unwired 3D physics.** `physics/src/cannon_mat3.rgr`
+  (with `cannon_transform.rgr`, quaternions) is a complete, tested transform library — but
+  it serves the Cannon.js 3D port that §2.5 flags as **unwired**. The 2D engine reinvents
+  pan by hand instead of using it.
+
+**Ideal.**
+
+1. **One camera model, one transform, both backends.** A single 2D camera — position, zoom,
+   rotation, plus the existing follow / smoothing / bounds / lead — resolves to **one affine
+   view matrix** applied identically on the **software framebuffer and the GPU**, so zoom and
+   rotation work everywhere, not just the GLES2 sprite overlay. The scalar `cameraX/Y` and
+   `setGpuCamera` collapse into the same camera, and `screen = view · world` replaces the
+   scattered `x - cam` subtractions.
+2. **Transform matrices as the shared primitive (reuse the stranded library).** Adopt a 2D
+   affine `Mat3` — the `cannon_mat3`/`cannon_transform` math generalised out of the 3D-only
+   silo — as the engine's transform type: a **world → view → screen** chain plus a
+   **per-object local transform** (translation, rotation, scale, pivot, optional
+   parent/child), so an object can rotate/scale about a pivot and inherit a parent's
+   transform, finally using the `angle` physics already computes (§2.5) and the sprite scale
+   that is baked today.
+3. **Camera and transforms are a first-class ABI block, on every path.** A guest declares
+   its camera (pos/zoom/rotation/bounds/follow) and, where needed, per-object transforms,
+   over a shared block — identical on RGW1, `.as`, and TS — replacing the single `camera_y`
+   scalar and the TS-only `camera()` config:
+
+```c
+/* Camera block (guest -> host); fixed-point per §5. */
+#define RG_CAM_OFF_X       0   /* i32 camera world x (* FP_SCALE)          */
+#define RG_CAM_OFF_Y       4   /* i32 camera world y                       */
+#define RG_CAM_OFF_ZOOM    8   /* i32 zoom (* FP; FP = 1x)                 */
+#define RG_CAM_OFF_ROT     12  /* i32 rotation (* FP radians)             */
+#define RG_CAM_OFF_FOLLOW  16  /* u32 follow entity id (0 = free)          */
+/* host writes back the resolved 3x3 view matrix + viewport for the guest */
+#define RG_CAM_OFF_VIEW_M  32  /* 6×i32 affine (a b c d e f), host-written */
+```
+
+4. **Invertible: unproject for picking and world-anchored UI.** Because the view is a
+   matrix, the host also exposes **screen ↔ world** conversion (the inverse matrix), enabling
+   pointer/touch picking for the HUD and interactive world objects (§2.9, §2.15) and
+   world-anchored HUD elements — impossible with today's one-way scalar subtraction.
+5. **Deterministic, fixed-point, capability-gated.** Camera/transform math is host-owned
+   rendering, but any value fed back to the guest (the resolved matrix, an unprojected
+   pointer) is a **deterministic input** (the §2.4/§2.9 rule); transforms that affect
+   *logic* (world-space hit tests) use the engine's **fixed-point** convention (§5) so
+   results match across CPU and GPU and across replays; and backends negotiate via §2.14/§6
+   (GPU matrix vs CPU affine vs a "pan-only" fallback) and degrade gracefully.
+
+The result: placing the world becomes *"declare a camera, get back a view matrix,"* and
+placing an object becomes *"give it a local transform"* — one camera model and one affine
+transform shared by the software and GPU backends and by every guest path, invertible for
+picking, game-declared in view and host-owned in rendering (§2.5, §2.9, §2.14, §2.15, §5, §6).
 
 ---
 
