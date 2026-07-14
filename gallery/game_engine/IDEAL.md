@@ -72,7 +72,8 @@ without re-widening the leaks above.
 | Capability a game needs | Status today | Limitation | Ideal home |
 |-------------------------|--------------|------------|------------|
 | Declare its own **world** (bodies, bounds, world size, player count, camera hints, static-bg) | Partial | The guest declares *resources* (sheets/rects) through the manifest, but **not** bodies/bounds/world-size/player-count; those come from the host's own copy. No `worldSize()`/`playerCount()` channel. | §3, §5 |
-| Know the **viewport / screen size** in a physics guest | Missing | RGSP1 has `VIEW_W`/`VIEW_H`, but RGW1 has no view fields, so a physics guest cannot size or letterbox itself. | §2.1 (RGCQ `screen.*`) |
+| Know the **viewport / screen size** in a physics guest | Missing | RGSP1 has `VIEW_W`/`VIEW_H`, but RGW1 has no view fields, so a physics guest cannot size or letterbox itself. | §2.14, §2.1 |
+| **Init handshake & host-capability negotiation** | Dead | The header specs a version/caps handshake (`rg_abi_version`/`rg_required_caps`) and a typed query (RGCQ, `rg_declare_queries`/`rg_check_env`), but no host calls them — runners only `verifyMagic()`. No device-type/screen/input environment is answered, and only the WASM path has any query at all. | §2.14, §6 |
 | **Richer input** (analog sticks, pointer/touch, text, per-player remap) | Minimal | Only two i32 bitfields (`input`, `input_p2`); no analog axes, no pointer, no text entry. The host tracks 8 players × 12 buttons but the ABI carries 2 players × ~5 bits. | §2.1, §2.9 |
 | **Haptic feedback** (rumble) | Partial | Rumble flows as an RGW1 event `{ pad, low, high, ms }`, but the two motors are collapsed at `gfx_rumble_pad` (single strength) and `high` is dropped; no envelope/pattern, priority/mixing, cancel, or trigger haptics, and `HOST_CAP_RUMBLE` is never negotiated. | §2.9, §6 |
 | **Pose / body-tracking input** | Ad-hoc | Exists as a 128-byte `RGP1` block in two incompatible layouts across hosts; no shared header, only position + a discrete gesture (no motion/speed). | §2.4, §6 |
@@ -1320,6 +1321,91 @@ The result: navigating becomes *"push this route with these args and resume me w
 result,"* — one view-stack interface shared by every guest path, suspending rather than
 destroying, argument- and result-passing, with lifecycle events, game-defined in routes
 and host-owned in the stack (§2.6, §2.11, §2.12, §4, §6, §7).
+
+### 2.14 Initialization and querying host capabilities
+
+Before a game draws a pixel it must know where it is running: how big the screen is,
+what kind of device this is, which input and output channels exist. Every previous
+chapter ends with *"capability-gated via §6"* — this chapter is that gate. The ABI
+already **specifies** a version handshake and a typed capability query, but the host
+side is essentially **unwired**, so today a guest mostly runs blind.
+
+**Current state.**
+
+- **Two mechanisms are designed in the header, both mostly dead.**
+  ([`wasm/wasm_game_abi.h`](./wasm/wasm_game_abi.h).)
+  1. *Forward-compat handshake:* a guest MAY export `rg_abi_version()`, `rg_ui_abi()`,
+     `rg_required_caps()`, and the host is *recommended* to gate before `init()` —
+     reject `ver > RG_WASM_ABI_VERSION` (layout) and `need & ~RG_WASM_HOST_CAPS`
+     (feature gap). Host cap bits exist for `PHYSICS/RUMBLE/PARTICLES/RGU1`.
+  2. *RGCQ typed query:* a reserved tail (2304..2560) where the guest declares up to
+     **6** string keys (`rg_declare_queries`), the host fills typed values
+     (bool/int/float/string) with a `present` flag and sets `ready`, then
+     `rg_check_env()` lets the guest adapt (`0` = run, `!= 0` = abort reason). Keys are
+     convention — `"physics"`, `"debugmode"`, `"screen.width"`, `"gpu"`, …
+- **No host actually negotiates.** No Ranger host calls `rg_abi_version`,
+  `rg_required_caps`, `rg_declare_queries`, or `rg_check_env`; the runners only
+  `verifyMagic()` and clamp counts (`wasm_physics_runner.rgr`, `sprite_wasm_runner.rgr`).
+  The negotiation exists only as a *guest* that declares queries
+  ([`wasm/as_autopeli`](./wasm/as_autopeli/README.md)) and a JS *simulation*
+  (`as_autopeli/tools/capq_demo.cjs`). It is a dead gate (the top-level problem list).
+- **Screen size is pushed, not negotiated — and only into RGSP1.** The host writes
+  `VIEW_W`/`VIEW_H` at RGSP1 offsets 36/40 (`sprite_wasm_runner.rgr`); **RGW1 has no
+  view fields at all**, so a physics guest cannot learn the viewport. `"screen.width"`
+  is a nominal RGCQ key, but since RGCQ is unwired nothing answers it.
+- **There is no device-type concept anywhere.** No field or key describes device class
+  (desktop / handheld / TV / phone / embedded like a Pi), pixel density, refresh rate,
+  safe-area, connected input devices, locale, or clock. RGCQ *could* carry them as
+  string-key conventions, but none are defined and nothing resolves them.
+- **RGCQ is tiny and one-directional, and init differs per path.** At most 6 keys with a
+  small string pool; the guest can only pull keys it thinks to ask, and only on the
+  WASM/RGW1 path — the `.as` and TS paths have their own ad-hoc init
+  (`setupScene`/`resources`) with no equivalent negotiation. A parity gap on top of a
+  dead gate.
+
+**Ideal.**
+
+1. **A defined init lifecycle with a real handshake, on every path.** Wire the host side
+   the header already specifies — *load → negotiate → init → loop* — so an incompatible
+   guest is rejected cleanly (with a reason) instead of crashing on a moved offset or a
+   missing import, and make the same negotiation available to `.as` and TS guests, not
+   only WASM.
+2. **A standard, extensible environment descriptor the host publishes.** Beyond the
+   guest-asks-keys query, the host exposes a typed environment block the guest reads at
+   init, with a **documented core key registry** so it is portable across hosts:
+
+```
+screen.width / screen.height / screen.dpi / screen.refreshHz / screen.safeArea
+device.type        # 0=desktop 1=handheld 2=tv 3=phone 4=embedded
+input.keyboard / input.pointer / input.touch / input.gamepads(count) / input.pose
+audio / haptics / gpu / storage / network      # present + limits
+locale / clock.monotonic
+```
+
+   Keys stay open and typed (the format never changes to add one), but the core set is
+   *documented convention*, not per-host invention — the §4 "transport, not taxonomy"
+   rule applied to the environment.
+3. **Viewport is a first-class field on every block, and it can change.** RGW1 gains view
+   fields (the affected-areas list already calls for this), so physics, sprite, UI, and
+   streaming guests all size and letterbox themselves the same way — and a **resize**
+   arrives as a lifecycle event (cf. §2.6 / §2.13 events), not a silent value swap.
+4. **Two-way, graceful negotiation.** Hard must-haves go through the caps bitmask (reject
+   with a surfaced reason); soft capabilities go through the typed query and the guest
+   **adapts** — a narrow screen, no GPU, no gamepad, no pose are all survivable. The
+   guest declares both what it *needs* and what it can *optionally use*; the host answers;
+   nobody crashes.
+5. **Deterministic, versioned, and the shared front door for §6.** This chapter is the §6
+   handshake made real and generalised: init/negotiation gates every other channel —
+   pose (§2.4), physics (§2.5), UI (§2.6), resources (§2.7), controls/haptics (§2.9),
+   audio (§2.10), storage (§2.11), animation (§2.12), navigation (§2.13). Capabilities
+   are **read once at init** (stable inputs, so a replay negotiates identically); genuine
+   runtime changes (resize, gamepad hotplug) arrive as **events**, never as silent
+   mutations mid-step.
+
+The result: starting a game becomes *"tell me the ABI you speak and the features you must
+have, read the device you landed on, adapt or bow out"* — one init handshake and one
+documented environment descriptor shared by every guest path, so a game knows its screen,
+its device, and its channels before the first frame instead of guessing (§2.1, §4, §6, §7).
 
 ---
 
