@@ -278,15 +278,16 @@ all confirmed. These are the highest production risk today (the review's words:
 scripting idea"). Fix order follows the review's recommendation; each fix gets a
 regression test (Phase 5.x / roadmap delta-time + gamepad gaps).
 
-- [ ] **R.1 (High) Fixed-step loop runs one extra step + leaves accumulator
-  negative.** `game_runtime.rgr:1315-1326` — on `steps >= maxFixedSteps` it zeros
-  `timeAccumulator` but still runs `stepUpdate` and subtracts `fixedStepMs`, so it
-  executes `maxFixedSteps + 1` steps and exits with `timeAccumulator = -fixedStepMs`
-  (next frame may skip a step). Fix: `break` right after zeroing (run exactly
-  `maxFixedSteps`, leave accumulator at 0); ideally clamp the backlog before the
-  loop so `0 <= accumulator < fixedStepMs`.
-  *Test:* a large frame-dt runs ≤ `maxFixedSteps` updates and never leaves the
-  accumulator negative.
+- [x] **R.1 (High) Fixed-step loop runs one extra step + leaves accumulator
+  negative.** Fixed by extracting the scheduling into a pure planner
+  `scripting/game_fixed_step.rgr` (`FixedStep.plan` → `FixedStepPlan{steps,
+  residualMs}`): runs at most `maxSteps`, residual always in `[0, fixedStepMs)`
+  (or 0 when the backlog is dropped at the cap) — never `maxSteps+1`, never
+  negative. `game_runtime.frameWithInput` now calls the planner and loops
+  `plan.steps` times. The tested code IS the shipped code.
+  *Check:* `game_fixed_step_demo.rgr` self-test — 16/16 pass (incl. huge-dt caps at
+  exactly `maxSteps` with residual 0, the boundary 48/49/100ms cases, and no
+  negative residual); `game_runtime.rgr` compiles Ranger→C++.
 - [ ] **R.2 (Low / semantics — likely intended, NOT a bug) `playerCount = 2` in
   the 1-player branch.** `game_input.rgr:262` — `buildFromSdl(1)` builds a P2
   "join" mask and sets `playerCount = 2`. The review read this as a bug, but it is
@@ -299,28 +300,26 @@ regression test (Phase 5.x / roadmap delta-time + gamepad gaps).
   true active count can get it, while drop-in co-op stays the default.
   *Test (if refined):* `availableSlots == 2` while `activePlayerCount == 1` until a
   join input arrives — and the always-joinable P2 path is unchanged.
-- [ ] **R.3 (High) Input-edge sync omits left/right.**
-  `game_sdl_runner.rgr:558-564` — `syncInputEdges()` reseeds quit/up/down/action
-  but not `prevLeftHeld`/`prevRightHeld`, which ARE used as edges at 981-998. After
-  a mode switch / view open, a held left/right registers as a phantom fresh press.
-  Fix: seed `prevLeftHeld`/`prevRightHeld` from the mask too; route every edge
-  through one shared sync helper so this can't drift again.
-  *Test:* switching mode while left/right is held produces no phantom edge.
-- [ ] **R.4 (High) Failed `.as` load leaves the runner half-switched.**
-  `game_sdl_runner.rgr:448-460` — `loadAsAt` sets `useWasmRunner`/`useWasmPhysics =
-  true` and replaces `wasmPhysicsRunner` with a fresh instance BEFORE
-  `loadAsGame()`; on failure it prints and returns, leaving WASM-physics mode
-  active with a dead runner and the old game gone. Fix: load transactionally —
-  build a candidate in a local, load+validate, and only on success tear down the
-  old backend and flip the active flags; on failure keep prior state untouched.
-  (Same shape applies to the sprite/stream/wasm loaders that set flags first.)
-  *Test:* a failing `.as` load preserves the previous runner and mode.
-- [ ] **R.5 (Medium) `entities()` called twice per scene setup.**
-  `game_runtime.rgr:1079` and `1090` — `setupScene` calls the script's `entities()`
-  once for activation/seed and again for retained-sprite spawn; a side-effecting or
-  non-deterministic function makes the two diverge. Fix: call once, reuse the one
-  `EvalValue` for both activation and retained spawn.
-  *Test:* `entities()` is invoked exactly once per scene init.
+- [x] **R.3 (High) Input-edge sync omits left/right.** Fixed:
+  `game_sdl_runner.syncInputEdges()` now reseeds `prevLeftHeld` (mask bit 16) and
+  `prevRightHeld` (bit 32) alongside quit/up/down/action, so a button held across a
+  mode switch / view open is no longer re-counted as a fresh press. Mirrors the
+  existing up/down/action pattern with the bits the edge readers actually use.
+  *Check:* `game_sdl_runner.rgr` compiles Ranger→C++. (Runtime edge behaviour needs
+  the SDL build to exercise; the fix is a direct mirror of the working edges.)
+- [x] **R.4 (High) Failed `.as` load leaves the runner half-switched.** Fixed:
+  `loadAsAt` now loads **transactionally** — it builds a `candidate`
+  `WasmPhysicsRunner` in a local, `init`s + `loadAsGame`s + `setupScene`s it
+  WITHOUT touching active state, and only on success swaps `wasmPhysicsRunner =
+  candidate` and flips the mode flags. A failed load returns with the prior runner
+  and every mode flag untouched.
+  *Check:* `game_sdl_runner.rgr` compiles Ranger→C++.
+- [x] **R.5 (Medium) `entities()` called twice per scene setup.** Fixed:
+  `setupScene` now calls the script's `entities()` exactly once, hoisting the
+  result into `spawnEntities` and reusing it for both activation/seed and the
+  retained-sprite spawn — a side-effecting/non-deterministic `entities()` can no
+  longer diverge between the two uses.
+  *Check:* `game_runtime.rgr` compiles Ranger→C++.
 - [ ] **R.6 (Medium) Runner boolean-flag soup permits illegal states.**
   `game_sdl_runner.rgr` routes TSX / WASM / `.as` / UI / sprite / stream /
   split-screen through many independent booleans (`useWasmRunner`,
@@ -329,14 +328,34 @@ regression test (Phase 5.x / roadmap delta-time + gamepad gaps).
   backend interface (`load`/`update`/`draw`/`resize`/`unload`); split
   `game_sdl_runner` into per-backend adapters. (Complements the §7 provider work.)
   *Check:* mode is a single value; a second backend is an adapter, not new flags.
-- [ ] **R.7 (Medium) `auto` split-screen == `always`; `game.info` parsed by
-  `indexOf`.** `game_sdl_runner.rgr:645-649` — `shouldUseSplitScreen()` returns
-  true for both `"always"` and `"auto"` with no actual automatic condition, so the
-  name over-promises; and `game.info` is read in several places via substring
-  `indexOf`, fragile to whitespace/comments/false matches. Fix: give `auto` a real
-  predicate (e.g. players ≥ 2) or drop it; parse `game.info` once into a validated
-  key/value map against a known schema.
-  *Check:* `auto` differs from `always`; `game.info` has one typed parser.
+- [~] **R.7 Split-screen semantics — clarified with the maintainer; a second axis
+  added.** The review read `auto == always` as a bug. Per the maintainer it is
+  **not**: `"auto"` means the *engine* splits a single-player-authored game into
+  two panes/cameras with **zero game-side work** (`"always"` is an alias; every
+  shipped game uses `auto`). `dualPlayerMode` (a natively two-player game) already
+  short-circuits the split. Documented that in `shouldUseSplitScreen()`.
+  The real gap the maintainer surfaced is a **second, orthogonal axis** the config
+  couldn't express: the *world model* behind a split —
+  - **separate**: two independent sessions, one per pane (pinball — two unrelated
+    boards). Today's implicit behaviour for tsx games (`loadPanes(same, same)`).
+  - **shared**: one simulated world/physics viewed by two cameras following
+    different players (autopeli — one road+physics, two views). Today's implicit
+    behaviour for the wasm+physics split path (`WasmSplitScreenHost`, one `runner`).
+
+  Landed: a `splitWorld = shared | separate` field on `GameCatalogEntry`, parsed
+  from `game.info`, plus `GameCatalog.resolveSplitWorld(entry)` — an explicit value
+  wins, otherwise it infers `shared` for wasm+physics and `separate` otherwise, so
+  **today's behaviour is preserved** and the choice is now *decoupled from the
+  backend*.
+  *Check:* `game_split_world_demo.rgr` self-test — 6/6 (default inference for
+  wasm+physics/tsx, explicit override both ways, `game.info` parse);
+  `game_catalog.rgr` + `game_sdl_runner.rgr` compile Ranger→C++.
+  *Remaining (needs SDL build to verify):* route `loadGame` by `resolveSplitWorld`
+  instead of by backend, so a tsx game can request a shared world and a wasm game
+  separate sessions — i.e. make the split hosts honour the axis, not just record it.
+  (Note: `game.info` for these fields is already a clean `key=value` parser
+  (`parseInfoLine`), so 7b's "fragile `indexOf`" concern does not apply to them; the
+  raw-text `indexOf "engine=…"` fallback is the only substring path left.)
 - [ ] **R.8 (Medium) Script return values assigned without contract checks.**
   `game_runtime.rgr` — `update`'s return goes straight into `state`; a null/wrong
   type surfaces far from the cause. Fix: validate `update` / `initState` /

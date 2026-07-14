@@ -445,23 +445,29 @@ class GameSdlRunner {
 
     ; Load an interpreted .as game folder — reuses the wasm physics/render path
     ; (the ABI is identical); only the guest is an interpreted .as file.
+    ; Load transactionally (IDEAL_TODO R.4): build + validate a CANDIDATE runner
+    ; without touching active state; only after it loads do we swap the runner and
+    ; flip the mode flags. A failed load previously left useWasmRunner/Physics=true
+    ; with the old runner already discarded — a half-switched dead state.
     fn loadAsAt:void (asPath:string) {
+        def dir:string (this.dirOf(asPath))
+        def candidate:WasmPhysicsRunner (new WasmPhysicsRunner)
+        candidate.init(pw ph)
+        this.presentLoadingScreen("LOADING .AS")
+        if ((candidate.loadAsGame(dir)) == false) {
+            print ("[as] load failed (prior game kept): " + dir)
+            return
+        }
+        candidate.setupScene()
+        def sdlHost:SdlGameHost (new SdlGameHost)
+        this.wireWasmAudio(candidate.audio sdlHost)
+        candidate.host = sdlHost
+        ; --- commit: the candidate loaded, now swap in and flip modes ---
+        wasmPhysicsRunner = candidate
         useSpriteRunner = false
         useStreamRunner = false
         useWasmRunner = true
         useWasmPhysics = true
-        def dir:string (this.dirOf(asPath))
-        wasmPhysicsRunner = (new WasmPhysicsRunner)
-        wasmPhysicsRunner.init(pw ph)
-        this.presentLoadingScreen("LOADING .AS")
-        if ((wasmPhysicsRunner.loadAsGame(dir)) == false) {
-            print ("[as] load failed: " + dir)
-            return
-        }
-        wasmPhysicsRunner.setupScene()
-        def sdlHost:SdlGameHost (new SdlGameHost)
-        this.wireWasmAudio(wasmPhysicsRunner.audio sdlHost)
-        wasmPhysicsRunner.host = sdlHost
         currentScriptPath = asPath
         currentGamePath = asPath
         inMenu = false
@@ -555,11 +561,17 @@ class GameSdlRunner {
 
     ; After script swap, match edge state to keys still held (avoids double Q:
     ; game exit on Q then immediate menu quit while the key is still down).
+    ; Reseed every edge's "previously held" state from the current poll mask, so a
+    ; button already held across a mode switch / view open is NOT re-counted as a
+    ; fresh press. Must cover ALL edges the runner reads: left(16)/right(32) were
+    ; missing, so a held left/right produced a phantom edge (IDEAL_TODO R.3).
     fn syncInputEdges:void () {
         def m:int (gfx_poll_mask)
         prevQuitHeld = ((bit_and m 8) != 0)
         prevUpHeld = ((bit_and m 1) != 0)
         prevDownHeld = ((bit_and m 2) != 0)
+        prevLeftHeld = ((bit_and m 16) != 0)
+        prevRightHeld = ((bit_and m 32) != 0)
         prevActionHeld = ((bit_and m 4) != 0)
     }
 
@@ -635,6 +647,16 @@ class GameSdlRunner {
         splitAutoscale = (this.resolveSplitAutoscale(entry))
     }
 
+    ; Whether the ENGINE should split the screen into two panes for a game
+    ; authored from a single-player perspective (the game does nothing itself).
+    ;   never  -> single pane.
+    ;   auto   -> engine auto-splits a single-player game into two panes/cameras.
+    ;   always -> same as auto (kept as an alias; no game currently uses it).
+    ; This decides WHETHER to split; the world model (shared one-world vs two
+    ; separate sessions) is a separate axis resolved from game.info splitWorld
+    ; (GameCatalog.resolveSplitWorld) — today shared for wasm+physics (autopeli),
+    ; separate for tsx (pinball). dualPlayerMode short-circuits: a game that is
+    ; natively two-player handles both players itself, so the engine does not split.
     fn shouldUseSplitScreen:boolean () {
         if (dualPlayerMode) {
             return false

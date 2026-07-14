@@ -1,0 +1,67 @@
+; Headless self-test for split-screen world-model resolution (IDEAL_TODO R.7). Run:
+;   RANGER_LIB=compiler/Lang.rgr:lib/stdops.rgr node bin/output.js -es6 \
+;     gallery/game_engine/scripting/game_split_world_demo.rgr \
+;     -d=gallery/game_engine/scripting -o=game_split_world_demo.js -nodecli \
+;   && node gallery/game_engine/scripting/game_split_world_demo.js
+
+Import "./game_catalog.rgr"
+
+class SplitWorldCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+}
+
+class GameSplitWorldDemo {
+    sfn entry:GameCatalogEntry (engine:string physics:string splitWorld:string) {
+        def e:GameCatalogEntry (new GameCatalogEntry)
+        e.engine = engine
+        e.physics = physics
+        e.splitWorld = splitWorld
+        return e
+    }
+
+    sfn m@(main):void () {
+        def c:SplitWorldCheck (new SplitWorldCheck)
+        def cat:GameCatalog (new GameCatalog)
+        print "GameCatalog.resolveSplitWorld self-test"
+
+        ; --- default inference (splitWorld empty), preserves today's behaviour ---
+        ; wasm + physics (autopeli) -> shared one world, two cameras.
+        c.ok("wasm+physics default -> shared"
+            ((cat.resolveSplitWorld((GameSplitWorldDemo.entry("wasm" "true" "")))) == "shared"))
+        ; wasm without physics -> separate sessions.
+        c.ok("wasm no-physics default -> separate"
+            ((cat.resolveSplitWorld((GameSplitWorldDemo.entry("wasm" "false" "")))) == "separate"))
+        ; tsx (pinball etc.) -> separate independent sessions.
+        c.ok("tsx default -> separate"
+            ((cat.resolveSplitWorld((GameSplitWorldDemo.entry("tsx" "false" "")))) == "separate"))
+
+        ; --- explicit splitWorld overrides the backend inference ---
+        c.ok("explicit shared on a tsx game -> shared"
+            ((cat.resolveSplitWorld((GameSplitWorldDemo.entry("tsx" "false" "shared")))) == "shared"))
+        c.ok("explicit separate on wasm+physics -> separate"
+            ((cat.resolveSplitWorld((GameSplitWorldDemo.entry("wasm" "true" "separate")))) == "separate"))
+
+        ; --- parse: splitWorld arrives from game.info as key=value ---
+        def e:GameCatalogEntry (new GameCatalogEntry)
+        cat.parseInfoLine(e "splitWorld=shared")
+        c.ok("game.info splitWorld=shared parsed" (e.splitWorld == "shared"))
+
+        print "======================================"
+        print (("RESULT: " + (to_string c.passed) + " passed, ") + ((to_string c.failed) + " failed"))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}
