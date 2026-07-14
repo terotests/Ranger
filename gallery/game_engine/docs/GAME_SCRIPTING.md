@@ -1,189 +1,81 @@
 # Game scripting: TypeScript/TSX game screens on top of the engine
 
-> Follow-up to [`../RENDERING_EVG.md`](../RENDERING_EVG.md). This layer lets you
-> author **game logic, controllers and simple screens as TypeScript/TSX**,
-> evaluated at runtime by the gallery **ComponentEngine**, with a **Game API**
-> injected into the script namespace and **TypeScript typings** for editor
-> tooling ([`game.d.ts`](../scripting/game.d.ts)).
+> Follow-up to [`../RENDERING_EVG.md`](../RENDERING_EVG.md). Author game logic,
+> controllers, HUDs and screens as **TypeScript/TSX**, evaluated at runtime by the
+> gallery **ComponentEngine**. A **Game API** is injected into the script namespace;
+> editor typings live in [`game.d.ts`](../scripting/game.d.ts) (which re-exports
+> [`engine.d.ts`](../scripting/engine.d.ts)).
+>
+> Design rationale for the retained-mode + JSX-HUD split lives in
+> [`GAME_ENGINE_DESIGN.md`](./GAME_ENGINE_DESIGN.md). Engine quirks/fixes:
+> [`TSX_ENGINE_ISSUES.md`](./TSX_ENGINE_ISSUES.md).
 
-## Why
+The compiled engine is fast but recompiling Ranger to change screen flow, menus or
+HUD is slow. Scripting lets you iterate **without recompiling**: the host loads a
+`games/<name>/index.tsx` (or `scripting/*.game.tsx`) script and drives it.
 
-The compiled engine (`pong_core.rgr` + backends) is fast and portable, but
-changing screen flow, menus or HUD means recompiling Ranger. A scripting layer
-lets you iterate on **screens and game flow without recompiling**: the host
-loads a `*.game.tsx` script and drives it, so designers can tweak menus, scoring
-and transitions quickly.
+## The model: pure reducers + injected globals
 
-## The model (pure reducers + injected globals)
-
-A game script is a set of **pure functions** the host calls. State transitions
-return the *next* state (reducer style), which keeps everything deterministic
-and portable — the same rule as `Pong.step()`.
+A game script is a set of **optional top-level functions** the host calls. State
+transitions return the *next* state (reducer style), keeping everything
+deterministic and portable. All functions take a single React-style props object.
 
 | Function | Called | Returns |
 |----------|--------|---------|
 | `initState()` | once at start | initial state object |
+| `sprites({ screen })` | once (per screen) | retained sprite definitions |
+| `update({ state, dt, time, up, down, left, right, action, input })` | each tick | next state |
+| `hud({ state })` | each frame | JSX HUD overlay (optional) |
 | `onButton({ state, button })` | on each input event | next state |
-| `update({ state, dt })` | each tick | next state |
-| `render({ state })` | each frame | a JSX/EVG UI tree |
+| `render({ state })` | each frame | a JSX/EVG UI tree (menu/screen path) |
 
-The host injects **globals** into the script namespace (no import needed):
+Optional hooks: `screens()`, `resources()`, `backgroundImage()`, `entities()`,
+`camera()`, `config()`. See [`GameScript`](../scripting/engine.d.ts) for the full list.
+
+Host-injected **globals** (no import needed):
 
 | Global | Type | Purpose |
 |--------|------|---------|
-| `game` | `Game` | title, `maxScore`, field `width`/`height` |
-| `screen` | `Framebuffer` | pixel `width`/`height` of the frame buffer (not `state.screen`) |
+| `game` | `Game` | `title`, `maxScore`, field `width`/`height` |
+| `screen` | `Framebuffer` | pixel `width`/`height` of the frame buffer (**not** `state.screen`) |
 | `Buttons` | consts | `Buttons.UP / DOWN / ACTION / QUIT` |
+| `console` | `{ log, warn }` | prints to host stdout as `[tsx] …` |
 
-See [`game.d.ts`](../scripting/game.d.ts) for the full types and [`menu.game.tsx`](../scripting/menu.game.tsx)
-for an example screen.
-
-## How the host injects and drives it (Ranger)
-
-The mechanism is a small public API on `ComponentEngine`
-(`gallery/pdf_writer/src/jsx/ComponentEngine.rgr`):
-
-```ranger
-def engine (new ComponentEngine())
-
-; 1. Inject globals into the script namespace
-engine.registerGlobal("game" (EvalValue.object(gameKeys gameValues)))
-
-; 2. Load the script (registers its functions; does NOT require render())
-engine.loadScript(scriptSource)
-
-; 3. Drive it from the host game loop
-def state (engine.callFunction("initState" (EvalValue.null())))
-; ... each input:
-def next (engine.callFunction("onButton" props))   ; props = { state, button }
-; ... each frame:
-def ui (engine.callRender("render" props))          ; -> EVGElement tree
-```
-
-- `registerGlobal(name, value)` binds a value into the top-level eval scope.
-- `getGlobal(name)` reads a binding back.
-- `loadScript(src)` parses + registers the script's imports/functions/vars.
-- `callFunction(name, props)` invokes a script function with a single props
-  object and returns its `EvalValue` (object/array/primitive).
-- `callRender(name, props)` invokes a function whose body returns JSX and
-  evaluates it into an `EVGElement` tree (hand to `EVGLayout` + the raster/SDL
-  renderer described in `RENDERING_EVG.md`).
-
-A working end-to-end demo is [`game_script_demo.rgr`](../scripting/game_script_demo.rgr)
-(compile with `-es6`, run with Node); it is covered by
+Host side (`gallery/pdf_writer/src/jsx/ComponentEngine.rgr`): `registerGlobal`
+binds a global, `loadScript` registers a script's imports/functions/vars, and
+`callFunction` / `callRender` dispatch by name with one props object (`callRender`
+evaluates a JSX body into an `EVGElement` tree). Minimal demo:
+[`game_script_demo.rgr`](../scripting/game_script_demo.rgr), test
 [`tests/game-scripting.test.ts`](../../../tests/game-scripting.test.ts).
-
-## Language support notes (evaluator)
-
-The ComponentEngine evaluator supports the subset needed for screen/reducer
-scripts: object literals, member access, `if/else` with **value-returning
-`return` (including inside branches)**, binary/logical/ternary operators,
-function calls, and JSX. Known constraints:
-
-- Use `const`/`let`, **not `var`**, for locals.
-- Return the next state (reducers); avoid mutating shared state.
-- `**` operator precedence is off (`ISSUES.md` #6) — parenthesise.
-- Value-returns from *inside a `for` loop* are not propagated; structure screen
-  logic with `if`/early `return` at statement level.
-
-## TypeScript typings
-
-`game.d.ts` gives editor autocomplete/type-checking while authoring. The runtime
-ignores annotations (the parser records them but the evaluator does not use
-them), exactly like the existing `evg_types.tsx` intellisense file.
-
-### Local `tsconfig.json`
-
-[`tsconfig.json`](../scripting/tsconfig.json) enables **strict** checking (`noImplicitAny`,
-etc.) for annotated scripts. Add your `*.game.tsx` to `"include"` as you add
-type annotations — start with [`breakout.game.tsx`](../scripting/breakout.game.tsx) as the
-reference example.
-
-```bash
-cd gallery/game_engine/scripting && npx tsc --noEmit
-```
-
-### Referencing types
-
-Reference globals (`game`, `screen`, `Buttons`, `View`, `Label`) via:
-
-```tsx
-/// <reference path="./game.d.ts" />
-```
-
-When a script uses runtime `import`, add a triple-slash reference at the top of
-each file (the runtime parser does not evaluate `import type` yet):
-
-```tsx
-/// <reference path="./game.d.ts" />
-import { brickId } from "./breakout_bricks";
-```
-
-Generic engine types (`GameState`, `MultiScreenState`, `SpriteDef`, `GameScript`,
-`Framebuffer`, …) live in [`engine.d.ts`](../scripting/engine.d.ts). [`game.d.ts`](../scripting/game.d.ts)
-is the usual entry reference for scripts. Per-game screen state (e.g.
-`BreakoutState`) belongs in a sibling `*.d.ts` — see [`breakout.d.ts`](../scripting/breakout.d.ts).
-
-For multi-screen games, use helpers from [`game_helpers.tsx`](../scripting/game_helpers.tsx)
-instead of raw `state.screens[name]` (avoids confusing `state.screen` — active
-screen name — with the injected `screen` global — framebuffer size):
-
-```tsx
-import { getScreen, activeScreen, isActiveScreen } from "./game_helpers";
-
-function update(props: EventProps): BreakoutState {
-  const s = props.state as BreakoutState;
-  if (isActiveScreen(s, "play")) {
-    const play = getScreen(s, "play");
-    // play.px, play.score, …
-  }
-  return s;
-}
-```
-
-### Relative `import` between scripts
-
-`ComponentEngine.processImports()` resolves **relative** paths from the script
-directory on disk:
-
-```tsx
-import { brickId, BRICK_COUNT } from "./breakout_bricks";
-```
-
-Requirements:
-
-1. Host calls `runner.setScriptDir("gallery/game_engine/scripting")` **before**
-   `loadScript()` (SDL runner and all `*_runner_demo.rgr` files do this).
-2. Paths must start with `./` (or `../`).
-3. `import type { ... } from "./game.d.ts"` is stripped at runtime (type-only).
-4. Exported `function` / `const` bindings from the imported file are registered
-   into the script module scope.
-
-Example split: [`breakout_bricks.tsx`](../scripting/breakout_bricks.tsx) (shared brick
-helpers) imported by [`breakout.game.tsx`](../scripting/breakout.game.tsx).
 
 ## Retained-mode runner (GameRunner)
 
-[`game_runtime.rgr`](../scripting/game_runtime.rgr) turns the above into a working
-**retained-mode runner** for real-time games:
+[`game_runtime.rgr`](../scripting/game_runtime.rgr) is the real-time path used by
+almost all games:
 
-- **`sprites()` runs once** and defines the on-screen objects; the runner
-  creates a retained `GameEntity` per sprite. Their shapes are never rebuilt.
-- **each frame gets `time` + `dt`** and calls `update({ time, dt, up, down, state })`,
-  which returns the next state (pure reducer). The runner just applies
-  `state.entities[id] = { x, y }` to the existing entities — **moving objects
-  without re-rendering the sprite**.
-- **scores render as text** via a tiny built-in 3x5 digit font.
-- the frame is drawn into the RGBA `SoftCanvas`, i.e. the same buffer the SDL /
-  HDMI present path blits (see [`../pong_sdl.rgr`](../pong_sdl.rgr)).
+- **`sprites()` runs once** and defines on-screen objects; the runner creates one
+  retained `GameEntity` per sprite. Shapes are never rebuilt.
+- **each frame** calls `update()` with `time` + `dt` + inputs; it returns the next
+  state. The runner applies `state.entities[id] = { x, y, … }` to the existing
+  entities — moving objects **without re-rendering the sprite**.
+- **HUD:** if the script defines `hud()`, its JSX is composited on top each frame
+  (`game_hud.rgr`); otherwise scores render via a built-in 3×5 digit font.
+- the frame is drawn into the RGBA `SoftCanvas` — the same buffer the SDL/HDMI
+  present path blits (see [`../pong_sdl.rgr`](../pong_sdl.rgr)).
 
-Working example: [`pong.game.tsx`](../scripting/pong.game.tsx) (scripted, time-based Pong)
-driven by [`pong_runner_demo.rgr`](../scripting/pong_runner_demo.rgr), covered by
-[`tests/game-runner.test.ts`](../../../tests/game-runner.test.ts). Run it and
-dump a PNG:
+Example games (each `games/<name>/index.tsx`, mirrored by a
+`scripting/*.game.tsx` + `*_runner_demo.rgr` node harness):
+
+| Game | Shows |
+|------|-------|
+| [`pong.game.tsx`](../scripting/pong.game.tsx) | minimal 3-entity reducer, digit-font HUD |
+| [`invaders.game.tsx`](../scripting/invaders.game.tsx) | many `kind: "bitmap"` sprites, animation frames |
+| [`breakout.game.tsx`](../scripting/breakout.game.tsx) | JSX `hud()` + named `play`/`gameOver` screens |
+| [`pacman.game.tsx`](../scripting/pacman.game.tsx) | `kind: "wedge"` mouth animation; maze/AI in pure TS |
+
+Run a game headless and dump a PNG (Node harness):
 
 ```bash
-# compile + run on Node (writes pong_frame.rgba next to the script)
 RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr \
   node bin/output.js -es6 ./gallery/game_engine/scripting/pong_runner_demo.rgr \
   -d=./tests/.output -o=pong_runner_demo.js -nodecli
@@ -192,61 +84,50 @@ ffmpeg -f rawvideo -pixel_format rgba -video_size 480x270 \
   -i gallery/game_engine/scripting/pong_frame.rgba -y pong.png
 ```
 
-Space Invaders variant: [`invaders.game.tsx`](../scripting/invaders.game.tsx) via
-[`invaders_runner_demo.rgr`](../scripting/invaders_runner_demo.rgr) (same runner API; many
-retained pixel sprites).
-
-Breakout + JSX HUD + screens: [`breakout.game.tsx`](../scripting/breakout.game.tsx) via
-[`breakout_runner_demo.rgr`](../scripting/breakout_runner_demo.rgr) — `play` and `gameOver`
-screens with lazy per-screen sprites (see [`GAME_ENGINE_DESIGN.md`](./GAME_ENGINE_DESIGN.md)).
-
-Engine quirks and fixes: [`TSX_ENGINE_ISSUES.md`](./TSX_ENGINE_ISSUES.md).
-
-Top-level **`const` / array / object** structures are supported — define them at module scope and read them from any script function (see issue log for `moduleScope` vs `hostScope`).
+SDL window (real-time): `npm run engine:game-sdl:run:breakout` (or `:pong`,
+`:invaders`, `:ylos2`, …). Covered by
+[`tests/game-runner.test.ts`](../../../tests/game-runner.test.ts).
 
 ## Generic sprite protocol (`game_sprite.rgr`)
 
-Game-specific visuals are **not** hard-coded in the engine. Scripts declare shapes;
-the runner syncs pose each frame.
+Visuals are **not** hard-coded in the engine. Scripts declare shapes; the runner
+syncs pose each frame.
 
 **Definition (`sprites()` — once):**
 
 | Field | Role |
 |-------|------|
 | `id` | Entity id (matches `state.entities[id]`) |
-| `kind` | `rect` \| `circle` \| `wedge` \| `ghost` \| `bitmap` |
+| `kind` | `rect` \| `circle` \| `wedge` \| `ghost` \| `bitmap` \| `sheet` |
 | `w`, `h` | Rectangle size (centered at `x,y`) |
 | `rad` | Circle / wedge / ghost radius |
 | `r`, `g`, `b` | Default colour |
-| `p0`, `p1`, `p2` | Kind-specific params (e.g. wedge: direction + opening) |
-| `px`, `br/bg/bb`, `er/eg/eb`, `frames` | **bitmap only:** pixel size, body/eye palette, animated frame set (array of row-string arrays) |
+| `p0`, `p1`, `p2` | Kind-specific params (e.g. wedge direction + opening) |
+| `px`, `br/bg/bb`, `er/eg/eb`, `frames` | **`bitmap`:** pixel size, body/eye palette, animated frame set (array of row-string arrays) |
+| `path`, `frameW`, `frameH`, `cols`, `rows`, `scale`, `jumpFrame` | **`sheet`:** PNG spritesheet (LPC walk cycle etc.) |
 
-**Runtime pose (`update()` → `state.entities[id]`):**
+**Runtime pose (`update()` → `state.entities[id]`, type `EntityPose`):**
 
 | Field | Role |
 |-------|------|
 | `x`, `y` | Center position (pixels) |
-| `visible` | `0` hides sprite |
+| `visible` | `0` hides sprite (runner skips draw + sync) |
 | `r`, `g`, `b`, `rad` | Optional runtime overrides |
-| `p0`, `p1`, `p2` | Optional runtime params (**bitmap:** `p0` = animation frame index) |
+| `p0`, `p1`, `p2` | Runtime params — `bitmap`: `p0` = frame index; `sheet`: `p0` = frame col, `p1` = direction row, `p2` = jump flag; `wedge`: `p0` = facing |
+| `angle` | Rotation in degrees (physics sandboxes) |
 
-**State flags (any game):**
+**State flags:** `showNet` (`0` hides the Pong-style centre net), and `score1` /
+`score2` drive the built-in digit HUD when no `hud()` is present.
 
-| Field | Role |
-|-------|------|
-| `showNet` | `0` = hide centre net (default `1` for Pong layout) |
-| `score1`, `score2` | Built-in digit HUD when no `hud()` |
+**Audio & effects** are engine-level: emit events from `update()` via
+`state.events` — `{ kind: "playSound", id }` (built-in ids `blip`/`brick`/`bounce`/
+`wall`/`lose`/`win`/`celebrate`), plus `playMusic` (soundscore), `playVoice`
+(vocal FX) and `particles`. See `game_audio.rgr`, `game_soundscore.rgr`,
+`game_particles.rgr`, [`VOCAL_FX.md`](./VOCAL_FX.md).
 
-Pac-Man ([`pacman.game.tsx`](../scripting/pacman.game.tsx)) uses `kind: "wedge"` + `p0`/`p1` for
-mouth animation; maze, ghost AI, tunnels and modes are **pure TypeScript**.
+## Hot reload (runtime option, TS-interpreter path)
 
-Space Invaders ([`invaders.game.tsx`](../scripting/invaders.game.tsx)) uses `kind: "bitmap"` — one
-retained sprite per alien with two cached animation frames (`p0` toggles frame), not
-one rect per pixel. Audio is reserved for a future engine-level API (not per-game).
-
-## Hot reload (runtime option, Path A)
-
-TS-interpreter games can reload **in-process** without restarting SDL:
+TS-interpreter games reload **in-process** without restarting SDL:
 
 ```ranger
 def runner:GameRunner (new GameRunner)
@@ -257,92 +138,108 @@ runner.maybeHotReload()
 ```
 
 On save, `ComponentEngine.patchScript()` re-parses the file, diffs top-level AST
-declarations, and swaps changed `functionNode` / const bindings. `GameRunner.hotReloadScript()`
-rebuilds the scene only when `initState`, `sprites`, `resources`, or module `const`s change.
+declarations, and swaps changed function/const bindings
+(`gallery/ts_parser/ts_ast_patch.rgr`). `GameRunner.hotReloadScript()` rebuilds the
+scene only when `initState`, `sprites`, `resources` or a module `const` changes;
+editing only `update()` / `hud()` preserves game state.
 
-SDL host (`game_sdl_runner.rgr`):
+SDL host defaults hot reload **on** (interactive) and **off** when `maxFrames > 0`
+(CI/smoke). Override with `--hot-reload` / `--no-hot-reload`:
 
 ```bash
-npm run engine:game-sdl:run:pacman          # hot reload on by default
-npm run engine:game:watch:invaders          # dev launcher (same behaviour)
-./tmp/game-sdl/game_sdl --no-hot-reload ... # disable
-npm run engine:game-sdl:smoke:pacman        # maxFrames → hot reload off
+npm run engine:game:watch:invaders          # dev launcher, hot reload on
+npm run engine:game-sdl:smoke:breakout      # headless smoke, hot reload off
+./tmp/game-sdl/game_sdl --no-hot-reload gallery/game_engine/games/pong/index.tsx
 ```
 
-Native compiled path (Path B) does not support this — rebuild + restart required.
+The native compiled path does not support hot reload — rebuild + restart.
 
-## File-based screens and per-game storage
+## Imports and TypeScript typings
 
-Separate from the **multi-screen model** inside one script (`state.screen` +
-`state.screens`, see Breakout), a game can split **levels or overlays into
-multiple `.tsx` files** in the same game folder and navigate with host-native
-globals (no import):
+Annotations are for editor tooling only; the runtime ignores them. Reference the
+typings and import siblings with triple-slash directives at the top of each file
+(the parser does not evaluate `import type` yet):
+
+```tsx
+/// <reference path="./game.d.ts" />
+import { brickId, BRICK_COUNT } from "./breakout_bricks";
+```
+
+- Generic types (`GameState`, `MultiScreenState`, `SpriteDef`, `GameScript`,
+  `EntityPose`, `Framebuffer`, …) live in `engine.d.ts`; `game.d.ts` is the usual
+  entry reference. Per-game screen state (e.g. `BreakoutState`) belongs in a
+  sibling `*.d.ts` — see [`breakout.d.ts`](../scripting/breakout.d.ts).
+- Relative `import` (`./…`, `../…`) is resolved from the script dir on disk
+  (`runner.setScriptDir(...)` before `loadScript()`); exported `function`/`const`
+  bindings register into the module scope. `import … from "./game.d.ts"` is
+  type-only and stripped at runtime.
+- Multi-screen games should use [`game_helpers.tsx`](../scripting/game_helpers.tsx)
+  (`getScreen`, `activeScreen`, `isActiveScreen`) instead of raw
+  `state.screens[name]` — avoids confusing `state.screen` (active screen name)
+  with the injected `screen` global (framebuffer size).
+- Strict type-check: `cd gallery/game_engine/scripting && npx tsc --noEmit`.
+
+### Evaluator constraints
+
+The evaluator supports the subset needed for reducer/screen scripts: object
+literals, member access/assignment, `if/else` with value-returning `return`
+(including inside branches), `while` loops, binary/logical/ternary operators,
+function calls, JSX, and top-level `const`/array/object structures. Known limits:
+
+- Use `const`/`let`, **not `var`**.
+- Return the next state; avoid mutating shared state.
+- `**` operator precedence is off — parenthesise (`TSX_ENGINE_ISSUES.md`).
+- A value-`return` from *inside a `for` loop* is not propagated; structure logic
+  with `if` / early `return` at statement level.
+
+## Multi-file screens and per-game storage
+
+Beyond the in-script multi-screen model (`state.screen` + `state.screens`, see
+Breakout and [`GAME_ENGINE_DESIGN.md`](./GAME_ENGINE_DESIGN.md)), a game can split
+levels/overlays into multiple `.tsx` files in its folder and navigate with
+host-native globals (no import):
 
 | API | Role |
 |-----|------|
 | `loadGame(path)` | Replace current screen; clear nav stack |
 | `pushGame(path)` | Push current path, open another screen |
 | `popGame()` | Return to previous screen (or launcher menu when stack empty) |
-| `loadGameData()` | Read `gamedata.json` from the game folder |
-| `saveGameData(obj)` | Write `gamedata.json` |
-| `resetGameData()` | Delete `gamedata.json` |
+| `loadGameData()` / `saveGameData(obj)` / `resetGameData()` | Read/write/delete `gamedata.json` in the game folder |
 
-Paths are relative to the game directory (`"level2.tsx"`, `"win.tsx"`). Each
-screen file is a full GameRunner script with its own `resources()`,
-`backgroundImage()`, `sprites()`, `initState()`, etc. Shared logic lives in
-imported modules (e.g. `./invaders_shared.tsx`).
-
-Full walkthrough with Invaders-style examples (background images, score
-persistence, `pushGame` → `loadGame` → `popGame`):
+Paths are relative to the game directory (`"level2.tsx"`, `"win.tsx"`); each screen
+file is a full GameRunner script with its own `resources()`, `sprites()`,
+`initState()`, etc. Shared logic lives in imported modules (e.g.
+`./invaders_shared.tsx`). Full walkthrough:
 [`GAME_SCREENS_AND_STORAGE.md`](./GAME_SCREENS_AND_STORAGE.md).
 
-## World-mode entities and engine camera (Phase 1)
+## World-mode entities and engine camera
 
-Legacy games (Pong, Ylos, …) keep using **`sprites()` + `state.entities`** in
-**screen space** and may subtract `cameraY` manually (`placeEntities()`). That
-path is unchanged.
-
-New optional hooks separate **world simulation** from **rendering**:
+Legacy games (Pong, Ylos, …) keep using `sprites()` + `state.entities` in **screen
+space**. New optional hooks separate **world simulation** from **rendering**:
 
 | Function | Role |
 |----------|------|
 | `entities()` | Spawn list in **world coordinates** (`id`, `sprite`, `position`, `tags`) |
-| `camera()` | Engine-managed follow camera (`follow`, `mode`, `offsetY`, `smoothing`, `bounds`) |
+| `camera()` | Engine follow camera (`follow`, `mode`, `offsetY`, `smoothing`, `bounds`) |
 | `config()` | `physics.fixedStep` (ms) for fixed-timestep updates; `world.height` for bounds |
 
 Per frame the game updates **`state.worldEntities[id]`** (same shape as
-`EntityPose`, but world `x`/`y`). The runner applies the camera offset, culls
-off-screen entities, and syncs retained sprites — no `placeEntities()` copy step.
-
-Minimal example: [`world_scroll.game.tsx`](../scripting/world_scroll.game.tsx) (headless test:
-[`world_scroll_runner_demo.rgr`](../scripting/world_scroll_runner_demo.rgr)).
+`EntityPose`, world `x`/`y`). The runner applies the camera offset, culls
+off-screen entities, and syncs retained sprites.
 
 ```tsx
 function entities() {
-  return [
-    { id: "player", sprite: "hero", position: { x: 240, y: 730 }, tags: ["player"] }
-  ];
+  return [{ id: "player", sprite: "hero", position: { x: 240, y: 730 }, tags: ["player"] }];
 }
 function camera() {
   return { follow: "player", mode: "vertical", offsetY: -40, smoothing: 0.18 };
 }
 function update(props) {
   const we = props.state.worldEntities;
-  // ... simulate in world space, return { worldEntities: { player: { x, y } } }
+  // simulate in world space, return { worldEntities: { player: { x, y } } }
 }
 ```
 
-## Roadmap
-
-1. **Done:** namespace injection (`registerGlobal`), script loading + function
-   dispatch (`loadScript` / `callFunction` / `callRender`), value-returning
-   control flow, TS typings, apostrophe-in-JSX-text parser fix.
-2. **Done:** retained-mode `GameRunner` (time/dt-driven `update`, retained
-   sprites moved via returned state, text scores) + scripted Pong demo.
-3. **Next:** drive the runner from the native SDL backend (feed `up`/`down` from
-   the engine's `Buttons`, present each frame in the window); a JSX `hud()` path
-   through `callRender` + `EVGLayout` for richer text/UI (**done for Breakout**,
-   see `game_hud.rgr`).
-4. **Later:** native (C++) evaluation once the EVG/eval stack builds for the C++
-   target (see `RENDERING_EVG.md`); host-callback `EvalValue` for richer APIs.
-   Interpreter perf work and benchmarks: [`TS_ENGINE_OPTIMIZATION.md`](./TS_ENGINE_OPTIMIZATION.md).
+Minimal example: [`world_scroll.game.tsx`](../scripting/world_scroll.game.tsx)
+(headless: [`world_scroll_runner_demo.rgr`](../scripting/world_scroll_runner_demo.rgr)).
+Interpreter perf notes: [`TS_ENGINE_OPTIMIZATION.md`](./TS_ENGINE_OPTIMIZATION.md).
