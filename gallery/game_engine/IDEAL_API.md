@@ -795,10 +795,33 @@ Adding a provider automatically widens what the host advertises.
 
 The engine-core ↔ game seam is `GameSceneProvider` (§3 of `IDEAL.md`): a generic runner
 obtains **everything game-specific from an interface it is compiled against** — never from
-concrete game types, imports, or constants. The **guest owns the world** (§5 of `IDEAL.md`):
-it declares bodies, bounds, world size, camera hints, and static-bg through the same
-declare-once channel it already uses for resources; the host-side `setupPhysics()` copy is
-deleted. One world, one owner.
+concrete game types, imports, or constants.
+
+```
+interface GameSceneProvider {              ; provided by the game, held by the core runner
+    ; world (guest is the preferred source; a provider is the fallback)
+    fn buildScene(phys:GamePhysics bodyIds:[string]) : void   ; bodies + bounds
+    fn worldSize() : (int, int)                               ; no 6000 baked in core
+    fn playerCount() : int                                    ; no fixed 2 in core
+    ; presentation
+    fn initAssets(render:GenericRender pw:int) : void
+    fn buildStaticBg(render:GenericRender) : void
+    fn spriteFor(id:string) : string                          ; entity id -> template
+    fn drawHud(target:SoftCanvas paneIdx:int abi:WasmAbiMem) : void  ; HUD, or emit RGU1
+    ; ABI conventions this guest chose (§2.1 / §2.2)
+    fn contactBodyCode(id:string) : int
+    fn bodyCodeToId(code:int) : string
+    fn mapEvent(kind:int sub:int) : GameEventNative           ; sound / particle ids
+    ; camera policy
+    fn cameraFor(paneIdx:int phys:GamePhysics) : int
+}
+```
+
+Proposed — not yet in code: `wasm_physics_runner.rgr` still imports `wasm_autopeli_setup.rgr`/
+`wasm_autopeli_render.rgr` and holds a concrete `setup:WasmAutopeliSetup`. The **guest owns
+the world** (§5 of `IDEAL.md`): it declares bodies, bounds, world size, camera hints, and
+static-bg through the same declare-once channel it already uses for resources; the host-side
+`setupPhysics()` copy is deleted. One world, one owner.
 
 ---
 
