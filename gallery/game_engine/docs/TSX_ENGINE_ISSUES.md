@@ -14,7 +14,7 @@ Tracking bugs and limitations in the gallery **ComponentEngine** (`gallery/pdf_w
 
 **Note:** This looked like “module `const` not visible in functions”, but the real failure was the loop never executing. After the while fix, `while (i < ALIEN_COUNT)` works with top-level `const ALIEN_COUNT = COLS * ROWS`.
 
-**Regression:** [`tsx_engine_demo.rgr`](./tsx_engine_demo.rgr) + [`tsx_engine_demo.game.tsx`](./tsx_engine_demo.game.tsx), tested in [`tests/tsx-engine.test.ts`](../../../tests/tsx-engine.test.ts).
+**Regression:** [`tsx_engine_demo.rgr`](../scripting/tsx_engine_demo.rgr) + [`tsx_engine_demo.game.tsx`](../scripting/tsx_engine_demo.game.tsx), tested in [`tests/tsx-engine.test.ts`](../../../tests/tsx-engine.test.ts).
 
 ---
 
@@ -49,7 +49,7 @@ function first() { return LINES[0]; }
 function total() { return PALETTE.r + PALETTE.g; }
 ```
 
-**Example:** [`invaders.game.tsx`](./invaders.game.tsx) — module-level `INVADER_A/B/C` bitmap arrays.
+**Example:** [`invaders.game.tsx`](../scripting/invaders.game.tsx) — module-level `INVADER_A/B/C` bitmap arrays.
 
 ---
 
@@ -71,7 +71,7 @@ function total() { return PALETTE.r + PALETTE.g; }
 
 **Fix:** `EvalContext.assignExisting()` + `assign()` walk the parent chain before falling back to `define()`. `evaluateUpdateExpr()` and `++`/`--` now call `context.assign()`.
 
-**Regression:** [`games/ar/index.tsx`](../games/ar/index.tsx) (Arctic Rush) — module-level mutable state updated from `update()` helpers.
+**Regression:** `games/ar/index.tsx` (poistettu peli) (Arctic Rush) — module-level mutable state updated from `update()` helpers.
 
 ---
 
@@ -103,7 +103,7 @@ function total() { return PALETTE.r + PALETTE.g; }
 
 **Caveat:** `break`/`continue` only work **inside** loop bodies routed through those evaluators. They are not handled as standalone statements in `runStatementValue()`.
 
-**Regression:** [`games/ar/index.tsx`](../games/ar/index.tsx) — `continue` in collision loops.
+**Regression:** `games/ar/index.tsx` (poistettu peli) — `continue` in collision loops.
 
 ---
 
@@ -111,7 +111,7 @@ function total() { return PALETTE.r + PALETTE.g; }
 
 **Fix:** Value-path loop runners (`runWhileStatementValue`, `runForStatementValue`, `runForOfStatementValue`) honour `scriptDidReturn`; `runStatementList` stops on `loopBreak` / `loopContinue`.
 
-**Regression:** `whileReturn=5` in [`tsx_engine_demo`](./tsx_engine_demo.rgr).
+**Regression:** `whileReturn=5` in [`tsx_engine_demo`](../scripting/tsx_engine_demo.rgr).
 
 ---
 
@@ -119,7 +119,7 @@ function total() { return PALETTE.r + PALETTE.g; }
 
 **Fix:** Save/restore `basePath` per import frame; nested relative imports resolve from the importer directory (`moduleDirFromRead()`).
 
-**Regression:** [`import_chain_demo.rgr`](./import_chain_demo.rgr) — `importChain=7`.
+**Regression:** [`import_chain_demo.rgr`](../scripting/import_chain_demo.rgr) — `importChain=7`.
 
 ---
 
@@ -167,7 +167,7 @@ function total() { return PALETTE.r + PALETTE.g; }
 
 **Fix:** `typeof` parsed and evaluated; missing identifiers return `"undefined"` without throwing; `EvalValue.undefined()`; `GameRunner.setPaneIndex(n)` / `clearPaneIndex()`; split-screen host injects pane index per runner.
 
-**Regression:** `splitNoPane=0`, `splitWithPane=1` in [`tsx_engine_demo`](./tsx_engine_demo.rgr).
+**Regression:** `splitNoPane=0`, `splitWithPane=1` in [`tsx_engine_demo`](../scripting/tsx_engine_demo.rgr).
 
 ---
 
@@ -242,7 +242,7 @@ _Validated against `master` @ 2026-07-10 (PR #156, #158 merged); PR #159 fixes d
 
 **Fix:** Added `EvalValue.setMember()` / `setIndexAt()` and member-expression handling in `evaluateUpdateExpr()`.
 
-**Regression:** `memberAssign=19` in [`tsx_engine_demo`](./tsx_engine_demo.rgr); invaders runner expects `entities>200` and `ship.x>100`.
+**Regression:** `memberAssign=19` in [`tsx_engine_demo`](../scripting/tsx_engine_demo.rgr); invaders runner expects `entities>200` and `ship.x>100`.
 
 ---
 
@@ -252,7 +252,7 @@ _Validated against `master` @ 2026-07-10 (PR #156, #158 merged); PR #159 fixes d
 
 **Cause:** `const type = …` or `function f(type)` — the identifier **`type`** is a TypeScript keyword (`TSKeyword`). The native parser rejects it; error recovery then mis-tokenizes the rest of the file.
 
-**Fix:** Do not use `type` as a variable or parameter name in `*.game.tsx`. Use `kind`, `variant`, `category`, etc. Fixed in [`invaders.game.tsx`](./invaders.game.tsx).
+**Fix:** Do not use `type` as a variable or parameter name in `*.game.tsx`. Use `kind`, `variant`, `category`, etc. Fixed in [`invaders.game.tsx`](../scripting/invaders.game.tsx).
 
 **Avoid as identifiers:** `type`, `interface`, `declare`, `export` (when not at statement start), and other TS keywords.
 
@@ -296,7 +296,7 @@ function hud(props) {
 
 **Also avoid in runtime scripts:** non-null assertions (`getScreen(s, "gameOver")!`) — prefer `s.screens.gameOver` or guard without `!`.
 
-**Fixed in:** [`games/breakout/index.tsx`](../games/breakout/index.tsx), [`breakout.game.tsx`](./breakout.game.tsx) (2026-07-09).
+**Fixed in:** [`games/breakout/index.tsx`](../games/breakout/index.tsx), [`breakout.game.tsx`](../scripting/breakout.game.tsx) (2026-07-09).
 
 ---
 

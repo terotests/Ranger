@@ -1,8 +1,8 @@
 # IDEAL — what the game-engine interfaces *should* look like
 
 > Status: **target specification** (companion to [`AGENTS.md`](./AGENTS.md),
-> [`scripting/PLAN_PROVIDERS.md`](./scripting/PLAN_PROVIDERS.md) and
-> [`scripting/PLAN_PHYSICS_RUNNER_GENERIC.md`](./scripting/PLAN_PHYSICS_RUNNER_GENERIC.md)).
+> [`PLAN_PROVIDERS.md`](./PLAN_PROVIDERS.md) and
+> [`docs/PLAN_PHYSICS_RUNNER_GENERIC.md`](./docs/PLAN_PHYSICS_RUNNER_GENERIC.md)).
 >
 > This document does **not** describe today's code. It describes the interfaces
 > the engine is *aiming* at, derived from the engine's stated goal, so that every
@@ -130,7 +130,7 @@ The areas, ordered roughly by how much they unblock the rest:
 | 4 | **Bring `.as`-only APIs to parity on both paths** (pose, draw list, resource manifest, sound queue) | `scripting/wasm_abi_io.rgr` (add readers), `scripting/as_abi_bridge.rgr` (back native-array APIs with the documented byte blocks) | One accessor per block, per path, sharing offsets | A guest runs identically compiled or interpreted | §2 |
 | 5 | **Activate the capability handshake + gate** | `scripting/wasm_physics_runner.rgr`, `scripting/wasm_game_runner.rgr`, `scripting/wasm_sprite_runner.rgr`, `scripting/as_source_runner.rgr` (shared gate helper) | One place calls `rg_abi_version`/`rg_required_caps`/`rg_check_env` + resolves RGCQ | Same gate for every guest/block/path; a missing cap rejects instead of reading zeros | §6 |
 | 6 | **Uniform block validation** (magic/version/bounds/utf-8), copying RGU1's discipline | `scripting/wasm_abi_io.rgr` (`verifyMagic` generalised), a shared validator for RGW1/RGSP1/RGP1/RGS1 | One validator, not per-block ad-hoc checks | Every block is validated the same before use, on both paths | §2.3 |
-| 7 | **Provider registry for host↔guest capabilities** | `scripting/PLAN_PROVIDERS.md`, `scripting/game_pose_provider.rgr`, `scripting/game_image_loader.rgr`, the runners in row 5 | Capabilities wire at fixed seams, not by hand | Adding a block = registering a provider (capBit/direction/cadence); parity is enforced by construction | §6 |
+| 7 | **Provider registry for host↔guest capabilities** | `PLAN_PROVIDERS.md`, `scripting/game_pose_provider.rgr`, `scripting/game_image_loader.rgr`, the runners in row 5 | Capabilities wire at fixed seams, not by hand | Adding a block = registering a provider (capBit/direction/cadence); parity is enforced by construction | §6 |
 | 8 | **Generic scene seam** (`GameSceneProvider` instead of concrete autopeli types) | `scripting/wasm_physics_runner.rgr`, `scripting/wasm_game_runner.rgr` (drop `Import "./wasm_autopeli_setup.rgr"` / `wasm_autopeli_render.rgr`), logic → `games/autopeli_wasm/scene/` | Core compiles against an interface, not a game | A second physics game reuses the runner unchanged | §3 |
 | 9 | **Single world owner** (guest declares bodies/bounds/world-size/camera via the declare-once channel) | `scripting/wasm_autopeli_setup.rgr` (deleted), guest `lib.rs`, the resource-manifest block from row 3 | World lives in exactly one place | Same declaration works on both paths | §5 |
 | 10 | **Data-driven sprite roster & animations** | `wasm/wasm_sprite_abi.h` (drop `RG_SPR_CHAR_*`), `lpc/src/lpc_char_catalog.rgr`, `lpc/pack/**/catalog.json` | Roster is data (`RG_SPR_OFF_CAT_IDS`), not frozen constants | Same catalog visible to every guest/path; documented anim fallbacks | §2.1 |
@@ -1059,7 +1059,7 @@ from a file** is a mono-WAV voice override. Sound is the clearest example of the
   palette through the ABI (already flagged in §4); the built-in id set
   (`blip/brick/bounce/wall/lose/win/celebrate`) is likewise fixed in `game_audio.rgr`.
 - **Voice and music exist only on the TS path.** `playVoice` (`laugh/sigh/gasp/…` via
-  `game_vocal_fx.rgr`, see [`VOCAL_FX.md`](./scripting/VOCAL_FX.md)) and
+  `game_vocal_fx.rgr`, see [`VOCAL_FX.md`](./docs/VOCAL_FX.md)) and
   `playMusic`/`stopMusic` (soundscore text) have **no binary-ABI encoding** — a WASM or
   `.as` guest cannot emit a vocal or music event at all. A parity gap.
 - **Music is the soundscore system — procedural, not sampled.**
@@ -1148,7 +1148,7 @@ The engine already does this — but as a *TS-path-only convenience*, filesystem
 whole-file, with no presence in the binary ABI. Storage is the persistence counterpart
 to the input/audio parity gaps: capable on one path, absent on the others.
 
-**Current state.** (See [`GAME_SCREENS_AND_STORAGE.md`](./scripting/GAME_SCREENS_AND_STORAGE.md).)
+**Current state.** (See [`GAME_SCREENS_AND_STORAGE.md`](./docs/GAME_SCREENS_AND_STORAGE.md).)
 
 - **One mechanism, TS/EvalValue path only.** Three globals — `loadGameData()`,
   `saveGameData(obj)`, `resetGameData()` — declared in
@@ -1327,7 +1327,7 @@ push/pop stack — but, like storage (§2.11), it is a **TS-path-only** convenie
 tears down and re-initialises the whole game on every transition and can only pass data
 through a save file.
 
-**Current state.** (See [`GAME_SCREENS_AND_STORAGE.md`](./scripting/GAME_SCREENS_AND_STORAGE.md).)
+**Current state.** (See [`GAME_SCREENS_AND_STORAGE.md`](./docs/GAME_SCREENS_AND_STORAGE.md).)
 
 - **Three globals, TS/EvalValue path only.** `loadGame(path)` (replace),
   `pushGame(path)` (open over), and `popGame()` (return) — declared in

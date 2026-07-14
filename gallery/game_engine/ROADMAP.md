@@ -2,7 +2,7 @@
 
 > **Päivitetty:** heinäkuu 2026 (WASM Path C + AssemblyScript/`.as`-guestit, RGSP1 sprite-ABI, RGU1 EVG-UI, pose-input, streaming-maailma, host/Cannon-fysiikka, GPU sheet-spritet)  
 > **Tarkoitus:** yhteenveto nykytilasta, puutteista ja jatkokehityksen prioriteeteista.  
-> **Liittyvät dokumentit:** [`README.md`](./README.md), [`IDEAL.md`](./IDEAL.md), [`IDEAL_API.md`](./IDEAL_API.md), [`PLAN_GAME_ENGINE.md`](./PLAN_GAME_ENGINE.md), [`RENDERING_EVG.md`](./RENDERING_EVG.md), [`scripting/GAME_ENGINE_DESIGN.md`](./scripting/GAME_ENGINE_DESIGN.md), [`LLVM_BUGS.md`](./LLVM_BUGS.md)
+> **Liittyvät dokumentit:** [`README.md`](./README.md), [`IDEAL.md`](./IDEAL.md), [`IDEAL_API.md`](./IDEAL_API.md), [`PLAN_GAME_ENGINE.md`](./PLAN_GAME_ENGINE.md), [`RENDERING_EVG.md`](./RENDERING_EVG.md), [`docs/GAME_ENGINE_DESIGN.md`](./docs/GAME_ENGINE_DESIGN.md), [`LLVM_BUGS.md`](./LLVM_BUGS.md)
 
 ---
 
@@ -393,7 +393,7 @@ ideaali) ja [`IDEAL_API.md`](./IDEAL_API.md) (koko ABI-referenssi).
 
 ## Suunnittelusäännöt (uusille peleille)
 
-Noudatettava malli ([`scripting/GAME_ENGINE_DESIGN.md`](./scripting/GAME_ENGINE_DESIGN.md)):
+Noudatettava malli ([`docs/GAME_ENGINE_DESIGN.md`](./docs/GAME_ENGINE_DESIGN.md)):
 
 1. **`sprites()` kerran alussa** — retained-mode; muoto/väri/koko eivät muutu runtime-aikana.
 2. **`update()` palauttaa uuden tilan** — reducer-tyyli; vain muuttuneet sijainnit.
@@ -481,7 +481,7 @@ npm test -- game-engine game-runner game-scripting physics-cannon
 | [`IDEAL_API.md`](./IDEAL_API.md) | Koko ABI yhtenä referenssinä: blokit, importit, eventit, capability-bitit |
 | [`PLAN_GAME_ENGINE.md`](./PLAN_GAME_ENGINE.md) | Arkkitehtuuri, HDMI/gamepad, debuggaus |
 | [`RENDERING_EVG.md`](./RENDERING_EVG.md) | EVG renderer, GPU-polku |
-| [`scripting/GAME_SCRIPTING.md`](./scripting/GAME_SCRIPTING.md) | TSX-skriptaus-API |
-| [`scripting/GAME_ENGINE_DESIGN.md`](./scripting/GAME_ENGINE_DESIGN.md) | Retained-mode, ongelmat, prioriteetit |
+| [`docs/GAME_SCRIPTING.md`](./docs/GAME_SCRIPTING.md) | TSX-skriptaus-API |
+| [`docs/GAME_ENGINE_DESIGN.md`](./docs/GAME_ENGINE_DESIGN.md) | Retained-mode, ongelmat, prioriteetit |
 | [`games/rust_pong/README.md`](./games/rust_pong/README.md) | WASM Path C PoC |
 | [`LLVM_BUGS.md`](./LLVM_BUGS.md) | Native build -bugit ja workaroundit |

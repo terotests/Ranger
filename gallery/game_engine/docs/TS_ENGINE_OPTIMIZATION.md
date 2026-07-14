@@ -194,12 +194,12 @@ incremental branch.
 
 Unchanged output on:
 
-- [`tsx_engine_demo.rgr`](./tsx_engine_demo.rgr) — [`tests/tsx-engine.test.ts`](../../../tests/tsx-engine.test.ts)
-- [`import_chain_demo.rgr`](./import_chain_demo.rgr)
-- [`game_script_demo.rgr`](./game_script_demo.rgr) — [`tests/game-scripting.test.ts`](../../../tests/game-scripting.test.ts)
+- [`tsx_engine_demo.rgr`](../scripting/tsx_engine_demo.rgr) — [`tests/tsx-engine.test.ts`](../../../tests/tsx-engine.test.ts)
+- [`import_chain_demo.rgr`](../scripting/import_chain_demo.rgr)
+- [`game_script_demo.rgr`](../scripting/game_script_demo.rgr) — [`tests/game-scripting.test.ts`](../../../tests/game-scripting.test.ts)
 
 ## Related docs
 
 - [`TSX_ENGINE_ISSUES.md`](./TSX_ENGINE_ISSUES.md) — functional bugs and fixes
 - [`GAME_SCRIPTING.md`](./GAME_SCRIPTING.md) — how hosts load and drive scripts
-- [`games/ar/index.tsx`](../games/ar/index.tsx) — real game whose init path the benchmark models
+- `games/ar/index.tsx` (poistettu peli) — real game whose init path the benchmark models

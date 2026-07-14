@@ -35,7 +35,7 @@ Jokainen `.tsx`-ruutu on täysi GameRunner-skripti: host lataa tiedoston, kutsuu
 
 ## Ruutujen navigointi
 
-Host toteuttaa navigoinnin [`game_host_native.rgr`](./game_host_native.rgr) + [`game_sdl_runner.rgr`](./game_sdl_runner.rgr). Skripti kutsuu globaaleja funktioita (ei importtia):
+Host toteuttaa navigoinnin [`game_host_native.rgr`](../scripting/game_host_native.rgr) + [`game_sdl_runner.rgr`](../scripting/game_sdl_runner.rgr). Skripti kutsuu globaaleja funktioita (ei importtia):
 
 | Funktio | Käyttäytyminen |
 |---------|----------------|
@@ -109,7 +109,7 @@ Host skaalaa kuvan peittämään koko framebufferin (`blitCover`). Sama `image.p
 
 Vaihtoehto runtime-aikana: aseta `state.background` uuteen `resources()`-id:hen tai polkuun; host vaihtaa taustan automaattisesti (`syncBackgroundFromState`).
 
-Yksinkertainen demo: [`background_demo.game.tsx`](./background_demo.game.tsx).
+Yksinkertainen demo: [`background_demo.game.tsx`](../scripting/background_demo.game.tsx).
 
 ## Pelikohtainen tallennus (`gamedata.json`)
 
@@ -323,7 +323,7 @@ Kun hot reload on päällä, yksittäisen ruututiedoston muutos päivittää vai
 
 ## Tyypit ja toteutus
 
-Globaalit funktiot on määritelty [`engine.d.ts`](./engine.d.ts):
+Globaalit funktiot on määritelty [`engine.d.ts`](../scripting/engine.d.ts):
 
 ```ts
 declare function loadGame(screenPath: string): void;
@@ -343,4 +343,4 @@ Toteutus:
 | `game_persistence.rgr` | JSON luku/kirjoitus `gamedata.json` |
 | `game_runtime.rgr` | `resources()`, `backgroundImage()`, `setupScene()` |
 
-Testit: [`game_host_native_demo.rgr`](./game_host_native_demo.rgr) (persistence + `loadGame`-polku).
+Testit: [`game_host_native_demo.rgr`](../scripting/game_host_native_demo.rgr) (persistence + `loadGame`-polku).

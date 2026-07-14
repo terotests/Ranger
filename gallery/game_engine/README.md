@@ -75,7 +75,7 @@ Useimmat demot ja uudet pelit käyttävät TSX-polkuja. Käännetty Pong on edel
 
 **Raja:** jos tiedosto kutsuu `write`, `poll_keypress` tai `gfx_present`, se on backend. Kaikki muu on portable.
 
-TSX-pelien yksityiskohtainen malli (reducer-tyyli, retained spritet, JSX HUD): [`scripting/GAME_SCRIPTING.md`](./scripting/GAME_SCRIPTING.md) ja [`scripting/GAME_ENGINE_DESIGN.md`](./scripting/GAME_ENGINE_DESIGN.md).
+TSX-pelien yksityiskohtainen malli (reducer-tyyli, retained spritet, JSX HUD): [`docs/GAME_SCRIPTING.md`](./docs/GAME_SCRIPTING.md) ja [`docs/GAME_ENGINE_DESIGN.md`](./docs/GAME_ENGINE_DESIGN.md).
 
 ## Käynnistäminen
 
@@ -266,7 +266,7 @@ Valikosta peli näkyy automaattisesti, kun `index.tsx` on paikallaan.
 | Ominaisuus | Miten |
 |------------|-------|
 | **Ääni** | `import { soundEvent } from "../../scripting/game_helpers"` → `events: [soundEvent("bounce")]` `update()`-palautuksessa; synth-äänet `game_audio.rgr`, musiikki `game_soundscore.rgr` |
-| **Vokaaliefektit** | Ennalta määritellyt vokaaliefektit (nauru, huokaus, haukotus…): `events: [{ kind: "playVoice", id: "laugh" }]` tai suora ABI-kutsu `laugh()` / `voice("sigh")`. Enginen oma syntetisaattori (`game_vocal_fx.rgr`), ei riippuvuutta Voiceboxiin — halutessa korvaa efektin Voiceboxilla renderöidyllä WAV-assetilla. Pelattava demo: `games/comedy_club/`. Katso [`scripting/VOCAL_FX.md`](./scripting/VOCAL_FX.md) (`npm run engine:vocalfx`) |
+| **Vokaaliefektit** | Ennalta määritellyt vokaaliefektit (nauru, huokaus, haukotus…): `events: [{ kind: "playVoice", id: "laugh" }]` tai suora ABI-kutsu `laugh()` / `voice("sigh")`. Enginen oma syntetisaattori (`game_vocal_fx.rgr`), ei riippuvuutta Voiceboxiin — halutessa korvaa efektin Voiceboxilla renderöidyllä WAV-assetilla. Pelattava demo: `games/comedy_club/`. Katso [`docs/VOCAL_FX.md`](./docs/VOCAL_FX.md) (`npm run engine:vocalfx`) |
 | **Partikkelit** | `events: [{ kind: "particles", id: "sparkle", x, y }]` — CPU- tai GPU-overlay |
 | **Taustakuva** | `resources()` + `backgroundImage()` — katso [`scripting/background_demo.game.tsx`](./scripting/background_demo.game.tsx) |
 | **Tallennus** | `loadGameData()` / `saveGameData(obj)` → `gamedata.json` pelikansiossa |
@@ -301,7 +301,7 @@ Kun `game.info`:ssa on `splitScreen=auto` tai `always`, SDL-host käynnistää *
 
 Esimerkit: Pac-Man, Breakout, Invaders, Flipperitorni (`splitScreen=auto`); Pomppija (`autoscale=false`).
 
-Tiedostopohjaiset ruudut (`level2.tsx`, `win.tsx`), taustakuvat ja `gamedata.json`: **[`scripting/GAME_SCREENS_AND_STORAGE.md`](./scripting/GAME_SCREENS_AND_STORAGE.md)**.
+Tiedostopohjaiset ruudut (`level2.tsx`, `win.tsx`), taustakuvat ja `gamedata.json`: **[`docs/GAME_SCREENS_AND_STORAGE.md`](./docs/GAME_SCREENS_AND_STORAGE.md)**.
 
 Täydet tyypit: [`scripting/engine.d.ts`](./scripting/engine.d.ts). TS-tarkistus:
 
@@ -522,10 +522,10 @@ Kummassakaan tapauksessa **guest-koodia ei tarvitse muuttaa** — uusi hahmo on 
 | [`IDEAL_API.md`](./IDEAL_API.md) | Koko ABI yhtenä referenssinä: blokki-layoutit, host-importit, eventit, capability-bitit |
 | [`PLAN_GAME_ENGINE.md`](./PLAN_GAME_ENGINE.md) | Arkkitehtuuri, HDMI, gamepad-suunnitelma |
 | [`RENDERING_EVG.md`](./RENDERING_EVG.md) | EVG/vektori-renderöinnin integraatio (tuleva) |
-| [`scripting/GAME_SCRIPTING.md`](./scripting/GAME_SCRIPTING.md) | TSX-skriptaus, GameRunner, importit |
-| [`scripting/GAME_SCREENS_AND_STORAGE.md`](./scripting/GAME_SCREENS_AND_STORAGE.md) | Ruutujen lataus (`loadGame`/`pushGame`) ja `gamedata.json` |
-| [`scripting/GAME_ENGINE_DESIGN.md`](./scripting/GAME_ENGINE_DESIGN.md) | Retained mode + JSX HUD -malli |
-| [`scripting/TSX_ENGINE_ISSUES.md`](./scripting/TSX_ENGINE_ISSUES.md) | Tunnetut evaluator-rajoitukset |
+| [`docs/GAME_SCRIPTING.md`](./docs/GAME_SCRIPTING.md) | TSX-skriptaus, GameRunner, importit |
+| [`docs/GAME_SCREENS_AND_STORAGE.md`](./docs/GAME_SCREENS_AND_STORAGE.md) | Ruutujen lataus (`loadGame`/`pushGame`) ja `gamedata.json` |
+| [`docs/GAME_ENGINE_DESIGN.md`](./docs/GAME_ENGINE_DESIGN.md) | Retained mode + JSX HUD -malli |
+| [`docs/TSX_ENGINE_ISSUES.md`](./docs/TSX_ENGINE_ISSUES.md) | Tunnetut evaluator-rajoitukset |
 | [`LLVM_BUGS.md`](./LLVM_BUGS.md) | LLVM-backendin bugit |
 | [`games/rust_pong/README.md`](./games/rust_pong/README.md) | WASM Path C PoC |
 | `scripting/game_runtime.rgr` | GameRunner (sprites, update, hud, ääni, fysiikka) |

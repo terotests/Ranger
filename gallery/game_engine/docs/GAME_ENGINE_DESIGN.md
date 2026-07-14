@@ -10,9 +10,9 @@ Kolme esimerkkiä kattaa eri kerrokset:
 
 | Esimerkki | Maailma | UI | Entityjä | Tyypillinen FPS (dummy SDL) |
 |-----------|---------|-----|----------|----------------------------|
-| [`pong.game.tsx`](./pong.game.tsx) | retained `sprites()` | built-in digit-font | 3 | ~250 |
-| [`invaders.game.tsx`](./invaders.game.tsx) | retained pixel-rectit | built-in digit-font | ~487 | ~8 |
-| [`breakout.game.tsx`](./breakout.game.tsx) | retained tiilet/pallo | **JSX `hud()`** | 52 | ~150+ |
+| [`pong.game.tsx`](../scripting/pong.game.tsx) | retained `sprites()` | built-in digit-font | 3 | ~250 |
+| [`invaders.game.tsx`](../scripting/invaders.game.tsx) | retained pixel-rectit | built-in digit-font | ~487 | ~8 |
+| [`breakout.game.tsx`](../scripting/breakout.game.tsx) | retained tiilet/pallo | **JSX `hud()`** | 52 | ~150+ |
 
 **Ongelma:** GameRunner piirtää maailman `SoftCanvas`-primitiiveillä (rect/circle).
 JSX toimii vain erillisessä `menu.game.tsx`-polussa (`callRender("render")` ilman
@@ -275,4 +275,4 @@ function update(props) {
 
 Taaksepäin yhteensopiva: ilman `state.screens` toimii Pong/Invaders.
 
-Esimerkki: [`breakout.game.tsx`](./breakout.game.tsx).
+Esimerkki: [`breakout.game.tsx`](../scripting/breakout.game.tsx).

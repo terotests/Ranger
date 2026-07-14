@@ -4,7 +4,7 @@
 > author **game logic, controllers and simple screens as TypeScript/TSX**,
 > evaluated at runtime by the gallery **ComponentEngine**, with a **Game API**
 > injected into the script namespace and **TypeScript typings** for editor
-> tooling ([`game.d.ts`](./game.d.ts)).
+> tooling ([`game.d.ts`](../scripting/game.d.ts)).
 
 ## Why
 
@@ -35,7 +35,7 @@ The host injects **globals** into the script namespace (no import needed):
 | `screen` | `Framebuffer` | pixel `width`/`height` of the frame buffer (not `state.screen`) |
 | `Buttons` | consts | `Buttons.UP / DOWN / ACTION / QUIT` |
 
-See [`game.d.ts`](./game.d.ts) for the full types and [`menu.game.tsx`](./menu.game.tsx)
+See [`game.d.ts`](../scripting/game.d.ts) for the full types and [`menu.game.tsx`](../scripting/menu.game.tsx)
 for an example screen.
 
 ## How the host injects and drives it (Ranger)
@@ -69,7 +69,7 @@ def ui (engine.callRender("render" props))          ; -> EVGElement tree
   evaluates it into an `EVGElement` tree (hand to `EVGLayout` + the raster/SDL
   renderer described in `RENDERING_EVG.md`).
 
-A working end-to-end demo is [`game_script_demo.rgr`](./game_script_demo.rgr)
+A working end-to-end demo is [`game_script_demo.rgr`](../scripting/game_script_demo.rgr)
 (compile with `-es6`, run with Node); it is covered by
 [`tests/game-scripting.test.ts`](../../../tests/game-scripting.test.ts).
 
@@ -94,9 +94,9 @@ them), exactly like the existing `evg_types.tsx` intellisense file.
 
 ### Local `tsconfig.json`
 
-[`tsconfig.json`](./tsconfig.json) enables **strict** checking (`noImplicitAny`,
+[`tsconfig.json`](../scripting/tsconfig.json) enables **strict** checking (`noImplicitAny`,
 etc.) for annotated scripts. Add your `*.game.tsx` to `"include"` as you add
-type annotations — start with [`breakout.game.tsx`](./breakout.game.tsx) as the
+type annotations — start with [`breakout.game.tsx`](../scripting/breakout.game.tsx) as the
 reference example.
 
 ```bash
@@ -120,11 +120,11 @@ import { brickId } from "./breakout_bricks";
 ```
 
 Generic engine types (`GameState`, `MultiScreenState`, `SpriteDef`, `GameScript`,
-`Framebuffer`, …) live in [`engine.d.ts`](./engine.d.ts). [`game.d.ts`](./game.d.ts)
+`Framebuffer`, …) live in [`engine.d.ts`](../scripting/engine.d.ts). [`game.d.ts`](../scripting/game.d.ts)
 is the usual entry reference for scripts. Per-game screen state (e.g.
-`BreakoutState`) belongs in a sibling `*.d.ts` — see [`breakout.d.ts`](./breakout.d.ts).
+`BreakoutState`) belongs in a sibling `*.d.ts` — see [`breakout.d.ts`](../scripting/breakout.d.ts).
 
-For multi-screen games, use helpers from [`game_helpers.tsx`](./game_helpers.tsx)
+For multi-screen games, use helpers from [`game_helpers.tsx`](../scripting/game_helpers.tsx)
 instead of raw `state.screens[name]` (avoids confusing `state.screen` — active
 screen name — with the injected `screen` global — framebuffer size):
 
@@ -159,12 +159,12 @@ Requirements:
 4. Exported `function` / `const` bindings from the imported file are registered
    into the script module scope.
 
-Example split: [`breakout_bricks.tsx`](./breakout_bricks.tsx) (shared brick
-helpers) imported by [`breakout.game.tsx`](./breakout.game.tsx).
+Example split: [`breakout_bricks.tsx`](../scripting/breakout_bricks.tsx) (shared brick
+helpers) imported by [`breakout.game.tsx`](../scripting/breakout.game.tsx).
 
 ## Retained-mode runner (GameRunner)
 
-[`game_runtime.rgr`](./game_runtime.rgr) turns the above into a working
+[`game_runtime.rgr`](../scripting/game_runtime.rgr) turns the above into a working
 **retained-mode runner** for real-time games:
 
 - **`sprites()` runs once** and defines the on-screen objects; the runner
@@ -177,8 +177,8 @@ helpers) imported by [`breakout.game.tsx`](./breakout.game.tsx).
 - the frame is drawn into the RGBA `SoftCanvas`, i.e. the same buffer the SDL /
   HDMI present path blits (see [`../pong_sdl.rgr`](../pong_sdl.rgr)).
 
-Working example: [`pong.game.tsx`](./pong.game.tsx) (scripted, time-based Pong)
-driven by [`pong_runner_demo.rgr`](./pong_runner_demo.rgr), covered by
+Working example: [`pong.game.tsx`](../scripting/pong.game.tsx) (scripted, time-based Pong)
+driven by [`pong_runner_demo.rgr`](../scripting/pong_runner_demo.rgr), covered by
 [`tests/game-runner.test.ts`](../../../tests/game-runner.test.ts). Run it and
 dump a PNG:
 
@@ -192,12 +192,12 @@ ffmpeg -f rawvideo -pixel_format rgba -video_size 480x270 \
   -i gallery/game_engine/scripting/pong_frame.rgba -y pong.png
 ```
 
-Space Invaders variant: [`invaders.game.tsx`](./invaders.game.tsx) via
-[`invaders_runner_demo.rgr`](./invaders_runner_demo.rgr) (same runner API; many
+Space Invaders variant: [`invaders.game.tsx`](../scripting/invaders.game.tsx) via
+[`invaders_runner_demo.rgr`](../scripting/invaders_runner_demo.rgr) (same runner API; many
 retained pixel sprites).
 
-Breakout + JSX HUD + screens: [`breakout.game.tsx`](./breakout.game.tsx) via
-[`breakout_runner_demo.rgr`](./breakout_runner_demo.rgr) — `play` and `gameOver`
+Breakout + JSX HUD + screens: [`breakout.game.tsx`](../scripting/breakout.game.tsx) via
+[`breakout_runner_demo.rgr`](../scripting/breakout_runner_demo.rgr) — `play` and `gameOver`
 screens with lazy per-screen sprites (see [`GAME_ENGINE_DESIGN.md`](./GAME_ENGINE_DESIGN.md)).
 
 Engine quirks and fixes: [`TSX_ENGINE_ISSUES.md`](./TSX_ENGINE_ISSUES.md).
@@ -237,10 +237,10 @@ the runner syncs pose each frame.
 | `showNet` | `0` = hide centre net (default `1` for Pong layout) |
 | `score1`, `score2` | Built-in digit HUD when no `hud()` |
 
-Pac-Man ([`pacman.game.tsx`](./pacman.game.tsx)) uses `kind: "wedge"` + `p0`/`p1` for
+Pac-Man ([`pacman.game.tsx`](../scripting/pacman.game.tsx)) uses `kind: "wedge"` + `p0`/`p1` for
 mouth animation; maze, ghost AI, tunnels and modes are **pure TypeScript**.
 
-Space Invaders ([`invaders.game.tsx`](./invaders.game.tsx)) uses `kind: "bitmap"` — one
+Space Invaders ([`invaders.game.tsx`](../scripting/invaders.game.tsx)) uses `kind: "bitmap"` — one
 retained sprite per alien with two cached animation frames (`p0` toggles frame), not
 one rect per pixel. Audio is reserved for a future engine-level API (not per-game).
 
@@ -314,8 +314,8 @@ Per frame the game updates **`state.worldEntities[id]`** (same shape as
 `EntityPose`, but world `x`/`y`). The runner applies the camera offset, culls
 off-screen entities, and syncs retained sprites — no `placeEntities()` copy step.
 
-Minimal example: [`world_scroll.game.tsx`](./world_scroll.game.tsx) (headless test:
-[`world_scroll_runner_demo.rgr`](./world_scroll_runner_demo.rgr)).
+Minimal example: [`world_scroll.game.tsx`](../scripting/world_scroll.game.tsx) (headless test:
+[`world_scroll_runner_demo.rgr`](../scripting/world_scroll_runner_demo.rgr)).
 
 ```tsx
 function entities() {
