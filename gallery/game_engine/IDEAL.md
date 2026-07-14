@@ -81,7 +81,8 @@ without re-widening the leaks above.
 | **Collision shape, filtering, sensors, full contacts** | Minimal | The body record carries pose but no shape; body↔body is circle-only; contacts define only a `BEGIN` phase (no `PERSIST`/`END`, depth, or tangent impulse); no layer/mask filtering, no sensor/trigger bodies. | §2.5 |
 | **Selectable physics engine** | Missing | A full Cannon.js rigid-body port exists (`physics/src/cannon_*.rgr`) but no interface lets a game choose it over the arcade core; the ABI is tied to one engine's output. | §2.5 |
 | **Body→sprite binding** | Fragmented | Three unrelated models (host `spriteFor` templates, RGSP1 catalog, `.as` RGS1 draw list); no single contract that makes a body's pose drive a sprite/character on every path. | §2.5 |
-| **Data-driven sprite roster & animations** | Partial | A catalog-id table (`RG_SPR_OFF_CAT_IDS`) exists, but character ids are still frozen constants, and animations are limited to `WALK/RUN/JUMP` with `RUN`/`JUMP` falling back to `WALK`. | §2.1 |
+| **Data-driven sprite roster & animations** | Partial | A catalog-id table (`RG_SPR_OFF_CAT_IDS`) exists, but character ids are still frozen constants, and animations are limited to `WALK/RUN/JUMP` with `RUN`/`JUMP` falling back to `WALK`. | §2.1, §2.8 |
+| **Sprite-sheet loading (PNG) + unified sprite handling** | Fragmented | Runtime image loading is JPEG-only (PNG decode lives only in the LPC toolchain); the emitted `atlas.json` is ignored at runtime; sheets are drawn via three unrelated models with three animation-timing sites. | §2.8 |
 | **Guest draw list / resource manifest / sound queue as first-class ABI** | Path-specific | `RGS1`, the resource manifest, and the sound queue are native-array APIs on the interpreted `.as` path only — not a shared byte block, so compiled-WASM guests cannot use them uniformly. | §2, §5 |
 | **Streaming (`RGX1`) and loader (`RGLD`)** | Unheadered | Referenced as siblings of RGW1 but have no canonical `wasm/*.h`, so their offsets are not a stable contract. | §2 |
 | **Save-state / persistence, networking, clock/RNG seed, config negotiation** | Absent | Nothing beyond `dt_ms`/`time_ms`; no deterministic seed, no persistence, no negotiated timestep/config. | §2.1 (RGCQ), §6 |
@@ -764,6 +765,108 @@ The result is that a dynamic resource loader is *"just another guest"* holding
 handles it allocates and frees — §2.6's rule applied to the largest, most I/O-heavy
 objects — and a new streaming strategy (procedural, networked, LOD) is purely
 additive: a replacement worker on the same ABI, with not one engine-core edit.
+
+### 2.8 Loading sprite sheets and handling sprites
+
+A spritesheet is the most common resource a 2D game loads, and drawing an animated
+character from it is the most common thing a game does every frame. So how the engine
+**loads a sheet, describes its frames, and drives a sprite's animation** deserves one
+clear contract — and today it has three, plus a decoder gap.
+
+**Current state.**
+
+- **The decoder gap: runtime loading is JPEG-only.** [`game_image_loader.rgr`](./scripting/game_image_loader.rgr)
+  / `ImageUtils` decode **only JPEG**, but spritesheets (especially LPC) are **PNG**
+  with an alpha channel. PNG decoding *does* exist — but only inside the LPC build
+  toolchain ([`lpc/src/png_decoder.rgr`](./lpc/src/png_decoder.rgr)), not on the
+  runtime image path. Two decoders, one format each, on different sides of the engine.
+- **Sheet drawing is a per-entity kind with baked geometry.** `game_sprite.rgr`'s
+  `GameEntity` carries a `sheet` kind: `shPath`, `shFrameW/H` (64×64), `shCols` (9),
+  `shRows` (4), `shScale`, `shFeetTrim`, `shImg` (the decoded `ImageBuffer`),
+  `shGpuTexId`. The host loads + caches the image once (`loadSheetImage`,
+  `sheetCachePaths`/`sheetCacheTpl`) and blits sub-rect `(p0=col, p1=row)` per frame.
+  Workable, but the frame layout is fixed fields on the entity, not a described atlas.
+- **The atlas format exists only on paper.** The LPC pipeline already emits an
+  `atlas.json` (`frameWidth/Height`, `sheetWidth/Height`, `directions`, and
+  `animations: { walk: { row, frameCount, cycle } }`, straight from LPC's
+  `ANIMATION_OFFSETS`) — but nothing at runtime consumes it; the runtime instead reads
+  the `sh*` fields above. The rich, data-driven description is generated and then
+  ignored.
+- **Three unrelated ways to handle a sprite (the §2.5 split, seen from the art side).**
+  (1) `GameEntity` kinds `rect/circle/wedge/ghost/bitmap/sheet` — where `wedge`/`ghost`
+  are Pac-Man-specific leaks (§4) — with pose from `state.entities[id]` and animation
+  as `p0 = frame`. (2) The **RGSP1** character ABI
+  ([`wasm_sprite_abi.h`](./wasm/wasm_sprite_abi.h)): slots of
+  `charId/anim/dir/flags/xFp/yFp/animClockMs/frame`, where the host resolves
+  `charId → spritesheet + rows` and animates by clock, with animations frozen to
+  `WALK/RUN/JUMP` (RUN/JUMP falling back to WALK) and the roster frozen to
+  `RG_SPR_CHAR_*`. (3) The `.as` **RGS1** draw list (`drawSprite(tpl, x, y, angleDeg,
+  frame)`), guest-authored transform. Each animates in a different place with a
+  different vocabulary.
+- **Character composition is a separate world.** [`lpc_char_catalog.rgr`](./lpc/src/lpc_char_catalog.rgr)
+  bakes 4 fixed characters by colourising layer groups; a runtime LPC compositor
+  (selections → composed sheet, cached by hash) is planned but not the live path.
+
+**Ideal.**
+
+1. **One image decoder, every format, every path.** Runtime sheet loading decodes
+   PNG *and* JPEG through a single decoder (fold the LPC `png_decoder` capability into
+   the runtime image loader; `Inflate.rgr` already exists), so a sheet loads
+   identically compiled or interpreted, native or web (§ parity). Alpha is
+   first-class.
+2. **A sheet is a resource; an atlas is its description.** Loading a sheet goes
+   through the §2.7 resource path — decode (off-thread) → upload → **refcounted
+   handle** — and the frames are described by a **data atlas**, not entity fields:
+
+```
+Atlas (data the guest/provider declares — the runtime shape of today's atlas.json)
+  frameW, frameH, sheetW, sheetH
+  directions: [ up, left, down, right ]          ; row order; FLIP_X may reuse LEFT
+  animations: { <id>: { row, frameCount, cycle[], fps, loop } }
+```
+
+   Animation ids, rows, and cycles are **data** (LPC already emits them), so a sheet
+   with a `slash` or `cast` row needs no new `RG_SPR_ANIM_*` constant and the roster
+   is the catalog table (`RG_SPR_OFF_CAT_IDS`), never `RG_SPR_CHAR_*` (§2.1).
+3. **One sprite instance model, drawn the same on every path.** A sprite is a small
+   record the host can render regardless of backend:
+
+```
+Sprite = { visual:   sheetHandle + atlas   (or a registered shape-drawer, §4)
+           transform: x, y, angle, scale, flipX
+           anim:      animId, clockMs | frameOverride, dir }
+```
+
+   `GameEntity` kinds, RGSP1 slots, and the RGS1 draw list all become *this* — the
+   host reads `Sprite`, resolves the frame from the atlas, and blits/uploads. Pose may
+   come from the guest directly (RGS1-style) or from a physics body (§2.5 `BodyVisual`
+   writes the body's pose into the sprite transform); either way the draw path is one.
+4. **Animation is one clock over the atlas.** The host advances `clockMs` and picks
+   the frame from the animation's `cycle` at its `fps` (looping per `loop`); `dir`
+   selects the row (with `FLIP_X` to mirror LEFT→RIGHT); the guest may override with an
+   explicit `frame`. This single state-machine replaces the three timing sites
+   (RGSP1's `animClockMs`, `GameEntity`'s `p0`, the guest's manual frame), so "walk at
+   8 fps facing down, mirrored" means the same thing everywhere.
+5. **Game-specific looks are registrations, not kinds.** `wedge`/`ghost` and any new
+   shape are registered shape-drawers the game supplies (§4); core ships primitives +
+   the sheet/atlas mechanism and dispatches by lookup — no `kind == "ghost"` branch in
+   `game_sprite.rgr`.
+6. **Runtime composition is a resource generator (§2.7).** The LPC compositor is a
+   *"generate"* producer: selections → a composed sheet, cached by selections-hash,
+   returned as a handle, and freed when no sprite references it. Player customisation
+   (change hair/armour, recolour) then produces a new sheet handle at runtime with the
+   same load/generate/free contract as any other resource — no rebuild, no Node.
+7. **GPU and software are one interface, capability-gated.** A sheet handle resolves
+   to a GPU texture (`shGpuTexId`) where available and a software `ImageBuffer` blit
+   otherwise; the guest declares a `Sprite`, not a backend, and a `RG_WASM_HOST_CAP_*`
+   bit (§6) advertises GPU sheets so a guest adapts instead of assuming.
+
+The upshot: loading a sheet is *"acquire a resource handle + an atlas,"* and handling
+a sprite is *"place an instance and advance one animation clock."* Frame layout,
+animation rows, the character roster, and even the sheet's pixels (composed on demand)
+are all guest-declared data — so a new character, a new animation, or a new art style
+is additive, and the same sprite draws identically across WASM, `.as`, GPU, and
+software (§2.1, §2.5, §2.7, §4, §7).
 
 ---
 
