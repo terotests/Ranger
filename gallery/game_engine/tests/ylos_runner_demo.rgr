@@ -1,17 +1,17 @@
 ; ==============================================================================
-; ylos2_runner_demo - headless smoke test for Ylos 2 platformer (LPC sheets).
+; ylos_runner_demo - headless smoke test for Ylos! platformer.
 ; ==============================================================================
 
-Import "./game_runtime.rgr"
+Import "../scripting/game_runtime.rgr"
 
-class Ylos2RunnerDemo {
+class YlosRunnerDemo {
     sfn m@(main):void () {
         def runner:GameRunner (new GameRunner)
         runner.init(480 270)
 
-        def buf:buffer (buffer_read_file "gallery/game_engine/games/ylos2" "index.tsx")
+        def buf:buffer (buffer_read_file "gallery/game_engine/games/ylos" "index.tsx")
         def src:string (buffer_to_string buf)
-        runner.setScriptDir("gallery/game_engine/games/ylos2")
+        runner.setScriptDir("gallery/game_engine/games/ylos")
         runner.loadScript(src)
         runner.setupScene()
 
@@ -40,7 +40,7 @@ class Ylos2RunnerDemo {
         }
 
         runner.draw()
-        buffer_write_file "gallery/game_engine/scripting" "ylos2_frame.rgba" (runner.raw())
+        buffer_write_file "gallery/game_engine/scripting" "ylos_frame.rgba" (runner.raw())
 
         def p1x:int (runner.entityX("p1"))
         def p1y:int (runner.entityY("p1"))
@@ -51,6 +51,6 @@ class Ylos2RunnerDemo {
         print (("score=" + runner.score1) + ("," + runner.score2))
         def audio:GameAudio (runner.audioRef())
         print (("audioPlays=" + audio.playCount))
-        print "ylos2-runner done"
+        print "ylos-runner done"
     }
 }

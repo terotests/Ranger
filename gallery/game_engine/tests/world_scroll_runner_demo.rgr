@@ -2,7 +2,7 @@
 ; world_scroll_runner_demo - Phase 1 world-mode entity store + camera test.
 ; ==============================================================================
 
-Import "./game_runtime.rgr"
+Import "../scripting/game_runtime.rgr"
 
 class WorldScrollRunnerDemo {
     sfn m@(main):void () {

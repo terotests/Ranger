@@ -2,7 +2,7 @@
 ; counter_runner_demo - while-loop demo via the TS interpreter (ComponentEngine).
 ; ==============================================================================
 
-Import "./game_runtime.rgr"
+Import "../scripting/game_runtime.rgr"
 
 class CounterRunnerDemo {
     sfn m@(main):void () {

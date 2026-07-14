@@ -20,6 +20,7 @@ gallery/game_engine/
 ├── wasm/               # WASM-guestit: Rust (`rust_*`) + AssemblyScript (`as_*`) + jaetut ABI-headerit
 ├── pose/               # Pose-input (RGP1): natiivi provider + MediaPipe-PoC
 ├── lpc/                # LPC-spritesheet-compositor (erillinen työkalu)
+├── tests/              # Peli-testirunnerit (headless *_runner_demo.rgr) + interp/
 ├── framebuffer.rgr     # SoftCanvas (RGBA8888) — moottorin ydin
 ├── gfx_sdl.rgr         # SDL2-shim (C++ polyfill, GLES2 GPU-present) — moottorin ydin
 └── scripts/            # build-skriptit (SDL, native, Pi, LPC, WASM, …)
@@ -547,6 +548,11 @@ Kummassakaan tapauksessa **guest-koodia ei tarvitse muuttaa** — uusi hahmo on 
 | [`tests/game-scripting.test.ts`](../../tests/game-scripting.test.ts) | ComponentEngine-skriptaus |
 | [`tests/physics-cannon.test.ts`](../../tests/physics-cannon.test.ts) | Cannon.js -portti |
 
+Peli-testirunnerit (headless per-peli `*_runner_demo.rgr`, ajaa em.
+`.test.ts`-tiedostot) elävät hakemistossa [`tests/`](./tests/) — ks.
+[`tests/README.md`](./tests/README.md). Moottorin ydinkomponenttien self-testit
+(`scripting/*_demo.rgr`) jäävät `scripting/`-hakemistoon runtimen viereen (alla).
+
 ### Headless self-testit (`scripting/*_demo.rgr`)
 
 IDEAL-työn ja Phase R -korjausten komponentit kääntyvät Ranger-kääntäjällä ja
@@ -573,8 +579,8 @@ RANGER_LIB=compiler/Lang.rgr:lib/stdops.rgr node bin/output.js -es6 \
 | `game_script_contract_demo` | Skriptien paluuarvojen validointi (R.8) |
 | `game_runner_mode_demo` | RunnerMode-luokittelu + laittomat tilat (R.6) |
 
-Integraatiotesti oikealla pelillä: `breakout_runner_demo.rgr` ajaa
-`breakout.game.tsx`:n koko runtimen läpi (fixed-step, entities, contract) nodella.
+Integraatiotesti oikealla pelillä: [`tests/breakout_runner_demo.rgr`](./tests/breakout_runner_demo.rgr)
+ajaa `breakout.game.tsx`:n koko runtimen läpi (fixed-step, entities, contract) nodella.
 
 ## Dokumentaatio ja tiedostot
 

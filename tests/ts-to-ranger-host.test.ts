@@ -80,7 +80,7 @@ describe("Host bridge: resources + events (both paths)", () => {
       "gallery/game_engine/ranger_games/spawner_native_runner.rgr"
     );
     const interp = compileAndRun(
-      "gallery/game_engine/scripting/spawner_runner_demo.rgr"
+      "gallery/game_engine/tests/spawner_runner_demo.rgr"
     );
     expect(native.run?.success, native.run?.error).toBe(true);
     expect(interp.run?.success, interp.run?.error).toBe(true);
@@ -130,7 +130,7 @@ describe("Emitter: while loops (invaders foundation)", () => {
       "gallery/game_engine/ranger_games/counter_native_runner.rgr"
     );
     const interp = compileAndRun(
-      "gallery/game_engine/scripting/counter_runner_demo.rgr"
+      "gallery/game_engine/tests/counter_runner_demo.rgr"
     );
     expect(native.run?.success, native.run?.error).toBe(true);
     expect(interp.run?.success, interp.run?.error).toBe(true);

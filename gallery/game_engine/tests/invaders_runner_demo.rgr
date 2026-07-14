@@ -6,7 +6,7 @@
 ; next to this file for visual inspection.
 ; ==============================================================================
 
-Import "./game_runtime.rgr"
+Import "../scripting/game_runtime.rgr"
 
 class InvadersRunnerDemo {
     sfn m@(main):void () {
