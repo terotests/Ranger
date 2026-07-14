@@ -1,0 +1,84 @@
+; ==============================================================================
+; game_scene_provider — the engine-core <-> game seam (IDEAL.md §3, IDEAL_API §7)
+; ==============================================================================
+;
+; The one invariant behind the whole engine (IDEAL.md §0): "a hypothetical SECOND
+; game of the same genre must reuse a core file unchanged. If it can't, the file
+; is a game, not core." A generic runner must obtain EVERYTHING game-specific from
+; an interface it is compiled against — never from concrete game types, imports,
+; or constants baked into the runner.
+;
+; Today wasm_physics_runner.rgr violates this: it Imports wasm_autopeli_setup /
+; wasm_autopeli_render, holds concrete WasmAutopeliSetup/Render fields, and bakes
+; one game's numbers into core — world height 6000, camera 5860/5640, player
+; count 2, the sound vocabulary wall/bounce/win, the assets path. Each of those is
+; a game's decision that belongs behind this interface.
+;
+; GameSceneProvider is that interface: the runner holds ONE of these, supplied by
+; the game, and reads world size, player count, camera policy, the body-id<->code
+; convention, the sprite mapping, the sound/particle event mapping, and the assets
+; root through it. A second physics game supplies a different provider and drives
+; the same runner with zero core edits (§7). This base class is the contract with
+; safe genre-neutral defaults; a game overrides what it needs.
+;
+; The heavier presentation methods of IDEAL_API §7 (buildScene(phys, bodyIds),
+; initAssets(render, pw), buildStaticBg(render), drawHud(...)) reference concrete
+; engine runtime types and are folded in as the runner is rewired to consume this
+; seam; the data/policy/vocabulary methods below are the game-neutral core that
+; removes the constant + taxonomy leaks first, and they are pure (testable without
+; the runtime).
+; ==============================================================================
+
+class GameSceneProvider {
+    ; ---- world (removes the baked 480x6000 default in core) ----
+    fn worldWidth:int () {
+        return 480
+    }
+    fn worldHeight:int () {
+        return 270
+    }
+
+    ; ---- player count (removes the fixed 2 in core) ----
+    fn playerCount:int () {
+        return 1
+    }
+
+    ; ---- where this game's assets live (removes the hardcoded autopeli path) ----
+    fn assetsDir:string () {
+        return ""
+    }
+
+    ; ---- camera policy (removes the 5860/5640 autopeli camera constants) ----
+    ; Initial camera Y and, for a two-player split, the second pane's follow Y.
+    fn cameraStartY:int () {
+        return 0
+    }
+    fn cameraFollowY:int (paneIdx:int) {
+        return 0
+    }
+
+    ; ---- entity id -> sprite template (removes host-side spriteFor in core) ----
+    fn spriteFor:string (id:string) {
+        return ""
+    }
+
+    ; ---- body id <-> contact code convention (IDEAL.md §2.1: guest-defined) ----
+    ; The runner reads contacts as integer codes; the game owns the meaning.
+    fn contactBodyCode:int (id:string) {
+        return 0
+    }
+    fn bodyCodeToId:string (code:int) {
+        return ""
+    }
+
+    ; ---- event mapping (removes the wall/bounce/win sound vocabulary from core) ----
+    ; A guest emits a sound as (kind=1, sub=<its own id>); the game maps that opaque
+    ; sub-id to its registered sound name (§4). 0/"" = no sound.
+    fn soundName:string (sub:int) {
+        return ""
+    }
+    ; A guest particle event (kind=3, sub) maps to a registered emitter name.
+    fn particleName:string (sub:int) {
+        return "sparkle"
+    }
+}

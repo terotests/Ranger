@@ -19,6 +19,12 @@ void rg_wasm_call_void(int handle, const char* name, int nargs,
 uint32_t rg_wasm_mem_size(int handle);
 int32_t rg_wasm_abi_base(int handle);
 
+/* 1 if the module exports a function named `name`, else 0. Lets a host run the
+ * forward-compat capability gate (rg_abi_version / rg_required_caps / ...) and
+ * distinguish "guest exported it and returned 0" from "guest did not export it"
+ * (a legacy guest = ABI v1, caps 0). Does not call the function. */
+int rg_wasm_has_export(int handle, const char* name);
+
 /* Handle of the single worker a module spawned via the env.rg_spawn_worker
  * host import (0 = none). A host-loaded module may spawn one worker; a spawned
  * worker may not spawn further workers. */

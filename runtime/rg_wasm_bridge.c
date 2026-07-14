@@ -477,6 +477,23 @@ void rg_wasm_call_void(int handle, const char* name, int nargs,
     }
 }
 
+int rg_wasm_has_export(int handle, const char* name) {
+    RgWasmSlot* s = rg_slot(handle);
+    IM3Function fn = NULL;
+    M3Result r;
+
+    if (!s || !name) {
+        return 0;
+    }
+    /* Query directly (not via rg_find_fn) so a missing optional export is silent
+     * — the capability gate probes for handshake exports that MAY be absent. */
+    r = m3_FindFunction(&fn, s->runtime, name);
+    if (r || !fn) {
+        return 0;
+    }
+    return 1;
+}
+
 static uint8_t* rg_wasm_mem(int handle) {
     RgWasmSlot* s = rg_slot(handle);
     if (!s) {

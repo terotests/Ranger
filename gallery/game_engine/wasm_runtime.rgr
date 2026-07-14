@@ -58,6 +58,20 @@ operators {
         }
     }
 
+    ; 1 if the module exports `name`, else 0. Used by the capability gate to tell
+    ; "exported and returned 0" from "not exported" (legacy guest). On the es6/
+    ; ranger stub paths there is no real module, so this reports 0 and the gate
+    ; degrades to "legacy guest, no requirements" (safe).
+    wasm_has_export _:int (handle:int name:string) {
+        templates {
+            cpp ( "rg_wasm_has_export(" (e 1) ", " (e 2) ".c_str())"
+                  (imp "<rg_wasm_bridge.h>")
+                  (imp "<string>") )
+            es6 ( "0" )
+            ranger ( "0" )
+        }
+    }
+
     wasm_mem_i32 _:int (handle:int absOff:int) {
         templates {
             cpp ( "rg_wasm_mem_read_i32(" (e 1) ", (uint32_t)(" (e 2) "))"

@@ -111,12 +111,18 @@ class AsAbiBridge {
         this.aw((64 + (i * 24)) x)
         this.aw(((64 + (i * 24)) + 4) y)
     }
+    ; Genre-neutral control write (IDEAL §2.2): one opaque channel by index. The
+    ; guest assigns meaning; the bridge only transports. ch in 0..3.
+    fn writeControlChannel:void (i:int ch:int v:int) {
+        this.aw(((832 + (i * 16)) + (ch * 4)) v)
+    }
+    ; Deprecated car-named convenience — a driving guest's four channels. Kept for
+    ; existing .as guests; new guests should call writeControlChannel per channel.
     fn writeControl:void (i:int steer:int throttle:int brake:int grip:int) {
-        def b (832 + (i * 16))
-        this.aw(b steer)
-        this.aw((b + 4) throttle)
-        this.aw((b + 8) brake)
-        this.aw((b + 12) grip)
+        this.writeControlChannel(i 0 steer)
+        this.writeControlChannel(i 1 throttle)
+        this.writeControlChannel(i 2 brake)
+        this.writeControlChannel(i 3 grip)
     }
     fn contactField:int (i:int field:int) {
         return (this.ar((1600 + (i * 32)) + field))
@@ -477,6 +483,7 @@ class AsAbiBridge {
         if (name == "bodyAngVelFp") { return true }
         if (name == "writeBodyPos") { return true }
         if (name == "writeControl") { return true }
+        if (name == "writeControlChannel") { return true }
         if (name == "contactCount") { return true }
         if (name == "contactBodyA") { return true }
         if (name == "contactBodyB") { return true }
@@ -562,6 +569,13 @@ class AsAbiBridge {
             def br:int (this.argInt(args 3))
             def gr:int (this.argInt(args 4))
             this.writeControl(i st th br gr)
+            return (EvalValue.null())
+        }
+        if (name == "writeControlChannel") {
+            def i:int (this.argInt(args 0))
+            def ch:int (this.argInt(args 1))
+            def v:int (this.argInt(args 2))
+            this.writeControlChannel(i ch v)
             return (EvalValue.null())
         }
         if (name == "contactCount") {

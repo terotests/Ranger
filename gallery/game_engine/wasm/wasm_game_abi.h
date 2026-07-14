@@ -12,8 +12,6 @@
 #define RG_WASM_ABI_SIZE    2560u
 
 #define RG_WASM_FP_SCALE    256
-#define RG_WASM_GRIP_SCALE  1000
-#define RG_WASM_STEER_SCALE 1000
 
 #define RG_WASM_MAX_BODIES   32u
 #define RG_WASM_MAX_IMPULSES 16u
@@ -43,9 +41,14 @@
 #define RG_WASM_OFF_HITS         44
 #define RG_WASM_OFF_CAMERA_Y     48
 #define RG_WASM_OFF_EVENT_CNT    52
-#define RG_WASM_OFF_AIR_P1       56
-#define RG_WASM_OFF_AIR_P2       60
+#define RG_WASM_OFF_AIR_P1       56  /* generic guest scalar slot 0 (guest-defined) */
+#define RG_WASM_OFF_AIR_P2       60  /* generic guest scalar slot 1 (guest-defined) */
 #define RG_WASM_HEADER_SIZE      64
+/* NOTE (§2.14 target): RGW1 gains host->guest viewport fields (view_w/view_h) so
+ * a physics guest can size/letterback itself — RGSP1 already carries VIEW_W/VIEW_H.
+ * They land in a version bump (a new header word block), tracked in IDEAL_TODO 2.3.
+ * OFF_AIR_P1/P2 are documented as GENERIC guest scalar slots the host transports
+ * opaquely — no game meaning (formerly named for one game's "air", §2.1). */
 
 #define RG_WASM_OFF_BODIES       64
 #define RG_WASM_OFF_CONTROLS     (RG_WASM_OFF_BODIES + RG_WASM_MAX_BODIES * RG_WASM_BODY_SIZE)
@@ -53,38 +56,74 @@
 #define RG_WASM_OFF_CONTACTS     (RG_WASM_OFF_IMPULSES + RG_WASM_MAX_IMPULSES * RG_WASM_IMPULSE_SIZE)
 #define RG_WASM_OFF_EVENTS       2048u
 
-/* contact[i]: bodyA, bodyB, phase, impulseFp, xFp, yFp, nxMilli, nyMilli (32 bytes) */
-#define RG_WASM_CONTACT_PHASE_BEGIN 1
+/* ---------------------------------------------------------------------------
+ * Per-body control record (RG_WASM_CONTROL_SIZE = 16 bytes).
+ *
+ * GENRE-NEUTRAL: four opaque i32 fixed-point channels. The ABI only transports
+ * them; MEANING is assigned by the guest, in the guest's own source. A racing
+ * guest reads ch0 as steer, ch1 as throttle, ch2 as brake, ch3 as grip; a
+ * top-down shooter reads them as aimX/aimY/fire/... — the transport does not
+ * care and defines no car parts.
+ *
+ * Host side stays neutral too: wasm_abi_io.rgr exposes readControlChannel(body,
+ * ch), never readControlSteer/Throttle/Brake/Grip.
+ * --------------------------------------------------------------------------- */
+#define RG_WASM_CTRL_OFF_CH0    0   /* i32 fixed-point control channel 0 */
+#define RG_WASM_CTRL_OFF_CH1    4   /* i32 fixed-point control channel 1 */
+#define RG_WASM_CTRL_OFF_CH2    8   /* i32 fixed-point control channel 2 */
+#define RG_WASM_CTRL_OFF_CH3    12  /* i32 fixed-point control channel 3 */
 
-/* event[i]: kind, sub, a, b, c (20 bytes) — kind: 1=sound 2=rumble 3=particles */
+/* ---------------------------------------------------------------------------
+ * contact[i]: bodyA, bodyB, phase, impulseFp, xFp, yFp, nxMilli, nyMilli (32 B).
+ *
+ * bodyA/bodyB carry GUEST-DEFINED id codes (a convention the guest picks, §2.1);
+ * the transport assigns them no meaning. The three-phase contact model is
+ * complete; today the arcade core only emits BEGIN, but PERSIST/END are part of
+ * the contract so a richer engine (§2.5) needs no new constant.
+ *
+ * Proposed manifold additions (widen the record / repurpose the current slack):
+ * a penetration DEPTH (fp) and a TANGENT (friction) impulse (fp) alongside the
+ * existing normal impulse. When more than RG_WASM_MAX_CONTACTS pairs touch, the
+ * documented overflow policy is DROP-LOWEST-IMPULSE — never a silent clamp.
+ * --------------------------------------------------------------------------- */
+#define RG_WASM_CONTACT_PHASE_BEGIN   1   /* pair started touching this step */
+#define RG_WASM_CONTACT_PHASE_PERSIST 2   /* still touching                  */
+#define RG_WASM_CONTACT_PHASE_END     3   /* separated this step             */
+
+/* Per-body collision shape descriptor (declared ONCE, guest-owned — never
+ * streamed per frame). The 24-byte body record streams pose only; geometry
+ * lives in exactly one place so host and guest can never disagree (§2.5). */
+#define RG_WASM_SHAPE_CIRCLE   1   /* a = radius (fp)                        */
+#define RG_WASM_SHAPE_BOX      2   /* a = halfW, b = halfH (fp)              */
+#define RG_WASM_SHAPE_SEGMENT  3   /* a..d = x1, y1, x2, y2 (fp)             */
+#define RG_WASM_SHAPE_POLYGON  4   /* a = vertex count -> side vertex table  */
+
+/* event[i]: kind, sub, a, b, c (20 bytes). kind is generic; the sub-id and the
+ * a/b/c payload are conventions the guest defines. A sound `sub` indexes the
+ * game-registered sound palette (§4), NOT a frozen enum in this header. */
 #define RG_WASM_EVENT_SOUND      1u
 #define RG_WASM_EVENT_RUMBLE     2u
 #define RG_WASM_EVENT_PARTICLES  3u
-#define RG_WASM_SOUND_WALL       1u
-#define RG_WASM_SOUND_BOUNCE     2u
-#define RG_WASM_SOUND_WIN        3u
 
-/* contact body id encoding (i32) */
-#define RG_WASM_ID_WALL_L  1000
-#define RG_WASM_ID_WALL_R  1001
-#define RG_WASM_ID_CONE0   100
-#define RG_WASM_ID_BAR0    200
-
-/* input_flags bits */
+/* input_flags bits (host->guest). The five digital bits below are the base set;
+ * the per-player typed input record (analog sticks, triggers, pointer) lives in
+ * the sibling RGIN block, wasm/wasm_input_abi.h (§2.9). */
 #define RG_WASM_IN_UP     1u
 #define RG_WASM_IN_DOWN   2u
 #define RG_WASM_IN_LEFT   4u
 #define RG_WASM_IN_RIGHT  8u
 #define RG_WASM_IN_ACTION 16u
 
-/* body.flags bits */
-#define RG_WASM_BODY_ACTIVE 1u
+/* body.flags bits — additive, genre-neutral. */
+#define RG_WASM_BODY_ACTIVE 1u  /* body participates this step               */
+#define RG_WASM_BODY_STATIC 2u  /* infinite mass (walls, track, scenery)     */
+#define RG_WASM_BODY_SENSOR 4u  /* report overlaps but apply NO response      */
+/* plus a u16 layer + u16 mask per body ("which layers am I, which do I hit")
+ * live in the guest-owned shape descriptor above, not the streamed record.  */
 
-/* Standard body indices (autopeli) */
-#define RG_WASM_BODY_P1 0
-#define RG_WASM_BODY_P2 1
-#define RG_WASM_BODY_TRAFFIC0 2
-#define RG_WASM_TRAFFIC_COUNT 15
+/* Body-index meaning, id-code ranges, and event sub-ids are CONVENTIONS THE
+ * GUEST DEFINES (§2.1) — a game names its own bodies in its own source (e.g.
+ * rust_autopeli/src/lib.rs). No standard body index belongs in this transport. */
 
 /* ---------------------------------------------------------------------------
  * Forward-compat handshake (old host, newer guest)
@@ -108,13 +147,17 @@
  *   if (need & ~RG_WASM_HOST_CAPS) reject("missing capability"); // feature gap
  *   // then init(), verify RGW1 magic + size, clamp all counts to the MAX_* below.
  * --------------------------------------------------------------------------- */
-#define RG_WASM_HOST_CAP_PHYSICS   0x0001u /* host runs GamePhysics for the guest */
-#define RG_WASM_HOST_CAP_RUMBLE    0x0002u /* gamepad rumble events honoured      */
-#define RG_WASM_HOST_CAP_PARTICLES 0x0004u /* particle events honoured            */
-#define RG_WASM_HOST_CAP_RGU1      0x0008u /* retained-mode HUD (RGU1) parsed      */
-/* Bits 0x0010.. are reserved for future host features. Assign additively and
- * never reuse a retired bit. RG_WASM_HOST_CAPS is what a given host advertises;
- * it is defined by the host build, not here. */
+#define RG_WASM_HOST_CAP_PHYSICS    0x0001u /* host runs GamePhysics for the guest  */
+#define RG_WASM_HOST_CAP_RUMBLE     0x0002u /* gamepad rumble events honoured       */
+#define RG_WASM_HOST_CAP_PARTICLES  0x0004u /* particle events honoured             */
+#define RG_WASM_HOST_CAP_RGU1       0x0008u /* retained-mode HUD (RGU1) parsed       */
+#define RG_WASM_HOST_CAP_POSE_INPUT 0x0010u /* RGP1 pose streaming + motion/speed   */
+#define RG_WASM_HOST_CAP_UI_DYNAMIC 0x0020u /* handle-based dynamic EVG UI (rg_evg_*) */
+#define RG_WASM_HOST_CAP_RES_STREAM 0x0040u /* rg_res_* streaming resources / workers */
+/* Bits 0x0080.. are reserved for future host features. Assign additively and
+ * never reuse a retired bit. RG_WASM_HOST_CAPS is what a given host advertises
+ * (the OR of every attached provider's capBit, §6); it is defined by the host
+ * build, not here. */
 
 /* ---------------------------------------------------------------------------
  * Capability query (RGCQ) — typed key/value negotiation

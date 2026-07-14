@@ -1,0 +1,79 @@
+; Headless self-test for the sound palette registry (IDEAL_TODO 4.4). Run:
+;   RANGER_LIB=compiler/Lang.rgr:lib/stdops.rgr node bin/output.js -es6 \
+;     gallery/game_engine/scripting/game_sound_palette_demo.rgr \
+;     -d=gallery/game_engine/scripting -o=game_sound_palette_demo.js -nodecli \
+;   && node gallery/game_engine/scripting/game_sound_palette_demo.js
+
+Import "./game_audio.rgr"
+
+class PaletteCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+}
+
+class GameSoundPaletteDemo {
+    sfn near:boolean (a:double b:double) {
+        def d:double (a - b)
+        if (d < 0.0) { d = (0.0 - d) }
+        return (d < 0.001)
+    }
+
+    sfn freqOf:double (p:GameSoundPalette name:string) {
+        def s:SynthToneSpec (p.spec(name))
+        return s.freqHz
+    }
+
+    sfn m@(main):void () {
+        def c:PaletteCheck (new PaletteCheck)
+        print "GameSoundPalette self-test"
+
+        def p:GameSoundPalette (new GameSoundPalette)
+        c.ok("empty palette knows nothing" ((p.has("wall")) == false))
+
+        ; Defaults install the built-in vocabulary as data.
+        p.registerDefaults()
+        c.ok("defaults register 7 sounds" ((p.count()) == 7))
+        c.ok("default has wall" (p.has("wall")))
+        c.ok("default wall tone preserved" (GameSoundPaletteDemo.near((GameSoundPaletteDemo.freqOf(p "wall")) 220.0)))
+        c.ok("default win tone preserved" (GameSoundPaletteDemo.near((GameSoundPaletteDemo.freqOf(p "win")) 523.0)))
+
+        ; A game registers a NEW sound with no core branch.
+        p.register("brickbreak" (GameSoundPalette.tone(1200.0 30 0.4 (SynthWave.square()) 0.0)))
+        c.ok("new sound registered" (p.has("brickbreak")))
+        c.ok("new sound tone" (GameSoundPaletteDemo.near((GameSoundPaletteDemo.freqOf(p "brickbreak")) 1200.0)))
+        c.ok("count grew to 8" ((p.count()) == 8))
+
+        ; A game OVERRIDES a built-in name.
+        p.register("wall" (GameSoundPalette.tone(99.0 10 0.1 (SynthWave.sine()) 0.0)))
+        c.ok("override replaces wall tone" (GameSoundPaletteDemo.near((GameSoundPaletteDemo.freqOf(p "wall")) 99.0)))
+        c.ok("override does not grow count" ((p.count()) == 8))
+
+        ; Unknown name -> neutral default tone, never a crash.
+        c.ok("unknown -> 440 default" (GameSoundPaletteDemo.near((GameSoundPaletteDemo.freqOf(p "nope")) 440.0)))
+
+        ; GameAudio consults the palette (lazy defaults) — the §4 entry point.
+        def a:GameAudio (new GameAudio)
+        c.ok("GameAudio hasBuiltin wall via palette" (a.hasBuiltin("wall")))
+        def winSpec:SynthToneSpec (a.lookupSpec("win"))
+        c.ok("GameAudio lookupSpec win via palette" (GameSoundPaletteDemo.near(winSpec.freqHz 523.0)))
+        a.registerSound("laser" (GameSoundPalette.tone(2000.0 20 0.3 (SynthWave.square()) 0.0)))
+        c.ok("GameAudio.registerSound adds a game sound" (a.hasBuiltin("laser")))
+
+        print "======================================"
+        print (("RESULT: " + (to_string c.passed) + " passed, ") + ((to_string c.failed) + " failed"))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

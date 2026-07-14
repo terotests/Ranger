@@ -6,11 +6,13 @@
 /* ---------------------------------------------------------------------------
  * RGSP1 — Ready-character sprite ABI for Ranger WASM guests.
  *
- * This is the sprite counterpart of the fixed SOUND set in wasm_game_abi.h. A
- * guest does NOT ship character art or animation code: it picks a character
- * from a host-provided catalog by numeric id — exactly like it plays a sound by
- * writing RG_WASM_SOUND_* — sets an animation + direction + world position, and
- * the host resolves id -> spritesheet + animation rows and draws + animates it.
+ * A guest does NOT ship character art or animation code: it picks a character
+ * from a host-provided catalog by numeric id (the roster is the catalog table at
+ * RG_SPR_OFF_CAT_IDS — data, not a frozen enum), sets an animation + direction +
+ * world position, and the host resolves id -> spritesheet + animation rows and
+ * draws + animates it. Like every Ranger block, this is a transport: the catalog
+ * ids and animation rows are conventions the guest/pack define, not taxonomy
+ * frozen into the header.
  *
  * The whole exchange is one shared linear-memory block, same shape as the other
  * Ranger WASM ABIs (RGW1 game, RGX1 streaming, RGLD loader):
@@ -70,19 +72,21 @@
 #define RG_SPR_OFF_CAT_IDS     2112 /* i32[RG_SPR_MAX_CAT] available char ids  */
 #define RG_SPR_MAX_CAT         32u
 
-/* --- Character ids (mirror lpc_char_catalog.rgr + pack/characters/catalog.json) */
-#define RG_SPR_CHAR_HERO    1
-#define RG_SPR_CHAR_KNIGHT  2
-#define RG_SPR_CHAR_MAGE    3
-#define RG_SPR_CHAR_ROGUE   4
-#define RG_SPR_CHAR_COUNT   4
+/* --- Character roster is DATA, not a frozen enum (§2.1/§2.8). The available
+ * characters are the catalog id table the host writes at RG_SPR_OFF_CAT_IDS
+ * (count = RG_SPR_OFF_CHAR_COUNT), mirroring lpc_char_catalog.rgr +
+ * pack/characters/catalog.json. A guest enumerates that table to discover the
+ * roster; it never hard-codes an RG_SPR_CHAR_* constant. Shipping a new playable
+ * character is a catalog entry — no edit to this transport header. */
 
-/* --- Animation ids (atlas rows). run/jump reserve their real LPC rows and the
- * host falls back to walk (+ a synthesised hop for jump) until expanded art is
- * baked into the pack. A guest can therefore already target them today. */
-#define RG_SPR_ANIM_WALK    0
-#define RG_SPR_ANIM_RUN     1
-#define RG_SPR_ANIM_JUMP    2
+/* --- Animation ids are atlas ROWS, resolved from the character's atlas data
+ * (LPC emits row/frameCount/cycle/fps/loop). The three values below are only a
+ * DEFAULT CONVENTION for the shipped walk-sheet layout; run/jump currently fall
+ * back to walk (+ a synthesised hop) until expanded art is baked. The target is
+ * fully data-driven rows (a `slash`/`cast` row needs no new constant here). */
+#define RG_SPR_ANIM_WALK    0   /* default row convention; real rows come from atlas */
+#define RG_SPR_ANIM_RUN     1   /* falls back to WALK until baked (data-driven target) */
+#define RG_SPR_ANIM_JUMP    2   /* falls back to WALK+hop until baked                   */
 
 /* --- Directions (walk-sheet row order) */
 #define RG_SPR_DIR_UP       0
