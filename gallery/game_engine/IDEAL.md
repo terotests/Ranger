@@ -76,7 +76,9 @@ without re-widening the leaks above.
 | **Richer input** (analog sticks, pointer/touch, text, per-player remap) | Minimal | Only two i32 bitfields (`input`, `input_p2`); no analog axes, no pointer, no text entry. The host tracks 8 players × 12 buttons but the ABI carries 2 players × ~5 bits. | §2.1, §2.9 |
 | **Haptic feedback** (rumble) | Partial | Rumble flows as an RGW1 event `{ pad, low, high, ms }`, but the two motors are collapsed at `gfx_rumble_pad` (single strength) and `high` is dropped; no envelope/pattern, priority/mixing, cancel, or trigger haptics, and `HOST_CAP_RUMBLE` is never negotiated. | §2.9, §6 |
 | **Pose / body-tracking input** | Ad-hoc | Exists as a 128-byte `RGP1` block in two incompatible layouts across hosts; no shared header, only position + a discrete gesture (no motion/speed). | §2.4, §6 |
-| **Game-defined sound palette** | Rigid | A fixed enum (`RG_WASM_SOUND_WALL/BOUNCE/WIN`) in the header; the `.as` path bolts on an integer `playSound` queue instead. No way to register a per-game palette through the ABI. | §4 |
+| **Game-defined sound palette** | Rigid | A fixed enum (`RG_WASM_SOUND_WALL/BOUNCE/WIN`) in the header; the `.as` path bolts on an integer `playSound` queue instead. No way to register a per-game palette through the ABI. | §4, §2.10 |
+| **Voice & music over the binary ABI** | Missing | `playVoice`/`playMusic`/`stopMusic` exist only on the TS/EvalValue path; WASM and `.as` guests have no encoding for vocal or music events. | §2.10 |
+| **File-based audio loading** | Missing | `sound`/`music` resources are registered but never decoded (no audio decoder); the only real file load is a 16-bit mono-WAV *voice* override. No sfx samples, no compressed formats, no per-event gain/pan/pitch/handle. | §2.10, §2.7 |
 | **Generic guest scalar slots** | Missing | Only `air_p1/air_p2` are hard-coded; there is no documented generic "guest scalar" the host transports opaquely. | §2.1 |
 | **Genre-neutral control channels** | Missing | Only the four named car channels; no indexed `readControlChannel(body, ch)`. | §2.2 |
 | **Collision shape, filtering, sensors, full contacts** | Minimal | The body record carries pose but no shape; body↔body is circle-only; contacts define only a `BEGIN` phase (no `PERSIST`/`END`, depth, or tangent impulse); no layer/mask filtering, no sensor/trigger bodies. | §2.5 |
@@ -967,6 +969,98 @@ host bound,"* and haptics becomes *"play a named/enveloped effect on a target, m
 and stop it when done"* — both carried at full fidelity over the ABI on every guest
 path, both capability-negotiated, and both game-defined in meaning while the host owns
 the devices (§2.1, §4, §6, §7).
+
+### 2.10 The sound system — sound events, vocal events, and audio resources
+
+Audio in the engine is capable — a full procedural synth, a soundscore music player,
+and a procedural vocal effects synth all exist — but the *ABI surface* for triggering
+it is three unrelated id vocabularies, and the only sound a game can actually **load
+from a file** is a mono-WAV voice override. Sound is the clearest example of the §4
+"transport not taxonomy" problem plus the §2.7 "resources are handles" gap, at once.
+
+**Current state.**
+
+- **Three unrelated sound-event channels, three id vocabularies.**
+  1. *TS/EvalValue path:* games return `events: [{ kind: "playSound" | "playVoice" |
+     "playMusic" | "stopMusic", id }]`; `game_runtime.rgr` turns each into a
+     `GameEventNative` and `GameHost.handleEvent` ([`game_host.rgr`](../ts_to_ranger/game_host.rgr))
+     routes it — `playSound` → `GameAudio.play(id)`, `playVoice` → `GameVocalFx`,
+     `playMusic`/`stopMusic` → `game_soundscore`.
+  2. *WASM (RGW1) path:* events are 20-byte `{ kind, sub, a, b, c }` records; `kind==1`
+     is sound and `sub` is a **frozen integer** the runner hardcodes
+     (`wasm_physics_runner.rgr`: `1→"wall", 2→"bounce", 3→"win"`, matching
+     `RG_WASM_SOUND_WALL/BOUNCE/WIN` in [`wasm/wasm_game_abi.h`](./wasm/wasm_game_abi.h)).
+     Three ids, no voice, no music.
+  3. *`.as` path:* a **separate** integer `sndQueue` (`as_abi_bridge.rgr`: guest calls
+     `playSound(id)` → `sndPush`; host drains and maps via `AsSpriteScene.soundName`).
+  These three never share a record, so "play this sound" means a different thing on
+  every guest path.
+- **The sound taxonomy is frozen in the header.** `RG_WASM_SOUND_WALL/BOUNCE/WIN` is
+  the sound analogue of the car-shaped control leak — a game cannot register its own
+  palette through the ABI (already flagged in §4); the built-in id set
+  (`blip/brick/bounce/wall/lose/win/celebrate`) is likewise fixed in `game_audio.rgr`.
+- **Voice and music exist only on the TS path.** `playVoice` (`laugh/sigh/gasp/…` via
+  `game_vocal_fx.rgr`, see [`VOCAL_FX.md`](./scripting/VOCAL_FX.md)) and
+  `playMusic`/`stopMusic` (soundscore text) have **no binary-ABI encoding** — a WASM or
+  `.as` guest cannot emit a vocal or music event at all. A parity gap.
+- **File-based sound resources are inert.** `resources()` accepts
+  `{ kind: "sound" | "music" | "voice", id, path }`, but `registerResource` only records
+  the path (`set sounds r.id r.path`) — the comment says the literal quiet part out
+  loud: *"File-based sound resources are still registered for future loaders."* There is
+  **no audio decoder**: every sound effect is synth-only, music is procedural soundscore
+  *text* (not a decoded file), and the **only** real file load is a 16-bit **mono WAV**
+  read as a *voice override* (`loadVoiceAsset` → `vocalFx.registerAssetWav`). No
+  WAV-for-sfx, no compressed formats, no stereo.
+- **No per-event parameters, no handles, no negotiation.** One-shots carry no gain,
+  pan, pitch, priority, or loop; there is no handle to stop or fade a looping sound
+  (music has only global start/stop); and nothing queries whether the host even has
+  audio (the dead §6 handshake).
+
+**Ideal.**
+
+1. **One sound event, identical on every path.** A single typed sound-event record is
+   carried the same over RGW1, `.as`, and TS — a *kind* (sfx / voice / music-control), a
+   **guest-registered id** (not a frozen enum), and parameters:
+
+```c
+/* Sound event (guest -> host), same record on RGW1, .as, and TS. */
+#define RG_SND_OFF_KIND     0   /* u32 0=sfx 1=voice 2=music-start 3=music-stop */
+#define RG_SND_OFF_ID       4   /* u32 registered sound id (see §4 palette)     */
+#define RG_SND_OFF_GAIN     8   /* i32 gain 0..FP (FP = unity)                  */
+#define RG_SND_OFF_PAN      12  /* i32 pan -FP..+FP (0 = centre)                */
+#define RG_SND_OFF_PITCH    16  /* i32 pitch ratio * FP (FP = no shift)         */
+#define RG_SND_OFF_FLAGS    20  /* u32 loop, positional, ...                    */
+#define RG_SND_OFF_X        24  /* i32 world x (positional, * FP_SCALE)         */
+#define RG_SND_OFF_Y        28  /* i32 world y                                  */
+```
+
+   The id references a **game-registered palette** (§4), so `wall`/`bounce`/`win` stop
+   being header constants and a new sound is additive on all three paths at once.
+2. **Sounds are §2.7 resources behind one decoder.** Loading a sound = acquiring a
+   §2.7 resource handle (`rg_res_begin/commit/free/lookup`), produced by a **unified
+   audio decoder** (WAV plus at least one compressed format) — for sfx, music, *and*
+   voice alike. This replaces the inert `sounds` registry and the WAV-only voice
+   override. The built-in synth, soundscore music, and vocal synth become §2.7
+   **"generate" producers** (procedural resources), so a sound id resolves to a handle
+   whether it was decoded from a file or synthesised — one model, not two.
+3. **Voice and music reach parity over the ABI.** `voice` is simply a sound event with
+   `kind = 1` whose id is backed by a synth-or-WAV resource; `music` is `kind = 2/3`
+   with loop/duck/crossfade parameters. Both become available to WASM and `.as` guests,
+   not just the TS path — the same channel, capability-gated.
+4. **Handles for time-extended audio.** One-shots stay fire-and-forget by id; loops,
+   music, and long voices return a **handle** (the §2.6 discipline) so the guest can set
+   gain, stop, or crossfade a specific voice instead of the current global start/stop and
+   last-write-wins behaviour.
+5. **Capability-gated and deterministic.** A guest queries audio caps (playback, voice,
+   music, file-decode, channel count, positional) via §6 and degrades gracefully — a
+   headless or muted host makes every sound event a clean no-op. Like pose (§2.4) and
+   haptics (§2.9), **audio is output-only and must never feed back into logic, RNG, or
+   step order**, so a replay sounds different but *plays* identically.
+
+The result: emitting a sound becomes *"play this registered id, with these params,"* and
+loading one becomes *"acquire a §2.7 handle — decoded or generated"* — one sound-event
+record and one resource model shared by sfx, voice, and music across every guest path,
+game-defined in vocabulary and host-owned in mixing (§2.7, §4, §6, §7).
 
 ---
 
