@@ -74,7 +74,7 @@ without re-widening the leaks above.
 | Declare its own **world** (bodies, bounds, world size, player count, camera hints, static-bg) | Partial | The guest declares *resources* (sheets/rects) through the manifest, but **not** bodies/bounds/world-size/player-count; those come from the host's own copy. No `worldSize()`/`playerCount()` channel. | §3, §5 |
 | Know the **viewport / screen size** in a physics guest | Missing | RGSP1 has `VIEW_W`/`VIEW_H`, but RGW1 has no view fields, so a physics guest cannot size or letterbox itself. | §2.1 (RGCQ `screen.*`) |
 | **Richer input** (analog sticks, pointer/touch, text, per-player remap) | Minimal | Only two i32 bitfields (`input`, `input_p2`); no analog axes, no pointer, no text entry. | §2.1 |
-| **Pose / body-tracking input** | Ad-hoc | Exists as an undocumented 128-byte `RGP1` block on the `.as` path only; no shared header, fixed to `present`/`gesture`/landmarks. | §2.3, §6 |
+| **Pose / body-tracking input** | Ad-hoc | Exists as a 128-byte `RGP1` block in two incompatible layouts across hosts; no shared header, only position + a discrete gesture (no motion/speed). | §2.4, §6 |
 | **Game-defined sound palette** | Rigid | A fixed enum (`RG_WASM_SOUND_WALL/BOUNCE/WIN`) in the header; the `.as` path bolts on an integer `playSound` queue instead. No way to register a per-game palette through the ABI. | §4 |
 | **Generic guest scalar slots** | Missing | Only `air_p1/air_p2` are hard-coded; there is no documented generic "guest scalar" the host transports opaquely. | §2.1 |
 | **Genre-neutral control channels** | Missing | Only the four named car channels; no indexed `readControlChannel(body, ch)`. | §2.2 |
@@ -288,6 +288,146 @@ retained-mode document the guest owns, the host renders; *"No host pointers or E
 objects ever cross into the guest,"* the host treats the block as untrusted and
 validates it. Every future block (RGP1 pose, a scene block, …) should copy this
 discipline: **fixed typed layout, no pointers cross, snapshot-first, host validates.**
+
+### 2.4 The pose block (RGP1) — motion and speed are first-class channels
+
+Pose detection is the engine's first host→guest **streaming input** block: a camera
++ AI model (MediaPipe on the web, TFLite natively) produces a skeleton each frame,
+and the game reacts to where the body is and *how it is moving*. It is exactly the
+"future block" §2.3 anticipates, and it is also the sharpest illustration of the
+parity gaps above — so it gets a full treatment, with a concrete answer to the one
+question the transport must settle: **how are motion and speed defined?**
+
+**Current state (the drift is live).** RGP1 has no shared header, and the hosts
+already disagree on its bytes:
+
+| Producer | Layout it writes | Header |
+|----------|------------------|--------|
+| Native SDL host — [`pose/native_provider/rg_pose.h`](./pose/native_provider/rg_pose.h) | `present@0, gesture@4, count@8, revision@12, landmarks@16` | none |
+| Browser / MediaPipe — [`pose/mediapipe_poc/rgp1.mjs`](./pose/mediapipe_poc/rgp1.mjs) | `present@0, gesture@4, count@8, seq@12, landmarks@16` | none |
+| Interpreted `.as` bridge — [`scripting/as_abi_bridge.rgr`](./scripting/as_abi_bridge.rgr) | `magic@0, version@4, revision@8, present@12, gesture@16, count@20, landmarks@32` | magic/version |
+
+A guest carried between the native host and the `.as` host therefore reads pose from
+the *wrong offsets* — the "no shared header → drift" failure from the parity
+analysis, happening in real code today. On top of that, every producer ships only
+**position** (landmark `x/y` in fixed-point) plus a discrete `gesture`, so a game
+that reacts to *how fast* a hand moves has to difference positions itself — duplicating
+the smoothing the host already runs ([`PoseSmoother` / One-Euro in
+`rg_pose.h`](./pose/native_provider/rg_pose.h)) and inventing its own clock. And
+`rgp1.mjs` stores `nose.x * VIEW_W * FP` (a nominal 480×270), baking a view size into
+the coordinate — the pose analog of the world-encoded-twice leak (§5).
+
+**Ideal — the principles.**
+
+1. **One shared header, RGU1-discipline.** Define `wasm/wasm_pose_abi.h` with
+   `magic` / `version` / `size`, host validation, and a **seqlock `revision`** (odd =
+   mid-write, even = stable) so a reader never tears. One layout for every host and
+   both guest paths (§ parity).
+2. **Coordinates are normalized and view-independent.** Positions are stored as
+   normalized `[0,1] × FP_SCALE`, **not** multiplied by any view size; the guest
+   scales into its own world (`x_world = xFp/FP_SCALE × worldW`). Pose stops
+   depending on a screen constant.
+3. **Motion is host-provided, computed once.** The host already smooths landmarks
+   and owns the true capture `dt`; it is the only place that can produce a clean
+   velocity. So per-landmark **velocity** `(vx, vy)` ships in the block — the guest
+   never re-differentiates.
+4. **Speed is a first-class scalar.** Alongside velocity the host ships
+   `speed = |velocity|`, so a guest keys off "how fast" without a square root, and an
+   aggregate **body speed** gives "overall player motion" without the guest having to
+   pick a joint.
+5. **Timing travels with the sample.** The header carries `time_ms` (capture
+   timestamp) and `dt_ms` (since the previous published sample) so a guest can derive
+   its own motion when the host cannot, and so a `present` 0→1 transition can zero
+   velocity instead of spiking.
+6. **Fixed-point sized to the quantity.** Positions keep `FP_SCALE` (256). Per-frame
+   normalized velocities are small fractions, so velocity/speed use a **finer** scale
+   `FP_VEL` (Q16.16, ×65536) documented in the header — a resolution choice, not a
+   taxonomy.
+7. **Gesture is a convention, not a taxonomy.** `arms_up` / `lean_*` are one style of
+   game's vocabulary; per §2.1/§4 the block carries an *opaque* `gesture` id (0 =
+   none) that the guest defines from the continuous channels — it is not frozen into
+   the transport as "the standard gesture set."
+8. **Capability-gated like any provider.** RGP1 plugs in as a `GameProvider`
+   (direction host→guest, cadence per-frame, `capBit = RG_WASM_HOST_CAP_POSE_INPUT`,
+   already `0x0010` in [`game_pose_provider.rgr`](./scripting/game_pose_provider.rgr)).
+   A host without a camera advertises the bit off; a guest that *requires* pose is
+   rejected at load (§6), not fed zeros.
+
+**Ideal — the layout.** Motion and speed become explicit typed channels:
+
+```c
+/* wasm/wasm_pose_abi.h — RGP1: host->guest streaming pose input. */
+#define RG_POSE_ABI_MAGIC   0x31504752u /* 'RGP1' little-endian */
+#define RG_POSE_ABI_VERSION 2u
+#define RG_POSE_MAX_LM      33u          /* BlazePose skeleton              */
+#define RG_POSE_FP_SCALE    256          /* positions: normalized[0,1]*256  */
+#define RG_POSE_FP_VEL      65536        /* velocity/speed: Q16.16 per sec  */
+
+/* Header (64 bytes) */
+#define RG_POSE_OFF_MAGIC      0   /* u32 'RGP1'                                  */
+#define RG_POSE_OFF_VERSION    4   /* u32 ABI version the host wrote              */
+#define RG_POSE_OFF_SIZE       8   /* u32 total block bytes                       */
+#define RG_POSE_OFF_REVISION   12  /* u32 seqlock: odd=writing, even=stable       */
+#define RG_POSE_OFF_PRESENT    16  /* u32 1 if a pose was detected this sample    */
+#define RG_POSE_OFF_GESTURE    20  /* i32 guest-defined gesture id (0 = none)     */
+#define RG_POSE_OFF_LM_COUNT   24  /* u32 landmarks written this sample           */
+#define RG_POSE_OFF_TIME_MS    28  /* i32 capture timestamp, monotonic ms         */
+#define RG_POSE_OFF_DT_MS      32  /* i32 ms since the previous published sample   */
+#define RG_POSE_OFF_FLAGS      36  /* u32 RG_POSE_FLAG_*                           */
+#define RG_POSE_OFF_BODY_VX    40  /* i32 aggregate body velocity x (FP_VEL)      */
+#define RG_POSE_OFF_BODY_VY    44  /* i32 aggregate body velocity y (FP_VEL)      */
+#define RG_POSE_OFF_BODY_SPEED 48  /* i32 aggregate body speed |v| (FP_VEL)       */
+#define RG_POSE_HEADER_SIZE    64
+
+/* landmark[i] at RG_POSE_OFF_LM0 + i*RG_POSE_LM_SIZE */
+#define RG_POSE_OFF_LM0        64
+#define RG_POSE_LM_SIZE        24
+#define RG_POSE_LM_OFF_X       0   /* i32 normalized x * FP_SCALE  (+x = right)    */
+#define RG_POSE_LM_OFF_Y       4   /* i32 normalized y * FP_SCALE  (+y = down)     */
+#define RG_POSE_LM_OFF_VX      8   /* i32 velocity x, normalized/sec * FP_VEL     */
+#define RG_POSE_LM_OFF_VY      12  /* i32 velocity y, normalized/sec * FP_VEL     */
+#define RG_POSE_LM_OFF_SPEED   16  /* i32 |velocity|, normalized/sec * FP_VEL     */
+#define RG_POSE_LM_OFF_CONF    20  /* i32 visibility/confidence, 0..FP_SCALE      */
+/* total size = 64 + RG_POSE_MAX_LM*24 = 856 bytes; read it from OFF_SIZE, never
+ * assume it — the block grew past today's 128 B precisely to carry motion.       */
+
+/* flags (RG_POSE_OFF_FLAGS) */
+#define RG_POSE_FLAG_VALID         1u /* host finished a full frame               */
+#define RG_POSE_FLAG_HAS_VEL       2u /* velocity/speed are host-provided         */
+#define RG_POSE_FLAG_SMOOTHED      4u /* landmarks passed the host filter         */
+#define RG_POSE_FLAG_JUST_APPEARED 8u /* present flipped 0->1; velocity zeroed     */
+
+/* host capability bit (mirrors game_pose_provider.rgr) */
+#define RG_WASM_HOST_CAP_POSE_INPUT 0x0010u
+```
+
+**Ideal — motion and speed, defined precisely.** These are the definitions the
+transport fixes so every host computes and every guest reads the same thing:
+
+- **Velocity** of landmark *i* is `v = (Δx/Δt, Δy/Δt)` in **normalized units per
+  second**, where `Δx, Δy` are the change in *smoothed* normalized position between
+  this published sample and the previous one, and `Δt = dt_ms / 1000`. The host
+  computes it from the filtered signal (never the raw detector output), so jitter is
+  already removed. Axis sign matches the coordinates: `+x` right, `+y` down.
+- **Speed** of landmark *i* is the scalar `|v| = sqrt(vx² + vy²)`, same units,
+  precomputed so a guest never needs a square root on the hot path.
+- **Body velocity / body speed** are the aggregate of a stable central set (hip
+  midpoint, falling back to the mean of visible landmarks) — the device-independent
+  "how much is the player moving overall" signal, independent of which joint a game
+  cares about.
+- **Guest scaling.** To act in world units the guest multiplies by its own span:
+  `vx_world = vxFp/FP_VEL × worldW`, `vy_world = vyFp/FP_VEL × worldH`. Because the
+  ABI's speed is in normalized units it doubles as a resolution-independent "effort"
+  measure that behaves the same on a 480×270 PoC and a 1080p camera.
+- **Fallback when `HAS_VEL` is 0.** A host whose source only yields positions leaves
+  the velocity/speed channels zero and clears `RG_POSE_FLAG_HAS_VEL`; the guest then
+  differences positions itself across `REVISION` using `DT_MS`, and honours
+  `RG_POSE_FLAG_JUST_APPEARED` to reset instead of registering a huge spurious jump
+  when a body (re)enters frame.
+
+This keeps pose a *transport*: the ABI defines position, velocity, speed, timing and
+confidence as bytes; what a *gesture* means, and which landmark drives the game, stay
+the guest's decision.
 
 ---
 
