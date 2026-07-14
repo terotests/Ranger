@@ -12,9 +12,12 @@ class SdlGameAudioSink extends GameAudioSink {
 
     fn onSynthPlay:void (soundId:string sampleRate:int sampleCount:int pcm:buffer) {
         def byteCount:int (sampleCount * 2)
+        print ("[VFX] SDL.onSynthPlay id=" + soundId + " rate=" + (to_string sampleRate) + " samples=" + (to_string sampleCount) + " bytes=" + (to_string byteCount) + " pcmLen=" + (to_string (buffer_length pcm)))
         if (byteCount <= 0) {
+            print ("[VFX] SDL.onSynthPlay SKIP (bytes<=0) id=" + soundId)
             return
         }
         gfx_audio_queue pcm byteCount)
+        print ("[VFX] SDL.onSynthPlay QUEUED id=" + soundId + " bytes=" + (to_string byteCount))
     }
 }

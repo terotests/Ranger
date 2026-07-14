@@ -240,6 +240,9 @@ class GameHost {
         }
         if (e.kind == "playSound") {
             push soundsPlayed e.id
+            def hasAudioS:boolean false
+            if audio { hasAudioS = true }
+            print ("[VFX] handleEvent playSound id=" + e.id + " audio=" + (to_string hasAudioS))
             if audio {
                 def a:GameAudio (unwrap audio)
                 if (a.hasBuiltin(e.id)) {
@@ -253,6 +256,9 @@ class GameHost {
         }
         if (e.kind == "playVoice") {
             push voicesPlayed e.id
+            def hasAudioV:boolean false
+            if audio { hasAudioV = true }
+            print ("[VFX] handleEvent playVoice id=" + e.id + " audio=" + (to_string hasAudioV) + " hasEffect=" + (to_string (vocalFx.has(e.id))))
             if audio {
                 def a:GameAudio (unwrap audio)
                 this.wireVoice()
@@ -261,11 +267,14 @@ class GameHost {
                 ; synth has its own GameAudio, so mirror the rate or the PCM
                 ; plays back at the wrong speed and sounds like crackle.
                 vocalFx.synth.sampleRate = a.sampleRate
+                print ("[VFX] handleEvent playVoice routing id=" + e.id + " synthRate=" + (to_string vocalFx.synth.sampleRate))
                 if (vocalFx.has(e.id)) {
                     vocalFx.play(e.id a.sink)
                 } {
-                    if verbose { print ("[host] playVoice (unknown effect) " + e.id) }
+                    print ("[VFX] handleEvent playVoice UNKNOWN effect id=" + e.id)
                 }
+            } {
+                print ("[VFX] handleEvent playVoice NO AUDIO id=" + e.id)
             }
             if verbose { print ("[host] playVoice " + e.id) }
             return

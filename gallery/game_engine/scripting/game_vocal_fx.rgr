@@ -477,6 +477,7 @@ class GameVocalFx {
     fn play:void (id:string sink:GameAudioSink) {
         playCount = (playCount + 1)
         lastId = id
+        print ("[VFX] vocalFx.play id=" + id + " hasAsset=" + (to_string (this.hasAsset(id))) + " rate=" + (to_string synth.sampleRate))
         if verbose {
             print ("[vocalfx] play " + id + " " + (this.tagFor(id)))
         }
@@ -494,7 +495,9 @@ class GameVocalFx {
             return
         }
         def rendered:ScoreVoiceRender (this.render(id))
+        print ("[VFX] vocalFx.play rendered id=" + id + " frames=" + (to_string rendered.frames) + " pcmLen=" + (to_string (buffer_length rendered.pcm)))
         if (rendered.frames <= 0) {
+            print ("[VFX] vocalFx.play ZERO frames id=" + id)
             return
         }
         sink.onSynthPlay(("voice:" + id) synth.sampleRate rendered.frames rendered.pcm)
