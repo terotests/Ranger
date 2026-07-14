@@ -86,6 +86,7 @@ without re-widening the leaks above.
 | **Streaming (`RGX1`) and loader (`RGLD`)** | Unheadered | Referenced as siblings of RGW1 but have no canonical `wasm/*.h`, so their offsets are not a stable contract. | §2 |
 | **Save-state / persistence, networking, clock/RNG seed, config negotiation** | Absent | Nothing beyond `dt_ms`/`time_ms`; no deterministic seed, no persistence, no negotiated timestep/config. | §2.1 (RGCQ), §6 |
 | **RGU1 interactivity** | Optional | The document is guest→host; `rg_ui_event` (activate/select) is an optional export and selection state lives on the host. | §2.3 |
+| **Dynamic UI (allocate/free host EVG objects)** | Missing | RGU1 is full-snapshot rebuild only; the guest cannot allocate a persistent host `EVGElement`, mutate it by handle, or free it — any change re-serializes and rebuilds the whole tree. | §2.6 |
 
 ---
 
@@ -561,6 +562,100 @@ The result keeps RGW1 a transport: it carries body pose and a complete, typed co
 stream; *what* a body is shaped like, *which* engine simulates it, and *how* it is
 drawn are all data the guest declares — so a second physics game, with different
 shapes, filters, and sprites, reuses the runner unchanged (§3, §7).
+
+### 2.6 Dynamic UI — allocating and freeing host EVG objects from the guest
+
+§2.3 praised RGU1 as the block to imitate, and for a *snapshot* UI it is. But it has
+exactly one delivery mode, and that mode is the ceiling on what a guest UI can be.
+This section adds the complementary mode the engine still lacks: letting a guest
+**allocate host objects (EVG elements) dynamically, mutate them, and free them** —
+retained, incremental, "dynamic UI" — without ever handing the guest a host pointer.
+
+**Current state.** RGU1 is **full-snapshot retained mode**. The guest rewrites the
+*entire* document — nodes, properties, strings — into a fixed-capacity block whenever
+anything changes, bumps `revision`, and the host
+([`wasm_ui_io.rgr`](./scripting/wasm_ui_io.rgr)) bulk-copies the block, validates it
+as untrusted data, and **rebuilds the whole `EVGElement` tree from scratch**
+(`WasmUiEvgBuilder.build` → `EVGElement.createDiv()` per node). Consequences:
+
+- **No host object the guest can address.** The host's `EVGElement`s are created and
+  thrown away each rebuild; the guest holds no handle to any of them. Node ids exist
+  only so the host can map a *selection cursor* back after layout — the guest cannot
+  say "mutate element 7's colour" or "keep this panel, drop that row."
+- **Every change costs the whole document.** Animating one label's text re-serializes
+  all nodes/props/strings and re-parses + re-lays-out the entire tree. Fixed guest
+  caps (`RG_UI_MAX_NODES 64`, `RG_UI_MAX_PROPS 128`, `RG_UI_STRING_CAP 1024`) then
+  cap how large a UI can be at all.
+- **No allocation or free primitive exists.** There is deliberately (§2.3) *no* way
+  for the guest to create a persistent host object or release one — which is correct
+  for snapshots but blocks large, animated, or editor-style UIs.
+
+**Ideal.** Add a second, capability-gated mode where the guest **allocates host EVG
+objects and owns their lifetime through opaque handles** — keeping every RGU1
+safety rule (no pointers cross, host validates, host owns memory):
+
+1. **Handles, never pointers.** Allocation returns an opaque `u32` handle, not an
+   address — the same discipline RGU1 already states (*"No host pointers or EVG
+   objects ever cross into the guest"*). A handle encodes a slot index **and a
+   generation**, so a handle used after free fails a generation check and becomes a
+   safe no-op instead of a dangling pointer. Handle `0` is null / allocation failure.
+2. **The host owns memory; the guest owns lifetime intent.** The host holds the
+   `EVGElement`s in a slot table with a free list and maps `handle → EVGElement`. The
+   guest never computes an address and cannot free host memory directly; it only
+   *requests* creation and destruction of handles in its own arena.
+3. **Explicit create / mutate / free**, reusing the RGU1 vocabulary (same kinds and
+   property keys/types as §2.3 — only the *delivery* differs):
+
+```c
+/* Guest -> host imports (dynamic UI). All ids are opaque handles, never pointers. */
+uint32_t rg_evg_create(uint32_t kind);                 /* RG_UI_* kind -> handle (0=OOM) */
+void     rg_evg_set_i32  (uint32_t h, uint32_t key, int32_t  v);
+void     rg_evg_set_color(uint32_t h, uint32_t key, uint32_t rgba);
+void     rg_evg_set_str  (uint32_t h, uint32_t key, uint32_t str_off, uint32_t len);
+void     rg_evg_append   (uint32_t parent, uint32_t child);  /* build the tree      */
+void     rg_evg_remove   (uint32_t h);                 /* detach, keep the object     */
+void     rg_evg_destroy  (uint32_t h);                 /* free h and its subtree      */
+void     rg_evg_set_root (uint32_t h);                 /* which handle is the root     */
+```
+
+   `rg_evg_set_str` copies bytes *out of* guest memory (host never keeps a guest
+   pointer). Every call validates the handle (index in range, generation current,
+   arena owned by this guest); an invalid handle is a no-op, not a crash.
+4. **Freeing is safe by construction.** `destroy(h)` releases the element and, by the
+   ownership tree, its descendants; each freed slot bumps its generation so *every*
+   outstanding handle to it (including child handles) goes stale and is ignored.
+   `remove` detaches without freeing. Double-free and use-after-free are therefore
+   defined no-ops.
+5. **A per-guest arena the host can bulk-free.** Every handle a guest allocates
+   belongs to that guest's arena. On module unload, teardown, or a guest fault the
+   host frees the whole arena in one pass — a sandboxed WASM guest **cannot leak host
+   objects**, even if it never calls `destroy`. The pool is bounded; allocation past
+   capacity returns `0` so the guest degrades instead of exhausting host memory.
+6. **Batched as a command buffer (the delta counterpart to the snapshot).** Because
+   one host import per mutation is chatty across the WASM boundary, the same eight
+   operations may instead be written by the guest into a shared **command block** and
+   applied by the host once per frame — create / set / append / remove / destroy /
+   set-root ops with handle and value fields, validated op-by-op. RGU1's *snapshot*
+   ("here is the whole document") gains a sibling *delta* ("here are the changes to
+   the objects you already hold"), and neither ever passes a pointer.
+7. **Same EVG pipeline underneath.** A handle maps 1:1 to a host `EVGElement`;
+   `set_*` maps keys onto element fields exactly as `applyProps` does today; `append`
+   builds the tree; **EVGLayout** resolves position/size; the existing renderer
+   (`GameHudBlitter` / `WasmUiRenderer`) draws it. `destroy` releases the element. The
+   dynamic mode is new *plumbing*, not a new renderer.
+8. **Capability-gated and additive (§6).** A host advertises a
+   `RG_WASM_HOST_CAP_UI_DYNAMIC` bit; a guest that needs handle-based UI is gated at
+   load, while snapshot RGU1 (§2.3) stays the zero-dependency default. A game picks
+   snapshot for small/simple screens and dynamic allocation for large, animated, or
+   editor-style UIs.
+
+**This is a general capability, first used by UI.** "Allocate a host object from the
+guest, hold it by handle, and free it" is not UI-specific: the same slot-table +
+generation + per-guest-arena discipline should back **any** host resource a guest
+creates and releases — fonts, images/textures, sprite templates, sounds, and physics
+bodies (§2.5) — turning today's fixed manifests and fixed-capacity blocks into
+dynamic, guest-owned, leak-safe lifetimes. Dynamic EVG UI is simply the most
+demanding first client, and the place to prove the handle discipline.
 
 ---
 
