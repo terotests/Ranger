@@ -6,7 +6,7 @@ Complements the repo-root [`AGENTS.md`](../../AGENTS.md) (git/PR workflow).
 The engine's whole point is **write game logic once, run it on many backends**
 (Mac/SDL, native Pi, WASM Path C, interpreted `.as`). That only holds if the
 *engine core* stays free of any single game's knowledge. It has not — see
-[`scripting/PLAN_PHYSICS_RUNNER_GENERIC.md`](./scripting/PLAN_PHYSICS_RUNNER_GENERIC.md).
+[`docs/PLAN_PHYSICS_RUNNER_GENERIC.md`](./docs/PLAN_PHYSICS_RUNNER_GENERIC.md).
 These rules exist to stop the leak from getting worse and to guide the cleanup.
 
 ## The abstraction boundary (read this before editing engine core)

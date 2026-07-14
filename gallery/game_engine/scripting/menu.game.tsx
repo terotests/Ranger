@@ -4,7 +4,7 @@
 //
 // It is authored in TSX and evaluated at runtime by the ComponentEngine. The
 // host injects the `game` and `Buttons` globals and drives the script by
-// calling the functions below (see GAME_SCRIPTING.md). State transitions are
+// calling the functions below (see docs/GAME_SCRIPTING.md). State transitions are
 // pure reducers: each handler returns the NEXT state.
 //
 // Note the apostrophe in "Let's play" below — that used to break the TSX parser

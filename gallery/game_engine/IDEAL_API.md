@@ -115,6 +115,46 @@ load → negotiate → init → loop
 The host's advertised caps are the **OR of every attached provider's `capBit()`** (§6), so
 adding a provider automatically widens what the host offers — there is no second list.
 
+**Recommended gate** (run once, right after load, before `init()`):
+
+```
+ver  = has(rg_abi_version)   ? call(rg_abi_version)   : 1;   /* legacy guest = v1  */
+need = has(rg_required_caps) ? call(rg_required_caps) : 0;
+if (ver > RG_WASM_ABI_VERSION) reject("needs newer host");   /* layout mismatch    */
+if (need & ~RG_WASM_HOST_CAPS) reject("missing capability");  /* feature gap        */
+/* then init(), verify magic + size, clamp every count to its MAX_*. */
+```
+
+**RGCQ typed query (shipped, RGW1 tail `wasm_game_abi.h`).** The soft-capability channel
+lives in the reserved RGW1 tail so `ABI_SIZE` is unchanged; a host that ignores it degrades
+to "nothing answered" and the guest reads its own defaults.
+
+```c
+#define RG_WASM_OFF_CAPQ         2304        /* block base                             */
+#define RG_WASM_CAPQ_MAGIC       0x51434752u /* 'RGCQ'                                 */
+#define RG_WASM_CAPQ_OFF_MAGIC   0   /* u32 guest writes once declared                 */
+#define RG_WASM_CAPQ_OFF_COUNT   4   /* u32 guest: number of requested keys (≤ 6)      */
+#define RG_WASM_CAPQ_OFF_READY   8   /* u32 host: 1 when answers are filled            */
+#define RG_WASM_CAPQ_OFF_POOL_USED 12/* u32 guest: key bytes used in the pool          */
+#define RG_WASM_CAPQ_ENTRIES     2320        /* entry[] base (CAPQ + 16)               */
+#define RG_WASM_CAPQ_MAX         6
+#define RG_WASM_CAPQ_ENTRY_SIZE  20
+#define RG_WASM_CAPQ_POOL        2440        /* string pool, to ABI_SIZE               */
+/* entry: keyOff(u16) keyLen(u16) present(u8) type(u8) _(u16) ival(i32) fval(f32) sLen(i32)
+ *   guest writes keyOff/keyLen; host writes present/type/value.                       */
+#define RG_WASM_CAP_NONE 0u  /* value types: */
+#define RG_WASM_CAP_BOOL 1u
+#define RG_WASM_CAP_INT  2u
+#define RG_WASM_CAP_FLOAT 3u
+#define RG_WASM_CAP_STRING 4u
+```
+
+Flow: host calls `rg_declare_queries()` → guest writes keys; host resolves each and sets
+`READY = 1`; host calls `rg_check_env()` → guest returns `0` (run) or `!= 0` (abort reason).
+The §1.2 environment descriptor is the target generalisation of this 6-key tail onto every
+path. The **v2 target** widens the tail to the full core key set (§1.2) and mirrors it on the
+`.as`/TS paths; the 6-key RGW1 form above is the shipped subset.
+
 ### 1.2 Environment descriptor (host → guest, read once at init)
 
 A typed key/value block the host publishes; keys are **open and typed**, but the core set is
@@ -144,18 +184,45 @@ Shipping blocks are marked **shipped**; proposed blocks/fields are marked **prop
 | Block | Header | Purpose | Size | Direction | Status |
 |-------|--------|---------|------|-----------|--------|
 | **RGW1** | `wasm/wasm_game_abi.h` | world / physics | 2560 B | mostly guest→host | shipped |
-| **RGSP1** | `wasm/wasm_sprite_abi.h` | ready-character sprites | 2560 B | host writes catalog+input, guest writes slots | shipped |
-| **RGU1** | `wasm/wasm_ui_abi.h` | retained-mode UI | 8192 B | guest→host (+ optional `rg_ui_event`) | shipped |
+| **RGSP1** | `wasm/wasm_sprite_abi.h` | ready-character sprites | 2560 B | host writes catalog+input, guest writes slots | shipped (§2.9) |
+| **RGU1** | `wasm/wasm_ui_abi.h` | retained-mode UI | 8192 B | guest→host (+ optional `rg_ui_event`) | shipped (§2.10) |
 | **RGP1** | `wasm/wasm_pose_abi.h` | pose / body tracking | (v2) | host→guest | proposed header (§2.4) |
 | **RGO1** | `wasm/*.h` | game observation snapshot | — | host→worker | proposed (§2.7) |
 | **RGX1** | `wasm/*.h` | streaming worker observation/results | 2560 B | host↔worker | proposed header (§2.7) |
 | **RGLD** | `wasm/*.h` | resource loader requests/responses | — | host↔worker | proposed header (§2.7) |
 | **RG_CAM** | `wasm/*.h` | camera + view matrix | — | guest→host (+ matrix back) | proposed (§2.17) |
 
-RGW1 layout (shipped): 64-byte header, then `bodies[32]×24`, `controls[32]×16`,
-`impulses[16]×16`, `contacts[14]×32`, `events[12]×20` (@2048), RGCQ tail (@2304).
-Today the **host→guest** channel in RGW1 is only four header words: `dt_ms`, `time_ms`,
-`input`, `input_p2`.
+**RGW1 shipped layout** (`wasm_game_abi.h`, magic `0x31574752` `'RGW1'`, v1, 2560 B,
+`FP_SCALE 256`). Header (64 B), all i32:
+
+| Off | Field | Dir | Off | Field | Dir |
+|-----|-------|-----|-----|-------|-----|
+| 0 | magic `'RGW1'` | guest | 32 | impulse_count | guest |
+| 4 | version | guest | 36 | contact_count | guest |
+| 8 | size (2560) | guest | 40 | score | guest |
+| 12 | dt_ms | host→guest | 44 | hits | guest |
+| 16 | time_ms | host→guest | 48 | camera_y | guest |
+| 20 | input | host→guest | 52 | event_count | guest |
+| 24 | input_p2 | host→guest | 56 | air_p1 *(→ generic guest scalar, §2.1)* | guest |
+| 28 | body_count | guest | 60 | air_p2 *(→ generic guest scalar)* | guest |
+
+The **host→guest** channel is only the four bold words (`dt_ms`, `time_ms`, `input`,
+`input_p2`) — the target adds view fields (§1.2) and the §2.5 input record here.
+
+Arrays (offsets derived from the `MAX_*`/`*_SIZE` constants):
+
+| Array | Off | Count × stride | Record fields (i32) |
+|-------|-----|----------------|---------------------|
+| `bodies` | 64 | 32 × 24 | `x, y, angle, speed, angVel, flags` |
+| `controls` | 832 | 32 × 16 | ch0..ch3 (§2.2; shipped = steer/throttle/brake/grip) |
+| `impulses` | 1344 | 16 × 16 | `bodyIdx, ix, iy, _` |
+| `contacts` | 1600 | 14 × 32 | see §2.3 |
+| `events` | 2048 | 12 × 20 | `kind, sub, a, b, c` |
+| RGCQ tail | 2304 | — | §1.1 |
+
+Event `kind`: `1 = sound`, `2 = rumble`, `3 = particles`. Body/impulse/event *counts* are
+host-clamped to their `MAX_*`. `MAX_BODIES 32`, `MAX_IMPULSES 16`, `MAX_CONTACTS 14`,
+`MAX_EVENTS 12`.
 
 ### 2.2 Control record (RGW1 `controls[]`, 16 B) — §2.2
 
@@ -195,12 +262,40 @@ Collision **geometry is declared once** (guest-owned), not carried per frame.
 #define RG_WASM_CONTACT_PHASE_END     3   /* separated this step              */
 ```
 
-The contact record carries a full manifold: `bodyA/B`, point, normal, **penetration depth**,
-normal impulse, and **tangent (friction) impulse**. `MAX_CONTACTS` overflow policy is
-documented (drop-lowest-impulse), not a silent clamp. Simulation sits behind a
-`PhysicsWorld` interface (`addBody` / `setBounds` / `step(dt)` / `contacts()`) so the arcade
-core, the `cannon` rigid-body port, or a host-native engine are selectable with **no ABI
-change** — the ABI transports *results* (poses + contacts), never engine internals.
+**Contact record (32 B).** Shipped fields (`wasm_game_abi.h`), then the proposed manifold
+additions:
+
+```c
+/* shipped (8×i32): */
+#define RG_WASM_CT_OFF_BODYA    0   /* i32 body id code (guest convention, §2.1) */
+#define RG_WASM_CT_OFF_BODYB    4   /* i32 body id code                          */
+#define RG_WASM_CT_OFF_PHASE    8   /* i32 RG_WASM_CONTACT_PHASE_* (only BEGIN today) */
+#define RG_WASM_CT_OFF_IMPULSE  12  /* i32 normal impulse (fp)                   */
+#define RG_WASM_CT_OFF_X        16  /* i32 contact point x (fp)                  */
+#define RG_WASM_CT_OFF_Y        20  /* i32 contact point y (fp)                  */
+#define RG_WASM_CT_OFF_NX       24  /* i32 normal x * 1000 (milli)               */
+#define RG_WASM_CT_OFF_NY       28  /* i32 normal y * 1000 (milli)               */
+/* proposed additions (widen the record / repurpose slack): PERSIST/END phases,
+ * penetration DEPTH (fp), and TANGENT (friction) impulse (fp).                  */
+```
+
+`MAX_CONTACTS` (14) overflow policy is documented (**drop-lowest-impulse**), not a silent
+clamp.
+
+**Shape descriptor (proposed, declared once, guest-owned).** Collision geometry never streams
+per frame; the guest declares one descriptor per body through the §5/§7 declare-once channel:
+
+```c
+struct RgShape { u32 kind; u16 layer; u16 mask; i32 a, b, c, d; };
+/* kind = RG_WASM_SHAPE_*; a..d per kind (circle:a=r; box:a=hw,b=hh;
+ * segment:a..d=x1,y1,x2,y2; polygon:a=vertCount -> side vertex table).           */
+```
+
+Simulation sits behind a `PhysicsWorld` interface (`addBody` / `setBounds` / `step(dt)` /
+`contacts()`) so the arcade core, the `cannon` rigid-body port, or a host-native engine are
+selectable with **no ABI change** — the ABI transports *results* (poses + contacts), never
+engine internals. World config (gravity, fixed timestep, solver iterations, bounds) is
+negotiated through the declare-once channel / RGCQ, not hard-coded.
 
 ### 2.4 Pose block (RGP1 v2) — §2.4
 
@@ -269,9 +364,16 @@ One typed per-player input record, transported for N players. The digital
 #define RG_IN_OFF_FLAGS     36  /* u32 pointerDown, connected, ...                  */
 ```
 
+The record above is **40 B/player** (`RG_IN_STRIDE`); the block is a small header
+(`magic 'RGIN'`, version, size, `player_count`) followed by `record[player_count]`, and the
+host clamps `player_count` to the negotiated max (the host tracks up to **8** players; today
+RGW1 exposes only `input`/`input_p2` — five bits × 2 players — which becomes `record[0]` /
+`record[1]` `BUTTONS` fields). Shipped digital bits (`RG_WASM_IN_*` / `RG_SPR_IN_*`):
+`UP=1, DOWN=2, LEFT=4, RIGHT=8, ACTION=16` (RGSP1 adds `BACK=32`).
+
 Games declare **semantic actions** ("jump", "steer") and the host maps physical inputs →
 actions through a **remappable table** the guest (or a settings UI) supplies. Device
-connect/disconnect is surfaced as an event (hotplug).
+connect/disconnect is surfaced as an event (hotplug). Direction: host→guest, cadence: frame.
 
 ### 2.6 Sound event (guest → host) — §2.10
 
@@ -316,16 +418,84 @@ pointer/touch picking and world-anchored HUD. A shared per-object local transfor
 
 ### 2.8 Resource / streaming blocks — §2.7
 
-- **RGO1** (host→worker, revision-gated snapshot): camera transform + view volume, world
-  bounds/grid, time, and an optional `wishlist[]` of `(resourceKey, priority)`.
-- **RGX1** (host↔worker, 2560 B): host writes an observation (camera transform, view size,
-  world grid, entity list); the worker writes back visibility flags + cell **load/free**
-  requests, driven by a residency ring with hysteresis (`preload` < `retire`).
-- **RGLD** (host↔worker): a request `(cell + kind = load/generate)` → the worker **produces**
-  a resource; a free request → it **releases** it, reporting `live/peak/gen/freed`.
+- **RGO1** (host→worker, revision-gated snapshot): header (`magic`, `version`, `size`,
+  `revision`), camera transform + view volume, world bounds/grid, `time_ms`, and an optional
+  `wishlist[]` of `(resourceKey, priority)`. Proposed header; split out of RGX1.
+- **RGX1** (host↔worker, 2560 B, proven on the wasm3 bridge with mock handles): host writes an
+  observation (camera transform, view size, world grid, entity list); the worker writes back
+  per-cell visibility flags + a request ring of `{ cell, op=load|free }`, driven by a
+  residency ring with hysteresis (`preload` < `retire`). Needs a shared `wasm/*.h`.
+- **RGLD** (host↔worker): request record `{ cell, kind = load|generate }` → the worker
+  **produces** a resource; `{ cell, op = free }` → it **releases** it; status words report
+  `live / peak / gen / freed`.
 
 Invariant (the streaming regression fixture, §5): **`gen − freed = live`** — bounded live
-memory under unbounded travel.
+memory under unbounded travel. The `streaming_world` stress test holds ~13 live from
+1143 generated / 1130 freed while roaming a 1000×1000 world.
+
+### 2.9 RGSP1 — ready-character sprites (shipped)
+
+`wasm_sprite_abi.h`, magic `0x50534752` `'RGSP'`, v1, 2560 B, `FP_SCALE 256`. Host writes the
+header + catalog + input; the guest writes `slot_count` and the slot array; the host resolves
+`charId → sheet/rows`, animates, and may write the resolved `frame` back.
+
+```c
+/* Header (64 B) */
+#define RG_SPR_OFF_MAGIC  0  /* RG_SPR_OFF_VERSION 4, OFF_SIZE 8 (guest)          */
+#define RG_SPR_OFF_DT_MS  12 /* host; TIME_MS 16 host                             */
+#define RG_SPR_OFF_CHAR_COUNT 20 /* host: catalog size                            */
+#define RG_SPR_OFF_SLOT_COUNT 24 /* guest: slots to draw                          */
+#define RG_SPR_OFF_INPUT  28 /* host; INPUT_P2 32 host                            */
+#define RG_SPR_OFF_VIEW_W 36 /* host: viewport px; VIEW_H 40 host                 */
+#define RG_SPR_OFF_MODE   44 /* guest: 0=menu 1=play                              */
+/* Slots @64: RG_SPR_MAX_SLOTS 64 × RG_SPR_SLOT_SIZE 32. Slot fields (i32): */
+#define RG_SPR_SLOT_OFF_CHARID 0  /* 0 = empty */   /* ANIM 4, DIR 8, FLAGS 12    */
+#define RG_SPR_SLOT_OFF_XFP 16    /* YFP 20 (feet), CLOCK 24 (anim ms), FRAME 28  */
+/* Catalog id table (host): RG_SPR_OFF_CAT_IDS 2112, i32[RG_SPR_MAX_CAT 32].      */
+```
+
+Slot flags: `ACTIVE=1, FRAMEOVERRIDE=2, FLIP_X=4`. `DIR`: `UP=0, LEFT=1, DOWN=2, RIGHT=3`.
+Exports: `sprite_ptr/size/init/tick`. **Target (§2.1, §2.8):** the roster is the catalog table
+(`RG_SPR_OFF_CAT_IDS`), not the shipped `RG_SPR_CHAR_HERO/KNIGHT/MAGE/ROGUE` constants; `anim`
+becomes data-driven atlas rows, not the frozen `WALK=0/RUN=1/JUMP=2` (RUN/JUMP fall back to
+WALK today). RGSP1 slots fold into the §5.2 sprite model and bind to physics bodies via §5.3.
+
+### 2.10 RGU1 — retained-mode UI (shipped; the block to imitate, §2.3-ideal)
+
+`wasm_ui_abi.h`, magic `0x31554752` `'RGU1'`, v1.0, 8192 B. A **flat** vDOM: `parent_id +
+child_order` describe structure; strings live in a table referenced by `(offset,len)`; colors
+are `0xRRGGBBAA`. The host validates the whole block as untrusted (magic, version, bounds,
+unique ids, valid/acyclic parents, utf-8) and rebuilds the `EVGElement` tree on a `revision`
+bump. Exports: `rg_ui_ptr/size/revision`.
+
+```c
+/* Header (48 B) */  RG_UI_OFF_MAGIC 0, MAJOR 4(u16), MINOR 6(u16), REVISION 8,
+/*   ROOT_ID 12, NODE_OFFSET 16, NODE_COUNT 20, PROP_OFFSET 24, PROP_COUNT 28,   */
+/*   STRING_OFFSET 32, STRING_SIZE 36, FLAGS 40 (RG_UI_FLAG_VALID 1).            */
+/* Node table @64: MAX_NODES 64 × NODE_SIZE 32. Node fields:                     */
+/*   id 0, parent_id 4, kind 8(u16), flags 10(u16), first_property 12,           */
+/*   property_count 16(u16), child_order 18(u16), event_mask 20.                 */
+/* Property table @2112: MAX_PROPS 128 × PROP_SIZE 16:                           */
+/*   key 0(u16), type 2(u8), flags 3(u8), value_a 4, value_b 8, value_c 12.      */
+/* String table @4160: STRING_CAP 1024.                                          */
+```
+
+- **Node kinds** (`RgUiNodeKind`): `VIEW=1, TEXT=2, IMAGE=3, PROGRESS_BAR=4, BUTTON=5,
+  SPACER=6, CUSTOM=100`.
+- **Node flags** (u16): `SELECTABLE=0x1, DISABLED=0x2, DEFAULT=0x4`.
+- **Property types**: `I32=1, F32=2, COLOR=3, STRING=4 (a=off,b=len), VEC2=5, RECT=6, ENUM=7,
+  BOOL=8`.
+- **Property keys**: `TEXT=1, BACKGROUND=2, COLOR=3, FONT_SIZE=4, FONT_FAMILY=5; WIDTH=10,
+  HEIGHT=11, PADDING=12, MARGIN=13, BORDER_RADIUS=14, BORDER_COLOR=15, BORDER_WIDTH=16;
+  FLEX=20, FLEX_DIRECTION=21, ALIGN_ITEMS=22, JUSTIFY=23, TEXT_ALIGN=24; IMAGE_RESOURCE=30;
+  VALUE=40, MAX_VALUE=41`. Enums: `FlexDirection {ROW=0, COLUMN=1}`, `Align {START=0, CENTER=1,
+  END=2, SPACE_BETWEEN=3}`.
+- **Events** (shipped `event_mask` subset): `ACTIVATE=0x1, SELECT=0x2, DESELECT=0x4` — widened
+  to the full interaction set by §4 / §3.1. Selection state lives on the host, keyed by stable
+  node id, and survives rebuilds.
+
+**Target:** the dynamic/delta mode (§3.1 `rg_evg_*` + command block) complements this snapshot
+mode; both keep the same kinds/keys and the "no pointers cross, host validates" discipline.
 
 ---
 
@@ -625,10 +795,33 @@ Adding a provider automatically widens what the host advertises.
 
 The engine-core ↔ game seam is `GameSceneProvider` (§3 of `IDEAL.md`): a generic runner
 obtains **everything game-specific from an interface it is compiled against** — never from
-concrete game types, imports, or constants. The **guest owns the world** (§5 of `IDEAL.md`):
-it declares bodies, bounds, world size, camera hints, and static-bg through the same
-declare-once channel it already uses for resources; the host-side `setupPhysics()` copy is
-deleted. One world, one owner.
+concrete game types, imports, or constants.
+
+```
+interface GameSceneProvider {              ; provided by the game, held by the core runner
+    ; world (guest is the preferred source; a provider is the fallback)
+    fn buildScene(phys:GamePhysics bodyIds:[string]) : void   ; bodies + bounds
+    fn worldSize() : (int, int)                               ; no 6000 baked in core
+    fn playerCount() : int                                    ; no fixed 2 in core
+    ; presentation
+    fn initAssets(render:GenericRender pw:int) : void
+    fn buildStaticBg(render:GenericRender) : void
+    fn spriteFor(id:string) : string                          ; entity id -> template
+    fn drawHud(target:SoftCanvas paneIdx:int abi:WasmAbiMem) : void  ; HUD, or emit RGU1
+    ; ABI conventions this guest chose (§2.1 / §2.2)
+    fn contactBodyCode(id:string) : int
+    fn bodyCodeToId(code:int) : string
+    fn mapEvent(kind:int sub:int) : GameEventNative           ; sound / particle ids
+    ; camera policy
+    fn cameraFor(paneIdx:int phys:GamePhysics) : int
+}
+```
+
+Proposed — not yet in code: `wasm_physics_runner.rgr` still imports `wasm_autopeli_setup.rgr`/
+`wasm_autopeli_render.rgr` and holds a concrete `setup:WasmAutopeliSetup`. The **guest owns
+the world** (§5 of `IDEAL.md`): it declares bodies, bounds, world size, camera hints, and
+static-bg through the same declare-once channel it already uses for resources; the host-side
+`setupPhysics()` copy is deleted. One world, one owner.
 
 ---
 
@@ -639,20 +832,25 @@ providers' `capBit()`s and rejects an unsatisfiable guest at load (§7).
 
 | Bit (name) | Value | Gates | Chapter |
 |------------|-------|-------|---------|
+| `RG_WASM_HOST_CAP_PHYSICS` | `0x0001` | host runs `GamePhysics` for the guest | §2.3 |
+| `RG_WASM_HOST_CAP_RUMBLE` | `0x0002` | gamepad rumble events honoured (→ dual-motor, §3.6) | §2.9 |
+| `RG_WASM_HOST_CAP_PARTICLES` | `0x0004` | particle events honoured | §3.9 |
+| `RG_WASM_HOST_CAP_RGU1` | `0x0008` | retained-mode HUD (RGU1) parsed | §2.10 |
 | `RG_WASM_HOST_CAP_POSE_INPUT` | `0x0010` | RGP1 pose streaming + motion/speed | §2.4 |
-| `RG_WASM_HOST_CAP_UI_DYNAMIC` | — | handle-based dynamic EVG UI (`rg_evg_*`) | §2.6 |
-| `RG_WASM_HOST_CAP_RES_STREAM` | — | `rg_res_*` streaming resources / workers | §2.7 |
-| `RG_WASM_HOST_CAP_RUMBLE` | — | dual-motor haptics (+ trigger/waveform caps) | §2.9 |
-| GPU sheets / GPU camera / GPU fx | — | GPU sprite/camera/effect/filter paths | §2.8, §2.17, §2.18 |
-| audio / voice / music / file-decode / positional | — | audio playback classes | §2.10 |
-| storage (scopes / binary / size) | — | persistence classes | §2.11 |
-| animation (targets / easings / labels) | — | animation classes | §2.12 |
-| navigation (stack depth / suspend-resume / modal) | — | view-stack classes | §2.13 |
+| `RG_WASM_HOST_CAP_UI_DYNAMIC` | *0x0020?* | handle-based dynamic EVG UI (`rg_evg_*`) | §2.6 |
+| `RG_WASM_HOST_CAP_RES_STREAM` | *tbd* | `rg_res_*` streaming resources / workers | §2.7 |
+| GPU sheets / GPU camera / GPU fx | *tbd* | GPU sprite/camera/effect/filter paths | §2.8, §2.7, §3.9 |
+| audio / voice / music / file-decode / positional | *tbd* | audio playback classes | §2.6, §3.5 |
+| storage (scopes / binary / size) | *tbd* | persistence classes | §3.3 |
+| animation (targets / easings / labels) | *tbd* | animation classes | §3.4 |
+| navigation (stack depth / suspend-resume / modal) | *tbd* | view-stack classes | §3.7 |
 
-(Only `RG_WASM_HOST_CAP_POSE_INPUT = 0x0010` has a concrete value in the current design; the
-rest are named seams whose exact bit values are assigned when the provider lands. Soft
+Bits `0x0001`–`0x0010` are **shipped values** (`0x0001`–`0x0008` in `wasm_game_abi.h`,
+`0x0010` reserved for pose per §2.4). Bits `0x0020` and up are **reserved**: assign
+additively, never reuse a retired bit. `RG_WASM_HOST_CAPS` (what a given host advertises) is
+the OR of its providers' `capBit()`s and is defined by the host build, not the header. Soft
 capabilities that a guest can *adapt* to are answered through the typed environment query
-(§1.2) rather than the hard bitmask.)
+(§1.2 / §1.1 RGCQ) rather than the hard bitmask.
 
 ---
 

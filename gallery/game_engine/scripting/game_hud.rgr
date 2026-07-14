@@ -5,7 +5,7 @@
 ; GameRunner calls engine.callRender("hud", props) each frame, runs EVGLayout
 ; at screen size, then blits View backgrounds and Label text onto the world
 ; buffer. This is the lightweight bridge toward full EVGRasterRenderer
-; integration (see GAME_ENGINE_DESIGN.md).
+; integration (see docs/GAME_ENGINE_DESIGN.md).
 ; ==============================================================================
 
 Import "../framebuffer.rgr"

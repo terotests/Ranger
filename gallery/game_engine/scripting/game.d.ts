@@ -3,7 +3,7 @@
 // ============================================================================
 //
 // Game screens can be authored as TypeScript/TSX and evaluated at runtime by
-// the gallery ComponentEngine (see GAME_SCRIPTING.md). The runtime IGNORES type
+// the gallery ComponentEngine (see docs/GAME_SCRIPTING.md). The runtime IGNORES type
 // annotations, so these declarations exist purely for editor tooling
 // (autocomplete + type-checking) while you write `*.game.tsx` scripts.
 //

@@ -1,8 +1,8 @@
 # Ranger Game Engine — roadmap
 
-> **Päivitetty:** heinäkuu 2026 (WASM Path C, host/Cannon-fysiikka, GPU sheet-spritet)  
+> **Päivitetty:** heinäkuu 2026 (WASM Path C + AssemblyScript/`.as`-guestit, RGSP1 sprite-ABI, RGU1 EVG-UI, pose-input, streaming-maailma, host/Cannon-fysiikka, GPU sheet-spritet)  
 > **Tarkoitus:** yhteenveto nykytilasta, puutteista ja jatkokehityksen prioriteeteista.  
-> **Liittyvät dokumentit:** [`README.md`](./README.md), [`PLAN_GAME_ENGINE.md`](./PLAN_GAME_ENGINE.md), [`RENDERING_EVG.md`](./RENDERING_EVG.md), [`scripting/GAME_ENGINE_DESIGN.md`](./scripting/GAME_ENGINE_DESIGN.md), [`LLVM_BUGS.md`](./LLVM_BUGS.md)
+> **Liittyvät dokumentit:** [`README.md`](./README.md), [`IDEAL.md`](./IDEAL.md), [`IDEAL_API.md`](./IDEAL_API.md), [`PLAN_GAME_ENGINE.md`](./PLAN_GAME_ENGINE.md), [`RENDERING_EVG.md`](./RENDERING_EVG.md), [`docs/GAME_ENGINE_DESIGN.md`](./docs/GAME_ENGINE_DESIGN.md), [`LLVM_BUGS.md`](./LLVM_BUGS.md)
 
 ---
 
@@ -16,9 +16,16 @@ vaan **portability-demonstraatio ja kehitysalusta** tavoitteella:
 > natiivina binäärinä Raspberry Pi:llä HDMI-televisioon.
 
 **Nykyinen kypsyys:** PoC laajentunut merkittävästi — TSX-skriptaus, host-fysiikka, Cannon-pinball,
-WASM Path C (Rust Pong + Autopeli), synth-äänet, gamepad, sheet-spritet ja GLES2 GPU-overlay.
-Tuotantopeli (esim. Koodisampo Pi:llä) vaatii vielä EVG-integraatiota, täyttä GPU-pinoa ja
-Pi-deployment-kovennusta.
+WASM Path C (Rust **ja** AssemblyScript -guestit, sekä tulkittu `.as`-polku), RGSP1-sprite-ABI
+(valmis hahmosetti), RGU1 EVG-UI-kerros, pose-input (RGP1), striimaava resurssimaailma
+(RGX1/RGLD), synth-äänet + soundscore, gamepad, sheet-spritet ja GLES2 GPU-overlay.
+
+ABI on nyt myös **dokumentoitu tavoitespesifikaationa**: [`IDEAL.md`](./IDEAL.md) (miksi kukin
+rajapinta on kuten on) ja [`IDEAL_API.md`](./IDEAL_API.md) (koko blokki-/import-/event-referenssi).
+Suurin avoin arkkitehtuurityö on **ytimen geneerisyys** — pelikohtaisen sanaston (autopeli) poisto
+jaetuista headereista, provider-rekisteri ja capability-portin aktivointi. Tuotantopeli
+(esim. Koodisampo Pi:llä) vaatii vielä EVG-integraation viimeistelyn, täyden GPU-pinon ja
+Pi-deployment-kovennuksen.
 
 ---
 
@@ -68,24 +75,36 @@ backend. Kaikki muu on portable.
 | **Käännetty Ranger-ydin** | `pong_core.rgr`, `pong.rgr`, `pong_sdl.rgr` | ✅ PoC valmis |
 | **SDL2-native ikkuna** | `framebuffer.rgr`, `gfx_sdl.rgr`, `pong_sdl.rgr` | ✅ PoC valmis + GLES2 |
 | **TSX-skriptaus** | `games/*/index.tsx`, `game_runtime.rgr` | ✅ Tuotantokelpoinen demoihin |
-| **WASM Path C** | `wasm/rust_*`, `wasm_game_runner.rgr`, `wasm_physics_runner.rgr` | ✅ PoC (Pong + Autopeli) |
+| **WASM Path C** | `wasm/rust_*`, `wasm/as_*`, `wasm_game_runner.rgr`, `wasm_physics_runner.rgr` | ✅ PoC (Rust + AssemblyScript) |
+| **`.as` (tulkittu)** | `scripting/as_abi_bridge.rgr`, `scripting/as_source_runner.rgr` | ✅ Sama ABI ilman käännösvaihetta |
+| **Sprite-ABI (RGSP1)** | `wasm/wasm_sprite_abi.h`, `wasm_sprite_runner.rgr` | ✅ Valmis hahmosetti, `abi=sprite` |
+| **EVG-UI (RGU1)** | `ui/`, `wasm_ui_io.rgr`, `wasm/as_ui_*` | ✅ Interaktiivinen valikko/widget-kerros |
+| **Pose-input (RGP1)** | `pose/`, `game_pose_provider.rgr` | ⚠️ PoC (natiivi + MediaPipe) |
+| **Streaming (RGX1/RGLD)** | `wasm/rust_worker`, `wasm/as_resource_loader`, `streaming_world_runner.rgr` | ⚠️ PoC (mock-handlet) |
 | **Host-fysiikka** | `game_physics.rgr`, `physics_core.rgr` | ✅ Phase 1 |
 | **Cannon-fysiikka** | `physics/src/cannon_*.rgr`, `game_cannon_physics.rgr` | ✅ Pinball + sandbox |
 
 ### Demo-pelit
 
-| Peli | Polku | Huomio |
-|------|-------|--------|
-| Pong | TSX | Minimal-malli, ~250 FPS dummy SDL |
-| Breakout | TSX | Multi-screen, JSX HUD, split screen |
-| Pac-Man | TSX | Split screen + autoscale |
-| Invaders | TSX | Stressitesti (~487 entityä, rect-moodi) |
-| Pomppija (ylos2) | TSX | Platformer, LPC-sheet, soundscore-musiikki |
-| Flipperitorni (pinpall) | TSX + Cannon | Pystypinball, split screen |
-| Physics Sandbox | TSX + Cannon | Flipperit, pegs, sheet-animaatiot |
-| Autopeli Physics | TSX + host physics | Top-down racer, jaettu maailma |
-| Rust Pong | WASM (getter ABI) | Path C PoC |
-| Rust Autopeli | WASM (linear ABI) | Fysiikka + host rendering + eventit |
+| Peli | Kansio | Polku | Huomio |
+|------|--------|-------|--------|
+| Pong | `pong` | TSX | Minimal-malli, ~250 FPS dummy SDL |
+| Breakout | `breakout` | TSX | Multi-screen, JSX HUD, split screen |
+| Pac-Man | `pacman` | TSX | Split screen + autoscale |
+| Invaders | `invaders` | TSX | Stressitesti (~487 entityä, rect-moodi) |
+| Pomppija | `ylos2` | TSX | Platformer, LPC-sheet, soundscore-musiikki |
+| Comedy Club | `comedy_club` | TSX | Vokaaliefektit (`playVoice`) |
+| Flipperitorni | `pinpall` | TSX + Cannon | Pystypinball, split screen |
+| Physics Sandbox | `physics_sandbox` | TSX + Cannon | Flipperit, pegs, sheet-animaatiot |
+| Autopeli Physics | `autopeli_physics` | TSX + host physics | Top-down racer, jaettu maailma |
+| Rust Pong | `rust_pong` | WASM (getter ABI) | Path C PoC |
+| Autot2 (Autopeli) | `autopeli_wasm` | WASM (linear RGW1) | Fysiikka + host rendering + eventit |
+| Autopeli (AS / `.as`) | `autopeli_as`, `autopeli_as_src` | WASM (AssemblyScript) + tulkittu | Sama peli AS-guestina ja tulkattuna |
+| Pyörretris | `pyorretris` | `.as` (`render=sprites`) | Guest-driven kääntyvät spritet |
+| Sprite Test | `sprite_char` | WASM (`abi=sprite`) | Valmis hahmosetti (RGSP1): valinta + kävely/hyppy |
+| Pose Demo | `pose_demo` | `.as` + pose | Pose-input (RGP1) -demo |
+| Streaming World | `streaming_world` | `engine=streaming` | Resurssistriimaus kameran mukaan (RGX1/RGLD) |
+| EVG Effects / UI Menu | `ui_effects`, `ui_menu`, `ui_menu_as` | `engine=ui` | RGU1-valikot ja glow/pulse-efektit (WASM + `.as`) |
 
 ### Build-targetit (Pong-viite)
 
@@ -123,11 +142,19 @@ backend. Kaikki muu on portable.
 | Host physics (2D top-down) | `game_physics.rgr` | ✅ Ajoneuvot, kontaktit, shared world |
 | Cannon physics | `game_cannon_physics.rgr` | ✅ Pinball, sandbox |
 | WASM Path C | `wasm_game_runner.rgr`, `wasm_physics_runner.rgr` | ✅ Getter + RGW1 linear ABI |
+| AssemblyScript-guestit | `wasm/as_*` | ✅ Sama ABI kuin Rust-guestit |
+| `.as` tulkittu polku | `as_abi_bridge.rgr`, `as_source_runner.rgr` | ✅ Ei käännösvaihetta |
+| Sprite-ABI (RGSP1) | `wasm_sprite_runner.rgr`, `wasm_sprite_abi.h` | ✅ Valmis hahmosetti (4 hahmoa) |
+| EVG-UI (RGU1) | `ui/`, `wasm_ui_io.rgr` | ✅ Interaktiivinen valikko/widget-kerros |
+| Pose-input (RGP1) | `pose/`, `game_pose_provider.rgr` | ⚠️ PoC — headeriton, hostit eri layouteilla |
+| Streaming-resurssit (RGX1/RGLD) | `streaming_world_runner.rgr`, `wasm/rust_worker` | ⚠️ PoC — mock-handlet, ei jaettuja headereita |
+| Capability-handshake / RGCQ | `wasm_game_abi.h` | ❌ Määritelty, host ei neuvottele |
 | Partikkelit | `game_particles.rgr` | ✅ CPU + GPU overlay |
 | Ääni (synth) | `game_audio.rgr` | ✅ Built-in id:t + soundscore |
-| Ääni (samplet) | — | ❌ Ei tiedostopohjaista |
+| Ääni (samplet) | — | ❌ Ei tiedostopohjaista (vain voice-WAV-override) |
 | EVG full-frame natiivissa | `RENDERING_EVG.md` | ❌ Suunniteltu |
 | GPU (täysi EVG-pino) | `RENDERING_EVG.md` | ❌ Sheet-overlay PoC valmis |
+| ABI-tavoitespesifikaatio | `IDEAL.md`, `IDEAL_API.md` | ✅ Dokumentoitu; toteutus kesken |
 
 ---
 
@@ -253,8 +280,11 @@ Taaksepäin yhteensopiva vanhan `state.entities`-polun kanssa.
 | 1c.3 | Host resource imports (`rg_host_register_*`) | ✅ |
 | 1c.4 | Host rendering bridge (Autopeli road + sprites) | ✅ |
 | 1c.5 | WASM hot reload / dev loop | ❌ |
-| 1c.6 | Toinen kieli (C/C++ → wasm32) | ❌ |
+| 1c.6 | Toinen guest-kieli | ✅ AssemblyScript (`wasm/as_*`) + tulkittu `.as`-polku; C/C++ vielä auki |
 | 1c.7 | WASM CI-smoke kaikille wasm-peleille | ⚠️ demo-skriptit, ei Vitest |
+| 1c.8 | RGSP1-sprite-ABI (valmis hahmosetti) | ✅ `sprite_char` + `wasm_sprite_runner.rgr` |
+| 1c.9 | RGU1 EVG-UI-ABI (retained-mode valikot) | ✅ `ui_menu` / `ui_effects` + `wasm_ui_io.rgr` |
+| 1c.10 | Pose-input-ABI (RGP1) | ⚠️ PoC — ei jaettua headeria, hostit eri layouteilla |
 
 ---
 
@@ -314,7 +344,7 @@ Taaksepäin yhteensopiva vanhan `state.entities`-polun kanssa.
 |---|---------|--------|:----:|
 | 4.1 | WebGL/GLES2 backend Pi:lle | EVG → GPU texture upload | ⚠️ sheet/base PoC |
 | 4.1a | Ranger2D GPU-camera (R1b) | ortho-Camera2D 4×4 viewProj-uniformina, [`PLAN_RANGER2D.md`](./PLAN_RANGER2D.md) | ✅ |
-| 4.1b | Striimaava spatiaalinen maailma | grid + culling + kamera-prefetch + rinnakkainen decode-worker, [`PLAN_RANGER2D_STREAMING.md`](./PLAN_RANGER2D_STREAMING.md) | ❌ Suunniteltu |
+| 4.1b | Striimaava spatiaalinen maailma | grid + culling + kamera-prefetch + decode-worker (RGX1/RGLD), [`PLAN_RANGER2D_STREAMING.md`](./PLAN_RANGER2D_STREAMING.md) | ⚠️ PoC — pää­stä­päähän wasm3:lla, mock-handlet + synk. decode |
 | 4.2 | Asset pipeline | Sprite sheetit, äänipankit, collision mapit | ❌ |
 | 4.3 | Collision-työkalut | Pelikohtaiset tai kevyt tile-map -kerros | ❌ |
 | 4.3a | Host physics engine (Phase 1) | `game_physics.rgr` — bodies, bounds, contacts | ✅ |
@@ -341,9 +371,29 @@ Nämä parantavat TSX-skriptauksen ilmaisuvoimaa; eivät estä vaiheita 1–4.
 
 ---
 
+### Vaihe 6 — ABI-yhtenäistäminen ja ytimen geneerisyys (IDEAL)
+
+**Tavoite:** ydin ei tunne yhtäkään yksittäistä peliä — sama runner ajaa toisen fysiikkapelin
+ilman ydinmuutoksia. Suunta on määritelty: [`IDEAL.md`](./IDEAL.md) (perustelut, nykytila vs.
+ideaali) ja [`IDEAL_API.md`](./IDEAL_API.md) (koko ABI-referenssi).
+
+| # | Tehtävä | Tila |
+|---|---------|------|
+| 6.1 | Pelisanaston (autopeli, steer/throttle, traffic, hero/knight) poisto jaetuista headereista → guest-lähteeseen | ❌ |
+| 6.2 | Geneeriset kontrollikanavat (`readControlChannel` steer/throttle/brake/grip tilalle) | ❌ |
+| 6.3 | `GameSceneProvider`-sauma: runner ei importtaa `wasm_autopeli_setup/render`ia | ❌ |
+| 6.4 | Yksi maailman omistaja: guest julistaa bodyt/rajat/koon declare-once-kanavalla, host-kopio poistetaan | ❌ |
+| 6.5 | Capability-handshake + portin aktivointi (`rg_required_caps`/`rg_check_env`/RGCQ) | ❌ |
+| 6.6 | Provider-rekisteri (pose/resource/scene) — capability-bitti + suunta + kadenssi | ⚠️ `game_pose_provider.rgr` olemassa, ei rekisteriä |
+| 6.7 | Headerit informaaleille blokeille (RGP1, RGS1, RGX1, RGLD) + jaettu validointi | ❌ |
+| 6.8 | Path-pariteetti: pose/draw-list/resource-manifest/sound-queue myös käännetylle WASM-polulle | ❌ |
+| 6.9 | Leak-guard-grep CI:hin + toinen host-fysiikkapeli regressiofikstuurina | ❌ |
+
+---
+
 ## Suunnittelusäännöt (uusille peleille)
 
-Noudatettava malli ([`scripting/GAME_ENGINE_DESIGN.md`](./scripting/GAME_ENGINE_DESIGN.md)):
+Noudatettava malli ([`docs/GAME_ENGINE_DESIGN.md`](./docs/GAME_ENGINE_DESIGN.md)):
 
 1. **`sprites()` kerran alussa** — retained-mode; muoto/väri/koko eivät muutu runtime-aikana.
 2. **`update()` palauttaa uuden tilan** — reducer-tyyli; vain muuttuneet sijainnit.
@@ -407,6 +457,13 @@ npm run engine:wasm:demo:autopeli
 npm run engine:game-sdl:run:rust-pong
 npm run engine:game-sdl:run:rust-autopeli
 
+# Valmis hahmosetti (RGSP1 sprite-ABI)
+npm run engine:chars:bake            # bake 4 hahmoa -> lpc/pack/characters/
+npm run engine:game-sdl:run:sprite   # WASM-testipeli: hahmon valinta + kävely/hyppy
+
+# Muut pelit (pose, streaming, EVG UI) launcherista:
+npm run engine:game-sdl:launcher
+
 # Fysiikka
 npm run engine:physics:test
 
@@ -420,9 +477,11 @@ npm test -- game-engine game-runner game-scripting physics-cannon
 | Dokumentti | Sisältö |
 |------------|---------|
 | [`README.md`](./README.md) | Quick start, layer stack, build-targetit, WASM, fysiikka |
+| [`IDEAL.md`](./IDEAL.md) | Tavoiteltu ABI-suunnittelu: nykytila vs. ideaali, ytimen geneerisyys |
+| [`IDEAL_API.md`](./IDEAL_API.md) | Koko ABI yhtenä referenssinä: blokit, importit, eventit, capability-bitit |
 | [`PLAN_GAME_ENGINE.md`](./PLAN_GAME_ENGINE.md) | Arkkitehtuuri, HDMI/gamepad, debuggaus |
 | [`RENDERING_EVG.md`](./RENDERING_EVG.md) | EVG renderer, GPU-polku |
-| [`scripting/GAME_SCRIPTING.md`](./scripting/GAME_SCRIPTING.md) | TSX-skriptaus-API |
-| [`scripting/GAME_ENGINE_DESIGN.md`](./scripting/GAME_ENGINE_DESIGN.md) | Retained-mode, ongelmat, prioriteetit |
+| [`docs/GAME_SCRIPTING.md`](./docs/GAME_SCRIPTING.md) | TSX-skriptaus-API |
+| [`docs/GAME_ENGINE_DESIGN.md`](./docs/GAME_ENGINE_DESIGN.md) | Retained-mode, ongelmat, prioriteetit |
 | [`games/rust_pong/README.md`](./games/rust_pong/README.md) | WASM Path C PoC |
 | [`LLVM_BUGS.md`](./LLVM_BUGS.md) | Native build -bugit ja workaroundit |

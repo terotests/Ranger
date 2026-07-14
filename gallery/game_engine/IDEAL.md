@@ -1,8 +1,8 @@
 # IDEAL — what the game-engine interfaces *should* look like
 
 > Status: **target specification** (companion to [`AGENTS.md`](./AGENTS.md),
-> [`scripting/PLAN_PROVIDERS.md`](./scripting/PLAN_PROVIDERS.md) and
-> [`scripting/PLAN_PHYSICS_RUNNER_GENERIC.md`](./scripting/PLAN_PHYSICS_RUNNER_GENERIC.md)).
+> [`PLAN_PROVIDERS.md`](./PLAN_PROVIDERS.md) and
+> [`docs/PLAN_PHYSICS_RUNNER_GENERIC.md`](./docs/PLAN_PHYSICS_RUNNER_GENERIC.md)).
 >
 > This document does **not** describe today's code. It describes the interfaces
 > the engine is *aiming* at, derived from the engine's stated goal, so that every
@@ -83,13 +83,13 @@ without re-widening the leaks above.
 | **Generic guest scalar slots** | Missing | Only `air_p1/air_p2` are hard-coded; there is no documented generic "guest scalar" the host transports opaquely. | §2.1 |
 | **Genre-neutral control channels** | Missing | Only the four named car channels; no indexed `readControlChannel(body, ch)`. | §2.2 |
 | **Collision shape, filtering, sensors, full contacts** | Minimal | The body record carries pose but no shape; body↔body is circle-only; contacts define only a `BEGIN` phase (no `PERSIST`/`END`, depth, or tangent impulse); no layer/mask filtering, no sensor/trigger bodies. | §2.5 |
-| **Selectable physics engine** | Missing | A full Cannon.js rigid-body port exists (`physics/src/cannon_*.rgr`) but no interface lets a game choose it over the arcade core; the ABI is tied to one engine's output. | §2.5 |
+| **Selectable physics engine** | Partial | A full Cannon.js rigid-body port exists (`physics/src/cannon_*.rgr`) and a game *can* select it — but only on the TS path via `config().physics.cannon` (`game_cannon_physics.rgr`); WASM/`.as` guests cannot choose it and the RGW1 ABI is tied to the arcade core's output. | §2.5 |
 | **Body→sprite binding** | Fragmented | Three unrelated models (host `spriteFor` templates, RGSP1 catalog, `.as` RGS1 draw list); no single contract that makes a body's pose drive a sprite/character on every path. | §2.5 |
 | **Data-driven sprite roster & animations** | Partial | A catalog-id table (`RG_SPR_OFF_CAT_IDS`) exists, but character ids are still frozen constants, and animations are limited to `WALK/RUN/JUMP` with `RUN`/`JUMP` falling back to `WALK`. | §2.1, §2.8 |
-| **Sprite-sheet loading (PNG) + unified sprite handling** | Fragmented | Runtime image loading is JPEG-only (PNG decode lives only in the LPC toolchain); the emitted `atlas.json` is ignored at runtime; sheets are drawn via three unrelated models with three animation-timing sites. | §2.8 |
+| **Sprite-sheet loading (PNG) + unified sprite handling** | Fragmented | Runtime image loading decodes PNG *and* JPEG (`game_image_loader.rgr`), but PNG decode is borrowed from the LPC toolchain rather than owned by the runtime path and is not shared with the `.as`/WASM paths; the emitted `atlas.json` is ignored at runtime; sheets are drawn via three unrelated models with three animation-timing sites. | §2.8 |
 | **Guest draw list / resource manifest / sound queue as first-class ABI** | Path-specific | `RGS1`, the resource manifest, and the sound queue are native-array APIs on the interpreted `.as` path only — not a shared byte block, so compiled-WASM guests cannot use them uniformly. | §2, §5 |
 | **Streaming (`RGX1`) and loader (`RGLD`)** | Unheadered | Referenced as siblings of RGW1 but have no canonical `wasm/*.h`, so their offsets are not a stable contract. | §2 |
-| **Save-state / persistence, networking, clock/RNG seed, config negotiation** | Absent | Nothing beyond `dt_ms`/`time_ms`; no deterministic seed, no persistence, no negotiated timestep/config. Game-specific storage exists only as a TS-path native bridge (whole-file `gamedata.json`), not in the binary ABI. | §2.11, §2.1 (RGCQ), §6 |
+| **Save-state / persistence, networking, clock/RNG seed, config negotiation** | Partial | Persistence **does** exist — `saveGameData`/`loadGameData`/`resetGameData` (whole-file `gamedata.json`) — but only as a TS-path native bridge, not over the binary ABI; and beyond `dt_ms`/`time_ms` there is no deterministic seed, no networking, and no negotiated timestep/config. | §2.11, §2.1 (RGCQ), §6 |
 | **RGU1 interactivity / UI events** | Optional & minimal | The document is guest→host; the only host→guest path is an optional `rg_ui_event` export limited to `ACTIVATE/SELECT/DESELECT` driven by a **D-pad selection cursor** (no pointer/hover/drag/scroll/text/focus events, reserved `value` payload), and selection state lives on the host. | §2.6, §2.15, §2.3 |
 | **Animation system & lifecycle events** | Fragmented | Three unrelated timing systems (host-only `UIAnimator` glow/pulse, RGSP1 sprite clock, RGU1 full-tree re-emit); no general tweening/easing, frozen effect + anim enums, and the only completion hook (`UIAnimator.after`) is a host closure — no `onAnimationEnd`/`onLoop`/`onFrame` over the ABI. | §2.12 |
 | **Screen navigation / view stack** | Partial | `loadGame`/`pushGame`/`popGame` exist only on the TS path; every transition is a full teardown + `initState()` reload (no suspend/resume), routes are file paths, and there are no typed args, no result on pop, and no `onEnter`/`onExit`/`onPause`/`onResume` hooks. | §2.13 |
@@ -130,7 +130,7 @@ The areas, ordered roughly by how much they unblock the rest:
 | 4 | **Bring `.as`-only APIs to parity on both paths** (pose, draw list, resource manifest, sound queue) | `scripting/wasm_abi_io.rgr` (add readers), `scripting/as_abi_bridge.rgr` (back native-array APIs with the documented byte blocks) | One accessor per block, per path, sharing offsets | A guest runs identically compiled or interpreted | §2 |
 | 5 | **Activate the capability handshake + gate** | `scripting/wasm_physics_runner.rgr`, `scripting/wasm_game_runner.rgr`, `scripting/wasm_sprite_runner.rgr`, `scripting/as_source_runner.rgr` (shared gate helper) | One place calls `rg_abi_version`/`rg_required_caps`/`rg_check_env` + resolves RGCQ | Same gate for every guest/block/path; a missing cap rejects instead of reading zeros | §6 |
 | 6 | **Uniform block validation** (magic/version/bounds/utf-8), copying RGU1's discipline | `scripting/wasm_abi_io.rgr` (`verifyMagic` generalised), a shared validator for RGW1/RGSP1/RGP1/RGS1 | One validator, not per-block ad-hoc checks | Every block is validated the same before use, on both paths | §2.3 |
-| 7 | **Provider registry for host↔guest capabilities** | `scripting/PLAN_PROVIDERS.md`, `scripting/game_pose_provider.rgr`, `scripting/game_image_loader.rgr`, the runners in row 5 | Capabilities wire at fixed seams, not by hand | Adding a block = registering a provider (capBit/direction/cadence); parity is enforced by construction | §6 |
+| 7 | **Provider registry for host↔guest capabilities** | `PLAN_PROVIDERS.md`, `scripting/game_pose_provider.rgr`, `scripting/game_image_loader.rgr`, the runners in row 5 | Capabilities wire at fixed seams, not by hand | Adding a block = registering a provider (capBit/direction/cadence); parity is enforced by construction | §6 |
 | 8 | **Generic scene seam** (`GameSceneProvider` instead of concrete autopeli types) | `scripting/wasm_physics_runner.rgr`, `scripting/wasm_game_runner.rgr` (drop `Import "./wasm_autopeli_setup.rgr"` / `wasm_autopeli_render.rgr`), logic → `games/autopeli_wasm/scene/` | Core compiles against an interface, not a game | A second physics game reuses the runner unchanged | §3 |
 | 9 | **Single world owner** (guest declares bodies/bounds/world-size/camera via the declare-once channel) | `scripting/wasm_autopeli_setup.rgr` (deleted), guest `lib.rs`, the resource-manifest block from row 3 | World lives in exactly one place | Same declaration works on both paths | §5 |
 | 10 | **Data-driven sprite roster & animations** | `wasm/wasm_sprite_abi.h` (drop `RG_SPR_CHAR_*`), `lpc/src/lpc_char_catalog.rgr`, `lpc/pack/**/catalog.json` | Roster is data (`RG_SPR_OFF_CAT_IDS`), not frozen constants | Same catalog visible to every guest/path; documented anim fallbacks | §2.1 |
@@ -462,9 +462,13 @@ the body→visual binding — and today each leaks or is missing.
   ([`game_physics_bridge.rgr`](./scripting/game_physics_bridge.rgr)). But a *second*,
   much richer engine — a Cannon.js-style 3D rigid-body port — sits fully implemented
   and unit-tested under [`physics/src/cannon_*.rgr`](./physics/src/) (Vec3, Quaternion,
-  Box/Sphere/Plane, AABB, broad/narrow phase, contact equations, `World`) and is
-  wired to **nothing**: no ABI, no game. There is no interface that lets a game pick
-  an engine, so the arcade core is the only one anything can reach.
+  Box/Sphere/Plane, AABB, broad/narrow phase, contact equations, `World`). It **is**
+  reachable, but only on the **TS/EvalValue path**: [`game_cannon_physics.rgr`](./scripting/game_cannon_physics.rgr)
+  (`GameCannonPhysics`) bridges it into [`game_runtime.rgr`](./scripting/game_runtime.rgr),
+  and a game selects it with `config().physics.cannon = true`. There is **no binary-ABI
+  presence** — a WASM/`.as` guest cannot pick it, RGW1 is still tied to the arcade core's
+  output, and the two engines share no common `PhysicsWorld` interface — so the engine
+  choice is a TS-path config flag, not a genre-neutral seam.
 - **Collision is circle-approximate and boundary-typed.** `PhysicsCore` runs a cheap
   broad phase (`segmentNearBody` AABB reach) and a narrow phase that is
   point-to-segment for `segment` bounds, wall clamps for `rect` bounds, and a
@@ -502,7 +506,8 @@ the body→visual binding — and today each leaks or is missing.
    `setBounds` / `step(dt)` / `contacts()`) so a game can select the arcade core *or*
    the `cannon` rigid-body port *or* the host-native engine with **no ABI change** —
    the ABI transports *results* (poses + contacts), never an engine's internals. This
-   also gives the tested `cannon` port a way to actually be used.
+   also brings the `cannon` port — today reachable only through a TS-path config flag —
+   to every guest path behind one interface.
 2. **Shape is declared once, pose streams per frame.** The guest owns collision
    geometry and declares it through the same declare-once channel it uses for
    resources (§5): a typed **shape descriptor** per body (circle / box / segment /
@@ -725,7 +730,10 @@ uniform interface.
   you cannot add or drop a resource as the world scrolls.
 - **Synchronous frame-path decode.** [`game_image_loader.rgr`](./scripting/game_image_loader.rgr)
   (`GameImageLoader`) decodes PNG/JPEG **synchronously on the frame path**, so a large
-  cell change stalls the frame. There are **zero threads** in the codebase.
+  cell change stalls the frame. The scripting engine and the runtime resource path are
+  **single-threaded** (the only threading in the tree is the native pose worker in
+  [`pose/native_provider/rg_pose.h`](./pose/native_provider/rg_pose.h), off the `.rgr`
+  frame path); no off-thread decode exists for resources.
 - **A real streaming vertical exists in WASM — but as private blocks with mock
   handles.** The proof-of-architecture from
   [`PLAN_RANGER2D_STREAMING.md`](./PLAN_RANGER2D_STREAMING.md) already runs end to end
@@ -821,11 +829,15 @@ clear contract — and today it has three, plus a decoder gap.
 
 **Current state.**
 
-- **The decoder gap: runtime loading is JPEG-only.** [`game_image_loader.rgr`](./scripting/game_image_loader.rgr)
-  / `ImageUtils` decode **only JPEG**, but spritesheets (especially LPC) are **PNG**
-  with an alpha channel. PNG decoding *does* exist — but only inside the LPC build
-  toolchain ([`lpc/src/png_decoder.rgr`](./lpc/src/png_decoder.rgr)), not on the
-  runtime image path. Two decoders, one format each, on different sides of the engine.
+- **The decoder is split across two libraries, one format each.**
+  [`game_image_loader.rgr`](./scripting/game_image_loader.rgr) *does* decode **both PNG
+  and JPEG** at runtime — it imports the LPC [`png_decoder.rgr`](./lpc/src/png_decoder.rgr)
+  (`isPngPath` → `pngDecoder.decode`) and falls back to `JPEGDecoder` — so the runtime
+  path is not JPEG-only. The remaining gap is that PNG decode is borrowed from the LPC
+  toolchain rather than owned by the runtime image path, and the `.as`/WASM paths do not
+  share this loader; §2.7's "one decoder, every format, every path" folds them into a
+  single owned decoder. (§2.7 already states this loader decodes PNG/JPEG; this is the
+  matching correction here.)
 - **Sheet drawing is a per-entity kind with baked geometry.** `game_sprite.rgr`'s
   `GameEntity` carries a `sheet` kind: `shPath`, `shFrameW/H` (64×64), `shCols` (9),
   `shRows` (4), `shScale`, `shFeetTrim`, `shImg` (the decoded `ImageBuffer`),
@@ -924,7 +936,7 @@ player↔game channel.
 **Current state.**
 
 - **Controls are digital-only, and the host is richer than the ABI.** The host input
-  model ([`game_input.rgr`](./scripting/game_input.rgr)) is a 12-bit digital snapshot
+  model ([`game_input.rgr`](./scripting/game_input.rgr)) is an 11-bit digital snapshot
   — `InputMask` `UP/DOWN/ACTION/QUIT/LEFT/RIGHT/B/X/Y/START/SELECT`, mapped onto up to
   **8 players** with a real device-assignment policy (`buildFromSdl`: solo-active-pad
   switching, join/P2 detect, per-pane split). But **no analog axes, no triggers, no
@@ -934,7 +946,8 @@ player↔game channel.
 - **The ABI carries a fraction of that.** RGW1 exposes only `input` + `input_p2` (five
   bits: `RG_WASM_IN_UP/DOWN/LEFT/RIGHT/ACTION`); RGSP1 adds `IN_BACK`. So a WASM/`.as`
   guest sees **2 players × ~5 digital bits**, even though the host tracks 8 players and
-  12 buttons — and gets no analog value at all.
+  11 buttons (`UP/DOWN/ACTION/QUIT/LEFT/RIGHT/B/X/Y/START/SELECT`) — and gets no analog
+  value at all.
 - **The mapping policy is hard-coded, not remappable data.** Which device drives which
   player, and which physical button means "action," is fixed in `game_input.rgr`; a
   game (or a player in a settings screen) cannot rebind, and there is no capability
@@ -942,10 +955,12 @@ player↔game channel.
 - **Haptics works, but in one collapsed shape.** Rumble flows as an RGW1 event
   (`kind == 2` → `GameEventNative { pad, low, high, ms }`, TS helper `rumbleEvent`) to
   `SdlGameHost.onRumble`, which calls `gfx_rumble_pad(pad, strength, dur)` →
-  `SDL_GameControllerRumble`. **But the two motors are collapsed:** the operator uses a
-  single `strength` for both low- and high-frequency motors, and `onRumble` passes only
-  `e.low` — so the `high` value the event carries is **read and then dropped**. There
-  is no waveform/envelope, no priority or mixing (a second rumble just overwrites the
+  `SDL_GameControllerRumble`. **But the two motors are collapsed:** `onRumble` computes a
+  single `strength = max(e.low, e.high)` and drives **both** the low- and high-frequency
+  motors with it (`gfx_rumble_pad` takes one strength), so the two motors can never be
+  addressed independently — the distinct low/high envelope the event carries is flattened
+  to one scalar. There is no waveform/envelope, no priority or mixing (a second rumble
+  just overwrites the
   first via the last SDL call), no cancel/stop for a sustained effect, and no trigger
   haptics. `RG_WASM_HOST_CAP_RUMBLE` is defined but, like the rest of the handshake
   (§6), never negotiated.
@@ -986,9 +1001,10 @@ player↔game channel.
 
 **Ideal — haptic feedback.**
 
-4. **Address both motors (and stop collapsing them).** The transport already carries
-   `low`/`high`; the host must **honour both** — low-frequency (heavy) and
-   high-frequency (sharp) motors are distinct feelings — instead of dropping `high`.
+4. **Address both motors independently (and stop flattening them).** The transport
+   already carries `low`/`high`; the host must drive each motor with its own value —
+   low-frequency (heavy) and high-frequency (sharp) are distinct feelings — instead of
+   collapsing them to a single `max(low, high)` strength.
    The event addresses a *target* (pad index, or `-1` = all; optionally L/R/trigger).
 5. **A richer command than (strength, ms), with the simple case intact.** Beyond the
    base `{ target, low, high, ms }`, an optional **envelope** (attack / sustain /
@@ -1043,7 +1059,7 @@ from a file** is a mono-WAV voice override. Sound is the clearest example of the
   palette through the ABI (already flagged in §4); the built-in id set
   (`blip/brick/bounce/wall/lose/win/celebrate`) is likewise fixed in `game_audio.rgr`.
 - **Voice and music exist only on the TS path.** `playVoice` (`laugh/sigh/gasp/…` via
-  `game_vocal_fx.rgr`, see [`VOCAL_FX.md`](./scripting/VOCAL_FX.md)) and
+  `game_vocal_fx.rgr`, see [`VOCAL_FX.md`](./docs/VOCAL_FX.md)) and
   `playMusic`/`stopMusic` (soundscore text) have **no binary-ABI encoding** — a WASM or
   `.as` guest cannot emit a vocal or music event at all. A parity gap.
 - **Music is the soundscore system — procedural, not sampled.**
@@ -1132,7 +1148,7 @@ The engine already does this — but as a *TS-path-only convenience*, filesystem
 whole-file, with no presence in the binary ABI. Storage is the persistence counterpart
 to the input/audio parity gaps: capable on one path, absent on the others.
 
-**Current state.** (See [`GAME_SCREENS_AND_STORAGE.md`](./scripting/GAME_SCREENS_AND_STORAGE.md).)
+**Current state.** (See [`GAME_SCREENS_AND_STORAGE.md`](./docs/GAME_SCREENS_AND_STORAGE.md).)
 
 - **One mechanism, TS/EvalValue path only.** Three globals — `loadGameData()`,
   `saveGameData(obj)`, `resetGameData()` — declared in
@@ -1311,7 +1327,7 @@ push/pop stack — but, like storage (§2.11), it is a **TS-path-only** convenie
 tears down and re-initialises the whole game on every transition and can only pass data
 through a save file.
 
-**Current state.** (See [`GAME_SCREENS_AND_STORAGE.md`](./scripting/GAME_SCREENS_AND_STORAGE.md).)
+**Current state.** (See [`GAME_SCREENS_AND_STORAGE.md`](./docs/GAME_SCREENS_AND_STORAGE.md).)
 
 - **Three globals, TS/EvalValue path only.** `loadGame(path)` (replace),
   `pushGame(path)` (open over), and `popGame()` (return) — declared in
@@ -1404,8 +1420,9 @@ side is essentially **unwired**, so today a guest mostly runs blind.
      `rg_check_env()` lets the guest adapt (`0` = run, `!= 0` = abort reason). Keys are
      convention — `"physics"`, `"debugmode"`, `"screen.width"`, `"gpu"`, …
 - **No host actually negotiates.** No Ranger host calls `rg_abi_version`,
-  `rg_required_caps`, `rg_declare_queries`, or `rg_check_env`; the runners only
-  `verifyMagic()` and clamp counts (`wasm_physics_runner.rgr`, `sprite_wasm_runner.rgr`).
+  `rg_required_caps`, `rg_declare_queries`, or `rg_check_env`; the runners only verify the
+  block magic and clamp counts (`verifyMagic()` in `wasm_abi_io.rgr`, called from
+  `wasm_physics_runner.rgr`; the equivalent `magicOk()` in `wasm_sprite_runner.rgr`).
   The negotiation exists only as a *guest* that declares queries
   ([`wasm/as_autopeli`](./wasm/as_autopeli/README.md)) and a JS *simulation*
   (`as_autopeli/tools/capq_demo.cjs`). It is a dead gate (the top-level problem list).
@@ -1749,9 +1766,9 @@ the WASM path), a glow/pulse UI-effect overlay, and no post-processing filters a
 - **Special effects are glow and pulse only.** The `gfx_fx` GPU overlay
   (`rgfx_fx_push_glow` node halo, `rgfx_fx_push_screen` whole-screen wash) is driven by
   `UIAnimator` (§2.12) and exposed to WASM as `rg_ui_effect(kind, target, node, durMs,
-  rgba)` (`as_ui_effects`), where `kind` is only glow/pulse and `target` only node/screen,
-  with a `rg_ui_effect_done` callback. It is **GPU-only** — `rgfx_fx_draw_overlay`
-  no-ops on the software path.
+  delayMs, r, g, b, tag)` (`as_ui_effects`), where `kind` is only glow/pulse and `target`
+  only node/screen, with a `rg_ui_effect_done` callback. It is **GPU-only** —
+  `rgfx_fx_draw_overlay` no-ops on the software path.
 - **There are no filters.** No post-processing pipeline exists: no blur, bloom, colour
   grade, vignette, CRT/scanline, or distortion. The particle and fx fragment shaders are
   fixed (an additive soft blob and a feathered quad); nothing lets a game declare a filter,
@@ -1802,41 +1819,21 @@ backends and by every guest path, game-declared in vocabulary and host-owned in 
 ## 3. The ideal engine-core ↔ game seam: `GameSceneProvider`
 
 A generic runner must obtain *everything game-specific from an interface it is
-compiled against* — never from concrete game types, imports, or constants. This is
-the seam that turns `wasm_physics_runner.rgr` from "the autopeli game wearing a
-generic name" into a real host.
+compiled against* — never from concrete game types, imports, or constants. A
+`GameSceneProvider` interface groups that surface: **world** (`buildScene` bodies+bounds,
+`worldSize` — no `6000` in core, `playerCount` — no fixed `2`), **presentation**
+(`initAssets`, `buildStaticBg`, `spriteFor`, `drawHud`), the **ABI conventions this guest
+chose** (`contactBodyCode`/`bodyCodeToId`, `mapEvent` for sound/particle ids, §2.1), and
+**camera policy** (`cameraFor`). The full method list is in
+[`IDEAL_API.md`](./IDEAL_API.md) §7.
 
-```
-interface GameSceneProvider {
-    ; --- world (the guest is the preferred source; a provider is the fallback) ---
-    fn buildScene(phys:GamePhysics bodyIds:[string]) : void   ; bodies + bounds
-    fn worldSize() : (int, int)                                ; w, h  (no 6000 in core)
-    fn playerCount() : int                                     ; no fixed "2" in core
-
-    ; --- presentation ---
-    fn initAssets(render:GenericRender pw:int) : void          ; sprite templates
-    fn buildStaticBg(render:GenericRender) : void              ; background
-    fn spriteFor(id:string) : string                           ; entity id -> template
-    fn drawHud(target:SoftCanvas paneIdx:int abi:WasmAbiMem) : void  ; HUD, or emit RGU1
-
-    ; --- ABI conventions THIS guest chose (§2.1) ---
-    fn contactBodyCode(id:string) : int
-    fn bodyCodeToId(code:int) : string
-    fn mapEvent(kind:int sub:int) : GameEventNative            ; sound/particle ids
-
-    ; --- camera policy ---
-    fn cameraFor(paneIdx:int phys:GamePhysics) : int
-}
-```
-
-Rules the interface encodes:
-
-- The core holds `provider:GameSceneProvider`, **never** `setup:WasmAutopeliSetup`.
-- The core imports the interface, **never** `wasm_autopeli_setup.rgr`.
-- Adding a second physics game = writing a second provider. Zero core edits.
-
-The autopeli implementation is exactly today's setup/render/HUD logic *moved
-verbatim behind this interface*, relocated to `games/autopeli_wasm/scene/`.
+The rule the interface encodes: the core holds `provider:GameSceneProvider`, **never**
+`setup:WasmAutopeliSetup`, and imports the interface, **never** `wasm_autopeli_setup.rgr` —
+so adding a second physics game is writing a second provider, with zero core edits. The
+autopeli implementation is today's setup/render/HUD logic *moved verbatim behind this
+interface*, relocated to `games/autopeli_wasm/scene/`. (Confirmed still to do:
+`wasm_physics_runner.rgr` currently imports `wasm_autopeli_setup.rgr`/`wasm_autopeli_render.rgr`
+and holds a concrete `setup:WasmAutopeliSetup`.)
 
 ---
 
