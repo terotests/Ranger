@@ -1,10 +1,9 @@
 /// <reference path="./game.d.ts" />
 //
-// RANGER TEST FIXTURE — not a launcher game. The playable version lives in
-// gallery/game_engine/games/comedy_club/. This copy exists only to drive the
-// headless runner (vocal_fx_runner_demo.rgr). See scripting/AGENTS.md.
+// RANGER TEST FIXTURE — not a launcher game. This fixture exists only to drive
+// the headless runner (vocal_fx_runner_demo.rgr). See scripting/AGENTS.md.
 //
-// Vocal-fx demo — "Comedy Club".
+// Vocal-fx demo.
 //
 // A tiny stage where a performer triggers predefined VOCAL effects through the
 // engine's audio ABI. Each effect maps to a Voicebox paralinguistic tag

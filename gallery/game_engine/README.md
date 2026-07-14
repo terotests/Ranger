@@ -134,7 +134,6 @@ npm run engine:compile && npm run engine:run
 | Pac-Man | `pacman` | TSX | Split screen + autoscale |
 | Space Invaders | `invaders` | TSX | Stressitesti (paljon rect-spritejä) |
 | Pomppija | `ylos2` | TSX | Platformer, LPC-sheet-spritet, musiikki |
-| Comedy Club | `comedy_club` | TSX | Vokaaliefektit-demo (`playVoice`) |
 | Flipperitorni | `pinpall` | TSX + Cannon | Pystypinball, split screen |
 | Physics Sandbox | `physics_sandbox` | TSX + Cannon | Flipperit, pegs, sheet-animaatiot |
 | Autopeli Physics | `autopeli_physics` | TSX + host physics | Top-down racer, jaettu fysiikkamaailma |
@@ -267,7 +266,7 @@ Valikosta peli näkyy automaattisesti, kun `index.tsx` on paikallaan.
 | Ominaisuus | Miten |
 |------------|-------|
 | **Ääni** | `import { soundEvent } from "../../scripting/game_helpers"` → `events: [soundEvent("bounce")]` `update()`-palautuksessa; synth-äänet `game_audio.rgr`, musiikki `game_soundscore.rgr` |
-| **Vokaaliefektit** | Ennalta määritellyt vokaaliefektit (nauru, huokaus, haukotus…): `events: [{ kind: "playVoice", id: "laugh" }]` tai suora ABI-kutsu `laugh()` / `voice("sigh")`. Enginen oma syntetisaattori (`game_vocal_fx.rgr`), ei riippuvuutta Voiceboxiin — halutessa korvaa efektin Voiceboxilla renderöidyllä WAV-assetilla. Pelattava demo: `games/comedy_club/`. Katso [`docs/VOCAL_FX.md`](./docs/VOCAL_FX.md) (`npm run engine:vocalfx`) |
+| **Vokaaliefektit** | Ennalta määritellyt vokaaliefektit (nauru, huokaus, haukotus…): `events: [{ kind: "playVoice", id: "laugh" }]` tai suora ABI-kutsu `laugh()` / `voice("sigh")`. Enginen oma syntetisaattori (`game_vocal_fx.rgr`), ei riippuvuutta Voiceboxiin — halutessa korvaa efektin Voiceboxilla renderöidyllä WAV-assetilla. Demo: `scripting/vocal_fx_demo.game.tsx`. Katso [`docs/VOCAL_FX.md`](./docs/VOCAL_FX.md) (`npm run engine:vocalfx`) |
 | **Partikkelit** | `events: [{ kind: "particles", id: "sparkle", x, y }]` — CPU- tai GPU-overlay |
 | **Taustakuva** | `resources()` + `backgroundImage()` — katso [`scripting/background_demo.game.tsx`](./scripting/background_demo.game.tsx) |
 | **Tallennus** | `loadGameData()` / `saveGameData(obj)` → `gamedata.json` pelikansiossa |

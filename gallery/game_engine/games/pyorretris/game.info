@@ -3,4 +3,4 @@ engine=as
 render=sprites
 module=game.as
 
-category=Tests
+category=Games

@@ -2,8 +2,8 @@
 ; vocal_fx_runner_demo - drives vocal_fx_demo.game.tsx and captures a WAV.
 ; ==============================================================================
 ;
-; RANGER TEST HARNESS — not a launcher game. The playable game is
-; gallery/game_engine/games/comedy_club/. See scripting/AGENTS.md.
+; RANGER TEST HARNESS — not a launcher game. It drives the vocal-fx demo
+; fixture vocal_fx_demo.game.tsx. See scripting/AGENTS.md.
 ;
 ; Exercises the predefined vocal effects (laugh / sigh / gasp / cough / ...)
 ; both ways they reach the engine ABI:

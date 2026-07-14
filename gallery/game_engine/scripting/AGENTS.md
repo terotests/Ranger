@@ -29,7 +29,7 @@ in the menu and clutter the engine/test directory.
 
 To add a real, launchable game, create a folder under
 `gallery/game_engine/games/<name>/` with a `game.info` and a `.tsx` / `.as` /
-WASM module. See `games/comedy_club/` (a `.tsx` game) or `games/physics_sandbox/`
+WASM module. See `games/pinpall/` (a `.tsx` game) or `games/physics_sandbox/`
 for a template.
 
 A loose `*.game.tsx` here is only appropriate as a **test fixture** for a

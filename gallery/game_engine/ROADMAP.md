@@ -93,7 +93,6 @@ backend. Kaikki muu on portable.
 | Pac-Man | `pacman` | TSX | Split screen + autoscale |
 | Invaders | `invaders` | TSX | Stressitesti (~487 entityä, rect-moodi) |
 | Pomppija | `ylos2` | TSX | Platformer, LPC-sheet, soundscore-musiikki |
-| Comedy Club | `comedy_club` | TSX | Vokaaliefektit (`playVoice`) |
 | Flipperitorni | `pinpall` | TSX + Cannon | Pystypinball, split screen |
 | Physics Sandbox | `physics_sandbox` | TSX + Cannon | Flipperit, pegs, sheet-animaatiot |
 | Autopeli Physics | `autopeli_physics` | TSX + host physics | Top-down racer, jaettu maailma |
