@@ -162,7 +162,6 @@ function categoryScreen(s) {
   const cats = categories();
   return (
     <View flexDirection="column" alignItems="center" padding="24px">
-      <Label color="#ecf0fa" fontSize="34px">GAMES</Label>
       {/* explicit width so the row shrink-wraps its tiles and the column can
           centre it — an auto-width flex child stretches full-width in EVGLayout,
           which would push the tiles to the left and defeat the fit-to-window
@@ -186,15 +185,20 @@ function gamesScreen(s) {
   const cats = categories();
   const list = gamesIn(cats[s.cat]);
   return (
-    <View flexDirection="column" alignItems="center" padding="18px">
-      <View flexDirection="column" alignItems="center" padding="16px" width="340px"
+    <View flexDirection="column" alignItems="center" padding="18px" width="100%">
+      <View flexDirection="row" alignItems="center" padding="16px" width="1200px"
             borderRadius="16px" backgroundColor="#1e2234">
-        <Label color="#ecf0fa" fontSize="24px">{cats[s.cat]}</Label>
         {list.map((e, i) => (
-          <View width="280px" padding="12px" margin="6px" borderRadius="10px"
+          <View width="200px" padding="12px" margin="6px" borderRadius="10px"
+                height="150px"
+                alignItems="center"
                 borderWidth="2px" borderColor={borderColor(i === s.sel)}
-                backgroundColor="#3c5aa0" glow={glowFor(s, i === s.sel)}>
-            <Label color="#ecf0fa" fontSize="18px" textAlign="center">{e.title}</Label>
+                backgroundColor="#3c5aa0" >
+            {
+              e.title.split(" ").map((word, index) => (
+                <Label inline color="#ecf0fa" fontSize="22px" textAlign="center">{word}</Label>
+              ))
+            }
           </View>
         ))}
       </View>
