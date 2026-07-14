@@ -73,7 +73,8 @@ without re-widening the leaks above.
 |-------------------------|--------------|------------|------------|
 | Declare its own **world** (bodies, bounds, world size, player count, camera hints, static-bg) | Partial | The guest declares *resources* (sheets/rects) through the manifest, but **not** bodies/bounds/world-size/player-count; those come from the host's own copy. No `worldSize()`/`playerCount()` channel. | §3, §5 |
 | Know the **viewport / screen size** in a physics guest | Missing | RGSP1 has `VIEW_W`/`VIEW_H`, but RGW1 has no view fields, so a physics guest cannot size or letterbox itself. | §2.1 (RGCQ `screen.*`) |
-| **Richer input** (analog sticks, pointer/touch, text, per-player remap) | Minimal | Only two i32 bitfields (`input`, `input_p2`); no analog axes, no pointer, no text entry. | §2.1 |
+| **Richer input** (analog sticks, pointer/touch, text, per-player remap) | Minimal | Only two i32 bitfields (`input`, `input_p2`); no analog axes, no pointer, no text entry. The host tracks 8 players × 12 buttons but the ABI carries 2 players × ~5 bits. | §2.1, §2.9 |
+| **Haptic feedback** (rumble) | Partial | Rumble flows as an RGW1 event `{ pad, low, high, ms }`, but the two motors are collapsed at `gfx_rumble_pad` (single strength) and `high` is dropped; no envelope/pattern, priority/mixing, cancel, or trigger haptics, and `HOST_CAP_RUMBLE` is never negotiated. | §2.9, §6 |
 | **Pose / body-tracking input** | Ad-hoc | Exists as a 128-byte `RGP1` block in two incompatible layouts across hosts; no shared header, only position + a discrete gesture (no motion/speed). | §2.4, §6 |
 | **Game-defined sound palette** | Rigid | A fixed enum (`RG_WASM_SOUND_WALL/BOUNCE/WIN`) in the header; the `.as` path bolts on an integer `playSound` queue instead. No way to register a per-game palette through the ABI. | §4 |
 | **Generic guest scalar slots** | Missing | Only `air_p1/air_p2` are hard-coded; there is no documented generic "guest scalar" the host transports opaquely. | §2.1 |
@@ -867,6 +868,105 @@ animation rows, the character roster, and even the sheet's pixels (composed on d
 are all guest-declared data — so a new character, a new animation, or a new art style
 is additive, and the same sprite draws identically across WASM, `.as`, GPU, and
 software (§2.1, §2.5, §2.7, §4, §7).
+
+### 2.9 Game controls and haptic feedback
+
+Input is what turns a simulation into a game, and haptics is the return path that
+makes it feel physical. Both exist today, but both are *narrower over the ABI than the
+host itself supports* — the recurring parity gap, applied to the two directions of the
+player↔game channel.
+
+**Current state.**
+
+- **Controls are digital-only, and the host is richer than the ABI.** The host input
+  model ([`game_input.rgr`](./scripting/game_input.rgr)) is a 12-bit digital snapshot
+  — `InputMask` `UP/DOWN/ACTION/QUIT/LEFT/RIGHT/B/X/Y/START/SELECT`, mapped onto up to
+  **8 players** with a real device-assignment policy (`buildFromSdl`: solo-active-pad
+  switching, join/P2 detect, per-pane split). But **no analog axes, no triggers, no
+  pointer/mouse, no text** exist anywhere (confirmed by [`ui/UI_LAYER.md`](./ui/UI_LAYER.md):
+  *"digital-button + gamepad only — there is no mouse / pointer capture and no
+  character-text channel"*).
+- **The ABI carries a fraction of that.** RGW1 exposes only `input` + `input_p2` (five
+  bits: `RG_WASM_IN_UP/DOWN/LEFT/RIGHT/ACTION`); RGSP1 adds `IN_BACK`. So a WASM/`.as`
+  guest sees **2 players × ~5 digital bits**, even though the host tracks 8 players and
+  12 buttons — and gets no analog value at all.
+- **The mapping policy is hard-coded, not remappable data.** Which device drives which
+  player, and which physical button means "action," is fixed in `game_input.rgr`; a
+  game (or a player in a settings screen) cannot rebind, and there is no capability
+  query for "I need two analog sticks."
+- **Haptics works, but in one collapsed shape.** Rumble flows as an RGW1 event
+  (`kind == 2` → `GameEventNative { pad, low, high, ms }`, TS helper `rumbleEvent`) to
+  `SdlGameHost.onRumble`, which calls `gfx_rumble_pad(pad, strength, dur)` →
+  `SDL_GameControllerRumble`. **But the two motors are collapsed:** the operator uses a
+  single `strength` for both low- and high-frequency motors, and `onRumble` passes only
+  `e.low` — so the `high` value the event carries is **read and then dropped**. There
+  is no waveform/envelope, no priority or mixing (a second rumble just overwrites the
+  first via the last SDL call), no cancel/stop for a sustained effect, and no trigger
+  haptics. `RG_WASM_HOST_CAP_RUMBLE` is defined but, like the rest of the handshake
+  (§6), never negotiated.
+
+**Ideal — controls.**
+
+1. **One typed input record, host and ABI at parity.** The per-player snapshot carries
+   digital buttons *and* analog axes *and* pointer/touch *and* text — and the ABI
+   transports the same, for the same player count the host supports (not 2×5 bits):
+
+```c
+/* Per-player input record (host -> guest), transported for N players. */
+#define RG_IN_OFF_BUTTONS   0   /* u32 digital bitfield (D-pad, face, start/select) */
+#define RG_IN_OFF_LSTICK_X  4   /* i32 left stick x,  -FP..+FP (normalized * FP)    */
+#define RG_IN_OFF_LSTICK_Y  8   /* i32 left stick y                                 */
+#define RG_IN_OFF_RSTICK_X  12  /* i32 right stick x                                */
+#define RG_IN_OFF_RSTICK_Y  16  /* i32 right stick y                                */
+#define RG_IN_OFF_TRIG_L    20  /* i32 left trigger,  0..FP                         */
+#define RG_IN_OFF_TRIG_R    24  /* i32 right trigger, 0..FP                         */
+#define RG_IN_OFF_POINTER_X 28  /* i32 pointer/touch x in view px (-1 = none)       */
+#define RG_IN_OFF_POINTER_Y 32  /* i32 pointer/touch y                              */
+#define RG_IN_OFF_FLAGS     36  /* u32 pointerDown, connected, ...                  */
+```
+
+   The digital `Buttons`/`PlayerButtons` model stays the simple default; analog/pointer
+   are additive fields a guest reads only if it needs them.
+2. **Actions are semantic; bindings are data.** A game declares *actions* ("jump",
+   "steer", "accelerate") and the host maps physical inputs→actions through a
+   **remappable table** (the guest, or a settings UI, supplies it), replacing the
+   fixed device policy in `game_input.rgr`. A racing guest reads `steer` as an axis; a
+   platformer reads `jump` as a button — the host owns device assignment, the game owns
+   meaning (the §2.1/§2.2 "transport not taxonomy" rule, applied to input).
+3. **Capability query + hotplug.** A guest declares what it needs (button count,
+   analog sticks, pointer) via RGCQ / `rg_check_env` (§6); the host answers what's
+   present and the guest **adapts** (synthesize a stick from the D-pad, a pointer from
+   a cursor) or aborts cleanly — and device connect/disconnect is surfaced so "press
+   START on player 2's pad to join" works without a fixed slot table.
+
+**Ideal — haptic feedback.**
+
+4. **Address both motors (and stop collapsing them).** The transport already carries
+   `low`/`high`; the host must **honour both** — low-frequency (heavy) and
+   high-frequency (sharp) motors are distinct feelings — instead of dropping `high`.
+   The event addresses a *target* (pad index, or `-1` = all; optionally L/R/trigger).
+5. **A richer command than (strength, ms), with the simple case intact.** Beyond the
+   base `{ target, low, high, ms }`, an optional **envelope** (attack / sustain /
+   release) or a small named **pattern** (`bump`, `hit`, `engine`, `click`) with an
+   intensity lets "a soft tap" and "a long engine rumble" be different effects — the
+   haptic analogue of §4's registered sound palette, so pattern *names* are a per-game
+   vocabulary the host maps, not a frozen enum.
+6. **Priority, mixing, and cancel.** Overlapping effects **mix or arbitrate by
+   priority** rather than last-write-wins clobber, and a sustained effect (engine
+   rumble while accelerating) can be **updated and stopped** by handle — not just fired
+   and forgotten. This is the §2.6 handle discipline applied to a time-extended output.
+7. **Capability-gated with graceful fallback.** The host advertises rumble (and finer
+   trigger/waveform caps) via `RG_WASM_HOST_CAP_RUMBLE` (§6); a guest queries and
+   degrades — a device with no motors simply ignores haptics, and a host *may*
+   substitute (a brief screen shake) as policy. Like pose and audio, haptics is
+   **output-only and must never feed back into logic/RNG or step order**, so
+   determinism holds whether or not a device buzzes.
+
+The result: controls become *"read the actions I declared, from whatever device the
+host bound,"* and haptics becomes *"play a named/enveloped effect on a target, mix it,
+and stop it when done"* — both carried at full fidelity over the ABI on every guest
+path, both capability-negotiated, and both game-defined in meaning while the host owns
+the devices (§2.1, §4, §6, §7).
 
 ---
 
