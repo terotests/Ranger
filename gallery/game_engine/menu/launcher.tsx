@@ -144,39 +144,65 @@ function update(props) {
   return { screen, sel, cat, launchPath, quitApp: 0, now, anim: null, onDone: null };
 }
 
-// gold when selected, muted blue otherwise (reads on a static screenshot even
-// before the animated glow lands).
-function borderColor(on) {
-  return on ? "#ffe878" : "#7896d2";
-}
+// ---------------------------------------------------------------------------
+// Palette + tile styling. The EVG renderer (WasmUiRenderer) paints, per box, a
+// 2-stop linear gradient (gradientFrom/gradientTo/gradientDir: 0 = top->bottom),
+// a glow halo, a rounded border and clipped background art. We lean on the
+// vertical gradient for a soft "lit from above" depth, and reserve a warm gold
+// fill for the selected tile so the cursor reads instantly — even on a static
+// screenshot, before the animated glow lands.
+// ---------------------------------------------------------------------------
+const INK = "#e9edfb";      // primary label text on dark/blue tiles
+const INK_DIM = "#93a0cc";  // secondary hint text
+const GOLD = "#ffe27a";     // accent (selected)
+const NAVY_TXT = "#1b2140"; // dark text that reads on the gold selected tile
+
+// A selected tile flips to a warm gold gradient; otherwise a cool blue-slate.
+function tileFrom(on) { return on ? "#ffe58a" : "#46579c"; }
+function tileTo(on) { return on ? "#eca93a" : "#293357"; }
+function tileBorder(on) { return on ? "#fff2b8" : "#5b6ea8"; }
+function tileText(on) { return on ? NAVY_TXT : INK; }
+
+// Category art tiles keep their background image; the gradient is only a
+// fallback (missing art) so we tint it toward the selection state too.
+function artFrom(on) { return on ? "#3c4a86" : "#2b3457"; }
+function artTo(on) { return on ? "#242c4c" : "#1c2440"; }
 
 // Glow for a tile: the bright animated flash while it plays, otherwise a steady
 // soft halo on the current selection.
 function glowFor(s, on) {
   if (on && s.anim) return flashLevel(s.anim, s.now);
-  if (on) return 0.55;
+  if (on) return 0.5;
   return 0;
 }
 
 function categoryScreen(s) {
   const cats = categories();
   return (
-    <View flexDirection="column" alignItems="center" padding="24px">
+    <View flexDirection="column" alignItems="center" padding="28px" width="100%">
+      <Label color={INK} fontSize="34px">Ranger</Label>
+      <Label color={INK_DIM} fontSize="15px" margin="4px">valitse kategoria</Label>
       {/* explicit width so the row shrink-wraps its tiles and the column can
           centre it — an auto-width flex child stretches full-width in EVGLayout,
           which would push the tiles to the left and defeat the fit-to-window
           scale. Each tile is 200px wide + 12px margin each side = 224px. */}
-      <View flexDirection="row" alignItems="center" width={(cats.length * 224) + "px"}>
-        {cats.map((c, i) => (
-          <View flexDirection="column" alignItems="center" width="200px" margin="12px">
-            <View width="176px" height="176px" borderRadius="16px"
-                  borderWidth="3px" borderColor={borderColor(i === s.sel)}
-                  backgroundColor="#242a40" backgroundImage={artFor(c)}
-                  glow={glowFor(s, i === s.sel)} />
-            <Label color="#ecf0fa" fontSize="20px" margin="6px">{c}</Label>
-          </View>
-        ))}
+      <View flexDirection="row" alignItems="center" margin="18px"
+            width={(cats.length * 224) + "px"}>
+        {cats.map((c, i) => {
+          const on = i === s.sel;
+          return (
+            <View flexDirection="column" alignItems="center" width="200px" margin="12px">
+              <View width="176px" height="176px" borderRadius="20px"
+                    borderWidth="3px" borderColor={tileBorder(on)}
+                    gradientFrom={artFrom(on)} gradientTo={artTo(on)} gradientDir="0"
+                    backgroundImage={artFor(c)}
+                    glow={glowFor(s, on)} />
+              <Label color={on ? GOLD : INK} fontSize="20px" margin="10px">{c}</Label>
+            </View>
+          );
+        })}
       </View>
+      <Label color={INK_DIM} fontSize="14px" margin="6px">A avaa   ·   nuolet liikkuvat</Label>
     </View>
   );
 }
@@ -185,24 +211,32 @@ function gamesScreen(s) {
   const cats = categories();
   const list = gamesIn(cats[s.cat]);
   return (
-    <View flexDirection="column" alignItems="center" padding="18px" width="100%">
-      <View flexDirection="row" alignItems="center" padding="16px" width="1200px"
-            borderRadius="16px" backgroundColor="#1e2234">
-        {list.map((e, i) => (
-          <View width="200px" padding="12px" margin="6px" borderRadius="10px"
-                height="150px"
-                alignItems="center"
-                borderWidth="2px" borderColor={borderColor(i === s.sel)}
-                glow={glowFor(s, i === s.sel)}
-                backgroundColor="#3c5aa0" >
-            {
-              e.title.split(" ").map((word, index) => (
-                <Label inline color="#ecf0fa" fontSize="22px" textAlign="center">{word}</Label>
-              ))
-            }
-          </View>
-        ))}
+    <View flexDirection="column" alignItems="center" padding="22px" width="100%">
+      <Label color={INK} fontSize="26px" margin="6px">{cats[s.cat]}</Label>
+      {/* panel behind the wrapping tile grid: a subtle vertical gradient + a
+          hairline border reads as a framed shelf rather than a flat block. */}
+      <View flexDirection="row" alignItems="center" padding="22px" margin="8px"
+            width="1216px" borderRadius="24px"
+            borderWidth="1px" borderColor="#2c3352"
+            gradientFrom="#242b48" gradientTo="#151829" gradientDir="0">
+        {list.map((e, i) => {
+          const on = i === s.sel;
+          return (
+            <View width="204px" height="150px" padding="12px" margin="8px"
+                  borderRadius="16px" alignItems="center"
+                  borderWidth="2px" borderColor={tileBorder(on)}
+                  gradientFrom={tileFrom(on)} gradientTo={tileTo(on)} gradientDir="0"
+                  glow={glowFor(s, on)}>
+              {
+                e.title.split(" ").map((word, index) => (
+                  <Label inline color={tileText(on)} fontSize="22px" textAlign="center">{word}</Label>
+                ))
+              }
+            </View>
+          );
+        })}
       </View>
+      <Label color={INK_DIM} fontSize="14px" margin="6px">A pelaa   ·   vasen takaisin</Label>
     </View>
   );
 }
