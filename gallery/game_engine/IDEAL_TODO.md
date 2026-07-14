@@ -31,11 +31,28 @@ wrong side of the engine-core ↔ game boundary, or opens a seam that was welded
 | 5 richer input · CI leak guard · conformance fixtures | ⬜ not started |
 | R runtime correctness (fixed-step, input, transactional load) | ⬜ not started — from an external review, all 8 findings re-verified against source |
 
-**Verification approach.** Every landed component ships a headless self-test
-(`scripting/*_demo.rgr`) that compiles through the Ranger compiler and runs on
-node — no SDL/WASM build needed. Current suite: **6 self-tests, 71 assertions, 0
+**Verification strategy (three tiers, no SDL/WASM build needed).** This approach
+emerged during the work and proved repeatable — new items should follow it:
+
+1. **Pure self-test** — extract the logic into a pure function/class and ship a
+   `scripting/<name>_demo.rgr` that compiles through the Ranger compiler, runs on
+   node, and prints `RESULT: N passed, 0 failed`. The tested code IS the shipped
+   code (e.g. `FixedStep.plan`, `RunnerModeClassifier`, `GameScriptContract`), so
+   the test isn't a parallel reimplementation.
+2. **Native-target compile** — compile the touched core file with `-l=cpp`
+   (Ranger→C++), which catches type/interface breakage the es6 path misses and
+   proves the change builds for the SDL/Pi target.
+3. **Real-game integration** — where a change touches the shared runtime, drive a
+   real game headlessly (`breakout_runner_demo.rgr` runs `breakout.game.tsx`
+   through the full `GameRunner`) and assert no regression / no false-positive.
+
+The ceiling is the SDL binary link (needs SDL2 headers, absent here); anything
+that can only be observed by running the SDL window is marked as a follow-up
+rather than done blind. Current suite: **10 self-tests, 120 assertions, 0
 failing** (`wasm_cap_gate` 6, `wasm_block_validator` 13, `game_provider` 12,
-`game_env_resolver` 11, `game_scene_provider` 15, `game_sound_palette` 14).
+`game_env_resolver` 11, `game_scene_provider` 15, `game_sound_palette` 14,
+`game_fixed_step` 16, `game_split_world` 6, `game_script_contract` 12,
+`game_runner_mode` 15), plus the breakout real-game integration run.
 
 **Regression check (WASM autopeli, the highest-risk path).** The cap gate was
 wired into `wasm_physics_runner` — the autopeli runner. Confirmed safe:
@@ -320,14 +337,22 @@ regression test (Phase 5.x / roadmap delta-time + gamepad gaps).
   retained-sprite spawn — a side-effecting/non-deterministic `entities()` can no
   longer diverge between the two uses.
   *Check:* `game_runtime.rgr` compiles Ranger→C++.
-- [ ] **R.6 (Medium) Runner boolean-flag soup permits illegal states.**
-  `game_sdl_runner.rgr` routes TSX / WASM / `.as` / UI / sprite / stream /
-  split-screen through many independent booleans (`useWasmRunner`,
-  `useWasmPhysics`, `splitScreenActive`, `wasmSplitActive`, …), so contradictory
-  combinations are representable. Fix: one explicit `RunnerMode` enum + a common
-  backend interface (`load`/`update`/`draw`/`resize`/`unload`); split
-  `game_sdl_runner` into per-backend adapters. (Complements the §7 provider work.)
-  *Check:* mode is a single value; a second backend is an adapter, not new flags.
+- [~] **R.6 (Medium) Runner boolean-flag soup permits illegal states.** First step
+  landed: `scripting/game_runner_mode.rgr` — a `RunnerMode` enum (menu / tsx /
+  tsx-split / wasm / wasm-physics / wasm-split / sprite / stream) + a **pure
+  `RunnerModeClassifier`** that collapses the flags into one canonical mode AND
+  rejects illegal combinations with a reason (two backends at once; physics
+  without wasm; wasm-split without wasm or without split-active — including the
+  review's exact example). `game_sdl_runner.loadGame` now runs
+  `checkModeConsistency()` after each dispatch, logging any illegal state the
+  instant it is set (output-only, no behaviour change).
+  *Check:* `game_runner_mode_demo.rgr` self-test — 15/15 (every canonical mode +
+  four illegal combinations rejected + the namer); `game_sdl_runner.rgr` compiles
+  Ranger→C→C++.
+  *Remaining (the larger refactor):* make the mode the single source of truth —
+  replace the independent flags with it, and split `game_sdl_runner` into a common
+  backend interface (`load`/`update`/`draw`/`resize`/`unload`) with one adapter per
+  mode (complements the §7 provider work). Needs the SDL build to verify at runtime.
 - [~] **R.7 Split-screen semantics — clarified with the maintainer; a second axis
   added.** The review read `auto == always` as a bug. Per the maintainer it is
   **not**: `"auto"` means the *engine* splits a single-player-authored game into
@@ -356,12 +381,20 @@ regression test (Phase 5.x / roadmap delta-time + gamepad gaps).
   (Note: `game.info` for these fields is already a clean `key=value` parser
   (`parseInfoLine`), so 7b's "fragile `indexOf`" concern does not apply to them; the
   raw-text `indexOf "engine=…"` fallback is the only substring path left.)
-- [ ] **R.8 (Medium) Script return values assigned without contract checks.**
-  `game_runtime.rgr` — `update`'s return goes straight into `state`; a null/wrong
-  type surfaces far from the cause. Fix: validate `update` / `initState` /
-  `entities` / layout / render-command returns at the boundary with a typed error
-  (`game / function / expected / received`).
-  *Check:* a script returning null from `update` fails with a located error.
+- [x] **R.8 (Medium) Script return values assigned without contract checks.**
+  Fixed: new `scripting/game_script_contract.rgr` (`GameScriptContract`) validates a
+  script return at the boundary and builds a **located** error
+  (`game / function / expected / received`). `game_runtime` now validates
+  `initState`'s and `update`'s returns — on an invalid `update` the previous state
+  is **kept** (a broken frame no longer corrupts the runtime); on invalid
+  `initState` the error is surfaced immediately. Both are guarded by
+  `scriptHasFunction`, so a game that omits the function is never falsely flagged.
+  *Check:* `game_script_contract_demo.rgr` self-test — 12/12 (valid object passes,
+  null/number rejected with a located error, array checks, `typeName`);
+  `game_runtime.rgr` + `game_sdl_runner.rgr` compile Ranger→C++; and the **real
+  breakout TSX game runs 300 frames through the full runtime with no false-positive
+  contract error** (score/entities/screen progress normally).
+  *Remaining (optional):* extend to `entities` / layout / render-command returns.
 
 ---
 

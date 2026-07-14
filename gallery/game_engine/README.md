@@ -173,7 +173,8 @@ Katalogi päivittyy ajon aikana (oletus ~10 s välein); uusi `games/mygame/index
 ```ini
 name=My Game
 icon=icon.png
-splitScreen=auto          # auto | always | never
+splitScreen=auto          # auto | always | never (jaetaanko ruutu)
+splitWorld=shared         # shared | separate (jaetun maailman malli, ks. alla)
 autoscale=true            # host skaalaa 480×270 → paneeliin
 soloScript=index.tsx      # split-tilan yksinpeliskripti
 engine=wasm               # tsx (oletus) | wasm | as | ui | streaming
@@ -278,15 +279,32 @@ Valikosta peli näkyy automaattisesti, kun `index.tsx` on paikallaan.
 | **Cannon-fysiikka** | `config().physics.cannon`, entity `physics: { radius, mass, … }` — katso pinpall / physics_sandbox |
 | **Sheet-spritet** | `kind: "sheet"` + PNG-polku; GPU-overlay latausajassa (`game_sprite.rgr`) |
 
-### Split screen (kaksi itsenäistä pelitilaa)
+### Split screen
 
-Kun `game.info`:ssa on `splitScreen=auto` tai `always`, SDL-host käynnistää **split screen -tilan**: vasen ja oikea puoli (240×270) ajavat erillistä yksinpelitilaa omalla ohjaimellaan.
+Kun `game.info`:ssa on `splitScreen=auto` tai `always`, **engine** jakaa ruudun kahtia — peli on kirjoitettu yhden pelaajan näkökulmasta, eikä sen tarvitse tehdä mitään. Vasen ja oikea puoli (240×270) saavat oman ohjaimensa ja kameransa.
+
+Jako on kaksi erillistä akselia:
+
+**1. Jaetaanko ruutu** (`splitScreen`):
 
 | `game.info` | Merkitys |
 |-------------|----------|
-| `splitScreen=auto` | Split oletuksena |
-| `splitScreen=always` | Aina split |
+| `splitScreen=auto` | Engine jakaa yksinpelin kahteen ruutuun (oletusarvoinen split) |
+| `splitScreen=always` | Sama kuin `auto` (alias) |
 | `splitScreen=never` | Ei koskaan split (tai rivi puuttuu) |
+
+**2. Jaetun maailman malli** (`splitWorld`) — mitä ruutujen takana on:
+
+| `game.info` | Merkitys |
+|-------------|----------|
+| `splitWorld=separate` | Kaksi **itsenäistä pelisessiota**, yksi per ruutu (esim. flipperi: kaksi eri lautaa). TSX-pelien oletus. |
+| `splitWorld=shared` | **Yksi jaettu maailma/fysiikka**, kaksi kameraa eri pelaajille (esim. autopeli: yksi rata, kaksi näkymää). WASM+fysiikka-pelien oletus. |
+| *(puuttuu)* | Host päättelee backendistä: `shared` wasm+physics-peleille, muuten `separate`. Nykykäytös säilyy; eksplisiittinen arvo irrottaa valinnan backendistä. |
+
+Muut kentät:
+
+| `game.info` | Merkitys |
+|-------------|----------|
 | `autoscale=true` | Host renderöi 480×270-bitmappiin ja skaalaa paneeliin (oletus) |
 | `autoscale=false` | Paneeli = 240×270; peli skaalaa itse (`bgWidth`) |
 | `soloScript=index.tsx` | Valinnainen eri skripti split-ruuduille |
@@ -513,6 +531,35 @@ Kummassakaan tapauksessa **guest-koodia ei tarvitse muuttaa** — uusi hahmo on 
 | [`tests/game-scripting.test.ts`](../../tests/game-scripting.test.ts) | ComponentEngine-skriptaus |
 | [`tests/physics-cannon.test.ts`](../../tests/physics-cannon.test.ts) | Cannon.js -portti |
 
+### Headless self-testit (`scripting/*_demo.rgr`)
+
+IDEAL-työn ja Phase R -korjausten komponentit kääntyvät Ranger-kääntäjällä ja
+ajetaan nodella — **ilman SDL/WASM-buildia**. Kukin ajaa self-testin ja tulostaa
+`RESULT: N passed, 0 failed`. Aja yksi:
+
+```bash
+RANGER_LIB=compiler/Lang.rgr:lib/stdops.rgr node bin/output.js -es6 \
+  gallery/game_engine/scripting/<nimi>_demo.rgr \
+  -d=gallery/game_engine/scripting -o=<nimi>_demo.js -nodecli \
+  && node gallery/game_engine/scripting/<nimi>_demo.js
+```
+
+| Demo | Kattaa |
+|------|--------|
+| `wasm_cap_gate_demo` | Capability gate (§6): ver/caps-hylkäys |
+| `wasm_block_validator_demo` | Blokki-validointi (magic/version/size/clamp) |
+| `game_provider_demo` | Provider-rekisteri: advertised caps = OR(capBit) |
+| `game_env_resolver_demo` | RGCQ-ympäristövastaukset (§1.2) |
+| `game_scene_provider_demo` | Scene-provider-seam: toinen peli samalla rajapinnalla |
+| `game_sound_palette_demo` | Äänipaletti-rekisteri (§4) |
+| `game_fixed_step_demo` | Fixed-step-plannerin invariantit (R.1) |
+| `game_split_world_demo` | `splitWorld` shared/separate -resolvointi (R.7) |
+| `game_script_contract_demo` | Skriptien paluuarvojen validointi (R.8) |
+| `game_runner_mode_demo` | RunnerMode-luokittelu + laittomat tilat (R.6) |
+
+Integraatiotesti oikealla pelillä: `breakout_runner_demo.rgr` ajaa
+`breakout.game.tsx`:n koko runtimen läpi (fixed-step, entities, contract) nodella.
+
 ## Dokumentaatio ja tiedostot
 
 | Tiedosto | Sisältö |
@@ -520,6 +567,8 @@ Kummassakaan tapauksessa **guest-koodia ei tarvitse muuttaa** — uusi hahmo on 
 | [`ROADMAP.md`](./ROADMAP.md) | Nykytila, puutteet, prioriteetit |
 | [`IDEAL.md`](./IDEAL.md) | Tavoiteltu ABI/rajapintasuunnittelu — miksi kukin rajapinta on kuten on, nykytila vs. ideaali |
 | [`IDEAL_API.md`](./IDEAL_API.md) | Koko ABI yhtenä referenssinä: blokki-layoutit, host-importit, eventit, capability-bitit |
+| [`IDEAL_TODO.md`](./IDEAL_TODO.md) | Vaiheistettu toteutuspolku IDEAL→koodi: mikä on tehty, mikä kesken, verifiointitapa, Phase R runtime-korjaukset |
+| [`wasm/README.md`](./wasm/README.md) | ABI-blokki-indeksi (RGW1/RGSP1/RGU1/RGP1/RGIN): magic/versio/koko/suunta |
 | [`PLAN_GAME_ENGINE.md`](./PLAN_GAME_ENGINE.md) | Arkkitehtuuri, HDMI, gamepad-suunnitelma |
 | [`RENDERING_EVG.md`](./RENDERING_EVG.md) | EVG/vektori-renderöinnin integraatio (tuleva) |
 | [`docs/GAME_SCRIPTING.md`](./docs/GAME_SCRIPTING.md) | TSX-skriptaus, GameRunner, importit |

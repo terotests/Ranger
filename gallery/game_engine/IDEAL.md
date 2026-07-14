@@ -184,6 +184,37 @@ autopeli*." So the north star for every interface below is a single invariant:
 
 §7 turns this invariant into a grep + a regression fixture.
 
+### 0.1 The second pillar: parity is necessary, not sufficient
+
+This document is about **one** axis — the engine-core ↔ game *boundary* (does the
+core stay game-neutral). Landing the ABI-parity work above does not, on its own,
+make the engine correct: a perfectly game-neutral core can still tear its own
+runtime state. A source review during the [`IDEAL_TODO.md`](./IDEAL_TODO.md) work
+surfaced — and that work then fixed and regression-tested — a whole class of bugs
+this document's boundary invariant never sees:
+
+- a fixed-timestep loop that ran one step too many and left the accumulator
+  negative (a *determinism* bug — the same input produced different steps),
+- a backend switch (`.as` load) that flipped mode flags **before** the load could
+  fail, leaving a half-switched dead state (a *lifecycle atomicity* bug),
+- script return values assigned into runtime state with no boundary validation (a
+  *contract* bug — failures surfaced far from their cause),
+- a boolean-flag "mode soup" in the SDL runner that made contradictory states
+  representable (an *illegal-state* bug).
+
+So the engine has **two** pillars, and both must hold:
+
+1. **Boundary parity** (this document) — the core knows no game; a second game
+   reuses it unchanged.
+2. **Runtime correctness** — deterministic timestep, atomic/transactional backend
+   lifecycle, validated boundaries (script returns, block magic/size/counts), and
+   a single canonical runner mode instead of independent flags.
+
+Pillar 2 is tracked as **Phase R** in [`IDEAL_TODO.md`](./IDEAL_TODO.md). The two
+reinforce each other — e.g. the §6 capability gate and §2.3 block validation are
+*both* parity seams **and** runtime-correctness guards — but neither subsumes the
+other, and "the ABI is clean" must never be mistaken for "the engine is correct."
+
 ---
 
 ## 1. The three layers (the boundary every file is on exactly one side of)
