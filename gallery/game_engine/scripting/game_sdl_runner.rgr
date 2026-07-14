@@ -647,6 +647,16 @@ class GameSdlRunner {
         splitAutoscale = (this.resolveSplitAutoscale(entry))
     }
 
+    ; Whether the ENGINE should split the screen into two panes for a game
+    ; authored from a single-player perspective (the game does nothing itself).
+    ;   never  -> single pane.
+    ;   auto   -> engine auto-splits a single-player game into two panes/cameras.
+    ;   always -> same as auto (kept as an alias; no game currently uses it).
+    ; This decides WHETHER to split; the world model (shared one-world vs two
+    ; separate sessions) is a separate axis resolved from game.info splitWorld
+    ; (GameCatalog.resolveSplitWorld) — today shared for wasm+physics (autopeli),
+    ; separate for tsx (pinball). dualPlayerMode short-circuits: a game that is
+    ; natively two-player handles both players itself, so the engine does not split.
     fn shouldUseSplitScreen:boolean () {
         if (dualPlayerMode) {
             return false

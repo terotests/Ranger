@@ -23,8 +23,19 @@ class GameCatalogEntry {
     def title:string ""
     def iconPath:string ""
     def entryPath:string ""
-    ; splitScreen: auto | always | never — host picks two-pane mode when supported
+    ; splitScreen: auto | always | never. "auto"/"always" both mean the ENGINE
+    ; splits the screen into two panes for a game authored from a single-player
+    ; perspective — the game itself does nothing. "never" = single pane.
     def splitScreen:string ""
+    ; splitWorld: shared | separate — the world model behind a two-pane split.
+    ;   separate = two INDEPENDENT game sessions, one per pane (e.g. pinball: two
+    ;              unrelated boards). This is the default for tsx games.
+    ;   shared   = ONE simulated world/physics viewed by two cameras following
+    ;              different players (e.g. autopeli: one road + physics, two views).
+    ;              This is the default for wasm+physics games.
+    ; When empty the host infers it from the backend (see resolveSplitWorld) to keep
+    ; today's behaviour; setting it explicitly decouples the choice from the engine.
+    def splitWorld:string ""
     ; autoscale: true | false — host renders at full width and scales to pane (default true)
     def autoscale:string ""
     ; Relative path to a single-player script for split-screen panes (from games dir).
@@ -197,6 +208,26 @@ class GameCatalog {
         return entry.soloScript
     }
 
+    ; Resolve the world model for a two-pane split: "shared" (one world/physics,
+    ; two cameras) or "separate" (two independent sessions). An explicit
+    ; splitWorld= wins; otherwise infer from the backend to preserve today's
+    ; behaviour — wasm+physics games share a world (autopeli), everything else
+    ; runs separate sessions (pinball and the other tsx games).
+    fn resolveSplitWorld:string (entry:GameCatalogEntry) {
+        if (entry.splitWorld == "shared") {
+            return "shared"
+        }
+        if (entry.splitWorld == "separate") {
+            return "separate"
+        }
+        if (entry.engine == "wasm") {
+            if (entry.physics == "true") {
+                return "shared"
+            }
+        }
+        return "separate"
+    }
+
     fn parseInfoLine:void (entry:GameCatalogEntry line:string) {
         def eq:int (indexOf line "=")
         if (eq < 0) {
@@ -214,6 +245,9 @@ class GameCatalog {
         }
         if (key == "splitScreen") {
             entry.splitScreen = val
+        }
+        if (key == "splitWorld") {
+            entry.splitWorld = val
         }
         if (key == "autoscale") {
             entry.autoscale = val

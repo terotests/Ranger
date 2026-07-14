@@ -328,14 +328,34 @@ regression test (Phase 5.x / roadmap delta-time + gamepad gaps).
   backend interface (`load`/`update`/`draw`/`resize`/`unload`); split
   `game_sdl_runner` into per-backend adapters. (Complements the §7 provider work.)
   *Check:* mode is a single value; a second backend is an adapter, not new flags.
-- [ ] **R.7 (Medium) `auto` split-screen == `always`; `game.info` parsed by
-  `indexOf`.** `game_sdl_runner.rgr:645-649` — `shouldUseSplitScreen()` returns
-  true for both `"always"` and `"auto"` with no actual automatic condition, so the
-  name over-promises; and `game.info` is read in several places via substring
-  `indexOf`, fragile to whitespace/comments/false matches. Fix: give `auto` a real
-  predicate (e.g. players ≥ 2) or drop it; parse `game.info` once into a validated
-  key/value map against a known schema.
-  *Check:* `auto` differs from `always`; `game.info` has one typed parser.
+- [~] **R.7 Split-screen semantics — clarified with the maintainer; a second axis
+  added.** The review read `auto == always` as a bug. Per the maintainer it is
+  **not**: `"auto"` means the *engine* splits a single-player-authored game into
+  two panes/cameras with **zero game-side work** (`"always"` is an alias; every
+  shipped game uses `auto`). `dualPlayerMode` (a natively two-player game) already
+  short-circuits the split. Documented that in `shouldUseSplitScreen()`.
+  The real gap the maintainer surfaced is a **second, orthogonal axis** the config
+  couldn't express: the *world model* behind a split —
+  - **separate**: two independent sessions, one per pane (pinball — two unrelated
+    boards). Today's implicit behaviour for tsx games (`loadPanes(same, same)`).
+  - **shared**: one simulated world/physics viewed by two cameras following
+    different players (autopeli — one road+physics, two views). Today's implicit
+    behaviour for the wasm+physics split path (`WasmSplitScreenHost`, one `runner`).
+
+  Landed: a `splitWorld = shared | separate` field on `GameCatalogEntry`, parsed
+  from `game.info`, plus `GameCatalog.resolveSplitWorld(entry)` — an explicit value
+  wins, otherwise it infers `shared` for wasm+physics and `separate` otherwise, so
+  **today's behaviour is preserved** and the choice is now *decoupled from the
+  backend*.
+  *Check:* `game_split_world_demo.rgr` self-test — 6/6 (default inference for
+  wasm+physics/tsx, explicit override both ways, `game.info` parse);
+  `game_catalog.rgr` + `game_sdl_runner.rgr` compile Ranger→C++.
+  *Remaining (needs SDL build to verify):* route `loadGame` by `resolveSplitWorld`
+  instead of by backend, so a tsx game can request a shared world and a wasm game
+  separate sessions — i.e. make the split hosts honour the axis, not just record it.
+  (Note: `game.info` for these fields is already a clean `key=value` parser
+  (`parseInfoLine`), so 7b's "fragile `indexOf`" concern does not apply to them; the
+  raw-text `indexOf "engine=…"` fallback is the only substring path left.)
 - [ ] **R.8 (Medium) Script return values assigned without contract checks.**
   `game_runtime.rgr` — `update`'s return goes straight into `state`; a null/wrong
   type surfaces far from the cause. Fix: validate `update` / `initState` /
