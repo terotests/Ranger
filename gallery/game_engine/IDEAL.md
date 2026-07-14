@@ -87,6 +87,7 @@ without re-widening the leaks above.
 | **Save-state / persistence, networking, clock/RNG seed, config negotiation** | Absent | Nothing beyond `dt_ms`/`time_ms`; no deterministic seed, no persistence, no negotiated timestep/config. | §2.1 (RGCQ), §6 |
 | **RGU1 interactivity** | Optional | The document is guest→host; `rg_ui_event` (activate/select) is an optional export and selection state lives on the host. | §2.3 |
 | **Dynamic UI (allocate/free host EVG objects)** | Missing | RGU1 is full-snapshot rebuild only; the guest cannot allocate a persistent host `EVGElement`, mutate it by handle, or free it — any change re-serializes and rebuilds the whole tree. | §2.6 |
+| **Dynamic / streamed resource loading** | Prototype | A declare-once manifest and a synchronous frame-path decoder ship; a WASM streaming vertical (`RGX1` worker + `RGLD` loader) is proven but uses mock handles — the public `rg_res_*` primitives, the `RGO1` observation block, shared headers, and async decode are not landed. | §2.7 |
 
 ---
 
@@ -655,7 +656,114 @@ generation + per-guest-arena discipline should back **any** host resource a gues
 creates and releases — fonts, images/textures, sprite templates, sounds, and physics
 bodies (§2.5) — turning today's fixed manifests and fixed-capacity blocks into
 dynamic, guest-owned, leak-safe lifetimes. Dynamic EVG UI is simply the most
-demanding first client, and the place to prove the handle discipline.
+demanding first client, and the place to prove the handle discipline. §2.7 is that
+same discipline applied to the heaviest objects of all: streamed game assets.
+
+### 2.7 Dynamic resource loaders — the `streaming_world` example
+
+§2.6 lets a guest allocate and free small host objects (UI elements). Game *assets*
+— textures, meshes, audio banks, tilemaps — are the same idea at a much larger scale
+and with I/O attached: a big world cannot hold every asset at once, so it must
+**load or generate resources as the camera approaches and free them as it leaves**,
+keeping live memory bounded no matter how far the player travels. This is the
+`streaming_world` stress test, and it is where the resource ABI has to become a real,
+uniform interface.
+
+**Current state — two shipped models, plus a proven-but-private streaming vertical.**
+
+- **Declare-once manifest (static).** A guest declares its sheets/rects *once* at
+  setup (`rg_host_register_sheet/rect`; mirrored `hostSheet`/`hostRect` in
+  [`as_abi_bridge.rgr`](./scripting/as_abi_bridge.rgr)) and the host returns a handle.
+  This is exactly §5's declare-once channel — correct, but **not runtime-streamable**:
+  you cannot add or drop a resource as the world scrolls.
+- **Synchronous frame-path decode.** [`game_image_loader.rgr`](./scripting/game_image_loader.rgr)
+  (`GameImageLoader`) decodes PNG/JPEG **synchronously on the frame path**, so a large
+  cell change stalls the frame. There are **zero threads** in the codebase.
+- **A real streaming vertical exists in WASM — but as private blocks with mock
+  handles.** The proof-of-architecture from
+  [`PLAN_RANGER2D_STREAMING.md`](./PLAN_RANGER2D_STREAMING.md) already runs end to end
+  on the wasm3 bridge:
+  - an **`RGX1` worker** ([`wasm/rust_worker/`](./wasm/rust_worker/)) — a 2560-byte
+    block where the host writes an *observation* (camera transform, view size, world
+    grid, entity list) and the guest writes back visibility flags + cell **load/free**
+    requests, driven by a camera residency ring with hysteresis (`preload` <
+    `retire`);
+  - an **`RGLD` loader** ([`wasm/as_resource_loader/`](./wasm/as_resource_loader/), in
+    AssemblyScript to prove language-neutrality) — given a request (cell + kind =
+    load/generate) it **produces** a resource and, on a free request, **releases** it,
+    reporting `live/peak/gen/freed`;
+  - `rg_spawn_worker(ptr, len)` lets a game guest spawn one loader from its own WASM;
+  - [`StreamingWorldRunner`](./scripting/streaming_world_runner.rgr) drives both,
+    blits each live cell's tile, and follows the camera. The stress test roams a
+    1000×1000 world and holds **13 live from 1143 generated / 1130 freed** — bounded
+    memory under unbounded travel (`gen − freed = live`).
+- **What is still missing/mock.** The public host primitives `rg_res_begin/commit/
+  free/lookup` do **not** exist yet — the demo materialises requests into *mock*
+  handles; the `RGO1` observation is folded into `RGX1` rather than its own block;
+  `RGX1`/`RGLD` have **no shared `wasm/*.h`** (the unheadered-block gap from the parity
+  analysis); and decode is **synchronous** (async threading is planned S3, unbuilt).
+
+**Ideal.** Turn that proven vertical into one public, dimension-agnostic resource
+interface, on the same handle discipline as §2.6. The plan already states the north
+star — *"the ABI is the product; the cell-streamer is a sample"* — and the ideal
+makes it concrete:
+
+1. **Three ABI surfaces, all dimension- and domain-agnostic.**
+   - *Host resource primitives* (host exports, resources as handles):
+
+```c
+uint32_t rg_res_begin (uint32_t kind, uint32_t w, uint32_t h, uint32_t fmt); /* -> staging buffer */
+uint64_t rg_res_commit(uint32_t staging_id, uint32_t key);  /* hand back filled buffer -> u64 handle */
+void     rg_res_free  (uint64_t handle);                    /* refcounted release                     */
+uint64_t rg_res_lookup(uint32_t key);                       /* dedup / cache by key                   */
+/* kind in { texture2D, mesh, audioClip, tilemap, ... } — nothing says "2D". */
+```
+
+   - *Game observation* (`RGO1`, host→worker, revision-gated snapshot): camera
+     transform + view volume, world bounds/grid, time, and an optional `wishlist[]`
+     of `(resourceKey, priority)` the game emits. A worker may **derive** its needs
+     from the camera *or* consume the wishlist — the game chooses.
+   - *Worker plugin contract* (`rg_worker_init/tick/shutdown`): a worker is *"just
+     another guest,"* on the same bridge as the RGW1 game guest, in any language.
+2. **Resources are handle-owned host objects (the §2.6 discipline at asset scale).**
+   `rg_res_commit` returns an opaque, **refcounted** handle — never a pointer; the
+   host owns the memory (and the GPU upload). Every handle belongs to the spawning
+   guest's arena, so on worker shutdown or fault the host bulk-frees the arena — a
+   streaming guest **cannot leak textures**. The pool is bounded; `rg_res_begin`
+   past capacity returns null so the worker back-pressures instead of exhausting VRAM.
+3. **Freeing is the whole point, not an afterthought.** Bounded live memory comes
+   from the loader **releasing** resources as cells retire, with hysteresis so a
+   camera jittering on a cell edge does not thrash load/free. `streaming_world`'s
+   `gen − freed = live` conservation is the invariant the ABI must preserve and the
+   permanent regression fixture (§7) that proves it.
+4. **"Load" and "generate" are one path.** A file loader and a procedural generator
+   both fill a staging buffer and call `rg_res_commit`; the block shape is identical,
+   so swapping "decode a PNG" for "synthesize a tile" needs no ABI change (the PoC
+   loader *generates* a 16×16 tile through the exact same contract a disk loader uses).
+5. **Policy is userland; the engine ships a reference worker.** The cell-streamer is a
+   replaceable **reference worker** written against the public ABI — not a privileged
+   engine path. A game swaps it for procedural generation, network streaming, or LOD
+   selection **without touching the engine**. Streaming is a *resource-producer*
+   concern, so the same ABI serves 2D atlases, 3D mesh LODs, and audio banks.
+6. **Threading behind a backend, determinism intact.** Decode/generate runs off the
+   frame (native `std::thread`/`SDL_Thread`, web Web Worker, or a synchronous
+   fallback), while the cheap GL upload stays on the render thread (GL is
+   thread-bound). A done-queue is revision-gated and validated as untrusted data
+   (RGW1/RGU1 discipline). Streaming may affect **only** rendering and resource
+   lifetime — never the RNG, step order, or logic result — so a cell being resident or
+   not never changes the game outcome (cross-target determinism holds).
+7. **Parity: give the blocks headers and both paths the primitives.** `RGX1`, `RGLD`,
+   and `RGO1` gain shared `wasm/*.h` headers like RGW1/RGU1, and `rg_res_*` become
+   real host imports on every path (today they are mock on the wasm3 path only) — so a
+   streaming game behaves identically compiled or interpreted. Capability-gated via a
+   `RG_WASM_HOST_CAP_RES_STREAM` bit (§6); a world that needs streaming is rejected on
+   a host that cannot provide it, and the declare-once manifest (§5) remains the
+   zero-dependency default for small games.
+
+The result is that a dynamic resource loader is *"just another guest"* holding
+handles it allocates and frees — §2.6's rule applied to the largest, most I/O-heavy
+objects — and a new streaming strategy (procedural, networked, LOD) is purely
+additive: a replacement worker on the same ABI, with not one engine-core edit.
 
 ---
 
