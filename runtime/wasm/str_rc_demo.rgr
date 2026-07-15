@@ -50,6 +50,30 @@ class SG {
         return (Heap.frontier())
     }
 
+    ; Inline throwaway: the concat is never bound to a local — it is built
+    ; directly as an argument (here to strlen, standing in for host.drawText).
+    ; The statement arena must free the concat result AND its int->string temp at
+    ; statement end, or every frame leaks two buffers.
+    sfn churnInline:int (n:int) {
+        def i 0
+        def acc 0
+        while (< i n) {
+            acc = (+ acc (strlen ("HITS " + i)))
+            i = (+ i 1)
+        }
+        return (Heap.frontier())
+    }
+
+    ; Inline nested throwaway discarded as a bare expression statement.
+    sfn churnInlineNested:int (n:int) {
+        def i 0
+        while (< i n) {
+            def _ (strlen (("[" + i) + "]"))
+            i = (+ i 1)
+        }
+        return (Heap.frontier())
+    }
+
     sfn liveBlocks:int () {
         return (ranger.obj_live())
     }

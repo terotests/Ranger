@@ -31091,6 +31091,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       this.ownedObjectLocals = [];
       this.ownedCollectionLocals = [];
       this.ownedStringLocals = [];
+      this.pendingStringTemps = [];
       this.escapedLocals = {};
       this.currentRetType = "i32";
       this.llvmRetType = "i32";
@@ -31691,24 +31692,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         cargs.push(sb);
         cargTypes.push("i8*");
         const cres = builder.emitCall("ranger_str_concat", "i8*", cargs, cargTypes);
-        let freeA = aStr == false;
-        if ( aStr ) {
-          if ( this.exprIsFreshString(aNode, lctx) ) {
-            freeA = true;
-          }
+        if ( aStr == false ) {
+          this.registerFreshStringTemp(sa, lctx);
         }
-        if ( freeA ) {
-          this.emitStrReleasePtr(sa, lctx);
+        if ( bStr == false ) {
+          this.registerFreshStringTemp(sb, lctx);
         }
-        let freeB = bStr == false;
-        if ( bStr ) {
-          if ( this.exprIsFreshString(bNode, lctx) ) {
-            freeB = true;
-          }
-        }
-        if ( freeB ) {
-          this.emitStrReleasePtr(sb, lctx);
-        }
+        this.registerFreshStringTemp(cres, lctx);
         return cres;
       }
       const sz = builder.emitConst("i32", "4096");
@@ -32480,7 +32470,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         let sargTypes = [];
         sargs.push(iv);
         sargTypes.push("i32");
-        return builder.emitCall("ranger_str_from_int", "i8*", sargs, sargTypes);
+        const sres = builder.emitCall("ranger_str_from_int", "i8*", sargs, sargTypes);
+        this.registerFreshStringTemp(sres, lctx);
+        return sres;
       }
       const sz = builder.emitConst("i32", "64");
       const raw = builder.emitHeapAlloc(sz);
@@ -33684,6 +33676,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       lctx.ownedCollectionLocals = emptyColl;
       let emptyStr = [];
       lctx.ownedStringLocals = emptyStr;
+      let emptyPending = [];
+      lctx.pendingStringTemps = emptyPending;
       let emptyEscaped = {};
       lctx.escapedLocals = emptyEscaped;
       if ( isInstance ) {
@@ -33836,6 +33830,46 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       };
       return false;
     };
+    registerFreshStringTemp (tmp, lctx) {
+      if ( this.wasmStrEnabled(lctx) == false ) {
+        return;
+      }
+      lctx.pendingStringTemps.push(tmp);
+    };
+    claimStringTemp (tmp, lctx) {
+      if ( this.wasmStrEnabled(lctx) == false ) {
+        return;
+      }
+      let kept = [];
+      for ( let i = 0; i < lctx.pendingStringTemps.length; i++) {
+        var t = lctx.pendingStringTemps[i];
+        if ( t != tmp ) {
+          kept.push(t);
+        }
+      };
+      lctx.pendingStringTemps = kept;
+    };
+    flushStringTempsFrom (mark, lctx) {
+      if ( this.wasmStrEnabled(lctx) == false ) {
+        return;
+      }
+      const n = lctx.pendingStringTemps.length;
+      if ( n <= mark ) {
+        return;
+      }
+      let k = mark;
+      while (k < n) {
+        this.emitStrReleasePtr(lctx.pendingStringTemps[k], lctx);
+        k = k + 1;
+      };
+      let kept = [];
+      let j = 0;
+      while (j < mark) {
+        kept.push(lctx.pendingStringTemps[j]);
+        j = j + 1;
+      };
+      lctx.pendingStringTemps = kept;
+    };
     emitStrReleasePtr (ptr, lctx) {
       let args = [];
       let argTypes = [];
@@ -33869,6 +33903,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       let owned = strPtr;
       if ( this.exprIsFreshString(valNode, lctx) == false ) {
         owned = this.emitStrdupExpr(strPtr, lctx);
+      } else {
+        this.claimStringTemp(strPtr, lctx);
       }
       if ( this.isOwnedStringLocal(varName, lctx) == false ) {
         lctx.ownedStringLocals.push(varName);
@@ -33885,6 +33921,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       let owned = strPtr;
       if ( this.exprIsFreshString(valNode, lctx) == false ) {
         owned = this.emitStrdupExpr(strPtr, lctx);
+      } else {
+        this.claimStringTemp(strPtr, lctx);
       }
       if ( this.isOwnedStringLocal(varName, lctx) == false ) {
         lctx.ownedStringLocals.push(varName);
@@ -34002,6 +34040,23 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       return fc.vref == "=";
     };
     lowerStmt (node, lctx) {
+      if ( node.disabled_node ) {
+        return;
+      }
+      if ( this.wasmStrEnabled(lctx) == false ) {
+        this.lowerStmtDispatch(node, lctx);
+        return;
+      }
+      const strMark = lctx.pendingStringTemps.length;
+      this.lowerStmtDispatch(node, lctx);
+      if ( (typeof(lctx.builder.currentBlock) !== "undefined" && lctx.builder.currentBlock != null )  ) {
+        const curBlock = lctx.builder.currentBlock;
+        if ( curBlock.termKind == "" ) {
+          this.flushStringTempsFrom(strMark, lctx);
+        }
+      }
+    };
+    lowerStmtDispatch (node, lctx) {
       if ( node.disabled_node ) {
         return;
       }
@@ -34333,6 +34388,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         } else {
           tmp = this.lowerExpr(valNode, lctx);
         }
+        this.claimStringTemp(tmp, lctx);
+        this.flushStringTempsFrom(0, lctx);
         this.emitReleaseOwnedLocals(lctx);
         builder.terminateRet(retType, tmp);
       } else {
@@ -34492,7 +34549,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       const builder = lctx.builder;
       const condNode = node.getSecond();
       const thenNode = node.getThird();
+      const condMark = lctx.pendingStringTemps.length;
       const cond = this.lowerCond(condNode, lctx);
+      this.flushStringTempsFrom(condMark, lctx);
       const thenTag = "then";
       const elseTag = "else";
       const mergeTag = "merge";
@@ -34542,7 +34601,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       const exitLabel = builder.freshLabel(exitTag);
       builder.terminateBr(condLabel);
       builder.startBlock(condLabel);
+      const condMark = lctx.pendingStringTemps.length;
       const cond = this.lowerCond(condNode, lctx);
+      this.flushStringTempsFrom(condMark, lctx);
       builder.terminateBrIf(cond, bodyLabel, exitLabel);
       const ownedBefore = lctx.ownedObjectLocals.length;
       const ownedStrBefore = lctx.ownedStringLocals.length;
@@ -34848,11 +34909,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           if ( this.exprMightBeString(aNode, lctx) || this.exprMightBeString(bNode, lctx) ) {
             return true;
           }
-        }
-      }
-      if ( (exprNode.has_call || exprNode.is_direct_method_call) || exprNode.hasFnCall ) {
-        if ( this.exprIsStringish(exprNode, lctx) ) {
-          return true;
         }
       }
       return false;

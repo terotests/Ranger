@@ -44,10 +44,25 @@ ok("churnReassign frontier back to base (1)", rf1, base);
 ok("churnReassign frontier back to base (10000)", rf10k, base);
 ok("churnReassign no live blocks", x.SG_liveBlocks(), 0);
 
+// inline throwaway temps (statement arena): concat built directly as a call
+// argument, never bound to a local. Heap must stay flat across iterations.
+x.Heap_init();
+const in1  = x.SG_churnInline(1);
+const in10k= x.SG_churnInline(10000);
+ok("churnInline flat", in10k, in1);
+
+x.Heap_init();
+const ins1  = x.SG_churnInlineNested(1);
+const ins10k= x.SG_churnInlineNested(10000);
+ok("churnInlineNested flat", ins10k, ins1);
+
 // after all that churn, zero live heap blocks remain (everything freed)
 x.Heap_init();
 x.SG_churnHud(5000);
-ok("no live blocks after churn", x.SG_liveBlocks(), 0);
+ok("no live blocks after churnHud", x.SG_liveBlocks(), 0);
+x.Heap_init();
+x.SG_churnInline(5000);
+ok("no live blocks after churnInline", x.SG_liveBlocks(), 0);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -16,6 +16,7 @@ class LowIRLowerContext {
   def ownedObjectLocals:[string]
   def ownedCollectionLocals:[string]
   def ownedStringLocals:[string]
+  def pendingStringTemps:[string]
   def escapedLocals:[string:string]
   def currentRetType:string "i32"
   def llvmRetType:string "i32"
@@ -638,29 +639,19 @@ class LowIRBuilderPass {
       push cargs sb
       push cargTypes "i8*"
       def cres (builder.emitCall("ranger_str_concat" "i8*" cargs cargTypes))
-      ; free the intermediate string temporaries: int->string conversions we just
-      ; allocated (aStr/bStr == false), and fresh nested operands (a concat/
-      ; to_string result). Borrowed operands (literal/VRef/field) are left alone —
-      ; str_release is a no-op for static-literal pointers, and freeing a VRef
-      ; would double-free the local that owns it. concat already copied the bytes.
-      def freeA (aStr == false)
-      if aStr {
-        if (this.exprIsFreshString(aNode lctx)) {
-          freeA = true
-        }
+      ; register the intermediates + result with the statement arena. The
+      ; int->string conversions we just allocated (aStr/bStr == false) are fresh;
+      ; a fresh nested operand (concat/to_string result) is already pending from
+      ; its own producer, so it is not re-registered. Borrowed operands
+      ; (literal/VRef/field) are never registered. Everything unclaimed is freed
+      ; at statement end (concat already copied the bytes into `cres`).
+      if (aStr == false) {
+        this.registerFreshStringTemp(sa lctx)
       }
-      if freeA {
-        this.emitStrReleasePtr(sa lctx)
+      if (bStr == false) {
+        this.registerFreshStringTemp(sb lctx)
       }
-      def freeB (bStr == false)
-      if bStr {
-        if (this.exprIsFreshString(bNode lctx)) {
-          freeB = true
-        }
-      }
-      if freeB {
-        this.emitStrReleasePtr(sb lctx)
-      }
+      this.registerFreshStringTemp(cres lctx)
       return cres
     }
     def sz (builder.emitConst("i32" "4096"))
@@ -1497,7 +1488,9 @@ class LowIRBuilderPass {
       def sargTypes:[string]
       push sargs iv
       push sargTypes "i32"
-      return (builder.emitCall("ranger_str_from_int" "i8*" sargs sargTypes))
+      def sres (builder.emitCall("ranger_str_from_int" "i8*" sargs sargTypes))
+      this.registerFreshStringTemp(sres lctx)
+      return sres
     }
     def sz (builder.emitConst("i32" "64"))
     def raw (builder.emitHeapAlloc(sz))
@@ -2790,6 +2783,8 @@ class LowIRBuilderPass {
     lctx.ownedCollectionLocals = emptyColl
     def emptyStr:[string]
     lctx.ownedStringLocals = emptyStr
+    def emptyPending:[string]
+    lctx.pendingStringTemps = emptyPending
     def emptyEscaped:[string:string]
     lctx.escapedLocals = emptyEscaped
     if isInstance {
@@ -2956,6 +2951,60 @@ class LowIRBuilderPass {
     return false
   }
 
+  ; --- fresh-string temp arena (statement-scoped) -------------------------
+  ; A fresh heap string produced mid-expression (concat/to_string/string-call)
+  ; that is not (yet) owned by a local. Registered here, then either CLAIMED by
+  ; an owner (assigned to a local, or returned/escaped) or FLUSHED at statement
+  ; end. This frees inline throwaways like `host.drawText("S " + n)` — the concat
+  ; result and its int->string temporaries — every statement, so a frame loop
+  ; stays heap-flat without the value ever being bound to a named local.
+  fn registerFreshStringTemp:void (tmp:string lctx:LowIRLowerContext) {
+    if (this.wasmStrEnabled(lctx) == false) {
+      return
+    }
+    push lctx.pendingStringTemps tmp
+  }
+
+  ; the temp became owned (moved to a local) or escaped (returned) -> drop it
+  ; from the pending set so it is not double-freed at statement end.
+  fn claimStringTemp:void (tmp:string lctx:LowIRLowerContext) {
+    if (this.wasmStrEnabled(lctx) == false) {
+      return
+    }
+    def kept:[string]
+    for lctx.pendingStringTemps t:string i {
+      if (t != tmp) {
+        push kept t
+      }
+    }
+    lctx.pendingStringTemps = kept
+  }
+
+  ; release + drop every pending temp registered since `mark`. Emits into the
+  ; current block, so callers must flush while the temps still dominate (i.e. at
+  ; the end of the linear statement / condition that produced them).
+  fn flushStringTempsFrom:void (mark:int lctx:LowIRLowerContext) {
+    if (this.wasmStrEnabled(lctx) == false) {
+      return
+    }
+    def n (array_length lctx.pendingStringTemps)
+    if (n <= mark) {
+      return
+    }
+    def k mark
+    while (< k n) {
+      this.emitStrReleasePtr((itemAt lctx.pendingStringTemps k) lctx)
+      k = (+ k 1)
+    }
+    def kept:[string]
+    def j 0
+    while (< j mark) {
+      push kept (itemAt lctx.pendingStringTemps j)
+      j = (+ j 1)
+    }
+    lctx.pendingStringTemps = kept
+  }
+
   ; free a bare string pointer (an intermediate temporary) via ranger_str_release
   fn emitStrReleasePtr:void (ptr:string lctx:LowIRLowerContext) {
     def args:[string]
@@ -2996,6 +3045,10 @@ class LowIRBuilderPass {
     def owned strPtr
     if ((this.exprIsFreshString(valNode lctx)) == false) {
       owned = (this.emitStrdupExpr(strPtr lctx))
+    } {
+      ; owning a fresh temp directly: move it out of the statement arena so it is
+      ; not double-freed (the local's scope-end release now owns its lifetime).
+      this.claimStringTemp(strPtr lctx)
     }
     if (this.isOwnedStringLocal(varName lctx) == false) {
       push lctx.ownedStringLocals varName
@@ -3017,6 +3070,8 @@ class LowIRBuilderPass {
     def owned strPtr
     if ((this.exprIsFreshString(valNode lctx)) == false) {
       owned = (this.emitStrdupExpr(strPtr lctx))
+    } {
+      this.claimStringTemp(strPtr lctx)
     }
     if (this.isOwnedStringLocal(varName lctx) == false) {
       push lctx.ownedStringLocals varName
@@ -3137,7 +3192,32 @@ class LowIRBuilderPass {
     return (fc.vref == "=")
   }
 
+  ; Statement wrapper: after a leaf statement lowers, release the fresh-string
+  ; temporaries it produced but nobody claimed (inline throwaways such as
+  ; `host.drawText("S " + n)`), so a frame loop stays heap-flat. Statements that
+  ; terminate the block (return) or open nested regions (if/while/for) manage
+  ; their own temps and their condition flush; here the current block is either
+  ; terminated (skip — cannot emit past a terminator) or the range is already
+  ; empty, so this flush is a safe leaf-only cleanup.
   fn lowerStmt:void (node:CodeNode lctx:LowIRLowerContext) {
+    if node.disabled_node {
+      return
+    }
+    if (this.wasmStrEnabled(lctx) == false) {
+      this.lowerStmtDispatch(node lctx)
+      return
+    }
+    def strMark (array_length lctx.pendingStringTemps)
+    this.lowerStmtDispatch(node lctx)
+    if (!null? lctx.builder.currentBlock) {
+      def curBlock (unwrap lctx.builder.currentBlock)
+      if (curBlock.termKind == "") {
+        this.flushStringTempsFrom(strMark lctx)
+      }
+    }
+  }
+
+  fn lowerStmtDispatch:void (node:CodeNode lctx:LowIRLowerContext) {
     if node.disabled_node {
       return
     }
@@ -3500,6 +3580,11 @@ class LowIRBuilderPass {
       } {
         tmp = (this.lowerExpr(valNode lctx))
       }
+      ; the returned value escapes to the caller: claim it out of the statement
+      ; arena so it is not freed, then release the remaining intermediates (e.g.
+      ; the int->string temps of `return ("a" + n)`) before the terminator.
+      this.claimStringTemp(tmp lctx)
+      this.flushStringTempsFrom(0 lctx)
       this.emitReleaseOwnedLocals(lctx)
       builder.terminateRet(retType tmp)
     } {
@@ -3666,7 +3751,12 @@ class LowIRBuilderPass {
     def builder (lctx.builder)
     def condNode (node.getSecond())
     def thenNode (node.getThird())
+    def condMark (array_length lctx.pendingStringTemps)
     def cond (this.lowerCond(condNode lctx))
+    ; a fresh string temp built in the condition (e.g. (("a"+x) == y)) is dead
+    ; once the i1 is computed; free it here, in the pre-branch block where it is
+    ; still valid, rather than leaking to the merge block.
+    this.flushStringTempsFrom(condMark lctx)
     def thenTag:string "then"
     def elseTag:string "else"
     def mergeTag:string "merge"
@@ -3723,7 +3813,11 @@ class LowIRBuilderPass {
 
     builder.terminateBr(condLabel)
     builder.startBlock(condLabel)
+    def condMark (array_length lctx.pendingStringTemps)
     def cond (this.lowerCond(condNode lctx))
+    ; free per-iteration condition string temps in the condition block (runs each
+    ; iteration), so a loop whose test builds a string doesn't leak every turn.
+    this.flushStringTempsFrom(condMark lctx)
     builder.terminateBrIf(cond bodyLabel exitLabel)
 
     ; snapshot owned-object and owned-string locals so any declared INSIDE the
@@ -4070,12 +4164,11 @@ class LowIRBuilderPass {
         }
       }
     }
-    ; a string-returning call: the returned buffer is the caller's to own
-    if (exprNode.has_call || exprNode.is_direct_method_call || exprNode.hasFnCall) {
-      if (this.exprIsStringish(exprNode lctx)) {
-        return true
-      }
-    }
+    ; A string-returning call is deliberately NOT treated as fresh. The return
+    ; path does not dup, so a getter (`return this.name`) hands back a borrowed
+    ; field pointer; owning+freeing it would dangle the field. Duping the result
+    ; (the not-fresh path) is always safe — at worst it leaks a genuinely fresh
+    ; callee result, which is recoverable, whereas a wrong free corrupts memory.
     return false
   }
 
