@@ -19,6 +19,10 @@
 // Missing files are ignored, so the game runs on the synth cheer/sigh alone.
 function resources() {
   return [
+    // The game's own HUD font: Fredoka One is round and chunky, which reads
+    // clearly for young children. Rendered as crisp TrueType via the EVG
+    // RasterText stack (see game_hud loadFont), not the 3x5 bitmap fallback.
+    { kind: "font", id: "Fredoka One", path: "assets/fonts/FredokaOne-Regular.ttf" },
     { kind: "voice", id: "good-fi", path: "voices/good-fi.wav" },
     { kind: "voice", id: "wrong-fi", path: "voices/wrong-fi.wav" }
   ];

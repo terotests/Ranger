@@ -14,6 +14,7 @@ Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGColor.rgr"
 Import "../../evg/EVGUnit.rgr"
 Import "../../evg/EVGTextMeasurer.rgr"
+Import "../ui/UITextRenderer.rgr"
 
 ; Text measurer matching the bitmap HUD font in drawGlyph/drawText.
 class HudBitmapTextMeasurer {
@@ -89,8 +90,27 @@ class GameHudBlitter {
     def hudMeasurer:HudBitmapTextMeasurer (new HudBitmapTextMeasurer)
     def canvas:SoftCanvas
 
+    ; Optional per-game TrueType text. A game opts in with a { kind: "font" }
+    ; resource; game_runtime then calls loadFont() here. When a font is loaded,
+    ; Label text is rasterized through the EVG RasterText stack (crisp, anti-
+    ; aliased, real letterforms) and layout is measured with its TTF metrics.
+    ; Games that declare no font keep the compact 3x5 bitmap font unchanged.
+    def textRenderer:UITextRenderer (new UITextRenderer)
+    def fontReady:boolean false
+
     fn attach:void (c:SoftCanvas) {
         canvas = c
+    }
+
+    ; Load a per-game TTF (dir is the game folder; relPath is resolved against
+    ; it; family is the name to draw with). Silently keeps the bitmap font if
+    ; the font can't be loaded, so a missing asset never breaks the HUD.
+    fn loadFont:void (dir:string relPath:string family:string) {
+        textRenderer.addFontDir(dir)
+        def ok:boolean (textRenderer.loadFont(family relPath))
+        if ok {
+            fontReady = true
+        }
     }
 
     fn half:int (n:int) {
@@ -109,7 +129,14 @@ class GameHudBlitter {
         def fw:double (to_double w)
         def fh:double (to_double h)
         layout.setPageSize(fw fh)
-        layout.setMeasurer(hudMeasurer)
+        ; Measure with the TTF metrics when a per-game font is loaded so Label
+        ; boxes size to the real glyphs (keeps centering/wrapping correct);
+        ; otherwise fall back to the bitmap-font measurer.
+        if fontReady {
+            layout.setMeasurer(textRenderer.measurer)
+        } {
+            layout.setMeasurer(hudMeasurer)
+        }
         root.calculatedX = 0.0
         root.calculatedY = 0.0
         ; Keep script-defined height (e.g. height="100%" splash screens). Auto-height when unset.
@@ -159,8 +186,13 @@ class GameHudBlitter {
                 if (fs <= 0.0) {
                     fs = 14.0
                 }
-                def scale (hudMeasurer.scaleFor(fs))
-                this.drawText(x y scale txt tr tg tb)
+                if fontReady {
+                    ; Crisp TrueType path (EVG RasterText), cached per line.
+                    def _h:int (textRenderer.drawText((unwrap canvas) txt x y fs 0.0 tr tg tb 255))
+                } {
+                    def scale (hudMeasurer.scaleFor(fs))
+                    this.drawText(x y scale txt tr tg tb)
+                }
             }
         }
 
