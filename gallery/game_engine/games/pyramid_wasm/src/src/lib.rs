@@ -1,0 +1,640 @@
+//! pyramid_wasm — "Faaraon pyramidi", a gentle 3D climber for kids on the
+//! host-managed scene (IDEAL_3D Phase H). A Donkey-Kong-in-3D: climb a stepped
+//! sandstone pyramid ring by ring to the golden summit. Jump up each terrace,
+//! or take the stairs on the east face for an easier route. Mummy monsters
+//! patrol the terraces; grab a diamond for a few seconds of invincibility and
+//! you can bump them aside. Reach the top to win.
+//!
+//! Ownership: the guest owns the world and all player/monster physics (a
+//! kinematic AABB character controller with auto-step). The host owns the
+//! scene and renders it — the guest only issues `rg_create_*` at init and
+//! `rg_set_position`/`rotation`/`scale`/`visible` per frame, holding opaque
+//! `EntityId`s. Static geometry is baked at world coords (identity transform);
+//! movable actors are created centred at the origin and moved each frame.
+//!
+//! Input (host → guest): `update(dt_ms, forward, strafe, turn, jump)`,
+//! forward/strafe/turn ∈ {-1,0,1}, jump ∈ {0,1}.
+
+#![allow(clippy::missing_safety_doc)]
+#![allow(static_mut_refs)]
+
+use core::cell::UnsafeCell;
+
+const FP: f32 = 256.0;
+
+// Host imports (runtime/rg_wasm_bridge.c; IDEAL_3D §4.4).
+extern "C" {
+    fn rg_load_texture(name_ptr: *const u8, name_len: u32) -> i32;
+    fn rg_create_box(x0: i32, y0: i32, z0: i32, x1: i32, y1: i32, z1: i32, tex: i32) -> i32;
+    fn rg_create_camera(fovy: i32, near: i32, far: i32) -> i32;
+    fn rg_create_light(kind: i32, color: i32, intensity: i32) -> i32;
+    fn rg_set_position(e: i32, x: i32, y: i32, z: i32);
+    fn rg_set_target(e: i32, x: i32, y: i32, z: i32);
+    fn rg_set_rotation(e: i32, qx: i32, qy: i32, qz: i32, qw: i32);
+    fn rg_set_scale(e: i32, sx: i32, sy: i32, sz: i32);
+    fn rg_set_range(e: i32, r: i32);
+    fn rg_set_visible(e: i32, on: i32);
+    fn rg_set_active_camera(e: i32);
+}
+
+const LIGHT_AMBIENT: i32 = 3;
+const LIGHT_DIRECTIONAL: i32 = 4;
+const LIGHT_POINT: i32 = 5;
+
+fn fx(v: f32) -> i32 {
+    (v * FP) as i32
+}
+fn q16(v: f32) -> i32 {
+    (v * 65536.0) as i32
+}
+fn rgba(r: u8, g: u8, b: u8) -> i32 {
+    (((r as u32) << 24) | ((g as u32) << 16) | ((b as u32) << 8) | 0xff) as i32
+}
+
+// ---- host actor helpers ----------------------------------------------------
+// A "static" box is baked at world coords (transform stays identity). A
+// "movable actor" is created centred at the origin so rg_set_position places
+// it; swapping this for a GLB via rg_create_mesh_entity later is a one-liner.
+fn create_static_box(min: [f32; 3], max: [f32; 3], tex: i32) -> i32 {
+    unsafe {
+        rg_create_box(
+            fx(min[0]), fx(min[1]), fx(min[2]),
+            fx(max[0]), fx(max[1]), fx(max[2]),
+            tex,
+        )
+    }
+}
+fn create_actor(half: [f32; 3], tex: i32) -> i32 {
+    unsafe {
+        rg_create_box(
+            fx(-half[0]), fx(-half[1]), fx(-half[2]),
+            fx(half[0]), fx(half[1]), fx(half[2]),
+            tex,
+        )
+    }
+}
+/// Y-axis rotation quaternion by angle a → rg_set_rotation.
+fn set_yaw(e: i32, a: f32) {
+    let (s, c) = (a * 0.5).sin_cos();
+    unsafe { rg_set_rotation(e, 0, q16(s), 0, q16(c)) };
+}
+
+// ---- level geometry --------------------------------------------------------
+const LEVELS: usize = 6;
+const BASE: f32 = 8.0; // half-size of the bottom slab
+const INSET: f32 = 1.2; // per-side shrink per level
+const STEP: f32 = 0.85; // terrace height (needs a jump)
+const STAIR_H: f32 = 0.42; // half-height helper step on the east face (auto-step)
+
+fn slab_half(i: usize) -> f32 {
+    BASE - i as f32 * INSET
+}
+fn slab_y0(i: usize) -> f32 {
+    i as f32 * STEP
+}
+fn summit_y() -> f32 {
+    LEVELS as f32 * STEP // top of the highest slab
+}
+
+// ---- colliders + sim state -------------------------------------------------
+const MAX_C: usize = 48;
+#[derive(Clone, Copy)]
+struct Aabb {
+    min: [f32; 3],
+    max: [f32; 3],
+}
+
+const MAX_MON: usize = 4;
+#[derive(Clone, Copy)]
+struct Monster {
+    ent: i32,
+    // patrol along one axis (0=x, 2=z) between lo..hi at fixed `fixed` on the
+    // other horizontal axis, standing on terrace top `y`.
+    axis: usize,
+    fixed: f32,
+    lo: f32,
+    hi: f32,
+    y: f32,
+    pos: f32, // current coord along the patrol axis
+    dir: f32,
+    speed: f32,
+    respawn: f32, // >0 = defeated, counting down to reappear
+}
+
+const MAX_GEM: usize = 5;
+#[derive(Clone, Copy)]
+struct Gem {
+    ent: i32,
+    x: f32,
+    y: f32,
+    z: f32,
+    taken: bool,
+}
+
+struct World {
+    boxes: [Aabb; MAX_C],
+    nbox: usize,
+    mons: [Monster; MAX_MON],
+    nmon: usize,
+    gems: [Gem; MAX_GEM],
+    ngem: usize,
+    // player
+    px: f32,
+    py: f32,
+    pz: f32,
+    vx: f32,
+    vy: f32,
+    vz: f32,
+    yaw: f32,
+    on_ground: bool,
+    // game
+    invinc: f32, // seconds of invincibility remaining
+    lives: i32,
+    won: bool,
+    t: f32, // elapsed seconds (for spin/pulse)
+    player_ent: i32,
+    cam: i32,
+    lamp: i32,
+}
+
+struct WCell(UnsafeCell<World>);
+unsafe impl Sync for WCell {}
+const ZERO_AABB: Aabb = Aabb { min: [0.0; 3], max: [0.0; 3] };
+const ZERO_MON: Monster = Monster {
+    ent: 0, axis: 2, fixed: 0.0, lo: 0.0, hi: 0.0, y: 0.0, pos: 0.0, dir: 1.0, speed: 0.0, respawn: 0.0,
+};
+const ZERO_GEM: Gem = Gem { ent: 0, x: 0.0, y: 0.0, z: 0.0, taken: false };
+
+// player spawn (on the sand, south of the pyramid, facing the north/-z centre)
+const SPAWN: [f32; 3] = [0.0, 0.6, BASE + 3.0];
+const SPAWN_YAW: f32 = core::f32::consts::PI; // face -z (into the pyramid)
+const START_LIVES: i32 = 5;
+
+static W: WCell = WCell(UnsafeCell::new(World {
+    boxes: [ZERO_AABB; MAX_C],
+    nbox: 0,
+    mons: [ZERO_MON; MAX_MON],
+    nmon: 0,
+    gems: [ZERO_GEM; MAX_GEM],
+    ngem: 0,
+    px: SPAWN[0],
+    py: SPAWN[1],
+    pz: SPAWN[2],
+    vx: 0.0,
+    vy: 0.0,
+    vz: 0.0,
+    yaw: SPAWN_YAW,
+    on_ground: true,
+    invinc: 0.0,
+    lives: START_LIVES,
+    won: false,
+    t: 0.0,
+    player_ent: 0,
+    cam: 0,
+    lamp: 0,
+}));
+fn world() -> &'static mut World {
+    unsafe { &mut *W.0.get() }
+}
+
+// player half extents (physics AABB == visual box)
+const P_HX: f32 = 0.3;
+const P_HY: f32 = 0.6;
+const P_HZ: f32 = 0.3;
+const STEP_UP: f32 = 0.55; // auto-step ceiling (STAIR_H climbs; STEP terraces need a jump)
+
+const GRAV: f32 = 16.0;
+const JUMP_V: f32 = 6.2; // apex ≈ 1.2 m > STEP
+const MOVE_SPD: f32 = 4.2;
+const TURN_SPD: f32 = 2.4;
+const INVINC_TIME: f32 = 6.0;
+
+fn add_collider(w: &mut World, min: [f32; 3], max: [f32; 3]) {
+    if w.nbox < MAX_C {
+        w.boxes[w.nbox] = Aabb { min, max };
+        w.nbox += 1;
+    }
+}
+
+fn build_pyramid(w: &mut World, tex_sand: i32, tex_stone: i32, tex_gold: i32) {
+    // sand ground: a wide thin slab, top at y=0
+    let g = 22.0;
+    create_static_box([-g, -0.3, -g], [g, 0.0, g], tex_sand);
+    add_collider(w, [-g, -0.3, -g], [g, 0.0, g]);
+
+    // stepped slabs (top slab is golden = the summit)
+    for i in 0..LEVELS {
+        let hs = slab_half(i);
+        let y0 = slab_y0(i);
+        let y1 = y0 + STEP;
+        let tex = if i == LEVELS - 1 { tex_gold } else { tex_stone };
+        create_static_box([-hs, y0, -hs], [hs, y1, hs], tex);
+        add_collider(w, [-hs, y0, -hs], [hs, y1, hs]);
+    }
+
+    // east-face stairs: one half-height helper step per level, so climbing the
+    // +x side auto-steps up in gentle hops (the "easy path").
+    for i in 0..LEVELS {
+        let hs = slab_half(i);
+        let base = slab_y0(i); // rests on the terrace below (ground for i=0)
+        let min = [hs, base, -0.9];
+        let max = [hs + 0.9, base + STAIR_H, 0.9];
+        create_static_box(min, max, tex_stone);
+        add_collider(w, min, max);
+    }
+}
+
+fn add_monster(w: &mut World, tex: i32, terrace: usize, side_x: f32, speed: f32) {
+    if w.nmon >= MAX_MON {
+        return;
+    }
+    // stand on top of slab `terrace`, patrol in z along the exposed ring band.
+    let top = slab_y0(terrace) + STEP;
+    let outer = slab_half(terrace);
+    let inner = slab_half(terrace + 1);
+    let fixed = side_x * (outer + inner) * 0.5; // middle of the ring band, chosen side
+    let mhy = 0.5;
+    let ent = create_actor([0.4, mhy, 0.4], tex);
+    let range = outer - 0.6;
+    w.mons[w.nmon] = Monster {
+        ent,
+        axis: 2,
+        fixed,
+        lo: -range,
+        hi: range,
+        y: top + mhy,
+        pos: 0.0,
+        dir: 1.0,
+        speed,
+        respawn: 0.0,
+    };
+    w.nmon += 1;
+}
+
+fn add_gem(w: &mut World, tex: i32, terrace: usize, x: f32, z: f32) {
+    if w.ngem >= MAX_GEM {
+        return;
+    }
+    let top = slab_y0(terrace) + STEP;
+    let ent = create_actor([0.3, 0.3, 0.3], tex);
+    w.gems[w.ngem] = Gem { ent, x, y: top + 0.5, z, taken: false };
+    w.ngem += 1;
+}
+
+// ---- physics ---------------------------------------------------------------
+fn overlap(cx: f32, cy: f32, cz: f32, hx: f32, hy: f32, hz: f32, b: &Aabb) -> bool {
+    cx - hx < b.max[0] && cx + hx > b.min[0]
+        && cy - hy < b.max[1] && cy + hy > b.min[1]
+        && cz - hz < b.max[2] && cz + hz > b.min[2]
+}
+fn overlaps_any(w: &World, cx: f32, cy: f32, cz: f32) -> bool {
+    for i in 0..w.nbox {
+        if overlap(cx, cy, cz, P_HX, P_HY, P_HZ, &w.boxes[i]) {
+            return true;
+        }
+    }
+    false
+}
+fn resolve_axis(w: &mut World, axis: usize) {
+    for i in 0..w.nbox {
+        let b = w.boxes[i];
+        if !overlap(w.px, w.py, w.pz, P_HX, P_HY, P_HZ, &b) {
+            continue;
+        }
+        let (c, hh, bmin, bmax) = match axis {
+            0 => (w.px, P_HX, b.min[0], b.max[0]),
+            1 => (w.py, P_HY, b.min[1], b.max[1]),
+            _ => (w.pz, P_HZ, b.min[2], b.max[2]),
+        };
+        let bc = (bmin + bmax) * 0.5;
+        let bh = (bmax - bmin) * 0.5;
+        let pen = (hh + bh) - (c - bc).abs();
+        if pen <= 0.0 {
+            continue;
+        }
+        let dir = if c >= bc { 1.0 } else { -1.0 };
+        match axis {
+            0 => {
+                w.px += dir * pen;
+                w.vx = 0.0;
+            }
+            1 => {
+                w.py += dir * pen;
+                if dir > 0.0 {
+                    w.on_ground = true;
+                }
+                w.vy = 0.0;
+            }
+            _ => {
+                w.pz += dir * pen;
+                w.vz = 0.0;
+            }
+        }
+    }
+}
+
+/// Horizontal move with auto-step: if blocked by a low ledge (≤ STEP_UP) while
+/// grounded, climb onto it instead of stopping. Terrace faces (STEP high) stay
+/// blocking, so those need a jump.
+fn move_horizontal(w: &mut World, dx: f32, dz: f32, grounded: bool) {
+    let (ox, oz) = (w.px, w.pz);
+    w.px += dx;
+    resolve_axis(w, 0);
+    w.pz += dz;
+    resolve_axis(w, 2);
+    let ix = ox + dx;
+    let iz = oz + dz;
+    let blocked = (w.px - ix).abs() > 0.001 || (w.pz - iz).abs() > 0.001;
+    if !blocked || !grounded {
+        return;
+    }
+    // find the highest low ledge overlapping the intended spot at current height
+    let feet = w.py - P_HY;
+    let mut best = f32::MIN;
+    for i in 0..w.nbox {
+        let b = w.boxes[i];
+        if overlap(ix, w.py, iz, P_HX, P_HY, P_HZ, &b) {
+            let top = b.max[1];
+            let rise = top - feet;
+            if rise > 0.02 && rise <= STEP_UP && top > best {
+                best = top;
+            }
+        }
+    }
+    if best > f32::MIN {
+        let cand_py = best + P_HY;
+        // only step up if the raised body is clear (feet sit on the ledge top,
+        // so the ledge itself does not count as an overlap)
+        if !overlaps_any(w, ix, cand_py, iz) {
+            w.px = ix;
+            w.pz = iz;
+            w.py = cand_py;
+            w.vy = 0.0;
+            w.on_ground = true;
+        }
+    }
+}
+
+fn respawn_player(w: &mut World) {
+    w.px = SPAWN[0];
+    w.py = SPAWN[1];
+    w.pz = SPAWN[2];
+    w.vx = 0.0;
+    w.vy = 0.0;
+    w.vz = 0.0;
+    w.yaw = SPAWN_YAW;
+    w.on_ground = true;
+}
+
+// ---- camera + actor sync ---------------------------------------------------
+fn sync_camera(w: &World) {
+    let (s, c) = w.yaw.sin_cos();
+    // third-person: sit behind the facing direction and above
+    let dist = 5.5;
+    let height = 3.4;
+    let ex = w.px - s * dist;
+    let ez = w.pz - c * dist;
+    let ey = w.py + height;
+    unsafe {
+        rg_set_position(w.cam, fx(ex), fx(ey), fx(ez));
+        rg_set_target(w.cam, fx(w.px), fx(w.py + 0.6), fx(w.pz));
+        // player lamp rides just above the player
+        rg_set_position(w.lamp, fx(w.px), fx(w.py + 1.2), fx(w.pz));
+    }
+}
+
+// ---- init ------------------------------------------------------------------
+#[no_mangle]
+pub extern "C" fn init() {
+    unsafe {
+        let tex_sand = rg_load_texture("sand".as_ptr(), 4);
+        let tex_stone = rg_load_texture("stone".as_ptr(), 5);
+        let tex_gold = rg_load_texture("gold".as_ptr(), 4);
+        let tex_gem = rg_load_texture("gem".as_ptr(), 3);
+        let tex_mon = rg_load_texture("monster".as_ptr(), 7);
+
+        let w = world();
+        w.nbox = 0;
+        w.nmon = 0;
+        w.ngem = 0;
+        w.lives = START_LIVES;
+        w.invinc = 0.0;
+        w.won = false;
+        w.t = 0.0;
+        respawn_player(w);
+
+        build_pyramid(w, tex_sand, tex_stone, tex_gold);
+
+        // monsters on the lower terraces (alternating sides)
+        add_monster(w, tex_mon, 0, 1.0, 2.6);
+        add_monster(w, tex_mon, 1, -1.0, 2.8);
+        add_monster(w, tex_mon, 2, 1.0, 3.0);
+        add_monster(w, tex_mon, 3, -1.0, 3.2);
+
+        // diamonds along the north (+z) ring of the first terraces
+        add_gem(w, tex_gem, 0, 0.0, slab_half(0) - 0.6);
+        add_gem(w, tex_gem, 1, -(slab_half(1) - 0.6), 0.0);
+        add_gem(w, tex_gem, 2, 0.0, -(slab_half(2) - 0.6));
+        add_gem(w, tex_gem, 3, slab_half(3) - 0.6, 0.0);
+        add_gem(w, tex_gem, 4, 0.0, slab_half(4) - 0.6);
+
+        // player avatar (gold, third-person)
+        w.player_ent = create_actor([P_HX, P_HY, P_HZ], tex_gold);
+
+        // camera + player lamp
+        w.cam = rg_create_camera(fx(1.0), fx(0.1), fx(200.0));
+        rg_set_active_camera(w.cam);
+        w.lamp = rg_create_light(LIGHT_POINT, rgba(255, 236, 200), fx(0.7));
+        rg_set_range(w.lamp, fx(10.0));
+
+        // world lighting: warm desert ambient + a low sun + a golden summit glow
+        rg_create_light(LIGHT_AMBIENT, rgba(200, 190, 170), fx(0.5));
+        let sun = rg_create_light(LIGHT_DIRECTIONAL, rgba(255, 240, 205), fx(0.75));
+        rg_set_position(sun, fx(0.4), fx(0.85), fx(0.3));
+        let glow = rg_create_light(LIGHT_POINT, rgba(255, 215, 120), fx(0.9));
+        rg_set_position(glow, fx(0.0), fx(summit_y() + 1.2), fx(0.0));
+        rg_set_range(glow, fx(7.0));
+
+        // place actors for frame 0
+        rg_set_position(w.player_ent, fx(w.px), fx(w.py), fx(w.pz));
+        set_yaw(w.player_ent, w.yaw);
+        for gi in 0..w.ngem {
+            let gm = w.gems[gi];
+            rg_set_position(gm.ent, fx(gm.x), fx(gm.y), fx(gm.z));
+        }
+        for mi in 0..w.nmon {
+            let m = w.mons[mi];
+            let (mx, mz) = if m.axis == 0 { (m.pos, m.fixed) } else { (m.fixed, m.pos) };
+            rg_set_position(m.ent, fx(mx), fx(m.y), fx(mz));
+        }
+        sync_camera(w);
+    }
+}
+
+// ---- per-frame -------------------------------------------------------------
+fn update_monsters(w: &mut World, dt: f32) {
+    for i in 0..w.nmon {
+        let mut m = w.mons[i];
+        if m.respawn > 0.0 {
+            m.respawn -= dt;
+            if m.respawn <= 0.0 {
+                m.respawn = 0.0;
+                unsafe { rg_set_visible(m.ent, 1) };
+            }
+            w.mons[i] = m;
+            continue;
+        }
+        m.pos += m.dir * m.speed * dt;
+        if m.pos > m.hi {
+            m.pos = m.hi;
+            m.dir = -1.0;
+        } else if m.pos < m.lo {
+            m.pos = m.lo;
+            m.dir = 1.0;
+        }
+        let (mx, mz) = if m.axis == 0 { (m.pos, m.fixed) } else { (m.fixed, m.pos) };
+        unsafe {
+            rg_set_position(m.ent, fx(mx), fx(m.y), fx(mz));
+            set_yaw(m.ent, if m.dir > 0.0 { 0.0 } else { core::f32::consts::PI });
+        }
+        w.mons[i] = m;
+    }
+}
+
+fn check_monster_hits(w: &mut World) {
+    for i in 0..w.nmon {
+        let m = w.mons[i];
+        if m.respawn > 0.0 {
+            continue;
+        }
+        let (mx, mz) = if m.axis == 0 { (m.pos, m.fixed) } else { (m.fixed, m.pos) };
+        let mb = Aabb { min: [mx - 0.4, m.y - 0.5, mz - 0.4], max: [mx + 0.4, m.y + 0.5, mz + 0.4] };
+        if overlap(w.px, w.py, w.pz, P_HX, P_HY, P_HZ, &mb) {
+            if w.invinc > 0.0 {
+                // bump the monster aside — hide it and set it to reappear
+                let mut mm = w.mons[i];
+                mm.respawn = 5.0;
+                w.mons[i] = mm;
+                unsafe { rg_set_visible(mm.ent, 0) };
+            } else {
+                // gentle penalty: lose a life and go back to the sand
+                w.lives -= 1;
+                if w.lives <= 0 {
+                    w.lives = START_LIVES;
+                }
+                respawn_player(w);
+            }
+        }
+    }
+}
+
+fn check_gem_pickups(w: &mut World) {
+    for i in 0..w.ngem {
+        let gm = w.gems[i];
+        if gm.taken {
+            continue;
+        }
+        let gb = Aabb { min: [gm.x - 0.5, gm.y - 0.6, gm.z - 0.5], max: [gm.x + 0.5, gm.y + 0.6, gm.z + 0.5] };
+        if overlap(w.px, w.py, w.pz, P_HX, P_HY, P_HZ, &gb) {
+            let mut g2 = gm;
+            g2.taken = true;
+            w.gems[i] = g2;
+            w.invinc = INVINC_TIME;
+            unsafe { rg_set_visible(g2.ent, 0) };
+        }
+    }
+}
+
+fn spin_gems(w: &World) {
+    for i in 0..w.ngem {
+        let gm = w.gems[i];
+        if gm.taken {
+            continue;
+        }
+        set_yaw(gm.ent, w.t * 2.0 + i as f32);
+    }
+}
+
+fn check_win(w: &mut World) {
+    if w.won {
+        return;
+    }
+    let feet = w.py - P_HY;
+    let top = summit_y();
+    let hs = slab_half(LEVELS - 1);
+    if feet >= top - 0.2 && w.px.abs() <= hs && w.pz.abs() <= hs {
+        w.won = true;
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn update(dt_ms: i32, forward: i32, strafe: i32, turn: i32, jump: i32) {
+    let w = world();
+    let dt = (dt_ms.max(1) as f32) / 1000.0;
+    w.t += dt;
+    if w.invinc > 0.0 {
+        w.invinc -= dt;
+        if w.invinc < 0.0 {
+            w.invinc = 0.0;
+        }
+    }
+
+    if w.won {
+        // victory: spin in place on the summit (song + banner arrive with audio)
+        w.yaw += 2.5 * dt;
+        unsafe {
+            rg_set_position(w.player_ent, fx(w.px), fx(w.py), fx(w.pz));
+            set_yaw(w.player_ent, w.yaw);
+        }
+        spin_gems(w);
+        sync_camera(w);
+        return;
+    }
+
+    let grounded = w.on_ground;
+    // turn + move relative to facing
+    w.yaw += (turn as f32) * TURN_SPD * dt;
+    let (s, c) = w.yaw.sin_cos();
+    let fwd = forward as f32;
+    let stf = strafe as f32;
+    let mut mvx = (s * fwd + c * stf) * MOVE_SPD;
+    let mut mvz = (c * fwd - s * stf) * MOVE_SPD;
+    let mag = (mvx * mvx + mvz * mvz).sqrt();
+    if mag > MOVE_SPD {
+        mvx *= MOVE_SPD / mag;
+        mvz *= MOVE_SPD / mag;
+    }
+
+    // jump + gravity
+    if jump != 0 && w.on_ground {
+        w.vy = JUMP_V;
+        w.on_ground = false;
+    }
+    w.vy -= GRAV * dt;
+    w.on_ground = false;
+
+    // integrate: horizontal (with auto-step) then vertical
+    move_horizontal(w, mvx * dt, mvz * dt, grounded);
+    w.py += w.vy * dt;
+    resolve_axis(w, 1);
+    if w.py - P_HY < 0.0 {
+        w.py = P_HY;
+        w.vy = 0.0;
+        w.on_ground = true;
+    }
+
+    update_monsters(w, dt);
+    check_monster_hits(w);
+    check_gem_pickups(w);
+    spin_gems(w);
+    check_win(w);
+
+    // sync player avatar (pulse scale while invincible for feedback)
+    let pulse = if w.invinc > 0.0 { 1.0 + 0.15 * (w.t * 12.0).sin() } else { 1.0 };
+    unsafe {
+        rg_set_position(w.player_ent, fx(w.px), fx(w.py), fx(w.pz));
+        set_yaw(w.player_ent, w.yaw);
+        rg_set_scale(w.player_ent, fx(pulse), fx(pulse), fx(pulse));
+    }
+    sync_camera(w);
+}
