@@ -34,10 +34,26 @@ RC — a major multi-phase subsystem, not a small add-on to the object work.
 General-purpose programs (parser, tools, the in-browser compiler) need it;
 object-based game/logic code does not.
 
-- **Phase 3 — string runtime + RC** ⬜ implement freestanding WASM strings
-  (linear-memory buffers, literals in a data segment, concat/length/index), then
-  owned-string-local release + owned string-field release (needs Phase 4 typedesc
-  emission). Large.
+- **Phase 3 — string runtime + RC** 🟩 *mostly done*
+  - 3.1–3.2 ✅ freestanding WASM string runtime (`ranger_str_*` in
+    `runtime/wasm/ranger_obj.rgr`: len/concat/dup/from_int/cmp/release; literals
+    in a data segment written by `ng_WATWriter.rgr`; `Mem.loadU8/storeU8` →
+    `i32.load8_u/store8`). Concat/to_string/strlen all functional (`str_test` 5/5).
+  - 3.4 ✅ **owned-string-local RC.** The compiler tracks owned string locals
+    (`ownedStringLocals`) and releases them at scope end and per loop iteration
+    via `ranger_str_release` (a no-op for static-literal pointers). Fresh strings
+    (concat/to_string/string-call) are owned directly; borrowed initializers
+    (literal/VRef/field) are dup'd so the local owns a private copy.
+    `lowerStringConcat` also frees its own intermediates (int→string temps and
+    fresh nested-concat operands). Reassignment frees the old buffer first. A
+    per-frame `"HITS " + n` loop stays heap-flat to 100 000 iterations
+    (`str_rc_test` 9/9). Gated on `-wasmrc`; the libc path is byte-unchanged.
+  - 3.3 ⬜ *remaining:* string `==`/`!=` → `ranger_str_cmp`; char access
+    (`charAt`/`substring`/`strfromcode`) routing; and inline fresh-string
+    temporaries passed as call arguments (e.g. `host.drawText("S " + n)`) —
+    needs a statement-scoped temp arena or per-call arg release, deferred because
+    an arbitrary callee's retain/borrow contract for a string arg is unproven.
+  - owned **string-field** release still needs Phase 4 typedesc emission.
 - **Phase 4 — typedesc emission + array runtime + RC** ⬜ serialize typedescs to
   a data segment so owned object/string fields free recursively; port the
   ptr-array/map runtime to the free-list heap with element ownership. Large.

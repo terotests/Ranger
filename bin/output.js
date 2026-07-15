@@ -31090,6 +31090,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       this.ptrArrayElemTypes = {};
       this.ownedObjectLocals = [];
       this.ownedCollectionLocals = [];
+      this.ownedStringLocals = [];
       this.escapedLocals = {};
       this.currentRetType = "i32";
       this.llvmRetType = "i32";
@@ -31689,7 +31690,26 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         cargTypes.push("i8*");
         cargs.push(sb);
         cargTypes.push("i8*");
-        return builder.emitCall("ranger_str_concat", "i8*", cargs, cargTypes);
+        const cres = builder.emitCall("ranger_str_concat", "i8*", cargs, cargTypes);
+        let freeA = aStr == false;
+        if ( aStr ) {
+          if ( this.exprIsFreshString(aNode, lctx) ) {
+            freeA = true;
+          }
+        }
+        if ( freeA ) {
+          this.emitStrReleasePtr(sa, lctx);
+        }
+        let freeB = bStr == false;
+        if ( bStr ) {
+          if ( this.exprIsFreshString(bNode, lctx) ) {
+            freeB = true;
+          }
+        }
+        if ( freeB ) {
+          this.emitStrReleasePtr(sb, lctx);
+        }
+        return cres;
       }
       const sz = builder.emitConst("i32", "4096");
       const raw = builder.emitHeapAlloc(sz);
@@ -33662,6 +33682,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       lctx.ownedObjectLocals = emptyOwned;
       let emptyColl = [];
       lctx.ownedCollectionLocals = emptyColl;
+      let emptyStr = [];
+      lctx.ownedStringLocals = emptyStr;
       let emptyEscaped = {};
       lctx.escapedLocals = emptyEscaped;
       if ( isInstance ) {
@@ -33805,6 +33827,70 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       argTypes.push(lctx.ptrType);
       builder.emitCall("ranger_obj_release", voidType, args, argTypes);
     };
+    isOwnedStringLocal (varName, lctx) {
+      for ( let i = 0; i < lctx.ownedStringLocals.length; i++) {
+        var n = lctx.ownedStringLocals[i];
+        if ( n == varName ) {
+          return true;
+        }
+      };
+      return false;
+    };
+    emitStrReleasePtr (ptr, lctx) {
+      let args = [];
+      let argTypes = [];
+      args.push(ptr);
+      argTypes.push("i8*");
+      lctx.builder.emitCall("ranger_str_release", "void", args, argTypes);
+    };
+    releaseOwnedString (varName, lctx) {
+      if ( this.wasmStrEnabled(lctx) == false ) {
+        return;
+      }
+      if ( ( typeof(lctx.escapedLocals[varName] ) != "undefined" && lctx.escapedLocals.hasOwnProperty(varName) ) ) {
+        return;
+      }
+      if ( false == (( typeof(lctx.slots[varName] ) != "undefined" && lctx.slots.hasOwnProperty(varName) )) ) {
+        return;
+      }
+      const builder = lctx.builder;
+      const voidType = "void";
+      const val = this.loadSlot(varName, "i8*", lctx);
+      let args = [];
+      let argTypes = [];
+      args.push(val);
+      argTypes.push("i8*");
+      builder.emitCall("ranger_str_release", voidType, args, argTypes);
+    };
+    emitOwnedStringInit (varName, valNode, strPtr, lctx) {
+      if ( this.wasmStrEnabled(lctx) == false ) {
+        return this.emitStrdupExpr(strPtr, lctx);
+      }
+      let owned = strPtr;
+      if ( this.exprIsFreshString(valNode, lctx) == false ) {
+        owned = this.emitStrdupExpr(strPtr, lctx);
+      }
+      if ( this.isOwnedStringLocal(varName, lctx) == false ) {
+        lctx.ownedStringLocals.push(varName);
+      }
+      return owned;
+    };
+    emitOwnedStringReassign (varName, valNode, strPtr, lctx) {
+      if ( this.wasmStrEnabled(lctx) == false ) {
+        return this.emitStrdupExpr(strPtr, lctx);
+      }
+      if ( this.isOwnedStringLocal(varName, lctx) ) {
+        this.releaseOwnedString(varName, lctx);
+      }
+      let owned = strPtr;
+      if ( this.exprIsFreshString(valNode, lctx) == false ) {
+        owned = this.emitStrdupExpr(strPtr, lctx);
+      }
+      if ( this.isOwnedStringLocal(varName, lctx) == false ) {
+        lctx.ownedStringLocals.push(varName);
+      }
+      return owned;
+    };
     strictOwnershipEnabled (lctx) {
       const ctx = lctx.ctx;
       return ctx.hasCompilerFlag("strict-ownership");
@@ -33845,6 +33931,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       for ( let i = 0; i < lctx.ownedObjectLocals.length; i++) {
         var name = lctx.ownedObjectLocals[i];
         this.releaseOwnedLocal(name, lctx);
+      };
+      for ( let si = 0; si < lctx.ownedStringLocals.length; si++) {
+        var sname = lctx.ownedStringLocals[si];
+        this.releaseOwnedString(sname, lctx);
       };
       if ( memTarget.usesLibc == false ) {
         return;
@@ -34124,7 +34214,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         lctx.objectSlots[varName] = typeName_1;
       }
       if ( irType == "i8*" ) {
-        tmp = this.emitStrdupExpr(tmp, lctx);
+        tmp = this.emitOwnedStringInit(varName, val, tmp, lctx);
       }
       if ( irType == "f64" ) {
         if ( this.exprIsF64(val) == false ) {
@@ -34185,6 +34275,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 }
               }
             }
+            if ( this.fieldIsStringSlot(cls, fld) ) {
+              if ( rhs.value_type == 11 ) {
+                if ( this.isOwnedStringLocal(rhs.vref, lctx) ) {
+                  lctx.escapedLocals[rhs.vref] = "1";
+                }
+              }
+            }
             this.emitFieldStoreOn(cls, sptr, fld, tmp, lctx);
             return;
           }
@@ -34214,7 +34311,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           }
         }
         if ( storeType == "i8*" ) {
-          tmp = this.emitStrdupExpr(tmp, lctx);
+          tmp = this.emitOwnedStringReassign(varName, rhs, tmp, lctx);
         }
         builder.emitStore(storeType, tmp, slot);
         return;
@@ -34448,36 +34545,51 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       const cond = this.lowerCond(condNode, lctx);
       builder.terminateBrIf(cond, bodyLabel, exitLabel);
       const ownedBefore = lctx.ownedObjectLocals.length;
+      const ownedStrBefore = lctx.ownedStringLocals.length;
       builder.startBlock(bodyLabel);
       this.lowerBlock(bodyNode, lctx);
       const bodyBlock = builder.currentBlock;
       if ( bodyBlock.termKind == "" ) {
-        this.releaseLoopBodyOwned(ownedBefore, lctx);
+        this.releaseLoopBodyOwned(ownedBefore, ownedStrBefore, lctx);
         builder.terminateBr(condLabel);
       }
       builder.startBlock(exitLabel);
     };
-    releaseLoopBodyOwned (ownedBefore, lctx) {
+    releaseLoopBodyOwned (ownedBefore, ownedStrBefore, lctx) {
       const ctx = lctx.ctx;
       if ( ctx.hasCompilerFlag("wasmrc") == false ) {
         return;
       }
       const n = lctx.ownedObjectLocals.length;
-      if ( n <= ownedBefore ) {
-        return;
+      if ( n > ownedBefore ) {
+        let k = ownedBefore;
+        while (k < n) {
+          this.releaseOwnedLocal(lctx.ownedObjectLocals[k], lctx);
+          k = k + 1;
+        };
+        let kept = [];
+        let j = 0;
+        while (j < ownedBefore) {
+          kept.push(lctx.ownedObjectLocals[j]);
+          j = j + 1;
+        };
+        lctx.ownedObjectLocals = kept;
       }
-      let k = ownedBefore;
-      while (k < n) {
-        this.releaseOwnedLocal(lctx.ownedObjectLocals[k], lctx);
-        k = k + 1;
-      };
-      let kept = [];
-      let j = 0;
-      while (j < ownedBefore) {
-        kept.push(lctx.ownedObjectLocals[j]);
-        j = j + 1;
-      };
-      lctx.ownedObjectLocals = kept;
+      const sn = lctx.ownedStringLocals.length;
+      if ( sn > ownedStrBefore ) {
+        let sk = ownedStrBefore;
+        while (sk < sn) {
+          this.releaseOwnedString(lctx.ownedStringLocals[sk], lctx);
+          sk = sk + 1;
+        };
+        let keptS = [];
+        let sj = 0;
+        while (sj < ownedStrBefore) {
+          keptS.push(lctx.ownedStringLocals[sj]);
+          sj = sj + 1;
+        };
+        lctx.ownedStringLocals = keptS;
+      }
     };
     lowerExpr (node, lctx) {
       const builder = lctx.builder;
@@ -34717,6 +34829,31 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }
       if ( op == "substring" ) {
         return true;
+      }
+      return false;
+    };
+    exprIsFreshString (node, lctx) {
+      if ( this.wasmStrEnabled(lctx) == false ) {
+        return false;
+      }
+      const exprNode = this.unwrapCondExpr(node);
+      if ( exprNode.has_operator ) {
+        const op = exprNode.getOperator();
+        if ( this.operatorReturnsString(op) ) {
+          return true;
+        }
+        if ( op == "+" ) {
+          const aNode = exprNode.getSecond();
+          const bNode = exprNode.getThird();
+          if ( this.exprMightBeString(aNode, lctx) || this.exprMightBeString(bNode, lctx) ) {
+            return true;
+          }
+        }
+      }
+      if ( (exprNode.has_call || exprNode.is_direct_method_call) || exprNode.hasFnCall ) {
+        if ( this.exprIsStringish(exprNode, lctx) ) {
+          return true;
+        }
       }
       return false;
     };

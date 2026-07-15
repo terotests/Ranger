@@ -1,0 +1,66 @@
+; ============================================================================
+; str_rc_demo.rgr — string reference-counting / leak-freedom demo (Phase 3.4).
+;
+; Games churn throwaway HUD strings every frame ("SCORE " + n). Without release
+; the WASM heap grows without bound. These functions exercise the compiler's
+; owned-string tracking: fresh concat results are owned by the local and freed
+; at scope end (or per loop iteration), and the int->string temporaries the
+; concat allocates internally are freed too. A leak-free build keeps the heap
+; frontier flat across any iteration count.
+; ============================================================================
+
+Import "./ranger_obj.rgr"
+
+class SG {
+    ; Build and discard N HUD strings. Each iteration: `"HITS " + i` allocates an
+    ; int->string temp AND a concat result; both must be freed per iteration.
+    ; Returns the heap frontier after the loop — flat => leak-free.
+    sfn churnHud:int (n:int) {
+        def i 0
+        while (< i n) {
+            def s ("HITS " + i)
+            def L (strlen s)
+            i = (+ i 1)
+        }
+        return (Heap.frontier())
+    }
+
+    ; Nested concat in a loop: (("(" + i) + ("," + i)) — two inner fresh results
+    ; feed an outer concat; all intermediates must be freed each iteration.
+    sfn churnNested:int (n:int) {
+        def i 0
+        while (< i n) {
+            def s (("(" + i) + ("," + i))
+            def L (strlen s)
+            i = (+ i 1)
+        }
+        return (Heap.frontier())
+    }
+
+    ; Reassignment in a loop: the old buffer must be freed before the new one is
+    ; stored (release-before-reassign), so a single slot doesn't leak per frame.
+    sfn churnReassign:int (n:int) {
+        def s "start"
+        def i 0
+        while (< i n) {
+            s = ("v" + i)
+            i = (+ i 1)
+        }
+        def L (strlen s)
+        return (Heap.frontier())
+    }
+
+    sfn liveBlocks:int () {
+        return (ranger.obj_live())
+    }
+
+    sfn frontier:int () {
+        return (Heap.frontier())
+    }
+
+    ; sanity: the HUD string is still correct while being freed each call
+    sfn hud:string (hits:int) {
+        def s ("HITS " + hits)
+        return s
+    }
+}
