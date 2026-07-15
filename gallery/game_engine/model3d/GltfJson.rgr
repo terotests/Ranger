@@ -1,5 +1,7 @@
 ; ==============================================================================
-; Json.rgr — a compact, self-contained JSON parser for the 3D asset loader.
+; GltfJson.rgr — a compact, self-contained JSON parser for the 3D asset loader.
+; (Named GltfJson, not Json, to avoid a case-insensitive filename clash with
+;  lib/JSON.rgr on macOS/Windows filesystems when built to a native target.)
 ; ==============================================================================
 ; Pure Ranger, no host JSON and no compiler-internal parser: a small recursive
 ; descent parser that produces a typed JsonValue tree. Scoped to what glTF 2.0

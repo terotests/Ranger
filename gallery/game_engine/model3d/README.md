@@ -44,7 +44,7 @@ On failure `loader.ok` is `false` and `loader.lastError` explains why.
 
 | File | Role |
 | --- | --- |
-| `Json.rgr` | Self-contained JSON parser → `JsonValue` tree |
+| `GltfJson.rgr` | Self-contained JSON parser → `JsonValue` tree |
 | `ByteReader.rgr` | Little-endian byte reads + IEEE-754 float32 decode/encode |
 | `GltfMath.rgr` | `Vec2/Vec3/Vec4/Quat/Mat4` (TRS → matrix, matrix multiply) |
 | `AssetModel.rgr` | `TextureAsset/MaterialAsset/MeshAsset/NodeAsset/ModelAsset` + `AssetRegistry` |
