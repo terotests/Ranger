@@ -64,5 +64,35 @@ x.Heap_init();
 x.SG_churnInline(5000);
 ok("no live blocks after churnInline", x.SG_liveBlocks(), 0);
 
+// --- string comparison (==/!=) ---
+x.Heap_init();
+ok("eqHits(5) == 'HITS 5'", x.SG_eqHits(5), 1);
+ok("eqHits(3) != 'HITS 5'", x.SG_eqHits(3), 0);
+ok("neHits(3)", x.SG_neHits(3), 1);
+ok("neHits(5)", x.SG_neHits(5), 0);
+x.Heap_init();
+const cbase = x.SG_frontier();
+x.SG_churnCompare(1);
+const cc1 = x.SG_frontier();
+x.SG_churnCompare(10000);
+const cc10k = x.SG_frontier();
+ok("churnCompare flat", cc10k, cc1);
+ok("churnCompare back to base", cc1, cbase);
+
+// --- char access ---
+x.Heap_init();
+ok("charOf(0)='H'", x.SG_charOf(0), 72);
+ok("charOf(4)='O'", x.SG_charOf(4), 79);
+ok("subLen(1,3)=2", x.SG_subLen(1, 3), 2);
+ok("subFirst(1,3)='E'", x.SG_subFirst(1, 3), 69);
+ok("codeChar(65)='A'", x.SG_codeChar(65), 65);
+x.Heap_init();
+const sb1  = x.SG_churnSubstring(1);
+const sb10k= x.SG_churnSubstring(10000);
+ok("churnSubstring flat", sb10k, sb1);
+x.Heap_init();
+x.SG_churnSubstring(3000);
+ok("no live blocks after churnSubstring", x.SG_liveBlocks(), 0);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

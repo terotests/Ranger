@@ -207,4 +207,83 @@ class ranger {
             Heap.free(s)
         }
     }
+
+    ; ======================================================================
+    ; Character access. The compiler emits calls to these exact mangled names
+    ; (ranger_char_at / ranger_substring / ranger_str_fromcode /
+    ; ranger_str_frombyte) for charAt / substring / strfromcode / rawbytechar.
+    ; ======================================================================
+
+    ; byte at index (games use ASCII; a UTF-8 lead byte is returned as-is)
+    sfn char_at:int (s:int pos:int) {
+        if (== s 0) {
+            return 0
+        }
+        return (Mem.loadU8((+ s pos)))
+    }
+
+    ; fresh heap copy of the byte range [start, end), clamped to [0, len]
+    sfn substring:int (s:int start:int end:int) {
+        def n (ranger.str_len(s))
+        def st start
+        if (< st 0) {
+            st = 0
+        }
+        def en end
+        if (> en n) {
+            en = n
+        }
+        if (< en st) {
+            en = st
+        }
+        def len (- en st)
+        def buf (Heap.alloc((+ len 1)))
+        def i 0
+        while (< i len) {
+            Mem.storeU8((+ buf i) (Mem.loadU8((+ (+ s st) i))))
+            i = (+ i 1)
+        }
+        Mem.storeU8((+ buf len) 0)
+        return buf
+    }
+
+    ; UTF-8 encode one code point into a fresh heap string
+    sfn str_fromcode:int (code:int) {
+        if (< code 128) {
+            def b (Heap.alloc(2))
+            Mem.storeU8(b code)
+            Mem.storeU8((+ b 1) 0)
+            return b
+        }
+        if (< code 2048) {
+            def b (Heap.alloc(3))
+            Mem.storeU8(b (bit_or 192 (bit_shr code 6)))
+            Mem.storeU8((+ b 1) (bit_or 128 (bit_and code 63)))
+            Mem.storeU8((+ b 2) 0)
+            return b
+        }
+        if (< code 65536) {
+            def b (Heap.alloc(4))
+            Mem.storeU8(b (bit_or 224 (bit_shr code 12)))
+            Mem.storeU8((+ b 1) (bit_or 128 (bit_and (bit_shr code 6) 63)))
+            Mem.storeU8((+ b 2) (bit_or 128 (bit_and code 63)))
+            Mem.storeU8((+ b 3) 0)
+            return b
+        }
+        def b (Heap.alloc(5))
+        Mem.storeU8(b (bit_or 240 (bit_shr code 18)))
+        Mem.storeU8((+ b 1) (bit_or 128 (bit_and (bit_shr code 12) 63)))
+        Mem.storeU8((+ b 2) (bit_or 128 (bit_and (bit_shr code 6) 63)))
+        Mem.storeU8((+ b 3) (bit_or 128 (bit_and code 63)))
+        Mem.storeU8((+ b 4) 0)
+        return b
+    }
+
+    ; single raw byte -> fresh 1-char heap string
+    sfn str_frombyte:int (byte:int) {
+        def buf (Heap.alloc(2))
+        Mem.storeU8(buf (bit_and byte 255))
+        Mem.storeU8((+ buf 1) 0)
+        return buf
+    }
 }

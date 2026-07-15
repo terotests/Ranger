@@ -1237,7 +1237,9 @@ class LowIRBuilderPass {
     push argTypes "i32"
     push args end
     push argTypes "i32"
-    return (lctx.builder.emitCall("ranger_substring" "i8*" args argTypes))
+    def subRes (lctx.builder.emitCall("ranger_substring" "i8*" args argTypes))
+    this.registerFreshStringTemp(subRes lctx)
+    return subRes
   }
 
   fn lowerAtArgs:string (textNode:CodeNode posNode:CodeNode lctx:LowIRLowerContext) {
@@ -1532,7 +1534,9 @@ class LowIRBuilderPass {
     def argTypes:[string]
     push args code
     push argTypes "i32"
-    return (builder.emitCall(fnName "i8*" args argTypes))
+    def codeRes (builder.emitCall(fnName "i8*" args argTypes))
+    this.registerFreshStringTemp(codeRes lctx)
+    return codeRes
   }
 
   fn lowerStrlen:string (node:CodeNode lctx:LowIRLowerContext) {
@@ -4244,7 +4248,11 @@ class LowIRBuilderPass {
     push argTypes "i8*"
     push args rhs
     push argTypes "i8*"
-    def sc (builder.emitCall("strcmp" "i32" args argTypes))
+    def cmpFn:string "strcmp"
+    if (this.wasmStrEnabled(lctx)) {
+      cmpFn = "ranger_str_cmp"
+    }
+    def sc (builder.emitCall(cmpFn "i32" args argTypes))
     def zero (builder.emitConst("i32" "0"))
     return (builder.emitIcmp(pred sc zero))
   }

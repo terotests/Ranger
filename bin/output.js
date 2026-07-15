@@ -32244,7 +32244,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       argTypes.push("i32");
       args.push(end);
       argTypes.push("i32");
-      return lctx.builder.emitCall("ranger_substring", "i8*", args, argTypes);
+      const subRes = lctx.builder.emitCall("ranger_substring", "i8*", args, argTypes);
+      this.registerFreshStringTemp(subRes, lctx);
+      return subRes;
     };
     lowerAtArgs (textNode, posNode, lctx) {
       const text = this.lowerExpr(textNode, lctx);
@@ -32513,7 +32515,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       let argTypes = [];
       args.push(code);
       argTypes.push("i32");
-      return builder.emitCall(fnName, "i8*", args, argTypes);
+      const codeRes = builder.emitCall(fnName, "i8*", args, argTypes);
+      this.registerFreshStringTemp(codeRes, lctx);
+      return codeRes;
     };
     lowerStrlen (node, lctx) {
       const irI32 = "i32";
@@ -34984,7 +34988,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       argTypes.push("i8*");
       args.push(rhs);
       argTypes.push("i8*");
-      const sc = builder.emitCall("strcmp", "i32", args, argTypes);
+      let cmpFn = "strcmp";
+      if ( this.wasmStrEnabled(lctx) ) {
+        cmpFn = "ranger_str_cmp";
+      }
+      const sc = builder.emitCall(cmpFn, "i32", args, argTypes);
       const zero = builder.emitConst("i32", "0");
       return builder.emitIcmp(pred, sc, zero);
     };

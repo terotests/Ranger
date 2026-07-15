@@ -87,4 +87,72 @@ class SG {
         def s ("HITS " + hits)
         return s
     }
+
+    ; --- string comparison (==/!=) via ranger_str_cmp ---------------------
+    ; 1 when the built HUD equals the literal. Exercises == on a fresh concat
+    ; local vs a static literal.
+    sfn eqHits:int (n:int) {
+        def s ("HITS " + n)
+        if (s == "HITS 5") {
+            return 1
+        }
+        return 0
+    }
+
+    sfn neHits:int (n:int) {
+        def s ("HITS " + n)
+        if (s != "HITS 5") {
+            return 1
+        }
+        return 0
+    }
+
+    ; comparison in a loop must not leak the per-iteration concat operand
+    sfn churnCompare:int (n:int) {
+        def hits 0
+        def i 0
+        while (< i n) {
+            if (("K" + i) == "K7") {
+                hits = (+ hits 1)
+            }
+            i = (+ i 1)
+        }
+        return (Heap.frontier())
+    }
+
+    ; --- char access ------------------------------------------------------
+    sfn charOf:int (pos:int) {
+        def s "HELLO"
+        return (charAt s pos)
+    }
+
+    sfn subLen:int (start:int end:int) {
+        def s "HELLO"
+        def sub (substring s start end)
+        return (strlen sub)
+    }
+
+    ; return the first byte of substring(s,start,end) (for content check)
+    sfn subFirst:int (start:int end:int) {
+        def s "HELLO"
+        def sub (substring s start end)
+        return (charAt sub 0)
+    }
+
+    sfn codeChar:int (code:int) {
+        def s (strfromcode code)
+        return (charAt s 0)
+    }
+
+    ; substring churn must stay heap-flat (fresh result freed each iteration)
+    sfn churnSubstring:int (n:int) {
+        def s "HELLOWORLD"
+        def i 0
+        while (< i n) {
+            def sub (substring s 0 5)
+            def L (strlen sub)
+            i = (+ i 1)
+        }
+        return (Heap.frontier())
+    }
 }

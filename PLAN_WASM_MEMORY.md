@@ -34,7 +34,7 @@ RC — a major multi-phase subsystem, not a small add-on to the object work.
 General-purpose programs (parser, tools, the in-browser compiler) need it;
 object-based game/logic code does not.
 
-- **Phase 3 — string runtime + RC** 🟩 *mostly done*
+- **Phase 3 — string runtime + RC** ✅ *done*
   - 3.1–3.2 ✅ freestanding WASM string runtime (`ranger_str_*` in
     `runtime/wasm/ranger_obj.rgr`: len/concat/dup/from_int/cmp/release; literals
     in a data segment written by `ng_WATWriter.rgr`; `Mem.loadU8/storeU8` →
@@ -48,12 +48,22 @@ object-based game/logic code does not.
     fresh nested-concat operands). Reassignment frees the old buffer first. A
     per-frame `"HITS " + n` loop stays heap-flat to 100 000 iterations
     (`str_rc_test` 9/9). Gated on `-wasmrc`; the libc path is byte-unchanged.
-  - 3.3 ⬜ *remaining:* string `==`/`!=` → `ranger_str_cmp`; char access
-    (`charAt`/`substring`/`strfromcode`) routing; and inline fresh-string
-    temporaries passed as call arguments (e.g. `host.drawText("S " + n)`) —
-    needs a statement-scoped temp arena or per-call arg release, deferred because
-    an arbitrary callee's retain/borrow contract for a string arg is unproven.
-  - owned **string-field** release still needs Phase 4 typedesc emission.
+  - 3.5 ✅ **statement-scoped fresh-string arena.** Fresh strings built
+    mid-expression but never bound to a local — the dominant game pattern
+    `host.drawText("SCORE " + n)` — are tracked in `pendingStringTemps` and freed
+    at statement end (per iteration in loops, per branch in conditions). Owners
+    (assigned local / returned value) *claim* their temp out of the arena so it
+    is not double-freed. `churnInline` (concat as a bare call argument) stays
+    heap-flat to 10 000 iterations.
+  - 3.3 ✅ **comparison + char access.** `==`/`!=` route to `ranger_str_cmp`;
+    `charAt`/`substring`/`strfromcode`/`rawbytechar` route to
+    `ranger_char_at`/`ranger_substring`/`ranger_str_fromcode`/`ranger_str_frombyte`
+    (added to the `ranger` runtime class; substring/fromcode results join the
+    arena). `str_rc_test` 25/25. libc path verified byte-unchanged (a `==`
+    snippet still emits `strcmp`, not `ranger_str_cmp`).
+  - owned **string-field** release still needs Phase 4 typedesc emission; a
+    string-returning *call* result is dup'd (own a private copy) rather than
+    move-owned, since the callee's return is a borrow by convention (getters).
 - **Phase 4 — typedesc emission + array runtime + RC** ⬜ serialize typedescs to
   a data segment so owned object/string fields free recursively; port the
   ptr-array/map runtime to the free-list heap with element ownership. Large.
