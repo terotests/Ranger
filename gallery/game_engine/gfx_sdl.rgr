@@ -2363,6 +2363,7 @@ static int rgfx_scene_ensure_quad() {
     };
     uint16_t idx[6] = {0,1,2,0,2,3};
     g_scene_quad = rgfx_mesh_make(v, 4, idx, 6);
+    SDL_Log(\"[scene] billboard quad mesh=%d\", g_scene_quad);
     return g_scene_quad;
 }
 // billboard sprite: a camera-facing quad showing cell (0,0) of a cols x rows
@@ -2505,8 +2506,9 @@ extern \"C\" void rgfx_scene_render(int w, int h) {
         if (!e.alive || !e.enabled || !e.visible) continue;
         if (e.type==RGE_SPRITE) {
             if (pass!=0) continue; // sprites: opaque pass with alpha discard
-            if (g_scene_quad<=0 || g_scene_quad>(int)g_rgfx_meshes.size()) continue;
-            RgfxMesh3D& m = g_rgfx_meshes[(size_t)(g_scene_quad-1)];
+            int q = rgfx_scene_ensure_quad(); // lazily build the billboard quad (GL is current here)
+            if (q<=0 || q>(int)g_rgfx_meshes.size()) continue;
+            RgfxMesh3D& m = g_rgfx_meshes[(size_t)(q-1)];
             // cylindrical (Y-up) billboard: face the camera horizontally
             float fxc=cam.pos[0]-e.pos[0], fzc=cam.pos[2]-e.pos[2];
             float fl=sqrtf(fxc*fxc+fzc*fzc); if(fl>0.f){fxc/=fl;fzc/=fl;} else {fxc=0.f;fzc=1.f;}
