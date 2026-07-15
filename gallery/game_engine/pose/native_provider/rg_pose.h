@@ -37,15 +37,29 @@ struct PoseFrame {
   std::array<Landmark, kLandmarkCount> landmarks{};
 };
 
-// ---- RGP1 byte layout (must match the wasm pose block / as_abi_bridge) --------
+// ---- RGP1 byte layout — the SHARED, canonical wasm/wasm_pose_abi.h (RGP1 v2).
+// Identical offsets to lib/ranger_game/src/pose.rs and scripting/as_abi_bridge.rgr
+// so a guest reads pose from the same bytes on every host (IDEAL §2.4). Positions
+// are NORMALIZED [0,1] * kFP (NOT multiplied by any view size — the guest scales
+// into its own world), which removes the view-size-baked-in leak the old layout
+// had.
 namespace rgp1 {
-constexpr int kOffPresent = 0, kOffGesture = 4, kOffCount = 8, kOffRevision = 12, kOffLm0 = 16;
-constexpr int kFP = 256, kViewW = 480, kViewH = 270, kSize = 128;
+constexpr int kOffMagic = 0, kOffVersion = 4, kOffSize = 8, kOffRevision = 12,
+              kOffPresent = 16, kOffGesture = 20, kOffCount = 24, kOffTimeMs = 28,
+              kOffDtMs = 32, kOffFlags = 36, kOffBodyVx = 40, kOffBodyVy = 44,
+              kOffBodySpeed = 48, kOffLm0 = 64;
+constexpr uint32_t kMagic = 0x31504752u;  // 'RGP1' little-endian
+constexpr int kVersion = 2, kMaxLm = 33, kLmStride = 24, kFP = 256;
+// per-landmark record offsets (within a kLmStride block)
+constexpr int kLmX = 0, kLmY = 4, kLmVx = 8, kLmVy = 12, kLmSpeed = 16, kLmConf = 20;
+constexpr uint32_t kFlagValid = 1u, kFlagHasVel = 2u;
+constexpr int kSize = 64 + kMaxLm * kLmStride;  // 856
 }  // namespace rgp1
 
-// Write a PoseFrame into a 128-byte RGP1 buffer (little-endian i32) — the exact
-// bytes the wasm3 guest reads. Nose landmark -> world-unit fixed-point. Only the
-// game thread calls this, into guest linear memory.
+// Write a PoseFrame into an RGP1 buffer (little-endian i32) — the exact bytes the
+// guest reads. Landmarks are written NORMALIZED (x,y in [0,1] * kFP), so the
+// bytes are view-independent. Only the game thread calls this, into guest linear
+// memory.
 void WriteRgp1(const PoseFrame& f, uint8_t* dst /* >= rgp1::kSize */);
 
 // Classify the RGP1 gesture from landmarks (same rule as rgp1.mjs).

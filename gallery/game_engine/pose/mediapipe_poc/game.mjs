@@ -68,7 +68,7 @@ export async function startGame() {
   catch (e) { source = await makeImageSource(); }
   state.mode = source.kind;
 
-  const rgpBuf = new Int32Array(32);
+  const rgpBuf = new Int32Array(856 / 4);   // full RGP1 v2 block (header + 33 landmarks)
   let seq = 0, fpsT = performance.now(), fpsN = 0;
 
   function loop() {
