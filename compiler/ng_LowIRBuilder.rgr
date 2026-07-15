@@ -1678,6 +1678,11 @@ class LowIRBuilderPass {
   fn bindCollectionSlot:void (varName:string kind:string desc:string lctx:LowIRLowerContext) {
     this.bindSlot(varName lctx.ptrType desc lctx)
     set lctx.collectionSlots varName kind
+    ; On freestanding WASM a locally-created map is freed at scope end too. The
+    ; release loop dispatches by collectionKind (map -> RtMap_free).
+    if (this.wasmCollectionRcEnabled(lctx)) {
+      push lctx.ownedCollectionLocals varName
+    }
   }
 
   fn loadCollectionDesc:string (varName:string lctx:LowIRLowerContext) {
@@ -3123,7 +3128,14 @@ class LowIRBuilderPass {
     def argTypes:[string]
     push args desc
     push argTypes lctx.ptrType
-    lctx.builder.emitCall("ranger_ptrarray_release" "void" args argTypes)
+    ; dispatch by collection kind: maps free desc+keys+vals via RtMap_free;
+    ; ptr-arrays (int and object) free backing+desc (+ element RC) via
+    ; ranger_ptrarray_release.
+    def relFn:string "ranger_ptrarray_release"
+    if ((this.collectionKind(varName lctx)) == "map") {
+      relFn = "RtMap_free"
+    }
+    lctx.builder.emitCall(relFn "void" args argTypes)
   }
 
   ; Prepare a string value for a freshly-defined owned local and register it for
@@ -4537,6 +4549,16 @@ class LowIRBuilderPass {
         def val (this.lowerExpr((itemAt argsNode.children 1) lctx))
         builder.emitPtrStore8(ptr val)
         return handledVoid
+      }
+      return notIntrinsic
+    }
+    if (fnName == "Mem_memSize") {
+      return (builder.emitMemSize())
+    }
+    if (fnName == "Mem_memGrow") {
+      if ((array_length argsNode.children) > 0) {
+        def pages (this.lowerExpr((itemAt argsNode.children 0) lctx))
+        return (builder.emitMemGrow(pages))
       }
       return notIntrinsic
     }

@@ -30252,6 +30252,25 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       ins.arg2 = value;
       this.emit(ins);
     };
+    emitMemSize () {
+      const dest = this.freshTemp("m");
+      const ins = new LowIRInstr();
+      ins.op = "mem_size";
+      ins.dest = dest;
+      ins.irType = "i32";
+      this.emit(ins);
+      return dest;
+    };
+    emitMemGrow (pages) {
+      const dest = this.freshTemp("m");
+      const ins = new LowIRInstr();
+      ins.op = "mem_grow";
+      ins.dest = dest;
+      ins.irType = "i32";
+      ins.arg1 = pages;
+      this.emit(ins);
+      return dest;
+    };
     emitI32At (base, byteOff) {
       const pt = this.irModule.ptrType;
       const off = this.emitConst(pt, ("" + byteOff));
@@ -30358,6 +30377,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       return;
     }
     LowIRRuntimeGen.buildRtMapNew(module);
+    if ( module.useFreeListHeap ) {
+      LowIRRuntimeGen.buildRtMapGrow(module);
+      LowIRRuntimeGen.buildRtMapFree(module);
+    }
     LowIRRuntimeGen.buildRtMapHashSlot(module);
     LowIRRuntimeGen.buildRtMapPutAt(module);
     LowIRRuntimeGen.buildRtMapPut(module);
@@ -30456,6 +30479,20 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     const off = builder.emitZextI32ToPtr(offI32);
     return builder.emitBin("add", pt, base, off);
   };
+  LowIRRuntimeGen.emitFreePtr = function(builder, module, ptr) {
+    const pt = module.ptrType;
+    let args = [];
+    let argTypes = [];
+    args.push(ptr);
+    argTypes.push(pt);
+    if ( module.useLibcHeap ) {
+      builder.emitCall("free", "void", args, argTypes);
+      return;
+    }
+    if ( module.useFreeListHeap ) {
+      builder.emitCall("Heap_free", "void", args, argTypes);
+    }
+  };
   LowIRRuntimeGen.buildRtMapNew = function(module) {
     const builder = new LowIRBuilder(module);
     builder.reset();
@@ -30505,6 +30542,123 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     builder.startBlock(doneLabel);
     builder.terminateRet(pt, desc);
     LowIRRuntimeGen.finishFn(builder, module, "RtMap_new", pt, params, false);
+  };
+  LowIRRuntimeGen.buildRtMapGrow = function(module) {
+    const builder = new LowIRBuilder(module);
+    builder.reset();
+    const pt = module.ptrType;
+    const valsOff = LowIRRuntimeGen.mapValsOff(module);
+    const capOff = LowIRRuntimeGen.mapCapOff(module);
+    const sizeOff = LowIRRuntimeGen.mapSizeOff(module);
+    let params = [];
+    const descP = new LowIRParam();
+    descP.name = "desc";
+    descP.irType = pt;
+    params.push(descP);
+    builder.startBlock("entry");
+    const oldCap = LowIRRuntimeGen.emitCap(builder, module, "%desc");
+    const oldKeys = LowIRRuntimeGen.emitKeysPtr(builder, module, "%desc");
+    const oldVals = LowIRRuntimeGen.emitValsPtr(builder, module, "%desc");
+    const two = builder.emitConst("i32", "2");
+    const newCap = builder.emitBin("mul", "i32", oldCap, two);
+    const four = builder.emitConst("i32", "4");
+    const nbytes = builder.emitBin("mul", "i32", newCap, four);
+    const newKeys = builder.emitHeapAlloc(nbytes);
+    const newVals = builder.emitHeapAlloc(nbytes);
+    const zero = builder.emitConst("i32", "0");
+    const negOne = builder.emitConst("i32", "-1");
+    const iSlot = builder.freshTemp("i");
+    builder.emitAlloca("i32", iSlot);
+    builder.emitStore("i32", zero, iSlot);
+    const ic = builder.freshLabel("grow_init_cond");
+    const ib = builder.freshLabel("grow_init_body");
+    const idn = builder.freshLabel("grow_init_done");
+    builder.terminateBr(ic);
+    builder.startBlock(ic);
+    const iV = builder.emitLoad("i32", iSlot);
+    const iLt = builder.emitIcmp("slt", iV, newCap);
+    builder.terminateBrIf(iLt, ib, idn);
+    builder.startBlock(ib);
+    const nkp = LowIRRuntimeGen.emitSlotAddr(builder, module, newKeys, iV);
+    builder.emitPtrStoreTyped(nkp, negOne, "i32");
+    const one = builder.emitConst("i32", "1");
+    const iN = builder.emitBin("add", "i32", iV, one);
+    builder.emitStore("i32", iN, iSlot);
+    builder.terminateBr(ic);
+    builder.startBlock(idn);
+    builder.emitPtrStore("%desc", newKeys);
+    const valsFld = builder.emitConst(pt, ("" + valsOff));
+    const valsAddr = builder.emitBin("add", pt, "%desc", valsFld);
+    builder.emitPtrStore(valsAddr, newVals);
+    builder.emitStoreI32At("%desc", capOff, newCap);
+    builder.emitStoreI32At("%desc", sizeOff, zero);
+    const jSlot = builder.freshTemp("j");
+    builder.emitAlloca("i32", jSlot);
+    builder.emitStore("i32", zero, jSlot);
+    const rc = builder.freshLabel("grow_rehash_cond");
+    const rb = builder.freshLabel("grow_rehash_body");
+    const rd = builder.freshLabel("grow_rehash_done");
+    const rput = builder.freshLabel("grow_rehash_put");
+    const rinc = builder.freshLabel("grow_rehash_inc");
+    builder.terminateBr(rc);
+    builder.startBlock(rc);
+    const jV = builder.emitLoad("i32", jSlot);
+    const jLt = builder.emitIcmp("slt", jV, oldCap);
+    builder.terminateBrIf(jLt, rb, rd);
+    builder.startBlock(rb);
+    const okp = LowIRRuntimeGen.emitSlotAddr(builder, module, oldKeys, jV);
+    const k = builder.emitPtrLoadTyped(okp, "i32");
+    const notEmpty = builder.emitIcmp("ne", k, negOne);
+    builder.terminateBrIf(notEmpty, rput, rinc);
+    builder.startBlock(rput);
+    const ovp = LowIRRuntimeGen.emitSlotAddr(builder, module, oldVals, jV);
+    const v = builder.emitPtrLoadTyped(ovp, "i32");
+    let pargs = [];
+    let ptypes = [];
+    pargs.push("%desc");
+    ptypes.push(pt);
+    pargs.push(k);
+    ptypes.push("i32");
+    pargs.push(v);
+    ptypes.push("i32");
+    builder.emitCall("RtMap_put", "void", pargs, ptypes);
+    builder.terminateBr(rinc);
+    builder.startBlock(rinc);
+    const jOne = builder.emitConst("i32", "1");
+    const jN = builder.emitBin("add", "i32", jV, jOne);
+    builder.emitStore("i32", jN, jSlot);
+    builder.terminateBr(rc);
+    builder.startBlock(rd);
+    LowIRRuntimeGen.emitFreePtr(builder, module, oldKeys);
+    LowIRRuntimeGen.emitFreePtr(builder, module, oldVals);
+    builder.terminateRet("void", "");
+    LowIRRuntimeGen.finishFn(builder, module, "RtMap_grow", "void", params, false);
+  };
+  LowIRRuntimeGen.buildRtMapFree = function(module) {
+    const builder = new LowIRBuilder(module);
+    builder.reset();
+    const pt = module.ptrType;
+    let params = [];
+    const descP = new LowIRParam();
+    descP.name = "desc";
+    descP.irType = pt;
+    params.push(descP);
+    builder.startBlock("entry");
+    const zero = builder.emitConst(pt, "0");
+    const isNull = builder.emitIcmp("eq", "%desc", zero);
+    const retLabel = builder.freshLabel("mapfree_ret");
+    const bodyLabel = builder.freshLabel("mapfree_body");
+    builder.terminateBrIf(isNull, retLabel, bodyLabel);
+    builder.startBlock(bodyLabel);
+    const keys = LowIRRuntimeGen.emitKeysPtr(builder, module, "%desc");
+    const vals = LowIRRuntimeGen.emitValsPtr(builder, module, "%desc");
+    LowIRRuntimeGen.emitFreePtr(builder, module, keys);
+    LowIRRuntimeGen.emitFreePtr(builder, module, vals);
+    LowIRRuntimeGen.emitFreePtr(builder, module, "%desc");
+    builder.terminateRet("void", "");
+    builder.startBlock(retLabel);
+    builder.terminateRet("void", "");
+    LowIRRuntimeGen.finishFn(builder, module, "RtMap_free", "void", params, false);
   };
   LowIRRuntimeGen.buildRtMapHashSlot = function(module) {
     const builder = new LowIRBuilder(module);
@@ -30556,12 +30710,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     valP.name = "val";
     valP.irType = "i32";
     params.push(valP);
+    const retLabel = builder.freshLabel("putat_ret");
+    const bodyLabel = builder.freshLabel("putat_body");
+    const updLabel = builder.freshLabel("putat_upd");
+    const checkEmpty = builder.freshLabel("putat_chk");
+    const emptyLabel = builder.freshLabel("putat_empty");
+    const recurseLabel = builder.freshLabel("putat_rec");
     builder.startBlock("entry");
     const cap = LowIRRuntimeGen.emitCap(builder, module, "%desc");
     const geCap = builder.emitIcmp("sge", "%slot", cap);
-    const retLabel = builder.freshLabel("putat_ret");
-    const bodyLabel = builder.freshLabel("putat_body");
     builder.terminateBrIf(geCap, retLabel, bodyLabel);
+    builder.startBlock(retLabel);
+    builder.terminateRet("void", "");
     builder.startBlock(bodyLabel);
     const keysPtr = LowIRRuntimeGen.emitKeysPtr(builder, module, "%desc");
     const valsPtr = LowIRRuntimeGen.emitValsPtr(builder, module, "%desc");
@@ -30570,11 +30730,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     const k = builder.emitPtrLoadTyped(kp, "i32");
     const negOne = builder.emitConst("i32", "-1");
     const eqKey = builder.emitIcmp("eq", k, "%key");
-    const updLabel = builder.freshLabel("putat_upd");
-    const emptyLabel = builder.freshLabel("putat_empty");
-    const recurseLabel = builder.freshLabel("putat_rec");
-    const checkEmpty = builder.freshLabel("putat_chk");
     builder.terminateBrIf(eqKey, updLabel, checkEmpty);
+    builder.startBlock(updLabel);
+    builder.emitPtrStoreTyped(vp, "%val", "i32");
+    builder.terminateRet("void", "");
     builder.startBlock(checkEmpty);
     const isEmpty = builder.emitIcmp("eq", k, negOne);
     builder.terminateBrIf(isEmpty, emptyLabel, recurseLabel);
@@ -30585,9 +30744,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     const one = builder.emitConst("i32", "1");
     const newSize = builder.emitBin("add", "i32", size, one);
     builder.emitStoreI32At("%desc", sizeOff, newSize);
-    builder.terminateRet("void", "");
-    builder.startBlock(updLabel);
-    builder.emitPtrStoreTyped(vp, "%val", "i32");
     builder.terminateRet("void", "");
     builder.startBlock(recurseLabel);
     const one2 = builder.emitConst("i32", "1");
@@ -30604,8 +30760,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     args.push("%val");
     argTypes.push("i32");
     builder.emitCall("RtMap_putAt", "void", args, argTypes);
-    builder.terminateRet("void", "");
-    builder.startBlock(retLabel);
     builder.terminateRet("void", "");
     LowIRRuntimeGen.finishFn(builder, module, "RtMap_putAt", "void", params, false);
   };
@@ -30627,6 +30781,32 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     valP.irType = "i32";
     params.push(valP);
     builder.startBlock("entry");
+    const guardKey = builder.emitConst("i32", "-1");
+    const isSentinel = builder.emitIcmp("eq", "%key", guardKey);
+    const sentinelRet = builder.freshLabel("put_sentinel_ret");
+    const putGo = builder.freshLabel("put_go");
+    builder.terminateBrIf(isSentinel, sentinelRet, putGo);
+    builder.startBlock(sentinelRet);
+    builder.terminateRet("void", "");
+    builder.startBlock(putGo);
+    if ( module.useFreeListHeap ) {
+      const size0 = LowIRRuntimeGen.emitSize(builder, module, "%desc");
+      const cap0 = LowIRRuntimeGen.emitCap(builder, module, "%desc");
+      const twoG = builder.emitConst("i32", "2");
+      const sz2 = builder.emitBin("mul", "i32", size0, twoG);
+      const full = builder.emitIcmp("sge", sz2, cap0);
+      const growLabel = builder.freshLabel("put_grow");
+      const contLabel = builder.freshLabel("put_cont");
+      builder.terminateBrIf(full, growLabel, contLabel);
+      builder.startBlock(growLabel);
+      let gargs = [];
+      let gtypes = [];
+      gargs.push("%desc");
+      gtypes.push(pt);
+      builder.emitCall("RtMap_grow", "void", gargs, gtypes);
+      builder.terminateBr(contLabel);
+      builder.startBlock(contLabel);
+    }
     let hashArgs = [];
     let hashTypes = [];
     hashArgs.push("%desc");
@@ -30665,32 +30845,37 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     keyP.name = "key";
     keyP.irType = "i32";
     params.push(keyP);
+    const negRet1 = builder.freshLabel("getat_neg1");
+    const bodyLabel = builder.freshLabel("getat_body");
+    const negRet2 = builder.freshLabel("getat_neg2");
+    const keyCheck = builder.freshLabel("getat_key");
+    const valRet = builder.freshLabel("getat_val");
+    const recurseRet = builder.freshLabel("getat_rec");
     builder.startBlock("entry");
     const cap = LowIRRuntimeGen.emitCap(builder, module, "%desc");
     const negOne = builder.emitConst("i32", "-1");
-    const negRet = builder.freshLabel("getat_neg");
-    const bodyLabel = builder.freshLabel("getat_body");
     const geCap = builder.emitIcmp("sge", "%slot", cap);
-    builder.terminateBrIf(geCap, negRet, bodyLabel);
+    builder.terminateBrIf(geCap, negRet1, bodyLabel);
+    builder.startBlock(negRet1);
+    const negOne1 = builder.emitConst("i32", "-1");
+    builder.terminateRet("i32", negOne1);
     builder.startBlock(bodyLabel);
     const keysPtr = LowIRRuntimeGen.emitKeysPtr(builder, module, "%desc");
     const kp = LowIRRuntimeGen.emitSlotAddr(builder, module, keysPtr, "%slot");
     const k = builder.emitPtrLoadTyped(kp, "i32");
     const isEmpty = builder.emitIcmp("eq", k, negOne);
-    const keyCheck = builder.freshLabel("getat_key");
-    builder.terminateBrIf(isEmpty, negRet, keyCheck);
+    builder.terminateBrIf(isEmpty, negRet2, keyCheck);
+    builder.startBlock(negRet2);
+    const negOne2 = builder.emitConst("i32", "-1");
+    builder.terminateRet("i32", negOne2);
     builder.startBlock(keyCheck);
     const eqKey = builder.emitIcmp("eq", k, "%key");
-    const valRet = builder.freshLabel("getat_val");
-    const recurseRet = builder.freshLabel("getat_rec");
     builder.terminateBrIf(eqKey, valRet, recurseRet);
     builder.startBlock(valRet);
     const valsPtr = LowIRRuntimeGen.emitValsPtr(builder, module, "%desc");
     const vp = LowIRRuntimeGen.emitSlotAddr(builder, module, valsPtr, "%slot");
     const v = builder.emitPtrLoadTyped(vp, "i32");
     builder.terminateRet("i32", v);
-    builder.startBlock(negRet);
-    builder.terminateRet("i32", negOne);
     builder.startBlock(recurseRet);
     const one = builder.emitConst("i32", "1");
     const nextSlot = builder.emitBin("add", "i32", "%slot", one);
@@ -32657,6 +32842,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     bindCollectionSlot (varName, kind, desc, lctx) {
       this.bindSlot(varName, lctx.ptrType, desc, lctx);
       lctx.collectionSlots[varName] = kind;
+      if ( this.wasmCollectionRcEnabled(lctx) ) {
+        lctx.ownedCollectionLocals.push(varName);
+      }
     };
     loadCollectionDesc (varName, lctx) {
       return this.loadSlot(varName, lctx.ptrType, lctx);
@@ -33981,7 +34169,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       let argTypes = [];
       args.push(desc);
       argTypes.push(lctx.ptrType);
-      lctx.builder.emitCall("ranger_ptrarray_release", "void", args, argTypes);
+      let relFn = "ranger_ptrarray_release";
+      if ( this.collectionKind(varName, lctx) == "map" ) {
+        relFn = "RtMap_free";
+      }
+      lctx.builder.emitCall(relFn, "void", args, argTypes);
     };
     emitOwnedStringInit (varName, valNode, strPtr, lctx) {
       if ( this.wasmStrEnabled(lctx) == false ) {
@@ -35240,6 +35432,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           const val_1 = this.lowerExpr((argsNode.children[1]), lctx);
           builder.emitPtrStore8(ptr_3, val_1);
           return handledVoid;
+        }
+        return notIntrinsic;
+      }
+      if ( fnName == "Mem_memSize" ) {
+        return builder.emitMemSize();
+      }
+      if ( fnName == "Mem_memGrow" ) {
+        if ( (argsNode.children.length) > 0 ) {
+          const pages = this.lowerExpr((argsNode.children[0]), lctx);
+          return builder.emitMemGrow(pages);
         }
         return notIntrinsic;
       }
@@ -36546,6 +36748,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           this.writeGet(ins.arg1, wr);
           this.writeGet(ins.arg2, wr);
           wr.out("      i32.store8", true);
+          break;
+        case "mem_size" : 
+          wr.out("      memory.size", true);
+          wr.out("      local.set " + this.wasmName(ins.dest), true);
+          break;
+        case "mem_grow" : 
+          this.writeGet(ins.arg1, wr);
+          wr.out("      memory.grow", true);
+          wr.out("      local.set " + this.wasmName(ins.dest), true);
           break;
         case "inttoptr_struct" : 
           this.writeGet(ins.arg1, wr);

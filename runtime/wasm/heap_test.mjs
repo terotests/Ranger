@@ -49,11 +49,15 @@ const big = x.Heap_alloc(40);
 ok("coalesced hole serves a bigger request", big === p1);
 x.Heap_free(p3); x.Heap_free(big);
 
-// exhaustion returns 0
+// growth: the heap grows linear memory past the initial 64 KiB page instead of
+// exhausting there (memory.grow). Allocate well beyond one page and confirm
+// every allocation succeeds and the memory actually grew.
 x.Heap_init();
-let oom = false;
-for (let i = 0; i < 100000; i++) { if (x.Heap_alloc(64) === 0) { oom = true; break; } }
-ok("exhaustion returns 0 (no trap)", oom);
+const pagesBefore = x.memory.buffer.byteLength / 65536;
+let allSucceeded = true;
+for (let i = 0; i < 4000; i++) { if (x.Heap_alloc(64) === 0) { allSucceeded = false; break; } }
+ok("allocations past one page succeed (heap grows)", allSucceeded);
+ok("linear memory actually grew", x.memory.buffer.byteLength / 65536 > pagesBefore);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -95,15 +95,27 @@ object-based game/logic code does not.
       heap. `coll_rc_test` 11/11 — int and object arrays correct (incl. multiple
       backing grows), and build/use/drop loops stay heap-flat with zero live
       blocks. libc path byte-unchanged (`realloc`, not `Heap_realloc`).
-    - `[K:V]` maps already allocate their descriptor/keys/vals from the free-list
-      heap (the same `emitHeapAlloc` unification), so a map-using program no
-      longer corrupts the heap. They work up to the fixed bucket capacity;
-      *overflow beyond capacity recurses infinitely in the open-addressing probe*
-      — a pre-existing `RtMap` limitation on ALL targets (libc included), a
-      map-growth issue, not a memory one. ⬜ *remaining:* map descriptor/bucket
-      release (maps aren't in the owned-release path on any target yet) + growth;
-      `[string]` array element release (libc releases elements via `obj_release`
-      only, so string elements need a per-element kind in the descriptor).
+    - **`[K:V]` maps** allocate descriptor/keys/vals from the free-list heap,
+      **grow** (double + rehash) when the load factor passes 50% so a full table
+      never probes forever (was infinite recursion), and are **freed** at scope
+      end / per loop iteration (`RtMap_free` frees descriptor + key/value arrays;
+      dispatched from the owned-collection release path by collection kind).
+      `map_rc_test` 8/8 — correctness across many doublings, updates in place,
+      missing-key lookups, and build/drop loops heap-flat with zero live blocks.
+      Two `RtMap` bugs surfaced and fixed on the way: (a) `RtMap_putAt`/`getAt`
+      emitted their early-`return` blocks LAST, and the structured WAT
+      reconstruction assumes a `br_if`'s true-target precedes its false-target —
+      so the update and missing-key paths became empty `then`-blocks and were
+      silently dropped (`mapSum` never exercised them). Reordered the blocks so
+      each early return follows its guard (transparent to LLVM). (b) added an
+      `RtMap_put` guard rejecting the reserved `-1` empty sentinel as a key.
+    - **`memory.grow`**: the heap ceiling (`Heap.limit()`) is now the current
+      linear-memory size, and `Heap.alloc` grows memory by whole pages on demand
+      (new `Mem.memSize`/`Mem.memGrow` → `memory.size`/`memory.grow`). Collections
+      and objects scale past the initial 64 KiB page (maps of 20 000+ entries
+      grow memory to megabytes); OOM only at the host/module maximum, returning 0.
+    - ⬜ *remaining:* `[string]` array element release (libc releases elements via
+      `obj_release` only, so string elements need a per-element kind).
 - **Phase 5 — per-frame arena** ⬜ *optional optimisation, not required for
   correctness* — checkpoint/reset the frontier for frame-scoped temporaries.
 

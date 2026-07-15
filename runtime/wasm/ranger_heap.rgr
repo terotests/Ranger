@@ -36,6 +36,16 @@ class Mem {
 
     sfn storeU8:void (ptr:int val:int) {
     }
+
+    ; wasm memory.size / memory.grow (intrinsics; bodies are placeholders the
+    ; compiler replaces). Sizes are in 64 KiB pages.
+    sfn memSize:int () {
+        return 0
+    }
+
+    sfn memGrow:int (pages:int) {
+        return 0
+    }
 }
 
 class Heap {
@@ -50,8 +60,10 @@ class Heap {
         return b
     }
 
+    ; the heap may use all of linear memory; its ceiling is the current memory
+    ; size (grown on demand by alloc via memory.grow), not a fixed one page.
     sfn limit:int () {
-        return 65536
+        return (* (Mem.memSize()) 65536)
     }
 
     sfn top:int () {
@@ -115,10 +127,18 @@ class Heap {
             b = (+ b (Heap.blockTotal(b)))
         }
 
-        ; no reusable block: carve a fresh one at the bump frontier
+        ; no reusable block: carve a fresh one at the bump frontier, growing
+        ; linear memory by whole pages when the carve would overrun the current
+        ; ceiling. memory.grow returning -1 (host cap reached) is a real OOM -> 0.
         def block top
-        if (> (+ (+ block need) 8) (Heap.limit())) {
-            return 0
+        def endNeed (+ (+ block need) 8)
+        if (> endNeed (Heap.limit())) {
+            def deficit (- endNeed (Heap.limit()))
+            def pages (idiv (+ deficit 65535) 65536)
+            def r (Mem.memGrow(pages))
+            if (< r 0) {
+                return 0
+            }
         }
         Heap.setBlock(block need 0)
         Heap.setTop((+ (+ block need) 8))

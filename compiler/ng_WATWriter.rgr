@@ -600,6 +600,15 @@ class WATWriter {
         this.writeGet(ins.arg2 wr)
         wr.out("      i32.store8" true)
       }
+      case "mem_size" {
+        wr.out("      memory.size" true)
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "mem_grow" {
+        this.writeGet(ins.arg1 wr)
+        wr.out("      memory.grow" true)
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
       case "inttoptr_struct" {
         this.writeGet(ins.arg1 wr)
         wr.out(("      local.set " + (this.wasmName(ins.dest))) true)

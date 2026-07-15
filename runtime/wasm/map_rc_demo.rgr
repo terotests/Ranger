@@ -1,0 +1,62 @@
+; ============================================================================
+; map_rc_demo.rgr — [int:int] maps on the free-list heap with growth + release
+; (PLAN_WASM_MEMORY Phase 4b). The map's descriptor/keys/vals live on the
+; free-list heap; the table doubles + rehashes when the load factor passes 50%
+; (so a full table never probes forever), linear memory grows past 64 KiB on
+; demand, and the map is freed at scope end.
+; ============================================================================
+
+Import "./ranger_obj.rgr"
+
+class SG {
+    ; put 0..n-1 -> *10, then sum by lookup. Exercises many grows for large n.
+    sfn mapSum:int (n:int) {
+        def m:[int:int]
+        def i 0
+        while (< i n) {
+            set m i (* i 10)
+            i = (+ i 1)
+        }
+        def s 0
+        def j 0
+        while (< j n) {
+            s = (+ s (get m j))
+            j = (+ j 1)
+        }
+        return s
+    }
+
+    ; overwrite the same keys repeatedly — size must not grow, values update
+    sfn mapOverwrite:int (n:int reps:int) {
+        def m:[int:int]
+        def r 0
+        while (< r reps) {
+            def i 0
+            while (< i n) {
+                set m i (+ r i)
+                i = (+ i 1)
+            }
+            r = (+ r 1)
+        }
+        def last (+ 0 (get m (- n 1)))
+        return last
+    }
+
+    ; build+drop a map `reps` times; heap flat => descriptor/keys/vals all freed
+    sfn churnMap:int (reps:int size:int) {
+        def r 0
+        while (< r reps) {
+            def _ (SG.mapSum(size))
+            r = (+ r 1)
+        }
+        return (Heap.frontier())
+    }
+
+    sfn liveBlocks:int () {
+        return (ranger.obj_live())
+    }
+
+    sfn frontier:int () {
+        return (Heap.frontier())
+    }
+}

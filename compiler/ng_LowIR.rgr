@@ -597,6 +597,30 @@ class LowIRBuilder {
     this.emit(ins)
   }
 
+  ; current linear-memory size in 64 KiB pages (wasm memory.size)
+  fn emitMemSize:string () {
+    def dest (this.freshTemp("m"))
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "mem_size"
+    ins.dest = dest
+    ins.irType = "i32"
+    this.emit(ins)
+    return dest
+  }
+
+  ; grow linear memory by `pages` 64 KiB pages; result = previous page count, or
+  ; -1 on failure (wasm memory.grow)
+  fn emitMemGrow:string (pages:string) {
+    def dest (this.freshTemp("m"))
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "mem_grow"
+    ins.dest = dest
+    ins.irType = "i32"
+    ins.arg1 = pages
+    this.emit(ins)
+    return dest
+  }
+
   fn emitI32At:string (base:string byteOff:int) {
     def pt (this.irModule.ptrType)
     def off (this.emitConst(pt ("" + byteOff)))
