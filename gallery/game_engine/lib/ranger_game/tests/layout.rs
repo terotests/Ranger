@@ -113,9 +113,17 @@ fn pose_block_layout() {
     const LM_OFF_Y: usize = 4;
 
     pose::__init_block();
-    assert_eq!(pose::__read_i32(OFF_MAGIC) as u32, 0x3150_4752, "magic 'RGP1'");
+    assert_eq!(
+        pose::__read_i32(OFF_MAGIC) as u32,
+        0x3150_4752,
+        "magic 'RGP1'"
+    );
     assert_eq!(pose::__read_i32(OFF_VERSION), 2);
-    assert_eq!(pose::__read_i32(OFF_SIZE), 64 + 33 * 24, "header + 33 landmarks");
+    assert_eq!(
+        pose::__read_i32(OFF_SIZE),
+        64 + 33 * 24,
+        "header + 33 landmarks"
+    );
     assert_eq!(pose::SIZE, 856);
 
     // Host streams a sample; guest reads it typed at the canonical offsets.

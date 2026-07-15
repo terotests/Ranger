@@ -399,9 +399,9 @@ impl Scene {
                 continue;
             }
             let mesh = self.meshes[inst.mesh as usize];
-            let Some(mat) = self.materials.get(inst.material as usize).copied() else {
+            if inst.material as usize >= self.material_count {
                 continue;
-            };
+            }
             if v + mesh.vertices > MAX_VERTICES
                 || i + mesh.indices > MAX_INDICES
                 || s == MAX_SUBMESHES
@@ -414,12 +414,11 @@ impl Scene {
                 write_vertex(v + k, p, src.normal, src.colour, src.uv);
             }
             for k in 0..mesh.indices {
-                self_write_index(i + k, self.indices[mesh.first + k] + v as u16);
+                write_index(i + k, self.indices[mesh.first + k] + v as u16);
             }
             MESH.write_u32(SUBMESH_OFFSET + s * 12, i as u32);
             MESH.write_u32(SUBMESH_OFFSET + s * 12 + 4, mesh.indices as u32);
             MESH.write_u32(SUBMESH_OFFSET + s * 12 + 8, inst.material);
-            let _ = mat;
             v += mesh.vertices;
             i += mesh.indices;
             s += 1;
@@ -672,7 +671,7 @@ fn write_vertex(i: usize, p: Vec3, n: Vec3, c: Color, uv: [f32; 2]) {
         ((uv[1] * UV) as u32) << 16 | ((uv[0] * UV) as u32 & 0xffff),
     );
 }
-fn self_write_index(i: usize, v: u16) {
+fn write_index(i: usize, v: u16) {
     MESH.write_u16(INDEX_OFFSET + i * 2, v);
 }
 fn write_headers(v: usize, i: usize, s: usize) {
@@ -795,11 +794,6 @@ macro_rules! scene_exports {
     };
 }
 
-#[cfg(target_arch = "wasm32")]
-fn ptr<T>(x: &T) -> i32 {
-    x as *const T as usize as i32
-}
-#[cfg(not(target_arch = "wasm32"))]
 fn ptr<T>(x: &T) -> i32 {
     x as *const T as usize as i32
 }
