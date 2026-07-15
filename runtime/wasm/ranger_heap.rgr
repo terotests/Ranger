@@ -125,6 +125,50 @@ class Heap {
         return (+ block 8)
     }
 
+    ; calloc-equivalent: allocate and zero the payload. Freed blocks are reused
+    ; with stale bytes, so callers that rely on zero-initialised memory (the
+    ; collection descriptors' metadata, non-owned flags) must go through here —
+    ; this is what the compiler routes emitHeapAlloc to under -wasmrc, matching
+    ; libc calloc. (Object/string runtimes use bare alloc and init themselves.)
+    sfn calloc:int (n:int) {
+        def p (Heap.alloc(n))
+        if (== p 0) {
+            return 0
+        }
+        def sz (Heap.blockSize((- p 8)))
+        def i 0
+        while (< i sz) {
+            Mem.storeU8((+ p i) 0)
+            i = (+ i 1)
+        }
+        return p
+    }
+
+    ; realloc-equivalent: grow/shrink a block, copying the smaller of old/new
+    ; payload bytes into a fresh block and freeing the old one. Used by the
+    ; collection push-grow path in place of libc realloc on freestanding WASM.
+    sfn realloc:int (ptr:int newBytes:int) {
+        if (== ptr 0) {
+            return (Heap.alloc(newBytes))
+        }
+        def np (Heap.alloc(newBytes))
+        if (== np 0) {
+            return 0
+        }
+        def old (Heap.blockSize((- ptr 8)))
+        def copy old
+        if (< newBytes copy) {
+            copy = newBytes
+        }
+        def i 0
+        while (< i copy) {
+            Mem.storeU8((+ np i) (Mem.loadU8((+ ptr i))))
+            i = (+ i 1)
+        }
+        Heap.free(ptr)
+        return np
+    }
+
     ; if a chosen free block is large enough to hold `need` plus a whole second
     ; block (header + one word pair), split off the remainder as a free block.
     sfn splitIfWorth:void (b:int need:int) {

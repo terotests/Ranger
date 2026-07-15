@@ -663,7 +663,11 @@ class LowIRRuntimeGen {
     push rat pt
     push ra newBytes
     push rat pt
-    def newData (builder.emitCall("realloc" pt ra rat))
+    def reallocFn:string "realloc"
+    if module.useFreeListHeap {
+      reallocFn = "Heap_realloc"
+    }
+    def newData (builder.emitCall(reallocFn pt ra rat))
     builder.emitPtrStore("%desc" newData)
     builder.emitStoreI32At("%desc" capOff newCap)
     builder.terminateBr(cont)

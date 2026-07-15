@@ -142,6 +142,11 @@ class LowIRBuilderPass {
     this.irModule.useLibcHeap = target.usesLibc
     if target.usesLibc {
       this.ensureLibcExtern(target)
+    } {
+      ; freestanding WASM with -wasmrc: unify all allocation on the free-list heap
+      if (appCtx.hasCompilerFlag("wasmrc")) {
+        this.irModule.useFreeListHeap = true
+      }
     }
 
     for appCtx.definedClassList cName:string i {
@@ -1377,9 +1382,12 @@ class LowIRBuilderPass {
     push argTypes lctx.ptrType
     def voidType:string "void"
     if (this.exprIsObjectPtr(itemNode lctx)) {
-      if (this.memEnabled(lctx)) {
-        ; Move ownership of an owned local into the array (no retain).
-        ; The array owns the element and releases it once on free.
+      if ((this.memEnabled(lctx)) || (this.wasmCollectionRcEnabled(lctx))) {
+        ; Move ownership of an owned local into the array (no retain): the array
+        ; owns the element and releases it once on free. Marking it escaped stops
+        ; the scope-end release, so the object is freed exactly once (by the
+        ; array). A non-owned element (fresh `new` result, borrowed ref) is
+        ; retained by push_owned so the array's release is balanced.
         def isMove:boolean false
         if (itemNode.value_type == RangerNodeType.VRef) {
           if (this.isOwnedObjectLocal(itemNode.vref lctx)) {
@@ -1392,8 +1400,10 @@ class LowIRBuilderPass {
           lctx.builder.emitCall("RtPtrArray_push" voidType args argTypes)
           return
         }
-        this.usedMemRuntime = true
-        this.ensureMemExtern((LowIRTarget.resolve((unwrap lctx.ctx))))
+        if (this.memEnabled(lctx)) {
+          this.usedMemRuntime = true
+          this.ensureMemExtern((LowIRTarget.resolve((unwrap lctx.ctx))))
+        }
         lctx.builder.emitCall("ranger_ptrarray_push_owned" voidType args argTypes)
         return
       }
@@ -1608,7 +1618,28 @@ class LowIRBuilderPass {
     set lctx.collectionSlots varName "ptr_array"
     if owned {
       push lctx.ownedCollectionLocals varName
+    } {
+      ; On freestanding WASM every locally-created array (including [int], which
+      ; is owned=0 at the element level) must still be freed at scope end — its
+      ; backing store and descriptor live on the free-list heap. ranger_ptrarray_
+      ; release reads the descriptor's owned flag, so it frees int arrays without
+      ; touching elements. The libc path keeps its existing behaviour.
+      if (this.wasmCollectionRcEnabled(lctx)) {
+        push lctx.ownedCollectionLocals varName
+      }
     }
+  }
+
+  ; Collections are freed on scope exit on the freestanding-WASM path too (not
+  ; only libc): -wasmrc routes their allocation to the free-list heap, so they
+  ; can — and must — be released.
+  fn wasmCollectionRcEnabled:boolean (lctx:LowIRLowerContext) {
+    def memTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
+    if (memTarget.usesLibc) {
+      return false
+    }
+    def ctx (unwrap lctx.ctx)
+    return (ctx.hasCompilerFlag("wasmrc"))
   }
 
   fn collectionKind:string (varName:string lctx:LowIRLowerContext) {
@@ -3077,6 +3108,24 @@ class LowIRBuilderPass {
     builder.emitCall("ranger_str_release" voidType args argTypes)
   }
 
+  ; Release one owned collection local (free backing store + descriptor, and, for
+  ; element-owned object arrays, each element). Escaped collections (returned or
+  ; stored into a field) are skipped. Used at scope end and per loop iteration.
+  fn releaseOwnedCollectionLocal:void (varName:string lctx:LowIRLowerContext) {
+    if (has lctx.escapedLocals varName) {
+      return
+    }
+    if (false == (has lctx.slots varName)) {
+      return
+    }
+    def desc (this.loadSlot(varName lctx.ptrType lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args desc
+    push argTypes lctx.ptrType
+    lctx.builder.emitCall("ranger_ptrarray_release" "void" args argTypes)
+  }
+
   ; Prepare a string value for a freshly-defined owned local and register it for
   ; scope-end release. Fresh strings (concat/to_string/string-call) are owned
   ; directly; borrowed ones (literal/VRef/field) are dup'd so the local owns a
@@ -3170,26 +3219,17 @@ class LowIRBuilderPass {
     for lctx.ownedStringLocals sname:string si {
       this.releaseOwnedString(sname lctx)
     }
-    ; owned collections need the ptr-array runtime, which is libc-only for now
-    ; (WASM string/array RC is PLAN_WASM_MEMORY v2).
+    ; owned collections: freed on the libc path and on freestanding WASM (-wasmrc,
+    ; where their storage is on the free-list heap). ranger_ptrarray_release frees
+    ; the backing store + descriptor and, when the descriptor is element-owned
+    ; (object arrays), releases each element.
     if (memTarget.usesLibc == false) {
-      return
+      if ((this.wasmCollectionRcEnabled(lctx)) == false) {
+        return
+      }
     }
-    def builder (lctx.builder)
-    def voidType:string "void"
     for lctx.ownedCollectionLocals name:string i {
-      if (has lctx.escapedLocals name) {
-        continue
-      }
-      if (false == (has lctx.slots name)) {
-        continue
-      }
-      def desc (this.loadSlot(name lctx.ptrType lctx))
-      def args:[string]
-      def argTypes:[string]
-      push args desc
-      push argTypes lctx.ptrType
-      builder.emitCall("ranger_ptrarray_release" voidType args argTypes)
+      this.releaseOwnedCollectionLocal(name lctx)
     }
   }
 
@@ -3862,12 +3902,13 @@ class LowIRBuilderPass {
     ; function end — critical for per-frame throwaway strings.
     def ownedBefore (array_length lctx.ownedObjectLocals)
     def ownedStrBefore (array_length lctx.ownedStringLocals)
+    def ownedCollBefore (array_length lctx.ownedCollectionLocals)
 
     builder.startBlock(bodyLabel)
     this.lowerBlock(bodyNode lctx)
     def bodyBlock (unwrap builder.currentBlock)
     if (bodyBlock.termKind == "") {
-      this.releaseLoopBodyOwned(ownedBefore ownedStrBefore lctx)
+      this.releaseLoopBodyOwned(ownedBefore ownedStrBefore ownedCollBefore lctx)
       builder.terminateBr(condLabel)
     }
 
@@ -3878,7 +3919,7 @@ class LowIRBuilderPass {
   ; >= ownedBefore), then drop them from the function-level list so the scope-end
   ; cleanup does not double-release. Escaped locals are skipped by releaseOwned
   ; Local. Gated on -wasmrc so the native path's existing behaviour is unchanged.
-  fn releaseLoopBodyOwned:void (ownedBefore:int ownedStrBefore:int lctx:LowIRLowerContext) {
+  fn releaseLoopBodyOwned:void (ownedBefore:int ownedStrBefore:int ownedCollBefore:int lctx:LowIRLowerContext) {
     def ctx (unwrap lctx.ctx)
     if ((ctx.hasCompilerFlag("wasmrc")) == false) {
       return
@@ -3913,6 +3954,22 @@ class LowIRBuilderPass {
         sj = (+ sj 1)
       }
       lctx.ownedStringLocals = keptS
+    }
+    ; same per-iteration release for owned collection locals introduced in the body
+    def cn (array_length lctx.ownedCollectionLocals)
+    if (cn > ownedCollBefore) {
+      def ck ownedCollBefore
+      while (< ck cn) {
+        this.releaseOwnedCollectionLocal((itemAt lctx.ownedCollectionLocals ck) lctx)
+        ck = (+ ck 1)
+      }
+      def keptC:[string]
+      def cj 0
+      while (< cj ownedCollBefore) {
+        push keptC (itemAt lctx.ownedCollectionLocals cj)
+        cj = (+ cj 1)
+      }
+      lctx.ownedCollectionLocals = keptC
     }
   }
 

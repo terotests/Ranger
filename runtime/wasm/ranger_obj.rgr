@@ -289,4 +289,63 @@ class ranger {
         Mem.storeU8((+ buf 1) 0)
         return buf
     }
+
+    ; ======================================================================
+    ; Pointer-array (list) runtime. Descriptor layout (wasm, i32 slots):
+    ;   [ data@0 | len@4 | cap@8 | owned@12 ]   (16 bytes)
+    ; `owned` == 1 means the array owns its elements (objects) and releases each
+    ; via obj_release on free. Int arrays are owned==0 (elements are values). The
+    ; compiler emits calls to these exact mangled names; the backing store and
+    ; descriptor live on the free-list heap (Heap_calloc via emitHeapAlloc).
+    ; ======================================================================
+    sfn ptrarray_push_owned:void (desc:int val:int) {
+        if (== desc 0) {
+            return
+        }
+        def owned (Mem.loadI32((+ desc 12)))
+        if (!= owned 0) {
+            if (!= val 0) {
+                ranger.obj_retain(val)
+            }
+        }
+        def len (Mem.loadI32((+ desc 4)))
+        def cap (Mem.loadI32((+ desc 8)))
+        if (>= len cap) {
+            def newCap (* cap 2)
+            if (== newCap 0) {
+                newCap = 4
+            }
+            def data0 (Mem.loadI32(desc))
+            def nd (Heap.realloc(data0 (* newCap 4)))
+            Mem.storeI32(desc nd)
+            Mem.storeI32((+ desc 8) newCap)
+        }
+        def data (Mem.loadI32(desc))
+        def len2 (Mem.loadI32((+ desc 4)))
+        Mem.storeI32((+ data (* len2 4)) val)
+        Mem.storeI32((+ desc 4) (+ len2 1))
+    }
+
+    sfn ptrarray_release:void (desc:int) {
+        if (== desc 0) {
+            return
+        }
+        def owned (Mem.loadI32((+ desc 12)))
+        def data (Mem.loadI32(desc))
+        if (!= owned 0) {
+            if (!= data 0) {
+                def len (Mem.loadI32((+ desc 4)))
+                def i 0
+                while (< i len) {
+                    def el (Mem.loadI32((+ data (* i 4))))
+                    ranger.obj_release(el)
+                    i = (+ i 1)
+                }
+            }
+        }
+        if (!= data 0) {
+            Heap.free(data)
+        }
+        Heap.free(desc)
+    }
 }

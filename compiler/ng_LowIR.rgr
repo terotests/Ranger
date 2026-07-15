@@ -189,6 +189,11 @@ class LowIRModule {
   def triple:string "unknown-unknown-unknown"
   def ptrType:string "i32"
   def useLibcHeap:boolean false
+  ; freestanding WASM under -wasmrc: route heap_alloc through the free-list Heap
+  ; (Heap_alloc/Heap_free) so collections share the one coherent heap that
+  ; objects and strings use — not the leak-forever bump pointer, which would also
+  ; collide with the free-list control words at Mem[0]/Mem[4].
+  def useFreeListHeap:boolean false
   def structs:[LowIRStruct]
   def typeDescs:[LowIRTypeDesc]
   def functions:[LowIRFunction]
@@ -447,6 +452,16 @@ class LowIRBuilder {
       push args sizeArg
       push argTypes ptrType
       return (this.emitCall("calloc" ptrType args argTypes))
+    }
+    ; freestanding WASM under -wasmrc: allocate from the free-list Heap so the
+    ; block can later be freed (Heap.alloc zeroes nothing, but collection/new
+    ; code initialises what it needs). One coherent heap for all allocation.
+    if this.irModule.useFreeListHeap {
+      def hargs:[string]
+      def hargTypes:[string]
+      push hargs sizeArg
+      push hargTypes "i32"
+      return (this.emitCall("Heap_calloc" ptrType hargs hargTypes))
     }
     def tag:string "h"
     def dest (this.freshTemp(tag))

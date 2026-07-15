@@ -29884,6 +29884,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       this.triple = "unknown-unknown-unknown";
       this.ptrType = "i32";
       this.useLibcHeap = false;
+      this.useFreeListHeap = false;
       this.structs = [];
       this.typeDescs = [];
       this.functions = [];
@@ -30121,6 +30122,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         args.push(sizeArg);
         argTypes.push(ptrType);
         return this.emitCall("calloc", ptrType, args, argTypes);
+      }
+      if ( this.irModule.useFreeListHeap ) {
+        let hargs = [];
+        let hargTypes = [];
+        hargs.push(sizeArg);
+        hargTypes.push("i32");
+        return this.emitCall("Heap_calloc", ptrType, hargs, hargTypes);
       }
       const tag = "h";
       const dest = this.freshTemp(tag);
@@ -30925,7 +30933,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     rat.push(pt);
     ra.push(newBytes);
     rat.push(pt);
-    const newData = builder.emitCall("realloc", pt, ra, rat);
+    let reallocFn = "realloc";
+    if ( module.useFreeListHeap ) {
+      reallocFn = "Heap_realloc";
+    }
+    const newData = builder.emitCall(reallocFn, pt, ra, rat);
     builder.emitPtrStore("%desc", newData);
     builder.emitStoreI32At("%desc", capOff, newCap);
     builder.terminateBr(cont);
@@ -31226,6 +31238,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       this.irModule.useLibcHeap = target.usesLibc;
       if ( target.usesLibc ) {
         this.ensureLibcExtern(target);
+      } else {
+        if ( appCtx.hasCompilerFlag("wasmrc") ) {
+          this.irModule.useFreeListHeap = true;
+        }
       }
       for ( let i = 0; i < appCtx.definedClassList.length; i++) {
         var cName = appCtx.definedClassList[i];
@@ -32380,7 +32396,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       argTypes.push(lctx.ptrType);
       const voidType = "void";
       if ( this.exprIsObjectPtr(itemNode, lctx) ) {
-        if ( this.memEnabled(lctx) ) {
+        if ( this.memEnabled(lctx) || this.wasmCollectionRcEnabled(lctx) ) {
           let isMove = false;
           if ( itemNode.value_type == 11 ) {
             if ( this.isOwnedObjectLocal(itemNode.vref, lctx) ) {
@@ -32393,8 +32409,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             lctx.builder.emitCall("RtPtrArray_push", voidType, args, argTypes);
             return;
           }
-          this.usedMemRuntime = true;
-          this.ensureMemExtern(LowIRTarget.resolve((lctx.ctx)));
+          if ( this.memEnabled(lctx) ) {
+            this.usedMemRuntime = true;
+            this.ensureMemExtern(LowIRTarget.resolve((lctx.ctx)));
+          }
           lctx.builder.emitCall("ranger_ptrarray_push_owned", voidType, args, argTypes);
           return;
         }
@@ -32594,7 +32612,19 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       lctx.collectionSlots[varName] = "ptr_array";
       if ( owned ) {
         lctx.ownedCollectionLocals.push(varName);
+      } else {
+        if ( this.wasmCollectionRcEnabled(lctx) ) {
+          lctx.ownedCollectionLocals.push(varName);
+        }
       }
+    };
+    wasmCollectionRcEnabled (lctx) {
+      const memTarget = LowIRTarget.resolve((lctx.ctx));
+      if ( memTarget.usesLibc ) {
+        return false;
+      }
+      const ctx = lctx.ctx;
+      return ctx.hasCompilerFlag("wasmrc");
     };
     collectionKind (varName, lctx) {
       if ( ( typeof(lctx.collectionSlots[varName] ) != "undefined" && lctx.collectionSlots.hasOwnProperty(varName) ) ) {
@@ -33939,6 +33969,20 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       argTypes.push("i8*");
       builder.emitCall("ranger_str_release", voidType, args, argTypes);
     };
+    releaseOwnedCollectionLocal (varName, lctx) {
+      if ( ( typeof(lctx.escapedLocals[varName] ) != "undefined" && lctx.escapedLocals.hasOwnProperty(varName) ) ) {
+        return;
+      }
+      if ( false == (( typeof(lctx.slots[varName] ) != "undefined" && lctx.slots.hasOwnProperty(varName) )) ) {
+        return;
+      }
+      const desc = this.loadSlot(varName, lctx.ptrType, lctx);
+      let args = [];
+      let argTypes = [];
+      args.push(desc);
+      argTypes.push(lctx.ptrType);
+      lctx.builder.emitCall("ranger_ptrarray_release", "void", args, argTypes);
+    };
     emitOwnedStringInit (varName, valNode, strPtr, lctx) {
       if ( this.wasmStrEnabled(lctx) == false ) {
         return this.emitStrdupExpr(strPtr, lctx);
@@ -34018,24 +34062,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         this.releaseOwnedString(sname, lctx);
       };
       if ( memTarget.usesLibc == false ) {
-        return;
+        if ( this.wasmCollectionRcEnabled(lctx) == false ) {
+          return;
+        }
       }
-      const builder = lctx.builder;
-      const voidType = "void";
       for ( let i_1 = 0; i_1 < lctx.ownedCollectionLocals.length; i_1++) {
         var name_1 = lctx.ownedCollectionLocals[i_1];
-        if ( ( typeof(lctx.escapedLocals[name_1] ) != "undefined" && lctx.escapedLocals.hasOwnProperty(name_1) ) ) {
-          continue;
-        }
-        if ( false == (( typeof(lctx.slots[name_1] ) != "undefined" && lctx.slots.hasOwnProperty(name_1) )) ) {
-          continue;
-        }
-        const desc = this.loadSlot(name_1, lctx.ptrType, lctx);
-        let args = [];
-        let argTypes = [];
-        args.push(desc);
-        argTypes.push(lctx.ptrType);
-        builder.emitCall("ranger_ptrarray_release", voidType, args, argTypes);
+        this.releaseOwnedCollectionLocal(name_1, lctx);
       };
     };
     lowerBlock (block, lctx) {
@@ -34643,16 +34676,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       builder.terminateBrIf(cond, bodyLabel, exitLabel);
       const ownedBefore = lctx.ownedObjectLocals.length;
       const ownedStrBefore = lctx.ownedStringLocals.length;
+      const ownedCollBefore = lctx.ownedCollectionLocals.length;
       builder.startBlock(bodyLabel);
       this.lowerBlock(bodyNode, lctx);
       const bodyBlock = builder.currentBlock;
       if ( bodyBlock.termKind == "" ) {
-        this.releaseLoopBodyOwned(ownedBefore, ownedStrBefore, lctx);
+        this.releaseLoopBodyOwned(ownedBefore, ownedStrBefore, ownedCollBefore, lctx);
         builder.terminateBr(condLabel);
       }
       builder.startBlock(exitLabel);
     };
-    releaseLoopBodyOwned (ownedBefore, ownedStrBefore, lctx) {
+    releaseLoopBodyOwned (ownedBefore, ownedStrBefore, ownedCollBefore, lctx) {
       const ctx = lctx.ctx;
       if ( ctx.hasCompilerFlag("wasmrc") == false ) {
         return;
@@ -34686,6 +34720,21 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           sj = sj + 1;
         };
         lctx.ownedStringLocals = keptS;
+      }
+      const cn = lctx.ownedCollectionLocals.length;
+      if ( cn > ownedCollBefore ) {
+        let ck = ownedCollBefore;
+        while (ck < cn) {
+          this.releaseOwnedCollectionLocal(lctx.ownedCollectionLocals[ck], lctx);
+          ck = ck + 1;
+        };
+        let keptC = [];
+        let cj = 0;
+        while (cj < ownedCollBefore) {
+          keptC.push(lctx.ownedCollectionLocals[cj]);
+          cj = cj + 1;
+        };
+        lctx.ownedCollectionLocals = keptC;
       }
     };
     lowerExpr (node, lctx) {

@@ -79,8 +79,25 @@ object-based game/logic code does not.
     50 000 iterations, zero live blocks (`field_rc_test` 9/9). Object/ptr-array
     fields stay borrow (owned=0) — no descriptor recursion — to avoid double-free
     of shared/cyclic graphs until borrow analysis promotes true owners.
-  - 4b ⬜ **array/collection runtime + RC** — port the ptr-array/map runtime to
-    the free-list heap with element ownership. Large; next.
+  - 4b 🟩 **collections on the free-list heap + RC** (ptr-arrays done; maps next)
+    - **Allocator unified.** `emitHeapAlloc` routes to the free-list `Heap`
+      (`Heap_calloc`) under `-wasmrc`, so collections stop using the leak-forever
+      bump pointer — which also *collided* with the free-list control words at
+      Mem[0]/Mem[4] whenever a program mixed objects and collections (a latent
+      corruption bug, now fixed). `Heap_realloc` (alloc+copy+free) replaces libc
+      `realloc` in the push-grow path.
+    - **`[int]` and `[T]` arrays are freed** at scope end and per loop iteration
+      (`ranger_ptrarray_release`: frees backing store + descriptor; for
+      element-owned object arrays, `obj_release`s each element). Pushing an owned
+      object local *moves* it into the array (escaped, released once by the
+      array); a fresh/borrowed element is retained by `ranger_ptrarray_push_owned`
+      to balance. Built as `ranger.ptrarray_*` runtime methods on the free-list
+      heap. `coll_rc_test` 11/11 — int and object arrays correct (incl. multiple
+      backing grows), and build/use/drop loops stay heap-flat with zero live
+      blocks. libc path byte-unchanged (`realloc`, not `Heap_realloc`).
+    - ⬜ *remaining:* `[K:V]` maps (RtMap runtime) on the free-list heap with
+      key/value RC; `[string]` array elements (libc releases array elements via
+      obj_release only — string elements would need a per-element kind).
 - **Phase 5 — per-frame arena** ⬜ *optional optimisation, not required for
   correctness* — checkpoint/reset the frontier for frame-scoped temporaries.
 
