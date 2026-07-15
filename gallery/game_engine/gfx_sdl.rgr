@@ -2041,7 +2041,12 @@ static int rgfx_3d_gl_init() {
     glDeleteShader(fsId);
     GLint linked = GL_FALSE;
     glGetProgramiv(g_rgfx_3d_prog, GL_LINK_STATUS, &linked);
-    if (linked != GL_TRUE) { glDeleteProgram(g_rgfx_3d_prog); g_rgfx_3d_prog = 0; return 0; }
+    if (linked != GL_TRUE) {
+        char log[1024]; GLsizei len = 0;
+        glGetProgramInfoLog(g_rgfx_3d_prog, (GLsizei) sizeof(log), &len, log);
+        SDL_Log(\"[wasm3d] 3d program LINK FAILED: %.*s\", (int) len, log);
+        glDeleteProgram(g_rgfx_3d_prog); g_rgfx_3d_prog = 0; return 0;
+    }
     g_rgfx_3d_aPos = glGetAttribLocation(g_rgfx_3d_prog, \"aPos\");
     g_rgfx_3d_aNormal = glGetAttribLocation(g_rgfx_3d_prog, \"aNormal\");
     g_rgfx_3d_aUv = glGetAttribLocation(g_rgfx_3d_prog, \"aUv\");
@@ -2051,6 +2056,7 @@ static int rgfx_3d_gl_init() {
     g_rgfx_3d_uAmb = glGetUniformLocation(g_rgfx_3d_prog, \"uAmb\");
     g_rgfx_3d_uSunDir = glGetUniformLocation(g_rgfx_3d_prog, \"uSunDir\");
     g_rgfx_3d_uSun = glGetUniformLocation(g_rgfx_3d_prog, \"uSun\");
+    SDL_Log(\"[wasm3d] 3d program ok prog=%u aPos=%d aNormal=%d aUv=%d uMVP=%d uNormal=%d uTex=%d\", (unsigned) g_rgfx_3d_prog, g_rgfx_3d_aPos, g_rgfx_3d_aNormal, g_rgfx_3d_aUv, g_rgfx_3d_uMVP, g_rgfx_3d_uNormal, g_rgfx_3d_uTex);
     return 1;
 }
 static int rgfx_3d_upload_texture(const uint8_t* px, int w, int h) {
@@ -2061,12 +2067,14 @@ static int rgfx_3d_upload_texture(const uint8_t* px, int w, int h) {
     glBindTexture(GL_TEXTURE_2D, tex);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    // GL_LINEAR (not mipmap): a mipmap min-filter without generated mipmaps makes
+    // the texture incomplete -> samples black on GL 2.1 / macOS.
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, px);
-    glGenerateMipmap(GL_TEXTURE_2D);
     g_rgfx_gl_textures.push_back(tex);
+    SDL_Log(\"[wasm3d] tex upload %dx%d -> id %u glErr=%d\", w, h, (unsigned) g_rgfx_gl_textures.size(), (int) glGetError());
     return (int) g_rgfx_gl_textures.size();
 }
 // vw holds vcount*8 int words (the guest's 32-byte vertex as 8 int32s, widened
@@ -2097,16 +2105,23 @@ static int rgfx_mesh_upload(const int64_t* vw, int vcount, const int64_t* iv, in
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m.ebo);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr) (idx.size() * 2), idx.data(), GL_STATIC_DRAW);
     g_rgfx_meshes.push_back(m);
+    SDL_Log(\"[wasm3d] mesh upload vbo=%u ebo=%u v=%d i=%d glErr=%d\", m.vbo, m.ebo, vcount, icount, (int) glGetError());
     return (int) g_rgfx_meshes.size();
 }
 static void rgfx_3d_begin(int w, int h) {
-    if (!g_rgfx_gpu_mode) { return; }
+    if (!g_rgfx_gpu_mode) { SDL_Log(\"[wasm3d] begin: NOT gpu_mode\"); return; }
     rgfx_gpu_start_frame(w, h);
-    if (!rgfx_3d_gl_init()) { return; }
+    if (!rgfx_3d_gl_init()) { SDL_Log(\"[wasm3d] begin: gl_init FAILED\"); return; }
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
     glClear(GL_DEPTH_BUFFER_BIT);
     glUseProgram(g_rgfx_3d_prog);
+    static int begin_logged = 0;
+    if (begin_logged < 1) {
+        int ds = 0; SDL_GL_GetAttribute(SDL_GL_DEPTH_SIZE, &ds);
+        SDL_Log(\"[wasm3d] begin fb=%dx%d prog=%u depthSize=%d glErr=%d\", g_rgfx_fb_w, g_rgfx_fb_h, (unsigned) g_rgfx_3d_prog, ds, (int) glGetError());
+        begin_logged = 1;
+    }
 }
 static void rgfx_3d_set_camera(float ex, float ey, float ez, float cx, float cy, float cz, float ux, float uy, float uz, float fovy, float np, float fp, float aspect) {
     float view[16], proj[16];
@@ -2152,6 +2167,16 @@ static void rgfx_3d_draw(int meshId, int first, int count, int texId, float rx, 
     glEnableVertexAttribArray(g_rgfx_3d_aUv);
     glVertexAttribPointer(g_rgfx_3d_aUv, 2, GL_FLOAT, GL_FALSE, 32, (void*) 24);
     glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_SHORT, (void*) (size_t) (first * 2));
+    static int draw_logged = 0;
+    if (draw_logged < 4) {
+        // project the model origin (0,0,0,1): that is the 4th column of mvp
+        float ox = RGM4(mvp,0,3), oy = RGM4(mvp,1,3), oz = RGM4(mvp,2,3), ow = RGM4(mvp,3,3);
+        float ndcx = (ow != 0.f) ? ox / ow : 0.f;
+        float ndcy = (ow != 0.f) ? oy / ow : 0.f;
+        float ndcz = (ow != 0.f) ? oz / ow : 0.f;
+        SDL_Log(\"[wasm3d] draw mesh=%d count=%d tex=%d aPos=%d origin_clipw=%.3f ndc=(%.3f,%.3f,%.3f) glErr=%d\", meshId, count, texId, g_rgfx_3d_aPos, ow, ndcx, ndcy, ndcz, (int) glGetError());
+        draw_logged++;
+    }
 }
 static void rgfx_3d_end() {
     if (!g_rgfx_gpu_mode) { return; }
