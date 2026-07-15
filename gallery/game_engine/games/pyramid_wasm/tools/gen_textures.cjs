@@ -61,6 +61,20 @@ writePPM('gem.ppm', (x, y) => {
   return [v * 0.5, 200 + core * 40, 230 + facet * 20];
 });
 
+// Rolling boulder / bomb hazard: dark cracked rock (reads clearly as danger).
+writePPM('ball.ppm', (x, y) => {
+  const cx = x - N / 2, cy = y - N / 2;
+  const r = Math.hypot(cx, cy);
+  const shade = Math.max(0, 1 - r / 40); // rounded shading
+  let v = 60 + shade * 60;
+  const g = ((x * 151 + y * 89) & 15) - 7;
+  v += g;
+  // a few dark cracks
+  const crack = Math.abs(Math.sin(x * 0.5) * 12 - (y % 24)) < 2 || Math.abs(x - y) < 2;
+  if (crack) v -= 34;
+  return [v + 14, v + 6, v]; // slightly warm dark grey
+});
+
 // Monster: mummy-wrap bandage look — off-white wraps with dark gaps + eyes.
 writePPM('monster.ppm', (x, y) => {
   const band = Math.sin((x * 0.6 + y * 1.7)) * 0.5 + 0.5;
