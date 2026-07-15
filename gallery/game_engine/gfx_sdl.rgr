@@ -2008,7 +2008,7 @@ static int rgfx_3d_gl_init() {
         \"uniform vec3 uAmb;\\n\"
         \"uniform vec3 uSunDir;\\n\"
         \"uniform vec3 uSun;\\n\"
-        \"void main() { vec3 N = normalize(vN); float ndl = max(0.0, dot(N, uSunDir)); vec3 L = uAmb + uSun * ndl; vec4 t = texture2D(uTex, vUv); gl_FragColor = vec4(t.rgb * L, t.a); }\\n\";
+        \"void main() { vec3 N = normalize(vN); float ndl = max(0.0, dot(N, uSunDir)); vec3 L = uAmb + uSun * ndl; vec4 t = texture2D(uTex, vUv); gl_FragColor = vec4(vUv, 0.5, 1.0) + 0.0001 * vec4(t.rgb * L + N, t.a); }\\n\";
 #else
     const char* vs =
         \"#version 120\\n\"
@@ -2028,7 +2028,7 @@ static int rgfx_3d_gl_init() {
         \"uniform vec3 uAmb;\\n\"
         \"uniform vec3 uSunDir;\\n\"
         \"uniform vec3 uSun;\\n\"
-        \"void main() { vec3 N = normalize(vN); float ndl = max(0.0, dot(N, uSunDir)); vec3 L = uAmb + uSun * ndl; vec4 t = texture2D(uTex, vUv); gl_FragColor = vec4(t.rgb * L, t.a); }\\n\";
+        \"void main() { vec3 N = normalize(vN); float ndl = max(0.0, dot(N, uSunDir)); vec3 L = uAmb + uSun * ndl; vec4 t = texture2D(uTex, vUv); gl_FragColor = vec4(vUv, 0.5, 1.0) + 0.0001 * vec4(t.rgb * L + N, t.a); }\\n\";
 #endif
     GLuint vsId = rgfx_gl_compile(GL_VERTEX_SHADER, vs);
     GLuint fsId = rgfx_gl_compile(GL_FRAGMENT_SHADER, fs);
@@ -2056,7 +2056,7 @@ static int rgfx_3d_gl_init() {
     g_rgfx_3d_uAmb = glGetUniformLocation(g_rgfx_3d_prog, \"uAmb\");
     g_rgfx_3d_uSunDir = glGetUniformLocation(g_rgfx_3d_prog, \"uSunDir\");
     g_rgfx_3d_uSun = glGetUniformLocation(g_rgfx_3d_prog, \"uSun\");
-    SDL_Log(\"[wasm3d] 3d program ok prog=%u aPos=%d aNormal=%d aUv=%d uMVP=%d uNormal=%d uTex=%d\", (unsigned) g_rgfx_3d_prog, g_rgfx_3d_aPos, g_rgfx_3d_aNormal, g_rgfx_3d_aUv, g_rgfx_3d_uMVP, g_rgfx_3d_uNormal, g_rgfx_3d_uTex);
+    SDL_Log(\"[wasm3d] 3d program ok prog=%u aPos=%d aNormal=%d aUv=%d uMVP=%d uNormal=%d uTex=%d uAmb=%d uSunDir=%d uSun=%d\", (unsigned) g_rgfx_3d_prog, g_rgfx_3d_aPos, g_rgfx_3d_aNormal, g_rgfx_3d_aUv, g_rgfx_3d_uMVP, g_rgfx_3d_uNormal, g_rgfx_3d_uTex, g_rgfx_3d_uAmb, g_rgfx_3d_uSunDir, g_rgfx_3d_uSun);
     return 1;
 }
 static int rgfx_3d_upload_texture(const uint8_t* px, int w, int h) {
@@ -2160,21 +2160,21 @@ static void rgfx_3d_draw(int meshId, int first, int count, int texId, float rx, 
     glUniform1i(g_rgfx_3d_uTex, 0);
     glBindBuffer(GL_ARRAY_BUFFER, m.vbo);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m.ebo);
-    glEnableVertexAttribArray(g_rgfx_3d_aPos);
-    glVertexAttribPointer(g_rgfx_3d_aPos, 3, GL_FLOAT, GL_FALSE, 32, (void*) 0);
-    glEnableVertexAttribArray(g_rgfx_3d_aNormal);
-    glVertexAttribPointer(g_rgfx_3d_aNormal, 3, GL_FLOAT, GL_FALSE, 32, (void*) 12);
-    glEnableVertexAttribArray(g_rgfx_3d_aUv);
-    glVertexAttribPointer(g_rgfx_3d_aUv, 2, GL_FLOAT, GL_FALSE, 32, (void*) 24);
+    if (g_rgfx_3d_aPos >= 0) { glEnableVertexAttribArray(g_rgfx_3d_aPos); glVertexAttribPointer(g_rgfx_3d_aPos, 3, GL_FLOAT, GL_FALSE, 32, (void*) 0); }
+    if (g_rgfx_3d_aNormal >= 0) { glEnableVertexAttribArray(g_rgfx_3d_aNormal); glVertexAttribPointer(g_rgfx_3d_aNormal, 3, GL_FLOAT, GL_FALSE, 32, (void*) 12); }
+    if (g_rgfx_3d_aUv >= 0) { glEnableVertexAttribArray(g_rgfx_3d_aUv); glVertexAttribPointer(g_rgfx_3d_aUv, 2, GL_FLOAT, GL_FALSE, 32, (void*) 24); }
     glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_SHORT, (void*) (size_t) (first * 2));
     static int draw_logged = 0;
-    if (draw_logged < 4) {
-        // project the model origin (0,0,0,1): that is the 4th column of mvp
-        float ox = RGM4(mvp,0,3), oy = RGM4(mvp,1,3), oz = RGM4(mvp,2,3), ow = RGM4(mvp,3,3);
-        float ndcx = (ow != 0.f) ? ox / ow : 0.f;
-        float ndcy = (ow != 0.f) ? oy / ow : 0.f;
-        float ndcz = (ow != 0.f) ? oz / ow : 0.f;
-        SDL_Log(\"[wasm3d] draw mesh=%d count=%d tex=%d aPos=%d origin_clipw=%.3f ndc=(%.3f,%.3f,%.3f) glErr=%d\", meshId, count, texId, g_rgfx_3d_aPos, ow, ndcx, ndcy, ndcz, (int) glGetError());
+    if (draw_logged < 2) {
+        // project a real cube corner (1,1,1,1) to check the matrix spreads
+        // vertices (the origin only exercises the translation column).
+        float kx = RGM4(mvp,0,0) + RGM4(mvp,0,1) + RGM4(mvp,0,2) + RGM4(mvp,0,3);
+        float ky = RGM4(mvp,1,0) + RGM4(mvp,1,1) + RGM4(mvp,1,2) + RGM4(mvp,1,3);
+        float kz = RGM4(mvp,2,0) + RGM4(mvp,2,1) + RGM4(mvp,2,2) + RGM4(mvp,2,3);
+        float kw = RGM4(mvp,3,0) + RGM4(mvp,3,1) + RGM4(mvp,3,2) + RGM4(mvp,3,3);
+        float nx = (kw != 0.f) ? kx / kw : 0.f;
+        float ny = (kw != 0.f) ? ky / kw : 0.f;
+        SDL_Log(\"[wasm3d] draw mesh=%d count=%d tex=%d corner(1,1,1)_clipw=%.3f ndc=(%.3f,%.3f) amb=(%.2f,%.2f,%.2f) sun=(%.2f,%.2f,%.2f) glErr=%d\", meshId, count, texId, kw, nx, ny, g_rgfx_3d_amb[0], g_rgfx_3d_amb[1], g_rgfx_3d_amb[2], g_rgfx_3d_sun[0], g_rgfx_3d_sun[1], g_rgfx_3d_sun[2], (int) glGetError());
         draw_logged++;
     }
 }
