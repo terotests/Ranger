@@ -383,3 +383,81 @@ macro_rules! sprite_game {
         }
     };
 }
+
+/// A sprite-ABI game that is ALSO driven by RGP1 pose input. It draws the ready
+/// characters exactly like a [`SpriteGame`] (the RGSP1 catalog + host renderer),
+/// but each tick it additionally reads the [`crate::pose::Pose`] the host
+/// streamed from a camera + AI model. Implement this and call
+/// [`crate::sprite_pose_game!`] to generate the exports.
+///
+/// The generated `rg_required_caps` returns [`crate::pose::HOST_CAP_POSE_INPUT`]
+/// so a host without a camera rejects the guest at load instead of feeding it a
+/// dead (all-zero) pose block (IDEAL §6). `rg_pose_ptr` / `rg_pose_size` tell
+/// that host where to stream the RGP1 bytes before each `sprite_tick`.
+pub trait SpritePoseGame: Sized {
+    /// Build the initial state (also on restart — return a fresh state).
+    fn init() -> Self;
+
+    /// One host tick: read the [`Frame`] and the streamed
+    /// [`crate::pose::Pose`], push [`Slot`]s into the [`Scene`].
+    fn tick(&mut self, frame: &Frame, pose: &crate::pose::Pose, scene: &mut Scene);
+}
+
+/// Generate the RGSP1 + RGP1 exports for a [`SpritePoseGame`]: the sprite
+/// surface (`sprite_ptr` / `sprite_size` / `sprite_init` / `sprite_tick`), the
+/// pose block (`rg_pose_ptr` / `rg_pose_size`), `rg_abi_version`, and
+/// `rg_required_caps` = [`crate::pose::HOST_CAP_POSE_INPUT`].
+#[macro_export]
+macro_rules! sprite_pose_game {
+    ($ty:ty) => {
+        static __RANGER_SPRITE_POSE_GAME: $crate::__rt::GameCell<$ty> =
+            $crate::__rt::GameCell::new();
+
+        #[no_mangle]
+        pub extern "C" fn sprite_ptr() -> i32 {
+            $crate::sprite::__ptr()
+        }
+
+        #[no_mangle]
+        pub extern "C" fn sprite_size() -> i32 {
+            $crate::sprite::SIZE
+        }
+
+        #[no_mangle]
+        pub extern "C" fn rg_pose_ptr() -> i32 {
+            $crate::pose::__ptr()
+        }
+
+        #[no_mangle]
+        pub extern "C" fn rg_pose_size() -> i32 {
+            $crate::pose::SIZE
+        }
+
+        #[no_mangle]
+        pub extern "C" fn rg_abi_version() -> i32 {
+            $crate::sprite::VERSION
+        }
+
+        #[no_mangle]
+        pub extern "C" fn rg_required_caps() -> i32 {
+            $crate::pose::HOST_CAP_POSE_INPUT
+        }
+
+        #[no_mangle]
+        pub extern "C" fn sprite_init() {
+            $crate::sprite::__init_block();
+            $crate::pose::__init_block();
+            __RANGER_SPRITE_POSE_GAME.set(<$ty as $crate::sprite::SpritePoseGame>::init());
+        }
+
+        #[no_mangle]
+        pub extern "C" fn sprite_tick() {
+            let (frame, mut scene) = $crate::sprite::__begin_tick();
+            let pose = $crate::pose::__pose();
+            __RANGER_SPRITE_POSE_GAME.with(|g| {
+                <$ty as $crate::sprite::SpritePoseGame>::tick(g, &frame, &pose, &mut scene)
+            });
+            $crate::sprite::__end_tick(scene);
+        }
+    };
+}
