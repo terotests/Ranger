@@ -527,6 +527,56 @@ this file.
 
 ---
 
+## Phase H — host-managed 3D scene (IDEAL_3D.md)
+
+The GPU PoC (Phase G.3) works but pushes mesh/scene/material/camera/light ownership
+into the WASM guest as raw exported blocks — `IDEAL_3D.md` §1 lists this as the thing
+to fix. Target: **the host owns the scene, entities and resources; the guest sends
+high-level commands via direct host imports and holds only opaque `EntityId` handles**
+(`IDEAL_3D.md` §2, §10). Command model chosen: **direct host imports** (§7 Option A).
+The existing `gfx_3d_*` GLES2 pipeline stays as the Render Bridge (§4.3); only the
+*source* of scene data changes (guest blocks → host registry).
+
+Landed in testable stages on the branch (this is the whole §4 transition, delivered so
+each stage runs before the next):
+
+- [ ] **H.1 Host scene core + multi-light renderer.** In `gfx_sdl.rgr` C++: a retained
+  **entity registry** (`EntityId` = index+generation), transforms (pos/rot/scale),
+  a **resource-backed** mesh/texture/material model reusing `rgfx_mesh_upload` /
+  `rgfx_3d_upload_texture`, light entities (ambient / directional / point), a camera
+  entity, and a **forward multi-light** shader (ambient + N directional + N point →
+  static lights + a player lamp). `rgfx_scene_reset()` / `rgfx_scene_render(w,h)` walk
+  the registry and drive the GL pipeline. Exposed as `extern "C"` for the bridge.
+- [ ] **H.2 Host imports (C bridge).** In `runtime/rg_wasm_bridge.c`, add + link the
+  guest-facing imports (`IDEAL_3D.md` §4.4): `rg_load_texture`, `rg_create_material`,
+  `rg_create_mesh` / `rg_create_box`, `rg_create_mesh_entity`,
+  `rg_create_perspective_camera`, `rg_create_ambient_light` /
+  `rg_create_directional_light` / `rg_create_point_light`, `rg_set_position` /
+  `rg_set_rotation` / `rg_set_scale` / `rg_set_enabled` / `rg_set_visible` /
+  `rg_set_parent` / `rg_destroy_entity`, `rg_set_camera_target` /
+  `rg_set_active_camera` — thin `m3ApiRawFunction` wrappers over the `extern "C"`
+  scene API. Positions `FP_SCALE`, quaternions/units Q16.16 (§4.4).
+- [ ] **H.3 `Wasm3dRunner` simplification.** Drop all block reads; `scene_reset()` on
+  load, run guest `init`/`update` (which issue the commands), `scene_render(pw,ph)`
+  per frame. No more `rg_*_ptr` exports consumed.
+- [ ] **H.4 Convert `cube3d_wasm`.** Guest `init()`: `create_box`/`create_mesh` +
+  `create_material(load_texture)` + `create_mesh_entity` + `create_perspective_camera`
+  + `create_ambient_light` + `create_directional_light`; store the cube `EntityId`.
+  `update()`: `set_rotation(cube, quat)`. Remove MESH/CAM/LIGHT/MATERIAL/RESOURCE
+  blocks + `rg_*_ptr` exports. Thin `ranger_game` 3D wrapper (`Object3D`, `Light`,
+  `Camera`) for the `obj.set_position()` sugar (§2.2 — handle only, no scene state).
+- [ ] **H.5 Convert `fps_wasm`.** Level built with `create_box` per wall/obstacle +
+  floor; player camera an entity driven by the still-guest-side character controller
+  via `set_position`/`set_camera_target`; add static point lights + a player lamp
+  (`create_point_light` + per-frame `set_position`). Character controller + input
+  interpretation stay guest-side (§8).
+- [ ] **H.6 Headless parity + lifecycle.** Reimplement the host imports in the Node
+  tools as a JS scene + the existing software rasteriser (so headless still renders
+  the same guests); per-guest lifecycle cleanup on unload (§6): destroy entities,
+  refcount/free resources, bump generations.
+
+---
+
 *Progress is tracked here and mirrored in the session task list. Phase 1 and the
 additive Phase 2 headers land first because they are safe (no code references the
 removed constants) and unblock the enforcement + seam work that follows.*
