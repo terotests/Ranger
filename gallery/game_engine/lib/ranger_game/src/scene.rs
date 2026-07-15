@@ -515,6 +515,11 @@ impl Assets<'_> {
 
     /// Add a unit box mesh with outward-facing normals.
     pub fn box_mesh(&mut self, size: Vec3) -> Option<MeshAsset> {
+        self.box_mesh_uv(size, [1.0, 1.0])
+    }
+
+    /// Add a box mesh with an explicit UV repeat count for each face.
+    pub fn box_mesh_uv(&mut self, size: Vec3, uv_repeat: [f32; 2]) -> Option<MeshAsset> {
         let s = &mut *self.scene;
         if s.mesh_count == MAX_MESHES
             || s.vertex_count + 24 > MAX_VERTICES
@@ -587,7 +592,12 @@ impl Assets<'_> {
                     position: Vec3::new(c.x * half.x, c.y * half.y, c.z * half.z),
                     normal: *normal,
                     colour: Color::WHITE,
-                    uv: [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]][k],
+                    uv: [
+                        [0.0, 0.0],
+                        [uv_repeat[0], 0.0],
+                        [uv_repeat[0], uv_repeat[1]],
+                        [0.0, uv_repeat[1]],
+                    ][k],
                 };
             }
             let base = (f * 4) as u16;

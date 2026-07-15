@@ -133,7 +133,7 @@ fn build_level(w: &mut World, s: &mut Scene) {
     let (floor_mesh, unit_mesh, floor_mat, wall_mat, crate_mat) = {
         let mut assets = s.assets();
         (
-            assets.box_mesh(Vec3::new(1.0, 0.05, 1.0)).unwrap(),
+            assets.box_mesh_uv(Vec3::new(1.0, 0.05, 1.0), [21.0, 15.0]).unwrap(),
             assets.box_mesh(Vec3::new(1.0, 1.0, 1.0)).unwrap(),
             assets.material(floor_tex, Color::WHITE, 0),
             assets.material(brick_tex, Color::WHITE, 0),
