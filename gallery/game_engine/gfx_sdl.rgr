@@ -2008,7 +2008,7 @@ static int rgfx_3d_gl_init() {
         \"uniform vec3 uAmb;\\n\"
         \"uniform vec3 uSunDir;\\n\"
         \"uniform vec3 uSun;\\n\"
-        \"void main() { vec3 N = normalize(vN); float ndl = max(0.0, dot(N, uSunDir)); vec3 L = uAmb + uSun * ndl; vec4 t = texture2D(uTex, vUv); gl_FragColor = vec4(vUv, 0.5, 1.0) + 0.0001 * vec4(t.rgb * L + N, t.a); }\\n\";
+        \"void main() { vec3 N = normalize(vN); float ndl = max(0.0, dot(N, uSunDir)); vec3 L = uAmb + uSun * ndl; vec4 t = texture2D(uTex, vUv); gl_FragColor = vec4(t.rgb * L, t.a); }\\n\";
 #else
     const char* vs =
         \"#version 120\\n\"
@@ -2028,7 +2028,7 @@ static int rgfx_3d_gl_init() {
         \"uniform vec3 uAmb;\\n\"
         \"uniform vec3 uSunDir;\\n\"
         \"uniform vec3 uSun;\\n\"
-        \"void main() { vec3 N = normalize(vN); float ndl = max(0.0, dot(N, uSunDir)); vec3 L = uAmb + uSun * ndl; vec4 t = texture2D(uTex, vUv); gl_FragColor = vec4(vUv, 0.5, 1.0) + 0.0001 * vec4(t.rgb * L + N, t.a); }\\n\";
+        \"void main() { vec3 N = normalize(vN); float ndl = max(0.0, dot(N, uSunDir)); vec3 L = uAmb + uSun * ndl; vec4 t = texture2D(uTex, vUv); gl_FragColor = vec4(t.rgb * L, t.a); }\\n\";
 #endif
     GLuint vsId = rgfx_gl_compile(GL_VERTEX_SHADER, vs);
     GLuint fsId = rgfx_gl_compile(GL_FRAGMENT_SHADER, fs);
@@ -2129,10 +2129,20 @@ static void rgfx_3d_set_camera(float ex, float ey, float ez, float cx, float cy,
     rgfx_m4_perspective(fovy, aspect, np, fp, proj);
     rgfx_m4_mul(proj, view, g_rgfx_3d_vp);
 }
-static void rgfx_3d_set_light(float ar, float ag, float ab, float ai, float dx, float dy, float dz, float sr, float sg, float sb, float si) {
+// Colours arrive as packed RGBA8888 ints (the guest's rgba(); the top byte is R).
+// Cast to uint32_t so a high red/alpha byte does not read as a negative int.
+static void rgfx_3d_set_light(int ambColor, float ai, float dx, float dy, float dz, int sunColor, float si) {
+    uint32_t ac = (uint32_t) ambColor;
+    float ar = (float) ((ac >> 24) & 255u) / 255.f;
+    float ag = (float) ((ac >> 16) & 255u) / 255.f;
+    float ab = (float) ((ac >> 8) & 255u) / 255.f;
     g_rgfx_3d_amb[0] = ar * ai; g_rgfx_3d_amb[1] = ag * ai; g_rgfx_3d_amb[2] = ab * ai;
     float dl = sqrtf(dx * dx + dy * dy + dz * dz); if (dl > 0.f) { dx /= dl; dy /= dl; dz /= dl; }
     g_rgfx_3d_sundir[0] = dx; g_rgfx_3d_sundir[1] = dy; g_rgfx_3d_sundir[2] = dz;
+    uint32_t sc = (uint32_t) sunColor;
+    float sr = (float) ((sc >> 24) & 255u) / 255.f;
+    float sg = (float) ((sc >> 16) & 255u) / 255.f;
+    float sb = (float) ((sc >> 8) & 255u) / 255.f;
     g_rgfx_3d_sun[0] = sr * si; g_rgfx_3d_sun[1] = sg * si; g_rgfx_3d_sun[2] = sb * si;
 }
 static void rgfx_3d_draw(int meshId, int first, int count, int texId, float rx, float ry, float rz, float px, float py, float pz) {
@@ -2514,9 +2524,9 @@ static void rgfx_3d_end() {
         }
     }
     ; Set the scene light: ambient rgb+intensity, sun direction, sun rgb+intensity.
-    gfx_3d_set_light _:void (ar:double ag:double ab:double ai:double dx:double dy:double dz:double sr:double sg:double sb:double si:double) {
+    gfx_3d_set_light _:void (ambColor:int ambI:double dx:double dy:double dz:double sunColor:int sunI:double) {
         templates {
-            cpp ( "rgfx_3d_set_light((float)" (e 1) ", (float)" (e 2) ", (float)" (e 3) ", (float)" (e 4) ", (float)" (e 5) ", (float)" (e 6) ", (float)" (e 7) ", (float)" (e 8) ", (float)" (e 9) ", (float)" (e 10) ", (float)" (e 11) ")" (imp "<SDL2/SDL.h>") )
+            cpp ( "rgfx_3d_set_light(" (e 1) ", (float)" (e 2) ", (float)" (e 3) ", (float)" (e 4) ", (float)" (e 5) ", " (e 6) ", (float)" (e 7) ")" (imp "<SDL2/SDL.h>") )
             es6 ( "undefined" )
         }
     }
