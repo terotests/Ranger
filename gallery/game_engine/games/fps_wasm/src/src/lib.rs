@@ -7,13 +7,16 @@
 #![allow(clippy::missing_safety_doc)]
 
 use core::cell::UnsafeCell;
-use ranger_game::scene::{Color, MeshAsset, MaterialId, Scene, Vec3};
+use ranger_game::scene::{Color, MaterialId, MeshAsset, Scene, Vec3};
 
 const FP: f32 = 256.0;
 const MAX_C: usize = 64;
 const FLOOR_TEXTURE: &str = "floor";
 const BRICK_TEXTURE: &str = "brick";
 const CRATE_TEXTURE: &str = "crate";
+// Keep the floor tiling inside the packed UV range supported by the scene ABI.
+const FLOOR_UV_REPEAT_U: f32 = 4.0;
+const FLOOR_UV_REPEAT_V: f32 = 3.0;
 
 struct Blk<const N: usize>(UnsafeCell<[u8; N]>);
 unsafe impl<const N: usize> Sync for Blk<N> {}
@@ -25,7 +28,9 @@ impl<const N: usize> Blk<N> {
         self.0.get() as *mut u8
     }
     fn wi(&self, off: usize, v: i32) {
-        unsafe { core::ptr::copy_nonoverlapping(v.to_le_bytes().as_ptr(), self.base().add(off), 4) };
+        unsafe {
+            core::ptr::copy_nonoverlapping(v.to_le_bytes().as_ptr(), self.base().add(off), 4)
+        };
     }
     fn wu(&self, off: usize, v: u32) {
         self.wi(off, v as i32);
@@ -57,7 +62,11 @@ struct World {
 struct WCell(UnsafeCell<World>);
 unsafe impl Sync for WCell {}
 static W: WCell = WCell(UnsafeCell::new(World {
-    boxes: [Aabb { min: [0.0; 3], max: [0.0; 3], kind: 0 }; MAX_C],
+    boxes: [Aabb {
+        min: [0.0; 3],
+        max: [0.0; 3],
+        kind: 0,
+    }; MAX_C],
     nbox: 0,
     px: -6.0,
     py: 0.9,
@@ -105,11 +114,8 @@ fn spawn_box(s: &mut Scene, mesh: MeshAsset, material: MaterialId, min: [f32; 3]
             (min[1] + max[1]) * 0.5,
             (min[2] + max[2]) * 0.5,
         ));
-        s.node(entity).set_scale(Vec3::new(
-            max[0] - min[0],
-            max[1] - min[1],
-            max[2] - min[2],
-        ));
+        s.node(entity)
+            .set_scale(Vec3::new(max[0] - min[0], max[1] - min[1], max[2] - min[2]));
     }
 }
 
@@ -133,7 +139,12 @@ fn build_level(w: &mut World, s: &mut Scene) {
     let (floor_mesh, unit_mesh, floor_mat, wall_mat, crate_mat) = {
         let mut assets = s.assets();
         (
-            assets.box_mesh_uv(Vec3::new(1.0, 0.05, 1.0), [21.0, 15.0]).unwrap(),
+            assets
+                .box_mesh_uv(
+                    Vec3::new(1.0, 0.05, 1.0),
+                    [FLOOR_UV_REPEAT_U, FLOOR_UV_REPEAT_V],
+                )
+                .unwrap(),
             assets.box_mesh(Vec3::new(1.0, 1.0, 1.0)).unwrap(),
             assets.material(floor_tex, Color::WHITE, 0),
             assets.material(brick_tex, Color::WHITE, 0),
@@ -142,19 +153,105 @@ fn build_level(w: &mut World, s: &mut Scene) {
     };
     s.spawn_ambient_light(Color::rgb(180, 185, 200), 0.55);
 
-    spawn_box(s, floor_mesh, floor_mat, [-10.5, -0.025, -7.5], [10.5, 0.025, 7.5]);
+    spawn_box(
+        s,
+        floor_mesh,
+        floor_mat,
+        [-10.5, -0.025, -7.5],
+        [10.5, 0.025, 7.5],
+    );
     let h = 3.0;
     let t = 0.5;
-    level_box(w, s, unit_mesh, wall_mat, [-10.0, 0.0, -7.0 - t], [10.0, h, -7.0], K_WALL);
-    level_box(w, s, unit_mesh, wall_mat, [-10.0, 0.0, 7.0], [10.0, h, 7.0 + t], K_WALL);
-    level_box(w, s, unit_mesh, wall_mat, [-10.0 - t, 0.0, -7.0], [-10.0, h, 7.0], K_WALL);
-    level_box(w, s, unit_mesh, wall_mat, [10.0, 0.0, -7.0], [10.0 + t, h, 7.0], K_WALL);
-    level_box(w, s, unit_mesh, wall_mat, [-t / 2.0, 0.0, -7.0], [t / 2.0, h, -1.5], K_WALL);
-    level_box(w, s, unit_mesh, wall_mat, [-t / 2.0, 0.0, 1.5], [t / 2.0, h, 7.0], K_WALL);
-    level_box(w, s, unit_mesh, crate_mat, [-6.5, 0.0, -3.5], [-5.5, 2.0, -2.5], K_OBST);
-    level_box(w, s, unit_mesh, crate_mat, [-4.5, 0.0, 2.5], [-3.5, 2.0, 3.5], K_OBST);
-    level_box(w, s, unit_mesh, crate_mat, [3.0, 0.0, -2.0], [7.0, 1.0, 2.0], K_PLAT);
-    level_box(w, s, unit_mesh, crate_mat, [7.5, 0.0, -5.0], [8.5, 2.0, -4.0], K_OBST);
+    level_box(
+        w,
+        s,
+        unit_mesh,
+        wall_mat,
+        [-10.0, 0.0, -7.0 - t],
+        [10.0, h, -7.0],
+        K_WALL,
+    );
+    level_box(
+        w,
+        s,
+        unit_mesh,
+        wall_mat,
+        [-10.0, 0.0, 7.0],
+        [10.0, h, 7.0 + t],
+        K_WALL,
+    );
+    level_box(
+        w,
+        s,
+        unit_mesh,
+        wall_mat,
+        [-10.0 - t, 0.0, -7.0],
+        [-10.0, h, 7.0],
+        K_WALL,
+    );
+    level_box(
+        w,
+        s,
+        unit_mesh,
+        wall_mat,
+        [10.0, 0.0, -7.0],
+        [10.0 + t, h, 7.0],
+        K_WALL,
+    );
+    level_box(
+        w,
+        s,
+        unit_mesh,
+        wall_mat,
+        [-t / 2.0, 0.0, -7.0],
+        [t / 2.0, h, -1.5],
+        K_WALL,
+    );
+    level_box(
+        w,
+        s,
+        unit_mesh,
+        wall_mat,
+        [-t / 2.0, 0.0, 1.5],
+        [t / 2.0, h, 7.0],
+        K_WALL,
+    );
+    level_box(
+        w,
+        s,
+        unit_mesh,
+        crate_mat,
+        [-6.5, 0.0, -3.5],
+        [-5.5, 2.0, -2.5],
+        K_OBST,
+    );
+    level_box(
+        w,
+        s,
+        unit_mesh,
+        crate_mat,
+        [-4.5, 0.0, 2.5],
+        [-3.5, 2.0, 3.5],
+        K_OBST,
+    );
+    level_box(
+        w,
+        s,
+        unit_mesh,
+        crate_mat,
+        [3.0, 0.0, -2.0],
+        [7.0, 1.0, 2.0],
+        K_PLAT,
+    );
+    level_box(
+        w,
+        s,
+        unit_mesh,
+        crate_mat,
+        [7.5, 0.0, -5.0],
+        [8.5, 2.0, -4.0],
+        K_OBST,
+    );
 
     CO.wu(0, CO_MAGIC);
     CO.wi(4, 1);
@@ -195,9 +292,12 @@ pub extern "C" fn init() {
 }
 
 fn overlap(cx: f32, cy: f32, cz: f32, b: &Aabb) -> bool {
-    cx - P_HX < b.max[0] && cx + P_HX > b.min[0]
-        && cy - P_HY < b.max[1] && cy + P_HY > b.min[1]
-        && cz - P_HZ < b.max[2] && cz + P_HZ > b.min[2]
+    cx - P_HX < b.max[0]
+        && cx + P_HX > b.min[0]
+        && cy - P_HY < b.max[1]
+        && cy + P_HY > b.min[1]
+        && cz - P_HZ < b.max[2]
+        && cz + P_HZ > b.min[2]
 }
 fn resolve_axis(w: &mut World, axis: usize) {
     for i in 0..w.nbox {
@@ -218,13 +318,21 @@ fn resolve_axis(w: &mut World, axis: usize) {
         }
         let dir = if c >= bc { 1.0 } else { -1.0 };
         match axis {
-            0 => { w.px += dir * pen; w.vx = 0.0; }
+            0 => {
+                w.px += dir * pen;
+                w.vx = 0.0;
+            }
             1 => {
                 w.py += dir * pen;
-                if dir > 0.0 { w.on_ground = true; }
+                if dir > 0.0 {
+                    w.on_ground = true;
+                }
                 w.vy = 0.0;
             }
-            _ => { w.pz += dir * pen; w.vz = 0.0; }
+            _ => {
+                w.pz += dir * pen;
+                w.vz = 0.0;
+            }
         }
     }
 }
@@ -268,17 +376,29 @@ pub extern "C" fn update(dt_ms: i32, forward: i32, strafe: i32, turn: i32, jump:
 }
 
 #[no_mangle]
-pub extern "C" fn player_x() -> i32 { fx(world().px) }
+pub extern "C" fn player_x() -> i32 {
+    fx(world().px)
+}
 #[no_mangle]
-pub extern "C" fn player_z() -> i32 { fx(world().pz) }
+pub extern "C" fn player_z() -> i32 {
+    fx(world().pz)
+}
 #[no_mangle]
-pub extern "C" fn player_y() -> i32 { fx(world().py) }
+pub extern "C" fn player_y() -> i32 {
+    fx(world().py)
+}
 #[no_mangle]
-pub extern "C" fn player_on_ground() -> i32 { world().on_ground as i32 }
+pub extern "C" fn player_on_ground() -> i32 {
+    world().on_ground as i32
+}
 
 ranger_game::scene_exports!();
 
 #[no_mangle]
-pub extern "C" fn rg_col_ptr() -> i32 { CO.base() as i32 }
+pub extern "C" fn rg_col_ptr() -> i32 {
+    CO.base() as i32
+}
 #[no_mangle]
-pub extern "C" fn rg_col_size() -> i32 { CO_SZ as i32 }
+pub extern "C" fn rg_col_size() -> i32 {
+    CO_SZ as i32
+}

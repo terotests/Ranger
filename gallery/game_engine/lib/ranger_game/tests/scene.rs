@@ -1,5 +1,7 @@
 use ranger_game::scene::{Color, Projection, Quat, Scene, Vec3};
 
+const TEST_TEXTURE_HANDLE: u32 = 7;
+
 #[test]
 fn scene_handles_are_generation_checked_and_instances_share_assets() {
     let mut scene = Scene::new();
@@ -7,7 +9,7 @@ fn scene_handles_are_generation_checked_and_instances_share_assets() {
         let mut assets = scene.assets();
         (
             assets.box_mesh(Vec3::new(1.0, 2.0, 1.0)).unwrap(),
-            assets.material(7, Color::WHITE, 0),
+            assets.material(TEST_TEXTURE_HANDLE, Color::WHITE, 0),
         )
     };
     let first = scene.spawn_mesh(mesh, material).unwrap();

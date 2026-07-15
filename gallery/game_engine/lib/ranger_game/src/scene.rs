@@ -10,6 +10,9 @@ use crate::block::Block;
 pub const FP: f32 = 256.0;
 pub const Q16: f32 = 65536.0;
 pub const UV: f32 = 4096.0;
+// The packed UV field stores two 16-bit fixed-point values, so the maximum
+// coordinate we can serialize before the value would overflow is ~15.99.
+const MAX_UV_COORD: f32 = u16::MAX as f32 / UV;
 pub const MAX_NODES: usize = 128;
 pub const MAX_MESHES: usize = 64;
 pub const MAX_MATERIALS: usize = 64;
@@ -704,6 +707,22 @@ fn transform_local(p: Vec3, n: Node) -> Vec3 {
         iz * q.w + iw * -q.z + ix * -q.y - iy * -q.x + n.position.z,
     )
 }
+fn pack_uv(uv: [f32; 2]) -> u32 {
+    let u = (uv[0].clamp(0.0, MAX_UV_COORD) * UV) as u32;
+    let v = (uv[1].clamp(0.0, MAX_UV_COORD) * UV) as u32;
+    ((v & 0xffff) << 16) | (u & 0xffff)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pack_uv_clamps_to_the_supported_u16_fixed_range() {
+        assert_eq!(pack_uv([21.0, 15.0]), (61440u32 << 16) | (u16::MAX as u32));
+    }
+}
+
 fn write_vertex(i: usize, p: Vec3, n: Vec3, c: Color, uv: [f32; 2]) {
     let o = MESH_HDR + i * VERTEX_SIZE;
     MESH.write_i32(o, fixed(p.x));
@@ -713,10 +732,7 @@ fn write_vertex(i: usize, p: Vec3, n: Vec3, c: Color, uv: [f32; 2]) {
     MESH.write_i32(o + 16, unit(n.y));
     MESH.write_i32(o + 20, unit(n.z));
     MESH.write_u32(o + 24, c.packed());
-    MESH.write_u32(
-        o + 28,
-        ((uv[1] * UV) as u32) << 16 | ((uv[0] * UV) as u32 & 0xffff),
-    );
+    MESH.write_u32(o + 28, pack_uv(uv));
 }
 fn write_index(i: usize, v: u16) {
     MESH.write_u16(INDEX_OFFSET + i * 2, v);
