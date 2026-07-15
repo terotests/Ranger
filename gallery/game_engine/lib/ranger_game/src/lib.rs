@@ -48,6 +48,7 @@
 pub mod input;
 pub mod pose;
 pub mod resources;
+pub mod scene;
 pub mod sprite;
 pub mod ui;
 pub mod world;
