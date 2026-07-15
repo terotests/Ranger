@@ -35770,31 +35770,52 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       };
       return idx + 1;
     };
+    emitBranchTerm (bb, mergeBb, wr) {
+      if ( bb.termKind == "ret" ) {
+        if ( (bb.termValue.length) > 0 ) {
+          this.writeGet(bb.termValue, wr);
+        }
+        wr.out("          return", true);
+        return;
+      }
+      if ( bb.termKind == "br" ) {
+        if ( bb.termTarget != mergeBb.label ) {
+          wr.out("          br $" + bb.termTarget, true);
+        }
+      }
+    };
     emitIfThenMerge (fn, idx, wr, visited) {
       const hdr = fn.blocks[idx];
       const thenIdx = this.findBlockIdx(fn, hdr.termIfTrue);
-      const mergeIdx = this.findBlockIdx(fn, hdr.termIfFalse);
+      const falseIdx = this.findBlockIdx(fn, hdr.termIfFalse);
       const thenBb = fn.blocks[thenIdx];
-      const mergeBb = fn.blocks[mergeIdx];
+      const falseBb = fn.blocks[falseIdx];
+      let twoSided = false;
+      if ( thenBb.termKind == "br" ) {
+        if ( thenBb.termTarget != falseBb.label ) {
+          twoSided = true;
+        }
+      }
+      let mergeBb = falseBb;
+      if ( twoSided ) {
+        mergeBb = fn.blocks[this.findBlockIdx(fn, thenBb.termTarget)];
+      }
       this.writeGet(hdr.termValue, wr);
       wr.out("      (if", true);
       wr.out("        (then", true);
       this.markVisited(thenBb.label, visited);
       this.writeBlockInstrs(thenBb, wr);
-      if ( thenBb.termKind == "ret" ) {
-        if ( (thenBb.termValue.length) > 0 ) {
-          this.writeGet(thenBb.termValue, wr);
-        }
-        wr.out("          return", true);
-      } else {
-        if ( thenBb.termKind == "br" ) {
-          if ( thenBb.termTarget != mergeBb.label ) {
-            wr.out("          br $" + thenBb.termTarget, true);
-          }
-        }
-      }
+      this.emitBranchTerm(thenBb, mergeBb, wr);
       wr.out("        )", true);
+      if ( twoSided ) {
+        wr.out("        (else", true);
+        this.markVisited(falseBb.label, visited);
+        this.writeBlockInstrs(falseBb, wr);
+        this.emitBranchTerm(falseBb, mergeBb, wr);
+        wr.out("        )", true);
+      }
       wr.out("      )", true);
+      const mergeIdx = this.findBlockIdx(fn, mergeBb.label);
       if ( this.isVisited(mergeBb.label, visited) == false ) {
         this.markVisited(mergeBb.label, visited);
         this.writeBlockInstrs(mergeBb, wr);

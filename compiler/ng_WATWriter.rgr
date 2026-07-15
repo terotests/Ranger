@@ -182,33 +182,66 @@ class WATWriter {
     return (idx + 1)
   }
 
+  ; Emit the terminator of an if-arm (then/else) inside a structured (if ...).
+  ; A `ret` becomes an explicit return; a `br` to the shared merge block is
+  ; suppressed (control simply falls through past the (if) to the merge we emit
+  ; next); a `br` anywhere else is kept.
+  fn emitBranchTerm:void (bb:LowIRBlock mergeBb:LowIRBlock wr:CodeWriter) {
+    if (bb.termKind == "ret") {
+      if ((strlen bb.termValue) > 0) {
+        this.writeGet(bb.termValue wr)
+      }
+      wr.out("          return" true)
+      return
+    }
+    if (bb.termKind == "br") {
+      if (bb.termTarget != mergeBb.label) {
+        wr.out(("          br $" + bb.termTarget) true)
+      }
+    }
+  }
+
   fn emitIfThenMerge:int (fn:LowIRFunction idx:int wr:CodeWriter visited:[string:boolean]) {
     def hdr (itemAt fn.blocks idx)
     def thenIdx (this.findBlockIdx(fn hdr.termIfTrue))
-    def mergeIdx (this.findBlockIdx(fn hdr.termIfFalse))
+    def falseIdx (this.findBlockIdx(fn hdr.termIfFalse))
     def thenBb (itemAt fn.blocks thenIdx)
-    def mergeBb (itemAt fn.blocks mergeIdx)
+    def falseBb (itemAt fn.blocks falseIdx)
+
+    ; Two-branch if/else vs single-sided if. In a single-sided `if`, both the
+    ; header's false target AND the then-block's `br` lead to the SAME merge
+    ; block, so termIfFalse IS the merge. In a two-branch `if/else`, the
+    ; then-block branches PAST the false target to a distinct merge block, so
+    ; termIfFalse is the else arm and thenBb.termTarget names the real merge.
+    def twoSided false
+    if (thenBb.termKind == "br") {
+      if (thenBb.termTarget != falseBb.label) {
+        twoSided = true
+      }
+    }
+
+    def mergeBb falseBb
+    if (twoSided) {
+      mergeBb = (itemAt fn.blocks (this.findBlockIdx(fn thenBb.termTarget)))
+    }
 
     this.writeGet(hdr.termValue wr)
     wr.out("      (if" true)
     wr.out("        (then" true)
     this.markVisited(thenBb.label visited)
     this.writeBlockInstrs(thenBb wr)
-    if (thenBb.termKind == "ret") {
-      if ((strlen thenBb.termValue) > 0) {
-        this.writeGet(thenBb.termValue wr)
-      }
-      wr.out("          return" true)
-    } {
-      if (thenBb.termKind == "br") {
-        if (thenBb.termTarget != mergeBb.label) {
-          wr.out(("          br $" + thenBb.termTarget) true)
-        }
-      }
-    }
+    this.emitBranchTerm(thenBb mergeBb wr)
     wr.out("        )" true)
+    if (twoSided) {
+      wr.out("        (else" true)
+      this.markVisited(falseBb.label visited)
+      this.writeBlockInstrs(falseBb wr)
+      this.emitBranchTerm(falseBb mergeBb wr)
+      wr.out("        )" true)
+    }
     wr.out("      )" true)
 
+    def mergeIdx (this.findBlockIdx(fn mergeBb.label))
     if (this.isVisited(mergeBb.label visited) == false) {
       this.markVisited(mergeBb.label visited)
       this.writeBlockInstrs(mergeBb wr)
