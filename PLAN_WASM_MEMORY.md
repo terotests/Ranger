@@ -95,9 +95,15 @@ object-based game/logic code does not.
       heap. `coll_rc_test` 11/11 — int and object arrays correct (incl. multiple
       backing grows), and build/use/drop loops stay heap-flat with zero live
       blocks. libc path byte-unchanged (`realloc`, not `Heap_realloc`).
-    - ⬜ *remaining:* `[K:V]` maps (RtMap runtime) on the free-list heap with
-      key/value RC; `[string]` array elements (libc releases array elements via
-      obj_release only — string elements would need a per-element kind).
+    - `[K:V]` maps already allocate their descriptor/keys/vals from the free-list
+      heap (the same `emitHeapAlloc` unification), so a map-using program no
+      longer corrupts the heap. They work up to the fixed bucket capacity;
+      *overflow beyond capacity recurses infinitely in the open-addressing probe*
+      — a pre-existing `RtMap` limitation on ALL targets (libc included), a
+      map-growth issue, not a memory one. ⬜ *remaining:* map descriptor/bucket
+      release (maps aren't in the owned-release path on any target yet) + growth;
+      `[string]` array element release (libc releases elements via `obj_release`
+      only, so string elements need a per-element kind in the descriptor).
 - **Phase 5 — per-frame arena** ⬜ *optional optimisation, not required for
   correctness* — checkpoint/reset the frontier for frame-scoped temporaries.
 
