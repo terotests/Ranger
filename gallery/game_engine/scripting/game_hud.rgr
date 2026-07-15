@@ -20,10 +20,15 @@ class HudBitmapTextMeasurer {
     Extends(EVGTextMeasurer)
 
     fn scaleFor:int (fontSize:double) {
+        ; Bitmap HUD font scale steps. Existing games use <= 18px (scale 2/3);
+        ; larger sizes (>= 24px) unlock bigger, clearer text for kid-facing UIs.
+        ; The engine=ui launcher uses a separate RGU1 renderer, so it is not
+        ; affected by these steps.
         def scale 2
-        if (fontSize >= 14.0) {
-            scale = 3
-        }
+        if (fontSize >= 14.0) { scale = 3 }
+        if (fontSize >= 24.0) { scale = 4 }
+        if (fontSize >= 34.0) { scale = 5 }
+        if (fontSize >= 44.0) { scale = 6 }
         return scale
     }
 
@@ -244,7 +249,10 @@ class GameHudBlitter {
         if (ch == "W") { return "101101101101101" }
         if (ch == ":") { return "000010000010000" }
         if (ch == ".") { return "000000000000010" }
-        if (ch == "-") { return "000010000010000" }
+        if (ch == "-") { return "000000111000000" }
+        if (ch == "+") { return "000010111010000" }
+        if (ch == "=") { return "000111000111000" }
+        if (ch == "?") { return "111001011000010" }
         if (ch == "/") { return "001001010100010" }
         if (ch == ">") { return "001011100000000" }
         if (ch == "^") { return "010111000000000" }

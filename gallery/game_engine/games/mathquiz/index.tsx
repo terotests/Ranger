@@ -219,13 +219,39 @@ function update(props) {
   };
 }
 
+// A fixed-size answer tile. `active` wraps it in a bright glow ring (an outer
+// View whose semi-transparent background peeks past the inner card via padding)
+// and inverts the fill — the same highlight the menus use. The card centers its
+// label on both axes; fontSize 34px maps to bitmap scale 5, so digits are big.
+// Explicit widths/heights everywhere: a background View with no width stretches
+// to fill its parent (cross-axis stretch), and an un-sized row wrapper shrink-
+// wraps and makes each tile wrap onto its own line. Sized boxes avoid both.
 function tile(value, active) {
   let bg = "#26304e";
   let fg = "#cbd6f2";
-  if (active == 1) { bg = "#ffd23f"; fg = "#1a1e33"; }
+  let glow = "#00000000";
+  if (active == 1) {
+    bg = "#ffd23f";
+    fg = "#1a1e33";
+    glow = "#ffe98acc";
+  }
   return (
-    <View backgroundColor={bg} padding="10px" margin="6px">
-      <Label color={fg}>{value}</Label>
+    <View backgroundColor={glow} width="104px" height="76px" margin="6px" flexDirection="column" alignItems="center" justifyContent="center">
+      <View backgroundColor={bg} width="92px" height="64px" flexDirection="column" alignItems="center" justifyContent="center">
+        <Label color={fg} fontSize="34px">{value}</Label>
+      </View>
+    </View>
+  );
+}
+
+// A framed card: an outer glow ring around an inner dark panel with centered
+// text. Used for the big equation so it reads like the menu cards.
+function panel(text, color, glow, size) {
+  return (
+    <View backgroundColor={glow} width="312px" height="80px" margin="6px" flexDirection="column" alignItems="center" justifyContent="center">
+      <View backgroundColor="#141a30" width="300px" height="68px" flexDirection="column" alignItems="center" justifyContent="center">
+        <Label color={color} fontSize={size}>{text}</Label>
+      </View>
     </View>
   );
 }
@@ -237,25 +263,28 @@ function hud(props) {
     let a0 = 0; let a1 = 0;
     if (s.sel == 0) { a0 = 1; } else { a1 = 1; }
     return (
-      <View width="100%" height="100%" flexDirection="column" justifyContent="center" align="center">
-        <Label color="#8cd3ff">LASKUPELI</Label>
-        <Label color="#6a8aaa">Valitse taso — nuolet + Space</Label>
-        {tile("5v  (helppo)", a0)}
-        {tile("8v  (haastava)", a1)}
+      <View width="100%" height="100%" flexDirection="column" justifyContent="center" alignItems="center">
+        <Label color="#8cd3ff" fontSize="44px">LASKUPELI</Label>
+        <Label color="#6a8aaa" fontSize="14px">Valitse taso — nuolet + Space</Label>
+        <View width="240px" flexDirection="row" justifyContent="center" alignItems="center">
+          {tile("5v", a0)}
+          {tile("8v", a1)}
+        </View>
       </View>
     );
   }
 
   if (s.screen == "done") {
     return (
-      <View width="100%" height="100%" flexDirection="column" justifyContent="center" align="center">
-        <Label color="#ffd23f">Valmis!</Label>
-        <Label color="#ffffff">Pisteet {s.score} / {s.total}</Label>
-        <Label color="#8cd3ff">Space = alkuun</Label>
+      <View width="100%" height="100%" flexDirection="column" justifyContent="center" alignItems="center">
+        <Label color="#ffd23f" fontSize="44px">VALMIS</Label>
+        {panel(s.score + " / " + s.total, "#ffffff", "#4a90d288", "34px")}
+        <Label color="#8cd3ff" fontSize="14px">Space = alkuun</Label>
       </View>
     );
   }
 
+  // Just the task, e.g. "4 + 3 = ?" — no "Kysymys" label, per request.
   const q = s.a + " " + s.op + " " + s.b + " = ?";
   let msg = "";
   let mc = "#8cd3ff";
@@ -270,15 +299,15 @@ function hud(props) {
   }
 
   return (
-    <View width="100%" height="100%" flexDirection="column" justifyContent="center" align="center">
-      <Label color="#6a8aaa">Kysymys {s.qnum} / {s.total}   Pisteet {s.score}</Label>
-      <Label color="#ffffff">{q}</Label>
-      <View flexDirection="row" justifyContent="center">
+    <View width="100%" height="100%" flexDirection="column" justifyContent="center" alignItems="center">
+      <Label color="#6a8aaa" fontSize="14px">{s.qnum} / {s.total}   Pisteet {s.score}</Label>
+      {panel(q, "#ffffff", "#4a90d2aa", "44px")}
+      <View width="360px" flexDirection="row" justifyContent="center" alignItems="center">
         {tile(s.o0, a0)}
         {tile(s.o1, a1)}
         {tile(s.o2, a2)}
       </View>
-      <Label color={mc}>{msg}</Label>
+      <Label color={mc} fontSize="24px">{msg}</Label>
     </View>
   );
 }
