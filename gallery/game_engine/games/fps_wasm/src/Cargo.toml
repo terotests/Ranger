@@ -6,6 +6,9 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib"]
 
+[dependencies]
+ranger_game = { path = "../../../lib/ranger_game" }
+
 [profile.release]
 opt-level = "s"
 lto = true

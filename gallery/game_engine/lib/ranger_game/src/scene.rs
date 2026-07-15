@@ -27,16 +27,20 @@ const MESH_SIZE: usize = SUBMESH_OFFSET + MAX_SUBMESHES * 12;
 const MAT_SIZE: usize = 20 + MAX_MATERIALS * 16;
 const CAM_SIZE: usize = 276;
 const LIT_SIZE: usize = 48 + MAX_POINT_LIGHTS * 24;
+const RES_NAME: usize = 16;
+const RES_SIZE: usize = 20 + MAX_MATERIALS * RES_NAME;
 
 static MESH: Block<MESH_SIZE> = Block::new();
 static MATERIALS: Block<MAT_SIZE> = Block::new();
 static CAMERA: Block<CAM_SIZE> = Block::new();
 static LIGHTS: Block<LIT_SIZE> = Block::new();
+static RESOURCES: Block<RES_SIZE> = Block::new();
 
 const MESH_MAGIC: u32 = 0x424d_4752;
 const MAT_MAGIC: u32 = 0x414d_4752;
 const CAM_MAGIC: u32 = 0x4d43_4752;
 const LIT_MAGIC: u32 = 0x544c_4752;
+const RES_MAGIC: u32 = 0x5352_4752;
 
 /// A three-dimensional vector.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -186,6 +190,8 @@ pub struct Scene {
     ambient: (Color, f32),
     sun: (Vec3, Color, f32),
     camera: Camera,
+    resources: [[u8; RES_NAME]; MAX_MATERIALS],
+    resource_count: usize,
 }
 
 /// Camera declaration. The host resolves the view-projection matrix.
@@ -309,11 +315,25 @@ impl Scene {
                 near: 0.1,
                 far: 1000.0,
             },
+            resources: [[0; RES_NAME]; MAX_MATERIALS],
+            resource_count: 0,
         }
     }
 
     pub fn assets(&mut self) -> Assets<'_> {
         Assets { scene: self }
+    }
+
+    /// Declare a texture name and return the material texture handle for it.
+    /// The host resolves handles as resource-table index + 1.
+    pub fn resource(&mut self, name: &str) -> u32 {
+        let i = self.resource_count.min(MAX_MATERIALS - 1);
+        self.resources[i] = [0; RES_NAME];
+        let bytes = name.as_bytes();
+        let len = bytes.len().min(RES_NAME);
+        self.resources[i][..len].copy_from_slice(&bytes[..len]);
+        self.resource_count = (i + 1).min(MAX_MATERIALS);
+        (i + 1) as u32
     }
 
     fn entity(&mut self) -> Option<Entity> {
@@ -441,6 +461,7 @@ impl Scene {
         write_materials(self);
         write_camera(&self.camera);
         write_lights(self);
+        write_resources(self);
         true
     }
 
@@ -756,6 +777,16 @@ fn write_lights(s: &Scene) {
         if !l.enabled {
             continue;
         }
+        fn write_resources(s: &Scene) {
+            RESOURCES.write_u32(0, RES_MAGIC);
+            RESOURCES.write_u32(4, 1);
+            RESOURCES.write_u32(8, RES_SIZE as u32);
+            RESOURCES.write_u32(12, 0);
+            RESOURCES.write_u32(16, s.resource_count as u32);
+            for i in 0..s.resource_count {
+                RESOURCES.write_bytes(20 + i * RES_NAME, &s.resources[i]);
+            }
+        }
         let Some(i) = s.node_index(l.node) else {
             continue;
         };
@@ -803,6 +834,14 @@ macro_rules! scene_exports {
         pub extern "C" fn rg_lit_size() -> i32 {
             $crate::scene::lit_size()
         }
+        #[no_mangle]
+        pub extern "C" fn rg_res_ptr() -> i32 {
+            $crate::scene::res_ptr()
+        }
+        #[no_mangle]
+        pub extern "C" fn rg_res_size() -> i32 {
+            $crate::scene::res_size()
+        }
     };
 }
 
@@ -829,4 +868,10 @@ pub fn lit_ptr() -> i32 {
 }
 pub fn lit_size() -> i32 {
     LIT_SIZE as i32
+}
+pub fn res_ptr() -> i32 {
+    ptr(&RESOURCES)
+}
+pub fn res_size() -> i32 {
+    RES_SIZE as i32
 }
