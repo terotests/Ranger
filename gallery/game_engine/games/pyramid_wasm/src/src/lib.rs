@@ -26,7 +26,9 @@ const FP: f32 = 256.0;
 // Host imports (runtime/rg_wasm_bridge.c; IDEAL_3D §4.4).
 extern "C" {
     fn rg_load_texture(name_ptr: *const u8, name_len: u32) -> i32;
+    fn rg_load_model(name_ptr: *const u8, name_len: u32) -> i32;
     fn rg_create_box(x0: i32, y0: i32, z0: i32, x1: i32, y1: i32, z1: i32, tex: i32) -> i32;
+    fn rg_create_mesh_entity(mesh: i32, tex: i32) -> i32;
     fn rg_create_camera(fovy: i32, near: i32, far: i32) -> i32;
     fn rg_create_light(kind: i32, color: i32, intensity: i32) -> i32;
     fn rg_set_position(e: i32, x: i32, y: i32, z: i32);
@@ -342,12 +344,18 @@ fn monster_xz(m: &Monster) -> (f32, f32) {
     }
 }
 
-fn add_gem(w: &mut World, tex: i32, terrace: usize, x: f32, z: f32) {
+// `mesh` > 0 draws the diamond as a real GLB model (rg_create_mesh_entity);
+// otherwise it falls back to a textured box.
+fn add_gem(w: &mut World, tex: i32, mesh: i32, terrace: usize, x: f32, z: f32) {
     if w.ngem >= MAX_GEM {
         return;
     }
     let top = slab_y0(terrace) + STEP;
-    let ent = create_actor([0.3, 0.3, 0.3], tex);
+    let ent = if mesh > 0 {
+        unsafe { rg_create_mesh_entity(mesh, 0) }
+    } else {
+        create_actor([0.3, 0.3, 0.3], tex)
+    };
     w.gems[w.ngem] = Gem { ent, x, y: top + 0.5, z, taken: false };
     w.ngem += 1;
 }
@@ -514,12 +522,14 @@ pub extern "C" fn init() {
         add_monster(w, tex_mon, 3, 0, 3.5); // +x
         add_monster(w, tex_mon, 3, 1, 3.5); // -x
 
-        // diamonds around the ring of the first terraces
-        add_gem(w, tex_gem, 0, 0.0, slab_half(0) - 0.6);
-        add_gem(w, tex_gem, 1, -(slab_half(1) - 0.6), 0.0);
-        add_gem(w, tex_gem, 2, 0.0, -(slab_half(2) - 0.6));
-        add_gem(w, tex_gem, 3, slab_half(3) - 0.6, 0.0);
-        add_gem(w, tex_gem, 4, 0.0, slab_half(4) - 0.6);
+        // diamonds around the ring of the first terraces — drawn as a real GLB
+        // gem model when the host preloaded models/diamond.glb, else a box.
+        let dia = rg_load_model("diamond".as_ptr(), 7);
+        add_gem(w, tex_gem, dia, 0, 0.0, slab_half(0) - 0.6);
+        add_gem(w, tex_gem, dia, 1, -(slab_half(1) - 0.6), 0.0);
+        add_gem(w, tex_gem, dia, 2, 0.0, -(slab_half(2) - 0.6));
+        add_gem(w, tex_gem, dia, 3, slab_half(3) - 0.6, 0.0);
+        add_gem(w, tex_gem, dia, 4, 0.0, slab_half(4) - 0.6);
 
         // boulder pool (hidden until thrown)
         for i in 0..MAX_BALL {
