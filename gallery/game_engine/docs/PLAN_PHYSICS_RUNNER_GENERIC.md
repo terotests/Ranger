@@ -9,7 +9,7 @@ practice the autopeli game: it imports `wasm_autopeli_setup.rgr` /
 `wasm_autopeli_render.rgr`, hardcodes the road/traffic scene, a 2-player split,
 the racing HUD, autopeli id↔ABI-code encoding, and world constants
 (`worldH 6000`, start line). The autopeli world is encoded **twice** — here and
-in the guest (`wasm/rust_autopeli/src/lib.rs`) — agreeing only by convention.
+in the guest (`games/autopeli_wasm/src/src/lib.rs`) — agreeing only by convention.
 
 ## Target (see IDEAL, don't duplicate here)
 

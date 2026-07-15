@@ -192,7 +192,7 @@ and reporting the action button back to the guest. This rides the existing
 / `DEFAULT`, `event_mask` bits `ACTIVATE` / `SELECT` / `DESELECT`, the property
 key `BORDER_RADIUS`, and the optional guest export
 `rg_ui_event(node_id, event, value)`. The AS builder
-(`../wasm/as_autopeli/assembly/ui.ts`) gains a `button()` opener plus fluent
+(`../games/autopeli_as/src/assembly/ui.ts`) gains a `button()` opener plus fluent
 `.selectable()`, `.onActivate()`, `.defaultSelected()`, `.disabled()`, and the
 visual setters `.width()`, `.height()`, `.margin()`, `.background()`,
 `.border()`/`.borderColor()`/`.borderWidth()`, `.radius()`,
@@ -237,7 +237,7 @@ npm run engine:ui:game          # drives GameUiRunner (the launcher's engine=ui 
 
 The menu ships as a first-class entry in the games list:
 `gallery/game_engine/games/ui_menu/` (`game.info` with `engine=ui` +
-`logic.wasm`, built from `../wasm/as_ui_menu`). The catalog recognises the new
+`logic.wasm`, built from `../games/ui_menu/src`). The catalog recognises the new
 `engine=ui`, and the SDL launcher (`GameSdlRunner.runUiGame`) instantiates the
 guest through **`game_ui_runner.rgr` (`GameUiRunner`)**: pull the RGU1 document,
 render it, move the selection with the D-pad, forward the action button to the
@@ -246,7 +246,7 @@ returns to the launcher. So it appears in the menu alongside Pong / Breakout /
 Invaders and runs like any other test game — the difference is its content is an
 RGU1 UI document, not a game world.
 
-The AS guest is `../wasm/as_ui_menu/` (a selectable text menu; activating
+The AS guest is `../games/ui_menu/src/` (a selectable text menu; activating
 "New Game" bumps a counter the next document shows). `wasm_ui_select_demo.rgr`
 authors the same document on the host, navigates it with a scripted D-pad
 stream, activates the selection, and emulates the guest's `rg_ui_event` rebuild —

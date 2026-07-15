@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Compile + run the RGSP1 sprite-character demo (host bridge, no WASM toolchain).
 #
-# It hand-writes the exact RGSP1 bytes the Rust guest (wasm/rust_sprite_char)
+# It hand-writes the exact RGSP1 bytes the Rust guest (games/sprite_char/src)
 # emits, drives the host bridge (scripting/wasm_sprite_runner.rgr), asserts the
 # resolved draw commands, and renders lpc/output/characters_demo.png.
 #

@@ -6,7 +6,7 @@
 ;   npm run engine:chars:demo
 ;
 ; No WASM toolchain is required: this file hand-writes the exact RGSP1 bytes a
-; Rust/AS guest would (see wasm/rust_sprite_char), hands them to the host bridge
+; Rust/AS guest would (see games/sprite_char/src), hands them to the host bridge
 ; (SpriteHost), asserts the resolved draw commands (frame timing, direction rows,
 ; jump hop) and blits the resolved frames into output/characters_demo.png so the
 ; whole catalog -> sheet -> frame/dir path is both checked and visible.

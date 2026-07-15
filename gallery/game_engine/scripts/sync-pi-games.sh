@@ -52,7 +52,11 @@ ssh -o ConnectTimeout=10 -o BatchMode=yes "$TARGET" 'echo ok'
 
 echo "==> Sync games -> $TARGET:$REMOTE_BASE/games/"
 ssh "$TARGET" "mkdir -p $REMOTE_BASE/games $REMOTE_BASE/lib"
+# games/<game>/src/ holds that game's WASM build sources (Rust crate / AS
+# package) — the Pi only needs game.info + module + assets, so skip them
+# (and their target/, build/, node_modules/ artifacts) entirely.
 rsync -az --delete \
+  --exclude '/*/src/' \
   "$GE/games/" \
   "$TARGET:$REMOTE_BASE/games/"
 

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Build the AssemblyScript autopeli guest to games/autopeli_as/logic.wasm.
 #
-# Usage:  bash gallery/game_engine/wasm/as_autopeli/build.sh
+# Usage:  bash gallery/game_engine/games/autopeli_as/src/build.sh
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
-CRATE="$ROOT/gallery/game_engine/wasm/as_autopeli"
+ROOT="$(cd "$(dirname "$0")/../../../../.." && pwd)"
+CRATE="$ROOT/gallery/game_engine/games/autopeli_as/src"
 OUT="$ROOT/gallery/game_engine/games/autopeli_as/logic.wasm"
 
 cd "$CRATE"

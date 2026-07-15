@@ -9,7 +9,7 @@
 ;
 ; It drives the SAME path a WASM guest would: it writes the RGSP1 block and asks
 ; the host bridge (SpriteHost) to resolve each slot to a spritesheet frame. The
-; input->slot logic here mirrors wasm/rust_sprite_char/src/lib.rs so behaviour is
+; input->slot logic here mirrors games/sprite_char/src/src/lib.rs so behaviour is
 ; identical whether the guest is this code or the built sprite_char.wasm.
 ;
 ; Input mask bits (gfx_poll_mask / gfx_input_source_mask):

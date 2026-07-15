@@ -1,5 +1,5 @@
 // Instantiate the AS guest and verify the RGU1 selectable-menu bytes + the
-// activation round-trip. Run: node gallery/game_engine/wasm/as_ui_menu/tools/parity.cjs
+// activation round-trip. Run: node gallery/game_engine/games/ui_menu/src/tools/parity.cjs
 const fs = require('fs');
 const path = require('path');
 const wasmPath = path.join(__dirname, '..', 'build', 'logic.wasm');

@@ -4,7 +4,7 @@
 ;
 ; End-to-end host demo of the RGU1 selection bridge, self-checking + PNG dumps.
 ;
-; The real native path is: a WASM guest (see ../wasm/as_ui_menu) builds the RGU1
+; The real native path is: a WASM guest (see ../games/ui_menu/src) builds the RGU1
 ; document, the host reads it, the player moves a highlight with the D-pad, and
 ; the action button is forwarded back to the guest (rg_ui_event) which rebuilds.
 ; The es6 dev build has no WASM runtime, so here we author the SAME RGU1 bytes on

@@ -176,6 +176,9 @@ rsync -az --delete \
   --exclude .git/objects \
   --exclude 'gallery/game_engine/pose/native_bench/build' \
   --exclude 'gallery/game_engine/pose/mediapipe_poc/assets/models' \
+  --exclude 'gallery/game_engine/games/*/src/target' \
+  --exclude 'gallery/game_engine/games/*/src/build' \
+  --exclude 'gallery/game_engine/wasm/*/target' \
   "$ROOT/" "$TARGET:~/$REMOTE_DIR/"
 
 echo "==> 5/$TOTAL_STEPS Build game launcher on Pi (CXX_OPT=$CXX_OPT, wasm3 embedded)"

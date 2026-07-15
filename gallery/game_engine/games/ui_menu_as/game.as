@@ -2,7 +2,7 @@
 // ui_menu_as - an INTERPRETED (.as) EVG UI menu + rendering-technique demo.
 // ============================================================================
 //
-// Same RGU1 UI document the compiled WASM menu builds (see wasm/as_ui_menu),
+// Same RGU1 UI document the compiled WASM menu builds (see ../ui_menu/src),
 // but this file runs on Ranger's live .as interpreter (ComponentEngine + the
 // AsAbiBridge @ranger/game API) - no `asc` compile, so it doubles as a simple
 // interpreter test of the whole UI path.

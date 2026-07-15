@@ -3,7 +3,7 @@
 //! and ships NO art: it picks characters from the host catalog by numeric id, the
 //! same way a guest plays a sound by RG_WASM_SOUND_*. The host writes dt / input /
 //! view size into the block, calls sprite_tick, then reads the slot list and draws
-//! each slot as a spritesheet frame. Layout mirrors ../wasm_sprite_abi.h.
+//! each slot as a spritesheet frame. Layout mirrors gallery/game_engine/wasm/wasm_sprite_abi.h.
 //!
 //! Exports: sprite_ptr / sprite_size / sprite_init / sprite_tick, plus
 //! rg_abi_version so an older host can reject a newer guest.

@@ -339,8 +339,8 @@ WASM-pelit ladataan wasm3-tulkilla SDL-hostiin. Katalogi tunnistaa `engine=wasm`
 | **sprite (RGSP1)** | Valmis hahmosetti: guest kirjoittaa slotit, host piirtää | Sprite Test |
 
 Guestit kirjoitetaan **Rustilla** (`wasm/rust_*`) tai **AssemblyScriptilla** (`wasm/as_*`);
-sama guest voidaan ajaa myös tulkattuna (`engine=as`). Lähdekoodi: [`wasm/rust_pong/`](./wasm/rust_pong/),
-[`wasm/rust_autopeli/`](./wasm/rust_autopeli/), [`wasm/as_autopeli/`](./wasm/as_autopeli/).
+sama guest voidaan ajaa myös tulkattuna (`engine=as`). Lähdekoodi: [`games/rust_pong/src/`](./games/rust_pong/src/),
+[`games/autopeli_wasm/src/`](./games/autopeli_wasm/src/), [`games/autopeli_as/src/`](./games/autopeli_as/src/).
 ABI-määrittely: [`wasm/wasm_game_abi.h`](./wasm/wasm_game_abi.h) (RGW1),
 [`wasm/wasm_sprite_abi.h`](./wasm/wasm_sprite_abi.h) (RGSP1),
 [`wasm/wasm_ui_abi.h`](./wasm/wasm_ui_abi.h) (RGU1). Kokonaiskuva: [`IDEAL_API.md`](./IDEAL_API.md).
@@ -461,7 +461,7 @@ suunnan + sijainnin, ja **host** resolvoi id → spritesheet → animaatioframe 
 | Host-silta (id → arkki, frame, suunta, jump-hop) | [`scripting/wasm_sprite_runner.rgr`](./scripting/wasm_sprite_runner.rgr) |
 | Valmis katalogi (totuuslähde) | [`lpc/src/lpc_char_catalog.rgr`](./lpc/src/lpc_char_catalog.rgr) |
 | Baketut arkit + attribuutio | [`lpc/pack/characters/`](./lpc/pack/characters/) (`catalog.json`, `<slug>/walk.png`, `<slug>/credits.json`) |
-| WASM-guest (Rust) | [`wasm/rust_sprite_char/`](./wasm/rust_sprite_char/) |
+| WASM-guest (Rust) | [`games/sprite_char/src/`](./games/sprite_char/src/) |
 
 Setissä on nyt **4 hahmoa**: `hero` (Ranger), `knight`, `mage`, `rogue` — kaikki
 baketaan yhdestä upotetusta walk-arkista värjäämällä housut/kengät/hiukset. Animaatiot:
@@ -585,7 +585,7 @@ Integraatiotesti oikealla pelillä: `breakout_runner_demo.rgr` ajaa
 | `scripting/wasm_sprite_runner.rgr` | Valmiin hahmosetin sprite-ABI (`RGSP1`): id → arkki, frame, suunta, jump |
 | `lpc/src/lpc_char_catalog.rgr` | Hahmokatalogi (id, nimi, recolor-profiili) — valmiin setin totuuslähde |
 | `lpc/pack/characters/` | Baketut hahmoarkit + `catalog.json` + per-hahmo `credits.json` |
-| `wasm/rust_sprite_char/` | WASM-guest joka ohjaa hahmoja sprite-ABI:n yli |
+| `games/sprite_char/src/` | WASM-guest joka ohjaa hahmoja sprite-ABI:n yli |
 | `games/sprite_char/` | WASM-testipeli (Tests): hahmon valinta + ohjaimella kävely/hyppy |
 | `scripting/sprite_wasm_runner.rgr` | Host: ajaa sprite_char.wasmin, syöttää inputin, piirtää slotit (`abi=sprite`) |
 | `scripting/sprite_char_poc.rgr` | Host-sillan headless-testiydin (gfx-vapaa, ei wasmia) |

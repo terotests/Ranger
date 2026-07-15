@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # Build the AssemblyScript selectable-menu guest to build/logic.wasm.
 #
-# Usage:  bash gallery/game_engine/wasm/as_ui_menu/build.sh
+# Usage:  bash gallery/game_engine/games/ui_menu/src/build.sh
 #
 # Reuses the shared RGU1 builder in ../as_autopeli/assembly/ui.ts, so its
 # node_modules (assemblyscript) satisfy the import too. If asc is not present in
 # this project, we fall back to the sibling as_autopeli install.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
-CRATE="$ROOT/gallery/game_engine/wasm/as_ui_menu"
-SIB="$ROOT/gallery/game_engine/wasm/as_autopeli"
+ROOT="$(cd "$(dirname "$0")/../../../../.." && pwd)"
+CRATE="$ROOT/gallery/game_engine/games/ui_menu/src"
+SIB="$ROOT/gallery/game_engine/games/autopeli_as/src"
 
 cd "$CRATE"
 mkdir -p build

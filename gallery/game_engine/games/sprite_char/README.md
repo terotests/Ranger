@@ -5,7 +5,7 @@ character set (`lpc/pack/characters/`): a character-select menu, then a play
 screen where the pad walks / turns / jumps the chosen character.
 
 The guest (`sprite_char.wasm`, built from
-[`wasm/rust_sprite_char/`](../../wasm/rust_sprite_char/)) owns the whole game and
+[`./src/`](./src/)) owns the whole game and
 ships no art: it picks characters from the host catalog by numeric id — the same
 way a guest plays a sound by `RG_WASM_SOUND_*` — and writes the RGSP1 block. The
 host (`scripting/sprite_wasm_runner.rgr`, wired into `game_sdl_runner.rgr` as

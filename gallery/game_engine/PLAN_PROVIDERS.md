@@ -34,7 +34,7 @@ must preserve:
 
 | Backend | How the call reaches the host |
 | --- | --- |
-| Rust `.wasm` | host import `rg_host_register_sheet` / `rg_host_register_rect` (`wasm/rust_autopeli/src/lib.rs:602-643`) |
+| Rust `.wasm` | host import `rg_host_register_sheet` / `rg_host_register_rect` (`games/autopeli_wasm/src/src/lib.rs:602-643`) |
 | AssemblyScript `.wasm` | bare import from `@ranger/game` (`games/autopeli_as_src/game.as:5`) |
 | Interpreted `.as` | name-dispatch `has()`/`invoke()` on `AsAbiBridge` (`scripting/as_abi_bridge.rgr:341, 504`) |
 
@@ -196,7 +196,7 @@ contract.
 
 Audit finding worth repeating here: the handshake in `wasm_game_abi.h:89-117`
 (`rg_abi_version` / `rg_required_caps` / `rg_check_env`) is **documented and
-exported by guests** (`wasm/as_autopeli/assembly/index.ts:458-459`) but the host
+exported by guests** (`games/autopeli_as/src/assembly/index.ts:458-459`) but the host
 never calls it — `setupScene()` loads and runs `update()` directly, validating
 only `abi.verifyMagic()` (`wasm_physics_runner.rgr:554-567`).
 

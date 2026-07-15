@@ -41,8 +41,8 @@ in [`../../ui/WasmUiSelect.rgr`](../../ui/WasmUiSelect.rgr).
 ## Build & verify
 
 ```bash
-bash gallery/game_engine/wasm/as_ui_menu/build.sh     # -> build/logic.wasm
-node gallery/game_engine/wasm/as_ui_menu/tools/parity.cjs   # instantiates it, checks the bytes
+bash gallery/game_engine/games/ui_menu/src/build.sh     # -> build/logic.wasm
+node gallery/game_engine/games/ui_menu/src/tools/parity.cjs   # instantiates it, checks the bytes
 # or, from the repo root:
 npm run engine:ui:wasm-guest
 ```

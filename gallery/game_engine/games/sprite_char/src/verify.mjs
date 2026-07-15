@@ -3,13 +3,13 @@
 // native WebAssembly, drive it (menu -> pick knight -> play -> walk -> jump) and
 // assert the block the host would render. No SDL / wasm3 needed.
 //
-//   node gallery/game_engine/wasm/rust_sprite_char/verify.mjs
+//   node gallery/game_engine/games/sprite_char/src/verify.mjs
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const wasm = readFileSync(join(here, "..", "..", "games", "sprite_char", "sprite_char.wasm"));
+const wasm = readFileSync(join(here, "..", "sprite_char.wasm"));
 const { instance } = await WebAssembly.instantiate(wasm, {});
 const ex = instance.exports;
 const mem = () => new DataView(ex.memory.buffer);

@@ -2,13 +2,13 @@
 # Build Rust Autopeli WASM module (linear ABI) for the game engine.
 #
 # Usage:
-#   ./gallery/game_engine/wasm/rust_autopeli/build.sh
+#   ./gallery/game_engine/games/autopeli_wasm/src/build.sh
 #   npm run engine:wasm:build:rust-autopeli
 
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
-CRATE="$ROOT/gallery/game_engine/wasm/rust_autopeli"
+ROOT="$(cd "$(dirname "$0")/../../../../.." && pwd)"
+CRATE="$ROOT/gallery/game_engine/games/autopeli_wasm/src"
 OUT="$ROOT/gallery/game_engine/games/autopeli_wasm/logic.wasm"
 
 cd "$CRATE"

@@ -2,7 +2,14 @@
 
 The shared linear-memory contracts between the **host** (the Ranger engine,
 `scripting/`) and a **guest** (a game compiled to WASM, or the interpreted `.as`
-path). Every block is a *transport*: it defines **bytes and structure**; the guest
+path).
+
+> **Where guest sources live:** each WASM game's source crate/package sits next
+> to the game itself as `games/<game>/src/` (e.g. `games/sprite_char/src/`,
+> `games/rust_pong/src/`, `games/autopeli_wasm/src/`, `games/autopeli_as/src/`,
+> `games/ui_menu/src/`, `games/ui_effects/src/`). This directory keeps only the
+> shared ABI headers plus engine-side workers/POCs that are not games
+> (`rust_worker/`, `as_resource_loader/`). Every block is a *transport*: it defines **bytes and structure**; the guest
 assigns **meaning** (channel names, world, sound/character ids). No game name,
 sound id, character kind, or control label belongs in a shared header — see
 [`../IDEAL.md`](../IDEAL.md) §2.1 and [`../AGENTS.md`](../AGENTS.md).

@@ -4,7 +4,7 @@
 ;
 ; Loads a freestanding WASM module (e.g. Rust wasm32-unknown-unknown) and drives
 ; the same SoftCanvas + sprite pipeline as NativeGameRunner. The module exports
-; a minimal ABI (see gallery/game_engine/wasm/rust_pong/src/lib.rs).
+; a minimal ABI (see gallery/game_engine/games/rust_pong/src/src/lib.rs).
 ; ==============================================================================
 
 Import "../framebuffer.rgr"

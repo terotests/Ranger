@@ -2,7 +2,7 @@
 # Build the RGSP1 sprite-character guest to WASM.
 #
 # Usage:
-#   ./gallery/game_engine/wasm/rust_sprite_char/build.sh
+#   ./gallery/game_engine/games/sprite_char/src/build.sh
 #   npm run engine:chars:guest
 #
 # Requires the wasm32-unknown-unknown target (installed on demand below). The
@@ -11,8 +11,8 @@
 
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
-CRATE="$ROOT/gallery/game_engine/wasm/rust_sprite_char"
+ROOT="$(cd "$(dirname "$0")/../../../../.." && pwd)"
+CRATE="$ROOT/gallery/game_engine/games/sprite_char/src"
 OUT="$ROOT/gallery/game_engine/games/sprite_char/sprite_char.wasm"
 
 cd "$CRATE"
