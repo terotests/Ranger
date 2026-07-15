@@ -11,6 +11,9 @@ use ranger_game::scene::{Color, MeshAsset, MaterialId, Scene, Vec3};
 
 const FP: f32 = 256.0;
 const MAX_C: usize = 64;
+const FLOOR_TEXTURE: &str = "floor";
+const BRICK_TEXTURE: &str = "brick";
+const CRATE_TEXTURE: &str = "crate";
 
 struct Blk<const N: usize>(UnsafeCell<[u8; N]>);
 unsafe impl<const N: usize> Sync for Blk<N> {}
@@ -124,9 +127,9 @@ fn level_box(
 }
 
 fn build_level(w: &mut World, s: &mut Scene) {
-    let floor_tex = s.resource("floor");
-    let brick_tex = s.resource("brick");
-    let crate_tex = s.resource("crate");
+    let floor_tex = s.resource(FLOOR_TEXTURE).unwrap();
+    let brick_tex = s.resource(BRICK_TEXTURE).unwrap();
+    let crate_tex = s.resource(CRATE_TEXTURE).unwrap();
     let (floor_mesh, wall_mesh, crate_mesh, floor_mat, wall_mat, crate_mat) = {
         let mut assets = s.assets();
         (

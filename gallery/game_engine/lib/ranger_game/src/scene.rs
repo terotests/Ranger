@@ -326,14 +326,17 @@ impl Scene {
 
     /// Declare a texture name and return the material texture handle for it.
     /// The host resolves handles as resource-table index + 1.
-    pub fn resource(&mut self, name: &str) -> u32 {
-        let i = self.resource_count.min(MAX_MATERIALS - 1);
+    pub fn resource(&mut self, name: &str) -> Option<u32> {
+        if self.resource_count == MAX_MATERIALS {
+            return None;
+        }
+        let i = self.resource_count;
         self.resources[i] = [0; RES_NAME];
         let bytes = name.as_bytes();
         let len = bytes.len().min(RES_NAME);
         self.resources[i][..len].copy_from_slice(&bytes[..len]);
-        self.resource_count = (i + 1).min(MAX_MATERIALS);
-        (i + 1) as u32
+        self.resource_count += 1;
+        Some((i + 1) as u32)
     }
 
     fn entity(&mut self) -> Option<Entity> {
