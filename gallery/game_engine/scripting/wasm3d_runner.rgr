@@ -33,6 +33,10 @@ class Wasm3dRunner {
     def subTex:[int]
     def nsub:int 0
     def pcur:int 0
+    ; sceneMode = the guest uses the host-managed scene API (IDEAL_3D Phase H):
+    ; no rg_mesh_ptr export; init()/update() issue rg_create_*/rg_set_* commands
+    ; and the host owns the scene. Otherwise the legacy block model is read.
+    def sceneMode:boolean false
     def fpsShown:int 0
     def timeMs:int 0
     def profileEnabled:boolean false
@@ -238,6 +242,15 @@ class Wasm3dRunner {
         if (handle == 0) {
             return
         }
+        sceneMode = ((wasm_has_export handle "rg_mesh_ptr") == 0)
+        if (sceneMode) {
+            ; host-managed scene: reset, then let the guest build the scene via
+            ; rg_create_*/rg_set_* host imports during init().
+            gfx_scene_reset
+            this.wasmVoid("init" 0 0 0 0 0 0)
+            print "[wasm3d] host-managed scene mode"
+            return
+        }
         this.wasmVoid("init" 0 0 0 0 0 0)
         ; textures: index 0 = dummy, then handle = index+1
         push texGl 0
@@ -336,6 +349,10 @@ class Wasm3dRunner {
     ; ---- render -------------------------------------------------------------
     fn draw:void () {
         if (handle == 0) {
+            return
+        }
+        if (sceneMode) {
+            gfx_scene_render pw ph
             return
         }
         def camBase (this.callPtr("rg_cam_ptr"))
