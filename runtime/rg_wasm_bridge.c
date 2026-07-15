@@ -7,6 +7,7 @@
 #include "wasm3/wasm3.h"
 
 #define RG_WASM_MAX_RES 24
+#define RG_WASM_MAX_FX 16
 
 typedef struct RgWasmRes {
     int kind;   /* 1 = sheet image, 2 = rect */
@@ -16,6 +17,20 @@ typedef struct RgWasmRes {
     char id[24];
     char path[80];
 } RgWasmRes;
+
+/* One guest-requested UI effect (env.rg_ui_glow / env.rg_ui_effect). The guest
+ * fires an effect on a node or the whole screen; the host owns the timeline
+ * (UIAnimator) and calls rg_ui_effect_done on the guest when it completes,
+ * passing back node + tag. */
+typedef struct RgWasmFx {
+    int kind;      /* 1 = glow (single flash), 2 = pulse (repeated beats) */
+    int target;    /* 0 = a UI node (node id), 1 = the whole screen */
+    int node;      /* target node id (guest's stable RGU1 id) */
+    int durMs;     /* effect duration, milliseconds */
+    int delayMs;   /* delay before it starts, milliseconds */
+    int r, g, b;   /* effect tint, 0..255 */
+    int tag;       /* opaque guest tag, echoed to rg_ui_effect_done */
+} RgWasmFx;
 
 typedef struct RgWasmSlot {
     IM3Environment env;
@@ -34,6 +49,8 @@ typedef struct RgWasmSlot {
     int spawned_child;
     RgWasmRes res[RG_WASM_MAX_RES];
     int res_count;
+    RgWasmFx fx[RG_WASM_MAX_FX];
+    int fx_count;
 } RgWasmSlot;
 
 /* Load a module into a fresh slot. can_spawn gates whether this module may
@@ -159,6 +176,52 @@ m3ApiRawFunction(m3_rg_spawn_worker) {
     m3ApiReturn(result);
 }
 
+static void rg_fx_enqueue(RgWasmSlot* s, int kind, int target, int node,
+                          int durMs, int delayMs, int r, int g, int b, int tag) {
+    if (s && s->fx_count < RG_WASM_MAX_FX) {
+        RgWasmFx* fx = &s->fx[s->fx_count];
+        fx->kind = kind;
+        fx->target = target;
+        fx->node = node;
+        fx->durMs = durMs;
+        fx->delayMs = delayMs;
+        fx->r = r;
+        fx->g = g;
+        fx->b = b;
+        fx->tag = tag;
+        s->fx_count++;
+    }
+}
+
+/* env.rg_ui_glow(node, durMs, delayMs, tag) — convenience: a white glow on a
+ * node. Equivalent to rg_ui_effect(1, 0, node, dur, delay, 255,255,255, tag). */
+m3ApiRawFunction(m3_rg_ui_glow) {
+    m3ApiGetArg(int32_t, node)
+    m3ApiGetArg(int32_t, durMs)
+    m3ApiGetArg(int32_t, delayMs)
+    m3ApiGetArg(int32_t, tag)
+    rg_fx_enqueue((RgWasmSlot*)(_ctx->userdata), 1, 0, node, durMs, delayMs,
+                  255, 255, 255, tag);
+    m3ApiSuccess();
+}
+
+/* env.rg_ui_effect(kind, target, node, durMs, delayMs, r, g, b, tag) — the
+ * general form: kind (1 glow / 2 pulse), target (0 node / 1 screen), tint rgb. */
+m3ApiRawFunction(m3_rg_ui_effect) {
+    m3ApiGetArg(int32_t, kind)
+    m3ApiGetArg(int32_t, target)
+    m3ApiGetArg(int32_t, node)
+    m3ApiGetArg(int32_t, durMs)
+    m3ApiGetArg(int32_t, delayMs)
+    m3ApiGetArg(int32_t, r)
+    m3ApiGetArg(int32_t, g)
+    m3ApiGetArg(int32_t, b)
+    m3ApiGetArg(int32_t, tag)
+    rg_fx_enqueue((RgWasmSlot*)(_ctx->userdata), kind, target, node, durMs,
+                  delayMs, r, g, b, tag);
+    m3ApiSuccess();
+}
+
 static void rg_link_host_imports(RgWasmSlot* s) {
     if (!s || !s->module) {
         return;
@@ -170,6 +233,10 @@ static void rg_link_host_imports(RgWasmSlot* s) {
                                "v(iiiiiiii)", &m3_rg_host_register_rect, s);
     (void)m3_LinkRawFunctionEx(s->module, "env", "rg_spawn_worker",
                                "i(ii)", &m3_rg_spawn_worker, s);
+    (void)m3_LinkRawFunctionEx(s->module, "env", "rg_ui_glow",
+                               "v(iiii)", &m3_rg_ui_glow, s);
+    (void)m3_LinkRawFunctionEx(s->module, "env", "rg_ui_effect",
+                               "v(iiiiiiiii)", &m3_rg_ui_effect, s);
 }
 
 static int rg_alloc_handle(void) {
@@ -389,6 +456,9 @@ void rg_wasm_call_void(int handle, const char* name, int nargs,
     IM3Function fn;
     M3Result r;
 
+    if (!s) {
+        return;
+    }
     fn = rg_find_fn(s, name);
     if (!fn) {
         return;
@@ -405,6 +475,23 @@ void rg_wasm_call_void(int handle, const char* name, int nargs,
     if (r) {
         fprintf(stderr, "[wasm] call '%s': %s\n", name, r);
     }
+}
+
+int rg_wasm_has_export(int handle, const char* name) {
+    RgWasmSlot* s = rg_slot(handle);
+    IM3Function fn = NULL;
+    M3Result r;
+
+    if (!s || !name) {
+        return 0;
+    }
+    /* Query directly (not via rg_find_fn) so a missing optional export is silent
+     * — the capability gate probes for handshake exports that MAY be absent. */
+    r = m3_FindFunction(&fn, s->runtime, name);
+    if (r || !fn) {
+        return 0;
+    }
+    return 1;
 }
 
 static uint8_t* rg_wasm_mem(int handle) {
@@ -527,4 +614,44 @@ const char* rg_wasm_host_res_path(int handle, int idx) {
         return "";
     }
     return s->res[idx].path;
+}
+
+/* Guest-requested UI effects (env.rg_ui_glow) — drained by the Ranger host after
+ * each guest call, then cleared so the queue only holds this frame's requests. */
+int rg_wasm_fx_reset(int handle) {
+    RgWasmSlot* s = rg_slot(handle);
+    if (!s) {
+        return 0;
+    }
+    s->fx_count = 0;
+    return 0;
+}
+
+int rg_wasm_fx_count(int handle) {
+    RgWasmSlot* s = rg_slot(handle);
+    if (!s) {
+        return 0;
+    }
+    return s->fx_count;
+}
+
+int rg_wasm_fx_ival(int handle, int idx, int field) {
+    RgWasmSlot* s = rg_slot(handle);
+    RgWasmFx* fx;
+    if (!s || idx < 0 || idx >= s->fx_count) {
+        return 0;
+    }
+    fx = &s->fx[idx];
+    switch (field) {
+    case 0: return fx->kind;
+    case 1: return fx->target;
+    case 2: return fx->node;
+    case 3: return fx->durMs;
+    case 4: return fx->delayMs;
+    case 5: return fx->tag;
+    case 6: return fx->r;
+    case 7: return fx->g;
+    case 8: return fx->b;
+    default: return 0;
+    }
 }

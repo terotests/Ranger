@@ -1,0 +1,125 @@
+; ==============================================================================
+; game_runner_mode — one canonical runner mode from the flag soup (IDEAL_TODO R.6)
+; ==============================================================================
+;
+; game_sdl_runner routes TSX / WASM / .as / sprite / stream / split-screen through
+; a set of INDEPENDENT booleans (useWasmRunner, useWasmPhysics, useSpriteRunner,
+; useStreamRunner, wasmSplitActive, splitScreenActive, …). Independent flags make
+; contradictory combinations representable, e.g. the review's example:
+;   useWasmRunner=1, useWasmPhysics=1, splitScreenActive=0, wasmSplitActive=1
+; (a wasm split with no split active).
+;
+; The end state is a single RunnerMode enum + per-backend adapters. This is the
+; safe first step toward it: a PURE classifier that (a) collapses the flags into
+; ONE canonical mode and (b) reports whether the flag combination is even legal,
+; with a reason. It changes no behaviour on its own; the runner can call it after
+; each load to catch an illegal state the instant it is set, and later the flags
+; are replaced by the mode this computes.
+; ==============================================================================
+
+; RunnerMode values (an explicit enum expressed as int constants + a namer).
+class RunnerMode {
+    sfn INVALID:int () { return 0 }
+    sfn MENU:int () { return 1 }
+    sfn TSX:int () { return 2 }         ; single-pane script game
+    sfn TSX_SPLIT:int () { return 3 }   ; engine split of a tsx game (two sessions)
+    sfn WASM:int () { return 4 }        ; wasm guest, no host physics
+    sfn WASM_PHYSICS:int () { return 5 } ; wasm guest + host GamePhysics
+    sfn WASM_SPLIT:int () { return 6 }  ; wasm physics split (shared world, two cams)
+    sfn SPRITE:int () { return 7 }      ; RGSP1 ready-character sprite game
+    sfn STREAM:int () { return 8 }      ; streaming-world game
+
+    sfn modeName:string (m:int) {
+        if (m == 1) { return "menu" }
+        if (m == 2) { return "tsx" }
+        if (m == 3) { return "tsx-split" }
+        if (m == 4) { return "wasm" }
+        if (m == 5) { return "wasm-physics" }
+        if (m == 6) { return "wasm-split" }
+        if (m == 7) { return "sprite" }
+        if (m == 8) { return "stream" }
+        return "invalid"
+    }
+}
+
+class RunnerModeState {
+    def mode:int 0        ; a RunnerMode value
+    def ok:boolean true   ; false when the flag combination is illegal
+    def reason:string ""  ; why it is illegal (empty when ok)
+}
+
+class RunnerModeClassifier {
+    ; Collapse the runner's flags into one canonical mode + a legality verdict.
+    ; A single classifier both derives the mode and rejects contradictions, so an
+    ; illegal state is caught in one place instead of drifting across many flags.
+    sfn classify:RunnerModeState (useWasm:boolean useWasmPhysics:boolean useSprite:boolean useStream:boolean wasmSplit:boolean splitActive:boolean inGame:boolean) {
+        def r:RunnerModeState (new RunnerModeState)
+
+        ; --- legality: at most one backend, and dependent flags must agree ---
+        def backends:int 0
+        if (useWasm)   { backends = (backends + 1) }
+        if (useSprite) { backends = (backends + 1) }
+        if (useStream) { backends = (backends + 1) }
+        if (backends > 1) {
+            r.ok = false
+            r.mode = (RunnerMode.INVALID())
+            r.reason = "more than one backend active (wasm/sprite/stream are exclusive)"
+            return r
+        }
+        if (useWasmPhysics) {
+            if (useWasm == false) {
+                r.ok = false
+                r.mode = (RunnerMode.INVALID())
+                r.reason = "useWasmPhysics set without useWasmRunner"
+                return r
+            }
+        }
+        if (wasmSplit) {
+            if (useWasm == false) {
+                r.ok = false
+                r.mode = (RunnerMode.INVALID())
+                r.reason = "wasmSplitActive set without useWasmRunner"
+                return r
+            }
+            if (splitActive == false) {
+                r.ok = false
+                r.mode = (RunnerMode.INVALID())
+                r.reason = "wasmSplitActive set but splitScreenActive is false"
+                return r
+            }
+        }
+
+        ; --- derive the canonical mode (flags are now known consistent) ---
+        if (useStream) {
+            r.mode = (RunnerMode.STREAM())
+            return r
+        }
+        if (useSprite) {
+            r.mode = (RunnerMode.SPRITE())
+            return r
+        }
+        if (useWasm) {
+            if (wasmSplit) {
+                r.mode = (RunnerMode.WASM_SPLIT())
+                return r
+            }
+            if (useWasmPhysics) {
+                r.mode = (RunnerMode.WASM_PHYSICS())
+                return r
+            }
+            r.mode = (RunnerMode.WASM())
+            return r
+        }
+        ; no backend: a tsx game, its split, or the menu.
+        if (splitActive) {
+            r.mode = (RunnerMode.TSX_SPLIT())
+            return r
+        }
+        if (inGame) {
+            r.mode = (RunnerMode.TSX())
+            return r
+        }
+        r.mode = (RunnerMode.MENU())
+        return r
+    }
+}

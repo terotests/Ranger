@@ -192,11 +192,76 @@ class GameAudioSink {
     }
 }
 
+; ---------------------------------------------------------------------------
+; GameSoundPalette — the sound vocabulary as DATA, not branches (IDEAL.md §4).
+;
+; The engine core owns the synth (SynthToneSpec + the wave sampler in GameAudio);
+; a sound's NAME and tone are game data registered into this table. This replaces
+; the fixed `if (id == "wall") {...}` ladder — core dispatches a sound by table
+; lookup and ships only the synth, so a game adds `registerSound("brick", spec)`
+; with no new branch in game_audio.rgr (IDEAL_API §4 / §6 registries).
+;
+; registerDefaults() installs the engine's built-in palette (identical tones to
+; the former hardcoded set) as a starting point; a game may override a name or
+; register new ones before playing.
+; ---------------------------------------------------------------------------
+class GameSoundPalette {
+    def specs:[string:SynthToneSpec]
+
+    sfn tone:SynthToneSpec (f:double dur:int vol:double wave:int slide:double) {
+        def s:SynthToneSpec (new SynthToneSpec)
+        s.freqHz = f
+        s.durationMs = dur
+        s.volume = vol
+        s.wave = wave
+        s.slideHz = slide
+        return s
+    }
+
+    ; Register or override a sound by name. The game owns the vocabulary.
+    fn register:void (name:string spec:SynthToneSpec) {
+        set specs name spec
+    }
+
+    fn has:boolean (name:string) {
+        return (has specs name)
+    }
+
+    ; The registered spec for a name, or a neutral default tone if unregistered.
+    fn spec:SynthToneSpec (name:string) {
+        def v@(optional):SynthToneSpec (get specs name)
+        if (!null? v) {
+            return (unwrap v)
+        }
+        return (GameSoundPalette.tone(440.0 60 0.25 (SynthWave.sine()) 0.0))
+    }
+
+    fn count:int () {
+        return (array_length (keys specs))
+    }
+
+    ; The engine's default palette — data, not branches. Tones match the former
+    ; hardcoded GameAudio.lookupSpec set exactly, so behaviour is preserved.
+    fn registerDefaults:void () {
+        this.register("blip"      (GameSoundPalette.tone(660.0 40  0.30 (SynthWave.square())   0.0)))
+        this.register("brick"     (GameSoundPalette.tone(880.0 55  0.32 (SynthWave.square())   0.0)))
+        this.register("bounce"    (GameSoundPalette.tone(330.0 45  0.28 (SynthWave.triangle()) 0.0)))
+        this.register("wall"      (GameSoundPalette.tone(220.0 25  0.18 (SynthWave.triangle()) 0.0)))
+        this.register("lose"      (GameSoundPalette.tone(420.0 280 0.30 (SynthWave.sine())     160.0)))
+        this.register("win"       (GameSoundPalette.tone(523.0 120 0.30 (SynthWave.sine())     0.0)))
+        this.register("celebrate" (GameSoundPalette.tone(392.0 160 0.32 (SynthWave.sine())     0.0)))
+    }
+}
+
 class GameAudio {
     def sampleRate:int 44100
     def sink:GameAudioSink (new GameAudioSink)
     def playCount:int 0
     def lastId:string ""
+    ; The registered sound vocabulary (IDEAL.md §4). Defaults installed lazily;
+    ; a game may register/override names via registerSound() before playing.
+    def palette:GameSoundPalette (new GameSoundPalette)
+    def paletteReady:boolean false
     def verbose:boolean false
     def sineSteps:int 256
     def sineTable:[double]
@@ -636,74 +701,32 @@ class GameAudio {
         sink = s
     }
 
-    fn hasBuiltin:boolean (id:string) {
-        if (id == "blip") { return true }
-        if (id == "brick") { return true }
-        if (id == "bounce") { return true }
-        if (id == "wall") { return true }
-        if (id == "lose") { return true }
-        if (id == "win") { return true }
-        if (id == "celebrate") { return true }
-        return false
+    ; Ensure the default palette is installed before the first lookup. Lazy so an
+    ; existing GameAudio (constructed without an explicit init) still works.
+    fn ensurePalette:void () {
+        if (paletteReady) {
+            return
+        }
+        palette.registerDefaults()
+        paletteReady = true
     }
 
+    ; Register (or override) a game sound by name — the §4 registry entry point.
+    ; A game calls this at setup; core never grows an `id == "brick"` branch.
+    fn registerSound:void (name:string spec:SynthToneSpec) {
+        this.ensurePalette()
+        palette.register(name spec)
+    }
+
+    fn hasBuiltin:boolean (id:string) {
+        this.ensurePalette()
+        return (palette.has(id))
+    }
+
+    ; Resolve a sound name to its tone through the palette (data-driven, §4).
     fn lookupSpec:SynthToneSpec (id:string) {
-        def spec:SynthToneSpec (new SynthToneSpec)
-        if (id == "blip") {
-            spec.freqHz = 660.0
-            spec.durationMs = 40
-            spec.volume = 0.30
-            spec.wave = (SynthWave.square())
-            return spec
-        }
-        if (id == "brick") {
-            spec.freqHz = 880.0
-            spec.durationMs = 55
-            spec.volume = 0.32
-            spec.wave = (SynthWave.square())
-            return spec
-        }
-        if (id == "bounce") {
-            spec.freqHz = 330.0
-            spec.durationMs = 45
-            spec.volume = 0.28
-            spec.wave = (SynthWave.triangle())
-            return spec
-        }
-        if (id == "wall") {
-            spec.freqHz = 220.0
-            spec.durationMs = 25
-            spec.volume = 0.18
-            spec.wave = (SynthWave.triangle())
-            return spec
-        }
-        if (id == "lose") {
-            spec.freqHz = 420.0
-            spec.durationMs = 280
-            spec.volume = 0.30
-            spec.wave = (SynthWave.sine())
-            spec.slideHz = 160.0
-            return spec
-        }
-        if (id == "win") {
-            spec.freqHz = 523.0
-            spec.durationMs = 120
-            spec.volume = 0.30
-            spec.wave = (SynthWave.sine())
-            return spec
-        }
-        if (id == "celebrate") {
-            spec.freqHz = 392.0
-            spec.durationMs = 160
-            spec.volume = 0.32
-            spec.wave = (SynthWave.sine())
-            return spec
-        }
-        spec.freqHz = 440.0
-        spec.durationMs = 60
-        spec.volume = 0.25
-        spec.wave = (SynthWave.sine())
-        return spec
+        this.ensurePalette()
+        return (palette.spec(id))
     }
 
     fn sampleWave:double (wave:int phase:double noiseSeed:int) {

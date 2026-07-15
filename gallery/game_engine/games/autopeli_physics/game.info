@@ -2,3 +2,6 @@ name=Autopeli
 splitScreen=auto
 autoscale=true
 soloScript=index.tsx
+
+category=Tests
+icon=assets/image.png

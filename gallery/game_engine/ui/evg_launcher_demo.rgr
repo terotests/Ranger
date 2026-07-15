@@ -1,0 +1,91 @@
+; ==============================================================================
+; evg_launcher_demo - headless self-check + screenshots for EvgLauncherMenu.
+; ==============================================================================
+; Builds the EVG tile launcher over the real games dir, drives it with D-pad
+; edges, and asserts: the categories page lists Games + Tests, entering a
+; category drills into its game tiles, selecting a game reports a launch path,
+; and Back walks up the levels. Dumps a PNG of each page for a visual check.
+; ==============================================================================
+
+Import "EvgLauncherMenu.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+
+class EvgLauncherDemo {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    sfn snap:void (m:EvgLauncherMenu file:string) {
+        m.draw()
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.width = (m.canvas.getWidth())
+        rb.height = (m.canvas.getHeight())
+        rb.pixels = (m.canvas.raw())
+        def png:PNGEncoder (new PNGEncoder)
+        png.encode(rb "gallery/game_engine/ui" file)
+    }
+
+    ; build one frame of D-pad input and drive the menu with it
+    fn tap:void (m:EvgLauncherMenu up:boolean down:boolean left:boolean right:boolean action:boolean) {
+        def nav:UiNavInput (new UiNavInput)
+        nav.up = up
+        nav.down = down
+        nav.left = left
+        nav.right = right
+        nav.action = action
+        m.navFrame(nav)
+    }
+
+    sfn m@(main):void () {
+        def d:EvgLauncherDemo (new EvgLauncherDemo)
+        def m:EvgLauncherMenu (new EvgLauncherMenu)
+        m.init(760 560 "gallery/game_engine/assets/fonts" "OpenSans-Regular.ttf" "Open Sans" "gallery/game_engine/games")
+
+        ; ---- categories page ----
+        d.ok(("has category tiles (got " + (to_string (array_length (m.tiles()))) + ")") ((array_length (m.tiles())) >= 2))
+        d.ok("starts on categories page" (m.page == 0))
+        d.ok(("first category is Games (got '" + (itemAt m.cats 0) + "')") ((itemAt m.cats 0) == "Games"))
+        EvgLauncherDemo.snap(m "launcher_1_categories.png")
+
+        ; ---- enter Games ----
+        d.tap(m false false false false true)   ; activate Games
+        d.ok("entered games page" (m.page == 1))
+        d.ok(("current category Games (got '" + m.curCat + "')") (m.curCat == "Games"))
+        d.ok(("games page has tiles (got " + (to_string (array_length (m.tiles()))) + ")") ((array_length (m.tiles())) > 0))
+        EvgLauncherDemo.snap(m "launcher_2_games.png")
+
+        ; ---- move + launch a game ----
+        d.tap(m false false false true false)   ; right
+        d.tap(m false false false false true)   ; activate
+        d.ok("a game was chosen" m.chosen)
+        d.ok(("chosen path is non-empty (got '" + m.chosenPath + "')") ((strlen m.chosenPath) > 0))
+
+        ; ---- back walks up: games -> categories ----
+        m.back()
+        d.ok("back returns to categories" (m.page == 0))
+
+        ; ---- Tests category is a text menu (tools art may be absent) ----
+        d.tap(m false false false true false)   ; right -> Tests
+        d.tap(m false false false false true)   ; activate Tests
+        d.ok(("entered Tests (got '" + m.curCat + "')") (m.curCat == "Tests"))
+        d.ok(("Tests has tiles (got " + (to_string (array_length (m.tiles()))) + ")") ((array_length (m.tiles())) > 0))
+        EvgLauncherDemo.snap(m "launcher_3_tests.png")
+
+        ; ---- back on categories signals quit ----
+        m.back()
+        m.back()
+        d.ok("back on categories signals quit" m.wantQuit)
+
+        print "======================================"
+        print (("RESULT: " + (to_string d.passed) + " passed, ") + ((to_string d.failed) + " failed"))
+        if (d.failed == 0) { print "ALL PASS" } { print "SOME FAILED" }
+    }
+}

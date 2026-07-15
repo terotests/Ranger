@@ -1,0 +1,41 @@
+; ==============================================================================
+; as_class_demo — self-check for interpreted-.as CLASS support in ComponentEngine.
+; ==============================================================================
+; Binds a .as fixture that uses classes, fluent method chaining, `this` field
+; mutation, object fields, method-to-method calls and bound-method-reference
+; callbacks, and asserts the results it wrote to the shared ABI. This is what
+; lets guest games author fluent OO effect APIs (animation().glow(id)...start()).
+; ==============================================================================
+
+Import "../../scripting/as_source_runner.rgr"
+
+class AsClassCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string got:int want:int) {
+        if (got == want) {
+            passed = (passed + 1)
+            print (("  PASS " + name) + (" = " + (to_string got)))
+        } {
+            failed = (failed + 1)
+            print (((("  FAIL " + name) + " got ") + (to_string got)) + (" want " + (to_string want)))
+        }
+    }
+    sfn m@(main):void () {
+        def r:AsSourceRunner (new AsSourceRunner)
+        if ((r.bindDir("gallery/game_engine/tests/interp/as_class_fixture")) == false) {
+            print "bind failed"
+            return
+        }
+        r.callInit()
+        def c:AsClassCheck (new AsClassCheck)
+        c.ok("default field" (r.abiRead(20)) 0)
+        c.ok("method->method mutation" (r.abiRead(24)) 2)
+        c.ok("chained this.id" (r.abiRead(28)) 7)
+        c.ok("chained accumulate" (r.abiRead(32)) 15)
+        c.ok("bound-method callback fired twice" (r.abiRead(36)) 4)
+        print "======================================"
+        print (("RESULT: " + (to_string c.passed) + " passed, ") + ((to_string c.failed) + " failed"))
+        if (c.failed == 0) { print "ALL PASS" } { print "SOME FAILED" }
+    }
+}

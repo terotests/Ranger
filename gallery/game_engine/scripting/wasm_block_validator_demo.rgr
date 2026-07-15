@@ -1,0 +1,77 @@
+; Headless self-test for WasmBlockValidator (IDEAL_TODO 3.3). Run:
+;   RANGER_LIB=compiler/Lang.rgr:lib/stdops.rgr node bin/output.js -es6 \
+;     gallery/game_engine/scripting/wasm_block_validator_demo.rgr \
+;     -d=gallery/game_engine/scripting -o=wasm_block_validator_demo.js -nodecli \
+;   && node gallery/game_engine/scripting/wasm_block_validator_demo.js
+
+Import "./wasm_block_validator.rgr"
+
+class BlockValCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+}
+
+class WasmBlockValidatorDemo {
+    ; Little-endian four-char magics (canonical: wasm/*.h)
+    def RGW1:int 827803474    ; 0x31574752
+    def RGSP:int 1347634002   ; 0x50534752
+    def RGP1:int 827782994    ; 0x31504752
+    def RGIN:int 1313432402   ; 0x4e494752
+
+    sfn m@(main):void () {
+        def d:WasmBlockValidatorDemo (new WasmBlockValidatorDemo)
+        def c:BlockValCheck (new BlockValCheck)
+        def v:WasmBlockValidator (new WasmBlockValidator)
+        print "WasmBlockValidator self-test"
+
+        ; RGW1: correct magic, version 1, size 2560 -> valid.
+        c.ok("RGW1 valid" (v.validate(d.RGW1 1 2560 d.RGW1 1 2560)))
+
+        ; Wrong magic (a stale 'RAB1') -> rejected.
+        c.ok("wrong magic rejected" ((v.validate(826425682 1 2560 d.RGW1 1 2560)) == false))
+        print ("       reason: " + v.reason)
+
+        ; Version 0 (uninitialised block) -> rejected.
+        c.ok("version 0 rejected" ((v.validate(d.RGW1 0 2560 d.RGW1 1 2560)) == false))
+
+        ; Newer version than the host understands -> rejected.
+        c.ok("newer version rejected" ((v.validate(d.RGW1 2 2560 d.RGW1 1 2560)) == false))
+        print ("       reason: " + v.reason)
+
+        ; Size mismatch -> rejected.
+        c.ok("size mismatch rejected" ((v.validate(d.RGW1 1 2559 d.RGW1 1 2560)) == false))
+
+        ; RGSP1 fixed-size block validates against its own contract.
+        c.ok("RGSP1 valid" (v.validate(d.RGSP 1 2560 d.RGSP 1 2560)))
+
+        ; RGP1 is variable-size (expectSize 0): magic/version pass, min-size checks.
+        c.ok("RGP1 magic/version valid" (v.validate(d.RGP1 2 856 d.RGP1 2 0)))
+        c.ok("RGP1 min-size ok (>= header)" (v.validateMinSize(856 64)))
+        c.ok("RGP1 too-small rejected" ((v.validateMinSize(40 64)) == false))
+
+        ; RGIN variable-size validates by magic + min size.
+        c.ok("RGIN magic/version valid" (v.validate(d.RGIN 1 96 d.RGIN 1 0)))
+
+        ; Count clamps: never trust a guest count.
+        c.ok("clamp over-max" ((v.clampCount(999 32)) == 32))
+        c.ok("clamp negative" ((v.clampCount((0 - 5) 32)) == 0))
+        c.ok("clamp in-range" ((v.clampCount(17 32)) == 17))
+
+        print "======================================"
+        print (("RESULT: " + (to_string c.passed) + " passed, ") + ((to_string c.failed) + " failed"))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

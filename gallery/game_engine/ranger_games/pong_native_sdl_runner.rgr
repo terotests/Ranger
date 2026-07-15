@@ -1,0 +1,21 @@
+; ==============================================================================
+; pong_native_sdl_runner - SDL2 + static-compiled Pong (Path B).
+; ==============================================================================
+
+Import "../scripting/game_sdl_native_host.rgr"
+Import "./pong_native_game.rgr"
+
+class PongNativeSdlRunner {
+    sfn m@(main):void () {
+        def game:PongNativeGame (new PongNativeGame)
+        def host:GameSdlNativeHost (new GameSdlNativeHost)
+        if ((shell_arg_cnt) > 0) {
+            def parsed@(optional):int (to_int (shell_arg 0))
+            if (!null? parsed) {
+                host.maxFrames = (unwrap parsed)
+            }
+        }
+        host.run(game "Pong (native SDL)" "ball")
+        host.printSummary(game "ball")
+    }
+}

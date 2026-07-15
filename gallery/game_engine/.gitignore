@@ -2,7 +2,9 @@
 **/gamedata.json
 
 # Generated native build artifacts (regenerate with the engine:* npm scripts).
-# The ES6 build (pong.js) is committed as the desktop reference.
+# The static-Ranger reference games live in ranger_games/; their ES6 build
+# (ranger_games/pong.js) is committed as the desktop reference. The patterns
+# below are unanchored, so they also cover generated output under ranger_games/.
 pong.cpp
 pong.rs
 pong.go
@@ -12,7 +14,7 @@ pong_sdl
 variant.hpp
 *.o
 *.exe
-/pong
+/ranger_games/pong
 pong_cpp
 pong_rs
 
@@ -22,3 +24,15 @@ scripting/ui_menu_runner_demo.js
 # Compiled ES6 output of headless .as-source demos (regenerate by recompiling the .rgr)
 scripting/pose_provider_demo.js
 scripting/as_autopeli_src_demo.js
+scripting/as_sprite_demo.js
+scripting/as_source_demo.js
+scripting/pyorretris2p_demo.js
+scripting/menu_launcher_demo.js
+scripting/menu_tsx_render_demo.js
+scripting/menu_tsx_fit_demo.js
+scripting/game_catalog_demo.js
+scripting/game_icon_shots_demo.js
+
+# Rendered PNG frames from the headless sprite demos (regenerate: npm run engine:as:sprites)
+scripting/pyorretris_*.png
+scripting/pyorretris2p_*.png

@@ -44,7 +44,7 @@ describe("TS -> Ranger -> native (compiled game script)", () => {
 
   it("native Pong (generated .rgr) matches interpreter after 180 frames", () => {
     const { compile, run } = compileAndRun(
-      "gallery/game_engine/scripting/pong_native_runner.rgr"
+      "gallery/game_engine/ranger_games/pong_native_runner.rgr"
     );
 
     expect(
@@ -86,7 +86,7 @@ describe("TS -> Ranger -> native (compiled game script)", () => {
 
   it("native Invaders (generated .rgr) runs headless after 600 frames", () => {
     const { compile, run } = compileAndRun(
-      "gallery/game_engine/scripting/invaders_native_runner.rgr"
+      "gallery/game_engine/ranger_games/invaders_native_runner.rgr"
     );
 
     expect(
@@ -166,7 +166,7 @@ describe("TS -> Ranger -> native (compiled game script)", () => {
     fs.mkdirSync(outDir, { recursive: true });
 
     const compile = compileRanger(
-      "gallery/game_engine/scripting/invaders_native_runner.rgr",
+      "gallery/game_engine/ranger_games/invaders_native_runner.rgr",
       "cpp",
       outDir
     );

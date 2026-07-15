@@ -32,6 +32,12 @@ export function soundEvent(id) {
   return { kind: "playSound", id: id };
 }
 
+/** Build a playVoice event for a predefined vocal effect (game_vocal_fx.rgr):
+ *  laugh, giggle, chuckle, sigh, gasp, cough, cheer, boo, hmm, huh, yawn. */
+export function voiceEvent(id) {
+  return { kind: "playVoice", id: id };
+}
+
 /** Start music from a registered score id (resources kind: music). */
 export function musicEvent(id, loop?) {
   const amount = loop === false ? 0 : 1;

@@ -1,0 +1,20 @@
+; RANGER TEST — standalone compile/render self-test for GameVocalFx.
+; Not a launcher game (see scripting/AGENTS.md). Demo: vocal_fx_demo.game.tsx.
+Import "./game_vocal_fx.rgr"
+
+class VoiceboxSelfTest {
+    sfn m@(main):void () {
+        def vb:GameVocalFx (new GameVocalFx)
+        vb.init()
+        def all:[string] (vb.names())
+        print (("count=" + (array_length all)))
+        def i 0
+        while (i < (array_length all)) {
+            def id:string (itemAt all i)
+            def r:ScoreVoiceRender (vb.render(id))
+            print ((id + " tag=" + (vb.tagFor(id)) + " native=" + (to_string (vb.isNative(id))) + " frames=" + r.frames + " bytes=" + (buffer_length r.pcm)))
+            i = (i + 1)
+        }
+        print "vocalFx-selftest done"
+    }
+}

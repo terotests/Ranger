@@ -1,0 +1,192 @@
+; ==============================================================================
+; sprite_wasm_runner — SDL host for the RGSP1 sprite game (sprite_char.wasm).
+; ==============================================================================
+;
+; Same drive surface as WasmGameRunner / StreamingWorldRunner
+; (init / loadModule / setupScene / frameWithInput / draw / raw) so
+; game_sdl_runner can run it in the SDL window / Games menu.
+;
+; The guest (games/sprite_char/src) owns the whole game — a character-select menu
+; and a play screen. This host only: writes dt + input + view size into the RGSP1
+; block, calls sprite_tick, copies the block out of wasm memory, and draws every
+; active slot as a spritesheet frame (id -> sheet via the catalog, frame/dir/hop
+; via SpriteHost). No game logic lives here.
+
+Import "../framebuffer.rgr"
+Import "../wasm_runtime.rgr"
+Import "./wasm_cap_gate.rgr"
+Import "./game_audio.rgr"
+Import "./wasm_sprite_runner.rgr"
+Import "../lpc/src/png_decoder.rgr"
+Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
+
+class SpriteWasmRunner {
+    def canvas:SoftCanvas (new SoftCanvas)
+    def audio:GameAudio (new GameAudio)
+    def host:SpriteHost (new SpriteHost)
+    def png:PNGDecoder (new PNGDecoder)
+    def sheets:[ImageBuffer]        ; decoded walk sheets, index = charId - 1
+    def guest:int 0
+    def gbase:int 0
+    def pw:int 0
+    def ph:int 0
+    def fpsShown:int 0
+    def backPulse:boolean false
+    def assetRoot:string "gallery/game_engine/games/sprite_char/assets/"
+    ; Forward-compat capability gate (IDEAL.md §6). The sprite host renders
+    ; characters from its catalog and needs no optional RGW1 caps, so it
+    ; advertises none; a guest built against a newer ABI is rejected at load.
+    def capGate:WasmCapGate (new WasmCapGate)
+    def gateRejected:boolean false
+
+    fn init:void (w:int h:int) {
+        audio.init()
+        pw = w
+        ph = h
+        canvas.init(w h)
+    }
+
+    ; Directory of the wasm module + "/assets/" — the game ships its own sheets
+    ; (games/sprite_char/assets/<slug>.png) so it works after deploy, not just in
+    ; the dev tree.
+    fn assetDirOf:string (wasmPath:string) {
+        def slash:int (lastIndexOf wasmPath "/")
+        if (slash < 0) {
+            return "assets/"
+        }
+        return ((substring wasmPath 0 slash) + "/assets/")
+    }
+
+    fn loadSheets:void () {
+        clear sheets
+        def c 1
+        while (c <= 4) {
+            def slug:string (host.catalog.slugOf(c))
+            def rel:string (slug + ".png")
+            def img:ImageBuffer (png.decodeRelative(assetRoot rel))
+            push sheets img
+            c = (c + 1)
+        }
+    }
+
+    fn setFpsShown:void (fps:int) {
+        fpsShown = fps
+    }
+
+    fn setProfileEnabled:void (on:boolean) {
+    }
+
+    fn raw:buffer () {
+        return (canvas.raw())
+    }
+
+    fn maybeHotReload:void () {
+    }
+
+    fn resolvePlayerCount:int () {
+        return 1
+    }
+
+    fn loadModule:void (path:string) {
+        assetRoot = (this.assetDirOf(path))
+        this.loadSheets()
+        guest = (wasm_load path)
+        gateRejected = false
+        capGate.setHostCaps(0)
+        if ((capGate.checkWasm(guest)) == false) {
+            print ("[sprite] REJECTED " + path + ": " + capGate.reason)
+            wasm_close guest
+            guest = 0
+            gateRejected = true
+            return
+        }
+        wasm_call_void guest "sprite_init" 0 0 0 0 0 0
+        gbase = (wasm_call_i32 guest "sprite_ptr" 0 0 0 0 0 0)
+        wasm_mem_set_i32 guest (gbase + 36) pw   ; OFF_VIEW_W
+        wasm_mem_set_i32 guest (gbase + 40) ph   ; OFF_VIEW_H
+    }
+
+    fn setupScene:void () {
+        this.tickGuest(16 0)
+    }
+
+    ; Translate the engine's booleans to RGSP1 input flags (RG_SPR_IN_*).
+    fn inputFlags:int (up:boolean down:boolean left:boolean right:boolean action:boolean) {
+        def f:int 0
+        if (up)     { f = (f + 1) }
+        if (down)   { f = (f + 2) }
+        if (left)   { f = (f + 4) }
+        if (right)  { f = (f + 8) }
+        if (action) { f = (f + 16) }
+        return f
+    }
+
+    ; Write dt/input/view, tick the guest, copy the RGSP1 block into the host view.
+    fn tickGuest:void (dtMs:int flags:int) {
+        if (guest <= 0) { return }
+        wasm_mem_set_i32 guest (gbase + 12) dtMs    ; OFF_DT_MS
+        wasm_mem_set_i32 guest (gbase + 28) flags   ; OFF_INPUT
+        wasm_mem_set_i32 guest (gbase + 36) pw      ; OFF_VIEW_W
+        wasm_mem_set_i32 guest (gbase + 40) ph      ; OFF_VIEW_H
+        wasm_call_void guest "sprite_tick" 0 0 0 0 0 0
+
+        def bytes:[int]
+        def w 0
+        while (w < 640) {                            ; 2560 / 4
+            def v:int (wasm_mem_i32 guest (gbase + (w * 4)))
+            push bytes (bit_and v 255)
+            push bytes (bit_and (idiv v 256) 255)
+            push bytes (bit_and (idiv v 65536) 255)
+            push bytes (bit_and (idiv v 16777216) 255)
+            w = (w + 1)
+        }
+        host.bind(bytes 2560)
+    }
+
+    fn frame:void (dtMs:int up:boolean down:boolean left:boolean right:boolean action:boolean) {
+        this.frameWithInput(dtMs up down left right action)
+    }
+
+    fn frameWithInput:void (dtMs:int up:boolean down:boolean left:boolean right:boolean action:boolean) {
+        def flags:int (this.inputFlags(up down left right action))
+        if (backPulse) {
+            flags = (flags + 32)      ; RG_SPR_IN_BACK
+            backPulse = false
+        }
+        this.tickGuest(dtMs flags)
+    }
+
+    ; Guest's current screen: 0 = character-select menu, 1 = play (RG_SPR_OFF_MODE).
+    fn guestMode:int () {
+        return (host.block.i32(44))
+    }
+
+    ; Ask the guest to return to the character-select menu on the next tick (the
+    ; launcher calls this on Q/Esc while in play, instead of exiting the game).
+    fn requestBack:void () {
+        backPulse = true
+    }
+
+    fn sheetFor:ImageBuffer (charId:int) {
+        def idx:int (charId - 1)
+        if (idx < 0) { return (itemAt sheets 0) }
+        if (idx >= (array_length sheets)) { return (itemAt sheets 0) }
+        return (itemAt sheets idx)
+    }
+
+    fn draw:void () {
+        canvas.clear(28 30 42)
+        def n:int (host.slotCount())
+        def i 0
+        while (i < n) {
+            def d:SpriteDraw (host.resolve(i))
+            if (d.valid) {
+                def img:ImageBuffer (this.sheetFor(d.charId))
+                if (img.width > 1) {
+                    canvas.blitter.blitRectBuf(canvas.px canvas.w img d.srcX d.srcY d.frameW d.frameH d.screenX d.screenY)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+}

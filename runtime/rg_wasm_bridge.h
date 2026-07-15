@@ -19,6 +19,12 @@ void rg_wasm_call_void(int handle, const char* name, int nargs,
 uint32_t rg_wasm_mem_size(int handle);
 int32_t rg_wasm_abi_base(int handle);
 
+/* 1 if the module exports a function named `name`, else 0. Lets a host run the
+ * forward-compat capability gate (rg_abi_version / rg_required_caps / ...) and
+ * distinguish "guest exported it and returned 0" from "guest did not export it"
+ * (a legacy guest = ABI v1, caps 0). Does not call the function. */
+int rg_wasm_has_export(int handle, const char* name);
+
 /* Handle of the single worker a module spawned via the env.rg_spawn_worker
  * host import (0 = none). A host-loaded module may spawn one worker; a spawned
  * worker may not spawn further workers. */
@@ -36,6 +42,15 @@ int rg_wasm_host_res_kind(int handle, int idx);
 int rg_wasm_host_res_ival(int handle, int idx, int field);
 const char* rg_wasm_host_res_id(int handle, int idx);
 const char* rg_wasm_host_res_path(int handle, int idx);
+
+/* Guest-requested UI effects — populated when the WASM UI guest calls the linked
+ * host import env.rg_ui_glow(node, durMs, delayMs, tag). The Ranger host drains
+ * this after each guest call, drives its UIAnimator with the requests, and calls
+ * the guest's rg_ui_effect_done(node, tag) export when an effect completes. */
+int rg_wasm_fx_reset(int handle);
+int rg_wasm_fx_count(int handle);
+/* field: 0 kind, 1 target, 2 node, 3 durMs, 4 delayMs, 5 tag, 6 r, 7 g, 8 b */
+int rg_wasm_fx_ival(int handle, int idx, int field);
 
 #ifdef __cplusplus
 }

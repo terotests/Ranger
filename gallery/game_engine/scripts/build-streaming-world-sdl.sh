@@ -11,7 +11,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-SOURCE="$ROOT/gallery/game_engine/streaming_world_sdl.rgr"
+SOURCE="$ROOT/gallery/game_engine/ranger_games/streaming_world_sdl.rgr"
 OUT_DIR="$ROOT/tmp/streaming-world"
 CPP_FILE="$OUT_DIR/streaming_world_sdl.cpp"
 BIN_FILE="$OUT_DIR/streaming_world_sdl"

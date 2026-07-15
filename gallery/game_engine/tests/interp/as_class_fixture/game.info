@@ -1,0 +1,4 @@
+name=as class interpreter fixture
+engine=ui
+runtime=as
+module=game.as

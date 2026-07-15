@@ -48,6 +48,13 @@ npm run engine:lpc:run -- super gallery/game_engine/lpc/output/compose_super.png
 # Useita bodyType-esimerkkejä
 ./gallery/game_engine/scripts/build-lpc-batch.sh
 
+# Ready character set (hero/knight/mage/rogue -> pack/characters + games/sprite_char/assets).
+# Täydellä LPC-taiteella (LPC_ROOT) hahmot saavat omat layer-stackinsa
+# (tunika / levyhaarniska+kypärä / kaapu+velhonhattu / nahka+huppu); ilman sitä
+# fallback on upotetun packin recolor.
+LPC_ROOT=/path/to/Universal-LPC-Spritesheet-Character-Generator \
+  npm run engine:chars:bake
+
 # Mukautettu LPC-polku (täysi repo tai oma pack)
 LPC_ROOT=/path/to/Universal-LPC-Spritesheet-Character-Generator \
   npm run engine:lpc:run -- male gallery/game_engine/lpc/output/test.png

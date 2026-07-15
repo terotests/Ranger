@@ -3,6 +3,12 @@
 Minimal Pong game logic compiled from Rust to WebAssembly and loaded at runtime
 by `WasmGameRunner` (wasm3 interpreter embedded in the SDL host).
 
+> **Note:** this PoC predates the shared RGW1 block ABI and stays on the
+> per-export contract below on purpose — `WasmGameRunner` drives exactly these
+> exports. New Rust guests should NOT copy this shape: they speak RGW1/RGSP1
+> through the shared [`ranger_game`](../../lib/ranger_game/) crate instead
+> (see `games/autopeli_wasm/`, `games/sprite_char/`).
+
 ## Layout
 
 ```
@@ -10,7 +16,7 @@ games/rust_pong/
   game.info       # engine=wasm, module=logic.wasm
   logic.wasm      # built artifact (committed for convenience)
 
-wasm/rust_pong/
+games/rust_pong/src/
   src/lib.rs      # Rust source
   build.sh        # cargo wasm32-unknown-unknown → logic.wasm
 ```

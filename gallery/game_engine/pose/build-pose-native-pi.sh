@@ -48,6 +48,12 @@ fi
 echo "==> [4/5] configure + wasm3 smoke (compiled guest, no TFLite compile)"
 # cmake -B is idempotent: reconfigures only if needed. pose_wasm_smoke does NOT
 # link TFLite, so building it never triggers the ~1h TFLite compile.
+mkdir -p "$BUILD"
+if [ -f "$BUILD/pose_bench" ]; then
+  echo "    (incremental — reusing existing build in $BUILD; no TFLite rebuild)"
+else
+  echo "    (first build — compiles TFLite once, ~slow; cached in $BUILD after)"
+fi
 cmake -S "$HERE" -B "$BUILD" -DTENSORFLOW_SOURCE_DIR="$TF" -DCMAKE_BUILD_TYPE=Release
 cmake --build "$BUILD" --target pose_wasm_smoke -j"$(nproc)"
 echo "--- wasm3 guest smoke ---"

@@ -1,0 +1,115 @@
+; ==============================================================================
+; Ranger Game Engine - Pong on SDL2 (the "real" native PoC)
+; ==============================================================================
+;
+; Same pure game logic as the terminal build (pong_core.rgr), but rendered into
+; a native RGBA framebuffer (SoftCanvas) that is blitted to an SDL2 window every
+; frame. Ranger -> C++ -> SDL2, so it runs as a real desktop window on macOS and
+; Linux, and drives the HDMI framebuffer on a Raspberry Pi with the same code.
+;
+;   Pong (pure) --step--> state --draw--> SoftCanvas (RGBA buffer) --gfx_present--> SDL2 window
+;
+; Nothing here touches Node or writes a PNG: the render target is an in-memory
+; byte buffer handed straight to the GPU/compositor via an SDL streaming texture.
+;
+; Build & run (see scripts/build-sdl.sh):
+;   npm run engine:sdl            ; Ranger -> C++ -> native binary (needs SDL2)
+;   ./gallery/game_engine/pong_sdl        ; open the window (W/S move, Q/Esc quit)
+;   ./gallery/game_engine/pong_sdl 120    ; headless-friendly: render 120 frames, exit
+; ==============================================================================
+
+Import "./pong_core.rgr"
+Import "../framebuffer.rgr"
+Import "./pong_render.rgr"
+Import "../gfx_sdl.rgr"
+
+; ------------------------------------------------------------------------------
+; SdlBackend - the platform layer. The ONLY place that touches the window and
+; the keyboard. It reuses the portable PongRenderer to paint the RGBA frame,
+; then blits that buffer to the SDL2 window. Swap this class for another backend
+; without changing Pong or PongRenderer.
+; ------------------------------------------------------------------------------
+class SdlBackend {
+    def cv:SoftCanvas (new SoftCanvas)
+    def gfx:PongRenderer (new PongRenderer)
+    def pw:int 0
+    def ph:int 0
+    def maxFrames:int 0
+    def frames:int 0
+
+    fn init:void (game:Pong) {
+        pw = (gfx.pixelWidth(game))
+        ph = (gfx.pixelHeight(game))
+        cv.init(pw ph)
+        def ok (gfx_open "Ranger Pong (SDL2)" pw ph)
+        if (ok == 0) {
+            print "gfx_open failed (no display?) - still rendering into the RGBA buffer"
+        }
+    }
+
+    ; Paint the frame into the RGBA buffer, then hand that buffer to the window.
+    fn draw:void (game:Pong) {
+        gfx.draw(game cv)
+        gfx_present (cv.raw()) pw ph
+    }
+
+    fn readInput:void (btns:Buttons) {
+        btns.reset()
+        def m (gfx_poll_mask)
+        if ((bit_and m 1) != 0) {
+            btns.up = true
+        }
+        if ((bit_and m 2) != 0) {
+            btns.down = true
+        }
+        if ((bit_and m 4) != 0) {
+            btns.action = true
+        }
+        if ((bit_and m 8) != 0) {
+            btns.quit = true
+        }
+    }
+
+    ; The frame loop (platform code: timing + I/O). Pong.step stays pure.
+    fn run:void (game:Pong btns:Buttons) {
+        while (game.running) {
+            this.readInput(btns)
+            game.step(btns)
+            this.draw(game)
+            frames = (frames + 1)
+            def sc (gfx_should_close)
+            if sc {
+                game.running = false
+            }
+            if (maxFrames > 0) {
+                if (frames >= maxFrames) {
+                    game.running = false
+                }
+            }
+            ; SDL_RENDERER_PRESENTVSYNC already blocks until vblank — no extra delay.
+        }
+        gfx_close
+    }
+
+    sfn m@(main):void () {
+        def game (new Pong)
+        def be (new SdlBackend)
+        def btns (new Buttons)
+        ; optional first CLI arg = number of frames to render, then exit.
+        ; (used for headless smoke runs; absent/0 = run until the window quits)
+        if ((shell_arg_cnt) > 0) {
+            def parsed@(optional):int (to_int (shell_arg 0))
+            if (!null? parsed) {
+                be.maxFrames = (unwrap parsed)
+            }
+        }
+        be.init(game)
+        be.run(game btns)
+        def msg ("pong-sdl done: frames=" + be.frames)
+        msg = (msg + " | score P1 ")
+        msg = (msg + game.leftScore)
+        msg = (msg + " CPU ")
+        msg = (msg + game.rightScore)
+        print msg
+    }
+}

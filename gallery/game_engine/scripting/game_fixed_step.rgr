@@ -1,0 +1,53 @@
+; ==============================================================================
+; game_fixed_step — pure fixed-timestep scheduling (IDEAL_TODO R.1)
+; ==============================================================================
+;
+; The former inline loop in game_runtime.frameWithInput ran ONE step too many and
+; left the accumulator NEGATIVE: on `steps >= maxFixedSteps` it zeroed the
+; accumulator but still ran `stepUpdate` and subtracted `fixedStepMs`, so it
+; executed maxFixedSteps+1 steps and exited with `timeAccumulator = -fixedStepMs`
+; (the next frame could then skip a step).
+;
+; This extracts the scheduling into a PURE function so it is unit-testable and the
+; tested code is the shipped code. Contract:
+;   * run at most `maxSteps` fixed steps per frame (spiral-of-death guard);
+;   * the residual accumulator is always in [0, fixedStepMs) on a normal frame,
+;     and 0 when the backlog was dropped at the cap — never negative;
+;   * fixedStepMs <= 0 means "no fixed step" (caller runs a single variable step).
+; ==============================================================================
+
+class FixedStepPlan {
+    def steps:int 0        ; how many fixed steps to run this frame
+    def residualMs:int 0   ; accumulator to carry to the next frame (>= 0)
+}
+
+class FixedStep {
+    ; Pure planner. Given the carried accumulator and this frame's dt, decide how
+    ; many fixed steps to run and what accumulator remains.
+    sfn plan:FixedStepPlan (accumulatorMs:int dtMs:int fixedStepMs:int maxSteps:int) {
+        def out:FixedStepPlan (new FixedStepPlan)
+        if (fixedStepMs <= 0) {
+            out.steps = 0
+            out.residualMs = 0
+            return out
+        }
+        def acc:int (accumulatorMs + dtMs)
+        def n:int 0
+        while (true) {
+            if (acc < fixedStepMs) {
+                break
+            }
+            if (n >= maxSteps) {
+                ; Hit the cap with backlog still pending: drop it so the sim runs
+                ; slightly slow instead of spiralling. Residual = 0, never negative.
+                acc = 0
+                break
+            }
+            acc = (acc - fixedStepMs)
+            n = (n + 1)
+        }
+        out.steps = n
+        out.residualMs = acc
+        return out
+    }
+}

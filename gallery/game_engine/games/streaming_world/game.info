@@ -1,3 +1,5 @@
 name=Streaming World
 engine=streaming
 module=worker.wasm
+
+category=Tests

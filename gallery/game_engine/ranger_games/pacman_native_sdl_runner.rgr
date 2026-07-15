@@ -1,0 +1,28 @@
+; ==============================================================================
+; pacman_native_sdl_runner - SDL2 + static-compiled Pac-Man (Path B).
+; ==============================================================================
+;
+; Regenerate emitter output when pacman_native.game.tsx changes:
+;   npm run ts2ranger:emit -- gallery/game_engine/scripting/pacman_native.game.tsx
+;
+; Build + run:
+;   npm run engine:game-sdl-native:run:pacman
+; ==============================================================================
+
+Import "../scripting/game_sdl_native_host.rgr"
+Import "./pacman_native_game.rgr"
+
+class PacmanNativeSdlRunner {
+    sfn m@(main):void () {
+        def game:PacmanNativeGame (new PacmanNativeGame)
+        def host:GameSdlNativeHost (new GameSdlNativeHost)
+        if ((shell_arg_cnt) > 0) {
+            def parsed@(optional):int (to_int (shell_arg 0))
+            if (!null? parsed) {
+                host.maxFrames = (unwrap parsed)
+            }
+        }
+        host.run(game "Pac-Man (native SDL)" "pac")
+        host.printSummary(game "pac")
+    }
+}

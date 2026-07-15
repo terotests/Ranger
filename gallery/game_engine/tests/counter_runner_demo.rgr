@@ -1,0 +1,20 @@
+; ==============================================================================
+; counter_runner_demo - while-loop demo via the TS interpreter (ComponentEngine).
+; ==============================================================================
+
+Import "../scripting/game_runtime.rgr"
+
+class CounterRunnerDemo {
+    sfn m@(main):void () {
+        def runner:GameRunner (new GameRunner)
+        runner.init(64 64)
+        def buf:buffer (buffer_read_file "gallery/game_engine/scripting" "counter.game.tsx")
+        def src:string (buffer_to_string buf)
+        runner.setScriptDir("gallery/game_engine/scripting")
+        runner.loadScript(src)
+        runner.setupScene()
+        runner.frame(16 false false false false false false)
+        print (("score1=" + runner.score1))
+        print "counter-runner done"
+    }
+}

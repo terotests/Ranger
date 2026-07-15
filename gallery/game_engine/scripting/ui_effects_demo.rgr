@@ -1,0 +1,116 @@
+; ==============================================================================
+; ui_effects_demo - headless visual demo + self-check for the WASM UI effects.
+; ==============================================================================
+; Demonstrates the effect vocabulary the WASM UI guest can trigger (glow, node
+; pulse, whole-screen pulse, each with a tint) by driving GameUiRunner's
+; UIAnimator directly — the same host timeline the native runner feeds from the
+; guest's env.rg_ui_effect calls. Each effect is ticked to a peak, rendered, and
+; written to a PNG so the look can be eyeballed; intensities are asserted too.
+;
+; This is the es6/software render of the effects (what --software draws); the
+; native launcher renders the same effects on the GPU via the gfx_fx overlay.
+; Run:  npm run engine:ui:effects
+; ==============================================================================
+
+Import "./game_ui_runner.rgr"
+Import "../ui/RgUiWriter.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+
+class UiEffectsDemo {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    ; A small menu whose buttons name the effect each one triggers.
+    sfn buildMenu:[int] () {
+        def w:RgUiWriter (new RgUiWriter)
+        w.view(1 0 0).column().center().padding(22)
+        w.view(2 1 0).column().center().padding(18).width(300).bg(36 42 64 255).radius(16)
+        w.label(10 2 0 "EVG Effects Demo" 4294967295 20).margin(8)
+        w.button(11 2 1 "Glow" 3839943679 16).onActivate().defaultSelected().width(220).padding(10).bg(120 165 230 46).border(2 120 150 210 255).radius(9).textCenter().margin(6)
+        w.button(12 2 2 "Pulse" 3839943679 16).onActivate().width(220).padding(10).bg(120 165 230 46).border(2 120 150 210 255).radius(9).textCenter().margin(6)
+        w.button(13 2 3 "Screen Pulse (red)" 3839943679 16).onActivate().width(220).padding(10).bg(120 165 230 46).border(2 120 150 210 255).radius(9).textCenter().margin(6)
+        w.button(14 2 4 "Screen Pulse (blue)" 3839943679 16).onActivate().width(220).padding(10).bg(120 165 230 46).border(2 120 150 210 255).radius(9).textCenter().margin(6)
+        return (w.emit())
+    }
+
+    sfn snap:void (runner:GameUiRunner file:string) {
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.width = 360
+        rb.height = 460
+        rb.pixels = (runner.raw())
+        def png:PNGEncoder (new PNGEncoder)
+        png.encode(rb "gallery/game_engine/games/ui_menu" file)
+    }
+
+    sfn m@(main):void () {
+        def d:UiEffectsDemo (new UiEffectsDemo)
+
+        def runner:GameUiRunner (new GameUiRunner)
+        runner.init(360 460 "gallery/game_engine/assets/fonts" "OpenSans-Regular.ttf" "Open Sans")
+        def bytes:[int] (UiEffectsDemo.buildMenu())
+        d.ok("menu loaded" (runner.loadDoc(bytes (array_length bytes))))
+
+        ; software render draws the effects into the canvas (gpuEffects stays off)
+        def fx:WasmUiEffects runner.effects
+
+        ; 1) warm glow on the "Glow" button (node 11)
+        fx.startEffect(1 0 11 500 0 255 220 120 0 0)
+        fx.tick(250)                                   ; -> peak
+        d.ok("glow at peak on node 11" (UiEffectsDemo.near((fx.glowFor("11")) 1.0 0.06)))
+        d.ok("glow tint is warm" (((fx.nodeR()) == 255) && ((fx.nodeB()) == 120)))
+        runner.render()
+        UiEffectsDemo.snap(runner "fx_1_glow.png")
+        fx.tick(700)                                   ; clear before the next one
+        d.ok("timeline clear after glow" ((fx.activeCount()) == 0))
+
+        ; 2) green pulse on the "Pulse" button (node 12) — caught at beat 1 peak
+        fx.startEffect(2 0 12 600 0 120 255 160 0 0)
+        fx.tick(100)                                   ; p=1/6 -> beat 1 peak
+        d.ok("pulse near peak on node 12" ((fx.glowFor("12")) > 0.7))
+        runner.render()
+        UiEffectsDemo.snap(runner "fx_2_pulse.png")
+        fx.tick(700)
+        d.ok("timeline clear after pulse" ((fx.activeCount()) == 0))
+
+        ; 3) whole-screen red pulse
+        fx.startEffect(2 1 0 600 0 255 80 80 0 0)
+        fx.tick(100)
+        d.ok("red screen pulse active" ((fx.screenPulse()) > 0.5))
+        d.ok("red screen tint" (((fx.screenR()) == 255) && ((fx.screenG()) == 80)))
+        runner.render()
+        UiEffectsDemo.snap(runner "fx_3_screen_red.png")
+        fx.tick(700)
+
+        ; 4) whole-screen blue pulse
+        fx.startEffect(2 1 0 600 0 120 180 255 0 0)
+        fx.tick(100)
+        d.ok("blue screen pulse active" ((fx.screenPulse()) > 0.5))
+        d.ok("blue screen tint" (((fx.screenB()) == 255) && ((fx.screenR()) == 120)))
+        runner.render()
+        UiEffectsDemo.snap(runner "fx_4_screen_blue.png")
+
+        print "======================================"
+        print (("RESULT: " + (to_string d.passed)) + (" passed, " + ((to_string d.failed) + " failed")))
+        if (d.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+        print "wrote fx_1_glow.png fx_2_pulse.png fx_3_screen_red.png fx_4_screen_blue.png"
+    }
+
+    sfn near:boolean (a:double b:double eps:double) {
+        def dd:double (a - b)
+        if (dd < 0.0) { dd = (0.0 - dd) }
+        return (dd <= eps)
+    }
+}

@@ -1,4 +1,4 @@
-name=AssemblyScript Autopeli (WASM)
+name=Autopeli
 engine=wasm
 module=logic.wasm
 abi=linear
@@ -6,3 +6,5 @@ physics=true
 assets=assets
 splitScreen=auto
 autoscale=true
+
+category=Games

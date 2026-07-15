@@ -1,0 +1,82 @@
+; ==============================================================================
+; wasm_block_validator — one validator for every shared ABI block (IDEAL_API §0.3)
+; ==============================================================================
+;
+; IDEAL.md "Parity across ABI blocks" + IDEAL_API §0.3: every block copies RGU1's
+; discipline — the host validates it as UNTRUSTED data before use (magic, version,
+; size, counts clamped to their MAX_*). Today RGW1's check was a bare, once-stale
+; magic compare (wasm_abi_io.verifyMagic) and each block re-invented its own
+; checks. This is the single validator the WASM and .as paths share for RGW1 /
+; RGSP1 / RGP1 / RGIN, so no block is validated ad-hoc.
+;
+; It is pure logic over the three standard header words (OFF_MAGIC=0, OFF_VERSION=4,
+; OFF_SIZE=8) plus count clamps, so it is testable without a live module.
+; ==============================================================================
+
+class WasmBlockValidator {
+    def ok:boolean true
+    def reason:string ""
+
+    ; Validate a block's standard header against its contract.
+    ;   magic/version/size : the three words the host read from the block.
+    ;   expectMagic        : the block's magic constant (little-endian four-char).
+    ;   maxVersion         : the highest version this host build can parse.
+    ;   expectSize         : the fixed block size the host was built for; pass 0
+    ;                        for variable-size blocks (e.g. RGP1/RGIN) and check
+    ;                        size >= a minimum separately.
+    fn validate:boolean (magic:int version:int size:int expectMagic:int maxVersion:int expectSize:int) {
+        ok = true
+        reason = ""
+        if (magic != expectMagic) {
+            ok = false
+            reason = ("bad block magic " + (to_string magic) +
+                " (expected " + (to_string expectMagic) + ")")
+            return false
+        }
+        if (version < 1) {
+            ok = false
+            reason = ("block version " + (to_string version) + " is not initialised")
+            return false
+        }
+        if (version > maxVersion) {
+            ok = false
+            reason = ("block version " + (to_string version) +
+                " is newer than this host understands (max " + (to_string maxVersion) + ")")
+            return false
+        }
+        if (expectSize != 0) {
+            if (size != expectSize) {
+                ok = false
+                reason = ("block size " + (to_string size) +
+                    " != expected " + (to_string expectSize))
+                return false
+            }
+        }
+        return true
+    }
+
+    ; A variable-size block (RGP1/RGIN) only needs its declared size to cover at
+    ; least the fixed header + one record; the reader then trusts OFF_SIZE, never
+    ; a hard-coded total (IDEAL.md §2.4: "read it from OFF_SIZE, never assume it").
+    fn validateMinSize:boolean (size:int minSize:int) {
+        if (size < minSize) {
+            ok = false
+            reason = ("block size " + (to_string size) +
+                " is below the minimum " + (to_string minSize))
+            return false
+        }
+        return true
+    }
+
+    ; Clamp a guest-declared count to the host's buffer bound — the host NEVER
+    ; trusts a guest count (a hostile/buggy guest could overrun the array).
+    fn clampCount:int (n:int max:int) {
+        if (n < 0) {
+            return 0
+        }
+        if (n > max) {
+            return max
+        }
+        return n
+    }
+}

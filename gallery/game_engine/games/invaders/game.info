@@ -1,2 +1,4 @@
 name=Space Invaders
 splitScreen=auto
+category=Games
+icon=assets/icon.png

@@ -1,0 +1,103 @@
+; ==============================================================================
+; wasm_cap_gate — the forward-compat capability gate (IDEAL.md §6, IDEAL_API §1.1)
+; ==============================================================================
+;
+; IDEAL.md problem #5: "The capability gate is dead." Guests MAY export
+; rg_abi_version / rg_required_caps, but nothing in scripting/ ever called them,
+; so a guest that needs a missing host capability read zeroed memory instead of
+; being rejected at load. This helper is the one place every runner calls to run
+; the gate ONCE, right after load and before init(), on every guest path.
+;
+;   ver  = has(rg_abi_version)   ? call(rg_abi_version)   : 1   ; legacy = v1
+;   need = has(rg_required_caps) ? call(rg_required_caps) : 0   ; legacy = none
+;   if (ver > hostAbiVersion)      reject "needs newer host"    ; layout mismatch
+;   if (need & ~hostCaps)          reject "missing capability"  ; feature gap
+;
+; The host's advertised caps are the OR of every attached provider's capBit
+; (§6). Phase 3.4's provider registry fills hostCaps by construction; until then
+; a runner sets it explicitly to the caps it actually implements.
+; ==============================================================================
+
+Import "../wasm_runtime.rgr"
+Import "./game_provider.rgr"
+
+class WasmCapGate {
+    ; The RGW1 ABI version this host build understands. A guest built against a
+    ; newer layout (ver > this) is rejected rather than misread. Bump when the
+    ; shared block layout changes incompatibly.
+    def hostAbiVersion:int 1
+
+    ; The OR of every capability this host advertises (RG_WASM_HOST_CAP_*).
+    def hostCaps:int 0
+
+    ; Result of the last check.
+    def ok:boolean true
+    def reason:string ""
+    def guestVersion:int 1
+    def guestNeeds:int 0
+
+    fn setHostCaps:void (caps:int) {
+        hostCaps = caps
+    }
+
+    ; Advertise one more capability bit (what a provider's capBit() contributes).
+    fn addCap:void (bit:int) {
+        hostCaps = (bit_or hostCaps bit)
+    }
+
+    ; Derive advertised caps from the provider registry (IDEAL_API §7): the host's
+    ; capabilities ARE the OR of every attached provider's capBit(). This is the
+    ; by-construction wiring — a runner attaches its providers and the gate needs
+    ; no separate cap list to keep in sync.
+    fn setHostCapsFromRegistry:void (reg:GameProviderRegistry) {
+        hostCaps = (reg.advertisedCaps())
+    }
+
+    fn hasCap:boolean (bit:int) {
+        return ((bit_and hostCaps bit) != 0)
+    }
+
+    ; Core gate logic against an already-read (version, requiredCaps) pair. Split
+    ; out so it is testable without a live module and shared by the WASM and .as
+    ; paths. Sets ok/reason and returns ok.
+    fn evaluate:boolean (ver:int need:int) {
+        ok = true
+        reason = ""
+        guestVersion = ver
+        guestNeeds = need
+        if (ver > hostAbiVersion) {
+            ok = false
+            reason = ("guest built against ABI v" + (to_string ver) +
+                " but this host understands v" + (to_string hostAbiVersion) +
+                " — needs a newer host")
+            return false
+        }
+        def missing:int (bit_and need (bit_not hostCaps))
+        if (missing != 0) {
+            ok = false
+            reason = ("guest requires host capability bits " + (to_string missing) +
+                " (decimal) that this host does not advertise (host caps " +
+                (to_string hostCaps) + ")")
+            return false
+        }
+        return true
+    }
+
+    ; Run the gate against a loaded WASM module handle. A missing optional export
+    ; means "legacy" (ver=1, need=0), so an old guest always passes and a guest
+    ; that declares a hard requirement is honoured.
+    fn checkWasm:boolean (handle:int) {
+        def ver:int 1
+        if ((wasm_has_export handle "rg_abi_version") != 0) {
+            ver = (wasm_call_i32 handle "rg_abi_version" 0 0 0 0 0 0)
+            if (ver == 0) {
+                ver = 1
+            }
+        }
+        def need:int 0
+        if ((wasm_has_export handle "rg_required_caps") != 0) {
+            need = (wasm_call_i32 handle "rg_required_caps" 0 0 0 0 0 0)
+        }
+        return (this.evaluate(ver need))
+    }
+}

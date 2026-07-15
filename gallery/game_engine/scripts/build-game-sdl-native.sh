@@ -31,15 +31,15 @@ fi
 
 case "$GAME" in
   invaders)
-    SOURCE="$ROOT/gallery/game_engine/scripting/invaders_native_sdl_runner.rgr"
+    SOURCE="$ROOT/gallery/game_engine/ranger_games/invaders_native_sdl_runner.rgr"
     PROBE="ship"
     ;;
   pong)
-    SOURCE="$ROOT/gallery/game_engine/scripting/pong_native_sdl_runner.rgr"
+    SOURCE="$ROOT/gallery/game_engine/ranger_games/pong_native_sdl_runner.rgr"
     PROBE="ball"
     ;;
   pacman)
-    SOURCE="$ROOT/gallery/game_engine/scripting/pacman_native_sdl_runner.rgr"
+    SOURCE="$ROOT/gallery/game_engine/ranger_games/pacman_native_sdl_runner.rgr"
     PROBE="pac"
     ;;
   *)

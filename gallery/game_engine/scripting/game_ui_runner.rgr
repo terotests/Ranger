@@ -16,8 +16,11 @@
 ; ==============================================================================
 
 Import "../framebuffer.rgr"
+Import "../gfx_sdl.rgr"
 Import "../ui/WasmUiSelect.rgr"
 Import "./as_source_runner.rgr"
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
 
 class GameUiRunner {
     def canvas:SoftCanvas (new SoftCanvas)
@@ -25,6 +28,11 @@ class GameUiRunner {
     def ctrl:UiSelectController (new UiSelectController)
     def doc:WasmUiDoc (new WasmUiDoc)
     def root:EVGElement (EVGElement.createDiv())
+
+    ; Host-run effect timeline for guest-triggered rg_ui_glow. The guest fires an
+    ; effect from rg_ui_event; the host owns the timeline here and calls the guest
+    ; back (rg_ui_effect_done) on completion. The renderer samples it for the halo.
+    def effects:WasmUiEffects (new WasmUiEffects)
 
     def handle:int 0
     def w:int 0
@@ -41,13 +49,35 @@ class GameUiRunner {
     def useAs:boolean false
     def asSelId:int 0
     def OFF_INPUT:int 20      ; host -> guest edge mask: UP1 DOWN2 LEFT4 RIGHT8 ACT16
+    def OFF_TIME:int 16       ; host -> guest monotonic time (ms) for animations
     def OFF_SEL:int 52        ; guest -> host selected node id (highlight)
+    def OFF_LAUNCH:int 56     ; guest -> host: catalog index + 1 to launch (0 = none)
+    def uiTimeMs:int 0        ; accumulated ms fed to the guest as a clock
+
+    ; Optional catalog injected into an interpreted .as menu as the `gameCatalog`
+    ; global (same value the .tsx menu gets). The launcher menu reads it to build
+    ; its tiles and reports a catalog index back via OFF_LAUNCH.
+    def menuCatalog:EvalValue (EvalValue.null())
+    def hasMenuCatalog:boolean false
     ; host -> guest: laid-out rect of the selected node (page px), so the guest
     ; can place absolute overlay effects at real screen coordinates.
     def OFF_RECT_X:int 200
     def OFF_RECT_Y:int 204
     def OFF_RECT_W:int 208
     def OFF_RECT_H:int 212
+
+    ; --- interpreted .tsx backend (engine=ui, runtime=tsx) ---
+    ; A TypeScript/TSX guest evaluated by ComponentEngine straight into the same
+    ; EVGElement tree the renderer draws (rich glow/gradient/art) - the JS
+    ; front-end to the identical rendering core. Like the classic .tsx menu it
+    ; drives its own selection and returns a launch PATH (not a catalog index) in
+    ; its state; its glow highlight is baked into the tree (the `glow` prop), so
+    ; the host draws no extra cursor for it.
+    def tsxEngine:ComponentEngine (new ComponentEngine)
+    def useTsx:boolean false
+    def tsxState:EvalValue (EvalValue.null())
+    def tsxLaunch:string ""
+    def tsxQuit:boolean false
 
     ; page background behind the menu card
     def bgR:int 16
@@ -60,6 +90,13 @@ class GameUiRunner {
     fn init:void (width:int height:int fontDir:string fontRelPath:string family:string) {
         w = width
         h = height
+        ; start in a clean mode: this runner is reused across the launcher menu
+        ; (.tsx or .as) and launched engine=ui games (wasm or .as), so reset the
+        ; backend flags — loadWasm/loadAs/loadTsx set them again, and
+        ; setMenuCatalog re-enables injection.
+        useAs = false
+        useTsx = false
+        hasMenuCatalog = false
         canvas.init(width height)
         ctx.attach(canvas)
         if ((strlen fontDir) > 0) {
@@ -75,10 +112,19 @@ class GameUiRunner {
         }
         ctrl.borderWidth = 2
         ctrl.highlightPad = 4
+        ; let the renderer overlay the live glow from guest-triggered effects
+        ctrl.renderer.setEffects(effects)
     }
 
     ; --- native path: instantiate the wasm guest --------------------------------
     fn loadWasm:boolean (wasmPath:string) {
+        ; this runner may be reused after an interpreted guest (the launcher menu),
+        ; which set useAs/useTsx; a compiled wasm guest drives itself, so clear both
+        ; or frame()/render() would take an interpreted path and the game would
+        ; never run (appears hung).
+        useAs = false
+        useTsx = false
+        hasMenuCatalog = false
         handle = (wasm_load wasmPath)
         if (handle <= 0) {
             return false
@@ -86,6 +132,8 @@ class GameUiRunner {
         ; init() returns void — must use wasm_call_void, or the native runtime
         ; rejects the (i32) call and the guest never builds its RGU1 document.
         wasm_call_void handle "init" 0 0 0 0 0 0
+        ; init() may already request effects — pick them up before the first frame.
+        effects.drain(handle)
         return (this.refreshFromWasm())
     }
 
@@ -99,11 +147,32 @@ class GameUiRunner {
         return true
     }
 
+    ; Inject the game catalog the interpreted menu reads as `gameCatalog`. Call
+    ; before loadAs() so it is registered before the guest's init()/update() run.
+    fn setMenuCatalog:void (cat:EvalValue) {
+        menuCatalog = cat
+        hasMenuCatalog = true
+    }
+
+    ; Catalog index (+1) the interpreted menu wants launched this frame (0 = none).
+    fn launchIndex:int () {
+        if (useAs == false) {
+            return 0
+        }
+        return (asRunner.abiRead(OFF_LAUNCH))
+    }
+
     ; --- interpreted .as path: bind + init the guest, pull its first document ----
     fn loadAs:boolean (dir:string) {
+        effects.reset()
         useAs = true
+        useTsx = false
         if ((asRunner.bindDir(dir)) == false) {
             return false
+        }
+        ; a launcher menu reads the injected catalog to build its tiles
+        if hasMenuCatalog {
+            asRunner.registerGlobal("gameCatalog" menuCatalog)
         }
         asRunner.callInit()
         if ((this.refreshFromAs()) == false) {
@@ -112,6 +181,94 @@ class GameUiRunner {
         rev = (asRunner.uiRevision())
         asSelId = (asRunner.abiRead(OFF_SEL))
         return true
+    }
+
+    ; --- interpreted .tsx path: bind + init the guest, render its first tree ----
+    fn loadTsx:boolean (dir:string file:string) {
+        useTsx = true
+        useAs = false
+        handle = 0
+        def buf:buffer (buffer_read_file dir file)
+        def src:string (buffer_to_string buf)
+        tsxEngine.quiet = true
+        ; a launcher menu reads the injected catalog to build its tiles
+        if hasMenuCatalog {
+            tsxEngine.registerGlobal("gameCatalog" menuCatalog)
+        }
+        tsxEngine.loadScript(src)
+        tsxState = (tsxEngine.callFunction("initState" (EvalValue.null())))
+        this.refreshFromTsx()
+        return true
+    }
+
+    ; props object handed to the guest's hud()/update(), matching the shape
+    ; game_runtime feeds a normal .tsx game (state + host clock + edge flags).
+    fn tsxProps:EvalValue (nav:UiNavInput withInput:boolean) {
+        def k:[string]
+        def v:[EvalValue]
+        push k "state"
+        push v tsxState
+        push k "time"
+        push v (EvalValue.fromInt(uiTimeMs))
+        push k "up"
+        push v (EvalValue.boolean((withInput && nav.up)))
+        push k "down"
+        push v (EvalValue.boolean((withInput && nav.down)))
+        push k "left"
+        push v (EvalValue.boolean((withInput && nav.left)))
+        push k "right"
+        push v (EvalValue.boolean((withInput && nav.right)))
+        push k "action"
+        push v (EvalValue.boolean((withInput && nav.action)))
+        ; the back/quit edge is context-sensitive: the guest decides whether it
+        ; means "go up a screen" or "exit the app" (reported via quitApp in state).
+        push k "quit"
+        push v (EvalValue.boolean((withInput && navQuit)))
+        return (EvalValue.object(k v))
+    }
+
+    ; Host sets this from the Back/Quit edge before frame(); consumed by the tsx
+    ; guest's update() so it (not the host loop) decides back-vs-exit.
+    def navQuit:boolean false
+    fn setNavQuit:void (b:boolean) {
+        navQuit = b
+    }
+
+    ; Re-render the guest's hud() into `root` and lay it out. No autoscale rebuild
+    ; (unlike the .as path's WasmUiEvgBuilder.scale) - the JSX tree has no scale
+    ; knob; it is authored to the menu canvas.
+    fn refreshFromTsx:void () {
+        def none:UiNavInput (new UiNavInput)
+        root = (tsxEngine.callRender("hud" (this.tsxProps(none false))))
+        ; lay out the fixed-px JSX tree at 1:1, then set a uniform viewport that
+        ; scales it to fill ~the window and centres it (the JSX tree has no
+        ; WasmUiEvgBuilder.scale knob, so the fit is applied at draw time instead).
+        ctrl.renderer.setViewport(1.0 0.0 0.0)
+        ctrl.renderer.layoutTree(ctx root w h)
+        def s:double (this.fitScale())
+        def top:double (ctrl.renderer.contentTop(root))
+        def bot:double (ctrl.renderer.contentBottom(root))
+        def lft:double (ctrl.renderer.contentLeft(root))
+        def rgt:double (ctrl.renderer.contentRight(root))
+        def cw:double (rgt - lft)
+        def ch:double (bot - top)
+        def offx:double ((((to_double w) - (cw * s)) / 2.0) - (lft * s))
+        def offy:double ((((to_double h) - (ch * s)) / 2.0) - (top * s))
+        ctrl.renderer.setViewport(s offx offy)
+        loaded = true
+    }
+
+    fn tsxStr:string (key:string) {
+        def mv:EvalValue (tsxState.getMember(key))
+        return (mv.toString())
+    }
+
+    ; launch PATH the tsx menu wants opened this frame ("" = none)
+    fn launchPathTsx:string () {
+        return tsxLaunch
+    }
+    fn wantsQuitTsx:boolean () {
+        return tsxQuit
     }
 
     ; Copy the guest's RGU1 block out of the bridge and rebuild the EVG tree.
@@ -133,6 +290,9 @@ class GameUiRunner {
 
     ; --- headless/test path: an already-authored RGU1 byte block ----------------
     fn loadDoc:boolean (bytes:[int] n:int) {
+        effects.reset()
+        useAs = false
+        useTsx = false
         doc.loadBytes(bytes n)
         if (doc.valid == false) {
             return false
@@ -143,6 +303,8 @@ class GameUiRunner {
     }
 
     fn rebuildTree:void () {
+        ; the .as/wasm path pre-scales the tree via WasmUiEvgBuilder, so draw at 1:1
+        ctrl.renderer.setViewport(1.0 0.0 0.0)
         def builder:WasmUiEvgBuilder (new WasmUiEvgBuilder)
         root = (builder.build(doc))
         ctrl.renderer.layoutTree(ctx root w h)
@@ -151,7 +313,7 @@ class GameUiRunner {
         ; Rebuild once at a uniform scale so every element AND its font shrink
         ; together to fit (never scales up).
         def s:double (this.fitScale())
-        if (s < 1.0) {
+        if ((s < 0.999) || (s > 1.001)) {
             def b2:WasmUiEvgBuilder (new WasmUiEvgBuilder)
             b2.scale = s
             root = (b2.build(doc))
@@ -160,27 +322,30 @@ class GameUiRunner {
         ctrl.rebuild(doc root)
     }
 
-    ; Uniform scale (<= 1) that makes the laid-out content fit the canvas, with
-    ; a small margin so nothing touches the edges. 1.0 when it already fits.
+    ; Uniform scale that makes the guest-authored (fixed-px) UI FILL the canvas —
+    ; up as well as down. The whole tree (sizes + fonts) is re-authored at this
+    ; scale, so the UI renders at the canvas's native pixel density: on a big /
+    ; high-DPI surface the text and borders stay crisp instead of being drawn small
+    ; and upscaled. Fills ~92% of the height, but never wider than ~96%.
     fn fitScale:double () {
-        def s:double 1.0
         def fh:double (to_double h)
         def fw:double (to_double w)
-        def needH:double (ctrl.renderer.contentBottom(root))
-        if (needH > 0.0) {
-            if (needH > fh) {
-                def sy:double ((fh * 0.96) / needH)
-                if (sy < s) { s = sy }
-            }
-        }
-        def needW:double (ctrl.renderer.contentRight(root))
-        if (needW > 0.0) {
-            if (needW > fw) {
-                def sx:double ((fw * 0.98) / needW)
-                if (sx < s) { s = sx }
-            }
+        ; measure the content SPAN (not absolute edges) so a centred UI scales by
+        ; its intrinsic size, not its offset position.
+        def bot:double (ctrl.renderer.contentBottom(root))
+        def top:double (ctrl.renderer.contentTop(root))
+        def rgt:double (ctrl.renderer.contentRight(root))
+        def lft:double (ctrl.renderer.contentLeft(root))
+        def ch:double (bot - top)
+        def cw:double (rgt - lft)
+        if (ch <= 0.0) { return 1.0 }
+        def s:double ((fh * 0.92) / ch)
+        if (cw > 0.0) {
+            def sx:double ((fw * 0.96) / cw)
+            if (sx < s) { s = sx }
         }
         if (s < 0.2) { s = 0.2 }
+        if (s > 6.0) { s = 6.0 }
         return s
     }
 
@@ -188,6 +353,17 @@ class GameUiRunner {
     ; Advance one frame with nav input; returns the activated node id, or -1.
     fn frame:int (nav:UiNavInput) {
         if (loaded == false) {
+            return -1
+        }
+        if useTsx {
+            ; advance the host clock (~60fps) so the guest's time-based glow runs,
+            ; feed the D-pad edges to update(), then re-render its hud() tree.
+            uiTimeMs = (uiTimeMs + 16)
+            tsxState = (tsxEngine.callFunction("update" (this.tsxProps(nav true))))
+            navQuit = false      ; one-shot edge, consumed by this update()
+            this.refreshFromTsx()
+            tsxLaunch = (this.tsxStr("launchPath"))
+            tsxQuit = ((this.tsxStr("quitApp")) == "1")
             return -1
         }
         if useAs {
@@ -200,6 +376,9 @@ class GameUiRunner {
             if nav.right { mask = (mask + 8) }
             if nav.action { mask = (mask + 16) }
             asRunner.abiWrite(OFF_INPUT mask)
+            ; advance the guest clock (~60fps) so it can run time-based effects
+            uiTimeMs = (uiTimeMs + 16)
+            asRunner.abiWrite(OFF_TIME uiTimeMs)
             asRunner.callUpdate()
             ; rebuild every frame: the guest may re-place coord-reported overlay
             ; effects each frame from the rect we report below, so we always pull
@@ -220,6 +399,16 @@ class GameUiRunner {
             }
             return asSelId
         }
+        ; Advance host-run guest effects (~60fps). A completing effect calls the
+        ; guest's rg_ui_effect_done, which may rebuild + bump its revision, so pull
+        ; the document again when it changes.
+        if (handle > 0) {
+            effects.tick(16)
+            def fxRev:int (wasm_call_i32 handle "rg_ui_revision" 0 0 0 0 0 0)
+            if (fxRev != rev) {
+                this.refreshFromWasm()
+            }
+        }
         def act:int (ctrl.update(nav))
         if ctrl.didActivate {
             if (handle > 0) {
@@ -229,6 +418,9 @@ class GameUiRunner {
                         ; button recognition: notify the guest (ACTIVATE = 1).
                         ; rg_ui_event returns void — use wasm_call_void.
                         wasm_call_void handle "rg_ui_event" 3 act 1 0 0 0
+                        ; the guest may have fired rg_ui_glow during that call —
+                        ; turn its requests into running host animations.
+                        effects.drain(handle)
                     }
                 }
                 ; the guest may have rebuilt its document - pull it again
@@ -244,6 +436,11 @@ class GameUiRunner {
     fn render:void () {
         canvas.clear(bgR bgG bgB)
         ctrl.renderer.draw(ctx root)
+        ; the .tsx menu bakes its selection glow into the tree (the `glow` prop),
+        ; drawn by ctrl.renderer.draw above, so it needs no host-drawn cursor.
+        if useTsx {
+            return
+        }
         if useAs {
             ; highlight the node the interpreted guest reports selected
             if (asSelId > 0) {
@@ -260,5 +457,46 @@ class GameUiRunner {
 
     fn raw:buffer () {
         return (canvas.raw())
+    }
+
+    ; GPU-accelerated effects: when on, the software renderer stops drawing the
+    ; live glow/pulse (flushGpuEffects emits them as GL overlay quads instead).
+    fn setGpuEffects:void (on:boolean) {
+        ctrl.renderer.setGpuEffects(on)
+    }
+
+    ; Emit this frame's live effects as GPU overlay quads: one soft glow per active
+    ; node, plus a whole-screen pulse. Called between render() and gfx_present on
+    ; the GPU path; the quads composite on top of the presented UI texture.
+    fn flushGpuEffects:void (fbW:int fbH:int) {
+        gfx_fx_begin fbW fbH
+        def ids:[string] (effects.activeIds())
+        def i 0
+        def n (array_length ids)
+        while (i < n) {
+            def id:string (itemAt ids i)
+            def gi:double (effects.glowFor(id))
+            if (gi > 0.0) {
+                def hit:RectHit (ctrl.renderer.findRect(root id))
+                if hit.found {
+                    if (gi > 1.0) { gi = 1.0 }
+                    def ga:int (to_int (gi * 230.0))
+                    ; expand the rect so the halo extends beyond the node edges
+                    def ex:int 8
+                    def gx:double (to_double (hit.x - ex))
+                    def gy:double (to_double (hit.y - ex))
+                    def gw:double (to_double (hit.w + (ex * 2)))
+                    def gh:double (to_double (hit.h + (ex * 2)))
+                    gfx_fx_push_glow gx gy gw gh (effects.nodeR()) (effects.nodeG()) (effects.nodeB()) ga
+                }
+            }
+            i = (i + 1)
+        }
+        def sp:double (effects.screenPulse())
+        if (sp > 0.0) {
+            if (sp > 1.0) { sp = 1.0 }
+            def sa:int (to_int (sp * 150.0))
+            gfx_fx_push_screen (effects.screenR()) (effects.screenG()) (effects.screenB()) sa
+        }
     }
 }

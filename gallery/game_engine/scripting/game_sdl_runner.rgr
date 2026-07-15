@@ -20,10 +20,13 @@ Import "../wasm_runtime.rgr"
 Import "./wasm_game_runner.rgr"
 Import "./wasm_physics_runner.rgr"
 Import "./game_ui_runner.rgr"
+Import "./as_sprite_runner.rgr"
 Import "../gfx_sdl.rgr"
 Import "./game_audio_sdl.rgr"
 Import "./game_catalog.rgr"
+Import "./game_runner_mode.rgr"
 Import "./streaming_world_runner.rgr"
+Import "./sprite_wasm_runner.rgr"
 Import "./game_host_native.rgr"
 Import "./game_input.rgr"
 Import "./game_split_screen.rgr"
@@ -52,6 +55,8 @@ class GameSdlRunner {
     def wasmSplitActive:boolean false
     def streamRunner:StreamingWorldRunner (new StreamingWorldRunner)
     def useStreamRunner:boolean false
+    def spriteRunner:SpriteWasmRunner (new SpriteWasmRunner)
+    def useSpriteRunner:boolean false
     def catalog:GameCatalog (new GameCatalog)
     def nativeBridge:GameHostNativeBridge (new GameHostNativeBridge)
     def pw:int 480
@@ -96,8 +101,26 @@ class GameSdlRunner {
     def prevLeftHeld:boolean false
     def prevRightHeld:boolean false
     def prevActionHeld:boolean false
+    ; Player-2 edge state (second keyboard source) for two-player sprite games.
+    def prevUpHeld2:boolean false
+    def prevDownHeld2:boolean false
+    def prevLeftHeld2:boolean false
+    def prevRightHeld2:boolean false
+    def prevActionHeld2:boolean false
     def uiRunner:GameUiRunner (new GameUiRunner)
+    ; Which launcher front page to run. The choice comes from menu/game.info's
+    ; `runtime` field (runtime=tsx -> the rich TypeScript menu/launcher.tsx;
+    ; runtime=as -> the interpreted menu/game.as), both rendered through the same
+    ; WasmUiRenderer. A CLI flag (--tsx-menu / --evg-menu / --classic-menu) sets
+    ; `menuModeForced` to override game.info. Empty = follow game.info; the code
+    ; default when neither resolves is "tsx" (dynamic heap tree, so a long game
+    ; list is never clipped by the .as bridge's fixed node/property caps).
+    def menuModeForced:string ""
+    def menuAsDir:string "gallery/game_engine/menu"
+    def menuAsMtime:int 0     ; last-seen menu/game.as mtime (live-reload poll)
+    def menuTsxMtime:int 0    ; last-seen menu/launcher.tsx mtime (live-reload poll)
     def uiDirectPath:string ""
+    def spriteDirectPath:string ""
     def gpuModeWanted:boolean true
     def gpuModeActive:boolean false
     def gameInputSnap:GameInputSnapshot (new GameInputSnapshot)
@@ -108,6 +131,7 @@ class GameSdlRunner {
         wasmPhysicsRunner.setProfileEnabled(profileEnabled)
         splitHost.setProfileEnabled(profileEnabled)
         wasmSplitHost.setProfileEnabled(profileEnabled)
+        spriteRunner.setProfileEnabled(profileEnabled)
     }
 
     fn resolveWasmPhysics:boolean (path:string) {
@@ -134,6 +158,33 @@ class GameSdlRunner {
                     return true
                 }
                 if ((indexOf txt "abi=linear") >= 0) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    ; True when the game.info declares abi=sprite (RGSP1 character game). Routed
+    ; to SpriteWasmRunner instead of the physics/getter wasm runners.
+    fn resolveWasmSprite:boolean (path:string) {
+        if ((strlen gamesDir) > 0) {
+            if ((catalog.entryCount()) == 0) {
+                catalog.setGamesDir(gamesDir)
+                catalog.scan()
+            }
+        }
+        def entry:GameCatalogEntry (catalog.findByPath(path))
+        if (entry.abi == "sprite") {
+            return true
+        }
+        def slash:int (lastIndexOf path "/")
+        if (slash >= 0) {
+            def dir:string (substring path 0 slash)
+            if (file_exists dir "game.info") {
+                def buf:buffer (buffer_read_file dir "game.info")
+                def txt:string (buffer_to_string buf)
+                if ((indexOf txt "abi=sprite") >= 0) {
                     return true
                 }
             }
@@ -272,6 +323,7 @@ class GameSdlRunner {
     }
 
     fn loadScriptAt:void (tsxPath:string injectCatalog:boolean) {
+        useSpriteRunner = false
         useStreamRunner = false
         useWasmRunner = false
         if (inGame) {
@@ -329,6 +381,11 @@ class GameSdlRunner {
     }
 
     fn loadWasmAt:void (wasmPath:string) {
+        if (this.resolveWasmSprite(wasmPath)) {
+            this.loadSpriteAt(wasmPath)
+            return
+        }
+        useSpriteRunner = false
         useStreamRunner = false
         useWasmRunner = true
         useWasmPhysics = (this.resolveWasmPhysics(wasmPath))
@@ -395,22 +452,29 @@ class GameSdlRunner {
 
     ; Load an interpreted .as game folder — reuses the wasm physics/render path
     ; (the ABI is identical); only the guest is an interpreted .as file.
+    ; Load transactionally (IDEAL_TODO R.4): build + validate a CANDIDATE runner
+    ; without touching active state; only after it loads do we swap the runner and
+    ; flip the mode flags. A failed load previously left useWasmRunner/Physics=true
+    ; with the old runner already discarded — a half-switched dead state.
     fn loadAsAt:void (asPath:string) {
+        def dir:string (this.dirOf(asPath))
+        def candidate:WasmPhysicsRunner (new WasmPhysicsRunner)
+        candidate.init(pw ph)
+        this.presentLoadingScreen("LOADING .AS")
+        if ((candidate.loadAsGame(dir)) == false) {
+            print ("[as] load failed (prior game kept): " + dir)
+            return
+        }
+        candidate.setupScene()
+        def sdlHost:SdlGameHost (new SdlGameHost)
+        this.wireWasmAudio(candidate.audio sdlHost)
+        candidate.host = sdlHost
+        ; --- commit: the candidate loaded, now swap in and flip modes ---
+        wasmPhysicsRunner = candidate
+        useSpriteRunner = false
         useStreamRunner = false
         useWasmRunner = true
         useWasmPhysics = true
-        def dir:string (this.dirOf(asPath))
-        wasmPhysicsRunner = (new WasmPhysicsRunner)
-        wasmPhysicsRunner.init(pw ph)
-        this.presentLoadingScreen("LOADING .AS")
-        if ((wasmPhysicsRunner.loadAsGame(dir)) == false) {
-            print ("[as] load failed: " + dir)
-            return
-        }
-        wasmPhysicsRunner.setupScene()
-        def sdlHost:SdlGameHost (new SdlGameHost)
-        this.wireWasmAudio(wasmPhysicsRunner.audio sdlHost)
-        wasmPhysicsRunner.host = sdlHost
         currentScriptPath = asPath
         currentGamePath = asPath
         inMenu = false
@@ -427,6 +491,13 @@ class GameSdlRunner {
     fn loadGameAtPath:void (path:string injectCatalog:boolean) {
         if (this.isStreamingPath(path)) {
             this.loadStreamingAt(path)
+            return
+        }
+        ; render=sprites .as games are driven by runSpriteGame() (guest-authored
+        ; rotatable sprite scene, no physics), not the wasm/tsx runners.
+        if ((this.renderOf(path)) == "sprites") {
+            spriteDirectPath = path
+            currentGamePath = path
             return
         }
         ; engine=ui games are driven by runUiGame(), not the wasm/tsx runners.
@@ -446,9 +517,35 @@ class GameSdlRunner {
         this.loadScriptAt(path injectCatalog)
     }
 
+    ; Load an RGSP1 sprite game: sprite_char.wasm drives the ready character set
+    ; (menu + play), rendered by SpriteWasmRunner and presented like any wasm game.
+    fn loadSpriteAt:void (wasmPath:string) {
+        useStreamRunner = false
+        useWasmRunner = false
+        useWasmPhysics = false
+        useSpriteRunner = true
+        spriteRunner = (new SpriteWasmRunner)
+        spriteRunner.init(pw ph)
+        this.presentLoadingScreen("LOADING WASM")
+        spriteRunner.loadModule(wasmPath)
+        spriteRunner.setupScene()
+        currentScriptPath = wasmPath
+        currentGamePath = wasmPath
+        inMenu = false
+        inGame = true
+        splitScreenActive = false
+        wasmSplitActive = false
+        this.syncInputEdges()
+        gameInputSnap.resetSoloPad()
+        gfx_clear_should_close
+        this.setProfileOnRunners()
+        print ("[game-engine] sprite game: " + wasmPath)
+    }
+
     ; Load a streaming-world game: worker.wasm + its spawned resource loader,
     ; driven by StreamingWorldRunner and presented through the normal path.
     fn loadStreamingAt:void (wasmPath:string) {
+        useSpriteRunner = false
         useStreamRunner = true
         useWasmRunner = false
         useWasmPhysics = false
@@ -471,12 +568,26 @@ class GameSdlRunner {
 
     ; After script swap, match edge state to keys still held (avoids double Q:
     ; game exit on Q then immediate menu quit while the key is still down).
+    ; Reseed every edge's "previously held" state from the current poll mask, so a
+    ; button already held across a mode switch / view open is NOT re-counted as a
+    ; fresh press. Must cover ALL edges the runner reads: left(16)/right(32) were
+    ; missing, so a held left/right produced a phantom edge (IDEAL_TODO R.3).
     fn syncInputEdges:void () {
         def m:int (gfx_poll_mask)
         prevQuitHeld = ((bit_and m 8) != 0)
         prevUpHeld = ((bit_and m 1) != 0)
         prevDownHeld = ((bit_and m 2) != 0)
+        prevLeftHeld = ((bit_and m 16) != 0)
+        prevRightHeld = ((bit_and m 32) != 0)
         prevActionHeld = ((bit_and m 4) != 0)
+        ; Player 2 rides the second keyboard source (arrow keys); reseed its edges
+        ; too so a held key across a mode switch is not re-counted as a fresh press.
+        def m2:int (gfx_input_source_mask(1))
+        prevUpHeld2 = ((bit_and m2 1) != 0)
+        prevDownHeld2 = ((bit_and m2 2) != 0)
+        prevLeftHeld2 = ((bit_and m2 16) != 0)
+        prevRightHeld2 = ((bit_and m2 32) != 0)
+        prevActionHeld2 = ((bit_and m2 4) != 0)
     }
 
     fn playerInputFlags:int (pb:PlayerButtons) {
@@ -551,6 +662,16 @@ class GameSdlRunner {
         splitAutoscale = (this.resolveSplitAutoscale(entry))
     }
 
+    ; Whether the ENGINE should split the screen into two panes for a game
+    ; authored from a single-player perspective (the game does nothing itself).
+    ;   never  -> single pane.
+    ;   auto   -> engine auto-splits a single-player game into two panes/cameras.
+    ;   always -> same as auto (kept as an alias; no game currently uses it).
+    ; This decides WHETHER to split; the world model (shared one-world vs two
+    ; separate sessions) is a separate axis resolved from game.info splitWorld
+    ; (GameCatalog.resolveSplitWorld) — today shared for wasm+physics (autopeli),
+    ; separate for tsx (pinball). dualPlayerMode short-circuits: a game that is
+    ; natively two-player handles both players itself, so the engine does not split.
     fn shouldUseSplitScreen:boolean () {
         if (dualPlayerMode) {
             return false
@@ -650,7 +771,23 @@ class GameSdlRunner {
         this.setProfileOnRunners()
     }
 
+    ; Derive the one canonical runner mode from the current flags and warn if the
+    ; combination is illegal (IDEAL_TODO R.6). A defensive net until the flags are
+    ; replaced by the mode itself; it is output-only and never changes behaviour.
+    fn checkModeConsistency:string (ctx:string) {
+        def st:RunnerModeState (RunnerModeClassifier.classify(useWasmRunner useWasmPhysics useSpriteRunner useStreamRunner wasmSplitActive splitScreenActive inGame))
+        if (st.ok == false) {
+            print ("[runner-mode] ILLEGAL state after " + ctx + ": " + st.reason)
+        }
+        return (RunnerMode.modeName(st.mode))
+    }
+
     fn loadGame:void (path:string) {
+        this.loadGameDispatch(path)
+        this.checkModeConsistency(("loadGame " + path))
+    }
+
+    fn loadGameDispatch:void (path:string) {
         gfx_audio_clear
         this.clearNavStack()
         nativeBridge.clearPendingNav()
@@ -659,6 +796,12 @@ class GameSdlRunner {
             splitScreenActive = false
             wasmSplitActive = false
             this.loadStreamingAt(path)
+            return
+        }
+        if ((this.renderOf(path)) == "sprites") {
+            splitScreenActive = false
+            wasmSplitActive = false
+            spriteDirectPath = path
             return
         }
         if (this.isAsPath(path)) {
@@ -789,6 +932,11 @@ class GameSdlRunner {
             }
             return
         }
+        if (useSpriteRunner) {
+            spriteRunner.draw()
+            gfx_present (spriteRunner.raw()) pw ph
+            return
+        }
         def s0:int (gfx_ticks_ms)
         if (useWasmRunner) {
             if (useWasmPhysics) {
@@ -905,6 +1053,149 @@ class GameSdlRunner {
         return false
     }
 
+    ; --- player-2 edge detectors (second keyboard source), same one-step-per-
+    ; press semantics as the P1 edges above but with their own held-state so the
+    ; two players never share or steal each other's presses. ---
+    fn up2Edge:boolean (held:boolean) {
+        if (held) {
+            if (prevUpHeld2 == false) {
+                prevUpHeld2 = true
+                return true
+            }
+        } {
+            prevUpHeld2 = false
+        }
+        return false
+    }
+
+    fn down2Edge:boolean (held:boolean) {
+        if (held) {
+            if (prevDownHeld2 == false) {
+                prevDownHeld2 = true
+                return true
+            }
+        } {
+            prevDownHeld2 = false
+        }
+        return false
+    }
+
+    fn action2Edge:boolean (held:boolean) {
+        if (held) {
+            if (prevActionHeld2 == false) {
+                prevActionHeld2 = true
+                return true
+            }
+        } {
+            prevActionHeld2 = false
+        }
+        return false
+    }
+
+    fn left2Edge:boolean (held:boolean) {
+        if (held) {
+            if (prevLeftHeld2 == false) {
+                prevLeftHeld2 = true
+                return true
+            }
+        } {
+            prevLeftHeld2 = false
+        }
+        return false
+    }
+
+    fn right2Edge:boolean (held:boolean) {
+        if (held) {
+            if (prevRightHeld2 == false) {
+                prevRightHeld2 = true
+                return true
+            }
+        } {
+            prevRightHeld2 = false
+        }
+        return false
+    }
+
+    ; Turn a raw poll/source mask (up=1 down=2 action=4 left=16 right=32) into the
+    ; guest input mask (up=1 down=2 left=4 right=8 action=16), edge-detected so each
+    ; key press yields exactly one guest frame with the bit set. P1/P2 variants use
+    ; their own edge state.
+    fn spriteMaskP1:int (m:int) {
+        def up:boolean (this.upEdge((bit_and m 1) != 0))
+        def down:boolean (this.downEdge((bit_and m 2) != 0))
+        def left:boolean (this.leftEdge((bit_and m 16) != 0))
+        def right:boolean (this.rightEdge((bit_and m 32) != 0))
+        def action:boolean (this.actionEdge((bit_and m 4) != 0))
+        def mask:int 0
+        if up { mask = (mask + 1) }
+        if down { mask = (mask + 2) }
+        if left { mask = (mask + 4) }
+        if right { mask = (mask + 8) }
+        if action { mask = (mask + 16) }
+        return mask
+    }
+
+    fn spriteMaskP2:int (m:int) {
+        def up:boolean (this.up2Edge((bit_and m 1) != 0))
+        def down:boolean (this.down2Edge((bit_and m 2) != 0))
+        def left:boolean (this.left2Edge((bit_and m 16) != 0))
+        def right:boolean (this.right2Edge((bit_and m 32) != 0))
+        def action:boolean (this.action2Edge((bit_and m 4) != 0))
+        def mask:int 0
+        if up { mask = (mask + 1) }
+        if down { mask = (mask + 2) }
+        if left { mask = (mask + 4) }
+        if right { mask = (mask + 8) }
+        if action { mask = (mask + 16) }
+        return mask
+    }
+
+    ; True when the sprite game at `path` declares players=2 in game.info — the
+    ; host then splits input (P1 = WASD/pad, P2 = arrows) into OFF_INPUT/OFF_INPUT2.
+    fn spriteTwoPlayerOf:boolean (path:string) {
+        def dir:string (this.dirOf(path))
+        if (file_exists dir "game.info") {
+            def buf:buffer (buffer_read_file dir "game.info")
+            def txt:string (buffer_to_string buf)
+            if ((indexOf txt "players=2") >= 0) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; The launcher backend menu/game.info selects via its `runtime` field:
+    ; "tsx" (menu/launcher.tsx), "as" (menu/game.as), or "" if unspecified.
+    fn menuRuntimeOf:string () {
+        if (file_exists menuAsDir "game.info") {
+            def buf:buffer (buffer_read_file menuAsDir "game.info")
+            def txt:string (buffer_to_string buf)
+            if ((indexOf txt "runtime=tsx") >= 0) {
+                return "tsx"
+            }
+            if ((indexOf txt "runtime=as") >= 0) {
+                return "as"
+            }
+        }
+        return ""
+    }
+
+    ; Effective launcher mode: an explicit CLI flag wins; else menu/game.info's
+    ; runtime; else the "tsx" default (dynamic heap tree, no fixed caps).
+    fn effectiveMenuMode:string () {
+        if ((strlen menuModeForced) > 0) {
+            return menuModeForced
+        }
+        def rt:string (this.menuRuntimeOf())
+        if (rt == "as") {
+            return "as"
+        }
+        if (rt == "classic") {
+            return "classic"
+        }
+        return "tsx"
+    }
+
     ; True when the game folder for `path` declares engine=ui.
     fn engineOf:string (path:string) {
         def dir:string (this.dirOf(path))
@@ -918,11 +1209,114 @@ class GameSdlRunner {
         return ""
     }
 
+    ; Render mode declared in a game's game.info (render=sprites -> the guest
+    ; authors a rotatable 2D sprite scene over the ABI, driven by runSpriteGame).
+    fn renderOf:string (path:string) {
+        def dir:string (this.dirOf(path))
+        if (file_exists dir "game.info") {
+            def buf:buffer (buffer_read_file dir "game.info")
+            def txt:string (buffer_to_string buf)
+            if ((indexOf txt "render=sprites") >= 0) {
+                return "sprites"
+            }
+        }
+        return ""
+    }
+
+    ; Dispatch a menu/launcher selection to the right self-contained loop: a
+    ; guest-driven sprite scene (render=sprites), an RGU1 UI game (engine=ui), or
+    ; the normal wasm/tsx game loop.
+    fn launchSelected:void (path:string) {
+        if ((this.renderOf(path)) == "sprites") {
+            this.runSpriteGame(path)
+            return
+        }
+        if ((this.engineOf(path)) == "ui") {
+            this.runUiGame(path)
+            return
+        }
+        this.loadGame(path)
+        this.runGameLoop()
+    }
+
+    ; Self-contained loop for a render=sprites .as game: interpret the guest, feed
+    ; it input edges + a clock over the ABI, read its guest-authored sprite draw
+    ; list back and present it (rotated). No physics — pure sprite rendering, the
+    ; counterpart to runUiGame for rotatable 2D sprites. Renders at the 480x270
+    ; game buffer (the guest lays out in those page pixels); the host scales it.
+    fn runSpriteGame:void (asPath:string) {
+        def scene:AsSpriteScene (new AsSpriteScene)
+        scene.init(pw ph)
+        if ((scene.loadGame((this.dirOf(asPath)))) == false) {
+            print ("[game-engine] sprite game load failed: " + asPath)
+            return
+        }
+        scene.audio.setSink((new SdlGameAudioSink))
+        scene.audioOn = true
+        print ("[game-engine] sprite game: " + asPath)
+        currentScriptPath = asPath
+        currentGamePath = asPath
+        inMenu = false
+        inGame = true
+        gfx_clear_should_close
+        this.syncInputEdges()
+        ; players=2 games get two independent input channels: P1 = WASD (src 0) +
+        ; gamepad 0 (src 2), P2 = arrow keys (src 1). A solo game keeps the merged
+        ; mask so either WASD or the arrows drive the single well.
+        def twoPlayer:boolean (this.spriteTwoPlayerOf(asPath))
+        while (running) {
+            if twoPlayer {
+                def m0:int (bit_or (gfx_input_source_mask(0)) (gfx_input_source_mask(2)))
+                def m1:int (gfx_input_source_mask(1))
+                def mask0:int (this.spriteMaskP1(m0))
+                def mask1:int (this.spriteMaskP2(m1))
+                scene.frameMask2(16 mask0 mask1)
+            } {
+                def m:int (this.uiNavMask())
+                def mask:int (this.spriteMaskP1(m))
+                scene.frameMask(16 mask)
+            }
+            scene.draw()
+            gfx_present (scene.raw()) pw ph
+
+            if (this.quitEdge((this.gameMenuBackHeld()))) {
+                inGame = false
+                gfx_clear_should_close
+                return
+            }
+            if (gfx_should_close) {
+                running = false
+                return
+            }
+            frames = (frames + 1)
+            if (maxFrames > 0) {
+                if (frames >= maxFrames) {
+                    running = false
+                    return
+                }
+            }
+        }
+    }
+
     ; Self-contained loop for an engine=ui game: instantiate the RGU1 guest,
     ; render its menu, move the selection with the D-pad, forward the action
     ; button to the guest, and return to the launcher on Back/Quit.
     fn runUiGame:void (wasmPath:string) {
-        uiRunner.init(pw ph "gallery/game_engine/assets/fonts" "OpenSans-Regular.ttf" "Open Sans")
+        ; Render the UI at the actual output surface resolution (not the small pw*ph
+        ; game buffer) so text/borders/effects are crisp instead of upscaled. Cap
+        ; to bound the CPU cost of the software UI canvas; the guest UI scales to
+        ; fill it (GameUiRunner.fitScale), so it looks identical at any resolution.
+        def uw:int pw
+        def uh:int ph
+        def sw:int (gfx_surface_width)
+        def sh:int (gfx_surface_height)
+        if (sw > uw) { uw = sw }
+        if (sh > uh) { uh = sh }
+        if (uw > 1600) { uw = 1600 }
+        if (uh > 1200) { uh = 1200 }
+        uiRunner.init(uw uh "gallery/game_engine/assets/fonts" "OpenSans-Regular.ttf" "Open Sans")
+        ; draw the live UI effects on the GPU when the GL present path is active
+        uiRunner.setGpuEffects(gpuModeActive)
         ; engine=ui games come in two flavours: a compiled logic.wasm guest, or an
         ; interpreted .as source (runtime=as). Pick the backend by module suffix —
         ; loading a .as through wasm_load fails with "malformed Wasm binary".
@@ -961,7 +1355,13 @@ class GameSdlRunner {
             nav.action = (this.actionEdge((bit_and m 4) != 0))
             def _a:int (uiRunner.frame(nav))
             uiRunner.render()
-            gfx_present (uiRunner.raw()) pw ph
+            ; GPU path: emit the live glow/pulse effects as GL overlay quads that
+            ; composite on top of the presented UI texture (software path draws them
+            ; into the canvas in render() instead).
+            if gpuModeActive {
+                uiRunner.flushGpuEffects(uw uh)
+            }
+            gfx_present (uiRunner.raw()) uw uh
 
             if (this.quitEdge((this.gameMenuBackHeld()))) {
                 inGame = false
@@ -982,15 +1382,22 @@ class GameSdlRunner {
         }
     }
 
-    ; Menu navigation: keyboard P1 (WASD/arrows) + gamepad 0 merged.
+    ; Menu navigation: keyboard P1 WASD (src 0) + arrow keys (src 1) + gamepad 0
+    ; (src 2) merged. The arrow keys are a distinct SDL source from WASD, so they
+    ; must be OR'd in explicitly — otherwise the launcher only responds to WASD and
+    ; the arrow keys (which the tiles' hint text advertises) do nothing. The back/
+    ; quit edge is read separately (gameMenuBackHeld, src-0 Q/Esc + pad), so the
+    ; LEFT arrow only moves the selection to the previous item; it never exits.
     fn launcherNavMask:int () {
-        def kb:int (gfx_input_source_mask(0))
+        def kb1:int (gfx_input_source_mask(0))
+        def kb2:int (gfx_input_source_mask(1))
         def pad:int (gfx_input_source_mask(2))
-        return (bit_or kb pad)
+        return (bit_or (bit_or kb1 kb2) pad)
     }
 
     ; UI-menu navigation: WASD (src 0) + arrow keys (src 1) + gamepad 0 (src 2).
-    ; The launcher mask above omits src 1, so arrows wouldn't move the selection.
+    ; Same source set as launcherNavMask above (kept separate so the two callers
+    ; can diverge if a UI game ever needs a different binding).
     fn uiNavMask:int () {
         def kb1:int (gfx_input_source_mask(0))
         def kb2:int (gfx_input_source_mask(1))
@@ -1012,6 +1419,233 @@ class GameSdlRunner {
             return true
         }
         return false
+    }
+
+    ; Target EVG-menu canvas size = live output surface (native resolution) so the
+    ; tile art + TTF stay crisp on a big window; falls back to the pw*ph buffer.
+    fn evgMenuTargetW:int () {
+        def uw:int pw
+        def sw:int (gfx_surface_width)
+        if (sw > uw) { uw = sw }
+        if (uw > 1600) { uw = 1600 }
+        return uw
+    }
+    fn evgMenuTargetH:int () {
+        def uh:int ph
+        def sh:int (gfx_surface_height)
+        if (sh > uh) { uh = sh }
+        if (uh > 1200) { uh = 1200 }
+        return uh
+    }
+
+    ; Bind the interpreted launcher menu (menu/game.as) with the live catalog
+    ; injected as `gameCatalog`. Returns false if the menu source can't be loaded.
+    fn openEvgMenu:boolean (uw:int uh:int) {
+        catalog.setGamesDir(gamesDir)
+        catalog.scan()
+        uiRunner.init(uw uh "gallery/game_engine/assets/fonts" "OpenSans-Regular.ttf" "Open Sans")
+        ; a wide, soft, warm selection halo (drop-shadow) around the focused tile —
+        ; a tight white ring reads as hard/blocky, this is the prettier glow.
+        uiRunner.ctrl.highlightPad = 8
+        uiRunner.ctrl.glowSpread = 20
+        uiRunner.ctrl.glowAlpha = 210
+        uiRunner.ctrl.glowR = 255
+        uiRunner.ctrl.glowG = 224
+        uiRunner.ctrl.glowB = 130
+        uiRunner.setMenuCatalog((catalog.toEvalArray()))
+        menuAsMtime = (file_mtime menuAsDir "game.as")
+        return (uiRunner.loadAs(menuAsDir))
+    }
+
+    ; Bind the rich TypeScript launcher (menu/launcher.tsx) with the live catalog
+    ; injected as `gameCatalog`, rendered through the same WasmUiRenderer. Returns
+    ; false if the source can't be loaded (caller falls back to the .as menu).
+    fn openTsxMenu:boolean (uw:int uh:int) {
+        catalog.setGamesDir(gamesDir)
+        catalog.scan()
+        ; Chakra Petch gives the launcher a techy, game-console feel; only the TSX
+        ; launcher uses it — in-game HUDs keep Open Sans (see the other init sites).
+        uiRunner.init(uw uh "gallery/game_engine/assets/fonts" "ChakraPetch-SemiBold.ttf" "Chakra Petch")
+        uiRunner.setMenuCatalog((catalog.toEvalArray()))
+        menuTsxMtime = (file_mtime menuAsDir "launcher.tsx")
+        return (uiRunner.loadTsx(menuAsDir "launcher.tsx"))
+    }
+
+    ; Run the launcher menu — a normal interpreted .as engine=ui game living in
+    ; menu/ that receives the catalog and reports (via OFF_LAUNCH) which sub-app to
+    ; load. Being interpreted it hot-reloads like any other game. The crisp EVG UI
+    ; layer renders it (same path as any .as menu); this loop just maps the chosen
+    ; catalog index to a game path and dispatches it, then reopens the menu.
+    fn runEvgMenuLoop:void () {
+        gfx_audio_clear
+        this.clearNavStack()
+        nativeBridge.clearPendingNav()
+        def uw:int (this.evgMenuTargetW())
+        def uh:int (this.evgMenuTargetH())
+        if ((this.openEvgMenu(uw uh)) == false) {
+            print "[menu] menu/game.as failed to load — using classic menu"
+            this.runMenuLoop()
+            return
+        }
+        print ("[menu] .as launcher: " + (to_string (catalog.entryCount())) + " games")
+        inMenu = true
+        inGame = false
+        gfx_set_title("Ranger Game Engine")
+        gfx_clear_should_close
+        this.syncInputEdges()
+        def nav:UiNavInput (new UiNavInput)
+        while (running) {
+            ; render at the live output resolution: if the window changed size
+            ; (resize / fullscreen toggle), re-open the menu at the new native
+            ; resolution so the tiles + glow stay crisp instead of being upscaled
+            ; from a smaller buffer (blocky).
+            def nw:int (this.evgMenuTargetW())
+            def nh:int (this.evgMenuTargetH())
+            if ((nw != uw) || (nh != uh)) {
+                uw = nw
+                uh = nh
+                this.openEvgMenu(uw uh)
+            }
+            ; live-reload: re-bind the menu when menu/game.as changes on disk, so
+            ; editing the launcher takes effect without recompiling the engine.
+            def curMtime:int (file_mtime menuAsDir "game.as")
+            if (curMtime > menuAsMtime) {
+                this.openEvgMenu(uw uh)
+                print "[menu] reloaded menu/game.as"
+            }
+            def m:int (this.launcherNavMask())
+            nav.clear()
+            nav.up = (this.upEdge((bit_and m 1) != 0))
+            nav.down = (this.downEdge((bit_and m 2) != 0))
+            nav.left = (this.leftEdge((bit_and m 16) != 0))
+            nav.right = (this.rightEdge((bit_and m 32) != 0))
+            nav.action = (this.actionEdge((bit_and m 4) != 0))
+            def _a:int (uiRunner.frame(nav))
+            uiRunner.render()
+            gfx_present (uiRunner.raw()) uw uh
+
+            ; Back (Q/Esc / gamepad Select|B) quits the app; the menu handles its
+            ; own in-menu back (left = games -> categories).
+            if (this.quitEdge((this.gameMenuBackHeld()))) {
+                running = false
+                return
+            }
+
+            ; the menu reported a catalog index to launch -> load that game
+            def li:int (uiRunner.launchIndex())
+            if (li > 0) {
+                def entry:GameCatalogEntry (catalog.entryAt(li - 1))
+                def launchPath:string entry.entryPath
+                if ((strlen launchPath) > 0) {
+                    this.launchSelected(launchPath)
+                    if (running == false) {
+                        return
+                    }
+                    ; returned from the game: reopen the menu fresh (re-scan catalog
+                    ; + re-inject), restore window + input state
+                    this.openEvgMenu(uw uh)
+                    gfx_clear_should_close
+                    inMenu = true
+                    inGame = false
+                    gfx_set_title("Ranger Game Engine")
+                    this.syncInputEdges()
+                }
+            }
+
+            if (gfx_should_close) {
+                running = false
+            }
+            frames = (frames + 1)
+            if (maxFrames > 0) {
+                if (frames >= maxFrames) {
+                    running = false
+                }
+            }
+        }
+    }
+
+    ; Run the rich TypeScript launcher (menu/launcher.tsx). Same present/input loop
+    ; as runEvgMenuLoop, but the guest is a .tsx evaluated by ComponentEngine into
+    ; the EVGElement tree WasmUiRenderer draws, and it reports a launch PATH (not a
+    ; catalog index) directly in its state.
+    fn runTsxMenuLoop:void () {
+        gfx_audio_clear
+        this.clearNavStack()
+        nativeBridge.clearPendingNav()
+        def uw:int (this.evgMenuTargetW())
+        def uh:int (this.evgMenuTargetH())
+        if ((this.openTsxMenu(uw uh)) == false) {
+            print "[menu] menu/launcher.tsx failed to load — using the .as menu"
+            this.runEvgMenuLoop()
+            return
+        }
+        print ("[menu] .tsx launcher: " + (to_string (catalog.entryCount())) + " games")
+        inMenu = true
+        inGame = false
+        gfx_set_title("Ranger Game Engine")
+        gfx_clear_should_close
+        this.syncInputEdges()
+        def nav:UiNavInput (new UiNavInput)
+        while (running) {
+            ; re-open at the live output resolution on window resize (crisp tiles)
+            def nw:int (this.evgMenuTargetW())
+            def nh:int (this.evgMenuTargetH())
+            if ((nw != uw) || (nh != uh)) {
+                uw = nw
+                uh = nh
+                this.openTsxMenu(uw uh)
+            }
+            ; live-reload: re-bind when menu/launcher.tsx changes on disk
+            def curMtime:int (file_mtime menuAsDir "launcher.tsx")
+            if (curMtime > menuTsxMtime) {
+                this.openTsxMenu(uw uh)
+                print "[menu] reloaded menu/launcher.tsx"
+            }
+            def m:int (this.launcherNavMask())
+            nav.clear()
+            nav.up = (this.upEdge((bit_and m 1) != 0))
+            nav.down = (this.downEdge((bit_and m 2) != 0))
+            nav.left = (this.leftEdge((bit_and m 16) != 0))
+            nav.right = (this.rightEdge((bit_and m 32) != 0))
+            nav.action = (this.actionEdge((bit_and m 4) != 0))
+            ; feed the Back/Quit edge to the guest instead of exiting here: the
+            ; launcher decides back-vs-exit (games list -> categories; categories
+            ; -> quit app, reported as quitApp -> wantsQuitTsx).
+            uiRunner.setNavQuit((this.quitEdge((this.gameMenuBackHeld()))))
+            def _a:int (uiRunner.frame(nav))
+            uiRunner.render()
+            gfx_present (uiRunner.raw()) uw uh
+
+            if (uiRunner.wantsQuitTsx()) {
+                running = false
+                return
+            }
+
+            ; the launcher reported a game PATH to open -> dispatch + reopen
+            def lp:string (uiRunner.launchPathTsx())
+            if ((strlen lp) > 0) {
+                this.launchSelected(lp)
+                if (running == false) {
+                    return
+                }
+                this.openTsxMenu(uw uh)
+                gfx_clear_should_close
+                inMenu = true
+                inGame = false
+                gfx_set_title("Ranger Game Engine")
+                this.syncInputEdges()
+            }
+
+            if (gfx_should_close) {
+                running = false
+            }
+            frames = (frames + 1)
+            if (maxFrames > 0) {
+                if (frames >= maxFrames) {
+                    running = false
+                }
+            }
+        }
     }
 
     fn runMenuLoop:void () {
@@ -1067,12 +1701,7 @@ class GameSdlRunner {
 
             def launchPath:string (runner.stateString("launchPath" ""))
             if ((strlen launchPath) > 0) {
-                if ((this.engineOf(launchPath)) == "ui") {
-                    this.runUiGame(launchPath)
-                } {
-                    this.loadGame(launchPath)
-                    this.runGameLoop()
-                }
+                this.launchSelected(launchPath)
                 if (running == false) {
                     return
                 }
@@ -1131,14 +1760,25 @@ class GameSdlRunner {
             def quitHeld:boolean (this.gameMenuBackHeld())
 
             if (this.quitEdge(quitHeld)) {
-                this.clearNavStack()
-                nativeBridge.clearPendingNav()
-                inGame = false
-                splitScreenActive = false
-                wasmSplitActive = false
-                dualPlayerMode = false
-                gfx_clear_should_close
-                return
+                ; Sprite game: Q in play returns to its character-select menu; Q in
+                ; that menu falls through to the normal exit-to-launcher below.
+                def spriteBack:boolean false
+                if (useSpriteRunner) {
+                    if ((spriteRunner.guestMode()) == 1) {
+                        spriteRunner.requestBack()
+                        spriteBack = true
+                    }
+                }
+                if (spriteBack == false) {
+                    this.clearNavStack()
+                    nativeBridge.clearPendingNav()
+                    inGame = false
+                    splitScreenActive = false
+                    wasmSplitActive = false
+                    dualPlayerMode = false
+                    gfx_clear_should_close
+                    return
+                }
             }
 
             def tUpdateStart:int (gfx_ticks_ms)
@@ -1162,6 +1802,10 @@ class GameSdlRunner {
                     }
                 }
             } {
+                if (useSpriteRunner) {
+                    def gameInputSp:GameInputSnapshot (this.pollGameInput())
+                    spriteRunner.frameWithInput(dtMs gameInputSp.p0.up gameInputSp.p0.down gameInputSp.p0.left gameInputSp.p0.right gameInputSp.p0.action)
+                } {
                 if (useStreamRunner) {
                     def gameInputS:GameInputSnapshot (this.pollGameInput())
                     streamRunner.frameWithInput(dtMs gameInputS.p0.up gameInputS.p0.down gameInputS.p0.left gameInputS.p0.right gameInputS.p0.action)
@@ -1180,6 +1824,7 @@ class GameSdlRunner {
                         runner.frameWithInput(dtMs gameInput)
                         this.drainScriptNavigation()
                     }
+                }
                 }
             }
             def tUpdateEnd:int (gfx_ticks_ms)
@@ -1244,12 +1889,25 @@ class GameSdlRunner {
         gfx_audio_open(44100)
         this.refreshWasmAudioSampleRate()
         if (launcherMode) {
-            this.runMenuLoop()
-        } {
-            if ((strlen uiDirectPath) > 0) {
-                this.runUiGame(uiDirectPath)
+            def mode:string (this.effectiveMenuMode())
+            if (mode == "as") {
+                this.runEvgMenuLoop()
             } {
-                this.runGameLoop()
+                if (mode == "classic") {
+                    this.runMenuLoop()
+                } {
+                    this.runTsxMenuLoop()
+                }
+            }
+        } {
+            if ((strlen spriteDirectPath) > 0) {
+                this.runSpriteGame(spriteDirectPath)
+            } {
+                if ((strlen uiDirectPath) > 0) {
+                    this.runUiGame(uiDirectPath)
+                } {
+                    this.runGameLoop()
+                }
             }
         }
         gfx_close
@@ -1329,6 +1987,16 @@ class GameSdlRunner {
         def pendingGamesDir:boolean false
         while (i < (shell_arg_cnt)) {
             def arg:string (shell_arg i)
+            ; launcher front-page style: EVG tile menu (default) vs the old tsx menu
+            if (arg == "--classic-menu") {
+                menuModeForced = "classic"
+            }
+            if (arg == "--evg-menu") {
+                menuModeForced = "as"
+            }
+            if (arg == "--tsx-menu") {
+                menuModeForced = "tsx"
+            }
             if (pendingGamesDir) {
                 gamesDir = arg
                 launcherMode = true
@@ -1372,16 +2040,20 @@ class GameSdlRunner {
                                                     if (this.isTsxPath(arg)) {
                                                         tsxPath = arg
                                                     } {
-                                                        if (this.isWasmPath(arg)) {
-                                                            tsxPath = arg
-                                                        } {
-                                                            if ((strlen tsxPath) > 0) {
-                                                                def parsed@(optional):int (to_int arg)
-                                                                if (!null? parsed) {
-                                                                    maxFrames = (unwrap parsed)
-                                                                }
-                                                            }
-                                                        }
+                                        if (this.isWasmPath(arg)) {
+                                            tsxPath = arg
+                                        } {
+                                            if (this.isAsPath(arg)) {
+                                                tsxPath = arg
+                                            } {
+                                                if ((strlen tsxPath) > 0) {
+                                                    def parsed@(optional):int (to_int arg)
+                                                    if (!null? parsed) {
+                                                        maxFrames = (unwrap parsed)
+                                                    }
+                                                }
+                                            }
+                                        }
                                                     }
                                                 }
                                             }

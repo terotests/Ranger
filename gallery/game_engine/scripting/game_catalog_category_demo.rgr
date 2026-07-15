@@ -1,0 +1,97 @@
+; ==============================================================================
+; game_catalog_category_demo — self-check for game.info category grouping.
+; ==============================================================================
+; Scans the real games dir and asserts the catalog groups entries into the
+; top-level launcher categories the new EVG tile menu navigates: "Games" for the
+; real playable games, "Tests" for the UI/interpreter demos. Also verifies the
+; category ordering (Games first) and the per-category membership helpers.
+; ==============================================================================
+
+Import "./game_catalog.rgr"
+
+class CatalogCategoryCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    ; true if `cat` contains a game whose title contains `needle`
+    fn catHas:boolean (catalog:GameCatalog cat:string needle:string) {
+        def es:[GameCatalogEntry] (catalog.entriesInCategory(cat))
+        def i:int 0
+        while (i < (array_length es)) {
+            def e:GameCatalogEntry (itemAt es i)
+            if ((indexOf e.title needle) >= 0) { return true }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; the category assigned to the entry whose title contains `needle` ("" = none)
+    fn catOf:string (catalog:GameCatalog needle:string) {
+        def i:int 0
+        while (i < (catalog.entryCount())) {
+            def e:GameCatalogEntry (catalog.entryAt(i))
+            if ((indexOf e.title needle) >= 0) { return e.category }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    sfn m@(main):void () {
+        def catalog:GameCatalog (new GameCatalog)
+        catalog.setGamesDir("gallery/game_engine/games")
+        catalog.scan()
+        def c:CatalogCategoryCheck (new CatalogCategoryCheck)
+
+        c.ok(("catalog has entries (got " + (to_string (catalog.entryCount())) + ")") ((catalog.entryCount()) > 0))
+
+        ; ---- every entry gets a category (explicit or inferred) ----
+        def uncategorised:int 0
+        def i:int 0
+        while (i < (catalog.entryCount())) {
+            def e:GameCatalogEntry (catalog.entryAt(i))
+            if ((strlen e.category) == 0) { uncategorised = (uncategorised + 1) }
+            i = (i + 1)
+        }
+        c.ok(("every entry categorised (uncategorised=" + (to_string uncategorised) + ")") (uncategorised == 0))
+
+        ; ---- the two expected groups exist, Games first ----
+        def cats:[string] (catalog.categories())
+        c.ok(("at least 2 categories (got " + (to_string (array_length cats)) + ")") ((array_length cats) >= 2))
+        if ((array_length cats) >= 1) {
+            c.ok(("Games is the first category (got '" + (itemAt cats 0) + "')") ((itemAt cats 0) == "Games"))
+        }
+        def hasTests:boolean false
+        def k:int 0
+        while (k < (array_length cats)) {
+            if ((itemAt cats k) == "Tests") { hasTests = true }
+            k = (k + 1)
+        }
+        c.ok("Tests category present" hasTests)
+
+        ; ---- membership: real games in Games, UI demos in Tests ----
+        c.ok("Invaders in Games" (c.catHas(catalog "Games" "Invaders")))
+        c.ok("Pac-Man in Games" (c.catHas(catalog "Games" "Pac-Man")))
+        c.ok(("EVG UI Menu is a Test (got '" + (c.catOf(catalog "EVG UI Menu")) + "')") ((c.catOf(catalog "EVG UI Menu")) == "Tests"))
+        c.ok(("AS UI Menu is a Test (got '" + (c.catOf(catalog "AS UI Menu")) + "')") ((c.catOf(catalog "AS UI Menu")) == "Tests"))
+
+        ; ---- counts add up: Games + Tests == total (only two groups here) ----
+        def gN:int (catalog.categoryCount("Games"))
+        def tN:int (catalog.categoryCount("Tests"))
+        c.ok(("Games has games (" + (to_string gN) + ")") (gN > 0))
+        c.ok(("Tests has tests (" + (to_string tN) + ")") (tN > 0))
+        c.ok(("Games+Tests == total (" + (to_string (gN + tN)) + " vs " + (to_string (catalog.entryCount())) + ")") ((gN + tN) == (catalog.entryCount())))
+
+        print "======================================"
+        print (("RESULT: " + (to_string c.passed) + " passed, ") + ((to_string c.failed) + " failed"))
+        if (c.failed == 0) { print "ALL PASS" } { print "SOME FAILED" }
+    }
+}

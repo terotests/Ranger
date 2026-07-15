@@ -1,0 +1,259 @@
+; ==============================================================================
+; game_icon_shots_demo — bake launcher icons: run every game headless, screenshot
+; it, and drop the frame as games/<id>/assets/image.png.
+; ==============================================================================
+;
+; The TSX launcher (menu/launcher.tsx) shows each game as a picture tile so a
+; kid can pick a game without reading. The picture comes from the catalog's
+; icon resolution (game_catalog.resolveIconPath): an explicit game.info icon=
+; wins, otherwise assets/image.png. This tool fills in the missing ones:
+;
+;   * engine=tsx  — GameRunner (the same TS-interpreter path the SDL host and
+;                   the *_runner_demo harnesses use) advances ~300 frames of
+;                   16ms with a deterministic input wiggle, then the SoftCanvas
+;                   frame is PNG-encoded into the game folder.
+;   * engine=as   — AsSpriteScene (sprite-protocol .as games, e.g. Pyörretris)
+;                   does the same over frameMask(); games that fail to load or
+;                   draw zero sprites are skipped rather than given a black tile.
+;   * wasm/ui/... — skipped (no in-process frame buffer on this path yet); the
+;                   launcher falls back to the letter tile for them.
+;
+; Games whose game.info already declares a valid icon= are left alone, so a
+; hand-made icon (like ylos2's) is never overwritten. After a successful bake
+; the tool appends the icon= line itself, which keeps every icon explicit. If
+; assets/image.png already exists but is NOT the declared icon (invaders uses
+; it as a level background), the shot lands beside it as assets/icon.png
+; instead — a game's own art is never clobbered. Pass game ids as CLI args to
+; restrict the run (e.g. after changing one game), and --force to re-bake:
+;   node .../game_icon_shots_demo.js [--force] [id ...]
+; ==============================================================================
+
+Import "./game_runtime.rgr"
+Import "./as_sprite_runner.rgr"
+Import "./game_catalog.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+
+class GameIconShots {
+    def IN_UP:int 1
+    def IN_DOWN:int 2
+    def IN_LEFT:int 4
+    def IN_RIGHT:int 8
+    def shotW:int 480
+    def shotH:int 270
+    def made:int 0
+    def skipped:int 0
+    def failed:int 0
+
+    ; Where this game's shot goes (relative to its folder). image.png is the
+    ; convention; when a foreign assets/image.png already exists (a game asset,
+    ; not an icon) the shot lands as assets/icon.png so nothing is clobbered.
+    fn targetFor:string (e:GameCatalogEntry) {
+        if (file_exists e.dir "assets/image.png") {
+            if (e.iconPath != "assets/image.png") {
+                return "assets/icon.png"
+            }
+        }
+        return "assets/image.png"
+    }
+
+    ; write one RGBA frame as <gameDir>/<target>
+    fn savePng:void (gameDir:string target:string pixels:buffer) {
+        if (false == (file_exists gameDir "assets")) {
+            create_dir (gameDir + "/assets")
+        }
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.width = shotW
+        rb.height = shotH
+        rb.pixels = pixels
+        def png:PNGEncoder (new PNGEncoder)
+        def file:string (substring target 7 (strlen target))  ; strip "assets/"
+        png.encode(rb (gameDir + "/assets") file)
+    }
+
+    ; Make the baked shot the game's declared icon: append icon=<target> to
+    ; game.info (creating the file when missing) unless a line already set it.
+    fn declareIcon:void (e:GameCatalogEntry target:string) {
+        if (e.iconPath == target) {
+            return
+        }
+        def txt:string ""
+        if (file_exists e.dir "game.info") {
+            txt = (buffer_to_string (buffer_read_file e.dir "game.info"))
+        }
+        if ((indexOf txt "icon=") >= 0) {
+            ; an icon= line exists but points elsewhere (e.g. a missing file);
+            ; leave hand-written metadata alone and let the catalog fall back.
+            return
+        }
+        if ((strlen txt) > 0) {
+            def last:string (substring txt ((strlen txt) - 1) (strlen txt))
+            if (last != "\n") {
+                txt = (txt + "\n")
+            }
+        }
+        txt = (txt + ("icon=" + target + "\n"))
+        buffer_write_file e.dir "game.info" (buffer_from_string txt)
+    }
+
+    ; frames to advance before the grab: game.info iconFrames= wins over the
+    ; caller's default (a game that reaches game-over fast wants an early shot).
+    fn framesFor:int (e:GameCatalogEntry fallback:int) {
+        if ((strlen e.iconFrames) > 0) {
+            def parsed@(optional):int (to_int e.iconFrames)
+            if (!null? parsed) {
+                def n:int (unwrap parsed)
+                if (n > 0) {
+                    return n
+                }
+            }
+        }
+        return fallback
+    }
+
+    ; engine=tsx: the interpreter GameRunner plays the game for real. The input
+    ; wiggle is deterministic: a paddle/player sway plus one early ACTION tap so
+    ; games that wait on a start button (ball launch, shot) get going.
+    fn shootTsx:boolean (e:GameCatalogEntry target:string) {
+        def runner:GameRunner (new GameRunner)
+        runner.init(shotW shotH)
+        def buf:buffer (buffer_read_file e.dir e.entryFile)
+        def src:string (buffer_to_string buf)
+        if ((strlen src) == 0) {
+            return false
+        }
+        runner.setScriptDir(e.dir)
+        runner.loadScript(src)
+        runner.setupScene()
+        def frames:int (this.framesFor(e 300))
+        def i 0
+        while (i < frames) {
+            def phase (i % 120)
+            def up (phase < 30)
+            def down (phase >= 90)
+            def left ((phase >= 30) && (phase < 60))
+            def right ((phase >= 60) && (phase < 90))
+            def action ((i >= 20) && (i < 23))
+            runner.frame(16 up down left right action false)
+            i = (i + 1)
+        }
+        runner.draw()
+        this.savePng(e.dir target (runner.raw()))
+        return true
+    }
+
+    ; engine=as sprite games: same idea over the RGW1 mask channel. A few taps
+    ; right and one rotate keep the shot lively; ACTION is avoided since many
+    ; .as games bind it to hard-drop/restart.
+    fn shootAs:boolean (e:GameCatalogEntry target:string) {
+        def scene:AsSpriteScene (new AsSpriteScene)
+        scene.init(shotW shotH)
+        if (false == (scene.loadGame(e.dir))) {
+            return false
+        }
+        def frames:int (this.framesFor(e 240))
+        def i 0
+        while (i < frames) {
+            def mask:int 0
+            if ((i % 60) == 30) {
+                mask = IN_RIGHT
+            }
+            if (i == 100) {
+                mask = IN_UP
+            }
+            scene.frameMask(16 mask)
+            i = (i + 1)
+        }
+        if ((scene.spriteCount()) == 0) {
+            return false
+        }
+        scene.draw()
+        this.savePng(e.dir target (scene.raw()))
+        return true
+    }
+
+    fn shoot:void (e:GameCatalogEntry force:boolean) {
+        def label:string (e.id + " (" + e.engine + ")")
+        if (force == false) {
+            ; only an EXPLICIT game.info icon= that resolves to a real file
+            ; counts as "already present" — the assets/image.png fallback may
+            ; be a game asset (invaders' level background), not an icon.
+            if ((strlen e.iconPath) > 0) {
+                if (file_exists e.dir e.iconPath) {
+                    print ("  skip " + label + " — icon already present")
+                    skipped = (skipped + 1)
+                    return
+                }
+            }
+        }
+        ; decide the target BEFORE writing, so a fresh image.png of our own
+        ; making is never mistaken for a pre-existing foreign asset.
+        def target:string (this.targetFor(e))
+        def ok:boolean false
+        def tried:boolean false
+        if (e.engine == "tsx") {
+            tried = true
+            ok = (this.shootTsx(e target))
+        }
+        if (e.engine == "as") {
+            tried = true
+            ok = (this.shootAs(e target))
+        }
+        if (tried == false) {
+            print ("  skip " + label + " — no headless shot path for this engine")
+            skipped = (skipped + 1)
+            return
+        }
+        if ok {
+            this.declareIcon(e target)
+            print ("  made " + label + " -> " + e.dir + "/" + target)
+            made = (made + 1)
+        } {
+            print ("  FAIL " + label + " — game did not load/draw headless")
+            failed = (failed + 1)
+        }
+    }
+
+    sfn m@(main):void () {
+        def d:GameIconShots (new GameIconShots)
+        def catalog:GameCatalog (new GameCatalog)
+        catalog.setGamesDir("gallery/game_engine/games")
+        catalog.scan()
+
+        def force:boolean false
+        def only:[string]
+        def a 0
+        while (a < (shell_arg_cnt)) {
+            def arg:string (shell_arg a)
+            if (arg == "--force") {
+                force = true
+            } {
+                push only arg
+            }
+            a = (a + 1)
+        }
+
+        print ("icon shots: scanning " + (to_string (catalog.entryCount())) + " catalog entries")
+        def i 0
+        while (i < (catalog.entryCount())) {
+            def e:GameCatalogEntry (catalog.entryAt(i))
+            def wanted:boolean true
+            if ((array_length only) > 0) {
+                wanted = false
+                def j 0
+                while (j < (array_length only)) {
+                    if ((itemAt only j) == e.id) {
+                        wanted = true
+                    }
+                    j = (j + 1)
+                }
+            }
+            if wanted {
+                d.shoot(e force)
+            }
+            i = (i + 1)
+        }
+        print "======================================"
+        print (("icons made=" + (to_string d.made)) + (" skipped=" + (to_string d.skipped)) + (" failed=" + (to_string d.failed)))
+    }
+}

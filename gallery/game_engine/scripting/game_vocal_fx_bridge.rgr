@@ -1,0 +1,75 @@
+; ==============================================================================
+; game_vocal_fx_bridge - expose predefined vocal effects as native ABI calls.
+; ==============================================================================
+;
+; Lets a .game.tsx script trigger a Voicebox effect as a plain function call
+; instead of an event:
+;
+;   laugh();  sigh();  gasp();  cough();
+;   cheer();  boo();   hmm();   huh();   yawn();  giggle();  chuckle();
+;   voice("laugh");        // by name
+;
+; These route through GameHost.playVoice(), so they share the same vocalFx
+; synth (or WAV overrides) and the same audio sink as the event route. Wire it
+; with GameRunner.setNativeBridge(bridge) after bridge.wire(host).
+; ==============================================================================
+
+Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "../../ts_to_ranger/game_host.rgr"
+
+class GameVocalFxBridge extends EvalNativeBridge {
+    def host@(optional):GameHost
+
+    fn wire:void (h:GameHost) {
+        host = h
+    }
+
+    ; Every named effect plus the generic voice() dispatcher.
+    fn has:boolean (name:string) {
+        if (name == "voice") { return true }
+        if (name == "laugh") { return true }
+        if (name == "giggle") { return true }
+        if (name == "chuckle") { return true }
+        if (name == "sigh") { return true }
+        if (name == "gasp") { return true }
+        if (name == "cough") { return true }
+        if (name == "cheer") { return true }
+        if (name == "boo") { return true }
+        if (name == "hmm") { return true }
+        if (name == "huh") { return true }
+        if (name == "yawn") { return true }
+        return false
+    }
+
+    fn firstArgString:string (args:[EvalValue]) {
+        if ((array_length args) < 1) {
+            return ""
+        }
+        def v:EvalValue (itemAt args 0)
+        if (v.isString()) {
+            return v.stringValue
+        }
+        return ""
+    }
+
+    fn trigger:void (id:string) {
+        if host {
+            def h:GameHost (unwrap host)
+            h.playVoice(id)
+        }
+    }
+
+    fn invoke:EvalValue (name:string args:[EvalValue]) {
+        if (name == "voice") {
+            def id:string (this.firstArgString(args))
+            if ((strlen id) > 0) {
+                this.trigger(id)
+            }
+            return (EvalValue.null())
+        }
+        ; Named helpers: the function name *is* the effect id.
+        this.trigger(name)
+        return (EvalValue.null())
+    }
+}

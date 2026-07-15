@@ -1,0 +1,75 @@
+; ==============================================================================
+; autopeli_scene_provider — autopeli's GameSceneProvider (IDEAL.md §3, §7)
+; ==============================================================================
+;
+; The game half of the engine-core <-> game seam. Every number and name here is
+; autopeli's OWN decision — world height 6000, camera 5860/5640, two players, the
+; wall/bounce/win sound vocabulary, the cone/bar/traffic id<->code convention.
+; They used to live in wasm_physics_runner.rgr (core); moving them behind this
+; provider is what lets a second physics game reuse that runner unchanged.
+;
+; Lives under games/autopeli_wasm/ (a game module), NOT in scripting/ core.
+; ==============================================================================
+
+Import "../../../scripting/game_scene_provider.rgr"
+
+class AutopeliSceneProvider extends GameSceneProvider {
+    fn worldWidth:int () {
+        return 480
+    }
+    fn worldHeight:int () {
+        return 6000
+    }
+    fn playerCount:int () {
+        return 2
+    }
+    fn assetsDir:string () {
+        return "gallery/game_engine/games/autopeli_wasm"
+    }
+    fn cameraStartY:int () {
+        return 5640
+    }
+    fn cameraFollowY:int (paneIdx:int) {
+        ; both panes start following near the finish line; the runner smooths from
+        ; each car's world y each frame — this is only the initial policy.
+        return 5640
+    }
+
+    ; entity id -> sprite template. Autopeli's ids: p1/p2 cars, c* cones, b* bars,
+    ; oil* slicks, traffic t*. A prefix convention the game owns.
+    fn spriteFor:string (id:string) {
+        if (id == "p1") { return "car" }
+        if (id == "p2") { return "car2" }
+        def head:string (substring id 0 1)
+        if (head == "c") { return "cone" }
+        if (head == "b") { return "bar" }
+        if (head == "t") { return "traffic" }
+        if (head == "o") { return "oil" }
+        return "car"
+    }
+
+    ; body id <-> contact code (mirrors the encoding the guest writes; §2.1).
+    ; Walls 1000/1001, cones 100+, bars 200+, players 0/1.
+    fn contactBodyCode:int (id:string) {
+        if (id == "wallL") { return 1000 }
+        if (id == "wallR") { return 1001 }
+        if (id == "p1") { return 0 }
+        if (id == "p2") { return 1 }
+        return 0
+    }
+    fn bodyCodeToId:string (code:int) {
+        if (code == 1000) { return "wallL" }
+        if (code == 1001) { return "wallR" }
+        if (code == 0) { return "p1" }
+        if (code == 1) { return "p2" }
+        return ""
+    }
+
+    ; sound vocabulary — autopeli's registered names for its own sub-ids.
+    fn soundName:string (sub:int) {
+        if (sub == 1) { return "wall" }
+        if (sub == 2) { return "bounce" }
+        if (sub == 3) { return "win" }
+        return ""
+    }
+}

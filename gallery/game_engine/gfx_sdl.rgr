@@ -652,6 +652,29 @@ static GLint g_rgfx_part_color_attr = 0;
 static GLint g_rgfx_part_res_uniform = 0;
 static GLuint g_rgfx_part_vbo = 0;
 
+// GPU UI-effect overlay (glow on a node rect + whole-screen pulse). Each item is
+// a rectangle drawn as an additive soft blob: aCorner spans [-1,1], the fragment
+// applies a radial feather so a node glow reads as a soft halo and a fullscreen
+// item reads as a colour wash brightest at centre. Driven by the host UIAnimator
+// via gfx_fx_push_glow / gfx_fx_push_screen; composited in rgfx_present().
+struct RgfxFxItem {
+    float cx, cy;      // centre, pixels
+    float hx, hy;      // half-extent, pixels
+    uint8_t r, g, b, a;
+    float feather;     // 0..1 edge softness (small = crisp, large = soft blob)
+};
+static std::vector<RgfxFxItem> g_rgfx_fx_items;
+static int g_rgfx_fx_fbW = 0;
+static int g_rgfx_fx_fbH = 0;
+static GLuint g_rgfx_fx_program = 0;
+static GLint g_rgfx_fx_corner_attr = 0;
+static GLint g_rgfx_fx_center_attr = 0;
+static GLint g_rgfx_fx_half_attr = 0;
+static GLint g_rgfx_fx_color_attr = 0;
+static GLint g_rgfx_fx_feather_attr = 0;
+static GLint g_rgfx_fx_res_uniform = 0;
+static GLuint g_rgfx_fx_vbo = 0;
+
 static int rgfx_gpu_queue_index(int pane) {
     if (pane == 0) { return 1; }
     if (pane == 1) { return 2; }
@@ -996,6 +1019,189 @@ static void rgfx_particles_draw_queue(int queueIndex, int viewportX, int viewpor
 
 static void rgfx_particles_draw_overlay() {
     rgfx_particles_draw_queue(0, 0, g_rgfx_fb_w, g_rgfx_fb_h);
+}
+
+// ---- GPU UI-effect overlay (glow / pulse) ---------------------------------
+static int rgfx_fx_gl_init() {
+    if (g_rgfx_fx_program != 0) { return 1; }
+#if (defined(__arm__) || defined(__aarch64__)) && !defined(__APPLE__)
+    const char* vs =
+        \"attribute vec2 aCorner;\\n\"
+        \"attribute vec2 aCenter;\\n\"
+        \"attribute vec2 aHalf;\\n\"
+        \"attribute vec4 aColor;\\n\"
+        \"attribute float aFeather;\\n\"
+        \"uniform vec2 uResolution;\\n\"
+        \"varying vec2 vCorner;\\n\"
+        \"varying vec4 vColor;\\n\"
+        \"varying float vFeather;\\n\"
+        \"void main() {\\n\"
+        \"  vec2 pix = aCenter + aCorner * aHalf;\\n\"
+        \"  vec2 ndc;\\n\"
+        \"  ndc.x = (pix.x / uResolution.x) * 2.0 - 1.0;\\n\"
+        \"  ndc.y = 1.0 - (pix.y / uResolution.y) * 2.0;\\n\"
+        \"  gl_Position = vec4(ndc, 0.0, 1.0);\\n\"
+        \"  vCorner = aCorner;\\n\"
+        \"  vColor = aColor;\\n\"
+        \"  vFeather = aFeather;\\n\"
+        \"}\\n\";
+    const char* fs =
+        \"precision mediump float;\\n\"
+        \"varying vec2 vCorner;\\n\"
+        \"varying vec4 vColor;\\n\"
+        \"varying float vFeather;\\n\"
+        \"void main() {\\n\"
+        \"  float d = length(vCorner);\\n\"
+        \"  float edge = 1.0 - vFeather;\\n\"
+        \"  float m = 1.0 - smoothstep(edge, 1.0, d);\\n\"
+        \"  if (m <= 0.0) discard;\\n\"
+        \"  gl_FragColor = vec4(vColor.rgb, vColor.a * m);\\n\"
+        \"}\\n\";
+#else
+    const char* vs =
+        \"#version 120\\n\"
+        \"attribute vec2 aCorner;\\n\"
+        \"attribute vec2 aCenter;\\n\"
+        \"attribute vec2 aHalf;\\n\"
+        \"attribute vec4 aColor;\\n\"
+        \"attribute float aFeather;\\n\"
+        \"uniform vec2 uResolution;\\n\"
+        \"varying vec2 vCorner;\\n\"
+        \"varying vec4 vColor;\\n\"
+        \"varying float vFeather;\\n\"
+        \"void main() {\\n\"
+        \"  vec2 pix = aCenter + aCorner * aHalf;\\n\"
+        \"  vec2 ndc;\\n\"
+        \"  ndc.x = (pix.x / uResolution.x) * 2.0 - 1.0;\\n\"
+        \"  ndc.y = 1.0 - (pix.y / uResolution.y) * 2.0;\\n\"
+        \"  gl_Position = vec4(ndc, 0.0, 1.0);\\n\"
+        \"  vCorner = aCorner;\\n\"
+        \"  vColor = aColor;\\n\"
+        \"  vFeather = aFeather;\\n\"
+        \"}\\n\";
+    const char* fs =
+        \"#version 120\\n\"
+        \"varying vec2 vCorner;\\n\"
+        \"varying vec4 vColor;\\n\"
+        \"varying float vFeather;\\n\"
+        \"void main() {\\n\"
+        \"  float d = length(vCorner);\\n\"
+        \"  float edge = 1.0 - vFeather;\\n\"
+        \"  float m = 1.0 - smoothstep(edge, 1.0, d);\\n\"
+        \"  if (m <= 0.0) discard;\\n\"
+        \"  gl_FragColor = vec4(vColor.rgb, vColor.a * m);\\n\"
+        \"}\\n\";
+#endif
+    GLuint vsId = rgfx_gl_compile(GL_VERTEX_SHADER, vs);
+    GLuint fsId = rgfx_gl_compile(GL_FRAGMENT_SHADER, fs);
+    if (vsId == 0 || fsId == 0) {
+        if (vsId != 0) { glDeleteShader(vsId); }
+        if (fsId != 0) { glDeleteShader(fsId); }
+        return 0;
+    }
+    g_rgfx_fx_program = glCreateProgram();
+    glAttachShader(g_rgfx_fx_program, vsId);
+    glAttachShader(g_rgfx_fx_program, fsId);
+    glLinkProgram(g_rgfx_fx_program);
+    GLint linked = GL_FALSE;
+    glGetProgramiv(g_rgfx_fx_program, GL_LINK_STATUS, &linked);
+    glDeleteShader(vsId);
+    glDeleteShader(fsId);
+    if (linked != GL_TRUE) {
+        char log[1024];
+        GLsizei len = 0;
+        glGetProgramInfoLog(g_rgfx_fx_program, (GLsizei) sizeof(log), &len, log);
+        SDL_Log(\"[rgfx] fx program link failed: %.*s\", (int) len, log);
+        glDeleteProgram(g_rgfx_fx_program);
+        g_rgfx_fx_program = 0;
+        return 0;
+    }
+    g_rgfx_fx_corner_attr = glGetAttribLocation(g_rgfx_fx_program, \"aCorner\");
+    g_rgfx_fx_center_attr = glGetAttribLocation(g_rgfx_fx_program, \"aCenter\");
+    g_rgfx_fx_half_attr = glGetAttribLocation(g_rgfx_fx_program, \"aHalf\");
+    g_rgfx_fx_color_attr = glGetAttribLocation(g_rgfx_fx_program, \"aColor\");
+    g_rgfx_fx_feather_attr = glGetAttribLocation(g_rgfx_fx_program, \"aFeather\");
+    g_rgfx_fx_res_uniform = glGetUniformLocation(g_rgfx_fx_program, \"uResolution\");
+    glGenBuffers(1, &g_rgfx_fx_vbo);
+    return 1;
+}
+
+static void rgfx_fx_begin(int w, int h) {
+    g_rgfx_fx_items.clear();
+    g_rgfx_fx_fbW = w;
+    g_rgfx_fx_fbH = h;
+}
+
+static void rgfx_fx_push(float cx, float cy, float hx, float hy,
+                         int r, int g, int b, int a, float feather) {
+    if (a <= 0 || hx <= 0.f || hy <= 0.f) { return; }
+    RgfxFxItem it;
+    it.cx = cx; it.cy = cy; it.hx = hx; it.hy = hy;
+    it.r = (uint8_t) r; it.g = (uint8_t) g; it.b = (uint8_t) b; it.a = (uint8_t) a;
+    it.feather = feather;
+    g_rgfx_fx_items.push_back(it);
+}
+
+// A node glow: soft halo over the (already-expanded) node rect.
+static void rgfx_fx_push_glow(float x, float y, float w, float h,
+                              int r, int g, int b, int a) {
+    rgfx_fx_push(x + w * 0.5f, y + h * 0.5f, w * 0.5f, h * 0.5f, r, g, b, a, 0.85f);
+}
+
+// A whole-screen pulse: colour wash across the frame, brightest at centre.
+static void rgfx_fx_push_screen(int r, int g, int b, int a) {
+    if (g_rgfx_fx_fbW <= 0 || g_rgfx_fx_fbH <= 0) { return; }
+    float hw = g_rgfx_fx_fbW * 0.5f;
+    float hh = g_rgfx_fx_fbH * 0.5f;
+    rgfx_fx_push(hw, hh, hw, hh, r, g, b, a, 0.9f);
+}
+
+static void rgfx_fx_draw_overlay() {
+    if (g_rgfx_fx_items.empty() || g_rgfx_fx_fbW <= 0 || g_rgfx_fx_fbH <= 0) { return; }
+    if (!g_rgfx_gpu_mode) { g_rgfx_fx_items.clear(); return; }
+    if (!rgfx_fx_gl_init()) { g_rgfx_fx_items.clear(); return; }
+    glViewport(0, 0, g_rgfx_fb_w, g_rgfx_fb_h);
+    static const float corners[6][2] = {
+        {-1.f, -1.f}, {1.f, -1.f}, {1.f, 1.f},
+        {-1.f, -1.f}, {1.f, 1.f}, {-1.f, 1.f}
+    };
+    std::vector<float> verts;
+    verts.reserve(g_rgfx_fx_items.size() * 6u * 11u);
+    for (const RgfxFxItem& it : g_rgfx_fx_items) {
+        float cr = it.r / 255.f, cg = it.g / 255.f, cb = it.b / 255.f, ca = it.a / 255.f;
+        for (int i = 0; i < 6; ++i) {
+            verts.push_back(corners[i][0]);
+            verts.push_back(corners[i][1]);
+            verts.push_back(it.cx);
+            verts.push_back(it.cy);
+            verts.push_back(it.hx);
+            verts.push_back(it.hy);
+            verts.push_back(cr);
+            verts.push_back(cg);
+            verts.push_back(cb);
+            verts.push_back(ca);
+            verts.push_back(it.feather);
+        }
+    }
+    glUseProgram(g_rgfx_fx_program);
+    glUniform2f((GLint) g_rgfx_fx_res_uniform, (float) g_rgfx_fx_fbW, (float) g_rgfx_fx_fbH);
+    glBindBuffer(GL_ARRAY_BUFFER, g_rgfx_fx_vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr) (verts.size() * sizeof(float)), verts.data(), GL_DYNAMIC_DRAW);
+    const GLsizei stride = (GLsizei) (11 * sizeof(float));
+    glEnableVertexAttribArray((GLuint) g_rgfx_fx_corner_attr);
+    glVertexAttribPointer((GLuint) g_rgfx_fx_corner_attr, 2, GL_FLOAT, GL_FALSE, stride, (void*) 0);
+    glEnableVertexAttribArray((GLuint) g_rgfx_fx_center_attr);
+    glVertexAttribPointer((GLuint) g_rgfx_fx_center_attr, 2, GL_FLOAT, GL_FALSE, stride, (void*) (2 * sizeof(float)));
+    glEnableVertexAttribArray((GLuint) g_rgfx_fx_half_attr);
+    glVertexAttribPointer((GLuint) g_rgfx_fx_half_attr, 2, GL_FLOAT, GL_FALSE, stride, (void*) (4 * sizeof(float)));
+    glEnableVertexAttribArray((GLuint) g_rgfx_fx_color_attr);
+    glVertexAttribPointer((GLuint) g_rgfx_fx_color_attr, 4, GL_FLOAT, GL_FALSE, stride, (void*) (6 * sizeof(float)));
+    glEnableVertexAttribArray((GLuint) g_rgfx_fx_feather_attr);
+    glVertexAttribPointer((GLuint) g_rgfx_fx_feather_attr, 1, GL_FLOAT, GL_FALSE, stride, (void*) (10 * sizeof(float)));
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+    glDrawArrays(GL_TRIANGLES, 0, (GLsizei) (g_rgfx_fx_items.size() * 6));
+    g_rgfx_fx_items.clear();
 }
 
 static void rgfx_gpu_sprites_begin(int w, int h, int pane) {
@@ -1633,6 +1839,17 @@ static int rgfx_open(const std::string& title, int w, int h) {
     if (g_rgfx_tex == nullptr) { return 0; }
     return 1;
 }
+// Actual output surface size in pixels (drawable / window), so UI can be
+// rendered at native resolution instead of a low internal buffer that gets
+// upscaled (blocky text). Falls back to the logical window size.
+static int rgfx_surface_dim(int wantWidth) {
+    if (g_rgfx_win == nullptr) { return 0; }
+    int w = 0; int h = 0;
+    SDL_GL_GetDrawableSize(g_rgfx_win, &w, &h);
+    if (w <= 0 || h <= 0) { SDL_GetWindowSize(g_rgfx_win, &w, &h); }
+    return wantWidth ? w : h;
+}
+
 static void rgfx_present(const uint8_t* pixels, int w, int h) {
     if (g_rgfx_gpu_mode) {
         rgfx_gpu_start_frame(w, h);
@@ -1645,6 +1862,8 @@ static void rgfx_present(const uint8_t* pixels, int w, int h) {
         Uint64 tPart0 = rgfx_prof_now();
         rgfx_particles_draw_overlay();
         if (rgfx_prof_on()) { g_rgfx_prof_particle_ms += rgfx_prof_ms(tPart0, SDL_GetPerformanceCounter()); }
+        // UI effect overlay (glow/pulse) composites on top of everything else.
+        rgfx_fx_draw_overlay();
         rgfx_gpu_finish_frame();
         return;
     }
@@ -1722,6 +1941,21 @@ static void rgfx_close() {
         templates {
             cpp ( "rgfx_present(" (e 1) ".data(), " (e 2) ", " (e 3) ")" (imp "<SDL2/SDL.h>") )
             es6 ( "undefined" )
+        }
+    }
+
+    ; Actual output surface width/height in pixels (0 in es6). Lets a UI render at
+    ; native resolution rather than a small upscaled buffer.
+    gfx_surface_width _:int () {
+        templates {
+            cpp ( "rgfx_surface_dim(1)" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+    gfx_surface_height _:int () {
+        templates {
+            cpp ( "rgfx_surface_dim(0)" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
         }
     }
 
@@ -1923,6 +2157,32 @@ static void rgfx_close() {
     gfx_particles_end _:void () {
         templates {
             cpp ( "/* particles collected */" )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Begin collecting GPU UI-effect overlay quads for the next present. Clears the
+    ; queue and records the framebuffer size (needed for whole-screen pulses).
+    gfx_fx_begin _:void (fbW:int fbH:int) {
+        templates {
+            cpp ( "rgfx_fx_begin(" (e 1) ", " (e 2) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Queue a soft glow halo over a node rect (screen px, 0..255 colour/alpha).
+    gfx_fx_push_glow _:void (x:double y:double w:double h:double r:int g:int b:int alpha:int) {
+        templates {
+            cpp ( "rgfx_fx_push_glow((float)" (e 1) ", (float)" (e 2) ", (float)" (e 3) ", (float)"
+                  (e 4) ", " (e 5) ", " (e 6) ", " (e 7) ", " (e 8) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Queue a whole-screen colour pulse (0..255 colour/alpha), brightest at centre.
+    gfx_fx_push_screen _:void (r:int g:int b:int alpha:int) {
+        templates {
+            cpp ( "rgfx_fx_push_screen(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ")" (imp "<SDL2/SDL.h>") )
             es6 ( "undefined" )
         }
     }

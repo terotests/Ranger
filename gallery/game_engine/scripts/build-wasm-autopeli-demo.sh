@@ -26,7 +26,7 @@ WASM3_OBJS=()
 mkdir -p "$OUT_DIR"
 
 if [[ ! -f "$ROOT/gallery/game_engine/games/autopeli_wasm/logic.wasm" ]]; then
-  bash "$ROOT/gallery/game_engine/wasm/rust_autopeli/build.sh"
+  bash "$ROOT/gallery/game_engine/games/autopeli_wasm/src/build.sh"
 fi
 
 echo "==> Ranger -> C++"

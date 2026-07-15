@@ -1,2 +1,5 @@
 name=Breakout
 splitScreen=auto
+category=Games
+iconFrames=120
+icon=assets/image.png

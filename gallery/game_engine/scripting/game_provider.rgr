@@ -1,0 +1,147 @@
+; ==============================================================================
+; game_provider — the host-capability provider seam (IDEAL.md §6, IDEAL_API §7)
+; ==============================================================================
+;
+; PLAN_PROVIDERS.md, in one sentence: "every host capability a guest can use is
+; currently hand-wired into the runner AND into all three guest bridges; a
+; provider is that wiring named, so a new capability plugs in instead of being
+; sewn in."
+;
+; A GameProvider declares WHICH capability it satisfies (capBit), which WAY data
+; flows (direction), and HOW OFTEN it runs (cadence), and exposes fixed lifecycle
+; seams (onAttach / onDeclare / beforeUpdate / afterUpdate / onDetach). The host's
+; advertised capabilities are the OR of every attached provider's capBit() — so
+; adding a provider automatically widens what the host offers, and there is no
+; second list to keep in sync (IDEAL_API §7). The capability gate (§6) reads that
+; OR, so a guest that requires a capability with no attached provider is rejected
+; at load by construction.
+; ==============================================================================
+
+; Base class = the provider interface. A concrete provider overrides only what it
+; needs; every hook defaults to a no-op so a minimal provider is a capBit + id.
+class GameProvider {
+    ; Stable identity, e.g. "physics", "pose", "resource", "ui", "scene".
+    fn id:string () {
+        return ""
+    }
+    ; The RG_WASM_HOST_CAP_* bit this provider satisfies (0 = base ABI, always on).
+    fn capBit:int () {
+        return 0
+    }
+    ; 1 = guest->host, 2 = host->guest (IDEAL_API §0.5).
+    fn direction:int () {
+        return 1
+    }
+    ; 1 = setup (once), 2 = frame (per physicsStep) (IDEAL_API §0.5).
+    fn cadence:int () {
+        return 2
+    }
+    ; Lifecycle seams — default no-ops.
+    fn onAttach:void () { }
+    fn onDeclare:void () { }       ; guest declare-once phase (resources/world/shapes)
+    fn beforeUpdate:void () { }    ; host->guest providers write their block here
+    fn afterUpdate:void () { }     ; guest->host providers drain their block here
+    fn onDetach:void () { }        ; teardown / bulk-free the provider's arena
+}
+
+; The registry a runner holds. Attach providers at setup; the runner then drives
+; the whole set through the shared lifecycle instead of hand-wiring each one.
+class GameProviderRegistry {
+    def providers:[GameProvider]
+
+    fn attach:void (p:GameProvider) {
+        push providers p
+        p.onAttach()
+    }
+
+    fn count:int () {
+        return (array_length providers)
+    }
+
+    ; The host's advertised capabilities: the OR of every provider's capBit().
+    ; This is the single source the capability gate consumes (§6, §7).
+    fn advertisedCaps:int () {
+        def caps:int 0
+        def i:int 0
+        while (i < (array_length providers)) {
+            def p:GameProvider (itemAt providers i)
+            caps = (bit_or caps (p.capBit()))
+            i = (i + 1)
+        }
+        return caps
+    }
+
+    ; Is a provider for this capability bit attached?
+    fn provides:boolean (capBit:int) {
+        return ((bit_and (this.advertisedCaps()) capBit) != 0)
+    }
+
+    ; Look up an attached provider by id ("" if none).
+    fn byId:GameProvider (id:string) {
+        def i:int 0
+        while (i < (array_length providers)) {
+            def p:GameProvider (itemAt providers i)
+            if ((p.id()) == id) {
+                return p
+            }
+            i = (i + 1)
+        }
+        return (new GameProvider)
+    }
+
+    ; Fan the shared lifecycle across every attached provider, in attach order.
+    fn onDeclareAll:void () {
+        def i:int 0
+        while (i < (array_length providers)) {
+            (itemAt providers i).onDeclare()
+            i = (i + 1)
+        }
+    }
+    fn beforeUpdateAll:void () {
+        def i:int 0
+        while (i < (array_length providers)) {
+            (itemAt providers i).beforeUpdate()
+            i = (i + 1)
+        }
+    }
+    fn afterUpdateAll:void () {
+        def i:int 0
+        while (i < (array_length providers)) {
+            (itemAt providers i).afterUpdate()
+            i = (i + 1)
+        }
+    }
+    fn onDetachAll:void () {
+        def i:int 0
+        while (i < (array_length providers)) {
+            (itemAt providers i).onDetach()
+            i = (i + 1)
+        }
+    }
+}
+
+; -----------------------------------------------------------------------------
+; Concrete base providers for the shipped host capabilities. A runner attaches
+; the ones it actually implements; the OR of their capBits is what it advertises.
+; Capability values mirror wasm/wasm_game_abi.h (RG_WASM_HOST_CAP_*).
+; -----------------------------------------------------------------------------
+class PhysicsProvider extends GameProvider {
+    fn id:string () { return "physics" }
+    fn capBit:int () { return 1 }        ; RG_WASM_HOST_CAP_PHYSICS
+    fn direction:int () { return 1 }     ; guest declares bodies -> host simulates
+    fn cadence:int () { return 2 }
+}
+
+class Rgu1Provider extends GameProvider {
+    fn id:string () { return "ui" }
+    fn capBit:int () { return 8 }        ; RG_WASM_HOST_CAP_RGU1
+    fn direction:int () { return 1 }     ; guest owns the UI document
+    fn cadence:int () { return 2 }
+}
+
+class PoseInputProvider extends GameProvider {
+    fn id:string () { return "pose" }
+    fn capBit:int () { return 16 }       ; RG_WASM_HOST_CAP_POSE_INPUT
+    fn direction:int () { return 2 }     ; host streams pose -> guest
+    fn cadence:int () { return 2 }
+}

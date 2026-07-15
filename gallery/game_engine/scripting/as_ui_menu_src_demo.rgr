@@ -10,7 +10,7 @@
 ;
 ; It self-checks the guest's own navigation + screen/example state machine and
 ; dumps PNGs, so it is the "simple interpreter test" counterpart of the compiled
-; wasm menu (wasm/as_ui_menu) — one .as source, exercised without asc.
+; wasm menu (games/ui_menu/src) — one .as source, exercised without asc.
 ; ==============================================================================
 
 Import "../ui/WasmUiSelect.rgr"
@@ -48,6 +48,7 @@ class AsUiMenuSrcDemo {
     def root:EVGElement (EVGElement.createDiv())
     def cw:int 360
     def ch:int 460
+    def tMs:int 0            ; guest clock fed via ABI offset 16 (for animations)
 
     ; Copy the guest's RGU1 block out of the bridge and (re)build the EVG tree,
     ; autoscaling to fit the canvas exactly like GameUiRunner.rebuildTree.
@@ -161,12 +162,24 @@ class AsUiMenuSrcDemo {
         png.encode(rb "gallery/game_engine/scripting" file)
     }
 
-    ; write an edge mask and advance the guest one frame
+    ; write an edge mask and advance the guest one frame (advancing the clock so
+    ; the guest's fluent glow animation can run)
     fn step:void (mask:int) {
+        tMs = (tMs + 120)
+        runner.abiWrite(16 tMs)
         runner.abiWrite(OFF_INPUT mask)
         runner.callUpdate()
         this.refresh()
         this.reportRect()
+    }
+
+    ; advance several idle frames so a deferred (after-effect) transition fires
+    fn settle:void () {
+        def k 0
+        while (k < 6) {
+            this.step(0)
+            k = (k + 1)
+        }
     }
 
     sfn m@(main):void () {
@@ -199,9 +212,12 @@ class AsUiMenuSrcDemo {
         d.step(2)
         c.ok(("Down x2 -> Demo/22 (got " + (to_string (d.selId())) + ")") ((d.selId()) == 22))
 
-        ; ---- action opens the Demo screen ----
+        ; ---- action flashes the button, then opens the Demo screen AFTER the
+        ; effect finishes (the whole point of .after()) ----
         d.step(16)
-        c.ok(("action opens demo: sel == PREVIEW/40 (got " + (to_string (d.selId())) + ")") ((d.selId()) == 40))
+        c.ok(("stays on menu during the effect: sel still Demo/22 (got " + (to_string (d.selId())) + ")") ((d.selId()) == 22))
+        d.settle()
+        c.ok(("after the effect -> demo screen: sel == PREVIEW/40 (got " + (to_string (d.selId())) + ")") ((d.selId()) == 40))
         c.ok(("demo title (got '" + (d.textOfId(100)) + "')") ((d.textOfId(100)) == "EVG Demo"))
         c.ok(("example 0 is Background color (got '" + (d.textOfId(101)) + "')") ((indexOf (d.textOfId(101)) "Background color") >= 0))
         d.drawFrame("as_ui_2_demo_bg.png")
@@ -227,10 +243,26 @@ class AsUiMenuSrcDemo {
         d.step(4)
         c.ok(("left -> Font size (got '" + (d.textOfId(101)) + "')") ((indexOf (d.textOfId(101)) "Font size") >= 0))
 
-        ; ---- action returns to the menu, selection preserved on Demo/22 ----
+        ; ---- action flashes the preview, then returns to the menu AFTER it ----
         d.step(16)
+        d.settle()
         c.ok(("back to menu: sel == Demo/22 (got " + (to_string (d.selId())) + ")") ((d.selId()) == 22))
         c.ok(("menu title again (got '" + (d.textOfId(10)) + "')") ((d.textOfId(10)) == "AS UI - Main Menu"))
+
+        ; ---- fluent guest animation: activate New Game and watch the glow prop ----
+        ; The guest runs animation().glow(id).duration(0.42).after(DONE.bump).start()
+        ; on activation; the host clock (fed in step()) drives a flash the guest
+        ; emits as a GLOW prop, which self-clears when the animation completes.
+        d.step(1)                              ; up -> Continue
+        d.step(1)                              ; up -> New Game
+        c.ok(("nav to New Game/20 (got " + (to_string (d.selId())) + ")") ((d.selId()) == 20))
+        d.step(16)                             ; action -> starts the fluent glow
+        d.step(0)                              ; clock advances ~120ms into the flash
+        c.ok("fluent glow prop emitted on the activated element" (d.hasProp(20 55)))
+        d.step(0)
+        d.step(0)
+        d.step(0)                              ; past the 0.42s duration
+        c.ok("glow self-cleared after the animation completed" ((d.hasProp(20 55)) == false))
 
         print "======================================"
         print (("RESULT: " + (to_string c.passed) + " passed, ") + ((to_string c.failed) + " failed"))

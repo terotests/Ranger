@@ -1,0 +1,143 @@
+; ==============================================================================
+; menu_launcher_demo - self-check for the .as launcher menu (menu/game.as).
+; ==============================================================================
+; Scans the real games dir, injects the catalog into the interpreted menu game
+; exactly like the SDL host will, drives it with D-pad edges, and asserts:
+;  * the category screen lists Games / Tests (from the injected catalog),
+;  * opening a category shows that category's games,
+;  * activating a game reports a catalog index (OFF_LAUNCH) that maps back to the
+;    right game entry - which is all the host needs to launch the sub-app.
+; ==============================================================================
+
+Import "./as_source_runner.rgr"
+Import "./game_catalog.rgr"
+Import "../ui/WasmUiSelect.rgr"
+
+class MenuLauncherCheck {
+    def passed:int 0
+    def failed:int 0
+    def OFF_INPUT:int 20
+    def OFF_SEL:int 52
+    def OFF_LAUNCH:int 56
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    ; pull the guest's RGU1 block into a WasmUiDoc
+    fn readDoc:WasmUiDoc (runner:AsSourceRunner) {
+        def bytes:[int]
+        def i 0
+        while (i < 8192) {
+            push bytes (runner.uiByte(i))
+            i = (i + 1)
+        }
+        def doc:WasmUiDoc (new WasmUiDoc)
+        doc.loadBytes(bytes 8192)
+        return doc
+    }
+
+    fn textOfId:string (doc:WasmUiDoc id:int) {
+        def idx (doc.indexOfId(id))
+        if (idx < 0) { return "" }
+        def fp (doc.nodeFirstProp(idx))
+        def pc (doc.nodePropCount(idx))
+        def p 0
+        while (p < pc) {
+            if ((doc.propKey(fp + p)) == 1) {
+                return (doc.propString(fp + p))
+            }
+            p = (p + 1)
+        }
+        return ""
+    }
+
+    fn hasNode:boolean (doc:WasmUiDoc id:int) {
+        return ((doc.indexOfId(id)) >= 0)
+    }
+
+    fn hasProp:boolean (doc:WasmUiDoc id:int key:int) {
+        def idx (doc.indexOfId(id))
+        if (idx < 0) { return false }
+        def fp (doc.nodeFirstProp(idx))
+        def pc (doc.nodePropCount(idx))
+        def p 0
+        while (p < pc) {
+            if ((doc.propKey(fp + p)) == key) { return true }
+            p = (p + 1)
+        }
+        return false
+    }
+
+    ; drive one input frame (edge mask) and re-read the doc
+    fn step:WasmUiDoc (runner:AsSourceRunner mask:int) {
+        runner.abiWrite(OFF_INPUT mask)
+        runner.callUpdate()
+        return (this.readDoc(runner))
+    }
+
+    sfn m@(main):void () {
+        def c:MenuLauncherCheck (new MenuLauncherCheck)
+        def catalog:GameCatalog (new GameCatalog)
+        catalog.setGamesDir("gallery/game_engine/games")
+        catalog.scan()
+        c.ok(("catalog scanned (" + (to_string (catalog.entryCount())) + " games)") ((catalog.entryCount()) > 0))
+
+        def runner:AsSourceRunner (new AsSourceRunner)
+        if ((runner.bindDir("gallery/game_engine/menu")) == false) {
+            print "FAIL: could not bind menu/game.as"
+            return
+        }
+        ; inject the catalog exactly like the SDL host will
+        runner.registerGlobal("gameCatalog" (catalog.toEvalArray()))
+        runner.callInit()
+
+        ; ---- category screen ----
+        def d0:WasmUiDoc (c.readDoc(runner))
+        c.ok("doc valid on init" d0.valid)
+        c.ok(("category tile 'Games' present (got '" + (c.textOfId(d0 62)) + "')") ((indexOf (c.textOfId(d0 62)) "Games") >= 0))
+        c.ok(("category tile 'Tests' present (got '" + (c.textOfId(d0 72)) + "')") ((indexOf (c.textOfId(d0 72)) "Tests") >= 0))
+        c.ok("Games tile has a background image (BG_IMAGE prop)" (c.hasProp(d0 61 56)))
+        c.ok("no launch yet" ((runner.abiRead(c.OFF_LAUNCH)) == 0))
+
+        ; ---- open Games (action) ----
+        def d1:WasmUiDoc (c.step(runner 16))
+        ; index 0 is now a "Back" entry (node 100); the first game tile is node 101
+        c.ok("games screen shows the Back entry (node 100)" (c.hasNode(d1 100)))
+        c.ok("games screen shows first game tile (node 101)" (c.hasNode(d1 101)))
+        c.ok("still no launch after opening a category" ((runner.abiRead(c.OFF_LAUNCH)) == 0))
+
+        ; ---- move down to the first game, then launch ----
+        def _d2:WasmUiDoc (c.step(runner 2))     ; down -> first game (index 1)
+        def _d3:WasmUiDoc (c.step(runner 16))    ; action -> launch selected game
+        def launch:int (runner.abiRead(c.OFF_LAUNCH))
+        c.ok(("a launch index was reported (got " + (to_string launch) + ")") (launch > 0))
+
+        ; the reported index maps back to a real catalog entry (host launches this)
+        if (launch > 0) {
+            def gi:int (launch - 1)
+            def e:GameCatalogEntry (catalog.entryAt(gi))
+            c.ok(("launch maps to a game in Games (title='" + e.title + "', cat='" + e.category + "')") (e.category == "Games"))
+            c.ok(("launch entry has a path ('" + e.entryPath + "')") ((strlen e.entryPath) > 0))
+        }
+
+        ; ---- left no longer exits the list: it only moves the selection ----
+        def _dl:WasmUiDoc (c.step(runner 4))     ; left -> previous selection (the Back entry)
+        c.ok("left stays on the games screen" (c.hasNode(_dl 100)))
+        c.ok("left does not jump to categories" ((c.hasNode(_dl 61)) == false))
+
+        ; ---- back to categories via the Back entry (now selected) + action ----
+        def d4:WasmUiDoc (c.step(runner 16))     ; action on Back -> categories
+        c.ok("Back entry returns to categories" (c.hasNode(d4 61)))
+
+        print "======================================"
+        print (("RESULT: " + (to_string c.passed) + " passed, ") + ((to_string c.failed) + " failed"))
+        if (c.failed == 0) { print "ALL PASS" } { print "SOME FAILED" }
+    }
+}

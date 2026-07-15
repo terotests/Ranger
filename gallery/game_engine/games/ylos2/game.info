@@ -1,5 +1,7 @@
 name=Pomppija
-icon=icon.png
+icon=assets/image.png
 splitScreen=auto
 autoscale=false
 soloScript=index.tsx
+
+category=Games

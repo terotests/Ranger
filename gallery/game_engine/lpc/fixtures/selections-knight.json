@@ -1,0 +1,46 @@
+{
+  "version": 2,
+  "bodyType": "male",
+  "note": "Full-generator recipe for catalog character 'knight'. Implemented by lpc_compose.rgr buildFullCharCalls (baked when the Universal-LPC art is present, LPC_ROOT).",
+  "selections": {
+    "body": {
+      "itemId": "body",
+      "name": "Male body"
+    },
+    "torso": {
+      "itemId": "torso_armour_plate",
+      "recolor": "steel",
+      "name": "Plate armour"
+    },
+    "legs": {
+      "itemId": "legs_armour_plate",
+      "recolor": "steel",
+      "name": "Plate legs"
+    },
+    "feet": {
+      "itemId": "feet_boots_basic",
+      "recolor": "steel",
+      "name": "Steel boots"
+    },
+    "head": {
+      "itemId": "heads_human_male",
+      "name": "Human male head"
+    },
+    "hat": {
+      "itemId": "hat_helmet_greathelm",
+      "recolor": "steel",
+      "name": "Great helm"
+    },
+    "arms": {
+      "itemId": "arms_armour_plate",
+      "recolor": "steel",
+      "name": "Plate arms"
+    },
+    "gloves": {
+      "itemId": "arms_hands_gloves",
+      "recolor": "steel",
+      "name": "Gauntlets"
+    }
+  },
+  "selectedAnimation": "walk"
+}
