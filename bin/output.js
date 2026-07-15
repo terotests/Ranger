@@ -34122,6 +34122,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }
       if ( ( typeof(lctx.slots[varName] ) != "undefined" && lctx.slots.hasOwnProperty(varName) ) ) {
         const slot = (( lctx.slots.hasOwnProperty(varName) ? lctx.slots[varName] : undefined ));
+        if ( rhs.hasNewOper ) {
+          if ( ( typeof(lctx.objectSlots[varName] ) != "undefined" && lctx.objectSlots.hasOwnProperty(varName) ) ) {
+            if ( this.isOwnedObjectLocal(varName, lctx) ) {
+              this.releaseOwnedLocal(varName, lctx);
+            }
+          }
+        }
         let storeType = irType;
         if ( ( typeof(lctx.slotTypes[varName] ) != "undefined" && lctx.slotTypes.hasOwnProperty(varName) ) ) {
           storeType = (( lctx.slotTypes.hasOwnProperty(varName) ? lctx.slotTypes[varName] : undefined ));

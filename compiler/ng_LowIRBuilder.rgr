@@ -3270,6 +3270,17 @@ class LowIRBuilderPass {
     }
     if (has lctx.slots varName) {
       def slot (unwrap (get lctx.slots varName))
+      ; release-before-reassign: `x = (new T)` on an owned object local must free
+      ; the previous object first (the new one is already allocated in `tmp`).
+      ; releaseOwnedLocal self-gates on objRcEnabled + escaped, and loads the
+      ; slot's current (old) value.
+      if (rhs.hasNewOper) {
+        if (has lctx.objectSlots varName) {
+          if (this.isOwnedObjectLocal(varName lctx)) {
+            this.releaseOwnedLocal(varName lctx)
+          }
+        }
+      }
       def storeType (irType)
       if (has lctx.slotTypes varName) {
         storeType = (unwrap (get lctx.slotTypes varName))
