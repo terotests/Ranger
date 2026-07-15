@@ -249,16 +249,52 @@ impl World {
 
     // ---- contacts -------------------------------------------------------------
 
+    /// Number of host-written contacts this frame (clamped to
+    /// [`MAX_CONTACTS`]).
+    pub fn contact_count(&self) -> i32 {
+        let n = BLOCK.read_i32(OFF_CONTACT_CNT);
+        if n > MAX_CONTACTS {
+            MAX_CONTACTS
+        } else if n < 0 {
+            0
+        } else {
+            n
+        }
+    }
+
+    /// Read contact `i` (zeroed record when out of range). Index form of
+    /// [`World::contacts`] for loops that also need `&mut World` in the body
+    /// (e.g. pushing impulses per contact).
+    pub fn contact(&self, i: i32) -> Contact {
+        if i < 0 || i >= self.contact_count() {
+            return Contact {
+                body_a: 0,
+                body_b: 0,
+                phase: 0,
+                impulse_fp: 0,
+                x_fp: 0,
+                y_fp: 0,
+                nx_milli: 0,
+                ny_milli: 0,
+            };
+        }
+        let base = OFF_CONTACTS + i as usize * CONTACT_SIZE;
+        Contact {
+            body_a: BLOCK.read_i32(base),
+            body_b: BLOCK.read_i32(base + 4),
+            phase: BLOCK.read_i32(base + 8),
+            impulse_fp: BLOCK.read_i32(base + 12),
+            x_fp: BLOCK.read_i32(base + 16),
+            y_fp: BLOCK.read_i32(base + 20),
+            nx_milli: BLOCK.read_i32(base + 24),
+            ny_milli: BLOCK.read_i32(base + 28),
+        }
+    }
+
     /// Iterate the host-written contacts for this frame (count clamped to
     /// [`MAX_CONTACTS`]).
     pub fn contacts(&self) -> impl Iterator<Item = Contact> {
-        let mut n = BLOCK.read_i32(OFF_CONTACT_CNT);
-        if n > MAX_CONTACTS {
-            n = MAX_CONTACTS;
-        }
-        if n < 0 {
-            n = 0;
-        }
+        let n = self.contact_count();
         (0..n).map(|i| {
             let base = OFF_CONTACTS + i as usize * CONTACT_SIZE;
             Contact {

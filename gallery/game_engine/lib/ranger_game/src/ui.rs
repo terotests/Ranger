@@ -342,6 +342,18 @@ impl El {
         self
     }
 
+    /// Text color from a packed `0xRRGGBBAA` word (the ABI's native encoding).
+    pub fn color_rgba(self, rgba: u32) -> Self {
+        prop_u32(self.id, P_COLOR, T_COLOR, rgba);
+        self
+    }
+
+    /// Background color from a packed `0xRRGGBBAA` word.
+    pub fn bg_rgba(self, rgba: u32) -> Self {
+        prop_u32(self.id, P_BG, T_COLOR, rgba);
+        self
+    }
+
     pub fn border(self, w: i32, r: i32, g: i32, b: i32, a: i32) -> Self {
         prop_u32(self.id, P_BORDER_W, T_I32, w as u32);
         prop_u32(self.id, P_BORDER_COLOR, T_COLOR, rgba(r, g, b, a));

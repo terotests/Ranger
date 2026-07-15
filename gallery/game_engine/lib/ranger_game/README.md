@@ -49,9 +49,21 @@ Wire it into a game crate with a path dependency:
 ranger_game = { path = "../../../lib/ranger_game" }
 ```
 
-First user: [`games/sprite_char`](../../games/sprite_char/) — its guest went
-from ~250 lines of offset arithmetic to just the game state machine, and
-`verify.mjs` passes unchanged.
+Users so far:
+
+- [`games/sprite_char`](../../games/sprite_char/) (RGSP1) — the guest went from
+  ~250 lines of offset arithmetic to just the game state machine, and its
+  `verify.mjs` passes unchanged.
+- [`games/autopeli_wasm`](../../games/autopeli_wasm/) (RGW1 + RGU1 +
+  resources) — all block plumbing and the hand-rolled `Doc` UI writer replaced
+  by this crate; the port was proven by driving the old and new wasm with an
+  identical synthetic host for 700 frames and comparing the RGW1 block
+  byte-for-byte plus the HUD documents.
+
+Not covered on purpose: `games/rust_pong` (a pre-RGW1 PoC with its own
+per-export contract driven by `WasmGameRunner`) and `wasm/rust_worker` (the
+RGX1 streaming-worker block — a different transport; add an `rgx` module here
+if/when that block stabilises).
 
 ## An RGW1 (host-physics) game
 
