@@ -13,6 +13,7 @@ a macro generates the exact exports the host calls.
 | `ui` | RGU1 retained-mode UI | [`wasm/wasm_ui_abi.h`](../../wasm/wasm_ui_abi.h) | fluent `El` box builder (same shape as `ui.as`) + `ui_exports!()` → `rg_ui_ptr/size/revision` |
 | `input` | shared digital bits | RGW1/RGSP1/RGIN `IN_*` | `Buttons` + `Input` with `held/pressed/released` edges (no more `PREV_IN` statics) |
 | `resources` | host imports | `rg_host_register_*` | `resources::sheet(...)` / `resources::rect(...)` |
+| `scene` | RGMB/RGMA/RGCM/RGLT 3D scene snapshot | [`ABI_V2_PROPOSAL.md`](../../ABI_V2_PROPOSAL.md) §17–§21 | `Scene`, generation-safe `Entity` handles, mesh assets, TRS nodes, camera, lights |
 
 ## A sprite game in full
 
@@ -64,6 +65,32 @@ Not covered on purpose: `games/rust_pong` (a pre-RGW1 PoC with its own
 per-export contract driven by `WasmGameRunner`) and `wasm/rust_worker` (the
 RGX1 streaming-worker block — a different transport; add an `rgx` module here
 if/when that block stabilises).
+
+## A high-level 3D scene
+
+The 3D SDK keeps game code independent of byte offsets, fixed-point scales and
+pool cursors. Assets are reusable and instances only carry handles and
+transforms:
+
+```rust
+use ranger_game::scene::{Color, Scene, Vec3};
+
+let mut scene = Scene::new();
+let (mesh, material) = {
+    let mut assets = scene.assets();
+    (assets.box_mesh(Vec3::new(1.0, 2.0, 1.0)).unwrap(),
+     assets.material(1, Color::WHITE, 0))
+};
+let crate1 = scene.spawn_mesh(mesh, material).unwrap();
+let crate2 = scene.spawn_mesh(mesh, material).unwrap();
+scene.node(crate1).set_position(Vec3::new(-6.0, 1.0, -3.0));
+scene.node(crate2).set_position(Vec3::new(-4.0, 1.0, 3.0));
+scene.publish();
+```
+
+`scene_exports!()` supplies the `rg_mesh_*`, `rg_mat_ptr`, `rg_cam_*`, and
+`rg_lit_*` exports expected by the 3D runner. `publish()` is the single
+snapshot boundary; the SDK is the only layer that writes the transport blocks.
 
 ## An RGW1 (host-physics) game
 
