@@ -1,0 +1,8 @@
+[package]
+name = "ranger_game"
+version = "0.1.0"
+edition = "2021"
+description = "Shared guest-side Rust bindings for the Ranger WASM game ABIs (RGSP1 sprites, RGW1 world/physics, RGU1 retained-mode UI)"
+
+[lib]
+crate-type = ["rlib"]
