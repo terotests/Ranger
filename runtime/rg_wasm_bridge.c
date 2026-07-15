@@ -230,6 +230,9 @@ m3ApiRawFunction(m3_rg_ui_effect) {
  * that does not include the GL scene (the scene calls then no-op). */
 __attribute__((weak)) int  rgfx_scene_load_texture(const char* d, const char* n){ (void)d;(void)n; return 0; }
 __attribute__((weak)) int  rgfx_scene_model_mesh(const char* n){ (void)n; return 0; }
+__attribute__((weak)) int  rgfx_scene_sprite_tex(const char* n){ (void)n; return 0; }
+__attribute__((weak)) int  rgfx_scene_create_sprite(int t,int c,int r,float w,float h){ (void)t;(void)c;(void)r;(void)w;(void)h; return 0; }
+__attribute__((weak)) void rgfx_scene_set_sprite_cell(int i,int c,int r){ (void)i;(void)c;(void)r; }
 __attribute__((weak)) int  rgfx_scene_create_box(float a,float b,float c,float d,float e,float f,int t){ (void)a;(void)b;(void)c;(void)d;(void)e;(void)f;(void)t; return 0; }
 __attribute__((weak)) int  rgfx_scene_create_mesh_entity(int m,int t){ (void)m;(void)t; return 0; }
 __attribute__((weak)) int  rgfx_scene_create_camera(float a,float b,float c){ (void)a;(void)b;(void)c; return 0; }
@@ -265,6 +268,33 @@ m3ApiRawFunction(m3_rg_load_model) {
     char name[128];
     rg_copy_wasm_str(runtime, _mem, nameOff, nameLen, name, (int)sizeof(name));
     m3ApiReturn(rgfx_scene_model_mesh(name));
+}
+/* env.rg_load_sprite(name_ptr, name_len) -> texId of a preloaded sprite sheet. */
+m3ApiRawFunction(m3_rg_load_sprite) {
+    m3ApiReturnType(int32_t)
+    m3ApiGetArg(int32_t, nameOff)
+    m3ApiGetArg(int32_t, nameLen)
+    char name[128];
+    rg_copy_wasm_str(runtime, _mem, nameOff, nameLen, name, (int)sizeof(name));
+    m3ApiReturn(rgfx_scene_sprite_tex(name));
+}
+/* env.rg_create_sprite(texId, cols, rows, w, h) -> billboard EntityId. w/h fixed-point. */
+m3ApiRawFunction(m3_rg_create_sprite) {
+    m3ApiReturnType(int32_t)
+    m3ApiGetArg(int32_t, texId)
+    m3ApiGetArg(int32_t, cols)
+    m3ApiGetArg(int32_t, rows)
+    m3ApiGetArg(int32_t, w)
+    m3ApiGetArg(int32_t, h)
+    m3ApiReturn(rgfx_scene_create_sprite(texId, cols, rows, RG3D_FP(w), RG3D_FP(h)));
+}
+/* env.rg_set_sprite_cell(entity, col, row) — pick the sheet cell to display. */
+m3ApiRawFunction(m3_rg_set_sprite_cell) {
+    m3ApiGetArg(int32_t, e)
+    m3ApiGetArg(int32_t, col)
+    m3ApiGetArg(int32_t, row)
+    rgfx_scene_set_sprite_cell(e, col, row);
+    m3ApiSuccess();
 }
 m3ApiRawFunction(m3_rg_create_box) {
     m3ApiReturnType(int32_t)
@@ -366,6 +396,9 @@ static void rg_link_host_imports(RgWasmSlot* s) {
     /* host-managed 3D scene (IDEAL_3D Phase H) */
     (void)m3_LinkRawFunctionEx(s->module, "env", "rg_load_texture", "i(ii)", &m3_rg_load_texture, s);
     (void)m3_LinkRawFunctionEx(s->module, "env", "rg_load_model", "i(ii)", &m3_rg_load_model, s);
+    (void)m3_LinkRawFunctionEx(s->module, "env", "rg_load_sprite", "i(ii)", &m3_rg_load_sprite, s);
+    (void)m3_LinkRawFunctionEx(s->module, "env", "rg_create_sprite", "i(iiiii)", &m3_rg_create_sprite, s);
+    (void)m3_LinkRawFunctionEx(s->module, "env", "rg_set_sprite_cell", "v(iii)", &m3_rg_set_sprite_cell, s);
     (void)m3_LinkRawFunctionEx(s->module, "env", "rg_create_box", "i(iiiiiii)", &m3_rg_create_box, s);
     (void)m3_LinkRawFunctionEx(s->module, "env", "rg_create_mesh_entity", "i(ii)", &m3_rg_create_mesh_entity, s);
     (void)m3_LinkRawFunctionEx(s->module, "env", "rg_create_camera", "i(iii)", &m3_rg_create_camera, s);

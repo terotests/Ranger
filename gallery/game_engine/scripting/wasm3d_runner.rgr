@@ -253,6 +253,40 @@ class Wasm3dRunner {
         def n:int (strlen name)
         return (substring name 0 (n - 4))
     }
+    fn endsWithPng:boolean (name:string) {
+        def n:int (strlen name)
+        if (n < 4) {
+            return false
+        }
+        def suf:string (substring name (n - 4) n)
+        return (suf == ".png")
+    }
+    ; Preload every <gameDir>/sprites/*.png (decoded to RGBA, with alpha) into the
+    ; texture pool and register each under its basename, so a host-managed guest
+    ; can call rg_load_sprite("name") -> texId and rg_create_sprite(...).
+    fn preloadSprites:void () {
+        if ((file_exists gameDir "sprites") == false) {
+            return
+        }
+        def dir:string (gameDir + "/sprites")
+        def names:[string] (list_dir_files dir)
+        def dec:PNGDecoder (new PNGDecoder)
+        def i:int 0
+        while (i < (array_length names)) {
+            def fname:string (itemAt names i)
+            if (this.endsWithPng(fname)) {
+                def img:ImageBuffer (dec.decode(dir fname))
+                if ((img.width) > 0) {
+                    def rgba:buffer (img.getRawBuffer())
+                    def texId:int (gfx_3d_upload_texture rgba img.width img.height)
+                    def base:string (this.stripGlb(fname))
+                    gfx_scene_register_sprite base texId
+                    print ("[wasm3d] sprite '" + base + "' -> tex=" + (to_string texId) + " " + (to_string img.width) + "x" + (to_string img.height))
+                }
+            }
+            i = (i + 1)
+        }
+    }
     ; double 0..1 -> byte 0..255 (rounded, clamped)
     fn chan255:int (v:double) {
         def s:double ((v * 255.0) + 0.5)
@@ -328,6 +362,7 @@ class Wasm3dRunner {
             ; build the scene via rg_create_*/rg_set_* host imports during init().
             gfx_scene_reset
             this.preloadModels()
+            this.preloadSprites()
             this.wasmVoid("init" 0 0 0 0 0 0)
             print "[wasm3d] host-managed scene mode"
             return

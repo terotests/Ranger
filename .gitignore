@@ -11,6 +11,8 @@ data_folder/
 *.ppm
 !gallery/game_engine/scripting/assets/**
 !gallery/game_engine/games/**/assets/**
+!gallery/game_engine/games/**/sprites/**
+!gallery/game_engine/games/**/models/**
 !tests/fixtures/game_bg_8x8.png
 
 # MacOS

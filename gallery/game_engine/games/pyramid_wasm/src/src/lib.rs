@@ -27,8 +27,11 @@ const FP: f32 = 256.0;
 extern "C" {
     fn rg_load_texture(name_ptr: *const u8, name_len: u32) -> i32;
     fn rg_load_model(name_ptr: *const u8, name_len: u32) -> i32;
+    fn rg_load_sprite(name_ptr: *const u8, name_len: u32) -> i32;
     fn rg_create_box(x0: i32, y0: i32, z0: i32, x1: i32, y1: i32, z1: i32, tex: i32) -> i32;
     fn rg_create_mesh_entity(mesh: i32, tex: i32) -> i32;
+    fn rg_create_sprite(tex: i32, cols: i32, rows: i32, w: i32, h: i32) -> i32;
+    fn rg_set_sprite_cell(e: i32, col: i32, row: i32);
     fn rg_create_camera(fovy: i32, near: i32, far: i32) -> i32;
     fn rg_create_light(kind: i32, color: i32, intensity: i32) -> i32;
     fn rg_set_position(e: i32, x: i32, y: i32, z: i32);
@@ -200,6 +203,10 @@ struct World {
     player_ent: i32,
     cam: i32,
     lamp: i32,
+    cam_x: f32,
+    cam_y: f32,
+    cam_z: f32,
+    mummy: i32, // sprite sheet tex (0 = fall back to boxes)
 }
 
 struct WCell(UnsafeCell<World>);
@@ -244,6 +251,10 @@ static W: WCell = WCell(UnsafeCell::new(World {
     player_ent: 0,
     cam: 0,
     lamp: 0,
+    cam_x: 0.0,
+    cam_y: 0.0,
+    cam_z: 0.0,
+    mummy: 0,
 }));
 fn world() -> &'static mut World {
     unsafe { &mut *W.0.get() }
@@ -311,8 +322,13 @@ fn add_monster(w: &mut World, tex: i32, terrace: usize, side: i32, speed: f32) {
     let inner = slab_half(terrace + 1);
     let mid = (outer + inner) * 0.5;
     let range = outer - 0.6;
-    let mhy = 0.5;
-    let ent = create_actor([0.4, mhy, 0.4], tex);
+    // billboard mummy (centre at feet+0.75) when the sheet is loaded, else a box
+    let mhy = if w.mummy > 0 { 0.75 } else { 0.5 };
+    let ent = if w.mummy > 0 {
+        unsafe { rg_create_sprite(w.mummy, 3, 4, fx(0.95), fx(1.5)) }
+    } else {
+        create_actor([0.4, 0.5, 0.4], tex)
+    };
     // axis = the axis the monster walks along; `fixed` is its coord on the
     // other horizontal axis (monster_xz reads them back by `axis`).
     let (axis, fixed) = match side {
@@ -474,13 +490,16 @@ fn start_death(w: &mut World) {
 }
 
 // ---- camera + actor sync ---------------------------------------------------
-fn sync_camera(w: &World) {
+fn sync_camera(w: &mut World) {
     let (s, c) = w.yaw.sin_cos();
     let dist = 5.5;
     let height = 3.4;
     let ex = w.px - s * dist;
     let ez = w.pz - c * dist;
     let ey = w.py + height;
+    w.cam_x = ex;
+    w.cam_y = ey;
+    w.cam_z = ez;
     unsafe {
         rg_set_position(w.cam, fx(ex), fx(ey), fx(ez));
         rg_set_target(w.cam, fx(w.px), fx(w.py + 0.6), fx(w.pz));
@@ -509,6 +528,8 @@ pub extern "C" fn init() {
         w.dying_t = 0.0;
         w.ball_timer = BALL_SPAWN_INT;
         w.t = 0.0;
+        // billboard mummy sheet (host preloads sprites/mummy.png); 0 => box fallback
+        w.mummy = rg_load_sprite("mummy".as_ptr(), 5);
 
         build_pyramid(w, tex_sand, tex_stone, tex_gold);
 
@@ -573,6 +594,27 @@ pub extern "C" fn init() {
 }
 
 // ---- per-frame subsystems --------------------------------------------------
+// Which of the 4 sprite rows (0 front, 1 left, 2 right, 3 back) to show for a
+// character facing (fxv,fzv) at (mx,mz), seen by a camera at (camx,camz).
+fn sprite_dir(fxv: f32, fzv: f32, mx: f32, mz: f32, camx: f32, camz: f32) -> i32 {
+    let mut tx = camx - mx;
+    let mut tz = camz - mz;
+    let l = (tx * tx + tz * tz).sqrt();
+    if l > 0.0 {
+        tx /= l;
+        tz /= l;
+    }
+    let dot_f = fxv * tx + fzv * tz; // facing · toCamera
+    let dot_r = fzv * tx - fxv * tz; // right(fz,-fx) · toCamera
+    if dot_f.abs() >= dot_r.abs() {
+        if dot_f > 0.0 { 0 } else { 3 }
+    } else if dot_r > 0.0 {
+        2
+    } else {
+        1
+    }
+}
+
 fn update_monsters(w: &mut World, dt: f32) {
     for i in 0..w.nmon {
         let mut m = w.mons[i];
@@ -594,8 +636,13 @@ fn update_monsters(w: &mut World, dt: f32) {
             m.dir = 1.0;
         }
         let (mx, mz) = monster_xz(&m);
-        unsafe {
-            rg_set_position(m.ent, fx(mx), fx(m.y), fx(mz));
+        unsafe { rg_set_position(m.ent, fx(mx), fx(m.y), fx(mz)) };
+        if w.mummy > 0 {
+            let (fxv, fzv) = if m.axis == 0 { (m.dir, 0.0) } else { (0.0, m.dir) };
+            let d = sprite_dir(fxv, fzv, mx, mz, w.cam_x, w.cam_z);
+            let frame = (((w.t * 6.0) as i32) + i as i32).rem_euclid(3);
+            unsafe { rg_set_sprite_cell(m.ent, frame, d) };
+        } else {
             set_yaw(m.ent, if m.dir > 0.0 { 0.0 } else { core::f32::consts::PI });
         }
         w.mons[i] = m;
