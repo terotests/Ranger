@@ -5,10 +5,21 @@
 //! HUD content is authored entirely from data the guest already sees each
 //! frame (collision contacts, computed grip, boost) — proving a WASM game can
 //! drive dynamic, multi-colored text through the EVG pipeline.
+//!
+//! GAME vs GAME ENGINE (same split as lib.rs):
+//!   * GAME: WHAT the HUD says — the colours, the "HITS/GRIP/BOOST" labels, the
+//!     grip thresholds, the two-column layout, the node-id scheme. All of this
+//!     is autopeli's UI design.
+//!   * GAME ENGINE INTERFACE: the `ranger_game::ui` builder (`ui::reset`,
+//!     `ui::root`, `.view()/.row()/.column()/.label()/.font()/.color_rgba()`,
+//!     `ui::finish`). It is a generic retained-mode UI writer; it neither knows
+//!     nor cares that this is a car game.
+//! Lines tagged `// [engine]` call that builder; everything else is the game.
 
+// [engine] the generic RGU1 UI builder — the game's only host-facing dependency here.
 use ranger_game::ui;
 
-// ---- HUD colors (0xRRGGBBAA) ------------------------------------------
+// == GAME: HUD colors (0xRRGGBBAA) — pure UI design choices ==============
 const C_WHITE: u32 = 0xFFFF_FFFF;
 const C_HITFLASH: u32 = 0xFF30_30FF; // red flash right after a crash
 const C_WALL: u32 = 0xB0B0_B0FF; // gray
@@ -92,6 +103,7 @@ fn grip_color(grip: i32) -> u32 {
 }
 
 fn add_text(parent: &mut ui::El, id: i32, s: &str, color: u32) {
+    // [engine] append a label node to the RGU1 document via the ui builder.
     parent.label(id, s).font(8).color_rgba(color);
 }
 
@@ -100,10 +112,10 @@ fn add_text(parent: &mut ui::El, id: i32, s: &str, color: u32) {
 /// renders one column per split-screen pane (P1 -> id 10, P2 -> id 20).
 /// Node ids stay fixed even when a line is absent (they're host contract).
 fn player_column(root: &mut ui::El, col_id: i32, p: PlayerHud) {
-    let mut col = root.view(col_id);
-    col.column().pad(4);
+    let mut col = root.view(col_id); // [engine] add a container node
+    col.column().pad(4); // [engine] set layout props on that node
 
-    let base = col_id + 1;
+    let base = col_id + 1; // game: this game's node-id numbering scheme
 
     let mut hbuf = [0u8; 16];
     let hlen = label_num(b"HITS ", p.hits, &mut hbuf);
@@ -138,12 +150,12 @@ fn player_column(root: &mut ui::El, col_id: i32, p: PlayerHud) {
 /// `revision`. The root is a transparent container holding the P1 (id 10) and
 /// P2 (id 20) columns; the host picks the column matching the pane it draws.
 pub fn build_hud(p1: PlayerHud, p2: PlayerHud, revision: u32) {
-    ui::reset();
-    let mut root = ui::root(1);
-    root.row();
-    player_column(&mut root, 10, p1);
-    player_column(&mut root, 20, p2);
-    ui::finish(revision);
+    ui::reset(); // [engine] start a fresh RGU1 document
+    let mut root = ui::root(1); // [engine] create the root node (id 1)
+    root.row(); // [engine] lay children out in a row
+    player_column(&mut root, 10, p1); // game: P1 column (engine calls inside)
+    player_column(&mut root, 20, p2); // game: P2 column (engine calls inside)
+    ui::finish(revision); // [engine] commit the document + bump the revision word
 }
 
 #[cfg(test)]
