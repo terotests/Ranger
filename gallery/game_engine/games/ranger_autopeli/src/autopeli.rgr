@@ -1,20 +1,28 @@
 ; ============================================================================
-; autopeli.rgr — the "Autot2" car game, written in RANGER, compiled to WASM,
-; driven by the engine's host-physics (RGW1 linear) runner — the same runner
-; that runs the Rust games/autopeli_wasm/logic.wasm.
+; autopeli.rgr — "Autot2", a two-player top-down racing/traffic-dodger written
+; in RANGER, compiled to WASM, driven by the engine's host-physics RGW1 runner
+; (the same runner that runs the Rust games/autopeli_wasm/logic.wasm).
 ;
-; MINIMAL CORE (stage 1): exports + input->controls + contacts->hits + camera.
-; Traffic AI, road geometry, oil/ramps and the HUD are layered on next.
-;
-; The guest is pure logic: the host owns and simulates the bodies (it writes
-; their poses into the block each frame); we read poses/input/contacts and write
+; The guest is pure logic: the host owns the bodies (writes their poses into the
+; block each frame and simulates them). We read poses/input/contacts and write
 ; per-body control channels (steer/throttle/brake/grip), impulses and events.
+;
+; Everything is integer fixed-point (FP = 256) — the WAT backend is i32-only, so
+; the Rust game's f64 "feel" math is reproduced with integer/fixed-point here.
+;
+; Memory (all guest-owned, persists across calls; see ranger_game.rgr for RGW1):
+;   private per-player state : 10880 + player*64
+;   global scratch/state     : 11008
+;   data tables (road/traffic/oil/ramps) : 11264+   (filled once in init)
 ; ============================================================================
 
 Import "./ranger_game.rgr"
 
+; Game-defined body taxonomy (must match the host scene, wasm_autopeli_setup):
+;   0     = player 1        1     = player 2
+;   2..16 = 15 AI traffic   100.. = cones   200.. = bars   1000/1001 = walls
 class Auto {
-    ; ---- exports (renamed to bare ABI names by build.sh) -------------------
+    ; ---- exports (renamed to the bare ABI names by build.sh) ---------------
     sfn abi_base:int () {
         return (World.base())
     }
@@ -26,34 +34,271 @@ class Auto {
     sfn declare_resources:void () {
     }
 
+    ; --------------------------------------------------------------------
+    ; private per-player state: base 10880, stride 64
+    ;   0 rampCd  4 air  8 oilCd  12 oilRec  16 oilWas
+    ;   20 lastHit  24 flash  28 grip  32 brakeCd
+    ; --------------------------------------------------------------------
+    sfn pget:int (p:int off:int) {
+        return (Mem.loadI32((+ (+ 10880 (* p 64)) off)))
+    }
+
+    sfn pset:void (p:int off:int v:int) {
+        Mem.storeI32((+ (+ 10880 (* p 64)) off) v)
+    }
+
+    ; global scratch: 11008 won, 11012 scratchCx, 11016 scratchHalf
+    sfn won:int () {
+        return (Mem.loadI32(11008))
+    }
+
+    sfn setWon:void (v:int) {
+        Mem.storeI32(11008 v)
+    }
+
+    ; --------------------------------------------------------------------
+    ; data tables — laid out in linear memory, filled once by init.
+    ;   ROAD   11264 stride 12 : y, x, half             (16 rows)
+    ;   TRAFFIC 11456 stride 24 : y, lane, thr, weave, wspd, phase (15 rows)
+    ;   OIL    11816 stride 12 : y, lane, r             (9 rows)
+    ;   RAMP   11924 stride 16 : y, lane, w, h          (5 rows)
+    ; --------------------------------------------------------------------
+    sfn roadY:int (k:int) {
+        return (Mem.loadI32((+ 11264 (* k 12))))
+    }
+
+    sfn roadX:int (k:int) {
+        return (Mem.loadI32((+ (+ 11264 (* k 12)) 4)))
+    }
+
+    sfn roadHalf:int (k:int) {
+        return (Mem.loadI32((+ (+ 11264 (* k 12)) 8)))
+    }
+
+    sfn trafficField:int (k:int f:int) {
+        return (Mem.loadI32((+ (+ 11456 (* k 24)) (* f 4))))
+    }
+
+    sfn oilField:int (k:int f:int) {
+        return (Mem.loadI32((+ (+ 11816 (* k 12)) (* f 4))))
+    }
+
+    sfn rampField:int (k:int f:int) {
+        return (Mem.loadI32((+ (+ 11924 (* k 16)) (* f 4))))
+    }
+
+    sfn setRoad:void (k:int y:int xx:int half:int) {
+        def a (+ 11264 (* k 12))
+        Mem.storeI32(a y)
+        Mem.storeI32((+ a 4) xx)
+        Mem.storeI32((+ a 8) half)
+    }
+
+    sfn setTraffic:void (k:int y:int lane:int thr:int weave:int wspd:int phase:int) {
+        def a (+ 11456 (* k 24))
+        Mem.storeI32(a y)
+        Mem.storeI32((+ a 4) lane)
+        Mem.storeI32((+ a 8) thr)
+        Mem.storeI32((+ a 12) weave)
+        Mem.storeI32((+ a 16) wspd)
+        Mem.storeI32((+ a 20) phase)
+    }
+
+    sfn setOil:void (k:int y:int lane:int r:int) {
+        def a (+ 11816 (* k 12))
+        Mem.storeI32(a y)
+        Mem.storeI32((+ a 4) lane)
+        Mem.storeI32((+ a 8) r)
+    }
+
+    sfn setRamp:void (k:int y:int lane:int w:int h:int) {
+        def a (+ 11924 (* k 16))
+        Mem.storeI32(a y)
+        Mem.storeI32((+ a 4) lane)
+        Mem.storeI32((+ a 8) w)
+        Mem.storeI32((+ a 12) h)
+    }
+
+    sfn initTables:void () {
+        Auto.setRoad(0 6000 240 126)
+        Auto.setRoad(1 5600 220 104)
+        Auto.setRoad(2 5200 200 78)
+        Auto.setRoad(3 4800 250 96)
+        Auto.setRoad(4 4400 300 114)
+        Auto.setRoad(5 4000 255 94)
+        Auto.setRoad(6 3600 210 108)
+        Auto.setRoad(7 3200 250 94)
+        Auto.setRoad(8 2800 310 110)
+        Auto.setRoad(9 2400 250 92)
+        Auto.setRoad(10 2000 170 98)
+        Auto.setRoad(11 1600 220 90)
+        Auto.setRoad(12 1200 290 104)
+        Auto.setRoad(13 800 250 88)
+        Auto.setRoad(14 400 210 74)
+        Auto.setRoad(15 100 240 112)
+
+        Auto.setTraffic(0 5520 -580 450 4 1 200)
+        Auto.setTraffic(1 5260 500 390 7 1 1400)
+        Auto.setTraffic(2 4930 -180 490 3 2 2200)
+        Auto.setTraffic(3 4590 620 420 5 1 3100)
+        Auto.setTraffic(4 4270 -580 520 4 1 4500)
+        Auto.setTraffic(5 3950 200 370 8 1 800)
+        Auto.setTraffic(6 3610 -620 470 4 1 5400)
+        Auto.setTraffic(7 3280 580 430 6 1 2700)
+        Auto.setTraffic(8 2940 -100 540 3 2 1900)
+        Auto.setTraffic(9 2570 620 400 7 1 3800)
+        Auto.setTraffic(10 2190 -580 500 5 1 5900)
+        Auto.setTraffic(11 1810 260 380 8 1 4100)
+        Auto.setTraffic(12 1420 -620 460 4 1 500)
+        Auto.setTraffic(13 1040 580 510 5 1 2900)
+        Auto.setTraffic(14 650 -200 420 7 1 5100)
+
+        Auto.setOil(0 5460 350 34)
+        Auto.setOil(1 5050 -450 30)
+        Auto.setOil(2 4300 420 38)
+        Auto.setOil(3 3740 -280 32)
+        Auto.setOil(4 3060 500 36)
+        Auto.setOil(5 2480 -500 40)
+        Auto.setOil(6 1780 340 34)
+        Auto.setOil(7 1080 -350 31)
+        Auto.setOil(8 560 250 28)
+
+        Auto.setRamp(0 5350 50 38 22)
+        Auto.setRamp(1 4720 -420 34 20)
+        Auto.setRamp(2 3500 380 40 22)
+        Auto.setRamp(3 2640 -350 38 20)
+        Auto.setRamp(4 1160 320 36 20)
+    }
+
+    ; --------------------------------------------------------------------
+    ; road geometry — road_at(y_fp) writes centre-x and half-width (both fp)
+    ; into scratch (11012, 11016). Linear interpolation over the waypoints.
+    ; --------------------------------------------------------------------
+    sfn roadAt:void (yfp:int) {
+        def y (idiv yfp 256)
+        if (>= y 6000) {
+            Mem.storeI32(11012 (* 240 256))
+            Mem.storeI32(11016 (* 126 256))
+            return
+        }
+        if (<= y 100) {
+            Mem.storeI32(11012 (* 240 256))
+            Mem.storeI32(11016 (* 112 256))
+            return
+        }
+        def i (idiv (- 6000 y) 400)
+        if (> i 14) {
+            i = 14
+        }
+        def ay (Auto.roadY(i))
+        def by (Auto.roadY((+ i 1)))
+        def span (- ay by)
+        def t 0
+        if (> span 0) {
+            t = (idiv (* (- ay y) 256) span)
+        }
+        def ax (* (Auto.roadX(i)) 256)
+        def bx (* (Auto.roadX((+ i 1))) 256)
+        def ah (* (Auto.roadHalf(i)) 256)
+        def bh (* (Auto.roadHalf((+ i 1))) 256)
+        def cx (+ ax (idiv (* (- bx ax) t) 256))
+        def half (+ ah (idiv (* (- bh ah) t) 256))
+        Mem.storeI32(11012 cx)
+        Mem.storeI32(11016 half)
+    }
+
+    sfn scratchCx:int () {
+        return (Mem.loadI32(11012))
+    }
+
+    sfn scratchHalf:int () {
+        return (Mem.loadI32(11016))
+    }
+
+    ; lane centre x (fp) for a lane offset (-1000..1000) at world y (fp), margin px
+    sfn laneX:int (yfp:int lane:int margin:int) {
+        Auto.roadAt(yfp)
+        def usable (- (Auto.scratchHalf()) (* margin 256))
+        return (+ (Auto.scratchCx()) (idiv (* usable (Fx.clamp(lane -1000 1000))) 1000))
+    }
+
+    ; integer sine, degrees -> milli (-1000..1000), Bhaskara I approximation
+    sfn sinMilli:int (deg:int) {
+        def d (% deg 360)
+        if (< d 0) {
+            d = (+ d 360)
+        }
+        def sign 1
+        if (> d 180) {
+            d = (- d 180)
+            sign = -1
+        }
+        def num (* (* 4 d) (- 180 d))
+        def den (- 40500 (* d (- 180 d)))
+        def v (idiv (* num 1000) (* den 1))
+        return (* v sign)
+    }
+
+    ; --------------------------------------------------------------------
     sfn init:void () {
         World.initHeader()
         World.setBodyCount(17)
+        Auto.initTables()
+        Auto.setWon(0)
         def spawnY (* 5860 256)
-        World.setBodyFull(0 (* 220 256) spawnY 0 1)
-        World.setBodyFull(1 (* 260 256) spawnY 0 1)
-        def i 2
-        while (< i 17) {
-            World.setBodyFull(i (* 240 256) (* 3000 256) 0 1)
-            i = (+ i 1)
-        }
-    }
-
-    sfn update:void () {
-        World.beginFrame()
-        Auto.drive(0 (World.input()))
-        Auto.drive(1 (World.inputP2()))
-        def t 2
-        while (< t 17) {
-            World.setControl(t 0 450 0 1000)
+        Auto.roadAt(spawnY)
+        def cx (Auto.scratchCx())
+        World.setBodyFull(0 (- cx (* 28 256)) spawnY 0 1)
+        World.setBodyFull(1 (+ cx (* 28 256)) spawnY 0 1)
+        def t 0
+        while (< t 15) {
+            def ty (* (Auto.trafficField(t 0)) 256)
+            def tx (Auto.laneX(ty (Auto.trafficField(t 1)) 22))
+            World.setBodyFull((+ 2 t) tx ty 0 1)
             t = (+ t 1)
         }
-        Auto.processContacts()
-        World.setCameraY((- (World.bodyY(0)) (* 120 256)))
     }
 
-    ; ---- input -> control channels (ch0 steer, ch1 throttle, ch2 brake) ----
-    sfn drive:void (idx:int flags:int) {
+    ; --------------------------------------------------------------------
+    sfn update:void () {
+        World.beginFrame()
+        def dt (World.dtMs())
+        def now (World.timeMs())
+
+        Auto.processContacts()
+
+        Auto.drivePlayer(0 (World.input()))
+        Auto.drivePlayer(1 (World.inputP2()))
+
+        def t 0
+        while (< t 15) {
+            Auto.trafficControl((+ 2 t) t now)
+            t = (+ t 1)
+        }
+
+        Auto.tickPlayer(0 dt)
+        Auto.tickPlayer(1 dt)
+
+        World.setScalar(0 (Auto.pget(0 4)))
+        World.setScalar(1 (Auto.pget(1 4)))
+
+        World.setCameraY((- (World.bodyY(0)) (* 120 256)))
+        Auto.checkWin()
+    }
+
+    ; ---- grip: 1000 on road, 450 off the edge --------------------------
+    sfn gripAt:int (xfp:int yfp:int) {
+        Auto.roadAt(yfp)
+        def edge (- (Auto.scratchHalf()) (* 16 256))
+        def off (- xfp (Auto.scratchCx()))
+        if (> (Fx.abs(off)) edge) {
+            return 450
+        }
+        return 1000
+    }
+
+    ; ---- input -> control channels -------------------------------------
+    sfn drivePlayer:void (idx:int flags:int) {
         def steer 0
         if (Bits.hasFlag(flags 4)) {
             steer = -1000
@@ -69,10 +314,129 @@ class Auto {
         if (Bits.hasFlag(flags 2)) {
             brake = 1000
         }
-        World.setControl(idx steer throttle brake 1000)
+        def grip (Auto.gripAt((World.bodyX(idx)) (World.bodyY(idx))))
+        Auto.pset(idx 28 grip)
+        World.setControl(idx steer throttle brake grip)
     }
 
-    ; ---- contacts -> hit count + collision sounds --------------------------
+    ; ---- traffic AI: aim ahead at lane centre + weave, steer proportionally
+    sfn trafficControl:void (idx:int ti:int now:int) {
+        def bx (World.bodyX(idx))
+        def by (World.bodyY(idx))
+        def lookY (- by (* 115 256))
+        Auto.roadAt(lookY)
+        def cx (Auto.scratchCx())
+        def half (Auto.scratchHalf())
+        def lane (Auto.trafficField(ti 1))
+        def weave (Auto.trafficField(ti 3))
+        def wspd (Auto.trafficField(ti 4))
+        def phase (Auto.trafficField(ti 5))
+        def deg (+ (idiv (* now wspd) 90) phase)
+        def wave (idiv (* (Auto.sinMilli(deg)) weave) 1000)
+        def target (+ (+ cx (idiv (* (- half (* 23 256)) lane) 1000)) (* wave 256))
+        def err (- target bx)
+        def steer (Fx.clamp((idiv err 34) -1000 1000))
+        Auto.roadAt(by)
+        def safeL (+ (- (Auto.scratchCx()) (Auto.scratchHalf())) (* 16 256))
+        def safeR (- (+ (Auto.scratchCx()) (Auto.scratchHalf())) (* 16 256))
+        if (< bx safeL) {
+            steer = 1000
+        }
+        if (> bx safeR) {
+            steer = -1000
+        }
+        def grip (Auto.gripAt(bx by))
+        World.setControl(idx steer (Auto.trafficField(ti 2)) 0 grip)
+    }
+
+    ; ---- per-player extras each frame: oil spin, ramp launch, timers -----
+    sfn tickPlayer:void (p:int dt:int) {
+        def bx (World.bodyX(p))
+        def by (World.bodyY(p))
+
+        ; oil: rising edge onto a patch -> spin burst + sound
+        def on (Auto.onOil(bx by))
+        def was (Auto.pget(p 16))
+        if (> on 0) {
+            if (== was 0) {
+                World.sound(2)
+                def spin (Auto.oilSpin(p))
+                World.pushImpulse(p 0 0 spin)
+                Auto.pset(p 8 260)
+            }
+        }
+        Auto.pset(p 16 on)
+
+        ; ramp: launch up + spin when cooldown elapsed
+        def rampCd (Auto.pget(p 0))
+        if (<= rampCd 0) {
+            if (> (Auto.hitRamp(bx by)) 0) {
+                World.pushImpulse(p 0 (* -95 256) (* 320 256))
+                Auto.pset(p 0 700)
+                Auto.pset(p 4 900)
+                World.sound(2)
+                World.rumble(p 70 12000)
+            }
+        }
+
+        ; decay timers
+        Auto.pset(p 0 (Fx.maxi((- (Auto.pget(p 0)) dt) 0))
+        )
+        Auto.pset(p 4 (Fx.maxi((- (Auto.pget(p 4)) dt) 0)))
+        Auto.pset(p 24 (Fx.maxi((- (Auto.pget(p 24)) dt) 0)))
+        Auto.pset(p 8 (Fx.maxi((- (Auto.pget(p 8)) dt) 0)))
+    }
+
+    ; ---- oil hit-test (returns 1 if on any patch) ----------------------
+    sfn onOil:int (xfp:int yfp:int) {
+        def y (idiv yfp 256)
+        def k 0
+        def hit 0
+        while (< k 9) {
+            def oy (Auto.oilField(k 0))
+            def px (Auto.laneX((* oy 256) (Auto.oilField(k 1)) 18))
+            def dx (idiv (- xfp px) 256)
+            def dy (- y oy)
+            def r (Auto.oilField(k 2))
+            if (< (+ (* dx dx) (* dy dy)) (* r r)) {
+                hit = 1
+            }
+            k = (+ k 1)
+        }
+        return hit
+    }
+
+    sfn oilSpin:int (p:int) {
+        def spd (Fx.maxi((idiv (World.bodySpeed(p)) 256) 40))
+        def base (idiv (* spd 12) 100)
+        return (* (+ base 22) 256)
+    }
+
+    ; ---- ramp hit-test (axis-aligned box) ------------------------------
+    sfn hitRamp:int (xfp:int yfp:int) {
+        def y (idiv yfp 256)
+        def k 0
+        def hit 0
+        while (< k 5) {
+            def ry (Auto.rampField(k 0))
+            def rx (Auto.laneX((* ry 256) (Auto.rampField(k 1)) 24))
+            def hw (idiv (* (Auto.rampField(k 2)) 256) 2)
+            def h (Auto.rampField(k 3))
+            if (>= xfp (- rx hw)) {
+                if (<= xfp (+ rx hw)) {
+                    if (>= y ry) {
+                        if (<= y (+ ry h)) {
+                            hit = 1
+                        }
+                    }
+                }
+            }
+            k = (+ k 1)
+        }
+        return hit
+    }
+
+    ; ---- contacts -> hits, sounds, rumble, particles -------------------
     sfn processContacts:void () {
         def cnt (World.contactCount())
         def hits (World.hits())
@@ -92,12 +456,23 @@ class Auto {
                     other = a
                 }
                 if (>= player 0) {
+                    def imp (idiv (World.contactImpulse(i)) 256)
+                    def cxp (World.contactX(i))
+                    def cyp (World.contactY(i))
                     if (Auto.isSolid(other)) {
                         hits = (+ hits 1)
-                        World.sound(1)
+                        Auto.pset(player 20 (Auto.hitKind(other)))
+                        Auto.pset(player 24 260)
+                        if (>= imp 18) {
+                            World.sound(1)
+                        }
+                        Auto.collisionRumble(player imp other)
+                        Auto.collisionParticles(other imp cxp cyp)
                     }
                     if (Auto.isCone(other)) {
+                        Auto.pset(player 20 4)
                         World.sound(2)
+                        World.rumble(player 38 (+ 6500 (Fx.mini((* imp 40) 9000))))
                     }
                 }
             }
@@ -106,9 +481,61 @@ class Auto {
         World.setHits(hits)
     }
 
+    sfn collisionRumble:void (player:int imp:int other:int) {
+        if (< imp 22) {
+            return
+        }
+        if (Auto.isTraffic(other)) {
+            World.rumble(player (+ 55 (Fx.mini((idiv (* imp 35) 100) 100))) (+ 12000 (Fx.mini((* imp 70) 18000))))
+        } {
+            World.rumble(player (+ 60 (Fx.mini((idiv (* imp 45) 100) 130))) (+ 14000 (Fx.mini((* imp 90) 24000))))
+        }
+    }
+
+    sfn collisionParticles:void (other:int imp:int x:int y:int) {
+        if (Auto.isWall(other)) {
+            if (> imp 80) {
+                World.particles(x y 6)
+            }
+        }
+        if (Auto.isBar(other)) {
+            if (> imp 45) {
+                World.particles(x y 6)
+            }
+        }
+        if (Auto.isTraffic(other)) {
+            if (> imp 55) {
+                World.particles(x y 5)
+            }
+        }
+    }
+
+    sfn checkWin:void () {
+        if (> (Auto.won()) 0) {
+            return
+        }
+        def y1 (idiv (World.bodyY(0)) 256)
+        def y2 (idiv (World.bodyY(1)) 256)
+        if (< (Fx.mini(y1 y2)) 140) {
+            World.setScore((+ (World.score()) 5000))
+            World.sound(3)
+            Auto.setWon(1)
+        }
+    }
+
+    ; ---- id-code predicates --------------------------------------------
     sfn isPlayer:boolean (code:int) {
         if (< code 2) {
             return true
+        }
+        return false
+    }
+
+    sfn isTraffic:boolean (code:int) {
+        if (>= code 2) {
+            if (< code 17) {
+                return true
+            }
         }
         return false
     }
@@ -122,21 +549,43 @@ class Auto {
         return false
     }
 
-    ; wall (>=1000), bar (200..299), traffic (2..16)
-    sfn isSolid:boolean (code:int) {
-        if (>= code 1000) {
-            return true
-        }
+    sfn isBar:boolean (code:int) {
         if (>= code 200) {
             if (< code 300) {
                 return true
             }
         }
-        if (>= code 2) {
-            if (< code 17) {
-                return true
-            }
+        return false
+    }
+
+    sfn isWall:boolean (code:int) {
+        if (>= code 1000) {
+            return true
         }
         return false
+    }
+
+    sfn isSolid:boolean (code:int) {
+        if (Auto.isWall(code)) {
+            return true
+        }
+        if (Auto.isBar(code)) {
+            return true
+        }
+        if (Auto.isTraffic(code)) {
+            return true
+        }
+        return false
+    }
+
+    ; hit kind for the HUD: 1 wall, 2 bar, 3 car
+    sfn hitKind:int (other:int) {
+        if (Auto.isWall(other)) {
+            return 1
+        }
+        if (Auto.isBar(other)) {
+            return 2
+        }
+        return 3
     }
 }
