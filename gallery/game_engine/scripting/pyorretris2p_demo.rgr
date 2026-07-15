@@ -1,0 +1,141 @@
+; ==============================================================================
+; pyorretris2p_demo — headless proof of the two-player, split-well Pyörretris.
+; ==============================================================================
+;
+; Interprets games/pyorretris2p/game.as through AsSpriteScene (no physics),
+; feeds TWO independent input channels (P1 in OFF_INPUT, P2 in OFF_INPUT2) via
+; frameMask2(), reads the guest-authored sprite draw list + ABI state back, and
+; renders it to PNGs. It self-checks that:
+;   * both wells + stacks render at once (double the sprite count of one well),
+;   * P1's channel rotates P1's piece (guest-driven angle over the ABI),
+;   * driving ONLY P1's channel tops out P1 -> P2 is the winner,
+;   * driving ONLY P2's channel tops out P2 -> P1 is the winner
+;     (the two proofs together show the channels never cross-talk),
+;   * either ACTION restarts a fresh, undecided match.
+; ==============================================================================
+
+Import "./as_sprite_runner.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+
+class TwoPCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+}
+
+class TwoPDemo {
+    def IN_UP:int 1
+    def IN_DOWN:int 2
+    def IN_LEFT:int 4
+    def IN_RIGHT:int 8
+    def IN_ACT:int 16
+    def OFF_SCORE:int 40
+    def OFF_LINES:int 44
+    def OFF_STATE:int 48
+    def OFF_WINNER:int 60
+
+    def dir:string "gallery/game_engine/games/pyorretris2p"
+
+    fn snap:void (scene:AsSpriteScene file:string) {
+        scene.draw()
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.width = scene.pw
+        rb.height = scene.ph
+        rb.pixels = (scene.raw())
+        def png:PNGEncoder (new PNGEncoder)
+        png.encode(rb "gallery/game_engine/scripting" file)
+    }
+
+    fn fresh:AsSpriteScene () {
+        def scene:AsSpriteScene (new AsSpriteScene)
+        scene.init(480 270)
+        def ok:boolean (scene.loadGame(dir))
+        return scene
+    }
+
+    ; Pile one well (chosen by whichP: 0 -> P1 channel, 1 -> P2 channel) hard to
+    ; the left until it tops out. Returns the winning player reported by the guest.
+    fn topOut:int (scene:AsSpriteScene whichP:int) {
+        def over:int 0
+        def drops 0
+        while (drops < 90) {
+            if (over == 0) {
+                def j 0
+                while (j < 6) {
+                    if (whichP == 0) {
+                        scene.frameMask2(16 IN_LEFT 0)
+                    } {
+                        scene.frameMask2(16 0 IN_LEFT)
+                    }
+                    j = (j + 1)
+                }
+                if (whichP == 0) {
+                    scene.frameMask2(16 IN_ACT 0)
+                    scene.frameMask2(16 0 0)
+                } {
+                    scene.frameMask2(16 0 IN_ACT)
+                    scene.frameMask2(16 0 0)
+                }
+                over = (scene.abiRead(OFF_STATE))
+            }
+            drops = (drops + 1)
+        }
+        return (scene.abiRead(OFF_WINNER))
+    }
+
+    sfn m@(main):void () {
+        def d:TwoPDemo (new TwoPDemo)
+        def c:TwoPCheck (new TwoPCheck)
+
+        ; ---- frame 0: two fresh wells, each with a spawned piece ----
+        def scene:AsSpriteScene (d.fresh())
+        c.ok(("declared 9 block templates (got " + (to_string (scene.templateCount())) + ")") ((scene.templateCount()) == 9))
+        ; one well emits ~56 sprites (walls + a piece); two wells clear 60.
+        c.ok(("both wells render at once (got " + (to_string (scene.spriteCount())) + ")") ((scene.spriteCount()) > 60))
+        c.ok(("no rotation at rest (got " + (to_string (scene.maxAbsAngle())) + ")") ((scene.maxAbsAngle()) < 3))
+        d.snap(scene "pyorretris2p_1_start.png")
+
+        ; ---- P1's channel rotates P1's piece (guest-driven angle over the ABI) ----
+        scene.frameMask2(16 d.IN_UP 0)
+        def spun:int (scene.maxAbsAngle())
+        c.ok(("P1 rotate -> guest-driven angle > 30 (got " + (to_string spun) + ")") (spun > 30))
+        d.snap(scene "pyorretris2p_2_p1spin.png")
+
+        ; ---- driving ONLY P1's channel tops out P1; P2 (player 1) wins ----
+        def s1:AsSpriteScene (d.fresh())
+        def w1:int (d.topOut(s1 0))
+        c.ok(("P1 topped out from its own channel (state=" + (to_string (s1.abiRead(d.OFF_STATE))) + ")") ((s1.abiRead(d.OFF_STATE)) == 1))
+        c.ok(("P1 lost -> winner is P2 (got " + (to_string w1) + ")") (w1 == 1))
+        d.snap(s1 "pyorretris2p_3_p1out.png")
+
+        ; ---- driving ONLY P2's channel tops out P2; P1 (player 0) wins ----
+        def s2:AsSpriteScene (d.fresh())
+        def w2:int (d.topOut(s2 1))
+        c.ok(("P2 topped out from its own channel (state=" + (to_string (s2.abiRead(d.OFF_STATE))) + ")") ((s2.abiRead(d.OFF_STATE)) == 1))
+        c.ok(("P2 lost -> winner is P1 (got " + (to_string w2) + ")") (w2 == 0))
+        d.snap(s2 "pyorretris2p_4_p2out.png")
+
+        ; ---- either ACTION restarts a fresh, undecided match ----
+        s1.frameMask2(16 d.IN_ACT 0)
+        c.ok(("ACTION restarts after a decided match (state=" + (to_string (s1.abiRead(d.OFF_STATE))) + ")") ((s1.abiRead(d.OFF_STATE)) == 0))
+        c.ok(("restart clears the winner (got " + (to_string (s1.abiRead(d.OFF_WINNER))) + ")") ((s1.abiRead(d.OFF_WINNER)) == -1))
+        d.snap(s1 "pyorretris2p_5_restart.png")
+
+        print "======================================"
+        print (("RESULT: " + (to_string c.passed) + " passed, ") + ((to_string c.failed) + " failed"))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

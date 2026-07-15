@@ -48,6 +48,9 @@ class AsSpriteScene {
     def OFF_DT:int 12
     def OFF_TIME:int 16
     def OFF_INPUT:int 20
+    ; second player's input edge mask, for render=sprites games that declare
+    ; players=2 (e.g. two-player Pyorretris). Single-player games ignore it.
+    def OFF_INPUT2:int 24
 
     fn init:void (w:int h:int) {
         pw = w
@@ -163,6 +166,22 @@ class AsSpriteScene {
         runner.abiWrite(OFF_DT dtMs)
         runner.abiWrite(OFF_TIME timeMs)
         runner.abiWrite(OFF_INPUT mask)
+        runner.callUpdate()
+        this.drainSounds()
+    }
+
+    ; Two-player variant: publish an input edge mask for each player (P1 in
+    ; OFF_INPUT, P2 in OFF_INPUT2) before running the guest's update(). A solo
+    ; game that only reads OFF_INPUT still works (mask1 is simply ignored).
+    fn frameMask2:void (dtMs:int mask0:int mask1:int) {
+        if (loaded == false) {
+            return
+        }
+        timeMs = (timeMs + dtMs)
+        runner.abiWrite(OFF_DT dtMs)
+        runner.abiWrite(OFF_TIME timeMs)
+        runner.abiWrite(OFF_INPUT mask0)
+        runner.abiWrite(OFF_INPUT2 mask1)
         runner.callUpdate()
         this.drainSounds()
     }

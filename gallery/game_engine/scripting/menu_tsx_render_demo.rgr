@@ -44,6 +44,7 @@ class TsxMenuRenderDemo {
     def cw:int 360
     def ch:int 460
     def tMs:int 0            ; host clock (ms) fed via props.time, drives the glow
+    def nextQuit:boolean false  ; set for one step to raise the Back/Quit edge
 
     ; input props object matching game_runtime.stepUpdateScript's shape
     fn props:EvalValue (up:boolean down:boolean left:boolean right:boolean action:boolean) {
@@ -62,7 +63,7 @@ class TsxMenuRenderDemo {
         push k "action"
         push v (EvalValue.boolean(action))
         push k "quit"
-        push v (EvalValue.boolean(false))
+        push v (EvalValue.boolean(nextQuit))
         push k "state"
         push v state
         return (EvalValue.object(k v))
@@ -80,6 +81,13 @@ class TsxMenuRenderDemo {
         tMs = (tMs + 120)
         state = (engine.callFunction("update" (this.props(up down left right action))))
         this.refresh()
+    }
+
+    ; drive one frame with the Back/Quit edge raised (the hardware back button)
+    fn stepBack:void () {
+        nextQuit = true
+        this.step(false false false false false)
+        nextQuit = false
     }
 
     ; advance several idle frames so a deferred (post-flash) callback fires
@@ -184,14 +192,30 @@ class TsxMenuRenderDemo {
         c.ok("games screen has rounded EVG boxes" (d.anyRounded(d.root)))
         d.drawFrame("tsx_menu_2_games.png")
 
-        ; ---- move down, then launch ----
-        d.step(false true false false false)
-        d.step(false false false false true)
+        ; ---- opening a category lands on the first GAME (index 1), not the Back tile ----
+        c.ok(("opens on the first game, index 1 (got sel=" + (d.stateStr("sel")) + ")") ((d.stateStr("sel")) == "1"))
+
+        ; ---- move down, then launch the selected game ----
+        d.step(false true false false false)     ; down -> index 2
+        d.step(false false false false true)     ; A -> launch games[sel-1]
         c.ok(("launch path reported (got '" + (d.stateStr("launchPath")) + "')") ((strlen (d.stateStr("launchPath"))) > 0))
 
-        ; ---- left returns to categories ----
-        d.step(false false true false false)
-        c.ok(("left -> cats (got '" + (d.stateStr("screen")) + "')") ((d.stateStr("screen")) == "cats"))
+        ; ---- left no longer exits: it only moves the selection, staying on games ----
+        d.step(false false true false false)     ; left -> index 1
+        c.ok(("left stays on the games screen (got '" + (d.stateStr("screen")) + "')") ((d.stateStr("screen")) == "games"))
+
+        ; ---- the STICK ALONE can go back: walk up to the Back tile (index 0) + A ----
+        d.step(true false false false false)     ; up -> index 0 (the Back tile)
+        c.ok(("reached the Back tile, index 0 (got sel=" + (d.stateStr("sel")) + ")") ((d.stateStr("sel")) == "0"))
+        d.step(false false false false true)     ; A on Back -> categories (no hardware Back needed)
+        c.ok(("Back tile returns to cats (got '" + (d.stateStr("screen")) + "')") ((d.stateStr("screen")) == "cats"))
+
+        ; ---- the hardware Back/Quit button still works too ----
+        d.step(false false false false true)     ; A on a category -> flash
+        d.settle()
+        c.ok(("re-opened a category (got '" + (d.stateStr("screen")) + "')") ((d.stateStr("screen")) == "games"))
+        d.stepBack()
+        c.ok(("Back/Quit -> cats (got '" + (d.stateStr("screen")) + "')") ((d.stateStr("screen")) == "cats"))
 
         print "======================================"
         print (("RESULT: " + (to_string c.passed) + " passed, ") + ((to_string c.failed) + " failed"))

@@ -1,0 +1,7 @@
+name=Pyorretris 2P
+engine=as
+render=sprites
+players=2
+module=game.as
+
+category=Games

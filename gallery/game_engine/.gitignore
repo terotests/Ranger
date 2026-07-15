@@ -24,6 +24,11 @@ scripting/pose_provider_demo.js
 scripting/as_autopeli_src_demo.js
 scripting/as_sprite_demo.js
 scripting/as_source_demo.js
+scripting/pyorretris2p_demo.js
+scripting/menu_launcher_demo.js
+scripting/menu_tsx_render_demo.js
+scripting/game_catalog_demo.js
 
-# Rendered PNG frames from the headless sprite demo (regenerate: npm run engine:as:sprites)
+# Rendered PNG frames from the headless sprite demos (regenerate: npm run engine:as:sprites)
 scripting/pyorretris_*.png
+scripting/pyorretris2p_*.png

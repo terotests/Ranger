@@ -68,6 +68,12 @@ physics=true
 engine=as
 render=sprites
 module=game.as
+
+# two-player rotatable-sprite game (pyorretris2p): two wells at once
+engine=as
+render=sprites
+players=2
+module=game.as
 ```
 
 - `physics=true` / UI: the guest drives bodies, controls and the RGU1 UI over the
@@ -79,9 +85,13 @@ module=game.as
   list (not the fixed RGW1 block), so it can hold far more instances than 2560 B.
   `AsSpriteScene` (`scripting/as_sprite_runner.rgr`) +
   `GameSdlRunner.runSpriteGame` blit each template rotated. No physics in the loop.
+- `players=2` (render=sprites): `runSpriteGame` splits input into two channels —
+  P1 = WASD/pad (`OFF_INPUT`), P2 = arrows (`OFF_INPUT2`) — via `frameMask2`. The
+  guest owns two independent wells and reads both offsets (see `pyorretris2p`).
 
 ## Run it (headless)
 
 ```bash
-npm run engine:as:sprites   # interpreted pyorretris sprite scene -> ALL PASS
+npm run engine:as:sprites     # interpreted pyorretris sprite scene -> ALL PASS
+npm run engine:as:sprites2p   # two-player pyorretris2p, split input -> ALL PASS
 ```
