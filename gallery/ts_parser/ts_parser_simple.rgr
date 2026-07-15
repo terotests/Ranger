@@ -3568,8 +3568,12 @@ class TSParserSimple {
   fn parseComparison:TSNode () {
     def left (this.parseShift())
 
+    ; Operator checks compare token VALUE, so guard on token TYPE too: a string
+    ; literal like "<" or "in" carries the same value but must never be taken
+    ; for an operator (it ate `const A = "<";` as a comparison before).
     def tokVal (this.peekValue())
-    while ((tokVal == "<") || (tokVal == ">") || (tokVal == "<=") || (tokVal == ">=") || (tokVal == "instanceof") || (tokVal == "in")) {
+    def tokType (this.peekType())
+    while ((((tokVal == "<") || (tokVal == ">") || (tokVal == "<=") || (tokVal == ">=")) && (tokType == "Punctuator")) || (((tokVal == "instanceof") || (tokVal == "in")) && (tokType != "String"))) {
       ; In TSX mode, check if < might be a generic call
       if (tokVal == "<") {
         if (this.tsxMode == true) {
@@ -3597,8 +3601,9 @@ class TSParserSimple {
       expr.col = left.col
       left = expr
       tokVal = (this.peekValue())
+      tokType = (this.peekType())
     }
-    
+
     return left
   }
 
@@ -3813,7 +3818,9 @@ class TSParserSimple {
     ; Type assertion with angle brackets <Type>value
     ; In TSX mode, skip this if it looks like JSX (next is > for fragment, or Identifier for element)
     ; But NOT if it's <T extends ...> which is a generic type parameter
-    if (tokVal == "<") {
+    ; Punctuator guard: a string literal "<" must not be consumed as an assertion
+    ; opener (it silently swallowed the token and broke `const A = "<";`).
+    if ((tokVal == "<") && ((this.peekType()) == "Punctuator")) {
       ; Check for JSX in TSX mode first
       if (this.tsxMode == true) {
         def peekNext (this.peekNextValue())
@@ -3870,7 +3877,8 @@ class TSParserSimple {
       
       ; Generic function call with type arguments: foo<T>(x)
       ; In TSX mode, use heuristics to disambiguate from JSX
-      if (tokVal == "<") {
+      ; (Punctuator guard: never mistake a string literal "<" for type args.)
+      if ((tokVal == "<") && ((this.peekType()) == "Punctuator")) {
         def shouldParseAsGenericCall false
         
         ; In non-TSX mode, < after identifier/call is likely generic

@@ -3684,9 +3684,17 @@ class ComponentEngine {
                 if (body.nodeType == "BlockStatement") {
                     return (this.evaluateFunctionBody(body))
                 }
+                ; generic expression body — e.g. (e, i) => buildTile(e, i) — is
+                ; evaluated like any expression; an element result is the child.
+                def v:EvalValue (this.evaluateExpr(body))
+                if (v.isElement()) {
+                    if v.evgElement {
+                        return (unwrap v.evgElement)
+                    }
+                }
             }
         }
-        
+
         return empty
     }
     

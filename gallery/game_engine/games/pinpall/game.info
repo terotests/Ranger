@@ -2,3 +2,4 @@ name=Flipperitorni
 soloScript=index.tsx
 splitScreen=auto
 category=Games
+icon=assets/image.png

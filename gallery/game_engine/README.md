@@ -187,7 +187,8 @@ Katalogi päivittyy ajon aikana (oletus ~10 s välein); uusi `games/mygame/index
 
 ```ini
 name=My Game
-icon=icon.png
+icon=assets/image.png     # launcherin ikonikuva (ks. ikonien generointi alla)
+iconFrames=120            # kuinka monta headless-framea ennen ikoniscreenshotia
 splitScreen=auto          # auto | always | never (jaetaanko ruutu)
 splitWorld=shared         # shared | separate (jaetun maailman malli, ks. alla)
 autoscale=true            # host skaalaa 480×270 → paneeliin
@@ -222,6 +223,25 @@ name=My Game
 ```
 
 Ilman `name=`-kenttää käytetään kansion nimeä.
+
+### Launcher-ikonit (screenshotit)
+
+Launcherin pelitiilet näyttävät pelin oman kuvan (`icon=` `game.info`:ssa,
+konventiona `assets/image.png`). Puuttuvat ikonit generoidaan ajamalla peli
+headlessinä ja nappaamalla ruutukaappaus:
+
+```bash
+npm run engine:game:icons                  # kaikki pelit joilta ikoni puuttuu
+node .../game_icon_shots_demo.js --force pong   # yhden pelin uudelleenotto
+```
+
+Työkalu ([`scripting/game_icon_shots_demo.rgr`](./scripting/game_icon_shots_demo.rgr))
+tukee `tsx`- ja `as`-pelejä, kirjoittaa kuvan pelin kansioon ja lisää `icon=`-
+rivin `game.info`:on. Olemassa olevaa kuvaa ei koskaan ylikirjoiteta ilman
+`--force`-lippua, ja jos `assets/image.png` on pelin oma asset (esim.
+invadersin taustakuva), ikoni tallentuu nimellä `assets/icon.png`. `iconFrames=`
+säätää monenko framen jälkeen kaappaus otetaan (esim. Breakout kaatuu nopeasti
+game overiin, joten se käyttää arvoa 120).
 
 ### 2. Kirjoita `index.tsx`
 

@@ -52,6 +52,10 @@ class GameCatalogEntry {
     ; "Tests", ...). Set by `category=` in game.info; when omitted the catalog
     ; infers one (engine=ui/as demos -> Tests, everything else -> Games).
     def category:string ""
+    ; iconFrames: how many headless frames game_icon_shots_demo advances before
+    ; grabbing assets/image.png (e.g. a game that dies fast wants an early shot).
+    ; Empty = the tool's default.
+    def iconFrames:string ""
 }
 
 class GameCatalog {
@@ -242,6 +246,9 @@ class GameCatalog {
         }
         if (key == "icon") {
             entry.iconPath = val
+        }
+        if (key == "iconFrames") {
+            entry.iconFrames = val
         }
         if (key == "splitScreen") {
             entry.splitScreen = val
@@ -468,6 +475,26 @@ class GameCatalog {
         }
     }
 
+    ; Resolve a launcher-usable icon image for an entry: the explicit game.info
+    ; icon= wins (relative to the game folder); otherwise the assets/image.png
+    ; convention (a headless screenshot dropped by game_icon_shots_demo.rgr)
+    ; kicks in. Only paths whose file actually exists are returned, so a stale
+    ; game.info line never sends the renderer chasing a missing PNG.
+    fn resolveIconPath:string (entry:GameCatalogEntry) {
+        if ((strlen entry.dir) == 0) {
+            return ""
+        }
+        if ((strlen entry.iconPath) > 0) {
+            if (file_exists entry.dir entry.iconPath) {
+                return (this.joinPath(entry.dir entry.iconPath))
+            }
+        }
+        if (file_exists entry.dir "assets/image.png") {
+            return (this.joinPath(entry.dir "assets/image.png"))
+        }
+        return ""
+    }
+
     ; Build EvalValue array for injection as the `gameCatalog` TS global.
     fn toEvalArray:EvalValue () {
         def items:[EvalValue]
@@ -486,9 +513,12 @@ class GameCatalog {
             push vals (EvalValue.string(e.engine))
             push keys "category"
             push vals (EvalValue.string(e.category))
-            if ((strlen e.iconPath) > 0) {
+            ; icon is exported as a ready-to-load path (game dir already joined)
+            ; so the TSX menu can hand it straight to backgroundImage.
+            def icon:string (this.resolveIconPath(e))
+            if ((strlen icon) > 0) {
                 push keys "icon"
-                push vals (EvalValue.string(e.iconPath))
+                push vals (EvalValue.string(icon))
             }
             push items (EvalValue.object(keys vals))
             i = (i + 1)

@@ -4,3 +4,4 @@ render=sprites
 module=game.as
 
 category=Games
+icon=assets/image.png
