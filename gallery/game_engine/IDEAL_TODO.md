@@ -30,7 +30,7 @@ wrong side of the engine-core ↔ game boundary, or opens a seam that was welded
 | 4 scene-provider seam · sound palette | 🟡 seams landed + proven; runner rewire, single-owner (4.2), sprite roster (4.3) remain |
 | 5 richer input · CI leak guard · conformance fixtures | ⬜ not started |
 | R runtime correctness (fixed-step, input, transactional load) | ⬜ not started — from an external review, all 8 findings re-verified against source |
-| G 3D graphics (mesh · camera projection · lighting) | 🟡 Phase-1 render slice landed (`games/cube3d_wasm`); physics wiring + `.rgr`/SDL host = follow-ups |
+| G 3D graphics (mesh · camera · lighting · materials/textures · resource loader) | 🟡 Phase-1 render slice landed (`games/cube3d_wasm`): textured, lit, per-face materials via `rg_res_load`; physics wiring + `.rgr`/SDL host = follow-ups |
 
 **Verification strategy (three tiers, no SDL/WASM build needed).** This approach
 emerged during the work and proved repeatable — new items should follow it:
@@ -441,19 +441,28 @@ reuses the already-tested `physics/src/cannon_mat3`/`cannon_vec3`/`cannon_quater
 Ordered so each step is independently runnable — the same discipline as the rest of
 this file.
 
-- [~] **G.1 Phase-1 render slice — Rust→WASM guest + software rasteriser**
-  (`ABI_V2 §18–§21`, `IDEAL.md` §2.17). Landed: [`games/cube3d_wasm`](./games/cube3d_wasm).
-  A Rust guest compiled to `wasm32-unknown-unknown` declares a cube MESH (`RGMB`,
-  §18), a PERSPECTIVE camera (`RGCM`, §19), and scene LIGHT (`RGLT`, §20) in its
-  linear memory and spins it; a headless Node host (`tools/render.cjs`) reads the
-  blocks, builds the view-projection, and software-rasterises with a z-buffer and
-  per-vertex Gouraud lighting to PNG (no GPU/SDL/display). The guest does no float —
-  it writes fixed-point ints (positions `FP_SCALE`, normals/units Q16.16) and bumps
-  the model rotation per frame, exactly the `IDEAL.md` §2.17/§5 "host owns rendering,
-  guest owns the world" split.
+- [~] **G.1 Phase-1 render slice — Rust→WASM guest + software rasteriser, with
+  materials & a resource loader** (`ABI_V2 §17–§21`, `IDEAL.md` §2.17). Landed:
+  [`games/cube3d_wasm`](./games/cube3d_wasm). A Rust guest compiled to
+  `wasm32-unknown-unknown` declares a cube MESH (`RGMB`, §18: verts + normals + uv +
+  6 per-face sub-meshes), a MATERIAL table (`RGMA`, §17/§18), a PERSPECTIVE camera
+  (`RGCM`, §19), and scene LIGHT (`RGLT`, §20), and spins it. At init the guest loads
+  two textures through the host **resource loader** `rg_res_load(name) -> handle`
+  (§17: host owns the pixels, guest holds only an opaque handle), builds a material
+  per texture, and assigns the *crate* material to the 4 sides and the *tiles*
+  material to top/bottom. A headless Node host (`tools/render.cjs`) reads the blocks,
+  builds the view-projection, and software-rasterises each sub-mesh with a z-buffer,
+  perspective-correct texture sampling, and per-vertex Gouraud lighting to PNG (no
+  GPU/SDL/display). The guest does no float — it writes fixed-point ints (positions
+  `FP_SCALE`, normals/units Q16.16, uv `*4096`) and bumps the model rotation per
+  frame, exactly the `IDEAL.md` §2.17/§5 "host owns rendering, guest owns the world"
+  split. Textures are committed as PPM under `assets/`; swapping in a PNG/streamed
+  source is a `rg_res_load`-only change, and later material upgrades (shaders,
+  mipmaps, LOD) live behind the handle with no guest change.
   *Check:* `npm run engine:wasm:build:cube3d` builds `logic.wasm`;
-  `npm run engine:wasm:demo:cube3d` renders `out/cube_hero.png` +
-  `out/cube_spin_montage.png` — a correctly-occluded, lit, perspective cube.
+  `npm run engine:wasm:demo:cube3d` logs `rg_res_load("crate")->1` /
+  `("tiles")->2` and renders `out/cube_hero.png` + `out/cube_spin_montage.png` — a
+  correctly-occluded, textured, lit, perspective cube (crate sides, tiled top).
 - [ ] **G.2 Phase-2 — physics-driven transforms.** Add a floor plane + several cube
   bodies; wire `physics/src/cannon_world` (gravity, contacts) to own each body's
   transform, and have the guest stream each pose into its MESH model slot — the same

@@ -20,8 +20,43 @@ const zlib = require('zlib');
 const W = 400, H = 300;
 const HERE = __dirname;
 const WASM = path.join(HERE, '..', 'logic.wasm');
+const ASSETS = path.join(HERE, '..', 'assets');
 const OUT = path.join(HERE, '..', 'out');
 fs.mkdirSync(OUT, { recursive: true });
+
+// ---------------------------------------------------- resource loader (§17)
+// The host owns texture pixels; the guest only ever gets an opaque handle.
+const textures = [null]; // index 0 = null handle
+function decodePPM(buf) {
+  // minimal P6 reader: "P6\n<w> <h>\n<max>\n" + w*h*3 bytes
+  let p = 0;
+  const tok = () => {
+    while (buf[p] === 0x20 || buf[p] === 0x0a || buf[p] === 0x09 || buf[p] === 0x0d) p++;
+    let s = p;
+    while (p < buf.length && buf[p] !== 0x20 && buf[p] !== 0x0a && buf[p] !== 0x09 && buf[p] !== 0x0d) p++;
+    return buf.slice(s, p).toString('ascii');
+  };
+  if (tok() !== 'P6') throw new Error('not a P6 PPM');
+  const w = parseInt(tok(), 10), h = parseInt(tok(), 10);
+  tok(); // maxval
+  p++; // single whitespace after maxval
+  return { w, h, data: buf.slice(p, p + w * h * 3) };
+}
+function loadTexture(name) {
+  const file = path.join(ASSETS, name + '.ppm');
+  const tex = decodePPM(fs.readFileSync(file));
+  textures.push(tex);
+  return textures.length - 1; // handle (1-based)
+}
+function sample(tex, u, v) {
+  // wrap + nearest; v flipped so uv (0,0) is top-left of the image
+  let tx = Math.floor((u - Math.floor(u)) * tex.w);
+  let ty = Math.floor((1 - (v - Math.floor(v))) * tex.h);
+  if (tx < 0) tx += tex.w; if (ty < 0) ty += tex.h;
+  tx %= tex.w; ty %= tex.h;
+  const o = (ty * tex.w + tx) * 3;
+  return [tex.data[o] / 255, tex.data[o + 1] / 255, tex.data[o + 2] / 255];
+}
 
 // ------------------------------------------------------------------ tiny vec/mat
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
@@ -103,22 +138,43 @@ function readBlocks(exp, mem) {
   // MESH
   const mp = exp.rg_mesh_ptr();
   if (u32(mp) !== 0x424d4752) throw new Error('bad MESH magic');
-  const vc = u32(mp + 16), ic = u32(mp + 20);
-  const rot = [i32(mp + 24) / FP, i32(mp + 28) / FP, i32(mp + 32) / FP];
-  const pos = [i32(mp + 36) / FP, i32(mp + 40) / FP, i32(mp + 44) / FP];
-  const flags = u32(mp + 48);
+  const vc = u32(mp + 16), ic = u32(mp + 20), sc = u32(mp + 24);
+  const rot = [i32(mp + 28) / FP, i32(mp + 32) / FP, i32(mp + 36) / FP];
+  const pos = [i32(mp + 40) / FP, i32(mp + 44) / FP, i32(mp + 48) / FP];
   const VTX = mp + 64, VSZ = 32;
   const verts = [];
+  const UVS = 4096;
   for (let i = 0; i < vc; i++) {
     const o = VTX + i * VSZ;
+    const uvp = u32(o + 28);
     verts.push({
       p: [i32(o) / FP, i32(o + 4) / FP, i32(o + 8) / FP],
       n: [i32(o + 12) / Q16, i32(o + 16) / Q16, i32(o + 20) / Q16],
       c: u32(o + 24),
+      uv: [(uvp & 0xffff) / UVS, (uvp >>> 16) / UVS],
     });
   }
   const IDX = VTX + vc * VSZ, idx = [];
   for (let i = 0; i < ic; i++) idx.push(u16(IDX + i * 2));
+  const SUB = (IDX + ic * 2 + 3) & ~3, sub = [];
+  for (let i = 0; i < sc; i++) {
+    const o = SUB + i * 12;
+    sub.push({ first: u32(o), count: u32(o + 4), material: u32(o + 8) });
+  }
+
+  // MATERIAL table (§17/§18)
+  const tp = exp.rg_mat_ptr();
+  if (u32(tp) !== 0x414d4752) throw new Error('bad MATERIAL magic');
+  const mc = u32(tp + 16), mats = [];
+  for (let i = 0; i < mc; i++) {
+    const o = 20 + tp + i * 16;
+    const base = u32(o + 4);
+    mats.push({
+      tex: u32(o),
+      base: [((base >>> 24) & 255) / 255, ((base >>> 16) & 255) / 255, ((base >>> 8) & 255) / 255],
+      flags: u32(o + 8),
+    });
+  }
 
   // CAM
   const cp = exp.rg_cam_ptr();
@@ -144,78 +200,90 @@ function readBlocks(exp, mem) {
     sunRGB: unpack(u32(lp + 36)).map((v) => v / 255),
     sunI: i32(lp + 40) / FP,
   };
-  return { verts, idx, rot, pos, flags, cam, lit };
+  return { verts, idx, sub, mats, rot, pos, cam, lit };
 }
 
 // ------------------------------------------------------------------ rasteriser
 function renderFrame(scene) {
-  const { verts, idx, rot, pos, flags, cam, lit } = scene;
+  const { verts, sub, mats, rot, pos, cam, lit } = scene;
   const color = new Uint8Array(W * H * 3);
   const zbuf = new Float32Array(W * H).fill(Infinity);
-  // dark background
   for (let i = 0; i < W * H; i++) { color[i * 3] = 24; color[i * 3 + 1] = 26; color[i * 3 + 2] = 34; }
 
   const model = mul(mul(rotX(rot[0]), rotY(rot[1])), [1, 0, 0, pos[0], 0, 1, 0, pos[1], 0, 0, 1, pos[2], 0, 0, 0, 1]);
   const view = lookAt(cam.eye, cam.target, cam.up);
   const proj = perspective(cam.fovy, W / H, cam.near, cam.far);
   const vp = mul(proj, view);
-  const unlit = (flags & 1) !== 0;
 
-  // transform + shade every vertex
+  // Per-vertex: clip position + Gouraud LIGHT TERM (rgb multiplier), kept
+  // separate from texture so shading modulates the per-pixel texel (§20).
+  const lightTerm = (wn) => {
+    const nl = Math.max(0, dot(wn, lit.sunDir));
+    return [0, 1, 2].map((i) => lit.ambientI * lit.ambientRGB[i] + lit.sunI * nl * lit.sunRGB[i]);
+  };
   const T = verts.map((v) => {
     const world = apply(model, [v.p[0], v.p[1], v.p[2], 1]);
     const wn = norm(apply(model, [v.n[0], v.n[1], v.n[2], 0]));
-    const clip = apply(vp, world);
-    const base = [((v.c >>> 24) & 255) / 255, ((v.c >>> 16) & 255) / 255, ((v.c >>> 8) & 255) / 255];
-    let rgb;
-    if (unlit) {
-      rgb = base;
-    } else {
-      const nl = Math.max(0, dot(wn, lit.sunDir));
-      rgb = base.map((b, i) =>
-        Math.min(1, b * (lit.ambientI * lit.ambientRGB[i] + lit.sunI * nl * lit.sunRGB[i])));
-    }
-    return { clip, rgb };
+    return { clip: apply(vp, world), light: lightTerm(wn), uv: v.uv };
   });
 
   const sx = (c) => (c[0] / c[3] * 0.5 + 0.5) * W;
   const sy = (c) => (1 - (c[1] / c[3] * 0.5 + 0.5)) * H;
   const sz = (c) => c[2] / c[3];
 
-  for (let t = 0; t < idx.length; t += 3) {
-    const a = T[idx[t]], b = T[idx[t + 1]], c = T[idx[t + 2]];
-    if (a.clip[3] <= 0 || b.clip[3] <= 0 || c.clip[3] <= 0) continue; // behind camera
-    const ax = sx(a.clip), ay = sy(a.clip), az = sz(a.clip);
-    const bx = sx(b.clip), by = sy(b.clip), bz = sz(b.clip);
-    const cx = sx(c.clip), cy = sy(c.clip), cz = sz(c.clip);
-    const area = (bx - ax) * (cy - ay) - (cx - ax) * (by - ay);
-    if (area === 0) continue;
-    const minX = Math.max(0, Math.floor(Math.min(ax, bx, cx)));
-    const maxX = Math.min(W - 1, Math.ceil(Math.max(ax, bx, cx)));
-    const minY = Math.max(0, Math.floor(Math.min(ay, by, cy)));
-    const maxY = Math.min(H - 1, Math.ceil(Math.max(ay, by, cy)));
-    for (let y = minY; y <= maxY; y++) {
-      for (let x = minX; x <= maxX; x++) {
-        const px = x + 0.5, py = y + 0.5;
-        let w0 = ((bx - px) * (cy - py) - (cx - px) * (by - py)) / area;
-        let w1 = ((cx - px) * (ay - py) - (ax - px) * (cy - py)) / area;
-        let w2 = 1 - w0 - w1;
-        if (w0 < 0 || w1 < 0 || w2 < 0) continue; // outside (z-buffer handles both windings)
-        const depth = w0 * az + w1 * bz + w2 * cz;
-        const di = y * W + x;
-        if (depth >= zbuf[di]) continue;
-        zbuf[di] = depth;
-        const r = w0 * a.rgb[0] + w1 * b.rgb[0] + w2 * c.rgb[0];
-        const g = w0 * a.rgb[1] + w1 * b.rgb[1] + w2 * c.rgb[1];
-        const bl = w0 * a.rgb[2] + w1 * b.rgb[2] + w2 * c.rgb[2];
-        color[di * 3] = Math.min(255, r * 255) | 0;
-        color[di * 3 + 1] = Math.min(255, g * 255) | 0;
-        color[di * 3 + 2] = Math.min(255, bl * 255) | 0;
+  for (const s of sub) {
+    const mat = mats[s.material] || mats[0];
+    const tex = textures[mat.tex] || null;
+    const unlit = (mat.flags & 1) !== 0;
+    for (let t = s.first; t < s.first + s.count; t += 3) {
+      const a = T[sceneIdx(scene, t)], b = T[sceneIdx(scene, t + 1)], c = T[sceneIdx(scene, t + 2)];
+      if (a.clip[3] <= 0 || b.clip[3] <= 0 || c.clip[3] <= 0) continue;
+      const ax = sx(a.clip), ay = sy(a.clip), az = sz(a.clip), aw = 1 / a.clip[3];
+      const bx = sx(b.clip), by = sy(b.clip), bz = sz(b.clip), bw = 1 / b.clip[3];
+      const cx = sx(c.clip), cy = sy(c.clip), cz = sz(c.clip), cw = 1 / c.clip[3];
+      const area = (bx - ax) * (cy - ay) - (cx - ax) * (by - ay);
+      if (area === 0) continue;
+      const minX = Math.max(0, Math.floor(Math.min(ax, bx, cx)));
+      const maxX = Math.min(W - 1, Math.ceil(Math.max(ax, bx, cx)));
+      const minY = Math.max(0, Math.floor(Math.min(ay, by, cy)));
+      const maxY = Math.min(H - 1, Math.ceil(Math.max(ay, by, cy)));
+      for (let y = minY; y <= maxY; y++) {
+        for (let x = minX; x <= maxX; x++) {
+          const px = x + 0.5, py = y + 0.5;
+          const w0 = ((bx - px) * (cy - py) - (cx - px) * (by - py)) / area;
+          const w1 = ((cx - px) * (ay - py) - (ax - px) * (cy - py)) / area;
+          const w2 = 1 - w0 - w1;
+          if (w0 < 0 || w1 < 0 || w2 < 0) continue;
+          const depth = w0 * az + w1 * bz + w2 * cz;
+          const di = y * W + x;
+          if (depth >= zbuf[di]) continue;
+          zbuf[di] = depth;
+          // perspective-correct interpolation weights
+          const iw = w0 * aw + w1 * bw + w2 * cw;
+          const pw0 = w0 * aw / iw, pw1 = w1 * bw / iw, pw2 = w2 * cw / iw;
+          // texture sample (perspective-correct uv)
+          let tc = [1, 1, 1];
+          if (tex) {
+            const u = pw0 * a.uv[0] + pw1 * b.uv[0] + pw2 * c.uv[0];
+            const v = pw0 * a.uv[1] + pw1 * b.uv[1] + pw2 * c.uv[1];
+            tc = sample(tex, u, v);
+          }
+          // Gouraud light term (screen-linear is fine for the low-freq term)
+          const lr = unlit ? 1 : (w0 * a.light[0] + w1 * b.light[0] + w2 * c.light[0]);
+          const lg = unlit ? 1 : (w0 * a.light[1] + w1 * b.light[1] + w2 * c.light[1]);
+          const lb = unlit ? 1 : (w0 * a.light[2] + w1 * b.light[2] + w2 * c.light[2]);
+          color[di * 3] = Math.min(255, tc[0] * mat.base[0] * lr * 255) | 0;
+          color[di * 3 + 1] = Math.min(255, tc[1] * mat.base[1] * lg * 255) | 0;
+          color[di * 3 + 2] = Math.min(255, tc[2] * mat.base[2] * lb * 255) | 0;
+        }
       }
     }
   }
   return Buffer.from(color);
 }
+
+// index-buffer lookup (kept on the scene so renderFrame stays submesh-driven)
+function sceneIdx(scene, t) { return scene.idx[t]; }
 
 function montage(frames, cols) {
   const rows = Math.ceil(frames.length / cols);
@@ -233,7 +301,24 @@ function montage(frames, cols) {
 (async () => {
   const nFrames = parseInt(process.argv[2] || '48', 10);
   const mod = new WebAssembly.Module(fs.readFileSync(WASM));
-  const inst = new WebAssembly.Instance(mod, {});
+  let inst;
+  const env = {
+    // resource loader (§17): guest passes a name, host loads the texture and
+    // returns an opaque handle. The name is copied out of guest memory.
+    rg_res_load: (namePtr, nameLen) => {
+      const bytes = new Uint8Array(inst.exports.memory.buffer, namePtr, nameLen);
+      const name = Buffer.from(bytes).toString('utf8');
+      try {
+        const h = loadTexture(name);
+        console.log(`  rg_res_load("${name}") -> handle ${h}`);
+        return h;
+      } catch (e) {
+        console.error(`  rg_res_load("${name}") failed: ${e.message}`);
+        return 0;
+      }
+    },
+  };
+  inst = new WebAssembly.Instance(mod, { env });
   const exp = inst.exports;
   const mem = exp.memory;
   exp.init();
