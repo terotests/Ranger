@@ -2205,6 +2205,7 @@ static void rgfx_3d_end() {
 #define RGE_AMBIENT 3
 #define RGE_DIR    4
 #define RGE_POINT  5
+#define RGE_SPRITE 6
 #define RGSCENE_MAXDIR 4
 #define RGSCENE_MAXPT  8
 struct RgfxSceneEntity {
@@ -2212,6 +2213,7 @@ struct RgfxSceneEntity {
     float pos[3]; float rot[4]; float scale[3];   // rot = quaternion (x,y,z,w)
     int meshId; int texId;                         // RGE_MESH
     float matColor[4]; float matEmissive[3]; int matBlend; // material (from GLB)
+    int spCols, spRows, spCol, spRow; float spW, spH; // RGE_SPRITE (billboard sheet)
     float fovy, nearp, farp; float target[3]; float up[3]; int useTarget; // RGE_CAMERA
     float color[3]; float intensity; float range;  // lights (dir uses pos as dir-to-light)
 };
@@ -2226,6 +2228,7 @@ static GLint g_scn_uMVP=-1, g_scn_uModel=-1, g_scn_uNormalMat=-1, g_scn_uTex=-1;
 static GLint g_scn_uAmbient=-1, g_scn_uNumDir=-1, g_scn_uDirDir=-1, g_scn_uDirCol=-1;
 static GLint g_scn_uNumPt=-1, g_scn_uPtPos=-1, g_scn_uPtCol=-1, g_scn_uPtRange=-1;
 static GLint g_scn_uBaseColor=-1, g_scn_uEmissive=-1;
+static GLint g_scn_uUvOffset=-1, g_scn_uUvScale=-1, g_scn_uUnlit=-1, g_scn_uAlphaCut=-1;
 
 static int rgfx_scene_valid(int id) { return id > 0 && id <= (int) g_scene.size() && g_scene[(size_t)(id-1)].alive; }
 
@@ -2256,6 +2259,17 @@ extern \"C\" int rgfx_scene_model_mesh(const char* name) {
     if (!name) { return 0; }
     std::map<std::string,int>::iterator it = g_scene_model_mesh.find(std::string(name));
     return it == g_scene_model_mesh.end() ? 0 : it->second;
+}
+// Named sprite-sheet registry: the runner preloads <game>/sprites/*.png (RGBA,
+// with alpha), uploads each to the texture pool and registers texId by basename.
+static std::map<std::string,int> g_scene_sprite_tex;
+extern \"C\" void rgfx_scene_register_sprite(const char* name, int texId) {
+    if (name && name[0]) { g_scene_sprite_tex[std::string(name)] = texId; }
+}
+extern \"C\" int rgfx_scene_sprite_tex(const char* name) {
+    if (!name) { return 0; }
+    std::map<std::string,int>::iterator it = g_scene_sprite_tex.find(std::string(name));
+    return it == g_scene_sprite_tex.end() ? 0 : it->second;
 }
 
 extern \"C\" int rgfx_scene_reset() { g_scene.clear(); g_scene_active_cam = 0; return 0; }
@@ -2336,6 +2350,32 @@ extern \"C\" int rgfx_scene_create_mesh_entity(int meshId, int texId) {
     }
     return id;
 }
+// shared unit quad (XY plane, centred, UV 0..1, normal +Z) for billboards
+static int g_scene_quad = 0;
+static int rgfx_scene_ensure_quad() {
+    if (g_scene_quad > 0) { return g_scene_quad; }
+    // 4 verts: pos(3) normal(3) uv(2). +Z facing, uv y flipped so row 0 is top.
+    float v[32] = {
+        -0.5f,-0.5f,0.f, 0.f,0.f,1.f, 0.f,1.f,
+         0.5f,-0.5f,0.f, 0.f,0.f,1.f, 1.f,1.f,
+         0.5f, 0.5f,0.f, 0.f,0.f,1.f, 1.f,0.f,
+        -0.5f, 0.5f,0.f, 0.f,0.f,1.f, 0.f,0.f,
+    };
+    uint16_t idx[6] = {0,1,2,0,2,3};
+    g_scene_quad = rgfx_mesh_make(v, 4, idx, 6);
+    return g_scene_quad;
+}
+// billboard sprite: a camera-facing quad showing cell (0,0) of a cols x rows
+// sheet; w,h are its world size. texId is the sheet (with alpha).
+extern \"C\" int rgfx_scene_create_sprite(int texId, int cols, int rows, float w, float h) {
+    int id = rgfx_scene_alloc(RGE_SPRITE); RgfxSceneEntity& e = g_scene[(size_t)(id-1)];
+    e.texId = texId; e.spCols = cols>0?cols:1; e.spRows = rows>0?rows:1;
+    e.spCol = 0; e.spRow = 0; e.spW = w>0.f?w:1.f; e.spH = h>0.f?h:1.f;
+    return id;
+}
+extern \"C\" void rgfx_scene_set_sprite_cell(int id, int col, int row) {
+    if (rgfx_scene_valid(id)) { g_scene[(size_t)(id-1)].spCol = col; g_scene[(size_t)(id-1)].spRow = row; }
+}
 extern \"C\" int rgfx_scene_create_camera(float fovy, float nearp, float farp) {
     int id = rgfx_scene_alloc(RGE_CAMERA);
     g_scene[(size_t)(id-1)].fovy = fovy; g_scene[(size_t)(id-1)].nearp = nearp; g_scene[(size_t)(id-1)].farp = farp;
@@ -2380,12 +2420,14 @@ static int rgfx_scene_gl_init() {
         \"precision mediump float;\\n\"
         \"varying vec2 vUv; varying vec3 vN; varying vec3 vWorld;\\n\"
         \"uniform sampler2D uTex; uniform vec3 uAmbient; uniform vec4 uBaseColor; uniform vec3 uEmissive;\\n\"
+        \"uniform vec2 uUvOffset; uniform vec2 uUvScale; uniform float uUnlit; uniform float uAlphaCut;\\n\"
         \"uniform int uNumDir; uniform vec3 uDirDir[4]; uniform vec3 uDirCol[4];\\n\"
         \"uniform int uNumPt; uniform vec3 uPtPos[8]; uniform vec3 uPtCol[8]; uniform float uPtRange[8];\\n\"
         \"void main(){ vec3 N=normalize(vN); vec3 L=uAmbient;\\n\"
         \"  for(int i=0;i<4;i++){ if(i>=uNumDir) break; L+=uDirCol[i]*max(0.0,dot(N,uDirDir[i])); }\\n\"
         \"  for(int i=0;i<8;i++){ if(i>=uNumPt) break; vec3 d=uPtPos[i]-vWorld; float dist=length(d); vec3 Ld=d/max(dist,0.001); float a=max(0.0,1.0-dist/uPtRange[i]); L+=uPtCol[i]*max(0.0,dot(N,Ld))*a*a; }\\n\"
-        \"  vec4 t=texture2D(uTex,vUv)*uBaseColor; gl_FragColor=vec4(t.rgb*L + uEmissive, t.a); }\\n\";
+        \"  vec2 uv=uUvOffset+vUv*uUvScale; vec4 t=texture2D(uTex,uv)*uBaseColor; if(t.a<uAlphaCut) discard;\\n\"
+        \"  vec3 lit=mix(t.rgb*L + uEmissive, t.rgb, uUnlit); gl_FragColor=vec4(lit, t.a); }\\n\";
 #else
     const char* vs =
         \"#version 120\\n\"
@@ -2397,12 +2439,14 @@ static int rgfx_scene_gl_init() {
         \"#version 120\\n\"
         \"varying vec2 vUv; varying vec3 vN; varying vec3 vWorld;\\n\"
         \"uniform sampler2D uTex; uniform vec3 uAmbient; uniform vec4 uBaseColor; uniform vec3 uEmissive;\\n\"
+        \"uniform vec2 uUvOffset; uniform vec2 uUvScale; uniform float uUnlit; uniform float uAlphaCut;\\n\"
         \"uniform int uNumDir; uniform vec3 uDirDir[4]; uniform vec3 uDirCol[4];\\n\"
         \"uniform int uNumPt; uniform vec3 uPtPos[8]; uniform vec3 uPtCol[8]; uniform float uPtRange[8];\\n\"
         \"void main(){ vec3 N=normalize(vN); vec3 L=uAmbient;\\n\"
         \"  for(int i=0;i<4;i++){ if(i>=uNumDir) break; L+=uDirCol[i]*max(0.0,dot(N,uDirDir[i])); }\\n\"
         \"  for(int i=0;i<8;i++){ if(i>=uNumPt) break; vec3 d=uPtPos[i]-vWorld; float dist=length(d); vec3 Ld=d/max(dist,0.001); float a=max(0.0,1.0-dist/uPtRange[i]); L+=uPtCol[i]*max(0.0,dot(N,Ld))*a*a; }\\n\"
-        \"  vec4 t=texture2D(uTex,vUv)*uBaseColor; gl_FragColor=vec4(t.rgb*L + uEmissive, t.a); }\\n\";
+        \"  vec2 uv=uUvOffset+vUv*uUvScale; vec4 t=texture2D(uTex,uv)*uBaseColor; if(t.a<uAlphaCut) discard;\\n\"
+        \"  vec3 lit=mix(t.rgb*L + uEmissive, t.rgb, uUnlit); gl_FragColor=vec4(lit, t.a); }\\n\";
 #endif
     GLuint vsId = rgfx_gl_compile(GL_VERTEX_SHADER, vs);
     GLuint fsId = rgfx_gl_compile(GL_FRAGMENT_SHADER, fs);
@@ -2416,6 +2460,8 @@ static int rgfx_scene_gl_init() {
     g_scn_uMVP=glGetUniformLocation(g_scene_prog,\"uMVP\"); g_scn_uModel=glGetUniformLocation(g_scene_prog,\"uModel\"); g_scn_uNormalMat=glGetUniformLocation(g_scene_prog,\"uNormalMat\"); g_scn_uTex=glGetUniformLocation(g_scene_prog,\"uTex\");
     g_scn_uAmbient=glGetUniformLocation(g_scene_prog,\"uAmbient\");
     g_scn_uBaseColor=glGetUniformLocation(g_scene_prog,\"uBaseColor\"); g_scn_uEmissive=glGetUniformLocation(g_scene_prog,\"uEmissive\");
+    g_scn_uUvOffset=glGetUniformLocation(g_scene_prog,\"uUvOffset\"); g_scn_uUvScale=glGetUniformLocation(g_scene_prog,\"uUvScale\");
+    g_scn_uUnlit=glGetUniformLocation(g_scene_prog,\"uUnlit\"); g_scn_uAlphaCut=glGetUniformLocation(g_scene_prog,\"uAlphaCut\");
     g_scn_uNumDir=glGetUniformLocation(g_scene_prog,\"uNumDir\"); g_scn_uDirDir=glGetUniformLocation(g_scene_prog,\"uDirDir\"); g_scn_uDirCol=glGetUniformLocation(g_scene_prog,\"uDirCol\");
     g_scn_uNumPt=glGetUniformLocation(g_scene_prog,\"uNumPt\"); g_scn_uPtPos=glGetUniformLocation(g_scene_prog,\"uPtPos\"); g_scn_uPtCol=glGetUniformLocation(g_scene_prog,\"uPtCol\"); g_scn_uPtRange=glGetUniformLocation(g_scene_prog,\"uPtRange\");
     SDL_Log(\"[scene] program ok prog=%u\", (unsigned) g_scene_prog);
@@ -2456,10 +2502,42 @@ extern \"C\" void rgfx_scene_render(int w, int h) {
       if (pass==1) { glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); glDepthMask(GL_FALSE); }
       for (size_t i=0;i<g_scene.size();++i) {
         RgfxSceneEntity& e = g_scene[i];
-        if (!e.alive || !e.enabled || !e.visible || e.type!=RGE_MESH) continue;
+        if (!e.alive || !e.enabled || !e.visible) continue;
+        if (e.type==RGE_SPRITE) {
+            if (pass!=0) continue; // sprites: opaque pass with alpha discard
+            if (g_scene_quad<=0 || g_scene_quad>(int)g_rgfx_meshes.size()) continue;
+            RgfxMesh3D& m = g_rgfx_meshes[(size_t)(g_scene_quad-1)];
+            // cylindrical (Y-up) billboard: face the camera horizontally
+            float fxc=cam.pos[0]-e.pos[0], fzc=cam.pos[2]-e.pos[2];
+            float fl=sqrtf(fxc*fxc+fzc*fzc); if(fl>0.f){fxc/=fl;fzc/=fl;} else {fxc=0.f;fzc=1.f;}
+            float rx=fzc, rz=-fxc; // right = up(0,1,0) x forward(fxc,0,fzc)
+            float model[16]; for(int k=0;k<16;k++) model[k]=0.f;
+            RGM4(model,0,0)=rx*e.spW; RGM4(model,2,0)=rz*e.spW;   // X = right*w
+            RGM4(model,1,1)=e.spH;                                 // Y = up*h
+            RGM4(model,0,2)=fxc; RGM4(model,2,2)=fzc;              // Z = forward
+            RGM4(model,0,3)=e.pos[0]; RGM4(model,1,3)=e.pos[1]; RGM4(model,2,3)=e.pos[2]; RGM4(model,3,3)=1.f;
+            float mvp[16]; rgfx_m4_mul(vp, model, mvp);
+            float nm[9]={1,0,0,0,1,0,0,0,1};
+            glUniformMatrix4fv(g_scn_uMVP,1,GL_FALSE,mvp); glUniformMatrix4fv(g_scn_uModel,1,GL_FALSE,model); glUniformMatrix3fv(g_scn_uNormalMat,1,GL_FALSE,nm);
+            float white[4]={1,1,1,1}, noE[3]={0,0,0};
+            glUniform4fv(g_scn_uBaseColor,1,white); glUniform3fv(g_scn_uEmissive,1,noE);
+            float uo[2]={ (float)e.spCol/(float)e.spCols, (float)e.spRow/(float)e.spRows };
+            float us[2]={ 1.f/(float)e.spCols, 1.f/(float)e.spRows };
+            glUniform2fv(g_scn_uUvOffset,1,uo); glUniform2fv(g_scn_uUvScale,1,us);
+            glUniform1f(g_scn_uUnlit,1.f); glUniform1f(g_scn_uAlphaCut,0.35f);
+            if (e.texId>0 && e.texId<=(int)g_rgfx_gl_textures.size()) glBindTexture(GL_TEXTURE_2D, g_rgfx_gl_textures[(size_t)(e.texId-1)]);
+            glBindBuffer(GL_ARRAY_BUFFER,m.vbo); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,m.ebo);
+            if(g_scn_aPos>=0){glEnableVertexAttribArray(g_scn_aPos); glVertexAttribPointer(g_scn_aPos,3,GL_FLOAT,GL_FALSE,32,(void*)0);}
+            if(g_scn_aNormal>=0){glEnableVertexAttribArray(g_scn_aNormal); glVertexAttribPointer(g_scn_aNormal,3,GL_FLOAT,GL_FALSE,32,(void*)12);}
+            if(g_scn_aUv>=0){glEnableVertexAttribArray(g_scn_aUv); glVertexAttribPointer(g_scn_aUv,2,GL_FLOAT,GL_FALSE,32,(void*)24);}
+            glDrawElements(GL_TRIANGLES,m.icount,GL_UNSIGNED_SHORT,(void*)0);
+            continue;
+        }
+        if (e.type!=RGE_MESH) continue;
         if (e.meshId<=0 || e.meshId>(int)g_rgfx_meshes.size()) continue;
         int wantBlend = (pass==1) ? 1 : 0; if (e.matBlend != wantBlend) continue;
         glUniform4fv(g_scn_uBaseColor,1,e.matColor); glUniform3fv(g_scn_uEmissive,1,e.matEmissive);
+        { float z2[2]={0.f,0.f}, o2[2]={1.f,1.f}; glUniform2fv(g_scn_uUvOffset,1,z2); glUniform2fv(g_scn_uUvScale,1,o2); glUniform1f(g_scn_uUnlit,0.f); glUniform1f(g_scn_uAlphaCut,0.f); }
         RgfxMesh3D& m = g_rgfx_meshes[(size_t)(e.meshId-1)];
         float r3[9]; rgfx_quat_m3(e.rot, r3);
         float model[16]; for(int k=0;k<16;k++) model[k]=0.f;
@@ -2861,6 +2939,14 @@ extern \"C\" void rgfx_scene_render(int w, int h) {
     gfx_scene_register_model _:void (name:string meshId:int texId:int colorRgba:int emissiveRgb:int blend:int) {
         templates {
             cpp ( "rgfx_scene_register_model(" (e 1) ".c_str(), " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ", " (e 6) ")" (imp "<SDL2/SDL.h>") (imp "<string>") )
+            es6 ( "undefined" )
+        }
+    }
+    ; Register a preloaded sprite sheet (uploaded RGBA texture) under a name so
+    ; the guest's rg_load_sprite(name) import can resolve it to this texId.
+    gfx_scene_register_sprite _:void (name:string texId:int) {
+        templates {
+            cpp ( "rgfx_scene_register_sprite(" (e 1) ".c_str(), " (e 2) ")" (imp "<SDL2/SDL.h>") (imp "<string>") )
             es6 ( "undefined" )
         }
     }
