@@ -65,6 +65,17 @@ echo "==> 2/3 wat2wasm"
 
 echo "==> 3/3 Validate exports"
 case "$BASENAME" in
+  llvm_f64)
+    node -e "
+const fs = require('fs');
+const buf = fs.readFileSync('$OUT_WASM');
+const mod = new WebAssembly.Module(buf);
+console.log('exports:', WebAssembly.Module.exports(mod).map(e => e.name).join(', '));
+const run = new WebAssembly.Instance(mod).exports.Fp_run();
+console.log('Fp_run() =', run, '(expected 255)');
+if (run !== 255) process.exit(1);
+"
+    ;;
   llvm_nested)
     node -e "
 const fs = require('fs');

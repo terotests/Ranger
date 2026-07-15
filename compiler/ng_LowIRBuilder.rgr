@@ -3851,6 +3851,13 @@ class LowIRBuilderPass {
     def builder (lctx.builder)
     def a (this.lowerExpr(aNode lctx))
     def b (this.lowerExpr(bNode lctx))
+    ; floating-point comparison: if either side is f64, promote both and emit a
+    ; typed compare so the writer picks f64.lt/gt/le/ge/eq/ne (not i32.*_s).
+    if ((this.exprIsF64(aNode)) || (this.exprIsF64(bNode))) {
+      def af (this.promoteToF64(aNode a lctx))
+      def bf (this.promoteToF64(bNode b lctx))
+      return (builder.emitIcmpTyped(pred "f64" af bf))
+    }
     def aI1:boolean (this.exprProducesI1(aNode lctx))
     def bI1:boolean (this.exprProducesI1(bNode lctx))
     if (aI1 && bI1) {
@@ -3945,28 +3952,16 @@ class LowIRBuilderPass {
         return (builder.emitBin("xor" irI32 a neg1))
       }
       case "<" {
-        def a (this.lowerExpr((node.getSecond()) lctx))
-        def b (this.lowerExpr((node.getThird()) lctx))
-        def pred:string "slt"
-        return (builder.emitIcmp(pred a b))
+        return (this.lowerCompareI32((node.getSecond()) (node.getThird()) "slt" lctx))
       }
       case ">" {
-        def a (this.lowerExpr((node.getSecond()) lctx))
-        def b (this.lowerExpr((node.getThird()) lctx))
-        def pred:string "sgt"
-        return (builder.emitIcmp(pred a b))
+        return (this.lowerCompareI32((node.getSecond()) (node.getThird()) "sgt" lctx))
       }
       case "<=" {
-        def a (this.lowerExpr((node.getSecond()) lctx))
-        def b (this.lowerExpr((node.getThird()) lctx))
-        def pred:string "sle"
-        return (builder.emitIcmp(pred a b))
+        return (this.lowerCompareI32((node.getSecond()) (node.getThird()) "sle" lctx))
       }
       case ">=" {
-        def a (this.lowerExpr((node.getSecond()) lctx))
-        def b (this.lowerExpr((node.getThird()) lctx))
-        def pred:string "sge"
-        return (builder.emitIcmp(pred a b))
+        return (this.lowerCompareI32((node.getSecond()) (node.getThird()) "sge" lctx))
       }
       case "==" {
         def aNode (node.getSecond())

@@ -43,6 +43,36 @@ class WATWriter {
     return (LowIRUtil.moduleUsesHeap(module))
   }
 
+  ; Map a LowIR type to its wasm value type. Only f64 is a distinct wasm type;
+  ; i1 (booleans) and every pointer/int are i32.
+  fn watType:string (irType:string) {
+    if (irType == "f64") {
+      return "f64"
+    }
+    return "i32"
+  }
+
+  ; name -> wasm value type for a function's SSA temps, from each defining
+  ; instruction's result type. Used to declare locals with the right type.
+  fn localTypeMap:[string:string] (fn:LowIRFunction) {
+    def m:[string:string]
+    for fn.blocks bb:LowIRBlock i {
+      for bb.instrs ins:LowIRInstr j {
+        if ((strlen ins.dest) > 0) {
+          set m (this.wasmName(ins.dest)) (this.watType(ins.irType))
+        }
+      }
+    }
+    return m
+  }
+
+  fn localTypeOf:string (m:[string:string] wn:string) {
+    if (has m wn) {
+      return (unwrap (get m wn))
+    }
+    return "i32"
+  }
+
   fn writeModule:void (module:LowIRModule wr:CodeWriter) {
     wr.out("(module" true)
     if (this.moduleUsesHeap(module)) {
@@ -129,17 +159,18 @@ class WATWriter {
       wr.out((" (export \"" + fn.name + "\")") false)
     }
     for fn.params p:LowIRParam i {
-      wr.out((" (param $" + p.name + " i32)") false)
+      wr.out((" (param $" + p.name + " " + (this.watType(p.irType)) + ")") false)
     }
     def voidType:string "void"
     if (fn.returnType != voidType) {
-      wr.out((" (result i32)") false)
+      wr.out((" (result " + (this.watType(fn.returnType)) + ")") false)
     }
     wr.out("" true)
 
+    def ltypes (this.localTypeMap(fn))
     def localNames (this.collectLocals(fn))
     for localNames wn:string i {
-      wr.out(("    (local " + wn + " i32)") true)
+      wr.out(("    (local " + wn + " " + (this.localTypeOf(ltypes wn)) + ")") true)
     }
 
     def visited:[string:boolean]
@@ -298,7 +329,45 @@ class WATWriter {
   fn writeInstr:void (ins:LowIRInstr wr:CodeWriter) {
     switch ins.op {
       case "const" {
-        wr.out(("      i32.const " + ins.arg1) true)
+        if (ins.irType == "f64") {
+          wr.out(("      f64.const " + ins.arg1) true)
+        } {
+          wr.out(("      i32.const " + ins.arg1) true)
+        }
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "fadd" {
+        this.writeGet(ins.arg1 wr)
+        this.writeGet(ins.arg2 wr)
+        wr.out("      f64.add" true)
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "fsub" {
+        this.writeGet(ins.arg1 wr)
+        this.writeGet(ins.arg2 wr)
+        wr.out("      f64.sub" true)
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "fmul" {
+        this.writeGet(ins.arg1 wr)
+        this.writeGet(ins.arg2 wr)
+        wr.out("      f64.mul" true)
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "fdiv" {
+        this.writeGet(ins.arg1 wr)
+        this.writeGet(ins.arg2 wr)
+        wr.out("      f64.div" true)
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "sitofp" {
+        this.writeGet(ins.arg1 wr)
+        wr.out("      f64.convert_i32_s" true)
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "fptosi" {
+        this.writeGet(ins.arg1 wr)
+        wr.out("      i32.trunc_f64_s" true)
         wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
       }
       case "add" {
@@ -408,24 +477,47 @@ class WATWriter {
       case "icmp" {
         this.writeGet(ins.arg1 wr)
         this.writeGet(ins.arg2 wr)
-        switch ins.pred {
-          case "slt" {
-            wr.out("      i32.lt_s" true)
+        if (ins.arg3 == "f64") {
+          switch ins.pred {
+            case "slt" {
+              wr.out("      f64.lt" true)
+            }
+            case "sgt" {
+              wr.out("      f64.gt" true)
+            }
+            case "sle" {
+              wr.out("      f64.le" true)
+            }
+            case "sge" {
+              wr.out("      f64.ge" true)
+            }
+            case "eq" {
+              wr.out("      f64.eq" true)
+            }
+            case "ne" {
+              wr.out("      f64.ne" true)
+            }
           }
-          case "sgt" {
-            wr.out("      i32.gt_s" true)
-          }
-          case "sle" {
-            wr.out("      i32.le_s" true)
-          }
-          case "sge" {
-            wr.out("      i32.ge_s" true)
-          }
-          case "eq" {
-            wr.out("      i32.eq" true)
-          }
-          case "ne" {
-            wr.out("      i32.ne" true)
+        } {
+          switch ins.pred {
+            case "slt" {
+              wr.out("      i32.lt_s" true)
+            }
+            case "sgt" {
+              wr.out("      i32.gt_s" true)
+            }
+            case "sle" {
+              wr.out("      i32.le_s" true)
+            }
+            case "sge" {
+              wr.out("      i32.ge_s" true)
+            }
+            case "eq" {
+              wr.out("      i32.eq" true)
+            }
+            case "ne" {
+              wr.out("      i32.ne" true)
+            }
           }
         }
         wr.out(("      local.set " + (this.wasmName(ins.dest))) true)

@@ -34673,6 +34673,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       const builder = lctx.builder;
       let a = this.lowerExpr(aNode, lctx);
       let b = this.lowerExpr(bNode, lctx);
+      if ( this.exprIsF64(aNode) || this.exprIsF64(bNode) ) {
+        const af = this.promoteToF64(aNode, a, lctx);
+        const bf = this.promoteToF64(bNode, b, lctx);
+        return builder.emitIcmpTyped(pred, "f64", af, bf);
+      }
       const aI1 = this.exprProducesI1(aNode, lctx);
       const bI1 = this.exprProducesI1(bNode, lctx);
       if ( aI1 && bI1 ) {
@@ -34751,25 +34756,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           const neg1 = builder.emitConst(irI32, "-1");
           return builder.emitBin("xor", irI32, a_7, neg1);
         case "<" : 
-          const a_8 = this.lowerExpr(node.getSecond(), lctx);
-          const b_7 = this.lowerExpr(node.getThird(), lctx);
-          const pred = "slt";
-          return builder.emitIcmp(pred, a_8, b_7);
+          return this.lowerCompareI32(node.getSecond(), node.getThird(), "slt", lctx);
         case ">" : 
-          const a_9 = this.lowerExpr(node.getSecond(), lctx);
-          const b_8 = this.lowerExpr(node.getThird(), lctx);
-          const pred_1 = "sgt";
-          return builder.emitIcmp(pred_1, a_9, b_8);
+          return this.lowerCompareI32(node.getSecond(), node.getThird(), "sgt", lctx);
         case "<=" : 
-          const a_10 = this.lowerExpr(node.getSecond(), lctx);
-          const b_9 = this.lowerExpr(node.getThird(), lctx);
-          const pred_2 = "sle";
-          return builder.emitIcmp(pred_2, a_10, b_9);
+          return this.lowerCompareI32(node.getSecond(), node.getThird(), "sle", lctx);
         case ">=" : 
-          const a_11 = this.lowerExpr(node.getSecond(), lctx);
-          const b_10 = this.lowerExpr(node.getThird(), lctx);
-          const pred_3 = "sge";
-          return builder.emitIcmp(pred_3, a_11, b_10);
+          return this.lowerCompareI32(node.getSecond(), node.getThird(), "sge", lctx);
         case "==" : 
           const aNode_1 = node.getSecond();
           const bNode_1 = node.getThird();
@@ -34789,13 +34782,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           }
           return this.lowerCompareI32(aNode_2, bNode_2, "ne", lctx);
         case "||" : 
-          const a_12 = this.lowerExpr(node.getSecond(), lctx);
-          const b_11 = this.lowerExpr(node.getThird(), lctx);
-          return builder.emitBin("or", "i1", a_12, b_11);
+          const a_8 = this.lowerExpr(node.getSecond(), lctx);
+          const b_7 = this.lowerExpr(node.getThird(), lctx);
+          return builder.emitBin("or", "i1", a_8, b_7);
         case "&&" : 
-          const a_13 = this.lowerExpr(node.getSecond(), lctx);
-          const b_12 = this.lowerExpr(node.getThird(), lctx);
-          return builder.emitBin("and", "i1", a_13, b_12);
+          const a_9 = this.lowerExpr(node.getSecond(), lctx);
+          const b_8 = this.lowerExpr(node.getThird(), lctx);
+          return builder.emitBin("and", "i1", a_9, b_8);
       };
       return "";
     };
@@ -35639,6 +35632,31 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     moduleUsesHeap (module) {
       return LowIRUtil.moduleUsesHeap(module);
     };
+    watType (irType) {
+      if ( irType == "f64" ) {
+        return "f64";
+      }
+      return "i32";
+    };
+    localTypeMap (fn) {
+      let m = {};
+      for ( let i = 0; i < fn.blocks.length; i++) {
+        var bb = fn.blocks[i];
+        for ( let j = 0; j < bb.instrs.length; j++) {
+          var ins = bb.instrs[j];
+          if ( (ins.dest.length) > 0 ) {
+            m[this.wasmName(ins.dest)] = this.watType(ins.irType);
+          }
+        };
+      };
+      return m;
+    };
+    localTypeOf (m, wn) {
+      if ( ( typeof(m[wn] ) != "undefined" && m.hasOwnProperty(wn) ) ) {
+        return (( m.hasOwnProperty(wn) ? m[wn] : undefined ));
+      }
+      return "i32";
+    };
     writeModule (module, wr) {
       wr.out("(module", true);
       if ( this.moduleUsesHeap(module) ) {
@@ -35721,17 +35739,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }
       for ( let i = 0; i < fn.params.length; i++) {
         var p = fn.params[i];
-        wr.out((" (param $" + p.name) + " i32)", false);
+        wr.out((((" (param $" + p.name) + " ") + this.watType(p.irType)) + ")", false);
       };
       const voidType = "void";
       if ( fn.returnType != voidType ) {
-        wr.out(" (result i32)", false);
+        wr.out((" (result " + this.watType(fn.returnType)) + ")", false);
       }
       wr.out("", true);
+      const ltypes = this.localTypeMap(fn);
       const localNames = this.collectLocals(fn);
       for ( let i_1 = 0; i_1 < localNames.length; i_1++) {
         var wn = localNames[i_1];
-        wr.out(("    (local " + wn) + " i32)", true);
+        wr.out(((("    (local " + wn) + " ") + this.localTypeOf(ltypes, wn)) + ")", true);
       };
       let visited = {};
       const exitLabel = this.emitRegion(fn, 0, (fn.blocks.length), wr, visited);
@@ -35854,7 +35873,45 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     writeInstr (ins, wr) {
       switch (ins.op ) { 
         case "const" : 
-          wr.out("      i32.const " + ins.arg1, true);
+          if ( ins.irType == "f64" ) {
+            wr.out("      f64.const " + ins.arg1, true);
+          } else {
+            wr.out("      i32.const " + ins.arg1, true);
+          }
+          wr.out("      local.set " + this.wasmName(ins.dest), true);
+          break;
+        case "fadd" : 
+          this.writeGet(ins.arg1, wr);
+          this.writeGet(ins.arg2, wr);
+          wr.out("      f64.add", true);
+          wr.out("      local.set " + this.wasmName(ins.dest), true);
+          break;
+        case "fsub" : 
+          this.writeGet(ins.arg1, wr);
+          this.writeGet(ins.arg2, wr);
+          wr.out("      f64.sub", true);
+          wr.out("      local.set " + this.wasmName(ins.dest), true);
+          break;
+        case "fmul" : 
+          this.writeGet(ins.arg1, wr);
+          this.writeGet(ins.arg2, wr);
+          wr.out("      f64.mul", true);
+          wr.out("      local.set " + this.wasmName(ins.dest), true);
+          break;
+        case "fdiv" : 
+          this.writeGet(ins.arg1, wr);
+          this.writeGet(ins.arg2, wr);
+          wr.out("      f64.div", true);
+          wr.out("      local.set " + this.wasmName(ins.dest), true);
+          break;
+        case "sitofp" : 
+          this.writeGet(ins.arg1, wr);
+          wr.out("      f64.convert_i32_s", true);
+          wr.out("      local.set " + this.wasmName(ins.dest), true);
+          break;
+        case "fptosi" : 
+          this.writeGet(ins.arg1, wr);
+          wr.out("      i32.trunc_f64_s", true);
           wr.out("      local.set " + this.wasmName(ins.dest), true);
           break;
         case "add" : 
@@ -35964,26 +36021,49 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         case "icmp" : 
           this.writeGet(ins.arg1, wr);
           this.writeGet(ins.arg2, wr);
-          switch (ins.pred ) { 
-            case "slt" : 
-              wr.out("      i32.lt_s", true);
-              break;
-            case "sgt" : 
-              wr.out("      i32.gt_s", true);
-              break;
-            case "sle" : 
-              wr.out("      i32.le_s", true);
-              break;
-            case "sge" : 
-              wr.out("      i32.ge_s", true);
-              break;
-            case "eq" : 
-              wr.out("      i32.eq", true);
-              break;
-            case "ne" : 
-              wr.out("      i32.ne", true);
-              break;
-          };
+          if ( ins.arg3 == "f64" ) {
+            switch (ins.pred ) { 
+              case "slt" : 
+                wr.out("      f64.lt", true);
+                break;
+              case "sgt" : 
+                wr.out("      f64.gt", true);
+                break;
+              case "sle" : 
+                wr.out("      f64.le", true);
+                break;
+              case "sge" : 
+                wr.out("      f64.ge", true);
+                break;
+              case "eq" : 
+                wr.out("      f64.eq", true);
+                break;
+              case "ne" : 
+                wr.out("      f64.ne", true);
+                break;
+            };
+          } else {
+            switch (ins.pred ) { 
+              case "slt" : 
+                wr.out("      i32.lt_s", true);
+                break;
+              case "sgt" : 
+                wr.out("      i32.gt_s", true);
+                break;
+              case "sle" : 
+                wr.out("      i32.le_s", true);
+                break;
+              case "sge" : 
+                wr.out("      i32.ge_s", true);
+                break;
+              case "eq" : 
+                wr.out("      i32.eq", true);
+                break;
+              case "ne" : 
+                wr.out("      i32.ne", true);
+                break;
+            };
+          }
           wr.out("      local.set " + this.wasmName(ins.dest), true);
           break;
         case "alloca" : 
