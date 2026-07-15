@@ -8,10 +8,13 @@
 ; animation rows. New looks are added here (and mirrored in wasm/wasm_sprite_abi.h
 ; + pack/characters/catalog.json), never invented at the call site.
 ;
-; All four characters are baked from the ONE embedded `demo-male-walk` pack by
-; colorising the legs/feet/hair layer groups (see lpc_palette). When the full
-; Universal-LPC art is present, fixtures/selections-*.json bake richer variants
-; into the same ids without any call-site change.
+; Two bake modes, same ids either way (no call-site change):
+;   - full Universal-LPC art present (LPC_ROOT): each character gets its own
+;     layer stack — tunic / plate + great helm / robe + wizard hat / leather +
+;     hood (LpcCompositor.buildFullCharCalls + applyFullProfile below; the
+;     recipes are mirrored in fixtures/selections-*.json).
+;   - embedded `demo-male-walk` pack only: all four are recolours of the one
+;     shared male-walk stack, colorising legs/feet/hair (applyProfile below).
 
 Import "lpc_palette.rgr"
 
@@ -41,6 +44,40 @@ class LpcCharCatalog {
         if (charId == 3) { return "mage" }
         if (charId == 4) { return "rogue" }
         return "unknown"
+    }
+
+    ; A layer that exists only in the full Universal-LPC checkout — used to
+    ; detect whether the rich per-character stacks (applyFullProfile /
+    ; LpcCompositor.buildFullCharCalls) can be composed from spritesheetsRoot.
+    fn fullArtProbePath:string () {
+        return "torso/armour/plate/male/walk.png"
+    }
+
+    ; Palette profile for the FULL-art stacks: garment layers are pre-coloured
+    ; LPC variants (identity); only hair — and the rogue's hood — carry a tint.
+    fn applyFullProfile:void (pal:LpcPalette charId:int) {
+        pal.clearProfile()
+        pal.setGroup("body" 0 255 255 255)
+        pal.setGroup("head" 0 255 255 255)
+
+        if (charId == 1) {
+            pal.setGroup("torso" 1 96 160 80)      ; forest-green tunic
+            pal.setGroup("hair" 1 120 80 45)       ; chestnut
+            return
+        }
+        if (charId == 2) {
+            pal.setGroup("gloves" 1 150 152 160)    ; steel gauntlets
+            return
+        }
+        if (charId == 3) {
+            pal.setGroup("hair" 1 215 215 225)      ; white
+            return
+        }
+        if (charId == 4) {
+            pal.setGroup("hair" 1 30 28 30)         ; black
+            pal.setGroup("hat" 1 52 50 56)          ; dark hood
+            return
+        }
     }
 
     ; Configure a palette with this character's per-group colorize profile.

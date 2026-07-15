@@ -214,7 +214,7 @@ for.
 ## Build & run
 
 ```bash
-bash gallery/game_engine/wasm/as_autopeli/build.sh
+bash gallery/game_engine/games/autopeli_as/src/build.sh
 ```
 
 This runs `asc`, writes `games/autopeli_as/logic.wasm`, and copies the shared
@@ -301,8 +301,8 @@ The AssemblyScript guest is a **byte-exact drop-in** for the Rust guest — same
 i32/f64 results, same impulses, same HUD. Re-run the check with:
 
 ```bash
-node gallery/game_engine/wasm/as_autopeli/tools/parity.cjs \
-  gallery/game_engine/wasm/rust_autopeli/target/wasm32-unknown-unknown/release/rust_autopeli.wasm \
+node gallery/game_engine/games/autopeli_as/src/tools/parity.cjs \
+  gallery/game_engine/games/autopeli_wasm/src/target/wasm32-unknown-unknown/release/rust_autopeli.wasm \
   gallery/game_engine/games/autopeli_as/logic.wasm
 ```
 
@@ -312,7 +312,7 @@ by comparing two AS builds against each other over the same drive+contacts:
 
 ```bash
 # keep a pre-change build, then compare the new one against it
-node gallery/game_engine/wasm/as_autopeli/tools/selfcheck.cjs \
+node gallery/game_engine/games/autopeli_as/src/tools/selfcheck.cjs \
   build/baseline.wasm gallery/game_engine/games/autopeli_as/logic.wasm
 # → 10/10 regions identical — IDENTICAL BEHAVIOUR
 ```

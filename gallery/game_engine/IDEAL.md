@@ -124,7 +124,7 @@ The areas, ordered roughly by how much they unblock the rest:
 
 | # | Affected area | Files | Organisation gain | Parity gain | Target § |
 |---|---------------|-------|-------------------|-------------|----------|
-| 1 | **Split game taxonomy out of the shared headers** | `wasm/wasm_game_abi.h`, `wasm/wasm_sprite_abi.h` → guest crates (`wasm/rust_autopeli/`, `wasm/as_autopeli/`) | Header holds only bytes/offsets/handshake; no game name or comment | — | §2.1 |
+| 1 | **Split game taxonomy out of the shared headers** | `wasm/wasm_game_abi.h`, `wasm/wasm_sprite_abi.h` → guest crates (`games/autopeli_wasm/src/`, `games/autopeli_as/src/`) | Header holds only bytes/offsets/handshake; no game name or comment | — | §2.1 |
 | 2 | **Generic control channels** | `wasm/wasm_game_abi.h`, `scripting/wasm_abi_io.rgr` (`readControlSteer/…` → `readControlChannel`), `scripting/as_abi_bridge.rgr` (`writeControl`) | One record shape for all genres | Both guest paths read/write the same indexed channels | §2.2 |
 | 3 | **Give every informal block a header** (`RGP1` pose, `RGS1` draw list, `RGLD` loader, `RGX1` streaming) | new `wasm/wasm_pose_abi.h`, `wasm/wasm_sprite_list_abi.h`, `wasm/wasm_loader_abi.h`, `wasm/wasm_stream_abi.h` (siblings of the three existing headers) | Every block has one canonical offset table + versioned magic | The compiled-WASM path can implement what only `.as` has today | §2, §2.3 |
 | 4 | **Bring `.as`-only APIs to parity on both paths** (pose, draw list, resource manifest, sound queue) | `scripting/wasm_abi_io.rgr` (add readers), `scripting/as_abi_bridge.rgr` (back native-array APIs with the documented byte blocks) | One accessor per block, per path, sharing offsets | A guest runs identically compiled or interpreted | §2 |
@@ -265,7 +265,7 @@ The shared ABI is three headers: `wasm/wasm_game_abi.h` (RGW1, world/physics),
 **Out of the ABI (a specific game's meaning — belongs guest-side):**
 
 In the "Ideal home" column, *guest source* means the game's own Rust crate or
-AssemblyScript module (`wasm/rust_autopeli/src/`, `wasm/as_autopeli/assembly/`) —
+AssemblyScript module (`games/autopeli_wasm/src/src/`, `games/autopeli_as/src/assembly/`) —
 compiled into the game's `.wasm`, never added to the shared `wasm/*.h` and never to
 `scripting/` core.
 
@@ -305,7 +305,7 @@ guest is written in — the naming is compiled into the `.wasm`, so it costs the
 nothing and reaches no core file:
 
 ```rust
-// wasm/rust_autopeli/src/lib.rs — the game (Rust guest), compiled to .wasm.
+// games/autopeli_wasm/src/src/lib.rs — the game (Rust guest), compiled to .wasm.
 // These names live in the game, NOT in wasm/wasm_game_abi.h and NOT in scripting/.
 const CTRL_STEER:    usize = RG_WASM_CTRL_OFF_CH0;
 const CTRL_THROTTLE: usize = RG_WASM_CTRL_OFF_CH1;
@@ -314,7 +314,7 @@ const CTRL_GRIP:     usize = RG_WASM_CTRL_OFF_CH3;
 ```
 
 ```ts
-// wasm/as_autopeli/assembly/abi.ts — the same game as an AssemblyScript guest.
+// games/autopeli_as/src/assembly/abi.ts — the same game as an AssemblyScript guest.
 // Same generic offsets, same game-local names; also compiled into the .wasm.
 export const CTRL_STEER:    i32 = RG_WASM_CTRL_OFF_CH0;
 export const CTRL_THROTTLE: i32 = RG_WASM_CTRL_OFF_CH1;
@@ -1455,7 +1455,7 @@ side is essentially **unwired**, so today a guest mostly runs blind.
   block magic and clamp counts (`verifyMagic()` in `wasm_abi_io.rgr`, called from
   `wasm_physics_runner.rgr`; the equivalent `magicOk()` in `wasm_sprite_runner.rgr`).
   The negotiation exists only as a *guest* that declares queries
-  ([`wasm/as_autopeli`](./wasm/as_autopeli/README.md)) and a JS *simulation*
+  ([`games/autopeli_as/src`](./games/autopeli_as/src/README.md)) and a JS *simulation*
   (`as_autopeli/tools/capq_demo.cjs`). It is a dead gate (the top-level problem list).
 - **Screen size is pushed, not negotiated — and only into RGSP1.** The host writes
   `VIEW_W`/`VIEW_H` at RGSP1 offsets 36/40 (`sprite_wasm_runner.rgr`); **RGW1 has no
@@ -1625,7 +1625,7 @@ not every path" shape as the rest of the ABI.
   a typed error to the guest or to a surfaced UI, and `abort` simply throws.
 - **"Feature flags" are one dead key plus scattered booleans.** The only flag-shaped
   construct is the RGCQ convention key `"debugmode"` — requested by a guest
-  (`wasm/as_autopeli`) and listed in the header — but since RGCQ is unwired (§2.14) no
+  (`games/autopeli_as/src`) and listed in the header — but since RGCQ is unwired (§2.14) no
   host answers it, so it is inert. Real behaviour toggles live as ad-hoc runner fields
   (`useWasmHud`, `useAs`, `useSpriteRunner`, `useStreamRunner`, hot-reload on/off,
   split-screen active) set from code or `game.info` (`engine=wasm/ui`) — not a registry,

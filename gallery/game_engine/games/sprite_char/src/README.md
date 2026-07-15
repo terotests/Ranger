@@ -31,7 +31,7 @@ keys turn it, ACTION triggers a jump that reverts to walking when the hop ends.
 ## Build
 
 ```bash
-./gallery/game_engine/wasm/rust_sprite_char/build.sh   # or: npm run engine:chars:guest
+./gallery/game_engine/games/sprite_char/src/build.sh   # or: npm run engine:chars:guest
 ```
 
 Requires the `wasm32-unknown-unknown` target (the script installs it on demand).

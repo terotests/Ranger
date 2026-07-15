@@ -50,8 +50,8 @@ Perustuu kahteen koodikartoitukseen (render-pino + WASM-ABI, heinäkuu 2026).
 | Kuvanlataus + cache | ✅ `GameImageLoader` (PNG/JPEG decode) | [`game_image_loader.rgr`](./scripting/game_image_loader.rgr) |
 | Cannon.js-portti | ✅ vec3/quaternion/box/sphere/plane/world/narrowphase | [`physics/src/`](./physics/src/) |
 | Peli↔fysiikka-sidonta | ✅ string-id join, parallel arrays, pose-writeback | [`game_cannon_physics.rgr`](./scripting/game_cannon_physics.rgr) |
-| WASM world/physics ABI | ✅ RGW1 kiinteä lohko (magic `0x31574752`) | [`wasm/rust_autopeli/src/lib.rs`](./wasm/rust_autopeli/src/lib.rs) |
-| WASM UI ABI (retained doc) | ✅ RGU1 (magic `0x31554752`) → EVG-puu | [`wasm/rust_autopeli/src/ui.rs`](./wasm/rust_autopeli/src/ui.rs), [`wasm_ui_io.rgr`](./scripting/wasm_ui_io.rgr) |
+| WASM world/physics ABI | ✅ RGW1 kiinteä lohko (magic `0x31574752`) | [`games/autopeli_wasm/src/src/lib.rs`](./games/autopeli_wasm/src/src/lib.rs) |
+| WASM UI ABI (retained doc) | ✅ RGU1 (magic `0x31554752`) → EVG-puu | [`games/autopeli_wasm/src/src/ui.rs`](./games/autopeli_wasm/src/src/ui.rs), [`wasm_ui_io.rgr`](./scripting/wasm_ui_io.rgr) |
 
 **Puuttuu Pixi-parityyn:** batchattu quad-renderöijä, 2D-kamera/projektio + Transform→4×4,
 retained GPU display-list konkatenoiduilla transformeilla, atlas-packeri, WebGL `es6`-targetille
@@ -144,7 +144,7 @@ int-koodi. Ranger2D ottaa käyttöön **kaksitasoisen id-mallin**:
 
 - **Resurssit host-allokoituja:** host lataa PNG:n/atlaksen ja palauttaa vakaan `u64`-id:n.
   Laajentaa nykyistä `rg_host_register_sheet`/`rg_host_register_rect` -mekanismia
-  ([`lib.rs`](./wasm/rust_autopeli/src/lib.rs) ~600–623), joka nyt palauttaa string-id:n.
+  ([`lib.rs`](./games/autopeli_wasm/src/src/lib.rs) ~600–623), joka nyt palauttaa string-id:n.
 - **Scene-entiteetit guestin omistamia:** guest antaa vakaan id:n, host mappaa sen paikalliseen
   `RenderObject`:iin. **Ei asynkronista host-allokointia, ei requestId/ObjectCreated-kättelyä.**
   Tämä on suoraan "EntityID 100 → local RenderObject / u64-handle" -malli ilman kaksivaiheista

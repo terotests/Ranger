@@ -1,6 +1,6 @@
 // Instantiate the effects-showcase guest and verify each button requests the
 // right host effect (env.rg_ui_effect) + the completion round-trip.
-// Run: node gallery/game_engine/wasm/as_ui_effects/tools/parity.cjs
+// Run: node gallery/game_engine/games/ui_effects/src/tools/parity.cjs
 const fs = require('fs');
 const path = require('path');
 const wasmPath = path.join(__dirname, '..', 'build', 'logic.wasm');

@@ -25,7 +25,7 @@ WASM_BRIDGE="$ROOT/runtime/rg_wasm_bridge.c"
 mkdir -p "$OUT_DIR"
 
 if [[ ! -f "$ROOT/gallery/game_engine/games/rust_pong/logic.wasm" ]]; then
-  bash "$ROOT/gallery/game_engine/wasm/rust_pong/build.sh"
+  bash "$ROOT/gallery/game_engine/games/rust_pong/src/build.sh"
 fi
 
 echo "==> Ranger -> C++"

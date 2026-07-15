@@ -6,7 +6,7 @@
 ; (init / loadModule / setupScene / frameWithInput / draw / raw) so
 ; game_sdl_runner can run it in the SDL window / Games menu.
 ;
-; The guest (wasm/rust_sprite_char) owns the whole game — a character-select menu
+; The guest (games/sprite_char/src) owns the whole game — a character-select menu
 ; and a play screen. This host only: writes dt + input + view size into the RGSP1
 ; block, calls sprite_tick, copies the block out of wasm memory, and draws every
 ; active slot as a spritesheet frame (id -> sheet via the catalog, frame/dir/hop

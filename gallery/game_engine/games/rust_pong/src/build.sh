@@ -2,13 +2,13 @@
 # Build Rust Pong WASM module for the game engine PoC.
 #
 # Usage:
-#   ./gallery/game_engine/wasm/rust_pong/build.sh
+#   ./gallery/game_engine/games/rust_pong/src/build.sh
 #   npm run engine:wasm:build:rust-pong
 
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
-CRATE="$ROOT/gallery/game_engine/wasm/rust_pong"
+ROOT="$(cd "$(dirname "$0")/../../../../.." && pwd)"
+CRATE="$ROOT/gallery/game_engine/games/rust_pong/src"
 OUT="$ROOT/gallery/game_engine/games/rust_pong/logic.wasm"
 
 cd "$CRATE"

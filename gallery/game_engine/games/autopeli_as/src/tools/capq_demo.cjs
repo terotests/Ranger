@@ -4,7 +4,7 @@
 // with typed values, and the guest's rg_check_env() gate reacts. Mirrors the
 // layout in assembly/abi.ts / wasm/wasm_game_abi.h.
 const fs = require("fs");
-const path = process.argv[2] || require("path").join(__dirname, "..", "..", "..", "games", "autopeli_as", "logic.wasm");
+const path = process.argv[2] || require("path").join(__dirname, "..", "..", "logic.wasm");
 const ex = new WebAssembly.Instance(new WebAssembly.Module(fs.readFileSync(path)), {
   env: { abort: () => { throw new Error("abort"); }, rg_host_register_sheet: () => 0, rg_host_register_rect: () => 0 },
 }).exports;

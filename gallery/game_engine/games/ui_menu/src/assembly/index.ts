@@ -19,11 +19,11 @@
 //   4. we react (bump a counter), bump the revision, and rebuild — the next
 //      frame's document reflects the change ("plays: N").
 //
-// Build:  bash gallery/game_engine/wasm/as_ui_menu/build.sh
+// Build:  bash gallery/game_engine/games/ui_menu/src/build.sh
 // (produces build/logic.wasm; the host loads it via wasm_call_i32 on native).
 // ============================================================================
 
-import { ui, UI_SIZE, uiPtr, EVENT_ACTIVATE } from "../../as_autopeli/assembly/ui";
+import { ui, UI_SIZE, uiPtr, EVENT_ACTIVATE } from "../../../autopeli_as/src/assembly/ui";
 
 // ---- host imports (module "env") ----
 // The guest triggers a host-run, GPU-accelerated effect; the host owns the

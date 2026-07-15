@@ -10,7 +10,7 @@
 ;
 ; It self-checks the guest's own navigation + screen/example state machine and
 ; dumps PNGs, so it is the "simple interpreter test" counterpart of the compiled
-; wasm menu (wasm/as_ui_menu) — one .as source, exercised without asc.
+; wasm menu (games/ui_menu/src) — one .as source, exercised without asc.
 ; ==============================================================================
 
 Import "../ui/WasmUiSelect.rgr"

@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # Build the AssemblyScript UI-effects showcase guest to build/logic.wasm.
 #
-# Usage:  bash gallery/game_engine/wasm/as_ui_effects/build.sh
+# Usage:  bash gallery/game_engine/games/ui_effects/src/build.sh
 #
 # Reuses the shared RGU1 builder in ../as_autopeli/assembly/ui.ts. If asc is not
 # installed in this crate, fall back to a sibling crate's assemblyscript install.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
-CRATE="$ROOT/gallery/game_engine/wasm/as_ui_effects"
-SIB1="$ROOT/gallery/game_engine/wasm/as_ui_menu"
-SIB2="$ROOT/gallery/game_engine/wasm/as_autopeli"
+ROOT="$(cd "$(dirname "$0")/../../../../.." && pwd)"
+CRATE="$ROOT/gallery/game_engine/games/ui_effects/src"
+SIB1="$ROOT/gallery/game_engine/games/ui_menu/src"
+SIB2="$ROOT/gallery/game_engine/games/autopeli_as/src"
 
 cd "$CRATE"
 mkdir -p build

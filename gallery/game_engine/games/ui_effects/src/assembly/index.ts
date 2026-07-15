@@ -15,11 +15,11 @@
 //   Screen Pulse (red)  — a red whole-screen pulse
 //   Screen Pulse (blue) — a blue whole-screen pulse
 //
-// Build:  bash gallery/game_engine/wasm/as_ui_effects/build.sh
+// Build:  bash gallery/game_engine/games/ui_effects/src/build.sh
 // Runs as the `EVG Effects Demo` app (games/ui_effects, category=Tests).
 // ============================================================================
 
-import { ui, UI_SIZE, uiPtr, EVENT_ACTIVATE } from "../../as_autopeli/assembly/ui";
+import { ui, UI_SIZE, uiPtr, EVENT_ACTIVATE } from "../../../autopeli_as/src/assembly/ui";
 
 // ---- host import: trigger a host-run effect (see as_ui_menu for the contract).
 //   kind: 1 glow, 2 pulse | target: 0 node, 1 screen | r,g,b: tint 0..255

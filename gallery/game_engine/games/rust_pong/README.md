@@ -10,7 +10,7 @@ games/rust_pong/
   game.info       # engine=wasm, module=logic.wasm
   logic.wasm      # built artifact (committed for convenience)
 
-wasm/rust_pong/
+games/rust_pong/src/
   src/lib.rs      # Rust source
   build.sh        # cargo wasm32-unknown-unknown → logic.wasm
 ```

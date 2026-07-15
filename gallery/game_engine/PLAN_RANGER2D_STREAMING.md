@@ -79,7 +79,7 @@ rg_res_lookup(key) -> handle                   ; dedup/cache avaimella
 `kind ∈ {texture2D, mesh, audioClip, tilemap, …}` — mikään ei sano "2D". **Tämä on suoraan
 pääsuunnitelman R5** (host-allokoidut u64-resurssikahvat, `PLAN_RANGER2D.md` §5); tämä worker on
 R5:n *kuluttaja*. Laajentaa nykyistä `rg_host_register_sheet/rect`-mekanismia
-([`lib.rs`](./wasm/rust_autopeli/src/lib.rs) ~602–643).
+([`lib.rs`](./games/autopeli_wasm/src/src/lib.rs) ~602–643).
 
 **2. Peli-observaatio-snapshot** (host tuottaa, worker lukee — "tarkkailee peliä")
 
@@ -142,7 +142,7 @@ generointi, verkkolataus, LOD) vaihtamatta engineä.
 | Kamera | ✅ world→screen-offset (`game_camera`), **+ R1b GPU-ortho-camera** (pan/zoom/rot) | [`game_camera.rgr`](./scripting/game_camera.rgr), [`gfx_sdl.rgr`](./gfx_sdl.rgr) R1b |
 | Asset-lataus | ⚠️ **synkroninen** decode + path-cache, frame-polulla | [`game_image_loader.rgr`](./scripting/game_image_loader.rgr) |
 | Threadit | ❌ **nolla** thread-viittausta koko koodikannassa | — |
-| Host-resurssikahvat | ✅ `rg_host_register_sheet/rect` palauttaa kahvan (WASM) | [`wasm/rust_autopeli/src/lib.rs`](./wasm/rust_autopeli/src/lib.rs) ~602–643 |
+| Host-resurssikahvat | ✅ `rg_host_register_sheet/rect` palauttaa kahvan (WASM) | [`games/autopeli_wasm/src/src/lib.rs`](./games/autopeli_wasm/src/src/lib.rs) ~602–643 |
 | WASM-ABI-malli | ✅ RGW1 world, RGU1 UI — kiinteä lohko + `ptr/size/revision` | [`wasm_abi_io.rgr`](./scripting/wasm_abi_io.rgr), [`wasm_ui_io.rgr`](./scripting/wasm_ui_io.rgr) |
 
 **Puuttuu:** 2D-maailmagrid, per-solu elinkaari, kamera-vetoinen preload/free, per-objekti- ja
