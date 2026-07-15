@@ -46,14 +46,25 @@ function cross(a, b) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b
 function norm(a) { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; }
 function dot(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
 
-function octahedron() {
-  const T = [0, 0.42, 0], B = [0, -0.36, 0];
-  const R = 0.3;
-  const G = [[R, 0, 0], [0, 0, R], [-R, 0, 0], [0, 0, -R]];
+// A 6-sided brilliant-cut gem: a hexagonal girdle sitting ~75% up (short crown,
+// long pavilion), a top crown apex and a bottom culet point. 12 flat-shaded
+// facets pointing in different directions catch the light like a real diamond.
+function hexGem() {
+  const SIDES = 6;
+  const R = 0.32;     // girdle radius (widest)
+  const ht = 0.18;    // crown height above the girdle
+  const hb = 0.54;    // pavilion depth below (girdle at hb/(ht+hb) = 75%)
+  const T = [0, ht, 0], B = [0, -hb, 0];
+  const G = [];
+  for (let i = 0; i < SIDES; i++) {
+    const a = (i / SIDES) * Math.PI * 2;
+    G.push([Math.cos(a) * R, 0, Math.sin(a) * R]);
+  }
   const faces = [];
-  for (let i = 0; i < 4; i++) {
-    faces.push([T, G[i], G[(i + 1) % 4]]);          // top cap
-    faces.push([B, G[(i + 1) % 4], G[i]]);          // bottom cap
+  for (let i = 0; i < SIDES; i++) {
+    const j = (i + 1) % SIDES;
+    faces.push([T, G[i], G[j]]);   // crown facet
+    faces.push([B, G[j], G[i]]);   // pavilion facet
   }
   const positions = [], normals = [], uvs = [], indices = [];
   const uvTri = [[0.5, 1], [0, 0], [1, 0]];
@@ -103,7 +114,14 @@ function buildGlb(geo, png) {
     scenes: [{ nodes: [0] }],
     nodes: [{ name: 'Diamond', mesh: 0 }],
     meshes: [{ name: 'Diamond', primitives: [{ attributes: { POSITION: 0, NORMAL: 1, TEXCOORD_0: 2 }, indices: 3, material: 0, mode: 4 }] }],
-    materials: [{ name: 'Gem', doubleSided: true, pbrMetallicRoughness: { baseColorFactor: [0.4, 0.9, 1.0, 1.0], baseColorTexture: { index: 0 }, metallicFactor: 0.1, roughnessFactor: 0.3 } }],
+    materials: [{
+      name: 'Gem',
+      doubleSided: true,
+      alphaMode: 'BLEND',
+      pbrMetallicRoughness: { baseColorFactor: [0.45, 0.72, 1.0, 0.55], baseColorTexture: { index: 0 }, metallicFactor: 0.2, roughnessFactor: 0.15 },
+      emissiveFactor: [0.15, 0.45, 0.9],
+      extensions: { KHR_materials_emissive_strength: { emissiveStrength: 1.6 } },
+    }],
     textures: [{ source: 0 }],
     images: [{ mimeType: 'image/png', bufferView: 4 }],
     accessors: [
@@ -141,11 +159,11 @@ function buildGlb(geo, png) {
 }
 
 const png = pngRGBA(16, (x, y) => {
-  // faceted cyan crystal look
-  const f = ((x >> 2) + (y >> 2)) & 1 ? 30 : -20;
-  const s = Math.max(0, 1 - Math.hypot(x - 8, y - 8) / 12) * 40;
-  return [90 + f + s, 210 + f * 0.4 + s, 235 + s, 255];
+  // bright icy highlights; the blue tint comes from the material baseColorFactor
+  const f = ((x >> 2) + (y >> 2)) & 1 ? 22 : -14;
+  const s = Math.max(0, 1 - Math.hypot(x - 8, y - 8) / 11) * 55;
+  return [210 + f + s, 232 + f + s, 255, 255];
 });
-const glb = buildGlb(octahedron(), png);
+const glb = buildGlb(hexGem(), png);
 fs.writeFileSync(path.join(OUT, 'diamond.glb'), glb);
 console.log('wrote models/diamond.glb (' + glb.length + ' bytes)');

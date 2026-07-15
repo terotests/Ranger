@@ -99,6 +99,12 @@ class GltfMaterial {
     def metallic:double 1.0
     def roughness:double 1.0
     def doubleSided:boolean false
+    def emissiveR:double 0.0
+    def emissiveG:double 0.0
+    def emissiveB:double 0.0
+    def emissiveStrength:double 1.0
+    ; 0 = OPAQUE, 1 = MASK, 2 = BLEND (glTF alphaMode)
+    def alphaMode:int 0
 }
 
 class GltfPrimitive {
@@ -338,6 +344,27 @@ class GltfDocument {
                         def bt:JsonValue (pbr.get("baseColorTexture"))
                         m.baseColorTexture = (bt.intOr("index" (0 - 1)))
                         m.baseColorTexCoord = (bt.intOr("texCoord" 0))
+                    }
+                }
+                if (o.has("emissiveFactor")) {
+                    def ef:JsonValue (o.get("emissiveFactor"))
+                    m.emissiveR = (this.jd(ef 0))
+                    m.emissiveG = (this.jd(ef 1))
+                    m.emissiveB = (this.jd(ef 2))
+                }
+                def am:string (o.stringOr("alphaMode" "OPAQUE"))
+                if (am == "BLEND") {
+                    m.alphaMode = 2
+                }
+                if (am == "MASK") {
+                    m.alphaMode = 1
+                }
+                ; KHR_materials_emissive_strength.emissiveStrength (glow intensity)
+                if (o.has("extensions")) {
+                    def ext:JsonValue (o.get("extensions"))
+                    if (ext.has("KHR_materials_emissive_strength")) {
+                        def es:JsonValue (ext.get("KHR_materials_emissive_strength"))
+                        m.emissiveStrength = (es.doubleOr("emissiveStrength" 1.0))
                     }
                 }
                 push materials m

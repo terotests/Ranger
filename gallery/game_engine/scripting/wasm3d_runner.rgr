@@ -253,6 +253,18 @@ class Wasm3dRunner {
         def n:int (strlen name)
         return (substring name 0 (n - 4))
     }
+    ; double 0..1 -> byte 0..255 (rounded, clamped)
+    fn chan255:int (v:double) {
+        def s:double ((v * 255.0) + 0.5)
+        def n:int (to_int s)
+        if (n < 0) {
+            return 0
+        }
+        if (n > 255) {
+            return 255
+        }
+        return n
+    }
     ; Preload every <gameDir>/models/*.glb into the scene's mesh/texture pools
     ; and register each under its basename, so a host-managed guest can call
     ; rg_load_model("name") during init() (IDEAL_3D §12.4 render bridge).
@@ -279,8 +291,21 @@ class Wasm3dRunner {
                             texId = (gfx_3d_upload_texture em.texRgba em.texWidth em.texHeight)
                         }
                         def base:string (this.stripGlb(fname))
-                        gfx_scene_register_model base meshId texId
-                        print ("[wasm3d] model '" + base + "' -> mesh=" + (to_string meshId) + " tex=" + (to_string texId))
+                        def cr:int (this.chan255(em.baseColorR))
+                        def cg:int (this.chan255(em.baseColorG))
+                        def cb:int (this.chan255(em.baseColorB))
+                        def ca:int (this.chan255(em.baseColorA))
+                        def colorRgba:int (((cr * 16777216) + (cg * 65536)) + ((cb * 256) + ca))
+                        def er:int (this.chan255(em.emissiveR))
+                        def eg:int (this.chan255(em.emissiveG))
+                        def eb:int (this.chan255(em.emissiveB))
+                        def emissiveRgb:int (((er * 16777216) + (eg * 65536)) + (eb * 256))
+                        def blendI:int 0
+                        if em.blend {
+                            blendI = 1
+                        }
+                        gfx_scene_register_model base meshId texId colorRgba emissiveRgb blendI
+                        print ("[wasm3d] model '" + base + "' -> mesh=" + (to_string meshId) + " tex=" + (to_string texId) + " blend=" + (to_string blendI))
                     } {
                         print ("[wasm3d] model unusable: " + fname + " (" + em.error + ")")
                     }

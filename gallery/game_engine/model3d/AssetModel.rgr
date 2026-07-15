@@ -43,6 +43,12 @@ class MaterialAsset {
     def roughness:double 1.0
     def doubleSided:boolean false
     def unlit:boolean false
+    ; emissive (glow) colour, already scaled by KHR emissiveStrength
+    def emissiveR:double 0.0
+    def emissiveG:double 0.0
+    def emissiveB:double 0.0
+    ; glTF alphaMode: 0 = OPAQUE, 1 = MASK, 2 = BLEND
+    def alphaMode:int 0
 }
 
 class MeshPrimitiveAsset {
