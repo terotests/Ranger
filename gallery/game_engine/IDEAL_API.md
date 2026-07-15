@@ -8,13 +8,17 @@ always tell **what is binding right now** from **what is proposed**:
 | Document | Status | Contents |
 |----------|--------|----------|
 | **[`ABI_V1.md`](./ABI_V1.md)** | **NORMATIVE** | Exactly what ships and runs today: block byte-layouts (RGW1, RGSP1, RGU1, RGP1, RGIN, RGCQ), the concurrency/ownership model, handshake, capability bits, and honest current result/determinism/identity semantics. |
-| **[`ABI_V2_PROPOSAL.md`](./ABI_V2_PROPOSAL.md)** | **PROPOSED** | Target layouts and breaking changes: new blocks, widened records, `rg_ui_event_v2`, versioning rules, the `RgResult` model, the replay protocol, the identity model. **Not the current contract.** |
+| **[`ABI_V2_PROPOSAL.md`](./ABI_V2_PROPOSAL.md)** | **PROPOSED** | Target layouts and breaking changes: new blocks, widened records, `rg_ui_event_v2`, versioning rules, the `RgResult` model, the replay protocol, the identity model, and the **mobile** surfaces (RGMO device motion `V2 §18`, networking `rg_net_*` `V2 §19`, in-app purchases `rg_iap_*` `V2 §20`). **Not the current contract.** |
 | **[`HOST_ARCHITECTURE.md`](./HOST_ARCHITECTURE.md)** | Informative | Host-internal Ranger interfaces (`GameProvider`, `GameSceneProvider`, `BodyVisual`, registries). Function-passing interfaces, **not a byte-level ABI.** |
 | **[`IDEAL.md`](./IDEAL.md)** | Rationale | Why each interface should look the way it does. The source of *intent*; never overrides a shipped byte layout. |
 
 **Where to start:** implementing a guest or host against today's runtime → read
 `ABI_V1.md` and the generated headers under [`wasm/`](./wasm/). Planning the next
 version → `ABI_V2_PROPOSAL.md`. Understanding a design choice → `IDEAL.md`.
+Targeting **mobile** (device motion/orientation, haptics, networking/multiplayer with
+OpenAPI-subset backend schema validation, in-app purchases, and the Apple/Xcode host
+packaging) → `IDEAL §2.9`, `§2.19`–`§2.22` for rationale and `ABI_V2_PROPOSAL.md §18`–`§20`
+(schema validation in `§19.1`) for the proposed byte/import surfaces.
 
 ---
 

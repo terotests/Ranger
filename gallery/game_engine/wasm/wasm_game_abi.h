@@ -154,7 +154,14 @@
 #define RG_WASM_HOST_CAP_POSE_INPUT 0x0010u /* RGP1 pose streaming + motion/speed   */
 #define RG_WASM_HOST_CAP_UI_DYNAMIC 0x0020u /* handle-based dynamic EVG UI (rg_evg_*) */
 #define RG_WASM_HOST_CAP_RES_STREAM 0x0040u /* rg_res_* streaming resources / workers */
-/* Bits 0x0080.. are reserved for future host features. Assign additively and
+#define RG_WASM_HOST_CAP_MOTION     0x0080u /* RGMO device motion/orientation sensors */
+#define RG_WASM_HOST_CAP_NET        0x0100u /* rg_net_* online services / multiplayer */
+#define RG_WASM_HOST_CAP_IAP        0x0200u /* rg_iap_* in-app purchases / entitlements */
+/* RG_WASM_HOST_CAP_MOTION / NET / IAP name the mobile-oriented capabilities the
+ * plan reserves (§2.19–§2.22 / V2 §18–§20); the byte layouts and imports they gate
+ * are PROPOSED, not yet acted on. RG_WASM_HOST_CAP_RUMBLE (0x0002) generalises to
+ * "haptics" and is what a mobile Taptic/Core-Haptics host advertises (§2.9).
+ * Bits 0x0400.. are reserved for future host features. Assign additively and
  * never reuse a retired bit. RG_WASM_HOST_CAPS is what a given host advertises
  * (the OR of every attached provider's capBit, §6); it is defined by the host
  * build, not here. */

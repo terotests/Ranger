@@ -465,12 +465,21 @@ rejects an unsatisfiable guest at load.
 | `RG_WASM_HOST_CAP_POSE_INPUT` | `0x0010` | RGP1 pose streaming + motion/speed |
 | `RG_WASM_HOST_CAP_UI_DYNAMIC` | `0x0020` | handle-based dynamic EVG UI (`rg_evg_*`) — **[RESERVED]**, API surface is PROPOSED (V2) |
 | `RG_WASM_HOST_CAP_RES_STREAM` | `0x0040` | `rg_res_*` streaming resources / workers — **[RESERVED]**, API surface is PROPOSED (V2) |
+| `RG_WASM_HOST_CAP_MOTION` | `0x0080` | RGMO device motion/orientation sensors — **[RESERVED]**, API surface is PROPOSED (`V2 §18`) |
+| `RG_WASM_HOST_CAP_NET` | `0x0100` | `rg_net_*` online services / multiplayer — **[RESERVED]**, API surface is PROPOSED (`V2 §19`) |
+| `RG_WASM_HOST_CAP_IAP` | `0x0200` | `rg_iap_*` in-app purchases / entitlements — **[RESERVED]**, API surface is PROPOSED (`V2 §20`) |
 
 Bits `0x0001`–`0x0010` gate shipped surfaces. `0x0020`/`0x0040` are **defined
 header values** whose *guest-facing APIs* (`rg_evg_*`, `rg_res_*`) are proposed —
 the bit exists so a host that later ships the provider can advertise it, but a
 guest requiring one of these bits against today's runtime is correctly rejected.
-Bits `0x0080` and up are unassigned; assign additively, never reuse a retired bit.
+`0x0080`/`0x0100`/`0x0200` are the mobile-oriented bits (device motion, networking,
+in-app purchases) reserved on the same terms — defined header values whose
+guest-facing surfaces are PROPOSED (`V2 §18`–`§20`). Mobile **haptics** does not add
+a bit: a Taptic-Engine / Core-Haptics / Android-`VibrationEffect` host advertises the
+existing `RG_WASM_HOST_CAP_RUMBLE` (`0x0002`), generalised from "gamepad rumble" to
+"haptics" (`IDEAL §2.9`). Bits `0x0400` and up are unassigned; assign additively,
+never reuse a retired bit.
 
 ---
 
