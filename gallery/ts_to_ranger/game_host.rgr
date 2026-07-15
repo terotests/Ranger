@@ -226,7 +226,23 @@ class GameHost {
         if (false == (file_exists dir file)) {
             return false
         }
-        return (vocalFx.registerAssetWav(id dir file))
+        def ok:boolean (vocalFx.registerAssetWav(id dir file))
+        ; Optional sibling <base>.info (key=value: lang, text) for subtitles.
+        def dot:int -1
+        def di 0
+        while (di < (strlen file)) {
+            if ((substring file di (di + 1)) == ".") {
+                dot = di
+            }
+            di = (di + 1)
+        }
+        if (dot > 0) {
+            def infoFile:string ((substring file 0 dot) + ".info")
+            if (file_exists dir infoFile) {
+                vocalFx.loadAssetInfo(id dir infoFile)
+            }
+        }
+        return ok
     }
 
     fn registerResources:void (list:[ResourceDefNative]) {
@@ -266,7 +282,9 @@ class GameHost {
                 ; synth has its own GameAudio, so mirror the rate or the PCM
                 ; plays back at the wrong speed and sounds like crackle.
                 vocalFx.synth.sampleRate = a.sampleRate
-                if (vocalFx.has(e.id)) {
+                ; Play a built-in synth effect OR any registered WAV override —
+                ; the latter lets a game use custom spoken ids (e.g. "good-fi").
+                if ((vocalFx.has(e.id)) || (vocalFx.hasAsset(e.id))) {
                     vocalFx.play(e.id a.sink)
                 } {
                     if verbose { print ("[host] playVoice (unknown effect) " + e.id) }

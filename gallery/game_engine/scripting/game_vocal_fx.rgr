@@ -58,6 +58,10 @@ class GameVocalFx {
     ; under the C++ backend (empty map), which wrongly sent every effect down the
     ; empty-asset path -> 0 bytes -> silent voices in the SDL host.
     def assetIds:[string]
+    ; Optional per-asset metadata from a sibling <id>.info file (key=value):
+    ; text = what the clip says (subtitles / accessibility), lang = fi | en | ...
+    def assetText:[string:string]
+    def assetLang:[string:string]
 
     fn init:void () {
         synth.init()
@@ -566,6 +570,65 @@ class GameVocalFx {
             fi = (fi + 1)
         }
         this.registerAsset(id pcm frames)
+        return true
+    }
+
+    ; --- .info metadata (subtitles / language / accessibility) ---------------
+
+    fn registerAssetInfo:void (id:string lang:string text:string) {
+        set assetLang id lang
+        set assetText id text
+    }
+
+    fn textFor:string (id:string) {
+        def v@(optional):string (get assetText id)
+        if (!null? v) {
+            return (unwrap v)
+        }
+        return ""
+    }
+
+    fn langFor:string (id:string) {
+        def v@(optional):string (get assetLang id)
+        if (!null? v) {
+            return (unwrap v)
+        }
+        return ""
+    }
+
+    ; Parse a sibling `<id>.info` file: key=value lines, `lang=` and `text=`.
+    ; A line without `=` is ignored; everything after the first `=` is the value.
+    fn loadAssetInfo:boolean (id:string dir:string file:string) {
+        def raw:buffer (buffer_read_file dir file)
+        def txt:string (buffer_to_string raw)
+        def lang:string ""
+        def text:string ""
+        def line:string ""
+        def i 0
+        def n:int (strlen txt)
+        while (i <= n) {
+            def atEnd:boolean (i == n)
+            def ch:string ""
+            if (false == atEnd) {
+                ch = (substring txt i (i + 1))
+            }
+            if (atEnd || (ch == "\n")) {
+                def eq:int (indexOf line "=")
+                if (eq > 0) {
+                    def key:string (substring line 0 eq)
+                    def val:string (substring line (eq + 1) (strlen line))
+                    if (key == "lang") { lang = val }
+                    if (key == "text") { text = val }
+                }
+                line = ""
+            } {
+                if (ch != "\r") {
+                    line = (line + ch)
+                }
+            }
+            i = (i + 1)
+        }
+        this.registerAssetInfo(id lang text)
         return true
     }
 
