@@ -271,3 +271,156 @@ class World {
         World.pushEvent(3 0 x y amount)
     }
 }
+
+; ---------------------------------------------------------------------------
+; UI — the RGU1 retained-mode HUD builder (Ranger equivalent of the Rust ui.rs).
+; Block at 2624 (8192 bytes): header 0..48, nodes @64 (32 B), props @2112 (16 B),
+; strings @4160. Node kinds VIEW=1 TEXT=2; prop keys TEXT=1 COLOR=3 FONT_SIZE=4
+; FLEX_DIRECTION=21 PADDING=12; prop types I32=1 COLOR=3 STRING=4. Cursors live
+; in the guest scratch region. u16/u8 sub-words are composed into i32 stores.
+; ---------------------------------------------------------------------------
+class UI {
+    sfn ptr:int () {
+        return 2624
+    }
+
+    sfn byteSize:int () {
+        return 8192
+    }
+
+    ; cursors: nodeCnt 11020, propCnt 11024, strLen 11028, curNode 11032,
+    ;          revision 11040, signature 11044
+    sfn nodeCnt:int () {
+        return (Mem.loadI32(11020))
+    }
+
+    sfn propCnt:int () {
+        return (Mem.loadI32(11024))
+    }
+
+    sfn strLen:int () {
+        return (Mem.loadI32(11028))
+    }
+
+    sfn rgba:int (r:int g:int b:int a:int) {
+        return (bit_or (bit_or (bit_or (bit_shl r 24) (bit_shl g 16)) (bit_shl b 8)) a)
+    }
+
+    sfn begin:void () {
+        Mem.storeI32(11020 0)
+        Mem.storeI32(11024 0)
+        Mem.storeI32(11028 0)
+    }
+
+    ; open a node record at nodes[nodeCnt]; becomes the "current" node for props
+    sfn node:void (id:int parent:int kind:int) {
+        def ni (UI.nodeCnt())
+        def nb (+ 2688 (* ni 32))
+        Mem.storeI32(nb id)
+        Mem.storeI32((+ nb 4) parent)
+        Mem.storeI32((+ nb 8) kind)                ; kind(u16) | flags(u16)=0
+        Mem.storeI32((+ nb 12) (UI.propCnt()))     ; first_prop
+        Mem.storeI32((+ nb 16) (bit_shl ni 16))    ; prop_count 0 | child_order<<16
+        Mem.storeI32((+ nb 20) 0)                  ; event_mask
+        Mem.storeI32(11020 (+ ni 1))
+        Mem.storeI32(11032 nb)
+    }
+
+    sfn bumpNodeProps:void () {
+        def cur (Mem.loadI32(11032))
+        def w (Mem.loadI32((+ cur 16)))
+        def pc (bit_and w 65535)
+        def order (bit_and (bit_shr w 16) 65535)
+        Mem.storeI32((+ cur 16) (bit_or (+ pc 1) (bit_shl order 16)))
+    }
+
+    sfn writeProp:void (key:int typ:int a:int b:int) {
+        def pi (UI.propCnt())
+        def pb (+ 4736 (* pi 16))
+        Mem.storeI32(pb (bit_or key (bit_shl typ 16)))  ; key(u16) | type(u8)<<16
+        Mem.storeI32((+ pb 4) a)
+        Mem.storeI32((+ pb 8) b)
+        Mem.storeI32((+ pb 12) 0)
+        Mem.storeI32(11024 (+ pi 1))
+        UI.bumpNodeProps()
+    }
+
+    sfn propI32:void (key:int value:int) {
+        UI.writeProp(key 1 value 0)
+    }
+
+    sfn propColor:void (key:int rgba:int) {
+        UI.writeProp(key 3 rgba 0)
+    }
+
+    sfn propStr:void (key:int off:int len:int) {
+        UI.writeProp(key 4 off len)
+    }
+
+    ; write one byte into the string table (read-modify-write on an i32 word)
+    sfn strByte:void (c:int) {
+        def n (Mem.loadI32(11028))
+        def addr (+ 6784 n)
+        def base (- addr (% addr 4))
+        def sh (* (% addr 4) 8)
+        def w (Mem.loadI32(base))
+        def cleared (bit_and w (bit_xor -1 (bit_shl 255 sh)))
+        Mem.storeI32(base (bit_or cleared (bit_shl (bit_and c 255) sh)))
+        Mem.storeI32(11028 (+ n 1))
+    }
+
+    ; append a decimal number (0..9999) with no leading zeros
+    sfn strDec:void (n:int) {
+        def v n
+        if (< v 0) {
+            v = 0
+        }
+        def started 0
+        def divisor 1000
+        while (> divisor 0) {
+            def digit (% (idiv v divisor) 10)
+            if (> digit 0) {
+                started = 1
+            }
+            if (== divisor 1) {
+                started = 1
+            }
+            if (> started 0) {
+                UI.strByte((+ 48 digit))
+            }
+            divisor = (idiv divisor 10)
+        }
+    }
+
+    ; publish the header (magic/version/offsets/counts + VALID flag)
+    sfn finish:void () {
+        Mem.storeI32(2624 827672402)   ; magic 'RGU1'
+        Mem.storeI32(2628 1)           ; major 1 | minor 0
+        Mem.storeI32(2636 1)           ; root_id
+        Mem.storeI32(2640 64)          ; node_offset
+        Mem.storeI32(2644 (UI.nodeCnt()))
+        Mem.storeI32(2648 2112)        ; prop_offset
+        Mem.storeI32(2652 (UI.propCnt()))
+        Mem.storeI32(2656 4160)        ; string_offset
+        Mem.storeI32(2660 (UI.strLen()))
+        Mem.storeI32(2664 1)           ; flags VALID
+    }
+
+    sfn revision:int () {
+        return (Mem.loadI32(11040))
+    }
+
+    sfn initRevision:void () {
+        Mem.storeI32(11040 1)          ; must be > 0 for the host to read the doc
+        Mem.storeI32(11044 -1)         ; impossible signature -> first frame bumps
+    }
+
+    ; bump the revision only when the content signature changes (host re-reads
+    ; the document only on a bump, exactly like the Rust builder)
+    sfn setSignature:void (sig:int) {
+        if (sig != (Mem.loadI32(11044))) {
+            Mem.storeI32(11040 (+ (Mem.loadI32(11040)) 1))
+            Mem.storeI32(11044 sig)
+        }
+    }
+}

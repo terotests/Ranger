@@ -34,6 +34,19 @@ class Auto {
     sfn declare_resources:void () {
     }
 
+    ; RGU1 HUD exports (renamed to rg_ui_ptr/rg_ui_size/rg_ui_revision by build.sh)
+    sfn rg_ui_ptr:int () {
+        return (UI.ptr())
+    }
+
+    sfn rg_ui_size:int () {
+        return (UI.byteSize())
+    }
+
+    sfn rg_ui_revision:int () {
+        return (UI.revision())
+    }
+
     ; --------------------------------------------------------------------
     ; private per-player state: base 10880, stride 64
     ;   0 rampCd  4 air  8 oilCd  12 oilRec  16 oilWas
@@ -245,6 +258,7 @@ class Auto {
         World.setBodyCount(17)
         Auto.initTables()
         Auto.setWon(0)
+        UI.initRevision()
         def spawnY (* 5860 256)
         Auto.roadAt(spawnY)
         def cx (Auto.scratchCx())
@@ -284,6 +298,68 @@ class Auto {
 
         World.setCameraY((- (World.bodyY(0)) (* 120 256)))
         Auto.checkWin()
+        Auto.buildHud()
+    }
+
+    ; ---- RGU1 HUD: root row -> two player columns (id 10 / id 20), each with a
+    ; HITS line and a colour-coded GRIP line. The host renders node id 10 for the
+    ; P1 pane and id 20 for the P2 pane.
+    sfn buildHud:void () {
+        UI.begin()
+        UI.node(1 0 1)          ; root VIEW
+        UI.propI32(21 0)        ; FLEX_DIRECTION = row
+        Auto.hudColumn(0 10)
+        Auto.hudColumn(1 20)
+        UI.finish()
+        def h0 (Auto.pget(0 36))
+        def h1 (Auto.pget(1 36))
+        def g0 (Auto.pget(0 28))
+        def g1 (Auto.pget(1 28))
+        def sig (+ (* (+ (* (+ (* h0 131) h1) 131) (idiv g0 10)) 131) (idiv g1 10))
+        UI.setSignature(sig)
+    }
+
+    sfn hudColumn:void (player:int colId:int) {
+        UI.node(colId 1 1)      ; VIEW column, child of root
+        UI.propI32(21 1)        ; FLEX_DIRECTION = column
+        UI.propI32(12 4)        ; PADDING 4
+
+        ; "HITS <n>"
+        UI.node((+ colId 1) colId 2)   ; TEXT node
+        def so (UI.strLen())
+        UI.strByte(72)
+        UI.strByte(73)
+        UI.strByte(84)
+        UI.strByte(83)
+        UI.strByte(32)
+        UI.strDec((Auto.pget(player 36)))
+        UI.propStr(1 so (- (UI.strLen()) so))
+        UI.propColor(3 (UI.rgba(255 255 255 255)))
+        UI.propI32(4 8)
+
+        ; "GRIP <n>" (grip/10, colour-coded)
+        def grip (Auto.pget(player 28))
+        UI.node((+ colId 2) colId 2)
+        def so2 (UI.strLen())
+        UI.strByte(71)
+        UI.strByte(82)
+        UI.strByte(73)
+        UI.strByte(80)
+        UI.strByte(32)
+        UI.strDec((idiv grip 10))
+        UI.propStr(1 so2 (- (UI.strLen()) so2))
+        UI.propColor(3 (Auto.gripColor(grip)))
+        UI.propI32(4 8)
+    }
+
+    sfn gripColor:int (g:int) {
+        if (>= g 650) {
+            return (UI.rgba(60 220 120 255))
+        }
+        if (>= g 350) {
+            return (UI.rgba(230 210 70 255))
+        }
+        return (UI.rgba(230 70 70 255))
     }
 
     ; ---- grip: 1000 on road, 450 off the edge --------------------------
@@ -461,6 +537,7 @@ class Auto {
                     def cyp (World.contactY(i))
                     if (Auto.isSolid(other)) {
                         hits = (+ hits 1)
+                        Auto.pset(player 36 (+ (Auto.pget(player 36)) 1))
                         Auto.pset(player 20 (Auto.hitKind(other)))
                         Auto.pset(player 24 260)
                         if (>= imp 18) {

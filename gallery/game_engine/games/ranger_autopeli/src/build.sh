@@ -40,7 +40,7 @@ GEN="$OUT_DIR/autopeli.ll"
 cp "$GEN" "$WAT"
 
 echo "==> 2/3 rename exports to the engine ABI"
-sed -i -E 's/\(export "Auto_(abi_base|rg_abi_version|declare_resources|init|update)"/(export "\1"/' "$WAT"
+sed -i -E 's/\(export "Auto_(abi_base|rg_abi_version|declare_resources|init|update|rg_ui_ptr|rg_ui_size|rg_ui_revision)"/(export "\1"/' "$WAT"
 
 echo "==> 3/3 wat2wasm -> $WASM"
 "$WAT2WASM" "$WAT" -o "$WASM"
