@@ -348,14 +348,17 @@ bridge the compiled guest would use.
 
 Pieces:
 
-- **RGP1 block** on `AsAbiBridge` (`scripting/as_abi_bridge.rgr`): a 128-byte
+- **RGP1 block** on `AsAbiBridge` (`scripting/as_abi_bridge.rgr`): an 856-byte
   `pose:[int]` buffer beside `abi:[int]`/`ui:[int]`, with LE `ppw`/`ppr`, host
   writers (`poseWriteHeader`/`poseWriteLandmark`/`poseBump`) and guest readers
   (`posePresent`/`poseGesture`/`poseX`/`poseY`/`poseRevision`) wired into the
-  native `has()`/`invoke()` dispatch. Layout: `0` magic `RGP1`, `4` version,
-  `8` revision, `12` present, `16` gesture, `20` landmark count, `32..`
-  landmark[i] = xFp, yFp (world units ×256). Gesture enum: `0` none, `1`
-  arms_up, `2` lean_left, `3` lean_right.
+  native `has()`/`invoke()` dispatch. Layout is the shared, canonical
+  `wasm/wasm_pose_abi.h` (RGP1 v2), identical to `lib/ranger_game/src/pose.rs`
+  and the native `rg_pose.h`: `0` magic `RGP1`, `4` version, `8` size, `12`
+  revision, `16` present, `20` gesture, `24` landmark count, `28` time, `32` dt,
+  `36` flags, `40..` body vx/vy/speed, `64..` landmark[i] = x, y, vx, vy, speed,
+  conf (24 B each). Gesture enum: `0` none, `1` arms_up, `2` lean_left, `3`
+  lean_right.
 - **Source / shared buffer / provider** (`scripting/game_pose_provider.rgr`),
   the three layers from §6.1 wired but decoupled:
   - `SharedPoseBuffer` — the SharedArrayBuffer analog: a byte buffer holding one
