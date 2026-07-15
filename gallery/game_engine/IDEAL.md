@@ -1768,6 +1768,18 @@ placing an object becomes *"give it a local transform"* — one camera model and
 transform shared by the software and GPU backends and by every guest path, invertible for
 picking, game-declared in view and host-owned in rendering (§2.5, §2.9, §2.14, §2.15, §5, §6).
 
+> **2D is the special case of 3D, not a parallel path.** The affine `Mat3` above is the
+> `z = 0`, orthographic collapse of a 4×4 `clip = Projection · View · world`. Promoting the
+> one camera model to carry an optional projection (ortho / perspective) turns the *same*
+> declare-a-camera-get-a-matrix contract into 3D, and the *same* declare-once vertex pool §2.5
+> uses for collision (`ABI_V2 §5`) becomes a render mesh with normals and colour
+> (`ABI_V2 §18`), lit per-vertex by a guest-declared sun + ambient (`ABI_V2 §20`). A 2D game
+> sets no new field and is byte-compatible; a 3D game flips projection mode, adds mesh normals,
+> and turns lighting on. The concrete blocks, the worked lit-cube example, and the incremental
+> build order are in **`ABI_V2_PROPOSAL.md` §18–§21**; the matrix math is the already-tested
+> `cannon_mat3`/`cannon_vec3`/`cannon_quaternion` this section says the 2D engine should
+> already be reusing.
+
 ### 2.18 The particle system, special effects, and filters
 
 Sparkles on a pickup, a confetti burst on a win, a glow on a selected button, a red flash
