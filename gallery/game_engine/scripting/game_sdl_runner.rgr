@@ -400,6 +400,13 @@ class GameSdlRunner {
             wasmPhysicsRunner.init(pw ph)
             this.presentLoadingScreen("LOADING WASM")
             wasmPhysicsRunner.loadModule(wasmPath)
+            ; A failed load (missing import, bad module, gate rejection) must NOT
+            ; fall through — the runner would render a blank/garbage game. Abort
+            ; back to the menu instead.
+            if ((wasmPhysicsRunner.isLoaded()) == false) {
+                this.abortWasmLoad(wasmPath)
+                return
+            }
             this.presentLoadingScreen("LOADING WASM")
             wasmPhysicsRunner.setupScene()
             def sdlHost:SdlGameHost (new SdlGameHost)
@@ -413,6 +420,13 @@ class GameSdlRunner {
             wasmRunner.host = sdlHost2
             this.presentLoadingScreen("LOADING WASM")
             wasmRunner.loadModule(wasmPath)
+            ; Same guard: without a loaded module WasmGameRunner draws its default
+            ; ball+paddles court reading zeroed getters — i.e. a broken wasm game
+            ; silently looks like Pong. Abort to the menu instead.
+            if ((wasmRunner.isLoaded()) == false) {
+                this.abortWasmLoad(wasmPath)
+                return
+            }
             this.presentLoadingScreen("LOADING WASM")
             wasmRunner.setupScene()
         }
@@ -431,6 +445,21 @@ class GameSdlRunner {
         } {
             print ("[game-engine] wasm game: " + wasmPath)
         }
+    }
+
+    ; A wasm module failed to load — reset the runner-mode flags and return to
+    ; the menu rather than entering a game with no module (which would render a
+    ; broken default court / blank scene). The console already carries the
+    ; specific reason ("[wasm] load failed" / "REJECTED …" / missing import).
+    fn abortWasmLoad:void (wasmPath:string) {
+        print ("[game-engine] wasm load FAILED, returning to menu: " + wasmPath)
+        useWasmRunner = false
+        useWasmPhysics = false
+        useSpriteRunner = false
+        useStreamRunner = false
+        splitScreenActive = false
+        wasmSplitActive = false
+        this.loadMenuGame()
     }
 
     fn dirOf:string (path:string) {

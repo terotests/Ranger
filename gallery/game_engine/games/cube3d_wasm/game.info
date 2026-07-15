@@ -1,5 +1,0 @@
-name=3D Cube (Rust WASM)
-engine=wasm3d
-module=logic.wasm
-
-category=Tests

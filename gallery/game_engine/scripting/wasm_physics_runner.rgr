@@ -374,6 +374,13 @@ class WasmPhysicsRunner {
             " abiV=" + (to_string capGate.guestVersion))
     }
 
+    ; True only when a module is actually loaded (handle set, not gate-rejected).
+    ; The loader MUST check this after loadModule so a failed load aborts to the
+    ; menu instead of falling through to a blank/garbage game.
+    fn isLoaded:boolean () {
+        return (handle != 0)
+    }
+
     ; Load an interpreted .as game folder instead of a .wasm module. The ABI is
     ; identical, so setupScene/physics/render/HUD all run unchanged.
     fn loadAsGame:boolean (dir:string) {

@@ -47,6 +47,12 @@ perspective-correct and modulated by per-vertex Gouraud lighting.
 
 ## Build & run
 
+> **Headless only — not a menu game (yet).** Like `cube3d_wasm`, this renders
+> through the Node host in `tools/`, not the shipped SDL engine (the guest
+> imports `rg_res_load` and declares 3D blocks the in-engine wasm runners don't
+> understand), so it has **no `game.info`** and is not in the launcher.
+> In-engine support is `IDEAL_TODO.md` Phase G.3.
+
 ```bash
 npm run engine:wasm:build:fps   # build the guest -> logic.wasm
 npm run engine:wasm:demo:fps    # build + run the scripted walkthrough -> out/*.png

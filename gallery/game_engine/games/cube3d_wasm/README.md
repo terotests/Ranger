@@ -58,6 +58,13 @@ and change nothing guest-side.
 
 ## Build & run
 
+> **Headless only — not a menu game (yet).** This PoC renders through the Node
+> host in `tools/`, not the shipped SDL engine: the guest imports `rg_res_load`
+> and declares MESH/CAM/LIGHT blocks the in-engine wasm runners don't understand,
+> so it has **no `game.info`** and does not appear in the launcher. Running it
+> in-engine needs the 3D host + an `rg_res_load` provider — `IDEAL_TODO.md`
+> Phase G.3. Run it here with:
+
 ```bash
 # 1. compile the Rust guest to logic.wasm
 npm run engine:wasm:build:cube3d

@@ -83,6 +83,15 @@ wired into `wasm_physics_runner` — the autopeli runner. Confirmed safe:
 - **RGCQ byte exchange is blocked on a missing primitive.** Only
   `rg_wasm_mem_read_i32` exists; reading the guest's declared query keys needs a
   byte/string read. Recorded as the concrete blocker on 3.2's remaining work.
+- **A failed wasm load silently rendered as Pong.** `game_sdl_runner.loadWasmAt`
+  never checked whether `WasmGameRunner`/`WasmPhysicsRunner` actually loaded the
+  module, and `WasmGameRunner` renders a hardcoded ball+paddles court reading
+  zeroed getters — so *any* wasm game that fails to load (missing host import, bad
+  module, gate rejection) looked like "Pong opened." Fixed: both runners expose
+  `isLoaded()` and `loadWasmAt` aborts to the menu (`abortWasmLoad`) on failure
+  instead of falling through. This bit the `cube3d_wasm`/`fps_wasm` PoCs (they
+  import `rg_res_load`, absent in the SDL host) and is a general robustness fix for
+  every future wasm game.
 
 ---
 
@@ -490,8 +499,13 @@ this file.
   rasteriser as a Ranger `scripting/` host (software framebuffer + the existing
   `framebuffer.rgr`/`gfx_sdl.rgr`), so the same guest renders on the shipped SDL/CPU
   backend, and add the GPU path (`VP_M4` uniform) — one camera model, both backends
-  (`IDEAL.md` §2.17 ideal #1). Ceiling is the SDL binary link (SDL2 headers absent
-  here), so this is verified by Ranger→C++ compile + the Node slice until a build env.
+  (`IDEAL.md` §2.17 ideal #1). This is what makes `cube3d_wasm`/`fps_wasm` real menu
+  games: it needs (a) a new `Wasm3dRunner` (reads MESH/CAM/LIGHT/MATERIAL, rasterises)
+  wired into `loadWasmAt` behind an `engine=wasm3d` tag, and (b) an `rg_res_load`
+  host import provider so the guest's texture loads resolve (today absent → the
+  module fails to instantiate; see the "failed load → Pong" discovery above, now
+  fixed to abort cleanly). Ceiling is the SDL binary link (SDL2 headers absent here),
+  so this is verified by Ranger→C++ compile + the Node slice until a build env.
 - [ ] **G.4 Conformance (`ABI_V2 §13`).** Golden byte fixtures for the cube's MESH/
   CAM/LIGHT blocks; a malformed-mesh validator vector (out-of-range index, odd
   `idx_count`, degenerate normal); a replay assertion that the *scene* replays
