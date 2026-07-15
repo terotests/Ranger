@@ -35906,6 +35906,42 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           wr.out("      i32.rem_s", true);
           wr.out("      local.set " + this.wasmName(ins.dest), true);
           break;
+        case "and" : 
+          this.writeGet(ins.arg1, wr);
+          this.writeGet(ins.arg2, wr);
+          wr.out("      i32.and", true);
+          wr.out("      local.set " + this.wasmName(ins.dest), true);
+          break;
+        case "or" : 
+          this.writeGet(ins.arg1, wr);
+          this.writeGet(ins.arg2, wr);
+          wr.out("      i32.or", true);
+          wr.out("      local.set " + this.wasmName(ins.dest), true);
+          break;
+        case "xor" : 
+          this.writeGet(ins.arg1, wr);
+          this.writeGet(ins.arg2, wr);
+          wr.out("      i32.xor", true);
+          wr.out("      local.set " + this.wasmName(ins.dest), true);
+          break;
+        case "shl" : 
+          this.writeGet(ins.arg1, wr);
+          this.writeGet(ins.arg2, wr);
+          wr.out("      i32.shl", true);
+          wr.out("      local.set " + this.wasmName(ins.dest), true);
+          break;
+        case "ashr" : 
+          this.writeGet(ins.arg1, wr);
+          this.writeGet(ins.arg2, wr);
+          wr.out("      i32.shr_s", true);
+          wr.out("      local.set " + this.wasmName(ins.dest), true);
+          break;
+        case "lshr" : 
+          this.writeGet(ins.arg1, wr);
+          this.writeGet(ins.arg2, wr);
+          wr.out("      i32.shr_u", true);
+          wr.out("      local.set " + this.wasmName(ins.dest), true);
+          break;
         case "heap_alloc" : 
           wr.out("      global.get $heap_ptr", true);
           wr.out("      local.set " + this.wasmName(ins.dest), true);

@@ -1,0 +1,14 @@
+; LLVM/WASM: bitwise and shift operators (i32.and/or/xor/shl/shr_s).
+; run() = (6&4)=4, |1 =5, ^1 =4, <<2 =16, >>1 =8  => returns 8.
+; Regression guard: these ops previously emitted nothing in the WAT writer.
+
+class Bits {
+    sfn run:int () {
+        def a (bit_and 6 4)
+        a = (bit_or a 1)
+        a = (bit_xor a 1)
+        a = (bit_shl a 2)
+        a = (bit_shr a 1)
+        return a
+    }
+}
