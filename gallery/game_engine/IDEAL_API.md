@@ -11,6 +11,7 @@ always tell **what is binding right now** from **what is proposed**:
 | **[`ABI_V2_PROPOSAL.md`](./ABI_V2_PROPOSAL.md)** | **PROPOSED** | Target layouts and breaking changes: new blocks, widened records, `rg_ui_event_v2`, versioning rules, the `RgResult` model, the replay protocol, the identity model, and the **3D-graphics cluster** (§18 mesh block, §19 camera projection with 2D as the orthographic special case, §20 scene lighting, §21 the unified 2D/3D pipeline). **Not the current contract.** |
 | **[`HOST_ARCHITECTURE.md`](./HOST_ARCHITECTURE.md)** | Informative | Host-internal Ranger interfaces (`GameProvider`, `GameSceneProvider`, `BodyVisual`, registries). Function-passing interfaces, **not a byte-level ABI.** |
 | **[`IDEAL.md`](./IDEAL.md)** | Rationale | Why each interface should look the way it does. The source of *intent*; never overrides a shipped byte layout. |
+| **[`IDEAL_3D.md`](./IDEAL_3D.md)** | Rationale | Host-managed 3D scene, entity, and resource ownership model. Defines the target for `fps_wasm`/`cube3d_wasm` PoC evolution: Ranger owns the scene graph, entity registry, and render resources; the guest communicates via Asset/Scene/Entity API commands. |
 
 **Where to start:** implementing a guest or host against today's runtime → read
 `ABI_V1.md` and the generated headers under [`wasm/`](./wasm/). Planning the next
