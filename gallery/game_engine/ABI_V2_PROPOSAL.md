@@ -35,7 +35,7 @@ section of *this* file. `IDEAL §x` = `IDEAL.md`. `HOST §x` = `HOST_ARCHITECTUR
 | V2 §16 | Proposed blocks (camera, sound, view fields) |
 | V2 §17 | Proposed host imports (dynamic UI, resources, storage, animation, haptics, particles, views, logging) |
 | V2 §18 | RGMO — device motion / orientation block (mobile sensors) |
-| V2 §19 | Networking host imports (`rg_net_*`) — backend request/response + multiplayer sessions |
+| V2 §19 | Networking host imports (`rg_net_*`) — backend request/response + multiplayer sessions; §19.1 OpenAPI-subset backend schema validation |
 | V2 §20 | In-app purchase host imports (`rg_iap_*`) — products & entitlements |
 
 ---
@@ -385,7 +385,8 @@ enum RgErr {
     RG_ERR_POOL_FULL   = 5,  /* handle pool / arena exhausted              */
     RG_ERR_TOO_SMALL   = 6,  /* output buffer too small (detail = needed)  */
     RG_ERR_PENDING     = 7,  /* async op accepted, completion later        */
-    RG_ERR_IO          = 8   /* backend I/O failure                        */
+    RG_ERR_IO          = 8,  /* backend I/O failure                        */
+    RG_ERR_SCHEMA      = 9   /* request/response failed schema validation (V2 §19) */
 };
 ```
 
@@ -630,10 +631,22 @@ Review 2.5.2; `IDEAL §2.20`, `§2.22`).
 /* Endpoints/sessions are named by REGISTERED id (like routes/sounds), not raw URLs
  * baked into the guest; the host owns the connection, TLS, and destination policy. */
 
+/* Schema declaration (declare-once, at setup). A backend endpoint is usable ONLY if
+ * the game has declared its contract as an OpenAPI (bounded subset, see below) doc;
+ * the host parses+validates the schema itself as untrusted data and refuses to call
+ * an endpoint that has none. Data, not code — the schema ships inside the reviewed
+ * app (App Review 2.5.2), it does not change behaviour at runtime.                   */
+RgResult rg_net_declare_schema(u32 endpoint_id, ptr openApiBuf, u32 len);
+
 /* Backend request/response (cloud save, leaderboard, remote config, net resources). */
 u32 rg_net_request(u32 endpoint_id, ptr reqBuf, u32 reqLen);  /* -> request handle (0=OOM) */
-/* Completion -> host->guest event carrying { request handle, RgResult, respOff, respLen }
- * into a host-owned net-response buffer (base published like the UI-event text block). */
+/* The host validates reqBuf against the endpoint's request schema BEFORE sending
+ * (RG_ERR_SCHEMA on failure, nothing leaves), and validates the response against the
+ * response schema BEFORE delivery. Completion -> host->guest event carrying
+ * { request handle, RgResult, respOff, respLen } into a host-owned net-response buffer
+ * (base published like the UI-event text block). On a schema-invalid response the guest
+ * gets RgResult.code = RG_ERR_SCHEMA and NEVER sees the malformed bytes. An endpoint
+ * with no declared schema returns RG_ERR_SCHEMA at request time.                      */
 
 /* Multiplayer sessions. */
 u32  rg_net_session_open (u32 config_id);                 /* create/join -> session handle  */
@@ -662,6 +675,63 @@ i32  rg_net_recv(u32 session, ptr outBuf, u32 outCap);    /* drain queue: bytes,
 - **Relation to storage/resources.** Cloud save is the §2.11 store with a
   `scope = cloud` backend over this transport; a network-sourced asset is a §2.7
   resource whose staging buffer is filled from a `rg_net_request` response.
+
+### V2 §19.1 Backend schema validation — the OpenAPI subset
+
+**Motivation:** `IDEAL §2.20` point 4. The backend request/response surface accepts
+**only schema-declared endpoints**, and the host validates both directions against the
+declared schema so a guest never parses an unchecked reply. This is the RGU1
+"host validates untrusted data" rule (`API §1`) applied to the network: a
+malformed/drifted/spoofed response becomes an `RG_ERR_SCHEMA` result, never bytes the
+guest must trust. It applies to **surface (a) only** — multiplayer datagrams (surface b)
+are binary, not HTTP-shaped, and get their own lightweight message schema in a later
+proposal.
+
+**Declaration format.** The game declares each endpoint's contract as an **OpenAPI 3.x**
+document; the engine consumes a **bounded subset** (a full OpenAPI + full JSON Schema
+validator is too heavy for a mobile/WASM host, and its own surface is an attack sink).
+The document is parsed and validated by the host as untrusted data; a malformed schema
+is rejected at declare time (`RG_ERR_INVALID_ARG`), never partially applied.
+
+**Supported subset (target).** From each operation the engine uses the request-body and
+response-body **JSON Schemas**; the enforced JSON-Schema keywords are:
+
+| Group | Supported | Not (initially) |
+|-------|-----------|-----------------|
+| Types | `object`, `array`, `string`, `number`, `integer`, `boolean`, `null` | — |
+| Object | `properties`, `required`, `additionalProperties` (bool) | pattern-properties, dependencies |
+| Array | `items` (single schema), `minItems`, `maxItems` | tuple `items[]`, `contains` |
+| Scalars | `enum`, `minimum`/`maximum`, `minLength`/`maxLength`, `nullable` | `pattern` (regex), `multipleOf` |
+| Composition | intra-document `$ref` (acyclic) | `allOf`/`anyOf`/`oneOf`/`not`, external `$ref` |
+| `format` | advisory only (not enforced) | — |
+
+The subset is chosen so a validator is **bounded and terminating** (no regex engine, no
+combinator blow-up, no remote `$ref` fetch — which would also violate the "no runtime
+fetch" rule). Anything outside the subset is a declare-time rejection, so a game cannot
+believe it declared a constraint the host does not enforce.
+
+**Validation semantics.**
+
+- **Request:** `rg_net_request` validates `reqBuf` against the operation's request
+  schema *before* sending; failure → `RG_ERR_SCHEMA`, nothing leaves the device.
+- **Response:** the host validates the response body against the response schema *before*
+  the completion event; failure → the event's `RgResult.code = RG_ERR_SCHEMA` and the
+  guest receives **no response bytes**.
+- **No schema:** an endpoint id with no `rg_net_declare_schema` returns `RG_ERR_SCHEMA`
+  at request time — schema-less endpoints are simply not callable.
+- **Drift:** `additionalProperties: true` tolerates additive backend fields (the
+  forward-compat rule of V2 §14); a breaking change fails validation and surfaces as a
+  handled `RG_ERR_SCHEMA`, not a crash.
+- **Limits (stated honestly):** validation is **structural** — it cannot catch a
+  schema-valid but semantically-wrong response (e.g. a negative score where the game
+  assumed non-negative). It is defence in depth, not a correctness proof.
+
+**Implementation & determinism.** Validation is **host-side** and MAY reuse an existing
+C++ JSON-Schema validator or a Ranger-native implementation — the ABI contract is
+validator-agnostic. But the verdict MUST be **deterministic and validator-versioned**:
+the validator identity/version is recorded with the step event (V2 §11) so a replay
+re-derives the same accept/reject, and a validated response is therefore a replay-stable
+input, not a source of divergence across engine versions.
 
 ---
 

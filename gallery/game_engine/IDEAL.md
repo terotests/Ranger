@@ -92,7 +92,7 @@ without re-widening the leaks above.
 | **Streaming (`RGX1`) and loader (`RGLD`)** | Unheadered | Referenced as siblings of RGW1 but have no canonical `wasm/*.h`, so their offsets are not a stable contract. | §2 |
 | **Save-state / persistence, networking, clock/RNG seed, config negotiation** | Partial | Persistence **does** exist — `saveGameData`/`loadGameData`/`resetGameData` (whole-file `gamedata.json`) — but only as a TS-path native bridge, not over the binary ABI; and beyond `dt_ms`/`time_ms` there is no deterministic seed, no networking, and no negotiated timestep/config. | §2.11, §2.1 (RGCQ), §6 |
 | **Device motion & orientation** (accelerometer, gyroscope, fused attitude) | Missing | Nothing streams a phone/tablet's linear acceleration, rotation rate, gravity vector, or orientation quaternion to a guest; there is no motion block and no `HOST_CAP_MOTION`. A tilt-controlled game has no channel at all. | §2.19, §6 |
-| **Online services & multiplayer** (game backend, state/resource sync, sessions) | Missing | The row above lists networking as absent over the ABI; there is no request/response to a game's own backend (cloud saves, leaderboards, remote *data/assets*), and no session/message channel for real-time or turn-based multiplayer. | §2.20, §2.11, §2.7, §6 |
+| **Online services & multiplayer** (game backend, state/resource sync, sessions) | Missing | The row above lists networking as absent over the ABI; there is no request/response to a game's own backend (cloud saves, leaderboards, remote *data/assets*), no session/message channel for real-time or turn-based multiplayer, and no way to **validate a backend response against a declared schema** — a guest would have to trust raw bytes and can crash on a malformed/​drifted reply. | §2.20, §2.11, §2.7, §6 |
 | **In-app purchases & entitlements** | Missing | No interface to list store products, run a purchase/restore flow, or read verified entitlements (StoreKit / Play Billing); a game cannot gate content on a purchase through the engine. | §2.21, §6 |
 | **Mobile host packaging** (Apple/Xcode, AOT vs interpret, store constraints) | Missing | Nothing describes how one Ranger host runs local `.wasm` games on iOS/iPadOS — bundled+interpreted vs AOT-compiled to a native lib/XCFramework — or how App Review's "no runtime code download" rule shapes what the network channel may carry. | §2.22, §2.14, §2.20 |
 | **RGU1 interactivity / UI events** | Optional & minimal | The document is guest→host; the only host→guest path is an optional `rg_ui_event` export limited to `ACTIVATE/SELECT/DESELECT` driven by a **D-pad selection cursor** (no pointer/hover/drag/scroll/text/focus events, reserved `value` payload), and selection state lives on the host. | §2.6, §2.15, §2.3 |
@@ -1982,8 +1982,10 @@ Ranger game shippable.
      takes an endpoint id + an opaque request blob and returns a **request handle**; the
      response (or failure) arrives later on the host→guest event channel. This backs
      cloud saves (the §2.11 store with `scope = cloud`), leaderboards, remote config, and
-     network-sourced §2.7 resources. The *protocol and schema are the game's* (JSON,
-     protobuf, whatever) — the ABI transports bytes, never a fixed message taxonomy (§4).
+     network-sourced §2.7 resources. The *protocol is the game's*, but a backend endpoint
+     is accepted **only if the game declares its schema** (point 4) — the ABI transports
+     bytes, never a fixed message taxonomy (§4), yet the host still validates their
+     *shape* against that declared contract before anything crosses to the guest.
    - **Sessions & messages for multiplayer** — a session lifecycle (`create` / `join` /
      `leave`, matchmaking delegated to the host: Apple **Game Center** `GKMatch`, or a
      game server) plus reliable/unreliable **send** and a **receive** queue keyed to a
@@ -2004,23 +2006,57 @@ Ranger game shippable.
    identically (the write-once/fixed-point invariant is what makes lockstep possible);
    rollback/prediction is a guest netcode layer above it. Authority for
    cheat-sensitive state stays server-side.
-4. **Security and privacy are host-enforced.** The guest names endpoints/sessions by
+4. **Only schema-declared backends are accepted, and the host validates every message
+   against that schema.** This is the reliability-and-security core of the chapter. A
+   game **declares its backend contract once at setup** — an **OpenAPI document (a
+   bounded subset, `V2 §19`)** describing each endpoint's request and response shapes —
+   through the declare-once channel (§5), so the schema is *data shipped inside the
+   reviewed app*, not runtime-fetched behaviour (App-Review-safe: a passive contract,
+   like an atlas or a level description, never code). The host then:
+   - **refuses any endpoint with no declared schema** — "only schema'd services are a
+     backend interface", so a free-form or undeclared endpoint simply cannot be called;
+   - **validates the request body** against the endpoint's schema *before* it leaves —
+     catching guest bugs and protecting the backend;
+   - **validates the response** against the schema *before* handing anything to the
+     guest; a response that violates the contract (wrong type, missing required field,
+     out-of-range, unexpected shape) becomes a **typed `RgResult` error (`RG_ERR_SCHEMA`,
+     `V2 §15`)** and the guest **never sees the malformed bytes**.
+
+   So a drifting, buggy, spoofed, or compromised backend cannot crash the game or feed
+   its parser garbage — the worst case is a clean, handled error. This is exactly the
+   RGU1 *"host validates untrusted data at the boundary"* rule (§2.3) applied to the
+   network, and it is the missing piece that makes the "opaque blob" surface (point 1)
+   safe. Two honest limits keep the promise realistic: (a) validation catches
+   **structural** violations (shape/type/contract), **not** semantically-wrong-but-valid
+   data — it is defence in depth, not a correctness proof (as you'd expect, it "filters
+   out the worst"); (b) it covers the **backend request/response** surface only —
+   multiplayer datagrams (surface b) are binary, not HTTP-shaped, so OpenAPI does not fit
+   them and they get their own lightweight message schema later. Interface drift is
+   handled by design: *additive* backend changes are tolerated per the schema (mirroring
+   the ABI's own "unknown fields ignored", V2 §14), while a *breaking* change is
+   **correctly rejected** as `RG_ERR_SCHEMA` instead of crashing. Validation runs
+   **host-side** — it may reuse an existing C++ JSON-Schema validator or a Ranger-native
+   one — and its verdict is **deterministic and validator-versioned**, so a validated
+   response is a replay-stable input (point 3), not a source of divergence.
+5. **Security and privacy are host-enforced.** The guest names endpoints/sessions by
    **registered id** (like routes and sounds), not raw URLs baked into `.wasm`; the host
    owns the actual connection, applies TLS, and can scope/allow-list destinations — a
    sandboxed guest cannot open arbitrary sockets. Payloads are opaque bytes copied across
    the boundary (no guest pointers retained). This mirrors §2.11's "host owns the medium".
-5. **Capability-gated and degrades cleanly.** `RG_WASM_HOST_CAP_NET` advertises presence;
+6. **Capability-gated and degrades cleanly.** `RG_WASM_HOST_CAP_NET` advertises presence;
    a guest queries reach/latency-class/multiplayer via §2.14 and adapts — an offline or
    networkless host makes every request fail fast (`RG_ERR_UNSUPPORTED`) or surfaces a
    clear "no connection" so the game runs single-player. A game that *requires* networking
    is rejected at load; most declare it optional.
 
-The result: talking to the world becomes *"send this blob to a named endpoint or peer and
-hand me the reply as an event,"* — one async, handle-based transport for backend
-request/response and multiplayer sessions alike, carrying **data, never code**,
-non-determinism quarantined into recorded step events, game-defined in protocol and
-host-owned in the connection (§2.7, §2.11, §2.14, §4, §6, §7). Proposed imports:
-`ABI_V2_PROPOSAL.md V2 §19`.
+The result: talking to the world becomes *"declare my backend's schema, then send a blob
+to a named endpoint or peer and get the reply — validated — as an event,"* — one async,
+handle-based transport for backend request/response and multiplayer sessions alike,
+carrying **data, never code**, accepting only **schema-validated** backend services so a
+bad response is a handled error and never a crash, non-determinism quarantined into
+recorded step events, game-defined in protocol and host-owned in the connection and its
+validation (§2.3, §2.7, §2.11, §2.14, §4, §6, §7). Proposed imports and the OpenAPI
+subset: `ABI_V2_PROPOSAL.md V2 §19`.
 
 ### 2.21 In-app purchases and entitlements
 

@@ -37,7 +37,9 @@ surface in [`../IDEAL_API.md`](../IDEAL_API.md); the migration plan in
 Networking (`rg_net_*`, §2.20), in-app purchases (`rg_iap_*`, §2.21), and the mobile
 host packaging model (§2.22) are **host imports + completion-event channels**, not
 fixed byte blocks; their proposed shapes live in [`../ABI_V2_PROPOSAL.md`](../ABI_V2_PROPOSAL.md)
-`V2 §19`–`§20`.
+`V2 §19`–`§20`. Backend endpoints are accepted **only with a declared OpenAPI-subset
+schema**, which the host validates in both directions so a malformed reply is a typed
+error, never a guest crash (`V2 §19.1`).
 
 ## Discipline every block copies (the RGU1 rule, §2.3 / IDEAL_API §0.3)
 

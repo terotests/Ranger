@@ -15,9 +15,10 @@ always tell **what is binding right now** from **what is proposed**:
 **Where to start:** implementing a guest or host against today's runtime → read
 `ABI_V1.md` and the generated headers under [`wasm/`](./wasm/). Planning the next
 version → `ABI_V2_PROPOSAL.md`. Understanding a design choice → `IDEAL.md`.
-Targeting **mobile** (device motion/orientation, haptics, networking/multiplayer,
-in-app purchases, and the Apple/Xcode host packaging) → `IDEAL §2.9`, `§2.19`–`§2.22`
-for rationale and `ABI_V2_PROPOSAL.md §18`–`§20` for the proposed byte/import surfaces.
+Targeting **mobile** (device motion/orientation, haptics, networking/multiplayer with
+OpenAPI-subset backend schema validation, in-app purchases, and the Apple/Xcode host
+packaging) → `IDEAL §2.9`, `§2.19`–`§2.22` for rationale and `ABI_V2_PROPOSAL.md §18`–`§20`
+(schema validation in `§19.1`) for the proposed byte/import surfaces.
 
 ---
 
