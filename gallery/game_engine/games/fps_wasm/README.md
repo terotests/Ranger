@@ -47,6 +47,11 @@ perspective-correct and modulated by per-vertex Gouraud lighting.
 
 ## Build & run
 
+> **Two ways to run.** Like `cube3d_wasm`, the guest imports nothing and runs both
+> **in-engine on the GPU** (`game.info` `render=3d` → `Wasm3dRunner` → GLES2, with
+> WASD+space driving `update(dt, forward, strafe, turn, jump)`) and **headless** via
+> the Node software rasteriser in `tools/` (below).
+
 ```bash
 npm run engine:wasm:build:fps   # build the guest -> logic.wasm
 npm run engine:wasm:demo:fps    # build + run the scripted walkthrough -> out/*.png

@@ -58,6 +58,13 @@ and change nothing guest-side.
 
 ## Build & run
 
+> **Two ways to run.** The guest declares MESH/CAM/LIGHT/MATERIAL/RESOURCE blocks
+> and imports nothing, so it runs both: (1) **in-engine on the GPU** — `game.info`
+> has `render=3d`, so the launcher routes it to `Wasm3dRunner` (`scripting/wasm3d_runner.rgr`),
+> which uploads the mesh + textures to GLES2 and draws depth-tested, textured, lit
+> (`gfx_sdl.rgr` 3D pipeline); and (2) **headless** via the Node software rasteriser
+> in `tools/` (for screenshots without a GPU/display, as below).
+
 ```bash
 # 1. compile the Rust guest to logic.wasm
 npm run engine:wasm:build:cube3d

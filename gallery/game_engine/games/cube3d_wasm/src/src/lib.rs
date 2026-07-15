@@ -30,12 +30,6 @@ const FP: i32 = 256;
 const Q16: i32 = 65536;
 const UV: i32 = 4096; // uv fixed-point unit ([0,1) -> u16)
 
-extern "C" {
-    /// Host resource loader (§17). Returns an opaque texture handle (0 = fail).
-    /// The host copies the name out of guest memory; no pointer is retained.
-    fn rg_res_load(name_ptr: *const u8, name_len: u32) -> u32;
-}
-
 // ------------------------------------------------------------------ block util
 struct Block<const N: usize>(UnsafeCell<[u8; N]>);
 unsafe impl<const N: usize> Sync for Block<N> {}
@@ -56,6 +50,9 @@ impl<const N: usize> Block<N> {
     fn w_u16(&self, off: usize, v: u16) {
         let b = v.to_le_bytes();
         unsafe { core::ptr::copy_nonoverlapping(b.as_ptr(), self.base().add(off), 2) };
+    }
+    fn w_bytes(&self, off: usize, bytes: &[u8]) {
+        unsafe { core::ptr::copy_nonoverlapping(bytes.as_ptr(), self.base().add(off), bytes.len()) };
     }
     fn r_i32(&self, off: usize) -> i32 {
         let mut b = [0u8; 4];
@@ -95,6 +92,21 @@ static CAM: Block<CAM_SIZE> = Block::new();
 const LIT_MAGIC: u32 = 0x544c_4752; // 'RGLT'
 const LIT_SIZE: usize = 48;
 static LIT: Block<LIT_SIZE> = Block::new();
+
+// -------------------------------------------------------------- RESOURCE (§17)
+// Declare-once texture table: the guest names the textures it needs; the host
+// loads <assets>/<name>.ppm and binds handle = index+1 (0 = none). This replaces
+// the earlier rg_res_load host import so the module has NO env imports and loads
+// on every host (in-engine SDL and the headless Node tools alike).
+const RES_MAGIC: u32 = 0x5352_4752; // 'RGRS'
+const RES_COUNT: usize = 2;
+const RES_NAME: usize = 16; // fixed ASCII field, null-padded
+const RES_SIZE: usize = 20 + RES_COUNT * RES_NAME;
+static RES: Block<RES_SIZE> = Block::new();
+
+fn set_resource(i: usize, name: &str) {
+    RES.w_bytes(20 + i * RES_NAME, name.as_bytes());
+}
 
 static ANG: Block<8> = Block::new();
 
@@ -161,9 +173,14 @@ fn set_material(i: usize, tex: u32, base: u32, flags: u32) {
 
 #[no_mangle]
 pub extern "C" fn init() {
-    // --- load textures through the host resource loader (§17) ---
-    let crate_tex = unsafe { rg_res_load("crate".as_ptr(), 5) };
-    let tiles_tex = unsafe { rg_res_load("tiles".as_ptr(), 5) };
+    // --- RESOURCE table: name the textures; host binds handle = index+1 ---
+    RES.w_u32(0, RES_MAGIC);
+    RES.w_i32(4, 1);
+    RES.w_i32(8, RES_SIZE as i32);
+    RES.w_i32(12, 0);
+    RES.w_u32(16, RES_COUNT as u32);
+    set_resource(0, "crate"); // handle 1
+    set_resource(1, "tiles"); // handle 2
 
     // --- MATERIAL table ---
     MAT.w_u32(0, MAT_MAGIC);
@@ -171,8 +188,8 @@ pub extern "C" fn init() {
     MAT.w_i32(8, MAT_SIZE as i32);
     MAT.w_i32(12, 0);
     MAT.w_u32(16, MAT_COUNT as u32);
-    set_material(0, crate_tex, rgba(255, 255, 255, 255), 0); // sides: wooden crate, lit
-    set_material(1, tiles_tex, rgba(255, 255, 255, 255), 0); // top/bottom: tiles, lit
+    set_material(0, 1, rgba(255, 255, 255, 255), 0); // sides: wooden crate, lit
+    set_material(1, 2, rgba(255, 255, 255, 255), 0); // top/bottom: tiles, lit
 
     // --- MESH ---
     MESH.w_u32(0, MESH_MAGIC);
@@ -182,6 +199,8 @@ pub extern "C" fn init() {
     MESH.w_u32(16, V as u32);
     MESH.w_u32(20, I as u32);
     MESH.w_u32(24, S as u32);
+    MESH.w_u32(52, MESH_IDX as u32); // index pool byte-offset
+    MESH.w_u32(56, MESH_SUB as u32); // sub-mesh pool byte-offset
     MESH.w_i32(MESH_OFF_ROT, 0);
     MESH.w_i32(MESH_OFF_ROT + 4, 0);
     MESH.w_i32(MESH_OFF_ROT + 8, 0);
@@ -271,6 +290,14 @@ pub extern "C" fn rg_cam_ptr() -> i32 {
 #[no_mangle]
 pub extern "C" fn rg_cam_size() -> i32 {
     CAM_SIZE as i32
+}
+#[no_mangle]
+pub extern "C" fn rg_res_ptr() -> i32 {
+    RES.base() as i32
+}
+#[no_mangle]
+pub extern "C" fn rg_res_size() -> i32 {
+    RES_SIZE as i32
 }
 #[no_mangle]
 pub extern "C" fn rg_lit_ptr() -> i32 {

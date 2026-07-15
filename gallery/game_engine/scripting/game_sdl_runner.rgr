@@ -21,6 +21,7 @@ Import "./wasm_game_runner.rgr"
 Import "./wasm_physics_runner.rgr"
 Import "./game_ui_runner.rgr"
 Import "./as_sprite_runner.rgr"
+Import "./wasm3d_runner.rgr"
 Import "../gfx_sdl.rgr"
 Import "./game_audio_sdl.rgr"
 Import "./game_catalog.rgr"
@@ -57,6 +58,8 @@ class GameSdlRunner {
     def useStreamRunner:boolean false
     def spriteRunner:SpriteWasmRunner (new SpriteWasmRunner)
     def useSpriteRunner:boolean false
+    def wasm3dRunner:Wasm3dRunner (new Wasm3dRunner)
+    def useWasm3d:boolean false
     def catalog:GameCatalog (new GameCatalog)
     def nativeBridge:GameHostNativeBridge (new GameHostNativeBridge)
     def pw:int 480
@@ -400,6 +403,13 @@ class GameSdlRunner {
             wasmPhysicsRunner.init(pw ph)
             this.presentLoadingScreen("LOADING WASM")
             wasmPhysicsRunner.loadModule(wasmPath)
+            ; A failed load (missing import, bad module, gate rejection) must NOT
+            ; fall through — the runner would render a blank/garbage game. Abort
+            ; back to the menu instead.
+            if ((wasmPhysicsRunner.isLoaded()) == false) {
+                this.abortWasmLoad(wasmPath)
+                return
+            }
             this.presentLoadingScreen("LOADING WASM")
             wasmPhysicsRunner.setupScene()
             def sdlHost:SdlGameHost (new SdlGameHost)
@@ -413,6 +423,13 @@ class GameSdlRunner {
             wasmRunner.host = sdlHost2
             this.presentLoadingScreen("LOADING WASM")
             wasmRunner.loadModule(wasmPath)
+            ; Same guard: without a loaded module WasmGameRunner draws its default
+            ; ball+paddles court reading zeroed getters — i.e. a broken wasm game
+            ; silently looks like Pong. Abort to the menu instead.
+            if ((wasmRunner.isLoaded()) == false) {
+                this.abortWasmLoad(wasmPath)
+                return
+            }
             this.presentLoadingScreen("LOADING WASM")
             wasmRunner.setupScene()
         }
@@ -431,6 +448,53 @@ class GameSdlRunner {
         } {
             print ("[game-engine] wasm game: " + wasmPath)
         }
+    }
+
+    ; A wasm module failed to load — reset the runner-mode flags and return to
+    ; the menu rather than entering a game with no module (which would render a
+    ; broken default court / blank scene). The console already carries the
+    ; specific reason ("[wasm] load failed" / "REJECTED …" / missing import).
+    fn abortWasmLoad:void (wasmPath:string) {
+        print ("[game-engine] wasm load FAILED, returning to menu: " + wasmPath)
+        useWasmRunner = false
+        useWasmPhysics = false
+        useSpriteRunner = false
+        useStreamRunner = false
+        splitScreenActive = false
+        wasmSplitActive = false
+        this.loadMenuGame()
+    }
+
+    ; Load a render=3d wasm guest into the GPU 3D runner (Wasm3dRunner). The guest
+    ; declares MESH/CAM/LIGHT/MATERIAL/RESOURCE; the runner uploads them to the GPU
+    ; and draws each frame. Presentation is a GL swap inside the runner's draw(),
+    ; so the draw() dispatch below skips gfx_present for this mode.
+    fn loadWasm3dAt:void (wasmPath:string) {
+        useWasmRunner = false
+        useWasmPhysics = false
+        useSpriteRunner = false
+        useStreamRunner = false
+        useWasm3d = true
+        this.presentLoadingScreen("LOADING 3D")
+        wasm3dRunner.init(pw ph)
+        wasm3dRunner.loadModule(wasmPath)
+        if ((wasm3dRunner.isLoaded()) == false) {
+            useWasm3d = false
+            this.abortWasmLoad(wasmPath)
+            return
+        }
+        wasm3dRunner.setupScene()
+        currentScriptPath = wasmPath
+        currentGamePath = wasmPath
+        inMenu = false
+        inGame = true
+        splitScreenActive = false
+        wasmSplitActive = false
+        this.syncInputEdges()
+        gameInputSnap.resetSoloPad()
+        gfx_clear_should_close
+        this.setProfileOnRunners()
+        print ("[game-engine] wasm 3d game: " + wasmPath)
     }
 
     fn dirOf:string (path:string) {
@@ -614,6 +678,7 @@ class GameSdlRunner {
 
     fn loadMenuGame:void () {
         gfx_audio_clear
+        useWasm3d = false
         catalog.setGamesDir(gamesDir)
         catalog.scan()
         this.clearNavStack()
@@ -791,6 +856,7 @@ class GameSdlRunner {
         gfx_audio_clear
         this.clearNavStack()
         nativeBridge.clearPendingNav()
+        useWasm3d = false
         currentGamePath = path
         if (this.isStreamingPath(path)) {
             splitScreenActive = false
@@ -802,6 +868,12 @@ class GameSdlRunner {
             splitScreenActive = false
             wasmSplitActive = false
             spriteDirectPath = path
+            return
+        }
+        if ((this.renderOf(path)) == "3d") {
+            splitScreenActive = false
+            wasmSplitActive = false
+            this.loadWasm3dAt(path)
             return
         }
         if (this.isAsPath(path)) {
@@ -935,6 +1007,12 @@ class GameSdlRunner {
         if (useSpriteRunner) {
             spriteRunner.draw()
             gfx_present (spriteRunner.raw()) pw ph
+            return
+        }
+        if (useWasm3d) {
+            ; the 3D runner draws directly to GL and swaps inside draw();
+            ; no framebuffer present.
+            wasm3dRunner.draw()
             return
         }
         def s0:int (gfx_ticks_ms)
@@ -1218,6 +1296,9 @@ class GameSdlRunner {
             def txt:string (buffer_to_string buf)
             if ((indexOf txt "render=sprites") >= 0) {
                 return "sprites"
+            }
+            if ((indexOf txt "render=3d") >= 0) {
+                return "3d"
             }
         }
         return ""
@@ -1802,6 +1883,10 @@ class GameSdlRunner {
                     }
                 }
             } {
+                if (useWasm3d) {
+                    def gameInput3d:GameInputSnapshot (this.pollGameInput())
+                    wasm3dRunner.frameWithInput(dtMs gameInput3d.p0.up gameInput3d.p0.down gameInput3d.p0.left gameInput3d.p0.right gameInput3d.p0.action)
+                } {
                 if (useSpriteRunner) {
                     def gameInputSp:GameInputSnapshot (this.pollGameInput())
                     spriteRunner.frameWithInput(dtMs gameInputSp.p0.up gameInputSp.p0.down gameInputSp.p0.left gameInputSp.p0.right gameInputSp.p0.action)
@@ -1824,6 +1909,7 @@ class GameSdlRunner {
                         runner.frameWithInput(dtMs gameInput)
                         this.drainScriptNavigation()
                     }
+                }
                 }
                 }
             }

@@ -26,10 +26,6 @@ const FP: f32 = 256.0;
 const Q16: i32 = 65536;
 const UVU: i32 = 4096;
 
-extern "C" {
-    fn rg_res_load(name_ptr: *const u8, name_len: u32) -> u32;
-}
-
 // ------------------------------------------------------------------ block util
 struct Blk<const N: usize>(UnsafeCell<[u8; N]>);
 unsafe impl<const N: usize> Sync for Blk<N> {}
@@ -48,6 +44,9 @@ impl<const N: usize> Blk<N> {
     }
     fn wh(&self, off: usize, v: u16) {
         unsafe { core::ptr::copy_nonoverlapping(v.to_le_bytes().as_ptr(), self.base().add(off), 2) };
+    }
+    fn wb(&self, off: usize, bytes: &[u8]) {
+        unsafe { core::ptr::copy_nonoverlapping(bytes.as_ptr(), self.base().add(off), bytes.len()) };
     }
     fn ri(&self, off: usize) -> i32 {
         let mut b = [0u8; 4];
@@ -85,6 +84,14 @@ const CAM_MAGIC: u32 = 0x4d43_4752;
 const LIT_SZ: usize = 48;
 static LIT: Blk<LIT_SZ> = Blk::new();
 const LIT_MAGIC: u32 = 0x544c_4752;
+
+// RESOURCE table (§17): declare texture names; host binds handle = index+1.
+// No env import, so the module loads on every host (SDL engine + Node tools).
+const RES_MAGIC: u32 = 0x5352_4752; // 'RGRS'
+const RES_N: usize = 3;
+const RES_NAME: usize = 16;
+const RES_SZ: usize = 20 + RES_N * RES_NAME;
+static RES: Blk<RES_SZ> = Blk::new();
 
 const CO_SZ: usize = 20 + MAX_C * 28;
 static CO: Blk<CO_SZ> = Blk::new();
@@ -308,15 +315,18 @@ fn resolve_axis(w: &mut World, axis: usize) {
 
 #[no_mangle]
 pub extern "C" fn init() {
-    let crate_tex; // handles
-    let wall_tex;
-    let floor_tex;
-    unsafe {
-        floor_tex = rg_res_load("floor".as_ptr(), 5);
-        wall_tex = rg_res_load("brick".as_ptr(), 5);
-        crate_tex = rg_res_load("crate".as_ptr(), 5);
-    }
-    // MATERIAL table
+    // RESOURCE table: name the textures; host loads <assets>/<name>.ppm and
+    // binds handle = index+1. floor=1, brick=2, crate=3.
+    RES.wu(0, RES_MAGIC);
+    RES.wi(4, 1);
+    RES.wi(8, RES_SZ as i32);
+    RES.wi(12, 0);
+    RES.wu(16, RES_N as u32);
+    RES.wb(20, b"floor");
+    RES.wb(20 + RES_NAME, b"brick");
+    RES.wb(20 + 2 * RES_NAME, b"crate");
+
+    // MATERIAL table (tex handles: floor=1, brick=2, crate=3)
     MAT.wu(0, MAT_MAGIC);
     MAT.wi(4, 1);
     MAT.wi(8, MAT_SZ as i32);
@@ -329,9 +339,9 @@ pub extern "C" fn init() {
         MAT.wu(o + 8, 0);
         MAT.wu(o + 12, 0);
     };
-    set(MAT_FLOOR as usize, floor_tex);
-    set(MAT_WALL as usize, wall_tex);
-    set(MAT_CRATE as usize, crate_tex);
+    set(MAT_FLOOR as usize, 1);
+    set(MAT_WALL as usize, 2);
+    set(MAT_CRATE as usize, 3);
 
     let w = world();
     w.nv = 0;
@@ -472,6 +482,7 @@ macro_rules! ptr_size {
 }
 ptr_size!(rg_mesh_ptr, rg_mesh_size, MESH, MESH_SZ);
 ptr_size!(rg_mat_ptr, rg_mat_size, MAT, MAT_SZ);
+ptr_size!(rg_res_ptr, rg_res_size, RES, RES_SZ);
 ptr_size!(rg_cam_ptr, rg_cam_size, CAM, CAM_SZ);
 ptr_size!(rg_lit_ptr, rg_lit_size, LIT, LIT_SZ);
 ptr_size!(rg_col_ptr, rg_col_size, CO, CO_SZ);

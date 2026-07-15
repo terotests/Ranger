@@ -83,6 +83,15 @@ wired into `wasm_physics_runner` — the autopeli runner. Confirmed safe:
 - **RGCQ byte exchange is blocked on a missing primitive.** Only
   `rg_wasm_mem_read_i32` exists; reading the guest's declared query keys needs a
   byte/string read. Recorded as the concrete blocker on 3.2's remaining work.
+- **A failed wasm load silently rendered as Pong.** `game_sdl_runner.loadWasmAt`
+  never checked whether `WasmGameRunner`/`WasmPhysicsRunner` actually loaded the
+  module, and `WasmGameRunner` renders a hardcoded ball+paddles court reading
+  zeroed getters — so *any* wasm game that fails to load (missing host import, bad
+  module, gate rejection) looked like "Pong opened." Fixed: both runners expose
+  `isLoaded()` and `loadWasmAt` aborts to the menu (`abortWasmLoad`) on failure
+  instead of falling through. This bit the `cube3d_wasm`/`fps_wasm` PoCs (they
+  import `rg_res_load`, absent in the SDL host) and is a general robustness fix for
+  every future wasm game.
 
 ---
 
@@ -486,12 +495,29 @@ this file.
   streams per frame" split the 2D host-physics path (`autopeli_wasm`) already uses
   (`IDEAL.md` §2.5). The rasteriser is unchanged; only the transform source moves.
   *Check:* crates fall, settle, and stack deterministically in fixed-point.
-- [ ] **G.3 `.rgr`/SDL host parity (production path).** Reimplement the `render.cjs`
-  rasteriser as a Ranger `scripting/` host (software framebuffer + the existing
-  `framebuffer.rgr`/`gfx_sdl.rgr`), so the same guest renders on the shipped SDL/CPU
-  backend, and add the GPU path (`VP_M4` uniform) — one camera model, both backends
-  (`IDEAL.md` §2.17 ideal #1). Ceiling is the SDL binary link (SDL2 headers absent
-  here), so this is verified by Ranger→C++ compile + the Node slice until a build env.
+- [~] **G.3 In-engine GPU renderer (production path).** Landed (compile-verified,
+  pending an SDL/GL run): a real **GLES2** 3D path so `cube3d_wasm`/`fps_wasm` are
+  launcher games, not just headless PoCs.
+  - `gfx_sdl.rgr`: a depth buffer on the GL context + a forward 3D pipeline
+    (textured, depth-tested, ambient+directional-sun shader, VBO/EBO mesh upload,
+    column-major matrix math) exposed as new operators `gfx_3d_upload_texture`,
+    `gfx_3d_mesh_upload`, `gfx_3d_begin/set_camera/set_light/draw/end/present`.
+  - `scripting/wasm3d_runner.rgr` (`Wasm3dRunner`): reads the guest blocks, uploads
+    the mesh + textures once, and each frame passes camera/model/light to the GPU
+    and issues per-sub-mesh draws; presents via a GL swap.
+  - `game_sdl_runner.rgr`: `render=3d` routes to `Wasm3dRunner` (before the
+    Pong-shaped wasm path), with WASD+space feeding `update(dt, fwd, strafe, turn,
+    jump)`; the guests carry `game.info` `render=3d` again.
+  - The guests dropped the `rg_res_load` host import for a declare-once **RESOURCE
+    block** ('RGRS', texture names) the host loads — so the module has **no env
+    imports** and loads on every host (in-engine + Node).
+  *Check:* `game_sdl_runner.rgr` + `wasm3d_runner.rgr` + `gfx_sdl.rgr` compile
+  Ranger→C++; the emitted GL C++ is well-formed. Ceiling is the SDL/GL binary link
+  (SDL2/GLES2 headers absent here) — so a live window run is the remaining verify.
+- [ ] **G.3b Software backend parity + effects.** Keep the Node software rasteriser's
+  approach as an in-engine CPU fallback (`framebuffer.rgr`) behind the same runner,
+  for hosts without a GPU and for headless golden-frame tests (`IDEAL.md` §2.17
+  "both backends"); and let 2D effects/particles (§2.18) target the 3D pass.
 - [ ] **G.4 Conformance (`ABI_V2 §13`).** Golden byte fixtures for the cube's MESH/
   CAM/LIGHT blocks; a malformed-mesh validator vector (out-of-range index, odd
   `idx_count`, degenerate normal); a replay assertion that the *scene* replays

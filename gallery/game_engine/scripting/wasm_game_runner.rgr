@@ -104,6 +104,15 @@ class WasmGameRunner {
             " abiV=" + (to_string capGate.guestVersion))
     }
 
+    ; True only when a module is actually loaded. The caller MUST check this
+    ; after loadModule: a failed load (missing import, bad module, or a gate
+    ; rejection) leaves handle=0, and this runner otherwise renders its default
+    ; ball+paddles court reading zeroed getters — i.e. a broken game silently
+    ; looks like Pong. The loader uses this to abort instead.
+    fn isLoaded:boolean () {
+        return (handle != 0)
+    }
+
     fn wasmI32:int (name:string nargs:int a0:int a1:int a2:int a3:int a4:int) {
         if (handle == 0) {
             return 0
