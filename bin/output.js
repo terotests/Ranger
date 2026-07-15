@@ -35671,15 +35671,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       if ( condBb.termKind != "br_if" ) {
         return false;
       }
-      const bodyIdx = this.findBlockIdx(fn, condBb.termIfTrue);
-      if ( bodyIdx < 0 ) {
-        return false;
-      }
-      const bodyBb = fn.blocks[bodyIdx];
-      if ( bodyBb.termKind != "br" ) {
-        return false;
-      }
-      return bodyBb.termTarget == condBb.label;
+      const cnt = fn.blocks.length;
+      let ii = condIdx + 1;
+      while (ii < cnt) {
+        const b = fn.blocks[ii];
+        if ( b.termKind == "br" ) {
+          if ( b.termTarget == condBb.label ) {
+            return true;
+          }
+        }
+        ii = ii + 1;
+      };
+      return false;
     };
     collectLocals (fn) {
       let names = [];
@@ -35731,7 +35734,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         wr.out(("    (local " + wn) + " i32)", true);
       };
       let visited = {};
-      const nextIdx = this.emitFromIndex(fn, 0, wr, visited);
+      const exitLabel = this.emitRegion(fn, 0, (fn.blocks.length), wr, visited);
       wr.out("  )", true);
     };
     markVisited (label, visited) {
@@ -35740,132 +35743,110 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     isVisited (label, visited) {
       return ( typeof(visited[label] ) != "undefined" && visited.hasOwnProperty(label) );
     };
-    emitFromIndex (fn, idx, wr, visited) {
-      const cnt = fn.blocks.length;
-      if ( idx >= cnt ) {
-        return idx;
-      }
-      const bb = fn.blocks[idx];
-      if ( this.isVisited(bb.label, visited) ) {
-        return idx + 1;
-      }
-      this.markVisited(bb.label, visited);
-      this.writeBlockInstrs(bb, wr);
-      switch (bb.termKind ) { 
-        case "ret" : 
-          if ( (bb.termValue.length) > 0 ) {
-            this.writeGet(bb.termValue, wr);
+    emitRegion (fn, startIdx, boundIdx, wr, visited) {
+      let cur = startIdx;
+      while (cur < boundIdx) {
+        const bb = fn.blocks[cur];
+        if ( this.isVisited(bb.label, visited) ) {
+          return bb.label;
+        }
+        let handled = false;
+        if ( this.isWhileHeader(fn, cur) ) {
+          const wexit = this.emitWhile(fn, cur, wr, visited);
+          if ( wexit == "" ) {
+            return "";
           }
-          wr.out("      return", true);
-          return idx + 1;
-        case "br" : 
-          const condIdx = this.findBlockIdx(fn, bb.termTarget);
-          if ( this.isWhileHeader(fn, condIdx) ) {
-            return this.emitWhileLoop(fn, condIdx, wr, visited);
+          const wi = this.findBlockIdx(fn, wexit);
+          if ( wi >= boundIdx ) {
+            return wexit;
           }
-          wr.out("      br $" + bb.termTarget, true);
-          return idx + 1;
-        case "br_if" : 
-          return this.emitIfThenMerge(fn, idx, wr, visited);
+          cur = wi;
+          handled = true;
+        }
+        if ( handled == false ) {
+          this.markVisited(bb.label, visited);
+          this.writeBlockInstrs(bb, wr);
+          if ( bb.termKind == "ret" ) {
+            if ( (bb.termValue.length) > 0 ) {
+              this.writeGet(bb.termValue, wr);
+            }
+            wr.out("      return", true);
+            return "";
+          }
+          if ( bb.termKind == "br_if" ) {
+            const mexit = this.emitIf(fn, cur, wr, visited);
+            if ( mexit == "" ) {
+              return "";
+            }
+            const mi = this.findBlockIdx(fn, mexit);
+            if ( mi >= boundIdx ) {
+              return mexit;
+            }
+            cur = mi;
+          }
+          if ( bb.termKind == "br" ) {
+            const t = bb.termTarget;
+            const ti = this.findBlockIdx(fn, t);
+            if ( ti >= boundIdx ) {
+              return t;
+            }
+            if ( this.isVisited(t, visited) ) {
+              wr.out("      br $" + t, true);
+              return t;
+            }
+            cur = ti;
+          }
+          if ( bb.termKind == "" ) {
+            cur = cur + 1;
+          }
+        }
       };
-      return idx + 1;
+      return "";
     };
-    emitBranchTerm (bb, mergeBb, wr) {
-      if ( bb.termKind == "ret" ) {
-        if ( (bb.termValue.length) > 0 ) {
-          this.writeGet(bb.termValue, wr);
-        }
-        wr.out("          return", true);
-        return;
-      }
-      if ( bb.termKind == "br" ) {
-        if ( bb.termTarget != mergeBb.label ) {
-          wr.out("          br $" + bb.termTarget, true);
-        }
-      }
-    };
-    emitIfThenMerge (fn, idx, wr, visited) {
-      const hdr = fn.blocks[idx];
-      const thenIdx = this.findBlockIdx(fn, hdr.termIfTrue);
-      const falseIdx = this.findBlockIdx(fn, hdr.termIfFalse);
-      const thenBb = fn.blocks[thenIdx];
-      const falseBb = fn.blocks[falseIdx];
-      let twoSided = false;
-      if ( thenBb.termKind == "br" ) {
-        if ( thenBb.termTarget != falseBb.label ) {
-          twoSided = true;
-        }
-      }
-      let mergeBb = falseBb;
-      if ( twoSided ) {
-        mergeBb = fn.blocks[this.findBlockIdx(fn, thenBb.termTarget)];
-      }
+    emitIf (fn, headerIdx, wr, visited) {
+      const hdr = fn.blocks[headerIdx];
+      const thenLabel = hdr.termIfTrue;
+      const falseLabel = hdr.termIfFalse;
+      const thenIdx = this.findBlockIdx(fn, thenLabel);
+      const falseIdx = this.findBlockIdx(fn, falseLabel);
       this.writeGet(hdr.termValue, wr);
       wr.out("      (if", true);
       wr.out("        (then", true);
-      this.markVisited(thenBb.label, visited);
-      this.writeBlockInstrs(thenBb, wr);
-      this.emitBranchTerm(thenBb, mergeBb, wr);
+      const thenExit = this.emitRegion(fn, thenIdx, falseIdx, wr, visited);
       wr.out("        )", true);
-      if ( twoSided ) {
+      let isElse = false;
+      if ( thenExit != "" ) {
+        if ( thenExit != falseLabel ) {
+          isElse = true;
+        }
+      }
+      if ( isElse ) {
+        const mergeIdx = this.findBlockIdx(fn, thenExit);
         wr.out("        (else", true);
-        this.markVisited(falseBb.label, visited);
-        this.writeBlockInstrs(falseBb, wr);
-        this.emitBranchTerm(falseBb, mergeBb, wr);
+        this.emitRegion(fn, falseIdx, mergeIdx, wr, visited);
         wr.out("        )", true);
+        wr.out("      )", true);
+        return thenExit;
       }
       wr.out("      )", true);
-      const mergeIdx = this.findBlockIdx(fn, mergeBb.label);
-      if ( this.isVisited(mergeBb.label, visited) == false ) {
-        this.markVisited(mergeBb.label, visited);
-        this.writeBlockInstrs(mergeBb, wr);
-        if ( mergeBb.termKind == "ret" ) {
-          if ( (mergeBb.termValue.length) > 0 ) {
-            this.writeGet(mergeBb.termValue, wr);
-          }
-          wr.out("      return", true);
-          return mergeIdx + 1;
-        }
-        if ( mergeBb.termKind == "br_if" ) {
-          return this.emitIfThenMerge(fn, mergeIdx, wr, visited);
-        }
-        if ( mergeBb.termKind == "br" ) {
-          const condIdx = this.findBlockIdx(fn, mergeBb.termTarget);
-          if ( this.isWhileHeader(fn, condIdx) ) {
-            return this.emitWhileLoop(fn, condIdx, wr, visited);
-          }
-          wr.out("      br $" + mergeBb.termTarget, true);
-        }
-      }
-      return mergeIdx + 1;
+      return falseLabel;
     };
-    emitWhileLoop (fn, condIdx, wr, visited) {
+    emitWhile (fn, condIdx, wr, visited) {
       const condBb = fn.blocks[condIdx];
       const bodyIdx = this.findBlockIdx(fn, condBb.termIfTrue);
       const exitIdx = this.findBlockIdx(fn, condBb.termIfFalse);
-      const bodyBb = fn.blocks[bodyIdx];
       const exitBb = fn.blocks[exitIdx];
       this.markVisited(condBb.label, visited);
-      this.markVisited(bodyBb.label, visited);
-      this.markVisited(exitBb.label, visited);
       wr.out("    (block $" + exitBb.label, true);
       wr.out("      (loop $" + condBb.label, true);
       this.writeBlockInstrs(condBb, wr);
       this.writeGet(condBb.termValue, wr);
       wr.out("        i32.eqz", true);
       wr.out("        br_if $" + exitBb.label, true);
-      this.writeBlockInstrs(bodyBb, wr);
-      wr.out("        br $" + condBb.label, true);
+      this.emitRegion(fn, bodyIdx, exitIdx, wr, visited);
       wr.out("      )", true);
       wr.out("    )", true);
-      this.writeBlockInstrs(exitBb, wr);
-      if ( exitBb.termKind == "ret" ) {
-        if ( (exitBb.termValue.length) > 0 ) {
-          this.writeGet(exitBb.termValue, wr);
-        }
-        wr.out("      return", true);
-      }
-      return exitIdx + 1;
+      return exitBb.label;
     };
     writeGet (llvmRef, wr) {
       wr.out("      local.get " + this.wasmName(llvmRef), true);

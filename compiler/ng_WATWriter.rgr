@@ -68,6 +68,11 @@ class WATWriter {
     return -1
   }
 
+  ; A `while` cond header is a br_if that some LATER block branches back to (the
+  ; loop back-edge). An `if` header is only ever reached by fall-through, never
+  ; by an explicit `br`, and an if/else merge is only branched to from EARLIER
+  ; blocks — so scanning strictly after the header for a `br` to it distinguishes
+  ; a loop from an if regardless of how complex the loop body is.
   fn isWhileHeader:boolean (fn:LowIRFunction condIdx:int) {
     if (condIdx < 0) {
       return false
@@ -76,15 +81,18 @@ class WATWriter {
     if (condBb.termKind != "br_if") {
       return false
     }
-    def bodyIdx (this.findBlockIdx(fn condBb.termIfTrue))
-    if (bodyIdx < 0) {
-      return false
+    def cnt (array_length fn.blocks)
+    def ii (+ condIdx 1)
+    while (< ii cnt) {
+      def b (itemAt fn.blocks ii)
+      if (b.termKind == "br") {
+        if (b.termTarget == condBb.label) {
+          return true
+        }
+      }
+      ii = (+ ii 1)
     }
-    def bodyBb (itemAt fn.blocks bodyIdx)
-    if (bodyBb.termKind != "br") {
-      return false
-    }
-    return (bodyBb.termTarget == condBb.label)
+    return false
   }
 
   fn collectLocals:[string] (fn:LowIRFunction) {
@@ -135,7 +143,7 @@ class WATWriter {
     }
 
     def visited:[string:boolean]
-    def nextIdx (this.emitFromIndex(fn 0 wr visited))
+    def exitLabel (this.emitRegion(fn 0 (array_length fn.blocks) wr visited))
     wr.out("  )" true)
   }
 
@@ -147,135 +155,128 @@ class WATWriter {
     return (has visited label)
   }
 
-  fn emitFromIndex:int (fn:LowIRFunction idx:int wr:CodeWriter visited:[string:boolean]) {
-    def cnt (array_length fn.blocks)
-    if (idx >= cnt) {
-      return idx
-    }
-    def bb (itemAt fn.blocks idx)
-    if (this.isVisited(bb.label visited)) {
-      return (idx + 1)
-    }
-    this.markVisited(bb.label visited)
-    this.writeBlockInstrs(bb wr)
-
-    switch bb.termKind {
-      case "ret" {
-        if ((strlen bb.termValue) > 0) {
-          this.writeGet(bb.termValue wr)
+  ; Emit a structured region: the blocks reachable from startIdx that lie in
+  ; [startIdx, boundIdx). The bound is exclusive — a forward control edge to a
+  ; block at index >= boundIdx LEAVES this region: its branch is suppressed and
+  ; the target label is returned so the enclosing emitter continues there. A
+  ; branch to an already-visited earlier block is a loop back-edge (emitted as a
+  ; real `br`). Returns "" when the region ended by returning from the function.
+  ;
+  ; Because the LowIR blocks are laid out in structured order (lowerIf emits
+  ; [header][then-region][else-or-merge]; lowerWhile emits [pre][cond][body][exit]),
+  ; every if-arm and loop body is a contiguous index range, which is exactly what
+  ; the bound expresses. This reconstructs arbitrarily nested if / if-else / while.
+  fn emitRegion:string (fn:LowIRFunction startIdx:int boundIdx:int wr:CodeWriter visited:[string:boolean]) {
+    def cur startIdx
+    while (< cur boundIdx) {
+      def bb (itemAt fn.blocks cur)
+      if (this.isVisited(bb.label visited)) {
+        return bb.label
+      }
+      def handled false
+      if (this.isWhileHeader(fn cur)) {
+        def wexit (this.emitWhile(fn cur wr visited))
+        if (wexit == "") {
+          return ""
         }
-        wr.out("      return" true)
-        return (idx + 1)
-      }
-      case "br" {
-        def condIdx (this.findBlockIdx(fn bb.termTarget))
-        if (this.isWhileHeader(fn condIdx)) {
-          return (this.emitWhileLoop(fn condIdx wr visited))
+        def wi (this.findBlockIdx(fn wexit))
+        if (wi >= boundIdx) {
+          return wexit
         }
-        wr.out(("      br $" + bb.termTarget) true)
-        return (idx + 1)
+        cur = wi
+        handled = true
       }
-      case "br_if" {
-        return (this.emitIfThenMerge(fn idx wr visited))
+      if (handled == false) {
+        this.markVisited(bb.label visited)
+        this.writeBlockInstrs(bb wr)
+        if (bb.termKind == "ret") {
+          if ((strlen bb.termValue) > 0) {
+            this.writeGet(bb.termValue wr)
+          }
+          wr.out("      return" true)
+          return ""
+        }
+        if (bb.termKind == "br_if") {
+          def mexit (this.emitIf(fn cur wr visited))
+          if (mexit == "") {
+            return ""
+          }
+          def mi (this.findBlockIdx(fn mexit))
+          if (mi >= boundIdx) {
+            return mexit
+          }
+          cur = mi
+        }
+        if (bb.termKind == "br") {
+          def t bb.termTarget
+          def ti (this.findBlockIdx(fn t))
+          if (ti >= boundIdx) {
+            return t
+          }
+          if (this.isVisited(t visited)) {
+            wr.out(("      br $" + t) true)
+            return t
+          }
+          cur = ti
+        }
+        if (bb.termKind == "") {
+          cur = (+ cur 1)
+        }
       }
     }
-    return (idx + 1)
+    return ""
   }
 
-  ; Emit the terminator of an if-arm (then/else) inside a structured (if ...).
-  ; A `ret` becomes an explicit return; a `br` to the shared merge block is
-  ; suppressed (control simply falls through past the (if) to the merge we emit
-  ; next); a `br` anywhere else is kept.
-  fn emitBranchTerm:void (bb:LowIRBlock mergeBb:LowIRBlock wr:CodeWriter) {
-    if (bb.termKind == "ret") {
-      if ((strlen bb.termValue) > 0) {
-        this.writeGet(bb.termValue wr)
-      }
-      wr.out("          return" true)
-      return
-    }
-    if (bb.termKind == "br") {
-      if (bb.termTarget != mergeBb.label) {
-        wr.out(("          br $" + bb.termTarget) true)
-      }
-    }
-  }
-
-  fn emitIfThenMerge:int (fn:LowIRFunction idx:int wr:CodeWriter visited:[string:boolean]) {
-    def hdr (itemAt fn.blocks idx)
-    def thenIdx (this.findBlockIdx(fn hdr.termIfTrue))
-    def falseIdx (this.findBlockIdx(fn hdr.termIfFalse))
-    def thenBb (itemAt fn.blocks thenIdx)
-    def falseBb (itemAt fn.blocks falseIdx)
-
-    ; Two-branch if/else vs single-sided if. In a single-sided `if`, both the
-    ; header's false target AND the then-block's `br` lead to the SAME merge
-    ; block, so termIfFalse IS the merge. In a two-branch `if/else`, the
-    ; then-block branches PAST the false target to a distinct merge block, so
-    ; termIfFalse is the else arm and thenBb.termTarget names the real merge.
-    def twoSided false
-    if (thenBb.termKind == "br") {
-      if (thenBb.termTarget != falseBb.label) {
-        twoSided = true
-      }
-    }
-
-    def mergeBb falseBb
-    if (twoSided) {
-      mergeBb = (itemAt fn.blocks (this.findBlockIdx(fn thenBb.termTarget)))
-    }
+  ; Emit a structured `if` (single-sided or if/else) at header block `headerIdx`
+  ; (which ends in br_if cond -> then / (else|merge)). Returns the label control
+  ; continues at after the if (the merge), or "" if every arm returned.
+  ;
+  ; The then-region is exactly the blocks in [thenIdx, falseIdx): the header's
+  ; false target is where the then-region ends for BOTH single-sided (false ==
+  ; merge) and two-sided (false == else) ifs. If the then-region falls through
+  ; to a merge OTHER than the false target, an else arm exists in [falseIdx, mergeIdx).
+  fn emitIf:string (fn:LowIRFunction headerIdx:int wr:CodeWriter visited:[string:boolean]) {
+    def hdr (itemAt fn.blocks headerIdx)
+    def thenLabel hdr.termIfTrue
+    def falseLabel hdr.termIfFalse
+    def thenIdx (this.findBlockIdx(fn thenLabel))
+    def falseIdx (this.findBlockIdx(fn falseLabel))
 
     this.writeGet(hdr.termValue wr)
     wr.out("      (if" true)
     wr.out("        (then" true)
-    this.markVisited(thenBb.label visited)
-    this.writeBlockInstrs(thenBb wr)
-    this.emitBranchTerm(thenBb mergeBb wr)
+    def thenExit (this.emitRegion(fn thenIdx falseIdx wr visited))
     wr.out("        )" true)
-    if (twoSided) {
+
+    def isElse false
+    if (thenExit != "") {
+      if (thenExit != falseLabel) {
+        isElse = true
+      }
+    }
+    if (isElse) {
+      def mergeIdx (this.findBlockIdx(fn thenExit))
       wr.out("        (else" true)
-      this.markVisited(falseBb.label visited)
-      this.writeBlockInstrs(falseBb wr)
-      this.emitBranchTerm(falseBb mergeBb wr)
+      this.emitRegion(fn falseIdx mergeIdx wr visited)
       wr.out("        )" true)
+      wr.out("      )" true)
+      return thenExit
     }
     wr.out("      )" true)
-
-    def mergeIdx (this.findBlockIdx(fn mergeBb.label))
-    if (this.isVisited(mergeBb.label visited) == false) {
-      this.markVisited(mergeBb.label visited)
-      this.writeBlockInstrs(mergeBb wr)
-      if (mergeBb.termKind == "ret") {
-        if ((strlen mergeBb.termValue) > 0) {
-          this.writeGet(mergeBb.termValue wr)
-        }
-        wr.out("      return" true)
-        return (mergeIdx + 1)
-      }
-      if (mergeBb.termKind == "br_if") {
-        return (this.emitIfThenMerge(fn mergeIdx wr visited))
-      }
-      if (mergeBb.termKind == "br") {
-        def condIdx (this.findBlockIdx(fn mergeBb.termTarget))
-        if (this.isWhileHeader(fn condIdx)) {
-          return (this.emitWhileLoop(fn condIdx wr visited))
-        }
-        wr.out(("      br $" + mergeBb.termTarget) true)
-      }
-    }
-    return (mergeIdx + 1)
+    return falseLabel
   }
 
-  fn emitWhileLoop:int (fn:LowIRFunction condIdx:int wr:CodeWriter visited:[string:boolean]) {
+  ; Emit a `while` at its cond block `condIdx` (br_if cond -> body / exit). The
+  ; body is the contiguous region [bodyIdx, exitIdx); its back-edge `br cond`
+  ; (cond is marked visited first) is emitted by emitRegion as the loop branch.
+  ; Returns the exit label so the caller continues after the loop.
+  fn emitWhile:string (fn:LowIRFunction condIdx:int wr:CodeWriter visited:[string:boolean]) {
     def condBb (itemAt fn.blocks condIdx)
     def bodyIdx (this.findBlockIdx(fn condBb.termIfTrue))
     def exitIdx (this.findBlockIdx(fn condBb.termIfFalse))
-    def bodyBb (itemAt fn.blocks bodyIdx)
     def exitBb (itemAt fn.blocks exitIdx)
 
     this.markVisited(condBb.label visited)
-    this.markVisited(bodyBb.label visited)
-    this.markVisited(exitBb.label visited)
 
     wr.out(("    (block $" + exitBb.label) true)
     wr.out(("      (loop $" + condBb.label) true)
@@ -283,19 +284,11 @@ class WATWriter {
     this.writeGet(condBb.termValue wr)
     wr.out("        i32.eqz" true)
     wr.out(("        br_if $" + exitBb.label) true)
-    this.writeBlockInstrs(bodyBb wr)
-    wr.out(("        br $" + condBb.label) true)
+    this.emitRegion(fn bodyIdx exitIdx wr visited)
     wr.out("      )" true)
     wr.out("    )" true)
 
-    this.writeBlockInstrs(exitBb wr)
-    if (exitBb.termKind == "ret") {
-      if ((strlen exitBb.termValue) > 0) {
-        this.writeGet(exitBb.termValue wr)
-      }
-      wr.out("      return" true)
-    }
-    return (exitIdx + 1)
+    return exitBb.label
   }
 
   fn writeGet:void (llvmRef:string wr:CodeWriter) {
