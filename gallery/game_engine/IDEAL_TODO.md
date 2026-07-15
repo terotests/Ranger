@@ -30,6 +30,7 @@ wrong side of the engine-core ↔ game boundary, or opens a seam that was welded
 | 4 scene-provider seam · sound palette | 🟡 seams landed + proven; runner rewire, single-owner (4.2), sprite roster (4.3) remain |
 | 5 richer input · CI leak guard · conformance fixtures | ⬜ not started |
 | R runtime correctness (fixed-step, input, transactional load) | ⬜ not started — from an external review, all 8 findings re-verified against source |
+| G 3D graphics (mesh · camera · lighting · materials/textures · resource loader · player physics) | 🟡 Phase-1 slices landed: `games/cube3d_wasm` (textured lit cube via `rg_res_load`) + `games/fps_wasm` (Doom-style character-controller walk-around, z-buffer + near-clip); rigid-body `cannon` wiring + `.rgr`/SDL host = follow-ups |
 
 **Verification strategy (three tiers, no SDL/WASM build needed).** This approach
 emerged during the work and proved repeatable — new items should follow it:
@@ -426,7 +427,77 @@ These are fully specified in `IDEAL_API.md` but depend on Phases 1–5 landing f
 - [ ] Storage over the ABI (`rg_store_*`), animation (`rg_anim_*`), haptics dual-motor,
   view navigation (`rg_view_*`), logging (`rg_log`), particles/effects/filters,
   camera block (RG_CAM) + shared `Mat3` transform (§2.11–§2.18, §3.3–§3.9).
+  *(The camera + 3D-render part is now its own Phase G below.)*
 - [ ] Registries for shapes / sounds / clips / haptics / routes / emitters / flags (§6).
+
+---
+
+## Phase G — 3D graphics (camera projection · mesh · lighting)
+
+The camera/transform work (`IDEAL.md` §2.17) generalised into a full 3D render
+path, on the principle that **2D is the orthographic, `z = 0`, unlit special case
+of 3D** (`ABI_V2 §21`). Specified in `ABI_V2_PROPOSAL.md` §18–§21; the matrix math
+reuses the already-tested `physics/src/cannon_mat3`/`cannon_vec3`/`cannon_quaternion`.
+Ordered so each step is independently runnable — the same discipline as the rest of
+this file.
+
+- [~] **G.1 Phase-1 render slice — Rust→WASM guest + software rasteriser, with
+  materials & a resource loader** (`ABI_V2 §17–§21`, `IDEAL.md` §2.17). Landed:
+  [`games/cube3d_wasm`](./games/cube3d_wasm). A Rust guest compiled to
+  `wasm32-unknown-unknown` declares a cube MESH (`RGMB`, §18: verts + normals + uv +
+  6 per-face sub-meshes), a MATERIAL table (`RGMA`, §17/§18), a PERSPECTIVE camera
+  (`RGCM`, §19), and scene LIGHT (`RGLT`, §20), and spins it. At init the guest loads
+  two textures through the host **resource loader** `rg_res_load(name) -> handle`
+  (§17: host owns the pixels, guest holds only an opaque handle), builds a material
+  per texture, and assigns the *crate* material to the 4 sides and the *tiles*
+  material to top/bottom. A headless Node host (`tools/render.cjs`) reads the blocks,
+  builds the view-projection, and software-rasterises each sub-mesh with a z-buffer,
+  perspective-correct texture sampling, and per-vertex Gouraud lighting to PNG (no
+  GPU/SDL/display). The guest does no float — it writes fixed-point ints (positions
+  `FP_SCALE`, normals/units Q16.16, uv `*4096`) and bumps the model rotation per
+  frame, exactly the `IDEAL.md` §2.17/§5 "host owns rendering, guest owns the world"
+  split. Textures are committed as PPM under `assets/`; swapping in a PNG/streamed
+  source is a `rg_res_load`-only change, and later material upgrades (shaders,
+  mipmaps, LOD) live behind the handle with no guest change.
+  *Check:* `npm run engine:wasm:build:cube3d` builds `logic.wasm`;
+  `npm run engine:wasm:demo:cube3d` logs `rg_res_load("crate")->1` /
+  `("tiles")->2` and renders `out/cube_hero.png` + `out/cube_spin_montage.png` — a
+  correctly-occluded, textured, lit, perspective cube (crate sides, tiled top).
+- [~] **G.2 Player physics — kinematic character controller (Doom-style walk).**
+  Landed: [`games/fps_wasm`](./games/fps_wasm). A Rust→WASM guest generates a
+  two-room level (walls with a doorway, crate pillars, a jump-up platform), runs a
+  **character controller** (gravity, jump, swept per-axis AABB collision vs
+  walls/obstacles/floor, ground/step resolution), declares the physics world as a
+  COLLIDERS block (`RGCO`), and drives a first-person PERSPECTIVE camera each frame.
+  The host loads three textures via `rg_res_load`, drives a scripted
+  move/turn/jump sequence, renders the first-person view (z-buffer + **near-plane
+  clipping** added so the floor quad is clipped not dropped), and draws a top-down
+  map from the colliders + recorded path. A Doom player is a character controller
+  (an AABB that slides walls / stands on boxes), not a rigid-body solver — so that
+  is what the guest implements.
+  *Check:* `npm run engine:wasm:demo:fps` renders `out/fps_hero.png`,
+  `out/fps_walk_montage.png`, and `out/fps_map.png` — the map's path shows the
+  player walking through the doorway (not through walls) and a gold airborne
+  segment jumping onto the platform.
+- [ ] **G.2b Dynamic rigid bodies — wire the `cannon` world.** Alongside the
+  kinematic player, drive dynamic obstacles (falling/stacking crates) with
+  `physics/src/cannon_world` (gravity, contacts) owning each body's transform; the
+  guest streams each pose into a MESH model slot — the "shape declared once, pose
+  streams per frame" split the 2D host-physics path (`autopeli_wasm`) already uses
+  (`IDEAL.md` §2.5). The rasteriser is unchanged; only the transform source moves.
+  *Check:* crates fall, settle, and stack deterministically in fixed-point.
+- [ ] **G.3 `.rgr`/SDL host parity (production path).** Reimplement the `render.cjs`
+  rasteriser as a Ranger `scripting/` host (software framebuffer + the existing
+  `framebuffer.rgr`/`gfx_sdl.rgr`), so the same guest renders on the shipped SDL/CPU
+  backend, and add the GPU path (`VP_M4` uniform) — one camera model, both backends
+  (`IDEAL.md` §2.17 ideal #1). Ceiling is the SDL binary link (SDL2 headers absent
+  here), so this is verified by Ranger→C++ compile + the Node slice until a build env.
+- [ ] **G.4 Conformance (`ABI_V2 §13`).** Golden byte fixtures for the cube's MESH/
+  CAM/LIGHT blocks; a malformed-mesh validator vector (out-of-range index, odd
+  `idx_count`, degenerate normal); a replay assertion that the *scene* replays
+  byte-identically while lighting stays free to vary (proving §11's output-only
+  rendering invariant).
+  *Check:* the fixtures exist and pass, mirroring the §5 collision-pool validator.
 
 ---
 

@@ -1720,6 +1720,13 @@ Capability forked by backend, and none of it exposed over the ABI.
   (with `cannon_transform.rgr`, quaternions) is a complete, tested transform library — but
   it serves the Cannon.js 3D port that §2.5 flags as **unwired**. The 2D engine reinvents
   pan by hand instead of using it.
+- **A first 3D render slice now exists (PoC).** [`games/cube3d_wasm`](./games/cube3d_wasm)
+  is a Phase-1 vertical slice of the proposal below: a Rust→WASM guest declares a mesh, a
+  perspective camera, and scene lighting (`ABI_V2 §18–§20`), and a headless host reads those
+  blocks and software-rasterises them (perspective + z-buffer + per-vertex Gouraud). It is
+  the first thing to actually *use* the transform math this section says is stranded, and it
+  proves the render + Rust→WASM halves end to end. It is a proof-of-concept, not the shipped
+  camera — the production path is still the work in `IDEAL_TODO.md`.
 
 **Ideal.**
 
@@ -1767,6 +1774,19 @@ The result: placing the world becomes *"declare a camera, get back a view matrix
 placing an object becomes *"give it a local transform"* — one camera model and one affine
 transform shared by the software and GPU backends and by every guest path, invertible for
 picking, game-declared in view and host-owned in rendering (§2.5, §2.9, §2.14, §2.15, §5, §6).
+
+> **2D is the special case of 3D, not a parallel path.** The affine `Mat3` above is the
+> `z = 0`, orthographic collapse of a 4×4 `clip = Projection · View · world`. Promoting the
+> one camera model to carry an optional projection (ortho / perspective) turns the *same*
+> declare-a-camera-get-a-matrix contract into 3D, and the *same* declare-once vertex pool §2.5
+> uses for collision (`ABI_V2 §5`) becomes a render mesh with normals and colour
+> (`ABI_V2 §18`), lit per-vertex by a guest-declared sun + ambient (`ABI_V2 §20`). A 2D game
+> sets no new field and is byte-compatible; a 3D game flips projection mode, adds mesh normals,
+> and turns lighting on. The concrete blocks, the worked lit-cube example, and the incremental
+> build order are in **`ABI_V2_PROPOSAL.md` §18–§21**; the matrix math is the already-tested
+> `cannon_mat3`/`cannon_vec3`/`cannon_quaternion` this section says the 2D engine should
+> already be reusing. A runnable proof — [`games/cube3d_wasm`](./games/cube3d_wasm),
+> tracked in `IDEAL_TODO.md` Phase G — already does exactly this for a lit, spinning cube.
 
 ### 2.18 The particle system, special effects, and filters
 

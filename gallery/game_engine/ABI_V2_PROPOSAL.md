@@ -34,6 +34,10 @@ section of *this* file. `IDEAL §x` = `IDEAL.md`. `HOST §x` = `HOST_ARCHITECTUR
 | V2 §15 | Common result model (`RgResult`) & error taxonomy |
 | V2 §16 | Proposed blocks (camera, sound, view fields) |
 | V2 §17 | Proposed host imports (dynamic UI, resources, storage, animation, haptics, particles, views, logging) |
+| V2 §18 | Mesh geometry block — render vertices + indices (generalises §5 to 3D) |
+| V2 §19 | Camera & projection — 2D as the orthographic special case of 3D (extends §16.2) |
+| V2 §20 | Scene lighting — global/directional + ambient + per-vertex (Gouraud) |
+| V2 §21 | Putting it together: one pipeline for 2D and 3D, a worked cube, and the incremental path |
 
 ---
 
@@ -171,6 +175,18 @@ validates count and index bounds as untrusted data and clamps to the pool
 capacity. Ownership: guest writes the pool once at declare-time (`HOST §2`
 declare-once channel); the host reads it when building collision geometry. This
 makes POLYGON portable; CIRCLE/BOX/SEGMENT are unaffected.
+
+**Scope — this is collision geometry, not render geometry.** The §5 pool feeds the
+physics narrow-phase only: 2D, position-only (`x_fp, y_fp`), no z, no normals, no
+colour, no texture. It is *not* the block a 3D game draws from. It is, however, the
+**seed pattern** for 3D rendering: a guest-owned, declare-once, index-addressed,
+host-validated vertex pool. V2 §18 reuses exactly that pattern with a richer vertex
+(position + normal + colour + uv) for the renderer, and V2 §19–§21 add the camera
+projection and lighting that turn declared meshes into a drawn 3D scene. Collision
+and render geometry stay **separate pools** — different consumers (solver vs
+rasteriser), different fidelities, different lifetimes — but one discipline. A 3D
+body typically declares a cheap collision shape here (BOX/§5 hull) *and* a detailed
+render mesh in §18; they need not match, and the host never conflates them.
 
 ---
 
@@ -514,6 +530,250 @@ guest pointer.
 Sprite/atlas/HUD data shapes and the body→visual binding are game-declared
 structures resolved by host-side interfaces; they are documented in `HOST §3`
 because they are not byte-level guest/host ABI.
+
+---
+
+## V2 §18. Mesh geometry block — render vertices + indices
+
+**Generalises V2 §5 to rendering.** `IDEAL §2.7` already says the resource model has
+"nothing that says 2D" — "the same ABI serves 2D atlases, 3D mesh LODs, and audio
+banks" — but there is no block a guest can use to *declare drawable geometry*. §5 is
+the collision analogue; this is its render counterpart. Same discipline as §5
+(guest-owned, declare-once, index-addressed, host-validated), a richer vertex, and a
+separate index pool so a mesh is `(vertex range, index range)`.
+
+```c
+#define RG_MESH_MAGIC     0x424d4752u /* 'RGMB' — mesh block                        */
+#define RG_MESH_VERSION   1u
+/* Header: magic, version, size, revision (pattern B, guest writes; §7 seqlock). */
+
+/* Interleaved render vertex — 32 B, 4-byte aligned. */
+struct RgVertex3 {
+    i32 x, y, z;      /* model-local position * FP_SCALE (256). 2D: z = 0.          */
+    i32 nx, ny, nz;   /* vertex normal, Q16.16 unit vector (for §20 lighting).      */
+    u32 rgba;         /* per-vertex base colour RGBA8888 (modulated by lighting).   */
+    u32 uv;           /* packed u16 u, v texcoords * RG_UV_SCALE; 0 = untextured.   */
+};
+
+/* Mesh descriptor — one drawable; references the two pools by range, never pointer. */
+struct RgMesh {
+    u32 kind;         /* RG_MESH_TRIANGLES 1 (only mode for "simple 3D")            */
+    u32 vtx_first;    /* first RgVertex3 index into the vertex pool                 */
+    u32 vtx_count;    /*   (2..RG_MESH_MAX_VERTS_TOTAL, host-clamped)               */
+    u32 idx_first;    /* first index into the index pool                           */
+    u32 idx_count;    /* multiple of 3 for TRIANGLES                               */
+    u32 material;     /* registered material/texture id (HOST §3); 0 = vertex-col  */
+    u32 flags;        /* RG_MESH_UNLIT 1 | RG_MESH_DOUBLE_SIDED 2 | RG_MESH_WIRE 4  */
+    u32 _rsv;         /* zeroed (§14)                                              */
+};
+
+/* Two guest-owned pools, declared once alongside the mesh descriptors. */
+#define RG_MESH_MAX_VERTS_TOTAL   4096u  /* RgVertex3 pool capacity, host-clamped   */
+#define RG_MESH_MAX_INDICES_TOTAL 8192u  /* u16 index pool capacity, host-clamped   */
+#define RG_UV_SCALE               4096u  /* uv fixed-point unit (u16 → [0,1))       */
+```
+
+- **Indices are `u16` into the mesh's own vertex range**, so a cube is 8 vertices +
+  36 indices, not 36 duplicated vertices. `u16` caps a single mesh at 65 k verts,
+  ample for "simple 3D"; a `RG_MESH_KIND_TRIANGLES32` variant (u32 indices) is
+  **[RESERVED]** for later.
+- **Winding is CCW = front-facing**, matching §5. Back-faces are culled unless
+  `RG_MESH_DOUBLE_SIDED`. The host validates `idx_count % 3 == 0` and every index
+  `< vtx_count` as untrusted data (§14), dropping the mesh on violation rather than
+  reading out of bounds.
+- **`RG_MESH_UNLIT`** makes §20 a no-op for that mesh: the rasteriser uses `rgba`
+  (× texture) directly. This is the flag a **2D sprite** sets — see §21, where a
+  sprite is just a two-triangle quad at `z = 0` with `UNLIT`.
+- **Capability:** `RG_WASM_HOST_CAP_MESH3D 0x0080`. A host without it advertises the
+  bit off; a guest that needs meshes degrades (§14) — e.g. falls back to §2.8 sprites
+  — or hard-requires via `rg_required_caps` and is rejected at load.
+- **Determinism:** geometry is declared data, not per-step logic, so it is **not** in
+  the replay stream (like §17 worker output); rendering it is output-only (§11).
+
+Meshes are declared once like §5 shapes; a *dynamic* mesh (procedural, deforming)
+uses the §17 dynamic-resource staging path instead, so the declare-once pool stays
+declare-once.
+
+---
+
+## V2 §19. Camera & projection — 2D as the orthographic special case of 3D
+
+**Extends V2 §16.2 (RG_CAM).** The core design principle the guest asked for:
+**a 2D scene is a 3D scene viewed orthographically, with `z = 0` and unlit
+materials.** So there is **one camera block**, not a 2D one and a 3D one. §16.2's 3×3
+affine `Mat3` is retained unchanged as the `AFFINE2D` projection mode — the fast path
+every current 2D game already wants — and 3D is added as two more projection modes on
+the *same* block. `IDEAL §2.17` already resolves the camera "to one affine view
+matrix … `screen = view · world`"; this makes that matrix the bottom-left corner of a
+4×4 `clip = Projection · View · world`, of which the affine `Mat3` is the
+`z = 0, orthographic` collapse.
+
+```c
+/* Guest-written projection selector (appended to the §16.2 header; §14 minor bump). */
+#define RG_CAM_OFF_PROJ     92  /* u32: 0 AFFINE2D | 1 ORTHO3D | 2 PERSPECTIVE       */
+
+/* 3D camera params — read only when PROJ != AFFINE2D (else the §16.2 X/Y/ZOOM/ROT). */
+#define RG_CAM_OFF_EYE      96  /* 3×i32 world eye xyz  * FP_SCALE                    */
+#define RG_CAM_OFF_TARGET   108 /* 3×i32 look-at target * FP_SCALE                    */
+#define RG_CAM_OFF_UP       120 /* 3×i32 up vector, Q16.16 unit (default 0,1,0)       */
+#define RG_CAM_OFF_FOVY     132 /* i32 vertical FOV radians * FP_SCALE (PERSPECTIVE)  */
+#define RG_CAM_OFF_ORTHO_H  136 /* i32 ortho view height, world units * FP_SCALE      */
+#define RG_CAM_OFF_NEAR     140 /* i32 near plane * FP_SCALE                          */
+#define RG_CAM_OFF_FAR      144 /* i32 far plane  * FP_SCALE                          */
+
+/* Host-written resolved transforms (Q16.16, RG_CAM_FP_MTX). */
+#define RG_CAM_OFF_VP_M4    148 /* 16×i32 view·projection, row-major: clip = VP · world */
+#define RG_CAM_OFF_VP_INV4  212 /* 16×i32 inverse, for unproject / picking             */
+#define RG_CAM_SIZE_V2      276
+```
+
+- **`AFFINE2D` (default) is byte-for-byte §16.2.** The host still fills
+  `RG_CAM_OFF_VIEW_M` / `VIEW_INV` (the 3×3). A pure-2D guest never touches the new
+  fields and works on any host, exactly as today. So this is a **minor** RG_CAM bump
+  (append-only, §14), not a break.
+- **`ORTHO3D` and `PERSPECTIVE`** use `EYE/TARGET/UP` (a look-at) plus
+  `NEAR/FAR` and either `FOVY` (perspective) or `ORTHO_H` (orthographic view height).
+  The host resolves the 4×4 `VP_M4` and writes it back — the guest never builds the
+  matrix (mirrors §16.2's "the inverse is transported, not left to the guest").
+- **Aspect ratio** comes from `RG_HS.view_w/view_h` (§1/§16.1), not a camera field, so
+  a resize re-resolves `VP_M4` without the guest touching the camera — the §2.14
+  "viewport is a first-class field, and it can change" rule.
+- **Unproject differs by mode, and the contract says so.** For `AFFINE2D`/`ORTHO3D`,
+  `VP_INV4 · screen` is a **world point**. For `PERSPECTIVE`, a 2D screen point
+  unprojects to a **world ray** (origin = `EYE`, direction through the unprojected
+  near-plane point); the guest intersects that ray with world geometry for picking
+  (§2.9/§2.15). This is stated explicitly because perspective picking is a ray, not a
+  point — a correctness trap if left implied.
+- **Fixed-point matrices, both backends.** `VP_M4` is Q16.16 (`RG_CAM_FP_MTX`), the
+  same scale §16.2 already fixed, applied identically on the software framebuffer and
+  the GPU — the `IDEAL §2.17` "one camera model, both backends" guarantee extended to
+  the third dimension. Reuse the existing, tested `physics/src/cannon_mat3` /
+  `cannon_vec3` / `cannon_quaternion` math (today "walled off in unwired 3D physics",
+  `IDEAL §2.17`) to build `VP_M4` host-side — the library `IDEAL` says the 2D engine
+  should already be reusing.
+- **Software rasteriser needs a depth buffer for 3D.** Under `PERSPECTIVE`/`ORTHO3D`
+  the host maintains a per-pixel z-buffer (painter's-order alone is insufficient for
+  intersecting triangles). This is a host rendering concern, not ABI, but it is the
+  one real cost of promoting the CPU path from 2D blit to 3D raster; noted so it is
+  not a surprise. `AFFINE2D` keeps the current z-free blit path.
+
+---
+
+## V2 §20. Scene lighting — global + per-vertex (Gouraud)
+
+**New — no lighting model exists in V1 or the earlier V2 draft.** "Simple 3D" needs
+exactly two things the guest named: **global light settings** (a scene-wide sun +
+ambient) and **vertex lighting**. The baseline is **per-vertex Gouraud**: shade at
+each vertex using its §18 normal, interpolate the colour across the triangle. It is
+cheap (fits the software rasteriser), deterministic (fixed-point), and enough for lit
+cubes, terrain, and low-poly props. Lighting is **guest-declared** (it is part of
+"the guest owns the world", `IDEAL §5`) and **host-consumed** when shading.
+
+```c
+#define RG_LIT_MAGIC   0x544c4752u /* 'RGLT' — scene lighting (pattern B, guest writes) */
+#define RG_LIT_VERSION 1u
+/* Header: magic, version, size, revision. Then: */
+
+/* Global settings — the "global light" the guest asked for. */
+#define RG_LIT_OFF_AMBIENT_RGB  16  /* u32 ambient colour RGBA8888                     */
+#define RG_LIT_OFF_AMBIENT_I    20  /* i32 ambient intensity * FP_SCALE (0..FP)        */
+
+/* One directional "sun" — the primary global light. */
+#define RG_LIT_OFF_SUN_DIR      24  /* 3×i32 direction TO light, Q16.16 unit           */
+#define RG_LIT_OFF_SUN_RGB      36  /* u32 sun colour RGBA8888                         */
+#define RG_LIT_OFF_SUN_I        40  /* i32 sun intensity * FP_SCALE                    */
+
+/* Optional point lights — capability-gated; default MAX = 4, 0 keeps it sun+ambient. */
+#define RG_LIT_OFF_NUM_POINT    44  /* u32 active point-light count (0..RG_LIT_MAX_PT) */
+#define RG_LIT_OFF_POINTS       48  /* RgPointLight[RG_LIT_MAX_PT]                     */
+#define RG_LIT_MAX_PT           4u
+struct RgPointLight {              /* 24 B */
+    i32 x, y, z;      /* world position * FP_SCALE                                     */
+    u32 rgba;         /* colour RGBA8888                                               */
+    i32 intensity;    /* * FP_SCALE                                                    */
+    i32 range;        /* attenuation radius * FP_SCALE (0 past range)                  */
+};
+```
+
+Per-vertex lit colour, computed host-side, deterministic in fixed-point:
+
+```
+lit(v) = base(v) · ( ambient
+                    + sun_i   · max(0, N·L_sun)            · sun_rgb
+                    + Σ_p  point_i(p) · atten(p,v) · max(0, N·L_p) · rgb(p) )
+   where base(v) = v.rgba × material/texture sample, N = v.normal.
+```
+
+- **`RG_MESH_UNLIT` short-circuits this** to `lit = base` — so a 2D sprite quad (§18)
+  is unaffected and draws exactly as today. **2D opts out; 3D opts in; one pipeline.**
+- **Baseline is sun + ambient** (`NUM_POINT = 0`), which is all a first lit cube
+  needs. Point lights are `RG_WASM_HOST_CAP_LIGHTING 0x0100`, degrade to sun-only on a
+  host that lacks them (§14).
+- **Output-only, not replay logic.** Like §17 particles/§2.18, lighting affects only
+  pixels, never world logic, so it is **not** in the replay stream (§11) — a light
+  can flicker per frame without breaking determinism.
+- **Normals are the guest's job** (baked into §18 vertices at declare-time). A guest
+  that ships zero normals gets flat ambient-only shading, a safe degenerate, not a
+  crash. Per-face flat shading is "declare each face's verts with that face's normal";
+  smooth shading is "share averaged normals" — a data choice, no ABI change (the
+  "transport, never taxonomy" rule, `IDEAL §2.1`).
+
+---
+
+## V2 §21. One pipeline for 2D and 3D — worked cube and incremental path
+
+The through-line of §18–§20 is the guest's own principle: **2D is the orthographic,
+`z = 0`, unlit special case of 3D.** Concretely, one path serves both:
+
+| Stage | 2D (today, as a special case) | 3D (added) |
+|-------|-------------------------------|------------|
+| **Vertex** (§18) | quad, `z = 0`, uv set, normals unused | mesh, real `z`, normals for lighting |
+| **Camera** (§19) | `AFFINE2D` → the §16.2 `Mat3` | `ORTHO3D` / `PERSPECTIVE` → `VP_M4` |
+| **Lighting** (§20) | `RG_MESH_UNLIT` → colour passthrough | sun + ambient (+ points) per vertex |
+| **Raster** | z-free blit (unchanged CPU path) | triangle raster + z-buffer |
+
+A 2D game sets none of the new fields and is byte-compatible with §16.2 — it simply
+*is* the corner of the 3D pipeline it always used. A 3D game flips three switches
+(projection mode, mesh normals, unlit off) on the same blocks.
+
+**Worked example — a lit, spinning cube** (what the guest declares; a natural first
+§13 conformance fixture):
+
+1. **Geometry (§18):** 8 vertices in the mesh vertex pool (cube corners, `±1·FP_SCALE`,
+   with per-corner or per-face normals), 36 `u16` indices (12 CCW triangles), one
+   `RgMesh { kind=TRIANGLES, material=0, flags=0 }` (vertex-colour, lit).
+2. **Camera (§19):** `PROJ = PERSPECTIVE`, `EYE = (0,0,4·FP)`, `TARGET = 0`,
+   `UP = (0,1,0)`, `FOVY ≈ 60° in radians·FP`, `NEAR/FAR`. The host writes `VP_M4`.
+3. **Lighting (§20):** `AMBIENT_I ≈ 0.2·FP`, one sun `DIR = (−1,−1,−1) normalised`,
+   white, `SUN_I ≈ 0.9·FP`, `NUM_POINT = 0`.
+4. **Spin:** each step the guest bumps the body/model rotation (reuse the §2.5 body
+   `angle`, generalised to a quaternion via the existing `cannon_quaternion`); the
+   host re-shades and re-rasters. No per-frame geometry re-declare.
+
+**Incremental path to actually run it** (each step independently testable, in order):
+
+1. **Host-side matrix math first, no ABI.** Wire `cannon_mat3/vec3/quaternion` (already
+   tested, `IDEAL §2.17`) into a `buildViewProjection(eye,target,up,fov,near,far)` and
+   a software triangle rasteriser with a z-buffer. Prove it draws a hard-coded cube.
+2. **Land RG_CAM v2 (§19).** Add the projection modes + `VP_M4`; keep `AFFINE2D`
+   passing every current 2D golden fixture unchanged (that is the regression that
+   proves 2D is untouched).
+3. **Land the mesh block (§18).** Declare-once vertex/index pools + validator vectors
+   (§13), reusing the §5 bounds-checking harness. Draw the guest-declared cube.
+4. **Land lighting (§20).** Sun + ambient per-vertex; `UNLIT` passthrough proves 2D
+   sprites still match their goldens. Add point lights last, capability-gated.
+5. **Conformance (§13):** golden bytes for the cube's pools + camera + lights, a
+   malformed-mesh validator vector (bad index, odd `idx_count`, degenerate normal),
+   and a replay assertion that the *scene* replays byte-identically while lighting is
+   free to vary (proving §11's output-only invariant for rendering).
+
+This keeps every V2 rule intact — declare-once (§5/`IDEAL §5`), fixed-point transport
+(§16.2/§9), pattern-B seqlock (§7), per-block major/minor gating (§14), output-only
+rendering excluded from replay (§11), capabilities negotiated not assumed (§14/§6) —
+and reaches a lit 3D object without a single new *mechanism*, only richer data on the
+patterns §5 and §16.2 already established. That is the test of the "2D is a special
+case of 3D" claim: if it were false, 3D would need a parallel pipeline; here it needs
+only three more fields and one more pool.
 
 ---
 

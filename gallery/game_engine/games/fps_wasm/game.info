@@ -1,0 +1,5 @@
+name=FPS Movement (Rust WASM)
+engine=wasm3d
+module=logic.wasm
+
+category=Tests
