@@ -51,6 +51,8 @@ typedef struct RgWasmSlot {
     int res_count;
     RgWasmFx fx[RG_WASM_MAX_FX];
     int fx_count;
+    /* <module dir>/assets — where rg_load_texture resolves texture names. */
+    char asset_dir[512];
 } RgWasmSlot;
 
 /* Load a module into a fresh slot. can_spawn gates whether this module may
@@ -222,10 +224,149 @@ m3ApiRawFunction(m3_rg_ui_effect) {
     m3ApiSuccess();
 }
 
+/* ---- host-managed 3D scene (IDEAL_3D Phase H) ----------------------------
+ * The strong rgfx_scene_* definitions live in gfx_sdl's C++ polyfill
+ * (extern "C"); these weak fallbacks let this bridge link in a headless build
+ * that does not include the GL scene (the scene calls then no-op). */
+__attribute__((weak)) int  rgfx_scene_load_texture(const char* d, const char* n){ (void)d;(void)n; return 0; }
+__attribute__((weak)) int  rgfx_scene_create_box(float a,float b,float c,float d,float e,float f,int t){ (void)a;(void)b;(void)c;(void)d;(void)e;(void)f;(void)t; return 0; }
+__attribute__((weak)) int  rgfx_scene_create_mesh_entity(int m,int t){ (void)m;(void)t; return 0; }
+__attribute__((weak)) int  rgfx_scene_create_camera(float a,float b,float c){ (void)a;(void)b;(void)c; return 0; }
+__attribute__((weak)) int  rgfx_scene_create_light(int ty,int col,float in){ (void)ty;(void)col;(void)in; return 0; }
+__attribute__((weak)) void rgfx_scene_set_position(int i,float x,float y,float z){ (void)i;(void)x;(void)y;(void)z; }
+__attribute__((weak)) void rgfx_scene_set_rotation(int i,float x,float y,float z,float w){ (void)i;(void)x;(void)y;(void)z;(void)w; }
+__attribute__((weak)) void rgfx_scene_set_scale(int i,float x,float y,float z){ (void)i;(void)x;(void)y;(void)z; }
+__attribute__((weak)) void rgfx_scene_set_target(int i,float x,float y,float z){ (void)i;(void)x;(void)y;(void)z; }
+__attribute__((weak)) void rgfx_scene_set_range(int i,float r){ (void)i;(void)r; }
+__attribute__((weak)) void rgfx_scene_set_enabled(int i,int o){ (void)i;(void)o; }
+__attribute__((weak)) void rgfx_scene_set_visible(int i,int o){ (void)i;(void)o; }
+__attribute__((weak)) void rgfx_scene_set_active_camera(int i){ (void)i; }
+__attribute__((weak)) void rgfx_scene_destroy(int i){ (void)i; }
+
+#define RG3D_FP(v) ((float)(v) / 256.0f)
+#define RG3D_Q(v)  ((float)(v) / 65536.0f)
+
+m3ApiRawFunction(m3_rg_load_texture) {
+    m3ApiReturnType(int32_t)
+    m3ApiGetArg(int32_t, nameOff)
+    m3ApiGetArg(int32_t, nameLen)
+    RgWasmSlot* s = (RgWasmSlot*)(_ctx->userdata);
+    char name[128];
+    rg_copy_wasm_str(runtime, _mem, nameOff, nameLen, name, (int)sizeof(name));
+    m3ApiReturn(rgfx_scene_load_texture(s ? s->asset_dir : "assets", name));
+}
+m3ApiRawFunction(m3_rg_create_box) {
+    m3ApiReturnType(int32_t)
+    m3ApiGetArg(int32_t, x0)
+    m3ApiGetArg(int32_t, y0)
+    m3ApiGetArg(int32_t, z0)
+    m3ApiGetArg(int32_t, x1)
+    m3ApiGetArg(int32_t, y1)
+    m3ApiGetArg(int32_t, z1)
+    m3ApiGetArg(int32_t, texId)
+    m3ApiReturn(rgfx_scene_create_box(RG3D_FP(x0), RG3D_FP(y0), RG3D_FP(z0), RG3D_FP(x1), RG3D_FP(y1), RG3D_FP(z1), texId));
+}
+m3ApiRawFunction(m3_rg_create_mesh_entity) {
+    m3ApiReturnType(int32_t)
+    m3ApiGetArg(int32_t, meshId)
+    m3ApiGetArg(int32_t, texId)
+    m3ApiReturn(rgfx_scene_create_mesh_entity(meshId, texId));
+}
+m3ApiRawFunction(m3_rg_create_camera) {
+    m3ApiReturnType(int32_t)
+    m3ApiGetArg(int32_t, fovy)
+    m3ApiGetArg(int32_t, nearp)
+    m3ApiGetArg(int32_t, farp)
+    m3ApiReturn(rgfx_scene_create_camera(RG3D_FP(fovy), RG3D_FP(nearp), RG3D_FP(farp)));
+}
+m3ApiRawFunction(m3_rg_create_light) {
+    m3ApiReturnType(int32_t)
+    m3ApiGetArg(int32_t, type)
+    m3ApiGetArg(int32_t, color)
+    m3ApiGetArg(int32_t, intensity)
+    m3ApiReturn(rgfx_scene_create_light(type, color, RG3D_FP(intensity)));
+}
+m3ApiRawFunction(m3_rg_set_position) {
+    m3ApiGetArg(int32_t, e)
+    m3ApiGetArg(int32_t, x)
+    m3ApiGetArg(int32_t, y)
+    m3ApiGetArg(int32_t, z)
+    rgfx_scene_set_position(e, RG3D_FP(x), RG3D_FP(y), RG3D_FP(z));
+    m3ApiSuccess();
+}
+m3ApiRawFunction(m3_rg_set_rotation) {
+    m3ApiGetArg(int32_t, e)
+    m3ApiGetArg(int32_t, qx)
+    m3ApiGetArg(int32_t, qy)
+    m3ApiGetArg(int32_t, qz)
+    m3ApiGetArg(int32_t, qw)
+    rgfx_scene_set_rotation(e, RG3D_Q(qx), RG3D_Q(qy), RG3D_Q(qz), RG3D_Q(qw));
+    m3ApiSuccess();
+}
+m3ApiRawFunction(m3_rg_set_scale) {
+    m3ApiGetArg(int32_t, e)
+    m3ApiGetArg(int32_t, sx)
+    m3ApiGetArg(int32_t, sy)
+    m3ApiGetArg(int32_t, sz)
+    rgfx_scene_set_scale(e, RG3D_FP(sx), RG3D_FP(sy), RG3D_FP(sz));
+    m3ApiSuccess();
+}
+m3ApiRawFunction(m3_rg_set_target) {
+    m3ApiGetArg(int32_t, e)
+    m3ApiGetArg(int32_t, x)
+    m3ApiGetArg(int32_t, y)
+    m3ApiGetArg(int32_t, z)
+    rgfx_scene_set_target(e, RG3D_FP(x), RG3D_FP(y), RG3D_FP(z));
+    m3ApiSuccess();
+}
+m3ApiRawFunction(m3_rg_set_range) {
+    m3ApiGetArg(int32_t, e)
+    m3ApiGetArg(int32_t, r)
+    rgfx_scene_set_range(e, RG3D_FP(r));
+    m3ApiSuccess();
+}
+m3ApiRawFunction(m3_rg_set_enabled) {
+    m3ApiGetArg(int32_t, e)
+    m3ApiGetArg(int32_t, on)
+    rgfx_scene_set_enabled(e, on);
+    m3ApiSuccess();
+}
+m3ApiRawFunction(m3_rg_set_visible) {
+    m3ApiGetArg(int32_t, e)
+    m3ApiGetArg(int32_t, on)
+    rgfx_scene_set_visible(e, on);
+    m3ApiSuccess();
+}
+m3ApiRawFunction(m3_rg_set_active_camera) {
+    m3ApiGetArg(int32_t, e)
+    rgfx_scene_set_active_camera(e);
+    m3ApiSuccess();
+}
+m3ApiRawFunction(m3_rg_destroy_entity) {
+    m3ApiGetArg(int32_t, e)
+    rgfx_scene_destroy(e);
+    m3ApiSuccess();
+}
+
 static void rg_link_host_imports(RgWasmSlot* s) {
     if (!s || !s->module) {
         return;
     }
+    /* host-managed 3D scene (IDEAL_3D Phase H) */
+    (void)m3_LinkRawFunctionEx(s->module, "env", "rg_load_texture", "i(ii)", &m3_rg_load_texture, s);
+    (void)m3_LinkRawFunctionEx(s->module, "env", "rg_create_box", "i(iiiiiii)", &m3_rg_create_box, s);
+    (void)m3_LinkRawFunctionEx(s->module, "env", "rg_create_mesh_entity", "i(ii)", &m3_rg_create_mesh_entity, s);
+    (void)m3_LinkRawFunctionEx(s->module, "env", "rg_create_camera", "i(iii)", &m3_rg_create_camera, s);
+    (void)m3_LinkRawFunctionEx(s->module, "env", "rg_create_light", "i(iii)", &m3_rg_create_light, s);
+    (void)m3_LinkRawFunctionEx(s->module, "env", "rg_set_position", "v(iiii)", &m3_rg_set_position, s);
+    (void)m3_LinkRawFunctionEx(s->module, "env", "rg_set_rotation", "v(iiiii)", &m3_rg_set_rotation, s);
+    (void)m3_LinkRawFunctionEx(s->module, "env", "rg_set_scale", "v(iiii)", &m3_rg_set_scale, s);
+    (void)m3_LinkRawFunctionEx(s->module, "env", "rg_set_target", "v(iiii)", &m3_rg_set_target, s);
+    (void)m3_LinkRawFunctionEx(s->module, "env", "rg_set_range", "v(ii)", &m3_rg_set_range, s);
+    (void)m3_LinkRawFunctionEx(s->module, "env", "rg_set_enabled", "v(ii)", &m3_rg_set_enabled, s);
+    (void)m3_LinkRawFunctionEx(s->module, "env", "rg_set_visible", "v(ii)", &m3_rg_set_visible, s);
+    (void)m3_LinkRawFunctionEx(s->module, "env", "rg_set_active_camera", "v(i)", &m3_rg_set_active_camera, s);
+    (void)m3_LinkRawFunctionEx(s->module, "env", "rg_destroy_entity", "v(i)", &m3_rg_destroy_entity, s);
     /* Suppress lookup failures: modules that don't import these still load. */
     (void)m3_LinkRawFunctionEx(s->module, "env", "rg_host_register_sheet",
                                "v(iiiiiiiii)", &m3_rg_host_register_sheet, s);
@@ -320,6 +461,14 @@ static int rg_wasm_load_ex(const char* path, int can_spawn) {
     s->in_use = 1;
     s->can_spawn = can_spawn;
     s->spawned_child = 0;
+    /* asset_dir = dirname(path) + "/assets" (for rg_load_texture). */
+    if (path) {
+        const char* slash = strrchr(path, '/');
+        int dlen = slash ? (int)(slash - path) : 0;
+        if (dlen > (int)sizeof(s->asset_dir) - 8) { dlen = (int)sizeof(s->asset_dir) - 8; }
+        memcpy(s->asset_dir, path, (size_t)dlen);
+        memcpy(s->asset_dir + dlen, "/assets", 8); /* includes the NUL */
+    }
 
     s->env = m3_NewEnvironment();
     if (!s->env) {

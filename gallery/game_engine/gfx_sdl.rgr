@@ -2192,6 +2192,240 @@ static void rgfx_3d_end() {
     if (!g_rgfx_gpu_mode) { return; }
     glDisable(GL_DEPTH_TEST);
 }
+
+// ==================== host-managed scene (IDEAL_3D Phase H) ==================
+// The host owns the entity registry, transforms, resources, lights and camera.
+// The guest sends commands via host imports (rg_wasm_bridge.c) that call these
+// extern \"C\" functions and hold only opaque EntityIds. rgfx_scene_render walks
+// the registry and drives the same gfx_3d_* GLES2 pipeline (forward, multi-light).
+#define RGE_MESH   1
+#define RGE_CAMERA 2
+#define RGE_AMBIENT 3
+#define RGE_DIR    4
+#define RGE_POINT  5
+#define RGSCENE_MAXDIR 4
+#define RGSCENE_MAXPT  8
+struct RgfxSceneEntity {
+    int type; int alive; int gen; int visible; int enabled;
+    float pos[3]; float rot[4]; float scale[3];   // rot = quaternion (x,y,z,w)
+    int meshId; int texId;                         // RGE_MESH
+    float fovy, nearp, farp; float target[3]; float up[3]; int useTarget; // RGE_CAMERA
+    float color[3]; float intensity; float range;  // lights (dir uses pos as dir-to-light)
+};
+static std::vector<RgfxSceneEntity> g_scene;
+static int g_scene_active_cam = 0;
+static GLuint g_scene_prog = 0;
+static GLint g_scn_aPos=-1, g_scn_aNormal=-1, g_scn_aUv=-1;
+static GLint g_scn_uMVP=-1, g_scn_uModel=-1, g_scn_uNormalMat=-1, g_scn_uTex=-1;
+static GLint g_scn_uAmbient=-1, g_scn_uNumDir=-1, g_scn_uDirDir=-1, g_scn_uDirCol=-1;
+static GLint g_scn_uNumPt=-1, g_scn_uPtPos=-1, g_scn_uPtCol=-1, g_scn_uPtRange=-1;
+
+static int rgfx_scene_valid(int id) { return id > 0 && id <= (int) g_scene.size() && g_scene[(size_t)(id-1)].alive; }
+
+extern \"C\" int rgfx_scene_reset() { g_scene.clear(); g_scene_active_cam = 0; return 0; }
+
+static int rgfx_scene_alloc(int type) {
+    RgfxSceneEntity e; memset(&e, 0, sizeof(e));
+    e.type = type; e.alive = 1; e.visible = 1; e.enabled = 1;
+    e.rot[3] = 1.f; e.scale[0] = e.scale[1] = e.scale[2] = 1.f; e.up[1] = 1.f;
+    e.color[0] = e.color[1] = e.color[2] = 1.f; e.intensity = 1.f; e.range = 10.f;
+    g_scene.push_back(e);
+    return (int) g_scene.size();
+}
+// upload interleaved float verts (8 floats: pos3,normal3,uv2) + u16 indices -> meshId
+static int rgfx_mesh_make(const float* v8, int vcount, const uint16_t* idx, int icount) {
+    if (!g_rgfx_gpu_mode) { return 0; }
+    rgfx_gl_ensure_current();
+    RgfxMesh3D m; m.vbo = 0; m.ebo = 0; m.icount = icount;
+    glGenBuffers(1, &m.vbo); glBindBuffer(GL_ARRAY_BUFFER, m.vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr) ((size_t) vcount * 8 * 4), v8, GL_STATIC_DRAW);
+    glGenBuffers(1, &m.ebo); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m.ebo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr) ((size_t) icount * 2), idx, GL_STATIC_DRAW);
+    g_rgfx_meshes.push_back(m);
+    return (int) g_rgfx_meshes.size();
+}
+extern \"C\" int rgfx_scene_load_texture(const char* dir, const char* name) {
+    char path[1024]; snprintf(path, sizeof(path), \"%s/%s.ppm\", dir, name);
+    FILE* f = fopen(path, \"rb\"); if (!f) { SDL_Log(\"[scene] texture not found: %s\", path); return 0; }
+    char magic[3] = {0,0,0}; int w = 0, h = 0, mx = 0;
+    if (fscanf(f, \"%2s %d %d %d\", magic, &w, &h, &mx) != 4 || magic[0] != 'P' || magic[1] != '6' || w <= 0 || h <= 0) { fclose(f); return 0; }
+    fgetc(f); // single whitespace after maxval
+    std::vector<uint8_t> rgb((size_t) w * h * 3);
+    if (fread(rgb.data(), 1, rgb.size(), f) != rgb.size()) { fclose(f); return 0; }
+    fclose(f);
+    std::vector<uint8_t> rgba((size_t) w * h * 4);
+    for (int i = 0; i < w * h; ++i) { rgba[i*4]=rgb[i*3]; rgba[i*4+1]=rgb[i*3+1]; rgba[i*4+2]=rgb[i*3+2]; rgba[i*4+3]=255; }
+    return rgfx_3d_upload_texture(rgba.data(), w, h);
+}
+// axis-aligned box, per-face normals, uv tiled by size/2; returns a mesh entity id
+extern \"C\" int rgfx_scene_create_box(float x0, float y0, float z0, float x1, float y1, float z1, int texId) {
+    float dx = (x1 - x0) * 0.5f, dy = (y1 - y0) * 0.5f, dz = (z1 - z0) * 0.5f;
+    // 6 faces * 4 verts; each vert = pos(3) normal(3) uv(2)
+    struct Q { float c[4][3]; float n[3]; float uw, uh; };
+    Q faces[6] = {
+        {{{x0,y0,z1},{x1,y0,z1},{x1,y1,z1},{x0,y1,z1}}, {0,0,1}, dx, dy},   // +Z
+        {{{x1,y0,z0},{x0,y0,z0},{x0,y1,z0},{x1,y1,z0}}, {0,0,-1}, dx, dy},  // -Z
+        {{{x1,y0,z1},{x1,y0,z0},{x1,y1,z0},{x1,y1,z1}}, {1,0,0}, dz, dy},   // +X
+        {{{x0,y0,z0},{x0,y0,z1},{x0,y1,z1},{x0,y1,z0}}, {-1,0,0}, dz, dy},  // -X
+        {{{x0,y1,z1},{x1,y1,z1},{x1,y1,z0},{x0,y1,z0}}, {0,1,0}, dx, dz},   // +Y
+        {{{x0,y0,z0},{x1,y0,z0},{x1,y0,z1},{x0,y0,z1}}, {0,-1,0}, dx, dz},  // -Y
+    };
+    float uvc[4][2] = {{0,0},{1,0},{1,1},{0,1}};
+    std::vector<float> vv; std::vector<uint16_t> ii;
+    for (int fi = 0; fi < 6; ++fi) {
+        uint16_t base = (uint16_t) (vv.size() / 8);
+        for (int k = 0; k < 4; ++k) {
+            vv.push_back(faces[fi].c[k][0]); vv.push_back(faces[fi].c[k][1]); vv.push_back(faces[fi].c[k][2]);
+            vv.push_back(faces[fi].n[0]); vv.push_back(faces[fi].n[1]); vv.push_back(faces[fi].n[2]);
+            vv.push_back(uvc[k][0] * faces[fi].uw); vv.push_back(uvc[k][1] * faces[fi].uh);
+        }
+        uint16_t tri[6] = {0,1,2,0,2,3};
+        for (int t = 0; t < 6; ++t) ii.push_back(base + tri[t]);
+    }
+    int meshId = rgfx_mesh_make(vv.data(), (int) (vv.size() / 8), ii.data(), (int) ii.size());
+    int id = rgfx_scene_alloc(RGE_MESH); g_scene[(size_t)(id-1)].meshId = meshId; g_scene[(size_t)(id-1)].texId = texId;
+    return id;
+}
+extern \"C\" int rgfx_scene_create_mesh_entity(int meshId, int texId) {
+    int id = rgfx_scene_alloc(RGE_MESH); g_scene[(size_t)(id-1)].meshId = meshId; g_scene[(size_t)(id-1)].texId = texId; return id;
+}
+extern \"C\" int rgfx_scene_create_camera(float fovy, float nearp, float farp) {
+    int id = rgfx_scene_alloc(RGE_CAMERA);
+    g_scene[(size_t)(id-1)].fovy = fovy; g_scene[(size_t)(id-1)].nearp = nearp; g_scene[(size_t)(id-1)].farp = farp;
+    if (g_scene_active_cam == 0) g_scene_active_cam = id;
+    return id;
+}
+extern \"C\" int rgfx_scene_create_light(int type, int color, float intensity) {
+    int id = rgfx_scene_alloc(type);
+    uint32_t c = (uint32_t) color;
+    g_scene[(size_t)(id-1)].color[0] = (float)((c>>24)&255)/255.f;
+    g_scene[(size_t)(id-1)].color[1] = (float)((c>>16)&255)/255.f;
+    g_scene[(size_t)(id-1)].color[2] = (float)((c>>8)&255)/255.f;
+    g_scene[(size_t)(id-1)].intensity = intensity;
+    return id;
+}
+extern \"C\" void rgfx_scene_set_position(int id, float x, float y, float z) { if (rgfx_scene_valid(id)) { g_scene[(size_t)(id-1)].pos[0]=x; g_scene[(size_t)(id-1)].pos[1]=y; g_scene[(size_t)(id-1)].pos[2]=z; } }
+extern \"C\" void rgfx_scene_set_rotation(int id, float qx, float qy, float qz, float qw) { if (rgfx_scene_valid(id)) { g_scene[(size_t)(id-1)].rot[0]=qx; g_scene[(size_t)(id-1)].rot[1]=qy; g_scene[(size_t)(id-1)].rot[2]=qz; g_scene[(size_t)(id-1)].rot[3]=qw; } }
+extern \"C\" void rgfx_scene_set_scale(int id, float sx, float sy, float sz) { if (rgfx_scene_valid(id)) { g_scene[(size_t)(id-1)].scale[0]=sx; g_scene[(size_t)(id-1)].scale[1]=sy; g_scene[(size_t)(id-1)].scale[2]=sz; } }
+extern \"C\" void rgfx_scene_set_target(int id, float x, float y, float z) { if (rgfx_scene_valid(id)) { g_scene[(size_t)(id-1)].target[0]=x; g_scene[(size_t)(id-1)].target[1]=y; g_scene[(size_t)(id-1)].target[2]=z; g_scene[(size_t)(id-1)].useTarget=1; } }
+extern \"C\" void rgfx_scene_set_range(int id, float r) { if (rgfx_scene_valid(id)) g_scene[(size_t)(id-1)].range = r; }
+extern \"C\" void rgfx_scene_set_enabled(int id, int on) { if (rgfx_scene_valid(id)) g_scene[(size_t)(id-1)].enabled = on; }
+extern \"C\" void rgfx_scene_set_visible(int id, int on) { if (rgfx_scene_valid(id)) g_scene[(size_t)(id-1)].visible = on; }
+extern \"C\" void rgfx_scene_set_active_camera(int id) { if (rgfx_scene_valid(id)) g_scene_active_cam = id; }
+extern \"C\" void rgfx_scene_destroy(int id) { if (rgfx_scene_valid(id)) { g_scene[(size_t)(id-1)].alive = 0; g_scene[(size_t)(id-1)].gen++; } }
+
+static void rgfx_quat_m3(const float* q, float* m3) { // column-major 3x3
+    float x=q[0],y=q[1],z=q[2],w=q[3];
+    float n = sqrtf(x*x+y*y+z*z+w*w); if (n>0.f){x/=n;y/=n;z/=n;w/=n;}
+    RGM3(m3,0,0)=1-2*(y*y+z*z); RGM3(m3,0,1)=2*(x*y-z*w);   RGM3(m3,0,2)=2*(x*z+y*w);
+    RGM3(m3,1,0)=2*(x*y+z*w);   RGM3(m3,1,1)=1-2*(x*x+z*z); RGM3(m3,1,2)=2*(y*z-x*w);
+    RGM3(m3,2,0)=2*(x*z-y*w);   RGM3(m3,2,1)=2*(y*z+x*w);   RGM3(m3,2,2)=1-2*(x*x+y*y);
+}
+static int rgfx_scene_gl_init() {
+    if (g_scene_prog != 0) { return 1; }
+#if (defined(__arm__) || defined(__aarch64__)) && !defined(__APPLE__)
+    const char* vs =
+        \"attribute vec3 aPos; attribute vec3 aNormal; attribute vec2 aUv;\\n\"
+        \"uniform mat4 uMVP; uniform mat4 uModel; uniform mat3 uNormalMat;\\n\"
+        \"varying vec2 vUv; varying vec3 vN; varying vec3 vWorld;\\n\"
+        \"void main(){ gl_Position=uMVP*vec4(aPos,1.0); vUv=aUv; vN=uNormalMat*aNormal; vWorld=(uModel*vec4(aPos,1.0)).xyz; }\\n\";
+    const char* fs =
+        \"precision mediump float;\\n\"
+        \"varying vec2 vUv; varying vec3 vN; varying vec3 vWorld;\\n\"
+        \"uniform sampler2D uTex; uniform vec3 uAmbient;\\n\"
+        \"uniform int uNumDir; uniform vec3 uDirDir[4]; uniform vec3 uDirCol[4];\\n\"
+        \"uniform int uNumPt; uniform vec3 uPtPos[8]; uniform vec3 uPtCol[8]; uniform float uPtRange[8];\\n\"
+        \"void main(){ vec3 N=normalize(vN); vec3 L=uAmbient;\\n\"
+        \"  for(int i=0;i<4;i++){ if(i>=uNumDir) break; L+=uDirCol[i]*max(0.0,dot(N,uDirDir[i])); }\\n\"
+        \"  for(int i=0;i<8;i++){ if(i>=uNumPt) break; vec3 d=uPtPos[i]-vWorld; float dist=length(d); vec3 Ld=d/max(dist,0.001); float a=max(0.0,1.0-dist/uPtRange[i]); L+=uPtCol[i]*max(0.0,dot(N,Ld))*a*a; }\\n\"
+        \"  vec4 t=texture2D(uTex,vUv); gl_FragColor=vec4(t.rgb*L, t.a); }\\n\";
+#else
+    const char* vs =
+        \"#version 120\\n\"
+        \"attribute vec3 aPos; attribute vec3 aNormal; attribute vec2 aUv;\\n\"
+        \"uniform mat4 uMVP; uniform mat4 uModel; uniform mat3 uNormalMat;\\n\"
+        \"varying vec2 vUv; varying vec3 vN; varying vec3 vWorld;\\n\"
+        \"void main(){ gl_Position=uMVP*vec4(aPos,1.0); vUv=aUv; vN=uNormalMat*aNormal; vWorld=(uModel*vec4(aPos,1.0)).xyz; }\\n\";
+    const char* fs =
+        \"#version 120\\n\"
+        \"varying vec2 vUv; varying vec3 vN; varying vec3 vWorld;\\n\"
+        \"uniform sampler2D uTex; uniform vec3 uAmbient;\\n\"
+        \"uniform int uNumDir; uniform vec3 uDirDir[4]; uniform vec3 uDirCol[4];\\n\"
+        \"uniform int uNumPt; uniform vec3 uPtPos[8]; uniform vec3 uPtCol[8]; uniform float uPtRange[8];\\n\"
+        \"void main(){ vec3 N=normalize(vN); vec3 L=uAmbient;\\n\"
+        \"  for(int i=0;i<4;i++){ if(i>=uNumDir) break; L+=uDirCol[i]*max(0.0,dot(N,uDirDir[i])); }\\n\"
+        \"  for(int i=0;i<8;i++){ if(i>=uNumPt) break; vec3 d=uPtPos[i]-vWorld; float dist=length(d); vec3 Ld=d/max(dist,0.001); float a=max(0.0,1.0-dist/uPtRange[i]); L+=uPtCol[i]*max(0.0,dot(N,Ld))*a*a; }\\n\"
+        \"  vec4 t=texture2D(uTex,vUv); gl_FragColor=vec4(t.rgb*L, t.a); }\\n\";
+#endif
+    GLuint vsId = rgfx_gl_compile(GL_VERTEX_SHADER, vs);
+    GLuint fsId = rgfx_gl_compile(GL_FRAGMENT_SHADER, fs);
+    if (vsId == 0 || fsId == 0) { if (vsId) glDeleteShader(vsId); if (fsId) glDeleteShader(fsId); return 0; }
+    g_scene_prog = glCreateProgram();
+    glAttachShader(g_scene_prog, vsId); glAttachShader(g_scene_prog, fsId); glLinkProgram(g_scene_prog);
+    glDeleteShader(vsId); glDeleteShader(fsId);
+    GLint linked = GL_FALSE; glGetProgramiv(g_scene_prog, GL_LINK_STATUS, &linked);
+    if (linked != GL_TRUE) { char log[1024]; GLsizei len=0; glGetProgramInfoLog(g_scene_prog,(GLsizei)sizeof(log),&len,log); SDL_Log(\"[scene] program LINK FAILED: %.*s\", (int)len, log); glDeleteProgram(g_scene_prog); g_scene_prog=0; return 0; }
+    g_scn_aPos=glGetAttribLocation(g_scene_prog,\"aPos\"); g_scn_aNormal=glGetAttribLocation(g_scene_prog,\"aNormal\"); g_scn_aUv=glGetAttribLocation(g_scene_prog,\"aUv\");
+    g_scn_uMVP=glGetUniformLocation(g_scene_prog,\"uMVP\"); g_scn_uModel=glGetUniformLocation(g_scene_prog,\"uModel\"); g_scn_uNormalMat=glGetUniformLocation(g_scene_prog,\"uNormalMat\"); g_scn_uTex=glGetUniformLocation(g_scene_prog,\"uTex\");
+    g_scn_uAmbient=glGetUniformLocation(g_scene_prog,\"uAmbient\");
+    g_scn_uNumDir=glGetUniformLocation(g_scene_prog,\"uNumDir\"); g_scn_uDirDir=glGetUniformLocation(g_scene_prog,\"uDirDir\"); g_scn_uDirCol=glGetUniformLocation(g_scene_prog,\"uDirCol\");
+    g_scn_uNumPt=glGetUniformLocation(g_scene_prog,\"uNumPt\"); g_scn_uPtPos=glGetUniformLocation(g_scene_prog,\"uPtPos\"); g_scn_uPtCol=glGetUniformLocation(g_scene_prog,\"uPtCol\"); g_scn_uPtRange=glGetUniformLocation(g_scene_prog,\"uPtRange\");
+    SDL_Log(\"[scene] program ok prog=%u\", (unsigned) g_scene_prog);
+    return 1;
+}
+extern \"C\" void rgfx_scene_render(int w, int h) {
+    if (!g_rgfx_gpu_mode) { return; }
+    rgfx_gpu_start_frame(w, h);
+    if (!rgfx_scene_gl_init()) { return; }
+    if (!rgfx_scene_valid(g_scene_active_cam)) { return; }
+    RgfxSceneEntity& cam = g_scene[(size_t)(g_scene_active_cam-1)];
+    float view[16], proj[16], vp[16];
+    float tx = cam.useTarget ? cam.target[0] : cam.pos[0];
+    float ty = cam.useTarget ? cam.target[1] : cam.pos[1];
+    float tz = cam.useTarget ? cam.target[2] : (cam.pos[2] + 1.f);
+    rgfx_m4_lookat(cam.pos[0],cam.pos[1],cam.pos[2], tx,ty,tz, cam.up[0],cam.up[1],cam.up[2], view);
+    rgfx_m4_perspective(cam.fovy, (float)w/(float)h, cam.nearp>0.f?cam.nearp:0.1f, cam.farp>0.f?cam.farp:100.f, proj);
+    rgfx_m4_mul(proj, view, vp);
+    // gather lights
+    float ambient[3] = {0,0,0};
+    float dirDir[RGSCENE_MAXDIR*3], dirCol[RGSCENE_MAXDIR*3]; int ndir=0;
+    float ptPos[RGSCENE_MAXPT*3], ptCol[RGSCENE_MAXPT*3], ptRange[RGSCENE_MAXPT]; int npt=0;
+    for (size_t i=0;i<g_scene.size();++i) {
+        RgfxSceneEntity& e = g_scene[i]; if (!e.alive || !e.enabled) continue;
+        if (e.type==RGE_AMBIENT) { ambient[0]+=e.color[0]*e.intensity; ambient[1]+=e.color[1]*e.intensity; ambient[2]+=e.color[2]*e.intensity; }
+        else if (e.type==RGE_DIR && ndir<RGSCENE_MAXDIR) { float dx=e.pos[0],dy=e.pos[1],dz=e.pos[2]; float l=sqrtf(dx*dx+dy*dy+dz*dz); if(l>0.f){dx/=l;dy/=l;dz/=l;} dirDir[ndir*3]=dx;dirDir[ndir*3+1]=dy;dirDir[ndir*3+2]=dz; dirCol[ndir*3]=e.color[0]*e.intensity;dirCol[ndir*3+1]=e.color[1]*e.intensity;dirCol[ndir*3+2]=e.color[2]*e.intensity; ndir++; }
+        else if (e.type==RGE_POINT && npt<RGSCENE_MAXPT) { ptPos[npt*3]=e.pos[0];ptPos[npt*3+1]=e.pos[1];ptPos[npt*3+2]=e.pos[2]; ptCol[npt*3]=e.color[0]*e.intensity;ptCol[npt*3+1]=e.color[1]*e.intensity;ptCol[npt*3+2]=e.color[2]*e.intensity; ptRange[npt]=e.range>0.f?e.range:10.f; npt++; }
+    }
+    glEnable(GL_DEPTH_TEST); glDepthFunc(GL_LESS); glClear(GL_DEPTH_BUFFER_BIT);
+    glUseProgram(g_scene_prog);
+    glUniform3fv(g_scn_uAmbient,1,ambient);
+    glUniform1i(g_scn_uNumDir,ndir); if(ndir>0){ glUniform3fv(g_scn_uDirDir,ndir,dirDir); glUniform3fv(g_scn_uDirCol,ndir,dirCol);}
+    glUniform1i(g_scn_uNumPt,npt); if(npt>0){ glUniform3fv(g_scn_uPtPos,npt,ptPos); glUniform3fv(g_scn_uPtCol,npt,ptCol); glUniform1fv(g_scn_uPtRange,npt,ptRange);}
+    glActiveTexture(GL_TEXTURE0); glUniform1i(g_scn_uTex,0);
+    for (size_t i=0;i<g_scene.size();++i) {
+        RgfxSceneEntity& e = g_scene[i];
+        if (!e.alive || !e.enabled || !e.visible || e.type!=RGE_MESH) continue;
+        if (e.meshId<=0 || e.meshId>(int)g_rgfx_meshes.size()) continue;
+        RgfxMesh3D& m = g_rgfx_meshes[(size_t)(e.meshId-1)];
+        float r3[9]; rgfx_quat_m3(e.rot, r3);
+        float model[16]; for(int k=0;k<16;k++) model[k]=0.f;
+        // model = T * R * S (column-major)
+        RGM4(model,0,0)=r3[0]*e.scale[0]; RGM4(model,1,0)=r3[1]*e.scale[0]; RGM4(model,2,0)=r3[2]*e.scale[0];
+        RGM4(model,0,1)=r3[3]*e.scale[1]; RGM4(model,1,1)=r3[4]*e.scale[1]; RGM4(model,2,1)=r3[5]*e.scale[1];
+        RGM4(model,0,2)=r3[6]*e.scale[2]; RGM4(model,1,2)=r3[7]*e.scale[2]; RGM4(model,2,2)=r3[8]*e.scale[2];
+        RGM4(model,0,3)=e.pos[0]; RGM4(model,1,3)=e.pos[1]; RGM4(model,2,3)=e.pos[2]; RGM4(model,3,3)=1.f;
+        float mvp[16]; rgfx_m4_mul(vp, model, mvp);
+        float nm[9]; nm[0]=r3[0];nm[1]=r3[1];nm[2]=r3[2];nm[3]=r3[3];nm[4]=r3[4];nm[5]=r3[5];nm[6]=r3[6];nm[7]=r3[7];nm[8]=r3[8];
+        glUniformMatrix4fv(g_scn_uMVP,1,GL_FALSE,mvp); glUniformMatrix4fv(g_scn_uModel,1,GL_FALSE,model); glUniformMatrix3fv(g_scn_uNormalMat,1,GL_FALSE,nm);
+        if (e.texId>0 && e.texId<=(int)g_rgfx_gl_textures.size()) glBindTexture(GL_TEXTURE_2D, g_rgfx_gl_textures[(size_t)(e.texId-1)]);
+        glBindBuffer(GL_ARRAY_BUFFER,m.vbo); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,m.ebo);
+        if(g_scn_aPos>=0){glEnableVertexAttribArray(g_scn_aPos); glVertexAttribPointer(g_scn_aPos,3,GL_FLOAT,GL_FALSE,32,(void*)0);}
+        if(g_scn_aNormal>=0){glEnableVertexAttribArray(g_scn_aNormal); glVertexAttribPointer(g_scn_aNormal,3,GL_FLOAT,GL_FALSE,32,(void*)12);}
+        if(g_scn_aUv>=0){glEnableVertexAttribArray(g_scn_aUv); glVertexAttribPointer(g_scn_aUv,2,GL_FLOAT,GL_FALSE,32,(void*)24);}
+        glDrawElements(GL_TRIANGLES,m.icount,GL_UNSIGNED_SHORT,(void*)0);
+    }
+    glDisable(GL_DEPTH_TEST);
+}
 ")
                 )
             es6 ( "0" )
@@ -2548,6 +2782,22 @@ static void rgfx_3d_end() {
     gfx_3d_present _:void () {
         templates {
             cpp ( "rgfx_gpu_finish_frame()" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; ---- host-managed scene (IDEAL_3D Phase H) ---------------------------
+    ; Clear the retained scene (call when a new 3D guest loads).
+    gfx_scene_reset _:void () {
+        templates {
+            cpp ( "rgfx_scene_reset()" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+    ; Render the whole retained scene (camera + lights + mesh entities) and swap.
+    gfx_scene_render _:void (w:int h:int) {
+        templates {
+            cpp ( "rgfx_scene_render(" (e 1) ", " (e 2) "); rgfx_gpu_finish_frame()" (imp "<SDL2/SDL.h>") )
             es6 ( "undefined" )
         }
     }

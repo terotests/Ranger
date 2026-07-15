@@ -527,6 +527,63 @@ this file.
 
 ---
 
+## Phase H — host-managed 3D scene (IDEAL_3D.md)
+
+The GPU PoC (Phase G.3) works but pushes mesh/scene/material/camera/light ownership
+into the WASM guest as raw exported blocks — `IDEAL_3D.md` §1 lists this as the thing
+to fix. Target: **the host owns the scene, entities and resources; the guest sends
+high-level commands via direct host imports and holds only opaque `EntityId` handles**
+(`IDEAL_3D.md` §2, §10). Command model chosen: **direct host imports** (§7 Option A).
+The existing `gfx_3d_*` GLES2 pipeline stays as the Render Bridge (§4.3); only the
+*source* of scene data changes (guest blocks → host registry).
+
+Landed in testable stages on the branch (this is the whole §4 transition, delivered so
+each stage runs before the next):
+
+- [x] **H.1 Host scene core + multi-light renderer.** In `gfx_sdl.rgr` C++: a retained
+  **entity registry** (`EntityId` = index+generation), transforms (pos/rot/scale),
+  a **resource-backed** mesh/texture/material model reusing `rgfx_mesh_upload` /
+  `rgfx_3d_upload_texture`, light entities (ambient / directional / point), a camera
+  entity, and a **forward multi-light** shader (ambient + N directional + N point →
+  static lights + a player lamp). `rgfx_scene_reset()` / `rgfx_scene_render(w,h)` walk
+  the registry and drive the GL pipeline. Exposed as `extern "C"` for the bridge.
+- [x] **H.2 Host imports (C bridge).** In `runtime/rg_wasm_bridge.c`, add + link the
+  guest-facing imports (`IDEAL_3D.md` §4.4): `rg_load_texture`, `rg_create_material`,
+  `rg_create_mesh` / `rg_create_box`, `rg_create_mesh_entity`,
+  `rg_create_perspective_camera`, `rg_create_ambient_light` /
+  `rg_create_directional_light` / `rg_create_point_light`, `rg_set_position` /
+  `rg_set_rotation` / `rg_set_scale` / `rg_set_enabled` / `rg_set_visible` /
+  `rg_set_parent` / `rg_destroy_entity`, `rg_set_camera_target` /
+  `rg_set_active_camera` — thin `m3ApiRawFunction` wrappers over the `extern "C"`
+  scene API. Positions `FP_SCALE`, quaternions/units Q16.16 (§4.4).
+- [x] **H.3 `Wasm3dRunner` dual-mode.** Guests exporting `rg_mesh_ptr` keep the legacy
+  block model; guests without it are host-managed — the runner `scene_reset()`s on
+  load, runs guest `init` once (the guest issues the commands), and per frame runs
+  `update` then `scene_render(pw,ph)`. No `rg_*_ptr` exports consumed in scene mode.
+- [x] **H.4 Convert `cube3d_wasm`.** Guest `init()`: `rg_load_texture` +
+  `rg_create_box` + `rg_create_camera` (+ `set_position`/`set_target`/
+  `set_active_camera`) + `rg_create_light` (ambient + directional). `update()`:
+  `rg_set_rotation(cube, quat)`. Removed MESH/CAM/LIGHT/MATERIAL/RESOURCE blocks +
+  `rg_*_ptr` exports. _(Deferred: thin `Object3D`/`Light`/`Camera` Rust wrapper for
+  `obj.set_position()` sugar — imports called directly for now, §2.2.)_
+- [x] **H.5 Convert `fps_wasm`.** Level built with `rg_create_box` per wall/obstacle +
+  a thin floor slab; player camera an entity driven by the still-guest-side character
+  controller via `rg_set_position`/`rg_set_target`; static point lights (one per room)
+  + a player lamp (`rg_create_light` POINT + `rg_set_range`, lamp `rg_set_position`d to
+  the eye each frame). Character controller, AABB collision + input interpretation stay
+  guest-side (§8). Removed all MESH/MAT/CAM/LIGHT/RES/COLLIDER blocks + `rg_*_ptr` /
+  `player_*` exports.
+- [ ] **H.6 Headless parity + lifecycle.** Reimplement the host imports in the Node
+  tools as a JS scene + the existing software rasteriser (so headless still renders
+  the same guests); per-guest lifecycle cleanup on unload (§6): destroy entities,
+  refcount/free resources, bump generations. _(Blocking now: `cube3d_wasm/tools/
+  render.cjs` and `fps_wasm/tools/render.cjs` still expect the removed block exports
+  — after H.4/H.5 those guests import `env.rg_create_box` etc. that the Node host does
+  not yet provide, so headless render fails until this lands. The in-engine SDL host is
+  unaffected.)_
+
+---
+
 *Progress is tracked here and mirrored in the session task list. Phase 1 and the
 additive Phase 2 headers land first because they are safe (no code references the
 removed constants) and unblock the enforcement + seam work that follows.*
