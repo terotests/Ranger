@@ -2302,18 +2302,23 @@ class LowIRBuilderPass {
   }
 
   fn emitReleaseFieldValue:void (className:string fieldName:string rawVal:string lctx:LowIRLowerContext) {
-    if (this.memEnabled(lctx) == false) {
-      return
-    }
     def builder (lctx.builder)
     def voidType:string "void"
     def args:[string]
     def argTypes:[string]
+    ; string fields carry a dup'd private copy on both the libc (memEnabled) and
+    ; freestanding-WASM (wasmStrEnabled) paths, so both release it on overwrite.
     if (this.fieldIsStringSlot(className fieldName)) {
-      def i8p (builder.emitIntToI8Ptr(rawVal lctx.ptrType))
-      push args i8p
-      push argTypes "i8*"
-      builder.emitCall("ranger_str_release" voidType args argTypes)
+      if ((this.memEnabled(lctx)) || (this.wasmStrEnabled(lctx))) {
+        def i8p (builder.emitIntToI8Ptr(rawVal lctx.ptrType))
+        push args i8p
+        push argTypes "i8*"
+        builder.emitCall("ranger_str_release" voidType args argTypes)
+      }
+      return
+    }
+    ; remaining field kinds (buffer) are libc-only
+    if (this.memEnabled(lctx) == false) {
       return
     }
     if (this.fieldIsBufferSlot(className fieldName)) {
@@ -2336,6 +2341,17 @@ class LowIRBuilderPass {
     if (this.memEnabled(lctx)) {
       def oldRaw (builder.emitLoad(ftype fieldPtr))
       this.emitReleaseFieldValue(className fieldName oldRaw lctx)
+    } {
+      ; freestanding WASM string RC: free the old string this field held before
+      ; overwriting it (the field owns a dup'd copy). Object/buffer fields stay
+      ; libc-only. Field is zero-initialised by obj_new, so the first store sees
+      ; 0 and str_release is a no-op.
+      if (this.wasmStrEnabled(lctx)) {
+        if (this.fieldIsStringSlot(className fieldName)) {
+          def oldRawW (builder.emitLoad(ftype fieldPtr))
+          this.emitReleaseFieldValue(className fieldName oldRawW lctx)
+        }
+      }
     }
     def storeVal:string value
     if (this.fieldIsStringSlot(className fieldName)) {
@@ -2647,6 +2663,22 @@ class LowIRBuilderPass {
     return 0
   }
 
+  ; True when the class has at least one owned field (a string field today;
+  ; object/ptr-array fields are borrow until borrow analysis promotes them), so
+  ; its objects need a type descriptor for recursive destruction on WASM.
+  fn classHasOwnedFields:boolean (className:string) {
+    for this.irModule.typeDescs td:LowIRTypeDesc i {
+      if (td.className == className) {
+        for td.fields fd:LowIRTypeFieldDesc j {
+          if (fd.owned == 1) {
+            return true
+          }
+        }
+      }
+    }
+    return false
+  }
+
   fn lowerNewObject:string (className:string argsNode:CodeNode lctx:LowIRLowerContext) {
     def builder (lctx.builder)
     def byteCnt (this.structByteSize(className this.irModule))
@@ -2675,15 +2707,22 @@ class LowIRBuilderPass {
       heapAddr = (builder.emitCallWithSig("ranger_obj_new" lctx.ptrType newSig newArgs newArgTypes))
     } {
       if (this.objRcEnabled(lctx)) {
-        ; WASM free-list RC: ranger_obj_new(size, typeDesc). typeDesc = 0 in v1
-        ; (no owned-field recursion yet); the runtime prepends the rc/size/type
+        ; WASM free-list RC: ranger_obj_new(size, typeDesc). typeDesc points at
+        ; the class descriptor in the static data segment when the class has
+        ; owned (string) fields, so obj_release -> destroyFields frees them; 0
+        ; otherwise (nothing to recurse). The runtime prepends the rc/size/type
         ; header and returns the body pointer.
-        def zeroTd (builder.emitConst("i32" "0"))
+        def tdArg:string ""
+        if (this.classHasOwnedFields(className)) {
+          tdArg = (builder.emitTypeDescPtr(className))
+        } {
+          tdArg = (builder.emitConst("i32" "0"))
+        }
         def wArgs:[string]
         def wArgTypes:[string]
         push wArgs bytes
         push wArgTypes "i32"
-        push wArgs zeroTd
+        push wArgs tdArg
         push wArgTypes "i32"
         heapAddr = (builder.emitCall("ranger_obj_new" lctx.ptrType wArgs wArgTypes))
       } {
@@ -3511,16 +3550,10 @@ class LowIRBuilderPass {
               }
             }
           }
-          ; Storing an owned string local into a string field: the field now
-          ; references its buffer, so it must not be freed at scope end. Mark it
-          ; escaped (conservatively leaks; field-owned string RC is future work).
-          if (this.fieldIsStringSlot(cls fld)) {
-            if (rhs.value_type == RangerNodeType.VRef) {
-              if (this.isOwnedStringLocal(rhs.vref lctx)) {
-                set lctx.escapedLocals rhs.vref "1"
-              }
-            }
-          }
+          ; A string field takes a dup'd private copy (emitFieldStoreOn), so an
+          ; owned string local stored into it is NOT consumed — it keeps its own
+          ; buffer and is still released normally at scope end. The field's copy
+          ; is freed on overwrite and by the object destructor (typedesc kind 0).
           this.emitFieldStoreOn(cls sptr fld tmp lctx)
           return
         }

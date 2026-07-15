@@ -84,6 +84,9 @@ class ranger {
                     if (== kind 1) {
                         ranger.obj_release(val)
                     }
+                    if (== kind 0) {
+                        ranger.str_release(val)
+                    }
                 }
             }
             i = (+ i 1)

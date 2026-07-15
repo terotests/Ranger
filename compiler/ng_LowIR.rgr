@@ -615,6 +615,20 @@ class LowIRBuilder {
     return dest
   }
 
+  ; Address of a class type descriptor in the static data segment (WASM). The
+  ; writer resolves the class name to the descriptor's data-segment address.
+  fn emitTypeDescPtr:string (className:string) {
+    def tag:string "td"
+    def dest (this.freshTemp(tag))
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "typedesc_ptr"
+    ins.dest = dest
+    ins.irType = "i32"
+    ins.arg1 = className
+    this.emit(ins)
+    return dest
+  }
+
   fn terminateRet:void (retType:string value:string) {
     def cur (unwrap this.currentBlock)
     cur.termKind = "ret"

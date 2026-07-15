@@ -61,12 +61,26 @@ object-based game/logic code does not.
     (added to the `ranger` runtime class; substring/fromcode results join the
     arena). `str_rc_test` 25/25. libc path verified byte-unchanged (a `==`
     snippet still emits `strcmp`, not `ranger_str_cmp`).
-  - owned **string-field** release still needs Phase 4 typedesc emission; a
-    string-returning *call* result is dup'd (own a private copy) rather than
+  - a string-returning *call* result is dup'd (own a private copy) rather than
     move-owned, since the callee's return is a borrow by convention (getters).
-- **Phase 4 — typedesc emission + array runtime + RC** ⬜ serialize typedescs to
-  a data segment so owned object/string fields free recursively; port the
-  ptr-array/map runtime to the free-list heap with element ownership. Large.
+- **Phase 4 — typedesc emission + array runtime + RC** 🟩 *4a done*
+  - 4a ✅ **typedesc emission + owned string-field release.** The type
+    descriptors already built for all targets are now serialised into the WASM
+    static data segment (`ng_WATWriter.emitStaticData`: field arrays + 12-byte
+    headers `[size|fieldCount|fieldsPtr]`, after the string literals, below the
+    heap base). `lowerNewObject` passes the descriptor address to
+    `ranger_obj_new` for classes with owned (string) fields, so
+    `obj_release → obj_destroyFields` frees each string field (runtime now
+    handles kind 0 → `str_release`). String fields carry a dup'd private copy;
+    reassignment frees the old buffer first (release-before-overwrite now active
+    on the WASM path, not just libc). Fixed a latent `ptr_to_int` gap in the WAT
+    writer (identity on wasm) surfaced by the first string-field store. A
+    create/destroy loop of an Entity with a `name` field stays heap-flat to
+    50 000 iterations, zero live blocks (`field_rc_test` 9/9). Object/ptr-array
+    fields stay borrow (owned=0) — no descriptor recursion — to avoid double-free
+    of shared/cyclic graphs until borrow analysis promotes true owners.
+  - 4b ⬜ **array/collection runtime + RC** — port the ptr-array/map runtime to
+    the free-list heap with element ownership. Large; next.
 - **Phase 5 — per-frame arena** ⬜ *optional optimisation, not required for
   correctness* — checkpoint/reset the frontier for frame-scoped temporaries.
 
