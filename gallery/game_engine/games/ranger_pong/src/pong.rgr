@@ -1,0 +1,207 @@
+; ============================================================================
+; ranger_pong — a Pong game written in the RANGER language, compiled to WASM
+; and run inside the game engine exactly like games/rust_pong (which is Rust).
+;
+; This is the proof that a Ranger-authored game can target the engine's WASM
+; guest ABI. Because the Ranger compiler itself runs in the browser, a module
+; like this could be authored, compiled AND run entirely in the browser.
+;
+; Export ABI (called by WasmGameRunner via wasm3 — see wasm_game_runner.rgr):
+;   init()
+;   update(dt_ms, up, down, left, right)
+;   ball_x() ball_y() paddle1_y() paddle2_y() score1() score2()  -> i32
+;
+; The Ranger WAT backend emits exports as `Pong_init`, `Pong_update`, ... ;
+; the build step (build.sh) renames them to the bare names the host expects.
+;
+; Backend constraints honoured here (see PLAN_WASM_BACKEND.md):
+;   * i32 only          -> all math is 8.8 fixed point (FP = 256)
+;   * no if/else        -> guard-style early returns only
+;   * no instance fields -> ALL state lives in fixed linear-memory slots,
+;                           reached through the Mem intrinsics. Static methods
+;                           only; nothing is `new`-ed.
+;
+; Fixed-point world (matches the engine's FP_SCALE = 256, IDEAL_API §0.2).
+; Field is 480 x 270 px. A pixel P becomes P*256 in fixed point.
+;   W  = 480 -> 122880      H  = 270 -> 69120
+;   ball radius 6 -> 1536   paddle half-height 28 -> 7168
+;   H - ballRad   = 264 -> 67584
+;   paddle clamp hi = H - paddleHalf = 242 -> 61952
+;   left  hit plane x=28  -> 7168        right hit plane x=452 -> 115712
+;   spawn ball (240,135) -> (61440, 34560)
+;   |dy| accept for a paddle hit = (28+6)px = 34 -> 8704
+; ============================================================================
+
+; Mem intrinsics — the compiler special-cases this class:
+;   Mem.loadI32(addr) -> i32.load     Mem.storeI32(addr,v) -> i32.store
+; The bodies below are ignored by codegen; they exist so the parser is happy.
+class Mem {
+    sfn alloc:int (nBytes:int) {
+        return 0
+    }
+
+    sfn loadI32:int (ptr:int) {
+        return 0
+    }
+
+    sfn storeI32:void (ptr:int val:int) {
+    }
+}
+
+; A struct must exist for the compiler to emit the linear-memory section that
+; our fixed slots live in. It is never instantiated — declaring it is enough.
+class Cell {
+    def v:int 0
+}
+
+class Pong {
+    ; --- helpers (guard style — no if/else in the WAT backend) --------------
+
+    sfn absv:int (v:int) {
+        if (< v 0) {
+            return (- 0 v)
+        }
+        return v
+    }
+
+    ; clamp a paddle centre to [paddleHalf, H - paddleHalf] in fixed point
+    sfn clampPaddle:int (v:int) {
+        if (< v 7168) {
+            return 7168
+        }
+        if (> v 61952) {
+            return 61952
+        }
+        return v
+    }
+
+    ; --- ABI: lifecycle -----------------------------------------------------
+
+    sfn init:void () {
+        Mem.storeI32(0 61440)     ; ball x   = 240px
+        Mem.storeI32(4 34560)     ; ball y   = 135px
+        Mem.storeI32(8 41)        ; vx  (0.16 px/ms * 256)
+        Mem.storeI32(12 26)       ; vy  (0.10 px/ms * 256)
+        Mem.storeI32(16 34560)    ; paddle1 y = 135px
+        Mem.storeI32(20 34560)    ; paddle2 y = 135px
+        Mem.storeI32(24 0)        ; score1
+        Mem.storeI32(28 0)        ; score2
+    }
+
+    sfn update:void (dt:int up:int down:int left:int right:int) {
+        def p1 (Mem.loadI32(16))
+        def p2 (Mem.loadI32(20))
+        def bx (Mem.loadI32(0))
+        def by (Mem.loadI32(4))
+        def vx (Mem.loadI32(8))
+        def vy (Mem.loadI32(12))
+        def s1 (Mem.loadI32(24))
+        def s2 (Mem.loadI32(28))
+        def dy 0
+
+        ; player paddle (up/down), speed 0.18 px/ms -> 46 fp/ms
+        if (!= up 0) {
+            p1 = (- p1 (* 46 dt))
+        }
+        if (!= down 0) {
+            p1 = (+ p1 (* 46 dt))
+        }
+        p1 = (Pong.clampPaddle(p1))
+
+        ; AI paddle tracks the ball a little slower (39 fp/ms), 4px dead zone
+        if (< by (- p2 1024)) {
+            p2 = (- p2 (* 39 dt))
+        }
+        if (> by (+ p2 1024)) {
+            p2 = (+ p2 (* 39 dt))
+        }
+        p2 = (Pong.clampPaddle(p2))
+
+        ; integrate the ball
+        bx = (+ bx (* vx dt))
+        by = (+ by (* vy dt))
+
+        ; top / bottom walls
+        if (<= by 1536) {
+            by = 1536
+            vy = (Pong.absv(vy))
+        }
+        if (>= by 67584) {
+            by = 67584
+            vy = (- 0 (Pong.absv(vy)))
+        }
+
+        ; left paddle: ball travelling left crosses plane x=28px
+        if (< vx 0) {
+            if (<= bx 7168) {
+                dy = (Pong.absv((- by p1)))
+                if (<= dy 8704) {
+                    bx = 7168
+                    vx = (Pong.absv(vx))
+                }
+            }
+        }
+
+        ; right paddle: ball travelling right crosses plane x=452px
+        if (> vx 0) {
+            if (>= bx 115712) {
+                dy = (Pong.absv((- by p2)))
+                if (<= dy 8704) {
+                    bx = 115712
+                    vx = (- 0 (Pong.absv(vx)))
+                }
+            }
+        }
+
+        ; scoring + serve reset
+        if (< bx 0) {
+            s2 = (+ s2 1)
+            bx = 61440
+            by = 34560
+            vx = 41
+            vy = 26
+        }
+        if (> bx 122880) {
+            s1 = (+ s1 1)
+            bx = 61440
+            by = 34560
+            vx = (- 0 41)
+            vy = 26
+        }
+
+        Mem.storeI32(0 bx)
+        Mem.storeI32(4 by)
+        Mem.storeI32(8 vx)
+        Mem.storeI32(12 vy)
+        Mem.storeI32(16 p1)
+        Mem.storeI32(20 p2)
+        Mem.storeI32(24 s1)
+        Mem.storeI32(28 s2)
+    }
+
+    ; --- ABI: getters (pixels; host reads these every frame) ---------------
+
+    sfn ball_x:int () {
+        return (idiv (Mem.loadI32(0)) 256)
+    }
+
+    sfn ball_y:int () {
+        return (idiv (Mem.loadI32(4)) 256)
+    }
+
+    sfn paddle1_y:int () {
+        return (idiv (Mem.loadI32(16)) 256)
+    }
+
+    sfn paddle2_y:int () {
+        return (idiv (Mem.loadI32(20)) 256)
+    }
+
+    sfn score1:int () {
+        return (Mem.loadI32(24))
+    }
+
+    sfn score2:int () {
+        return (Mem.loadI32(28))
+    }
+}

@@ -1,0 +1,5 @@
+name=Ranger Pong (WASM)
+engine=wasm
+module=logic.wasm
+
+category=Tests
