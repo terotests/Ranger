@@ -643,6 +643,13 @@ class GameRunner {
                 if (r.kind == "voice") {
                     host.loadVoiceAsset(r.id)
                 }
+                ; A game can ship its own HUD font: { kind: "font", id: family,
+                ; path: "assets/fonts/X.ttf" }. Loaded into the HUD blitter so the
+                ; game's Label text renders as crisp TrueType instead of the 3x5
+                ; bitmap. Scoped to this game — no shared-font setup required.
+                if (r.kind == "font") {
+                    hudBlitter.loadFont(options.scriptDir r.path r.id)
+                }
                 i = (i + 1)
             }
         }
