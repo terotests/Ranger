@@ -130,11 +130,10 @@ fn build_level(w: &mut World, s: &mut Scene) {
     let floor_tex = s.resource(FLOOR_TEXTURE).unwrap();
     let brick_tex = s.resource(BRICK_TEXTURE).unwrap();
     let crate_tex = s.resource(CRATE_TEXTURE).unwrap();
-    let (floor_mesh, wall_mesh, crate_mesh, floor_mat, wall_mat, crate_mat) = {
+    let (floor_mesh, unit_mesh, floor_mat, wall_mat, crate_mat) = {
         let mut assets = s.assets();
         (
             assets.box_mesh(Vec3::new(1.0, 0.05, 1.0)).unwrap(),
-            assets.box_mesh(Vec3::new(1.0, 1.0, 1.0)).unwrap(),
             assets.box_mesh(Vec3::new(1.0, 1.0, 1.0)).unwrap(),
             assets.material(floor_tex, Color::WHITE, 0),
             assets.material(brick_tex, Color::WHITE, 0),
@@ -146,16 +145,16 @@ fn build_level(w: &mut World, s: &mut Scene) {
     spawn_box(s, floor_mesh, floor_mat, [-10.5, -0.025, -7.5], [10.5, 0.025, 7.5]);
     let h = 3.0;
     let t = 0.5;
-    level_box(w, s, wall_mesh, wall_mat, [-10.0, 0.0, -7.0 - t], [10.0, h, -7.0], K_WALL);
-    level_box(w, s, wall_mesh, wall_mat, [-10.0, 0.0, 7.0], [10.0, h, 7.0 + t], K_WALL);
-    level_box(w, s, wall_mesh, wall_mat, [-10.0 - t, 0.0, -7.0], [-10.0, h, 7.0], K_WALL);
-    level_box(w, s, wall_mesh, wall_mat, [10.0, 0.0, -7.0], [10.0 + t, h, 7.0], K_WALL);
-    level_box(w, s, wall_mesh, wall_mat, [-t / 2.0, 0.0, -7.0], [t / 2.0, h, -1.5], K_WALL);
-    level_box(w, s, wall_mesh, wall_mat, [-t / 2.0, 0.0, 1.5], [t / 2.0, h, 7.0], K_WALL);
-    level_box(w, s, crate_mesh, crate_mat, [-6.5, 0.0, -3.5], [-5.5, 2.0, -2.5], K_OBST);
-    level_box(w, s, crate_mesh, crate_mat, [-4.5, 0.0, 2.5], [-3.5, 2.0, 3.5], K_OBST);
-    level_box(w, s, crate_mesh, crate_mat, [3.0, 0.0, -2.0], [7.0, 1.0, 2.0], K_PLAT);
-    level_box(w, s, crate_mesh, crate_mat, [7.5, 0.0, -5.0], [8.5, 2.0, -4.0], K_OBST);
+    level_box(w, s, unit_mesh, wall_mat, [-10.0, 0.0, -7.0 - t], [10.0, h, -7.0], K_WALL);
+    level_box(w, s, unit_mesh, wall_mat, [-10.0, 0.0, 7.0], [10.0, h, 7.0 + t], K_WALL);
+    level_box(w, s, unit_mesh, wall_mat, [-10.0 - t, 0.0, -7.0], [-10.0, h, 7.0], K_WALL);
+    level_box(w, s, unit_mesh, wall_mat, [10.0, 0.0, -7.0], [10.0 + t, h, 7.0], K_WALL);
+    level_box(w, s, unit_mesh, wall_mat, [-t / 2.0, 0.0, -7.0], [t / 2.0, h, -1.5], K_WALL);
+    level_box(w, s, unit_mesh, wall_mat, [-t / 2.0, 0.0, 1.5], [t / 2.0, h, 7.0], K_WALL);
+    level_box(w, s, unit_mesh, crate_mat, [-6.5, 0.0, -3.5], [-5.5, 2.0, -2.5], K_OBST);
+    level_box(w, s, unit_mesh, crate_mat, [-4.5, 0.0, 2.5], [-3.5, 2.0, 3.5], K_OBST);
+    level_box(w, s, unit_mesh, crate_mat, [3.0, 0.0, -2.0], [7.0, 1.0, 2.0], K_PLAT);
+    level_box(w, s, unit_mesh, crate_mat, [7.5, 0.0, -5.0], [8.5, 2.0, -4.0], K_OBST);
 
     CO.wu(0, CO_MAGIC);
     CO.wi(4, 1);

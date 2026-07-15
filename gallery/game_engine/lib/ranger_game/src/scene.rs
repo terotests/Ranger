@@ -13,6 +13,7 @@ pub const UV: f32 = 4096.0;
 pub const MAX_NODES: usize = 128;
 pub const MAX_MESHES: usize = 64;
 pub const MAX_MATERIALS: usize = 64;
+pub const MAX_RESOURCES: usize = 64;
 pub const MAX_VERTICES: usize = 4096;
 pub const MAX_INDICES: usize = 8192;
 pub const MAX_SUBMESHES: usize = 256;
@@ -28,7 +29,7 @@ const MAT_SIZE: usize = 20 + MAX_MATERIALS * 16;
 const CAM_SIZE: usize = 276;
 const LIT_SIZE: usize = 48 + MAX_POINT_LIGHTS * 24;
 const RES_NAME: usize = 16;
-const RES_SIZE: usize = 20 + MAX_MATERIALS * RES_NAME;
+const RES_SIZE: usize = 20 + MAX_RESOURCES * RES_NAME;
 
 static MESH: Block<MESH_SIZE> = Block::new();
 static MATERIALS: Block<MAT_SIZE> = Block::new();
@@ -190,7 +191,7 @@ pub struct Scene {
     ambient: (Color, f32),
     sun: (Vec3, Color, f32),
     camera: Camera,
-    resources: [[u8; RES_NAME]; MAX_MATERIALS],
+    resources: [[u8; RES_NAME]; MAX_RESOURCES],
     resource_count: usize,
 }
 
@@ -315,7 +316,7 @@ impl Scene {
                 near: 0.1,
                 far: 1000.0,
             },
-            resources: [[0; RES_NAME]; MAX_MATERIALS],
+            resources: [[0; RES_NAME]; MAX_RESOURCES],
             resource_count: 0,
         }
     }
@@ -327,7 +328,7 @@ impl Scene {
     /// Declare a texture name and return the material texture handle for it.
     /// The host resolves handles as resource-table index + 1.
     pub fn resource(&mut self, name: &str) -> Option<u32> {
-        if self.resource_count == MAX_MATERIALS {
+        if self.resource_count == MAX_RESOURCES {
             return None;
         }
         let i = self.resource_count;
