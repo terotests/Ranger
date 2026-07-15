@@ -38,13 +38,21 @@ ex.sprite_init();
 ok("abi version 1", ex.rg_abi_version() === 1);
 ok("magic RGSP", (rd(0) >>> 0) === 0x50534752);
 
-// launch button still held: ACTION on the very first frames must NOT skip the
-// menu (arming requires a release first)
+// real launch sequence: the host's setupScene ticks once with input=0 BEFORE
+// the first real frame; the launch button is physically still held on those
+// first frames. Neither the synthetic zero tick nor the held button may arm +
+// fire the confirm (regression: the zero tick used to arm instantly).
+tick(0); // setupScene
 tick(IN.ACTION);
 tick(IN.ACTION);
 ok("held launch ACTION does not skip menu", rd(44) === 0 && rd(24) === 4);
-
+// release + immediate re-press inside the arming grace still must not confirm
 tick(0);
+tick(IN.ACTION);
+ok("re-press inside arming grace does not confirm", rd(44) === 0);
+
+// pass the arming grace (>250ms of menu time), button up
+for (let i = 0; i < 20; i++) tick(0);
 ok("menu shows 4 slots", rd(24) === 4);
 ok("mode = menu (0)", rd(44) === 0);
 ok("menu slot0 is hero (id1)", slot(0, 0) === 1);

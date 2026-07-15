@@ -53,6 +53,11 @@ const IN_BACK: i32 = 32;
 
 const JUMP_MS: i32 = 500;
 const CELL: i32 = 64;
+// The menu confirm arms only after this much menu time AND an ACTION-up tick.
+// The host's setupScene ticks once with input=0 before the first real frame, so
+// a release-only check would arm on that synthetic tick while the launch button
+// is physically still held — the time floor absorbs it.
+const MENU_ARM_MS: i32 = 250;
 
 // ---- guest state -----------------------------------------------------------
 const MODE_MENU: i32 = 0;
@@ -163,9 +168,11 @@ pub extern "C" fn sprite_tick() {
 }
 
 unsafe fn tick_menu(dt: i32, input: i32, vw: i32, vh: i32) {
-    // arm the confirm only once ACTION has been released (ignores the button
-    // still held from launching the game)
-    if input & IN_ACTION == 0 {
+    MENU_CLOCK += dt;
+    // arm the confirm only once ACTION has been seen released after the arming
+    // grace (ignores the button still held from launching the game and the
+    // host's synthetic input=0 setup tick)
+    if MENU_CLOCK >= MENU_ARM_MS && input & IN_ACTION == 0 {
         MENU_ARMED = true;
     }
     if edge(input, IN_LEFT) {
@@ -182,8 +189,6 @@ unsafe fn tick_menu(dt: i32, input: i32, vw: i32, vh: i32) {
         PLAY_CLOCK = 0;
         return;
     }
-
-    MENU_CLOCK += dt;
 
     // four characters in a row; the highlighted one walks in place + sits higher
     let base_y = vh / 2 - CELL / 2;
