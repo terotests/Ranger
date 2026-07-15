@@ -9,7 +9,7 @@
 ; tukitaso".
 ; ==============================================================================
 
-Import "Json.rgr"
+Import "GltfJson.rgr"
 Import "GltfMath.rgr"
 
 class GltfBufferView {
