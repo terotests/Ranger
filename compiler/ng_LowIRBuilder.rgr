@@ -396,6 +396,19 @@ class LowIRBuilderPass {
     return this.usedMemRuntime
   }
 
+  ; Object reference-counting enabled: the libc path (full RC), OR the WASM
+  ; free-list path under -wasmrc. This gates ONLY the object new/release path;
+  ; string/array RC stays behind memEnabled/usesLibc because their WASM runtime
+  ; (ranger_ptrarray_*, ranger_str_*) is not emitted yet (PLAN_WASM_MEMORY v2).
+  fn objRcEnabled:boolean (lctx:LowIRLowerContext) {
+    def memTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
+    if (memTarget.usesLibc) {
+      return true
+    }
+    def ctx (unwrap lctx.ctx)
+    return (ctx.hasCompilerFlag("wasmrc"))
+  }
+
   fn isLowerableParamType:boolean (typeName:string) {
     if (LowIRUtil.isSupportedParam(typeName)) {
       return true
@@ -2579,7 +2592,21 @@ class LowIRBuilderPass {
       def newSig:string ("i32, ptr")
       heapAddr = (builder.emitCallWithSig("ranger_obj_new" lctx.ptrType newSig newArgs newArgTypes))
     } {
-      heapAddr = (builder.emitHeapAlloc(bytes))
+      if (this.objRcEnabled(lctx)) {
+        ; WASM free-list RC: ranger_obj_new(size, typeDesc). typeDesc = 0 in v1
+        ; (no owned-field recursion yet); the runtime prepends the rc/size/type
+        ; header and returns the body pointer.
+        def zeroTd (builder.emitConst("i32" "0"))
+        def wArgs:[string]
+        def wArgTypes:[string]
+        push wArgs bytes
+        push wArgTypes "i32"
+        push wArgs zeroTd
+        push wArgTypes "i32"
+        heapAddr = (builder.emitCall("ranger_obj_new" lctx.ptrType wArgs wArgTypes))
+      } {
+        heapAddr = (builder.emitHeapAlloc(bytes))
+      }
     }
     def objSlot (builder.emitIntToStructPtr(className heapAddr))
     this.initFieldDefaultsInObject(className objSlot lctx)
@@ -2810,8 +2837,7 @@ class LowIRBuilderPass {
   }
 
   fn releaseOwnedLocal:void (varName:string lctx:LowIRLowerContext) {
-    def memTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
-    if (memTarget.usesLibc == false) {
+    if (this.objRcEnabled(lctx) == false) {
       return
     }
     if (has lctx.escapedLocals varName) {
@@ -2864,7 +2890,7 @@ class LowIRBuilderPass {
 
   fn emitReleaseOwnedLocals:void (lctx:LowIRLowerContext) {
     def memTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
-    if (memTarget.isManualMemory() == false) {
+    if (this.objRcEnabled(lctx) == false) {
       return
     }
     if (this.strictOwnershipEnabled(lctx)) {
@@ -2872,6 +2898,11 @@ class LowIRBuilderPass {
     }
     for lctx.ownedObjectLocals name:string i {
       this.releaseOwnedLocal(name lctx)
+    }
+    ; owned collections need the ptr-array runtime, which is libc-only for now
+    ; (WASM string/array RC is PLAN_WASM_MEMORY v2).
+    if (memTarget.usesLibc == false) {
+      return
     }
     def builder (lctx.builder)
     def voidType:string "void"
@@ -3501,14 +3532,46 @@ class LowIRBuilderPass {
     def cond (this.lowerCond(condNode lctx))
     builder.terminateBrIf(cond bodyLabel exitLabel)
 
+    ; snapshot owned-object locals so any declared INSIDE the loop body can be
+    ; released once per iteration (block scope), not leaked until function end.
+    def ownedBefore (array_length lctx.ownedObjectLocals)
+
     builder.startBlock(bodyLabel)
     this.lowerBlock(bodyNode lctx)
     def bodyBlock (unwrap builder.currentBlock)
     if (bodyBlock.termKind == "") {
+      this.releaseLoopBodyOwned(ownedBefore lctx)
       builder.terminateBr(condLabel)
     }
 
     builder.startBlock(exitLabel)
+  }
+
+  ; Release owned-object locals that were introduced within a loop body (indices
+  ; >= ownedBefore), then drop them from the function-level list so the scope-end
+  ; cleanup does not double-release. Escaped locals are skipped by releaseOwned
+  ; Local. Gated on -wasmrc so the native path's existing behaviour is unchanged.
+  fn releaseLoopBodyOwned:void (ownedBefore:int lctx:LowIRLowerContext) {
+    def ctx (unwrap lctx.ctx)
+    if ((ctx.hasCompilerFlag("wasmrc")) == false) {
+      return
+    }
+    def n (array_length lctx.ownedObjectLocals)
+    if (n <= ownedBefore) {
+      return
+    }
+    def k ownedBefore
+    while (< k n) {
+      this.releaseOwnedLocal((itemAt lctx.ownedObjectLocals k) lctx)
+      k = (+ k 1)
+    }
+    def kept:[string]
+    def j 0
+    while (< j ownedBefore) {
+      push kept (itemAt lctx.ownedObjectLocals j)
+      j = (+ j 1)
+    }
+    lctx.ownedObjectLocals = kept
   }
 
   fn lowerExpr:string (node:CodeNode lctx:LowIRLowerContext) {

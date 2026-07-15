@@ -83,6 +83,9 @@ class Heap {
 
     ; --- allocation ---------------------------------------------------------
     sfn alloc:int (n:int) {
+        if (== (Heap.top()) 0) {
+            Heap.init()
+        }
         def need (Heap.roundUp(n))
 
         ; first-fit over existing blocks
