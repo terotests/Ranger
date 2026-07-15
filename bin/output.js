@@ -35624,6 +35624,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }
       return "$" + llvmName;
     };
+    isGepTemp (name) {
+      if ( (name.length) < 3 ) {
+        return false;
+      }
+      if ( (name.charCodeAt(1 )) != 46 ) {
+        return false;
+      }
+      if ( (name.charCodeAt(2 )) != 102 ) {
+        return false;
+      }
+      return true;
+    };
     moduleUsesHeap (module) {
       return LowIRUtil.moduleUsesHeap(module);
     };
@@ -35957,15 +35969,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           break;
         case "load" : 
           this.writeGet(ins.arg1, wr);
-          const srcCh = ins.arg1.charCodeAt(1 );
-          if ( srcCh == 102 ) {
+          if ( this.isGepTemp(ins.arg1) ) {
             wr.out("      i32.load", true);
           }
           wr.out("      local.set " + this.wasmName(ins.dest), true);
           break;
         case "store" : 
-          const slotCh = ins.arg2.charCodeAt(1 );
-          if ( slotCh == 102 ) {
+          if ( this.isGepTemp(ins.arg2) ) {
             this.writeGet(ins.arg2, wr);
             this.writeGet(ins.arg1, wr);
             wr.out("      i32.store", true);

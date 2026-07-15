@@ -18,6 +18,27 @@ class WATWriter {
     return ("$" + llvmName)
   }
 
+  ; A GEP result (address of a struct field / memory slot) is the ONLY operand
+  ; for which a `load`/`store` op must emit a real i32.load / i32.store. GEP
+  ; temps are the only names produced by freshTemp("f"), i.e. "%.f0", "%.f1", ...
+  ; so they are exactly the operands whose char 1 is '.' (46) and char 2 is 'f'
+  ; (102). Every promoted local is "%<var>_addr" (char 1 is never '.'), so this
+  ; test never mistakes a local slot for a memory pointer. Sniffing only char 1
+  ; (the historic bug) always saw '.', and sniffing only char 2 would misfire on
+  ; a local like "%offset_addr".
+  fn isGepTemp:boolean (name:string) {
+    if ((strlen name) < 3) {
+      return false
+    }
+    if ((charAt name 1) != 46) {
+      return false
+    }
+    if ((charAt name 2) != 102) {
+      return false
+    }
+    return true
+  }
+
   fn moduleUsesHeap:boolean (module:LowIRModule) {
     return (LowIRUtil.moduleUsesHeap(module))
   }
@@ -368,15 +389,13 @@ class WATWriter {
       }
       case "load" {
         this.writeGet(ins.arg1 wr)
-        def srcCh (charAt ins.arg1 1)
-        if (srcCh == 102) {
+        if (this.isGepTemp(ins.arg1)) {
           wr.out("      i32.load" true)
         }
         wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
       }
       case "store" {
-        def slotCh (charAt ins.arg2 1)
-        if (slotCh == 102) {
+        if (this.isGepTemp(ins.arg2)) {
           this.writeGet(ins.arg2 wr)
           this.writeGet(ins.arg1 wr)
           wr.out("      i32.store" true)

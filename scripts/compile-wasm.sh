@@ -87,8 +87,8 @@ const exp = WebAssembly.Module.exports(mod).map(e => e.name);
 console.log('exports:', exp.join(', '));
 const inst = new WebAssembly.Instance(mod);
 const run = inst.exports.CounterDemo_run();
-console.log('CounterDemo_run() =', run, '(expected 12)');
-if (run !== 12) process.exit(1);
+console.log('CounterDemo_run() =', run, '(expected 11)');
+if (run !== 11) process.exit(1);
 "
     ;;
   llvm_array_map_lang)
