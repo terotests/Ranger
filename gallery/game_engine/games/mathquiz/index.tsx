@@ -252,8 +252,8 @@ function tile(value, active) {
 // text. Used for the big equation so it reads like the menu cards.
 function panel(text, color, glow, size) {
   return (
-    <View backgroundColor={glow} width="312px" height="80px" margin="6px" flexDirection="column" alignItems="center" justifyContent="center">
-      <View backgroundColor="#141a30" width="300px" height="68px" flexDirection="column" alignItems="center" justifyContent="center">
+    <View backgroundColor={glow} width="336px" height="104px" margin="6px" flexDirection="column" alignItems="center" justifyContent="center">
+      <View backgroundColor="#141a30" width="324px" height="92px" flexDirection="column" alignItems="center" justifyContent="center">
         <Label color={color} fontSize={size}>{text}</Label>
       </View>
     </View>
@@ -305,7 +305,7 @@ function hud(props) {
   return (
     <View width="100%" height="100%" flexDirection="column" justifyContent="center" alignItems="center">
       <Label color="#6a8aaa" fontSize="14px">{s.qnum} / {s.total}   Pisteet {s.score}</Label>
-      {panel(q, "#ffffff", "#4a90d2aa", "44px")}
+      {panel(q, "#ffffff", "#4a90d2aa", "40px")}
       <View width="360px" flexDirection="row" justifyContent="center" alignItems="center">
         {tile(s.o0, a0)}
         {tile(s.o1, a1)}
