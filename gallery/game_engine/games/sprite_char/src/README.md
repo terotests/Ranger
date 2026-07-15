@@ -37,6 +37,11 @@ keys turn it, ACTION triggers a jump that reverts to walking when the hop ends.
 Requires the `wasm32-unknown-unknown` target (the script installs it on demand).
 Output: `games/sprite_char/sprite_char.wasm`.
 
+The RGSP1 byte plumbing (block layout, exports, input edge detection) comes from
+the shared [`ranger_game`](../../../lib/ranger_game/) crate — this crate contains
+only the game itself (`SpriteGame` impl + `ranger_game::sprite_game!`). End-to-end
+check: `node verify.mjs` (or `npm run engine:chars:verify`).
+
 ## Host side & catalog
 
 - Host bridge: [`../../scripting/wasm_sprite_runner.rgr`](../../scripting/wasm_sprite_runner.rgr)

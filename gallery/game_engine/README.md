@@ -18,6 +18,7 @@ gallery/game_engine/
 ├── scripting/          # MOOTTORIN YDIN: runtime, host, fysiikka, WASM/TSX-runnerit, TSX-tyypit
 ├── physics/            # Cannon.js -portti (pinball, sandbox)
 ├── wasm/               # WASM-guestit: Rust (`rust_*`) + AssemblyScript (`as_*`) + jaetut ABI-headerit
+├── lib/                # Jaetut guest-kirjastot: .as-helperit (abi.as, ui.as) + Rust `ranger_game` -crate
 ├── pose/               # Pose-input (RGP1): natiivi provider + MediaPipe-PoC
 ├── lpc/                # LPC-spritesheet-compositor (erillinen työkalu)
 ├── tests/              # Peli-testirunnerit (headless *_runner_demo.rgr) + interp/
