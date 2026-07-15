@@ -92,11 +92,11 @@ fn set_scale_uniform(e: i32, s: f32) {
 }
 
 // ---- level geometry --------------------------------------------------------
-const LEVELS: usize = 6;
-const BASE: f32 = 8.0; // half-size of the bottom slab
-const INSET: f32 = 1.2; // per-side shrink per level
-const STEP: f32 = 0.85; // terrace height (needs a jump)
-const STAIR_H: f32 = 0.42; // half-height helper step on the east face (auto-step)
+const LEVELS: usize = 10; // a tall pyramid
+const BASE: f32 = 12.0; // half-size of the bottom slab
+const INSET: f32 = 1.15; // per-side shrink per level (top half = 12 - 9*1.15 = 1.65)
+const STEP: f32 = 0.9; // terrace height (needs a jump); summit at LEVELS*STEP = 9
+const STAIR_H: f32 = 0.44; // half-height helper step on the east face (auto-step)
 
 fn slab_half(i: usize) -> f32 {
     BASE - i as f32 * INSET
@@ -121,26 +121,42 @@ fn floor_height(x: f32, z: f32) -> f32 {
 }
 
 // ---- colliders + sim state -------------------------------------------------
-const MAX_C: usize = 48;
+const MAX_C: usize = 64;
 #[derive(Clone, Copy)]
 struct Aabb {
     min: [f32; 3],
     max: [f32; 3],
 }
 
-const MAX_MON: usize = 8;
+const MAX_MON: usize = 12;
 #[derive(Clone, Copy)]
 struct Monster {
     ent: i32,
-    axis: usize, // patrol along 0=x or 2=z
-    fixed: f32,  // fixed coord on the other horizontal axis
-    lo: f32,
-    hi: f32,
+    r: f32,  // ring radius (Chebyshev: max(|x|,|z|)); walks the square perimeter
     y: f32,
-    pos: f32,
-    dir: f32,
+    s: f32,  // perimeter position in [0, 8r)
     speed: f32,
     respawn: f32, // >0 = knocked out, counting down to reappear
+}
+
+// Position + facing on a square ring of half-size r at perimeter distance s.
+// Returns (x, z, facing_x, facing_z). The 4 edges are each length 2r.
+fn ring_pos(r: f32, s: f32) -> (f32, f32, f32, f32) {
+    let per = 8.0 * r;
+    let mut u = s % per;
+    if u < 0.0 {
+        u += per;
+    }
+    let side = 2.0 * r;
+    if u < side {
+        (-r + u, r, 1.0, 0.0) // top edge (+x)
+    } else if u < 2.0 * side {
+        (r, r - (u - side), 0.0, -1.0) // right edge (-z)
+    } else if u < 3.0 * side {
+        (r - (u - 2.0 * side), -r, -1.0, 0.0) // bottom edge (-x)
+    } else {
+        (-r, -r + (u - 3.0 * side), 0.0, 1.0) // left edge (+z)
+    }
 }
 
 const MAX_GEM: usize = 5;
@@ -171,7 +187,6 @@ struct Ball {
 
 // game modes
 const MODE_PLAY: i32 = 0;
-const MODE_DYING: i32 = 1;
 const MODE_WON: i32 = 2;
 
 struct World {
@@ -195,8 +210,7 @@ struct World {
     invinc: f32,
     lives: i32,
     mode: i32,
-    dying_t: f32,
-    death: [f32; 3],
+    knock_t: f32, // >0 = knocked back; input ignored while it counts down
     ball_timer: f32,
     rng: u32,
     t: f32,
@@ -206,15 +220,14 @@ struct World {
     cam_x: f32,
     cam_y: f32,
     cam_z: f32,
-    mummy: i32, // sprite sheet tex (0 = fall back to boxes)
+    mummy: i32, // mummy sprite sheet tex (0 = box fallback)
+    hero: i32,  // player sprite sheet tex (0 = box fallback)
 }
 
 struct WCell(UnsafeCell<World>);
 unsafe impl Sync for WCell {}
 const ZERO_AABB: Aabb = Aabb { min: [0.0; 3], max: [0.0; 3] };
-const ZERO_MON: Monster = Monster {
-    ent: 0, axis: 2, fixed: 0.0, lo: 0.0, hi: 0.0, y: 0.0, pos: 0.0, dir: 1.0, speed: 0.0, respawn: 0.0,
-};
+const ZERO_MON: Monster = Monster { ent: 0, r: 0.0, y: 0.0, s: 0.0, speed: 0.0, respawn: 0.0 };
 const ZERO_GEM: Gem = Gem { ent: 0, x: 0.0, y: 0.0, z: 0.0, taken: false };
 const ZERO_BALL: Ball = Ball {
     ent: 0, x: 0.0, y: 0.0, z: 0.0, vx: 0.0, vy: 0.0, vz: 0.0, spin: 0.0, life: 0.0, active: false,
@@ -243,8 +256,7 @@ static W: WCell = WCell(UnsafeCell::new(World {
     invinc: 0.0,
     lives: START_LIVES,
     mode: MODE_PLAY,
-    dying_t: 0.0,
-    death: [0.0; 3],
+    knock_t: 0.0,
     ball_timer: 0.0,
     rng: 0x1234_5678,
     t: 0.0,
@@ -255,6 +267,7 @@ static W: WCell = WCell(UnsafeCell::new(World {
     cam_y: 0.0,
     cam_z: 0.0,
     mummy: 0,
+    hero: 0,
 }));
 fn world() -> &'static mut World {
     unsafe { &mut *W.0.get() }
@@ -275,9 +288,9 @@ const JUMP_V: f32 = 6.2;
 const MOVE_SPD: f32 = 4.2;
 const TURN_SPD: f32 = 2.4;
 const INVINC_TIME: f32 = 6.0;
-const DEATH_TIME: f32 = 3.0;
 const BALL_SPAWN_INT: f32 = 2.2;
 const BALL_REST: f32 = 0.6;
+const KNOCK_TIME: f32 = 0.7; // input-locked window after a hit
 
 fn add_collider(w: &mut World, min: [f32; 3], max: [f32; 3]) {
     if w.nbox < MAX_C {
@@ -287,7 +300,7 @@ fn add_collider(w: &mut World, min: [f32; 3], max: [f32; 3]) {
 }
 
 fn build_pyramid(w: &mut World, tex_sand: i32, tex_stone: i32, tex_gold: i32) {
-    let g = 22.0;
+    let g = 30.0;
     create_static_box([-g, -0.3, -g], [g, 0.0, g], tex_sand);
     add_collider(w, [-g, -0.3, -g], [g, 0.0, g]);
 
@@ -311,17 +324,16 @@ fn build_pyramid(w: &mut World, tex_sand: i32, tex_stone: i32, tex_gold: i32) {
     }
 }
 
-// side: 0=+x,1=-x,2=+z,3=-z. Monster stands on terrace `terrace`, patrols the
-// perpendicular axis along the exposed ring band on that side.
-fn add_monster(w: &mut World, tex: i32, terrace: usize, side: i32, speed: f32) {
+// A mummy that walks the full square ring of terrace `terrace` (all four sides),
+// starting at perimeter fraction `phase` in [0,1).
+fn add_monster(w: &mut World, tex: i32, terrace: usize, phase: f32, speed: f32) {
     if w.nmon >= MAX_MON {
         return;
     }
     let top = slab_y0(terrace) + STEP;
     let outer = slab_half(terrace);
     let inner = slab_half(terrace + 1);
-    let mid = (outer + inner) * 0.5;
-    let range = outer - 0.6;
+    let r = (outer + inner) * 0.5; // middle of the exposed ring band
     // billboard mummy (centre at feet+0.75) when the sheet is loaded, else a box
     let mhy = if w.mummy > 0 { 0.75 } else { 0.5 };
     let ent = if w.mummy > 0 {
@@ -329,35 +341,8 @@ fn add_monster(w: &mut World, tex: i32, terrace: usize, side: i32, speed: f32) {
     } else {
         create_actor([0.4, 0.5, 0.4], tex)
     };
-    // axis = the axis the monster walks along; `fixed` is its coord on the
-    // other horizontal axis (monster_xz reads them back by `axis`).
-    let (axis, fixed) = match side {
-        0 => (2usize, mid),   // +x side, patrol z at x=+mid
-        1 => (2usize, -mid),  // -x side, patrol z at x=-mid
-        2 => (0usize, mid),   // +z side, patrol x at z=+mid
-        _ => (0usize, -mid),  // -z side, patrol x at z=-mid
-    };
-    w.mons[w.nmon] = Monster {
-        ent,
-        axis,
-        fixed,
-        lo: -range,
-        hi: range,
-        y: top + mhy,
-        pos: 0.0,
-        dir: 1.0,
-        speed,
-        respawn: 0.0,
-    };
+    w.mons[w.nmon] = Monster { ent, r, y: top + mhy, s: phase * (8.0 * r), speed, respawn: 0.0 };
     w.nmon += 1;
-}
-
-fn monster_xz(m: &Monster) -> (f32, f32) {
-    if m.axis == 0 {
-        (m.pos, m.fixed) // patrol x, fixed z
-    } else {
-        (m.fixed, m.pos) // patrol z, fixed x
-    }
 }
 
 // `mesh` > 0 draws the diamond as a real GLB model (rg_create_mesh_entity);
@@ -475,17 +460,28 @@ fn respawn_player(w: &mut World) {
     set_scale_uniform(w.player_ent, 1.0);
 }
 
-fn start_death(w: &mut World) {
-    if w.mode != MODE_PLAY {
-        return;
+// A physical hit: launch the player away from (fromx,fromz) and upward, harder
+// the bigger `strength`. No death — the character controller flies it off the
+// terrace and it settles on a lower level. Input is locked for KNOCK_TIME.
+fn apply_knockback(w: &mut World, fromx: f32, fromz: f32, strength: f32) {
+    let mut dx = w.px - fromx;
+    let mut dz = w.pz - fromz;
+    let l = (dx * dx + dz * dz).sqrt();
+    if l > 0.001 {
+        dx /= l;
+        dz /= l;
+    } else {
+        dx = 0.0;
+        dz = 1.0;
     }
-    w.mode = MODE_DYING;
-    w.dying_t = DEATH_TIME;
-    w.death = [w.px, w.py, w.pz];
-    w.invinc = 0.0;
+    w.vx = dx * strength;
+    w.vz = dz * strength;
+    w.vy = 2.6 + strength * 0.25;
+    w.on_ground = false;
+    w.knock_t = KNOCK_TIME;
     w.lives -= 1;
     if w.lives < 0 {
-        w.lives = START_LIVES; // gentle: never a hard game-over
+        w.lives = START_LIVES;
     }
 }
 
@@ -525,32 +521,35 @@ pub extern "C" fn init() {
         w.lives = START_LIVES;
         w.invinc = 0.0;
         w.mode = MODE_PLAY;
-        w.dying_t = 0.0;
+        w.knock_t = 0.0;
         w.ball_timer = BALL_SPAWN_INT;
         w.t = 0.0;
-        // billboard mummy sheet (host preloads sprites/mummy.png); 0 => box fallback
+        // billboard sprite sheets (host preloads sprites/*.png); 0 => box fallback
         w.mummy = rg_load_sprite("mummy".as_ptr(), 5);
+        w.hero = rg_load_sprite("hero".as_ptr(), 4);
 
         build_pyramid(w, tex_sand, tex_stone, tex_gold);
 
-        // monsters on every side, spread across the lower terraces
-        add_monster(w, tex_mon, 0, 2, 2.6); // +z
-        add_monster(w, tex_mon, 0, 3, 2.6); // -z
-        add_monster(w, tex_mon, 1, 0, 2.9); // +x
-        add_monster(w, tex_mon, 1, 1, 2.9); // -x
-        add_monster(w, tex_mon, 2, 2, 3.2); // +z
-        add_monster(w, tex_mon, 2, 3, 3.2); // -z
-        add_monster(w, tex_mon, 3, 0, 3.5); // +x
-        add_monster(w, tex_mon, 3, 1, 3.5); // -x
+        // mummies patrol the full ring of their terrace; spread up the pyramid
+        add_monster(w, tex_mon, 0, 0.0, 2.4);
+        add_monster(w, tex_mon, 0, 0.5, 2.4);
+        add_monster(w, tex_mon, 1, 0.25, 2.7);
+        add_monster(w, tex_mon, 2, 0.0, 3.0);
+        add_monster(w, tex_mon, 2, 0.55, 3.0);
+        add_monster(w, tex_mon, 3, 0.7, 3.2);
+        add_monster(w, tex_mon, 4, 0.2, 3.4);
+        add_monster(w, tex_mon, 5, 0.6, 3.6);
+        add_monster(w, tex_mon, 6, 0.1, 3.8);
+        add_monster(w, tex_mon, 7, 0.45, 4.0);
 
-        // diamonds around the ring of the first terraces — drawn as a real GLB
-        // gem model when the host preloaded models/diamond.glb, else a box.
+        // diamonds up the pyramid — drawn as a real GLB gem model when the host
+        // preloaded models/diamond.glb, else a box.
         let dia = rg_load_model("diamond".as_ptr(), 7);
         add_gem(w, tex_gem, dia, 0, 0.0, slab_half(0) - 0.6);
-        add_gem(w, tex_gem, dia, 1, -(slab_half(1) - 0.6), 0.0);
-        add_gem(w, tex_gem, dia, 2, 0.0, -(slab_half(2) - 0.6));
-        add_gem(w, tex_gem, dia, 3, slab_half(3) - 0.6, 0.0);
-        add_gem(w, tex_gem, dia, 4, 0.0, slab_half(4) - 0.6);
+        add_gem(w, tex_gem, dia, 2, -(slab_half(2) - 0.6), 0.0);
+        add_gem(w, tex_gem, dia, 4, 0.0, -(slab_half(4) - 0.6));
+        add_gem(w, tex_gem, dia, 6, slab_half(6) - 0.6, 0.0);
+        add_gem(w, tex_gem, dia, 8, 0.0, slab_half(8) - 0.6);
 
         // boulder pool (hidden until thrown)
         for i in 0..MAX_BALL {
@@ -559,8 +558,12 @@ pub extern "C" fn init() {
             w.balls[i] = Ball { ent, ..ZERO_BALL };
         }
 
-        // player avatar (gold, third-person)
-        w.player_ent = create_actor([P_HX, P_HY, P_HZ], tex_gold);
+        // player avatar: a billboard hero sprite (else a gold box), third-person
+        w.player_ent = if w.hero > 0 {
+            rg_create_sprite(w.hero, 4, 4, fx(0.9), fx(1.5))
+        } else {
+            create_actor([P_HX, P_HY, P_HZ], tex_gold)
+        };
         respawn_player(w);
 
         // camera + player lamp
@@ -586,7 +589,7 @@ pub extern "C" fn init() {
         }
         for mi in 0..w.nmon {
             let m = w.mons[mi];
-            let (mx, mz) = monster_xz(&m);
+            let (mx, mz, _, _) = ring_pos(m.r, m.s);
             rg_set_position(m.ent, fx(mx), fx(m.y), fx(mz));
         }
         sync_camera(w);
@@ -627,35 +630,30 @@ fn update_monsters(w: &mut World, dt: f32) {
             w.mons[i] = m;
             continue;
         }
-        m.pos += m.dir * m.speed * dt;
-        if m.pos > m.hi {
-            m.pos = m.hi;
-            m.dir = -1.0;
-        } else if m.pos < m.lo {
-            m.pos = m.lo;
-            m.dir = 1.0;
-        }
-        let (mx, mz) = monster_xz(&m);
+        m.s += m.speed * dt;
+        let (mx, mz, fxv, fzv) = ring_pos(m.r, m.s);
         unsafe { rg_set_position(m.ent, fx(mx), fx(m.y), fx(mz)) };
         if w.mummy > 0 {
-            let (fxv, fzv) = if m.axis == 0 { (m.dir, 0.0) } else { (0.0, m.dir) };
             let d = sprite_dir(fxv, fzv, mx, mz, w.cam_x, w.cam_z);
             let frame = (((w.t * 6.0) as i32) + i as i32).rem_euclid(3);
             unsafe { rg_set_sprite_cell(m.ent, frame, d) };
         } else {
-            set_yaw(m.ent, if m.dir > 0.0 { 0.0 } else { core::f32::consts::PI });
+            set_yaw(m.ent, fxv.atan2(fzv));
         }
         w.mons[i] = m;
     }
 }
 
 fn check_monster_hits(w: &mut World) {
+    if w.knock_t > 0.0 {
+        return; // already flying; don't chain hits
+    }
     for i in 0..w.nmon {
         let m = w.mons[i];
         if m.respawn > 0.0 {
             continue;
         }
-        let (mx, mz) = monster_xz(&m);
+        let (mx, mz, _, _) = ring_pos(m.r, m.s);
         let mb = Aabb { min: [mx - 0.4, m.y - 0.5, mz - 0.4], max: [mx + 0.4, m.y + 0.5, mz + 0.4] };
         if overlap(w.px, w.py, w.pz, P_HX, P_HY, P_HZ, &mb) {
             if w.invinc > 0.0 {
@@ -664,7 +662,7 @@ fn check_monster_hits(w: &mut World) {
                 w.mons[i] = mm;
                 unsafe { rg_set_visible(mm.ent, 0) };
             } else {
-                start_death(w);
+                apply_knockback(w, mx, mz, 4.5 + m.speed);
                 return;
             }
         }
@@ -738,7 +736,7 @@ fn update_balls(w: &mut World, dt: f32) {
 }
 
 fn check_ball_hits(w: &mut World) {
-    if w.invinc > 0.0 {
+    if w.invinc > 0.0 || w.knock_t > 0.0 {
         return;
     }
     for i in 0..MAX_BALL {
@@ -751,7 +749,14 @@ fn check_ball_hits(w: &mut World) {
             max: [b.x + BALL_R, b.y + BALL_R, b.z + BALL_R],
         };
         if overlap(w.px, w.py, w.pz, P_HX, P_HY, P_HZ, &bb) {
-            start_death(w);
+            // harder boulders throw the player further
+            let speed = (b.vx * b.vx + b.vy * b.vy + b.vz * b.vz).sqrt();
+            let strength = (3.0 + speed).min(11.0);
+            apply_knockback(w, b.x, b.z, strength);
+            let mut bb2 = w.balls[i];
+            bb2.active = false;
+            w.balls[i] = bb2;
+            unsafe { rg_set_visible(bb2.ent, 0) };
             return;
         }
     }
@@ -796,30 +801,6 @@ fn check_win(w: &mut World) {
     }
 }
 
-/// A showy 3-second knock-out: the avatar launches up, tumbles fast and shrinks
-/// away, so it is obvious the player was hit. Then it respawns on the sand.
-fn update_dying(w: &mut World, dt: f32) {
-    w.dying_t -= dt;
-    let p = 1.0 - (w.dying_t / DEATH_TIME).clamp(0.0, 1.0); // 0 → 1
-    let yoff = (p * core::f32::consts::PI).sin() * 3.2; // pop up and fall back
-    let scale = (1.0 - 0.75 * p).max(0.1);
-    let ex = w.death[0];
-    let ez = w.death[2];
-    let ey = w.death[1] + yoff;
-    unsafe {
-        rg_set_position(w.player_ent, fx(ex), fx(ey), fx(ez));
-        set_tumble(w.player_ent, w.t * 14.0);
-        set_scale_uniform(w.player_ent, scale);
-        // keep the camera watching the spot it happened
-        rg_set_position(w.cam, fx(ex - 5.5_f32 * SPAWN_YAW.sin()), fx(ey + 3.4), fx(ez - 5.5_f32 * SPAWN_YAW.cos()));
-        rg_set_target(w.cam, fx(ex), fx(ey), fx(ez));
-    }
-    if w.dying_t <= 0.0 {
-        respawn_player(w);
-        w.mode = MODE_PLAY;
-    }
-}
-
 #[no_mangle]
 pub extern "C" fn update(dt_ms: i32, forward: i32, strafe: i32, turn: i32, jump: i32) {
     let w = world();
@@ -842,34 +823,38 @@ pub extern "C" fn update(dt_ms: i32, forward: i32, strafe: i32, turn: i32, jump:
         sync_camera(w);
         return;
     }
-    if w.mode == MODE_DYING {
-        // hazards freeze during the death animation for clarity
-        update_dying(w, dt);
-        return;
-    }
-
     let grounded = w.on_ground;
-    // turn: negate so left turns left and right turns right (host `turn` is +1
-    // for the right input, which rotates the facing the opposite way here)
+    // turning is always allowed; negated so left turns left, right turns right
     w.yaw -= (turn as f32) * TURN_SPD * dt;
-    let (s, c) = w.yaw.sin_cos();
-    let fwd = forward as f32;
-    let stf = strafe as f32;
-    let mut mvx = (s * fwd + c * stf) * MOVE_SPD;
-    let mut mvz = (c * fwd - s * stf) * MOVE_SPD;
-    let mag = (mvx * mvx + mvz * mvz).sqrt();
-    if mag > MOVE_SPD {
-        mvx *= MOVE_SPD / mag;
-        mvz *= MOVE_SPD / mag;
-    }
-    if jump != 0 && w.on_ground {
-        w.vy = JUMP_V;
-        w.on_ground = false;
+    if w.knock_t > 0.0 {
+        // knocked back: input locked, momentum carries with friction
+        w.knock_t -= dt;
+        let fr = if w.on_ground { 8.0 } else { 0.6 };
+        let decay = (1.0 - fr * dt).max(0.0);
+        w.vx *= decay;
+        w.vz *= decay;
+    } else {
+        let (s, c) = w.yaw.sin_cos();
+        let fwd = forward as f32;
+        let stf = strafe as f32;
+        let mut mvx = (s * fwd + c * stf) * MOVE_SPD;
+        let mut mvz = (c * fwd - s * stf) * MOVE_SPD;
+        let mag = (mvx * mvx + mvz * mvz).sqrt();
+        if mag > MOVE_SPD {
+            mvx *= MOVE_SPD / mag;
+            mvz *= MOVE_SPD / mag;
+        }
+        w.vx = mvx;
+        w.vz = mvz;
+        if jump != 0 && w.on_ground {
+            w.vy = JUMP_V;
+            w.on_ground = false;
+        }
     }
     w.vy -= GRAV * dt;
     w.on_ground = false;
 
-    move_horizontal(w, mvx * dt, mvz * dt, grounded);
+    move_horizontal(w, w.vx * dt, w.vz * dt, grounded);
     w.py += w.vy * dt;
     resolve_axis(w, 1);
     if w.py - P_HY < 0.0 {
@@ -877,6 +862,7 @@ pub extern "C" fn update(dt_ms: i32, forward: i32, strafe: i32, turn: i32, jump:
         w.vy = 0.0;
         w.on_ground = true;
     }
+    let moving = (w.vx * w.vx + w.vz * w.vz).sqrt() > 0.4;
 
     update_monsters(w, dt);
 
@@ -889,22 +875,34 @@ pub extern "C" fn update(dt_ms: i32, forward: i32, strafe: i32, turn: i32, jump:
     update_balls(w, dt);
 
     check_monster_hits(w);
-    if w.mode != MODE_PLAY {
-        return;
-    }
     check_ball_hits(w);
-    if w.mode != MODE_PLAY {
-        return;
-    }
     check_gem_pickups(w);
     spin_gems(w);
     check_win(w);
 
-    let pulse = if w.invinc > 0.0 { 1.0 + 0.15 * (w.t * 12.0).sin() } else { 1.0 };
-    unsafe {
-        rg_set_position(w.player_ent, fx(w.px), fx(w.py), fx(w.pz));
-        set_yaw(w.player_ent, w.yaw);
-        rg_set_scale(w.player_ent, fx(pulse), fx(pulse), fx(pulse));
+    // player avatar: billboard hero sprite (facing vs camera + walk/jump), or box
+    if w.hero > 0 {
+        let sy = w.py + (0.75 - P_HY); // sprite centre so the feet sit on the ground
+        let (s, c) = w.yaw.sin_cos();
+        let d = sprite_dir(s, c, w.px, w.pz, w.cam_x, w.cam_z);
+        let col = if !w.on_ground {
+            3 // jump frame
+        } else if moving {
+            ((w.t * 7.0) as i32).rem_euclid(3)
+        } else {
+            1 // idle
+        };
+        unsafe {
+            rg_set_position(w.player_ent, fx(w.px), fx(sy), fx(w.pz));
+            rg_set_sprite_cell(w.player_ent, col, d);
+        }
+    } else {
+        let pulse = if w.invinc > 0.0 { 1.0 + 0.15 * (w.t * 12.0).sin() } else { 1.0 };
+        unsafe {
+            rg_set_position(w.player_ent, fx(w.px), fx(w.py), fx(w.pz));
+            set_yaw(w.player_ent, w.yaw);
+            rg_set_scale(w.player_ent, fx(pulse), fx(pulse), fx(pulse));
+        }
     }
     sync_camera(w);
 }
