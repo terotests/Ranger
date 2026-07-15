@@ -1,15 +1,40 @@
 {
   "version": 2,
   "bodyType": "male",
-  "note": "Full-generator recipe for catalog character 'rogue'. Bakes a richer look than the embedded-pack recolor when the Universal-LPC art is present (LPC_ROOT). Item ids follow the LPC catalog; adjust to your installed set if a layer is missing.",
+  "note": "Full-generator recipe for catalog character 'rogue'. Implemented by lpc_compose.rgr buildFullCharCalls (baked when the Universal-LPC art is present, LPC_ROOT).",
   "selections": {
-    "body": { "itemId": "body", "name": "Male body" },
-    "torso": { "itemId": "torso_leather", "recolor": "crimson", "name": "Leather armour" },
-    "legs": { "itemId": "legs_pants", "recolor": "crimson_dark", "name": "Dark pants" },
-    "feet": { "itemId": "feet_boots_basic", "recolor": "black", "name": "Black boots" },
-    "head": { "itemId": "heads_human_male", "name": "Human male head" },
-    "hair": { "itemId": "hair_natural", "recolor": "black", "name": "Black hair" },
-    "cape": { "itemId": "cape_hood", "recolor": "black", "name": "Hood" }
+    "body": {
+      "itemId": "body",
+      "name": "Male body"
+    },
+    "torso": {
+      "itemId": "torso_armour_leather",
+      "name": "Leather armour"
+    },
+    "legs": {
+      "itemId": "legs_pants",
+      "recolor": "black",
+      "name": "Black pants"
+    },
+    "feet": {
+      "itemId": "feet_boots_basic",
+      "recolor": "black",
+      "name": "Black boots"
+    },
+    "head": {
+      "itemId": "heads_human_male",
+      "name": "Human male head"
+    },
+    "hair": {
+      "itemId": "hair_natural",
+      "recolor": "black",
+      "name": "Black hair"
+    },
+    "hat": {
+      "itemId": "hat_cloth_hood",
+      "recolor": "black",
+      "name": "Dark hood"
+    }
   },
   "selectedAnimation": "walk"
 }

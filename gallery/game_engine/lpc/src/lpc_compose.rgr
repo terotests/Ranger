@@ -50,9 +50,80 @@ class LpcCompositor {
         return list
     }
 
-    ; Compose one catalog character's walk strip: apply its recolor profile, then
-    ; blit the shared layer stack. Same output shape as composeWalkStrip.
+    ; Rich per-character stacks for the FULL Universal-LPC art (LPC_ROOT / a
+    ; full pack). Same ids and z-order convention as the LPC generator: body 10,
+    ; torso 15, legs 20, feet 25, head 100, hair 120, hat 130. Garments use the
+    ; generator's pre-coloured walk/<color>.png variants where they exist; only
+    ; hair (and the rogue hood) are tinted — see LpcCharCatalog.applyFullProfile.
+    fn buildFullCharCalls:[LpcDrawCall] (charId:int) {
+        def list:[LpcDrawCall]
+        this.addCharCall(list "body" "body/bodies/male/walk.png" 10)
+        this.addCharCall(list "head" "head/heads/human/male/walk.png" 100)
+
+        if (charId == 1) {
+            ; Hero (Ranger): green tunic, brown pants, leather boots, chestnut hair
+            this.addCharCall(list "torso" "torso/clothes/longsleeve/longsleeve/male/walk.png" 15)
+            this.addCharCall(list "legs" "legs/pants/male/walk/brown.png" 20)
+            this.addCharCall(list "feet" "feet/boots/basic/male/walk/leather.png" 25)
+            this.addCharCall(list "hair" "hair/natural/adult/walk.png" 120)
+            return list
+        }
+        if (charId == 2) {
+            ; Knight: full steel plate + great helm (no hair under the helm)
+            this.addCharCall(list "torso" "torso/armour/plate/male/walk.png" 15)
+            this.addCharCall(list "legs" "legs/armour/plate/male/walk.png" 20)
+            this.addCharCall(list "feet" "feet/boots/basic/male/walk/steel.png" 25)
+            this.addCharCall(list "arms" "arms/armour/plate/male/walk.png" 30)
+            this.addCharCall(list "gloves" "arms/hands/gloves/male/walk.png" 35)
+            this.addCharCall(list "hat" "hat/helmet/greathelm/male/walk.png" 130)
+            return list
+        }
+        if (charId == 3) {
+            ; Mage: purple frock robe + pantaloons + wizard hat, white hair
+            this.addCharCall(list "torso" "torso/jacket/frock/male/walk/purple.png" 15)
+            this.addCharCall(list "legs" "legs/pantaloons/male/walk/purple.png" 20)
+            this.addCharCall(list "feet" "feet/shoes/basic/male/walk/black.png" 25)
+            this.addCharCall(list "hair" "hair/natural/adult/walk.png" 120)
+            this.addCharCall(list "hat" "hat/magic/wizard/base/adult/walk/purple.png" 130)
+            return list
+        }
+        if (charId == 4) {
+            ; Rogue: crimson-leather armour, black pants/boots, dark hood
+            this.addCharCall(list "torso" "torso/armour/leather/male/walk.png" 15)
+            this.addCharCall(list "legs" "legs/pants/male/walk/black.png" 20)
+            this.addCharCall(list "feet" "feet/boots/basic/male/walk/black.png" 25)
+            this.addCharCall(list "hair" "hair/natural/adult/walk.png" 120)
+            this.addCharCall(list "hat" "hat/cloth/hood/adult/walk.png" 130)
+            return list
+        }
+        return list
+    }
+
+    ; True when spritesheetsRoot holds the full Universal-LPC art (the probe
+    ; layer exists on disk); the embedded demo-male-walk pack does not have it.
+    fn hasFullArt:boolean () {
+        def probe:string (this.catalog.fullArtProbePath())
+        def slash:int (lastIndexOf probe "/")
+        def dir:string spritesheetsRoot
+        def file:string probe
+        if (slash >= 0) {
+            dir = (spritesheetsRoot + (substring probe 0 (slash + 1)))
+            file = (substring probe (slash + 1) (strlen probe))
+        }
+        return (file_exists dir file)
+    }
+
+    ; Compose one catalog character's walk strip. With the full Universal-LPC
+    ; art present the character gets its rich stack (real garments, hats); with
+    ; only the embedded demo pack it falls back to the recoloured shared stack.
+    ; Same output shape as composeWalkStrip.
     fn composeCharacter:LpcComposeResult (charId:int) {
+        if (this.hasFullArt()) {
+            print ("[lpc_compose] full LPC art: rich stack for charId=" + (to_string charId))
+            this.catalog.applyFullProfile(this.palette charId)
+            def fullCalls:[LpcDrawCall] (this.buildFullCharCalls(charId))
+            return (this.composeCalls(fullCalls))
+        }
         this.catalog.applyProfile(this.palette charId)
         def calls:[LpcDrawCall] (this.buildCharCalls())
         return (this.composeCalls(calls))
