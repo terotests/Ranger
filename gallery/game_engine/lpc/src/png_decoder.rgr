@@ -442,15 +442,32 @@ class PNGDecoder {
         def fail:ImageBuffer (new ImageBuffer())
         fail.init(1 1)
 
-        fileData = (buffer_read_file dir fileName)
+        def bytes:buffer (buffer_read_file dir fileName)
+        if ((buffer_length bytes) < 24) {
+            print ("[png_decoder] file too small: " + dir + fileName)
+            return fail
+        }
+        return (this.decodeBytes(bytes))
+    }
+
+    ; decode a PNG already held in memory (e.g. a glTF embedded image slice).
+    fn decodeBytes:ImageBuffer (bytes:buffer) {
+        def fail:ImageBuffer (new ImageBuffer())
+        fail.init(1 1)
+
+        ; reset per-decode state so one instance can decode many buffers
+        pos = 0
+        idatData = (new GrowableBuffer())
+        this.clearPalette()
+        fileData = bytes
         fileLen = (buffer_length fileData)
         if (fileLen < 24) {
-            print ("[png_decoder] file too small: " + dir + fileName)
+            print "[png_decoder] buffer too small"
             return fail
         }
 
         if ((this.parseChunks()) == false) {
-            print ("[png_decoder] chunk parse failed: " + fileName)
+            print "[png_decoder] chunk parse failed"
             return fail
         }
 

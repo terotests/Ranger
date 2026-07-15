@@ -432,14 +432,20 @@ class JPEGDecoder {
     }
     
     fn decode:ImageBuffer (dirPath:string fileName:string) {
+        def bytes:buffer (buffer_read_file dirPath fileName)
+        return (this.decodeBytes(bytes))
+    }
+
+    ; decode a JPEG already held in memory (e.g. a glTF embedded image slice).
+    fn decodeBytes:ImageBuffer (bytes:buffer) {
         ; Main decode function
         ; Reset all state before decoding new image
         this.reset()
-        
-        data = (buffer_read_file dirPath fileName)
+
+        data = bytes
         dataLen = (buffer_length data)
-        
-        print ("Decoding JPEG: " + fileName + " (" + (to_string dataLen) + " bytes)")
+
+        print ("Decoding JPEG in-memory (" + (to_string dataLen) + " bytes)")
         
         ; Parse markers
         def ok:boolean (this.parseMarkers())

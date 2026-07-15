@@ -1,0 +1,162 @@
+; ==============================================================================
+; EntityModel.rgr — host-side entity / transform / mesh-renderer scene model.
+; ==============================================================================
+; The instantiate_model() half of the pipeline. A ModelAsset describes a scene
+; graph; instantiating it allocates a host EntityId per node, wires parent/child
+; links, copies each node's transform into a TransformComponent, and attaches a
+; MeshRenderer wherever a node references a mesh. The guest normally only gets
+; the root EntityId back and can find children by name through the host:
+;
+;   let robot = instantiate_model(model)   // -> root EntityId
+;   let hand  = find_child(robot, "RightHand")
+;
+; EntityIds are allocated and owned by the host, exactly because a GLB's nodes
+; are born from the file's hierarchy, not one-at-a-time from game code.
+; ==============================================================================
+
+Import "AssetModel.rgr"
+
+class TransformComponent {
+    def hasMatrix:boolean false
+    def translation:Vec3 (Vec3.of(0.0 0.0 0.0))
+    def rotation:Quat (Quat.identity())
+    def scale:Vec3 (Vec3.of(1.0 1.0 1.0))
+    def localMatrix:Mat4 (Mat4.identity())
+    def worldMatrix:Mat4 (Mat4.identity())
+
+    fn setTRS:void (t:Vec3 r:Quat s:Vec3) {
+        hasMatrix = false
+        translation = t
+        rotation = r
+        scale = s
+        localMatrix = (Mat4.fromTRS(t r s))
+    }
+    fn setMatrix:void (m:Mat4) {
+        hasMatrix = true
+        localMatrix = m
+    }
+}
+
+class MeshRenderer {
+    ; index into the source ModelAsset.meshes
+    def meshAsset:int (0 - 1)
+    ; kept for convenience so a renderer is self-describing
+    def meshName:string ""
+}
+
+class Entity {
+    def id:int 0
+    def name:string ""
+    def parent:int (0 - 1)
+    def children:[int]
+    def transform:TransformComponent (new TransformComponent)
+    def hasRenderer:boolean false
+    def renderer:MeshRenderer (new MeshRenderer)
+
+    fn childCount:int () {
+        return (array_length children)
+    }
+}
+
+class EntityRegistry {
+    def entities:[Entity]
+
+    fn create:int (name:string) {
+        def e:Entity (new Entity)
+        e.id = (array_length entities)
+        e.name = name
+        push entities e
+        return e.id
+    }
+    fn count:int () {
+        return (array_length entities)
+    }
+    fn get:Entity (id:int) {
+        return (itemAt entities id)
+    }
+    fn setParent:void (childId:int parentId:int) {
+        def child:Entity (itemAt entities childId)
+        child.parent = parentId
+        if (parentId >= 0) {
+            def parent:Entity (itemAt entities parentId)
+            push parent.children childId
+        }
+    }
+    ; depth-first search for a descendant entity by exact name; -1 if not found
+    fn findChild:int (rootId:int name:string) {
+        def root:Entity (itemAt entities rootId)
+        def n:int (array_length root.children)
+        def i:int 0
+        while (i < n) {
+            def cid:int (itemAt root.children i)
+            def child:Entity (itemAt entities cid)
+            if (child.name == name) {
+                return cid
+            }
+            def deep:int (this.findChild(cid name))
+            if (deep >= 0) {
+                return deep
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+    ; recompute world matrices from a root down, given a parent world matrix
+    fn updateWorld:void (rootId:int parentWorld:Mat4) {
+        def e:Entity (itemAt entities rootId)
+        def world:Mat4 (Mat4.mul(parentWorld e.transform.localMatrix))
+        e.transform.worldMatrix = world
+        def n:int (array_length e.children)
+        def i:int 0
+        while (i < n) {
+            def cid:int (itemAt e.children i)
+            this.updateWorld(cid world)
+            i = (i + 1)
+        }
+    }
+}
+
+; Turns a ModelAsset into a live entity subtree; returns the root EntityId.
+class ModelInstancer {
+    ; instantiate one NodeAsset (and its descendants) under parentEntity
+    sfn instantiateNode:int (registry:EntityRegistry model:ModelAsset nodeIndex:int parentEntity:int) {
+        def node:NodeAsset (model.getNode(nodeIndex))
+        def eid:int (registry.create(node.name))
+        registry.setParent(eid parentEntity)
+        def e:Entity (registry.get(eid))
+        if node.hasMatrix {
+            def m:Mat4 (node.localMatrix())
+            e.transform.setMatrix(m)
+        } {
+            e.transform.setTRS(node.translation node.rotation node.scale)
+        }
+        if (node.mesh >= 0) {
+            e.hasRenderer = true
+            e.renderer.meshAsset = node.mesh
+            def mesh:MeshAsset (model.getMesh(node.mesh))
+            e.renderer.meshName = mesh.name
+        }
+        def kids:int (array_length node.children)
+        def i:int 0
+        while (i < kids) {
+            def childNodeIndex:int (itemAt node.children i)
+            ModelInstancer.instantiateNode(registry model childNodeIndex eid)
+            i = (i + 1)
+        }
+        return eid
+    }
+    ; instantiate the whole model; a single root entity wraps the scene roots
+    sfn instantiate:int (registry:EntityRegistry model:ModelAsset) {
+        def rootId:int (registry.create(model.name))
+        def roots:int (array_length model.rootNodes)
+        def i:int 0
+        while (i < roots) {
+            def nodeIndex:int (itemAt model.rootNodes i)
+            ModelInstancer.instantiateNode(registry model nodeIndex rootId)
+            i = (i + 1)
+        }
+        def identity:Mat4 (Mat4.identity())
+        registry.updateWorld(rootId identity)
+        return rootId
+    }
+}

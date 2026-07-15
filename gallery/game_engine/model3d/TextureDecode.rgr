@@ -1,0 +1,43 @@
+; ==============================================================================
+; TextureDecode.rgr — decode a TextureAsset's embedded bytes to RGBA pixels.
+; ==============================================================================
+; Bridges the GLB importer (which extracts raw PNG/JPEG bytes out of the BIN
+; chunk into TextureAsset.sourceBytes) to the existing native image decoders in
+; the repo, reused through their new decode-from-buffer entry points:
+;   * PNG  -> gallery/game_engine/lpc/src/png_decoder.rgr  (decodeBytes)
+;   * JPEG -> gallery/pdf_writer/src/jpeg/JPEGDecoder.rgr   (decodeBytes)
+; Fills width/height and tightly packed RGBA8 into the asset. No file I/O.
+; ==============================================================================
+
+Import "../lpc/src/png_decoder.rgr"
+Import "../../pdf_writer/src/jpeg/JPEGDecoder.rgr"
+Import "AssetModel.rgr"
+
+class TextureDecode {
+    ; decode tex.sourceBytes (per tex.mimeType) into tex.rgba; returns success
+    sfn decodeInto:boolean (tex:TextureAsset) {
+        if ((buffer_length tex.sourceBytes) == 0) {
+            return false
+        }
+        def img:ImageBuffer (new ImageBuffer())
+        def done:boolean false
+        if (tex.mimeType == "image/png") {
+            def dec:PNGDecoder (new PNGDecoder)
+            img = (dec.decodeBytes(tex.sourceBytes))
+            done = true
+        }
+        if (tex.mimeType == "image/jpeg") {
+            def dec2:JPEGDecoder (new JPEGDecoder)
+            img = (dec2.decodeBytes(tex.sourceBytes))
+            done = true
+        }
+        if (done == false) {
+            return false
+        }
+        tex.width = img.width
+        tex.height = img.height
+        tex.rgba = (img.getRawBuffer())
+        tex.decoded = true
+        return true
+    }
+}
