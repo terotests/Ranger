@@ -1739,7 +1739,22 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
             templates {
                 cpp ( "if ( " (e 1) ".has_value ) {" nl I (block 2) i nl "}" nl )
             }
-        }        
+        }
+
+        ; typed optional int/double with an else branch: r_optional_primitive is
+        ; a value type (has_value field), not a pointer, so the generic :T
+        ; `!= NULL` form below does not compile under clang. Emit `.has_value`.
+        if              cmdIf:void              ( condition@(optional):int then_block:block else_block )  {
+            templates {
+                cpp ( "if ( " (e 1) ".has_value ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl )
+            }
+        }
+
+        if              cmdIf:void              ( condition@(optional):double then_block:block else_block )  {
+            templates {
+                cpp ( "if ( " (e 1) ".has_value ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl )
+            }
+        }
 
         if              cmdIf:void              ( condition@(optional):T then_block:block )  {
             templates {
