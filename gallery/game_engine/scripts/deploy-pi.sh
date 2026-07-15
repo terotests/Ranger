@@ -206,18 +206,19 @@ wait_x() {
   if xdpyinfo >/dev/null 2>&1; then
     return 0
   fi
+  # poll fast (0.2s) so the game launches as soon as X is up; ~120s total
   local i=0
-  while [[ $i -lt 120 ]]; do
+  while [[ $i -lt 600 ]]; do
     if [[ -S /tmp/.X11-unix/X0 ]]; then
       export DISPLAY=:0
       if xdpyinfo -display :0 >/dev/null 2>&1; then
         return 0
       fi
     fi
-    sleep 1
+    sleep 0.2
     i=$((i + 1))
   done
-  echo "start.sh: X display :0 not ready after ${i}s" >&2
+  echo "start.sh: X display :0 not ready after $((i / 5))s" >&2
   return 1
 }
 
@@ -253,8 +254,10 @@ ssh "$TARGET" "cat > ~/initservice.sh" <<'INITEOF'
 set -euo pipefail
 
 START="$HOME/start.sh"
-BOOT_DELAY="sleep 8 && $START"
-CRON_BOOT="@reboot sleep 12 && $START"
+# No fixed boot delay: start.sh itself waits for X (wait_x) and audio
+# (wait_audio), and flock prevents duplicate launches. Launching immediately
+# gets the console up as soon as the session is ready instead of sleep N late.
+CRON_BOOT="@reboot $START"
 
 echo "==> Ranger autostart setup"
 echo "    game launcher: $START"
@@ -271,17 +274,17 @@ cat > "$HOME/.config/autostart/ranger-game.desktop" <<EOF
 Type=Application
 Name=Ranger Game
 Comment=Ranger SDL game launcher
-Exec=/bin/bash -c "$BOOT_DELAY"
+Exec=/bin/bash -c "$START"
 Terminal=false
 X-GNOME-Autostart-enabled=true
 EOF
 
 grep -v 'ranger-game\|start\.sh' "$HOME/.config/lxsession/LXDE-pi/autostart" 2>/dev/null > /tmp/lxas.tmp || true
-echo "@/bin/bash -c \"$BOOT_DELAY\"" >> /tmp/lxas.tmp
+echo "@/bin/bash -c \"$START\"" >> /tmp/lxas.tmp
 mv /tmp/lxas.tmp "$HOME/.config/lxsession/LXDE-pi/autostart"
 
 grep -v 'ranger-game\|start\.sh' "$HOME/.config/labwc/autostart" 2>/dev/null > /tmp/labas.tmp || true
-echo "/bin/bash -c \"$BOOT_DELAY\" &" >> /tmp/labas.tmp
+echo "/bin/bash -c \"$START\" &" >> /tmp/labas.tmp
 mv /tmp/labas.tmp "$HOME/.config/labwc/autostart"
 
 ( crontab -l 2>/dev/null | grep -v 'start\.sh\|ranger-game' || true
