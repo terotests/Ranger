@@ -159,13 +159,12 @@ class EvgLauncherMenu {
             def t:LauncherTile (new LauncherTile)
             t.label = e.title
             t.path = e.entryPath
-            ; a game's own icon (relative to its folder) is its tile image, when
-            ; the file is actually present (game.info may name a missing icon)
-            if ((strlen e.iconPath) > 0) {
-                def ip:string (e.dir + "/" + e.iconPath)
-                if (this.fileThere(ip)) {
-                    t.image = ip
-                }
+            ; a game's own icon is its tile image; resolveIconPath prefers the
+            ; explicit game.info icon= and falls back to the assets/image.png
+            ; screenshot convention, returning only paths that actually exist.
+            def ip:string (catalog.resolveIconPath(e))
+            if ((strlen ip) > 0) {
+                t.image = ip
             }
             push out t
             i = (i + 1)

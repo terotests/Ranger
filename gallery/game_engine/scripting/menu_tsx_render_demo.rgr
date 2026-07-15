@@ -41,8 +41,11 @@ class TsxMenuRenderDemo {
     def rnd:WasmUiRenderer (new WasmUiRenderer)
     def root:EVGElement (EVGElement.createDiv())
     def state:EvalValue (EvalValue.null())
-    def cw:int 360
-    def ch:int 460
+    ; canvas matches the launcher's natural tile-grid width (the games panel is
+    ; 1224px wide) so the debug PNGs show the real layout instead of a clipped
+    ; corner of it.
+    def cw:int 1400
+    def ch:int 760
     def tMs:int 0            ; host clock (ms) fed via props.time, drives the glow
     def nextQuit:boolean false  ; set for one step to raise the Back/Quit edge
 
@@ -122,6 +125,18 @@ class TsxMenuRenderDemo {
         return false
     }
 
+    ; true if any text element in the tree contains the needle (e.g. the page
+    ; indicator "sivu 2 / 2" the paged games grid renders).
+    fn anyTextContains:boolean (el:EVGElement needle:string) {
+        if ((indexOf el.textContent needle) >= 0) { return true }
+        def c 0
+        while (c < (array_length el.children)) {
+            if (this.anyTextContains((itemAt el.children c) needle)) { return true }
+            c = (c + 1)
+        }
+        return false
+    }
+
     fn stateStr:string (key:string) {
         def mv:EvalValue (state.getMember(key))
         return (mv.toString())
@@ -190,6 +205,7 @@ class TsxMenuRenderDemo {
         d.settle()
         c.ok(("after the flash the callback opened the category (got '" + (d.stateStr("screen")) + "')") ((d.stateStr("screen")) == "games"))
         c.ok("games screen has rounded EVG boxes" (d.anyRounded(d.root)))
+        c.ok("game tiles carry their screenshot icons (backgroundImage prop)" (d.anyBgImage(d.root)))
         d.drawFrame("tsx_menu_2_games.png")
 
         ; ---- opening a category lands on the first GAME (index 1), not the Back tile ----
@@ -216,6 +232,24 @@ class TsxMenuRenderDemo {
         c.ok(("re-opened a category (got '" + (d.stateStr("screen")) + "')") ((d.stateStr("screen")) == "games"))
         d.stepBack()
         c.ok(("Back/Quit -> cats (got '" + (d.stateStr("screen")) + "')") ((d.stateStr("screen")) == "cats"))
+
+        ; ---- pagination: a category with more than GAMES_PER_PAGE (9) games
+        ; renders as pages; holding right walks straight onto page 2, and the
+        ; page indicator label appears. (The Tests category holds 10+ games.) ----
+        d.step(false true false false false)     ; down -> the second category
+        d.step(false false false false true)     ; A -> open it
+        d.settle()
+        c.ok(("opened the second category (got '" + (d.stateStr("screen")) + "')") ((d.stateStr("screen")) == "games"))
+        c.ok("page indicator shows on a multi-page grid" (d.anyTextContains(d.root "sivu 1")))
+        def w 0
+        while (w < 10) {                          ; right x10: sel 1 -> 11 = page 2
+            d.step(false false false true false)
+            w = (w + 1)
+        }
+        c.ok(("held right onto page 2 (got sel=" + (d.stateStr("sel")) + ")") ((d.stateStr("sel")) == "11"))
+        c.ok("page indicator follows the cursor to page 2" (d.anyTextContains(d.root "sivu 2")))
+        d.drawFrame("tsx_menu_3_games_page2.png")
+        d.stepBack()
 
         print "======================================"
         print (("RESULT: " + (to_string c.passed) + " passed, ") + ((to_string c.failed) + " failed"))

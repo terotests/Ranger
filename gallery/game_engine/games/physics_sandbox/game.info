@@ -2,3 +2,4 @@ name=Physics Sandbox
 soloScript=index.tsx
 
 category=Tests
+icon=assets/image.png

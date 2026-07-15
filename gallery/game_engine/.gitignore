@@ -27,7 +27,9 @@ scripting/as_source_demo.js
 scripting/pyorretris2p_demo.js
 scripting/menu_launcher_demo.js
 scripting/menu_tsx_render_demo.js
+scripting/menu_tsx_fit_demo.js
 scripting/game_catalog_demo.js
+scripting/game_icon_shots_demo.js
 
 # Rendered PNG frames from the headless sprite demos (regenerate: npm run engine:as:sprites)
 scripting/pyorretris_*.png
