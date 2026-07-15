@@ -42,11 +42,22 @@ function decodePPM(buf) {
   p++; // single whitespace after maxval
   return { w, h, data: buf.slice(p, p + w * h * 3) };
 }
-function loadTexture(name) {
-  const file = path.join(ASSETS, name + '.ppm');
-  const tex = decodePPM(fs.readFileSync(file));
-  textures.push(tex);
-  return textures.length - 1; // handle (1-based)
+// Read the guest's RESOURCE block ('RGRS') and load each named texture into
+// textures[handle] (handle = index+1). Mirrors what the in-engine Wasm3dRunner
+// does — the guest declares texture names, the host loads the files.
+function loadResources(exp) {
+  const dv = new DataView(exp.memory.buffer);
+  const rp = exp.rg_res_ptr();
+  if (dv.getUint32(rp, true) !== 0x53524752) throw new Error('bad RESOURCE magic');
+  const count = dv.getUint32(rp + 16, true);
+  for (let i = 0; i < count; i++) {
+    const o = rp + 20 + i * 16;
+    let name = '';
+    for (let k = 0; k < 16; k++) { const c = dv.getUint8(o + k); if (c === 0) break; name += String.fromCharCode(c); }
+    const tex = decodePPM(fs.readFileSync(path.join(ASSETS, name + '.ppm')));
+    textures[i + 1] = tex; // handle = index+1
+    console.log(`  resource ${i + 1}: ${name} (${tex.w}x${tex.h})`);
+  }
 }
 function sample(tex, u, v) {
   // wrap + nearest; v flipped so uv (0,0) is top-left of the image
@@ -154,9 +165,9 @@ function readBlocks(exp, mem) {
       uv: [(uvp & 0xffff) / UVS, (uvp >>> 16) / UVS],
     });
   }
-  const IDX = VTX + vc * VSZ, idx = [];
+  const IDX = mp + u32(mp + 52), idx = []; // published pool offsets
   for (let i = 0; i < ic; i++) idx.push(u16(IDX + i * 2));
-  const SUB = (IDX + ic * 2 + 3) & ~3, sub = [];
+  const SUB = mp + u32(mp + 56), sub = [];
   for (let i = 0; i < sc; i++) {
     const o = SUB + i * 12;
     sub.push({ first: u32(o), count: u32(o + 4), material: u32(o + 8) });
@@ -301,27 +312,12 @@ function montage(frames, cols) {
 (async () => {
   const nFrames = parseInt(process.argv[2] || '48', 10);
   const mod = new WebAssembly.Module(fs.readFileSync(WASM));
-  let inst;
-  const env = {
-    // resource loader (§17): guest passes a name, host loads the texture and
-    // returns an opaque handle. The name is copied out of guest memory.
-    rg_res_load: (namePtr, nameLen) => {
-      const bytes = new Uint8Array(inst.exports.memory.buffer, namePtr, nameLen);
-      const name = Buffer.from(bytes).toString('utf8');
-      try {
-        const h = loadTexture(name);
-        console.log(`  rg_res_load("${name}") -> handle ${h}`);
-        return h;
-      } catch (e) {
-        console.error(`  rg_res_load("${name}") failed: ${e.message}`);
-        return 0;
-      }
-    },
-  };
-  inst = new WebAssembly.Instance(mod, { env });
+  // No env imports: the guest declares a RESOURCE block; the host loads it.
+  const inst = new WebAssembly.Instance(mod, {});
   const exp = inst.exports;
   const mem = exp.memory;
   exp.init();
+  loadResources(exp);
 
   const heroIdx = Math.floor(nFrames * 0.28);
   const grabAt = [];

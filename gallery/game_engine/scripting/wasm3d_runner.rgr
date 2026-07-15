@@ -1,0 +1,387 @@
+; ==============================================================================
+; wasm3d_runner — in-engine GPU (GLES2) renderer for .wasm guests (render=3d).
+; ==============================================================================
+;
+; Loads a WASM guest that declares the 3D-graphics blocks (ABI_V2 §18-§21):
+;   MESH 'RGMB', MATERIAL 'RGMA', CAM 'RGCM', LIGHT 'RGLT', RESOURCE 'RGRS'.
+; The guest owns geometry/camera/lighting; this host uploads the named textures
+; and the mesh to the GPU once, then each frame reads the camera/model/light and
+; issues gfx_3d_* draw calls (depth-tested, textured, sun+ambient lit) via the
+; GLES2 pipeline in gfx_sdl.rgr. Same guests as the headless tools/render.cjs.
+;
+; Coordinates are the guest's fixed-point (positions *256, normals/units Q16.16,
+; uv *4096); the GPU pipeline converts and builds the matrices.
+; ==============================================================================
+
+Import "../framebuffer.rgr"
+Import "../wasm_runtime.rgr"
+Import "../gfx_sdl.rgr"
+
+class Wasm3dRunner {
+    def handle:int 0
+    def modulePath:string ""
+    def gameDir:string ""
+    def assetsDir:string ""
+    def pw:int 0
+    def ph:int 0
+    def dummy:buffer (buffer_alloc 4)
+    def meshId:int 0
+    def meshBase:int 0
+    def texGl:[int]
+    def subFirst:[int]
+    def subCount:[int]
+    def subTex:[int]
+    def nsub:int 0
+    def pcur:int 0
+    def fpsShown:int 0
+    def timeMs:int 0
+    def profileEnabled:boolean false
+
+    fn init:void (w:int h:int) {
+        pw = w
+        ph = h
+    }
+    fn setFpsShown:void (fps:int) {
+        fpsShown = fps
+    }
+    fn setProfileEnabled:void (on:boolean) {
+        profileEnabled = on
+    }
+    fn maybeHotReload:void () {
+    }
+    fn resolvePlayerCount:int () {
+        return 1
+    }
+    fn raw:buffer () {
+        return dummy
+    }
+    fn isLoaded:boolean () {
+        return (handle != 0)
+    }
+    fn hostRef:int () {
+        return 0
+    }
+
+    ; ---- low-level helpers -------------------------------------------------
+    fn imod2:int (a:int b:int) {
+        return (a - ((idiv a b) * b))
+    }
+    fn ri:int (off:int) {
+        return (wasm_mem_i32 handle off)
+    }
+    fn callPtr:int (name:string) {
+        return (wasm_call_i32 handle name 0 0 0 0 0 0)
+    }
+    fn wasmVoid:void (name:string nargs:int a0:int a1:int a2:int a3:int a4:int) {
+        if (handle == 0) {
+            return
+        }
+        wasm_call_void handle name nargs a0 a1 a2 a3 a4
+    }
+    fn ru16:int (off:int) {
+        def wo ((idiv off 4) * 4)
+        def bi (off - wo)
+        def word (wasm_mem_i32 handle wo)
+        if (bi == 0) {
+            return (this.imod2(word 65536))
+        }
+        return (this.imod2((idiv word 65536) 65536))
+    }
+    fn rbyte:int (off:int) {
+        def wo ((idiv off 4) * 4)
+        def bi (off - wo)
+        def word (wasm_mem_i32 handle wo)
+        def sh 1
+        def t 0
+        while (t < bi) {
+            sh = (sh * 256)
+            t = (t + 1)
+        }
+        return (this.imod2((idiv word sh) 256))
+    }
+    fn unpackR:double (c:int) {
+        return ((to_double (this.imod2((idiv c 16777216) 256))) / 255.0)
+    }
+    fn unpackG:double (c:int) {
+        return ((to_double (this.imod2((idiv c 65536) 256))) / 255.0)
+    }
+    fn unpackB:double (c:int) {
+        return ((to_double (this.imod2((idiv c 256) 256))) / 255.0)
+    }
+
+    ; ---- load ---------------------------------------------------------------
+    fn dirOf:string (path:string) {
+        def cut (0 - 1)
+        def i 0
+        def n (strlen path)
+        while (i < n) {
+            def ch:string (substring path i (i + 1))
+            if (ch == "/") {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        if (cut < 0) {
+            return "."
+        }
+        return (substring path 0 cut)
+    }
+
+    fn loadModule:void (path:string) {
+        if (handle != 0) {
+            wasm_close handle
+            handle = 0
+        }
+        handle = (wasm_load path)
+        modulePath = path
+        gameDir = (this.dirOf(path))
+        assetsDir = (gameDir + "/assets")
+        if (handle == 0) {
+            print ("[wasm3d] load failed: " + path)
+            return
+        }
+        print ("[wasm3d] loaded: " + path)
+    }
+
+    fn readPpmInt:int (buf:buffer) {
+        def go true
+        while (go) {
+            def ch (buffer_get buf pcur)
+            if (ch == 32) {
+                pcur = (pcur + 1)
+            } {
+                if (ch == 10) {
+                    pcur = (pcur + 1)
+                } {
+                    if (ch == 9) {
+                        pcur = (pcur + 1)
+                    } {
+                        if (ch == 13) {
+                            pcur = (pcur + 1)
+                        } {
+                            go = false
+                        }
+                    }
+                }
+            }
+        }
+        def val 0
+        def go2 true
+        while (go2) {
+            def ch2 (buffer_get buf pcur)
+            if (ch2 < 48) {
+                go2 = false
+            } {
+                if (ch2 > 57) {
+                    go2 = false
+                } {
+                    val = ((val * 10) + (ch2 - 48))
+                    pcur = (pcur + 1)
+                }
+            }
+        }
+        return val
+    }
+
+    ; load a PPM, expand RGB->RGBA, upload to the GPU, return a texId
+    fn loadTextureGpu:int (name:string) {
+        def buf:buffer (buffer_read_file assetsDir (name + ".ppm"))
+        pcur = 2
+        def tw (this.readPpmInt(buf))
+        def th (this.readPpmInt(buf))
+        def mx (this.readPpmInt(buf))
+        pcur = (pcur + 1)
+        def n (tw * th)
+        def rgba:buffer (buffer_alloc (n * 4))
+        def i 0
+        while (i < n) {
+            def so (pcur + (i * 3))
+            def dof (i * 4)
+            buffer_set rgba dof (buffer_get buf so)
+            buffer_set rgba (dof + 1) (buffer_get buf (so + 1))
+            buffer_set rgba (dof + 2) (buffer_get buf (so + 2))
+            buffer_set rgba (dof + 3) 255
+            i = (i + 1)
+        }
+        def tid (gfx_3d_upload_texture rgba tw th)
+        print ("[wasm3d] texture " + name + " -> " + (to_string tid))
+        return tid
+    }
+
+    fn readResName:string (base:int) {
+        def nb:buffer (buffer_alloc 16)
+        def len 0
+        def go true
+        while (go) {
+            if (len < 16) {
+                def by (this.rbyte(base + len))
+                if (by == 0) {
+                    go = false
+                } {
+                    buffer_set nb len by
+                    len = (len + 1)
+                }
+            } {
+                go = false
+            }
+        }
+        def nb2:buffer (buffer_alloc len)
+        def k 0
+        while (k < len) {
+            buffer_set nb2 k (buffer_get nb k)
+            k = (k + 1)
+        }
+        return (buffer_to_string nb2)
+    }
+
+    fn setupScene:void () {
+        if (handle == 0) {
+            return
+        }
+        this.wasmVoid("init" 0 0 0 0 0 0)
+        ; textures: index 0 = dummy, then handle = index+1
+        push texGl 0
+        def resBase (this.callPtr("rg_res_ptr"))
+        def rcount (this.ri(resBase + 16))
+        def i 0
+        while (i < rcount) {
+            def nm:string (this.readResName(resBase + 20 + (i * 16)))
+            def tid (this.loadTextureGpu(nm))
+            push texGl tid
+            i = (i + 1)
+        }
+        ; mesh
+        def mb (this.callPtr("rg_mesh_ptr"))
+        meshBase = mb
+        def vc (this.ri(mb + 16))
+        def ic (this.ri(mb + 20))
+        def sc (this.ri(mb + 24))
+        def idxOff (this.ri(mb + 52))
+        def subOff (this.ri(mb + 56))
+        def vwords (vc * 8)
+        def vbuf:int_buffer (int_buffer_alloc vwords)
+        def w 0
+        while (w < vwords) {
+            int_buffer_set vbuf w (wasm_mem_i32 handle (mb + 64 + (w * 4)))
+            w = (w + 1)
+        }
+        def ibuf:int_buffer (int_buffer_alloc ic)
+        def k 0
+        while (k < ic) {
+            int_buffer_set ibuf k (this.ru16(mb + idxOff + (k * 2)))
+            k = (k + 1)
+        }
+        meshId = (gfx_3d_mesh_upload vbuf vc ibuf ic)
+        print ("[wasm3d] mesh verts=" + (to_string vc) + " indices=" + (to_string ic) + " -> " + (to_string meshId))
+        ; submeshes + material texture
+        def matBase (this.callPtr("rg_mat_ptr"))
+        def matCount (this.ri(matBase + 16))
+        def s 0
+        while (s < sc) {
+            def so (mb + subOff + (s * 12))
+            def first (this.ri(so))
+            def count (this.ri(so + 4))
+            def mid (this.ri(so + 8))
+            def resHandle 0
+            if (mid < matCount) {
+                resHandle = (this.ri(matBase + 20 + (mid * 16)))
+            }
+            def glTex 0
+            if (resHandle > 0) {
+                if (resHandle < (array_length texGl)) {
+                    glTex = (itemAt texGl resHandle)
+                }
+            }
+            push subFirst first
+            push subCount count
+            push subTex glTex
+            s = (s + 1)
+        }
+        nsub = sc
+    }
+
+    ; ---- per-frame update ---------------------------------------------------
+    fn frame:void (dtMs:int up:boolean down:boolean left:boolean right:boolean action:boolean) {
+        if (handle == 0) {
+            return
+        }
+        timeMs = (timeMs + dtMs)
+        def fwd 0
+        if (up) {
+            fwd = 1
+        }
+        if (down) {
+            fwd = (fwd - 1)
+        }
+        def turn 0
+        if (right) {
+            turn = 1
+        }
+        if (left) {
+            turn = (turn - 1)
+        }
+        def jump 0
+        if (action) {
+            jump = 1
+        }
+        this.wasmVoid("update" 5 dtMs fwd 0 turn jump)
+    }
+    fn frameWithInput:void (dtMs:int up:boolean down:boolean left:boolean right:boolean action:boolean) {
+        this.frame(dtMs up down left right action)
+    }
+    fn frameWithFlags:void (dtMs:int flags:int flagsP2:int) {
+        this.frame(dtMs false false false false false)
+    }
+
+    ; ---- render -------------------------------------------------------------
+    fn draw:void () {
+        if (handle == 0) {
+            return
+        }
+        def camBase (this.callPtr("rg_cam_ptr"))
+        def litBase (this.callPtr("rg_lit_ptr"))
+        def ex ((to_double (this.ri(camBase + 20))) / 256.0)
+        def ey ((to_double (this.ri(camBase + 24))) / 256.0)
+        def ez ((to_double (this.ri(camBase + 28))) / 256.0)
+        def txg ((to_double (this.ri(camBase + 32))) / 256.0)
+        def tyg ((to_double (this.ri(camBase + 36))) / 256.0)
+        def tzg ((to_double (this.ri(camBase + 40))) / 256.0)
+        def upx ((to_double (this.ri(camBase + 44))) / 65536.0)
+        def upy ((to_double (this.ri(camBase + 48))) / 65536.0)
+        def upz ((to_double (this.ri(camBase + 52))) / 65536.0)
+        def fovy ((to_double (this.ri(camBase + 56))) / 256.0)
+        def near ((to_double (this.ri(camBase + 60))) / 256.0)
+        def far ((to_double (this.ri(camBase + 64))) / 256.0)
+        def aspect ((to_double pw) / (to_double ph))
+        def ambC (this.ri(litBase + 16))
+        def ambR (this.unpackR(ambC))
+        def ambG (this.unpackG(ambC))
+        def ambB (this.unpackB(ambC))
+        def ambI ((to_double (this.ri(litBase + 20))) / 256.0)
+        def sdx ((to_double (this.ri(litBase + 24))) / 65536.0)
+        def sdy ((to_double (this.ri(litBase + 28))) / 65536.0)
+        def sdz ((to_double (this.ri(litBase + 32))) / 65536.0)
+        def sunC (this.ri(litBase + 36))
+        def sunR (this.unpackR(sunC))
+        def sunG (this.unpackG(sunC))
+        def sunB (this.unpackB(sunC))
+        def sunI ((to_double (this.ri(litBase + 40))) / 256.0)
+        def rx ((to_double (this.ri(meshBase + 28))) / 256.0)
+        def ry ((to_double (this.ri(meshBase + 32))) / 256.0)
+        def rz ((to_double (this.ri(meshBase + 36))) / 256.0)
+        def px ((to_double (this.ri(meshBase + 40))) / 256.0)
+        def py ((to_double (this.ri(meshBase + 44))) / 256.0)
+        def pz ((to_double (this.ri(meshBase + 48))) / 256.0)
+
+        gfx_3d_begin pw ph
+        gfx_3d_set_camera ex ey ez txg tyg tzg upx upy upz fovy near far aspect
+        gfx_3d_set_light ambR ambG ambB ambI sdx sdy sdz sunR sunG sunB sunI
+        def s 0
+        while (s < nsub) {
+            gfx_3d_draw meshId (itemAt subFirst s) (itemAt subCount s) (itemAt subTex s) rx ry rz px py pz
+            s = (s + 1)
+        }
+        gfx_3d_end
+        gfx_3d_present
+    }
+}

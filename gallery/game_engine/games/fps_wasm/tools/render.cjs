@@ -68,7 +68,20 @@ function decodePPM(buf) {
   const w = +tok(), h = +tok(); tok(); p++;
   return { w, h, data: buf.slice(p, p + w * h * 3) };
 }
-function loadTexture(name) { textures.push(decodePPM(fs.readFileSync(path.join(ASSETS, name + '.ppm')))); return textures.length - 1; }
+// Read the guest's RESOURCE block and load each named texture into
+// textures[index+1] (mirrors the in-engine Wasm3dRunner).
+function loadResources(exp) {
+  const dv = new DataView(exp.memory.buffer);
+  const rp = exp.rg_res_ptr();
+  if (dv.getUint32(rp, true) !== 0x53524752) throw new Error('bad RESOURCE magic');
+  const count = dv.getUint32(rp + 16, true);
+  for (let i = 0; i < count; i++) {
+    let name = '';
+    for (let k = 0; k < 16; k++) { const c = dv.getUint8(rp + 20 + i * 16 + k); if (c === 0) break; name += String.fromCharCode(c); }
+    textures[i + 1] = decodePPM(fs.readFileSync(path.join(ASSETS, name + '.ppm')));
+    console.log(`  resource ${i + 1}: ${name}`);
+  }
+}
 function sampleTex(tex, u, v) {
   let tx = Math.floor((u - Math.floor(u)) * tex.w), ty = Math.floor((1 - (v - Math.floor(v))) * tex.h);
   tx = ((tx % tex.w) + tex.w) % tex.w; ty = ((ty % tex.h) + tex.h) % tex.h;
@@ -232,11 +245,10 @@ const SCRIPT = [
 (async () => {
   const nOverride = parseInt(process.argv[2] || '0', 10);
   const mod = new WebAssembly.Module(fs.readFileSync(WASM));
-  let inst;
-  const env = { rg_res_load: (p, l) => { const name = Buffer.from(new Uint8Array(inst.exports.memory.buffer, p, l)).toString('utf8'); const h = loadTexture(name); console.log(`  rg_res_load("${name}") -> ${h}`); return h; } };
-  inst = new WebAssembly.Instance(mod, { env });
+  const inst = new WebAssembly.Instance(mod, {}); // no env imports
   const exp = inst.exports;
   exp.init();
+  loadResources(exp);
 
   const boxes = readColliders(exp);
   const flat = [];
