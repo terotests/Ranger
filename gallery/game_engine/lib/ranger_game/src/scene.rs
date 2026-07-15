@@ -17,6 +17,7 @@ pub const MAX_VERTICES: usize = 4096;
 pub const MAX_INDICES: usize = 8192;
 pub const MAX_SUBMESHES: usize = 256;
 pub const MAX_POINT_LIGHTS: usize = 4;
+const DEFAULT_FOVY: f32 = 1.0472; // approximately 60 degrees (pi / 3 radians)
 
 const MESH_HDR: usize = 64;
 const VERTEX_SIZE: usize = 32;
@@ -77,15 +78,25 @@ impl Default for Quat {
 
 /// RGBA colour used by materials and lights.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Color(pub u8, pub u8, pub u8, pub u8);
+pub struct Color {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub a: u8,
+}
 
 impl Color {
-    pub const WHITE: Self = Self(255, 255, 255, 255);
+    pub const WHITE: Self = Self {
+        r: 255,
+        g: 255,
+        b: 255,
+        a: 255,
+    };
     pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
-        Self(r, g, b, 255)
+        Self { r, g, b, a: 255 }
     }
     fn packed(self) -> u32 {
-        ((self.0 as u32) << 24) | ((self.1 as u32) << 16) | ((self.2 as u32) << 8) | self.3 as u32
+        ((self.r as u32) << 24) | ((self.g as u32) << 16) | ((self.b as u32) << 8) | self.a as u32
     }
 }
 
@@ -204,7 +215,7 @@ impl Default for Camera {
             eye: Vec3::new(0.0, 0.0, 4.0),
             target: Vec3::default(),
             up: Vec3::new(0.0, 1.0, 0.0),
-            fovy: 1.0472,
+            fovy: DEFAULT_FOVY,
             ortho_height: 10.0,
             near: 0.1,
             far: 1000.0,
@@ -293,7 +304,7 @@ impl Scene {
                     z: 0.0,
                 },
                 up: Vec3::new(0.0, 1.0, 0.0),
-                fovy: 1.0472,
+                fovy: DEFAULT_FOVY,
                 ortho_height: 10.0,
                 near: 0.1,
                 far: 1000.0,
@@ -403,6 +414,7 @@ impl Scene {
                 continue;
             }
             if v + mesh.vertices > MAX_VERTICES
+                || v > u16::MAX as usize
                 || i + mesh.indices > MAX_INDICES
                 || s == MAX_SUBMESHES
             {
