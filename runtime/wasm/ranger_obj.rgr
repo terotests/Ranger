@@ -302,8 +302,8 @@ class ranger {
         if (== desc 0) {
             return
         }
-        def owned (Mem.loadI32((+ desc 12)))
-        if (!= owned 0) {
+        def kind (Mem.loadI32((+ desc 12)))
+        if (== kind 1) {
             if (!= val 0) {
                 ranger.obj_retain(val)
             }
@@ -326,24 +326,29 @@ class ranger {
         Mem.storeI32((+ desc 4) (+ len2 1))
     }
 
+    ; kind (flag word at desc+12): 0 = plain values (no element release),
+    ; 1 = owned objects (obj_release), 2 = owned strings (str_release).
     sfn ptrarray_release:void (desc:int) {
         if (== desc 0) {
             return
         }
-        def owned (Mem.loadI32((+ desc 12)))
+        def kind (Mem.loadI32((+ desc 12)))
         def data (Mem.loadI32(desc))
-        if (!= owned 0) {
-            if (!= data 0) {
+        if (!= data 0) {
+            if (!= kind 0) {
                 def len (Mem.loadI32((+ desc 4)))
                 def i 0
                 while (< i len) {
                     def el (Mem.loadI32((+ data (* i 4))))
-                    ranger.obj_release(el)
+                    if (== kind 1) {
+                        ranger.obj_release(el)
+                    }
+                    if (== kind 2) {
+                        ranger.str_release(el)
+                    }
                     i = (+ i 1)
                 }
             }
-        }
-        if (!= data 0) {
             Heap.free(data)
         }
         Heap.free(desc)

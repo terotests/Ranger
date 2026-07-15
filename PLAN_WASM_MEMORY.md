@@ -114,8 +114,19 @@ object-based game/logic code does not.
       (new `Mem.memSize`/`Mem.memGrow` → `memory.size`/`memory.grow`). Collections
       and objects scale past the initial 64 KiB page (maps of 20 000+ entries
       grow memory to megabytes); OOM only at the host/module maximum, returning 0.
-    - ⬜ *remaining:* `[string]` array element release (libc releases elements via
-      `obj_release` only, so string elements need a per-element kind).
+    - **`[string]` arrays** own a dup'd private copy of each element and free
+      them on release. The descriptor's flag word now encodes an element *kind*
+      (0 = plain int, 1 = owned object → `obj_release`, 2 = owned string →
+      `str_release`); `ranger_ptrarray_release` dispatches on it. `[string]` is
+      detected before the general object-array case at creation. Pushing a fresh
+      `new T()` directly is now *moved* (rc stays 1) instead of retained — that
+      retain left rc=1 after the array released, a latent object-array leak, now
+      fixed on the WASM path. `strarr_rc_test` 7/7 (content survives the dup,
+      build/drop loops heap-flat, zero live blocks); `coll_rc_test` 14/14
+      (adds direct-`new`-push).
+    - Collection RC on freestanding WASM is now complete: `[int]`, `[T]`,
+      `[string]`, and `[K:V]` all allocate on the free-list heap, grow, and free
+      (with element RC where owned). No remaining collection gaps.
 - **Phase 5 — per-frame arena** ⬜ *optional optimisation, not required for
   correctness* — checkpoint/reset the frontier for frame-scoped temporaries.
 

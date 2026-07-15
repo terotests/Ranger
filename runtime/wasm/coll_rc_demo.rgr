@@ -70,6 +70,27 @@ class SG {
         return (Heap.frontier())
     }
 
+    ; push a freshly-constructed object directly (not via a local): it is moved
+    ; into the array (rc stays 1), so array release frees it — no leak.
+    sfn sumEntsNew:int (n:int) {
+        def es:[Ent]
+        def i 0
+        while (< i n) {
+            push es (new Ent())
+            i = (+ i 1)
+        }
+        return (array_length es)
+    }
+
+    sfn churnEntsNew:int (reps:int size:int) {
+        def r 0
+        while (< r reps) {
+            def _ (SG.sumEntsNew(size))
+            r = (+ r 1)
+        }
+        return (Heap.frontier())
+    }
+
     ; array created INSIDE the loop body must be freed each iteration
     ; (releaseLoopBodyOwned), not accumulate until function end
     sfn churnBodyList:int (reps:int size:int) {

@@ -1374,6 +1374,23 @@ class LowIRBuilderPass {
         itemAddr = (lctx.builder.emitCast("zext" "i64" "i32" itemAddr))
       }
     }
+    ; Freestanding WASM [string] array: the array owns a dup'd private copy of
+    ; each element (like a string field), freed via str_release on array release.
+    ; The source value keeps its own lifetime (arena temp / owned local).
+    if (this.wasmStrEnabled(lctx)) {
+      if (LowIRUtil.isStringType((this.arrayElemTypeName(arrNode lctx)))) {
+        def dupStr (this.emitStrdupExpr(itemAddr lctx))
+        def sArgs:[string]
+        def sArgTypes:[string]
+        push sArgs desc
+        push sArgTypes lctx.ptrType
+        push sArgs dupStr
+        push sArgTypes lctx.ptrType
+        this.usedPtrArrayRuntime = true
+        lctx.builder.emitCall("RtPtrArray_push" "void" sArgs sArgTypes)
+        return
+      }
+    }
     def args:[string]
     def argTypes:[string]
     push args desc
@@ -1394,8 +1411,20 @@ class LowIRBuilderPass {
             isMove = true
           }
         }
-        if isMove {
-          set lctx.escapedLocals itemNode.vref "1"
+        ; A freshly-constructed `new T()` pushed directly has rc=1 and no other
+        ; owner, so it is moved (the array owns that single reference and frees it
+        ; on release) rather than retained — retaining would leave rc=1 after the
+        ; array releases, leaking it. WASM only, to keep the libc path unchanged.
+        def freshNew:boolean false
+        if itemNode.hasNewOper {
+          if (this.wasmCollectionRcEnabled(lctx)) {
+            freshNew = true
+          }
+        }
+        if (isMove || freshNew) {
+          if (itemNode.value_type == RangerNodeType.VRef) {
+            set lctx.escapedLocals itemNode.vref "1"
+          }
           this.usedPtrArrayRuntime = true
           lctx.builder.emitCall("RtPtrArray_push" voidType args argTypes)
           return
@@ -1597,7 +1626,19 @@ class LowIRBuilderPass {
     return false
   }
 
-  fn emitPtrArrayNewEmpty:string (lctx:LowIRLowerContext owned:boolean) {
+  fn isStringArrayTypeNode:boolean (node:CodeNode) {
+    if (node.value_type == RangerNodeType.Array) {
+      return (LowIRUtil.isStringType(node.array_type))
+    }
+    return false
+  }
+
+  ; elemKind: 0 = plain values (int, no element release), 1 = owned objects
+  ; (obj_release each on free), 2 = owned strings (str_release each on free).
+  ; The value is written to the descriptor's flag word; the release runtime
+  ; dispatches on it. libc reads it as a truthy "owned" flag (kind 1 = its
+  ; existing object-array behaviour).
+  fn emitPtrArrayNewEmpty:string (lctx:LowIRLowerContext elemKind:int) {
     this.usedPtrArrayRuntime = true
     def builder (lctx.builder)
     def cap (builder.emitConst("i32" "256"))
@@ -1606,9 +1647,9 @@ class LowIRBuilderPass {
     push args cap
     push argTypes "i32"
     def desc (builder.emitCall("RtPtrArray_new" lctx.ptrType args argTypes))
-    if owned {
-      def one (builder.emitConst("i32" "1"))
-      builder.emitStoreI32At(desc (this.ptrArrayOwnedOff(lctx)) one)
+    if (elemKind > 0) {
+      def kindC (builder.emitConst("i32" ("" + elemKind)))
+      builder.emitStoreI32At(desc (this.ptrArrayOwnedOff(lctx)) kindC)
     }
     return desc
   }
@@ -3433,13 +3474,21 @@ class LowIRBuilderPass {
     }
     if (null? valNode) {
       if (this.isIntArrayTypeNode(nameNode)) {
-        def emptyArr (this.emitPtrArrayNewEmpty(lctx false))
+        def emptyArr (this.emitPtrArrayNewEmpty(lctx 0))
         this.bindPtrArraySlot(varName emptyArr lctx false)
         set lctx.ptrArrayElemTypes varName "int"
         return
       }
+      ; a [string] array owns str-releasable elements (kind 2); check before the
+      ; general object-array case, which also matches non-int element types.
+      if (this.isStringArrayTypeNode(nameNode)) {
+        def emptyStrArr (this.emitPtrArrayNewEmpty(lctx 2))
+        this.bindPtrArraySlot(varName emptyStrArr lctx true)
+        set lctx.ptrArrayElemTypes varName "string"
+        return
+      }
       if (this.isObjectPtrArrayTypeNode(nameNode)) {
-        def emptyPtrArr (this.emitPtrArrayNewEmpty(lctx true))
+        def emptyPtrArr (this.emitPtrArrayNewEmpty(lctx 1))
         this.bindPtrArraySlot(varName emptyPtrArr lctx true)
         return
       }

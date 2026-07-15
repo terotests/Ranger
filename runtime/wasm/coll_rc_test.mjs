@@ -36,6 +36,16 @@ x.Heap_init();
 x.SG_churnEnts(500, 150);
 ok("no live blocks after churnEnts", x.SG_liveBlocks(), 0);
 
+// push a fresh `new Ent()` directly (move, not retain): no leak
+x.Heap_init();
+ok("sumEntsNew(10)", x.SG_sumEntsNew(10), 10);
+const en1  = x.SG_churnEntsNew(1, 200);
+const en1k = x.SG_churnEntsNew(1000, 200);
+ok("churnEntsNew flat", en1k, en1);
+x.Heap_init();
+x.SG_churnEntsNew(500, 150);
+ok("no live blocks after churnEntsNew", x.SG_liveBlocks(), 0);
+
 // array created inside a loop body: freed per iteration, not accumulated
 x.Heap_init();
 const b1  = x.SG_churnBodyList(1, 300);
