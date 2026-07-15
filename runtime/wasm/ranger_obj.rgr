@@ -1,0 +1,96 @@
+; ============================================================================
+; ranger_obj.rgr — reference-counted objects on the WASM free-list heap
+; (PLAN_WASM_MEMORY.md Phase 1). The Ranger/WASM equivalent of the native
+; runtime/ranger_mem.c: an object header in front of the body plus
+; ranger_obj_new / retain / release, where release walks a type descriptor to
+; free owned fields recursively.
+;
+; Object memory:  [ rc | size | typeDesc | pad ][ body... ]   (16-byte header)
+;   the pointer handed to Ranger code is `body` = block + 16.
+;
+; Type descriptor (in linear memory, produced by the compiler in the real
+; system; built by the test here):
+;   TypeDesc : [ structSize | fieldCount | fieldsPtr ]
+;   Field(12): [ offset | kind | owned ]      kind 0=string 1=object 2=ptrarray
+; release recurses into owned OBJECT fields; string / ptr-array field kinds are
+; stubbed here (they arrive with the string + array runtime in a later step).
+; ============================================================================
+
+Import "./ranger_heap.rgr"
+
+class RangerObj {
+    ; --- allocate a zeroed, rc=1 object -------------------------------------
+    sfn new:int (size:int typeDesc:int) {
+        def block (Heap.alloc((+ 16 size)))
+        if (== block 0) {
+            return 0
+        }
+        Mem.storeI32(block 1)               ; rc = 1
+        Mem.storeI32((+ block 4) size)
+        Mem.storeI32((+ block 8) typeDesc)
+        Mem.storeI32((+ block 12) 0)        ; pad
+        def body (+ block 16)
+        def i 0
+        while (< i size) {                  ; zero the body -> null fields
+            Mem.storeI32((+ body i) 0)
+            i = (+ i 4)
+        }
+        return body
+    }
+
+    sfn refCount:int (body:int) {
+        return (Mem.loadI32((- body 16)))
+    }
+
+    sfn retain:void (body:int) {
+        if (!= body 0) {
+            def block (- body 16)
+            Mem.storeI32(block (+ (Mem.loadI32(block)) 1))
+        }
+    }
+
+    ; --- release: decrement, and on reaching zero destroy fields + free -----
+    sfn release:void (body:int) {
+        if (== body 0) {
+            return
+        }
+        def block (- body 16)
+        def rc (- (Mem.loadI32(block)) 1)
+        Mem.storeI32(block rc)
+        if (> rc 0) {
+            return
+        }
+        RangerObj.destroyFields(body (Mem.loadI32((+ block 8))))
+        Heap.free(block)
+    }
+
+    ; walk the type descriptor and release each owned field
+    sfn destroyFields:void (body:int td:int) {
+        if (== td 0) {
+            return
+        }
+        def fieldCount (Mem.loadI32((+ td 4)))
+        def fieldsPtr (Mem.loadI32((+ td 8)))
+        def i 0
+        while (< i fieldCount) {
+            def f (+ fieldsPtr (* i 12))
+            def owned (Mem.loadI32((+ f 8)))
+            if (!= owned 0) {
+                def kind (Mem.loadI32((+ f 4)))
+                def val (Mem.loadI32((+ body (Mem.loadI32(f)))))
+                if (!= val 0) {
+                    if (== kind 1) {
+                        RangerObj.release(val)
+                    }
+                }
+            }
+            i = (+ i 1)
+        }
+    }
+
+    ; live object count (heap blocks minus the caller's permanent typedescs is
+    ; computed test-side); exposed for the harness.
+    sfn liveBlocks:int () {
+        return (Heap.usedBlocks())
+    }
+}
