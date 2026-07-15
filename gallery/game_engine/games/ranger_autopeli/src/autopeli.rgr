@@ -392,6 +392,7 @@ class Auto {
         }
         def grip (Auto.gripAt((World.bodyX(idx)) (World.bodyY(idx))))
         Auto.pset(idx 28 grip)
+        Auto.pset(idx 40 steer)
         World.setControl(idx steer throttle brake grip)
     }
 
@@ -436,7 +437,7 @@ class Auto {
         if (> on 0) {
             if (== was 0) {
                 World.sound(2)
-                def spin (Auto.oilSpin(p))
+                def spin (Auto.oilSpin(p (Auto.pget(p 40))))
                 World.pushImpulse(p 0 0 spin)
                 Auto.pset(p 8 260)
             }
@@ -482,10 +483,39 @@ class Auto {
         return hit
     }
 
-    sfn oilSpin:int (p:int) {
-        def spd (Fx.maxi((idiv (World.bodySpeed(p)) 256) 40))
-        def base (idiv (* spd 12) 100)
-        return (* (+ base 22) 256)
+    ; 5th-order Taylor sine (matches the Rust sin_f), with range reduction to
+    ; [-pi, pi] so the series stays accurate. Pure f64 — now that the WAT
+    ; backend supports doubles, this is a literal port instead of fixed-point.
+    sfn sinf:double (x:double) {
+        def y x
+        while (> y 3.14159265359) {
+            y = (- y 6.28318530718)
+        }
+        while (< y -3.14159265359) {
+            y = (+ y 6.28318530718)
+        }
+        def x2 (* y y)
+        def x3 (* x2 y)
+        def x5 (* x3 x2)
+        return (+ (- y (/ x3 6.0)) (/ x5 120.0))
+    }
+
+    ; oil-entry spin burst — the Rust oil_entry_spin ported literally to f64:
+    ;   wobble = sin_f(phase)*spd*0.08 ; steerSpin = (steer/1000)*spd*0.12
+    ;   return (wobble + steerSpin + sign*22) * 256
+    sfn oilSpin:int (p:int steer:int) {
+        def spd (to_double (Fx.maxi((idiv (World.bodySpeed(p)) 256) 40)))
+        def x (/ (to_double (World.bodyX(p))) 256.0)
+        def y (/ (to_double (World.bodyY(p))) 256.0)
+        def phase (+ (+ (* (to_double (World.timeMs())) 0.012) (* x 0.06)) (* y 0.04))
+        def sv (Auto.sinf(phase))
+        def sign 1.0
+        if (< sv 0.0) {
+            sign = -1.0
+        }
+        def wobble (* (* sv spd) 0.08)
+        def steerSpin (* (* (/ (to_double steer) 1000.0) spd) 0.12)
+        return (to_int (* (+ (+ wobble steerSpin) (* sign 22.0)) 256.0))
     }
 
     ; ---- ramp hit-test (axis-aligned box) ------------------------------
