@@ -224,6 +224,27 @@ m3ApiRawFunction(m3_rg_ui_effect) {
     m3ApiSuccess();
 }
 
+/* env.abort(msgPtr, filePtr, line, col) — the AssemblyScript runtime's abort
+ * hook. A guest compiled WITHOUT `--use abort=` (the flag in build.sh), or with
+ * a non-minimal runtime, imports this. wasm3 rejects any module that references
+ * an UNLINKED import at m3_CompileModule time, so rg_wasm_load() then returns 0
+ * and the runner treats the game as "not loaded" — it silently disappears from
+ * the menu. Linking a stub keeps such a guest loadable regardless of build flags
+ * (binary compatibility), and trapping here turns a guest assertion / bounds
+ * abort into a clean halt of the current guest call with a diagnostic, rather
+ * than letting it continue past a failed check into undefined behaviour. Modules
+ * that don't import abort are unaffected (the link lookup simply no-ops). */
+m3ApiRawFunction(m3_as_abort) {
+    m3ApiGetArg(int32_t, msgPtr)
+    m3ApiGetArg(int32_t, filePtr)
+    m3ApiGetArg(int32_t, line)
+    m3ApiGetArg(int32_t, col)
+    (void)msgPtr;
+    (void)filePtr;
+    fprintf(stderr, "[wasm] guest called abort() at %d:%d\n", line, col);
+    m3ApiTrap("assemblyscript guest abort");
+}
+
 /* ---- host-managed 3D scene (IDEAL_3D Phase H) ----------------------------
  * The strong rgfx_scene_* definitions live in gfx_sdl's C++ polyfill
  * (extern "C"); these weak fallbacks let this bridge link in a headless build
@@ -423,6 +444,11 @@ static void rg_link_host_imports(RgWasmSlot* s) {
                                "v(iiii)", &m3_rg_ui_glow, s);
     (void)m3_LinkRawFunctionEx(s->module, "env", "rg_ui_effect",
                                "v(iiiiiiiii)", &m3_rg_ui_effect, s);
+    /* AssemblyScript runtime import: present whenever a guest is built without
+     * `--use abort=`. Link it so a stock-flags rebuild stays loadable instead of
+     * being rejected by wasm3 as a missing import. */
+    (void)m3_LinkRawFunctionEx(s->module, "env", "abort",
+                               "v(iiii)", &m3_as_abort, s);
 }
 
 static int rg_alloc_handle(void) {
