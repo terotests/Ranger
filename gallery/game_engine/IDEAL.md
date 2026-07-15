@@ -1787,6 +1787,12 @@ picking, game-declared in view and host-owned in rendering (§2.5, §2.9, §2.14
 > `cannon_mat3`/`cannon_vec3`/`cannon_quaternion` this section says the 2D engine should
 > already be reusing. A runnable proof — [`games/cube3d_wasm`](./games/cube3d_wasm),
 > tracked in `IDEAL_TODO.md` Phase G — already does exactly this for a lit, spinning cube.
+>
+> **Ownership caveat:** the current PoCs (`cube3d_wasm`, `fps_wasm`) have the guest
+> building and exporting the scene as raw memory blocks. The production target is a
+> **host-managed scene** where Ranger owns the entity registry, mesh resources, and
+> scene graph — the guest communicates through an Asset/Scene/Entity API, not memory
+> exports. See [`IDEAL_3D.md`](./IDEAL_3D.md) for the required ownership model.
 
 ### 2.18 The particle system, special effects, and filters
 
@@ -1932,6 +1938,16 @@ Ideal ownership, in priority order:
 The declare-once discipline is inherited from the resource provider and must keep its
 limits: declare-once (not runtime-streamable), fixed typed vocabulary, no pointers
 cross, one-way guest→host.
+
+> **3D scene resources are a distinct concern.** The "guest owns the world" rule
+> applies to *gameplay world declarations* (what exists, where, game rules) — it
+> prevents dual-encoding. It does **not** mean the guest should hold raw render
+> meshes, textures, or a scene graph in WASM memory. For 3D scenes, **Ranger owns
+> the engine scene** (entity registry, mesh/material/texture resources, scene graph
+> hierarchy, GPU buffers), and the guest communicates through high-level commands
+> (`load_model`, `instantiate_model`, `set_position`, `destroy`). The guest owns
+> *intent*; Ranger owns *realisation*. See
+> [`IDEAL_3D.md`](./IDEAL_3D.md) for the full 3D ownership model.
 
 ---
 
