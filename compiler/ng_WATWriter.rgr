@@ -6,6 +6,80 @@ Import "ng_LowIR.rgr"
 
 class WATWriter {
 
+  ; string-literal global name -> its static byte address in linear memory
+  def strAddrs:[string:int]
+
+  ; --- string literal data segments --------------------------------------
+  ; Layout: [0,16) control, [16, heapEnd) literals, heapEnd.. heap. The heap
+  ; base (heapEnd) is written to Mem[4]; ranger_heap.base() reads it. Literals
+  ; are null-terminated UTF-8 char* buffers, matching the char* string model.
+  fn utf8Encode:[int] (text:string) {
+    def bytes:[int]
+    def i 0
+    def n (strlen text)
+    while (< i n) {
+      def c (charAt text i)
+      if (< c 128) {
+        push bytes c
+      } {
+        if (< c 2048) {
+          push bytes (bit_or 192 (bit_shr c 6))
+          push bytes (bit_or 128 (bit_and c 63))
+        } {
+          push bytes (bit_or 224 (bit_shr c 12))
+          push bytes (bit_or 128 (bit_and (bit_shr c 6) 63))
+          push bytes (bit_or 128 (bit_and c 63))
+        }
+      }
+      i = (+ i 1)
+    }
+    return bytes
+  }
+
+  fn hexDigit:string (d:int) {
+    if (< d 10) {
+      return ("" + d)
+    }
+    return (strfromcode (+ 97 (- d 10)))
+  }
+
+  fn hexByte:string (b:int) {
+    return ("\\" + ((this.hexDigit((bit_and (bit_shr b 4) 15))) + (this.hexDigit((bit_and b 15)))))
+  }
+
+  fn dataEscape:string (bytes:[int]) {
+    def s ""
+    for bytes b:int i {
+      s = (s + (this.hexByte(b)))
+    }
+    return s
+  }
+
+  fn leWord:string (v:int) {
+    def s ""
+    s = (s + (this.hexByte((bit_and v 255))))
+    s = (s + (this.hexByte((bit_and (bit_shr v 8) 255))))
+    s = (s + (this.hexByte((bit_and (bit_shr v 16) 255))))
+    s = (s + (this.hexByte((bit_and (bit_shr v 24) 255))))
+    return s
+  }
+
+  fn emitStringData:void (module:LowIRModule wr:CodeWriter) {
+    def addr 16
+    for module.stringGlobals g:LowIRStringGlobal i {
+      def bytes (this.utf8Encode(g.text))
+      if g.withNewline {
+        push bytes 10
+      }
+      set this.strAddrs g.name addr
+      wr.out(("  (data (i32.const " + (("" + addr) + (") \"" + ((this.dataEscape(bytes)) + "\\00\")")))) true)
+      addr = (+ addr (+ (array_length bytes) 1))
+    }
+    ; heap base = end of literals, rounded up to 16; stored at Mem[4]
+    def base (bit_and (+ addr 15) (bit_xor -1 15))
+    wr.out(("  (data (i32.const 4) \"" + ((this.leWord(base)) + "\")")) true)
+  }
+
   fn wasmName:string (llvmName:string) {
     if ((strlen llvmName) == 0) {
       return ""
@@ -75,9 +149,13 @@ class WATWriter {
 
   fn writeModule:void (module:LowIRModule wr:CodeWriter) {
     wr.out("(module" true)
-    if (this.moduleUsesHeap(module)) {
+    def hasLiterals ((array_length module.stringGlobals) > 0)
+    if ((this.moduleUsesHeap(module)) || hasLiterals) {
       wr.out("  (memory (export \"memory\") 1)" true)
       wr.out("  (global $heap_ptr (mut i32) (i32.const 0))" true)
+    }
+    if hasLiterals {
+      this.emitStringData(module wr)
     }
     for module.functions fn:LowIRFunction i {
       this.writeFunction(fn wr fn.exportFn)
@@ -471,7 +549,11 @@ class WATWriter {
         wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
       }
       case "str_ptr" {
-        wr.out(("      i32.const 0") true)
+        def addr 0
+        if (has this.strAddrs ins.arg1) {
+          addr = (unwrap (get this.strAddrs ins.arg1))
+        }
+        wr.out(("      i32.const " + ("" + addr)) true)
         wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
       }
       case "icmp" {

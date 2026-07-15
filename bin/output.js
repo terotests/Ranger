@@ -35657,7 +35657,70 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
   }
   class WATWriter  {
     constructor() {
+      this.strAddrs = {};
     }
+    utf8Encode (text) {
+      let bytes = [];
+      let i = 0;
+      const n = text.length;
+      while (i < n) {
+        const c = text.charCodeAt(i );
+        if ( c < 128 ) {
+          bytes.push(c);
+        } else {
+          if ( c < 2048 ) {
+            bytes.push((192 | ((c >> 6))));
+            bytes.push((128 | ((c & 63))));
+          } else {
+            bytes.push((224 | ((c >> 12))));
+            bytes.push((128 | ((((c >> 6)) & 63))));
+            bytes.push((128 | ((c & 63))));
+          }
+        }
+        i = i + 1;
+      };
+      return bytes;
+    };
+    hexDigit (d) {
+      if ( d < 10 ) {
+        return "" + d;
+      }
+      return String.fromCharCode((97 + (d - 10)));
+    };
+    hexByte (b) {
+      return "\\" + (this.hexDigit(((((b >> 4)) & 15))) + this.hexDigit(((b & 15))));
+    };
+    dataEscape (bytes) {
+      let s = "";
+      for ( let i = 0; i < bytes.length; i++) {
+        var b = bytes[i];
+        s = s + this.hexByte(b);
+      };
+      return s;
+    };
+    leWord (v) {
+      let s = "";
+      s = s + this.hexByte(((v & 255)));
+      s = s + this.hexByte(((((v >> 8)) & 255)));
+      s = s + this.hexByte(((((v >> 16)) & 255)));
+      s = s + this.hexByte(((((v >> 24)) & 255)));
+      return s;
+    };
+    emitStringData (module, wr) {
+      let addr = 16;
+      for ( let i = 0; i < module.stringGlobals.length; i++) {
+        var g = module.stringGlobals[i];
+        let bytes = this.utf8Encode(g.text);
+        if ( g.withNewline ) {
+          bytes.push(10);
+        }
+        this.strAddrs[g.name] = addr;
+        wr.out("  (data (i32.const " + (("" + addr) + (") \"" + (this.dataEscape(bytes) + "\\00\")"))), true);
+        addr = addr + ((bytes.length) + 1);
+      };
+      const base = ((addr + 15) & ((-1 ^ 15)));
+      wr.out("  (data (i32.const 4) \"" + (this.leWord(base) + "\")"), true);
+    };
     wasmName (llvmName) {
       if ( (llvmName.length) == 0 ) {
         return "";
@@ -35711,9 +35774,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     };
     writeModule (module, wr) {
       wr.out("(module", true);
-      if ( this.moduleUsesHeap(module) ) {
+      const hasLiterals = (module.stringGlobals.length) > 0;
+      if ( this.moduleUsesHeap(module) || hasLiterals ) {
         wr.out("  (memory (export \"memory\") 1)", true);
         wr.out("  (global $heap_ptr (mut i32) (i32.const 0))", true);
+      }
+      if ( hasLiterals ) {
+        this.emitStringData(module, wr);
       }
       for ( let i = 0; i < module.functions.length; i++) {
         var fn = module.functions[i];
@@ -36067,7 +36134,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           wr.out("      local.set " + this.wasmName(ins.dest), true);
           break;
         case "str_ptr" : 
-          wr.out("      i32.const 0", true);
+          let addr = 0;
+          if ( ( typeof(this.strAddrs[ins.arg1] ) != "undefined" && this.strAddrs.hasOwnProperty(ins.arg1) ) ) {
+            addr = (( this.strAddrs.hasOwnProperty(ins.arg1) ? this.strAddrs[ins.arg1] : undefined ));
+          }
+          wr.out("      i32.const " + ("" + addr), true);
           wr.out("      local.set " + this.wasmName(ins.dest), true);
           break;
         case "icmp" : 
