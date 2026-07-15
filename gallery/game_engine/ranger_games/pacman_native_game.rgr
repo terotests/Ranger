@@ -1,11 +1,11 @@
 ; ==============================================================================
-; pong_native_game - static-compiled Pong logic (emitter output).
+; pacman_native_game - static-compiled Pac-Man logic (emitter output).
 ; ==============================================================================
 
-Import "./native_game_bridge.rgr"
-Import "../../ts_to_ranger/generated/pong_generated.rgr"
+Import "../scripting/native_game_bridge.rgr"
+Import "../../ts_to_ranger/generated/pacman_native_generated.rgr"
 
-class PongNativeGame extends NativeGameBridge {
+class PacmanNativeGame extends NativeGameBridge {
     def script:GeneratedGameScript (new GeneratedGameScript)
 
     fn setupScene:void () {
@@ -17,13 +17,6 @@ class PongNativeGame extends NativeGameBridge {
     fn frame:void (dtMs:int up:boolean down:boolean left:boolean right:boolean action:boolean) {
         runner.advanceTime(dtMs)
         def props:UpdatePropsNative (runner.buildProps(dtMs up down left right action))
-        def patch:NativeGameState (script.update(props))
-        runner.applyScriptPatch(patch props)
-    }
-
-    fn frameWithMasks:void (dtMs:int mask0:int mask1:int) {
-        runner.advanceTime(dtMs)
-        def props:UpdatePropsNative (runner.buildPropsFromMasks(dtMs mask0 mask1))
         def patch:NativeGameState (script.update(props))
         runner.applyScriptPatch(patch props)
     }

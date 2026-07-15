@@ -12,9 +12,9 @@
 ;   ./tmp/sprite-char/sprite_char_sdl            # interactive
 ;   ./tmp/sprite-char/sprite_char_sdl 120        # headless smoke: 120 frames, dump PNG
 
-Import "./framebuffer.rgr"
-Import "./gfx_sdl.rgr"
-Import "./scripting/sprite_char_poc.rgr"
+Import "../framebuffer.rgr"
+Import "../gfx_sdl.rgr"
+Import "../scripting/sprite_char_poc.rgr"
 
 class SpriteCharSdlApp {
     def pw:int 320

@@ -58,7 +58,7 @@ describe("Host bridge: resources + events (both paths)", () => {
 
   it("native (compiled) path registers resources and drains events", () => {
     const { compile, run } = compileAndRun(
-      "gallery/game_engine/scripting/spawner_native_runner.rgr"
+      "gallery/game_engine/ranger_games/spawner_native_runner.rgr"
     );
     expect(
       compile.success,
@@ -77,10 +77,10 @@ describe("Host bridge: resources + events (both paths)", () => {
 
   it("interpreter (TS runtime) path matches the native path exactly", () => {
     const native = compileAndRun(
-      "gallery/game_engine/scripting/spawner_native_runner.rgr"
+      "gallery/game_engine/ranger_games/spawner_native_runner.rgr"
     );
     const interp = compileAndRun(
-      "gallery/game_engine/scripting/spawner_runner_demo.rgr"
+      "gallery/game_engine/tests/spawner_runner_demo.rgr"
     );
     expect(native.run?.success, native.run?.error).toBe(true);
     expect(interp.run?.success, interp.run?.error).toBe(true);
@@ -127,10 +127,10 @@ describe("Emitter: while loops (invaders foundation)", () => {
 
   it("while loop yields identical results on both paths (sum 0..4 = 10)", () => {
     const native = compileAndRun(
-      "gallery/game_engine/scripting/counter_native_runner.rgr"
+      "gallery/game_engine/ranger_games/counter_native_runner.rgr"
     );
     const interp = compileAndRun(
-      "gallery/game_engine/scripting/counter_runner_demo.rgr"
+      "gallery/game_engine/tests/counter_runner_demo.rgr"
     );
     expect(native.run?.success, native.run?.error).toBe(true);
     expect(interp.run?.success, interp.run?.error).toBe(true);

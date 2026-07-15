@@ -11,7 +11,7 @@ import { compileAndRun } from "./helpers/compiler";
 describe("Game runner - scripted Pong", () => {
   it("runs the scripted pong game and moves entities over time", () => {
     const { compile, run } = compileAndRun(
-      "gallery/game_engine/scripting/pong_runner_demo.rgr"
+      "gallery/game_engine/tests/pong_runner_demo.rgr"
     );
 
     expect(
@@ -43,7 +43,7 @@ describe("Game runner - scripted Pong", () => {
 
   it("runs the scripted invaders game and scores kills", () => {
     const { compile, run } = compileAndRun(
-      "gallery/game_engine/scripting/invaders_runner_demo.rgr"
+      "gallery/game_engine/tests/invaders_runner_demo.rgr"
     );
 
     expect(
@@ -71,7 +71,7 @@ describe("Game runner - scripted Pong", () => {
 
   it("runs the scripted breakout game with JSX HUD and screen transitions", () => {
     const { compile, run } = compileAndRun(
-      "gallery/game_engine/scripting/breakout_runner_demo.rgr"
+      "gallery/game_engine/tests/breakout_runner_demo.rgr"
     );
 
     expect(
@@ -158,7 +158,7 @@ describe("Game runner - scripted Pong", () => {
 
   it("runs the scripted pacman game and eats dots", () => {
     const { compile, run } = compileAndRun(
-      "gallery/game_engine/scripting/pacman_runner_demo.rgr"
+      "gallery/game_engine/tests/pacman_runner_demo.rgr"
     );
 
     expect(
@@ -255,7 +255,7 @@ describe("Game runner - scripted Pong", () => {
 
   it("runs the Ylos platformer with static level bg", () => {
     const { compile, run } = compileAndRun(
-      "gallery/game_engine/scripting/ylos_runner_demo.rgr"
+      "gallery/game_engine/tests/ylos_runner_demo.rgr"
     );
 
     expect(
@@ -277,7 +277,7 @@ describe("Game runner - scripted Pong", () => {
 
   it("runs Ylos 2 with LPC sheet sprites and diamonds", () => {
     const { compile, run } = compileAndRun(
-      "gallery/game_engine/scripting/ylos2_runner_demo.rgr"
+      "gallery/game_engine/tests/ylos2_runner_demo.rgr"
     );
 
     expect(
@@ -297,7 +297,7 @@ describe("Game runner - scripted Pong", () => {
 
   it("runs world-mode scroll demo with engine camera and worldEntities", () => {
     const { compile, run } = compileAndRun(
-      "gallery/game_engine/scripting/world_scroll_runner_demo.rgr"
+      "gallery/game_engine/tests/world_scroll_runner_demo.rgr"
     );
 
     expect(

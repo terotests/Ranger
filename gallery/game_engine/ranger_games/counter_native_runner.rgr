@@ -2,7 +2,7 @@
 ; counter_native_runner - while-loop demo (static-compiled path).
 ; ==============================================================================
 
-Import "./game_native_runtime.rgr"
+Import "../scripting/game_native_runtime.rgr"
 Import "../../ts_to_ranger/generated/counter_generated.rgr"
 
 class CounterNativeRunner {

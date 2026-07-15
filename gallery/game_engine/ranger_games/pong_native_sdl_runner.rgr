@@ -2,7 +2,7 @@
 ; pong_native_sdl_runner - SDL2 + static-compiled Pong (Path B).
 ; ==============================================================================
 
-Import "./game_sdl_native_host.rgr"
+Import "../scripting/game_sdl_native_host.rgr"
 Import "./pong_native_game.rgr"
 
 class PongNativeSdlRunner {

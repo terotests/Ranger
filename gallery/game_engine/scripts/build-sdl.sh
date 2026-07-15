@@ -18,7 +18,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-SOURCE="$ROOT/gallery/game_engine/pong_sdl.rgr"
+SOURCE="$ROOT/gallery/game_engine/ranger_games/pong_sdl.rgr"
 OUT_DIR="$ROOT/tmp/pong-sdl"
 CPP_FILE="$OUT_DIR/pong_sdl.cpp"
 BIN_FILE="$OUT_DIR/pong_sdl"

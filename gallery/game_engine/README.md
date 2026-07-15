@@ -10,26 +10,41 @@ Tarkempi suunnitelma: [`PLAN_GAME_ENGINE.md`](./PLAN_GAME_ENGINE.md). Nykytila j
 
 ```
 gallery/game_engine/
-├── games/              # Launcher-skannattavat pelit (index.tsx tai logic.wasm)
+├── games/              # LADATTAVAT pelit (index.tsx tai logic.wasm) — host ajaa runtimessa
+├── ranger_games/       # RANGER-PELIT: staattinen Ranger-lähdekoodi → natiivi binääri
+│                       #   (käännetty Pong, sprite_char, streaming_world + AOT-natiivipelit)
 ├── menu/               # Käynnistysvalikko (index.tsx)
 ├── ui/                 # EVG-pohjainen interaktiivinen UI-kerros (RGU1, valikot, widgetit)
-├── scripting/          # Moottorin runtime + TSX-tyypit + vanhat *.game.tsx-demot
+├── scripting/          # MOOTTORIN YDIN: runtime, host, fysiikka, WASM/TSX-runnerit, TSX-tyypit
 ├── physics/            # Cannon.js -portti (pinball, sandbox)
 ├── wasm/               # WASM-guestit: Rust (`rust_*`) + AssemblyScript (`as_*`) + jaetut ABI-headerit
 ├── pose/               # Pose-input (RGP1): natiivi provider + MediaPipe-PoC
 ├── lpc/                # LPC-spritesheet-compositor (erillinen työkalu)
-├── pong_*.rgr          # Käännetty Pong-viite (terminaali + SDL2)
-├── framebuffer.rgr     # SoftCanvas (RGBA8888)
-├── gfx_sdl.rgr         # SDL2-shim (C++ polyfill, GLES2 GPU-present)
+├── tests/              # Peli-testirunnerit (headless *_runner_demo.rgr) + interp/
+├── framebuffer.rgr     # SoftCanvas (RGBA8888) — moottorin ydin
+├── gfx_sdl.rgr         # SDL2-shim (C++ polyfill, GLES2 GPU-present) — moottorin ydin
 └── scripts/            # build-skriptit (SDL, native, Pi, LPC, WASM, …)
 ```
+
+**Kolme selkeästi eri asiaa** (älä sekoita niitä):
+
+| Käsite | Hakemisto | Mitä |
+|--------|-----------|------|
+| **Ladattavat pelit** | [`games/`](./games/) | Wasm-/TSX-/`.as`-pelit, jotka host lataa ajon aikana |
+| **Ranger-pelit (alusta)** | [`ranger_games/`](./ranger_games/) | Pelit, joiden logiikka on Ranger-lähdekoodia, käännettynä omaksi natiivibinääriksi |
+| **Moottorin ydin** | [`scripting/`](./scripting/), `framebuffer.rgr`, `gfx_sdl.rgr` | Alusta, jonka päällä ladattavat pelit pyörivät — ei itse peli |
+
+"Ranger alustana" tarkoittaa `ranger_games/`-hakemistoa: peli **on** käännetty
+ohjelma, ei tulkattua guestia. Uudet ladattavat pelit menevät `games/`-hakemistoon,
+uudet käännetyt Ranger-pelit `ranger_games/`-hakemistoon. Ks. [`ranger_games/README.md`](./ranger_games/README.md).
 
 ## Kehityspolut
 
 | Polku | Milloin | Tiedostot |
 |-------|---------|-----------|
 | **TSX-skriptaus** (pääpolku) | Uudet pelit, nopea iterointi, valikko, ääni, tallennus | `games/*/index.tsx`, `scripting/game_runtime.rgr`, `scripting/game_sdl_runner.rgr` |
-| **Käännetty Ranger-ydin** | Matalan tason viite, LLVM/terminaali-Pi | `pong_core.rgr`, `pong.rgr`, `pong_sdl.rgr` |
+| **Käännetty Ranger-ydin** | Matalan tason viite, LLVM/terminaali-Pi | `ranger_games/pong_core.rgr`, `ranger_games/pong.rgr`, `ranger_games/pong_sdl.rgr` |
+| **AOT-natiivipeli** | Sama peli kuin `games/`, käännettynä ennakkoon natiiviksi (ei TSX-latausta) | `ranger_games/*_native_game.rgr`, `ranger_games/*_native_sdl_runner.rgr` |
 | **WASM (Path C)** | Logiikka Rust tai AssemblyScript → `.wasm`, host hoitaa piirron ja fysiikan | `wasm/rust_*`, `wasm/as_*`, `games/*/logic.wasm`, `scripting/wasm_game_runner.rgr` |
 | **`.as` (tulkittu)** | Sama ABI kuin WASM, mutta guest ajetaan tulkattuna (`engine=as`) — ei käännösvaihetta | `scripting/as_abi_bridge.rgr`, `scripting/as_source_runner.rgr` |
 | **EVG UI** | Interaktiiviset valikot/widgetit retained-mode RGU1-dokumenttina (`engine=ui`) | `ui/`, `scripting/wasm_ui_io.rgr` |
@@ -381,14 +396,15 @@ npm run engine:physics:test
 
 ## Käännetty Pong-viite
 
-Alkuperäinen portability-PoC: pelilogiikka kerran [`pong_core.rgr`](./pong_core.rgr):ssä, kaksi backendia.
+Alkuperäinen portability-PoC (kaikki [`ranger_games/`](./ranger_games/):ssä):
+pelilogiikka kerran [`ranger_games/pong_core.rgr`](./ranger_games/pong_core.rgr):ssä, kaksi backendia.
 
 | Kerros | Tiedosto | I/O? |
 |--------|----------|------|
-| Logiikka | `pong_core.rgr` | Ei |
-| Piirto | `framebuffer.rgr` + `pong_render.rgr` | Ei (RGBA-puskuri) |
-| Terminaali | `pong.rgr` | Kyllä (ANSI + näppäimistö) |
-| SDL2 | `pong_sdl.rgr` + `gfx_sdl.rgr` | Kyllä (ikkuna) |
+| Logiikka | `ranger_games/pong_core.rgr` | Ei |
+| Piirto | `framebuffer.rgr` + `ranger_games/pong_render.rgr` | Ei (RGBA-puskuri) |
+| Terminaali | `ranger_games/pong.rgr` | Kyllä (ANSI + näppäimistö) |
+| SDL2 | `ranger_games/pong_sdl.rgr` + `gfx_sdl.rgr` | Kyllä (ikkuna) |
 
 `Pong.step(input:Buttons)` on puhdas: kokonaisluku-Bresenham-liike, ei floatteja simulaatiossa. Piirto voi käyttää render-only subpixel-offsettia (`PongRenderer`).
 
@@ -532,6 +548,11 @@ Kummassakaan tapauksessa **guest-koodia ei tarvitse muuttaa** — uusi hahmo on 
 | [`tests/game-scripting.test.ts`](../../tests/game-scripting.test.ts) | ComponentEngine-skriptaus |
 | [`tests/physics-cannon.test.ts`](../../tests/physics-cannon.test.ts) | Cannon.js -portti |
 
+Peli-testirunnerit (headless per-peli `*_runner_demo.rgr`, ajaa em.
+`.test.ts`-tiedostot) elävät hakemistossa [`tests/`](./tests/) — ks.
+[`tests/README.md`](./tests/README.md). Moottorin ydinkomponenttien self-testit
+(`scripting/*_demo.rgr`) jäävät `scripting/`-hakemistoon runtimen viereen (alla).
+
 ### Headless self-testit (`scripting/*_demo.rgr`)
 
 IDEAL-työn ja Phase R -korjausten komponentit kääntyvät Ranger-kääntäjällä ja
@@ -558,8 +579,8 @@ RANGER_LIB=compiler/Lang.rgr:lib/stdops.rgr node bin/output.js -es6 \
 | `game_script_contract_demo` | Skriptien paluuarvojen validointi (R.8) |
 | `game_runner_mode_demo` | RunnerMode-luokittelu + laittomat tilat (R.6) |
 
-Integraatiotesti oikealla pelillä: `breakout_runner_demo.rgr` ajaa
-`breakout.game.tsx`:n koko runtimen läpi (fixed-step, entities, contract) nodella.
+Integraatiotesti oikealla pelillä: [`tests/breakout_runner_demo.rgr`](./tests/breakout_runner_demo.rgr)
+ajaa `breakout.game.tsx`:n koko runtimen läpi (fixed-step, entities, contract) nodella.
 
 ## Dokumentaatio ja tiedostot
 

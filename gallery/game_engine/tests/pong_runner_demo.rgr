@@ -12,7 +12,7 @@
 ;   ffmpeg -f rawvideo -pixel_format rgba -video_size 480x270 -i pong_frame.rgba out.png
 ; ==============================================================================
 
-Import "./game_runtime.rgr"
+Import "../scripting/game_runtime.rgr"
 
 class PongRunnerDemo {
     sfn m@(main):void () {

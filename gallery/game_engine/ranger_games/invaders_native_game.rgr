@@ -2,7 +2,7 @@
 ; invaders_native_game - static-compiled Invaders logic (emitter output).
 ; ==============================================================================
 
-Import "./native_game_bridge.rgr"
+Import "../scripting/native_game_bridge.rgr"
 Import "../../ts_to_ranger/generated/invaders_generated.rgr"
 
 class InvadersNativeGame extends NativeGameBridge {

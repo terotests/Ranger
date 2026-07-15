@@ -10,7 +10,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-SOURCE="$ROOT/gallery/game_engine/pong.rgr"
+SOURCE="$ROOT/gallery/game_engine/ranger_games/pong.rgr"
 OUT_DIR="$ROOT/tmp/pong-native"
 LL_FILE="$OUT_DIR/pong.ll"
 BIN_FILE="$OUT_DIR/pong"

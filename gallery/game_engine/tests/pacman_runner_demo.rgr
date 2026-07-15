@@ -2,7 +2,7 @@
 ; pacman_runner_demo - headless GameRunner smoke for pacman.game.tsx
 ; ==============================================================================
 
-Import "./game_runtime.rgr"
+Import "../scripting/game_runtime.rgr"
 
 class PacmanRunnerDemo {
     sfn m@(main):void () {
