@@ -528,6 +528,8 @@ static int rgfx_audio_sample_rate() {
 }
 #include <vector>
 #include <cmath>
+#include <map>
+#include <string>
 #if defined(__APPLE__)
 #include <OpenGL/gl3.h>
 #elif defined(__arm__) || defined(__aarch64__)
@@ -2222,6 +2224,22 @@ static GLint g_scn_uNumPt=-1, g_scn_uPtPos=-1, g_scn_uPtCol=-1, g_scn_uPtRange=-
 
 static int rgfx_scene_valid(int id) { return id > 0 && id <= (int) g_scene.size() && g_scene[(size_t)(id-1)].alive; }
 
+// Named GLB-model registry: the runner preloads <game>/models/*.glb, uploads
+// each mesh + its base texture into the mesh/texture pools, and registers the
+// (meshId, default texId) here under the file's basename. The guest's
+// rg_load_model(name) import then resolves a name to a meshId.
+static std::map<std::string,int> g_scene_model_mesh;
+static std::map<int,int> g_scene_mesh_deftex;
+extern \"C\" void rgfx_scene_register_model(const char* name, int meshId, int texId) {
+    if (name && name[0]) { g_scene_model_mesh[std::string(name)] = meshId; }
+    if (meshId > 0) { g_scene_mesh_deftex[meshId] = texId; }
+}
+extern \"C\" int rgfx_scene_model_mesh(const char* name) {
+    if (!name) { return 0; }
+    std::map<std::string,int>::iterator it = g_scene_model_mesh.find(std::string(name));
+    return it == g_scene_model_mesh.end() ? 0 : it->second;
+}
+
 extern \"C\" int rgfx_scene_reset() { g_scene.clear(); g_scene_active_cam = 0; return 0; }
 
 static int rgfx_scene_alloc(int type) {
@@ -2287,6 +2305,7 @@ extern \"C\" int rgfx_scene_create_box(float x0, float y0, float z0, float x1, f
     return id;
 }
 extern \"C\" int rgfx_scene_create_mesh_entity(int meshId, int texId) {
+    if (texId <= 0) { std::map<int,int>::iterator it = g_scene_mesh_deftex.find(meshId); if (it != g_scene_mesh_deftex.end()) { texId = it->second; } }
     int id = rgfx_scene_alloc(RGE_MESH); g_scene[(size_t)(id-1)].meshId = meshId; g_scene[(size_t)(id-1)].texId = texId; return id;
 }
 extern \"C\" int rgfx_scene_create_camera(float fovy, float nearp, float farp) {
@@ -2798,6 +2817,14 @@ extern \"C\" void rgfx_scene_render(int w, int h) {
     gfx_scene_render _:void (w:int h:int) {
         templates {
             cpp ( "rgfx_scene_render(" (e 1) ", " (e 2) "); rgfx_gpu_finish_frame()" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+    ; Register a preloaded GLB mesh (+ its base texture) under a name so the
+    ; guest's rg_load_model(name) import can resolve it to this meshId.
+    gfx_scene_register_model _:void (name:string meshId:int texId:int) {
+        templates {
+            cpp ( "rgfx_scene_register_model(" (e 1) ".c_str(), " (e 2) ", " (e 3) ")" (imp "<SDL2/SDL.h>") (imp "<string>") )
             es6 ( "undefined" )
         }
     }

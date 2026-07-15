@@ -229,6 +229,7 @@ m3ApiRawFunction(m3_rg_ui_effect) {
  * (extern "C"); these weak fallbacks let this bridge link in a headless build
  * that does not include the GL scene (the scene calls then no-op). */
 __attribute__((weak)) int  rgfx_scene_load_texture(const char* d, const char* n){ (void)d;(void)n; return 0; }
+__attribute__((weak)) int  rgfx_scene_model_mesh(const char* n){ (void)n; return 0; }
 __attribute__((weak)) int  rgfx_scene_create_box(float a,float b,float c,float d,float e,float f,int t){ (void)a;(void)b;(void)c;(void)d;(void)e;(void)f;(void)t; return 0; }
 __attribute__((weak)) int  rgfx_scene_create_mesh_entity(int m,int t){ (void)m;(void)t; return 0; }
 __attribute__((weak)) int  rgfx_scene_create_camera(float a,float b,float c){ (void)a;(void)b;(void)c; return 0; }
@@ -254,6 +255,16 @@ m3ApiRawFunction(m3_rg_load_texture) {
     char name[128];
     rg_copy_wasm_str(runtime, _mem, nameOff, nameLen, name, (int)sizeof(name));
     m3ApiReturn(rgfx_scene_load_texture(s ? s->asset_dir : "assets", name));
+}
+/* env.rg_load_model(name_ptr, name_len) -> meshId. Resolves a preloaded GLB
+ * model (uploaded + registered by the runner) by name; 0 when not found. */
+m3ApiRawFunction(m3_rg_load_model) {
+    m3ApiReturnType(int32_t)
+    m3ApiGetArg(int32_t, nameOff)
+    m3ApiGetArg(int32_t, nameLen)
+    char name[128];
+    rg_copy_wasm_str(runtime, _mem, nameOff, nameLen, name, (int)sizeof(name));
+    m3ApiReturn(rgfx_scene_model_mesh(name));
 }
 m3ApiRawFunction(m3_rg_create_box) {
     m3ApiReturnType(int32_t)
@@ -354,6 +365,7 @@ static void rg_link_host_imports(RgWasmSlot* s) {
     }
     /* host-managed 3D scene (IDEAL_3D Phase H) */
     (void)m3_LinkRawFunctionEx(s->module, "env", "rg_load_texture", "i(ii)", &m3_rg_load_texture, s);
+    (void)m3_LinkRawFunctionEx(s->module, "env", "rg_load_model", "i(ii)", &m3_rg_load_model, s);
     (void)m3_LinkRawFunctionEx(s->module, "env", "rg_create_box", "i(iiiiiii)", &m3_rg_create_box, s);
     (void)m3_LinkRawFunctionEx(s->module, "env", "rg_create_mesh_entity", "i(ii)", &m3_rg_create_mesh_entity, s);
     (void)m3_LinkRawFunctionEx(s->module, "env", "rg_create_camera", "i(iii)", &m3_rg_create_camera, s);

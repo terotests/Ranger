@@ -2,12 +2,13 @@
 //! host-managed scene (IDEAL_3D Phase H). A Donkey-Kong-in-3D: climb a stepped
 //! sandstone pyramid ring by ring to the golden summit. Jump up each terrace,
 //! or take the stairs on the east face for an easier route. Mummy monsters
-//! patrol the terraces; grab a diamond for a few seconds of invincibility and
-//! you can bump them aside. Reach the top to win.
+//! patrol every side of the terraces, and boulders are hurled off the summit to
+//! bounce down the steps — dodge them. Grab a diamond for a few seconds of
+//! invincibility and you can bump monsters aside. Reach the top to win.
 //!
-//! Ownership: the guest owns the world and all player/monster physics (a
-//! kinematic AABB character controller with auto-step). The host owns the
-//! scene and renders it — the guest only issues `rg_create_*` at init and
+//! Ownership: the guest owns the world and all player/monster/hazard physics (a
+//! kinematic AABB character controller with auto-step). The host owns the scene
+//! and renders it — the guest only issues `rg_create_*` at init and
 //! `rg_set_position`/`rotation`/`scale`/`visible` per frame, holding opaque
 //! `EntityId`s. Static geometry is baked at world coords (identity transform);
 //! movable actors are created centred at the origin and moved each frame.
@@ -25,7 +26,9 @@ const FP: f32 = 256.0;
 // Host imports (runtime/rg_wasm_bridge.c; IDEAL_3D §4.4).
 extern "C" {
     fn rg_load_texture(name_ptr: *const u8, name_len: u32) -> i32;
+    fn rg_load_model(name_ptr: *const u8, name_len: u32) -> i32;
     fn rg_create_box(x0: i32, y0: i32, z0: i32, x1: i32, y1: i32, z1: i32, tex: i32) -> i32;
+    fn rg_create_mesh_entity(mesh: i32, tex: i32) -> i32;
     fn rg_create_camera(fovy: i32, near: i32, far: i32) -> i32;
     fn rg_create_light(kind: i32, color: i32, intensity: i32) -> i32;
     fn rg_set_position(e: i32, x: i32, y: i32, z: i32);
@@ -52,9 +55,6 @@ fn rgba(r: u8, g: u8, b: u8) -> i32 {
 }
 
 // ---- host actor helpers ----------------------------------------------------
-// A "static" box is baked at world coords (transform stays identity). A
-// "movable actor" is created centred at the origin so rg_set_position places
-// it; swapping this for a GLB via rg_create_mesh_entity later is a one-liner.
 fn create_static_box(min: [f32; 3], max: [f32; 3], tex: i32) -> i32 {
     unsafe {
         rg_create_box(
@@ -78,6 +78,15 @@ fn set_yaw(e: i32, a: f32) {
     let (s, c) = (a * 0.5).sin_cos();
     unsafe { rg_set_rotation(e, 0, q16(s), 0, q16(c)) };
 }
+/// Tumble quaternion about a diagonal axis by angle a (for rolling boulders).
+fn set_tumble(e: i32, a: f32) {
+    let inv = 0.577_35_f32; // 1/sqrt(3)
+    let (s, c) = (a * 0.5).sin_cos();
+    unsafe { rg_set_rotation(e, q16(s * inv), q16(s * inv), q16(s * inv), q16(c)) };
+}
+fn set_scale_uniform(e: i32, s: f32) {
+    unsafe { rg_set_scale(e, fx(s), fx(s), fx(s)) };
+}
 
 // ---- level geometry --------------------------------------------------------
 const LEVELS: usize = 6;
@@ -95,6 +104,18 @@ fn slab_y0(i: usize) -> f32 {
 fn summit_y() -> f32 {
     LEVELS as f32 * STEP // top of the highest slab
 }
+/// Height of the pyramid surface at (x,z): the top of the smallest slab that
+/// still covers this footprint radius, or the sand (0) beyond the base.
+fn floor_height(x: f32, z: f32) -> f32 {
+    let r = x.abs().max(z.abs());
+    let mut top = 0.0;
+    for i in 0..LEVELS {
+        if r <= slab_half(i) {
+            top = slab_y0(i) + STEP;
+        }
+    }
+    top
+}
 
 // ---- colliders + sim state -------------------------------------------------
 const MAX_C: usize = 48;
@@ -104,21 +125,19 @@ struct Aabb {
     max: [f32; 3],
 }
 
-const MAX_MON: usize = 4;
+const MAX_MON: usize = 8;
 #[derive(Clone, Copy)]
 struct Monster {
     ent: i32,
-    // patrol along one axis (0=x, 2=z) between lo..hi at fixed `fixed` on the
-    // other horizontal axis, standing on terrace top `y`.
-    axis: usize,
-    fixed: f32,
+    axis: usize, // patrol along 0=x or 2=z
+    fixed: f32,  // fixed coord on the other horizontal axis
     lo: f32,
     hi: f32,
     y: f32,
-    pos: f32, // current coord along the patrol axis
+    pos: f32,
     dir: f32,
     speed: f32,
-    respawn: f32, // >0 = defeated, counting down to reappear
+    respawn: f32, // >0 = knocked out, counting down to reappear
 }
 
 const MAX_GEM: usize = 5;
@@ -131,6 +150,27 @@ struct Gem {
     taken: bool,
 }
 
+const MAX_BALL: usize = 8;
+const BALL_R: f32 = 0.35;
+#[derive(Clone, Copy)]
+struct Ball {
+    ent: i32,
+    x: f32,
+    y: f32,
+    z: f32,
+    vx: f32,
+    vy: f32,
+    vz: f32,
+    spin: f32,
+    life: f32,
+    active: bool,
+}
+
+// game modes
+const MODE_PLAY: i32 = 0;
+const MODE_DYING: i32 = 1;
+const MODE_WON: i32 = 2;
+
 struct World {
     boxes: [Aabb; MAX_C],
     nbox: usize,
@@ -138,6 +178,7 @@ struct World {
     nmon: usize,
     gems: [Gem; MAX_GEM],
     ngem: usize,
+    balls: [Ball; MAX_BALL],
     // player
     px: f32,
     py: f32,
@@ -148,10 +189,14 @@ struct World {
     yaw: f32,
     on_ground: bool,
     // game
-    invinc: f32, // seconds of invincibility remaining
+    invinc: f32,
     lives: i32,
-    won: bool,
-    t: f32, // elapsed seconds (for spin/pulse)
+    mode: i32,
+    dying_t: f32,
+    death: [f32; 3],
+    ball_timer: f32,
+    rng: u32,
+    t: f32,
     player_ent: i32,
     cam: i32,
     lamp: i32,
@@ -164,10 +209,12 @@ const ZERO_MON: Monster = Monster {
     ent: 0, axis: 2, fixed: 0.0, lo: 0.0, hi: 0.0, y: 0.0, pos: 0.0, dir: 1.0, speed: 0.0, respawn: 0.0,
 };
 const ZERO_GEM: Gem = Gem { ent: 0, x: 0.0, y: 0.0, z: 0.0, taken: false };
+const ZERO_BALL: Ball = Ball {
+    ent: 0, x: 0.0, y: 0.0, z: 0.0, vx: 0.0, vy: 0.0, vz: 0.0, spin: 0.0, life: 0.0, active: false,
+};
 
-// player spawn (on the sand, south of the pyramid, facing the north/-z centre)
 const SPAWN: [f32; 3] = [0.0, 0.6, BASE + 3.0];
-const SPAWN_YAW: f32 = core::f32::consts::PI; // face -z (into the pyramid)
+const SPAWN_YAW: f32 = core::f32::consts::PI;
 const START_LIVES: i32 = 5;
 
 static W: WCell = WCell(UnsafeCell::new(World {
@@ -177,6 +224,7 @@ static W: WCell = WCell(UnsafeCell::new(World {
     nmon: 0,
     gems: [ZERO_GEM; MAX_GEM],
     ngem: 0,
+    balls: [ZERO_BALL; MAX_BALL],
     px: SPAWN[0],
     py: SPAWN[1],
     pz: SPAWN[2],
@@ -187,7 +235,11 @@ static W: WCell = WCell(UnsafeCell::new(World {
     on_ground: true,
     invinc: 0.0,
     lives: START_LIVES,
-    won: false,
+    mode: MODE_PLAY,
+    dying_t: 0.0,
+    death: [0.0; 3],
+    ball_timer: 0.0,
+    rng: 0x1234_5678,
     t: 0.0,
     player_ent: 0,
     cam: 0,
@@ -197,17 +249,24 @@ fn world() -> &'static mut World {
     unsafe { &mut *W.0.get() }
 }
 
-// player half extents (physics AABB == visual box)
+fn rng_f(w: &mut World) -> f32 {
+    // small LCG; deterministic (no Math.random in the guest sandbox)
+    w.rng = w.rng.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+    ((w.rng >> 8) & 0xff_ffff) as f32 / 16_777_216.0
+}
+
 const P_HX: f32 = 0.3;
 const P_HY: f32 = 0.6;
 const P_HZ: f32 = 0.3;
-const STEP_UP: f32 = 0.55; // auto-step ceiling (STAIR_H climbs; STEP terraces need a jump)
-
+const STEP_UP: f32 = 0.55;
 const GRAV: f32 = 16.0;
-const JUMP_V: f32 = 6.2; // apex ≈ 1.2 m > STEP
+const JUMP_V: f32 = 6.2;
 const MOVE_SPD: f32 = 4.2;
 const TURN_SPD: f32 = 2.4;
 const INVINC_TIME: f32 = 6.0;
+const DEATH_TIME: f32 = 3.0;
+const BALL_SPAWN_INT: f32 = 2.2;
+const BALL_REST: f32 = 0.6;
 
 fn add_collider(w: &mut World, min: [f32; 3], max: [f32; 3]) {
     if w.nbox < MAX_C {
@@ -217,12 +276,10 @@ fn add_collider(w: &mut World, min: [f32; 3], max: [f32; 3]) {
 }
 
 fn build_pyramid(w: &mut World, tex_sand: i32, tex_stone: i32, tex_gold: i32) {
-    // sand ground: a wide thin slab, top at y=0
     let g = 22.0;
     create_static_box([-g, -0.3, -g], [g, 0.0, g], tex_sand);
     add_collider(w, [-g, -0.3, -g], [g, 0.0, g]);
 
-    // stepped slabs (top slab is golden = the summit)
     for i in 0..LEVELS {
         let hs = slab_half(i);
         let y0 = slab_y0(i);
@@ -232,11 +289,10 @@ fn build_pyramid(w: &mut World, tex_sand: i32, tex_stone: i32, tex_gold: i32) {
         add_collider(w, [-hs, y0, -hs], [hs, y1, hs]);
     }
 
-    // east-face stairs: one half-height helper step per level, so climbing the
-    // +x side auto-steps up in gentle hops (the "easy path").
+    // east-face stairs: a half-height helper step per level (auto-step route)
     for i in 0..LEVELS {
         let hs = slab_half(i);
-        let base = slab_y0(i); // rests on the terrace below (ground for i=0)
+        let base = slab_y0(i);
         let min = [hs, base, -0.9];
         let max = [hs + 0.9, base + STAIR_H, 0.9];
         create_static_box(min, max, tex_stone);
@@ -244,21 +300,30 @@ fn build_pyramid(w: &mut World, tex_sand: i32, tex_stone: i32, tex_gold: i32) {
     }
 }
 
-fn add_monster(w: &mut World, tex: i32, terrace: usize, side_x: f32, speed: f32) {
+// side: 0=+x,1=-x,2=+z,3=-z. Monster stands on terrace `terrace`, patrols the
+// perpendicular axis along the exposed ring band on that side.
+fn add_monster(w: &mut World, tex: i32, terrace: usize, side: i32, speed: f32) {
     if w.nmon >= MAX_MON {
         return;
     }
-    // stand on top of slab `terrace`, patrol in z along the exposed ring band.
     let top = slab_y0(terrace) + STEP;
     let outer = slab_half(terrace);
     let inner = slab_half(terrace + 1);
-    let fixed = side_x * (outer + inner) * 0.5; // middle of the ring band, chosen side
+    let mid = (outer + inner) * 0.5;
+    let range = outer - 0.6;
     let mhy = 0.5;
     let ent = create_actor([0.4, mhy, 0.4], tex);
-    let range = outer - 0.6;
+    // axis = the axis the monster walks along; `fixed` is its coord on the
+    // other horizontal axis (monster_xz reads them back by `axis`).
+    let (axis, fixed) = match side {
+        0 => (2usize, mid),   // +x side, patrol z at x=+mid
+        1 => (2usize, -mid),  // -x side, patrol z at x=-mid
+        2 => (0usize, mid),   // +z side, patrol x at z=+mid
+        _ => (0usize, -mid),  // -z side, patrol x at z=-mid
+    };
     w.mons[w.nmon] = Monster {
         ent,
-        axis: 2,
+        axis,
         fixed,
         lo: -range,
         hi: range,
@@ -271,12 +336,26 @@ fn add_monster(w: &mut World, tex: i32, terrace: usize, side_x: f32, speed: f32)
     w.nmon += 1;
 }
 
-fn add_gem(w: &mut World, tex: i32, terrace: usize, x: f32, z: f32) {
+fn monster_xz(m: &Monster) -> (f32, f32) {
+    if m.axis == 0 {
+        (m.pos, m.fixed) // patrol x, fixed z
+    } else {
+        (m.fixed, m.pos) // patrol z, fixed x
+    }
+}
+
+// `mesh` > 0 draws the diamond as a real GLB model (rg_create_mesh_entity);
+// otherwise it falls back to a textured box.
+fn add_gem(w: &mut World, tex: i32, mesh: i32, terrace: usize, x: f32, z: f32) {
     if w.ngem >= MAX_GEM {
         return;
     }
     let top = slab_y0(terrace) + STEP;
-    let ent = create_actor([0.3, 0.3, 0.3], tex);
+    let ent = if mesh > 0 {
+        unsafe { rg_create_mesh_entity(mesh, 0) }
+    } else {
+        create_actor([0.3, 0.3, 0.3], tex)
+    };
     w.gems[w.ngem] = Gem { ent, x, y: top + 0.5, z, taken: false };
     w.ngem += 1;
 }
@@ -332,10 +411,6 @@ fn resolve_axis(w: &mut World, axis: usize) {
         }
     }
 }
-
-/// Horizontal move with auto-step: if blocked by a low ledge (≤ STEP_UP) while
-/// grounded, climb onto it instead of stopping. Terrace faces (STEP high) stay
-/// blocking, so those need a jump.
 fn move_horizontal(w: &mut World, dx: f32, dz: f32, grounded: bool) {
     let (ox, oz) = (w.px, w.pz);
     w.px += dx;
@@ -348,7 +423,6 @@ fn move_horizontal(w: &mut World, dx: f32, dz: f32, grounded: bool) {
     if !blocked || !grounded {
         return;
     }
-    // find the highest low ledge overlapping the intended spot at current height
     let feet = w.py - P_HY;
     let mut best = f32::MIN;
     for i in 0..w.nbox {
@@ -363,8 +437,6 @@ fn move_horizontal(w: &mut World, dx: f32, dz: f32, grounded: bool) {
     }
     if best > f32::MIN {
         let cand_py = best + P_HY;
-        // only step up if the raised body is clear (feet sit on the ledge top,
-        // so the ledge itself does not count as an overlap)
         if !overlaps_any(w, ix, cand_py, iz) {
             w.px = ix;
             w.pz = iz;
@@ -384,12 +456,26 @@ fn respawn_player(w: &mut World) {
     w.vz = 0.0;
     w.yaw = SPAWN_YAW;
     w.on_ground = true;
+    set_scale_uniform(w.player_ent, 1.0);
+}
+
+fn start_death(w: &mut World) {
+    if w.mode != MODE_PLAY {
+        return;
+    }
+    w.mode = MODE_DYING;
+    w.dying_t = DEATH_TIME;
+    w.death = [w.px, w.py, w.pz];
+    w.invinc = 0.0;
+    w.lives -= 1;
+    if w.lives < 0 {
+        w.lives = START_LIVES; // gentle: never a hard game-over
+    }
 }
 
 // ---- camera + actor sync ---------------------------------------------------
 fn sync_camera(w: &World) {
     let (s, c) = w.yaw.sin_cos();
-    // third-person: sit behind the facing direction and above
     let dist = 5.5;
     let height = 3.4;
     let ex = w.px - s * dist;
@@ -398,7 +484,6 @@ fn sync_camera(w: &World) {
     unsafe {
         rg_set_position(w.cam, fx(ex), fx(ey), fx(ez));
         rg_set_target(w.cam, fx(w.px), fx(w.py + 0.6), fx(w.pz));
-        // player lamp rides just above the player
         rg_set_position(w.lamp, fx(w.px), fx(w.py + 1.2), fx(w.pz));
     }
 }
@@ -412,6 +497,7 @@ pub extern "C" fn init() {
         let tex_gold = rg_load_texture("gold".as_ptr(), 4);
         let tex_gem = rg_load_texture("gem".as_ptr(), 3);
         let tex_mon = rg_load_texture("monster".as_ptr(), 7);
+        let tex_ball = rg_load_texture("ball".as_ptr(), 4);
 
         let w = world();
         w.nbox = 0;
@@ -419,27 +505,42 @@ pub extern "C" fn init() {
         w.ngem = 0;
         w.lives = START_LIVES;
         w.invinc = 0.0;
-        w.won = false;
+        w.mode = MODE_PLAY;
+        w.dying_t = 0.0;
+        w.ball_timer = BALL_SPAWN_INT;
         w.t = 0.0;
-        respawn_player(w);
 
         build_pyramid(w, tex_sand, tex_stone, tex_gold);
 
-        // monsters on the lower terraces (alternating sides)
-        add_monster(w, tex_mon, 0, 1.0, 2.6);
-        add_monster(w, tex_mon, 1, -1.0, 2.8);
-        add_monster(w, tex_mon, 2, 1.0, 3.0);
-        add_monster(w, tex_mon, 3, -1.0, 3.2);
+        // monsters on every side, spread across the lower terraces
+        add_monster(w, tex_mon, 0, 2, 2.6); // +z
+        add_monster(w, tex_mon, 0, 3, 2.6); // -z
+        add_monster(w, tex_mon, 1, 0, 2.9); // +x
+        add_monster(w, tex_mon, 1, 1, 2.9); // -x
+        add_monster(w, tex_mon, 2, 2, 3.2); // +z
+        add_monster(w, tex_mon, 2, 3, 3.2); // -z
+        add_monster(w, tex_mon, 3, 0, 3.5); // +x
+        add_monster(w, tex_mon, 3, 1, 3.5); // -x
 
-        // diamonds along the north (+z) ring of the first terraces
-        add_gem(w, tex_gem, 0, 0.0, slab_half(0) - 0.6);
-        add_gem(w, tex_gem, 1, -(slab_half(1) - 0.6), 0.0);
-        add_gem(w, tex_gem, 2, 0.0, -(slab_half(2) - 0.6));
-        add_gem(w, tex_gem, 3, slab_half(3) - 0.6, 0.0);
-        add_gem(w, tex_gem, 4, 0.0, slab_half(4) - 0.6);
+        // diamonds around the ring of the first terraces — drawn as a real GLB
+        // gem model when the host preloaded models/diamond.glb, else a box.
+        let dia = rg_load_model("diamond".as_ptr(), 7);
+        add_gem(w, tex_gem, dia, 0, 0.0, slab_half(0) - 0.6);
+        add_gem(w, tex_gem, dia, 1, -(slab_half(1) - 0.6), 0.0);
+        add_gem(w, tex_gem, dia, 2, 0.0, -(slab_half(2) - 0.6));
+        add_gem(w, tex_gem, dia, 3, slab_half(3) - 0.6, 0.0);
+        add_gem(w, tex_gem, dia, 4, 0.0, slab_half(4) - 0.6);
+
+        // boulder pool (hidden until thrown)
+        for i in 0..MAX_BALL {
+            let ent = create_actor([BALL_R, BALL_R, BALL_R], tex_ball);
+            rg_set_visible(ent, 0);
+            w.balls[i] = Ball { ent, ..ZERO_BALL };
+        }
 
         // player avatar (gold, third-person)
         w.player_ent = create_actor([P_HX, P_HY, P_HZ], tex_gold);
+        respawn_player(w);
 
         // camera + player lamp
         w.cam = rg_create_camera(fx(1.0), fx(0.1), fx(200.0));
@@ -447,7 +548,7 @@ pub extern "C" fn init() {
         w.lamp = rg_create_light(LIGHT_POINT, rgba(255, 236, 200), fx(0.7));
         rg_set_range(w.lamp, fx(10.0));
 
-        // world lighting: warm desert ambient + a low sun + a golden summit glow
+        // world lighting
         rg_create_light(LIGHT_AMBIENT, rgba(200, 190, 170), fx(0.5));
         let sun = rg_create_light(LIGHT_DIRECTIONAL, rgba(255, 240, 205), fx(0.75));
         rg_set_position(sun, fx(0.4), fx(0.85), fx(0.3));
@@ -464,14 +565,14 @@ pub extern "C" fn init() {
         }
         for mi in 0..w.nmon {
             let m = w.mons[mi];
-            let (mx, mz) = if m.axis == 0 { (m.pos, m.fixed) } else { (m.fixed, m.pos) };
+            let (mx, mz) = monster_xz(&m);
             rg_set_position(m.ent, fx(mx), fx(m.y), fx(mz));
         }
         sync_camera(w);
     }
 }
 
-// ---- per-frame -------------------------------------------------------------
+// ---- per-frame subsystems --------------------------------------------------
 fn update_monsters(w: &mut World, dt: f32) {
     for i in 0..w.nmon {
         let mut m = w.mons[i];
@@ -492,7 +593,7 @@ fn update_monsters(w: &mut World, dt: f32) {
             m.pos = m.lo;
             m.dir = 1.0;
         }
-        let (mx, mz) = if m.axis == 0 { (m.pos, m.fixed) } else { (m.fixed, m.pos) };
+        let (mx, mz) = monster_xz(&m);
         unsafe {
             rg_set_position(m.ent, fx(mx), fx(m.y), fx(mz));
             set_yaw(m.ent, if m.dir > 0.0 { 0.0 } else { core::f32::consts::PI });
@@ -507,23 +608,104 @@ fn check_monster_hits(w: &mut World) {
         if m.respawn > 0.0 {
             continue;
         }
-        let (mx, mz) = if m.axis == 0 { (m.pos, m.fixed) } else { (m.fixed, m.pos) };
+        let (mx, mz) = monster_xz(&m);
         let mb = Aabb { min: [mx - 0.4, m.y - 0.5, mz - 0.4], max: [mx + 0.4, m.y + 0.5, mz + 0.4] };
         if overlap(w.px, w.py, w.pz, P_HX, P_HY, P_HZ, &mb) {
             if w.invinc > 0.0 {
-                // bump the monster aside — hide it and set it to reappear
                 let mut mm = w.mons[i];
                 mm.respawn = 5.0;
                 w.mons[i] = mm;
                 unsafe { rg_set_visible(mm.ent, 0) };
             } else {
-                // gentle penalty: lose a life and go back to the sand
-                w.lives -= 1;
-                if w.lives <= 0 {
-                    w.lives = START_LIVES;
-                }
-                respawn_player(w);
+                start_death(w);
+                return;
             }
+        }
+    }
+}
+
+fn spawn_ball(w: &mut World) {
+    // find a free slot
+    let mut slot = usize::MAX;
+    for i in 0..MAX_BALL {
+        if !w.balls[i].active {
+            slot = i;
+            break;
+        }
+    }
+    if slot == usize::MAX {
+        return;
+    }
+    // hurl outward from just above the summit in a random direction
+    let ang = rng_f(w) * core::f32::consts::TAU;
+    let (s, c) = ang.sin_cos();
+    let spd = 3.0 + rng_f(w) * 2.0;
+    let mut b = w.balls[slot];
+    b.x = c * 0.4;
+    b.z = s * 0.4;
+    b.y = summit_y() + 1.0;
+    b.vx = c * spd;
+    b.vz = s * spd;
+    b.vy = 1.5;
+    b.spin = 0.0;
+    b.life = 9.0;
+    b.active = true;
+    w.balls[slot] = b;
+    unsafe { rg_set_visible(b.ent, 1) };
+}
+
+fn update_balls(w: &mut World, dt: f32) {
+    for i in 0..MAX_BALL {
+        let mut b = w.balls[i];
+        if !b.active {
+            continue;
+        }
+        b.life -= dt;
+        b.vy -= GRAV * dt;
+        b.x += b.vx * dt;
+        b.y += b.vy * dt;
+        b.z += b.vz * dt;
+        // bounce on the pyramid surface / sand
+        let fh = floor_height(b.x, b.z) + BALL_R;
+        if b.y <= fh && b.vy < 0.0 {
+            b.y = fh;
+            b.vy = -b.vy * BALL_REST;
+            if b.vy < 1.2 {
+                b.vy = 1.2; // keep it lively so it keeps bounding down the steps
+            }
+        }
+        b.spin += (b.vx * b.vx + b.vz * b.vz).sqrt() * dt * 2.0;
+        // retire when it rolls off the sand or its life ends
+        let r = b.x.abs().max(b.z.abs());
+        if b.life <= 0.0 || r > 20.0 {
+            b.active = false;
+            unsafe { rg_set_visible(b.ent, 0) };
+        } else {
+            unsafe {
+                rg_set_position(b.ent, fx(b.x), fx(b.y), fx(b.z));
+                set_tumble(b.ent, b.spin);
+            }
+        }
+        w.balls[i] = b;
+    }
+}
+
+fn check_ball_hits(w: &mut World) {
+    if w.invinc > 0.0 {
+        return;
+    }
+    for i in 0..MAX_BALL {
+        let b = w.balls[i];
+        if !b.active {
+            continue;
+        }
+        let bb = Aabb {
+            min: [b.x - BALL_R, b.y - BALL_R, b.z - BALL_R],
+            max: [b.x + BALL_R, b.y + BALL_R, b.z + BALL_R],
+        };
+        if overlap(w.px, w.py, w.pz, P_HX, P_HY, P_HZ, &bb) {
+            start_death(w);
+            return;
         }
     }
 }
@@ -556,14 +738,38 @@ fn spin_gems(w: &World) {
 }
 
 fn check_win(w: &mut World) {
-    if w.won {
+    if w.mode != MODE_PLAY {
         return;
     }
     let feet = w.py - P_HY;
     let top = summit_y();
     let hs = slab_half(LEVELS - 1);
     if feet >= top - 0.2 && w.px.abs() <= hs && w.pz.abs() <= hs {
-        w.won = true;
+        w.mode = MODE_WON;
+    }
+}
+
+/// A showy 3-second knock-out: the avatar launches up, tumbles fast and shrinks
+/// away, so it is obvious the player was hit. Then it respawns on the sand.
+fn update_dying(w: &mut World, dt: f32) {
+    w.dying_t -= dt;
+    let p = 1.0 - (w.dying_t / DEATH_TIME).clamp(0.0, 1.0); // 0 → 1
+    let yoff = (p * core::f32::consts::PI).sin() * 3.2; // pop up and fall back
+    let scale = (1.0 - 0.75 * p).max(0.1);
+    let ex = w.death[0];
+    let ez = w.death[2];
+    let ey = w.death[1] + yoff;
+    unsafe {
+        rg_set_position(w.player_ent, fx(ex), fx(ey), fx(ez));
+        set_tumble(w.player_ent, w.t * 14.0);
+        set_scale_uniform(w.player_ent, scale);
+        // keep the camera watching the spot it happened
+        rg_set_position(w.cam, fx(ex - 5.5_f32 * SPAWN_YAW.sin()), fx(ey + 3.4), fx(ez - 5.5_f32 * SPAWN_YAW.cos()));
+        rg_set_target(w.cam, fx(ex), fx(ey), fx(ez));
+    }
+    if w.dying_t <= 0.0 {
+        respawn_player(w);
+        w.mode = MODE_PLAY;
     }
 }
 
@@ -579,8 +785,7 @@ pub extern "C" fn update(dt_ms: i32, forward: i32, strafe: i32, turn: i32, jump:
         }
     }
 
-    if w.won {
-        // victory: spin in place on the summit (song + banner arrive with audio)
+    if w.mode == MODE_WON {
         w.yaw += 2.5 * dt;
         unsafe {
             rg_set_position(w.player_ent, fx(w.px), fx(w.py), fx(w.pz));
@@ -590,10 +795,16 @@ pub extern "C" fn update(dt_ms: i32, forward: i32, strafe: i32, turn: i32, jump:
         sync_camera(w);
         return;
     }
+    if w.mode == MODE_DYING {
+        // hazards freeze during the death animation for clarity
+        update_dying(w, dt);
+        return;
+    }
 
     let grounded = w.on_ground;
-    // turn + move relative to facing
-    w.yaw += (turn as f32) * TURN_SPD * dt;
+    // turn: negate so left turns left and right turns right (host `turn` is +1
+    // for the right input, which rotates the facing the opposite way here)
+    w.yaw -= (turn as f32) * TURN_SPD * dt;
     let (s, c) = w.yaw.sin_cos();
     let fwd = forward as f32;
     let stf = strafe as f32;
@@ -604,8 +815,6 @@ pub extern "C" fn update(dt_ms: i32, forward: i32, strafe: i32, turn: i32, jump:
         mvx *= MOVE_SPD / mag;
         mvz *= MOVE_SPD / mag;
     }
-
-    // jump + gravity
     if jump != 0 && w.on_ground {
         w.vy = JUMP_V;
         w.on_ground = false;
@@ -613,7 +822,6 @@ pub extern "C" fn update(dt_ms: i32, forward: i32, strafe: i32, turn: i32, jump:
     w.vy -= GRAV * dt;
     w.on_ground = false;
 
-    // integrate: horizontal (with auto-step) then vertical
     move_horizontal(w, mvx * dt, mvz * dt, grounded);
     w.py += w.vy * dt;
     resolve_axis(w, 1);
@@ -624,12 +832,27 @@ pub extern "C" fn update(dt_ms: i32, forward: i32, strafe: i32, turn: i32, jump:
     }
 
     update_monsters(w, dt);
+
+    // boulders hurled off the summit
+    w.ball_timer -= dt;
+    if w.ball_timer <= 0.0 {
+        w.ball_timer = BALL_SPAWN_INT;
+        spawn_ball(w);
+    }
+    update_balls(w, dt);
+
     check_monster_hits(w);
+    if w.mode != MODE_PLAY {
+        return;
+    }
+    check_ball_hits(w);
+    if w.mode != MODE_PLAY {
+        return;
+    }
     check_gem_pickups(w);
     spin_gems(w);
     check_win(w);
 
-    // sync player avatar (pulse scale while invincible for feedback)
     let pulse = if w.invinc > 0.0 { 1.0 + 0.15 * (w.t * 12.0).sin() } else { 1.0 };
     unsafe {
         rg_set_position(w.player_ent, fx(w.px), fx(w.py), fx(w.pz));

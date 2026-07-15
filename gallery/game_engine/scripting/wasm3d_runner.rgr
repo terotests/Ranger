@@ -16,6 +16,9 @@
 Import "../framebuffer.rgr"
 Import "../wasm_runtime.rgr"
 Import "../gfx_sdl.rgr"
+Import "../model3d/ModelLoader.rgr"
+Import "../model3d/MeshBridge.rgr"
+Import "../../../lib/ranger-dir.rgr"
 
 class Wasm3dRunner {
     def handle:int 0
@@ -238,15 +241,68 @@ class Wasm3dRunner {
         return (buffer_to_string nb2)
     }
 
+    fn endsWithGlb:boolean (name:string) {
+        def n:int (strlen name)
+        if (n < 4) {
+            return false
+        }
+        def suf:string (substring name (n - 4) n)
+        return (suf == ".glb")
+    }
+    fn stripGlb:string (name:string) {
+        def n:int (strlen name)
+        return (substring name 0 (n - 4))
+    }
+    ; Preload every <gameDir>/models/*.glb into the scene's mesh/texture pools
+    ; and register each under its basename, so a host-managed guest can call
+    ; rg_load_model("name") during init() (IDEAL_3D §12.4 render bridge).
+    fn preloadModels:void () {
+        if ((file_exists gameDir "models") == false) {
+            return
+        }
+        def dir:string (gameDir + "/models")
+        def names:[string] (list_dir_files dir)
+        def loader:ModelLoader (new ModelLoader)
+        def bridge:MeshBridge (new MeshBridge)
+        def i:int 0
+        while (i < (array_length names)) {
+            def fname:string (itemAt names i)
+            if (this.endsWithGlb(fname)) {
+                def id:int (loader.loadFromFile(dir fname))
+                if (id >= 0) {
+                    def model:ModelAsset (loader.getModel(id))
+                    def em:EngineMeshData (bridge.fromModel(model))
+                    if em.ok {
+                        def meshId:int (gfx_3d_mesh_upload em.verts em.vertexCount em.indices em.indexCount)
+                        def texId:int 0
+                        if em.hasTexture {
+                            texId = (gfx_3d_upload_texture em.texRgba em.texWidth em.texHeight)
+                        }
+                        def base:string (this.stripGlb(fname))
+                        gfx_scene_register_model base meshId texId
+                        print ("[wasm3d] model '" + base + "' -> mesh=" + (to_string meshId) + " tex=" + (to_string texId))
+                    } {
+                        print ("[wasm3d] model unusable: " + fname + " (" + em.error + ")")
+                    }
+                } {
+                    print ("[wasm3d] model load failed: " + fname + " (" + loader.lastError + ")")
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
     fn setupScene:void () {
         if (handle == 0) {
             return
         }
         sceneMode = ((wasm_has_export handle "rg_mesh_ptr") == 0)
         if (sceneMode) {
-            ; host-managed scene: reset, then let the guest build the scene via
-            ; rg_create_*/rg_set_* host imports during init().
+            ; host-managed scene: reset, preload any GLB models the game ships
+            ; (so the guest's rg_load_model can resolve them), then let the guest
+            ; build the scene via rg_create_*/rg_set_* host imports during init().
             gfx_scene_reset
+            this.preloadModels()
             this.wasmVoid("init" 0 0 0 0 0 0)
             print "[wasm3d] host-managed scene mode"
             return
