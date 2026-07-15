@@ -15,6 +15,11 @@ jump, swept per-axis AABB collision, ground/step resolution).
 
 ## What the guest declares & drives
 
+The guest uses the shared `ranger_game::scene` API for the 3D snapshot. The
+game code declares resources, box meshes, materials, entities, camera, and
+lighting through that facade; only the physics collider block remains
+game-specific.
+
 | Block | Magic | Proposal | Contents |
 |-------|-------|----------|----------|
 | MESH      | `RGMB` | §18 | level geometry (walls/floor/obstacles as textured quads) + per-face sub-meshes + published pool offsets |
@@ -69,7 +74,7 @@ Outputs:
 ## Files
 
 ```
-src/src/lib.rs        guest: level gen + character controller + FP camera + blocks
+src/src/lib.rs        guest: level gen + character controller + shared Scene API
 tools/render.cjs      host: rg_res_load, scripted input, z-buffer raster (near-clip), map
 tools/gen_textures.cjs generates assets/{brick,floor,crate}.ppm
 ```

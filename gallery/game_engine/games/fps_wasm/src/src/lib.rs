@@ -10,7 +10,6 @@ use core::cell::UnsafeCell;
 use ranger_game::scene::{Color, MeshAsset, MaterialId, Scene, Vec3};
 
 const FP: f32 = 256.0;
-const Q16: i32 = 65536;
 const MAX_C: usize = 64;
 
 struct Blk<const N: usize>(UnsafeCell<[u8; N]>);

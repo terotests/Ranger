@@ -777,16 +777,6 @@ fn write_lights(s: &Scene) {
         if !l.enabled {
             continue;
         }
-        fn write_resources(s: &Scene) {
-            RESOURCES.write_u32(0, RES_MAGIC);
-            RESOURCES.write_u32(4, 1);
-            RESOURCES.write_u32(8, RES_SIZE as u32);
-            RESOURCES.write_u32(12, 0);
-            RESOURCES.write_u32(16, s.resource_count as u32);
-            for i in 0..s.resource_count {
-                RESOURCES.write_bytes(20 + i * RES_NAME, &s.resources[i]);
-            }
-        }
         let Some(i) = s.node_index(l.node) else {
             continue;
         };
@@ -800,6 +790,16 @@ fn write_lights(s: &Scene) {
         n += 1;
     }
     LIGHTS.write_u32(44, n as u32);
+}
+fn write_resources(s: &Scene) {
+    RESOURCES.write_u32(0, RES_MAGIC);
+    RESOURCES.write_u32(4, 1);
+    RESOURCES.write_u32(8, RES_SIZE as u32);
+    RESOURCES.write_u32(12, 0);
+    RESOURCES.write_u32(16, s.resource_count as u32);
+    for i in 0..s.resource_count {
+        RESOURCES.write_bytes(20 + i * RES_NAME, &s.resources[i]);
+    }
 }
 
 /// Generate the exports consumed by `wasm3d_runner`.
