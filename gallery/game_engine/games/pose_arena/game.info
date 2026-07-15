@@ -1,0 +1,8 @@
+name=Pose Arena (WASM)
+engine=wasm
+module=pose_arena.wasm
+abi=sprite
+assets=assets
+autoscale=true
+
+category=Tests

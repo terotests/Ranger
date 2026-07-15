@@ -144,6 +144,8 @@
     "engine:chars:verify": "node gallery/game_engine/games/sprite_char/src/verify.mjs",
     "engine:chars:poc": "bash gallery/game_engine/scripts/build-chars-poc.sh",
     "engine:chars:poc:sdl": "bash gallery/game_engine/scripts/build-sprite-char-sdl.sh",
+    "engine:pose:guest": "bash gallery/game_engine/games/pose_arena/src/build.sh",
+    "engine:pose:verify": "node gallery/game_engine/games/pose_arena/src/verify.mjs",
     "engine:ylos2:assets": "bash gallery/game_engine/games/ylos2/build-assets.sh",
     "engine:physics:build": "bash gallery/game_engine/scripts/build-physics.sh",
     "engine:physics:test": "bash gallery/game_engine/scripts/build-physics.sh --run",
