@@ -383,6 +383,7 @@ The guest does **not** own:
 | `ABI_V2_PROPOSAL.md` §18–§21 | The block definitions (RGMB, RGMA, RGCM, RGLT) are useful for the *transport layer* between guest command buffer and host. But they should be internal host structures, not guest-exported memory. |
 | `IDEAL_TODO.md` Phase G | Phase G tracks the PoC slices. This document defines the architectural target those PoCs must evolve toward. |
 | `HOST_ARCHITECTURE.md` | The `GameSceneProvider` pattern aligns — the host holds the scene through an internal interface; the 3D entity registry is the generalisation. |
+| `model3d/` (`gallery/game_engine/model3d/`) | **Implements** the host-managed object model this document requires (§2, §4.3): `AssetRegistry`/`EntityRegistry`, `load_model`→`ModelAsset`→entity hierarchy→`MeshRenderer`, `instantiate_model`, `find_child`. Pure Ranger, host-owned, WASM-free. §12 below is the checklist to wire it to the §4.4 ABI imports. |
 
 ---
 
@@ -434,3 +435,122 @@ guest decision; its *engine representation* is a host resource.
 This is identical to how the 2D path works: the guest writes body positions into
 RGW1, but the *sprite* that represents the body (texture, animation, draw order)
 is a host concern through the `spriteFor` / `GameSceneProvider` interface.
+
+---
+
+## 12. ABI integration: wiring the native `model3d` loader to the host imports
+
+The `model3d/` module (`gallery/game_engine/model3d/`, see its
+[`README.md`](./model3d/README.md)) is the **host-side realisation** of §2 and
+§4.3: a Ranger-owned entity registry, transform hierarchy, asset/resource cache,
+`instantiate_model`, and `find_child` — plus a native GLB importer that turns a
+file into a `ModelAsset`. It is deliberately **host-side and WASM-free**, which
+is exactly what §10 demands: `EntityId`s, the scene graph, transform tables, and
+model instances live in the host, and the guest only ever receives opaque
+handles. It is **not** a guest-side wrapper.
+
+This section is the checklist to expose that model across the ABI (§4.4). It
+does **not** require any new guest-side scene state.
+
+### 12.1 What `model3d` already provides (host-side)
+
+| §4.3 component | `model3d` implementation |
+|----------------|--------------------------|
+| Entity Registry | `EntityRegistry` — `create`, `get`, `setParent`, `findChild`, `updateWorld` (id = registry index) |
+| Scene Graph | `Entity.children` + `TransformComponent` (local + world `Mat4`) |
+| Resource Cache | `AssetRegistry` (models by id) → `ModelAsset` → `Mesh/Material/Texture/NodeAsset` |
+| Resource loading / parse | `GlbImporter` (container + accessors) + `GltfDocument` (typed view + support gate) + `TextureDecode` (embedded PNG/JPEG → RGBA) |
+| `instantiate_model` | `ModelInstancer.instantiate(model)` → root `EntityId` (nodes → entities, TRS/matrix → transforms, mesh → `MeshRenderer`) |
+| `find_child_by_name` | `EntityRegistry.findChild(rootEntity, name)` |
+| Public API | `ModelLoader.loadFromFile / loadFromBuffer / instantiate / findChild / getEntity` |
+
+### 12.2 §4.4 import → `model3d` call
+
+Keep one `ModelLoader` instance **per WASM guest** (keyed by the guest's `wasm`
+handle) so its `AssetRegistry` + `EntityRegistry` are that guest's private,
+host-owned scene — this is what makes the lifecycle cleanup of §6 possible.
+
+| Host import (§4.4) | Backing `model3d` call |
+|--------------------|------------------------|
+| `rg_load_model(name_ptr, name_len)` → ModelHandle | read guest string → `loader.loadFromFile(dir, file)`; return model id, or `-1` (`loader.ok` / `loader.lastError` carry the reason) |
+| `rg_instantiate_model(model_handle)` → EntityId | `loader.instantiate(modelId)` → root `EntityId` |
+| `rg_find_child_by_name(parent, name_ptr, name_len)` → EntityId | read guest string → `loader.findChild(parent, name)` |
+| `rg_set_position(entity, x, y, z)` | `loader.getEntity(entity)`; convert fixed→double; `transform.setTRS(...)`; then `updateWorld(root, identity)` |
+| `rg_set_rotation(entity, qx, qy, qz, qw)` | same, Q16.16→double quaternion into `setTRS` |
+| `rg_set_scale(entity, sx, sy, sz)` | same, into `setTRS` |
+| `rg_set_parent(entity, parent)` | `EntityRegistry.setParent(entity, parent)` |
+| `rg_create_mesh_entity(mesh, material)` | `EntityRegistry.create` + set `MeshRenderer.meshAsset` (host-authored mesh/material path) |
+| `rg_load_texture(name_ptr, name_len)` → TextureHandle | `TextureDecode` on file bytes into a `TextureAsset` (standalone-texture path — **TODO**, see §12.5) |
+| `rg_create_material(desc_ptr)` → MaterialHandle | build a `MaterialAsset` from the desc block (**TODO**: define desc layout) |
+| `rg_destroy_entity(entity)` | **TODO** — needs destroy/free on the registries (see §12.5) |
+
+### 12.3 Wiring steps (concrete to this codebase)
+
+1. **Register the imports** the same way the existing 3D/resource imports are
+   registered — as `env.rg_*` functions through the C++ bridge
+   (`rg_wasm_bridge.h`; cf. `env.rg_res_load`, `env.rg_host_register_sheet` in
+   `wasm_runtime.rgr`). Add `rg_load_model`, `rg_instantiate_model`,
+   `rg_find_child_by_name`, `rg_set_position/rotation/scale`, `rg_set_parent`.
+2. **String arguments** (`name_ptr`, `name_len`): the guest passes an offset into
+   its own linear memory. Read the bytes host-side exactly as
+   `wasm3d_runner.readResName` already does (`rbyte` / `wasm_mem_i32`), build the
+   Ranger string, then call `ModelLoader`.
+3. **Handles**: model id = `AssetRegistry` index, `EntityId` = `EntityRegistry`
+   index; return as `i32`, reserve `-1` for errors. Before production, wrap these
+   with a generation counter (§4.3, §12.5) so stale handles are rejected.
+4. **Ownership**: store the per-guest `ModelLoader` in the runner (like
+   `Wasm3dRunner` holds its mesh/texture state today), so unloading a guest frees
+   exactly its models and entities (§6).
+5. **Fixed-point**: the guest sends positions `*256` and quaternion/unit
+   components as `Q16.16` (§4.4). Convert to `double` on the way in (into
+   `setTRS`) and call `EntityRegistry.updateWorld(root, identity)` to refresh
+   world matrices. Host-internal math stays in `double`.
+
+### 12.4 Render bridge
+
+The existing GPU path (`gfx_3d_*` in `gfx_sdl.rgr`, driven by `Wasm3dRunner`)
+already works in `double`. To make it the §4.3 **Render Bridge** for this model,
+replace its single guest-published-mesh read with a walk of the host scene:
+
+- for each `Entity` where `hasRenderer`, resolve its `MeshAsset` (via
+  `renderer.meshAsset` in the instance's `ModelAsset`), upload/lookup its
+  geometry, bind the material's `baseColorTexture` (`TextureAsset.rgba` replaces
+  the current PPM upload), and draw it with the entity's
+  `transform.worldMatrix`.
+
+No guest memory is read for scene data — the guest only issued handle-returning
+commands.
+
+### 12.5 What the ABI layer must still add (not in `model3d` v1)
+
+`model3d` intentionally stops at the host object model + loader. The remaining
+pieces are the ABI-surface concerns §10 says must live host-side (not as a guest
+wrapper):
+
+- per-guest ownership map + **generation counters** on `EntityId` (use-after-free
+  detection) — §4.3, §6;
+- `rg_destroy_entity` / free + refcounting on shared `ModelAsset`s — §6 (the
+  registries are currently append-only);
+- command validation / stale-handle rejection — §7 command processor;
+- `rg_create_material` desc layout and the standalone `rg_load_texture` path;
+- optionally, the §7 Option B command buffer for batching.
+
+### 12.6 Minimal end-to-end flow
+
+```
+guest:  h    = rg_load_model("models/robot.glb")     // ptr,len into guest memory
+host:        id   = loader.loadFromFile("models", "robot.glb");  return id  (or -1)
+
+guest:  root = rg_instantiate_model(h)
+host:        return loader.instantiate(id)            // root EntityId
+
+guest:  hand = rg_find_child_by_name(root, "RightHand")
+host:        return loader.findChild(root, "RightHand")
+
+guest:  rg_set_rotation(hand, qx, qy, qz, qw)         // Q16.16
+host:        e = loader.getEntity(hand);
+             e.transform.setTRS(e.transform.translation, quatFromFixed(qx,qy,qz,qw), e.transform.scale);
+             loader.entities.updateWorld(root, Mat4.identity())
+```
+
+The guest holds only opaque `i32` handles throughout — satisfying §2.2 and §10.
