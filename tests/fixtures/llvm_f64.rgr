@@ -1,0 +1,22 @@
+; LLVM/WASM: double (f64) arithmetic, int<->double conversion, f64 compare.
+;   compute(6,4) = 6*4 + 6/4 = 25.5 ; run = to_int(25.5 * 10) = 255.
+; Regression guard for the WAT backend's f64 support.
+
+class Fp {
+    sfn compute:double (a:double b:double) {
+        return (+ (* a b) (/ a b))
+    }
+
+    sfn bigger:int (a:double b:double) {
+        if (> a b) {
+            return 1
+        }
+        return 0
+    }
+
+    sfn run:int () {
+        def r (Fp.compute(6.0 4.0))
+        def scaled (to_int (* r 10.0))
+        return (+ scaled (Fp.bigger(2.0 9.0)))
+    }
+}

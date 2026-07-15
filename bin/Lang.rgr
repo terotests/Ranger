@@ -80,6 +80,17 @@ language {
             class _class
             new _new
             delete _delete
+            and _and
+            or _or
+            not _not
+            xor _xor
+            compl _compl
+            bitand _bitand
+            bitor _bitor
+            and_eq _and_eq
+            or_eq _or_eq
+            xor_eq _xor_eq
+            not_eq _not_eq
             template _template
             namespace _namespace
             virtual _virtual
@@ -1971,9 +1982,18 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
         }               
         null?       cmdIsNotNull:boolean        ( arg@(optional):string ) {
             templates {
-                cpp ((e 1) ".empty()")     
+                cpp ((e 1) ".empty()")
             }
-        }               
+        }
+
+        ; buffer is a value type (std::vector<uint8_t>) in C++, so the generic
+        ; `!= NULL` path below does not compile. Treat empty/absent as null,
+        ; mirroring the string overload above.
+        null?       cmdIsNotNull:boolean        ( arg@(optional):buffer ) {
+            templates {
+                cpp ((e 1) ".empty()")
+            }
+        }
 
         null?       cmdIsNull:boolean        ( arg@(optional):T ) {
             templates {
@@ -2005,9 +2025,18 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
         }               
         !null?       cmdIsNotNull:boolean        ( arg@(optional):string ) {
             templates {
-                cpp ((e 1) ".empty() == false ")     
+                cpp ((e 1) ".empty() == false ")
             }
-        }               
+        }
+
+        ; buffer is a value type (std::vector<uint8_t>) in C++; the generic
+        ; `!= NULL` path below does not compile. Present == non-empty, matching
+        ; the string overload above.
+        !null?       cmdIsNotNull:boolean        ( arg@(optional):buffer ) {
+            templates {
+                cpp ((e 1) ".empty() == false ")
+            }
+        }
 
         !null?       cmdIsNotNull:boolean        ( arg@(optional):T ) {
             templates {

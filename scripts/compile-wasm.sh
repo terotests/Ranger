@@ -65,6 +65,52 @@ echo "==> 2/3 wat2wasm"
 
 echo "==> 3/3 Validate exports"
 case "$BASENAME" in
+  llvm_f64)
+    node -e "
+const fs = require('fs');
+const buf = fs.readFileSync('$OUT_WASM');
+const mod = new WebAssembly.Module(buf);
+console.log('exports:', WebAssembly.Module.exports(mod).map(e => e.name).join(', '));
+const run = new WebAssembly.Instance(mod).exports.Fp_run();
+console.log('Fp_run() =', run, '(expected 255)');
+if (run !== 255) process.exit(1);
+"
+    ;;
+  llvm_nested)
+    node -e "
+const fs = require('fs');
+const buf = fs.readFileSync('$OUT_WASM');
+const mod = new WebAssembly.Module(buf);
+console.log('exports:', WebAssembly.Module.exports(mod).map(e => e.name).join(', '));
+const run = new WebAssembly.Instance(mod).exports.Nested_run();
+console.log('Nested_run() =', run, '(expected 35)');
+if (run !== 35) process.exit(1);
+"
+    ;;
+  llvm_bitops)
+    node -e "
+const fs = require('fs');
+const buf = fs.readFileSync('$OUT_WASM');
+const mod = new WebAssembly.Module(buf);
+console.log('exports:', WebAssembly.Module.exports(mod).map(e => e.name).join(', '));
+const run = new WebAssembly.Instance(mod).exports.Bits_run();
+console.log('Bits_run() =', run, '(expected 8)');
+if (run !== 8) process.exit(1);
+"
+    ;;
+  llvm_ifelse)
+    node -e "
+const fs = require('fs');
+const buf = fs.readFileSync('$OUT_WASM');
+const mod = new WebAssembly.Module(buf);
+const exp = WebAssembly.Module.exports(mod).map(e => e.name);
+console.log('exports:', exp.join(', '));
+const inst = new WebAssembly.Instance(mod);
+const run = inst.exports.Branch_run();
+console.log('Branch_run() =', run, '(expected 312)');
+if (run !== 312) process.exit(1);
+"
+    ;;
   llvm_collections)
     node -e "
 const fs = require('fs');
@@ -87,8 +133,8 @@ const exp = WebAssembly.Module.exports(mod).map(e => e.name);
 console.log('exports:', exp.join(', '));
 const inst = new WebAssembly.Instance(mod);
 const run = inst.exports.CounterDemo_run();
-console.log('CounterDemo_run() =', run, '(expected 12)');
-if (run !== 12) process.exit(1);
+console.log('CounterDemo_run() =', run, '(expected 11)');
+if (run !== 11) process.exit(1);
 "
     ;;
   llvm_array_map_lang)

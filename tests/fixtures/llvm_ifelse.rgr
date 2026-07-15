@@ -1,0 +1,19 @@
+; LLVM/WASM: two-branch if/else (structured (if (then)(else))).
+; classify(10) => 100+10 = 110 ; classify(2) => 200+2 = 202.
+; Regression guard for the WAT writer's if/else reconstruction.
+
+class Branch {
+    sfn classify:int (x:int) {
+        def r 0
+        if (> x 5) {
+            r = 100
+        } {
+            r = 200
+        }
+        return (+ r x)
+    }
+
+    sfn run:int () {
+        return (+ (Branch.classify(10)) (Branch.classify(2)))
+    }
+}

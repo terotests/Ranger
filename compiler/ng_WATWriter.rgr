@@ -18,8 +18,59 @@ class WATWriter {
     return ("$" + llvmName)
   }
 
+  ; A GEP result (address of a struct field / memory slot) is the ONLY operand
+  ; for which a `load`/`store` op must emit a real i32.load / i32.store. GEP
+  ; temps are the only names produced by freshTemp("f"), i.e. "%.f0", "%.f1", ...
+  ; so they are exactly the operands whose char 1 is '.' (46) and char 2 is 'f'
+  ; (102). Every promoted local is "%<var>_addr" (char 1 is never '.'), so this
+  ; test never mistakes a local slot for a memory pointer. Sniffing only char 1
+  ; (the historic bug) always saw '.', and sniffing only char 2 would misfire on
+  ; a local like "%offset_addr".
+  fn isGepTemp:boolean (name:string) {
+    if ((strlen name) < 3) {
+      return false
+    }
+    if ((charAt name 1) != 46) {
+      return false
+    }
+    if ((charAt name 2) != 102) {
+      return false
+    }
+    return true
+  }
+
   fn moduleUsesHeap:boolean (module:LowIRModule) {
     return (LowIRUtil.moduleUsesHeap(module))
+  }
+
+  ; Map a LowIR type to its wasm value type. Only f64 is a distinct wasm type;
+  ; i1 (booleans) and every pointer/int are i32.
+  fn watType:string (irType:string) {
+    if (irType == "f64") {
+      return "f64"
+    }
+    return "i32"
+  }
+
+  ; name -> wasm value type for a function's SSA temps, from each defining
+  ; instruction's result type. Used to declare locals with the right type.
+  fn localTypeMap:[string:string] (fn:LowIRFunction) {
+    def m:[string:string]
+    for fn.blocks bb:LowIRBlock i {
+      for bb.instrs ins:LowIRInstr j {
+        if ((strlen ins.dest) > 0) {
+          set m (this.wasmName(ins.dest)) (this.watType(ins.irType))
+        }
+      }
+    }
+    return m
+  }
+
+  fn localTypeOf:string (m:[string:string] wn:string) {
+    if (has m wn) {
+      return (unwrap (get m wn))
+    }
+    return "i32"
   }
 
   fn writeModule:void (module:LowIRModule wr:CodeWriter) {
@@ -47,6 +98,11 @@ class WATWriter {
     return -1
   }
 
+  ; A `while` cond header is a br_if that some LATER block branches back to (the
+  ; loop back-edge). An `if` header is only ever reached by fall-through, never
+  ; by an explicit `br`, and an if/else merge is only branched to from EARLIER
+  ; blocks — so scanning strictly after the header for a `br` to it distinguishes
+  ; a loop from an if regardless of how complex the loop body is.
   fn isWhileHeader:boolean (fn:LowIRFunction condIdx:int) {
     if (condIdx < 0) {
       return false
@@ -55,15 +111,18 @@ class WATWriter {
     if (condBb.termKind != "br_if") {
       return false
     }
-    def bodyIdx (this.findBlockIdx(fn condBb.termIfTrue))
-    if (bodyIdx < 0) {
-      return false
+    def cnt (array_length fn.blocks)
+    def ii (+ condIdx 1)
+    while (< ii cnt) {
+      def b (itemAt fn.blocks ii)
+      if (b.termKind == "br") {
+        if (b.termTarget == condBb.label) {
+          return true
+        }
+      }
+      ii = (+ ii 1)
     }
-    def bodyBb (itemAt fn.blocks bodyIdx)
-    if (bodyBb.termKind != "br") {
-      return false
-    }
-    return (bodyBb.termTarget == condBb.label)
+    return false
   }
 
   fn collectLocals:[string] (fn:LowIRFunction) {
@@ -100,21 +159,22 @@ class WATWriter {
       wr.out((" (export \"" + fn.name + "\")") false)
     }
     for fn.params p:LowIRParam i {
-      wr.out((" (param $" + p.name + " i32)") false)
+      wr.out((" (param $" + p.name + " " + (this.watType(p.irType)) + ")") false)
     }
     def voidType:string "void"
     if (fn.returnType != voidType) {
-      wr.out((" (result i32)") false)
+      wr.out((" (result " + (this.watType(fn.returnType)) + ")") false)
     }
     wr.out("" true)
 
+    def ltypes (this.localTypeMap(fn))
     def localNames (this.collectLocals(fn))
     for localNames wn:string i {
-      wr.out(("    (local " + wn + " i32)") true)
+      wr.out(("    (local " + wn + " " + (this.localTypeOf(ltypes wn)) + ")") true)
     }
 
     def visited:[string:boolean]
-    def nextIdx (this.emitFromIndex(fn 0 wr visited))
+    def exitLabel (this.emitRegion(fn 0 (array_length fn.blocks) wr visited))
     wr.out("  )" true)
   }
 
@@ -126,102 +186,128 @@ class WATWriter {
     return (has visited label)
   }
 
-  fn emitFromIndex:int (fn:LowIRFunction idx:int wr:CodeWriter visited:[string:boolean]) {
-    def cnt (array_length fn.blocks)
-    if (idx >= cnt) {
-      return idx
-    }
-    def bb (itemAt fn.blocks idx)
-    if (this.isVisited(bb.label visited)) {
-      return (idx + 1)
-    }
-    this.markVisited(bb.label visited)
-    this.writeBlockInstrs(bb wr)
-
-    switch bb.termKind {
-      case "ret" {
-        if ((strlen bb.termValue) > 0) {
-          this.writeGet(bb.termValue wr)
+  ; Emit a structured region: the blocks reachable from startIdx that lie in
+  ; [startIdx, boundIdx). The bound is exclusive — a forward control edge to a
+  ; block at index >= boundIdx LEAVES this region: its branch is suppressed and
+  ; the target label is returned so the enclosing emitter continues there. A
+  ; branch to an already-visited earlier block is a loop back-edge (emitted as a
+  ; real `br`). Returns "" when the region ended by returning from the function.
+  ;
+  ; Because the LowIR blocks are laid out in structured order (lowerIf emits
+  ; [header][then-region][else-or-merge]; lowerWhile emits [pre][cond][body][exit]),
+  ; every if-arm and loop body is a contiguous index range, which is exactly what
+  ; the bound expresses. This reconstructs arbitrarily nested if / if-else / while.
+  fn emitRegion:string (fn:LowIRFunction startIdx:int boundIdx:int wr:CodeWriter visited:[string:boolean]) {
+    def cur startIdx
+    while (< cur boundIdx) {
+      def bb (itemAt fn.blocks cur)
+      if (this.isVisited(bb.label visited)) {
+        return bb.label
+      }
+      def handled false
+      if (this.isWhileHeader(fn cur)) {
+        def wexit (this.emitWhile(fn cur wr visited))
+        if (wexit == "") {
+          return ""
         }
-        wr.out("      return" true)
-        return (idx + 1)
-      }
-      case "br" {
-        def condIdx (this.findBlockIdx(fn bb.termTarget))
-        if (this.isWhileHeader(fn condIdx)) {
-          return (this.emitWhileLoop(fn condIdx wr visited))
+        def wi (this.findBlockIdx(fn wexit))
+        if (wi >= boundIdx) {
+          return wexit
         }
-        wr.out(("      br $" + bb.termTarget) true)
-        return (idx + 1)
+        cur = wi
+        handled = true
       }
-      case "br_if" {
-        return (this.emitIfThenMerge(fn idx wr visited))
+      if (handled == false) {
+        this.markVisited(bb.label visited)
+        this.writeBlockInstrs(bb wr)
+        if (bb.termKind == "ret") {
+          if ((strlen bb.termValue) > 0) {
+            this.writeGet(bb.termValue wr)
+          }
+          wr.out("      return" true)
+          return ""
+        }
+        if (bb.termKind == "br_if") {
+          def mexit (this.emitIf(fn cur wr visited))
+          if (mexit == "") {
+            return ""
+          }
+          def mi (this.findBlockIdx(fn mexit))
+          if (mi >= boundIdx) {
+            return mexit
+          }
+          cur = mi
+        }
+        if (bb.termKind == "br") {
+          def t bb.termTarget
+          def ti (this.findBlockIdx(fn t))
+          if (ti >= boundIdx) {
+            return t
+          }
+          if (this.isVisited(t visited)) {
+            wr.out(("      br $" + t) true)
+            return t
+          }
+          cur = ti
+        }
+        if (bb.termKind == "") {
+          cur = (+ cur 1)
+        }
       }
     }
-    return (idx + 1)
+    return ""
   }
 
-  fn emitIfThenMerge:int (fn:LowIRFunction idx:int wr:CodeWriter visited:[string:boolean]) {
-    def hdr (itemAt fn.blocks idx)
-    def thenIdx (this.findBlockIdx(fn hdr.termIfTrue))
-    def mergeIdx (this.findBlockIdx(fn hdr.termIfFalse))
-    def thenBb (itemAt fn.blocks thenIdx)
-    def mergeBb (itemAt fn.blocks mergeIdx)
+  ; Emit a structured `if` (single-sided or if/else) at header block `headerIdx`
+  ; (which ends in br_if cond -> then / (else|merge)). Returns the label control
+  ; continues at after the if (the merge), or "" if every arm returned.
+  ;
+  ; The then-region is exactly the blocks in [thenIdx, falseIdx): the header's
+  ; false target is where the then-region ends for BOTH single-sided (false ==
+  ; merge) and two-sided (false == else) ifs. If the then-region falls through
+  ; to a merge OTHER than the false target, an else arm exists in [falseIdx, mergeIdx).
+  fn emitIf:string (fn:LowIRFunction headerIdx:int wr:CodeWriter visited:[string:boolean]) {
+    def hdr (itemAt fn.blocks headerIdx)
+    def thenLabel hdr.termIfTrue
+    def falseLabel hdr.termIfFalse
+    def thenIdx (this.findBlockIdx(fn thenLabel))
+    def falseIdx (this.findBlockIdx(fn falseLabel))
 
     this.writeGet(hdr.termValue wr)
     wr.out("      (if" true)
     wr.out("        (then" true)
-    this.markVisited(thenBb.label visited)
-    this.writeBlockInstrs(thenBb wr)
-    if (thenBb.termKind == "ret") {
-      if ((strlen thenBb.termValue) > 0) {
-        this.writeGet(thenBb.termValue wr)
-      }
-      wr.out("          return" true)
-    } {
-      if (thenBb.termKind == "br") {
-        if (thenBb.termTarget != mergeBb.label) {
-          wr.out(("          br $" + thenBb.termTarget) true)
-        }
-      }
-    }
+    def thenExit (this.emitRegion(fn thenIdx falseIdx wr visited))
     wr.out("        )" true)
-    wr.out("      )" true)
 
-    if (this.isVisited(mergeBb.label visited) == false) {
-      this.markVisited(mergeBb.label visited)
-      this.writeBlockInstrs(mergeBb wr)
-      if (mergeBb.termKind == "ret") {
-        if ((strlen mergeBb.termValue) > 0) {
-          this.writeGet(mergeBb.termValue wr)
-        }
-        wr.out("      return" true)
-        return (mergeIdx + 1)
-      }
-      if (mergeBb.termKind == "br_if") {
-        return (this.emitIfThenMerge(fn mergeIdx wr visited))
-      }
-      if (mergeBb.termKind == "br") {
-        def condIdx (this.findBlockIdx(fn mergeBb.termTarget))
-        if (this.isWhileHeader(fn condIdx)) {
-          return (this.emitWhileLoop(fn condIdx wr visited))
-        }
-        wr.out(("      br $" + mergeBb.termTarget) true)
+    def isElse false
+    if (thenExit != "") {
+      if (thenExit != falseLabel) {
+        isElse = true
       }
     }
-    return (mergeIdx + 1)
+    if (isElse) {
+      def mergeIdx (this.findBlockIdx(fn thenExit))
+      wr.out("        (else" true)
+      this.emitRegion(fn falseIdx mergeIdx wr visited)
+      wr.out("        )" true)
+      wr.out("      )" true)
+      return thenExit
+    }
+    wr.out("      )" true)
+    return falseLabel
   }
 
-  fn emitWhileLoop:int (fn:LowIRFunction condIdx:int wr:CodeWriter visited:[string:boolean]) {
+  ; Emit a `while` at its cond block `condIdx` (br_if cond -> body / exit). The
+  ; body is the contiguous region [bodyIdx, exitIdx); its back-edge `br cond`
+  ; (cond is marked visited first) is emitted by emitRegion as the loop branch.
+  ; Returns the exit label so the caller continues after the loop.
+  fn emitWhile:string (fn:LowIRFunction condIdx:int wr:CodeWriter visited:[string:boolean]) {
     def condBb (itemAt fn.blocks condIdx)
     def bodyIdx (this.findBlockIdx(fn condBb.termIfTrue))
     def exitIdx (this.findBlockIdx(fn condBb.termIfFalse))
-    def bodyBb (itemAt fn.blocks bodyIdx)
     def exitBb (itemAt fn.blocks exitIdx)
 
     this.markVisited(condBb.label visited)
-    this.markVisited(bodyBb.label visited)
-    this.markVisited(exitBb.label visited)
 
     wr.out(("    (block $" + exitBb.label) true)
     wr.out(("      (loop $" + condBb.label) true)
@@ -229,19 +315,11 @@ class WATWriter {
     this.writeGet(condBb.termValue wr)
     wr.out("        i32.eqz" true)
     wr.out(("        br_if $" + exitBb.label) true)
-    this.writeBlockInstrs(bodyBb wr)
-    wr.out(("        br $" + condBb.label) true)
+    this.emitRegion(fn bodyIdx exitIdx wr visited)
     wr.out("      )" true)
     wr.out("    )" true)
 
-    this.writeBlockInstrs(exitBb wr)
-    if (exitBb.termKind == "ret") {
-      if ((strlen exitBb.termValue) > 0) {
-        this.writeGet(exitBb.termValue wr)
-      }
-      wr.out("      return" true)
-    }
-    return (exitIdx + 1)
+    return exitBb.label
   }
 
   fn writeGet:void (llvmRef:string wr:CodeWriter) {
@@ -251,7 +329,45 @@ class WATWriter {
   fn writeInstr:void (ins:LowIRInstr wr:CodeWriter) {
     switch ins.op {
       case "const" {
-        wr.out(("      i32.const " + ins.arg1) true)
+        if (ins.irType == "f64") {
+          wr.out(("      f64.const " + ins.arg1) true)
+        } {
+          wr.out(("      i32.const " + ins.arg1) true)
+        }
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "fadd" {
+        this.writeGet(ins.arg1 wr)
+        this.writeGet(ins.arg2 wr)
+        wr.out("      f64.add" true)
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "fsub" {
+        this.writeGet(ins.arg1 wr)
+        this.writeGet(ins.arg2 wr)
+        wr.out("      f64.sub" true)
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "fmul" {
+        this.writeGet(ins.arg1 wr)
+        this.writeGet(ins.arg2 wr)
+        wr.out("      f64.mul" true)
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "fdiv" {
+        this.writeGet(ins.arg1 wr)
+        this.writeGet(ins.arg2 wr)
+        wr.out("      f64.div" true)
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "sitofp" {
+        this.writeGet(ins.arg1 wr)
+        wr.out("      f64.convert_i32_s" true)
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "fptosi" {
+        this.writeGet(ins.arg1 wr)
+        wr.out("      i32.trunc_f64_s" true)
         wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
       }
       case "add" {
@@ -282,6 +398,42 @@ class WATWriter {
         this.writeGet(ins.arg1 wr)
         this.writeGet(ins.arg2 wr)
         wr.out("      i32.rem_s" true)
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "and" {
+        this.writeGet(ins.arg1 wr)
+        this.writeGet(ins.arg2 wr)
+        wr.out("      i32.and" true)
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "or" {
+        this.writeGet(ins.arg1 wr)
+        this.writeGet(ins.arg2 wr)
+        wr.out("      i32.or" true)
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "xor" {
+        this.writeGet(ins.arg1 wr)
+        this.writeGet(ins.arg2 wr)
+        wr.out("      i32.xor" true)
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "shl" {
+        this.writeGet(ins.arg1 wr)
+        this.writeGet(ins.arg2 wr)
+        wr.out("      i32.shl" true)
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "ashr" {
+        this.writeGet(ins.arg1 wr)
+        this.writeGet(ins.arg2 wr)
+        wr.out("      i32.shr_s" true)
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "lshr" {
+        this.writeGet(ins.arg1 wr)
+        this.writeGet(ins.arg2 wr)
+        wr.out("      i32.shr_u" true)
         wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
       }
       case "heap_alloc" {
@@ -325,24 +477,47 @@ class WATWriter {
       case "icmp" {
         this.writeGet(ins.arg1 wr)
         this.writeGet(ins.arg2 wr)
-        switch ins.pred {
-          case "slt" {
-            wr.out("      i32.lt_s" true)
+        if (ins.arg3 == "f64") {
+          switch ins.pred {
+            case "slt" {
+              wr.out("      f64.lt" true)
+            }
+            case "sgt" {
+              wr.out("      f64.gt" true)
+            }
+            case "sle" {
+              wr.out("      f64.le" true)
+            }
+            case "sge" {
+              wr.out("      f64.ge" true)
+            }
+            case "eq" {
+              wr.out("      f64.eq" true)
+            }
+            case "ne" {
+              wr.out("      f64.ne" true)
+            }
           }
-          case "sgt" {
-            wr.out("      i32.gt_s" true)
-          }
-          case "sle" {
-            wr.out("      i32.le_s" true)
-          }
-          case "sge" {
-            wr.out("      i32.ge_s" true)
-          }
-          case "eq" {
-            wr.out("      i32.eq" true)
-          }
-          case "ne" {
-            wr.out("      i32.ne" true)
+        } {
+          switch ins.pred {
+            case "slt" {
+              wr.out("      i32.lt_s" true)
+            }
+            case "sgt" {
+              wr.out("      i32.gt_s" true)
+            }
+            case "sle" {
+              wr.out("      i32.le_s" true)
+            }
+            case "sge" {
+              wr.out("      i32.ge_s" true)
+            }
+            case "eq" {
+              wr.out("      i32.eq" true)
+            }
+            case "ne" {
+              wr.out("      i32.ne" true)
+            }
           }
         }
         wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
@@ -368,15 +543,13 @@ class WATWriter {
       }
       case "load" {
         this.writeGet(ins.arg1 wr)
-        def srcCh (charAt ins.arg1 1)
-        if (srcCh == 102) {
+        if (this.isGepTemp(ins.arg1)) {
           wr.out("      i32.load" true)
         }
         wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
       }
       case "store" {
-        def slotCh (charAt ins.arg2 1)
-        if (slotCh == 102) {
+        if (this.isGepTemp(ins.arg2)) {
           this.writeGet(ins.arg2 wr)
           this.writeGet(ins.arg1 wr)
           wr.out("      i32.store" true)

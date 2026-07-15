@@ -1,0 +1,49 @@
+; LLVM/WASM: nested control flow — if inside while, nested if/else, while inside
+; while. Regression guard for the WAT writer's structured-region reconstruction.
+;   sumEven(10) = 0+2+4+6+8 = 20 ; grade(90) = 3 ; mult(3,4) = 12 ; run = 35.
+
+class Nested {
+    sfn sumEven:int (n:int) {
+        def s 0
+        def i 0
+        while (< i n) {
+            if ((% i 2) == 0) {
+                s = (+ s i)
+            }
+            i = (+ i 1)
+        }
+        return s
+    }
+
+    sfn grade:int (x:int) {
+        def g 0
+        if (> x 80) {
+            g = 3
+        } {
+            if (> x 50) {
+                g = 2
+            } {
+                g = 1
+            }
+        }
+        return g
+    }
+
+    sfn mult:int (a:int b:int) {
+        def total 0
+        def i 0
+        while (< i a) {
+            def j 0
+            while (< j b) {
+                total = (+ total 1)
+                j = (+ j 1)
+            }
+            i = (+ i 1)
+        }
+        return total
+    }
+
+    sfn run:int () {
+        return (+ (+ (Nested.sumEven(10)) (Nested.grade(90))) (Nested.mult(3 4)))
+    }
+}

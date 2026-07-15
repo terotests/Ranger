@@ -1,0 +1,9 @@
+name=Ranger Autopeli (WASM)
+engine=wasm
+module=logic.wasm
+abi=linear
+physics=true
+splitScreen=auto
+autoscale=true
+
+category=Tests
