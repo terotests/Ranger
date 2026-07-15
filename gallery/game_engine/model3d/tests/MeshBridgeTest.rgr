@@ -73,6 +73,12 @@ class MeshBridgeTest {
         ck.eqInt("texWidth" em.texWidth 2)
         ck.eqInt("texHeight" em.texHeight 2)
 
+        ; material: fixture baseColorFactor [0.8,0.4,0.2,1.0], opaque, no emissive
+        ck.ok("baseColorA is 1" (em.baseColorA > 0.99))
+        ck.ok("baseColorR ~0.8" (em.baseColorR > 0.79))
+        ck.ok("opaque (no blend)" (em.blend == false))
+        ck.ok("no emissive" (em.emissiveG == 0.0))
+
         print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
         if (ck.failed == 0) {
             print "ALL PASS"

@@ -30,6 +30,16 @@ class EngineMeshData {
     def texWidth:int 0
     def texHeight:int 0
     def texRgba:buffer (buffer_alloc 0)
+    ; material (from the GLB): base colour tint (incl. alpha), emissive glow,
+    ; and whether it should blend (alphaMode BLEND). Defaults = opaque white.
+    def baseColorR:double 1.0
+    def baseColorG:double 1.0
+    def baseColorB:double 1.0
+    def baseColorA:double 1.0
+    def emissiveR:double 0.0
+    def emissiveG:double 0.0
+    def emissiveB:double 0.0
+    def blend:boolean false
     def ok:boolean false
     def error:string ""
 }
@@ -145,6 +155,16 @@ class MeshBridge {
         def matIdx:int (prim.material)
         if (matIdx >= 0) {
             def mat:MaterialAsset (model.getMaterial(matIdx))
+            out.baseColorR = mat.baseColorR
+            out.baseColorG = mat.baseColorG
+            out.baseColorB = mat.baseColorB
+            out.baseColorA = mat.baseColorA
+            out.emissiveR = mat.emissiveR
+            out.emissiveG = mat.emissiveG
+            out.emissiveB = mat.emissiveB
+            if ((mat.alphaMode) == 2) {
+                out.blend = true
+            }
             def texIdx:int (mat.baseColorTexture)
             if (texIdx >= 0) {
                 def tex:TextureAsset (model.getTexture(texIdx))

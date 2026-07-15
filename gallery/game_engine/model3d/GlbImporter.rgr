@@ -249,6 +249,10 @@ class GlbImporter {
             m.metallic = gm.metallic
             m.roughness = gm.roughness
             m.doubleSided = gm.doubleSided
+            m.emissiveR = (gm.emissiveR * gm.emissiveStrength)
+            m.emissiveG = (gm.emissiveG * gm.emissiveStrength)
+            m.emissiveB = (gm.emissiveB * gm.emissiveStrength)
+            m.alphaMode = gm.alphaMode
             push model.materials m
             i = (i + 1)
         }
