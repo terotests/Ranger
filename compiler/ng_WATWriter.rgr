@@ -532,6 +532,16 @@ class WATWriter {
         this.writeGet(ins.arg2 wr)
         wr.out("      i32.store" true)
       }
+      case "ptr_load8" {
+        this.writeGet(ins.arg1 wr)
+        wr.out("      i32.load8_u" true)
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "ptr_store8" {
+        this.writeGet(ins.arg1 wr)
+        this.writeGet(ins.arg2 wr)
+        wr.out("      i32.store8" true)
+      }
       case "inttoptr_struct" {
         this.writeGet(ins.arg1 wr)
         wr.out(("      local.set " + (this.wasmName(ins.dest))) true)

@@ -409,6 +409,18 @@ class LowIRBuilderPass {
     return (ctx.hasCompilerFlag("wasmrc"))
   }
 
+  ; The freestanding-WASM string runtime (ranger_str_*) is in play: non-libc
+  ; target under -wasmrc. When true, string ops route to the WASM-native runtime
+  ; (ranger_str_len/concat/from_int/dup/cmp) instead of libc (strlen/sprintf/...).
+  fn wasmStrEnabled:boolean (lctx:LowIRLowerContext) {
+    def memTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
+    if (memTarget.usesLibc) {
+      return false
+    }
+    def ctx (unwrap lctx.ctx)
+    return (ctx.hasCompilerFlag("wasmrc"))
+  }
+
   fn isLowerableParamType:boolean (typeName:string) {
     if (LowIRUtil.isSupportedParam(typeName)) {
       return true
@@ -581,7 +593,11 @@ class LowIRBuilderPass {
     def dupArgTypes:[string]
     push dupArgs strPtr
     push dupArgTypes "i8*"
-    return (lctx.builder.emitCall("ranger_strdup" "i8*" dupArgs dupArgTypes))
+    def dupFn:string "ranger_strdup"
+    if (this.wasmStrEnabled(lctx)) {
+      dupFn = "ranger_str_dup"
+    }
+    return (lctx.builder.emitCall(dupFn "i8*" dupArgs dupArgTypes))
   }
 
   fn lowerStringConcat:string (aNode:CodeNode bNode:CodeNode lctx:LowIRLowerContext) {
@@ -593,6 +609,34 @@ class LowIRBuilderPass {
     }
     if (this.exprIsString(bNode)) {
       bStr = true
+    }
+    ; freestanding WASM: convert int operands to strings, then ranger_str_concat.
+    if (this.wasmStrEnabled(lctx)) {
+      def aV (this.lowerConcatOperand(aNode aStr lctx))
+      def sa aV
+      if (aStr == false) {
+        def a1:[string]
+        def a1t:[string]
+        push a1 aV
+        push a1t "i32"
+        sa = (builder.emitCall("ranger_str_from_int" "i8*" a1 a1t))
+      }
+      def bV (this.lowerConcatOperand(bNode bStr lctx))
+      def sb bV
+      if (bStr == false) {
+        def b1:[string]
+        def b1t:[string]
+        push b1 bV
+        push b1t "i32"
+        sb = (builder.emitCall("ranger_str_from_int" "i8*" b1 b1t))
+      }
+      def cargs:[string]
+      def cargTypes:[string]
+      push cargs sa
+      push cargTypes "i8*"
+      push cargs sb
+      push cargTypes "i8*"
+      return (builder.emitCall("ranger_str_concat" "i8*" cargs cargTypes))
     }
     def sz (builder.emitConst("i32" "4096"))
     def raw (builder.emitHeapAlloc(sz))
@@ -1418,6 +1462,18 @@ class LowIRBuilderPass {
     def valNode (node.getSecond())
     def isF64 (this.exprIsF64(valNode))
     def val (this.lowerExpr(valNode lctx))
+    ; freestanding WASM: ranger_str_from_int (f64 truncated to i32 for now).
+    if (this.wasmStrEnabled(lctx)) {
+      def iv val
+      if isF64 {
+        iv = (builder.emitCast("fptosi" "i32" "f64" val))
+      }
+      def sargs:[string]
+      def sargTypes:[string]
+      push sargs iv
+      push sargTypes "i32"
+      return (builder.emitCall("ranger_str_from_int" "i8*" sargs sargTypes))
+    }
     def sz (builder.emitConst("i32" "64"))
     def raw (builder.emitHeapAlloc(sz))
     def buf (builder.emitIntToI8Ptr(raw lctx.ptrType))
@@ -1475,7 +1531,11 @@ class LowIRBuilderPass {
     def argTypes:[string]
     push args strPtr
     push argTypes "i8*"
-    return (builder.emitCall("strlen" "i32" args argTypes))
+    def lenFn:string "strlen"
+    if (this.wasmStrEnabled(lctx)) {
+      lenFn = "ranger_str_len"
+    }
+    return (builder.emitCall(lenFn "i32" args argTypes))
   }
 
   fn isIntArrayTypeNode:boolean (node:CodeNode) {
@@ -4094,6 +4154,22 @@ class LowIRBuilderPass {
         def ptr (this.lowerExpr((itemAt argsNode.children 0) lctx))
         def val (this.lowerExpr((itemAt argsNode.children 1) lctx))
         builder.emitPtrStore(ptr val)
+        return handledVoid
+      }
+      return notIntrinsic
+    }
+    if (fnName == "Mem_loadU8") {
+      if ((array_length argsNode.children) > 0) {
+        def ptr (this.lowerExpr((itemAt argsNode.children 0) lctx))
+        return (builder.emitPtrLoad8(ptr))
+      }
+      return notIntrinsic
+    }
+    if (fnName == "Mem_storeU8") {
+      if ((array_length argsNode.children) > 1) {
+        def ptr (this.lowerExpr((itemAt argsNode.children 0) lctx))
+        def val (this.lowerExpr((itemAt argsNode.children 1) lctx))
+        builder.emitPtrStore8(ptr val)
         return handledVoid
       }
       return notIntrinsic

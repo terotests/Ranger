@@ -1,0 +1,17 @@
+Import "./ranger_obj.rgr"
+class G {
+    sfn hud:string (hits:int) {
+        def s ("HITS " + hits)
+        return s
+    }
+    sfn combine:string (a:int b:int) {
+        return (("(" + a) + ("," + b))
+    }
+    sfn lenHud:int (hits:int) {
+        return (strlen ("SCORE " + hits))
+    }
+    sfn greetLen:int () {
+        def g "hello world"
+        return (strlen g)
+    }
+}

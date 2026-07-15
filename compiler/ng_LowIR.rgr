@@ -560,6 +560,28 @@ class LowIRBuilder {
     this.emit(ins)
   }
 
+  fn emitPtrLoad8:string (ptr:string) {
+    def dest (this.freshTemp("m"))
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "ptr_load8"
+    ins.dest = dest
+    ins.irType = "i32"
+    ins.arg1 = ptr
+    this.emit(ins)
+    return dest
+  }
+
+  fn emitPtrStore8:void (ptr:string value:string) {
+    def n (this.tempCounter)
+    this.tempCounter = n + 1
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "ptr_store8"
+    ins.dest = ("ps" + ("" + n))
+    ins.arg1 = ptr
+    ins.arg2 = value
+    this.emit(ins)
+  }
+
   fn emitI32At:string (base:string byteOff:int) {
     def pt (this.irModule.ptrType)
     def off (this.emitConst(pt ("" + byteOff)))

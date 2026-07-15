@@ -30224,6 +30224,26 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       ins.arg3 = this.irModule.ptrType;
       this.emit(ins);
     };
+    emitPtrLoad8 (ptr) {
+      const dest = this.freshTemp("m");
+      const ins = new LowIRInstr();
+      ins.op = "ptr_load8";
+      ins.dest = dest;
+      ins.irType = "i32";
+      ins.arg1 = ptr;
+      this.emit(ins);
+      return dest;
+    };
+    emitPtrStore8 (ptr, value) {
+      const n = this.tempCounter;
+      this.tempCounter = n + 1;
+      const ins = new LowIRInstr();
+      ins.op = "ptr_store8";
+      ins.dest = "ps" + ("" + n);
+      ins.arg1 = ptr;
+      ins.arg2 = value;
+      this.emit(ins);
+    };
     emitI32At (base, byteOff) {
       const pt = this.irModule.ptrType;
       const off = this.emitConst(pt, ("" + byteOff));
@@ -31455,6 +31475,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       const ctx = lctx.ctx;
       return ctx.hasCompilerFlag("wasmrc");
     };
+    wasmStrEnabled (lctx) {
+      const memTarget = LowIRTarget.resolve((lctx.ctx));
+      if ( memTarget.usesLibc ) {
+        return false;
+      }
+      const ctx = lctx.ctx;
+      return ctx.hasCompilerFlag("wasmrc");
+    };
     isLowerableParamType (typeName) {
       if ( LowIRUtil.isSupportedParam(typeName) ) {
         return true;
@@ -31620,7 +31648,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       let dupArgTypes = [];
       dupArgs.push(strPtr);
       dupArgTypes.push("i8*");
-      return lctx.builder.emitCall("ranger_strdup", "i8*", dupArgs, dupArgTypes);
+      let dupFn = "ranger_strdup";
+      if ( this.wasmStrEnabled(lctx) ) {
+        dupFn = "ranger_str_dup";
+      }
+      return lctx.builder.emitCall(dupFn, "i8*", dupArgs, dupArgTypes);
     };
     lowerStringConcat (aNode, bNode, lctx) {
       const builder = lctx.builder;
@@ -31631,6 +31663,33 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }
       if ( this.exprIsString(bNode) ) {
         bStr = true;
+      }
+      if ( this.wasmStrEnabled(lctx) ) {
+        const aV = this.lowerConcatOperand(aNode, aStr, lctx);
+        let sa = aV;
+        if ( aStr == false ) {
+          let a1 = [];
+          let a1t = [];
+          a1.push(aV);
+          a1t.push("i32");
+          sa = builder.emitCall("ranger_str_from_int", "i8*", a1, a1t);
+        }
+        const bV = this.lowerConcatOperand(bNode, bStr, lctx);
+        let sb = bV;
+        if ( bStr == false ) {
+          let b1 = [];
+          let b1t = [];
+          b1.push(bV);
+          b1t.push("i32");
+          sb = builder.emitCall("ranger_str_from_int", "i8*", b1, b1t);
+        }
+        let cargs = [];
+        let cargTypes = [];
+        cargs.push(sa);
+        cargTypes.push("i8*");
+        cargs.push(sb);
+        cargTypes.push("i8*");
+        return builder.emitCall("ranger_str_concat", "i8*", cargs, cargTypes);
       }
       const sz = builder.emitConst("i32", "4096");
       const raw = builder.emitHeapAlloc(sz);
@@ -32392,6 +32451,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       const valNode = node.getSecond();
       const isF64 = this.exprIsF64(valNode);
       const val = this.lowerExpr(valNode, lctx);
+      if ( this.wasmStrEnabled(lctx) ) {
+        let iv = val;
+        if ( isF64 ) {
+          iv = builder.emitCast("fptosi", "i32", "f64", val);
+        }
+        let sargs = [];
+        let sargTypes = [];
+        sargs.push(iv);
+        sargTypes.push("i32");
+        return builder.emitCall("ranger_str_from_int", "i8*", sargs, sargTypes);
+      }
       const sz = builder.emitConst("i32", "64");
       const raw = builder.emitHeapAlloc(sz);
       const buf = builder.emitIntToI8Ptr(raw, lctx.ptrType);
@@ -32447,7 +32517,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       let argTypes = [];
       args.push(strPtr);
       argTypes.push("i8*");
-      return builder.emitCall("strlen", "i32", args, argTypes);
+      let lenFn = "strlen";
+      if ( this.wasmStrEnabled(lctx) ) {
+        lenFn = "ranger_str_len";
+      }
+      return builder.emitCall(lenFn, "i32", args, argTypes);
     };
     isIntArrayTypeNode (node) {
       if ( node.value_type == 6 ) {
@@ -34871,6 +34945,22 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         }
         return notIntrinsic;
       }
+      if ( fnName == "Mem_loadU8" ) {
+        if ( (argsNode.children.length) > 0 ) {
+          const ptr_2 = this.lowerExpr((argsNode.children[0]), lctx);
+          return builder.emitPtrLoad8(ptr_2);
+        }
+        return notIntrinsic;
+      }
+      if ( fnName == "Mem_storeU8" ) {
+        if ( (argsNode.children.length) > 1 ) {
+          const ptr_3 = this.lowerExpr((argsNode.children[0]), lctx);
+          const val_1 = this.lowerExpr((argsNode.children[1]), lctx);
+          builder.emitPtrStore8(ptr_3, val_1);
+          return handledVoid;
+        }
+        return notIntrinsic;
+      }
       if ( fnName == "RangerMem_liveObjects" ) {
         this.usedMemRuntime = true;
         this.ensureMemExtern(LowIRTarget.resolve((lctx.ctx)));
@@ -36116,6 +36206,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           this.writeGet(ins.arg1, wr);
           this.writeGet(ins.arg2, wr);
           wr.out("      i32.store", true);
+          break;
+        case "ptr_load8" : 
+          this.writeGet(ins.arg1, wr);
+          wr.out("      i32.load8_u", true);
+          wr.out("      local.set " + this.wasmName(ins.dest), true);
+          break;
+        case "ptr_store8" : 
+          this.writeGet(ins.arg1, wr);
+          this.writeGet(ins.arg2, wr);
+          wr.out("      i32.store8", true);
           break;
         case "inttoptr_struct" : 
           this.writeGet(ins.arg1, wr);

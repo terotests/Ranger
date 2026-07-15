@@ -29,12 +29,25 @@ class Mem {
 
     sfn storeI32:void (ptr:int val:int) {
     }
+
+    sfn loadU8:int (ptr:int) {
+        return 0
+    }
+
+    sfn storeU8:void (ptr:int val:int) {
+    }
 }
 
 class Heap {
     ; --- fixed geometry -----------------------------------------------------
+    ; The heap base is the end of the string-literal region, which the compiler
+    ; writes to Mem[4] (0 when there are no literals -> default 16).
     sfn base:int () {
-        return 16
+        def b (Mem.loadI32(4))
+        if (== b 0) {
+            return 16
+        }
+        return b
     }
 
     sfn limit:int () {
