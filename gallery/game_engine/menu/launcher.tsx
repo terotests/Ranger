@@ -22,8 +22,9 @@
 // kebab-case names are NOT valid here.
 //
 //   up/down/left/right   move selection (left/right never exit the list)
-//   enter / A            open a category (after a glow flash), or launch a game
-//   back (Q/Esc)         games screen -> categories
+//   enter / A            open a category, launch a game, or use the Back tile
+//   back                 games screen -> categories (the "‹ Takaisin" tile at
+//                        index 0, or the hardware Back/Quit button Q/Esc/Select)
 // ============================================================================
 
 const FLASH_MS = 420;
@@ -123,21 +124,29 @@ function update(props) {
         screen, sel, cat, launchPath: "", quitApp: 0, now,
         anim: { start: now, dur: FLASH_MS },
         onDone: () => {
-          return { screen: "games", cat: targetCat, sel: 0 };
+          // land on the first game (index 1), not the Back tile at index 0 —
+          // unless the category is empty, where only the Back tile exists.
+          const gl = gamesIn(categories()[targetCat]).length;
+          return { screen: "games", cat: targetCat, sel: gl > 0 ? 1 : 0 };
         }
       };
     }
   } else {
     const list = gamesIn(cats[cat]);
-    const n = Math.max(1, list.length);
-    // left/up = previous, right/down = next — the SAME mapping as the categories
-    // screen, so left never surprises the player by dropping out of the list.
-    // Going back up to the categories is the Back/Quit button's job (props.quit),
-    // handled above.
+    // index 0 is the "Back" tile; games occupy 1..list.length. left/up = previous,
+    // right/down = next — the SAME mapping as the categories screen, so left never
+    // surprises the player by dropping out of the list. Returning to the categories
+    // is either the Back tile (sel 0 + A) or the Back/Quit button (props.quit).
+    const n = list.length + 1;
     if (props.up || props.left) sel = (sel + n - 1) % n;
     if (props.down || props.right) sel = (sel + 1) % n;
-    if (props.action && list.length > 0) {
-      launchPath = list[sel].path;
+    if (props.action) {
+      if (sel === 0) {
+        screen = "cats";
+        sel = cat;
+      } else if (list.length > 0) {
+        launchPath = list[sel - 1].path;
+      }
     }
   }
 
@@ -210,6 +219,14 @@ function categoryScreen(s) {
 function gamesScreen(s) {
   const cats = categories();
   const list = gamesIn(cats[s.cat]);
+  // A "Back" tile leads the grid (index 0) so returning to the categories is
+  // reachable with the stick alone — no dependency on a separate hardware Back
+  // button, which a bare joystick console may not have. The games follow it.
+  const items = [];
+  items.push({ title: "‹ Takaisin", back: true });
+  for (const e of list) {
+    items.push(e);
+  }
   return (
     <View flexDirection="column" alignItems="center" padding="22px" width="100%">
       <Label color={INK} fontSize="26px" margin="6px">{cats[s.cat]}</Label>
@@ -219,7 +236,7 @@ function gamesScreen(s) {
             width="1216px" borderRadius="24px"
             borderWidth="1px" borderColor="#2c3352"
             gradientFrom="#242b48" gradientTo="#151829" gradientDir="0">
-        {list.map((e, i) => {
+        {items.map((e, i) => {
           const on = i === s.sel;
           return (
             <View width="204px" height="150px" padding="12px" margin="8px"
@@ -236,7 +253,7 @@ function gamesScreen(s) {
           );
         })}
       </View>
-      <Label color={INK_DIM} fontSize="14px" margin="6px">A pelaa, Q takaisin</Label>
+      <Label color={INK_DIM} fontSize="14px" margin="6px">A pelaa · ‹ Takaisin tai Q</Label>
     </View>
   );
 }

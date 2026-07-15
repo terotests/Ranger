@@ -192,16 +192,28 @@ class TsxMenuRenderDemo {
         c.ok("games screen has rounded EVG boxes" (d.anyRounded(d.root)))
         d.drawFrame("tsx_menu_2_games.png")
 
-        ; ---- move down, then launch ----
-        d.step(false true false false false)
-        d.step(false false false false true)
+        ; ---- opening a category lands on the first GAME (index 1), not the Back tile ----
+        c.ok(("opens on the first game, index 1 (got sel=" + (d.stateStr("sel")) + ")") ((d.stateStr("sel")) == "1"))
+
+        ; ---- move down, then launch the selected game ----
+        d.step(false true false false false)     ; down -> index 2
+        d.step(false false false false true)     ; A -> launch games[sel-1]
         c.ok(("launch path reported (got '" + (d.stateStr("launchPath")) + "')") ((strlen (d.stateStr("launchPath"))) > 0))
 
         ; ---- left no longer exits: it only moves the selection, staying on games ----
-        d.step(false false true false false)
+        d.step(false false true false false)     ; left -> index 1
         c.ok(("left stays on the games screen (got '" + (d.stateStr("screen")) + "')") ((d.stateStr("screen")) == "games"))
 
-        ; ---- the Back/Quit button returns to categories ----
+        ; ---- the STICK ALONE can go back: walk up to the Back tile (index 0) + A ----
+        d.step(true false false false false)     ; up -> index 0 (the Back tile)
+        c.ok(("reached the Back tile, index 0 (got sel=" + (d.stateStr("sel")) + ")") ((d.stateStr("sel")) == "0"))
+        d.step(false false false false true)     ; A on Back -> categories (no hardware Back needed)
+        c.ok(("Back tile returns to cats (got '" + (d.stateStr("screen")) + "')") ((d.stateStr("screen")) == "cats"))
+
+        ; ---- the hardware Back/Quit button still works too ----
+        d.step(false false false false true)     ; A on a category -> flash
+        d.settle()
+        c.ok(("re-opened a category (got '" + (d.stateStr("screen")) + "')") ((d.stateStr("screen")) == "games"))
         d.stepBack()
         c.ok(("Back/Quit -> cats (got '" + (d.stateStr("screen")) + "')") ((d.stateStr("screen")) == "cats"))
 
