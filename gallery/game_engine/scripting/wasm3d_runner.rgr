@@ -354,17 +354,11 @@ class Wasm3dRunner {
         def far ((to_double (this.ri(camBase + 64))) / 256.0)
         def aspect ((to_double pw) / (to_double ph))
         def ambC (this.ri(litBase + 16))
-        def ambR (this.unpackR(ambC))
-        def ambG (this.unpackG(ambC))
-        def ambB (this.unpackB(ambC))
         def ambI ((to_double (this.ri(litBase + 20))) / 256.0)
         def sdx ((to_double (this.ri(litBase + 24))) / 65536.0)
         def sdy ((to_double (this.ri(litBase + 28))) / 65536.0)
         def sdz ((to_double (this.ri(litBase + 32))) / 65536.0)
         def sunC (this.ri(litBase + 36))
-        def sunR (this.unpackR(sunC))
-        def sunG (this.unpackG(sunC))
-        def sunB (this.unpackB(sunC))
         def sunI ((to_double (this.ri(litBase + 40))) / 256.0)
         def rx ((to_double (this.ri(meshBase + 28))) / 256.0)
         def ry ((to_double (this.ri(meshBase + 32))) / 256.0)
@@ -375,7 +369,7 @@ class Wasm3dRunner {
 
         gfx_3d_begin pw ph
         gfx_3d_set_camera ex ey ez txg tyg tzg upx upy upz fovy near far aspect
-        gfx_3d_set_light ambR ambG ambB ambI sdx sdy sdz sunR sunG sunB sunI
+        gfx_3d_set_light ambC ambI sdx sdy sdz sunC sunI
         def s 0
         while (s < nsub) {
             gfx_3d_draw meshId (itemAt subFirst s) (itemAt subCount s) (itemAt subTex s) rx ry rz px py pz
