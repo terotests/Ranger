@@ -6,6 +6,47 @@ handled when compiling to WebAssembly, and whether the answer is **RAII**,
 existing native/LLVM design in [`PLAN_LLVM_MEMORY.md`](./PLAN_LLVM_MEMORY.md)
 and the WAT backend in [`PLAN_WASM_BACKEND.md`](./PLAN_WASM_BACKEND.md).
 
+## Implementation progress (branch: claude/ranger-wasm-memory-rc)
+
+- **Phase 0 — free-list allocator** ✅ `runtime/wasm/ranger_heap.rgr`. malloc/free
+  in linear memory (first-fit, split, coalesce, tail-reclaim, OOM-safe). 16/16
+  tests.
+- **Phase 1 — RC objects** ✅ `runtime/wasm/ranger_obj.rgr`. `[rc|size|type|pad]`
+  header, `ranger_obj_new/retain/release`, typedesc-driven recursive field
+  release. 10/10 tests.
+- **Phase 2 — codegen wiring** ✅ `-wasmrc` flag; `objRcEnabled` gates the object
+  path; `lowerNewObject` emits `ranger_obj_new`; owned locals release at scope
+  end AND per loop iteration (`releaseLoopBodyOwned`); `x = new` reassignment
+  releases the old value. Objects allocated in loops are leak-free (validated to
+  50 000 iterations). 7/7 e2e tests. No regressions; native path untouched.
+
+**Usable today:** object-oriented code — `new` of classes with primitive fields,
+in loops and nested loops, with automatic deterministic cleanup. This covers
+games, entity systems, and object-graph logic.
+
+**Not yet — and the key scoping finding:** strings and arrays/collections are
+**not implemented for freestanding WASM at all** — they currently lower to libc
+calls (`sprintf`, `strlen`, `ranger_ptrarray_*`) that do not exist in a
+freestanding module (wat2wasm rejects `undefined function $sprintf`). So "string
+/array RC on WASM" is really *implement the string + collection runtime for
+freestanding WASM* (allocation, literals, concat, length, indexing) and *then*
+RC — a major multi-phase subsystem, not a small add-on to the object work.
+General-purpose programs (parser, tools, the in-browser compiler) need it;
+object-based game/logic code does not.
+
+- **Phase 3 — string runtime + RC** ⬜ implement freestanding WASM strings
+  (linear-memory buffers, literals in a data segment, concat/length/index), then
+  owned-string-local release + owned string-field release (needs Phase 4 typedesc
+  emission). Large.
+- **Phase 4 — typedesc emission + array runtime + RC** ⬜ serialize typedescs to
+  a data segment so owned object/string fields free recursively; port the
+  ptr-array/map runtime to the free-list heap with element ownership. Large.
+- **Phase 5 — per-frame arena** ⬜ *optional optimisation, not required for
+  correctness* — checkpoint/reset the frontier for frame-scoped temporaries.
+
+Recommended order if continued: Phase 3 (strings) → Phase 4 (typedesc + arrays);
+Phase 5 only if profiling shows RC overhead matters in a frame loop.
+
 ## Tiivistelmä (FI)
 
 Kysymys oli: RAII vai GC? **Vastaus: kumpaakaan ei tarvitse keksiä uutena.**
