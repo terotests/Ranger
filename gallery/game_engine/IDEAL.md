@@ -43,10 +43,11 @@ RGCQ query).
 `input`, `input_p2`. Everything else — bodies, controls, impulses, contacts,
 events, `score`, `hits`, `camera_y`, `air_p1/p2` — flows guest→host.
 
-Beyond those three headers, several blocks exist **only by convention in code, with
-no shared `wasm/*.h`**: `RGP1` pose input (a 128-byte host→guest block wired in
-[`as_abi_bridge.rgr`](./scripting/as_abi_bridge.rgr) and `pose/`), the `RGS1` guest
-sprite draw list, the host resource manifest (`hostSheet` / `hostRect`), and a guest
+`RGP1` pose input now also has a shared header ([`wasm/wasm_pose_abi.h`](./wasm/wasm_pose_abi.h),
+v2, 856 B) that every host and both guest paths conform to (§2.4). Beyond those,
+several blocks still exist **only by convention in code, with no shared `wasm/*.h`**:
+the `RGS1` guest sprite draw list, the host resource manifest (`hostSheet` /
+`hostRect`), and a guest
 sound queue — the last three are **native-array APIs on the interpreted `.as` path
 only**. `RGX1` (streaming) and `RGLD` (loader) are named as siblings but likewise
 have no canonical header.
@@ -76,7 +77,7 @@ without re-widening the leaks above.
 | **Init handshake & host-capability negotiation** | Dead | The header specs a version/caps handshake (`rg_abi_version`/`rg_required_caps`) and a typed query (RGCQ, `rg_declare_queries`/`rg_check_env`), but no host calls them — runners only `verifyMagic()`. No device-type/screen/input environment is answered, and only the WASM path has any query at all. | §2.14, §6 |
 | **Richer input** (analog sticks, pointer/touch, text, per-player remap) | Minimal | Only two i32 bitfields (`input`, `input_p2`); no analog axes, no pointer, no text entry. The host tracks 8 players × 12 buttons but the ABI carries 2 players × ~5 bits. | §2.1, §2.9 |
 | **Haptic feedback** (rumble) | Partial | Rumble flows as an RGW1 event `{ pad, low, high, ms }`, but the two motors are collapsed at `gfx_rumble_pad` (single strength) and `high` is dropped; no envelope/pattern, priority/mixing, cancel, or trigger haptics, and `HOST_CAP_RUMBLE` is never negotiated. | §2.9, §6 |
-| **Pose / body-tracking input** | Ad-hoc | Exists as a 128-byte `RGP1` block in two incompatible layouts across hosts; no shared header, only position + a discrete gesture (no motion/speed). | §2.4, §6 |
+| **Pose / body-tracking input** | Shared | `RGP1` v2 has one shared header (`wasm/wasm_pose_abi.h`): magic/version/size/seqlock, normalized positions + per-landmark & body motion/speed, capability-gated. All producers (native, MediaPipe, `.as`) and both consumer paths (`.as` bridge, `ranger_game::pose`) conform; first WASM game is `games/pose_arena`. | §2.4, §6 |
 | **Game-defined sound palette** | Rigid | A fixed enum (`RG_WASM_SOUND_WALL/BOUNCE/WIN`) in the header; the `.as` path bolts on an integer `playSound` queue instead. No way to register a per-game palette through the ABI. | §4, §2.10 |
 | **Voice & music over the binary ABI** | Missing | `playVoice`/`playMusic`/`stopMusic` exist only on the TS/EvalValue path; WASM and `.as` guests have no encoding for vocal or music events. | §2.10 |
 | **File-based audio loading** | Missing | `sound`/`music` resources are registered but never decoded (no audio decoder); the only real file load is a 16-bit mono-WAV *voice* override. No sfx samples, no compressed formats, no per-event gain/pan/pitch/handle. | §2.10, §2.7 |
@@ -346,24 +347,26 @@ and the game reacts to where the body is and *how it is moving*. It is exactly t
 parity gaps above — so it gets a full treatment, with a concrete answer to the one
 question the transport must settle: **how are motion and speed defined?**
 
-**Current state (the drift is live).** RGP1 has no shared header, and the hosts
-already disagree on its bytes:
+**Current state (the drift is resolved).** RGP1 now has one shared header,
+[`wasm/wasm_pose_abi.h`](./wasm/wasm_pose_abi.h) (RGP1 v2), and every producer and
+consumer conforms to it byte-for-byte:
 
-| Producer | Layout it writes | Header |
-|----------|------------------|--------|
-| Native SDL host — [`pose/native_provider/rg_pose.h`](./pose/native_provider/rg_pose.h) | `present@0, gesture@4, count@8, revision@12, landmarks@16` | none |
-| Browser / MediaPipe — [`pose/mediapipe_poc/rgp1.mjs`](./pose/mediapipe_poc/rgp1.mjs) | `present@0, gesture@4, count@8, seq@12, landmarks@16` | none |
-| Interpreted `.as` bridge — [`scripting/as_abi_bridge.rgr`](./scripting/as_abi_bridge.rgr) | `magic@0, version@4, revision@8, present@12, gesture@16, count@20, landmarks@32` | magic/version |
+| Party | Conforms via | Positions |
+|-------|--------------|-----------|
+| Native SDL host — [`pose/native_provider/rg_pose.h`](./pose/native_provider/rg_pose.h) | `WriteRgp1` writes magic/version/size/revision + 64 B header + 24 B landmarks | normalized `[0,1]×256` |
+| Browser / MediaPipe — [`pose/mediapipe_poc/rgp1.mjs`](./pose/mediapipe_poc/rgp1.mjs) | `mapToRgp1` writes the same header + full skeleton | normalized `[0,1]×256` |
+| Interpreted `.as` bridge — [`scripting/as_abi_bridge.rgr`](./scripting/as_abi_bridge.rgr) | `poseWrite*` / `pose*` readers at the canonical offsets | (path convention) |
+| Compiled WASM guest — [`lib/ranger_game/src/pose.rs`](./lib/ranger_game/src/pose.rs) | `Pose` reader mirroring the header | normalized `[0,1]×256` |
 
-A guest carried between the native host and the `.as` host therefore reads pose from
-the *wrong offsets* — the "no shared header → drift" failure from the parity
-analysis, happening in real code today. On top of that, every producer ships only
-**position** (landmark `x/y` in fixed-point) plus a discrete `gesture`, so a game
-that reacts to *how fast* a hand moves has to difference positions itself — duplicating
-the smoothing the host already runs ([`PoseSmoother` / One-Euro in
-`rg_pose.h`](./pose/native_provider/rg_pose.h)) and inventing its own clock. And
-`rgp1.mjs` stores `nose.x * VIEW_W * FP` (a nominal 480×270), baking a view size into
-the coordinate — the pose analog of the world-encoded-twice leak (§5).
+A guest carried between hosts now reads pose from the *same offsets* everywhere, so
+the "no shared header → drift" failure is closed. The header also carries motion
+(per-landmark and aggregate-body `vx/vy/speed` in Q16.16) so a game that reacts to
+*how fast* a hand moves reads it directly instead of differencing positions, and
+positions are stored NORMALIZED (`x/y ∈ [0,1] × 256`, never multiplied by a view
+size), so the old `rgp1.mjs` `nose.x * VIEW_W * FP` leak (the pose analog of §5) is
+gone — the guest scales into its own world. The first compiled-WASM consumer is
+[`games/pose_arena`](./games/pose_arena/) (RGP1 in → RGSP1 sprite + RGU1 HUD text
+out), streamed by the sprite host.
 
 **Ideal — the principles.**
 

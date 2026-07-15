@@ -8,6 +8,7 @@
 //! - [`sprite`] — RGSP1 ready-character sprites (`wasm/wasm_sprite_abi.h`)
 //! - [`world`]  — RGW1 world / host-physics (`wasm/wasm_game_abi.h`)
 //! - [`ui`]     — RGU1 retained-mode UI document (`wasm/wasm_ui_abi.h`)
+//! - [`pose`]   — RGP1 host→guest streaming pose input (`wasm/wasm_pose_abi.h`)
 //! - [`input`]  — the shared digital input bits + press/release edge tracking
 //! - [`resources`] — the `rg_host_register_*` resource-declaration imports
 //!
@@ -45,6 +46,7 @@
 #![no_std]
 
 pub mod input;
+pub mod pose;
 pub mod resources;
 pub mod sprite;
 pub mod ui;

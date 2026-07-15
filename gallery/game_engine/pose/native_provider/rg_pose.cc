@@ -26,15 +26,28 @@ int ClassifyGesture(const std::array<Landmark, kLandmarkCount>& lm) {
 void WriteRgp1(const PoseFrame& f, uint8_t* dst) {
   using namespace rgp1;
   for (int i = 0; i < kSize; i++) dst[i] = 0;
+  Wr32(dst, kOffMagic, (int32_t)kMagic);
+  Wr32(dst, kOffVersion, kVersion);
+  Wr32(dst, kOffSize, kSize);
   Wr32(dst, kOffPresent, f.present ? 1 : 0);
   Wr32(dst, kOffGesture, f.gesture);
-  Wr32(dst, kOffCount, f.present ? 1 : 0);
-  Wr32(dst, kOffRevision, (int32_t)f.sequence);
+  Wr32(dst, kOffTimeMs, (int32_t)(f.timestamp_us / 1000));
+  Wr32(dst, kOffFlags, (int32_t)kFlagValid);
   if (f.present) {
-    const Landmark& nose = f.landmarks[kNose];
-    Wr32(dst, kOffLm0 + 0, (int32_t)std::lround(nose.x * kViewW * kFP));
-    Wr32(dst, kOffLm0 + 4, (int32_t)std::lround(nose.y * kViewH * kFP));
+    Wr32(dst, kOffCount, kMaxLm);
+    // Full skeleton, NORMALIZED [0,1] * kFP — the guest scales into its world.
+    for (int i = 0; i < kMaxLm; i++) {
+      const Landmark& lm = f.landmarks[i];
+      int base = kOffLm0 + i * kLmStride;
+      Wr32(dst, base + kLmX, (int32_t)std::lround(lm.x * kFP));
+      Wr32(dst, base + kLmY, (int32_t)std::lround(lm.y * kFP));
+      Wr32(dst, base + kLmConf, (int32_t)std::lround(lm.visibility * kFP));
+    }
+  } else {
+    Wr32(dst, kOffCount, 0);
   }
+  // Publish the revision LAST (a mid-write reader on another thread retries).
+  Wr32(dst, kOffRevision, (int32_t)f.sequence);
 }
 
 // ---------------------------------------------------------------- PoseChannel

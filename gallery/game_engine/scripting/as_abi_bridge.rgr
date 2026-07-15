@@ -17,7 +17,7 @@ class AsAbiBridge {
 
     def abi:[int]          ; RGW1 block (2560 bytes)
     def ui:[int]           ; RGU1 block (8192 bytes)
-    def pose:[int]         ; RGP1 pose block (128 bytes) — host->guest streaming input
+    def pose:[int]         ; RGP1 pose block (856 bytes) — host->guest streaming input
     def ready:boolean false
 
     ; host resource manifest (filled by the .as declare_resources via hostSheet/
@@ -66,7 +66,7 @@ class AsAbiBridge {
             j = (j + 1)
         }
         def p 0
-        while (p < 128) {
+        while (p < 856) {
             push pose zero
             p = (p + 1)
         }
@@ -404,10 +404,16 @@ class AsAbiBridge {
     ; A separate, independently-versioned block (the pose counterpart of RGU1).
     ; The host PoseProvider writes a fresh sample each frame BEFORE update(); the
     ; interpreted .as game reads it via the guest readers below (imported from
-    ; "@ranger/game", same as the RGW1 helpers). Layout, offsets within `pose`:
-    ;    0  magic 'RGP1'    12  present (0/1)     20  landmarkCount
-    ;    4  version         16  gesture           32.. landmark[i]=xFp,yFp (*256)
-    ;    8  revision        (gesture: 0 none 1 arms_up 2 lean_left 3 lean_right)
+    ; "@ranger/game", same as the RGW1 helpers).
+    ;
+    ; Layout is the SHARED, CANONICAL wasm/wasm_pose_abi.h (RGP1 v2) — the same
+    ; offsets the compiled-WASM reader (lib/ranger_game/src/pose.rs) and the
+    ; native provider use, so a guest is portable across paths (IDEAL §2.4).
+    ; Header (64 B):  0 magic 'RGP1'   4 version   8 size   12 revision
+    ;                16 present  20 gesture  24 lm_count  28 time_ms  32 dt_ms
+    ;                36 flags   40 body_vx  44 body_vy  48 body_speed
+    ; Landmarks at 64, 24 B each: 0 x  4 y  8 vx  12 vy  16 speed  20 conf
+    ; (positions normalized[0,1]*256; gesture: 0 none 1 arms_up 2 lean_l 3 lean_r)
     fn ppw:void (off:int v:int) {
         set pose off (bit_and v 255)
         set pose (off + 1) (bit_and (bit_shr v 8) 255)
@@ -427,38 +433,40 @@ class AsAbiBridge {
     }
     ; -- host writers: the PoseProvider fills these before each update() --
     fn poseWriteHeader:void (present:int gesture:int count:int) {
-        this.ppw(0 827344722)     ; 'RGP1' little-endian
-        this.ppw(4 1)             ; version
-        this.ppw(12 present)
-        this.ppw(16 gesture)
-        this.ppw(20 count)
+        this.ppw(0 827344722)     ; 'RGP1' little-endian (0x31504752)
+        this.ppw(4 2)             ; version 2
+        this.ppw(8 856)           ; total block size
+        this.ppw(16 present)
+        this.ppw(20 gesture)
+        this.ppw(24 count)
+        this.ppw(36 1)            ; flags: RG_POSE_FLAG_VALID
     }
     fn poseWriteLandmark:void (i:int xFp:int yFp:int) {
-        def b (32 + (i * 8))
+        def b (64 + (i * 24))
         this.ppw(b xFp)
         this.ppw((b + 4) yFp)
     }
     fn poseBump:void (rev:int) {
-        this.ppw(8 rev)
+        this.ppw(12 rev)
     }
     ; -- guest readers: imported by the .as game from "@ranger/game" --
     fn posePresent:int () {
-        return (this.ppr(12))
-    }
-    fn poseGesture:int () {
         return (this.ppr(16))
     }
-    fn poseCount:int () {
+    fn poseGesture:int () {
         return (this.ppr(20))
     }
+    fn poseCount:int () {
+        return (this.ppr(24))
+    }
     fn poseX:int (i:int) {
-        return (this.ppr(32 + (i * 8)))
+        return (this.ppr(64 + (i * 24)))
     }
     fn poseY:int (i:int) {
-        return (this.ppr((32 + (i * 8)) + 4))
+        return (this.ppr((64 + (i * 24)) + 4))
     }
     fn poseRevision:int () {
-        return (this.ppr(8))
+        return (this.ppr(12))
     }
 
     ; ---- native bridge dispatch ----

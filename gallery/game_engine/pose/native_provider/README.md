@@ -6,9 +6,10 @@ inference, so it builds and is **unit-tested anywhere** (including CI / a laptop
 
 - `rg_pose.h/.cc`
   - `PoseFrame` / `Landmark` — one complete pose sample.
-  - `WriteRgp1()` — serialize a frame into the 128-byte RGP1 block the wasm3 guest
-    reads (nose → world-unit fixed-point). **Only the game thread calls it**, into
-    guest linear memory.
+  - `WriteRgp1()` — serialize a frame into the shared RGP1 v2 block the wasm3 guest
+    reads (the canonical `wasm/wasm_pose_abi.h` layout: 64 B header + 24 B landmark
+    records, 856 B total, positions NORMALIZED `[0,1]×256`). **Only the game thread
+    calls it**, into guest linear memory.
   - `PoseChannel` — lock-free single-producer/single-consumer latest-value channel
     (triple buffer): the inference thread `Publish()`es, the game thread
     `Latest()`s, no tearing, no locks. The robust form of the A/B-swap sketch.

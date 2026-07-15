@@ -30,12 +30,18 @@ static void TestRgp1() {
   f.landmarks[kNose] = {0.5f, 0.5f, 0, 1};
   uint8_t buf[rgp1::kSize];
   WriteRgp1(f, buf);
+  CHECK((uint32_t)Rd32(buf, rgp1::kOffMagic) == rgp1::kMagic, "magic 'RGP1'");
+  CHECK(Rd32(buf, rgp1::kOffVersion) == 2, "version 2");
+  CHECK(Rd32(buf, rgp1::kOffSize) == rgp1::kSize && rgp1::kSize == 856, "size 856");
   CHECK(Rd32(buf, rgp1::kOffPresent) == 1, "present=1");
   CHECK(Rd32(buf, rgp1::kOffGesture) == kArmsUp, "gesture=ARMS_UP");
-  CHECK(Rd32(buf, rgp1::kOffCount) == 1, "count=1");
+  CHECK(Rd32(buf, rgp1::kOffCount) == kLandmarkCount, "count=full skeleton");
+  CHECK(Rd32(buf, rgp1::kOffFlags) == (int)rgp1::kFlagValid, "flags=VALID");
   CHECK(Rd32(buf, rgp1::kOffRevision) == 7, "revision=sequence");
-  CHECK(Rd32(buf, rgp1::kOffLm0) == (int)std::lround(0.5 * 480 * 256), "nose x fixed-point");
-  CHECK(Rd32(buf, rgp1::kOffLm0 + 4) == (int)std::lround(0.5 * 270 * 256), "nose y fixed-point");
+  // Positions are NORMALIZED (no view size baked in): 0.5 * 256 = 128.
+  CHECK(Rd32(buf, rgp1::kOffLm0 + rgp1::kLmX) == 128, "nose x normalized fixed-point");
+  CHECK(Rd32(buf, rgp1::kOffLm0 + rgp1::kLmY) == 128, "nose y normalized fixed-point");
+  CHECK(Rd32(buf, rgp1::kOffLm0 + rgp1::kLmConf) == 256, "nose confidence = visibility*256");
 
   std::array<Landmark, kLandmarkCount> lm{};
   lm[kLShoulder] = {0.4f, 0.5f, 0, 1}; lm[kRShoulder] = {0.6f, 0.5f, 0, 1};

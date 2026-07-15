@@ -17,6 +17,8 @@ Import "../wasm_runtime.rgr"
 Import "./wasm_cap_gate.rgr"
 Import "./game_audio.rgr"
 Import "./wasm_sprite_runner.rgr"
+Import "./wasm_ui_io.rgr"
+Import "./game_hud.rgr"
 Import "../lpc/src/png_decoder.rgr"
 Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
 
@@ -34,10 +36,35 @@ class SpriteWasmRunner {
     def backPulse:boolean false
     def assetRoot:string "gallery/game_engine/games/sprite_char/assets/"
     ; Forward-compat capability gate (IDEAL.md §6). The sprite host renders
-    ; characters from its catalog and needs no optional RGW1 caps, so it
-    ; advertises none; a guest built against a newer ABI is rejected at load.
+    ; characters from its catalog and can stream pose (RGP1), so it advertises
+    ; RG_WASM_HOST_CAP_POSE_INPUT; a guest that needs a cap this host does not
+    ; provide, or a newer ABI, is rejected at load.
     def capGate:WasmCapGate (new WasmCapGate)
     def gateRejected:boolean false
+
+    ; ---- optional RGP1 pose input (streamed to a guest that exports rg_pose_ptr).
+    ; The host copies the latest pose sample into the guest's linear memory each
+    ; tick, BEFORE sprite_tick — exactly the seam a real MediaPipe/TFLite source
+    ; plugs into (here a deterministic fake sweep so the game is playable and
+    ; testable without a camera). Guests without rg_pose_ptr (e.g. sprite_char)
+    ; are untouched.
+    def hasPose:boolean false
+    def poseBase:int 0
+    def poseClock:int 0
+    def poseRev:int 2
+    def posePresent:int 0
+    def poseGesture:int 0
+    def poseNoseXn:int 128   ; nose x, normalized [0,1] * 256
+    def poseNoseYn:int 128   ; nose y, normalized [0,1] * 256
+
+    ; ---- optional RGU1 HUD (a guest that exports rg_ui_revision authors a UI
+    ; document; the sprite host blits it as a text overlay — this is how the pose
+    ; game shows the latest pose event as text). sprite_char exports no UI.
+    def hasUi:boolean false
+    def uiDoc:WasmUiDoc (new WasmUiDoc)
+    def uiBuilder:WasmUiEvgBuilder (new WasmUiEvgBuilder)
+    def hudBlitter:GameHudBlitter (new GameHudBlitter)
+    def uiRev:int (0 - 1)
 
     fn init:void (w:int h:int) {
         audio.init()
@@ -92,7 +119,7 @@ class SpriteWasmRunner {
         this.loadSheets()
         guest = (wasm_load path)
         gateRejected = false
-        capGate.setHostCaps(0)
+        capGate.setHostCaps(16)   ; RG_WASM_HOST_CAP_POSE_INPUT (this host streams pose)
         if ((capGate.checkWasm(guest)) == false) {
             print ("[sprite] REJECTED " + path + ": " + capGate.reason)
             wasm_close guest
@@ -104,6 +131,79 @@ class SpriteWasmRunner {
         gbase = (wasm_call_i32 guest "sprite_ptr" 0 0 0 0 0 0)
         wasm_mem_set_i32 guest (gbase + 36) pw   ; OFF_VIEW_W
         wasm_mem_set_i32 guest (gbase + 40) ph   ; OFF_VIEW_H
+
+        ; Optional blocks: pose input + a HUD document. Detected once at load so
+        ; the per-tick path stays branch-cheap and sprite_char (neither export)
+        ; is unaffected.
+        hasPose = ((wasm_has_export guest "rg_pose_ptr") != 0)
+        poseBase = 0
+        poseClock = 0
+        poseRev = 2
+        if (hasPose) {
+            poseBase = (wasm_call_i32 guest "rg_pose_ptr" 0 0 0 0 0 0)
+        }
+        hasUi = ((wasm_has_export guest "rg_ui_revision") != 0)
+        uiRev = (0 - 1)
+    }
+
+    ; Stream one pose sample into the guest's RGP1 block (canonical layout, see
+    ; wasm/wasm_pose_abi.h). This is the SOURCE seam: swap this fake sweep for a
+    ; MediaPipe/TFLite worker's latest frame and the guest is unchanged. Nose
+    ; sweeps left↔right; arms-up fires periodically; lean by horizontal position
+    ; (same fabricated pose as game_pose_provider.rgr's FakePoseSource).
+    fn feedPose:void (dtMs:int) {
+        if (hasPose == false) { return }
+        if (guest <= 0) { return }
+        def t:int poseClock
+        def phase:int (t % 160)
+        def nx:int 0
+        if (phase < 80) {
+            nx = (120 + (phase * 3))
+        } {
+            nx = (360 - ((phase - 80) * 3))
+        }
+        def ny:int 135
+        def g:int 0
+        if ((t % 90) < 15) {
+            g = 1
+        } {
+            if (nx < 200) {
+                g = 2
+            } {
+                if (nx > 300) {
+                    g = 3
+                }
+            }
+        }
+        ; normalize into [0,1] * 256 against the base 480x270 layout so the guest
+        ; scales it back into whatever view size it was handed.
+        def nxN:int (idiv (nx * 256) 480)
+        def nyN:int (idiv (ny * 256) 270)
+        posePresent = 1
+        poseGesture = g
+        poseNoseXn = nxN
+        poseNoseYn = nyN
+        def b:int poseBase
+        wasm_mem_set_i32 guest (b + 0) 827344722    ; magic 'RGP1'
+        wasm_mem_set_i32 guest (b + 4) 2            ; version
+        wasm_mem_set_i32 guest (b + 8) 856          ; size
+        wasm_mem_set_i32 guest (b + 16) 1           ; present
+        wasm_mem_set_i32 guest (b + 20) g           ; gesture
+        wasm_mem_set_i32 guest (b + 24) 1           ; landmark count (nose)
+        wasm_mem_set_i32 guest (b + 28) t           ; time ms
+        wasm_mem_set_i32 guest (b + 32) dtMs        ; dt ms
+        wasm_mem_set_i32 guest (b + 36) 3           ; flags VALID | HAS_VEL
+        ; landmark 0 (nose): x, y, vx, vy, speed, conf  (24-byte record at 64)
+        wasm_mem_set_i32 guest (b + 64) nxN
+        wasm_mem_set_i32 guest (b + 68) nyN
+        wasm_mem_set_i32 guest (b + 72) 0
+        wasm_mem_set_i32 guest (b + 76) 0
+        wasm_mem_set_i32 guest (b + 80) 0
+        wasm_mem_set_i32 guest (b + 84) 256
+        ; publish the revision LAST (even = stable), so a mid-write reader retries.
+        wasm_mem_set_i32 guest (b + 12) poseRev
+        poseRev = (poseRev + 2)
+        poseClock = (poseClock + 1)
     }
 
     fn setupScene:void () {
@@ -124,6 +224,7 @@ class SpriteWasmRunner {
     ; Write dt/input/view, tick the guest, copy the RGSP1 block into the host view.
     fn tickGuest:void (dtMs:int flags:int) {
         if (guest <= 0) { return }
+        this.feedPose(dtMs)                         ; RGP1 pose in, before the tick
         wasm_mem_set_i32 guest (gbase + 12) dtMs    ; OFF_DT_MS
         wasm_mem_set_i32 guest (gbase + 28) flags   ; OFF_INPUT
         wasm_mem_set_i32 guest (gbase + 36) pw      ; OFF_VIEW_W
@@ -188,5 +289,38 @@ class SpriteWasmRunner {
             }
             i = (i + 1)
         }
+        this.drawSkeleton()
+        this.drawHud()
+    }
+
+    ; Optional skeleton overlay drawn from the pose the host streamed. The fake
+    ; source carries only the nose, so this shows the tracked head marker; a real
+    ; full-body source lights up every landmark it publishes.
+    fn drawSkeleton:void () {
+        if (hasPose == false) { return }
+        if (posePresent == 0) { return }
+        def hx:int (idiv (poseNoseXn * pw) 256)
+        def hy:int (idiv (poseNoseYn * ph) 256)
+        canvas.fillCircle(hx hy 6 120 220 255)
+        canvas.fillCircle(hx hy 3 20 40 70)
+    }
+
+    ; Blit the guest's RGU1 HUD document (re-read only when its revision bumps),
+    ; so a pose guest can display the latest pose event as text. Guests with no
+    ; UI document (sprite_char) skip this entirely.
+    fn drawHud:void () {
+        if (hasUi == false) { return }
+        if (guest <= 0) { return }
+        def rev:int (wasm_call_i32 guest "rg_ui_revision" 0 0 0 0 0 0)
+        if (rev <= 0) { return }
+        if (rev != uiRev) {
+            def ok:boolean (uiDoc.loadFromWasm(guest))
+            if (ok == false) { return }
+            uiRev = rev
+        }
+        if (uiDoc.valid == false) { return }
+        def root:EVGElement (uiBuilder.build(uiDoc))
+        hudBlitter.attach(canvas)
+        hudBlitter.drawTree(root pw ph)
     }
 }

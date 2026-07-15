@@ -7,7 +7,7 @@
 //! (Rust runs tests in threads); sub-cases run sequentially inside it.
 
 use ranger_game::input::Buttons;
-use ranger_game::{fp, sprite, ui, world};
+use ranger_game::{fp, pose, sprite, ui, world};
 
 #[test]
 fn sprite_block_layout() {
@@ -92,6 +92,73 @@ fn sprite_block_layout() {
     let (frame3, scene3) = sprite::__begin_tick();
     assert!(frame3.input.released(Buttons::ACTION));
     sprite::__end_tick(scene3);
+}
+
+#[test]
+fn pose_block_layout() {
+    // Offsets from wasm_pose_abi.h (RGP1 v2).
+    const OFF_MAGIC: usize = 0;
+    const OFF_VERSION: usize = 4;
+    const OFF_SIZE: usize = 8;
+    const OFF_REVISION: usize = 12;
+    const OFF_PRESENT: usize = 16;
+    const OFF_GESTURE: usize = 20;
+    const OFF_LM_COUNT: usize = 24;
+    const OFF_TIME_MS: usize = 28;
+    const OFF_DT_MS: usize = 32;
+    const OFF_FLAGS: usize = 36;
+    const OFF_BODY_VX: usize = 40;
+    const OFF_LM0: usize = 64;
+    const LM_OFF_X: usize = 0;
+    const LM_OFF_Y: usize = 4;
+
+    pose::__init_block();
+    assert_eq!(pose::__read_i32(OFF_MAGIC) as u32, 0x3150_4752, "magic 'RGP1'");
+    assert_eq!(pose::__read_i32(OFF_VERSION), 2);
+    assert_eq!(pose::__read_i32(OFF_SIZE), 64 + 33 * 24, "header + 33 landmarks");
+    assert_eq!(pose::SIZE, 856);
+
+    // Host streams a sample; guest reads it typed at the canonical offsets.
+    pose::__write_i32(OFF_REVISION, 2); // even = stable
+    pose::__write_i32(OFF_PRESENT, 1);
+    pose::__write_i32(OFF_GESTURE, 1); // guest-defined id
+    pose::__write_i32(OFF_LM_COUNT, 33);
+    pose::__write_i32(OFF_TIME_MS, 1234);
+    pose::__write_i32(OFF_DT_MS, 16);
+    pose::__write_i32(OFF_FLAGS, (pose::flag::VALID | pose::flag::HAS_VEL) as i32);
+    pose::__write_i32(OFF_BODY_VX, 7 * 65536);
+    // landmark 0 (nose, by the guest's convention): normalized (0.5, 0.25).
+    pose::__write_landmark(0, 128, 64, 100, -50, 200, 250);
+
+    let p = pose::__pose();
+    assert!(p.present());
+    assert_eq!(p.gesture(), 1);
+    assert_eq!(p.landmark_count(), 33);
+    assert_eq!(p.time_ms(), 1234);
+    assert_eq!(p.dt_ms(), 16);
+    assert!(p.has_flag(pose::flag::VALID));
+    assert!(p.has_flag(pose::flag::HAS_VEL));
+    assert!(!p.has_flag(pose::flag::JUST_APPEARED));
+    assert_eq!(p.body_vx(), 7 * 65536);
+    let lm = p.landmark(0);
+    assert_eq!(lm.x_fp, 128, "0.5 * FP");
+    assert_eq!(lm.y_fp, 64, "0.25 * FP");
+    assert_eq!(lm.vx, 100);
+    assert_eq!(lm.vy, -50);
+    assert_eq!(lm.speed, 200);
+    assert_eq!(lm.conf, 250);
+    assert_eq!(p.x_fp(0), 128);
+    assert_eq!(p.y_fp(0), 64);
+
+    // The raw bytes live exactly where the header + a host read expect them.
+    assert_eq!(pose::__read_i32(OFF_LM0 + LM_OFF_X), 128);
+    assert_eq!(pose::__read_i32(OFF_LM0 + LM_OFF_Y), 64);
+
+    // Out-of-range landmark / clamped count are safe.
+    assert_eq!(p.landmark(-1), pose::Landmark::default());
+    assert_eq!(p.landmark(33), pose::Landmark::default());
+    pose::__write_i32(OFF_LM_COUNT, 999);
+    assert_eq!(p.landmark_count(), 33, "count clamped to MAX_LM");
 }
 
 #[test]

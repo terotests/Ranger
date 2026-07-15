@@ -274,6 +274,22 @@ The structural payoff: core compiles against interfaces, the guest owns the worl
   RGIN record on every path; games declare semantic actions mapped through a
   remappable table; hotplug/resize as events.
   *Check:* an analog-stick guest reads `LSTICK_X` on both WASM and `.as`.
+- [x] **5.1a RGP1 pose input reaches the compiled-WASM path (parity)** (rows 3/4/12,
+  IDEAL.md §2.4). The `.as` path was the only one that could read pose; now the
+  compiled-WASM path can too. Added `lib/ranger_game/src/pose.rs` (an RGP1 reader
+  mirroring `wasm/wasm_pose_abi.h`) + `sprite_pose_game!` (sprite exports +
+  `rg_pose_ptr`/`rg_pose_size` + `rg_required_caps = POSE`). The sprite host
+  (`scripting/sprite_wasm_runner.rgr`) streams RGP1 into the guest each tick and
+  renders the guest's RGU1 HUD + a skeleton overlay. All producers/consumers were
+  aligned to the canonical layout (native `rg_pose.h/.cc`, `mediapipe/rgp1.mjs`,
+  the `.as` bridge), closing the live drift and the view-size-in-coords leak.
+  *Check:* `lib/ranger_game` layout test `pose_block_layout` (offsets byte-for-byte);
+  `games/pose_arena` (`npm run engine:pose:verify`) runs the real `.wasm` in Node,
+  streams RGP1, and asserts the RGSP1 sprite slot + the RGU1 HUD pose text; native
+  `rg_pose_test.cc` passes on the canonical layout.
+  *Remaining:* the `.as` FakePoseSource still uses a pixel (not normalized) landmark
+  convention internally — normalize it + `games/pose_demo/game.as` for full
+  value-level parity; a live SDL run once a camera source replaces the fake sweep.
 - [ ] **5.2 CI leak guard wired** (row 13). Phase 0.2 grep runs in CI against every
   core file + header.
   *Check:* a deliberately-introduced `autopeli` in a core file fails CI.
