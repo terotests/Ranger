@@ -8,13 +8,17 @@ always tell **what is binding right now** from **what is proposed**:
 | Document | Status | Contents |
 |----------|--------|----------|
 | **[`ABI_V1.md`](./ABI_V1.md)** | **NORMATIVE** | Exactly what ships and runs today: block byte-layouts (RGW1, RGSP1, RGU1, RGP1, RGIN, RGCQ), the concurrency/ownership model, handshake, capability bits, and honest current result/determinism/identity semantics. |
-| **[`ABI_V2_PROPOSAL.md`](./ABI_V2_PROPOSAL.md)** | **PROPOSED** | Target layouts and breaking changes: new blocks, widened records, `rg_ui_event_v2`, versioning rules, the `RgResult` model, the replay protocol, the identity model. **Not the current contract.** |
+| **[`ABI_V2_PROPOSAL.md`](./ABI_V2_PROPOSAL.md)** | **PROPOSED** | Target layouts and breaking changes: new blocks, widened records, `rg_ui_event_v2`, versioning rules, the `RgResult` model, the replay protocol, the identity model, and the **3D-graphics cluster** (§18 mesh block, §19 camera projection with 2D as the orthographic special case, §20 scene lighting, §21 the unified 2D/3D pipeline). **Not the current contract.** |
 | **[`HOST_ARCHITECTURE.md`](./HOST_ARCHITECTURE.md)** | Informative | Host-internal Ranger interfaces (`GameProvider`, `GameSceneProvider`, `BodyVisual`, registries). Function-passing interfaces, **not a byte-level ABI.** |
 | **[`IDEAL.md`](./IDEAL.md)** | Rationale | Why each interface should look the way it does. The source of *intent*; never overrides a shipped byte layout. |
 
 **Where to start:** implementing a guest or host against today's runtime → read
 `ABI_V1.md` and the generated headers under [`wasm/`](./wasm/). Planning the next
-version → `ABI_V2_PROPOSAL.md`. Understanding a design choice → `IDEAL.md`.
+version → `ABI_V2_PROPOSAL.md`. Understanding a design choice → `IDEAL.md`. A
+runnable Phase-1 slice of the proposed 3D-graphics cluster (§18–§21) lives in
+[`games/cube3d_wasm`](./games/cube3d_wasm) — a Rust→WASM guest that declares a
+mesh/camera/light and a headless software rasteriser — tracked in
+`IDEAL_TODO.md` Phase G.
 
 ---
 
@@ -87,7 +91,9 @@ or control label belongs in a shared header.
 Anything fed *back* to the guest that could affect logic (a hit test, an
 unprojected pointer, a persisted read) uses fixed-point so results match across
 CPU, GPU, and replays. (The camera view matrix uses its own Q16.16 scale,
-`RG_CAM_FP_MTX`, distinct from `FP_SCALE`; see `V2 §16.2`.)
+`RG_CAM_FP_MTX`, distinct from `FP_SCALE`; see `V2 §16.2`. The proposed 3D mesh
+vertex normals and camera unit vectors are likewise Q16.16 unit-length, while
+mesh positions stay `FP_SCALE`; see `V2 §18`.)
 
 ### Direction & cadence encoding (`IDEAL §0.5`)
 
