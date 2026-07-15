@@ -636,7 +636,13 @@ class GameRunner {
             def arr:[EvalValue] res.arrayValue
             def i 0
             while (i < (array_length arr)) {
-                host.registerResource((this.resourceFromEval((itemAt arr i))))
+                def r:ResourceDefNative (this.resourceFromEval((itemAt arr i)))
+                host.registerResource(r)
+                ; Eagerly load a declared voice WAV override so a game only has to
+                ; drop the file in and declare { kind: "voice", id, path }.
+                if (r.kind == "voice") {
+                    host.loadVoiceAsset(r.id)
+                }
                 i = (i + 1)
             }
         }
