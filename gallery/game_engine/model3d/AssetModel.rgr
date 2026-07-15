@@ -1,0 +1,159 @@
+; ==============================================================================
+; AssetModel.rgr — host-side asset model + registry for loaded 3D models.
+; ==============================================================================
+; These are the "resources the host owns" side of the load_model() pipeline:
+;
+;   ModelAsset
+;   ├─ NodeAsset[]       scene graph description (TRS or matrix, mesh ref, kids)
+;   ├─ MeshAsset[]       ├─ MeshPrimitiveAsset[]  (geometry + material ref)
+;   ├─ MaterialAsset[]   base colour factor + optional base colour texture
+;   └─ TextureAsset[]    decoded RGBA pixels (+ original bytes / mime type)
+;
+; A GLB importer fills these; the AssetRegistry hands back a ModelHandle (id).
+; Nothing here references WASM memory — the host owns every resource.
+; ==============================================================================
+
+Import "GltfMath.rgr"
+
+class TextureAsset {
+    def id:int 0
+    def name:string ""
+    def width:int 0
+    def height:int 0
+    def mimeType:string ""
+    ; original encoded bytes (PNG/JPEG) as they appeared in the file
+    def sourceBytes:buffer (buffer_alloc 0)
+    ; decoded, tightly packed RGBA8 (width*height*4); empty until decoded
+    def rgba:buffer (buffer_alloc 0)
+    def decoded:boolean false
+}
+
+class MaterialAsset {
+    def id:int 0
+    def name:string ""
+    def baseColorR:double 1.0
+    def baseColorG:double 1.0
+    def baseColorB:double 1.0
+    def baseColorA:double 1.0
+    ; index into ModelAsset.textures, or -1 for none
+    def baseColorTexture:int (0 - 1)
+    ; TEXCOORD set index for the base colour texture (usually 0)
+    def baseColorTexCoord:int 0
+    def metallic:double 1.0
+    def roughness:double 1.0
+    def doubleSided:boolean false
+    def unlit:boolean false
+}
+
+class MeshPrimitiveAsset {
+    def positions:[Vec3]
+    def normals:[Vec3]
+    def uvs:[Vec2]
+    def indices:[int]
+    ; index into ModelAsset.materials, or -1 for none
+    def material:int (0 - 1)
+    ; glTF primitive mode; only 4 (TRIANGLES) is supported in v1
+    def mode:int 4
+
+    fn vertexCount:int () {
+        return (array_length positions)
+    }
+    fn indexCount:int () {
+        return (array_length indices)
+    }
+    fn hasNormals:boolean () {
+        return ((array_length normals) > 0)
+    }
+    fn hasUvs:boolean () {
+        return ((array_length uvs) > 0)
+    }
+}
+
+class MeshAsset {
+    def id:int 0
+    def name:string ""
+    def primitives:[MeshPrimitiveAsset]
+
+    fn primitiveCount:int () {
+        return (array_length primitives)
+    }
+}
+
+; A node in the model's scene graph. Transform is either an explicit
+; column-major matrix (hasMatrix = true) or separate T/R/S.
+class NodeAsset {
+    def id:int 0
+    def name:string ""
+    def children:[int]
+    def hasMatrix:boolean false
+    def matrix:Mat4 (Mat4.identity())
+    def translation:Vec3 (Vec3.of(0.0 0.0 0.0))
+    def rotation:Quat (Quat.identity())
+    def scale:Vec3 (Vec3.of(1.0 1.0 1.0))
+    ; index into ModelAsset.meshes, or -1 for none
+    def mesh:int (0 - 1)
+
+    ; local transform of this node as a column-major matrix
+    fn localMatrix:Mat4 () {
+        if hasMatrix {
+            def out:Mat4 (new Mat4)
+            out.copyFrom(matrix)
+            return out
+        }
+        return (Mat4.fromTRS(translation rotation scale))
+    }
+}
+
+class ModelAsset {
+    def id:int 0
+    def name:string ""
+    def nodes:[NodeAsset]
+    def meshes:[MeshAsset]
+    def materials:[MaterialAsset]
+    def textures:[TextureAsset]
+    ; node indices that are roots of the default scene
+    def rootNodes:[int]
+
+    fn nodeCount:int () {
+        return (array_length nodes)
+    }
+    fn meshCount:int () {
+        return (array_length meshes)
+    }
+    fn materialCount:int () {
+        return (array_length materials)
+    }
+    fn textureCount:int () {
+        return (array_length textures)
+    }
+    fn getNode:NodeAsset (index:int) {
+        return (itemAt nodes index)
+    }
+    fn getMesh:MeshAsset (index:int) {
+        return (itemAt meshes index)
+    }
+    fn getMaterial:MaterialAsset (index:int) {
+        return (itemAt materials index)
+    }
+    fn getTexture:TextureAsset (index:int) {
+        return (itemAt textures index)
+    }
+}
+
+; Owns loaded models; the model id is its index in the registry.
+class AssetRegistry {
+    def models:[ModelAsset]
+
+    fn addModel:int (model:ModelAsset) {
+        def newId:int (array_length models)
+        model.id = newId
+        push models model
+        return newId
+    }
+    fn modelCount:int () {
+        return (array_length models)
+    }
+    fn getModel:ModelAsset (id:int) {
+        return (itemAt models id)
+    }
+}

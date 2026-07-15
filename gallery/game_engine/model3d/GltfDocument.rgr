@@ -1,0 +1,468 @@
+; ==============================================================================
+; GltfDocument.rgr — typed view of a glTF 2.0 JSON document + support gating.
+; ==============================================================================
+; Walks the parsed JSON tree into small typed structs the importer can consume
+; without repeating fragile key/offset code. This is also where the first
+; support level draws its line: anything outside the supported subset is
+; rejected up front with a clear message rather than producing a silently
+; wrong model. Supported / rejected sets follow the plan's "hyvä ensimmäinen
+; tukitaso".
+; ==============================================================================
+
+Import "Json.rgr"
+Import "GltfMath.rgr"
+
+class GltfBufferView {
+    def buffer:int 0
+    def byteOffset:int 0
+    def byteLength:int 0
+    def byteStride:int 0
+}
+
+class GltfAccessor {
+    def bufferView:int (0 - 1)
+    def byteOffset:int 0
+    def componentType:int 0
+    def count:int 0
+    def type:string "SCALAR"
+    def normalized:boolean false
+
+    fn componentCount:int () {
+        if (type == "SCALAR") {
+            return 1
+        }
+        if (type == "VEC2") {
+            return 2
+        }
+        if (type == "VEC3") {
+            return 3
+        }
+        if (type == "VEC4") {
+            return 4
+        }
+        if (type == "MAT2") {
+            return 4
+        }
+        if (type == "MAT3") {
+            return 9
+        }
+        if (type == "MAT4") {
+            return 16
+        }
+        return 1
+    }
+    ; bytes per component from the glTF componentType enum
+    fn componentSize:int () {
+        if (componentType == 5120) {
+            return 1
+        }
+        if (componentType == 5121) {
+            return 1
+        }
+        if (componentType == 5122) {
+            return 2
+        }
+        if (componentType == 5123) {
+            return 2
+        }
+        if (componentType == 5125) {
+            return 4
+        }
+        if (componentType == 5126) {
+            return 4
+        }
+        return 0
+    }
+    fn elementSize:int () {
+        return ((this.componentCount()) * (this.componentSize()))
+    }
+}
+
+class GltfImage {
+    def bufferView:int (0 - 1)
+    def mimeType:string ""
+    def uri:string ""
+}
+
+class GltfTextureRef {
+    def source:int (0 - 1)
+}
+
+class GltfMaterial {
+    def name:string ""
+    def baseColorR:double 1.0
+    def baseColorG:double 1.0
+    def baseColorB:double 1.0
+    def baseColorA:double 1.0
+    def baseColorTexture:int (0 - 1)
+    def baseColorTexCoord:int 0
+    def metallic:double 1.0
+    def roughness:double 1.0
+    def doubleSided:boolean false
+}
+
+class GltfPrimitive {
+    def posAccessor:int (0 - 1)
+    def normalAccessor:int (0 - 1)
+    def uvAccessor:int (0 - 1)
+    def indicesAccessor:int (0 - 1)
+    def material:int (0 - 1)
+    def mode:int 4
+}
+
+class GltfMesh {
+    def name:string ""
+    def primitives:[GltfPrimitive]
+}
+
+class GltfNode {
+    def name:string ""
+    def children:[int]
+    def mesh:int (0 - 1)
+    def hasMatrix:boolean false
+    def matrix:[double]
+    def translation:Vec3 (Vec3.of(0.0 0.0 0.0))
+    def rotation:Quat (Quat.identity())
+    def scale:Vec3 (Vec3.of(1.0 1.0 1.0))
+}
+
+class GltfScene {
+    def nodes:[int]
+}
+
+class GltfDocument {
+    def version:string ""
+    def ok:boolean true
+    def error:string ""
+    def bufferViews:[GltfBufferView]
+    def accessors:[GltfAccessor]
+    def images:[GltfImage]
+    def textures:[GltfTextureRef]
+    def materials:[GltfMaterial]
+    def meshes:[GltfMesh]
+    def nodes:[GltfNode]
+    def scenes:[GltfScene]
+    def defaultScene:int 0
+
+    fn fail:void (msg:string) {
+        if ok {
+            ok = false
+            error = msg
+        }
+    }
+
+    ; read one numeric element of an array JsonValue as a double
+    fn jd:double (arr:JsonValue index:int) {
+        def v:JsonValue (arr.at(index))
+        return (v.asDouble())
+    }
+
+    ; read an array-of-ints JsonValue into an [int]
+    fn readIntArray:[int] (arr:JsonValue) {
+        def out:[int]
+        def n:int (arr.count())
+        def i:int 0
+        while (i < n) {
+            def v:JsonValue (arr.at(i))
+            push out (v.asInt())
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn parse:void (root:JsonValue) {
+        ; ---- asset.version ----
+        if (root.has("asset")) {
+            def asset:JsonValue (root.get("asset"))
+            version = (asset.stringOr("version" ""))
+        }
+        def vok:boolean false
+        if ((strlen version) >= 2) {
+            if ((substring version 0 2) == "2.") {
+                vok = true
+            }
+        }
+        if (vok == false) {
+            this.fail("unsupported glTF version '" + version + "' (need 2.x)")
+            return
+        }
+        ; ---- required-extension gate ----
+        this.gateExtensions(root)
+        if (ok == false) {
+            return
+        }
+        ; ---- feature gate: skins / animations ----
+        if (root.has("skins")) {
+            def sk:JsonValue (root.get("skins"))
+            if ((sk.count()) > 0) {
+                this.fail("unsupported feature: skins")
+                return
+            }
+        }
+        if (root.has("animations")) {
+            def an:JsonValue (root.get("animations"))
+            if ((an.count()) > 0) {
+                this.fail("unsupported feature: animations")
+                return
+            }
+        }
+        this.parseBufferViews(root)
+        this.parseAccessors(root)
+        if (ok == false) {
+            return
+        }
+        this.parseImages(root)
+        this.parseTextures(root)
+        this.parseMaterials(root)
+        this.parseMeshes(root)
+        if (ok == false) {
+            return
+        }
+        this.parseNodes(root)
+        this.parseScenes(root)
+        if (root.has("scene")) {
+            defaultScene = (root.intOr("scene" 0))
+        }
+    }
+
+    fn gateExtensions:void (root:JsonValue) {
+        if (root.has("extensionsRequired")) {
+            def req:JsonValue (root.get("extensionsRequired"))
+            def n:int (req.count())
+            def i:int 0
+            while (i < n) {
+                def ext:JsonValue (req.at(i))
+                def name:string (ext.asString())
+                this.fail("unsupported feature " + name)
+                i = (i + 1)
+            }
+        }
+    }
+
+    fn parseBufferViews:void (root:JsonValue) {
+        if (root.has("bufferViews")) {
+            def arr:JsonValue (root.get("bufferViews"))
+            def n:int (arr.count())
+            def i:int 0
+            while (i < n) {
+                def o:JsonValue (arr.at(i))
+                def bv:GltfBufferView (new GltfBufferView)
+                bv.buffer = (o.intOr("buffer" 0))
+                bv.byteOffset = (o.intOr("byteOffset" 0))
+                bv.byteLength = (o.intOr("byteLength" 0))
+                bv.byteStride = (o.intOr("byteStride" 0))
+                push bufferViews bv
+                i = (i + 1)
+            }
+        }
+    }
+
+    fn parseAccessors:void (root:JsonValue) {
+        if (root.has("accessors")) {
+            def arr:JsonValue (root.get("accessors"))
+            def n:int (arr.count())
+            def i:int 0
+            while (i < n) {
+                def o:JsonValue (arr.at(i))
+                if (o.has("sparse")) {
+                    this.fail("unsupported feature: sparse accessors")
+                    return
+                }
+                def a:GltfAccessor (new GltfAccessor)
+                a.bufferView = (o.intOr("bufferView" (0 - 1)))
+                a.byteOffset = (o.intOr("byteOffset" 0))
+                a.componentType = (o.intOr("componentType" 0))
+                a.count = (o.intOr("count" 0))
+                a.type = (o.stringOr("type" "SCALAR"))
+                a.normalized = (o.boolOr("normalized" false))
+                push accessors a
+                i = (i + 1)
+            }
+        }
+    }
+
+    fn parseImages:void (root:JsonValue) {
+        if (root.has("images")) {
+            def arr:JsonValue (root.get("images"))
+            def n:int (arr.count())
+            def i:int 0
+            while (i < n) {
+                def o:JsonValue (arr.at(i))
+                def img:GltfImage (new GltfImage)
+                img.bufferView = (o.intOr("bufferView" (0 - 1)))
+                img.mimeType = (o.stringOr("mimeType" ""))
+                img.uri = (o.stringOr("uri" ""))
+                push images img
+                i = (i + 1)
+            }
+        }
+    }
+
+    fn parseTextures:void (root:JsonValue) {
+        if (root.has("textures")) {
+            def arr:JsonValue (root.get("textures"))
+            def n:int (arr.count())
+            def i:int 0
+            while (i < n) {
+                def o:JsonValue (arr.at(i))
+                def t:GltfTextureRef (new GltfTextureRef)
+                t.source = (o.intOr("source" (0 - 1)))
+                push textures t
+                i = (i + 1)
+            }
+        }
+    }
+
+    fn parseMaterials:void (root:JsonValue) {
+        if (root.has("materials")) {
+            def arr:JsonValue (root.get("materials"))
+            def n:int (arr.count())
+            def i:int 0
+            while (i < n) {
+                def o:JsonValue (arr.at(i))
+                def m:GltfMaterial (new GltfMaterial)
+                m.name = (o.stringOr("name" ""))
+                m.doubleSided = (o.boolOr("doubleSided" false))
+                if (o.has("pbrMetallicRoughness")) {
+                    def pbr:JsonValue (o.get("pbrMetallicRoughness"))
+                    m.metallic = (pbr.doubleOr("metallicFactor" 1.0))
+                    m.roughness = (pbr.doubleOr("roughnessFactor" 1.0))
+                    if (pbr.has("baseColorFactor")) {
+                        def bc:JsonValue (pbr.get("baseColorFactor"))
+                        m.baseColorR = (this.jd(bc 0))
+                        m.baseColorG = (this.jd(bc 1))
+                        m.baseColorB = (this.jd(bc 2))
+                        m.baseColorA = (this.jd(bc 3))
+                    }
+                    if (pbr.has("baseColorTexture")) {
+                        def bt:JsonValue (pbr.get("baseColorTexture"))
+                        m.baseColorTexture = (bt.intOr("index" (0 - 1)))
+                        m.baseColorTexCoord = (bt.intOr("texCoord" 0))
+                    }
+                }
+                push materials m
+                i = (i + 1)
+            }
+        }
+    }
+
+    fn parseMeshes:void (root:JsonValue) {
+        if (root.has("meshes")) {
+            def arr:JsonValue (root.get("meshes"))
+            def n:int (arr.count())
+            def i:int 0
+            while (i < n) {
+                def o:JsonValue (arr.at(i))
+                def mesh:GltfMesh (new GltfMesh)
+                mesh.name = (o.stringOr("name" ""))
+                def prims:JsonValue (o.get("primitives"))
+                def pn:int (prims.count())
+                def j:int 0
+                while (j < pn) {
+                    def po:JsonValue (prims.at(j))
+                    if (po.has("targets")) {
+                        this.fail("unsupported feature: morph targets")
+                        return
+                    }
+                    def prim:GltfPrimitive (new GltfPrimitive)
+                    prim.mode = (po.intOr("mode" 4))
+                    if (prim.mode != 4) {
+                        this.fail("unsupported primitive mode " + (to_string prim.mode) + " (only TRIANGLES)")
+                        return
+                    }
+                    prim.indicesAccessor = (po.intOr("indices" (0 - 1)))
+                    prim.material = (po.intOr("material" (0 - 1)))
+                    def attrs:JsonValue (po.get("attributes"))
+                    prim.posAccessor = (attrs.intOr("POSITION" (0 - 1)))
+                    prim.normalAccessor = (attrs.intOr("NORMAL" (0 - 1)))
+                    prim.uvAccessor = (attrs.intOr("TEXCOORD_0" (0 - 1)))
+                    if (prim.posAccessor < 0) {
+                        this.fail("primitive is missing POSITION attribute")
+                        return
+                    }
+                    push mesh.primitives prim
+                    j = (j + 1)
+                }
+                push meshes mesh
+                i = (i + 1)
+            }
+        }
+    }
+
+    fn parseNodes:void (root:JsonValue) {
+        if (root.has("nodes")) {
+            def arr:JsonValue (root.get("nodes"))
+            def n:int (arr.count())
+            def i:int 0
+            while (i < n) {
+                def o:JsonValue (arr.at(i))
+                if (o.has("skin")) {
+                    this.fail("unsupported feature: skins")
+                    return
+                }
+                def nd:GltfNode (new GltfNode)
+                nd.name = (o.stringOr("name" ""))
+                nd.mesh = (o.intOr("mesh" (0 - 1)))
+                if (o.has("children")) {
+                    def ch:JsonValue (o.get("children"))
+                    nd.children = (this.readIntArray(ch))
+                }
+                if (o.has("matrix")) {
+                    def mx:JsonValue (o.get("matrix"))
+                    def vals:[double]
+                    def k:int 0
+                    while (k < 16) {
+                        def mv:double (this.jd(mx k))
+                        push vals mv
+                        k = (k + 1)
+                    }
+                    nd.matrix = vals
+                    nd.hasMatrix = true
+                } {
+                    if (o.has("translation")) {
+                        def tr:JsonValue (o.get("translation"))
+                        def tx:double (this.jd(tr 0))
+                        def ty:double (this.jd(tr 1))
+                        def tz:double (this.jd(tr 2))
+                        nd.translation = (Vec3.of(tx ty tz))
+                    }
+                    if (o.has("rotation")) {
+                        def ro:JsonValue (o.get("rotation"))
+                        def rx:double (this.jd(ro 0))
+                        def ry:double (this.jd(ro 1))
+                        def rz:double (this.jd(ro 2))
+                        def rw:double (this.jd(ro 3))
+                        nd.rotation = (Quat.of(rx ry rz rw))
+                    }
+                    if (o.has("scale")) {
+                        def sc:JsonValue (o.get("scale"))
+                        def sx:double (this.jd(sc 0))
+                        def sy:double (this.jd(sc 1))
+                        def sz:double (this.jd(sc 2))
+                        nd.scale = (Vec3.of(sx sy sz))
+                    }
+                }
+                push nodes nd
+                i = (i + 1)
+            }
+        }
+    }
+
+    fn parseScenes:void (root:JsonValue) {
+        if (root.has("scenes")) {
+            def arr:JsonValue (root.get("scenes"))
+            def n:int (arr.count())
+            def i:int 0
+            while (i < n) {
+                def o:JsonValue (arr.at(i))
+                def sc:GltfScene (new GltfScene)
+                if (o.has("nodes")) {
+                    def nn:JsonValue (o.get("nodes"))
+                    sc.nodes = (this.readIntArray(nn))
+                }
+                push scenes sc
+                i = (i + 1)
+            }
+        }
+    }
+}

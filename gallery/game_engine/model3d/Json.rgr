@@ -1,0 +1,468 @@
+; ==============================================================================
+; Json.rgr — a compact, self-contained JSON parser for the 3D asset loader.
+; ==============================================================================
+; Pure Ranger, no host JSON and no compiler-internal parser: a small recursive
+; descent parser that produces a typed JsonValue tree. Scoped to what glTF 2.0
+; JSON needs (objects, arrays, numbers with sign/decimal/exponent, strings with
+; escapes, booleans, null). Object members keep insertion order in `keys`.
+; ==============================================================================
+
+class JsonValue {
+    ; kind: 0 null, 1 bool, 2 number, 3 string, 4 array, 5 object
+    def kind:int 0
+    def num:double 0.0
+    def b:boolean false
+    def str:string ""
+    def arr:[JsonValue]
+    def keys:[string]
+    def members:[string:JsonValue]
+
+    fn isNull:boolean () {
+        return (kind == 0)
+    }
+    fn isNumber:boolean () {
+        return (kind == 2)
+    }
+    fn isString:boolean () {
+        return (kind == 3)
+    }
+    fn isArray:boolean () {
+        return (kind == 4)
+    }
+    fn isObject:boolean () {
+        return (kind == 5)
+    }
+    fn asInt:int () {
+        return (to_int num)
+    }
+    fn asDouble:double () {
+        return num
+    }
+    fn asString:string () {
+        return str
+    }
+    fn asBool:boolean () {
+        return b
+    }
+    ; --- array access ---
+    fn count:int () {
+        return (array_length arr)
+    }
+    fn at:JsonValue (index:int) {
+        return (itemAt arr index)
+    }
+    ; --- object access ---
+    fn has:boolean (key:string) {
+        return (has members key)
+    }
+    fn get:JsonValue (key:string) {
+        if (has members key) {
+            return (unwrap (get members key))
+        }
+        def nil:JsonValue (new JsonValue)
+        return nil
+    }
+    fn intOr:int (key:string dflt:int) {
+        if (has members key) {
+            def v:JsonValue (unwrap (get members key))
+            return (to_int v.num)
+        }
+        return dflt
+    }
+    fn doubleOr:double (key:string dflt:double) {
+        if (has members key) {
+            def v:JsonValue (unwrap (get members key))
+            return v.num
+        }
+        return dflt
+    }
+    fn stringOr:string (key:string dflt:string) {
+        if (has members key) {
+            def v:JsonValue (unwrap (get members key))
+            return v.str
+        }
+        return dflt
+    }
+    fn boolOr:boolean (key:string dflt:boolean) {
+        if (has members key) {
+            def v:JsonValue (unwrap (get members key))
+            return v.b
+        }
+        return dflt
+    }
+}
+
+class JsonParser {
+    def s:string ""
+    def i:int 0
+    def n:int 0
+    def ok:boolean true
+    def err:string ""
+
+    fn parse:JsonValue (text:string) {
+        s = text
+        i = 0
+        n = (strlen text)
+        ok = true
+        err = ""
+        def v:JsonValue (this.parseValue())
+        return v
+    }
+
+    fn isWs:boolean (c:int) {
+        if (c == 32) {
+            return true
+        }
+        if (c == 9) {
+            return true
+        }
+        if (c == 10) {
+            return true
+        }
+        if (c == 13) {
+            return true
+        }
+        return false
+    }
+
+    fn skipWs:void () {
+        def go:boolean true
+        while go {
+            if (i >= n) {
+                go = false
+            } {
+                def c:int (charAt s i)
+                if (this.isWs(c)) {
+                    i = (i + 1)
+                } {
+                    go = false
+                }
+            }
+        }
+    }
+
+    fn isNumChar:boolean (c:int) {
+        if (c == 45) {
+            return true
+        }
+        if (c == 43) {
+            return true
+        }
+        if (c == 46) {
+            return true
+        }
+        if (c == 101) {
+            return true
+        }
+        if (c == 69) {
+            return true
+        }
+        if (c >= 48) {
+            if (c <= 57) {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn fail:void (msg:string) {
+        if ok {
+            ok = false
+            err = msg
+        }
+    }
+
+    fn parseValue:JsonValue () {
+        this.skipWs()
+        if (i >= n) {
+            this.fail("unexpected end of input")
+            def v:JsonValue (new JsonValue)
+            return v
+        }
+        def c:int (charAt s i)
+        if (c == 123) {
+            return (this.parseObject())
+        }
+        if (c == 91) {
+            return (this.parseArray())
+        }
+        if (c == 34) {
+            return (this.parseString())
+        }
+        if (c == 116) {
+            return (this.parseKeyword("true" 1 true))
+        }
+        if (c == 102) {
+            return (this.parseKeyword("false" 1 false))
+        }
+        if (c == 110) {
+            return (this.parseKeyword("null" 0 false))
+        }
+        return (this.parseNumber())
+    }
+
+    fn parseKeyword:JsonValue (word:string kind:int bval:boolean) {
+        def wl:int (strlen word)
+        def matched:boolean true
+        def k:int 0
+        while (k < wl) {
+            if ((i + k) >= n) {
+                matched = false
+                k = wl
+            } {
+                if ((charAt s (i + k)) != (charAt word k)) {
+                    matched = false
+                    k = wl
+                } {
+                    k = (k + 1)
+                }
+            }
+        }
+        def v:JsonValue (new JsonValue)
+        if matched {
+            i = (i + wl)
+            v.kind = kind
+            v.b = bval
+        } {
+            this.fail("invalid literal, expected " + word)
+        }
+        return v
+    }
+
+    fn parseNumber:JsonValue () {
+        def start:int i
+        def go:boolean true
+        while go {
+            if (i >= n) {
+                go = false
+            } {
+                def c:int (charAt s i)
+                if (this.isNumChar(c)) {
+                    i = (i + 1)
+                } {
+                    go = false
+                }
+            }
+        }
+        def v:JsonValue (new JsonValue)
+        if (i > start) {
+            def sub:string (substring s start i)
+            def d@(optional):double (str2double sub)
+            v.kind = 2
+            if d {
+                v.num = (unwrap d)
+            } {
+                this.fail("invalid number: " + sub)
+            }
+        } {
+            this.fail("expected value")
+        }
+        return v
+    }
+
+    fn hexDigit:int (c:int) {
+        if (c >= 48) {
+            if (c <= 57) {
+                return (c - 48)
+            }
+        }
+        if (c >= 97) {
+            if (c <= 102) {
+                return ((c - 97) + 10)
+            }
+        }
+        if (c >= 65) {
+            if (c <= 70) {
+                return ((c - 65) + 10)
+            }
+        }
+        return 0
+    }
+
+    fn readRawString:string () {
+        ; assumes current char is the opening quote
+        i = (i + 1)
+        def out:string ""
+        def go:boolean true
+        while go {
+            if (i >= n) {
+                this.fail("unterminated string")
+                go = false
+            } {
+                def c:int (charAt s i)
+                if (c == 34) {
+                    i = (i + 1)
+                    go = false
+                } {
+                    if (c == 92) {
+                        i = (i + 1)
+                        if (i >= n) {
+                            this.fail("unterminated escape")
+                            go = false
+                        } {
+                            def e:int (charAt s i)
+                            out = (out + (this.decodeEscape(e)))
+                            i = (i + 1)
+                        }
+                    } {
+                        out = (out + (substring s i (i + 1)))
+                        i = (i + 1)
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    fn decodeEscape:string (e:int) {
+        if (e == 34) {
+            return (strfromcode 34)
+        }
+        if (e == 92) {
+            return (strfromcode 92)
+        }
+        if (e == 47) {
+            return (strfromcode 47)
+        }
+        if (e == 98) {
+            return (strfromcode 8)
+        }
+        if (e == 102) {
+            return (strfromcode 12)
+        }
+        if (e == 110) {
+            return (strfromcode 10)
+        }
+        if (e == 114) {
+            return (strfromcode 13)
+        }
+        if (e == 116) {
+            return (strfromcode 9)
+        }
+        if (e == 117) {
+            def cp:int 0
+            def k:int 0
+            while (k < 4) {
+                def hc:int (charAt s (i + 1 + k))
+                cp = ((cp * 16) + (this.hexDigit(hc)))
+                k = (k + 1)
+            }
+            i = (i + 4)
+            return (strfromcode cp)
+        }
+        return (strfromcode e)
+    }
+
+    fn parseString:JsonValue () {
+        def v:JsonValue (new JsonValue)
+        v.kind = 3
+        v.str = (this.readRawString())
+        return v
+    }
+
+    fn parseArray:JsonValue () {
+        def v:JsonValue (new JsonValue)
+        v.kind = 4
+        i = (i + 1)
+        this.skipWs()
+        if (i < n) {
+            if ((charAt s i) == 93) {
+                i = (i + 1)
+                return v
+            }
+        }
+        def go:boolean true
+        while go {
+            def item:JsonValue (this.parseValue())
+            push v.arr item
+            this.skipWs()
+            if (i >= n) {
+                this.fail("unterminated array")
+                go = false
+            } {
+                def c:int (charAt s i)
+                if (c == 44) {
+                    i = (i + 1)
+                    this.skipWs()
+                } {
+                    if (c == 93) {
+                        i = (i + 1)
+                        go = false
+                    } {
+                        this.fail("expected ',' or ']' in array")
+                        go = false
+                    }
+                }
+            }
+            if (ok == false) {
+                go = false
+            }
+        }
+        return v
+    }
+
+    fn parseObject:JsonValue () {
+        def v:JsonValue (new JsonValue)
+        v.kind = 5
+        i = (i + 1)
+        this.skipWs()
+        if (i < n) {
+            if ((charAt s i) == 125) {
+                i = (i + 1)
+                return v
+            }
+        }
+        def go:boolean true
+        while go {
+            this.skipWs()
+            if (i >= n) {
+                this.fail("unterminated object")
+                go = false
+            } {
+                if ((charAt s i) != 34) {
+                    this.fail("expected string key in object")
+                    go = false
+                } {
+                    def key:string (this.readRawString())
+                    this.skipWs()
+                    if (i >= n) {
+                        this.fail("expected ':' in object")
+                        go = false
+                    } {
+                        if ((charAt s i) != 58) {
+                            this.fail("expected ':' in object")
+                            go = false
+                        } {
+                            i = (i + 1)
+                            def val:JsonValue (this.parseValue())
+                            set v.members key val
+                            push v.keys key
+                            this.skipWs()
+                            if (i >= n) {
+                                this.fail("unterminated object")
+                                go = false
+                            } {
+                                def c:int (charAt s i)
+                                if (c == 44) {
+                                    i = (i + 1)
+                                } {
+                                    if (c == 125) {
+                                        i = (i + 1)
+                                        go = false
+                                    } {
+                                        this.fail("expected ',' or '}' in object")
+                                        go = false
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if (ok == false) {
+                go = false
+            }
+        }
+        return v
+    }
+}

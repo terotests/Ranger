@@ -1,0 +1,235 @@
+; ==============================================================================
+; GlbFixture.rgr — builds a known-good GLB byte buffer entirely in memory.
+; ==============================================================================
+; Hermetic test input: no external asset files, no toolchain. Produces a valid
+; GLB 2.0 container describing a single-triangle mesh, a small node hierarchy
+; (Root -> Body(mesh), Root -> Arm -> Hand), one PBR material with a base colour
+; factor + base colour texture, and one embedded 2x2 RGBA PNG. Byte offsets in
+; buildJson() match the layout written by buildBin() exactly.
+;
+;   BIN layout (180 bytes):
+;     [  0.. 36) positions  3 * VEC3 f32
+;     [ 36.. 72) normals    3 * VEC3 f32
+;     [ 72.. 96) uv         3 * VEC2 f32
+;     [ 96..102) indices    3 * u16   (102..104 zero pad)
+;     [104..180) image      76-byte PNG
+; ==============================================================================
+
+Import "../ByteReader.rgr"
+
+class GlbFixture {
+    ; a real, minimal 2x2 RGBA PNG: pixels red, green / blue, white
+    sfn pngBytes:buffer () {
+        def b:buffer (buffer_alloc 76)
+        buffer_set b 0 137
+        buffer_set b 1 80
+        buffer_set b 2 78
+        buffer_set b 3 71
+        buffer_set b 4 13
+        buffer_set b 5 10
+        buffer_set b 6 26
+        buffer_set b 7 10
+        buffer_set b 8 0
+        buffer_set b 9 0
+        buffer_set b 10 0
+        buffer_set b 11 13
+        buffer_set b 12 73
+        buffer_set b 13 72
+        buffer_set b 14 68
+        buffer_set b 15 82
+        buffer_set b 16 0
+        buffer_set b 17 0
+        buffer_set b 18 0
+        buffer_set b 19 2
+        buffer_set b 20 0
+        buffer_set b 21 0
+        buffer_set b 22 0
+        buffer_set b 23 2
+        buffer_set b 24 8
+        buffer_set b 25 6
+        buffer_set b 26 0
+        buffer_set b 27 0
+        buffer_set b 28 0
+        buffer_set b 29 114
+        buffer_set b 30 182
+        buffer_set b 31 13
+        buffer_set b 32 36
+        buffer_set b 33 0
+        buffer_set b 34 0
+        buffer_set b 35 0
+        buffer_set b 36 19
+        buffer_set b 37 73
+        buffer_set b 38 68
+        buffer_set b 39 65
+        buffer_set b 40 84
+        buffer_set b 41 120
+        buffer_set b 42 156
+        buffer_set b 43 99
+        buffer_set b 44 248
+        buffer_set b 45 207
+        buffer_set b 46 192
+        buffer_set b 47 240
+        buffer_set b 48 31
+        buffer_set b 49 12
+        buffer_set b 50 25
+        buffer_set b 51 24
+        buffer_set b 52 254
+        buffer_set b 53 131
+        buffer_set b 54 1
+        buffer_set b 55 0
+        buffer_set b 56 73
+        buffer_set b 57 200
+        buffer_set b 58 9
+        buffer_set b 59 247
+        buffer_set b 60 20
+        buffer_set b 61 99
+        buffer_set b 62 50
+        buffer_set b 63 157
+        buffer_set b 64 0
+        buffer_set b 65 0
+        buffer_set b 66 0
+        buffer_set b 67 0
+        buffer_set b 68 73
+        buffer_set b 69 69
+        buffer_set b 70 78
+        buffer_set b 71 68
+        buffer_set b 72 174
+        buffer_set b 73 66
+        buffer_set b 74 96
+        buffer_set b 75 130
+        return b
+    }
+
+    sfn buildBin:buffer () {
+        def b:buffer (buffer_alloc 180)
+        ; positions: (0,0,0) (1,0,0) (0,1,0)
+        ByteReader.encodeF32(b 0 0.0)
+        ByteReader.encodeF32(b 4 0.0)
+        ByteReader.encodeF32(b 8 0.0)
+        ByteReader.encodeF32(b 12 1.0)
+        ByteReader.encodeF32(b 16 0.0)
+        ByteReader.encodeF32(b 20 0.0)
+        ByteReader.encodeF32(b 24 0.0)
+        ByteReader.encodeF32(b 28 1.0)
+        ByteReader.encodeF32(b 32 0.0)
+        ; normals: (0,0,1) x3
+        ByteReader.encodeF32(b 36 0.0)
+        ByteReader.encodeF32(b 40 0.0)
+        ByteReader.encodeF32(b 44 1.0)
+        ByteReader.encodeF32(b 48 0.0)
+        ByteReader.encodeF32(b 52 0.0)
+        ByteReader.encodeF32(b 56 1.0)
+        ByteReader.encodeF32(b 60 0.0)
+        ByteReader.encodeF32(b 64 0.0)
+        ByteReader.encodeF32(b 68 1.0)
+        ; uv: (0,0) (1,0) (0,1)
+        ByteReader.encodeF32(b 72 0.0)
+        ByteReader.encodeF32(b 76 0.0)
+        ByteReader.encodeF32(b 80 1.0)
+        ByteReader.encodeF32(b 84 0.0)
+        ByteReader.encodeF32(b 88 0.0)
+        ByteReader.encodeF32(b 92 1.0)
+        ; indices u16: 0,1,2 at offset 96
+        ByteReader.encodeU16(b 96 0)
+        ByteReader.encodeU16(b 98 1)
+        ByteReader.encodeU16(b 100 2)
+        ; 102..104 zero pad (already zero)
+        def png:buffer (GlbFixture.pngBytes())
+        buffer_copy b 104 png 0 76
+        return b
+    }
+
+    sfn buildJson:string () {
+        def s:string "{"
+        s = (s + "\"asset\":{\"version\":\"2.0\"},")
+        s = (s + "\"scene\":0,")
+        s = (s + "\"scenes\":[{\"nodes\":[0]}],")
+        s = (s + "\"nodes\":[")
+        s = (s + "{\"name\":\"Root\",\"children\":[1,2],\"translation\":[0,0,5]},")
+        s = (s + "{\"name\":\"Body\",\"mesh\":0,\"translation\":[1,0,0]},")
+        s = (s + "{\"name\":\"Arm\",\"children\":[3],\"translation\":[0,2,0]},")
+        s = (s + "{\"name\":\"Hand\",\"translation\":[0,1,0]}")
+        s = (s + "],")
+        s = (s + "\"meshes\":[{\"name\":\"Tri\",\"primitives\":[{\"attributes\":{\"POSITION\":0,\"NORMAL\":1,\"TEXCOORD_0\":2},\"indices\":3,\"material\":0,\"mode\":4}]}],")
+        s = (s + "\"materials\":[{\"name\":\"Mat\",\"doubleSided\":true,\"pbrMetallicRoughness\":{\"baseColorFactor\":[0.8,0.4,0.2,1.0],\"baseColorTexture\":{\"index\":0},\"metallicFactor\":0.0,\"roughnessFactor\":0.5}}],")
+        s = (s + "\"textures\":[{\"source\":0}],")
+        s = (s + "\"images\":[{\"mimeType\":\"image/png\",\"bufferView\":4}],")
+        s = (s + "\"accessors\":[")
+        s = (s + "{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\"},")
+        s = (s + "{\"bufferView\":1,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\"},")
+        s = (s + "{\"bufferView\":2,\"componentType\":5126,\"count\":3,\"type\":\"VEC2\"},")
+        s = (s + "{\"bufferView\":3,\"componentType\":5123,\"count\":3,\"type\":\"SCALAR\"}")
+        s = (s + "],")
+        s = (s + "\"bufferViews\":[")
+        s = (s + "{\"buffer\":0,\"byteOffset\":0,\"byteLength\":36},")
+        s = (s + "{\"buffer\":0,\"byteOffset\":36,\"byteLength\":36},")
+        s = (s + "{\"buffer\":0,\"byteOffset\":72,\"byteLength\":24},")
+        s = (s + "{\"buffer\":0,\"byteOffset\":96,\"byteLength\":6},")
+        s = (s + "{\"buffer\":0,\"byteOffset\":104,\"byteLength\":76}")
+        s = (s + "],")
+        s = (s + "\"buffers\":[{\"byteLength\":180}]")
+        s = (s + "}")
+        return s
+    }
+
+    sfn pad4:int (n:int) {
+        def r:int (n - ((idiv n 4) * 4))
+        if (r == 0) {
+            return 0
+        }
+        return (4 - r)
+    }
+
+    ; wrap an arbitrary glTF JSON string into a GLB with no BIN chunk; used to
+    ; exercise the support gate (rejection of unsupported features).
+    sfn glbFromJson:buffer (json:string) {
+        def jbuf:buffer (buffer_from_string json)
+        def jlen:int (buffer_length jbuf)
+        def jpad:int (GlbFixture.pad4(jlen))
+        def jtotal:int (jlen + jpad)
+        def total:int (12 + (8 + jtotal))
+        def out:buffer (buffer_alloc total)
+        ByteReader.encodeU32(out 0 1179937895)
+        ByteReader.encodeU32(out 4 2)
+        ByteReader.encodeU32(out 8 total)
+        ByteReader.encodeU32(out 12 jtotal)
+        ByteReader.encodeU32(out 16 1313821514)
+        buffer_copy out 20 jbuf 0 jlen
+        def p:int 0
+        while (p < jpad) {
+            buffer_set out ((20 + jlen) + p) 32
+            p = (p + 1)
+        }
+        return out
+    }
+
+    sfn build:buffer () {
+        def json:string (GlbFixture.buildJson())
+        def bin:buffer (GlbFixture.buildBin())
+        def jbuf:buffer (buffer_from_string json)
+        def jlen:int (buffer_length jbuf)
+        def jpad:int (GlbFixture.pad4(jlen))
+        def jtotal:int (jlen + jpad)
+        def blen:int (buffer_length bin)
+        def bpad:int (GlbFixture.pad4(blen))
+        def btotal:int (blen + bpad)
+        def total:int ((12 + (8 + jtotal)) + (8 + btotal))
+        def out:buffer (buffer_alloc total)
+        ByteReader.encodeU32(out 0 1179937895)
+        ByteReader.encodeU32(out 4 2)
+        ByteReader.encodeU32(out 8 total)
+        ByteReader.encodeU32(out 12 jtotal)
+        ByteReader.encodeU32(out 16 1313821514)
+        buffer_copy out 20 jbuf 0 jlen
+        def p:int 0
+        while (p < jpad) {
+            buffer_set out ((20 + jlen) + p) 32
+            p = (p + 1)
+        }
+        def binChunkStart:int (20 + jtotal)
+        ByteReader.encodeU32(out binChunkStart btotal)
+        ByteReader.encodeU32(out (binChunkStart + 4) 5130562)
+        buffer_copy out (binChunkStart + 8) bin 0 blen
+        return out
+    }
+}

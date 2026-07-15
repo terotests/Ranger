@@ -1,0 +1,345 @@
+; ==============================================================================
+; GlbImporter.rgr — GLB 2.0 container + accessor reader -> host ModelAsset.
+; ==============================================================================
+; The native (no-WASM) importer. Reads the GLB container (12-byte header, JSON
+; chunk, BIN chunk), parses the JSON with GltfDocument, then materialises a
+; host ModelAsset: accessor/bufferView data becomes real Vec3/Vec2/index arrays,
+; nodes become a NodeAsset hierarchy, materials/textures are resolved. Embedded
+; image bytes are sliced out of the BIN chunk into TextureAsset.sourceBytes with
+; their mime type; pixel decoding is layered on top in ModelLoader.
+;
+; Supported (v1): single JSON + single BIN chunk, scenes/nodes, matrix or TRS,
+; multiple meshes/primitives, TRIANGLES, POSITION/NORMAL/TEXCOORD_0, u8/u16/u32
+; indices, interleaved byteStride, baseColorFactor + baseColorTexture, embedded
+; PNG/JPEG, multiple materials. Anything else is rejected with a clear error.
+; ==============================================================================
+
+Import "ByteReader.rgr"
+Import "GltfDocument.rgr"
+Import "AssetModel.rgr"
+
+class GlbImporter {
+    def ok:boolean true
+    def error:string ""
+    def glb:buffer (buffer_alloc 0)
+    def reader:ByteReader (new ByteReader)
+    def binOffset:int 0
+    def binLength:int 0
+    def jsonText:string ""
+    def doc:GltfDocument (new GltfDocument)
+
+    fn fail:void (msg:string) {
+        if ok {
+            ok = false
+            error = msg
+        }
+    }
+
+    ; ---- container ----------------------------------------------------------
+    fn readContainer:void (bytes:buffer) {
+        glb = bytes
+        reader.init(bytes)
+        def total:int (buffer_length bytes)
+        if (total < 12) {
+            this.fail("not a GLB file: shorter than 12-byte header")
+            return
+        }
+        def magic:int (reader.u32at(0))
+        if (magic != 1179937895) {
+            this.fail("not a GLB file: bad magic")
+            return
+        }
+        def version:int (reader.u32at(4))
+        if (version != 2) {
+            this.fail("unsupported GLB container version " + (to_string version))
+            return
+        }
+        ; walk chunks from offset 12
+        def pos:int 12
+        def haveJson:boolean false
+        def haveBin:boolean false
+        def go:boolean true
+        while go {
+            if ((pos + 8) > total) {
+                go = false
+            } {
+                def clen:int (reader.u32at(pos))
+                def ctype:int (reader.u32at(pos + 4))
+                def cdata:int (pos + 8)
+                if (ctype == 1313821514) {
+                    ; 'JSON'
+                    def slice:buffer (buffer_slice glb cdata (cdata + clen))
+                    jsonText = (buffer_to_string slice)
+                    haveJson = true
+                } {
+                    if (ctype == 5130562) {
+                        ; 'BIN\0'
+                        binOffset = cdata
+                        binLength = clen
+                        haveBin = true
+                    }
+                }
+                pos = ((cdata + clen))
+            }
+        }
+        if (haveJson == false) {
+            this.fail("GLB has no JSON chunk")
+            return
+        }
+        ; BIN is optional in general, but our geometry needs it
+        if (haveBin == false) {
+            binOffset = 0
+            binLength = 0
+        }
+    }
+
+    ; ---- accessor reads -----------------------------------------------------
+    fn accessorStride:int (a:GltfAccessor) {
+        if (a.bufferView < 0) {
+            return (a.elementSize())
+        }
+        def bv:GltfBufferView (itemAt doc.bufferViews a.bufferView)
+        if (bv.byteStride > 0) {
+            return bv.byteStride
+        }
+        return (a.elementSize())
+    }
+    fn accessorBase:int (a:GltfAccessor) {
+        if (a.bufferView < 0) {
+            return (binOffset + a.byteOffset)
+        }
+        def bv:GltfBufferView (itemAt doc.bufferViews a.bufferView)
+        return ((binOffset + bv.byteOffset) + a.byteOffset)
+    }
+
+    fn readVec3:[Vec3] (accessorIndex:int) {
+        def out:[Vec3]
+        def a:GltfAccessor (itemAt doc.accessors accessorIndex)
+        def stride:int (this.accessorStride(a))
+        def base:int (this.accessorBase(a))
+        def i:int 0
+        while (i < a.count) {
+            def off:int (base + (i * stride))
+            def x:double (reader.f32at(off))
+            def y:double (reader.f32at(off + 4))
+            def z:double (reader.f32at(off + 8))
+            def v:Vec3 (Vec3.of(x y z))
+            push out v
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn readVec2:[Vec2] (accessorIndex:int) {
+        def out:[Vec2]
+        def a:GltfAccessor (itemAt doc.accessors accessorIndex)
+        def stride:int (this.accessorStride(a))
+        def base:int (this.accessorBase(a))
+        def i:int 0
+        while (i < a.count) {
+            def off:int (base + (i * stride))
+            def u:double 0.0
+            def v:double 0.0
+            if (a.componentType == 5126) {
+                u = (reader.f32at(off))
+                v = (reader.f32at(off + 4))
+            } {
+                if (a.componentType == 5121) {
+                    u = ((to_double (reader.u8at(off))) / 255.0)
+                    v = ((to_double (reader.u8at(off + 1))) / 255.0)
+                } {
+                    if (a.componentType == 5123) {
+                        u = ((to_double (reader.u16at(off))) / 65535.0)
+                        v = ((to_double (reader.u16at(off + 2))) / 65535.0)
+                    }
+                }
+            }
+            def uv:Vec2 (Vec2.of(u v))
+            push out uv
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn readIndices:[int] (accessorIndex:int) {
+        def out:[int]
+        def a:GltfAccessor (itemAt doc.accessors accessorIndex)
+        def size:int (a.componentSize())
+        def base:int (this.accessorBase(a))
+        def i:int 0
+        while (i < a.count) {
+            def off:int (base + (i * size))
+            def val:int 0
+            if (a.componentType == 5121) {
+                val = (reader.u8at(off))
+            } {
+                if (a.componentType == 5123) {
+                    val = (reader.u16at(off))
+                } {
+                    if (a.componentType == 5125) {
+                        val = (reader.u32at(off))
+                    }
+                }
+            }
+            push out val
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; ---- build the host ModelAsset -----------------------------------------
+    fn buildTextures:void (model:ModelAsset) {
+        def n:int (array_length doc.textures)
+        def i:int 0
+        while (i < n) {
+            def tref:GltfTextureRef (itemAt doc.textures i)
+            def tex:TextureAsset (new TextureAsset)
+            tex.id = i
+            if (tref.source >= 0) {
+                def img:GltfImage (itemAt doc.images tref.source)
+                tex.mimeType = img.mimeType
+                tex.name = img.uri
+                if (img.bufferView >= 0) {
+                    def bv:GltfBufferView (itemAt doc.bufferViews img.bufferView)
+                    def start:int (binOffset + bv.byteOffset)
+                    def endp:int (start + bv.byteLength)
+                    tex.sourceBytes = (buffer_slice glb start endp)
+                    if ((strlen tex.mimeType) == 0) {
+                        tex.mimeType = (this.sniffMime(tex.sourceBytes))
+                    }
+                }
+            }
+            push model.textures tex
+            i = (i + 1)
+        }
+    }
+
+    fn sniffMime:string (bytes:buffer) {
+        if ((buffer_length bytes) >= 4) {
+            def b0:int (buffer_get bytes 0)
+            def b1:int (buffer_get bytes 1)
+            if (b0 == 137) {
+                if (b1 == 80) {
+                    return "image/png"
+                }
+            }
+            if (b0 == 255) {
+                if (b1 == 216) {
+                    return "image/jpeg"
+                }
+            }
+        }
+        return ""
+    }
+
+    fn buildMaterials:void (model:ModelAsset) {
+        def n:int (array_length doc.materials)
+        def i:int 0
+        while (i < n) {
+            def gm:GltfMaterial (itemAt doc.materials i)
+            def m:MaterialAsset (new MaterialAsset)
+            m.id = i
+            m.name = gm.name
+            m.baseColorR = gm.baseColorR
+            m.baseColorG = gm.baseColorG
+            m.baseColorB = gm.baseColorB
+            m.baseColorA = gm.baseColorA
+            m.baseColorTexture = gm.baseColorTexture
+            m.baseColorTexCoord = gm.baseColorTexCoord
+            m.metallic = gm.metallic
+            m.roughness = gm.roughness
+            m.doubleSided = gm.doubleSided
+            push model.materials m
+            i = (i + 1)
+        }
+    }
+
+    fn buildMeshes:void (model:ModelAsset) {
+        def n:int (array_length doc.meshes)
+        def i:int 0
+        while (i < n) {
+            def gmesh:GltfMesh (itemAt doc.meshes i)
+            def mesh:MeshAsset (new MeshAsset)
+            mesh.id = i
+            mesh.name = gmesh.name
+            def pn:int (array_length gmesh.primitives)
+            def j:int 0
+            while (j < pn) {
+                def gp:GltfPrimitive (itemAt gmesh.primitives j)
+                def prim:MeshPrimitiveAsset (new MeshPrimitiveAsset)
+                prim.mode = gp.mode
+                prim.material = gp.material
+                prim.positions = (this.readVec3(gp.posAccessor))
+                if (gp.normalAccessor >= 0) {
+                    prim.normals = (this.readVec3(gp.normalAccessor))
+                }
+                if (gp.uvAccessor >= 0) {
+                    prim.uvs = (this.readVec2(gp.uvAccessor))
+                }
+                if (gp.indicesAccessor >= 0) {
+                    prim.indices = (this.readIndices(gp.indicesAccessor))
+                }
+                push mesh.primitives prim
+                j = (j + 1)
+            }
+            push model.meshes mesh
+            i = (i + 1)
+        }
+    }
+
+    fn buildNodes:void (model:ModelAsset) {
+        def n:int (array_length doc.nodes)
+        def i:int 0
+        while (i < n) {
+            def gn:GltfNode (itemAt doc.nodes i)
+            def nd:NodeAsset (new NodeAsset)
+            nd.id = i
+            nd.name = gn.name
+            nd.mesh = gn.mesh
+            nd.children = gn.children
+            if gn.hasMatrix {
+                nd.hasMatrix = true
+                nd.matrix = (Mat4.fromColumnMajor(gn.matrix))
+            } {
+                nd.hasMatrix = false
+                nd.translation = gn.translation
+                nd.rotation = gn.rotation
+                nd.scale = gn.scale
+            }
+            push model.nodes nd
+            i = (i + 1)
+        }
+        ; default scene roots
+        if ((array_length doc.scenes) > 0) {
+            def sc:GltfScene (itemAt doc.scenes doc.defaultScene)
+            model.rootNodes = sc.nodes
+        }
+    }
+
+    ; ---- top level ----------------------------------------------------------
+    fn importModel:ModelAsset (bytes:buffer) {
+        ok = true
+        error = ""
+        def model:ModelAsset (new ModelAsset)
+        this.readContainer(bytes)
+        if (ok == false) {
+            return model
+        }
+        def parser:JsonParser (new JsonParser)
+        def root:JsonValue (parser.parse(jsonText))
+        if (parser.ok == false) {
+            this.fail("invalid glTF JSON: " + parser.err)
+            return model
+        }
+        doc.parse(root)
+        if (doc.ok == false) {
+            this.fail(doc.error)
+            return model
+        }
+        this.buildTextures(model)
+        this.buildMaterials(model)
+        this.buildMeshes(model)
+        this.buildNodes(model)
+        return model
+    }
+}
