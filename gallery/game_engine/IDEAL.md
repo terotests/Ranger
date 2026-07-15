@@ -76,7 +76,7 @@ without re-widening the leaks above.
 | Know the **viewport / screen size** in a physics guest | Missing | RGSP1 has `VIEW_W`/`VIEW_H`, but RGW1 has no view fields, so a physics guest cannot size or letterbox itself. | §2.14, §2.1 |
 | **Init handshake & host-capability negotiation** | Dead | The header specs a version/caps handshake (`rg_abi_version`/`rg_required_caps`) and a typed query (RGCQ, `rg_declare_queries`/`rg_check_env`), but no host calls them — runners only `verifyMagic()`. No device-type/screen/input environment is answered, and only the WASM path has any query at all. | §2.14, §6 |
 | **Richer input** (analog sticks, pointer/touch, text, per-player remap) | Minimal | Only two i32 bitfields (`input`, `input_p2`); no analog axes, no pointer, no text entry. The host tracks 8 players × 12 buttons but the ABI carries 2 players × ~5 bits. | §2.1, §2.9 |
-| **Haptic feedback** (rumble) | Partial | Rumble flows as an RGW1 event `{ pad, low, high, ms }`, but the two motors are collapsed at `gfx_rumble_pad` (single strength) and `high` is dropped; no envelope/pattern, priority/mixing, cancel, or trigger haptics, and `HOST_CAP_RUMBLE` is never negotiated. | §2.9, §6 |
+| **Haptic feedback** (rumble / mobile taptics) | Partial | Rumble flows as an RGW1 event `{ pad, low, high, ms }`, but the two motors are collapsed at `gfx_rumble_pad` (single strength) and `high` is dropped; no envelope/pattern, priority/mixing, cancel, or trigger haptics, and `HOST_CAP_RUMBLE` is never negotiated. Nothing maps the effect onto a **mobile** Taptic Engine / Core Haptics / Android `VibrationEffect` (intensity/sharpness, transient vs continuous). | §2.9, §6 |
 | **Pose / body-tracking input** | Shared | `RGP1` v2 has one shared header (`wasm/wasm_pose_abi.h`): magic/version/size/seqlock, normalized positions + per-landmark & body motion/speed, capability-gated. All producers (native, MediaPipe, `.as`) and both consumer paths (`.as` bridge, `ranger_game::pose`) conform; first WASM game is `games/pose_arena`. | §2.4, §6 |
 | **Game-defined sound palette** | Rigid | A fixed enum (`RG_WASM_SOUND_WALL/BOUNCE/WIN`) in the header; the `.as` path bolts on an integer `playSound` queue instead. No way to register a per-game palette through the ABI. | §4, §2.10 |
 | **Voice & music over the binary ABI** | Missing | `playVoice`/`playMusic`/`stopMusic` exist only on the TS/EvalValue path; WASM and `.as` guests have no encoding for vocal or music events. | §2.10 |
@@ -91,6 +91,10 @@ without re-widening the leaks above.
 | **Guest draw list / resource manifest / sound queue as first-class ABI** | Path-specific | `RGS1`, the resource manifest, and the sound queue are native-array APIs on the interpreted `.as` path only — not a shared byte block, so compiled-WASM guests cannot use them uniformly. | §2, §5 |
 | **Streaming (`RGX1`) and loader (`RGLD`)** | Unheadered | Referenced as siblings of RGW1 but have no canonical `wasm/*.h`, so their offsets are not a stable contract. | §2 |
 | **Save-state / persistence, networking, clock/RNG seed, config negotiation** | Partial | Persistence **does** exist — `saveGameData`/`loadGameData`/`resetGameData` (whole-file `gamedata.json`) — but only as a TS-path native bridge, not over the binary ABI; and beyond `dt_ms`/`time_ms` there is no deterministic seed, no networking, and no negotiated timestep/config. | §2.11, §2.1 (RGCQ), §6 |
+| **Device motion & orientation** (accelerometer, gyroscope, fused attitude) | Missing | Nothing streams a phone/tablet's linear acceleration, rotation rate, gravity vector, or orientation quaternion to a guest; there is no motion block and no `HOST_CAP_MOTION`. A tilt-controlled game has no channel at all. | §2.19, §6 |
+| **Online services & multiplayer** (game backend, state/resource sync, sessions) | Missing | The row above lists networking as absent over the ABI; there is no request/response to a game's own backend (cloud saves, leaderboards, remote *data/assets*), and no session/message channel for real-time or turn-based multiplayer. | §2.20, §2.11, §2.7, §6 |
+| **In-app purchases & entitlements** | Missing | No interface to list store products, run a purchase/restore flow, or read verified entitlements (StoreKit / Play Billing); a game cannot gate content on a purchase through the engine. | §2.21, §6 |
+| **Mobile host packaging** (Apple/Xcode, AOT vs interpret, store constraints) | Missing | Nothing describes how one Ranger host runs local `.wasm` games on iOS/iPadOS — bundled+interpreted vs AOT-compiled to a native lib/XCFramework — or how App Review's "no runtime code download" rule shapes what the network channel may carry. | §2.22, §2.14, §2.20 |
 | **RGU1 interactivity / UI events** | Optional & minimal | The document is guest→host; the only host→guest path is an optional `rg_ui_event` export limited to `ACTIVATE/SELECT/DESELECT` driven by a **D-pad selection cursor** (no pointer/hover/drag/scroll/text/focus events, reserved `value` payload), and selection state lives on the host. | §2.6, §2.15, §2.3 |
 | **Animation system & lifecycle events** | Fragmented | Three unrelated timing systems (host-only `UIAnimator` glow/pulse, RGSP1 sprite clock, RGU1 full-tree re-emit); no general tweening/easing, frozen effect + anim enums, and the only completion hook (`UIAnimator.after`) is a host closure — no `onAnimationEnd`/`onLoop`/`onFrame` over the ABI. | §2.12 |
 | **Screen navigation / view stack** | Partial | `loadGame`/`pushGame`/`popGame` exist only on the TS path; every transition is a full teardown + `initState()` reload (no suspend/resume), routes are file paths, and there are no typed args, no result on pop, and no `onEnter`/`onExit`/`onPause`/`onResume` hooks. | §2.13 |
@@ -1032,36 +1036,61 @@ player↔game channel.
    present and the guest **adapts** (synthesize a stick from the D-pad, a pointer from
    a cursor) or aborts cleanly — and device connect/disconnect is surfaced so "press
    START on player 2's pad to join" works without a fixed slot table.
+4. **On mobile, the device *is* a controller.** A phone or tablet has no gamepad but
+   a rich sensor suite — accelerometer, gyroscope, fused attitude, and a
+   multi-touch surface. Touch already lands in the pointer/touch fields above (a
+   guest reads `POINTER_*` + `HAS_POINTER`); **device tilt and motion** are a
+   separate streaming input with their own block, specified in **§2.19**, and a
+   guest maps them onto the *same* semantic actions ("steer" ← tilt, "aim" ←
+   attitude) it declares for a stick. The action/binding indirection (point 2) is
+   what lets one game read "steer" from a gamepad stick on desktop and from
+   accelerometer tilt on a phone with no change to its logic.
 
 **Ideal — haptic feedback.**
 
-4. **Address both motors independently (and stop flattening them).** The transport
+5. **Address both motors independently (and stop flattening them).** The transport
    already carries `low`/`high`; the host must drive each motor with its own value —
    low-frequency (heavy) and high-frequency (sharp) are distinct feelings — instead of
    collapsing them to a single `max(low, high)` strength.
    The event addresses a *target* (pad index, or `-1` = all; optionally L/R/trigger).
-5. **A richer command than (strength, ms), with the simple case intact.** Beyond the
+6. **A richer command than (strength, ms), with the simple case intact.** Beyond the
    base `{ target, low, high, ms }`, an optional **envelope** (attack / sustain /
    release) or a small named **pattern** (`bump`, `hit`, `engine`, `click`) with an
    intensity lets "a soft tap" and "a long engine rumble" be different effects — the
    haptic analogue of §4's registered sound palette, so pattern *names* are a per-game
    vocabulary the host maps, not a frozen enum.
-6. **Priority, mixing, and cancel.** Overlapping effects **mix or arbitrate by
+7. **Priority, mixing, and cancel.** Overlapping effects **mix or arbitrate by
    priority** rather than last-write-wins clobber, and a sustained effect (engine
    rumble while accelerating) can be **updated and stopped** by handle — not just fired
    and forgotten. This is the §2.6 handle discipline applied to a time-extended output.
-7. **Capability-gated with graceful fallback.** The host advertises rumble (and finer
-   trigger/waveform caps) via `RG_WASM_HOST_CAP_RUMBLE` (§6); a guest queries and
-   degrades — a device with no motors simply ignores haptics, and a host *may*
+8. **The same command drives a mobile Taptic Engine — one vocabulary, two back-ends.**
+   A phone has no dual-motor pad; it has a single high-fidelity actuator addressed by
+   **intensity + sharpness** (Apple **Core Haptics** `CHHapticEngine`, or the semantic
+   `UIImpactFeedbackGenerator`/`UINotificationFeedbackGenerator` families), and Android
+   exposes `VibrationEffect` waveforms/predefined effects. The engine keeps *one*
+   game-facing vocabulary — target + `low`/`high` + optional envelope/named pattern —
+   and the host maps it per platform: the **low-frequency** channel drives Core Haptics
+   *intensity* (a `HapticContinuous` rumble), the **high-frequency** channel drives
+   *sharpness* (a crisp `HapticTransient` tap), and a named pattern (`bump`/`hit`/
+   `click`) resolves to the closest platform primitive (an impact generator, or an AHAP
+   pattern). `target` collapses to "the device" on a single-actuator phone. So a game
+   that fires `pattern("hit")` feels right on a gamepad, a DualSense, and a Taptic
+   Engine without knowing which it landed on — the §4 transport-not-taxonomy rule, in
+   the haptic dimension.
+9. **Capability-gated with graceful fallback.** The host advertises rumble/haptics (and
+   finer trigger/waveform/Core-Haptics caps) via `RG_WASM_HOST_CAP_RUMBLE` (§6) — the
+   one bit now spanning gamepad motors *and* mobile taptics; a guest queries and
+   degrades — a device with no actuator simply ignores haptics, and a host *may*
    substitute (a brief screen shake) as policy. Like pose and audio, haptics is
    **output-only and must never feed back into logic/RNG or step order**, so
    determinism holds whether or not a device buzzes.
 
 The result: controls become *"read the actions I declared, from whatever device the
-host bound,"* and haptics becomes *"play a named/enveloped effect on a target, mix it,
-and stop it when done"* — both carried at full fidelity over the ABI on every guest
+host bound — gamepad, touch, or device tilt,"* and haptics becomes *"play a
+named/enveloped effect on a target, mix it, and stop it when done — on a rumble motor
+or a Taptic Engine alike"* — both carried at full fidelity over the ABI on every guest
 path, both capability-negotiated, and both game-defined in meaning while the host owns
-the devices (§2.1, §4, §6, §7).
+the devices (§2.1, §2.19, §4, §6, §7).
 
 ### 2.10 The sound system — sound events, vocal events, and audio resources
 
@@ -1847,6 +1876,273 @@ The result: juice becomes *"register an emitter or a filter, spawn or trigger it
 a handle if it lives,"* — one particle-and-effects model shared by the software and GPU
 backends and by every guest path, game-declared in vocabulary and host-owned in rendering
 (§2.7, §2.8, §2.9, §2.10, §2.12, §4, §5, §6).
+
+### 2.19 Device motion and orientation (mobile sensors)
+
+§2.9 made controls genre-neutral and noted that *on a phone the device is the
+controller*. This chapter specifies that input. A handheld has no gamepad but a rich
+inertial suite — accelerometer, gyroscope, magnetometer, and a fused **attitude** — that
+a tilt-steered racer, a bubble-level, an AR-style aiming game, or a "shake to reroll"
+mechanic reads every frame. It is a host→guest **streaming input**, exactly the shape of
+pose (§2.4): the host owns the sensors and the fusion, the guest reads clean typed
+channels, and the block copies the RGU1 discipline.
+
+**Current state.** Nothing. RGW1 carries `input`/`input_p2`; RGIN (§2.9) adds sticks,
+triggers, and pointer/touch — but there is **no channel for acceleration, rotation rate,
+gravity, or orientation**, no motion block, and no `HOST_CAP_MOTION`. A tilt-controlled
+game cannot be written against the ABI at all; the sensors exist on every iOS/Android
+device (Apple **Core Motion** `CMMotionManager`, Android `SensorManager`) and reach the
+engine nowhere.
+
+**Ideal — the principles** (the pose rules, §2.4, applied to inertial sensors).
+
+1. **One shared block, RGU1-discipline, seqlock-published.** Define **RGMO**
+   (`'RGMO'`) with `magic` / `version` / `size` / `revision`, host-validated, a
+   host→guest per-frame block like RGP1. One layout for every host and both guest
+   paths (§ parity).
+2. **The frames are defined precisely — this is the whole contract.** Motion is
+   meaningless without a fixed coordinate convention, so the transport *fixes* it:
+   - **Sensor (device body) frame.** A right-handed frame fixed to the device in its
+     natural (portrait) orientation: `+x` = right edge, `+y` = top edge, `+z` = out of
+     the screen toward the user. Accelerometer, gyroscope, gravity, and user
+     acceleration are all reported in this frame.
+   - **Reference frame.** A gravity-and-heading world frame the **attitude quaternion**
+     rotates the device *into* (device→reference). The host publishes which reference it
+     used (`xArbitraryZVertical` / true-north-aligned / …) as a small enum, because it
+     is negotiable, not universal.
+   - The guest scales/rotates into *its* world exactly as pose does — the block never
+     bakes a screen size or a game's up-axis.
+3. **Both cooked and raw acceleration ship, so the guest never guesses.** Raw
+   accelerometer output includes gravity; a game usually wants one *or* the other, never
+   to subtract them itself. The host — which runs the sensor fusion — publishes **user
+   acceleration** (gravity removed) *and* the **gravity vector** *and* raw total
+   acceleration, plus **rotation rate** (gyroscope) and the **attitude quaternion** with
+   its convenience roll/pitch/yaw. Computed once, correctly, host-side (cf. pose's
+   host-computed velocity).
+4. **Fixed-point sized to the quantity.** Acceleration is in **g** (1 g = gravity) at
+   Q16.16 (`FP_VEL`); rotation rate is **rad/s** at Q16.16; the quaternion components are
+   normalized `[-1,1] × FP_SCALE`; roll/pitch/yaw are **radians** × `FP_SCALE`. A
+   resolution choice, documented in the header, not a taxonomy.
+5. **Interface orientation is discrete and event-driven.** Continuous attitude lives in
+   RGMO; the *coarse* interface orientation (portrait / landscape-left / landscape-right
+   / face-up) and its **changes** arrive as a lifecycle event (§2.14 resize/orientation),
+   never as a silent value swap mid-step — the same rule as gamepad hotplug.
+6. **Capability-gated like any provider.** RGMO plugs in as a `GameProvider` (direction
+   host→guest, cadence per-frame, `capBit = RG_WASM_HOST_CAP_MOTION`). A host with no
+   IMU advertises the bit off; a guest that *requires* motion is rejected at load (§6),
+   and a guest that can *optionally* use it (tilt as an alternative to a stick) adapts.
+7. **Motion is a deterministic input, resampled to the step.** Like pose and controls,
+   the sensor sample valid at each `step_id` is what a replay re-feeds (§2.4 timing rules;
+   V2 replay protocol) — a *read*, never an output, so it may drive logic/RNG and still
+   replay identically. The high native sensor rate (often 100 Hz) is decimated to the
+   fixed step by the host, not the guest.
+
+The block carries the sensor channels as typed bytes — acceleration, gravity, rotation
+rate, attitude — while *what a tilt means* ("lean left = steer left", "sharp shake =
+reroll") stays the guest's decision, mapped through the §2.9 action table so the same
+"steer" action reads a stick on a gamepad and tilt on a phone. Proposed byte layout:
+`ABI_V2_PROPOSAL.md V2 §18` (RGMO).
+
+The result: motion becomes *"read the device's acceleration and orientation in a fixed
+frame, and turn it into my own actions,"* — one streaming block shared by every guest
+path, host-fused and host-owned in the devices, game-defined in meaning
+(§2.4, §2.9, §2.14, §6, §7).
+
+### 2.20 Networking — talking to a game backend, and multiplayer
+
+A mobile game rarely lives alone: it syncs progress to the player's cloud, reads a
+remote config or a seasonal content drop, posts a score to a leaderboard, and — for many
+genres — plays against other people in real time or by turns. All of that is **network
+I/O**, and the engine has none of it over the ABI (the top-level gap row lists networking
+as absent). This chapter adds it as a **host-owned, async, capability-gated** service, on
+the same handle/result discipline as the rest of the ABI, and with one hard constraint
+the mobile stores impose baked into the design.
+
+**Current state.** No networking crosses the ABI. Persistence (§2.11) is a local
+`gamedata.json` on the TS path only; there is no request/response to a remote endpoint,
+no session or message channel, and no `HOST_CAP_NET`. Multiplayer does not exist in any
+form. (`PLAN_HTTP.md`/`TODO_HTTP.md` exist elsewhere in the tree, but nothing wires a
+network capability into the game-engine guest surface.)
+
+**The store constraint that shapes everything.** Apple's App Review Guideline 2.5.2 (and
+the emulator/mini-app carve-outs of 4.7) forbid an app from **downloading, installing, or
+executing code that changes its behaviour** at runtime. So the networking interface is
+deliberately a **data-and-assets transport, never a code transport**: it moves save
+blobs, config, leaderboard rows, matchmaking tickets, and §2.7 resource *bytes* (a PNG,
+an audio bank, a level description) — it **cannot** fetch and run a new `.wasm` game
+module or new game logic. The game shipped to the store is the game Apple reviewed; the
+network changes its *data*, not its *code* (§2.22 makes the packaging side of this rule
+concrete). This is not a limitation the engine adds — it is the guardrail that keeps a
+Ranger game shippable.
+
+**Ideal.**
+
+1. **Two surfaces, both async, both host-owned.**
+   - **Request/response to the game's own backend** — a generic `rg_net_request` that
+     takes an endpoint id + an opaque request blob and returns a **request handle**; the
+     response (or failure) arrives later on the host→guest event channel. This backs
+     cloud saves (the §2.11 store with `scope = cloud`), leaderboards, remote config, and
+     network-sourced §2.7 resources. The *protocol and schema are the game's* (JSON,
+     protobuf, whatever) — the ABI transports bytes, never a fixed message taxonomy (§4).
+   - **Sessions & messages for multiplayer** — a session lifecycle (`create` / `join` /
+     `leave`, matchmaking delegated to the host: Apple **Game Center** `GKMatch`, or a
+     game server) plus reliable/unreliable **send** and a **receive** queue keyed to a
+     peer/room. Datagrams are opaque blobs; the netcode (state sync, prediction) is the
+     game's.
+2. **Async by construction — the frame never blocks.** Networking is I/O, so every call
+   is non-blocking and returns `RG_ERR_PENDING` + a request handle (V2 §15); completion,
+   incoming messages, and connection state changes are delivered as **host→guest events
+   at defined step boundaries** — the same machinery as UI/anim/view events. A guest polls
+   a receive queue or reacts to an event; it never spins waiting on a socket.
+3. **Non-determinism is contained, not smeared through logic.** A network reply is
+   inherently non-deterministic (latency, ordering, loss), so — exactly like resize and
+   hotplug (§2.14, V2 §11) — it enters the simulation **only as an event captured to a
+   `step_id`**, recorded and re-injected on replay. Logic/RNG/step order never depend on
+   *when* a packet happened to arrive; they depend on the event as delivered at its step.
+   For **deterministic lockstep** multiplayer, the engine's fixed-step + `step_id`
+   protocol is the substrate: peers exchange *inputs* per step and each simulates
+   identically (the write-once/fixed-point invariant is what makes lockstep possible);
+   rollback/prediction is a guest netcode layer above it. Authority for
+   cheat-sensitive state stays server-side.
+4. **Security and privacy are host-enforced.** The guest names endpoints/sessions by
+   **registered id** (like routes and sounds), not raw URLs baked into `.wasm`; the host
+   owns the actual connection, applies TLS, and can scope/allow-list destinations — a
+   sandboxed guest cannot open arbitrary sockets. Payloads are opaque bytes copied across
+   the boundary (no guest pointers retained). This mirrors §2.11's "host owns the medium".
+5. **Capability-gated and degrades cleanly.** `RG_WASM_HOST_CAP_NET` advertises presence;
+   a guest queries reach/latency-class/multiplayer via §2.14 and adapts — an offline or
+   networkless host makes every request fail fast (`RG_ERR_UNSUPPORTED`) or surfaces a
+   clear "no connection" so the game runs single-player. A game that *requires* networking
+   is rejected at load; most declare it optional.
+
+The result: talking to the world becomes *"send this blob to a named endpoint or peer and
+hand me the reply as an event,"* — one async, handle-based transport for backend
+request/response and multiplayer sessions alike, carrying **data, never code**,
+non-determinism quarantined into recorded step events, game-defined in protocol and
+host-owned in the connection (§2.7, §2.11, §2.14, §4, §6, §7). Proposed imports:
+`ABI_V2_PROPOSAL.md V2 §19`.
+
+### 2.21 In-app purchases and entitlements
+
+The commercial counterpart to networking: a mobile game sells things — remove-ads,
+a cosmetic pack, a coin bundle, a season pass — and reads back **entitlements** to
+unlock content. The platform owns the money (Apple **StoreKit**, Google **Play
+Billing**); the engine's job is a thin, safe seam that lets a guest *offer* a product and
+*learn* whether the player owns it, without ever touching payment credentials.
+
+**Current state.** Nothing over the ABI: no product listing, no purchase flow, no
+entitlement read, no `HOST_CAP_IAP`. A game cannot monetise through the engine at all.
+
+**Ideal.**
+
+1. **Products and entitlements are the vocabulary; the store owns the transaction.** The
+   guest declares **product ids** (its own vocabulary, transport-not-taxonomy §4) and the
+   host resolves them against the store's configured catalog — StoreKit product metadata
+   (localized title, **localized price**, type) lives in the app/store config, not in the
+   `.wasm`. Imports:
+   - `rg_iap_list_products(ids…)` → localized product info (title, price string,
+     kind: consumable / non-consumable / subscription).
+   - `rg_iap_purchase(productId)` → a **request handle**; the host runs the platform
+     purchase sheet; success / cancel / failure arrives as a host→guest event.
+   - `rg_iap_restore()` → re-establish non-consumable/subscription entitlements (an
+     App Store requirement).
+   - `rg_iap_entitlements()` → the current owned/active set the guest gates content on.
+2. **Async and event-delivered, like networking.** A purchase is a user-driven,
+   out-of-process flow that can take seconds and be interrupted; it is `RG_ERR_PENDING` +
+   handle, with the outcome and any later renewal/refund/revocation arriving as **events
+   at step boundaries** (V2 §15, §2.20). The guest never blocks on a purchase.
+3. **The guest never sees money, and the host never trusts the guest.** Payment details,
+   receipts, and signatures stay host-side; the guest receives only a **verified
+   entitlement** (a boolean/token), ideally validated **server-side** (via §2.20) rather
+   than trusting the device — a sandboxed guest that *claims* an entitlement it did not
+   buy is not believed. This is the §2.6 "host owns memory / guest owns intent" rule
+   applied to money: the host owns the wallet, the guest owns the *request*.
+4. **Entitlement reads are deterministic inputs; purchase events are external.** Reading
+   "does the player own no-ads" is a stable input like a persisted read (§2.11) — the same
+   answer replays the same. The *purchase* itself is an external side effect captured as a
+   recorded event (§2.20/V2 §11). Entitlements should gate **content/presentation**, not
+   simulation logic, so a replay of gameplay is independent of the store.
+5. **Capability-gated and optional by default.** `RG_WASM_HOST_CAP_IAP` advertises a store
+   backend; a host without one (a desktop dev build, a sideloaded runner) makes
+   `list_products` return empty and `purchase` fail cleanly, and the guest hides its store
+   UI. A game almost never *requires* IAP at load — it degrades to "everything unlocked" or
+   "store unavailable".
+
+The result: monetising becomes *"list my product ids, ask the host to sell one, and read
+back a verified entitlement,"* — one async, handle-based store seam where the guest owns
+the product vocabulary and the unlock logic while the host owns the transaction, the
+receipt, and the money (§2.6, §2.11, §2.20, §4, §6). Proposed imports:
+`ABI_V2_PROPOSAL.md V2 §20`.
+
+### 2.22 The mobile host — one Ranger host, many local WASM games
+
+The previous four chapters (§2.9 haptics/touch, §2.19 motion, §2.20 networking, §2.21
+IAP) are the *capabilities* a mobile game needs; this chapter is the *host* that provides
+them and the *packaging* that ships them. On Apple platforms one Xcode project is the
+Ranger host, and the games it runs are local `.wasm` modules — bundled at build time,
+never fetched at runtime. The shape below is the concrete home for every "capability-gated
+via §6" the document leans on, on iOS/iPadOS/macOS.
+
+**The host is layered, and each layer maps to a provider (§6).** A single workspace:
+
+```
+Ranger.xcworkspace
+├─ RangerCore          C++17 engine: physics, rendering, audio (the host, scripting/ analog)
+├─ RangerWasmRuntime   WASM loader + the Ranger ABI (interpreter on iOS — no JIT)
+├─ RangerAppleHost     Swift/ObjC++ lifecycle, StoreKit, Game Center, Core Motion, Core Haptics
+│
+├─ DevRunner target    picks a local game_*.wasm from a menu / Xcode scheme
+├─ GameA target        GameA.wasm + assets (own bundle id, icon, StoreKit products)
+└─ GameB target        GameB.wasm + assets
+```
+
+`RangerAppleHost` is where the platform frameworks become **capability providers**: Core
+Motion → the RGMO motion provider (§2.19, `capBit = MOTION`); Core Haptics → the haptics
+provider (§2.9, generalised `RUMBLE`); Game Center / URLSession → the networking provider
+(§2.20, `capBit = NET`); StoreKit → the IAP provider (§2.21, `capBit = IAP`). Each
+attaches through the §6 registry, so the host's advertised `RG_WASM_HOST_CAPS` is exactly
+the OR of what this device build wired in — a phone build lights up MOTION/NET/IAP/haptics;
+a headless CI build advertises none, and the same guest degrades through the same gate.
+
+**Development: fast local iteration.** A `DevRunner.app` lists the local games and launches
+the selected module; on macOS it can read `game.wasm` straight from the build directory, on
+device Xcode copies the chosen `.wasm` into the app bundle / sandbox. An Xcode **scheme**
+selects the module (`RANGER_GAME_MODULE = games/pong/game.wasm`), so "Run Pong" / "Run
+Platformer" is a scheme switch over one runner — the WASM fast-iteration loop the whole
+engine is built around (§0), now on a phone.
+
+**Store build: two shippable shapes, both static.**
+
+1. **Bundled + interpreted.** The chosen `game.wasm` ships inside the app bundle and the
+   `RangerWasmRuntime` **interprets** it (no JIT — iOS forbids runtime-generated native
+   code). Straightforward, one WASM runs on iOS/Android/desktop, and App Review sees the
+   whole delivered app.
+2. **AOT-compiled to native.** A build step ahead-of-time compiles `game.wasm` → a native
+   static library / **XCFramework** (per-arch: device `arm64`, simulator, macOS), linked
+   into the app with **no WASM runtime present** — better performance, smaller footprint,
+   native-symbol debugging, dead-code stripping, and no interpreted-code ambiguity for
+   review.
+
+**The invariant that makes both shapes legal *and* correct.** Because the game shipped to
+the store is the game Apple reviewed, **no game logic is ever downloaded at runtime** — the
+network channel (§2.20) carries data and assets only. And because interpret and AOT are two
+executions of the *same* `.wasm` against the *same* fixed-point ABI, they **must produce
+identical results** — the write-once / determinism invariant (§0, §2.4, V2 §11) is exactly
+what guarantees an AOT store build behaves like the interpreted dev build. Capability
+negotiation (§2.14) is identical on both: the guest reads the device it landed on and adapts,
+whether its code is interpreted or native.
+
+One target per store game (its own bundle id, icons, StoreKit products, Game Center config,
+privacy strings) or one parameterised target that a CI script fills per game are both fine;
+every target links the same `RangerCore`, and only the game, its assets, and its metadata
+change. Android mirrors the model (one host `Activity`, bundled `.wasm`, `SensorManager` /
+`VibrationEffect` / Play Billing / sockets as the same providers).
+
+The result: the mobile host is *"one reviewed, static app = one Ranger host + one local
+game, its platform frameworks wired in as capability providers,"* — dev iterates on fast
+interpreted WASM, the store ships the same WASM bundled-and-interpreted or AOT-compiled to
+native, no code crosses the wire, and the fixed-point ABI keeps every shape identical
+(§0, §2.9, §2.14, §2.19, §2.20, §2.21, §6, §7).
 
 ---
 

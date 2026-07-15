@@ -32,6 +32,12 @@ surface in [`../IDEAL_API.md`](../IDEAL_API.md); the migration plan in
 | **RGX1** streaming worker | *proposed* | `'RGX1'` | — | 2560 B | host↔worker | frame | proven (mock handles) (§2.7) |
 | **RGLD** resource loader | *proposed* | `'RGLD'` | — | — | host↔worker | frame | planned (§2.7) |
 | **RG_CAM** camera + view matrix | *proposed* | — | — | — | guest→host (+ matrix back) | frame | planned (§2.17) |
+| **RGMO** device motion / orientation | *proposed* | `'RGMO'` `0x4f4d4752` | — | header + sensors | host→guest | frame | planned (§2.19) |
+
+Networking (`rg_net_*`, §2.20), in-app purchases (`rg_iap_*`, §2.21), and the mobile
+host packaging model (§2.22) are **host imports + completion-event channels**, not
+fixed byte blocks; their proposed shapes live in [`../ABI_V2_PROPOSAL.md`](../ABI_V2_PROPOSAL.md)
+`V2 §19`–`§20`.
 
 ## Discipline every block copies (the RGU1 rule, §2.3 / IDEAL_API §0.3)
 
@@ -72,8 +78,13 @@ OR of its providers' `capBit()`s and rejects an unsatisfiable guest at load.
 | `POSE_INPUT` | `0x0010` | RGP1 pose streaming + motion/speed |
 | `UI_DYNAMIC` | `0x0020` | handle-based dynamic EVG UI (`rg_evg_*`) — reserved |
 | `RES_STREAM` | `0x0040` | `rg_res_*` streaming resources / workers — reserved |
+| `MOTION` | `0x0080` | RGMO device motion / orientation sensors (§2.19) — reserved |
+| `NET` | `0x0100` | `rg_net_*` online services / multiplayer (§2.20) — reserved |
+| `IAP` | `0x0200` | `rg_iap_*` in-app purchases / entitlements (§2.21) — reserved |
 
-Bits `0x0080` and up are reserved; assign additively, never reuse a retired bit.
+Mobile **haptics** reuses `RUMBLE` (`0x0002`), generalised from "gamepad rumble" to
+"haptics" (Taptic Engine / Core Haptics / Android `VibrationEffect`, §2.9). Bits
+`0x0400` and up are reserved; assign additively, never reuse a retired bit.
 
 ## Guest paths
 

@@ -34,6 +34,9 @@ section of *this* file. `IDEAL §x` = `IDEAL.md`. `HOST §x` = `HOST_ARCHITECTUR
 | V2 §15 | Common result model (`RgResult`) & error taxonomy |
 | V2 §16 | Proposed blocks (camera, sound, view fields) |
 | V2 §17 | Proposed host imports (dynamic UI, resources, storage, animation, haptics, particles, views, logging) |
+| V2 §18 | RGMO — device motion / orientation block (mobile sensors) |
+| V2 §19 | Networking host imports (`rg_net_*`) — backend request/response + multiplayer sessions |
+| V2 §20 | In-app purchase host imports (`rg_iap_*`) — products & entitlements |
 
 ---
 
@@ -501,6 +504,14 @@ guest pointer.
 - **Haptics** [PROPOSED, `RG_WASM_HOST_CAP_RUMBLE`] — `RgHaptic { i32 target, low,
   high, ms }` (both motors distinct, never one `strength`); optional
   envelope/named pattern; sustained effect updated/stopped by handle; output-only.
+  One vocabulary, two back-ends: on a gamepad `low`/`high` drive the two rumble
+  motors; on a **mobile** single-actuator device the host maps `low` → Core Haptics
+  *intensity* (continuous), `high` → *sharpness* (transient), and a named pattern
+  (`bump`/`hit`/`click`) → the closest platform primitive (`UIImpactFeedbackGenerator`
+  / an AHAP pattern, or Android `VibrationEffect`); `target` collapses to "the
+  device". `RG_WASM_HOST_CAP_RUMBLE` generalises from "gamepad rumble" to "haptics"
+  and is the bit a Taptic-Engine host advertises — no separate mobile bit
+  (`IDEAL §2.9`).
 - **View navigation** [PROPOSED] — `rg_view_load/push/pop`; `push` suspends,
   `pop` resumes with a typed result; routes are registered names; deterministic
   control-flow input.
@@ -514,6 +525,184 @@ guest pointer.
 Sprite/atlas/HUD data shapes and the body→visual binding are game-declared
 structures resolved by host-side interfaces; they are documented in `HOST §3`
 because they are not byte-level guest/host ABI.
+
+---
+
+## V2 §18. RGMO — device motion / orientation block [PROPOSED, `RG_WASM_HOST_CAP_MOTION 0x0080`]
+
+**Motivation:** `IDEAL §2.19`. A host→guest streaming input block for handheld
+inertial sensors (accelerometer, gyroscope, fused attitude), on the RGP1 pattern:
+pattern-B (seqlock `revision`), host-write-only, per-frame, host-validated. The host
+runs the sensor fusion (Apple **Core Motion** `CMMotionManager`, Android
+`SensorManager`) and publishes clean, view-independent channels; the guest reads and
+scales into its own world. Nothing here is a game vocabulary — it is pure transport.
+
+**Fixed-point.** Acceleration in **g** and rotation rate in **rad/s** use `FP_VEL`
+(Q16.16); quaternion components (normalized `[-1,1]`) and roll/pitch/yaw (radians) use
+`FP_SCALE` (256) — the same "scale sized to the quantity" rule as RGP1 velocity vs
+position.
+
+```c
+/* wasm/wasm_motion_abi.h — RGMO: host->guest device motion/orientation (PROPOSED). */
+#define RG_MO_ABI_MAGIC   0x4f4d4752u /* 'RGMO' little-endian */
+#define RG_MO_ABI_VERSION 1u
+#define RG_MO_FP_SCALE    256          /* quaternion/angles: value * 256          */
+#define RG_MO_FP_ACCEL    65536        /* accel (g) & rot-rate (rad/s): Q16.16     */
+
+/* Header (32 bytes) — standard block words + timing + orientation/reference. */
+#define RG_MO_OFF_MAGIC       0   /* u32 'RGMO'                                    */
+#define RG_MO_OFF_VERSION     4   /* u32 ABI version the host wrote                */
+#define RG_MO_OFF_SIZE        8   /* u32 total block bytes                         */
+#define RG_MO_OFF_REVISION    12  /* u32 seqlock: odd=writing, even=stable         */
+#define RG_MO_OFF_FLAGS       16  /* u32 RG_MO_FLAG_*                              */
+#define RG_MO_OFF_ORIENT      20  /* u32 interface orientation (RG_MO_ORIENT_*)    */
+#define RG_MO_OFF_REFERENCE   24  /* u32 attitude reference frame (RG_MO_REF_*)    */
+#define RG_MO_OFF_TIME_MS     28  /* i32 capture timestamp, monotonic ms          */
+#define RG_MO_HEADER_SIZE     32
+
+/* Sensor channels — device (body) frame: +x right, +y top, +z out of screen,
+ * right-handed, natural(portrait) orientation. */
+#define RG_MO_OFF_ACC_X       32  /* i32 total acceleration x, g * FP_ACCEL        */
+#define RG_MO_OFF_ACC_Y       36  /* i32 (includes gravity)                        */
+#define RG_MO_OFF_ACC_Z       40
+#define RG_MO_OFF_UACC_X      44  /* i32 user acceleration x (gravity removed)     */
+#define RG_MO_OFF_UACC_Y      48
+#define RG_MO_OFF_UACC_Z      52
+#define RG_MO_OFF_GRAV_X      56  /* i32 gravity vector x, g * FP_ACCEL            */
+#define RG_MO_OFF_GRAV_Y      60
+#define RG_MO_OFF_GRAV_Z      64
+#define RG_MO_OFF_ROT_X       68  /* i32 rotation rate x (gyro), rad/s * FP_ACCEL  */
+#define RG_MO_OFF_ROT_Y       72
+#define RG_MO_OFF_ROT_Z       76
+/* Fused attitude (device -> reference frame), normalized quaternion + euler. */
+#define RG_MO_OFF_QUAT_W      80  /* i32 quaternion w, [-1,1] * FP_SCALE           */
+#define RG_MO_OFF_QUAT_X      84
+#define RG_MO_OFF_QUAT_Y      88
+#define RG_MO_OFF_QUAT_Z      92
+#define RG_MO_OFF_ROLL        96  /* i32 roll  (radians * FP_SCALE)                */
+#define RG_MO_OFF_PITCH       100 /* i32 pitch                                     */
+#define RG_MO_OFF_YAW         104 /* i32 yaw                                       */
+#define RG_MO_SIZE            108
+
+/* flags (RG_MO_OFF_FLAGS) */
+#define RG_MO_FLAG_VALID      1u /* host published a full sample this frame        */
+#define RG_MO_FLAG_HAS_ACCEL  2u /* accelerometer channels are real                */
+#define RG_MO_FLAG_HAS_GYRO   4u /* gyroscope / rotation-rate channels are real    */
+#define RG_MO_FLAG_HAS_ATT    8u /* fused attitude (quaternion/euler) is real      */
+
+/* interface orientation (RG_MO_OFF_ORIENT) — coarse; CHANGES arrive as a §2.14
+ * lifecycle event, this field is the current value. */
+#define RG_MO_ORIENT_PORTRAIT        0u
+#define RG_MO_ORIENT_PORTRAIT_DOWN   1u
+#define RG_MO_ORIENT_LANDSCAPE_LEFT  2u
+#define RG_MO_ORIENT_LANDSCAPE_RIGHT 3u
+#define RG_MO_ORIENT_FACE_UP         4u
+#define RG_MO_ORIENT_FACE_DOWN       5u
+
+/* attitude reference frame (RG_MO_OFF_REFERENCE) — which world frame the quaternion
+ * rotates the device INTO; published because it is negotiable, not universal. */
+#define RG_MO_REF_ARBITRARY_Z_VERTICAL 0u /* z up (gravity), x arbitrary          */
+#define RG_MO_REF_Z_VERTICAL_X_NORTH   1u /* z up, x toward magnetic/true north    */
+```
+
+Determinism: the sample valid at each `step_id` is recorded and re-fed on replay
+(V2 §11); the native sensor rate is decimated to the fixed step **host-side**, and a
+motion read may drive logic/RNG because it is a recorded input, not an output.
+Capability: attaches as a provider (`direction = host→guest`, `cadence = frame`,
+`capBit = RG_WASM_HOST_CAP_MOTION`); a host without an IMU advertises the bit off and a
+motion-requiring guest is rejected at load (`API §2.1`).
+
+---
+
+## V2 §19. Networking host imports (`rg_net_*`) [PROPOSED, `RG_WASM_HOST_CAP_NET 0x0100`]
+
+**Motivation:** `IDEAL §2.20`. Host-owned, **async** networking: a backend
+request/response surface and a multiplayer session/message surface. Every call is
+non-blocking, returns `RG_ERR_PENDING` + a request/session handle (V2 §15), and
+completions / incoming messages / connection-state changes arrive as **host→guest
+events at defined step boundaries** (V2 §11), so non-determinism is captured, not
+smeared into logic. All payloads are **opaque byte blobs** copied across the boundary
+(no guest pointers retained, no fixed message taxonomy — the game owns the protocol,
+`IDEAL §4`). **Data and assets only — never executable code / new game modules** (App
+Review 2.5.2; `IDEAL §2.20`, `§2.22`).
+
+```c
+/* Endpoints/sessions are named by REGISTERED id (like routes/sounds), not raw URLs
+ * baked into the guest; the host owns the connection, TLS, and destination policy. */
+
+/* Backend request/response (cloud save, leaderboard, remote config, net resources). */
+u32 rg_net_request(u32 endpoint_id, ptr reqBuf, u32 reqLen);  /* -> request handle (0=OOM) */
+/* Completion -> host->guest event carrying { request handle, RgResult, respOff, respLen }
+ * into a host-owned net-response buffer (base published like the UI-event text block). */
+
+/* Multiplayer sessions. */
+u32  rg_net_session_open (u32 config_id);                 /* create/join -> session handle  */
+void rg_net_session_close(u32 session);
+u32  rg_net_send(u32 session, u32 channel, ptr buf, u32 len, u32 flags); /* RG_NET_RELIABLE… */
+i32  rg_net_recv(u32 session, ptr outBuf, u32 outCap);    /* drain queue: bytes, -1 empty   */
+
+/* send flags */
+#define RG_NET_RELIABLE   1u   /* ordered+reliable (else best-effort datagram)     */
+#define RG_NET_BROADCAST  2u   /* to all peers in the session/room                 */
+
+/* Events (host -> guest, on the shared event channel): REQUEST_DONE, MESSAGE,
+ * PEER_JOIN, PEER_LEAVE, SESSION_STATE. Keyed to a step_id and recorded (V2 §11). */
+```
+
+- **Determinism / multiplayer.** Replies and messages enter the sim only as
+  step-keyed events (recorded, re-injected on replay). Deterministic **lockstep** is
+  built on the fixed-step + `step_id` protocol (V2 §11): peers exchange *inputs* per
+  step and each simulates identically (the fixed-point transport is what makes this
+  bit-reproducible); rollback/prediction is a guest netcode layer. Worker/streaming
+  results already sit outside the replay stream (V2 §11); network *inputs* are inside
+  it. Authority for cheat-sensitive state stays server-side.
+- **Capability.** `RG_WASM_HOST_CAP_NET`; an offline/networkless host fails requests
+  fast (`RG_ERR_UNSUPPORTED`) and a net-requiring guest is rejected at load — most
+  guests declare it optional and fall back to single-player.
+- **Relation to storage/resources.** Cloud save is the §2.11 store with a
+  `scope = cloud` backend over this transport; a network-sourced asset is a §2.7
+  resource whose staging buffer is filled from a `rg_net_request` response.
+
+---
+
+## V2 §20. In-app purchase host imports (`rg_iap_*`) [PROPOSED, `RG_WASM_HOST_CAP_IAP 0x0200`]
+
+**Motivation:** `IDEAL §2.21`. A thin, safe seam over StoreKit / Play Billing. The
+guest names **product ids** (its own vocabulary); catalog metadata (localized title/
+price, product type) lives in store/app config, not the `.wasm`. Purchases are
+**async** (user-driven, out-of-process): `RG_ERR_PENDING` + handle, outcome and later
+renewal/refund/revocation delivered as **host→guest events at step boundaries**
+(V2 §15, §11). The guest never sees payment credentials or receipts; it receives only a
+**verified entitlement** (ideally server-validated via `rg_net_*`).
+
+```c
+/* Product info is written into a host-owned buffer (base published like other event
+ * buffers); the guest reads localized title/price + kind but never a raw receipt.  */
+u32  rg_iap_list_products(ptr idsBuf, u32 idsLen);  /* registered product ids -> request handle */
+u32  rg_iap_purchase(u32 product_id);               /* -> request handle; host runs store sheet  */
+u32  rg_iap_restore(void);                          /* -> request handle (App Store requirement)  */
+i32  rg_iap_entitlements(ptr outBuf, u32 outCap);   /* current owned/active set -> bytes (or -1)  */
+
+/* product kinds (in list_products result) */
+#define RG_IAP_CONSUMABLE     0u
+#define RG_IAP_NON_CONSUMABLE 1u
+#define RG_IAP_SUBSCRIPTION   2u
+
+/* Events (host -> guest): PRODUCTS_READY, PURCHASE_OK, PURCHASE_CANCEL,
+ * PURCHASE_FAIL, ENTITLEMENT_CHANGED — each { request handle, RgResult, product_id }. */
+```
+
+- **Trust boundary.** Host owns the wallet, the sheet, the receipt, and validation;
+  the guest owns only the *request* and the *unlock logic*. A guest that merely
+  *claims* an entitlement is not believed — the host (or a server via `rg_net_*`) is
+  the source of truth (`IDEAL §2.21`).
+- **Determinism.** An entitlement *read* is a stable input like a persisted read
+  (§2.11) and replays identically; the *purchase* is an external side effect captured
+  as a recorded event (V2 §11). Entitlements gate content/presentation, not simulation
+  logic, so gameplay replay is store-independent.
+- **Capability.** `RG_WASM_HOST_CAP_IAP`; a host with no store returns empty products
+  and fails `purchase` cleanly, and the guest hides its store UI. Rarely a hard
+  requirement — degrades to "store unavailable".
 
 ---
 
