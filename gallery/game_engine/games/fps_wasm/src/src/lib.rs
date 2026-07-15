@@ -15,8 +15,10 @@ const FLOOR_TEXTURE: &str = "floor";
 const BRICK_TEXTURE: &str = "brick";
 const CRATE_TEXTURE: &str = "crate";
 // Keep the floor tiling inside the packed UV range supported by the scene ABI.
-const FLOOR_UV_REPEAT_U: f32 = 4.0;
-const FLOOR_UV_REPEAT_V: f32 = 3.0;
+// The original code used [21.0, 15.0] but 21.0 overflowed the u16 packing
+// (21*4096=86016, wrapped to 20480 → effective 5.0). Use the effective values.
+const FLOOR_UV_REPEAT_U: f32 = 5.0;
+const FLOOR_UV_REPEAT_V: f32 = 15.0;
 
 struct Blk<const N: usize>(UnsafeCell<[u8; N]>);
 unsafe impl<const N: usize> Sync for Blk<N> {}
