@@ -1,0 +1,273 @@
+; ============================================================================
+; ranger_game.rgr — the RGW1 shared-memory ABI as a RANGER module.
+;
+; This is the Ranger equivalent of the Rust `lib/ranger_game` crate: it hides
+; the linear-memory block layout behind typed accessors so the game code stays
+; clean. Instead of Rust's `static Block<2560>` + `UnsafeCell`, the block lives
+; at a FIXED linear-memory offset and every field is reached with the Mem
+; intrinsics (Mem.loadI32 -> i32.load, Mem.storeI32 -> i32.store).
+;
+; Linear-memory map (one 64 KiB page, persists across exported calls):
+;   RGW1 world block : 64   .. 2624   (abi_base() returns 64 — must be != 0)
+;   RGU1 HUD block   : 2624 .. 10816  (rg_ui_ptr())
+;   private game state: 10880 ..       (guest-owned, see autopeli.rgr)
+;
+; Fixed-point: FP = 256 (matches the engine's FP_SCALE, IDEAL_API §0.2).
+; ============================================================================
+
+; Compiler intrinsic — bodies ignored by codegen; Mem.loadI32/storeI32 lower to
+; i32.load / i32.store. Declaring it also makes the backend emit the memory
+; section our fixed slots live in.
+class Mem {
+    sfn alloc:int (nBytes:int) {
+        return 0
+    }
+
+    sfn loadI32:int (ptr:int) {
+        return 0
+    }
+
+    sfn storeI32:void (ptr:int val:int) {
+    }
+}
+
+; Bit helpers built on the shift/mask ops.
+class Bits {
+    sfn hasFlag:boolean (flags:int bit:int) {
+        if ((bit_and flags bit) != 0) {
+            return true
+        }
+        return false
+    }
+}
+
+; Small integer math the game leans on.
+class Fx {
+    sfn abs:int (v:int) {
+        if (< v 0) {
+            return (- 0 v)
+        }
+        return v
+    }
+
+    sfn clamp:int (v:int lo:int hi:int) {
+        if (< v lo) {
+            return lo
+        }
+        if (> v hi) {
+            return hi
+        }
+        return v
+    }
+
+    sfn maxi:int (a:int b:int) {
+        if (> a b) {
+            return a
+        }
+        return b
+    }
+
+    sfn mini:int (a:int b:int) {
+        if (< a b) {
+            return a
+        }
+        return b
+    }
+}
+
+; ---------------------------------------------------------------------------
+; World — the RGW1 block accessors. Absolute linear-memory addresses are the
+; block base (64) plus the documented in-block offsets.
+; ---------------------------------------------------------------------------
+class World {
+    ; block base — non-zero so the host enters linear/physics mode.
+    sfn base:int () {
+        return 64
+    }
+
+    ; --- header (base + off) -----------------------------------------------
+    sfn initHeader:void () {
+        Mem.storeI32(64 827803474)    ; magic 'RGW1' (0x31574752 LE)
+        Mem.storeI32(68 1)            ; version
+        Mem.storeI32(72 2560)         ; size
+    }
+
+    sfn dtMs:int () {
+        return (Mem.loadI32(76))
+    }
+
+    sfn timeMs:int () {
+        return (Mem.loadI32(80))
+    }
+
+    sfn input:int () {
+        return (Mem.loadI32(84))
+    }
+
+    sfn inputP2:int () {
+        return (Mem.loadI32(88))
+    }
+
+    sfn setBodyCount:void (n:int) {
+        Mem.storeI32(92 n)
+    }
+
+    sfn contactCount:int () {
+        return (Mem.loadI32(100))
+    }
+
+    sfn score:int () {
+        return (Mem.loadI32(104))
+    }
+
+    sfn setScore:void (v:int) {
+        Mem.storeI32(104 v)
+    }
+
+    sfn hits:int () {
+        return (Mem.loadI32(108))
+    }
+
+    sfn setHits:void (v:int) {
+        Mem.storeI32(108 v)
+    }
+
+    sfn setCameraY:void (v:int) {
+        Mem.storeI32(112 v)
+    }
+
+    sfn setScalar:void (idx:int v:int) {
+        Mem.storeI32((+ 120 (* idx 4)) v)
+    }
+
+    ; --- bodies: base 128, stride 24, fields x/y/angle/speed/angVel/flags ---
+    sfn bodyAddr:int (i:int f:int) {
+        return (+ (+ 128 (* i 24)) f)
+    }
+
+    sfn setBodyPos:void (i:int x:int y:int) {
+        Mem.storeI32((World.bodyAddr(i 0)) x)
+        Mem.storeI32((World.bodyAddr(i 4)) y)
+    }
+
+    sfn setBodyFull:void (i:int x:int y:int angle:int flags:int) {
+        Mem.storeI32((World.bodyAddr(i 0)) x)
+        Mem.storeI32((World.bodyAddr(i 4)) y)
+        Mem.storeI32((World.bodyAddr(i 8)) angle)
+        Mem.storeI32((World.bodyAddr(i 12)) 0)
+        Mem.storeI32((World.bodyAddr(i 16)) 0)
+        Mem.storeI32((World.bodyAddr(i 20)) flags)
+    }
+
+    sfn bodyX:int (i:int) {
+        return (Mem.loadI32((World.bodyAddr(i 0))))
+    }
+
+    sfn bodyY:int (i:int) {
+        return (Mem.loadI32((World.bodyAddr(i 4))))
+    }
+
+    sfn bodyAngle:int (i:int) {
+        return (Mem.loadI32((World.bodyAddr(i 8))))
+    }
+
+    sfn bodySpeed:int (i:int) {
+        return (Mem.loadI32((World.bodyAddr(i 12))))
+    }
+
+    sfn bodyAngVel:int (i:int) {
+        return (Mem.loadI32((World.bodyAddr(i 16))))
+    }
+
+    ; --- controls: base 896, stride 16, four i32 channels -------------------
+    sfn setControl:void (i:int ch0:int ch1:int ch2:int ch3:int) {
+        def a (+ 896 (* i 16))
+        Mem.storeI32(a ch0)
+        Mem.storeI32((+ a 4) ch1)
+        Mem.storeI32((+ a 8) ch2)
+        Mem.storeI32((+ a 12) ch3)
+    }
+
+    ; --- contacts: base 1664, stride 32 ------------------------------------
+    sfn contactAddr:int (i:int f:int) {
+        return (+ (+ 1664 (* i 32)) f)
+    }
+
+    sfn contactBodyA:int (i:int) {
+        return (Mem.loadI32((World.contactAddr(i 0))))
+    }
+
+    sfn contactBodyB:int (i:int) {
+        return (Mem.loadI32((World.contactAddr(i 4))))
+    }
+
+    sfn contactPhase:int (i:int) {
+        return (Mem.loadI32((World.contactAddr(i 8))))
+    }
+
+    sfn contactImpulse:int (i:int) {
+        return (Mem.loadI32((World.contactAddr(i 12))))
+    }
+
+    sfn contactX:int (i:int) {
+        return (Mem.loadI32((World.contactAddr(i 16))))
+    }
+
+    sfn contactY:int (i:int) {
+        return (Mem.loadI32((World.contactAddr(i 20))))
+    }
+
+    sfn contactNx:int (i:int) {
+        return (Mem.loadI32((World.contactAddr(i 24))))
+    }
+
+    sfn contactNy:int (i:int) {
+        return (Mem.loadI32((World.contactAddr(i 28))))
+    }
+
+    ; --- impulses (guest->host): base 1408, stride 16, count at 96 ----------
+    ; --- events   (guest->host): base 2112, stride 20, count at 116 ---------
+    ; Reset both counts at the top of each frame; push-* append and bump.
+    sfn beginFrame:void () {
+        Mem.storeI32(96 0)
+        Mem.storeI32(116 0)
+    }
+
+    sfn pushImpulse:void (body:int ix:int iy:int ang:int) {
+        def n (Mem.loadI32(96))
+        if (< n 16) {
+            def a (+ 1408 (* n 16))
+            Mem.storeI32(a body)
+            Mem.storeI32((+ a 4) ix)
+            Mem.storeI32((+ a 8) iy)
+            Mem.storeI32((+ a 12) ang)
+            Mem.storeI32(96 (+ n 1))
+        }
+    }
+
+    sfn pushEvent:void (kind:int sub:int a0:int b0:int c0:int) {
+        def n (Mem.loadI32(116))
+        if (< n 12) {
+            def a (+ 2112 (* n 20))
+            Mem.storeI32(a kind)
+            Mem.storeI32((+ a 4) sub)
+            Mem.storeI32((+ a 8) a0)
+            Mem.storeI32((+ a 12) b0)
+            Mem.storeI32((+ a 16) c0)
+            Mem.storeI32(116 (+ n 1))
+        }
+    }
+
+    ; event kinds: SOUND=1, RUMBLE=2, PARTICLES=3
+    sfn sound:void (id:int) {
+        World.pushEvent(1 id 0 0 0)
+    }
+
+    sfn rumble:void (pad:int ms:int strength:int) {
+        World.pushEvent(2 pad strength strength ms)
+    }
+
+    sfn particles:void (x:int y:int amount:int) {
+        World.pushEvent(3 0 x y amount)
+    }
+}

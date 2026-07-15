@@ -1,0 +1,142 @@
+; ============================================================================
+; autopeli.rgr — the "Autot2" car game, written in RANGER, compiled to WASM,
+; driven by the engine's host-physics (RGW1 linear) runner — the same runner
+; that runs the Rust games/autopeli_wasm/logic.wasm.
+;
+; MINIMAL CORE (stage 1): exports + input->controls + contacts->hits + camera.
+; Traffic AI, road geometry, oil/ramps and the HUD are layered on next.
+;
+; The guest is pure logic: the host owns and simulates the bodies (it writes
+; their poses into the block each frame); we read poses/input/contacts and write
+; per-body control channels (steer/throttle/brake/grip), impulses and events.
+; ============================================================================
+
+Import "./ranger_game.rgr"
+
+class Auto {
+    ; ---- exports (renamed to bare ABI names by build.sh) -------------------
+    sfn abi_base:int () {
+        return (World.base())
+    }
+
+    sfn rg_abi_version:int () {
+        return 1
+    }
+
+    sfn declare_resources:void () {
+    }
+
+    sfn init:void () {
+        World.initHeader()
+        World.setBodyCount(17)
+        def spawnY (* 5860 256)
+        World.setBodyFull(0 (* 220 256) spawnY 0 1)
+        World.setBodyFull(1 (* 260 256) spawnY 0 1)
+        def i 2
+        while (< i 17) {
+            World.setBodyFull(i (* 240 256) (* 3000 256) 0 1)
+            i = (+ i 1)
+        }
+    }
+
+    sfn update:void () {
+        World.beginFrame()
+        Auto.drive(0 (World.input()))
+        Auto.drive(1 (World.inputP2()))
+        def t 2
+        while (< t 17) {
+            World.setControl(t 0 450 0 1000)
+            t = (+ t 1)
+        }
+        Auto.processContacts()
+        World.setCameraY((- (World.bodyY(0)) (* 120 256)))
+    }
+
+    ; ---- input -> control channels (ch0 steer, ch1 throttle, ch2 brake) ----
+    sfn drive:void (idx:int flags:int) {
+        def steer 0
+        if (Bits.hasFlag(flags 4)) {
+            steer = -1000
+        }
+        if (Bits.hasFlag(flags 8)) {
+            steer = 1000
+        }
+        def throttle 0
+        if (Bits.hasFlag(flags 1)) {
+            throttle = 1000
+        }
+        def brake 0
+        if (Bits.hasFlag(flags 2)) {
+            brake = 1000
+        }
+        World.setControl(idx steer throttle brake 1000)
+    }
+
+    ; ---- contacts -> hit count + collision sounds --------------------------
+    sfn processContacts:void () {
+        def cnt (World.contactCount())
+        def hits (World.hits())
+        def i 0
+        while (< i cnt) {
+            if ((World.contactPhase(i)) == 1) {
+                def a (World.contactBodyA(i))
+                def b (World.contactBodyB(i))
+                def player (- 0 1)
+                def other (- 0 1)
+                if (Auto.isPlayer(a)) {
+                    player = a
+                    other = b
+                }
+                if (Auto.isPlayer(b)) {
+                    player = b
+                    other = a
+                }
+                if (>= player 0) {
+                    if (Auto.isSolid(other)) {
+                        hits = (+ hits 1)
+                        World.sound(1)
+                    }
+                    if (Auto.isCone(other)) {
+                        World.sound(2)
+                    }
+                }
+            }
+            i = (+ i 1)
+        }
+        World.setHits(hits)
+    }
+
+    sfn isPlayer:boolean (code:int) {
+        if (< code 2) {
+            return true
+        }
+        return false
+    }
+
+    sfn isCone:boolean (code:int) {
+        if (>= code 100) {
+            if (< code 200) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; wall (>=1000), bar (200..299), traffic (2..16)
+    sfn isSolid:boolean (code:int) {
+        if (>= code 1000) {
+            return true
+        }
+        if (>= code 200) {
+            if (< code 300) {
+                return true
+            }
+        }
+        if (>= code 2) {
+            if (< code 17) {
+                return true
+            }
+        }
+        return false
+    }
+}
