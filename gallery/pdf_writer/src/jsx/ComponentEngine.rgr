@@ -5110,6 +5110,12 @@ class ComponentEngine {
                     }
                 }
                 if (mathObjName == "Math") {
+                    ; Math.random() — real, unseeded randomness (host RNG). Zero
+                    ; args, so handle it before the single-argument methods.
+                    if (methodName == "random") {
+                        def rv:double (random)
+                        return (EvalValue.number(rv))
+                    }
                     if ((array_length node.children) > 0) {
                         def argNode:TSNode (itemAt node.children 0)
                         def argVal:EvalValue (this.evaluateExpr(argNode))

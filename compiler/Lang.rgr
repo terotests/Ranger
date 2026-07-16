@@ -244,6 +244,19 @@ language {
             templates {
                 es6 ('Math.random()')
                 kotlin ('Math.random()' (imp "java.lang.Math"))
+                cpp ( "rg_random_double()" (imp "<random>")
+(create_polyfill "
+double rg_random_double() {
+    static thread_local std::mt19937 _rg{std::random_device{}()};
+    static thread_local std::uniform_real_distribution<double> _rd(0.0, 1.0);
+    return _rd(_rg);
+}
+")
+                )
+                go ( 'rand.Float64()' (imp "math/rand") )
+                ; std-only (rustc, no crates): each RandomState::new() draws a fresh
+                ; OS-seeded key, so hashing a constant yields a varying 53-bit value.
+                rust ( '{ use std::hash::{BuildHasher, Hasher}; let mut h = std::collections::hash_map::RandomState::new().build_hasher(); h.write_u64(0); ((h.finish() >> 11) as f64) / ((1u64 << 53) as f64) }' )
             }
         }
 
