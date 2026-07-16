@@ -22,6 +22,7 @@ use core::cell::UnsafeCell;
 
 const FP: f32 = 256.0;
 
+#[link(wasm_import_module = "env")]
 extern "C" {
     fn rg_load_texture(name_ptr: *const u8, name_len: u32) -> i32;
     fn rg_load_model(name_ptr: *const u8, name_len: u32) -> i32;

@@ -1731,6 +1731,33 @@ static void rgfx_gpu_draw_texture(int texId, int x, int y, int tw, int th) {
     rgfx_gpu_draw_quad_tex(tex, (float) x, (float) y, (float) tw, (float) th);
 }
 
+// Composite a CPU RGBA image (the rasterised RGU1 HUD) over the frame the 3D
+// path just rendered, as a full-screen alpha-blended quad. The HUD keeps its own
+// texture rather than going through rgfx_3d_upload_texture, which glGenTextures
+// on every call and would leak one texture per HUD update; here the storage is
+// reused and only its pixels are re-uploaded.
+static GLuint g_rgfx_hud_tex = 0;
+static int g_rgfx_hud_tex_w = 0;
+static int g_rgfx_hud_tex_h = 0;
+extern \"C\" void rgfx_hud_overlay_draw(const uint8_t* px, int w, int h) {
+    if (!g_rgfx_gpu_mode || px == nullptr || w <= 0 || h <= 0) { return; }
+    rgfx_gl_ensure_current();
+    if (g_rgfx_hud_tex == 0) {
+        glGenTextures(1, &g_rgfx_hud_tex);
+        g_rgfx_hud_tex_w = 0;
+        g_rgfx_hud_tex_h = 0;
+    }
+    // GL_NEAREST: the HUD is a pixel-exact raster, so keep the glyphs crisp.
+    rgfx_upload_frame_tex(g_rgfx_hud_tex, &g_rgfx_hud_tex_w, &g_rgfx_hud_tex_h, px, w, h, GL_NEAREST);
+    // The scene render already left depth testing off; blend the HUD straight
+    // over it and hand the state back as we found it.
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    rgfx_gpu_draw_quad_tex(g_rgfx_hud_tex, 0.0f, 0.0f, (float) g_rgfx_fb_w, (float) g_rgfx_fb_h);
+    glDisable(GL_BLEND);
+}
+
 static void rgfx_gpu_prof_report() {
     if (!rgfx_prof_on()) { return; }
     g_rgfx_prof_frames++;
@@ -2270,6 +2297,35 @@ extern \"C\" int rgfx_scene_sprite_tex(const char* name) {
     if (!name) { return 0; }
     std::map<std::string,int>::iterator it = g_scene_sprite_tex.find(std::string(name));
     return it == g_scene_sprite_tex.end() ? 0 : it->second;
+}
+// Enumerates the basenames registered above, so a guest can discover what the
+// runner preloaded instead of hardcoding a list. Writes NUL-separated names
+// into out (map order => alphabetical) and returns the byte size the whole list
+// needs; names that do not fit whole are skipped, so out always holds complete
+// entries and a guest can retry once it sees a return value above its capacity.
+extern \"C\" int rgfx_scene_resource_names(const char* kind, char* out, int cap) {
+    std::map<std::string,int>* m = 0;
+    std::string k(kind ? kind : \"\");
+    if (k == \"models\") { m = &g_scene_model_mesh; }
+    else if (k == \"sprites\") { m = &g_scene_sprite_tex; }
+    if (!m) { return 0; }
+    int need = 0;
+    int off = 0;
+    std::map<std::string,int>::iterator it;
+    for (it = m->begin(); it != m->end(); ++it) {
+        int n = (int) it->first.size() + 1;
+        need += n;
+        if (out && cap > 0 && off + n <= cap) {
+            it->first.copy(out + off, it->first.size());
+            out[off + (int) it->first.size()] = 0;
+            off += n;
+        }
+    }
+    // Terminate the written region with an empty name, so a guest reading a
+    // truncated list stops at the last whole name instead of running on into
+    // whatever its buffer happened to hold.
+    if (out && off < cap) { out[off] = 0; }
+    return need;
 }
 
 extern \"C\" int rgfx_scene_reset() { g_scene.clear(); g_scene_active_cam = 0; return 0; }
@@ -2932,10 +2988,21 @@ extern \"C\" void rgfx_scene_render(int w, int h) {
             es6 ( "undefined" )
         }
     }
-    ; Render the whole retained scene (camera + lights + mesh entities) and swap.
+    ; Render the whole retained scene (camera + lights + mesh entities). Does NOT
+    ; swap: the caller presents with gfx_3d_present, so a HUD can be composited
+    ; in between with gfx_hud_overlay (same shape as the legacy gfx_3d_end +
+    ; gfx_3d_present path).
     gfx_scene_render _:void (w:int h:int) {
         templates {
-            cpp ( "rgfx_scene_render(" (e 1) ", " (e 2) "); rgfx_gpu_finish_frame()" (imp "<SDL2/SDL.h>") )
+            cpp ( "rgfx_scene_render(" (e 1) ", " (e 2) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+    ; Blend a CPU RGBA image over the rendered 3D frame, stretched to the window.
+    ; Call after gfx_scene_render / gfx_3d_end and before gfx_3d_present.
+    gfx_hud_overlay _:void (pixels:buffer w:int h:int) {
+        templates {
+            cpp ( "rgfx_hud_overlay_draw(" (e 1) ".data(), " (e 2) ", " (e 3) ")" (imp "<SDL2/SDL.h>") )
             es6 ( "undefined" )
         }
     }

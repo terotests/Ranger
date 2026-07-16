@@ -252,6 +252,7 @@ m3ApiRawFunction(m3_as_abort) {
 __attribute__((weak)) int  rgfx_scene_load_texture(const char* d, const char* n){ (void)d;(void)n; return 0; }
 __attribute__((weak)) int  rgfx_scene_model_mesh(const char* n){ (void)n; return 0; }
 __attribute__((weak)) int  rgfx_scene_sprite_tex(const char* n){ (void)n; return 0; }
+__attribute__((weak)) int  rgfx_scene_resource_names(const char* k, char* o, int c){ (void)k;(void)o;(void)c; return 0; }
 __attribute__((weak)) int  rgfx_scene_create_sprite(int t,int c,int r,float w,float h){ (void)t;(void)c;(void)r;(void)w;(void)h; return 0; }
 __attribute__((weak)) void rgfx_scene_set_sprite_cell(int i,int c,int r){ (void)i;(void)c;(void)r; }
 __attribute__((weak)) int  rgfx_scene_create_box(float a,float b,float c,float d,float e,float f,int t){ (void)a;(void)b;(void)c;(void)d;(void)e;(void)f;(void)t; return 0; }
@@ -289,6 +290,32 @@ m3ApiRawFunction(m3_rg_load_model) {
     char name[128];
     rg_copy_wasm_str(runtime, _mem, nameOff, nameLen, name, (int)sizeof(name));
     m3ApiReturn(rgfx_scene_model_mesh(name));
+}
+/* env.rg_list_resources(kind_ptr, kind_len, out_ptr, out_cap) -> bytes needed.
+ * Lists what the runner preloaded for `kind` ("models" | "sprites"), writing the
+ * basenames into guest memory at out_ptr as NUL-separated strings. Returns the
+ * byte size the full list needs: when that exceeds out_cap the buffer still holds
+ * only whole names, so the guest can size a buffer and ask again. Unlike every
+ * other import here this one writes *into* linear memory, so the destination
+ * range is bounds-checked against the guest's memory size before it is handed to
+ * the (untrusted-length) copy. */
+m3ApiRawFunction(m3_rg_list_resources) {
+    m3ApiReturnType(int32_t)
+    m3ApiGetArg(int32_t, kindOff)
+    m3ApiGetArg(int32_t, kindLen)
+    m3ApiGetArg(int32_t, outOff)
+    m3ApiGetArg(int32_t, outCap)
+    char kind[32];
+    uint32_t sz;
+    rg_copy_wasm_str(runtime, _mem, kindOff, kindLen, kind, (int)sizeof(kind));
+    if (!_mem || outOff < 0 || outCap <= 0) {
+        m3ApiReturn(0);
+    }
+    sz = m3_GetMemorySize(runtime);
+    if ((uint32_t)outOff + (uint32_t)outCap > sz) {
+        m3ApiReturn(0);
+    }
+    m3ApiReturn(rgfx_scene_resource_names(kind, (char*)_mem + outOff, outCap));
 }
 /* env.rg_load_sprite(name_ptr, name_len) -> texId of a preloaded sprite sheet. */
 m3ApiRawFunction(m3_rg_load_sprite) {
@@ -417,6 +444,7 @@ static void rg_link_host_imports(RgWasmSlot* s) {
     /* host-managed 3D scene (IDEAL_3D Phase H) */
     (void)m3_LinkRawFunctionEx(s->module, "env", "rg_load_texture", "i(ii)", &m3_rg_load_texture, s);
     (void)m3_LinkRawFunctionEx(s->module, "env", "rg_load_model", "i(ii)", &m3_rg_load_model, s);
+    (void)m3_LinkRawFunctionEx(s->module, "env", "rg_list_resources", "i(iiii)", &m3_rg_list_resources, s);
     (void)m3_LinkRawFunctionEx(s->module, "env", "rg_load_sprite", "i(ii)", &m3_rg_load_sprite, s);
     (void)m3_LinkRawFunctionEx(s->module, "env", "rg_create_sprite", "i(iiiii)", &m3_rg_create_sprite, s);
     (void)m3_LinkRawFunctionEx(s->module, "env", "rg_set_sprite_cell", "v(iii)", &m3_rg_set_sprite_cell, s);

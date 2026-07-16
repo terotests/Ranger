@@ -19,6 +19,8 @@ Import "../gfx_sdl.rgr"
 Import "../model3d/ModelLoader.rgr"
 Import "../model3d/MeshBridge.rgr"
 Import "../../../lib/ranger-dir.rgr"
+Import "./wasm_ui_io.rgr"
+Import "./game_hud.rgr"
 
 class Wasm3dRunner {
     def handle:int 0
@@ -28,6 +30,18 @@ class Wasm3dRunner {
     def pw:int 0
     def ph:int 0
     def dummy:buffer (buffer_alloc 4)
+    ; ---- RGU1 HUD -----------------------------------------------------------
+    ; A guest that exports rg_ui_ptr/rg_ui_size/rg_ui_revision gets its UI
+    ; document rasterised onto hudCanvas and blended over the 3D frame. The
+    ; document is re-read and re-rasterised only when the guest bumps its
+    ; revision; guests without those exports simply never turn the HUD on.
+    def uiDoc:WasmUiDoc (new WasmUiDoc)
+    def uiBuilder:WasmUiEvgBuilder (new WasmUiEvgBuilder)
+    def hudBlitter:GameHudBlitter (new GameHudBlitter)
+    def hudCanvas:SoftCanvas (new SoftCanvas)
+    def uiRev:int (0 - 1)
+    def hudReady:boolean false
+    def hasUi:boolean false
     def meshId:int 0
     def meshBase:int 0
     def texGl:[int]
@@ -356,6 +370,9 @@ class Wasm3dRunner {
             return
         }
         sceneMode = ((wasm_has_export handle "rg_mesh_ptr") == 0)
+        ; only guests that publish an RGU1 document get a HUD; the others (cube3d,
+        ; fps, pyramid) must never be asked for the export at all
+        hasUi = ((wasm_has_export handle "rg_ui_revision") != 0)
         if (sceneMode) {
             ; host-managed scene: reset, preload any GLB models the game ships
             ; (so the guest's rg_load_model can resolve them), then let the guest
@@ -462,6 +479,40 @@ class Wasm3dRunner {
         this.frame(dtMs false false false false false)
     }
 
+    ; Rasterise the guest's RGU1 document onto hudCanvas, re-reading it only when
+    ; the guest bumps its revision. A guest with no valid document leaves
+    ; hudReady false and simply gets no overlay.
+    fn refreshHud:void () {
+        if (handle == 0) {
+            return
+        }
+        if (hasUi == false) {
+            return
+        }
+        def rev:int (wasm_call_i32 handle "rg_ui_revision" 0 0 0 0 0 0)
+        if (rev <= 0) {
+            return
+        }
+        if (rev == uiRev) {
+            return
+        }
+        def ok:boolean (uiDoc.loadFromWasm(handle))
+        if (ok == false) {
+            return
+        }
+        if (uiDoc.valid == false) {
+            return
+        }
+        uiRev = rev
+        ; a fresh canvas each rebuild: the pixels start transparent, so only what
+        ; the HUD draws blends over the scene
+        hudCanvas.init(pw ph)
+        def root:EVGElement (uiBuilder.build(uiDoc))
+        hudBlitter.attach(hudCanvas)
+        hudBlitter.drawTree(root pw ph)
+        hudReady = true
+    }
+
     ; ---- render -------------------------------------------------------------
     fn draw:void () {
         if (handle == 0) {
@@ -469,6 +520,11 @@ class Wasm3dRunner {
         }
         if (sceneMode) {
             gfx_scene_render pw ph
+            this.refreshHud()
+            if (hudReady) {
+                gfx_hud_overlay (hudCanvas.raw()) pw ph
+            }
+            gfx_3d_present
             return
         }
         def camBase (this.callPtr("rg_cam_ptr"))

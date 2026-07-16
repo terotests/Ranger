@@ -3,4 +3,4 @@ engine=wasm
 render=3d
 module=logic.wasm
 
-category=Games
+category=Tests

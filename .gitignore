@@ -36,6 +36,11 @@ dist/raspberry-pi5/
 # Generated binary output
 generated/bin/
 
+# Rust / cargo build output. Each WASM crate also carries its own /target/ rule,
+# but a build dir left behind where no crate .gitignore covers it would otherwise
+# get committed — this is the repo-wide backstop.
+target/
+
 # Compiled executables and debug files
 *.exe
 *.pdb
