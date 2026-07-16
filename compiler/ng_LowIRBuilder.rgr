@@ -2419,23 +2419,43 @@ class LowIRBuilderPass {
   }
 
   fn emitFieldStoreOn:void (className:string structPtr:string fieldName:string value:string lctx:LowIRLowerContext) {
+    this.emitFieldStoreOnEx(className structPtr fieldName value false lctx)
+  }
+
+  ; srcIsFresh: the value is a freshly-constructed object (rc=1, sole owner) that
+  ; the field takes over by MOVE (no retain). A borrowed value (local/param/field)
+  ; is RETAINED so the field holds a counted reference — RC then frees it exactly
+  ; once regardless of how many fields alias it (cycles still leak, never crash).
+  fn emitFieldStoreOnEx:void (className:string structPtr:string fieldName:string value:string srcIsFresh:boolean lctx:LowIRLowerContext) {
     def builder (lctx.builder)
     def idx (this.findFieldIndex(className fieldName this.irModule))
     def fieldPtr (builder.emitGep(className structPtr idx))
     def ftype (this.fieldIrTypeFor(className fieldName))
+    def isWasmObjField:boolean false
+    if (this.objRcEnabled(lctx)) {
+      if (this.memEnabled(lctx) == false) {
+        if (this.fieldIsObjectSlot(className fieldName)) {
+          isWasmObjField = true
+        }
+      }
+    }
     if (this.memEnabled(lctx)) {
       def oldRaw (builder.emitLoad(ftype fieldPtr))
       this.emitReleaseFieldValue(className fieldName oldRaw lctx)
     } {
-      ; freestanding WASM string RC: free the old string this field held before
-      ; overwriting it (the field owns a dup'd copy). Object/buffer fields stay
-      ; libc-only. Field is zero-initialised by obj_new, so the first store sees
-      ; 0 and str_release is a no-op.
+      ; freestanding WASM RC: release the old value this field held before
+      ; overwriting it (string field: str_release its dup'd copy; object field:
+      ; obj_release its retained/owned reference). Field is zero-initialised by
+      ; obj_new, so the first store sees 0 and the release is a no-op.
       if (this.wasmStrEnabled(lctx)) {
         if (this.fieldIsStringSlot(className fieldName)) {
           def oldRawW (builder.emitLoad(ftype fieldPtr))
           this.emitReleaseFieldValue(className fieldName oldRawW lctx)
         }
+      }
+      if isWasmObjField {
+        def oldObj (builder.emitLoad(ftype fieldPtr))
+        this.emitObjReleasePtr(oldObj lctx)
       }
     }
     def storeVal:string value
@@ -2446,11 +2466,33 @@ class LowIRBuilderPass {
       if (this.fieldIsBoolSlot(className fieldName)) {
         storeVal = (builder.emitZextI1ToI32(value))
       } {
-        ; Object fields are borrows: store the pointer without retaining.
+        ; Object field on WASM: retain a borrowed reference (a fresh `new` is
+        ; moved in as-is). libc keeps borrow semantics (no retain).
+        if isWasmObjField {
+          if (srcIsFresh == false) {
+            this.emitObjRetainPtr(value lctx)
+          }
+        }
         storeVal = value
       }
     }
     builder.emitStore(ftype storeVal fieldPtr)
+  }
+
+  fn emitObjRetainPtr:void (ptr:string lctx:LowIRLowerContext) {
+    def args:[string]
+    def argTypes:[string]
+    push args ptr
+    push argTypes lctx.ptrType
+    lctx.builder.emitCall("ranger_obj_retain" "void" args argTypes)
+  }
+
+  fn emitObjReleasePtr:void (ptr:string lctx:LowIRLowerContext) {
+    def args:[string]
+    def argTypes:[string]
+    push args ptr
+    push argTypes lctx.ptrType
+    lctx.builder.emitCall("ranger_obj_release" "void" args argTypes)
   }
 
   fn emitFieldLoad:string (fieldName:string lctx:LowIRLowerContext) {
@@ -2661,7 +2703,8 @@ class LowIRBuilderPass {
       }
       if ((strlen clsName) > 0) {
         def newPtr (this.lowerNewObject(clsName (valNode.getThird()) lctx))
-        this.emitFieldStoreOn(className objPtr fieldName newPtr lctx)
+        ; the default `(new T)` is a fresh sole-owner object -> move into the field
+        this.emitFieldStoreOnEx(className objPtr fieldName newPtr true lctx)
         return
       }
     }
@@ -2757,6 +2800,13 @@ class LowIRBuilderPass {
         for td.fields fd:LowIRTypeFieldDesc j {
           if (fd.owned == 1) {
             return true
+          }
+          ; WASM retains object fields (kind 1), so they are freed on destruction
+          ; too — the class needs a descriptor even if only object fields are owned.
+          if this.irModule.useFreeListHeap {
+            if (fd.kind == 1) {
+              return true
+            }
           }
         }
       }
@@ -3723,22 +3773,24 @@ class LowIRBuilderPass {
         def cls (this.resolveObjectClassChain(recvPrefix lctx))
         if ((strlen cls) > 0) {
           def sptr (this.resolveObjectPtrChain(recvPrefix cls lctx))
-          ; Storing an owned local into a (borrow) object field: the field now
-          ; holds the reference, so the local must not be released at scope end
-          ; (would dangle the field). Mark it escaped. Object fields don't own,
-          ; so the object leaks until borrow analysis can assign an owner.
-          if (this.fieldIsObjectSlot(cls fld)) {
-            if (rhs.value_type == RangerNodeType.VRef) {
-              if (this.isOwnedObjectLocal(rhs.vref lctx)) {
-                set lctx.escapedLocals rhs.vref "1"
+          ; libc (borrow/move model): storing an owned local into an object field
+          ; moves it in, so the local must not be released at scope end (would
+          ; dangle the field) — mark it escaped. On WASM the field RETAINS the
+          ; value instead (emitFieldStoreOnEx), so the local keeps its own
+          ; reference and is freed normally; no escape.
+          if (this.memEnabled(lctx)) {
+            if (this.fieldIsObjectSlot(cls fld)) {
+              if (rhs.value_type == RangerNodeType.VRef) {
+                if (this.isOwnedObjectLocal(rhs.vref lctx)) {
+                  set lctx.escapedLocals rhs.vref "1"
+                }
               }
             }
           }
           ; A string field takes a dup'd private copy (emitFieldStoreOn), so an
-          ; owned string local stored into it is NOT consumed — it keeps its own
-          ; buffer and is still released normally at scope end. The field's copy
-          ; is freed on overwrite and by the object destructor (typedesc kind 0).
-          this.emitFieldStoreOn(cls sptr fld tmp lctx)
+          ; owned string local stored into it is NOT consumed. An object field on
+          ; WASM retains a borrowed value / moves a fresh `new` (rhs.hasNewOper).
+          this.emitFieldStoreOnEx(cls sptr fld tmp rhs.hasNewOper lctx)
           return
         }
       }
@@ -3749,7 +3801,7 @@ class LowIRBuilderPass {
       ; for boolean fields. Pre-zexting produced an invalid double
       ; "zext i1 <i32> to i32" (the receiver "recv.fld" path above never did
       ; this, which is why only bare field assignments miscompiled).
-      this.emitFieldStore(varName tmp lctx)
+      this.emitFieldStoreOnEx(lctx.className lctx.selfPtr varName tmp rhs.hasNewOper lctx)
       return
     }
     if (has lctx.slots varName) {

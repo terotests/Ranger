@@ -1,0 +1,77 @@
+; ============================================================================
+; objfield_rc_demo.rgr — owned OBJECT-field recursive free on WASM. An object
+; field holds a reference-counted child: a fresh `new` is moved in (rc stays 1),
+; a borrowed reference is retained (rc++), the old value is released on overwrite,
+; and the destructor releases each field. RC frees a shared child exactly once;
+; cycles leak (never double-free). Exercises the double-free-critical paths.
+; ============================================================================
+
+Import "./ranger_obj.rgr"
+
+class Vec {
+    def x:int 0
+    def y:int 0
+}
+class Holder {
+    def pos:Vec (new Vec)
+}
+class Node {
+    def next:Node
+    def val:int 0
+}
+class SG {
+    ; fresh default field: Holder owns its Vec; both freed when Holder dies.
+    sfn churnDefault:int (n:int) {
+        def i 0
+        while (< i n) {
+            def h (new Holder)
+            h.pos.x = (+ i 1)
+            i = (+ i 1)
+        }
+        return (Heap.frontier())
+    }
+
+    ; sharing: one Vec referenced by two Holders' fields (retain), plus the local.
+    ; RC must free it exactly once after all three references go away.
+    sfn churnShared:int (n:int) {
+        def i 0
+        while (< i n) {
+            def shared (new Vec)
+            shared.x = i
+            def a (new Holder)
+            def b (new Holder)
+            a.pos = shared
+            b.pos = shared
+            i = (+ i 1)
+        }
+        return (Heap.frontier())
+    }
+
+    ; overwrite: reassign a field repeatedly; each old child released before the
+    ; new one, so no per-iteration leak.
+    sfn churnOverwrite:int (n:int) {
+        def h (new Holder)
+        def i 0
+        while (< i n) {
+            h.pos = (new Vec)
+            i = (+ i 1)
+        }
+        return 0
+    }
+
+    ; content sanity while shared
+    sfn sharedVal:int () {
+        def shared (new Vec)
+        shared.x = 77
+        def a (new Holder)
+        a.pos = shared
+        return (+ 0 a.pos.x)
+    }
+
+    sfn liveBlocks:int () {
+        return (ranger.obj_live())
+    }
+    sfn frontier:int () {
+        return (Heap.frontier())
+    }
+}

@@ -33537,10 +33537,21 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }
     };
     emitFieldStoreOn (className, structPtr, fieldName, value, lctx) {
+      this.emitFieldStoreOnEx(className, structPtr, fieldName, value, false, lctx);
+    };
+    emitFieldStoreOnEx (className, structPtr, fieldName, value, srcIsFresh, lctx) {
       const builder = lctx.builder;
       const idx = this.findFieldIndex(className, fieldName, this.irModule);
       const fieldPtr = builder.emitGep(className, structPtr, idx);
       const ftype = this.fieldIrTypeFor(className, fieldName);
+      let isWasmObjField = false;
+      if ( this.objRcEnabled(lctx) ) {
+        if ( this.memEnabled(lctx) == false ) {
+          if ( this.fieldIsObjectSlot(className, fieldName) ) {
+            isWasmObjField = true;
+          }
+        }
+      }
       if ( this.memEnabled(lctx) ) {
         const oldRaw = builder.emitLoad(ftype, fieldPtr);
         this.emitReleaseFieldValue(className, fieldName, oldRaw, lctx);
@@ -33551,6 +33562,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             this.emitReleaseFieldValue(className, fieldName, oldRawW, lctx);
           }
         }
+        if ( isWasmObjField ) {
+          const oldObj = builder.emitLoad(ftype, fieldPtr);
+          this.emitObjReleasePtr(oldObj, lctx);
+        }
       }
       let storeVal = value;
       if ( this.fieldIsStringSlot(className, fieldName) ) {
@@ -33560,10 +33575,29 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         if ( this.fieldIsBoolSlot(className, fieldName) ) {
           storeVal = builder.emitZextI1ToI32(value);
         } else {
+          if ( isWasmObjField ) {
+            if ( srcIsFresh == false ) {
+              this.emitObjRetainPtr(value, lctx);
+            }
+          }
           storeVal = value;
         }
       }
       builder.emitStore(ftype, storeVal, fieldPtr);
+    };
+    emitObjRetainPtr (ptr, lctx) {
+      let args = [];
+      let argTypes = [];
+      args.push(ptr);
+      argTypes.push(lctx.ptrType);
+      lctx.builder.emitCall("ranger_obj_retain", "void", args, argTypes);
+    };
+    emitObjReleasePtr (ptr, lctx) {
+      let args = [];
+      let argTypes = [];
+      args.push(ptr);
+      argTypes.push(lctx.ptrType);
+      lctx.builder.emitCall("ranger_obj_release", "void", args, argTypes);
     };
     emitFieldLoad (fieldName, lctx) {
       return this.emitFieldLoadOn(lctx.className, lctx.selfPtr, fieldName, lctx);
@@ -33748,7 +33782,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         }
         if ( (clsName.length) > 0 ) {
           const newPtr = this.lowerNewObject(clsName, valNode.getThird(), lctx);
-          this.emitFieldStoreOn(className, objPtr, fieldName, newPtr, lctx);
+          this.emitFieldStoreOnEx(className, objPtr, fieldName, newPtr, true, lctx);
           return;
         }
       }
@@ -33842,6 +33876,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             var fd = td.fields[j];
             if ( fd.owned == 1 ) {
               return true;
+            }
+            if ( this.irModule.useFreeListHeap ) {
+              if ( fd.kind == 1 ) {
+                return true;
+              }
             }
           };
         }
@@ -34708,20 +34747,22 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           const cls = this.resolveObjectClassChain(recvPrefix, lctx);
           if ( (cls.length) > 0 ) {
             const sptr = this.resolveObjectPtrChain(recvPrefix, cls, lctx);
-            if ( this.fieldIsObjectSlot(cls, fld) ) {
-              if ( rhs.value_type == 11 ) {
-                if ( this.isOwnedObjectLocal(rhs.vref, lctx) ) {
-                  lctx.escapedLocals[rhs.vref] = "1";
+            if ( this.memEnabled(lctx) ) {
+              if ( this.fieldIsObjectSlot(cls, fld) ) {
+                if ( rhs.value_type == 11 ) {
+                  if ( this.isOwnedObjectLocal(rhs.vref, lctx) ) {
+                    lctx.escapedLocals[rhs.vref] = "1";
+                  }
                 }
               }
             }
-            this.emitFieldStoreOn(cls, sptr, fld, tmp, lctx);
+            this.emitFieldStoreOnEx(cls, sptr, fld, tmp, rhs.hasNewOper, lctx);
             return;
           }
         }
       }
       if ( this.isClassField(varName, lctx.className, this.irModule) ) {
-        this.emitFieldStore(varName, tmp, lctx);
+        this.emitFieldStoreOnEx(lctx.className, lctx.selfPtr, varName, tmp, rhs.hasNewOper, lctx);
         return;
       }
       if ( ( typeof(lctx.slots[varName] ) != "undefined" && lctx.slots.hasOwnProperty(varName) ) ) {
@@ -36402,10 +36443,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     align4 (a) {
       return ((a + 3) & ((-1 ^ 3)));
     };
+    fieldOwnedFlag (fd) {
+      if ( fd.kind == 1 ) {
+        return 1;
+      }
+      return fd.owned;
+    };
     descHasOwned (td) {
       for ( let i = 0; i < td.fields.length; i++) {
         var fd = td.fields[i];
-        if ( fd.owned == 1 ) {
+        if ( this.fieldOwnedFlag(fd) == 1 ) {
           return true;
         }
       };
@@ -36442,7 +36489,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             let fw = "";
             fw = fw + this.leWord(fd.offset);
             fw = fw + this.leWord(fd.kind);
-            fw = fw + this.leWord(fd.owned);
+            fw = fw + this.leWord(this.fieldOwnedFlag(fd));
             wr.out("  (data (i32.const " + (("" + addr) + (") \"" + (fw + "\")"))), true);
             addr = addr + 12;
           };

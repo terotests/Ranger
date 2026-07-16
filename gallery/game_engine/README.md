@@ -492,7 +492,7 @@ Kaikki alla oleva on **testattu** WASM-käännöksellä (`runtime/wasm/*_test.mj
 | **Hash-taulut** `[int:int]` — `set`/`get`, kasvavat | ✅ | `def m:[int:int]` |
 | Suora `Mem`-slotti-tila (staattiset metodit, ei varausta) | ✅ | ranger_autopeli |
 | **Sisäkkäiset oliot**: kentän-kentän luku/kirjoitus `a.b.c` (mielivaltainen syvyys) | ✅ | `o.mid.inner.v = 99` |
-| Olio-kenttä (`def v:Vec (new Vec)`) rekursiivinen vapautus | ⚠️ vuotaa | borrow-oletus |
+| **Olio-kenttä** (`def v:Vec (new Vec)`) rekursiivinen vapautus + jako | ✅ | RC: retain/move + release |
 | **Singletonit** (`@singleton(true)`) — jaettu tila framejen yli | ✅ | `World.__singleton()` |
 | **Lambdat / sulkeumat** (`(fn:… (){})`, `{ … }`) | ❌ | funktio-osoittimia ei emitoida |
 

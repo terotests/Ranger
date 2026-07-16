@@ -71,12 +71,23 @@ class WATWriter {
     return (bit_and (+ a 3) (bit_xor -1 3))
   }
 
+  ; The owned flag the WAT backend emits for a field. String fields carry their
+  ; declared owned flag; OBJECT fields (kind 1) are always owned on WASM — stores
+  ; retain a borrowed value / move a fresh one, so the destructor releases each
+  ; exactly once (RC handles aliasing; cycles leak but never double-free).
+  ; ptr-array fields (kind 2) stay borrow.
+  fn fieldOwnedFlag:int (fd:LowIRTypeFieldDesc) {
+    if (fd.kind == 1) {
+      return 1
+    }
+    return fd.owned
+  }
+
   ; A type descriptor is worth emitting only if it has at least one owned field
-  ; (the destructor walk does nothing otherwise). String fields are owned;
-  ; object/ptr-array fields are borrow (owned=0) until borrow analysis promotes.
+  ; (the destructor walk does nothing otherwise).
   fn descHasOwned:boolean (td:LowIRTypeDesc) {
     for td.fields fd:LowIRTypeFieldDesc i {
-      if (fd.owned == 1) {
+      if ((this.fieldOwnedFlag(fd)) == 1) {
         return true
       }
     }
@@ -117,7 +128,7 @@ class WATWriter {
           def fw ""
           fw = (fw + (this.leWord(fd.offset)))
           fw = (fw + (this.leWord(fd.kind)))
-          fw = (fw + (this.leWord(fd.owned)))
+          fw = (fw + (this.leWord((this.fieldOwnedFlag(fd)))))
           wr.out(("  (data (i32.const " + (("" + addr) + (") \"" + (fw + "\")")))) true)
           addr = (+ addr 12)
         }
