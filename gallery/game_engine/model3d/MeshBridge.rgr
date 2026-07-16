@@ -23,6 +23,8 @@ Import "AssetModel.rgr"
 ; indices ready for `gfx_3d_mesh_upload`, plus the resolved base-colour texture.
 class EngineMeshData {
     def verts:int_buffer (int_buffer_alloc 0)
+    ; high-precision vertices: positions Q16.16 (x65536) for gfx_3d_mesh_upload_hp
+    def vertsHp:int_buffer (int_buffer_alloc 0)
     def indices:int_buffer (int_buffer_alloc 0)
     def vertexCount:int 0
     def indexCount:int 0
@@ -40,6 +42,15 @@ class EngineMeshData {
     def emissiveG:double 0.0
     def emissiveB:double 0.0
     def blend:boolean false
+    ; mesh-space bounding box of the converted primitive (before any node
+    ; transform) — lets the host see how big a model is (a fixed-camera viewer
+    ; can't frame a 100+ unit model placed at the origin).
+    def minX:double 0.0
+    def minY:double 0.0
+    def minZ:double 0.0
+    def maxX:double 0.0
+    def maxY:double 0.0
+    def maxZ:double 0.0
     def ok:boolean false
     def error:string ""
 }
@@ -119,6 +130,71 @@ class MeshBridge {
         return buf
     }
 
+    ; same interleaved layout as primitiveVerts, but positions are Q16.16
+    ; (x65536) so dense unit-scale meshes keep sub-1/256 precision.
+    fn primitiveVertsHp:int_buffer (prim:MeshPrimitiveAsset) {
+        def vc:int (prim.vertexCount())
+        def buf:int_buffer (int_buffer_alloc (vc * 8))
+        def hasN:boolean (prim.hasNormals())
+        def hasUv:boolean (prim.hasUvs())
+        def i:int 0
+        while (i < vc) {
+            def o:int (i * 8)
+            def p:Vec3 (itemAt prim.positions i)
+            int_buffer_set buf o (this.q16(p.x))
+            int_buffer_set buf (o + 1) (this.q16(p.y))
+            int_buffer_set buf (o + 2) (this.q16(p.z))
+            def nx:double 0.0
+            def ny:double 1.0
+            def nz:double 0.0
+            if hasN {
+                def n:Vec3 (itemAt prim.normals i)
+                nx = n.x
+                ny = n.y
+                nz = n.z
+            }
+            int_buffer_set buf (o + 3) (this.q16(nx))
+            int_buffer_set buf (o + 4) (this.q16(ny))
+            int_buffer_set buf (o + 5) (this.q16(nz))
+            int_buffer_set buf (o + 6) 0
+            def uu:double 0.0
+            def vv:double 0.0
+            if hasUv {
+                def uv:Vec2 (itemAt prim.uvs i)
+                uu = uv.x
+                vv = uv.y
+            }
+            int_buffer_set buf (o + 7) (this.packUv(uu vv))
+            i = (i + 1)
+        }
+        return buf
+    }
+
+    fn computeBounds:void (prim:MeshPrimitiveAsset out:EngineMeshData) {
+        def vc:int (prim.vertexCount())
+        if (vc <= 0) {
+            return
+        }
+        def p0:Vec3 (itemAt prim.positions 0)
+        out.minX = p0.x
+        out.maxX = p0.x
+        out.minY = p0.y
+        out.maxY = p0.y
+        out.minZ = p0.z
+        out.maxZ = p0.z
+        def i:int 1
+        while (i < vc) {
+            def p:Vec3 (itemAt prim.positions i)
+            if (p.x < out.minX) { out.minX = p.x }
+            if (p.x > out.maxX) { out.maxX = p.x }
+            if (p.y < out.minY) { out.minY = p.y }
+            if (p.y > out.maxY) { out.maxY = p.y }
+            if (p.z < out.minZ) { out.minZ = p.z }
+            if (p.z > out.maxZ) { out.maxZ = p.z }
+            i = (i + 1)
+        }
+    }
+
     fn primitiveIndices:int_buffer (prim:MeshPrimitiveAsset) {
         def ic:int (prim.indexCount())
         def buf:int_buffer (int_buffer_alloc ic)
@@ -149,9 +225,11 @@ class MeshBridge {
             return out
         }
         out.verts = (this.primitiveVerts(prim))
+        out.vertsHp = (this.primitiveVertsHp(prim))
         out.indices = (this.primitiveIndices(prim))
         out.vertexCount = (prim.vertexCount())
         out.indexCount = (prim.indexCount())
+        this.computeBounds(prim out)
         def matIdx:int (prim.material)
         if (matIdx >= 0) {
             def mat:MaterialAsset (model.getMaterial(matIdx))

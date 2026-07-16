@@ -333,7 +333,7 @@ class Wasm3dRunner {
                     def model:ModelAsset (loader.getModel(id))
                     def em:EngineMeshData (bridge.fromModel(model))
                     if em.ok {
-                        def meshId:int (gfx_3d_mesh_upload em.verts em.vertexCount em.indices em.indexCount)
+                        def meshId:int (gfx_3d_mesh_upload_hp em.vertsHp em.vertexCount em.indices em.indexCount)
                         def texId:int 0
                         if em.hasTexture {
                             texId = (gfx_3d_upload_texture em.texRgba em.texWidth em.texHeight)
@@ -353,7 +353,10 @@ class Wasm3dRunner {
                             blendI = 1
                         }
                         gfx_scene_register_model base meshId texId colorRgba emissiveRgb blendI
-                        print ("[wasm3d] model '" + base + "' -> mesh=" + (to_string meshId) + " tex=" + (to_string texId) + " blend=" + (to_string blendI))
+                        def szx:double (em.maxX - em.minX)
+                        def szy:double (em.maxY - em.minY)
+                        def szz:double (em.maxZ - em.minZ)
+                        print ("[wasm3d] model '" + base + "' -> mesh=" + (to_string meshId) + " tex=" + (to_string texId) + " verts=" + (to_string em.vertexCount) + " size=" + (to_string szx) + "x" + (to_string szy) + "x" + (to_string szz) + " blend=" + (to_string blendI))
                     } {
                         print ("[wasm3d] model unusable: " + fname + " (" + em.error + ")")
                     }
