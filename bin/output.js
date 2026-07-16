@@ -29890,6 +29890,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       this.functions = [];
       this.stringGlobals = [];
       this.externDecls = [];
+      this.singletonClasses = [];
     }
   }
   class LowIRSession  {
@@ -30270,6 +30271,26 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       ins.arg1 = pages;
       this.emit(ins);
       return dest;
+    };
+    emitGlobalGet (name) {
+      const dest = this.freshTemp("g");
+      const ins = new LowIRInstr();
+      ins.op = "global_get";
+      ins.dest = dest;
+      ins.irType = "i32";
+      ins.arg1 = name;
+      this.emit(ins);
+      return dest;
+    };
+    emitGlobalSet (name, value) {
+      const n = this.tempCounter;
+      this.tempCounter = n + 1;
+      const ins = new LowIRInstr();
+      ins.op = "global_set";
+      ins.dest = "gs" + ("" + n);
+      ins.arg1 = name;
+      ins.arg2 = value;
+      this.emit(ins);
     };
     emitI32At (base, byteOff) {
       const pt = this.irModule.ptrType;
@@ -31477,6 +31498,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             this.lowerFunction(m_2, cl.name, appCtx, false, false, true);
           }
         };
+        if ( appCtx.hasCompilerFlag("wat") ) {
+          if ( cl.isSingletonClass() ) {
+            this.lowerSingletonAccessor(cl, appCtx);
+          }
+        }
       };
       if ( this.usedArrayRuntime ) {
         LowIRRuntimeGen.ensureArrayRuntime(this.irModule);
@@ -33511,10 +33537,21 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }
     };
     emitFieldStoreOn (className, structPtr, fieldName, value, lctx) {
+      this.emitFieldStoreOnEx(className, structPtr, fieldName, value, false, lctx);
+    };
+    emitFieldStoreOnEx (className, structPtr, fieldName, value, srcIsFresh, lctx) {
       const builder = lctx.builder;
       const idx = this.findFieldIndex(className, fieldName, this.irModule);
       const fieldPtr = builder.emitGep(className, structPtr, idx);
       const ftype = this.fieldIrTypeFor(className, fieldName);
+      let isWasmObjField = false;
+      if ( this.objRcEnabled(lctx) ) {
+        if ( this.memEnabled(lctx) == false ) {
+          if ( this.fieldIsObjectSlot(className, fieldName) ) {
+            isWasmObjField = true;
+          }
+        }
+      }
       if ( this.memEnabled(lctx) ) {
         const oldRaw = builder.emitLoad(ftype, fieldPtr);
         this.emitReleaseFieldValue(className, fieldName, oldRaw, lctx);
@@ -33525,6 +33562,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             this.emitReleaseFieldValue(className, fieldName, oldRawW, lctx);
           }
         }
+        if ( isWasmObjField ) {
+          const oldObj = builder.emitLoad(ftype, fieldPtr);
+          this.emitObjReleasePtr(oldObj, lctx);
+        }
       }
       let storeVal = value;
       if ( this.fieldIsStringSlot(className, fieldName) ) {
@@ -33534,10 +33575,29 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         if ( this.fieldIsBoolSlot(className, fieldName) ) {
           storeVal = builder.emitZextI1ToI32(value);
         } else {
+          if ( isWasmObjField ) {
+            if ( srcIsFresh == false ) {
+              this.emitObjRetainPtr(value, lctx);
+            }
+          }
           storeVal = value;
         }
       }
       builder.emitStore(ftype, storeVal, fieldPtr);
+    };
+    emitObjRetainPtr (ptr, lctx) {
+      let args = [];
+      let argTypes = [];
+      args.push(ptr);
+      argTypes.push(lctx.ptrType);
+      lctx.builder.emitCall("ranger_obj_retain", "void", args, argTypes);
+    };
+    emitObjReleasePtr (ptr, lctx) {
+      let args = [];
+      let argTypes = [];
+      args.push(ptr);
+      argTypes.push(lctx.ptrType);
+      lctx.builder.emitCall("ranger_obj_release", "void", args, argTypes);
     };
     emitFieldLoad (fieldName, lctx) {
       return this.emitFieldLoadOn(lctx.className, lctx.selfPtr, fieldName, lctx);
@@ -33722,7 +33782,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         }
         if ( (clsName.length) > 0 ) {
           const newPtr = this.lowerNewObject(clsName, valNode.getThird(), lctx);
-          this.emitFieldStoreOn(className, objPtr, fieldName, newPtr, lctx);
+          this.emitFieldStoreOnEx(className, objPtr, fieldName, newPtr, true, lctx);
           return;
         }
       }
@@ -33816,6 +33876,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             var fd = td.fields[j];
             if ( fd.owned == 1 ) {
               return true;
+            }
+            if ( this.irModule.useFreeListHeap ) {
+              if ( fd.kind == 1 ) {
+                return true;
+              }
             }
           };
         }
@@ -34081,6 +34146,62 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         }
       }
       builder.finishFunction(fnName, lctx.llvmRetType, params, exportFn, isMain);
+    };
+    lowerSingletonAccessor (cl, appCtx) {
+      const builder = new LowIRBuilder(this.irModule);
+      builder.reset();
+      const lctx = new LowIRLowerContext();
+      lctx.ctx = appCtx;
+      lctx.builder = builder;
+      lctx.target = LowIRTarget.resolve(appCtx);
+      lctx.ptrType = lctx.target.ptrType;
+      let emptySlots = {};
+      lctx.slots = emptySlots;
+      let emptySlotTypes = {};
+      lctx.slotTypes = emptySlotTypes;
+      let emptyObjects = {};
+      lctx.objectSlots = emptyObjects;
+      let emptyCollections = {};
+      lctx.collectionSlots = emptyCollections;
+      let emptyElemTypes = {};
+      lctx.ptrArrayElemTypes = emptyElemTypes;
+      let emptyOwned = [];
+      lctx.ownedObjectLocals = emptyOwned;
+      let emptyColl = [];
+      lctx.ownedCollectionLocals = emptyColl;
+      let emptyStr = [];
+      lctx.ownedStringLocals = emptyStr;
+      let emptyPending = [];
+      lctx.pendingStringTemps = emptyPending;
+      let emptyEscaped = {};
+      lctx.escapedLocals = emptyEscaped;
+      lctx.currentRetType = cl.name;
+      lctx.llvmRetType = lctx.ptrType;
+      this.irModule.singletonClasses.push(cl.name);
+      const globalName = "singleton_" + cl.name;
+      let factory;
+      if ( (typeof(cl.classNode) !== "undefined" && cl.classNode != null )  ) {
+        factory = cl.classNode;
+      } else {
+        factory = cl.nameNode;
+      }
+      const argsNode = ((factory)).newVRefNode("");
+      const initLabel = builder.freshLabel("sgl_init");
+      const retLabel = builder.freshLabel("sgl_ret");
+      builder.startBlock("entry");
+      const cur = builder.emitGlobalGet(globalName);
+      const zero = builder.emitConst(lctx.ptrType, "0");
+      const isZero = builder.emitIcmp("eq", cur, zero);
+      builder.terminateBrIf(isZero, initLabel, retLabel);
+      builder.startBlock(initLabel);
+      const obj = this.lowerNewObject(cl.name, argsNode, lctx);
+      builder.emitGlobalSet(globalName, obj);
+      builder.terminateRet(lctx.ptrType, obj);
+      builder.startBlock(retLabel);
+      builder.terminateRet(lctx.ptrType, cur);
+      const fnName = LowIRUtil.mangleMethod(cl.name, "__singleton");
+      let params = [];
+      builder.finishFunction(fnName, lctx.ptrType, params, false, false);
     };
     isOwnedObjectLocal (varName, lctx) {
       for ( let i = 0; i < lctx.ownedObjectLocals.length; i++) {
@@ -34620,25 +34741,28 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       if ( (varName.indexOf(".")) >= 0 ) {
         const parts = varName.split(".");
         if ( (parts.length) >= 2 ) {
-          const recv = parts[0];
-          const fld = parts[1];
-          const cls = this.resolveObjectClass(recv, lctx);
+          const n = parts.length;
+          const recvPrefix = this.joinDotPrefix(parts, (n - 1));
+          const fld = parts[(n - 1)];
+          const cls = this.resolveObjectClassChain(recvPrefix, lctx);
           if ( (cls.length) > 0 ) {
-            const sptr = this.resolveObjectPtr(recv, cls, lctx);
-            if ( this.fieldIsObjectSlot(cls, fld) ) {
-              if ( rhs.value_type == 11 ) {
-                if ( this.isOwnedObjectLocal(rhs.vref, lctx) ) {
-                  lctx.escapedLocals[rhs.vref] = "1";
+            const sptr = this.resolveObjectPtrChain(recvPrefix, cls, lctx);
+            if ( this.memEnabled(lctx) ) {
+              if ( this.fieldIsObjectSlot(cls, fld) ) {
+                if ( rhs.value_type == 11 ) {
+                  if ( this.isOwnedObjectLocal(rhs.vref, lctx) ) {
+                    lctx.escapedLocals[rhs.vref] = "1";
+                  }
                 }
               }
             }
-            this.emitFieldStoreOn(cls, sptr, fld, tmp, lctx);
+            this.emitFieldStoreOnEx(cls, sptr, fld, tmp, rhs.hasNewOper, lctx);
             return;
           }
         }
       }
       if ( this.isClassField(varName, lctx.className, this.irModule) ) {
-        this.emitFieldStore(varName, tmp, lctx);
+        this.emitFieldStoreOnEx(lctx.className, lctx.selfPtr, varName, tmp, rhs.hasNewOper, lctx);
         return;
       }
       if ( ( typeof(lctx.slots[varName] ) != "undefined" && lctx.slots.hasOwnProperty(varName) ) ) {
@@ -35155,11 +35279,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         if ( (node.vref.indexOf(".")) >= 0 ) {
           const parts = node.vref.split(".");
           if ( (parts.length) >= 2 ) {
-            const recv = parts[0];
-            const fld = parts[1];
-            const cls = this.resolveObjectClass(recv, lctx);
+            const n = parts.length;
+            const recvPrefix = this.joinDotPrefix(parts, (n - 1));
+            const fld = parts[(n - 1)];
+            const cls = this.resolveObjectClassChain(recvPrefix, lctx);
             if ( (cls.length) > 0 ) {
-              const sptr = this.resolveObjectPtr(recv, cls, lctx);
+              const sptr = this.resolveObjectPtrChain(recvPrefix, cls, lctx);
               return this.emitFieldLoadOn(cls, sptr, fld, lctx);
             }
           }
@@ -36318,10 +36443,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     align4 (a) {
       return ((a + 3) & ((-1 ^ 3)));
     };
+    fieldOwnedFlag (fd) {
+      if ( fd.kind == 1 ) {
+        return 1;
+      }
+      return fd.owned;
+    };
     descHasOwned (td) {
       for ( let i = 0; i < td.fields.length; i++) {
         var fd = td.fields[i];
-        if ( fd.owned == 1 ) {
+        if ( this.fieldOwnedFlag(fd) == 1 ) {
           return true;
         }
       };
@@ -36358,7 +36489,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             let fw = "";
             fw = fw + this.leWord(fd.offset);
             fw = fw + this.leWord(fd.kind);
-            fw = fw + this.leWord(fd.owned);
+            fw = fw + this.leWord(this.fieldOwnedFlag(fd));
             wr.out("  (data (i32.const " + (("" + addr) + (") \"" + (fw + "\")"))), true);
             addr = addr + 12;
           };
@@ -36438,8 +36569,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       if ( hasStatic ) {
         this.emitStaticData(module, wr);
       }
-      for ( let i = 0; i < module.functions.length; i++) {
-        var fn = module.functions[i];
+      for ( let i = 0; i < module.singletonClasses.length; i++) {
+        var sc = module.singletonClasses[i];
+        wr.out("  (global $singleton_" + (sc + " (mut i32) (i32.const 0))"), true);
+      };
+      for ( let i_1 = 0; i_1 < module.functions.length; i_1++) {
+        var fn = module.functions[i_1];
         this.writeFunction(fn, wr, fn.exportFn);
       };
       wr.out(")", true);
@@ -36791,6 +36926,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           this.writeGet(ins.arg1, wr);
           wr.out("      memory.grow", true);
           wr.out("      local.set " + this.wasmName(ins.dest), true);
+          break;
+        case "global_get" : 
+          wr.out("      global.get $" + ins.arg1, true);
+          wr.out("      local.set " + this.wasmName(ins.dest), true);
+          break;
+        case "global_set" : 
+          this.writeGet(ins.arg2, wr);
+          wr.out("      global.set $" + ins.arg1, true);
           break;
         case "inttoptr_struct" : 
           this.writeGet(ins.arg1, wr);

@@ -491,24 +491,50 @@ Kaikki alla oleva on **testattu** WASM-käännöksellä (`runtime/wasm/*_test.mj
 | Listat `[int]`, `[T]`, `[string]` — push/itemAt/array_length/for | ✅ | |
 | **Hash-taulut** `[int:int]` — `set`/`get`, kasvavat | ✅ | `def m:[int:int]` |
 | Suora `Mem`-slotti-tila (staattiset metodit, ei varausta) | ✅ | ranger_autopeli |
-| **Sisäkkäisen** olion kentän mutatointi ketjulla `a.b.c = …` | ⚠️ bugi | ks. alla |
-| Olio-kenttä (`def v:Vec (new Vec)`) rekursiivinen vapautus | ⚠️ vuotaa | borrow-oletus |
-| **Singletonit** (`@singleton(true)`) | ❌ | ei tueta (ks. alla) |
+| **Sisäkkäiset oliot**: kentän-kentän luku/kirjoitus `a.b.c` (mielivaltainen syvyys) | ✅ | `o.mid.inner.v = 99` |
+| **Olio-kenttä** (`def v:Vec (new Vec)`) rekursiivinen vapautus + jako | ✅ | RC: retain/move + release |
+| **Singletonit** (`@singleton(true)`) — jaettu tila framejen yli | ✅ | `World.__singleton()` |
 | **Lambdat / sulkeumat** (`(fn:… (){})`, `{ … }`) | ❌ | funktio-osoittimia ei emitoida |
 
-**Singletonit ja globaali tila.** `@singleton(true)`:n `__singleton()`-aksessoria
-ei (vielä) emitoida WAT-backendissä — WASM-globaaleja ei varata. Peleissä globaali
-tila kannattaa pitää joko (a) **staattisilla metodeilla + kiinteissä linear-
-memory-slotissa** (`Mem.storeI32`/`loadI32`) — juuri niin ranger_autopeli tekee —
-tai (b) luoda oliot ja langoittaa ne kutsuketjun läpi. Ei erillistä globaalia
-säiliötä yhdelle jaetulle instanssille ilman singleton- tai globaalitukea.
+**Singletonit ja globaali tila.** `@singleton(true)` toimii: `__singleton()`
+rakentaa instanssin laiskasti mutable-wasm-globaaliin ja palauttaa saman olion
+jatkossa, joten tila säilyy `update()`-kutsujen (framejen) välillä — luonteva
+tapa pitää pelin globaali tila OO-tyylissä. Kutsu paikallisen kautta:
 
-**Sisäkkäiset oliot.** Litteä olio toimii (`v.x = 10  v.y = 32`), mutta
-kentän-kentän ketjumutatointi (`p.pos.x = …` kun `pos` on olio-kenttä) osoittaa
-tällä hetkellä väärään slottiin, ja olio-kentät ovat **borrow**-oletuksena
-(owned=0) joten niitä ei vapauteta automaattisesti (vuoto, kunnes borrow-analyysi
-tulee). Pidä pelilogiikan tila litteänä (primitiivit + kokoelmat + merkkijonot),
-tai käytä `Mem`-slotteja, kunnes nämä on korjattu.
+```ranger
+class World @singleton(true) {
+    def frame:int 0
+    def enemies:[int]
+    fn tick:void () {
+        frame = (+ frame 1)
+        push enemies frame
+    }
+}
+class G {
+    sfn update:void () {
+        def w (World.__singleton())   ; sama instanssi joka framessa
+        w.tick()
+    }
+}
+```
+
+Vaihtoehtoina toki myös (a) staattiset metodit + kiinteät linear-memory-slotit
+(`Mem.storeI32`/`loadI32`, kuten ranger_autopeli) tai (b) oliot langoitettuna
+kutsuketjun läpi. (Huom: kutsu `(World.__singleton()).metodi()` suoraan ketjuna
+sekoittaa tyypintarkistuksen — talleta ensin `def w (World.__singleton())`.)
+
+**Sisäkkäiset oliot.** Olio-kentät toimivat: kentän-kentän luku ja kirjoitus
+mielivaltaisella syvyydellä (`o.mid.inner.v = 99`) osuu oikeaan slottiin, ja
+olio-kentät ovat **viittauslaskettuja** — tuore `new` siirretään (move),
+lainattu jaettu viittaus retainataan, ja vanha vapautetaan ylikirjoituksessa.
+Näin jaettu lapsi (sama olio kahdessa kentässä) vapautuu **täsmälleen kerran**.
+Ainoa raja: **syklit** (`a.next = b; b.next = a`) vuotavat — RC:n luontainen
+rajoitus — mutta eivät kaadu eivätkä korruptoi muistia. Vältä sykliset
+olio-graafit, tai katkaise ne (aseta kenttä nulliksi) ennen kuin päästät irti.
+
+**Ei (vielä) tuettu.** Lambdat / sulkeumat (`(fn:… (){})`, `{ … }`): WAT-backend
+ei emitoi funktio-osoittimia eikä `call_indirect`ia, joten callbackit ja
+funktioarvot eivät käänny. Käytä metodeja + `for`/`while`-silmukoita.
 
 ### Sudenkuopat
 

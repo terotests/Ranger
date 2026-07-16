@@ -194,6 +194,14 @@ class LowIRBuilderPass {
           this.lowerFunction(m cl.name appCtx false false true)
         }
       }
+      ; WASM/WAT: emit the `__singleton()` accessor (lazy-init into a wasm global).
+      ; The freestanding backend has no global data, so this is the singleton
+      ; storage mechanism. Gated on -wat (global.get/set are wasm-only ops).
+      if (appCtx.hasCompilerFlag("wat")) {
+        if (cl.isSingletonClass()) {
+          this.lowerSingletonAccessor(cl appCtx)
+        }
+      }
     }
     if this.usedArrayRuntime {
       LowIRRuntimeGen.ensureArrayRuntime(this.irModule)
@@ -2411,23 +2419,43 @@ class LowIRBuilderPass {
   }
 
   fn emitFieldStoreOn:void (className:string structPtr:string fieldName:string value:string lctx:LowIRLowerContext) {
+    this.emitFieldStoreOnEx(className structPtr fieldName value false lctx)
+  }
+
+  ; srcIsFresh: the value is a freshly-constructed object (rc=1, sole owner) that
+  ; the field takes over by MOVE (no retain). A borrowed value (local/param/field)
+  ; is RETAINED so the field holds a counted reference — RC then frees it exactly
+  ; once regardless of how many fields alias it (cycles still leak, never crash).
+  fn emitFieldStoreOnEx:void (className:string structPtr:string fieldName:string value:string srcIsFresh:boolean lctx:LowIRLowerContext) {
     def builder (lctx.builder)
     def idx (this.findFieldIndex(className fieldName this.irModule))
     def fieldPtr (builder.emitGep(className structPtr idx))
     def ftype (this.fieldIrTypeFor(className fieldName))
+    def isWasmObjField:boolean false
+    if (this.objRcEnabled(lctx)) {
+      if (this.memEnabled(lctx) == false) {
+        if (this.fieldIsObjectSlot(className fieldName)) {
+          isWasmObjField = true
+        }
+      }
+    }
     if (this.memEnabled(lctx)) {
       def oldRaw (builder.emitLoad(ftype fieldPtr))
       this.emitReleaseFieldValue(className fieldName oldRaw lctx)
     } {
-      ; freestanding WASM string RC: free the old string this field held before
-      ; overwriting it (the field owns a dup'd copy). Object/buffer fields stay
-      ; libc-only. Field is zero-initialised by obj_new, so the first store sees
-      ; 0 and str_release is a no-op.
+      ; freestanding WASM RC: release the old value this field held before
+      ; overwriting it (string field: str_release its dup'd copy; object field:
+      ; obj_release its retained/owned reference). Field is zero-initialised by
+      ; obj_new, so the first store sees 0 and the release is a no-op.
       if (this.wasmStrEnabled(lctx)) {
         if (this.fieldIsStringSlot(className fieldName)) {
           def oldRawW (builder.emitLoad(ftype fieldPtr))
           this.emitReleaseFieldValue(className fieldName oldRawW lctx)
         }
+      }
+      if isWasmObjField {
+        def oldObj (builder.emitLoad(ftype fieldPtr))
+        this.emitObjReleasePtr(oldObj lctx)
       }
     }
     def storeVal:string value
@@ -2438,11 +2466,33 @@ class LowIRBuilderPass {
       if (this.fieldIsBoolSlot(className fieldName)) {
         storeVal = (builder.emitZextI1ToI32(value))
       } {
-        ; Object fields are borrows: store the pointer without retaining.
+        ; Object field on WASM: retain a borrowed reference (a fresh `new` is
+        ; moved in as-is). libc keeps borrow semantics (no retain).
+        if isWasmObjField {
+          if (srcIsFresh == false) {
+            this.emitObjRetainPtr(value lctx)
+          }
+        }
         storeVal = value
       }
     }
     builder.emitStore(ftype storeVal fieldPtr)
+  }
+
+  fn emitObjRetainPtr:void (ptr:string lctx:LowIRLowerContext) {
+    def args:[string]
+    def argTypes:[string]
+    push args ptr
+    push argTypes lctx.ptrType
+    lctx.builder.emitCall("ranger_obj_retain" "void" args argTypes)
+  }
+
+  fn emitObjReleasePtr:void (ptr:string lctx:LowIRLowerContext) {
+    def args:[string]
+    def argTypes:[string]
+    push args ptr
+    push argTypes lctx.ptrType
+    lctx.builder.emitCall("ranger_obj_release" "void" args argTypes)
   }
 
   fn emitFieldLoad:string (fieldName:string lctx:LowIRLowerContext) {
@@ -2653,7 +2703,8 @@ class LowIRBuilderPass {
       }
       if ((strlen clsName) > 0) {
         def newPtr (this.lowerNewObject(clsName (valNode.getThird()) lctx))
-        this.emitFieldStoreOn(className objPtr fieldName newPtr lctx)
+        ; the default `(new T)` is a fresh sole-owner object -> move into the field
+        this.emitFieldStoreOnEx(className objPtr fieldName newPtr true lctx)
         return
       }
     }
@@ -2749,6 +2800,13 @@ class LowIRBuilderPass {
         for td.fields fd:LowIRTypeFieldDesc j {
           if (fd.owned == 1) {
             return true
+          }
+          ; WASM retains object fields (kind 1), so they are freed on destruction
+          ; too — the class needs a descriptor even if only object fields are owned.
+          if this.irModule.useFreeListHeap {
+            if (fd.kind == 1) {
+              return true
+            }
           }
         }
       }
@@ -3027,6 +3085,76 @@ class LowIRBuilderPass {
     }
 
     builder.finishFunction(fnName lctx.llvmRetType params exportFn isMain)
+  }
+
+  ; Generate `ClassName___singleton()` for a @singleton(true) class on the WAT
+  ; backend: lazily construct the instance into a mutable wasm global and return
+  ; it. Body:  cur = global; if (cur == 0) { obj = new Class(); global = obj;
+  ; return obj }  return cur.  Supports no-argument construction (field defaults
+  ; + a no-arg Constructor). Blocks are ordered init-before-return so the
+  ; structured WAT reconstruction keeps both arms.
+  fn lowerSingletonAccessor:void (cl:RangerAppClassDesc appCtx:RangerAppWriterContext) {
+    def builder@(lives):LowIRBuilder (new LowIRBuilder(this.irModule))
+    builder.reset()
+    def lctx@(lives):LowIRLowerContext (new LowIRLowerContext())
+    lctx.ctx = appCtx
+    lctx.builder = builder
+    lctx.target = (LowIRTarget.resolve(appCtx))
+    lctx.ptrType = lctx.target.ptrType
+    def emptySlots:[string:string]
+    lctx.slots = emptySlots
+    def emptySlotTypes:[string:string]
+    lctx.slotTypes = emptySlotTypes
+    def emptyObjects:[string:string]
+    lctx.objectSlots = emptyObjects
+    def emptyCollections:[string:string]
+    lctx.collectionSlots = emptyCollections
+    def emptyElemTypes:[string:string]
+    lctx.ptrArrayElemTypes = emptyElemTypes
+    def emptyOwned:[string]
+    lctx.ownedObjectLocals = emptyOwned
+    def emptyColl:[string]
+    lctx.ownedCollectionLocals = emptyColl
+    def emptyStr:[string]
+    lctx.ownedStringLocals = emptyStr
+    def emptyPending:[string]
+    lctx.pendingStringTemps = emptyPending
+    def emptyEscaped:[string:string]
+    lctx.escapedLocals = emptyEscaped
+    lctx.currentRetType = cl.name
+    lctx.llvmRetType = lctx.ptrType
+
+    push this.irModule.singletonClasses cl.name
+    def globalName:string ("singleton_" + cl.name)
+
+    ; empty args node (no-arg constructor) built from the class's own AST node
+    def factory@(weak optional):CodeNode
+    if (!null? cl.classNode) {
+      factory = cl.classNode
+    } {
+      factory = cl.nameNode
+    }
+    def argsNode:CodeNode ((unwrap factory).newVRefNode(""))
+
+    def initLabel (builder.freshLabel("sgl_init"))
+    def retLabel (builder.freshLabel("sgl_ret"))
+    builder.startBlock("entry")
+    def cur (builder.emitGlobalGet(globalName))
+    def zero (builder.emitConst(lctx.ptrType "0"))
+    def isZero (builder.emitIcmp("eq" cur zero))
+    builder.terminateBrIf(isZero initLabel retLabel)
+
+    builder.startBlock(initLabel)
+    def obj (this.lowerNewObject(cl.name argsNode lctx))
+    builder.emitGlobalSet(globalName obj)
+    builder.terminateRet(lctx.ptrType obj)
+
+    builder.startBlock(retLabel)
+    builder.terminateRet(lctx.ptrType cur)
+
+    def fnName (LowIRUtil.mangleMethod(cl.name "__singleton"))
+    def params:[LowIRParam]
+    builder.finishFunction(fnName lctx.ptrType params false false)
   }
 
   fn isOwnedObjectLocal:boolean (varName:string lctx:LowIRLowerContext) {
@@ -3635,27 +3763,34 @@ class LowIRBuilderPass {
     if ((indexOf varName ".") >= 0) {
       def parts:[string] (strsplit varName ".")
       if ((array_length parts) >= 2) {
-        def recv (itemAt parts 0)
-        def fld (itemAt parts 1)
-        def cls (this.resolveObjectClass(recv lctx))
+        ; The target field is the LAST segment; everything before it is the
+        ; receiver chain. For `h.pos.x` the receiver is `h.pos` (resolved by
+        ; loading each intermediate object field) and the field is `x`. Using
+        ; only the first two segments stored into `h.pos` itself, dropping `.x`.
+        def n:int (array_length parts)
+        def recvPrefix:string (this.joinDotPrefix(parts (n - 1)))
+        def fld (itemAt parts (n - 1))
+        def cls (this.resolveObjectClassChain(recvPrefix lctx))
         if ((strlen cls) > 0) {
-          def sptr (this.resolveObjectPtr(recv cls lctx))
-          ; Storing an owned local into a (borrow) object field: the field now
-          ; holds the reference, so the local must not be released at scope end
-          ; (would dangle the field). Mark it escaped. Object fields don't own,
-          ; so the object leaks until borrow analysis can assign an owner.
-          if (this.fieldIsObjectSlot(cls fld)) {
-            if (rhs.value_type == RangerNodeType.VRef) {
-              if (this.isOwnedObjectLocal(rhs.vref lctx)) {
-                set lctx.escapedLocals rhs.vref "1"
+          def sptr (this.resolveObjectPtrChain(recvPrefix cls lctx))
+          ; libc (borrow/move model): storing an owned local into an object field
+          ; moves it in, so the local must not be released at scope end (would
+          ; dangle the field) — mark it escaped. On WASM the field RETAINS the
+          ; value instead (emitFieldStoreOnEx), so the local keeps its own
+          ; reference and is freed normally; no escape.
+          if (this.memEnabled(lctx)) {
+            if (this.fieldIsObjectSlot(cls fld)) {
+              if (rhs.value_type == RangerNodeType.VRef) {
+                if (this.isOwnedObjectLocal(rhs.vref lctx)) {
+                  set lctx.escapedLocals rhs.vref "1"
+                }
               }
             }
           }
           ; A string field takes a dup'd private copy (emitFieldStoreOn), so an
-          ; owned string local stored into it is NOT consumed — it keeps its own
-          ; buffer and is still released normally at scope end. The field's copy
-          ; is freed on overwrite and by the object destructor (typedesc kind 0).
-          this.emitFieldStoreOn(cls sptr fld tmp lctx)
+          ; owned string local stored into it is NOT consumed. An object field on
+          ; WASM retains a borrowed value / moves a fresh `new` (rhs.hasNewOper).
+          this.emitFieldStoreOnEx(cls sptr fld tmp rhs.hasNewOper lctx)
           return
         }
       }
@@ -3666,7 +3801,7 @@ class LowIRBuilderPass {
       ; for boolean fields. Pre-zexting produced an invalid double
       ; "zext i1 <i32> to i32" (the receiver "recv.fld" path above never did
       ; this, which is why only bare field assignments miscompiled).
-      this.emitFieldStore(varName tmp lctx)
+      this.emitFieldStoreOnEx(lctx.className lctx.selfPtr varName tmp rhs.hasNewOper lctx)
       return
     }
     if (has lctx.slots varName) {
@@ -4238,11 +4373,15 @@ class LowIRBuilderPass {
       if ((indexOf node.vref ".") >= 0) {
         def parts:[string] (strsplit node.vref ".")
         if ((array_length parts) >= 2) {
-          def recv (itemAt parts 0)
-          def fld (itemAt parts 1)
-          def cls (this.resolveObjectClass(recv lctx))
+          ; last segment is the field; everything before it is the receiver chain
+          ; (`h.pos.x` -> receiver `h.pos`, field `x`), resolved by loading each
+          ; intermediate object field.
+          def n:int (array_length parts)
+          def recvPrefix:string (this.joinDotPrefix(parts (n - 1)))
+          def fld (itemAt parts (n - 1))
+          def cls (this.resolveObjectClassChain(recvPrefix lctx))
           if ((strlen cls) > 0) {
-            def sptr (this.resolveObjectPtr(recv cls lctx))
+            def sptr (this.resolveObjectPtrChain(recvPrefix cls lctx))
             return (this.emitFieldLoadOn(cls sptr fld lctx))
           }
         }

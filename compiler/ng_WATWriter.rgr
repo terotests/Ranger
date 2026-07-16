@@ -71,12 +71,23 @@ class WATWriter {
     return (bit_and (+ a 3) (bit_xor -1 3))
   }
 
+  ; The owned flag the WAT backend emits for a field. String fields carry their
+  ; declared owned flag; OBJECT fields (kind 1) are always owned on WASM — stores
+  ; retain a borrowed value / move a fresh one, so the destructor releases each
+  ; exactly once (RC handles aliasing; cycles leak but never double-free).
+  ; ptr-array fields (kind 2) stay borrow.
+  fn fieldOwnedFlag:int (fd:LowIRTypeFieldDesc) {
+    if (fd.kind == 1) {
+      return 1
+    }
+    return fd.owned
+  }
+
   ; A type descriptor is worth emitting only if it has at least one owned field
-  ; (the destructor walk does nothing otherwise). String fields are owned;
-  ; object/ptr-array fields are borrow (owned=0) until borrow analysis promotes.
+  ; (the destructor walk does nothing otherwise).
   fn descHasOwned:boolean (td:LowIRTypeDesc) {
     for td.fields fd:LowIRTypeFieldDesc i {
-      if (fd.owned == 1) {
+      if ((this.fieldOwnedFlag(fd)) == 1) {
         return true
       }
     }
@@ -117,7 +128,7 @@ class WATWriter {
           def fw ""
           fw = (fw + (this.leWord(fd.offset)))
           fw = (fw + (this.leWord(fd.kind)))
-          fw = (fw + (this.leWord(fd.owned)))
+          fw = (fw + (this.leWord((this.fieldOwnedFlag(fd)))))
           wr.out(("  (data (i32.const " + (("" + addr) + (") \"" + (fw + "\")")))) true)
           addr = (+ addr 12)
         }
@@ -214,6 +225,10 @@ class WATWriter {
     }
     if hasStatic {
       this.emitStaticData(module wr)
+    }
+    ; one mutable global per singleton class, holding its lazy instance pointer
+    for module.singletonClasses sc:string i {
+      wr.out(("  (global $singleton_" + (sc + " (mut i32) (i32.const 0))")) true)
     }
     for module.functions fn:LowIRFunction i {
       this.writeFunction(fn wr fn.exportFn)
@@ -608,6 +623,14 @@ class WATWriter {
         this.writeGet(ins.arg1 wr)
         wr.out("      memory.grow" true)
         wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "global_get" {
+        wr.out(("      global.get $" + ins.arg1) true)
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "global_set" {
+        this.writeGet(ins.arg2 wr)
+        wr.out(("      global.set $" + ins.arg1) true)
       }
       case "inttoptr_struct" {
         this.writeGet(ins.arg1 wr)
