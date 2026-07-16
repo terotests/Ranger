@@ -26,6 +26,10 @@ class LowIRRuntimeGen {
       return
     }
     LowIRRuntimeGen.buildRtMapNew(module)
+    if module.useFreeListHeap {
+      LowIRRuntimeGen.buildRtMapGrow(module)
+      LowIRRuntimeGen.buildRtMapFree(module)
+    }
     LowIRRuntimeGen.buildRtMapHashSlot(module)
     LowIRRuntimeGen.buildRtMapPutAt(module)
     LowIRRuntimeGen.buildRtMapPut(module)
@@ -144,6 +148,24 @@ class LowIRRuntimeGen {
     return (builder.emitBin("add" pt base off))
   }
 
+  ; Emit a free of `ptr` on whichever heap the module uses: libc free, or the
+  ; freestanding-WASM free-list Heap_free. The bump allocator cannot free, so
+  ; nothing is emitted there (the historic leak-forever behaviour).
+  static fn emitFreePtr:void (builder:LowIRBuilder module:LowIRModule ptr:string) {
+    def pt (module.ptrType)
+    def args:[string]
+    def argTypes:[string]
+    push args ptr
+    push argTypes pt
+    if module.useLibcHeap {
+      builder.emitCall("free" "void" args argTypes)
+      return
+    }
+    if module.useFreeListHeap {
+      builder.emitCall("Heap_free" "void" args argTypes)
+    }
+  }
+
   static fn buildRtMapNew:void (module:LowIRModule) {
     def builder@(lives):LowIRBuilder (new LowIRBuilder(module))
     builder.reset()
@@ -200,6 +222,143 @@ class LowIRRuntimeGen {
     LowIRRuntimeGen.finishFn(builder module "RtMap_new" pt params false)
   }
 
+  ; Double the bucket capacity and rehash, so open-addressing insertion always
+  ; finds an empty slot (a full map otherwise probes forever — the historic
+  ; infinite-recursion bug). Old key/value arrays are freed. Only emitted on the
+  ; free-list-heap path; other targets keep their fixed-capacity behaviour.
+  static fn buildRtMapGrow:void (module:LowIRModule) {
+    def builder@(lives):LowIRBuilder (new LowIRBuilder(module))
+    builder.reset()
+    def pt (module.ptrType)
+    def valsOff (LowIRRuntimeGen.mapValsOff(module))
+    def capOff (LowIRRuntimeGen.mapCapOff(module))
+    def sizeOff (LowIRRuntimeGen.mapSizeOff(module))
+    def params:[LowIRParam]
+    def descP@(lives):LowIRParam (new LowIRParam())
+    descP.name = "desc"
+    descP.irType = pt
+    push params descP
+    builder.startBlock("entry")
+
+    def oldCap (LowIRRuntimeGen.emitCap(builder module "%desc"))
+    def oldKeys (LowIRRuntimeGen.emitKeysPtr(builder module "%desc"))
+    def oldVals (LowIRRuntimeGen.emitValsPtr(builder module "%desc"))
+    def two (builder.emitConst("i32" "2"))
+    def newCap (builder.emitBin("mul" "i32" oldCap two))
+    def four (builder.emitConst("i32" "4"))
+    def nbytes (builder.emitBin("mul" "i32" newCap four))
+    def newKeys (builder.emitHeapAlloc(nbytes))
+    def newVals (builder.emitHeapAlloc(nbytes))
+    def zero (builder.emitConst("i32" "0"))
+    def negOne (builder.emitConst("i32" "-1"))
+
+    ; init newKeys[i] = -1 (empty marker; key 0 is valid so 0 can't mean empty)
+    def iSlot (builder.freshTemp("i"))
+    builder.emitAlloca("i32" iSlot)
+    builder.emitStore("i32" zero iSlot)
+    def ic (builder.freshLabel("grow_init_cond"))
+    def ib (builder.freshLabel("grow_init_body"))
+    def idn (builder.freshLabel("grow_init_done"))
+    builder.terminateBr(ic)
+    builder.startBlock(ic)
+    def iV (builder.emitLoad("i32" iSlot))
+    def iLt (builder.emitIcmp("slt" iV newCap))
+    builder.terminateBrIf(iLt ib idn)
+    builder.startBlock(ib)
+    def nkp (LowIRRuntimeGen.emitSlotAddr(builder module newKeys iV))
+    builder.emitPtrStoreTyped(nkp negOne "i32")
+    def one (builder.emitConst("i32" "1"))
+    def iN (builder.emitBin("add" "i32" iV one))
+    builder.emitStore("i32" iN iSlot)
+    builder.terminateBr(ic)
+    builder.startBlock(idn)
+
+    ; install the new arrays and reset size before rehashing
+    builder.emitPtrStore("%desc" newKeys)
+    def valsFld (builder.emitConst(pt ("" + valsOff)))
+    def valsAddr (builder.emitBin("add" pt "%desc" valsFld))
+    builder.emitPtrStore(valsAddr newVals)
+    builder.emitStoreI32At("%desc" capOff newCap)
+    builder.emitStoreI32At("%desc" sizeOff zero)
+
+    ; rehash every occupied old slot back in (size stays under the grow
+    ; threshold of the doubled table, so this cannot recursively re-grow)
+    def jSlot (builder.freshTemp("j"))
+    builder.emitAlloca("i32" jSlot)
+    builder.emitStore("i32" zero jSlot)
+    def rc (builder.freshLabel("grow_rehash_cond"))
+    def rb (builder.freshLabel("grow_rehash_body"))
+    def rd (builder.freshLabel("grow_rehash_done"))
+    def rput (builder.freshLabel("grow_rehash_put"))
+    def rinc (builder.freshLabel("grow_rehash_inc"))
+    builder.terminateBr(rc)
+    builder.startBlock(rc)
+    def jV (builder.emitLoad("i32" jSlot))
+    def jLt (builder.emitIcmp("slt" jV oldCap))
+    builder.terminateBrIf(jLt rb rd)
+    builder.startBlock(rb)
+    def okp (LowIRRuntimeGen.emitSlotAddr(builder module oldKeys jV))
+    def k (builder.emitPtrLoadTyped(okp "i32"))
+    ; branch to the put block (which precedes the increment block) on the TRUE
+    ; edge, so the structured reconstruction sees then-target before merge.
+    def notEmpty (builder.emitIcmp("ne" k negOne))
+    builder.terminateBrIf(notEmpty rput rinc)
+    builder.startBlock(rput)
+    def ovp (LowIRRuntimeGen.emitSlotAddr(builder module oldVals jV))
+    def v (builder.emitPtrLoadTyped(ovp "i32"))
+    def pargs:[string]
+    def ptypes:[string]
+    push pargs "%desc"
+    push ptypes pt
+    push pargs k
+    push ptypes "i32"
+    push pargs v
+    push ptypes "i32"
+    builder.emitCall("RtMap_put" "void" pargs ptypes)
+    builder.terminateBr(rinc)
+    builder.startBlock(rinc)
+    def jOne (builder.emitConst("i32" "1"))
+    def jN (builder.emitBin("add" "i32" jV jOne))
+    builder.emitStore("i32" jN jSlot)
+    builder.terminateBr(rc)
+    builder.startBlock(rd)
+
+    LowIRRuntimeGen.emitFreePtr(builder module oldKeys)
+    LowIRRuntimeGen.emitFreePtr(builder module oldVals)
+    builder.terminateRet("void" "")
+    LowIRRuntimeGen.finishFn(builder module "RtMap_grow" "void" params false)
+  }
+
+  ; Free a map's key array, value array, and descriptor. Keys/values are plain
+  ; ints, so there is no element RC (parity with the ptr-array release for int
+  ; arrays). Only emitted on the free-list-heap path.
+  static fn buildRtMapFree:void (module:LowIRModule) {
+    def builder@(lives):LowIRBuilder (new LowIRBuilder(module))
+    builder.reset()
+    def pt (module.ptrType)
+    def params:[LowIRParam]
+    def descP@(lives):LowIRParam (new LowIRParam())
+    descP.name = "desc"
+    descP.irType = pt
+    push params descP
+    builder.startBlock("entry")
+    def zero (builder.emitConst(pt "0"))
+    def isNull (builder.emitIcmp("eq" "%desc" zero))
+    def retLabel (builder.freshLabel("mapfree_ret"))
+    def bodyLabel (builder.freshLabel("mapfree_body"))
+    builder.terminateBrIf(isNull retLabel bodyLabel)
+    builder.startBlock(bodyLabel)
+    def keys (LowIRRuntimeGen.emitKeysPtr(builder module "%desc"))
+    def vals (LowIRRuntimeGen.emitValsPtr(builder module "%desc"))
+    LowIRRuntimeGen.emitFreePtr(builder module keys)
+    LowIRRuntimeGen.emitFreePtr(builder module vals)
+    LowIRRuntimeGen.emitFreePtr(builder module "%desc")
+    builder.terminateRet("void" "")
+    builder.startBlock(retLabel)
+    builder.terminateRet("void" "")
+    LowIRRuntimeGen.finishFn(builder module "RtMap_free" "void" params false)
+  }
+
   static fn buildRtMapHashSlot:void (module:LowIRModule) {
     def builder@(lives):LowIRBuilder (new LowIRBuilder(module))
     builder.reset()
@@ -254,13 +413,27 @@ class LowIRRuntimeGen {
     valP.name = "val"
     valP.irType = "i32"
     push params valP
-    builder.startBlock("entry")
-
-    def cap (LowIRRuntimeGen.emitCap(builder module "%desc"))
-    def geCap (builder.emitIcmp("sge" "%slot" cap))
+    ; Blocks are emitted so each early-return target immediately follows its
+    ; guard header (retLabel after entry, updLabel after bodyLabel, emptyLabel
+    ; after checkEmpty). The WAT structured reconstruction assumes a br_if's
+    ; true-target precedes its false-target; emitting the return blocks last
+    ; (their natural authoring order) made those then-regions empty, silently
+    ; dropping the bounds check and the key-update path. Order is irrelevant to
+    ; the LLVM/native backend.
     def retLabel (builder.freshLabel("putat_ret"))
     def bodyLabel (builder.freshLabel("putat_body"))
+    def updLabel (builder.freshLabel("putat_upd"))
+    def checkEmpty (builder.freshLabel("putat_chk"))
+    def emptyLabel (builder.freshLabel("putat_empty"))
+    def recurseLabel (builder.freshLabel("putat_rec"))
+
+    builder.startBlock("entry")
+    def cap (LowIRRuntimeGen.emitCap(builder module "%desc"))
+    def geCap (builder.emitIcmp("sge" "%slot" cap))
     builder.terminateBrIf(geCap retLabel bodyLabel)
+
+    builder.startBlock(retLabel)
+    builder.terminateRet("void" "")
 
     builder.startBlock(bodyLabel)
     def keysPtr (LowIRRuntimeGen.emitKeysPtr(builder module "%desc"))
@@ -270,11 +443,11 @@ class LowIRRuntimeGen {
     def k (builder.emitPtrLoadTyped(kp "i32"))
     def negOne (builder.emitConst("i32" "-1"))
     def eqKey (builder.emitIcmp("eq" k "%key"))
-    def updLabel (builder.freshLabel("putat_upd"))
-    def emptyLabel (builder.freshLabel("putat_empty"))
-    def recurseLabel (builder.freshLabel("putat_rec"))
-    def checkEmpty (builder.freshLabel("putat_chk"))
     builder.terminateBrIf(eqKey updLabel checkEmpty)
+
+    builder.startBlock(updLabel)
+    builder.emitPtrStoreTyped(vp "%val" "i32")
+    builder.terminateRet("void" "")
 
     builder.startBlock(checkEmpty)
     def isEmpty (builder.emitIcmp("eq" k negOne))
@@ -287,10 +460,6 @@ class LowIRRuntimeGen {
     def one (builder.emitConst("i32" "1"))
     def newSize (builder.emitBin("add" "i32" size one))
     builder.emitStoreI32At("%desc" sizeOff newSize)
-    builder.terminateRet("void" "")
-
-    builder.startBlock(updLabel)
-    builder.emitPtrStoreTyped(vp "%val" "i32")
     builder.terminateRet("void" "")
 
     builder.startBlock(recurseLabel)
@@ -308,9 +477,6 @@ class LowIRRuntimeGen {
     push args "%val"
     push argTypes "i32"
     builder.emitCall("RtMap_putAt" "void" args argTypes)
-    builder.terminateRet("void" "")
-
-    builder.startBlock(retLabel)
     builder.terminateRet("void" "")
     LowIRRuntimeGen.finishFn(builder module "RtMap_putAt" "void" params false)
   }
@@ -333,6 +499,41 @@ class LowIRRuntimeGen {
     valP.irType = "i32"
     push params valP
     builder.startBlock("entry")
+
+    ; -1 is the reserved empty-slot sentinel, so it can never be a stored key.
+    ; Guarding here makes the rehash loop robust (an empty source slot maps to a
+    ; harmless no-op) and keeps a stray -1 key out of the table. Both arms
+    ; terminate, so the structured WAT reconstruction stays unambiguous.
+    def guardKey (builder.emitConst("i32" "-1"))
+    def isSentinel (builder.emitIcmp("eq" "%key" guardKey))
+    def sentinelRet (builder.freshLabel("put_sentinel_ret"))
+    def putGo (builder.freshLabel("put_go"))
+    builder.terminateBrIf(isSentinel sentinelRet putGo)
+    builder.startBlock(sentinelRet)
+    builder.terminateRet("void" "")
+    builder.startBlock(putGo)
+
+    ; free-list path: keep the load factor under 50% by doubling+rehashing when
+    ; needed, so open-addressing insertion always terminates (a full fixed table
+    ; would probe forever). Done before hashSlot, which depends on cap.
+    if module.useFreeListHeap {
+      def size0 (LowIRRuntimeGen.emitSize(builder module "%desc"))
+      def cap0 (LowIRRuntimeGen.emitCap(builder module "%desc"))
+      def twoG (builder.emitConst("i32" "2"))
+      def sz2 (builder.emitBin("mul" "i32" size0 twoG))
+      def full (builder.emitIcmp("sge" sz2 cap0))
+      def growLabel (builder.freshLabel("put_grow"))
+      def contLabel (builder.freshLabel("put_cont"))
+      builder.terminateBrIf(full growLabel contLabel)
+      builder.startBlock(growLabel)
+      def gargs:[string]
+      def gtypes:[string]
+      push gargs "%desc"
+      push gtypes pt
+      builder.emitCall("RtMap_grow" "void" gargs gtypes)
+      builder.terminateBr(contLabel)
+      builder.startBlock(contLabel)
+    }
 
     def hashArgs:[string]
     def hashTypes:[string]
@@ -374,27 +575,41 @@ class LowIRRuntimeGen {
     keyP.name = "key"
     keyP.irType = "i32"
     push params keyP
-    builder.startBlock("entry")
+    ; Reconstruction-friendly block order (see buildRtMapPutAt): each early
+    ; return sits immediately after its guard. The missing-key return (-1) is the
+    ; target of two guards (out-of-range slot, and an empty slot), so it is
+    ; duplicated rather than shared — a shared forward target cannot follow both
+    ; guards and would be dropped by the structured WAT reconstruction.
+    def negRet1 (builder.freshLabel("getat_neg1"))
+    def bodyLabel (builder.freshLabel("getat_body"))
+    def negRet2 (builder.freshLabel("getat_neg2"))
+    def keyCheck (builder.freshLabel("getat_key"))
+    def valRet (builder.freshLabel("getat_val"))
+    def recurseRet (builder.freshLabel("getat_rec"))
 
+    builder.startBlock("entry")
     def cap (LowIRRuntimeGen.emitCap(builder module "%desc"))
     def negOne (builder.emitConst("i32" "-1"))
-    def negRet (builder.freshLabel("getat_neg"))
-    def bodyLabel (builder.freshLabel("getat_body"))
     def geCap (builder.emitIcmp("sge" "%slot" cap))
-    builder.terminateBrIf(geCap negRet bodyLabel)
+    builder.terminateBrIf(geCap negRet1 bodyLabel)
+
+    builder.startBlock(negRet1)
+    def negOne1 (builder.emitConst("i32" "-1"))
+    builder.terminateRet("i32" negOne1)
 
     builder.startBlock(bodyLabel)
     def keysPtr (LowIRRuntimeGen.emitKeysPtr(builder module "%desc"))
     def kp (LowIRRuntimeGen.emitSlotAddr(builder module keysPtr "%slot"))
     def k (builder.emitPtrLoadTyped(kp "i32"))
     def isEmpty (builder.emitIcmp("eq" k negOne))
-    def keyCheck (builder.freshLabel("getat_key"))
-    builder.terminateBrIf(isEmpty negRet keyCheck)
+    builder.terminateBrIf(isEmpty negRet2 keyCheck)
+
+    builder.startBlock(negRet2)
+    def negOne2 (builder.emitConst("i32" "-1"))
+    builder.terminateRet("i32" negOne2)
 
     builder.startBlock(keyCheck)
     def eqKey (builder.emitIcmp("eq" k "%key"))
-    def valRet (builder.freshLabel("getat_val"))
-    def recurseRet (builder.freshLabel("getat_rec"))
     builder.terminateBrIf(eqKey valRet recurseRet)
 
     builder.startBlock(valRet)
@@ -402,9 +617,6 @@ class LowIRRuntimeGen {
     def vp (LowIRRuntimeGen.emitSlotAddr(builder module valsPtr "%slot"))
     def v (builder.emitPtrLoadTyped(vp "i32"))
     builder.terminateRet("i32" v)
-
-    builder.startBlock(negRet)
-    builder.terminateRet("i32" negOne)
 
     builder.startBlock(recurseRet)
     def one (builder.emitConst("i32" "1"))
@@ -663,7 +875,11 @@ class LowIRRuntimeGen {
     push rat pt
     push ra newBytes
     push rat pt
-    def newData (builder.emitCall("realloc" pt ra rat))
+    def reallocFn:string "realloc"
+    if module.useFreeListHeap {
+      reallocFn = "Heap_realloc"
+    }
+    def newData (builder.emitCall(reallocFn pt ra rat))
     builder.emitPtrStore("%desc" newData)
     builder.emitStoreI32At("%desc" capOff newCap)
     builder.terminateBr(cont)

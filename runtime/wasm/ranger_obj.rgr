@@ -1,0 +1,356 @@
+; ============================================================================
+; ranger_obj.rgr — reference-counted objects on the WASM free-list heap
+; (PLAN_WASM_MEMORY.md Phase 1/2). The Ranger/WASM equivalent of the native
+; runtime/ranger_mem.c.
+;
+; The class is named `ranger` with methods `obj_new` / `obj_retain` /
+; `obj_release` so the WAT backend's mangled names are exactly `ranger_obj_new`
+; / `ranger_obj_retain` / `ranger_obj_release` — the very symbols the compiler's
+; RC insertion already emits (ng_LowIRBuilder.rgr lowerNewObject / releaseOwned
+; Local). So a program that imports this module gets drop-in memory management
+; under -wasmrc, no codegen name changes required.
+;
+; Object memory:  [ rc | size | typeDesc | pad ][ body... ]   (16-byte header)
+;   the pointer handed to Ranger code is `body` = block + 16.
+;
+; Type descriptor (typeDesc == 0 means "no owned fields", used by Phase-2 v1):
+;   TypeDesc : [ structSize | fieldCount | fieldsPtr ]
+;   Field(12): [ offset | kind | owned ]    kind 0=string 1=object 2=ptrarray
+; ============================================================================
+
+Import "./ranger_heap.rgr"
+
+class ranger {
+    ; --- allocate a zeroed, rc=1 object -------------------------------------
+    sfn obj_new:int (size:int typeDesc:int) {
+        def block (Heap.alloc((+ 16 size)))
+        if (== block 0) {
+            return 0
+        }
+        Mem.storeI32(block 1)               ; rc = 1
+        Mem.storeI32((+ block 4) size)
+        Mem.storeI32((+ block 8) typeDesc)
+        Mem.storeI32((+ block 12) 0)        ; pad
+        def body (+ block 16)
+        def i 0
+        while (< i size) {                  ; zero the body -> null fields
+            Mem.storeI32((+ body i) 0)
+            i = (+ i 4)
+        }
+        return body
+    }
+
+    sfn obj_refcount:int (body:int) {
+        return (Mem.loadI32((- body 16)))
+    }
+
+    sfn obj_retain:void (body:int) {
+        if (!= body 0) {
+            def block (- body 16)
+            Mem.storeI32(block (+ (Mem.loadI32(block)) 1))
+        }
+    }
+
+    ; --- release: decrement, and on reaching zero destroy fields + free -----
+    sfn obj_release:void (body:int) {
+        if (== body 0) {
+            return
+        }
+        def block (- body 16)
+        def rc (- (Mem.loadI32(block)) 1)
+        Mem.storeI32(block rc)
+        if (> rc 0) {
+            return
+        }
+        ranger.obj_destroyFields(body (Mem.loadI32((+ block 8))))
+        Heap.free(block)
+    }
+
+    ; walk the type descriptor and release each owned object field
+    sfn obj_destroyFields:void (body:int td:int) {
+        if (== td 0) {
+            return
+        }
+        def fieldCount (Mem.loadI32((+ td 4)))
+        def fieldsPtr (Mem.loadI32((+ td 8)))
+        def i 0
+        while (< i fieldCount) {
+            def f (+ fieldsPtr (* i 12))
+            def owned (Mem.loadI32((+ f 8)))
+            if (!= owned 0) {
+                def kind (Mem.loadI32((+ f 4)))
+                def val (Mem.loadI32((+ body (Mem.loadI32(f)))))
+                if (!= val 0) {
+                    if (== kind 1) {
+                        ranger.obj_release(val)
+                    }
+                    if (== kind 0) {
+                        ranger.str_release(val)
+                    }
+                }
+            }
+            i = (+ i 1)
+        }
+    }
+
+    ; live heap-block count (for tests / liveObjects checks)
+    sfn obj_live:int () {
+        return (Heap.usedBlocks())
+    }
+
+    ; ======================================================================
+    ; String runtime — null-terminated UTF-8 char* strings. Literals live in
+    ; the static region [16, heapBase); concat/from_int results are heap blocks.
+    ; ======================================================================
+    sfn str_len:int (s:int) {
+        if (== s 0) {
+            return 0
+        }
+        def n 0
+        while (!= (Mem.loadU8((+ s n))) 0) {
+            n = (+ n 1)
+        }
+        return n
+    }
+
+    sfn str_concat:int (a:int b:int) {
+        def la (ranger.str_len(a))
+        def lb (ranger.str_len(b))
+        def buf (Heap.alloc((+ (+ la lb) 1)))
+        def i 0
+        while (< i la) {
+            Mem.storeU8((+ buf i) (Mem.loadU8((+ a i))))
+            i = (+ i 1)
+        }
+        def j 0
+        while (< j lb) {
+            Mem.storeU8((+ (+ buf la) j) (Mem.loadU8((+ b j))))
+            j = (+ j 1)
+        }
+        Mem.storeU8((+ buf (+ la lb)) 0)
+        return buf
+    }
+
+    sfn str_dup:int (s:int) {
+        if (== s 0) {
+            return 0
+        }
+        def n (ranger.str_len(s))
+        def buf (Heap.alloc((+ n 1)))
+        def i 0
+        while (< i n) {
+            Mem.storeU8((+ buf i) (Mem.loadU8((+ s i))))
+            i = (+ i 1)
+        }
+        Mem.storeU8((+ buf n) 0)
+        return buf
+    }
+
+    ; int -> decimal string (heap-allocated)
+    sfn str_from_int:int (n:int) {
+        if (== n 0) {
+            def z (Heap.alloc(2))
+            Mem.storeU8(z 48)
+            Mem.storeU8((+ z 1) 0)
+            return z
+        }
+        def neg 0
+        def v n
+        if (< v 0) {
+            neg = 1
+            v = (- 0 v)
+        }
+        def digits 0
+        def t v
+        while (> t 0) {
+            digits = (+ digits 1)
+            t = (idiv t 10)
+        }
+        def len (+ digits neg)
+        def buf (Heap.alloc((+ len 1)))
+        Mem.storeU8((+ buf len) 0)
+        def pos (- len 1)
+        def vv v
+        while (> vv 0) {
+            Mem.storeU8((+ buf pos) (+ 48 (% vv 10)))
+            vv = (idiv vv 10)
+            pos = (- pos 1)
+        }
+        if (> neg 0) {
+            Mem.storeU8(buf 45)
+        }
+        return buf
+    }
+
+    ; strcmp-style: 0 when equal, non-zero otherwise
+    sfn str_cmp:int (a:int b:int) {
+        def i 0
+        def r -999
+        while (== r -999) {
+            def ca (Mem.loadU8((+ a i)))
+            def cb (Mem.loadU8((+ b i)))
+            if (!= ca cb) {
+                r = (- ca cb)
+            } {
+                if (== ca 0) {
+                    r = 0
+                }
+            }
+            i = (+ i 1)
+        }
+        return r
+    }
+
+    ; free a heap string; a literal (ptr below the heap base) is left alone
+    sfn str_release:void (s:int) {
+        if (== s 0) {
+            return
+        }
+        if (>= s (Heap.base())) {
+            Heap.free(s)
+        }
+    }
+
+    ; ======================================================================
+    ; Character access. The compiler emits calls to these exact mangled names
+    ; (ranger_char_at / ranger_substring / ranger_str_fromcode /
+    ; ranger_str_frombyte) for charAt / substring / strfromcode / rawbytechar.
+    ; ======================================================================
+
+    ; byte at index (games use ASCII; a UTF-8 lead byte is returned as-is)
+    sfn char_at:int (s:int pos:int) {
+        if (== s 0) {
+            return 0
+        }
+        return (Mem.loadU8((+ s pos)))
+    }
+
+    ; fresh heap copy of the byte range [start, end), clamped to [0, len]
+    sfn substring:int (s:int start:int end:int) {
+        def n (ranger.str_len(s))
+        def st start
+        if (< st 0) {
+            st = 0
+        }
+        def en end
+        if (> en n) {
+            en = n
+        }
+        if (< en st) {
+            en = st
+        }
+        def len (- en st)
+        def buf (Heap.alloc((+ len 1)))
+        def i 0
+        while (< i len) {
+            Mem.storeU8((+ buf i) (Mem.loadU8((+ (+ s st) i))))
+            i = (+ i 1)
+        }
+        Mem.storeU8((+ buf len) 0)
+        return buf
+    }
+
+    ; UTF-8 encode one code point into a fresh heap string
+    sfn str_fromcode:int (code:int) {
+        if (< code 128) {
+            def b (Heap.alloc(2))
+            Mem.storeU8(b code)
+            Mem.storeU8((+ b 1) 0)
+            return b
+        }
+        if (< code 2048) {
+            def b (Heap.alloc(3))
+            Mem.storeU8(b (bit_or 192 (bit_shr code 6)))
+            Mem.storeU8((+ b 1) (bit_or 128 (bit_and code 63)))
+            Mem.storeU8((+ b 2) 0)
+            return b
+        }
+        if (< code 65536) {
+            def b (Heap.alloc(4))
+            Mem.storeU8(b (bit_or 224 (bit_shr code 12)))
+            Mem.storeU8((+ b 1) (bit_or 128 (bit_and (bit_shr code 6) 63)))
+            Mem.storeU8((+ b 2) (bit_or 128 (bit_and code 63)))
+            Mem.storeU8((+ b 3) 0)
+            return b
+        }
+        def b (Heap.alloc(5))
+        Mem.storeU8(b (bit_or 240 (bit_shr code 18)))
+        Mem.storeU8((+ b 1) (bit_or 128 (bit_and (bit_shr code 12) 63)))
+        Mem.storeU8((+ b 2) (bit_or 128 (bit_and (bit_shr code 6) 63)))
+        Mem.storeU8((+ b 3) (bit_or 128 (bit_and code 63)))
+        Mem.storeU8((+ b 4) 0)
+        return b
+    }
+
+    ; single raw byte -> fresh 1-char heap string
+    sfn str_frombyte:int (byte:int) {
+        def buf (Heap.alloc(2))
+        Mem.storeU8(buf (bit_and byte 255))
+        Mem.storeU8((+ buf 1) 0)
+        return buf
+    }
+
+    ; ======================================================================
+    ; Pointer-array (list) runtime. Descriptor layout (wasm, i32 slots):
+    ;   [ data@0 | len@4 | cap@8 | owned@12 ]   (16 bytes)
+    ; `owned` == 1 means the array owns its elements (objects) and releases each
+    ; via obj_release on free. Int arrays are owned==0 (elements are values). The
+    ; compiler emits calls to these exact mangled names; the backing store and
+    ; descriptor live on the free-list heap (Heap_calloc via emitHeapAlloc).
+    ; ======================================================================
+    sfn ptrarray_push_owned:void (desc:int val:int) {
+        if (== desc 0) {
+            return
+        }
+        def kind (Mem.loadI32((+ desc 12)))
+        if (== kind 1) {
+            if (!= val 0) {
+                ranger.obj_retain(val)
+            }
+        }
+        def len (Mem.loadI32((+ desc 4)))
+        def cap (Mem.loadI32((+ desc 8)))
+        if (>= len cap) {
+            def newCap (* cap 2)
+            if (== newCap 0) {
+                newCap = 4
+            }
+            def data0 (Mem.loadI32(desc))
+            def nd (Heap.realloc(data0 (* newCap 4)))
+            Mem.storeI32(desc nd)
+            Mem.storeI32((+ desc 8) newCap)
+        }
+        def data (Mem.loadI32(desc))
+        def len2 (Mem.loadI32((+ desc 4)))
+        Mem.storeI32((+ data (* len2 4)) val)
+        Mem.storeI32((+ desc 4) (+ len2 1))
+    }
+
+    ; kind (flag word at desc+12): 0 = plain values (no element release),
+    ; 1 = owned objects (obj_release), 2 = owned strings (str_release).
+    sfn ptrarray_release:void (desc:int) {
+        if (== desc 0) {
+            return
+        }
+        def kind (Mem.loadI32((+ desc 12)))
+        def data (Mem.loadI32(desc))
+        if (!= data 0) {
+            if (!= kind 0) {
+                def len (Mem.loadI32((+ desc 4)))
+                def i 0
+                while (< i len) {
+                    def el (Mem.loadI32((+ data (* i 4))))
+                    if (== kind 1) {
+                        ranger.obj_release(el)
+                    }
+                    if (== kind 2) {
+                        ranger.str_release(el)
+                    }
+                    i = (+ i 1)
+                }
+            }
+            Heap.free(data)
+        }
+        Heap.free(desc)
+    }
+}

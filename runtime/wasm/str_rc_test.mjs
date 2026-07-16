@@ -1,0 +1,98 @@
+// String RC / leak-freedom test (PLAN_WASM_MEMORY Phase 3.4).
+// Build:
+//   node bin/output.js -l=llvm -wat -freestanding -wasmrc \
+//     runtime/wasm/str_rc_demo.rgr -nodecli -d=tmp/strrc -o=g.wat
+//   cp tmp/strrc/g.wat.ll tmp/strrc/g.wat && wat2wasm tmp/strrc/g.wat -o tmp/strrc/g.wasm
+import fs from "fs";
+const x = new WebAssembly.Instance(new WebAssembly.Module(
+  fs.readFileSync(new URL("../../tmp/strrc/g.wasm", import.meta.url)))).exports;
+const mem = new Uint8Array(x.memory.buffer);
+const rd = (p) => { let e = p; while (mem[e]) e++; return Buffer.from(mem.slice(p, e)).toString("utf8"); };
+let pass = 0, fail = 0;
+const ok = (n, g, e) => { if (g === e) pass++; else { fail++; console.log("FAIL", n, JSON.stringify(g), "exp", JSON.stringify(e)); } };
+
+x.Heap_init();
+
+// correctness: the HUD string is right even though it's freed every call
+ok("hud(42)", rd(x.SG_hud(42)), "HITS 42");
+ok("hud(7)", rd(x.SG_hud(7)), "HITS 7");
+
+// leak-freedom: the heap frontier must be identical no matter how many
+// throwaway strings we build. If any per-iteration temp leaked, the frontier
+// would climb with the iteration count.
+x.Heap_init();
+const f1   = x.SG_churnHud(1);
+const f1k  = x.SG_churnHud(1000);
+const f100k= x.SG_churnHud(100000);
+ok("churnHud flat 1 vs 1000", f1k, f1);
+ok("churnHud flat 1 vs 100000", f100k, f1);
+
+x.Heap_init();
+const n1  = x.SG_churnNested(1);
+const n10k= x.SG_churnNested(10000);
+ok("churnNested flat", n10k, n1);
+
+// churnReassign keeps `s` live until function scope-end, so measure AFTER the
+// call returns (the scope-end release frees s; a leak-free heap is then empty).
+x.Heap_init();
+const base = x.SG_frontier();
+x.SG_churnReassign(1);
+const rf1 = x.SG_frontier();
+x.SG_churnReassign(10000);
+const rf10k = x.SG_frontier();
+ok("churnReassign frontier back to base (1)", rf1, base);
+ok("churnReassign frontier back to base (10000)", rf10k, base);
+ok("churnReassign no live blocks", x.SG_liveBlocks(), 0);
+
+// inline throwaway temps (statement arena): concat built directly as a call
+// argument, never bound to a local. Heap must stay flat across iterations.
+x.Heap_init();
+const in1  = x.SG_churnInline(1);
+const in10k= x.SG_churnInline(10000);
+ok("churnInline flat", in10k, in1);
+
+x.Heap_init();
+const ins1  = x.SG_churnInlineNested(1);
+const ins10k= x.SG_churnInlineNested(10000);
+ok("churnInlineNested flat", ins10k, ins1);
+
+// after all that churn, zero live heap blocks remain (everything freed)
+x.Heap_init();
+x.SG_churnHud(5000);
+ok("no live blocks after churnHud", x.SG_liveBlocks(), 0);
+x.Heap_init();
+x.SG_churnInline(5000);
+ok("no live blocks after churnInline", x.SG_liveBlocks(), 0);
+
+// --- string comparison (==/!=) ---
+x.Heap_init();
+ok("eqHits(5) == 'HITS 5'", x.SG_eqHits(5), 1);
+ok("eqHits(3) != 'HITS 5'", x.SG_eqHits(3), 0);
+ok("neHits(3)", x.SG_neHits(3), 1);
+ok("neHits(5)", x.SG_neHits(5), 0);
+x.Heap_init();
+const cbase = x.SG_frontier();
+x.SG_churnCompare(1);
+const cc1 = x.SG_frontier();
+x.SG_churnCompare(10000);
+const cc10k = x.SG_frontier();
+ok("churnCompare flat", cc10k, cc1);
+ok("churnCompare back to base", cc1, cbase);
+
+// --- char access ---
+x.Heap_init();
+ok("charOf(0)='H'", x.SG_charOf(0), 72);
+ok("charOf(4)='O'", x.SG_charOf(4), 79);
+ok("subLen(1,3)=2", x.SG_subLen(1, 3), 2);
+ok("subFirst(1,3)='E'", x.SG_subFirst(1, 3), 69);
+ok("codeChar(65)='A'", x.SG_codeChar(65), 65);
+x.Heap_init();
+const sb1  = x.SG_churnSubstring(1);
+const sb10k= x.SG_churnSubstring(10000);
+ok("churnSubstring flat", sb10k, sb1);
+x.Heap_init();
+x.SG_churnSubstring(3000);
+ok("no live blocks after churnSubstring", x.SG_liveBlocks(), 0);
+
+console.log(`\n${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);

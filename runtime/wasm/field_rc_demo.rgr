@@ -1,0 +1,61 @@
+; ============================================================================
+; field_rc_demo.rgr — owned string-FIELD release on object destruction
+; (PLAN_WASM_MEMORY Phase 4a). An Entity owns a string field `name`; when the
+; Entity is released, obj_release -> obj_destroyFields walks the type descriptor
+; and frees the string field. A create/destroy loop must stay heap-flat.
+; ============================================================================
+
+Import "./ranger_obj.rgr"
+
+class Entity {
+    def name:string ""
+    def hp:int 0
+}
+
+class SG {
+    ; content check: the field holds a correct dup'd copy while the Entity lives
+    sfn nameLen:int (i:int) {
+        def e (new Entity())
+        e.name = ("player" + i)
+        return (strlen e.name)
+    }
+
+    sfn nameFirst:int (i:int) {
+        def e (new Entity())
+        e.name = ("player" + i)
+        return (charAt e.name 0)
+    }
+
+    ; create + set a string field + destroy, N times. Each Entity and its name
+    ; buffer (plus the concat/int temporaries) must be freed each iteration.
+    sfn churnEntity:int (n:int) {
+        def i 0
+        while (< i n) {
+            def e (new Entity())
+            e.name = ("player" + i)
+            i = (+ i 1)
+        }
+        return (Heap.frontier())
+    }
+
+    ; reassign a field in a loop on a single long-lived Entity: the previous
+    ; buffer must be freed before each overwrite (release-before-overwrite), so
+    ; the field does not leak per iteration; the Entity frees the last one.
+    sfn reassignField:int (n:int) {
+        def e (new Entity())
+        def i 0
+        while (< i n) {
+            e.name = ("v" + i)
+            i = (+ i 1)
+        }
+        return 0
+    }
+
+    sfn liveBlocks:int () {
+        return (ranger.obj_live())
+    }
+
+    sfn frontier:int () {
+        return (Heap.frontier())
+    }
+}

@@ -189,6 +189,11 @@ class LowIRModule {
   def triple:string "unknown-unknown-unknown"
   def ptrType:string "i32"
   def useLibcHeap:boolean false
+  ; freestanding WASM under -wasmrc: route heap_alloc through the free-list Heap
+  ; (Heap_alloc/Heap_free) so collections share the one coherent heap that
+  ; objects and strings use — not the leak-forever bump pointer, which would also
+  ; collide with the free-list control words at Mem[0]/Mem[4].
+  def useFreeListHeap:boolean false
   def structs:[LowIRStruct]
   def typeDescs:[LowIRTypeDesc]
   def functions:[LowIRFunction]
@@ -448,6 +453,16 @@ class LowIRBuilder {
       push argTypes ptrType
       return (this.emitCall("calloc" ptrType args argTypes))
     }
+    ; freestanding WASM under -wasmrc: allocate from the free-list Heap so the
+    ; block can later be freed (Heap.alloc zeroes nothing, but collection/new
+    ; code initialises what it needs). One coherent heap for all allocation.
+    if this.irModule.useFreeListHeap {
+      def hargs:[string]
+      def hargTypes:[string]
+      push hargs sizeArg
+      push hargTypes "i32"
+      return (this.emitCall("Heap_calloc" ptrType hargs hargTypes))
+    }
     def tag:string "h"
     def dest (this.freshTemp(tag))
     def ins@(lives):LowIRInstr (new LowIRInstr())
@@ -560,6 +575,52 @@ class LowIRBuilder {
     this.emit(ins)
   }
 
+  fn emitPtrLoad8:string (ptr:string) {
+    def dest (this.freshTemp("m"))
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "ptr_load8"
+    ins.dest = dest
+    ins.irType = "i32"
+    ins.arg1 = ptr
+    this.emit(ins)
+    return dest
+  }
+
+  fn emitPtrStore8:void (ptr:string value:string) {
+    def n (this.tempCounter)
+    this.tempCounter = n + 1
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "ptr_store8"
+    ins.dest = ("ps" + ("" + n))
+    ins.arg1 = ptr
+    ins.arg2 = value
+    this.emit(ins)
+  }
+
+  ; current linear-memory size in 64 KiB pages (wasm memory.size)
+  fn emitMemSize:string () {
+    def dest (this.freshTemp("m"))
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "mem_size"
+    ins.dest = dest
+    ins.irType = "i32"
+    this.emit(ins)
+    return dest
+  }
+
+  ; grow linear memory by `pages` 64 KiB pages; result = previous page count, or
+  ; -1 on failure (wasm memory.grow)
+  fn emitMemGrow:string (pages:string) {
+    def dest (this.freshTemp("m"))
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "mem_grow"
+    ins.dest = dest
+    ins.irType = "i32"
+    ins.arg1 = pages
+    this.emit(ins)
+    return dest
+  }
+
   fn emitI32At:string (base:string byteOff:int) {
     def pt (this.irModule.ptrType)
     def off (this.emitConst(pt ("" + byteOff)))
@@ -589,6 +650,20 @@ class LowIRBuilder {
     ins.irType = "i8*"
     ins.arg1 = globalName
     ins.arg2 = ("" + byteLen)
+    this.emit(ins)
+    return dest
+  }
+
+  ; Address of a class type descriptor in the static data segment (WASM). The
+  ; writer resolves the class name to the descriptor's data-segment address.
+  fn emitTypeDescPtr:string (className:string) {
+    def tag:string "td"
+    def dest (this.freshTemp(tag))
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "typedesc_ptr"
+    ins.dest = dest
+    ins.irType = "i32"
+    ins.arg1 = className
     this.emit(ins)
     return dest
   }

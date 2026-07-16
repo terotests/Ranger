@@ -6,6 +6,136 @@ Import "ng_LowIR.rgr"
 
 class WATWriter {
 
+  ; string-literal global name -> its static byte address in linear memory
+  def strAddrs:[string:int]
+
+  ; class name -> its type-descriptor header address in the static data segment
+  def typeDescAddrs:[string:int]
+
+  ; --- string literal data segments --------------------------------------
+  ; Layout: [0,16) control, [16, heapEnd) literals, heapEnd.. heap. The heap
+  ; base (heapEnd) is written to Mem[4]; ranger_heap.base() reads it. Literals
+  ; are null-terminated UTF-8 char* buffers, matching the char* string model.
+  fn utf8Encode:[int] (text:string) {
+    def bytes:[int]
+    def i 0
+    def n (strlen text)
+    while (< i n) {
+      def c (charAt text i)
+      if (< c 128) {
+        push bytes c
+      } {
+        if (< c 2048) {
+          push bytes (bit_or 192 (bit_shr c 6))
+          push bytes (bit_or 128 (bit_and c 63))
+        } {
+          push bytes (bit_or 224 (bit_shr c 12))
+          push bytes (bit_or 128 (bit_and (bit_shr c 6) 63))
+          push bytes (bit_or 128 (bit_and c 63))
+        }
+      }
+      i = (+ i 1)
+    }
+    return bytes
+  }
+
+  fn hexDigit:string (d:int) {
+    if (< d 10) {
+      return ("" + d)
+    }
+    return (strfromcode (+ 97 (- d 10)))
+  }
+
+  fn hexByte:string (b:int) {
+    return ("\\" + ((this.hexDigit((bit_and (bit_shr b 4) 15))) + (this.hexDigit((bit_and b 15)))))
+  }
+
+  fn dataEscape:string (bytes:[int]) {
+    def s ""
+    for bytes b:int i {
+      s = (s + (this.hexByte(b)))
+    }
+    return s
+  }
+
+  fn leWord:string (v:int) {
+    def s ""
+    s = (s + (this.hexByte((bit_and v 255))))
+    s = (s + (this.hexByte((bit_and (bit_shr v 8) 255))))
+    s = (s + (this.hexByte((bit_and (bit_shr v 16) 255))))
+    s = (s + (this.hexByte((bit_and (bit_shr v 24) 255))))
+    return s
+  }
+
+  fn align4:int (a:int) {
+    return (bit_and (+ a 3) (bit_xor -1 3))
+  }
+
+  ; A type descriptor is worth emitting only if it has at least one owned field
+  ; (the destructor walk does nothing otherwise). String fields are owned;
+  ; object/ptr-array fields are borrow (owned=0) until borrow analysis promotes.
+  fn descHasOwned:boolean (td:LowIRTypeDesc) {
+    for td.fields fd:LowIRTypeFieldDesc i {
+      if (fd.owned == 1) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn moduleHasOwnedTypeDescs:boolean (module:LowIRModule) {
+    for module.typeDescs td:LowIRTypeDesc i {
+      if (this.descHasOwned(td)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; Emit the static data segment: string literals from 16, then type descriptors
+  ; (field arrays + 12-byte headers) that recursive object destruction reads.
+  ; The heap base (end of all static data, rounded to 16) is written to Mem[4].
+  ; Runtime layout — TypeDesc: [ size | fieldCount | fieldsPtr ];
+  ; Field(12): [ offset | kind | owned ]   (kind 0=string 1=object 2=ptrarray).
+  fn emitStaticData:void (module:LowIRModule wr:CodeWriter) {
+    def addr 16
+    for module.stringGlobals g:LowIRStringGlobal i {
+      def bytes (this.utf8Encode(g.text))
+      if g.withNewline {
+        push bytes 10
+      }
+      set this.strAddrs g.name addr
+      wr.out(("  (data (i32.const " + (("" + addr) + (") \"" + ((this.dataEscape(bytes)) + "\\00\")")))) true)
+      addr = (+ addr (+ (array_length bytes) 1))
+    }
+    ; type descriptors (4-aligned so the runtime's i32 loads stay aligned)
+    for module.typeDescs td:LowIRTypeDesc i {
+      if (this.descHasOwned(td)) {
+        addr = (this.align4(addr))
+        def fieldsPtr addr
+        for td.fields fd:LowIRTypeFieldDesc j {
+          def fw ""
+          fw = (fw + (this.leWord(fd.offset)))
+          fw = (fw + (this.leWord(fd.kind)))
+          fw = (fw + (this.leWord(fd.owned)))
+          wr.out(("  (data (i32.const " + (("" + addr) + (") \"" + (fw + "\")")))) true)
+          addr = (+ addr 12)
+        }
+        def hdrPtr addr
+        def hw ""
+        hw = (hw + (this.leWord(td.size)))
+        hw = (hw + (this.leWord((array_length td.fields))))
+        hw = (hw + (this.leWord(fieldsPtr)))
+        wr.out(("  (data (i32.const " + (("" + addr) + (") \"" + (hw + "\")")))) true)
+        set this.typeDescAddrs td.className hdrPtr
+        addr = (+ addr 12)
+      }
+    }
+    ; heap base = end of static data, rounded up to 16; stored at Mem[4]
+    def base (bit_and (+ addr 15) (bit_xor -1 15))
+    wr.out(("  (data (i32.const 4) \"" + ((this.leWord(base)) + "\")")) true)
+  }
+
   fn wasmName:string (llvmName:string) {
     if ((strlen llvmName) == 0) {
       return ""
@@ -75,9 +205,15 @@ class WATWriter {
 
   fn writeModule:void (module:LowIRModule wr:CodeWriter) {
     wr.out("(module" true)
-    if (this.moduleUsesHeap(module)) {
+    def hasLiterals ((array_length module.stringGlobals) > 0)
+    def hasTypeDescs (this.moduleHasOwnedTypeDescs(module))
+    def hasStatic (hasLiterals || hasTypeDescs)
+    if ((this.moduleUsesHeap(module)) || hasStatic) {
       wr.out("  (memory (export \"memory\") 1)" true)
       wr.out("  (global $heap_ptr (mut i32) (i32.const 0))" true)
+    }
+    if hasStatic {
+      this.emitStaticData(module wr)
     }
     for module.functions fn:LowIRFunction i {
       this.writeFunction(fn wr fn.exportFn)
@@ -454,11 +590,34 @@ class WATWriter {
         this.writeGet(ins.arg2 wr)
         wr.out("      i32.store" true)
       }
+      case "ptr_load8" {
+        this.writeGet(ins.arg1 wr)
+        wr.out("      i32.load8_u" true)
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "ptr_store8" {
+        this.writeGet(ins.arg1 wr)
+        this.writeGet(ins.arg2 wr)
+        wr.out("      i32.store8" true)
+      }
+      case "mem_size" {
+        wr.out("      memory.size" true)
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "mem_grow" {
+        this.writeGet(ins.arg1 wr)
+        wr.out("      memory.grow" true)
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
       case "inttoptr_struct" {
         this.writeGet(ins.arg1 wr)
         wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
       }
       case "inttoptr_i8" {
+        this.writeGet(ins.arg1 wr)
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "ptr_to_int" {
         this.writeGet(ins.arg1 wr)
         wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
       }
@@ -471,7 +630,19 @@ class WATWriter {
         wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
       }
       case "str_ptr" {
-        wr.out(("      i32.const 0") true)
+        def addr 0
+        if (has this.strAddrs ins.arg1) {
+          addr = (unwrap (get this.strAddrs ins.arg1))
+        }
+        wr.out(("      i32.const " + ("" + addr)) true)
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "typedesc_ptr" {
+        def tdAddr 0
+        if (has this.typeDescAddrs ins.arg1) {
+          tdAddr = (unwrap (get this.typeDescAddrs ins.arg1))
+        }
+        wr.out(("      i32.const " + ("" + tdAddr)) true)
         wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
       }
       case "icmp" {

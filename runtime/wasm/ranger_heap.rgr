@@ -1,0 +1,280 @@
+; ============================================================================
+; ranger_heap.rgr — a free-list allocator in Ranger linear memory (WASM Phase 0).
+;
+; PLAN_WASM_MEMORY.md Phase 0. This is the deallocating heap that replaces the
+; WAT backend's leak-forever bump allocator. It is written in Ranger and
+; compiled to WASM so the algorithm can be validated end-to-end (heap_test.mjs)
+; before it is emitted by the compiler as a runtime prelude (Phase 2).
+;
+; Block layout (8-byte header + payload, all contiguous from HEAP_BASE):
+;   [ size (payload bytes) ][ free flag (0=used,1=free) ][ payload... ]
+;   total block bytes = size + 8 ; the pointer handed out is (block + 8).
+;
+; Policy: first-fit search with block splitting on alloc; forward coalescing on
+; free; the tail block, once free, is returned to the bump frontier so a fully
+; freed heap costs nothing. Backward coalescing (footers) is a Phase-0.1 follow
+; up. One 64 KiB page for now; memory.grow is a later step.
+;
+; Control words live below HEAP_BASE:  [0] = top (bump frontier).
+; ============================================================================
+
+class Mem {
+    sfn alloc:int (nBytes:int) {
+        return 0
+    }
+
+    sfn loadI32:int (ptr:int) {
+        return 0
+    }
+
+    sfn storeI32:void (ptr:int val:int) {
+    }
+
+    sfn loadU8:int (ptr:int) {
+        return 0
+    }
+
+    sfn storeU8:void (ptr:int val:int) {
+    }
+
+    ; wasm memory.size / memory.grow (intrinsics; bodies are placeholders the
+    ; compiler replaces). Sizes are in 64 KiB pages.
+    sfn memSize:int () {
+        return 0
+    }
+
+    sfn memGrow:int (pages:int) {
+        return 0
+    }
+}
+
+class Heap {
+    ; --- fixed geometry -----------------------------------------------------
+    ; The heap base is the end of the string-literal region, which the compiler
+    ; writes to Mem[4] (0 when there are no literals -> default 16).
+    sfn base:int () {
+        def b (Mem.loadI32(4))
+        if (== b 0) {
+            return 16
+        }
+        return b
+    }
+
+    ; the heap may use all of linear memory; its ceiling is the current memory
+    ; size (grown on demand by alloc via memory.grow), not a fixed one page.
+    sfn limit:int () {
+        return (* (Mem.memSize()) 65536)
+    }
+
+    sfn top:int () {
+        return (Mem.loadI32(0))
+    }
+
+    sfn setTop:void (v:int) {
+        Mem.storeI32(0 v)
+    }
+
+    sfn init:void () {
+        Mem.storeI32(0 (Heap.base()))
+    }
+
+    ; round a request up to the 8-byte block granularity (min one word pair)
+    sfn roundUp:int (n:int) {
+        def r (bit_and (+ n 7) (bit_xor -1 7))
+        if (< r 8) {
+            return 8
+        }
+        return r
+    }
+
+    ; --- block header accessors --------------------------------------------
+    sfn blockSize:int (b:int) {
+        return (Mem.loadI32(b))
+    }
+
+    sfn blockFree:int (b:int) {
+        return (Mem.loadI32((+ b 4)))
+    }
+
+    sfn setBlock:void (b:int size:int free:int) {
+        Mem.storeI32(b size)
+        Mem.storeI32((+ b 4) free)
+    }
+
+    ; total bytes occupied by a block (header + payload)
+    sfn blockTotal:int (b:int) {
+        return (+ (Heap.blockSize(b)) 8)
+    }
+
+    ; --- allocation ---------------------------------------------------------
+    sfn alloc:int (n:int) {
+        if (== (Heap.top()) 0) {
+            Heap.init()
+        }
+        def need (Heap.roundUp(n))
+
+        ; first-fit over existing blocks
+        def b (Heap.base())
+        def top (Heap.top())
+        while (< b top) {
+            if (== (Heap.blockFree(b)) 1) {
+                if (>= (Heap.blockSize(b)) need) {
+                    Heap.splitIfWorth(b need)
+                    Heap.setBlock(b (Heap.blockSize(b)) 0)
+                    return (+ b 8)
+                }
+            }
+            b = (+ b (Heap.blockTotal(b)))
+        }
+
+        ; no reusable block: carve a fresh one at the bump frontier, growing
+        ; linear memory by whole pages when the carve would overrun the current
+        ; ceiling. memory.grow returning -1 (host cap reached) is a real OOM -> 0.
+        def block top
+        def endNeed (+ (+ block need) 8)
+        if (> endNeed (Heap.limit())) {
+            def deficit (- endNeed (Heap.limit()))
+            def pages (idiv (+ deficit 65535) 65536)
+            def r (Mem.memGrow(pages))
+            if (< r 0) {
+                return 0
+            }
+        }
+        Heap.setBlock(block need 0)
+        Heap.setTop((+ (+ block need) 8))
+        return (+ block 8)
+    }
+
+    ; calloc-equivalent: allocate and zero the payload. Freed blocks are reused
+    ; with stale bytes, so callers that rely on zero-initialised memory (the
+    ; collection descriptors' metadata, non-owned flags) must go through here —
+    ; this is what the compiler routes emitHeapAlloc to under -wasmrc, matching
+    ; libc calloc. (Object/string runtimes use bare alloc and init themselves.)
+    sfn calloc:int (n:int) {
+        def p (Heap.alloc(n))
+        if (== p 0) {
+            return 0
+        }
+        def sz (Heap.blockSize((- p 8)))
+        def i 0
+        while (< i sz) {
+            Mem.storeU8((+ p i) 0)
+            i = (+ i 1)
+        }
+        return p
+    }
+
+    ; realloc-equivalent: grow/shrink a block, copying the smaller of old/new
+    ; payload bytes into a fresh block and freeing the old one. Used by the
+    ; collection push-grow path in place of libc realloc on freestanding WASM.
+    sfn realloc:int (ptr:int newBytes:int) {
+        if (== ptr 0) {
+            return (Heap.alloc(newBytes))
+        }
+        def np (Heap.alloc(newBytes))
+        if (== np 0) {
+            return 0
+        }
+        def old (Heap.blockSize((- ptr 8)))
+        def copy old
+        if (< newBytes copy) {
+            copy = newBytes
+        }
+        def i 0
+        while (< i copy) {
+            Mem.storeU8((+ np i) (Mem.loadU8((+ ptr i))))
+            i = (+ i 1)
+        }
+        Heap.free(ptr)
+        return np
+    }
+
+    ; if a chosen free block is large enough to hold `need` plus a whole second
+    ; block (header + one word pair), split off the remainder as a free block.
+    sfn splitIfWorth:void (b:int need:int) {
+        def sz (Heap.blockSize(b))
+        if (>= sz (+ need 16)) {
+            def rest (- (- sz need) 8)
+            def nb (+ (+ b 8) need)
+            Heap.setBlock(nb rest 1)
+            Mem.storeI32(b need)
+        }
+    }
+
+    ; --- free -> mark, then a full coalesce pass ---------------------------
+    ; A whole-heap coalesce keeps the free list fully merged regardless of the
+    ; order blocks are freed in (forward-only merge cannot join a block to an
+    ; already-free predecessor without footers). O(n) per free in Phase 0; the
+    ; compiler-emitted runtime can switch to an explicit free list later.
+    sfn free:void (ptr:int) {
+        Mem.storeI32((+ (- ptr 8) 4) 1)
+        Heap.coalesceAll()
+    }
+
+    sfn coalesceAll:void () {
+        ; forward-merge every run of adjacent free blocks
+        def b (Heap.base())
+        while (< b (Heap.top())) {
+            if (== (Heap.blockFree(b)) 1) {
+                def done 0
+                while (== done 0) {
+                    def nextp (+ b (Heap.blockTotal(b)))
+                    if (>= nextp (Heap.top())) {
+                        done = 1
+                    } {
+                        if (== (Heap.blockFree(nextp)) 1) {
+                            Mem.storeI32(b (+ (+ (Heap.blockSize(b)) 8) (Heap.blockSize(nextp))))
+                        } {
+                            done = 1
+                        }
+                    }
+                }
+            }
+            b = (+ b (Heap.blockTotal(b)))
+        }
+
+        ; tail reclaim: a trailing free block goes back to the bump frontier
+        def last (Heap.base())
+        def scan (Heap.base())
+        while (< scan (Heap.top())) {
+            last = scan
+            scan = (+ scan (Heap.blockTotal(scan)))
+        }
+        if (< last (Heap.top())) {
+            if (== (Heap.blockFree(last)) 1) {
+                Heap.setTop(last)
+            }
+        }
+    }
+
+    ; --- stats (for tests) --------------------------------------------------
+    sfn usedBytes:int () {
+        def b (Heap.base())
+        def top (Heap.top())
+        def sum 0
+        while (< b top) {
+            if (== (Heap.blockFree(b)) 0) {
+                sum = (+ sum (Heap.blockSize(b)))
+            }
+            b = (+ b (Heap.blockTotal(b)))
+        }
+        return sum
+    }
+
+    sfn usedBlocks:int () {
+        def b (Heap.base())
+        def top (Heap.top())
+        def cnt 0
+        while (< b top) {
+            if (== (Heap.blockFree(b)) 0) {
+                cnt = (+ cnt 1)
+            }
+            b = (+ b (Heap.blockTotal(b)))
+        }
+        return cnt
+    }
+
+    sfn frontier:int () {
+        return (Heap.top())
+    }
+}

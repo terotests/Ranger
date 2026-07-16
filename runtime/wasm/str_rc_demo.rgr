@@ -1,0 +1,158 @@
+; ============================================================================
+; str_rc_demo.rgr — string reference-counting / leak-freedom demo (Phase 3.4).
+;
+; Games churn throwaway HUD strings every frame ("SCORE " + n). Without release
+; the WASM heap grows without bound. These functions exercise the compiler's
+; owned-string tracking: fresh concat results are owned by the local and freed
+; at scope end (or per loop iteration), and the int->string temporaries the
+; concat allocates internally are freed too. A leak-free build keeps the heap
+; frontier flat across any iteration count.
+; ============================================================================
+
+Import "./ranger_obj.rgr"
+
+class SG {
+    ; Build and discard N HUD strings. Each iteration: `"HITS " + i` allocates an
+    ; int->string temp AND a concat result; both must be freed per iteration.
+    ; Returns the heap frontier after the loop — flat => leak-free.
+    sfn churnHud:int (n:int) {
+        def i 0
+        while (< i n) {
+            def s ("HITS " + i)
+            def L (strlen s)
+            i = (+ i 1)
+        }
+        return (Heap.frontier())
+    }
+
+    ; Nested concat in a loop: (("(" + i) + ("," + i)) — two inner fresh results
+    ; feed an outer concat; all intermediates must be freed each iteration.
+    sfn churnNested:int (n:int) {
+        def i 0
+        while (< i n) {
+            def s (("(" + i) + ("," + i))
+            def L (strlen s)
+            i = (+ i 1)
+        }
+        return (Heap.frontier())
+    }
+
+    ; Reassignment in a loop: the old buffer must be freed before the new one is
+    ; stored (release-before-reassign), so a single slot doesn't leak per frame.
+    sfn churnReassign:int (n:int) {
+        def s "start"
+        def i 0
+        while (< i n) {
+            s = ("v" + i)
+            i = (+ i 1)
+        }
+        def L (strlen s)
+        return (Heap.frontier())
+    }
+
+    ; Inline throwaway: the concat is never bound to a local — it is built
+    ; directly as an argument (here to strlen, standing in for host.drawText).
+    ; The statement arena must free the concat result AND its int->string temp at
+    ; statement end, or every frame leaks two buffers.
+    sfn churnInline:int (n:int) {
+        def i 0
+        def acc 0
+        while (< i n) {
+            acc = (+ acc (strlen ("HITS " + i)))
+            i = (+ i 1)
+        }
+        return (Heap.frontier())
+    }
+
+    ; Inline nested throwaway discarded as a bare expression statement.
+    sfn churnInlineNested:int (n:int) {
+        def i 0
+        while (< i n) {
+            def _ (strlen (("[" + i) + "]"))
+            i = (+ i 1)
+        }
+        return (Heap.frontier())
+    }
+
+    sfn liveBlocks:int () {
+        return (ranger.obj_live())
+    }
+
+    sfn frontier:int () {
+        return (Heap.frontier())
+    }
+
+    ; sanity: the HUD string is still correct while being freed each call
+    sfn hud:string (hits:int) {
+        def s ("HITS " + hits)
+        return s
+    }
+
+    ; --- string comparison (==/!=) via ranger_str_cmp ---------------------
+    ; 1 when the built HUD equals the literal. Exercises == on a fresh concat
+    ; local vs a static literal.
+    sfn eqHits:int (n:int) {
+        def s ("HITS " + n)
+        if (s == "HITS 5") {
+            return 1
+        }
+        return 0
+    }
+
+    sfn neHits:int (n:int) {
+        def s ("HITS " + n)
+        if (s != "HITS 5") {
+            return 1
+        }
+        return 0
+    }
+
+    ; comparison in a loop must not leak the per-iteration concat operand
+    sfn churnCompare:int (n:int) {
+        def hits 0
+        def i 0
+        while (< i n) {
+            if (("K" + i) == "K7") {
+                hits = (+ hits 1)
+            }
+            i = (+ i 1)
+        }
+        return (Heap.frontier())
+    }
+
+    ; --- char access ------------------------------------------------------
+    sfn charOf:int (pos:int) {
+        def s "HELLO"
+        return (charAt s pos)
+    }
+
+    sfn subLen:int (start:int end:int) {
+        def s "HELLO"
+        def sub (substring s start end)
+        return (strlen sub)
+    }
+
+    ; return the first byte of substring(s,start,end) (for content check)
+    sfn subFirst:int (start:int end:int) {
+        def s "HELLO"
+        def sub (substring s start end)
+        return (charAt sub 0)
+    }
+
+    sfn codeChar:int (code:int) {
+        def s (strfromcode code)
+        return (charAt s 0)
+    }
+
+    ; substring churn must stay heap-flat (fresh result freed each iteration)
+    sfn churnSubstring:int (n:int) {
+        def s "HELLOWORLD"
+        def i 0
+        while (< i n) {
+            def sub (substring s 0 5)
+            def L (strlen sub)
+            i = (+ i 1)
+        }
+        return (Heap.frontier())
+    }
+}

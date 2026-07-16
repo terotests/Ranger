@@ -1,0 +1,57 @@
+; ============================================================================
+; strarr_rc_demo.rgr — [string] arrays with per-element RC (PLAN_WASM_MEMORY
+; Phase 4b tail). A string array owns a dup'd copy of each element; on release
+; each is str_release'd (kind 2 in the descriptor), then backing + descriptor
+; are freed. A build/use/drop loop must stay heap-flat.
+; ============================================================================
+
+Import "./ranger_obj.rgr"
+
+class SG {
+    ; build a [string] of "item<i>", sum their lengths, drop. Elements are
+    ; dup'd into the array; the concat temporaries are freed by the arena.
+    sfn lenSum:int (n:int) {
+        def names:[string]
+        def i 0
+        while (< i n) {
+            push names ("item" + i)
+            i = (+ i 1)
+        }
+        def s 0
+        def j 0
+        while (< j (array_length names)) {
+            s = (+ s (strlen (itemAt names j)))
+            j = (+ j 1)
+        }
+        return s
+    }
+
+    ; first byte of a stored element, to confirm content survives the dup
+    sfn firstByte:int (n:int idx:int) {
+        def names:[string]
+        def i 0
+        while (< i n) {
+            push names ("K" + i)
+            i = (+ i 1)
+        }
+        return (charAt (itemAt names idx) 0)
+    }
+
+    ; build+drop `reps` times; heap flat => every element + array freed
+    sfn churn:int (reps:int size:int) {
+        def r 0
+        while (< r reps) {
+            def _ (SG.lenSum(size))
+            r = (+ r 1)
+        }
+        return (Heap.frontier())
+    }
+
+    sfn liveBlocks:int () {
+        return (ranger.obj_live())
+    }
+
+    sfn frontier:int () {
+        return (Heap.frontier())
+    }
+}

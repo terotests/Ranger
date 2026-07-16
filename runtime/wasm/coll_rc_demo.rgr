@@ -1,0 +1,117 @@
+; ============================================================================
+; coll_rc_demo.rgr — built-in collections on the free-list heap with RC
+; (PLAN_WASM_MEMORY Phase 4b). [int] and [Ent] arrays allocate their descriptor
+; and backing store from the free-list Heap (via Heap_calloc / Heap_realloc) and
+; are freed at scope end; an object array releases each owned element too. A
+; create/use/drop loop must stay heap-flat.
+; ============================================================================
+
+Import "./ranger_obj.rgr"
+
+class Ent {
+    def hp:int 0
+}
+
+class SG {
+    ; int array: build, sum, drop. Backing grows across 256 -> 512 -> ...
+    sfn sumList:int (n:int) {
+        def xs:[int]
+        def i 0
+        while (< i n) {
+            push xs i
+            i = (+ i 1)
+        }
+        def s 0
+        def j 0
+        while (< j (array_length xs)) {
+            s = (+ s (itemAt xs j))
+            j = (+ j 1)
+        }
+        return s
+    }
+
+    ; object array: push owned Ent locals (move), sum a field, drop. On release
+    ; the array frees each Ent and its own storage.
+    sfn sumEnts:int (n:int) {
+        def es:[Ent]
+        def i 0
+        while (< i n) {
+            def e (new Ent())
+            e.hp = i
+            push es e
+            i = (+ i 1)
+        }
+        def s 0
+        def j 0
+        while (< j (array_length es)) {
+            def e2 (itemAt es j)
+            s = (+ s e2.hp)
+            j = (+ j 1)
+        }
+        return s
+    }
+
+    ; leak check: build+drop an int list `reps` times; heap flat => leak-free
+    sfn churnList:int (reps:int size:int) {
+        def r 0
+        while (< r reps) {
+            def _ (SG.sumList(size))
+            r = (+ r 1)
+        }
+        return (Heap.frontier())
+    }
+
+    sfn churnEnts:int (reps:int size:int) {
+        def r 0
+        while (< r reps) {
+            def _ (SG.sumEnts(size))
+            r = (+ r 1)
+        }
+        return (Heap.frontier())
+    }
+
+    ; push a freshly-constructed object directly (not via a local): it is moved
+    ; into the array (rc stays 1), so array release frees it — no leak.
+    sfn sumEntsNew:int (n:int) {
+        def es:[Ent]
+        def i 0
+        while (< i n) {
+            push es (new Ent())
+            i = (+ i 1)
+        }
+        return (array_length es)
+    }
+
+    sfn churnEntsNew:int (reps:int size:int) {
+        def r 0
+        while (< r reps) {
+            def _ (SG.sumEntsNew(size))
+            r = (+ r 1)
+        }
+        return (Heap.frontier())
+    }
+
+    ; array created INSIDE the loop body must be freed each iteration
+    ; (releaseLoopBodyOwned), not accumulate until function end
+    sfn churnBodyList:int (reps:int size:int) {
+        def r 0
+        while (< r reps) {
+            def xs:[int]
+            def i 0
+            while (< i size) {
+                push xs i
+                i = (+ i 1)
+            }
+            r = (+ r 1)
+        }
+        return (Heap.frontier())
+    }
+
+    sfn liveBlocks:int () {
+        return (ranger.obj_live())
+    }
+
+    sfn frontier:int () {
+        return (Heap.frontier())
+    }
+}

@@ -15,6 +15,8 @@ class LowIRLowerContext {
   def ptrArrayElemTypes:[string:string]
   def ownedObjectLocals:[string]
   def ownedCollectionLocals:[string]
+  def ownedStringLocals:[string]
+  def pendingStringTemps:[string]
   def escapedLocals:[string:string]
   def currentRetType:string "i32"
   def llvmRetType:string "i32"
@@ -140,6 +142,11 @@ class LowIRBuilderPass {
     this.irModule.useLibcHeap = target.usesLibc
     if target.usesLibc {
       this.ensureLibcExtern(target)
+    } {
+      ; freestanding WASM with -wasmrc: unify all allocation on the free-list heap
+      if (appCtx.hasCompilerFlag("wasmrc")) {
+        this.irModule.useFreeListHeap = true
+      }
     }
 
     for appCtx.definedClassList cName:string i {
@@ -396,6 +403,31 @@ class LowIRBuilderPass {
     return this.usedMemRuntime
   }
 
+  ; Object reference-counting enabled: the libc path (full RC), OR the WASM
+  ; free-list path under -wasmrc. This gates ONLY the object new/release path;
+  ; string/array RC stays behind memEnabled/usesLibc because their WASM runtime
+  ; (ranger_ptrarray_*, ranger_str_*) is not emitted yet (PLAN_WASM_MEMORY v2).
+  fn objRcEnabled:boolean (lctx:LowIRLowerContext) {
+    def memTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
+    if (memTarget.usesLibc) {
+      return true
+    }
+    def ctx (unwrap lctx.ctx)
+    return (ctx.hasCompilerFlag("wasmrc"))
+  }
+
+  ; The freestanding-WASM string runtime (ranger_str_*) is in play: non-libc
+  ; target under -wasmrc. When true, string ops route to the WASM-native runtime
+  ; (ranger_str_len/concat/from_int/dup/cmp) instead of libc (strlen/sprintf/...).
+  fn wasmStrEnabled:boolean (lctx:LowIRLowerContext) {
+    def memTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
+    if (memTarget.usesLibc) {
+      return false
+    }
+    def ctx (unwrap lctx.ctx)
+    return (ctx.hasCompilerFlag("wasmrc"))
+  }
+
   fn isLowerableParamType:boolean (typeName:string) {
     if (LowIRUtil.isSupportedParam(typeName)) {
       return true
@@ -568,7 +600,11 @@ class LowIRBuilderPass {
     def dupArgTypes:[string]
     push dupArgs strPtr
     push dupArgTypes "i8*"
-    return (lctx.builder.emitCall("ranger_strdup" "i8*" dupArgs dupArgTypes))
+    def dupFn:string "ranger_strdup"
+    if (this.wasmStrEnabled(lctx)) {
+      dupFn = "ranger_str_dup"
+    }
+    return (lctx.builder.emitCall(dupFn "i8*" dupArgs dupArgTypes))
   }
 
   fn lowerStringConcat:string (aNode:CodeNode bNode:CodeNode lctx:LowIRLowerContext) {
@@ -580,6 +616,48 @@ class LowIRBuilderPass {
     }
     if (this.exprIsString(bNode)) {
       bStr = true
+    }
+    ; freestanding WASM: convert int operands to strings, then ranger_str_concat.
+    if (this.wasmStrEnabled(lctx)) {
+      def aV (this.lowerConcatOperand(aNode aStr lctx))
+      def sa aV
+      if (aStr == false) {
+        def a1:[string]
+        def a1t:[string]
+        push a1 aV
+        push a1t "i32"
+        sa = (builder.emitCall("ranger_str_from_int" "i8*" a1 a1t))
+      }
+      def bV (this.lowerConcatOperand(bNode bStr lctx))
+      def sb bV
+      if (bStr == false) {
+        def b1:[string]
+        def b1t:[string]
+        push b1 bV
+        push b1t "i32"
+        sb = (builder.emitCall("ranger_str_from_int" "i8*" b1 b1t))
+      }
+      def cargs:[string]
+      def cargTypes:[string]
+      push cargs sa
+      push cargTypes "i8*"
+      push cargs sb
+      push cargTypes "i8*"
+      def cres (builder.emitCall("ranger_str_concat" "i8*" cargs cargTypes))
+      ; register the intermediates + result with the statement arena. The
+      ; int->string conversions we just allocated (aStr/bStr == false) are fresh;
+      ; a fresh nested operand (concat/to_string result) is already pending from
+      ; its own producer, so it is not re-registered. Borrowed operands
+      ; (literal/VRef/field) are never registered. Everything unclaimed is freed
+      ; at statement end (concat already copied the bytes into `cres`).
+      if (aStr == false) {
+        this.registerFreshStringTemp(sa lctx)
+      }
+      if (bStr == false) {
+        this.registerFreshStringTemp(sb lctx)
+      }
+      this.registerFreshStringTemp(cres lctx)
+      return cres
     }
     def sz (builder.emitConst("i32" "4096"))
     def raw (builder.emitHeapAlloc(sz))
@@ -1164,7 +1242,9 @@ class LowIRBuilderPass {
     push argTypes "i32"
     push args end
     push argTypes "i32"
-    return (lctx.builder.emitCall("ranger_substring" "i8*" args argTypes))
+    def subRes (lctx.builder.emitCall("ranger_substring" "i8*" args argTypes))
+    this.registerFreshStringTemp(subRes lctx)
+    return subRes
   }
 
   fn lowerAtArgs:string (textNode:CodeNode posNode:CodeNode lctx:LowIRLowerContext) {
@@ -1294,6 +1374,23 @@ class LowIRBuilderPass {
         itemAddr = (lctx.builder.emitCast("zext" "i64" "i32" itemAddr))
       }
     }
+    ; Freestanding WASM [string] array: the array owns a dup'd private copy of
+    ; each element (like a string field), freed via str_release on array release.
+    ; The source value keeps its own lifetime (arena temp / owned local).
+    if (this.wasmStrEnabled(lctx)) {
+      if (LowIRUtil.isStringType((this.arrayElemTypeName(arrNode lctx)))) {
+        def dupStr (this.emitStrdupExpr(itemAddr lctx))
+        def sArgs:[string]
+        def sArgTypes:[string]
+        push sArgs desc
+        push sArgTypes lctx.ptrType
+        push sArgs dupStr
+        push sArgTypes lctx.ptrType
+        this.usedPtrArrayRuntime = true
+        lctx.builder.emitCall("RtPtrArray_push" "void" sArgs sArgTypes)
+        return
+      }
+    }
     def args:[string]
     def argTypes:[string]
     push args desc
@@ -1302,23 +1399,40 @@ class LowIRBuilderPass {
     push argTypes lctx.ptrType
     def voidType:string "void"
     if (this.exprIsObjectPtr(itemNode lctx)) {
-      if (this.memEnabled(lctx)) {
-        ; Move ownership of an owned local into the array (no retain).
-        ; The array owns the element and releases it once on free.
+      if ((this.memEnabled(lctx)) || (this.wasmCollectionRcEnabled(lctx))) {
+        ; Move ownership of an owned local into the array (no retain): the array
+        ; owns the element and releases it once on free. Marking it escaped stops
+        ; the scope-end release, so the object is freed exactly once (by the
+        ; array). A non-owned element (fresh `new` result, borrowed ref) is
+        ; retained by push_owned so the array's release is balanced.
         def isMove:boolean false
         if (itemNode.value_type == RangerNodeType.VRef) {
           if (this.isOwnedObjectLocal(itemNode.vref lctx)) {
             isMove = true
           }
         }
-        if isMove {
-          set lctx.escapedLocals itemNode.vref "1"
+        ; A freshly-constructed `new T()` pushed directly has rc=1 and no other
+        ; owner, so it is moved (the array owns that single reference and frees it
+        ; on release) rather than retained — retaining would leave rc=1 after the
+        ; array releases, leaking it. WASM only, to keep the libc path unchanged.
+        def freshNew:boolean false
+        if itemNode.hasNewOper {
+          if (this.wasmCollectionRcEnabled(lctx)) {
+            freshNew = true
+          }
+        }
+        if (isMove || freshNew) {
+          if (itemNode.value_type == RangerNodeType.VRef) {
+            set lctx.escapedLocals itemNode.vref "1"
+          }
           this.usedPtrArrayRuntime = true
           lctx.builder.emitCall("RtPtrArray_push" voidType args argTypes)
           return
         }
-        this.usedMemRuntime = true
-        this.ensureMemExtern((LowIRTarget.resolve((unwrap lctx.ctx))))
+        if (this.memEnabled(lctx)) {
+          this.usedMemRuntime = true
+          this.ensureMemExtern((LowIRTarget.resolve((unwrap lctx.ctx))))
+        }
         lctx.builder.emitCall("ranger_ptrarray_push_owned" voidType args argTypes)
         return
       }
@@ -1405,6 +1519,20 @@ class LowIRBuilderPass {
     def valNode (node.getSecond())
     def isF64 (this.exprIsF64(valNode))
     def val (this.lowerExpr(valNode lctx))
+    ; freestanding WASM: ranger_str_from_int (f64 truncated to i32 for now).
+    if (this.wasmStrEnabled(lctx)) {
+      def iv val
+      if isF64 {
+        iv = (builder.emitCast("fptosi" "i32" "f64" val))
+      }
+      def sargs:[string]
+      def sargTypes:[string]
+      push sargs iv
+      push sargTypes "i32"
+      def sres (builder.emitCall("ranger_str_from_int" "i8*" sargs sargTypes))
+      this.registerFreshStringTemp(sres lctx)
+      return sres
+    }
     def sz (builder.emitConst("i32" "64"))
     def raw (builder.emitHeapAlloc(sz))
     def buf (builder.emitIntToI8Ptr(raw lctx.ptrType))
@@ -1445,7 +1573,9 @@ class LowIRBuilderPass {
     def argTypes:[string]
     push args code
     push argTypes "i32"
-    return (builder.emitCall(fnName "i8*" args argTypes))
+    def codeRes (builder.emitCall(fnName "i8*" args argTypes))
+    this.registerFreshStringTemp(codeRes lctx)
+    return codeRes
   }
 
   fn lowerStrlen:string (node:CodeNode lctx:LowIRLowerContext) {
@@ -1462,7 +1592,11 @@ class LowIRBuilderPass {
     def argTypes:[string]
     push args strPtr
     push argTypes "i8*"
-    return (builder.emitCall("strlen" "i32" args argTypes))
+    def lenFn:string "strlen"
+    if (this.wasmStrEnabled(lctx)) {
+      lenFn = "ranger_str_len"
+    }
+    return (builder.emitCall(lenFn "i32" args argTypes))
   }
 
   fn isIntArrayTypeNode:boolean (node:CodeNode) {
@@ -1492,7 +1626,19 @@ class LowIRBuilderPass {
     return false
   }
 
-  fn emitPtrArrayNewEmpty:string (lctx:LowIRLowerContext owned:boolean) {
+  fn isStringArrayTypeNode:boolean (node:CodeNode) {
+    if (node.value_type == RangerNodeType.Array) {
+      return (LowIRUtil.isStringType(node.array_type))
+    }
+    return false
+  }
+
+  ; elemKind: 0 = plain values (int, no element release), 1 = owned objects
+  ; (obj_release each on free), 2 = owned strings (str_release each on free).
+  ; The value is written to the descriptor's flag word; the release runtime
+  ; dispatches on it. libc reads it as a truthy "owned" flag (kind 1 = its
+  ; existing object-array behaviour).
+  fn emitPtrArrayNewEmpty:string (lctx:LowIRLowerContext elemKind:int) {
     this.usedPtrArrayRuntime = true
     def builder (lctx.builder)
     def cap (builder.emitConst("i32" "256"))
@@ -1501,9 +1647,9 @@ class LowIRBuilderPass {
     push args cap
     push argTypes "i32"
     def desc (builder.emitCall("RtPtrArray_new" lctx.ptrType args argTypes))
-    if owned {
-      def one (builder.emitConst("i32" "1"))
-      builder.emitStoreI32At(desc (this.ptrArrayOwnedOff(lctx)) one)
+    if (elemKind > 0) {
+      def kindC (builder.emitConst("i32" ("" + elemKind)))
+      builder.emitStoreI32At(desc (this.ptrArrayOwnedOff(lctx)) kindC)
     }
     return desc
   }
@@ -1513,7 +1659,28 @@ class LowIRBuilderPass {
     set lctx.collectionSlots varName "ptr_array"
     if owned {
       push lctx.ownedCollectionLocals varName
+    } {
+      ; On freestanding WASM every locally-created array (including [int], which
+      ; is owned=0 at the element level) must still be freed at scope end — its
+      ; backing store and descriptor live on the free-list heap. ranger_ptrarray_
+      ; release reads the descriptor's owned flag, so it frees int arrays without
+      ; touching elements. The libc path keeps its existing behaviour.
+      if (this.wasmCollectionRcEnabled(lctx)) {
+        push lctx.ownedCollectionLocals varName
+      }
     }
+  }
+
+  ; Collections are freed on scope exit on the freestanding-WASM path too (not
+  ; only libc): -wasmrc routes their allocation to the free-list heap, so they
+  ; can — and must — be released.
+  fn wasmCollectionRcEnabled:boolean (lctx:LowIRLowerContext) {
+    def memTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
+    if (memTarget.usesLibc) {
+      return false
+    }
+    def ctx (unwrap lctx.ctx)
+    return (ctx.hasCompilerFlag("wasmrc"))
   }
 
   fn collectionKind:string (varName:string lctx:LowIRLowerContext) {
@@ -1552,6 +1719,11 @@ class LowIRBuilderPass {
   fn bindCollectionSlot:void (varName:string kind:string desc:string lctx:LowIRLowerContext) {
     this.bindSlot(varName lctx.ptrType desc lctx)
     set lctx.collectionSlots varName kind
+    ; On freestanding WASM a locally-created map is freed at scope end too. The
+    ; release loop dispatches by collectionKind (map -> RtMap_free).
+    if (this.wasmCollectionRcEnabled(lctx)) {
+      push lctx.ownedCollectionLocals varName
+    }
   }
 
   fn loadCollectionDesc:string (varName:string lctx:LowIRLowerContext) {
@@ -2207,18 +2379,23 @@ class LowIRBuilderPass {
   }
 
   fn emitReleaseFieldValue:void (className:string fieldName:string rawVal:string lctx:LowIRLowerContext) {
-    if (this.memEnabled(lctx) == false) {
-      return
-    }
     def builder (lctx.builder)
     def voidType:string "void"
     def args:[string]
     def argTypes:[string]
+    ; string fields carry a dup'd private copy on both the libc (memEnabled) and
+    ; freestanding-WASM (wasmStrEnabled) paths, so both release it on overwrite.
     if (this.fieldIsStringSlot(className fieldName)) {
-      def i8p (builder.emitIntToI8Ptr(rawVal lctx.ptrType))
-      push args i8p
-      push argTypes "i8*"
-      builder.emitCall("ranger_str_release" voidType args argTypes)
+      if ((this.memEnabled(lctx)) || (this.wasmStrEnabled(lctx))) {
+        def i8p (builder.emitIntToI8Ptr(rawVal lctx.ptrType))
+        push args i8p
+        push argTypes "i8*"
+        builder.emitCall("ranger_str_release" voidType args argTypes)
+      }
+      return
+    }
+    ; remaining field kinds (buffer) are libc-only
+    if (this.memEnabled(lctx) == false) {
       return
     }
     if (this.fieldIsBufferSlot(className fieldName)) {
@@ -2241,6 +2418,17 @@ class LowIRBuilderPass {
     if (this.memEnabled(lctx)) {
       def oldRaw (builder.emitLoad(ftype fieldPtr))
       this.emitReleaseFieldValue(className fieldName oldRaw lctx)
+    } {
+      ; freestanding WASM string RC: free the old string this field held before
+      ; overwriting it (the field owns a dup'd copy). Object/buffer fields stay
+      ; libc-only. Field is zero-initialised by obj_new, so the first store sees
+      ; 0 and str_release is a no-op.
+      if (this.wasmStrEnabled(lctx)) {
+        if (this.fieldIsStringSlot(className fieldName)) {
+          def oldRawW (builder.emitLoad(ftype fieldPtr))
+          this.emitReleaseFieldValue(className fieldName oldRawW lctx)
+        }
+      }
     }
     def storeVal:string value
     if (this.fieldIsStringSlot(className fieldName)) {
@@ -2552,6 +2740,22 @@ class LowIRBuilderPass {
     return 0
   }
 
+  ; True when the class has at least one owned field (a string field today;
+  ; object/ptr-array fields are borrow until borrow analysis promotes them), so
+  ; its objects need a type descriptor for recursive destruction on WASM.
+  fn classHasOwnedFields:boolean (className:string) {
+    for this.irModule.typeDescs td:LowIRTypeDesc i {
+      if (td.className == className) {
+        for td.fields fd:LowIRTypeFieldDesc j {
+          if (fd.owned == 1) {
+            return true
+          }
+        }
+      }
+    }
+    return false
+  }
+
   fn lowerNewObject:string (className:string argsNode:CodeNode lctx:LowIRLowerContext) {
     def builder (lctx.builder)
     def byteCnt (this.structByteSize(className this.irModule))
@@ -2579,7 +2783,28 @@ class LowIRBuilderPass {
       def newSig:string ("i32, ptr")
       heapAddr = (builder.emitCallWithSig("ranger_obj_new" lctx.ptrType newSig newArgs newArgTypes))
     } {
-      heapAddr = (builder.emitHeapAlloc(bytes))
+      if (this.objRcEnabled(lctx)) {
+        ; WASM free-list RC: ranger_obj_new(size, typeDesc). typeDesc points at
+        ; the class descriptor in the static data segment when the class has
+        ; owned (string) fields, so obj_release -> destroyFields frees them; 0
+        ; otherwise (nothing to recurse). The runtime prepends the rc/size/type
+        ; header and returns the body pointer.
+        def tdArg:string ""
+        if (this.classHasOwnedFields(className)) {
+          tdArg = (builder.emitTypeDescPtr(className))
+        } {
+          tdArg = (builder.emitConst("i32" "0"))
+        }
+        def wArgs:[string]
+        def wArgTypes:[string]
+        push wArgs bytes
+        push wArgTypes "i32"
+        push wArgs tdArg
+        push wArgTypes "i32"
+        heapAddr = (builder.emitCall("ranger_obj_new" lctx.ptrType wArgs wArgTypes))
+      } {
+        heapAddr = (builder.emitHeapAlloc(bytes))
+      }
     }
     def objSlot (builder.emitIntToStructPtr(className heapAddr))
     this.initFieldDefaultsInObject(className objSlot lctx)
@@ -2676,6 +2901,10 @@ class LowIRBuilderPass {
     lctx.ownedObjectLocals = emptyOwned
     def emptyColl:[string]
     lctx.ownedCollectionLocals = emptyColl
+    def emptyStr:[string]
+    lctx.ownedStringLocals = emptyStr
+    def emptyPending:[string]
+    lctx.pendingStringTemps = emptyPending
     def emptyEscaped:[string:string]
     lctx.escapedLocals = emptyEscaped
     if isInstance {
@@ -2810,8 +3039,7 @@ class LowIRBuilderPass {
   }
 
   fn releaseOwnedLocal:void (varName:string lctx:LowIRLowerContext) {
-    def memTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
-    if (memTarget.usesLibc == false) {
+    if (this.objRcEnabled(lctx) == false) {
       return
     }
     if (has lctx.escapedLocals varName) {
@@ -2828,6 +3056,172 @@ class LowIRBuilderPass {
     push args val
     push argTypes lctx.ptrType
     builder.emitCall("ranger_obj_release" voidType args argTypes)
+  }
+
+  ; --- string RC (freestanding WASM, -wasmrc) ------------------------------
+  ; Games churn temporary strings ("SCORE " + n) every frame; without release
+  ; the heap grows unbounded. Owned string locals are released at scope end via
+  ; ranger_str_release (a no-op for static literal pointers below the heap base).
+  fn isOwnedStringLocal:boolean (varName:string lctx:LowIRLowerContext) {
+    for lctx.ownedStringLocals n:string i {
+      if (n == varName) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; --- fresh-string temp arena (statement-scoped) -------------------------
+  ; A fresh heap string produced mid-expression (concat/to_string/string-call)
+  ; that is not (yet) owned by a local. Registered here, then either CLAIMED by
+  ; an owner (assigned to a local, or returned/escaped) or FLUSHED at statement
+  ; end. This frees inline throwaways like `host.drawText("S " + n)` — the concat
+  ; result and its int->string temporaries — every statement, so a frame loop
+  ; stays heap-flat without the value ever being bound to a named local.
+  fn registerFreshStringTemp:void (tmp:string lctx:LowIRLowerContext) {
+    if (this.wasmStrEnabled(lctx) == false) {
+      return
+    }
+    push lctx.pendingStringTemps tmp
+  }
+
+  ; the temp became owned (moved to a local) or escaped (returned) -> drop it
+  ; from the pending set so it is not double-freed at statement end.
+  fn claimStringTemp:void (tmp:string lctx:LowIRLowerContext) {
+    if (this.wasmStrEnabled(lctx) == false) {
+      return
+    }
+    def kept:[string]
+    for lctx.pendingStringTemps t:string i {
+      if (t != tmp) {
+        push kept t
+      }
+    }
+    lctx.pendingStringTemps = kept
+  }
+
+  ; release + drop every pending temp registered since `mark`. Emits into the
+  ; current block, so callers must flush while the temps still dominate (i.e. at
+  ; the end of the linear statement / condition that produced them).
+  fn flushStringTempsFrom:void (mark:int lctx:LowIRLowerContext) {
+    if (this.wasmStrEnabled(lctx) == false) {
+      return
+    }
+    def n (array_length lctx.pendingStringTemps)
+    if (n <= mark) {
+      return
+    }
+    def k mark
+    while (< k n) {
+      this.emitStrReleasePtr((itemAt lctx.pendingStringTemps k) lctx)
+      k = (+ k 1)
+    }
+    def kept:[string]
+    def j 0
+    while (< j mark) {
+      push kept (itemAt lctx.pendingStringTemps j)
+      j = (+ j 1)
+    }
+    lctx.pendingStringTemps = kept
+  }
+
+  ; free a bare string pointer (an intermediate temporary) via ranger_str_release
+  fn emitStrReleasePtr:void (ptr:string lctx:LowIRLowerContext) {
+    def args:[string]
+    def argTypes:[string]
+    push args ptr
+    push argTypes "i8*"
+    lctx.builder.emitCall("ranger_str_release" "void" args argTypes)
+  }
+
+  fn releaseOwnedString:void (varName:string lctx:LowIRLowerContext) {
+    if (this.wasmStrEnabled(lctx) == false) {
+      return
+    }
+    if (has lctx.escapedLocals varName) {
+      return
+    }
+    if (false == (has lctx.slots varName)) {
+      return
+    }
+    def builder (lctx.builder)
+    def voidType:string "void"
+    def val (this.loadSlot(varName "i8*" lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args val
+    push argTypes "i8*"
+    builder.emitCall("ranger_str_release" voidType args argTypes)
+  }
+
+  ; Release one owned collection local (free backing store + descriptor, and, for
+  ; element-owned object arrays, each element). Escaped collections (returned or
+  ; stored into a field) are skipped. Used at scope end and per loop iteration.
+  fn releaseOwnedCollectionLocal:void (varName:string lctx:LowIRLowerContext) {
+    if (has lctx.escapedLocals varName) {
+      return
+    }
+    if (false == (has lctx.slots varName)) {
+      return
+    }
+    def desc (this.loadSlot(varName lctx.ptrType lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args desc
+    push argTypes lctx.ptrType
+    ; dispatch by collection kind: maps free desc+keys+vals via RtMap_free;
+    ; ptr-arrays (int and object) free backing+desc (+ element RC) via
+    ; ranger_ptrarray_release.
+    def relFn:string "ranger_ptrarray_release"
+    if ((this.collectionKind(varName lctx)) == "map") {
+      relFn = "RtMap_free"
+    }
+    lctx.builder.emitCall(relFn "void" args argTypes)
+  }
+
+  ; Prepare a string value for a freshly-defined owned local and register it for
+  ; scope-end release. Fresh strings (concat/to_string/string-call) are owned
+  ; directly; borrowed ones (literal/VRef/field) are dup'd so the local owns a
+  ; private copy. Non-wasm targets keep the legacy always-dup behaviour.
+  fn emitOwnedStringInit:string (varName:string valNode:CodeNode strPtr:string lctx:LowIRLowerContext) {
+    if (this.wasmStrEnabled(lctx) == false) {
+      return (this.emitStrdupExpr(strPtr lctx))
+    }
+    def owned strPtr
+    if ((this.exprIsFreshString(valNode lctx)) == false) {
+      owned = (this.emitStrdupExpr(strPtr lctx))
+    } {
+      ; owning a fresh temp directly: move it out of the statement arena so it is
+      ; not double-freed (the local's scope-end release now owns its lifetime).
+      this.claimStringTemp(strPtr lctx)
+    }
+    if (this.isOwnedStringLocal(varName lctx) == false) {
+      push lctx.ownedStringLocals varName
+    }
+    return owned
+  }
+
+  ; Reassignment of an owned string local: free the previous buffer first, then
+  ; own the new value (fresh directly, borrowed dup'd). `strPtr` already holds the
+  ; new value, computed independently of the old slot, so freeing old is safe
+  ; even for `s = (s + "x")` (concat copied the old bytes into a fresh buffer).
+  fn emitOwnedStringReassign:string (varName:string valNode:CodeNode strPtr:string lctx:LowIRLowerContext) {
+    if (this.wasmStrEnabled(lctx) == false) {
+      return (this.emitStrdupExpr(strPtr lctx))
+    }
+    if (this.isOwnedStringLocal(varName lctx)) {
+      this.releaseOwnedString(varName lctx)
+    }
+    def owned strPtr
+    if ((this.exprIsFreshString(valNode lctx)) == false) {
+      owned = (this.emitStrdupExpr(strPtr lctx))
+    } {
+      this.claimStringTemp(strPtr lctx)
+    }
+    if (this.isOwnedStringLocal(varName lctx) == false) {
+      push lctx.ownedStringLocals varName
+    }
+    return owned
   }
 
   fn strictOwnershipEnabled:boolean (lctx:LowIRLowerContext) {
@@ -2864,7 +3258,7 @@ class LowIRBuilderPass {
 
   fn emitReleaseOwnedLocals:void (lctx:LowIRLowerContext) {
     def memTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
-    if (memTarget.isManualMemory() == false) {
+    if (this.objRcEnabled(lctx) == false) {
       return
     }
     if (this.strictOwnershipEnabled(lctx)) {
@@ -2873,21 +3267,22 @@ class LowIRBuilderPass {
     for lctx.ownedObjectLocals name:string i {
       this.releaseOwnedLocal(name lctx)
     }
-    def builder (lctx.builder)
-    def voidType:string "void"
+    ; owned string locals (freestanding WASM): free per-scope temporaries so a
+    ; frame's throwaway strings don't accumulate on the heap.
+    for lctx.ownedStringLocals sname:string si {
+      this.releaseOwnedString(sname lctx)
+    }
+    ; owned collections: freed on the libc path and on freestanding WASM (-wasmrc,
+    ; where their storage is on the free-list heap). ranger_ptrarray_release frees
+    ; the backing store + descriptor and, when the descriptor is element-owned
+    ; (object arrays), releases each element.
+    if (memTarget.usesLibc == false) {
+      if ((this.wasmCollectionRcEnabled(lctx)) == false) {
+        return
+      }
+    }
     for lctx.ownedCollectionLocals name:string i {
-      if (has lctx.escapedLocals name) {
-        continue
-      }
-      if (false == (has lctx.slots name)) {
-        continue
-      }
-      def desc (this.loadSlot(name lctx.ptrType lctx))
-      def args:[string]
-      def argTypes:[string]
-      push args desc
-      push argTypes lctx.ptrType
-      builder.emitCall("ranger_ptrarray_release" voidType args argTypes)
+      this.releaseOwnedCollectionLocal(name lctx)
     }
   }
 
@@ -2933,7 +3328,32 @@ class LowIRBuilderPass {
     return (fc.vref == "=")
   }
 
+  ; Statement wrapper: after a leaf statement lowers, release the fresh-string
+  ; temporaries it produced but nobody claimed (inline throwaways such as
+  ; `host.drawText("S " + n)`), so a frame loop stays heap-flat. Statements that
+  ; terminate the block (return) or open nested regions (if/while/for) manage
+  ; their own temps and their condition flush; here the current block is either
+  ; terminated (skip — cannot emit past a terminator) or the range is already
+  ; empty, so this flush is a safe leaf-only cleanup.
   fn lowerStmt:void (node:CodeNode lctx:LowIRLowerContext) {
+    if node.disabled_node {
+      return
+    }
+    if (this.wasmStrEnabled(lctx) == false) {
+      this.lowerStmtDispatch(node lctx)
+      return
+    }
+    def strMark (array_length lctx.pendingStringTemps)
+    this.lowerStmtDispatch(node lctx)
+    if (!null? lctx.builder.currentBlock) {
+      def curBlock (unwrap lctx.builder.currentBlock)
+      if (curBlock.termKind == "") {
+        this.flushStringTempsFrom(strMark lctx)
+      }
+    }
+  }
+
+  fn lowerStmtDispatch:void (node:CodeNode lctx:LowIRLowerContext) {
     if node.disabled_node {
       return
     }
@@ -3054,13 +3474,21 @@ class LowIRBuilderPass {
     }
     if (null? valNode) {
       if (this.isIntArrayTypeNode(nameNode)) {
-        def emptyArr (this.emitPtrArrayNewEmpty(lctx false))
+        def emptyArr (this.emitPtrArrayNewEmpty(lctx 0))
         this.bindPtrArraySlot(varName emptyArr lctx false)
         set lctx.ptrArrayElemTypes varName "int"
         return
       }
+      ; a [string] array owns str-releasable elements (kind 2); check before the
+      ; general object-array case, which also matches non-int element types.
+      if (this.isStringArrayTypeNode(nameNode)) {
+        def emptyStrArr (this.emitPtrArrayNewEmpty(lctx 2))
+        this.bindPtrArraySlot(varName emptyStrArr lctx true)
+        set lctx.ptrArrayElemTypes varName "string"
+        return
+      }
       if (this.isObjectPtrArrayTypeNode(nameNode)) {
-        def emptyPtrArr (this.emitPtrArrayNewEmpty(lctx true))
+        def emptyPtrArr (this.emitPtrArrayNewEmpty(lctx 1))
         this.bindPtrArraySlot(varName emptyPtrArr lctx true)
         return
       }
@@ -3152,7 +3580,7 @@ class LowIRBuilderPass {
       set lctx.objectSlots varName typeName
     }
     if (irType == "i8*") {
-      tmp = (this.emitStrdupExpr(tmp lctx))
+      tmp = (this.emitOwnedStringInit(varName val tmp lctx))
     }
     ; A double-typed local initialized from an integer-valued expression: widen
     ; the i32 result to double so the slot store types match.
@@ -3223,6 +3651,10 @@ class LowIRBuilderPass {
               }
             }
           }
+          ; A string field takes a dup'd private copy (emitFieldStoreOn), so an
+          ; owned string local stored into it is NOT consumed — it keeps its own
+          ; buffer and is still released normally at scope end. The field's copy
+          ; is freed on overwrite and by the object destructor (typedesc kind 0).
           this.emitFieldStoreOn(cls sptr fld tmp lctx)
           return
         }
@@ -3239,6 +3671,17 @@ class LowIRBuilderPass {
     }
     if (has lctx.slots varName) {
       def slot (unwrap (get lctx.slots varName))
+      ; release-before-reassign: `x = (new T)` on an owned object local must free
+      ; the previous object first (the new one is already allocated in `tmp`).
+      ; releaseOwnedLocal self-gates on objRcEnabled + escaped, and loads the
+      ; slot's current (old) value.
+      if (rhs.hasNewOper) {
+        if (has lctx.objectSlots varName) {
+          if (this.isOwnedObjectLocal(varName lctx)) {
+            this.releaseOwnedLocal(varName lctx)
+          }
+        }
+      }
       def storeType (irType)
       if (has lctx.slotTypes varName) {
         storeType = (unwrap (get lctx.slotTypes varName))
@@ -3250,7 +3693,7 @@ class LowIRBuilderPass {
         }
       }
       if (storeType == "i8*") {
-        tmp = (this.emitStrdupExpr(tmp lctx))
+        tmp = (this.emitOwnedStringReassign(varName rhs tmp lctx))
       }
       builder.emitStore(storeType tmp slot)
       return
@@ -3275,6 +3718,11 @@ class LowIRBuilderPass {
       } {
         tmp = (this.lowerExpr(valNode lctx))
       }
+      ; the returned value escapes to the caller: claim it out of the statement
+      ; arena so it is not freed, then release the remaining intermediates (e.g.
+      ; the int->string temps of `return ("a" + n)`) before the terminator.
+      this.claimStringTemp(tmp lctx)
+      this.flushStringTempsFrom(0 lctx)
       this.emitReleaseOwnedLocals(lctx)
       builder.terminateRet(retType tmp)
     } {
@@ -3441,7 +3889,12 @@ class LowIRBuilderPass {
     def builder (lctx.builder)
     def condNode (node.getSecond())
     def thenNode (node.getThird())
+    def condMark (array_length lctx.pendingStringTemps)
     def cond (this.lowerCond(condNode lctx))
+    ; a fresh string temp built in the condition (e.g. (("a"+x) == y)) is dead
+    ; once the i1 is computed; free it here, in the pre-branch block where it is
+    ; still valid, rather than leaking to the merge block.
+    this.flushStringTempsFrom(condMark lctx)
     def thenTag:string "then"
     def elseTag:string "else"
     def mergeTag:string "merge"
@@ -3498,17 +3951,87 @@ class LowIRBuilderPass {
 
     builder.terminateBr(condLabel)
     builder.startBlock(condLabel)
+    def condMark (array_length lctx.pendingStringTemps)
     def cond (this.lowerCond(condNode lctx))
+    ; free per-iteration condition string temps in the condition block (runs each
+    ; iteration), so a loop whose test builds a string doesn't leak every turn.
+    this.flushStringTempsFrom(condMark lctx)
     builder.terminateBrIf(cond bodyLabel exitLabel)
+
+    ; snapshot owned-object and owned-string locals so any declared INSIDE the
+    ; loop body are released once per iteration (block scope), not leaked until
+    ; function end — critical for per-frame throwaway strings.
+    def ownedBefore (array_length lctx.ownedObjectLocals)
+    def ownedStrBefore (array_length lctx.ownedStringLocals)
+    def ownedCollBefore (array_length lctx.ownedCollectionLocals)
 
     builder.startBlock(bodyLabel)
     this.lowerBlock(bodyNode lctx)
     def bodyBlock (unwrap builder.currentBlock)
     if (bodyBlock.termKind == "") {
+      this.releaseLoopBodyOwned(ownedBefore ownedStrBefore ownedCollBefore lctx)
       builder.terminateBr(condLabel)
     }
 
     builder.startBlock(exitLabel)
+  }
+
+  ; Release owned-object locals that were introduced within a loop body (indices
+  ; >= ownedBefore), then drop them from the function-level list so the scope-end
+  ; cleanup does not double-release. Escaped locals are skipped by releaseOwned
+  ; Local. Gated on -wasmrc so the native path's existing behaviour is unchanged.
+  fn releaseLoopBodyOwned:void (ownedBefore:int ownedStrBefore:int ownedCollBefore:int lctx:LowIRLowerContext) {
+    def ctx (unwrap lctx.ctx)
+    if ((ctx.hasCompilerFlag("wasmrc")) == false) {
+      return
+    }
+    def n (array_length lctx.ownedObjectLocals)
+    if (n > ownedBefore) {
+      def k ownedBefore
+      while (< k n) {
+        this.releaseOwnedLocal((itemAt lctx.ownedObjectLocals k) lctx)
+        k = (+ k 1)
+      }
+      def kept:[string]
+      def j 0
+      while (< j ownedBefore) {
+        push kept (itemAt lctx.ownedObjectLocals j)
+        j = (+ j 1)
+      }
+      lctx.ownedObjectLocals = kept
+    }
+    ; same per-iteration release for owned string locals introduced in the body
+    def sn (array_length lctx.ownedStringLocals)
+    if (sn > ownedStrBefore) {
+      def sk ownedStrBefore
+      while (< sk sn) {
+        this.releaseOwnedString((itemAt lctx.ownedStringLocals sk) lctx)
+        sk = (+ sk 1)
+      }
+      def keptS:[string]
+      def sj 0
+      while (< sj ownedStrBefore) {
+        push keptS (itemAt lctx.ownedStringLocals sj)
+        sj = (+ sj 1)
+      }
+      lctx.ownedStringLocals = keptS
+    }
+    ; same per-iteration release for owned collection locals introduced in the body
+    def cn (array_length lctx.ownedCollectionLocals)
+    if (cn > ownedCollBefore) {
+      def ck ownedCollBefore
+      while (< ck cn) {
+        this.releaseOwnedCollectionLocal((itemAt lctx.ownedCollectionLocals ck) lctx)
+        ck = (+ ck 1)
+      }
+      def keptC:[string]
+      def cj 0
+      while (< cj ownedCollBefore) {
+        push keptC (itemAt lctx.ownedCollectionLocals cj)
+        cj = (+ cj 1)
+      }
+      lctx.ownedCollectionLocals = keptC
+    }
   }
 
   fn lowerExpr:string (node:CodeNode lctx:LowIRLowerContext) {
@@ -3770,6 +4293,40 @@ class LowIRBuilderPass {
     return false
   }
 
+  ; A string expression that yields a FRESHLY heap-allocated buffer uniquely
+  ; owned by this expression: a concat, a string-producing operator
+  ; (to_string/substring/strfromcode/...), or a string-returning call whose
+  ; result the caller owns (return convention marks it escaped, not freed, in
+  ; the callee). Such a value is owned directly (no dup) and released at scope
+  ; end. Literals and VRefs are NOT fresh (borrowed) -> the caller dups to own a
+  ; private copy. Conservative: unknown shapes return false; the dup path is
+  ; always safe (owns a private heap copy), it just costs one extra alloc/free.
+  fn exprIsFreshString:boolean (node:CodeNode lctx:LowIRLowerContext) {
+    if (this.wasmStrEnabled(lctx) == false) {
+      return false
+    }
+    def exprNode (this.unwrapCondExpr(node))
+    if exprNode.has_operator {
+      def op (exprNode.getOperator())
+      if (this.operatorReturnsString(op)) {
+        return true
+      }
+      if (op == "+") {
+        def aNode (exprNode.getSecond())
+        def bNode (exprNode.getThird())
+        if ((this.exprMightBeString(aNode lctx)) || (this.exprMightBeString(bNode lctx))) {
+          return true
+        }
+      }
+    }
+    ; A string-returning call is deliberately NOT treated as fresh. The return
+    ; path does not dup, so a getter (`return this.name`) hands back a borrowed
+    ; field pointer; owning+freeing it would dangle the field. Duping the result
+    ; (the not-fresh path) is always safe — at worst it leaks a genuinely fresh
+    ; callee result, which is recoverable, whereas a wrong free corrupts memory.
+    return false
+  }
+
   fn exprIsStringish:boolean (node:CodeNode lctx:LowIRLowerContext) {
     def exprNode (this.unwrapCondExpr(node))
     if (this.exprProducesI1(exprNode lctx)) {
@@ -3842,7 +4399,11 @@ class LowIRBuilderPass {
     push argTypes "i8*"
     push args rhs
     push argTypes "i8*"
-    def sc (builder.emitCall("strcmp" "i32" args argTypes))
+    def cmpFn:string "strcmp"
+    if (this.wasmStrEnabled(lctx)) {
+      cmpFn = "ranger_str_cmp"
+    }
+    def sc (builder.emitCall(cmpFn "i32" args argTypes))
     def zero (builder.emitConst("i32" "0"))
     return (builder.emitIcmp(pred sc zero))
   }
@@ -4021,6 +4582,32 @@ class LowIRBuilderPass {
         def val (this.lowerExpr((itemAt argsNode.children 1) lctx))
         builder.emitPtrStore(ptr val)
         return handledVoid
+      }
+      return notIntrinsic
+    }
+    if (fnName == "Mem_loadU8") {
+      if ((array_length argsNode.children) > 0) {
+        def ptr (this.lowerExpr((itemAt argsNode.children 0) lctx))
+        return (builder.emitPtrLoad8(ptr))
+      }
+      return notIntrinsic
+    }
+    if (fnName == "Mem_storeU8") {
+      if ((array_length argsNode.children) > 1) {
+        def ptr (this.lowerExpr((itemAt argsNode.children 0) lctx))
+        def val (this.lowerExpr((itemAt argsNode.children 1) lctx))
+        builder.emitPtrStore8(ptr val)
+        return handledVoid
+      }
+      return notIntrinsic
+    }
+    if (fnName == "Mem_memSize") {
+      return (builder.emitMemSize())
+    }
+    if (fnName == "Mem_memGrow") {
+      if ((array_length argsNode.children) > 0) {
+        def pages (this.lowerExpr((itemAt argsNode.children 0) lctx))
+        return (builder.emitMemGrow(pages))
       }
       return notIntrinsic
     }
