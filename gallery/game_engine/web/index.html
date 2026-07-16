@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ranger Games — running in the browser</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🎮</text></svg>"
+    />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0c1020;
+        --panel: #151a2e;
+        --ink: #e6e9f3;
+        --muted: #97a0bd;
+        --accent: #6ea8ff;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        background: radial-gradient(1200px 600px at 50% -10%, #1b2140, var(--bg));
+        color: var(--ink);
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 32px 16px 64px;
+      }
+      h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: -0.02em; }
+      .sub { color: var(--muted); margin: 0 0 24px; text-align: center; }
+      .sub code { color: var(--accent); }
+      .stage {
+        background: var(--panel);
+        border: 1px solid #262d47;
+        border-radius: 14px;
+        padding: 18px;
+        box-shadow: 0 20px 60px -20px #000a;
+      }
+      canvas {
+        display: block;
+        image-rendering: pixelated;
+        width: 720px;
+        max-width: 86vw;
+        height: auto;
+        aspect-ratio: 16 / 9;
+        border-radius: 8px;
+        background: #0a0e1a;
+      }
+      .bar {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 14px;
+        flex-wrap: wrap;
+      }
+      select, button {
+        font: inherit;
+        color: var(--ink);
+        background: #1e2540;
+        border: 1px solid #313a5c;
+        border-radius: 8px;
+        padding: 8px 12px;
+        cursor: pointer;
+      }
+      button:hover, select:hover { border-color: var(--accent); }
+      .controls { color: var(--muted); font-size: 13px; }
+      .status { color: var(--muted); font-size: 13px; min-height: 1.2em; margin-top: 10px; }
+      footer { margin-top: 28px; color: var(--muted); font-size: 12.5px; text-align: center; max-width: 640px; }
+      footer a { color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <h1>Ranger Games</h1>
+    <p class="sub">
+      The Ranger game engine compiled to JavaScript, rendering to a canvas via a
+      <code>virtual filesystem</code>. Same <code>GameRunner</code> as the native/SDL build.
+    </p>
+
+    <div class="stage">
+      <canvas id="screen" width="480" height="270"></canvas>
+      <div class="bar">
+        <label>
+          Game
+          <select id="game"></select>
+        </label>
+        <span class="controls" id="controls"></span>
+        <span>
+          <button id="restart">Restart</button>
+          <button id="pause">Pause</button>
+        </span>
+      </div>
+      <div class="status" id="status">loading engine…</div>
+    </div>
+
+    <footer>
+      Built by the <code>deploy-games</code> workflow. The engine JS, the game
+      package (a stored <code>.zip</code> mounted into the VFS) and this runtime
+      are fully static — no server needed.
+    </footer>
+
+    <script src="./vfs.js"></script>
+    <script src="./engine-host.js"></script>
+    <script src="./runner.js"></script>
+    <script>
+      const statusEl = document.getElementById("status");
+      const selectEl = document.getElementById("game");
+      const controlsEl = document.getElementById("controls");
+      const canvas = document.getElementById("screen");
+      let bundleSource = null;
+      let registry = [];
+      let session = null;
+      let paused = false;
+
+      function setStatus(msg) {
+        statusEl.textContent = msg;
+      }
+
+      async function fetchText(u) {
+        const r = await fetch(u);
+        if (!r.ok) throw new Error("fetch " + u + " -> " + r.status);
+        return r.text();
+      }
+      async function fetchBuffer(u) {
+        const r = await fetch(u);
+        if (!r.ok) throw new Error("fetch " + u + " -> " + r.status);
+        return r.arrayBuffer();
+      }
+
+      async function loadGame(entry) {
+        if (session) session.stop();
+        setStatus("loading " + entry.title + "…");
+        controlsEl.textContent = entry.controls || "";
+        const zipBuffer = await fetchBuffer(entry.pkg);
+        session = await window.RangerRunner.launch({
+          bundleSource,
+          zipBuffer,
+          width: entry.width,
+          height: entry.height,
+          canvas,
+          scriptDir: entry.scriptDir,
+          scriptFile: entry.script,
+          onStats: (s) => {
+            setStatus(entry.title + " — score " + s.score1 + " : " + s.score2);
+          },
+        });
+        paused = false;
+        document.getElementById("pause").textContent = "Pause";
+        setStatus(entry.title + " running.");
+      }
+
+      async function boot() {
+        try {
+          bundleSource = await fetchText("./engine.bundle.js");
+          registry = JSON.parse(await fetchText("./games.json"));
+          selectEl.innerHTML = registry
+            .map((g, i) => '<option value="' + i + '">' + g.title + "</option>")
+            .join("");
+          selectEl.onchange = () => loadGame(registry[+selectEl.value]);
+          document.getElementById("restart").onclick = () =>
+            loadGame(registry[+selectEl.value]);
+          document.getElementById("pause").onclick = () => {
+            if (!session) return;
+            paused = !paused;
+            if (paused) session.stop();
+            else session.start();
+            document.getElementById("pause").textContent = paused ? "Resume" : "Pause";
+          };
+          await loadGame(registry[0]);
+        } catch (e) {
+          setStatus("error: " + e.message);
+          console.error(e);
+        }
+      }
+      boot();
+    </script>
+  </body>
+</html>

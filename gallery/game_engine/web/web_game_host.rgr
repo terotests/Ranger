@@ -1,0 +1,87 @@
+; ==============================================================================
+; web_game_host — browser-facing runner for the JS/canvas host.
+; ==============================================================================
+;
+; Wraps GameRunner with the same wiring the native/SDL runner does, but with no
+; SDL/native dependency, so it compiles cleanly to es6 and runs in the browser:
+;
+;   * setNativeBridge(GameHostNativeBridge) — REQUIRED for games that draw a
+;     static background in createStaticBg(): that hook's bgFillRect / bgFillCircle
+;     calls are dispatched through the engine's native bridge, and without a
+;     bridge installed they silently no-op (the sky/platforms never render).
+;   * a flat two-player frame() the JS harness can call with plain booleans;
+;     the GameInputSnapshot is assembled here so JS never touches input masks.
+;
+; The JS harness drives: init -> loadGame -> (frame -> draw -> raw)*.
+; ==============================================================================
+
+Import "../scripting/game_runtime.rgr"
+Import "../scripting/game_host_native.rgr"
+Import "../scripting/game_input.rgr"
+
+class WebGameHost {
+    def runner:GameRunner (new GameRunner)
+    def bridge:GameHostNativeBridge (new GameHostNativeBridge)
+
+    fn init:void (w:int h:int) {
+        runner.init(w h)
+    }
+
+    ; Install the host bridge (enables createStaticBg backgrounds + host APIs),
+    ; point asset resolution at the game dir, then load and build the scene.
+    fn loadGame:void (scriptDir:string src:string) {
+        bridge.setGameDir(scriptDir)
+        runner.setNativeBridge(bridge)
+        runner.setScriptDir(scriptDir)
+        runner.loadScript(src)
+        runner.setupScene()
+    }
+
+    ; Two-player flat frame. Single-player games simply ignore the p2* slot.
+    ; Button order matches GameRunner.frame: up, down, left, right, action, quit.
+    fn frame:void (dt:int
+        up:boolean down:boolean left:boolean right:boolean action:boolean
+        p2up:boolean p2down:boolean p2left:boolean p2right:boolean p2action:boolean
+        quit:boolean) {
+        def snap:GameInputSnapshot (new GameInputSnapshot)
+        snap.playerCount = 2
+        snap.p0.up = up
+        snap.p0.down = down
+        snap.p0.left = left
+        snap.p0.right = right
+        snap.p0.action = action
+        snap.p0.a = action
+        snap.p0.quit = quit
+        snap.p1.up = p2up
+        snap.p1.down = p2down
+        snap.p1.left = p2left
+        snap.p1.right = p2right
+        snap.p1.action = p2action
+        snap.p1.a = p2action
+        runner.frameWithInput(dt snap)
+    }
+
+    fn draw:void () {
+        runner.draw()
+    }
+
+    fn raw:buffer () {
+        return (runner.raw())
+    }
+
+    fn score1:int () {
+        return runner.score1
+    }
+
+    fn score2:int () {
+        return runner.score2
+    }
+
+    fn entityX:int (id:string) {
+        return (runner.entityX(id))
+    }
+
+    fn entityY:int (id:string) {
+        return (runner.entityY(id))
+    }
+}
