@@ -523,12 +523,18 @@ Vaihtoehtoina toki myös (a) staattiset metodit + kiinteät linear-memory-slotit
 kutsuketjun läpi. (Huom: kutsu `(World.__singleton()).metodi()` suoraan ketjuna
 sekoittaa tyypintarkistuksen — talleta ensin `def w (World.__singleton())`.)
 
-**Sisäkkäiset oliot.** Litteä olio toimii (`v.x = 10  v.y = 32`), mutta
-kentän-kentän ketjumutatointi (`p.pos.x = …` kun `pos` on olio-kenttä) osoittaa
-tällä hetkellä väärään slottiin, ja olio-kentät ovat **borrow**-oletuksena
-(owned=0) joten niitä ei vapauteta automaattisesti (vuoto, kunnes borrow-analyysi
-tulee). Pidä pelilogiikan tila litteänä (primitiivit + kokoelmat + merkkijonot),
-tai käytä `Mem`-slotteja, kunnes nämä on korjattu.
+**Sisäkkäiset oliot.** Olio-kentät toimivat: kentän-kentän luku ja kirjoitus
+mielivaltaisella syvyydellä (`o.mid.inner.v = 99`) osuu oikeaan slottiin, ja
+olio-kentät ovat **viittauslaskettuja** — tuore `new` siirretään (move),
+lainattu jaettu viittaus retainataan, ja vanha vapautetaan ylikirjoituksessa.
+Näin jaettu lapsi (sama olio kahdessa kentässä) vapautuu **täsmälleen kerran**.
+Ainoa raja: **syklit** (`a.next = b; b.next = a`) vuotavat — RC:n luontainen
+rajoitus — mutta eivät kaadu eivätkä korruptoi muistia. Vältä sykliset
+olio-graafit, tai katkaise ne (aseta kenttä nulliksi) ennen kuin päästät irti.
+
+**Ei (vielä) tuettu.** Lambdat / sulkeumat (`(fn:… (){})`, `{ … }`): WAT-backend
+ei emitoi funktio-osoittimia eikä `call_indirect`ia, joten callbackit ja
+funktioarvot eivät käänny. Käytä metodeja + `for`/`while`-silmukoita.
 
 ### Sudenkuopat
 
