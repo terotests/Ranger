@@ -9,6 +9,7 @@
 //! - [`world`]  — RGW1 world / host-physics (`wasm/wasm_game_abi.h`)
 //! - [`ui`]     — RGU1 retained-mode UI document (`wasm/wasm_ui_abi.h`)
 //! - [`pose`]   — RGP1 host→guest streaming pose input (`wasm/wasm_pose_abi.h`)
+//! - [`scene`]  — host-managed 3D scene commands (`runtime/rg_wasm_bridge.c`, `IDEAL_3D.md`)
 //! - [`input`]  — the shared digital input bits + press/release edge tracking
 //! - [`resources`] — the `rg_host_register_*` resource-declaration imports
 //!
@@ -48,6 +49,7 @@
 pub mod input;
 pub mod pose;
 pub mod resources;
+pub mod scene;
 pub mod sprite;
 pub mod ui;
 pub mod world;

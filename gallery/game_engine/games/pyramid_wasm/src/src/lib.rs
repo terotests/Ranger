@@ -19,52 +19,29 @@
 #![allow(static_mut_refs)]
 
 use core::cell::UnsafeCell;
-
-const FP: f32 = 256.0;
-
-#[link(wasm_import_module = "env")]
-extern "C" {
-    fn rg_load_texture(name_ptr: *const u8, name_len: u32) -> i32;
-    fn rg_load_model(name_ptr: *const u8, name_len: u32) -> i32;
-    fn rg_load_sprite(name_ptr: *const u8, name_len: u32) -> i32;
-    fn rg_create_box(x0: i32, y0: i32, z0: i32, x1: i32, y1: i32, z1: i32, tex: i32) -> i32;
-    fn rg_create_mesh_entity(mesh: i32, tex: i32) -> i32;
-    fn rg_create_sprite(tex: i32, cols: i32, rows: i32, w: i32, h: i32) -> i32;
-    fn rg_set_sprite_cell(e: i32, col: i32, row: i32);
-    fn rg_create_camera(fovy: i32, near: i32, far: i32) -> i32;
-    fn rg_create_light(kind: i32, color: i32, intensity: i32) -> i32;
-    fn rg_set_position(e: i32, x: i32, y: i32, z: i32);
-    fn rg_set_target(e: i32, x: i32, y: i32, z: i32);
-    fn rg_set_rotation(e: i32, qx: i32, qy: i32, qz: i32, qw: i32);
-    fn rg_set_range(e: i32, r: i32);
-    fn rg_set_visible(e: i32, on: i32);
-    fn rg_set_active_camera(e: i32);
-}
-
-const LIGHT_AMBIENT: i32 = 3;
-const LIGHT_DIRECTIONAL: i32 = 4;
-const LIGHT_POINT: i32 = 5;
-
-fn fx(v: f32) -> i32 {
-    (v * FP) as i32
-}
-fn q16(v: f32) -> i32 {
-    (v * 65536.0) as i32
-}
-fn rgba(r: u8, g: u8, b: u8) -> i32 {
-    (((r as u32) << 24) | ((g as u32) << 16) | ((b as u32) << 8) | 0xff) as i32
-}
+// All host plumbing (the `rg_*` scene commands, fixed-point conversion, opaque
+// handles) lives once in `ranger_game::scene`; this guest keeps only the world,
+// physics and the scene it describes.
+use ranger_game::scene::{Camera, Color, Entity, Light, Model, Quat, Scene, Texture, Vec3};
 
 // ---- host actor helpers ----------------------------------------------------
-fn create_static_box(min: [f32; 3], max: [f32; 3], tex: i32) -> i32 {
-    unsafe { rg_create_box(fx(min[0]), fx(min[1]), fx(min[2]), fx(max[0]), fx(max[1]), fx(max[2]), tex) }
+fn create_static_box(min: [f32; 3], max: [f32; 3], tex: Texture) -> Entity {
+    Scene::new().spawn_box(
+        Vec3::new(min[0], min[1], min[2]),
+        Vec3::new(max[0], max[1], max[2]),
+        tex,
+    )
 }
-fn create_actor(half: [f32; 3], tex: i32) -> i32 {
-    unsafe { rg_create_box(fx(-half[0]), fx(-half[1]), fx(-half[2]), fx(half[0]), fx(half[1]), fx(half[2]), tex) }
+fn create_actor(half: [f32; 3], tex: Texture) -> Entity {
+    Scene::new().spawn_box(
+        Vec3::new(-half[0], -half[1], -half[2]),
+        Vec3::new(half[0], half[1], half[2]),
+        tex,
+    )
 }
-fn set_yaw(e: i32, a: f32) {
+fn set_yaw(e: Entity, a: f32) {
     let (s, c) = (a * 0.5).sin_cos();
-    unsafe { rg_set_rotation(e, 0, q16(s), 0, q16(c)) };
+    e.rotation(Quat::new(0.0, s, 0.0, c));
 }
 
 // LPC walkcycle sheets: 9 cols (0 idle, 1..8 walk), 4 rows (up/left/down/right).
@@ -126,7 +103,7 @@ struct Aabb {
 const MAX_MON: usize = 12;
 #[derive(Clone, Copy)]
 struct Monster {
-    ent: i32,
+    ent: Entity,
     y: f32,   // feet (platform top)
     z: f32,   // fixed z; patrols along x
     lo: f32,
@@ -140,7 +117,7 @@ struct Monster {
 const MAX_GEM: usize = 12;
 #[derive(Clone, Copy)]
 struct Gem {
-    ent: i32,
+    ent: Entity,
     x: f32,
     y: f32,
     z: f32,
@@ -182,21 +159,21 @@ struct World {
     t: f32,
     spawn: [f32; 3],
     goal: [f32; 3],
-    player_ent: i32,
-    cam: i32,
-    lamp: i32,
+    player_ent: Entity,
+    cam: Camera,
+    lamp: Light,
     cam_x: f32,
     cam_z: f32,
     cam_gy: f32,
-    mummy: i32,
-    hero: i32,
+    mummy: Texture,
+    hero: Texture,
 }
 
 struct WCell(UnsafeCell<World>);
 unsafe impl Sync for WCell {}
 const ZERO_AABB: Aabb = Aabb { min: [0.0; 3], max: [0.0; 3] };
-const ZERO_MON: Monster = Monster { ent: 0, y: 0.0, z: 0.0, lo: 0.0, hi: 0.0, pos: 0.0, dir: 1.0, speed: 0.0, respawn: 0.0 };
-const ZERO_GEM: Gem = Gem { ent: 0, x: 0.0, y: 0.0, z: 0.0, taken: false };
+const ZERO_MON: Monster = Monster { ent: Entity::NONE, y: 0.0, z: 0.0, lo: 0.0, hi: 0.0, pos: 0.0, dir: 1.0, speed: 0.0, respawn: 0.0 };
+const ZERO_GEM: Gem = Gem { ent: Entity::NONE, x: 0.0, y: 0.0, z: 0.0, taken: false };
 
 const SPAWN: [f32; 3] = [0.0, 1.4, 0.0]; // on the base platform (top 0.75)
 
@@ -226,14 +203,14 @@ static W: WCell = WCell(UnsafeCell::new(World {
     t: 0.0,
     spawn: SPAWN,
     goal: [0.0; 3],
-    player_ent: 0,
-    cam: 0,
-    lamp: 0,
+    player_ent: Entity::NONE,
+    cam: Camera::NONE,
+    lamp: Light::NONE,
     cam_x: 0.0,
     cam_z: 0.0,
     cam_gy: SPAWN[1],
-    mummy: 0,
-    hero: 0,
+    mummy: Texture::NONE,
+    hero: Texture::NONE,
 }));
 fn world() -> &'static mut World {
     unsafe { &mut *W.0.get() }
@@ -285,7 +262,7 @@ fn add_collider(w: &mut World, min: [f32; 3], max: [f32; 3]) {
     }
 }
 // a floating platform (thin box); returns its top-surface y.
-fn add_platform(w: &mut World, cx: f32, cy: f32, cz: f32, hx: f32, hz: f32, tex: i32) -> f32 {
+fn add_platform(w: &mut World, cx: f32, cy: f32, cz: f32, hx: f32, hz: f32, tex: Texture) -> f32 {
     let hh = 0.25;
     let min = [cx - hx, cy - hh, cz - hz];
     let max = [cx + hx, cy + hh, cz + hz];
@@ -294,12 +271,14 @@ fn add_platform(w: &mut World, cx: f32, cy: f32, cz: f32, hx: f32, hz: f32, tex:
     cy + hh
 }
 
-fn add_monster(w: &mut World, tex: i32, cx: f32, top: f32, cz: f32, half: f32, speed: f32) {
+fn add_monster(w: &mut World, tex: Texture, cx: f32, top: f32, cz: f32, half: f32, speed: f32) {
     if w.nmon >= MAX_MON {
         return;
     }
-    let ent = if w.mummy > 0 {
-        unsafe { rg_create_sprite(w.mummy, SPR_COLS, SPR_ROWS, fx(SPR_W), fx(SPR_H)) }
+    let ent = if w.mummy.is_valid() {
+        Scene::new()
+            .spawn_sprite(w.mummy, SPR_COLS, SPR_ROWS, SPR_W, SPR_H)
+            .entity()
     } else {
         create_actor([0.4, 0.6, 0.4], tex)
     };
@@ -307,12 +286,12 @@ fn add_monster(w: &mut World, tex: i32, cx: f32, top: f32, cz: f32, half: f32, s
     w.nmon += 1;
 }
 
-fn add_gem(w: &mut World, tex: i32, mesh: i32, x: f32, top: f32, z: f32) {
+fn add_gem(w: &mut World, tex: Texture, mesh: Model, x: f32, top: f32, z: f32) {
     if w.ngem >= MAX_GEM {
         return;
     }
-    let ent = if mesh > 0 {
-        unsafe { rg_create_mesh_entity(mesh, 0) }
+    let ent = if mesh.is_valid() {
+        Scene::new().spawn_mesh(mesh, Texture::NONE)
     } else {
         create_actor([0.3, 0.3, 0.3], tex)
     };
@@ -320,7 +299,7 @@ fn add_gem(w: &mut World, tex: i32, mesh: i32, x: f32, top: f32, z: f32) {
     w.ngem += 1;
 }
 
-fn build_level(w: &mut World, tex_sand: i32, tex_stone: i32, tex_gold: i32, tex_gem: i32, mesh_gem: i32) {
+fn build_level(w: &mut World, tex_sand: Texture, tex_stone: Texture, tex_gold: Texture, tex_gem: Texture, mesh_gem: Model) {
     // wide sand floor far below (fall-safety; a fall respawns at last checkpoint)
     let g = 40.0;
     create_static_box([-g, -0.4, -g], [g, 0.0, g], tex_sand);
@@ -522,73 +501,71 @@ fn sync_camera(w: &mut World, dt: f32) {
     let ez = w.pz + CAM_OFF_Z;
     w.cam_x = ex;
     w.cam_z = ez;
-    unsafe {
-        rg_set_position(w.cam, fx(ex), fx(ey), fx(ez));
-        rg_set_target(w.cam, fx(w.px), fx(w.cam_gy + 0.7), fx(w.pz));
-        rg_set_position(w.lamp, fx(w.px), fx(w.py + 1.4), fx(w.pz));
-    }
+    w.cam
+        .position(Vec3::new(ex, ey, ez))
+        .target(Vec3::new(w.px, w.cam_gy + 0.7, w.pz));
+    w.lamp.position(Vec3::new(w.px, w.py + 1.4, w.pz));
 }
 
 // ---- init ------------------------------------------------------------------
 #[no_mangle]
 pub extern "C" fn init() {
-    unsafe {
-        let tex_sand = rg_load_texture("sand".as_ptr(), 4);
-        let tex_stone = rg_load_texture("stone".as_ptr(), 5);
-        let tex_gold = rg_load_texture("gold".as_ptr(), 4);
-        let tex_gem = rg_load_texture("gem".as_ptr(), 3);
+    let scene = Scene::new();
+    let tex_sand = scene.texture("sand");
+    let tex_stone = scene.texture("stone");
+    let tex_gold = scene.texture("gold");
+    let tex_gem = scene.texture("gem");
 
-        let w = world();
-        w.nbox = 0;
-        w.nmon = 0;
-        w.ngem = 0;
-        w.ncp = 0;
-        w.score = 0;
-        w.mode = MODE_PLAY;
-        w.knock_t = 0.0;
-        w.jumping = false;
-        w.jump_prev = false;
-        w.t = 0.0;
-        w.mummy = rg_load_sprite("mummy".as_ptr(), 5);
-        w.hero = rg_load_sprite("hero".as_ptr(), 4);
-        let mesh_gem = rg_load_model("diamond".as_ptr(), 7);
+    let w = world();
+    w.nbox = 0;
+    w.nmon = 0;
+    w.ngem = 0;
+    w.ncp = 0;
+    w.score = 0;
+    w.mode = MODE_PLAY;
+    w.knock_t = 0.0;
+    w.jumping = false;
+    w.jump_prev = false;
+    w.t = 0.0;
+    w.mummy = scene.sprite_sheet("mummy");
+    w.hero = scene.sprite_sheet("hero");
+    let mesh_gem = scene.model("diamond");
 
-        build_level(w, tex_sand, tex_stone, tex_gold, tex_gem, mesh_gem);
-        respawn_player(w); // spawn is set by build_level
+    build_level(w, tex_sand, tex_stone, tex_gold, tex_gem, mesh_gem);
+    respawn_player(w); // spawn is set by build_level
 
-        // player avatar (LPC hero billboard, else a gold box)
-        w.player_ent = if w.hero > 0 {
-            rg_create_sprite(w.hero, SPR_COLS, SPR_ROWS, fx(SPR_W), fx(SPR_H))
-        } else {
-            create_actor([P_HX, P_HY, P_HZ], tex_gold)
-        };
+    // player avatar (LPC hero billboard, else a gold box)
+    w.player_ent = if w.hero.is_valid() {
+        scene.spawn_sprite(w.hero, SPR_COLS, SPR_ROWS, SPR_W, SPR_H).entity()
+    } else {
+        create_actor([P_HX, P_HY, P_HZ], tex_gold)
+    };
 
-        // camera + lights
-        w.cam = rg_create_camera(fx(1.0), fx(0.1), fx(300.0));
-        rg_set_active_camera(w.cam);
-        w.lamp = rg_create_light(LIGHT_POINT, rgba(255, 240, 210), fx(0.7));
-        rg_set_range(w.lamp, fx(11.0));
-        rg_create_light(LIGHT_AMBIENT, rgba(150, 165, 200), fx(0.55));
-        let sun = rg_create_light(LIGHT_DIRECTIONAL, rgba(255, 245, 220), fx(0.8));
-        rg_set_position(sun, fx(0.4), fx(0.9), fx(0.35));
-        let glow = rg_create_light(LIGHT_POINT, rgba(255, 220, 130), fx(1.0));
-        rg_set_position(glow, fx(w.goal[0]), fx(w.goal[1] + 1.5), fx(w.goal[2]));
-        rg_set_range(glow, fx(8.0));
+    // camera + lights
+    w.cam = scene.camera(1.0, 0.1, 300.0).activate();
+    w.lamp = scene.point_light(Color::rgb(255, 240, 210), 0.7, Vec3::ZERO, 11.0);
+    scene.ambient_light(Color::rgb(150, 165, 200), 0.55);
+    scene.directional_light(Color::rgb(255, 245, 220), 0.8, Vec3::new(0.4, 0.9, 0.35));
+    scene.point_light(
+        Color::rgb(255, 220, 130),
+        1.0,
+        Vec3::new(w.goal[0], w.goal[1] + 1.5, w.goal[2]),
+        8.0,
+    );
 
-        // frame-0 placement
-        let psy = if w.hero > 0 { (w.py - P_HY) + SPR_FEET_OFF } else { w.py };
-        rg_set_position(w.player_ent, fx(w.px), fx(psy), fx(w.pz));
-        for gi in 0..w.ngem {
-            let gm = w.gems[gi];
-            rg_set_position(gm.ent, fx(gm.x), fx(gm.y), fx(gm.z));
-        }
-        for mi in 0..w.nmon {
-            let m = w.mons[mi];
-            let cy = if w.mummy > 0 { m.y + SPR_FEET_OFF } else { m.y + 0.6 };
-            rg_set_position(m.ent, fx(m.pos), fx(cy), fx(m.z));
-        }
-        sync_camera(w, 1.0);
+    // frame-0 placement
+    let psy = if w.hero.is_valid() { (w.py - P_HY) + SPR_FEET_OFF } else { w.py };
+    w.player_ent.position(Vec3::new(w.px, psy, w.pz));
+    for gi in 0..w.ngem {
+        let gm = w.gems[gi];
+        gm.ent.position(Vec3::new(gm.x, gm.y, gm.z));
     }
+    for mi in 0..w.nmon {
+        let m = w.mons[mi];
+        let cy = if w.mummy.is_valid() { m.y + SPR_FEET_OFF } else { m.y + 0.6 };
+        m.ent.position(Vec3::new(m.pos, cy, m.z));
+    }
+    sync_camera(w, 1.0);
 }
 
 // ---- per-frame -------------------------------------------------------------
@@ -599,7 +576,7 @@ fn update_monsters(w: &mut World, dt: f32) {
             m.respawn -= dt;
             if m.respawn <= 0.0 {
                 m.respawn = 0.0;
-                unsafe { rg_set_visible(m.ent, 1) };
+                m.ent.set_visible(true);
             }
             w.mons[i] = m;
             continue;
@@ -612,11 +589,11 @@ fn update_monsters(w: &mut World, dt: f32) {
             m.pos = m.lo;
             m.dir = 1.0;
         }
-        let cy = if w.mummy > 0 { m.y + SPR_FEET_OFF } else { m.y + 0.6 };
-        unsafe { rg_set_position(m.ent, fx(m.pos), fx(cy), fx(m.z)) };
-        if w.mummy > 0 {
+        let cy = if w.mummy.is_valid() { m.y + SPR_FEET_OFF } else { m.y + 0.6 };
+        m.ent.position(Vec3::new(m.pos, cy, m.z));
+        if w.mummy.is_valid() {
             let d = sprite_dir(m.dir, 0.0, m.pos, m.z, w.cam_x, w.cam_z);
-            unsafe { rg_set_sprite_cell(m.ent, walk_col(w.t + i as f32, true), lpc_row(d)) };
+            m.ent.as_sprite().cell(walk_col(w.t + i as f32, true), lpc_row(d));
         } else {
             set_yaw(m.ent, if m.dir > 0.0 { core::f32::consts::FRAC_PI_2 } else { -core::f32::consts::FRAC_PI_2 });
         }
@@ -653,7 +630,7 @@ fn check_gem_pickups(w: &mut World) {
             g2.taken = true;
             w.gems[i] = g2;
             w.score += 1;
-            unsafe { rg_set_visible(g2.ent, 0) };
+            g2.ent.set_visible(false);
         }
     }
 }
@@ -691,12 +668,10 @@ pub extern "C" fn update(dt_ms: i32, forward: i32, _strafe: i32, turn: i32, jump
     w.jump_prev = held;
 
     if w.mode == MODE_WON {
-        if w.hero > 0 {
+        if w.hero.is_valid() {
             let sy = (w.py - P_HY) + SPR_FEET_OFF;
-            unsafe {
-                rg_set_position(w.player_ent, fx(w.px), fx(sy), fx(w.pz));
-                rg_set_sprite_cell(w.player_ent, walk_col(w.t, true), 2);
-            }
+            w.player_ent.position(Vec3::new(w.px, sy, w.pz));
+            w.player_ent.as_sprite().cell(walk_col(w.t, true), 2);
         }
         spin_gems(w);
         sync_camera(w, dt);
@@ -771,18 +746,14 @@ pub extern "C" fn update(dt_ms: i32, forward: i32, _strafe: i32, turn: i32, jump
     check_win(w);
 
     // player avatar
-    if w.hero > 0 {
+    if w.hero.is_valid() {
         let sy = (w.py - P_HY) + SPR_FEET_OFF;
         let d = sprite_dir(w.facex, w.facez, w.px, w.pz, w.cam_x, w.cam_z);
         let col = if !w.on_ground { 2 } else { walk_col(w.t, moving) };
-        unsafe {
-            rg_set_position(w.player_ent, fx(w.px), fx(sy), fx(w.pz));
-            rg_set_sprite_cell(w.player_ent, col, lpc_row(d));
-        }
+        w.player_ent.position(Vec3::new(w.px, sy, w.pz));
+        w.player_ent.as_sprite().cell(col, lpc_row(d));
     } else {
-        unsafe {
-            rg_set_position(w.player_ent, fx(w.px), fx(w.py), fx(w.pz));
-        }
+        w.player_ent.position(Vec3::new(w.px, w.py, w.pz));
     }
     sync_camera(w, dt);
 }
