@@ -1057,10 +1057,17 @@ function initState() {
     slots
   );
   return {
-    showNet: 0,
-    playerSlots: slots,
-    cameraY: cameraY,
-    entities: entities,
+    // ---- Platform keys: the Ranger engine reads these out of the returned
+    //      state. (Full list: gallery/game_engine/README.md.)
+    entities: entities,   // { id: { x, y } } -> positions the retained sprites()
+    cameraY: cameraY,     // scrolls the createStaticBg() background
+    score1: 0,            // HUD
+    score2: 0,            // HUD
+    playerSlots: slots,   // player count (dual / split-screen)
+    showNet: 0,           // center divider (0 = off)
+    // ---- Internal keys: this game's own working memory. The engine stores the
+    //      state object unchanged and hands it back to the next update(), but
+    //      never reads or interprets these — they exist only for our own logic.
     p1: p1,
     p2: p2,
     enemies: enemies,
@@ -1068,8 +1075,6 @@ function initState() {
     diamonds: diamonds,
     bullets: bullets,
     movingPlatforms: movingPlatforms,
-    score1: 0,
-    score2: 0,
     fireCd1: 0,
     fireCd2: 0,
     summitMusicStarted: 0
