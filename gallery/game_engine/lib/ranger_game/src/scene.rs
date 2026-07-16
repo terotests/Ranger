@@ -192,24 +192,26 @@ impl Quat {
         }
     }
 
+    /// The Hamilton product `self.then(rhs)` composes two rotations. Prefer the
+    /// `*` operator; this is the inherent spelling for clarity at call sites.
+    #[inline]
+    pub fn then(self, rhs: Quat) -> Quat {
+        self * rhs
+    }
+}
+
+impl core::ops::Mul for Quat {
+    type Output = Quat;
     /// The Hamilton product `self * rhs` — the rotation that applies `rhs`
     /// first, then `self`.
     #[inline]
-    pub fn mul(self, rhs: Quat) -> Quat {
+    fn mul(self, rhs: Quat) -> Quat {
         Quat {
             w: self.w * rhs.w - self.x * rhs.x - self.y * rhs.y - self.z * rhs.z,
             x: self.w * rhs.x + self.x * rhs.w + self.y * rhs.z - self.z * rhs.y,
             y: self.w * rhs.y - self.x * rhs.z + self.y * rhs.w + self.z * rhs.x,
             z: self.w * rhs.z + self.x * rhs.y - self.y * rhs.x + self.z * rhs.w,
         }
-    }
-}
-
-impl core::ops::Mul for Quat {
-    type Output = Quat;
-    #[inline]
-    fn mul(self, rhs: Quat) -> Quat {
-        Quat::mul(self, rhs)
     }
 }
 
@@ -270,6 +272,10 @@ pub enum LightKind {
 pub struct Texture(i32);
 
 impl Texture {
+    /// The null texture. Passing it to [`Scene::spawn_mesh`] keeps the model's
+    /// own materials instead of overriding them.
+    pub const NONE: Self = Self(0);
+
     #[inline]
     pub fn id(self) -> i32 {
         self.0
@@ -364,6 +370,14 @@ impl Entity {
         imp::set_enabled(self.0, on as i32);
         self
     }
+
+    /// Reinterpret this handle as a [`Sprite`] for sheet-cell operations. The
+    /// host accepts `set_sprite_cell` on any entity id; this is the typed way
+    /// to reach it when a game stores billboards and boxes in one field.
+    #[inline]
+    pub fn as_sprite(self) -> Sprite {
+        Sprite(self)
+    }
 }
 
 /// A camera entity. Wraps an [`Entity`]; adds aiming and activation.
@@ -371,6 +385,10 @@ impl Entity {
 pub struct Camera(Entity);
 
 impl Camera {
+    /// The null camera — a placeholder for `static` initialisers before
+    /// `init()` runs. Not valid ([`Camera::is_valid`] is `false`).
+    pub const NONE: Self = Self(Entity::NONE);
+
     /// The underlying entity handle (for transforms shared with meshes).
     #[inline]
     pub fn entity(self) -> Entity {
@@ -412,6 +430,9 @@ impl Camera {
 pub struct Light(Entity);
 
 impl Light {
+    /// The null light — a placeholder for `static` initialisers.
+    pub const NONE: Self = Self(Entity::NONE);
+
     #[inline]
     pub fn entity(self) -> Entity {
         self.0
@@ -459,6 +480,9 @@ impl Light {
 pub struct Sprite(Entity);
 
 impl Sprite {
+    /// The null sprite — a placeholder for `static` initialisers.
+    pub const NONE: Self = Self(Entity::NONE);
+
     #[inline]
     pub fn entity(self) -> Entity {
         self.0
@@ -929,6 +953,20 @@ mod tests {
         assert!((got.y - expected.y).abs() < 1e-3, "y {} vs {}", got.y, expected.y);
         assert!((got.z - expected.z).abs() < 1e-3, "z {} vs {}", got.z, expected.z);
         assert!((got.w - expected.w).abs() < 1e-3, "w {} vs {}", got.w, expected.w);
+    }
+
+    #[test]
+    fn null_handles_are_invalid_placeholders() {
+        assert!(!Entity::NONE.is_valid());
+        assert!(!Camera::NONE.is_valid());
+        assert!(!Light::NONE.is_valid());
+        assert!(!Sprite::NONE.is_valid());
+        assert!(!Texture::NONE.is_valid());
+        assert_eq!(Entity::NONE.id(), 0);
+        // as_sprite reinterprets the same handle (no new host entity).
+        let scene = Scene::new();
+        let e = scene.spawn_box(Vec3::ZERO, Vec3::splat(1.0), Texture::NONE);
+        assert_eq!(e.as_sprite().id(), e.id());
     }
 
     #[test]

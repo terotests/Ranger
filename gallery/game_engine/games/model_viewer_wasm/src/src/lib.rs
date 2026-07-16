@@ -18,25 +18,8 @@
 #![allow(static_mut_refs)]
 
 use core::cell::UnsafeCell;
+use ranger_game::scene::{Camera, Color, Entity, Quat, Scene, Texture, Vec3};
 use ranger_game::{resources, ui};
-
-const FP: f32 = 256.0;
-
-#[link(wasm_import_module = "env")]
-extern "C" {
-    fn rg_load_model(name_ptr: *const u8, name_len: u32) -> i32;
-    fn rg_create_mesh_entity(mesh: i32, tex: i32) -> i32;
-    fn rg_create_camera(fovy: i32, near: i32, far: i32) -> i32;
-    fn rg_create_light(kind: i32, color: i32, intensity: i32) -> i32;
-    fn rg_set_position(e: i32, x: i32, y: i32, z: i32);
-    fn rg_set_target(e: i32, x: i32, y: i32, z: i32);
-    fn rg_set_rotation(e: i32, qx: i32, qy: i32, qz: i32, qw: i32);
-    fn rg_set_visible(e: i32, on: i32);
-    fn rg_set_active_camera(e: i32);
-}
-
-const LIGHT_AMBIENT: i32 = 3;
-const LIGHT_DIRECTIONAL: i32 = 4;
 
 // Camera dolly: the eye sits along this fixed direction from the origin and the
 // up / down arrows slide it in and out, so the framing stays the same while the
@@ -57,21 +40,11 @@ const MAX_MODELS: usize = 64;
 /// `&str` slices borrow from it for the whole run and need no second copy.
 static mut NAMES_RAW: [u8; 2048] = [0; 2048];
 
-fn fx(v: f32) -> i32 {
-    (v * FP) as i32
-}
-fn q16(v: f32) -> i32 {
-    (v * 65536.0) as i32
-}
-fn rgba(r: u8, g: u8, b: u8) -> i32 {
-    (((r as u32) << 24) | ((g as u32) << 16) | ((b as u32) << 8) | 0xff) as i32
-}
-
 struct Viewer {
-    ents: [i32; MAX_MODELS],
+    ents: [Entity; MAX_MODELS],
     names: [&'static str; MAX_MODELS],
     n: usize,
-    cam: i32,
+    cam: Camera,
     cur: usize,
     t: f32,
     dist: f32,
@@ -82,10 +55,10 @@ struct Viewer {
 struct VCell(UnsafeCell<Viewer>);
 unsafe impl Sync for VCell {}
 static V: VCell = VCell(UnsafeCell::new(Viewer {
-    ents: [0; MAX_MODELS],
+    ents: [Entity::NONE; MAX_MODELS],
     names: [""; MAX_MODELS],
     n: 0,
-    cam: 0,
+    cam: Camera::NONE,
     cur: 0,
     t: 0.0,
     dist: DIST_START,
@@ -99,18 +72,17 @@ fn viewer() -> &'static mut Viewer {
 
 /// Place the eye at the current dolly distance, still looking at the origin.
 fn apply_camera(v: &Viewer) {
-    if v.cam <= 0 {
+    if !v.cam.is_valid() {
         return;
     }
-    unsafe {
-        rg_set_position(v.cam, fx(0.0), fx(EYE_Y * v.dist), fx(EYE_Z * v.dist));
-        rg_set_target(v.cam, fx(0.0), fx(0.0), fx(0.0));
-    }
+    v.cam
+        .position(Vec3::new(0.0, EYE_Y * v.dist, EYE_Z * v.dist))
+        .target(Vec3::ZERO);
 }
 
 fn set_visible(v: &Viewer, i: usize, on: bool) {
-    if v.ents[i] > 0 {
-        unsafe { rg_set_visible(v.ents[i], if on { 1 } else { 0 }) };
+    if v.ents[i].is_valid() {
+        v.ents[i].set_visible(on);
     }
 }
 
@@ -165,37 +137,31 @@ pub extern "C" fn init() {
     v.cur = 0;
     v.turn_prev = 0;
     v.dist = DIST_START;
-    unsafe {
-        // camera framing the origin from slightly above and in front
-        v.cam = rg_create_camera(fx(0.9), fx(0.1), fx(100.0));
-        rg_set_active_camera(v.cam);
-        // Three-point-ish rig: ambient floor, a warm key from front-right, a
-        // cooler fill from the left to lift the shadow side, and a back light to
-        // separate the silhouette from the background. Directional lights point
-        // along their position vector, so these are directions, not places.
-        rg_create_light(LIGHT_AMBIENT, rgba(150, 160, 190), fx(0.55));
-        let key = rg_create_light(LIGHT_DIRECTIONAL, rgba(255, 245, 225), fx(0.9));
-        rg_set_position(key, fx(0.4), fx(0.9), fx(0.5));
-        let fill = rg_create_light(LIGHT_DIRECTIONAL, rgba(170, 195, 255), fx(0.45));
-        rg_set_position(fill, fx(-0.7), fx(0.25), fx(0.45));
-        let back = rg_create_light(LIGHT_DIRECTIONAL, rgba(255, 235, 210), fx(0.55));
-        rg_set_position(back, fx(-0.1), fx(0.5), fx(-0.9));
-    }
+
+    let scene = Scene::new();
+    // camera framing the origin from slightly above and in front
+    v.cam = scene.camera(0.9, 0.1, 100.0).activate();
+    // Three-point-ish rig: ambient floor, a warm key from front-right, a cooler
+    // fill from the left to lift the shadow side, and a back light to separate
+    // the silhouette from the background. Directional lights point along their
+    // direction vector, so these are directions, not places.
+    scene.ambient_light(Color::rgb(150, 160, 190), 0.55);
+    scene.directional_light(Color::rgb(255, 245, 225), 0.9, Vec3::new(0.4, 0.9, 0.5));
+    scene.directional_light(Color::rgb(170, 195, 255), 0.45, Vec3::new(-0.7, 0.25, 0.45));
+    scene.directional_light(Color::rgb(255, 235, 210), 0.55, Vec3::new(-0.1, 0.5, -0.9));
+
     apply_camera(v);
     // ask the host what it preloaded, then place one entity per model at the
     // origin; only the first is visible
     discover(v);
-    unsafe {
-        let mut i = 0usize;
-        while i < v.n {
-            let name = v.names[i];
-            let mesh = rg_load_model(name.as_ptr(), name.len() as u32);
-            let e = rg_create_mesh_entity(mesh, 0);
-            v.ents[i] = e;
-            rg_set_position(e, fx(0.0), fx(0.0), fx(0.0));
-            rg_set_visible(e, if i == 0 { 1 } else { 0 });
-            i += 1;
-        }
+    let mut i = 0usize;
+    while i < v.n {
+        let name = v.names[i];
+        let mesh = scene.model(name);
+        let e = scene.spawn_mesh(mesh, Texture::NONE);
+        v.ents[i] = e;
+        e.position(Vec3::ZERO).set_visible(i == 0);
+        i += 1;
     }
     build_hud(v);
     v.ready = true;
@@ -231,8 +197,8 @@ pub extern "C" fn update(dt_ms: i32, forward: i32, _strafe: i32, turn: i32, _jum
     let half = v.t * 0.4;
     if v.n > 0 {
         let e = v.ents[v.cur];
-        if e > 0 {
-            unsafe { rg_set_rotation(e, 0, q16(half.sin()), 0, q16(half.cos())) };
+        if e.is_valid() {
+            e.rotation(Quat::new(0.0, half.sin(), 0.0, half.cos()));
         }
     }
 }

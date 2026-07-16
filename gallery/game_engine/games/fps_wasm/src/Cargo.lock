@@ -3,7 +3,7 @@
 version = 4
 
 [[package]]
-name = "pyramid_wasm"
+name = "fps_wasm"
 version = "0.1.0"
 dependencies = [
  "ranger_game",

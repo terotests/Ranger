@@ -60,6 +60,13 @@ Users so far:
   by this crate; the port was proven by driving the old and new wasm with an
   identical synthetic host for 700 frames and comparing the RGW1 block
   byte-for-byte plus the HUD documents.
+- [`games/cube3d_wasm`](../../games/cube3d_wasm/),
+  [`games/fps_wasm`](../../games/fps_wasm/),
+  [`games/pyramid_wasm`](../../games/pyramid_wasm/),
+  [`games/model_viewer_wasm`](../../games/model_viewer_wasm/) (host-managed 3D)
+  — each dropped its own `extern "C"` block, `fx`/`q16`/`rgba` helpers, and raw
+  `i32` handle juggling for the `scene` facade. Every guest's rebuilt
+  `logic.wasm` imports the identical host functions as before.
 
 Not covered on purpose: `games/rust_pong` (a pre-RGW1 PoC with its own
 per-export contract driven by `WasmGameRunner`) and `wasm/rust_worker` (the

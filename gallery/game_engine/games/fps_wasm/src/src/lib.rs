@@ -15,36 +15,11 @@
 #![allow(clippy::missing_safety_doc)]
 #![allow(static_mut_refs)]
 
+// All the host plumbing (the `rg_*` scene commands, fixed-point conversion,
+// opaque handles) lives once in `ranger_game::scene`; this guest just describes
+// the scene it wants and keeps the physics/level layout that make it a game.
 use core::cell::UnsafeCell;
-
-const FP: f32 = 256.0;
-
-// Host imports (runtime/rg_wasm_bridge.c; IDEAL_3D §4.4). Positions/intensity
-// are fixed-point * 256; quaternions are Q16.16 (unused here — boxes are axis
-// aligned and the camera is target-driven).
-#[link(wasm_import_module = "env")]
-extern "C" {
-    fn rg_load_texture(name_ptr: *const u8, name_len: u32) -> i32;
-    fn rg_create_box(x0: i32, y0: i32, z0: i32, x1: i32, y1: i32, z1: i32, tex: i32) -> i32;
-    fn rg_create_camera(fovy: i32, near: i32, far: i32) -> i32;
-    fn rg_create_light(kind: i32, color: i32, intensity: i32) -> i32;
-    fn rg_set_position(e: i32, x: i32, y: i32, z: i32);
-    fn rg_set_target(e: i32, x: i32, y: i32, z: i32);
-    fn rg_set_range(e: i32, r: i32);
-    fn rg_set_active_camera(e: i32);
-}
-
-// light kinds (match RGE_* in gfx_sdl.rgr)
-const LIGHT_AMBIENT: i32 = 3;
-const LIGHT_DIRECTIONAL: i32 = 4;
-const LIGHT_POINT: i32 = 5;
-
-fn fx(v: f32) -> i32 {
-    (v * FP) as i32
-}
-fn rgba(r: u8, g: u8, b: u8) -> i32 {
-    (((r as u32) << 24) | ((g as u32) << 16) | ((b as u32) << 8) | 0xff) as i32
-}
+use ranger_game::scene::{Camera, Color, Light, Scene, Texture, Vec3};
 
 // ------------------------------------------------------------------ sim state
 const MAX_C: usize = 64;
@@ -88,8 +63,8 @@ fn world() -> &'static mut World {
 }
 
 // entity handles (host-owned)
-static mut CAM: i32 = 0;
-static mut LAMP: i32 = 0;
+static mut CAM: Camera = Camera::NONE;
+static mut LAMP: Light = Light::NONE;
 
 const P_HX: f32 = 0.3; // player half extents
 const P_HY: f32 = 0.9;
@@ -104,21 +79,19 @@ const K_PLAT: u32 = 3;
 /// Register one axis-aligned box: a host render entity at world coords + a
 /// collider for the guest-side physics. (Boxes are baked at absolute position,
 /// so the host entity transform stays identity — no per-box set_position.)
-fn add_box(w: &mut World, min: [f32; 3], max: [f32; 3], kind: u32, tex: i32) {
+fn add_box(w: &mut World, min: [f32; 3], max: [f32; 3], kind: u32, tex: Texture) {
     if w.nbox < MAX_C {
         w.boxes[w.nbox] = Aabb { min, max, kind };
         w.nbox += 1;
     }
-    unsafe {
-        rg_create_box(
-            fx(min[0]), fx(min[1]), fx(min[2]),
-            fx(max[0]), fx(max[1]), fx(max[2]),
-            tex,
-        );
-    }
+    Scene::new().spawn_box(
+        Vec3::new(min[0], min[1], min[2]),
+        Vec3::new(max[0], max[1], max[2]),
+        tex,
+    );
 }
 
-fn build_level(w: &mut World, tex_floor: i32, tex_wall: i32, tex_crate: i32) {
+fn build_level(w: &mut World, tex_floor: Texture, tex_wall: Texture, tex_crate: Texture) {
     // Floor as a thin slab just below y=0 (top face is the ground plane).
     add_box(w, [-10.5, -0.1, -7.5], [10.5, 0.0, 7.5], 0, tex_floor);
     // Perimeter walls (thickness 0.5, height 3), room x∈[-10,10] z∈[-7,7].
@@ -190,48 +163,44 @@ fn eye(w: &World) -> (f32, f32, f32) {
 fn write_camera(w: &World) {
     let (ex, ey, ez) = eye(w);
     let (s, c) = (w.yaw.sin(), w.yaw.cos());
+    let eye_pos = Vec3::new(ex, ey, ez);
     unsafe {
-        rg_set_position(CAM, fx(ex), fx(ey), fx(ez));
-        rg_set_target(CAM, fx(ex + s), fx(ey), fx(ez + c));
+        CAM.position(eye_pos).target(Vec3::new(ex + s, ey, ez + c));
         // player lamp rides at the eye
-        rg_set_position(LAMP, fx(ex), fx(ey), fx(ez));
+        LAMP.position(eye_pos);
     }
 }
 
 #[no_mangle]
 pub extern "C" fn init() {
+    let scene = Scene::new();
+    let tex_floor = scene.texture("floor");
+    let tex_wall = scene.texture("brick");
+    let tex_crate = scene.texture("crate");
+
+    let w = world();
+    w.nbox = 0;
+    build_level(w, tex_floor, tex_wall, tex_crate);
+
+    // perspective camera (~75° wide, Doom-ish); eye/target set per frame
+    let cam = scene.camera(1.309, 0.1, 100.0).activate();
+
+    // strong ambient (indoors) + soft overhead sun for shape
+    scene.ambient_light(Color::rgb(180, 185, 200), 0.55);
+    scene.directional_light(Color::rgb(255, 246, 220), 0.6, Vec3::new(0.25, 0.93, 0.26));
+
+    // static point lights — one warm lamp in each room
+    scene.point_light(Color::rgb(255, 210, 150), 0.8, Vec3::new(-6.0, 2.6, 0.0), 9.0);
+    scene.point_light(Color::rgb(180, 210, 255), 0.8, Vec3::new(6.0, 2.6, 0.0), 9.0);
+
+    // player lamp: a point light that rides the eye (set each frame)
+    let lamp = scene.point_light(Color::rgb(255, 240, 210), 0.9, Vec3::ZERO, 6.0);
+
     unsafe {
-        let tex_floor = rg_load_texture("floor".as_ptr(), 5);
-        let tex_wall = rg_load_texture("brick".as_ptr(), 5);
-        let tex_crate = rg_load_texture("crate".as_ptr(), 5);
-
-        let w = world();
-        w.nbox = 0;
-        build_level(w, tex_floor, tex_wall, tex_crate);
-
-        // perspective camera (~75° wide, Doom-ish); eye/target set per frame
-        CAM = rg_create_camera(fx(1.309), fx(0.1), fx(100.0));
-        rg_set_active_camera(CAM);
-
-        // strong ambient (indoors) + soft overhead sun for shape
-        rg_create_light(LIGHT_AMBIENT, rgba(180, 185, 200), fx(0.55));
-        let sun = rg_create_light(LIGHT_DIRECTIONAL, rgba(255, 246, 220), fx(0.6));
-        rg_set_position(sun, fx(0.25), fx(0.93), fx(0.26)); // dir toward the light
-
-        // static point lights — one warm lamp in each room
-        let l1 = rg_create_light(LIGHT_POINT, rgba(255, 210, 150), fx(0.8));
-        rg_set_position(l1, fx(-6.0), fx(2.6), fx(0.0));
-        rg_set_range(l1, fx(9.0));
-        let l2 = rg_create_light(LIGHT_POINT, rgba(180, 210, 255), fx(0.8));
-        rg_set_position(l2, fx(6.0), fx(2.6), fx(0.0));
-        rg_set_range(l2, fx(9.0));
-
-        // player lamp: a point light that rides the eye (set each frame)
-        LAMP = rg_create_light(LIGHT_POINT, rgba(255, 240, 210), fx(0.9));
-        rg_set_range(LAMP, fx(6.0));
-
-        write_camera(w);
+        CAM = cam;
+        LAMP = lamp;
     }
+    write_camera(w);
 }
 
 #[no_mangle]
