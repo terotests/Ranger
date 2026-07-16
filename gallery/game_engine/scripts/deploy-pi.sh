@@ -77,21 +77,63 @@ build_wasm_modules() {
   (cd "$ROOT" && npm run engine:wasm:build:rust-pong)
 }
 
+# Every games/<id>/game.info that declares engine=wasm|ui|streaming must ship
+# its module file (usually logic.wasm). Previously only autopeli + rust_pong
+# were checked, so a missing model_viewer_wasm/logic.wasm still "deployed" and
+# the launcher bounced straight back to the menu on launch.
+collect_wasm_modules() {
+  local info mod engine
+  while IFS= read -r -d '' info; do
+    # grep exits 1 when a key is absent — must not trip `set -e`.
+    engine="$(grep -E '^engine=' "$info" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '\r' || true)"
+    case "$engine" in
+      wasm|ui|streaming) ;;
+      *) continue ;;
+    esac
+    mod="$(grep -E '^module=' "$info" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '\r' || true)"
+    mod="${mod:-logic.wasm}"
+    printf '%s\n' "$(dirname "$info")/$mod"
+  done < <(find "$GE_GAMES" -mindepth 2 -maxdepth 2 -name game.info -print0 | sort -z)
+}
+
 verify_wasm_artifacts() {
-  local missing=0
-  for wasm in \
-    "$GE_GAMES/autopeli_wasm/logic.wasm" \
-    "$GE_GAMES/rust_pong/logic.wasm"; do
+  local missing=0 wasm count=0
+  while IFS= read -r wasm; do
+    [[ -n "$wasm" ]] || continue
+    count=$((count + 1))
     if [[ ! -f "$wasm" ]]; then
       echo "error: missing WASM artifact: $wasm" >&2
-      echo "  Install Rust + wasm32 target, or run:" >&2
-      echo "  npm run engine:wasm:build:rust-autopeli" >&2
+      echo "  Build that game's src/build.sh (needs Rust wasm32 or asc), then re-deploy." >&2
       missing=1
+    else
+      echo "    ok  ${wasm#"$GE_GAMES/"} ($(wc -c < "$wasm" | tr -d ' ') bytes)"
     fi
-  done
+  done < <(collect_wasm_modules)
+  if [[ "$count" -eq 0 ]]; then
+    echo "error: no engine=wasm|ui|streaming games found under $GE_GAMES" >&2
+    exit 1
+  fi
+  echo "    checked $count WASM module(s)"
   if [[ "$missing" != "0" ]]; then
     exit 1
   fi
+}
+
+# After rsync, confirm the Pi actually has every module (catches partial sync /
+# disk-full truncations that local verify cannot see).
+verify_remote_wasm_artifacts() {
+  local list rel
+  list="$(collect_wasm_modules | while IFS= read -r wasm; do
+    rel="${wasm#"$ROOT/"}"
+    printf '%s\n' "$rel"
+  done)"
+  ssh "$TARGET" "cd ~/$REMOTE_DIR && missing=0; while IFS= read -r rel; do
+    [[ -n \"\$rel\" ]] || continue
+    if [[ ! -f \"\$rel\" ]]; then
+      echo \"error: missing on Pi: \$rel\" >&2
+      missing=1
+    fi
+  done; exit \$missing" <<< "$list"
 }
 
 # Verify a REAL camera on the Pi (over SSH). A Pi 5 exposes many /dev/video*
@@ -180,6 +222,14 @@ rsync -az --delete \
   --exclude 'gallery/game_engine/games/*/src/build' \
   --exclude 'gallery/game_engine/wasm/*/target' \
   "$ROOT/" "$TARGET:~/$REMOTE_DIR/"
+
+echo "==> Verify WASM modules on Pi after rsync"
+if ! verify_remote_wasm_artifacts; then
+  echo "error: rsync finished but one or more WASM modules are missing on $TARGET" >&2
+  echo "  Check disk space (df -h) and re-run deploy." >&2
+  exit 1
+fi
+echo "    remote WASM modules OK"
 
 echo "==> 5/$TOTAL_STEPS Build game launcher on Pi (CXX_OPT=$CXX_OPT, wasm3 embedded)"
 ssh "$TARGET" "cd ~/$REMOTE_DIR && npm install && npm run compile && CXX_OPT=$CXX_OPT npm run engine:game-sdl"
@@ -331,9 +381,11 @@ echo "Done. On the Pi:"
 echo "  ~/start.sh       — launch game launcher (TSX + WASM)"
 echo "  ~/initservice.sh — (re)configure boot autostart"
 echo ""
-echo "WASM games in launcher menu (e.g. Rust Autopeli):"
-echo "  ~/ranger/gallery/game_engine/games/autopeli_wasm/logic.wasm"
+echo "WASM games in launcher menu (committed logic.wasm, verified above):"
+echo "  e.g. ~/ranger/gallery/game_engine/games/autopeli_wasm/logic.wasm"
+echo "       ~/ranger/gallery/game_engine/games/model_viewer_wasm/logic.wasm"
 echo "  host binary: ~/ranger/tmp/game-sdl/game_sdl (wasm3 interpreter embedded)"
+echo "  Note: model_viewer_wasm/models/heavy/ is not eagerly preloaded (Pi RAM)."
 echo ""
 if [[ "$RANGER_PI_AUTOSTART" == "1" ]]; then
   echo "Autostart configured. Log: tail -f ~/ranger-game.log"

@@ -454,15 +454,22 @@ class GameSdlRunner {
     ; the menu rather than entering a game with no module (which would render a
     ; broken default court / blank scene). The console already carries the
     ; specific reason ("[wasm] load failed" / "REJECTED …" / missing import).
+    ; Do NOT call loadMenuGame() here: launchSelected() is already nested inside
+    ; the active menu loop (TSX / EVG / classic). Reloading the classic menu from
+    ; a failed 3D/WASM launch used to clobber that loop and look like an instant
+    ; bounce back to the front page with a half-reset runner state.
     fn abortWasmLoad:void (wasmPath:string) {
         print ("[game-engine] wasm load FAILED, returning to menu: " + wasmPath)
         useWasmRunner = false
         useWasmPhysics = false
         useSpriteRunner = false
         useStreamRunner = false
+        useWasm3d = false
         splitScreenActive = false
         wasmSplitActive = false
-        this.loadMenuGame()
+        wasm3dRunner.closeModule()
+        inGame = false
+        inMenu = true
     }
 
     ; Load a render=3d wasm guest into the GPU 3D runner (Wasm3dRunner). The guest
@@ -679,6 +686,13 @@ class GameSdlRunner {
     fn loadMenuGame:void () {
         gfx_audio_clear
         useWasm3d = false
+        useWasmRunner = false
+        useWasmPhysics = false
+        useSpriteRunner = false
+        useStreamRunner = false
+        ; Free the wasm3 slot so repeated game launches cannot hit RG_WASM_MAX
+        ; ("[wasm] no free slot") and bounce straight back to the menu.
+        wasm3dRunner.closeModule()
         catalog.setGamesDir(gamesDir)
         catalog.scan()
         this.clearNavStack()
@@ -1854,9 +1868,11 @@ class GameSdlRunner {
                     this.clearNavStack()
                     nativeBridge.clearPendingNav()
                     inGame = false
+                    useWasm3d = false
                     splitScreenActive = false
                     wasmSplitActive = false
                     dualPlayerMode = false
+                    wasm3dRunner.closeModule()
                     gfx_clear_should_close
                     return
                 }

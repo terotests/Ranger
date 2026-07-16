@@ -2364,7 +2364,20 @@ extern \"C\" int rgfx_scene_resource_names(const char* kind, char* out, int cap)
     return need;
 }
 
-extern \"C\" int rgfx_scene_reset() { g_scene.clear(); g_scene_active_cam = 0; return 0; }
+extern \"C\" int rgfx_scene_reset() {
+    g_scene.clear();
+    g_scene_active_cam = 0;
+    // Drop name registries so a subsequent preloadModels/sprites cannot grow
+    // forever across game launches (Pi OOM after a few 3D game starts). Mesh /
+    // texture GL objects are still retained in their pools for the process —
+    // registry clear at least stops the guest from resolving stale names and
+    // stops map growth on every launch.
+    g_scene_model_mesh.clear();
+    g_scene_mesh_deftex.clear();
+    g_scene_mesh_mat.clear();
+    g_scene_sprite_tex.clear();
+    return 0;
+}
 
 static int rgfx_scene_alloc(int type) {
     RgfxSceneEntity e; memset(&e, 0, sizeof(e));

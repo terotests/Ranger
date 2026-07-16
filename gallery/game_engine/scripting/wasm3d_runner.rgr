@@ -148,11 +148,20 @@ class Wasm3dRunner {
         return (substring path 0 cut)
     }
 
-    fn loadModule:void (path:string) {
+    fn closeModule:void () {
         if (handle != 0) {
             wasm_close handle
             handle = 0
         }
+        modulePath = ""
+        sceneMode = false
+        hasUi = false
+        hudReady = false
+        uiRev = (0 - 1)
+    }
+
+    fn loadModule:void (path:string) {
+        this.closeModule()
         handle = (wasm_load path)
         modulePath = path
         gameDir = (this.dirOf(path))
@@ -316,6 +325,9 @@ class Wasm3dRunner {
     ; Preload every <gameDir>/models/*.glb into the scene's mesh/texture pools
     ; and register each under its basename, so a host-managed guest can call
     ; rg_load_model("name") during init() (IDEAL_3D §12.4 render bridge).
+    ; Subdirectories (e.g. models/heavy/) are ignored — put Pi-hostile assets
+    ; there so eager preload cannot OOM the launcher. Files larger than
+    ; maxGlbBytes, or meshes above maxVerts, are skipped with a log line.
     fn preloadModels:void () {
         if ((file_exists gameDir "models") == false) {
             return
@@ -324,44 +336,62 @@ class Wasm3dRunner {
         def names:[string] (list_dir_files dir)
         def loader:ModelLoader (new ModelLoader)
         def bridge:MeshBridge (new MeshBridge)
+        ; ~2 MiB GLB / 80k verts — keeps Pi RAM headroom while still admitting
+        ; Duck + the nature pack; Chair (~33 MiB / 228k verts) lives in heavy/.
+        def maxGlbBytes:int 2097152
+        def maxVerts:int 80000
         def i:int 0
         while (i < (array_length names)) {
             def fname:string (itemAt names i)
             if (this.endsWithGlb(fname)) {
-                def id:int (loader.loadFromFile(dir fname))
-                if (id >= 0) {
-                    def model:ModelAsset (loader.getModel(id))
-                    def em:EngineMeshData (bridge.fromModel(model))
-                    if em.ok {
-                        def meshId:int (gfx_3d_mesh_upload_hp em.vertsHp em.vertexCount em.indices em.indexCount)
-                        def texId:int 0
-                        if em.hasTexture {
-                            texId = (gfx_3d_upload_texture em.texRgba em.texWidth em.texHeight)
-                        }
-                        def base:string (this.stripGlb(fname))
-                        def cr:int (this.chan255(em.baseColorR))
-                        def cg:int (this.chan255(em.baseColorG))
-                        def cb:int (this.chan255(em.baseColorB))
-                        def ca:int (this.chan255(em.baseColorA))
-                        def colorRgba:int (((cr * 16777216) + (cg * 65536)) + ((cb * 256) + ca))
-                        def er:int (this.chan255(em.emissiveR))
-                        def eg:int (this.chan255(em.emissiveG))
-                        def eb:int (this.chan255(em.emissiveB))
-                        def emissiveRgb:int (((er * 16777216) + (eg * 65536)) + (eb * 256))
-                        def blendI:int 0
-                        if em.blend {
-                            blendI = 1
-                        }
-                        gfx_scene_register_model base meshId texId colorRgba emissiveRgb blendI
-                        def szx:double (em.maxX - em.minX)
-                        def szy:double (em.maxY - em.minY)
-                        def szz:double (em.maxZ - em.minZ)
-                        print ("[wasm3d] model '" + base + "' -> mesh=" + (to_string meshId) + " tex=" + (to_string texId) + " verts=" + (to_string em.vertexCount) + " size=" + (to_string szx) + "x" + (to_string szy) + "x" + (to_string szz) + " blend=" + (to_string blendI))
-                    } {
-                        print ("[wasm3d] model unusable: " + fname + " (" + em.error + ")")
-                    }
+                def bytes:buffer (buffer_read_file dir fname)
+                def nbytes:int (buffer_length bytes)
+                if (nbytes <= 0) {
+                    print ("[wasm3d] model empty/unreadable: " + fname)
                 } {
-                    print ("[wasm3d] model load failed: " + fname + " (" + loader.lastError + ")")
+                    if (nbytes > maxGlbBytes) {
+                        print ("[wasm3d] model skip (too large for eager preload): " + fname + " (" + (to_string nbytes) + " bytes; move to models/heavy/)")
+                    } {
+                        def id:int (loader.loadFromBuffer(bytes))
+                        if (id >= 0) {
+                            def model:ModelAsset (loader.getModel(id))
+                            def em:EngineMeshData (bridge.fromModel(model))
+                            if em.ok {
+                                if (em.vertexCount > maxVerts) {
+                                    print ("[wasm3d] model skip (too many verts for eager preload): " + fname + " verts=" + (to_string em.vertexCount))
+                                } {
+                                    def meshId:int (gfx_3d_mesh_upload_hp em.vertsHp em.vertexCount em.indices em.indexCount)
+                                    def texId:int 0
+                                    if em.hasTexture {
+                                        texId = (gfx_3d_upload_texture em.texRgba em.texWidth em.texHeight)
+                                    }
+                                    def base:string (this.stripGlb(fname))
+                                    def cr:int (this.chan255(em.baseColorR))
+                                    def cg:int (this.chan255(em.baseColorG))
+                                    def cb:int (this.chan255(em.baseColorB))
+                                    def ca:int (this.chan255(em.baseColorA))
+                                    def colorRgba:int (((cr * 16777216) + (cg * 65536)) + ((cb * 256) + ca))
+                                    def er:int (this.chan255(em.emissiveR))
+                                    def eg:int (this.chan255(em.emissiveG))
+                                    def eb:int (this.chan255(em.emissiveB))
+                                    def emissiveRgb:int (((er * 16777216) + (eg * 65536)) + (eb * 256))
+                                    def blendI:int 0
+                                    if em.blend {
+                                        blendI = 1
+                                    }
+                                    gfx_scene_register_model base meshId texId colorRgba emissiveRgb blendI
+                                    def szx:double (em.maxX - em.minX)
+                                    def szy:double (em.maxY - em.minY)
+                                    def szz:double (em.maxZ - em.minZ)
+                                    print ("[wasm3d] model '" + base + "' -> mesh=" + (to_string meshId) + " tex=" + (to_string texId) + " verts=" + (to_string em.vertexCount) + " size=" + (to_string szx) + "x" + (to_string szy) + "x" + (to_string szz) + " blend=" + (to_string blendI))
+                                }
+                            } {
+                                print ("[wasm3d] model unusable: " + fname + " (" + em.error + ")")
+                            }
+                        } {
+                            print ("[wasm3d] model load failed: " + fname + " (" + loader.lastError + ")")
+                        }
+                    }
                 }
             }
             i = (i + 1)
