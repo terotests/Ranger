@@ -61,6 +61,14 @@ class WebGameHost {
         runner.frameWithInput(dt snap)
     }
 
+    ; Live reload: AST-diff the new source against the running script and swap
+    ; only what changed (game_runtime.hotReloadScript). update/hud-only edits keep
+    ; game state; initState/sprites/consts edits rebuild the scene. Returns true
+    ; when the scene was rebuilt.
+    fn reloadScript:boolean (src:string) {
+        return (runner.hotReloadScript(src))
+    }
+
     fn draw:void () {
         runner.draw()
     }

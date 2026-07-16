@@ -1,16 +1,22 @@
 # Ranger Games on the web
 
 Runs the Ranger game engine **compiled to JavaScript** in the browser, rendering
-real games to a `<canvas>`. Published to GitHub Pages under `/games` by the
-[`deploy-pages`](../../../.github/workflows/deploy-pages.yml) workflow.
+real games to a `<canvas>`, with a **Monaco editor + live reload**: edit a game's
+script and it hot-reloads without a restart. Published to GitHub Pages under
+`/games` by the [`deploy-pages`](../../../.github/workflows/deploy-pages.yml)
+workflow.
 
 Live locally:
 
 ```bash
-node gallery/game_engine/web/build.mjs        # -> gallery/game_engine/web/dist
-cd gallery/game_engine/web/dist && python3 -m http.server 8000
+cd gallery/game_engine/web && npm ci        # Monaco + esbuild (editor pane)
+node build.mjs                              # -> ./dist
+cd dist && python3 -m http.server 8000
 # open http://localhost:8000
 ```
+
+The editor is optional: without `npm ci` the build still emits a canvas-only
+games site (it just logs "no editor").
 
 ## How it works
 
@@ -50,10 +56,31 @@ providers│  mountZip(storedZip)   mountManifest(json)   (later: IndexedDB)│
   it can be instantiated on demand, and packages each game in the `GAMES`
   registry as a stored zip whose entry names are the repo-relative paths the
   engine hardcodes (so nothing needs rewriting).
-- **`index.html`** — the shell: a game dropdown, the canvas, restart/pause.
+- **`src/editor.entry.mjs`** — the Monaco editor, bundled by esbuild into
+  `editor.bundle.js` (+ `.css` + `editor.worker.js` / `ts.worker.js`). Self-hosted,
+  so the Pages site needs no CDN.
+- **`index.html`** — the two-pane shell: Monaco editor + canvas, a game dropdown,
+  auto-reload toggle, restart/pause.
 
 The `GameRunner` here is the *same* one the native/SDL host and the Node smoke
 test use — no engine fork.
+
+## Live reload
+
+The VFS is the substrate shared by the editor and the engine, so live reload
+falls out of code that already exists:
+
+1. You edit the script in Monaco.
+2. `GameSession.reload(src)` writes it back into the VFS (bumping the file's
+   `mtimeMs` — the same signal the engine's own hot-reload poll uses) and calls
+   `WebGameHost.reloadScript(src)`.
+3. That runs `GameRunner.hotReloadScript` → `engine.patchScript`, which AST-diffs
+   the new source against the running program and swaps only what changed. Edits
+   to `update`/`hud` keep the running game state; edits to
+   `initState`/`sprites`/`consts` rebuild the scene.
+
+No polling loop is wired in the browser today (the editor calls `reload`
+directly), but the `mtimeMs` bump means an mtime-poll driver would work unchanged.
 
 ## Adding a game
 
@@ -94,6 +121,6 @@ building this).
   the browser `WebAssembly` API (the `games/*/tools/render.cjs` hosts are the
   reference) unlocks WASM guests in-browser.
 - **GPU / 3D demo** — `cube3d_wasm` style host-side rasterisation, then WebGL.
-- **Monaco IDE** — the VFS already tracks `mtimeMs`, and the engine already
-  hot-reloads scripts by polling it, so an editor that writes edits into the VFS
-  gets live reload for free.
+- **Monaco IDE** — ✅ done (editor + live reload; see above). Next: multi-file
+  editing (the VFS already holds every game file), persisting edits to IndexedDB,
+  and a share-a-URL button.

@@ -82,6 +82,19 @@
       if (e.code.startsWith("Arrow") || e.code === "Space") e.preventDefault();
     }
 
+    // Live reload: persist the edited source into the VFS (bumps its mtimeMs,
+    // the same signal the engine's own hot-reload poll uses) and AST-diff hot
+    // reload the running game. Returns true when the scene was rebuilt.
+    reload(src) {
+      this.vfs.writeText(this.scriptDir + "/" + this.scriptFile, src);
+      return this.host.reloadScript(src);
+    }
+
+    // The game's current script text (for loading into the editor).
+    getSource() {
+      return this.vfs.readText(this.scriptDir + "/" + this.scriptFile);
+    }
+
     // Advance and present exactly one frame (also used by headless screenshot).
     step(dtMs) {
       const dt = Math.max(1, Math.min(50, dtMs | 0)) || 16;

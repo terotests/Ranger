@@ -3,11 +3,12 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Ranger Games — running in the browser</title>
+    <title>Ranger Games — edit &amp; live-reload in the browser</title>
     <link
       rel="icon"
       href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🎮</text></svg>"
     />
+    <link rel="stylesheet" href="./editor.bundle.css" />
     <style>
       :root {
         color-scheme: dark;
@@ -16,108 +17,120 @@
         --ink: #e6e9f3;
         --muted: #97a0bd;
         --accent: #6ea8ff;
+        --good: #58d38c;
       }
       * { box-sizing: border-box; }
+      html, body { height: 100%; }
       body {
         margin: 0;
-        font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        font: 14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
         background: radial-gradient(1200px 600px at 50% -10%, #1b2140, var(--bg));
         color: var(--ink);
-        min-height: 100vh;
         display: flex;
         flex-direction: column;
-        align-items: center;
-        padding: 32px 16px 64px;
+        min-height: 100vh;
       }
-      h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: -0.02em; }
-      .sub { color: var(--muted); margin: 0 0 24px; text-align: center; }
+      header { padding: 18px 22px 6px; }
+      h1 { margin: 0; font-size: 20px; letter-spacing: -0.02em; }
+      .sub { color: var(--muted); margin: 2px 0 0; font-size: 13px; }
       .sub code { color: var(--accent); }
-      .stage {
-        background: var(--panel);
-        border: 1px solid #262d47;
-        border-radius: 14px;
-        padding: 18px;
-        box-shadow: 0 20px 60px -20px #000a;
-      }
-      canvas {
-        display: block;
-        image-rendering: pixelated;
-        width: 720px;
-        max-width: 86vw;
-        height: auto;
-        aspect-ratio: 16 / 9;
-        border-radius: 8px;
-        background: #0a0e1a;
-      }
-      .bar {
-        display: flex;
-        gap: 12px;
-        align-items: center;
-        justify-content: space-between;
-        margin-top: 14px;
-        flex-wrap: wrap;
+      .toolbar {
+        display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+        padding: 10px 22px;
       }
       select, button {
-        font: inherit;
-        color: var(--ink);
-        background: #1e2540;
-        border: 1px solid #313a5c;
-        border-radius: 8px;
-        padding: 8px 12px;
-        cursor: pointer;
+        font: inherit; color: var(--ink); background: #1e2540;
+        border: 1px solid #313a5c; border-radius: 8px; padding: 7px 11px; cursor: pointer;
       }
       button:hover, select:hover { border-color: var(--accent); }
-      .controls { color: var(--muted); font-size: 13px; }
-      .status { color: var(--muted); font-size: 13px; min-height: 1.2em; margin-top: 10px; }
-      footer { margin-top: 28px; color: var(--muted); font-size: 12.5px; text-align: center; max-width: 640px; }
-      footer a { color: var(--accent); }
+      label.chk { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); cursor: pointer; }
+      .status { margin-left: auto; color: var(--muted); font-size: 13px; min-width: 0; }
+      .status .ok { color: var(--good); }
+      main {
+        flex: 1; display: grid; gap: 14px; padding: 4px 22px 22px;
+        grid-template-columns: minmax(340px, 1fr) auto;
+        align-items: start;
+      }
+      @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+      .card {
+        background: var(--panel); border: 1px solid #262d47; border-radius: 12px;
+        overflow: hidden; box-shadow: 0 20px 60px -30px #000a;
+      }
+      .card .cap { padding: 8px 12px; color: var(--muted); font-size: 12px; border-bottom: 1px solid #262d47; }
+      #editor { height: 62vh; min-height: 360px; width: 100%; }
+      .stage { padding: 14px; }
+      canvas {
+        display: block; image-rendering: pixelated;
+        width: 480px; max-width: 100%; height: auto; aspect-ratio: 16 / 9;
+        border-radius: 8px; background: #0a0e1a;
+      }
+      .controls { color: var(--muted); font-size: 12.5px; margin-top: 10px; }
+      .hint { color: var(--muted); font-size: 12px; padding: 0 22px 18px; }
+      .hint code { color: var(--accent); }
+      a { color: var(--accent); }
     </style>
   </head>
   <body>
-    <h1>Ranger Games</h1>
-    <p class="sub">
-      The Ranger game engine compiled to JavaScript, rendering to a canvas via a
-      <code>virtual filesystem</code>. Same <code>GameRunner</code> as the native/SDL build.
-    </p>
+    <header>
+      <h1>Ranger Games — live editor</h1>
+      <p class="sub">
+        The engine compiled to <code>JavaScript</code>, a <code>Monaco</code>
+        editor, and a <code>virtual filesystem</code> shared between them. Edit
+        the game and it hot-reloads — no restart.
+      </p>
+    </header>
 
-    <div class="stage">
-      <canvas id="screen" width="480" height="270"></canvas>
-      <div class="bar">
-        <label>
-          Game
-          <select id="game"></select>
-        </label>
-        <span class="controls" id="controls"></span>
-        <span>
-          <button id="restart">Restart</button>
-          <button id="pause">Pause</button>
-        </span>
-      </div>
-      <div class="status" id="status">loading engine…</div>
+    <div class="toolbar">
+      <label>Game <select id="game"></select></label>
+      <label class="chk"><input type="checkbox" id="autoreload" checked /> Auto-reload on edit</label>
+      <button id="reload">Reload now</button>
+      <button id="restart">Restart</button>
+      <button id="pause">Pause</button>
+      <span class="status" id="status">loading…</span>
     </div>
 
-    <footer>
-      Built by the <code>deploy-games</code> workflow. The engine JS, the game
-      package (a stored <code>.zip</code> mounted into the VFS) and this runtime
-      are fully static — no server needed.
-    </footer>
+    <main>
+      <section class="card">
+        <div class="cap" id="filecap">script</div>
+        <div id="editor"></div>
+      </section>
+      <section class="card">
+        <div class="cap">canvas — the running game</div>
+        <div class="stage">
+          <canvas id="screen" width="480" height="270"></canvas>
+          <div class="controls" id="controls"></div>
+        </div>
+      </section>
+    </main>
+
+    <p class="hint">
+      Try editing a constant near the top of the script (a colour, a speed, a
+      size) and watch the game update. Edits to <code>update</code>/<code>hud</code>
+      keep the running state; edits to <code>initState</code>/<code>sprites</code>
+      rebuild the scene.
+    </p>
 
     <script src="./vfs.js"></script>
     <script src="./engine-host.js"></script>
     <script src="./runner.js"></script>
+    <script src="./editor.bundle.js"></script>
     <script>
       const statusEl = document.getElementById("status");
       const selectEl = document.getElementById("game");
       const controlsEl = document.getElementById("controls");
+      const fileCapEl = document.getElementById("filecap");
+      const autoEl = document.getElementById("autoreload");
       const canvas = document.getElementById("screen");
       let bundleSource = null;
       let registry = [];
       let session = null;
+      let editor = null;
       let paused = false;
+      let editTimer = 0;
+      let suppressChange = false;
 
-      function setStatus(msg) {
-        statusEl.textContent = msg;
-      }
+      const setStatus = (msg, ok) =>
+        (statusEl.innerHTML = ok ? '<span class="ok">' + msg + "</span>" : msg);
 
       async function fetchText(u) {
         const r = await fetch(u);
@@ -130,10 +143,43 @@
         return r.arrayBuffer();
       }
 
+      function ensureEditor(value) {
+        if (!window.RangerEditor) return null; // editor bundle absent
+        if (!editor) {
+          editor = window.RangerEditor.create(document.getElementById("editor"), value, {});
+          editor.onDidChangeModelContent(() => {
+            if (suppressChange) return;
+            if (!autoEl.checked) {
+              setStatus("edited — press Reload now");
+              return;
+            }
+            clearTimeout(editTimer);
+            editTimer = setTimeout(applyEdit, 350);
+          });
+        } else {
+          suppressChange = true;
+          editor.setValue(value);
+          suppressChange = false;
+        }
+        return editor;
+      }
+
+      function applyEdit() {
+        if (!session || !editor) return;
+        try {
+          const rebuilt = session.reload(editor.getValue());
+          setStatus(rebuilt ? "reloaded ✓ (scene rebuilt)" : "reloaded ✓ (state kept)", true);
+        } catch (e) {
+          setStatus("reload error: " + e.message);
+          console.error(e);
+        }
+      }
+
       async function loadGame(entry) {
         if (session) session.stop();
         setStatus("loading " + entry.title + "…");
         controlsEl.textContent = entry.controls || "";
+        fileCapEl.textContent = entry.scriptDir + "/" + entry.script;
         const zipBuffer = await fetchBuffer(entry.pkg);
         session = await window.RangerRunner.launch({
           bundleSource,
@@ -144,12 +190,13 @@
           scriptDir: entry.scriptDir,
           scriptFile: entry.script,
           onStats: (s) => {
-            setStatus(entry.title + " — score " + s.score1 + " : " + s.score2);
+            if (!document.hidden)
+              setStatus(entry.title + " — score " + s.score1 + " : " + s.score2);
           },
         });
+        ensureEditor(session.getSource());
         paused = false;
         document.getElementById("pause").textContent = "Pause";
-        setStatus(entry.title + " running.");
       }
 
       async function boot() {
@@ -160,8 +207,8 @@
             .map((g, i) => '<option value="' + i + '">' + g.title + "</option>")
             .join("");
           selectEl.onchange = () => loadGame(registry[+selectEl.value]);
-          document.getElementById("restart").onclick = () =>
-            loadGame(registry[+selectEl.value]);
+          document.getElementById("reload").onclick = applyEdit;
+          document.getElementById("restart").onclick = () => loadGame(registry[+selectEl.value]);
           document.getElementById("pause").onclick = () => {
             if (!session) return;
             paused = !paused;
@@ -170,6 +217,11 @@
             document.getElementById("pause").textContent = paused ? "Resume" : "Pause";
           };
           await loadGame(registry[0]);
+          if (!window.RangerEditor) {
+            document.querySelector("main").style.gridTemplateColumns = "1fr";
+            document.getElementById("editor").innerHTML =
+              '<p style="padding:16px;color:#97a0bd">Editor bundle not built — run <code>npm ci</code> in <code>gallery/game_engine/web</code> then rebuild.</p>';
+          }
         } catch (e) {
           setStatus("error: " + e.message);
           console.error(e);
