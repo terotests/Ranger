@@ -148,6 +148,33 @@ The GLB read goes through the same VFS-backed `require('fs')`, so the model is
 just a file in the zip. Same renderer as the native build — `SoftRenderer3D`
 gained only an optional `orbitYRad` field (default 0 = unchanged behaviour).
 
+## TSX-script-driven 3D scene (games menu, `kind:"tsx3d"`)
+
+The games dropdown also lists **"3D Scene (TSX)"** — a 3D scene *declared by a
+short `.tsx` script* rather than a direct model load. It runs the Ranger
+interpreter in the browser: the script's `init()` calls `addModel(...)` / `spin(...)`,
+which a software scene bridge services host-side, and `SoftRenderer3D` rasterises
+the result — no WASM, no WebGL.
+
+```
+index.tsx init()  →  ComponentEngine (interpreter)
+   addModel("BoxTextured.glb")  →  SoftScene3dBridge  →  ModelLoader + instantiate
+   spin(box, 0.6)                                        →  SoftRenderer3D → RGB → canvas
+```
+
+- **`web_tsx3d_host.rgr`** — `WebTsx3dHost` + `SoftScene3dBridge`: `loadScriptFile(dir,file)`
+  runs the script's `init()`; `setOrbit` / `render(w,h)` / `raw()` / `spinRate()` /
+  `sourceText()`. Compiled to `tsx3d.bundle.js`.
+- **`src/tsx3d-viewer.js`** — rAF loop: advances the orbit by the script's `spin`
+  rate, blits RGB→RGBA; drag to rotate. The editor pane shows the scene `.tsx`.
+- **`build.mjs`** — compiles the host to `tsx3d.bundle.js`, packages the scene
+  (`games/model_viewer_tsx/index.tsx` + its GLB), and adds a `kind:"tsx3d"` entry;
+  `index.html` branches on it to launch `RangerTsx3d` on the shared canvas.
+
+This is the browser twin of the native `tsx3d_sdl_runner.rgr`: the **same**
+`games/model_viewer_tsx/index.tsx` runs on both — native SDL2/OpenGL on desktop,
+software-rendered here. The native GL path itself is desktop-only.
+
 ## Roadmap
 
 - **WASM game logic** — the car game (`autopeli_wasm`). The engine's `wasm_*`
