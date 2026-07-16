@@ -169,11 +169,11 @@ struct World {
     vx: f32,
     vy: f32,
     vz: f32,
-    yaw: f32,
+    facex: f32, // unit facing direction on the ground (where the avatar looks)
+    facez: f32,
     on_ground: bool,
     jumping: bool,
     jump_prev: bool,
-    turn_prev: i32,
     // game
     score: i32,
     mode: i32,
@@ -214,11 +214,11 @@ static W: WCell = WCell(UnsafeCell::new(World {
     vx: 0.0,
     vy: 0.0,
     vz: 0.0,
-    yaw: 0.0,
+    facex: -CAM_FWD_X, // start facing the camera (we see the avatar's front)
+    facez: -CAM_FWD_Z,
     on_ground: true,
     jumping: false,
     jump_prev: false,
-    turn_prev: 0,
     score: 0,
     mode: MODE_PLAY,
     knock_t: 0.0,
@@ -255,6 +255,15 @@ const KNOCK_TIME: f32 = 0.6;
 const CAM_OFF_X: f32 = -8.5; // mostly to the side...
 const CAM_OFF_Y: f32 = 5.8; // ...a bit above...
 const CAM_OFF_Z: f32 = -4.5; // ...and slightly oblique
+
+// Camera-relative movement basis (constant, since the camera angle is fixed).
+// Camera-forward on the ground = player - camera = (-CAM_OFF_X, -CAM_OFF_Z),
+// normalized; screen-right = forward x up = (-fz, fx) (OpenGL lookAt handedness).
+// Up-arrow drives along CAM_FWD (into the scene), right-arrow along CAM_RGT.
+const CAM_FWD_X: f32 = 0.883_78;
+const CAM_FWD_Z: f32 = 0.467_85;
+const CAM_RGT_X: f32 = -0.467_85;
+const CAM_RGT_Z: f32 = 0.883_78;
 
 // ---- level: several spiralling *paths* of floating platforms climb from a
 // central base up to a golden goal high above. Platforms vary in shape (square,
@@ -671,7 +680,7 @@ fn check_win(w: &mut World) {
 }
 
 #[no_mangle]
-pub extern "C" fn update(dt_ms: i32, forward: i32, strafe: i32, turn: i32, jump: i32) {
+pub extern "C" fn update(dt_ms: i32, forward: i32, _strafe: i32, turn: i32, jump: i32) {
     let w = world();
     let dt = (dt_ms.max(1) as f32) / 1000.0;
     w.t += dt;
@@ -693,13 +702,7 @@ pub extern "C" fn update(dt_ms: i32, forward: i32, strafe: i32, turn: i32, jump:
         return;
     }
 
-    // discrete 90° turn: one snap per left/right press (edge-triggered)
-    if turn != 0 && w.turn_prev == 0 {
-        w.yaw += (turn as f32) * core::f32::consts::FRAC_PI_2;
-    }
-    w.turn_prev = turn;
-
-    // horizontal velocity: input, or knockback momentum with friction
+    // horizontal velocity: camera-relative input, or knockback with friction
     if w.knock_t > 0.0 {
         w.knock_t -= dt;
         let fr = if w.on_ground { 8.0 } else { 0.6 };
@@ -707,24 +710,25 @@ pub extern "C" fn update(dt_ms: i32, forward: i32, strafe: i32, turn: i32, jump:
         w.vx *= decay;
         w.vz *= decay;
     } else {
-        // facing vector from yaw; up-arrow (forward) drives along it, into the
-        // scene. strafe moves along the right-hand perpendicular.
-        let (s, c) = w.yaw.sin_cos();
-        let fwx = -s;
-        let fwz = -c;
-        let rgx = -fwz; // right = facing rotated -90°
-        let rgz = fwx;
+        // Camera-relative controls: up/down move along the camera-forward axis,
+        // left/right (the `turn` input) along the camera-right axis. The avatar
+        // turns to face whichever way it is moving.
         let fwd = forward as f32;
-        let stf = strafe as f32;
-        let mut mvx = (fwx * fwd + rgx * stf) * MOVE_SPD;
-        let mut mvz = (fwz * fwd + rgz * stf) * MOVE_SPD;
-        let mag = (mvx * mvx + mvz * mvz).sqrt();
-        if mag > MOVE_SPD {
-            mvx *= MOVE_SPD / mag;
-            mvz *= MOVE_SPD / mag;
+        let side = turn as f32; // right arrow (+1) -> screen right
+        let dx = CAM_FWD_X * fwd + CAM_RGT_X * side;
+        let dz = CAM_FWD_Z * fwd + CAM_RGT_Z * side;
+        let dl = (dx * dx + dz * dz).sqrt();
+        if dl > 0.01 {
+            let nx = dx / dl;
+            let nz = dz / dl;
+            w.vx = nx * MOVE_SPD;
+            w.vz = nz * MOVE_SPD;
+            w.facex = nx; // face the movement direction
+            w.facez = nz;
+        } else {
+            w.vx = 0.0;
+            w.vz = 0.0;
         }
-        w.vx = mvx;
-        w.vz = mvz;
         if jump_pressed && w.on_ground {
             w.vy = JUMP_V0;
             w.jumping = true;
@@ -768,8 +772,7 @@ pub extern "C" fn update(dt_ms: i32, forward: i32, strafe: i32, turn: i32, jump:
     // player avatar
     if w.hero > 0 {
         let sy = (w.py - P_HY) + SPR_FEET_OFF;
-        let (s, c) = w.yaw.sin_cos();
-        let d = sprite_dir(-s, -c, w.px, w.pz, w.cam_x, w.cam_z);
+        let d = sprite_dir(w.facex, w.facez, w.px, w.pz, w.cam_x, w.cam_z);
         let col = if !w.on_ground { 2 } else { walk_col(w.t, moving) };
         unsafe {
             rg_set_position(w.player_ent, fx(w.px), fx(sy), fx(w.pz));
@@ -778,7 +781,6 @@ pub extern "C" fn update(dt_ms: i32, forward: i32, strafe: i32, turn: i32, jump:
     } else {
         unsafe {
             rg_set_position(w.player_ent, fx(w.px), fx(w.py), fx(w.pz));
-            set_yaw(w.player_ent, w.yaw);
         }
     }
     sync_camera(w, dt);
