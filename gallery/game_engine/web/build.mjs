@@ -93,6 +93,17 @@ const GAMES = [
 // and exposes a flat two-player frame the JS harness drives.
 const RUNNER_RGR = "gallery/game_engine/web/web_game_host.rgr";
 
+// A second engine bundle for the `kind:"model3d"` menu entries: the host-side
+// software 3D renderer (ModelLoader + SoftRenderer3D, no WASM / no GPU), driven
+// by src/model-viewer.js. The native SDL2/OpenGL 3D path (tsx3d_sdl_runner) is
+// desktop-only; this is the browser-viable renderer.
+const VIEWER_RGR = "gallery/game_engine/web/web_model_viewer.rgr";
+const MODEL3D_DIR = "gallery/game_engine/games/model_viewer_wasm/models";
+const MODELS_3D = [
+  { id: "model3d_duck", title: "3D Model — Duck", file: "Duck.glb", size: 480 },
+  { id: "model3d_box", title: "3D Model — Textured Box", file: "BoxTextured.glb", size: 480 },
+];
+
 // ------------------------------------------------------------------- helpers
 function log(...a) {
   console.log("[web-build]", ...a);
@@ -207,6 +218,35 @@ function compileEngineBundle() {
   fs.rmSync(rawDir, { recursive: true, force: true });
 }
 
+// Compile web_model_viewer.rgr -> viewer.bundle.js (exports WebModelViewer).
+// Same transform as the games bundle; kept separate so the 2D engine bundle
+// stays lean and the 3D viewer only loads when a model3d entry is selected.
+function compileViewerBundle() {
+  const rawDir = path.join(OUT, "_raw3d");
+  fs.mkdirSync(rawDir, { recursive: true });
+  const rawDirRel = path.relative(ROOT, rawDir);
+  log("compiling 3D viewer:", VIEWER_RGR);
+  sh("node", [
+    "bin/output.js",
+    "-es6",
+    VIEWER_RGR,
+    "-d=" + rawDirRel,
+    "-o=viewer.raw.js",
+    "-nodecli",
+  ], {
+    env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" },
+    stdio: "inherit",
+  });
+  let src = fs.readFileSync(path.join(rawDir, "viewer.raw.js"), "utf8");
+  src = src.replace(/^#![^\n]*\n/, "");
+  src = src.replace(/\n__js_main\(\);\s*$/, "\n");
+  src = src.replace(/\n[A-Za-z_$][\w$]*\(\);\s*$/, "\n");
+  src += "\n;return { WebModelViewer };\n";
+  fs.writeFileSync(path.join(OUT, "viewer.bundle.js"), src);
+  log("wrote viewer.bundle.js (" + (src.length / 1024).toFixed(0) + " KB)");
+  fs.rmSync(rawDir, { recursive: true, force: true });
+}
+
 // ------------------------------------------------------------------- packages
 function packageGames() {
   const gamesOut = path.join(OUT, "games");
@@ -231,6 +271,24 @@ function packageGames() {
       controls: g.controls || "",
     });
     log("packaged", g.id, "(" + (zip.length / 1024).toFixed(1) + " KB, " + entries.length + " files)");
+  }
+  // 3D model entries — each packages one committed GLB at its repo-relative VFS
+  // path and renders through WebModelViewer (kind:"model3d") instead of GameRunner.
+  for (const m of MODELS_3D) {
+    const rel = MODEL3D_DIR + "/" + m.file;
+    const zip = makeStoredZip([{ name: rel, bytes: fs.readFileSync(path.join(ROOT, rel)) }]);
+    fs.writeFileSync(path.join(gamesOut, m.id + ".zip"), zip);
+    registry.push({
+      id: m.id,
+      title: m.title,
+      kind: "model3d",
+      size: m.size,
+      dir: MODEL3D_DIR,
+      file: m.file,
+      pkg: "games/" + m.id + ".zip",
+      controls: "Drag to rotate · auto-spins when idle · host software renderer (no WASM / no GPU).",
+    });
+    log("packaged 3D", m.id, "(" + (zip.length / 1024).toFixed(1) + " KB)");
   }
   fs.writeFileSync(path.join(OUT, "games.json"), JSON.stringify(registry, null, 2));
 }
@@ -282,7 +340,7 @@ async function buildEditor() {
 
 // ------------------------------------------------------------------- assets
 function copyRuntime() {
-  for (const f of ["vfs.js", "engine-host.js", "runner.js"]) {
+  for (const f of ["vfs.js", "engine-host.js", "runner.js", "model-viewer.js"]) {
     fs.copyFileSync(path.join(SRC, f), path.join(OUT, f));
   }
   fs.copyFileSync(path.join(HERE, "index.html"), path.join(OUT, "index.html"));
@@ -294,8 +352,8 @@ function copyRuntime() {
 // so it only changes when they actually change.
 function cacheBust() {
   const names = [
-    "vfs.js", "engine-host.js", "runner.js",
-    "engine.bundle.js", "games.json",
+    "vfs.js", "engine-host.js", "runner.js", "model-viewer.js",
+    "engine.bundle.js", "viewer.bundle.js", "games.json",
     "editor.bundle.js", "editor.bundle.css",
   ];
   const h = crypto.createHash("sha1");
@@ -317,6 +375,7 @@ function cacheBust() {
 // ------------------------------------------------------------------- main
 fs.mkdirSync(OUT, { recursive: true });
 compileEngineBundle();
+compileViewerBundle();
 packageGames();
 const editorOk = await buildEditor();
 copyRuntime();

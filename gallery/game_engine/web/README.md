@@ -52,6 +52,15 @@ providers│  mountZip(storedZip)   mountManifest(json)   (later: IndexedDB)│
 - **`src/runner.js`** — a `requestAnimationFrame` loop: keyboard →
   `runner.frame(dt, up, down, left, action, right, quit)` → `runner.draw()` →
   `runner.raw()` (a `width*height*4` RGBA `ArrayBuffer`) → `putImageData`.
+- **3D menu entries (`kind:"model3d"`)** — the dropdown also lists 3D models
+  (Duck, Textured Box). These do **not** use `GameRunner`; they render through
+  the host software 3D renderer `web_model_viewer.rgr` (`ModelLoader` +
+  `model3d/demo/SoftRenderer3D.rgr`, no WASM / no GPU), compiled to a second
+  bundle `viewer.bundle.js` and driven by `src/model-viewer.js`. `build.mjs`
+  packages each GLB and adds a `kind:"model3d"` registry entry; `index.html`
+  branches on `entry.kind` to launch `RangerModelViewer` on the same canvas
+  (drag to rotate). The native SDL2/OpenGL TSX 3D path (`tsx3d_sdl_runner.rgr`)
+  is desktop-only; this is the browser-viable renderer.
 - **`build.mjs`** — compiles the engine to JS, strips the trailing auto-run so
   it can be instantiated on demand, and packages each game in the `GAMES`
   registry as a stored zip whose entry names are the repo-relative paths the

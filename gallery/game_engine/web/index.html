@@ -115,6 +115,7 @@
     <script src="./vfs.js"></script>
     <script src="./engine-host.js"></script>
     <script src="./runner.js"></script>
+    <script src="./model-viewer.js"></script>
     <script src="./editor.bundle.js"></script>
     <script>
       const statusEl = document.getElementById("status");
@@ -124,6 +125,7 @@
       const autoEl = document.getElementById("autoreload");
       const canvas = document.getElementById("screen");
       let bundleSource = null;
+      let viewerBundle = null;
       let registry = [];
       let session = null;
       let editor = null;
@@ -167,7 +169,7 @@
       }
 
       function applyEdit() {
-        if (!session || !editor) return;
+        if (!session || !editor || typeof session.reload !== "function") return;
         try {
           const rebuilt = session.reload(editor.getValue());
           setStatus(rebuilt ? "reloaded ✓ (scene rebuilt)" : "reloaded ✓ (state kept)", true);
@@ -181,6 +183,32 @@
         if (session) session.stop();
         setStatus("loading " + entry.title + "…");
         controlsEl.textContent = entry.controls || "";
+
+        // 3D model entries render through the host software 3D renderer
+        // (WebModelViewer / SoftRenderer3D), not the 2D GameRunner.
+        if (entry.kind === "model3d") {
+          fileCapEl.textContent = entry.dir + "/" + entry.file;
+          const zipBuffer = await fetchBuffer(entry.pkg);
+          session = await window.RangerModelViewer.launch({
+            bundleSource: viewerBundle,
+            zipBuffer,
+            canvas,
+            size: entry.size || 480,
+            dir: entry.dir,
+            file: entry.file,
+          });
+          ensureEditor(
+            "// " + entry.title + "\n" +
+            "// Host software 3D renderer (SoftRenderer3D) — no WASM, no GPU.\n" +
+            "// GLB loaded + rasterised host-side; drag the canvas to rotate.\n" +
+            "// The native SDL2/OpenGL TSX 3D path (tsx3d_sdl_runner) is desktop-only."
+          );
+          paused = false;
+          document.getElementById("pause").textContent = "Pause";
+          setStatus(entry.title + " — " + session.viewer.triangleCount() + " triangles", true);
+          return;
+        }
+
         fileCapEl.textContent = entry.scriptDir + "/" + entry.script;
         const zipBuffer = await fetchBuffer(entry.pkg);
         session = await window.RangerRunner.launch({
@@ -205,6 +233,7 @@
       async function boot() {
         try {
           bundleSource = await fetchText("./engine.bundle.js");
+          viewerBundle = await fetchText("./viewer.bundle.js");
           registry = JSON.parse(await fetchText("./games.json"));
           selectEl.innerHTML = registry
             .map((g, i) => '<option value="' + i + '">' + g.title + "</option>")
@@ -212,7 +241,7 @@
           selectEl.onchange = () => loadGame(registry[+selectEl.value]);
           document.getElementById("reload").onclick = applyEdit;
           document.getElementById("sound").onchange = (e) => {
-            if (session) session.setMuted(!e.target.checked);
+            if (session && session.setMuted) session.setMuted(!e.target.checked);
           };
           document.getElementById("restart").onclick = () => loadGame(registry[+selectEl.value]);
           document.getElementById("pause").onclick = () => {
