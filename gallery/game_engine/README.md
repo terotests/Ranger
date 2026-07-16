@@ -493,15 +493,35 @@ Kaikki alla oleva on **testattu** WASM-käännöksellä (`runtime/wasm/*_test.mj
 | Suora `Mem`-slotti-tila (staattiset metodit, ei varausta) | ✅ | ranger_autopeli |
 | **Sisäkkäiset oliot**: kentän-kentän luku/kirjoitus `a.b.c` (mielivaltainen syvyys) | ✅ | `o.mid.inner.v = 99` |
 | Olio-kenttä (`def v:Vec (new Vec)`) rekursiivinen vapautus | ⚠️ vuotaa | borrow-oletus |
-| **Singletonit** (`@singleton(true)`) | ❌ | ei tueta (ks. alla) |
+| **Singletonit** (`@singleton(true)`) — jaettu tila framejen yli | ✅ | `World.__singleton()` |
 | **Lambdat / sulkeumat** (`(fn:… (){})`, `{ … }`) | ❌ | funktio-osoittimia ei emitoida |
 
-**Singletonit ja globaali tila.** `@singleton(true)`:n `__singleton()`-aksessoria
-ei (vielä) emitoida WAT-backendissä — WASM-globaaleja ei varata. Peleissä globaali
-tila kannattaa pitää joko (a) **staattisilla metodeilla + kiinteissä linear-
-memory-slotissa** (`Mem.storeI32`/`loadI32`) — juuri niin ranger_autopeli tekee —
-tai (b) luoda oliot ja langoittaa ne kutsuketjun läpi. Ei erillistä globaalia
-säiliötä yhdelle jaetulle instanssille ilman singleton- tai globaalitukea.
+**Singletonit ja globaali tila.** `@singleton(true)` toimii: `__singleton()`
+rakentaa instanssin laiskasti mutable-wasm-globaaliin ja palauttaa saman olion
+jatkossa, joten tila säilyy `update()`-kutsujen (framejen) välillä — luonteva
+tapa pitää pelin globaali tila OO-tyylissä. Kutsu paikallisen kautta:
+
+```ranger
+class World @singleton(true) {
+    def frame:int 0
+    def enemies:[int]
+    fn tick:void () {
+        frame = (+ frame 1)
+        push enemies frame
+    }
+}
+class G {
+    sfn update:void () {
+        def w (World.__singleton())   ; sama instanssi joka framessa
+        w.tick()
+    }
+}
+```
+
+Vaihtoehtoina toki myös (a) staattiset metodit + kiinteät linear-memory-slotit
+(`Mem.storeI32`/`loadI32`, kuten ranger_autopeli) tai (b) oliot langoitettuna
+kutsuketjun läpi. (Huom: kutsu `(World.__singleton()).metodi()` suoraan ketjuna
+sekoittaa tyypintarkistuksen — talleta ensin `def w (World.__singleton())`.)
 
 **Sisäkkäiset oliot.** Litteä olio toimii (`v.x = 10  v.y = 32`), mutta
 kentän-kentän ketjumutatointi (`p.pos.x = …` kun `pos` on olio-kenttä) osoittaa

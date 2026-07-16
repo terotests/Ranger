@@ -199,6 +199,9 @@ class LowIRModule {
   def functions:[LowIRFunction]
   def stringGlobals:[LowIRStringGlobal]
   def externDecls:[LowIRExternDecl]
+  ; class names that need a mutable wasm global holding their lazy singleton
+  ; instance (the WAT writer emits `(global $singleton_<name> (mut i32) 0)`).
+  def singletonClasses:[string]
 }
 
 ; Compile-session singleton ? holds the module being built for one translation unit.
@@ -619,6 +622,30 @@ class LowIRBuilder {
     ins.arg1 = pages
     this.emit(ins)
     return dest
+  }
+
+  ; read a named mutable wasm global (wasm global.get)
+  fn emitGlobalGet:string (name:string) {
+    def dest (this.freshTemp("g"))
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "global_get"
+    ins.dest = dest
+    ins.irType = "i32"
+    ins.arg1 = name
+    this.emit(ins)
+    return dest
+  }
+
+  ; write a named mutable wasm global (wasm global.set)
+  fn emitGlobalSet:void (name:string value:string) {
+    def n (this.tempCounter)
+    this.tempCounter = n + 1
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "global_set"
+    ins.dest = ("gs" + ("" + n))
+    ins.arg1 = name
+    ins.arg2 = value
+    this.emit(ins)
   }
 
   fn emitI32At:string (base:string byteOff:int) {

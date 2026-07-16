@@ -194,6 +194,14 @@ class LowIRBuilderPass {
           this.lowerFunction(m cl.name appCtx false false true)
         }
       }
+      ; WASM/WAT: emit the `__singleton()` accessor (lazy-init into a wasm global).
+      ; The freestanding backend has no global data, so this is the singleton
+      ; storage mechanism. Gated on -wat (global.get/set are wasm-only ops).
+      if (appCtx.hasCompilerFlag("wat")) {
+        if (cl.isSingletonClass()) {
+          this.lowerSingletonAccessor(cl appCtx)
+        }
+      }
     }
     if this.usedArrayRuntime {
       LowIRRuntimeGen.ensureArrayRuntime(this.irModule)
@@ -3027,6 +3035,76 @@ class LowIRBuilderPass {
     }
 
     builder.finishFunction(fnName lctx.llvmRetType params exportFn isMain)
+  }
+
+  ; Generate `ClassName___singleton()` for a @singleton(true) class on the WAT
+  ; backend: lazily construct the instance into a mutable wasm global and return
+  ; it. Body:  cur = global; if (cur == 0) { obj = new Class(); global = obj;
+  ; return obj }  return cur.  Supports no-argument construction (field defaults
+  ; + a no-arg Constructor). Blocks are ordered init-before-return so the
+  ; structured WAT reconstruction keeps both arms.
+  fn lowerSingletonAccessor:void (cl:RangerAppClassDesc appCtx:RangerAppWriterContext) {
+    def builder@(lives):LowIRBuilder (new LowIRBuilder(this.irModule))
+    builder.reset()
+    def lctx@(lives):LowIRLowerContext (new LowIRLowerContext())
+    lctx.ctx = appCtx
+    lctx.builder = builder
+    lctx.target = (LowIRTarget.resolve(appCtx))
+    lctx.ptrType = lctx.target.ptrType
+    def emptySlots:[string:string]
+    lctx.slots = emptySlots
+    def emptySlotTypes:[string:string]
+    lctx.slotTypes = emptySlotTypes
+    def emptyObjects:[string:string]
+    lctx.objectSlots = emptyObjects
+    def emptyCollections:[string:string]
+    lctx.collectionSlots = emptyCollections
+    def emptyElemTypes:[string:string]
+    lctx.ptrArrayElemTypes = emptyElemTypes
+    def emptyOwned:[string]
+    lctx.ownedObjectLocals = emptyOwned
+    def emptyColl:[string]
+    lctx.ownedCollectionLocals = emptyColl
+    def emptyStr:[string]
+    lctx.ownedStringLocals = emptyStr
+    def emptyPending:[string]
+    lctx.pendingStringTemps = emptyPending
+    def emptyEscaped:[string:string]
+    lctx.escapedLocals = emptyEscaped
+    lctx.currentRetType = cl.name
+    lctx.llvmRetType = lctx.ptrType
+
+    push this.irModule.singletonClasses cl.name
+    def globalName:string ("singleton_" + cl.name)
+
+    ; empty args node (no-arg constructor) built from the class's own AST node
+    def factory@(weak optional):CodeNode
+    if (!null? cl.classNode) {
+      factory = cl.classNode
+    } {
+      factory = cl.nameNode
+    }
+    def argsNode:CodeNode ((unwrap factory).newVRefNode(""))
+
+    def initLabel (builder.freshLabel("sgl_init"))
+    def retLabel (builder.freshLabel("sgl_ret"))
+    builder.startBlock("entry")
+    def cur (builder.emitGlobalGet(globalName))
+    def zero (builder.emitConst(lctx.ptrType "0"))
+    def isZero (builder.emitIcmp("eq" cur zero))
+    builder.terminateBrIf(isZero initLabel retLabel)
+
+    builder.startBlock(initLabel)
+    def obj (this.lowerNewObject(cl.name argsNode lctx))
+    builder.emitGlobalSet(globalName obj)
+    builder.terminateRet(lctx.ptrType obj)
+
+    builder.startBlock(retLabel)
+    builder.terminateRet(lctx.ptrType cur)
+
+    def fnName (LowIRUtil.mangleMethod(cl.name "__singleton"))
+    def params:[LowIRParam]
+    builder.finishFunction(fnName lctx.ptrType params false false)
   }
 
   fn isOwnedObjectLocal:boolean (varName:string lctx:LowIRLowerContext) {

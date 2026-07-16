@@ -215,6 +215,10 @@ class WATWriter {
     if hasStatic {
       this.emitStaticData(module wr)
     }
+    ; one mutable global per singleton class, holding its lazy instance pointer
+    for module.singletonClasses sc:string i {
+      wr.out(("  (global $singleton_" + (sc + " (mut i32) (i32.const 0))")) true)
+    }
     for module.functions fn:LowIRFunction i {
       this.writeFunction(fn wr fn.exportFn)
     }
@@ -608,6 +612,14 @@ class WATWriter {
         this.writeGet(ins.arg1 wr)
         wr.out("      memory.grow" true)
         wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "global_get" {
+        wr.out(("      global.get $" + ins.arg1) true)
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "global_set" {
+        this.writeGet(ins.arg2 wr)
+        wr.out(("      global.set $" + ins.arg1) true)
       }
       case "inttoptr_struct" {
         this.writeGet(ins.arg1 wr)
