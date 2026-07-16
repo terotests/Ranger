@@ -1,0 +1,55 @@
+# 3D Model Viewer (model_viewer_wasm)
+
+A **Tests**-section browser for real GLB models, on the host-managed 3D scene
+(IDEAL_3D Phase H). Flip through several free Khronos sample assets with the
+**left / right arrows**; the current model spins slowly so its shape and texture
+read clearly.
+
+## How it works
+
+The host preloads every `models/*.glb` through the **model3d loader**
+(`GlbImporter` → `ModelAsset` → `MeshBridge` → GPU upload) and registers each
+under its basename. The WASM guest (`src/src/lib.rs`) owns only *which* model is
+shown:
+
+- `init()` — `rg_load_model(name)` for each model, one `rg_create_mesh_entity`
+  per model at the origin, a camera and lights; shows model 0.
+- `update(dt, forward, strafe, turn, jump)` — `turn = +1` (right arrow) → next
+  model, `-1` (left arrow) → previous (one step per press); spins the current
+  model via `rg_set_rotation`.
+
+The guest holds only opaque `EntityId`s; the host owns the meshes, textures,
+camera, lights, and rendering.
+
+## Models
+
+Free Khronos [glTF-Sample-Assets](https://github.com/KhronosGroup/glTF-Sample-Assets)
+(committed; see [`models/CREDITS.md`](models/CREDITS.md) for licenses):
+
+| Model | Shows |
+| --- | --- |
+| `Box` | untextured, flat base colour |
+| `BoxTextured` | embedded PNG texture (decoded to RGBA) |
+| `BoxVertexColors` | loads fine; `COLORS_0` vertex colours are not read yet, so it renders in its base colour |
+| `Duck` | 4,212-triangle textured mesh with a node hierarchy |
+
+Re-download with `tools/fetch_models.sh`. To use different models, drop supported
+GLBs into `models/` and update the `NAMES` list in `src/src/lib.rs`.
+
+## Build
+
+```sh
+./gallery/game_engine/games/model_viewer_wasm/src/build.sh   # → logic.wasm
+```
+
+## Headless check
+
+The model-switching logic is verified without a display by driving the guest
+with mock host imports:
+
+```sh
+node gallery/game_engine/games/model_viewer_wasm/tools/headless_check.cjs
+```
+
+It asserts init loads all models, the arrows cycle the visible model both ways,
+exactly one model is visible at a time, and a held arrow advances only once.

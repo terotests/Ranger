@@ -1,0 +1,6 @@
+name=3D Model Viewer (Rust WASM)
+engine=wasm
+render=3d
+module=logic.wasm
+
+category=Tests
