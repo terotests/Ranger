@@ -2523,8 +2523,11 @@ extern \"C\" void rgfx_scene_render(int w, int h) {
             glUniformMatrix4fv(g_scn_uMVP,1,GL_FALSE,mvp); glUniformMatrix4fv(g_scn_uModel,1,GL_FALSE,model); glUniformMatrix3fv(g_scn_uNormalMat,1,GL_FALSE,nm);
             float white[4]={1,1,1,1}, noE[3]={0,0,0};
             glUniform4fv(g_scn_uBaseColor,1,white); glUniform3fv(g_scn_uEmissive,1,noE);
-            float uo[2]={ (float)e.spCol/(float)e.spCols, (float)e.spRow/(float)e.spRows };
             float us[2]={ 1.f/(float)e.spCols, 1.f/(float)e.spRows };
+            float uo[2]={ (float)e.spCol/(float)e.spCols, (float)e.spRow/(float)e.spRows };
+            // inset ~1.2% of a cell so linear filtering doesn't bleed neighbour frames
+            float insx=us[0]*0.012f, insy=us[1]*0.012f;
+            uo[0]+=insx; uo[1]+=insy; us[0]-=2.f*insx; us[1]-=2.f*insy;
             glUniform2fv(g_scn_uUvOffset,1,uo); glUniform2fv(g_scn_uUvScale,1,us);
             glUniform1f(g_scn_uUnlit,1.f); glUniform1f(g_scn_uAlphaCut,0.35f);
             if (e.texId>0 && e.texId<=(int)g_rgfx_gl_textures.size()) glBindTexture(GL_TEXTURE_2D, g_rgfx_gl_textures[(size_t)(e.texId-1)]);
