@@ -113,6 +113,17 @@ building this).
 |------|--------------|
 | **Pong** | Pure-Ranger game logic, text-only package |
 | **Ylos 2 (Pomppija)** | PNG sprite-sheet loading (binary VFS path), split-screen |
+| **Breakout** | Multi-file script, sound effects (brick/wall/win) |
+
+## Sound & input
+
+- **Sound** is the engine's own synth. `WebAudioSink` (in `web_game_host.rgr`)
+  captures the int16 PCM the engine hands its audio sink per `soundEvent`, and
+  `runner.js` plays each buffer through the Web Audio API. Created on the first
+  user gesture (autoplay policy); a Sound toggle mutes it.
+- **Gamepad/joystick** — yes, the browser supports it. `runner.js` polls
+  `navigator.getGamepads()` each frame (pad 0 → P1, pad 1 → P2; d-pad/left-stick
+  + face buttons) and ORs it with the keyboard.
 
 ## Roadmap
 

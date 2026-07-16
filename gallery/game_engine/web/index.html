@@ -83,6 +83,7 @@
     <div class="toolbar">
       <label>Game <select id="game"></select></label>
       <label class="chk"><input type="checkbox" id="autoreload" checked /> Auto-reload on edit</label>
+      <label class="chk"><input type="checkbox" id="sound" checked /> Sound</label>
       <button id="reload">Reload now</button>
       <button id="restart">Restart</button>
       <button id="pause">Pause</button>
@@ -107,7 +108,8 @@
       Try editing a constant near the top of the script (a colour, a speed, a
       size) and watch the game update. Edits to <code>update</code>/<code>hud</code>
       keep the running state; edits to <code>initState</code>/<code>sprites</code>
-      rebuild the scene.
+      rebuild the scene. A connected <code>gamepad</code> works too (d-pad/stick +
+      A), and sound is the engine's own synth played through Web Audio.
     </p>
 
     <script src="./vfs.js"></script>
@@ -189,6 +191,7 @@
           canvas,
           scriptDir: entry.scriptDir,
           scriptFile: entry.script,
+          muted: !document.getElementById("sound").checked,
           onStats: (s) => {
             if (!document.hidden)
               setStatus(entry.title + " — score " + s.score1 + " : " + s.score2);
@@ -208,6 +211,9 @@
             .join("");
           selectEl.onchange = () => loadGame(registry[+selectEl.value]);
           document.getElementById("reload").onclick = applyEdit;
+          document.getElementById("sound").onchange = (e) => {
+            if (session) session.setMuted(!e.target.checked);
+          };
           document.getElementById("restart").onclick = () => loadGame(registry[+selectEl.value]);
           document.getElementById("pause").onclick = () => {
             if (!session) return;
