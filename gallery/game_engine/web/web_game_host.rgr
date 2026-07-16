@@ -17,11 +17,57 @@
 
 Import "../scripting/game_runtime.rgr"
 Import "../scripting/game_host_native.rgr"
+Import "../scripting/game_audio.rgr"
 Import "../scripting/game_input.rgr"
+
+; Audio sink that captures the engine's synthesised PCM instead of playing it
+; through SDL. GameAudio calls onSynthPlay(id, rate, frames, pcm) for every
+; sound (each note of a win/celebrate arpeggio is a separate call); we queue the
+; int16 mono PCM buffers for the JS harness to drain and play via Web Audio.
+class WebAudioSink extends GameAudioSink {
+    def qRate:[int]
+    def qCount:[int]
+    def qPcm:[buffer]
+
+    fn onSynthPlay:void (soundId:string sampleRate:int sampleCount:int pcm:buffer) {
+        push qRate sampleRate
+        push qCount sampleCount
+        push qPcm pcm
+    }
+
+    fn onClearQueue:void () {
+    }
+
+    fn pending:int () {
+        return (array_length qRate)
+    }
+
+    fn rateAt:int (i:int) {
+        return (itemAt qRate i)
+    }
+
+    fn countAt:int (i:int) {
+        return (itemAt qCount i)
+    }
+
+    fn pcmAt:buffer (i:int) {
+        return (itemAt qPcm i)
+    }
+
+    fn clear:void () {
+        def er:[int]
+        def ec:[int]
+        def ep:[buffer]
+        qRate = er
+        qCount = ec
+        qPcm = ep
+    }
+}
 
 class WebGameHost {
     def runner:GameRunner (new GameRunner)
     def bridge:GameHostNativeBridge (new GameHostNativeBridge)
+    def audioSink:WebAudioSink (new WebAudioSink)
 
     fn init:void (w:int h:int) {
         runner.init(w h)
@@ -35,6 +81,31 @@ class WebGameHost {
         runner.setScriptDir(scriptDir)
         runner.loadScript(src)
         runner.setupScene()
+        ; Route the engine's audio synth into our capture sink (after setupScene,
+        ; which wires the runner's GameAudio).
+        def audio:GameAudio (runner.audioRef())
+        audio.sink = audioSink
+    }
+
+    ; --- audio drain (called by the JS harness after each frame) ---
+    fn audioPending:int () {
+        return (audioSink.pending())
+    }
+
+    fn audioRate:int (i:int) {
+        return (audioSink.rateAt(i))
+    }
+
+    fn audioSamples:int (i:int) {
+        return (audioSink.countAt(i))
+    }
+
+    fn audioPcm:buffer (i:int) {
+        return (audioSink.pcmAt(i))
+    }
+
+    fn audioClear:void () {
+        audioSink.clear()
     }
 
     ; Two-player flat frame. Single-player games simply ignore the p2* slot.

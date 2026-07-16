@@ -18,6 +18,7 @@
 // ============================================================================
 
 import { execFileSync } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -69,6 +70,21 @@ const GAMES = [
       "gallery/game_engine/games/ylos2/assets/enemy_walk.png",
     ],
     controls: "P1: WASD + Space · P2: ↑ ↓ ← → · split-screen platformer with PNG sprites.",
+  },
+  {
+    id: "breakout",
+    title: "Breakout",
+    kind: "ranger",
+    width: 480,
+    height: 270,
+    scriptDir: "gallery/game_engine/games/breakout",
+    script: "index.tsx",
+    package: [
+      "gallery/game_engine/games/breakout/index.tsx",
+      "gallery/game_engine/games/breakout/breakout_bricks.tsx",
+      "gallery/game_engine/lib/game_helpers.tsx",
+    ],
+    controls: "← → or A / D to move · Space to launch/restart · sound on brick/wall/win.",
   },
 ];
 
@@ -272,12 +288,39 @@ function copyRuntime() {
   fs.copyFileSync(path.join(HERE, "index.html"), path.join(OUT, "index.html"));
 }
 
+// Cache-bust local asset references in index.html so a redeploy never serves a
+// stale runner.js against a newer index.html (which was the "getSource is not a
+// function" symptom). The version is a short content hash of the runtime files,
+// so it only changes when they actually change.
+function cacheBust() {
+  const names = [
+    "vfs.js", "engine-host.js", "runner.js",
+    "engine.bundle.js", "games.json",
+    "editor.bundle.js", "editor.bundle.css",
+  ];
+  const h = crypto.createHash("sha1");
+  for (const n of names) {
+    const p = path.join(OUT, n);
+    if (fs.existsSync(p)) h.update(fs.readFileSync(p));
+  }
+  const ver = h.digest("hex").slice(0, 10);
+  const idx = path.join(OUT, "index.html");
+  let html = fs.readFileSync(idx, "utf8");
+  for (const n of names) {
+    // Match ./name in both <script src>/<link href> and fetch("./name") literals.
+    html = html.replaceAll("./" + n, "./" + n + "?v=" + ver);
+  }
+  fs.writeFileSync(idx, html);
+  log("cache-bust version", ver);
+}
+
 // ------------------------------------------------------------------- main
 fs.mkdirSync(OUT, { recursive: true });
 compileEngineBundle();
 packageGames();
 const editorOk = await buildEditor();
 copyRuntime();
+cacheBust();
 // Expose editor availability to the page without probing globals.
 fs.writeFileSync(
   path.join(OUT, "build-info.json"),
