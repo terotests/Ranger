@@ -287,6 +287,35 @@ function update(props) {
 }
 ```
 
+#### Mitä engine lukee palautetusta tilasta — ja mitä ei
+
+`update()` palauttaa pelin **koko tilan**: se on reducerin akku, joka syötetään
+takaisin `props.state`-kenttänä seuraavalla framella. Engine ei omista tilan
+muotoa — se prosessoi siitä vain pienen joukon **sovittuja avaimia**:
+
+| Avain | Enginen käyttö |
+|-------|----------------|
+| `entities` | `{ id: { x, y } }` → siirtää `sprites()`-listan retained-objektit |
+| `cameraY` | vierittää `createStaticBg()`-taustaa |
+| `score1` / `score2` | HUD |
+| `events` | äänet, partikkelit, vokaaliefektit ym. (drainataan framen jälkeen) |
+| `collisionEvents`, `playerCount` / `playerSlots`, `screens` | törmäykset, pelaajamäärä, moniruutuisuus |
+| `physics` / `world` / `impulses` / `steer` | **vain** jos peli ottaa host-fysiikan käyttöön `config().physics`-kentällä |
+
+**Kaikki muut avaimet ovat pelin omaa työmuistia — engine ei lue eikä tulkitse
+niitä.** Esimerkiksi Ylos 2:n palauttamassa tilassa `diamonds`, `fruits`,
+`bullets`, `enemies`, `movingPlatforms`, `fireCd1` jne. ovat pelkkää pelilogiikkaa:
+engine tallettaa tilaobjektin sellaisenaan ja antaa sen muuttumattomana takaisin
+seuraavalle `update()`-kutsulle. Vain projektiokenttä `entities` — jonka peli
+tyypillisesti laskee domain-tilastaan joka framella (esim. ylos2:n
+`placeEntities(...)`) — sitoo pelin tilan enginen spriteihin.
+
+Miksi näin: peli omistaa tilansa muodon täysin ja engine pysyy geneerisenä
+(lukee `entities` + em. sovitut kentät, sivuuttaa loput). Tämä on myös se syy,
+miksi hot-reload säilyttää tilan — palautettu tila on pelkkää dataa, joka elää
+`update()`-rungon vaihdon yli, koska engine ei ole kytkeytynyt sen pelikohtaisiin
+kenttiin.
+
 Jaetut apurit: [`scripting/game_helpers.tsx`](./scripting/game_helpers.tsx) (`getScreen`, `soundEvent`, …). Jaetut moduulit: `import { foo } from "./utils"` (polku suhteessa pelikansioon).
 
 ### 3. Aja ja testaa
