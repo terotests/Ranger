@@ -4,3 +4,8 @@ render=3d
 module=logic.wasm
 
 category=Tests
+
+# Present every model at the same size regardless of how it was authored:
+# scale so the farthest vertex from the origin is 1.0 unit. Lets the fixed
+# viewer camera frame a 0.5-unit chair and a 165-unit duck identically.
+model_radius=1.0

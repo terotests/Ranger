@@ -190,6 +190,24 @@ class Model3dTest {
         ck.eqD("gen normal y" nrm2.y 0.0)
         ck.eqD("gen normal z" nrm2.z 1.0)
 
+        print "== scaleToRadius =="
+        def glb3:buffer (GlbFixture.build())
+        def imp3:GlbImporter (new GlbImporter)
+        def model3:ModelAsset (imp3.importModel(glb3))
+        ; fixture triangle (0,0,0)(1,0,0)(0,1,0): farthest vertex is 1.0 from origin
+        ck.eqD("bounding radius before" (model3.boundingRadius()) 1.0)
+        model3.scaleToRadius(4.0)
+        ck.eqD("bounding radius after scale" (model3.boundingRadius()) 4.0)
+        def mesh3:MeshAsset (model3.getMesh(0))
+        def prim3:MeshPrimitiveAsset (itemAt mesh3.primitives 0)
+        def sp1:Vec3 (itemAt prim3.positions 1)
+        ck.eqD("scaled pos1.x" sp1.x 4.0)
+        def sp2:Vec3 (itemAt prim3.positions 2)
+        ck.eqD("scaled pos2.y" sp2.y 4.0)
+        ; radius <= 0 is a no-op
+        model3.scaleToRadius(0.0)
+        ck.eqD("radius 0 is no-op" (model3.boundingRadius()) 4.0)
+
         print "== summary =="
         print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
         if (ck.failed == 0) {

@@ -149,6 +149,65 @@ class ModelAsset {
     fn getTexture:TextureAsset (index:int) {
         return (itemAt textures index)
     }
+
+    ; largest distance of any vertex from the origin, across all primitives
+    fn boundingRadius:double () {
+        def maxd:double 0.0
+        def mi:int 0
+        while (mi < (array_length meshes)) {
+            def mesh:MeshAsset (itemAt meshes mi)
+            def pi:int 0
+            while (pi < (array_length mesh.primitives)) {
+                def prim:MeshPrimitiveAsset (itemAt mesh.primitives pi)
+                def vc:int (array_length prim.positions)
+                def vi:int 0
+                while (vi < vc) {
+                    def p:Vec3 (itemAt prim.positions vi)
+                    def d:double (sqrt (((p.x * p.x) + (p.y * p.y)) + (p.z * p.z)))
+                    if (d > maxd) {
+                        maxd = d
+                    }
+                    vi = (vi + 1)
+                }
+                pi = (pi + 1)
+            }
+            mi = (mi + 1)
+        }
+        return maxd
+    }
+
+    ; uniformly scale all geometry so the farthest vertex from the origin sits
+    ; at distance `radius` (radius <= 0 leaves the model untouched). Presentation
+    ; size only — the model stays centred on wherever it was authored.
+    fn scaleToRadius:void (radius:double) {
+        if (radius <= 0.0) {
+            return
+        }
+        def maxd:double (this.boundingRadius())
+        if (maxd <= 0.0) {
+            return
+        }
+        def s:double (radius / maxd)
+        def mi:int 0
+        while (mi < (array_length meshes)) {
+            def mesh:MeshAsset (itemAt meshes mi)
+            def pi:int 0
+            while (pi < (array_length mesh.primitives)) {
+                def prim:MeshPrimitiveAsset (itemAt mesh.primitives pi)
+                def vc:int (array_length prim.positions)
+                def vi:int 0
+                while (vi < vc) {
+                    def p:Vec3 (itemAt prim.positions vi)
+                    p.x = (p.x * s)
+                    p.y = (p.y * s)
+                    p.z = (p.z * s)
+                    vi = (vi + 1)
+                }
+                pi = (pi + 1)
+            }
+            mi = (mi + 1)
+        }
+    }
 }
 
 ; Owns loaded models; the model id is its index in the registry.

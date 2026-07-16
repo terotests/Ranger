@@ -40,6 +40,17 @@ def hand:int (loader.findChild(robot "RightHand"))          ; -> EntityId
 
 On failure `loader.ok` is `false` and `loader.lastError` explains why.
 
+### Presentation size (optional `radius`)
+
+`loadFromFileRadius(dir, file, radius)` / `loadFromBufferRadius(bytes, radius)`
+load and then uniformly scale the geometry so the model's farthest vertex from
+the origin sits at `radius` units (`radius <= 0` = no scaling). This lets a
+fixed-camera viewer show any model at the same size — a 0.5-unit chair and a
+165-unit duck alike — via `ModelAsset.scaleToRadius(radius)` /
+`boundingRadius()`. In the host runner it is opt-in per game: add
+`model_radius=<n>` to the game's `game.info` (absent = models keep their
+authored size, so e.g. `pyramid_wasm`'s diamond is unaffected).
+
 ## Files
 
 | File | Role |
