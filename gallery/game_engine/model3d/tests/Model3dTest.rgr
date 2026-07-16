@@ -161,6 +161,35 @@ class Model3dTest {
         Model3dTest.checkReject(ck "skins" "{\"asset\":{\"version\":\"2.0\"},\"skins\":[{\"joints\":[0]}]}" "unsupported feature: skins")
         Model3dTest.checkReject(ck "version" "{\"asset\":{\"version\":\"1.0\"}}" "unsupported glTF version '1.0' (need 2.x)")
 
+        print "== vertex colors + non-indexed + generated normals =="
+        def glb2:buffer (GlbFixture.buildColorNoIndex())
+        def imp2:GlbImporter (new GlbImporter)
+        def model2:ModelAsset (imp2.importModel(glb2))
+        ck.ok("cni import ok" imp2.ok)
+        def mesh2:MeshAsset (model2.getMesh(0))
+        def prim2:MeshPrimitiveAsset (itemAt mesh2.primitives 0)
+        ck.eqInt("cni vertex count" (prim2.vertexCount()) 3)
+        ck.ok("cni has colors" (prim2.hasColors()))
+        def col0:Vec4 (itemAt prim2.colors 0)
+        ck.eqD("color0 r" col0.x 1.0)
+        ck.eqD("color0 g" col0.y 0.0)
+        ck.eqD("color0 a" col0.w 1.0)
+        def col1:Vec4 (itemAt prim2.colors 1)
+        ck.eqD("color1 g" col1.y 1.0)
+        def col2:Vec4 (itemAt prim2.colors 2)
+        ck.eqD("color2 b" col2.z 1.0)
+        ; indices synthesised for the non-indexed primitive
+        ck.eqInt("cni index count" (prim2.indexCount()) 3)
+        ck.eqInt("cni index0" (itemAt prim2.indices 0) 0)
+        ck.eqInt("cni index1" (itemAt prim2.indices 1) 1)
+        ck.eqInt("cni index2" (itemAt prim2.indices 2) 2)
+        ; normals generated (CCW triangle in XY -> +Z)
+        ck.ok("cni has normals" (prim2.hasNormals()))
+        def nrm2:Vec3 (itemAt prim2.normals 0)
+        ck.eqD("gen normal x" nrm2.x 0.0)
+        ck.eqD("gen normal y" nrm2.y 0.0)
+        ck.eqD("gen normal z" nrm2.z 1.0)
+
         print "== summary =="
         print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
         if (ck.failed == 0) {

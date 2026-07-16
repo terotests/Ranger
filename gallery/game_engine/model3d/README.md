@@ -61,10 +61,14 @@ Supported:
 - GLB 2.0, one JSON chunk + one BIN chunk
 - scenes and nodes; node `matrix` **or** TRS (translation/rotation/scale)
 - multiple meshes, multiple primitives per mesh
-- `TRIANGLES`; `POSITION`, `NORMAL`, `TEXCOORD_0`
+- `TRIANGLES`; `POSITION`, `NORMAL`, `TEXCOORD_0`, `COLOR_0` (vertex colours)
+- **non-indexed** primitives (indices are synthesised)
+- **missing `NORMAL`** → smooth normals are generated from the geometry
 - `u16` and `u32` (and `u8`) indices
 - interleaved `byteStride`
-- `baseColorFactor` + `baseColorTexture`, multiple materials
+- `baseColorFactor` + `baseColorTexture`, `emissiveFactor`
+  (+ `KHR_materials_emissive_strength`), `alphaMode`, `KHR_materials_unlit`,
+  multiple materials
 - embedded PNG / JPEG textures (decoded to RGBA)
 
 Explicitly rejected (with a clear error, never a silently-wrong model):
