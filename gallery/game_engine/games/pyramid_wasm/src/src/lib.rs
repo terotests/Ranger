@@ -165,18 +165,19 @@ struct World {
     on_ground: bool,
     jumping: bool,
     jump_prev: bool,
+    turn_prev: i32,
     // game
     score: i32,
     mode: i32,
     knock_t: f32,
     t: f32,
+    spawn: [f32; 3],
     goal: [f32; 3],
     player_ent: i32,
     cam: i32,
     lamp: i32,
     cam_x: f32,
     cam_z: f32,
-    cam_yaw: f32,
     cam_gy: f32,
     mummy: i32,
     hero: i32,
@@ -207,17 +208,18 @@ static W: WCell = WCell(UnsafeCell::new(World {
     on_ground: true,
     jumping: false,
     jump_prev: false,
+    turn_prev: 0,
     score: 0,
     mode: MODE_PLAY,
     knock_t: 0.0,
     t: 0.0,
+    spawn: SPAWN,
     goal: [0.0; 3],
     player_ent: 0,
     cam: 0,
     lamp: 0,
     cam_x: 0.0,
     cam_z: 0.0,
-    cam_yaw: 0.0,
     cam_gy: SPAWN[1],
     mummy: 0,
     hero: 0,
@@ -236,13 +238,19 @@ const JUMP_V0: f32 = 6.2; // snappy initial jump speed
 const JUMP_HOLD_G: f32 = 0.34; // gravity scale while holding jump & rising -> tall leap
 const JUMP_CUT: f32 = 0.5; // on release mid-rise, keep this much of the upward speed
 const MOVE_SPD: f32 = 4.6;
-const TURN_SPD: f32 = 2.4;
 const KNOCK_TIME: f32 = 0.6;
+// fixed-angle camera: a constant world-space offset from the player (a bit
+// above and obliquely from the -x,-z side, looking toward the +x,+z goal). It
+// only translates with the player — it never rotates with the player's turns.
+const CAM_OFF_X: f32 = -8.5; // mostly to the side...
+const CAM_OFF_Y: f32 = 5.8; // ...a bit above...
+const CAM_OFF_Z: f32 = -4.5; // ...and slightly oblique
 
-// ---- level: a big field of floating islands (Avatar-style) climbing ~100m --
-const LAYERS: usize = 56; // ~ up to ~95m
-const DY: f32 = 1.7; // vertical gap between layers (a good hold-jump clears it)
-const MAX_PLAT: usize = 150;
+// ---- level: a wide field of floating islands you run and jump around, that
+// gently climbs toward a golden goal in the far corner ----------------------
+const GRIDN: usize = 9; // 9x9 grid of islands
+const GRID_SP: f32 = 5.2; // horizontal spacing between islands (room to run/jump)
+const CLIMB: f32 = 0.95; // height rise per grid step toward the far corner
 
 fn add_collider(w: &mut World, min: [f32; 3], max: [f32; 3]) {
     if w.nbox < MAX_C {
@@ -288,66 +296,49 @@ fn add_gem(w: &mut World, tex: i32, mesh: i32, x: f32, top: f32, z: f32) {
 
 fn build_level(w: &mut World, tex_sand: i32, tex_stone: i32, tex_gold: i32, tex_gem: i32, mesh_gem: i32) {
     // wide sand floor far below (fall-safety; you can climb back up)
-    let g = 44.0;
+    let g = 40.0;
     create_static_box([-g, -0.4, -g], [g, 0.0, g], tex_sand);
     add_collider(w, [-g, -0.4, -g], [g, 0.0, g]);
 
-    // base platform the player starts on
-    let base_top = add_platform(w, 0.0, 0.5, 0.0, 3.4, 3.4, tex_stone);
-
-    // A big field of floating islands. Each new island is placed a jump's reach
-    // (horizontal) from a random island one layer below, so every island is
-    // reachable, several routes branch upward, and the field spreads out with
-    // height (random walk) — an Avatar-style sky of islands, ~95m tall.
+    // A wide jittered grid of floating islands, spread across ~40x40m, that
+    // gently climbs toward the far (+x,+z) corner. Neighbours are ~one gentle
+    // jump apart, so there are many routes to run and hop around the field; the
+    // low (-x,-z) corner is the start, the high corner holds the golden goal.
     let mut seed: u32 = 0x51ED_2A3B;
-    let mut pcx = [0.0f32; MAX_PLAT];
-    let mut pcz = [0.0f32; MAX_PLAT];
-    let mut np: usize = 1; // index 0 = base
-    pcx[0] = 0.0;
-    pcz[0] = 0.0;
-    let mut prev_start: usize = 0; // previous layer's island index range
-    let mut prev_end: usize = 1;
-
-    let mut y = base_top;
-    for layer in 1..LAYERS {
-        y += DY;
-        let per = if layer < 3 { 1 } else { 2 };
-        let cur_start = np;
-        for _ in 0..per {
-            if np >= MAX_PLAT || w.nbox >= MAX_C - 2 {
-                break;
+    let half = (GRIDN as f32 - 1.0) * 0.5;
+    for gi in 0..GRIDN {
+        for gj in 0..GRIDN {
+            let start = gi == 0 && gj == 0;
+            let corner = gi == GRIDN - 1 && gj == GRIDN - 1;
+            let hole = lcg(&mut seed);
+            if !start && !corner && hole < 0.14 {
+                continue; // a few gaps for variety
             }
-            // parent = a random island in the previous layer (rise stays ~DY)
-            let span = prev_end - prev_start;
-            let pi = prev_start + ((lcg(&mut seed) * span as f32) as usize).min(span - 1);
-            let ang = lcg(&mut seed) * core::f32::consts::TAU;
-            let dist = 2.0 + lcg(&mut seed) * 1.7; // reachable horizontal offset
-            let cx = pcx[pi] + ang.cos() * dist;
-            let cz = pcz[pi] + ang.sin() * dist;
-            let hx = 1.3 + lcg(&mut seed) * 0.9;
-            let hz = 1.3 + lcg(&mut seed) * 0.9;
-            let top = add_platform(w, cx, y, cz, hx, hz, tex_stone);
-            pcx[np] = cx;
-            pcz[np] = cz;
-            np += 1;
-            if lcg(&mut seed) < 0.30 && w.ngem < MAX_GEM {
+            let jx = (lcg(&mut seed) - 0.5) * 1.6;
+            let jz = (lcg(&mut seed) - 0.5) * 1.6;
+            let cx = (gi as f32 - half) * GRID_SP + jx;
+            let cz = (gj as f32 - half) * GRID_SP + jz;
+            let cy = 1.0 + (gi + gj) as f32 * CLIMB + lcg(&mut seed) * 0.6;
+            let hx = 1.7 + lcg(&mut seed) * 1.0;
+            let hz = 1.7 + lcg(&mut seed) * 1.0;
+            let tex = if corner { tex_gold } else { tex_stone };
+            let top = add_platform(w, cx, cy, cz, hx, hz, tex);
+            if start {
+                w.spawn = [cx, top + P_HY + 0.05, cz];
+            }
+            if corner {
+                w.goal = [cx, top, cz];
+            }
+            let gemr = lcg(&mut seed);
+            if !start && !corner && gemr < 0.26 && w.ngem < MAX_GEM {
                 add_gem(w, tex_gem, mesh_gem, cx, top, cz);
             }
-            if layer > 2 && hx > 1.7 && lcg(&mut seed) < 0.24 {
+            let monr = lcg(&mut seed);
+            if !start && !corner && hx > 2.1 && monr < 0.2 {
                 add_monster(w, tex_stone, cx, top, cz, hx - 0.5, 1.6 + lcg(&mut seed) * 1.4);
             }
         }
-        if np > cur_start {
-            prev_start = cur_start;
-            prev_end = np;
-        }
     }
-
-    // golden goal island on top, one layer above the highest island
-    let gpi = np - 1;
-    let (gx, gz) = (pcx[gpi], pcz[gpi]);
-    let gtop = add_platform(w, gx, y + DY, gz, 3.0, 3.0, tex_gold);
-    w.goal = [gx, gtop, gz];
 }
 
 // ---- physics ---------------------------------------------------------------
@@ -359,20 +350,6 @@ fn overlap(cx: f32, cy: f32, cz: f32, hx: f32, hy: f32, hz: f32, b: &Aabb) -> bo
 fn overlaps_any(w: &World, cx: f32, cy: f32, cz: f32) -> bool {
     for i in 0..w.nbox {
         if overlap(cx, cy, cz, P_HX, P_HY, P_HZ, &w.boxes[i]) {
-            return true;
-        }
-    }
-    false
-}
-// is point (x,y,z) inside any collider (expanded a little)? used for camera LoS.
-fn point_blocked(w: &World, x: f32, y: f32, z: f32) -> bool {
-    let m = 0.35;
-    for i in 0..w.nbox {
-        let b = w.boxes[i];
-        if x > b.min[0] - m && x < b.max[0] + m
-            && y > b.min[1] - m && y < b.max[1] + m
-            && z > b.min[2] - m && z < b.max[2] + m
-        {
             return true;
         }
     }
@@ -447,9 +424,9 @@ fn resolve_vertical(w: &mut World) {
 }
 
 fn respawn_player(w: &mut World) {
-    w.px = SPAWN[0];
-    w.py = SPAWN[1];
-    w.pz = SPAWN[2];
+    w.px = w.spawn[0];
+    w.py = w.spawn[1];
+    w.pz = w.spawn[2];
     w.vx = 0.0;
     w.vy = 0.0;
     w.vz = 0.0;
@@ -475,53 +452,22 @@ fn apply_knockback(w: &mut World, fromx: f32, fromz: f32, strength: f32) {
 }
 
 // ---- camera ----------------------------------------------------------------
+// Fixed-angle camera: sits at a constant world-space offset from the player and
+// only translates to follow. It never rotates with the player's turns, so the
+// discrete 90° facings read cleanly. Height eases with the settled ground level
+// so jumps don't bob it.
 fn sync_camera(w: &mut World, dt: f32) {
-    let mut diff = w.yaw - w.cam_yaw;
-    let tau = core::f32::consts::TAU;
-    while diff > core::f32::consts::PI {
-        diff -= tau;
-    }
-    while diff < -core::f32::consts::PI {
-        diff += tau;
-    }
-    let dead = 0.5;
-    if diff.abs() > dead {
-        let excess = diff - diff.signum() * dead;
-        w.cam_yaw += excess * (dt * 2.5).min(1.0);
-    }
     let target_gy = if w.on_ground { w.py } else { w.cam_gy };
     w.cam_gy += (target_gy - w.cam_gy) * (dt * 3.0).min(1.0);
 
-    let (s, c) = w.cam_yaw.sin_cos();
-    let dist = 6.4;
-    let height = 3.4;
-    let dex = w.px - s * dist;
-    let dez = w.pz - c * dist;
-    let dey = w.cam_gy + height;
-    // occlusion: if an island sits between the player and the desired eye, pull
-    // the camera in to the first blocked point so the player stays visible.
-    let hx = w.px;
-    let hy = w.cam_gy + 0.9;
-    let hz = w.pz;
-    let steps = 14;
-    let mut f = 1.0;
-    let mut k = 1;
-    while k <= steps {
-        let ff = k as f32 / steps as f32;
-        if point_blocked(w, hx + (dex - hx) * ff, hy + (dey - hy) * ff, hz + (dez - hz) * ff) {
-            f = (((k - 1) as f32) / steps as f32).max(0.3);
-            break;
-        }
-        k += 1;
-    }
-    let ex = hx + (dex - hx) * f;
-    let ey = hy + (dey - hy) * f;
-    let ez = hz + (dez - hz) * f;
+    let ex = w.px + CAM_OFF_X;
+    let ey = w.cam_gy + CAM_OFF_Y;
+    let ez = w.pz + CAM_OFF_Z;
     w.cam_x = ex;
     w.cam_z = ez;
     unsafe {
         rg_set_position(w.cam, fx(ex), fx(ey), fx(ez));
-        rg_set_target(w.cam, fx(w.px), fx(w.cam_gy + 0.9), fx(w.pz));
+        rg_set_target(w.cam, fx(w.px), fx(w.cam_gy + 0.7), fx(w.pz));
         rg_set_position(w.lamp, fx(w.px), fx(w.py + 1.4), fx(w.pz));
     }
 }
@@ -548,9 +494,9 @@ pub extern "C" fn init() {
         w.mummy = rg_load_sprite("mummy".as_ptr(), 5);
         w.hero = rg_load_sprite("hero".as_ptr(), 4);
         let mesh_gem = rg_load_model("diamond".as_ptr(), 7);
-        respawn_player(w);
 
         build_level(w, tex_sand, tex_stone, tex_gold, tex_gem, mesh_gem);
+        respawn_player(w); // spawn is set by build_level
 
         // player avatar (LPC hero billboard, else a gold box)
         w.player_ent = if w.hero > 0 {
@@ -699,8 +645,11 @@ pub extern "C" fn update(dt_ms: i32, forward: i32, strafe: i32, turn: i32, jump:
         return;
     }
 
-    // turn
-    w.yaw -= (turn as f32) * TURN_SPD * dt;
+    // discrete 90° turn: one snap per left/right press (edge-triggered)
+    if turn != 0 && w.turn_prev == 0 {
+        w.yaw -= (turn as f32) * core::f32::consts::FRAC_PI_2;
+    }
+    w.turn_prev = turn;
 
     // horizontal velocity: input, or knockback momentum with friction
     if w.knock_t > 0.0 {
