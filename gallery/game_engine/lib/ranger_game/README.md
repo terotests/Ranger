@@ -11,6 +11,7 @@ a macro generates the exact exports the host calls.
 | `sprite` | RGSP1 ready-character sprites | [`wasm/wasm_sprite_abi.h`](../../wasm/wasm_sprite_abi.h) | `SpriteGame` trait + `sprite_game!(MyGame)` → `sprite_ptr/size/init/tick`, `rg_abi_version` |
 | `world` | RGW1 world / host physics | [`wasm/wasm_game_abi.h`](../../wasm/wasm_game_abi.h) | `WorldGame` trait + `world_game!(MyGame)` → `abi_base/init/update/declare_resources`, `rg_abi_version` |
 | `ui` | RGU1 retained-mode UI | [`wasm/wasm_ui_abi.h`](../../wasm/wasm_ui_abi.h) | fluent `El` box builder (same shape as `ui.as`) + `ui_exports!()` → `rg_ui_ptr/size/revision` |
+| `scene` | host-managed 3D scene | [`runtime/rg_wasm_bridge.c`](../../runtime/rg_wasm_bridge.c), [`IDEAL_3D.md`](../../IDEAL_3D.md) | `Scene` facade over the `rg_*` scene commands: `Vec3`/`Quat`/`Color`, opaque `Entity`/`Camera`/`Light`/`Sprite` handles |
 | `input` | shared digital bits | RGW1/RGSP1/RGIN `IN_*` | `Buttons` + `Input` with `held/pressed/released` edges (no more `PREV_IN` statics) |
 | `resources` | host imports | `rg_host_register_*` | `resources::sheet(...)` / `resources::rect(...)` |
 
@@ -118,6 +119,43 @@ fn rebuild_hud(rev: u32) {
     ui::finish(rev);                 // bump rev only when content changed
 }
 ```
+
+## A host-managed 3D scene
+
+Unlike the blocks above, the 3D scene is **owned by Ranger** (`IDEAL_3D.md`
+§2/§4.4): the guest never publishes a geometry block, it issues creation
+commands and holds the opaque `Entity` handles they return. `scene` wraps the
+`rg_*` imports (implemented in `runtime/rg_wasm_bridge.c`) so games work in
+plain `f32` world units instead of hand-packing ×256 fixed-point and juggling
+raw `i32` handles.
+
+```rust
+use ranger_game::scene::{Color, Scene, Vec3};
+
+#[no_mangle]
+pub extern "C" fn init() {
+    let scene = Scene::new();
+    let tex = scene.texture("crate");
+    scene.spawn_cube(Vec3::ZERO, 1.0, tex);          // 2×2×2 box at the origin
+
+    scene
+        .camera(0.87, 0.1, 100.0)                    // fovy(rad), near, far
+        .position(Vec3::new(3.0, 2.5, 4.0))
+        .target(Vec3::ZERO)
+        .activate();
+
+    scene.ambient_light(Color::rgb(150, 170, 210), 0.35);
+    scene.directional_light(Color::rgb(255, 240, 200), 0.9, Vec3::new(0.4, 0.9, 0.3));
+}
+```
+
+Meshes and billboards compose the same way: `scene.model("diamond")` →
+`scene.spawn_mesh(mesh, tex)`, and `scene.sprite_sheet("hero")` →
+`scene.spawn_sprite(tex, cols, rows, w, h)`. Every handle
+(`Entity`/`Camera`/`Light`/`Sprite`) carries chainable
+`position`/`rotation`/`scale`/`set_visible` setters; no `unsafe`, no offsets.
+The host divides positions/scalars by 256 and quaternions by 65536 — `scene`
+owns exactly that conversion (`fp`/`q16`), and `tests/scene.rs` locks it.
 
 ## Rules this crate lives by
 
