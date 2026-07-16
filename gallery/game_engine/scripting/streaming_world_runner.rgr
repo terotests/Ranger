@@ -150,6 +150,20 @@ class StreamingWorldRunner {
         return "resource_loader.wasm"
     }
 
+    ; Release the wasm3 slots (RG_WASM_MAX = 8): the spawned loader child first,
+    ; then the worker. Called on return to the menu so repeated launches don't
+    ; exhaust slots ("[wasm] no free slot").
+    fn unload:void () {
+        if (loader != 0) {
+            wasm_close loader
+            loader = 0
+        }
+        if (worker != 0) {
+            wasm_close worker
+            worker = 0
+        }
+    }
+
     fn loadModule:void (path:string) {
         loaderPath = (this.deriveLoaderPath(path))
         worker = (wasm_load path)

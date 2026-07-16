@@ -342,6 +342,15 @@ class WasmPhysicsRunner {
         providersReady = true
     }
 
+    ; Release the wasm3 slot (RG_WASM_MAX = 8). Called on return to the menu so
+    ; repeated game launches don't exhaust slots ("[wasm] no free slot").
+    fn unload:void () {
+        if (handle != 0) {
+            wasm_close handle
+            handle = 0
+        }
+    }
+
     fn loadModule:void (path:string) {
         if (handle != 0) {
             wasm_close handle

@@ -166,6 +166,8 @@ fi
 echo "==> 3/$TOTAL_STEPS Verify WASM artifacts (optional RANGER_WASM_BUILD=1 rebuild)"
 build_wasm_modules
 verify_wasm_artifacts
+echo "    Verify ALL launcher game modules exist + are well-formed (local)"
+bash "$ROOT/gallery/game_engine/scripts/verify-wasm-games.sh" "$GE_GAMES"
 
 echo "==> 4/$TOTAL_STEPS Rsync repo -> ~/$REMOTE_DIR (incl. logic.wasm + runtime/wasm3)"
 ssh "$TARGET" "mkdir -p ~/$REMOTE_DIR"
@@ -180,6 +182,14 @@ rsync -az --delete \
   --exclude 'gallery/game_engine/games/*/src/build' \
   --exclude 'gallery/game_engine/wasm/*/target' \
   "$ROOT/" "$TARGET:~/$REMOTE_DIR/"
+
+echo "==> Verify ALL launcher game modules on the Pi (after rsync)"
+# Pipe the current script over ssh so this never depends on a stale deployed
+# copy. A missing/partial module on the Pi (e.g. a truncated logic.wasm that
+# rsync only half-copied) fails the deploy here instead of silently bouncing
+# back to the menu at launch.
+ssh "$TARGET" "bash -s ~/$REMOTE_DIR/gallery/game_engine/games" \
+  < "$ROOT/gallery/game_engine/scripts/verify-wasm-games.sh"
 
 echo "==> 5/$TOTAL_STEPS Build game launcher on Pi (CXX_OPT=$CXX_OPT, wasm3 embedded)"
 ssh "$TARGET" "cd ~/$REMOTE_DIR && npm install && npm run compile && CXX_OPT=$CXX_OPT npm run engine:game-sdl"

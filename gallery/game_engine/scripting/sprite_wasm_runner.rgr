@@ -114,6 +114,15 @@ class SpriteWasmRunner {
         return 1
     }
 
+    ; Release the wasm3 slot (RG_WASM_MAX = 8). Called on return to the menu so
+    ; repeated game launches don't exhaust slots ("[wasm] no free slot").
+    fn unload:void () {
+        if (guest != 0) {
+            wasm_close guest
+            guest = 0
+        }
+    }
+
     fn loadModule:void (path:string) {
         assetRoot = (this.assetDirOf(path))
         this.loadSheets()

@@ -47,6 +47,9 @@ if [[ "${SYNC_WASM_BUILD:-0}" == "1" ]]; then
   fi
 fi
 
+echo "==> Verify ALL launcher game modules exist + are well-formed (local)"
+bash "$GE/scripts/verify-wasm-games.sh" "$GE/games"
+
 echo "==> Test SSH: $TARGET"
 ssh -o ConnectTimeout=10 -o BatchMode=yes "$TARGET" 'echo ok'
 
@@ -64,6 +67,13 @@ echo "==> Sync lib -> $TARGET:$REMOTE_BASE/lib/"
 rsync -az --delete \
   "$GE/lib/" \
   "$TARGET:$REMOTE_BASE/lib/"
+
+echo "==> Verify ALL launcher game modules on the Pi (after sync)"
+# Pipe the current script over ssh — sync-pi-games doesn't rsync scripts/, so
+# don't depend on a deployed copy. Catches a games sync that left a module
+# missing/partial before it silently bounces to the menu at launch.
+ssh "$TARGET" "bash -s $REMOTE_BASE/games" \
+  < "$GE/scripts/verify-wasm-games.sh"
 
 if [[ "${SYNC_LPC_OUTPUT:-0}" == "1" ]]; then
   echo "==> Sync LPC sheets -> $TARGET:$REMOTE_BASE/lpc/output/"

@@ -768,6 +768,37 @@ int64_t r_file_mtime(const std::string& path, const std::string& filename) {
            }
         }
 
+        file_size           cmdFileSize:int (path:string) {
+            templates {
+                go ( "r_file_size(" (e 1) ")"
+(create_polyfill
+"
+func r_file_size(pathName string) int {
+    info, err := os.Stat(pathName)
+    if err != nil {
+        return 0
+    }
+    return int(info.Size())
+}
+"
+)
+                )
+                es6 ( "require('fs').statSync(" (e 1) ").size" )
+                cpp ( "r_cpp_file_size(" (e 1) ")" (imp "<sys/stat.h>") (imp "<string>")
+(create_polyfill "
+int r_cpp_file_size(const std::string& path) {
+    struct stat st;
+    if (stat(path.c_str(), &st) != 0) {
+        return 0;
+    }
+    return (int)st.st_size;
+}
+")
+                )
+                ranger ( "(file_size " (e 1) ")" )
+           }
+        }
+
         create_dir          cmdCreateDir:void (path:string) {
             templates {
                 scala ( "/* create_dir not implemented */ ")

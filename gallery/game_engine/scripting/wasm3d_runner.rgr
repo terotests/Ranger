@@ -57,6 +57,13 @@ class Wasm3dRunner {
     def fpsShown:int 0
     def timeMs:int 0
     def profileEnabled:boolean false
+    ; Eager-preload caps (IDEAL_3D §12.4): a GLB bigger than this on disk, or a
+    ; mesh with more vertices than this after import, is skipped by preloadModels
+    ; so one heavy asset can't OOM / stall a Raspberry Pi. ~2 MiB / 80k verts
+    ; clears the Khronos boxes/Duck and the nature pack but rejects the 33 MiB
+    ; Chair. Heavy assets live in models/heavy/ (not scanned) for on-demand use.
+    def MODEL_PRELOAD_MAX_BYTES:int 2097152
+    def MODEL_PRELOAD_MAX_VERTS:int 80000
 
     fn init:void (w:int h:int) {
         pw = w
@@ -318,73 +325,108 @@ class Wasm3dRunner {
     ; rg_load_model("name") during init() (IDEAL_3D §12.4 render bridge).
     fn preloadModels:void () {
         if ((file_exists gameDir "models") == false) {
+            print "[wasm3d] preloadModels: no models/ dir, skipping"
             return
         }
         def dir:string (gameDir + "/models")
         def names:[string] (list_dir_files dir)
+        print ("[wasm3d] preloadModels: scanning " + dir + " (" + (to_string (array_length names)) + " entries)")
         def loader:ModelLoader (new ModelLoader)
         def bridge:MeshBridge (new MeshBridge)
+        def registered:int 0
         def i:int 0
         while (i < (array_length names)) {
             def fname:string (itemAt names i)
             if (this.endsWithGlb(fname)) {
-                def id:int (loader.loadFromFile(dir fname))
-                if (id >= 0) {
-                    def model:ModelAsset (loader.getModel(id))
-                    def em:EngineMeshData (bridge.fromModel(model))
-                    if em.ok {
-                        def meshId:int (gfx_3d_mesh_upload_hp em.vertsHp em.vertexCount em.indices em.indexCount)
-                        def texId:int 0
-                        if em.hasTexture {
-                            texId = (gfx_3d_upload_texture em.texRgba em.texWidth em.texHeight)
-                        }
-                        def base:string (this.stripGlb(fname))
-                        def cr:int (this.chan255(em.baseColorR))
-                        def cg:int (this.chan255(em.baseColorG))
-                        def cb:int (this.chan255(em.baseColorB))
-                        def ca:int (this.chan255(em.baseColorA))
-                        def colorRgba:int (((cr * 16777216) + (cg * 65536)) + ((cb * 256) + ca))
-                        def er:int (this.chan255(em.emissiveR))
-                        def eg:int (this.chan255(em.emissiveG))
-                        def eb:int (this.chan255(em.emissiveB))
-                        def emissiveRgb:int (((er * 16777216) + (eg * 65536)) + (eb * 256))
-                        def blendI:int 0
-                        if em.blend {
-                            blendI = 1
-                        }
-                        gfx_scene_register_model base meshId texId colorRgba emissiveRgb blendI
-                        def szx:double (em.maxX - em.minX)
-                        def szy:double (em.maxY - em.minY)
-                        def szz:double (em.maxZ - em.minZ)
-                        print ("[wasm3d] model '" + base + "' -> mesh=" + (to_string meshId) + " tex=" + (to_string texId) + " verts=" + (to_string em.vertexCount) + " size=" + (to_string szx) + "x" + (to_string szy) + "x" + (to_string szz) + " blend=" + (to_string blendI))
-                    } {
-                        print ("[wasm3d] model unusable: " + fname + " (" + em.error + ")")
-                    }
+                ; Eager-preload guard (IDEAL_3D §12.4): reject a pathologically
+                ; large GLB by file size *before* reading/parsing it, so one heavy
+                ; asset (e.g. a 33 MiB / 228k-vert Chair) can't OOM or stall a
+                ; Raspberry Pi during setupScene. Heavy models live in models/heavy/
+                ; (not scanned here) and load only on explicit demand.
+                def sz:int (file_size (dir + "/" + fname))
+                if (sz > MODEL_PRELOAD_MAX_BYTES) {
+                    print ("[wasm3d] skip large model: " + fname + " (" + (to_string sz) + " bytes > " + (to_string MODEL_PRELOAD_MAX_BYTES) + " cap)")
                 } {
-                    print ("[wasm3d] model load failed: " + fname + " (" + loader.lastError + ")")
+                    print ("[wasm3d] loading model: " + fname + " (" + (to_string sz) + " bytes)")
+                    def id:int (loader.loadFromFile(dir fname))
+                    if (id >= 0) {
+                        def model:ModelAsset (loader.getModel(id))
+                        def em:EngineMeshData (bridge.fromModel(model))
+                        if em.ok {
+                            if ((em.vertexCount) > MODEL_PRELOAD_MAX_VERTS) {
+                                print ("[wasm3d] skip dense model: " + fname + " (" + (to_string em.vertexCount) + " verts > " + (to_string MODEL_PRELOAD_MAX_VERTS) + " cap)")
+                            } {
+                                def meshId:int (gfx_3d_mesh_upload_hp em.vertsHp em.vertexCount em.indices em.indexCount)
+                                def texId:int 0
+                                if em.hasTexture {
+                                    texId = (gfx_3d_upload_texture em.texRgba em.texWidth em.texHeight)
+                                }
+                                def base:string (this.stripGlb(fname))
+                                def cr:int (this.chan255(em.baseColorR))
+                                def cg:int (this.chan255(em.baseColorG))
+                                def cb:int (this.chan255(em.baseColorB))
+                                def ca:int (this.chan255(em.baseColorA))
+                                def colorRgba:int (((cr * 16777216) + (cg * 65536)) + ((cb * 256) + ca))
+                                def er:int (this.chan255(em.emissiveR))
+                                def eg:int (this.chan255(em.emissiveG))
+                                def eb:int (this.chan255(em.emissiveB))
+                                def emissiveRgb:int (((er * 16777216) + (eg * 65536)) + (eb * 256))
+                                def blendI:int 0
+                                if em.blend {
+                                    blendI = 1
+                                }
+                                gfx_scene_register_model base meshId texId colorRgba emissiveRgb blendI
+                                registered = (registered + 1)
+                                def szx:double (em.maxX - em.minX)
+                                def szy:double (em.maxY - em.minY)
+                                def szz:double (em.maxZ - em.minZ)
+                                print ("[wasm3d] model '" + base + "' -> mesh=" + (to_string meshId) + " tex=" + (to_string texId) + " verts=" + (to_string em.vertexCount) + " size=" + (to_string szx) + "x" + (to_string szy) + "x" + (to_string szz) + " blend=" + (to_string blendI))
+                            }
+                        } {
+                            print ("[wasm3d] model unusable: " + fname + " (" + em.error + ")")
+                        }
+                    } {
+                        print ("[wasm3d] model load failed: " + fname + " (" + loader.lastError + ")")
+                    }
                 }
             }
             i = (i + 1)
+        }
+        print ("[wasm3d] preloadModels: done, " + (to_string registered) + " model(s) registered")
+    }
+
+    ; Release the wasm3 slot (rg_wasm_bridge RG_WASM_MAX = 8). Called when the
+    ; runner is torn down / the host returns to the menu, so repeated 3D-game
+    ; launches don't leak slots and hit "[wasm] no free slot".
+    fn unload:void () {
+        if (handle != 0) {
+            wasm_close handle
+            handle = 0
+            print "[wasm3d] unloaded (slot released)"
         }
     }
 
     fn setupScene:void () {
         if (handle == 0) {
+            print "[wasm3d] setupScene: no module loaded, abort"
             return
         }
         sceneMode = ((wasm_has_export handle "rg_mesh_ptr") == 0)
         ; only guests that publish an RGU1 document get a HUD; the others (cube3d,
         ; fps, pyramid) must never be asked for the export at all
         hasUi = ((wasm_has_export handle "rg_ui_revision") != 0)
+        print ("[wasm3d] setupScene: sceneMode=" + (to_string sceneMode) + " hasUi=" + (to_string hasUi))
         if (sceneMode) {
             ; host-managed scene: reset, preload any GLB models the game ships
             ; (so the guest's rg_load_model can resolve them), then let the guest
             ; build the scene via rg_create_*/rg_set_* host imports during init().
             gfx_scene_reset
+            print "[wasm3d] setupScene: scene reset, preloading assets"
             this.preloadModels()
             this.preloadSprites()
+            print "[wasm3d] setupScene: calling guest init()"
             this.wasmVoid("init" 0 0 0 0 0 0)
-            print "[wasm3d] host-managed scene mode"
+            print "[wasm3d] setupScene: guest init() returned (host-managed scene ready)"
             return
         }
         this.wasmVoid("init" 0 0 0 0 0 0)

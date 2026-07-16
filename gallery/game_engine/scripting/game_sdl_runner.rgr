@@ -460,9 +460,15 @@ class GameSdlRunner {
         useWasmPhysics = false
         useSpriteRunner = false
         useStreamRunner = false
+        useWasm3d = false
         splitScreenActive = false
         wasmSplitActive = false
-        this.loadMenuGame()
+        ; Do NOT loadMenuGame() here: this runs mid-dispatch, still inside the
+        ; menu's own runner/loop, and reloading the menu from under it clobbers
+        ; the active TSX/EVG menu state. Just stay out of the game — inGame stays
+        ; false, launchSelected skips runGameLoop, and runMenuLoop restores the
+        ; menu on the next tick as it does after any normal game exit.
+        inGame = false
     }
 
     ; Load a render=3d wasm guest into the GPU 3D runner (Wasm3dRunner). The guest
@@ -475,15 +481,19 @@ class GameSdlRunner {
         useSpriteRunner = false
         useStreamRunner = false
         useWasm3d = true
+        print ("[game-engine] loadWasm3dAt: " + wasmPath)
         this.presentLoadingScreen("LOADING 3D")
         wasm3dRunner.init(pw ph)
         wasm3dRunner.loadModule(wasmPath)
+        print ("[game-engine] loadWasm3dAt: module loaded=" + (to_string (wasm3dRunner.isLoaded())))
         if ((wasm3dRunner.isLoaded()) == false) {
             useWasm3d = false
             this.abortWasmLoad(wasmPath)
             return
         }
+        print "[game-engine] loadWasm3dAt: setupScene()"
         wasm3dRunner.setupScene()
+        print "[game-engine] loadWasm3dAt: setupScene done, entering game loop"
         currentScriptPath = wasmPath
         currentGamePath = wasmPath
         inMenu = false
@@ -676,8 +686,23 @@ class GameSdlRunner {
         return gameInputSnap
     }
 
+    ; Close every wasm-bearing runner's module so its wasm3 slot is freed
+    ; (rg_wasm_bridge RG_WASM_MAX = 8). Without this, each runner held its slot
+    ; until its next loadModule, so launching several *different* wasm game types
+    ; in one session eventually hit "[wasm] no free slot" and the next launch
+    ; failed. unload() is a no-op when a runner never loaded, so this is safe to
+    ; call unconditionally on every return to the menu.
+    fn releaseWasmSlots:void () {
+        wasm3dRunner.unload()
+        wasmRunner.unload()
+        wasmPhysicsRunner.unload()
+        spriteRunner.unload()
+        streamRunner.unload()
+    }
+
     fn loadMenuGame:void () {
         gfx_audio_clear
+        this.releaseWasmSlots()
         useWasm3d = false
         catalog.setGamesDir(gamesDir)
         catalog.scan()
@@ -1317,7 +1342,13 @@ class GameSdlRunner {
             return
         }
         this.loadGame(path)
-        this.runGameLoop()
+        ; Only drive the game loop if a game actually loaded. On a failed wasm
+        ; load, abortWasmLoad() leaves inGame=false (and no longer reloads the
+        ; menu itself); entering runGameLoop here would spin an empty/half loop.
+        ; Returning lets runMenuLoop restore the menu on its next tick.
+        if (inGame) {
+            this.runGameLoop()
+        }
     }
 
     ; Self-contained loop for a render=sprites .as game: interpret the guest, feed
@@ -1975,16 +2006,7 @@ class GameSdlRunner {
         gfx_audio_open(44100)
         this.refreshWasmAudioSampleRate()
         if (launcherMode) {
-            def mode:string (this.effectiveMenuMode())
-            if (mode == "as") {
-                this.runEvgMenuLoop()
-            } {
-                if (mode == "classic") {
-                    this.runMenuLoop()
-                } {
-                    this.runTsxMenuLoop()
-                }
-            }
+            this.runLauncherMenu()
         } {
             if ((strlen spriteDirectPath) > 0) {
                 this.runSpriteGame(spriteDirectPath)
@@ -1992,11 +2014,34 @@ class GameSdlRunner {
                 if ((strlen uiDirectPath) > 0) {
                     this.runUiGame(uiDirectPath)
                 } {
-                    this.runGameLoop()
+                    ; Direct game path (CLI arg). Only drive the game loop if the
+                    ; game actually loaded; a failed wasm load leaves inGame=false
+                    ; (abortWasmLoad no longer force-loads the menu), so fall back
+                    ; to the launcher menu instead of spinning an empty loop.
+                    if (inGame) {
+                        this.runGameLoop()
+                    } {
+                        this.runLauncherMenu()
+                    }
                 }
             }
         }
         gfx_close
+    }
+
+    ; Dispatch to whichever launcher menu the effective mode selects (interpreted
+    ; .as EVG launcher, classic TSX menu, or the plain TSX menu loop).
+    fn runLauncherMenu:void () {
+        def mode:string (this.effectiveMenuMode())
+        if (mode == "as") {
+            this.runEvgMenuLoop()
+        } {
+            if (mode == "classic") {
+                this.runMenuLoop()
+            } {
+                this.runTsxMenuLoop()
+            }
+        }
     }
 
     fn isWasmPath:boolean (arg:string) {
