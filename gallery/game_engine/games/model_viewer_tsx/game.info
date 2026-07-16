@@ -1,0 +1,17 @@
+name=3D Model Viewer (TSX)
+engine=tsx
+render=3d
+soloScript=index.tsx
+
+category=Tests
+
+# Real 3D rendering driven entirely by a short .tsx scene: the host loads the
+# GLB, creates GL buffers, and owns the camera/light/animation/render loop
+# (tsx3d_sdl_runner.rgr + model3d/Scene3dBridge.rgr). No WASM bridge.
+#
+# This game is run by the dedicated standalone host, not the 2D launcher:
+#   gallery/game_engine/scripts/build-tsx3d-sdl.sh --run
+#
+# Present every model at the same size: scale so the farthest vertex from the
+# origin is 1.0 unit (host-side, ModelAsset.scaleToRadius).
+model_radius=1.0

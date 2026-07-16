@@ -1,0 +1,175 @@
+; ==============================================================================
+; tsx3d_sdl_runner.rgr — REAL 3D rendering for a .tsx scene (no WASM).
+; ==============================================================================
+; A self-contained SDL2 + OpenGL host that renders a .tsx 3D scene through the
+; TSX interpreter + Scene3dBridge. TSX counterpart to wasm3d_runner.rgr: same GL
+; primitives (gfx_open_gpu + gfx_3d_*), but the scene is declared by a short
+; script instead of a WASM guest.
+;
+; Design rule: ALL heavy lifting is host-side. The script runs ONCE (init()) and
+; only declares the scene via addModel/place/spin. After that the interpreter is
+; never touched again — this host owns the loop, camera, lighting, animation and
+; input. Per frame there is zero script evaluation, so the tree-walk interpreter
+; is off the hot path entirely.
+;
+;   init()  (in the .tsx):   const box = addModel("BoxTextured.glb"); spin(box, 0.6);
+;
+; Build & run:  gallery/game_engine/scripts/build-tsx3d-sdl.sh --run
+; ==============================================================================
+
+Import "../gfx_sdl.rgr"
+Import "../model3d/Scene3dBridge.rgr"
+Import "../model3d/Model3dGlUploader.rgr"
+Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class Tsx3dSdlRunner {
+    def pw:int 960
+    def ph:int 540
+    ; host-owned camera (fixed 3/4 view; zoom via up/down). A centred model that
+    ; auto-spins already shows every side, so no camera orbit / trig is needed.
+    def camDist:double 3.2
+    def camHeight:double 1.4
+    def targetY:double 0.3
+
+    sfn argOr:string (index:int dflt:string) {
+        if ((shell_arg_cnt) > index) {
+            def a:string (shell_arg index)
+            if ((strlen a) > 0) {
+                return a
+            }
+        }
+        return dflt
+    }
+
+    sfn dirOf:string (path:string) {
+        def cut:int (0 - 1)
+        def i:int 0
+        def n:int (strlen path)
+        while (i < n) {
+            def ch:string (substring path i (i + 1))
+            if (ch == "/") {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        if (cut < 0) {
+            return "."
+        }
+        return (substring path 0 cut)
+    }
+
+    sfn baseOf:string (path:string) {
+        def cut:int (0 - 1)
+        def i:int 0
+        def n:int (strlen path)
+        while (i < n) {
+            def ch:string (substring path i (i + 1))
+            if (ch == "/") {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        if (cut < 0) {
+            return path
+        }
+        return (substring path (cut + 1) n)
+    }
+
+    fn bitOn:boolean (mask:int bitVal:int) {
+        def shifted:int (idiv mask bitVal)
+        def half:int (idiv shifted 2)
+        if ((half * 2) == shifted) {
+            return false
+        }
+        return true
+    }
+
+    ; Host input: up/down zoom the fixed camera in/out.
+    fn handleInput:void (mask:int) {
+        if (this.bitOn(mask 1)) {
+            camDist = (camDist - 0.08)
+            if (camDist < 1.0) {
+                camDist = 1.0
+            }
+        }
+        if (this.bitOn(mask 2)) {
+            camDist = (camDist + 0.08)
+            if (camDist > 20.0) {
+                camDist = 20.0
+            }
+        }
+    }
+
+    ; Host render: camera + light are host defaults; every instance is drawn
+    ; from host-owned transforms. No script evaluation happens here.
+    fn render:void (scene:Scene3dBridge) {
+        def aspect:double ((to_double pw) / (to_double ph))
+        gfx_3d_begin pw ph
+        gfx_3d_set_camera 0.0 camHeight camDist 0.0 targetY 0.0 0.0 1.0 0.0 0.9 0.1 100.0 aspect
+        gfx_3d_set_light 4210752 1.0 (0.0 - 0.4) (0.0 - 1.0) (0.0 - 0.3) 16777215 1.0
+        def n:int (scene.count())
+        def i:int 0
+        while (i < n) {
+            def inst:SceneInstance (scene.instAt(i))
+            gfx_3d_draw inst.glMesh 0 inst.count inst.glTex inst.rx inst.ry inst.rz inst.px inst.py inst.pz
+            i = (i + 1)
+        }
+        gfx_3d_end
+        gfx_3d_present
+    }
+
+    sfn m@(main):void () {
+        def runner:Tsx3dSdlRunner (new Tsx3dSdlRunner)
+        def scriptPath:string (Tsx3dSdlRunner.argOr(0 "gallery/game_engine/games/model_viewer_tsx/index.tsx"))
+        def framesS:string (Tsx3dSdlRunner.argOr(1 "0"))
+        def maxFrames:int (unwrap (str2int framesS))
+        def gameDir:string (Tsx3dSdlRunner.dirOf(scriptPath))
+        def scriptFile:string (Tsx3dSdlRunner.baseOf(scriptPath))
+
+        def win:int (gfx_open_gpu "Ranger TSX 3D" runner.pw runner.ph)
+        if (win == 0) {
+            print "[tsx3d] gfx_open_gpu failed (no GL context)"
+            return
+        }
+
+        ; interpreter + host scene bridge with the real GL uploader
+        def engine (new ComponentEngine())
+        engine.quiet = true
+        def scene:Scene3dBridge (new Scene3dBridge)
+        def uploader:Model3dGlUploader (new Model3dGlUploader)
+        scene.setUploader(uploader)
+        scene.setAssetDir(gameDir + "/models")
+        scene.setRadius(1.0)
+        engine.setNativeBridge(scene)
+
+        def buf:buffer (buffer_read_file gameDir scriptFile)
+        engine.loadScript((buffer_to_string buf))
+
+        ; the ONLY script evaluation: one-time scene declaration
+        engine.callFunction("init" (EvalValue.null()))
+        print ("[tsx3d] scene declared: " + (to_string (scene.count())) + " model(s) from " + scriptPath)
+
+        def frame:int 0
+        def running:boolean true
+        while running {
+            gfx_input_poll
+            def mask:int (gfx_input_source_mask 0)
+            runner.handleInput(mask)
+            scene.advance(16)
+            runner.render(scene)
+            gfx_delay 16
+            frame = (frame + 1)
+            if (gfx_should_close) {
+                running = false
+            }
+            if (runner.bitOn(mask 8)) {
+                running = false
+            }
+            if ((maxFrames > 0) && (frame >= maxFrames)) {
+                running = false
+            }
+        }
+        print ("[tsx3d] done frames=" + (to_string frame))
+    }
+}

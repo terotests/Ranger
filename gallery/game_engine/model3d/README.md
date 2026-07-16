@@ -125,6 +125,56 @@ node bin/output.js -es6 gallery/game_engine/model3d/tests/TextureDecodeTest.rgr 
   support gate.
 - `TextureDecodeTest.rgr` — end-to-end load + embedded PNG decoded to the
   expected RGBA pixels through `ModelLoader`.
+- `Model3dScriptBridgeTest.rgr` — the low-level TSX-bridge test (see below): a
+  `.tsx` script loads the fixture GLB and creates GL-ready mesh/texture buffers
+  through the interpreter, asserted headlessly.
+- `Scene3dBridgeTest.rgr` — the host-owned-scene test: a 3-line `.tsx` `init()`
+  declares a scene (`addModel`/`place`/`spin`) and the host runs the whole
+  load → GL-upload → placement → animation path, asserted headlessly.
+
+## TSX-interpreter path (no WASM bridge)
+
+`ModelLoader` + `MeshBridge` are plain host Ranger, so the whole
+`GLB → GL-ready buffers` step needs **no WASM shared-block ABI** — it can be
+driven straight from a `.tsx` game script through the interpreter's native
+bridge seam (`EvalNativeBridge` in `pdf_writer/src/jsx/ComponentEngine.rgr`).
+This is the counterpart to the WASM path in `scripting/wasm3d_runner.rgr`
+(`preloadModels` → `gfx_3d_mesh_upload_hp`), with the *same* host code but a
+script driver instead of a WASM guest.
+
+**Design rule: all heavy lifting is host-side; the TSX stays short.** GLB parse,
+GL-buffer creation, camera, lighting, animation and the render loop are host
+code. A 3D game script is a one-time scene declaration — no per-frame interpreter
+evaluation on the hot path.
+
+### Two layers
+
+| File | Role |
+| --- | --- |
+| `Model3dScriptBridge.rgr` | Low-level `EvalNativeBridge`: `loadModel(dir,file)` / `modelInfo(id)` / `buildGLMesh(id)` / `modelError()`. GL upload is an injectable `Mesh3dUploader` seam. |
+| `Scene3dBridge.rgr` | High-level host-owned scene the script only *declares*: `addModel(file)` / `place(i,x,y,z)` / `spin(i,radPerSec)`. Owns the instance list + `advance(dt)` animation. |
+| `Model3dGlUploader.rgr` | The SDL/GL branch of the uploader seam — real `gfx_3d_mesh_upload_hp` / `gfx_3d_upload_texture`. Imports `gfx_sdl.rgr`, so SDL-build only (not in the headless tests). |
+
+Headless, the default null uploader simulates GL handle allocation and reports a
+real checksum of the vertex buffer MeshBridge produced, so the full
+load-and-prepare path is verifiable under Node with no display. In the SDL host,
+`setUploader(new Model3dGlUploader)` swaps in real GL uploads — the `.tsx` script
+is byte-for-byte identical in both.
+
+### Real rendering (SDL2 + OpenGL)
+
+`scripting/tsx3d_sdl_runner.rgr` is a self-contained SDL2/GL host (the TSX
+counterpart to `wasm3d_runner.rgr`): it opens a GL window (`gfx_open_gpu`), runs
+the script's `init()` once to declare the scene via `Scene3dBridge`, then owns
+the camera, light, per-frame spin and the `gfx_3d_*` render loop — the
+interpreter is never touched after `init()`. Demo game: `games/model_viewer_tsx/`
+(a ~3-line `index.tsx`).
+
+```sh
+# needs SDL2 + OpenGL (libgl / GLESv2 on ARM) and a C++17 compiler
+gallery/game_engine/scripts/build-tsx3d-sdl.sh --run                       # default demo
+gallery/game_engine/scripts/build-tsx3d-sdl.sh --run <index.tsx> [frames]  # up/down zoom, Q/Esc quit
+```
 
 ## Not in scope yet
 
