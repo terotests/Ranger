@@ -33,8 +33,13 @@ Free Khronos [glTF-Sample-Assets](https://github.com/KhronosGroup/glTF-Sample-As
 | `BoxVertexColors` | per-vertex `COLOR_0` (RGB cube gradient) |
 | `Duck` | 4,212-triangle textured mesh with a node hierarchy |
 
-Re-download with `tools/fetch_models.sh`. To use different models, drop supported
-GLBs into `models/` and update the `NAMES` list in `src/src/lib.rs`.
+Plus a nature pack (`tree_*`, `bush_*`, …) in `models/`. Oversized assets (e.g.
+`Chair.glb`) live in `models/heavy/` and are **not** eagerly preloaded — the Pi
+host skips that subdirectory (and any GLB over ~2 MiB / 80k verts) so launch
+cannot OOM.
+
+Re-download the Khronos four with `tools/fetch_models.sh`. Drop other supported
+GLBs into `models/`; the guest discovers them via `rg_list_resources`.
 
 ## Build
 

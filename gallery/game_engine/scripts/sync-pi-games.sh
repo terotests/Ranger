@@ -50,6 +50,25 @@ fi
 echo "==> Test SSH: $TARGET"
 ssh -o ConnectTimeout=10 -o BatchMode=yes "$TARGET" 'echo ok'
 
+# Fail fast if a WASM game folder is missing its module — same class of bug as
+# deploy-pi.sh used to have (catalog shows the game, launch bounces to menu).
+missing=0
+while IFS= read -r -d '' info; do
+  # grep exits 1 when a key is absent — must not trip `set -e`.
+  engine="$(grep -E '^engine=' "$info" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '\r' || true)"
+  case "$engine" in wasm|ui|streaming) ;; *) continue ;; esac
+  mod="$(grep -E '^module=' "$info" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '\r' || true)"
+  mod="${mod:-logic.wasm}"
+  wasm="$(dirname "$info")/$mod"
+  if [[ ! -f "$wasm" ]]; then
+    echo "error: missing WASM artifact: $wasm" >&2
+    missing=1
+  fi
+done < <(find "$GE/games" -mindepth 2 -maxdepth 2 -name game.info -print0 | sort -z)
+if [[ "$missing" != "0" ]]; then
+  exit 1
+fi
+
 echo "==> Sync games -> $TARGET:$REMOTE_BASE/games/"
 ssh "$TARGET" "mkdir -p $REMOTE_BASE/games $REMOTE_BASE/lib"
 # games/<game>/src/ holds that game's WASM build sources (Rust crate / AS
