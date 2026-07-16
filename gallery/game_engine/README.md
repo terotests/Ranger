@@ -400,6 +400,161 @@ Linear-ABI-pelissä host hoitaa fysiikan (`GamePhysics`), piirron (procedural ro
 
 Lisätietoa Rust Pong -PoC:sta: [`games/rust_pong/README.md`](./games/rust_pong/README.md).
 
+## WASM-guest Rangerilla (kirjoita peli Ranger-kielellä)
+
+WASM-guestin voi kirjoittaa myös **Rangerilla** — sama kieli jolla kääntäjä
+itse on tehty. Koska Ranger-kääntäjä ajaa selaimessa, peli voidaan periaatteessa
+kirjoittaa, kääntää **ja** ajaa kokonaan selaimessa.
+
+Kokonainen peli-esimerkki: [`games/ranger_autopeli/src/`](./games/ranger_autopeli/src/)
+(kaksinpelin top-down-racer, RGW1-linear + RGU1-UI, fixed-point + f64).
+Ohjelmointimallien (luokat, RC, kokoelmat, mapit, merkkijonot) leikatut ja
+testatut esimerkit ovat runtime-demoissa [`runtime/wasm/*_demo.rgr`](../../runtime/wasm/)
++ niiden `*_test.mjs`-ajurit.
+
+### Käännösputki
+
+Ranger → WAT-teksti → `.wasm`. Backend on LLVM-generaattorin WAT-moodi
+(ei libc:tä, freestanding):
+
+```bash
+# 1) Ranger -> WAT  (backend kirjoittaa .wat.ll-päätteellä)
+RANGER_LIB="compiler/Lang.rgr:lib/stdops.rgr" \
+  node bin/output.js -l=llvm -wat -freestanding [-wasmrc] \
+  peli.rgr -nodecli -d=tmp/out -o=peli.wat
+# 2) WAT -> wasm
+node_modules/.bin/wat2wasm tmp/out/peli.wat.ll -o logic.wasm
+```
+
+Enginen ABI odottaa paljaita export-nimiä (`init`, `update`, …), mutta Ranger
+mangloi metodit muotoon `Luokka_metodi`. Valmis peli `sed`-uudelleennimeää
+exportit `build.sh`:ssä — katso [`games/ranger_autopeli/src/build.sh`](./games/ranger_autopeli/src/build.sh).
+(Vaihtoehto: nimeä luokka niin että mangattu nimi osuu suoraan.)
+
+### Kaksi tilaa: bump vai `-wasmrc`
+
+* **Ilman `-wasmrc`** WAT-backend käyttää *vuotavaa* bump-allokaattoria. Tämä
+  riittää peleille jotka **eivät varaa muistia** ajon aikana — pelkkää
+  fixed-point-laskentaa kiinteissä linear-memory-slotissa (kuten
+  ranger_autopeli). Pienin ja yksinkertaisin.
+* **`-wasmrc`** kytkee **viittauslaskuri-runtimen**: free-list-keko,
+  automaattinen objektien / merkkijonojen / kokoelmien vapautus. Tarvitaan jos
+  peli varaa muistia joka framessa (`new`, merkkijonot, listat). Importtaa
+  runtime ja kutsu `Heap_init()` kerran hostissa:
+
+```ranger
+; polku on suhteellinen lähdetiedostoon nähden (repo-juuren runtime/wasm/)
+Import "polku/runtime/wasm/ranger_obj.rgr"   ; tuo keko + objekti/str/kokoelma-RC
+```
+
+Runtime: [`runtime/wasm/ranger_heap.rgr`](../../runtime/wasm/ranger_heap.rgr) (allokaattori)
+ja [`runtime/wasm/ranger_obj.rgr`](../../runtime/wasm/ranger_obj.rgr) (RC + string- ja
+kokoelma-runtime). Muistimallin koko suunnitelma: [`PLAN_WASM_MEMORY.md`](../../PLAN_WASM_MEMORY.md).
+
+### Mitä kieliominaisuuksia backend tukee
+
+| Ominaisuus | Tuki | Huom |
+|------------|:----:|------|
+| `int` (i32) | ✅ | |
+| `f64` (double) | ✅ | fadd/fsub/fmul/fdiv, vertailut, sitofp/fptosi |
+| `boolean` | ✅ | i32-slot |
+| `string` | ✅ (`-wasmrc`) | UTF-8 char*, literaalit data-segmentissä |
+| Luokat + `new`, instanssikentät | ✅ (`-wasmrc`) | RC + kenttien rekursiivinen vapautus |
+| `sfn` (staattinen) / `fn` (instanssi) | ✅ | |
+| `if` / `else`, `while`, `for` | ✅ | |
+| `[int]`, `[T]`, `[string]`, `[int:int]` | ✅ (`-wasmrc`) | free-list-keolla, kasvavat |
+| `Mem.loadI32/storeI32/loadU8/storeU8` | ✅ | suora linear-memory-pääsy |
+| `Mem.memSize` / `Mem.memGrow` | ✅ | `memory.size` / `memory.grow` |
+
+Operaattorit (LLVM/WAT-target):
+
+* Aritmetiikka: prefix `(+ a b)` `(- a b)` `(* a b)` tai infix `(a + b)`.
+* **Kokonaislukujako on `(idiv a b)`** — EI `/`, joka on liukulukujako
+  (`int / int -> f64`).
+* Modulo `(% a b)`.
+* Bittioperaatiot **täysin sulutettuina**: `(bit_and x y)`, `(bit_or x y)`,
+  `(bit_xor x y)`, `(bit_shl x n)`, `(bit_shr x n)`, `(bit_not x)`.
+* Vertailut `< > <= >= == !=`, ehdot `&&` `||`.
+* Merkkijonot: `(+ "HP " n)` (concat), `to_string`, `strlen`, `==`/`!=`,
+  `charAt`, `substring`, `strfromcode`, `rawbytechar`.
+
+### Ohjelmointimallit (mikä toimii, mikä ei)
+
+Kaikki alla oleva on **testattu** WASM-käännöksellä (`runtime/wasm/*_test.mjs`):
+
+| Malli | Tuki | Esimerkki |
+|-------|:----:|-----------|
+| Luokat: instanssikentät (int/f64/bool/string), metodit `fn`/`sfn`, `new` | ✅ | `class Ent { def hp:int 0 }` |
+| Olio välitetään viittauksena kutsuketjussa | ✅ | `SG.apply(e)` |
+| Olio **omistaa kokoelmakentän** (`[int]`/`[T]`/`[string]`) | ✅ | `class P { def scores:[int] }` |
+| Merkkijonokenttä (dup + rekursiivinen vapautus) | ✅ | `class P { def name:string "" }` |
+| Listat `[int]`, `[T]`, `[string]` — push/itemAt/array_length/for | ✅ | |
+| **Hash-taulut** `[int:int]` — `set`/`get`, kasvavat | ✅ | `def m:[int:int]` |
+| Suora `Mem`-slotti-tila (staattiset metodit, ei varausta) | ✅ | ranger_autopeli |
+| **Sisäkkäisen** olion kentän mutatointi ketjulla `a.b.c = …` | ⚠️ bugi | ks. alla |
+| Olio-kenttä (`def v:Vec (new Vec)`) rekursiivinen vapautus | ⚠️ vuotaa | borrow-oletus |
+| **Singletonit** (`@singleton(true)`) | ❌ | ei tueta (ks. alla) |
+| **Lambdat / sulkeumat** (`(fn:… (){})`, `{ … }`) | ❌ | funktio-osoittimia ei emitoida |
+
+**Singletonit ja globaali tila.** `@singleton(true)`:n `__singleton()`-aksessoria
+ei (vielä) emitoida WAT-backendissä — WASM-globaaleja ei varata. Peleissä globaali
+tila kannattaa pitää joko (a) **staattisilla metodeilla + kiinteissä linear-
+memory-slotissa** (`Mem.storeI32`/`loadI32`) — juuri niin ranger_autopeli tekee —
+tai (b) luoda oliot ja langoittaa ne kutsuketjun läpi. Ei erillistä globaalia
+säiliötä yhdelle jaetulle instanssille ilman singleton- tai globaalitukea.
+
+**Sisäkkäiset oliot.** Litteä olio toimii (`v.x = 10  v.y = 32`), mutta
+kentän-kentän ketjumutatointi (`p.pos.x = …` kun `pos` on olio-kenttä) osoittaa
+tällä hetkellä väärään slottiin, ja olio-kentät ovat **borrow**-oletuksena
+(owned=0) joten niitä ei vapauteta automaattisesti (vuoto, kunnes borrow-analyysi
+tulee). Pidä pelilogiikan tila litteänä (primitiivit + kokoelmat + merkkijonot),
+tai käytä `Mem`-slotteja, kunnes nämä on korjattu.
+
+### Sudenkuopat
+
+* **`sfn` on staattinen — ei `this`.** Kutsu `Luokka.metodi(...)`. `fn` on
+  instanssimetodi (tarvitsee vastaanottajan).
+* **Yksi lause per rivi** — kaksi lausetta samalla rivillä (esim.
+  `set m i x  i = (+ i 1)`) sekoittaa jäsentäjän.
+* **Ei heksaliteraaleja** joka polulla — käytä desimaaleja (esim. RGW1-magic
+  `827803474`, ei `0x31574752`).
+* **Map `get` palauttaa optionaalin** — pakota int-kontekstiin (`(+ 0 (get m k))`)
+  tai talleta tyypitettyyn lokaaliin.
+* Puuttuva avain mapissa palauttaa `-1`; `-1` on varattu tyhjän paikan
+  merkiksi eikä kelpaa avaimeksi.
+
+### Muistinhallinta `-wasmrc`:llä (leak-free)
+
+* **Objektit** (`new`) lasketaan viittauksilla ja vapautetaan scopen lopussa /
+  kun rc → 0, mukaan lukien omistetut string- ja objekti-kentät (typedescit).
+* **Merkkijonot**: per-scope- ja per-frame-väliaikaiset vapautetaan (omistetut
+  lokaalit + lause-arena). HUD-jonot kuten `("SCORE " + n)` eivät vuoda.
+* **Kokoelmat** `[int]`/`[T]`/`[string]`/`[K:V]`: varataan free-list-keolta,
+  kasvavat ja vapautuvat scopen lopussa (element-RC missä omistettu). Mapit
+  kasvavat (tuplaus + uudelleenhajautus).
+* **Keko kasvaa** `memory.grow`illa yli alun 64 KiB:n. Host kutsuu `Heap_init()`
+  kerran; framen väliaikaiset kierrätetään.
+
+Kattavuus: 102 runtime-testiä ([`runtime/wasm/*_test.mjs`](../../runtime/wasm/)):
+heko, objektit, merkkijonot, kentät, kaikki kokoelmat + mapit.
+
+### Testaus (headless, V8)
+
+Node-host ajaa guestin V8:n WebAssemblyllä — sama rajapinta kuin selaimessa:
+
+```bash
+# koko peli end-to-end (rakenna + aja headless RGW1-protokolla)
+bash gallery/game_engine/games/ranger_autopeli/src/build.sh
+node gallery/game_engine/games/ranger_autopeli/src/node_host.mjs   # -> PASS
+```
+
+`node_host.mjs` toteuttaa saman RGW1-per-frame-protokollan kuin oikea host.
+Ohjelmointimallien testit (käännä `.rgr`-demo → wasm, aja `.mjs`; ks. kunkin
+`*_test.mjs`-tiedoston yläkommentti buildkomennoista):
+[`coll_rc_test.mjs`](../../runtime/wasm/coll_rc_test.mjs) (listat + olio-taulukot),
+[`map_rc_test.mjs`](../../runtime/wasm/map_rc_test.mjs) (hash-taulut),
+[`str_rc_test.mjs`](../../runtime/wasm/str_rc_test.mjs) (merkkijonot).
+
 ## Fysiikka
 
 Kaksi opt-in-fysiikkakerrosta:
