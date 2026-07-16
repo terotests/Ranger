@@ -248,18 +248,19 @@ class SoftRenderer3D {
         }
         def hasUv:boolean ((array_length prim.uvs) > 0)
         def hasNormals:boolean ((array_length prim.normals) > 0)
+        def hasColors:boolean ((array_length prim.colors) > 0)
         def idxN:int (array_length prim.indices)
         def t:int 0
         while ((t + 2) < idxN) {
             def i0:int (itemAt prim.indices t)
             def i1:int (itemAt prim.indices (t + 1))
             def i2:int (itemAt prim.indices (t + 2))
-            this.rasterTri(prim worldM vp i0 i1 i2 baseR baseG baseB tex hasTex hasUv hasNormals)
+            this.rasterTri(prim worldM vp i0 i1 i2 baseR baseG baseB tex hasTex hasUv hasNormals hasColors)
             t = (t + 3)
         }
     }
 
-    fn rasterTri:void (prim:MeshPrimitiveAsset worldM:Mat4 vp:Mat4 i0:int i1:int i2:int baseR:double baseG:double baseB:double tex:TextureAsset hasTex:boolean hasUv:boolean hasNormals:boolean) {
+    fn rasterTri:void (prim:MeshPrimitiveAsset worldM:Mat4 vp:Mat4 i0:int i1:int i2:int baseR:double baseG:double baseB:double tex:TextureAsset hasTex:boolean hasUv:boolean hasNormals:boolean hasColors:boolean) {
         def p0:Vec3 (itemAt prim.positions i0)
         def p1:Vec3 (itemAt prim.positions i1)
         def p2:Vec3 (itemAt prim.positions i2)
@@ -314,6 +315,30 @@ class SoftRenderer3D {
             u2 = t2.x
             v2 = t2.y
         }
+        ; per-vertex COLOR_0 (default white when the primitive has none)
+        def cr0:double 1.0
+        def cg0:double 1.0
+        def cb0:double 1.0
+        def cr1:double 1.0
+        def cg1:double 1.0
+        def cb1:double 1.0
+        def cr2:double 1.0
+        def cg2:double 1.0
+        def cb2:double 1.0
+        if hasColors {
+            def vc0:Vec4 (itemAt prim.colors i0)
+            def vc1:Vec4 (itemAt prim.colors i1)
+            def vc2:Vec4 (itemAt prim.colors i2)
+            cr0 = vc0.x
+            cg0 = vc0.y
+            cb0 = vc0.z
+            cr1 = vc1.x
+            cg1 = vc1.y
+            cb1 = vc1.z
+            cr2 = vc2.x
+            cg2 = vc2.y
+            cb2 = vc2.z
+        }
         ; bounding box
         def bxMin:int (this.clampI((floor (this.min3(sx0 sx1 sx2))) 0 (w - 1)))
         def bxMax:int (this.clampI((floor (this.max3(sx0 sx1 sx2))) 0 (w - 1)))
@@ -353,6 +378,14 @@ class SoftRenderer3D {
                             cr = (sc.x / 255.0)
                             cg = (sc.y / 255.0)
                             cb = (sc.z / 255.0)
+                        }
+                        if hasColors {
+                            def vcr:double ((((b0 * (cr0 * iw0)) + (b1 * (cr1 * iw1))) + (b2 * (cr2 * iw2))) / iw)
+                            def vcg:double ((((b0 * (cg0 * iw0)) + (b1 * (cg1 * iw1))) + (b2 * (cg2 * iw2))) / iw)
+                            def vcb:double ((((b0 * (cb0 * iw0)) + (b1 * (cb1 * iw1))) + (b2 * (cb2 * iw2))) / iw)
+                            cr = (cr * vcr)
+                            cg = (cg * vcg)
+                            cb = (cb * vcb)
                         }
                         def outR:int (this.toByte((cr * shade) * 255.0))
                         def outG:int (this.toByte((cg * shade) * 255.0))

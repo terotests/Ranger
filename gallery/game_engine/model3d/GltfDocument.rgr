@@ -105,12 +105,15 @@ class GltfMaterial {
     def emissiveStrength:double 1.0
     ; 0 = OPAQUE, 1 = MASK, 2 = BLEND (glTF alphaMode)
     def alphaMode:int 0
+    ; KHR_materials_unlit: skip lighting, show base colour flat
+    def unlit:boolean false
 }
 
 class GltfPrimitive {
     def posAccessor:int (0 - 1)
     def normalAccessor:int (0 - 1)
     def uvAccessor:int (0 - 1)
+    def colorAccessor:int (0 - 1)
     def indicesAccessor:int (0 - 1)
     def material:int (0 - 1)
     def mode:int 4
@@ -366,6 +369,9 @@ class GltfDocument {
                         def es:JsonValue (ext.get("KHR_materials_emissive_strength"))
                         m.emissiveStrength = (es.doubleOr("emissiveStrength" 1.0))
                     }
+                    if (ext.has("KHR_materials_unlit")) {
+                        m.unlit = true
+                    }
                 }
                 push materials m
                 i = (i + 1)
@@ -403,6 +409,7 @@ class GltfDocument {
                     prim.posAccessor = (attrs.intOr("POSITION" (0 - 1)))
                     prim.normalAccessor = (attrs.intOr("NORMAL" (0 - 1)))
                     prim.uvAccessor = (attrs.intOr("TEXCOORD_0" (0 - 1)))
+                    prim.colorAccessor = (attrs.intOr("COLOR_0" (0 - 1)))
                     if (prim.posAccessor < 0) {
                         this.fail("primitive is missing POSITION attribute")
                         return

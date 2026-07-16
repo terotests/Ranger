@@ -232,4 +232,86 @@ class GlbFixture {
         buffer_copy out (binChunkStart + 8) bin 0 blen
         return out
     }
+
+    ; assemble a GLB from a JSON string + a BIN buffer (shared by the fixtures)
+    sfn assemble:buffer (json:string bin:buffer) {
+        def jbuf:buffer (buffer_from_string json)
+        def jlen:int (buffer_length jbuf)
+        def jpad:int (GlbFixture.pad4(jlen))
+        def jtotal:int (jlen + jpad)
+        def blen:int (buffer_length bin)
+        def bpad:int (GlbFixture.pad4(blen))
+        def btotal:int (blen + bpad)
+        def total:int ((12 + (8 + jtotal)) + (8 + btotal))
+        def out:buffer (buffer_alloc total)
+        ByteReader.encodeU32(out 0 1179937895)
+        ByteReader.encodeU32(out 4 2)
+        ByteReader.encodeU32(out 8 total)
+        ByteReader.encodeU32(out 12 jtotal)
+        ByteReader.encodeU32(out 16 1313821514)
+        buffer_copy out 20 jbuf 0 jlen
+        def p:int 0
+        while (p < jpad) {
+            buffer_set out ((20 + jlen) + p) 32
+            p = (p + 1)
+        }
+        def binChunkStart:int (20 + jtotal)
+        ByteReader.encodeU32(out binChunkStart btotal)
+        ByteReader.encodeU32(out (binChunkStart + 4) 5130562)
+        buffer_copy out (binChunkStart + 8) bin 0 blen
+        return out
+    }
+
+    ; a non-indexed triangle with POSITION + COLOR_0 and NO NORMAL — exercises
+    ; vertex colours, synthesised indices, and generated normals.
+    sfn colorNoIndexBin:buffer () {
+        def b:buffer (buffer_alloc 84)
+        ; positions: (0,0,0) (1,0,0) (0,1,0)  [CCW in XY -> face normal +Z]
+        ByteReader.encodeF32(b 0 0.0)
+        ByteReader.encodeF32(b 4 0.0)
+        ByteReader.encodeF32(b 8 0.0)
+        ByteReader.encodeF32(b 12 1.0)
+        ByteReader.encodeF32(b 16 0.0)
+        ByteReader.encodeF32(b 20 0.0)
+        ByteReader.encodeF32(b 24 0.0)
+        ByteReader.encodeF32(b 28 1.0)
+        ByteReader.encodeF32(b 32 0.0)
+        ; colors at 36: red, green, blue (VEC4)
+        ByteReader.encodeF32(b 36 1.0)
+        ByteReader.encodeF32(b 40 0.0)
+        ByteReader.encodeF32(b 44 0.0)
+        ByteReader.encodeF32(b 48 1.0)
+        ByteReader.encodeF32(b 52 0.0)
+        ByteReader.encodeF32(b 56 1.0)
+        ByteReader.encodeF32(b 60 0.0)
+        ByteReader.encodeF32(b 64 1.0)
+        ByteReader.encodeF32(b 68 0.0)
+        ByteReader.encodeF32(b 72 0.0)
+        ByteReader.encodeF32(b 76 1.0)
+        ByteReader.encodeF32(b 80 1.0)
+        return b
+    }
+    sfn colorNoIndexJson:string () {
+        def s:string "{"
+        s = (s + "\"asset\":{\"version\":\"2.0\"},")
+        s = (s + "\"scene\":0,\"scenes\":[{\"nodes\":[0]}],")
+        s = (s + "\"nodes\":[{\"name\":\"CTri\",\"mesh\":0}],")
+        s = (s + "\"meshes\":[{\"name\":\"CTri\",\"primitives\":[{\"attributes\":{\"POSITION\":0,\"COLOR_0\":1},\"mode\":4}]}],")
+        s = (s + "\"accessors\":[")
+        s = (s + "{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\"},")
+        s = (s + "{\"bufferView\":1,\"componentType\":5126,\"count\":3,\"type\":\"VEC4\"}")
+        s = (s + "],")
+        s = (s + "\"bufferViews\":[")
+        s = (s + "{\"buffer\":0,\"byteOffset\":0,\"byteLength\":36},")
+        s = (s + "{\"buffer\":0,\"byteOffset\":36,\"byteLength\":48}")
+        s = (s + "],")
+        s = (s + "\"buffers\":[{\"byteLength\":84}]")
+        s = (s + "}")
+        return s
+    }
+    sfn buildColorNoIndex:buffer () {
+        def json:string (GlbFixture.colorNoIndexJson())
+        def bin:buffer (GlbFixture.colorNoIndexBin())
+        return (GlbFixture.assemble(json bin))
+    }
 }

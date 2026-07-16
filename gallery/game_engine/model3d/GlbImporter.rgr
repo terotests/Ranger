@@ -187,6 +187,123 @@ class GlbImporter {
         return out
     }
 
+    ; per-vertex COLOR_0 (VEC3 -> alpha 1, VEC4); float or normalized u8/u16
+    fn readVec4:[Vec4] (accessorIndex:int) {
+        def out:[Vec4]
+        def a:GltfAccessor (itemAt doc.accessors accessorIndex)
+        def stride:int (this.accessorStride(a))
+        def base:int (this.accessorBase(a))
+        def comps:int (a.componentCount())
+        def i:int 0
+        while (i < a.count) {
+            def off:int (base + (i * stride))
+            def r:double 1.0
+            def g:double 1.0
+            def b:double 1.0
+            def al:double 1.0
+            if (a.componentType == 5126) {
+                r = (reader.f32at(off))
+                g = (reader.f32at(off + 4))
+                b = (reader.f32at(off + 8))
+                if (comps == 4) {
+                    al = (reader.f32at(off + 12))
+                }
+            } {
+                if (a.componentType == 5121) {
+                    r = ((to_double (reader.u8at(off))) / 255.0)
+                    g = ((to_double (reader.u8at(off + 1))) / 255.0)
+                    b = ((to_double (reader.u8at(off + 2))) / 255.0)
+                    if (comps == 4) {
+                        al = ((to_double (reader.u8at(off + 3))) / 255.0)
+                    }
+                } {
+                    if (a.componentType == 5123) {
+                        r = ((to_double (reader.u16at(off))) / 65535.0)
+                        g = ((to_double (reader.u16at(off + 2))) / 65535.0)
+                        b = ((to_double (reader.u16at(off + 4))) / 65535.0)
+                        if (comps == 4) {
+                            al = ((to_double (reader.u16at(off + 6))) / 65535.0)
+                        }
+                    }
+                }
+            }
+            def c:Vec4 (Vec4.of(r g b al))
+            push out c
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; sequential indices [0..count) for a non-indexed primitive
+    fn synthIndices:[int] (count:int) {
+        def out:[int]
+        def i:int 0
+        while (i < count) {
+            push out i
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; smooth normals from positions + triangle indices (area-weighted, then
+    ; normalized), used when a primitive ships no NORMAL attribute.
+    fn generateNormals:[Vec3] (positions:[Vec3] indices:[int]) {
+        def vc:int (array_length positions)
+        def ax:double_buffer (double_buffer_alloc vc)
+        def ay:double_buffer (double_buffer_alloc vc)
+        def az:double_buffer (double_buffer_alloc vc)
+        def z:int 0
+        while (z < vc) {
+            double_buffer_set ax z 0.0
+            double_buffer_set ay z 0.0
+            double_buffer_set az z 0.0
+            z = (z + 1)
+        }
+        def ic:int (array_length indices)
+        def t:int 0
+        while ((t + 2) < ic) {
+            def i0:int (itemAt indices t)
+            def i1:int (itemAt indices (t + 1))
+            def i2:int (itemAt indices (t + 2))
+            def p0:Vec3 (itemAt positions i0)
+            def p1:Vec3 (itemAt positions i1)
+            def p2:Vec3 (itemAt positions i2)
+            def e1x:double (p1.x - p0.x)
+            def e1y:double (p1.y - p0.y)
+            def e1z:double (p1.z - p0.z)
+            def e2x:double (p2.x - p0.x)
+            def e2y:double (p2.y - p0.y)
+            def e2z:double (p2.z - p0.z)
+            def nx:double ((e1y * e2z) - (e1z * e2y))
+            def ny:double ((e1z * e2x) - (e1x * e2z))
+            def nz:double ((e1x * e2y) - (e1y * e2x))
+            this.accum(ax ay az i0 nx ny nz)
+            this.accum(ax ay az i1 nx ny nz)
+            this.accum(ax ay az i2 nx ny nz)
+            t = (t + 3)
+        }
+        def out:[Vec3]
+        def v:int 0
+        while (v < vc) {
+            def nx:double (double_buffer_get ax v)
+            def ny:double (double_buffer_get ay v)
+            def nz:double (double_buffer_get az v)
+            def len:double (sqrt (((nx * nx) + (ny * ny)) + (nz * nz)))
+            def outv:Vec3 (Vec3.of(0.0 1.0 0.0))
+            if (len > 0.0) {
+                outv = (Vec3.of((nx / len) (ny / len) (nz / len)))
+            }
+            push out outv
+            v = (v + 1)
+        }
+        return out
+    }
+    fn accum:void (ax:double_buffer ay:double_buffer az:double_buffer idx:int nx:double ny:double nz:double) {
+        double_buffer_set ax idx ((double_buffer_get ax idx) + nx)
+        double_buffer_set ay idx ((double_buffer_get ay idx) + ny)
+        double_buffer_set az idx ((double_buffer_get az idx) + nz)
+    }
+
     ; ---- build the host ModelAsset -----------------------------------------
     fn buildTextures:void (model:ModelAsset) {
         def n:int (array_length doc.textures)
@@ -249,6 +366,7 @@ class GlbImporter {
             m.metallic = gm.metallic
             m.roughness = gm.roughness
             m.doubleSided = gm.doubleSided
+            m.unlit = gm.unlit
             m.emissiveR = (gm.emissiveR * gm.emissiveStrength)
             m.emissiveG = (gm.emissiveG * gm.emissiveStrength)
             m.emissiveB = (gm.emissiveB * gm.emissiveStrength)
@@ -274,14 +392,25 @@ class GlbImporter {
                 prim.mode = gp.mode
                 prim.material = gp.material
                 prim.positions = (this.readVec3(gp.posAccessor))
-                if (gp.normalAccessor >= 0) {
-                    prim.normals = (this.readVec3(gp.normalAccessor))
-                }
                 if (gp.uvAccessor >= 0) {
                     prim.uvs = (this.readVec2(gp.uvAccessor))
                 }
+                if (gp.colorAccessor >= 0) {
+                    prim.colors = (this.readVec4(gp.colorAccessor))
+                }
+                ; indices: use the accessor, or synthesise them for a
+                ; non-indexed primitive so downstream always has triangles
                 if (gp.indicesAccessor >= 0) {
                     prim.indices = (this.readIndices(gp.indicesAccessor))
+                } {
+                    def vcount:int (prim.vertexCount())
+                    prim.indices = (this.synthIndices(vcount))
+                }
+                ; normals: use NORMAL, else generate smooth normals
+                if (gp.normalAccessor >= 0) {
+                    prim.normals = (this.readVec3(gp.normalAccessor))
+                } {
+                    prim.normals = (this.generateNormals(prim.positions prim.indices))
                 }
                 push mesh.primitives prim
                 j = (j + 1)

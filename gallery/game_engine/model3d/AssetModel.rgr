@@ -55,6 +55,8 @@ class MeshPrimitiveAsset {
     def positions:[Vec3]
     def normals:[Vec3]
     def uvs:[Vec2]
+    ; per-vertex COLOR_0 (rgba, 0..1); empty when the primitive has none
+    def colors:[Vec4]
     def indices:[int]
     ; index into ModelAsset.materials, or -1 for none
     def material:int (0 - 1)
@@ -72,6 +74,9 @@ class MeshPrimitiveAsset {
     }
     fn hasUvs:boolean () {
         return ((array_length uvs) > 0)
+    }
+    fn hasColors:boolean () {
+        return ((array_length colors) > 0)
     }
 }
 

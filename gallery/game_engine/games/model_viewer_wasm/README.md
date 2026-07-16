@@ -30,7 +30,7 @@ Free Khronos [glTF-Sample-Assets](https://github.com/KhronosGroup/glTF-Sample-As
 | --- | --- |
 | `Box` | untextured, flat base colour |
 | `BoxTextured` | embedded PNG texture (decoded to RGBA) |
-| `BoxVertexColors` | loads fine; `COLORS_0` vertex colours are not read yet, so it renders in its base colour |
+| `BoxVertexColors` | per-vertex `COLOR_0` (RGB cube gradient) |
 | `Duck` | 4,212-triangle textured mesh with a node hierarchy |
 
 Re-download with `tools/fetch_models.sh`. To use different models, drop supported

@@ -292,6 +292,22 @@ parse these — it only requests a load and receives a handle.
 | Ranger `.anim` | Animation clip | Skeleton keyframes |
 | Ranger `.skel` | Skeleton | Bone hierarchy + bind poses |
 
+### 5.1 GLB — implemented support level
+
+The native GLB path (`model3d/`, see its
+[`README.md`](./model3d/README.md#first-support-level)) currently loads: GLB 2.0
+(one JSON + one BIN chunk), scenes/nodes with `matrix` or TRS, multiple
+meshes/primitives, `TRIANGLES`, `POSITION` / `NORMAL` / `TEXCOORD_0` /
+**`COLOR_0`** (vertex colours), **non-indexed** primitives (indices synthesised),
+**missing `NORMAL`** (smooth normals generated), `u8` / `u16` / `u32` indices,
+interleaved `byteStride`, `baseColorFactor` + `baseColorTexture`,
+`emissiveFactor` (+ `KHR_materials_emissive_strength`), `alphaMode`,
+`KHR_materials_unlit`, multiple materials, and embedded PNG / JPEG textures.
+
+Rejected with a clear error (never a silently-wrong model): skins, animations,
+morph targets, sparse accessors, Draco / Meshopt / KTX2 (any
+`extensionsRequired`), and non-`TRIANGLES` modes.
+
 Future (not required for initial transition):
 
 - Terrain heightmaps
@@ -533,6 +549,11 @@ wrapper):
   registries are currently append-only);
 - command validation / stale-handle rejection — §7 command processor;
 - `rg_create_material` desc layout and the standalone `rg_load_texture` path;
+- **`COLOR_0` on the GPU path**: the loader reads per-vertex colours into
+  `MeshPrimitiveAsset.colors` and the software renderer (`SoftRenderer3D`) shows
+  them, but `MeshBridge`'s fixed-point vertex keeps the colour word (word 6) at 0
+  because the GLES2 shader in `gfx_sdl.rgr` does not yet read a vertex-colour
+  attribute — wiring that is a small C++ shader step;
 - optionally, the §7 Option B command buffer for batching.
 
 ### 12.6 Minimal end-to-end flow

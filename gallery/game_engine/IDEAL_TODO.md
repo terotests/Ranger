@@ -581,6 +581,21 @@ each stage runs before the next):
   — after H.4/H.5 those guests import `env.rg_create_box` etc. that the Node host does
   not yet provide, so headless render fails until this lands. The in-engine SDL host is
   unaffected.)_
+- [x] **H.7 GLB model loading (`model3d` → render bridge).** `Wasm3dRunner.preloadModels()`
+  loads every `<gameDir>/models/*.glb` through the native `model3d` loader
+  (`GlbImporter` → `ModelAsset` → `MeshBridge` → `gfx_3d_mesh_upload` /
+  `gfx_3d_upload_texture`) and registers each under its basename, so a host-managed
+  guest resolves it with `rg_load_model("name")` → `rg_create_mesh_entity` (§12.4).
+  Importer support level (see `model3d/README.md`): scenes/nodes (matrix or TRS),
+  `TRIANGLES`, `POSITION`/`NORMAL`/`TEXCOORD_0`/**`COLOR_0`**, **non-indexed** primitives
+  (synthesised indices), **missing `NORMAL`** (generated), `u8`/`u16`/`u32` indices,
+  interleaved `byteStride`, `baseColorFactor`/`baseColorTexture`, `emissiveFactor`
+  (+`KHR_materials_emissive_strength`), `alphaMode`, `KHR_materials_unlit`, embedded
+  PNG/JPEG; skins/animations/morph/sparse/Draco/Meshopt/KTX2 rejected with a clear
+  error. Games: `pyramid_wasm` (diamond gem) and `model_viewer_wasm` (Tests — browse
+  GLBs with the arrows). _(Deferred: `COLOR_0` on the GPU path — the loader reads
+  per-vertex colours and the software renderer shows them, but the GLES2 vertex shader
+  does not yet consume the colour word; see IDEAL_3D §12.5.)_
 
 ---
 
