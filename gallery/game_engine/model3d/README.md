@@ -125,6 +125,33 @@ node bin/output.js -es6 gallery/game_engine/model3d/tests/TextureDecodeTest.rgr 
   support gate.
 - `TextureDecodeTest.rgr` — end-to-end load + embedded PNG decoded to the
   expected RGBA pixels through `ModelLoader`.
+- `Model3dScriptBridgeTest.rgr` — the TSX-bridge experiment (see below): a
+  `.tsx` script loads the fixture GLB and creates GL-ready mesh/texture buffers
+  through the interpreter, asserted headlessly.
+
+## TSX-interpreter path (no WASM bridge)
+
+`ModelLoader` + `MeshBridge` are plain host Ranger, so the whole
+`GLB → GL-ready buffers` step needs **no WASM shared-block ABI** — it can be
+driven straight from a `.tsx` game script through the interpreter's native
+bridge seam (`EvalNativeBridge` in `pdf_writer/src/jsx/ComponentEngine.rgr`).
+This is the counterpart to the WASM path in `scripting/wasm3d_runner.rgr`
+(`preloadModels` → `gfx_3d_mesh_upload_hp`), with the *same* host code but a
+script driver instead of a WASM guest.
+
+| File | Role |
+| --- | --- |
+| `Model3dScriptBridge.rgr` | `EvalNativeBridge` exposing `loadModel(dir,file)` / `modelInfo(id)` / `buildGLMesh(id)` / `modelError()` to TSX. GL upload is an injectable `Mesh3dUploader` seam. |
+| `Model3dGlUploader.rgr` | The SDL/GL branch of that seam — real `gfx_3d_mesh_upload_hp` / `gfx_3d_upload_texture`. Imports `gfx_sdl.rgr`, so SDL-build only (not in the headless test). |
+| `tests/model3d_bridge_demo.tsx` | Fixture script: `loadModel → modelInfo → buildGLMesh`. |
+
+Headless, the default null uploader simulates GL handle allocation and reports a
+real checksum of the vertex buffer MeshBridge produced, so the full
+load-and-prepare path is verifiable under Node with no display. In the SDL host,
+`setUploader(new Model3dGlUploader)` swaps in real GL uploads — the `.tsx` script
+is byte-for-byte identical in both. Wiring: construct the bridge in the SDL host
+and `compositeBridge.addBridge(...)` it alongside the other native bridges
+(`scripting/game_runtime.rgr:setNativeBridge`).
 
 ## Not in scope yet
 

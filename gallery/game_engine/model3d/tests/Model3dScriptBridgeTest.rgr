@@ -1,0 +1,117 @@
+; ==============================================================================
+; Model3dScriptBridgeTest.rgr — headless proof of the TSX-interpreter 3D path.
+; ==============================================================================
+; Compile to ES6 and run under Node; prints per-check PASS/FAIL and a grep-able
+; final "ALL PASS". This is the experiment's evidence: a *.tsx* script loads a
+; real GLB and creates GL-ready mesh/texture buffers purely through the TSX
+; interpreter's native-bridge seam — no WASM, no shared memory block.
+;
+; Flow:
+;   1. GlbFixture.build() -> a valid GLB (geometry + embedded 2x2 PNG) written
+;      to disk, so loadModel() exercises the real buffer_read_file resource path.
+;   2. Wire a ComponentEngine with Model3dScriptBridge (default null uploader =
+;      headless: simulated GL handles + a real vertex-buffer checksum).
+;   3. Load model3d_bridge_demo.tsx and call run().
+;   4. Assert the object the script returns matches the fixture, and that the
+;      checksum equals an independent host-side recompute (bytes reached the
+;      bridge intact — the same bytes gfx_3d_mesh_upload would push to the GPU).
+; ==============================================================================
+
+Import "../Model3dScriptBridge.rgr"
+Import "GlbFixture.rgr"
+Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class Checker {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    fn eqInt:void (name:string got:int want:int) {
+        if (got == want) {
+            passed = (passed + 1)
+            print ("  PASS " + name + " (" + (to_string got) + ")")
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name + " got=" + (to_string got) + " want=" + (to_string want))
+        }
+    }
+    ; Pull an int field out of the object the script returned and assert it.
+    fn eqMember:void (name:string obj:EvalValue key:string want:int) {
+        def v:EvalValue (obj.getMember(key))
+        def got:int (to_int (v.toNumber()))
+        this.eqInt(name got want)
+    }
+}
+
+class Model3dScriptBridgeTest {
+    sfn m@(main):void () {
+        def ck:Checker (new Checker)
+
+        ; 1. materialise a real GLB on disk (the "resource" being loaded)
+        def glb:buffer (GlbFixture.build())
+        def dir:string "/tmp"
+        buffer_write_file dir "fixture.glb" glb
+
+        ; 2. wire the TSX interpreter + the model bridge (headless null uploader)
+        def engine (new ComponentEngine())
+        engine.quiet = true
+        def bridge (new Model3dScriptBridge)
+        engine.setNativeBridge(bridge)
+        engine.registerGlobal("assetDir" (EvalValue.string(dir)))
+
+        ; 3. load the TSX fixture and run it — all GLB parse + GL-buffer prep
+        ;    happens host-side, invoked purely through the interpreter.
+        def buf:buffer (buffer_read_file "gallery/game_engine/model3d/tests" "model3d_bridge_demo.tsx")
+        engine.loadScript((buffer_to_string buf))
+        def res:EvalValue (engine.callFunction("run" (EvalValue.null())))
+
+        print "== model3d TSX-bridge checks =="
+        ck.ok("script returned an object" (res.isObject()))
+        ck.eqMember("ok" res "ok" 1)
+        ck.eqMember("nodes" res "nodes" 4)
+        ck.eqMember("meshes" res "meshes" 1)
+        ck.eqMember("textures" res "textures" 1)
+        ck.eqMember("verts" res "verts" 3)
+        ck.eqMember("indices" res "indices" 3)
+        ck.eqMember("tris" res "tris" 1)
+        ck.eqMember("hasTexture" res "hasTexture" 1)
+        ck.eqMember("texW" res "texW" 2)
+        ck.eqMember("texH" res "texH" 2)
+        ; null uploader hands back allocated (simulated) GL handles, starting at 1
+        ck.eqMember("glMeshId" res "glMeshId" 1)
+        ck.eqMember("glTexId" res "glTexId" 1)
+        ck.eqMember("glReal (0=headless sim)" res "glReal" 0)
+
+        ; independent recompute of the vertex-buffer checksum — proves the exact
+        ; GL-ready bytes reached the bridge (same MeshBridge output the SDL host
+        ; would hand to gfx_3d_mesh_upload_hp).
+        def mb:MeshBridge (new MeshBridge)
+        def imp:GlbImporter (new GlbImporter)
+        def model:ModelAsset (imp.importModel(glb))
+        def em:EngineMeshData (mb.fromModel(model))
+        def words:int (em.vertexCount * 8)
+        def refBridge:Model3dScriptBridge (new Model3dScriptBridge)
+        def refCs:int (refBridge.checksum(em.vertsHp words))
+        def csV:EvalValue (res.getMember("checksum"))
+        def csGot:int (to_int (csV.toNumber()))
+        ck.eqInt("checksum matches host recompute" csGot refCs)
+        ck.ok("checksum is non-trivial" (refCs != 0))
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

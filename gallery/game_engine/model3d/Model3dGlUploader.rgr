@@ -1,0 +1,35 @@
+; ==============================================================================
+; Model3dGlUploader.rgr — the SDL/GL branch of the Model3dScriptBridge seam.
+; ==============================================================================
+; This is the *real* uploader the SDL host injects into Model3dScriptBridge:
+; it turns the GL-ready EngineMeshData buffers into actual GPU resources with
+; the same host primitives the WASM 3D runner already uses
+; (see scripting/wasm3d_runner.rgr:preloadModels -> gfx_3d_mesh_upload_hp /
+;  gfx_3d_upload_texture). The difference is only *who drives it*: here a .tsx
+; script calling buildGLMesh() rather than a WASM guest across the shared block.
+;
+; It imports gfx_sdl.rgr (SDL2 + OpenGL), so it is NOT part of the headless test
+; build — that one keeps the default null uploader. Wire this in the SDL host,
+; alongside the existing native bridges, e.g.:
+;
+;   def modelBridge:Model3dScriptBridge (new Model3dScriptBridge)
+;   modelBridge.setUploader(new Model3dGlUploader)     ; glEnabled -> real GL
+;   compositeBridge.addBridge(modelBridge)             ; game_runtime setNativeBridge
+;
+; After that, gfx_scene_register_model / gfx_scene_create_mesh_entity can adopt
+; the returned handles exactly as the WASM path does.
+; ==============================================================================
+
+Import "Model3dScriptBridge.rgr"
+Import "../gfx_sdl.rgr"
+
+class Model3dGlUploader extends Mesh3dUploader {
+    def glEnabled:boolean true
+
+    fn uploadMesh:int (vertsHp:int_buffer vertexCount:int indices:int_buffer indexCount:int) {
+        return (gfx_3d_mesh_upload_hp vertsHp vertexCount indices indexCount)
+    }
+    fn uploadTexture:int (rgba:buffer w:int h:int) {
+        return (gfx_3d_upload_texture rgba w h)
+    }
+}
