@@ -2364,7 +2364,52 @@ extern \"C\" int rgfx_scene_resource_names(const char* kind, char* out, int cap)
     return need;
 }
 
-extern \"C\" int rgfx_scene_reset() { g_scene.clear(); g_scene_active_cam = 0; return 0; }
+// Free the GPU resources the previous scene owned before it is torn down.
+// setupScene() calls this on every 3D-guest load, then preloadModels/preload-
+// Sprites re-uploads fresh meshes and textures. Without freeing here, each
+// re-entry leaked every model VBO/EBO and every model/sprite texture (the
+// model_viewer alone preloads dozens of GLBs, incl. a 34 MB Chair). On a
+// memory-rich desktop the leak is invisible, but on a Raspberry Pi's small
+// shared GL memory it exhausts the GPU after a few entries; the next upload
+// then fails, the guest loads with an empty/half scene, and the runner drops
+// back to the menu — the intermittent \"works, then stops working\" seen on the
+// Pi. Only scene-owned handles are freed: the texture pool is shared with 2D
+// uploads, so we free exactly the meshes/textures recorded in the scene
+// registries and leave their now-stale slots in place (handles are 1-based
+// indices into the pools; compacting would break every other live index). The
+// billboard quad (g_scene_quad) is never registered, so it survives and stays
+// reusable across scenes.
+static void rgfx_scene_free_mesh(int meshId) {
+    if (meshId <= 0 || meshId > (int) g_rgfx_meshes.size()) { return; }
+    RgfxMesh3D& m = g_rgfx_meshes[(size_t)(meshId - 1)];
+    if (m.vbo) { glDeleteBuffers(1, &m.vbo); m.vbo = 0; }
+    if (m.ebo) { glDeleteBuffers(1, &m.ebo); m.ebo = 0; }
+    m.icount = 0;
+}
+static void rgfx_scene_free_texture(int texId) {
+    if (texId <= 0 || texId > (int) g_rgfx_gl_textures.size()) { return; }
+    GLuint& t = g_rgfx_gl_textures[(size_t)(texId - 1)];
+    if (t) { glDeleteTextures(1, &t); t = 0; }
+}
+extern \"C\" int rgfx_scene_reset() {
+    if (g_rgfx_gpu_mode) {
+        rgfx_gl_ensure_current();
+        for (std::map<int,int>::iterator it = g_scene_mesh_deftex.begin(); it != g_scene_mesh_deftex.end(); ++it) {
+            rgfx_scene_free_mesh(it->first);   // model mesh VBO/EBO
+            rgfx_scene_free_texture(it->second); // its base texture (0 = none)
+        }
+        for (std::map<std::string,int>::iterator it = g_scene_sprite_tex.begin(); it != g_scene_sprite_tex.end(); ++it) {
+            rgfx_scene_free_texture(it->second); // preloaded sprite sheet
+        }
+    }
+    g_scene_model_mesh.clear();
+    g_scene_mesh_deftex.clear();
+    g_scene_mesh_mat.clear();
+    g_scene_sprite_tex.clear();
+    g_scene.clear();
+    g_scene_active_cam = 0;
+    return 0;
+}
 
 static int rgfx_scene_alloc(int type) {
     RgfxSceneEntity e; memset(&e, 0, sizeof(e));
