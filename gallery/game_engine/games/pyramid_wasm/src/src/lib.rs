@@ -165,6 +165,7 @@ struct World {
     on_ground: bool,
     jumping: bool,
     jump_prev: bool,
+    turn_prev: i32,
     // game
     score: i32,
     mode: i32,
@@ -177,7 +178,6 @@ struct World {
     lamp: i32,
     cam_x: f32,
     cam_z: f32,
-    cam_yaw: f32,
     cam_gy: f32,
     mummy: i32,
     hero: i32,
@@ -208,6 +208,7 @@ static W: WCell = WCell(UnsafeCell::new(World {
     on_ground: true,
     jumping: false,
     jump_prev: false,
+    turn_prev: 0,
     score: 0,
     mode: MODE_PLAY,
     knock_t: 0.0,
@@ -219,7 +220,6 @@ static W: WCell = WCell(UnsafeCell::new(World {
     lamp: 0,
     cam_x: 0.0,
     cam_z: 0.0,
-    cam_yaw: 0.0,
     cam_gy: SPAWN[1],
     mummy: 0,
     hero: 0,
@@ -238,8 +238,13 @@ const JUMP_V0: f32 = 6.2; // snappy initial jump speed
 const JUMP_HOLD_G: f32 = 0.34; // gravity scale while holding jump & rising -> tall leap
 const JUMP_CUT: f32 = 0.5; // on release mid-rise, keep this much of the upward speed
 const MOVE_SPD: f32 = 4.6;
-const TURN_SPD: f32 = 2.4;
 const KNOCK_TIME: f32 = 0.6;
+// fixed-angle camera: a constant world-space offset from the player (a bit
+// above and obliquely from the -x,-z side, looking toward the +x,+z goal). It
+// only translates with the player — it never rotates with the player's turns.
+const CAM_OFF_X: f32 = -8.5; // mostly to the side...
+const CAM_OFF_Y: f32 = 5.8; // ...a bit above...
+const CAM_OFF_Z: f32 = -4.5; // ...and slightly oblique
 
 // ---- level: a wide field of floating islands you run and jump around, that
 // gently climbs toward a golden goal in the far corner ----------------------
@@ -447,30 +452,17 @@ fn apply_knockback(w: &mut World, fromx: f32, fromz: f32, strength: f32) {
 }
 
 // ---- camera ----------------------------------------------------------------
+// Fixed-angle camera: sits at a constant world-space offset from the player and
+// only translates to follow. It never rotates with the player's turns, so the
+// discrete 90° facings read cleanly. Height eases with the settled ground level
+// so jumps don't bob it.
 fn sync_camera(w: &mut World, dt: f32) {
-    let mut diff = w.yaw - w.cam_yaw;
-    let tau = core::f32::consts::TAU;
-    while diff > core::f32::consts::PI {
-        diff -= tau;
-    }
-    while diff < -core::f32::consts::PI {
-        diff += tau;
-    }
-    let dead = 0.5;
-    if diff.abs() > dead {
-        let excess = diff - diff.signum() * dead;
-        w.cam_yaw += excess * (dt * 2.5).min(1.0);
-    }
     let target_gy = if w.on_ground { w.py } else { w.cam_gy };
     w.cam_gy += (target_gy - w.cam_gy) * (dt * 3.0).min(1.0);
 
-    // fixed-distance third-person camera (no auto-zoom), a bit above and behind
-    let (s, c) = w.cam_yaw.sin_cos();
-    let dist = 6.0;
-    let height = 4.2;
-    let ex = w.px - s * dist;
-    let ez = w.pz - c * dist;
-    let ey = w.cam_gy + height;
+    let ex = w.px + CAM_OFF_X;
+    let ey = w.cam_gy + CAM_OFF_Y;
+    let ez = w.pz + CAM_OFF_Z;
     w.cam_x = ex;
     w.cam_z = ez;
     unsafe {
@@ -653,8 +645,11 @@ pub extern "C" fn update(dt_ms: i32, forward: i32, strafe: i32, turn: i32, jump:
         return;
     }
 
-    // turn
-    w.yaw -= (turn as f32) * TURN_SPD * dt;
+    // discrete 90° turn: one snap per left/right press (edge-triggered)
+    if turn != 0 && w.turn_prev == 0 {
+        w.yaw -= (turn as f32) * core::f32::consts::FRAC_PI_2;
+    }
+    w.turn_prev = turn;
 
     // horizontal velocity: input, or knockback momentum with friction
     if w.knock_t > 0.0 {
