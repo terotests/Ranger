@@ -13,6 +13,7 @@ const FP: f32 = 256.0;
 
 // Host imports (provided in-engine by runtime/rg_wasm_bridge.c; IDEAL_3D §4.4).
 // Positions are fixed-point * 256; rotation is a quaternion in Q16.16.
+#[link(wasm_import_module = "env")]
 extern "C" {
     fn rg_load_texture(name_ptr: *const u8, name_len: u32) -> i32;
     fn rg_create_box(x0: i32, y0: i32, z0: i32, x1: i32, y1: i32, z1: i32, tex: i32) -> i32;

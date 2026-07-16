@@ -71,6 +71,7 @@ pub const RGX1_SIZE: i32 = 2560;
 // game guest — in practice AS — uses to delegate resource loading). The host
 // enforces the limits: at most one worker per module, and a spawned worker may
 // not call this successfully (returns 0). See runtime/rg_wasm_bridge.c.
+#[link(wasm_import_module = "env")]
 extern "C" {
     fn rg_spawn_worker(path_ptr: i32, path_len: i32) -> i32;
 }
