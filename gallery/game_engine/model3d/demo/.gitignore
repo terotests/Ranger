@@ -1,0 +1,6 @@
+# Downloaded sample assets and rendered output are not committed.
+assets/
+out/
+*.glb
+*.ppm
+*.png
