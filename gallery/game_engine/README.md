@@ -404,12 +404,13 @@ Lisätietoa Rust Pong -PoC:sta: [`games/rust_pong/README.md`](./games/rust_pong/
 
 WASM-guestin voi kirjoittaa myös **Rangerilla** — sama kieli jolla kääntäjä
 itse on tehty. Koska Ranger-kääntäjä ajaa selaimessa, peli voidaan periaatteessa
-kirjoittaa, kääntää **ja** ajaa kokonaan selaimessa. Kaksi valmista esimerkkiä:
+kirjoittaa, kääntää **ja** ajaa kokonaan selaimessa.
 
-| Peli | ABI | Muistinvaraus | Lähde |
-|------|-----|---------------|-------|
-| **ranger_pong** | getter | ei (puhdas fixed-point) | [`games/ranger_pong/src/pong.rgr`](./games/ranger_pong/src/pong.rgr) |
-| **ranger_autopeli** | linear (RGW1) + UI (RGU1) | ei (fixed-point + f64) | [`games/ranger_autopeli/src/`](./games/ranger_autopeli/src/) |
+Kokonainen peli-esimerkki: [`games/ranger_autopeli/src/`](./games/ranger_autopeli/src/)
+(kaksinpelin top-down-racer, RGW1-linear + RGU1-UI, fixed-point + f64).
+Ohjelmointimallien (luokat, RC, kokoelmat, mapit, merkkijonot) leikatut ja
+testatut esimerkit ovat runtime-demoissa [`runtime/wasm/*_demo.rgr`](../../runtime/wasm/)
++ niiden `*_test.mjs`-ajurit.
 
 ### Käännösputki
 
@@ -426,16 +427,16 @@ node_modules/.bin/wat2wasm tmp/out/peli.wat.ll -o logic.wasm
 ```
 
 Enginen ABI odottaa paljaita export-nimiä (`init`, `update`, …), mutta Ranger
-mangloi metodit muotoon `Luokka_metodi`. Valmiit pelit `sed`-uudelleennimeävät
-exportit `build.sh`:ssä — katso [`games/ranger_pong/src/build.sh`](./games/ranger_pong/src/build.sh).
+mangloi metodit muotoon `Luokka_metodi`. Valmis peli `sed`-uudelleennimeää
+exportit `build.sh`:ssä — katso [`games/ranger_autopeli/src/build.sh`](./games/ranger_autopeli/src/build.sh).
 (Vaihtoehto: nimeä luokka niin että mangattu nimi osuu suoraan.)
 
 ### Kaksi tilaa: bump vai `-wasmrc`
 
 * **Ilman `-wasmrc`** WAT-backend käyttää *vuotavaa* bump-allokaattoria. Tämä
   riittää peleille jotka **eivät varaa muistia** ajon aikana — pelkkää
-  fixed-point-laskentaa kiinteissä linear-memory-slotissa (kuten molemmat
-  esimerkkipelit). Pienin ja yksinkertaisin.
+  fixed-point-laskentaa kiinteissä linear-memory-slotissa (kuten
+  ranger_autopeli). Pienin ja yksinkertaisin.
 * **`-wasmrc`** kytkee **viittauslaskuri-runtimen**: free-list-keko,
   automaattinen objektien / merkkijonojen / kokoelmien vapautus. Tarvitaan jos
   peli varaa muistia joka framessa (`new`, merkkijonot, listat). Importtaa
@@ -477,10 +478,40 @@ Operaattorit (LLVM/WAT-target):
 * Merkkijonot: `(+ "HP " n)` (concat), `to_string`, `strlen`, `==`/`!=`,
   `charAt`, `substring`, `strfromcode`, `rawbytechar`.
 
+### Ohjelmointimallit (mikä toimii, mikä ei)
+
+Kaikki alla oleva on **testattu** WASM-käännöksellä (`runtime/wasm/*_test.mjs`):
+
+| Malli | Tuki | Esimerkki |
+|-------|:----:|-----------|
+| Luokat: instanssikentät (int/f64/bool/string), metodit `fn`/`sfn`, `new` | ✅ | `class Ent { def hp:int 0 }` |
+| Olio välitetään viittauksena kutsuketjussa | ✅ | `SG.apply(e)` |
+| Olio **omistaa kokoelmakentän** (`[int]`/`[T]`/`[string]`) | ✅ | `class P { def scores:[int] }` |
+| Merkkijonokenttä (dup + rekursiivinen vapautus) | ✅ | `class P { def name:string "" }` |
+| Listat `[int]`, `[T]`, `[string]` — push/itemAt/array_length/for | ✅ | |
+| **Hash-taulut** `[int:int]` — `set`/`get`, kasvavat | ✅ | `def m:[int:int]` |
+| Suora `Mem`-slotti-tila (staattiset metodit, ei varausta) | ✅ | ranger_autopeli |
+| **Sisäkkäisen** olion kentän mutatointi ketjulla `a.b.c = …` | ⚠️ bugi | ks. alla |
+| Olio-kenttä (`def v:Vec (new Vec)`) rekursiivinen vapautus | ⚠️ vuotaa | borrow-oletus |
+| **Singletonit** (`@singleton(true)`) | ❌ | ei tueta (ks. alla) |
+| **Lambdat / sulkeumat** (`(fn:… (){})`, `{ … }`) | ❌ | funktio-osoittimia ei emitoida |
+
+**Singletonit ja globaali tila.** `@singleton(true)`:n `__singleton()`-aksessoria
+ei (vielä) emitoida WAT-backendissä — WASM-globaaleja ei varata. Peleissä globaali
+tila kannattaa pitää joko (a) **staattisilla metodeilla + kiinteissä linear-
+memory-slotissa** (`Mem.storeI32`/`loadI32`) — juuri niin ranger_autopeli tekee —
+tai (b) luoda oliot ja langoittaa ne kutsuketjun läpi. Ei erillistä globaalia
+säiliötä yhdelle jaetulle instanssille ilman singleton- tai globaalitukea.
+
+**Sisäkkäiset oliot.** Litteä olio toimii (`v.x = 10  v.y = 32`), mutta
+kentän-kentän ketjumutatointi (`p.pos.x = …` kun `pos` on olio-kenttä) osoittaa
+tällä hetkellä väärään slottiin, ja olio-kentät ovat **borrow**-oletuksena
+(owned=0) joten niitä ei vapauteta automaattisesti (vuoto, kunnes borrow-analyysi
+tulee). Pidä pelilogiikan tila litteänä (primitiivit + kokoelmat + merkkijonot),
+tai käytä `Mem`-slotteja, kunnes nämä on korjattu.
+
 ### Sudenkuopat
 
-* **Ei globaalia dataa.** Globaali tila = singleton-luokka (`@singleton(true)`)
-  tai staattiset metodit + kiinteät linear-memory-slotit.
 * **`sfn` on staattinen — ei `this`.** Kutsu `Luokka.metodi(...)`. `fn` on
   instanssimetodi (tarvitsee vastaanottajan).
 * **Yksi lause per rivi** — kaksi lausetta samalla rivillä (esim.
@@ -512,11 +543,17 @@ heko, objektit, merkkijonot, kentät, kaikki kokoelmat + mapit.
 Node-host ajaa guestin V8:n WebAssemblyllä — sama rajapinta kuin selaimessa:
 
 ```bash
-bash gallery/game_engine/games/ranger_pong/src/build.sh
+# koko peli end-to-end (rakenna + aja headless RGW1-protokolla)
+bash gallery/game_engine/games/ranger_autopeli/src/build.sh
 node gallery/game_engine/games/ranger_autopeli/src/node_host.mjs   # -> PASS
 ```
 
 `node_host.mjs` toteuttaa saman RGW1-per-frame-protokollan kuin oikea host.
+Ohjelmointimallien testit (käännä `.rgr`-demo → wasm, aja `.mjs`; ks. kunkin
+`*_test.mjs`-tiedoston yläkommentti buildkomennoista):
+[`coll_rc_test.mjs`](../../runtime/wasm/coll_rc_test.mjs) (listat + olio-taulukot),
+[`map_rc_test.mjs`](../../runtime/wasm/map_rc_test.mjs) (hash-taulut),
+[`str_rc_test.mjs`](../../runtime/wasm/str_rc_test.mjs) (merkkijonot).
 
 ## Fysiikka
 
