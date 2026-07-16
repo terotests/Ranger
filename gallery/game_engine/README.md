@@ -491,7 +491,7 @@ Kaikki alla oleva on **testattu** WASM-käännöksellä (`runtime/wasm/*_test.mj
 | Listat `[int]`, `[T]`, `[string]` — push/itemAt/array_length/for | ✅ | |
 | **Hash-taulut** `[int:int]` — `set`/`get`, kasvavat | ✅ | `def m:[int:int]` |
 | Suora `Mem`-slotti-tila (staattiset metodit, ei varausta) | ✅ | ranger_autopeli |
-| **Sisäkkäisen** olion kentän mutatointi ketjulla `a.b.c = …` | ⚠️ bugi | ks. alla |
+| **Sisäkkäiset oliot**: kentän-kentän luku/kirjoitus `a.b.c` (mielivaltainen syvyys) | ✅ | `o.mid.inner.v = 99` |
 | Olio-kenttä (`def v:Vec (new Vec)`) rekursiivinen vapautus | ⚠️ vuotaa | borrow-oletus |
 | **Singletonit** (`@singleton(true)`) | ❌ | ei tueta (ks. alla) |
 | **Lambdat / sulkeumat** (`(fn:… (){})`, `{ … }`) | ❌ | funktio-osoittimia ei emitoida |

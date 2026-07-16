@@ -34620,11 +34620,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       if ( (varName.indexOf(".")) >= 0 ) {
         const parts = varName.split(".");
         if ( (parts.length) >= 2 ) {
-          const recv = parts[0];
-          const fld = parts[1];
-          const cls = this.resolveObjectClass(recv, lctx);
+          const n = parts.length;
+          const recvPrefix = this.joinDotPrefix(parts, (n - 1));
+          const fld = parts[(n - 1)];
+          const cls = this.resolveObjectClassChain(recvPrefix, lctx);
           if ( (cls.length) > 0 ) {
-            const sptr = this.resolveObjectPtr(recv, cls, lctx);
+            const sptr = this.resolveObjectPtrChain(recvPrefix, cls, lctx);
             if ( this.fieldIsObjectSlot(cls, fld) ) {
               if ( rhs.value_type == 11 ) {
                 if ( this.isOwnedObjectLocal(rhs.vref, lctx) ) {
@@ -35155,11 +35156,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         if ( (node.vref.indexOf(".")) >= 0 ) {
           const parts = node.vref.split(".");
           if ( (parts.length) >= 2 ) {
-            const recv = parts[0];
-            const fld = parts[1];
-            const cls = this.resolveObjectClass(recv, lctx);
+            const n = parts.length;
+            const recvPrefix = this.joinDotPrefix(parts, (n - 1));
+            const fld = parts[(n - 1)];
+            const cls = this.resolveObjectClassChain(recvPrefix, lctx);
             if ( (cls.length) > 0 ) {
-              const sptr = this.resolveObjectPtr(recv, cls, lctx);
+              const sptr = this.resolveObjectPtrChain(recvPrefix, cls, lctx);
               return this.emitFieldLoadOn(cls, sptr, fld, lctx);
             }
           }

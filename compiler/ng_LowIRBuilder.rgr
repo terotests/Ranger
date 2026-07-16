@@ -3635,11 +3635,16 @@ class LowIRBuilderPass {
     if ((indexOf varName ".") >= 0) {
       def parts:[string] (strsplit varName ".")
       if ((array_length parts) >= 2) {
-        def recv (itemAt parts 0)
-        def fld (itemAt parts 1)
-        def cls (this.resolveObjectClass(recv lctx))
+        ; The target field is the LAST segment; everything before it is the
+        ; receiver chain. For `h.pos.x` the receiver is `h.pos` (resolved by
+        ; loading each intermediate object field) and the field is `x`. Using
+        ; only the first two segments stored into `h.pos` itself, dropping `.x`.
+        def n:int (array_length parts)
+        def recvPrefix:string (this.joinDotPrefix(parts (n - 1)))
+        def fld (itemAt parts (n - 1))
+        def cls (this.resolveObjectClassChain(recvPrefix lctx))
         if ((strlen cls) > 0) {
-          def sptr (this.resolveObjectPtr(recv cls lctx))
+          def sptr (this.resolveObjectPtrChain(recvPrefix cls lctx))
           ; Storing an owned local into a (borrow) object field: the field now
           ; holds the reference, so the local must not be released at scope end
           ; (would dangle the field). Mark it escaped. Object fields don't own,
@@ -4238,11 +4243,15 @@ class LowIRBuilderPass {
       if ((indexOf node.vref ".") >= 0) {
         def parts:[string] (strsplit node.vref ".")
         if ((array_length parts) >= 2) {
-          def recv (itemAt parts 0)
-          def fld (itemAt parts 1)
-          def cls (this.resolveObjectClass(recv lctx))
+          ; last segment is the field; everything before it is the receiver chain
+          ; (`h.pos.x` -> receiver `h.pos`, field `x`), resolved by loading each
+          ; intermediate object field.
+          def n:int (array_length parts)
+          def recvPrefix:string (this.joinDotPrefix(parts (n - 1)))
+          def fld (itemAt parts (n - 1))
+          def cls (this.resolveObjectClassChain(recvPrefix lctx))
           if ((strlen cls) > 0) {
-            def sptr (this.resolveObjectPtr(recv cls lctx))
+            def sptr (this.resolveObjectPtrChain(recvPrefix cls lctx))
             return (this.emitFieldLoadOn(cls sptr fld lctx))
           }
         }
