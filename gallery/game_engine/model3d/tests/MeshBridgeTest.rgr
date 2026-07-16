@@ -63,6 +63,12 @@ class MeshBridgeTest {
         ck.eqInt("v2.px" (int_buffer_get em.verts 16) 0)
         ck.eqInt("v2.py" (int_buffer_get em.verts 17) 256)
         ck.eqInt("v2.uv" (int_buffer_get em.verts 23) 268435456)
+        ; high-precision verts: positions are Q16.16 (x65536), rest unchanged
+        ck.eqInt("hp v0.px" (int_buffer_get em.vertsHp 0) 0)
+        ck.eqInt("hp v1.px" (int_buffer_get em.vertsHp 8) 65536)
+        ck.eqInt("hp v1.nz" (int_buffer_get em.vertsHp 13) 65536)
+        ck.eqInt("hp v2.py" (int_buffer_get em.vertsHp 17) 65536)
+        ck.eqInt("hp v1.uv" (int_buffer_get em.vertsHp 15) 4096)
         ; indices 0,1,2
         ck.eqInt("idx0" (int_buffer_get em.indices 0) 0)
         ck.eqInt("idx1" (int_buffer_get em.indices 1) 1)
