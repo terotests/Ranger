@@ -107,6 +107,41 @@ class Model3dScriptBridge extends EvalNativeBridge {
         return (0 - 1)
     }
 
+    ; ---- runner-facing accessors (NOT script-callable; used by a host runner to
+    ;      turn a script's model id into GL draw parameters) -------------------
+    fn glMeshOf:int (id:int) {
+        def idx:int (this.findEntry(id))
+        if (idx < 0) {
+            return 0
+        }
+        def e:Model3dEntry (itemAt entries idx)
+        return e.glMeshId
+    }
+    fn glTexOf:int (id:int) {
+        def idx:int (this.findEntry(id))
+        if (idx < 0) {
+            return 0
+        }
+        def e:Model3dEntry (itemAt entries idx)
+        return e.glTexId
+    }
+    fn indexCountOf:int (id:int) {
+        def idx:int (this.findEntry(id))
+        if (idx < 0) {
+            return 0
+        }
+        def e:Model3dEntry (itemAt entries idx)
+        return e.mesh.indexCount
+    }
+    fn isBuilt:boolean (id:int) {
+        def idx:int (this.findEntry(id))
+        if (idx < 0) {
+            return false
+        }
+        def e:Model3dEntry (itemAt entries idx)
+        return e.built
+    }
+
     ; A deterministic fold over the GL-ready high-precision vertex buffer. Proves
     ; (headlessly) that the exact bytes that would reach the GPU were assembled.
     fn checksum:int (buf:int_buffer count:int) {

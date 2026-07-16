@@ -24,5 +24,6 @@ run_suite Model3dTest
 run_suite TextureDecodeTest
 run_suite MeshBridgeTest
 run_suite Model3dScriptBridgeTest
+run_suite Scene3dBridgeTest
 
 echo "done."
