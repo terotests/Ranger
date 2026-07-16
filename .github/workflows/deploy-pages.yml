@@ -61,6 +61,10 @@ jobs:
       - name: Build games site
         run: node gallery/game_engine/web/build.mjs --out "$GITHUB_WORKSPACE/_site/games"
 
+      # ---- 3D model viewer demo (glTF -> SoftRenderer3D, host-side) -------
+      - name: Build 3D model demo
+        run: node gallery/game_engine/web/build-model3d.mjs --out "$GITHUB_WORKSPACE/_site/games/model3d"
+
       # ---- Playground at the site root -----------------------------------
       - name: Install playground dependencies
         working-directory: playground

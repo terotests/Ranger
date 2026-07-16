@@ -125,13 +125,37 @@ building this).
   `navigator.getGamepads()` each frame (pad 0 → P1, pad 1 → P2; d-pad/left-stick
   + face buttons) and ORs it with the keyboard.
 
+## 3D model viewer (`/games/model3d`)
+
+A second page renders real `.glb` (glTF) models in the browser via Ranger's
+host-side `model3d` pipeline — no WASM, no WebGL:
+
+```
+GLB → ModelLoader (container + accessors + embedded PNG/JPEG)
+    → instantiate (entity scene + world transforms)
+    → SoftRenderer3D (textured, directionally-lit, z-buffered rasteriser)
+    → RGB buffer → canvas
+```
+
+- **`web_model_viewer.rgr`** — `WebModelViewer`: `load(dir,file)` / `render(w,h)` /
+  `raw()` (RGB) / `setOrbit(rad)`. Compiled to `viewer.bundle.js`.
+- **`src/model-viewer.js`** — rAF loop: orbit the camera, blit RGB→RGBA; drag to
+  rotate, auto-spin when idle.
+- **`build-model3d.mjs`** — compiles the viewer and packages a few committed GLBs
+  (Duck, textured box, trees) into a stored zip mounted at their repo paths.
+
+The GLB read goes through the same VFS-backed `require('fs')`, so the model is
+just a file in the zip. Same renderer as the native build — `SoftRenderer3D`
+gained only an optional `orbitYRad` field (default 0 = unchanged behaviour).
+
 ## Roadmap
 
 - **WASM game logic** — the car game (`autopeli_wasm`). The engine's `wasm_*`
   operators are stubbed in the es6 backend (`wasm_runtime.rgr`); wiring them to
   the browser `WebAssembly` API (the `games/*/tools/render.cjs` hosts are the
   reference) unlocks WASM guests in-browser.
-- **GPU / 3D demo** — `cube3d_wasm` style host-side rasterisation, then WebGL.
+- **3D** — ✅ host-side glTF viewer shipped (see above). Next: WebGL path for
+  larger scenes; a glTF model as an entity inside a scripted game.
 - **Monaco IDE** — ✅ done (editor + live reload; see above). Next: multi-file
   editing (the VFS already holds every game file), persisting edits to IndexedDB,
   and a share-a-URL button.

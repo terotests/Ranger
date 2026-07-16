@@ -51,8 +51,11 @@
       bundleSource,
     );
     const mod = { exports: {} };
+    // The bundle epilogue `return { ... }` yields the exported classes (e.g.
+    // WebGameHost, WebModelViewer). Fall back to module.exports if a bundle used
+    // CommonJS instead.
     const api = factory(req, proc, Buf, mod, mod.exports);
-    return api && api.WebGameHost ? api : mod.exports;
+    return api && Object.keys(api).length ? api : mod.exports;
   }
 
   root.RangerEngineHost = { createEngine };

@@ -29,6 +29,9 @@ class SoftRenderer3D {
     def bgR:int 24
     def bgG:int 26
     def bgB:int 34
+    ; optional camera orbit around the world-up (Y) axis, radians. 0 keeps the
+    ; original fixed 3/4 view; a driver can advance it per frame to spin the model.
+    def orbitYRad:double 0.0
 
     fn init:void (width:int height:int) {
         w = width
@@ -198,6 +201,13 @@ class SoftRenderer3D {
         def vx:double 0.55
         def vy:double 0.42
         def vz:double 1.0
+        ; orbit the horizontal (x,z) part of the view direction around Y
+        def ca:double (cos orbitYRad)
+        def sa:double (sin orbitYRad)
+        def rvx:double ((vx * ca) + (vz * sa))
+        def rvz:double ((vz * ca) - (vx * sa))
+        vx = rvx
+        vz = rvz
         def vl:double (sqrt (((vx * vx) + (vy * vy)) + (vz * vz)))
         def eye:Vec3 (Vec3.of((cx + ((vx / vl) * dist)) (cy + ((vy / vl) * dist)) (cz + ((vz / vl) * dist))))
         def target:Vec3 (Vec3.of(cx cy cz))

@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ranger 3D — glTF models in the browser</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🦆</text></svg>"
+    />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0c1020; --panel: #151a2e; --ink: #e6e9f3; --muted: #97a0bd; --accent: #6ea8ff;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; min-height: 100vh; color: var(--ink);
+        font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        background: radial-gradient(1200px 600px at 50% -10%, #1b2140, var(--bg));
+        display: flex; flex-direction: column; align-items: center; padding: 32px 16px 64px;
+      }
+      h1 { margin: 0 0 4px; font-size: 24px; letter-spacing: -0.02em; }
+      .sub { color: var(--muted); margin: 0 0 22px; text-align: center; max-width: 640px; }
+      .sub code { color: var(--accent); }
+      .stage { background: var(--panel); border: 1px solid #262d47; border-radius: 14px; padding: 18px; box-shadow: 0 20px 60px -20px #000a; }
+      canvas { display: block; width: 480px; max-width: 86vw; height: auto; aspect-ratio: 1 / 1; border-radius: 8px; background: #181a22; touch-action: none; }
+      .bar { display: flex; gap: 12px; align-items: center; justify-content: space-between; margin-top: 14px; flex-wrap: wrap; }
+      select, button { font: inherit; color: var(--ink); background: #1e2540; border: 1px solid #313a5c; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+      button:hover, select:hover { border-color: var(--accent); }
+      .status { color: var(--muted); font-size: 13px; min-height: 1.2em; margin-top: 10px; }
+      footer { margin-top: 26px; color: var(--muted); font-size: 12.5px; text-align: center; max-width: 640px; }
+      footer code { color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <h1>Ranger 3D — glTF in the browser</h1>
+    <p class="sub">
+      Real <code>.glb</code> models loaded and software-rendered by Ranger's
+      <code>model3d</code> pipeline (glTF parser + textured, z-buffered rasteriser),
+      <code>compiled to JavaScript</code>. No WebGL, no WASM — the same host-side
+      renderer as the native build, via the <code>virtual filesystem</code>.
+    </p>
+
+    <div class="stage">
+      <canvas id="screen" width="384" height="384"></canvas>
+      <div class="bar">
+        <label>Model <select id="model"></select></label>
+        <label style="color:var(--muted)"><input type="checkbox" id="spin" checked /> Auto-spin</label>
+        <span class="status" id="status">loading…</span>
+      </div>
+    </div>
+
+    <footer>
+      Drag the model to rotate. <code>ModelLoader</code> → <code>SoftRenderer3D</code>,
+      the whole pipeline running client-side.
+    </footer>
+
+    <script src="./vfs.js"></script>
+    <script src="./engine-host.js"></script>
+    <script src="./model-viewer.js"></script>
+    <script>
+      const statusEl = document.getElementById("status");
+      const modelEl = document.getElementById("model");
+      const spinEl = document.getElementById("spin");
+      const canvas = document.getElementById("screen");
+      let bundleSource = null, zipBuffer = null, registry = [], session = null;
+
+      const setStatus = (m) => (statusEl.textContent = m);
+      async function fetchText(u) { const r = await fetch(u); if (!r.ok) throw new Error(u + " " + r.status); return r.text(); }
+      async function fetchBuffer(u) { const r = await fetch(u); if (!r.ok) throw new Error(u + " " + r.status); return r.arrayBuffer(); }
+
+      async function show(entry) {
+        if (session) session.stop();
+        setStatus("loading " + entry.title + "…");
+        try {
+          session = await window.RangerModelViewer.launch({
+            bundleSource, zipBuffer, canvas, size: 384, dir: entry.dir, file: entry.file,
+          });
+          session.autospin = spinEl.checked;
+          setStatus(entry.title + " — drag to rotate");
+        } catch (e) {
+          setStatus("error: " + e.message);
+          console.error(e);
+        }
+      }
+
+      async function boot() {
+        try {
+          bundleSource = await fetchText("./viewer.bundle.js");
+          zipBuffer = await fetchBuffer("./models.zip");
+          registry = JSON.parse(await fetchText("./models.json"));
+          modelEl.innerHTML = registry.map((m, i) => '<option value="' + i + '">' + m.title + "</option>").join("");
+          modelEl.onchange = () => show(registry[+modelEl.value]);
+          spinEl.onchange = () => { if (session) session.autospin = spinEl.checked; };
+          await show(registry[0]);
+        } catch (e) {
+          setStatus("error: " + e.message);
+          console.error(e);
+        }
+      }
+      boot();
+    </script>
+  </body>
+</html>
