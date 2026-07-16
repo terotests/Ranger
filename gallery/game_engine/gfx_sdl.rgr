@@ -2123,16 +2123,18 @@ static int rgfx_mesh_upload(const int64_t* vw, int vcount, const int64_t* iv, in
         verts.push_back((float) (uvw & 0xffffu) / 4096.f);
         verts.push_back((float) ((uvw >> 16) & 0xffffu) / 4096.f);
     }
-    std::vector<uint16_t> idx;
+    // 32-bit indices: real GLB meshes routinely exceed 65535 vertices (a u16
+    // element buffer would wrap the indices and scramble the geometry).
+    std::vector<uint32_t> idx;
     idx.reserve((size_t) icount);
-    for (int i = 0; i < icount; ++i) { idx.push_back((uint16_t) iv[i]); }
+    for (int i = 0; i < icount; ++i) { idx.push_back((uint32_t) iv[i]); }
     RgfxMesh3D m; m.vbo = 0; m.ebo = 0; m.icount = icount;
     glGenBuffers(1, &m.vbo);
     glBindBuffer(GL_ARRAY_BUFFER, m.vbo);
     glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr) (verts.size() * 4), verts.data(), GL_STATIC_DRAW);
     glGenBuffers(1, &m.ebo);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m.ebo);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr) (idx.size() * 2), idx.data(), GL_STATIC_DRAW);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr) (idx.size() * 4), idx.data(), GL_STATIC_DRAW);
     g_rgfx_meshes.push_back(m);
     SDL_Log(\"[wasm3d] mesh upload vbo=%u ebo=%u v=%d i=%d glErr=%d\", m.vbo, m.ebo, vcount, icount, (int) glGetError());
     return (int) g_rgfx_meshes.size();
@@ -2202,7 +2204,7 @@ static void rgfx_3d_draw(int meshId, int first, int count, int texId, float rx, 
     if (g_rgfx_3d_aPos >= 0) { glEnableVertexAttribArray(g_rgfx_3d_aPos); glVertexAttribPointer(g_rgfx_3d_aPos, 3, GL_FLOAT, GL_FALSE, 32, (void*) 0); }
     if (g_rgfx_3d_aNormal >= 0) { glEnableVertexAttribArray(g_rgfx_3d_aNormal); glVertexAttribPointer(g_rgfx_3d_aNormal, 3, GL_FLOAT, GL_FALSE, 32, (void*) 12); }
     if (g_rgfx_3d_aUv >= 0) { glEnableVertexAttribArray(g_rgfx_3d_aUv); glVertexAttribPointer(g_rgfx_3d_aUv, 2, GL_FLOAT, GL_FALSE, 32, (void*) 24); }
-    glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_SHORT, (void*) (size_t) (first * 2));
+    glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_INT, (void*) (size_t) (first * 4));
     static int draw_logged = 0;
     if (draw_logged < 2) {
         // project a real cube corner (1,1,1,1) to check the matrix spreads
@@ -2340,14 +2342,14 @@ static int rgfx_scene_alloc(int type) {
     return (int) g_scene.size();
 }
 // upload interleaved float verts (8 floats: pos3,normal3,uv2) + u16 indices -> meshId
-static int rgfx_mesh_make(const float* v8, int vcount, const uint16_t* idx, int icount) {
+static int rgfx_mesh_make(const float* v8, int vcount, const uint32_t* idx, int icount) {
     if (!g_rgfx_gpu_mode) { return 0; }
     rgfx_gl_ensure_current();
     RgfxMesh3D m; m.vbo = 0; m.ebo = 0; m.icount = icount;
     glGenBuffers(1, &m.vbo); glBindBuffer(GL_ARRAY_BUFFER, m.vbo);
     glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr) ((size_t) vcount * 8 * 4), v8, GL_STATIC_DRAW);
     glGenBuffers(1, &m.ebo); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m.ebo);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr) ((size_t) icount * 2), idx, GL_STATIC_DRAW);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr) ((size_t) icount * 4), idx, GL_STATIC_DRAW);
     g_rgfx_meshes.push_back(m);
     return (int) g_rgfx_meshes.size();
 }
@@ -2378,15 +2380,15 @@ extern \"C\" int rgfx_scene_create_box(float x0, float y0, float z0, float x1, f
         {{{x0,y0,z0},{x1,y0,z0},{x1,y0,z1},{x0,y0,z1}}, {0,-1,0}, dx, dz},  // -Y
     };
     float uvc[4][2] = {{0,0},{1,0},{1,1},{0,1}};
-    std::vector<float> vv; std::vector<uint16_t> ii;
+    std::vector<float> vv; std::vector<uint32_t> ii;
     for (int fi = 0; fi < 6; ++fi) {
-        uint16_t base = (uint16_t) (vv.size() / 8);
+        uint32_t base = (uint32_t) (vv.size() / 8);
         for (int k = 0; k < 4; ++k) {
             vv.push_back(faces[fi].c[k][0]); vv.push_back(faces[fi].c[k][1]); vv.push_back(faces[fi].c[k][2]);
             vv.push_back(faces[fi].n[0]); vv.push_back(faces[fi].n[1]); vv.push_back(faces[fi].n[2]);
             vv.push_back(uvc[k][0] * faces[fi].uw); vv.push_back(uvc[k][1] * faces[fi].uh);
         }
-        uint16_t tri[6] = {0,1,2,0,2,3};
+        uint32_t tri[6] = {0,1,2,0,2,3};
         for (int t = 0; t < 6; ++t) ii.push_back(base + tri[t]);
     }
     int meshId = rgfx_mesh_make(vv.data(), (int) (vv.size() / 8), ii.data(), (int) ii.size());
@@ -2417,7 +2419,7 @@ static int rgfx_scene_ensure_quad() {
          0.5f, 0.5f,0.f, 0.f,0.f,1.f, 1.f,0.f,
         -0.5f, 0.5f,0.f, 0.f,0.f,1.f, 0.f,0.f,
     };
-    uint16_t idx[6] = {0,1,2,0,2,3};
+    uint32_t idx[6] = {0,1,2,0,2,3};
     g_scene_quad = rgfx_mesh_make(v, 4, idx, 6);
     SDL_Log(\"[scene] billboard quad mesh=%d\", g_scene_quad);
     return g_scene_quad;
@@ -2591,7 +2593,7 @@ extern \"C\" void rgfx_scene_render(int w, int h) {
             if(g_scn_aPos>=0){glEnableVertexAttribArray(g_scn_aPos); glVertexAttribPointer(g_scn_aPos,3,GL_FLOAT,GL_FALSE,32,(void*)0);}
             if(g_scn_aNormal>=0){glEnableVertexAttribArray(g_scn_aNormal); glVertexAttribPointer(g_scn_aNormal,3,GL_FLOAT,GL_FALSE,32,(void*)12);}
             if(g_scn_aUv>=0){glEnableVertexAttribArray(g_scn_aUv); glVertexAttribPointer(g_scn_aUv,2,GL_FLOAT,GL_FALSE,32,(void*)24);}
-            glDrawElements(GL_TRIANGLES,m.icount,GL_UNSIGNED_SHORT,(void*)0);
+            glDrawElements(GL_TRIANGLES,m.icount,GL_UNSIGNED_INT,(void*)0);
             continue;
         }
         if (e.type!=RGE_MESH) continue;
@@ -2615,7 +2617,7 @@ extern \"C\" void rgfx_scene_render(int w, int h) {
         if(g_scn_aPos>=0){glEnableVertexAttribArray(g_scn_aPos); glVertexAttribPointer(g_scn_aPos,3,GL_FLOAT,GL_FALSE,32,(void*)0);}
         if(g_scn_aNormal>=0){glEnableVertexAttribArray(g_scn_aNormal); glVertexAttribPointer(g_scn_aNormal,3,GL_FLOAT,GL_FALSE,32,(void*)12);}
         if(g_scn_aUv>=0){glEnableVertexAttribArray(g_scn_aUv); glVertexAttribPointer(g_scn_aUv,2,GL_FLOAT,GL_FALSE,32,(void*)24);}
-        glDrawElements(GL_TRIANGLES,m.icount,GL_UNSIGNED_SHORT,(void*)0);
+        glDrawElements(GL_TRIANGLES,m.icount,GL_UNSIGNED_INT,(void*)0);
       }
     }
     glDepthMask(GL_TRUE); glDisable(GL_BLEND); glDisable(GL_DEPTH_TEST);
