@@ -1,0 +1,232 @@
+// ============================================================================
+// build.mjs — assemble the browser "games" site from the Ranger engine.
+// ============================================================================
+//
+//   node gallery/game_engine/web/build.mjs [--out <dir>]
+//
+// Steps:
+//   1. Compile the engine (a GameRunner-bearing runner .rgr) to es6 JS.
+//   2. Transform it into engine.bundle.js: strip the shebang + trailing
+//      auto-run main, append `return { GameRunner };` so engine-host.js can
+//      instantiate it inside a VFS-backed require scope.
+//   3. Package each game's scripts/assets as a *stored* zip whose entry names
+//      are the repo-relative paths the engine hardcodes.
+//   4. Copy the runtime (vfs/engine-host/runner) + index.html into <out>.
+//
+// The compiler is Node-only; this runs at build time (locally or in CI). The
+// emitted site is fully static and self-contained.
+// ============================================================================
+
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import url from "node:url";
+import zlib from "node:zlib";
+
+const HERE = path.dirname(url.fileURLToPath(import.meta.url));
+const ROOT = path.resolve(HERE, "..", "..", "..");
+const SRC = path.join(HERE, "src");
+
+const argv = process.argv.slice(2);
+const outArg = argv.indexOf("--out");
+const OUT = path.resolve(outArg >= 0 ? argv[outArg + 1] : path.join(HERE, "dist"));
+
+// ---------------------------------------------------------------- game registry
+// Each game shares one engine bundle (the GameRunner host). `package` lists the
+// repo-relative files mounted into the VFS; `script` is the entry the runner
+// loads. Add games here — the car (WASM) and a GPU 3D demo come next.
+const GAMES = [
+  {
+    id: "pong",
+    title: "Pong",
+    kind: "ranger", // pure-Ranger game logic (no WASM guest)
+    width: 480,
+    height: 270,
+    scriptDir: "gallery/game_engine/scripting",
+    script: "pong.game.tsx",
+    package: [
+      "gallery/game_engine/scripting/pong.game.tsx",
+      "gallery/game_engine/scripting/game_helpers.tsx",
+    ],
+    controls: "W / S or ↑ / ↓ to move the left paddle.",
+  },
+  {
+    id: "ylos2",
+    title: "Ylos 2 (Pomppija)",
+    kind: "ranger", // pure-Ranger logic; loads PNG sprite sheets via the VFS
+    width: 480,
+    height: 270,
+    scriptDir: "gallery/game_engine/games/ylos2",
+    script: "index.tsx",
+    package: [
+      "gallery/game_engine/games/ylos2/index.tsx",
+      "gallery/game_engine/scripting/game_helpers.tsx",
+      "gallery/game_engine/games/ylos2/assets/p1_walk.png",
+      "gallery/game_engine/games/ylos2/assets/p2_walk.png",
+      "gallery/game_engine/games/ylos2/assets/p1_super.png",
+      "gallery/game_engine/games/ylos2/assets/p2_super.png",
+      "gallery/game_engine/games/ylos2/assets/enemy_walk.png",
+    ],
+    controls: "P1: WASD + Space · P2: ↑ ↓ ← → · split-screen platformer with PNG sprites.",
+  },
+];
+
+// Runner .rgr that defines the GameRunner class used by every "ranger" game.
+const RUNNER_RGR = "gallery/game_engine/tests/pong_runner_demo.rgr";
+
+// ------------------------------------------------------------------- helpers
+function log(...a) {
+  console.log("[web-build]", ...a);
+}
+
+function sh(cmd, args, opts) {
+  return execFileSync(cmd, args, { stdio: "inherit", cwd: ROOT, ...opts });
+}
+
+// CRC32 (for zip local headers).
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(buf) {
+  let c = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+// Build a *stored* (method 0) zip from [{name, bytes}]. Matches vfs.mountZip.
+function makeStoredZip(entries) {
+  const chunks = [];
+  const central = [];
+  let offset = 0;
+  const enc = new TextEncoder();
+  for (const { name, bytes } of entries) {
+    const nameBytes = enc.encode(name);
+    const crc = crc32(bytes);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0); // local file header sig
+    local.writeUInt16LE(20, 4); // version needed
+    local.writeUInt16LE(0, 6); // flags
+    local.writeUInt16LE(0, 8); // method 0 = stored
+    local.writeUInt16LE(0, 10); // mod time
+    local.writeUInt16LE(0, 12); // mod date
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(bytes.length, 18); // comp size
+    local.writeUInt32LE(bytes.length, 22); // uncomp size
+    local.writeUInt16LE(nameBytes.length, 26);
+    local.writeUInt16LE(0, 28); // extra len
+    chunks.push(local, Buffer.from(nameBytes), Buffer.from(bytes));
+
+    const cd = Buffer.alloc(46);
+    cd.writeUInt32LE(0x02014b50, 0);
+    cd.writeUInt16LE(20, 4);
+    cd.writeUInt16LE(20, 6);
+    cd.writeUInt16LE(0, 8);
+    cd.writeUInt16LE(0, 10);
+    cd.writeUInt16LE(0, 12);
+    cd.writeUInt16LE(0, 14);
+    cd.writeUInt32LE(crc, 16);
+    cd.writeUInt32LE(bytes.length, 20);
+    cd.writeUInt32LE(bytes.length, 24);
+    cd.writeUInt16LE(nameBytes.length, 28);
+    cd.writeUInt16LE(0, 30);
+    cd.writeUInt16LE(0, 32);
+    cd.writeUInt16LE(0, 34);
+    cd.writeUInt16LE(0, 36);
+    cd.writeUInt32LE(0, 38);
+    cd.writeUInt32LE(offset, 42);
+    central.push(cd, Buffer.from(nameBytes));
+    offset += local.length + nameBytes.length + bytes.length;
+  }
+  const cdStart = offset;
+  let cdSize = 0;
+  for (const c of central) cdSize += c.length;
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(0, 4);
+  end.writeUInt16LE(0, 6);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(cdSize, 12);
+  end.writeUInt32LE(cdStart, 16);
+  end.writeUInt16LE(0, 20);
+  return Buffer.concat([...chunks, ...central, end]);
+}
+
+// ------------------------------------------------------------------- compile
+function compileEngineBundle() {
+  const rawDir = path.join(OUT, "_raw");
+  fs.mkdirSync(rawDir, { recursive: true });
+  // The compiler joins -d onto its cwd (ROOT), so pass a ROOT-relative path.
+  const rawDirRel = path.relative(ROOT, rawDir);
+  log("compiling engine:", RUNNER_RGR);
+  sh("node", [
+    "bin/output.js",
+    "-es6",
+    RUNNER_RGR,
+    "-d=" + rawDirRel,
+    "-o=engine.raw.js",
+    "-nodecli",
+  ], {
+    env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" },
+    stdio: "inherit",
+  });
+
+  let src = fs.readFileSync(path.join(rawDir, "engine.raw.js"), "utf8");
+  src = src.replace(/^#![^\n]*\n/, ""); // strip shebang
+  // Remove the trailing auto-run of main (name varies; match the last call).
+  src = src.replace(/\n__js_main\(\);\s*$/, "\n");
+  src = src.replace(/\n[A-Za-z_$][\w$]*\(\);\s*$/, "\n"); // fallback
+  src += "\n;return { GameRunner };\n";
+  fs.writeFileSync(path.join(OUT, "engine.bundle.js"), src);
+  log("wrote engine.bundle.js (" + (src.length / 1024).toFixed(0) + " KB)");
+  fs.rmSync(rawDir, { recursive: true, force: true });
+}
+
+// ------------------------------------------------------------------- packages
+function packageGames() {
+  const gamesOut = path.join(OUT, "games");
+  fs.mkdirSync(gamesOut, { recursive: true });
+  const registry = [];
+  for (const g of GAMES) {
+    const entries = g.package.map((rel) => ({
+      name: rel,
+      bytes: fs.readFileSync(path.join(ROOT, rel)),
+    }));
+    const zip = makeStoredZip(entries);
+    fs.writeFileSync(path.join(gamesOut, g.id + ".zip"), zip);
+    registry.push({
+      id: g.id,
+      title: g.title,
+      kind: g.kind,
+      width: g.width,
+      height: g.height,
+      scriptDir: g.scriptDir,
+      script: g.script,
+      pkg: "games/" + g.id + ".zip",
+      controls: g.controls || "",
+    });
+    log("packaged", g.id, "(" + (zip.length / 1024).toFixed(1) + " KB, " + entries.length + " files)");
+  }
+  fs.writeFileSync(path.join(OUT, "games.json"), JSON.stringify(registry, null, 2));
+}
+
+// ------------------------------------------------------------------- assets
+function copyRuntime() {
+  for (const f of ["vfs.js", "engine-host.js", "runner.js"]) {
+    fs.copyFileSync(path.join(SRC, f), path.join(OUT, f));
+  }
+  fs.copyFileSync(path.join(HERE, "index.html"), path.join(OUT, "index.html"));
+}
+
+// ------------------------------------------------------------------- main
+fs.mkdirSync(OUT, { recursive: true });
+compileEngineBundle();
+packageGames();
+copyRuntime();
+log("done ->", OUT);

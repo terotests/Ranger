@@ -1,0 +1,90 @@
+# Deploy the public site to GitHub Pages:
+#   /         -> the Ranger playground (compile Ranger in the browser)
+#   /games/   -> the Ranger game engine compiled to JavaScript, running games
+#                in the browser via a virtual filesystem (Pong today; the WASM
+#                car game + a GPU 3D demo are the next entries).
+#
+# This is the single Pages deployer for the repo (it supersedes the old
+# deploy-playground.yml). GitHub Pages allows one deployment per repository, so
+# both surfaces are assembled into one artifact here to avoid clobbering.
+#
+# Runs automatically on pushes to master that touch the site, and can be run
+# independently at any time from the Actions tab (workflow_dispatch).
+name: Deploy site (playground + games) to GitHub Pages
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "playground/**"
+      - "gallery/game_engine/web/**"
+      - "gallery/game_engine/tests/pong_runner_demo.rgr"
+      - "gallery/game_engine/scripting/**"
+      - "compiler/**"
+      - "lib/**"
+      - ".github/workflows/deploy-pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Build Ranger compiler
+        run: npm run compile
+
+      # ---- Games site: engine -> JS + packaged game zips -----------------
+      - name: Build games site
+        run: node gallery/game_engine/web/build.mjs --out "$GITHUB_WORKSPACE/_site/games"
+
+      # ---- Playground at the site root -----------------------------------
+      - name: Install playground dependencies
+        working-directory: playground
+        run: npm ci
+
+      - name: Build playground
+        working-directory: playground
+        run: npm run build
+
+      - name: Assemble site root
+        run: |
+          # Copy the playground build to the site root, preserving _site/games.
+          cp -r playground/dist/. "$GITHUB_WORKSPACE/_site/"
+          echo "Site contents:"
+          find "$GITHUB_WORKSPACE/_site" -maxdepth 2 -type f | sort
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
