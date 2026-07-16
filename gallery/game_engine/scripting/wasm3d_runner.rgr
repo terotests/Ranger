@@ -313,6 +313,64 @@ class Wasm3dRunner {
         }
         return n
     }
+    fn findSub:int (hay:string needle:string) {
+        def hn:int (strlen hay)
+        def nn:int (strlen needle)
+        if (nn == 0) {
+            return 0
+        }
+        def i:int 0
+        while ((i + nn) <= hn) {
+            def sub:string (substring hay i (i + nn))
+            if (sub == needle) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+    ; Optional presentation size for a game's models: `model_radius=<n>` in the
+    ; game's game.info scales every preloaded model so its farthest vertex from
+    ; the origin sits at n units. Absent / <= 0 = no scaling (models keep their
+    ; authored size, e.g. pyramid's diamond).
+    fn readModelRadius:double () {
+        if ((file_exists gameDir "game.info") == false) {
+            return 0.0
+        }
+        def buf:buffer (buffer_read_file gameDir "game.info")
+        def txt:string (buffer_to_string buf)
+        def key:string "model_radius="
+        def ki:int (this.findSub(txt key))
+        if (ki < 0) {
+            return 0.0
+        }
+        def start:int (ki + (strlen key))
+        def n:int (strlen txt)
+        def endp:int start
+        def go:boolean true
+        while go {
+            if (endp >= n) {
+                go = false
+            } {
+                def c:int (charAt txt endp)
+                if (c == 10) {
+                    go = false
+                } {
+                    if (c == 13) {
+                        go = false
+                    } {
+                        endp = (endp + 1)
+                    }
+                }
+            }
+        }
+        def valStr:string (substring txt start endp)
+        def d@(optional):double (str2double valStr)
+        if d {
+            return (unwrap d)
+        }
+        return 0.0
+    }
     ; Preload every <gameDir>/models/*.glb into the scene's mesh/texture pools
     ; and register each under its basename, so a host-managed guest can call
     ; rg_load_model("name") during init() (IDEAL_3D §12.4 render bridge).
@@ -324,11 +382,17 @@ class Wasm3dRunner {
         def names:[string] (list_dir_files dir)
         def loader:ModelLoader (new ModelLoader)
         def bridge:MeshBridge (new MeshBridge)
+        def radius:double (this.readModelRadius())
         def i:int 0
         while (i < (array_length names)) {
             def fname:string (itemAt names i)
             if (this.endsWithGlb(fname)) {
-                def id:int (loader.loadFromFile(dir fname))
+                def id:int 0
+                if (radius > 0.0) {
+                    id = (loader.loadFromFileRadius(dir fname radius))
+                } {
+                    id = (loader.loadFromFile(dir fname))
+                }
                 if (id >= 0) {
                     def model:ModelAsset (loader.getModel(id))
                     def em:EngineMeshData (bridge.fromModel(model))

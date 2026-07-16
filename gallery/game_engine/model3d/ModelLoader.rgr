@@ -51,6 +51,24 @@ class ModelLoader {
         return (this.loadFromBuffer(bytes))
     }
 
+    ; load + scale so the model's farthest vertex from the origin sits at
+    ; `radius` units (radius <= 0 = no scaling). Presentation size, e.g. a viewer
+    ; can show any model — a 0.5-unit chair or a 165-unit duck — at a set size.
+    fn loadFromBufferRadius:int (bytes:buffer radius:double) {
+        def id:int (this.loadFromBuffer(bytes))
+        if (id >= 0) {
+            if (radius > 0.0) {
+                def model:ModelAsset (registry.getModel(id))
+                model.scaleToRadius(radius)
+            }
+        }
+        return id
+    }
+    fn loadFromFileRadius:int (dir:string file:string radius:double) {
+        def bytes:buffer (buffer_read_file dir file)
+        return (this.loadFromBufferRadius(bytes radius))
+    }
+
     fn getModel:ModelAsset (modelId:int) {
         return (registry.getModel(modelId))
     }
