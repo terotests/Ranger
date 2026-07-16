@@ -53,7 +53,11 @@ jobs:
       - name: Build Ranger compiler
         run: npm run compile
 
-      # ---- Games site: engine -> JS + packaged game zips -----------------
+      # ---- Games site: engine -> JS + packaged game zips + Monaco editor -
+      - name: Install games-site dependencies (Monaco + esbuild)
+        working-directory: gallery/game_engine/web
+        run: npm ci
+
       - name: Build games site
         run: node gallery/game_engine/web/build.mjs --out "$GITHUB_WORKSPACE/_site/games"
 

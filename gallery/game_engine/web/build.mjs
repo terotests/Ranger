@@ -19,6 +19,7 @@
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import url from "node:url";
 import zlib from "node:zlib";
@@ -218,6 +219,51 @@ function packageGames() {
   fs.writeFileSync(path.join(OUT, "games.json"), JSON.stringify(registry, null, 2));
 }
 
+// ------------------------------------------------------------------- editor
+// Bundle Monaco (+ its workers) with esbuild into self-contained files so the
+// Pages site needs no CDN. Graceful: if esbuild/monaco aren't installed the
+// games site still builds, just without the editor pane.
+async function buildEditor() {
+  let esbuild;
+  try {
+    esbuild = await import("esbuild");
+  } catch {
+    log("esbuild not installed — skipping Monaco editor (run `npm ci` in web/)");
+    return false;
+  }
+  const req = createRequire(import.meta.url);
+  let editorWorker, tsWorker;
+  try {
+    editorWorker = req.resolve("monaco-editor/esm/vs/editor/editor.worker.js");
+    tsWorker = req.resolve("monaco-editor/esm/vs/language/typescript/ts.worker.js");
+  } catch {
+    log("monaco-editor not installed — skipping editor");
+    return false;
+  }
+  const common = {
+    bundle: true,
+    format: "iife",
+    loader: { ".ttf": "dataurl" },
+    legalComments: "none",
+    logLevel: "silent",
+  };
+  // Editor entry (exposes window.RangerEditor) + its CSS (emitted as editor.bundle.css).
+  await esbuild.build({
+    ...common,
+    entryPoints: [path.join(SRC, "editor.entry.mjs")],
+    outfile: path.join(OUT, "editor.bundle.js"),
+  });
+  // Language workers, referenced by MonacoEnvironment.getWorker.
+  await esbuild.build({
+    ...common,
+    entryPoints: { "editor.worker": editorWorker, "ts.worker": tsWorker },
+    outdir: OUT,
+  });
+  const kb = (fs.statSync(path.join(OUT, "editor.bundle.js")).size / 1024).toFixed(0);
+  log("bundled Monaco editor (" + kb + " KB + workers)");
+  return true;
+}
+
 // ------------------------------------------------------------------- assets
 function copyRuntime() {
   for (const f of ["vfs.js", "engine-host.js", "runner.js"]) {
@@ -230,5 +276,11 @@ function copyRuntime() {
 fs.mkdirSync(OUT, { recursive: true });
 compileEngineBundle();
 packageGames();
+const editorOk = await buildEditor();
 copyRuntime();
-log("done ->", OUT);
+// Expose editor availability to the page without probing globals.
+fs.writeFileSync(
+  path.join(OUT, "build-info.json"),
+  JSON.stringify({ editor: editorOk }, null, 2),
+);
+log("done ->", OUT, editorOk ? "(with editor)" : "(no editor)");
