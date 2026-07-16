@@ -106,8 +106,14 @@ fn sprite_dir(fxv: f32, fzv: f32, mx: f32, mz: f32, camx: f32, camz: f32) -> i32
     }
 }
 
+// small LCG for the procedural level (deterministic; no Math.random in wasm)
+fn lcg(seed: &mut u32) -> f32 {
+    *seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+    ((*seed >> 8) & 0xffff) as f32 / 65536.0
+}
+
 // ---- world state -----------------------------------------------------------
-const MAX_C: usize = 40;
+const MAX_C: usize = 160;
 #[derive(Clone, Copy)]
 struct Aabb {
     min: [f32; 3],
@@ -225,15 +231,18 @@ const P_HX: f32 = 0.3;
 const P_HY: f32 = 0.6;
 const P_HZ: f32 = 0.3;
 const STEP_UP: f32 = 0.35; // small ledges auto-step; platform gaps need a jump
-const GRAV: f32 = 17.0;
-const JUMP_V0: f32 = 5.2; // tap apex ~0.8
-const JUMP_HOLD_G: f32 = 0.36; // gravity scale while holding jump & rising -> ~2.2 apex
-const MOVE_SPD: f32 = 4.4;
+const GRAV: f32 = 18.0;
+const JUMP_V0: f32 = 6.2; // snappy initial jump speed
+const JUMP_HOLD_G: f32 = 0.34; // gravity scale while holding jump & rising -> tall leap
+const JUMP_CUT: f32 = 0.5; // on release mid-rise, keep this much of the upward speed
+const MOVE_SPD: f32 = 4.6;
 const TURN_SPD: f32 = 2.4;
 const KNOCK_TIME: f32 = 0.6;
 
-// ---- level -----------------------------------------------------------------
-const NPLAT: usize = 13;
+// ---- level: a big field of floating islands (Avatar-style) climbing ~100m --
+const LAYERS: usize = 56; // ~ up to ~95m
+const DY: f32 = 1.7; // vertical gap between layers (a good hold-jump clears it)
+const MAX_PLAT: usize = 150;
 
 fn add_collider(w: &mut World, min: [f32; 3], max: [f32; 3]) {
     if w.nbox < MAX_C {
@@ -278,42 +287,67 @@ fn add_gem(w: &mut World, tex: i32, mesh: i32, x: f32, top: f32, z: f32) {
 }
 
 fn build_level(w: &mut World, tex_sand: i32, tex_stone: i32, tex_gold: i32, tex_gem: i32, mesh_gem: i32) {
-    // sand floor far below (fall-safety; you can climb back up)
-    let g = 26.0;
+    // wide sand floor far below (fall-safety; you can climb back up)
+    let g = 44.0;
     create_static_box([-g, -0.4, -g], [g, 0.0, g], tex_sand);
     add_collider(w, [-g, -0.4, -g], [g, 0.0, g]);
 
     // base platform the player starts on
-    let base_top = add_platform(w, 0.0, 0.5, 0.0, 3.2, 3.2, tex_stone);
-    let _ = base_top;
+    let base_top = add_platform(w, 0.0, 0.5, 0.0, 3.4, 3.4, tex_stone);
 
-    // a zig-zag tower of floating platforms climbing upward (ylos2-style):
-    // consecutive platforms overlap ~1m in x and rise 1.3, so a held jump lands
-    // you on the next one. Every 3rd carries a gem; skeletons patrol some.
-    let mut prev_top = base_top;
-    for i in 0..NPLAT {
-        let side = if i % 2 == 0 { 1.0 } else { -1.0 };
-        let cx = side * 1.8;
-        let cz = ((i as f32) * 0.6).sin() * 1.2; // gentle depth weave
-        let cy = prev_top + 1.15;
-        let last = i == NPLAT - 1;
-        let hx = if last { 2.6 } else { 2.2 };
-        let hz = if last { 2.6 } else { 1.6 };
-        let tex = if last { tex_gold } else { tex_stone };
-        let top = add_platform(w, cx, cy, cz, hx, hz, tex);
-        prev_top = top;
-        if last {
-            w.goal = [cx, top, cz];
+    // A big field of floating islands. Each new island is placed a jump's reach
+    // (horizontal) from a random island one layer below, so every island is
+    // reachable, several routes branch upward, and the field spreads out with
+    // height (random walk) — an Avatar-style sky of islands, ~95m tall.
+    let mut seed: u32 = 0x51ED_2A3B;
+    let mut pcx = [0.0f32; MAX_PLAT];
+    let mut pcz = [0.0f32; MAX_PLAT];
+    let mut np: usize = 1; // index 0 = base
+    pcx[0] = 0.0;
+    pcz[0] = 0.0;
+    let mut prev_start: usize = 0; // previous layer's island index range
+    let mut prev_end: usize = 1;
+
+    let mut y = base_top;
+    for layer in 1..LAYERS {
+        y += DY;
+        let per = if layer < 3 { 1 } else { 2 };
+        let cur_start = np;
+        for _ in 0..per {
+            if np >= MAX_PLAT || w.nbox >= MAX_C - 2 {
+                break;
+            }
+            // parent = a random island in the previous layer (rise stays ~DY)
+            let span = prev_end - prev_start;
+            let pi = prev_start + ((lcg(&mut seed) * span as f32) as usize).min(span - 1);
+            let ang = lcg(&mut seed) * core::f32::consts::TAU;
+            let dist = 2.0 + lcg(&mut seed) * 1.7; // reachable horizontal offset
+            let cx = pcx[pi] + ang.cos() * dist;
+            let cz = pcz[pi] + ang.sin() * dist;
+            let hx = 1.3 + lcg(&mut seed) * 0.9;
+            let hz = 1.3 + lcg(&mut seed) * 0.9;
+            let top = add_platform(w, cx, y, cz, hx, hz, tex_stone);
+            pcx[np] = cx;
+            pcz[np] = cz;
+            np += 1;
+            if lcg(&mut seed) < 0.30 && w.ngem < MAX_GEM {
+                add_gem(w, tex_gem, mesh_gem, cx, top, cz);
+            }
+            if layer > 2 && hx > 1.7 && lcg(&mut seed) < 0.24 {
+                add_monster(w, tex_stone, cx, top, cz, hx - 0.5, 1.6 + lcg(&mut seed) * 1.4);
+            }
         }
-        // gems on every other platform, offset toward the outer edge
-        if i % 2 == 1 {
-            add_gem(w, tex_gem, mesh_gem, cx - side * 1.2, top, cz);
-        }
-        // skeletons patrol a few of the wider lower/middle platforms
-        if i >= 1 && i % 3 == 0 && !last {
-            add_monster(w, tex_stone, cx, top, cz, hx - 0.5, 1.8 + (i as f32) * 0.1);
+        if np > cur_start {
+            prev_start = cur_start;
+            prev_end = np;
         }
     }
+
+    // golden goal island on top, one layer above the highest island
+    let gpi = np - 1;
+    let (gx, gz) = (pcx[gpi], pcz[gpi]);
+    let gtop = add_platform(w, gx, y + DY, gz, 3.0, 3.0, tex_gold);
+    w.goal = [gx, gtop, gz];
 }
 
 // ---- physics ---------------------------------------------------------------
@@ -325,6 +359,20 @@ fn overlap(cx: f32, cy: f32, cz: f32, hx: f32, hy: f32, hz: f32, b: &Aabb) -> bo
 fn overlaps_any(w: &World, cx: f32, cy: f32, cz: f32) -> bool {
     for i in 0..w.nbox {
         if overlap(cx, cy, cz, P_HX, P_HY, P_HZ, &w.boxes[i]) {
+            return true;
+        }
+    }
+    false
+}
+// is point (x,y,z) inside any collider (expanded a little)? used for camera LoS.
+fn point_blocked(w: &World, x: f32, y: f32, z: f32) -> bool {
+    let m = 0.35;
+    for i in 0..w.nbox {
+        let b = w.boxes[i];
+        if x > b.min[0] - m && x < b.max[0] + m
+            && y > b.min[1] - m && y < b.max[1] + m
+            && z > b.min[2] - m && z < b.max[2] + m
+        {
             return true;
         }
     }
@@ -447,9 +495,28 @@ fn sync_camera(w: &mut World, dt: f32) {
     let (s, c) = w.cam_yaw.sin_cos();
     let dist = 6.4;
     let height = 3.4;
-    let ex = w.px - s * dist;
-    let ez = w.pz - c * dist;
-    let ey = w.cam_gy + height;
+    let dex = w.px - s * dist;
+    let dez = w.pz - c * dist;
+    let dey = w.cam_gy + height;
+    // occlusion: if an island sits between the player and the desired eye, pull
+    // the camera in to the first blocked point so the player stays visible.
+    let hx = w.px;
+    let hy = w.cam_gy + 0.9;
+    let hz = w.pz;
+    let steps = 14;
+    let mut f = 1.0;
+    let mut k = 1;
+    while k <= steps {
+        let ff = k as f32 / steps as f32;
+        if point_blocked(w, hx + (dex - hx) * ff, hy + (dey - hy) * ff, hz + (dez - hz) * ff) {
+            f = (((k - 1) as f32) / steps as f32).max(0.3);
+            break;
+        }
+        k += 1;
+    }
+    let ex = hx + (dex - hx) * f;
+    let ey = hy + (dey - hy) * f;
+    let ez = hz + (dez - hz) * f;
     w.cam_x = ex;
     w.cam_z = ez;
     unsafe {
@@ -614,8 +681,10 @@ pub extern "C" fn update(dt_ms: i32, forward: i32, strafe: i32, turn: i32, jump:
     let w = world();
     let dt = (dt_ms.max(1) as f32) / 1000.0;
     w.t += dt;
-    let jump_pressed = jump != 0 && !w.jump_prev;
-    w.jump_prev = jump != 0;
+    let held = jump != 0;
+    let jump_pressed = held && !w.jump_prev;
+    let jump_released = !held && w.jump_prev;
+    w.jump_prev = held;
 
     if w.mode == MODE_WON {
         if w.hero > 0 {
@@ -660,9 +729,14 @@ pub extern "C" fn update(dt_ms: i32, forward: i32, strafe: i32, turn: i32, jump:
         }
     }
 
-    // variable jump: holding jump while rising reduces gravity -> higher leap
-    let g = if w.jumping && jump != 0 && w.vy > 0.0 { GRAV * JUMP_HOLD_G } else { GRAV };
-    if jump == 0 || w.vy <= 0.0 {
+    // variable jump: releasing the button mid-rise cuts the jump short; holding
+    // keeps it floaty (reduced gravity while ascending) for a taller leap.
+    if jump_released && w.vy > 0.0 {
+        w.vy *= JUMP_CUT;
+        w.jumping = false;
+    }
+    let g = if w.jumping && held && w.vy > 0.0 { GRAV * JUMP_HOLD_G } else { GRAV };
+    if w.vy <= 0.0 {
         w.jumping = false;
     }
     w.vy -= g * dt;
