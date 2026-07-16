@@ -12,18 +12,19 @@
 (function (root) {
   "use strict";
 
+  // Two-player keymap. Slots feed WebGameHost.frame(...): p1 = WASD + Space,
+  // p2 = arrows + Enter. Single-player games ignore the p2 slots.
   const DEFAULT_KEYMAP = {
-    // engine frame() args: (dtMs, up, down, left, action, right, quit)
-    ArrowUp: "up",
-    ArrowDown: "down",
-    ArrowLeft: "left",
-    ArrowRight: "right",
     KeyW: "up",
     KeyS: "down",
     KeyA: "left",
     KeyD: "right",
     Space: "action",
-    Enter: "action",
+    ArrowUp: "p2up",
+    ArrowDown: "p2down",
+    ArrowLeft: "p2left",
+    ArrowRight: "p2right",
+    Enter: "p2action",
   };
 
   class GameSession {
@@ -33,11 +34,15 @@
       this.canvas = config.canvas;
       this.ctx = this.canvas.getContext("2d");
       this.vfs = config.vfs; // the RangerVFS the engine reads from
-      this.runner = config.runner; // an engine GameRunner instance
+      this.host = config.host; // an engine WebGameHost instance
       this.scriptDir = config.scriptDir;
       this.scriptFile = config.scriptFile;
       this.keymap = config.keymap || DEFAULT_KEYMAP;
-      this.keys = { up: false, down: false, left: false, right: false, action: false, quit: false };
+      this.keys = {
+        up: false, down: false, left: false, right: false, action: false,
+        p2up: false, p2down: false, p2left: false, p2right: false, p2action: false,
+        quit: false,
+      };
       this._raf = 0;
       this._last = 0;
       this._image = this.ctx.createImageData(this.width, this.height);
@@ -49,11 +54,9 @@
     setup() {
       this.canvas.width = this.width;
       this.canvas.height = this.height;
-      this.runner.init(this.width, this.height);
+      this.host.init(this.width, this.height);
       const src = this.vfs.readText(this.scriptDir + "/" + this.scriptFile);
-      if (this.runner.setScriptDir) this.runner.setScriptDir(this.scriptDir);
-      this.runner.loadScript(src);
-      this.runner.setupScene();
+      this.host.loadGame(this.scriptDir, src);
       return this;
     }
 
@@ -83,9 +86,14 @@
     step(dtMs) {
       const dt = Math.max(1, Math.min(50, dtMs | 0)) || 16;
       const k = this.keys;
-      this.runner.frame(dt, k.up, k.down, k.left, k.action, k.right, k.quit);
-      this.runner.draw();
-      const raw = this.runner.raw(); // ArrayBuffer, width*height*4 RGBA
+      this.host.frame(
+        dt,
+        k.up, k.down, k.left, k.right, k.action,
+        k.p2up, k.p2down, k.p2left, k.p2right, k.p2action,
+        k.quit,
+      );
+      this.host.draw();
+      const raw = this.host.raw(); // ArrayBuffer, width*height*4 RGBA
       const bytes = raw instanceof ArrayBuffer ? new Uint8Array(raw) : new Uint8Array(raw.buffer || raw);
       this._image.data.set(bytes.subarray(0, this._image.data.length));
       this.ctx.putImageData(this._image, 0, 0);
@@ -95,10 +103,10 @@
       const dt = now - this._last;
       this._last = now;
       this.step(dt);
-      if (this.onStats && this.runner.entityX) {
+      if (this.onStats) {
         this.onStats({
-          score1: this.runner.score1,
-          score2: this.runner.score2,
+          score1: this.host.score1(),
+          score2: this.host.score2(),
         });
       }
       this._raf = requestAnimationFrame(this._tick);
@@ -116,14 +124,14 @@
     const engine = root.RangerEngineHost.createEngine(config.bundleSource, vfs, {
       onWrite: config.onWrite,
     });
-    const runner = new engine.GameRunner();
+    const host = new engine.WebGameHost();
 
     const session = new GameSession({
       width: config.width,
       height: config.height,
       canvas: config.canvas,
       vfs,
-      runner,
+      host,
       scriptDir: config.scriptDir,
       scriptFile: config.scriptFile,
       keymap: config.keymap,

@@ -52,7 +52,7 @@
     );
     const mod = { exports: {} };
     const api = factory(req, proc, Buf, mod, mod.exports);
-    return api && api.GameRunner ? api : mod.exports;
+    return api && api.WebGameHost ? api : mod.exports;
   }
 
   root.RangerEngineHost = { createEngine };

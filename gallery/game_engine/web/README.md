@@ -35,9 +35,14 @@ providers│  mountZip(storedZip)   mountManifest(json)   (later: IndexedDB)│
   reads a *stored* (uncompressed) zip so binary assets like PNG sprite sheets
   pass through byte-exact. "Zip or database" are just providers behind one
   interface.
+- **`web_game_host.rgr`** — the browser runner. Wraps `GameRunner` with the same
+  wiring the native/SDL host does — crucially `setNativeBridge(...)`, without
+  which a game's `createStaticBg()` background (sky, platforms) silently no-ops —
+  and exposes a flat two-player `frame(...)` the JS harness drives. This is what
+  `build.mjs` compiles to `engine.bundle.js`.
 - **`src/engine-host.js`** — wraps the compiled engine as a factory
   `function(require, process, Buffer, ...)` so every `require('fs')` inside the
-  engine resolves against the VFS. Returns the `GameRunner` class.
+  engine resolves against the VFS. Returns the `WebGameHost` class.
 - **`src/runner.js`** — a `requestAnimationFrame` loop: keyboard →
   `runner.frame(dt, up, down, left, action, right, quit)` → `runner.draw()` →
   `runner.raw()` (a `width*height*4` RGBA `ArrayBuffer`) → `putImageData`.

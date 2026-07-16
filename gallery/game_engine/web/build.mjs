@@ -71,8 +71,10 @@ const GAMES = [
   },
 ];
 
-// Runner .rgr that defines the GameRunner class used by every "ranger" game.
-const RUNNER_RGR = "gallery/game_engine/tests/pong_runner_demo.rgr";
+// Runner .rgr that defines the WebGameHost class used by every "ranger" game.
+// It wires GameRunner + the host bridge (so createStaticBg backgrounds render)
+// and exposes a flat two-player frame the JS harness drives.
+const RUNNER_RGR = "gallery/game_engine/web/web_game_host.rgr";
 
 // ------------------------------------------------------------------- helpers
 function log(...a) {
@@ -182,7 +184,7 @@ function compileEngineBundle() {
   // Remove the trailing auto-run of main (name varies; match the last call).
   src = src.replace(/\n__js_main\(\);\s*$/, "\n");
   src = src.replace(/\n[A-Za-z_$][\w$]*\(\);\s*$/, "\n"); // fallback
-  src += "\n;return { GameRunner };\n";
+  src += "\n;return { WebGameHost };\n";
   fs.writeFileSync(path.join(OUT, "engine.bundle.js"), src);
   log("wrote engine.bundle.js (" + (src.length / 1024).toFixed(0) + " KB)");
   fs.rmSync(rawDir, { recursive: true, force: true });
