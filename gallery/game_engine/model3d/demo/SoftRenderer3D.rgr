@@ -1,0 +1,451 @@
+; ==============================================================================
+; SoftRenderer3D.rgr — headless software rasteriser for host ModelAssets.
+; ==============================================================================
+; Renders a loaded ModelAsset + its instantiated entity hierarchy to an RGB
+; framebuffer, no GPU / SDL / display. This is the "render bridge" of IDEAL_3D
+; §4.3 in software form: it walks the host EntityRegistry, transforms each
+; MeshRenderer's geometry by the entity world matrix, and z-buffers textured,
+; directionally-lit triangles. The camera auto-frames the model's world-space
+; bounding box, so it works for any asset without a glTF camera.
+;
+; Output is a binary PPM (P6) written with buffer_write_file; a tiny Node step
+; converts it to PNG for viewing.
+; ==============================================================================
+
+Import "../AssetModel.rgr"
+Import "../EntityModel.rgr"
+
+class SoftRenderer3D {
+    def w:int 0
+    def h:int 0
+    def color:buffer (buffer_alloc 0)
+    def depth:double_buffer (double_buffer_alloc 0)
+    ; directional light (world space, normalized) + ambient term
+    def lx:double 0.4
+    def ly:double 0.7
+    def lz:double 0.55
+    def ambient:double 0.30
+    ; background
+    def bgR:int 24
+    def bgG:int 26
+    def bgB:int 34
+
+    fn init:void (width:int height:int) {
+        w = width
+        h = height
+        def npix:int (w * h)
+        def nbytes:int (npix * 3)
+        color = (buffer_alloc nbytes)
+        depth = (double_buffer_alloc npix)
+        this.clear()
+    }
+    fn clear:void () {
+        def n:int (w * h)
+        def i:int 0
+        while (i < n) {
+            def o:int (i * 3)
+            buffer_set color o bgR
+            buffer_set color (o + 1) bgG
+            buffer_set color (o + 2) bgB
+            double_buffer_set depth i 1000000000.0
+            i = (i + 1)
+        }
+        this.normalizeLight()
+    }
+    fn normalizeLight:void () {
+        def len:double (sqrt (((lx * lx) + (ly * ly)) + (lz * lz)))
+        if (len > 0.0) {
+            lx = (lx / len)
+            ly = (ly / len)
+            lz = (lz / len)
+        }
+    }
+
+    ; ---- small vector helpers ----------------------------------------------
+    sfn transformPoint:Vec3 (m:Mat4 x:double y:double z:double) {
+        def rx:double ((((m.at(0 0)) * x) + ((m.at(0 1)) * y)) + (((m.at(0 2)) * z) + (m.at(0 3))))
+        def ry:double ((((m.at(1 0)) * x) + ((m.at(1 1)) * y)) + (((m.at(1 2)) * z) + (m.at(1 3))))
+        def rz:double ((((m.at(2 0)) * x) + ((m.at(2 1)) * y)) + (((m.at(2 2)) * z) + (m.at(2 3))))
+        return (Vec3.of(rx ry rz))
+    }
+    sfn transformDir:Vec3 (m:Mat4 x:double y:double z:double) {
+        def rx:double (((m.at(0 0)) * x) + (((m.at(0 1)) * y) + ((m.at(0 2)) * z)))
+        def ry:double (((m.at(1 0)) * x) + (((m.at(1 1)) * y) + ((m.at(1 2)) * z)))
+        def rz:double (((m.at(2 0)) * x) + (((m.at(2 1)) * y) + ((m.at(2 2)) * z)))
+        return (Vec3.of(rx ry rz))
+    }
+
+    ; ---- camera matrices ----------------------------------------------------
+    ; view matrix (right-handed lookAt), column-major
+    sfn lookAt:Mat4 (eye:Vec3 target:Vec3 up:Vec3) {
+        def fx:double (target.x - eye.x)
+        def fy:double (target.y - eye.y)
+        def fz:double (target.z - eye.z)
+        def fl:double (sqrt (((fx * fx) + (fy * fy)) + (fz * fz)))
+        fx = (fx / fl)
+        fy = (fy / fl)
+        fz = (fz / fl)
+        ; s = f x up
+        def sx:double ((fy * up.z) - (fz * up.y))
+        def sy:double ((fz * up.x) - (fx * up.z))
+        def sz:double ((fx * up.y) - (fy * up.x))
+        def sl:double (sqrt (((sx * sx) + (sy * sy)) + (sz * sz)))
+        sx = (sx / sl)
+        sy = (sy / sl)
+        sz = (sz / sl)
+        ; u = s x f
+        def ux:double ((sy * fz) - (sz * fy))
+        def uy:double ((sz * fx) - (sx * fz))
+        def uz:double ((sx * fy) - (sy * fx))
+        def m:Mat4 (new Mat4)
+        m.setIdentity()
+        m.put(0 0 sx)
+        m.put(0 1 sy)
+        m.put(0 2 sz)
+        m.put(1 0 ux)
+        m.put(1 1 uy)
+        m.put(1 2 uz)
+        m.put(2 0 (0.0 - fx))
+        m.put(2 1 (0.0 - fy))
+        m.put(2 2 (0.0 - fz))
+        m.put(0 3 (0.0 - (((sx * eye.x) + (sy * eye.y)) + (sz * eye.z))))
+        m.put(1 3 (0.0 - (((ux * eye.x) + (uy * eye.y)) + (uz * eye.z))))
+        m.put(2 3 (((fx * eye.x) + (fy * eye.y)) + (fz * eye.z)))
+        return m
+    }
+    ; perspective projection (right-handed, clip z in [-1,1]), column-major
+    sfn perspective:Mat4 (fovyRad:double aspect:double near:double far:double) {
+        def f:double (1.0 / (tan (fovyRad / 2.0)))
+        def m:Mat4 (new Mat4)
+        def k:int 0
+        while (k < 16) {
+            double_buffer_set m.m k 0.0
+            k = (k + 1)
+        }
+        m.put(0 0 (f / aspect))
+        m.put(1 1 f)
+        m.put(2 2 ((far + near) / (near - far)))
+        m.put(2 3 (((2.0 * far) * near) / (near - far)))
+        m.put(3 2 (0.0 - 1.0))
+        return m
+    }
+
+    ; ---- main render --------------------------------------------------------
+    fn renderModel:void (model:ModelAsset registry:EntityRegistry) {
+        ; pass 1: world-space bounding box over all rendered geometry
+        def haveBox:boolean false
+        def minx:double 0.0
+        def miny:double 0.0
+        def minz:double 0.0
+        def maxx:double 0.0
+        def maxy:double 0.0
+        def maxz:double 0.0
+        def ecount:int (registry.count())
+        def ei:int 0
+        while (ei < ecount) {
+            def ent:Entity (registry.get(ei))
+            if ent.hasRenderer {
+                def mesh:MeshAsset (model.getMesh(ent.renderer.meshAsset))
+                def pc:int (array_length mesh.primitives)
+                def pi:int 0
+                while (pi < pc) {
+                    def prim:MeshPrimitiveAsset (itemAt mesh.primitives pi)
+                    def vc:int (array_length prim.positions)
+                    def vi:int 0
+                    while (vi < vc) {
+                        def lp:Vec3 (itemAt prim.positions vi)
+                        def wp:Vec3 (SoftRenderer3D.transformPoint(ent.transform.worldMatrix lp.x lp.y lp.z))
+                        if (haveBox == false) {
+                            minx = wp.x
+                            maxx = wp.x
+                            miny = wp.y
+                            maxy = wp.y
+                            minz = wp.z
+                            maxz = wp.z
+                            haveBox = true
+                        } {
+                            if (wp.x < minx) { minx = wp.x }
+                            if (wp.x > maxx) { maxx = wp.x }
+                            if (wp.y < miny) { miny = wp.y }
+                            if (wp.y > maxy) { maxy = wp.y }
+                            if (wp.z < minz) { minz = wp.z }
+                            if (wp.z > maxz) { maxz = wp.z }
+                        }
+                        vi = (vi + 1)
+                    }
+                    pi = (pi + 1)
+                }
+            }
+            ei = (ei + 1)
+        }
+        if (haveBox == false) {
+            return
+        }
+        ; frame the box
+        def cx:double ((minx + maxx) / 2.0)
+        def cy:double ((miny + maxy) / 2.0)
+        def cz:double ((minz + maxz) / 2.0)
+        def dx:double (maxx - minx)
+        def dy:double (maxy - miny)
+        def dz:double (maxz - minz)
+        def radius:double (0.5 * (sqrt (((dx * dx) + (dy * dy)) + (dz * dz))))
+        if (radius <= 0.0) {
+            radius = 1.0
+        }
+        def fovy:double 0.7853981634
+        def dist:double ((radius / (sin (fovy / 2.0))) * 1.25)
+        ; a 3/4 view direction (front, slightly above and to the side)
+        def vx:double 0.55
+        def vy:double 0.42
+        def vz:double 1.0
+        def vl:double (sqrt (((vx * vx) + (vy * vy)) + (vz * vz)))
+        def eye:Vec3 (Vec3.of((cx + ((vx / vl) * dist)) (cy + ((vy / vl) * dist)) (cz + ((vz / vl) * dist))))
+        def target:Vec3 (Vec3.of(cx cy cz))
+        def up:Vec3 (Vec3.of(0.0 1.0 0.0))
+        def view:Mat4 (SoftRenderer3D.lookAt(eye target up))
+        def aspect:double ((to_double w) / (to_double h))
+        def near:double (radius * 0.05)
+        def far:double (dist + (radius * 3.0))
+        def proj:Mat4 (SoftRenderer3D.perspective(fovy aspect near far))
+        def vp:Mat4 (Mat4.mul(proj view))
+
+        ; pass 2: rasterise
+        ei = 0
+        while (ei < ecount) {
+            def ent:Entity (registry.get(ei))
+            if ent.hasRenderer {
+                def mesh:MeshAsset (model.getMesh(ent.renderer.meshAsset))
+                def pc:int (array_length mesh.primitives)
+                def pi:int 0
+                while (pi < pc) {
+                    def prim:MeshPrimitiveAsset (itemAt mesh.primitives pi)
+                    this.rasterPrimitive(model prim ent.transform.worldMatrix vp)
+                    pi = (pi + 1)
+                }
+            }
+            ei = (ei + 1)
+        }
+    }
+
+    fn rasterPrimitive:void (model:ModelAsset prim:MeshPrimitiveAsset worldM:Mat4 vp:Mat4) {
+        ; resolve material base colour + texture
+        def baseR:double 0.8
+        def baseG:double 0.8
+        def baseB:double 0.8
+        def tex:TextureAsset (new TextureAsset)
+        def hasTex:boolean false
+        if (prim.material >= 0) {
+            def mat:MaterialAsset (model.getMaterial(prim.material))
+            baseR = mat.baseColorR
+            baseG = mat.baseColorG
+            baseB = mat.baseColorB
+            if (mat.baseColorTexture >= 0) {
+                tex = (model.getTexture(mat.baseColorTexture))
+                if tex.decoded {
+                    hasTex = true
+                }
+            }
+        }
+        def hasUv:boolean ((array_length prim.uvs) > 0)
+        def hasNormals:boolean ((array_length prim.normals) > 0)
+        def idxN:int (array_length prim.indices)
+        def t:int 0
+        while ((t + 2) < idxN) {
+            def i0:int (itemAt prim.indices t)
+            def i1:int (itemAt prim.indices (t + 1))
+            def i2:int (itemAt prim.indices (t + 2))
+            this.rasterTri(prim worldM vp i0 i1 i2 baseR baseG baseB tex hasTex hasUv hasNormals)
+            t = (t + 3)
+        }
+    }
+
+    fn rasterTri:void (prim:MeshPrimitiveAsset worldM:Mat4 vp:Mat4 i0:int i1:int i2:int baseR:double baseG:double baseB:double tex:TextureAsset hasTex:boolean hasUv:boolean hasNormals:boolean) {
+        def p0:Vec3 (itemAt prim.positions i0)
+        def p1:Vec3 (itemAt prim.positions i1)
+        def p2:Vec3 (itemAt prim.positions i2)
+        def w0:Vec3 (SoftRenderer3D.transformPoint(worldM p0.x p0.y p0.z))
+        def w1:Vec3 (SoftRenderer3D.transformPoint(worldM p1.x p1.y p1.z))
+        def w2:Vec3 (SoftRenderer3D.transformPoint(worldM p2.x p2.y p2.z))
+        ; clip-space
+        def c0:Vec4 (SoftRenderer3D.clip(vp w0))
+        def c1:Vec4 (SoftRenderer3D.clip(vp w1))
+        def c2:Vec4 (SoftRenderer3D.clip(vp w2))
+        ; simple near-plane reject
+        if (c0.w <= 0.0001) { return }
+        if (c1.w <= 0.0001) { return }
+        if (c2.w <= 0.0001) { return }
+        def iw0:double (1.0 / c0.w)
+        def iw1:double (1.0 / c1.w)
+        def iw2:double (1.0 / c2.w)
+        def sx0:double (((c0.x * iw0) * 0.5 + 0.5) * (to_double w))
+        def sy0:double ((1.0 - ((c0.y * iw0) * 0.5 + 0.5)) * (to_double h))
+        def sz0:double (c0.z * iw0)
+        def sx1:double (((c1.x * iw1) * 0.5 + 0.5) * (to_double w))
+        def sy1:double ((1.0 - ((c1.y * iw1) * 0.5 + 0.5)) * (to_double h))
+        def sz1:double (c1.z * iw1)
+        def sx2:double (((c2.x * iw2) * 0.5 + 0.5) * (to_double w))
+        def sy2:double ((1.0 - ((c2.y * iw2) * 0.5 + 0.5)) * (to_double h))
+        def sz2:double (c2.z * iw2)
+        ; area (screen space)
+        def area:double (((sx1 - sx0) * (sy2 - sy0)) - ((sx2 - sx0) * (sy1 - sy0)))
+        if ((area < 0.0001) && (area > (0.0 - 0.0001))) {
+            return
+        }
+        def invArea:double (1.0 / area)
+        ; per-vertex lighting factor (flat-ish via world normals if present)
+        def sh0:double (this.shadeVertex(prim worldM i0 hasNormals))
+        def sh1:double (this.shadeVertex(prim worldM i1 hasNormals))
+        def sh2:double (this.shadeVertex(prim worldM i2 hasNormals))
+        ; uv (perspective-correct: multiply by inv-w)
+        def u0:double 0.0
+        def v0:double 0.0
+        def u1:double 0.0
+        def v1:double 0.0
+        def u2:double 0.0
+        def v2:double 0.0
+        if hasUv {
+            def t0:Vec2 (itemAt prim.uvs i0)
+            def t1:Vec2 (itemAt prim.uvs i1)
+            def t2:Vec2 (itemAt prim.uvs i2)
+            u0 = t0.x
+            v0 = t0.y
+            u1 = t1.x
+            v1 = t1.y
+            u2 = t2.x
+            v2 = t2.y
+        }
+        ; bounding box
+        def bxMin:int (this.clampI((floor (this.min3(sx0 sx1 sx2))) 0 (w - 1)))
+        def bxMax:int (this.clampI((floor (this.max3(sx0 sx1 sx2))) 0 (w - 1)))
+        def byMin:int (this.clampI((floor (this.min3(sy0 sy1 sy2))) 0 (h - 1)))
+        def byMax:int (this.clampI((floor (this.max3(sy0 sy1 sy2))) 0 (h - 1)))
+        def py:int byMin
+        while (py <= byMax) {
+            def px:int bxMin
+            while (px <= bxMax) {
+                def fx:double ((to_double px) + 0.5)
+                def fy:double ((to_double py) + 0.5)
+                def b0:double ((((sx1 - fx) * (sy2 - fy)) - ((sx2 - fx) * (sy1 - fy))) * invArea)
+                def b1:double ((((sx2 - fx) * (sy0 - fy)) - ((sx0 - fx) * (sy2 - fy))) * invArea)
+                def b2:double ((((sx0 - fx) * (sy1 - fy)) - ((sx1 - fx) * (sy0 - fy))) * invArea)
+                def inside:boolean false
+                if ((b0 >= 0.0) && ((b1 >= 0.0) && (b2 >= 0.0))) {
+                    inside = true
+                }
+                if ((b0 <= 0.0) && ((b1 <= 0.0) && (b2 <= 0.0))) {
+                    inside = true
+                }
+                if inside {
+                    def depthv:double (((b0 * sz0) + (b1 * sz1)) + (b2 * sz2))
+                    def pidx:int ((py * w) + px)
+                    def cur:double (double_buffer_get depth pidx)
+                    if (depthv < cur) {
+                        ; perspective-correct interpolation weight
+                        def iw:double (((b0 * iw0) + (b1 * iw1)) + (b2 * iw2))
+                        def shade:double (((b0 * sh0) + (b1 * sh1)) + (b2 * sh2))
+                        def cr:double baseR
+                        def cg:double baseG
+                        def cb:double baseB
+                        if hasTex {
+                            def uu:double ((((b0 * (u0 * iw0)) + (b1 * (u1 * iw1))) + (b2 * (u2 * iw2))) / iw)
+                            def vv:double ((((b0 * (v0 * iw0)) + (b1 * (v1 * iw1))) + (b2 * (v2 * iw2))) / iw)
+                            def sc:Vec3 (this.sampleTex(tex uu vv))
+                            cr = (sc.x / 255.0)
+                            cg = (sc.y / 255.0)
+                            cb = (sc.z / 255.0)
+                        }
+                        def outR:int (this.toByte((cr * shade) * 255.0))
+                        def outG:int (this.toByte((cg * shade) * 255.0))
+                        def outB:int (this.toByte((cb * shade) * 255.0))
+                        def o:int (pidx * 3)
+                        buffer_set color o outR
+                        buffer_set color (o + 1) outG
+                        buffer_set color (o + 2) outB
+                        double_buffer_set depth pidx depthv
+                    }
+                }
+                px = (px + 1)
+            }
+            py = (py + 1)
+        }
+    }
+
+    fn shadeVertex:double (prim:MeshPrimitiveAsset worldM:Mat4 idx:int hasNormals:boolean) {
+        if (hasNormals == false) {
+            return 1.0
+        }
+        def n:Vec3 (itemAt prim.normals idx)
+        def wn:Vec3 (SoftRenderer3D.transformDir(worldM n.x n.y n.z))
+        def len:double (sqrt (((wn.x * wn.x) + (wn.y * wn.y)) + (wn.z * wn.z)))
+        if (len <= 0.0) {
+            return 1.0
+        }
+        def d:double ((((wn.x * lx) + (wn.y * ly)) + (wn.z * lz)) / len)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        return (ambient + ((1.0 - ambient) * d))
+    }
+
+    fn sampleTex:Vec3 (tex:TextureAsset u:double v:double) {
+        def tw:int tex.width
+        def th:int tex.height
+        def uu:double (u - (to_double (floor u)))
+        def vv:double (v - (to_double (floor v)))
+        def tx:int (floor (uu * (to_double tw)))
+        def ty:int (floor (vv * (to_double th)))
+        if (tx < 0) { tx = 0 }
+        if (ty < 0) { ty = 0 }
+        if (tx >= tw) { tx = (tw - 1) }
+        if (ty >= th) { ty = (th - 1) }
+        def off:int (((ty * tw) + tx) * 4)
+        def r:double (to_double (buffer_get tex.rgba off))
+        def g:double (to_double (buffer_get tex.rgba (off + 1)))
+        def b:double (to_double (buffer_get tex.rgba (off + 2)))
+        return (Vec3.of(r g b))
+    }
+
+    sfn clip:Vec4 (m:Mat4 p:Vec3) {
+        def cx:double ((((m.at(0 0)) * p.x) + ((m.at(0 1)) * p.y)) + (((m.at(0 2)) * p.z) + (m.at(0 3))))
+        def cy:double ((((m.at(1 0)) * p.x) + ((m.at(1 1)) * p.y)) + (((m.at(1 2)) * p.z) + (m.at(1 3))))
+        def cz:double ((((m.at(2 0)) * p.x) + ((m.at(2 1)) * p.y)) + (((m.at(2 2)) * p.z) + (m.at(2 3))))
+        def cw:double ((((m.at(3 0)) * p.x) + ((m.at(3 1)) * p.y)) + (((m.at(3 2)) * p.z) + (m.at(3 3))))
+        return (Vec4.of(cx cy cz cw))
+    }
+
+    fn min3:double (a:double b:double c:double) {
+        def m:double a
+        if (b < m) { m = b }
+        if (c < m) { m = c }
+        return m
+    }
+    fn max3:double (a:double b:double c:double) {
+        def m:double a
+        if (b > m) { m = b }
+        if (c > m) { m = c }
+        return m
+    }
+    fn clampI:int (v:int lo:int hi:int) {
+        if (v < lo) { return lo }
+        if (v > hi) { return hi }
+        return v
+    }
+    fn toByte:int (v:double) {
+        def i:int (to_int v)
+        if (i < 0) { return 0 }
+        if (i > 255) { return 255 }
+        return i
+    }
+
+    ; ---- output: binary PPM (P6) -------------------------------------------
+    fn writePpm:void (dir:string file:string) {
+        def header:string ("P6\n" + (to_string w) + " " + (to_string h) + "\n255\n")
+        def hbuf:buffer (buffer_from_string header)
+        def hlen:int (buffer_length hbuf)
+        def body:int ((w * h) * 3)
+        def out:buffer (buffer_alloc (hlen + body))
+        buffer_copy out 0 hbuf 0 hlen
+        buffer_copy out hlen color 0 body
+        buffer_write_file dir file out
+    }
+}

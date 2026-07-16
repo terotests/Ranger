@@ -1,0 +1,58 @@
+; ==============================================================================
+; render_glb_demo.rgr — load a real GLB and software-render it to a PPM image.
+; ==============================================================================
+; End-to-end demo of the native 3D asset path: ModelLoader parses a GLB
+; (geometry + embedded texture) into a host ModelAsset, instantiates it into the
+; entity scene, and SoftRenderer3D rasterises it to a PPM. Point it at any
+; supported GLB (e.g. a Khronos sample asset).
+;
+;   node render_glb_demo.js <dir> <file.glb> <outDir> <out.ppm> [w] [h]
+;
+; Defaults render ./Duck.glb to ./out.ppm at 512x512.
+; ==============================================================================
+
+Import "../ModelLoader.rgr"
+Import "SoftRenderer3D.rgr"
+
+class RenderGlbDemo {
+    sfn argOr:string (index:int dflt:string) {
+        if ((shell_arg_cnt) > index) {
+            def a:string (shell_arg index)
+            if ((strlen a) > 0) {
+                return a
+            }
+        }
+        return dflt
+    }
+
+    sfn m@(main):void () {
+        def dir:string (RenderGlbDemo.argOr(0 "."))
+        def file:string (RenderGlbDemo.argOr(1 "Duck.glb"))
+        def outDir:string (RenderGlbDemo.argOr(2 "."))
+        def outFile:string (RenderGlbDemo.argOr(3 "out.ppm"))
+        def wS:string (RenderGlbDemo.argOr(4 "512"))
+        def hS:string (RenderGlbDemo.argOr(5 "512"))
+        def wpx:int (unwrap (str2int wS))
+        def hpx:int (unwrap (str2int hS))
+
+        print ("[render] loading " + dir + "/" + file)
+        def loader:ModelLoader (new ModelLoader)
+        def id:int (loader.loadFromFile(dir file))
+        if (loader.ok == false) {
+            print ("[render] load failed: " + loader.lastError)
+            return
+        }
+        def model:ModelAsset (loader.getModel(id))
+        def mesh:MeshAsset (model.getMesh(0))
+        def prim:MeshPrimitiveAsset (itemAt mesh.primitives 0)
+        print ("[render] model: nodes=" + (to_string (model.nodeCount())) + " tris=" + (to_string (idiv (prim.indexCount()) 3)) + " textures=" + (to_string (model.textureCount())))
+        def root:int (loader.instantiate(id))
+        print ("[render] instantiated root entity " + (to_string root) + " (" + (to_string (loader.entities.count())) + " entities)")
+
+        def r:SoftRenderer3D (new SoftRenderer3D)
+        r.init(wpx hpx)
+        r.renderModel(model loader.entities)
+        r.writePpm(outDir outFile)
+        print ("[render] wrote " + outDir + "/" + outFile + " (" + (to_string wpx) + "x" + (to_string hpx) + ")")
+    }
+}
