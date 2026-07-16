@@ -1,9 +1,11 @@
 //! pyramid_wasm — "Faaraon pyramidi": a 3D floating-platform climber for kids
-//! on the host-managed scene (IDEAL_3D Phase H). Jump from platform to platform
-//! up a tower that floats in the air (ylos2 in 3D). Hold jump to leap higher.
-//! LPC-sprite skeletons patrol the platforms — bump into one and you're knocked
-//! back a level, but you never die. Grab the gems for points, reach the golden
-//! platform at the very top to win.
+//! on the host-managed scene (IDEAL_3D Phase H). Several spiralling paths of
+//! floating platforms wind up through the air (ylos2 in 3D); pick a route and
+//! jump from platform to platform. Hold jump to leap higher. Glowing rescue
+//! checkpoints part-way up become your respawn point, so a fall doesn't send you
+//! back to the bottom. LPC-sprite skeletons patrol the platforms — bump into one
+//! and you're knocked back, but you never die. Grab the gems for points, reach
+//! the golden platform at the very top to win.
 //!
 //! Ownership: the guest owns the world + all physics (a kinematic AABB
 //! character controller with step-up and a variable-height jump). The host owns
@@ -144,6 +146,10 @@ struct Gem {
     taken: bool,
 }
 
+// rescue checkpoints: [cx, top_y, cz, hx, hz]. Standing on one makes it the
+// respawn point, so a fall drops you here instead of at the very bottom.
+const MAX_CP: usize = 16;
+
 const MODE_PLAY: i32 = 0;
 const MODE_WON: i32 = 2;
 
@@ -154,6 +160,8 @@ struct World {
     nmon: usize,
     gems: [Gem; MAX_GEM],
     ngem: usize,
+    cps: [[f32; 5]; MAX_CP],
+    ncp: usize,
     // player
     px: f32,
     py: f32,
@@ -198,6 +206,8 @@ static W: WCell = WCell(UnsafeCell::new(World {
     nmon: 0,
     gems: [ZERO_GEM; MAX_GEM],
     ngem: 0,
+    cps: [[0.0; 5]; MAX_CP],
+    ncp: 0,
     px: SPAWN[0],
     py: SPAWN[1],
     pz: SPAWN[2],
@@ -246,11 +256,17 @@ const CAM_OFF_X: f32 = -8.5; // mostly to the side...
 const CAM_OFF_Y: f32 = 5.8; // ...a bit above...
 const CAM_OFF_Z: f32 = -4.5; // ...and slightly oblique
 
-// ---- level: a wide field of floating islands you run and jump around, that
-// gently climbs toward a golden goal in the far corner ----------------------
-const GRIDN: usize = 9; // 9x9 grid of islands
-const GRID_SP: f32 = 5.2; // horizontal spacing between islands (room to run/jump)
-const CLIMB: f32 = 0.95; // height rise per grid step toward the far corner
+// ---- level: several spiralling *paths* of floating platforms climb from a
+// central base up to a golden goal high above. Platforms vary in shape (square,
+// long/narrow, wide); every few steps up a path is a glowing rescue checkpoint
+// so a fall doesn't send you all the way back to the bottom ------------------
+const NPATHS: usize = 3; // number of routes winding up to the top
+const PSTEPS: usize = 14; // platforms per path
+const CLIMB_STEP: f32 = 1.1; // height gained per platform up a path
+const BASE_Y: f32 = 1.0; // height of the starting base platform
+const R_NEAR: f32 = 4.5; // path radius near the base/top (reachable from centre)
+const R_FAR: f32 = 11.0; // widest radius mid-climb (paths bow outward)
+const ANG_STEP: f32 = 0.48; // spiral angle advance per platform (radians)
 
 fn add_collider(w: &mut World, min: [f32; 3], max: [f32; 3]) {
     if w.nbox < MAX_C {
@@ -295,50 +311,66 @@ fn add_gem(w: &mut World, tex: i32, mesh: i32, x: f32, top: f32, z: f32) {
 }
 
 fn build_level(w: &mut World, tex_sand: i32, tex_stone: i32, tex_gold: i32, tex_gem: i32, mesh_gem: i32) {
-    // wide sand floor far below (fall-safety; you can climb back up)
+    // wide sand floor far below (fall-safety; a fall respawns at last checkpoint)
     let g = 40.0;
     create_static_box([-g, -0.4, -g], [g, 0.0, g], tex_sand);
     add_collider(w, [-g, -0.4, -g], [g, 0.0, g]);
 
-    // A wide jittered grid of floating islands, spread across ~40x40m, that
-    // gently climbs toward the far (+x,+z) corner. Neighbours are ~one gentle
-    // jump apart, so there are many routes to run and hop around the field; the
-    // low (-x,-z) corner is the start, the high corner holds the golden goal.
     let mut seed: u32 = 0x51ED_2A3B;
-    let half = (GRIDN as f32 - 1.0) * 0.5;
-    for gi in 0..GRIDN {
-        for gj in 0..GRIDN {
-            let start = gi == 0 && gj == 0;
-            let corner = gi == GRIDN - 1 && gj == GRIDN - 1;
-            let hole = lcg(&mut seed);
-            if !start && !corner && hole < 0.14 {
-                continue; // a few gaps for variety
-            }
-            let jx = (lcg(&mut seed) - 0.5) * 1.6;
-            let jz = (lcg(&mut seed) - 0.5) * 1.6;
-            let cx = (gi as f32 - half) * GRID_SP + jx;
-            let cz = (gj as f32 - half) * GRID_SP + jz;
-            let cy = 1.0 + (gi + gj) as f32 * CLIMB + lcg(&mut seed) * 0.6;
-            let hx = 1.7 + lcg(&mut seed) * 1.0;
-            let hz = 1.7 + lcg(&mut seed) * 1.0;
-            let tex = if corner { tex_gold } else { tex_stone };
+
+    // central base platform (the start)
+    let base_top = add_platform(w, 0.0, BASE_Y, 0.0, 3.2, 3.2, tex_stone);
+    w.spawn = [0.0, base_top + P_HY + 0.05, 0.0];
+
+    let goal_y = BASE_Y + PSTEPS as f32 * CLIMB_STEP;
+
+    // Several spiralling paths climb from the base up to a shared golden goal.
+    // Each path bows outward (widest in the middle) and winds around, so the
+    // platforms are spread across the whole area yet always a jump apart, giving
+    // multiple routes up. Platform shapes vary; every 5th step is a checkpoint.
+    for p in 0..NPATHS {
+        let base_ang = p as f32 * (core::f32::consts::TAU / NPATHS as f32);
+        for step in 1..=PSTEPS {
+            let frac = step as f32 / PSTEPS as f32;
+            let radius = R_NEAR + (R_FAR - R_NEAR) * (frac * core::f32::consts::PI).sin();
+            let ang = base_ang + step as f32 * ANG_STEP;
+            let jx = (lcg(&mut seed) - 0.5) * 1.2;
+            let jz = (lcg(&mut seed) - 0.5) * 1.2;
+            let cx = radius * ang.cos() + jx;
+            let cz = radius * ang.sin() + jz;
+            let cy = BASE_Y + step as f32 * CLIMB_STEP + (lcg(&mut seed) - 0.5) * 0.3;
+
+            // varied platform footprints: square / long-x / long-z / wide
+            let shape = (lcg(&mut seed) * 4.0) as i32;
+            let (hx, hz) = match shape {
+                1 => (2.8 + lcg(&mut seed) * 0.8, 1.0 + lcg(&mut seed) * 0.3),
+                2 => (1.0 + lcg(&mut seed) * 0.3, 2.8 + lcg(&mut seed) * 0.8),
+                3 => (2.4 + lcg(&mut seed) * 0.6, 2.4 + lcg(&mut seed) * 0.6),
+                _ => (1.6 + lcg(&mut seed) * 0.5, 1.6 + lcg(&mut seed) * 0.5),
+            };
+
+            let is_cp = step % 5 == 0 && step != PSTEPS;
+            let tex = if is_cp { tex_gem } else { tex_stone };
             let top = add_platform(w, cx, cy, cz, hx, hz, tex);
-            if start {
-                w.spawn = [cx, top + P_HY + 0.05, cz];
+            if is_cp && w.ncp < MAX_CP {
+                w.cps[w.ncp] = [cx, top, cz, hx, hz];
+                w.ncp += 1;
             }
-            if corner {
-                w.goal = [cx, top, cz];
-            }
+
             let gemr = lcg(&mut seed);
-            if !start && !corner && gemr < 0.26 && w.ngem < MAX_GEM {
+            if !is_cp && gemr < 0.24 && w.ngem < MAX_GEM {
                 add_gem(w, tex_gem, mesh_gem, cx, top, cz);
             }
             let monr = lcg(&mut seed);
-            if !start && !corner && hx > 2.1 && monr < 0.2 {
-                add_monster(w, tex_stone, cx, top, cz, hx - 0.5, 1.6 + lcg(&mut seed) * 1.4);
+            if !is_cp && hx > 2.2 && monr < 0.35 {
+                add_monster(w, tex_stone, cx, top, cz, hx - 0.6, 1.5 + lcg(&mut seed) * 1.3);
             }
         }
     }
+
+    // golden goal platform at the very top, above the centre
+    let gtop = add_platform(w, 0.0, goal_y, 0.0, 2.6, 2.6, tex_gold);
+    w.goal = [0.0, gtop, 0.0];
 }
 
 // ---- physics ---------------------------------------------------------------
@@ -432,6 +464,21 @@ fn respawn_player(w: &mut World) {
     w.vz = 0.0;
 }
 
+// Standing on a rescue checkpoint makes it the new respawn point, so falling to
+// the sand drops you back here instead of at the very bottom.
+fn update_checkpoints(w: &mut World) {
+    if !w.on_ground {
+        return;
+    }
+    let feet = w.py - P_HY;
+    for i in 0..w.ncp {
+        let cp = w.cps[i];
+        if (w.px - cp[0]).abs() < cp[3] && (w.pz - cp[2]).abs() < cp[4] && (feet - cp[1]).abs() < 0.3 {
+            w.spawn = [cp[0], cp[1] + P_HY + 0.05, cp[2]];
+        }
+    }
+}
+
 fn apply_knockback(w: &mut World, fromx: f32, fromz: f32, strength: f32) {
     let mut dx = w.px - fromx;
     let mut dz = w.pz - fromz;
@@ -485,6 +532,7 @@ pub extern "C" fn init() {
         w.nbox = 0;
         w.nmon = 0;
         w.ngem = 0;
+        w.ncp = 0;
         w.score = 0;
         w.mode = MODE_PLAY;
         w.knock_t = 0.0;
@@ -647,7 +695,7 @@ pub extern "C" fn update(dt_ms: i32, forward: i32, strafe: i32, turn: i32, jump:
 
     // discrete 90° turn: one snap per left/right press (edge-triggered)
     if turn != 0 && w.turn_prev == 0 {
-        w.yaw -= (turn as f32) * core::f32::consts::FRAC_PI_2;
+        w.yaw += (turn as f32) * core::f32::consts::FRAC_PI_2;
     }
     w.turn_prev = turn;
 
@@ -659,11 +707,17 @@ pub extern "C" fn update(dt_ms: i32, forward: i32, strafe: i32, turn: i32, jump:
         w.vx *= decay;
         w.vz *= decay;
     } else {
+        // facing vector from yaw; up-arrow (forward) drives along it, into the
+        // scene. strafe moves along the right-hand perpendicular.
         let (s, c) = w.yaw.sin_cos();
+        let fwx = -s;
+        let fwz = -c;
+        let rgx = -fwz; // right = facing rotated -90°
+        let rgz = fwx;
         let fwd = forward as f32;
         let stf = strafe as f32;
-        let mut mvx = (s * fwd + c * stf) * MOVE_SPD;
-        let mut mvz = (c * fwd - s * stf) * MOVE_SPD;
+        let mut mvx = (fwx * fwd + rgx * stf) * MOVE_SPD;
+        let mut mvz = (fwz * fwd + rgz * stf) * MOVE_SPD;
         let mag = (mvx * mvx + mvz * mvz).sqrt();
         if mag > MOVE_SPD {
             mvx *= MOVE_SPD / mag;
@@ -698,10 +752,10 @@ pub extern "C" fn update(dt_ms: i32, forward: i32, strafe: i32, turn: i32, jump:
     resolve_h(w, 2);
     w.py += w.vy * dt;
     resolve_vertical(w);
-    if w.py - P_HY < 0.0 {
-        w.py = P_HY;
-        w.vy = 0.0;
-        w.on_ground = true;
+    update_checkpoints(w);
+    // fell off the platforms onto the sand -> rescue at the last checkpoint
+    if w.py - P_HY < 0.5 {
+        respawn_player(w);
     }
     let moving = (w.vx * w.vx + w.vz * w.vz).sqrt() > 0.4;
 
@@ -715,7 +769,7 @@ pub extern "C" fn update(dt_ms: i32, forward: i32, strafe: i32, turn: i32, jump:
     if w.hero > 0 {
         let sy = (w.py - P_HY) + SPR_FEET_OFF;
         let (s, c) = w.yaw.sin_cos();
-        let d = sprite_dir(s, c, w.px, w.pz, w.cam_x, w.cam_z);
+        let d = sprite_dir(-s, -c, w.px, w.pz, w.cam_x, w.cam_z);
         let col = if !w.on_ground { 2 } else { walk_col(w.t, moving) };
         unsafe {
             rg_set_position(w.player_ent, fx(w.px), fx(sy), fx(w.pz));
