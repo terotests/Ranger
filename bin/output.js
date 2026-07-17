@@ -887,6 +887,7 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
     this.defined_variants = [];
     this.method_variants = {};
     this.has_constructor = false;
+    this.is_collected = false;
     this.has_destructor = false;     /** note: unused */
     this.extends_classes = [];
     this.implements_interfaces = [];
@@ -13327,6 +13328,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           return;
         }
         const s_1 = node.getVRefAt(1);
+        if ( ctx.hasClass(s_1) ) {
+          const existingCl = ctx.findClass(s_1);
+          if ( existingCl.is_collected ) {
+            find_more = false;
+            return;
+          }
+        }
         const classNameNode_1 = node.getSecond();
         const new_class_4 = new RangerAppClassDesc();
         new_class_4.name = s_1;
@@ -13350,6 +13358,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         new_class_4.ctx = subCtx_2;
         new_class_4.nameNode = classNameNode_1;
         ctx.addClass(s_1, new_class_4);
+        new_class_4.is_collected = true;
         new_class_4.classNode = node;
         new_class_4.node = node;
         if ( node.hasBooleanProperty("trait") ) {
