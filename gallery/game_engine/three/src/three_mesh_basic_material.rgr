@@ -1,0 +1,12 @@
+; ==============================================================================
+; three_mesh_basic_material — (Three.js src/materials/MeshBasicMaterial.js).
+; ==============================================================================
+; Unlit material with an optional colour map. lightingMode stays 0 (unlit), the
+; base default. map/setMap live on ThreeMaterial now (shared with lit materials).
+; ==============================================================================
+
+Import "three_material.rgr"
+
+class ThreeMeshBasicMaterial extends ThreeMaterial {
+    def isMeshBasicMaterial:boolean true
+}

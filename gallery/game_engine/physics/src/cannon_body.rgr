@@ -7,12 +7,18 @@ Import "cannon_quaternion.rgr"
 Import "cannon_aabb.rgr"
 Import "cannon_shape.rgr"
 Import "cannon_box.rgr"
+Import "cannon_mat3.rgr"
 
 class CannonBody {
     sdef TYPE_DYNAMIC:int 1
     sdef TYPE_STATIC:int 2
     sdef TYPE_KINEMATIC:int 4
     sdef SLEEP_AWAKE:int 0
+    sdef SLEEP_SLEEPY:int 1
+    sdef SLEEP_SLEEPING:int 2
+    def sleepSpeedLimit:double 0.1
+    def sleepTimeLimit:double 1.0
+    def timeLastSleepy:double 0.0
     def id:int 0
     def index:int 0
     def mass:double 0.0
@@ -42,6 +48,18 @@ class CannonBody {
     def tmpShapeAabb:CannonAABB (new CannonAABB)
     def tmpRotForce:CannonVec3 (new CannonVec3)
     def tmpVelo:CannonVec3 (new CannonVec3)
+    ; --- SPOOK solver state (cannon-es) ---
+    def isTrigger:boolean false
+    def vlambda:CannonVec3 (new CannonVec3)
+    def wlambda:CannonVec3 (new CannonVec3)
+    def linearFactor:CannonVec3 (new CannonVec3)
+    def angularFactor:CannonVec3 (new CannonVec3)
+    def invMassSolve:double 0.0
+    def invInertiaWorld:CannonMat3 (new CannonMat3)
+    def invInertiaWorldSolve:CannonMat3 (new CannonMat3)
+    def uiwM1:CannonMat3 (new CannonMat3)
+    def uiwM2:CannonMat3 (new CannonMat3)
+    def solveStateReady:boolean false
 
     fn initDynamic:void (mass:double) {
         this.mass = mass
@@ -186,6 +204,73 @@ class CannonBody {
         }
     }
 
+    ; Semi-implicit Euler integration of one body (cannon-es Body.integrate).
+    ; Only dynamic bodies move; linear/angular factors let a game constrain a
+    ; body to a plane / single spin axis (default factors are (1,1,1)).
+    fn wakeUp:void () {
+        this.sleepState = 0
+    }
+
+    ; Put a body to sleep: it stops integrating until woken.
+    fn sleep:void () {
+        this.sleepState = 2
+        this.velocity.setZero()
+        this.angularVelocity.setZero()
+    }
+
+    ; Advance the sleep state machine (cannon-es Body.sleepTick): a slow body
+    ; becomes SLEEPY, and staying slow past sleepTimeLimit puts it to SLEEPING.
+    fn sleepTick:void (time:double) {
+        if (this.allowSleep == false) {
+            return
+        }
+        if (this.type != 1) {
+            return
+        }
+        def sp:double ((this.velocity.norm2()) + (this.angularVelocity.norm2()))
+        def limit:double (this.sleepSpeedLimit * this.sleepSpeedLimit)
+        if (this.sleepState == 0) {
+            if (sp < limit) {
+                this.sleepState = 1
+                this.timeLastSleepy = time
+            }
+            return
+        }
+        if (this.sleepState == 1) {
+            if (sp > limit) {
+                this.wakeUp()
+                return
+            }
+            if ((time - this.timeLastSleepy) > this.sleepTimeLimit) {
+                this.sleep()
+            }
+        }
+    }
+
+    fn integrate:void (dt:double) {
+        if (this.type != 1) {
+            return
+        }
+        if (this.sleepState == 2) {
+            return
+        }
+        this.initSolveState()
+        this.velocity.x = (this.velocity.x + (((this.force.x * this.invMass) * dt) * this.linearFactor.x))
+        this.velocity.y = (this.velocity.y + (((this.force.y * this.invMass) * dt) * this.linearFactor.y))
+        this.velocity.z = (this.velocity.z + (((this.force.z * this.invMass) * dt) * this.linearFactor.z))
+        this.updateInertiaWorld()
+        this.tmpRotForce.x = (this.torque.x * this.angularFactor.x)
+        this.tmpRotForce.y = (this.torque.y * this.angularFactor.y)
+        this.tmpRotForce.z = (this.torque.z * this.angularFactor.z)
+        this.invInertiaWorld.vmultInto(this.tmpRotForce this.tmpVelo)
+        this.angularVelocity.addScaledVector(dt this.tmpVelo this.angularVelocity)
+        this.position.x = (this.position.x + (this.velocity.x * dt))
+        this.position.y = (this.position.y + (this.velocity.y * dt))
+        this.position.z = (this.position.z + (this.velocity.z * dt))
+        this.quaternion.integrate(this.angularVelocity dt this.angularFactor this.quaternion)
+        this.quaternion.normalize()
+    }
+
     fn clampAngularVelocity:void (maxW:double) {
         if (this.type != 1) {
             return
@@ -201,7 +286,47 @@ class CannonBody {
         }
     }
 
+    ; Initialise the Mat3 solver scratch once (field initialisers cannot fill
+    ; the 9-element arrays), and set the default linear/angular factors to 1.
+    fn initSolveState:void () {
+        if (this.solveStateReady) {
+            return
+        }
+        this.invInertiaWorld.initZero()
+        this.invInertiaWorldSolve.initZero()
+        this.uiwM1.initZero()
+        this.uiwM2.initZero()
+        this.linearFactor.set(1.0 1.0 1.0)
+        this.angularFactor.set(1.0 1.0 1.0)
+        this.solveStateReady = true
+    }
+
+    ; invInertiaWorld = R * diag(invInertia) * R^T   (cannon-es Body.updateInertiaWorld)
     fn updateInertiaWorld:void () {
+        this.initSolveState()
+        this.uiwM1.setRotationFromQuaternion(this.quaternion)
+        this.uiwM1.transposeInto(this.uiwM2)
+        this.uiwM1.scaleInto(this.invInertia this.uiwM1)
+        this.uiwM1.mmultInto(this.uiwM2 this.invInertiaWorld)
+    }
+
+    ; Dynamic bodies contribute their real inverse mass/inertia to the solver;
+    ; static and kinematic bodies act as if infinitely massive (zero).
+    fn updateSolveMassProperties:void () {
+        this.initSolveState()
+        if (this.type == 1) {
+            if (this.sleepState == 2) {
+                this.invMassSolve = 0.0
+                this.invInertiaWorldSolve.setZero()
+            } {
+                this.updateInertiaWorld()
+                this.invMassSolve = this.invMass
+                this.invInertiaWorldSolve.copyFrom(this.invInertiaWorld)
+            }
+        } {
+            this.invMassSolve = 0.0
+            this.invInertiaWorldSolve.setZero()
+        }
     }
 
     fn pointToLocalFrame:void (worldPoint:CannonVec3 result:CannonVec3) {

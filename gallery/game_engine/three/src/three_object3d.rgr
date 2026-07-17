@@ -1,0 +1,104 @@
+; ==============================================================================
+; three_object3d — scene-graph node (Three.js port of src/core/Object3D.js).
+; ==============================================================================
+;
+; position (Vector3), rotation (Euler), quaternion (Quaternion), scale (Vector3),
+; children, and the local/world matrices. Base class for Scene, Camera and Mesh.
+;
+; Three.js keeps rotation and quaternion reactively in sync; this port derives
+; the quaternion from the Euler in updateMatrix(), which is enough for the usual
+; "mutate mesh.rotation, then render" loop. World matrices are computed top-down
+; (updateWorld takes the parent's world matrix) so no parent back-reference is
+; needed.
+; ==============================================================================
+
+Import "three_vector3.rgr"
+Import "three_euler.rgr"
+Import "three_quaternion.rgr"
+Import "three_matrix4.rgr"
+Import "three_render_backend.rgr"
+
+class ThreeObject3D {
+    def isObject3D:boolean true
+    def name:string ""
+    def visible:boolean true
+    def position:ThreeVector3 (new ThreeVector3)
+    def rotation:ThreeEuler (new ThreeEuler)
+    def quaternion:ThreeQuaternion (new ThreeQuaternion)
+    def scale:ThreeVector3 (ThreeVector3.of(1.0 1.0 1.0))
+    def up:ThreeVector3 (ThreeVector3.of(0.0 1.0 0.0))
+    def matrix:ThreeMatrix4 (new ThreeMatrix4)
+    def matrixWorld:ThreeMatrix4 (new ThreeMatrix4)
+    def children:[ThreeObject3D]
+    ; when set by lookAt(), the local matrix uses `quaternion` directly instead of
+    ; re-deriving it from the Euler `rotation` each frame.
+    def quatDriven:boolean false
+
+    fn add:ThreeObject3D (child:ThreeObject3D) {
+        push this.children child
+        return this
+    }
+    fn childCount:int () {
+        return (array_length this.children)
+    }
+    fn getChild:ThreeObject3D (i:int) {
+        return (itemAt this.children i)
+    }
+
+    ; local matrix from position + (quaternion derived from rotation) + scale.
+    ; A lookAt() sets the quaternion directly, so skip the Euler derivation then.
+    fn updateMatrix:void () {
+        if (this.quatDriven == false) {
+            this.quaternion.setFromEuler(this.rotation)
+        }
+        this.matrix.compose(this.position this.quaternion this.scale)
+    }
+
+    ; Orient so local -Z points at (x,y,z) (camera convention), using `up`.
+    fn lookAt:void (x:double y:double z:double) {
+        def target:ThreeVector3 (ThreeVector3.of(x y z))
+        def m:ThreeMatrix4 (new ThreeMatrix4)
+        m.lookAt(this.position target this.up)
+        m.toQuaternion(this.quaternion)
+        this.quatDriven = true
+    }
+
+    ; world matrix = parentWorld * local, recursively for children.
+    fn updateWorld:void (parentWorld:ThreeMatrix4) {
+        this.updateMatrix()
+        this.matrixWorld.multiplyMatrices(parentWorld this.matrix)
+        def i:int 0
+        while (i < (array_length this.children)) {
+            def c:ThreeObject3D (itemAt this.children i)
+            c.updateWorld(this.matrixWorld)
+            i = (i + 1)
+        }
+    }
+    fn updateMatrixWorld:void () {
+        def id:ThreeMatrix4 (new ThreeMatrix4)
+        this.updateWorld(id)
+    }
+
+    ; Draw this node with the given render backend and the camera view-projection.
+    ; Base Object3D draws nothing; ThreeMesh overrides this (polymorphic dispatch
+    ; on the node variable — the renderer walks the tree and calls it per node).
+    fn renderInto:void (backend:ThreeRenderBackend viewProj:ThreeMatrix4) {
+    }
+
+    ; Light interrogation (so the renderer can collect lights while walking the
+    ; tree without downcasting): 0 = not a light, 1 = ambient, 2 = directional.
+    ; The lightR/G/B contribution is colour*intensity; direction comes from
+    ; `position` for a directional light. Overridden by the ThreeLight subclasses.
+    fn lightKind:int () {
+        return 0
+    }
+    fn lightR:double () {
+        return 0.0
+    }
+    fn lightG:double () {
+        return 0.0
+    }
+    fn lightB:double () {
+        return 0.0
+    }
+}

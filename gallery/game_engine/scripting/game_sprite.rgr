@@ -430,6 +430,36 @@ class GameSpriteRenderer {
         if (false == (radv.isNull())) {
             e.rad = (this.memInt(pos "rad" e.rad))
         }
+        ; Optional live draw scale for kind:"sheet" (percent, 100 = 1:1).
+        ; Lets games do pseudo-3D depth without pre-baking every size.
+        def scaleV:EvalValue (pos.getMember("scale"))
+        if (false == (scaleV.isNull())) {
+            def sc:int (this.memInt(pos "scale" e.shScale))
+            if (sc < 1) {
+                sc = 1
+            }
+            if (sc > 400) {
+                sc = 400
+            }
+            e.shScale = sc
+        }
+        ; Optional live size for kind:"rect" (pseudo-3D road strips, etc.).
+        def wv:EvalValue (pos.getMember("w"))
+        if (false == (wv.isNull())) {
+            def nw:int (this.memInt(pos "w" e.w))
+            if (nw < 1) {
+                nw = 1
+            }
+            e.w = nw
+        }
+        def hv:EvalValue (pos.getMember("h"))
+        if (false == (hv.isNull())) {
+            def nh:int (this.memInt(pos "h" e.h))
+            if (nh < 1) {
+                nh = 1
+            }
+            e.h = nh
+        }
     }
 
     fn drawBitmap:void (e:GameEntity canvas:SoftCanvas) {
@@ -564,6 +594,15 @@ class GameSpriteRenderer {
         }
         if (e.kind == "ghost") {
             canvas.fillGhost(e.x e.y e.rad e.p0 e.p1 e.cr e.cg e.cb)
+            return
+        }
+        ; Horizontal trapezoid: top (x ± w/2) @ y → bottom (p1 ± p0/2) @ y+h.
+        if (e.kind == "trap") {
+            def y0:int e.y
+            def y1:int (e.y + e.h)
+            def half0:int (this.half(e.w))
+            def half1:int (this.half(e.p0))
+            canvas.fillTrapezoid(y0 (e.x - half0) (e.x + half0) y1 (e.p1 - half1) (e.p1 + half1) e.cr e.cg e.cb)
             return
         }
         if (e.angleDeg != 0.0) {

@@ -452,7 +452,7 @@ npm run demo:wasm            # smaller freestanding WASM demo (tests/fixtures/ll
 
 **Checked-in sample:** [`gallery/invaders/llvm/invaders.ll`](gallery/invaders/llvm/invaders.ll) is LLVM IR kept in the repo so you can inspect codegen without building. Regenerate with `cp tmp/invaders-native/invaders.ll gallery/invaders/llvm/invaders.ll` after `game:build:llvm` (see [`gallery/invaders/llvm/README.md`](gallery/invaders/llvm/README.md)).
 
-Status: experimental — libc-linked native builds are the most reliable path; freestanding WAT/WASM for the full game is still incomplete (terminal imports, control-flow lowering). Smaller WASM demos under `npm run demo:wasm` are closer to working in the browser.
+Status: experimental — libc-linked native builds are the most reliable path. The freestanding WAT/WASM path (`-wasmrc`) now has a reference-counting runtime (free-list heap with `memory.grow`, typedesc-driven recursive object destruction), classes with reference-counted fields, singletons, strings, `[T]`/`[K:V]` collections, and lambdas/closures (function table + `call_indirect`, with value/object capture and mutation); the `gallery/game_engine/games/ranger_autopeli` guest is authored in Ranger and compiles to WASM this way. Terminal-import lowering for the full Space Invaders game is still incomplete. Smaller freestanding demos run under `npm run demo:wasm`.
 
 #### Cross-Compiling the Game
 
@@ -1346,6 +1346,8 @@ this.foo({
     print txt + " = " i
 })
 ```
+
+Lambdas compile on every backend, including the freestanding WASM/WAT path (`-wasmrc`): each body is hoisted to a function-table entry and calls go through `call_indirect`, with the value a reference-counted closure record. Captured variables are copied (values/strings) or retained (objects); a captured object can be mutated through the closure, and a captured value can be shared by boxing it in a heap cell.
 
 # Automatically infixed math support
 

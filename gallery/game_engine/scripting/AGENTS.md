@@ -33,7 +33,7 @@ Everything in `gallery/game_engine/scripting/` is one of:
   they live next to it.
 
 > The **per-game** smoke runners (`pong`/`pacman`/`invaders`/`breakout`/`ylos`/
-> `ylos2`/`spawner`/`counter`/`world_scroll`_runner_demo.rgr) moved to
+> `ylos2`/`ylos3`/`spawner`/`counter`/`world_scroll`_runner_demo.rgr) moved to
 > [`../tests/`](../tests/). Their `.game.tsx` fixtures stayed here (shared input,
 > see above); the runners read them via a repo-root path.
 
@@ -42,7 +42,7 @@ The launcher (`menu/`, `game_catalog.rgr`) only scans **game folders**:
 
 ```
 gallery/game_engine/games/<name>/
-    game.info        # name=…  category=Games|Tests  soloScript=index.tsx | module=logic.wasm | game.as
+    game.info        # name=…  category=Games|Tests  index=1  soloScript=index.tsx | module=logic.wasm | game.as
     index.tsx        # or a .as / .wasm module
     assets/…
 ```

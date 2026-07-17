@@ -118,6 +118,10 @@ class GameRunner {
         canvas.init(w h)
         particles.init(96)
         this.initSessionGlobal()
+        ; Headless runners (icon shots, *_runner_demo) never call setNativeBridge,
+        ; but createStaticBg() still needs bgFillRect/bgFillCircle. Wire the static
+        ; bg bridge by default; setNativeBridge() reuses the same composite.
+        this.wireNativeBridges()
     }
 
     fn initSessionGlobal:void () {
@@ -197,14 +201,20 @@ class GameRunner {
         engine.registerGlobal("peerCar" peer)
     }
 
-    fn setNativeBridge:void (bridge:EvalNativeBridge) {
-        hostBridge = bridge
+    ; Install the composite native bridge: static-bg drawing first, then an
+    ; optional host bridge (SDL vocal-fx / etc.). Safe to call repeatedly.
+    fn wireNativeBridges:void () {
         compositeBridge.clearBridges()
         compositeBridge.addBridge(staticBgBridge)
         if (hostBridge) {
             compositeBridge.addBridge((unwrap hostBridge))
         }
         engine.setNativeBridge(compositeBridge)
+    }
+
+    fn setNativeBridge:void (bridge:EvalNativeBridge) {
+        hostBridge = bridge
+        this.wireNativeBridges()
     }
 
     fn loadScript:void (src:string) {
@@ -1081,13 +1091,20 @@ class GameRunner {
         }
     }
 
-    ; Build retained entities from sprites() and init state.
-    fn setupScene:void () {
+    ; Split setup for cooperative pane loads: prepare → paint static bg → entities.
+    ; Solo hosts still call setupScene() which runs all three in one go.
+    fn setupScenePrepare:void () {
         this.wireHostAudio()
         this.setupResources()
         this.applyConfig()
         this.applyBackgroundFromScript()
+    }
+
+    fn setupScenePaintBg:void () {
         this.applyCreateStaticBg()
+    }
+
+    fn setupSceneEntities:void () {
         this.applyCamera()
         this.applyPhysics()
         state = (engine.callFunction("initState" (EvalValue.null())))
@@ -1136,6 +1153,13 @@ class GameRunner {
             }
         }
         this.syncFromState()
+    }
+
+    ; Build retained entities from sprites() and init state.
+    fn setupScene:void () {
+        this.setupScenePrepare()
+        this.setupScenePaintBg()
+        this.setupSceneEntities()
     }
 
     fn memInt:int (obj:EvalValue key:string dflt:int) {

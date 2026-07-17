@@ -125,9 +125,12 @@ declare function resetGameData(): void;
 | Tiedosto | Rooli |
 |----------|-------|
 | `game_host_native.rgr` | Native bridge: kutsujen käsittely, polkujen ratkaisu |
-| `game_sdl_runner.rgr` | Navigaatiopino, `loadScriptAt`, äänen nollaus |
+| `game_sdl_runner.rgr` | Navigaatiopino, `loadScriptAt`, äänen nollaus; split-modessa `drainSplitScriptNavigation` lataa **vain sen paneelin**, joka kutsui `pushGame`/`loadGame` |
+| `game_split_screen.rgr` | Kaksi bridgeä; `consumePendingNav` + cooperative `beginPaneLoad`/`tickPaneLoad` (vaiheet: read → parse → prepare → paintBg → entities; sisarus jatkaa frameja vaiheiden välillä; ei taustasäiettä) |
 | `game_persistence.rgr` | JSON luku/kirjoitus `gamedata.json` |
-| `game_runtime.rgr` | `resources()`, `backgroundImage()`, `setupScene()` |
+| `game_runtime.rgr` | `resources()`, `backgroundImage()`, `setupScene()` (`setupScenePrepare` / `setupScenePaintBg` / `setupSceneEntities`) |
+
+`ComponentEngine` pitää importtien AST-välimuistia (`importAstCache`, avain = polku + mtime), joten tasolta toiselle siirryttäessä jaettu `*_shared.tsx` ei mene lexer+parserin läpi uudestaan — `materialize` ajetaan silti uuteen moduleScopeen.
 
 Testit: [`game_host_native_demo.rgr`](../scripting/game_host_native_demo.rgr)
 (persistence + `loadGame`-polku).

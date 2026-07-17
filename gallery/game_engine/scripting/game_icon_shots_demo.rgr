@@ -128,12 +128,16 @@ class GameIconShots {
         def frames:int (this.framesFor(e 300))
         def i 0
         while (i < frames) {
+            ; Prefer UP so platformers climb into mid-level scenery (jungle
+            ; canopy, math pads, …) instead of lingering on the start floor.
+            ; Left/right still wiggle for paddles and side-scrollers; ACTION
+            ; pulses periodically so jump-hold / launch games keep moving.
             def phase (i % 120)
-            def up (phase < 30)
-            def down (phase >= 90)
-            def left ((phase >= 30) && (phase < 60))
-            def right ((phase >= 60) && (phase < 90))
-            def action ((i >= 20) && (i < 23))
+            def up (phase < 70)
+            def down (phase >= 100)
+            def left ((phase >= 70) && (phase < 85))
+            def right ((phase >= 85) && (phase < 100))
+            def action (((i % 90) >= 20) && ((i % 90) < 28))
             runner.frame(16 up down left right action false)
             i = (i + 1)
         }

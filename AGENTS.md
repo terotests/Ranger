@@ -34,3 +34,30 @@ follow them exactly.
 - [ ] The PR base is `master` (not a feature branch).
 - [ ] It is a **new** branch/PR, not a push to an already-merged one.
 - [ ] `git log origin/master..HEAD` shows only the commits you intend to land.
+
+## Ranger language gotchas (save yourself hours)
+
+Ranger is **LISP / S-expression based**, so a function or method call passed as an
+argument needs its own parentheses. A few consequences bite repeatedly:
+
+- **`return` a call → parenthesize it.** Write `return (this.helper())`, never
+  `return this.helper()`. The bare form fails analysis on **all** targets with two
+  *misleading* errors — `Could not match argument types for return` +
+  `Function does not return any values!` — and the second error often points at an
+  **unrelated inherited method** in another file (e.g. a phantom
+  `function variable not found updateMatrixWorld`). If you see that, look for a
+  bare `return call()` first, not an inheritance/import problem. The call must be
+  the *direct* `( )` operand: `return (this.helper() + 0)` still fails — bind to a
+  local: `def v:int (this.helper()) return (v + 0)`. See ISSUES.md Issue #63.
+- **One statement per line.** `{ def c:int 5 return c }` on a single line is a
+  parse error; put each statement on its own line.
+- **Import each file via one consistent path form.** Importing the same file via
+  two different strings (a bare name on a library path vs. an explicit
+  `dir/x.rgr`) used to double-collect its classes and break inherited-method
+  resolution in a subclass — surfacing as a *phantom* `function variable not
+  found <inheritedMethod>` at an unrelated file. Fixed (ISSUES.md #64), but
+  consistent import paths remain good hygiene.
+- **Integer division is `idiv`,** not `/` (which is real division).
+- **No `abs` / `=== undefined` builtins;** inline the absolute value, and avoid
+  `x === undefined` checks (the TSX interpreter's `extends`/`super` are also
+  limited — flatten instead of relying on them).

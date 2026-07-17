@@ -29,4 +29,37 @@ class CannonShape {
 
     fn updateBoundingSphereRadius:void () {
     }
+
+    ; Overridden by CannonBox; the base returns zero half-extents.
+    fn getHalfExtents:CannonVec3 () {
+        return (new CannonVec3)
+    }
+
+    ; Overridden by CannonHeightfield: the local terrain triangle plane (normal +
+    ; a point on it) under local (x,y). Base returns false (not a heightfield).
+    fn heightfieldPlaneAt:boolean (localX:double localY:double outNormal:CannonVec3 outPoint:CannonVec3) {
+        return false
+    }
+
+    ; Overridden by CannonConvexPolyhedron; the base is an empty hull.
+    fn convexVertexCount:int () {
+        return 0
+    }
+    fn convexVertexAt:void (i:int out:CannonVec3) {
+    }
+    fn convexFaceCount:int () {
+        return 0
+    }
+    fn convexFaceNormalAt:void (i:int out:CannonVec3) {
+    }
+    fn convexFaceVertexIndex:int (i:int) {
+        return 0
+    }
+
+    ; Overridden by CannonTrimesh; the base is an empty mesh.
+    fn trimeshTriangleCount:int () {
+        return 0
+    }
+    fn trimeshVertex:void (tri:int corner:int out:CannonVec3) {
+    }
 }

@@ -1,0 +1,128 @@
+; ==============================================================================
+; three_buffer_geometry — (Three.js port of src/core/BufferGeometry.js, subset).
+; ==============================================================================
+; Holds interleaved-by-attribute geometry as flat arrays: positions (x,y,z),
+; normals (x,y,z), uvs (u,v), and an integer index. Pure Ranger — the same data
+; the renderer turns into GPU buffers (browser WebGL) or feeds the software
+; rasteriser (native/embedded).
+; ==============================================================================
+
+class ThreeBufferGeometry {
+    def isBufferGeometry:boolean true
+    def positions:[double]
+    def normals:[double]
+    def uvs:[double]
+    def index:[int]
+    ; cached GPU mesh handles for a GL backend (-1 = not uploaded yet):
+    ; smooth (as-is), flat-shaded variant, and a wireframe line mesh.
+    def glHandle:int (0 - 1)
+    def flatHandle:int (0 - 1)
+    def wireHandle:int (0 - 1)
+
+    fn vertexCount:int () {
+        return (idiv (array_length this.positions) 3)
+    }
+    fn indexCount:int () {
+        return (array_length this.index)
+    }
+
+    fn pushVertex:void (px:double py:double pz:double nx:double ny:double nz:double u:double v:double) {
+        push this.positions px
+        push this.positions py
+        push this.positions pz
+        push this.normals nx
+        push this.normals ny
+        push this.normals nz
+        push this.uvs u
+        push this.uvs v
+    }
+    fn pushIndex:void (i:int) {
+        push this.index i
+    }
+    fn pushTriangle:void (a:int b:int c:int) {
+        push this.index a
+        push this.index b
+        push this.index c
+    }
+
+    ; accessors (component-wise) used by the renderer.
+    fn getPosition:double (vertex:int comp:int) {
+        return (itemAt this.positions ((vertex * 3) + comp))
+    }
+    fn getNormal:double (vertex:int comp:int) {
+        return (itemAt this.normals ((vertex * 3) + comp))
+    }
+    fn getUv:double (vertex:int comp:int) {
+        return (itemAt this.uvs ((vertex * 2) + comp))
+    }
+    fn getIndex:int (i:int) {
+        return (itemAt this.index i)
+    }
+
+    ; Flat-shaded copy: one un-shared triangle per face, each vertex carrying the
+    ; face normal. GLSL ES 1.00 has no per-primitive `flat` qualifier, so flat
+    ; shading is a geometry variant (matches what Three does when it can't derive).
+    fn buildFlat:ThreeBufferGeometry () {
+        def out:ThreeBufferGeometry (new ThreeBufferGeometry)
+        def tri:int 0
+        def ic:int (this.indexCount())
+        while (tri < ic) {
+            def a:int (this.getIndex(tri))
+            def b:int (this.getIndex(tri + 1))
+            def c:int (this.getIndex(tri + 2))
+            def ax:double (this.getPosition(a 0))
+            def ay:double (this.getPosition(a 1))
+            def az:double (this.getPosition(a 2))
+            def bx:double (this.getPosition(b 0))
+            def by:double (this.getPosition(b 1))
+            def bz:double (this.getPosition(b 2))
+            def cx:double (this.getPosition(c 0))
+            def cy:double (this.getPosition(c 1))
+            def cz:double (this.getPosition(c 2))
+            ; face normal = (b-a) × (c-a)
+            def ux:double (bx - ax)
+            def uy:double (by - ay)
+            def uz:double (bz - az)
+            def vx:double (cx - ax)
+            def vy:double (cy - ay)
+            def vz:double (cz - az)
+            def nx:double ((uy * vz) - (uz * vy))
+            def ny:double ((uz * vx) - (ux * vz))
+            def nz:double ((ux * vy) - (uy * vx))
+            def nl:double (sqrt(((nx * nx) + (ny * ny)) + (nz * nz)))
+            if (nl < 0.000000001) {
+                nl = 1.0
+            }
+            nx = (nx / nl)
+            ny = (ny / nl)
+            nz = (nz / nl)
+            def base:int (out.vertexCount())
+            out.pushVertex(ax ay az nx ny nz (this.getUv(a 0)) (this.getUv(a 1)))
+            out.pushVertex(bx by bz nx ny nz (this.getUv(b 0)) (this.getUv(b 1)))
+            out.pushVertex(cx cy cz nx ny nz (this.getUv(c 0)) (this.getUv(c 1)))
+            out.pushTriangle(base (base + 1) (base + 2))
+            tri = (tri + 3)
+        }
+        return out
+    }
+
+    ; Wireframe line indices: each triangle's three edges (a-b, b-c, c-a).
+    fn buildWireIndex:[int] () {
+        def out:[int]
+        def tri:int 0
+        def ic:int (this.indexCount())
+        while (tri < ic) {
+            def a:int (this.getIndex(tri))
+            def b:int (this.getIndex(tri + 1))
+            def c:int (this.getIndex(tri + 2))
+            push out a
+            push out b
+            push out b
+            push out c
+            push out c
+            push out a
+            tri = (tri + 3)
+        }
+        return out
+    }
+}

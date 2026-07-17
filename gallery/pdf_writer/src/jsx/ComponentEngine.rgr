@@ -25,6 +25,17 @@ class ImportedSymbol {
     def helperFunctions:[TSNode] ; Helper functions defined in the same file
 }
 
+; Parsed import AST retained across loadScript() so shared modules (e.g. a
+; game's *_shared.tsx) are not re-lexed/re-parsed on every level transition.
+; Keyed by absolute path + mtime; materialize still runs into the new moduleScope.
+class CachedImportAst {
+    def path:string ""
+    def mtime:int 0
+    def ast:TSNode (new TSNode())
+    def dirPath:string ""
+    def relativePath:string ""
+}
+
 ; =============================================================================
 ; EvalContext - Variable scope for expression evaluation
 ; =============================================================================
@@ -177,6 +188,8 @@ class ComponentEngine {
     ; Canonical import paths currently loading / fully materialized (cycle guard).
     def importLoading:[string]
     def importLoaded:[string]
+    ; Survives loadScript(): skip tokenize+parse when path mtime is unchanged.
+    def importAstCache:[CachedImportAst]
     
     ; Evaluation context
     def context:EvalContext
@@ -250,6 +263,8 @@ class ComponentEngine {
         importLoading = il
         def id:[string]
         importLoaded = id
+        def iac:[CachedImportAst]
+        importAstCache = iac
         def host:EvalContext (new EvalContext())
         host.moduleRoot = host
         hostScope = host
@@ -858,6 +873,19 @@ class ComponentEngine {
             return
         }
 
+        ; Capability-hint imports. `import * as THREE from 'three'` (or
+        ; '@ranger/three') is not a file to load — it tells the host the script
+        ; wants the THREE capability. The host registers the THREE namespace
+        ; (constants) as a global and loads the façade classes into the class
+        ; table; `new THREE.X()` then resolves by the class name (member-new), and
+        ; THREE.CONSTANT by the global. So skip file resolution here.
+        if (modulePath == "three") {
+            return
+        }
+        if ((indexOf modulePath "@ranger/three") >= 0) {
+            return
+        }
+
         ; Get imported symbols from node.children (import specifiers)
         def importExportNames:[string]
         def importLocalNames:[string]
@@ -932,41 +960,58 @@ class ComponentEngine {
             return
         }
 
-        print ("Loading import: " + dirPath + fullPath)
-
         ; Track loaded file for file watching
         def loadedFilePath:string (dirPath + fullPath)
         loadedFiles = (this.listWithStringIfMissing(loadedFiles loadedFilePath))
-        
-        ; Parse the imported file
-        def lexer (new TSLexer(src))
-        def tokens:[Token] (lexer.tokenize())
-        def importParser:TSParserSimple (new TSParserSimple())
-        importParser.initParser(tokens)
-        importParser.tsxMode = jsxParsing
-        def importAst:TSNode (importParser.parseProgram())
+
+        ; Reuse a previous parse of this module when mtime is unchanged. Level
+        ; transitions that re-import a large shared.tsx skip lexer+parser work.
+        ; mtime must use foundDir+fullPath (same pair as the successful read) —
+        ; dirPath is the module directory after resolving relative segments and
+        ; is not a valid file_mtime prefix when fullPath still contains "../".
+        def cacheKey:string ((this.normalizeDirPath(foundDir)) + fullPath)
+        def fileMtime:int (file_mtime foundDir fullPath)
+        def cacheIdx:int (this.findCachedImportIndex(cacheKey fileMtime))
+        def cacheHit:boolean (cacheIdx >= 0)
+        def importAstNode:TSNode (new TSNode())
+        if (cacheHit) {
+            def hit:CachedImportAst (itemAt importAstCache cacheIdx)
+            importAstNode = hit.ast
+            this.trace("Import cache hit: " + cacheKey)
+        } {
+            print ("Loading import: " + dirPath + fullPath)
+            def lexer (new TSLexer(src))
+            def tokens:[Token] (lexer.tokenize())
+            def importParser:TSParserSimple (new TSParserSimple())
+            importParser.initParser(tokens)
+            importParser.tsxMode = jsxParsing
+            importAstNode = (importParser.parseProgram())
+            this.storeCachedImportAst(cacheKey fileMtime importAstNode dirPath fullPath)
+        }
         
         ; Resolve transitive imports using this module's directory as basePath.
         def savedBasePath:string basePath
         basePath = dirPath
-        this.processImports(importAst)
+        this.processImports(importAstNode)
         basePath = savedBasePath
         
         ; Register all top-level bindings from the imported module so script
         ; code can call imported functions and read imported constants.
-        this.materializeImportedModule(importAst)
+        this.materializeImportedModule(importAstNode)
         
         ; Collect all non-exported helper functions from the file
         def helperFns:[TSNode]
         def hk:int 0
-        while (hk < (array_length importAst.children)) {
-            def hstmt:TSNode (itemAt importAst.children hk)
+        while (hk < (array_length importAstNode.children)) {
+            def hstmt:TSNode (itemAt importAstNode.children hk)
             ; Collect non-exported function declarations as helpers
             if (hstmt.nodeType == "FunctionDeclaration") {
                 def hfnName:string hstmt.name
                 if ((this.isInList(hfnName importExportNames)) == false) {
                     push helperFns hstmt
-                    print ("  Found helper function: " + hfnName)
+                    if (cacheHit == false) {
+                        print ("  Found helper function: " + hfnName)
+                    }
                 }
             }
             hk = hk + 1
@@ -974,8 +1019,8 @@ class ComponentEngine {
         
         ; Find exported functions that match imported names
         def k:int 0
-        while (k < (array_length importAst.children)) {
-            def stmt:TSNode (itemAt importAst.children k)
+        while (k < (array_length importAstNode.children)) {
+            def stmt:TSNode (itemAt importAstNode.children k)
             
             ; Check for exported function declarations
             if (stmt.nodeType == "ExportNamedDeclaration") {
@@ -1057,6 +1102,44 @@ class ComponentEngine {
     
     ; Directory where the last successful readImportSource() found its module.
     def resolvedImportDir:string "./"
+
+    ; Index into importAstCache, or -1 on miss / stale mtime.
+    fn findCachedImportIndex:int (path:string mtime:int) {
+        def i:int 0
+        while (i < (array_length importAstCache)) {
+            def entry:CachedImportAst (itemAt importAstCache i)
+            if (entry.path == path) {
+                if (entry.mtime == mtime) {
+                    return i
+                }
+                return -1
+            }
+            i = i + 1
+        }
+        return -1
+    }
+
+    fn storeCachedImportAst:void (path:string mtime:int ast:TSNode dirPath:string relativePath:string) {
+        def i:int 0
+        while (i < (array_length importAstCache)) {
+            def entry:CachedImportAst (itemAt importAstCache i)
+            if (entry.path == path) {
+                entry.mtime = mtime
+                entry.ast = ast
+                entry.dirPath = dirPath
+                entry.relativePath = relativePath
+                return
+            }
+            i = i + 1
+        }
+        def fresh:CachedImportAst (new CachedImportAst())
+        fresh.path = path
+        fresh.mtime = mtime
+        fresh.ast = ast
+        fresh.dirPath = dirPath
+        fresh.relativePath = relativePath
+        push importAstCache fresh
+    }
 
     ; Read an import file from basePath, falling back to assetPaths.
     fn readImportSource:string (dirPath:string fullPath:string) {
@@ -1248,6 +1331,12 @@ class ComponentEngine {
                     if (false == quiet) {
                         this.trace("Defined module binding: " + varName + " = " + (value.toString()))
                     }
+                } {
+                    ; `let a, b, c;` with no initializer still needs a module
+                    ; binding (JS: undefined), so a later top-level assignment
+                    ; (e.g. inside init()) updates this binding rather than
+                    ; creating a function-local one other functions can't see.
+                    moduleScope.define(varName (EvalValue.undefined()))
                 }
             }
             i = i + 1

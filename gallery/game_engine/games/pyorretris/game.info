@@ -5,3 +5,4 @@ module=game.as
 
 category=Games
 icon=assets/image.png
+iconFrames=360

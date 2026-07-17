@@ -1,0 +1,101 @@
+; ==============================================================================
+; cannon_showcase_demo — the upgraded engine in action THROUGH THE REAL TSX
+;   BRIDGE. Loads the cannon_stack TSX game via GameRunner (game_runtime ->
+;   game_cannon_physics -> CannonWorld) and renders the three balls settling into
+;   a stable stack as an ASCII side view. Proves the solver drives the actual
+;   game path, not just the interface.
+;   Build + run:  npm run engine:physics:showcase
+; ==============================================================================
+
+Import "./game_runtime.rgr"
+
+class CannonShowcaseDemo {
+    ; A 24x14 screen view (x in [0,480], y in [0,270]); balls are 'O', floor '='.
+    sfn render:void (x0:int y0:int x1:int y1:int x2:int y2:int label:string) {
+        def ax:double (to_double x0)
+        def ay:double (to_double y0)
+        def bx:double (to_double x1)
+        def by:double (to_double y1)
+        def cx:double (to_double x2)
+        def cy:double (to_double y2)
+        print (label + ":")
+        def cols:int 24
+        def rows:int 14
+        def r 0
+        while (r < rows) {
+            def cellY:double (((to_double r) / (to_double rows)) * 270.0)
+            def line:string "|"
+            def col 0
+            while (col < cols) {
+                def cellX:double (((to_double col) / (to_double cols)) * 480.0)
+                def ch:string " "
+                def d0x:double (cellX - ax)
+                def d0y:double (cellY - ay)
+                def da:double (sqrt((d0x * d0x) + (d0y * d0y)))
+                def d1x:double (cellX - bx)
+                def d1y:double (cellY - by)
+                def db:double (sqrt((d1x * d1x) + (d1y * d1y)))
+                def d2x:double (cellX - cx)
+                def d2y:double (cellY - cy)
+                def dc:double (sqrt((d2x * d2x) + (d2y * d2y)))
+                if (da < 15.0) { ch = "O" }
+                if (db < 15.0) { ch = "O" }
+                if (dc < 15.0) { ch = "O" }
+                if (cellY > 260.0) { ch = "=" }
+                line = (line + ch)
+                col = (col + 1)
+            }
+            print (line + "|")
+            r = (r + 1)
+        }
+    }
+
+    sfn stepN:void (runner:GameRunner n:int) {
+        def i 0
+        while (i < n) {
+            runner.frame(16 false false false false false false)
+            i = (i + 1)
+        }
+    }
+
+    sfn m@(main):void () {
+        def runner:GameRunner (new GameRunner)
+        runner.init(480 270)
+        def buf:buffer (buffer_read_file "gallery/game_engine/games/cannon_stack" "index.tsx")
+        def src:string (buffer_to_string buf)
+        runner.setScriptDir("gallery/game_engine/games/cannon_stack")
+        runner.loadScript(src)
+        runner.setupScene()
+
+        CannonShowcaseDemo.render((runner.entityX("b0")) (runner.entityY("b0")) (runner.entityX("b1")) (runner.entityY("b1")) (runner.entityX("b2")) (runner.entityY("b2")) "t=0.00s (released)")
+        CannonShowcaseDemo.stepN(runner 30)
+        CannonShowcaseDemo.render((runner.entityX("b0")) (runner.entityY("b0")) (runner.entityX("b1")) (runner.entityY("b1")) (runner.entityX("b2")) (runner.entityY("b2")) "t=0.50s (falling)")
+        CannonShowcaseDemo.stepN(runner 40)
+        CannonShowcaseDemo.render((runner.entityX("b0")) (runner.entityY("b0")) (runner.entityX("b1")) (runner.entityY("b1")) (runner.entityX("b2")) (runner.entityY("b2")) "t=1.17s (impact)")
+        CannonShowcaseDemo.stepN(runner 130)
+        runner.draw()
+        CannonShowcaseDemo.render((runner.entityX("b0")) (runner.entityY("b0")) (runner.entityX("b1")) (runner.entityY("b1")) (runner.entityX("b2")) (runner.entityY("b2")) "t=3.33s (settled)")
+
+        def y0:int (runner.entityY("b0"))
+        def y1:int (runner.entityY("b1"))
+        def y2:int (runner.entityY("b2"))
+        print ((("finalY  top=" + (to_string y0)) + (" mid=" + (to_string y1))) + (" bottom=" + (to_string y2)))
+        ; Screen y grows downward: bottom ball b2 has the largest y, then b1, b0.
+        ; Adjacent centers ~2*radius (28px) apart, and none tunneled through.
+        def d21:int (y2 - y1)
+        def d10:int (y1 - y0)
+        def ok:boolean true
+        if (y2 <= y1) { ok = false }
+        if (y1 <= y0) { ok = false }
+        if (d21 < 20) { ok = false }
+        if (d21 > 40) { ok = false }
+        if (d10 < 20) { ok = false }
+        if (d10 > 40) { ok = false }
+        if (y2 > 270) { ok = false }
+        if (ok) {
+            print "cannon-showcase done (stable 3-ball stack via the real bridge)"
+            return
+        }
+        print "cannon-showcase FAIL"
+    }
+}

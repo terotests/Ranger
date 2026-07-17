@@ -61,6 +61,9 @@ describe("Cannon.js Ranger port", () => {
     cannonIt("World.clearForces");
     cannonIt("World.gravityStep");
     cannonIt("World.collisionMatrix");
+    cannonIt("World.sphereBounce");
+    cannonIt("World.contactRest");
+    cannonIt("World.friction");
   });
 
   describe("Narrowphase", () => {
@@ -108,9 +111,75 @@ describe("Cannon.js Ranger port", () => {
     cannonIt("ContactEquation.getImpactVelocityAlongNormal");
   });
 
+  describe("Narrowphase", () => {
+    cannonIt("Narrowphase.sphereSphere");
+  });
+
+  describe("Solver (SPOOK)", () => {
+    cannonIt("Jacobian.multiplyVectors");
+    cannonIt("Equation.spookParams");
+    cannonIt("GSSolver.contact");
+    cannonIt("GSSolver.friction");
+  });
+
+  describe("Constraints", () => {
+    cannonIt("Constraint.pointToPointPendulum");
+    cannonIt("Constraint.hingeAxis");
+    cannonIt("Constraint.hingeMotor");
+  });
+
+  describe("Ray", () => {
+    cannonIt("Ray.sphereHit");
+    cannonIt("Ray.sphereMiss");
+    cannonIt("Ray.planeHit");
+  });
+
+  describe("Box collision", () => {
+    cannonIt("BoxCollision.sphereOnBox");
+    cannonIt("BoxCollision.boxOnPlane");
+    cannonIt("BoxCollision.boxStack");
+    cannonIt("BoxCollision.boxSeparate");
+  });
+
+  describe("Vehicle", () => {
+    cannonIt("Vehicle.suspensionHover");
+    cannonIt("Vehicle.drive");
+    cannonIt("Vehicle.lateralGrip");
+    cannonIt("Vehicle.steer");
+  });
+
+  describe("Sleep & broadphase", () => {
+    cannonIt("Sleep.bodySleeps");
+    cannonIt("SAP.sameAsNaive");
+  });
+
+  describe("Heightfield", () => {
+    cannonIt("Heightfield.restStep");
+  });
+
+  describe("Convex", () => {
+    cannonIt("Convex.hullOnPlane");
+    cannonIt("Convex.sphereOnConvex");
+    cannonIt("Convex.cylinderOnPlane");
+    cannonIt("Convex.sphereOnCylinder");
+    cannonIt("Convex.convexStack");
+  });
+
+  describe("Particle & Trimesh", () => {
+    cannonIt("Particle.onPlane");
+    cannonIt("Trimesh.sphereRests");
+  });
+
+  describe("PhysicsWorld interface", () => {
+    cannonIt("PhysicsWorld.dropBackend");
+    cannonIt("PhysicsWorld.constraint");
+    cannonIt("PhysicsWorld.arcadeBackend");
+    cannonIt("PhysicsWorld.backendsAgree");
+  });
+
   it("runs full Cannon suite aggregate", () => {
     const output = runCannonAll();
-    expect(output).toContain("pass=53");
+    expect(output).toContain("pass=89");
     expect(output).toContain("fail=0");
     expect(output).toContain("cannon-tests done");
   });

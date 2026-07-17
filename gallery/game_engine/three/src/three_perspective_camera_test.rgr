@@ -1,0 +1,78 @@
+; ==============================================================================
+; three_perspective_camera_test — projection + view matrix checks.
+; ==============================================================================
+
+Import "three_perspective_camera.rgr"
+Import "three_scene.rgr"
+Import "three_vector3.rgr"
+
+class ThreeCamCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    fn near:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        if (d < 0.0005) {
+            passed = (passed + 1)
+            print ("  PASS " + name + " (" + (to_string got) + ")")
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name + " got=" + (to_string got) + " want=" + (to_string want))
+        }
+    }
+}
+
+class ThreePerspectiveCameraTest {
+    sfn m@(main):void () {
+        def ck:ThreeCamCheck (new ThreeCamCheck)
+        print "== ThreePerspectiveCamera + ThreeScene =="
+
+        ; Scene is an Object3D
+        def scene:ThreeScene (new ThreeScene)
+        ck.ok("isScene" scene.isScene)
+        def dummy:ThreeObject3D (new ThreeObject3D)
+        scene.add(dummy)
+        ck.ok("scene.add works (inherited)" ((scene.childCount()) == 1))
+        scene.setBackground(0.1 0.2 0.3)
+        ck.near("background g" scene.backgroundG 0.2)
+
+        ; camera projection: fov 70, aspect 1 -> persp[0] = 1/tan(35deg) ~ 1.4281
+        def cam:ThreePerspectiveCamera (new ThreePerspectiveCamera)
+        cam.setPerspective(70.0 1.0 0.1 100.0)
+        def e0:double (cam.projectionMatrix.eGet(0))
+        ck.ok("persp[0] ~1.428" ((e0 > 1.42) && (e0 < 1.44)))
+        ck.near("persp[11] = -1" (cam.projectionMatrix.eGet(11)) (0.0 - 1.0))
+        ck.near("persp[15] = 0" (cam.projectionMatrix.eGet(15)) 0.0)
+
+        ; aspect 2 doubles the horizontal term denominator -> persp[0] halves
+        def cam2:ThreePerspectiveCamera (new ThreePerspectiveCamera)
+        cam2.setPerspective(70.0 2.0 0.1 100.0)
+        ck.near("aspect 2 halves persp[0]" (cam2.projectionMatrix.eGet(0)) (e0 / 2.0))
+
+        ; view matrix: camera at z=2 maps world origin to (0,0,-2) in view space
+        cam.position.set(0.0 0.0 2.0)
+        cam.updateViewMatrix()
+        def vp:ThreeVector3 (cam.matrixWorldInverse.transformPoint((ThreeVector3.of(0.0 0.0 0.0))))
+        ck.near("view origin x" vp.x 0.0)
+        ck.near("view origin z (-2)" vp.z (0.0 - 2.0))
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

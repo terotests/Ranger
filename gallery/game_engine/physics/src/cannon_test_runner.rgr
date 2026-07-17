@@ -16,6 +16,17 @@ Import "cannon_tuple_dictionary_test.rgr"
 Import "cannon_overlap_keeper_test.rgr"
 Import "cannon_contact_equation_test.rgr"
 Import "cannon_narrowphase_test.rgr"
+Import "cannon_solver_test.rgr"
+Import "cannon_constraint_test.rgr"
+Import "cannon_ray_test.rgr"
+Import "cannon_boxcollision_test.rgr"
+Import "cannon_vehicle_test.rgr"
+Import "cannon_sleep_test.rgr"
+Import "cannon_sap_test.rgr"
+Import "cannon_heightfield_test.rgr"
+Import "cannon_convex_test.rgr"
+Import "physics_world_test.rgr"
+Import "cannon_extra_shapes_test.rgr"
 
 class CannonTestRunner {
     sfn m@(main):void () {
@@ -37,6 +48,17 @@ class CannonTestRunner {
         def overlapTest:CannonOverlapKeeperTest (new CannonOverlapKeeperTest)
         def contactTest:CannonContactEquationTest (new CannonContactEquationTest)
         def narrowphaseTest:CannonNarrowphaseTest (new CannonNarrowphaseTest)
+        def solverTest:CannonSolverTest (new CannonSolverTest)
+        def constraintTest:CannonConstraintTest (new CannonConstraintTest)
+        def rayTest:CannonRayTest (new CannonRayTest)
+        def boxCollisionTest:CannonBoxCollisionTest (new CannonBoxCollisionTest)
+        def vehicleTest:CannonVehicleTest (new CannonVehicleTest)
+        def sleepTest:CannonSleepTest (new CannonSleepTest)
+        def sapTest:CannonSapTest (new CannonSapTest)
+        def heightfieldTest:CannonHeightfieldTest (new CannonHeightfieldTest)
+        def convexTest:CannonConvexTest (new CannonConvexTest)
+        def physicsWorldTest:PhysicsWorldTest (new PhysicsWorldTest)
+        def extraShapesTest:CannonExtraShapesTest (new CannonExtraShapesTest)
 
         vec3Test.runFiltered(harness filter)
         quatTest.runFiltered(harness filter)
@@ -50,6 +72,17 @@ class CannonTestRunner {
         overlapTest.runFiltered(harness filter)
         contactTest.runFiltered(harness filter)
         narrowphaseTest.runFiltered(harness filter)
+        solverTest.runFiltered(harness filter)
+        constraintTest.runFiltered(harness filter)
+        rayTest.runFiltered(harness filter)
+        boxCollisionTest.runFiltered(harness filter)
+        vehicleTest.runFiltered(harness filter)
+        sleepTest.runFiltered(harness filter)
+        sapTest.runFiltered(harness filter)
+        heightfieldTest.runFiltered(harness filter)
+        convexTest.runFiltered(harness filter)
+        physicsWorldTest.runFiltered(harness filter)
+        extraShapesTest.runFiltered(harness filter)
 
         if (filter == "") {
             print ("pass=" + (to_string harness.passCount))

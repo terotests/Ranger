@@ -22,6 +22,7 @@ Import "./wasm_physics_runner.rgr"
 Import "./game_ui_runner.rgr"
 Import "./as_sprite_runner.rgr"
 Import "./wasm3d_runner.rgr"
+Import "../web/web_teapot_tsx_host.rgr"
 Import "../gfx_sdl.rgr"
 Import "./game_audio_sdl.rgr"
 Import "./game_catalog.rgr"
@@ -60,6 +61,11 @@ class GameSdlRunner {
     def useSpriteRunner:boolean false
     def wasm3dRunner:Wasm3dRunner (new Wasm3dRunner)
     def useWasm3d:boolean false
+    ; render=three games (interpreted teapot.tsx + Three GL backend, Tests category)
+    def teapotHost:WebTeapotTsxHost (new WebTeapotTsxHost)
+    def useTeapot:boolean false
+    def teapotPrevBtn:int 0
+    def teapotGuiTex:int 0
     def catalog:GameCatalog (new GameCatalog)
     def nativeBridge:GameHostNativeBridge (new GameHostNativeBridge)
     def pw:int 480
@@ -497,6 +503,89 @@ class GameSdlRunner {
         print ("[game-engine] wasm 3d game: " + wasmPath)
     }
 
+    ; Load a render=three game: the interpreted teapot.tsx scene (on the three.tsx
+    ; façade) rendered through ThreeGLBackend. Same host the browser uses; the GL
+    ; context comes from the launcher's gfx_open_gpu. Tests category.
+    fn loadTeapotAt:void (path:string) {
+        useWasmRunner = false
+        useWasmPhysics = false
+        useSpriteRunner = false
+        useStreamRunner = false
+        useWasm3d = false
+        useTeapot = true
+        this.presentLoadingScreen("LOADING TEAPOT")
+        def dir:string (this.dirOf(path))
+        ; the scene file is the catalog entry itself (index.tsx by convention);
+        ; three.tsx is the shared façade. Reading the entry from `path` keeps this
+        ; working whatever the game folder names its entry file.
+        def sceneFile:string (this.baseOf(path))
+        teapotHost.setupGL("")
+        def r:string (teapotHost.loadFromVfs(dir "three.tsx" sceneFile pw ph 1.0))
+        if (r != "ok") {
+            useTeapot = false
+            print ("[game-engine] teapot load failed: " + r)
+            this.loadMenuGame()
+            return
+        }
+        def gbuf:buffer (teapotHost.guiRGBA())
+        teapotGuiTex = (gpu_make_texture gbuf (teapotHost.guiW()) (teapotHost.guiH()))
+        teapotPrevBtn = 0
+        currentScriptPath = path
+        currentGamePath = path
+        inMenu = false
+        inGame = true
+        splitScreenActive = false
+        wasmSplitActive = false
+        this.syncInputEdges()
+        gameInputSnap.resetSoloPad()
+        gfx_clear_should_close
+        print ("[game-engine] three teapot game: " + path)
+    }
+
+    ; Per-frame for a render=three game: mouse orbit / panel click, render, then
+    ; composite the GUI panel and swap. A held quit (Q/Esc/Back) returns to menu.
+    fn drawTeapot:void () {
+        gfx_input_poll
+        def mx:int (gfx_mouse_x)
+        def my:int (gfx_mouse_y)
+        def btn:int (gfx_mouse_buttons)
+        def wheel:int (gfx_mouse_wheel)
+        def gw:int (teapotHost.guiW())
+        def gh:int (teapotHost.guiH())
+        def panelX:int (pw - gw)
+        def leftNow:int (bit_and btn 1)
+        def leftPrev:int (bit_and teapotPrevBtn 1)
+        if ((leftPrev == 0) && (leftNow == 1)) {
+            if ((mx >= panelX) && (my <= gh)) {
+                def changed:boolean (teapotHost.guiPointerDown((to_double (mx - panelX)) (to_double my)))
+                if changed {
+                    def nb:buffer (teapotHost.guiRGBA())
+                    teapotGuiTex = (gpu_make_texture nb gw gh)
+                }
+            } {
+                teapotHost.onPointerDown((to_double mx) (to_double my) 0)
+            }
+        }
+        if ((leftPrev == 1) && (leftNow == 1)) {
+            teapotHost.onPointerMove((to_double mx) (to_double my))
+        }
+        if ((leftPrev == 1) && (leftNow == 0)) {
+            teapotHost.onPointerUp()
+        }
+        if (wheel != 0) {
+            teapotHost.onWheel(((to_double (0 - wheel)) * 100.0))
+        }
+        teapotPrevBtn = btn
+        teapotHost.frame()
+        gpu_draw_overlay teapotGuiTex panelX 0 gw gh pw ph
+        gfx_gl_swap
+        def mask:int (gfx_input_source_mask 0)
+        if ((bit_and mask 8) != 0) {
+            useTeapot = false
+            this.loadMenuGame()
+        }
+    }
+
     fn dirOf:string (path:string) {
         def cut (0 - 1)
         def i 0
@@ -512,6 +601,25 @@ class GameSdlRunner {
             return "."
         }
         return (substring path 0 cut)
+    }
+
+    ; Filename portion of a path (everything after the last "/"). Counterpart to
+    ; dirOf; used to load a game's declared entry file by name.
+    fn baseOf:string (path:string) {
+        def cut (0 - 1)
+        def i 0
+        def n (strlen path)
+        while (i < n) {
+            def c:string (substring path i (i + 1))
+            if (c == "/") {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        if (cut < 0) {
+            return path
+        }
+        return (substring path (cut + 1) n)
     }
 
     ; Load an interpreted .as game folder — reuses the wasm physics/render path
@@ -857,6 +965,7 @@ class GameSdlRunner {
         this.clearNavStack()
         nativeBridge.clearPendingNav()
         useWasm3d = false
+        useTeapot = false
         currentGamePath = path
         if (this.isStreamingPath(path)) {
             splitScreenActive = false
@@ -874,6 +983,12 @@ class GameSdlRunner {
             splitScreenActive = false
             wasmSplitActive = false
             this.loadWasm3dAt(path)
+            return
+        }
+        if ((this.renderOf(path)) == "three") {
+            splitScreenActive = false
+            wasmSplitActive = false
+            this.loadTeapotAt(path)
             return
         }
         if (this.isAsPath(path)) {
@@ -950,6 +1065,58 @@ class GameSdlRunner {
         }
     }
 
+    ; Split-screen panes each have their own GameHostNativeBridge. pushGame /
+    ; loadGame from a pane lands on leftBridge/rightBridge. Start a cooperative
+    ; per-pane load (sibling keeps framing across read/parse/setup phases).
+    fn beginSplitPaneLoad:void (pane:int tsxPath:string) {
+        splitHost.beginPaneLoad(pane tsxPath)
+        inMenu = false
+        inGame = true
+        this.syncInputEdges()
+        gfx_clear_should_close
+        print ((("[split-screen] coop load pane " + pane) + ": ") + tsxPath)
+    }
+
+    fn drainSplitScriptNavigation:void () {
+        ; Do not start another pane load while one is in progress.
+        if (splitHost.isPaneLoading()) {
+            return
+        }
+        if (false == (splitHost.consumePendingNav())) {
+            return
+        }
+        def op:string splitHost.lastNavOp
+        def path:string splitHost.lastNavPath
+        def pane:int splitHost.lastNavPane
+        if (op == "load") {
+            if ((strlen path) > 0) {
+                ; loadGame replaces that pane's screen and drops its push history.
+                splitHost.clearPanePrev(pane)
+                this.beginSplitPaneLoad(pane path)
+            }
+            return
+        }
+        if (op == "push") {
+            if ((strlen path) > 0) {
+                splitHost.pushPanePath(pane)
+                this.beginSplitPaneLoad(pane path)
+            }
+            return
+        }
+        if (op == "pop") {
+            def prev:string (splitHost.popPanePath(pane))
+            if ((strlen prev) == 0) {
+                ; No per-pane history — leave split and return to launcher,
+                ; same as solo pop with an empty stack.
+                inGame = false
+                splitScreenActive = false
+                return
+            }
+            this.beginSplitPaneLoad(pane prev)
+            return
+        }
+    }
+
     fn maybePollCatalog:void () {
         def now:int (gfx_ticks_ms)
         if ((now - lastCatalogPoll) < catalogPollMs) {
@@ -1013,6 +1180,12 @@ class GameSdlRunner {
             ; the 3D runner draws directly to GL and swaps inside draw();
             ; no framebuffer present.
             wasm3dRunner.draw()
+            return
+        }
+        if (useTeapot) {
+            ; interpreted teapot.tsx drawn through the Three GL backend + a GUI
+            ; overlay; draws + swaps directly (no framebuffer present).
+            this.drawTeapot()
             return
         }
         def s0:int (gfx_ticks_ms)
@@ -1299,6 +1472,9 @@ class GameSdlRunner {
             }
             if ((indexOf txt "render=3d") >= 0) {
                 return "3d"
+            }
+            if ((indexOf txt "render=three") >= 0) {
+                return "three"
             }
         }
         return ""
@@ -1879,10 +2055,27 @@ class GameSdlRunner {
                     if (wasmSplitActive) {
                         wasmSplitHost.frame(dtMs)
                     } {
+                        ; Sibling keeps updating while the other pane reloads
+                        ; cooperatively (no background thread — phased on the
+                        ; main loop so each phase can present a live frame).
                         splitHost.frameWithInput(dtMs)
+                        if (splitHost.isPaneLoading()) {
+                            splitHost.tickPaneLoad()
+                        } {
+                            this.drainSplitScriptNavigation()
+                        }
                     }
                 }
             } {
+                if (useTeapot) {
+                    ; The interpreted teapot (render=three) has no GameRunner scene:
+                    ; its whole per-frame update — mouse orbit, camera push, scene
+                    ; reconcile + GL render — runs inside drawTeapot() (called from
+                    ; draw() below). Falling through to runner.frameWithInput() would
+                    ; step the never-loaded default runner, whose particle pool is
+                    ; empty while maxCount is still 96 -> itemAt pool 0 throws
+                    ; std::out_of_range. draw() already guards useTeapot; so must this.
+                } {
                 if (useWasm3d) {
                     def gameInput3d:GameInputSnapshot (this.pollGameInput())
                     wasm3dRunner.frameWithInput(dtMs gameInput3d.p0.up gameInput3d.p0.down gameInput3d.p0.left gameInput3d.p0.right gameInput3d.p0.action)
@@ -1909,6 +2102,7 @@ class GameSdlRunner {
                         runner.frameWithInput(dtMs gameInput)
                         this.drainScriptNavigation()
                     }
+                }
                 }
                 }
                 }

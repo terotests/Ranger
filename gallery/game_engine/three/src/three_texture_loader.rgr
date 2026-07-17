@@ -1,0 +1,46 @@
+; ==============================================================================
+; three_texture_loader — (Three.js src/loaders/TextureLoader.js).
+; ==============================================================================
+; Reads an image file from the (virtual) filesystem and decodes it to RGBA by
+; reusing the engine's model3d PNG/JPEG decoders. Kept OUT of the core so the
+; math/scene/geometry pieces carry no decoder dependency. Pure Ranger, so the
+; whole path also compiles to C++ (GIF is not yet supported by the decoders).
+; ==============================================================================
+
+Import "three_texture.rgr"
+Import "../../model3d/AssetModel.rgr"
+Import "../../model3d/TextureDecode.rgr"
+
+class ThreeTextureLoader {
+    fn sniff:string (bytes:buffer) {
+        if ((buffer_length bytes) < 4) {
+            return ""
+        }
+        def b0:int (buffer_get bytes 0)
+        def b1:int (buffer_get bytes 1)
+        if ((b0 == 137) && (b1 == 80)) {
+            return "image/png"
+        }
+        if ((b0 == 255) && (b1 == 216)) {
+            return "image/jpeg"
+        }
+        return ""
+    }
+
+    fn load:ThreeTexture (dir:string file:string) {
+        def tex:ThreeTexture (new ThreeTexture)
+        def bytes:buffer (buffer_read_file dir file)
+        if ((buffer_length bytes) == 0) {
+            return tex
+        }
+        def ta:TextureAsset (new TextureAsset)
+        ta.sourceBytes = bytes
+        ta.mimeType = (this.sniff(bytes))
+        def ok:boolean (TextureDecode.decodeInto(ta))
+        if ok {
+            tex.setImage(ta.rgba ta.width ta.height)
+            tex.colorSpace = "srgb"
+        }
+        return tex
+    }
+}

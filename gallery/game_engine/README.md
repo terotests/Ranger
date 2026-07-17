@@ -150,6 +150,7 @@ npm run engine:compile && npm run engine:run
 | Pac-Man | `pacman` | TSX | Split screen + autoscale |
 | Space Invaders | `invaders` | TSX | Stressitesti (paljon rect-spritejä) |
 | Pomppija | `ylos2` | TSX | Platformer, LPC-sheet-spritet, musiikki |
+| Viidakko Pomppija | `ylos3` | TSX | Ylos 2 -jatkumo: 3 viidakkotasoa, loadGame-tasot |
 | Flipperitorni | `pinpall` | TSX + Cannon | Pystypinball, split screen |
 | Physics Sandbox | `physics_sandbox` | TSX + Cannon | Flipperit, pegs, sheet-animaatiot |
 | Autopeli Physics | `autopeli_physics` | TSX + host physics | Top-down racer, jaettu fysiikkamaailma |
@@ -190,6 +191,7 @@ Katalogi päivittyy ajon aikana (oletus ~10 s välein); uusi `games/mygame/index
 name=My Game
 icon=assets/image.png     # launcherin ikonikuva (ks. ikonien generointi alla)
 iconFrames=120            # kuinka monta headless-framea ennen ikoniscreenshotia
+index=1                   # valikkosija kategoriassa (pienempi = aiemmin; esim. 1 = ykkönen)
 splitScreen=auto          # auto | always | never (jaetaanko ruutu)
 splitWorld=shared         # shared | separate (jaetun maailman malli, ks. alla)
 autoscale=true            # host skaalaa 480×270 → paneeliin
@@ -523,7 +525,10 @@ Kaikki alla oleva on **testattu** WASM-käännöksellä (`runtime/wasm/*_test.mj
 | **Sisäkkäiset oliot**: kentän-kentän luku/kirjoitus `a.b.c` (mielivaltainen syvyys) | ✅ | `o.mid.inner.v = 99` |
 | **Olio-kenttä** (`def v:Vec (new Vec)`) rekursiivinen vapautus + jako | ✅ | RC: retain/move + release |
 | **Singletonit** (`@singleton(true)`) — jaettu tila framejen yli | ✅ | `World.__singleton()` |
-| **Lambdat / sulkeumat** (`(fn:… (){})`, `{ … }`) | ❌ | funktio-osoittimia ei emitoida |
+| **Lambdat / sulkeumat** (`(fn:… (){})`) — kutsu + callback | ✅ (`-wasmrc`) | wasm-taulu + `call_indirect` |
+| Lambda **nappaa arvon/merkkijonon/olion** (vain luku) | ✅ (`-wasmrc`) | sulkeuma = RC-olio, napatut retainataan |
+| Lambda **mutatoi napattua oliota** (event handler) | ✅ (`-wasmrc`) | jaettu viittaus, RC estää ennenaikaisen vapautuksen |
+| Lambda **mutatoi napattua arvoa** (jaettu laskuri) | ✅ (`-wasmrc`) | arvo laatikoidaan jaettuun keko-soluun |
 
 **Singletonit ja globaali tila.** `@singleton(true)` toimii: `__singleton()`
 rakentaa instanssin laiskasti mutable-wasm-globaaliin ja palauttaa saman olion
@@ -561,9 +566,46 @@ Ainoa raja: **syklit** (`a.next = b; b.next = a`) vuotavat — RC:n luontainen
 rajoitus — mutta eivät kaadu eivätkä korruptoi muistia. Vältä sykliset
 olio-graafit, tai katkaise ne (aseta kenttä nulliksi) ennen kuin päästät irti.
 
-**Ei (vielä) tuettu.** Lambdat / sulkeumat (`(fn:… (){})`, `{ … }`): WAT-backend
-ei emitoi funktio-osoittimia eikä `call_indirect`ia, joten callbackit ja
-funktioarvot eivät käänny. Käytä metodeja + `for`/`while`-silmukoita.
+**Lambdat ja sulkeumat.** Lambda-arvot ja callbackit toimivat (`-wasmrc`):
+jokainen lambda-runko nostetaan omaksi top-level-funktioksi wasm-funktiotauluun,
+ja kutsu menee `call_indirect`in läpi. Lambda-arvo on **sulkeuma-tietue = RC-olio**
+`[ fn_index | napatut kentät ]`, joten sen elinkaari hoituu samalla
+viittauslaskennalla kuin muidenkin olioiden.
+
+```ranger
+class SG {
+    ; korkeamman kertaluvun funktio: ottaa lambdan ja kutsuu sitä
+    sfn apply:int (cb:(fn:int (x:int)) v:int) {
+        return (cb(v))
+    }
+    sfn demo:int () {
+        def k 3
+        ; nappaa paikallisen k:n (vain luku) — kopioidaan sulkeuman ympäristöön
+        return (SG.apply((fn:int (x:int) { return (* x k) }) 5))   ; 15
+    }
+}
+```
+
+Kolme nappaustasoa, kaikki tuettu:
+
+- **Vain luku** — lambda lukee ulomman muuttujan (`k` yllä). Arvot ja
+  merkkijonot **kopioidaan** sulkeuman ympäristöön (merkkijono dupataan), oliot
+  **retainataan**. Sulkeuman typedesc vapauttaa ne kun tietue tuhoutuu.
+- **Napatun olion mutatointi** (event-handler-kuvio) — lambda kirjoittaa
+  napatun olion kenttään (`entity.hp = 0`), ja kirjoitus näkyy ulkona, koska
+  sulkeuma pitää **saman viittauksen**. Käyttäjän esiin nostama vaara — olio
+  vapautuu ennenaikaisesti vaikka lambda vielä viittaa siihen — ei toteudu:
+  ympäristö retainaa olion, joten se elää niin kauan kuin **joko** ulompi skooppi
+  **tai** sulkeuma pitää siitä kiinni, ja vapautuu täsmälleen kerran.
+- **Napatun arvon mutatointi** (jaettu laskuri, `count = count + 1`) — arvo
+  **laatikoidaan** jaettuun keko-soluun, jota sekä ulompi skooppi että sulkeuma
+  osoittavat, joten muutos on molemminpuolinen. Yksisäikeinen WASM ⇒ ei
+  lukituksia.
+
+Rajat: napattu `f64`-arvo ja `this`-nappaus (`this.kenttä` lambdan sisällä)
+eivät vielä laatikoidu — kierrä tallettamalla arvo paikalliseen int-muuttujaan
+tai olioon ennen lambdaa. Sykliset sulkeumat (sulkeuma nappaa olion, joka
+viittaa takaisin sulkeumaan) vuotavat — sama RC:n raja kuin olio-graafeilla.
 
 ### Sudenkuopat
 
@@ -619,11 +661,30 @@ Kaksi opt-in-fysiikkakerrosta:
 | **Host physics** (`game_physics.rgr`) | Top-down racer, ajoneuvot, segmenttiseinät | `config().physics`, `state.physics`, `physicsContacts` |
 | **Cannon** (`game_cannon_physics.rgr`) | Pinball, painovoima, flipperit | `config().physics.cannon`, entity `physics: { … }` |
 
-Cannon.js -portti: [`physics/src/`](./physics/src/). Headless-testit:
+### Cannon-moottori (uudistettu)
+
+Cannon-portti [`physics/src/`](./physics/src/) on uudistettu **cannon-es**:n pohjalta
+täydeksi constraint-pohjaiseksi 3D-moottoriksi (89 yksikkötestiä). Katso koko
+kuvaus ja vaiheet: [`PLAN_PHYSICS_ENGINE.md`](./PLAN_PHYSICS_ENGINE.md).
+
+- **Solver:** SPOOK Gauss–Seidel + Coulomb-kitka (korvaa käsin viritetyn arcade-resolverin)
+- **Nivelet:** point-to-point, sarana (hinge), sarana-motori (flipperi)
+- **Muodot & törmäykset:** sphere, box, plane, heightfield, convex, cylinder, particle,
+  trimesh — mukaan lukien box-box- ja convex-convex-SAT
+- **Raycast**, **RaycastVehicle** (jousitus + veto + sivuttaispito + ohjaus), **uni**
+  (sleep), **SAP-broadphase**
+- **`PhysicsWorld`-rajapinta** ([`physics_world.rgr`](./physics/src/physics_world.rgr)):
+  moottorineutraali sauma, jonka takana Cannon- ja arcade-backendit ovat vaihdettavissa
 
 ```bash
-npm run engine:physics:test
+npm run engine:physics:test        # 89 yksikkötestiä
+npm run engine:physics:showcase    # engine toiminnassa: 3 pallon vakaa pino (ASCII)
 ```
+
+> **Huom:** TSX-silta ([`game_cannon_physics.rgr`](./scripting/game_cannon_physics.rgr))
+> tekee vielä arcade-tyylistä manuaalista reunakäsittelyä eikä komponoi täysin uuden
+> solverin kanssa — se on vielä luonnos ja vaatii oman uudistuksensa. `engine:physics:showcase`
+> ajaa moottoria suoraan `PhysicsWorld`-rajapinnan kautta (ohi sillan).
 
 ## Käännetty Pong-viite
 

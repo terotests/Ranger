@@ -1,0 +1,110 @@
+; ==============================================================================
+; three_orbit_controls_test — spherical orbit + lookAt orientation.
+; ==============================================================================
+
+Import "three_orbit_controls.rgr"
+
+class ThreeOrbitControlsTest {
+    def passed:int 0
+    def failed:int 0
+
+    fn near:void (label:string a:double b:double) {
+        def d:double (a - b)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        def ok:boolean (d < 0.001)
+        if ok {
+            passed = (passed + 1)
+            def msg:string ("  PASS " + label)
+            print msg
+        } {
+            failed = (failed + 1)
+            def got:string ((" (got " + (to_string a)) + (" want " + ((to_string b) + ")")))
+            def msg2:string (("  FAIL " + label) + got)
+            print msg2
+        }
+    }
+
+    ; world-space forward (-Z) of a camera after update.
+    fn forwardComp:double (cam:ThreePerspectiveCamera comp:int) {
+        cam.updateMatrixWorld()
+        ; camera looks down -Z, so forward = -(col2)
+        def idx:int (8 + comp)
+        def e:double (cam.matrixWorld.eGet(idx))
+        return (0.0 - e)
+    }
+
+    sfn m@(main):void () {
+        def t:ThreeOrbitControlsTest (new ThreeOrbitControlsTest)
+        t.run()
+    }
+
+    fn run:void () {
+        def cam:ThreePerspectiveCamera (new ThreePerspectiveCamera)
+        cam.setPerspective(45.0 1.0 1.0 80000.0)
+        cam.position.set(0.0 0.0 1000.0)
+
+        def oc:ThreeOrbitControls (new ThreeOrbitControls)
+        oc.setViewport(600 600)
+        oc.setCamera(cam)
+
+        ; init from camera: radius 1000, theta 0, phi PI/2
+        this.near("init radius" oc.radius 1000.0)
+        this.near("init theta" oc.theta 0.0)
+        this.near("init phi" oc.phi 1.5707963267948966)
+
+        ; apply spherical -> same position
+        oc.applyToCamera()
+        this.near("apply keeps x" cam.position.x 0.0)
+        this.near("apply keeps y" cam.position.y 0.0)
+        this.near("apply keeps z" cam.position.z 1000.0)
+
+        ; camera looks at origin: forward = (0,0,-1)
+        this.near("fwd0 x" (this.forwardComp(cam 0)) 0.0)
+        this.near("fwd0 y" (this.forwardComp(cam 1)) 0.0)
+        this.near("fwd0 z" (this.forwardComp(cam 2)) (0.0 - 1.0))
+
+        ; rotate azimuth by +PI/2: camera swings to +X, still looking at origin
+        oc.theta = 1.5707963267948966
+        oc.applyToCamera()
+        this.near("rot x" cam.position.x 1000.0)
+        this.near("rot y" cam.position.y 0.0)
+        this.near("rot z" cam.position.z 0.0)
+        this.near("fwd1 x" (this.forwardComp(cam 0)) (0.0 - 1.0))
+        this.near("fwd1 z" (this.forwardComp(cam 2)) 0.0)
+
+        ; wheel in (delta < 0) shrinks the radius
+        def r0:double oc.radius
+        oc.wheel((0.0 - 1.0))
+        if (oc.radius < r0) {
+            passed = (passed + 1)
+            print "  PASS wheel-in shrinks radius"
+        } {
+            failed = (failed + 1)
+            print "  FAIL wheel radius"
+        }
+
+        ; pointer drag rotates + marks dirty
+        oc.consumeDirty()
+        oc.pointerDown(300.0 300.0 0)
+        oc.pointerMove(450.0 300.0)
+        oc.pointerUp()
+        if (oc.consumeDirty()) {
+            passed = (passed + 1)
+            print "  PASS drag marks dirty"
+        } {
+            failed = (failed + 1)
+            print "  FAIL drag dirty"
+        }
+
+        print "== summary =="
+        def s:string (("passed=" + (to_string passed)) + (" failed=" + (to_string failed)))
+        print s
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

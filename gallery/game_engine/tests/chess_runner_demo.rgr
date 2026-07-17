@@ -1,0 +1,86 @@
+; ==============================================================================
+; chess_runner_demo - headless smoke for games/chess/index.tsx
+; ==============================================================================
+;
+; Boots Chess, starts vs-computer from the menu, plays e2-e4, waits for the
+; computer reply, and prints board/entity diagnostics for CI.
+; ==============================================================================
+
+Import "../scripting/game_runtime.rgr"
+
+class ChessRunnerDemo {
+    sfn m@(main):void () {
+        def runner:GameRunner (new GameRunner)
+        runner.init(480 270)
+
+        def buf:buffer (buffer_read_file "gallery/game_engine/games/chess" "index.tsx")
+        def src:string (buffer_to_string buf)
+        runner.setScriptDir("gallery/game_engine/games/chess")
+        runner.loadScript(src)
+        runner.setupScene()
+
+        def frames:int 120
+        if ((shell_arg_cnt) > 0) {
+            def parsed@(optional):int (to_int (shell_arg 0))
+            if (!null? parsed) {
+                frames = (unwrap parsed)
+            }
+        }
+
+        def i 0
+        while (i < frames) {
+            def up:boolean false
+            def down:boolean false
+            def left:boolean false
+            def right:boolean false
+            def action:boolean false
+
+            ; Leave menu with vs-computer (default sel=0).
+            if (i == 5) {
+                action = true
+            }
+            ; Cursor starts on e2 — select white pawn.
+            if (i == 20) {
+                action = true
+            }
+            ; Move cursor to e4 (two ranks up).
+            if (i == 30) { up = true }
+            if (i == 40) { up = true }
+            ; Play e2e4.
+            if (i == 50) {
+                action = true
+            }
+
+            runner.frame(16 up down left right action false)
+            i = (i + 1)
+        }
+
+        runner.draw()
+        buffer_write_file "gallery/game_engine/scripting" "chess_frame.rgba" (runner.raw())
+
+        def sc:string (runner.getCurrentScreen())
+        def ec:int (runner.entityCount())
+        def pc0x:int (runner.entityX("pc0"))
+        def pc0y:int (runner.entityY("pc0"))
+        def curx:int (runner.entityX("cursor"))
+        def cury:int (runner.entityY("cursor"))
+        print ("frames=" + frames)
+        print ("screen=" + sc)
+        print (("entities=" + ec))
+        print (("pc0=" + pc0x) + ("," + pc0y))
+        print (("cursor=" + curx) + ("," + cury))
+        ; After e2e4 lastFrom is e2. lastTo may be hidden while the cursor
+        ; still sits on e4 (cursor wins over last-move tint).
+        def lfx:int (runner.entityX("lastFrom"))
+        def lfy:int (runner.entityY("lastFrom"))
+        print (("lastFrom=" + lfx) + ("," + lfy))
+        if (lfx > 0) {
+            print "moved=ok"
+        } {
+            print "moved=missing"
+        }
+        def audio:GameAudio (runner.audioRef())
+        print (("audioPlays=" + audio.playCount))
+        print "chess-runner done"
+    }
+}

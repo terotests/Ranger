@@ -12,6 +12,11 @@
 ;
 ; autoscale=off: runner canvas matches pane size (240x270); game script scales
 ; layout itself (e.g. Ylos via bgWidth).
+;
+; Per-pane pushGame/loadGame uses a cooperative main-loop load (beginPaneLoad /
+; tickPaneLoad): read → parse → prepare → paintBg → entities across frames so
+; the sibling pane keeps updating. Not a background thread — createStaticBg and
+; first-time TSX parse can still hitch briefly on a single phase.
 ; ==============================================================================
 
 Import "./game_runtime.rgr"
@@ -39,6 +44,20 @@ class SplitScreenHost {
     def profFrames:int 0
     def leftScriptPath:string ""
     def rightScriptPath:string ""
+    ; Filled by consumePendingNav() for the SDL host to apply once per frame.
+    def lastNavOp:string ""
+    def lastNavPath:string ""
+    def lastNavPane:int -1
+    ; One-deep prev path per pane so popGame can restore that pane only.
+    def leftPrevPath:string ""
+    def rightPrevPath:string ""
+    ; Cooperative per-pane load (no threads): while one pane reloads, the
+    ; sibling keeps receiving frames.
+    ; Phases: 0=idle 1=read 2=parse 3=prepare 4=paintBg 5=entities.
+    def loadPane:int -1
+    def loadPath:string ""
+    def loadPhase:int 0
+    def loadSrc:string ""
 
     fn half:int (n:int) {
         def result 0
@@ -220,8 +239,17 @@ class SplitScreenHost {
         right.syncSharedWorldFrom(left)
     }
 
+    fn isPaneLoading:boolean () {
+        if (loadPhase > 0) {
+            return true
+        }
+        return false
+    }
+
     fn frameWithInput:void (dtMs:int) {
         if (this.usesSharedPhysics()) {
+            ; Shared-physics games step both runners together — skip cooperative
+            ; single-pane load there (nav still sync-reloads via reloadPane).
             this.frameSharedPhysics(dtMs)
             return
         }
@@ -229,8 +257,13 @@ class SplitScreenHost {
         right.setPeerCar((left.exportPeerCar()))
         def leftSnap:GameInputSnapshot (this.snapForPane(0))
         def rightSnap:GameInputSnapshot (this.snapForPane(1))
-        left.frameWithInput(dtMs leftSnap)
-        right.frameWithInput(dtMs rightSnap)
+        ; Skip the pane that is mid-reload so the sibling keeps playing.
+        if (loadPane != 0) {
+            left.frameWithInput(dtMs leftSnap)
+        }
+        if (loadPane != 1) {
+            right.frameWithInput(dtMs rightSnap)
+        }
     }
 
     ; Render both panes. In autoscale mode the composite/blit is skipped — the
@@ -242,19 +275,29 @@ class SplitScreenHost {
         if (profileEnabled) {
             t0 = (gfx_ticks_ms)
         }
-        left.draw()
+        ; Freeze the loading pane on its last drawn frame (canvas untouched).
+        if (loadPane != 0) {
+            left.draw()
+        }
         def t1:int 0
         if (profileEnabled) {
             t1 = (gfx_ticks_ms)
         }
-        right.draw()
+        if (loadPane != 1) {
+            right.draw()
+        }
         def t2:int 0
         if (profileEnabled) {
             t2 = (gfx_ticks_ms)
         }
         if (false == autoscale) {
-            canvas.copyRectFrom((left.canvas) 0 0 paneW paneH 0 0)
-            canvas.copyRectFrom((right.canvas) 0 0 paneW paneH paneW 0)
+            ; Keep the loading pane's last framebuffer (do not redraw mid-reload).
+            if (loadPane != 0) {
+                canvas.copyRectFrom((left.canvas) 0 0 paneW paneH 0 0)
+            }
+            if (loadPane != 1) {
+                canvas.copyRectFrom((right.canvas) 0 0 paneW paneH paneW 0)
+            }
             def ny 0
             def divX paneW
             while (ny < ph) {
@@ -298,5 +341,175 @@ class SplitScreenHost {
             return true
         }
         return false
+    }
+
+    ; Consume pushGame/loadGame/popGame from one pane bridge (left first if
+    ; both pending — right is handled next frame). Does NOT clear the other
+    ; pane: each session advances independently.
+    ; Returns true when an op was pending; read lastNavOp / lastNavPath / lastNavPane.
+    fn consumePendingNav:boolean () {
+        lastNavOp = ""
+        lastNavPath = ""
+        lastNavPane = -1
+        if (leftBridge.hasPendingNav()) {
+            lastNavOp = (leftBridge.takePendingNavOp())
+            lastNavPath = (leftBridge.takePendingNavPath())
+            leftBridge.takePendingPopToMenu()
+            lastNavPane = 0
+            return true
+        }
+        if (rightBridge.hasPendingNav()) {
+            lastNavOp = (rightBridge.takePendingNavOp())
+            lastNavPath = (rightBridge.takePendingNavPath())
+            rightBridge.takePendingPopToMenu()
+            lastNavPane = 1
+            return true
+        }
+        return false
+    }
+
+    fn clearPendingNav:void () {
+        leftBridge.clearPendingNav()
+        rightBridge.clearPendingNav()
+        lastNavOp = ""
+        lastNavPath = ""
+        lastNavPane = -1
+    }
+
+    ; Synchronous single-pane reload (shared-physics path / fallback).
+    fn reloadPane:void (pane:int tsxPath:string) {
+        if (pane == 0) {
+            this.loadScriptAt(left leftBridge tsxPath 0)
+            leftScriptPath = tsxPath
+            return
+        }
+        if (pane == 1) {
+            this.loadScriptAt(right rightBridge tsxPath 1)
+            rightScriptPath = tsxPath
+            return
+        }
+    }
+
+    ; Start a cooperative reload: sibling keeps framing across load phases.
+    fn beginPaneLoad:void (pane:int tsxPath:string) {
+        if (pane < 0) {
+            return
+        }
+        if ((strlen tsxPath) == 0) {
+            return
+        }
+        if (loadPhase > 0) {
+            return
+        }
+        loadPane = pane
+        loadPath = tsxPath
+        loadSrc = ""
+        loadPhase = 1
+    }
+
+    fn loadRunnerRef:GameRunner (pane:int) {
+        if (pane == 1) {
+            return right
+        }
+        return left
+    }
+
+    fn loadBridgeRef:GameHostNativeBridge (pane:int) {
+        if (pane == 1) {
+            return rightBridge
+        }
+        return leftBridge
+    }
+
+    ; Advance one load phase. Call at most once per host frame so the sibling
+    ; pane can update + present between read / parse / prepare / paintBg / entities.
+    fn tickPaneLoad:void () {
+        if (loadPhase <= 0) {
+            return
+        }
+        def runner:GameRunner (this.loadRunnerRef(loadPane))
+        def bridge:GameHostNativeBridge (this.loadBridgeRef(loadPane))
+        def dir:string ""
+        def file:string loadPath
+        def slash:int (lastIndexOf loadPath "/")
+        if (slash >= 0) {
+            dir = (substring loadPath 0 slash)
+            file = (substring loadPath (slash + 1) (strlen loadPath))
+        }
+        if (loadPhase == 1) {
+            def buf:buffer (buffer_read_file dir file)
+            loadSrc = (buffer_to_string buf)
+            runner.setScriptDir(dir)
+            bridge.setGameDir(dir)
+            runner.setNativeBridge(bridge)
+            loadPhase = 2
+            return
+        }
+        if (loadPhase == 2) {
+            runner.loadScript(loadSrc)
+            runner.registerSplitPane(loadPane)
+            loadPhase = 3
+            return
+        }
+        if (loadPhase == 3) {
+            runner.setupScenePrepare()
+            loadPhase = 4
+            return
+        }
+        if (loadPhase == 4) {
+            runner.setupScenePaintBg()
+            loadPhase = 5
+            return
+        }
+        if (loadPhase == 5) {
+            runner.setupSceneEntities()
+            runner.enableGpuSheetOverlay()
+            runner.trackScriptFile(loadPath)
+            if (loadPane == 0) {
+                leftScriptPath = loadPath
+            }
+            if (loadPane == 1) {
+                rightScriptPath = loadPath
+            }
+            loadSrc = ""
+            loadPath = ""
+            loadPane = -1
+            loadPhase = 0
+            return
+        }
+    }
+
+    fn pushPanePath:void (pane:int) {
+        if (pane == 0) {
+            leftPrevPath = leftScriptPath
+            return
+        }
+        if (pane == 1) {
+            rightPrevPath = rightScriptPath
+        }
+    }
+
+    fn popPanePath:string (pane:int) {
+        if (pane == 0) {
+            def p:string leftPrevPath
+            leftPrevPath = ""
+            return p
+        }
+        if (pane == 1) {
+            def p2:string rightPrevPath
+            rightPrevPath = ""
+            return p2
+        }
+        return ""
+    }
+
+    fn clearPanePrev:void (pane:int) {
+        if (pane == 0) {
+            leftPrevPath = ""
+            return
+        }
+        if (pane == 1) {
+            rightPrevPath = ""
+        }
     }
 }

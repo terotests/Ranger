@@ -53,6 +53,56 @@ const GAMES = [
     controls: "W / S or ↑ / ↓ to move the left paddle.",
   },
   {
+    id: "ylos3",
+    title: "Ylos 3 (Viidakko Pomppija)",
+    kind: "ranger",
+    width: 480,
+    height: 270,
+    scriptDir: "gallery/game_engine/games/ylos3",
+    script: "index.tsx",
+    package: [
+      "gallery/game_engine/games/ylos3/index.tsx",
+      "gallery/game_engine/games/ylos3/level2.tsx",
+      "gallery/game_engine/games/ylos3/level3.tsx",
+      "gallery/game_engine/games/ylos3/ylos3_shared.tsx",
+      "gallery/game_engine/games/ylos3/level_forest.tsx",
+      "gallery/game_engine/games/ylos3/level_vines.tsx",
+      "gallery/game_engine/games/ylos3/level_temple.tsx",
+      "gallery/game_engine/scripting/game_helpers.tsx",
+      "gallery/game_engine/games/ylos3/assets/p1_walk.png",
+      "gallery/game_engine/games/ylos3/assets/p2_walk.png",
+      "gallery/game_engine/games/ylos3/assets/p1_super.png",
+      "gallery/game_engine/games/ylos3/assets/p2_super.png",
+      "gallery/game_engine/games/ylos3/assets/enemy_walk.png",
+    ],
+    controls: "P1: WASD + Space · 3 jungle levels · collect diamonds for super power.",
+  },
+  {
+    id: "ylos4",
+    title: "Ylos 4 (Viidakko Laskupomppija)",
+    kind: "ranger",
+    width: 480,
+    height: 270,
+    scriptDir: "gallery/game_engine/games/ylos4",
+    script: "index.tsx",
+    package: [
+      "gallery/game_engine/games/ylos4/index.tsx",
+      "gallery/game_engine/games/ylos4/level2.tsx",
+      "gallery/game_engine/games/ylos4/level3.tsx",
+      "gallery/game_engine/games/ylos4/ylos4_shared.tsx",
+      "gallery/game_engine/games/ylos4/level_forest.tsx",
+      "gallery/game_engine/games/ylos4/level_vines.tsx",
+      "gallery/game_engine/games/ylos4/level_temple.tsx",
+      "gallery/game_engine/scripting/game_helpers.tsx",
+      "gallery/game_engine/games/ylos4/assets/p1_walk.png",
+      "gallery/game_engine/games/ylos4/assets/p2_walk.png",
+      "gallery/game_engine/games/ylos4/assets/p1_super.png",
+      "gallery/game_engine/games/ylos4/assets/p2_super.png",
+      "gallery/game_engine/games/ylos4/assets/enemy_walk.png",
+    ],
+    controls: "P1: WASD + Space · jump on the correct sum · diamond appears for super power.",
+  },
+  {
     id: "ylos2",
     title: "Ylos 2 (Pomppija)",
     kind: "ranger", // pure-Ranger logic; loads PNG sprite sheets via the VFS
@@ -102,6 +152,63 @@ const MODEL3D_DIR = "gallery/game_engine/games/model_viewer_wasm/models";
 const MODELS_3D = [
   { id: "model3d_duck", title: "3D Model — Duck", file: "Duck.glb", size: 480 },
   { id: "model3d_box", title: "3D Model — Textured Box", file: "BoxTextured.glb", size: 480 },
+];
+
+// TSX-script-driven 3D scene (kind:"tsx3d"). A short .tsx init() declares the
+// scene (addModel / spin) through the interpreter; the host loads the GLB and
+// software-renders it (web_tsx3d_host.rgr = ComponentEngine + SoftScene3dBridge
+// + SoftRenderer3D, no WASM / no GPU), driven by src/tsx3d-viewer.js. Reuses the
+// #333 model3d-web software path; the native SDL2/GL path is desktop-only.
+const TSX3D_RGR = "gallery/game_engine/web/web_tsx3d_host.rgr";
+const TSX3D_SCENES = [
+  {
+    id: "tsx3d_box",
+    title: "3D Scene (TSX)",
+    scriptDir: "gallery/game_engine/games/model_viewer_tsx",
+    script: "index.tsx",
+    package: [
+      "gallery/game_engine/games/model_viewer_tsx/index.tsx",
+      "gallery/game_engine/games/model_viewer_tsx/models/BoxTextured.glb",
+    ],
+    controls: "The .tsx init() declares the scene; the host loads the GLB + software-renders it. Drag to rotate.",
+  },
+];
+
+// WebGL TSX 3D (kind:"tsx3d-gl"). The canonical Three.js cube runs 1:1,
+// unmodified, in the .tsx interpreter (gallery/game_engine/three) and renders on
+// the GPU via web_tsx3d_gl_host.rgr = ComponentEngine + ThreeTsxBridge +
+// ThreeGLBackend, driven by src/tsx3d-gl-viewer.js. The editable script + façade
+// + texture are staged as plain files the editor fetches.
+const TSX3D_GL_RGR = "gallery/game_engine/web/web_tsx3d_gl_host.rgr";
+const TSX3D_GL_SCENES = [
+  {
+    id: "cube3d",
+    title: "Cube 3D — Three.js on the GPU",
+    scriptDir: "gallery/game_engine/three/tsx",
+    script: "cube.tsx",
+    facade: "gallery/game_engine/three/tsx/three.tsx",
+    texture: "gallery/game_engine/games/cube3d_wasm/assets/crate.ppm",
+    texturePath: "textures/crate.gif",
+    controls: "The canonical Three.js rotating cube, unmodified, on the Ranger Three clone + WebGL. Edit camera.position.z or the rotation speed and reload.",
+  },
+];
+
+// Interpreted WebGL teapot (kind:"teapot-tsx"). The webgl_geometry_teapot *scene*
+// code (teapot.tsx) runs 1:1 in the TSX interpreter against the three.tsx façade
+// and renders on the GPU via web_teapot_tsx_host.rgr (ComponentEngine +
+// ThreeTeapotTsxBridge + ThreeGLBackend), driven by src/teapot-tsx-viewer.js.
+// Like the cube, the editor shows the scene code and edits hot-reload;
+// OrbitControls + the lil-gui panel are host plumbing.
+const TEAPOT_TSX_RGR = "gallery/game_engine/web/web_teapot_tsx_host.rgr";
+const TEAPOT_TSX_SCENES = [
+  {
+    id: "teapot3d",
+    title: "Teapot — Three.js reflections on the GPU",
+    scriptDir: "gallery/game_engine/three/tsx",
+    script: "teapot.tsx",
+    facade: "gallery/game_engine/three/tsx/three.tsx",
+    controls: "The classic Three.js teapot, its scene code run 1:1 in the interpreter on the Ranger Three clone + WebGL: drag to orbit, wheel to zoom, click the panel to change tessellation, parts and shading (wireframe / flat / smooth / glossy / textured / reflective). Edit teapot.tsx (a material, a colour, the default shading) and it hot-reloads.",
+  },
 ];
 
 // ------------------------------------------------------------------- helpers
@@ -247,6 +354,70 @@ function compileViewerBundle() {
   fs.rmSync(rawDir, { recursive: true, force: true });
 }
 
+// Compile web_tsx3d_host.rgr -> tsx3d.bundle.js (exports WebTsx3dHost). Same
+// transform as the games engine bundle; loaded only when a tsx3d entry is picked.
+function compileTsx3dBundle() {
+  const rawDir = path.join(OUT, "_rawtsx3d");
+  fs.mkdirSync(rawDir, { recursive: true });
+  const rawDirRel = path.relative(ROOT, rawDir);
+  log("compiling TSX 3D host:", TSX3D_RGR);
+  sh("node", [
+    "bin/output.js",
+    "-es6",
+    TSX3D_RGR,
+    "-d=" + rawDirRel,
+    "-o=tsx3d.raw.js",
+    "-nodecli",
+  ], {
+    env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" },
+    stdio: "inherit",
+  });
+  let src = fs.readFileSync(path.join(rawDir, "tsx3d.raw.js"), "utf8");
+  src = src.replace(/^#![^\n]*\n/, "");
+  src = src.replace(/\n__js_main\(\);\s*$/, "\n");
+  src = src.replace(/\n[A-Za-z_$][\w$]*\(\);\s*$/, "\n");
+  src += "\n;return { WebTsx3dHost };\n";
+  fs.writeFileSync(path.join(OUT, "tsx3d.bundle.js"), src);
+  log("wrote tsx3d.bundle.js (" + (src.length / 1024).toFixed(0) + " KB)");
+  fs.rmSync(rawDir, { recursive: true, force: true });
+}
+
+// Compile web_tsx3d_gl_host.rgr -> tsx3d-gl.bundle.js (exports WebTsx3dGlHost),
+// the WebGL host for the Three.js-cube scene.
+function compileTsx3dGlBundle() {
+  const rawDir = path.join(OUT, "_rawtsx3dgl");
+  fs.mkdirSync(rawDir, { recursive: true });
+  log("compiling tsx3d WebGL host:", TSX3D_GL_RGR);
+  sh("node", [
+    "bin/output.js", "-es6", TSX3D_GL_RGR,
+    "-d=" + path.relative(ROOT, rawDir), "-o=tsx3dgl.raw.js", "-nodecli",
+  ], { env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" }, stdio: "inherit" });
+  let src = fs.readFileSync(path.join(rawDir, "tsx3dgl.raw.js"), "utf8").replace(/^#![^\n]*\n/, "");
+  src = src.replace(/\n__js_main\(\);\s*$/, "\n").replace(/\n[A-Za-z_$][\w$]*\(\);\s*$/, "\n");
+  src += "\n;return { WebTsx3dGlHost };\n";
+  fs.writeFileSync(path.join(OUT, "tsx3d-gl.bundle.js"), src);
+  log("wrote tsx3d-gl.bundle.js (" + (src.length / 1024).toFixed(0) + " KB)");
+  fs.rmSync(rawDir, { recursive: true, force: true });
+}
+
+// Compile web_teapot_tsx_host.rgr -> teapot-tsx.bundle.js (exports
+// WebTeapotTsxHost), the interpreter host for the editable teapot scene.
+function compileTeapotTsxBundle() {
+  const rawDir = path.join(OUT, "_rawteapottsx");
+  fs.mkdirSync(rawDir, { recursive: true });
+  log("compiling teapot TSX host:", TEAPOT_TSX_RGR);
+  sh("node", [
+    "bin/output.js", "-es6", TEAPOT_TSX_RGR,
+    "-d=" + path.relative(ROOT, rawDir), "-o=teapottsx.raw.js", "-nodecli",
+  ], { env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" }, stdio: "inherit" });
+  let src = fs.readFileSync(path.join(rawDir, "teapottsx.raw.js"), "utf8").replace(/^#![^\n]*\n/, "");
+  src = src.replace(/\n__js_main\(\);\s*$/, "\n").replace(/\n[A-Za-z_$][\w$]*\(\);\s*$/, "\n");
+  src += "\n;return { WebTeapotTsxHost };\n";
+  fs.writeFileSync(path.join(OUT, "teapot-tsx.bundle.js"), src);
+  log("wrote teapot-tsx.bundle.js (" + (src.length / 1024).toFixed(0) + " KB)");
+  fs.rmSync(rawDir, { recursive: true, force: true });
+}
+
 // ------------------------------------------------------------------- packages
 function packageGames() {
   const gamesOut = path.join(OUT, "games");
@@ -289,6 +460,65 @@ function packageGames() {
       controls: "Drag to rotate · auto-spins when idle · host software renderer (no WASM / no GPU).",
     });
     log("packaged 3D", m.id, "(" + (zip.length / 1024).toFixed(1) + " KB)");
+  }
+  // TSX-driven 3D scenes — packaged like a game (script + its GLB), but flagged
+  // kind:"tsx3d" so index.html runs them through WebTsx3dHost, not GameRunner.
+  for (const s of TSX3D_SCENES) {
+    const entries = s.package.map((rel) => ({
+      name: rel,
+      bytes: fs.readFileSync(path.join(ROOT, rel)),
+    }));
+    const zip = makeStoredZip(entries);
+    fs.writeFileSync(path.join(gamesOut, s.id + ".zip"), zip);
+    registry.push({
+      id: s.id,
+      title: s.title,
+      kind: "tsx3d",
+      size: 480,
+      scriptDir: s.scriptDir,
+      script: s.script,
+      pkg: "games/" + s.id + ".zip",
+      controls: s.controls || "",
+    });
+    log("packaged tsx3d", s.id, "(" + (zip.length / 1024).toFixed(1) + " KB, " + entries.length + " files)");
+  }
+  // WebGL TSX 3D (kind:"tsx3d-gl") — stage the editable script + façade + texture
+  // as plain files; index.html runs them through WebTsx3dGlHost (WebGL canvas).
+  for (const s of TSX3D_GL_SCENES) {
+    const dir3 = path.join(gamesOut, s.id);
+    fs.mkdirSync(dir3, { recursive: true });
+    fs.copyFileSync(path.join(ROOT, s.scriptDir, s.script), path.join(dir3, "script.tsx"));
+    fs.copyFileSync(path.join(ROOT, s.facade), path.join(dir3, "facade.tsx"));
+    let textureUrl = "";
+    if (s.texture) {
+      fs.copyFileSync(path.join(ROOT, s.texture), path.join(dir3, "texture.ppm"));
+      textureUrl = "games/" + s.id + "/texture.ppm";
+    }
+    registry.push({
+      id: s.id, title: s.title, kind: "tsx3d-gl", width: s.width || 480, height: s.height || 480,
+      scriptDir: s.scriptDir, script: s.script,
+      scriptUrl: "games/" + s.id + "/script.tsx",
+      facadeUrl: "games/" + s.id + "/facade.tsx",
+      textureUrl, texturePath: s.texturePath || "",
+      controls: s.controls || "",
+    });
+    log("staged tsx3d-gl", s.id, "(script + façade" + (textureUrl ? " + texture" : "") + ")");
+  }
+  // Interpreted WebGL teapot (kind:"teapot-tsx") — stage the editable teapot.tsx
+  // + the three.tsx façade; index.html runs them through WebTeapotTsxHost.
+  for (const s of TEAPOT_TSX_SCENES) {
+    const dir3 = path.join(gamesOut, s.id);
+    fs.mkdirSync(dir3, { recursive: true });
+    fs.copyFileSync(path.join(ROOT, s.scriptDir, s.script), path.join(dir3, "script.tsx"));
+    fs.copyFileSync(path.join(ROOT, s.facade), path.join(dir3, "facade.tsx"));
+    registry.push({
+      id: s.id, title: s.title, kind: "teapot-tsx", width: 480, height: 480,
+      scriptDir: s.scriptDir, script: s.script,
+      scriptUrl: "games/" + s.id + "/script.tsx",
+      facadeUrl: "games/" + s.id + "/facade.tsx",
+      controls: s.controls || "",
+    });
+    log("staged teapot-tsx", s.id, "(script + façade)");
   }
   fs.writeFileSync(path.join(OUT, "games.json"), JSON.stringify(registry, null, 2));
 }
@@ -340,7 +570,7 @@ async function buildEditor() {
 
 // ------------------------------------------------------------------- assets
 function copyRuntime() {
-  for (const f of ["vfs.js", "engine-host.js", "runner.js", "model-viewer.js"]) {
+  for (const f of ["vfs.js", "engine-host.js", "runner.js", "model-viewer.js", "tsx3d-viewer.js", "tsx3d-gl-viewer.js", "teapot-tsx-viewer.js"]) {
     fs.copyFileSync(path.join(SRC, f), path.join(OUT, f));
   }
   fs.copyFileSync(path.join(HERE, "index.html"), path.join(OUT, "index.html"));
@@ -352,8 +582,8 @@ function copyRuntime() {
 // so it only changes when they actually change.
 function cacheBust() {
   const names = [
-    "vfs.js", "engine-host.js", "runner.js", "model-viewer.js",
-    "engine.bundle.js", "viewer.bundle.js", "games.json",
+    "vfs.js", "engine-host.js", "runner.js", "model-viewer.js", "tsx3d-viewer.js", "tsx3d-gl-viewer.js", "teapot-tsx-viewer.js",
+    "engine.bundle.js", "viewer.bundle.js", "tsx3d.bundle.js", "tsx3d-gl.bundle.js", "teapot-tsx.bundle.js", "games.json",
     "editor.bundle.js", "editor.bundle.css",
   ];
   const h = crypto.createHash("sha1");
@@ -376,6 +606,9 @@ function cacheBust() {
 fs.mkdirSync(OUT, { recursive: true });
 compileEngineBundle();
 compileViewerBundle();
+compileTsx3dBundle();
+if (TSX3D_GL_SCENES.length) compileTsx3dGlBundle();
+if (TEAPOT_TSX_SCENES.length) compileTeapotTsxBundle();
 packageGames();
 const editorOk = await buildEditor();
 copyRuntime();

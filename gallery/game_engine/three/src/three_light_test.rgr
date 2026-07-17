@@ -1,0 +1,67 @@
+; ==============================================================================
+; three_light_test — ThreeColor + lights.
+; ==============================================================================
+
+Import "three_color.rgr"
+Import "three_light.rgr"
+
+class ThreeLightCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    fn near:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        def label:string (name + " (" + (to_string got) + ")")
+        this.ok(label (d < 0.002))
+    }
+}
+
+class ThreeLightTest {
+    sfn m@(main):void () {
+        def ck:ThreeLightCheck (new ThreeLightCheck)
+        print "== ThreeColor + lights =="
+
+        def c:ThreeColor (ThreeColor.of(11184810))
+        ck.near("Color(0xAAAAAA).r" c.r 0.6667)
+        ck.near("Color(0xAAAAAA).g" c.g 0.6667)
+        ck.near("Color(0xAAAAAA).b" c.b 0.6667)
+        ck.ok("getHex round-trips" ((c.getHex()) == 11184810))
+
+        def white:ThreeColor (ThreeColor.of(16777215))
+        ck.near("white.r" white.r 1.0)
+
+        def amb:ThreeAmbientLight (new ThreeAmbientLight)
+        amb.setColorHex(8158332)
+        amb.setIntensity(2.0)
+        ck.ok("ambient isLight" amb.isLight)
+        ck.ok("ambient isAmbientLight" amb.isAmbientLight)
+        ck.near("ambient intensity" amb.intensity 2.0)
+
+        def dir:ThreeDirectionalLight (new ThreeDirectionalLight)
+        dir.setColorHex(16777215)
+        dir.setIntensity(2.0)
+        dir.setDirection(0.32 0.39 0.7)
+        ck.ok("directional isDirectionalLight" dir.isDirectionalLight)
+        ck.near("directional dir.x (inherited position)" dir.position.x 0.32)
+        ck.near("directional dir.z" dir.position.z 0.7)
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

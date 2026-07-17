@@ -1,0 +1,143 @@
+; ==============================================================================
+; three_tsx_bridge_test — the interpreted cube.tsx actually renders (headless).
+; ==============================================================================
+; Proves the full render bridge without a GPU: the canonical Three.js cube runs
+; in the TSX interpreter against the three.tsx façade, and ThreeTsxBridge
+; reconciles that interpreted scene into the Ranger Three core and rasterises it
+; with the SOFTWARE backend (the same core path the WebGL host drives on the GPU).
+;
+;   - after init(): the cube covers the frame and the centre pixel is on it.
+;   - after ticking the interpreted animate() loop: the frame CHANGES, i.e. the
+;     interpreted `mesh.rotation.x += 0.005` drives the render (not a static blit).
+; ==============================================================================
+
+Import "three_tsx_bridge.rgr"
+Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class ThreeTsxBridgeTest {
+    sfn coveredPixels:int (color:buffer w:int h:int) {
+        def n:int (w * h)
+        def covered:int 0
+        def i:int 0
+        while (i < n) {
+            def o:int (i * 3)
+            def r:int (buffer_get color o)
+            def g:int (buffer_get color (o + 1))
+            def b:int (buffer_get color (o + 2))
+            if (((r + g) + b) > 150) {
+                covered = (covered + 1)
+            }
+            i = (i + 1)
+        }
+        return covered
+    }
+
+    sfn checksum:int (color:buffer w:int h:int) {
+        def n:int ((w * h) * 3)
+        def sum:int 0
+        def i:int 0
+        while (i < n) {
+            def v:int (buffer_get color i)
+            sum = (((sum * 31) + v) % 1000000007)
+            i = (i + 1)
+        }
+        return sum
+    }
+
+    sfn m@(main):void () {
+        def W:int 200
+        def H:int 200
+
+        def engine (new ComponentEngine())
+        engine.quiet = true
+
+        ; host capabilities: THREE constants + the browser window numbers
+        def tk:[string]
+        def tv:[EvalValue]
+        push tk "SRGBColorSpace"
+        push tv (EvalValue.string("srgb"))
+        engine.registerGlobal("THREE" (EvalValue.object(tk tv)))
+
+        def wk:[string]
+        def wv:[EvalValue]
+        push wk "innerWidth"
+        push wv (EvalValue.number(800.0))
+        push wk "innerHeight"
+        push wv (EvalValue.number(600.0))
+        push wk "devicePixelRatio"
+        push wv (EvalValue.number(1.0))
+        engine.registerGlobal("window" (EvalValue.object(wk wv)))
+
+        def facade:buffer (buffer_read_file "gallery/game_engine/three/tsx" "three.tsx")
+        def cube:buffer (buffer_read_file "gallery/game_engine/three/tsx" "cube.tsx")
+        def src:string ((buffer_to_string facade) + "\n" + (buffer_to_string cube))
+        engine.loadScript(src)
+        def initR:EvalValue (engine.callFunction("init" (EvalValue.null())))
+
+        def bridge (new ThreeTsxBridge)
+        bridge.setEngine(engine)
+
+        ; frame 0 — the cube as init() left it (rotation 0)
+        bridge.renderFrame(W H)
+        def frame0:buffer (bridge.raw())
+        def cov0:int (ThreeTsxBridgeTest.coveredPixels(frame0 W H))
+        def sum0:int (ThreeTsxBridgeTest.checksum(frame0 W H))
+        def cidx:int (((idiv H 2) * W) + (idiv W 2))
+        def co:int (cidx * 3)
+        def centerLit:boolean (((buffer_get frame0 co) + (buffer_get frame0 (co + 1))) > 60)
+
+        ; drive the interpreted animate() loop, then re-render from the façade
+        def f:int 0
+        while (f < 25) {
+            def t:EvalValue (engine.callFunction("tick" (EvalValue.null())))
+            f = (f + 1)
+        }
+        bridge.renderFrame(W H)
+        def frameN:buffer (bridge.raw())
+        def covN:int (ThreeTsxBridgeTest.coveredPixels(frameN W H))
+        def sumN:int (ThreeTsxBridgeTest.checksum(frameN W H))
+
+        def passed:int 0
+        def failed:int 0
+        print "== interpreted cube.tsx rendered through the Ranger core (software) =="
+        print ("frame0 covered=" + (to_string cov0) + " frameN covered=" + (to_string covN))
+
+        if (cov0 > 3000) {
+            passed = (passed + 1)
+            print "  PASS cube covers the frame after init()"
+        } {
+            failed = (failed + 1)
+            print "  FAIL cube coverage too low after init()"
+        }
+        if centerLit {
+            passed = (passed + 1)
+            print "  PASS centre pixel is on the cube"
+        } {
+            failed = (failed + 1)
+            print "  FAIL centre pixel is background"
+        }
+        if (covN > 3000) {
+            passed = (passed + 1)
+            print "  PASS cube still covers the frame after animate()"
+        } {
+            failed = (failed + 1)
+            print "  FAIL cube gone after animate()"
+        }
+        if (sum0 != sumN) {
+            passed = (passed + 1)
+            print "  PASS interpreted animate() changed the rendered frame"
+        } {
+            failed = (failed + 1)
+            print "  FAIL frame identical — rotation did not drive the render"
+        }
+
+        print "== summary =="
+        print ("passed=" + (to_string passed) + " failed=" + (to_string failed))
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

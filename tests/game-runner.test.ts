@@ -184,6 +184,31 @@ describe("Game runner - scripted Pong", () => {
     expect(parseInt(audioPlays![1], 10)).toBeGreaterThan(0);
   });
 
+  it("runs the scripted chess game and plays e2e4", () => {
+    const { compile, run } = compileAndRun(
+      "gallery/game_engine/tests/chess_runner_demo.rgr"
+    );
+
+    expect(
+      compile.success,
+      `Compile failed: ${compile.error || compile.output}`
+    ).toBe(true);
+    expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+
+    const out = run?.output || "";
+    expect(out).toContain("frames=120");
+    expect(out).toContain("chess-runner done");
+    expect(out).toContain("moved=ok");
+
+    const cursor = out.match(/cursor=(-?\d+),(-?\d+)/);
+    expect(cursor, `no cursor position in output: ${out}`).toBeTruthy();
+    expect(parseInt(cursor![1], 10)).toBeGreaterThan(0);
+
+    const audioPlays = out.match(/audioPlays=(\d+)/);
+    expect(audioPlays, `no audioPlays in output: ${out}`).toBeTruthy();
+    expect(parseInt(audioPlays![1], 10)).toBeGreaterThan(0);
+  });
+
   it("loads and draws a PNG background via setBackground()", () => {
     const { compile, run } = compileAndRun(
       "gallery/game_engine/scripting/background_runner_demo.rgr"
@@ -288,6 +313,46 @@ describe("Game runner - scripted Pong", () => {
 
     const out = run?.output || "";
     expect(out).toContain("ylos2-runner done");
+    expect(out).toContain("frames=400");
+
+    const entities = out.match(/entities=(\d+)/);
+    expect(entities, `no entities in output: ${out}`).toBeTruthy();
+    expect(parseInt(entities![1], 10)).toBeGreaterThan(14);
+  });
+
+  it("runs Ylos 3 jungle platformer with multi-level scripts", () => {
+    const { compile, run } = compileAndRun(
+      "gallery/game_engine/tests/ylos3_runner_demo.rgr"
+    );
+
+    expect(
+      compile.success,
+      `Compile failed: ${compile.error || compile.output}`
+    ).toBe(true);
+    expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+
+    const out = run?.output || "";
+    expect(out).toContain("ylos3-runner done");
+    expect(out).toContain("frames=400");
+
+    const entities = out.match(/entities=(\d+)/);
+    expect(entities, `no entities in output: ${out}`).toBeTruthy();
+    expect(parseInt(entities![1], 10)).toBeGreaterThan(14);
+  });
+
+  it("runs Ylos 4 math-puzzle jungle platformer", () => {
+    const { compile, run } = compileAndRun(
+      "gallery/game_engine/tests/ylos4_runner_demo.rgr"
+    );
+
+    expect(
+      compile.success,
+      `Compile failed: ${compile.error || compile.output}`
+    ).toBe(true);
+    expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+
+    const out = run?.output || "";
+    expect(out).toContain("ylos4-runner done");
     expect(out).toContain("frames=400");
 
     const entities = out.match(/entities=(\d+)/);

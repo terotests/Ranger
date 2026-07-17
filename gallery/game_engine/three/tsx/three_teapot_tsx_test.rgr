@@ -1,0 +1,109 @@
+; ==============================================================================
+; three_teapot_tsx_test — run teapot.tsx 1:1 in the interpreter, reconcile, check.
+; ==============================================================================
+; Loads the three.tsx façade + teapot.tsx into ComponentEngine, runs the example's
+; init()+render(), reconciles through ThreeTeapotTsxBridge, and asserts the Ranger
+; scene was built (lights + a tessellated teapot mesh) and that the host hooks
+; (setShading) drive a material swap — the editable interpreter path end to end.
+; ==============================================================================
+
+Import "three_teapot_tsx_bridge.rgr"
+
+class ThreeTeapotTsxTest {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (label:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            def m:string ("  PASS " + label)
+            print m
+        } {
+            failed = (failed + 1)
+            def m2:string ("  FAIL " + label)
+            print m2
+        }
+    }
+
+    sfn registerGlobals:void (engine:ComponentEngine) {
+        def tk:[string]
+        def tv:[EvalValue]
+        push tk "SRGBColorSpace"
+        push tv (EvalValue.string("srgb"))
+        push tk "DoubleSide"
+        push tv (EvalValue.number(2.0))
+        push tk "FrontSide"
+        push tv (EvalValue.number(0.0))
+        push tk "BackSide"
+        push tv (EvalValue.number(1.0))
+        push tk "RepeatWrapping"
+        push tv (EvalValue.number(1000.0))
+        engine.registerGlobal("THREE" (EvalValue.object(tk tv)))
+
+        def wk:[string]
+        def wv:[EvalValue]
+        push wk "innerWidth"
+        push wv (EvalValue.number(600.0))
+        push wk "innerHeight"
+        push wv (EvalValue.number(600.0))
+        push wk "devicePixelRatio"
+        push wv (EvalValue.number(1.0))
+        engine.registerGlobal("window" (EvalValue.object(wk wv)))
+    }
+
+    sfn m@(main):void () {
+        def t:ThreeTeapotTsxTest (new ThreeTeapotTsxTest)
+        t.run()
+    }
+
+    fn run:void () {
+        def dir:string "gallery/game_engine/three/tsx"
+        def facadeBuf:buffer (buffer_read_file dir "three.tsx")
+        def teapotBuf:buffer (buffer_read_file dir "teapot.tsx")
+        def src:string (((buffer_to_string facadeBuf) + "\n") + (buffer_to_string teapotBuf))
+
+        def engine (new ComponentEngine())
+        engine.quiet = true
+        ThreeTeapotTsxTest.registerGlobals(engine)
+        engine.loadScript(src)
+        engine.callFunction("init" (EvalValue.null()))
+        engine.callFunction("renderScene" (EvalValue.null()))
+
+        def bridge:ThreeTeapotTsxBridge (new ThreeTeapotTsxBridge)
+        bridge.setEngine(engine)
+        bridge.renderFrame(600 600)
+
+        ; camera reconciled (fov 45, far 80000)
+        this.ok("camera fov 45" ((bridge.camera.fov > 44.9) && (bridge.camera.fov < 45.1)))
+        this.ok("camera far 80000" (bridge.camera.far > 79000.0))
+
+        ; scene: ambient + directional + teapot mesh
+        this.ok("scene has 3 children" ((bridge.scene.childCount()) == 3))
+        this.ok("lights built" bridge.lightsBuilt)
+
+        ; teapot geometry built (tess 15 → many verts)
+        def vc:int (bridge.mesh.geometry.vertexCount())
+        print ("  teapot verts=" + (to_string vc) + " shading=" + bridge.sigShading)
+        this.ok("teapot tessellated" (vc > 1000))
+        this.ok("default shading glossy=phong" (bridge.sigShading == "phong"))
+
+        ; host hook: switch to wireframe → signature changes to wire
+        engine.callFunction("setShading" (EvalValue.string("wireframe")))
+        bridge.renderFrame(600 600)
+        this.ok("shading swapped to wire" (bridge.sigShading == "wire"))
+
+        ; switch to reflective → env cube built + skybox enabled
+        engine.callFunction("setShading" (EvalValue.string("reflective")))
+        bridge.renderFrame(600 600)
+        this.ok("reflective enables skybox" bridge.scene.hasEnvCube)
+
+        print "== summary =="
+        def s:string (("passed=" + (to_string passed)) + (" failed=" + (to_string failed)))
+        print s
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

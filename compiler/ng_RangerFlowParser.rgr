@@ -4805,6 +4805,16 @@ class RangerFlowParser {
       }
 
       def s:string (node.getVRefAt(1))
+      ; Already fully collected (e.g. the same file imported via two different
+      ; path strings)? Don't re-walk the body — that registers the methods on a
+      ; throw-away desc and breaks inherited-method lookup in subclasses.
+      if (ctx.hasClass(s)) {
+        def existingCl:RangerAppClassDesc (ctx.findClass(s))
+        if (existingCl.is_collected) {
+          find_more = false
+          return
+        }
+      }
       def classNameNode@(lives):CodeNode (node.getSecond())
       def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
       new_class.name = s
@@ -4832,6 +4842,7 @@ class RangerFlowParser {
       new_class.ctx = subCtx
       new_class.nameNode = classNameNode
       ctx.addClass(s new_class)
+      new_class.is_collected = true
       new_class.classNode = node
       new_class.node = node
       if(node.hasBooleanProperty("trait")) {

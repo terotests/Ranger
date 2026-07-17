@@ -1,0 +1,75 @@
+; ==============================================================================
+; three_cube_texture_test — cube map faces + UV grid texture.
+; ==============================================================================
+
+Import "three_cube_texture.rgr"
+Import "three_texture.rgr"
+
+class ThreeCubeTextureTest {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (label:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            def m:string ("  PASS " + label)
+            print m
+        } {
+            failed = (failed + 1)
+            def m2:string ("  FAIL " + label)
+            print m2
+        }
+    }
+
+    sfn m@(main):void () {
+        def t:ThreeCubeTextureTest (new ThreeCubeTextureTest)
+        t.run()
+    }
+
+    fn run:void () {
+        def sz:int 8
+        def cube:ThreeCubeTexture (ThreeCubeTexture.proceduralSky(sz))
+        this.ok("six faces" ((cube.faceCount()) == 6))
+        this.ok("size stored" (cube.size == sz))
+        def expect:int ((sz * sz) * 4)
+        def f0:buffer (cube.face(0))
+        this.ok("face buffer size" ((buffer_length f0) == expect))
+
+        ; alpha channel is opaque
+        this.ok("face alpha opaque" ((buffer_get f0 3) == 255))
+
+        ; +Y face center points up (dy ~ 1)
+        def dUp:[double] (ThreeCubeTexture.faceDir(2 0.0 0.0))
+        this.ok("+Y dir is up" ((itemAt dUp 1) > 0.99))
+        ; -Y face center points down
+        def dDn:[double] (ThreeCubeTexture.faceDir(3 0.0 0.0))
+        this.ok("-Y dir is down" ((itemAt dDn 1) < (0.0 - 0.99)))
+        ; +X face center points +x
+        def dX:[double] (ThreeCubeTexture.faceDir(0 0.0 0.0))
+        this.ok("+X dir is +x" ((itemAt dX 0) > 0.99))
+
+        ; sky above horizon is bluer than ground below (b channel higher up)
+        ; top face (+Y) center vs bottom face (-Y) center blue byte
+        def top:buffer (cube.face(2))
+        def bot:buffer (cube.face(3))
+        def midx:int (idiv sz 2)
+        def o:int (((midx * sz) + midx) * 4)
+        def topB:int (buffer_get top (o + 2))
+        def botB:int (buffer_get bot (o + 2))
+        this.ok("sky bluer than ground" (topB > botB))
+
+        ; UV grid texture
+        def tex:ThreeTexture (ThreeTexture.uvGrid(64 8))
+        this.ok("uv grid has image" (tex.hasImage()))
+        this.ok("uv grid size" ((tex.width == 64) && (tex.height == 64)))
+
+        print "== summary =="
+        def s:string (("passed=" + (to_string passed)) + (" failed=" + (to_string failed)))
+        print s
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

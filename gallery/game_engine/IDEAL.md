@@ -8,6 +8,11 @@
 > the engine is *aiming* at, derived from the engine's stated goal, so that every
 > refactor has a fixed target to move toward. Where the current code violates the
 > target, the violation is shown next to the ideal so the gap is concrete.
+>
+> **3D:** [`IDEAL_3D.md`](./IDEAL_3D.md) is the WASM host-owned-scene model;
+> [`IDEAL_THREE.md`](./IDEAL_THREE.md) is the portable **Ranger clone of Three.js**
+> — one Ranger object model (compiles to C++/WASM/ES6) driven by a TSX façade,
+> Ranger code, or a WASM guest, with a pluggable software/WebGL/GLES backend.
 
 ---
 
@@ -84,7 +89,7 @@ without re-widening the leaks above.
 | **Generic guest scalar slots** | Missing | Only `air_p1/air_p2` are hard-coded; there is no documented generic "guest scalar" the host transports opaquely. | §2.1 |
 | **Genre-neutral control channels** | Missing | Only the four named car channels; no indexed `readControlChannel(body, ch)`. | §2.2 |
 | **Collision shape, filtering, sensors, full contacts** | Minimal | The body record carries pose but no shape; body↔body is circle-only; contacts define only a `BEGIN` phase (no `PERSIST`/`END`, depth, or tangent impulse); no layer/mask filtering, no sensor/trigger bodies. | §2.5 |
-| **Selectable physics engine** | Partial | A full Cannon.js rigid-body port exists (`physics/src/cannon_*.rgr`) and a game *can* select it — but only on the TS path via `config().physics.cannon` (`game_cannon_physics.rgr`); WASM/`.as` guests cannot choose it and the RGW1 ABI is tied to the arcade core's output. | §2.5 |
+| **Selectable physics engine** | Interface landed; guest paths pending | A `PhysicsWorld` interface now exists (`physics/src/physics_world.rgr`) with two engines behind it — the upgraded Cannon port (`cannon_physics_world.rgr`) and an independent arcade engine (`arcade_physics_world.rgr`). Engine-agnostic code selects either with one line. Still pending: wiring the interface to the WASM/`.as` guest ABIs and reworking the TS bridge (`game_cannon_physics.rgr`) to delegate fully to the solver. See [`PLAN_PHYSICS_ENGINE.md`](./PLAN_PHYSICS_ENGINE.md). | §2.5 |
 | **Body→sprite binding** | Fragmented | Three unrelated models (host `spriteFor` templates, RGSP1 catalog, `.as` RGS1 draw list); no single contract that makes a body's pose drive a sprite/character on every path. | §2.5 |
 | **Data-driven sprite roster & animations** | Partial | A catalog-id table (`RG_SPR_OFF_CAT_IDS`) exists, but character ids are still frozen constants, and animations are limited to `WALK/RUN/JUMP` with `RUN`/`JUMP` falling back to `WALK`. | §2.1, §2.8 |
 | **Sprite-sheet loading (PNG) + unified sprite handling** | Fragmented | Runtime image loading decodes PNG *and* JPEG (`game_image_loader.rgr`), but PNG decode is borrowed from the LPC toolchain rather than owned by the runtime path and is not shared with the `.as`/WASM paths; the emitted `atlas.json` is ignored at runtime; sheets are drawn via three unrelated models with three animation-timing sites. | §2.8 |
@@ -238,9 +243,10 @@ The shared ABI is three headers: `wasm/wasm_game_abi.h` (RGW1, world/physics),
 `wasm/wasm_sprite_abi.h` (RGSP1, characters), `wasm/wasm_ui_abi.h` (RGU1, UI).
 
 > **"guest" vs "host" — say it once, precisely.** The **guest is the game itself**,
-> compiled to a WASM module — normally written in **Rust** (`wasm/rust_*/src/lib.rs`)
-> or **AssemblyScript** (`wasm/as_*/assembly/index.ts`), or run through the interpreted
-> `.as` path. The **host** is the Ranger engine (`scripting/` `.rgr` files) that loads
+> compiled to a WASM module — written in **Rust** (`wasm/rust_*/src/lib.rs`),
+> **AssemblyScript** (`wasm/as_*/assembly/index.ts`), the interpreted `.as` path, or
+> in **Ranger** itself (`games/ranger_autopeli/src/*.rgr`, compiled through the WAT
+> backend). The **host** is the Ranger engine (`scripting/` `.rgr` files) that loads
 > that module and drives it each frame. The only thing crossing between them is the
 > shared linear-memory block described by the ABI header — no pointers, no objects.
 >
@@ -486,6 +492,25 @@ RGW1 is the "world/physics" block, so how the ABI carries **bodies, collisions, 
 the link from a body to the sprite that draws it** is the core of the whole engine.
 Three things have to be genre-neutral here — the simulation, the contact model, and
 the body→visual binding — and today each leaks or is missing.
+
+> **Update — physics engine upgrade (see [`PLAN_PHYSICS_ENGINE.md`](./PLAN_PHYSICS_ENGINE.md), 89 unit tests).**
+> Much of the "Current state" below is now addressed. The Cannon port is no longer a
+> circle-only arcade subset: it has a real **SPOOK GS constraint solver + friction**,
+> **joints** (point-to-point, hinge, hinge motor), a full **collision set** (sphere,
+> box, plane, heightfield, convex, cylinder, particle, trimesh — incl. box-box and
+> convex-convex SAT), **raycasting**, a **RaycastVehicle** (suspension + drive + grip
+> + steering), **sleeping** bodies, and an **SAP broadphase**. Ideal point 1 below
+> (*"simulation sits behind a `PhysicsWorld` interface"*) is **implemented**:
+> [`physics_world.rgr`](./physics/src/physics_world.rgr) is the engine-neutral seam,
+> with [`cannon_physics_world.rgr`](./physics/src/cannon_physics_world.rgr) (full
+> engine) and [`arcade_physics_world.rgr`](./physics/src/arcade_physics_world.rgr)
+> (a second, independent engine) both behind it — the same engine-agnostic test code
+> drives both and they agree. Still open: exposing the engine to the WASM/`.as`
+> guest paths (the interface exists but is not yet wired to those ABIs), the
+> body→visual binding (§2.5 point 6), and an optional Jolt/Rapier native backend.
+> The TSX bridge ([`game_cannon_physics.rgr`](./scripting/game_cannon_physics.rgr))
+> still does arcade-style manual boundary handling and needs rework to delegate fully
+> to the solver.
 
 **Current state.**
 

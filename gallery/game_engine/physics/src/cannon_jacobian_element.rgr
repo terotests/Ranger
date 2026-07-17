@@ -1,0 +1,19 @@
+; ==============================================================================
+; cannon_jacobian_element — SPOOK Jacobian element (cannon-es src/math/JacobianElement).
+;   6 entries: 3 spatial + 3 rotational degrees of freedom.
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+
+class CannonJacobianElement {
+    def spatial:CannonVec3 (new CannonVec3)
+    def rotational:CannonVec3 (new CannonVec3)
+
+    fn multiplyElement:double (element:CannonJacobianElement) {
+        return ((element.spatial.dot(this.spatial)) + (element.rotational.dot(this.rotational)))
+    }
+
+    fn multiplyVectors:double (spatial:CannonVec3 rotational:CannonVec3) {
+        return ((spatial.dot(this.spatial)) + (rotational.dot(this.rotational)))
+    }
+}

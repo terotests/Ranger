@@ -1,0 +1,229 @@
+; ==============================================================================
+; three_gl — GPU primitive operators: ONE Ranger source, WebGL + OpenGL/GLES.
+; ==============================================================================
+;
+; The platform boundary of the Three GPU backend. Each operator has an es6 (WebGL)
+; and a cpp (OpenGL/GLES2) template, so the same Ranger code compiles to the
+; browser AND to native, with no hand-written .js. Opaque int handles bridge the
+; representation gap (WebGL objects in JS arrays ↔ GLuint in std::vector).
+;
+; Lighting model (übershader in three_gl_shaders.rgr): set once per frame with
+; gpu_set_lights (ambient + directional) and gpu_set_view (camera pos); each mesh
+; is drawn with gpu_draw, passing its model + MVP and a 10-float material buffer
+; [colR,colG,colB, specR,specG,specB, shininess, shading, side, hasTex].
+;
+; Vertex layout expected by gpu_make_mesh: interleaved float32 [px,py,pz, nx,ny,nz,
+; u,v] (32-byte stride); indices are uint32; matrices are 16 float32.
+; ==============================================================================
+
+operators {
+
+    ; Acquire a context. es6: WebGL2/1 on the canvas with the given id. cpp: the
+    ; GL context is created by the host (SDL) and assumed current -> returns 1.
+    gpu_init _:int (canvasId:string) {
+        templates {
+            es6 ( "__rglInit(" (e 1) ")" (create_polyfill "
+var __rgl = null; var __rglGL2 = false;
+var __rglProgs = []; var __rglMeshes = []; var __rglTex = []; var __rglCube = [];
+var __rglAmb = [0,0,0]; var __rglDirs = [0,0,0,0,0,0,0,0,0,0,0,0];
+var __rglCols = [0,0,0,0,0,0,0,0,0,0,0,0]; var __rglLC = 0; var __rglCam = [0,0,0]; var __rglEnv = 0; var __rglOvl = null;
+function __rglInit(id){
+  if (typeof document === 'undefined') return 0;
+  var c = document.getElementById(id); if (!c) return 0;
+  __rgl = c.getContext('webgl2');
+  if (__rgl) { __rglGL2 = true; } else { __rgl = c.getContext('webgl') || c.getContext('experimental-webgl'); }
+  if (!__rgl) return 0;
+  if (!__rglGL2) { __rgl.getExtension('OES_element_index_uint'); }
+  return 1;
+}
+function __rglBegin(w,h,r,g,b){ var gl=__rgl; if(!gl) return; gl.viewport(0,0,w,h); gl.clearColor(r,g,b,1); gl.enable(gl.DEPTH_TEST); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT); }
+function __rglSh(gl,t,src){ var s=gl.createShader(t); gl.shaderSource(s,src); gl.compileShader(s); return s; }
+function __rglProgram(vs,fs){ var gl=__rgl; if(!gl) return 0; var p=gl.createProgram(); gl.attachShader(p,__rglSh(gl,gl.VERTEX_SHADER,vs)); gl.attachShader(p,__rglSh(gl,gl.FRAGMENT_SHADER,fs)); gl.linkProgram(p); __rglProgs.push({p:p,loc:{}}); return __rglProgs.length; }
+function __rglUloc(e,name){ var gl=__rgl; if(e.loc[name]===undefined){ e.loc[name]=gl.getUniformLocation(e.p,name); } return e.loc[name]; }
+function __rglMesh(vb,vc,ib,ic){ var gl=__rgl; if(!gl) return 0; var vbo=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,vbo); gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(vb),gl.STATIC_DRAW); var ebo=gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ebo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint32Array(ib),gl.STATIC_DRAW); __rglMeshes.push({vbo:vbo,ebo:ebo,count:ic}); return __rglMeshes.length; }
+function __rglTexture(bytes,w,h){ var gl=__rgl; if(!gl) return 0; var t=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,t); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(bytes)); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR); __rglTex.push(t); return __rglTex.length; }
+function __rglSetLights(amb,dirs,cols,count){ __rglAmb=new Float32Array(amb); __rglDirs=new Float32Array(dirs); __rglCols=new Float32Array(cols); __rglLC=count|0; }
+function __rglSetView(cx,cy,cz){ __rglCam=[cx,cy,cz]; }
+function __rglCubemap(px,nx,py,ny,pz,nz,size){ var gl=__rgl; if(!gl) return 0; var t=gl.createTexture(); gl.bindTexture(gl.TEXTURE_CUBE_MAP,t); var faces=[px,nx,py,ny,pz,nz]; var tgt=[gl.TEXTURE_CUBE_MAP_POSITIVE_X,gl.TEXTURE_CUBE_MAP_NEGATIVE_X,gl.TEXTURE_CUBE_MAP_POSITIVE_Y,gl.TEXTURE_CUBE_MAP_NEGATIVE_Y,gl.TEXTURE_CUBE_MAP_POSITIVE_Z,gl.TEXTURE_CUBE_MAP_NEGATIVE_Z]; for(var i=0;i<6;i++){ gl.texImage2D(tgt[i],0,gl.RGBA,size,size,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(faces[i])); } gl.texParameteri(gl.TEXTURE_CUBE_MAP,gl.TEXTURE_MIN_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_CUBE_MAP,gl.TEXTURE_MAG_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_CUBE_MAP,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_CUBE_MAP,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE); __rglCube.push(t); return __rglCube.length; }
+function __rglSetEnv(h){ __rglEnv=h|0; }
+function __rglDrawSky(ph,mh,ch,mvp){ var gl=__rgl; if(!gl||ph<1||mh<1||ch<1) return; var e=__rglProgs[ph-1]; var m=__rglMeshes[mh-1]; gl.useProgram(e.p); gl.bindBuffer(gl.ARRAY_BUFFER,m.vbo); var aPos=gl.getAttribLocation(e.p,'aPos'); gl.enableVertexAttribArray(aPos); gl.vertexAttribPointer(aPos,3,gl.FLOAT,false,32,0); gl.uniformMatrix4fv(__rglUloc(e,'uMVP'),false,new Float32Array(mvp)); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_CUBE_MAP,__rglCube[ch-1]); gl.uniform1i(__rglUloc(e,'uSky'),0); gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,m.ebo); gl.drawElements(gl.TRIANGLES,m.count,gl.UNSIGNED_INT,0); gl.enable(gl.DEPTH_TEST); }
+function __rglDraw(ph,mh,th,mvp,model,mat){ __rglDrawPrim(ph,mh,th,mvp,model,mat,__rgl?__rgl.TRIANGLES:0); }
+function __rglDrawLines(ph,mh,th,mvp,model,mat){ __rglDrawPrim(ph,mh,th,mvp,model,mat,__rgl?__rgl.LINES:0); }
+function __rglDrawPrim(ph,mh,th,mvp,model,mat,prim){ var gl=__rgl; if(!gl||ph<1||mh<1) return; var e=__rglProgs[ph-1]; var m=__rglMeshes[mh-1]; gl.useProgram(e.p);
+  gl.bindBuffer(gl.ARRAY_BUFFER,m.vbo);
+  var aPos=gl.getAttribLocation(e.p,'aPos'), aNormal=gl.getAttribLocation(e.p,'aNormal'), aUv=gl.getAttribLocation(e.p,'aUv');
+  gl.enableVertexAttribArray(aPos); gl.vertexAttribPointer(aPos,3,gl.FLOAT,false,32,0);
+  if(aNormal>=0){ gl.enableVertexAttribArray(aNormal); gl.vertexAttribPointer(aNormal,3,gl.FLOAT,false,32,12); }
+  gl.enableVertexAttribArray(aUv); gl.vertexAttribPointer(aUv,2,gl.FLOAT,false,32,24);
+  gl.uniformMatrix4fv(__rglUloc(e,'uMVP'),false,new Float32Array(mvp));
+  gl.uniformMatrix4fv(__rglUloc(e,'uModel'),false,new Float32Array(model));
+  var M=new Float32Array(mat);
+  gl.uniform3f(__rglUloc(e,'uColor'),M[0],M[1],M[2]);
+  gl.uniform3f(__rglUloc(e,'uSpecular'),M[3],M[4],M[5]);
+  gl.uniform1f(__rglUloc(e,'uShininess'),M[6]);
+  gl.uniform1f(__rglUloc(e,'uShading'),M[7]);
+  gl.uniform1f(__rglUloc(e,'uSide'),M[8]);
+  if(th>0){ gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,__rglTex[th-1]); gl.uniform1i(__rglUloc(e,'uTex'),0); gl.uniform1f(__rglUloc(e,'uHasTex'),1.0); } else { gl.uniform1f(__rglUloc(e,'uHasTex'),0.0); }
+  gl.uniform1i(__rglUloc(e,'uEnvMap'),1);
+  if(__rglEnv>0){ gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_CUBE_MAP,__rglCube[__rglEnv-1]); }
+  if(M[11]>0.5 && __rglEnv>0){ gl.uniform1f(__rglUloc(e,'uHasEnv'),1.0); gl.uniform1f(__rglUloc(e,'uReflectivity'),M[10]); } else { gl.uniform1f(__rglUloc(e,'uHasEnv'),0.0); }
+  gl.uniform3f(__rglUloc(e,'uAmbient'),__rglAmb[0],__rglAmb[1],__rglAmb[2]);
+  gl.uniform1i(__rglUloc(e,'uLightCount'),__rglLC);
+  gl.uniform3fv(__rglUloc(e,'uLightDir[0]'),__rglDirs);
+  gl.uniform3fv(__rglUloc(e,'uLightColor[0]'),__rglCols);
+  gl.uniform3f(__rglUloc(e,'uCamPos'),__rglCam[0],__rglCam[1],__rglCam[2]);
+  if(prim===gl.LINES || M[8]>1.5){ gl.disable(gl.CULL_FACE); } else { gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK); }
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,m.ebo); gl.drawElements(prim,m.count,gl.UNSIGNED_INT,0); }
+function __rglOverlayProg(){ var gl=__rgl; if(__rglOvl) return __rglOvl; var vs='attribute vec2 aPos;attribute vec2 aUv;varying vec2 vUv;void main(){vUv=aUv;gl_Position=vec4(aPos,0.0,1.0);}'; var fs='#ifdef GL_ES\\nprecision mediump float;\\n#endif\\nvarying vec2 vUv;uniform sampler2D uTex;void main(){gl_FragColor=texture2D(uTex,vUv);}'; var p=gl.createProgram(); gl.attachShader(p,__rglSh(gl,gl.VERTEX_SHADER,vs)); gl.attachShader(p,__rglSh(gl,gl.FRAGMENT_SHADER,fs)); gl.linkProgram(p); __rglOvl={p:p,vbo:gl.createBuffer()}; return __rglOvl; }
+function __rglDrawOverlay(th,x,y,w,h,sw,sh){ var gl=__rgl; if(!gl||th<1) return; var e=__rglOverlayProg(); var x0=x/sw*2-1, x1=(x+w)/sw*2-1, y0=1-y/sh*2, y1=1-(y+h)/sh*2; var v=new Float32Array([x0,y0,0,0, x1,y0,1,0, x1,y1,1,1, x0,y0,0,0, x1,y1,1,1, x0,y1,0,1]); gl.useProgram(e.p); gl.bindBuffer(gl.ARRAY_BUFFER,e.vbo); gl.bufferData(gl.ARRAY_BUFFER,v,gl.DYNAMIC_DRAW); var aPos=gl.getAttribLocation(e.p,'aPos'), aUv=gl.getAttribLocation(e.p,'aUv'); gl.enableVertexAttribArray(aPos); gl.vertexAttribPointer(aPos,2,gl.FLOAT,false,16,0); gl.enableVertexAttribArray(aUv); gl.vertexAttribPointer(aUv,2,gl.FLOAT,false,16,8); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,__rglTex[th-1]); gl.uniform1i(gl.getUniformLocation(e.p,'uTex'),0); gl.disable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA); gl.drawArrays(gl.TRIANGLES,0,6); gl.enable(gl.DEPTH_TEST); }
+function __rglEnd(){ }
+") )
+            cpp ( "rgl_init(" (e 1) ".c_str())"
+                  (imp "<vector>") (imp "<string>") (imp "<cstdint>") (imp "<cmath>")
+(create_polyfill "
+#if defined(__APPLE__)
+#include <OpenGL/gl3.h>
+#elif defined(__arm__) || defined(__aarch64__)
+#include <GLES2/gl2.h>
+#else
+#define GL_GLEXT_PROTOTYPES 1
+#include <GL/gl.h>
+#include <GL/glext.h>
+#endif
+struct RglMesh { GLuint vbo; GLuint ebo; int count; };
+struct RglProg { GLuint p; };
+static std::vector<RglProg> g_rglProgs;
+static std::vector<RglMesh> g_rglMeshes;
+static std::vector<GLuint>  g_rglTex;
+static std::vector<GLuint>  g_rglCube;
+static float g_rglAmb[3]={0,0,0}; static float g_rglDirs[12]={0}; static float g_rglCols[12]={0}; static int g_rglLC=0; static float g_rglCam[3]={0,0,0}; static int g_rglEnv=0;
+static GLuint rgl_sh(GLenum t, const char* src){ GLuint s=glCreateShader(t); glShaderSource(s,1,&src,nullptr); glCompileShader(s); return s; }
+static int rgl_init(const char* id){ (void)id; return 1; }
+static void rgl_begin(int w,int h,double r,double g,double b){ glViewport(0,0,w,h); glClearColor((float)r,(float)g,(float)b,1.0f); glEnable(GL_DEPTH_TEST); glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT); }
+static int rgl_program(std::string vs, std::string fs){ GLuint p=glCreateProgram(); glAttachShader(p, rgl_sh(GL_VERTEX_SHADER, vs.c_str())); glAttachShader(p, rgl_sh(GL_FRAGMENT_SHADER, fs.c_str())); glLinkProgram(p); RglProg e; e.p=p; g_rglProgs.push_back(e); return (int)g_rglProgs.size(); }
+static int rgl_mesh(const uint8_t* vb,int vsz,int vc,const uint8_t* ib,int isz,int ic){ (void)vc; RglMesh m; glGenBuffers(1,&m.vbo); glBindBuffer(GL_ARRAY_BUFFER,m.vbo); glBufferData(GL_ARRAY_BUFFER,vsz,vb,GL_STATIC_DRAW); glGenBuffers(1,&m.ebo); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,m.ebo); glBufferData(GL_ELEMENT_ARRAY_BUFFER,isz,ib,GL_STATIC_DRAW); m.count=ic; g_rglMeshes.push_back(m); return (int)g_rglMeshes.size(); }
+static int rgl_texture(const uint8_t* bytes,int w,int h){ GLuint t; glGenTextures(1,&t); glBindTexture(GL_TEXTURE_2D,t); glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,w,h,0,GL_RGBA,GL_UNSIGNED_BYTE,bytes); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_REPEAT); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_REPEAT); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR); g_rglTex.push_back(t); return (int)g_rglTex.size(); }
+static void rgl_set_lights(const uint8_t* amb,const uint8_t* dirs,const uint8_t* cols,int count){ const float* a=(const float*)amb; const float* d=(const float*)dirs; const float* c=(const float*)cols; g_rglAmb[0]=a[0];g_rglAmb[1]=a[1];g_rglAmb[2]=a[2]; for(int i=0;i<12;i++){ g_rglDirs[i]=d[i]; g_rglCols[i]=c[i]; } g_rglLC=count; }
+static void rgl_set_view(double cx,double cy,double cz){ g_rglCam[0]=(float)cx; g_rglCam[1]=(float)cy; g_rglCam[2]=(float)cz; }
+static GLint rgl_u(GLuint p,const char* n){ return glGetUniformLocation(p,n); }
+static int rgl_cubemap(const uint8_t* px,const uint8_t* nx,const uint8_t* py,const uint8_t* ny,const uint8_t* pz,const uint8_t* nz,int size){ GLuint t; glGenTextures(1,&t); glBindTexture(GL_TEXTURE_CUBE_MAP,t); const uint8_t* faces[6]={px,nx,py,ny,pz,nz}; GLenum tgt[6]={GL_TEXTURE_CUBE_MAP_POSITIVE_X,GL_TEXTURE_CUBE_MAP_NEGATIVE_X,GL_TEXTURE_CUBE_MAP_POSITIVE_Y,GL_TEXTURE_CUBE_MAP_NEGATIVE_Y,GL_TEXTURE_CUBE_MAP_POSITIVE_Z,GL_TEXTURE_CUBE_MAP_NEGATIVE_Z}; for(int i=0;i<6;i++){ glTexImage2D(tgt[i],0,GL_RGBA,size,size,0,GL_RGBA,GL_UNSIGNED_BYTE,faces[i]); } glTexParameteri(GL_TEXTURE_CUBE_MAP,GL_TEXTURE_MIN_FILTER,GL_LINEAR); glTexParameteri(GL_TEXTURE_CUBE_MAP,GL_TEXTURE_MAG_FILTER,GL_LINEAR); glTexParameteri(GL_TEXTURE_CUBE_MAP,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE); glTexParameteri(GL_TEXTURE_CUBE_MAP,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE); g_rglCube.push_back(t); return (int)g_rglCube.size(); }
+static void rgl_set_env(int h){ g_rglEnv=h; }
+static void rgl_draw_sky(int ph,int mh,int ch,const uint8_t* mvp){ if(ph<1||mh<1||ch<1) return; RglProg e=g_rglProgs[ph-1]; RglMesh m=g_rglMeshes[mh-1]; glUseProgram(e.p); glBindBuffer(GL_ARRAY_BUFFER,m.vbo); GLint aPos=glGetAttribLocation(e.p,\"aPos\"); glEnableVertexAttribArray(aPos); glVertexAttribPointer(aPos,3,GL_FLOAT,GL_FALSE,32,(void*)0); glUniformMatrix4fv(rgl_u(e.p,\"uMVP\"),1,GL_FALSE,(const float*)mvp); glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_CUBE_MAP,g_rglCube[ch-1]); glUniform1i(rgl_u(e.p,\"uSky\"),0); glDisable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,m.ebo); glDrawElements(GL_TRIANGLES,m.count,GL_UNSIGNED_INT,(void*)0); glEnable(GL_DEPTH_TEST); }
+static void rgl_draw_prim(int ph,int mh,int th,const uint8_t* mvp,const uint8_t* model,const uint8_t* mat,GLenum prim){ if(ph<1||mh<1) return; RglProg e=g_rglProgs[ph-1]; RglMesh m=g_rglMeshes[mh-1]; const float* M=(const float*)mat; glUseProgram(e.p); glBindBuffer(GL_ARRAY_BUFFER,m.vbo); GLint aPos=glGetAttribLocation(e.p,\"aPos\"),aNormal=glGetAttribLocation(e.p,\"aNormal\"),aUv=glGetAttribLocation(e.p,\"aUv\"); glEnableVertexAttribArray(aPos); glVertexAttribPointer(aPos,3,GL_FLOAT,GL_FALSE,32,(void*)0); if(aNormal>=0){ glEnableVertexAttribArray(aNormal); glVertexAttribPointer(aNormal,3,GL_FLOAT,GL_FALSE,32,(void*)12);} glEnableVertexAttribArray(aUv); glVertexAttribPointer(aUv,2,GL_FLOAT,GL_FALSE,32,(void*)24); glUniformMatrix4fv(rgl_u(e.p,\"uMVP\"),1,GL_FALSE,(const float*)mvp); glUniformMatrix4fv(rgl_u(e.p,\"uModel\"),1,GL_FALSE,(const float*)model); glUniform3f(rgl_u(e.p,\"uColor\"),M[0],M[1],M[2]); glUniform3f(rgl_u(e.p,\"uSpecular\"),M[3],M[4],M[5]); glUniform1f(rgl_u(e.p,\"uShininess\"),M[6]); glUniform1f(rgl_u(e.p,\"uShading\"),M[7]); glUniform1f(rgl_u(e.p,\"uSide\"),M[8]); if(th>0){ glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D,g_rglTex[th-1]); glUniform1i(rgl_u(e.p,\"uTex\"),0); glUniform1f(rgl_u(e.p,\"uHasTex\"),1.0f);} else { glUniform1f(rgl_u(e.p,\"uHasTex\"),0.0f);} glUniform1i(rgl_u(e.p,\"uEnvMap\"),1); if(g_rglEnv>0){ glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_CUBE_MAP,g_rglCube[g_rglEnv-1]); } if(M[11]>0.5f && g_rglEnv>0){ glUniform1f(rgl_u(e.p,\"uHasEnv\"),1.0f); glUniform1f(rgl_u(e.p,\"uReflectivity\"),M[10]);} else { glUniform1f(rgl_u(e.p,\"uHasEnv\"),0.0f);} glUniform3f(rgl_u(e.p,\"uAmbient\"),g_rglAmb[0],g_rglAmb[1],g_rglAmb[2]); glUniform1i(rgl_u(e.p,\"uLightCount\"),g_rglLC); glUniform3fv(rgl_u(e.p,\"uLightDir[0]\"),4,g_rglDirs); glUniform3fv(rgl_u(e.p,\"uLightColor[0]\"),4,g_rglCols); glUniform3f(rgl_u(e.p,\"uCamPos\"),g_rglCam[0],g_rglCam[1],g_rglCam[2]); if(prim==GL_LINES || M[8]>1.5f){ glDisable(GL_CULL_FACE);} else { glEnable(GL_CULL_FACE); glCullFace(GL_BACK);} glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,m.ebo); glDrawElements(prim,m.count,GL_UNSIGNED_INT,(void*)0); }
+static void rgl_draw(int ph,int mh,int th,const uint8_t* mvp,const uint8_t* model,const uint8_t* mat){ rgl_draw_prim(ph,mh,th,mvp,model,mat,GL_TRIANGLES); }
+static void rgl_draw_lines(int ph,int mh,int th,const uint8_t* mvp,const uint8_t* model,const uint8_t* mat){ rgl_draw_prim(ph,mh,th,mvp,model,mat,GL_LINES); }
+static GLuint g_rglOvlProg=0; static GLuint g_rglOvlVbo=0;
+static GLuint rgl_ovl_prog(){ if(g_rglOvlProg) return g_rglOvlProg; const char* vs=\"attribute vec2 aPos;attribute vec2 aUv;varying vec2 vUv;void main(){vUv=aUv;gl_Position=vec4(aPos,0.0,1.0);}\"; const char* fs=\"#ifdef GL_ES\\nprecision mediump float;\\n#endif\\nvarying vec2 vUv;uniform sampler2D uTex;void main(){gl_FragColor=texture2D(uTex,vUv);}\"; GLuint p=glCreateProgram(); glAttachShader(p,rgl_sh(GL_VERTEX_SHADER,vs)); glAttachShader(p,rgl_sh(GL_FRAGMENT_SHADER,fs)); glLinkProgram(p); g_rglOvlProg=p; glGenBuffers(1,&g_rglOvlVbo); return p; }
+static void rgl_draw_overlay(int th,int x,int y,int w,int h,int sw,int sh){ if(th<1) return; GLuint prog=rgl_ovl_prog(); float x0=(float)x/sw*2-1, x1=(float)(x+w)/sw*2-1, y0=1-(float)y/sh*2, y1=1-(float)(y+h)/sh*2; float v[24]={x0,y0,0,0, x1,y0,1,0, x1,y1,1,1, x0,y0,0,0, x1,y1,1,1, x0,y1,0,1}; glUseProgram(prog); glBindBuffer(GL_ARRAY_BUFFER,g_rglOvlVbo); glBufferData(GL_ARRAY_BUFFER,sizeof(v),v,GL_DYNAMIC_DRAW); GLint aPos=glGetAttribLocation(prog,\"aPos\"),aUv=glGetAttribLocation(prog,\"aUv\"); glEnableVertexAttribArray(aPos); glVertexAttribPointer(aPos,2,GL_FLOAT,GL_FALSE,16,(void*)0); glEnableVertexAttribArray(aUv); glVertexAttribPointer(aUv,2,GL_FLOAT,GL_FALSE,16,(void*)8); glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D,g_rglTex[th-1]); glUniform1i(glGetUniformLocation(prog,\"uTex\"),0); glDisable(GL_DEPTH_TEST); glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA); glDrawArrays(GL_TRIANGLES,0,6); glEnable(GL_DEPTH_TEST); }
+static void rgl_end(){ }
+static void rgl_save_ppm(const char* path, int w, int h){ std::vector<uint8_t> px((size_t)w*h*4); glReadPixels(0,0,w,h,GL_RGBA,GL_UNSIGNED_BYTE,px.data()); FILE* f=fopen(path,\"wb\"); if(!f) return; fprintf(f,\"P6\\n%d %d\\n255\\n\",w,h); for(int y=h-1;y>=0;y--){ for(int x=0;x<w;x++){ size_t o=((size_t)y*w+x)*4; fputc(px[o],f); fputc(px[o+1],f); fputc(px[o+2],f);} } fclose(f); }
+") (imp "<cstdio>") )
+        }
+    }
+
+    gpu_begin _:void (w:int h:int r:double g:double b:double) {
+        templates {
+            es6 ( "__rglBegin(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" )
+            cpp ( "rgl_begin(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" )
+        }
+    }
+
+    gpu_program _:int (vs:string fs:string) {
+        templates {
+            es6 ( "__rglProgram(" (e 1) ", " (e 2) ")" )
+            cpp ( "rgl_program(" (e 1) ", " (e 2) ")" )
+        }
+    }
+
+    gpu_make_mesh _:int (verts:buffer vcount:int idx:buffer icount:int) {
+        templates {
+            es6 ( "__rglMesh(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ")" )
+            cpp ( "rgl_mesh(" (e 1) ".data(), (int)" (e 1) ".size(), " (e 2) ", " (e 3) ".data(), (int)" (e 3) ".size(), " (e 4) ")" )
+        }
+    }
+
+    gpu_make_texture _:int (rgba:buffer w:int h:int) {
+        templates {
+            es6 ( "__rglTexture(" (e 1) ", " (e 2) ", " (e 3) ")" )
+            cpp ( "rgl_texture(" (e 1) ".data(), " (e 2) ", " (e 3) ")" )
+        }
+    }
+
+    ; environment cube map: six RGBA faces (+X -X +Y -Y +Z -Z), square `size`.
+    gpu_make_cubemap _:int (px:buffer nx:buffer py:buffer ny:buffer pz:buffer nz:buffer size:int) {
+        templates {
+            es6 ( "__rglCubemap(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ", " (e 6) ", " (e 7) ")" )
+            cpp ( "rgl_cubemap(" (e 1) ".data(), " (e 2) ".data(), " (e 3) ".data(), " (e 4) ".data(), " (e 5) ".data(), " (e 6) ".data(), " (e 7) ")" )
+        }
+    }
+
+    ; select the current environment cube map (0 = none) for reflective draws.
+    gpu_set_env _:void (handle:int) {
+        templates {
+            es6 ( "__rglSetEnv(" (e 1) ")" )
+            cpp ( "rgl_set_env(" (e 1) ")" )
+        }
+    }
+
+    ; draw the skybox: a cube whose positions sample the cube map by direction.
+    gpu_draw_sky _:void (prog:int mesh:int cube:int mvp:buffer) {
+        templates {
+            es6 ( "__rglDrawSky(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ")" )
+            cpp ( "rgl_draw_sky(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ".data())" )
+        }
+    }
+
+    gpu_set_lights _:void (amb:buffer dirs:buffer cols:buffer count:int) {
+        templates {
+            es6 ( "__rglSetLights(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ")" )
+            cpp ( "rgl_set_lights(" (e 1) ".data(), " (e 2) ".data(), " (e 3) ".data(), " (e 4) ")" )
+        }
+    }
+
+    gpu_set_view _:void (cx:double cy:double cz:double) {
+        templates {
+            es6 ( "__rglSetView(" (e 1) ", " (e 2) ", " (e 3) ")" )
+            cpp ( "rgl_set_view(" (e 1) ", " (e 2) ", " (e 3) ")" )
+        }
+    }
+
+    gpu_draw _:void (prog:int mesh:int tex:int mvp:buffer model:buffer mat:buffer) {
+        templates {
+            es6 ( "__rglDraw(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ", " (e 6) ")" )
+            cpp ( "rgl_draw(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ".data(), " (e 5) ".data(), " (e 6) ".data())" )
+        }
+    }
+
+    gpu_draw_lines _:void (prog:int mesh:int tex:int mvp:buffer model:buffer mat:buffer) {
+        templates {
+            es6 ( "__rglDrawLines(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ", " (e 6) ")" )
+            cpp ( "rgl_draw_lines(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ".data(), " (e 5) ".data(), " (e 6) ".data())" )
+        }
+    }
+
+    gpu_end _:void () {
+        templates {
+            es6 ( "__rglEnd()" )
+            cpp ( "rgl_end()" )
+        }
+    }
+
+    ; Composite an RGBA texture as a screen-space quad at pixel (x,y,w,h) over a
+    ; (screenW,screenH) frame — used to draw the GUI overlay over the 3D scene
+    ; (native path; the browser stacks a 2D canvas instead). Alpha-blended.
+    gpu_draw_overlay _:void (tex:int x:int y:int w:int h:int screenW:int screenH:int) {
+        templates {
+            es6 ( "__rglDrawOverlay(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ", " (e 6) ", " (e 7) ")" )
+            cpp ( "rgl_draw_overlay(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ", " (e 6) ", " (e 7) ")" )
+        }
+    }
+
+    ; Read the framebuffer and save it as a binary PPM (native only; for headless
+    ; capture / tests). es6 is a no-op — the browser screenshots the canvas.
+    gpu_save_ppm _:void (path:string w:int h:int) {
+        templates {
+            es6 ( "undefined" )
+            cpp ( "rgl_save_ppm(" (e 1) ".c_str(), " (e 2) ", " (e 3) ")" )
+        }
+    }
+}

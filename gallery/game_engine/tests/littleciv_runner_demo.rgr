@@ -1,0 +1,87 @@
+; ==============================================================================
+; littleciv_runner_demo - headless smoke for aim-then-Space LittleCiv controls
+; ==============================================================================
+
+Import "../scripting/game_runtime.rgr"
+
+class LittlecivRunnerDemo {
+    sfn m@(main):void () {
+        def runner:GameRunner (new GameRunner)
+        runner.init(480 270)
+
+        def buf:buffer (buffer_read_file "gallery/game_engine/games/littleciv" "index.tsx")
+        def src:string (buffer_to_string buf)
+        runner.setScriptDir("gallery/game_engine/games/littleciv")
+        runner.loadScript(src)
+        runner.setupScene()
+
+        def frames:int 280
+        if ((shell_arg_cnt) > 0) {
+            def parsed@(optional):int (to_int (shell_arg 0))
+            if (!null? parsed) {
+                frames = (unwrap parsed)
+            }
+        }
+
+        def i 0
+        while (i < frames) {
+            def up:boolean false
+            def down:boolean false
+            def left:boolean false
+            def right:boolean false
+            def action:boolean false
+
+            ; Leave splash.
+            if (i == 5) { action = true }
+            ; Aim right, then Space to slide.
+            if (i == 25) { right = true }
+            if (i == 40) { action = true }
+            ; Aim again + move (after slide finishes ~i 50).
+            if (i == 70) { right = true }
+            if (i == 85) { action = true }
+            ; End turn with B is not available via frame(); use Down idle no longer ends.
+            ; Pulse Select is also unavailable — just keep moving / waiting.
+            if (i == 130) { right = true }
+            if (i == 145) { action = true }
+
+            runner.frame(16 up down left right action false)
+            i = (i + 1)
+        }
+
+        runner.draw()
+        buffer_write_file "gallery/game_engine/scripting" "littleciv_frame.rgba" (runner.raw())
+
+        ; Re-aim right so aim marker is visible on the final frame.
+        runner.frame(16 false false false true false false)
+        runner.frame(16 false false false false false false)
+        runner.draw()
+
+        def ec:int (runner.entityCount())
+        def ringX:int (runner.entityX("selRing"))
+        def aimX:int (runner.entityX("aim"))
+        def t0x:int (runner.entityX("t0"))
+        print ("frames=" + frames)
+        print (("entities=" + ec))
+        print (("selRing=" + ringX))
+        print (("aim=" + aimX))
+        print (("t0=" + t0x))
+        if (ec > 100) {
+            print "tiles=ok"
+        } {
+            print "tiles=missing"
+        }
+        if (ringX > 0) {
+            print "select=ok"
+        } {
+            print "select=missing"
+        }
+        if (aimX > 0) {
+            print "aim=ok"
+        } {
+            print "aim=missing"
+        }
+        def audio:GameAudio (runner.audioRef())
+        print (("audioPlays=" + audio.playCount))
+        print "littleciv-runner done"
+    }
+}

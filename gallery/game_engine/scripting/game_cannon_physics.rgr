@@ -15,6 +15,7 @@ Import "../physics/src/cannon_plane.rgr"
 Import "../physics/src/cannon_vec3.rgr"
 Import "../physics/src/cannon_quaternion.rgr"
 Import "../physics/src/cannon_contact_equation.rgr"
+Import "../physics/src/cannon_equation.rgr"
 
 class CannonPhysicsCollision {
     def bodyId:string ""
@@ -263,7 +264,7 @@ class GameCannonPhysics {
         def n:int (array_length this.world.narrowphase.result)
         def k 0
         while (k < n) {
-            def c:CannonContactEquation (itemAt this.world.narrowphase.result k)
+            def c:CannonEquation (itemAt this.world.narrowphase.result k)
             if (c.enabled) {
                 def ia:int c.bi.id
                 def ib:int c.bj.id
@@ -687,13 +688,31 @@ class GameCannonPhysics {
         hasCustomBounds = true
     }
 
+    ; A static box wall/floor. Half-extents (hx,hy); deep in z so the z-plane play
+    ; never escapes it. Sphere-box collision (well-tested with the solver) resolves
+    ; it, so balls rest on the floor and stack on each other.
+    fn addBoxBoundary:void (px:double py:double hx:double hy:double) {
+        def body:CannonBody (new CannonBody)
+        body.initStatic()
+        body.position.set(px py 0.0)
+        body.collisionResponse = true
+        def he:CannonVec3 (new CannonVec3)
+        he.set(hx hy 1000.0)
+        def box:CannonBox (new CannonBox)
+        box.initBox(he)
+        body.addShape(box)
+        this.world.addBody(body)
+        push boundaryGraceSkip false
+    }
+
     fn addDefaultWorldBounds:void () {
         def cx:double (worldW * 0.5)
         def cy:double (worldH * 0.5)
-        this.addPlaneBoundary(0.0 cy 1.0 0.0 false)
-        this.addPlaneBoundary(worldW cy -1.0 0.0 false)
-        this.addPlaneBoundary(cx 0.0 0.0 1.0 false)
-        this.addPlaneBoundary(cx worldH 0.0 -1.0 false)
+        def t:double 20.0
+        this.addBoxBoundary((0.0 - t) cy t worldH)
+        this.addBoxBoundary((worldW + t) cy t worldH)
+        this.addBoxBoundary(cx (0.0 - t) worldW t)
+        this.addBoxBoundary(cx (worldH + t) worldW t)
         hasCustomBounds = true
     }
 
@@ -854,63 +873,33 @@ class GameCannonPhysics {
         }
     }
 
+    ; Far-escape safety net only. Boundary collisions and stacking are now the
+    ; solver's job (via the boundary bodies from addDefaultWorldBounds/loadBounds);
+    ; this only rescues a body the solver let tunnel far outside the world, so the
+    ; manual clamp no longer fights the solver (which is what collapsed stacks).
     fn clampBody:void (idx:int) {
         def body:CannonBody (itemAt this.world.bodies idx)
         def r:double (itemAt entityRadius idx)
-        def roll:double (itemAt entityRollScale idx)
-        def e:double wallRestitution
-        def minX:double r
-        def maxX:double (worldW - r)
-        def minY:double r
-        def maxY:double (worldH - r)
-        ; World-mode tables inset playfield from the world rect (pinball top y=28, sides x=18).
-        if (hasCustomBounds) {
-            minX = (r + 10.0)
-            minY = (r + 20.0)
-            maxX = (worldW - r - 2.0)
+        def margin:double (worldW + worldH)
+        if (body.position.x < (0.0 - margin)) {
+            body.position.set(r (worldH - r) 0.0)
+            body.velocity.setZero()
+            body.angularVelocity.setZero()
         }
-        if (body.position.x < minX) {
-            body.position.x = minX
-            def vx:double body.velocity.x
-            if (vx < 0.0) {
-                body.velocity.x = (0.0 - vx) * e
-                if (roll > 0.0) {
-                    def vySide:double body.velocity.y
-                    def spinBump:double ((0.0 - vySide) / r)
-                    body.angularVelocity.z = (body.angularVelocity.z + ((spinBump * 0.35) * roll))
-                }
-            }
+        if (body.position.x > (worldW + margin)) {
+            body.position.set((worldW - r) (worldH - r) 0.0)
+            body.velocity.setZero()
+            body.angularVelocity.setZero()
         }
-        if (body.position.x > maxX) {
-            body.position.x = maxX
-            def vx2:double body.velocity.x
-            if (vx2 > 0.0) {
-                body.velocity.x = (0.0 - vx2) * e
-                if (roll > 0.0) {
-                    def vySide2:double body.velocity.y
-                    def spinBump2:double (vySide2 / r)
-                    body.angularVelocity.z = (body.angularVelocity.z + ((spinBump2 * 0.35) * roll))
-                }
-            }
+        if (body.position.y < (0.0 - margin)) {
+            body.position.set((worldW * 0.5) r 0.0)
+            body.velocity.setZero()
+            body.angularVelocity.setZero()
         }
-        if (body.position.y < minY) {
-            body.position.y = minY
-            def vy:double body.velocity.y
-            if (vy < 0.0) {
-                body.velocity.y = (0.0 - vy) * e
-            }
-        }
-        if (body.position.y > maxY) {
-            body.position.y = maxY
-            def vy2:double body.velocity.y
-            if (vy2 > 0.0) {
-                body.velocity.y = (0.0 - vy2) * e
-            }
-            if (roll > 0.0) {
-                def vxFloor:double body.velocity.x
-                def rollRad:double (vxFloor / r)
-                body.angularVelocity.z = rollRad
-            }
+        if (body.position.y > (worldH + margin)) {
+            body.position.set((worldW * 0.5) (worldH - r) 0.0)
+            body.velocity.setZero()
+            body.angularVelocity.setZero()
         }
     }
 

@@ -1,27 +1,101 @@
 ; ==============================================================================
 ; cannon_narrowphase — contact generation (Cannon.js port subset).
+;   Produces SPOOK CannonEquation contacts (kind = contact) for the GS solver.
+;   Contact normal ni follows cannon-es: it points from body i toward body j.
 ; ==============================================================================
 
 Import "cannon_vec3.rgr"
 Import "cannon_quaternion.rgr"
 Import "cannon_shape.rgr"
 Import "cannon_body.rgr"
-Import "cannon_contact_equation.rgr"
+Import "cannon_equation.rgr"
 Import "cannon_contact_material.rgr"
 
 class CannonNarrowphase {
     def currentContactMaterial:CannonContactMaterial
-    def result:[CannonContactEquation]
+    def result:[CannonEquation]
     def tmpQuatI:CannonQuaternion (new CannonQuaternion)
     def tmpQuatJ:CannonQuaternion (new CannonQuaternion)
     def tmpVecI:CannonVec3 (new CannonVec3)
     def tmpVecJ:CannonVec3 (new CannonVec3)
     def tmpPointOnPlane:CannonVec3 (new CannonVec3)
     def tmpPlaneOrtho:CannonVec3 (new CannonVec3)
+    ; sphere-box scratch
+    def sbRel:CannonVec3 (new CannonVec3)
+    def sbConj:CannonQuaternion (new CannonQuaternion)
+    def sbLocal:CannonVec3 (new CannonVec3)
+    def sbClosest:CannonVec3 (new CannonVec3)
+    def sbClosestWorld:CannonVec3 (new CannonVec3)
+    def sbD:CannonVec3 (new CannonVec3)
+    ; plane-box scratch
+    def pbNormal:CannonVec3 (new CannonVec3)
+    def pbCorner:CannonVec3 (new CannonVec3)
+    def pbProj:CannonVec3 (new CannonVec3)
+    ; box-box (SAT) scratch
+    def bbAx:CannonVec3 (new CannonVec3)
+    def bbAy:CannonVec3 (new CannonVec3)
+    def bbAz:CannonVec3 (new CannonVec3)
+    def bbBx:CannonVec3 (new CannonVec3)
+    def bbBy:CannonVec3 (new CannonVec3)
+    def bbBz:CannonVec3 (new CannonVec3)
+    def bbPosDiff:CannonVec3 (new CannonVec3)
+    def bbBestAxis:CannonVec3 (new CannonVec3)
+    def bbBestOverlap:double 0.0
+    def bbHeA:CannonVec3
+    def bbHeB:CannonVec3
+    def bbCorner:CannonVec3 (new CannonVec3)
+    def bbLocal:CannonVec3 (new CannonVec3)
+    def bbConj:CannonQuaternion (new CannonQuaternion)
+    def bbUnit:CannonVec3 (new CannonVec3)
+    def bbPointA:CannonVec3 (new CannonVec3)
+    def bbPointB:CannonVec3 (new CannonVec3)
+    def bbMade:int 0
+    ; sphere-heightfield scratch
+    def hfRel:CannonVec3 (new CannonVec3)
+    def hfConj:CannonQuaternion (new CannonQuaternion)
+    def hfLocal:CannonVec3 (new CannonVec3)
+    def hfNormal:CannonVec3 (new CannonVec3)
+    def hfPoint:CannonVec3 (new CannonVec3)
+    def hfProj:CannonVec3 (new CannonVec3)
+    ; convex-polyhedron scratch
+    def cvRel:CannonVec3 (new CannonVec3)
+    def cvConj:CannonQuaternion (new CannonQuaternion)
+    def cvLocal:CannonVec3 (new CannonVec3)
+    def cvNormal:CannonVec3 (new CannonVec3)
+    def cvBest:CannonVec3 (new CannonVec3)
+    def cvFV:CannonVec3 (new CannonVec3)
+    def cvVert:CannonVec3 (new CannonVec3)
+    ; sphere-trimesh scratch
+    def tmRel:CannonVec3 (new CannonVec3)
+    def tmConj:CannonQuaternion (new CannonQuaternion)
+    def tmLocal:CannonVec3 (new CannonVec3)
+    def tmA:CannonVec3 (new CannonVec3)
+    def tmB:CannonVec3 (new CannonVec3)
+    def tmC:CannonVec3 (new CannonVec3)
+    def tmClosest:CannonVec3 (new CannonVec3)
+    def tmDV:CannonVec3 (new CannonVec3)
+    def tmAB:CannonVec3 (new CannonVec3)
+    def tmAC:CannonVec3 (new CannonVec3)
+    def tmAP:CannonVec3 (new CannonVec3)
+    def tmBP:CannonVec3 (new CannonVec3)
+    def tmCP:CannonVec3 (new CannonVec3)
+    ; convex-convex scratch
+    def ccAxis:CannonVec3 (new CannonVec3)
+    def ccBestAxis:CannonVec3 (new CannonVec3)
+    def ccBestOverlap:double 0.0
+    def ccDiff:CannonVec3 (new CannonVec3)
+    def ccVert:CannonVec3 (new CannonVec3)
+    def ccTmp:CannonVec3 (new CannonVec3)
+    def ccTmp2:CannonVec3 (new CannonVec3)
+    def ccLocalV:CannonVec3 (new CannonVec3)
+    def ccLocalN:CannonVec3 (new CannonVec3)
+    def ccPointA:CannonVec3 (new CannonVec3)
+    def ccPointB:CannonVec3 (new CannonVec3)
+    def ccMade:int 0
 
-    fn createContactEquation:CannonContactEquation (bi:CannonBody bj:CannonBody si:CannonShape sj:CannonShape) {
-        def c:CannonContactEquation (new CannonContactEquation)
-        c.initContact(bi bj)
+    fn createContactEquation:CannonEquation (bi:CannonBody bj:CannonBody si:CannonShape sj:CannonShape) {
+        def c:CannonEquation (new CannonEquation)
+        c.initContact(bi bj 1000000.0)
         def enabled:boolean true
         if (bi.collisionResponse == false) {
             enabled = false
@@ -41,6 +115,7 @@ class CannonNarrowphase {
         def cm:CannonContactMaterial this.currentContactMaterial
         if (cm) {
             c.restitution = cm.restitution
+            c.setSpookParams(cm.contactEquationStiffness cm.contactEquationRelaxation (1.0 / 60.0))
         }
         return c
     }
@@ -51,9 +126,10 @@ class CannonNarrowphase {
             def limit2:double (limit * limit)
             return (xi.distanceSquared(xj) < limit2)
         }
-        def r:CannonContactEquation (this.createContactEquation(bi bj si sj))
+        def r:CannonEquation (this.createContactEquation(bi bj si sj))
         def ni:CannonVec3 r.ni
-        xi.vsub(xj ni)
+        ; ni points from body i toward body j (cannon-es convention).
+        xj.vsub(xi ni)
         ni.normalizeSelf()
         r.ri.copy(ni)
         r.rj.copy(ni)
@@ -69,7 +145,7 @@ class CannonNarrowphase {
     }
 
     fn spherePlane:boolean (radiusI:double xi:CannonVec3 xj:CannonVec3 qj:CannonQuaternion bi:CannonBody bj:CannonBody si:CannonShape sj:CannonShape justTest:boolean) {
-        def r:CannonContactEquation (this.createContactEquation(bi bj si sj))
+        def r:CannonEquation (this.createContactEquation(bi bj si sj))
         def ni:CannonVec3 r.ni
         ni.set(0.0 0.0 1.0)
         qj.vmult(ni ni)
@@ -100,6 +176,651 @@ class CannonNarrowphase {
         return false
     }
 
+    ; Sphere (i) vs box (j): closest point on the OBB to the sphere centre.
+    fn sphereBox:boolean (radius:double xi:CannonVec3 boxShape:CannonShape xj:CannonVec3 qj:CannonQuaternion bi:CannonBody bj:CannonBody si:CannonShape sj:CannonShape justTest:boolean) {
+        xi.vsub(xj this.sbRel)
+        qj.conjugateInto(this.sbConj)
+        this.sbConj.vmult(this.sbRel this.sbLocal)
+        def he:CannonVec3 (boxShape.getHalfExtents())
+        def cx:double this.sbLocal.x
+        if (cx > he.x) {
+            cx = he.x
+        }
+        if (cx < (0.0 - he.x)) {
+            cx = (0.0 - he.x)
+        }
+        def cy:double this.sbLocal.y
+        if (cy > he.y) {
+            cy = he.y
+        }
+        if (cy < (0.0 - he.y)) {
+            cy = (0.0 - he.y)
+        }
+        def cz:double this.sbLocal.z
+        if (cz > he.z) {
+            cz = he.z
+        }
+        if (cz < (0.0 - he.z)) {
+            cz = (0.0 - he.z)
+        }
+        this.sbClosest.set(cx cy cz)
+        qj.vmult(this.sbClosest this.sbClosestWorld)
+        this.sbClosestWorld.vadd(xj this.sbClosestWorld)
+        xi.vsub(this.sbClosestWorld this.sbD)
+        def dist:double (this.sbD.norm())
+        if (dist >= radius) {
+            return false
+        }
+        if (dist < 0.00001) {
+            return false
+        }
+        if (justTest) {
+            return true
+        }
+        def r:CannonEquation (this.createContactEquation(bi bj si sj))
+        ; ni = -d/dist points from the sphere (i) toward the box (j).
+        this.sbD.scaleInto((0.0 - (1.0 / dist)) r.ni)
+        r.ni.scaleInto(radius r.ri)
+        r.ri.vadd(xi r.ri)
+        r.ri.vsub(bi.position r.ri)
+        this.sbClosestWorld.vsub(bj.position r.rj)
+        push this.result r
+        return true
+    }
+
+    ; One box corner vs the plane: add a contact if the corner is below it.
+    fn tryPlaneBoxCorner:boolean (sx:double sy:double sz:double he:CannonVec3 boxPos:CannonVec3 boxQuat:CannonQuaternion bi:CannonBody bj:CannonBody si:CannonShape sj:CannonShape justTest:boolean) {
+        this.pbCorner.set((sx * he.x) (sy * he.y) (sz * he.z))
+        boxQuat.vmult(this.pbCorner this.pbCorner)
+        boxPos.vadd(this.pbCorner this.pbCorner)
+        def cornerDot:double (this.pbNormal.dot(this.pbCorner))
+        def planeDot:double (this.pbNormal.dot(bi.position))
+        def dot:double (cornerDot - planeDot)
+        if (dot > 0.0) {
+            return false
+        }
+        if (justTest) {
+            return true
+        }
+        def r:CannonEquation (this.createContactEquation(bi bj si sj))
+        r.ni.copy(this.pbNormal)
+        this.pbCorner.vsub(bj.position r.rj)
+        this.pbNormal.scaleInto(dot this.pbProj)
+        this.pbCorner.vsub(this.pbProj this.pbProj)
+        this.pbProj.vsub(bi.position r.ri)
+        push this.result r
+        return true
+    }
+
+    ; Plane (i) vs box (j): each penetrating box corner becomes a contact.
+    fn planeBox:boolean (planeQuat:CannonQuaternion boxShape:CannonShape xj:CannonVec3 boxQuat:CannonQuaternion bi:CannonBody bj:CannonBody si:CannonShape sj:CannonShape justTest:boolean) {
+        this.pbNormal.set(0.0 0.0 1.0)
+        planeQuat.vmult(this.pbNormal this.pbNormal)
+        def he:CannonVec3 (boxShape.getHalfExtents())
+        def hit:boolean false
+        if (this.tryPlaneBoxCorner(1.0 1.0 1.0 he xj boxQuat bi bj si sj justTest)) { hit = true }
+        if (this.tryPlaneBoxCorner((0.0 - 1.0) 1.0 1.0 he xj boxQuat bi bj si sj justTest)) { hit = true }
+        if (this.tryPlaneBoxCorner(1.0 (0.0 - 1.0) 1.0 he xj boxQuat bi bj si sj justTest)) { hit = true }
+        if (this.tryPlaneBoxCorner(1.0 1.0 (0.0 - 1.0) he xj boxQuat bi bj si sj justTest)) { hit = true }
+        if (this.tryPlaneBoxCorner((0.0 - 1.0) (0.0 - 1.0) 1.0 he xj boxQuat bi bj si sj justTest)) { hit = true }
+        if (this.tryPlaneBoxCorner((0.0 - 1.0) 1.0 (0.0 - 1.0) he xj boxQuat bi bj si sj justTest)) { hit = true }
+        if (this.tryPlaneBoxCorner(1.0 (0.0 - 1.0) (0.0 - 1.0) he xj boxQuat bi bj si sj justTest)) { hit = true }
+        if (this.tryPlaneBoxCorner((0.0 - 1.0) (0.0 - 1.0) (0.0 - 1.0) he xj boxQuat bi bj si sj justTest)) { hit = true }
+        return hit
+    }
+
+    ; Sphere (i) vs heightfield (j): contact against the terrain triangle plane
+    ; under the sphere centre.
+    fn sphereHeightfield:boolean (radius:double xi:CannonVec3 hfShape:CannonShape xj:CannonVec3 qj:CannonQuaternion bi:CannonBody bj:CannonBody si:CannonShape sj:CannonShape justTest:boolean) {
+        xi.vsub(xj this.hfRel)
+        qj.conjugateInto(this.hfConj)
+        this.hfConj.vmult(this.hfRel this.hfLocal)
+        if (hfShape.heightfieldPlaneAt(this.hfLocal.x this.hfLocal.y this.hfNormal this.hfPoint) == false) {
+            return false
+        }
+        this.hfLocal.vsub(this.hfPoint this.hfProj)
+        def d:double (this.hfNormal.dot(this.hfProj))
+        if (d >= radius) {
+            return false
+        }
+        if (d <= 0.0) {
+            return false
+        }
+        if (justTest) {
+            return true
+        }
+        ; project the sphere centre onto the terrain plane (local -> world)
+        this.hfNormal.scaleInto(d this.hfProj)
+        this.hfLocal.vsub(this.hfProj this.hfProj)
+        qj.vmult(this.hfProj this.sbClosestWorld)
+        this.sbClosestWorld.vadd(xj this.sbClosestWorld)
+        xi.vsub(this.sbClosestWorld this.sbD)
+        def dist:double (this.sbD.norm())
+        if (dist < 0.00001) {
+            return false
+        }
+        def r:CannonEquation (this.createContactEquation(bi bj si sj))
+        this.sbD.scaleInto((0.0 - (1.0 / dist)) r.ni)
+        r.ni.scaleInto(radius r.ri)
+        r.ri.vadd(xi r.ri)
+        r.ri.vsub(bi.position r.ri)
+        this.sbClosestWorld.vsub(bj.position r.rj)
+        push this.result r
+        return true
+    }
+
+    ; Plane (i) vs convex (j): each penetrating hull vertex becomes a contact.
+    fn convexPlane:boolean (planeQuat:CannonQuaternion convexShape:CannonShape convexPos:CannonVec3 convexQuat:CannonQuaternion bi:CannonBody bj:CannonBody si:CannonShape sj:CannonShape justTest:boolean) {
+        this.pbNormal.set(0.0 0.0 1.0)
+        planeQuat.vmult(this.pbNormal this.pbNormal)
+        def n:int (convexShape.convexVertexCount())
+        def planeDot:double (this.pbNormal.dot(bi.position))
+        def hit:boolean false
+        def k 0
+        while (k < n) {
+            convexShape.convexVertexAt(k this.cvVert)
+            convexQuat.vmult(this.cvVert this.pbCorner)
+            convexPos.vadd(this.pbCorner this.pbCorner)
+            def cornerDot:double (this.pbNormal.dot(this.pbCorner))
+            def dot:double (cornerDot - planeDot)
+            if (dot <= 0.0) {
+                if (justTest) {
+                    return true
+                }
+                def r:CannonEquation (this.createContactEquation(bi bj si sj))
+                r.ni.copy(this.pbNormal)
+                this.pbCorner.vsub(bj.position r.rj)
+                this.pbNormal.scaleInto(dot this.pbProj)
+                this.pbCorner.vsub(this.pbProj this.pbProj)
+                this.pbProj.vsub(bi.position r.ri)
+                push this.result r
+                hit = true
+            }
+            k = (k + 1)
+        }
+        return hit
+    }
+
+    ; Sphere (i) vs convex (j): contact against the most-separating face plane.
+    fn sphereConvex:boolean (radius:double xi:CannonVec3 convexShape:CannonShape xj:CannonVec3 qj:CannonQuaternion bi:CannonBody bj:CannonBody si:CannonShape sj:CannonShape justTest:boolean) {
+        xi.vsub(xj this.cvRel)
+        qj.conjugateInto(this.cvConj)
+        this.cvConj.vmult(this.cvRel this.cvLocal)
+        def fc:int (convexShape.convexFaceCount())
+        if (fc == 0) {
+            return false
+        }
+        def maxDist:double (0.0 - 1000000000.0)
+        def f 0
+        while (f < fc) {
+            convexShape.convexFaceNormalAt(f this.cvNormal)
+            def vidx:int (convexShape.convexFaceVertexIndex(f))
+            convexShape.convexVertexAt(vidx this.cvFV)
+            this.cvLocal.vsub(this.cvFV this.hfProj)
+            def dist:double (this.cvNormal.dot(this.hfProj))
+            if (dist > maxDist) {
+                maxDist = dist
+                this.cvBest.copy(this.cvNormal)
+            }
+            f = (f + 1)
+        }
+        if (maxDist >= radius) {
+            return false
+        }
+        if (justTest) {
+            return true
+        }
+        this.cvBest.scaleInto(maxDist this.hfProj)
+        this.cvLocal.vsub(this.hfProj this.hfProj)
+        qj.vmult(this.hfProj this.sbClosestWorld)
+        this.sbClosestWorld.vadd(xj this.sbClosestWorld)
+        xi.vsub(this.sbClosestWorld this.sbD)
+        def dd:double (this.sbD.norm())
+        if (dd < 0.00001) {
+            return false
+        }
+        def r:CannonEquation (this.createContactEquation(bi bj si sj))
+        this.sbD.scaleInto((0.0 - (1.0 / dd)) r.ni)
+        r.ni.scaleInto(radius r.ri)
+        r.ri.vadd(xi r.ri)
+        r.ri.vsub(bi.position r.ri)
+        this.sbClosestWorld.vsub(bj.position r.rj)
+        push this.result r
+        return true
+    }
+
+    ; Closest point on triangle (a,b,c) to point p, written into out
+    ; (Ericson, Real-Time Collision Detection).
+    fn closestPtTriangle:void (p:CannonVec3 a:CannonVec3 b:CannonVec3 c:CannonVec3 out:CannonVec3) {
+        b.vsub(a this.tmAB)
+        c.vsub(a this.tmAC)
+        p.vsub(a this.tmAP)
+        def d1:double (this.tmAB.dot(this.tmAP))
+        def d2:double (this.tmAC.dot(this.tmAP))
+        if (d1 <= 0.0) {
+            if (d2 <= 0.0) {
+                out.copy(a)
+                return
+            }
+        }
+        p.vsub(b this.tmBP)
+        def d3:double (this.tmAB.dot(this.tmBP))
+        def d4:double (this.tmAC.dot(this.tmBP))
+        if (d3 >= 0.0) {
+            if (d4 <= d3) {
+                out.copy(b)
+                return
+            }
+        }
+        def vc:double ((d1 * d4) - (d3 * d2))
+        if (vc <= 0.0) {
+            if (d1 >= 0.0) {
+                if (d3 <= 0.0) {
+                    def v:double (d1 / (d1 - d3))
+                    this.tmAB.scaleInto(v out)
+                    a.vadd(out out)
+                    return
+                }
+            }
+        }
+        p.vsub(c this.tmCP)
+        def d5:double (this.tmAB.dot(this.tmCP))
+        def d6:double (this.tmAC.dot(this.tmCP))
+        if (d6 >= 0.0) {
+            if (d5 <= d6) {
+                out.copy(c)
+                return
+            }
+        }
+        def vb:double ((d5 * d2) - (d1 * d6))
+        if (vb <= 0.0) {
+            if (d2 >= 0.0) {
+                if (d6 <= 0.0) {
+                    def w:double (d2 / (d2 - d6))
+                    this.tmAC.scaleInto(w out)
+                    a.vadd(out out)
+                    return
+                }
+            }
+        }
+        def va:double ((d3 * d6) - (d5 * d4))
+        def d43:double (d4 - d3)
+        def d56:double (d5 - d6)
+        if (va <= 0.0) {
+            if (d43 >= 0.0) {
+                if (d56 >= 0.0) {
+                    def w2:double (d43 / (d43 + d56))
+                    c.vsub(b this.tmCP)
+                    this.tmCP.scaleInto(w2 out)
+                    b.vadd(out out)
+                    return
+                }
+            }
+        }
+        def denom:double (1.0 / ((va + vb) + vc))
+        def vv:double (vb * denom)
+        def ww:double (vc * denom)
+        this.tmAB.scaleInto(vv this.tmBP)
+        this.tmAC.scaleInto(ww this.tmCP)
+        a.vadd(this.tmBP out)
+        out.vadd(this.tmCP out)
+    }
+
+    ; Sphere (i) vs trimesh (j): contact against the closest point of each
+    ; triangle within the sphere radius.
+    fn sphereTrimesh:boolean (radius:double xi:CannonVec3 tmShape:CannonShape xj:CannonVec3 qj:CannonQuaternion bi:CannonBody bj:CannonBody si:CannonShape sj:CannonShape justTest:boolean) {
+        xi.vsub(xj this.tmRel)
+        qj.conjugateInto(this.tmConj)
+        this.tmConj.vmult(this.tmRel this.tmLocal)
+        def tc:int (tmShape.trimeshTriangleCount())
+        def hitAny:boolean false
+        def t 0
+        while (t < tc) {
+            tmShape.trimeshVertex(t 0 this.tmA)
+            tmShape.trimeshVertex(t 1 this.tmB)
+            tmShape.trimeshVertex(t 2 this.tmC)
+            this.closestPtTriangle(this.tmLocal this.tmA this.tmB this.tmC this.tmClosest)
+            this.tmLocal.vsub(this.tmClosest this.tmDV)
+            def dist:double (this.tmDV.norm())
+            if (dist < radius) {
+                if (dist > 0.00001) {
+                    if (justTest) {
+                        return true
+                    }
+                    qj.vmult(this.tmClosest this.sbClosestWorld)
+                    this.sbClosestWorld.vadd(xj this.sbClosestWorld)
+                    xi.vsub(this.sbClosestWorld this.sbD)
+                    def dd:double (this.sbD.norm())
+                    if (dd > 0.00001) {
+                        def r:CannonEquation (this.createContactEquation(bi bj si sj))
+                        this.sbD.scaleInto((0.0 - (1.0 / dd)) r.ni)
+                        r.ni.scaleInto(radius r.ri)
+                        r.ri.vadd(xi r.ri)
+                        r.ri.vsub(bi.position r.ri)
+                        this.sbClosestWorld.vsub(bj.position r.rj)
+                        push this.result r
+                        hitAny = true
+                    }
+                }
+            }
+            t = (t + 1)
+        }
+        return hitAny
+    }
+
+    ; --- general convex-convex via the separating axis theorem (face normals) ---
+
+    fn ccWorldVertex:void (shape:CannonShape idx:int pos:CannonVec3 quat:CannonQuaternion out:CannonVec3) {
+        shape.convexVertexAt(idx this.ccLocalV)
+        quat.vmult(this.ccLocalV out)
+        pos.vadd(out out)
+    }
+
+    fn ccWorldFaceNormal:void (shape:CannonShape f:int quat:CannonQuaternion out:CannonVec3) {
+        shape.convexFaceNormalAt(f this.ccLocalN)
+        quat.vmult(this.ccLocalN out)
+    }
+
+    ; Project both hulls onto this.ccAxis; false if it separates them, else track
+    ; the minimum-overlap axis.
+    fn ccTestAxis:boolean (shA:CannonShape posA:CannonVec3 quatA:CannonQuaternion shB:CannonShape posB:CannonVec3 quatB:CannonQuaternion) {
+        def na:int (shA.convexVertexCount())
+        def minA:double 1000000000.0
+        def maxA:double (0.0 - 1000000000.0)
+        def i 0
+        while (i < na) {
+            this.ccWorldVertex(shA i posA quatA this.ccTmp)
+            def proj:double (this.ccTmp.dot(this.ccAxis))
+            if (proj < minA) { minA = proj }
+            if (proj > maxA) { maxA = proj }
+            i = (i + 1)
+        }
+        def nb:int (shB.convexVertexCount())
+        def minB:double 1000000000.0
+        def maxB:double (0.0 - 1000000000.0)
+        i = 0
+        while (i < nb) {
+            this.ccWorldVertex(shB i posB quatB this.ccTmp)
+            def proj:double (this.ccTmp.dot(this.ccAxis))
+            if (proj < minB) { minB = proj }
+            if (proj > maxB) { maxB = proj }
+            i = (i + 1)
+        }
+        def lo:double minA
+        if (minB > lo) { lo = minB }
+        def hi:double maxA
+        if (maxB < hi) { hi = maxB }
+        def overlap:double (hi - lo)
+        if (overlap < 0.0) {
+            return false
+        }
+        if (overlap < this.ccBestOverlap) {
+            this.ccBestOverlap = overlap
+            this.ccBestAxis.copy(this.ccAxis)
+        }
+        return true
+    }
+
+    fn ccPointInHull:boolean (worldP:CannonVec3 shape:CannonShape pos:CannonVec3 quat:CannonQuaternion) {
+        def fc:int (shape.convexFaceCount())
+        def f 0
+        while (f < fc) {
+            this.ccWorldFaceNormal(shape f quat this.ccTmp)
+            def vidx:int (shape.convexFaceVertexIndex(f))
+            this.ccWorldVertex(shape vidx pos quat this.ccTmp2)
+            worldP.vsub(this.ccTmp2 this.ccTmp2)
+            def d:double (this.ccTmp.dot(this.ccTmp2))
+            if (d > 0.001) {
+                return false
+            }
+            f = (f + 1)
+        }
+        return true
+    }
+
+    fn ccAddVertex:void (worldVert:CannonVec3 posA:CannonVec3 posB:CannonVec3 n:CannonVec3 d:double bIntoA:boolean bi:CannonBody bj:CannonBody si:CannonShape sj:CannonShape) {
+        def r:CannonEquation (this.createContactEquation(bi bj si sj))
+        r.ni.copy(n)
+        if (bIntoA) {
+            worldVert.vsub(posB r.rj)
+            n.scaleInto(d this.ccPointA)
+            worldVert.vadd(this.ccPointA this.ccPointA)
+            this.ccPointA.vsub(posA r.ri)
+        } {
+            worldVert.vsub(posA r.ri)
+            n.scaleInto(d this.ccPointB)
+            worldVert.vsub(this.ccPointB this.ccPointB)
+            this.ccPointB.vsub(posB r.rj)
+        }
+        push this.result r
+        this.ccMade = (this.ccMade + 1)
+    }
+
+    fn convexConvex:boolean (shA:CannonShape posA:CannonVec3 quatA:CannonQuaternion shB:CannonShape posB:CannonVec3 quatB:CannonQuaternion bi:CannonBody bj:CannonBody si:CannonShape sj:CannonShape justTest:boolean) {
+        this.ccBestOverlap = 1000000000.0
+        def fca:int (shA.convexFaceCount())
+        def f 0
+        while (f < fca) {
+            this.ccWorldFaceNormal(shA f quatA this.ccAxis)
+            if (this.ccTestAxis(shA posA quatA shB posB quatB) == false) {
+                return false
+            }
+            f = (f + 1)
+        }
+        def fcb:int (shB.convexFaceCount())
+        f = 0
+        while (f < fcb) {
+            this.ccWorldFaceNormal(shB f quatB this.ccAxis)
+            if (this.ccTestAxis(shA posA quatA shB posB quatB) == false) {
+                return false
+            }
+            f = (f + 1)
+        }
+        if (justTest) {
+            return true
+        }
+        posB.vsub(posA this.ccDiff)
+        def n:CannonVec3 this.ccBestAxis
+        def sign:double (n.dot(this.ccDiff))
+        if (sign < 0.0) {
+            n.negateInto(n)
+        }
+        def d:double this.ccBestOverlap
+        this.ccMade = 0
+        def nb:int (shB.convexVertexCount())
+        def k 0
+        while (k < nb) {
+            this.ccWorldVertex(shB k posB quatB this.ccVert)
+            if (this.ccPointInHull(this.ccVert shA posA quatA)) {
+                this.ccAddVertex(this.ccVert posA posB n d true bi bj si sj)
+            }
+            k = (k + 1)
+        }
+        def na:int (shA.convexVertexCount())
+        k = 0
+        while (k < na) {
+            this.ccWorldVertex(shA k posA quatA this.ccVert)
+            if (this.ccPointInHull(this.ccVert shB posB quatB)) {
+                this.ccAddVertex(this.ccVert posA posB n d false bi bj si sj)
+            }
+            k = (k + 1)
+        }
+        return true
+    }
+
+    ; --- box-box (OBB) via the separating axis theorem ---
+
+    ; Project both boxes onto axis (lx,ly,lz); return false if it separates them,
+    ; else track the minimum-overlap axis (the contact normal candidate).
+    fn bbTestAxis:boolean (lx:double ly:double lz:double) {
+        def len:double (sqrt(((lx * lx) + (ly * ly)) + (lz * lz)))
+        if (len < 0.000001) {
+            return true
+        }
+        this.bbUnit.set((lx / len) (ly / len) (lz / len))
+        def dax:double (this.bbUnit.dot(this.bbAx))
+        if (dax < 0.0) { dax = (0.0 - dax) }
+        def day:double (this.bbUnit.dot(this.bbAy))
+        if (day < 0.0) { day = (0.0 - day) }
+        def daz:double (this.bbUnit.dot(this.bbAz))
+        if (daz < 0.0) { daz = (0.0 - daz) }
+        def rA:double (((this.bbHeA.x * dax) + (this.bbHeA.y * day)) + (this.bbHeA.z * daz))
+        def dbx:double (this.bbUnit.dot(this.bbBx))
+        if (dbx < 0.0) { dbx = (0.0 - dbx) }
+        def dby:double (this.bbUnit.dot(this.bbBy))
+        if (dby < 0.0) { dby = (0.0 - dby) }
+        def dbz:double (this.bbUnit.dot(this.bbBz))
+        if (dbz < 0.0) { dbz = (0.0 - dbz) }
+        def rB:double (((this.bbHeB.x * dbx) + (this.bbHeB.y * dby)) + (this.bbHeB.z * dbz))
+        def tproj:double (this.bbUnit.dot(this.bbPosDiff))
+        if (tproj < 0.0) { tproj = (0.0 - tproj) }
+        def overlap:double ((rA + rB) - tproj)
+        if (overlap < 0.0) {
+            return false
+        }
+        if (overlap < this.bbBestOverlap) {
+            this.bbBestOverlap = overlap
+            this.bbBestAxis.copy(this.bbUnit)
+        }
+        return true
+    }
+
+    fn bbWorldCorner:void (sx:double sy:double sz:double he:CannonVec3 pos:CannonVec3 quat:CannonQuaternion target:CannonVec3) {
+        this.bbUnit.set((sx * he.x) (sy * he.y) (sz * he.z))
+        quat.vmult(this.bbUnit target)
+        pos.vadd(target target)
+    }
+
+    fn bbPointInBox:boolean (p:CannonVec3 boxPos:CannonVec3 boxQuat:CannonQuaternion he:CannonVec3) {
+        p.vsub(boxPos this.bbLocal)
+        boxQuat.conjugateInto(this.bbConj)
+        this.bbConj.vmult(this.bbLocal this.bbLocal)
+        def lx:double this.bbLocal.x
+        if (lx < 0.0) { lx = (0.0 - lx) }
+        def ly:double this.bbLocal.y
+        if (ly < 0.0) { ly = (0.0 - ly) }
+        def lz:double this.bbLocal.z
+        if (lz < 0.0) { lz = (0.0 - lz) }
+        if (lx > he.x) { return false }
+        if (ly > he.y) { return false }
+        if (lz > he.z) { return false }
+        return true
+    }
+
+    ; A corner of the source box that lies inside the test box becomes a contact.
+    ; `bIntoA` selects the ri/rj sign convention (n always points from A toward B).
+    fn bbTryCorner:void (sx:double sy:double sz:double heSrc:CannonVec3 posSrc:CannonVec3 quatSrc:CannonQuaternion heTest:CannonVec3 posTest:CannonVec3 quatTest:CannonQuaternion n:CannonVec3 d:double bIntoA:boolean bi:CannonBody bj:CannonBody si:CannonShape sj:CannonShape) {
+        this.bbWorldCorner(sx sy sz heSrc posSrc quatSrc this.bbCorner)
+        if (this.bbPointInBox(this.bbCorner posTest quatTest heTest) == false) {
+            return
+        }
+        def r:CannonEquation (this.createContactEquation(bi bj si sj))
+        r.ni.copy(n)
+        if (bIntoA) {
+            ; corner is on B; rj = corner - posB, ri = (corner + n*d) - posA
+            this.bbCorner.vsub(posSrc r.rj)
+            n.scaleInto(d this.bbPointA)
+            this.bbCorner.vadd(this.bbPointA this.bbPointA)
+            this.bbPointA.vsub(posTest r.ri)
+        } {
+            ; corner is on A; ri = corner - posA, rj = (corner - n*d) - posB
+            this.bbCorner.vsub(posSrc r.ri)
+            n.scaleInto(d this.bbPointB)
+            this.bbCorner.vsub(this.bbPointB this.bbPointB)
+            this.bbPointB.vsub(posTest r.rj)
+        }
+        push this.result r
+        this.bbMade = (this.bbMade + 1)
+    }
+
+    fn boxBox:boolean (heA:CannonVec3 posA:CannonVec3 quatA:CannonQuaternion heB:CannonVec3 posB:CannonVec3 quatB:CannonQuaternion bi:CannonBody bj:CannonBody si:CannonShape sj:CannonShape justTest:boolean) {
+        this.bbUnit.set(1.0 0.0 0.0)
+        quatA.vmult(this.bbUnit this.bbAx)
+        this.bbUnit.set(0.0 1.0 0.0)
+        quatA.vmult(this.bbUnit this.bbAy)
+        this.bbUnit.set(0.0 0.0 1.0)
+        quatA.vmult(this.bbUnit this.bbAz)
+        this.bbUnit.set(1.0 0.0 0.0)
+        quatB.vmult(this.bbUnit this.bbBx)
+        this.bbUnit.set(0.0 1.0 0.0)
+        quatB.vmult(this.bbUnit this.bbBy)
+        this.bbUnit.set(0.0 0.0 1.0)
+        quatB.vmult(this.bbUnit this.bbBz)
+        this.bbHeA = heA
+        this.bbHeB = heB
+        posB.vsub(posA this.bbPosDiff)
+        this.bbBestOverlap = 1000000000.0
+
+        if (this.bbTestAxis(this.bbAx.x this.bbAx.y this.bbAx.z) == false) { return false }
+        if (this.bbTestAxis(this.bbAy.x this.bbAy.y this.bbAy.z) == false) { return false }
+        if (this.bbTestAxis(this.bbAz.x this.bbAz.y this.bbAz.z) == false) { return false }
+        if (this.bbTestAxis(this.bbBx.x this.bbBx.y this.bbBx.z) == false) { return false }
+        if (this.bbTestAxis(this.bbBy.x this.bbBy.y this.bbBy.z) == false) { return false }
+        if (this.bbTestAxis(this.bbBz.x this.bbBz.y this.bbBz.z) == false) { return false }
+        this.bbAx.crossInto(this.bbBx this.bbCorner)
+        if (this.bbTestAxis(this.bbCorner.x this.bbCorner.y this.bbCorner.z) == false) { return false }
+        this.bbAx.crossInto(this.bbBy this.bbCorner)
+        if (this.bbTestAxis(this.bbCorner.x this.bbCorner.y this.bbCorner.z) == false) { return false }
+        this.bbAx.crossInto(this.bbBz this.bbCorner)
+        if (this.bbTestAxis(this.bbCorner.x this.bbCorner.y this.bbCorner.z) == false) { return false }
+        this.bbAy.crossInto(this.bbBx this.bbCorner)
+        if (this.bbTestAxis(this.bbCorner.x this.bbCorner.y this.bbCorner.z) == false) { return false }
+        this.bbAy.crossInto(this.bbBy this.bbCorner)
+        if (this.bbTestAxis(this.bbCorner.x this.bbCorner.y this.bbCorner.z) == false) { return false }
+        this.bbAy.crossInto(this.bbBz this.bbCorner)
+        if (this.bbTestAxis(this.bbCorner.x this.bbCorner.y this.bbCorner.z) == false) { return false }
+        this.bbAz.crossInto(this.bbBx this.bbCorner)
+        if (this.bbTestAxis(this.bbCorner.x this.bbCorner.y this.bbCorner.z) == false) { return false }
+        this.bbAz.crossInto(this.bbBy this.bbCorner)
+        if (this.bbTestAxis(this.bbCorner.x this.bbCorner.y this.bbCorner.z) == false) { return false }
+        this.bbAz.crossInto(this.bbBz this.bbCorner)
+        if (this.bbTestAxis(this.bbCorner.x this.bbCorner.y this.bbCorner.z) == false) { return false }
+
+        if (justTest) {
+            return true
+        }
+
+        def n:CannonVec3 this.bbBestAxis
+        def sign:double (n.dot(this.bbPosDiff))
+        if (sign < 0.0) {
+            n.negateInto(n)
+        }
+        def d:double this.bbBestOverlap
+        this.bbMade = 0
+        ; corners of B inside A
+        this.bbTryCorner(1.0 1.0 1.0 heB posB quatB heA posA quatA n d true bi bj si sj)
+        this.bbTryCorner(1.0 1.0 (0.0 - 1.0) heB posB quatB heA posA quatA n d true bi bj si sj)
+        this.bbTryCorner(1.0 (0.0 - 1.0) 1.0 heB posB quatB heA posA quatA n d true bi bj si sj)
+        this.bbTryCorner(1.0 (0.0 - 1.0) (0.0 - 1.0) heB posB quatB heA posA quatA n d true bi bj si sj)
+        this.bbTryCorner((0.0 - 1.0) 1.0 1.0 heB posB quatB heA posA quatA n d true bi bj si sj)
+        this.bbTryCorner((0.0 - 1.0) 1.0 (0.0 - 1.0) heB posB quatB heA posA quatA n d true bi bj si sj)
+        this.bbTryCorner((0.0 - 1.0) (0.0 - 1.0) 1.0 heB posB quatB heA posA quatA n d true bi bj si sj)
+        this.bbTryCorner((0.0 - 1.0) (0.0 - 1.0) (0.0 - 1.0) heB posB quatB heA posA quatA n d true bi bj si sj)
+        ; corners of A inside B
+        this.bbTryCorner(1.0 1.0 1.0 heA posA quatA heB posB quatB n d false bi bj si sj)
+        this.bbTryCorner(1.0 1.0 (0.0 - 1.0) heA posA quatA heB posB quatB n d false bi bj si sj)
+        this.bbTryCorner(1.0 (0.0 - 1.0) 1.0 heA posA quatA heB posB quatB n d false bi bj si sj)
+        this.bbTryCorner(1.0 (0.0 - 1.0) (0.0 - 1.0) heA posA quatA heB posB quatB n d false bi bj si sj)
+        this.bbTryCorner((0.0 - 1.0) 1.0 1.0 heA posA quatA heB posB quatB n d false bi bj si sj)
+        this.bbTryCorner((0.0 - 1.0) 1.0 (0.0 - 1.0) heA posA quatA heB posB quatB n d false bi bj si sj)
+        this.bbTryCorner((0.0 - 1.0) (0.0 - 1.0) 1.0 heA posA quatA heB posB quatB n d false bi bj si sj)
+        this.bbTryCorner((0.0 - 1.0) (0.0 - 1.0) (0.0 - 1.0) heA posA quatA heB posB quatB n d false bi bj si sj)
+
+        if (this.bbMade == 0) {
+            ; edge-edge fallback: one contact at the box midpoint
+            def r:CannonEquation (this.createContactEquation(bi bj si sj))
+            r.ni.copy(n)
+            this.bbPosDiff.scaleInto(0.5 this.bbPointA)
+            posA.vadd(this.bbPointA this.bbPointA)
+            this.bbPointA.vsub(posA r.ri)
+            n.scaleInto(d this.bbPointB)
+            this.bbPointA.vsub(this.bbPointB this.bbPointB)
+            this.bbPointB.vsub(posB r.rj)
+            push this.result r
+        }
+        return true
+    }
+
     fn dispatchShapePair:boolean (si:CannonShape sj:CannonShape xi:CannonVec3 xj:CannonVec3 qi:CannonQuaternion qj:CannonQuaternion bi:CannonBody bj:CannonBody justTest:boolean) {
         if (si.type == 1) {
             if (sj.type == 1) {
@@ -115,6 +836,88 @@ class CannonNarrowphase {
             if (sj.type == 1) {
                 def hitSwap:boolean (this.spherePlane(sj.radius xj xi qi bj bi sj si justTest))
                 return hitSwap
+            }
+            if (sj.type == 4) {
+                def hitPB:boolean (this.planeBox(qi sj xj qj bi bj si sj justTest))
+                return hitPB
+            }
+        }
+        ; sphere (i) vs box (j)
+        if (si.type == 1) {
+            if (sj.type == 4) {
+                def hitSBox:boolean (this.sphereBox(si.radius xi sj xj qj bi bj si sj justTest))
+                return hitSBox
+            }
+            ; sphere (i) vs heightfield (j)
+            if (sj.type == 5) {
+                def hitSHf:boolean (this.sphereHeightfield(si.radius xi sj xj qj bi bj si sj justTest))
+                return hitSHf
+            }
+            ; sphere (i) vs trimesh (j)
+            if (sj.type == 8) {
+                def hitSTm:boolean (this.sphereTrimesh(si.radius xi sj xj qj bi bj si sj justTest))
+                return hitSTm
+            }
+        }
+        if (si.type == 8) {
+            if (sj.type == 1) {
+                def hitTmS:boolean (this.sphereTrimesh(sj.radius xj si xi qi bj bi sj si justTest))
+                return hitTmS
+            }
+        }
+        if (si.type == 5) {
+            if (sj.type == 1) {
+                def hitHfS:boolean (this.sphereHeightfield(sj.radius xj si xi qi bj bi sj si justTest))
+                return hitHfS
+            }
+        }
+        ; sphere (i) vs convex (j)
+        if (si.type == 1) {
+            if (sj.type == 6) {
+                def hitSCv:boolean (this.sphereConvex(si.radius xi sj xj qj bi bj si sj justTest))
+                return hitSCv
+            }
+        }
+        if (si.type == 6) {
+            if (sj.type == 1) {
+                def hitCvS:boolean (this.sphereConvex(sj.radius xj si xi qi bj bi sj si justTest))
+                return hitCvS
+            }
+            ; convex vs plane -> plane is body i
+            if (sj.type == 2) {
+                def hitCvP:boolean (this.convexPlane(qj si xi qi bj bi sj si justTest))
+                return hitCvP
+            }
+            ; convex vs convex (also cylinder, which is a convex prism)
+            if (sj.type == 6) {
+                def hitCC:boolean (this.convexConvex(si xi qi sj xj qj bi bj si sj justTest))
+                return hitCC
+            }
+        }
+        ; plane (i) vs convex (j)
+        if (si.type == 2) {
+            if (sj.type == 6) {
+                def hitPCv:boolean (this.convexPlane(qi sj xj qj bi bj si sj justTest))
+                return hitPCv
+            }
+        }
+        if (si.type == 4) {
+            ; box vs sphere -> reuse sphereBox with the sphere as body i
+            if (sj.type == 1) {
+                def hitBSphere:boolean (this.sphereBox(sj.radius xj si xi qi bj bi sj si justTest))
+                return hitBSphere
+            }
+            ; box vs plane -> reuse planeBox with the plane as body i
+            if (sj.type == 2) {
+                def hitBP:boolean (this.planeBox(qj si xi qi bj bi sj si justTest))
+                return hitBP
+            }
+            ; box vs box (OBB SAT)
+            if (sj.type == 4) {
+                def heA:CannonVec3 (si.getHalfExtents())
+                def heB:CannonVec3 (sj.getHalfExtents())
+                def hitBB:boolean (this.boxBox(heA xi qi heB xj qj bi bj si sj justTest))
+                return hitBB
             }
         }
         return false

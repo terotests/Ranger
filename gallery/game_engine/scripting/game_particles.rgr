@@ -275,7 +275,11 @@ class GameParticleSystem {
         def dt:double (to_double dtMs)
         def grav:double 0.00018
         def i 0
-        while (i < maxCount) {
+        ; bound by the actual pool, not maxCount: a system stepped before init()
+        ; (e.g. the default runner while a non-GameRunner game is active) has an
+        ; empty pool but maxCount 96 — itemAt would throw std::out_of_range.
+        def n:int (array_length pool)
+        while (i < n) {
             def p:GameParticle (itemAt pool i)
             if (p.active != 0) {
                 p.x = (p.x + (p.vx * dt))

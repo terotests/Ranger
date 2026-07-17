@@ -1,0 +1,52 @@
+; ==============================================================================
+; three_color — RGB colour (Three.js port of src/math/Color.js, core subset).
+; ==============================================================================
+; Stores r,g,b as 0..1 doubles (as Three.js does). `new Color(0xAAAAAA)` in
+; Three.js -> `ThreeColor.of(0xAAAAAA)` or `(new ThreeColor).setHex(0xAAAAAA)`.
+; Used by material.color and scene.background (the renderer's clear colour).
+; ==============================================================================
+
+class ThreeColor {
+    def isColor:boolean true
+    def r:double 1.0
+    def g:double 1.0
+    def b:double 1.0
+
+    fn setRGB:ThreeColor (r:double g:double b:double) {
+        this.r = r
+        this.g = g
+        this.b = b
+        return this
+    }
+
+    ; 0xRRGGBB -> normalised r,g,b.
+    fn setHex:ThreeColor (hex:int) {
+        def ri:int (idiv hex 65536)
+        def gi:int (idiv (hex - (ri * 65536)) 256)
+        def bi:int ((hex - (ri * 65536)) - (gi * 256))
+        this.r = ((to_double ri) / 255.0)
+        this.g = ((to_double gi) / 255.0)
+        this.b = ((to_double bi) / 255.0)
+        return this
+    }
+
+    fn getHex:int () {
+        def ri:int (to_int (this.r * 255.0))
+        def gi:int (to_int (this.g * 255.0))
+        def bi:int (to_int (this.b * 255.0))
+        return (((ri * 65536) + (gi * 256)) + bi)
+    }
+
+    fn copy:ThreeColor (c:ThreeColor) {
+        this.r = c.r
+        this.g = c.g
+        this.b = c.b
+        return this
+    }
+
+    sfn of:ThreeColor (hex:int) {
+        def c:ThreeColor (new ThreeColor)
+        c.setHex(hex)
+        return c
+    }
+}

@@ -1,0 +1,57 @@
+; ==============================================================================
+; game_split_nav_demo — pane bridges keep independent pushGame/loadGame queues.
+; ==============================================================================
+
+Import "./game_host_native.rgr"
+
+class GameSplitNavDemo {
+    sfn m@(main):void () {
+        def leftBridge:GameHostNativeBridge (new GameHostNativeBridge)
+        def rightBridge:GameHostNativeBridge (new GameHostNativeBridge)
+        leftBridge.setGameDir("gallery/game_engine/games/ylos3")
+        rightBridge.setGameDir("gallery/game_engine/games/ylos3")
+
+        def pushArgs:[EvalValue]
+        push pushArgs (EvalValue.string("level2.tsx"))
+        leftBridge.invoke("pushGame" pushArgs)
+
+        def loadArgs:[EvalValue]
+        push loadArgs (EvalValue.string("level3.tsx"))
+        rightBridge.invoke("loadGame" loadArgs)
+
+        ; Consume left only — right must still be pending (per-pane sessions).
+        if (false == (leftBridge.hasPendingNav())) {
+            print "FAIL: left pushGame not pending"
+            return
+        }
+        def opL:string (leftBridge.takePendingNavOp())
+        def pathL:string (leftBridge.takePendingNavPath())
+        leftBridge.takePendingPopToMenu()
+        if (opL != "push") {
+            print ("FAIL: left op " + opL)
+            return
+        }
+        if ((indexOf pathL "level2.tsx") < 0) {
+            print ("FAIL: left path " + pathL)
+            return
+        }
+        if (false == (rightBridge.hasPendingNav())) {
+            print "FAIL: right pending was lost when left consumed"
+            return
+        }
+
+        def opR:string (rightBridge.takePendingNavOp())
+        def pathR:string (rightBridge.takePendingNavPath())
+        rightBridge.takePendingPopToMenu()
+        if (opR != "load") {
+            print ("FAIL: right op " + opR)
+            return
+        }
+        if ((indexOf pathR "level3.tsx") < 0) {
+            print ("FAIL: right path " + pathR)
+            return
+        }
+
+        print "split-nav OK"
+    }
+}
