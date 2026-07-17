@@ -1,0 +1,52 @@
+; ==============================================================================
+; three_sky — atmospheric sky dome (Three.js addons objects/Sky.js). Slice 5.
+; ==============================================================================
+; A huge inverted box drawn with the Preetham daylight-scattering shader. Three's
+; Sky is a Mesh with a ShaderMaterial whose uniforms the example tweaks
+; (turbidity/rayleigh/mieCoefficient/mieDirectionalG/sunPosition); it renders
+; first, behind everything, like the teapot's skybox pass.
+;
+; This is the portable object + its uniform state (unit-tested). The Preetham math
+; itself is GLSL — it lives in three_gl_shaders (skyVertexSrc/skyFragmentSrc) and
+; runs on the GPU. ThreeSky extends Object3D so sky.scale.setScalar(450000) works.
+; ==============================================================================
+
+Import "three_object3d.rgr"
+Import "three_vector3.rgr"
+
+class ThreeSky extends ThreeObject3D {
+    def isSky:boolean true
+    ; Preetham uniforms (Three's Sky defaults).
+    def turbidity:double 10.0
+    def rayleigh:double 3.0
+    def mieCoefficient:double 0.005
+    def mieDirectionalG:double 0.7
+    def sunPosition:ThreeVector3 (ThreeVector3.of(0.0 1.0 0.0))
+
+    fn setTurbidity:ThreeSky (v:double) {
+        turbidity = v
+        return this
+    }
+    fn setRayleigh:ThreeSky (v:double) {
+        rayleigh = v
+        return this
+    }
+    fn setMieCoefficient:ThreeSky (v:double) {
+        mieCoefficient = v
+        return this
+    }
+    fn setMieDirectionalG:ThreeSky (v:double) {
+        mieDirectionalG = v
+        return this
+    }
+    fn setSunPosition:ThreeSky (x:double y:double z:double) {
+        sunPosition.set(x y z)
+        return this
+    }
+    ; the example computes a sun direction with setFromSphericalCoords then copies
+    ; it into this uniform.
+    fn copySunPosition:ThreeSky (dir:ThreeVector3) {
+        sunPosition.copy(dir)
+        return this
+    }
+}
