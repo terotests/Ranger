@@ -24,5 +24,8 @@ run_suite three_euler_test
 run_suite three_quaternion_test
 run_suite three_matrix4_test
 run_suite three_object3d_test
+run_suite three_perspective_camera_test
+run_suite three_box_geometry_test
+run_suite three_mesh_test
 
 echo "done."

@@ -1,0 +1,27 @@
+; ==============================================================================
+; three_texture — image data holder (Three.js port of src/textures/Texture.js).
+; ==============================================================================
+; Pure data (decoded RGBA + dimensions + colour space). Decoupled from any
+; decoder so the core stays dependency-free; ThreeTextureLoader fills it in.
+; ==============================================================================
+
+class ThreeTexture {
+    def isTexture:boolean true
+    def name:string ""
+    def width:int 0
+    def height:int 0
+    def rgba:buffer (buffer_alloc 0)
+    def colorSpace:string "srgb-linear"
+    def needsUpdate:boolean true
+
+    fn setImage:ThreeTexture (rgba:buffer w:int h:int) {
+        this.rgba = rgba
+        this.width = w
+        this.height = h
+        this.needsUpdate = true
+        return this
+    }
+    fn hasImage:boolean () {
+        return ((buffer_length this.rgba) > 0)
+    }
+}

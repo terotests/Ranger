@@ -1,0 +1,54 @@
+; ==============================================================================
+; three_perspective_camera — (Three.js port of src/cameras/PerspectiveCamera.js).
+; ==============================================================================
+; An Object3D with a perspective projection. fov is in DEGREES (as in Three.js).
+; updateProjectionMatrix() builds the WebGL projection via Matrix4.makePerspective;
+; the renderer uses matrixWorldInverse as the view matrix. Pure Ranger.
+; ==============================================================================
+
+Import "three_object3d.rgr"
+Import "three_matrix4.rgr"
+
+class ThreePerspectiveCamera extends ThreeObject3D {
+    def isCamera:boolean true
+    def isPerspectiveCamera:boolean true
+    def fov:double 50.0
+    def aspect:double 1.0
+    def near:double 0.1
+    def far:double 2000.0
+    def zoom:double 1.0
+    def projectionMatrix:ThreeMatrix4 (new ThreeMatrix4)
+    def projectionMatrixInverse:ThreeMatrix4 (new ThreeMatrix4)
+    def matrixWorldInverse:ThreeMatrix4 (new ThreeMatrix4)
+
+    ; convenience matching `new PerspectiveCamera(fov, aspect, near, far)`.
+    fn setPerspective:ThreePerspectiveCamera (fov:double aspect:double near:double far:double) {
+        this.fov = fov
+        this.aspect = aspect
+        this.near = near
+        this.far = far
+        this.updateProjectionMatrix()
+        return this
+    }
+
+    fn updateProjectionMatrix:void () {
+        def deg2rad:double 0.017453292519943295
+        def near:double this.near
+        def h:double ((deg2rad * 0.5) * this.fov)
+        def tanh:double ((sin(h)) / (cos(h)))
+        def top:double ((near * tanh) / this.zoom)
+        def height:double (2.0 * top)
+        def width:double (this.aspect * height)
+        def left:double ((0.0 - 0.5) * width)
+        this.projectionMatrix.makePerspective(left (left + width) top (top - height) near this.far)
+        this.projectionMatrixInverse.copy(this.projectionMatrix)
+        this.projectionMatrixInverse.invert()
+    }
+
+    ; refresh the view matrix from the camera's current world transform.
+    fn updateViewMatrix:void () {
+        this.updateMatrixWorld()
+        this.matrixWorldInverse.copy(this.matrixWorld)
+        this.matrixWorldInverse.invert()
+    }
+}

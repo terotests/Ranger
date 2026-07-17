@@ -53,14 +53,23 @@ bash gallery/game_engine/three/src/run.sh    # prints ALL PASS per suite
 | 3 | `ThreeQuaternion` (incl. `setFromEuler`, all 6 orders) | `math/Quaternion.js` | ✅ done (14 checks) |
 | 4 | `ThreeMatrix4` (incl. `makePerspective`, `compose`, `invert`) | `math/Matrix4.js` | ✅ done (20 checks) |
 | 5 | `ThreeObject3D` (position/rotation/scale, `add`, `updateMatrixWorld`) | `core/Object3D.js` | ✅ done (11 checks) |
-| 6 | `ThreeScene` | `scenes/Scene.js` | ⬜ |
-| 7 | `ThreePerspectiveCamera` | `cameras/PerspectiveCamera.js` | ⬜ |
-| 8 | `ThreeBufferGeometry` + `ThreeBoxGeometry` | `core/BufferGeometry.js`, `geometries/BoxGeometry.js` | ⬜ |
-| 9 | `ThreeTexture` + `ThreeTextureLoader` | `textures/Texture.js`, `loaders/TextureLoader.js` | ⬜ |
-| 10 | `ThreeMaterial` + `ThreeMeshBasicMaterial` | `materials/*` | ⬜ |
-| 11 | `ThreeMesh` | `objects/Mesh.js` | ⬜ |
-| 12 | `ThreeWebGLRenderer` (`render(scene, camera)` → the engine's WebGL/software backend) | `renderers/WebGLRenderer.js` | ⬜ |
+| 6 | `ThreeScene` | `scenes/Scene.js` | ✅ done |
+| 7 | `ThreePerspectiveCamera` | `cameras/PerspectiveCamera.js` | ✅ done (9 checks) |
+| 8 | `ThreeBufferGeometry` + `ThreeBoxGeometry` | `core/BufferGeometry.js`, `geometries/BoxGeometry.js` | ✅ done (7 checks) |
+| 9 | `ThreeTexture` + `ThreeTextureLoader` | `textures/Texture.js`, `loaders/TextureLoader.js` | ✅ done |
+| 10 | `ThreeMaterial` + `ThreeMeshBasicMaterial` | `materials/*` | ✅ done |
+| 11 | `ThreeMesh` | `objects/Mesh.js` | ✅ done (14 checks incl. 9–11) |
+| 12 | `ThreeWebGLRenderer` (`render(scene, camera)` → pluggable backend) | `renderers/WebGLRenderer.js` | ⬜ next |
 
-Once the math + scene-graph pieces (1–8) land, `ThreeWebGLRenderer` wires the
-scene into the existing browser renderer (`web/webgl3d.js` for GPU, `SoftRenderer3D`
-for the software fallback), and the cube example runs as Ranger code.
+With pieces 1–11 done, `ThreeWebGLRenderer` (piece 12) walks the scene and draws
+via a **pluggable backend** — never GPU code in the core. The default backend is
+the pure-Ranger `SoftRenderer3D` (compiles to C++ for native/embedded); the browser
+supplies a WebGL backend (`web/webgl3d.js`). Then the cube example runs as Ranger.
+
+## Portability
+
+Everything here is **pure Ranger with no JavaScript in the core** — it compiles to
+**C++** as well as ES6, so the same code builds for native / Raspberry Pi /
+embedded targets. Verified with `-l=cpp` on the whole chain (including the
+decoder-backed `ThreeTextureLoader`). GPU rendering stays in per-platform backends
+(WebGL in the browser, native GL on desktop), kept out of the portable core.

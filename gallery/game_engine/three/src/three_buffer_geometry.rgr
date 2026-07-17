@@ -1,0 +1,56 @@
+; ==============================================================================
+; three_buffer_geometry — (Three.js port of src/core/BufferGeometry.js, subset).
+; ==============================================================================
+; Holds interleaved-by-attribute geometry as flat arrays: positions (x,y,z),
+; normals (x,y,z), uvs (u,v), and an integer index. Pure Ranger — the same data
+; the renderer turns into GPU buffers (browser WebGL) or feeds the software
+; rasteriser (native/embedded).
+; ==============================================================================
+
+class ThreeBufferGeometry {
+    def isBufferGeometry:boolean true
+    def positions:[double]
+    def normals:[double]
+    def uvs:[double]
+    def index:[int]
+
+    fn vertexCount:int () {
+        return (idiv (array_length this.positions) 3)
+    }
+    fn indexCount:int () {
+        return (array_length this.index)
+    }
+
+    fn pushVertex:void (px:double py:double pz:double nx:double ny:double nz:double u:double v:double) {
+        push this.positions px
+        push this.positions py
+        push this.positions pz
+        push this.normals nx
+        push this.normals ny
+        push this.normals nz
+        push this.uvs u
+        push this.uvs v
+    }
+    fn pushIndex:void (i:int) {
+        push this.index i
+    }
+    fn pushTriangle:void (a:int b:int c:int) {
+        push this.index a
+        push this.index b
+        push this.index c
+    }
+
+    ; accessors (component-wise) used by the renderer.
+    fn getPosition:double (vertex:int comp:int) {
+        return (itemAt this.positions ((vertex * 3) + comp))
+    }
+    fn getNormal:double (vertex:int comp:int) {
+        return (itemAt this.normals ((vertex * 3) + comp))
+    }
+    fn getUv:double (vertex:int comp:int) {
+        return (itemAt this.uvs ((vertex * 2) + comp))
+    }
+    fn getIndex:int (i:int) {
+        return (itemAt this.index i)
+    }
+}

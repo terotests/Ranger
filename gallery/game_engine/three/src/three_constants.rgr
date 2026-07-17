@@ -1,0 +1,17 @@
+; ==============================================================================
+; three_constants — named constants (Three.js src/constants.js, subset).
+; ==============================================================================
+; Colour-space tokens as strings (Three.js exports SRGBColorSpace = 'srgb', etc).
+; ==============================================================================
+
+class ThreeColorSpace {
+    sfn NoColorSpace:string () {
+        return ""
+    }
+    sfn SRGBColorSpace:string () {
+        return "srgb"
+    }
+    sfn LinearSRGBColorSpace:string () {
+        return "srgb-linear"
+    }
+}
