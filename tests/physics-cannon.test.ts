@@ -63,6 +63,7 @@ describe("Cannon.js Ranger port", () => {
     cannonIt("World.collisionMatrix");
     cannonIt("World.sphereBounce");
     cannonIt("World.contactRest");
+    cannonIt("World.friction");
   });
 
   describe("Narrowphase", () => {
@@ -123,7 +124,7 @@ describe("Cannon.js Ranger port", () => {
 
   it("runs full Cannon suite aggregate", () => {
     const output = runCannonAll();
-    expect(output).toContain("pass=60");
+    expect(output).toContain("pass=61");
     expect(output).toContain("fail=0");
     expect(output).toContain("cannon-tests done");
   });

@@ -105,13 +105,46 @@ class CannonWorld {
             k = (k + 1)
         }
 
-        ; 4) Solve the constraint system.
+        ; 4) Solve the constraint system: contact equations + two friction
+        ;    equations per contact (Coulomb friction, slip force = mu*g*reducedMass).
         this.solver.removeAllEquations()
         def e 0
         while (e < contactCount) {
             def c:CannonEquation (itemAt this.narrowphase.result e)
             this.solver.addEquation(c)
             e = (e + 1)
+        }
+        def friction:double this.defaultContactMaterial.friction
+        if (friction > 0.0) {
+            def gLen:double (this.gravity.norm())
+            def mug:double (friction * gLen)
+            def f 0
+            while (f < contactCount) {
+                def c:CannonEquation (itemAt this.narrowphase.result f)
+                def bi:CannonBody (unwrap c.bi)
+                def bj:CannonBody (unwrap c.bj)
+                def reduced:double (bi.invMass + bj.invMass)
+                if (reduced > 0.0) {
+                    reduced = (1.0 / reduced)
+                }
+                def slip:double (mug * reduced)
+                def fe1:CannonEquation (new CannonEquation)
+                fe1.initFriction(bi bj slip)
+                def fe2:CannonEquation (new CannonEquation)
+                fe2.initFriction(bi bj slip)
+                c.ni.tangents(fe1.t fe2.t)
+                fe1.ri.copy(c.ri)
+                fe1.rj.copy(c.rj)
+                fe2.ri.copy(c.ri)
+                fe2.rj.copy(c.rj)
+                fe1.si = c.si
+                fe1.sj = c.sj
+                fe2.si = c.si
+                fe2.sj = c.sj
+                this.solver.addEquation(fe1)
+                this.solver.addEquation(fe2)
+                f = (f + 1)
+            }
         }
         this.solver.solve(dt this.bodies)
 

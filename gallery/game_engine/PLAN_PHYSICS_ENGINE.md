@@ -220,9 +220,15 @@ päivitä matikkamoduulit (`Vec3/Quaternion/Mat3`) cannon-es:n bugikorjauksiin, 
   Uusi `World.contactRest`-testi: pallo asettuu lepokontaktiin toisen päälle
   (`contactRestY ≈ 2.0000`, ei uppoa läpi), lisäksi `sphereBounce`/`gravityStep`/
   `collisionMatrix` pysyvät vihreinä. `npm run engine:physics:test` → 60 passed, 0 failed.
-- ⏳ **Osa 1c (valinnainen):** kitkayhtälöiden generointi narrowphasessa (kaksi
-  tangenttia per kontakti) — solver tukee kitkaa jo (`GSSolver.friction` vihreä),
-  vain narrowphase-kytkentä puuttuu.
+- ✅ **Osa 1c (tehty):** Coulomb-kitka kytketty. `CannonWorld.step` generoi kaksi
+  `FrictionEquation`ia per kontakti (`Vec3.tangents` normaalista, slip force
+  `mu*g*reducedMass`) ja ratkaisee ne kontaktien kanssa. Uusi `World.friction`-testi:
+  liukuva pallo hidastuu (`vx 2.0 → 1.936`) ja saa kitkan momentista pyörinnän
+  (`wz ≈ -2.0`). `npm run engine:physics:test` → 61 passed, 0 failed.
+
+**Vaihe 1 on kokonaisuudessaan valmis:** portin fysiikkaydin ei ole enää käsin
+viritetty arcade-resolveri vaan cannon-es:n SPOOK-constraint-solver kitkoineen —
+valmis alusta niveleille (Vaihe 2).
 
 **Vaihe 2 — Nivelet.** `Constraint` → `PointToPointConstraint` → `HingeConstraint` →
 `DistanceConstraint` → `LockConstraint` → `Spring`. Muunna flipperi hinge-nivelellä
