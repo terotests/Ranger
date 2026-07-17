@@ -7,6 +7,7 @@ Import "cannon_quaternion.rgr"
 Import "cannon_aabb.rgr"
 Import "cannon_shape.rgr"
 Import "cannon_box.rgr"
+Import "cannon_mat3.rgr"
 
 class CannonBody {
     sdef TYPE_DYNAMIC:int 1
@@ -42,6 +43,18 @@ class CannonBody {
     def tmpShapeAabb:CannonAABB (new CannonAABB)
     def tmpRotForce:CannonVec3 (new CannonVec3)
     def tmpVelo:CannonVec3 (new CannonVec3)
+    ; --- SPOOK solver state (cannon-es) ---
+    def isTrigger:boolean false
+    def vlambda:CannonVec3 (new CannonVec3)
+    def wlambda:CannonVec3 (new CannonVec3)
+    def linearFactor:CannonVec3 (new CannonVec3)
+    def angularFactor:CannonVec3 (new CannonVec3)
+    def invMassSolve:double 0.0
+    def invInertiaWorld:CannonMat3 (new CannonMat3)
+    def invInertiaWorldSolve:CannonMat3 (new CannonMat3)
+    def uiwM1:CannonMat3 (new CannonMat3)
+    def uiwM2:CannonMat3 (new CannonMat3)
+    def solveStateReady:boolean false
 
     fn initDynamic:void (mass:double) {
         this.mass = mass
@@ -201,7 +214,42 @@ class CannonBody {
         }
     }
 
+    ; Initialise the Mat3 solver scratch once (field initialisers cannot fill
+    ; the 9-element arrays), and set the default linear/angular factors to 1.
+    fn initSolveState:void () {
+        if (this.solveStateReady) {
+            return
+        }
+        this.invInertiaWorld.initZero()
+        this.invInertiaWorldSolve.initZero()
+        this.uiwM1.initZero()
+        this.uiwM2.initZero()
+        this.linearFactor.set(1.0 1.0 1.0)
+        this.angularFactor.set(1.0 1.0 1.0)
+        this.solveStateReady = true
+    }
+
+    ; invInertiaWorld = R * diag(invInertia) * R^T   (cannon-es Body.updateInertiaWorld)
     fn updateInertiaWorld:void () {
+        this.initSolveState()
+        this.uiwM1.setRotationFromQuaternion(this.quaternion)
+        this.uiwM1.transposeInto(this.uiwM2)
+        this.uiwM1.scaleInto(this.invInertia this.uiwM1)
+        this.uiwM1.mmultInto(this.uiwM2 this.invInertiaWorld)
+    }
+
+    ; Dynamic bodies contribute their real inverse mass/inertia to the solver;
+    ; static and kinematic bodies act as if infinitely massive (zero).
+    fn updateSolveMassProperties:void () {
+        this.initSolveState()
+        if (this.type == 1) {
+            this.updateInertiaWorld()
+            this.invMassSolve = this.invMass
+            this.invInertiaWorldSolve.copyFrom(this.invInertiaWorld)
+        } {
+            this.invMassSolve = 0.0
+            this.invInertiaWorldSolve.setZero()
+        }
     }
 
     fn pointToLocalFrame:void (worldPoint:CannonVec3 result:CannonVec3) {

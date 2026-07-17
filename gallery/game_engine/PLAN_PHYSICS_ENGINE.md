@@ -196,9 +196,25 @@ päivitä matikkamoduulit (`Vec3/Quaternion/Mat3`) cannon-es:n bugikorjauksiin, 
 `Ray`-luuranko. Todiste: nykytestit vihreinä + uudet math-testit.
 
 **Vaihe 1 — Oikea solver (suurin arvo).** Porttaa `Equation`, `ContactEquation`
-(täysi), `FrictionEquation`, `GSSolver`. Kytke `CannonWorld.step` käyttämään solveria
-_uuden rajapinnan takana_, säilytä nykyinen arcade-resolveri `config`-lipulla, jottei
-pinball hajoa. Todiste: pino-vakaus-testi + pinball-regressio.
+(täysi), `FrictionEquation`, `GSSolver`.
+
+- ✅ **Osa 1a (tehty):** SPOOK-solver-stack portattu ja yksikkötestattu erillisinä
+  moduuleina: [`cannon_jacobian_element.rgr`](./physics/src/cannon_jacobian_element.rgr),
+  [`cannon_equation.rgr`](./physics/src/cannon_equation.rgr) (yhtenäinen `kind`-kenttä:
+  1=contact, 2=friction — porttien idiomi luokkaperinnän sijaan),
+  [`cannon_gssolver.rgr`](./physics/src/cannon_gssolver.rgr). Body sai solver-tilan
+  (`vlambda`/`wlambda`/`invMassSolve`/`invInertiaWorld` Mat3 +
+  `updateSolveMassProperties`/`updateInertiaWorld`). Testit
+  ([`cannon_solver_test.rgr`](./physics/src/cannon_solver_test.rgr)) todentavat
+  fysikaaliset invariantit: liikemäärän säilyminen, penetraation erottava vaste,
+  kitkan kytkentä. `npm run engine:physics:test` → 59 passed, 0 failed.
+  > Huom porttausta varten: nykyinen narrowphase asettaa `ni = xi - xj`, mutta
+  > cannon-es:n `ContactEquation` odottaa vastakkaisen konvention (`ni` osoittaa
+  > i→j). Vaihe 1b:n kytkennässä narrowphase tuottaa yhtälöt oikealla konventiolla.
+- ⏳ **Osa 1b (seuraava):** kytke `CannonWorld.step` ajamaan `CannonGSSolver` (kontakti-
+  + kitkayhtälöt narrowphasesta) nykyisen käsin viritetyn `resolveContactImpulses`in
+  tilalle. Pinball menee uusiksi (sovittu — vielä luonnos), joten vanhaa arcade-
+  resolveria ei säilytetä lipun takana. Todiste: pino-vakaus-testi + sandbox-ajo.
 
 **Vaihe 2 — Nivelet.** `Constraint` → `PointToPointConstraint` → `HingeConstraint` →
 `DistanceConstraint` → `LockConstraint` → `Spring`. Muunna flipperi hinge-nivelellä

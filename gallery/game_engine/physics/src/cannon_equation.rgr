@@ -1,0 +1,210 @@
+; ==============================================================================
+; cannon_equation — SPOOK constraint equation (cannon-es src/equations/*).
+;
+; Unified equation carrying both the contact (non-penetration) and friction
+; (tangent) constraints via a `kind` field, matching this port's idiom of
+; integer type tags instead of class inheritance (cf. CannonShape.type,
+; CannonBody.type). The SPOOK math is a faithful port of cannon-es:
+;   Equation (base), ContactEquation (kind 1), FrictionEquation (kind 2).
+;
+; See https://www8.cs.umu.se/kurser/5DV058/VT15/lectures/SPOOKlabnotes.pdf
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_body.rgr"
+Import "cannon_shape.rgr"
+Import "cannon_jacobian_element.rgr"
+
+class CannonEquation {
+    sdef KIND_CONTACT:int 1
+    sdef KIND_FRICTION:int 2
+
+    def id:int 0
+    def kind:int 1
+    def minForce:double (0.0 - 1000000.0)
+    def maxForce:double 1000000.0
+    def bi:CannonBody
+    def bj:CannonBody
+    def si:CannonShape
+    def sj:CannonShape
+    def a:double 0.0
+    def b:double 0.0
+    def eps:double 0.0
+    def enabled:boolean true
+    def multiplier:double 0.0
+    def restitution:double 0.0
+    def jA:CannonJacobianElement (new CannonJacobianElement)
+    def jB:CannonJacobianElement (new CannonJacobianElement)
+    ; contact: ri/rj from body centers to contact point, ni contact normal (points i->j).
+    ; friction: ri/rj as contact, t is the tangent.
+    def ri:CannonVec3 (new CannonVec3)
+    def rj:CannonVec3 (new CannonVec3)
+    def ni:CannonVec3 (new CannonVec3)
+    def t:CannonVec3 (new CannonVec3)
+    ; scratch
+    def tmp1:CannonVec3 (new CannonVec3)
+    def tmp2:CannonVec3 (new CannonVec3)
+    def tmp3:CannonVec3 (new CannonVec3)
+    def iMfi:CannonVec3 (new CannonVec3)
+    def iMfj:CannonVec3 (new CannonVec3)
+    def invIiTau:CannonVec3 (new CannonVec3)
+    def invIjTau:CannonVec3 (new CannonVec3)
+    def matVec:CannonVec3 (new CannonVec3)
+    def wtemp:CannonVec3 (new CannonVec3)
+
+    fn setSpookParams:void (stiffness:double relaxation:double timeStep:double) {
+        def d:double relaxation
+        def k:double stiffness
+        def h:double timeStep
+        this.a = (4.0 / (h * (1.0 + (4.0 * d))))
+        this.b = ((4.0 * d) / (1.0 + (4.0 * d)))
+        this.eps = (4.0 / (((h * h) * k) * (1.0 + (4.0 * d))))
+    }
+
+    fn initContact:void (bodyA:CannonBody bodyB:CannonBody maxForce:double) {
+        this.kind = 1
+        this.bi = bodyA
+        this.bj = bodyB
+        this.minForce = 0.0
+        this.maxForce = maxForce
+        this.restitution = 0.0
+        this.enabled = true
+        this.setSpookParams(10000000.0 4.0 (1.0 / 60.0))
+    }
+
+    fn initFriction:void (bodyA:CannonBody bodyB:CannonBody slipForce:double) {
+        this.kind = 2
+        this.bi = bodyA
+        this.bj = bodyB
+        this.minForce = (0.0 - slipForce)
+        this.maxForce = slipForce
+        this.enabled = true
+        this.setSpookParams(10000000.0 4.0 (1.0 / 60.0))
+    }
+
+    ; G*W, where W are the body velocities.
+    fn computeGW:double () {
+        def gwa:double (this.jA.multiplyVectors(this.bi.velocity this.bi.angularVelocity))
+        def gwb:double (this.jB.multiplyVectors(this.bj.velocity this.bj.angularVelocity))
+        return (gwa + gwb)
+    }
+
+    ; G*Wlambda, where Wlambda are the solver's delta velocities.
+    fn computeGWlambda:double () {
+        def gwa:double (this.jA.multiplyVectors(this.bi.vlambda this.bi.wlambda))
+        def gwb:double (this.jB.multiplyVectors(this.bj.vlambda this.bj.wlambda))
+        return (gwa + gwb)
+    }
+
+    ; G*inv(M)*f, where f are the forces/torques on the bodies.
+    fn computeGiMf:double () {
+        def bi:CannonBody this.bi
+        def bj:CannonBody this.bj
+        bi.force.scaleInto(bi.invMassSolve this.iMfi)
+        bj.force.scaleInto(bj.invMassSolve this.iMfj)
+        bi.invInertiaWorldSolve.vmultInto(bi.torque this.invIiTau)
+        bj.invInertiaWorldSolve.vmultInto(bj.torque this.invIjTau)
+        def ga:double (this.jA.multiplyVectors(this.iMfi this.invIiTau))
+        def gb:double (this.jB.multiplyVectors(this.iMfj this.invIjTau))
+        return (ga + gb)
+    }
+
+    ; G*inv(M)*G'
+    fn computeGiMGt:double () {
+        def bi:CannonBody this.bi
+        def bj:CannonBody this.bj
+        def result:double (bi.invMassSolve + bj.invMassSolve)
+        bi.invInertiaWorldSolve.vmultInto(this.jA.rotational this.matVec)
+        result = (result + (this.matVec.dot(this.jA.rotational)))
+        bj.invInertiaWorldSolve.vmultInto(this.jB.rotational this.matVec)
+        result = (result + (this.matVec.dot(this.jB.rotational)))
+        return result
+    }
+
+    fn computeC:double () {
+        return ((this.computeGiMGt()) + this.eps)
+    }
+
+    ; Add constraint velocity (deltalambda) to the bodies' solver velocities.
+    fn addToWlambda:void (deltalambda:double) {
+        def bi:CannonBody this.bi
+        def bj:CannonBody this.bj
+        bi.vlambda.addScaledVector((bi.invMassSolve * deltalambda) this.jA.spatial bi.vlambda)
+        bj.vlambda.addScaledVector((bj.invMassSolve * deltalambda) this.jB.spatial bj.vlambda)
+        bi.invInertiaWorldSolve.vmultInto(this.jA.rotational this.wtemp)
+        bi.wlambda.addScaledVector(deltalambda this.wtemp bi.wlambda)
+        bj.invInertiaWorldSolve.vmultInto(this.jB.rotational this.wtemp)
+        bj.wlambda.addScaledVector(deltalambda this.wtemp bj.wlambda)
+    }
+
+    fn computeB:double (h:double) {
+        if (this.kind == 2) {
+            return (this.computeBFriction(h))
+        }
+        return (this.computeBContact(h))
+    }
+
+    ; Contact/non-penetration: G = [ -n  -rixn  n  rjxn ], g = n . (xj+rj-xi-ri)
+    fn computeBContact:double (h:double) {
+        def a:double this.a
+        def b:double this.b
+        def bi:CannonBody this.bi
+        def bj:CannonBody this.bj
+        def ri:CannonVec3 this.ri
+        def rj:CannonVec3 this.rj
+        def n:CannonVec3 this.ni
+        def rixn:CannonVec3 this.tmp1
+        def rjxn:CannonVec3 this.tmp2
+        ri.crossInto(n rixn)
+        rj.crossInto(n rjxn)
+        n.negateInto(this.jA.spatial)
+        rixn.negateInto(this.jA.rotational)
+        this.jB.spatial.copy(n)
+        this.jB.rotational.copy(rjxn)
+        def pen:CannonVec3 this.tmp3
+        pen.copy(bj.position)
+        pen.vadd(rj pen)
+        pen.vsub(bi.position pen)
+        pen.vsub(ri pen)
+        def g:double (n.dot(pen))
+        def ePlusOne:double (this.restitution + 1.0)
+        def gwj:double (ePlusOne * (bj.velocity.dot(n)))
+        def gwi:double (ePlusOne * (bi.velocity.dot(n)))
+        def gwrj:double (bj.angularVelocity.dot(rjxn))
+        def gwri:double (bi.angularVelocity.dot(rixn))
+        def GW:double (((gwj - gwi) + gwrj) - gwri)
+        def GiMf:double (this.computeGiMf())
+        def B:double (((0.0 - (g * a)) - (GW * b)) - (h * GiMf))
+        return B
+    }
+
+    ; Friction: G = [ -t  -rixt  t  rjxt ], pure velocity constraint (g == 0).
+    fn computeBFriction:double (h:double) {
+        def b:double this.b
+        def ri:CannonVec3 this.ri
+        def rj:CannonVec3 this.rj
+        def t:CannonVec3 this.t
+        def rixt:CannonVec3 this.tmp1
+        def rjxt:CannonVec3 this.tmp2
+        ri.crossInto(t rixt)
+        rj.crossInto(t rjxt)
+        t.negateInto(this.jA.spatial)
+        rixt.negateInto(this.jA.rotational)
+        this.jB.spatial.copy(t)
+        this.jB.rotational.copy(rjxt)
+        def GW:double (this.computeGW())
+        def GiMf:double (this.computeGiMf())
+        def B:double ((0.0 - (GW * b)) - (h * GiMf))
+        return B
+    }
+
+    ; Relative velocity in the contact point along the contact normal.
+    fn getImpactVelocityAlongNormal:double () {
+        this.bi.position.vadd(this.ri this.tmp1)
+        this.bj.position.vadd(this.rj this.tmp2)
+        this.bi.getVelocityAtWorldPoint(this.tmp1 this.iMfi)
+        this.bj.getVelocityAtWorldPoint(this.tmp2 this.iMfj)
+        this.iMfi.vsub(this.iMfj this.tmp3)
+        return (this.ni.dot(this.tmp3))
+    }
+}

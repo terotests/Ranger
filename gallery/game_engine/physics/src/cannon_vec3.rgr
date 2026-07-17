@@ -71,6 +71,20 @@ class CannonVec3 {
         return out
     }
 
+    ; target = this + scalar * v   (cannon-es Vec3.addScaledVector)
+    fn addScaledVector:void (scalar:double v:CannonVec3 target:CannonVec3) {
+        target.x = (this.x + (scalar * v.x))
+        target.y = (this.y + (scalar * v.y))
+        target.z = (this.z + (scalar * v.z))
+    }
+
+    ; target = this .* v   (component-wise multiply, cannon-es Vec3.vmul)
+    fn vmulInto:void (v:CannonVec3 target:CannonVec3) {
+        target.x = (this.x * v.x)
+        target.y = (this.y * v.y)
+        target.z = (this.z * v.z)
+    }
+
     fn dot:double (v:CannonVec3) {
         return ((this.x * v.x) + (this.y * v.y)) + (this.z * v.z)
     }

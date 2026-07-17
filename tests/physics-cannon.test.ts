@@ -108,9 +108,20 @@ describe("Cannon.js Ranger port", () => {
     cannonIt("ContactEquation.getImpactVelocityAlongNormal");
   });
 
+  describe("Narrowphase", () => {
+    cannonIt("Narrowphase.sphereSphere");
+  });
+
+  describe("Solver (SPOOK)", () => {
+    cannonIt("Jacobian.multiplyVectors");
+    cannonIt("Equation.spookParams");
+    cannonIt("GSSolver.contact");
+    cannonIt("GSSolver.friction");
+  });
+
   it("runs full Cannon suite aggregate", () => {
     const output = runCannonAll();
-    expect(output).toContain("pass=53");
+    expect(output).toContain("pass=59");
     expect(output).toContain("fail=0");
     expect(output).toContain("cannon-tests done");
   });

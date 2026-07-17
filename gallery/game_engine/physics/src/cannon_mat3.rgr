@@ -58,6 +58,14 @@ class CannonMat3 {
         }
     }
 
+    fn setZero:void () {
+        def i 0
+        while (i < 9) {
+            set this.elements i 0.0
+            i = (i + 1)
+        }
+    }
+
     fn vmultInto:void (v:CannonVec3 target:CannonVec3) {
         def x:double v.x
         def y:double v.y

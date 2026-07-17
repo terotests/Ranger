@@ -16,6 +16,7 @@ Import "cannon_tuple_dictionary_test.rgr"
 Import "cannon_overlap_keeper_test.rgr"
 Import "cannon_contact_equation_test.rgr"
 Import "cannon_narrowphase_test.rgr"
+Import "cannon_solver_test.rgr"
 
 class CannonTestRunner {
     sfn m@(main):void () {
@@ -37,6 +38,7 @@ class CannonTestRunner {
         def overlapTest:CannonOverlapKeeperTest (new CannonOverlapKeeperTest)
         def contactTest:CannonContactEquationTest (new CannonContactEquationTest)
         def narrowphaseTest:CannonNarrowphaseTest (new CannonNarrowphaseTest)
+        def solverTest:CannonSolverTest (new CannonSolverTest)
 
         vec3Test.runFiltered(harness filter)
         quatTest.runFiltered(harness filter)
@@ -50,6 +52,7 @@ class CannonTestRunner {
         overlapTest.runFiltered(harness filter)
         contactTest.runFiltered(harness filter)
         narrowphaseTest.runFiltered(harness filter)
+        solverTest.runFiltered(harness filter)
 
         if (filter == "") {
             print ("pass=" + (to_string harness.passCount))

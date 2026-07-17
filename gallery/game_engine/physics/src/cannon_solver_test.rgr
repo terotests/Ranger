@@ -1,0 +1,122 @@
+; ==============================================================================
+; cannon_solver_test — SPOOK solver stack (JacobianElement, Equation, GSSolver).
+;
+; Physical invariants are used as oracles instead of hand-computed lambdas:
+;   * linear momentum is conserved by an internal contact/friction impulse;
+;   * a penetrating contact produces separating velocities;
+;   * friction drives two equal-mass bodies toward a common tangent velocity.
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_body.rgr"
+Import "cannon_jacobian_element.rgr"
+Import "cannon_equation.rgr"
+Import "cannon_gssolver.rgr"
+Import "cannon_test_harness.rgr"
+Import "cannon_test_filter.rgr"
+
+class CannonSolverTest {
+    def filter:CannonTestFilter (new CannonTestFilter)
+
+    fn runFiltered:void (h:CannonTestHarness filter:string) {
+        if (this.filter.matches(filter "Jacobian.multiplyVectors")) { this.jacobian(h) }
+        if (this.filter.matches(filter "Equation.spookParams")) { this.spookParams(h) }
+        if (this.filter.matches(filter "GSSolver.contact")) { this.contact(h) }
+        if (this.filter.matches(filter "GSSolver.friction")) { this.friction(h) }
+    }
+
+    fn jacobian:void (h:CannonTestHarness) {
+        h.beginTest("Jacobian.multiplyVectors")
+        def j:CannonJacobianElement (new CannonJacobianElement)
+        j.spatial.set(1.0 2.0 3.0)
+        j.rotational.set(4.0 5.0 6.0)
+        def spatial:CannonVec3 (new CannonVec3)
+        spatial.set(1.0 0.0 0.0)
+        def rotational:CannonVec3 (new CannonVec3)
+        rotational.set(0.0 0.0 1.0)
+        ; 1*1 + 6*1 = 7
+        def mv:double (j.multiplyVectors(spatial rotational))
+        h.equal(mv 7.0 "multiplyVectors")
+        h.finishTest()
+    }
+
+    fn spookParams:void (h:CannonTestHarness) {
+        h.beginTest("Equation.spookParams")
+        def bi:CannonBody (new CannonBody)
+        def bj:CannonBody (new CannonBody)
+        def eq:CannonEquation (new CannonEquation)
+        eq.initContact(bi bj 1000000.0)
+        ; a,b,eps must be finite and positive for typical params.
+        h.ok((eq.a > 0.0) "a positive")
+        h.ok((eq.b > 0.0) "b positive")
+        h.ok((eq.eps > 0.0) "eps positive")
+        h.ok((eq.minForce == 0.0) "contact minForce is 0")
+        h.finishTest()
+    }
+
+    fn contact:void (h:CannonTestHarness) {
+        h.beginTest("GSSolver.contact")
+        ; Two unit-mass spheres (radius 1) overlapping by 0.2 along x.
+        def bi:CannonBody (new CannonBody)
+        bi.initDynamic(1.0)
+        bi.position.set(0.9 0.0 0.0)
+        def bj:CannonBody (new CannonBody)
+        bj.initDynamic(1.0)
+        bj.position.set((0.0 - 0.9) 0.0 0.0)
+
+        ; Contact geometry, cannon-es convention: ni points from i toward j.
+        def eq:CannonEquation (new CannonEquation)
+        eq.initContact(bi bj 1000000.0)
+        eq.ni.set((0.0 - 1.0) 0.0 0.0)
+        eq.ri.set((0.0 - 1.0) 0.0 0.0)
+        eq.rj.set(1.0 0.0 0.0)
+        eq.restitution = 0.0
+
+        def solver:CannonGSSolver (new CannonGSSolver)
+        solver.addEquation(eq)
+        def bodies:[CannonBody]
+        push bodies bi
+        push bodies bj
+        solver.solve((1.0 / 60.0) bodies)
+
+        ; Penetrating contact pushes i toward +x and j toward -x.
+        h.ok((bi.velocity.x > 0.01) "body i separates +x")
+        h.ok((bj.velocity.x < (0.0 - 0.01)) "body j separates -x")
+        ; Equal masses -> total linear momentum along x is conserved (~0).
+        def px:double (bi.velocity.x + bj.velocity.x)
+        h.nearEqual(px 0.0 0.000001 "momentum x conserved")
+        h.finishTest()
+    }
+
+    fn friction:void (h:CannonTestHarness) {
+        h.beginTest("GSSolver.friction")
+        ; Two unit-mass bodies; i slides tangentially over j at rest.
+        def bi:CannonBody (new CannonBody)
+        bi.initDynamic(1.0)
+        bi.position.set(0.0 1.0 0.0)
+        bi.velocity.set(1.0 0.0 0.0)
+        def bj:CannonBody (new CannonBody)
+        bj.initDynamic(1.0)
+        bj.position.set(0.0 (0.0 - 1.0) 0.0)
+
+        def eq:CannonEquation (new CannonEquation)
+        eq.initFriction(bi bj 1000000.0)
+        eq.t.set(1.0 0.0 0.0)
+        eq.ri.set(0.0 (0.0 - 1.0) 0.0)
+        eq.rj.set(0.0 1.0 0.0)
+
+        def solver:CannonGSSolver (new CannonGSSolver)
+        solver.addEquation(eq)
+        def bodies:[CannonBody]
+        push bodies bi
+        push bodies bj
+        solver.solve((1.0 / 60.0) bodies)
+
+        ; Large slip force fully couples them: both approach the mean (0.5).
+        h.ok((bi.velocity.x < 1.0) "body i slows down")
+        h.ok((bj.velocity.x > 0.0) "body j dragged along")
+        def px:double (bi.velocity.x + bj.velocity.x)
+        h.nearEqual(px 1.0 0.000001 "tangential momentum conserved")
+        h.finishTest()
+    }
+}
