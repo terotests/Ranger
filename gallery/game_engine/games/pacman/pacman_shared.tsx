@@ -214,9 +214,28 @@ function tryMove(col, row, dir) {
   return { ok: 0, col: col, row: row };
 }
 
+function isTunnelWrap(col, row, dir) {
+  if (isTunnelRow(row) == 0) {
+    return 0;
+  }
+  const d = dirDelta(dir);
+  const rawCol = col + d.dc;
+  if (rawCol < 0) {
+    return 1;
+  }
+  if (rawCol >= COLS()) {
+    return 1;
+  }
+  return 0;
+}
+
 function lerpTile(col, row, frac, dir) {
   const cx = tileX(col);
   const cy = tileY(row);
+  // Tunnel wrap must teleport — never lerp across the full screen width.
+  if (isTunnelWrap(col, row, dir) == 1) {
+    return { x: cx, y: cy };
+  }
   const d = dirDelta(dir);
   const nc = wrapCol(col + d.dc, row + d.dr);
   const nr = row + d.dr;
@@ -432,7 +451,25 @@ function pacMouth(frameSeed, moving) {
   if (moving == 0) {
     return 0;
   }
-  return 1 + (frameSeed % 3);
+  // Slow chomp: ~8 ticks per mouth frame, bounce 0→3→0 (no per-frame flicker).
+  const step = (frameSeed / 8) | 0;
+  const phase = step % 6;
+  if (phase == 0) {
+    return 0;
+  }
+  if (phase == 1) {
+    return 1;
+  }
+  if (phase == 2) {
+    return 2;
+  }
+  if (phase == 3) {
+    return 3;
+  }
+  if (phase == 4) {
+    return 2;
+  }
+  return 1;
 }
 
 function placePacDeath(entities, col, row, frac, dir, frameSeed) {
