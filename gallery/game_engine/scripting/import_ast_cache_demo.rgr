@@ -1,0 +1,37 @@
+; Regression: import AST cache reuses parse across loadScript() when mtime
+; is unchanged. Second load of the same entry must still resolve imports.
+
+Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class ImportAstCacheDemo {
+    sfn m@(main):void () {
+        def engine (new ComponentEngine())
+        engine.quiet = true
+        engine.setBasePath("gallery/game_engine/games/ylos3/")
+        engine.addAssetPath("gallery/game_engine/scripting/")
+
+        def buf:buffer (buffer_read_file "gallery/game_engine/games/ylos3" "level2.tsx")
+        def src:string (buffer_to_string buf)
+
+        engine.loadScript(src)
+        def h1:EvalValue (engine.callFunction("staticLevelHeight" (EvalValue.null())))
+        def n1:int (to_int h1.numberValue)
+
+        ; Same engine, same file — shared imports should hit importAstCache.
+        engine.loadScript(src)
+        def h2:EvalValue (engine.callFunction("staticLevelHeight" (EvalValue.null())))
+        def n2:int (to_int h2.numberValue)
+
+        if (n1 <= 270) {
+            print ("importAstCache FAIL height1=" + n1)
+            return
+        }
+        if (n2 != n1) {
+            print ((("importAstCache FAIL height mismatch " + n1) + " vs ") + n2)
+            return
+        }
+        print (("importAstCache ok height=" + n1))
+        print "import-ast-cache-demo done"
+    }
+}
