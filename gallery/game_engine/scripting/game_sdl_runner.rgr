@@ -951,18 +951,22 @@ class GameSdlRunner {
     }
 
     ; Split-screen panes each have their own GameHostNativeBridge. pushGame /
-    ; loadGame from a pane lands on leftBridge/rightBridge. Reload only the
-    ; pane that requested nav so the other player's session keeps running.
-    fn reloadSplitPane:void (pane:int tsxPath:string) {
-        splitHost.reloadPane(pane tsxPath)
+    ; loadGame from a pane lands on leftBridge/rightBridge. Start a cooperative
+    ; per-pane load (sibling keeps framing across read/parse/setup phases).
+    fn beginSplitPaneLoad:void (pane:int tsxPath:string) {
+        splitHost.beginPaneLoad(pane tsxPath)
         inMenu = false
         inGame = true
         this.syncInputEdges()
         gfx_clear_should_close
-        print ((("[split-screen] nav reload pane " + pane) + ": ") + tsxPath)
+        print ((("[split-screen] coop load pane " + pane) + ": ") + tsxPath)
     }
 
     fn drainSplitScriptNavigation:void () {
+        ; Do not start another pane load while one is in progress.
+        if (splitHost.isPaneLoading()) {
+            return
+        }
         if (false == (splitHost.consumePendingNav())) {
             return
         }
@@ -973,14 +977,14 @@ class GameSdlRunner {
             if ((strlen path) > 0) {
                 ; loadGame replaces that pane's screen and drops its push history.
                 splitHost.clearPanePrev(pane)
-                this.reloadSplitPane(pane path)
+                this.beginSplitPaneLoad(pane path)
             }
             return
         }
         if (op == "push") {
             if ((strlen path) > 0) {
                 splitHost.pushPanePath(pane)
-                this.reloadSplitPane(pane path)
+                this.beginSplitPaneLoad(pane path)
             }
             return
         }
@@ -993,7 +997,7 @@ class GameSdlRunner {
                 splitScreenActive = false
                 return
             }
-            this.reloadSplitPane(pane prev)
+            this.beginSplitPaneLoad(pane prev)
             return
         }
     }
@@ -1927,8 +1931,15 @@ class GameSdlRunner {
                     if (wasmSplitActive) {
                         wasmSplitHost.frame(dtMs)
                     } {
+                        ; Sibling keeps updating while the other pane reloads
+                        ; cooperatively (no background thread — phased on the
+                        ; main loop so each phase can present a live frame).
                         splitHost.frameWithInput(dtMs)
-                        this.drainSplitScriptNavigation()
+                        if (splitHost.isPaneLoading()) {
+                            splitHost.tickPaneLoad()
+                        } {
+                            this.drainSplitScriptNavigation()
+                        }
                     }
                 }
             } {
