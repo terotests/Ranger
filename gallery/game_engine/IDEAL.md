@@ -238,9 +238,10 @@ The shared ABI is three headers: `wasm/wasm_game_abi.h` (RGW1, world/physics),
 `wasm/wasm_sprite_abi.h` (RGSP1, characters), `wasm/wasm_ui_abi.h` (RGU1, UI).
 
 > **"guest" vs "host" — say it once, precisely.** The **guest is the game itself**,
-> compiled to a WASM module — normally written in **Rust** (`wasm/rust_*/src/lib.rs`)
-> or **AssemblyScript** (`wasm/as_*/assembly/index.ts`), or run through the interpreted
-> `.as` path. The **host** is the Ranger engine (`scripting/` `.rgr` files) that loads
+> compiled to a WASM module — written in **Rust** (`wasm/rust_*/src/lib.rs`),
+> **AssemblyScript** (`wasm/as_*/assembly/index.ts`), the interpreted `.as` path, or
+> in **Ranger** itself (`games/ranger_autopeli/src/*.rgr`, compiled through the WAT
+> backend). The **host** is the Ranger engine (`scripting/` `.rgr` files) that loads
 > that module and drives it each frame. The only thing crossing between them is the
 > shared linear-memory block described by the ABI header — no pointers, no objects.
 >
