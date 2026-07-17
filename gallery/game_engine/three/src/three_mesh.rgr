@@ -37,4 +37,20 @@ class ThreeMesh extends ThreeObject3D {
         mvp.multiply(this.matrixWorld)
         backend.drawMesh(this.geometry this.matrixWorld mvp this.material)
     }
+
+    ; override: expand a Box3 by this mesh's vertices, transformed into world space.
+    fn contributeBounds:void (box:ThreeBox3) {
+        def vc:int (this.geometry.vertexCount())
+        def v:int 0
+        def local:ThreeVector3 (new ThreeVector3)
+        while (v < vc) {
+            def px:double (this.geometry.getPosition(v 0))
+            def py:double (this.geometry.getPosition(v 1))
+            def pz:double (this.geometry.getPosition(v 2))
+            local.set(px py pz)
+            def world:ThreeVector3 (this.matrixWorld.transformPoint(local))
+            box.expandByPoint(world)
+            v = (v + 1)
+        }
+    }
 }

@@ -4,6 +4,13 @@
 > Three.js example 1:1 as `.tsx`), the three layers (façade / object model /
 > backend), the WASM-friendly canonical object model, and the `needsUpdate`
 > reconciliation that makes dynamic mutation work without proxies.
+>
+> Targets, each run 1:1 in the TSX interpreter: the rotating cube
+> ([`tsx/cube.tsx`](tsx/cube.tsx)) ✅, the teapot ([`IDEAL_TEAPOT.md`](IDEAL_TEAPOT.md),
+> [`tsx/teapot.tsx`](tsx/teapot.tsx)) ✅, and the deep end — the light-probe-volume
+> Sponza GI scene ([`IDEAL_SPONZA.md`](IDEAL_SPONZA.md), [`tsx/sponza.tsx`](tsx/sponza.tsx)),
+> built slice by slice (slice 1: `ThreeMathUtils` / `ThreeTimer` / `ThreeBox3` /
+> `Vector3.setFromSphericalCoords` ✅).
 
 A port of the [Three.js](https://threejs.org) API to the **Ranger language**,
 built the same way as the [`physics/`](../physics) Cannon.js port: **one class

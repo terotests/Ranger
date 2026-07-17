@@ -17,6 +17,7 @@ Import "three_euler.rgr"
 Import "three_quaternion.rgr"
 Import "three_matrix4.rgr"
 Import "three_render_backend.rgr"
+Import "three_box3.rgr"
 
 class ThreeObject3D {
     def isObject3D:boolean true
@@ -83,6 +84,32 @@ class ThreeObject3D {
     ; Base Object3D draws nothing; ThreeMesh overrides this (polymorphic dispatch
     ; on the node variable — the renderer walks the tree and calls it per node).
     fn renderInto:void (backend:ThreeRenderBackend viewProj:ThreeMatrix4) {
+    }
+
+    ; Bounding-box accumulation (so Box3 stays pure math and needs no Object3D
+    ; import). expandBox3 walks the subtree calling contributeBounds per node;
+    ; base Object3D contributes nothing, ThreeMesh overrides contributeBounds to
+    ; add its transformed vertices. Assumes world matrices are current.
+    fn contributeBounds:void (box:ThreeBox3) {
+    }
+    fn expandBox3:void (box:ThreeBox3) {
+        this.contributeBounds(box)
+        def i:int 0
+        def n:int (array_length this.children)
+        while (i < n) {
+            def c:ThreeObject3D (itemAt this.children i)
+            c.expandBox3(box)
+            i = (i + 1)
+        }
+    }
+    ; The setFromObject equivalent: bounds of this node's whole subtree in world
+    ; space (updates world matrices first). Returns a fresh Box3.
+    fn boundingBox:ThreeBox3 () {
+        def box:ThreeBox3 (new ThreeBox3)
+        box.makeEmpty()
+        this.updateMatrixWorld()
+        this.expandBox3(box)
+        return box
     }
 
     ; Light interrogation (so the renderer can collect lights while walking the

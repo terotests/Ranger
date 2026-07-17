@@ -1,0 +1,121 @@
+; ==============================================================================
+; three_box3 — axis-aligned bounding box (Three.js port of src/math/Box3.js).
+; ==============================================================================
+;
+; The Sponza example uses Box3 to measure the loaded model: _box.setFromObject(model)
+; then getSize()/getCenter() drive the light distance, shadow-camera extent and
+; probe-volume far plane. This file is the PURE-MATH core (min/max, expandByPoint,
+; setFromPoints, union, getSize, getCenter, getBoundingSphere) — it imports only
+; Vector3 and is unit-tested standalone.
+;
+; setFromObject (bounds of a whole scene node) lives on the object side to avoid a
+; Box3<->Object3D import cycle: ThreeObject3D.expandBox3(box) recurses the tree and
+; ThreeMesh contributes its transformed vertices. Object3D.boundingBox() returns a
+; Box3 built that way (the setFromObject equivalent). See IDEAL_SPONZA.md slice 1.
+; ==============================================================================
+
+Import "three_vector3.rgr"
+
+class ThreeBox3 {
+    def isBox3:boolean true
+    ; min starts at +inf, max at -inf so the first expandByPoint sets both.
+    def min:ThreeVector3 (ThreeVector3.of(1000000000.0 1000000000.0 1000000000.0))
+    def max:ThreeVector3 (ThreeVector3.of((0.0 - 1000000000.0) (0.0 - 1000000000.0) (0.0 - 1000000000.0)))
+
+    fn makeEmpty:ThreeBox3 () {
+        this.min.set(1000000000.0 1000000000.0 1000000000.0)
+        this.max.set((0.0 - 1000000000.0) (0.0 - 1000000000.0) (0.0 - 1000000000.0))
+        return this
+    }
+    ; empty when any max < min (no point has been added).
+    fn isEmpty:boolean () {
+        if (this.max.x < this.min.x) {
+            return true
+        }
+        if (this.max.y < this.min.y) {
+            return true
+        }
+        if (this.max.z < this.min.z) {
+            return true
+        }
+        return false
+    }
+
+    fn set:ThreeBox3 (min:ThreeVector3 max:ThreeVector3) {
+        this.min.copy(min)
+        this.max.copy(max)
+        return this
+    }
+
+    fn expandByXYZ:ThreeBox3 (x:double y:double z:double) {
+        if (x < this.min.x) { this.min.x = x }
+        if (y < this.min.y) { this.min.y = y }
+        if (z < this.min.z) { this.min.z = z }
+        if (x > this.max.x) { this.max.x = x }
+        if (y > this.max.y) { this.max.y = y }
+        if (z > this.max.z) { this.max.z = z }
+        return this
+    }
+    fn expandByPoint:ThreeBox3 (p:ThreeVector3) {
+        return (this.expandByXYZ(p.x p.y p.z))
+    }
+
+    fn setFromPoints:ThreeBox3 (points:[ThreeVector3]) {
+        this.makeEmpty()
+        def i:int 0
+        def n:int (array_length points)
+        while (i < n) {
+            def p:ThreeVector3 (itemAt points i)
+            this.expandByPoint(p)
+            i = (i + 1)
+        }
+        return this
+    }
+
+    fn union:ThreeBox3 (b:ThreeBox3) {
+        this.expandByPoint(b.min)
+        this.expandByPoint(b.max)
+        return this
+    }
+
+    fn getSize:ThreeVector3 (target:ThreeVector3) {
+        if (this.isEmpty()) {
+            return (target.set(0.0 0.0 0.0))
+        }
+        return (target.set((this.max.x - this.min.x) (this.max.y - this.min.y) (this.max.z - this.min.z)))
+    }
+    fn getCenter:ThreeVector3 (target:ThreeVector3) {
+        if (this.isEmpty()) {
+            return (target.set(0.0 0.0 0.0))
+        }
+        return (target.set(((this.min.x + this.max.x) * 0.5) ((this.min.y + this.max.y) * 0.5) ((this.min.z + this.max.z) * 0.5)))
+    }
+
+    fn containsPoint:boolean (p:ThreeVector3) {
+        if (p.x < this.min.x) { return false }
+        if (p.x > this.max.x) { return false }
+        if (p.y < this.min.y) { return false }
+        if (p.y > this.max.y) { return false }
+        if (p.z < this.min.z) { return false }
+        if (p.z > this.max.z) { return false }
+        return true
+    }
+
+    ; bounding-sphere radius = half the diagonal length; center = box center.
+    fn getBoundingSphereRadius:double () {
+        if (this.isEmpty()) {
+            return 0.0
+        }
+        def dx:double (this.max.x - this.min.x)
+        def dy:double (this.max.y - this.min.y)
+        def dz:double (this.max.z - this.min.z)
+        return (0.5 * (sqrt (((dx * dx) + (dy * dy)) + (dz * dz))))
+    }
+
+    fn clone:ThreeBox3 () {
+        def b:ThreeBox3 (new ThreeBox3)
+        b.min.copy(this.min)
+        b.max.copy(this.max)
+        return b
+    }
+}

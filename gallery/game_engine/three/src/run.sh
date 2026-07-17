@@ -30,6 +30,9 @@ run_tsx_poc() {
 
 # One suite per ported class (grows piece by piece).
 run_suite three_vector3_test
+run_suite three_math_utils_test
+run_suite three_timer_test
+run_suite three_box3_test
 run_suite three_euler_test
 run_suite three_quaternion_test
 run_suite three_matrix4_test
