@@ -286,6 +286,16 @@ muotojen `raycast`-metodit. Todiste: raycast-osumatestit per muoto.
 
 **Vaihe 5 — Ajoneuvo.** `WheelInfo` + `RaycastVehicle`. Todiste: autopeli-ajotesti.
 
+- ✅ **Osa 5a (tehty):** [`cannon_vehicle.rgr`](./physics/src/cannon_vehicle.rgr)
+  (`CannonWheelInfo` + `CannonRaycastVehicle`). Kukin pyörä ampuu säteen jousituksen
+  suuntaan; jousi+vaimennus-voima kannattelee koria, moottorivoima ajaa eteenpäin.
+  Kori on laatikko (näkymätön ray-vs-sphere/plane-castereille), joten pyörät näkevät
+  vain maan. Testit ([`cannon_vehicle_test.rgr`](./physics/src/cannon_vehicle_test.rgr)):
+  4-pyöräinen ajoneuvo leijuu jousituksellaan tasolla (`vehicleHoverY ≈ 1.42`, pyörät
+  kontaktissa, ei uppoa), moottorivoima ajaa eteenpäin (`vehicleDriveX ≈ 5.2`).
+  `npm run engine:physics:test` → 73 passed, 0 failed. ⏳ Sivuttaiskitka/ohjaus
+  (lateral grip, steering) tulee myöhemmin — jousitus + veto toimivat.
+
 **Vaihe 6 — Muodot + broadphase + uni.** `Cylinder`, `Heightfield`, `Trimesh`,
 `Particle`; `SAPBroadphase`; islands/sleep. Todiste: per-muoto-testit + skaalaustesti.
 

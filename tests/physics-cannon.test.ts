@@ -141,9 +141,14 @@ describe("Cannon.js Ranger port", () => {
     cannonIt("BoxCollision.boxSeparate");
   });
 
+  describe("Vehicle", () => {
+    cannonIt("Vehicle.suspensionHover");
+    cannonIt("Vehicle.drive");
+  });
+
   it("runs full Cannon suite aggregate", () => {
     const output = runCannonAll();
-    expect(output).toContain("pass=71");
+    expect(output).toContain("pass=73");
     expect(output).toContain("fail=0");
     expect(output).toContain("cannon-tests done");
   });
