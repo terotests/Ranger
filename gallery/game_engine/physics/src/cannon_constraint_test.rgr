@@ -16,6 +16,64 @@ class CannonConstraintTest {
     fn runFiltered:void (h:CannonTestHarness filter:string) {
         if (this.filter.matches(filter "Constraint.pointToPointPendulum")) { this.pendulum(h) }
         if (this.filter.matches(filter "Constraint.hingeAxis")) { this.hingeAxis(h) }
+        if (this.filter.matches(filter "Constraint.hingeMotor")) { this.hingeMotor(h) }
+    }
+
+    ; A hinge motor drives spin about the hinge axis to a target velocity — the
+    ; mechanism a flipper uses to snap up. The body spins up about Z while the
+    ; joint keeps it pinned (orbiting the pivot at constant radius).
+    fn hingeMotor:void (h:CannonTestHarness) {
+        h.beginTest("Constraint.hingeMotor")
+        def world:CannonWorld (new CannonWorld)
+        world.initWorld()
+        world.setGravity(0.0 0.0 0.0)
+
+        def anchor:CannonBody (new CannonBody)
+        anchor.initStatic()
+        anchor.position.set(0.0 0.0 0.0)
+        world.addBody(anchor)
+
+        def flipper:CannonBody (new CannonBody)
+        flipper.initDynamic(1.0)
+        def shape:CannonSphere (new CannonSphere)
+        shape.initSphere(0.5)
+        flipper.addShape(shape)
+        flipper.position.set(1.0 0.0 0.0)
+        world.addBody(flipper)
+
+        def pivotA:CannonVec3 (new CannonVec3)
+        pivotA.set(0.0 0.0 0.0)
+        def pivotB:CannonVec3 (new CannonVec3)
+        pivotB.set((0.0 - 1.0) 0.0 0.0)
+        def axis:CannonVec3 (new CannonVec3)
+        axis.set(0.0 0.0 1.0)
+        def hinge:CannonConstraint (new CannonConstraint)
+        hinge.initHinge(anchor pivotA axis flipper pivotB axis 1000000.0)
+        hinge.setMotorSpeed(5.0)
+        hinge.setMotorMaxForce(100000.0)
+        hinge.enableMotor()
+        world.addConstraint(hinge)
+
+        def s 0
+        while (s < 60) {
+            world.step(0.016666666666666666)
+            s = (s + 1)
+        }
+
+        def wz:double flipper.angularVelocity.z
+        if (wz < 0.0) {
+            wz = (0.0 - wz)
+        }
+        ; Motor targets a relative velocity (sign follows the bi->bj convention);
+        ; here it drives the flipper spin magnitude toward the target (5).
+        h.ok((wz > 3.0) "motor drives spin toward the target velocity")
+        def dx:double flipper.position.x
+        def dy:double flipper.position.y
+        def distOrigin:double (sqrt((dx * dx) + (dy * dy)))
+        h.nearEqual(distOrigin 1.0 0.3 "joint keeps the flipper pinned while spinning")
+        print ("motorWz=" + (to_string wz))
+        print ("motorDist=" + (to_string distOrigin))
+        h.finishTest()
     }
 
     ; A hinge about the Z axis constrains rotation to the Z axis through the

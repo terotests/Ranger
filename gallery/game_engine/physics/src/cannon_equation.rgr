@@ -19,6 +19,7 @@ class CannonEquation {
     sdef KIND_CONTACT:int 1
     sdef KIND_FRICTION:int 2
     sdef KIND_ROTATIONAL:int 3
+    sdef KIND_MOTOR:int 4
 
     def id:int 0
     def kind:int 1
@@ -46,6 +47,7 @@ class CannonEquation {
     def axisA:CannonVec3 (new CannonVec3)
     def axisB:CannonVec3 (new CannonVec3)
     def maxAngle:double 1.5707963267948966
+    def targetVelocity:double 0.0
     ; scratch
     def tmp1:CannonVec3 (new CannonVec3)
     def tmp2:CannonVec3 (new CannonVec3)
@@ -97,6 +99,21 @@ class CannonEquation {
         this.enabled = true
         this.axisA.set(1.0 0.0 0.0)
         this.axisB.set(0.0 1.0 0.0)
+        this.setSpookParams(10000000.0 4.0 (1.0 / 60.0))
+    }
+
+    ; Motor: drive the relative angular velocity about the shared axis to
+    ; targetVelocity (cannon-es RotationalMotorEquation). Disabled by default.
+    fn initMotor:void (bodyA:CannonBody bodyB:CannonBody maxForce:double) {
+        this.kind = 4
+        this.bi = bodyA
+        this.bj = bodyB
+        this.minForce = (0.0 - maxForce)
+        this.maxForce = maxForce
+        this.targetVelocity = 0.0
+        this.enabled = false
+        this.axisA.set(1.0 0.0 0.0)
+        this.axisB.set(1.0 0.0 0.0)
         this.setSpookParams(10000000.0 4.0 (1.0 / 60.0))
     }
 
@@ -162,7 +179,23 @@ class CannonEquation {
         if (this.kind == 3) {
             return (this.computeBRotational(h))
         }
+        if (this.kind == 4) {
+            return (this.computeBMotor(h))
+        }
         return (this.computeBContact(h))
+    }
+
+    ; Motor: G = [ 0  axisA  0  -axisB ], target a relative angular velocity.
+    fn computeBMotor:double (h:double) {
+        def b:double this.b
+        this.jA.spatial.setZero()
+        this.jB.spatial.setZero()
+        this.jA.rotational.copy(this.axisA)
+        this.axisB.negateInto(this.jB.rotational)
+        def GW:double ((this.computeGW()) - this.targetVelocity)
+        def GiMf:double (this.computeGiMf())
+        def B:double ((0.0 - (GW * b)) - (h * GiMf))
+        return B
     }
 
     ; Rotational: keep axisA and axisB orthogonal in world space (hinge alignment).

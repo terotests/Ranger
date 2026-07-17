@@ -246,9 +246,12 @@ flipperi-testi.
   jotka pitävät kappaleiden saranaakselit linjassa → yksi vapaa rotaatio-DOF.
   Testi `Constraint.hingeAxis`: akselin ulkopuolinen pyörintä vaimenee (`wx ≈ 0`),
   kappale pysyy saranatasossa (`z ≈ 0`), mutta painovoima heilauttaa sen saranan
-  ympäri (`y ≈ -0.21`). **Tämä on flipperin nivelen ydin.** Motori
-  (`RotationalMotorEquation`) puuttuu vielä (aktiivinen ohjaus) — passiivinen sarana
-  toimii. `npm run engine:physics:test` → 63 passed, 0 failed.
+  ympäri (`y ≈ -0.21`). `npm run engine:physics:test` → 63 passed, 0 failed.
+- ✅ **Osa 2c (tehty):** **Hinge-motori** (`RotationalMotorEquation`, `kind=4`) +
+  `enableMotor`/`setMotorSpeed`/`setMotorMaxForce`. Testi `Constraint.hingeMotor`:
+  motori kiihdyttää saranan pyörinnän tavoitenopeuteen (`|wz| ≈ 5.0`) nivelen
+  pysyessä kiinni (`dist ≈ 1.0`). **Flipperi on nyt kokonainen: sarana + motori.**
+  `npm run engine:physics:test` → 64 passed, 0 failed.
 
 **Vaihe 3 — Laatikko/konveksi-narrowphase.** `boxBox`, `sphereBox`, `ConvexPolyhedron`
 + `convexConvex` (SAT). Todiste: laatikkopino-testi.

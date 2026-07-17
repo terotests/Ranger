@@ -28,6 +28,10 @@ class CannonConstraint {
     def axisB:CannonVec3 (new CannonVec3)
     def worldAxisA:CannonVec3 (new CannonVec3)
     def worldAxisB:CannonVec3 (new CannonVec3)
+    ; hinge motor (equations[5]): actively drives spin about the hinge axis.
+    def motorEnabled:boolean false
+    def motorTargetVelocity:double 0.0
+    def motorMaxForce:double 1000000.0
 
     fn initPointToPoint:void (bodyA:CannonBody pivotA:CannonVec3 bodyB:CannonBody pivotB:CannonVec3 maxForce:double) {
         this.kind = 1
@@ -62,8 +66,28 @@ class CannonConstraint {
         r1.initRotational(bodyA bodyB maxForce)
         def r2:CannonEquation (new CannonEquation)
         r2.initRotational(bodyA bodyB maxForce)
+        def motor:CannonEquation (new CannonEquation)
+        motor.initMotor(bodyA bodyB maxForce)
+        this.motorMaxForce = maxForce
         push this.equations r1
         push this.equations r2
+        push this.equations motor
+    }
+
+    fn enableMotor:void () {
+        this.motorEnabled = true
+    }
+
+    fn disableMotor:void () {
+        this.motorEnabled = false
+    }
+
+    fn setMotorSpeed:void (speed:double) {
+        this.motorTargetVelocity = speed
+    }
+
+    fn setMotorMaxForce:void (maxForce:double) {
+        this.motorMaxForce = maxForce
     }
 
     fn update:void () {
@@ -88,6 +112,16 @@ class CannonConstraint {
         this.worldAxisA.tangents(r1.axisA r2.axisA)
         r1.axisB.copy(this.worldAxisB)
         r2.axisB.copy(this.worldAxisB)
+        ; motor (equations[5]): drive spin about the world hinge axis.
+        def motor:CannonEquation (itemAt this.equations 5)
+        motor.enabled = this.motorEnabled
+        if (this.motorEnabled) {
+            motor.axisA.copy(this.worldAxisA)
+            motor.axisB.copy(this.worldAxisB)
+            motor.targetVelocity = this.motorTargetVelocity
+            motor.maxForce = this.motorMaxForce
+            motor.minForce = (0.0 - this.motorMaxForce)
+        }
     }
 
     fn updatePointToPoint:void () {
