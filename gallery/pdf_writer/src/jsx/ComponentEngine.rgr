@@ -858,6 +858,19 @@ class ComponentEngine {
             return
         }
 
+        ; Capability-hint imports. `import * as THREE from 'three'` (or
+        ; '@ranger/three') is not a file to load — it tells the host the script
+        ; wants the THREE capability. The host registers the THREE namespace
+        ; (constants) as a global and loads the façade classes into the class
+        ; table; `new THREE.X()` then resolves by the class name (member-new), and
+        ; THREE.CONSTANT by the global. So skip file resolution here.
+        if (modulePath == "three") {
+            return
+        }
+        if ((indexOf modulePath "@ranger/three") >= 0) {
+            return
+        }
+
         ; Get imported symbols from node.children (import specifiers)
         def importExportNames:[string]
         def importLocalNames:[string]
@@ -1248,6 +1261,12 @@ class ComponentEngine {
                     if (false == quiet) {
                         this.trace("Defined module binding: " + varName + " = " + (value.toString()))
                     }
+                } {
+                    ; `let a, b, c;` with no initializer still needs a module
+                    ; binding (JS: undefined), so a later top-level assignment
+                    ; (e.g. inside init()) updates this binding rather than
+                    ; creating a function-local one other functions can't see.
+                    moduleScope.define(varName (EvalValue.undefined()))
                 }
             }
             i = i + 1

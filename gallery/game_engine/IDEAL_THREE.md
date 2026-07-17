@@ -133,19 +133,46 @@ Pieces 1–12 of the object model + the GPU backend are done and tested
   (the cube renders; perspective-correct textures).
 - GPU backend: `three_gl.rgr` (WebGL + OpenGL/GLES from one source), `ThreeGLBackend`.
 
-Interpreter enabler: the TSX parser now handles `new A.B(args)` (member-expression
-callee) — the #1 blocker for `new THREE.X(...)`.
+**Façade PoC (layer 1) — the 1:1 cube runs in the interpreter.**
+`three/tsx/three.tsx` (thin façade) + `three/tsx/cube.tsx` (the canonical Three.js
+example, **unmodified**) run headless through the TSX `ComponentEngine`
+(`three/tsx/three_facade_poc.rgr`, wired into `run.sh` → `9/9 ALL PASS`). It
+proves `new THREE.PerspectiveCamera(...)`, `TextureLoader().load(...)`,
+`THREE.SRGBColorSpace`, `new BoxGeometry()`, `MeshBasicMaterial({map})`,
+`scene.add`, `renderer.setSize(window.innerWidth, …)` and
+`renderer.setAnimationLoop(animate)` all parse and execute, and that the frame
+loop mutates `mesh.rotation.{x,y}` and drives `renderer.render` each tick.
 
-## 7. Next — the façade + render bridge
+Interpreter/parser enablers added for the 1:1 code (all with regression checks):
 
-1. `three.tsx` — thin THREE.* data classes (façade, layer 1).
-2. Interpreter: `import * as THREE from 'three'` namespace resolution; DOM/window
-   stubs (`window.innerWidth`, `document.body.appendChild`, `renderer.domElement`,
-   `addEventListener`); `setAnimationLoop(fn)` driven by the host frame loop.
-3. `three_render(...)` native bridge: reconcile the façade scene into the Ranger
-   `ThreeWebGLRenderer` + `ThreeGLBackend` and draw.
-4. Land the canonical cube example running 1:1 in the browser TSX engine.
+- TSX parser: `new A.B(args)` (member-expression callee) — the #1 blocker for
+  `new THREE.X(...)`.
+- TSX parser: multi-declarator `let a, b, c;` (the example's `let camera, scene,
+  renderer;`).
+- TSX parser: reserved words as class member names (the façade's `Vector3.set(...)`).
+- `ComponentEngine`: `'three'` / `@ranger/three` as an **`import` capability hint**
+  — recognised and skipped (no file load); `THREE.*` resolves to the façade classes.
+- `ComponentEngine`: uninitialised module vars (`let camera;`) get a module-scope
+  binding so a later top-level assignment (inside `init()`) is visible to other
+  functions (`animate()`, the introspection hooks).
+- Host globals: `window` (innerWidth/innerHeight/devicePixelRatio) and the `THREE`
+  constants object are injected via `registerGlobal`.
 
-The measure of success: the Three.js cube script above runs **unchanged**, and
-the same scene, built from Ranger, renders natively — one object model, many
-front-ends and targets.
+## 7. Next — the render bridge + browser host
+
+The façade runs the script; `renderer.render()` currently just counts frames.
+Remaining to draw pixels in the browser:
+
+1. `three_render(...)` bridge: at `renderer.render(scene, camera)`, reconcile the
+   façade scene (current transforms + geometry/texture handles) into the Ranger
+   `ThreeWebGLRenderer` + `ThreeGLBackend` and draw (the `needsUpdate` model, §4).
+2. Browser host wiring: a real canvas + WebGL context for `ThreeGLBackend.init`,
+   the remaining DOM stubs (`document.body.appendChild`, `renderer.domElement`,
+   `addEventListener` for resize), and `setAnimationLoop(fn)` driven by the host
+   `requestAnimationFrame` loop.
+3. Land the canonical cube running 1:1 **and rendering** in the browser TSX engine.
+
+The measure of success: the Three.js cube script above runs **unchanged** (✅ it
+now executes on the façade) and, once the bridge lands, renders — while the same
+scene, built from Ranger, renders natively. One object model, many front-ends and
+targets.

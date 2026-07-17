@@ -1,0 +1,103 @@
+; ==============================================================================
+; three_facade_poc — run the canonical Three.js cube 1:1 on the Ranger façade.
+; ==============================================================================
+; Headless proof that cube.tsx (the unmodified Three.js example) parses and runs
+; in the TSX interpreter against the three.tsx façade: init() builds the scene,
+; and the frame loop (animate) mutates mesh.rotation and drives renderer.render.
+; The GPU render bridge lands next; this confirms the 1:1 code executes.
+; ==============================================================================
+
+Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class ThreeFacadePocCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    fn nearN:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        def label:string (name + " (" + (to_string got) + ")")
+        this.ok(label (d < 0.0001))
+    }
+}
+
+class ThreeFacadePoc {
+    sfn num:double (engine:ComponentEngine name:string) {
+        def r:EvalValue (engine.callFunction(name (EvalValue.null())))
+        return r.numberValue
+    }
+    sfn str:string (engine:ComponentEngine name:string) {
+        def r:EvalValue (engine.callFunction(name (EvalValue.null())))
+        return r.stringValue
+    }
+
+    sfn m@(main):void () {
+        def ck:ThreeFacadePocCheck (new ThreeFacadePocCheck)
+        def engine (new ComponentEngine())
+        engine.quiet = true
+
+        ; Host capabilities the script's `import * as THREE from 'three'` hints at,
+        ; plus the browser `window` global (numbers the host supplies).
+        def tk:[string]
+        def tv:[EvalValue]
+        push tk "SRGBColorSpace"
+        push tv (EvalValue.string("srgb"))
+        engine.registerGlobal("THREE" (EvalValue.object(tk tv)))
+
+        def wk:[string]
+        def wv:[EvalValue]
+        push wk "innerWidth"
+        push wv (EvalValue.number(800.0))
+        push wk "innerHeight"
+        push wv (EvalValue.number(600.0))
+        push wk "devicePixelRatio"
+        push wv (EvalValue.number(2.0))
+        engine.registerGlobal("window" (EvalValue.object(wk wv)))
+
+        ; façade classes + the 1:1 cube script, one program.
+        def facade:buffer (buffer_read_file "gallery/game_engine/three/tsx" "three.tsx")
+        def cube:buffer (buffer_read_file "gallery/game_engine/three/tsx" "cube.tsx")
+        def src:string ((buffer_to_string facade) + "\n" + (buffer_to_string cube))
+        engine.loadScript(src)
+
+        ; run the example's init()
+        def initR:EvalValue (engine.callFunction("init" (EvalValue.null())))
+
+        print "== Three.js cube 1:1 on the Ranger façade =="
+        ck.nearN("camera.position.z = 2" (ThreeFacadePoc.num(engine "camZ")) 2.0)
+        ck.ok("TextureLoader().load path" ((ThreeFacadePoc.str(engine "texPath")) == "textures/crate.gif"))
+        ck.ok("texture.colorSpace = THREE.SRGBColorSpace" ((ThreeFacadePoc.str(engine "texColorSpace")) == "srgb"))
+        ck.nearN("new BoxGeometry() default width" (ThreeFacadePoc.num(engine "boxW")) 1.0)
+        ck.nearN("setAnimationLoop wired" (ThreeFacadePoc.num(engine "loopWired")) 1.0)
+        ck.nearN("setSize(window.innerWidth,...)" (ThreeFacadePoc.num(engine "rendererW")) 800.0)
+
+        ; drive three frames of the loop (the browser host calls animate each frame)
+        def f:int 0
+        while (f < 3) {
+            def t:EvalValue (engine.callFunction("tick" (EvalValue.null())))
+            f = (f + 1)
+        }
+        ck.nearN("renderer.render called 3x" (ThreeFacadePoc.num(engine "frames")) 3.0)
+        ck.nearN("mesh.rotation.x += 0.005 x3" (ThreeFacadePoc.num(engine "rotX")) 0.015)
+        ck.nearN("mesh.rotation.y += 0.01 x3" (ThreeFacadePoc.num(engine "rotY")) 0.03)
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

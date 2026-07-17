@@ -78,6 +78,32 @@ so there is no GPU code in the core:
 `three_cube_demo_test.rgr` builds the canonical cube in the Three.js API shape and
 renders it with the software backend (writes `/tmp/three_cube.ppm`).
 
+## The 1:1 Three.js cube runs in the TSX interpreter (façade PoC)
+
+`tsx/three.tsx` is a **thin façade** (plain THREE.* data classes) and `tsx/cube.tsx`
+is the **canonical Three.js rotating-cube example, unmodified** — including
+`import * as THREE from 'three'`. `tsx/three_facade_poc.rgr` runs them headless
+through the TSX `ComponentEngine` and asserts the scene is built and the frame
+loop drives it (`run.sh` → `three_facade_poc  9/9 ALL PASS`):
+
+```js
+// cube.tsx — verbatim Three.js
+camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, 0.1, 100 );
+camera.position.z = 2;
+const texture = new THREE.TextureLoader().load( 'textures/crate.gif' );
+texture.colorSpace = THREE.SRGBColorSpace;
+const geometry = new THREE.BoxGeometry();
+const material = new THREE.MeshBasicMaterial( { map: texture } );
+mesh = new THREE.Mesh( geometry, material ); scene.add( mesh );
+renderer.setAnimationLoop( animate );   // animate(): mesh.rotation.x += 0.005; renderer.render(scene, camera)
+```
+
+The façade holds only mutable per-frame state (position/rotation/params); the
+render bridge into the Ranger core renderer + `ThreeGLBackend` lands next (see
+[`../IDEAL_THREE.md`](../IDEAL_THREE.md) §7). `import * as THREE from 'three'` is
+treated as a **capability hint** — the interpreter recognises it and injects the
+`THREE` namespace, loading no file.
+
 ## GPU backend — one Ranger source, WebGL + OpenGL/GLES
 
 `ThreeGLBackend` draws through `three_gl.rgr`, a GPU-operator layer where **each

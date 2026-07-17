@@ -18,6 +18,16 @@ run_suite() {
   echo
 }
 
+# The façade PoC lives under three/tsx/ (it runs the canonical Three.js cube
+# code 1:1 through the TSX interpreter against the three.tsx façade).
+run_tsx_poc() {
+  local name="$1"
+  echo "### ${name}"
+  $RGRC "gallery/game_engine/three/tsx/${name}.rgr" -d="$OUT" -o="${name}.js" >/dev/null 2>&1
+  node "$OUT/${name}.js" | grep -E "PASS |FAIL |ALL PASS|SOME FAILED|passed="
+  echo
+}
+
 # One suite per ported class (grows piece by piece).
 run_suite three_vector3_test
 run_suite three_euler_test
@@ -29,5 +39,8 @@ run_suite three_box_geometry_test
 run_suite three_mesh_test
 run_suite three_cube_demo_test
 run_suite three_gl_backend_test
+
+# The 1:1 Three.js cube example, run through the TSX interpreter on the façade.
+run_tsx_poc three_facade_poc
 
 echo "done."
