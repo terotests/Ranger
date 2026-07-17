@@ -357,8 +357,9 @@ function lpcSheet(id, path) {
     frameH: 64,
     cols: 9,
     rows: 4,
-    scale: 40,
-    feetTrim: 10,
+    // ~32px tall so LPC detail reads on the 24px tile grid.
+    scale: 50,
+    feetTrim: 12,
     jumpFrame: 0,
     p0: 0,
     p1: 2
