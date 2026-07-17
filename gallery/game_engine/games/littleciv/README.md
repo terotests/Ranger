@@ -25,13 +25,13 @@ npm run engine:game-sdl:launcher
 
 | Input | Action |
 |-------|--------|
-| ←↑↓→ | Move selected unit (while it has moves) |
-| Space / Action | Found city (settler) / skip or fortify |
-| ↑ while idle / Select | Cycle to next unit |
-| ↓ while idle / Start / B | End turn |
+| ←↑↓→ | **Aim** (yellow ring = selected unit, cyan square = target tile) |
+| Space | **Move** — slides into the aimed tile (combat if enemy) |
+| Space (no aim / no moves) | Found city (settler) or skip/fortify |
+| Select / ↑ when spent | Cycle units |
+| B / Start | End turn |
 
-Note: the engine aliases gamepad **A** to Action/Space, so cycling uses
-Select or idle ↑ — not A.
+Flow: pick direction with arrows → Space to slide.
 
 ## Art
 
