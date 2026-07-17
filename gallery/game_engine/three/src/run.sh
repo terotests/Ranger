@@ -43,6 +43,7 @@ run_suite three_tone_mapping_test
 run_suite three_perspective_camera_test
 run_suite three_box_geometry_test
 run_suite three_gltf_loader_test
+run_suite three_json_test
 run_suite three_http_test
 run_suite three_light_probe_grid_test
 run_suite three_light_probe_grid_helper_test
