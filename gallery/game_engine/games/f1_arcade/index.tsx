@@ -465,15 +465,10 @@ function placeWorld(entities, playerZ, playerX, anim, aiState) {
     if (bandH < 1) {
       bandH = 1;
     }
+    // Do not clamp half to the view — fillTrapezoid clips; clamping bent the
+    // near curb inward and made the bottom-right edge look crooked.
     let halfFar = ws[bi + 1];
     let halfNear = ws[bi];
-    const maxHalf = VIEW_W * 0.5 - 6;
-    if (halfFar > maxHalf) {
-      halfFar = maxHalf;
-    }
-    if (halfNear > maxHalf) {
-      halfNear = maxHalf;
-    }
     if (halfFar < 4) {
       halfFar = 4;
     }
@@ -520,70 +515,85 @@ function placeWorld(entities, playerZ, playerX, anim, aiState) {
           visible: 1
         };
 
-        // Left/right rumble: traps just outside the asphalt edge.
-        const rlTopC = cxFar - halfFar + rbFar * 0.15;
-        const rlBotC = cxNear - halfNear + rbNear * 0.15;
-        const rrTopC = cxFar + halfFar - rbFar * 0.15;
-        const rrBotC = cxNear + halfNear - rbNear * 0.15;
+        // Rumble outside the asphalt: inner edge = road edge (shared with rd),
+        // outer = road edge ± rumbleW — avoids a kinked last segment.
+        const rlInFar = cxFar - halfFar;
+        const rlOutFar = cxFar - halfFar - rbFar;
+        const rlInNear = cxNear - halfNear;
+        const rlOutNear = cxNear - halfNear - rbNear;
+        const rrInFar = cxFar + halfFar;
+        const rrOutFar = cxFar + halfFar + rbFar;
+        const rrInNear = cxNear + halfNear;
+        const rrOutNear = cxNear + halfNear + rbNear;
         entities["rl" + bi] = {
-          x: rlTopC,
+          x: (rlInFar + rlOutFar) * 0.5,
           y: yTop,
           w: rbFar,
           h: bandH,
           p0: rbNear,
-          p1: floorOf(rlBotC),
+          p1: floorOf((rlInNear + rlOutNear) * 0.5),
           r: rumbleR,
           g: rumbleG,
           b: rumbleB,
           visible: 1
         };
         entities["rr" + bi] = {
-          x: rrTopC,
+          x: (rrInFar + rrOutFar) * 0.5,
           y: yTop,
           w: rbFar,
           h: bandH,
           p0: rbNear,
-          p1: floorOf(rrBotC),
+          p1: floorOf((rrInNear + rrOutNear) * 0.5),
           r: rumbleR,
           g: rumbleG,
           b: rumbleB,
           visible: 1
         };
 
-        // Center line: solid near, dashed far.
-        let drawLine = 0;
-        if (bi <= 4) {
-          drawLine = 1;
-        } else {
-          if (bi < DRAW_DIST - 2) {
-            if (wrapMod(floorOf(relZ / 55) + bi, 2) == 0) {
-              drawLine = 1;
+        // Center line stays dashed all the way; tall near bands only paint a
+        // short dash segment so they don't melt into one solid stripe.
+        if (bi < DRAW_DIST - 1) {
+          if (wrapMod(floorOf(relZ / 90), 2) == 0) {
+            let topLW = lwFar;
+            let botLW = lwNear;
+            if (topLW < 2) {
+              topLW = 2;
             }
+            if (botLW < 2) {
+              botLW = 2;
+            }
+            let dashH = bandH;
+            let dashY = yTop;
+            if (bandH > 8) {
+              dashH = floorOf(bandH * 0.4);
+              if (dashH < 4) {
+                dashH = 4;
+              }
+              if (dashH > 14) {
+                dashH = 14;
+              }
+              dashY = yTop + floorOf((bandH - dashH) * 0.35);
+            }
+            // Lerp center X for the dash's top/bottom within this band.
+            const t0 = (dashY - yTop) / bandH;
+            const t1 = (dashY + dashH - yTop) / bandH;
+            const dashCx0 = cxFar + (cxNear - cxFar) * t0;
+            const dashCx1 = cxFar + (cxNear - cxFar) * t1;
+            const dashW0 = topLW + (botLW - topLW) * t0;
+            const dashW1 = topLW + (botLW - topLW) * t1;
+            entities["ln" + bi] = {
+              x: dashCx0,
+              y: dashY,
+              w: floorOf(dashW0),
+              h: dashH,
+              p0: floorOf(dashW1),
+              p1: floorOf(dashCx1),
+              r: 240,
+              g: 240,
+              b: 220,
+              visible: 1
+            };
           }
-        }
-        if (drawLine == 1) {
-          let topLW = lwFar;
-          let botLW = lwNear;
-          if (bi <= 2) {
-            if (topLW < 3) {
-              topLW = 3;
-            }
-            if (botLW < 4) {
-              botLW = 4;
-            }
-          }
-          entities["ln" + bi] = {
-            x: cxFar,
-            y: yTop,
-            w: topLW,
-            h: bandH,
-            p0: botLW,
-            p1: floorOf(cxNear),
-            r: 240,
-            g: 240,
-            b: 220,
-            visible: 1
-          };
         }
 
         // Props pinned to near edge of this band (outside rumble).
