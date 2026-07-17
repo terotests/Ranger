@@ -251,8 +251,14 @@ run the same interpreter + bridge + `ThreeGLBackend` natively on SDL2 + OpenGL,
 with a file-watch reload (verified by C++ codegen; the visual run is a local
 desktop-GL step, as the teapot's native path is).
 
-Pending: a native glTF **file** loader (the accessor decoder is done; the JSON
-structure parse, `.glb` chunk split, and host-side model attach remain — the SDL
-runner uses a placeholder box until then); the render-to-texture (FBO) passes in
-`ThreeGLBackend` for the shadow-map and probe-cubemap bake; and the browser host +
-playground entry for `sponza.tsx`.
+Host-side asset loading is done: `http_get_bytes` (`three_http.rgr`, libcurl on
+native / Node curl on es6) fetches over HTTPS; `three_json.rgr` is a C++-compiling
+JSON parser (since `lib/JSON` is ES6-only); and `three_gltf_file.rgr` splits a
+`.glb` (or fetches a multi-file `.gltf` + external buffers) and decodes it into an
+`Object3D`. `sponza_sdl_runner` fetches + decodes the model at startup, so the real
+Sponza loads on-device with no interpreter async — verified end-to-end (the live
+fetch produced Sponza's atrium bounds 29.77 x 12.45 x 18.31).
+
+Pending: the render-to-texture (FBO) passes in `ThreeGLBackend` for the shadow-map
+and probe-cubemap bake; glTF PBR materials + textures (geometry + bounds land now,
+materials default); and the browser host + playground entry for `sponza.tsx`.
