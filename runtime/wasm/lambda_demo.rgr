@@ -1,0 +1,65 @@
+; ============================================================================
+; lambda_demo.rgr — lambdas / closures on the WAT backend (PLAN_WASM_LAMBDAS).
+; Each lambda body is hoisted to a top-level function `lambdaN(%__env, params)`;
+; the value is a closure record and a call goes through call_indirect. This demo
+; covers L0/L1 (non-capturing) — direct call and callbacks.
+; ============================================================================
+
+Import "./ranger_obj.rgr"
+
+class SG {
+    ; direct call of a lambda bound to a local
+    sfn directCall:int (v:int) {
+        def dbl (fn:int (x:int) {
+            return (* x 2)
+        })
+        return (dbl(v))
+    }
+
+    ; a higher-order function: takes a lambda and calls it via call_indirect
+    sfn apply:int (cb:(fn:int (x:int)) v:int) {
+        return (cb(v))
+    }
+    sfn applyCallback:int (v:int) {
+        def tripler (fn:int (x:int) {
+            return (* x 3)
+        })
+        return (SG.apply(tripler v))
+    }
+    sfn applyInline:int (v:int) {
+        return (SG.apply((fn:int (x:int) {
+            return (+ x 100)
+        }) v))
+    }
+
+    ; two lambdas of the same signature share one call_indirect type
+    sfn pickOp:int (op:int a:int) {
+        def inc (fn:int (x:int) {
+            return (+ x 1)
+        })
+        def sq (fn:int (x:int) {
+            return (* x x)
+        })
+        if (== op 0) {
+            return (inc(a))
+        }
+        return (sq(a))
+    }
+
+    ; leak check: build+call a lambda many times; the closure record is freed
+    sfn churn:int (n:int) {
+        def i 0
+        def s 0
+        while (< i n) {
+            def f (fn:int (x:int) {
+                return (+ x 7)
+            })
+            s = (+ s (f(i)))
+            i = (+ i 1)
+        }
+        return (Heap.frontier())
+    }
+    sfn liveBlocks:int () {
+        return (ranger.obj_live())
+    }
+}

@@ -29891,6 +29891,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       this.stringGlobals = [];
       this.externDecls = [];
       this.singletonClasses = [];
+      this.lambdaTableFuncs = [];
+      this.lambdaSigs = [];
     }
   }
   class LowIRSession  {
@@ -30291,6 +30293,41 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       ins.arg1 = name;
       ins.arg2 = value;
       this.emit(ins);
+    };
+    emitFuncRef (name) {
+      const dest = this.freshTemp("fr");
+      const ins = new LowIRInstr();
+      ins.op = "func_ref";
+      ins.dest = dest;
+      ins.irType = "i32";
+      ins.arg1 = name;
+      this.emit(ins);
+      return dest;
+    };
+    emitCallIndirect (retType, callSig, args, argTypes, selector) {
+      const voidType = "void";
+      if ( retType == voidType ) {
+        const ins = new LowIRInstr();
+        ins.op = "call_indirect";
+        ins.irType = voidType;
+        ins.callArgs = args;
+        ins.callTypes = argTypes;
+        ins.callSig = callSig;
+        ins.arg1 = selector;
+        this.emit(ins);
+        return "";
+      }
+      const dest = this.freshTemp("ci");
+      const ins_1 = new LowIRInstr();
+      ins_1.op = "call_indirect";
+      ins_1.dest = dest;
+      ins_1.irType = retType;
+      ins_1.callArgs = args;
+      ins_1.callTypes = argTypes;
+      ins_1.callSig = callSig;
+      ins_1.arg1 = selector;
+      this.emit(ins_1);
+      return dest;
     };
     emitI32At (base, byteOff) {
       const pt = this.irModule.ptrType;
@@ -31321,6 +31358,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       this.ownedCollectionLocals = [];
       this.ownedStringLocals = [];
       this.pendingStringTemps = [];
+      this.pendingObjectTemps = [];
       this.escapedLocals = {};
       this.currentRetType = "i32";
       this.llvmRetType = "i32";
@@ -31335,7 +31373,23 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       this.usedArrayRuntime = false;
       this.usedPtrArrayRuntime = false;
       this.usedMemRuntime = false;
+      this.lambdaSigMap = {};
+      this.lambdaByName = {};
+      this.lambdaNames = [];
+      this.lambdaCounter = 0;
     }
+    isLambdaTypeNode (node) {
+      if ( node.value_type == 20 ) {
+        return true;
+      }
+      if ( node.eval_type == 20 ) {
+        return true;
+      }
+      if ( node.has_lambda ) {
+        return true;
+      }
+      return false;
+    };
     canLowerFunction (fnDesc, ctx) {
       if ( fnDesc.is_static == false ) {
         return false;
@@ -31393,6 +31447,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           return false;
         }
         const pn_1 = p_1.nameNode;
+        if ( this.isLambdaTypeNode(pn_1) ) {
+          continue;
+        }
         const paramTypeName_1 = this.varTypeName(pn_1);
         if ( false == this.isLowerableParamType(paramTypeName_1) ) {
           return false;
@@ -31449,6 +31506,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           this.irModule.useFreeListHeap = true;
         }
       }
+      if ( appCtx.hasCompilerFlag("wat") ) {
+        this.collectLambdas(appCtx);
+      }
       for ( let i = 0; i < appCtx.definedClassList.length; i++) {
         var cName = appCtx.definedClassList[i];
         if ( cName == "RangerStaticMethods" ) {
@@ -31504,6 +31564,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           }
         }
       };
+      if ( appCtx.hasCompilerFlag("wat") ) {
+        this.lowerLambdaBodies(appCtx);
+      }
       if ( this.usedArrayRuntime ) {
         LowIRRuntimeGen.ensureArrayRuntime(this.irModule);
       }
@@ -34032,6 +34095,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       lctx.ownedStringLocals = emptyStr;
       let emptyPending = [];
       lctx.pendingStringTemps = emptyPending;
+      let emptyObjPending = [];
+      lctx.pendingObjectTemps = emptyObjPending;
       let emptyEscaped = {};
       lctx.escapedLocals = emptyEscaped;
       if ( isInstance ) {
@@ -34081,6 +34146,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         const pn = p.nameNode;
         const paramTypeName = this.varTypeName(pn);
         lp.irType = this.llvmTypeForRanger(paramTypeName, lctx.ptrType);
+        if ( this.isLambdaTypeNode(pn) ) {
+          lp.irType = lctx.ptrType;
+        }
         params.push(lp);
       };
       let fnName = LowIRUtil.mangleMethod(className, fnDesc.name);
@@ -34118,7 +34186,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         }
         const pn_1 = p_1.nameNode;
         const paramTypeName_1 = this.varTypeName(pn_1);
-        const pType = this.llvmTypeForRanger(paramTypeName_1, lctx.ptrType);
+        let pType = this.llvmTypeForRanger(paramTypeName_1, lctx.ptrType);
+        if ( this.isLambdaTypeNode(pn_1) ) {
+          pType = lctx.ptrType;
+        }
         const paramVal = "%" + lpName;
         this.bindSlot(p_1.name, pType, paramVal, lctx);
         if ( LowIRUtil.isArrayTypeName(paramTypeName_1) ) {
@@ -34173,6 +34244,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       lctx.ownedStringLocals = emptyStr;
       let emptyPending = [];
       lctx.pendingStringTemps = emptyPending;
+      let emptyObjPending = [];
+      lctx.pendingObjectTemps = emptyObjPending;
       let emptyEscaped = {};
       lctx.escapedLocals = emptyEscaped;
       lctx.currentRetType = cl.name;
@@ -34202,6 +34275,227 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       const fnName = LowIRUtil.mangleMethod(cl.name, "__singleton");
       let params = [];
       builder.finishFunction(fnName, lctx.ptrType, params, false, false);
+    };
+    collectLambdas (appCtx) {
+      const target = LowIRTarget.resolve(appCtx);
+      const pt = target.ptrType;
+      for ( let i = 0; i < appCtx.definedClassList.length; i++) {
+        var cName = appCtx.definedClassList[i];
+        if ( cName == "RangerStaticMethods" ) {
+          continue;
+        }
+        if ( false == (( typeof(appCtx.definedClasses[cName] ) != "undefined" && appCtx.definedClasses.hasOwnProperty(cName) )) ) {
+          continue;
+        }
+        const cl = (( appCtx.definedClasses.hasOwnProperty(cName) ? appCtx.definedClasses[cName] : undefined ));
+        if ( cl.is_operator_class || cl.is_trait ) {
+          continue;
+        }
+        if ( cl.is_system || cl.is_union ) {
+          continue;
+        }
+        for ( let j = 0; j < cl.static_methods.length; j++) {
+          var m = cl.static_methods[j];
+          this.collectMethodLambdas(m, pt);
+        };
+        for ( let j_1 = 0; j_1 < cl.methods.length; j_1++) {
+          var m_1 = cl.methods[j_1];
+          this.collectMethodLambdas(m_1, pt);
+        };
+        if ( cl.has_constructor ) {
+          if ( (typeof(cl.constructor_fn) !== "undefined" && cl.constructor_fn != null )  ) {
+            this.collectMethodLambdas(cl.constructor_fn, pt);
+          }
+        }
+      };
+    };
+    collectMethodLambdas (m, pt) {
+      for ( let i = 0; i < m.myLambdas.length; i++) {
+        var lam = m.myLambdas[i];
+        const name = "lambda" + ("" + this.lambdaCounter);
+        this.lambdaCounter = this.lambdaCounter + 1;
+        lam.compiledName = name;
+        this.irModule.lambdaTableFuncs.push(name);
+        this.lambdaNames.push(name);
+        this.lambdaByName[name] = lam;
+        const sig = this.lambdaCallSig(lam, pt);
+        this.lambdaSigMap[name] = sig;
+        this.addLambdaSig(sig);
+        this.collectMethodLambdas(lam, pt);
+      };
+    };
+    lambdaCallSig (lam, pt) {
+      let sig = "i32";
+      for ( let i = 0; i < lam.params.length; i++) {
+        var p = lam.params[i];
+        if ( (typeof(p.nameNode) !== "undefined" && p.nameNode != null )  ) {
+          const pn = p.nameNode;
+          const tn = this.varTypeName(pn);
+          sig = sig + ("," + this.llvmTypeForRanger(tn, pt));
+        }
+      };
+      let ret = "void";
+      if ( (typeof(lam.nameNode) !== "undefined" && lam.nameNode != null )  ) {
+        const rn = lam.nameNode;
+        ret = this.llvmTypeForRanger(this.varTypeName(rn), pt);
+      }
+      return sig + (":" + ret);
+    };
+    addLambdaSig (sig) {
+      for ( let i = 0; i < this.irModule.lambdaSigs.length; i++) {
+        var s = this.irModule.lambdaSigs[i];
+        if ( s == sig ) {
+          return;
+        }
+      };
+      this.irModule.lambdaSigs.push(sig);
+    };
+    lowerLambdaBodies (appCtx) {
+      for ( let i = 0; i < this.lambdaNames.length; i++) {
+        var name = this.lambdaNames[i];
+        if ( ( typeof(this.lambdaByName[name] ) != "undefined" && this.lambdaByName.hasOwnProperty(name) ) ) {
+          this.lowerLambdaFunction((( this.lambdaByName.hasOwnProperty(name) ? this.lambdaByName[name] : undefined )), name, appCtx);
+        }
+      };
+    };
+    lowerLambdaFunction (lam, fnName, appCtx) {
+      const builder = new LowIRBuilder(this.irModule);
+      builder.reset();
+      const lctx = new LowIRLowerContext();
+      lctx.ctx = appCtx;
+      lctx.builder = builder;
+      lctx.target = LowIRTarget.resolve(appCtx);
+      lctx.ptrType = lctx.target.ptrType;
+      let emptySlots = {};
+      lctx.slots = emptySlots;
+      let emptySlotTypes = {};
+      lctx.slotTypes = emptySlotTypes;
+      let emptyObjects = {};
+      lctx.objectSlots = emptyObjects;
+      let emptyCollections = {};
+      lctx.collectionSlots = emptyCollections;
+      let emptyElemTypes = {};
+      lctx.ptrArrayElemTypes = emptyElemTypes;
+      let emptyOwned = [];
+      lctx.ownedObjectLocals = emptyOwned;
+      let emptyColl = [];
+      lctx.ownedCollectionLocals = emptyColl;
+      let emptyStr = [];
+      lctx.ownedStringLocals = emptyStr;
+      let emptyPending = [];
+      lctx.pendingStringTemps = emptyPending;
+      let emptyObjPending = [];
+      lctx.pendingObjectTemps = emptyObjPending;
+      let emptyEscaped = {};
+      lctx.escapedLocals = emptyEscaped;
+      let retTypeName = "void";
+      if ( (typeof(lam.nameNode) !== "undefined" && lam.nameNode != null )  ) {
+        retTypeName = this.varTypeName((lam.nameNode));
+      }
+      lctx.currentRetType = retTypeName;
+      lctx.llvmRetType = this.llvmTypeForRanger(retTypeName, lctx.ptrType);
+      builder.startBlock("entry");
+      let params = [];
+      const envParam = new LowIRParam();
+      envParam.name = "__env";
+      envParam.irType = lctx.ptrType;
+      params.push(envParam);
+      for ( let i = 0; i < lam.params.length; i++) {
+        var p = lam.params[i];
+        const lp = new LowIRParam();
+        lp.name = p.name;
+        const pn = p.nameNode;
+        const paramTypeName = this.varTypeName(pn);
+        lp.irType = this.llvmTypeForRanger(paramTypeName, lctx.ptrType);
+        params.push(lp);
+        this.bindSlot(p.name, lp.irType, "%" + p.name, lctx);
+        if ( this.isObjectTypeName(paramTypeName) ) {
+          lctx.objectSlots[p.name] = paramTypeName;
+        }
+      };
+      if ( (typeof(lam.fnBody) !== "undefined" && lam.fnBody != null )  ) {
+        this.lowerBlock(lam.fnBody, lctx);
+      }
+      const cur = builder.currentBlock;
+      if ( cur.termKind == "" ) {
+        this.emitReleaseOwnedLocals(lctx);
+        if ( lctx.llvmRetType == "void" ) {
+          builder.terminateRet("void", "");
+        } else {
+          const zero = builder.emitConst("i32", "0");
+          builder.terminateRet(lctx.llvmRetType, zero);
+        }
+      }
+      builder.finishFunction(fnName, lctx.llvmRetType, params, false, false);
+    };
+    lambdaTableIndex (name) {
+      let idx = 0;
+      for ( let i = 0; i < this.irModule.lambdaTableFuncs.length; i++) {
+        var f = this.irModule.lambdaTableFuncs[i];
+        if ( f == name ) {
+          return idx;
+        }
+        idx = idx + 1;
+      };
+      return 0;
+    };
+    lowerLambdaValue (node, lctx) {
+      const builder = lctx.builder;
+      let name = "";
+      if ( (typeof(node.lambdaFnDesc) !== "undefined" && node.lambdaFnDesc != null )  ) {
+        const lfd = node.lambdaFnDesc;
+        name = lfd.compiledName;
+      }
+      const idx = this.lambdaTableIndex(name);
+      const bytes = builder.emitConst("i32", "4");
+      let rec = "";
+      if ( this.objRcEnabled(lctx) ) {
+        const zeroTd = builder.emitConst("i32", "0");
+        let a = [];
+        let at = [];
+        a.push(bytes);
+        at.push("i32");
+        a.push(zeroTd);
+        at.push("i32");
+        rec = builder.emitCall("ranger_obj_new", lctx.ptrType, a, at);
+      } else {
+        rec = builder.emitHeapAlloc(bytes);
+      }
+      const idxC = builder.emitConst("i32", ("" + idx));
+      builder.emitStoreI32At(rec, 0, idxC);
+      this.registerFreshObjectTemp(rec, lctx);
+      return rec;
+    };
+    lowerLambdaCall (node, lctx) {
+      const builder = lctx.builder;
+      const calleeNode = node.getFirst();
+      const argsNode = node.getSecond();
+      const env = this.lowerExpr(calleeNode, lctx);
+      const fnIdx = builder.emitPtrLoad(env);
+      let callArgs = [];
+      let callTypes = [];
+      callArgs.push(env);
+      callTypes.push(lctx.ptrType);
+      let sig = "i32";
+      for ( let i = 0; i < argsNode.children.length; i++) {
+        var arg = argsNode.children[i];
+        let av = this.lowerExpr(arg, lctx);
+        let at = this.argIrType(arg, lctx);
+        if ( this.exprProducesI1(arg, lctx) ) {
+          av = builder.emitZextI1ToI32(av);
+          at = "i32";
+        }
+        callArgs.push(av);
+        callTypes.push(at);
+        sig = sig + ("," + at);
+      };
+      let ret = "void";
+      if ( (node.eval_type_name.length) > 0 ) {
+        ret = this.llvmTypeForRanger(node.eval_type_name, lctx.ptrType);
+      }
+      sig = sig + (":" + ret);
+      this.addLambdaSig(sig);
+      return builder.emitCallIndirect(ret, sig, callArgs, callTypes, fnIdx);
     };
     isOwnedObjectLocal (varName, lctx) {
       for ( let i = 0; i < lctx.ownedObjectLocals.length; i++) {
@@ -34279,6 +34573,46 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         j = j + 1;
       };
       lctx.pendingStringTemps = kept;
+    };
+    registerFreshObjectTemp (tmp, lctx) {
+      if ( this.objRcEnabled(lctx) == false ) {
+        return;
+      }
+      lctx.pendingObjectTemps.push(tmp);
+    };
+    claimObjectTemp (tmp, lctx) {
+      if ( this.objRcEnabled(lctx) == false ) {
+        return;
+      }
+      let kept = [];
+      for ( let i = 0; i < lctx.pendingObjectTemps.length; i++) {
+        var t = lctx.pendingObjectTemps[i];
+        if ( t != tmp ) {
+          kept.push(t);
+        }
+      };
+      lctx.pendingObjectTemps = kept;
+    };
+    flushObjectTempsFrom (mark, lctx) {
+      if ( this.objRcEnabled(lctx) == false ) {
+        return;
+      }
+      const n = lctx.pendingObjectTemps.length;
+      if ( n <= mark ) {
+        return;
+      }
+      let k = mark;
+      while (k < n) {
+        this.emitObjReleasePtr(lctx.pendingObjectTemps[k], lctx);
+        k = k + 1;
+      };
+      let kept = [];
+      let j = 0;
+      while (j < mark) {
+        kept.push(lctx.pendingObjectTemps[j]);
+        j = j + 1;
+      };
+      lctx.pendingObjectTemps = kept;
     };
     emitStrReleasePtr (ptr, lctx) {
       let args = [];
@@ -34465,11 +34799,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         return;
       }
       const strMark = lctx.pendingStringTemps.length;
+      const objMark = lctx.pendingObjectTemps.length;
       this.lowerStmtDispatch(node, lctx);
       if ( (typeof(lctx.builder.currentBlock) !== "undefined" && lctx.builder.currentBlock != null )  ) {
         const curBlock = lctx.builder.currentBlock;
         if ( curBlock.termKind == "" ) {
           this.flushStringTempsFrom(strMark, lctx);
+          this.flushObjectTempsFrom(objMark, lctx);
         }
       }
     };
@@ -34563,6 +34899,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           this.lowerOnKeypress(node, lctx);
           return;
         }
+      }
+      if ( node.has_lambda_call ) {
+        this.lowerLambdaCall(node, lctx);
+        return;
       }
       if ( node.has_call || node.is_direct_method_call ) {
         this.lowerCall(node, lctx);
@@ -34681,6 +35021,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           this.bindSlot(varName, lctx.ptrType, objPtr, lctx);
           return;
         }
+      }
+      if ( val.has_lambda ) {
+        const rec = this.lowerLambdaValue(val, lctx);
+        this.claimObjectTemp(rec, lctx);
+        if ( this.objRcEnabled(lctx) ) {
+          if ( this.isOwnedObjectLocal(varName, lctx) == false ) {
+            lctx.ownedObjectLocals.push(varName);
+          }
+        }
+        this.bindSlot(varName, lctx.ptrType, rec, lctx);
+        return;
       }
       let tmp = this.lowerExpr(val, lctx);
       const typeName_1 = this.varTypeName(nameNode);
@@ -34809,6 +35160,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         }
         this.claimStringTemp(tmp, lctx);
         this.flushStringTempsFrom(0, lctx);
+        this.claimObjectTemp(tmp, lctx);
+        this.flushObjectTempsFrom(0, lctx);
         this.emitReleaseOwnedLocals(lctx);
         builder.terminateRet(retType, tmp);
       } else {
@@ -34969,8 +35322,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       const condNode = node.getSecond();
       const thenNode = node.getThird();
       const condMark = lctx.pendingStringTemps.length;
+      const objCondMark = lctx.pendingObjectTemps.length;
       const cond = this.lowerCond(condNode, lctx);
       this.flushStringTempsFrom(condMark, lctx);
+      this.flushObjectTempsFrom(objCondMark, lctx);
       const thenTag = "then";
       const elseTag = "else";
       const mergeTag = "merge";
@@ -35021,8 +35376,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       builder.terminateBr(condLabel);
       builder.startBlock(condLabel);
       const condMark = lctx.pendingStringTemps.length;
+      const objCondMark = lctx.pendingObjectTemps.length;
       const cond = this.lowerCond(condNode, lctx);
       this.flushStringTempsFrom(condMark, lctx);
+      this.flushObjectTempsFrom(objCondMark, lctx);
       builder.terminateBrIf(cond, bodyLabel, exitLabel);
       const ownedBefore = lctx.ownedObjectLocals.length;
       const ownedStrBefore = lctx.ownedStringLocals.length;
@@ -35094,6 +35451,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       const irI1 = "i1";
       const zero = "0";
       const one = "1";
+      if ( node.has_lambda_call ) {
+        return this.lowerLambdaCall(node, lctx);
+      }
+      if ( node.has_lambda ) {
+        return this.lowerLambdaValue(node, lctx);
+      }
       if ( node.has_call || node.is_direct_method_call ) {
         return this.lowerCall(node, lctx);
       }
@@ -36392,7 +36755,68 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     constructor() {
       this.strAddrs = {};
       this.typeDescAddrs = {};
+      this.lambdaFuncs = [];
     }
+    lambdaFuncIndex (name) {
+      let idx = 0;
+      for ( let i = 0; i < this.lambdaFuncs.length; i++) {
+        var f = this.lambdaFuncs[i];
+        if ( f == name ) {
+          return idx;
+        }
+        idx = idx + 1;
+      };
+      return 0;
+    };
+    sigTypeName (callSig) {
+      const parts = callSig.split(":");
+      const params = parts[0];
+      let ret = "";
+      if ( (parts.length) > 1 ) {
+        ret = parts[1];
+      }
+      let s = "sig";
+      const ps = params.split(",");
+      for ( let i = 0; i < ps.length; i++) {
+        var p = ps[i];
+        if ( (p.length) > 0 ) {
+          s = s + ("_" + p);
+        }
+      };
+      s = s + ("__" + ret);
+      return s;
+    };
+    sigTypeDecl (callSig) {
+      const parts = callSig.split(":");
+      const params = parts[0];
+      let ret = "";
+      if ( (parts.length) > 1 ) {
+        ret = parts[1];
+      }
+      let out = "  (type $" + (this.sigTypeName(callSig) + " (func");
+      const ps = params.split(",");
+      let hasParam = false;
+      for ( let i = 0; i < ps.length; i++) {
+        var p = ps[i];
+        if ( (p.length) > 0 ) {
+          if ( hasParam == false ) {
+            out = out + " (param";
+            hasParam = true;
+          }
+          out = out + (" " + this.watType(p));
+        }
+      };
+      if ( hasParam ) {
+        out = out + ")";
+      }
+      if ( (ret.length) > 0 ) {
+        if ( ret != "void" ) {
+          out = out + (" (result " + (this.watType(ret) + ")"));
+        }
+      }
+      out = out + "))";
+      return out;
+    };
     utf8Encode (text) {
       let bytes = [];
       let i = 0;
@@ -36569,12 +36993,26 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       if ( hasStatic ) {
         this.emitStaticData(module, wr);
       }
-      for ( let i = 0; i < module.singletonClasses.length; i++) {
-        var sc = module.singletonClasses[i];
+      this.lambdaFuncs = module.lambdaTableFuncs;
+      for ( let i = 0; i < module.lambdaSigs.length; i++) {
+        var sig = module.lambdaSigs[i];
+        wr.out(this.sigTypeDecl(sig), true);
+      };
+      if ( (module.lambdaTableFuncs.length) > 0 ) {
+        let elem = "  (table funcref (elem";
+        for ( let i_1 = 0; i_1 < module.lambdaTableFuncs.length; i_1++) {
+          var lf = module.lambdaTableFuncs[i_1];
+          elem = elem + (" $" + lf);
+        };
+        elem = elem + "))";
+        wr.out(elem, true);
+      }
+      for ( let i_2 = 0; i_2 < module.singletonClasses.length; i_2++) {
+        var sc = module.singletonClasses[i_2];
         wr.out("  (global $singleton_" + (sc + " (mut i32) (i32.const 0))"), true);
       };
-      for ( let i_1 = 0; i_1 < module.functions.length; i_1++) {
-        var fn = module.functions[i_1];
+      for ( let i_3 = 0; i_3 < module.functions.length; i_3++) {
+        var fn = module.functions[i_3];
         this.writeFunction(fn, wr, fn.exportFn);
       };
       wr.out(")", true);
@@ -36935,6 +37373,21 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           this.writeGet(ins.arg2, wr);
           wr.out("      global.set $" + ins.arg1, true);
           break;
+        case "func_ref" : 
+          wr.out("      i32.const " + ("" + this.lambdaFuncIndex(ins.arg1)), true);
+          wr.out("      local.set " + this.wasmName(ins.dest), true);
+          break;
+        case "call_indirect" : 
+          for ( let j = 0; j < ins.callArgs.length; j++) {
+            var a = ins.callArgs[j];
+            this.writeGet(a, wr);
+          };
+          this.writeGet(ins.arg1, wr);
+          wr.out("      call_indirect (type $" + (this.sigTypeName(ins.callSig) + ")"), true);
+          if ( (ins.dest.length) > 0 ) {
+            wr.out("      local.set " + this.wasmName(ins.dest), true);
+          }
+          break;
         case "inttoptr_struct" : 
           this.writeGet(ins.arg1, wr);
           wr.out("      local.set " + this.wasmName(ins.dest), true);
@@ -37056,9 +37509,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           }
           break;
         case "call" : 
-          for ( let j = 0; j < ins.callArgs.length; j++) {
-            var a = ins.callArgs[j];
-            this.writeGet(a, wr);
+          for ( let j_1 = 0; j_1 < ins.callArgs.length; j_1++) {
+            var a_1 = ins.callArgs[j_1];
+            this.writeGet(a_1, wr);
           };
           wr.out("      call $" + ins.fnName, true);
           if ( (ins.dest.length) > 0 ) {
