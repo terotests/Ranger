@@ -278,7 +278,14 @@ def draw_f1_rear(
     ox = lean * 5
     tip = lean * 2
 
-    # Compact spoiler first (narrow + short) so it doesn't hide front tires.
+    # 1) Front tires FIRST (far) — body will cover their inner halves so the
+    #    chassis sits between front and rear tires, not behind the fronts.
+    fl_x = 10 + ox - lean * 3
+    fr_x = 39 + ox - lean * 3
+    draw_front_tire(pix, w, h, fl_x, 15, 7)
+    draw_front_tire(pix, w, h, fr_x, 15, 7)
+
+    # 2) Compact spoiler (narrow + short).
     wing_w = 34
     wing_x = (w - wing_w) // 2 + ox
     fill_rect(pix, w, h, wing_x, 2, wing_w, 3, wing)
@@ -288,30 +295,23 @@ def draw_f1_rear(
     for sx in range(wing_x + 4, wing_x + wing_w - 4, 5):
         fill_rect(pix, w, h, sx, 2, 1, 2, (70, 70, 78, 255))
 
-    # Body / sidepods (yawed into the turn).
-    fill_rect(pix, w, h, 16 + ox, 10, 24, 11, body)
-    fill_rect(pix, w, h, 18 + ox, 12, 20, 7, shade)
+    # 3) Body / sidepods ON TOP of front tires (yawed into the turn).
+    fill_rect(pix, w, h, 16 + ox, 10, 24, 12, body)
+    fill_rect(pix, w, h, 18 + ox, 12, 20, 8, shade)
     fill_rect(pix, w, h, 20 + ox, 9, 16, 3, (32, 32, 38, 255))
-    fill_rect(pix, w, h, 9 + ox + tip, 12, 9, 7, body)
-    fill_rect(pix, w, h, 38 + ox - tip, 12, 9, 7, body)
+    fill_rect(pix, w, h, 10 + ox + tip, 12, 9, 8, body)
+    fill_rect(pix, w, h, 37 + ox - tip, 12, 9, 8, body)
 
     # Helmet from behind.
     fill_ellipse(pix, w, h, w // 2 + ox, 11, 5, 4, (26, 26, 30, 255))
     fill_ellipse(pix, w, h, w // 2 + ox, 10, 3, 3, accent)
 
-    # Front tires peek under the body (inset, smaller) — drawn after body so
-    # they show between chassis and rear tires; outer tire slides out on lean.
-    fl_x = 12 + ox - lean * 4
-    fr_x = 37 + ox - lean * 4
-    draw_front_tire(pix, w, h, fl_x, 16, 7)
-    draw_front_tire(pix, w, h, fr_x, 16, 7)
-
     # Exhaust.
-    fill_rect(pix, w, h, 22 + ox, 20, 12, 2, (255, 150, 40, 255))
+    fill_rect(pix, w, h, 22 + ox, 21, 12, 2, (255, 150, 40, 255))
 
-    # Rear tires (near, shift with lean).
-    rl_x = 2 + lean * 4
-    rr_x = 42 + lean * 4
+    # 4) Rear tires LAST (near), a bit farther left/right.
+    rl_x = 0 + lean * 4
+    rr_x = 44 + lean * 4
     draw_rear_tire(pix, w, h, rl_x, 21, 12, 15)
     draw_rear_tire(pix, w, h, rr_x, 21, 12, 15)
     return pix, w, h
