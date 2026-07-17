@@ -229,39 +229,84 @@ def draw_crowd_sheet():
     return pix, w, h, fw, fh
 
 
-def draw_f1(body=(220, 50, 40, 255), accent=(40, 120, 220, 255), w=56, h=42):
+def draw_f1_rear(
+    body=(220, 50, 40, 255),
+    accent=(40, 120, 220, 255),
+    w=56,
+    h=42,
+    lean=0,
+):
+    """True rear view (into the screen), not top-down. lean: -1/0/+1."""
     pix = blank(w, h)
-    wing = (28, 28, 32, 255)
-    fill_rect(pix, w, h, 8, 5, 40, 5, wing)
-    fill_rect(pix, w, h, 10, 2, 36, 4, (55, 55, 60, 255))
-    fill_rect(pix, w, h, 7, 1, 4, 12, wing)
-    fill_rect(pix, w, h, 45, 1, 4, 12, wing)
-    for sx in range(14, 44, 4):
-        fill_rect(pix, w, h, sx, 3, 2, 2, (80, 80, 90, 255))
-    fill_rect(pix, w, h, 16, 10, 24, 18, body)
-    fill_rect(
-        pix,
-        w,
-        h,
-        18,
-        12,
-        20,
-        12,
-        (max(0, body[0] - 35), max(0, body[1] - 25), max(0, body[2] - 20), 255),
+    wing = (24, 24, 28, 255)
+    tire = (16, 16, 18, 255)
+    rim = (160, 160, 170, 255)
+    shade = (
+        max(0, body[0] - 45),
+        max(0, body[1] - 35),
+        max(0, body[2] - 30),
+        255,
     )
-    fill_rect(pix, w, h, 8, 16, 10, 12, body)
-    fill_rect(pix, w, h, 38, 16, 10, 12, body)
-    fill_rect(pix, w, h, 24, 7, 8, 7, (35, 35, 40, 255))
-    fill_ellipse(pix, w, h, w // 2, 16, 6, 5, accent)
-    fill_ellipse(pix, w, h, w // 2, 16, 3, 2, (15, 25, 40, 255))
-    fill_rect(pix, w, h, 26, 20, 4, 8, accent)
-    fill_rect(pix, w, h, 23, 26, 10, 3, (255, 230, 70, 255))
-    for tx in (5, 43):
-        fill_ellipse(pix, w, h, tx + 4, 33, 7, 6, (18, 18, 20, 255))
-        fill_ellipse(pix, w, h, tx + 4, 33, 3, 2, (190, 190, 200, 255))
-        setp(pix, w, h, tx + 4, 33, (120, 120, 130, 255))
-    fill_rect(pix, w, h, 18, 36, 20, 2, (40, 40, 45, 255))
+    # Bank: shift mass left/right + tip wing.
+    ox = lean * 5
+    tip = lean * 2
+
+    # Rear wing — dominant horizontal element (Pole Position look).
+    fill_rect(pix, w, h, 4 + ox, 6 + abs(tip), 48, 6, wing)
+    fill_rect(pix, w, h, 6 + ox, 4 + abs(tip), 44, 3, (50, 50, 56, 255))
+    fill_rect(pix, w, h, 3 + ox - tip, 5, 5, 16, wing)
+    fill_rect(pix, w, h, 48 + ox + tip, 5, 5, 16, wing)
+
+    # Engine cover / airbox (short, facing camera).
+    fill_rect(pix, w, h, 18 + ox, 12, 20, 14, body)
+    fill_rect(pix, w, h, 20 + ox, 14, 16, 10, shade)
+    fill_rect(pix, w, h, 22 + ox, 10, 12, 5, (35, 35, 40, 255))
+
+    # Sidepods tucked beside the cover (not a long chassis).
+    fill_rect(pix, w, h, 10 + ox, 16, 10, 10, body)
+    fill_rect(pix, w, h, 36 + ox, 16, 10, 10, body)
+
+    # Helmet / halo from behind.
+    fill_ellipse(pix, w, h, w // 2 + ox, 15, 6, 5, (28, 28, 32, 255))
+    fill_ellipse(pix, w, h, w // 2 + ox, 14, 4, 3, accent)
+    fill_ellipse(pix, w, h, w // 2 + ox - 1, 13, 1, 1, (200, 220, 255, 255))
+
+    # Diffuser / exhaust glow under the body.
+    fill_rect(pix, w, h, 20 + ox, 26, 16, 3, (40, 40, 48, 255))
+    fill_rect(pix, w, h, 24 + ox, 28, 8, 2, (255, 160, 50, 255))
+
+    # Only TWO rear tires (big, at bottom corners).
+    for tx in (2 + lean * 2, 38 + lean * 2):
+        fill_ellipse(pix, w, h, tx + 8, 32, 9, 8, tire)
+        fill_ellipse(pix, w, h, tx + 8, 32, 3, 3, rim)
+        fill_rect(pix, w, h, tx + 5, 30, 6, 2, (70, 70, 80, 255))
+
+    # Lean cue: outer tire tucked / inner tire larger.
+    if lean < 0:
+        fill_rect(pix, w, h, 1, 20, 3, 14, shade)
+    if lean > 0:
+        fill_rect(pix, w, h, 52, 20, 3, 14, shade)
     return pix, w, h
+
+
+def draw_f1(body=(220, 50, 40, 255), accent=(40, 120, 220, 255), w=56, h=42):
+    return draw_f1_rear(body, accent, w, h, lean=0)
+
+
+def draw_player_sheet(body=(230, 55, 40, 255), accent=(40, 140, 230, 255), w=56, h=42):
+    """3-frame sheet: lean left | center | lean right."""
+    frames = [
+        draw_f1_rear(body, accent, w, h, lean=-1)[0],
+        draw_f1_rear(body, accent, w, h, lean=0)[0],
+        draw_f1_rear(body, accent, w, h, lean=1)[0],
+    ]
+    sw, sh = w * 3, h
+    pix = blank(sw, sh)
+    for fi, fp in enumerate(frames):
+        for y in range(h):
+            for x in range(w):
+                pix[y * sw + fi * w + x] = fp[y * w + x]
+    return pix, sw, sh, w, h
 
 
 def save_tiers(name, pix, w, h, frame_w=None, frame_h=None):
@@ -290,30 +335,23 @@ def main():
     write_png(os.path.join(OUT, "house_2.png"), hw, hh, house_a)
     write_png(os.path.join(OUT, "crowd_2.png"), cw, ch, crowd)
 
+    player_sheet, psw, psh, pfw, pfh = draw_player_sheet()
+    write_png(os.path.join(OUT, "car_player.png"), psw, psh, player_sheet)
+
     cars = {
-        "player": draw_f1((230, 55, 40, 255), (40, 140, 230, 255)),
         "ai0": draw_f1((220, 45, 45, 255), (25, 25, 30, 255)),
         "ai1": draw_f1((45, 85, 220, 255), (240, 240, 250, 255)),
         "ai2": draw_f1((240, 205, 35, 255), (30, 30, 30, 255)),
         "ai3": draw_f1((235, 235, 245, 255), (200, 35, 40, 255)),
     }
     for name, (pix, w, h) in cars.items():
-        car_tiers = (
-            [(0, 0.28), (1, 0.48), (2, 0.70), (3, 1.00)]
-            if name.startswith("ai")
-            else [(0, 1.00)]
-        )
-        for ti, frac in car_tiers:
+        for ti, frac in [(0, 0.28), (1, 0.48), (2, 0.70), (3, 1.00)]:
             nw = max(4, int(w * frac))
             nh = max(4, int(h * frac))
             sp = scale_nearest(pix, w, h, nw, nh)
-            if name == "player":
-                write_png(os.path.join(OUT, "car_player.png"), nw, nh, sp)
-            else:
-                write_png(os.path.join(OUT, f"{name}_{ti}.png"), nw, nh, sp)
-            # Full-size aliases for live pose.scale (pseudo-3D).
-            if name.startswith("ai"):
-                write_png(os.path.join(OUT, f"{name}.png"), w, h, pix)
+            write_png(os.path.join(OUT, f"{name}_{ti}.png"), nw, nh, sp)
+        # Full-size alias for live pose.scale (pseudo-3D).
+        write_png(os.path.join(OUT, f"{name}.png"), w, h, pix)
     write_png(os.path.join(OUT, "palm.png"), pw, ph, palm)
     write_png(os.path.join(OUT, "house.png"), hw, hh, house_a)
     write_png(os.path.join(OUT, "house2.png"), hw, hh, house_b)

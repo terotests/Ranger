@@ -443,6 +443,23 @@ class GameSpriteRenderer {
             }
             e.shScale = sc
         }
+        ; Optional live size for kind:"rect" (pseudo-3D road strips, etc.).
+        def wv:EvalValue (pos.getMember("w"))
+        if (false == (wv.isNull())) {
+            def nw:int (this.memInt(pos "w" e.w))
+            if (nw < 1) {
+                nw = 1
+            }
+            e.w = nw
+        }
+        def hv:EvalValue (pos.getMember("h"))
+        if (false == (hv.isNull())) {
+            def nh:int (this.memInt(pos "h" e.h))
+            if (nh < 1) {
+                nh = 1
+            }
+            e.h = nh
+        }
     }
 
     fn drawBitmap:void (e:GameEntity canvas:SoftCanvas) {

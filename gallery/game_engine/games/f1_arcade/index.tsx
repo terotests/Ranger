@@ -1,11 +1,13 @@
 /// <reference path="../../scripting/game.d.ts" />
 //
-// F1 Arcade — classic Pole Position-style pseudo-3D racer.
+// F1 Arcade — Pole Position-style pseudo-3D racer.
 //
-// Road = horizontal strip sprites. Roadside props / AI cars are PNG sheets
-// with live pose.scale (engine syncPose → drawSheet) so nearer objects grow.
-// Sky uses a wrapping mountain panorama + sun/clouds keyed to heading so
-// curves make the scenery tell which way you're facing.
+// Projection: Lou / Jake Gordon scale = camDepth / relZ, with curve x/dx.
+// Screen Y is remapped into [HORIZON .. VIEW_H] so the road fills the ground
+// plane. Consecutive projected points define each band's height so nearer
+// strips are taller AND wider, with 2px overlap (no green gaps).
+// Rect poses use live w/h (engine syncPose). Player car is a rear-view sheet
+// with left/center/right steer frames.
 //
 // Controls: Left/Right steer · Up or Space accelerate · Down brake
 // Run: npm run engine:game-sdl:run:f1_arcade
@@ -15,17 +17,29 @@ import { soundEvent } from "game_helpers";
 const VIEW_W = 480;
 const VIEW_H = 270;
 const HORIZON = 88;
-const STRIPS = 28;
-const TRACK_LEN = 48;
-const SEG_LEN = 220;
-const Z_STEP = 42;
+const CX = 240;
+const ROAD_BOTTOM = 262;
+
+// --- Lou / javascript-racer camera ---
+// Tuned so near road half-width ≈ 0.28*VIEW_W (scale≈1/ROAD_WIDTH).
+const CAM_DEPTH = 0.84;
+const ROAD_WIDTH = 2000;
+const SEG_LENGTH = 200;
+const DRAW_DIST = 48;
+const CURVE_STRENGTH = 0.85;
+const TRACK_SEGS = 64;
 const AI_COUNT = 4;
-const PROP_SLOTS = 8;
+const PROP_SLOTS = 10;
 const START_TIME = 75;
 const PAN_W = 960;
 const PAN_H = 56;
 
-// Full-size masters — live scale via EntityPose.scale (percent).
+// Sprite scale: project().scale * SPRITE_SCALE_K → percent (100 = full PNG).
+const SPRITE_SCALE_K = 120000;
+// Near/far depths: near ≈ full road width on screen; far ≈ thin ribbon at horizon.
+const Z_NEAR = 1500;
+const Z_FAR = 18000;
+
 const PALM_W = 64;
 const PALM_H = 96;
 const HOUSE_W = 64;
@@ -35,55 +49,40 @@ const CROWD_FH = 56;
 const CAR_W = 56;
 const CAR_H = 42;
 
+// Per-segment curve (−6 .. 6 style, a bit softer). Length TRACK_SEGS.
 const CURVES = [
-  0, 0, 0, 0, 0, 0,
-  1, 2, 2, 1, 0, 0,
-  0, -1, -2, -2, -1, 0,
-  0, 0, 1, 1, 0, 0,
-  -1, -1, 0, 0, 2, 2,
-  1, 0, 0, -2, -1, 0,
-  0, 1, 0, -1, 0, 0,
-  0, 0, 1, 0, 0, 0
+  0, 0, 0, 0, 0, 0, 0, 0,
+  2, 4, 5, 4, 2, 0, 0, 0,
+  0, -2, -4, -5, -4, -2, 0, 0,
+  0, 0, 3, 3, 0, 0, -3, -3,
+  0, 0, 0, 5, 5, 3, 0, 0,
+  -4, -2, 0, 0, 2, 4, 2, 0,
+  0, 0, -1, 0, 1, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0
 ];
 
-function roadWAt(i) {
-  const n = i + 1;
-  return 26 + ((n * n * 300) / (STRIPS * STRIPS));
-}
+// Roadside prop kind per segment (0=none 1=palm 2=house 3=crowd), side ±1.
+const PROP_KIND = [
+  0, 1, 0, 2, 0, 3, 0, 1,
+  0, 0, 2, 0, 3, 0, 1, 0,
+  0, 3, 0, 1, 0, 2, 0, 0,
+  1, 0, 0, 3, 0, 2, 0, 1,
+  0, 0, 1, 0, 3, 0, 2, 0,
+  0, 2, 0, 1, 0, 0, 3, 0,
+  1, 0, 3, 0, 0, 2, 0, 1,
+  0, 0, 0, 1, 0, 3, 0, 0
+];
 
-function rumbleWAt(i) {
-  return 3 + ((i * 12) / STRIPS);
-}
-
-function lineWAt(i) {
-  const w = 1 + ((i * 4) / STRIPS);
-  if (w < 2) {
-    return 2;
-  }
-  return w;
-}
-
-function stripY(i) {
-  const ground = VIEW_H - HORIZON;
-  return HORIZON + ((i + 0.5) * ground) / STRIPS;
-}
-
-function stripH() {
-  const ground = VIEW_H - HORIZON;
-  const h = (ground / STRIPS) + 1;
-  if (h < 3) {
-    return 3;
-  }
-  return h;
-}
-
-function curveAt(seg) {
-  let s = seg % TRACK_LEN;
-  if (s < 0) {
-    s = s + TRACK_LEN;
-  }
-  return CURVES[s];
-}
+const PROP_SIDE = [
+  1, -1, 1, -1, 1, -1, 1, -1,
+  -1, 1, -1, 1, -1, 1, -1, 1,
+  1, -1, 1, -1, 1, -1, 1, -1,
+  -1, 1, -1, 1, -1, 1, -1, 1,
+  1, -1, 1, -1, 1, -1, 1, -1,
+  -1, 1, -1, 1, -1, 1, -1, 1,
+  1, -1, 1, -1, 1, -1, 1, -1,
+  -1, 1, -1, 1, -1, 1, -1, 1
+];
 
 function absVal(v) {
   if (v < 0) {
@@ -114,6 +113,18 @@ function wrapMod(v, mod) {
   return x;
 }
 
+function curveAt(seg) {
+  return CURVES[wrapMod(seg, TRACK_SEGS)];
+}
+
+function propKindAt(seg) {
+  return PROP_KIND[wrapMod(seg, TRACK_SEGS)];
+}
+
+function propSideAt(seg) {
+  return PROP_SIDE[wrapMod(seg, TRACK_SEGS)];
+}
+
 function aiId(n) {
   return "ai" + n;
 }
@@ -136,21 +147,54 @@ function sheetSprite(id, path, frameW, frameH, cols) {
   };
 }
 
-// Perspective scale percent from a 0..1 nearness factor.
-function depthScale(nearness) {
-  const t = clamp(nearness, 0, 1);
-  const s = 10 + t * t * 90;
-  return clamp(floorOf(s), 8, 100);
+// Project a road-plane point at relative depth relZ (camera at 0).
+// Y is remapped so Z_NEAR → ROAD_BOTTOM and Z_FAR → HORIZON (fills ground).
+function project(worldX, relZ, camX) {
+  let z = relZ;
+  if (z < 1) {
+    z = 1;
+  }
+  const scale = CAM_DEPTH / z;
+  const scaleNear = CAM_DEPTH / Z_NEAR;
+  const scaleFar = CAM_DEPTH / Z_FAR;
+  const denom = scaleNear - scaleFar;
+  let t = 0;
+  if (denom > 0.0000001) {
+    t = (scale - scaleFar) / denom;
+  }
+  t = clamp(t, 0, 1.15);
+  const sx = CX + scale * (worldX - camX) * CX;
+  const sy = HORIZON + t * (ROAD_BOTTOM - HORIZON);
+  const sw = scale * ROAD_WIDTH * CX;
+  return { ok: 1, x: sx, y: sy, w: sw, scale: scale };
+}
+
+function spriteScalePct(projScale) {
+  return clamp(floorOf(projScale * SPRITE_SCALE_K), 6, 110);
+}
+
+function rumbleW(roadHalf) {
+  const w = floorOf(roadHalf * 0.12);
+  if (w < 2) {
+    return 2;
+  }
+  return w;
+}
+
+function lineW(roadHalf) {
+  const w = floorOf(roadHalf * 0.04);
+  if (w < 2) {
+    return 2;
+  }
+  return w;
 }
 
 function sprites() {
   const list = [];
-  const h = stripH();
 
   list.push({ id: "sky", kind: "rect", w: VIEW_W, h: HORIZON + 4, r: 50, g: 140, b: 220 });
   list.push({ id: "ground", kind: "rect", w: VIEW_W, h: VIEW_H - HORIZON + 8, r: 34, g: 140, b: 48 });
 
-  // Directional sky: wrapping panorama + sun + clouds (no black boxes).
   list.push(sheetSprite("pan0", "assets/panorama.png", PAN_W, PAN_H, 1));
   list.push(sheetSprite("pan1", "assets/panorama.png", PAN_W, PAN_H, 1));
   list.push(sheetSprite("sun", "assets/sun.png", 32, 32, 1));
@@ -158,19 +202,16 @@ function sprites() {
   list.push(sheetSprite("cloud1", "assets/cloud_b.png", 40, 20, 1));
   list.push(sheetSprite("cloud2", "assets/cloud_c.png", 36, 18, 1));
 
-  let i = 0;
-  while (i < STRIPS) {
-    const rw = roadWAt(i);
-    const rbw = rumbleWAt(i);
-    list.push({ id: "rd" + i, kind: "rect", w: rw, h: h, r: 70, g: 72, b: 80 });
-    list.push({ id: "rl" + i, kind: "rect", w: rbw, h: h, r: 220, g: 40, b: 40 });
-    list.push({ id: "rr" + i, kind: "rect", w: rbw, h: h, r: 220, g: 40, b: 40 });
-    list.push({ id: "ln" + i, kind: "rect", w: lineWAt(i), h: h, r: 240, g: 240, b: 220 });
-    i = i + 1;
+  // Road bands: live pose.w / pose.h each frame (max sizes here).
+  let n = DRAW_DIST - 1;
+  while (n >= 0) {
+    list.push({ id: "rd" + n, kind: "rect", w: VIEW_W - 4, h: 48, r: 70, g: 72, b: 80 });
+    list.push({ id: "rl" + n, kind: "rect", w: 40, h: 48, r: 220, g: 40, b: 40 });
+    list.push({ id: "rr" + n, kind: "rect", w: 40, h: 48, r: 220, g: 40, b: 40 });
+    list.push({ id: "ln" + n, kind: "rect", w: 12, h: 48, r: 240, g: 240, b: 220 });
+    n = n - 1;
   }
 
-  // Roadside props — one sprite per slot; size from pose.scale.
-  // Far slots first so nearer props paint on top.
   let slot = PROP_SLOTS - 1;
   while (slot >= 0) {
     list.push(sheetSprite(propId("palm", slot), "assets/palm.png", PALM_W, PALM_H, 1));
@@ -192,14 +233,13 @@ function sprites() {
   list.push({ id: "lightY", kind: "circle", rad: 5, r: 90, g: 70, b: 10 });
   list.push({ id: "lightG", kind: "circle", rad: 5, r: 20, g: 90, b: 20 });
 
-  let n = 0;
-  while (n < AI_COUNT) {
-    list.push(sheetSprite(aiId(n), "assets/ai" + n + ".png", CAR_W, CAR_H, 1));
-    n = n + 1;
+  let a = 0;
+  while (a < AI_COUNT) {
+    list.push(sheetSprite(aiId(a), "assets/ai" + a + ".png", CAR_W, CAR_H, 1));
+    a = a + 1;
   }
 
-  list.push(sheetSprite("player", "assets/car_player.png", CAR_W, CAR_H, 1));
-
+  list.push(sheetSprite("player", "assets/car_player.png", CAR_W, CAR_H, 3));
   return list;
 }
 
@@ -232,18 +272,29 @@ function hideAi(entities) {
   }
 }
 
+function hideRoad(entities) {
+  let n = 0;
+  while (n < DRAW_DIST) {
+    entities["rd" + n] = { x: -80, y: -80, w: 4, h: 2, visible: 0 };
+    entities["rl" + n] = { x: -80, y: -80, w: 2, h: 2, visible: 0 };
+    entities["rr" + n] = { x: -80, y: -80, w: 2, h: 2, visible: 0 };
+    entities["ln" + n] = { x: -80, y: -80, w: 2, h: 2, visible: 0 };
+    n = n + 1;
+  }
+}
+
 function initAi() {
   return {
-    z0: 900,
+    z0: 3500,
     x0: -0.35,
     s0: 0.22,
-    z1: 1600,
+    z1: 6200,
     x1: 0.25,
     s1: 0.20,
-    z2: 2400,
+    z2: 9000,
     x2: -0.15,
     s2: 0.24,
-    z3: 3200,
+    z3: 12000,
     x3: 0.40,
     s3: 0.19
   };
@@ -260,20 +311,11 @@ function initState() {
   entities.cloud1 = { x: 220, y: 22, scale: 55, visible: 1 };
   entities.cloud2 = { x: 340, y: 32, scale: 60, visible: 1 };
 
-  let i = 0;
-  while (i < STRIPS) {
-    const y = stripY(i);
-    entities["rd" + i] = { x: 240, y: y, visible: 1 };
-    entities["rl" + i] = { x: 100, y: y, visible: 1 };
-    entities["rr" + i] = { x: 380, y: y, visible: 1 };
-    entities["ln" + i] = { x: 240, y: y, visible: 0 };
-    i = i + 1;
-  }
-
+  hideRoad(entities);
   hideProps(entities);
   hideGantry(entities);
   hideAi(entities);
-  entities.player = { x: 240, y: 248, p0: 0, scale: 100, visible: 1 };
+  entities.player = { x: 240, y: 248, p0: 1, scale: 100, angle: 0, visible: 1 };
 
   const ai = initAi();
   return {
@@ -295,6 +337,7 @@ function initState() {
     crashMs: 0,
     heading: 0,
     anim: 0,
+    steer: 0,
     entities: entities,
     score1: 0,
     score2: START_TIME,
@@ -368,112 +411,205 @@ function formatLap(ms) {
   return mins + ":" + secs;
 }
 
-function placeRoad(entities, playerZ, playerX) {
+// Curve camera offset at relative depth (segment units ahead of player).
+function camXAt(playerX, baseSeg, segPct, relZ) {
+  const segsAhead = relZ / SEG_LENGTH;
   let x = 0;
-  let dx = 0;
-  let step = 0;
-  while (step < STRIPS) {
-    const i = STRIPS - 1 - step;
-    const zAhead = (step + 1) * Z_STEP;
-    const worldZ = playerZ + zAhead;
-    const seg = floorOf(worldZ / SEG_LEN);
-    dx = dx + curveAt(seg) * 0.085;
+  let dx = curveAt(baseSeg) * segPct * CURVE_STRENGTH;
+  let walked = 0;
+  while (walked < segsAhead) {
     x = x + dx;
+    dx = dx + curveAt(baseSeg + floorOf(walked)) * CURVE_STRENGTH;
+    walked = walked + 1;
+  }
+  // Fractional segment remainder.
+  const frac = segsAhead - floorOf(segsAhead);
+  x = x + dx * frac;
+  return playerX * ROAD_WIDTH - x;
+}
 
-    const scale = (step + 1) / STRIPS;
-    const cx = 240 + x - playerX * scale * 170;
-    const y = stripY(i);
-    const rw = roadWAt(i);
-    const rbw = rumbleWAt(i);
-    const stripe = floorOf(worldZ / 28) % 2;
+// Screen-space road strips (guaranteed no green gaps) + Lou scale for X/W.
+// Strip 0 = nearest (bottom, tallest visually via more screen rows per z).
+function placeWorld(entities, playerZ, playerX, anim, aiState) {
+  hideRoad(entities);
+  hideProps(entities);
+  hideAi(entities);
 
-    let roadR = 68;
-    let roadG = 70;
-    let roadB = 78;
-    if (stripe == 0) {
-      roadR = 78;
-      roadG = 80;
-      roadB = 88;
+  const baseSeg = floorOf(playerZ / SEG_LENGTH);
+  const segPct = (playerZ - baseSeg * SEG_LENGTH) / SEG_LENGTH;
+  const groundH = ROAD_BOTTOM - HORIZON;
+  const scaleNear = CAM_DEPTH / Z_NEAR;
+  const scaleFar = CAM_DEPTH / Z_FAR;
+  const scaleSpan = scaleNear - scaleFar;
+
+  let propSlot = 0;
+  // Paint far → near so nearer strips cover the +1px overlap.
+  let bi = DRAW_DIST - 1;
+  while (bi >= 0) {
+    // Screen tile: equal rows, bottom = near. Overlap 1px so grass never peeks.
+    const yBot = ROAD_BOTTOM - floorOf((bi * groundH) / DRAW_DIST);
+    const yTop = ROAD_BOTTOM - floorOf(((bi + 1) * groundH) / DRAW_DIST);
+    // +2 overlap kills 1px grass seams from integer rect centering.
+    let bandH = yBot - yTop + 2;
+    if (bandH < 3) {
+      bandH = 3;
     }
+    const y = yTop + bandH * 0.5;
 
+    // Inverse of project()'s t mapping → relZ for this strip centre.
+    const t = clamp((y - HORIZON) / groundH, 0.02, 1);
+    const scale = scaleFar + t * scaleSpan;
+    let relZ = CAM_DEPTH / scale;
+    if (relZ < Z_NEAR * 0.5) {
+      relZ = Z_NEAR * 0.5;
+    }
+    const camX = camXAt(playerX, baseSeg, segPct, relZ);
+    const p = project(0, relZ, camX);
+    const cx = p.x;
+    const half = p.w;
+    const roadW = clamp(floorOf(half * 2), 10, VIEW_W - 2);
+    const rb = rumbleW(half);
+    const lw = lineW(half);
+    const segIdx = baseSeg + floorOf(relZ / SEG_LENGTH);
+    const stripe = wrapMod(segIdx + floorOf(relZ / 40), 2);
+
+    // Solid asphalt (no shade banding — that reads as green “gaps”).
+    const roadR = 74;
+    const roadG = 76;
+    const roadB = 84;
     let rumbleR = 220;
-    let rumbleG = 40;
-    let rumbleB = 40;
+    let rumbleG = 35;
+    let rumbleB = 35;
     if (stripe == 0) {
-      rumbleR = 240;
-      rumbleG = 240;
-      rumbleB = 240;
+      rumbleR = 245;
+      rumbleG = 245;
+      rumbleB = 245;
     }
 
-    entities["rd" + i] = { x: cx, y: y, r: roadR, g: roadG, b: roadB, visible: 1 };
-    entities["rl" + i] = {
-      x: cx - rw * 0.5 - rbw * 0.5,
+    entities["rd" + bi] = {
+      x: cx,
       y: y,
+      w: roadW,
+      h: bandH,
+      r: roadR,
+      g: roadG,
+      b: roadB,
+      visible: 1
+    };
+    entities["rl" + bi] = {
+      x: cx - half - rb * 0.5,
+      y: y,
+      w: rb,
+      h: bandH,
       r: rumbleR,
       g: rumbleG,
       b: rumbleB,
       visible: 1
     };
-    entities["rr" + i] = {
-      x: cx + rw * 0.5 + rbw * 0.5,
+    entities["rr" + bi] = {
+      x: cx + half + rb * 0.5,
       y: y,
+      w: rb,
+      h: bandH,
       r: rumbleR,
       g: rumbleG,
       b: rumbleB,
       visible: 1
     };
 
-    const dash = floorOf(worldZ / 40) % 2;
+    const dash = wrapMod(floorOf(relZ / 50), 2);
     if (dash == 0) {
-      if (i > 4) {
-        entities["ln" + i] = { x: cx, y: y, r: 240, g: 240, b: 220, visible: 1 };
-      } else {
-        entities["ln" + i] = { x: cx, y: y, visible: 0 };
+      if (bi < DRAW_DIST - 6) {
+        if (bi > 2) {
+          entities["ln" + bi] = {
+            x: cx,
+            y: y,
+            w: lw,
+            h: bandH,
+            r: 240,
+            g: 240,
+            b: 220,
+            visible: 1
+          };
+        }
       }
-    } else {
-      entities["ln" + i] = { x: cx, y: y, visible: 0 };
     }
 
-    step = step + 1;
+    // Sparse roadside props (one attempt per few strips).
+    if (propSlot < PROP_SLOTS) {
+      if ((bi % 3) == 0) {
+        if (bi > 4) {
+          if (bi < DRAW_DIST - 2) {
+            const kindN = propKindAt(segIdx);
+            if (kindN > 0) {
+              const side = propSideAt(segIdx);
+              const worldPropX = side * ROAD_WIDTH * 0.62;
+              const pp = project(worldPropX, relZ, camX);
+              const sc = spriteScalePct(pp.scale);
+              if (sc >= 8) {
+                let kind = "palm";
+                if (kindN == 2) {
+                  kind = "house";
+                }
+                if (kindN == 3) {
+                  kind = "crowd";
+                }
+                if (kind == "crowd") {
+                  entities[propId(kind, propSlot)] = {
+                    x: pp.x,
+                    y: pp.y,
+                    p0: (anim + propSlot) % 2,
+                    scale: sc,
+                    visible: 1
+                  };
+                } else {
+                  entities[propId(kind, propSlot)] = {
+                    x: pp.x,
+                    y: pp.y,
+                    scale: sc,
+                    visible: 1
+                  };
+                }
+                propSlot = propSlot + 1;
+              }
+            }
+          }
+        }
+      }
+    }
+    bi = bi - 1;
   }
-}
 
-function projectZ(relZ) {
-  // scale 1 = at camera (big sprites), ~0 = at horizon (tiny).
-  if (relZ <= 20) {
-    return { scale: 1, step: STRIPS - 1, y: stripY(STRIPS - 1), visible: 1 };
+  // AI cars — same projection.
+  let a = 0;
+  while (a < AI_COUNT) {
+    const cz = aiZ(aiState, a);
+    const lane = aiX(aiState, a);
+    const rel = cz - playerZ;
+    if (rel > Z_NEAR * 0.35) {
+      if (rel < Z_FAR) {
+        const camX = camXAt(playerX, baseSeg, segPct, rel);
+        const worldCarX = lane * ROAD_WIDTH * 0.45;
+        const cp = project(worldCarX, rel, camX);
+        if (cp.y > HORIZON) {
+          if (cp.y < VIEW_H - 8) {
+            entities[aiId(a)] = {
+              x: cp.x,
+              y: cp.y,
+              scale: spriteScalePct(cp.scale),
+              visible: 1
+            };
+          }
+        }
+      }
+    }
+    a = a + 1;
   }
-  if (relZ > STRIPS * Z_STEP) {
-    return { scale: 0, step: 0, y: HORIZON, visible: 0 };
-  }
-  const step = clamp(floorOf(relZ / Z_STEP), 0, STRIPS - 1);
-  const i = STRIPS - 1 - step;
-  const scale = (STRIPS - step) / STRIPS;
-  return { scale: scale, step: step, y: stripY(i), visible: 1 };
-}
-
-function roadCenterAt(playerZ, playerX, relZ) {
-  let x = 0;
-  let dx = 0;
-  let step = 0;
-  const target = clamp(floorOf(relZ / Z_STEP), 1, STRIPS);
-  while (step < target) {
-    const zAhead = (step + 1) * Z_STEP;
-    const worldZ = playerZ + zAhead;
-    const seg = floorOf(worldZ / SEG_LEN);
-    dx = dx + curveAt(seg) * 0.085;
-    x = x + dx;
-    step = step + 1;
-  }
-  const scale = target / STRIPS;
-  return 240 + x - playerX * scale * 170;
 }
 
 function placeSky(entities, heading) {
-  // Panorama scroll: 960px = full 360° of scenery.
   const scroll = wrapMod(heading * (PAN_W / 360), PAN_W);
   let c0 = PAN_W * 0.5 - scroll;
-  // Keep a copy on-screen for wrapping.
   while (c0 < -PAN_W * 0.5) {
     c0 = c0 + PAN_W;
   }
@@ -483,7 +619,6 @@ function placeSky(entities, heading) {
   entities.pan0 = { x: c0, y: HORIZON, scale: 100, visible: 1 };
   entities.pan1 = { x: c0 + PAN_W, y: HORIZON, scale: 100, visible: 1 };
 
-  // Sun fixed in the East (world angle 90°).
   const sunRel = wrapMod(90 - heading, 360);
   let sunX = -80;
   let sunVis = 0;
@@ -493,7 +628,6 @@ function placeSky(entities, heading) {
   }
   entities.sun = { x: sunX, y: 34, scale: 100, visible: sunVis };
 
-  // Clouds at fixed world bearings — drift with heading.
   placeCloud(entities, "cloud0", heading, 40, 26, 70);
   placeCloud(entities, "cloud1", heading, 160, 20, 55);
   placeCloud(entities, "cloud2", heading, 300, 30, 62);
@@ -505,25 +639,28 @@ function placeCloud(entities, id, heading, worldAngle, y, scale) {
     entities[id] = { x: -80, y: y, scale: scale, visible: 0 };
     return;
   }
-  const x = floorOf((rel / 180) * VIEW_W);
-  entities[id] = { x: x, y: y, scale: scale, visible: 1 };
+  entities[id] = {
+    x: floorOf((rel / 180) * VIEW_W),
+    y: y,
+    scale: scale,
+    visible: 1
+  };
 }
 
 function placeGantry(entities, playerZ, playerX, light) {
-  if (playerZ > 280) {
+  if (playerZ > SEG_LENGTH * 2) {
     hideGantry(entities);
     return;
   }
-  const scale = clamp(0.55 + (280 - playerZ) / 500, 0.45, 1.1);
-  const cx = roadCenterAt(playerZ, playerX, 120);
-  const y = 150 - (playerZ / 280) * 40;
-  const half = 70 * scale;
-  const barW = 140 * scale;
+  const p = project(0, SEG_LENGTH * 0.8, playerX * ROAD_WIDTH);
+  const cx = p.x;
+  const y = clamp(p.y - 36, 70, 160);
+  const half = clamp(p.w * 0.9, 40, 120);
   entities.ganL = { x: cx - half, y: y + 20, visible: 1 };
   entities.ganR = { x: cx + half, y: y + 20, visible: 1 };
   entities.ganBar = { x: cx, y: y - 18, r: 230, g: 200, b: 40, visible: 1 };
-  entities.chkL = { x: cx - barW * 0.35, y: y - 18, r: 20, g: 20, b: 20, visible: 1 };
-  entities.chkR = { x: cx + barW * 0.35, y: y - 18, r: 240, g: 240, b: 240, visible: 1 };
+  entities.chkL = { x: cx - half * 0.5, y: y - 18, r: 20, g: 20, b: 20, visible: 1 };
+  entities.chkR = { x: cx + half * 0.5, y: y - 18, r: 240, g: 240, b: 240, visible: 1 };
 
   let rr = 60;
   let rg = 20;
@@ -554,83 +691,6 @@ function placeGantry(entities, playerZ, playerX, light) {
   entities.lightG = { x: cx + 18, y: y - 18, r: gr, g: gg, b: gb, rad: 5, visible: 1 };
 }
 
-function placeProps(entities, playerZ, playerX, anim) {
-  hideProps(entities);
-  let slot = 0;
-  while (slot < PROP_SLOTS) {
-    const ahead = 140 + slot * 200;
-    const worldZ = playerZ + ahead;
-    const seg = floorOf(worldZ / SEG_LEN);
-    const proj = projectZ(ahead);
-    if (proj.visible == 1) {
-      if (proj.scale > 0.12) {
-        const cx = roadCenterAt(playerZ, playerX, ahead);
-        const rw = roadWAt(STRIPS - 1 - proj.step);
-        const side = ((seg + slot) % 2) * 2 - 1;
-        const kindIdx = (seg + slot) % 3;
-        let kind = "palm";
-        let edge = 22;
-        if (kindIdx == 1) {
-          kind = "house";
-          edge = 30;
-        }
-        if (kindIdx == 2) {
-          kind = "crowd";
-          edge = 26;
-        }
-        const tx = cx + side * (rw * 0.5 + edge + proj.scale * 34);
-        const sc = depthScale(proj.scale);
-        const feetY = proj.y + 2;
-        if (kind == "crowd") {
-          entities[propId(kind, slot)] = {
-            x: tx,
-            y: feetY,
-            p0: (anim + slot) % 2,
-            scale: sc,
-            visible: 1
-          };
-        } else {
-          entities[propId(kind, slot)] = {
-            x: tx,
-            y: feetY,
-            scale: sc,
-            visible: 1
-          };
-        }
-      }
-    }
-    slot = slot + 1;
-  }
-}
-
-function placeAiCars(entities, s, playerZ, playerX) {
-  hideAi(entities);
-  let n = 0;
-  while (n < AI_COUNT) {
-    const cz = aiZ(s, n);
-    const cxLane = aiX(s, n);
-    const rel = cz - playerZ;
-    if (rel > 40) {
-      if (rel < STRIPS * Z_STEP) {
-        const proj = projectZ(rel);
-        if (proj.visible == 1) {
-          if (proj.scale > 0.1) {
-            const roadX = roadCenterAt(playerZ, playerX, rel);
-            const screenX = roadX + cxLane * proj.scale * 150;
-            entities[aiId(n)] = {
-              x: screenX,
-              y: proj.y + 2,
-              scale: depthScale(proj.scale),
-              visible: 1
-            };
-          }
-        }
-      }
-    }
-    n = n + 1;
-  }
-}
-
 function update(props) {
   const s = props.state;
   const dt = props.dt;
@@ -651,6 +711,7 @@ function update(props) {
   let crashMs = s.crashMs;
   let heading = s.heading;
   let anim = s.anim;
+  let steer = s.steer;
 
   if (phase == "countdown") {
     countMs = countMs + dt;
@@ -693,33 +754,47 @@ function update(props) {
       }
     }
   }
-
   speed = clamp(speed, 0, s.maxSpeed);
 
+  // Visual steer lean (−1..1) + lane change.
   if (phase == "racing") {
-    const steer = dt * 0.0011 * (0.35 + speed * 2.2);
+    const steerStep = dt * 0.0011 * (0.35 + speed * 2.2);
     if (props.left) {
-      x = x - steer;
+      x = x - steerStep;
+      steer = steer - dt * 0.008;
+    } else {
+      if (props.right) {
+        x = x + steerStep;
+        steer = steer + dt * 0.008;
+      } else {
+        if (steer > 0.05) {
+          steer = steer - dt * 0.006;
+        } else {
+          if (steer < -0.05) {
+            steer = steer + dt * 0.006;
+          } else {
+            steer = 0;
+          }
+        }
+      }
     }
-    if (props.right) {
-      x = x + steer;
-    }
+  } else {
+    steer = 0;
   }
-  x = clamp(x, -1.15, 1.15);
+  steer = clamp(steer, -1, 1);
+  x = clamp(x, -1.2, 1.2);
 
   if (phase == "racing") {
     if (speed > 0.05) {
-      const segNow = floorOf(z / SEG_LEN);
-      const pull = curveAt(segNow) * speed * dt * 0.00035;
+      const segNow = floorOf(z / SEG_LENGTH);
+      const pull = curveAt(segNow) * speed * dt * 0.00012;
       x = x + pull;
-      x = clamp(x, -1.2, 1.2);
-      // Heading follows track curvature so the sky panorama turns with you.
-      heading = heading + curveAt(segNow) * speed * dt * 0.045;
-      heading = wrapMod(heading, 360);
+      x = clamp(x, -1.25, 1.25);
+      heading = wrapMod(heading + curveAt(segNow) * speed * dt * 0.02, 360);
     }
   }
 
-  const offroad = absVal(x) > 0.92;
+  const offroad = absVal(x) > 0.95;
   if (offroad) {
     if (speed > 0.12) {
       speed = speed - dt * 0.00025;
@@ -727,7 +802,8 @@ function update(props) {
   }
 
   if (phase == "racing") {
-    z = z + speed * dt;
+    // speed is ~0..0.42 px-style; convert to world units / ms.
+    z = z + speed * dt * 2.8;
     distance = distance + speed * dt;
     lapMs = lapMs + dt;
     timeLeft = timeLeft - dt / 1000;
@@ -737,7 +813,7 @@ function update(props) {
       anim = 0;
     }
 
-    const lapLen = TRACK_LEN * SEG_LEN;
+    const lapLen = TRACK_SEGS * SEG_LENGTH;
     if (z > (lap + 1) * lapLen) {
       lap = lap + 1;
       timeLeft = timeLeft + 25;
@@ -779,21 +855,20 @@ function update(props) {
     s3: s.s3
   };
   while (n < AI_COUNT) {
-    let cz = aiZ(s, n) + aiS(s, n) * dt;
+    let cz = aiZ(s, n) + aiS(s, n) * dt * 2.8;
     let cx = aiX(s, n);
     const spd = aiS(s, n);
-    if (cz < z - 200) {
-      cz = z + 900 + n * 400;
+    if (cz < z - 800) {
+      cz = z + 4000 + n * 1600;
       cx = ((n % 2) * 2 - 1) * (0.2 + (n % 3) * 0.12);
     }
     const wave = absVal(((z * 0.02 + n * 40) % 40) - 20) / 20;
-    cx = cx + (wave - 0.5) * 0.0012 * dt;
-    cx = clamp(cx, -0.7, 0.7);
+    cx = clamp(cx + (wave - 0.5) * 0.0012 * dt, -0.7, 0.7);
 
     const rel = cz - z;
     if (phase == "racing") {
-      if (rel > 20) {
-        if (rel < 90) {
+      if (rel > 40) {
+        if (rel < 180) {
           if (absVal(cx - x) < 0.28) {
             if (crashMs <= 0) {
               crashMs = 400;
@@ -820,16 +895,25 @@ function update(props) {
   };
 
   placeSky(entities, heading);
-  placeRoad(entities, z, x);
-  placeProps(entities, z, x, floorOf(anim / 8));
+  placeWorld(entities, z, x, floorOf(anim / 8), aiOut);
   placeGantry(entities, z, x, light);
-  placeAiCars(entities, aiOut, z, x);
 
+  // Player car: rear-view sheet — frame 0 left / 1 center / 2 right + bank angle.
+  let carFrame = 1;
+  let carAngle = steer * 12;
+  if (steer < -0.25) {
+    carFrame = 0;
+  }
+  if (steer > 0.25) {
+    carFrame = 2;
+  }
+  // Car stays near bottom-center; road slides under via camX (Lou).
   entities.player = {
-    x: 240 + x * 70,
+    x: 240 + x * 36,
     y: 248,
-    p0: 0,
+    p0: carFrame,
     scale: 100,
+    angle: carAngle,
     visible: 1
   };
 
@@ -838,8 +922,6 @@ function update(props) {
       return initState();
     }
   }
-
-  const mph = floorOf(speed * 780);
 
   return {
     showNet: 0,
@@ -860,6 +942,7 @@ function update(props) {
     crashMs: crashMs,
     heading: heading,
     anim: anim,
+    steer: steer,
     entities: entities,
     score1: score,
     score2: floorOf(timeLeft),
@@ -875,7 +958,7 @@ function update(props) {
     z3: aiOut.z3,
     x3: aiOut.x3,
     s3: aiOut.s3,
-    mph: mph,
+    mph: floorOf(speed * 780),
     events: events
   };
 }

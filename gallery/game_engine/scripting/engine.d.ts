@@ -134,6 +134,12 @@ interface EntityPose {
    * syncPose → drawSheet; use for pseudo-3D depth without pre-baked sizes.
    */
   scale?: number;
+  /**
+   * rect: live width/height in pixels. Applied each frame in syncPose so
+   * pseudo-3D road bands can grow nearer the camera without gaps.
+   */
+  w?: number;
+  h?: number;
 }
 
 /** World-space spawn definition returned from entities(). */
