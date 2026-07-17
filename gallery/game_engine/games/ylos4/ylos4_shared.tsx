@@ -375,10 +375,10 @@ const MAX_ANSWERS = 3;
 const MAX_ANSWER_DIGITS = 2;
 const MAX_BULLETS = 4;
 const MAX_MOVING_PLATFORMS = 16;
-// puzzleStatus: 0 = open, 1 = solved (diamond), 2 = failed (answers gone)
+// puzzleSolved: 0 = not yet solved, 1 = correct landed (diamond revealed).
+// Answer pads always stay — wrong landings do not remove them (kid-friendly).
 const PUZZLE_OPEN = 0;
 const PUZZLE_SOLVED = 1;
-const PUZZLE_FAILED = 2;
 const PLAT_EDGE_H = 4;
 const LEVEL_LOAD_MS = 1800;
 const JUMP_MIN_V = 0.28;
@@ -539,36 +539,18 @@ function buildClimbPlatforms(): Platform[] {
   return out;
 }
 
-function puzzleIsOpen(status: i32[], pi: i32) {
-  if (pi < 0) {
-    return false;
-  }
-  if (pi >= MAX_PUZZLES) {
-    return false;
-  }
-  if (status == null) {
-    return true;
-  }
-  if (status[pi] == null) {
-    return true;
-  }
-  return status[pi] == PUZZLE_OPEN;
-}
-
-// Climb platforms + answer pads that are still open (not solved/failed).
-function buildPlatforms(status: i32[]): Platform[] {
+// Climb platforms + all answer pads (pads stay even after solve/wrong).
+function buildPlatforms(): Platform[] {
   const out = buildClimbPlatforms();
   const puzzles = cfg().mathPuzzles;
   let pi = 0;
   while (pi < puzzles.length) {
-    if (puzzleIsOpen(status, pi)) {
-      const answers = puzzles[pi].answers;
-      let ai = 0;
-      while (ai < answers.length) {
-        const a = answers[ai];
-        out.push(scalePlatform({ x: a.x, y: a.y, w: a.w, h: a.h }));
-        ai = ai + 1;
-      }
+    const answers = puzzles[pi].answers;
+    let ai = 0;
+    while (ai < answers.length) {
+      const a = answers[ai];
+      out.push(scalePlatform({ x: a.x, y: a.y, w: a.w, h: a.h }));
+      ai = ai + 1;
     }
     pi = pi + 1;
   }
@@ -1830,45 +1812,27 @@ function tickMathPuzzles(
       if (status[pi] == PUZZLE_OPEN) {
         const puzzle = puzzles[pi];
         let ai = 0;
-        let decided = 0;
         while (ai < puzzle.answers.length) {
-          if (decided == 0) {
-            const ans = puzzle.answers[ai];
-            let hit = standingOnAnswer(p1, pw, ans);
-            if (dual) {
-              if (standingOnAnswer(p2, pw, ans)) {
-                hit = true;
-              }
+          const ans = puzzle.answers[ai];
+          let hit = standingOnAnswer(p1, pw, ans);
+          if (dual) {
+            if (standingOnAnswer(p2, pw, ans)) {
+              hit = true;
             }
-            if (hit) {
+          }
+          if (hit) {
+            if (ans.value == puzzle.correct) {
+              // Pads stay put; only mark solved so the diamond appears once.
+              status = markPuzzleStatus(status, pi, PUZZLE_SOLVED);
               const midX = scaleX(ans.x + ans.w * 0.5);
-              if (ans.value == puzzle.correct) {
-                status = markPuzzleStatus(status, pi, PUZZLE_SOLVED);
-                events.push(soundEvent("win"));
-                events.push(particleEvent("celebrate", midX, ans.y - 8, 40));
-                events.push(particleEvent("sparkle", midX, ans.y - 20, 22));
-                events.push(particleEvent("burst", midX - 16, ans.y - 10, 16));
-                events.push(particleEvent("burst", midX + 16, ans.y - 10, 16));
-                outDiamonds = revealPuzzleDiamonds(outDiamonds, pi, events);
-              } else {
-                // Wrong answer: pads + digits vanish; no diamond for this puzzle.
-                status = markPuzzleStatus(status, pi, PUZZLE_FAILED);
-                events.push(soundEvent("brick"));
-                // Pop every answer pad so the vanish reads clearly.
-                let pai = 0;
-                while (pai < puzzle.answers.length) {
-                  const pad = puzzle.answers[pai];
-                  const px = scaleX(pad.x + pad.w * 0.5);
-                  const py = pad.y;
-                  events.push(particleEvent("burst", px, py - 6, 22));
-                  events.push(particleEvent("burst", px - 14, py - 10, 10));
-                  events.push(particleEvent("burst", px + 14, py - 10, 10));
-                  events.push(particleEvent("sparkle", px, py - 18, 14));
-                  pai = pai + 1;
-                }
-              }
-              decided = 1;
+              events.push(soundEvent("win"));
+              events.push(particleEvent("celebrate", midX, ans.y - 8, 40));
+              events.push(particleEvent("sparkle", midX, ans.y - 20, 22));
+              events.push(particleEvent("burst", midX - 16, ans.y - 10, 16));
+              events.push(particleEvent("burst", midX + 16, ans.y - 10, 16));
+              outDiamonds = revealPuzzleDiamonds(outDiamonds, pi, events);
             }
+            // Wrong pad: keep trying — no penalty, pads remain.
           }
           ai = ai + 1;
         }
@@ -2596,16 +2560,12 @@ function placeEntities(s: GameSnapshot, cam: f64, slots: i32, puzzleStatus: i32[
   while (pi < MAX_PUZZLES) {
     let ai = 0;
     while (ai < MAX_ANSWERS) {
-      let show = 0;
-      if (puzzleIsOpen(puzzleStatus, pi)) {
-        if (pi < puzzles.length) {
-          if (ai < puzzles[pi].answers.length) {
-            show = 1;
-          }
+      if (pi < puzzles.length) {
+        if (ai < puzzles[pi].answers.length) {
+          placeAnswerPadEntities(entities, pi, ai, puzzles[pi].answers[ai], cam);
+        } else {
+          hideAnswerPadEntities(entities, pi, ai);
         }
-      }
-      if (show == 1) {
-        placeAnswerPadEntities(entities, pi, ai, puzzles[pi].answers[ai], cam);
       } else {
         hideAnswerPadEntities(entities, pi, ai);
       }
@@ -2793,7 +2753,7 @@ export function playHud(props) {
   const cleared = levelCleared(slots, s.p1, s.p2);
   const victory = showVictoryBanner(s);
   const localSlot = localPlayerSlot();
-  let msg = "Ylos 4 — Oikea vastaus = timantti, väärä = vastaukset katoavat!";
+  let msg = "Ylos 4 — Laske ja hyppää oikeaan vastaukseen!";
   if (cleared == 0) {
     if (isSplitPane()) {
       if (paneIndex == 0) {
@@ -2876,7 +2836,7 @@ export function runUpdate(props) {
   if (puzzleStatus == null) {
     puzzleStatus = makePuzzleSolved();
   }
-  const staticPlatforms = buildPlatforms(puzzleStatus);
+  const staticPlatforms = buildPlatforms();
   const fruitDefs = buildFruitDefs();
   const diamondDefs = buildDiamondDefs();
   const dual = slots == 2;
