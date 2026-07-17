@@ -6,5 +6,5 @@ physics=true
 assets=assets
 splitScreen=auto
 autoscale=true
-
+icon=assets/image.png
 category=Games
