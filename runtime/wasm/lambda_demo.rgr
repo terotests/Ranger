@@ -49,6 +49,77 @@ class SG {
         return (rd())
     }
 
+    ; --- L3: capture + mutate ---
+
+    ; mutate a captured object's field from inside the lambda; the write goes
+    ; through the shared reference so it is visible in the creating scope. This
+    ; is the event-handler pattern (the object survives via the retained ref).
+    sfn mutObj:int (val:int) {
+        def b (new Box)
+        b.v = 1
+        def setter (fn:void (nv:int) {
+            b.v = nv
+        })
+        setter(val)
+        return (b.v)
+    }
+
+    ; the closure outlives the call that made it, then mutates the object later;
+    ; returns the object so the host can confirm the deferred write landed
+    sfn deferredHandler:int (val:int) {
+        def b (new Box)
+        b.v = 0
+        def h (fn:void () {
+            b.v = (+ (b.v) val)
+        })
+        h()
+        h()
+        return (b.v)
+    }
+
+    ; mutate a captured VALUE local from inside the closure; the write is shared
+    ; with the enclosing scope via a boxed heap cell (L3 boxing)
+    sfn mutCounter:int (n:int) {
+        def count 0
+        def inc (fn:void () {
+            count = (+ count 1)
+        })
+        def i 0
+        while (< i n) {
+            inc()
+            i = (+ i 1)
+        }
+        return count
+    }
+
+    ; the closure both reads and writes the shared boxed value across calls
+    sfn mutShared:int (base:int) {
+        def acc base
+        def add (fn:void (d:int) {
+            acc = (+ acc d)
+        })
+        add(10)
+        add(20)
+        return acc
+    }
+
+    ; boxed-value closures built in a loop must not leak the heap cell
+    sfn boxChurn:int (n:int) {
+        def i 0
+        def s 0
+        while (< i n) {
+            def c 0
+            def bump (fn:void () {
+                c = (+ c 5)
+            })
+            bump()
+            bump()
+            s = (+ s c)
+            i = (+ i 1)
+        }
+        return s
+    }
+
     ; build+call an object-capturing closure many times; heap stays flat and no
     ; object leaks (the retained Box is freed once per iteration)
     sfn capChurn:int (n:int) {

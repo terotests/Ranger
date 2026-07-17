@@ -31368,6 +31368,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       this.ownedStringLocals = [];
       this.pendingStringTemps = [];
       this.pendingObjectTemps = [];
+      this.boxedCandidates = {};
+      this.boxedLocals = {};
       this.escapedLocals = {};
       this.currentRetType = "i32";
       this.llvmRetType = "i32";
@@ -34119,6 +34121,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       lctx.pendingStringTemps = emptyPending;
       let emptyObjPending = [];
       lctx.pendingObjectTemps = emptyObjPending;
+      let emptyBoxCand = {};
+      lctx.boxedCandidates = emptyBoxCand;
+      let emptyBoxed = {};
+      lctx.boxedLocals = emptyBoxed;
       let emptyEscaped = {};
       lctx.escapedLocals = emptyEscaped;
       if ( isInstance ) {
@@ -34224,6 +34230,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           lctx.objectSlots[p_1.name] = paramTypeName_1;
         }
       };
+      this.computeBoxedCandidates(fnDesc, lctx);
       if ( (typeof(fnDesc.fnBody) !== "undefined" && fnDesc.fnBody != null )  ) {
         this.lowerBlock(fnDesc.fnBody, lctx);
       }
@@ -34268,6 +34275,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       lctx.pendingStringTemps = emptyPending;
       let emptyObjPending = [];
       lctx.pendingObjectTemps = emptyObjPending;
+      let emptyBoxCand = {};
+      lctx.boxedCandidates = emptyBoxCand;
+      let emptyBoxed = {};
+      lctx.boxedLocals = emptyBoxed;
       let emptyEscaped = {};
       lctx.escapedLocals = emptyEscaped;
       lctx.currentRetType = cl.name;
@@ -34408,6 +34419,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       lctx.pendingStringTemps = emptyPending;
       let emptyObjPending = [];
       lctx.pendingObjectTemps = emptyObjPending;
+      let emptyBoxCand = {};
+      lctx.boxedCandidates = emptyBoxCand;
+      let emptyBoxed = {};
+      lctx.boxedLocals = emptyBoxed;
       let emptyEscaped = {};
       lctx.escapedLocals = emptyEscaped;
       let retTypeName = "void";
@@ -34450,9 +34465,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           if ( capKnd == 2 ) {
             lctx.objectSlots[capName] = cinfo.objClasses[ci];
           }
+          if ( capKnd == 3 ) {
+            lctx.boxedLocals[capName] = 4;
+          }
           ci = ci + 1;
         };
       }
+      this.computeBoxedCandidates(lam, lctx);
       if ( (typeof(lam.fnBody) !== "undefined" && lam.fnBody != null )  ) {
         this.lowerBlock(lam.fnBody, lctx);
       }
@@ -34479,6 +34498,60 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       };
       return 0;
     };
+    nodeAssignsToName (node, name) {
+      if ( this.isAssignNode(node) ) {
+        const lhs = node.getSecond();
+        if ( lhs.vref == name ) {
+          return true;
+        }
+      }
+      if ( node.infix_operator ) {
+        if ( (typeof(node.infix_node) !== "undefined" && node.infix_node != null )  ) {
+          const inx = node.infix_node;
+          if ( this.isAssignNode(inx) ) {
+            const lhs2 = inx.getSecond();
+            if ( lhs2.vref == name ) {
+              return true;
+            }
+          }
+        }
+      }
+      for ( let i = 0; i < node.children.length; i++) {
+        var c = node.children[i];
+        if ( this.nodeAssignsToName(c, name) ) {
+          return true;
+        }
+      };
+      return false;
+    };
+    computeBoxedCandidates (fnDesc, lctx) {
+      const ctx = lctx.ctx;
+      if ( ctx.hasCompilerFlag("wat") == false ) {
+        return;
+      }
+      this.collectBoxedCandidates(fnDesc, lctx);
+    };
+    collectBoxedCandidates (m, lctx) {
+      for ( let i = 0; i < m.myLambdas.length; i++) {
+        var lam = m.myLambdas[i];
+        if ( (typeof(lam.fnBody) !== "undefined" && lam.fnBody != null )  ) {
+          if ( (typeof(lam.node) !== "undefined" && lam.node != null )  ) {
+            const lnode = lam.node;
+            if ( (typeof(lnode.lambda_ctx) !== "undefined" && lnode.lambda_ctx != null )  ) {
+              const lc = lnode.lambda_ctx;
+              const body = lam.fnBody;
+              for ( let j = 0; j < lc.captured_variables.length; j++) {
+                var cn = lc.captured_variables[j];
+                if ( this.nodeAssignsToName(body, cn) ) {
+                  lctx.boxedCandidates[cn] = 4;
+                }
+              };
+            }
+          }
+        }
+        this.collectBoxedCandidates(lam, lctx);
+      };
+    };
     computeLambdaCaptures (node, lam, lctx) {
       const key = lam.compiledName;
       if ( ( typeof(this.lambdaCaptures[key] ) != "undefined" && this.lambdaCaptures.hasOwnProperty(key) ) ) {
@@ -34494,26 +34567,30 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             let kind = 0;
             let objCls = "";
             let cirt = lctx.ptrType;
-            if ( ( typeof(lctx.objectSlots[cn] ) != "undefined" && lctx.objectSlots.hasOwnProperty(cn) ) ) {
-              kind = 2;
-              objCls = (( lctx.objectSlots.hasOwnProperty(cn) ? lctx.objectSlots[cn] : undefined ));
+            if ( ( typeof(lctx.boxedLocals[cn] ) != "undefined" && lctx.boxedLocals.hasOwnProperty(cn) ) ) {
+              kind = 3;
             } else {
-              let isStr = false;
-              if ( this.isOwnedStringLocal(cn, lctx) ) {
-                isStr = true;
-              }
-              if ( ( typeof(lctx.slotTypes[cn] ) != "undefined" && lctx.slotTypes.hasOwnProperty(cn) ) ) {
-                if ( ((( lctx.slotTypes.hasOwnProperty(cn) ? lctx.slotTypes[cn] : undefined ))) == "i8*" ) {
+              if ( ( typeof(lctx.objectSlots[cn] ) != "undefined" && lctx.objectSlots.hasOwnProperty(cn) ) ) {
+                kind = 2;
+                objCls = (( lctx.objectSlots.hasOwnProperty(cn) ? lctx.objectSlots[cn] : undefined ));
+              } else {
+                let isStr = false;
+                if ( this.isOwnedStringLocal(cn, lctx) ) {
                   isStr = true;
                 }
-              }
-              if ( isStr ) {
-                kind = 1;
-                cirt = "i8*";
-              } else {
-                kind = 0;
                 if ( ( typeof(lctx.slotTypes[cn] ) != "undefined" && lctx.slotTypes.hasOwnProperty(cn) ) ) {
-                  cirt = (( lctx.slotTypes.hasOwnProperty(cn) ? lctx.slotTypes[cn] : undefined ));
+                  if ( ((( lctx.slotTypes.hasOwnProperty(cn) ? lctx.slotTypes[cn] : undefined ))) == "i8*" ) {
+                    isStr = true;
+                  }
+                }
+                if ( isStr ) {
+                  kind = 1;
+                  cirt = "i8*";
+                } else {
+                  kind = 0;
+                  if ( ( typeof(lctx.slotTypes[cn] ) != "undefined" && lctx.slotTypes.hasOwnProperty(cn) ) ) {
+                    cirt = (( lctx.slotTypes.hasOwnProperty(cn) ? lctx.slotTypes[cn] : undefined ));
+                  }
                 }
               }
             }
@@ -34601,6 +34678,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           cval = this.emitStrdupExpr(cval, lctx);
         }
         if ( knd == 2 ) {
+          this.emitObjRetainPtr(cval, lctx);
+        }
+        if ( knd == 3 ) {
           this.emitObjRetainPtr(cval, lctx);
         }
         builder.emitStoreI32At(rec, coff, cval);
@@ -35182,6 +35262,28 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       if ( val.value_type == 5 ) {
         irType = "i1";
       }
+      if ( this.objRcEnabled(lctx) ) {
+        if ( ( typeof(lctx.boxedCandidates[varName] ) != "undefined" && lctx.boxedCandidates.hasOwnProperty(varName) ) ) {
+          if ( (irType == "i32") || (irType == "i1") ) {
+            const cellBytes = lctx.builder.emitConst("i32", "4");
+            const cellTd = lctx.builder.emitConst("i32", "0");
+            let ca = [];
+            let cat = [];
+            ca.push(cellBytes);
+            cat.push("i32");
+            ca.push(cellTd);
+            cat.push("i32");
+            const cell = lctx.builder.emitCall("ranger_obj_new", lctx.ptrType, ca, cat);
+            lctx.builder.emitStoreI32At(cell, 0, tmp);
+            this.bindSlot(varName, lctx.ptrType, cell, lctx);
+            lctx.boxedLocals[varName] = 4;
+            if ( this.isOwnedObjectLocal(varName, lctx) == false ) {
+              lctx.ownedObjectLocals.push(varName);
+            }
+            return;
+          }
+        }
+      }
       if ( this.isObjectTypeName(typeName_1) ) {
         lctx.objectSlots[varName] = typeName_1;
       }
@@ -35230,6 +35332,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         tmp = this.lowerNewObject(newCls, rhs.getThird(), lctx);
       } else {
         tmp = this.lowerExpr(rhs, lctx);
+      }
+      if ( ( typeof(lctx.boxedLocals[varName] ) != "undefined" && lctx.boxedLocals.hasOwnProperty(varName) ) ) {
+        const cellPtr = this.loadSlot(varName, lctx.ptrType, lctx);
+        builder.emitStoreI32At(cellPtr, 0, tmp);
+        return;
       }
       const irType = "i32";
       if ( (varName.indexOf(".")) >= 0 ) {
@@ -35293,7 +35400,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       if ( (node.children.length) > 1 ) {
         const valNode = node.getSecond();
         if ( valNode.value_type == 11 ) {
-          lctx.escapedLocals[valNode.vref] = "1";
+          if ( ( typeof(lctx.boxedLocals[valNode.vref] ) != "undefined" && lctx.boxedLocals.hasOwnProperty(valNode.vref) ) ) {
+          } else {
+            lctx.escapedLocals[valNode.vref] = "1";
+          }
         }
         let tmp = "";
         if ( valNode.has_call || valNode.is_direct_method_call ) {
@@ -35782,6 +35892,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         }
       }
       if ( node.value_type == 11 ) {
+        if ( ( typeof(lctx.boxedLocals[node.vref] ) != "undefined" && lctx.boxedLocals.hasOwnProperty(node.vref) ) ) {
+          const cellPtr = this.loadSlot(node.vref, lctx.ptrType, lctx);
+          return builder.emitLoadI32At(cellPtr, 0);
+        }
         if ( (node.vref.indexOf(".")) >= 0 ) {
           const parts = node.vref.split(".");
           if ( (parts.length) >= 2 ) {

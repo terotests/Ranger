@@ -42,6 +42,17 @@ const oc5 = x.SG_capChurn(5);
 const oc500 = x.SG_capChurn(500);
 ok("capChurn object-capture leak-free", x.SG_liveBlocks(), 0);
 
+// --- L3: capture + mutate ---
+ok("mutObj: write captured object field, visible outside", x.SG_mutObj(77), 77);
+ok("deferredHandler: two deferred mutations land", x.SG_deferredHandler(10), 20);
+ok("mutCounter: closure increments boxed value 5x", x.SG_mutCounter(5), 5);
+ok("mutShared: closure read+writes shared box (5+10+20)", x.SG_mutShared(5), 35);
+ok("boxChurn: sum of per-iter c bumped 2x5", x.SG_boxChurn(10), 100);
+// boxed-value closures in a loop must not leak the heap cell
+const bc5 = x.SG_boxChurn(5);
+const bc500 = x.SG_boxChurn(500);
+ok("boxChurn boxed-value leak-free", x.SG_liveBlocks(), 0);
+
 // no live objects remain after all calls returned
 ok("no leaked objects", x.SG_liveBlocks(), 0);
 
