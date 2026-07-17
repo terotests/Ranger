@@ -119,7 +119,7 @@
     <script src="./runner.js"></script>
     <script src="./tsx3d-viewer.js"></script>
     <script src="./tsx3d-gl-viewer.js"></script>
-    <script src="./teapot-gl-viewer.js"></script>
+    <script src="./teapot-tsx-viewer.js"></script>
     <script src="./editor.bundle.js"></script>
     <script>
       const statusEl = document.getElementById("status");
@@ -131,7 +131,7 @@
       let bundleSource = null;
       let tsx3dBundle = null;
       let tsx3dGlBundle = null;
-      let teapotGlBundle = null;
+      let teapotTsxBundle = null;
       let registry = [];
       let session = null;
       let editor = null;
@@ -205,7 +205,7 @@
         setStatus("loading " + entry.title + "…");
         controlsEl.textContent = entry.controls || "";
         fileCapEl.textContent = entry.scriptDir + "/" + entry.script;
-        const gl3d = entry.kind === "tsx3d-gl" || entry.kind === "teapot-gl";
+        const gl3d = entry.kind === "tsx3d-gl" || entry.kind === "teapot-tsx";
         freshCanvas(entry.width || entry.size, entry.height || entry.size, gl3d);
 
         // WebGL TSX 3D: the canonical Three.js cube runs 1:1 in the interpreter
@@ -231,21 +231,25 @@
           return;
         }
 
-        // Compiled WebGL teapot: the full webgl_geometry_teapot example runs as a
-        // compiled Ranger scene (WebTeapotProbe) on the GPU. The editor shows the
-        // scene's Ranger source; orbit/zoom/panel drive it interactively.
-        if (entry.kind === "teapot-gl") {
-          if (!teapotGlBundle) teapotGlBundle = await fetchText("./teapot-gl.bundle.js");
-          const source = await fetchText(entry.sourceUrl);
-          session = await window.RangerTeapotViewer.launch({
-            bundleSource: teapotGlBundle,
+        // Interpreted WebGL teapot: teapot.tsx (the example's scene code) runs in
+        // the interpreter and renders on the GPU through WebTeapotTsxHost. The
+        // editor shows teapot.tsx and edits hot-reload; orbit/zoom/panel drive it.
+        if (entry.kind === "teapot-tsx") {
+          if (!teapotTsxBundle) teapotTsxBundle = await fetchText("./teapot-tsx.bundle.js");
+          const [facadeSrc, scriptSrc] = await Promise.all([
+            fetchText(entry.facadeUrl),
+            fetchText(entry.scriptUrl),
+          ]);
+          session = await window.RangerTeapotTsxViewer.launch({
+            bundleSource: teapotTsxBundle,
             canvas,
-            source,
+            facadeSrc,
+            scriptSrc,
           });
           ensureEditor(session.getSource());
           paused = false;
           document.getElementById("pause").textContent = "Pause";
-          setStatus(entry.title + " — compiled Ranger scene, drawn with WebGL", true);
+          setStatus(entry.title + " — the interpreted teapot.tsx, drawn with WebGL", true);
           return;
         }
 

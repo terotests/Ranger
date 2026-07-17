@@ -1,0 +1,400 @@
+; ==============================================================================
+; three_teapot_tsx_bridge — reconcile the interpreted teapot.tsx scene into the
+; Ranger Three core, then render it (WebGL/GLES in a host, or software headless).
+; ==============================================================================
+;
+; The teapot counterpart to three_tsx_bridge (which handles the cube). The
+; canonical webgl_geometry_teapot init/render code runs in the TSX interpreter
+; against the three.tsx façade (lights, MeshPhong/Lambert/Basic, TeapotGeometry,
+; CubeTextureLoader, scene.background). Each reconcile reads the façade scene out
+; of the engine and builds/updates the canonical Ranger objects (ThreeScene +
+; lights + a ThreeMesh whose geometry/material are rebuilt only when the teapot's
+; signature — tessellation, parts, shading — changes), then draws through the
+; pluggable backend. No GPU code here, so it compiles to C++ as well as ES6.
+;
+; Environment/texture assets are procedural (ThreeCubeTexture.proceduralSky /
+; ThreeTexture.uvGrid) so the demo needs no image files; a host may still supply
+; decoded pixels for a map path via setTexture().
+; ==============================================================================
+
+Import "../src/three_webgl_renderer.rgr"
+Import "../src/three_render_backend.rgr"
+Import "../src/three_scene.rgr"
+Import "../src/three_perspective_camera.rgr"
+Import "../src/three_mesh.rgr"
+Import "../src/three_material.rgr"
+Import "../src/three_mesh_basic_material.rgr"
+Import "../src/three_mesh_lambert_material.rgr"
+Import "../src/three_mesh_phong_material.rgr"
+Import "../src/three_light.rgr"
+Import "../src/three_teapot_geometry.rgr"
+Import "../src/three_texture.rgr"
+Import "../src/three_cube_texture.rgr"
+Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class ThreeTeapotTsxBridge {
+    def engine:ComponentEngine (new ComponentEngine())
+    def renderer:ThreeWebGLRenderer (new ThreeWebGLRenderer)
+    def scene:ThreeScene (new ThreeScene)
+    def camera:ThreePerspectiveCamera (new ThreePerspectiveCamera)
+
+    def mesh:ThreeMesh (new ThreeMesh)
+    def meshAdded:boolean false
+    def lightsBuilt:boolean false
+    def ambient:ThreeAmbientLight (new ThreeAmbientLight)
+    def dir:ThreeDirectionalLight (new ThreeDirectionalLight)
+
+    ; procedural env + uv texture (built once, reused)
+    def env:ThreeCubeTexture (new ThreeCubeTexture)
+    def envBuilt:boolean false
+    def uvTex:ThreeTexture (new ThreeTexture)
+    def uvBuilt:boolean false
+
+    ; host-supplied textures by path
+    def texPaths:[string]
+    def texObjs:[ThreeTexture]
+
+    ; teapot signature (rebuild geometry/material only on change)
+    def sigValid:boolean false
+    def sigTess:int (0 - 1)
+    def sigBottom:boolean true
+    def sigLid:boolean true
+    def sigBody:boolean true
+    def sigFitLid:boolean true
+    def sigBlinn:boolean true
+    def sigShading:string ""
+
+    fn setEngine:ThreeTeapotTsxBridge (e:ComponentEngine) {
+        engine = e
+        return this
+    }
+    fn useBackend:ThreeTeapotTsxBridge (b:ThreeRenderBackend) {
+        renderer.setBackend(b)
+        return this
+    }
+    fn setTexture:void (path:string rgba:buffer w:int h:int) {
+        def tex:ThreeTexture (new ThreeTexture)
+        tex.setImage(rgba w h)
+        push texPaths path
+        push texObjs tex
+    }
+
+    ; --- read helpers ---------------------------------------------------------
+    fn num:double (obj:EvalValue key:string) {
+        def v:EvalValue (obj.getMember(key))
+        return (v.toNumber())
+    }
+    fn numOr:double (obj:EvalValue key:string dflt:double) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isNumber()) {
+            return (v.toNumber())
+        }
+        return dflt
+    }
+    fn boolOr:boolean (obj:EvalValue key:string dflt:boolean) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isBoolean()) {
+            return v.boolValue
+        }
+        return dflt
+    }
+
+    fn ensureEnv:ThreeCubeTexture () {
+        if (envBuilt == false) {
+            env = (ThreeCubeTexture.proceduralSky(64))
+            envBuilt = true
+        }
+        return env
+    }
+    fn ensureUv:ThreeTexture () {
+        if (uvBuilt == false) {
+            uvTex = (ThreeTexture.uvGrid(256 8))
+            uvBuilt = true
+        }
+        return uvTex
+    }
+
+    ; --- camera ---------------------------------------------------------------
+    fn syncCamera:void () {
+        def cam:EvalValue (engine.getGlobal("camera"))
+        if (cam.isObject() == false) {
+            return
+        }
+        def fov:double (this.numOr(cam "fov" 45.0))
+        def aspect:double (this.numOr(cam "aspect" 1.0))
+        def near:double (this.numOr(cam "near" 1.0))
+        def far:double (this.numOr(cam "far" 80000.0))
+        if (aspect <= 0.0) {
+            aspect = 1.0
+        }
+        camera.setPerspective(fov aspect near far)
+        def pos:EvalValue (cam.getMember("position"))
+        if (pos.isObject()) {
+            camera.position.set((this.num(pos "x")) (this.num(pos "y")) (this.num(pos "z")))
+        }
+    }
+
+    ; --- lights (read from scene.children each reconcile) ---------------------
+    fn syncLights:void (children:EvalValue) {
+        def n:int (array_length children.arrayValue)
+        def i:int 0
+        while (i < n) {
+            def c:EvalValue (children.getIndex(i))
+            if (c.isObject()) {
+                def isAmb:EvalValue (c.getMember("isAmbientLight"))
+                def isDir:EvalValue (c.getMember("isDirectionalLight"))
+                if (isAmb.isBoolean()) {
+                    if isAmb.boolValue {
+                        def hex:int (to_int (this.numOr(c "color" 8158332.0)))
+                        ambient.setColorHex(hex)
+                        ambient.setIntensity((this.numOr(c "intensity" 1.0)))
+                    }
+                }
+                if (isDir.isBoolean()) {
+                    if isDir.boolValue {
+                        def hex2:int (to_int (this.numOr(c "color" 16777215.0)))
+                        dir.setColorHex(hex2)
+                        dir.setIntensity((this.numOr(c "intensity" 1.0)))
+                        def dp:EvalValue (c.getMember("position"))
+                        if (dp.isObject()) {
+                            dir.setDirection((this.num(dp "x")) (this.num(dp "y")) (this.num(dp "z")))
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (lightsBuilt == false) {
+            scene.add(ambient)
+            scene.add(dir)
+            lightsBuilt = true
+        }
+    }
+
+    ; --- material -------------------------------------------------------------
+    ; returns a shading key string so the signature can detect a material swap.
+    fn materialKind:string (matV:EvalValue) {
+        def w:EvalValue (matV.getMember("isMeshBasicMaterial"))
+        if (w.isBoolean()) {
+            if w.boolValue { return "basic" }
+        }
+        def l:EvalValue (matV.getMember("isMeshLambertMaterial"))
+        if (l.isBoolean()) {
+            if l.boolValue { return "lambert" }
+        }
+        return "phong"
+    }
+
+    fn buildMaterial:ThreeMaterial (matV:EvalValue) {
+        def kind:string (this.materialKind(matV))
+        def side:int (to_int (this.numOr(matV "side" 0.0)))
+        def wire:boolean (this.boolOr(matV "wireframe" false))
+
+        ; colour: default white for basic/textured, grey elsewhere (teapot.tsx sets
+        ; explicit colours where it matters).
+        def hasColor:EvalValue (matV.getMember("color"))
+        def colHex:int 16777215
+        if (hasColor.isNumber()) {
+            colHex = (to_int (hasColor.toNumber()))
+        }
+
+        if (kind == "basic") {
+            def mb:ThreeMeshBasicMaterial (new ThreeMeshBasicMaterial)
+            mb.setColorHex(colHex)
+            mb.setSide(side)
+            mb.setWireframe(wire)
+            this.applyMap(mb matV)
+            return mb
+        }
+        if (kind == "lambert") {
+            def ml:ThreeMeshLambertMaterial (new ThreeMeshLambertMaterial)
+            ml.setColorHex(colHex)
+            ml.setSide(side)
+            this.applyMap(ml matV)
+            return ml
+        }
+        ; phong
+        def mp:ThreeMeshPhongMaterial (new ThreeMeshPhongMaterial)
+        mp.setColorHex(colHex)
+        mp.setSide(side)
+        mp.setShininess((this.numOr(matV "shininess" 30.0)))
+        def spec:EvalValue (matV.getMember("specular"))
+        if (spec.isNumber()) {
+            mp.setSpecularHex((to_int (spec.toNumber())))
+        }
+        if (this.boolOr(matV "flatShading" false)) {
+            mp.setFlatShading(true)
+        }
+        this.applyMap(mp matV)
+        ; envMap → reflective (env handled at scene level in reconcile)
+        def em:EvalValue (matV.getMember("envMap"))
+        if (em.isObject()) {
+            mp.setReflective(true)
+            mp.setReflectivity(0.85)
+        }
+        return mp
+    }
+
+    ; texture map: host pixels for the path if supplied, else a procedural UV grid.
+    fn applyMap:void (mat:ThreeMaterial matV:EvalValue) {
+        def mapV:EvalValue (matV.getMember("map"))
+        if (mapV.isObject() == false) {
+            return
+        }
+        def pathV:EvalValue (mapV.getMember("path"))
+        def path:string ""
+        if (pathV.isString()) {
+            path = pathV.stringValue
+        }
+        def i:int 0
+        while (i < (array_length texPaths)) {
+            if ((itemAt texPaths i) == path) {
+                mat.setMap((itemAt texObjs i))
+                return
+            }
+            i = (i + 1)
+        }
+        mat.setMap((this.ensureUv()))
+    }
+
+    ; --- teapot reconcile -----------------------------------------------------
+    fn reconcileTeapot:void (childV:EvalValue) {
+        def geoV:EvalValue (childV.getMember("geometry"))
+        def matV:EvalValue (childV.getMember("material"))
+        if (geoV.isObject() == false) {
+            return
+        }
+        if (matV.isObject() == false) {
+            return
+        }
+        def tess:int (to_int (this.numOr(geoV "segments" 10.0)))
+        def bottom:boolean (this.boolOr(geoV "bottom" true))
+        def lid:boolean (this.boolOr(geoV "lid" true))
+        def body:boolean (this.boolOr(geoV "body" true))
+        def fitLid:boolean (this.boolOr(geoV "fitLid" true))
+        def blinn:boolean (this.boolOr(geoV "blinn" true))
+        def size:double (this.numOr(geoV "size" 300.0))
+        def shading:string (this.materialKind(matV))
+        ; distinguish wireframe/flat/reflective within the same kind for the signature
+        if (this.boolOr(matV "wireframe" false)) {
+            shading = "wire"
+        }
+        if (this.boolOr(matV "flatShading" false)) {
+            shading = "flat"
+        }
+        def emv:EvalValue (matV.getMember("envMap"))
+        if (emv.isObject()) {
+            shading = "reflective"
+        }
+        def mapv:EvalValue (matV.getMember("map"))
+        if (mapv.isObject()) {
+            shading = (shading + "+map")
+        }
+
+        def changed:boolean false
+        if (sigValid == false) {
+            changed = true
+        }
+        if (tess != sigTess) { changed = true }
+        if (bottom != sigBottom) { changed = true }
+        if (lid != sigLid) { changed = true }
+        if (body != sigBody) { changed = true }
+        if (fitLid != sigFitLid) { changed = true }
+        if (blinn != sigBlinn) { changed = true }
+        if (shading != sigShading) { changed = true }
+
+        if changed {
+            def geo:ThreeTeapotGeometry (new ThreeTeapotGeometry)
+            geo.setTeapot(size tess bottom lid body fitLid blinn)
+            mesh.setGeometry(geo)
+            def mat:ThreeMaterial (this.buildMaterial(matV))
+            mesh.setMaterial(mat)
+            if (meshAdded == false) {
+                scene.add(mesh)
+                meshAdded = true
+            }
+            sigValid = true
+            sigTess = tess
+            sigBottom = bottom
+            sigLid = lid
+            sigBody = body
+            sigFitLid = fitLid
+            sigBlinn = blinn
+            sigShading = shading
+        }
+
+        ; mesh transform (teapot uses defaults, but honour rotation/position)
+        def rot:EvalValue (childV.getMember("rotation"))
+        if (rot.isObject()) {
+            mesh.rotation.set((this.num(rot "x")) (this.num(rot "y")) (this.num(rot "z")))
+        }
+    }
+
+    ; --- background / environment --------------------------------------------
+    fn applyBackground:void (scV:EvalValue reflective:boolean) {
+        if reflective {
+            ; skybox + reflections
+            scene.setEnvironmentMap((this.ensureEnv()))
+            return
+        }
+        scene.hasEnvCube = false
+        ; solid Color background (0xAAAAAA in the example)
+        def bg:EvalValue (scV.getMember("background"))
+        def hex:int 11184810
+        if (bg.isObject()) {
+            def h:EvalValue (bg.getMember("hex"))
+            if (h.isNumber()) {
+                hex = (to_int (h.toNumber()))
+            }
+        }
+        def r:int (idiv hex 65536)
+        def g:int (idiv (hex - (r * 65536)) 256)
+        def b:int ((hex - (r * 65536)) - (g * 256))
+        scene.setBackground(((to_double r) / 255.0) ((to_double g) / 255.0) ((to_double b) / 255.0))
+    }
+
+    ; --- per-frame reconcile + draw ------------------------------------------
+    fn renderFrame:void (w:int h:int) {
+        renderer.setSize(w h)
+        this.syncCamera()
+        def scV:EvalValue (engine.getGlobal("scene"))
+        if (scV.isObject() == false) {
+            return
+        }
+        def childrenV:EvalValue (scV.getMember("children"))
+        if (childrenV.isArray() == false) {
+            return
+        }
+        this.syncLights(childrenV)
+        ; find the teapot mesh + whether it is reflective
+        def reflective:boolean false
+        def n:int (array_length childrenV.arrayValue)
+        def i:int 0
+        while (i < n) {
+            def c:EvalValue (childrenV.getIndex(i))
+            if (c.isObject()) {
+                def im:EvalValue (c.getMember("isMesh"))
+                if (im.isBoolean()) {
+                    if im.boolValue {
+                        this.reconcileTeapot(c)
+                        def matV:EvalValue (c.getMember("material"))
+                        if (matV.isObject()) {
+                            def emv:EvalValue (matV.getMember("envMap"))
+                            if (emv.isObject()) {
+                                reflective = true
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        this.applyBackground(scV reflective)
+        renderer.render(scene camera)
+    }
+
+    fn raw:buffer () {
+        return (renderer.raw())
+    }
+}
