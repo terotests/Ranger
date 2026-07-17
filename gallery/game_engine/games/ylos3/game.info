@@ -1,6 +1,6 @@
 name=Viidakko Pomppija
 icon=assets/image.png
-iconFrames=900
+iconFrames=480
 index=1
 splitScreen=auto
 autoscale=false

@@ -1,6 +1,6 @@
 name=Viidakko Laskupomppija
 icon=assets/image.png
-iconFrames=900
+iconFrames=480
 index=2
 splitScreen=auto
 autoscale=false
