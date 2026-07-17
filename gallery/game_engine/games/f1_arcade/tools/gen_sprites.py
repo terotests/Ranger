@@ -282,53 +282,6 @@ def draw_front_tire(pix, w, h, x, y, size=7, turn=0):
         fill_rect(pix, w, h, x + 2, y, 1, 1, (255, 255, 255, 255))
 
 
-def skew_y(lean, i, n, y0, rise):
-    """Y along a mild left→right skew. lean>0: left high; lean<0: left low."""
-    if n <= 1:
-        return y0
-    t = (i * rise) // (n - 1)
-    if lean > 0:
-        return y0 + t
-    if lean < 0:
-        return y0 + rise - t
-    return y0
-
-
-def draw_skew_spoiler(pix, w, h, lean):
-    """Mild spoiler skew, seated lower when turning (aligned with body/tires)."""
-    wing = (22, 22, 26, 255)
-    hi = (48, 48, 54, 255)
-    if lean == 0:
-        wing_w = 28
-        wing_x = (w - wing_w) // 2
-        fill_rect(pix, w, h, wing_x, 11, wing_w, 3, wing)
-        fill_rect(pix, w, h, wing_x + 1, 10, wing_w - 2, 2, hi)
-        fill_rect(pix, w, h, wing_x - 1, 10, 3, 5, wing)
-        fill_rect(pix, w, h, wing_x + wing_w - 2, 10, 3, 5, wing)
-        fill_rect(pix, w, h, wing_x + 5, 13, 2, 2, wing)
-        fill_rect(pix, w, h, wing_x + wing_w - 7, 13, 2, 2, wing)
-        return
-    # Gentler diagonal (+1px rise), base lower so it sits on the skewed body.
-    segs = 6
-    x0 = 13
-    total_w = 30
-    seg_w = total_w // segs
-    y_base = 12
-    rise = 1
-    for i in range(segs):
-        yy = skew_y(lean, i, segs, y_base, rise)
-        xx = x0 + i * seg_w
-        fill_rect(pix, w, h, xx, yy, seg_w + 1, 3, wing)
-        fill_rect(pix, w, h, xx, yy - 1, seg_w, 1, hi)
-    # Endplates follow the same mild plane.
-    yL = skew_y(lean, 0, segs, y_base, rise)
-    yR = skew_y(lean, segs - 1, segs, y_base, rise)
-    fill_rect(pix, w, h, x0 - 1, yL - 1, 3, 5, wing)
-    fill_rect(pix, w, h, x0 + total_w - 2, yR - 1, 3, 5, wing)
-    fill_rect(pix, w, h, x0 + 5, yL + 2, 2, 2, wing)
-    fill_rect(pix, w, h, x0 + total_w - 8, yR + 2, 2, 2, wing)
-
-
 def fill_rect_sheared(pix, w, h, x, y, rw, rh, rgba, shear):
     """One solid rect with mild horizontal shear across rows (parallelogram)."""
     if rh <= 0 or rw <= 0:
@@ -340,25 +293,52 @@ def fill_rect_sheared(pix, w, h, x, y, rw, rh, rgba, shear):
         fill_rect(pix, w, h, x + ox, y + i, rw, 1, rgba)
 
 
+def draw_skew_spoiler(pix, w, h, lean):
+    """One solid wing bar; slightly sheared when turning (same idea as body)."""
+    wing = (22, 22, 26, 255)
+    hi = (48, 48, 54, 255)
+    wing_w = 28
+    wing_x = (w - wing_w) // 2
+    if lean == 0:
+        fill_rect(pix, w, h, wing_x, 11, wing_w, 3, wing)
+        fill_rect(pix, w, h, wing_x + 1, 10, wing_w - 2, 2, hi)
+        fill_rect(pix, w, h, wing_x - 1, 10, 3, 5, wing)
+        fill_rect(pix, w, h, wing_x + wing_w - 2, 10, 3, 5, wing)
+        fill_rect(pix, w, h, wing_x + 5, 13, 2, 2, wing)
+        fill_rect(pix, w, h, wing_x + wing_w - 7, 13, 2, 2, wing)
+        return
+    # Same footprint as center, nudged down a touch, sheared as one bar.
+    shear = 3 if lean > 0 else -3
+    y0 = 12
+    fill_rect_sheared(pix, w, h, wing_x, y0, wing_w, 3, wing, shear)
+    fill_rect_sheared(pix, w, h, wing_x + 1, y0 - 1, wing_w - 2, 2, hi, shear)
+    # Endplates at the sheared ends (top / bottom of the parallelogram).
+    fill_rect(pix, w, h, wing_x - 1, y0 - 1, 3, 5, wing)
+    fill_rect(pix, w, h, wing_x + wing_w - 2 + shear, y0 - 1, 3, 5, wing)
+    fill_rect(pix, w, h, wing_x + 5, y0 + 2, 2, 2, wing)
+    fill_rect(pix, w, h, wing_x + wing_w - 7 + shear, y0 + 2, 2, 2, wing)
+
+
 def draw_skew_body(pix, w, h, body, shade, accent, lean):
-    """One solid chassis box (same size as center), slightly sheared when turning."""
-    bx, by, bw, bh = 17, 14, 22, 14
-    # lean>0 (right): shear +2 → tips with raised left / lower right rear tire.
-    # lean<0 (left): mirror shear.
+    """One solid chassis box (same size as center), slightly turned when leaning.
+
+    Center reads as a single dark-red block between the tires. Lean frames use
+    that same block as one parallelogram — no sidepod strips / segment stacks.
+    """
+    # Full chassis footprint matching center (sidepods + core as one rect).
+    bx, by, bw, bh = 13, 14, 30, 14
     shear = 0
     if lean > 0:
-        shear = 2
+        shear = 3
     elif lean < 0:
-        shear = -2
+        shear = -3
 
+    # Single solid body — same red throughout (no brighter side strips).
     fill_rect_sheared(pix, w, h, bx, by, bw, bh, body, shear)
-    fill_rect_sheared(pix, w, h, bx + 2, by + 2, 18, 10, shade, shear)
-    fill_rect_sheared(pix, w, h, bx + 4, by - 1, 14, 3, (32, 32, 38, 255), shear)
-    # Sidepods — same solid shear so they stay attached.
-    fill_rect_sheared(pix, w, h, 13, 16, 6, 10, body, shear)
-    fill_rect_sheared(pix, w, h, 37, 16, 6, 10, body, shear)
+    # Soft inset only (same shear), kept subtle so it does not read as extra boxes.
+    fill_rect_sheared(pix, w, h, bx + 3, by + 3, bw - 6, bh - 6, shade, shear)
+    fill_rect_sheared(pix, w, h, bx + 8, by - 1, bw - 16, 3, (32, 32, 38, 255), shear)
 
-    # Cockpit / exhaust: nudge with half shear so they sit on the body.
     mid_ox = shear // 2
     fill_ellipse(pix, w, h, w // 2 + mid_ox, 15, 5, 4, (26, 26, 30, 255))
     fill_ellipse(pix, w, h, w // 2 + mid_ox, 14, 3, 3, accent)
