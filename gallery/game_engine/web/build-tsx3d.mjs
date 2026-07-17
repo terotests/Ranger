@@ -27,6 +27,12 @@ const OUT = path.resolve(outArg >= 0 ? argv[outArg + 1] : path.join(HERE, "dist"
 const HOST_RGR = "gallery/game_engine/web/web_tsx3d_gl_host.rgr";
 const TSX_DIR = "gallery/game_engine/three/tsx";
 const TSX_FILES = ["three.tsx", "cube.tsx"];
+// A real crate texture (the wooden crate from the cube3d_wasm game) stands in
+// for the example's `textures/crate.gif`. It ships as a raw PPM (P6) — the
+// harness parses it (no image decoder needed) and hands the RGBA pixels to the
+// host via setTexture(). TEXTURE_PATH is the key cube.tsx loads it under.
+const TEXTURE_ASSET = "gallery/game_engine/games/cube3d_wasm/assets/crate.ppm";
+const TEXTURE_PATH = "textures/crate.gif";
 
 const log = (...a) => console.log("[tsx3d-build]", ...a);
 const sh = (cmd, args, opts) => execFileSync(cmd, args, { stdio: "inherit", cwd: ROOT, ...opts });
@@ -76,8 +82,12 @@ log("wrote tsx3d-gl.bundle.js (" + (src.length / 1024).toFixed(0) + " KB)");
 // Package the façade + the 1:1 cube at their repo-relative VFS paths.
 const entries = TSX_FILES.map((f) => ({ name: TSX_DIR + "/" + f, bytes: fs.readFileSync(path.join(ROOT, TSX_DIR, f)) }));
 fs.writeFileSync(path.join(OUT, "scene.zip"), makeStoredZip(entries));
-fs.writeFileSync(path.join(OUT, "scene.json"), JSON.stringify({ dir: TSX_DIR, facade: "three.tsx", script: "cube.tsx" }, null, 2));
-log("packaged " + entries.length + " tsx files");
+
+// The crate texture (served alongside the page; the harness fetches + parses it).
+fs.copyFileSync(path.join(ROOT, TEXTURE_ASSET), path.join(OUT, "crate.ppm"));
+fs.writeFileSync(path.join(OUT, "scene.json"), JSON.stringify(
+  { dir: TSX_DIR, facade: "three.tsx", script: "cube.tsx", texturePath: TEXTURE_PATH, textureUrl: "crate.ppm" }, null, 2));
+log("packaged " + entries.length + " tsx files + crate texture");
 
 // Runtime + page.
 for (const f of ["vfs.js", "engine-host.js", "tsx3d-gl-viewer.js"]) {

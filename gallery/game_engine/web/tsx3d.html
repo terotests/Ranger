@@ -69,6 +69,7 @@
           await window.RangerTsx3dViewer.launch({
             bundleSource, zipBuffer, canvas,
             dir: scene.dir, facade: scene.facade, script: scene.script,
+            texturePath: scene.texturePath, textureUrl: scene.textureUrl,
           });
           setStatus("rendering — the interpreted cube.tsx, drawn with WebGL");
         } catch (e) {
