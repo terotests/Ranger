@@ -47,21 +47,45 @@
       .status { margin-left: auto; color: var(--muted); font-size: 13px; min-width: 0; }
       .status .ok { color: var(--good); }
       main {
-        flex: 1; display: grid; gap: 14px; padding: 4px 22px 22px;
-        grid-template-columns: minmax(340px, 1fr) auto;
-        align-items: start;
+        --editor-pct: 55%;
+        flex: 1; display: flex; gap: 0; padding: 4px 22px 22px;
+        align-items: stretch; min-height: 0;
       }
-      @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
       .card {
         background: var(--panel); border: 1px solid #262d47; border-radius: 12px;
         overflow: hidden; box-shadow: 0 20px 60px -30px #000a;
+        display: flex; flex-direction: column; min-height: 0;
       }
-      .card .cap { padding: 8px 12px; color: var(--muted); font-size: 12px; border-bottom: 1px solid #262d47; }
-      #editor { height: 62vh; min-height: 360px; width: 100%; }
-      .stage { padding: 14px; }
+      .card .cap {
+        padding: 8px 12px; color: var(--muted); font-size: 12px;
+        border-bottom: 1px solid #262d47; flex: 0 0 auto;
+      }
+      .editor-pane {
+        flex: 0 0 var(--editor-pct); min-width: 240px; max-width: calc(100% - 210px);
+      }
+      .view-pane { flex: 1 1 auto; min-width: 200px; }
+      .splitter {
+        flex: 0 0 10px; margin: 0 2px; cursor: col-resize; touch-action: none;
+        position: relative; align-self: stretch; border-radius: 6px;
+        background: transparent;
+      }
+      .splitter::before {
+        content: ""; position: absolute; top: 12px; bottom: 12px; left: 3px; right: 3px;
+        border-radius: 3px; background: #262d47; transition: background 0.12s ease;
+      }
+      .splitter:hover::before,
+      .splitter:focus-visible::before,
+      body.splitting .splitter::before {
+        background: var(--accent);
+      }
+      .splitter:focus-visible { outline: none; }
+      body.splitting { cursor: col-resize; user-select: none; }
+      body.splitting iframe, body.splitting canvas { pointer-events: none; }
+      #editor { flex: 1; min-height: 280px; width: 100%; height: 100%; }
+      .stage { padding: 14px; flex: 1; min-width: 0; }
       canvas {
         display: block; image-rendering: pixelated;
-        width: 480px; max-width: 100%; height: auto; aspect-ratio: 16 / 9;
+        width: 100%; max-width: 100%; height: auto; aspect-ratio: 16 / 9;
         border-radius: 8px; background: #0a0e1a;
       }
       /* WebGL 3D games (kind:tsx3d-gl) want a square, smoothly-sampled surface. */
@@ -70,6 +94,16 @@
       .hint { color: var(--muted); font-size: 12px; padding: 0 22px 18px; }
       .hint code { color: var(--accent); }
       a { color: var(--accent); }
+      main.no-editor .editor-pane,
+      main.no-editor .splitter { display: none; }
+      main.no-editor .view-pane { flex: 1 1 auto; max-width: none; }
+      @media (max-width: 900px) {
+        main { flex-direction: column; gap: 14px; }
+        .editor-pane { flex: none; width: 100%; max-width: none; min-width: 0; }
+        .view-pane { flex: none; width: 100%; min-width: 0; }
+        .splitter { display: none; }
+        #editor { height: 50vh; flex: none; }
+      }
     </style>
   </head>
   <body>
@@ -92,12 +126,23 @@
       <span class="status" id="status">loading…</span>
     </div>
 
-    <main>
-      <section class="card">
+    <main id="split">
+      <section class="card editor-pane">
         <div class="cap" id="filecap">script</div>
         <div id="editor"></div>
       </section>
-      <section class="card">
+      <div
+        class="splitter"
+        id="splitter"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize editor and game view"
+        aria-valuemin="20"
+        aria-valuemax="80"
+        aria-valuenow="55"
+        tabindex="0"
+      ></div>
+      <section class="card view-pane">
         <div class="cap">canvas — the running game</div>
         <div class="stage">
           <canvas id="screen" width="480" height="270"></canvas>
@@ -127,6 +172,8 @@
       const controlsEl = document.getElementById("controls");
       const fileCapEl = document.getElementById("filecap");
       const autoEl = document.getElementById("autoreload");
+      const splitEl = document.getElementById("split");
+      const splitterEl = document.getElementById("splitter");
       let canvas = document.getElementById("screen");
       let bundleSource = null;
       let tsx3dBundle = null;
@@ -139,8 +186,79 @@
       let editTimer = 0;
       let suppressChange = false;
 
+      const SPLIT_KEY = "ranger-games-editor-pct";
+      const SPLIT_DEFAULT = 55;
+      const SPLIT_MIN = 20;
+      const SPLIT_MAX = 80;
+
       const setStatus = (msg, ok) =>
         (statusEl.innerHTML = ok ? '<span class="ok">' + msg + "</span>" : msg);
+
+      function setEditorPct(pct) {
+        const n = Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, Math.round(pct)));
+        splitEl.style.setProperty("--editor-pct", n + "%");
+        splitterEl.setAttribute("aria-valuenow", String(n));
+        try {
+          localStorage.setItem(SPLIT_KEY, String(n));
+        } catch (_) {}
+        return n;
+      }
+
+      function initSplitter() {
+        let saved = SPLIT_DEFAULT;
+        try {
+          const raw = localStorage.getItem(SPLIT_KEY);
+          if (raw != null && raw !== "") saved = Number(raw);
+        } catch (_) {}
+        if (!Number.isFinite(saved)) saved = SPLIT_DEFAULT;
+        setEditorPct(saved);
+
+        let dragging = false;
+        const onMove = (clientX) => {
+          const rect = splitEl.getBoundingClientRect();
+          if (rect.width <= 0) return;
+          setEditorPct(((clientX - rect.left) / rect.width) * 100);
+        };
+
+        splitterEl.addEventListener("pointerdown", (e) => {
+          if (window.matchMedia("(max-width: 900px)").matches) return;
+          dragging = true;
+          document.body.classList.add("splitting");
+          splitterEl.setPointerCapture(e.pointerId);
+          e.preventDefault();
+        });
+        splitterEl.addEventListener("pointermove", (e) => {
+          if (!dragging) return;
+          onMove(e.clientX);
+        });
+        const endDrag = (e) => {
+          if (!dragging) return;
+          dragging = false;
+          document.body.classList.remove("splitting");
+          try {
+            splitterEl.releasePointerCapture(e.pointerId);
+          } catch (_) {}
+        };
+        splitterEl.addEventListener("pointerup", endDrag);
+        splitterEl.addEventListener("pointercancel", endDrag);
+        splitterEl.addEventListener("dblclick", () => setEditorPct(SPLIT_DEFAULT));
+        splitterEl.addEventListener("keydown", (e) => {
+          const cur = Number(splitterEl.getAttribute("aria-valuenow")) || SPLIT_DEFAULT;
+          if (e.key === "ArrowLeft") {
+            setEditorPct(cur - 2);
+            e.preventDefault();
+          } else if (e.key === "ArrowRight") {
+            setEditorPct(cur + 2);
+            e.preventDefault();
+          } else if (e.key === "Home") {
+            setEditorPct(SPLIT_MIN);
+            e.preventDefault();
+          } else if (e.key === "End") {
+            setEditorPct(SPLIT_MAX);
+            e.preventDefault();
+          }
+        });
+      }
 
       async function fetchText(u) {
         const r = await fetch(u);
@@ -201,7 +319,12 @@
       }
 
       async function loadGame(entry) {
-        if (session) session.stop();
+        if (session) {
+          session.stop();
+          // release any per-game DOM the session added (e.g. the teapot's 2D GUI
+          // overlay canvas), so it doesn't linger over the next game.
+          if (typeof session.dispose === "function") session.dispose();
+        }
         setStatus("loading " + entry.title + "…");
         controlsEl.textContent = entry.controls || "";
         fileCapEl.textContent = entry.scriptDir + "/" + entry.script;
@@ -314,9 +437,10 @@
             else session.start();
             document.getElementById("pause").textContent = paused ? "Resume" : "Pause";
           };
+          initSplitter();
           await loadGame(registry[0]);
           if (!window.RangerEditor) {
-            document.querySelector("main").style.gridTemplateColumns = "1fr";
+            splitEl.classList.add("no-editor");
             document.getElementById("editor").innerHTML =
               '<p style="padding:16px;color:#97a0bd">Editor bundle not built — run <code>npm ci</code> in <code>gallery/game_engine/web</code> then rebuild.</p>';
           }
