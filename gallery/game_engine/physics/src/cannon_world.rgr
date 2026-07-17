@@ -17,6 +17,7 @@ Import "cannon_naive_broadphase.rgr"
 Import "cannon_narrowphase.rgr"
 Import "cannon_overlap_keeper.rgr"
 Import "cannon_constraint.rgr"
+Import "cannon_ray.rgr"
 
 class CannonWorld {
     def dt:double (1.0 / 60.0)
@@ -184,6 +185,46 @@ class CannonWorld {
 
     fn step:void (dt:double) {
         this.internalStep(dt)
+    }
+
+    ; Cast a ray and keep the closest hit across all bodies.
+    fn raycastClosest:boolean (from:CannonVec3 to:CannonVec3 result:CannonRaycastResult) {
+        def ray:CannonRay (new CannonRay)
+        ray.initRay(from to)
+        ray.mode = 1
+        ray.result = result
+        result.reset()
+        ray.updateDirection()
+        def i 0
+        while (i < (array_length this.bodies)) {
+            def b:CannonBody (itemAt this.bodies i)
+            ray.intersectBody(b)
+            i = (i + 1)
+        }
+        return result.hasHit
+    }
+
+    ; Cast a ray and stop at the first hit (fast occlusion / line-of-sight test).
+    fn raycastAny:boolean (from:CannonVec3 to:CannonVec3 result:CannonRaycastResult) {
+        def ray:CannonRay (new CannonRay)
+        ray.initRay(from to)
+        ray.mode = 2
+        ray.result = result
+        result.reset()
+        ray.updateDirection()
+        def i 0
+        def stop:boolean false
+        while (i < (array_length this.bodies)) {
+            if (stop == false) {
+                def b:CannonBody (itemAt this.bodies i)
+                ray.intersectBody(b)
+                if (result.shouldStop) {
+                    stop = true
+                }
+            }
+            i = (i + 1)
+        }
+        return result.hasHit
     }
 
     fn clearForces:void () {

@@ -121,6 +121,13 @@ class CannonVec3 {
         this.z = source.z
     }
 
+    ; target = this + (v - this) * t   (linear interpolation, cannon-es Vec3.lerp)
+    fn lerp:void (v:CannonVec3 t:double target:CannonVec3) {
+        target.x = (this.x + ((v.x - this.x) * t))
+        target.y = (this.y + ((v.y - this.y) * t))
+        target.z = (this.z + ((v.z - this.z) * t))
+    }
+
     fn negateInto:void (target:CannonVec3) {
         target.x = (0.0 - this.x)
         target.y = (0.0 - this.y)

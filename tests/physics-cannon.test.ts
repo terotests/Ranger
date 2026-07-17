@@ -128,9 +128,15 @@ describe("Cannon.js Ranger port", () => {
     cannonIt("Constraint.hingeMotor");
   });
 
+  describe("Ray", () => {
+    cannonIt("Ray.sphereHit");
+    cannonIt("Ray.sphereMiss");
+    cannonIt("Ray.planeHit");
+  });
+
   it("runs full Cannon suite aggregate", () => {
     const output = runCannonAll();
-    expect(output).toContain("pass=64");
+    expect(output).toContain("pass=67");
     expect(output).toContain("fail=0");
     expect(output).toContain("cannon-tests done");
   });

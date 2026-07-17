@@ -259,6 +259,14 @@ flipperi-testi.
 **Vaihe 4 — Raycast.** `Ray`, `RaycastResult`, `world.raycastClosest/Any/All`,
 muotojen `raycast`-metodit. Todiste: raycast-osumatestit per muoto.
 
+- ✅ **Osa 4a (tehty):** [`cannon_ray.rgr`](./physics/src/cannon_ray.rgr)
+  (`CannonRay` + `CannonRaycastResult`) — ray↔sphere ja ray↔plane, moodit
+  CLOSEST/ANY/ALL. `CannonWorld.raycastClosest`/`raycastAny` iteroivat kappaleet.
+  Testit ([`cannon_ray_test.rgr`](./physics/src/cannon_ray_test.rgr)): säde osuu
+  palloon (etäisyys 4, x=-1, normaali -x), ohittaa pallon (ei osumaa), osuu tasoon
+  (z=0, etäisyys 5). `npm run engine:physics:test` → 67 passed, 0 failed.
+  ⏳ ray↔box tulee laatikkomuodon kanssa (Vaihe 3).
+
 **Vaihe 5 — Ajoneuvo.** `WheelInfo` + `RaycastVehicle`. Todiste: autopeli-ajotesti.
 
 **Vaihe 6 — Muodot + broadphase + uni.** `Cylinder`, `Heightfield`, `Trimesh`,
