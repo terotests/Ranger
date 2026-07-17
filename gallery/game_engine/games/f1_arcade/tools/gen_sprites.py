@@ -229,8 +229,12 @@ def draw_crowd_sheet():
     return pix, w, h, fw, fh
 
 
-def draw_rear_tire(pix, w, h, x, y, tw=12, th=16):
-    """Rear-facing tire: stacked tread boxes + shiny highlight on top."""
+def draw_rear_tire(pix, w, h, x, y, tw=12, th=16, turn=0):
+    """Rear-facing tire. turn: -1/0/+1 = steered left / straight / right.
+
+    Turned tires: heavier black on the inner turn side + a thin light edge
+    line on the opposite side so the rubber reads as yawed in 3D.
+    """
     bands = [
         (0, 0, tw, 3, (28, 28, 32, 255)),
         (0, 3, tw, 3, (12, 12, 14, 255)),
@@ -240,22 +244,42 @@ def draw_rear_tire(pix, w, h, x, y, tw=12, th=16):
     ]
     for bx, by, bw, bh, col in bands:
         fill_rect(pix, w, h, x + bx, y + by, bw, bh, col)
+    # Top shine (straight).
     fill_rect(pix, w, h, x + 2, y + 1, max(1, tw - 4), 2, (210, 215, 230, 255))
     fill_rect(pix, w, h, x + 3, y + 1, 2, 1, (255, 255, 255, 255))
-    fill_rect(pix, w, h, x, y + 2, 1, max(1, th - 4), (40, 40, 48, 255))
-    fill_rect(pix, w, h, x + tw - 1, y + 2, 1, max(1, th - 4), (40, 40, 48, 255))
+    if turn != 0:
+        # Extra black mass on the side the tire faces into the turn.
+        mid = tw // 2
+        if turn > 0:
+            # Steered right: denser black on left half, light rim line on right.
+            fill_rect(pix, w, h, x, y + 3, mid, max(4, th - 6), (8, 8, 10, 255))
+            fill_rect(pix, w, h, x + tw - 2, y + 4, 1, max(3, th - 8), (190, 195, 210, 255))
+            fill_rect(pix, w, h, x + tw - 1, y + 5, 1, max(2, th - 10), (40, 40, 48, 255))
+        else:
+            fill_rect(pix, w, h, x + mid, y + 3, tw - mid, max(4, th - 6), (8, 8, 10, 255))
+            fill_rect(pix, w, h, x + 1, y + 4, 1, max(3, th - 8), (190, 195, 210, 255))
+            fill_rect(pix, w, h, x, y + 5, 1, max(2, th - 10), (40, 40, 48, 255))
+    else:
+        fill_rect(pix, w, h, x, y + 2, 1, max(1, th - 4), (40, 40, 48, 255))
+        fill_rect(pix, w, h, x + tw - 1, y + 2, 1, max(1, th - 4), (40, 40, 48, 255))
 
 
-def draw_front_tire(pix, w, h, x, y, size=7):
-    """Smaller rear-facing front tire (drawn behind the body)."""
+def draw_front_tire(pix, w, h, x, y, size=7, turn=0):
+    """Smaller front tire (same turn shading language as rear)."""
     tw = size
     th = size + 2
     fill_rect(pix, w, h, x, y, tw, th, (16, 16, 18, 255))
     fill_rect(pix, w, h, x + 1, y + 2, max(1, tw - 2), 2, (10, 10, 12, 255))
     fill_rect(pix, w, h, x + 1, y + 5, max(1, tw - 2), max(1, th - 6), (22, 22, 26, 255))
-    # Shine on top edge.
     fill_rect(pix, w, h, x + 1, y, max(1, tw - 2), 1, (200, 205, 220, 255))
-    fill_rect(pix, w, h, x + 2, y, 1, 1, (255, 255, 255, 255))
+    if turn > 0:
+        fill_rect(pix, w, h, x, y + 2, max(2, tw // 2), max(3, th - 4), (6, 6, 8, 255))
+        fill_rect(pix, w, h, x + tw - 2, y + 3, 1, max(2, th - 5), (200, 205, 220, 255))
+    elif turn < 0:
+        fill_rect(pix, w, h, x + tw // 2, y + 2, max(2, tw - tw // 2), max(3, th - 4), (6, 6, 8, 255))
+        fill_rect(pix, w, h, x + 1, y + 3, 1, max(2, th - 5), (200, 205, 220, 255))
+    else:
+        fill_rect(pix, w, h, x + 2, y, 1, 1, (255, 255, 255, 255))
 
 
 def draw_f1_rear(
@@ -265,10 +289,11 @@ def draw_f1_rear(
     h=38,
     lean=0,
 ):
-    """Rear chase-cam. lean -1/0/+1 = yaw left / straight / right in 3D space.
+    """Rear chase-cam. lean -1/0/+1 = yaw left / straight / right.
 
-    Turning reads as: body + wing yaw toward the steer side, outer flank
-    exposed, outer rear tire slides out, inner front tire peeks, wing skews.
+    Center frame stays the settled layout. Turn frames follow 3D yaw:
+    far-side tires rise a few px, near-side tires slide inward, all tires
+    get steered shading; left turn is the mirror of right turn.
     """
     pix = blank(w, h)
     wing = (22, 22, 26, 255)
@@ -278,92 +303,57 @@ def draw_f1_rear(
         max(0, body[2] - 30),
         255,
     )
-    dark = (
-        max(0, body[0] - 70),
-        max(0, body[1] - 50),
-        max(0, body[2] - 45),
-        255,
-    )
-    # Strong yaw in screen space (readable at a glance).
-    ox = lean * 8
+    ox = lean * 5
 
-    # --- Front tires (far): outer front slides out, inner tucks under body ---
-    if lean < 0:
-        # Turning left: see more of left front; right front almost hidden.
-        draw_front_tire(pix, w, h, 4, 18, 9)
-        draw_front_tire(pix, w, h, 38, 20, 6)
-    elif lean > 0:
-        draw_front_tire(pix, w, h, 12, 20, 6)
-        draw_front_tire(pix, w, h, 43, 18, 9)
-    else:
-        draw_front_tire(pix, w, h, 8, 19, 8)
-        draw_front_tire(pix, w, h, 40, 19, 8)
-
-    # --- Body yawed + banked (outer flank visible as a dark slab) ---
-    bx = 17 + ox
-    if lean == 0:
-        fill_rect(pix, w, h, bx, 14, 22, 14, body)
-        fill_rect(pix, w, h, bx + 2, 16, 18, 10, shade)
-        fill_rect(pix, w, h, bx + 4, 13, 14, 3, (32, 32, 38, 255))
-        fill_rect(pix, w, h, 13, 16, 6, 10, body)
-        fill_rect(pix, w, h, 37, 16, 6, 10, body)
-    if lean < 0:
-        # Nose left: left flank thick, right side foreshortened.
-        fill_rect(pix, w, h, bx - 2, 14, 20, 14, body)
-        fill_rect(pix, w, h, bx, 16, 16, 10, shade)
-        fill_rect(pix, w, h, bx + 2, 13, 12, 3, (32, 32, 38, 255))
-        fill_rect(pix, w, h, bx - 6, 15, 6, 12, dark)  # left side face
-        fill_rect(pix, w, h, bx + 14, 17, 4, 9, body)  # skinny right
+    # --- Front tires (far) ---
     if lean > 0:
-        fill_rect(pix, w, h, bx + 2, 14, 20, 14, body)
-        fill_rect(pix, w, h, bx + 4, 16, 16, 10, shade)
-        fill_rect(pix, w, h, bx + 6, 13, 12, 3, (32, 32, 38, 255))
-        fill_rect(pix, w, h, bx + 18, 15, 6, 12, dark)  # right side face
-        fill_rect(pix, w, h, bx, 17, 4, 9, body)  # skinny left
+        # Turn RIGHT: left front higher; both fronts steered-right look;
+        # right front same style, slightly inboard.
+        draw_front_tire(pix, w, h, 6, 16, 8, turn=1)
+        draw_front_tire(pix, w, h, 40, 18, 8, turn=1)
+    elif lean < 0:
+        # Mirror: right front higher; steered-left look.
+        draw_front_tire(pix, w, h, 8, 18, 8, turn=-1)
+        draw_front_tire(pix, w, h, 42, 16, 8, turn=-1)
+    else:
+        draw_front_tire(pix, w, h, 8, 19, 8, turn=0)
+        draw_front_tire(pix, w, h, 40, 19, 8, turn=0)
 
-    # Helmet shifts with yaw.
+    # --- Body (mild yaw; center layout preserved) ---
+    bx = 17 + ox
+    fill_rect(pix, w, h, bx, 14, 22, 14, body)
+    fill_rect(pix, w, h, bx + 2, 16, 18, 10, shade)
+    fill_rect(pix, w, h, bx + 4, 13, 14, 3, (32, 32, 38, 255))
+    fill_rect(pix, w, h, 13 + ox, 16, 6, 10, body)
+    fill_rect(pix, w, h, 37 + ox, 16, 6, 10, body)
+
     fill_ellipse(pix, w, h, w // 2 + ox, 15, 5, 4, (26, 26, 30, 255))
     fill_ellipse(pix, w, h, w // 2 + ox, 14, 3, 3, accent)
 
-    # --- Spoiler on the body, skewed in 3D when turning ---
+    # Spoiler attached to body.
     wing_w = 28
     wing_x = (w - wing_w) // 2 + ox
-    if lean == 0:
-        fill_rect(pix, w, h, wing_x, 11, wing_w, 3, wing)
-        fill_rect(pix, w, h, wing_x + 1, 10, wing_w - 2, 2, (48, 48, 54, 255))
-        fill_rect(pix, w, h, wing_x - 1, 10, 3, 5, wing)
-        fill_rect(pix, w, h, wing_x + wing_w - 2, 10, 3, 5, wing)
-        fill_rect(pix, w, h, wing_x + 5, 13, 2, 2, wing)
-        fill_rect(pix, w, h, wing_x + wing_w - 7, 13, 2, 2, wing)
-    if lean < 0:
-        # Left tip closer/lower, right tip farther — stepped wing.
-        fill_rect(pix, w, h, wing_x - 4, 12, 14, 3, wing)
-        fill_rect(pix, w, h, wing_x + 8, 10, 16, 3, wing)
-        fill_rect(pix, w, h, wing_x - 5, 11, 3, 5, wing)
-        fill_rect(pix, w, h, wing_x + 21, 9, 3, 5, wing)
-        fill_rect(pix, w, h, wing_x + 2, 14, 2, 2, wing)
-        fill_rect(pix, w, h, wing_x + 14, 12, 2, 2, wing)
-    if lean > 0:
-        fill_rect(pix, w, h, wing_x + 2, 10, 16, 3, wing)
-        fill_rect(pix, w, h, wing_x + 14, 12, 14, 3, wing)
-        fill_rect(pix, w, h, wing_x + 1, 9, 3, 5, wing)
-        fill_rect(pix, w, h, wing_x + 25, 11, 3, 5, wing)
-        fill_rect(pix, w, h, wing_x + 8, 12, 2, 2, wing)
-        fill_rect(pix, w, h, wing_x + 20, 14, 2, 2, wing)
+    fill_rect(pix, w, h, wing_x, 11, wing_w, 3, wing)
+    fill_rect(pix, w, h, wing_x + 1, 10, wing_w - 2, 2, (48, 48, 54, 255))
+    fill_rect(pix, w, h, wing_x - 1, 10, 3, 5, wing)
+    fill_rect(pix, w, h, wing_x + wing_w - 2, 10, 3, 5, wing)
+    fill_rect(pix, w, h, wing_x + 5, 13, 2, 2, wing)
+    fill_rect(pix, w, h, wing_x + wing_w - 7, 13, 2, 2, wing)
 
-    # Exhaust.
     fill_rect(pix, w, h, 22 + ox, 26, 12, 2, (255, 150, 40, 255))
 
-    # --- Rear tires: outer slides out + slightly larger; inner tucks ---
-    if lean < 0:
-        draw_rear_tire(pix, w, h, 0, 21, 13, 16)   # left outer-ish
-        draw_rear_tire(pix, w, h, 42, 23, 10, 13)  # right tucked
-    elif lean > 0:
-        draw_rear_tire(pix, w, h, 4, 23, 10, 13)
-        draw_rear_tire(pix, w, h, 43, 21, 13, 16)
+    # --- Rear tires (near) ---
+    if lean > 0:
+        # Turn RIGHT: left rear higher; right rear shifts left; both turn=1.
+        draw_rear_tire(pix, w, h, 1, 19, 12, 15, turn=1)
+        draw_rear_tire(pix, w, h, 40, 22, 12, 15, turn=1)
+    elif lean < 0:
+        # Mirror: right rear higher; left rear shifts right.
+        draw_rear_tire(pix, w, h, 4, 22, 12, 15, turn=-1)
+        draw_rear_tire(pix, w, h, 43, 19, 12, 15, turn=-1)
     else:
-        draw_rear_tire(pix, w, h, 1, 22, 12, 15)
-        draw_rear_tire(pix, w, h, 43, 22, 12, 15)
+        draw_rear_tire(pix, w, h, 1, 22, 12, 15, turn=0)
+        draw_rear_tire(pix, w, h, 43, 22, 12, 15, turn=0)
     return pix, w, h
 
 
