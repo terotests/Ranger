@@ -14,8 +14,9 @@
 ; layout itself (e.g. Ylos via bgWidth).
 ;
 ; Per-pane pushGame/loadGame uses a cooperative main-loop load (beginPaneLoad /
-; tickPaneLoad): read → parse → setupScene across frames so the sibling pane
-; keeps updating. Not a background thread — setupScene can still hitch briefly.
+; tickPaneLoad): read → parse → prepare → paintBg → entities across frames so
+; the sibling pane keeps updating. Not a background thread — createStaticBg and
+; first-time TSX parse can still hitch briefly on a single phase.
 ; ==============================================================================
 
 Import "./game_runtime.rgr"
@@ -51,7 +52,8 @@ class SplitScreenHost {
     def leftPrevPath:string ""
     def rightPrevPath:string ""
     ; Cooperative per-pane load (no threads): while one pane reloads, the
-    ; sibling keeps receiving frames. Phases: 0=idle 1=read 2=parse 3=setup.
+    ; sibling keeps receiving frames.
+    ; Phases: 0=idle 1=read 2=parse 3=prepare 4=paintBg 5=entities.
     def loadPane:int -1
     def loadPath:string ""
     def loadPhase:int 0
@@ -420,7 +422,7 @@ class SplitScreenHost {
     }
 
     ; Advance one load phase. Call at most once per host frame so the sibling
-    ; pane can update + present between read / parse / setupScene.
+    ; pane can update + present between read / parse / prepare / paintBg / entities.
     fn tickPaneLoad:void () {
         if (loadPhase <= 0) {
             return
@@ -450,7 +452,17 @@ class SplitScreenHost {
             return
         }
         if (loadPhase == 3) {
-            runner.setupScene()
+            runner.setupScenePrepare()
+            loadPhase = 4
+            return
+        }
+        if (loadPhase == 4) {
+            runner.setupScenePaintBg()
+            loadPhase = 5
+            return
+        }
+        if (loadPhase == 5) {
+            runner.setupSceneEntities()
             runner.enableGpuSheetOverlay()
             runner.trackScriptFile(loadPath)
             if (loadPane == 0) {

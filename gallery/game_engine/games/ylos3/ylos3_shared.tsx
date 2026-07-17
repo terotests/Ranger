@@ -881,6 +881,9 @@ function clampByte(v: f64): i32 {
 }
 
 function drawJungleGradient(kind: string) {
+  // Wider bands: ~4x fewer interpreter fillRect calls on tall levels (~2k px).
+  // Banding is soft enough under canopy/mist overlays not to read as stripes.
+  const band = 16;
   let y = 0;
   while (y < bgHeight) {
     const t = y / bgHeight;
@@ -897,8 +900,12 @@ function drawJungleGradient(kind: string) {
       g = 48 + t * 90;
       b = 28 + t * 40;
     }
-    bgFillRect(0, y, bgWidth, 4, clampByte(r), clampByte(g), clampByte(b));
-    y = y + 4;
+    let h = band;
+    if (y + h > bgHeight) {
+      h = bgHeight - y;
+    }
+    bgFillRect(0, y, bgWidth, h, clampByte(r), clampByte(g), clampByte(b));
+    y = y + band;
   }
 }
 
@@ -909,7 +916,8 @@ function drawCanopyBand(cy: i32, depth: i32) {
     const g = 55 + depth * 8;
     bgFillCircle(x, cy, rad, 18, g, 28);
     bgFillCircle(x + 16, cy + 6, rad - 6, 14, g - 10, 24);
-    x = x + 34 + (depth % 5) * 4;
+    // Slightly wider stride — fewer circles, still reads as dense canopy.
+    x = x + 44 + (depth % 5) * 4;
   }
 }
 

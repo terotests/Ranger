@@ -1081,13 +1081,20 @@ class GameRunner {
         }
     }
 
-    ; Build retained entities from sprites() and init state.
-    fn setupScene:void () {
+    ; Split setup for cooperative pane loads: prepare → paint static bg → entities.
+    ; Solo hosts still call setupScene() which runs all three in one go.
+    fn setupScenePrepare:void () {
         this.wireHostAudio()
         this.setupResources()
         this.applyConfig()
         this.applyBackgroundFromScript()
+    }
+
+    fn setupScenePaintBg:void () {
         this.applyCreateStaticBg()
+    }
+
+    fn setupSceneEntities:void () {
         this.applyCamera()
         this.applyPhysics()
         state = (engine.callFunction("initState" (EvalValue.null())))
@@ -1136,6 +1143,13 @@ class GameRunner {
             }
         }
         this.syncFromState()
+    }
+
+    ; Build retained entities from sprites() and init state.
+    fn setupScene:void () {
+        this.setupScenePrepare()
+        this.setupScenePaintBg()
+        this.setupSceneEntities()
     }
 
     fn memInt:int (obj:EvalValue key:string dflt:int) {
