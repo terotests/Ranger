@@ -315,6 +315,26 @@ describe("Game runner - scripted Pong", () => {
     expect(parseInt(entities![1], 10)).toBeGreaterThan(14);
   });
 
+  it("runs Ylos 4 math-puzzle jungle platformer", () => {
+    const { compile, run } = compileAndRun(
+      "gallery/game_engine/tests/ylos4_runner_demo.rgr"
+    );
+
+    expect(
+      compile.success,
+      `Compile failed: ${compile.error || compile.output}`
+    ).toBe(true);
+    expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+
+    const out = run?.output || "";
+    expect(out).toContain("ylos4-runner done");
+    expect(out).toContain("frames=400");
+
+    const entities = out.match(/entities=(\d+)/);
+    expect(entities, `no entities in output: ${out}`).toBeTruthy();
+    expect(parseInt(entities![1], 10)).toBeGreaterThan(14);
+  });
+
   it("runs world-mode scroll demo with engine camera and worldEntities", () => {
     const { compile, run } = compileAndRun(
       "gallery/game_engine/tests/world_scroll_runner_demo.rgr"
