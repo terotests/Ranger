@@ -1,0 +1,191 @@
+; ==============================================================================
+; three_sponza_scene — the light-probe-volume (Sponza) scene, built in the Ranger
+; Three core. Native/SDL slice 1.
+; ==============================================================================
+; The Ranger-core equivalent of sponza.tsx's init(): synchronous, no network, no
+; interpreter — it composes the same scene (Sky + shadow-casting DirectionalLight
+; + a loaded model + a baked LightProbeGrid + FirstPersonControls) directly from
+; the ported classes, using the same numbers as the example. The SDL runner drives
+; this (build once, then update(delta) + render each frame); the web host can too.
+; Pure Ranger, so it compiles to C++ for the native SDL host.
+;
+; The model is passed in as an Object3D (built by the glTF loader / a local file),
+; so the scene composition is decoupled from asset loading and is unit-testable.
+; ==============================================================================
+
+Import "three_scene.rgr"
+Import "three_perspective_camera.rgr"
+Import "three_sky.rgr"
+Import "three_light.rgr"
+Import "three_light_probe_grid.rgr"
+Import "three_light_probe_grid_helper.rgr"
+Import "three_first_person_controls.rgr"
+Import "three_box3.rgr"
+Import "three_vector3.rgr"
+Import "three_math_utils.rgr"
+
+class ThreeSponzaScene {
+    def scene:ThreeScene (new ThreeScene)
+    def camera:ThreePerspectiveCamera (new ThreePerspectiveCamera)
+    def sky:ThreeSky (new ThreeSky)
+    def dirLight:ThreeDirectionalLight (new ThreeDirectionalLight)
+    def probes:ThreeLightProbeGrid (new ThreeLightProbeGrid)
+    def probesHelper:ThreeLightProbeGridHelper (new ThreeLightProbeGridHelper)
+    def fpc:ThreeFirstPersonControls (new ThreeFirstPersonControls)
+    def model:ThreeObject3D (new ThreeObject3D)
+
+    ; derived model metrics
+    def sizeX:double 1.0
+    def sizeY:double 1.0
+    def sizeZ:double 1.0
+    def centerX:double 0.0
+    def centerY:double 0.0
+    def centerZ:double 0.0
+    def targetY:double 0.0
+    def lightBaseDistance:double 1.0
+    def probeFar:double 1.0
+
+    ; GUI params (sponza.tsx defaults)
+    def enabled:boolean true
+    def showProbes:boolean false
+    def probeSize:double 0.2
+    def boundsX:double (0.0 - 0.5)
+    def boundsY:double 6.0
+    def boundsZ:double (0.0 - 0.3)
+    def gridSizeX:double 21.0
+    def gridSizeY:double 11.0
+    def gridSizeZ:double 9.0
+    def countX:int 10
+    def countY:int 7
+    def countZ:int 7
+    def bounces:int 1
+    def lightAzimuth:double (0.0 - 45.0)
+    def lightElevation:double 55.0
+    def lightIntensity:double 100.0
+    def shadows:boolean true
+    ; ambient colour the analytic bake uses (the GPU bake replaces this by
+    ; rendering each probe as a cubemap).
+    def ambientR:double 0.28
+    def ambientG:double 0.33
+    def ambientB:double 0.42
+
+    sfn maxOf2:double (a:double b:double) {
+        if (a > b) {
+            return a
+        }
+        return b
+    }
+    sfn maxOf3:double (a:double b:double c:double) {
+        def m:double (ThreeSponzaScene.maxOf2(a b))
+        return (ThreeSponzaScene.maxOf2(m c))
+    }
+
+    ; build the scene around a loaded model root, mirroring sponza.tsx init().
+    fn build:ThreeSponzaScene (modelRoot:ThreeObject3D) {
+        this.model = modelRoot
+
+        ; CAMERA (example's logged pose)
+        this.camera.fov = 60.0
+        this.camera.near = 0.1
+        this.camera.far = 1000.0
+        this.camera.position.set((0.0 - 10.25) 4.99 0.40)
+
+        ; SKY
+        this.sky.scale.setScalar(450000.0)
+        this.sky.setTurbidity(10.0)
+        this.sky.setRayleigh(2.0)
+        this.sky.setMieCoefficient(0.005)
+        this.sky.setMieDirectionalG(0.8)
+        this.scene.add(this.sky)
+
+        this.scene.add(this.model)
+
+        ; model bounds
+        def box:ThreeBox3 (this.model.boundingBox())
+        def sz:ThreeVector3 (new ThreeVector3)
+        box.getSize(sz)
+        def ctr:ThreeVector3 (new ThreeVector3)
+        box.getCenter(ctr)
+        this.sizeX = sz.x
+        this.sizeY = sz.y
+        this.sizeZ = sz.z
+        this.centerX = ctr.x
+        this.centerY = ctr.y
+        this.centerZ = ctr.z
+        this.targetY = (ctr.y + (sz.y * 0.2))
+        this.lightBaseDistance = (ThreeSponzaScene.maxOf2(sz.x sz.z))
+        this.probeFar = ((ThreeSponzaScene.maxOf3(sz.x sz.y sz.z)) * 2.0)
+
+        ; DIRECTIONAL LIGHT (+ shadow)
+        this.dirLight.setColorHex(16773340)
+        this.dirLight.intensity = this.lightIntensity
+        this.dirLight.target.position.set(this.centerX this.targetY this.centerZ)
+        this.scene.add(this.dirLight.target)
+        this.dirLight.castShadow = this.shadows
+        this.dirLight.shadow.setMapSize(2048)
+        def shadowExtent:double ((ThreeSponzaScene.maxOf2(sz.x sz.z)) * 0.7)
+        this.dirLight.shadow.setExtent((0.0 - shadowExtent) shadowExtent shadowExtent (0.0 - shadowExtent) 0.1 (sz.y * 4.0))
+        this.scene.add(this.dirLight)
+
+        this.updateLightPosition()
+
+        ; LIGHT PROBE GRID
+        this.rebuildProbes()
+
+        ; FIRST-PERSON CONTROLS
+        this.fpc.setCamera(this.camera)
+        this.fpc.setMovementSpeed(2.0)
+        this.fpc.setLookSpeed(0.16)
+
+        return this
+    }
+
+    ; position the sun/light from azimuth + elevation (sponza.tsx updateLightPosition).
+    fn updateLightPosition:void () {
+        def azimuth:double (ThreeMathUtils.degToRad(this.lightAzimuth))
+        def elevation:double (ThreeMathUtils.degToRad(this.lightElevation))
+        def radius:double this.lightBaseDistance
+        def horizontal:double ((cos elevation) * radius)
+        def vertical:double ((sin elevation) * radius)
+        def lx:double (this.centerX + ((cos azimuth) * horizontal))
+        def ly:double (this.targetY + vertical)
+        def lz:double (this.centerZ + ((sin azimuth) * horizontal))
+        this.dirLight.position.set(lx ly lz)
+        this.dirLight.target.position.set(this.centerX this.targetY this.centerZ)
+        this.dirLight.target.updateMatrixWorld()
+
+        def phi:double (ThreeMathUtils.degToRad(90.0 - this.lightElevation))
+        def theta:double (ThreeMathUtils.degToRad(this.lightAzimuth))
+        def sun:ThreeVector3 (new ThreeVector3)
+        sun.setFromSphericalCoords(1.0 phi theta)
+        this.sky.copySunPosition(sun)
+    }
+
+    ; (re)create the probe grid at the current settings and bake it.
+    fn rebuildProbes:void () {
+        this.probes = (ThreeLightProbeGrid.create(this.gridSizeX this.gridSizeY this.gridSizeZ this.countX this.countY this.countZ))
+        this.probes.position.set(this.boundsX this.boundsY this.boundsZ)
+        this.probes.visible = this.enabled
+        ; analytic ambient bake (GPU bake renders each probe as a cubemap instead).
+        this.probes.bakeAmbient(this.ambientR this.ambientG this.ambientB)
+        this.scene.add(this.probes)
+        this.probesHelper = (ThreeLightProbeGridHelper.create(this.probes this.probeSize))
+        this.probesHelper.visible = this.showProbes
+        this.scene.add(this.probesHelper)
+    }
+
+    ; sample the baked GI irradiance at a world point for a surface normal (what the
+    ; shader does per fragment; exposed here for the software path + tests).
+    fn sampleGI:ThreeVector3 (wx:double wy:double wz:double nx:double ny:double nz:double target:ThreeVector3) {
+        return (this.probes.sampleIrradiance(wx wy wz nx ny nz target))
+    }
+
+    ; host feeds viewport + input; per frame: integrate controls.
+    fn setViewport:void (w:int h:int) {
+        this.camera.aspect = ((to_double w) / (to_double h))
+        this.camera.updateProjectionMatrix()
+    }
+    fn update:void (delta:double) {
+        this.fpc.update(delta)
+    }
+}

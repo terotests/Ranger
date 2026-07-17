@@ -45,6 +45,7 @@ run_suite three_box_geometry_test
 run_suite three_gltf_loader_test
 run_suite three_light_probe_grid_test
 run_suite three_light_probe_grid_helper_test
+run_suite three_sponza_scene_test
 run_suite three_teapot_test
 run_suite three_orbit_controls_test
 run_suite three_first_person_controls_test

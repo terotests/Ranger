@@ -1,0 +1,108 @@
+; ==============================================================================
+; three_sponza_scene_test — the native Sponza scene composition (SDL slice 1).
+; ==============================================================================
+; Builds the scene around a known box "model" and asserts the composition matches
+; sponza.tsx (children, derived metrics, light placement, baked GI sampling).
+; Compile to ES6 and run under Node; prints per-check PASS/FAIL and "ALL PASS".
+; ==============================================================================
+
+Import "three_sponza_scene.rgr"
+Import "three_mesh.rgr"
+Import "three_box_geometry.rgr"
+
+class ThreeCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    fn near:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        if (d < 0.001) {
+            passed = (passed + 1)
+            print ("  PASS " + name + " (" + (to_string got) + ")")
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name + " got=" + (to_string got) + " want=" + (to_string want))
+        }
+    }
+}
+
+class ThreeSponzaSceneTest {
+    sfn m@(main):void () {
+        def ck:ThreeCheck (new ThreeCheck)
+        print "== ThreeSponzaScene =="
+
+        ; a 20 x 10 x 8 box centred at origin stands in for the model
+        def geo:ThreeBoxGeometry (new ThreeBoxGeometry)
+        geo.setSize(20.0 10.0 8.0)
+        def model:ThreeMesh (new ThreeMesh)
+        model.setGeometry(geo)
+
+        def s:ThreeSponzaScene (new ThreeSponzaScene)
+        s.build(model)
+
+        ; derived metrics
+        ck.near("size x" s.sizeX 20.0)
+        ck.near("size y" s.sizeY 10.0)
+        ck.near("targetY = cy + sy*0.2" s.targetY 2.0)
+        ck.near("lightBaseDistance = max(sx,sz)" s.lightBaseDistance 20.0)
+        ck.near("probeFar = maxdim*2" s.probeFar 40.0)
+
+        ; scene composition: sky, model, light target, light, probes, helper
+        ck.near("scene child count" (to_double (s.scene.childCount())) 6.0)
+
+        ; probe volume: 10 x 7 x 7 = 490 probes
+        ck.near("probe count" (to_double (s.probes.probeCount())) 490.0)
+        ck.near("probe grid position y" s.probes.position.y 6.0)
+
+        ; camera pose (example's logged position)
+        ck.near("camera x" s.camera.position.x (0.0 - 10.25))
+        ck.near("camera y" s.camera.position.y 4.99)
+
+        ; light placement from azimuth -45 / elevation 55
+        ck.ok("light above target" (s.dirLight.position.y > s.targetY))
+        ck.ok("light +x (az -45)" (s.dirLight.position.x > 0.0))
+        ck.ok("light -z (az -45)" (s.dirLight.position.z < 0.0))
+        ck.near("light intensity 100" s.dirLight.intensity 100.0)
+        ck.ok("light casts shadow" s.dirLight.castShadow)
+        ck.near("shadow map size" (to_double s.dirLight.shadow.mapSize) 2048.0)
+
+        ; sun direction copied into the sky uniform (elevation 55 -> y ~ cos(35deg))
+        ck.near("sky sun y = cos(35)" s.sky.sunPosition.y 0.819152)
+        ck.ok("sky sun x negative (az -45)" (s.sky.sunPosition.x < 0.0))
+
+        ; baked GI: uniform ambient bake -> sampling returns the ambient colour
+        def gi:ThreeVector3 (new ThreeVector3)
+        s.sampleGI(0.0 6.0 0.0 0.0 1.0 0.0 gi)
+        ck.near("GI sample r = ambient" gi.x 0.28)
+        ck.near("GI sample g = ambient" gi.y 0.33)
+        ck.near("GI sample b = ambient" gi.z 0.42)
+
+        ; controls integrate: walking forward moves the camera
+        def before:double s.camera.position.z
+        s.fpc.setLook(0.0 0.0)
+        s.fpc.keyDown("w")
+        s.update(1.0)
+        s.fpc.keyUp("w")
+        ck.ok("forward moved camera" (s.camera.position.z != before))
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}
