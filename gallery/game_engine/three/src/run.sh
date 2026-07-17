@@ -42,6 +42,7 @@ run_suite three_directional_light_shadow_test
 run_suite three_tone_mapping_test
 run_suite three_perspective_camera_test
 run_suite three_box_geometry_test
+run_suite three_gltf_loader_test
 run_suite three_teapot_test
 run_suite three_orbit_controls_test
 run_suite three_first_person_controls_test

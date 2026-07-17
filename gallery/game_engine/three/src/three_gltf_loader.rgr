@@ -1,0 +1,205 @@
+; ==============================================================================
+; three_gltf_loader — glTF binary accessor decoder (Three.js addons GLTFLoader).
+; Sponza slice 6.
+; ==============================================================================
+; The portable, unit-tested heart of the loader: turning glTF accessors + a binary
+; buffer into ThreeBufferGeometry (positions/normals/uvs/indices). This is the
+; part that must be pure Ranger so it compiles native too, and the part that is
+; verifiable headless (a hand-built triangle buffer round-trips to a geometry).
+;
+; The layers above it — parsing the JSON structure (buffers/bufferViews/accessors/
+; meshes/nodes/materials, via lib/JSON on the browser path), splitting a .glb into
+; its JSON + BIN chunks, base64 data-URIs, and the network fetch of Sponza — are
+; the loader's host wiring, layered on this decoder and added at GPU integration
+; (the Sponza .glb download + upload is a browser/native step, not headless).
+;
+; glTF component types: 5121 = UNSIGNED_BYTE, 5123 = UNSIGNED_SHORT,
+; 5125 = UNSIGNED_INT, 5126 = FLOAT. Element types: SCALAR=1, VEC2=2, VEC3=3.
+; ==============================================================================
+
+Import "three_buffer_geometry.rgr"
+
+class ThreeGLTFAccessor {
+    def componentType:int 5126
+    def numComponents:int 3
+    def count:int 0
+    def byteOffset:int 0
+    ; byteStride 0 means tightly packed (numComponents * componentBytes).
+    def byteStride:int 0
+
+    fn set:ThreeGLTFAccessor (componentType:int numComponents:int count:int byteOffset:int byteStride:int) {
+        this.componentType = componentType
+        this.numComponents = numComponents
+        this.count = count
+        this.byteOffset = byteOffset
+        this.byteStride = byteStride
+        return this
+    }
+    fn componentBytes:int () {
+        if (this.componentType == 5121) {
+            return 1
+        }
+        if (this.componentType == 5123) {
+            return 2
+        }
+        return 4
+    }
+    fn stride:int () {
+        if (this.byteStride > 0) {
+            return this.byteStride
+        }
+        return (this.numComponents * (this.componentBytes()))
+    }
+}
+
+class ThreeGLTFLoader {
+    ; --- little-endian binary reads from a byte buffer -----------------------
+    sfn readU16:int (buf:buffer off:int) {
+        def b0:int (buffer_get buf off)
+        def b1:int (buffer_get buf (off + 1))
+        return (b0 + (b1 * 256))
+    }
+    sfn readU32:int (buf:buffer off:int) {
+        def b0:int (buffer_get buf off)
+        def b1:int (buffer_get buf (off + 1))
+        def b2:int (buffer_get buf (off + 2))
+        def b3:int (buffer_get buf (off + 3))
+        return (((b0 + (b1 * 256)) + (b2 * 65536)) + (b3 * 16777216))
+    }
+
+    ; 2^k for the float exponent (k may be negative), by repeated multiply.
+    sfn pow2:double (k:int) {
+        def r:double 1.0
+        def n:int k
+        if (n >= 0) {
+            while (n > 0) {
+                r = (r * 2.0)
+                n = (n - 1)
+            }
+        } {
+            while (n < 0) {
+                r = (r / 2.0)
+                n = (n + 1)
+            }
+        }
+        return r
+    }
+
+    ; IEEE-754 single-precision, little-endian, reconstructed with integer maths on
+    ; doubles (so it never trips 32-bit sign wrapping).
+    sfn readF32:double (buf:buffer off:int) {
+        def b0:int (buffer_get buf off)
+        def b1:int (buffer_get buf (off + 1))
+        def b2:int (buffer_get buf (off + 2))
+        def b3:int (buffer_get buf (off + 3))
+        def bits:double (((to_double b0) + ((to_double b1) * 256.0)) + (((to_double b2) * 65536.0) + ((to_double b3) * 16777216.0)))
+        def sign:double 1.0
+        if (bits >= 2147483648.0) {
+            sign = (0.0 - 1.0)
+            bits = (bits - 2147483648.0)
+        }
+        def exp:int (to_int (bits / 8388608.0))
+        def mant:double (bits - ((to_double exp) * 8388608.0))
+        if (exp == 0) {
+            def frac0:double (mant / 8388608.0)
+            def p0:double (ThreeGLTFLoader.pow2((0 - 126)))
+            return ((sign * frac0) * p0)
+        }
+        def frac:double (1.0 + (mant / 8388608.0))
+        def p:double (ThreeGLTFLoader.pow2((exp - 127)))
+        return ((sign * frac) * p)
+    }
+
+    ; --- accessor decode -----------------------------------------------------
+    ; decode a float accessor into a flat [double] (count * numComponents values).
+    sfn decodeFloats:[double] (buf:buffer acc:ThreeGLTFAccessor) {
+        def out:[double]
+        def stride:int (acc.stride())
+        def nc:int acc.numComponents
+        def i:int 0
+        while (i < acc.count) {
+            def base:int (acc.byteOffset + (i * stride))
+            def c:int 0
+            while (c < nc) {
+                def v:double (ThreeGLTFLoader.readF32(buf (base + (c * 4))))
+                push out v
+                c = (c + 1)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; decode a scalar index accessor into a flat [int] (UNSIGNED_SHORT / _INT).
+    sfn decodeIndices:[int] (buf:buffer acc:ThreeGLTFAccessor) {
+        def out:[int]
+        def cb:int (acc.componentBytes())
+        def i:int 0
+        while (i < acc.count) {
+            def off:int (acc.byteOffset + (i * cb))
+            def v:int 0
+            if (cb == 2) {
+                v = (ThreeGLTFLoader.readU16(buf off))
+            } {
+                if (cb == 4) {
+                    v = (ThreeGLTFLoader.readU32(buf off))
+                } {
+                    v = (buffer_get buf off)
+                }
+            }
+            push out v
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; assemble a ThreeBufferGeometry from decoded position/normal/uv/index arrays.
+    ; normals/uvs may be empty; indices may be empty (non-indexed). Positions and
+    ; normals are VEC3, uvs VEC2 — matching the engine's interleaved layout.
+    sfn buildGeometry:ThreeBufferGeometry (positions:[double] normals:[double] uvs:[double] indices:[int]) {
+        def geo:ThreeBufferGeometry (new ThreeBufferGeometry)
+        def vc:int (idiv (array_length positions) 3)
+        def hasN:boolean ((array_length normals) == (array_length positions))
+        def hasUV:boolean ((array_length uvs) == (vc * 2))
+        def i:int 0
+        while (i < vc) {
+            def px:double (itemAt positions (i * 3))
+            def py:double (itemAt positions ((i * 3) + 1))
+            def pz:double (itemAt positions ((i * 3) + 2))
+            def nx:double 0.0
+            def ny:double 0.0
+            def nz:double 0.0
+            if hasN {
+                nx = (itemAt normals (i * 3))
+                ny = (itemAt normals ((i * 3) + 1))
+                nz = (itemAt normals ((i * 3) + 2))
+            }
+            def u:double 0.0
+            def vv:double 0.0
+            if hasUV {
+                u = (itemAt uvs (i * 2))
+                vv = (itemAt uvs ((i * 2) + 1))
+            }
+            geo.pushVertex(px py pz nx ny nz u vv)
+            i = (i + 1)
+        }
+        def ic:int (array_length indices)
+        if (ic > 0) {
+            def k:int 0
+            while (k < ic) {
+                def idx:int (itemAt indices k)
+                geo.pushIndex(idx)
+                k = (k + 1)
+            }
+        } {
+            ; non-indexed: emit a trivial 0..vc-1 index list so downstream code
+            ; (which draws indexed) still works.
+            def j:int 0
+            while (j < vc) {
+                geo.pushIndex(j)
+                j = (j + 1)
+            }
+        }
+        return geo
+    }
+}
