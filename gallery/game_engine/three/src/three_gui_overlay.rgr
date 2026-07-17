@@ -1,0 +1,214 @@
+; ==============================================================================
+; three_gui_overlay — a lil-gui-style control panel, drawn with EVG.
+; ==============================================================================
+; The teapot example's GUI, kept in pure Ranger: the panel is an EVGElement tree
+; rasterised to an RGBA buffer (via GameHudBlitter + SoftCanvas), which the host
+; composites over the WebGL frame in a small 2D overlay canvas (native: over the
+; GL framebuffer). Holds its own control state; pointerDown() hit-tests a click,
+; mutates state, and returns whether anything changed so the host can rebuild the
+; teapot and re-render. No DOM, no callbacks — compiles to C++ like the rest.
+;
+; Controls (mirrors webgl_geometry_teapot): shading mode, tessellation stepper,
+; and the lid / body / bottom / fitLid / blinn toggles.
+; ==============================================================================
+
+Import "../../framebuffer.rgr"
+Import "../../scripting/game_hud.rgr"
+Import "../../../evg/EVGElement.rgr"
+Import "../../../evg/EVGColor.rgr"
+Import "../../../evg/EVGUnit.rgr"
+
+class ThreeGuiOverlay {
+    def panelW:int 210
+    def panelH:int 232
+    def rowTop:int 34
+    def rowH:int 26
+
+    ; control state (public — the host reads these to rebuild the teapot)
+    def shadingIndex:int 3      ; 0 wire, 1 flat, 2 smooth, 3 glossy
+    def tess:int 12
+    def dispLid:boolean true
+    def dispBody:boolean true
+    def dispBottom:boolean true
+    def fitLid:boolean true
+    def blinn:boolean true
+
+    def canvas:SoftCanvas (new SoftCanvas)
+    def blitter:GameHudBlitter (new GameHudBlitter)
+    def inited:boolean false
+
+    fn shadingLabel:string () {
+        if (shadingIndex == 0) { return "WIRE" }
+        if (shadingIndex == 1) { return "FLAT" }
+        if (shadingIndex == 2) { return "SMOOTH" }
+        return "GLOSSY"
+    }
+
+    fn width:int () {
+        return panelW
+    }
+    fn height:int () {
+        return panelH
+    }
+
+    ; a positioned text/box element (absolute — we bypass the layout engine).
+    fn cell:EVGElement (x:int y:int w:int h:int txt:string) {
+        def e:EVGElement (EVGElement.createDiv())
+        e.calculatedX = (to_double x)
+        e.calculatedY = (to_double y)
+        e.calculatedWidth = (to_double w)
+        e.calculatedHeight = (to_double h)
+        e.textContent = txt
+        e.color = (EVGColor.rgb(230 232 238))
+        e.fontSize = (EVGUnit.px(14.0))
+        return e
+    }
+
+    fn checkText:string (on:boolean label:string) {
+        if on {
+            return ("X " + label)
+        }
+        return ("- " + label)
+    }
+
+    ; create a text cell and add it to parent (returns it for extra styling).
+    fn addCell:EVGElement (parent:EVGElement x:int y:int w:int h:int txt:string) {
+        def e:EVGElement (this.cell(x y w h txt))
+        parent.addChild(e)
+        return e
+    }
+
+    ; build the EVG panel tree for the current state.
+    fn buildTree:EVGElement () {
+        def panel:EVGElement (EVGElement.createDiv())
+        panel.calculatedX = 0.0
+        panel.calculatedY = 0.0
+        panel.calculatedWidth = (to_double panelW)
+        panel.calculatedHeight = (to_double panelH)
+        panel.backgroundColor = (EVGColor.rgba(24 26 34 1.0))
+
+        ; title
+        def title:EVGElement (this.addCell(panel 10 8 190 20 "TEAPOT"))
+        title.color = (EVGColor.rgb(120 200 255))
+
+        ; shading row (click anywhere to cycle) with a highlight bar
+        def shBar:EVGElement (EVGElement.createDiv())
+        shBar.calculatedX = 6.0
+        shBar.calculatedY = (to_double (rowTop - 3))
+        shBar.calculatedWidth = (to_double (panelW - 12))
+        shBar.calculatedHeight = (to_double (rowH - 4))
+        shBar.backgroundColor = (EVGColor.rgba(44 48 60 1.0))
+        panel.addChild(shBar)
+        def shTxt:string ("SHADING: " + (this.shadingLabel()))
+        def shCell:EVGElement (this.addCell(panel 12 rowTop 186 20 shTxt))
+
+        ; tessellation row: label + [-] and [+] steppers
+        def ty:int (rowTop + rowH)
+        def tTxt:string ("TESS: " + (to_string tess))
+        def tCell:EVGElement (this.addCell(panel 12 ty 110 20 tTxt))
+        def minus:EVGElement (this.addCell(panel (panelW - 66) (ty - 3) 24 22 "-"))
+        minus.backgroundColor = (EVGColor.rgba(60 64 78 1.0))
+        def plus:EVGElement (this.addCell(panel (panelW - 34) (ty - 3) 24 22 "+"))
+        plus.backgroundColor = (EVGColor.rgba(60 64 78 1.0))
+
+        ; toggle rows
+        def lidTxt:string (this.checkText(dispLid "LID"))
+        def r2:EVGElement (this.addCell(panel 12 (rowTop + (rowH * 2)) 190 20 lidTxt))
+        def bodyTxt:string (this.checkText(dispBody "BODY"))
+        def r3:EVGElement (this.addCell(panel 12 (rowTop + (rowH * 3)) 190 20 bodyTxt))
+        def botTxt:string (this.checkText(dispBottom "BOTTOM"))
+        def r4:EVGElement (this.addCell(panel 12 (rowTop + (rowH * 4)) 190 20 botTxt))
+        def fitTxt:string (this.checkText(fitLid "FITLID"))
+        def r5:EVGElement (this.addCell(panel 12 (rowTop + (rowH * 5)) 190 20 fitTxt))
+        def blinnTxt:string (this.checkText(blinn "BLINN"))
+        def r6:EVGElement (this.addCell(panel 12 (rowTop + (rowH * 6)) 190 20 blinnTxt))
+        return panel
+    }
+
+    ; render the panel to the SoftCanvas and return its RGBA bytes.
+    fn render:buffer () {
+        if (inited == false) {
+            canvas.init(panelW panelH)
+            blitter.attach(canvas)
+            inited = true
+        }
+        def root:EVGElement (this.buildTree())
+        blitter.drawElement(root)
+        return (canvas.raw())
+    }
+
+    ; hit-test a click in panel-local coords; mutate state; return true if changed.
+    fn pointerDown:boolean (px:double py:double) {
+        def x:int (to_int px)
+        def y:int (to_int py)
+        if (y < (rowTop - 3)) {
+            return false
+        }
+        ; shading row
+        if (y < (rowTop + (rowH - 3))) {
+            shadingIndex = (shadingIndex + 1)
+            if (shadingIndex > 3) {
+                shadingIndex = 0
+            }
+            return true
+        }
+        def ty:int (rowTop + rowH)
+        ; tessellation row
+        if (y < (ty + (rowH - 3))) {
+            if (x >= (panelW - 40)) {
+                tess = (tess + 1)
+                if (tess > 30) {
+                    tess = 30
+                }
+                return true
+            }
+            if (x >= (panelW - 72)) {
+                tess = (tess - 1)
+                if (tess < 2) {
+                    tess = 2
+                }
+                return true
+            }
+            return false
+        }
+        ; toggle rows
+        def row:int (this.rowAt(y))
+        if (row == 2) {
+            dispLid = (dispLid == false)
+            return true
+        }
+        if (row == 3) {
+            dispBody = (dispBody == false)
+            return true
+        }
+        if (row == 4) {
+            dispBottom = (dispBottom == false)
+            return true
+        }
+        if (row == 5) {
+            fitLid = (fitLid == false)
+            return true
+        }
+        if (row == 6) {
+            blinn = (blinn == false)
+            return true
+        }
+        return false
+    }
+
+    fn rowAt:int (y:int) {
+        def r:int 0
+        def yy:int (y - rowTop)
+        while (r < 7) {
+            def lo:int (r * rowH)
+            def hi:int (lo + rowH)
+            if (yy >= lo) {
+                if (yy < hi) {
+                    return r
+                }
+            }
+            r = (r + 1)
+        }
+        return (0 - 1)
+    }
+}

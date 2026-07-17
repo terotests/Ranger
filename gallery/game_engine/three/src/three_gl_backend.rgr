@@ -75,8 +75,29 @@ class ThreeGLBackend extends ThreeRenderBackend {
         if (ready == false) {
             return
         }
-        if (geometry.glHandle < 0) {
-            geometry.glHandle = (this.uploadGeometry(geometry))
+        ; pick the GPU mesh for the material's render mode (smooth / flat / wire),
+        ; uploading + caching that variant on first use.
+        def handle:int 0
+        def lines:boolean false
+        if mat.wireframe {
+            if (geometry.wireHandle < 0) {
+                geometry.wireHandle = (this.uploadWire(geometry))
+            }
+            handle = geometry.wireHandle
+            lines = true
+        } {
+            if mat.flatShading {
+                if (geometry.flatHandle < 0) {
+                    def flat:ThreeBufferGeometry (geometry.buildFlat())
+                    geometry.flatHandle = (this.uploadGeometryData(flat))
+                }
+                handle = geometry.flatHandle
+            } {
+                if (geometry.glHandle < 0) {
+                    geometry.glHandle = (this.uploadGeometryData(geometry))
+                }
+                handle = geometry.glHandle
+            }
         }
         def th:int 0
         if mat.hasMap {
@@ -88,15 +109,19 @@ class ThreeGLBackend extends ThreeRenderBackend {
         def mvpBuf:buffer (this.matrixBytes(mvp))
         def modelBuf:buffer (this.matrixBytes(model))
         def matBuf:buffer (this.materialBytes(mat th))
-        gpu_draw prog geometry.glHandle th mvpBuf modelBuf matBuf
+        if lines {
+            gpu_draw_lines prog handle th mvpBuf modelBuf matBuf
+        } {
+            gpu_draw prog handle th mvpBuf modelBuf matBuf
+        }
     }
 
     fn endFrame:void () {
         gpu_end
     }
 
-    ; interleaved float32 [px,py,pz, nx,ny,nz, u,v] (32-byte stride) + uint32 index.
-    fn uploadGeometry:int (g:ThreeBufferGeometry) {
+    ; interleaved float32 [px,py,pz, nx,ny,nz, u,v] (32-byte stride) for a geometry.
+    fn packVerts:buffer (g:ThreeBufferGeometry) {
         def vc:int (g.vertexCount())
         def vbuf:buffer (buffer_alloc (vc * 32))
         def i:int 0
@@ -112,11 +137,33 @@ class ThreeGLBackend extends ThreeRenderBackend {
             ByteReader.encodeF32(vbuf (o + 28) (g.getUv(i 1)))
             i = (i + 1)
         }
+        return vbuf
+    }
+
+    ; upload a geometry as a triangle mesh (interleaved verts + uint32 index).
+    fn uploadGeometryData:int (g:ThreeBufferGeometry) {
+        def vc:int (g.vertexCount())
+        def vbuf:buffer (this.packVerts(g))
         def ic:int (g.indexCount())
         def ibuf:buffer (buffer_alloc (ic * 4))
         def k:int 0
         while (k < ic) {
             ByteReader.encodeU32(ibuf (k * 4) (g.getIndex(k)))
+            k = (k + 1)
+        }
+        return (gpu_make_mesh vbuf vc ibuf ic)
+    }
+
+    ; upload the same verts but with a line-edge index for wireframe drawing.
+    fn uploadWire:int (g:ThreeBufferGeometry) {
+        def vc:int (g.vertexCount())
+        def vbuf:buffer (this.packVerts(g))
+        def wi:[int] (g.buildWireIndex())
+        def ic:int (array_length wi)
+        def ibuf:buffer (buffer_alloc (ic * 4))
+        def k:int 0
+        while (k < ic) {
+            ByteReader.encodeU32(ibuf (k * 4) (itemAt wi k))
             k = (k + 1)
         }
         return (gpu_make_mesh vbuf vc ibuf ic)

@@ -95,15 +95,23 @@ and adds the material/light classes.
 
 ## 4. Milestones (shippable slices)
 
-- **M1 — Lit teapot, one material.** Phases A + B + minimal D: the teapot renders,
-  lit (Lambert/Phong), on a solid background. Proves lighting + procedural
-  geometry end-to-end (headless software test + browser WebGL).
-- **M2 — Orbitable teapot.** + Phase C: drag to orbit, wheel to zoom, on-demand
-  render. This is "the teapot you can look around."
-- **M3 — The GUI.** + Phase E + the rest of D: the lil-gui panel (tessellation,
-  lid/body/bottom toggles, shading dropdown) drives `createNewTeapot()` and
-  material switching — the full example minus reflections.
+- **M1 — Lit teapot, one material. ✅ DONE.** Phases A + B + minimal D: the teapot
+  renders, lit (Lambert/Phong), on a solid background. Proves lighting +
+  procedural geometry end-to-end (headless software test + browser WebGL).
+  Verified in headless Chromium (`web_teapot_gl_probe`).
+- **M2 — Orbitable teapot. ✅ DONE.** + Phase C: `ThreeOrbitControls` — drag to
+  orbit, wheel to dolly, on-demand render (`needsRender()`), host pointer surface.
+  Added the `atan2` math builtin + `Object3D.lookAt` / `Matrix4.lookAt` +
+  quaternion-from-matrix. Verified orbit + zoom in the browser.
+- **M3 — The GUI. ✅ DONE.** + Phase E + the rest of D: `ThreeGuiOverlay` — a
+  lil-gui-style panel built as an EVG tree, rasterised to RGBA (GameHudBlitter +
+  SoftCanvas), composited as a 2D overlay over the WebGL frame; pointer hit-test
+  drives `createNewTeapot()` (tessellation stepper, lid/body/bottom/fitLid/blinn
+  toggles) and material switching (shading dropdown: wireframe / flat / smooth /
+  glossy). Wireframe = GL line-edge draw; flat = per-face-normal geometry variant.
+  The full example minus reflections. Verified all modes in the browser.
 - **M4 — Reflections.** + Phase F: cube maps, `envMap`, skybox → the example 1:1.
+  (Also still deferred from M3: the `textured` and `reflective` dropdown options.)
 
 ## 5. Portability & test rules (unchanged from IDEAL_THREE)
 
