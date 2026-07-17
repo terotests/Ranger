@@ -33,6 +33,13 @@ class ThreeWebGLRenderer {
     def clearG:double 0.102
     def clearB:double 0.133
 
+    ; HDR output: tone-mapping mode (ThreeToneMapping.* enum, default
+    ; NoToneMapping = 0) + exposure. The GL backend feeds these to the übershader
+    ; epilogue (uToneMapping/uExposure); shadowMapEnabled gates the shadow pass.
+    def toneMapping:int 0
+    def toneMappingExposure:double 1.0
+    def shadowMapEnabled:boolean false
+
     ; per-frame light accumulators (filled by walkLights, fed to the backend)
     def accAmbR:double 0.0
     def accAmbG:double 0.0
@@ -60,6 +67,18 @@ class ThreeWebGLRenderer {
         clearR = r
         clearG = g
         clearB = b
+        return this
+    }
+    fn setToneMapping:ThreeWebGLRenderer (mode:int) {
+        toneMapping = mode
+        return this
+    }
+    fn setToneMappingExposure:ThreeWebGLRenderer (exposure:double) {
+        toneMappingExposure = exposure
+        return this
+    }
+    fn setShadowMapEnabled:ThreeWebGLRenderer (enabled:boolean) {
+        shadowMapEnabled = enabled
         return this
     }
 
