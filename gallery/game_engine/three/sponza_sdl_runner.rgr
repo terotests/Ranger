@@ -30,6 +30,7 @@ Import "src/three_gl_backend.rgr"
 Import "src/three_mesh.rgr"
 Import "src/three_box_geometry.rgr"
 Import "src/three_gltf_file.rgr"
+Import "src/three_gltf_textures.rgr"
 
 class SponzaSdlRunner {
     def pw:int 1280
@@ -94,6 +95,9 @@ class SponzaSdlRunner {
         def loader:ThreeGLTFFile (new ThreeGLTFFile)
         def m:ThreeObject3D (loader.loadFromURL(url))
         if ((m.childCount()) > 0) {
+            ; decode + attach the baseColor textures (native path — no canvas).
+            print "[sponza] decoding textures (this can take a while)..."
+            ThreeGLTFTextures.load(loader (ThreeGLTFFile.dirOf(url)))
             return m
         }
         return (SponzaSdlRunner.buildPlaceholderModel())
