@@ -278,42 +278,41 @@ def draw_f1_rear(
     ox = lean * 5
     tip = lean * 2
 
-    # 1) Front tires FIRST (far) — body will cover their inner halves so the
-    #    chassis sits between front and rear tires, not behind the fronts.
+    # 1) Front tires FIRST (far).
     fl_x = 10 + ox - lean * 3
     fr_x = 39 + ox - lean * 3
-    draw_front_tire(pix, w, h, fl_x, 15, 7)
-    draw_front_tire(pix, w, h, fr_x, 15, 7)
+    draw_front_tire(pix, w, h, fl_x, 18, 7)
+    draw_front_tire(pix, w, h, fr_x, 18, 7)
 
-    # 2) Compact spoiler (narrow + short).
+    # 2) Compact spoiler (narrow + short), lowered with the chassis.
     wing_w = 34
     wing_x = (w - wing_w) // 2 + ox
-    fill_rect(pix, w, h, wing_x, 2, wing_w, 3, wing)
-    fill_rect(pix, w, h, wing_x + 1, 1, wing_w - 2, 2, (48, 48, 54, 255))
-    fill_rect(pix, w, h, wing_x - 1, 1, 3, 7, wing)
-    fill_rect(pix, w, h, wing_x + wing_w - 2, 1, 3, 7, wing)
+    fill_rect(pix, w, h, wing_x, 5, wing_w, 3, wing)
+    fill_rect(pix, w, h, wing_x + 1, 4, wing_w - 2, 2, (48, 48, 54, 255))
+    fill_rect(pix, w, h, wing_x - 1, 4, 3, 7, wing)
+    fill_rect(pix, w, h, wing_x + wing_w - 2, 4, 3, 7, wing)
     for sx in range(wing_x + 4, wing_x + wing_w - 4, 5):
-        fill_rect(pix, w, h, sx, 2, 1, 2, (70, 70, 78, 255))
+        fill_rect(pix, w, h, sx, 5, 1, 2, (70, 70, 78, 255))
 
-    # 3) Body / sidepods ON TOP of front tires (yawed into the turn).
-    fill_rect(pix, w, h, 16 + ox, 10, 24, 12, body)
-    fill_rect(pix, w, h, 18 + ox, 12, 20, 8, shade)
-    fill_rect(pix, w, h, 20 + ox, 9, 16, 3, (32, 32, 38, 255))
-    fill_rect(pix, w, h, 10 + ox + tip, 12, 9, 8, body)
-    fill_rect(pix, w, h, 37 + ox - tip, 12, 9, 8, body)
+    # 3) Body lowered so it sits between the rear tires (not floating).
+    fill_rect(pix, w, h, 16 + ox, 14, 24, 14, body)
+    fill_rect(pix, w, h, 18 + ox, 16, 20, 10, shade)
+    fill_rect(pix, w, h, 20 + ox, 13, 16, 3, (32, 32, 38, 255))
+    fill_rect(pix, w, h, 10 + ox + tip, 16, 9, 10, body)
+    fill_rect(pix, w, h, 37 + ox - tip, 16, 9, 10, body)
 
     # Helmet from behind.
-    fill_ellipse(pix, w, h, w // 2 + ox, 11, 5, 4, (26, 26, 30, 255))
-    fill_ellipse(pix, w, h, w // 2 + ox, 10, 3, 3, accent)
+    fill_ellipse(pix, w, h, w // 2 + ox, 15, 5, 4, (26, 26, 30, 255))
+    fill_ellipse(pix, w, h, w // 2 + ox, 14, 3, 3, accent)
 
-    # Exhaust.
-    fill_rect(pix, w, h, 22 + ox, 21, 12, 2, (255, 150, 40, 255))
+    # Exhaust tucked between rear tires.
+    fill_rect(pix, w, h, 22 + ox, 26, 12, 2, (255, 150, 40, 255))
 
-    # 4) Rear tires LAST (near), a bit farther left/right.
+    # 4) Rear tires LAST — body bottom overlaps their top edge.
     rl_x = 0 + lean * 4
     rr_x = 44 + lean * 4
-    draw_rear_tire(pix, w, h, rl_x, 21, 12, 15)
-    draw_rear_tire(pix, w, h, rr_x, 21, 12, 15)
+    draw_rear_tire(pix, w, h, rl_x, 22, 12, 15)
+    draw_rear_tire(pix, w, h, rr_x, 22, 12, 15)
     return pix, w, h
 
 
