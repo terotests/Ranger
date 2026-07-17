@@ -1,0 +1,55 @@
+; ==============================================================================
+; three_euler_test — Three.js Euler tests (ported subset).
+; ==============================================================================
+
+Import "three_euler.rgr"
+
+class ThreeEulerCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+}
+
+class ThreeEulerTest {
+    sfn m@(main):void () {
+        def ck:ThreeEulerCheck (new ThreeEulerCheck)
+        print "== ThreeEuler (Three.js Euler port) =="
+
+        def e:ThreeEuler (new ThreeEuler)
+        ck.ok("default order XYZ" (e.order == "XYZ"))
+        ck.ok("default zero" (((e.x == 0.0) && (e.y == 0.0)) && (e.z == 0.0)))
+
+        e.set(0.1 0.2 0.3)
+        ck.ok("set x" (e.x == 0.1))
+        ck.ok("set z" (e.z == 0.3))
+
+        e.setWithOrder(1.0 2.0 3.0 "YXZ")
+        ck.ok("setWithOrder order" (e.order == "YXZ"))
+        ck.ok("setWithOrder y" (e.y == 2.0))
+
+        def c:ThreeEuler (e.clone())
+        ck.ok("clone equals" (c.equals(e)))
+        c.set(9.0 9.0 9.0)
+        ck.ok("clone independent" ((e.x == 1.0) && (c.x == 9.0)))
+
+        def d:ThreeEuler (new ThreeEuler)
+        d.copy(e)
+        ck.ok("copy equals" (d.equals(e)))
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

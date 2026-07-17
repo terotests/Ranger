@@ -20,5 +20,9 @@ run_suite() {
 
 # One suite per ported class (grows piece by piece).
 run_suite three_vector3_test
+run_suite three_euler_test
+run_suite three_quaternion_test
+run_suite three_matrix4_test
+run_suite three_object3d_test
 
 echo "done."

@@ -49,10 +49,10 @@ bash gallery/game_engine/three/src/run.sh    # prints ALL PASS per suite
 | # | Piece | Three.js source | Status |
 |---|-------|-----------------|--------|
 | 1 | `ThreeVector3` | `math/Vector3.js` | ✅ done (25 checks) |
-| 2 | `ThreeEuler` | `math/Euler.js` | ⬜ |
-| 3 | `ThreeQuaternion` | `math/Quaternion.js` | ⬜ |
-| 4 | `ThreeMatrix4` (incl. `makePerspective`, `compose`) | `math/Matrix4.js` | ⬜ |
-| 5 | `ThreeObject3D` (position/rotation/scale, `add`, `updateMatrixWorld`) | `core/Object3D.js` | ⬜ |
+| 2 | `ThreeEuler` | `math/Euler.js` | ✅ done (9 checks) |
+| 3 | `ThreeQuaternion` (incl. `setFromEuler`, all 6 orders) | `math/Quaternion.js` | ✅ done (14 checks) |
+| 4 | `ThreeMatrix4` (incl. `makePerspective`, `compose`, `invert`) | `math/Matrix4.js` | ✅ done (20 checks) |
+| 5 | `ThreeObject3D` (position/rotation/scale, `add`, `updateMatrixWorld`) | `core/Object3D.js` | ✅ done (11 checks) |
 | 6 | `ThreeScene` | `scenes/Scene.js` | ⬜ |
 | 7 | `ThreePerspectiveCamera` | `cameras/PerspectiveCamera.js` | ⬜ |
 | 8 | `ThreeBufferGeometry` + `ThreeBoxGeometry` | `core/BufferGeometry.js`, `geometries/BoxGeometry.js` | ⬜ |

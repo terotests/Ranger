@@ -1,0 +1,65 @@
+; ==============================================================================
+; three_object3d — scene-graph node (Three.js port of src/core/Object3D.js).
+; ==============================================================================
+;
+; position (Vector3), rotation (Euler), quaternion (Quaternion), scale (Vector3),
+; children, and the local/world matrices. Base class for Scene, Camera and Mesh.
+;
+; Three.js keeps rotation and quaternion reactively in sync; this port derives
+; the quaternion from the Euler in updateMatrix(), which is enough for the usual
+; "mutate mesh.rotation, then render" loop. World matrices are computed top-down
+; (updateWorld takes the parent's world matrix) so no parent back-reference is
+; needed.
+; ==============================================================================
+
+Import "three_vector3.rgr"
+Import "three_euler.rgr"
+Import "three_quaternion.rgr"
+Import "three_matrix4.rgr"
+
+class ThreeObject3D {
+    def isObject3D:boolean true
+    def name:string ""
+    def visible:boolean true
+    def position:ThreeVector3 (new ThreeVector3)
+    def rotation:ThreeEuler (new ThreeEuler)
+    def quaternion:ThreeQuaternion (new ThreeQuaternion)
+    def scale:ThreeVector3 (ThreeVector3.of(1.0 1.0 1.0))
+    def up:ThreeVector3 (ThreeVector3.of(0.0 1.0 0.0))
+    def matrix:ThreeMatrix4 (new ThreeMatrix4)
+    def matrixWorld:ThreeMatrix4 (new ThreeMatrix4)
+    def children:[ThreeObject3D]
+
+    fn add:ThreeObject3D (child:ThreeObject3D) {
+        push this.children child
+        return this
+    }
+    fn childCount:int () {
+        return (array_length this.children)
+    }
+    fn getChild:ThreeObject3D (i:int) {
+        return (itemAt this.children i)
+    }
+
+    ; local matrix from position + (quaternion derived from rotation) + scale.
+    fn updateMatrix:void () {
+        this.quaternion.setFromEuler(this.rotation)
+        this.matrix.compose(this.position this.quaternion this.scale)
+    }
+
+    ; world matrix = parentWorld * local, recursively for children.
+    fn updateWorld:void (parentWorld:ThreeMatrix4) {
+        this.updateMatrix()
+        this.matrixWorld.multiplyMatrices(parentWorld this.matrix)
+        def i:int 0
+        while (i < (array_length this.children)) {
+            def c:ThreeObject3D (itemAt this.children i)
+            c.updateWorld(this.matrixWorld)
+            i = (i + 1)
+        }
+    }
+    fn updateMatrixWorld:void () {
+        def id:ThreeMatrix4 (new ThreeMatrix4)
+        this.updateWorld(id)
+    }
+}
