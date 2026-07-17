@@ -201,7 +201,12 @@
       }
 
       async function loadGame(entry) {
-        if (session) session.stop();
+        if (session) {
+          session.stop();
+          // release any per-game DOM the session added (e.g. the teapot's 2D GUI
+          // overlay canvas), so it doesn't linger over the next game.
+          if (typeof session.dispose === "function") session.dispose();
+        }
         setStatus("loading " + entry.title + "…");
         controlsEl.textContent = entry.controls || "";
         fileCapEl.textContent = entry.scriptDir + "/" + entry.script;

@@ -147,6 +147,16 @@
       if (this.host.needsRender()) this.host.frame();
       this._raf = requestAnimationFrame(this._tick);
     }
+
+    // Called when switching away from this game: stop the loop and remove the
+    // 2D GUI overlay canvas (else it lingers over the next game's canvas).
+    dispose() {
+      this.stop();
+      if (this.overlay && this.overlay.parentElement) {
+        this.overlay.parentElement.removeChild(this.overlay);
+      }
+      this.overlay = null;
+    }
   }
 
   async function launch(config) {
