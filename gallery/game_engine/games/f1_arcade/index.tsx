@@ -2,12 +2,13 @@
 //
 // F1 Arcade — classic Pole Position-style pseudo-3D racer.
 //
-// Retained horizontal strip sprites project a perspective road; curves bend
-// the center line, AI cars scale via size tiers, and the HUD mirrors the
-// old arcade layout (TIME / SCORE / SPEED / LAP).
+// Retained horizontal strip sprites project a perspective road. Roadside
+// props (palms, houses, cheering crowds) and cars are real PNG sheets with
+// pre-baked depth tiers (sheet cache is keyed by path, so each size is its
+// own file — see tools/gen_sprites.py).
 //
 // Controls: Left/Right steer · Up or Space accelerate · Down brake
-// Run: npm run engine:game-sdl -- --run gallery/game_engine/games/f1_arcade/index.tsx
+// Run: npm run engine:game-sdl:run:f1_arcade
 //      or launcher → F1 Arcade
 
 import { soundEvent } from "game_helpers";
@@ -21,9 +22,22 @@ const SEG_LEN = 220;
 const Z_STEP = 42;
 const CAR_TIERS = 4;
 const AI_COUNT = 4;
+const PROP_SLOTS = 8;
+const PROP_TIERS = 3;
 const START_TIME = 75;
 
-// Per-segment curve strength (−2 .. 2). Read-only track definition.
+// Pre-baked PNG sizes from tools/gen_sprites.py
+const PALM_W = [20, 37, 64];
+const PALM_H = [30, 55, 96];
+const HOUSE_W = [20, 37, 64];
+const HOUSE_H = [20, 37, 64];
+const CROWD_FW = [23, 41, 72];
+const CROWD_FH = [17, 32, 56];
+const AI_W = [15, 26, 39, 56];
+const AI_H = [11, 20, 29, 42];
+const PLAYER_W = 56;
+const PLAYER_H = 42;
+
 const CURVES = [
   0, 0, 0, 0, 0, 0,
   1, 2, 2, 1, 0, 0,
@@ -33,18 +47,6 @@ const CURVES = [
   1, 0, 0, -2, -1, 0,
   0, 1, 0, -1, 0, 0,
   0, 0, 1, 0, 0, 0
-];
-
-const CAR_ART = [
-  "......XX......",
-  ".....XXXX.....",
-  "....XXXXXX....",
-  "...XXXXXXXX...",
-  "..OOXXXXXXOO..",
-  ".OO.XXXXXX.OO.",
-  "X....XXXX....X",
-  ".....X..X.....",
-  "....XX..XX...."
 ];
 
 function roadWAt(i) {
@@ -104,7 +106,6 @@ function clamp(v, lo, hi) {
 }
 
 function floorOf(v) {
-  // Interpreter-safe truncate toward zero (same pattern as other games).
   return v | 0;
 }
 
@@ -112,8 +113,22 @@ function aiId(n, tier) {
   return ("ai" + n) + ("t" + tier);
 }
 
-function treeId(n, tier) {
-  return ("tr" + n) + ("t" + tier);
+function propId(kind, slot, tier) {
+  return (kind + slot) + ("t" + tier);
+}
+
+function sheetSprite(id, path, frameW, frameH, cols) {
+  return {
+    id: id,
+    kind: "sheet",
+    path: path,
+    frameW: frameW,
+    frameH: frameH,
+    cols: cols,
+    rows: 1,
+    scale: 100,
+    feetTrim: 0
+  };
 }
 
 function sprites() {
@@ -152,13 +167,40 @@ function sprites() {
     i = i + 1;
   }
 
-  // Roadside trees — 3 depth tiers × 6 slots.
-  let t = 0;
-  while (t < 6) {
-    list.push({ id: treeId(t, 0), kind: "rect", w: 6, h: 10, r: 20, g: 100, b: 30 });
-    list.push({ id: treeId(t, 1), kind: "rect", w: 12, h: 20, r: 24, g: 120, b: 36 });
-    list.push({ id: treeId(t, 2), kind: "rect", w: 22, h: 36, r: 28, g: 140, b: 40 });
-    t = t + 1;
+  // Roadside PNG props — pre-sized tiers (sheet cache is path-keyed).
+  // Define far slots first so nearer props paint on top.
+  let slot = PROP_SLOTS - 1;
+  while (slot >= 0) {
+    let tier = 0;
+    while (tier < PROP_TIERS) {
+      list.push(sheetSprite(
+        propId("palm", slot, tier),
+        "assets/palm_" + tier + ".png",
+        PALM_W[tier],
+        PALM_H[tier],
+        1
+      ));
+      let housePath = "assets/house_";
+      if ((slot % 2) == 1) {
+        housePath = "assets/house2_";
+      }
+      list.push(sheetSprite(
+        propId("house", slot, tier),
+        housePath + tier + ".png",
+        HOUSE_W[tier],
+        HOUSE_H[tier],
+        1
+      ));
+      list.push(sheetSprite(
+        propId("crowd", slot, tier),
+        "assets/crowd_" + tier + ".png",
+        CROWD_FW[tier],
+        CROWD_FH[tier],
+        2
+      ));
+      tier = tier + 1;
+    }
+    slot = slot - 1;
   }
 
   // Start gantry pieces.
@@ -171,57 +213,24 @@ function sprites() {
   list.push({ id: "lightY", kind: "circle", rad: 5, r: 90, g: 70, b: 10 });
   list.push({ id: "lightG", kind: "circle", rad: 5, r: 20, g: 90, b: 20 });
 
-  // AI cars — size tiers (far → near). EntityPose cannot resize, so swap tiers.
+  // AI cars — PNG depth tiers.
   let n = 0;
   while (n < AI_COUNT) {
     let tier = 0;
     while (tier < CAR_TIERS) {
-      const w = 8 + tier * 8;
-      const hh = 6 + tier * 5;
-      let r = 220;
-      let g = 60;
-      let b = 50;
-      if (n == 1) {
-        r = 50;
-        g = 90;
-        b = 220;
-      }
-      if (n == 2) {
-        r = 240;
-        g = 220;
-        b = 50;
-      }
-      if (n == 3) {
-        r = 230;
-        g = 230;
-        b = 240;
-      }
-      list.push({
-        id: aiId(n, tier),
-        kind: "rect",
-        w: w,
-        h: hh,
-        r: r,
-        g: g,
-        b: b
-      });
+      list.push(sheetSprite(
+        aiId(n, tier),
+        (("assets/ai" + n) + "_") + tier + ".png",
+        AI_W[tier],
+        AI_H[tier],
+        1
+      ));
       tier = tier + 1;
     }
     n = n + 1;
   }
 
-  list.push({
-    id: "player",
-    kind: "bitmap",
-    px: 3,
-    br: 230,
-    bg: 70,
-    bb: 40,
-    er: 40,
-    eg: 140,
-    eb: 230,
-    frames: [CAR_ART]
-  });
+  list.push(sheetSprite("player", "assets/car_player.png", PLAYER_W, PLAYER_H, 1));
 
   return list;
 }
@@ -237,15 +246,17 @@ function hideGantry(entities) {
   entities.lightG = { x: -40, y: -40, visible: 0 };
 }
 
-function hideTrees(entities) {
-  let t = 0;
-  while (t < 6) {
+function hideProps(entities) {
+  let slot = 0;
+  while (slot < PROP_SLOTS) {
     let tier = 0;
-    while (tier < 3) {
-      entities[treeId(t, tier)] = { x: -40, y: -40, visible: 0 };
+    while (tier < PROP_TIERS) {
+      entities[propId("palm", slot, tier)] = { x: -40, y: -40, visible: 0 };
+      entities[propId("house", slot, tier)] = { x: -40, y: -40, visible: 0 };
+      entities[propId("crowd", slot, tier)] = { x: -40, y: -40, visible: 0, p0: 0 };
       tier = tier + 1;
     }
-    t = t + 1;
+    slot = slot + 1;
   }
 }
 
@@ -301,10 +312,10 @@ function initState() {
     i = i + 1;
   }
 
-  hideTrees(entities);
+  hideProps(entities);
   hideGantry(entities);
   hideAi(entities);
-  entities.player = { x: 240, y: 232, p0: 0, visible: 1 };
+  entities.player = { x: 240, y: 242, p0: 0, visible: 1 };
 
   const ai = initAi();
   return {
@@ -325,6 +336,7 @@ function initState() {
     finished: 0,
     crashMs: 0,
     mountainX: 0,
+    anim: 0,
     entities: entities,
     score1: 0,
     score2: START_TIME,
@@ -401,7 +413,7 @@ function tierForScale(scale) {
   return 3;
 }
 
-function treeTierForScale(scale) {
+function propTierForScale(scale) {
   if (scale < 0.35) {
     return 0;
   }
@@ -439,7 +451,7 @@ function placeRoad(entities, playerZ, playerX) {
     const rw = roadWAt(i);
     const rbw = rumbleWAt(i);
 
-    const stripe = floorOf((worldZ) / 28) % 2;
+    const stripe = floorOf(worldZ / 28) % 2;
 
     let roadR = 68;
     let roadG = 70;
@@ -459,8 +471,6 @@ function placeRoad(entities, playerZ, playerX) {
       rumbleB = 240;
     }
 
-    // Alternating grass is suggested by nudging the full-screen ground tint via
-    // near-strip rumble contrast; road/rumble carry the motion cues.
     entities["rd" + i] = {
       x: cx,
       y: y,
@@ -550,12 +560,6 @@ function placeGantry(entities, playerZ, playerX, light) {
     hideGantry(entities);
     return;
   }
-  const proj = projectZ(rel + 200);
-  if (proj.visible == 0) {
-    hideGantry(entities);
-    return;
-  }
-  // Gantry sits near the start; once player passes, hide.
   if (playerZ > 280) {
     hideGantry(entities);
     return;
@@ -600,26 +604,46 @@ function placeGantry(entities, playerZ, playerX, light) {
   entities.lightG = { x: cx + 18, y: y - 18, r: gr, g: gg, b: gb, rad: 5, visible: 1 };
 }
 
-function placeTrees(entities, playerZ, playerX) {
-  hideTrees(entities);
+function placeProps(entities, playerZ, playerX, anim) {
+  hideProps(entities);
   let slot = 0;
-  while (slot < 6) {
-    const ahead = 180 + slot * 260;
+  while (slot < PROP_SLOTS) {
+    const ahead = 140 + slot * 200;
     const worldZ = playerZ + ahead;
     const seg = floorOf(worldZ / SEG_LEN);
-    // Trees on the outside of curves / every other segment.
-    if ((seg % 2) == 0) {
-      const proj = projectZ(ahead);
-      if (proj.visible == 1) {
-        if (proj.scale > 0.12) {
-          const cx = roadCenterAt(playerZ, playerX, ahead);
-          const rw = roadWAt(STRIPS - 1 - proj.step);
-          const side = ((seg + slot) % 2) * 2 - 1;
-          const tx = cx + side * (rw * 0.5 + 18 + proj.scale * 28);
-          const tier = treeTierForScale(proj.scale);
-          entities[treeId(slot, tier)] = {
+    const proj = projectZ(ahead);
+    if (proj.visible == 1) {
+      if (proj.scale > 0.14) {
+        const cx = roadCenterAt(playerZ, playerX, ahead);
+        const rw = roadWAt(STRIPS - 1 - proj.step);
+        const side = ((seg + slot) % 2) * 2 - 1;
+        const kindIdx = (seg + slot) % 3;
+        let kind = "palm";
+        let edge = 22;
+        if (kindIdx == 1) {
+          kind = "house";
+          edge = 30;
+        }
+        if (kindIdx == 2) {
+          kind = "crowd";
+          edge = 26;
+        }
+        const tx = cx + side * (rw * 0.5 + edge + proj.scale * 34);
+        const tier = propTierForScale(proj.scale);
+        // Sheet sprites plant feet at (x,y).
+        const feetY = proj.y + 2;
+        if (kind == "crowd") {
+          const frame = (anim + slot) % 2;
+          entities[propId(kind, slot, tier)] = {
             x: tx,
-            y: proj.y - 8 - tier * 6,
+            y: feetY,
+            p0: frame,
+            visible: 1
+          };
+        } else {
+          entities[propId(kind, slot, tier)] = {
+            x: tx,
+            y: feetY,
             visible: 1
           };
         }
@@ -646,7 +670,7 @@ function placeAiCars(entities, s, playerZ, playerX) {
             const tier = tierForScale(proj.scale);
             entities[aiId(n, tier)] = {
               x: screenX,
-              y: proj.y - 4 - tier * 2,
+              y: proj.y + 2,
               visible: 1
             };
           }
@@ -676,6 +700,7 @@ function update(props) {
   let finished = s.finished;
   let crashMs = s.crashMs;
   let mountainX = s.mountainX;
+  let anim = s.anim;
 
   if (phase == "countdown") {
     countMs = countMs + dt;
@@ -721,7 +746,6 @@ function update(props) {
 
   speed = clamp(speed, 0, s.maxSpeed);
 
-  // Steer — more grip at speed, classic arcade feel.
   if (phase == "racing") {
     const steer = dt * 0.0011 * (0.35 + speed * 2.2);
     if (props.left) {
@@ -733,7 +757,6 @@ function update(props) {
   }
   x = clamp(x, -1.15, 1.15);
 
-  // Centrifugal drift into curves.
   if (phase == "racing") {
     if (speed > 0.05) {
       const segNow = floorOf(z / SEG_LEN);
@@ -757,6 +780,10 @@ function update(props) {
     timeLeft = timeLeft - dt / 1000;
     score = score + floorOf(speed * dt * 0.35);
     mountainX = mountainX - curveAt(floorOf(z / SEG_LEN)) * speed * dt * 0.02;
+    anim = anim + 1;
+    if (anim > 100000) {
+      anim = 0;
+    }
 
     const lapLen = TRACK_LEN * SEG_LEN;
     if (z > (lap + 1) * lapLen) {
@@ -780,9 +807,10 @@ function update(props) {
       finished = 1;
       events.push(soundEvent("lose"));
     }
+  } else {
+    anim = anim + 1;
   }
 
-  // AI cars cruise and wrap ahead of the player.
   let n = 0;
   const aiOut = {
     z0: s.z0,
@@ -806,13 +834,10 @@ function update(props) {
       cz = z + 900 + n * 400;
       cx = ((n % 2) * 2 - 1) * (0.2 + (n % 3) * 0.12);
     }
-    // Mild weaving.
-    // Cheap triangle-wave weave (avoid relying on Math.sin in the interpreter).
     const wave = absVal(((z * 0.02 + n * 40) % 40) - 20) / 20;
     cx = cx + (wave - 0.5) * 0.0012 * dt;
     cx = clamp(cx, -0.7, 0.7);
 
-    // Collision when overlapping in Z and lane.
     const rel = cz - z;
     if (phase == "racing") {
       if (rel > 20) {
@@ -863,32 +888,15 @@ function update(props) {
   }
 
   placeRoad(entities, z, x);
-  placeTrees(entities, z, x);
+  placeProps(entities, z, x, floorOf(anim / 8));
   placeGantry(entities, z, x, light);
   placeAiCars(entities, aiOut, z, x);
 
-  // Player car sits near the bottom; nudge with lateral position.
   const playerScreenX = 240 + x * 70;
-  let pr = 230;
-  let pg = 70;
-  let pb = 40;
-  if (offroad) {
-    pr = 255;
-    pg = 120;
-    pb = 40;
-  }
-  if (crashMs > 0) {
-    pr = 255;
-    pg = 255;
-    pb = 80;
-  }
   entities.player = {
     x: playerScreenX,
-    y: 232,
+    y: 248,
     p0: 0,
-    r: pr,
-    g: pg,
-    b: pb,
     visible: 1
   };
 
@@ -918,6 +926,7 @@ function update(props) {
     finished: finished,
     crashMs: crashMs,
     mountainX: mountainX,
+    anim: anim,
     entities: entities,
     score1: score,
     score2: floorOf(timeLeft),

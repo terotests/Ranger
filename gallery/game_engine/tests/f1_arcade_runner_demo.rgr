@@ -64,10 +64,33 @@ class F1ArcadeRunnerDemo {
         def py:int (runner.entityY("player"))
         def rdx:int (runner.entityX("rd20"))
         def rdy:int (runner.entityY("rd20"))
+        ; Scan a few prop ids — at least one roadside PNG should be on-screen.
+        def propHits:int 0
+        def si:int 0
+        while (si < 8) {
+            def ti:int 0
+            while (ti < 3) {
+                def pid:string (("palm" + si) + ("t" + ti))
+                def hid:string (("house" + si) + ("t" + ti))
+                def cid:string (("crowd" + si) + ("t" + ti))
+                if ((runner.entityX(pid)) > 0) {
+                    propHits = (propHits + 1)
+                }
+                if ((runner.entityX(hid)) > 0) {
+                    propHits = (propHits + 1)
+                }
+                if ((runner.entityX(cid)) > 0) {
+                    propHits = (propHits + 1)
+                }
+                ti = (ti + 1)
+            }
+            si = (si + 1)
+        }
         print ("frames=" + frames)
         print (("entities=" + ec))
         print (("player=" + px) + ("," + py))
         print (("rd20=" + rdx) + ("," + rdy))
+        print (("propHits=" + propHits))
         print (("score=" + runner.score1) + ("," + runner.score2))
         def audio:GameAudio (runner.audioRef())
         print (("audioPlays=" + audio.playCount))
@@ -80,6 +103,11 @@ class F1ArcadeRunnerDemo {
             print "progress=ok"
         } {
             print "progress=no-score"
+        }
+        if (propHits > 0) {
+            print "props=ok"
+        } {
+            print "props=missing"
         }
         print "f1-arcade-runner done"
     }
