@@ -233,59 +233,48 @@ def draw_f1_rear(
     body=(220, 50, 40, 255),
     accent=(40, 120, 220, 255),
     w=56,
-    h=42,
+    h=36,
     lean=0,
 ):
-    """True rear view (into the screen), not top-down. lean: -1/0/+1."""
+    """Stubbier rear view (into the screen). lean: -1/0/+1."""
     pix = blank(w, h)
-    wing = (24, 24, 28, 255)
-    tire = (16, 16, 18, 255)
-    rim = (160, 160, 170, 255)
+    wing = (22, 22, 26, 255)
+    tire = (14, 14, 16, 255)
+    rim = (155, 155, 165, 255)
     shade = (
         max(0, body[0] - 45),
         max(0, body[1] - 35),
         max(0, body[2] - 30),
         255,
     )
-    # Bank: shift mass left/right + tip wing.
-    ox = lean * 5
-    tip = lean * 2
+    ox = lean * 6
 
-    # Rear wing — dominant horizontal element (Pole Position look).
-    fill_rect(pix, w, h, 4 + ox, 6 + abs(tip), 48, 6, wing)
-    fill_rect(pix, w, h, 6 + ox, 4 + abs(tip), 44, 3, (50, 50, 56, 255))
-    fill_rect(pix, w, h, 3 + ox - tip, 5, 5, 16, wing)
-    fill_rect(pix, w, h, 48 + ox + tip, 5, 5, 16, wing)
+    # Huge rear wing across the top (reads as “behind the car”).
+    fill_rect(pix, w, h, 2 + ox, 2, 52, 7, wing)
+    fill_rect(pix, w, h, 4 + ox, 1, 48, 3, (48, 48, 54, 255))
+    fill_rect(pix, w, h, 1 + ox, 1, 5, 14, wing)
+    fill_rect(pix, w, h, 50 + ox, 1, 5, 14, wing)
+    for sx in range(8, 50, 6):
+        fill_rect(pix, w, h, sx + ox, 4, 2, 3, (70, 70, 78, 255))
 
-    # Engine cover / airbox (short, facing camera).
-    fill_rect(pix, w, h, 18 + ox, 12, 20, 14, body)
-    fill_rect(pix, w, h, 20 + ox, 14, 16, 10, shade)
-    fill_rect(pix, w, h, 22 + ox, 10, 12, 5, (35, 35, 40, 255))
+    # Compact engine cover facing camera (not a long top-down chassis).
+    fill_rect(pix, w, h, 16 + ox, 9, 24, 12, body)
+    fill_rect(pix, w, h, 18 + ox, 11, 20, 8, shade)
+    fill_rect(pix, w, h, 20 + ox, 8, 16, 4, (32, 32, 38, 255))
+    fill_rect(pix, w, h, 8 + ox, 12, 10, 8, body)
+    fill_rect(pix, w, h, 38 + ox, 12, 10, 8, body)
 
-    # Sidepods tucked beside the cover (not a long chassis).
-    fill_rect(pix, w, h, 10 + ox, 16, 10, 10, body)
-    fill_rect(pix, w, h, 36 + ox, 16, 10, 10, body)
+    # Helmet from behind.
+    fill_ellipse(pix, w, h, w // 2 + ox, 12, 5, 4, (26, 26, 30, 255))
+    fill_ellipse(pix, w, h, w // 2 + ox, 11, 3, 3, accent)
 
-    # Helmet / halo from behind.
-    fill_ellipse(pix, w, h, w // 2 + ox, 15, 6, 5, (28, 28, 32, 255))
-    fill_ellipse(pix, w, h, w // 2 + ox, 14, 4, 3, accent)
-    fill_ellipse(pix, w, h, w // 2 + ox - 1, 13, 1, 1, (200, 220, 255, 255))
+    # Exhaust.
+    fill_rect(pix, w, h, 22 + ox, 20, 12, 2, (255, 150, 40, 255))
 
-    # Diffuser / exhaust glow under the body.
-    fill_rect(pix, w, h, 20 + ox, 26, 16, 3, (40, 40, 48, 255))
-    fill_rect(pix, w, h, 24 + ox, 28, 8, 2, (255, 160, 50, 255))
-
-    # Only TWO rear tires (big, at bottom corners).
-    for tx in (2 + lean * 2, 38 + lean * 2):
-        fill_ellipse(pix, w, h, tx + 8, 32, 9, 8, tire)
-        fill_ellipse(pix, w, h, tx + 8, 32, 3, 3, rim)
-        fill_rect(pix, w, h, tx + 5, 30, 6, 2, (70, 70, 80, 255))
-
-    # Lean cue: outer tire tucked / inner tire larger.
-    if lean < 0:
-        fill_rect(pix, w, h, 1, 20, 3, 14, shade)
-    if lean > 0:
-        fill_rect(pix, w, h, 52, 20, 3, 14, shade)
+    # Two fat rear tires only.
+    for tx in (0 + lean * 3, 40 + lean * 3):
+        fill_ellipse(pix, w, h, tx + 8, 26, 10, 8, tire)
+        fill_ellipse(pix, w, h, tx + 8, 26, 3, 3, rim)
     return pix, w, h
 
 

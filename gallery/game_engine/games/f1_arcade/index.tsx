@@ -47,7 +47,7 @@ const HOUSE_H = 64;
 const CROWD_FW = 72;
 const CROWD_FH = 56;
 const CAR_W = 56;
-const CAR_H = 42;
+const CAR_H = 36;
 
 // Per-segment curve (−6 .. 6 style, a bit softer). Length TRACK_SEGS.
 const CURVES = [
@@ -469,10 +469,18 @@ function placeWorld(entities, playerZ, playerX, anim, aiState) {
     }
     const y = (yNear + yFar) * 0.5;
     const cx = (xs[bi] + xs[bi + 1]) * 0.5;
-    const half = (ws[bi] + ws[bi + 1]) * 0.5;
+    let half = (ws[bi] + ws[bi + 1]) * 0.5;
+    // Keep road + rumbles inside the view; clamp half so edges abut (no grass seam).
+    const maxHalf = VIEW_W * 0.5 - 8;
+    if (half > maxHalf) {
+      half = maxHalf;
+    }
+    if (half < 5) {
+      half = 5;
+    }
     const relZ = (zs[bi] + zs[bi + 1]) * 0.5;
     const camX = cams[bi];
-    const roadW = clamp(floorOf(half * 2), 10, VIEW_W - 2);
+    const roadW = floorOf(half * 2);
     const rb = rumbleW(half);
     const lw = lineW(half);
     const segIdx = baseSeg + floorOf(relZ / SEG_LENGTH);
@@ -502,8 +510,9 @@ function placeWorld(entities, playerZ, playerX, anim, aiState) {
           b: roadB,
           visible: 1
         };
+        // Rumble overlaps road edge by ~1/3 so no grass seam at the curb.
         entities["rl" + bi] = {
-          x: cx - half - rb * 0.5,
+          x: cx - half + rb * 0.2,
           y: y,
           w: rb,
           h: bandH,
@@ -513,7 +522,7 @@ function placeWorld(entities, playerZ, playerX, anim, aiState) {
           visible: 1
         };
         entities["rr" + bi] = {
-          x: cx + half + rb * 0.5,
+          x: cx + half - rb * 0.2,
           y: y,
           w: rb,
           h: bandH,
@@ -905,9 +914,8 @@ function update(props) {
   placeWorld(entities, z, x, floorOf(anim / 8), aiOut);
   placeGantry(entities, z, x, light);
 
-  // Player car: rear-view sheet — frame 0 left / 1 center / 2 right + bank angle.
+  // Player car: rear-view sheet — frame 0 left / 1 center / 2 right (no spin).
   let carFrame = 1;
-  let carAngle = steer * 12;
   if (steer < -0.25) {
     carFrame = 0;
   }
@@ -920,7 +928,7 @@ function update(props) {
     y: 248,
     p0: carFrame,
     scale: 100,
-    angle: carAngle,
+    angle: 0,
     visible: 1
   };
 
