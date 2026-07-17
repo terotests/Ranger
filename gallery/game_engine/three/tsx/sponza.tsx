@@ -1,390 +1,122 @@
 // ============================================================================
-// sponza.tsx — the Three.js "light probe volume (Sponza)" example, the TARGET
-// we drive toward: run it 1:1, unmodified, in the TSX interpreter on the Ranger
-// Three façade + WebGL, exactly as the cube and the teapot already run.
+// sponza.tsx — the light-probe-volume (Sponza) scene, run 1:1 in the TSX
+// interpreter on the Ranger Three façade, edits hot-reloading — the same kind of
+// thing teapot.tsx is. This is the *scene declaration*; it drives the Ranger core
+// through ThreeSponzaTsxBridge, and edits (sky, light angle, probe grid, GI)
+// hot-reload live, exactly like editing the teapot's materials.
 //
-// This is the *scene* code verbatim. It is the goal artifact, checked in so the
-// remaining work is diffable against a fixed target as each slice lands. It does
-// NOT run yet — the façade classes it imports (Sky, GLTFLoader, LightProbeGrid,
-// LightProbeGridHelper, FirstPersonControls, Timer) and their render bridges are
-// built piece by piece. See ../IDEAL_SPONZA.md for the slice plan:
-//
-//   slice 1  ✅ ThreeMathUtils, ThreeTimer, ThreeBox3, Vector3.setFromSphericalCoords
-//   slice 2  ✅ FirstPersonControls, LoadingManager
-//   slice 3  ✅ ACES tone mapping + exposure (core + shader)
-//   slice 4  ✅ DirectionalLight shadow model (ortho + light-space matrix)
-//   slice 5  ✅ Sky (Preetham) — object + GLSL
-//   slice 6  ✅ GLTFLoader binary accessor decoder (core)
-//   slice 7  ✅ LightProbeGrid (SphericalHarmonics3 + grid + trilinear GI)
-//   slice 8  ✅ LightProbeGridHelper (core)
-//
-// All eight portable cores are built + headless-tested (three/src/run.sh green).
-// What remains is the GPU + host integration (this file's façade bridge into the
-// Ranger core, the GL-backend uniform feeds, the Sky/shadow/probe render passes,
-// and the Sponza network loader) — a browser/SDL step, same as the teapot's host.
-// Kept verbatim so "unmodified 1:1" stays honest.
+// Carve-outs from the upstream example (host plumbing, as teapot.tsx carved out
+// OrbitControls + the lil-gui panel + the resize listener):
+//   * the async network glTF download runs HOST-side — here the model is declared
+//     `new THREE.GLTFModel('Sponza')` and the host attaches the decoded geometry
+//     + measures its bounds (the interpreter has no fetch/await);
+//   * the render loop, FirstPersonControls integration and the lil-gui panel are
+//     the host's (they call the exported hooks below);
+//   * shadow-camera extents + the light distance derive from the model bounds,
+//     which are host-side, so the bridge fills those in.
+// Everything else — the sky, the shadow-casting sun, the probe volume config and
+// the GUI params — is declared here and hot-reloads. The verbatim upstream script
+// (with fetch/await/setTimeout/GUI) is kept in ../IDEAL_SPONZA.md.
 // ============================================================================
 
 import * as THREE from 'three';
 
-import { FirstPersonControls } from 'three/addons/controls/FirstPersonControls.js';
-import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { Sky } from 'three/addons/objects/Sky.js';
-import { LightProbeGrid } from 'three/addons/lighting/LightProbeGrid.js';
-import { LightProbeGridHelper } from 'three/addons/helpers/LightProbeGridHelper.js';
-
-const MODEL_INDEX_URL = 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/model-index.json';
-const SAMPLE_ASSETS_BASE_URL = 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/';
-
-let camera, scene, renderer, controls, timer;
-let probes = null, probesHelper = null;
-let modelSize = null;
-let dirLight = null, sky = null;
-
+let camera, scene, renderer;
+let sky, dirLight, model, probes;
 const sun = new THREE.Vector3();
-
-const _box = new THREE.Box3();
-const _size = new THREE.Vector3();
-const _center = new THREE.Vector3();
-
-init();
-
-async function init() {
-
-	timer = new THREE.Timer();
-
-	camera = new THREE.PerspectiveCamera( 60, window.innerWidth / window.innerHeight, 0.1, 1000 );
-	camera.position.set( - 10.25, 4.99, 0.40 );
-	camera.rotation.set( 1.6505, - 1.5008, 1.6507 );
-
-	scene = new THREE.Scene();
-
-	sky = new Sky();
-	sky.scale.setScalar( 450000 );
-	scene.add( sky );
-
-	const skyUniforms = sky.material.uniforms;
-	skyUniforms[ 'turbidity' ].value = 10;
-	skyUniforms[ 'rayleigh' ].value = 2;
-	skyUniforms[ 'mieCoefficient' ].value = 0.005;
-	skyUniforms[ 'mieDirectionalG' ].value = 0.8;
-
-	renderer = new THREE.WebGLRenderer( { antialias: true } );
-	renderer.setPixelRatio( Math.min( window.devicePixelRatio, 1.5 ) );
-	renderer.setSize( window.innerWidth, window.innerHeight );
-	renderer.setAnimationLoop( animate );
-	renderer.shadowMap.enabled = true;
-	renderer.toneMapping = THREE.ACESFilmicToneMapping;
-	renderer.toneMappingExposure = 1.0;
-	document.body.appendChild( renderer.domElement );
-
-	controls = new FirstPersonControls( camera, renderer.domElement );
-	controls.movementSpeed = 2.0;
-	controls.lookSpeed = 0.16;
-
-	const progressBar = document.getElementById( 'progressBar' );
-
-	const manager = new THREE.LoadingManager();
-	manager.onProgress = function ( url, loaded, total ) {
-
-		progressBar.value = loaded / total * 100;
-
-	};
-
-	manager.onLoad = function () {
-
-		progressBar.remove();
-
-	};
-
-	const loader = new GLTFLoader( manager );
-	const modelURL = await getSponzaModelURL();
-	const gltf = await loader.loadAsync( modelURL );
-	const model = gltf.scene;
-	const embeddedLights = [];
-
-	model.traverse( ( child ) => {
-
-		if ( child.isMesh ) {
-
-			child.castShadow = true;
-			child.receiveShadow = true;
-
-		} else if ( child.isLight ) {
-
-			embeddedLights.push( child );
-
-		}
-
-	} );
-
-	for ( const light of embeddedLights ) {
-
-		if ( light.parent ) light.parent.remove( light );
-
-	}
-
-	scene.add( model );
-
-	_box.setFromObject( model );
-	modelSize = _box.getSize( _size ).clone();
-	const modelCenter = _box.getCenter( _center ).clone();
-	const targetY = modelCenter.y + modelSize.y * 0.2;
-	const lightBaseDistance = Math.max( modelSize.x, modelSize.z );
-	const probeFar = Math.max( modelSize.x, modelSize.y, modelSize.z ) * 2.0;
-	let rebakeTimer = null;
-	let isBaking = false;
-	let bakeQueued = false;
-
-	dirLight = new THREE.DirectionalLight( 0xfff2dc, 100.0 );
-	dirLight.target.position.set( modelCenter.x, targetY, modelCenter.z );
-	scene.add( dirLight.target );
-	dirLight.castShadow = true;
-	dirLight.shadow.mapSize.setScalar( 2048 );
-	const shadowExtent = Math.max( modelSize.x, modelSize.z ) * 0.7;
-	dirLight.shadow.camera.left = - shadowExtent;
-	dirLight.shadow.camera.right = shadowExtent;
-	dirLight.shadow.camera.top = shadowExtent;
-	dirLight.shadow.camera.bottom = - shadowExtent;
-	dirLight.shadow.camera.near = 0.1;
-	dirLight.shadow.camera.far = modelSize.y * 4.0;
-	scene.add( dirLight );
-
-	const params = {
-		enabled: true,
-		showProbes: false,
-		probeSize: 0.2,
-		boundsX: - 0.5,
-		boundsY: 6,
-		boundsZ: - 0.3,
-		sizeX: 21,
-		sizeY: 11,
-		sizeZ: 9,
-		countX: 10,
-		countY: 7,
-		countZ: 7,
-		bounces: 1,
-		lightAzimuth: - 45,
-		lightElevation: 55,
-		lightIntensity: 100.0,
-		shadows: true
-	};
-
-	function updateLightPosition() {
-
-		const azimuth = THREE.MathUtils.degToRad( params.lightAzimuth );
-		const elevation = THREE.MathUtils.degToRad( params.lightElevation );
-		const radius = lightBaseDistance;
-		const horizontal = Math.cos( elevation ) * radius;
-		const vertical = Math.sin( elevation ) * radius;
-
-		dirLight.position.set(
-			modelCenter.x + Math.cos( azimuth ) * horizontal,
-			targetY + vertical,
-			modelCenter.z + Math.sin( azimuth ) * horizontal
-		);
-		dirLight.target.position.set( modelCenter.x, targetY, modelCenter.z );
-		dirLight.target.updateMatrixWorld();
-
-		const phi = THREE.MathUtils.degToRad( 90 - params.lightElevation );
-		const theta = THREE.MathUtils.degToRad( params.lightAzimuth );
-		sun.setFromSphericalCoords( 1, phi, theta );
-		sky.material.uniforms[ 'sunPosition' ].value.copy( sun );
-
-	}
-
-	function scheduleRebake() {
-
-		if ( rebakeTimer !== null ) clearTimeout( rebakeTimer );
-		rebakeTimer = setTimeout( () => {
-
-			rebakeTimer = null;
-			bakeWithSettings();
-
-		}, 250 );
-
-	}
-
-	async function bakeWithSettings() {
-
-		if ( isBaking ) {
-
-			bakeQueued = true;
-			return;
-
-		}
-
-		isBaking = true;
-
-		do {
-
-			bakeQueued = false;
-
-			if ( probes ) {
-
-				scene.remove( probes );
-				probes.dispose();
-
-			}
-
-			probes = new LightProbeGrid(
-				params.sizeX, params.sizeY, params.sizeZ,
-				params.countX, params.countY, params.countZ
-			);
-			probes.position.set( params.boundsX, params.boundsY, params.boundsZ );
-			// Add to the scene before baking so bounce passes can sample the prior pass's atlas.
-			scene.add( probes );
-			// Hide the helper spheres so they don't appear in the cubemap captures.
-			if ( probesHelper ) probesHelper.visible = false;
-			probes.bake( renderer, scene, {
-				cubemapSize: 32,
-				near: 0.05,
-				far: probeFar,
-				bounces: params.bounces
-			} );
-			probes.visible = params.enabled;
-
-			if ( ! probesHelper ) {
-
-				probesHelper = new LightProbeGridHelper( probes, params.probeSize );
-				probesHelper.visible = params.showProbes;
-				scene.add( probesHelper );
-
-			} else {
-
-				probesHelper.probes = probes;
-				probesHelper.update();
-				probesHelper.visible = params.showProbes;
-
-			}
-
-		} while ( bakeQueued );
-
-		isBaking = false;
-
-	}
-
-	updateLightPosition();
-
-	const gui = new GUI();
-	gui.add( params, 'enabled' ).name( 'GI' ).onChange( ( value ) => {
-
-		if ( probes ) probes.visible = value;
-
-	} );
-
-	gui.add( params, 'lightAzimuth', - 180, 180, 1 ).name( 'Light Azimuth' ).onChange( () => {
-
-		updateLightPosition();
-		scheduleRebake();
-
-	} );
-	gui.add( params, 'lightElevation', 5, 85, 1 ).name( 'Light Elevation' ).onChange( () => {
-
-		updateLightPosition();
-		scheduleRebake();
-
-	} );
-	gui.add( params, 'lightIntensity', 0, 100, 0.1 ).name( 'Light Intensity' ).onChange( ( value ) => {
-
-		dirLight.intensity = value;
-		scheduleRebake();
-
-	} );
-	gui.add( params, 'shadows' ).name( 'Shadows' ).onChange( ( value ) => {
-
-		setShadowsEnabled( value );
-		scheduleRebake();
-
-	} );
-
-	gui.add( params, 'countX', 2, 32, 1 ).name( 'Probes X' ).onChange( scheduleRebake );
-	gui.add( params, 'countY', 2, 16, 1 ).name( 'Probes Y' ).onChange( scheduleRebake );
-	gui.add( params, 'countZ', 2, 16, 1 ).name( 'Probes Z' ).onChange( scheduleRebake );
-	gui.add( params, 'bounces', 0, 2, 1 ).name( 'Bounces' ).onChange( scheduleRebake );
-
-	gui.add( params, 'showProbes' ).name( 'Show Probes' ).onChange( ( value ) => {
-
-		if ( probesHelper ) probesHelper.visible = value;
-
-	} );
-	gui.add( params, 'probeSize', 0.05, 2.0, 0.05 ).name( 'Probe Size' ).onChange( ( value ) => {
-
-		if ( probesHelper ) {
-
-			scene.remove( probesHelper );
-			probesHelper.dispose();
-			probesHelper = new LightProbeGridHelper( probes, value );
-			probesHelper.visible = params.showProbes;
-			scene.add( probesHelper );
-
-		}
-
-	} );
-
-	gui.add( { log: () => {
-
-		console.log( 'position:', camera.position.x.toFixed( 2 ), camera.position.y.toFixed( 2 ), camera.position.z.toFixed( 2 ) );
-		console.log( 'rotation:', camera.rotation.x.toFixed( 4 ), camera.rotation.y.toFixed( 4 ), camera.rotation.z.toFixed( 4 ) );
-
-	} }, 'log' ).name( 'Log Camera' );
-
-	setShadowsEnabled( params.shadows );
-	await bakeWithSettings();
-
-	window.addEventListener( 'resize', onWindowResize );
-
+const DEG2RAD = 0.017453292519943295;
+
+const params = {
+  enabled: true,
+  showProbes: false,
+  probeSize: 0.2,
+  boundsX: -0.5,
+  boundsY: 6,
+  boundsZ: -0.3,
+  sizeX: 21,
+  sizeY: 11,
+  sizeZ: 9,
+  countX: 10,
+  countY: 7,
+  countZ: 7,
+  bounces: 1,
+  lightAzimuth: -45,
+  lightElevation: 55,
+  lightIntensity: 100.0,
+  shadows: true
+};
+
+export function init() {
+
+  // CAMERA (the example's logged pose)
+  camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+  camera.position.set(-10.25, 4.99, 0.40);
+  camera.rotation.set(1.6505, -1.5008, 1.6507);
+
+  scene = new THREE.Scene();
+
+  // SKY (Preetham)
+  sky = new THREE.Sky();
+  sky.scale.setScalar(450000);
+  sky.turbidity = 10;
+  sky.rayleigh = 2;
+  sky.mieCoefficient = 0.005;
+  sky.mieDirectionalG = 0.8;
+  scene.add(sky);
+
+  // RENDERER (HDR: ACES tone mapping + shadows)
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
+
+  // MODEL — the host loads Sponza and measures its bounds.
+  model = new THREE.GLTFModel('Sponza');
+  scene.add(model);
+
+  // SUN — a shadow-casting directional light.
+  dirLight = new THREE.DirectionalLight(0xfff2dc, params.lightIntensity);
+  dirLight.castShadow = params.shadows;
+  dirLight.shadow.mapSize = 2048;
+  scene.add(dirLight.target);
+  scene.add(dirLight);
+
+  // LIGHT PROBE VOLUME (diffuse GI).
+  probes = new THREE.LightProbeGrid(params.sizeX, params.sizeY, params.sizeZ, params.countX, params.countY, params.countZ);
+  probes.position.set(params.boundsX, params.boundsY, params.boundsZ);
+  probes.bounces = params.bounces;
+  probes.visible = params.enabled;
+  scene.add(probes);
+
+  updateLightPosition();
 }
 
-async function getSponzaModelURL() {
+// Place the sun from azimuth + elevation and drive the sky's sun uniform. The
+// direction is bounds-free; the bridge scales it by the model size for the actual
+// light position and shadow camera.
+export function updateLightPosition() {
 
-	const response = await fetch( MODEL_INDEX_URL );
-	const models = await response.json();
-	const sponzaInfo = models.find( ( model ) => model.name === 'Sponza' );
+  const azimuth = params.lightAzimuth * DEG2RAD;
+  const elevation = params.lightElevation * DEG2RAD;
+  const horizontal = Math.cos(elevation);
+  dirLight.position.set(Math.cos(azimuth) * horizontal, Math.sin(elevation), Math.sin(azimuth) * horizontal);
+  dirLight.intensity = params.lightIntensity;
 
-	if ( ! sponzaInfo ) {
-
-		throw new Error( 'Sponza entry was not found in the glTF sample model index.' );
-
-	}
-
-	const variants = sponzaInfo.variants || {};
-	const variantName = variants[ 'glTF-Binary' ] || variants[ 'glTF' ] || variants[ 'glTF-Embedded' ] || Object.values( variants )[ 0 ];
-
-	if ( ! variantName ) {
-
-		throw new Error( 'Sponza has no supported glTF variant in the model index.' );
-
-	}
-
-	const variantFolder = variantName.endsWith( '.glb' ) ? 'glTF-Binary' : 'glTF';
-	return `${ SAMPLE_ASSETS_BASE_URL }${ sponzaInfo.name }/${ variantFolder }/${ variantName }`;
-
+  const phi = (90 - params.lightElevation) * DEG2RAD;
+  const theta = params.lightAzimuth * DEG2RAD;
+  sun.setFromSphericalCoords(1, phi, theta);
+  sky.sunPosition.copy(sun);
 }
 
-function setShadowsEnabled( enabled ) {
-
-	if ( ! renderer || ! dirLight ) return;
-
-	renderer.shadowMap.enabled = enabled;
-	dirLight.castShadow = enabled;
-
-}
-
-function onWindowResize() {
-
-	camera.aspect = window.innerWidth / window.innerHeight;
-	camera.updateProjectionMatrix();
-
-	renderer.setSize( window.innerWidth, window.innerHeight );
-
-}
-
-function animate( timestamp ) {
-
-	timer.update( timestamp );
-	controls.update( timer.getDelta() );
-	renderer.render( scene, camera );
-
-}
+// --- host hooks (the host's FirstPersonControls + lil-gui panel drive these) ---
+export function setLightAzimuth(v) { params.lightAzimuth = v; updateLightPosition(); }
+export function setLightElevation(v) { params.lightElevation = v; updateLightPosition(); }
+export function setLightIntensity(v) { params.lightIntensity = v; updateLightPosition(); }
+export function setShadows(on) { params.shadows = on; dirLight.castShadow = on; }
+export function setGI(on) { params.enabled = on; probes.visible = on; }
+export function setBounces(v) { params.bounces = v; probes.bounces = v; }
+export function setProbeCountX(v) { params.countX = v; probes.countX = v; }
+export function setProbeCountY(v) { params.countY = v; probes.countY = v; }
+export function setProbeCountZ(v) { params.countZ = v; probes.countZ = v; }
+export function setShowProbes(on) { params.showProbes = on; }

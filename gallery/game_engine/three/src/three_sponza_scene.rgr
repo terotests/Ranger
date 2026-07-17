@@ -161,8 +161,11 @@ class ThreeSponzaScene {
         this.sky.copySunPosition(sun)
     }
 
-    ; (re)create the probe grid at the current settings and bake it.
+    ; (re)create the probe grid at the current settings and bake it. Removes the
+    ; previous volume + helper first so hot-reloads don't leak scene children.
     fn rebuildProbes:void () {
+        this.scene.remove(this.probes)
+        this.scene.remove(this.probesHelper)
         this.probes = (ThreeLightProbeGrid.create(this.gridSizeX this.gridSizeY this.gridSizeZ this.countX this.countY this.countZ))
         this.probes.position.set(this.boundsX this.boundsY this.boundsZ)
         this.probes.visible = this.enabled

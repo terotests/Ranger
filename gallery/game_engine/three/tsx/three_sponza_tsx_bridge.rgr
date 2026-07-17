@@ -1,0 +1,162 @@
+; ==============================================================================
+; three_sponza_tsx_bridge — reconcile the interpreted sponza.tsx scene into the
+; Ranger Three core (ThreeSponzaScene), so edits hot-reload. Sponza SDL/web bridge.
+; ==============================================================================
+;
+; The Sponza counterpart to three_teapot_tsx_bridge. sponza.tsx runs in the TSX
+; interpreter against the three.tsx façade and declares the scene (sky, sun, probe
+; volume, GUI params). Each reconcile reads that façade state out of the engine and
+; drives the canonical ThreeSponzaScene (which owns the Sky, the shadow-casting
+; DirectionalLight, the model bounds, and the baked LightProbeGrid). The host
+; supplies the decoded model (the async glTF download is host-side); the bridge
+; measures its bounds and derives the light distance + shadow extents. Calling an
+; exported hook (setLightElevation, setProbeCountX, ...) then re-reconciling is the
+; hot-reload path. No GPU code here, so it compiles to C++ for the SDL host too.
+; ==============================================================================
+
+Import "../src/three_sponza_scene.rgr"
+Import "../src/three_object3d.rgr"
+Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class ThreeSponzaTsxBridge {
+    def engine:ComponentEngine (new ComponentEngine())
+    def scene:ThreeSponzaScene (new ThreeSponzaScene)
+    def hostModel:ThreeObject3D (new ThreeObject3D)
+    def hasModel:boolean false
+    def built:boolean false
+    ; probe-grid signature (rebuild + rebake only when the counts change)
+    def sigCountX:int (0 - 1)
+    def sigCountY:int (0 - 1)
+    def sigCountZ:int (0 - 1)
+
+    fn setEngine:ThreeSponzaTsxBridge (e:ComponentEngine) {
+        engine = e
+        return this
+    }
+    ; the host attaches the decoded model (bounds are measured from it).
+    fn setModel:ThreeSponzaTsxBridge (m:ThreeObject3D) {
+        hostModel = m
+        hasModel = true
+        return this
+    }
+
+    ; --- read helpers (same shape as the teapot bridge) ----------------------
+    fn numOr:double (obj:EvalValue key:string dflt:double) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isNumber()) {
+            return (v.toNumber())
+        }
+        return dflt
+    }
+    fn boolOr:boolean (obj:EvalValue key:string dflt:boolean) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isBoolean()) {
+            return v.boolValue
+        }
+        return dflt
+    }
+
+    ; read the GUI params object into the core scene's params.
+    fn applyParams:void (p:EvalValue) {
+        if (p.isObject() == false) {
+            return
+        }
+        scene.lightAzimuth = (this.numOr(p "lightAzimuth" (0.0 - 45.0)))
+        scene.lightElevation = (this.numOr(p "lightElevation" 55.0))
+        scene.lightIntensity = (this.numOr(p "lightIntensity" 100.0))
+        scene.gridSizeX = (this.numOr(p "sizeX" 21.0))
+        scene.gridSizeY = (this.numOr(p "sizeY" 11.0))
+        scene.gridSizeZ = (this.numOr(p "sizeZ" 9.0))
+        scene.countX = (to_int (this.numOr(p "countX" 10.0)))
+        scene.countY = (to_int (this.numOr(p "countY" 7.0)))
+        scene.countZ = (to_int (this.numOr(p "countZ" 7.0)))
+        scene.boundsX = (this.numOr(p "boundsX" (0.0 - 0.5)))
+        scene.boundsY = (this.numOr(p "boundsY" 6.0))
+        scene.boundsZ = (this.numOr(p "boundsZ" (0.0 - 0.3)))
+        scene.bounces = (to_int (this.numOr(p "bounces" 1.0)))
+        scene.shadows = (this.boolOr(p "shadows" true))
+        scene.enabled = (this.boolOr(p "enabled" true))
+        scene.showProbes = (this.boolOr(p "showProbes" false))
+    }
+
+    ; read the interpreted Sky façade uniforms into the core sky.
+    fn applySky:void (skyV:EvalValue) {
+        scene.sky.setTurbidity((this.numOr(skyV "turbidity" 10.0)))
+        scene.sky.setRayleigh((this.numOr(skyV "rayleigh" 2.0)))
+        scene.sky.setMieCoefficient((this.numOr(skyV "mieCoefficient" 0.005)))
+        scene.sky.setMieDirectionalG((this.numOr(skyV "mieDirectionalG" 0.8)))
+    }
+
+    ; walk scene.children for the Sky (its uniforms flow into the core sky).
+    fn syncSky:void (childrenV:EvalValue) {
+        def n:int (array_length childrenV.arrayValue)
+        def i:int 0
+        while (i < n) {
+            def c:EvalValue (childrenV.getIndex(i))
+            if (c.isObject()) {
+                def isSky:EvalValue (c.getMember("isSky"))
+                if (isSky.isBoolean()) {
+                    if isSky.boolValue {
+                        this.applySky(c)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn countsChanged:boolean () {
+        if (scene.countX != sigCountX) { return true }
+        if (scene.countY != sigCountY) { return true }
+        if (scene.countZ != sigCountZ) { return true }
+        return false
+    }
+    fn captureCounts:void () {
+        sigCountX = scene.countX
+        sigCountY = scene.countY
+        sigCountZ = scene.countZ
+    }
+
+    ; --- reconcile the interpreted scene into the core -----------------------
+    fn reconcile:void () {
+        def scV:EvalValue (engine.getGlobal("scene"))
+        if (scV.isObject() == false) {
+            return
+        }
+        def childrenV:EvalValue (scV.getMember("children"))
+        if (childrenV.isArray() == false) {
+            return
+        }
+
+        def p:EvalValue (engine.getGlobal("params"))
+        this.applyParams(p)
+
+        if (built == false) {
+            ; first reconcile: build the whole scene around the host model.
+            scene.build(hostModel)
+            this.syncSky(childrenV)
+            this.captureCounts()
+            built = true
+            return
+        }
+
+        ; hot-reload: re-apply the changed knobs.
+        if (this.countsChanged()) {
+            ; rebuild + rebake the probe volume at the new counts (self-cleans).
+            scene.rebuildProbes()
+            this.captureCounts()
+        }
+        scene.dirLight.intensity = scene.lightIntensity
+        scene.dirLight.castShadow = scene.shadows
+        scene.probes.visible = scene.enabled
+        scene.updateLightPosition()
+        this.syncSky(childrenV)
+    }
+
+    ; convenience: run the script's init() then reconcile (first build).
+    fn initFromScript:void () {
+        this.engine.callFunction("init" (EvalValue.null()))
+        this.reconcile()
+    }
+}

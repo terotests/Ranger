@@ -39,6 +39,21 @@ class ThreeObject3D {
         push this.children child
         return this
     }
+    ; remove a child by identity (rebuilds the child list without it).
+    fn remove:ThreeObject3D (child:ThreeObject3D) {
+        def next:[ThreeObject3D]
+        def i:int 0
+        def n:int (array_length this.children)
+        while (i < n) {
+            def c:ThreeObject3D (itemAt this.children i)
+            if (c != child) {
+                push next c
+            }
+            i = (i + 1)
+        }
+        this.children = next
+        return this
+    }
     fn childCount:int () {
         return (array_length this.children)
     }

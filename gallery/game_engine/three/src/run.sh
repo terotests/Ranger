@@ -62,5 +62,8 @@ run_tsx_poc three_facade_poc
 # rasterised (software backend) — proves the façade scene actually renders.
 run_tsx_poc three_tsx_bridge_test
 run_tsx_poc three_teapot_tsx_test
+# The Sponza light-probe scene: sponza.tsx interpreted + reconciled into the core,
+# with hot-reload (editing the scene's params drives the Ranger scene live).
+run_tsx_poc three_sponza_tsx_test
 
 echo "done."

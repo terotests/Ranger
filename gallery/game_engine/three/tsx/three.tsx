@@ -18,7 +18,20 @@ class Vector3 {
   z = 0;
   set(x, y, z) { this.x = x; this.y = y; this.z = z; return this; }
   copy(v) { this.x = v.x; this.y = v.y; this.z = v.z; return this; }
+  setScalar(s) { this.x = s; this.y = s; this.z = s; return this; }
+  clone() { const v = new Vector3(); v.x = this.x; v.y = this.y; v.z = this.z; return v; }
+  // r, phi (polar from +Y), theta (azimuth) -> position on a sphere.
+  setFromSphericalCoords(r, phi, theta) {
+    const sp = r * Math.sin(phi);
+    this.x = sp * Math.sin(theta);
+    this.y = r * Math.cos(phi);
+    this.z = sp * Math.cos(theta);
+    return this;
+  }
 }
+
+// Tone-mapping constant referenced by the scene (renderer.toneMapping).
+const ACESFilmicToneMapping = 4;
 
 // Constants the teapot example references (side, wrapping, colour space).
 const FrontSide = 0;
@@ -64,12 +77,35 @@ class AmbientLight {
   }
 }
 
+class OrthoShadowCamera {
+  left = -5;
+  right = 5;
+  top = 5;
+  bottom = -5;
+  near = 0.5;
+  far = 500;
+}
+
+class DirectionalLightShadow {
+  mapSize = 512;
+  camera = new OrthoShadowCamera();
+}
+
+class LightTarget {
+  isObject3D = true;
+  position = new Vector3();
+  updateMatrixWorld() { }
+}
+
 class DirectionalLight {
   isLight = true;
   isDirectionalLight = true;
   color = 16777215;
   intensity = 1;
   position = new Vector3();
+  castShadow = false;
+  target = new LightTarget();
+  shadow = new DirectionalLightShadow();
   constructor(color, intensity) {
     this.color = color;
     this.intensity = intensity;
@@ -234,4 +270,68 @@ class WebGLRenderer {
   // The bridge to the Ranger core renderer lands here (three_render(...));
   // for now it just counts frames so the PoC can confirm the loop drives it.
   render(scene, camera) { this.frames = this.frames + 1; }
+}
+
+// --- Sponza light-probe-volume additions ------------------------------------
+// Preetham sky dome. Flat data holder (the scattering shader is Ranger-side).
+class Sky {
+  isSky = true;
+  position = new Vector3();
+  rotation = new Vector3();
+  scale = new Vector3().set(1, 1, 1);
+  turbidity = 10;
+  rayleigh = 3;
+  mieCoefficient = 0.005;
+  mieDirectionalG = 0.7;
+  sunPosition = new Vector3().set(0, 1, 0);
+}
+
+// A grid of SH light probes (diffuse GI). The bridge builds + bakes the real
+// ThreeLightProbeGrid from these dims/counts; the interpreter just declares them.
+class LightProbeGrid {
+  isLightProbeGrid = true;
+  position = new Vector3();
+  rotation = new Vector3();
+  scale = new Vector3().set(1, 1, 1);
+  visible = true;
+  sizeX = 1;
+  sizeY = 1;
+  sizeZ = 1;
+  countX = 2;
+  countY = 2;
+  countZ = 2;
+  bounces = 1;
+  constructor(sizeX, sizeY, sizeZ, countX, countY, countZ) {
+    this.sizeX = sizeX;
+    this.sizeY = sizeY;
+    this.sizeZ = sizeZ;
+    this.countX = countX;
+    this.countY = countY;
+    this.countZ = countZ;
+  }
+  dispose() { }
+}
+
+class LightProbeGridHelper {
+  isLightProbeGridHelper = true;
+  visible = false;
+  size = 0.2;
+  constructor(probes, size) { this.size = size; }
+  update() { }
+  dispose() { }
+}
+
+// A model the host loads (Sponza) — declared in the scene by name; the bridge
+// attaches the host-decoded geometry and measures its bounds. Stands in for the
+// async GLTFLoader (the network fetch + parse is host-side, not interpreted).
+class GLTFModel {
+  isModel = true;
+  isObject3D = true;
+  name = "";
+  position = new Vector3();
+  rotation = new Vector3();
+  scale = new Vector3().set(1, 1, 1);
+  children = [];
+  constructor(name) { this.name = name; }
+  add(o) { this.children.push(o); return this; }
 }
