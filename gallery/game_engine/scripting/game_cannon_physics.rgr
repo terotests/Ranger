@@ -53,6 +53,11 @@ class GameCannonPhysics {
     def gravityY:double 0.0
     def boundaryGraceSkip:[boolean]
     def tmpAxisZ:CannonVec3 (new CannonVec3)
+    ; Diagnostics: enable via config physics.debug=true (game_runtime wires it).
+    ; Logs world size, boundary boxes, spawned bodies, and a throttled per-step
+    ; dump that flags any dynamic body that has fallen past the floor line.
+    def debug:boolean false
+    def debugStep:int 0
 
     fn addCollidersFromPhysics:void (body:CannonBody phys:EvalValue defaultRadius:double) {
         def colliders:EvalValue (phys.getMember("colliders"))
@@ -146,6 +151,80 @@ class GameCannonPhysics {
         return false
     }
 
+    fn dbg:void (msg:string) {
+        if (debug) {
+            print ("[cannon] " + msg)
+        }
+    }
+
+    ; Throttled per-step dump of every dynamic body (kind 0). Prints x/y/vy and
+    ; flags "BELOW-FLOOR" when a body's centre has crossed past worldH — the
+    ; direct signal that a ball tunnelled through the floor boundary box.
+    fn debugDump:void () {
+        if (debug == false) {
+            return
+        }
+        def i 0
+        while (i < (array_length entityIds)) {
+            if ((itemAt entityKinds i) == 0) {
+                def body:CannonBody (itemAt this.world.bodies i)
+                def eid:string (itemAt entityIds i)
+                def r:double (itemAt entityRadius i)
+                def px:double body.position.x
+                def py:double body.position.y
+                def vy:double body.velocity.y
+                def floorTop:double (worldH - r)
+                def tag:string ""
+                if (py > worldH) {
+                    tag = "  BELOW-FLOOR"
+                }
+                def line:string (("step=" + (to_string debugStep)) + (" " + eid))
+                line = ((line + (" x=" + (to_string px))) + (" y=" + (to_string py)))
+                line = ((line + (" vy=" + (to_string vy))) + (" restY=" + (to_string floorTop)))
+                this.dbg((line + tag))
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; One-shot summary after setup: world size, gravity, body counts, and the
+    ; boundary boxes (so you can confirm the floor box sits where you expect).
+    fn debugLogSetup:void () {
+        if (debug == false) {
+            return
+        }
+        this.dbg((("world w=" + (to_string worldW)) + (" h=" + (to_string worldH))))
+        this.dbg((("gravityY=" + (to_string gravityY)) + (" restitution=" + (to_string defaultRestitution))))
+        def dyn 0
+        def stat 0
+        def kine 0
+        def i 0
+        while (i < (array_length entityIds)) {
+            def k:int (itemAt entityKinds i)
+            if (k == 0) { dyn = (dyn + 1) }
+            if (k == 1) { stat = (stat + 1) }
+            if (k == 2) { kine = (kine + 1) }
+            i = (i + 1)
+        }
+        this.dbg((((("bodies dynamic=" + (to_string dyn)) + (" static=" + (to_string stat))) + (" kinematic=" + (to_string kine))) + (" boundaryBoxes=" + (to_string (array_length boundaryGraceSkip)))))
+        ; boundary bodies live after the entity bodies in world.bodies
+        def b:int entityBodyCount
+        while (b < (array_length this.world.bodies)) {
+            def bb:CannonBody (itemAt this.world.bodies b)
+            def bx:double bb.position.x
+            def by:double bb.position.y
+            def line:string ((("  boundary#" + (to_string (b - entityBodyCount))) + (" cx=" + (to_string bx))) + (" cy=" + (to_string by)))
+            def sc:int (array_length bb.shapes)
+            if (sc > 0) {
+                def sh:CannonShape (itemAt bb.shapes 0)
+                def he:CannonVec3 (sh.getHalfExtents())
+                line = ((line + (" hx=" + (to_string he.x))) + (" hy=" + (to_string he.y)))
+            }
+            this.dbg(line)
+            b = (b + 1)
+        }
+    }
+
     fn initBridge:void () {
         this.world.initWorld()
         this.world.setGravity(0.0 0.0 0.0)
@@ -178,6 +257,7 @@ class GameCannonPhysics {
         if (h > 0.0) {
             worldH = h
         }
+        this.dbg((("setWorldSize -> w=" + (to_string worldW)) + (" h=" + (to_string worldH))))
     }
 
     fn setGravityY:void (gy:double) {
@@ -488,6 +568,7 @@ class GameCannonPhysics {
                             push entityKinds 0
                             push entityScores scoreVal
                             push entityRollScale rollScale
+                            this.dbg((((("spawn dynamic " + eid) + (" x=" + (to_string px))) + (" y=" + (to_string py))) + ((" r=" + (to_string radius)) + (" mass=" + (to_string mass)))))
                         }
                     }
                 }
@@ -703,6 +784,7 @@ class GameCannonPhysics {
         body.addShape(box)
         this.world.addBody(body)
         push boundaryGraceSkip false
+        this.dbg(((((("addBoxBoundary cx=" + (to_string px)) + (" cy=" + (to_string py))) + (" hx=" + (to_string hx))) + (" hy=" + (to_string hy)))))
     }
 
     fn addDefaultWorldBounds:void () {
@@ -931,6 +1013,17 @@ class GameCannonPhysics {
         this.setBoundaryCollision(true)
         this.collectCollisionEvents()
         this.clampArena()
+        debugStep = (debugStep + 1)
+        if (debug) {
+            ; dump on the first few steps, then every 15th, to show settling
+            if (debugStep < 6) {
+                this.debugDump()
+            } {
+                if ((debugStep - ((idiv debugStep 15) * 15)) == 0) {
+                    this.debugDump()
+                }
+            }
+        }
         def i 0
         while (i < (array_length entityIds)) {
             if ((itemAt entityKinds i) == 0) {

@@ -692,6 +692,10 @@ class GameRunner {
                     cannonPhysics.initBridge()
                 }
             }
+            def dbgFlag:EvalValue (phys.getMember("debug"))
+            if (dbgFlag.isBoolean()) {
+                cannonPhysics.debug = dbgFlag.boolValue
+            }
             def gravY:double (this.memDouble(phys "gravityY" 0.0))
             cannonGravY = gravY
             def rest:double (this.memDouble(phys "restitution" 0.75))
@@ -792,6 +796,7 @@ class GameRunner {
         } {
             cannonPhysics.addDefaultWorldBounds()
         }
+        cannonPhysics.debugLogSetup()
         entityStore.worldMode = true
     }
 
