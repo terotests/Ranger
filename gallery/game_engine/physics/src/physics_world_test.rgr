@@ -6,6 +6,7 @@
 
 Import "physics_world.rgr"
 Import "cannon_physics_world.rgr"
+Import "arcade_physics_world.rgr"
 Import "cannon_test_harness.rgr"
 Import "cannon_test_filter.rgr"
 
@@ -15,6 +16,8 @@ class PhysicsWorldTest {
     fn runFiltered:void (h:CannonTestHarness filter:string) {
         if (this.filter.matches(filter "PhysicsWorld.dropBackend")) { this.dropBackend(h) }
         if (this.filter.matches(filter "PhysicsWorld.constraint")) { this.constraint(h) }
+        if (this.filter.matches(filter "PhysicsWorld.arcadeBackend")) { this.arcadeBackend(h) }
+        if (this.filter.matches(filter "PhysicsWorld.backendsAgree")) { this.backendsAgree(h) }
     }
 
     ; Engine-agnostic: a ball dropped onto a floor. Only the base interface is
@@ -67,6 +70,37 @@ class PhysicsWorldTest {
         h.nearEqual(dist 2.0 0.4 "joint length preserved through the interface")
         h.ok((y < 0.0) "bob swings down under gravity")
         print ("pwPendulumDist=" + (to_string dist))
+        h.finishTest()
+    }
+
+    ; The SAME engine-agnostic dropScenario, now on the tiny arcade engine — a
+    ; second, independent PhysicsWorld implementation (no solver, no Cannon).
+    fn arcadeBackend:void (h:CannonTestHarness) {
+        h.beginTest("PhysicsWorld.arcadeBackend")
+        def pw:ArcadePhysicsWorld (new ArcadePhysicsWorld)
+        def y:double (this.dropScenario(pw))
+        h.nearEqual(y 0.5 0.2 "ball rests on the floor through the arcade backend")
+        def hit:boolean (pw.raycastClosest(0.0 5.0 0.0 0.0 (0.0 - 5.0) 0.0))
+        h.ok(hit "raycast through the arcade backend finds a hit")
+        print ("arcadeBallY=" + (to_string y))
+        h.finishTest()
+    }
+
+    ; Two independent engines behind one interface produce the same outcome for
+    ; the same scenario — the proof that PhysicsWorld is a real seam.
+    fn backendsAgree:void (h:CannonTestHarness) {
+        h.beginTest("PhysicsWorld.backendsAgree")
+        def cannon:CannonPhysicsWorld (new CannonPhysicsWorld)
+        def yc:double (this.dropScenario(cannon))
+        def arcade:ArcadePhysicsWorld (new ArcadePhysicsWorld)
+        def ya:double (this.dropScenario(arcade))
+        def diff:double (yc - ya)
+        if (diff < 0.0) {
+            diff = (0.0 - diff)
+        }
+        h.ok((diff < 0.2) "Cannon and arcade backends agree on the rest height")
+        print ("agreeCannonY=" + (to_string yc))
+        print ("agreeArcadeY=" + (to_string ya))
         h.finishTest()
     }
 }

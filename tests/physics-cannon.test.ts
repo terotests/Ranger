@@ -165,11 +165,13 @@ describe("Cannon.js Ranger port", () => {
   describe("PhysicsWorld interface", () => {
     cannonIt("PhysicsWorld.dropBackend");
     cannonIt("PhysicsWorld.constraint");
+    cannonIt("PhysicsWorld.arcadeBackend");
+    cannonIt("PhysicsWorld.backendsAgree");
   });
 
   it("runs full Cannon suite aggregate", () => {
     const output = runCannonAll();
-    expect(output).toContain("pass=82");
+    expect(output).toContain("pass=84");
     expect(output).toContain("fail=0");
     expect(output).toContain("cannon-tests done");
   });

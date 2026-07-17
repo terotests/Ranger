@@ -347,8 +347,19 @@ takana. Ranger-cannon-es on oletus; natiivi-backend opt-in raskaaseen 3D:hen.
   testikoodi ajaisi minkä tahansa `PhysicsWorld`-toteutuksen → **rajapinta on nyt
   saumana kaikelle testaukselle** ja tuleva Jolt/arcade-backend liittyy tähän.
   `npm run engine:physics:test` → 82 passed, 0 failed.
-- ⏳ **Osa 7b:** arcade-ytimen (`physics_core.rgr`) adapteri samaan rajapintaan +
-  valinnainen Jolt/Rapier host-natiivi-backend jäävät pohdintaan.
+- ✅ **Osa 7b-1 — Arcade-backend rajapinnan takana (tehty, PoC):**
+  [`arcade_physics_world.rgr`](./physics/src/arcade_physics_world.rgr)
+  (`ArcadePhysicsWorld extends PhysicsWorld`) — **toinen, aidosti erilainen**
+  moottori: ei solveria, vaan puoli-implisiittinen Euler + penetraatiokorjaus ja
+  nopeuden heijastus (pallot + tasot). Ei riippuvuutta Cannon-porttiin. Testit:
+  **sama** moottoririippumaton `dropScenario` ajaa arcadea (`arcadeBallY=0.5`) ja
+  molemmat moottorit **antavat saman tuloksen** samasta skenaariosta
+  (`agreeCannonY=0.494` vs `agreeArcadeY=0.5`, ero < 0.01) → todiste että
+  `PhysicsWorld` on aito sauma jonka takana moottorit vaihtuvat. `npm run
+  engine:physics:test` → 84 passed, 0 failed. (Huom: itsenäinen kompakti arcade-
+  moottori, ei olemassa olevan `game_physics.rgr`:n kääre — se on vielä luonnos.)
+- ⏳ **Osa 7b-2:** valinnainen Jolt/Rapier host-natiivi-backend jää pohdintaan
+  (iso, desktop-only integrointi).
 
 Kunkin vaiheen voi tehdä erillisenä PR:nä; **uudistus voi pysähtyä minne tahansa** ja
 jättää edellisen vaiheen tuotantoon.
