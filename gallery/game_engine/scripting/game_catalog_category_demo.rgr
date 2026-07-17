@@ -80,8 +80,21 @@ class CatalogCategoryCheck {
         ; ---- membership: real games in Games, UI demos in Tests ----
         c.ok("Invaders in Games" (c.catHas(catalog "Games" "Invaders")))
         c.ok("Pac-Man in Games" (c.catHas(catalog "Games" "Pac-Man")))
+        c.ok("Viidakko Pomppija in Games" (c.catHas(catalog "Games" "Viidakko Pomppija")))
+        c.ok(("F1 Arcade is a Test (got '" + (c.catOf(catalog "F1 Arcade")) + "')") ((c.catOf(catalog "F1 Arcade")) == "Tests"))
+        c.ok(("LittleCiv is a Test (got '" + (c.catOf(catalog "LittleCiv")) + "')") ((c.catOf(catalog "LittleCiv")) == "Tests"))
         c.ok(("EVG UI Menu is a Test (got '" + (c.catOf(catalog "EVG UI Menu")) + "')") ((c.catOf(catalog "EVG UI Menu")) == "Tests"))
         c.ok(("AS UI Menu is a Test (got '" + (c.catOf(catalog "AS UI Menu")) + "')") ((c.catOf(catalog "AS UI Menu")) == "Tests"))
+
+        ; ---- index= pins games near the front of their category ----
+        def games:[GameCatalogEntry] (catalog.entriesInCategory("Games"))
+        c.ok(("Games category non-empty (got " + (to_string (array_length games)) + ")") ((array_length games) >= 2))
+        if ((array_length games) >= 2) {
+            def g0:GameCatalogEntry (itemAt games 0)
+            def g1:GameCatalogEntry (itemAt games 1)
+            c.ok(("index=1 Viidakko Pomppija is first in Games (got '" + g0.title + "')") (g0.title == "Viidakko Pomppija"))
+            c.ok(("index=2 Viidakko Laskupomppija is second in Games (got '" + g1.title + "')") (g1.title == "Viidakko Laskupomppija"))
+        }
 
         ; ---- counts add up: Games + Tests == total (only two groups here) ----
         def gN:int (catalog.categoryCount("Games"))

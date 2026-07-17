@@ -10,7 +10,7 @@ engine-script code — not a Freeciv port.
 
 ```bash
 npm run engine:game-sdl:run:littleciv
-# or pick LittleCiv from the launcher:
+# or pick LittleCiv from the launcher Tests category:
 npm run engine:game-sdl:launcher
 ```
 
