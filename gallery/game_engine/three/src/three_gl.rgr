@@ -77,8 +77,17 @@ function __rglDrawPrim(ph,mh,th,mvp,model,mat,prim){ var gl=__rgl; if(!gl||ph<1|
 function __rglEnd(){ }
 ") )
             cpp ( "rgl_init(" (e 1) ".c_str())"
-                  (imp "<vector>") (imp "<string>") (imp "<cstdint>") (imp "<cmath>") (imp "<GLES2/gl2.h>")
+                  (imp "<vector>") (imp "<string>") (imp "<cstdint>") (imp "<cmath>")
 (create_polyfill "
+#if defined(__APPLE__)
+#include <OpenGL/gl3.h>
+#elif defined(__arm__) || defined(__aarch64__)
+#include <GLES2/gl2.h>
+#else
+#define GL_GLEXT_PROTOTYPES 1
+#include <GL/gl.h>
+#include <GL/glext.h>
+#endif
 struct RglMesh { GLuint vbo; GLuint ebo; int count; };
 struct RglProg { GLuint p; };
 static std::vector<RglProg> g_rglProgs;

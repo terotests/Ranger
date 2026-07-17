@@ -50,5 +50,6 @@ run_tsx_poc three_facade_poc
 # The render bridge: the interpreted cube.tsx reconciled into the Ranger core and
 # rasterised (software backend) — proves the façade scene actually renders.
 run_tsx_poc three_tsx_bridge_test
+run_tsx_poc three_teapot_tsx_test
 
 echo "done."

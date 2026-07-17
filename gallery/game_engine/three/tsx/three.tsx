@@ -20,13 +20,60 @@ class Vector3 {
   copy(v) { this.x = v.x; this.y = v.y; this.z = v.z; return this; }
 }
 
+// Constants the teapot example references (side, wrapping, colour space).
+const FrontSide = 0;
+const BackSide = 1;
+const DoubleSide = 2;
+const RepeatWrapping = 1000;
+
+class Color {
+  isColor = true;
+  hex = 0;
+  constructor(hex) { this.hex = hex; }
+}
+
 class Scene {
   isScene = true;
   position = new Vector3();
   rotation = new Vector3();
   scale = new Vector3().set(1, 1, 1);
   children = [];
+  background = null;
   add(o) { this.children.push(o); return this; }
+  remove(o) {
+    const next = [];
+    let i = 0;
+    while (i < this.children.length) {
+      if (this.children[i] !== o) { next.push(this.children[i]); }
+      i = i + 1;
+    }
+    this.children = next;
+    return this;
+  }
+}
+
+class AmbientLight {
+  isLight = true;
+  isAmbientLight = true;
+  color = 16777215;
+  intensity = 1;
+  position = new Vector3();
+  constructor(color, intensity) {
+    this.color = color;
+    this.intensity = intensity;
+  }
+}
+
+class DirectionalLight {
+  isLight = true;
+  isDirectionalLight = true;
+  color = 16777215;
+  intensity = 1;
+  position = new Vector3();
+  constructor(color, intensity) {
+    this.color = color;
+    this.intensity = intensity;
+  }
 }
 
 class PerspectiveCamera {
@@ -59,6 +106,9 @@ class Texture {
   isTexture = true;
   path = "";
   colorSpace = "srgb-linear";
+  wrapS = 0;
+  wrapT = 0;
+  anisotropy = 1;
   needsUpdate = true;
 }
 
@@ -70,12 +120,89 @@ class TextureLoader {
   }
 }
 
+class CubeTexture {
+  isCubeTexture = true;
+  path = "";
+  urls = [];
+}
+
+class CubeTextureLoader {
+  path = "";
+  setPath(p) { this.path = p; return this; }
+  load(urls) {
+    const t = new CubeTexture();
+    t.path = this.path;
+    t.urls = urls;
+    return t;
+  }
+}
+
+// TeapotGeometry(size, tessellation, bottom, lid, body, fitLid, blinn). Thin data
+// holder — the bridge builds the real Ranger ThreeTeapotGeometry from these.
+class TeapotGeometry {
+  isTeapotGeometry = true;
+  size = 300;
+  segments = 10;
+  bottom = true;
+  lid = true;
+  body = true;
+  fitLid = true;
+  blinn = true;
+  constructor(size, segments, bottom, lid, body, fitLid, blinn) {
+    this.size = size;
+    this.segments = segments;
+    this.bottom = bottom;
+    this.lid = lid;
+    this.body = body;
+    this.fitLid = fitLid;
+    this.blinn = blinn;
+  }
+  dispose() { }
+}
+
 class MeshBasicMaterial {
   isMeshBasicMaterial = true;
   map = null;
   color = 16777215;
+  wireframe = false;
+  side = 0;
   constructor(params) {
     this.map = params.map;
+    this.color = params.color;
+    this.wireframe = params.wireframe;
+    this.side = params.side;
+  }
+}
+
+class MeshLambertMaterial {
+  isMeshLambertMaterial = true;
+  map = null;
+  color = 16777215;
+  side = 0;
+  constructor(params) {
+    this.map = params.map;
+    this.color = params.color;
+    this.side = params.side;
+  }
+}
+
+class MeshPhongMaterial {
+  isMeshPhongMaterial = true;
+  map = null;
+  envMap = null;
+  color = 16777215;
+  specular = 1118481;
+  shininess = 30;
+  flatShading = false;
+  side = 0;
+  constructor(params) {
+    this.map = params.map;
+    this.envMap = params.envMap;
+    this.color = params.color;
+    this.specular = params.specular;
+    this.shininess = params.shininess;
+    this.flatShading = params.flatShading;
+    this.side = params.side;
   }
 }
 
