@@ -203,6 +203,110 @@ class ThreeMatrix4 {
         return (this.compose(zero q one))
     }
 
+    ; Rotation basis that looks from eye toward target with the given up (the
+    ; camera convention: the resulting -Z points at the target). Translation is
+    ; zeroed — this is a pure rotation, as Three.js Matrix4.lookAt produces.
+    fn lookAt:ThreeMatrix4 (eye:ThreeVector3 target:ThreeVector3 up:ThreeVector3) {
+        this.ensure()
+        def zx:double (eye.x - target.x)
+        def zy:double (eye.y - target.y)
+        def zz:double (eye.z - target.z)
+        def zl:double (sqrt(((zx * zx) + (zy * zy)) + (zz * zz)))
+        if (zl < 0.0000001) {
+            zz = 1.0
+            zl = 1.0
+        }
+        zx = (zx / zl)
+        zy = (zy / zl)
+        zz = (zz / zl)
+        ; x = up × z
+        def xx:double ((up.y * zz) - (up.z * zy))
+        def xy:double ((up.z * zx) - (up.x * zz))
+        def xz:double ((up.x * zy) - (up.y * zx))
+        def xl:double (sqrt(((xx * xx) + (xy * xy)) + (xz * xz)))
+        if (xl < 0.0000001) {
+            ; up parallel to z: nudge z and retry
+            zx = (zx + 0.0001)
+            def zl2:double (sqrt(((zx * zx) + (zy * zy)) + (zz * zz)))
+            zx = (zx / zl2)
+            zy = (zy / zl2)
+            zz = (zz / zl2)
+            xx = ((up.y * zz) - (up.z * zy))
+            xy = ((up.z * zx) - (up.x * zz))
+            xz = ((up.x * zy) - (up.y * zx))
+            xl = (sqrt(((xx * xx) + (xy * xy)) + (xz * xz)))
+        }
+        xx = (xx / xl)
+        xy = (xy / xl)
+        xz = (xz / xl)
+        ; y = z × x
+        def yx:double ((zy * xz) - (zz * xy))
+        def yy:double ((zz * xx) - (zx * xz))
+        def yz:double ((zx * xy) - (zy * xx))
+        set this.elements 0 xx
+        set this.elements 1 xy
+        set this.elements 2 xz
+        set this.elements 3 0.0
+        set this.elements 4 yx
+        set this.elements 5 yy
+        set this.elements 6 yz
+        set this.elements 7 0.0
+        set this.elements 8 zx
+        set this.elements 9 zy
+        set this.elements 10 zz
+        set this.elements 11 0.0
+        set this.elements 12 0.0
+        set this.elements 13 0.0
+        set this.elements 14 0.0
+        set this.elements 15 1.0
+        return this
+    }
+
+    ; Write this matrix's rotation as a quaternion into q (Three.js
+    ; Quaternion.setFromRotationMatrix). Assumes an un-scaled rotation basis.
+    fn toQuaternion:void (q:ThreeQuaternion) {
+        this.ensure()
+        def m11:double (itemAt this.elements 0)
+        def m21:double (itemAt this.elements 1)
+        def m31:double (itemAt this.elements 2)
+        def m12:double (itemAt this.elements 4)
+        def m22:double (itemAt this.elements 5)
+        def m32:double (itemAt this.elements 6)
+        def m13:double (itemAt this.elements 8)
+        def m23:double (itemAt this.elements 9)
+        def m33:double (itemAt this.elements 10)
+        def trace:double ((m11 + m22) + m33)
+        if (trace > 0.0) {
+            def s:double (0.5 / (sqrt(trace + 1.0)))
+            q.w = (0.25 / s)
+            q.x = ((m32 - m23) * s)
+            q.y = ((m13 - m31) * s)
+            q.z = ((m21 - m12) * s)
+        } {
+            if ((m11 > m22) && (m11 > m33)) {
+                def s:double (2.0 * (sqrt(((1.0 + m11) - m22) - m33)))
+                q.w = ((m32 - m23) / s)
+                q.x = (0.25 * s)
+                q.y = ((m12 + m21) / s)
+                q.z = ((m13 + m31) / s)
+            } {
+                if (m22 > m33) {
+                    def s:double (2.0 * (sqrt(((1.0 + m22) - m11) - m33)))
+                    q.w = ((m13 - m31) / s)
+                    q.x = ((m12 + m21) / s)
+                    q.y = (0.25 * s)
+                    q.z = ((m23 + m32) / s)
+                } {
+                    def s:double (2.0 * (sqrt(((1.0 + m33) - m11) - m22)))
+                    q.w = ((m21 - m12) / s)
+                    q.x = ((m13 + m31) / s)
+                    q.y = ((m23 + m32) / s)
+                    q.z = (0.25 * s)
+                }
+            }
+        }
+    }
+
     ; makePerspective(left,right,top,bottom,near,far) for the WebGL NDC (z -1..1).
     fn makePerspective:ThreeMatrix4 (left:double right:double top:double bottom:double near:double far:double) {
         this.ensure()

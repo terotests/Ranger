@@ -2,27 +2,48 @@
 ; three_render_backend — the pluggable rendering seam for ThreeWebGLRenderer.
 ; ==============================================================================
 ;
-; The renderer core (three_webgl_renderer.rgr) walks the scene, computes an MVP
-; per mesh, and hands each mesh to a backend through this interface. It never
-; contains GPU code, so the core stays pure Ranger and compiles to C++ for
-; native/embedded. Backends:
-;   • ThreeSoftwareBackend (this module's sibling) — a pure-Ranger rasteriser,
-;     the default; works everywhere including headless / Raspberry Pi.
-;   • a browser WebGL backend (JS, supplied by the web host) — GPU-accelerated.
+; The renderer core (three_webgl_renderer.rgr) walks the scene, computes the
+; model + MVP per mesh, and hands each mesh to a backend through this interface.
+; It never contains GPU code, so the core stays pure Ranger and compiles to C++.
+; Backends:
+;   • ThreeSoftwareBackend — a pure-Ranger rasteriser (default; headless / Pi).
+;   • ThreeGLBackend — WebGL in the browser, OpenGL/GLES on desktop.
 ;
-; This base class is a no-op so a renderer with no backend simply draws nothing.
+; Per-frame the renderer calls setLights() (ambient + directional) and setView()
+; (camera world position, for specular) once; then drawMesh() per mesh. This base
+; class is a no-op so a renderer with no backend simply draws nothing.
 ; ==============================================================================
 
 Import "three_buffer_geometry.rgr"
 Import "three_matrix4.rgr"
 Import "three_texture.rgr"
+Import "three_cube_texture.rgr"
+Import "three_material.rgr"
 
 class ThreeRenderBackend {
     fn beginFrame:void (w:int h:int r:double g:double b:double) {
     }
-    ; Draw one mesh: geometry, its full model-view-projection matrix, whether it
-    ; has a texture (+ the texture) and a flat material colour.
-    fn drawMesh:void (geometry:ThreeBufferGeometry mvp:ThreeMatrix4 hasTexture:boolean tex:ThreeTexture colorR:double colorG:double colorB:double) {
+    ; Per-frame lighting: ambient rgb, and dirCount directional lights whose
+    ; directions (toward the light, normalised) are dirs[i*3..] and colours
+    ; (colour*intensity) are cols[i*3..].
+    fn setLights:void (ambR:double ambG:double ambB:double dirCount:int dirs:[double] cols:[double]) {
+    }
+    ; Camera world position (for Phong specular view vector).
+    fn setView:void (camX:double camY:double camZ:double) {
+    }
+    ; Draw one mesh: geometry, its world (model) matrix, its full MVP, and the
+    ; material (colour/specular/shininess/map/side/shading path).
+    fn drawMesh:void (geometry:ThreeBufferGeometry model:ThreeMatrix4 mvp:ThreeMatrix4 mat:ThreeMaterial) {
+    }
+    ; Environment cube map (envMap reflections + skybox). ensureEnvironment uploads
+    ; the cube once and returns an opaque handle; setEnvironment selects it for
+    ; reflective draws; drawSkybox renders it behind the scene. No-ops by default.
+    fn ensureEnvironment:int (cube:ThreeCubeTexture) {
+        return 0
+    }
+    fn setEnvironment:void (handle:int) {
+    }
+    fn drawSkybox:void (handle:int mvp:ThreeMatrix4) {
     }
     fn endFrame:void () {
     }

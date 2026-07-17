@@ -1,0 +1,213 @@
+; ==============================================================================
+; three_teapot_geometry — the Utah teapot (Three.js addons TeapotGeometry.js).
+; ==============================================================================
+; Tessellates the 32 cubic-Bézier patches (three_teapot_data.rgr) into a triangle
+; mesh with positions, normals and uvs. Ported to Bernstein-basis evaluation
+; (unambiguous), matching Three's axis swap, Blinn/fitLid scaling and cusp-normal
+; fix. Params: size, segments (tessellation), bottom/lid/body (which parts),
+; fitLid (snug lid), blinn (original vs Blinn-scaled height).
+; ==============================================================================
+
+Import "three_buffer_geometry.rgr"
+Import "three_teapot_data.rgr"
+
+class ThreeTeapotGeometry extends ThreeBufferGeometry {
+    def isTeapotGeometry:boolean true
+
+    ; cubic Bernstein basis and its derivative at u (4 values each).
+    fn bern4:[double] (u:double) {
+        def u1:double (1.0 - u)
+        def out:[double]
+        push out ((u1 * u1) * u1)
+        push out ((3.0 * u) * (u1 * u1))
+        push out ((3.0 * (u * u)) * u1)
+        push out ((u * u) * u)
+        return out
+    }
+    fn dbern4:[double] (u:double) {
+        def u1:double (1.0 - u)
+        def out:[double]
+        push out (0.0 - (3.0 * (u1 * u1)))
+        push out ((3.0 * u1) * (1.0 - (3.0 * u)))
+        push out ((3.0 * u) * (2.0 - (3.0 * u)))
+        push out (3.0 * (u * u))
+        return out
+    }
+
+    fn setTeapot:ThreeTeapotGeometry (size:double segments:int bottom:boolean lid:boolean body:boolean fitLid:boolean blinn:boolean) {
+        def blinnScale:double 1.3
+        def maxHeight:double 3.15
+        if (blinn == false) {
+            maxHeight = (3.15 * blinnScale)
+        }
+        def maxHeight2:double (maxHeight / 2.0)
+        def trueSize:double (size / maxHeight2)
+
+        def patches:[int] (ThreeTeapotData.patches())
+        def verts:[double] (ThreeTeapotData.verts())
+
+        def minP:int 20
+        if body {
+            minP = 0
+        }
+        def maxP:int 28
+        if bottom {
+            maxP = 32
+        }
+        def vpr:int (segments + 1)
+        def surfCount:int 0
+
+        def surf:int minP
+        while (surf < maxP) {
+            def useit:boolean false
+            if lid {
+                useit = true
+            } {
+                if ((surf < 20) || (surf >= 28)) {
+                    useit = true
+                }
+            }
+            if useit {
+                ; gather the 16 control points (with fitLid / Blinn scaling)
+                def gp:[double]
+                def r:int 0
+                while (r < 4) {
+                    def c:int 0
+                    while (c < 4) {
+                        def idx:int (itemAt patches ((surf * 16) + ((r * 4) + c)))
+                        def bx:double (itemAt verts ((idx * 3) + 0))
+                        def by:double (itemAt verts ((idx * 3) + 1))
+                        def bz:double (itemAt verts ((idx * 3) + 2))
+                        if fitLid {
+                            if ((surf >= 20) && (surf < 28)) {
+                                bx = (bx * 1.077)
+                                by = (by * 1.077)
+                            }
+                        }
+                        if (blinn == false) {
+                            bz = (bz * blinnScale)
+                        }
+                        push gp bx
+                        push gp by
+                        push gp bz
+                        c = (c + 1)
+                    }
+                    r = (r + 1)
+                }
+
+                def si:int 0
+                while (si <= segments) {
+                    def s:double ((to_double si) / (to_double segments))
+                    def bs:[double] (this.bern4(s))
+                    def dbs:[double] (this.dbern4(s))
+                    def ti:int 0
+                    while (ti <= segments) {
+                        def t:double ((to_double ti) / (to_double segments))
+                        def bt:[double] (this.bern4(t))
+                        def dbt:[double] (this.dbern4(t))
+
+                        def px:double 0.0
+                        def py:double 0.0
+                        def pz:double 0.0
+                        def tsx:double 0.0
+                        def tsy:double 0.0
+                        def tsz:double 0.0
+                        def ttx:double 0.0
+                        def tty:double 0.0
+                        def ttz:double 0.0
+                        def rr:int 0
+                        while (rr < 4) {
+                            def bsr:double (itemAt bs rr)
+                            def dbsr:double (itemAt dbs rr)
+                            def cc:int 0
+                            while (cc < 4) {
+                                def btc:double (itemAt bt cc)
+                                def dbtc:double (itemAt dbt cc)
+                                def gi:int (((rr * 4) + cc) * 3)
+                                def gx:double (itemAt gp gi)
+                                def gy:double (itemAt gp (gi + 1))
+                                def gz:double (itemAt gp (gi + 2))
+                                def w:double (bsr * btc)
+                                def ws:double (dbsr * btc)
+                                def wt:double (bsr * dbtc)
+                                px = (px + (w * gx))
+                                py = (py + (w * gy))
+                                pz = (pz + (w * gz))
+                                tsx = (tsx + (ws * gx))
+                                tsy = (tsy + (ws * gy))
+                                tsz = (tsz + (ws * gz))
+                                ttx = (ttx + (wt * gx))
+                                tty = (tty + (wt * gy))
+                                ttz = (ttz + (wt * gz))
+                                cc = (cc + 1)
+                            }
+                            rr = (rr + 1)
+                        }
+
+                        ; normal = normalize(cross(Tt, Ts))
+                        def nx:double ((tty * tsz) - (ttz * tsy))
+                        def ny:double ((ttz * tsx) - (ttx * tsz))
+                        def nz:double ((ttx * tsy) - (tty * tsx))
+                        def nl:double (sqrt(((nx * nx) + (ny * ny)) + (nz * nz)))
+                        if (nl < 0.000000001) {
+                            nl = 1.0
+                        }
+                        nx = (nx / nl)
+                        ny = (ny / nl)
+                        nz = (nz / nl)
+
+                        ; output normal: cusp -> up/down, else rotate on X axis
+                        def onx:double nx
+                        def ony:double nz
+                        def onz:double (0.0 - ny)
+                        def apx:double px
+                        if (apx < 0.0) {
+                            apx = (0.0 - apx)
+                        }
+                        def apy:double py
+                        if (apy < 0.0) {
+                            apy = (0.0 - apy)
+                        }
+                        if ((apx < 0.000000001) && (apy < 0.000000001)) {
+                            onx = 0.0
+                            onz = 0.0
+                            if (pz > maxHeight2) {
+                                ony = 1.0
+                            } {
+                                ony = (0.0 - 1.0)
+                            }
+                        }
+
+                        ; position: axis swap + scale
+                        def outX:double (trueSize * px)
+                        def outY:double (trueSize * (pz - maxHeight2))
+                        def outZ:double (0.0 - (trueSize * py))
+                        this.pushVertex(outX outY outZ onx ony onz (1.0 - t) (1.0 - s))
+                        ti = (ti + 1)
+                    }
+                    si = (si + 1)
+                }
+
+                ; faces for this patch grid
+                def fi:int 0
+                def base:int ((surfCount * vpr) * vpr)
+                while (fi < segments) {
+                    def fj:int 0
+                    while (fj < segments) {
+                        def v1:int ((base + (fi * vpr)) + fj)
+                        def v2:int (v1 + 1)
+                        def v3:int (v2 + vpr)
+                        def v4:int (v1 + vpr)
+                        this.pushTriangle(v1 v2 v3)
+                        this.pushTriangle(v1 v3 v4)
+                        fj = (fj + 1)
+                    }
+                    fi = (fi + 1)
+                }
+                surfCount = (surfCount + 1)
+            }
+            surf = (surf + 1)
+        }
+        return this
+    }
+}

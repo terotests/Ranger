@@ -1,0 +1,216 @@
+; ==============================================================================
+; three_orbit_controls — mouse orbit/zoom/pan (Three.js addons OrbitControls).
+; ==============================================================================
+; Spherical camera controller around a target. The HOST feeds pointer events
+; (pointerDown/Move/Up + wheel) and the viewport size; the controller updates the
+; camera's position and orientation (via Object3D.lookAt) and raises a `dirty`
+; flag so the host can render on demand — exactly the on-demand model the teapot
+; example uses. Pure Ranger: no DOM here, so it compiles to native too.
+;
+; Convention (matches Three's Spherical): phi = polar angle from +Y (0..PI),
+; theta = azimuth about +Y. offset = radius * (sinPhi*sinTheta, cosPhi,
+; sinPhi*cosTheta); camera sits at target + offset, looking at target.
+; ==============================================================================
+
+Import "three_perspective_camera.rgr"
+Import "three_vector3.rgr"
+
+class ThreeOrbitControls {
+    def camera:ThreePerspectiveCamera (new ThreePerspectiveCamera)
+    def hasCamera:boolean false
+
+    def targetX:double 0.0
+    def targetY:double 0.0
+    def targetZ:double 0.0
+
+    def radius:double 1000.0
+    def theta:double 0.0
+    def phi:double 1.5707963267948966
+
+    def minDistance:double 1.0
+    def maxDistance:double 100000.0
+    def minPolar:double 0.0001
+    def maxPolar:double 3.1415426535897933
+    def rotateSpeed:double 1.0
+    def zoomSpeed:double 1.0
+
+    def vpW:int 600
+    def vpH:int 600
+
+    def dragging:boolean false
+    def mode:int 0            ; 1 = rotate, 2 = pan
+    def lastX:double 0.0
+    def lastY:double 0.0
+    def dirty:boolean true
+
+    fn setCamera:ThreeOrbitControls (cam:ThreePerspectiveCamera) {
+        camera = cam
+        hasCamera = true
+        this.initFromCamera()
+        return this
+    }
+    fn setViewport:ThreeOrbitControls (w:int h:int) {
+        vpW = w
+        vpH = h
+        return this
+    }
+    fn setTarget:ThreeOrbitControls (x:double y:double z:double) {
+        targetX = x
+        targetY = y
+        targetZ = z
+        this.initFromCamera()
+        return this
+    }
+    fn setDistanceRange:ThreeOrbitControls (mn:double mx:double) {
+        minDistance = mn
+        maxDistance = mx
+        return this
+    }
+
+    ; derive spherical (radius, theta, phi) from the camera's current offset.
+    fn initFromCamera:void () {
+        if (hasCamera == false) {
+            return
+        }
+        def ox:double (camera.position.x - targetX)
+        def oy:double (camera.position.y - targetY)
+        def oz:double (camera.position.z - targetZ)
+        def r:double (sqrt(((ox * ox) + (oy * oy)) + (oz * oz)))
+        if (r < 0.0000001) {
+            r = 0.0000001
+        }
+        radius = r
+        def cp:double (oy / r)
+        if (cp > 1.0) {
+            cp = 1.0
+        }
+        if (cp < (0.0 - 1.0)) {
+            cp = (0.0 - 1.0)
+        }
+        phi = (acos cp)
+        theta = (atan2 ox oz)
+    }
+
+    fn clampPhi:void () {
+        if (phi < minPolar) {
+            phi = minPolar
+        }
+        if (phi > maxPolar) {
+            phi = maxPolar
+        }
+    }
+
+    ; write the spherical state onto the camera (position + look-at target).
+    fn applyToCamera:void () {
+        if (hasCamera == false) {
+            return
+        }
+        def sp:double (sin phi)
+        def px:double (targetX + ((radius * sp) * (sin theta)))
+        def py:double (targetY + (radius * (cos phi)))
+        def pz:double (targetZ + ((radius * sp) * (cos theta)))
+        camera.position.set(px py pz)
+        camera.lookAt(targetX targetY targetZ)
+    }
+
+    fn pointerDown:void (x:double y:double button:int) {
+        dragging = true
+        if (button == 2) {
+            mode = 2
+        } {
+            mode = 1
+        }
+        lastX = x
+        lastY = y
+    }
+    fn pointerMove:void (x:double y:double) {
+        if (dragging == false) {
+            return
+        }
+        def dx:double (x - lastX)
+        def dy:double (y - lastY)
+        lastX = x
+        lastY = y
+        def twoPi:double 6.283185307179586
+        def hh:double (to_double vpH)
+        if (mode == 2) {
+            this.panDelta(dx dy)
+        } {
+            theta = (theta - (((twoPi * dx) / hh) * rotateSpeed))
+            phi = (phi - (((twoPi * dy) / hh) * rotateSpeed))
+            this.clampPhi()
+            this.applyToCamera()
+        }
+        dirty = true
+    }
+    fn pointerUp:void () {
+        dragging = false
+        mode = 0
+    }
+    fn wheel:void (delta:double) {
+        def f:double (0.1 * zoomSpeed)
+        if (delta < 0.0) {
+            radius = (radius * (1.0 - f))
+        } {
+            radius = (radius * (1.0 + f))
+        }
+        if (radius < minDistance) {
+            radius = minDistance
+        }
+        if (radius > maxDistance) {
+            radius = maxDistance
+        }
+        this.applyToCamera()
+        dirty = true
+    }
+
+    ; pan the target within the camera's screen plane.
+    fn panDelta:void (dx:double dy:double) {
+        if (hasCamera == false) {
+            return
+        }
+        def fx:double (targetX - camera.position.x)
+        def fy:double (targetY - camera.position.y)
+        def fz:double (targetZ - camera.position.z)
+        def fl:double (sqrt(((fx * fx) + (fy * fy)) + (fz * fz)))
+        if (fl < 0.0000001) {
+            fl = 1.0
+        }
+        fx = (fx / fl)
+        fy = (fy / fl)
+        fz = (fz / fl)
+        ; right = forward × up(0,1,0)
+        def rx:double ((fy * 0.0) - (fz * 1.0))
+        def ry:double ((fz * 0.0) - (fx * 0.0))
+        def rz:double ((fx * 1.0) - (fy * 0.0))
+        def rl:double (sqrt(((rx * rx) + (ry * ry)) + (rz * rz)))
+        if (rl < 0.0000001) {
+            rl = 1.0
+        }
+        rx = (rx / rl)
+        ry = (ry / rl)
+        rz = (rz / rl)
+        ; camUp = right × forward
+        def ux:double ((ry * fz) - (rz * fy))
+        def uy:double ((rz * fx) - (rx * fz))
+        def uz:double ((rx * fy) - (ry * fx))
+        def scale:double ((radius / (to_double vpH)) * 2.0)
+        def mx:double (((0.0 - dx) * scale) * rx)
+        def my:double ((dy * scale) * ux)
+        targetX = ((targetX + mx) + my)
+        def mx2:double (((0.0 - dx) * scale) * ry)
+        def my2:double ((dy * scale) * uy)
+        targetY = ((targetY + mx2) + my2)
+        def mx3:double (((0.0 - dx) * scale) * rz)
+        def my3:double ((dy * scale) * uz)
+        targetZ = ((targetZ + mx3) + my3)
+        this.applyToCamera()
+    }
+
+    ; host: render only when something changed, then clear the flag.
+    fn consumeDirty:boolean () {
+        def d:boolean dirty
+        dirty = false
+        return d
+    }
+}

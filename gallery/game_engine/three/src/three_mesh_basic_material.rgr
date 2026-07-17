@@ -1,21 +1,12 @@
 ; ==============================================================================
 ; three_mesh_basic_material — (Three.js src/materials/MeshBasicMaterial.js).
 ; ==============================================================================
-; Unlit material with an optional colour map (texture). `new MeshBasicMaterial({
-; map })` in Three.js -> `new ThreeMeshBasicMaterial` + `.setMap(texture)` here.
+; Unlit material with an optional colour map. lightingMode stays 0 (unlit), the
+; base default. map/setMap live on ThreeMaterial now (shared with lit materials).
 ; ==============================================================================
 
 Import "three_material.rgr"
-Import "three_texture.rgr"
 
 class ThreeMeshBasicMaterial extends ThreeMaterial {
     def isMeshBasicMaterial:boolean true
-    def hasMap:boolean false
-    def map:ThreeTexture (new ThreeTexture)
-
-    fn setMap:ThreeMeshBasicMaterial (t:ThreeTexture) {
-        this.map = t
-        this.hasMap = true
-        return this
-    }
 }

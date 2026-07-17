@@ -1,0 +1,15 @@
+; ==============================================================================
+; three_mesh_phong_material — (Three.js src/materials/MeshPhongMaterial.js).
+; ==============================================================================
+; Diffuse + Blinn-Phong specular lit material (specular colour + shininess).
+; shadingMode() = 2 selects the Phong path in the übershader.
+; ==============================================================================
+
+Import "three_material.rgr"
+
+class ThreeMeshPhongMaterial extends ThreeMaterial {
+    def isMeshPhongMaterial:boolean true
+    fn shadingMode:int () {
+        return 2
+    }
+}

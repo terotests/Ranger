@@ -182,6 +182,22 @@ const TSX3D_GL_SCENES = [
   },
 ];
 
+// Compiled WebGL teapot (kind:"teapot-gl"). The full webgl_geometry_teapot
+// example — lighting, TeapotGeometry, OrbitControls, a lil-gui-style EVG panel
+// and cube-map reflections — as a COMPILED Ranger scene (WebTeapotProbe, from
+// web_teapot_gl_probe.rgr), driven by src/teapot-gl-viewer.js. The editor shows
+// the scene's Ranger source; unlike the interpreted cube, edits don't hot-reload
+// (in-browser recompilation of .rgr is future work).
+const TEAPOT_GL_RGR = "gallery/game_engine/web/web_teapot_gl_probe.rgr";
+const TEAPOT_GL_SCENES = [
+  {
+    id: "teapot3d",
+    title: "Teapot — Three.js reflections on the GPU",
+    source: "gallery/game_engine/web/web_teapot_gl_probe.rgr",
+    controls: "The classic Three.js teapot on the Ranger Three clone + WebGL: drag to orbit, wheel to zoom, and click the panel to change tessellation, parts and shading (wireframe / flat / smooth / glossy / textured / reflective). A compiled Ranger scene — the editor shows its source.",
+  },
+];
+
 // ------------------------------------------------------------------- helpers
 function log(...a) {
   console.log("[web-build]", ...a);
@@ -342,6 +358,24 @@ function compileTsx3dGlBundle() {
   fs.rmSync(rawDir, { recursive: true, force: true });
 }
 
+// Compile web_teapot_gl_probe.rgr -> teapot-gl.bundle.js (exports WebTeapotProbe),
+// the compiled WebGL teapot scene.
+function compileTeapotGlBundle() {
+  const rawDir = path.join(OUT, "_rawteapotgl");
+  fs.mkdirSync(rawDir, { recursive: true });
+  log("compiling teapot WebGL scene:", TEAPOT_GL_RGR);
+  sh("node", [
+    "bin/output.js", "-es6", TEAPOT_GL_RGR,
+    "-d=" + path.relative(ROOT, rawDir), "-o=teapotgl.raw.js", "-nodecli",
+  ], { env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" }, stdio: "inherit" });
+  let src = fs.readFileSync(path.join(rawDir, "teapotgl.raw.js"), "utf8").replace(/^#![^\n]*\n/, "");
+  src = src.replace(/\n__js_main\(\);\s*$/, "\n").replace(/\n[A-Za-z_$][\w$]*\(\);\s*$/, "\n");
+  src += "\n;return { WebTeapotProbe };\n";
+  fs.writeFileSync(path.join(OUT, "teapot-gl.bundle.js"), src);
+  log("wrote teapot-gl.bundle.js (" + (src.length / 1024).toFixed(0) + " KB)");
+  fs.rmSync(rawDir, { recursive: true, force: true });
+}
+
 // ------------------------------------------------------------------- packages
 function packageGames() {
   const gamesOut = path.join(OUT, "games");
@@ -410,6 +444,20 @@ function packageGames() {
     });
     log("staged tsx3d-gl", s.id, "(script + façade" + (textureUrl ? " + texture" : "") + ")");
   }
+  // Compiled WebGL teapot (kind:"teapot-gl") — stage the Ranger source as a plain
+  // file the editor fetches; index.html runs the compiled WebTeapotProbe bundle.
+  for (const s of TEAPOT_GL_SCENES) {
+    const dir3 = path.join(gamesOut, s.id);
+    fs.mkdirSync(dir3, { recursive: true });
+    fs.copyFileSync(path.join(ROOT, s.source), path.join(dir3, "source.rgr"));
+    registry.push({
+      id: s.id, title: s.title, kind: "teapot-gl", width: 480, height: 480,
+      scriptDir: path.dirname(s.source), script: path.basename(s.source),
+      sourceUrl: "games/" + s.id + "/source.rgr",
+      controls: s.controls || "",
+    });
+    log("staged teapot-gl", s.id, "(source)");
+  }
   fs.writeFileSync(path.join(OUT, "games.json"), JSON.stringify(registry, null, 2));
 }
 
@@ -460,7 +508,7 @@ async function buildEditor() {
 
 // ------------------------------------------------------------------- assets
 function copyRuntime() {
-  for (const f of ["vfs.js", "engine-host.js", "runner.js", "tsx3d-viewer.js", "tsx3d-gl-viewer.js"]) {
+  for (const f of ["vfs.js", "engine-host.js", "runner.js", "tsx3d-viewer.js", "tsx3d-gl-viewer.js", "teapot-gl-viewer.js"]) {
     fs.copyFileSync(path.join(SRC, f), path.join(OUT, f));
   }
   fs.copyFileSync(path.join(HERE, "index.html"), path.join(OUT, "index.html"));
@@ -472,8 +520,8 @@ function copyRuntime() {
 // so it only changes when they actually change.
 function cacheBust() {
   const names = [
-    "vfs.js", "engine-host.js", "runner.js", "tsx3d-viewer.js", "tsx3d-gl-viewer.js",
-    "engine.bundle.js", "tsx3d.bundle.js", "tsx3d-gl.bundle.js", "games.json",
+    "vfs.js", "engine-host.js", "runner.js", "tsx3d-viewer.js", "tsx3d-gl-viewer.js", "teapot-gl-viewer.js",
+    "engine.bundle.js", "tsx3d.bundle.js", "tsx3d-gl.bundle.js", "teapot-gl.bundle.js", "games.json",
     "editor.bundle.js", "editor.bundle.css",
   ];
   const h = crypto.createHash("sha1");
@@ -497,6 +545,7 @@ fs.mkdirSync(OUT, { recursive: true });
 compileEngineBundle();
 compileTsx3dBundle();
 if (TSX3D_GL_SCENES.length) compileTsx3dGlBundle();
+if (TEAPOT_GL_SCENES.length) compileTeapotGlBundle();
 packageGames();
 const editorOk = await buildEditor();
 copyRuntime();

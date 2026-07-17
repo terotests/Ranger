@@ -1,0 +1,88 @@
+; ==============================================================================
+; three_gui_overlay_test — panel rasterises + hit-testing mutates state.
+; ==============================================================================
+
+Import "three_gui_overlay.rgr"
+
+class ThreeGuiOverlayTest {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (label:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            def m:string ("  PASS " + label)
+            print m
+        } {
+            failed = (failed + 1)
+            def m2:string ("  FAIL " + label)
+            print m2
+        }
+    }
+
+    sfn m@(main):void () {
+        def t:ThreeGuiOverlayTest (new ThreeGuiOverlayTest)
+        t.run()
+    }
+
+    fn run:void () {
+        def g:ThreeGuiOverlay (new ThreeGuiOverlay)
+
+        ; renders a non-empty RGBA buffer of the right size
+        def rgba:buffer (g.render())
+        def expect:int ((g.width()) * ((g.height()) * 4))
+        this.ok("buffer size" ((buffer_length rgba) == expect))
+
+        ; some pixels are non-zero (panel background actually drawn)
+        def nonzero:int 0
+        def i:int 0
+        def lim:int (buffer_length rgba)
+        while (i < lim) {
+            if ((buffer_get rgba i) > 0) {
+                nonzero = (nonzero + 1)
+            }
+            i = (i + 400)
+        }
+        this.ok("panel has painted pixels" (nonzero > 10))
+
+        ; shading row click cycles glossy(3) -> texture(4) -> reflect(5) -> wire(0)
+        def ch1:boolean (g.pointerDown(60.0 36.0))
+        this.ok("shading click changed" ch1)
+        this.ok("shading -> 4 (texture)" (g.shadingIndex == 4))
+        def d2:boolean (g.pointerDown(60.0 36.0))
+        this.ok("shading -> 5 (reflect)" (g.shadingIndex == 5))
+        def d3:boolean (g.pointerDown(60.0 36.0))
+        this.ok("shading wraps to 0" (g.shadingIndex == 0))
+
+        ; tess + stepper increments
+        def t0:int g.tess
+        def chp:boolean (g.pointerDown((to_double ((g.width()) - 20)) 62.0))
+        this.ok("plus changed" chp)
+        this.ok("tess incremented" (g.tess == (t0 + 1)))
+
+        ; tess - stepper decrements
+        def chm:boolean (g.pointerDown((to_double ((g.width()) - 60)) 62.0))
+        this.ok("minus changed" chm)
+        this.ok("tess back to start" (g.tess == t0))
+
+        ; toggle LID (row 2)
+        def lid0:boolean g.dispLid
+        def cly:int (34 + (26 * 2))
+        def cht:boolean (g.pointerDown(40.0 (to_double (cly + 4))))
+        this.ok("lid toggle changed" cht)
+        this.ok("lid flipped" (g.dispLid == (lid0 == false)))
+
+        ; click above the controls does nothing
+        def chn:boolean (g.pointerDown(40.0 4.0))
+        this.ok("title area no-op" (chn == false))
+
+        print "== summary =="
+        def s:string (("passed=" + (to_string passed)) + (" failed=" + (to_string failed)))
+        print s
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

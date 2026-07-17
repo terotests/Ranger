@@ -26,4 +26,55 @@ class ThreeTexture {
     fn hasImage:boolean () {
         return ((buffer_length this.rgba) > 0)
     }
+
+    ; Procedural UV grid (like three's uv_grid): `cells` coloured squares per axis
+    ; with darker grid lines, so texturing is obviously mapped. No image asset.
+    sfn uvGrid:ThreeTexture (size:int cells:int) {
+        def t:ThreeTexture (new ThreeTexture)
+        def buf:buffer (buffer_alloc ((size * size) * 4))
+        def cell:int (idiv size cells)
+        if (cell < 1) {
+            cell = 1
+        }
+        def y:int 0
+        while (y < size) {
+            def x:int 0
+            while (x < size) {
+                def cx:int (idiv x cell)
+                def cy:int (idiv y cell)
+                ; checkerboard base
+                def odd:int (bit_and (cx + cy) 1)
+                def r:int 210
+                def g:int 210
+                def b:int 210
+                if (odd == 1) {
+                    r = 90
+                    g = 110
+                    b = 150
+                }
+                ; colour tint per column/row so orientation is readable
+                def tintR:int ((cx * 37) - (((idiv (cx * 37) 256)) * 256))
+                def tintB:int ((cy * 53) - (((idiv (cy * 53) 256)) * 256))
+                r = (idiv (r + tintR) 2)
+                b = (idiv (b + tintB) 2)
+                ; grid lines
+                def mx:int (x - (cx * cell))
+                def my:int (y - (cy * cell))
+                if ((mx == 0) || (my == 0)) {
+                    r = 30
+                    g = 30
+                    b = 30
+                }
+                def o:int (((y * size) + x) * 4)
+                buffer_set buf o r
+                buffer_set buf (o + 1) g
+                buffer_set buf (o + 2) b
+                buffer_set buf (o + 3) 255
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        t.setImage(buf size size)
+        return t
+    }
 }

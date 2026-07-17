@@ -1,6 +1,13 @@
 ; ==============================================================================
 ; three_material — base material (Three.js port of src/materials/Material.js).
 ; ==============================================================================
+; Carries the fields every material subclass shares, so the render backend reads
+; ONE type (ThreeMaterial) regardless of Basic/Lambert/Phong. lightingMode selects
+; the shading path in the übershader: 0 = unlit (Basic), 1 = Lambert (diffuse),
+; 2 = Phong (diffuse + Blinn-Phong specular).
+; ==============================================================================
+
+Import "three_texture.rgr"
 
 class ThreeMaterial {
     def isMaterial:boolean true
@@ -8,14 +15,94 @@ class ThreeMaterial {
     def opacity:double 1.0
     def transparent:boolean false
     def visible:boolean true
+
+    ; diffuse colour
     def colorR:double 1.0
     def colorG:double 1.0
     def colorB:double 1.0
+
+    ; specular (Phong) + shininess
+    def specularR:double 0.0666
+    def specularG:double 0.0666
+    def specularB:double 0.0666
+    def shininess:double 30.0
+
+    ; optional colour map (texture)
+    def hasMap:boolean false
+    def map:ThreeTexture (new ThreeTexture)
+
+    ; render state
+    def wireframe:boolean false
+    def flatShading:boolean false
+    def side:int 0            ; 0 front, 1 back, 2 double
+
+    ; environment reflection (envMap): the scene's cube map, mixed by reflectivity
+    def reflective:boolean false
+    def reflectivity:double 0.9
+
+    ; Shading path the übershader takes: 0 unlit, 1 lambert, 2 phong. Overridden
+    ; per subclass (Ranger runs no constructor, so a method beats a field default).
+    fn shadingMode:int () {
+        return 0
+    }
 
     fn setColor:ThreeMaterial (r:double g:double b:double) {
         this.colorR = r
         this.colorG = g
         this.colorB = b
+        return this
+    }
+    fn setColorHex:ThreeMaterial (hex:int) {
+        def ri:int (idiv hex 65536)
+        def gi:int (idiv (hex - (ri * 65536)) 256)
+        def bi:int ((hex - (ri * 65536)) - (gi * 256))
+        this.colorR = ((to_double ri) / 255.0)
+        this.colorG = ((to_double gi) / 255.0)
+        this.colorB = ((to_double bi) / 255.0)
+        return this
+    }
+    fn setSpecular:ThreeMaterial (r:double g:double b:double) {
+        this.specularR = r
+        this.specularG = g
+        this.specularB = b
+        return this
+    }
+    fn setSpecularHex:ThreeMaterial (hex:int) {
+        def ri:int (idiv hex 65536)
+        def gi:int (idiv (hex - (ri * 65536)) 256)
+        def bi:int ((hex - (ri * 65536)) - (gi * 256))
+        this.specularR = ((to_double ri) / 255.0)
+        this.specularG = ((to_double gi) / 255.0)
+        this.specularB = ((to_double bi) / 255.0)
+        return this
+    }
+    fn setShininess:ThreeMaterial (v:double) {
+        this.shininess = v
+        return this
+    }
+    fn setSide:ThreeMaterial (s:int) {
+        this.side = s
+        return this
+    }
+    fn setWireframe:ThreeMaterial (w:boolean) {
+        this.wireframe = w
+        return this
+    }
+    fn setFlatShading:ThreeMaterial (f:boolean) {
+        this.flatShading = f
+        return this
+    }
+    fn setMap:ThreeMaterial (t:ThreeTexture) {
+        this.map = t
+        this.hasMap = true
+        return this
+    }
+    fn setReflective:ThreeMaterial (b:boolean) {
+        this.reflective = b
+        return this
+    }
+    fn setReflectivity:ThreeMaterial (v:double) {
+        this.reflectivity = v
         return this
     }
 }
