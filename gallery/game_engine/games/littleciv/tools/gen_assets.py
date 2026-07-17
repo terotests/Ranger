@@ -153,11 +153,45 @@ def gen_map() -> bytearray:
             draw_tile(pix, ORIGIN_X + col * TILE, ORIGIN_Y + row * TILE, MAP[row][col])
 
     lx = ORIGIN_X + COLS * TILE + 10
-    fill_rect(pix, lx, ORIGIN_Y, 110, 120, 24, 32, 48)
-    for i, ch in enumerate(["~", ".", "f", "h"]):
-        yy = ORIGIN_Y + 8 + i * 28
+    fill_rect(pix, lx, ORIGIN_Y, 110, 130, 24, 32, 48)
+    # Tiny 3x5 caps for legend labels (readable at 480x270).
+    font = {
+        "O": ["111", "101", "101", "101", "111"],
+        "C": ["111", "100", "100", "100", "111"],
+        "E": ["111", "100", "110", "100", "111"],
+        "A": ["010", "101", "111", "101", "101"],
+        "N": ["101", "111", "111", "101", "101"],
+        "P": ["110", "101", "110", "100", "100"],
+        "L": ["100", "100", "100", "100", "111"],
+        "I": ["111", "010", "010", "010", "111"],
+        "S": ["111", "100", "111", "001", "111"],
+        "F": ["111", "100", "110", "100", "100"],
+        "R": ["110", "101", "110", "101", "101"],
+        "T": ["111", "010", "010", "010", "010"],
+        "H": ["101", "101", "111", "101", "101"],
+        " ": ["000", "000", "000", "000", "000"],
+    }
+
+    def blit_text(x, y, text, rgb):
+        cx = x
+        for ch in text:
+            glyph = font.get(ch, font[" "])
+            for gy, row in enumerate(glyph):
+                for gx, bit in enumerate(row):
+                    if bit == "1":
+                        setp(pix, cx + gx, y + gy, *rgb)
+            cx += 4
+
+    labels = [
+        ("~", "OCEAN"),
+        (".", "PLAINS"),
+        ("f", "FOREST"),
+        ("h", "HILLS"),
+    ]
+    for i, (ch, name) in enumerate(labels):
+        yy = ORIGIN_Y + 10 + i * 30
         draw_tile(pix, lx + 6, yy, ch)
-        fill_rect(pix, lx + 34, yy + 8, 60, 6, 180, 200, 220)
+        blit_text(lx + 34, yy + 8, name, (210, 220, 235))
     return pix
 
 
