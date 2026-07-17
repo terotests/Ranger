@@ -171,6 +171,21 @@ class ThreeLightProbeGrid extends ThreeObject3D {
     ; (RGBA bytes, size*size). A probe is projected into the light's clip space; if
     ; its depth is past the nearest occluder there, it's shadowed. Fills sunVis in
     ; flat-index order (matching bakeDirectional's loop). Empty depth => leave all lit.
+    ; the packed depth stored at texel (px,py) of the shadow map (clamped to range).
+    sfn storedDepthAt:double (depthBytes:buffer size:int px:int py:int) {
+        def cx:int px
+        def cy:int py
+        if (cx < 0) { cx = 0 }
+        if (cx > (size - 1)) { cx = (size - 1) }
+        if (cy < 0) { cy = 0 }
+        if (cy > (size - 1)) { cy = (size - 1) }
+        def off:int (((cy * size) + cx) * 4)
+        def r:int (buffer_get depthBytes off)
+        def g:int (buffer_get depthBytes (off + 1))
+        def b:int (buffer_get depthBytes (off + 2))
+        return ((to_double (((r * 65536) + (g * 256)) + b)) / 16777216.0)
+    }
+
     fn computeSunVisibility:void (depthBytes:buffer size:int lvp:ThreeMatrix4) {
         def empty:[double]
         this.sunVis = empty
@@ -179,6 +194,13 @@ class ThreeLightProbeGrid extends ThreeObject3D {
             return
         }
         def sizeD:double (to_double size)
+        ; PCF kernel: average sun visibility over a small region so a probe straddling
+        ; a shadow edge gets fractional (soft) visibility, not a hard 0/1 flip. The
+        ; radius is a fraction of the map (~2% => ~probe-spacing scale) with a 5x5 tap.
+        def radius:int (to_int (sizeD * 0.02))
+        if (radius < 1) { radius = 1 }
+        def step:int (idiv radius 2)
+        if (step < 1) { step = 1 }
         def wp:ThreeVector3 (new ThreeVector3)
         def iz:int 0
         while (iz < this.countZ) {
@@ -196,20 +218,31 @@ class ThreeLightProbeGrid extends ThreeObject3D {
                     def pd:double ((ndc.z * 0.5) + 0.5)
                     def vis:double 1.0
                     if ((((u >= 0.0) && (u <= 1.0)) && (v >= 0.0)) && (v <= 1.0)) {
-                        def px:int (to_int (u * sizeD))
-                        def py:int (to_int (v * sizeD))
-                        if (px < 0) { px = 0 }
-                        if (px > (size - 1)) { px = (size - 1) }
-                        if (py < 0) { py = 0 }
-                        if (py > (size - 1)) { py = (size - 1) }
-                        def off:int (((py * size) + px) * 4)
-                        def r:int (buffer_get depthBytes off)
-                        def g:int (buffer_get depthBytes (off + 1))
-                        def b:int (buffer_get depthBytes (off + 2))
-                        def stored:double ((to_double (((r * 65536) + (g * 256)) + b)) / 16777216.0)
-                        if ((pd - 0.003) > stored) {
-                            vis = 0.15
+                        def cx:int (to_int (u * sizeD))
+                        def cy:int (to_int (v * sizeD))
+                        def lit:double 0.0
+                        def taps:double 0.0
+                        def dy:int (0 - radius)
+                        while (dy <= radius) {
+                            def dx:int (0 - radius)
+                            while (dx <= radius) {
+                                def sd:double (ThreeLightProbeGrid.storedDepthAt(depthBytes size (cx + dx) (cy + dy)))
+                                if ((pd - 0.003) > sd) {
+                                    lit = (lit + 0.0)
+                                } {
+                                    lit = (lit + 1.0)
+                                }
+                                taps = (taps + 1.0)
+                                dx = (dx + step)
+                            }
+                            dy = (dy + step)
                         }
+                        def frac:double 1.0
+                        if (taps > 0.0) {
+                            frac = (lit / taps)
+                        }
+                        ; fully shadowed keeps 15% sun; blends up to full in the light.
+                        vis = (0.15 + (0.85 * frac))
                     }
                     push this.sunVis vis
                     ix = (ix + 1)
