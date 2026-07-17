@@ -124,11 +124,12 @@ describe("Cannon.js Ranger port", () => {
 
   describe("Constraints", () => {
     cannonIt("Constraint.pointToPointPendulum");
+    cannonIt("Constraint.hingeAxis");
   });
 
   it("runs full Cannon suite aggregate", () => {
     const output = runCannonAll();
-    expect(output).toContain("pass=62");
+    expect(output).toContain("pass=63");
     expect(output).toContain("fail=0");
     expect(output).toContain("cannon-tests done");
   });

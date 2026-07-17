@@ -15,6 +15,64 @@ class CannonConstraintTest {
 
     fn runFiltered:void (h:CannonTestHarness filter:string) {
         if (this.filter.matches(filter "Constraint.pointToPointPendulum")) { this.pendulum(h) }
+        if (this.filter.matches(filter "Constraint.hingeAxis")) { this.hingeAxis(h) }
+    }
+
+    ; A hinge about the Z axis constrains rotation to the Z axis through the
+    ; pivot: an off-axis (X) spin is suppressed and the body stays in the hinge
+    ; plane, while gravity is still free to swing it about the hinge.
+    fn hingeAxis:void (h:CannonTestHarness) {
+        h.beginTest("Constraint.hingeAxis")
+        def world:CannonWorld (new CannonWorld)
+        world.initWorld()
+        world.setGravity(0.0 (0.0 - 10.0) 0.0)
+
+        def anchor:CannonBody (new CannonBody)
+        anchor.initStatic()
+        anchor.position.set(0.0 0.0 0.0)
+        world.addBody(anchor)
+
+        def door:CannonBody (new CannonBody)
+        door.initDynamic(1.0)
+        def shape:CannonSphere (new CannonSphere)
+        shape.initSphere(0.5)
+        door.addShape(shape)
+        door.position.set(1.0 0.0 0.0)
+        ; Off-axis spin the hinge must cancel (would throw it out of plane).
+        door.angularVelocity.set(2.0 0.0 0.0)
+        world.addBody(door)
+
+        def pivotA:CannonVec3 (new CannonVec3)
+        pivotA.set(0.0 0.0 0.0)
+        def pivotB:CannonVec3 (new CannonVec3)
+        pivotB.set((0.0 - 1.0) 0.0 0.0)
+        def axis:CannonVec3 (new CannonVec3)
+        axis.set(0.0 0.0 1.0)
+        def hinge:CannonConstraint (new CannonConstraint)
+        hinge.initHinge(anchor pivotA axis door pivotB axis 1000000.0)
+        world.addConstraint(hinge)
+
+        def s 0
+        while (s < 60) {
+            world.step(0.016666666666666666)
+            s = (s + 1)
+        }
+
+        def wx:double door.angularVelocity.x
+        if (wx < 0.0) {
+            wx = (0.0 - wx)
+        }
+        def pz:double door.position.z
+        if (pz < 0.0) {
+            pz = (0.0 - pz)
+        }
+        h.ok((wx < 1.0) "off-axis spin is suppressed by the hinge")
+        h.ok((pz < 0.3) "body stays in the hinge plane (z ~ 0)")
+        h.ok((door.position.y < (0.0 - 0.1)) "gravity still swings it about the hinge")
+        print ("hingeWx=" + (to_string wx))
+        print ("hingeZ=" + (to_string door.position.z))
+        print ("hingeY=" + (to_string door.position.y))
+        h.finishTest()
     }
 
     ; A bob hung from a static anchor by a point-to-point joint must swing under

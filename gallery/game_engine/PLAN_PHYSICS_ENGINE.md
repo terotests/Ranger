@@ -241,6 +241,14 @@ flipperi-testi.
   -maxForce). Testi ([`cannon_constraint_test.rgr`](./physics/src/cannon_constraint_test.rgr)):
   heiluri pysyy niveltvälin päässä (`pendulumDist ≈ 2.0`) ja heilahtaa painovoimassa
   alas (`pendulumY ≈ -1.79`). `npm run engine:physics:test` → 62 passed, 0 failed.
+- ✅ **Osa 2b (tehty):** **HingeConstraint** (`RotationalEquation`, `kind=3`
+  `CannonEquation`ssa). Hinge = point-to-point (pivot) + kaksi rotational-yhtälöä
+  jotka pitävät kappaleiden saranaakselit linjassa → yksi vapaa rotaatio-DOF.
+  Testi `Constraint.hingeAxis`: akselin ulkopuolinen pyörintä vaimenee (`wx ≈ 0`),
+  kappale pysyy saranatasossa (`z ≈ 0`), mutta painovoima heilauttaa sen saranan
+  ympäri (`y ≈ -0.21`). **Tämä on flipperin nivelen ydin.** Motori
+  (`RotationalMotorEquation`) puuttuu vielä (aktiivinen ohjaus) — passiivinen sarana
+  toimii. `npm run engine:physics:test` → 63 passed, 0 failed.
 
 **Vaihe 3 — Laatikko/konveksi-narrowphase.** `boxBox`, `sphereBox`, `ConvexPolyhedron`
 + `convexConvex` (SAT). Todiste: laatikkopino-testi.

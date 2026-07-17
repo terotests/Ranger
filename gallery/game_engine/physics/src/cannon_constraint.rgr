@@ -14,6 +14,7 @@ Import "cannon_equation.rgr"
 
 class CannonConstraint {
     sdef KIND_P2P:int 1
+    sdef KIND_HINGE:int 2
 
     def kind:int 1
     def bodyA:CannonBody
@@ -21,6 +22,12 @@ class CannonConstraint {
     def equations:[CannonEquation]
     def pivotA:CannonVec3 (new CannonVec3)
     def pivotB:CannonVec3 (new CannonVec3)
+    ; hinge: local rotation axes on each body (equations[3], equations[4] are the
+    ; two rotational equations that keep the world hinge axes aligned).
+    def axisA:CannonVec3 (new CannonVec3)
+    def axisB:CannonVec3 (new CannonVec3)
+    def worldAxisA:CannonVec3 (new CannonVec3)
+    def worldAxisB:CannonVec3 (new CannonVec3)
 
     fn initPointToPoint:void (bodyA:CannonBody pivotA:CannonVec3 bodyB:CannonBody pivotB:CannonVec3 maxForce:double) {
         this.kind = 1
@@ -42,10 +49,45 @@ class CannonConstraint {
         push this.equations ez
     }
 
+    ; Hinge = point-to-point (pin the pivot) + two rotational equations that keep
+    ; the two bodies' hinge axes aligned, leaving one free rotation DOF.
+    fn initHinge:void (bodyA:CannonBody pivotA:CannonVec3 axisA:CannonVec3 bodyB:CannonBody pivotB:CannonVec3 axisB:CannonVec3 maxForce:double) {
+        this.initPointToPoint(bodyA pivotA bodyB pivotB maxForce)
+        this.kind = 2
+        this.axisA.copy(axisA)
+        this.axisA.normalizeSelf()
+        this.axisB.copy(axisB)
+        this.axisB.normalizeSelf()
+        def r1:CannonEquation (new CannonEquation)
+        r1.initRotational(bodyA bodyB maxForce)
+        def r2:CannonEquation (new CannonEquation)
+        r2.initRotational(bodyA bodyB maxForce)
+        push this.equations r1
+        push this.equations r2
+    }
+
     fn update:void () {
         if (this.kind == 1) {
             this.updatePointToPoint()
         }
+        if (this.kind == 2) {
+            this.updateHinge()
+        }
+    }
+
+    fn updateHinge:void () {
+        this.updatePointToPoint()
+        def a:CannonBody (unwrap this.bodyA)
+        def b:CannonBody (unwrap this.bodyB)
+        a.quaternion.vmult(this.axisA this.worldAxisA)
+        b.quaternion.vmult(this.axisB this.worldAxisB)
+        def r1:CannonEquation (itemAt this.equations 3)
+        def r2:CannonEquation (itemAt this.equations 4)
+        ; r1.axisA and r2.axisA are the two tangents of the A-side hinge axis;
+        ; both are kept orthogonal to the B-side hinge axis, forcing alignment.
+        this.worldAxisA.tangents(r1.axisA r2.axisA)
+        r1.axisB.copy(this.worldAxisB)
+        r2.axisB.copy(this.worldAxisB)
     }
 
     fn updatePointToPoint:void () {

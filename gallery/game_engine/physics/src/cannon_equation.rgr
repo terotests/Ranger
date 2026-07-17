@@ -18,6 +18,7 @@ Import "cannon_jacobian_element.rgr"
 class CannonEquation {
     sdef KIND_CONTACT:int 1
     sdef KIND_FRICTION:int 2
+    sdef KIND_ROTATIONAL:int 3
 
     def id:int 0
     def kind:int 1
@@ -41,6 +42,10 @@ class CannonEquation {
     def rj:CannonVec3 (new CannonVec3)
     def ni:CannonVec3 (new CannonVec3)
     def t:CannonVec3 (new CannonVec3)
+    ; rotational (hinge): world-oriented axes kept orthogonal, plus max angle.
+    def axisA:CannonVec3 (new CannonVec3)
+    def axisB:CannonVec3 (new CannonVec3)
+    def maxAngle:double 1.5707963267948966
     ; scratch
     def tmp1:CannonVec3 (new CannonVec3)
     def tmp2:CannonVec3 (new CannonVec3)
@@ -79,6 +84,19 @@ class CannonEquation {
         this.minForce = (0.0 - slipForce)
         this.maxForce = slipForce
         this.enabled = true
+        this.setSpookParams(10000000.0 4.0 (1.0 / 60.0))
+    }
+
+    fn initRotational:void (bodyA:CannonBody bodyB:CannonBody maxForce:double) {
+        this.kind = 3
+        this.bi = bodyA
+        this.bj = bodyB
+        this.minForce = (0.0 - maxForce)
+        this.maxForce = maxForce
+        this.maxAngle = 1.5707963267948966
+        this.enabled = true
+        this.axisA.set(1.0 0.0 0.0)
+        this.axisB.set(0.0 1.0 0.0)
         this.setSpookParams(10000000.0 4.0 (1.0 / 60.0))
     }
 
@@ -141,7 +159,32 @@ class CannonEquation {
         if (this.kind == 2) {
             return (this.computeBFriction(h))
         }
+        if (this.kind == 3) {
+            return (this.computeBRotational(h))
+        }
         return (this.computeBContact(h))
+    }
+
+    ; Rotational: keep axisA and axisB orthogonal in world space (hinge alignment).
+    ; G = [ 0  njxni  0  nixnj ], g = cos(maxAngle) - axisA . axisB
+    fn computeBRotational:double (h:double) {
+        def a:double this.a
+        def b:double this.b
+        def ni:CannonVec3 this.axisA
+        def nj:CannonVec3 this.axisB
+        def nixnj:CannonVec3 this.tmp1
+        def njxni:CannonVec3 this.tmp2
+        ni.crossInto(nj nixnj)
+        nj.crossInto(ni njxni)
+        this.jA.spatial.setZero()
+        this.jB.spatial.setZero()
+        this.jA.rotational.copy(njxni)
+        this.jB.rotational.copy(nixnj)
+        def g:double ((cos(this.maxAngle)) - (ni.dot(nj)))
+        def GW:double (this.computeGW())
+        def GiMf:double (this.computeGiMf())
+        def B:double (((0.0 - (g * a)) - (GW * b)) - (h * GiMf))
+        return B
     }
 
     ; Contact/non-penetration: G = [ -n  -rixn  n  rjxn ], g = n . (xj+rj-xi-ri)
