@@ -44,7 +44,10 @@ class CannonNarrowphaseTest {
         def qi:CannonQuaternion (new CannonQuaternion)
         def qj:CannonQuaternion (new CannonQuaternion)
         this.narrowphase.sphereSphere(1.0 1.0 xi xj bodyA bodyB sphereShape sphereShapeB false)
-        def count:int (array_length result)
+        ; Read the narrowphase's own result member (what sphereSphere pushes to).
+        ; Reading the local `result` assumes JS array aliasing that does not hold in
+        ; C++ (assignment copies), where the local would stay empty.
+        def count:int (array_length this.narrowphase.result)
         h.equal((to_double count) 1.0 "one contact")
         h.finishTest()
     }
