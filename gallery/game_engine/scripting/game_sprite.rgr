@@ -443,6 +443,23 @@ class GameSpriteRenderer {
             }
             e.shScale = sc
         }
+        ; Optional live size for kind:"rect" (pseudo-3D road strips, etc.).
+        def wv:EvalValue (pos.getMember("w"))
+        if (false == (wv.isNull())) {
+            def nw:int (this.memInt(pos "w" e.w))
+            if (nw < 1) {
+                nw = 1
+            }
+            e.w = nw
+        }
+        def hv:EvalValue (pos.getMember("h"))
+        if (false == (hv.isNull())) {
+            def nh:int (this.memInt(pos "h" e.h))
+            if (nh < 1) {
+                nh = 1
+            }
+            e.h = nh
+        }
     }
 
     fn drawBitmap:void (e:GameEntity canvas:SoftCanvas) {
@@ -577,6 +594,15 @@ class GameSpriteRenderer {
         }
         if (e.kind == "ghost") {
             canvas.fillGhost(e.x e.y e.rad e.p0 e.p1 e.cr e.cg e.cb)
+            return
+        }
+        ; Horizontal trapezoid: top (x ± w/2) @ y → bottom (p1 ± p0/2) @ y+h.
+        if (e.kind == "trap") {
+            def y0:int e.y
+            def y1:int (e.y + e.h)
+            def half0:int (this.half(e.w))
+            def half1:int (this.half(e.p0))
+            canvas.fillTrapezoid(y0 (e.x - half0) (e.x + half0) y1 (e.p1 - half1) (e.p1 + half1) e.cr e.cg e.cb)
             return
         }
         if (e.angleDeg != 0.0) {

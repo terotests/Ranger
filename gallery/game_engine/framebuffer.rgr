@@ -211,6 +211,83 @@ class SoftCanvas {
         }
     }
 
+    ; Filled horizontal trapezoid (parallel top/bottom edges). Scanline-lerps
+    ; left/right X from (y0,x0L..x0R) to (y1,x1L..x1R). Used for pseudo-3D
+    ; road bands so edges stay diagonal instead of staircased rect strips.
+    fn fillTrapezoid:void (y0:int x0L:int x0R:int y1:int x1L:int x1R:int r:int g:int b:int) {
+        def ty0:int y0
+        def ty1:int y1
+        def aL:int x0L
+        def aR:int x0R
+        def bL:int x1L
+        def bR:int x1R
+        if (ty0 > ty1) {
+            ty0 = y1
+            ty1 = y0
+            aL = x1L
+            aR = x1R
+            bL = x0L
+            bR = x0R
+        }
+        if (aL > aR) {
+            def tmp:int aL
+            aL = aR
+            aR = tmp
+        }
+        if (bL > bR) {
+            def tmp2:int bL
+            bL = bR
+            bR = tmp2
+        }
+        def dy:int (ty1 - ty0)
+        if (dy < 0) {
+            return
+        }
+        if (dy == 0) {
+            def xL0:int aL
+            def xR0:int aR
+            if (xL0 < 0) {
+                xL0 = 0
+            }
+            if (xR0 > w) {
+                xR0 = w
+            }
+            if (xL0 < xR0) {
+                if (ty0 >= 0) {
+                    if (ty0 < h) {
+                        this.fillSpanRGB((((ty0 * w) + xL0) * 4) (xR0 - xL0) r g b)
+                    }
+                }
+            }
+            return
+        }
+        def yy:int ty0
+        while (yy <= ty1) {
+            if (yy >= 0) {
+                if (yy < h) {
+                    def num:int (yy - ty0)
+                    def xL:int (aL + (idiv ((bL - aL) * num) dy))
+                    def xR:int (aR + (idiv ((bR - aR) * num) dy))
+                    if (xL > xR) {
+                        def sw:int xL
+                        xL = xR
+                        xR = sw
+                    }
+                    if (xL < 0) {
+                        xL = 0
+                    }
+                    if (xR > w) {
+                        xR = w
+                    }
+                    if (xL < xR) {
+                        this.fillSpanRGB((((yy * w) + xL) * 4) (xR - xL) r g b)
+                    }
+                }
+            }
+            yy = (yy + 1)
+        }
+    }
+
     ; Alpha-composite an RGBA ImageBuffer onto this canvas (top-left at dx,dy).
     ; Clips to the framebuffer here because RgbaFastBlit.blitRect does not bounds
     ; check the destination — an off-screen sprite would otherwise wrap rows or
