@@ -1,4 +1,4 @@
 name=LittleCiv
-splitScreen=auto
+splitScreen=never
 category=Games
 icon=assets/image.png

@@ -31,7 +31,10 @@ npm run engine:game-sdl:launcher
 | Select / ↑ when spent | Cycle units |
 | B / Start | End turn |
 
-Flow: pick direction with arrows → Space to slide.
+Flow: pick direction with arrows → yellow tile shows the target → Space to slide.
+
+`game.info` uses `splitScreen=never` so the 480×270 map is not squeezed into a
+half-width pane (that made tiles look tall and hid HUD text).
 
 ## Art
 
