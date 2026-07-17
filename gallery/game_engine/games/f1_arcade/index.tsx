@@ -533,25 +533,38 @@ function placeWorld(entities, playerZ, playerX, anim, aiState) {
           visible: 1
         };
 
-        // Dashed center line all the way to the near camera (bi = 0).
-        const dash = wrapMod(floorOf(relZ / 55) + bi, 2);
-        if (dash == 0) {
+        // Center line: solid on the nearest few bands, dashed farther out.
+        let drawLine = 0;
+        if (bi <= 4) {
+          drawLine = 1;
+        } else {
           if (bi < DRAW_DIST - 2) {
-            let lineH = bandH;
-            if (lineH < 3) {
-              lineH = 3;
+            if (wrapMod(floorOf(relZ / 55) + bi, 2) == 0) {
+              drawLine = 1;
             }
-            entities["ln" + bi] = {
-              x: cx,
-              y: y,
-              w: lw,
-              h: lineH,
-              r: 240,
-              g: 240,
-              b: 220,
-              visible: 1
-            };
           }
+        }
+        if (drawLine == 1) {
+          let lineH = bandH;
+          if (lineH < 3) {
+            lineH = 3;
+          }
+          let lineWpx = lw;
+          if (bi <= 2) {
+            if (lineWpx < 4) {
+              lineWpx = 4;
+            }
+          }
+          entities["ln" + bi] = {
+            x: cx,
+            y: y,
+            w: lineWpx,
+            h: lineH,
+            r: 240,
+            g: 240,
+            b: 220,
+            visible: 1
+          };
         }
 
         // Pin props to the *rendered* road edge (same cx/half as asphalt),
