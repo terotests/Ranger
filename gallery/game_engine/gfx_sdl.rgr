@@ -41,6 +41,14 @@ static int g_rgfx_audio_freq = 44100;
 static int g_rgfx_should_close = 0;
 static int g_rgfx_fullscreen = 0;
 
+// Mouse pointer state (SDL has no polling helper for a persistent cursor in this
+// wrapper, so we track it from events). Position is in window pixels; buttons is
+// a bitmask (1=left, 2=right, 4=middle); wheel accumulates notches until read.
+static int g_rgfx_mouse_x = 0;
+static int g_rgfx_mouse_y = 0;
+static int g_rgfx_mouse_btn = 0;
+static int g_rgfx_wheel = 0;
+
 #define RGFX_MAX_PADS 8
 #define RGFX_SRC_KB_P1 0
 #define RGFX_SRC_KB_P2 1
@@ -212,6 +220,27 @@ static void rgfx_pump_events() {
     SDL_Event ev;
     while (SDL_PollEvent(&ev)) {
         if (ev.type == SDL_QUIT) { g_rgfx_should_close = 1; }
+        if (ev.type == SDL_MOUSEMOTION) {
+            g_rgfx_mouse_x = ev.motion.x;
+            g_rgfx_mouse_y = ev.motion.y;
+        }
+        if (ev.type == SDL_MOUSEBUTTONDOWN) {
+            g_rgfx_mouse_x = ev.button.x;
+            g_rgfx_mouse_y = ev.button.y;
+            if (ev.button.button == SDL_BUTTON_LEFT) { g_rgfx_mouse_btn |= 1; }
+            if (ev.button.button == SDL_BUTTON_RIGHT) { g_rgfx_mouse_btn |= 2; }
+            if (ev.button.button == SDL_BUTTON_MIDDLE) { g_rgfx_mouse_btn |= 4; }
+        }
+        if (ev.type == SDL_MOUSEBUTTONUP) {
+            if (ev.button.button == SDL_BUTTON_LEFT) { g_rgfx_mouse_btn &= ~1; }
+            if (ev.button.button == SDL_BUTTON_RIGHT) { g_rgfx_mouse_btn &= ~2; }
+            if (ev.button.button == SDL_BUTTON_MIDDLE) { g_rgfx_mouse_btn &= ~4; }
+        }
+        if (ev.type == SDL_MOUSEWHEEL) {
+            int wy = ev.wheel.y;
+            if (ev.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) { wy = -wy; }
+            g_rgfx_wheel += wy;
+        }
         if (ev.type == SDL_CONTROLLERDEVICEADDED) {
             rgfx_open_pad_index((int) ev.cdevice.which);
         }
@@ -2791,6 +2820,45 @@ extern \"C\" void rgfx_scene_render(int w, int h) {
         templates {
             cpp ( "rgfx_input_pad_count()" (imp "<SDL2/SDL.h>") )
             es6 ( "0" )
+        }
+    }
+
+    ; --- mouse pointer (updated by gfx_input_poll / rgfx_pump_events) ----------
+    ; Position is in window pixels; call after gfx_input_poll each frame.
+    gfx_mouse_x _:int () {
+        templates {
+            cpp ( "g_rgfx_mouse_x" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+    gfx_mouse_y _:int () {
+        templates {
+            cpp ( "g_rgfx_mouse_y" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+    ; Button bitmask: 1 = left, 2 = right, 4 = middle.
+    gfx_mouse_buttons _:int () {
+        templates {
+            cpp ( "g_rgfx_mouse_btn" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+    ; Accumulated wheel notches since the last read (positive = scroll up); reads
+    ; and clears the accumulator.
+    gfx_mouse_wheel _:int () {
+        templates {
+            cpp ( "([]{ int w = g_rgfx_wheel; g_rgfx_wheel = 0; return w; }())" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+
+    ; Swap the GL back buffer to the window (present a GPU-drawn frame). Use after
+    ; drawing directly with the GL backend (three_gl's rgl_*), not the 2D path.
+    gfx_gl_swap _:void () {
+        templates {
+            cpp ( "rgfx_gpu_finish_frame()" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
         }
     }
 
