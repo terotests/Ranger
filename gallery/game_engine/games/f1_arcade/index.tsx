@@ -26,7 +26,7 @@ const CAM_DEPTH = 0.84;
 const ROAD_WIDTH = 2000;
 const SEG_LENGTH = 200;
 const DRAW_DIST = 48;
-const CURVE_STRENGTH = 0.85;
+const CURVE_STRENGTH = 0.35;
 const TRACK_SEGS = 64;
 const AI_COUNT = 4;
 const PROP_SLOTS = 10;
@@ -428,8 +428,8 @@ function camXAt(playerX, baseSeg, segPct, relZ) {
   return playerX * ROAD_WIDTH - x;
 }
 
-// Screen-space road strips (guaranteed no green gaps) + Lou scale for X/W.
-// Strip 0 = nearest (bottom, tallest visually via more screen rows per z).
+// Perspective road bands: sample equal Δz, project Y — nearer bands are
+// taller AND wider. Overlap by 2px so grass never shows between strips.
 function placeWorld(entities, playerZ, playerX, anim, aiState) {
   hideRoad(entities);
   hideProps(entities);
@@ -437,43 +437,47 @@ function placeWorld(entities, playerZ, playerX, anim, aiState) {
 
   const baseSeg = floorOf(playerZ / SEG_LENGTH);
   const segPct = (playerZ - baseSeg * SEG_LENGTH) / SEG_LENGTH;
-  const groundH = ROAD_BOTTOM - HORIZON;
-  const scaleNear = CAM_DEPTH / Z_NEAR;
-  const scaleFar = CAM_DEPTH / Z_FAR;
-  const scaleSpan = scaleNear - scaleFar;
 
-  let propSlot = 0;
-  // Paint far → near so nearer strips cover the +1px overlap.
-  let bi = DRAW_DIST - 1;
-  while (bi >= 0) {
-    // Screen tile: equal rows, bottom = near. Overlap 1px so grass never peeks.
-    const yBot = ROAD_BOTTOM - floorOf((bi * groundH) / DRAW_DIST);
-    const yTop = ROAD_BOTTOM - floorOf(((bi + 1) * groundH) / DRAW_DIST);
-    // +2 overlap kills 1px grass seams from integer rect centering.
-    let bandH = yBot - yTop + 2;
-    if (bandH < 3) {
-      bandH = 3;
-    }
-    const y = yTop + bandH * 0.5;
-
-    // Inverse of project()'s t mapping → relZ for this strip centre.
-    const t = clamp((y - HORIZON) / groundH, 0.02, 1);
-    const scale = scaleFar + t * scaleSpan;
-    let relZ = CAM_DEPTH / scale;
-    if (relZ < Z_NEAR * 0.5) {
-      relZ = Z_NEAR * 0.5;
-    }
+  // Project DRAW_DIST+1 depth samples (0 = near).
+  const ys = [];
+  const xs = [];
+  const ws = [];
+  const zs = [];
+  const cams = [];
+  let n = 0;
+  while (n <= DRAW_DIST) {
+    const relZ = Z_NEAR + (n * (Z_FAR - Z_NEAR)) / DRAW_DIST;
     const camX = camXAt(playerX, baseSeg, segPct, relZ);
     const p = project(0, relZ, camX);
-    const cx = p.x;
-    const half = p.w;
+    ys.push(p.y);
+    xs.push(p.x);
+    ws.push(p.w);
+    zs.push(relZ);
+    cams.push(camX);
+    n = n + 1;
+  }
+
+  let propSlot = 0;
+  // Paint far → near.
+  let bi = DRAW_DIST - 1;
+  while (bi >= 0) {
+    const yNear = ys[bi];
+    const yFar = ys[bi + 1];
+    let bandH = floorOf(yNear - yFar) + 3;
+    if (bandH < 2) {
+      bandH = 2;
+    }
+    const y = (yNear + yFar) * 0.5;
+    const cx = (xs[bi] + xs[bi + 1]) * 0.5;
+    const half = (ws[bi] + ws[bi + 1]) * 0.5;
+    const relZ = (zs[bi] + zs[bi + 1]) * 0.5;
+    const camX = cams[bi];
     const roadW = clamp(floorOf(half * 2), 10, VIEW_W - 2);
     const rb = rumbleW(half);
     const lw = lineW(half);
     const segIdx = baseSeg + floorOf(relZ / SEG_LENGTH);
     const stripe = wrapMod(segIdx + floorOf(relZ / 40), 2);
 
-    // Solid asphalt (no shade banding — that reads as green “gaps”).
     const roadR = 74;
     const roadG = 76;
     const roadB = 84;
@@ -486,91 +490,94 @@ function placeWorld(entities, playerZ, playerX, anim, aiState) {
       rumbleB = 245;
     }
 
-    entities["rd" + bi] = {
-      x: cx,
-      y: y,
-      w: roadW,
-      h: bandH,
-      r: roadR,
-      g: roadG,
-      b: roadB,
-      visible: 1
-    };
-    entities["rl" + bi] = {
-      x: cx - half - rb * 0.5,
-      y: y,
-      w: rb,
-      h: bandH,
-      r: rumbleR,
-      g: rumbleG,
-      b: rumbleB,
-      visible: 1
-    };
-    entities["rr" + bi] = {
-      x: cx + half + rb * 0.5,
-      y: y,
-      w: rb,
-      h: bandH,
-      r: rumbleR,
-      g: rumbleG,
-      b: rumbleB,
-      visible: 1
-    };
+    if (yNear > HORIZON - 2) {
+      if (yFar < VIEW_H + 4) {
+        entities["rd" + bi] = {
+          x: cx,
+          y: y,
+          w: roadW,
+          h: bandH,
+          r: roadR,
+          g: roadG,
+          b: roadB,
+          visible: 1
+        };
+        entities["rl" + bi] = {
+          x: cx - half - rb * 0.5,
+          y: y,
+          w: rb,
+          h: bandH,
+          r: rumbleR,
+          g: rumbleG,
+          b: rumbleB,
+          visible: 1
+        };
+        entities["rr" + bi] = {
+          x: cx + half + rb * 0.5,
+          y: y,
+          w: rb,
+          h: bandH,
+          r: rumbleR,
+          g: rumbleG,
+          b: rumbleB,
+          visible: 1
+        };
 
-    const dash = wrapMod(floorOf(relZ / 50), 2);
-    if (dash == 0) {
-      if (bi < DRAW_DIST - 6) {
-        if (bi > 2) {
-          entities["ln" + bi] = {
-            x: cx,
-            y: y,
-            w: lw,
-            h: bandH,
-            r: 240,
-            g: 240,
-            b: 220,
-            visible: 1
-          };
+        const dash = wrapMod(floorOf(relZ / 50), 2);
+        if (dash == 0) {
+          if (bi < DRAW_DIST - 6) {
+            if (bi > 1) {
+              entities["ln" + bi] = {
+                x: cx,
+                y: y,
+                w: lw,
+                h: bandH,
+                r: 240,
+                g: 240,
+                b: 220,
+                visible: 1
+              };
+            }
+          }
         }
-      }
-    }
 
-    // Sparse roadside props (one attempt per few strips).
-    if (propSlot < PROP_SLOTS) {
-      if ((bi % 3) == 0) {
-        if (bi > 4) {
-          if (bi < DRAW_DIST - 2) {
-            const kindN = propKindAt(segIdx);
-            if (kindN > 0) {
-              const side = propSideAt(segIdx);
-              const worldPropX = side * ROAD_WIDTH * 0.62;
-              const pp = project(worldPropX, relZ, camX);
-              const sc = spriteScalePct(pp.scale);
-              if (sc >= 8) {
-                let kind = "palm";
-                if (kindN == 2) {
-                  kind = "house";
+        if (propSlot < PROP_SLOTS) {
+          if ((bi % 3) == 0) {
+            if (bi > 3) {
+              if (bi < DRAW_DIST - 2) {
+                const kindN = propKindAt(segIdx);
+                if (kindN > 0) {
+                  const side = propSideAt(segIdx);
+                  const worldPropX = side * ROAD_WIDTH * 0.62;
+                  const pp = project(worldPropX, relZ, camX);
+                  const sc = spriteScalePct(pp.scale);
+                  if (sc >= 8) {
+                    let kind = "palm";
+                    if (kindN == 2) {
+                      kind = "house";
+                    }
+                    if (kindN == 3) {
+                      kind = "crowd";
+                    }
+                    if (kind == "crowd") {
+                      entities[propId(kind, propSlot)] = {
+                        x: pp.x,
+                        y: pp.y,
+                        p0: (anim + propSlot) % 2,
+                        scale: sc,
+                        visible: 1
+                      };
+                    } else {
+                      entities[propId(kind, propSlot)] = {
+                        x: pp.x,
+                        y: pp.y,
+                        scale: sc,
+                        visible: 1
+                      };
+                    }
+                    propSlot = propSlot + 1;
+                  }
                 }
-                if (kindN == 3) {
-                  kind = "crowd";
-                }
-                if (kind == "crowd") {
-                  entities[propId(kind, propSlot)] = {
-                    x: pp.x,
-                    y: pp.y,
-                    p0: (anim + propSlot) % 2,
-                    scale: sc,
-                    visible: 1
-                  };
-                } else {
-                  entities[propId(kind, propSlot)] = {
-                    x: pp.x,
-                    y: pp.y,
-                    scale: sc,
-                    visible: 1
-                  };
-                }
-                propSlot = propSlot + 1;
               }
             }
           }
