@@ -7,7 +7,9 @@
 # it through the shared three_gl operators. Editing gallery/game_engine/three/tsx/
 # sponza.tsx while it runs HOT-RELOADS the scene. No WASM.
 #
-# Requirements: a C++17 compiler (clang++/g++) + SDL2 dev libs + OpenGL.
+# Requirements: a C++17 compiler (clang++/g++) + SDL2 dev libs + OpenGL + libcurl
+# (the model is fetched over HTTPS at load time). On macOS: brew install sdl2 curl.
+# On Raspberry Pi / Debian: sudo apt-get install libsdl2-dev libcurl4-openssl-dev.
 #
 # Usage:
 #   ./gallery/game_engine/scripts/build-sponza-sdl.sh            # build only
@@ -49,6 +51,15 @@ else
   exit 1
 fi
 
+# libcurl (the model is fetched over HTTPS at load time).
+if command -v pkg-config >/dev/null 2>&1 && pkg-config --exists libcurl; then
+  CURL_FLAGS="$(pkg-config --cflags --libs libcurl)"
+elif command -v curl-config >/dev/null 2>&1; then
+  CURL_FLAGS="$(curl-config --cflags --libs)"
+else
+  CURL_FLAGS="-lcurl"
+fi
+
 echo "==> 1/2 Ranger -> C++"
 cd "$ROOT"
 RANGER_OUT="$(node "$ROOT/bin/output.js" -l=cpp "$SOURCE" -nodecli -d="tmp/sponza-sdl" -o="sponza_sdl.cpp" 2>&1)" || true
@@ -80,7 +91,7 @@ if [[ -z "$GL_FLAGS" ]]; then
 fi
 CXX_OPT="${CXX_OPT:--O2}"
 # shellcheck disable=SC2086
-"$CXX" $CXX_OPT -std=c++17 -Wno-unused-parameter -Wno-unused-variable "$CPP_FILE" -o "$BIN_FILE" $SDL_FLAGS $GL_FLAGS -lm
+"$CXX" $CXX_OPT -std=c++17 -Wno-unused-parameter -Wno-unused-variable "$CPP_FILE" -o "$BIN_FILE" $SDL_FLAGS $GL_FLAGS $CURL_FLAGS -lm
 
 echo "==> Ready: $BIN_FILE"
 

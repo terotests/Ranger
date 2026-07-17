@@ -10,10 +10,11 @@
 ; the first-person input, and the hot-reload file watch — the interpreter only
 ; declares the scene (and re-declares it on edit).
 ;
-; The model is loaded HOST-side (the async network glTF is not interpreted); until
-; the native glTF file loader lands, a placeholder hall box stands in for Sponza so
-; the pipeline is complete and compilable. The Sky / shadow-map / probe-bake GPU
-; passes (which need render-to-texture) layer onto ThreeGLBackend next; this runner
+; The model is loaded HOST-side (no interpreter async): http_get_bytes fetches the
+; Sponza .gltf + its external buffers and three_gltf_file decodes them into an
+; Object3D, once, at startup (hot-reloads reuse it). A placeholder box stands in
+; only if the network is unavailable. The Sky / shadow-map / probe-bake GPU passes
+; (which need render-to-texture) layer onto ThreeGLBackend next; this runner
 ; renders the lit model + tone mapping + first-person camera + hot reload.
 ;
 ; Build & run (desktop GL):  compile with -l=cpp and link SDL2 + OpenGL, then
@@ -28,6 +29,7 @@ Import "src/three_webgl_renderer.rgr"
 Import "src/three_gl_backend.rgr"
 Import "src/three_mesh.rgr"
 Import "src/three_box_geometry.rgr"
+Import "src/three_gltf_file.rgr"
 
 class SponzaSdlRunner {
     def pw:int 1280
@@ -75,8 +77,7 @@ class SponzaSdlRunner {
         engine.registerGlobal("window" (EvalValue.object(wk wv)))
     }
 
-    ; the host-decoded model. Placeholder hall box until the native glTF loader
-    ; lands (its bounds drive the light distance, shadow extent and probe far).
+    ; a placeholder hall box, used when the model fetch fails (offline).
     sfn buildPlaceholderModel:ThreeObject3D () {
         def geo:ThreeBoxGeometry (new ThreeBoxGeometry)
         geo.setSize(20.0 10.0 8.0)
@@ -84,6 +85,18 @@ class SponzaSdlRunner {
         m.setGeometry(geo)
         def obj:ThreeObject3D m
         return obj
+    }
+
+    ; fetch + decode the model from a url (Sponza .gltf by default); fall back to
+    ; the placeholder box if the network is unavailable. Loaded ONCE — hot-reloads
+    ; reuse it (only the interpreted scene params re-run), so no re-download.
+    sfn loadModel:ThreeObject3D (url:string) {
+        def loader:ThreeGLTFFile (new ThreeGLTFFile)
+        def m:ThreeObject3D (loader.loadFromURL(url))
+        if ((m.childCount()) > 0) {
+            return m
+        }
+        return (SponzaSdlRunner.buildPlaceholderModel())
     }
 
     ; map the d-pad/WASD input mask onto the scene's FirstPersonControls.
@@ -129,10 +142,15 @@ class SponzaSdlRunner {
         SponzaSdlRunner.registerGlobals(engine runner.pw runner.ph)
         engine.loadScript((facadeSrc + "\n") + lastSrc)
 
+        ; fetch + decode the model once (Sponza .gltf by default; override with the
+        ; 3rd CLI arg). Hot-reloads reuse this — no re-download.
+        def modelURL:string (SponzaSdlRunner.argOr(2 "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Sponza/glTF/Sponza.gltf"))
+        print ("[sponza] loading model: " + modelURL)
+        def hostModel:ThreeObject3D (SponzaSdlRunner.loadModel(modelURL))
+
         def bridge:ThreeSponzaTsxBridge (new ThreeSponzaTsxBridge)
         bridge.setEngine(engine)
-        def model0:ThreeObject3D (SponzaSdlRunner.buildPlaceholderModel())
-        bridge.setModel(model0)
+        bridge.setModel(hostModel)
         bridge.initFromScript()
         bridge.scene.setViewport(runner.pw runner.ph)
         print ("[sponza] scene declared: probes=" + (to_string (bridge.scene.probes.probeCount())))
@@ -177,8 +195,7 @@ class SponzaSdlRunner {
                     engine = e2
                     bridge = (new ThreeSponzaTsxBridge)
                     bridge.setEngine(e2)
-                    def model1:ThreeObject3D (SponzaSdlRunner.buildPlaceholderModel())
-                    bridge.setModel(model1)
+                    bridge.setModel(hostModel)
                     bridge.initFromScript()
                     bridge.scene.setViewport(runner.pw runner.ph)
                     print "[sponza] hot-reloaded sponza.tsx"
