@@ -33,15 +33,6 @@ class WebTeapotSdlRunner {
         def framesS:string (WebTeapotSdlRunner.argOr(0 "0"))
         def maxFrames:int (unwrap (str2int framesS))
 
-        ; gfx_open (the 2D SDL_Renderer entry) carries the whole gfx_sdl C shim in
-        ; its polyfill; a GPU-only runner uses gfx_open_gpu, so reference gfx_open
-        ; from an unreachable branch to force the shim (rgfx_* / g_rgfx_*) into the
-        ; build. Never executes (h > 0). TODO: relocate the shim to a foundational
-        ; operator (e.g. gfx_input_poll) so GPU runners don't need this.
-        if (h < 0) {
-            def shimForce:int (gfx_open "" 1 1)
-        }
-
         def win:int (gfx_open_gpu "Ranger Teapot" w h)
         if (win == 0) {
             print "[teapot-sdl] gfx_open_gpu failed (no GL context)"
