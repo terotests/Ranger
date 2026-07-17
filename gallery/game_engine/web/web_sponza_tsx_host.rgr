@@ -114,7 +114,10 @@ class WebSponzaTsxHost {
 
         renderer.setSize(winW winH)
         renderer.setToneMapping(4)
-        renderer.setToneMappingExposure(1.0)
+        ; the demo's directional intensity (100) is a physically-based value; this
+        ; clone's Lambert is not PBR, so expose down to keep the sunlit ground out of
+        ; full saturation (and the cast shadows readable) under ACES.
+        renderer.setToneMappingExposure(0.09)
         renderer.setShadowMapEnabled(true)
 
         bridge.setEngine(engine)

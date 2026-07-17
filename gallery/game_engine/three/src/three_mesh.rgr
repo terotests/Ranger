@@ -41,6 +41,19 @@ class ThreeMesh extends ThreeObject3D {
         backend.drawMesh(this.geometry this.matrixWorld mvp this.material)
     }
 
+    ; override: draw this mesh's depth from the light (only if it casts shadows).
+    fn renderDepthInto:void (backend:ThreeRenderBackend lightViewProj:ThreeMatrix4) {
+        if (this.visible == false) {
+            return
+        }
+        if (this.castShadow == false) {
+            return
+        }
+        def mvp:ThreeMatrix4 (lightViewProj.clone())
+        mvp.multiply(this.matrixWorld)
+        backend.drawDepth(this.geometry mvp)
+    }
+
     ; override: expand a Box3 by this mesh's vertices, transformed into world space.
     fn contributeBounds:void (box:ThreeBox3) {
         def vc:int (this.geometry.vertexCount())

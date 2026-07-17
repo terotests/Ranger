@@ -92,12 +92,12 @@ class ThreeSponzaSceneTest {
         ck.near("sky sun y = cos(60)" s.sky.sunPosition.y 0.5)
 
         ; baked GI: the skylight fill is derived from the sun (intensity + elevation)
-        ; and sampled back. level = intensity*0.025*(sin(elev)+0.25); tint is cool
-        ; (blue > red). For intensity 5, elev 30: level = 5*0.025*0.75 = 0.09375.
+        ; and sampled back. level = intensity*0.08*(sin(elev)+0.25); tint is cool
+        ; (blue > red). For intensity 5, elev 30: level = 5*0.08*0.75 = 0.3.
         def gi:ThreeVector3 (new ThreeVector3)
         s.sampleGI(0.0 0.0 0.0 0.0 1.0 0.0 gi)
-        ck.near("GI fill r = level*0.85" gi.x 0.0796875)
-        ck.near("GI fill b = level*1.15" gi.z 0.1078125)
+        ck.near("GI fill r = level*0.85" gi.x 0.255)
+        ck.near("GI fill b = level*1.15" gi.z 0.345)
         ck.ok("GI fill is cool-tinted (b > r)" (gi.z > gi.x))
 
         ; controls integrate: walking forward moves the camera

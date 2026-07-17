@@ -39,6 +39,20 @@ class ThreeRenderBackend {
     ; material (colour/specular/shininess/map/side/shading path).
     fn drawMesh:void (geometry:ThreeBufferGeometry model:ThreeMatrix4 mvp:ThreeMatrix4 mat:ThreeMaterial) {
     }
+
+    ; Shadow map (two-pass): beginShadowPass binds an off-screen depth target and
+    ; drawDepth renders each caster's depth from the light (mvp = lightVP * model);
+    ; endShadowPass restores the screen; setShadow feeds the depth map + light
+    ; view-projection to the lit pass (enabled=false turns shadowing off). No-ops by
+    ; default so the software backend simply renders unshadowed.
+    fn beginShadowPass:void () {
+    }
+    fn drawDepth:void (geometry:ThreeBufferGeometry mvp:ThreeMatrix4) {
+    }
+    fn endShadowPass:void (w:int h:int) {
+    }
+    fn setShadow:void (lightViewProj:ThreeMatrix4 enabled:boolean) {
+    }
     ; Environment cube map (envMap reflections + skybox). ensureEnvironment uploads
     ; the cube once and returns an opaque handle; setEnvironment selects it for
     ; reflective draws; drawSkybox renders it behind the scene. No-ops by default.

@@ -27,6 +27,12 @@ class ThreeGLBackend extends ThreeRenderBackend {
     def skyProg:int 0
     def skyMesh:int 0
     def skyReady:boolean false
+    ; shadow map: an off-screen depth target + a depth-only program, built lazily.
+    ; The map is 2048² to match the übershader's PCF texel offset (1.0/2048.0).
+    def shadowTarget:int 0
+    def shadowProg:int 0
+    def shadowSize:int 2048
+    def shadowReady:boolean false
 
     fn init:boolean (canvasId:string) {
         def ok:int (gpu_init canvasId)
@@ -168,6 +174,50 @@ class ThreeGLBackend extends ThreeRenderBackend {
         this.ensureSky()
         def mvpBuf:buffer (this.matrixBytes(mvp))
         gpu_draw_sky skyProg skyMesh handle mvpBuf
+    }
+
+    ; --- shadow map (two-pass) ------------------------------------------------
+    fn ensureShadow:void () {
+        if shadowReady {
+            return
+        }
+        shadowTarget = (gpu_make_depth_target shadowSize)
+        def vs:string (ThreeGLShaders.depthVertexSrc())
+        def fs:string (ThreeGLShaders.depthFragmentSrc())
+        shadowProg = (gpu_program vs fs)
+        shadowReady = true
+    }
+
+    ; pass 1: bind the depth target; drawDepth each caster from the light.
+    fn beginShadowPass:void () {
+        if (ready == false) {
+            return
+        }
+        this.ensureShadow()
+        gpu_bind_target shadowTarget
+    }
+    fn drawDepth:void (geometry:ThreeBufferGeometry mvp:ThreeMatrix4) {
+        if (shadowReady == false) {
+            return
+        }
+        if (geometry.glHandle < 0) {
+            geometry.glHandle = (this.uploadGeometryData(geometry))
+        }
+        def mvpBuf:buffer (this.matrixBytes(mvp))
+        gpu_draw_depth shadowProg geometry.glHandle mvpBuf
+    }
+    fn endShadowPass:void (w:int h:int) {
+        gpu_bind_screen w h
+    }
+    ; feed the depth map + light view-projection to the lit pass (or disable it).
+    fn setShadow:void (lightViewProj:ThreeMatrix4 enabled:boolean) {
+        def mb:buffer (this.matrixBytes(lightViewProj))
+        if (enabled && shadowReady) {
+            def tex:int (gpu_target_depth_tex shadowTarget)
+            gpu_set_shadow tex mb 1
+        } {
+            gpu_set_shadow 0 mb 0
+        }
     }
 
     fn endFrame:void () {

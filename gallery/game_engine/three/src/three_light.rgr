@@ -66,4 +66,12 @@ class ThreeDirectionalLight extends ThreeLight {
     fn shadowViewProjection:ThreeMatrix4 () {
         return (this.shadow.computeViewProjection(this.position this.target.position))
     }
+
+    ; shadow interrogation for the renderer (no downcast while walking the tree).
+    fn castsShadow:boolean () {
+        return this.castShadow
+    }
+    fn lightViewProjection:ThreeMatrix4 () {
+        return (this.shadowViewProjection())
+    }
 }

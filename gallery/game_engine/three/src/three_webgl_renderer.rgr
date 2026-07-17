@@ -48,6 +48,11 @@ class ThreeWebGLRenderer {
     def accCols:[double]
     def accCount:int 0
 
+    ; shadow pass: the first shadow-casting light found while walking the scene,
+    ; and its light-space view-projection (fed to the depth pass + the lit pass).
+    def shadowFound:boolean false
+    def shadowVP:ThreeMatrix4 (new ThreeMatrix4)
+
     ; inject a GPU (e.g. WebGL) backend; default is the software rasteriser.
     fn setBackend:ThreeWebGLRenderer (b:ThreeRenderBackend) {
         backend = b
@@ -107,6 +112,23 @@ class ThreeWebGLRenderer {
         this.applyLights(scene be)
         be.setView(camera.position.x camera.position.y camera.position.z)
         be.setToneMapping(toneMapping toneMappingExposure)
+
+        ; shadow map (two-pass): render the casters' depth from the light, then feed
+        ; that depth map + the light view-projection to the lit pass below.
+        if shadowMapEnabled {
+            shadowFound = false
+            this.findShadow(scene)
+            if shadowFound {
+                be.beginShadowPass()
+                this.renderDepth(scene be)
+                be.endShadowPass(w h)
+                be.setShadow(shadowVP true)
+            } {
+                be.setShadow(shadowVP false)
+            }
+        } {
+            be.setShadow(shadowVP false)
+        }
         ; view-projection = projection * inverse(camera world)
         def vp:ThreeMatrix4 (new ThreeMatrix4)
         vp.multiplyMatrices(camera.projectionMatrix camera.matrixWorldInverse)
@@ -174,6 +196,36 @@ class ThreeWebGLRenderer {
         while (i < n) {
             def c:ThreeObject3D (node.getChild(i))
             this.walkLights(c)
+            i = (i + 1)
+        }
+    }
+
+    ; find the first shadow-casting light in the tree; record its view-projection.
+    fn findShadow:void (node:ThreeObject3D) {
+        if (shadowFound == false) {
+            if (node.castsShadow()) {
+                shadowVP = (node.lightViewProjection())
+                shadowFound = true
+                return
+            }
+            def i:int 0
+            def n:int (node.childCount())
+            while (i < n) {
+                def c:ThreeObject3D (node.getChild(i))
+                this.findShadow(c)
+                i = (i + 1)
+            }
+        }
+    }
+
+    ; depth pass: draw every caster's depth from the light (uses shadowVP).
+    fn renderDepth:void (obj:ThreeObject3D be:ThreeRenderBackend) {
+        obj.renderDepthInto(be shadowVP)
+        def i:int 0
+        def n:int (obj.childCount())
+        while (i < n) {
+            def c:ThreeObject3D (obj.getChild(i))
+            this.renderDepth(c be)
             i = (i + 1)
         }
     }

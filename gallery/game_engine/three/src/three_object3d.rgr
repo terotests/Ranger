@@ -143,4 +143,19 @@ class ThreeObject3D {
     fn lightB:double () {
         return 0.0
     }
+
+    ; Shadow interrogation (same no-downcast pattern): does this node cast a shadow
+    ; map (a shadow-casting directional light), and its light-space view-projection.
+    ; Overridden by ThreeDirectionalLight.
+    fn castsShadow:boolean () {
+        return false
+    }
+    fn lightViewProjection:ThreeMatrix4 () {
+        return (new ThreeMatrix4)
+    }
+
+    ; Shadow depth pass: draw this node's depth from the light (mvp = lightVP *
+    ; matrixWorld). No-op for non-meshes; ThreeMesh overrides to draw its geometry.
+    fn renderDepthInto:void (backend:ThreeRenderBackend lightViewProj:ThreeMatrix4) {
+    }
 }

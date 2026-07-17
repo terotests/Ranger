@@ -172,7 +172,7 @@ class ThreeSponzaScene {
         if (daylight < 0.05) {
             daylight = 0.05
         }
-        def level:double ((this.lightIntensity * 0.025) * daylight)
+        def level:double ((this.lightIntensity * 0.08) * daylight)
         this.ambientR = (level * 0.85)
         this.ambientG = (level * 0.95)
         this.ambientB = (level * 1.15)
