@@ -125,8 +125,8 @@ declare function resetGameData(): void;
 | Tiedosto | Rooli |
 |----------|-------|
 | `game_host_native.rgr` | Native bridge: kutsujen käsittely, polkujen ratkaisu |
-| `game_sdl_runner.rgr` | Navigaatiopino, `loadScriptAt`, äänen nollaus; split-modessa `drainSplitScriptNavigation` lukee pane-bridgen `pushGame`/`loadGame` |
-| `game_split_screen.rgr` | Kaksi `GameHostNativeBridge`-instanssia; `consumePendingNav` |
+| `game_sdl_runner.rgr` | Navigaatiopino, `loadScriptAt`, äänen nollaus; split-modessa `drainSplitScriptNavigation` lataa **vain sen paneelin**, joka kutsui `pushGame`/`loadGame` |
+| `game_split_screen.rgr` | Kaksi `GameHostNativeBridge`-instanssia; `consumePendingNav` + `reloadPane` |
 | `game_persistence.rgr` | JSON luku/kirjoitus `gamedata.json` |
 | `game_runtime.rgr` | `resources()`, `backgroundImage()`, `setupScene()` |
 
