@@ -18,13 +18,16 @@
 
 Import "three_json.rgr"
 Import "three_gltf_loader.rgr"
+Import "three_http.rgr"
 Import "three_object3d.rgr"
 Import "three_mesh.rgr"
 Import "three_buffer_geometry.rgr"
 Import "three_vector3.rgr"
 
 class ThreeGLTFFile {
-    def bin:buffer (buffer_alloc 0)
+    ; the glTF's buffers (a .glb has one — the BIN chunk; a .gltf has one per
+    ; external .bin, fetched by uri). bufferViews[bv].buffer selects which.
+    def buffers:[buffer]
     def accessorsJson:JsonValue (new JsonValue)
     def bufferViewsJson:JsonValue (new JsonValue)
     def meshesJson:JsonValue (new JsonValue)
@@ -61,12 +64,22 @@ class ThreeGLTFFile {
         return out
     }
 
+    ; the backing buffer for accessor ai (via its bufferView's `buffer` index).
+    fn bufferFor:buffer (ai:int) {
+        def acc:JsonValue (this.accessorsJson.at(ai))
+        def bvIndex:int (acc.intOr("bufferView" 0))
+        def bv:JsonValue (this.bufferViewsJson.at(bvIndex))
+        def bufIndex:int (bv.intOr("buffer" 0))
+        return (itemAt this.buffers bufIndex)
+    }
+
     fn decodeFloatAttr:[double] (attrs:JsonValue name:string) {
         def out:[double]
         if (attrs.has(name)) {
             def ai:int (attrs.intOr(name 0))
             def acc:ThreeGLTFAccessor (this.accessorFor(ai))
-            out = (ThreeGLTFLoader.decodeFloats(this.bin acc))
+            def buf:buffer (this.bufferFor(ai))
+            out = (ThreeGLTFLoader.decodeFloats(buf acc))
         }
         return out
     }
@@ -80,7 +93,8 @@ class ThreeGLTFFile {
         if (prim.has("indices")) {
             def idxAi:int (prim.intOr("indices" 0))
             def idxAcc:ThreeGLTFAccessor (this.accessorFor(idxAi))
-            indices = (ThreeGLTFLoader.decodeIndices(this.bin idxAcc))
+            def idxBuf:buffer (this.bufferFor(idxAi))
+            indices = (ThreeGLTFLoader.decodeIndices(idxBuf idxAcc))
         }
         return (ThreeGLTFLoader.buildGeometry(positions normals uvs indices))
     }
@@ -158,29 +172,9 @@ class ThreeGLTFFile {
         return obj
     }
 
-    ; parse a .glb byte buffer into a model root Object3D.
-    fn loadGLB:ThreeObject3D (glb:buffer) {
+    ; build the model tree from a parsed glTF JSON (this.buffers already filled).
+    fn buildFromGltf:ThreeObject3D (gltf:JsonValue) {
         def root:ThreeObject3D (new ThreeObject3D)
-        def total:int (buffer_length glb)
-        if (total < 20) {
-            return root
-        }
-        ; JSON chunk: length at 12, data at 20.
-        def jsonLen:int (ThreeGLTFLoader.readU32(glb 12))
-        def jsonStart:int 20
-        def jsonBuf:buffer (ThreeGLTFFile.subBuffer(glb jsonStart jsonLen))
-        def jsonStr:string (buffer_to_string jsonBuf)
-
-        ; BIN chunk: header right after the JSON chunk.
-        def binHeaderPos:int (jsonStart + jsonLen)
-        if ((binHeaderPos + 8) <= total) {
-            def binLen:int (ThreeGLTFLoader.readU32(glb binHeaderPos))
-            def binStart:int (binHeaderPos + 8)
-            this.bin = (ThreeGLTFFile.subBuffer(glb binStart binLen))
-        }
-
-        def parser:JsonParser (new JsonParser)
-        def gltf:JsonValue (parser.parse(jsonStr))
         this.accessorsJson = (gltf.get("accessors"))
         this.bufferViewsJson = (gltf.get("bufferViews"))
         this.meshesJson = (gltf.get("meshes"))
@@ -200,5 +194,87 @@ class ThreeGLTFFile {
             i = (i + 1)
         }
         return root
+    }
+
+    ; parse a .glb byte buffer into a model root Object3D (buffer 0 = BIN chunk).
+    fn loadGLB:ThreeObject3D (glb:buffer) {
+        def root:ThreeObject3D (new ThreeObject3D)
+        def total:int (buffer_length glb)
+        if (total < 20) {
+            return root
+        }
+        def jsonLen:int (ThreeGLTFLoader.readU32(glb 12))
+        def jsonStart:int 20
+        def jsonBuf:buffer (ThreeGLTFFile.subBuffer(glb jsonStart jsonLen))
+
+        def binHeaderPos:int (jsonStart + jsonLen)
+        def bin:buffer (buffer_alloc 0)
+        if ((binHeaderPos + 8) <= total) {
+            def binLen:int (ThreeGLTFLoader.readU32(glb binHeaderPos))
+            def binStart:int (binHeaderPos + 8)
+            bin = (ThreeGLTFFile.subBuffer(glb binStart binLen))
+        }
+        push this.buffers bin
+
+        def parser:JsonParser (new JsonParser)
+        def gltf:JsonValue (parser.parseBytes(jsonBuf))
+        return (this.buildFromGltf(gltf))
+    }
+
+    ; the directory part of a url ("a/b/c.gltf" -> "a/b"), for resolving buffer uris.
+    sfn dirOf:string (url:string) {
+        def cut:int (0 - 1)
+        def i:int 0
+        def n:int (strlen url)
+        while (i < n) {
+            def ch:string (substring url i (i + 1))
+            if (ch == "/") { cut = i }
+            i = (i + 1)
+        }
+        if (cut < 0) { return "" }
+        return (substring url 0 cut)
+    }
+
+    ; load a multi-file .gltf from a url: fetch the JSON, then fetch each external
+    ; buffer by uri (relative to the .gltf's directory), then build. data: URIs are
+    ; not decoded yet (Sponza uses file uris); such a buffer stays empty.
+    fn loadGLTFFromURL:ThreeObject3D (url:string) {
+        def root:ThreeObject3D (new ThreeObject3D)
+        def jsonBytes:buffer (http_get_bytes url)
+        if ((buffer_length jsonBytes) == 0) {
+            return root
+        }
+        def parser:JsonParser (new JsonParser)
+        def gltf:JsonValue (parser.parseBytes(jsonBytes))
+
+        def base:string (ThreeGLTFFile.dirOf(url))
+        def buffersJson:JsonValue (gltf.get("buffers"))
+        def nb:int (buffersJson.length())
+        def bi:int 0
+        while (bi < nb) {
+            def bufJson:JsonValue (buffersJson.at(bi))
+            def uri:string (bufJson.strOr("uri" ""))
+            def data:buffer (buffer_alloc 0)
+            if (uri != "") {
+                def full:string ((base + "/") + uri)
+                data = (http_get_bytes full)
+            }
+            push this.buffers data
+            bi = (bi + 1)
+        }
+        return (this.buildFromGltf(gltf))
+    }
+
+    ; dispatch by extension: .glb (fetch + binary) else multi-file .gltf.
+    fn loadFromURL:ThreeObject3D (url:string) {
+        def n:int (strlen url)
+        if (n > 4) {
+            def ext:string (substring url (n - 4) n)
+            if (ext == ".glb") {
+                def glb:buffer (http_get_bytes url)
+                return (this.loadGLB(glb))
+            }
+        }
+        return (this.loadGLTFFromURL(url))
     }
 }

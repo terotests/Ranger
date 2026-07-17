@@ -86,15 +86,19 @@ class JsonValue {
 }
 
 class JsonParser {
-    def src:string ""
     def bytes:buffer (buffer_alloc 0)
     def pos:int 0
     def len:int 0
 
     fn parse:JsonValue (text:string) {
-        this.src = text
-        this.bytes = (buffer_from_string text)
-        this.len = (buffer_length this.bytes)
+        def b:buffer (buffer_from_string text)
+        return (this.parseBytes(b))
+    }
+    ; parse straight from a byte buffer — avoids stringifying the whole document
+    ; (buffer_to_string on a large buffer overflows the es6 String.fromCharCode).
+    fn parseBytes:JsonValue (b:buffer) {
+        this.bytes = b
+        this.len = (buffer_length b)
         this.pos = 0
         this.skipWs()
         return (this.parseValue())
@@ -102,6 +106,13 @@ class JsonParser {
 
     fn byteAt:int (i:int) {
         return (buffer_get this.bytes i)
+    }
+    ; small slice [start,end) as a string (numbers, keys — never the whole doc).
+    fn sliceStr:string (start:int end:int) {
+        def n:int (end - start)
+        def sub:buffer (buffer_alloc n)
+        buffer_copy sub 0 this.bytes start n
+        return (buffer_to_string sub)
     }
     fn skipWs:void () {
         while (this.pos < this.len) {
@@ -165,7 +176,7 @@ class JsonParser {
                 }
             }
         }
-        def slice:string (substring this.src start this.pos)
+        def slice:string (this.sliceStr(start this.pos))
         def v:JsonValue (new JsonValue)
         v.kind = 2
         v.numberValue = (unwrap (str2double slice))
@@ -179,7 +190,7 @@ class JsonParser {
         while (this.pos < this.len) {
             def b:int (this.byteAt(this.pos))
             if (b == 34) {
-                def s:string (substring this.src start this.pos)
+                def s:string (this.sliceStr(start this.pos))
                 this.pos = (this.pos + 1)
                 def v:JsonValue (new JsonValue)
                 v.kind = 3
