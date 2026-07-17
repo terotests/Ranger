@@ -448,11 +448,27 @@ func _r_md5(value string) string {
         tan tan:double ( v:double ) {
             templates {
                 es6 ("Math.tan(" (e 1) ")")
-                go ( "math.Tan(" (e 1) ")" (imp "math"))                                
-                swift3 ( "tan(" (e 1) ")" (imp "Foundation"))   
-                java7 ( "Math.tan(" (e 1) ")" (imp "java.lang.Math"))     
-                php ( "tan(" (e 1) ")")     
-                cpp ("tan(" (e 1) ")" (imp "<math.h>"))                          
+                go ( "math.Tan(" (e 1) ")" (imp "math"))
+                swift3 ( "tan(" (e 1) ")" (imp "Foundation"))
+                java7 ( "Math.tan(" (e 1) ")" (imp "java.lang.Math"))
+                php ( "tan(" (e 1) ")")
+                cpp ("tan(" (e 1) ")" (imp "<math.h>"))
+            }
+        }
+
+        atan2 atan2:double ( y:double x:double ) {
+            templates {
+                ranger ( "(atan2 " (e 1) " " (e 2) ")" )
+                es6 ( "Math.atan2(" (e 1) ", " (e 2) ")" )
+                go ( "math.Atan2(" (e 1) ", " (e 2) ")" (imp "math"))
+                swift3 ( "atan2(" (e 1) ", " (e 2) ")" (imp "Foundation"))
+                java7 ( "Math.atan2(" (e 1) ", " (e 2) ")" (imp "java.lang.Math"))
+                php ( "atan2(" (e 1) ", " (e 2) ")" )
+                csharp ( "Math.Atan2(" (e 1) ", " (e 2) ")" (imp "System"))
+                rust ( "" (e 1) ".atan2(" (e 2) ")" )
+                scala ( "math.atan2(" (e 1) ", " (e 2) ")" (imp "scala.math"))
+                cpp ( "atan2(" (e 1) ", " (e 2) ")" (imp "<math.h>"))
+                * ( "Math.atan2(" (e 1) ", " (e 2) ")" )
             }
         }
 

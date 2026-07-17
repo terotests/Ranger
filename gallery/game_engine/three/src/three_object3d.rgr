@@ -30,6 +30,9 @@ class ThreeObject3D {
     def matrix:ThreeMatrix4 (new ThreeMatrix4)
     def matrixWorld:ThreeMatrix4 (new ThreeMatrix4)
     def children:[ThreeObject3D]
+    ; when set by lookAt(), the local matrix uses `quaternion` directly instead of
+    ; re-deriving it from the Euler `rotation` each frame.
+    def quatDriven:boolean false
 
     fn add:ThreeObject3D (child:ThreeObject3D) {
         push this.children child
@@ -43,9 +46,21 @@ class ThreeObject3D {
     }
 
     ; local matrix from position + (quaternion derived from rotation) + scale.
+    ; A lookAt() sets the quaternion directly, so skip the Euler derivation then.
     fn updateMatrix:void () {
-        this.quaternion.setFromEuler(this.rotation)
+        if (this.quatDriven == false) {
+            this.quaternion.setFromEuler(this.rotation)
+        }
         this.matrix.compose(this.position this.quaternion this.scale)
+    }
+
+    ; Orient so local -Z points at (x,y,z) (camera convention), using `up`.
+    fn lookAt:void (x:double y:double z:double) {
+        def target:ThreeVector3 (ThreeVector3.of(x y z))
+        def m:ThreeMatrix4 (new ThreeMatrix4)
+        m.lookAt(this.position target this.up)
+        m.toQuaternion(this.quaternion)
+        this.quatDriven = true
     }
 
     ; world matrix = parentWorld * local, recursively for children.

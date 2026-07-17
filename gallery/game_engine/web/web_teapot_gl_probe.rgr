@@ -15,6 +15,7 @@ Import "../three/src/three_mesh.rgr"
 Import "../three/src/three_mesh_phong_material.rgr"
 Import "../three/src/three_light.rgr"
 Import "../three/src/three_teapot_geometry.rgr"
+Import "../three/src/three_orbit_controls.rgr"
 
 class WebTeapotProbe {
     def renderer:ThreeWebGLRenderer (new ThreeWebGLRenderer)
@@ -22,6 +23,7 @@ class WebTeapotProbe {
     def scene:ThreeScene (new ThreeScene)
     def camera:ThreePerspectiveCamera (new ThreePerspectiveCamera)
     def mesh:ThreeMesh (new ThreeMesh)
+    def controls:ThreeOrbitControls (new ThreeOrbitControls)
     def w:int 600
     def h:int 600
     def spinY:double 0.6
@@ -30,6 +32,10 @@ class WebTeapotProbe {
     fn build:void () {
         camera.setPerspective(45.0 1.0 1.0 80000.0)
         camera.position.set(0.0 0.0 1200.0)
+        controls.setViewport(w h)
+        controls.setDistanceRange(200.0 8000.0)
+        controls.setCamera(camera)
+        controls.setTarget(0.0 0.0 0.0)
 
         scene.setBackground(0.667 0.667 0.667)
 
@@ -75,6 +81,7 @@ class WebTeapotProbe {
         h = winH
         def aspect:double ((to_double winW) / (to_double winH))
         camera.setPerspective(45.0 aspect 1.0 80000.0)
+        controls.setViewport(winW winH)
     }
 
     fn frame:void () {
@@ -83,6 +90,25 @@ class WebTeapotProbe {
         }
         renderer.setSize(w h)
         renderer.render(scene camera)
+    }
+
+    ; --- pointer input (forwarded from the host) drives the orbit camera -------
+    fn onPointerDown:void (x:double y:double button:int) {
+        controls.pointerDown(x y button)
+    }
+    fn onPointerMove:void (x:double y:double) {
+        controls.pointerMove(x y)
+    }
+    fn onPointerUp:void () {
+        controls.pointerUp()
+    }
+    fn onWheel:void (delta:double) {
+        controls.wheel(delta)
+    }
+
+    ; on-demand render: the host renders a frame only when this returns true.
+    fn needsRender:boolean () {
+        return (controls.consumeDirty())
     }
 
     fn spin:void (dy:double) {
