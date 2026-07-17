@@ -1,0 +1,66 @@
+; ==============================================================================
+; cannon_constraint_test — joint constraints through the world + solver.
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_sphere.rgr"
+Import "cannon_body.rgr"
+Import "cannon_constraint.rgr"
+Import "cannon_world.rgr"
+Import "cannon_test_harness.rgr"
+Import "cannon_test_filter.rgr"
+
+class CannonConstraintTest {
+    def filter:CannonTestFilter (new CannonTestFilter)
+
+    fn runFiltered:void (h:CannonTestHarness filter:string) {
+        if (this.filter.matches(filter "Constraint.pointToPointPendulum")) { this.pendulum(h) }
+    }
+
+    ; A bob hung from a static anchor by a point-to-point joint must swing under
+    ; gravity while keeping its distance to the pivot (the joint length).
+    fn pendulum:void (h:CannonTestHarness) {
+        h.beginTest("Constraint.pointToPointPendulum")
+        def world:CannonWorld (new CannonWorld)
+        world.initWorld()
+        world.setGravity(0.0 (0.0 - 10.0) 0.0)
+
+        def anchor:CannonBody (new CannonBody)
+        anchor.initStatic()
+        anchor.position.set(0.0 0.0 0.0)
+        world.addBody(anchor)
+
+        def bob:CannonBody (new CannonBody)
+        bob.initDynamic(1.0)
+        def shape:CannonSphere (new CannonSphere)
+        shape.initSphere(0.5)
+        bob.addShape(shape)
+        bob.position.set(2.0 0.0 0.0)
+        world.addBody(bob)
+
+        ; Pin the bob's (-2,0,0) point to the anchor origin -> length-2 pendulum.
+        def pivotA:CannonVec3 (new CannonVec3)
+        pivotA.set(0.0 0.0 0.0)
+        def pivotB:CannonVec3 (new CannonVec3)
+        pivotB.set((0.0 - 2.0) 0.0 0.0)
+        def joint:CannonConstraint (new CannonConstraint)
+        joint.initPointToPoint(anchor pivotA bob pivotB 1000000.0)
+        world.addConstraint(joint)
+
+        def s 0
+        while (s < 60) {
+            world.step(0.016666666666666666)
+            s = (s + 1)
+        }
+
+        def dx:double bob.position.x
+        def dy:double bob.position.y
+        def dz:double bob.position.z
+        def dist:double (sqrt(((dx * dx) + (dy * dy)) + (dz * dz)))
+        h.nearEqual(dist 2.0 0.4 "pendulum length preserved")
+        h.ok((bob.position.y < 0.0) "bob swings downward under gravity")
+        print ("pendulumDist=" + (to_string dist))
+        print ("pendulumY=" + (to_string bob.position.y))
+        h.finishTest()
+    }
+}

@@ -122,9 +122,13 @@ describe("Cannon.js Ranger port", () => {
     cannonIt("GSSolver.friction");
   });
 
+  describe("Constraints", () => {
+    cannonIt("Constraint.pointToPointPendulum");
+  });
+
   it("runs full Cannon suite aggregate", () => {
     const output = runCannonAll();
-    expect(output).toContain("pass=61");
+    expect(output).toContain("pass=62");
     expect(output).toContain("fail=0");
     expect(output).toContain("cannon-tests done");
   });

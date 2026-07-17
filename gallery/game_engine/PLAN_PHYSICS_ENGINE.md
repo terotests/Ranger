@@ -235,6 +235,13 @@ valmis alusta niveleille (Vaihe 2).
 ohjatuksi (poistaa `applyKinematicSpinTransfer`-kikan). Todiste: heiluri- ja
 flipperi-testi.
 
+- ✅ **Osa 2a (tehty):** [`cannon_constraint.rgr`](./physics/src/cannon_constraint.rgr)
+  + `CannonWorld.addConstraint`/`update`-kytkentä. **PointToPointConstraint** (ball-
+  and-socket) kolmena bilateraalisena kontaktiyhtälönä (ni = x/y/z, minForce =
+  -maxForce). Testi ([`cannon_constraint_test.rgr`](./physics/src/cannon_constraint_test.rgr)):
+  heiluri pysyy niveltvälin päässä (`pendulumDist ≈ 2.0`) ja heilahtaa painovoimassa
+  alas (`pendulumY ≈ -1.79`). `npm run engine:physics:test` → 62 passed, 0 failed.
+
 **Vaihe 3 — Laatikko/konveksi-narrowphase.** `boxBox`, `sphereBox`, `ConvexPolyhedron`
 + `convexConvex` (SAT). Todiste: laatikkopino-testi.
 

@@ -17,6 +17,7 @@ Import "cannon_overlap_keeper_test.rgr"
 Import "cannon_contact_equation_test.rgr"
 Import "cannon_narrowphase_test.rgr"
 Import "cannon_solver_test.rgr"
+Import "cannon_constraint_test.rgr"
 
 class CannonTestRunner {
     sfn m@(main):void () {
@@ -39,6 +40,7 @@ class CannonTestRunner {
         def contactTest:CannonContactEquationTest (new CannonContactEquationTest)
         def narrowphaseTest:CannonNarrowphaseTest (new CannonNarrowphaseTest)
         def solverTest:CannonSolverTest (new CannonSolverTest)
+        def constraintTest:CannonConstraintTest (new CannonConstraintTest)
 
         vec3Test.runFiltered(harness filter)
         quatTest.runFiltered(harness filter)
@@ -53,6 +55,7 @@ class CannonTestRunner {
         contactTest.runFiltered(harness filter)
         narrowphaseTest.runFiltered(harness filter)
         solverTest.runFiltered(harness filter)
+        constraintTest.runFiltered(harness filter)
 
         if (filter == "") {
             print ("pass=" + (to_string harness.passCount))

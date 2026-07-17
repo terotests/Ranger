@@ -16,11 +16,13 @@ Import "cannon_array_collision_matrix.rgr"
 Import "cannon_naive_broadphase.rgr"
 Import "cannon_narrowphase.rgr"
 Import "cannon_overlap_keeper.rgr"
+Import "cannon_constraint.rgr"
 
 class CannonWorld {
     def dt:double (1.0 / 60.0)
     def gravity:CannonVec3 (new CannonVec3)
     def bodies:[CannonBody]
+    def constraints:[CannonConstraint]
     def broadphase:CannonNaiveBroadphase
     def narrowphase:CannonNarrowphase
     def solver:CannonGSSolver
@@ -47,6 +49,10 @@ class CannonWorld {
 
     fn setGravity:void (x:double y:double z:double) {
         this.gravity.set(x y z)
+    }
+
+    fn addConstraint:void (c:CannonConstraint) {
+        push this.constraints c
     }
 
     fn addBody:void (body:CannonBody) {
@@ -146,6 +152,21 @@ class CannonWorld {
                 f = (f + 1)
             }
         }
+
+        ; Joint constraints: refresh jacobians and feed their equations in.
+        def ci 0
+        while (ci < (array_length this.constraints)) {
+            def con:CannonConstraint (itemAt this.constraints ci)
+            con.update()
+            def ei 0
+            while (ei < (array_length con.equations)) {
+                def eq:CannonEquation (itemAt con.equations ei)
+                this.solver.addEquation(eq)
+                ei = (ei + 1)
+            }
+            ci = (ci + 1)
+        }
+
         this.solver.solve(dt this.bodies)
 
         ; 5) Integrate velocities and positions.

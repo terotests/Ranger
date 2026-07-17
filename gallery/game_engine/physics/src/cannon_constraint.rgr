@@ -1,0 +1,68 @@
+; ==============================================================================
+; cannon_constraint — joint constraints (cannon-es src/constraints/*).
+;
+; Unified via a `kind` field (port idiom). A constraint owns a set of
+; CannonEquations and an update() that recomputes their jacobians each step.
+;   kind 1 = point-to-point: three bilateral contact equations (ni = x/y/z axes,
+;            minForce = -maxForce) that pin a point on body A to a point on body
+;            B while leaving all relative rotation free — a ball-and-socket joint.
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_body.rgr"
+Import "cannon_equation.rgr"
+
+class CannonConstraint {
+    sdef KIND_P2P:int 1
+
+    def kind:int 1
+    def bodyA:CannonBody
+    def bodyB:CannonBody
+    def equations:[CannonEquation]
+    def pivotA:CannonVec3 (new CannonVec3)
+    def pivotB:CannonVec3 (new CannonVec3)
+
+    fn initPointToPoint:void (bodyA:CannonBody pivotA:CannonVec3 bodyB:CannonBody pivotB:CannonVec3 maxForce:double) {
+        this.kind = 1
+        this.bodyA = bodyA
+        this.bodyB = bodyB
+        this.pivotA.copy(pivotA)
+        this.pivotB.copy(pivotB)
+        def ex:CannonEquation (new CannonEquation)
+        ex.initContact(bodyA bodyB maxForce)
+        ex.minForce = (0.0 - maxForce)
+        def ey:CannonEquation (new CannonEquation)
+        ey.initContact(bodyA bodyB maxForce)
+        ey.minForce = (0.0 - maxForce)
+        def ez:CannonEquation (new CannonEquation)
+        ez.initContact(bodyA bodyB maxForce)
+        ez.minForce = (0.0 - maxForce)
+        push this.equations ex
+        push this.equations ey
+        push this.equations ez
+    }
+
+    fn update:void () {
+        if (this.kind == 1) {
+            this.updatePointToPoint()
+        }
+    }
+
+    fn updatePointToPoint:void () {
+        def a:CannonBody (unwrap this.bodyA)
+        def b:CannonBody (unwrap this.bodyB)
+        def ex:CannonEquation (itemAt this.equations 0)
+        def ey:CannonEquation (itemAt this.equations 1)
+        def ez:CannonEquation (itemAt this.equations 2)
+        ; ri = R_A * pivotA, rj = R_B * pivotB (world offsets to the shared point)
+        a.quaternion.vmult(this.pivotA ex.ri)
+        b.quaternion.vmult(this.pivotB ex.rj)
+        ey.ri.copy(ex.ri)
+        ey.rj.copy(ex.rj)
+        ez.ri.copy(ex.ri)
+        ez.rj.copy(ex.rj)
+        ex.ni.set(1.0 0.0 0.0)
+        ey.ni.set(0.0 1.0 0.0)
+        ez.ni.set(0.0 0.0 1.0)
+    }
+}
