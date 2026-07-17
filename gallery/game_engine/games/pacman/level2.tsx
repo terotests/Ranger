@@ -1,12 +1,8 @@
 /// <reference path="../../scripting/game.d.ts" />
 //
-// Pac-Man — taso 1 (avenue). Seuraavat tasot: pushGame("level2.tsx").
-//
-// Controls: arrows / WASD. Split-screen: game.info splitScreen=auto.
-//
-// Run: npm run engine:game-sdl:launcher → Pac-Man
+// Pac-Man — taso 2 (garden). Ladataan pushGame("level2.tsx") tasolta 1.
 
-import { installAvenueLevel } from "./level_avenue";
+import { installGardenLevel } from "./level_garden";
 import {
   gameScreens,
   paintLevelBg,
@@ -17,7 +13,7 @@ import {
 } from "./pacman_shared";
 
 function bootLevel() {
-  installAvenueLevel();
+  installGardenLevel();
 }
 
 function screens() {
@@ -26,7 +22,6 @@ function screens() {
 
 function createStaticBg() {
   bootLevel();
-  bgClear(12, 16, 32);
   paintLevelBg();
 }
 
