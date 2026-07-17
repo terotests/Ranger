@@ -35,8 +35,9 @@
 // ============================================================================
 
 const FLASH_MS = 420;
-// 9 games + the pinned Back tile = 10 tiles, laid out 5 x 2 in the panel.
-const GAMES_PER_PAGE = 9;
+// 19 games + the pinned Back tile = 20 tiles, laid out 5 x 4 in the panel
+// so the Games category (currently ~13 titles) fits on one page.
+const GAMES_PER_PAGE = 19;
 // ASCII arrows for labels, built OUTSIDE the JSX: a literal "<" inside JSX
 // children reads as a tag opener to the TSX tokenizer, and typographic arrows
 // ("‹") come out as mojibake on the Latin-1 TTF text path.
@@ -231,7 +232,7 @@ function categoryScreen(s) {
 }
 
 // The page a selection index belongs to: sel 0 is the pinned Back tile (shown
-// on every page, so it borrows page 0); games 1..N map 9-per-page.
+// on every page, so it borrows page 0); games 1..N map GAMES_PER_PAGE-per-page.
 function pageOf(sel) {
   if (sel <= 0) return 0;
   return Math.floor((sel - 1) / GAMES_PER_PAGE);

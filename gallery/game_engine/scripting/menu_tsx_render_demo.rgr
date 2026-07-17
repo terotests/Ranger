@@ -233,20 +233,20 @@ class TsxMenuRenderDemo {
         d.stepBack()
         c.ok(("Back/Quit -> cats (got '" + (d.stateStr("screen")) + "')") ((d.stateStr("screen")) == "cats"))
 
-        ; ---- pagination: a category with more than GAMES_PER_PAGE (9) games
+        ; ---- pagination: a category with more than GAMES_PER_PAGE (19) games
         ; renders as pages; holding right walks straight onto page 2, and the
-        ; page indicator label appears. (The Tests category holds 10+ games.) ----
+        ; page indicator label appears. (The Tests category holds 20+ games.) ----
         d.step(false true false false false)     ; down -> the second category
         d.step(false false false false true)     ; A -> open it
         d.settle()
         c.ok(("opened the second category (got '" + (d.stateStr("screen")) + "')") ((d.stateStr("screen")) == "games"))
         c.ok("page indicator shows on a multi-page grid" (d.anyTextContains(d.root "sivu 1")))
         def w 0
-        while (w < 10) {                          ; right x10: sel 1 -> 11 = page 2
+        while (w < 19) {                          ; right x19: sel 1 -> 20 = page 2
             d.step(false false false true false)
             w = (w + 1)
         }
-        c.ok(("held right onto page 2 (got sel=" + (d.stateStr("sel")) + ")") ((d.stateStr("sel")) == "11"))
+        c.ok(("held right onto page 2 (got sel=" + (d.stateStr("sel")) + ")") ((d.stateStr("sel")) == "20"))
         c.ok("page indicator follows the cursor to page 2" (d.anyTextContains(d.root "sivu 2")))
         d.drawFrame("tsx_menu_3_games_page2.png")
         d.stepBack()
