@@ -123,6 +123,8 @@
     "engine:game-sdl:run:pong": "bash gallery/game_engine/scripts/build-game-sdl.sh --run gallery/game_engine/games/pong/index.tsx",
     "engine:game-sdl:run:invaders": "bash gallery/game_engine/scripts/build-game-sdl.sh --run gallery/game_engine/games/invaders/index.tsx",
     "engine:game-sdl:run:breakout": "bash gallery/game_engine/scripts/build-game-sdl.sh --run gallery/game_engine/games/breakout/index.tsx",
+    "engine:game-sdl:run:littleciv": "bash gallery/game_engine/scripts/build-game-sdl.sh --run gallery/game_engine/games/littleciv/index.tsx",
+    "engine:game-sdl:smoke:littleciv": "bash gallery/game_engine/scripts/build-game-sdl.sh --run gallery/game_engine/games/littleciv/index.tsx 300",
     "engine:game-sdl:run:ylos": "bash gallery/game_engine/scripts/build-game-sdl.sh --run gallery/game_engine/games/ylos/index.tsx",
     "engine:game-sdl:run:ylos2": "bash gallery/game_engine/scripts/build-lpc.sh --run && bash gallery/game_engine/scripts/build-game-sdl.sh --run gallery/game_engine/games/ylos2/index.tsx",
     "engine:game-sdl:run:ylos3": "bash gallery/game_engine/scripts/build-lpc.sh --run && bash gallery/game_engine/scripts/build-game-sdl.sh --run gallery/game_engine/games/ylos3/index.tsx",
