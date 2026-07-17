@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Generate chess piece sheet, board backdrop, and launcher icon.
+"""Build chess assets: SpicyGame CC0 piece sheet + felt board + icon.
 
-pieces.png layout (sheet kind: p0=col, p1=row):
-  6 cols: pawn, knight, bishop, rook, queen, king
+Pieces come from vendored 16×16 PNGs under assets/vendor/spicygame/
+(SpicyGame “Pixel Chess Pieces”, CC0 — https://spicygame.itch.io/chess-pieces).
+
+Sheet layout (game sheet kind: p0=col, p1=row):
+  6 cols: P N B R Q K
   2 rows: white, black
-  frame 28x28
+  frame 16×16  (index.tsx draws at scale 175 ≈ 28px)
 
 From repo root:
   python3 gallery/game_engine/games/chess/tools/gen_sprites.py
@@ -18,12 +21,19 @@ import struct
 import zlib
 from pathlib import Path
 
+try:
+    from PIL import Image
+except ImportError as e:
+    raise SystemExit("Pillow required: pip install pillow") from e
+
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "assets"
-FW = FH = 28
+VENDOR = OUT / "vendor" / "spicygame"
+ORDER = ["P", "N", "B", "R", "Q", "K"]
+FW = FH = 16
 
 
-def write_png(path: Path, w: int, h: int, rgba: bytearray) -> None:
+def write_png_bytes(path: Path, w: int, h: int, rgba: bytes) -> None:
     def chunk(tag: bytes, data: bytes) -> bytes:
         return (
             struct.pack(">I", len(data))
@@ -44,244 +54,30 @@ def write_png(path: Path, w: int, h: int, rgba: bytearray) -> None:
     print(f"wrote {path.relative_to(ROOT)} ({w}x{h})")
 
 
-def blank(w: int = FW, h: int = FH) -> bytearray:
-    return bytearray(w * h * 4)
-
-
-def setp(buf: bytearray, w: int, h: int, x: int, y: int, r: int, g: int, b: int, a: int = 255) -> None:
-    if 0 <= x < w and 0 <= y < h:
-        i = (y * w + x) * 4
-        buf[i : i + 4] = bytes((r, g, b, a))
-
-
-def fill_rect(buf, w, h, x0, y0, rw, rh, r, g, b, a=255) -> None:
-    for y in range(y0, y0 + rh):
-        for x in range(x0, x0 + rw):
-            setp(buf, w, h, x, y, r, g, b, a)
-
-
-def fill_ellipse(buf, w, h, cx, cy, rx, ry, r, g, b, a=255) -> None:
-    for y in range(max(0, cy - ry), min(h, cy + ry + 1)):
-        for x in range(max(0, cx - rx), min(w, cx + rx + 1)):
-            dx = (x - cx) / max(1, rx)
-            dy = (y - cy) / max(1, ry)
-            if dx * dx + dy * dy <= 1.0:
-                setp(buf, w, h, x, y, r, g, b, a)
-
-
-def fill_circle(buf, w, h, cx, cy, rad, r, g, b, a=255) -> None:
-    fill_ellipse(buf, w, h, cx, cy, rad, rad, r, g, b, a)
-
-
-def outline_pixel(buf, w, h, x, y, fr, fg, fb, br, bg, bb) -> None:
-    """Draw a filled pixel with a 1px dark outline if neighbor is empty."""
-    setp(buf, w, h, x, y, fr, fg, fb, 255)
-
-
-def stamp_mask(buf, w, h, mask, ox, oy, fr, fg, fb, or_, og, ob) -> None:
-    """mask is list of strings; '#' fill, 'o' outline-only tip."""
-    mh = len(mask)
-    mw = max(len(row) for row in mask)
-    # First pass: fill
-    for y, row in enumerate(mask):
-        for x, ch in enumerate(row):
-            if ch in "#*":
-                setp(buf, w, h, ox + x, oy + y, fr, fg, fb, 255)
-    # Outline: any empty neighbor of a filled pixel
-    for y, row in enumerate(mask):
-        for x, ch in enumerate(row):
-            if ch not in "#*":
-                continue
-            px, py = ox + x, oy + y
-            for dy in (-1, 0, 1):
-                for dx in (-1, 0, 1):
-                    if dx == 0 and dy == 0:
-                        continue
-                    nx, ny = x + dx, y + dy
-                    empty = True
-                    if 0 <= ny < mh and 0 <= nx < len(mask[ny]) and mask[ny][nx] in "#*":
-                        empty = False
-                    if empty:
-                        setp(buf, w, h, px + dx, py + dy, or_, og, ob, 255)
-
-
-# Classic Staunton-ish silhouettes (14 wide × ~20 tall), feet at bottom.
-PIECES = {
-    "P": [  # pawn
-        ".....###......",
-        "....#####.....",
-        "....#####.....",
-        ".....###......",
-        "....#####.....",
-        "...#######....",
-        "....#####.....",
-        "....#####.....",
-        "...#######....",
-        "..#########...",
-        ".###########..",
-        "##############",
-    ],
-    "N": [  # placeholder — knight uses draw_knight()
-        "..............",
-    ],
-    "B": [  # bishop
-        "......##......",
-        ".....####.....",
-        "....######....",
-        "...###..###...",
-        "...###..###...",
-        "....######....",
-        ".....####.....",
-        ".....####.....",
-        "....######....",
-        "...########...",
-        "..##########..",
-        ".############.",
-        "##############",
-    ],
-    "R": [  # rook
-        ".##..##..##...",
-        ".##..##..##...",
-        ".##########...",
-        ".##########...",
-        "..########....",
-        "..########....",
-        "..########....",
-        "..########....",
-        "..########....",
-        ".##########...",
-        ".############.",
-        "##############",
-    ],
-    "Q": [  # queen
-        "#..#..#..#..#.",
-        "##.##.##.##.##",
-        ".############.",
-        "..##########..",
-        "...########...",
-        "...########...",
-        "...########...",
-        "..##########..",
-        ".############.",
-        ".############.",
-        "##############",
-        "##############",
-    ],
-    "K": [  # king
-        "......##......",
-        "....######....",
-        "......##......",
-        "....######....",
-        "...########...",
-        "...###..###...",
-        "...###..###...",
-        "...########...",
-        "...########...",
-        "..##########..",
-        ".############.",
-        "##############",
-        "##############",
-    ],
-}
-
-ORDER = ["P", "N", "B", "R", "Q", "K"]
-
-
-def draw_knight(white: bool) -> bytearray:
-    """Classic chess-knight silhouette (facing left).
-
-    Solid horse head — ear up, snout left, curved neck, pedestal.
-    Only a shallow under-jaw notch (no see-through hole in the body).
-    '#' = fill, 'o' = outline, '.' = empty.
-    """
-    mask = [
-        "............................",
-        "............................",
-        "..............oo............",
-        ".............o##o...........",
-        "............o####o..........",
-        "..oo.......o######o.........",
-        ".o##ooooooo########o........",
-        "o###################o.......",
-        "o####################o......",
-        "o############oo######o......",
-        ".o##########o..o#####o......",
-        "..o#########o..o####o.......",
-        "...o#########.o#####o.......",
-        "....o###############o.......",
-        "....o################o......",
-        "...o##################o.....",
-        "..o####################o....",
-        "..o####################o....",
-        "..o####################o....",
-        "..oooooooooooooooooooooo....",
-        "............................",
-        "............................",
-        "............................",
-        "............................",
-        "............................",
-        "............................",
-        "............................",
-        "............................",
-    ]
-    buf = blank()
-    if white:
-        fr, fg, fb = 245, 240, 230
-        or_, og, ob = 40, 36, 30
-        hi = (255, 252, 245)
-    else:
-        fr, fg, fb = 36, 34, 40
-        or_, og, ob = 210, 205, 195
-        hi = (fr, fg, fb)
-    for y, row in enumerate(mask):
-        for x, ch in enumerate(row):
-            if ch == "o":
-                setp(buf, FW, FH, x, y, or_, og, ob, 255)
-            elif ch == "#":
-                col = hi if y < 8 else (fr, fg, fb)
-                setp(buf, FW, FH, x, y, col[0], col[1], col[2], 255)
-    # Single-pixel eye on the head (outline on fill — not a hole)
-    setp(buf, FW, FH, 15, 8, or_, og, ob, 255)
-    return buf
-
-
-def draw_piece_frame(kind: str, white: bool) -> bytearray:
-    if kind == "N":
-        return draw_knight(white)
-    buf = blank()
-    mask = PIECES[kind]
-    mw = max(len(r) for r in mask)
-    mh = len(mask)
-    ox = (FW - mw) // 2
-    oy = FH - mh - 1
-    if white:
-        fr, fg, fb = 245, 240, 230
-        or_, og, ob = 40, 36, 30
-    else:
-        fr, fg, fb = 36, 34, 40
-        or_, og, ob = 210, 205, 195
-    stamp_mask(buf, FW, FH, mask, ox, oy, fr, fg, fb, or_, og, ob)
-    # Soft highlight on white pieces
-    if white:
-        for y, row in enumerate(mask):
-            for x, ch in enumerate(row):
-                if ch in "#*" and y < mh // 3:
-                    setp(buf, FW, FH, ox + x, oy + y, 255, 252, 245, 255)
-    return buf
-
-
 def gen_pieces() -> None:
-    cols, rows = 6, 2
-    sheet = blank(FW * cols, FH * rows)
-    for ci, kind in enumerate(ORDER):
-        for ri, white in enumerate((True, False)):
-            frame = draw_piece_frame(kind, white)
-            for y in range(FH):
-                for x in range(FW):
-                    si = (y * FW + x) * 4
-                    di = ((ri * FH + y) * (FW * cols) + (ci * FW + x)) * 4
-                    sheet[di : di + 4] = frame[si : si + 4]
-    write_png(OUT / "pieces.png", FW * cols, FH * rows, sheet)
+    missing = []
+    for color in ("w", "b"):
+        for p in ORDER:
+            path = VENDOR / f"{color}{p}.png"
+            if not path.is_file():
+                missing.append(str(path.relative_to(ROOT)))
+    if missing:
+        raise SystemExit(
+            "Missing vendored SpicyGame tiles:\n  "
+            + "\n  ".join(missing)
+            + "\nSee assets/CREDITS.md"
+        )
+
+    sheet = Image.new("RGBA", (FW * 6, FH * 2), (0, 0, 0, 0))
+    for ri, color in enumerate(("w", "b")):
+        for ci, p in enumerate(ORDER):
+            im = Image.open(VENDOR / f"{color}{p}.png").convert("RGBA")
+            if im.size != (FW, FH):
+                im = im.resize((FW, FH), Image.NEAREST)
+            sheet.paste(im, (ci * FW, ri * FH), im)
+    out = OUT / "pieces.png"
+    sheet.save(out)
+    print(f"wrote {out.relative_to(ROOT)} ({sheet.size[0]}x{sheet.size[1]})")
 
 
 def gen_board_bg() -> None:
@@ -289,7 +85,7 @@ def gen_board_bg() -> None:
     w, h = 480, 270
     tile = 28
     origin_x, origin_y = 128, 22
-    buf = blank(w, h)
+    buf = bytearray(w * h * 4)
     for y in range(h):
         for x in range(w):
             dx = (x - w / 2) / (w / 2)
@@ -301,54 +97,46 @@ def gen_board_bg() -> None:
             r = max(0, base_r - shade + (n - 3))
             g = max(0, base_g - shade + (n - 3))
             b = max(0, base_b - shade + (n - 2))
-            setp(buf, w, h, x, y, r, g, b, 255)
+            i = (y * w + x) * 4
+            buf[i : i + 4] = bytes((r, g, b, 255))
 
-    # Wood frame
-    fill_rect(buf, w, h, origin_x - 8, origin_y - 8, tile * 8 + 16, tile * 8 + 16, 92, 58, 34)
-    fill_rect(buf, w, h, origin_x - 5, origin_y - 5, tile * 8 + 10, tile * 8 + 10, 120, 78, 44)
+    def fill_rect(x0, y0, rw, rh, r, g, b):
+        for y in range(y0, y0 + rh):
+            for x in range(x0, x0 + rw):
+                if 0 <= x < w and 0 <= y < h:
+                    i = (y * w + x) * 4
+                    buf[i : i + 4] = bytes((r, g, b, 255))
 
+    fill_rect(origin_x - 8, origin_y - 8, tile * 8 + 16, tile * 8 + 16, 92, 58, 34)
+    fill_rect(origin_x - 5, origin_y - 5, tile * 8 + 10, tile * 8 + 10, 120, 78, 44)
     for row in range(8):
         for col in range(8):
             x0 = origin_x + col * tile
             y0 = origin_y + row * tile
             if (col + row) % 2 == 0:
-                fill_rect(buf, w, h, x0, y0, tile, tile, 232, 208, 168)
-                fill_rect(buf, w, h, x0 + 1, y0 + tile - 3, tile - 2, 2, 210, 190, 150)
+                fill_rect(x0, y0, tile, tile, 232, 208, 168)
+                fill_rect(x0 + 1, y0 + tile - 3, tile - 2, 2, 210, 190, 150)
             else:
-                fill_rect(buf, w, h, x0, y0, tile, tile, 148, 98, 58)
-                fill_rect(buf, w, h, x0 + 1, y0 + 1, tile - 2, 2, 130, 86, 50)
-
-    write_png(OUT / "board_bg.png", w, h, buf)
+                fill_rect(x0, y0, tile, tile, 148, 98, 58)
+                fill_rect(x0 + 1, y0 + 1, tile - 2, 2, 130, 86, 50)
+    write_png_bytes(OUT / "board_bg.png", w, h, bytes(buf))
 
 
 def gen_icon() -> None:
-    w = h = 64
-    buf = blank(w, h)
-    # Green square with a white king silhouette
-    fill_rect(buf, w, h, 0, 0, w, h, 22, 70, 48)
-    for y in range(w):
-        for x in range(w):
+    """Launcher icon: board snippet + white king."""
+    king = Image.open(VENDOR / "wK.png").convert("RGBA").resize((40, 40), Image.NEAREST)
+    icon = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    for y in range(64):
+        for x in range(64):
             light = ((x // 8) + (y // 8)) % 2 == 0
             if light:
-                setp(buf, w, h, x, y, 232, 210, 170, 255)
+                icon.putpixel((x, y), (232, 210, 170, 255))
             else:
-                setp(buf, w, h, x, y, 120, 78, 48, 255)
-    frame = draw_piece_frame("K", True)
-    # scale 28→~40 by nearest neighbor into center
-    scale = 2
-    dw, dh = FW * scale, FH * scale
-    ox, oy = (w - dw) // 2, (h - dh) // 2 + 2
-    for y in range(FH):
-        for x in range(FW):
-            i = (y * FW + x) * 4
-            a = frame[i + 3]
-            if a < 128:
-                continue
-            r, g, b = frame[i], frame[i + 1], frame[i + 2]
-            for sy in range(scale):
-                for sx in range(scale):
-                    setp(buf, w, h, ox + x * scale + sx, oy + y * scale + sy, r, g, b, 255)
-    write_png(OUT / "image.png", w, h, buf)
+                icon.putpixel((x, y), (120, 78, 48, 255))
+    icon.paste(king, ((64 - 40) // 2, (64 - 40) // 2 + 2), king)
+    out = OUT / "image.png"
+    icon.save(out)
+    print(f"wrote {out.relative_to(ROOT)} (64x64)")
 
 
 def main() -> None:

@@ -80,12 +80,13 @@ function sprites() {
       id: pieceId(i),
       kind: "sheet",
       path: "assets/pieces.png",
-      frameW: 28,
-      frameH: 28,
+      frameW: 16,
+      frameH: 16,
       cols: 6,
       rows: 2,
-      scale: 100,
-      feetTrim: 1,
+      // 16px SpicyGame pixels → ~28px on the board (TILE).
+      scale: 175,
+      feetTrim: 0,
       jumpFrame: 0
     });
     i = i + 1;
