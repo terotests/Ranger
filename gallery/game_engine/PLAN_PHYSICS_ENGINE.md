@@ -264,8 +264,14 @@ flipperi-testi.
   pallo asettuu laatikon päälle (`y ≈ 1.5000`, ei uppoa), laatikko asettuu tasolle
   (`z ≈ 1.0000`). **Tämä on pinballin ydin: pallo vs. laatikkoseinät/flipperit.**
   `npm run engine:physics:test` → 69 passed, 0 failed.
-  ⏳ Täysi **box-box (OBB SAT)** ja `ConvexPolyhedron` jäävät myöhempään (iso,
-  tarkkuutta vaativa) — kaksi dynaamista laatikkoa törmäämässä ei ole vielä.
+- ✅ **Osa 3b (tehty):** täysi **box-box (OBB SAT)** — 15 akselia (3+3 tahkoa +
+  9 särmä-ristituloa) erottavuustestiin ja minimipäällekkäisyysakseli normaaliksi,
+  kontaktimanifold läpäisevistä kulmista (kulma toisen laatikon sisällä → kontakti,
+  kumpaankin suuntaan) + särmä-särmä-fallback. Testit: laatikko lepää laatikon päällä
+  vakaasti nelikulmamanifoldilla (`boxStackY ≈ 1.0000`), päällekkäiset laatikot
+  työntyvät erilleen (`boxSeparateGap` kasvaa). `npm run engine:physics:test` →
+  71 passed, 0 failed. (Yleinen `ConvexPolyhedron` mielivaltaisille konvekseille jää
+  vielä; laatikot katettu.)
 
 **Vaihe 4 — Raycast.** `Ray`, `RaycastResult`, `world.raycastClosest/Any/All`,
 muotojen `raycast`-metodit. Todiste: raycast-osumatestit per muoto.

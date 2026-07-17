@@ -17,6 +17,86 @@ class CannonBoxCollisionTest {
     fn runFiltered:void (h:CannonTestHarness filter:string) {
         if (this.filter.matches(filter "BoxCollision.sphereOnBox")) { this.sphereOnBox(h) }
         if (this.filter.matches(filter "BoxCollision.boxOnPlane")) { this.boxOnPlane(h) }
+        if (this.filter.matches(filter "BoxCollision.boxStack")) { this.boxStack(h) }
+        if (this.filter.matches(filter "BoxCollision.boxSeparate")) { this.boxSeparate(h) }
+    }
+
+    ; A small box dropped onto a wide static box rests on top (four-corner
+    ; manifold keeps it stable at y ~= 1.0 instead of sinking or tipping off).
+    fn boxStack:void (h:CannonTestHarness) {
+        h.beginTest("BoxCollision.boxStack")
+        def world:CannonWorld (new CannonWorld)
+        world.initWorld()
+        world.setGravity(0.0 (0.0 - 10.0) 0.0)
+
+        def ground:CannonBody (new CannonBody)
+        ground.initStatic()
+        def heG:CannonVec3 (new CannonVec3)
+        heG.set(2.0 0.5 2.0)
+        def groundBox:CannonBox (new CannonBox)
+        groundBox.initBox(heG)
+        ground.addShape(groundBox)
+        ground.position.set(0.0 0.0 0.0)
+        world.addBody(ground)
+
+        def box:CannonBody (new CannonBody)
+        box.initDynamic(1.0)
+        def heB:CannonVec3 (new CannonVec3)
+        heB.set(0.5 0.5 0.5)
+        def boxShape:CannonBox (new CannonBox)
+        boxShape.initBox(heB)
+        box.addShape(boxShape)
+        box.position.set(0.0 0.9 0.0)
+        world.addBody(box)
+
+        def s 0
+        while (s < 120) {
+            world.step(0.016666666666666666)
+            s = (s + 1)
+        }
+        def y:double box.position.y
+        h.ok((y > 0.8) "box rests on the box, does not sink through")
+        h.ok((y < 1.25) "box settles on top, is not launched")
+        print ("boxStackY=" + (to_string y))
+        h.finishTest()
+    }
+
+    ; Two overlapping dynamic boxes push apart along the minimum-overlap axis.
+    fn boxSeparate:void (h:CannonTestHarness) {
+        h.beginTest("BoxCollision.boxSeparate")
+        def world:CannonWorld (new CannonWorld)
+        world.initWorld()
+        world.setGravity(0.0 0.0 0.0)
+
+        def a:CannonBody (new CannonBody)
+        a.initDynamic(1.0)
+        def heA:CannonVec3 (new CannonVec3)
+        heA.set(1.0 1.0 1.0)
+        def boxA:CannonBox (new CannonBox)
+        boxA.initBox(heA)
+        a.addShape(boxA)
+        a.position.set(0.0 0.0 0.0)
+        world.addBody(a)
+
+        def b:CannonBody (new CannonBody)
+        b.initDynamic(1.0)
+        def heB:CannonVec3 (new CannonVec3)
+        heB.set(1.0 1.0 1.0)
+        def boxB:CannonBox (new CannonBox)
+        boxB.initBox(heB)
+        b.addShape(boxB)
+        b.position.set(1.5 0.0 0.0)
+        world.addBody(b)
+
+        def s 0
+        while (s < 60) {
+            world.step(0.016666666666666666)
+            s = (s + 1)
+        }
+        def gap:double (b.position.x - a.position.x)
+        h.ok((gap > 1.8) "overlapping boxes separate along x")
+        print ("boxSeparateGap=" + (to_string gap))
+        h.finishTest()
     }
 
     ; A falling sphere settles on the top face of a static box (top at y=0.5),

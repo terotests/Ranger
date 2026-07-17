@@ -31,6 +31,25 @@ class CannonNarrowphase {
     def pbNormal:CannonVec3 (new CannonVec3)
     def pbCorner:CannonVec3 (new CannonVec3)
     def pbProj:CannonVec3 (new CannonVec3)
+    ; box-box (SAT) scratch
+    def bbAx:CannonVec3 (new CannonVec3)
+    def bbAy:CannonVec3 (new CannonVec3)
+    def bbAz:CannonVec3 (new CannonVec3)
+    def bbBx:CannonVec3 (new CannonVec3)
+    def bbBy:CannonVec3 (new CannonVec3)
+    def bbBz:CannonVec3 (new CannonVec3)
+    def bbPosDiff:CannonVec3 (new CannonVec3)
+    def bbBestAxis:CannonVec3 (new CannonVec3)
+    def bbBestOverlap:double 0.0
+    def bbHeA:CannonVec3
+    def bbHeB:CannonVec3
+    def bbCorner:CannonVec3 (new CannonVec3)
+    def bbLocal:CannonVec3 (new CannonVec3)
+    def bbConj:CannonQuaternion (new CannonQuaternion)
+    def bbUnit:CannonVec3 (new CannonVec3)
+    def bbPointA:CannonVec3 (new CannonVec3)
+    def bbPointB:CannonVec3 (new CannonVec3)
+    def bbMade:int 0
 
     fn createContactEquation:CannonEquation (bi:CannonBody bj:CannonBody si:CannonShape sj:CannonShape) {
         def c:CannonEquation (new CannonEquation)
@@ -208,6 +227,179 @@ class CannonNarrowphase {
         return hit
     }
 
+    ; --- box-box (OBB) via the separating axis theorem ---
+
+    ; Project both boxes onto axis (lx,ly,lz); return false if it separates them,
+    ; else track the minimum-overlap axis (the contact normal candidate).
+    fn bbTestAxis:boolean (lx:double ly:double lz:double) {
+        def len:double (sqrt(((lx * lx) + (ly * ly)) + (lz * lz)))
+        if (len < 0.000001) {
+            return true
+        }
+        this.bbUnit.set((lx / len) (ly / len) (lz / len))
+        def dax:double (this.bbUnit.dot(this.bbAx))
+        if (dax < 0.0) { dax = (0.0 - dax) }
+        def day:double (this.bbUnit.dot(this.bbAy))
+        if (day < 0.0) { day = (0.0 - day) }
+        def daz:double (this.bbUnit.dot(this.bbAz))
+        if (daz < 0.0) { daz = (0.0 - daz) }
+        def rA:double (((this.bbHeA.x * dax) + (this.bbHeA.y * day)) + (this.bbHeA.z * daz))
+        def dbx:double (this.bbUnit.dot(this.bbBx))
+        if (dbx < 0.0) { dbx = (0.0 - dbx) }
+        def dby:double (this.bbUnit.dot(this.bbBy))
+        if (dby < 0.0) { dby = (0.0 - dby) }
+        def dbz:double (this.bbUnit.dot(this.bbBz))
+        if (dbz < 0.0) { dbz = (0.0 - dbz) }
+        def rB:double (((this.bbHeB.x * dbx) + (this.bbHeB.y * dby)) + (this.bbHeB.z * dbz))
+        def tproj:double (this.bbUnit.dot(this.bbPosDiff))
+        if (tproj < 0.0) { tproj = (0.0 - tproj) }
+        def overlap:double ((rA + rB) - tproj)
+        if (overlap < 0.0) {
+            return false
+        }
+        if (overlap < this.bbBestOverlap) {
+            this.bbBestOverlap = overlap
+            this.bbBestAxis.copy(this.bbUnit)
+        }
+        return true
+    }
+
+    fn bbWorldCorner:void (sx:double sy:double sz:double he:CannonVec3 pos:CannonVec3 quat:CannonQuaternion target:CannonVec3) {
+        this.bbUnit.set((sx * he.x) (sy * he.y) (sz * he.z))
+        quat.vmult(this.bbUnit target)
+        pos.vadd(target target)
+    }
+
+    fn bbPointInBox:boolean (p:CannonVec3 boxPos:CannonVec3 boxQuat:CannonQuaternion he:CannonVec3) {
+        p.vsub(boxPos this.bbLocal)
+        boxQuat.conjugateInto(this.bbConj)
+        this.bbConj.vmult(this.bbLocal this.bbLocal)
+        def lx:double this.bbLocal.x
+        if (lx < 0.0) { lx = (0.0 - lx) }
+        def ly:double this.bbLocal.y
+        if (ly < 0.0) { ly = (0.0 - ly) }
+        def lz:double this.bbLocal.z
+        if (lz < 0.0) { lz = (0.0 - lz) }
+        if (lx > he.x) { return false }
+        if (ly > he.y) { return false }
+        if (lz > he.z) { return false }
+        return true
+    }
+
+    ; A corner of the source box that lies inside the test box becomes a contact.
+    ; `bIntoA` selects the ri/rj sign convention (n always points from A toward B).
+    fn bbTryCorner:void (sx:double sy:double sz:double heSrc:CannonVec3 posSrc:CannonVec3 quatSrc:CannonQuaternion heTest:CannonVec3 posTest:CannonVec3 quatTest:CannonQuaternion n:CannonVec3 d:double bIntoA:boolean bi:CannonBody bj:CannonBody si:CannonShape sj:CannonShape) {
+        this.bbWorldCorner(sx sy sz heSrc posSrc quatSrc this.bbCorner)
+        if (this.bbPointInBox(this.bbCorner posTest quatTest heTest) == false) {
+            return
+        }
+        def r:CannonEquation (this.createContactEquation(bi bj si sj))
+        r.ni.copy(n)
+        if (bIntoA) {
+            ; corner is on B; rj = corner - posB, ri = (corner + n*d) - posA
+            this.bbCorner.vsub(posSrc r.rj)
+            n.scaleInto(d this.bbPointA)
+            this.bbCorner.vadd(this.bbPointA this.bbPointA)
+            this.bbPointA.vsub(posTest r.ri)
+        } {
+            ; corner is on A; ri = corner - posA, rj = (corner - n*d) - posB
+            this.bbCorner.vsub(posSrc r.ri)
+            n.scaleInto(d this.bbPointB)
+            this.bbCorner.vsub(this.bbPointB this.bbPointB)
+            this.bbPointB.vsub(posTest r.rj)
+        }
+        push this.result r
+        this.bbMade = (this.bbMade + 1)
+    }
+
+    fn boxBox:boolean (heA:CannonVec3 posA:CannonVec3 quatA:CannonQuaternion heB:CannonVec3 posB:CannonVec3 quatB:CannonQuaternion bi:CannonBody bj:CannonBody si:CannonShape sj:CannonShape justTest:boolean) {
+        this.bbUnit.set(1.0 0.0 0.0)
+        quatA.vmult(this.bbUnit this.bbAx)
+        this.bbUnit.set(0.0 1.0 0.0)
+        quatA.vmult(this.bbUnit this.bbAy)
+        this.bbUnit.set(0.0 0.0 1.0)
+        quatA.vmult(this.bbUnit this.bbAz)
+        this.bbUnit.set(1.0 0.0 0.0)
+        quatB.vmult(this.bbUnit this.bbBx)
+        this.bbUnit.set(0.0 1.0 0.0)
+        quatB.vmult(this.bbUnit this.bbBy)
+        this.bbUnit.set(0.0 0.0 1.0)
+        quatB.vmult(this.bbUnit this.bbBz)
+        this.bbHeA = heA
+        this.bbHeB = heB
+        posB.vsub(posA this.bbPosDiff)
+        this.bbBestOverlap = 1000000000.0
+
+        if (this.bbTestAxis(this.bbAx.x this.bbAx.y this.bbAx.z) == false) { return false }
+        if (this.bbTestAxis(this.bbAy.x this.bbAy.y this.bbAy.z) == false) { return false }
+        if (this.bbTestAxis(this.bbAz.x this.bbAz.y this.bbAz.z) == false) { return false }
+        if (this.bbTestAxis(this.bbBx.x this.bbBx.y this.bbBx.z) == false) { return false }
+        if (this.bbTestAxis(this.bbBy.x this.bbBy.y this.bbBy.z) == false) { return false }
+        if (this.bbTestAxis(this.bbBz.x this.bbBz.y this.bbBz.z) == false) { return false }
+        this.bbAx.crossInto(this.bbBx this.bbCorner)
+        if (this.bbTestAxis(this.bbCorner.x this.bbCorner.y this.bbCorner.z) == false) { return false }
+        this.bbAx.crossInto(this.bbBy this.bbCorner)
+        if (this.bbTestAxis(this.bbCorner.x this.bbCorner.y this.bbCorner.z) == false) { return false }
+        this.bbAx.crossInto(this.bbBz this.bbCorner)
+        if (this.bbTestAxis(this.bbCorner.x this.bbCorner.y this.bbCorner.z) == false) { return false }
+        this.bbAy.crossInto(this.bbBx this.bbCorner)
+        if (this.bbTestAxis(this.bbCorner.x this.bbCorner.y this.bbCorner.z) == false) { return false }
+        this.bbAy.crossInto(this.bbBy this.bbCorner)
+        if (this.bbTestAxis(this.bbCorner.x this.bbCorner.y this.bbCorner.z) == false) { return false }
+        this.bbAy.crossInto(this.bbBz this.bbCorner)
+        if (this.bbTestAxis(this.bbCorner.x this.bbCorner.y this.bbCorner.z) == false) { return false }
+        this.bbAz.crossInto(this.bbBx this.bbCorner)
+        if (this.bbTestAxis(this.bbCorner.x this.bbCorner.y this.bbCorner.z) == false) { return false }
+        this.bbAz.crossInto(this.bbBy this.bbCorner)
+        if (this.bbTestAxis(this.bbCorner.x this.bbCorner.y this.bbCorner.z) == false) { return false }
+        this.bbAz.crossInto(this.bbBz this.bbCorner)
+        if (this.bbTestAxis(this.bbCorner.x this.bbCorner.y this.bbCorner.z) == false) { return false }
+
+        if (justTest) {
+            return true
+        }
+
+        def n:CannonVec3 this.bbBestAxis
+        def sign:double (n.dot(this.bbPosDiff))
+        if (sign < 0.0) {
+            n.negateInto(n)
+        }
+        def d:double this.bbBestOverlap
+        this.bbMade = 0
+        ; corners of B inside A
+        this.bbTryCorner(1.0 1.0 1.0 heB posB quatB heA posA quatA n d true bi bj si sj)
+        this.bbTryCorner(1.0 1.0 (0.0 - 1.0) heB posB quatB heA posA quatA n d true bi bj si sj)
+        this.bbTryCorner(1.0 (0.0 - 1.0) 1.0 heB posB quatB heA posA quatA n d true bi bj si sj)
+        this.bbTryCorner(1.0 (0.0 - 1.0) (0.0 - 1.0) heB posB quatB heA posA quatA n d true bi bj si sj)
+        this.bbTryCorner((0.0 - 1.0) 1.0 1.0 heB posB quatB heA posA quatA n d true bi bj si sj)
+        this.bbTryCorner((0.0 - 1.0) 1.0 (0.0 - 1.0) heB posB quatB heA posA quatA n d true bi bj si sj)
+        this.bbTryCorner((0.0 - 1.0) (0.0 - 1.0) 1.0 heB posB quatB heA posA quatA n d true bi bj si sj)
+        this.bbTryCorner((0.0 - 1.0) (0.0 - 1.0) (0.0 - 1.0) heB posB quatB heA posA quatA n d true bi bj si sj)
+        ; corners of A inside B
+        this.bbTryCorner(1.0 1.0 1.0 heA posA quatA heB posB quatB n d false bi bj si sj)
+        this.bbTryCorner(1.0 1.0 (0.0 - 1.0) heA posA quatA heB posB quatB n d false bi bj si sj)
+        this.bbTryCorner(1.0 (0.0 - 1.0) 1.0 heA posA quatA heB posB quatB n d false bi bj si sj)
+        this.bbTryCorner(1.0 (0.0 - 1.0) (0.0 - 1.0) heA posA quatA heB posB quatB n d false bi bj si sj)
+        this.bbTryCorner((0.0 - 1.0) 1.0 1.0 heA posA quatA heB posB quatB n d false bi bj si sj)
+        this.bbTryCorner((0.0 - 1.0) 1.0 (0.0 - 1.0) heA posA quatA heB posB quatB n d false bi bj si sj)
+        this.bbTryCorner((0.0 - 1.0) (0.0 - 1.0) 1.0 heA posA quatA heB posB quatB n d false bi bj si sj)
+        this.bbTryCorner((0.0 - 1.0) (0.0 - 1.0) (0.0 - 1.0) heA posA quatA heB posB quatB n d false bi bj si sj)
+
+        if (this.bbMade == 0) {
+            ; edge-edge fallback: one contact at the box midpoint
+            def r:CannonEquation (this.createContactEquation(bi bj si sj))
+            r.ni.copy(n)
+            this.bbPosDiff.scaleInto(0.5 this.bbPointA)
+            posA.vadd(this.bbPointA this.bbPointA)
+            this.bbPointA.vsub(posA r.ri)
+            n.scaleInto(d this.bbPointB)
+            this.bbPointA.vsub(this.bbPointB this.bbPointB)
+            this.bbPointB.vsub(posB r.rj)
+            push this.result r
+        }
+        return true
+    }
+
     fn dispatchShapePair:boolean (si:CannonShape sj:CannonShape xi:CannonVec3 xj:CannonVec3 qi:CannonQuaternion qj:CannonQuaternion bi:CannonBody bj:CannonBody justTest:boolean) {
         if (si.type == 1) {
             if (sj.type == 1) {
@@ -246,6 +438,13 @@ class CannonNarrowphase {
             if (sj.type == 2) {
                 def hitBP:boolean (this.planeBox(qj si xi qi bj bi sj si justTest))
                 return hitBP
+            }
+            ; box vs box (OBB SAT)
+            if (sj.type == 4) {
+                def heA:CannonVec3 (si.getHalfExtents())
+                def heB:CannonVec3 (sj.getHalfExtents())
+                def hitBB:boolean (this.boxBox(heA xi qi heB xj qj bi bj si sj justTest))
+                return hitBB
             }
         }
         return false
