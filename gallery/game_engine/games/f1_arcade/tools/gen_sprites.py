@@ -278,32 +278,36 @@ def draw_f1_rear(
     ox = lean * 5
     tip = lean * 2
 
-    # 1) Front tires FIRST (far).
-    fl_x = 10 + ox - lean * 3
-    fr_x = 39 + ox - lean * 3
-    draw_front_tire(pix, w, h, fl_x, 18, 7)
-    draw_front_tire(pix, w, h, fr_x, 18, 7)
+    # 1) Front tires FIRST — outboard of the narrow chassis so they stay visible
+    #    between body and rear tires (not covered by sidepods).
+    fl_x = 7 + ox - lean * 3
+    fr_x = 42 + ox - lean * 3
+    draw_front_tire(pix, w, h, fl_x, 19, 8)
+    draw_front_tire(pix, w, h, fr_x, 19, 8)
 
-    # 2) Compact spoiler (narrow + short), lowered with the chassis.
-    wing_w = 34
-    wing_x = (w - wing_w) // 2 + ox
-    fill_rect(pix, w, h, wing_x, 5, wing_w, 3, wing)
-    fill_rect(pix, w, h, wing_x + 1, 4, wing_w - 2, 2, (48, 48, 54, 255))
-    fill_rect(pix, w, h, wing_x - 1, 4, 3, 7, wing)
-    fill_rect(pix, w, h, wing_x + wing_w - 2, 4, 3, 7, wing)
-    for sx in range(wing_x + 4, wing_x + wing_w - 4, 5):
-        fill_rect(pix, w, h, sx, 5, 1, 2, (70, 70, 78, 255))
-
-    # 3) Body lowered so it sits between the rear tires (not floating).
-    fill_rect(pix, w, h, 16 + ox, 14, 24, 14, body)
-    fill_rect(pix, w, h, 18 + ox, 16, 20, 10, shade)
-    fill_rect(pix, w, h, 20 + ox, 13, 16, 3, (32, 32, 38, 255))
-    fill_rect(pix, w, h, 10 + ox + tip, 16, 9, 10, body)
-    fill_rect(pix, w, h, 37 + ox - tip, 16, 9, 10, body)
+    # 2) Body first (so spoiler can sit on it), narrow sidepods.
+    fill_rect(pix, w, h, 17 + ox, 14, 22, 14, body)
+    fill_rect(pix, w, h, 19 + ox, 16, 18, 10, shade)
+    fill_rect(pix, w, h, 21 + ox, 13, 14, 3, (32, 32, 38, 255))
+    fill_rect(pix, w, h, 12 + ox + tip, 16, 7, 10, body)
+    fill_rect(pix, w, h, 37 + ox - tip, 16, 7, 10, body)
 
     # Helmet from behind.
     fill_ellipse(pix, w, h, w // 2 + ox, 15, 5, 4, (26, 26, 30, 255))
     fill_ellipse(pix, w, h, w // 2 + ox, 14, 3, 3, accent)
+
+    # 3) Spoiler attached to body top (no air gap).
+    wing_w = 30
+    wing_x = (w - wing_w) // 2 + ox
+    fill_rect(pix, w, h, wing_x, 10, wing_w, 3, wing)
+    fill_rect(pix, w, h, wing_x + 1, 9, wing_w - 2, 2, (48, 48, 54, 255))
+    # Endplates + stalks down into the body.
+    fill_rect(pix, w, h, wing_x - 1, 9, 3, 6, wing)
+    fill_rect(pix, w, h, wing_x + wing_w - 2, 9, 3, 6, wing)
+    fill_rect(pix, w, h, wing_x + 4, 12, 2, 3, wing)
+    fill_rect(pix, w, h, wing_x + wing_w - 6, 12, 2, 3, wing)
+    for sx in range(wing_x + 4, wing_x + wing_w - 4, 5):
+        fill_rect(pix, w, h, sx, 10, 1, 2, (70, 70, 78, 255))
 
     # Exhaust tucked between rear tires.
     fill_rect(pix, w, h, 22 + ox, 26, 12, 2, (255, 150, 40, 255))
