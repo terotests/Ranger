@@ -185,6 +185,14 @@ renders on the GPU and rotates (consecutive frames differ). Texture pixels are
 optional — absent a host-supplied image, the bridge applies a visible checker so
 UV mapping shows; `setTexture(path, rgba, w, h)` swaps in decoded image pixels.
 
+It is also a first-class entry in the **live editor** (`build.mjs`, the
+`GAMES` registry, `kind: "tsx3d"`): pick **"Cube 3D — Three.js on the GPU"** from
+the Game dropdown and `cube.tsx` opens in Monaco, editable, rendering in the
+canvas — edits (e.g. `camera.position.z`, the rotation speed) hot-reload like the
+2D games. The editor swaps in a fresh WebGL `<canvas>` for the `tsx3d` kind (a 2D
+game and a WebGL game can't share one canvas), and drives the same
+`RangerTsx3dViewer` session (`getSource` / `reload` / `stop` / `start`).
+
 ## Roadmap
 
 - **WASM game logic** — the car game (`autopeli_wasm`). The engine's `wasm_*`

@@ -64,6 +64,8 @@
         width: 480px; max-width: 100%; height: auto; aspect-ratio: 16 / 9;
         border-radius: 8px; background: #0a0e1a;
       }
+      /* WebGL 3D games (kind:tsx3d) want a square, smoothly-sampled surface. */
+      canvas.gl3d { aspect-ratio: 1 / 1; image-rendering: auto; }
       .controls { color: var(--muted); font-size: 12.5px; margin-top: 10px; }
       .hint { color: var(--muted); font-size: 12px; padding: 0 22px 18px; }
       .hint code { color: var(--accent); }
@@ -121,6 +123,7 @@
     <script src="./vfs.js"></script>
     <script src="./engine-host.js"></script>
     <script src="./runner.js"></script>
+    <script src="./tsx3d-gl-viewer.js"></script>
     <script src="./editor.bundle.js"></script>
     <script>
       const statusEl = document.getElementById("status");
@@ -128,8 +131,9 @@
       const controlsEl = document.getElementById("controls");
       const fileCapEl = document.getElementById("filecap");
       const autoEl = document.getElementById("autoreload");
-      const canvas = document.getElementById("screen");
+      let canvas = document.getElementById("screen");
       let bundleSource = null;
+      let tsx3dBundleSource = null;
       let registry = [];
       let session = null;
       let editor = null;
@@ -183,26 +187,61 @@
         }
       }
 
+      // Replace the canvas element so each game gets a clean context: a WebGL
+      // (tsx3d) game and a 2D game can't share one canvas (context type is fixed
+      // once acquired).
+      function freshCanvas(width, height, gl3d) {
+        const old = document.getElementById("screen");
+        const c = document.createElement("canvas");
+        c.id = "screen";
+        c.width = width || 480;
+        c.height = height || 270;
+        if (gl3d) c.className = "gl3d";
+        old.replaceWith(c);
+        canvas = c;
+        return c;
+      }
+
       async function loadGame(entry) {
         if (session) session.stop();
         setStatus("loading " + entry.title + "…");
         controlsEl.textContent = entry.controls || "";
         fileCapEl.textContent = entry.scriptDir + "/" + entry.script;
-        const zipBuffer = await fetchBuffer(entry.pkg);
-        session = await window.RangerRunner.launch({
-          bundleSource,
-          zipBuffer,
-          width: entry.width,
-          height: entry.height,
-          canvas,
-          scriptDir: entry.scriptDir,
-          scriptFile: entry.script,
-          muted: !document.getElementById("sound").checked,
-          onStats: (s) => {
-            if (!document.hidden)
-              setStatus(entry.title + " — score " + s.score1 + " : " + s.score2);
-          },
-        });
+
+        if (entry.kind === "tsx3d") {
+          freshCanvas(entry.width, entry.height, true);
+          if (!tsx3dBundleSource) tsx3dBundleSource = await fetchText("./tsx3d-gl.bundle.js");
+          const [facadeSrc, cubeSrc] = await Promise.all([
+            fetchText(entry.facadeUrl),
+            fetchText(entry.scriptUrl),
+          ]);
+          session = await window.RangerTsx3dViewer.launch({
+            bundleSource: tsx3dBundleSource,
+            canvas,
+            facadeSrc,
+            cubeSrc,
+            texturePath: entry.texturePath,
+            textureUrl: entry.textureUrl,
+          });
+          setStatus(entry.title + " — the interpreted cube.tsx, drawn with WebGL", true);
+        } else {
+          freshCanvas(entry.width, entry.height, false);
+          const zipBuffer = await fetchBuffer(entry.pkg);
+          session = await window.RangerRunner.launch({
+            bundleSource,
+            zipBuffer,
+            width: entry.width,
+            height: entry.height,
+            canvas,
+            scriptDir: entry.scriptDir,
+            scriptFile: entry.script,
+            muted: !document.getElementById("sound").checked,
+            onStats: (s) => {
+              if (!document.hidden)
+                setStatus(entry.title + " — score " + s.score1 + " : " + s.score2);
+            },
+          });
+        }
         ensureEditor(session.getSource());
         paused = false;
         document.getElementById("pause").textContent = "Pause";

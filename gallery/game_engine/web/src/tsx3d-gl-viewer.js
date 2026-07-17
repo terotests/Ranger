@@ -47,11 +47,17 @@
     constructor(config) {
       this.canvas = config.canvas;
       this.host = config.host; // engine WebTsx3dGlHost instance
+      this.engine = config.engine; // for reload (fresh host from the same bundle)
+      // VFS path (standalone page): read façade + script from the mounted zip.
       this.dir = config.dir;
       this.facade = config.facade;
       this.script = config.script;
+      // Source path (live editor): façade + script handed in as text.
+      this.facadeSrc = config.facadeSrc || null;
+      this.cubeSrc = config.cubeSrc || null;
       this.texturePath = config.texturePath || null;
       this.textureUrl = config.textureUrl || null;
+      this._textureRGBA = null; // cached decoded texture (re-applied on reload)
       // The Ranger GL layer finds the drawing surface via
       // document.getElementById(canvasId), so the canvas needs a stable id.
       if (!this.canvas.id) this.canvas.id = "rtsx3d-canvas-" + _idSeq++;
@@ -74,31 +80,86 @@
       this._h = h;
     }
 
+    // Initial load, or resume after stop() (the editor's Pause/Resume). The
+    // first call acquires the GL context, loads + inits the scene and decodes
+    // the texture; later calls just restart the frame loop.
     async start() {
-      // Acquire the GL context on this canvas and load + init the scene.
+      if (this._loaded) {
+        this._resume();
+        return this;
+      }
       if (!this.host.setupGL(this.canvas.id)) {
         throw new Error("WebGL context could not be created on #" + this.canvas.id);
       }
-      const r = this.host.loadFromVfs(this.dir, this.facade, this.script, this._w, this._h, this.dpr);
-      if (r !== "ok") throw new Error("tsx3d load failed: " + r);
-      // Hand real texture pixels to the bridge BEFORE the first frame builds the
-      // mesh (else it falls back to a generated checker for that path).
-      if (this.texturePath && this.textureUrl) {
-        try {
-          const buf = await (await fetch(this.textureUrl)).arrayBuffer();
-          const { w, h, rgba } = parsePPM(buf);
-          this.host.setTexture(this.texturePath, rgba, w, h);
-        } catch (e) {
-          console.warn("tsx3d: texture load failed, using checker fallback:", e.message);
-        }
-      }
-      if (!this._raf) this._raf = requestAnimationFrame(this._tick);
+      this._loadInto(this.host);
+      await this._applyTexture(this.host);
+      this._loaded = true;
+      this._resume();
       return this;
     }
+
+    // Load the scene into a host — from source strings (editor) or the VFS.
+    _loadInto(host) {
+      let r;
+      if (this.cubeSrc) {
+        r = host.load(this.facadeSrc, this.cubeSrc, this._w, this._h, this.dpr);
+      } else {
+        r = host.loadFromVfs(this.dir, this.facade, this.script, this._w, this._h, this.dpr);
+      }
+      if (r !== "ok") throw new Error("tsx3d load failed: " + r);
+    }
+
+    // Hand real texture pixels to the bridge BEFORE the first frame builds the
+    // mesh (else it falls back to a generated checker for that path).
+    async _applyTexture(host) {
+      if (!this.texturePath) return;
+      if (!this._textureRGBA && this.textureUrl) {
+        try {
+          const buf = await (await fetch(this.textureUrl)).arrayBuffer();
+          this._textureRGBA = parsePPM(buf);
+        } catch (e) {
+          console.warn("tsx3d: texture load failed, using checker fallback:", e.message);
+          return;
+        }
+      }
+      if (this._textureRGBA) {
+        const { w, h, rgba } = this._textureRGBA;
+        host.setTexture(this.texturePath, rgba, w, h);
+      }
+    }
+
+    // --- session API the live editor drives -------------------------------
+    getSource() {
+      return this.cubeSrc || "";
+    }
+
+    // Re-run with edited script text. A fresh host gives a clean scene (the GL
+    // context on the canvas is reused). Returns true (scene rebuilt).
+    reload(src) {
+      this.cubeSrc = src;
+      if (this.engine) {
+        this.stop();
+        this.host = new this.engine.WebTsx3dGlHost();
+        this.host.setupGL(this.canvas.id);
+        this._loadInto(this.host);
+        // texture already decoded — re-apply synchronously
+        if (this.texturePath && this._textureRGBA) {
+          const { w, h, rgba } = this._textureRGBA;
+          this.host.setTexture(this.texturePath, rgba, w, h);
+        }
+        this._resume();
+      }
+      return true;
+    }
+
+    setMuted() {} // no audio in the 3D demo
 
     stop() {
       if (this._raf) cancelAnimationFrame(this._raf);
       this._raf = 0;
+    }
+    _resume() {
+      if (!this._raf) this._raf = requestAnimationFrame(this._tick);
     }
 
     _tick() {
@@ -117,9 +178,12 @@
     const session = new Tsx3dSession({
       canvas: config.canvas,
       host,
+      engine,
       dir: config.dir,
       facade: config.facade,
       script: config.script,
+      facadeSrc: config.facadeSrc,
+      cubeSrc: config.cubeSrc,
       texturePath: config.texturePath,
       textureUrl: config.textureUrl,
     });
