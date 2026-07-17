@@ -1,0 +1,112 @@
+; ==============================================================================
+; three_light_probe_grid_test — SphericalHarmonics3 + LightProbeGrid (slice 7).
+; ==============================================================================
+; Compile to ES6 and run under Node; prints per-check PASS/FAIL and "ALL PASS".
+; ==============================================================================
+
+Import "three_spherical_harmonics3.rgr"
+Import "three_light_probe_grid.rgr"
+
+class ThreeCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    fn near:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        if (d < 0.0005) {
+            passed = (passed + 1)
+            print ("  PASS " + name + " (" + (to_string got) + ")")
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name + " got=" + (to_string got) + " want=" + (to_string want))
+        }
+    }
+}
+
+class ThreeLightProbeGridTest {
+    sfn m@(main):void () {
+        def ck:ThreeCheck (new ThreeCheck)
+        print "== ThreeSphericalHarmonics3 =="
+
+        ; basis at +Z: DC = 0.282095, band-1 z term = 0.488603, x/y terms 0
+        def bs:[double] (ThreeSphericalHarmonics3.basis(0.0 0.0 1.0))
+        ck.near("basis DC" (itemAt bs 0) 0.282095)
+        ck.near("basis z" (itemAt bs 2) 0.488603)
+        ck.near("basis x = 0" (itemAt bs 3) 0.0)
+
+        ; addAmbient -> getIrradianceAt returns the ambient colour for any normal
+        def sh:ThreeSphericalHarmonics3 (ThreeSphericalHarmonics3.create())
+        sh.addAmbient(0.2 0.4 0.6)
+        def out:ThreeVector3 (new ThreeVector3)
+        sh.getIrradianceAt(0.0 1.0 0.0 out)
+        ck.near("ambient irradiance r (+Y)" out.x 0.2)
+        ck.near("ambient irradiance g (+Y)" out.y 0.4)
+        ck.near("ambient irradiance b (+Y)" out.z 0.6)
+        sh.getIrradianceAt(0.0 0.0 (0.0 - 1.0) out)
+        ck.near("ambient irradiance r (-Z)" out.x 0.2)
+        ck.near("ambient is directionless" out.z 0.6)
+
+        ; a radiance sample from +Z reconstructs brighter toward +Z than -Z
+        def sh2:ThreeSphericalHarmonics3 (ThreeSphericalHarmonics3.create())
+        sh2.projectRadiance(0.0 0.0 1.0 1.0 1.0 1.0 1.0)
+        def pz:ThreeVector3 (new ThreeVector3)
+        sh2.getRadianceAt(0.0 0.0 1.0 pz)
+        def nz:ThreeVector3 (new ThreeVector3)
+        sh2.getRadianceAt(0.0 0.0 (0.0 - 1.0) nz)
+        ck.ok("radiance brighter toward source" (pz.x > nz.x))
+
+        ; scale halves the coefficients (and thus the reconstruction)
+        def shalf:ThreeSphericalHarmonics3 (ThreeSphericalHarmonics3.create())
+        shalf.addAmbient(0.8 0.8 0.8)
+        shalf.scale(0.5)
+        def h:ThreeVector3 (new ThreeVector3)
+        shalf.getIrradianceAt(1.0 0.0 0.0 h)
+        ck.near("scale halves irradiance" h.x 0.4)
+
+        print "== ThreeLightProbeGrid =="
+        def grid:ThreeLightProbeGrid (ThreeLightProbeGrid.create(4.0 4.0 4.0 3 3 3))
+        ck.near("probe count 3x3x3" (to_double (grid.probeCount())) 27.0)
+        ck.near("probeIndex(0,0,0)" (to_double (grid.probeIndex(0 0 0))) 0.0)
+        ck.near("probeIndex(2,2,2)" (to_double (grid.probeIndex(2 2 2))) 26.0)
+
+        ; cell positions span [-2, +2] on each axis for size 4
+        ck.near("cell 0 local x = -2" (grid.cellLocalX(0)) (0.0 - 2.0))
+        ck.near("cell 2 local x = +2" (grid.cellLocalX(2)) 2.0)
+        ck.near("cell 1 local x = 0" (grid.cellLocalX(1)) 0.0)
+
+        ; uniform ambient bake -> sampled irradiance equals the ambient everywhere
+        grid.bakeAmbient(0.3 0.5 0.7)
+        def s:ThreeVector3 (new ThreeVector3)
+        grid.sampleIrradiance(0.0 0.0 0.0 0.0 1.0 0.0 s)
+        ck.near("centre sample r" s.x 0.3)
+        ck.near("centre sample g" s.y 0.5)
+        ck.near("centre sample b" s.z 0.7)
+        ; sample between cells (trilinear) still returns the uniform ambient
+        grid.sampleIrradiance(0.7 (0.0 - 1.3) 0.4 0.0 0.0 1.0 s)
+        ck.near("interior sample r" s.x 0.3)
+        ck.near("interior sample b" s.z 0.7)
+        ; sample outside the volume clamps to the edge probes (still ambient)
+        grid.sampleIrradiance(100.0 100.0 100.0 1.0 0.0 0.0 s)
+        ck.near("clamped sample r" s.x 0.3)
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

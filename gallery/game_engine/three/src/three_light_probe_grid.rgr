@@ -1,0 +1,170 @@
+; ==============================================================================
+; three_light_probe_grid — a volume of SH light probes for diffuse GI (Three.js
+; addons lighting/LightProbeGrid). Sponza slice 7.
+; ==============================================================================
+; A regular 3D grid of probes covering a box of size (sizeX,sizeY,sizeZ) with
+; count (cx,cy,cz) probes per axis, each an order-2 SphericalHarmonics3. The real
+; bake renders the scene into each probe as a cubemap and projects the faces into
+; SH (a GPU step, with optional bounce passes); this file is the portable model +
+; the analytic bakes + the trilinear irradiance lookup shading uses, all testable.
+;
+; Extends Object3D so probes.position.set(...) and scene.add(probes) work, matching
+; `new LightProbeGrid(sizeX,sizeY,sizeZ, cx,cy,cz)` in the example.
+; ==============================================================================
+
+Import "three_object3d.rgr"
+Import "three_vector3.rgr"
+Import "three_spherical_harmonics3.rgr"
+
+class ThreeLightProbeGrid extends ThreeObject3D {
+    def isLightProbeGrid:boolean true
+    def sizeX:double 1.0
+    def sizeY:double 1.0
+    def sizeZ:double 1.0
+    def countX:int 2
+    def countY:int 2
+    def countZ:int 2
+    def probes:[ThreeSphericalHarmonics3]
+
+    sfn create:ThreeLightProbeGrid (sizeX:double sizeY:double sizeZ:double cx:int cy:int cz:int) {
+        def g:ThreeLightProbeGrid (new ThreeLightProbeGrid)
+        g.sizeX = sizeX
+        g.sizeY = sizeY
+        g.sizeZ = sizeZ
+        g.countX = cx
+        g.countY = cy
+        g.countZ = cz
+        def n:int ((cx * cy) * cz)
+        def i:int 0
+        while (i < n) {
+            push g.probes (ThreeSphericalHarmonics3.create())
+            i = (i + 1)
+        }
+        return g
+    }
+
+    fn probeCount:int () {
+        return (array_length this.probes)
+    }
+    ; flat index of the probe at grid cell (ix,iy,iz).
+    fn probeIndex:int (ix:int iy:int iz:int) {
+        return (((iz * this.countY) * this.countX) + ((iy * this.countX) + ix))
+    }
+    fn getProbe:ThreeSphericalHarmonics3 (ix:int iy:int iz:int) {
+        return (itemAt this.probes (this.probeIndex(ix iy iz)))
+    }
+
+    ; analytic bake: every probe receives a uniform ambient radiance (the trivial
+    ; case a uniform sky produces). The GPU bake replaces this with per-probe
+    ; cubemap capture + SH projection.
+    fn bakeAmbient:ThreeLightProbeGrid (r:double g:double b:double) {
+        def n:int (array_length this.probes)
+        def i:int 0
+        while (i < n) {
+            def p:ThreeSphericalHarmonics3 (itemAt this.probes i)
+            p.zero()
+            p.addAmbient(r g b)
+            i = (i + 1)
+        }
+        return this
+    }
+
+    ; local position (relative to this.position) of grid cell (ix,iy,iz): probes
+    ; span [-size/2, +size/2] on each axis, evenly spaced.
+    fn cellLocalX:double (ix:int) {
+        if (this.countX < 2) {
+            return 0.0
+        }
+        def t:double ((to_double ix) / (to_double (this.countX - 1)))
+        return (((0.0 - 0.5) * this.sizeX) + (t * this.sizeX))
+    }
+    fn cellLocalY:double (iy:int) {
+        if (this.countY < 2) {
+            return 0.0
+        }
+        def t:double ((to_double iy) / (to_double (this.countY - 1)))
+        return (((0.0 - 0.5) * this.sizeY) + (t * this.sizeY))
+    }
+    fn cellLocalZ:double (iz:int) {
+        if (this.countZ < 2) {
+            return 0.0
+        }
+        def t:double ((to_double iz) / (to_double (this.countZ - 1)))
+        return (((0.0 - 0.5) * this.sizeZ) + (t * this.sizeZ))
+    }
+
+    ; continuous grid coordinate (0..count-1) of a world position on one axis.
+    sfn axisCoord:double (world:double origin:double size:double count:int) {
+        if (count < 2) {
+            return 0.0
+        }
+        def half:double (0.5 * size)
+        def lo:double (origin - half)
+        def t:double ((world - lo) / size)
+        if (t < 0.0) {
+            t = 0.0
+        }
+        if (t > 1.0) {
+            t = 1.0
+        }
+        return (t * (to_double (count - 1)))
+    }
+
+    ; trilinearly-blended diffuse irradiance at a world point for a surface normal.
+    ; Uniform-ambient bakes return the ambient colour everywhere; the shader does
+    ; the same lookup per fragment for GI.
+    fn sampleIrradiance:ThreeVector3 (wx:double wy:double wz:double nx:double ny:double nz:double target:ThreeVector3) {
+        def fx:double (ThreeLightProbeGrid.axisCoord(wx this.position.x this.sizeX this.countX))
+        def fy:double (ThreeLightProbeGrid.axisCoord(wy this.position.y this.sizeY this.countY))
+        def fz:double (ThreeLightProbeGrid.axisCoord(wz this.position.z this.sizeZ this.countZ))
+        def ix0:int (to_int fx)
+        def iy0:int (to_int fy)
+        def iz0:int (to_int fz)
+        def ix1:int ix0
+        if (ix1 < (this.countX - 1)) { ix1 = (ix0 + 1) }
+        def iy1:int iy0
+        if (iy1 < (this.countY - 1)) { iy1 = (iy0 + 1) }
+        def iz1:int iz0
+        if (iz1 < (this.countZ - 1)) { iz1 = (iz0 + 1) }
+        def tx:double (fx - (to_double ix0))
+        def ty:double (fy - (to_double iy0))
+        def tz:double (fz - (to_double iz0))
+
+        def rr:double 0.0
+        def gg:double 0.0
+        def bb:double 0.0
+        def tmp:ThreeVector3 (new ThreeVector3)
+        ; 8 corners of the cell, trilinear weights.
+        def dz:int 0
+        while (dz < 2) {
+            def iz:int iz0
+            def wz2:double (1.0 - tz)
+            if (dz == 1) { iz = iz1
+                wz2 = tz }
+            def dy:int 0
+            while (dy < 2) {
+                def iy:int iy0
+                def wy2:double (1.0 - ty)
+                if (dy == 1) { iy = iy1
+                    wy2 = ty }
+                def dx:int 0
+                while (dx < 2) {
+                    def ix:int ix0
+                    def wx2:double (1.0 - tx)
+                    if (dx == 1) { ix = ix1
+                        wx2 = tx }
+                    def wgt:double ((wx2 * wy2) * wz2)
+                    def p:ThreeSphericalHarmonics3 (this.getProbe(ix iy iz))
+                    p.getIrradianceAt(nx ny nz tmp)
+                    rr = (rr + (tmp.x * wgt))
+                    gg = (gg + (tmp.y * wgt))
+                    bb = (bb + (tmp.z * wgt))
+                    dx = (dx + 1)
+                }
+                dy = (dy + 1)
+            }
+            dz = (dz + 1)
+        }
+        return (target.set(rr gg bb))
+    }
+}
