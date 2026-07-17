@@ -19,12 +19,12 @@
   Kaikki mikä tekee Cannonista _yleisen 3D-moottorin_ puuttuu: **oikea
   constraint-solver, nivelet (hinge/point-to-point/distance/spring), laatikko- ja
   konveksitörmäys, raycast, ajoneuvomalli, kitka, uni/islands, useammat muodot.**
-- **Ranger-filosofia rajaa vaihtoehdot rajusti.** Moottori _portataan lähdekoodina_
-  `.rgr`:ksi (kääntyy C++/WASM/ES6/natiivi Pi). Siksi **Rust- ja C++-moottorit
-  (Rapier, Jolt, Ammo, Box2D-C) eivät kelpaa porttauskohteeksi** — niitä voi käyttää
-  vain läpinäkymättöminä host-natiivi-backendeinä, mikä rikkoo "write once → aja
-  Pi:llä" -lupauksen. Vain **luettava, modulaarinen, hyvin testattu JS/TS-moottori**
-  kelpaa portattavaksi.
+- **Kieli ei ole rajaava tekijä — Ranger _emittoi_ C++:aa ja Rustia**, joten myös
+  C++- ja Rust-moottorin lähdekoodin voi kääntää käsin `.rgr`:ksi ja se kääntyy takaisin
+  C++/WASM/natiivi Pi:hin kuten muukin. **Jolt (MIT, C++) on siis pätevä
+  porttauskohde**, ei pelkkä backend, ja Apache-2.0 (Rapier) on riittävän salliva
+  porttaukseen. Oikea rajaava akseli on **porttauksen kustannus ja tarkkuus**, ei
+  lisenssi tai kieli (ks. §3).
 - **Suositus (kaksitasoinen):**
   1. **Porttauskohde nyt:** päivitä nykyinen portti **cannon-es**iin (MIT, TypeScript,
      ylläpidetty Cannon-forkki, **sama per-luokka-testisetti** jota portti jo peilaa).
@@ -32,10 +32,14 @@
      palalta ne moduulit jotka nykyportti jätti pois (solver → nivelet → laatikko/
      konveksi → raycast → ajoneuvo → muodot). Jokainen tulee `cannon_*.rgr` +
      `cannon_*_test.rgr` -parina, kuten tähänkin asti.
-  2. **Valinnainen tulevaisuuden pako-luukku:** salli **Jolt** (MIT) tai **Rapier**
-     host-natiivina backendinä **`PhysicsWorld`-rajapinnan takana** (IDEAL §2.5)
-     raskaaseen desktop-3D:hen — _ei_ portattuna vaan sidottuna. Pi/natiivi-buildit
-     putoavat takaisin Ranger-cannon-es-ytimeen.
+  2. **Jolt (MIT) on pätevä vaihtoehto — olit oikeassa.** Koska Ranger emittoi C++:aa,
+     Joltin voi portata `.rgr`:ksi. Se on **modernein** ehdokas. Varaus: Joltin ydinarvo
+     (SIMD-matikka + monisäie-job-system) **ei säily** yksisäikeisen skalaari-`.rgr`:n
+     läpi (§3), joten saat Joltin _ominaisuudet_ muttet sen _nopeutta_, ja porttaustyö
+     on ~5× cannon-es. Siksi Jolt sopii **joko** (a) myöhemmäksi täydeksi `.rgr`-portiksi
+     jos halutaan modernein arkkitehtuuri / showcase, **tai** (b) host-natiiviksi
+     backendiksi `PhysicsWorld`-rajapinnan (IDEAL §2.5) taakse desktop-3D:hen — silloin
+     SIMD+säikeet säilyvät, mutta se ei aja Pi-terminaalissa.
 - **"Ei pakko" pitää paikkansa:** jos pelit pysyvät pinball/top-down-tasolla,
   nykyportti riittää. Uudistus kannattaa **heti kun tarvitaan** nivelet (oikeat
   flipperit), raycast (FPS/valinta/näkölinja), ajoneuvot (autopeli 3D), tai staattinen
@@ -80,57 +84,81 @@ josta kasvaa iso Cannon lisäämällä nappuloita — iso osa Cannonista puuttuu
 
 ## 2. Vaihtoehdot painopisteitä vasten
 
-Ratkaiseva suodatin ei ole "paras moottori" vaan **"paras _portattava_ moottori"**:
-lähdekoodi käännetään käsin `.rgr`:ksi, joten sen pitää olla luokkamallinen, riippuvuus-
-kevyt ja per-moduuli-testattu JS/TS. Tämä pudottaa suorituskykykuninkaat (Rust/C++)
-porttauskohteina — ne kelpaavat vain host-natiivi-backendiksi rajapinnan taakse.
+Koska Ranger emittoi C++/Rust/ES6:ta, **mikä tahansa luokkamallinen moottori on
+periaatteessa portattavissa** — kieli ei suodata. Ratkaisevaa on **porttauksen
+kustannus ja tarkkuus**: kuinka moni kielipiirre kääntyy suoraan `.rgr`:ään ja kuinka
+paljon moottorin arvosta säilyy Rangerin läpi (ks. §3 SIMD/säikeet).
 
-| Moottori | Lisenssi | Lähdekieli | Portattava `.rgr`:ksi? | Unit-testit | Ulottuvuus | Huom |
-|----------|----------|-----------|:----------------------:|-------------|-----------|------|
-| **cannon-es** (pmndrs) | **MIT** ✅ | **TypeScript** | ✅ **kyllä** (sama arkkitehtuuri kuin nyt) | ✅ Cannonin per-luokka-setti | 3D | Ylläpito hiipunut, mutta **feature-complete & vakaa** = ihanteellinen _stabiili_ porttauskohde |
-| **OimoPhysics** (saharan) | MIT | Haxe → JS/TS | ⚠️ osin (Haxe-lähde / generoitu JS kömpelömpi kääntää) | ⚠️ ohuet | 3D | Modernimpi solver + 6-DoF-nivelet; heikompi testikattavuus, Haxe-sukujuuri |
-| **Planck.js** (piqnt) | MIT | TypeScript | ✅ kyllä | ✅ hyvät (Box2D-perua) | **2D** | Box2D-portti: erinomainen sequential-impulse-solver + nivelet; **luopuisi 3D-Cannon-investoinnista** |
-| **p2.js** (Cannonin tekijä) | MIT | JavaScript | ✅ kyllä | ✅ on | **2D** | Sama tekijä kuin Cannon; 2D, ylläpito hiipunut |
-| **Box2D v3** (Erin Catto) | MIT | **C** | ⚠️ ei luokkamalli; C lähellä C++-targettia mutta ei JS-testisynergiaa | ✅ | 2D | Referenssilaatu, mutta ei sovi luokkapohjaiseen porttiin |
-| **Rapier** (dimforge) | **Apache-2.0** ❌ | **Rust → WASM** | ❌ **ei** | ✅ (Rust) | 2D/3D | Moderni, deterministinen, CCD — mutta **ei MIT** ja **ei portattava**; vain backend |
-| **Jolt** (jrouwe) | **MIT** ✅ | **C++ → WASM** | ❌ **ei** | ✅ (C++) | 3D | Huippunopea (Horizon/Death Stranding), MIT — mutta **vain host-natiivi-backend**, ei portattava |
-| **Ammo.js** (Bullet) | zlib | C++ (emscripten) | ❌ ei | — | 3D | Ylläpitämätön, läpinäkymätön WASM |
+| Moottori | Lisenssi | Lähdekieli | Portattavuus `.rgr`:ksi | Unit-testit | Ulottuvuus | Huom |
+|----------|----------|-----------|:-----------------------:|-------------|-----------|------|
+| **cannon-es** (pmndrs) | **MIT** ✅ | **TypeScript** | ✅ **helppo** — sama arkkitehtuuri kuin nyt, ~20 moduulia jo portattu | ✅ Cannonin per-luokka-setti | 3D | Ylläpito hiipunut, mutta **feature-complete & vakaa** = ihanteellinen _stabiili_ porttauskohde |
+| **Jolt** (jrouwe) | **MIT** ✅ | C++ | ⚠️ **työläs** — templatet/SIMD/job-system eivät mäppäydy (§3) | ✅ (C++, oma framework) | 3D | **Modernein & rikkain** (character controller, ajoneuvot, CCD, kaikki nivelet). Portattava, mutta ~5× koodi ja perf-etu katoaa skalaariksi |
+| **Rapier** (dimforge) | Apache-2.0 (OK porttiin) | Rust | ⚠️ työläs — nalgebra-generics/SIMD/ownership | ✅ (Rust) | 2D/3D | Moderni, deterministinen, CCD; sama SIMD/perf-tappio kuin Jolt portattuna |
+| **OimoPhysics** (saharan) | MIT | Haxe → JS/TS | ⚠️ osin (Haxe/generoitu JS) | ⚠️ ohuet | 3D | Modernimpi solver + 6-DoF-nivelet; heikompi testikattavuus |
+| **Planck.js** (piqnt) | MIT | TypeScript | ✅ helppo | ✅ hyvät (Box2D-perua) | **2D** | Box2D-portti: erinomainen solver + nivelet; **luopuisi 3D-Cannon-investoinnista** |
+| **p2.js** (Cannonin tekijä) | MIT | JavaScript | ✅ helppo | ✅ on | **2D** | Sama tekijä kuin Cannon; 2D, ylläpito hiipunut |
+| **Box2D v3** (Erin Catto) | MIT | C | ⚠️ ei luokkamalli | ✅ | 2D | Referenssilaatu, mutta ei sovi luokkapohjaiseen porttiin |
+| **Ammo.js** (Bullet) | zlib | C++ (emscripten) | ❌ generoitu emscripten-JS | — | 3D | Ylläpitämätön, läpinäkymätön |
 | Oimo.js (lo-th) | MIT | JS | ✅ | ⚠️ | 3D | Ei aktiivista kehitystä ~2016 jälkeen |
 
-**Suodatuksen tulos:**
-- **Priori­teetti #1 (MIT):** pudottaa Rapierin (Apache-2.0).
-- **Priori­teetti #4 (hyvät unit-testit portin tueksi) + porttausvaatimus:** nostaa
-  **cannon-es**in kärkeen — sillä on juuri se per-luokka-QUnit-rakenne (`test/Vec3.js`,
-  `test/Quaternion.js`, `test/Body.js`, `test/RaycastVehicle.js` …) jota portti jo
-  peilaa. Testit portataan kuten lähde: `cannon_*_test.rgr`.
-- **Jolt** on ainoa "moderni + MIT" joka jää eloon — mutta C++, joten se on **backend-
-  vaihtoehto**, ei porttauskohde.
+**Suodatuksen tulos:** lisenssi ei enää pudota ketään (MIT: cannon-es/Jolt/Oimo/Planck/p2;
+Apache-2.0 Rapier riittää porttiin). Kaksi todellista kärkiehdokasta jäävät jäljelle,
+ja ne edustavat **eri strategiaa**:
+- **cannon-es** — *halpa, tarkka, nopea voitto*: sama arkkitehtuuri, ~20 moduulia jo
+  portattu, per-luokka-testit (`test/Vec3.js`, `test/Body.js`, `test/RaycastVehicle.js` …)
+  mäppäytyvät suoraan olemassa olevaan [`cannon_test_harness.rgr`](./physics/src/cannon_test_harness.rgr):iin.
+- **Jolt** — *modernein moottori, iso investointi*: MIT ja portattava (olit oikeassa),
+  mutta ~5× koodi ja sen ydinarvo (SIMD-matikka + monisäie-job-system) ei säily Rangerin
+  läpi (§3). Saat Joltin _ominaisuudet_ muttet Joltin _nopeutta_.
 
 ---
 
-## 3. Miksi cannon-es eikä "jotain uudempaa"
+## 3. Kustannus & tarkkuus: Jolt vs. cannon-es porttauskohteena
 
-Houkutus on ottaa Rapier/Jolt, koska ne ovat suorituskyvyltään ja determinismiltään
-edellä. Mutta se olisi **eri asia kuin mitä tehtävä pyytää**:
+Korjaus edelliseen: **Jolt _ei_ ole diskattu.** C++ kääntyy `.rgr`:stä, joten Joltin
+lähteen voi portata ja se palaa C++:ksi/WASM:ksi/Pi:ksi. Kysymys ei ole *voiko*, vaan
+*kannattaako* — ja vastaus riippuu siitä, kuinka paljon moottorin arvosta säilyy portin
+läpi.
 
-1. **Porttausfilosofia.** Ranger-lupaus on _lähdekoodin_ siirrettävyys (yksi
-   `.rgr` → C++/WASM/ES6/natiivi Pi). Rust/C++-moottori voi elää vain esikäännettynä
-   WASM/natiivi-binäärinä → Pi-terminaalibuild ja "write once" hajoaa. cannon-es
-   kääntyy Rangerin läpi samoihin targetteihin kuin muu peli.
-2. **Testit porttausapuna (#4).** cannon-es tuo Cannonin testisetin mukanaan.
-   Jokainen portattu moduuli saa heti oraakkelin: aja sama testi `.rgr`:nä, vertaa
-   lukuja. Rust/C++-testejä ei voi peilata `.rgr`-harnessiin ([`cannon_test_harness.rgr`](./physics/src/cannon_test_harness.rgr)).
-3. **Nolla-hukkainvestoiniti.** Nykyiset `Vec3/Quaternion/Mat3/AABB/Body/World`-portit
-   **kelpaavat sellaisenaan** — cannon-es on saman koodin TypeScript-siisti, bugikorjattu
-   versio. Migraatio on _lisäystä_, ei purkua. Rapier/Jolt heittäisi kaiken pois.
-4. **IDEAL on jo suunniteltu tähän.** [`IDEAL.md` §2.5](./IDEAL.md) haluaa
-   `PhysicsWorld`-rajapinnan (`addBody`/`setBounds`/`step`/`contacts`), jonka takana on
-   *"arcade-ydin **tai** cannon-portti **tai** host-natiivi-moottori"*. Suositus toteuttaa
-   juuri tämän: cannon-es on portattava ydin, Jolt/Rapier valinnainen natiivi-backend.
+**Mikä Joltista säilyy Rangerin läpi ja mikä ei.** Joltin ydinarvo on kaksi asiaa,
+jotka `.rgr` **ei** ilmaise:
 
-**Milloin Jolt/Rapier -backend kannattaa:** vasta kun desktop-3D-peli tarvitsee satoja
-törmääviä kappaleita, CCD:tä tai deterministista verkkopeliä — ja hyväksytään ettei se
-peli aja Pi-terminaalissa. Se on _lisäys rajapinnan taakse_, ei ytimen korvaus.
+| Joltin nopeuden lähde | Säilyykö `.rgr`-portissa? | Miksi |
+|-----------------------|:-------------------------:|-------|
+| **SIMD-matikka** (`Vec4`/`Mat44` SSE/NEON-intrinsiceillä) | ❌ | `.rgr`:ssä ei ole SIMD-primitiivejä; matikka kääntyy skalaariksi |
+| **Monisäie-job-system** (broadphase, solver rinnakkain) | ❌ | Rangerin runtime/WASM-malli on **yksisäikeinen**, RC-pohjainen |
+| **Templatet** (geneerinen muoto-dispatch käännösaikana) | ⚠️ | `.rgr`:ssä ei generic-templateja → dispatch käsin, koodi paisuu |
+| Custom-allokaattorit / temp-arenat | ⚠️ | `.rgr` käyttää RC-kekoa; arenat kirjoitetaan uusiksi |
+| **Algoritmit** (solver, quadtree-broadphase, CCD, character controller) | ✅ | Nämä kääntyvät — tämä on se osa jonka portista saa |
+
+Eli **`.rgr`-Jolt = Joltin ominaisuudet skalaarinopeudella.** Saat modernin featuresetin
+(character controller, ajoneuvot, CCD, kaikki nivelet, quadtree-broadphase), muttet sitä
+"2× Rapier" -nopeutta joka on koko Joltin maine — se nopeus tulee juuri SIMD:stä ja
+monisäikeisyydestä, jotka jäävät oven ulkopuolelle.
+
+**Kolme argumenttia miksi cannon-es on silti parempi _ensimmäinen_ kohde:**
+
+1. **Kohdealusta on Raspberry Pi -yksisäie.** Ranger-lupaus on ajaa Pi-terminaalissa.
+   Jolt on suunniteltu monisäie-desktop/konsoli-raudalle; skalaari-yksisäie-portti
+   kadottaa sen suunnitteluoletukset. cannon-es:n **kevyt skalaari-arkkitehtuuri sopii
+   Rangerin ajoympäristöön luontaisesti** — se on halvin siellä missä koodi oikeasti ajaa.
+2. **Nolla-hukkainvestointi + testit.** `Vec3/Quaternion/Mat3/AABB/Body/World` (~20
+   moduulia) **kelpaavat sellaisinaan** — cannon-es on saman koodin TS-siisti, bugikorjattu
+   versio. Migraatio on _lisäystä_. Ja Cannonin per-luokka-testit mäppäytyvät suoraan
+   [`cannon_test_harness.rgr`](./physics/src/cannon_test_harness.rgr):iin (painopiste #4).
+   Jolt aloittaisi ~nollasta eri matikkakonventioilla ja C++-testiframeworkilla.
+3. **IDEAL on jo suunniteltu monimoottoriseksi.** [`IDEAL.md` §2.5](./IDEAL.md) haluaa
+   `PhysicsWorld`-rajapinnan, jonka takana on *"arcade-ydin **tai** cannon-portti **tai**
+   host-natiivi-moottori"*. **Tämä ei ole joko–tai:** cannon-es voi olla portattava,
+   Pi-yhteensopiva oletusydin, ja Jolt voi tulla myöhemmin **joko** (a) omana `.rgr`-
+   porttina jos halutaan modernein arkkitehtuuri **tai** (b) host-natiivina backendinä
+   desktopille (silloin SIMD+säikeet säilyvät, mutta ei aja Pi:llä).
+
+**Missä Jolt voittaisi:** jos tavoite on nimenomaan **modernein moottori showcase-
+mielessä** (Ranger on osin kielilaboratorio — "Ranger porttasi Joltin" on itsessään
+näyttävä demonstraatio C++-porttauskyvystä), tai jos tarvitaan Joltin ainutlaatuisia
+kykyjä (character controller, edistyneet nivelet, soft bodies) joita cannon-es:ssä ei
+ole. Silloin Jolt on perusteltu — kunhan hyväksytään ~5× porttaustyö ja skalaarinopeus.
 
 ---
 
@@ -199,10 +227,15 @@ jättää edellisen vaiheen tuotantoon.
 
 ## 6. Päätöspisteet (tarvitsen sinulta suunnan)
 
-1. **Aikataulu:** aloitetaanko heti Vaihe 1 (solver), vai jätetäänkö tämä suunnitelma
-   pöytäkirjaan kunnes joku peli oikeasti tarvitsee niveliä/raycastia/ajoneuvoja?
-2. **Laajuus:** riittääkö "täydennä cannon-es -portti" (suositus), vai haluatko myös
-   Vaihe 7:n Jolt-backendin desktop-3D:tä varten heti?
+1. **Moottorivalinta — pääkysymys:**
+   - **A) cannon-es (suositus):** halpa, tarkka, Pi-yhteensopiva, reuse ~20 moduulia,
+     testit mäppäytyvät. Nopein tie ominaisuuksiin.
+   - **B) Jolt täytenä `.rgr`-porttina:** modernein arkkitehtuuri + showcase Rangerin
+     C++-porttauskyvystä; hyväksytään ~5× työ ja skalaarinopeus (ei SIMD/säikeitä).
+   - **C) Molemmat:** cannon-es portattava Pi-ydin **ja** Jolt host-natiivi-backend
+     desktopille `PhysicsWorld`-rajapinnan takana.
+2. **Aikataulu:** aloitetaanko heti valitun moottorin Vaihe 1 (solver), vai jätetäänkö
+   suunnitelma odottamaan kunnes peli oikeasti tarvitsee niveliä/raycastia/ajoneuvoja?
 3. **Pinball-riski:** solverin vaihto voi muuttaa flipperin tuntumaa. OK säilyttää
    vanha arcade-resolveri lipun takana (suositus), vai siirrytäänkö suoraan
    hinge-niveliin?
