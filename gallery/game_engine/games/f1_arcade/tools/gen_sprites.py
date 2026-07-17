@@ -278,11 +278,11 @@ def draw_f1_rear(
     return pix, w, h
 
 
-def draw_f1(body=(220, 50, 40, 255), accent=(40, 120, 220, 255), w=56, h=42):
+def draw_f1(body=(220, 50, 40, 255), accent=(40, 120, 220, 255), w=56, h=36):
     return draw_f1_rear(body, accent, w, h, lean=0)
 
 
-def draw_player_sheet(body=(230, 55, 40, 255), accent=(40, 140, 230, 255), w=56, h=42):
+def draw_player_sheet(body=(230, 55, 40, 255), accent=(40, 140, 230, 255), w=56, h=36):
     """3-frame sheet: lean left | center | lean right."""
     frames = [
         draw_f1_rear(body, accent, w, h, lean=-1)[0],
