@@ -59,8 +59,9 @@ providers│  mountZip(storedZip)   mountManifest(json)   (later: IndexedDB)│
 - **`src/editor.entry.mjs`** — the Monaco editor, bundled by esbuild into
   `editor.bundle.js` (+ `.css` + `editor.worker.js` / `ts.worker.js`). Self-hosted,
   so the Pages site needs no CDN.
-- **`index.html`** — the two-pane shell: Monaco editor + canvas, a game dropdown,
-  auto-reload toggle, restart/pause.
+- **`index.html`** — the two-pane shell: Monaco editor + canvas with a draggable
+  split handle between them, a game dropdown, auto-reload toggle, restart/pause.
+  Split ratio is remembered in `localStorage`.
 
 The `GameRunner` here is the *same* one the native/SDL host and the Node smoke
 test use — no engine fork.
