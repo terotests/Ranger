@@ -1,0 +1,204 @@
+; ==============================================================================
+; three_gltf_file — parse a binary glTF (.glb) into a ThreeObject3D (native host).
+; ==============================================================================
+; The host-side loader that turns the bytes http_get_bytes fetched into a model:
+; split the .glb into its JSON + BIN chunks, parse the JSON with three_json, decode
+; each primitive's accessors into a ThreeBufferGeometry via three_gltf_loader, and
+; build the node tree (scenes[scene].nodes) into a ThreeObject3D with per-node
+; transforms. Pure Ranger, so it compiles to C++ for the SDL host.
+;
+; .glb layout: 12-byte header (magic 'glTF', version, length) then chunks, each
+; [uint32 length][uint32 type][data] — chunk 0 is JSON, chunk 1 is BIN. All
+; bufferViews index into the BIN chunk (the single glb buffer).
+;
+; Scope: TRS node transforms (translation/rotation/scale); a `matrix` node uses its
+; translation only (full decompose is a follow-up). POSITION + optional NORMAL /
+; TEXCOORD_0 / indices per primitive; the default material (bounds + basic render).
+; ==============================================================================
+
+Import "three_json.rgr"
+Import "three_gltf_loader.rgr"
+Import "three_object3d.rgr"
+Import "three_mesh.rgr"
+Import "three_buffer_geometry.rgr"
+Import "three_vector3.rgr"
+
+class ThreeGLTFFile {
+    def bin:buffer (buffer_alloc 0)
+    def accessorsJson:JsonValue (new JsonValue)
+    def bufferViewsJson:JsonValue (new JsonValue)
+    def meshesJson:JsonValue (new JsonValue)
+    def nodesJson:JsonValue (new JsonValue)
+
+    sfn subBuffer:buffer (src:buffer off:int len:int) {
+        def dst:buffer (buffer_alloc len)
+        buffer_copy dst 0 src off len
+        return dst
+    }
+    sfn typeComponents:int (t:string) {
+        if (t == "SCALAR") { return 1 }
+        if (t == "VEC2") { return 2 }
+        if (t == "VEC3") { return 3 }
+        if (t == "VEC4") { return 4 }
+        if (t == "MAT4") { return 16 }
+        return 1
+    }
+
+    ; a ThreeGLTFAccessor with an absolute BIN offset for accessor index ai.
+    fn accessorFor:ThreeGLTFAccessor (ai:int) {
+        def acc:JsonValue (this.accessorsJson.at(ai))
+        def bvIndex:int (acc.intOr("bufferView" 0))
+        def bv:JsonValue (this.bufferViewsJson.at(bvIndex))
+        def bvOffset:int (bv.intOr("byteOffset" 0))
+        def accOffset:int (acc.intOr("byteOffset" 0))
+        def stride:int (bv.intOr("byteStride" 0))
+        def ct:int (acc.intOr("componentType" 5126))
+        def typeStr:string (acc.strOr("type" "SCALAR"))
+        def nc:int (ThreeGLTFFile.typeComponents(typeStr))
+        def count:int (acc.intOr("count" 0))
+        def out:ThreeGLTFAccessor (new ThreeGLTFAccessor)
+        out.set(ct nc count (bvOffset + accOffset) stride)
+        return out
+    }
+
+    fn decodeFloatAttr:[double] (attrs:JsonValue name:string) {
+        def out:[double]
+        if (attrs.has(name)) {
+            def ai:int (attrs.intOr(name 0))
+            def acc:ThreeGLTFAccessor (this.accessorFor(ai))
+            out = (ThreeGLTFLoader.decodeFloats(this.bin acc))
+        }
+        return out
+    }
+
+    fn buildPrimitiveGeometry:ThreeBufferGeometry (prim:JsonValue) {
+        def attrs:JsonValue (prim.get("attributes"))
+        def positions:[double] (this.decodeFloatAttr(attrs "POSITION"))
+        def normals:[double] (this.decodeFloatAttr(attrs "NORMAL"))
+        def uvs:[double] (this.decodeFloatAttr(attrs "TEXCOORD_0"))
+        def indices:[int]
+        if (prim.has("indices")) {
+            def idxAi:int (prim.intOr("indices" 0))
+            def idxAcc:ThreeGLTFAccessor (this.accessorFor(idxAi))
+            indices = (ThreeGLTFLoader.decodeIndices(this.bin idxAcc))
+        }
+        return (ThreeGLTFLoader.buildGeometry(positions normals uvs indices))
+    }
+
+    fn applyTransform:void (obj:ThreeObject3D node:JsonValue) {
+        if (node.has("translation")) {
+            def t:JsonValue (node.get("translation"))
+            def t0:JsonValue (t.at(0))
+            def t1:JsonValue (t.at(1))
+            def t2:JsonValue (t.at(2))
+            obj.position.set((t0.asNumber()) (t1.asNumber()) (t2.asNumber()))
+        }
+        if (node.has("rotation")) {
+            def r:JsonValue (node.get("rotation"))
+            def r0:JsonValue (r.at(0))
+            def r1:JsonValue (r.at(1))
+            def r2:JsonValue (r.at(2))
+            def r3:JsonValue (r.at(3))
+            obj.quaternion.set((r0.asNumber()) (r1.asNumber()) (r2.asNumber()) (r3.asNumber()))
+            obj.quatDriven = true
+        }
+        if (node.has("scale")) {
+            def s:JsonValue (node.get("scale"))
+            def s0:JsonValue (s.at(0))
+            def s1:JsonValue (s.at(1))
+            def s2:JsonValue (s.at(2))
+            obj.scale.set((s0.asNumber()) (s1.asNumber()) (s2.asNumber()))
+        }
+        if (node.has("matrix")) {
+            ; TRS not given: use the matrix translation column (elements 12,13,14).
+            def m:JsonValue (node.get("matrix"))
+            def m12:JsonValue (m.at(12))
+            def m13:JsonValue (m.at(13))
+            def m14:JsonValue (m.at(14))
+            obj.position.set((m12.asNumber()) (m13.asNumber()) (m14.asNumber()))
+        }
+    }
+
+    fn buildNode:ThreeObject3D (ni:int) {
+        def node:JsonValue (this.nodesJson.at(ni))
+        def obj:ThreeObject3D (new ThreeObject3D)
+        this.applyTransform(obj node)
+
+        if (node.has("mesh")) {
+            def mi:int (node.intOr("mesh" 0))
+            def mesh:JsonValue (this.meshesJson.at(mi))
+            def prims:JsonValue (mesh.get("primitives"))
+            def np:int (prims.length())
+            def pi:int 0
+            while (pi < np) {
+                def prim:JsonValue (prims.at(pi))
+                def geo:ThreeBufferGeometry (this.buildPrimitiveGeometry(prim))
+                def m:ThreeMesh (new ThreeMesh)
+                m.setGeometry(geo)
+                m.castShadow = true
+                m.receiveShadow = true
+                def mo:ThreeObject3D m
+                obj.add(mo)
+                pi = (pi + 1)
+            }
+        }
+
+        if (node.has("children")) {
+            def ch:JsonValue (node.get("children"))
+            def nch:int (ch.length())
+            def ci:int 0
+            while (ci < nch) {
+                def cIdxV:JsonValue (ch.at(ci))
+                def cIdx:int (cIdxV.asInt())
+                def child:ThreeObject3D (this.buildNode(cIdx))
+                obj.add(child)
+                ci = (ci + 1)
+            }
+        }
+        return obj
+    }
+
+    ; parse a .glb byte buffer into a model root Object3D.
+    fn loadGLB:ThreeObject3D (glb:buffer) {
+        def root:ThreeObject3D (new ThreeObject3D)
+        def total:int (buffer_length glb)
+        if (total < 20) {
+            return root
+        }
+        ; JSON chunk: length at 12, data at 20.
+        def jsonLen:int (ThreeGLTFLoader.readU32(glb 12))
+        def jsonStart:int 20
+        def jsonBuf:buffer (ThreeGLTFFile.subBuffer(glb jsonStart jsonLen))
+        def jsonStr:string (buffer_to_string jsonBuf)
+
+        ; BIN chunk: header right after the JSON chunk.
+        def binHeaderPos:int (jsonStart + jsonLen)
+        if ((binHeaderPos + 8) <= total) {
+            def binLen:int (ThreeGLTFLoader.readU32(glb binHeaderPos))
+            def binStart:int (binHeaderPos + 8)
+            this.bin = (ThreeGLTFFile.subBuffer(glb binStart binLen))
+        }
+
+        def parser:JsonParser (new JsonParser)
+        def gltf:JsonValue (parser.parse(jsonStr))
+        this.accessorsJson = (gltf.get("accessors"))
+        this.bufferViewsJson = (gltf.get("bufferViews"))
+        this.meshesJson = (gltf.get("meshes"))
+        this.nodesJson = (gltf.get("nodes"))
+
+        def scenesJson:JsonValue (gltf.get("scenes"))
+        def sceneIdx:int (gltf.intOr("scene" 0))
+        def scene:JsonValue (scenesJson.at(sceneIdx))
+        def sceneNodes:JsonValue (scene.get("nodes"))
+        def nn:int (sceneNodes.length())
+        def i:int 0
+        while (i < nn) {
+            def nIdxV:JsonValue (sceneNodes.at(i))
+            def nIdx:int (nIdxV.asInt())
+            def child:ThreeObject3D (this.buildNode(nIdx))
+            root.add(child)
+            i = (i + 1)
+        }
+        return root
+    }
+}
