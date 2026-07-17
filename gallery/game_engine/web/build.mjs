@@ -138,6 +138,25 @@ const TSX3D_SCENES = [
   },
 ];
 
+// WebGL TSX 3D (kind:"tsx3d-gl"). The canonical Three.js cube runs 1:1,
+// unmodified, in the .tsx interpreter (gallery/game_engine/three) and renders on
+// the GPU via web_tsx3d_gl_host.rgr = ComponentEngine + ThreeTsxBridge +
+// ThreeGLBackend, driven by src/tsx3d-gl-viewer.js. The editable script + façade
+// + texture are staged as plain files the editor fetches.
+const TSX3D_GL_RGR = "gallery/game_engine/web/web_tsx3d_gl_host.rgr";
+const TSX3D_GL_SCENES = [
+  {
+    id: "cube3d",
+    title: "Cube 3D — Three.js on the GPU",
+    scriptDir: "gallery/game_engine/three/tsx",
+    script: "cube.tsx",
+    facade: "gallery/game_engine/three/tsx/three.tsx",
+    texture: "gallery/game_engine/games/cube3d_wasm/assets/crate.ppm",
+    texturePath: "textures/crate.gif",
+    controls: "The canonical Three.js rotating cube, unmodified, on the Ranger Three clone + WebGL. Edit camera.position.z or the rotation speed and reload.",
+  },
+];
+
 // ------------------------------------------------------------------- helpers
 function log(...a) {
   console.log("[web-build]", ...a);
@@ -280,6 +299,24 @@ function compileTsx3dBundle() {
   fs.rmSync(rawDir, { recursive: true, force: true });
 }
 
+// Compile web_tsx3d_gl_host.rgr -> tsx3d-gl.bundle.js (exports WebTsx3dGlHost),
+// the WebGL host for the Three.js-cube scene.
+function compileTsx3dGlBundle() {
+  const rawDir = path.join(OUT, "_rawtsx3dgl");
+  fs.mkdirSync(rawDir, { recursive: true });
+  log("compiling tsx3d WebGL host:", TSX3D_GL_RGR);
+  sh("node", [
+    "bin/output.js", "-es6", TSX3D_GL_RGR,
+    "-d=" + path.relative(ROOT, rawDir), "-o=tsx3dgl.raw.js", "-nodecli",
+  ], { env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" }, stdio: "inherit" });
+  let src = fs.readFileSync(path.join(rawDir, "tsx3dgl.raw.js"), "utf8").replace(/^#![^\n]*\n/, "");
+  src = src.replace(/\n__js_main\(\);\s*$/, "\n").replace(/\n[A-Za-z_$][\w$]*\(\);\s*$/, "\n");
+  src += "\n;return { WebTsx3dGlHost };\n";
+  fs.writeFileSync(path.join(OUT, "tsx3d-gl.bundle.js"), src);
+  log("wrote tsx3d-gl.bundle.js (" + (src.length / 1024).toFixed(0) + " KB)");
+  fs.rmSync(rawDir, { recursive: true, force: true });
+}
+
 // ------------------------------------------------------------------- packages
 function packageGames() {
   const gamesOut = path.join(OUT, "games");
@@ -325,6 +362,28 @@ function packageGames() {
       controls: s.controls || "",
     });
     log("packaged tsx3d", s.id, "(" + (zip.length / 1024).toFixed(1) + " KB, " + entries.length + " files)");
+  }
+  // WebGL TSX 3D (kind:"tsx3d-gl") — stage the editable script + façade + texture
+  // as plain files; index.html runs them through WebTsx3dGlHost (WebGL canvas).
+  for (const s of TSX3D_GL_SCENES) {
+    const dir3 = path.join(gamesOut, s.id);
+    fs.mkdirSync(dir3, { recursive: true });
+    fs.copyFileSync(path.join(ROOT, s.scriptDir, s.script), path.join(dir3, "script.tsx"));
+    fs.copyFileSync(path.join(ROOT, s.facade), path.join(dir3, "facade.tsx"));
+    let textureUrl = "";
+    if (s.texture) {
+      fs.copyFileSync(path.join(ROOT, s.texture), path.join(dir3, "texture.ppm"));
+      textureUrl = "games/" + s.id + "/texture.ppm";
+    }
+    registry.push({
+      id: s.id, title: s.title, kind: "tsx3d-gl", width: s.width || 480, height: s.height || 480,
+      scriptDir: s.scriptDir, script: s.script,
+      scriptUrl: "games/" + s.id + "/script.tsx",
+      facadeUrl: "games/" + s.id + "/facade.tsx",
+      textureUrl, texturePath: s.texturePath || "",
+      controls: s.controls || "",
+    });
+    log("staged tsx3d-gl", s.id, "(script + façade" + (textureUrl ? " + texture" : "") + ")");
   }
   fs.writeFileSync(path.join(OUT, "games.json"), JSON.stringify(registry, null, 2));
 }
@@ -376,7 +435,7 @@ async function buildEditor() {
 
 // ------------------------------------------------------------------- assets
 function copyRuntime() {
-  for (const f of ["vfs.js", "engine-host.js", "runner.js", "tsx3d-viewer.js"]) {
+  for (const f of ["vfs.js", "engine-host.js", "runner.js", "tsx3d-viewer.js", "tsx3d-gl-viewer.js"]) {
     fs.copyFileSync(path.join(SRC, f), path.join(OUT, f));
   }
   fs.copyFileSync(path.join(HERE, "index.html"), path.join(OUT, "index.html"));
@@ -388,8 +447,8 @@ function copyRuntime() {
 // so it only changes when they actually change.
 function cacheBust() {
   const names = [
-    "vfs.js", "engine-host.js", "runner.js", "tsx3d-viewer.js",
-    "engine.bundle.js", "tsx3d.bundle.js", "games.json",
+    "vfs.js", "engine-host.js", "runner.js", "tsx3d-viewer.js", "tsx3d-gl-viewer.js",
+    "engine.bundle.js", "tsx3d.bundle.js", "tsx3d-gl.bundle.js", "games.json",
     "editor.bundle.js", "editor.bundle.css",
   ];
   const h = crypto.createHash("sha1");
@@ -412,6 +471,7 @@ function cacheBust() {
 fs.mkdirSync(OUT, { recursive: true });
 compileEngineBundle();
 compileTsx3dBundle();
+if (TSX3D_GL_SCENES.length) compileTsx3dGlBundle();
 packageGames();
 const editorOk = await buildEditor();
 copyRuntime();

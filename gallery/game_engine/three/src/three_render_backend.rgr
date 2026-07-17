@@ -1,0 +1,39 @@
+; ==============================================================================
+; three_render_backend — the pluggable rendering seam for ThreeWebGLRenderer.
+; ==============================================================================
+;
+; The renderer core (three_webgl_renderer.rgr) walks the scene, computes an MVP
+; per mesh, and hands each mesh to a backend through this interface. It never
+; contains GPU code, so the core stays pure Ranger and compiles to C++ for
+; native/embedded. Backends:
+;   • ThreeSoftwareBackend (this module's sibling) — a pure-Ranger rasteriser,
+;     the default; works everywhere including headless / Raspberry Pi.
+;   • a browser WebGL backend (JS, supplied by the web host) — GPU-accelerated.
+;
+; This base class is a no-op so a renderer with no backend simply draws nothing.
+; ==============================================================================
+
+Import "three_buffer_geometry.rgr"
+Import "three_matrix4.rgr"
+Import "three_texture.rgr"
+
+class ThreeRenderBackend {
+    fn beginFrame:void (w:int h:int r:double g:double b:double) {
+    }
+    ; Draw one mesh: geometry, its full model-view-projection matrix, whether it
+    ; has a texture (+ the texture) and a flat material colour.
+    fn drawMesh:void (geometry:ThreeBufferGeometry mvp:ThreeMatrix4 hasTexture:boolean tex:ThreeTexture colorR:double colorG:double colorB:double) {
+    }
+    fn endFrame:void () {
+    }
+    ; RGB frame (w*h*3); empty on backends that draw straight to a device.
+    fn raw:buffer () {
+        return (buffer_alloc 0)
+    }
+    fn width:int () {
+        return 0
+    }
+    fn height:int () {
+        return 0
+    }
+}

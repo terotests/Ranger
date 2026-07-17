@@ -1223,8 +1223,9 @@ class TSParserSimple {
       return member
     }
     
-    ; Member name
-    def nameTok (this.expect("Identifier"))
+    ; Member name — reserved words are legal here (methods named `set`, `get`,
+    ; `delete`, fields named `default`, etc.), so accept any name token.
+    def nameTok (this.parseMemberName())
     member.name = nameTok.value
     
     ; Apply modifiers
@@ -1846,53 +1847,63 @@ class TSParserSimple {
     node.kind = startTok.value
     
     this.advance() ; consume let/const
-    
-    ; Parse declarator
-    def declarator (new TSNode())
-    declarator.nodeType = "VariableDeclarator"
-    
-    def nextVal (this.peekValue())
-    
-    ; Destructuring object pattern { a, b } = obj
-    if (nextVal == "{") {
-      def pattern (this.parseObjectPattern())
-      declarator.left = pattern
-      declarator.start = pattern.start
-      declarator.line = pattern.line
-      declarator.col = pattern.col
-    } {
-      ; Destructuring array pattern [x, y] = arr
-      if (nextVal == "[") {
-        def pattern (this.parseArrayPattern())
+
+    ; Parse one-or-more comma-separated declarators (e.g. `let a, b, c;`).
+    def moreDecls:boolean true
+    while moreDecls {
+      def declarator (new TSNode())
+      declarator.nodeType = "VariableDeclarator"
+
+      def nextVal (this.peekValue())
+
+      ; Destructuring object pattern { a, b } = obj
+      if (nextVal == "{") {
+        def pattern (this.parseObjectPattern())
         declarator.left = pattern
         declarator.start = pattern.start
         declarator.line = pattern.line
         declarator.col = pattern.col
       } {
-        ; Simple identifier
-        def nameTok (this.expect("Identifier"))
-        declarator.name = nameTok.value
-        declarator.start = nameTok.start
-        declarator.line = nameTok.line
-        declarator.col = nameTok.col
+        ; Destructuring array pattern [x, y] = arr
+        if (nextVal == "[") {
+          def pattern (this.parseArrayPattern())
+          declarator.left = pattern
+          declarator.start = pattern.start
+          declarator.line = pattern.line
+          declarator.col = pattern.col
+        } {
+          ; Simple identifier
+          def nameTok (this.expect("Identifier"))
+          declarator.name = nameTok.value
+          declarator.start = nameTok.start
+          declarator.line = nameTok.line
+          declarator.col = nameTok.col
+        }
+      }
+
+      ; Type annotation
+      if (this.matchValue(":")) {
+        def typeAnnot (this.parseTypeAnnotation())
+        declarator.typeAnnotation = typeAnnot
+      }
+
+      ; Initializer
+      if (this.matchValue("=")) {
+        this.advance()
+        def initExpr (this.parseExpr())
+        declarator.init = initExpr
+      }
+
+      push node.children declarator
+
+      ; another declarator follows only after a comma
+      if (this.matchValue(",")) {
+        this.advance()
+      } {
+        moreDecls = false
       }
     }
-    
-    ; Type annotation
-    if (this.matchValue(":")) {
-      def typeAnnot (this.parseTypeAnnotation())
-      declarator.typeAnnotation = typeAnnot
-    }
-    
-    ; Initializer
-    if (this.matchValue("=")) {
-      this.advance()
-      def initExpr (this.parseExpr())
-      declarator.init = initExpr
-    }
-    
-    push node.children declarator
-    
+
     if (this.matchValue(";")) {
       this.advance()
     }
@@ -4725,10 +4736,31 @@ class TSParserSimple {
       }
     }
     
-    ; Parse callee
+    ; Parse callee. In JS grammar `new`'s callee is a MemberExpression chain
+    ; (`A`, `A.B`, `A.B.C`) but NOT a call — the argument list below belongs to
+    ; `new`. Consuming `.prop` here makes `new THREE.PerspectiveCamera(70)` parse
+    ; as `new (THREE.PerspectiveCamera)(70)` rather than the wrong
+    ; `(new THREE).PerspectiveCamera(70)`.
     def callee (this.parsePrimary())
+    def keepMember true
+    while keepMember {
+      if (this.matchValue(".")) {
+        this.advance()
+        def propTok (this.parseMemberName())
+        def member (new TSNode())
+        member.nodeType = "MemberExpression"
+        member.left = callee
+        member.name = propTok.value
+        member.start = callee.start
+        member.line = callee.line
+        member.col = callee.col
+        callee = member
+      } {
+        keepMember = false
+      }
+    }
     node.left = callee
-    
+
     ; Parse type arguments <T> - skip for now
     if (this.matchValue("<")) {
       ; Skip type args by finding matching >

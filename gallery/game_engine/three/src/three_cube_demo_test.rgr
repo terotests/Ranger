@@ -1,0 +1,141 @@
+; ==============================================================================
+; three_cube_demo_test — the rotating textured cube, in the Three.js API shape.
+; ==============================================================================
+; Builds the canonical cube scene with the Ranger Three port, renders one frame
+; via the software backend, asserts the cube covers the frame, and writes a PPM
+; (THREE_CUBE_PPM env-independent path /tmp) for visual inspection.
+;
+; Three.js:                              Ranger Three port:
+;   new PerspectiveCamera(70, a, .1,100)   (new ThreePerspectiveCamera).setPerspective(70,a,.1,100)
+;   camera.position.z = 2                  camera.position.z = 2.0
+;   new Scene()                            new ThreeScene
+;   new BoxGeometry()                      (new ThreeBoxGeometry).setSize(1,1,1)
+;   new MeshBasicMaterial({ map })         (new ThreeMeshBasicMaterial).setMap(tex)
+;   new Mesh(geometry, material)           (new ThreeMesh).setGeometry(g).setMaterial(m)
+;   scene.add(mesh)                        scene.add(mesh)
+;   new WebGLRenderer(); renderer.render() (new ThreeWebGLRenderer).render(scene,camera)
+;   mesh.rotation.x += ...                 mesh.rotation.set(...)
+; ==============================================================================
+
+Import "three_webgl_renderer.rgr"
+Import "three_scene.rgr"
+Import "three_perspective_camera.rgr"
+Import "three_box_geometry.rgr"
+Import "three_mesh_basic_material.rgr"
+Import "three_mesh.rgr"
+Import "three_texture.rgr"
+
+class ThreeCubeDemoTest {
+    ; a 2x2 RGBA checker so texture mapping is visible per face.
+    sfn checkerTexture:ThreeTexture () {
+        def px:buffer (buffer_alloc 16)
+        ; (0,0) red
+        buffer_set px 0 220
+        buffer_set px 1 60
+        buffer_set px 2 60
+        buffer_set px 3 255
+        ; (1,0) green
+        buffer_set px 4 60
+        buffer_set px 5 200
+        buffer_set px 6 90
+        buffer_set px 7 255
+        ; (0,1) blue
+        buffer_set px 8 70
+        buffer_set px 9 120
+        buffer_set px 10 230
+        buffer_set px 11 255
+        ; (1,1) light
+        buffer_set px 12 230
+        buffer_set px 13 220
+        buffer_set px 14 180
+        buffer_set px 15 255
+        def tex:ThreeTexture (new ThreeTexture)
+        tex.setImage(px 2 2)
+        return tex
+    }
+
+    sfn writePpm:void (dir:string file:string w:int h:int color:buffer) {
+        def header:string ("P6\n" + (to_string w) + " " + (to_string h) + "\n255\n")
+        def hbuf:buffer (buffer_from_string header)
+        def hlen:int (buffer_length hbuf)
+        def body:int ((w * h) * 3)
+        def out:buffer (buffer_alloc (hlen + body))
+        buffer_copy out 0 hbuf 0 hlen
+        buffer_copy out hlen color 0 body
+        buffer_write_file dir file out
+    }
+
+    sfn m@(main):void () {
+        def W:int 256
+        def H:int 256
+        def aspect:double ((to_double W) / (to_double H))
+
+        ; --- the Three.js cube, in Ranger ---
+        def camera:ThreePerspectiveCamera (new ThreePerspectiveCamera)
+        camera.setPerspective(70.0 aspect 0.1 100.0)
+        camera.position.z = 2.0
+
+        def scene:ThreeScene (new ThreeScene)
+
+        def geometry:ThreeBoxGeometry (new ThreeBoxGeometry)
+        geometry.setSize(1.0 1.0 1.0)
+
+        def material:ThreeMeshBasicMaterial (new ThreeMeshBasicMaterial)
+        material.setMap((ThreeCubeDemoTest.checkerTexture()))
+
+        def mesh:ThreeMesh (new ThreeMesh)
+        mesh.setGeometry(geometry)
+        mesh.setMaterial(material)
+        scene.add(mesh)
+
+        def renderer:ThreeWebGLRenderer (new ThreeWebGLRenderer)
+        renderer.setSize(W H)
+
+        ; a tilt so three faces are visible (like a couple of animate() steps)
+        mesh.rotation.set(0.5 0.7 0.0)
+        renderer.render(scene camera)
+
+        ; --- inspect the framebuffer ---
+        def color:buffer (renderer.raw())
+        def n:int (W * H)
+        def covered:int 0
+        def i:int 0
+        while (i < n) {
+            def o:int (i * 3)
+            def r:int (buffer_get color o)
+            def g:int (buffer_get color (o + 1))
+            def b:int (buffer_get color (o + 2))
+            ; background is ~ (22,26,34); anything clearly brighter is cube
+            if (((r + g) + b) > 150) {
+                covered = (covered + 1)
+            }
+            i = (i + 1)
+        }
+        ; centre pixel should be on the cube
+        def cidx:int (((idiv H 2) * W) + (idiv W 2))
+        def co:int (cidx * 3)
+        def centerLit:boolean (((buffer_get color co) + (buffer_get color (co + 1))) > 60)
+
+        ThreeCubeDemoTest.writePpm("/tmp" "three_cube.ppm" W H color)
+
+        print "== ThreeWebGLRenderer — cube (software backend) =="
+        print ("covered pixels: " + (to_string covered) + " / " + (to_string n))
+        def passCover:boolean (covered > 3000)
+        if passCover {
+            print "  PASS cube covers frame"
+        } {
+            print "  FAIL cube coverage too low"
+        }
+        if centerLit {
+            print "  PASS centre pixel on cube"
+        } {
+            print "  FAIL centre pixel is background"
+        }
+        print "== summary =="
+        if (passCover && centerLit) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

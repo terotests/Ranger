@@ -64,6 +64,8 @@
         width: 480px; max-width: 100%; height: auto; aspect-ratio: 16 / 9;
         border-radius: 8px; background: #0a0e1a;
       }
+      /* WebGL 3D games (kind:tsx3d-gl) want a square, smoothly-sampled surface. */
+      canvas.gl3d { aspect-ratio: 1 / 1; image-rendering: auto; }
       .controls { color: var(--muted); font-size: 12.5px; margin-top: 10px; }
       .hint { color: var(--muted); font-size: 12px; padding: 0 22px 18px; }
       .hint code { color: var(--accent); }
@@ -116,6 +118,7 @@
     <script src="./engine-host.js"></script>
     <script src="./runner.js"></script>
     <script src="./tsx3d-viewer.js"></script>
+    <script src="./tsx3d-gl-viewer.js"></script>
     <script src="./editor.bundle.js"></script>
     <script>
       const statusEl = document.getElementById("status");
@@ -123,9 +126,10 @@
       const controlsEl = document.getElementById("controls");
       const fileCapEl = document.getElementById("filecap");
       const autoEl = document.getElementById("autoreload");
-      const canvas = document.getElementById("screen");
+      let canvas = document.getElementById("screen");
       let bundleSource = null;
       let tsx3dBundle = null;
+      let tsx3dGlBundle = null;
       let registry = [];
       let session = null;
       let editor = null;
@@ -179,11 +183,50 @@
         }
       }
 
+      // Replace the canvas element so each game gets a clean context: a WebGL
+      // (tsx3d-gl) game and a 2D game/scene can't share one canvas (the context
+      // type is fixed once acquired).
+      function freshCanvas(width, height, gl3d) {
+        const old = document.getElementById("screen");
+        const c = document.createElement("canvas");
+        c.id = "screen";
+        c.width = width || 480;
+        c.height = height || 270;
+        if (gl3d) c.className = "gl3d";
+        old.replaceWith(c);
+        canvas = c;
+        return c;
+      }
+
       async function loadGame(entry) {
         if (session) session.stop();
         setStatus("loading " + entry.title + "…");
         controlsEl.textContent = entry.controls || "";
         fileCapEl.textContent = entry.scriptDir + "/" + entry.script;
+        freshCanvas(entry.width || entry.size, entry.height || entry.size, entry.kind === "tsx3d-gl");
+
+        // WebGL TSX 3D: the canonical Three.js cube runs 1:1 in the interpreter
+        // and renders on the GPU through WebTsx3dGlHost. The editor shows cube.tsx.
+        if (entry.kind === "tsx3d-gl") {
+          if (!tsx3dGlBundle) tsx3dGlBundle = await fetchText("./tsx3d-gl.bundle.js");
+          const [facadeSrc, cubeSrc] = await Promise.all([
+            fetchText(entry.facadeUrl),
+            fetchText(entry.scriptUrl),
+          ]);
+          session = await window.RangerTsx3dViewer.launch({
+            bundleSource: tsx3dGlBundle,
+            canvas,
+            facadeSrc,
+            cubeSrc,
+            texturePath: entry.texturePath,
+            textureUrl: entry.textureUrl,
+          });
+          ensureEditor(session.getSource());
+          paused = false;
+          document.getElementById("pause").textContent = "Pause";
+          setStatus(entry.title + " — the interpreted cube.tsx, drawn with WebGL", true);
+          return;
+        }
 
         // TSX-script-driven 3D scene: run the .tsx through WebTsx3dHost (host
         // loads the GLB + software-renders), not the 2D GameRunner. The editor

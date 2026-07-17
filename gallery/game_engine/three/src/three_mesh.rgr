@@ -1,0 +1,37 @@
+; ==============================================================================
+; three_mesh — geometry + material scene node (Three.js src/objects/Mesh.js).
+; ==============================================================================
+; An Object3D that pairs a geometry with a material. `new Mesh(geometry, material)`
+; in Three.js -> `new ThreeMesh` + `.setGeometry(g).setMaterial(m)` here.
+; ==============================================================================
+
+Import "three_object3d.rgr"
+Import "three_buffer_geometry.rgr"
+Import "three_mesh_basic_material.rgr"
+Import "three_render_backend.rgr"
+Import "three_matrix4.rgr"
+
+class ThreeMesh extends ThreeObject3D {
+    def isMesh:boolean true
+    def geometry:ThreeBufferGeometry (new ThreeBufferGeometry)
+    def material:ThreeMeshBasicMaterial (new ThreeMeshBasicMaterial)
+
+    fn setGeometry:ThreeMesh (g:ThreeBufferGeometry) {
+        this.geometry = g
+        return this
+    }
+    fn setMaterial:ThreeMesh (m:ThreeMeshBasicMaterial) {
+        this.material = m
+        return this
+    }
+
+    ; override: draw this mesh with mvp = viewProj * matrixWorld.
+    fn renderInto:void (backend:ThreeRenderBackend viewProj:ThreeMatrix4) {
+        if (this.visible == false) {
+            return
+        }
+        def mvp:ThreeMatrix4 (viewProj.clone())
+        mvp.multiply(this.matrixWorld)
+        backend.drawMesh(this.geometry mvp this.material.hasMap this.material.map this.material.colorR this.material.colorG this.material.colorB)
+    }
+}

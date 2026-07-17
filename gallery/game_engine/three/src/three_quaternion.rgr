@@ -1,0 +1,166 @@
+; ==============================================================================
+; three_quaternion — quaternion (Three.js port of src/math/Quaternion.js).
+; ==============================================================================
+;
+; (x, y, z, w), identity = (0,0,0,1). Faithful port of setFromEuler (all six
+; rotation orders), setFromAxisAngle, multiplyQuaternions, normalize, dot.
+; Fluent methods return `this`.
+; ==============================================================================
+
+Import "three_vector3.rgr"
+Import "three_euler.rgr"
+
+class ThreeQuaternion {
+    def isQuaternion:boolean true
+    def x:double 0.0
+    def y:double 0.0
+    def z:double 0.0
+    def w:double 1.0
+
+    fn set:ThreeQuaternion (x:double y:double z:double w:double) {
+        this.x = x
+        this.y = y
+        this.z = z
+        this.w = w
+        return this
+    }
+    fn copy:ThreeQuaternion (q:ThreeQuaternion) {
+        this.x = q.x
+        this.y = q.y
+        this.z = q.z
+        this.w = q.w
+        return this
+    }
+    fn clone:ThreeQuaternion () {
+        def q:ThreeQuaternion (new ThreeQuaternion)
+        q.copy(this)
+        return q
+    }
+
+    fn setFromAxisAngle:ThreeQuaternion (axis:ThreeVector3 angle:double) {
+        def half:double (angle * 0.5)
+        def s:double (sin(half))
+        this.x = (axis.x * s)
+        this.y = (axis.y * s)
+        this.z = (axis.z * s)
+        this.w = (cos(half))
+        return this
+    }
+
+    ; Port of Three.js Quaternion.setFromEuler (all six orders).
+    fn setFromEuler:ThreeQuaternion (euler:ThreeEuler) {
+        def c1:double (cos(euler.x * 0.5))
+        def c2:double (cos(euler.y * 0.5))
+        def c3:double (cos(euler.z * 0.5))
+        def s1:double (sin(euler.x * 0.5))
+        def s2:double (sin(euler.y * 0.5))
+        def s3:double (sin(euler.z * 0.5))
+        def t1:double ((s1 * c2) * c3)
+        def t2:double ((c1 * s2) * s3)
+        def t3:double ((c1 * s2) * c3)
+        def t4:double ((s1 * c2) * s3)
+        def t5:double ((c1 * c2) * s3)
+        def t6:double ((s1 * s2) * c3)
+        def t7:double ((c1 * c2) * c3)
+        def t8:double ((s1 * s2) * s3)
+        def order:string euler.order
+        if (order == "XYZ") {
+            this.x = (t1 + t2)
+            this.y = (t3 - t4)
+            this.z = (t5 + t6)
+            this.w = (t7 - t8)
+        }
+        if (order == "YXZ") {
+            this.x = (t1 + t2)
+            this.y = (t3 - t4)
+            this.z = (t5 - t6)
+            this.w = (t7 + t8)
+        }
+        if (order == "ZXY") {
+            this.x = (t1 - t2)
+            this.y = (t3 + t4)
+            this.z = (t5 + t6)
+            this.w = (t7 - t8)
+        }
+        if (order == "ZYX") {
+            this.x = (t1 - t2)
+            this.y = (t3 + t4)
+            this.z = (t5 - t6)
+            this.w = (t7 + t8)
+        }
+        if (order == "YZX") {
+            this.x = (t1 + t2)
+            this.y = (t3 + t4)
+            this.z = (t5 - t6)
+            this.w = (t7 - t8)
+        }
+        if (order == "XZY") {
+            this.x = (t1 - t2)
+            this.y = (t3 - t4)
+            this.z = (t5 + t6)
+            this.w = (t7 + t8)
+        }
+        return this
+    }
+
+    fn multiply:ThreeQuaternion (q:ThreeQuaternion) {
+        return (this.multiplyQuaternions(this q))
+    }
+    fn premultiply:ThreeQuaternion (q:ThreeQuaternion) {
+        return (this.multiplyQuaternions(q this))
+    }
+    fn multiplyQuaternions:ThreeQuaternion (a:ThreeQuaternion b:ThreeQuaternion) {
+        def ax:double a.x
+        def ay:double a.y
+        def az:double a.z
+        def aw:double a.w
+        def bx:double b.x
+        def by:double b.y
+        def bz:double b.z
+        def bw:double b.w
+        this.x = ((((ax * bw) + (aw * bx)) + (ay * bz)) - (az * by))
+        this.y = ((((ay * bw) + (aw * by)) + (az * bx)) - (ax * bz))
+        this.z = ((((az * bw) + (aw * bz)) + (ax * by)) - (ay * bx))
+        this.w = ((((aw * bw) - (ax * bx)) - (ay * by)) - (az * bz))
+        return this
+    }
+
+    fn dot:double (q:ThreeQuaternion) {
+        return ((((this.x * q.x) + (this.y * q.y)) + (this.z * q.z)) + (this.w * q.w))
+    }
+    fn lengthSq:double () {
+        return ((((this.x * this.x) + (this.y * this.y)) + (this.z * this.z)) + (this.w * this.w))
+    }
+    fn length:double () {
+        return (sqrt (this.lengthSq()))
+    }
+    fn normalize:ThreeQuaternion () {
+        def l:double (this.length())
+        if (l == 0.0) {
+            this.x = 0.0
+            this.y = 0.0
+            this.z = 0.0
+            this.w = 1.0
+            return this
+        }
+        def inv:double (1.0 / l)
+        this.x = (this.x * inv)
+        this.y = (this.y * inv)
+        this.z = (this.z * inv)
+        this.w = (this.w * inv)
+        return this
+    }
+
+    fn equals:boolean (q:ThreeQuaternion) {
+        if (this.x != q.x) {
+            return false
+        }
+        if (this.y != q.y) {
+            return false
+        }
+        if (this.z != q.z) {
+            return false
+        }
+        return (this.w == q.w)
+    }
+}

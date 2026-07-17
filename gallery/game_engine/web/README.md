@@ -175,14 +175,48 @@ This is the browser twin of the native `tsx3d_sdl_runner.rgr`: the **same**
 `games/model_viewer_tsx/index.tsx` runs on both — native SDL2/OpenGL on desktop,
 software-rendered here. The native GL path itself is desktop-only.
 
+## Three.js cube on the GPU (games menu + `/games/tsx3d`, `kind:"tsx3d-gl"`)
+
+The games dropdown also lists **"Cube 3D — Three.js on the GPU"** — the canonical
+Three.js rotating-cube example running **1:1, unmodified** (including
+`import * as THREE from 'three'`) in Ranger's `.tsx` interpreter, against the thin
+[`three.tsx`](../three/tsx/three.tsx) façade, rendered with **real WebGL**. No
+three.js JavaScript ships: the 3D engine is the Ranger clone in
+[`../three`](../three), the same source that compiles to native OpenGL/GLES.
+
+```
+cube.tsx (unmodified Three.js)  →  ComponentEngine (interpreter)
+    →  ThreeTsxBridge (reconcile the interpreted scene into the Ranger core)
+    →  ThreeWebGLRenderer + ThreeGLBackend  →  gl.* on a <canvas> (WebGL)
+```
+
+- **`web_tsx3d_gl_host.rgr`** — `WebTsx3dGlHost`: `setupGL(canvasId)`,
+  `load(facadeSrc,cubeSrc,w,h,dpr)` / `loadFromVfs(...)`, `setTexture(path,rgba,w,h)`,
+  `frame()`. Compiles to `tsx3d-gl.bundle.js` — **and to C++** (the GL backend's
+  `cpp` templates emit desktop GL/GLES), so the same host runs native.
+- **`src/tsx3d-gl-viewer.js`** — rAF loop; draws straight to the canvas's WebGL
+  context (no RGB blit). Exposes the editor session API (`getSource` / `reload` /
+  `stop` / `start`), so `cube.tsx` is editable in Monaco and hot-reloads.
+- **`build.mjs`** — compiles the WebGL host and, for each `kind:"tsx3d-gl"` scene,
+  stages the editable script + façade + crate texture as plain files the editor
+  fetches. Also deployed standalone at `/games/tsx3d` (`build-tsx3d.mjs`).
+
+The crate texture is the wooden crate from `cube3d_wasm/crate.ppm` (a raw PPM the
+harness parses in-browser); absent a texture the bridge shows a checker so UV
+mapping still reads. Because a WebGL game and a 2D game/scene can't share one
+canvas, the editor swaps in a fresh `<canvas>` per load (`.gl3d`, square). Verified
+end-to-end in headless Chromium (SwiftShader): selecting the cube shows `cube.tsx`
+in Monaco and renders the crate cube on the GPU; a live edit hot-reloads.
+
 ## Roadmap
 
 - **WASM game logic** — the car game (`autopeli_wasm`). The engine's `wasm_*`
   operators are stubbed in the es6 backend (`wasm_runtime.rgr`); wiring them to
   the browser `WebAssembly` API (the `games/*/tools/render.cjs` hosts are the
   reference) unlocks WASM guests in-browser.
-- **3D** — ✅ host-side glTF viewer shipped (see above). Next: WebGL path for
-  larger scenes; a glTF model as an entity inside a scripted game.
+- **3D** — ✅ host-side glTF viewer + software TSX scene shipped; ✅ WebGL path
+  shipped (the Three.js cube on the GPU, see above). Next: a glTF model as an
+  entity inside a scripted WebGL scene; more of the Three.js API surface.
 - **Monaco IDE** — ✅ done (editor + live reload; see above). Next: multi-file
   editing (the VFS already holds every game file), persisting edits to IndexedDB,
   and a share-a-URL button.

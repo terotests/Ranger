@@ -1,0 +1,18 @@
+; ==============================================================================
+; three_gl_shaders — shared GLSL for the GPU backend (WebGL + OpenGL/GLES).
+; ==============================================================================
+;
+; GLSL ES 1.00 (attribute/varying/texture2D/gl_FragColor) — the same dialect the
+; native gfx_sdl.rgr 3D program uses. It runs unchanged on WebGL1, WebGL2, GLES2
+; (Raspberry Pi) and desktop GL's compatibility profile, so ONE shader source
+; serves every target. Unlit + textured, matching ThreeMeshBasicMaterial.
+; ==============================================================================
+
+class ThreeGLShaders {
+    sfn vertexSrc:string () {
+        return "attribute vec3 aPos;\nattribute vec2 aUv;\nuniform mat4 uMVP;\nvarying vec2 vUv;\nvoid main() { gl_Position = uMVP * vec4(aPos, 1.0); vUv = aUv; }\n"
+    }
+    sfn fragmentSrc:string () {
+        return "precision mediump float;\nvarying vec2 vUv;\nuniform sampler2D uTex;\nuniform vec3 uColor;\nuniform float uHasTex;\nvoid main() { vec3 base = uColor; if (uHasTex > 0.5) { base = base * texture2D(uTex, vUv).rgb; } gl_FragColor = vec4(base, 1.0); }\n"
+    }
+}

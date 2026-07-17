@@ -1,0 +1,21 @@
+; ==============================================================================
+; three_material — base material (Three.js port of src/materials/Material.js).
+; ==============================================================================
+
+class ThreeMaterial {
+    def isMaterial:boolean true
+    def name:string ""
+    def opacity:double 1.0
+    def transparent:boolean false
+    def visible:boolean true
+    def colorR:double 1.0
+    def colorG:double 1.0
+    def colorB:double 1.0
+
+    fn setColor:ThreeMaterial (r:double g:double b:double) {
+        this.colorR = r
+        this.colorG = g
+        this.colorB = b
+        return this
+    }
+}

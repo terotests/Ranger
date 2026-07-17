@@ -1,0 +1,88 @@
+; ==============================================================================
+; three_object3d_test — Three.js Object3D tests (ported subset).
+; ==============================================================================
+
+Import "three_object3d.rgr"
+Import "three_vector3.rgr"
+
+class ThreeO3DCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    fn near:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        if (d < 0.0001) {
+            passed = (passed + 1)
+            print ("  PASS " + name + " (" + (to_string got) + ")")
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name + " got=" + (to_string got) + " want=" + (to_string want))
+        }
+    }
+}
+
+class ThreeObject3DTest {
+    sfn m@(main):void () {
+        def ck:ThreeO3DCheck (new ThreeO3DCheck)
+        def pi:double 3.141592653589793
+        print "== ThreeObject3D (Three.js Object3D port) =="
+
+        ; defaults
+        def o:ThreeObject3D (new ThreeObject3D)
+        ck.ok("visible default" o.visible)
+        ck.near("position default x" o.position.x 0.0)
+        ck.near("scale default x" o.scale.x 1.0)
+        ck.near("scale default y" o.scale.y 1.0)
+        ck.ok("no children" ((o.childCount()) == 0))
+
+        ; add child
+        def c:ThreeObject3D (new ThreeObject3D)
+        o.add(c)
+        ck.ok("one child" ((o.childCount()) == 1))
+
+        ; local matrix from position
+        def m:ThreeObject3D (new ThreeObject3D)
+        m.position.set(1.0 2.0 3.0)
+        m.updateMatrix()
+        def lp:ThreeVector3 (m.matrix.transformPoint((ThreeVector3.of(0.0 0.0 0.0))))
+        ck.near("local translate x" lp.x 1.0)
+        ck.near("local translate z" lp.z 3.0)
+
+        ; world = parent * child. parent at +10 x, child at +1 x -> world x = 11
+        def parent:ThreeObject3D (new ThreeObject3D)
+        parent.position.set(10.0 0.0 0.0)
+        def child:ThreeObject3D (new ThreeObject3D)
+        child.position.set(1.0 0.0 0.0)
+        parent.add(child)
+        parent.updateMatrixWorld()
+        def wp:ThreeVector3 (child.matrixWorld.transformPoint((ThreeVector3.of(0.0 0.0 0.0))))
+        ck.near("world x (10+1)" wp.x 11.0)
+
+        ; rotation drives the matrix: 90deg about Z maps local +x to world +y
+        def r:ThreeObject3D (new ThreeObject3D)
+        r.rotation.set(0.0 0.0 (pi / 2.0))
+        r.updateMatrix()
+        def rp:ThreeVector3 (r.matrix.transformPoint((ThreeVector3.of(1.0 0.0 0.0))))
+        ck.near("rot x->y : x" rp.x 0.0)
+        ck.near("rot x->y : y" rp.y 1.0)
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

@@ -1,0 +1,55 @@
+; ==============================================================================
+; three_euler — Euler angles (Three.js port of src/math/Euler.js).
+; ==============================================================================
+;
+; Rotation as (x, y, z) angles in radians applied in an `order` (default "XYZ").
+; Three.js keeps an onChange callback that syncs a paired quaternion; this port
+; keeps Euler as plain data and lets ThreeObject3D derive the quaternion when it
+; builds its matrix (ThreeQuaternion.setFromEuler). Fluent setters return `this`.
+; ==============================================================================
+
+class ThreeEuler {
+    def isEuler:boolean true
+    def x:double 0.0
+    def y:double 0.0
+    def z:double 0.0
+    def order:string "XYZ"
+
+    fn set:ThreeEuler (x:double y:double z:double) {
+        this.x = x
+        this.y = y
+        this.z = z
+        return this
+    }
+    fn setWithOrder:ThreeEuler (x:double y:double z:double order:string) {
+        this.x = x
+        this.y = y
+        this.z = z
+        this.order = order
+        return this
+    }
+    fn copy:ThreeEuler (e:ThreeEuler) {
+        this.x = e.x
+        this.y = e.y
+        this.z = e.z
+        this.order = e.order
+        return this
+    }
+    fn clone:ThreeEuler () {
+        def e:ThreeEuler (new ThreeEuler)
+        e.copy(this)
+        return e
+    }
+    fn equals:boolean (e:ThreeEuler) {
+        if (this.x != e.x) {
+            return false
+        }
+        if (this.y != e.y) {
+            return false
+        }
+        if (this.z != e.z) {
+            return false
+        }
+        return (this.order == e.order)
+    }
+}

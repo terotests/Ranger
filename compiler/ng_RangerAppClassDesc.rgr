@@ -48,6 +48,12 @@ class RangerAppClassDesc {
   def defined_variants:[string]
   def method_variants:[string:RangerAppMethodVariants]
   def has_constructor:boolean false
+  ; True once the class body has been fully collected (methods registered) by
+  ; WalkCollectMethods. Guards against re-walking the same class a second time
+  ; when its file is imported via two different path strings — a second walk
+  ; would add the methods to a throw-away desc and break inherited-method
+  ; resolution in subclasses.
+  def is_collected:boolean false
   def constructor_node@(weak):CodeNode
   def constructor_fn:RangerAppFunctionDesc
   def has_destructor:boolean false

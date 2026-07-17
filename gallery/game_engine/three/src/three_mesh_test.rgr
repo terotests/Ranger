@@ -1,0 +1,90 @@
+; ==============================================================================
+; three_mesh_test — Texture, constants, Material, MeshBasicMaterial, Mesh.
+; ==============================================================================
+
+Import "three_mesh.rgr"
+Import "three_box_geometry.rgr"
+Import "three_texture.rgr"
+Import "three_constants.rgr"
+Import "three_vector3.rgr"
+
+class ThreeMeshCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    fn near:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        if (d < 0.0001) {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name + " got=" + (to_string got))
+        }
+    }
+}
+
+class ThreeMeshTest {
+    sfn m@(main):void () {
+        def ck:ThreeMeshCheck (new ThreeMeshCheck)
+        print "== ThreeMesh / Material / Texture =="
+
+        ; constants
+        ck.ok("SRGBColorSpace" ((ThreeColorSpace.SRGBColorSpace()) == "srgb"))
+
+        ; texture holder
+        def tex:ThreeTexture (new ThreeTexture)
+        ck.ok("empty texture" ((tex.hasImage()) == false))
+        def px:buffer (buffer_alloc 16)
+        tex.setImage(px 2 2)
+        tex.colorSpace = (ThreeColorSpace.SRGBColorSpace())
+        ck.ok("texture has image" (tex.hasImage()))
+        ck.ok("texture width" (tex.width == 2))
+        ck.ok("texture colorSpace" (tex.colorSpace == "srgb"))
+
+        ; material + map
+        def mat:ThreeMeshBasicMaterial (new ThreeMeshBasicMaterial)
+        ck.ok("default no map" ((mat.hasMap) == false))
+        ck.near("default color r" mat.colorR 1.0)
+        mat.setMap(tex)
+        ck.ok("map set" mat.hasMap)
+        ck.ok("map is texture" (mat.map.width == 2))
+        mat.setColor(0.2 0.4 0.6)
+        ck.near("color g" mat.colorG 0.4)
+
+        ; mesh: BoxGeometry (subtype) assigned to a BufferGeometry field
+        def geo:ThreeBoxGeometry (new ThreeBoxGeometry)
+        geo.setSize(1.0 1.0 1.0)
+        def mesh:ThreeMesh (new ThreeMesh)
+        mesh.setGeometry(geo)
+        mesh.setMaterial(mat)
+        ck.ok("isMesh" mesh.isMesh)
+        ck.ok("mesh geometry 24 verts" ((mesh.geometry.vertexCount()) == 24))
+        ck.ok("mesh material has map" mesh.material.hasMap)
+
+        ; mesh inherits Object3D transform behaviour
+        mesh.position.set(5.0 0.0 0.0)
+        mesh.updateMatrixWorld()
+        def wp:ThreeVector3 (mesh.matrixWorld.transformPoint((ThreeVector3.of(0.0 0.0 0.0))))
+        ck.near("mesh world x" wp.x 5.0)
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

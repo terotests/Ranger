@@ -65,6 +65,10 @@ jobs:
       - name: Build 3D model demo
         run: node gallery/game_engine/web/build-model3d.mjs --out "$GITHUB_WORKSPACE/_site/games/model3d"
 
+      # ---- Three.js cube on the GPU (.tsx interpreter -> Ranger Three -> WebGL)
+      - name: Build tsx3d WebGL demo
+        run: node gallery/game_engine/web/build-tsx3d.mjs --out "$GITHUB_WORKSPACE/_site/games/tsx3d"
+
       # ---- Playground at the site root -----------------------------------
       - name: Install playground dependencies
         working-directory: playground

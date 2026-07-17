@@ -1,0 +1,107 @@
+; ==============================================================================
+; three_gl — GPU primitive operators: ONE Ranger source, WebGL + OpenGL/GLES.
+; ==============================================================================
+;
+; The platform boundary of the Three GPU backend. Each operator has an es6
+; template (WebGL) and a cpp template (OpenGL / GLES2) — so the same Ranger code
+; that calls these compiles to the browser (WebGL) AND to native/desktop/
+; Raspberry Pi (GLES2), with no hand-written .js. Opaque int handles bridge the
+; representation difference: WebGL uses objects (kept in JS arrays), GL uses
+; GLuint names (kept in std::vector) — Ranger only ever sees 1-based ints.
+;
+; This replaces the earlier hand-written web/webgl3d.js: the WebGL calls are now
+; emitted by the Ranger compiler from this source, like the native cpp shim.
+;
+; Vertex layout expected by gpu_make_mesh: interleaved float32 [px,py,pz, u,v]
+; (20-byte stride); indices are uint32; matrices are 16 float32.
+; ==============================================================================
+
+operators {
+
+    ; Acquire a context. es6: WebGL2/1 on the canvas with the given id. cpp: the
+    ; GL context is created by the host (SDL) and assumed current -> returns 1.
+    gpu_init _:int (canvasId:string) {
+        templates {
+            es6 ( "__rglInit(" (e 1) ")" (create_polyfill "
+var __rgl = null; var __rglGL2 = false;
+var __rglProgs = []; var __rglMeshes = []; var __rglTex = [];
+function __rglInit(id){
+  if (typeof document === 'undefined') return 0;
+  var c = document.getElementById(id); if (!c) return 0;
+  __rgl = c.getContext('webgl2');
+  if (__rgl) { __rglGL2 = true; } else { __rgl = c.getContext('webgl') || c.getContext('experimental-webgl'); }
+  if (!__rgl) return 0;
+  if (!__rglGL2) { __rgl.getExtension('OES_element_index_uint'); }
+  return 1;
+}
+function __rglBegin(w,h,r,g,b){ var gl=__rgl; if(!gl) return; gl.viewport(0,0,w,h); gl.clearColor(r,g,b,1); gl.enable(gl.DEPTH_TEST); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT); }
+function __rglSh(gl,t,src){ var s=gl.createShader(t); gl.shaderSource(s,src); gl.compileShader(s); return s; }
+function __rglProgram(vs,fs){ var gl=__rgl; if(!gl) return 0; var p=gl.createProgram(); gl.attachShader(p,__rglSh(gl,gl.VERTEX_SHADER,vs)); gl.attachShader(p,__rglSh(gl,gl.FRAGMENT_SHADER,fs)); gl.linkProgram(p); __rglProgs.push({p:p,loc:{}}); return __rglProgs.length; }
+function __rglUloc(e,name){ var gl=__rgl; if(e.loc[name]===undefined){ e.loc[name]=gl.getUniformLocation(e.p,name); } return e.loc[name]; }
+function __rglMesh(vb,vc,ib,ic){ var gl=__rgl; if(!gl) return 0; var vbo=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,vbo); gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(vb),gl.STATIC_DRAW); var ebo=gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ebo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint32Array(ib),gl.STATIC_DRAW); __rglMeshes.push({vbo:vbo,ebo:ebo,count:ic}); return __rglMeshes.length; }
+function __rglTexture(bytes,w,h){ var gl=__rgl; if(!gl) return 0; var t=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,t); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(bytes)); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR); __rglTex.push(t); return __rglTex.length; }
+function __rglDraw(ph,mh,th,mvp,cr,cg,cb){ var gl=__rgl; if(!gl||ph<1||mh<1) return; var e=__rglProgs[ph-1]; var m=__rglMeshes[mh-1]; gl.useProgram(e.p); gl.bindBuffer(gl.ARRAY_BUFFER,m.vbo); var aPos=gl.getAttribLocation(e.p,'aPos'), aUv=gl.getAttribLocation(e.p,'aUv'); gl.enableVertexAttribArray(aPos); gl.vertexAttribPointer(aPos,3,gl.FLOAT,false,20,0); gl.enableVertexAttribArray(aUv); gl.vertexAttribPointer(aUv,2,gl.FLOAT,false,20,12); gl.uniformMatrix4fv(__rglUloc(e,'uMVP'),false,new Float32Array(mvp)); gl.uniform3f(__rglUloc(e,'uColor'),cr,cg,cb); if(th>0){ gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,__rglTex[th-1]); gl.uniform1i(__rglUloc(e,'uTex'),0); gl.uniform1f(__rglUloc(e,'uHasTex'),1.0); } else { gl.uniform1f(__rglUloc(e,'uHasTex'),0.0); } gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,m.ebo); gl.drawElements(gl.TRIANGLES,m.count,gl.UNSIGNED_INT,0); }
+function __rglEnd(){ }
+") )
+            cpp ( "rgl_init(" (e 1) ".c_str())"
+                  (imp "<vector>") (imp "<string>") (imp "<cstdint>") (imp "<GLES2/gl2.h>")
+(create_polyfill "
+struct RglMesh { GLuint vbo; GLuint ebo; int count; };
+struct RglProg { GLuint p; };
+static std::vector<RglProg> g_rglProgs;
+static std::vector<RglMesh> g_rglMeshes;
+static std::vector<GLuint>  g_rglTex;
+static GLuint rgl_sh(GLenum t, const char* src){ GLuint s=glCreateShader(t); glShaderSource(s,1,&src,nullptr); glCompileShader(s); return s; }
+static int rgl_init(const char* id){ (void)id; return 1; }
+static void rgl_begin(int w,int h,double r,double g,double b){ glViewport(0,0,w,h); glClearColor((float)r,(float)g,(float)b,1.0f); glEnable(GL_DEPTH_TEST); glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT); }
+static int rgl_program(std::string vs, std::string fs){ GLuint p=glCreateProgram(); glAttachShader(p, rgl_sh(GL_VERTEX_SHADER, vs.c_str())); glAttachShader(p, rgl_sh(GL_FRAGMENT_SHADER, fs.c_str())); glLinkProgram(p); RglProg e; e.p=p; g_rglProgs.push_back(e); return (int)g_rglProgs.size(); }
+static int rgl_mesh(const uint8_t* vb,int vsz,int vc,const uint8_t* ib,int isz,int ic){ (void)vc; RglMesh m; glGenBuffers(1,&m.vbo); glBindBuffer(GL_ARRAY_BUFFER,m.vbo); glBufferData(GL_ARRAY_BUFFER,vsz,vb,GL_STATIC_DRAW); glGenBuffers(1,&m.ebo); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,m.ebo); glBufferData(GL_ELEMENT_ARRAY_BUFFER,isz,ib,GL_STATIC_DRAW); m.count=ic; g_rglMeshes.push_back(m); return (int)g_rglMeshes.size(); }
+static int rgl_texture(const uint8_t* bytes,int w,int h){ GLuint t; glGenTextures(1,&t); glBindTexture(GL_TEXTURE_2D,t); glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,w,h,0,GL_RGBA,GL_UNSIGNED_BYTE,bytes); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_REPEAT); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_REPEAT); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR); g_rglTex.push_back(t); return (int)g_rglTex.size(); }
+static void rgl_draw(int ph,int mh,int th,const uint8_t* mvp,double cr,double cg,double cb){ if(ph<1||mh<1) return; RglProg e=g_rglProgs[ph-1]; RglMesh m=g_rglMeshes[mh-1]; glUseProgram(e.p); glBindBuffer(GL_ARRAY_BUFFER,m.vbo); GLint aPos=glGetAttribLocation(e.p,\"aPos\"); GLint aUv=glGetAttribLocation(e.p,\"aUv\"); glEnableVertexAttribArray(aPos); glVertexAttribPointer(aPos,3,GL_FLOAT,GL_FALSE,20,(void*)0); glEnableVertexAttribArray(aUv); glVertexAttribPointer(aUv,2,GL_FLOAT,GL_FALSE,20,(void*)12); glUniformMatrix4fv(glGetUniformLocation(e.p,\"uMVP\"),1,GL_FALSE,(const float*)mvp); glUniform3f(glGetUniformLocation(e.p,\"uColor\"),(float)cr,(float)cg,(float)cb); if(th>0){ glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D,g_rglTex[th-1]); glUniform1i(glGetUniformLocation(e.p,\"uTex\"),0); glUniform1f(glGetUniformLocation(e.p,\"uHasTex\"),1.0f);} else { glUniform1f(glGetUniformLocation(e.p,\"uHasTex\"),0.0f);} glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,m.ebo); glDrawElements(GL_TRIANGLES,m.count,GL_UNSIGNED_INT,(void*)0); }
+static void rgl_end(){ }
+") )
+        }
+    }
+
+    gpu_begin _:void (w:int h:int r:double g:double b:double) {
+        templates {
+            es6 ( "__rglBegin(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" )
+            cpp ( "rgl_begin(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" )
+        }
+    }
+
+    gpu_program _:int (vs:string fs:string) {
+        templates {
+            es6 ( "__rglProgram(" (e 1) ", " (e 2) ")" )
+            cpp ( "rgl_program(" (e 1) ", " (e 2) ")" )
+        }
+    }
+
+    gpu_make_mesh _:int (verts:buffer vcount:int idx:buffer icount:int) {
+        templates {
+            es6 ( "__rglMesh(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ")" )
+            cpp ( "rgl_mesh(" (e 1) ".data(), (int)" (e 1) ".size(), " (e 2) ", " (e 3) ".data(), (int)" (e 3) ".size(), " (e 4) ")" )
+        }
+    }
+
+    gpu_make_texture _:int (rgba:buffer w:int h:int) {
+        templates {
+            es6 ( "__rglTexture(" (e 1) ", " (e 2) ", " (e 3) ")" )
+            cpp ( "rgl_texture(" (e 1) ".data(), " (e 2) ", " (e 3) ")" )
+        }
+    }
+
+    gpu_draw _:void (prog:int mesh:int tex:int mvp:buffer cr:double cg:double cb:double) {
+        templates {
+            es6 ( "__rglDraw(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ", " (e 6) ", " (e 7) ")" )
+            cpp ( "rgl_draw(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ".data(), " (e 5) ", " (e 6) ", " (e 7) ")" )
+        }
+    }
+
+    gpu_end _:void () {
+        templates {
+            es6 ( "__rglEnd()" )
+            cpp ( "rgl_end()" )
+        }
+    }
+}

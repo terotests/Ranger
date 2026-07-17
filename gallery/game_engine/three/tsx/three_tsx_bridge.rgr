@@ -1,0 +1,265 @@
+; ==============================================================================
+; three_tsx_bridge — reconcile the interpreted TSX façade scene into the Ranger
+; Three core, then render it (software headless, or WebGL/GLES in a host).
+; ==============================================================================
+;
+; This is the render bridge of IDEAL_THREE §7. The canonical Three.js script runs
+; in the TSX interpreter (ComponentEngine) against the thin `three.tsx` façade,
+; which holds only plain data (positions, rotations, geometry params, the texture
+; path). Each frame the host advances the script (animate()) and calls
+; renderFrame(): the bridge reads the façade `scene` + `camera` out of the engine
+; (getGlobal + EvalValue member reads), builds/updates the *canonical* Ranger
+; objects (ThreeScene / ThreePerspectiveCamera / ThreeMesh / …), and draws them
+; through the pluggable backend. This is the `needsUpdate` model — mutable
+; per-frame state is re-read fresh; heavy resources (geometry, textures) are built
+; once and cached by index/path so the GPU upload happens a single time.
+;
+; No GPU code here: renderer draws through ThreeRenderBackend, so the bridge is
+; pure Ranger and compiles to C++ as well as ES6. The host chooses the backend
+; (software = headless/Raspberry Pi; ThreeGLBackend = WebGL browser / desktop GL).
+; ==============================================================================
+
+Import "../src/three_webgl_renderer.rgr"
+Import "../src/three_render_backend.rgr"
+Import "../src/three_scene.rgr"
+Import "../src/three_perspective_camera.rgr"
+Import "../src/three_box_geometry.rgr"
+Import "../src/three_mesh.rgr"
+Import "../src/three_mesh_basic_material.rgr"
+Import "../src/three_texture.rgr"
+Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class ThreeTsxBridge {
+    def engine:ComponentEngine (new ComponentEngine())
+    def renderer:ThreeWebGLRenderer (new ThreeWebGLRenderer)
+    def scene:ThreeScene (new ThreeScene)
+    def camera:ThreePerspectiveCamera (new ThreePerspectiveCamera)
+
+    ; Ranger meshes, parallel to the façade scene.children (built once, index-keyed).
+    def meshes:[ThreeMesh]
+    ; texture cache by path (host-supplied pixels, or a checker fallback).
+    def texPaths:[string]
+    def texObjs:[ThreeTexture]
+
+    fn setEngine:ThreeTsxBridge (e:ComponentEngine) {
+        engine = e
+        return this
+    }
+
+    ; Inject a GPU backend (ThreeGLBackend) — otherwise the software rasteriser.
+    fn useBackend:ThreeTsxBridge (b:ThreeRenderBackend) {
+        renderer.setBackend(b)
+        return this
+    }
+
+    ; Supply decoded pixels for a texture path (e.g. the host decoded the image).
+    ; Call before the first renderFrame so the mesh material picks it up.
+    fn setTexture:void (path:string rgba:buffer w:int h:int) {
+        def tex:ThreeTexture (new ThreeTexture)
+        tex.setImage(rgba w h)
+        def i:int 0
+        while (i < (array_length texPaths)) {
+            if ((itemAt texPaths i) == path) {
+                set texObjs i tex
+                return
+            }
+            i = (i + 1)
+        }
+        push texPaths path
+        push texObjs tex
+    }
+
+    ; --- read helpers ---------------------------------------------------------
+    fn num:double (obj:EvalValue key:string) {
+        def v:EvalValue (obj.getMember(key))
+        return (v.toNumber())
+    }
+
+    ; --- per-frame reconcile --------------------------------------------------
+    fn syncCamera:void () {
+        def cam:EvalValue (engine.getGlobal("camera"))
+        if (cam.isObject() == false) {
+            return
+        }
+        def fov:double (this.num(cam "fov"))
+        def aspect:double (this.num(cam "aspect"))
+        def near:double (this.num(cam "near"))
+        def far:double (this.num(cam "far"))
+        if (fov <= 0.0) {
+            fov = 50.0
+        }
+        if (aspect <= 0.0) {
+            aspect = 1.0
+        }
+        if (near <= 0.0) {
+            near = 0.1
+        }
+        if (far <= near) {
+            far = 2000.0
+        }
+        camera.setPerspective(fov aspect near far)
+        def pos:EvalValue (cam.getMember("position"))
+        if (pos.isObject()) {
+            camera.position.set((this.num(pos "x")) (this.num(pos "y")) (this.num(pos "z")))
+        }
+    }
+
+    fn syncScene:void () {
+        def sc:EvalValue (engine.getGlobal("scene"))
+        if (sc.isObject() == false) {
+            return
+        }
+        def childrenV:EvalValue (sc.getMember("children"))
+        if (childrenV.isArray() == false) {
+            return
+        }
+        def n:int (array_length childrenV.arrayValue)
+        def i:int 0
+        while (i < n) {
+            def childV:EvalValue (childrenV.getIndex(i))
+            this.syncMesh(i childV)
+            i = (i + 1)
+        }
+    }
+
+    fn syncMesh:void (i:int childV:EvalValue) {
+        def m:ThreeMesh (this.ensureMesh(i childV))
+        def rot:EvalValue (childV.getMember("rotation"))
+        if (rot.isObject()) {
+            m.rotation.set((this.num(rot "x")) (this.num(rot "y")) (this.num(rot "z")))
+        }
+        def pos:EvalValue (childV.getMember("position"))
+        if (pos.isObject()) {
+            m.position.set((this.num(pos "x")) (this.num(pos "y")) (this.num(pos "z")))
+        }
+        def scl:EvalValue (childV.getMember("scale"))
+        if (scl.isObject()) {
+            def sx:double (this.num(scl "x"))
+            def sy:double (this.num(scl "y"))
+            def sz:double (this.num(scl "z"))
+            if (sx == 0.0) {
+                sx = 1.0
+            }
+            if (sy == 0.0) {
+                sy = 1.0
+            }
+            if (sz == 0.0) {
+                sz = 1.0
+            }
+            m.scale.set(sx sy sz)
+        }
+    }
+
+    ; Build the Ranger mesh for façade child i on first sight (geometry + material
+    ; + texture), then reuse it — so the geometry/texture upload happens once.
+    fn ensureMesh:ThreeMesh (i:int childV:EvalValue) {
+        if (i < (array_length meshes)) {
+            return (itemAt meshes i)
+        }
+        def m:ThreeMesh (new ThreeMesh)
+
+        ; geometry (BoxGeometry width/height/depth; default unit cube)
+        def geo:ThreeBoxGeometry (new ThreeBoxGeometry)
+        def geoV:EvalValue (childV.getMember("geometry"))
+        def gw:double 1.0
+        def gh:double 1.0
+        def gd:double 1.0
+        if (geoV.isObject()) {
+            def w:double (this.num(geoV "width"))
+            def h:double (this.num(geoV "height"))
+            def d:double (this.num(geoV "depth"))
+            if (w > 0.0) {
+                gw = w
+            }
+            if (h > 0.0) {
+                gh = h
+            }
+            if (d > 0.0) {
+                gd = d
+            }
+        }
+        geo.setSize(gw gh gd)
+        m.setGeometry(geo)
+
+        ; material + optional texture map
+        def mat:ThreeMeshBasicMaterial (new ThreeMeshBasicMaterial)
+        def matV:EvalValue (childV.getMember("material"))
+        if (matV.isObject()) {
+            def colV:EvalValue (matV.getMember("color"))
+            def col:double (colV.toNumber())
+            if (col > 0.0) {
+                def ci:int (to_int col)
+                def r:int (idiv ci 65536)
+                def g:int (idiv (ci - (r * 65536)) 256)
+                def b:int (((ci - (r * 65536)) - (g * 256)))
+                mat.setColor(((to_double r) / 255.0) ((to_double g) / 255.0) ((to_double b) / 255.0))
+            }
+            def mapV:EvalValue (matV.getMember("map"))
+            if (mapV.isObject()) {
+                def pathV:EvalValue (mapV.getMember("path"))
+                def tex:ThreeTexture (this.textureForPath(pathV.stringValue))
+                mat.setMap(tex)
+            }
+        }
+        m.setMaterial(mat)
+
+        scene.add(m)
+        push meshes m
+        return m
+    }
+
+    ; Host-supplied texture for the path, else a visible checker so a UV-mapped
+    ; material still shows textured faces headlessly.
+    fn textureForPath:ThreeTexture (path:string) {
+        def i:int 0
+        while (i < (array_length texPaths)) {
+            if ((itemAt texPaths i) == path) {
+                return (itemAt texObjs i)
+            }
+            i = (i + 1)
+        }
+        def tex:ThreeTexture (this.checkerTexture())
+        push texPaths path
+        push texObjs tex
+        return tex
+    }
+
+    ; 2x2 RGBA checker (same as the cube demo) — a stand-in when the host has not
+    ; supplied decoded image pixels for the texture path.
+    fn checkerTexture:ThreeTexture () {
+        def px:buffer (buffer_alloc 16)
+        buffer_set px 0 220
+        buffer_set px 1 60
+        buffer_set px 2 60
+        buffer_set px 3 255
+        buffer_set px 4 60
+        buffer_set px 5 200
+        buffer_set px 6 90
+        buffer_set px 7 255
+        buffer_set px 8 70
+        buffer_set px 9 120
+        buffer_set px 10 230
+        buffer_set px 11 255
+        buffer_set px 12 230
+        buffer_set px 13 220
+        buffer_set px 14 180
+        buffer_set px 15 255
+        def tex:ThreeTexture (new ThreeTexture)
+        tex.setImage(px 2 2)
+        return tex
+    }
+
+    ; Reconcile the current façade scene and draw one frame at w*h.
+    fn renderFrame:void (w:int h:int) {
+        renderer.setSize(w h)
+        this.syncCamera()
+        this.syncScene()
+        renderer.render(scene camera)
+    }
+
+    ; The rendered RGB frame (software backend path).
+    fn raw:buffer () {
+        return (renderer.raw())
+    }
+}

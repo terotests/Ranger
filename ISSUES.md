@@ -3,6 +3,7 @@
 ## Summary (December 2025)
 
 ### Recently Fixed
+- Issue #64: Inheritance broke when a subclass's file was imported via two different path strings (duplicate class collection) - Fixed with `RangerAppClassDesc.is_collected` guard (July 2026)
 - Issue #1: `toString` method crash - Fixed with `hasOwnProperty` check
 - Issue #4: Go integer division type - Fixed with `float64()` cast
 - Issue #57: Go UTF-8 string handling - Fixed with rune-based operations
@@ -12,6 +13,7 @@
 - Issue #60: Systemclass types not dynamically discovered in `isDefinedType()` - Fixed with `TTypeRegistry` and `registerLangSystemClasses()` (July 2026)
 
 ### Still Open
+- Issue #63: `return call()` (a bare/compound method-call in return position) fails type analysis — must be written `return (call())`. Low priority; clean workaround exists (see below).
 - Issue #59: System classes have hardcoded type handling (Design Issue)
 - Issue #15: Adding new primitive types requires changes in multiple files (partially addressed by `TTypeRegistry`; full `primitivetype` registry not done)
 
@@ -20,6 +22,136 @@
 - New systemclasses: `HttpRequest`, `HttpResponse`, `SSEClient`, `HttpServer`
 - Route annotations: `@(GET "/")`, `@(POST "/")`, `@(SSE "/")`
 - `start server port` operator for HttpServer types
+
+---
+
+## Issue #64: Inheritance breaks when a subclass file is imported via two path strings
+
+**Status:** Fixed (July 2026)
+**Severity:** High (silent, misleading error; blocks legitimate module graphs)
+**Targets:** all (front-end method collection)
+
+### Description
+
+Imports were de-duplicated by the **literal import string**, not the resolved
+file. So the *same* file reached via two different path strings — e.g. a bare
+`"three_scene.rgr"` found on a library path from one importer, and an explicit
+`"gallery/game_engine/three/src/three_scene.rgr"` from another — was collected
+**twice**. The second walk of a `class` body created a throw-away class desc and
+registered the methods on it (the registry keeps the first desc via `addClass`).
+A **subclass** defined in the doubly-loaded file then failed to resolve its
+parent's inherited methods.
+
+### Symptom (misleading)
+
+The error surfaced at an *inherited* call inside the duplicated subclass, e.g.:
+
+```
+[FAIL]  function variable not found updateMatrixWorld
+```
+
+pointing at `three_perspective_camera.rgr` (`this.updateMatrixWorld()`), even
+though the real cause was that the file was imported twice under two path
+strings. This made it look like an inheritance/`extends` failure.
+
+### Reproduction
+
+```
+; entry.rgr — the SAME subclass file imported via two different strings
+Import "three_perspective_camera.rgr"
+Import "gallery/game_engine/three/src/three_perspective_camera.rgr"
+class M {
+    sfn m@(main):void () {
+        def c:ThreePerspectiveCamera (new ThreePerspectiveCamera)
+        c.updateViewMatrix()   ; -> "function variable not found updateMatrixWorld"
+        print "ok"
+    }
+}
+```
+
+Equivalently: importing `renderer` (relative internal imports) alongside explicit
+full-path imports of the same core files double-loaded the subclasses.
+
+### Fix
+
+`RangerAppClassDesc.is_collected` (new flag), set true when a class body is first
+walked in `WalkCollectMethods`. The class-creation path now skips re-walking a
+class whose desc is already `is_collected`, so a duplicate load no longer creates
+an orphan desc. System-class name collisions are unaffected (they are registered
+without a body walk, so `is_collected` stays false and the user class is still
+processed). Regression test: `tests/inheritance-dup-import.test.ts`.
+
+Workaround (no longer needed, but still good hygiene): import each file via one
+consistent path form so nothing is loaded twice.
+
+---
+
+## Issue #63: `return this.helper()` fails type analysis — parenthesize the call
+
+**Status:** Open (low priority — clean workaround)
+**Severity:** Low (footgun, not a correctness bug)
+**Found:** July 2026
+**Targets:** all (es6, cpp, go — identical failure; it is a front-end analysis
+issue in the `[2/5] Analyzing code` phase, not codegen)
+
+### Description
+
+Returning the result of a **function/method call** directly in return position
+fails the compiler's argument-type matching for the `return` operator. The value
+must be bound to a local first, or the call wrapped so it is the *direct*
+parenthesized operand of `return`.
+
+This follows from Ranger's LISP / S-expression grammar (a call passed as an
+argument needs its own parentheses), so it is arguably by-design rather than a
+bug — but it is an easy mistake that produces two confusing, misleading errors
+(often surfacing at an *unrelated* inherited method, e.g. a phantom
+`function variable not found updateMatrixWorld`), so it is tracked here. We could
+make the bare form parse/analyze later; for now, parenthesize.
+
+### Error messages
+
+```
+[FAIL] Could not match argument types for return
+[FAIL] Function does not return any values!
+```
+
+(`return` is matched as an operator; when its argument is an unresolved call the
+match fails, so the flow analyser also never records a return → the second error.)
+
+### Reproduction / boundary
+
+```
+class P {
+    fn helper:int () { return (3) }
+
+    fn bad:int  () { return this.helper() }        ; FAIL
+    fn ok1:int  () { return (this.helper()) }       ; PASS — call is the direct ( ) operand
+    fn bad2:int () { return (this.helper() + 0) }    ; FAIL — call nested in a compound expr
+    fn bad3:int () { return o.helper() }             ; FAIL — not this-specific
+    fn bad4:int () { return P.shelper() }            ; FAIL — static call too
+    fn ok2:int  () { def v:int (this.helper()) return v }  ; PASS — bind to a local first
+}
+```
+
+| Pattern | Result |
+|---|---|
+| `return this.helper()` | FAIL |
+| `return (this.helper())` | PASS |
+| `return (this.helper() + 0)` | FAIL |
+| `return o.helper()` / `return P.sh()` | FAIL |
+| `def v:int (this.helper())` … `return v` | PASS |
+
+### Workaround (use everywhere)
+
+- Prefer: `return (this.helper())` — wrap the call so it is the direct operand.
+- If the return value is a compound expression containing a call, bind the call
+  to a typed local first: `def v:int (this.helper()) return (v + 0)`.
+
+### Where it lives
+
+`compiler/ng_FlowWork.rgr` (~line 722, `"Could not match argument types for " + …`)
+and the `return` handling above it; the missing-return error is
+`compiler/TFlow.rgr:20` (`didReturnAtIndex == -1`).
 
 ---
 
