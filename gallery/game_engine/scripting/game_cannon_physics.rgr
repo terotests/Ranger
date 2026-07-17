@@ -15,6 +15,7 @@ Import "../physics/src/cannon_plane.rgr"
 Import "../physics/src/cannon_vec3.rgr"
 Import "../physics/src/cannon_quaternion.rgr"
 Import "../physics/src/cannon_contact_equation.rgr"
+Import "../physics/src/cannon_equation.rgr"
 
 class CannonPhysicsCollision {
     def bodyId:string ""
@@ -263,7 +264,7 @@ class GameCannonPhysics {
         def n:int (array_length this.world.narrowphase.result)
         def k 0
         while (k < n) {
-            def c:CannonContactEquation (itemAt this.world.narrowphase.result k)
+            def c:CannonEquation (itemAt this.world.narrowphase.result k)
             if (c.enabled) {
                 def ia:int c.bi.id
                 def ib:int c.bj.id

@@ -1,0 +1,105 @@
+; ==============================================================================
+; cannon_showcase_demo — the upgraded engine in action, rendered as ASCII.
+;   Drives the engine directly through the PhysicsWorld interface (no game
+;   bridge): three balls dropped in a column settle into a stable stack on the
+;   floor. Prints a side view at several instants so the settling is visible.
+;   Build + run:
+;     RANGER_LIB=compiler/Lang.rgr:lib/stdops.rgr node bin/output.js -es6 \
+;       gallery/game_engine/scripting/cannon_showcase_demo.rgr \
+;       -d=gallery/game_engine/scripting -o=cannon_showcase_demo.js -nodecli \
+;     && node gallery/game_engine/scripting/cannon_showcase_demo.js
+; ==============================================================================
+
+Import "../physics/src/physics_world.rgr"
+Import "../physics/src/cannon_physics_world.rgr"
+
+class CannonShowcaseDemo {
+    sfn absd:double (v:double) {
+        if (v < 0.0) {
+            return (0.0 - v)
+        }
+        return v
+    }
+
+    ; A 19x13 side view (x in [-4.5,4.5], y in [0,12]); balls are 'O', floor '='.
+    sfn render:void (pw:CannonPhysicsWorld a:int b:int c:int label:string) {
+        def ax:double (pw.bodyPosX(a))
+        def ay:double (pw.bodyPosY(a))
+        def bx:double (pw.bodyPosX(b))
+        def by:double (pw.bodyPosY(b))
+        def cx:double (pw.bodyPosX(c))
+        def cy:double (pw.bodyPosY(c))
+        print (label + ":")
+        def cols:int 19
+        def rows:int 13
+        def r 0
+        while (r < rows) {
+            def worldY:double (12.0 - (to_double r))
+            def line:string "|"
+            def col 0
+            while (col < cols) {
+                def worldX:double ((((to_double col) / (to_double cols)) * 9.0) - 4.5)
+                def ch:string " "
+                def ddx:double (worldX - ax)
+                def ddy:double (worldY - ay)
+                def da:double (sqrt((ddx * ddx) + (ddy * ddy)))
+                def ex:double (worldX - bx)
+                def ey:double (worldY - by)
+                def db:double (sqrt((ex * ex) + (ey * ey)))
+                def fx:double (worldX - cx)
+                def fy:double (worldY - cy)
+                def dc:double (sqrt((fx * fx) + (fy * fy)))
+                if (da < 1.0) { ch = "O" }
+                if (db < 1.0) { ch = "O" }
+                if (dc < 1.0) { ch = "O" }
+                if (worldY < 0.5) { ch = "=" }
+                line = (line + ch)
+                col = (col + 1)
+            }
+            print (line + "|")
+            r = (r + 1)
+        }
+    }
+
+    sfn stepN:void (pw:CannonPhysicsWorld n:int dt:double) {
+        def i 0
+        while (i < n) {
+            pw.step(dt)
+            i = (i + 1)
+        }
+    }
+
+    sfn m@(main):void () {
+        def pw:CannonPhysicsWorld (new CannonPhysicsWorld)
+        pw.initWorld()
+        pw.setGravity(0.0 (0.0 - 30.0) 0.0)
+        pw.addStaticPlane(0.0 1.0 0.0)
+        def a:int (pw.addSphere(1.0 0.0 4.0 0.0 1.0))
+        def b:int (pw.addSphere(1.0 0.0 7.0 0.0 1.0))
+        def c:int (pw.addSphere(1.0 0.0 10.0 0.0 1.0))
+        def dt:double (1.0 / 60.0)
+
+        CannonShowcaseDemo.render(pw a b c "t=0.00s (released)")
+        CannonShowcaseDemo.stepN(pw 25 dt)
+        CannonShowcaseDemo.render(pw a b c "t=0.42s (falling)")
+        CannonShowcaseDemo.stepN(pw 35 dt)
+        CannonShowcaseDemo.render(pw a b c "t=1.00s (impact)")
+        CannonShowcaseDemo.stepN(pw 120 dt)
+        CannonShowcaseDemo.render(pw a b c "t=3.00s (settled)")
+
+        def ya:double (pw.bodyPosY(a))
+        def yb:double (pw.bodyPosY(b))
+        def yc:double (pw.bodyPosY(c))
+        print (("finalY  bottom=" + (to_string ya)) + ((" mid=" + (to_string yb)) + (" top=" + (to_string yc))))
+        ; a on the floor (~1), b on a (~3), c on b (~5); each ~2r=2 apart.
+        def ok:boolean true
+        if (CannonShowcaseDemo.absd(ya - 1.0) > 0.4) { ok = false }
+        if (CannonShowcaseDemo.absd((yb - ya) - 2.0) > 0.5) { ok = false }
+        if (CannonShowcaseDemo.absd((yc - yb) - 2.0) > 0.5) { ok = false }
+        if (ok) {
+            print "cannon-showcase done (stable 3-ball stack)"
+            return
+        }
+        print "cannon-showcase FAIL"
+    }
+}
