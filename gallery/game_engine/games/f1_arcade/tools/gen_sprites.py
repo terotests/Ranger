@@ -229,6 +229,26 @@ def draw_crowd_sheet():
     return pix, w, h, fw, fh
 
 
+def draw_rear_tire(pix, w, h, x, y, tw=12, th=16):
+    """Rear-facing tire: stacked tread boxes + shiny highlight on top."""
+    # Dark rubber stack (horizontal “rings” seen from behind).
+    bands = [
+        (0, 0, tw, 3, (28, 28, 32, 255)),
+        (0, 3, tw, 3, (12, 12, 14, 255)),
+        (1, 6, tw - 2, 3, (22, 22, 26, 255)),
+        (0, 9, tw, 3, (10, 10, 12, 255)),
+        (1, 12, tw - 2, 4, (18, 18, 20, 255)),
+    ]
+    for bx, by, bw, bh, col in bands:
+        fill_rect(pix, w, h, x + bx, y + by, bw, bh, col)
+    # Specular shine on the upper tread.
+    fill_rect(pix, w, h, x + 2, y + 1, tw - 4, 2, (210, 215, 230, 255))
+    fill_rect(pix, w, h, x + 3, y + 1, 2, 1, (255, 255, 255, 255))
+    # Sidewall edges.
+    fill_rect(pix, w, h, x, y + 2, 1, th - 4, (40, 40, 48, 255))
+    fill_rect(pix, w, h, x + tw - 1, y + 2, 1, th - 4, (40, 40, 48, 255))
+
+
 def draw_f1_rear(
     body=(220, 50, 40, 255),
     accent=(40, 120, 220, 255),
@@ -239,8 +259,6 @@ def draw_f1_rear(
     """Stubbier rear view (into the screen). lean: -1/0/+1."""
     pix = blank(w, h)
     wing = (22, 22, 26, 255)
-    tire = (14, 14, 16, 255)
-    rim = (155, 155, 165, 255)
     shade = (
         max(0, body[0] - 45),
         max(0, body[1] - 35),
@@ -257,7 +275,7 @@ def draw_f1_rear(
     for sx in range(8, 50, 6):
         fill_rect(pix, w, h, sx + ox, 4, 2, 3, (70, 70, 78, 255))
 
-    # Compact engine cover facing camera (not a long top-down chassis).
+    # Compact engine cover facing camera.
     fill_rect(pix, w, h, 16 + ox, 9, 24, 12, body)
     fill_rect(pix, w, h, 18 + ox, 11, 20, 8, shade)
     fill_rect(pix, w, h, 20 + ox, 8, 16, 4, (32, 32, 38, 255))
@@ -271,10 +289,9 @@ def draw_f1_rear(
     # Exhaust.
     fill_rect(pix, w, h, 22 + ox, 20, 12, 2, (255, 150, 40, 255))
 
-    # Two fat rear tires only.
-    for tx in (0 + lean * 3, 40 + lean * 3):
-        fill_ellipse(pix, w, h, tx + 8, 26, 10, 8, tire)
-        fill_ellipse(pix, w, h, tx + 8, 26, 3, 3, rim)
+    # Rear tires: stacked boxes + shine (not side-on ellipses).
+    draw_rear_tire(pix, w, h, 2 + lean * 3, 18, 12, 16)
+    draw_rear_tire(pix, w, h, 42 + lean * 3, 18, 12, 16)
     return pix, w, h
 
 

@@ -29,13 +29,14 @@ const DRAW_DIST = 48;
 const CURVE_STRENGTH = 0.35;
 const TRACK_SEGS = 64;
 const AI_COUNT = 4;
-const PROP_SLOTS = 10;
+const PROP_SLOTS = 12;
 const START_TIME = 75;
 const PAN_W = 960;
 const PAN_H = 56;
 
 // Sprite scale: project().scale * SPRITE_SCALE_K → percent (100 = full PNG).
-const SPRITE_SCALE_K = 120000;
+// Near scale≈0.00056 → ~100%; far stays readable for crowds/palms.
+const SPRITE_SCALE_K = 190000;
 // Near/far depths: near ≈ full road width on screen; far ≈ thin ribbon at horizon.
 const Z_NEAR = 1500;
 const Z_FAR = 18000;
@@ -170,7 +171,7 @@ function project(worldX, relZ, camX) {
 }
 
 function spriteScalePct(projScale) {
-  return clamp(floorOf(projScale * SPRITE_SCALE_K), 6, 110);
+  return clamp(floorOf(projScale * SPRITE_SCALE_K), 12, 120);
 }
 
 function rumbleW(roadHalf) {
@@ -550,41 +551,54 @@ function placeWorld(entities, playerZ, playerX, anim, aiState) {
           }
         }
 
+        // Pin props to the *rendered* road edge (same cx/half as asphalt),
+        // not a world X inside the lane — otherwise curves put them on tarmac.
         if (propSlot < PROP_SLOTS) {
-          if ((bi % 3) == 0) {
-            if (bi > 3) {
-              if (bi < DRAW_DIST - 2) {
+          if ((bi % 2) == 0) {
+            if (bi > 2) {
+              if (bi < DRAW_DIST - 1) {
                 const kindN = propKindAt(segIdx);
                 if (kindN > 0) {
                   const side = propSideAt(segIdx);
-                  const worldPropX = side * ROAD_WIDTH * 0.62;
-                  const pp = project(worldPropX, relZ, camX);
-                  const sc = spriteScalePct(pp.scale);
-                  if (sc >= 8) {
-                    let kind = "palm";
-                    if (kindN == 2) {
-                      kind = "house";
+                  const sc = spriteScalePct(CAM_DEPTH / relZ);
+                  // Outside rumble: edge + margin that also scales with depth.
+                  const margin = rb + 6 + floorOf(half * 0.08);
+                  const propX = cx + side * (half + margin);
+                  const propY = yNear;
+                  if (sc >= 12) {
+                    if (propX > 8) {
+                      if (propX < VIEW_W - 8) {
+                        let kind = "palm";
+                        if (kindN == 2) {
+                          kind = "house";
+                        }
+                        if (kindN == 3) {
+                          kind = "crowd";
+                        }
+                        // Crowds get a slight scale bump so they stay readable.
+                        let useScale = sc;
+                        if (kind == "crowd") {
+                          useScale = clamp(floorOf(sc * 1.15), 14, 120);
+                        }
+                        if (kind == "crowd") {
+                          entities[propId(kind, propSlot)] = {
+                            x: propX,
+                            y: propY,
+                            p0: (anim + propSlot) % 2,
+                            scale: useScale,
+                            visible: 1
+                          };
+                        } else {
+                          entities[propId(kind, propSlot)] = {
+                            x: propX,
+                            y: propY,
+                            scale: useScale,
+                            visible: 1
+                          };
+                        }
+                        propSlot = propSlot + 1;
+                      }
                     }
-                    if (kindN == 3) {
-                      kind = "crowd";
-                    }
-                    if (kind == "crowd") {
-                      entities[propId(kind, propSlot)] = {
-                        x: pp.x,
-                        y: pp.y,
-                        p0: (anim + propSlot) % 2,
-                        scale: sc,
-                        visible: 1
-                      };
-                    } else {
-                      entities[propId(kind, propSlot)] = {
-                        x: pp.x,
-                        y: pp.y,
-                        scale: sc,
-                        visible: 1
-                      };
-                    }
-                    propSlot = propSlot + 1;
                   }
                 }
               }
