@@ -158,4 +158,9 @@ class ThreeObject3D {
     ; matrixWorld). No-op for non-meshes; ThreeMesh overrides to draw its geometry.
     fn renderDepthInto:void (backend:ThreeRenderBackend lightViewProj:ThreeMatrix4) {
     }
+
+    ; Sky pass: draw an atmosphere/background dome behind the scene. No-op by
+    ; default; ThreeSky overrides to draw the Preetham atmosphere with its uniforms.
+    fn renderSkyInto:void (backend:ThreeRenderBackend viewProj:ThreeMatrix4) {
+    }
 }

@@ -13,6 +13,8 @@
 
 Import "three_object3d.rgr"
 Import "three_vector3.rgr"
+Import "three_render_backend.rgr"
+Import "three_matrix4.rgr"
 
 class ThreeSky extends ThreeObject3D {
     def isSky:boolean true
@@ -48,5 +50,13 @@ class ThreeSky extends ThreeObject3D {
     fn copySunPosition:ThreeSky (dir:ThreeVector3) {
         sunPosition.copy(dir)
         return this
+    }
+
+    ; draw the Preetham atmosphere for this dome: mvp = viewProj * matrixWorld (the
+    ; huge scaled box), and the scattering uniforms. Runs in the renderer's sky pass.
+    fn renderSkyInto:void (backend:ThreeRenderBackend viewProj:ThreeMatrix4) {
+        def mvp:ThreeMatrix4 (viewProj.clone())
+        mvp.multiply(this.matrixWorld)
+        backend.drawAtmosphere(mvp this.matrixWorld this.sunPosition.x this.sunPosition.y this.sunPosition.z this.rayleigh this.turbidity this.mieCoefficient this.mieDirectionalG)
     }
 }

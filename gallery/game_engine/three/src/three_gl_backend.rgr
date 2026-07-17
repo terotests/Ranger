@@ -27,6 +27,10 @@ class ThreeGLBackend extends ThreeRenderBackend {
     def skyProg:int 0
     def skyMesh:int 0
     def skyReady:boolean false
+    ; Preetham atmosphere: its program + a huge sky box, built lazily.
+    def atmoProg:int 0
+    def atmoMesh:int 0
+    def atmoReady:boolean false
     ; shadow map: an off-screen depth target + a depth-only program, built lazily.
     ; The map is 2048² to match the übershader's PCF texel offset (1.0/2048.0).
     def shadowTarget:int 0
@@ -218,6 +222,37 @@ class ThreeGLBackend extends ThreeRenderBackend {
         } {
             gpu_set_shadow 0 mb 0
         }
+    }
+
+    ; --- Preetham atmosphere sky ---------------------------------------------
+    fn ensureAtmosphere:void () {
+        if atmoReady {
+            return
+        }
+        def vs:string (ThreeGLShaders.atmosphereVertexSrc())
+        def fs:string (ThreeGLShaders.atmosphereFragmentSrc())
+        atmoProg = (gpu_program vs fs)
+        def box:ThreeBoxGeometry (new ThreeBoxGeometry)
+        box.setSize(2.0 2.0 2.0)
+        atmoMesh = (this.uploadGeometryData(box))
+        atmoReady = true
+    }
+    fn drawAtmosphere:void (mvp:ThreeMatrix4 model:ThreeMatrix4 sunX:double sunY:double sunZ:double rayleigh:double turbidity:double mieCoefficient:double mieDirectionalG:double) {
+        if (ready == false) {
+            return
+        }
+        this.ensureAtmosphere()
+        def mvpBuf:buffer (this.matrixBytes(mvp))
+        def modelBuf:buffer (this.matrixBytes(model))
+        def params:buffer (buffer_alloc 28)
+        ByteReader.encodeF32(params 0 sunX)
+        ByteReader.encodeF32(params 4 sunY)
+        ByteReader.encodeF32(params 8 sunZ)
+        ByteReader.encodeF32(params 12 rayleigh)
+        ByteReader.encodeF32(params 16 turbidity)
+        ByteReader.encodeF32(params 20 mieCoefficient)
+        ByteReader.encodeF32(params 24 mieDirectionalG)
+        gpu_draw_atmosphere atmoProg atmoMesh mvpBuf modelBuf params
     }
 
     fn endFrame:void () {

@@ -145,6 +145,8 @@ class ThreeWebGLRenderer {
         } {
             be.setEnvironment(0)
         }
+        ; atmosphere sky (Preetham dome): drawn first, behind everything.
+        this.renderSky(scene be vp)
         this.renderObject(scene be vp)
         be.endFrame()
     }
@@ -215,6 +217,18 @@ class ThreeWebGLRenderer {
                 this.findShadow(c)
                 i = (i + 1)
             }
+        }
+    }
+
+    ; sky pass: draw any atmosphere/background dome behind the scene.
+    fn renderSky:void (obj:ThreeObject3D be:ThreeRenderBackend vp:ThreeMatrix4) {
+        obj.renderSkyInto(be vp)
+        def i:int 0
+        def n:int (obj.childCount())
+        while (i < n) {
+            def c:ThreeObject3D (obj.getChild(i))
+            this.renderSky(c be vp)
+            i = (i + 1)
         }
     }
 

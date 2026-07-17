@@ -63,6 +63,10 @@ class ThreeRenderBackend {
     }
     fn drawSkybox:void (handle:int mvp:ThreeMatrix4) {
     }
+    ; Preetham atmosphere dome: mvp + model for the huge sky box, its sun direction
+    ; and the four scattering uniforms. Drawn behind everything. No-op by default.
+    fn drawAtmosphere:void (mvp:ThreeMatrix4 model:ThreeMatrix4 sunX:double sunY:double sunZ:double rayleigh:double turbidity:double mieCoefficient:double mieDirectionalG:double) {
+    }
     fn endFrame:void () {
     }
     ; RGB frame (w*h*3); empty on backends that draw straight to a device.
