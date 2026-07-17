@@ -1,0 +1,112 @@
+; ==============================================================================
+; web_tsx3d_gl_host — run the 1:1 Three.js cube (.tsx) on the GPU in the browser.
+; ==============================================================================
+;
+; Ties the three layers together for the web:
+;   ComponentEngine  interprets the unmodified Three.js cube script (cube.tsx)
+;                    against the thin three.tsx façade;
+;   ThreeTsxBridge   reconciles that interpreted scene into the canonical Ranger
+;                    Three core each frame (the needsUpdate model);
+;   ThreeGLBackend   draws the core scene with real WebGL on a <canvas> context
+;                    (three_gl's es6 templates emit gl.createProgram / bufferData
+;                    / drawElements / uniformMatrix4fv …).
+;
+; Exposed as a flat API the JS/canvas harness drives (setup a GL context on a
+; canvas id, load the script, hand it decoded texture pixels, then call frame()
+; each requestAnimationFrame). No JavaScript in the engine — this whole host
+; compiles to C++ too (the GL backend's cpp templates emit desktop GL/GLES), so
+; the same path runs native.
+; ==============================================================================
+
+Import "../three/tsx/three_tsx_bridge.rgr"
+Import "../three/src/three_gl_backend.rgr"
+
+class WebTsx3dGlHost {
+    def engine:ComponentEngine (new ComponentEngine())
+    def bridge:ThreeTsxBridge (new ThreeTsxBridge)
+    def gl:ThreeGLBackend (new ThreeGLBackend)
+    def ready:boolean false
+    def w:int 800
+    def h:int 600
+
+    ; Host capabilities the script's `import * as THREE from 'three'` hints at
+    ; (THREE.* constants) plus the browser `window` numbers the canvas supplies.
+    fn registerGlobals:void (winW:int winH:int dpr:double) {
+        def tk:[string]
+        def tv:[EvalValue]
+        push tk "SRGBColorSpace"
+        push tv (EvalValue.string("srgb"))
+        engine.registerGlobal("THREE" (EvalValue.object(tk tv)))
+
+        def wk:[string]
+        def wv:[EvalValue]
+        push wk "innerWidth"
+        push wv (EvalValue.number((to_double winW)))
+        push wk "innerHeight"
+        push wv (EvalValue.number((to_double winH)))
+        push wk "devicePixelRatio"
+        push wv (EvalValue.number(dpr))
+        engine.registerGlobal("window" (EvalValue.object(wk wv)))
+    }
+
+    ; Acquire a WebGL context on the given canvas id and route the Ranger core
+    ; renderer to it. Returns false if the context could not be created.
+    fn setupGL:boolean (canvasId:string) {
+        def ok:boolean (gl.init(canvasId))
+        if (ok == false) {
+            return false
+        }
+        bridge.useBackend(gl)
+        return true
+    }
+
+    ; Load the façade + the 1:1 cube script (concatenated, one program) and run
+    ; the example's init() to build the scene.
+    fn load:string (facadeSrc:string cubeSrc:string winW:int winH:int dpr:double) {
+        w = winW
+        h = winH
+        engine.quiet = true
+        this.registerGlobals(winW winH dpr)
+        bridge.setEngine(engine)
+        def src:string ((facadeSrc + "\n") + cubeSrc)
+        engine.loadScript(src)
+        def r:EvalValue (engine.callFunction("init" (EvalValue.null())))
+        ready = true
+        return "ok"
+    }
+
+    ; Same, reading façade + cube from the VFS (files mounted at their repo paths).
+    fn loadFromVfs:string (dir:string facadeFile:string cubeFile:string winW:int winH:int dpr:double) {
+        def f:buffer (buffer_read_file dir facadeFile)
+        def c:buffer (buffer_read_file dir cubeFile)
+        def fs:string (buffer_to_string f)
+        def cs:string (buffer_to_string c)
+        return (this.load(fs cs winW winH dpr))
+    }
+
+    ; Hand decoded RGBA pixels for a texture path to the bridge. The browser host
+    ; decodes the image (e.g. draws it to a 2D canvas and reads it back); call
+    ; this before the first frame so the mesh material picks it up.
+    fn setTexture:void (path:string rgba:buffer texW:int texH:int) {
+        bridge.setTexture(path rgba texW texH)
+    }
+
+    ; Advance the interpreted animate() loop one step, then draw the reconciled
+    ; scene to the GL canvas. The JS harness calls this each requestAnimationFrame.
+    fn frame:void () {
+        if (ready == false) {
+            return
+        }
+        def t:EvalValue (engine.callFunction("tick" (EvalValue.null())))
+        bridge.renderFrame(w h)
+    }
+
+    fn setSize:void (winW:int winH:int) {
+        w = winW
+        h = winH
+    }
+
+    fn isReady:boolean () {
+        return ready
+    }
+}

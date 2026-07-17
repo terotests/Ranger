@@ -148,6 +148,43 @@ The GLB read goes through the same VFS-backed `require('fs')`, so the model is
 just a file in the zip. Same renderer as the native build — `SoftRenderer3D`
 gained only an optional `orbitYRad` field (default 0 = unchanged behaviour).
 
+## Three.js cube on the GPU (`/games/tsx3d`)
+
+The canonical Three.js rotating-cube example runs **1:1, unmodified** — including
+`import * as THREE from 'three'` — in Ranger's **`.tsx` interpreter**, against the
+thin [`three.tsx`](../three/tsx/three.tsx) façade, and renders with **real WebGL**.
+No three.js JavaScript is shipped: the 3D engine is the Ranger clone in
+[`../three`](../three), the same source that compiles to native OpenGL/GLES.
+
+```
+cube.tsx (unmodified Three.js)  →  ComponentEngine (interpreter)
+    →  ThreeTsxBridge (reconcile the interpreted scene into the Ranger core)
+    →  ThreeWebGLRenderer + ThreeGLBackend  →  gl.* on a <canvas> (WebGL)
+```
+
+- **`web_tsx3d_gl_host.rgr`** — `WebTsx3dGlHost`: `setupGL(canvasId)` (acquire the
+  WebGL context), `loadFromVfs(dir,facade,script,w,h,dpr)` (run the interpreter +
+  the example's `init()`), `setTexture(path,rgba,w,h)`, `frame()` (advance the
+  interpreted `animate()` and draw). Compiles to `tsx3d-gl.bundle.js` — **and to
+  C++** (the GL backend's `cpp` templates emit desktop GL/GLES), so the same host
+  runs native.
+- **`src/tsx3d-gl-viewer.js`** — rAF loop; the Ranger host draws straight to the
+  canvas's WebGL context (no RGB blit).
+- **`build-tsx3d.mjs`** — compiles the host and packages `three.tsx` + `cube.tsx`
+  at their repo VFS paths.
+
+Build + serve locally:
+
+```sh
+node gallery/game_engine/web/build-tsx3d.mjs
+cd gallery/game_engine/web/dist/tsx3d && python3 -m http.server 8001   # open :8001
+```
+
+Verified end-to-end in headless Chromium (SwiftShader): the interpreted cube
+renders on the GPU and rotates (consecutive frames differ). Texture pixels are
+optional — absent a host-supplied image, the bridge applies a visible checker so
+UV mapping shows; `setTexture(path, rgba, w, h)` swaps in decoded image pixels.
+
 ## Roadmap
 
 - **WASM game logic** — the car game (`autopeli_wasm`). The engine's `wasm_*`
