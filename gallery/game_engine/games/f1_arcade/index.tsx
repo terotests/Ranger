@@ -533,21 +533,24 @@ function placeWorld(entities, playerZ, playerX, anim, aiState) {
           visible: 1
         };
 
-        const dash = wrapMod(floorOf(relZ / 50), 2);
+        // Dashed center line all the way to the near camera (bi = 0).
+        const dash = wrapMod(floorOf(relZ / 55) + bi, 2);
         if (dash == 0) {
-          if (bi < DRAW_DIST - 6) {
-            if (bi > 1) {
-              entities["ln" + bi] = {
-                x: cx,
-                y: y,
-                w: lw,
-                h: bandH,
-                r: 240,
-                g: 240,
-                b: 220,
-                visible: 1
-              };
+          if (bi < DRAW_DIST - 2) {
+            let lineH = bandH;
+            if (lineH < 3) {
+              lineH = 3;
             }
+            entities["ln" + bi] = {
+              x: cx,
+              y: y,
+              w: lw,
+              h: lineH,
+              r: 240,
+              g: 240,
+              b: 220,
+              visible: 1
+            };
           }
         }
 
