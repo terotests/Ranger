@@ -1,0 +1,88 @@
+; ==============================================================================
+; littleciv_runner_demo - headless smoke for games/littleciv/index.tsx
+; ==============================================================================
+;
+; Boots LittleCiv, leaves the splash with ACTION, walks the settler, founds a
+; city, then ends a couple of turns. Prints entity poses so CI can verify the
+; retained scene actually built.
+; ==============================================================================
+
+Import "../scripting/game_runtime.rgr"
+
+class LittlecivRunnerDemo {
+    sfn m@(main):void () {
+        def runner:GameRunner (new GameRunner)
+        runner.init(480 270)
+
+        def buf:buffer (buffer_read_file "gallery/game_engine/games/littleciv" "index.tsx")
+        def src:string (buffer_to_string buf)
+        runner.setScriptDir("gallery/game_engine/games/littleciv")
+        runner.loadScript(src)
+        runner.setupScene()
+
+        def frames:int 240
+        if ((shell_arg_cnt) > 0) {
+            def parsed@(optional):int (to_int (shell_arg 0))
+            if (!null? parsed) {
+                frames = (unwrap parsed)
+            }
+        }
+
+        def i 0
+        while (i < frames) {
+            def up:boolean false
+            def down:boolean false
+            def left:boolean false
+            def right:boolean false
+            def action:boolean false
+
+            ; Leave splash.
+            if (i == 5) {
+                action = true
+            }
+            ; Walk settler east a couple of tiles (edge pulses).
+            if (i == 20) { right = true }
+            if (i == 40) { right = true }
+            ; Found a city with Space.
+            if (i == 60) { action = true }
+            ; End turn via Down once units are spent (pulse a few times).
+            if (i == 90) { down = true }
+            if (i == 120) { down = true }
+            if (i == 150) { down = true }
+
+            runner.frame(16 up down left right action false)
+            i = (i + 1)
+        }
+
+        runner.draw()
+        buffer_write_file "gallery/game_engine/scripting" "littleciv_frame.rgba" (runner.raw())
+
+        def sc:string (runner.getCurrentScreen())
+        def ec:int (runner.entityCount())
+        def u0x:int (runner.entityX("u0"))
+        def u0y:int (runner.entityY("u0"))
+        def c0x:int (runner.entityX("c0"))
+        def c0y:int (runner.entityY("c0"))
+        def c2x:int (runner.entityX("c2"))
+        def c2y:int (runner.entityY("c2"))
+        print ("frames=" + frames)
+        print ("screen=" + sc)
+        print (("entities=" + ec))
+        print (("u0=" + u0x) + ("," + u0y))
+        print (("c0=" + c0x) + ("," + c0y))
+        print (("c2=" + c2x) + ("," + c2y))
+        ; Settler should be consumed (hidden) and a new city should sit on its tile.
+        if (u0x < 0) {
+            if (c2x > 0) {
+                print "foundCity=ok"
+            } {
+                print "foundCity=missing-city"
+            }
+        } {
+            print "foundCity=settler-still-alive"
+        }
+        def audio:GameAudio (runner.audioRef())
+        print (("audioPlays=" + audio.playCount))
+        print "littleciv-runner done"
+    }
+}
