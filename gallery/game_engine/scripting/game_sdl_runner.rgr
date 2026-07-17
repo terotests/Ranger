@@ -950,6 +950,55 @@ class GameSdlRunner {
         }
     }
 
+    ; Split-screen panes each have their own GameHostNativeBridge. pushGame /
+    ; loadGame from a pane script lands on leftBridge/rightBridge — not the
+    ; solo nativeBridge — so the solo drainScriptNavigation never saw them
+    ; (Ylos 3 / Invaders level advance was a no-op in split). Reload both panes.
+    fn reloadSplitPanes:void (tsxPath:string) {
+        gfx_audio_clear
+        splitHost.clearPendingNav()
+        currentGamePath = tsxPath
+        currentScriptPath = tsxPath
+        splitHost.loadPanes(tsxPath tsxPath)
+        inMenu = false
+        inGame = true
+        this.syncInputEdges()
+        gfx_clear_should_close
+        print ("[split-screen] nav reload both panes: " + tsxPath)
+    }
+
+    fn drainSplitScriptNavigation:void () {
+        if (false == (splitHost.consumePendingNav())) {
+            return
+        }
+        def op:string splitHost.lastNavOp
+        def path:string splitHost.lastNavPath
+        if (op == "load") {
+            if ((strlen path) > 0) {
+                this.clearNavStack()
+                this.reloadSplitPanes(path)
+            }
+            return
+        }
+        if (op == "push") {
+            if ((strlen path) > 0) {
+                this.pushNavStack(currentScriptPath)
+                this.reloadSplitPanes(path)
+            }
+            return
+        }
+        if (op == "pop") {
+            def prev:string (this.popNavStack())
+            if ((strlen prev) == 0) {
+                inGame = false
+                splitScreenActive = false
+                return
+            }
+            this.reloadSplitPanes(prev)
+            return
+        }
+    }
+
     fn maybePollCatalog:void () {
         def now:int (gfx_ticks_ms)
         if ((now - lastCatalogPoll) < catalogPollMs) {
@@ -1880,6 +1929,7 @@ class GameSdlRunner {
                         wasmSplitHost.frame(dtMs)
                     } {
                         splitHost.frameWithInput(dtMs)
+                        this.drainSplitScriptNavigation()
                     }
                 }
             } {
