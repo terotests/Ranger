@@ -99,6 +99,7 @@ function __rglEnd(){ }
                   (imp "<vector>") (imp "<string>") (imp "<cstdint>") (imp "<cmath>")
 (create_polyfill "
 #if defined(__APPLE__)
+#define GL_SILENCE_DEPRECATION
 #include <OpenGL/gl3.h>
 #elif defined(__arm__) || defined(__aarch64__)
 #include <GLES2/gl2.h>
@@ -126,7 +127,7 @@ static void rgl_begin(int w,int h,double r,double g,double b){ glViewport(0,0,w,
 static int rgl_program(std::string vs, std::string fs){ GLuint p=glCreateProgram(); glAttachShader(p, rgl_sh(GL_VERTEX_SHADER, vs.c_str())); glAttachShader(p, rgl_sh(GL_FRAGMENT_SHADER, fs.c_str())); glLinkProgram(p); RglProg e; e.p=p; g_rglProgs.push_back(e); return (int)g_rglProgs.size(); }
 static int rgl_mesh(const uint8_t* vb,int vsz,int vc,const uint8_t* ib,int isz,int ic){ (void)vc; RglMesh m; glGenBuffers(1,&m.vbo); glBindBuffer(GL_ARRAY_BUFFER,m.vbo); glBufferData(GL_ARRAY_BUFFER,vsz,vb,GL_STATIC_DRAW); glGenBuffers(1,&m.ebo); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,m.ebo); glBufferData(GL_ELEMENT_ARRAY_BUFFER,isz,ib,GL_STATIC_DRAW); m.count=ic; g_rglMeshes.push_back(m); return (int)g_rglMeshes.size(); }
 static int rgl_texture(const uint8_t* bytes,int w,int h){ GLuint t; glGenTextures(1,&t); glBindTexture(GL_TEXTURE_2D,t); glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,w,h,0,GL_RGBA,GL_UNSIGNED_BYTE,bytes); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_REPEAT); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_REPEAT); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
-#if defined(__arm__) || defined(__aarch64__)
+#if (defined(__arm__) || defined(__aarch64__)) && !defined(__APPLE__)
   glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
 #else
   glGenerateMipmap(GL_TEXTURE_2D); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_LINEAR);
@@ -137,14 +138,14 @@ static void rgl_set_view(double cx,double cy,double cz){ g_rglCam[0]=(float)cx; 
 static void rgl_set_tone(double m,double e){ g_rglTone=(float)m; g_rglExposure=(float)e; }
 static void rgl_set_shadow(int tex,const uint8_t* mat,int on){ g_rglShadowTex=tex; if(mat){ const float* M=(const float*)mat; for(int i=0;i<16;i++) g_rglShadowMat[i]=M[i]; } g_rglShadowOn=(on && tex>0)?1:0; }
 static int rgl_float_tex(const uint8_t* bytes,int w,int h){ GLuint t; glGenTextures(1,&t); glBindTexture(GL_TEXTURE_2D,t); const float* data=(const float*)bytes;
-#if defined(__arm__) || defined(__aarch64__)
+#if (defined(__arm__) || defined(__aarch64__)) && !defined(__APPLE__)
   glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,w,h,0,GL_RGBA,GL_FLOAT,data);
 #else
   glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA32F,w,h,0,GL_RGBA,GL_FLOAT,data);
 #endif
   glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE); g_rglTex.push_back(t); return (int)g_rglTex.size(); }
 static void rgl_update_float_tex(int h,const uint8_t* bytes,int w,int ht){ if(h<1) return; glBindTexture(GL_TEXTURE_2D,g_rglTex[h-1]); const float* data=(const float*)bytes;
-#if defined(__arm__) || defined(__aarch64__)
+#if (defined(__arm__) || defined(__aarch64__)) && !defined(__APPLE__)
   glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,w,ht,0,GL_RGBA,GL_FLOAT,data);
 #else
   glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA32F,w,ht,0,GL_RGBA,GL_FLOAT,data);
@@ -333,14 +334,14 @@ function __rglReadTarget(h,size){ var gl=__rgl; function mk(ab){ ab._view=new Da
             cpp ( "rgl_make_depth_target(" (e 1) ")" (create_polyfill "
 struct RglTarget { GLuint fb; GLuint depthTex; GLuint colorRb; int size; int depthTexId; };
 static std::vector<RglTarget> g_rglTargets;
-#if defined(__arm__) || defined(__aarch64__)
+#if (defined(__arm__) || defined(__aarch64__)) && !defined(__APPLE__)
 static const GLenum RGL_DEPTH_INTERNAL = GL_DEPTH_COMPONENT;
 static const GLenum RGL_DEPTH_TYPE = GL_UNSIGNED_SHORT;
 #else
 static const GLenum RGL_DEPTH_INTERNAL = GL_DEPTH_COMPONENT24;
 static const GLenum RGL_DEPTH_TYPE = GL_UNSIGNED_INT;
 #endif
-#if defined(__arm__) || defined(__aarch64__)
+#if (defined(__arm__) || defined(__aarch64__)) && !defined(__APPLE__)
 #ifndef GL_RGBA8
 #define GL_RGBA8 0x8058
 #endif
@@ -408,7 +409,7 @@ static std::vector<uint8_t> rgl_read_target(int h,int size){ std::vector<uint8_t
     gpu_draw_depth _:void (prog:int mesh:int mvp:buffer) {
         templates {
             es6 ( "__rglDrawDepth(" (e 1) ", " (e 2) ", " (e 3) ")" )
-            cpp ( "rgl_draw_depth(" (e 1) ", " (e 2) ".data())" )
+            cpp ( "rgl_draw_depth(" (e 1) ", " (e 2) ", " (e 3) ".data())" )
         }
     }
 
