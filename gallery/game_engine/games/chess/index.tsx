@@ -62,38 +62,6 @@ function markId(i) {
   return ("mk" + i);
 }
 
-function createStaticBg() {
-  // Soft clear kept transparent-ish over the PNG felt; paint the 8x8 board.
-  bgClear(14, 40, 30);
-  // Wood frame
-  bgFillRect(ORIGIN_X - 8, ORIGIN_Y - 8, TILE * 8 + 16, TILE * 8 + 16, 92, 58, 34);
-  bgFillRect(ORIGIN_X - 5, ORIGIN_Y - 5, TILE * 8 + 10, TILE * 8 + 10, 120, 78, 44);
-  let row = 0;
-  while (row < 8) {
-    let col = 0;
-    while (col < 8) {
-      const light = ((col + row) % 2) == 0;
-      let r = 232;
-      let g = 208;
-      let b = 168;
-      if (light == false) {
-        r = 148;
-        g = 98;
-        b = 58;
-      }
-      bgFillRect(tileLeft(col), tileTop(row), TILE, TILE, r, g, b);
-      // Inner shade for dark squares
-      if (light == false) {
-        bgFillRect(tileLeft(col) + 1, tileTop(row) + 1, TILE - 2, 2, 130, 86, 50);
-      } else {
-        bgFillRect(tileLeft(col) + 1, tileTop(row) + TILE - 3, TILE - 2, 2, 210, 190, 150);
-      }
-      col = col + 1;
-    }
-    row = row + 1;
-  }
-}
-
 function sprites() {
   const list = [];
   list.push({ id: "cursor", kind: "rect", w: TILE - 2, h: TILE - 2, r: 255, g: 230, b: 80 });

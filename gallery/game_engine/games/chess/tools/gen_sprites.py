@@ -237,31 +237,39 @@ def gen_pieces() -> None:
 
 
 def gen_board_bg() -> None:
-    """Deep green felt with subtle vignette — sits behind the painted board."""
+    """Felt backdrop + wood frame + 8x8 checkerboard (matches index.tsx layout)."""
     w, h = 480, 270
+    tile = 28
+    origin_x, origin_y = 128, 22
     buf = blank(w, h)
     for y in range(h):
         for x in range(w):
-            # Radial vignette from center
             dx = (x - w / 2) / (w / 2)
             dy = (y - h / 2) / (h / 2)
             d = math.sqrt(dx * dx + dy * dy)
             base_r, base_g, base_b = 18, 52, 38
-            # gentle noise-ish hash
             n = ((x * 37 + y * 17) ^ (x * y)) & 7
             shade = int(22 * min(1.0, d * 0.85))
             r = max(0, base_r - shade + (n - 3))
             g = max(0, base_g - shade + (n - 3))
             b = max(0, base_b - shade + (n - 2))
             setp(buf, w, h, x, y, r, g, b, 255)
-    # Soft wood-rail suggestion around where the board sits
-    bx, by, bw, bh = 116, 14, 248, 248
-    for i in range(6):
-        c = 90 + i * 8
-        fill_rect(buf, w, h, bx - i, by - i, bw + i * 2, 2, c + 20, 70, 40)
-        fill_rect(buf, w, h, bx - i, by + bh + i, bw + i * 2, 2, c, 55, 32)
-        fill_rect(buf, w, h, bx - i, by - i, 2, bh + i * 2, c + 10, 62, 36)
-        fill_rect(buf, w, h, bx + bw + i, by - i, 2, bh + i * 2, c - 5, 50, 30)
+
+    # Wood frame
+    fill_rect(buf, w, h, origin_x - 8, origin_y - 8, tile * 8 + 16, tile * 8 + 16, 92, 58, 34)
+    fill_rect(buf, w, h, origin_x - 5, origin_y - 5, tile * 8 + 10, tile * 8 + 10, 120, 78, 44)
+
+    for row in range(8):
+        for col in range(8):
+            x0 = origin_x + col * tile
+            y0 = origin_y + row * tile
+            if (col + row) % 2 == 0:
+                fill_rect(buf, w, h, x0, y0, tile, tile, 232, 208, 168)
+                fill_rect(buf, w, h, x0 + 1, y0 + tile - 3, tile - 2, 2, 210, 190, 150)
+            else:
+                fill_rect(buf, w, h, x0, y0, tile, tile, 148, 98, 58)
+                fill_rect(buf, w, h, x0 + 1, y0 + 1, tile - 2, 2, 130, 86, 50)
+
     write_png(OUT / "board_bg.png", w, h, buf)
 
 

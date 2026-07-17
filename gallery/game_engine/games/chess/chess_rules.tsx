@@ -101,21 +101,21 @@ function onBoard(col, row) {
   return 1;
 }
 
-function addMove(moves, from, to, flags) {
-  moves.push({ from: from, to: to, flags: flags });
+function addMove(moves, srcSq, to, flags) {
+  moves.push({ from: srcSq, to: to, flags: flags });
 }
 
-function slide(board, moves, from, color, dcol, drow) {
-  let col = sqCol(from) + dcol;
-  let row = sqRow(from) + drow;
+function slide(board, moves, srcSq, color, dcol, drow) {
+  let col = sqCol(srcSq) + dcol;
+  let row = sqRow(srcSq) + drow;
   while (onBoard(col, row) == 1) {
     const t = sq(col, row);
     const dest = board[t];
     if (dest == 0) {
-      addMove(moves, from, t, 0);
+      addMove(moves, srcSq, t, 0);
     } else {
       if (pieceColor(dest) != color) {
-        addMove(moves, from, t, 1);
+        addMove(moves, srcSq, t, 1);
       }
       return;
     }
@@ -124,16 +124,16 @@ function slide(board, moves, from, color, dcol, drow) {
   }
 }
 
-function genPseudo(board, from, ep) {
+function genPseudo(board, srcSq, ep) {
   const moves = [];
-  const p = board[from];
+  const p = board[srcSq];
   if (p == 0) {
     return moves;
   }
   const color = pieceColor(p);
   const kind = absPiece(p);
-  const col = sqCol(from);
-  const row = sqRow(from);
+  const col = sqCol(srcSq);
+  const row = sqRow(srcSq);
 
   if (kind == 1) {
     const dir = 0 - color;
@@ -150,12 +150,12 @@ function genPseudo(board, from, ep) {
         let fl = 0;
         if (r1 == 0) { fl = 2; }
         if (r1 == 7) { fl = 2; }
-        addMove(moves, from, t1, fl);
+        addMove(moves, srcSq, t1, fl);
         if (row == sr) {
           const r2 = row + dir + dir;
           const t2 = sq(col, r2);
           if (board[t2] == 0) {
-            addMove(moves, from, t2, 4);
+            addMove(moves, srcSq, t2, 4);
           }
         }
       }
@@ -173,11 +173,11 @@ function genPseudo(board, from, ep) {
               let fl = 1;
               if (r2 == 0) { fl = 3; }
               if (r2 == 7) { fl = 3; }
-              addMove(moves, from, t, fl);
+              addMove(moves, srcSq, t, fl);
             }
           } else {
             if (ep == t) {
-              addMove(moves, from, t, 5);
+              addMove(moves, srcSq, t, 5);
             }
           }
         }
@@ -200,10 +200,10 @@ function genPseudo(board, from, ep) {
         const t = sq(c2, r2);
         const dest = board[t];
         if (dest == 0) {
-          addMove(moves, from, t, 0);
+          addMove(moves, srcSq, t, 0);
         } else {
           if (pieceColor(dest) != color) {
-            addMove(moves, from, t, 1);
+            addMove(moves, srcSq, t, 1);
           }
         }
       }
@@ -213,30 +213,30 @@ function genPseudo(board, from, ep) {
   }
 
   if (kind == 3) {
-    slide(board, moves, from, color, 1, 1);
-    slide(board, moves, from, color, 1, -1);
-    slide(board, moves, from, color, -1, 1);
-    slide(board, moves, from, color, -1, -1);
+    slide(board, moves, srcSq, color, 1, 1);
+    slide(board, moves, srcSq, color, 1, -1);
+    slide(board, moves, srcSq, color, -1, 1);
+    slide(board, moves, srcSq, color, -1, -1);
     return moves;
   }
 
   if (kind == 4) {
-    slide(board, moves, from, color, 1, 0);
-    slide(board, moves, from, color, -1, 0);
-    slide(board, moves, from, color, 0, 1);
-    slide(board, moves, from, color, 0, -1);
+    slide(board, moves, srcSq, color, 1, 0);
+    slide(board, moves, srcSq, color, -1, 0);
+    slide(board, moves, srcSq, color, 0, 1);
+    slide(board, moves, srcSq, color, 0, -1);
     return moves;
   }
 
   if (kind == 5) {
-    slide(board, moves, from, color, 1, 0);
-    slide(board, moves, from, color, -1, 0);
-    slide(board, moves, from, color, 0, 1);
-    slide(board, moves, from, color, 0, -1);
-    slide(board, moves, from, color, 1, 1);
-    slide(board, moves, from, color, 1, -1);
-    slide(board, moves, from, color, -1, 1);
-    slide(board, moves, from, color, -1, -1);
+    slide(board, moves, srcSq, color, 1, 0);
+    slide(board, moves, srcSq, color, -1, 0);
+    slide(board, moves, srcSq, color, 0, 1);
+    slide(board, moves, srcSq, color, 0, -1);
+    slide(board, moves, srcSq, color, 1, 1);
+    slide(board, moves, srcSq, color, 1, -1);
+    slide(board, moves, srcSq, color, -1, 1);
+    slide(board, moves, srcSq, color, -1, -1);
     return moves;
   }
 
@@ -252,10 +252,10 @@ function genPseudo(board, from, ep) {
             const t = sq(c2, r2);
             const dest = board[t];
             if (dest == 0) {
-              addMove(moves, from, t, 0);
+              addMove(moves, srcSq, t, 0);
             } else {
               if (pieceColor(dest) != color) {
-                addMove(moves, from, t, 1);
+                addMove(moves, srcSq, t, 1);
               }
             }
           }
@@ -283,23 +283,23 @@ export function findKing(board, color) {
 export function isSquareAttacked(board, target, byColor) {
   const tcol = sqCol(target);
   const trow = sqRow(target);
-  let from = 0;
-  while (from < 64) {
-    const p = board[from];
+  let srcSq = 0;
+  while (srcSq < 64) {
+    const p = board[srcSq];
     if (pieceColor(p) == byColor) {
       const kind = absPiece(p);
       // Pawns attack diagonally only (not their forward push).
       if (kind == 1) {
         const dir = 0 - byColor;
-        const fcol = sqCol(from);
-        const frow = sqRow(from);
+        const fcol = sqCol(srcSq);
+        const frow = sqRow(srcSq);
         if (frow + dir == trow) {
           if (fcol - 1 == tcol || fcol + 1 == tcol) {
             return 1;
           }
         }
       } else {
-        const pseudo = genPseudo(board, from, -1);
+        const pseudo = genPseudo(board, srcSq, -1);
         let i = 0;
         while (i < pseudo.length) {
           if (pseudo[i].to == target) {
@@ -309,7 +309,7 @@ export function isSquareAttacked(board, target, byColor) {
         }
       }
     }
-    from = from + 1;
+    srcSq = srcSq + 1;
   }
   return 0;
 }
@@ -369,12 +369,12 @@ function addCastling(board, moves, color, rights) {
   }
 }
 
-export function legalMovesFrom(board, from, color, ep, rights) {
+export function legalMovesFrom(board, srcSq, color, ep, rights) {
   const out = [];
-  if (pieceColor(board[from]) != color) {
+  if (pieceColor(board[srcSq]) != color) {
     return out;
   }
-  const pseudo = genPseudo(board, from, ep);
+  const pseudo = genPseudo(board, srcSq, ep);
   let i = 0;
   while (i < pseudo.length) {
     const m = pseudo[i];
@@ -384,7 +384,7 @@ export function legalMovesFrom(board, from, color, ep, rights) {
     }
     i = i + 1;
   }
-  if (absPiece(board[from]) == 6) {
+  if (absPiece(board[srcSq]) == 6) {
     const castle = [];
     addCastling(board, castle, color, rights);
     i = 0;
@@ -402,17 +402,17 @@ export function legalMovesFrom(board, from, color, ep, rights) {
 
 export function allLegalMoves(board, color, ep, rights) {
   const out = [];
-  let from = 0;
-  while (from < 64) {
-    if (pieceColor(board[from]) == color) {
-      const ms = legalMovesFrom(board, from, color, ep, rights);
+  let srcSq = 0;
+  while (srcSq < 64) {
+    if (pieceColor(board[srcSq]) == color) {
+      const ms = legalMovesFrom(board, srcSq, color, ep, rights);
       let i = 0;
       while (i < ms.length) {
         out.push(ms[i]);
         i = i + 1;
       }
     }
-    from = from + 1;
+    srcSq = srcSq + 1;
   }
   return out;
 }
@@ -421,11 +421,11 @@ export function allLegalMoves(board, color, ep, rights) {
 //        4 double pawn, 5 en passant, 6 castle K, 7 castle Q
 export function applyMoveRaw(board, move, color, ep) {
   const b = cloneBoard(board);
-  const from = move.from;
+  const srcSq = move.from;
   const to = move.to;
   const flags = move.flags;
-  const p = b[from];
-  b[from] = 0;
+  const p = b[srcSq];
+  b[srcSq] = 0;
   b[to] = p;
 
   if (flags == 5) {
@@ -438,19 +438,19 @@ export function applyMoveRaw(board, move, color, ep) {
     b[to] = color * 5;
   }
   if (flags == 6) {
-    const row = sqRow(from);
+    const row = sqRow(srcSq);
     b[sq(7, row)] = 0;
     b[sq(5, row)] = color * 4;
   }
   if (flags == 7) {
-    const row = sqRow(from);
+    const row = sqRow(srcSq);
     b[sq(0, row)] = 0;
     b[sq(3, row)] = color * 4;
   }
 
   let newEp = -1;
   if (flags == 4) {
-    newEp = (from + to) / 2;
+    newEp = (srcSq + to) / 2;
   }
 
   return { board: b, ep: newEp };
@@ -458,15 +458,15 @@ export function applyMoveRaw(board, move, color, ep) {
 
 export function updateRights(rights, move, boardBefore) {
   let r = rights;
-  const from = move.from;
+  const srcSq = move.from;
   const to = move.to;
-  const p = boardBefore[from];
+  const p = boardBefore[srcSq];
   if (p == W_KING) { r = r & (15 - 1 - 2); }
   if (p == B_KING) { r = r & (15 - 4 - 8); }
-  if (p == W_ROOK && from == 63) { r = r & (15 - 1); }
-  if (p == W_ROOK && from == 56) { r = r & (15 - 2); }
-  if (p == B_ROOK && from == 7) { r = r & (15 - 4); }
-  if (p == B_ROOK && from == 0) { r = r & (15 - 8); }
+  if (p == W_ROOK && srcSq == 63) { r = r & (15 - 1); }
+  if (p == W_ROOK && srcSq == 56) { r = r & (15 - 2); }
+  if (p == B_ROOK && srcSq == 7) { r = r & (15 - 4); }
+  if (p == B_ROOK && srcSq == 0) { r = r & (15 - 8); }
   if (to == 63) { r = r & (15 - 1); }
   if (to == 56) { r = r & (15 - 2); }
   if (to == 7) { r = r & (15 - 4); }
