@@ -1,0 +1,52 @@
+; ==============================================================================
+; three_gl_backend_test — headless smoke: the GL backend wires up + degrades.
+; ==============================================================================
+; Can't drive a GPU headless, so this asserts graceful degradation (no WebGL
+; context / no document -> init() is false, render() no-ops without crashing)
+; and exercises the renderer+backend wiring. The real GPU output is the local
+; browser / desktop-GL step.
+; ==============================================================================
+
+Import "three_gl_backend.rgr"
+Import "three_webgl_renderer.rgr"
+Import "three_scene.rgr"
+Import "three_perspective_camera.rgr"
+Import "three_box_geometry.rgr"
+Import "three_mesh.rgr"
+
+class ThreeGLBackendTest {
+    sfn m@(main):void () {
+        print "== ThreeGLBackend (WebGL / GLES, headless smoke) =="
+        def gl:ThreeGLBackend (new ThreeGLBackend)
+        def ok:boolean (gl.init("three-canvas"))
+        def pass1:boolean (ok == false)
+        if pass1 {
+            print "  PASS init degrades gracefully without a GL context"
+        } {
+            print "  FAIL init should be false when headless"
+        }
+
+        def camera:ThreePerspectiveCamera (new ThreePerspectiveCamera)
+        camera.setPerspective(70.0 1.0 0.1 100.0)
+        camera.position.z = 2.0
+        def scene:ThreeScene (new ThreeScene)
+        def geo:ThreeBoxGeometry (new ThreeBoxGeometry)
+        geo.setSize(1.0 1.0 1.0)
+        def mesh:ThreeMesh (new ThreeMesh)
+        mesh.setGeometry(geo)
+        scene.add(mesh)
+
+        def renderer:ThreeWebGLRenderer (new ThreeWebGLRenderer)
+        renderer.setSize(64 64)
+        renderer.setBackend(gl)
+        renderer.render(scene camera)
+        print "  PASS renderer + GL backend render() ran without crashing"
+
+        print "== summary =="
+        if pass1 {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

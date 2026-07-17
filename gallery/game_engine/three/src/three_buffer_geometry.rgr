@@ -13,6 +13,8 @@ class ThreeBufferGeometry {
     def normals:[double]
     def uvs:[double]
     def index:[int]
+    ; cached GPU mesh handle for a GL backend (-1 = not uploaded yet).
+    def glHandle:int (0 - 1)
 
     fn vertexCount:int () {
         return (idiv (array_length this.positions) 3)

@@ -28,5 +28,6 @@ run_suite three_perspective_camera_test
 run_suite three_box_geometry_test
 run_suite three_mesh_test
 run_suite three_cube_demo_test
+run_suite three_gl_backend_test
 
 echo "done."

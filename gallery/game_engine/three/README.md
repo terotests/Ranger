@@ -67,13 +67,39 @@ so there is no GPU code in the core:
 
 - `ThreeSoftwareBackend` — a pure-Ranger z-buffered, textured triangle rasteriser
   (the default). Works headless / on a Raspberry Pi; compiles to C++.
-- a browser WebGL backend (JS, injected via `setBackend`) — GPU-accelerated; the
-  same scene drawn on the GPU. (Wiring the existing `web/webgl3d.js` in as a
-  `ThreeRenderBackend` is the remaining browser-host task; the core + software
-  path are complete.)
+- `ThreeGLBackend` — a **GPU backend written in Ranger** (below): WebGL in the
+  browser, OpenGL/GLES on desktop — the same Ranger source for both.
 
 `three_cube_demo_test.rgr` builds the canonical cube in the Three.js API shape and
 renders it with the software backend (writes `/tmp/three_cube.ppm`).
+
+## GPU backend — one Ranger source, WebGL + OpenGL/GLES
+
+`ThreeGLBackend` draws through `three_gl.rgr`, a GPU-operator layer where **each
+operator carries both an es6 (WebGL) and a cpp (OpenGL/GLES) body** via Ranger's
+`templates { es6(...) cpp(...) }` + `create_polyfill` mechanism (the same one the
+native `gfx_sdl.rgr` shim uses). So the compiler emits the WebGL calls **and** the
+OpenGL calls from one source — **no hand-written `.js`**. This is what keeps
+Ranger's "same code, many targets" promise on the GPU side.
+
+```
+ThreeGLBackend (Ranger)  →  three_gl operators
+   gpu_program / gpu_make_mesh / gpu_make_texture / gpu_draw
+        ├─ es6 → gl.createProgram / bufferData / drawElements / uniformMatrix4fv …  (WebGL)
+        └─ cpp → glCreateProgram / glBufferData / glDrawElements / glUniformMatrix4fv …  (GLES2)
+```
+
+- Opaque **int handles** bridge the representation gap (WebGL objects in JS arrays
+  ↔ `GLuint` in a `std::vector`); Ranger only sees 1-based ints.
+- Shaders (`three_gl_shaders.rgr`) are **GLSL ES 1.00** — one source runs on WebGL1/2,
+  GLES2 (Raspberry Pi) and desktop GL compat.
+- The WebGL context is created on a canvas (es6); the native path takes the host's
+  current GL context (cpp). Use it via `renderer.setBackend(glBackend)`.
+
+Verified with `-l=cpp` and `-es6`: the generated JS contains the real `gl.*` WebGL
+calls and the generated C++ the `gl*` OpenGL calls. (GPU output itself is a local
+browser / desktop-GL step — it can't run in a headless container.) This supersedes
+the earlier stop-gap hand-written `web/webgl3d.js`.
 
 ## Portability
 
