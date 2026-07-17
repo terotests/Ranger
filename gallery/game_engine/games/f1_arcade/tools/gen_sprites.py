@@ -231,32 +231,41 @@ def draw_crowd_sheet():
 
 def draw_rear_tire(pix, w, h, x, y, tw=12, th=16):
     """Rear-facing tire: stacked tread boxes + shiny highlight on top."""
-    # Dark rubber stack (horizontal “rings” seen from behind).
     bands = [
         (0, 0, tw, 3, (28, 28, 32, 255)),
         (0, 3, tw, 3, (12, 12, 14, 255)),
         (1, 6, tw - 2, 3, (22, 22, 26, 255)),
         (0, 9, tw, 3, (10, 10, 12, 255)),
-        (1, 12, tw - 2, 4, (18, 18, 20, 255)),
+        (1, 12, tw - 2, max(2, th - 12), (18, 18, 20, 255)),
     ]
     for bx, by, bw, bh, col in bands:
         fill_rect(pix, w, h, x + bx, y + by, bw, bh, col)
-    # Specular shine on the upper tread.
-    fill_rect(pix, w, h, x + 2, y + 1, tw - 4, 2, (210, 215, 230, 255))
+    fill_rect(pix, w, h, x + 2, y + 1, max(1, tw - 4), 2, (210, 215, 230, 255))
     fill_rect(pix, w, h, x + 3, y + 1, 2, 1, (255, 255, 255, 255))
-    # Sidewall edges.
-    fill_rect(pix, w, h, x, y + 2, 1, th - 4, (40, 40, 48, 255))
-    fill_rect(pix, w, h, x + tw - 1, y + 2, 1, th - 4, (40, 40, 48, 255))
+    fill_rect(pix, w, h, x, y + 2, 1, max(1, th - 4), (40, 40, 48, 255))
+    fill_rect(pix, w, h, x + tw - 1, y + 2, 1, max(1, th - 4), (40, 40, 48, 255))
+
+
+def draw_front_tire(pix, w, h, x, y, size=7):
+    """Smaller rear-facing front tire (drawn behind the body)."""
+    tw = size
+    th = size + 2
+    fill_rect(pix, w, h, x, y, tw, th, (16, 16, 18, 255))
+    fill_rect(pix, w, h, x + 1, y + 2, max(1, tw - 2), 2, (10, 10, 12, 255))
+    fill_rect(pix, w, h, x + 1, y + 5, max(1, tw - 2), max(1, th - 6), (22, 22, 26, 255))
+    # Shine on top edge.
+    fill_rect(pix, w, h, x + 1, y, max(1, tw - 2), 1, (200, 205, 220, 255))
+    fill_rect(pix, w, h, x + 2, y, 1, 1, (255, 255, 255, 255))
 
 
 def draw_f1_rear(
     body=(220, 50, 40, 255),
     accent=(40, 120, 220, 255),
     w=56,
-    h=36,
+    h=38,
     lean=0,
 ):
-    """Stubbier rear view (into the screen). lean: -1/0/+1."""
+    """Rear chase-cam view. lean: -1 left / 0 center / +1 right — body + tires shift."""
     pix = blank(w, h)
     wing = (22, 22, 26, 255)
     shade = (
@@ -265,41 +274,54 @@ def draw_f1_rear(
         max(0, body[2] - 30),
         255,
     )
-    ox = lean * 6
+    # Body yaw toward steer; tires offset more on the outer side.
+    ox = lean * 5
+    tip = lean * 2
 
-    # Huge rear wing across the top (reads as “behind the car”).
-    fill_rect(pix, w, h, 2 + ox, 2, 52, 7, wing)
-    fill_rect(pix, w, h, 4 + ox, 1, 48, 3, (48, 48, 54, 255))
-    fill_rect(pix, w, h, 1 + ox, 1, 5, 14, wing)
-    fill_rect(pix, w, h, 50 + ox, 1, 5, 14, wing)
-    for sx in range(8, 50, 6):
-        fill_rect(pix, w, h, sx + ox, 4, 2, 3, (70, 70, 78, 255))
+    # Compact spoiler first (narrow + short) so it doesn't hide front tires.
+    wing_w = 34
+    wing_x = (w - wing_w) // 2 + ox
+    fill_rect(pix, w, h, wing_x, 2, wing_w, 3, wing)
+    fill_rect(pix, w, h, wing_x + 1, 1, wing_w - 2, 2, (48, 48, 54, 255))
+    fill_rect(pix, w, h, wing_x - 1, 1, 3, 7, wing)
+    fill_rect(pix, w, h, wing_x + wing_w - 2, 1, 3, 7, wing)
+    for sx in range(wing_x + 4, wing_x + wing_w - 4, 5):
+        fill_rect(pix, w, h, sx, 2, 1, 2, (70, 70, 78, 255))
 
-    # Compact engine cover facing camera.
-    fill_rect(pix, w, h, 16 + ox, 9, 24, 12, body)
-    fill_rect(pix, w, h, 18 + ox, 11, 20, 8, shade)
-    fill_rect(pix, w, h, 20 + ox, 8, 16, 4, (32, 32, 38, 255))
-    fill_rect(pix, w, h, 8 + ox, 12, 10, 8, body)
-    fill_rect(pix, w, h, 38 + ox, 12, 10, 8, body)
+    # Body / sidepods (yawed into the turn).
+    fill_rect(pix, w, h, 16 + ox, 10, 24, 11, body)
+    fill_rect(pix, w, h, 18 + ox, 12, 20, 7, shade)
+    fill_rect(pix, w, h, 20 + ox, 9, 16, 3, (32, 32, 38, 255))
+    fill_rect(pix, w, h, 9 + ox + tip, 12, 9, 7, body)
+    fill_rect(pix, w, h, 38 + ox - tip, 12, 9, 7, body)
 
     # Helmet from behind.
-    fill_ellipse(pix, w, h, w // 2 + ox, 12, 5, 4, (26, 26, 30, 255))
-    fill_ellipse(pix, w, h, w // 2 + ox, 11, 3, 3, accent)
+    fill_ellipse(pix, w, h, w // 2 + ox, 11, 5, 4, (26, 26, 30, 255))
+    fill_ellipse(pix, w, h, w // 2 + ox, 10, 3, 3, accent)
+
+    # Front tires peek under the body (inset, smaller) — drawn after body so
+    # they show between chassis and rear tires; outer tire slides out on lean.
+    fl_x = 12 + ox - lean * 4
+    fr_x = 37 + ox - lean * 4
+    draw_front_tire(pix, w, h, fl_x, 16, 7)
+    draw_front_tire(pix, w, h, fr_x, 16, 7)
 
     # Exhaust.
     fill_rect(pix, w, h, 22 + ox, 20, 12, 2, (255, 150, 40, 255))
 
-    # Rear tires: stacked boxes + shine (not side-on ellipses).
-    draw_rear_tire(pix, w, h, 2 + lean * 3, 18, 12, 16)
-    draw_rear_tire(pix, w, h, 42 + lean * 3, 18, 12, 16)
+    # Rear tires (near, shift with lean).
+    rl_x = 2 + lean * 4
+    rr_x = 42 + lean * 4
+    draw_rear_tire(pix, w, h, rl_x, 21, 12, 15)
+    draw_rear_tire(pix, w, h, rr_x, 21, 12, 15)
     return pix, w, h
 
 
-def draw_f1(body=(220, 50, 40, 255), accent=(40, 120, 220, 255), w=56, h=36):
+def draw_f1(body=(220, 50, 40, 255), accent=(40, 120, 220, 255), w=56, h=38):
     return draw_f1_rear(body, accent, w, h, lean=0)
 
 
-def draw_player_sheet(body=(230, 55, 40, 255), accent=(40, 140, 230, 255), w=56, h=36):
+def draw_player_sheet(body=(230, 55, 40, 255), accent=(40, 140, 230, 255), w=56, h=38):
     """3-frame sheet: lean left | center | lean right."""
     frames = [
         draw_f1_rear(body, accent, w, h, lean=-1)[0],

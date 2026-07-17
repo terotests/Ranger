@@ -45,7 +45,7 @@ const HOUSE_H = 64;
 const CROWD_FW = 72;
 const CROWD_FH = 56;
 const CAR_W = 56;
-const CAR_H = 36;
+const CAR_H = 38;
 
 // Per-segment curve (−6 .. 6 style, a bit softer). Length TRACK_SEGS.
 const CURVES = [
@@ -970,21 +970,20 @@ function update(props) {
   placeWorld(entities, z, x, floorOf(anim / 8), aiOut);
   placeGantry(entities, z, x, light);
 
-  // Player car: rear-view sheet — frame 0 left / 1 center / 2 right (no spin).
+  // Player car: lean frames + slight yaw so body turns with steer.
   let carFrame = 1;
-  if (steer < -0.25) {
+  if (steer < -0.2) {
     carFrame = 0;
   }
-  if (steer > 0.25) {
+  if (steer > 0.2) {
     carFrame = 2;
   }
-  // Car stays near bottom-center; road slides under via camX (Lou).
   entities.player = {
     x: 240 + x * 36,
     y: 248,
     p0: carFrame,
     scale: 100,
-    angle: 0,
+    angle: steer * 10,
     visible: 1
   };
 
