@@ -28,6 +28,8 @@ Users/
 
 # Test output directory
 tests/.output*/
+# three/ clone test-suite build output (run.sh OUT dir)
+.three_test_out/
 
 # Local scratch / compiler experiments
 tmp/
