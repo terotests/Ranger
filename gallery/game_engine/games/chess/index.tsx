@@ -65,10 +65,13 @@ function markId(i) {
 
 function sprites() {
   const list = [];
-  list.push({ id: "cursor", kind: "rect", w: TILE - 2, h: TILE - 2, r: 255, g: 230, b: 80 });
-  list.push({ id: "sel", kind: "rect", w: TILE - 2, h: TILE - 2, r: 80, g: 200, b: 255 });
+  // Draw order = sprites() order. Last-move must sit under cursor/selection,
+  // otherwise a muted lastTo square hides the bright yellow cursor (e.g. when
+  // targeting the square the opponent just moved to).
   list.push({ id: "lastFrom", kind: "rect", w: TILE - 2, h: TILE - 2, r: 200, g: 180, b: 60 });
   list.push({ id: "lastTo", kind: "rect", w: TILE - 2, h: TILE - 2, r: 200, g: 180, b: 60 });
+  list.push({ id: "sel", kind: "rect", w: TILE - 2, h: TILE - 2, r: 80, g: 200, b: 255 });
+  list.push({ id: "cursor", kind: "rect", w: TILE - 2, h: TILE - 2, r: 255, g: 230, b: 80 });
   let i = 0;
   while (i < MAX_MARKS) {
     list.push({ id: markId(i), kind: "circle", rad: 5, r: 70, g: 220, b: 120 });
@@ -207,7 +210,10 @@ function buildEntities(s) {
     entities.sel = { x: -40, y: -40, visible: 0 };
   }
 
-  if (s.lastFrom >= 0) {
+  // Hide last-move tint on the square under the cursor (or selection) so the
+  // bright yellow / cyan highlight always reads clearly.
+  const curSq = sq(s.cursorCol, s.cursorRow);
+  if (s.lastFrom >= 0 && s.lastFrom != curSq && s.lastFrom != s.selSq) {
     entities.lastFrom = {
       x: tileX(sqCol(s.lastFrom)),
       y: tileY(sqRow(s.lastFrom)),
@@ -219,7 +225,7 @@ function buildEntities(s) {
   } else {
     entities.lastFrom = { x: -40, y: -40, visible: 0 };
   }
-  if (s.lastTo >= 0) {
+  if (s.lastTo >= 0 && s.lastTo != curSq && s.lastTo != s.selSq) {
     entities.lastTo = {
       x: tileX(sqCol(s.lastTo)),
       y: tileY(sqRow(s.lastTo)),
@@ -359,6 +365,32 @@ function findLegalTo(s, toSq) {
     i = i + 1;
   }
   return null;
+}
+
+// Pieces of `turn` that can legally capture/move to `toSq`.
+function findCapturersOf(board, turn, ep, rights, toSq) {
+  const out = [];
+  let srcSq = 0;
+  while (srcSq < 64) {
+    const p = board[srcSq];
+    if (p != 0) {
+      let pc = 0;
+      if (p > 0) { pc = 1; }
+      if (p < 0) { pc = -1; }
+      if (pc == turn) {
+        const moves = legalMovesFrom(board, srcSq, turn, ep, rights);
+        let i = 0;
+        while (i < moves.length) {
+          if (moves[i].to == toSq) {
+            out.push(moves[i]);
+          }
+          i = i + 1;
+        }
+      }
+    }
+    srcSq = srcSq + 1;
+  }
+  return out;
 }
 
 function playerCanAct(s) {
@@ -751,11 +783,50 @@ function update(props) {
           if (p > 0) { pc = 1; }
           if (p < 0) { pc = -1; }
           if (pc == turn) {
-            selSq = target;
-            // Snap onto the piece; next arrows visit only legal squares.
-            cursorCol = sqCol(target);
-            cursorRow = sqRow(target);
-            ev = [{ kind: "playSound", id: "blip" }];
+            // Only select pieces that have at least one legal move.
+            const ownMoves = legalMovesFrom(board, target, turn, ep, rights);
+            if (ownMoves.length > 0) {
+              selSq = target;
+              cursorCol = sqCol(target);
+              cursorRow = sqRow(target);
+              ev = [{ kind: "playSound", id: "blip" }];
+            }
+          } else {
+            // Space on enemy: capture with the first legal capturer.
+            // (Pick a specific own piece first if you want a different taker.)
+            const caps = findCapturersOf(board, turn, ep, rights, target);
+            if (caps.length > 0) {
+              const moved = doMove({
+                screen: "play",
+                mode: s.mode,
+                board: board,
+                turn: turn,
+                ep: ep,
+                rights: rights,
+                cursorCol: cursorCol,
+                cursorRow: cursorRow,
+                selSq: caps[0].from,
+                status: status,
+                history: history,
+                lastFrom: lastFrom,
+                lastTo: lastTo,
+                seed: seed,
+                aiWait: 0,
+                msg: msg,
+                score1: score1,
+                score2: score2,
+                showNet: 0,
+                pUp: pUp,
+                pDown: pDown,
+                pLeft: pLeft,
+                pRight: pRight,
+                pAct: pAct,
+                pB: bHeld
+              }, caps[0]);
+              moved.entities = buildEntities(moved);
+              moved.events = [{ kind: "playSound", id: "blip" }];
+              return moved;
+            }
           }
         }
       } else {
@@ -803,15 +874,55 @@ function update(props) {
             moved.events = [{ kind: "playSound", id: "blip" }];
             return moved;
           } else {
-            // Re-select if own piece
+            // Selected piece cannot go here — try any capturer, or re-select.
             const p = board[target];
             let pc = 0;
             if (p > 0) { pc = 1; }
             if (p < 0) { pc = -1; }
             if (pc == turn) {
-              selSq = target;
+              const ownMoves = legalMovesFrom(board, target, turn, ep, rights);
+              if (ownMoves.length > 0) {
+                selSq = target;
+              }
             } else {
-              selSq = -1;
+              if (p != 0 && pc != turn) {
+                const caps = findCapturersOf(board, turn, ep, rights, target);
+                if (caps.length > 0) {
+                  const moved = doMove({
+                    screen: "play",
+                    mode: s.mode,
+                    board: board,
+                    turn: turn,
+                    ep: ep,
+                    rights: rights,
+                    cursorCol: cursorCol,
+                    cursorRow: cursorRow,
+                    selSq: caps[0].from,
+                    status: status,
+                    history: history,
+                    lastFrom: lastFrom,
+                    lastTo: lastTo,
+                    seed: seed,
+                    aiWait: 0,
+                    msg: msg,
+                    score1: score1,
+                    score2: score2,
+                    showNet: 0,
+                    pUp: pUp,
+                    pDown: pDown,
+                    pLeft: pLeft,
+                    pRight: pRight,
+                    pAct: pAct,
+                    pB: bHeld
+                  }, caps[0]);
+                  moved.entities = buildEntities(moved);
+                  moved.events = [{ kind: "playSound", id: "blip" }];
+                  return moved;
+                }
+                selSq = -1;
+              } else {
+                selSq = -1;
+              }
             }
           }
         }

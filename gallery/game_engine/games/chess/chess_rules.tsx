@@ -36,16 +36,18 @@ export function pieceColor(p) {
   return 0;
 }
 
+// Keep board indices as integers — `/` is real division in the TSX interpreter
+// (use Math.floor; there is no `idiv` in game scripts).
 export function sq(col, row) {
-  return row * 8 + col;
+  return Math.floor(row) * 8 + Math.floor(col);
 }
 
 export function sqCol(s) {
-  return s % 8;
+  return Math.floor(s) % 8;
 }
 
 export function sqRow(s) {
-  return (s - (s % 8)) / 8;
+  return Math.floor(Math.floor(s) / 8);
 }
 
 export function cloneBoard(board) {
@@ -450,7 +452,7 @@ export function applyMoveRaw(board, move, color, ep) {
 
   let newEp = -1;
   if (flags == 4) {
-    newEp = (srcSq + to) / 2;
+    newEp = Math.floor((srcSq + to) / 2);
   }
 
   return { board: b, ep: newEp };
