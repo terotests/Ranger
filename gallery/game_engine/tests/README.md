@@ -5,7 +5,7 @@ assert on game state — no window, no launcher.
 
 | Group | Files | Driven by |
 |-------|-------|-----------|
-| **Per-game smoke runners** | `pong_runner_demo.rgr`, `pacman_runner_demo.rgr`, `invaders_runner_demo.rgr`, `breakout_runner_demo.rgr`, `ylos_runner_demo.rgr`, `ylos2_runner_demo.rgr`, `ylos3_runner_demo.rgr`, `spawner_runner_demo.rgr`, `counter_runner_demo.rgr`, `world_scroll_runner_demo.rgr` | `tests/game-runner.test.ts`, `tests/ts-to-ranger-host.test.ts`, and `npm run engine:pong:runner` / `engine:spawner:runner` |
+| **Per-game smoke runners** | `pong_runner_demo.rgr`, `pacman_runner_demo.rgr`, `invaders_runner_demo.rgr`, `breakout_runner_demo.rgr`, `ylos_runner_demo.rgr`, `ylos2_runner_demo.rgr`, `ylos3_runner_demo.rgr`, `ylos4_runner_demo.rgr`, `spawner_runner_demo.rgr`, `counter_runner_demo.rgr`, `world_scroll_runner_demo.rgr` | `tests/game-runner.test.ts`, `tests/ts-to-ranger-host.test.ts`, and `npm run engine:pong:runner` / `engine:spawner:runner` |
 | **Interpreter fixtures** | `interp/` | interpreter/`.as` language tests |
 
 Each per-game runner imports the engine core from `../scripting/game_runtime.rgr`
