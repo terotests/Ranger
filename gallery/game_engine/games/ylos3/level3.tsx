@@ -1,35 +1,45 @@
 /// <reference path="../../scripting/game.d.ts" />
 //
-// Ylos 3 — taso 3 (temppelin huippu). Lopputaso — voiton jälkeen loadGame("index.tsx").
+// Ylos 3 — taso 3 (temppelin huippu). Lopputaso — Space → loadGame("index.tsx").
 
-import { LEVEL_TEMPLE } from "./levels/temple";
+import { installTempleLevel } from "./level_temple";
 import {
-  setLevelConfig,
-  createStaticBg as paintLevelBg,
-  sprites as levelSprites,
-  initState as levelInitState,
-  update as levelUpdate,
-  hud as levelHud
+  paintLevelBg,
+  levelHeight,
+  buildSprites,
+  makeInitState,
+  runUpdate,
+  playHud
 } from "./ylos3_shared";
 
-setLevelConfig(LEVEL_TEMPLE);
+function bootLevel() {
+  installTempleLevel();
+}
+
+function staticLevelHeight() {
+  bootLevel();
+  return levelHeight();
+}
 
 function createStaticBg() {
+  bootLevel();
   paintLevelBg();
 }
 
 function sprites() {
-  return levelSprites();
+  bootLevel();
+  return buildSprites();
 }
 
 function initState() {
-  return levelInitState();
+  bootLevel();
+  return makeInitState();
 }
 
 function update(props) {
-  return levelUpdate(props);
+  return runUpdate(props);
 }
 
 function hud(props) {
-  return levelHud(props);
+  return playHud(props);
 }

@@ -81,8 +81,104 @@ interface LevelConfig {
 
 let activeLevel: LevelConfig = null;
 
+function copyPlatforms(src) {
+  const out = [];
+  let i = 0;
+  while (i < src.length) {
+    const p = src[i];
+    out.push({ x: p.x, y: p.y, w: p.w, h: p.h });
+    i = i + 1;
+  }
+  return out;
+}
+
+function copyMoving(src) {
+  const out = [];
+  let i = 0;
+  while (i < src.length) {
+    const p = src[i];
+    out.push({
+      x: p.x,
+      y: p.y,
+      w: p.w,
+      h: p.h,
+      min: p.min,
+      max: p.max,
+      dir: p.dir
+    });
+    i = i + 1;
+  }
+  return out;
+}
+
+function copyEnemies(src) {
+  const out = [];
+  let i = 0;
+  while (i < src.length) {
+    const e = src[i];
+    out.push({ x: e.x, y: e.y, dir: e.dir, min: e.min, max: e.max });
+    i = i + 1;
+  }
+  return out;
+}
+
+function copyPickups(src) {
+  const out = [];
+  let i = 0;
+  while (i < src.length) {
+    const p = src[i];
+    out.push({ x: p.x, y: p.y });
+    i = i + 1;
+  }
+  return out;
+}
+
+function copyDiamonds(src) {
+  const out = [];
+  let i = 0;
+  while (i < src.length) {
+    const d = src[i];
+    out.push({ x: d.x, y: d.y, respawn: d.respawn });
+    i = i + 1;
+  }
+  return out;
+}
+
 export function setLevelConfig(cfg: LevelConfig) {
-  activeLevel = cfg;
+  // Copy into a fresh object owned by this module.
+  activeLevel = {
+    id: cfg.id,
+    label: cfg.label,
+    worldH: cfg.worldH,
+    platColors: {
+      body: {
+        r: cfg.platColors.body.r,
+        g: cfg.platColors.body.g,
+        b: cfg.platColors.body.b
+      },
+      top: {
+        r: cfg.platColors.top.r,
+        g: cfg.platColors.top.g,
+        b: cfg.platColors.top.b
+      },
+      bottom: {
+        r: cfg.platColors.bottom.r,
+        g: cfg.platColors.bottom.g,
+        b: cfg.platColors.bottom.b
+      }
+    },
+    bgKind: cfg.bgKind,
+    movingPlatSpeed: cfg.movingPlatSpeed,
+    enemySpeed: cfg.enemySpeed,
+    music: cfg.music,
+    nextLevel: cfg.nextLevel,
+    isFinal: cfg.isFinal,
+    platforms: copyPlatforms(cfg.platforms),
+    movingPlatforms: copyMoving(cfg.movingPlatforms),
+    enemyDefs: copyEnemies(cfg.enemyDefs),
+    fruitDefs: copyPickups(cfg.fruitDefs),
+    diamondDefs: copyDiamonds(cfg.diamondDefs)
+  };
 }
 
 function cfg(): LevelConfig {
@@ -193,15 +289,14 @@ interface GameSnapshot {
 }
 
 const BASE_W = 480;
-const levelWorldH() = 1890;
 const VIEW_H = 270;
 const MAX_ENEMIES = 24;
 const MAX_FRUITS = 14;
 const MAX_DIAMONDS = 8;
 const MAX_BULLETS = 4;
 const MAX_MOVING_PLATFORMS = 16;
-const levelMovingPlatSpeed() = 0.06;
 const PLAT_EDGE_H = 4;
+const LEVEL_LOAD_MS = 1800;
 const JUMP_MIN_V = 0.28;
 const JUMP_MAX_V = 0.38;
 const JUMP_SUPER_MAX_V = 0.52;
@@ -414,24 +509,25 @@ function inactiveMovingPlatform(): MovingPlatform {
 
 function makeMovingPlatforms(): MovingPlatform[] {
   const out = [];
+  const defs = cfg().movingPlatforms;
   let i = 0;
+  while (i < defs.length) {
+    const d = defs[i];
+    const x = scaleX(d.x);
+    out.push({
+      x: x,
+      prevX: x,
+      y: d.y,
+      w: scaleX(d.w),
+      h: d.h,
+      minX: scaleX(d.min),
+      maxX: scaleX(d.max),
+      dir: d.dir
+    });
+    i = i + 1;
+  }
   while (i < MAX_MOVING_PLATFORMS) {
-    const d = cfg().movingPlatforms[i];
-    if (d) {
-      const x = scaleX(d.x);
-      out.push({
-        x: x,
-        prevX: x,
-        y: d.y,
-        w: scaleX(d.w),
-        h: d.h,
-        minX: scaleX(d.min),
-        maxX: scaleX(d.max),
-        dir: d.dir
-      });
-    } else {
-      out.push(inactiveMovingPlatform());
-    }
+    out.push(inactiveMovingPlatform());
     i = i + 1;
   }
   return out;
@@ -770,54 +866,111 @@ function makePlayerOnFloor(x: f64, face: i32): Player {
   };
 }
 
-function staticLevelHeight() {
+export function levelHeight() {
   return cfg().worldH;
+}
+
+function clampByte(v: f64): i32 {
+  if (v < 0) {
+    return 0;
+  }
+  if (v > 255) {
+    return 255;
+  }
+  return v;
 }
 
 function drawJungleGradient(kind: string) {
   let y = 0;
   while (y < bgHeight) {
     const t = y / bgHeight;
-    let r = 18 + t * 30;
-    let g = 48 + t * 70;
-    let b = 28 + t * 40;
+    let r = 12 + t * 38;
+    let g = 42 + t * 95;
+    let b = 36 + t * 48;
     if (kind == "jungle_mist") {
-      r = 22 + t * 40;
-      g = 55 + t * 85;
-      b = 48 + t * 55;
+      r = 18 + t * 48;
+      g = 58 + t * 100;
+      b = 62 + t * 70;
     }
     if (kind == "jungle_temple") {
-      r = 28 + t * 55;
-      g = 38 + t * 95;
-      b = 32 + t * 45;
+      r = 36 + t * 70;
+      g = 48 + t * 90;
+      b = 28 + t * 40;
     }
-    bgFillRect(0, y, bgWidth, 4, r | 0, g | 0, b | 0);
+    bgFillRect(0, y, bgWidth, 4, clampByte(r), clampByte(g), clampByte(b));
     y = y + 4;
   }
 }
 
-function drawTreeSilhouette(tx: f64, baseY: i32, h: i32) {
-  bgFillRect(tx - 6, baseY - h, 12, h, 24, 52, 28);
-  bgFillCircle(tx, baseY - h - 8, 18, 34, 88, 42);
-  bgFillCircle(tx - 14, baseY - h, 12, 28, 72, 36);
-  bgFillCircle(tx + 14, baseY - h, 12, 28, 72, 36);
+function drawCanopyBand(cy: i32, depth: i32) {
+  let x = 0 - (depth % 40);
+  while (x < bgWidth + 40) {
+    const rad = 22 + (depth % 3) * 6;
+    const g = 55 + depth * 8;
+    bgFillCircle(x, cy, rad, 18, g, 28);
+    bgFillCircle(x + 16, cy + 6, rad - 6, 14, g - 10, 24);
+    x = x + 34 + (depth % 5) * 4;
+  }
+}
+
+function drawTreeSilhouette(tx: f64, baseY: i32, h: i32, lush: i32) {
+  bgFillRect(tx - 5, baseY - h, 10, h, 42, 28, 16);
+  bgFillRect(tx - 3, baseY - h, 6, h, 58, 38, 22);
+  bgFillCircle(tx, baseY - h - 4, 20 + lush, 28, 96, 40);
+  bgFillCircle(tx - 16, baseY - h + 6, 14 + lush, 22, 82, 34);
+  bgFillCircle(tx + 16, baseY - h + 6, 14 + lush, 22, 82, 34);
+  bgFillCircle(tx - 4, baseY - h - 14, 12, 36, 110, 48);
+  bgFillCircle(tx + 8, baseY - h - 10, 10, 30, 100, 44);
 }
 
 function drawHangingVine(vx: f64, topY: i32, len: i32) {
-  bgFillRect(vx, topY, 3, len, 48, 120, 52);
-  bgFillCircle(vx + 1, topY + len, 5, 62, 150, 68);
+  bgFillRect(vx, topY, 3, len, 42, 118, 50);
+  bgFillRect(vx + 1, topY + 4, 2, len - 8, 58, 140, 62);
+  bgFillCircle(vx + 1, topY + len, 5, 70, 160, 72);
+  bgFillCircle(vx - 3, topY + len * 0.45, 4, 62, 148, 68);
+  bgFillCircle(vx + 5, topY + len * 0.7, 4, 62, 148, 68);
 }
 
 function drawMistBand(cy: i32) {
-  bgFillRect(0, cy, bgWidth, 28, 180, 200, 190);
-  bgFillRect(0, cy + 8, bgWidth, 18, 160, 185, 175);
+  bgFillRect(0, cy, bgWidth, 18, 150, 178, 160);
+  bgFillRect(0, cy + 10, bgWidth, 22, 132, 162, 148);
+  bgFillRect(scaleX(40), cy + 4, scaleX(120), 12, 168, 190, 172);
+  bgFillRect(scaleX(280), cy + 14, scaleX(140), 10, 160, 184, 168);
+}
+
+function drawBush(bx: f64, by: i32) {
+  bgFillCircle(bx, by, 10, 40, 110, 48);
+  bgFillCircle(bx - 10, by + 3, 8, 32, 96, 40);
+  bgFillCircle(bx + 10, by + 3, 8, 32, 96, 40);
 }
 
 function drawTempleTop(flagX: f64) {
-  bgFillRect(flagX - 50, 95, 100, 12, 180, 150, 70);
-  bgFillRect(flagX - 40, 82, 80, 14, 210, 180, 90);
-  bgFillRect(flagX - 10, 60, 20, 24, 220, 195, 110);
-  bgFillRect(flagX - 6, 48, 12, 14, 255, 220, 80);
+  bgFillRect(flagX - 58, 110, 116, 14, 150, 118, 58);
+  bgFillRect(flagX - 46, 92, 92, 18, 188, 154, 72);
+  bgFillRect(flagX - 30, 72, 60, 20, 210, 178, 88);
+  bgFillRect(flagX - 14, 52, 28, 20, 230, 200, 110);
+  bgFillRect(flagX - 6, 36, 12, 16, 255, 220, 90);
+  bgFillRect(flagX + 10, 40, 4, 28, 200, 160, 70);
+  bgFillRect(flagX + 14, 40, 18, 10, 255, 90, 70);
+}
+
+function drawDistantTrees(kind: string) {
+  let row = 0;
+  while (row < 5) {
+    const base = 280 + row * 320;
+    if (base < bgHeight - 80) {
+      drawTreeSilhouette(scaleX(40 + row * 18), base, 90 + row * 8, row % 3);
+      drawTreeSilhouette(scaleX(160 + (row % 2) * 30), base - 40, 110, 2);
+      drawTreeSilhouette(scaleX(300 - row * 10), base + 20, 95, 1);
+      drawTreeSilhouette(scaleX(420), base - 10, 120, 3);
+      if (kind != "jungle_temple") {
+        drawBush(scaleX(90), base - 8);
+        drawBush(scaleX(250), base + 6);
+        drawBush(scaleX(380), base - 4);
+      }
+    }
+    row = row + 1;
+  }
 }
 
 function createStaticBgForLevel() {
@@ -825,27 +978,43 @@ function createStaticBgForLevel() {
   const kind = cfg().bgKind;
   drawJungleGradient(kind);
 
-  drawTreeSilhouette(scaleX(60), bgHeight - 40, 120);
-  drawTreeSilhouette(scaleX(400), bgHeight - 40, 140);
-  drawTreeSilhouette(scaleX(240), bgHeight - 40, 100);
+  drawCanopyBand(36, 0);
+  drawCanopyBand(70, 1);
+  drawCanopyBand(108, 2);
+  drawDistantTrees(kind);
 
   if (kind == "jungle_floor") {
-    drawHangingVine(scaleX(100), 80, 90);
-    drawHangingVine(scaleX(320), 120, 110);
-    drawHangingVine(scaleX(200), 60, 70);
+    drawHangingVine(scaleX(90), 90, 140);
+    drawHangingVine(scaleX(190), 70, 110);
+    drawHangingVine(scaleX(310), 100, 160);
+    drawHangingVine(scaleX(400), 80, 120);
   }
   if (kind == "jungle_mist") {
-    drawMistBand(520);
-    drawMistBand(980);
-    drawMistBand(1440);
-    drawHangingVine(scaleX(80), 40, 130);
-    drawHangingVine(scaleX(380), 70, 100);
+    drawMistBand(420);
+    drawMistBand(820);
+    drawMistBand(1220);
+    drawMistBand(1620);
+    drawHangingVine(scaleX(70), 50, 170);
+    drawHangingVine(scaleX(240), 90, 140);
+    drawHangingVine(scaleX(390), 60, 180);
   }
   if (kind == "jungle_temple") {
-    drawMistBand(680);
-    drawMistBand(1280);
+    drawMistBand(560);
+    drawMistBand(1100);
+    drawMistBand(1680);
     drawTempleTop(scaleX(240));
+    drawHangingVine(scaleX(100), 120, 90);
+    drawHangingVine(scaleX(360), 130, 100);
   }
+
+  // Ground trees near the start floor so the opening shot feels lush.
+  drawTreeSilhouette(scaleX(55), bgHeight - 20, 160, 3);
+  drawTreeSilhouette(scaleX(150), bgHeight - 20, 130, 2);
+  drawTreeSilhouette(scaleX(330), bgHeight - 20, 150, 3);
+  drawTreeSilhouette(scaleX(430), bgHeight - 20, 140, 1);
+  drawBush(scaleX(100), bgHeight - 28);
+  drawBush(scaleX(280), bgHeight - 24);
+  drawBush(scaleX(400), bgHeight - 30);
 
   let i = 0;
   while (i < platforms.length) {
@@ -861,12 +1030,81 @@ function createStaticBgForLevel() {
       platBottom().g,
       platBottom().b
     );
+    // Moss highlight so platforms read clearly on the jungle bg.
+    if (p.w > 8) {
+      bgFillRect(p.x + 2, p.y + 1, p.w - 4, 2, 160, 220, 90);
+    }
     i = i + 1;
   }
 }
 
-export function createStaticBg() {
+export function paintLevelBg() {
   createStaticBgForLevel();
+}
+
+function movingPlatformLayerSprite(id: string, w: f64, h: f64, r: i32, g: i32, b: i32) {
+  let rw: i32 = w | 0;
+  if (rw < 12) {
+    rw = 12;
+  }
+  let rh: i32 = h | 0;
+  if (rh < 1) {
+    rh = 1;
+  }
+  return {
+    id: id,
+    kind: "rect",
+    w: rw,
+    h: rh,
+    r: r,
+    g: g,
+    b: b
+  };
+}
+
+function movingPlatformSprites(mpi, w, h) {
+  const bodyH = h - PLAT_EDGE_H * 2;
+  return [
+    movingPlatformLayerSprite("mp" + mpi + "t", w, PLAT_EDGE_H, platTop().r, platTop().g, platTop().b),
+    movingPlatformLayerSprite("mp" + mpi + "m", w, bodyH, platBody().r, platBody().g, platBody().b),
+    movingPlatformLayerSprite("mp" + mpi + "b", w, PLAT_EDGE_H, platBottom().r, platBottom().g, platBottom().b)
+  ];
+}
+
+function placeMovingPlatformEntities(entities, mpi: i32, mp: MovingPlatform, cam: f64) {
+  const cx = mp.x + mp.w / 2;
+  const screenY = mp.y - cam;
+  const midH = mp.h - PLAT_EDGE_H * 2;
+  entities["mp" + mpi + "t"] = {
+    x: cx,
+    y: screenY + PLAT_EDGE_H / 2.0,
+    visible: 1,
+    r: platTop().r,
+    g: platTop().g,
+    b: platTop().b
+  };
+  entities["mp" + mpi + "m"] = {
+    x: cx,
+    y: screenY + PLAT_EDGE_H + midH / 2.0,
+    visible: 1,
+    r: platBody().r,
+    g: platBody().g,
+    b: platBody().b
+  };
+  entities["mp" + mpi + "b"] = {
+    x: cx,
+    y: screenY + mp.h - PLAT_EDGE_H / 2.0,
+    visible: 1,
+    r: platBottom().r,
+    g: platBottom().g,
+    b: platBottom().b
+  };
+}
+
+function hideMovingPlatformEntities(entities, mpi) {
+  entities["mp" + mpi + "t"] = hiddenEntity();
+  entities["mp" + mpi + "m"] = hiddenEntity();
+  entities["mp" + mpi + "b"] = hiddenEntity();
 }
 
 function playerSheetSprite(id, path) {
@@ -945,7 +1183,7 @@ function diamondSprite(id) {
   };
 }
 
-export function sprites() {
+export function buildSprites() {
   const list = [];
   let e = 0;
   while (e < MAX_ENEMIES) {
@@ -967,15 +1205,14 @@ export function sprites() {
     list.push({ id: "b" + b, kind: "rect", w: 6, h: 4, r: 255, g: 240, b: 120 });
     b = b + 1;
   }
+  const movingDefs = cfg().movingPlatforms;
   let mpi = 0;
-  while (mpi < MAX_MOVING_PLATFORMS) {
-    const def = cfg().movingPlatforms[mpi];
-    if (def) {
-      const layers = movingPlatformSprites(mpi, scaleX(def.w), def.h);
-      list.push(layers[0]);
-      list.push(layers[1]);
-      list.push(layers[2]);
-    }
+  while (mpi < movingDefs.length) {
+    const def = movingDefs[mpi];
+    const layers = movingPlatformSprites(mpi, scaleX(def.w), def.h);
+    list.push(layers[0]);
+    list.push(layers[1]);
+    list.push(layers[2]);
     mpi = mpi + 1;
   }
   // Draw players last so they appear above enemies / pickups.
@@ -1089,7 +1326,7 @@ function tryStartSummitMusic(summitMusicStarted, events) {
   return 1;
 }
 
-export function readSavedScore(data, key, fallback) {
+function readSavedScore(data, key, fallback) {
   const v = data[key];
   if (v == null) {
     return fallback;
@@ -1097,7 +1334,7 @@ export function readSavedScore(data, key, fallback) {
   return v;
 }
 
-function initState() {
+export function makeInitState() {
   const data = loadGameData();
   const savedScore1 = readSavedScore(data, "score1", 0);
   const savedScore2 = readSavedScore(data, "score2", 0);
@@ -1128,8 +1365,8 @@ function initState() {
     //      state. (Full list: gallery/game_engine/README.md.)
     entities: entities,   // { id: { x, y } } -> positions the retained sprites()
     cameraY: cameraY,     // scrolls the createStaticBg() background
-    score1: savedScore1,  // HUD
-    score2: savedScore2,  // HUD
+    score1: savedScore1,
+    score2: savedScore2,
     playerSlots: slots,   // player count (dual / split-screen)
     showNet: 0,           // center divider (0 = off)
     // ---- Internal keys: this game's own working memory. The engine stores the
@@ -1145,7 +1382,8 @@ function initState() {
     fireCd1: 0,
     fireCd2: 0,
     summitMusicStarted: 0,
-    levelLoadQueued: 0
+    levelLoadQueued: 0,
+    celebrateMs: -1
   };
 }
 
@@ -1743,10 +1981,10 @@ function placeEntities(s: GameSnapshot, cam: f64, slots: i32) {
   let mpi = 0;
   while (mpi < MAX_MOVING_PLATFORMS) {
     const mp = s.movingPlatforms[mpi];
-    if (mp && mp.y >= 0) {
-      placeMovingPlatformEntities(entities, mpi, mp, cam);
-    } else {
+    if (mp.y < 0) {
       hideMovingPlatformEntities(entities, mpi);
+    } else {
+      placeMovingPlatformEntities(entities, mpi, mp, cam);
     }
     mpi = mpi + 1;
   }
@@ -1908,7 +2146,7 @@ function tickFinishPlayer(pl: Player, dt: f64, events: GameEvent[]): Player {
   };
 }
 
-export function hud(props) {
+export function playHud(props) {
   const s = props.state;
   const victory = showVictoryBanner(s);
   const localSlot = localPlayerSlot();
@@ -1982,7 +2220,7 @@ if (victory == 1) {
   );
 }
 
-export function update(props) {
+export function runUpdate(props) {
   const s = props.state;
   const dt = props.dt;
   const slots = playerSlots();
@@ -2023,6 +2261,10 @@ export function update(props) {
     if (levelLoadQueued == null) {
       levelLoadQueued = 0;
     }
+    let celebrateMs = s.celebrateMs;
+    if (celebrateMs == null || celebrateMs < 0) {
+      celebrateMs = LEVEL_LOAD_MS;
+    }
     if (levelLoadQueued == 0) {
       if (cfg().isFinal) {
         if (wantsRestart(props, dual)) {
@@ -2031,13 +2273,14 @@ export function update(props) {
           return s;
         }
       } else {
-        saveGameData({ score1: s.score1, score2: s.score2 });
-        pushGame(cfg().nextLevel);
-        levelLoadQueued = 1;
+        celebrateMs = celebrateMs - dt;
+        if (celebrateMs <= 0) {
+          celebrateMs = 0;
+          saveGameData({ score1: s.score1, score2: s.score2 });
+          pushGame(cfg().nextLevel);
+          levelLoadQueued = 1;
+        }
       }
-    }
-    if (wantsRestart(props, dual) && cfg().isFinal == false) {
-      // ignore accidental input while loading next level
     }
     const cameraY = computeCamera(p1, p2, dual);
     const entities = placeEntities(
@@ -2071,6 +2314,7 @@ export function update(props) {
       fireCd2: fireCd2,
       summitMusicStarted: s.summitMusicStarted,
       levelLoadQueued: levelLoadQueued,
+      celebrateMs: celebrateMs,
       events: events
     };
   }
@@ -2279,6 +2523,7 @@ export function update(props) {
     fireCd2: fireCd2,
     summitMusicStarted: summitMusicStarted,
     levelLoadQueued: s.levelLoadQueued != null ? s.levelLoadQueued : 0,
+    celebrateMs: s.celebrateMs != null ? s.celebrateMs : -1,
     events: events
   };
 }

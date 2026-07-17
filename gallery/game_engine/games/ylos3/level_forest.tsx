@@ -1,12 +1,15 @@
 // Taso 1 — viidakon lattio: tutustumistaso, leveät puulankut, harvat viholliset.
-export const LEVEL_FOREST = {
+import { setLevelConfig } from "./ylos3_shared";
+
+export function installForestLevel() {
+  setLevelConfig({
   id: "forest",
   label: "Taso 1 — Viidakon lattia",
   worldH: 1890,
   platColors: {
-    body: { r: 92, g: 68, b: 38 },
-    top: { r: 130, g: 190, b: 72 },
-    bottom: { r: 58, g: 42, b: 22 }
+    body: { r: 110, g: 78, b: 42 },
+    top: { r: 150, g: 210, b: 80 },
+    bottom: { r: 68, g: 48, b: 26 }
   },
   bgKind: "jungle_floor",
   movingPlatSpeed: 0.06,
@@ -77,4 +80,5 @@ export const LEVEL_FOREST = {
     { x: 295, y: 710, respawn: false },
     { x: 195, y: 470, respawn: false }
   ]
-};
+  });
+}

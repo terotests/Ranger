@@ -1,5 +1,8 @@
 // Taso 2 — köysisillat: kapeammat lankut, nopeammat liikkuvat alustat, tiheämmät viholliset.
-export const LEVEL_VINES = {
+import { setLevelConfig } from "./ylos3_shared";
+
+export function installVinesLevel() {
+  setLevelConfig({
   id: "vines",
   label: "Taso 2 — Köysisillat",
   worldH: 2100,
@@ -102,4 +105,5 @@ export const LEVEL_VINES = {
     { x: 205, y: 510, respawn: false },
     { x: 120, y: 260, respawn: false }
   ]
-};
+  });
+}
