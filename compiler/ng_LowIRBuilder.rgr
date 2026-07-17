@@ -17,11 +17,33 @@ class LowIRLowerContext {
   def ownedCollectionLocals:[string]
   def ownedStringLocals:[string]
   def pendingStringTemps:[string]
+  def pendingObjectTemps:[string]
+  ; L3 value boxing: names mutated inside a capturing lambda of this scope
+  ; (candidates), and the subset actually boxed with their cell byte size. A
+  ; boxed local's slot holds a heap-cell pointer; reads/writes go through it.
+  def boxedCandidates:[string:int]
+  def boxedLocals:[string:int]
   def escapedLocals:[string:string]
   def currentRetType:string "i32"
   def llvmRetType:string "i32"
   def className:string ""
   def selfPtr:string ""
+}
+
+; Capture layout for one lambda's closure environment (L2+). The closure record
+; is [ fn_index@0 | capture0 | capture1 | … ]; each capture i is stored at
+; offsets[i] with IR type irTypes[i] and kind kinds[i] (0=value copy, 1=string
+; dup/owned, 2=object retain/owned). objClasses[i] is the object class name for
+; kind-2 captures (for field access inside the body), "" otherwise.
+class LambdaCaptureInfo {
+  def names:[string]
+  def irTypes:[string]
+  def kinds:[int]
+  def objClasses:[string]
+  def offsets:[int]
+  def totalBytes:int 4
+  def hasOwned:boolean false
+  def tdName:string ""
 }
 
 class LowIRBuilderPass {
@@ -30,6 +52,31 @@ class LowIRBuilderPass {
   def usedArrayRuntime:boolean false
   def usedPtrArrayRuntime:boolean false
   def usedMemRuntime:boolean false
+  ; lambda hoisted-function name -> its call_indirect signature ("i32,…:ret")
+  def lambdaSigMap:[string:string]
+  ; lambda hoisted-function name -> its lambda fnDesc (for body lowering pass)
+  def lambdaByName:[string:RangerAppFunctionDesc]
+  def lambdaNames:[string]
+  def lambdaCounter:int 0
+  ; lambda compiledName -> its closure-env capture layout (computed lazily at the
+  ; first lowerLambdaValue, read back when the hoisted body is lowered).
+  def lambdaCaptures:[string:LambdaCaptureInfo]
+
+  ; A parameter/value typed as a lambda/function `(fn:… (…))` — its runtime value
+  ; is an i32 closure-record pointer. Detected by the ExpressionType marker the
+  ; frontend puts on lambda-typed nodes.
+  fn isLambdaTypeNode:boolean (node:CodeNode) {
+    if (node.value_type == RangerNodeType.ExpressionType) {
+      return true
+    }
+    if (node.eval_type == RangerNodeType.ExpressionType) {
+      return true
+    }
+    if node.has_lambda {
+      return true
+    }
+    return false
+  }
 
   fn canLowerFunction:boolean (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext) {
     if (fnDesc.is_static == false) {
@@ -87,6 +134,9 @@ class LowIRBuilderPass {
         return false
       }
       def pn (unwrap p.nameNode)
+      if (this.isLambdaTypeNode(pn)) {
+        continue
+      }
       def paramTypeName (this.varTypeName(pn))
       if (false == (this.isLowerableParamType(paramTypeName))) {
         return false
@@ -149,6 +199,12 @@ class LowIRBuilderPass {
       }
     }
 
+    ; WASM lambdas: assign each lambda a hoisted function name + table index +
+    ; call_indirect signature BEFORE lowering method bodies (which reference them).
+    if (appCtx.hasCompilerFlag("wat")) {
+      this.collectLambdas(appCtx)
+    }
+
     for appCtx.definedClassList cName:string i {
       if (cName == "RangerStaticMethods") {
         continue _
@@ -202,6 +258,10 @@ class LowIRBuilderPass {
           this.lowerSingletonAccessor(cl appCtx)
         }
       }
+    }
+    ; lower each hoisted lambda body (after methods, so all names are assigned)
+    if (appCtx.hasCompilerFlag("wat")) {
+      this.lowerLambdaBodies(appCtx)
     }
     if this.usedArrayRuntime {
       LowIRRuntimeGen.ensureArrayRuntime(this.irModule)
@@ -2963,6 +3023,12 @@ class LowIRBuilderPass {
     lctx.ownedStringLocals = emptyStr
     def emptyPending:[string]
     lctx.pendingStringTemps = emptyPending
+    def emptyObjPending:[string]
+    lctx.pendingObjectTemps = emptyObjPending
+    def emptyBoxCand:[string:int]
+    lctx.boxedCandidates = emptyBoxCand
+    def emptyBoxed:[string:int]
+    lctx.boxedLocals = emptyBoxed
     def emptyEscaped:[string:string]
     lctx.escapedLocals = emptyEscaped
     if isInstance {
@@ -3013,6 +3079,9 @@ class LowIRBuilderPass {
       def pn (unwrap p.nameNode)
       def paramTypeName (this.varTypeName(pn))
       lp.irType = (this.llvmTypeForRanger(paramTypeName lctx.ptrType))
+      if (this.isLambdaTypeNode(pn)) {
+        lp.irType = lctx.ptrType
+      }
       push params lp
     }
 
@@ -3055,6 +3124,9 @@ class LowIRBuilderPass {
       def pn (unwrap p.nameNode)
       def paramTypeName (this.varTypeName(pn))
       def pType (this.llvmTypeForRanger(paramTypeName lctx.ptrType))
+      if (this.isLambdaTypeNode(pn)) {
+        pType = lctx.ptrType
+      }
       def paramVal:string ("%" + lpName)
       this.bindSlot(p.name pType paramVal lctx)
       if (LowIRUtil.isArrayTypeName(paramTypeName)) {
@@ -3067,6 +3139,9 @@ class LowIRBuilderPass {
         set lctx.objectSlots p.name paramTypeName
       }
     }
+
+    ; L3: identify value locals mutated by a capturing lambda (boxing candidates)
+    this.computeBoxedCandidates(fnDesc lctx)
 
     if (!null? fnDesc.fnBody) {
       this.lowerBlock((unwrap fnDesc.fnBody) lctx)
@@ -3119,6 +3194,12 @@ class LowIRBuilderPass {
     lctx.ownedStringLocals = emptyStr
     def emptyPending:[string]
     lctx.pendingStringTemps = emptyPending
+    def emptyObjPending:[string]
+    lctx.pendingObjectTemps = emptyObjPending
+    def emptyBoxCand:[string:int]
+    lctx.boxedCandidates = emptyBoxCand
+    def emptyBoxed:[string:int]
+    lctx.boxedLocals = emptyBoxed
     def emptyEscaped:[string:string]
     lctx.escapedLocals = emptyEscaped
     lctx.currentRetType = cl.name
@@ -3155,6 +3236,472 @@ class LowIRBuilderPass {
     def fnName (LowIRUtil.mangleMethod(cl.name "__singleton"))
     def params:[LowIRParam]
     builder.finishFunction(fnName lctx.ptrType params false false)
+  }
+
+  ; ======================================================================
+  ; Lambdas / closures (WAT backend). Each lambda body is hoisted to a
+  ; top-level function `lambdaN(%__env, params…)`; the value is a closure record
+  ; [ fn_index | captures… ] and a call goes through call_indirect. L0/L1:
+  ; non-capturing. Env is threaded for a uniform representation.
+  ; ======================================================================
+  fn collectLambdas:void (appCtx:RangerAppWriterContext) {
+    def target (LowIRTarget.resolve(appCtx))
+    def pt (target.ptrType)
+    for appCtx.definedClassList cName:string i {
+      if (cName == "RangerStaticMethods") {
+        continue
+      }
+      if (false == (has appCtx.definedClasses cName)) {
+        continue
+      }
+      def cl (unwrap (get appCtx.definedClasses cName))
+      if (cl.is_operator_class || cl.is_trait) {
+        continue
+      }
+      if (cl.is_system || cl.is_union) {
+        continue
+      }
+      for cl.static_methods m:RangerAppFunctionDesc j {
+        this.collectMethodLambdas(m pt)
+      }
+      for cl.methods m:RangerAppFunctionDesc j {
+        this.collectMethodLambdas(m pt)
+      }
+      if cl.has_constructor {
+        if (!null? cl.constructor_fn) {
+          this.collectMethodLambdas((unwrap cl.constructor_fn) pt)
+        }
+      }
+    }
+  }
+
+  fn collectMethodLambdas:void (m:RangerAppFunctionDesc pt:string) {
+    for m.myLambdas lam:RangerAppFunctionDesc i {
+      def name:string ("lambda" + ("" + this.lambdaCounter))
+      this.lambdaCounter = (this.lambdaCounter + 1)
+      lam.compiledName = name
+      push this.irModule.lambdaTableFuncs name
+      push this.lambdaNames name
+      set this.lambdaByName name lam
+      def sig (this.lambdaCallSig(lam pt))
+      set this.lambdaSigMap name sig
+      this.addLambdaSig(sig)
+      ; nested lambdas defined inside this lambda's body
+      this.collectMethodLambdas(lam pt)
+    }
+  }
+
+  ; call_indirect signature: env(i32) + declared param IR types, then ":ret".
+  fn lambdaCallSig:string (lam:RangerAppFunctionDesc pt:string) {
+    def sig:string "i32"
+    for lam.params p:RangerAppParamDesc i {
+      if (!null? p.nameNode) {
+        def pn (unwrap p.nameNode)
+        def tn (this.varTypeName(pn))
+        sig = (sig + ("," + (this.llvmTypeForRanger(tn pt))))
+      }
+    }
+    def ret:string "void"
+    if (!null? lam.nameNode) {
+      def rn (unwrap lam.nameNode)
+      ret = (this.llvmTypeForRanger((this.varTypeName(rn)) pt))
+    }
+    return (sig + (":" + ret))
+  }
+
+  fn addLambdaSig:void (sig:string) {
+    for this.irModule.lambdaSigs s:string i {
+      if (s == sig) {
+        return
+      }
+    }
+    push this.irModule.lambdaSigs sig
+  }
+
+  fn lowerLambdaBodies:void (appCtx:RangerAppWriterContext) {
+    for this.lambdaNames name:string i {
+      if (has this.lambdaByName name) {
+        this.lowerLambdaFunction((unwrap (get this.lambdaByName name)) name appCtx)
+      }
+    }
+  }
+
+  fn lowerLambdaFunction:void (lam:RangerAppFunctionDesc fnName:string appCtx:RangerAppWriterContext) {
+    def builder@(lives):LowIRBuilder (new LowIRBuilder(this.irModule))
+    builder.reset()
+    def lctx@(lives):LowIRLowerContext (new LowIRLowerContext())
+    lctx.ctx = appCtx
+    lctx.builder = builder
+    lctx.target = (LowIRTarget.resolve(appCtx))
+    lctx.ptrType = lctx.target.ptrType
+    def emptySlots:[string:string]
+    lctx.slots = emptySlots
+    def emptySlotTypes:[string:string]
+    lctx.slotTypes = emptySlotTypes
+    def emptyObjects:[string:string]
+    lctx.objectSlots = emptyObjects
+    def emptyCollections:[string:string]
+    lctx.collectionSlots = emptyCollections
+    def emptyElemTypes:[string:string]
+    lctx.ptrArrayElemTypes = emptyElemTypes
+    def emptyOwned:[string]
+    lctx.ownedObjectLocals = emptyOwned
+    def emptyColl:[string]
+    lctx.ownedCollectionLocals = emptyColl
+    def emptyStr:[string]
+    lctx.ownedStringLocals = emptyStr
+    def emptyPending:[string]
+    lctx.pendingStringTemps = emptyPending
+    def emptyObjPending:[string]
+    lctx.pendingObjectTemps = emptyObjPending
+    def emptyBoxCand:[string:int]
+    lctx.boxedCandidates = emptyBoxCand
+    def emptyBoxed:[string:int]
+    lctx.boxedLocals = emptyBoxed
+    def emptyEscaped:[string:string]
+    lctx.escapedLocals = emptyEscaped
+
+    def retTypeName:string "void"
+    if (!null? lam.nameNode) {
+      retTypeName = (this.varTypeName((unwrap lam.nameNode)))
+    }
+    lctx.currentRetType = retTypeName
+    lctx.llvmRetType = (this.llvmTypeForRanger(retTypeName lctx.ptrType))
+
+    builder.startBlock("entry")
+
+    def params:[LowIRParam]
+    def envParam@(lives):LowIRParam (new LowIRParam())
+    envParam.name = "__env"
+    envParam.irType = lctx.ptrType
+    push params envParam
+    for lam.params p:RangerAppParamDesc i {
+      def lp@(lives):LowIRParam (new LowIRParam())
+      lp.name = p.name
+      def pn (unwrap p.nameNode)
+      def paramTypeName (this.varTypeName(pn))
+      lp.irType = (this.llvmTypeForRanger(paramTypeName lctx.ptrType))
+      push params lp
+      this.bindSlot(p.name lp.irType ("%" + p.name) lctx)
+      if (this.isObjectTypeName(paramTypeName)) {
+        set lctx.objectSlots p.name paramTypeName
+      }
+    }
+
+    ; L2: snapshot captured variables out of the closure env (%__env) into local
+    ; slots at entry. Read-only capture => a one-time copy is correct. Captured
+    ; strings/objects are NOT registered as owned locals here: the closure's
+    ; typedesc owns them and frees them when the record is released, so the body
+    ; must not release them at scope end.
+    if (has this.lambdaCaptures fnName) {
+      def cinfo@(lives):LambdaCaptureInfo (unwrap (get this.lambdaCaptures fnName))
+      def envRef:string "%__env"
+      def ci 0
+      def cn2 (array_length cinfo.names)
+      while (< ci cn2) {
+        def capName (itemAt cinfo.names ci)
+        def capOff (itemAt cinfo.offsets ci)
+        def capIrt (itemAt cinfo.irTypes ci)
+        def capKnd (itemAt cinfo.kinds ci)
+        def loaded (builder.emitLoadI32At(envRef capOff))
+        this.bindSlot(capName capIrt loaded lctx)
+        if (capKnd == 2) {
+          set lctx.objectSlots capName (itemAt cinfo.objClasses ci)
+        }
+        if (capKnd == 3) {
+          ; boxed value: the slot holds the shared cell pointer; body reads and
+          ; writes of capName go through the cell (see lowerVarDef/Assign/Expr).
+          ; NOT registered as an owned local — the env owns and frees the cell.
+          set lctx.boxedLocals capName 4
+        }
+        ci = (+ ci 1)
+      }
+    }
+
+    ; nested lambdas inside this lambda body may themselves mutate captures
+    this.computeBoxedCandidates(lam lctx)
+
+    if (!null? lam.fnBody) {
+      this.lowerBlock((unwrap lam.fnBody) lctx)
+    }
+
+    def cur (unwrap builder.currentBlock)
+    if (cur.termKind == "") {
+      this.emitReleaseOwnedLocals(lctx)
+      if (lctx.llvmRetType == "void") {
+        builder.terminateRet("void" "")
+      } {
+        def zero (builder.emitConst("i32" "0"))
+        builder.terminateRet(lctx.llvmRetType zero)
+      }
+    }
+    builder.finishFunction(fnName lctx.llvmRetType params false false)
+  }
+
+  fn lambdaTableIndex:int (name:string) {
+    def idx 0
+    for this.irModule.lambdaTableFuncs f:string i {
+      if (f == name) {
+        return idx
+      }
+      idx = (+ idx 1)
+    }
+    return 0
+  }
+
+  ; Does this subtree assign to `name`? (an assignment node [= <name> …],
+  ; directly or wrapped in an infix "=" node). Used to find which captured
+  ; locals a lambda mutates, so they can be boxed (L3).
+  fn nodeAssignsToName:boolean (node:CodeNode name:string) {
+    if (this.isAssignNode(node)) {
+      def lhs (node.getSecond())
+      if (lhs.vref == name) {
+        return true
+      }
+    }
+    if node.infix_operator {
+      if (!null? node.infix_node) {
+        def inx (unwrap node.infix_node)
+        if (this.isAssignNode(inx)) {
+          def lhs2 (inx.getSecond())
+          if (lhs2.vref == name) {
+            return true
+          }
+        }
+      }
+    }
+    for node.children c:CodeNode i {
+      if (this.nodeAssignsToName(c name)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; Pre-pass over a method: any captured local that some capturing lambda in the
+  ; method MUTATES is a boxing candidate (finalised in lowerVarDef once its type
+  ; is known to be a value type). Recurses into nested lambdas. WAT-only.
+  fn computeBoxedCandidates:void (fnDesc:RangerAppFunctionDesc lctx:LowIRLowerContext) {
+    def ctx (unwrap lctx.ctx)
+    if (ctx.hasCompilerFlag("wat") == false) {
+      return
+    }
+    this.collectBoxedCandidates(fnDesc lctx)
+  }
+
+  fn collectBoxedCandidates:void (m:RangerAppFunctionDesc lctx:LowIRLowerContext) {
+    for m.myLambdas lam:RangerAppFunctionDesc i {
+      if (!null? lam.fnBody) {
+        if (!null? lam.node) {
+          def lnode (unwrap lam.node)
+          if (!null? lnode.lambda_ctx) {
+            def lc (unwrap lnode.lambda_ctx)
+            def body (unwrap lam.fnBody)
+            for lc.captured_variables cn:string j {
+              if (this.nodeAssignsToName(body cn)) {
+                set lctx.boxedCandidates cn 4
+              }
+            }
+          }
+        }
+      }
+      this.collectBoxedCandidates(lam lctx)
+    }
+  }
+
+  ; Analyse and lay out one lambda's closure environment (L2+). Reads the
+  ; frontend's capture set (node.lambda_ctx.captured_variables) and classifies
+  ; each captured enclosing local as value (copy), string (dup/owned), object
+  ; (retain/owned), or boxed value (L3: a shared heap cell, retain/owned) using
+  ; the CREATING context's slot types. Assigns each an env offset (fn_index sits
+  ; at 0) and, if any capture is owned, registers a closure typedesc so
+  ; obj_release frees the captured strings/objects/cells. Memoised per lambda so
+  ; the creating site and the hoisted-body site share one layout.
+  fn computeLambdaCaptures:LambdaCaptureInfo (node:CodeNode lam:RangerAppFunctionDesc lctx:LowIRLowerContext) {
+    def key:string lam.compiledName
+    if (has this.lambdaCaptures key) {
+      return (unwrap (get this.lambdaCaptures key))
+    }
+    def info@(lives):LambdaCaptureInfo (new LambdaCaptureInfo())
+    def off 4
+    if (!null? node.lambda_ctx) {
+      def lamCtx (unwrap node.lambda_ctx)
+      for lamCtx.captured_variables cn:string i {
+        ; only names that are enclosing locals/params we can load from a slot
+        if (has lctx.slots cn) {
+          def kind 0
+          def objCls:string ""
+          def cirt:string lctx.ptrType
+          if (has lctx.boxedLocals cn) {
+            ; L3: a boxed mutated value — the env retains the shared heap cell
+            ; (owned like an object; the body reads/writes through the cell)
+            kind = 3
+          } {
+          if (has lctx.objectSlots cn) {
+            kind = 2
+            objCls = (unwrap (get lctx.objectSlots cn))
+          } {
+            def isStr false
+            if (this.isOwnedStringLocal(cn lctx)) {
+              isStr = true
+            }
+            if (has lctx.slotTypes cn) {
+              if ((unwrap (get lctx.slotTypes cn)) == "i8*") {
+                isStr = true
+              }
+            }
+            if isStr {
+              kind = 1
+              cirt = "i8*"
+            } {
+              kind = 0
+              if (has lctx.slotTypes cn) {
+                cirt = (unwrap (get lctx.slotTypes cn))
+              }
+            }
+          }
+          }
+          push info.names cn
+          push info.irTypes cirt
+          push info.kinds kind
+          push info.objClasses objCls
+          push info.offsets off
+          if (kind != 0) {
+            info.hasOwned = true
+          }
+          off = (+ off 4)
+        }
+      }
+    }
+    info.totalBytes = off
+    ; a closure typedesc lets obj_destroyFields free owned captures for free
+    if info.hasOwned {
+      def tdName:string ("__closure_" + key)
+      info.tdName = tdName
+      def td@(lives):LowIRTypeDesc (new LowIRTypeDesc())
+      td.className = tdName
+      td.size = info.totalBytes
+      def k 0
+      def nn (array_length info.names)
+      while (< k nn) {
+        def knd (itemAt info.kinds k)
+        if (knd != 0) {
+          def fd@(lives):LowIRTypeFieldDesc (new LowIRTypeFieldDesc())
+          fd.offset = (itemAt info.offsets k)
+          ; runtime typedesc kind: 0=string, 1=object
+          if (knd == 1) {
+            fd.kind = 0
+          } {
+            fd.kind = 1
+          }
+          fd.owned = 1
+          push td.fields fd
+        }
+        k = (+ k 1)
+      }
+      push this.irModule.typeDescs td
+    }
+    set this.lambdaCaptures key info
+    return info
+  }
+
+  ; A lambda literal -> a closure record (RC object) [ fn_index | captures… ].
+  ; L0/L1 non-capturing = just fn_index; L2 stores captured value copies, string
+  ; dups, and retained object refs into the env. Returns the record pointer.
+  fn lowerLambdaValue:string (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    if (null? node.lambdaFnDesc) {
+      def bytes0 (builder.emitConst("i32" "4"))
+      return (builder.emitHeapAlloc(bytes0))
+    }
+    def lfd@(lives):RangerAppFunctionDesc (unwrap node.lambdaFnDesc)
+    def name:string lfd.compiledName
+    def idx (this.lambdaTableIndex(name))
+    def info@(lives):LambdaCaptureInfo (this.computeLambdaCaptures(node lfd lctx))
+    def bytes (builder.emitConst("i32" ("" + info.totalBytes)))
+    def rec:string ""
+    if (this.objRcEnabled(lctx)) {
+      def tdArg:string ""
+      if info.hasOwned {
+        tdArg = (builder.emitTypeDescPtr(info.tdName))
+      } {
+        tdArg = (builder.emitConst("i32" "0"))
+      }
+      def a:[string]
+      def at:[string]
+      push a bytes
+      push at "i32"
+      push a tdArg
+      push at "i32"
+      rec = (builder.emitCall("ranger_obj_new" lctx.ptrType a at))
+    } {
+      rec = (builder.emitHeapAlloc(bytes))
+    }
+    def idxC (builder.emitConst("i32" ("" + idx)))
+    builder.emitStoreI32At(rec 0 idxC)
+    ; materialise the captured environment
+    def k 0
+    def nn (array_length info.names)
+    while (< k nn) {
+      def cn (itemAt info.names k)
+      def knd (itemAt info.kinds k)
+      def coff (itemAt info.offsets k)
+      def cirt (itemAt info.irTypes k)
+      def cval (this.loadSlot(cn cirt lctx))
+      if (knd == 1) {
+        ; string capture: the closure owns a private dup
+        cval = (this.emitStrdupExpr(cval lctx))
+      }
+      if (knd == 2) {
+        ; object capture: retain so it outlives the creating scope (the closure's
+        ; typedesc releases it on destruction — solves premature-free)
+        this.emitObjRetainPtr(cval lctx)
+      }
+      if (knd == 3) {
+        ; boxed value capture: retain the shared heap cell (the enclosing scope
+        ; and the closure both reference it; freed once, when neither holds it)
+        this.emitObjRetainPtr(cval lctx)
+      }
+      builder.emitStoreI32At(rec coff cval)
+      k = (+ k 1)
+    }
+    ; no local owns it yet — register for statement-scoped release so an inline
+    ; lambda argument (`apply((fn…){}) v)`) does not leak. A binding claims it.
+    this.registerFreshObjectTemp(rec lctx)
+    return rec
+  }
+
+  ; Call a lambda value: load fn_index from the record and call_indirect, passing
+  ; the record itself as the hidden env (first arg).
+  fn lowerLambdaCall:string (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def calleeNode (node.getFirst())
+    def argsNode (node.getSecond())
+    def env (this.lowerExpr(calleeNode lctx))
+    def fnIdx (builder.emitPtrLoad(env))
+    def callArgs:[string]
+    def callTypes:[string]
+    push callArgs env
+    push callTypes lctx.ptrType
+    def sig:string "i32"
+    for argsNode.children arg:CodeNode i {
+      def av (this.lowerExpr(arg lctx))
+      def at (this.argIrType(arg lctx))
+      if (this.exprProducesI1(arg lctx)) {
+        av = (builder.emitZextI1ToI32(av))
+        at = "i32"
+      }
+      push callArgs av
+      push callTypes at
+      sig = (sig + ("," + at))
+    }
+    def ret:string "void"
+    if ((strlen node.eval_type_name) > 0) {
+      ret = (this.llvmTypeForRanger(node.eval_type_name lctx.ptrType))
+    }
+    sig = (sig + (":" + ret))
+    this.addLambdaSig(sig)
+    return (builder.emitCallIndirect(ret sig callArgs callTypes fnIdx))
   }
 
   fn isOwnedObjectLocal:boolean (varName:string lctx:LowIRLowerContext) {
@@ -3251,6 +3798,54 @@ class LowIRBuilderPass {
       j = (+ j 1)
     }
     lctx.pendingStringTemps = kept
+  }
+
+  ; --- fresh object temp arena (statement-scoped) ------------------------
+  ; A fresh RC object produced mid-expression that no local owns yet — today an
+  ; inline lambda value used directly as a call argument, e.g.
+  ; `apply((fn:… (){}) v)`. The closure record is allocated but never bound, so
+  ; it is registered here and released at statement/return end (mirrors the
+  ; string temp arena). Objects that ARE bound to a local claim themselves out.
+  fn registerFreshObjectTemp:void (tmp:string lctx:LowIRLowerContext) {
+    if (this.objRcEnabled(lctx) == false) {
+      return
+    }
+    push lctx.pendingObjectTemps tmp
+  }
+
+  fn claimObjectTemp:void (tmp:string lctx:LowIRLowerContext) {
+    if (this.objRcEnabled(lctx) == false) {
+      return
+    }
+    def kept:[string]
+    for lctx.pendingObjectTemps t:string i {
+      if (t != tmp) {
+        push kept t
+      }
+    }
+    lctx.pendingObjectTemps = kept
+  }
+
+  fn flushObjectTempsFrom:void (mark:int lctx:LowIRLowerContext) {
+    if (this.objRcEnabled(lctx) == false) {
+      return
+    }
+    def n (array_length lctx.pendingObjectTemps)
+    if (n <= mark) {
+      return
+    }
+    def k mark
+    while (< k n) {
+      this.emitObjReleasePtr((itemAt lctx.pendingObjectTemps k) lctx)
+      k = (+ k 1)
+    }
+    def kept:[string]
+    def j 0
+    while (< j mark) {
+      push kept (itemAt lctx.pendingObjectTemps j)
+      j = (+ j 1)
+    }
+    lctx.pendingObjectTemps = kept
   }
 
   ; free a bare string pointer (an intermediate temporary) via ranger_str_release
@@ -3472,11 +4067,13 @@ class LowIRBuilderPass {
       return
     }
     def strMark (array_length lctx.pendingStringTemps)
+    def objMark (array_length lctx.pendingObjectTemps)
     this.lowerStmtDispatch(node lctx)
     if (!null? lctx.builder.currentBlock) {
       def curBlock (unwrap lctx.builder.currentBlock)
       if (curBlock.termKind == "") {
         this.flushStringTempsFrom(strMark lctx)
+        this.flushObjectTempsFrom(objMark lctx)
       }
     }
   }
@@ -3571,6 +4168,10 @@ class LowIRBuilderPass {
         this.lowerOnKeypress(node lctx)
         return
       }
+    }
+    if node.has_lambda_call {
+      this.lowerLambdaCall(node lctx)
+      return
     }
     if (node.has_call || node.is_direct_method_call) {
       this.lowerCall(node lctx)
@@ -3698,11 +4299,51 @@ class LowIRBuilderPass {
         return
       }
     }
+    ; a lambda local holds a closure record (RC object) — release it at scope end
+    if val.has_lambda {
+      def rec (this.lowerLambdaValue(val lctx))
+      ; the local now owns the record: claim it out of the statement arena so it
+      ; is not double-freed (scope-end release owns its lifetime).
+      this.claimObjectTemp(rec lctx)
+      if (this.objRcEnabled(lctx)) {
+        if (this.isOwnedObjectLocal(varName lctx) == false) {
+          push lctx.ownedObjectLocals varName
+        }
+      }
+      this.bindSlot(varName lctx.ptrType rec lctx)
+      return
+    }
     def tmp (this.lowerExpr(val lctx))
     def typeName (this.varTypeName(nameNode))
     def irType (this.llvmTypeForRanger(typeName lctx.ptrType))
     if (val.value_type == RangerNodeType.Boolean) {
       irType = "i1"
+    }
+    ; L3: a value local mutated by a capturing lambda is promoted to a shared
+    ; heap cell (RC object, td=0). Both this scope and the closure reference the
+    ; cell; reads/writes go through it, and it is freed once (RC balances the
+    ; scope-end release against the closure's retain-on-capture).
+    if (this.objRcEnabled(lctx)) {
+      if (has lctx.boxedCandidates varName) {
+        if ((irType == "i32") || (irType == "i1")) {
+          def cellBytes (lctx.builder.emitConst("i32" "4"))
+          def cellTd (lctx.builder.emitConst("i32" "0"))
+          def ca:[string]
+          def cat:[string]
+          push ca cellBytes
+          push cat "i32"
+          push ca cellTd
+          push cat "i32"
+          def cell (lctx.builder.emitCall("ranger_obj_new" lctx.ptrType ca cat))
+          lctx.builder.emitStoreI32At(cell 0 tmp)
+          this.bindSlot(varName lctx.ptrType cell lctx)
+          set lctx.boxedLocals varName 4
+          if (this.isOwnedObjectLocal(varName lctx) == false) {
+            push lctx.ownedObjectLocals varName
+          }
+          return
+        }
+      }
     }
     if (this.isObjectTypeName(typeName)) {
       set lctx.objectSlots varName typeName
@@ -3758,6 +4399,13 @@ class LowIRBuilderPass {
       tmp = (this.lowerNewObject(newCls (rhs.getThird()) lctx))
     } {
       tmp = (this.lowerExpr(rhs lctx))
+    }
+    ; L3: a boxed value local — write through the shared heap cell so the closure
+    ; that captured it observes the mutation (and vice versa).
+    if (has lctx.boxedLocals varName) {
+      def cellPtr (this.loadSlot(varName lctx.ptrType lctx))
+      builder.emitStoreI32At(cellPtr 0 tmp)
+      return
     }
     def irType:string "i32"
     if ((indexOf varName ".") >= 0) {
@@ -3845,7 +4493,13 @@ class LowIRBuilderPass {
       if (valNode.value_type == RangerNodeType.VRef) {
         ; A returned local escapes: the caller now owns it, so it must not be
         ; released here. Covers owned objects AND owned collections (ptr-arrays).
-        set lctx.escapedLocals valNode.vref "1"
+        ; A boxed value local (L3) is the exception: `return count` copies the
+        ; VALUE out through the cell, so the cell itself does NOT escape and must
+        ; still be released at scope end.
+        if (has lctx.boxedLocals valNode.vref) {
+        } {
+          set lctx.escapedLocals valNode.vref "1"
+        }
       }
       def tmp:string ""
       if (valNode.has_call || valNode.is_direct_method_call) {
@@ -3858,6 +4512,9 @@ class LowIRBuilderPass {
       ; the int->string temps of `return ("a" + n)`) before the terminator.
       this.claimStringTemp(tmp lctx)
       this.flushStringTempsFrom(0 lctx)
+      ; a returned closure record escapes; release the rest (inline lambda args)
+      this.claimObjectTemp(tmp lctx)
+      this.flushObjectTempsFrom(0 lctx)
       this.emitReleaseOwnedLocals(lctx)
       builder.terminateRet(retType tmp)
     } {
@@ -4025,11 +4682,13 @@ class LowIRBuilderPass {
     def condNode (node.getSecond())
     def thenNode (node.getThird())
     def condMark (array_length lctx.pendingStringTemps)
+    def objCondMark (array_length lctx.pendingObjectTemps)
     def cond (this.lowerCond(condNode lctx))
     ; a fresh string temp built in the condition (e.g. (("a"+x) == y)) is dead
     ; once the i1 is computed; free it here, in the pre-branch block where it is
     ; still valid, rather than leaking to the merge block.
     this.flushStringTempsFrom(condMark lctx)
+    this.flushObjectTempsFrom(objCondMark lctx)
     def thenTag:string "then"
     def elseTag:string "else"
     def mergeTag:string "merge"
@@ -4087,10 +4746,12 @@ class LowIRBuilderPass {
     builder.terminateBr(condLabel)
     builder.startBlock(condLabel)
     def condMark (array_length lctx.pendingStringTemps)
+    def objCondMark (array_length lctx.pendingObjectTemps)
     def cond (this.lowerCond(condNode lctx))
     ; free per-iteration condition string temps in the condition block (runs each
     ; iteration), so a loop whose test builds a string doesn't leak every turn.
     this.flushStringTempsFrom(condMark lctx)
+    this.flushObjectTempsFrom(objCondMark lctx)
     builder.terminateBrIf(cond bodyLabel exitLabel)
 
     ; snapshot owned-object and owned-string locals so any declared INSIDE the
@@ -4176,6 +4837,16 @@ class LowIRBuilderPass {
     def irI1:string "i1"
     def zero:string "0"
     def one:string "1"
+
+    ; a call through a lambda value -> call_indirect (checked before has_call,
+    ; which is also set on the node)
+    if node.has_lambda_call {
+      return (this.lowerLambdaCall(node lctx))
+    }
+    ; a lambda literal -> a closure record
+    if node.has_lambda {
+      return (this.lowerLambdaValue(node lctx))
+    }
 
     if (node.has_call || node.is_direct_method_call) {
       return (this.lowerCall(node lctx))
@@ -4370,6 +5041,11 @@ class LowIRBuilderPass {
     }
 
     if (node.value_type == RangerNodeType.VRef) {
+      ; L3: a boxed value local — read the current value through the shared cell.
+      if (has lctx.boxedLocals node.vref) {
+        def cellPtr (this.loadSlot(node.vref lctx.ptrType lctx))
+        return (builder.emitLoadI32At(cellPtr 0))
+      }
       if ((indexOf node.vref ".") >= 0) {
         def parts:[string] (strsplit node.vref ".")
         if ((array_length parts) >= 2) {

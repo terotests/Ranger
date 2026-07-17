@@ -12,6 +12,71 @@ class WATWriter {
   ; class name -> its type-descriptor header address in the static data segment
   def typeDescAddrs:[string:int]
 
+  ; hoisted lambda function names, table-index order (position = call_indirect idx)
+  def lambdaFuncs:[string]
+
+  fn lambdaFuncIndex:int (name:string) {
+    def idx 0
+    for this.lambdaFuncs f:string i {
+      if (f == name) {
+        return idx
+      }
+      idx = (+ idx 1)
+    }
+    return 0
+  }
+
+  ; A call_indirect signature "t0,t1,…:ret" -> a wasm type name and its decl.
+  ; The leading param is always the closure env (i32).
+  fn sigTypeName:string (callSig:string) {
+    def parts:[string] (strsplit callSig ":")
+    def params (itemAt parts 0)
+    def ret ""
+    if ((array_length parts) > 1) {
+      ret = (itemAt parts 1)
+    }
+    def s:string "sig"
+    def ps:[string] (strsplit params ",")
+    for ps p:string i {
+      if ((strlen p) > 0) {
+        s = (s + ("_" + p))
+      }
+    }
+    s = (s + ("__" + ret))
+    return s
+  }
+
+  fn sigTypeDecl:string (callSig:string) {
+    def parts:[string] (strsplit callSig ":")
+    def params (itemAt parts 0)
+    def ret ""
+    if ((array_length parts) > 1) {
+      ret = (itemAt parts 1)
+    }
+    def out:string ("  (type $" + ((this.sigTypeName(callSig)) + " (func"))
+    def ps:[string] (strsplit params ",")
+    def hasParam false
+    for ps p:string i {
+      if ((strlen p) > 0) {
+        if (hasParam == false) {
+          out = (out + " (param")
+          hasParam = true
+        }
+        out = (out + (" " + (this.watType(p))))
+      }
+    }
+    if hasParam {
+      out = (out + ")")
+    }
+    if ((strlen ret) > 0) {
+      if (ret != "void") {
+        out = (out + (" (result " + ((this.watType(ret)) + ")")))
+      }
+    }
+    out = (out + "))")
+    return out
+  }
+
   ; --- string literal data segments --------------------------------------
   ; Layout: [0,16) control, [16, heapEnd) literals, heapEnd.. heap. The heap
   ; base (heapEnd) is written to Mem[4]; ranger_heap.base() reads it. Literals
@@ -225,6 +290,19 @@ class WATWriter {
     }
     if hasStatic {
       this.emitStaticData(module wr)
+    }
+    ; lambda call_indirect type signatures, then the function table + elem
+    this.lambdaFuncs = module.lambdaTableFuncs
+    for module.lambdaSigs sig:string i {
+      wr.out((this.sigTypeDecl(sig)) true)
+    }
+    if ((array_length module.lambdaTableFuncs) > 0) {
+      def elem:string "  (table funcref (elem"
+      for module.lambdaTableFuncs lf:string i {
+        elem = (elem + (" $" + lf))
+      }
+      elem = (elem + "))")
+      wr.out(elem true)
     }
     ; one mutable global per singleton class, holding its lazy instance pointer
     for module.singletonClasses sc:string i {
@@ -631,6 +709,20 @@ class WATWriter {
       case "global_set" {
         this.writeGet(ins.arg2 wr)
         wr.out(("      global.set $" + ins.arg1) true)
+      }
+      case "func_ref" {
+        wr.out(("      i32.const " + ("" + (this.lambdaFuncIndex(ins.arg1)))) true)
+        wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+      }
+      case "call_indirect" {
+        for ins.callArgs a:string j {
+          this.writeGet(a wr)
+        }
+        this.writeGet(ins.arg1 wr)
+        wr.out(("      call_indirect (type $" + ((this.sigTypeName(ins.callSig)) + ")")) true)
+        if ((strlen ins.dest) > 0) {
+          wr.out(("      local.set " + (this.wasmName(ins.dest))) true)
+        }
       }
       case "inttoptr_struct" {
         this.writeGet(ins.arg1 wr)
