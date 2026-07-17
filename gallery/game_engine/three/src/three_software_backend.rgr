@@ -91,6 +91,7 @@ class ThreeSoftwareBackend extends ThreeRenderBackend {
         def sx:[double]
         def sy:[double]
         def sz:[double]
+        def sw:[double]
         def bad:[int]
         def vi:int 0
         while (vi < vc) {
@@ -104,10 +105,13 @@ class ThreeSoftwareBackend extends ThreeRenderBackend {
             push sx screenX
             push sy screenY
             push sz ndc.z
+            ; 1/w for perspective-correct attribute interpolation
             if (cw <= 0.0) {
                 push bad 1
+                push sw 1.0
             } {
                 push bad 0
+                push sw (1.0 / cw)
             }
             vi = (vi + 1)
         }
@@ -122,13 +126,13 @@ class ThreeSoftwareBackend extends ThreeRenderBackend {
             def i1:int (geometry.getIndex(t + 1))
             def i2:int (geometry.getIndex(t + 2))
             if ((((itemAt bad i0) + (itemAt bad i1)) + (itemAt bad i2)) == 0) {
-                this.rasterTri(geometry sx sy sz i0 i1 i2 hasTexture tex r255 g255 b255)
+                this.rasterTri(geometry sx sy sz sw i0 i1 i2 hasTexture tex r255 g255 b255)
             }
             t = (t + 3)
         }
     }
 
-    fn rasterTri:void (geometry:ThreeBufferGeometry sx:[double] sy:[double] sz:[double] i0:int i1:int i2:int hasTexture:boolean tex:ThreeTexture r255:int g255:int b255:int) {
+    fn rasterTri:void (geometry:ThreeBufferGeometry sx:[double] sy:[double] sz:[double] sw:[double] i0:int i1:int i2:int hasTexture:boolean tex:ThreeTexture r255:int g255:int b255:int) {
         def x0:double (itemAt sx i0)
         def y0:double (itemAt sy i0)
         def z0:double (itemAt sz i0)
@@ -158,6 +162,10 @@ class ThreeSoftwareBackend extends ThreeRenderBackend {
         def v1:double (geometry.getUv(i1 1))
         def u2:double (geometry.getUv(i2 0))
         def v2:double (geometry.getUv(i2 1))
+        ; 1/w at the corners, for perspective-correct interpolation
+        def iw0:double (itemAt sw i0)
+        def iw1:double (itemAt sw i1)
+        def iw2:double (itemAt sw i2)
         def invArea:double (1.0 / area)
         def py:int miny
         while (py <= maxy) {
@@ -177,8 +185,10 @@ class ThreeSoftwareBackend extends ThreeRenderBackend {
                         def cg:int g255
                         def cb:int b255
                         if hasTexture {
-                            def u:double (((w0 * u0) + (w1 * u1)) + (w2 * u2))
-                            def v:double (((w0 * v0) + (w1 * v1)) + (w2 * v2))
+                            ; perspective-correct: interpolate u/w, v/w, 1/w then divide
+                            def wsum:double (((w0 * iw0) + (w1 * iw1)) + (w2 * iw2))
+                            def u:double (((((w0 * u0) * iw0) + ((w1 * u1) * iw1)) + ((w2 * u2) * iw2)) / wsum)
+                            def v:double (((((w0 * v0) * iw0) + ((w1 * v1) * iw1)) + ((w2 * v2) * iw2)) / wsum)
                             def tr:int (this.sampleTex(tex u v 0))
                             def tg:int (this.sampleTex(tex u v 1))
                             def tb:int (this.sampleTex(tex u v 2))
