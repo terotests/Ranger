@@ -4725,10 +4725,31 @@ class TSParserSimple {
       }
     }
     
-    ; Parse callee
+    ; Parse callee. In JS grammar `new`'s callee is a MemberExpression chain
+    ; (`A`, `A.B`, `A.B.C`) but NOT a call — the argument list below belongs to
+    ; `new`. Consuming `.prop` here makes `new THREE.PerspectiveCamera(70)` parse
+    ; as `new (THREE.PerspectiveCamera)(70)` rather than the wrong
+    ; `(new THREE).PerspectiveCamera(70)`.
     def callee (this.parsePrimary())
+    def keepMember true
+    while keepMember {
+      if (this.matchValue(".")) {
+        this.advance()
+        def propTok (this.parseMemberName())
+        def member (new TSNode())
+        member.nodeType = "MemberExpression"
+        member.left = callee
+        member.name = propTok.value
+        member.start = callee.start
+        member.line = callee.line
+        member.col = callee.col
+        callee = member
+      } {
+        keepMember = false
+      }
+    }
     node.left = callee
-    
+
     ; Parse type arguments <T> - skip for now
     if (this.matchValue("<")) {
       ; Skip type args by finding matching >
