@@ -45,7 +45,6 @@ run_suite three_box_geometry_test
 run_suite three_gltf_loader_test
 run_suite three_light_probe_grid_test
 run_suite three_light_probe_grid_helper_test
-run_suite three_sponza_scene_test
 run_suite three_teapot_test
 run_suite three_orbit_controls_test
 run_suite three_first_person_controls_test
@@ -62,8 +61,10 @@ run_tsx_poc three_facade_poc
 # rasterised (software backend) — proves the façade scene actually renders.
 run_tsx_poc three_tsx_bridge_test
 run_tsx_poc three_teapot_tsx_test
-# The Sponza light-probe scene: sponza.tsx interpreted + reconciled into the core,
-# with hot-reload (editing the scene's params drives the Ranger scene live).
+# The Sponza light-probe scene (demo/host layer): the composition recipe, and
+# sponza.tsx interpreted + reconciled into the core with hot-reload (editing the
+# scene's params drives the Ranger scene live).
+run_tsx_poc three_sponza_scene_test
 run_tsx_poc three_sponza_tsx_test
 
 echo "done."

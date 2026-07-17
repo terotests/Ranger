@@ -14,7 +14,7 @@
 ; hot-reload path. No GPU code here, so it compiles to C++ for the SDL host too.
 ; ==============================================================================
 
-Import "../src/three_sponza_scene.rgr"
+Import "three_sponza_scene.rgr"
 Import "../src/three_object3d.rgr"
 Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
 Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
@@ -88,8 +88,9 @@ class ThreeSponzaTsxBridge {
         scene.sky.setMieDirectionalG((this.numOr(skyV "mieDirectionalG" 0.8)))
     }
 
-    ; walk scene.children for the Sky (its uniforms flow into the core sky).
-    fn syncSky:void (childrenV:EvalValue) {
+    ; walk scene.children for the interpreted Sky (uniforms) and DirectionalLight
+    ; (colour) — the values sponza.tsx declares flow into the core scene's knobs.
+    fn syncSceneObjects:void (childrenV:EvalValue) {
         def n:int (array_length childrenV.arrayValue)
         def i:int 0
         while (i < n) {
@@ -101,8 +102,33 @@ class ThreeSponzaTsxBridge {
                         this.applySky(c)
                     }
                 }
+                def isDir:EvalValue (c.getMember("isDirectionalLight"))
+                if (isDir.isBoolean()) {
+                    if isDir.boolValue {
+                        scene.lightColorHex = (to_int (this.numOr(c "color" 16777215.0)))
+                    }
+                }
             }
             i = (i + 1)
+        }
+    }
+
+    ; read the interpreted camera (fov / near / far / position) into the core camera.
+    ; Orientation is owned by the host's FirstPersonControls, so it is not synced.
+    fn syncCamera:void () {
+        def cam:EvalValue (engine.getGlobal("camera"))
+        if (cam.isObject() == false) {
+            return
+        }
+        scene.camera.fov = (this.numOr(cam "fov" 60.0))
+        scene.camera.near = (this.numOr(cam "near" 0.1))
+        scene.camera.far = (this.numOr(cam "far" 1000.0))
+        def pos:EvalValue (cam.getMember("position"))
+        if (pos.isObject()) {
+            def px:double (this.numOr(pos "x" 0.0))
+            def py:double (this.numOr(pos "y" 0.0))
+            def pz:double (this.numOr(pos "z" 0.0))
+            scene.camera.position.set(px py pz)
         }
     }
 
@@ -131,11 +157,13 @@ class ThreeSponzaTsxBridge {
 
         def p:EvalValue (engine.getGlobal("params"))
         this.applyParams(p)
+        ; read the interpreted camera + sky + light BEFORE build so it uses them.
+        this.syncCamera()
+        this.syncSceneObjects(childrenV)
 
         if (built == false) {
             ; first reconcile: build the whole scene around the host model.
             scene.build(hostModel)
-            this.syncSky(childrenV)
             this.captureCounts()
             built = true
             return
@@ -147,11 +175,11 @@ class ThreeSponzaTsxBridge {
             scene.rebuildProbes()
             this.captureCounts()
         }
+        scene.dirLight.setColorHex(scene.lightColorHex)
         scene.dirLight.intensity = scene.lightIntensity
         scene.dirLight.castShadow = scene.shadows
         scene.probes.visible = scene.enabled
         scene.updateLightPosition()
-        this.syncSky(childrenV)
     }
 
     ; convenience: run the script's init() then reconcile (first build).

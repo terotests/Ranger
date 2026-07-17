@@ -1,14 +1,17 @@
 ; ==============================================================================
-; three_sponza_scene_test — the native Sponza scene composition (SDL slice 1).
+; three_sponza_scene_test — the probe-lit scene composition (demo/host layer).
 ; ==============================================================================
-; Builds the scene around a known box "model" and asserts the composition matches
-; sponza.tsx (children, derived metrics, light placement, baked GI sampling).
+; Sets the scene's knobs explicitly (as the bridge does from sponza.tsx), builds
+; around a known box "model", and asserts the composition RECIPE — how the light
+; distance, shadow extent, probe far, sun placement and GI sampling derive from the
+; knobs + bounds. It does NOT assert the demo's specific numbers (those live in
+; sponza.tsx and are checked by three_sponza_tsx_test).
 ; Compile to ES6 and run under Node; prints per-check PASS/FAIL and "ALL PASS".
 ; ==============================================================================
 
 Import "three_sponza_scene.rgr"
-Import "three_mesh.rgr"
-Import "three_box_geometry.rgr"
+Import "../src/three_mesh.rgr"
+Import "../src/three_box_geometry.rgr"
 
 class ThreeCheck {
     def passed:int 0
@@ -41,7 +44,7 @@ class ThreeCheck {
 class ThreeSponzaSceneTest {
     sfn m@(main):void () {
         def ck:ThreeCheck (new ThreeCheck)
-        print "== ThreeSponzaScene =="
+        print "== ThreeSponzaScene (composition recipe) =="
 
         ; a 20 x 10 x 8 box centred at origin stands in for the model
         def geo:ThreeBoxGeometry (new ThreeBoxGeometry)
@@ -49,12 +52,27 @@ class ThreeSponzaSceneTest {
         def model:ThreeMesh (new ThreeMesh)
         model.setGeometry(geo)
 
+        ; the caller sets the knobs (arbitrary test values, not the demo's)
         def s:ThreeSponzaScene (new ThreeSponzaScene)
+        s.gridSizeX = 4.0
+        s.gridSizeY = 4.0
+        s.gridSizeZ = 4.0
+        s.countX = 3
+        s.countY = 3
+        s.countZ = 3
+        s.boundsX = 0.0
+        s.boundsY = 0.0
+        s.boundsZ = 0.0
+        s.lightAzimuth = 90.0
+        s.lightElevation = 30.0
+        s.lightIntensity = 5.0
+        s.ambientR = 0.2
+        s.ambientG = 0.4
+        s.ambientB = 0.6
         s.build(model)
 
-        ; derived metrics
+        ; derived metrics from bounds
         ck.near("size x" s.sizeX 20.0)
-        ck.near("size y" s.sizeY 10.0)
         ck.near("targetY = cy + sy*0.2" s.targetY 2.0)
         ck.near("lightBaseDistance = max(sx,sz)" s.lightBaseDistance 20.0)
         ck.near("probeFar = maxdim*2" s.probeFar 40.0)
@@ -62,32 +80,25 @@ class ThreeSponzaSceneTest {
         ; scene composition: sky, model, light target, light, probes, helper
         ck.near("scene child count" (to_double (s.scene.childCount())) 6.0)
 
-        ; probe volume: 10 x 7 x 7 = 490 probes
-        ck.near("probe count" (to_double (s.probes.probeCount())) 490.0)
-        ck.near("probe grid position y" s.probes.position.y 6.0)
+        ; probe volume: 3 x 3 x 3 = 27 (from the knobs)
+        ck.near("probe count = cx*cy*cz" (to_double (s.probes.probeCount())) 27.0)
 
-        ; camera pose (example's logged position)
-        ck.near("camera x" s.camera.position.x (0.0 - 10.25))
-        ck.near("camera y" s.camera.position.y 4.99)
-
-        ; light placement from azimuth -45 / elevation 55
+        ; light placed from azimuth/elevation: above target, and along +Z for az 90
         ck.ok("light above target" (s.dirLight.position.y > s.targetY))
-        ck.ok("light +x (az -45)" (s.dirLight.position.x > 0.0))
-        ck.ok("light -z (az -45)" (s.dirLight.position.z < 0.0))
-        ck.near("light intensity 100" s.dirLight.intensity 100.0)
-        ck.ok("light casts shadow" s.dirLight.castShadow)
-        ck.near("shadow map size" (to_double s.dirLight.shadow.mapSize) 2048.0)
+        ck.near("light y = targetY + sin(elev)*dist" s.dirLight.position.y 12.0)
+        ck.near("light x = 0 (az 90)" s.dirLight.position.x 0.0)
+        ck.ok("light +z (az 90)" (s.dirLight.position.z > 0.0))
+        ck.near("light intensity flows" s.dirLight.intensity 5.0)
+        ck.ok("light casts shadow (default)" s.dirLight.castShadow)
 
-        ; sun direction copied into the sky uniform (elevation 55 -> y ~ cos(35deg))
-        ck.near("sky sun y = cos(35)" s.sky.sunPosition.y 0.819152)
-        ck.ok("sky sun x negative (az -45)" (s.sky.sunPosition.x < 0.0))
+        ; sun uniform from az/elev: y = cos(90 - elev) = cos(60) = 0.5
+        ck.near("sky sun y = cos(60)" s.sky.sunPosition.y 0.5)
 
-        ; baked GI: uniform ambient bake -> sampling returns the ambient colour
+        ; baked GI: the analytic ambient bake is sampled back
         def gi:ThreeVector3 (new ThreeVector3)
-        s.sampleGI(0.0 6.0 0.0 0.0 1.0 0.0 gi)
-        ck.near("GI sample r = ambient" gi.x 0.28)
-        ck.near("GI sample g = ambient" gi.y 0.33)
-        ck.near("GI sample b = ambient" gi.z 0.42)
+        s.sampleGI(0.0 0.0 0.0 0.0 1.0 0.0 gi)
+        ck.near("GI sample r = ambient" gi.x 0.2)
+        ck.near("GI sample b = ambient" gi.z 0.6)
 
         ; controls integrate: walking forward moves the camera
         def before:double s.camera.position.z

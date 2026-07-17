@@ -1,28 +1,31 @@
 ; ==============================================================================
-; three_sponza_scene — the light-probe-volume (Sponza) scene, built in the Ranger
-; Three core. Native/SDL slice 1.
+; three_sponza_scene — the light-probe-volume scene composition (demo/host layer).
 ; ==============================================================================
-; The Ranger-core equivalent of sponza.tsx's init(): synchronous, no network, no
-; interpreter — it composes the same scene (Sky + shadow-casting DirectionalLight
-; + a loaded model + a baked LightProbeGrid + FirstPersonControls) directly from
-; the ported classes, using the same numbers as the example. The SDL runner drives
-; this (build once, then update(delta) + render each frame); the web host can too.
-; Pure Ranger, so it compiles to C++ for the native SDL host.
+; NOT part of the canonical object model (three/src). This is the reconciliation
+; target the Sponza hosts share: it assembles a probe-lit scene — Sky + a
+; shadow-casting DirectionalLight + a host-supplied model + a baked LightProbeGrid
+; + FirstPersonControls — out of the object-model classes. The scene's tunable
+; knobs (grid dims/counts/bounds, light angle/intensity/colour, sky uniforms) are
+; NOT baked here: they are set by the caller before build(), from sponza.tsx's
+; params via three_sponza_tsx_bridge (the single source of truth). The defaults
+; below are neutral placeholders, not the demo's values.
 ;
-; The model is passed in as an Object3D (built by the glTF loader / a local file),
-; so the scene composition is decoupled from asset loading and is unit-testable.
+; What IS here is the composition recipe: how the light distance, shadow-camera
+; extent and probe-volume far plane derive from the model's bounds. The model is a
+; plain Object3D argument, so composition is decoupled from asset loading and is
+; unit-testable. Pure Ranger (compiles to C++ for the native SDL host).
 ; ==============================================================================
 
-Import "three_scene.rgr"
-Import "three_perspective_camera.rgr"
-Import "three_sky.rgr"
-Import "three_light.rgr"
-Import "three_light_probe_grid.rgr"
-Import "three_light_probe_grid_helper.rgr"
-Import "three_first_person_controls.rgr"
-Import "three_box3.rgr"
-Import "three_vector3.rgr"
-Import "three_math_utils.rgr"
+Import "../src/three_scene.rgr"
+Import "../src/three_perspective_camera.rgr"
+Import "../src/three_sky.rgr"
+Import "../src/three_light.rgr"
+Import "../src/three_light_probe_grid.rgr"
+Import "../src/three_light_probe_grid_helper.rgr"
+Import "../src/three_first_person_controls.rgr"
+Import "../src/three_box3.rgr"
+Import "../src/three_vector3.rgr"
+Import "../src/three_math_utils.rgr"
 
 class ThreeSponzaScene {
     def scene:ThreeScene (new ThreeScene)
@@ -34,7 +37,7 @@ class ThreeSponzaScene {
     def fpc:ThreeFirstPersonControls (new ThreeFirstPersonControls)
     def model:ThreeObject3D (new ThreeObject3D)
 
-    ; derived model metrics
+    ; derived model metrics (filled by build() from the model bounds)
     def sizeX:double 1.0
     def sizeY:double 1.0
     def sizeZ:double 1.0
@@ -45,29 +48,34 @@ class ThreeSponzaScene {
     def lightBaseDistance:double 1.0
     def probeFar:double 1.0
 
-    ; GUI params (sponza.tsx defaults)
+    ; --- tunable knobs — NEUTRAL defaults; the caller (the bridge, from sponza.tsx)
+    ; sets the demo's actual values before build(). --------------------------
     def enabled:boolean true
     def showProbes:boolean false
     def probeSize:double 0.2
-    def boundsX:double (0.0 - 0.5)
-    def boundsY:double 6.0
-    def boundsZ:double (0.0 - 0.3)
-    def gridSizeX:double 21.0
-    def gridSizeY:double 11.0
-    def gridSizeZ:double 9.0
-    def countX:int 10
-    def countY:int 7
-    def countZ:int 7
+    def boundsX:double 0.0
+    def boundsY:double 0.0
+    def boundsZ:double 0.0
+    def gridSizeX:double 1.0
+    def gridSizeY:double 1.0
+    def gridSizeZ:double 1.0
+    def countX:int 2
+    def countY:int 2
+    def countZ:int 2
     def bounces:int 1
-    def lightAzimuth:double (0.0 - 45.0)
-    def lightElevation:double 55.0
-    def lightIntensity:double 100.0
+    def lightAzimuth:double 0.0
+    def lightElevation:double 45.0
+    def lightIntensity:double 1.0
+    def lightColorHex:int 16777215
     def shadows:boolean true
-    ; ambient colour the analytic bake uses (the GPU bake replaces this by
-    ; rendering each probe as a cubemap).
-    def ambientR:double 0.28
-    def ambientG:double 0.33
-    def ambientB:double 0.42
+    def shadowMapSize:int 2048
+    def movementSpeed:double 1.0
+    def lookSpeed:double 0.005
+    ; ambient radiance the analytic bake writes (a placeholder for the GPU bake,
+    ; which renders each probe as a cubemap); not a demo value.
+    def ambientR:double 0.1
+    def ambientG:double 0.1
+    def ambientB:double 0.1
 
     sfn maxOf2:double (a:double b:double) {
         if (a > b) {
@@ -80,27 +88,19 @@ class ThreeSponzaScene {
         return (ThreeSponzaScene.maxOf2(m c))
     }
 
-    ; build the scene around a loaded model root, mirroring sponza.tsx init().
+    ; assemble the scene around a host-supplied model. Uses the current knob values
+    ; (the caller sets them first); the camera + sky uniforms are configured by the
+    ; caller too, not baked here.
     fn build:ThreeSponzaScene (modelRoot:ThreeObject3D) {
         this.model = modelRoot
 
-        ; CAMERA (example's logged pose)
-        this.camera.fov = 60.0
-        this.camera.near = 0.1
-        this.camera.far = 1000.0
-        this.camera.position.set((0.0 - 10.25) 4.99 0.40)
-
-        ; SKY
+        ; SKY — a large inverted dome; its scattering uniforms come from the caller.
         this.sky.scale.setScalar(450000.0)
-        this.sky.setTurbidity(10.0)
-        this.sky.setRayleigh(2.0)
-        this.sky.setMieCoefficient(0.005)
-        this.sky.setMieDirectionalG(0.8)
         this.scene.add(this.sky)
 
         this.scene.add(this.model)
 
-        ; model bounds
+        ; model bounds -> composition recipe (light distance, probe far).
         def box:ThreeBox3 (this.model.boundingBox())
         def sz:ThreeVector3 (new ThreeVector3)
         box.getSize(sz)
@@ -116,13 +116,14 @@ class ThreeSponzaScene {
         this.lightBaseDistance = (ThreeSponzaScene.maxOf2(sz.x sz.z))
         this.probeFar = ((ThreeSponzaScene.maxOf3(sz.x sz.y sz.z)) * 2.0)
 
-        ; DIRECTIONAL LIGHT (+ shadow)
-        this.dirLight.setColorHex(16773340)
+        ; DIRECTIONAL LIGHT (+ shadow) — colour/intensity/shadows are knobs; the
+        ; shadow-camera extent + far derive from the model bounds.
+        this.dirLight.setColorHex(this.lightColorHex)
         this.dirLight.intensity = this.lightIntensity
         this.dirLight.target.position.set(this.centerX this.targetY this.centerZ)
         this.scene.add(this.dirLight.target)
         this.dirLight.castShadow = this.shadows
-        this.dirLight.shadow.setMapSize(2048)
+        this.dirLight.shadow.setMapSize(this.shadowMapSize)
         def shadowExtent:double ((ThreeSponzaScene.maxOf2(sz.x sz.z)) * 0.7)
         this.dirLight.shadow.setExtent((0.0 - shadowExtent) shadowExtent shadowExtent (0.0 - shadowExtent) 0.1 (sz.y * 4.0))
         this.scene.add(this.dirLight)
@@ -134,13 +135,13 @@ class ThreeSponzaScene {
 
         ; FIRST-PERSON CONTROLS
         this.fpc.setCamera(this.camera)
-        this.fpc.setMovementSpeed(2.0)
-        this.fpc.setLookSpeed(0.16)
+        this.fpc.setMovementSpeed(this.movementSpeed)
+        this.fpc.setLookSpeed(this.lookSpeed)
 
         return this
     }
 
-    ; position the sun/light from azimuth + elevation (sponza.tsx updateLightPosition).
+    ; place the sun from azimuth + elevation (knobs) and drive the sky sun uniform.
     fn updateLightPosition:void () {
         def azimuth:double (ThreeMathUtils.degToRad(this.lightAzimuth))
         def elevation:double (ThreeMathUtils.degToRad(this.lightElevation))
