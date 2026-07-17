@@ -118,9 +118,9 @@ export function installTempleLevel() {
       qx: 140,
       qy: 1978,
       answers: [
-        { x: 25, y: 1985, w: 90, h: 11, value: 14 },
-        { x: 195, y: 1985, w: 90, h: 11, value: 15 },
-        { x: 365, y: 1985, w: 90, h: 11, value: 16 }
+        { x: 25, y: 1985, w: 90, h: 11, value: 16 },
+        { x: 195, y: 1985, w: 90, h: 11, value: 14 },
+        { x: 365, y: 1985, w: 90, h: 11, value: 15 }
       ],
       correct: 15
     },
@@ -130,9 +130,9 @@ export function installTempleLevel() {
       qx: 145,
       qy: 1358,
       answers: [
-        { x: 25, y: 1365, w: 90, h: 11, value: 14 },
-        { x: 195, y: 1365, w: 90, h: 11, value: 15 },
-        { x: 365, y: 1365, w: 90, h: 11, value: 16 }
+        { x: 25, y: 1365, w: 90, h: 11, value: 15 },
+        { x: 195, y: 1365, w: 90, h: 11, value: 16 },
+        { x: 365, y: 1365, w: 90, h: 11, value: 14 }
       ],
       correct: 15
     },
@@ -142,9 +142,9 @@ export function installTempleLevel() {
       qx: 140,
       qy: 798,
       answers: [
-        { x: 25, y: 805, w: 90, h: 11, value: 16 },
-        { x: 195, y: 805, w: 90, h: 11, value: 17 },
-        { x: 365, y: 805, w: 90, h: 11, value: 18 }
+        { x: 25, y: 805, w: 90, h: 11, value: 17 },
+        { x: 195, y: 805, w: 90, h: 11, value: 18 },
+        { x: 365, y: 805, w: 90, h: 11, value: 16 }
       ],
       correct: 17
     },
@@ -154,9 +154,9 @@ export function installTempleLevel() {
       qx: 150,
       qy: 418,
       answers: [
-        { x: 25, y: 425, w: 90, h: 11, value: 13 },
-        { x: 195, y: 425, w: 90, h: 11, value: 14 },
-        { x: 365, y: 425, w: 90, h: 11, value: 15 }
+        { x: 25, y: 425, w: 90, h: 11, value: 15 },
+        { x: 195, y: 425, w: 90, h: 11, value: 13 },
+        { x: 365, y: 425, w: 90, h: 11, value: 14 }
       ],
       correct: 14
     }
