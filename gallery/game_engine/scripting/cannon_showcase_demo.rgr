@@ -1,58 +1,47 @@
 ; ==============================================================================
-; cannon_showcase_demo — the upgraded engine in action, rendered as ASCII.
-;   Drives the engine directly through the PhysicsWorld interface (no game
-;   bridge): three balls dropped in a column settle into a stable stack on the
-;   floor. Prints a side view at several instants so the settling is visible.
-;   Build + run:
-;     RANGER_LIB=compiler/Lang.rgr:lib/stdops.rgr node bin/output.js -es6 \
-;       gallery/game_engine/scripting/cannon_showcase_demo.rgr \
-;       -d=gallery/game_engine/scripting -o=cannon_showcase_demo.js -nodecli \
-;     && node gallery/game_engine/scripting/cannon_showcase_demo.js
+; cannon_showcase_demo — the upgraded engine in action THROUGH THE REAL TSX
+;   BRIDGE. Loads the cannon_stack TSX game via GameRunner (game_runtime ->
+;   game_cannon_physics -> CannonWorld) and renders the three balls settling into
+;   a stable stack as an ASCII side view. Proves the solver drives the actual
+;   game path, not just the interface.
+;   Build + run:  npm run engine:physics:showcase
 ; ==============================================================================
 
-Import "../physics/src/physics_world.rgr"
-Import "../physics/src/cannon_physics_world.rgr"
+Import "./game_runtime.rgr"
 
 class CannonShowcaseDemo {
-    sfn absd:double (v:double) {
-        if (v < 0.0) {
-            return (0.0 - v)
-        }
-        return v
-    }
-
-    ; A 19x13 side view (x in [-4.5,4.5], y in [0,12]); balls are 'O', floor '='.
-    sfn render:void (pw:CannonPhysicsWorld a:int b:int c:int label:string) {
-        def ax:double (pw.bodyPosX(a))
-        def ay:double (pw.bodyPosY(a))
-        def bx:double (pw.bodyPosX(b))
-        def by:double (pw.bodyPosY(b))
-        def cx:double (pw.bodyPosX(c))
-        def cy:double (pw.bodyPosY(c))
+    ; A 24x14 screen view (x in [0,480], y in [0,270]); balls are 'O', floor '='.
+    sfn render:void (x0:int y0:int x1:int y1:int x2:int y2:int label:string) {
+        def ax:double (to_double x0)
+        def ay:double (to_double y0)
+        def bx:double (to_double x1)
+        def by:double (to_double y1)
+        def cx:double (to_double x2)
+        def cy:double (to_double y2)
         print (label + ":")
-        def cols:int 19
-        def rows:int 13
+        def cols:int 24
+        def rows:int 14
         def r 0
         while (r < rows) {
-            def worldY:double (12.0 - (to_double r))
+            def cellY:double (((to_double r) / (to_double rows)) * 270.0)
             def line:string "|"
             def col 0
             while (col < cols) {
-                def worldX:double ((((to_double col) / (to_double cols)) * 9.0) - 4.5)
+                def cellX:double (((to_double col) / (to_double cols)) * 480.0)
                 def ch:string " "
-                def ddx:double (worldX - ax)
-                def ddy:double (worldY - ay)
-                def da:double (sqrt((ddx * ddx) + (ddy * ddy)))
-                def ex:double (worldX - bx)
-                def ey:double (worldY - by)
-                def db:double (sqrt((ex * ex) + (ey * ey)))
-                def fx:double (worldX - cx)
-                def fy:double (worldY - cy)
-                def dc:double (sqrt((fx * fx) + (fy * fy)))
-                if (da < 1.0) { ch = "O" }
-                if (db < 1.0) { ch = "O" }
-                if (dc < 1.0) { ch = "O" }
-                if (worldY < 0.5) { ch = "=" }
+                def d0x:double (cellX - ax)
+                def d0y:double (cellY - ay)
+                def da:double (sqrt((d0x * d0x) + (d0y * d0y)))
+                def d1x:double (cellX - bx)
+                def d1y:double (cellY - by)
+                def db:double (sqrt((d1x * d1x) + (d1y * d1y)))
+                def d2x:double (cellX - cx)
+                def d2y:double (cellY - cy)
+                def dc:double (sqrt((d2x * d2x) + (d2y * d2y)))
+                if (da < 15.0) { ch = "O" }
+                if (db < 15.0) { ch = "O" }
+                if (dc < 15.0) { ch = "O" }
+                if (cellY > 260.0) { ch = "=" }
                 line = (line + ch)
                 col = (col + 1)
             }
@@ -61,43 +50,50 @@ class CannonShowcaseDemo {
         }
     }
 
-    sfn stepN:void (pw:CannonPhysicsWorld n:int dt:double) {
+    sfn stepN:void (runner:GameRunner n:int) {
         def i 0
         while (i < n) {
-            pw.step(dt)
+            runner.frame(16 false false false false false false)
             i = (i + 1)
         }
     }
 
     sfn m@(main):void () {
-        def pw:CannonPhysicsWorld (new CannonPhysicsWorld)
-        pw.initWorld()
-        pw.setGravity(0.0 (0.0 - 30.0) 0.0)
-        pw.addStaticPlane(0.0 1.0 0.0)
-        def a:int (pw.addSphere(1.0 0.0 4.0 0.0 1.0))
-        def b:int (pw.addSphere(1.0 0.0 7.0 0.0 1.0))
-        def c:int (pw.addSphere(1.0 0.0 10.0 0.0 1.0))
-        def dt:double (1.0 / 60.0)
+        def runner:GameRunner (new GameRunner)
+        runner.init(480 270)
+        def buf:buffer (buffer_read_file "gallery/game_engine/games/cannon_stack" "index.tsx")
+        def src:string (buffer_to_string buf)
+        runner.setScriptDir("gallery/game_engine/games/cannon_stack")
+        runner.loadScript(src)
+        runner.setupScene()
 
-        CannonShowcaseDemo.render(pw a b c "t=0.00s (released)")
-        CannonShowcaseDemo.stepN(pw 25 dt)
-        CannonShowcaseDemo.render(pw a b c "t=0.42s (falling)")
-        CannonShowcaseDemo.stepN(pw 35 dt)
-        CannonShowcaseDemo.render(pw a b c "t=1.00s (impact)")
-        CannonShowcaseDemo.stepN(pw 120 dt)
-        CannonShowcaseDemo.render(pw a b c "t=3.00s (settled)")
+        CannonShowcaseDemo.render((runner.entityX("b0")) (runner.entityY("b0")) (runner.entityX("b1")) (runner.entityY("b1")) (runner.entityX("b2")) (runner.entityY("b2")) "t=0.00s (released)")
+        CannonShowcaseDemo.stepN(runner 30)
+        CannonShowcaseDemo.render((runner.entityX("b0")) (runner.entityY("b0")) (runner.entityX("b1")) (runner.entityY("b1")) (runner.entityX("b2")) (runner.entityY("b2")) "t=0.50s (falling)")
+        CannonShowcaseDemo.stepN(runner 40)
+        CannonShowcaseDemo.render((runner.entityX("b0")) (runner.entityY("b0")) (runner.entityX("b1")) (runner.entityY("b1")) (runner.entityX("b2")) (runner.entityY("b2")) "t=1.17s (impact)")
+        CannonShowcaseDemo.stepN(runner 130)
+        runner.draw()
+        CannonShowcaseDemo.render((runner.entityX("b0")) (runner.entityY("b0")) (runner.entityX("b1")) (runner.entityY("b1")) (runner.entityX("b2")) (runner.entityY("b2")) "t=3.33s (settled)")
 
-        def ya:double (pw.bodyPosY(a))
-        def yb:double (pw.bodyPosY(b))
-        def yc:double (pw.bodyPosY(c))
-        print (("finalY  bottom=" + (to_string ya)) + ((" mid=" + (to_string yb)) + (" top=" + (to_string yc))))
-        ; a on the floor (~1), b on a (~3), c on b (~5); each ~2r=2 apart.
+        def y0:int (runner.entityY("b0"))
+        def y1:int (runner.entityY("b1"))
+        def y2:int (runner.entityY("b2"))
+        print ((("finalY  top=" + (to_string y0)) + (" mid=" + (to_string y1))) + (" bottom=" + (to_string y2)))
+        ; Screen y grows downward: bottom ball b2 has the largest y, then b1, b0.
+        ; Adjacent centers ~2*radius (28px) apart, and none tunneled through.
+        def d21:int (y2 - y1)
+        def d10:int (y1 - y0)
         def ok:boolean true
-        if (CannonShowcaseDemo.absd(ya - 1.0) > 0.4) { ok = false }
-        if (CannonShowcaseDemo.absd((yb - ya) - 2.0) > 0.5) { ok = false }
-        if (CannonShowcaseDemo.absd((yc - yb) - 2.0) > 0.5) { ok = false }
+        if (y2 <= y1) { ok = false }
+        if (y1 <= y0) { ok = false }
+        if (d21 < 20) { ok = false }
+        if (d21 > 40) { ok = false }
+        if (d10 < 20) { ok = false }
+        if (d10 > 40) { ok = false }
+        if (y2 > 270) { ok = false }
         if (ok) {
-            print "cannon-showcase done (stable 3-ball stack)"
+            print "cannon-showcase done (stable 3-ball stack via the real bridge)"
             return
         }
         print "cannon-showcase FAIL"
