@@ -64,7 +64,7 @@
         width: 480px; max-width: 100%; height: auto; aspect-ratio: 16 / 9;
         border-radius: 8px; background: #0a0e1a;
       }
-      /* WebGL 3D games (kind:tsx3d) want a square, smoothly-sampled surface. */
+      /* WebGL 3D games (kind:tsx3d-gl) want a square, smoothly-sampled surface. */
       canvas.gl3d { aspect-ratio: 1 / 1; image-rendering: auto; }
       .controls { color: var(--muted); font-size: 12.5px; margin-top: 10px; }
       .hint { color: var(--muted); font-size: 12px; padding: 0 22px 18px; }
@@ -79,12 +79,6 @@
         The engine compiled to <code>JavaScript</code>, a <code>Monaco</code>
         editor, and a <code>virtual filesystem</code> shared between them. Edit
         the game and it hot-reloads — no restart.
-      </p>
-      <p class="sub" style="margin-top:6px">
-        3D demos:
-        <a href="./tsx3d/" style="color:var(--accent, #6ea8ff)">🧊 Three.js cube on the GPU (WebGL)</a>
-        ·
-        <a href="./model3d/" style="color:var(--accent, #6ea8ff)">🦆 glTF model viewer</a>
       </p>
     </header>
 
@@ -123,6 +117,7 @@
     <script src="./vfs.js"></script>
     <script src="./engine-host.js"></script>
     <script src="./runner.js"></script>
+    <script src="./tsx3d-viewer.js"></script>
     <script src="./tsx3d-gl-viewer.js"></script>
     <script src="./editor.bundle.js"></script>
     <script>
@@ -133,7 +128,8 @@
       const autoEl = document.getElementById("autoreload");
       let canvas = document.getElementById("screen");
       let bundleSource = null;
-      let tsx3dBundleSource = null;
+      let tsx3dBundle = null;
+      let tsx3dGlBundle = null;
       let registry = [];
       let session = null;
       let editor = null;
@@ -177,7 +173,7 @@
       }
 
       function applyEdit() {
-        if (!session || !editor) return;
+        if (!session || !editor || typeof session.reload !== "function") return;
         try {
           const rebuilt = session.reload(editor.getValue());
           setStatus(rebuilt ? "reloaded ✓ (scene rebuilt)" : "reloaded ✓ (state kept)", true);
@@ -188,8 +184,8 @@
       }
 
       // Replace the canvas element so each game gets a clean context: a WebGL
-      // (tsx3d) game and a 2D game can't share one canvas (context type is fixed
-      // once acquired).
+      // (tsx3d-gl) game and a 2D game/scene can't share one canvas (the context
+      // type is fixed once acquired).
       function freshCanvas(width, height, gl3d) {
         const old = document.getElementById("screen");
         const c = document.createElement("canvas");
@@ -207,41 +203,66 @@
         setStatus("loading " + entry.title + "…");
         controlsEl.textContent = entry.controls || "";
         fileCapEl.textContent = entry.scriptDir + "/" + entry.script;
+        freshCanvas(entry.width || entry.size, entry.height || entry.size, entry.kind === "tsx3d-gl");
 
-        if (entry.kind === "tsx3d") {
-          freshCanvas(entry.width, entry.height, true);
-          if (!tsx3dBundleSource) tsx3dBundleSource = await fetchText("./tsx3d-gl.bundle.js");
+        // WebGL TSX 3D: the canonical Three.js cube runs 1:1 in the interpreter
+        // and renders on the GPU through WebTsx3dGlHost. The editor shows cube.tsx.
+        if (entry.kind === "tsx3d-gl") {
+          if (!tsx3dGlBundle) tsx3dGlBundle = await fetchText("./tsx3d-gl.bundle.js");
           const [facadeSrc, cubeSrc] = await Promise.all([
             fetchText(entry.facadeUrl),
             fetchText(entry.scriptUrl),
           ]);
           session = await window.RangerTsx3dViewer.launch({
-            bundleSource: tsx3dBundleSource,
+            bundleSource: tsx3dGlBundle,
             canvas,
             facadeSrc,
             cubeSrc,
             texturePath: entry.texturePath,
             textureUrl: entry.textureUrl,
           });
+          ensureEditor(session.getSource());
+          paused = false;
+          document.getElementById("pause").textContent = "Pause";
           setStatus(entry.title + " — the interpreted cube.tsx, drawn with WebGL", true);
-        } else {
-          freshCanvas(entry.width, entry.height, false);
+          return;
+        }
+
+        // TSX-script-driven 3D scene: run the .tsx through WebTsx3dHost (host
+        // loads the GLB + software-renders), not the 2D GameRunner. The editor
+        // shows the actual scene script.
+        if (entry.kind === "tsx3d") {
           const zipBuffer = await fetchBuffer(entry.pkg);
-          session = await window.RangerRunner.launch({
-            bundleSource,
+          session = await window.RangerTsx3d.launch({
+            bundleSource: tsx3dBundle,
             zipBuffer,
-            width: entry.width,
-            height: entry.height,
             canvas,
+            size: entry.size || 480,
             scriptDir: entry.scriptDir,
             scriptFile: entry.script,
-            muted: !document.getElementById("sound").checked,
-            onStats: (s) => {
-              if (!document.hidden)
-                setStatus(entry.title + " — score " + s.score1 + " : " + s.score2);
-            },
           });
+          ensureEditor(session.getSource());
+          paused = false;
+          document.getElementById("pause").textContent = "Pause";
+          setStatus(entry.title + " — " + session.host.triangleCount() + " triangles (software-rendered)", true);
+          return;
         }
+
+        const zipBuffer = await fetchBuffer(entry.pkg);
+        session = await window.RangerRunner.launch({
+          bundleSource,
+          zipBuffer,
+          width: entry.width,
+          height: entry.height,
+          canvas,
+          scriptDir: entry.scriptDir,
+          scriptFile: entry.script,
+          muted: !document.getElementById("sound").checked,
+          onStats: (s) => {
+            if (!document.hidden)
+              setStatus(entry.title + " — score " + s.score1 + " : " + s.score2);
+          },
+        });
         ensureEditor(session.getSource());
         paused = false;
         document.getElementById("pause").textContent = "Pause";
@@ -250,6 +271,7 @@
       async function boot() {
         try {
           bundleSource = await fetchText("./engine.bundle.js");
+          tsx3dBundle = await fetchText("./tsx3d.bundle.js");
           registry = JSON.parse(await fetchText("./games.json"));
           selectEl.innerHTML = registry
             .map((g, i) => '<option value="' + i + '">' + g.title + "</option>")
@@ -257,7 +279,7 @@
           selectEl.onchange = () => loadGame(registry[+selectEl.value]);
           document.getElementById("reload").onclick = applyEdit;
           document.getElementById("sound").onchange = (e) => {
-            if (session) session.setMuted(!e.target.checked);
+            if (session && session.setMuted) session.setMuted(!e.target.checked);
           };
           document.getElementById("restart").onclick = () => loadGame(registry[+selectEl.value]);
           document.getElementById("pause").onclick = () => {

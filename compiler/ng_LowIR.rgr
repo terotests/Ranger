@@ -202,6 +202,11 @@ class LowIRModule {
   ; class names that need a mutable wasm global holding their lazy singleton
   ; instance (the WAT writer emits `(global $singleton_<name> (mut i32) 0)`).
   def singletonClasses:[string]
+  ; hoisted lambda function names in table-index order; the WAT writer emits a
+  ; `(table funcref (elem …))` of these for call_indirect. Index = position.
+  def lambdaTableFuncs:[string]
+  ; distinct call_indirect signatures ("t0,t1,…:ret") that need a `(type …)`.
+  def lambdaSigs:[string]
 }
 
 ; Compile-session singleton ? holds the module being built for one translation unit.
@@ -648,6 +653,48 @@ class LowIRBuilder {
     this.emit(ins)
   }
 
+  ; table index of a hoisted lambda function (i32) — the writer resolves the
+  ; name to its position in the module's lambda function table.
+  fn emitFuncRef:string (name:string) {
+    def dest (this.freshTemp("fr"))
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "func_ref"
+    ins.dest = dest
+    ins.irType = "i32"
+    ins.arg1 = name
+    this.emit(ins)
+    return dest
+  }
+
+  ; indirect call through the function table. args already include the closure
+  ; env as the first entry; `selector` is the table index (fn_index) loaded from
+  ; the closure record. callSig ("t0,t1,…:ret") selects the wasm (type …).
+  fn emitCallIndirect:string (retType:string callSig:string args:[string] argTypes:[string] selector:string) {
+    def voidType:string "void"
+    if (retType == voidType) {
+      def ins@(lives):LowIRInstr (new LowIRInstr())
+      ins.op = "call_indirect"
+      ins.irType = voidType
+      ins.callArgs = args
+      ins.callTypes = argTypes
+      ins.callSig = callSig
+      ins.arg1 = selector
+      this.emit(ins)
+      return ""
+    }
+    def dest (this.freshTemp("ci"))
+    def ins@(lives):LowIRInstr (new LowIRInstr())
+    ins.op = "call_indirect"
+    ins.dest = dest
+    ins.irType = retType
+    ins.callArgs = args
+    ins.callTypes = argTypes
+    ins.callSig = callSig
+    ins.arg1 = selector
+    this.emit(ins)
+    return dest
+  }
+
   fn emitI32At:string (base:string byteOff:int) {
     def pt (this.irModule.ptrType)
     def off (this.emitConst(pt ("" + byteOff)))
@@ -666,6 +713,16 @@ class LowIRBuilder {
     ins.arg2 = value
     ins.arg3 = pt
     this.emit(ins)
+  }
+
+  fn emitLoadI32At:string (base:string byteOff:int) {
+    def pt (this.irModule.ptrType)
+    if (byteOff == 0) {
+      return (this.emitPtrLoad(base))
+    }
+    def off (this.emitConst(pt ("" + byteOff)))
+    def addr (this.emitBin("add" pt base off))
+    return (this.emitPtrLoad(addr))
   }
 
   fn emitStrPtr:string (globalName:string byteLen:int) {

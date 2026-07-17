@@ -1,0 +1,7 @@
+name=Viidakko Pomppija
+icon=assets/image.png
+splitScreen=auto
+autoscale=false
+soloScript=index.tsx
+
+category=Games

@@ -53,6 +53,31 @@ const GAMES = [
     controls: "W / S or ↑ / ↓ to move the left paddle.",
   },
   {
+    id: "ylos3",
+    title: "Ylos 3 (Viidakko Pomppija)",
+    kind: "ranger",
+    width: 480,
+    height: 270,
+    scriptDir: "gallery/game_engine/games/ylos3",
+    script: "index.tsx",
+    package: [
+      "gallery/game_engine/games/ylos3/index.tsx",
+      "gallery/game_engine/games/ylos3/level2.tsx",
+      "gallery/game_engine/games/ylos3/level3.tsx",
+      "gallery/game_engine/games/ylos3/ylos3_shared.tsx",
+      "gallery/game_engine/games/ylos3/level_forest.tsx",
+      "gallery/game_engine/games/ylos3/level_vines.tsx",
+      "gallery/game_engine/games/ylos3/level_temple.tsx",
+      "gallery/game_engine/scripting/game_helpers.tsx",
+      "gallery/game_engine/games/ylos3/assets/p1_walk.png",
+      "gallery/game_engine/games/ylos3/assets/p2_walk.png",
+      "gallery/game_engine/games/ylos3/assets/p1_super.png",
+      "gallery/game_engine/games/ylos3/assets/p2_super.png",
+      "gallery/game_engine/games/ylos3/assets/enemy_walk.png",
+    ],
+    controls: "P1: WASD + Space · 3 jungle levels · collect diamonds for super power.",
+  },
+  {
     id: "ylos2",
     title: "Ylos 2 (Pomppija)",
     kind: "ranger", // pure-Ranger logic; loads PNG sprite sheets via the VFS
@@ -86,32 +111,51 @@ const GAMES = [
     ],
     controls: "← → or A / D to move · Space to launch/restart · sound on brick/wall/win.",
   },
-  {
-    // A WebGL 3D "game": the canonical Three.js rotating-cube example runs 1:1,
-    // unmodified, in the .tsx interpreter (see gallery/game_engine/three) and
-    // renders on the GPU. kind:"tsx3d" routes it through a WebGL host + canvas
-    // instead of the 2D GameRunner. Editable in Monaco like the others.
-    id: "cube3d",
-    title: "Cube 3D — Three.js on the GPU",
-    kind: "tsx3d",
-    width: 480,
-    height: 480,
-    scriptDir: "gallery/game_engine/three/tsx",
-    script: "cube.tsx",
-    facade: "gallery/game_engine/three/tsx/three.tsx",
-    texture: "gallery/game_engine/games/cube3d_wasm/assets/crate.ppm",
-    texturePath: "textures/crate.gif",
-    controls: "The canonical Three.js rotating cube, unmodified, on the Ranger Three clone + WebGL. Edit mesh.rotation speed and reload.",
-  },
 ];
-
-const HAS_TSX3D = GAMES.some((g) => g.kind === "tsx3d");
-const TSX3D_HOST_RGR = "gallery/game_engine/web/web_tsx3d_gl_host.rgr";
 
 // Runner .rgr that defines the WebGameHost class used by every "ranger" game.
 // It wires GameRunner + the host bridge (so createStaticBg backgrounds render)
 // and exposes a flat two-player frame the JS harness drives.
 const RUNNER_RGR = "gallery/game_engine/web/web_game_host.rgr";
+
+// TSX-script-driven 3D scene (kind:"tsx3d"). A short .tsx init() declares the
+// scene (addModel / spin) through the interpreter; the host loads the GLB and
+// software-renders it (web_tsx3d_host.rgr = ComponentEngine + SoftScene3dBridge
+// + SoftRenderer3D, no WASM / no GPU), driven by src/tsx3d-viewer.js. Reuses the
+// #333 model3d-web software path; the native SDL2/GL path is desktop-only.
+const TSX3D_RGR = "gallery/game_engine/web/web_tsx3d_host.rgr";
+const TSX3D_SCENES = [
+  {
+    id: "tsx3d_box",
+    title: "3D Scene (TSX)",
+    scriptDir: "gallery/game_engine/games/model_viewer_tsx",
+    script: "index.tsx",
+    package: [
+      "gallery/game_engine/games/model_viewer_tsx/index.tsx",
+      "gallery/game_engine/games/model_viewer_tsx/models/BoxTextured.glb",
+    ],
+    controls: "The .tsx init() declares the scene; the host loads the GLB + software-renders it. Drag to rotate.",
+  },
+];
+
+// WebGL TSX 3D (kind:"tsx3d-gl"). The canonical Three.js cube runs 1:1,
+// unmodified, in the .tsx interpreter (gallery/game_engine/three) and renders on
+// the GPU via web_tsx3d_gl_host.rgr = ComponentEngine + ThreeTsxBridge +
+// ThreeGLBackend, driven by src/tsx3d-gl-viewer.js. The editable script + façade
+// + texture are staged as plain files the editor fetches.
+const TSX3D_GL_RGR = "gallery/game_engine/web/web_tsx3d_gl_host.rgr";
+const TSX3D_GL_SCENES = [
+  {
+    id: "cube3d",
+    title: "Cube 3D — Three.js on the GPU",
+    scriptDir: "gallery/game_engine/three/tsx",
+    script: "cube.tsx",
+    facade: "gallery/game_engine/three/tsx/three.tsx",
+    texture: "gallery/game_engine/games/cube3d_wasm/assets/crate.ppm",
+    texturePath: "textures/crate.gif",
+    controls: "The canonical Three.js rotating cube, unmodified, on the Ranger Three clone + WebGL. Edit camera.position.z or the rotation speed and reload.",
+  },
+];
 
 // ------------------------------------------------------------------- helpers
 function log(...a) {
@@ -227,22 +271,50 @@ function compileEngineBundle() {
   fs.rmSync(rawDir, { recursive: true, force: true });
 }
 
-// Compile the WebGL 3D host (ComponentEngine + ThreeTsxBridge + ThreeGLBackend)
-// to a factory bundle, the same way compileEngineBundle transforms the runner.
+// Compile web_tsx3d_host.rgr -> tsx3d.bundle.js (exports WebTsx3dHost). Same
+// transform as the games engine bundle; loaded only when a tsx3d entry is picked.
 function compileTsx3dBundle() {
-  const rawDir = path.join(OUT, "_raw3d");
+  const rawDir = path.join(OUT, "_rawtsx3d");
   fs.mkdirSync(rawDir, { recursive: true });
-  log("compiling tsx3d host:", TSX3D_HOST_RGR);
+  const rawDirRel = path.relative(ROOT, rawDir);
+  log("compiling TSX 3D host:", TSX3D_RGR);
   sh("node", [
-    "bin/output.js", "-es6", TSX3D_HOST_RGR,
-    "-d=" + path.relative(ROOT, rawDir), "-o=tsx3d.raw.js", "-nodecli",
+    "bin/output.js",
+    "-es6",
+    TSX3D_RGR,
+    "-d=" + rawDirRel,
+    "-o=tsx3d.raw.js",
+    "-nodecli",
+  ], {
+    env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" },
+    stdio: "inherit",
+  });
+  let src = fs.readFileSync(path.join(rawDir, "tsx3d.raw.js"), "utf8");
+  src = src.replace(/^#![^\n]*\n/, "");
+  src = src.replace(/\n__js_main\(\);\s*$/, "\n");
+  src = src.replace(/\n[A-Za-z_$][\w$]*\(\);\s*$/, "\n");
+  src += "\n;return { WebTsx3dHost };\n";
+  fs.writeFileSync(path.join(OUT, "tsx3d.bundle.js"), src);
+  log("wrote tsx3d.bundle.js (" + (src.length / 1024).toFixed(0) + " KB)");
+  fs.rmSync(rawDir, { recursive: true, force: true });
+}
+
+// Compile web_tsx3d_gl_host.rgr -> tsx3d-gl.bundle.js (exports WebTsx3dGlHost),
+// the WebGL host for the Three.js-cube scene.
+function compileTsx3dGlBundle() {
+  const rawDir = path.join(OUT, "_rawtsx3dgl");
+  fs.mkdirSync(rawDir, { recursive: true });
+  log("compiling tsx3d WebGL host:", TSX3D_GL_RGR);
+  sh("node", [
+    "bin/output.js", "-es6", TSX3D_GL_RGR,
+    "-d=" + path.relative(ROOT, rawDir), "-o=tsx3dgl.raw.js", "-nodecli",
   ], { env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" }, stdio: "inherit" });
-  let src = fs.readFileSync(path.join(rawDir, "tsx3d.raw.js"), "utf8").replace(/^#![^\n]*\n/, "");
+  let src = fs.readFileSync(path.join(rawDir, "tsx3dgl.raw.js"), "utf8").replace(/^#![^\n]*\n/, "");
   src = src.replace(/\n__js_main\(\);\s*$/, "\n").replace(/\n[A-Za-z_$][\w$]*\(\);\s*$/, "\n");
   src += "\n;return { WebTsx3dGlHost };\n";
   fs.writeFileSync(path.join(OUT, "tsx3d-gl.bundle.js"), src);
-  fs.rmSync(rawDir, { recursive: true, force: true });
   log("wrote tsx3d-gl.bundle.js (" + (src.length / 1024).toFixed(0) + " KB)");
+  fs.rmSync(rawDir, { recursive: true, force: true });
 }
 
 // ------------------------------------------------------------------- packages
@@ -251,29 +323,6 @@ function packageGames() {
   fs.mkdirSync(gamesOut, { recursive: true });
   const registry = [];
   for (const g of GAMES) {
-    if (g.kind === "tsx3d") {
-      // Stage the editable script + façade + texture as plain files the editor
-      // fetches directly (script for Monaco, façade + texture for the GL host).
-      const dir3 = path.join(gamesOut, g.id);
-      fs.mkdirSync(dir3, { recursive: true });
-      fs.copyFileSync(path.join(ROOT, g.scriptDir, g.script), path.join(dir3, "script.tsx"));
-      fs.copyFileSync(path.join(ROOT, g.facade), path.join(dir3, "facade.tsx"));
-      let textureUrl = "";
-      if (g.texture) {
-        fs.copyFileSync(path.join(ROOT, g.texture), path.join(dir3, "texture.ppm"));
-        textureUrl = "games/" + g.id + "/texture.ppm";
-      }
-      registry.push({
-        id: g.id, title: g.title, kind: g.kind, width: g.width, height: g.height,
-        scriptDir: g.scriptDir, script: g.script,
-        scriptUrl: "games/" + g.id + "/script.tsx",
-        facadeUrl: "games/" + g.id + "/facade.tsx",
-        textureUrl, texturePath: g.texturePath || "",
-        controls: g.controls || "",
-      });
-      log("staged", g.id, "(tsx3d: script + façade" + (textureUrl ? " + texture" : "") + ")");
-      continue;
-    }
     const entries = g.package.map((rel) => ({
       name: rel,
       bytes: fs.readFileSync(path.join(ROOT, rel)),
@@ -292,6 +341,49 @@ function packageGames() {
       controls: g.controls || "",
     });
     log("packaged", g.id, "(" + (zip.length / 1024).toFixed(1) + " KB, " + entries.length + " files)");
+  }
+  // TSX-driven 3D scenes — packaged like a game (script + its GLB), but flagged
+  // kind:"tsx3d" so index.html runs them through WebTsx3dHost, not GameRunner.
+  for (const s of TSX3D_SCENES) {
+    const entries = s.package.map((rel) => ({
+      name: rel,
+      bytes: fs.readFileSync(path.join(ROOT, rel)),
+    }));
+    const zip = makeStoredZip(entries);
+    fs.writeFileSync(path.join(gamesOut, s.id + ".zip"), zip);
+    registry.push({
+      id: s.id,
+      title: s.title,
+      kind: "tsx3d",
+      size: 480,
+      scriptDir: s.scriptDir,
+      script: s.script,
+      pkg: "games/" + s.id + ".zip",
+      controls: s.controls || "",
+    });
+    log("packaged tsx3d", s.id, "(" + (zip.length / 1024).toFixed(1) + " KB, " + entries.length + " files)");
+  }
+  // WebGL TSX 3D (kind:"tsx3d-gl") — stage the editable script + façade + texture
+  // as plain files; index.html runs them through WebTsx3dGlHost (WebGL canvas).
+  for (const s of TSX3D_GL_SCENES) {
+    const dir3 = path.join(gamesOut, s.id);
+    fs.mkdirSync(dir3, { recursive: true });
+    fs.copyFileSync(path.join(ROOT, s.scriptDir, s.script), path.join(dir3, "script.tsx"));
+    fs.copyFileSync(path.join(ROOT, s.facade), path.join(dir3, "facade.tsx"));
+    let textureUrl = "";
+    if (s.texture) {
+      fs.copyFileSync(path.join(ROOT, s.texture), path.join(dir3, "texture.ppm"));
+      textureUrl = "games/" + s.id + "/texture.ppm";
+    }
+    registry.push({
+      id: s.id, title: s.title, kind: "tsx3d-gl", width: s.width || 480, height: s.height || 480,
+      scriptDir: s.scriptDir, script: s.script,
+      scriptUrl: "games/" + s.id + "/script.tsx",
+      facadeUrl: "games/" + s.id + "/facade.tsx",
+      textureUrl, texturePath: s.texturePath || "",
+      controls: s.controls || "",
+    });
+    log("staged tsx3d-gl", s.id, "(script + façade" + (textureUrl ? " + texture" : "") + ")");
   }
   fs.writeFileSync(path.join(OUT, "games.json"), JSON.stringify(registry, null, 2));
 }
@@ -343,9 +435,7 @@ async function buildEditor() {
 
 // ------------------------------------------------------------------- assets
 function copyRuntime() {
-  const files = ["vfs.js", "engine-host.js", "runner.js"];
-  if (HAS_TSX3D) files.push("tsx3d-gl-viewer.js");
-  for (const f of files) {
+  for (const f of ["vfs.js", "engine-host.js", "runner.js", "tsx3d-viewer.js", "tsx3d-gl-viewer.js"]) {
     fs.copyFileSync(path.join(SRC, f), path.join(OUT, f));
   }
   fs.copyFileSync(path.join(HERE, "index.html"), path.join(OUT, "index.html"));
@@ -357,10 +447,9 @@ function copyRuntime() {
 // so it only changes when they actually change.
 function cacheBust() {
   const names = [
-    "vfs.js", "engine-host.js", "runner.js",
-    "engine.bundle.js", "games.json",
+    "vfs.js", "engine-host.js", "runner.js", "tsx3d-viewer.js", "tsx3d-gl-viewer.js",
+    "engine.bundle.js", "tsx3d.bundle.js", "tsx3d-gl.bundle.js", "games.json",
     "editor.bundle.js", "editor.bundle.css",
-    "tsx3d-gl-viewer.js", "tsx3d-gl.bundle.js",
   ];
   const h = crypto.createHash("sha1");
   for (const n of names) {
@@ -381,7 +470,8 @@ function cacheBust() {
 // ------------------------------------------------------------------- main
 fs.mkdirSync(OUT, { recursive: true });
 compileEngineBundle();
-if (HAS_TSX3D) compileTsx3dBundle();
+compileTsx3dBundle();
+if (TSX3D_GL_SCENES.length) compileTsx3dGlBundle();
 packageGames();
 const editorOk = await buildEditor();
 copyRuntime();
