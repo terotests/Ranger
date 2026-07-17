@@ -7,6 +7,7 @@
 ; Optional game.info (key=value lines) for display metadata:
 ;   name=My Game Title
 ;   icon=icon.png
+;   index=1              ; launcher menu order within a category (lower = earlier)
 ;   engine=wasm
 ;   module=logic.wasm
 ;
@@ -56,6 +57,10 @@ class GameCatalogEntry {
     ; grabbing assets/image.png (e.g. a game that dies fast wants an early shot).
     ; Empty = the tool's default.
     def iconFrames:string ""
+    ; index: launcher tile order inside a category. Lower numbers come first
+    ; (index=1 = top of the list). Empty = unsorted (falls back to title order
+    ; after every entry that set an explicit index).
+    def index:string ""
 }
 
 class GameCatalog {
@@ -277,6 +282,9 @@ class GameCatalog {
         if (key == "category") {
             entry.category = val
         }
+        if (key == "index") {
+            entry.index = val
+        }
     }
 
     fn readMetadata:void (entry:GameCatalogEntry) {
@@ -457,6 +465,32 @@ class GameCatalog {
         return (this.strLess(a.title b.title))
     }
 
+    ; Numeric menu rank from game.info index=. Missing / unparseable → a large
+    ; sentinel so titled-only games sort after every explicitly ranked entry.
+    fn indexValue:int (e:GameCatalogEntry) {
+        if ((strlen e.index) == 0) {
+            return 1000000
+        }
+        def parsed@(optional):int (to_int e.index)
+        if (!null? parsed) {
+            return (unwrap parsed)
+        }
+        return 1000000
+    }
+
+    ; Primary key: index= (lower first). Tie-break: title A→Z.
+    fn entryLess:boolean (a:GameCatalogEntry b:GameCatalogEntry) {
+        def ia:int (this.indexValue(a))
+        def ib:int (this.indexValue(b))
+        if (ia < ib) {
+            return true
+        }
+        if (ia > ib) {
+            return false
+        }
+        return (this.titleLess(a b))
+    }
+
     fn sortEntries:void () {
         def n:int (array_length entries)
         def i:int 0
@@ -465,7 +499,7 @@ class GameCatalog {
             while (j < n) {
                 def a:GameCatalogEntry (itemAt entries i)
                 def b:GameCatalogEntry (itemAt entries j)
-                if (this.titleLess(b a)) {
+                if (this.entryLess(b a)) {
                     set entries i b
                     set entries j a
                 }

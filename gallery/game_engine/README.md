@@ -191,6 +191,7 @@ Katalogi päivittyy ajon aikana (oletus ~10 s välein); uusi `games/mygame/index
 name=My Game
 icon=assets/image.png     # launcherin ikonikuva (ks. ikonien generointi alla)
 iconFrames=120            # kuinka monta headless-framea ennen ikoniscreenshotia
+index=1                   # valikkosija kategoriassa (pienempi = aiemmin; esim. 1 = ykkönen)
 splitScreen=auto          # auto | always | never (jaetaanko ruutu)
 splitWorld=shared         # shared | separate (jaetun maailman malli, ks. alla)
 autoscale=true            # host skaalaa 480×270 → paneeliin

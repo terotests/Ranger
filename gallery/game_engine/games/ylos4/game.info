@@ -1,7 +1,8 @@
 name=Viidakko Laskupomppija
 icon=assets/image.png
+iconFrames=900
+index=2
 splitScreen=auto
 autoscale=false
 soloScript=index.tsx
-
 category=Games
