@@ -119,6 +119,7 @@
     <script src="./runner.js"></script>
     <script src="./tsx3d-viewer.js"></script>
     <script src="./tsx3d-gl-viewer.js"></script>
+    <script src="./teapot-gl-viewer.js"></script>
     <script src="./editor.bundle.js"></script>
     <script>
       const statusEl = document.getElementById("status");
@@ -130,6 +131,7 @@
       let bundleSource = null;
       let tsx3dBundle = null;
       let tsx3dGlBundle = null;
+      let teapotGlBundle = null;
       let registry = [];
       let session = null;
       let editor = null;
@@ -203,7 +205,8 @@
         setStatus("loading " + entry.title + "…");
         controlsEl.textContent = entry.controls || "";
         fileCapEl.textContent = entry.scriptDir + "/" + entry.script;
-        freshCanvas(entry.width || entry.size, entry.height || entry.size, entry.kind === "tsx3d-gl");
+        const gl3d = entry.kind === "tsx3d-gl" || entry.kind === "teapot-gl";
+        freshCanvas(entry.width || entry.size, entry.height || entry.size, gl3d);
 
         // WebGL TSX 3D: the canonical Three.js cube runs 1:1 in the interpreter
         // and renders on the GPU through WebTsx3dGlHost. The editor shows cube.tsx.
@@ -225,6 +228,24 @@
           paused = false;
           document.getElementById("pause").textContent = "Pause";
           setStatus(entry.title + " — the interpreted cube.tsx, drawn with WebGL", true);
+          return;
+        }
+
+        // Compiled WebGL teapot: the full webgl_geometry_teapot example runs as a
+        // compiled Ranger scene (WebTeapotProbe) on the GPU. The editor shows the
+        // scene's Ranger source; orbit/zoom/panel drive it interactively.
+        if (entry.kind === "teapot-gl") {
+          if (!teapotGlBundle) teapotGlBundle = await fetchText("./teapot-gl.bundle.js");
+          const source = await fetchText(entry.sourceUrl);
+          session = await window.RangerTeapotViewer.launch({
+            bundleSource: teapotGlBundle,
+            canvas,
+            source,
+          });
+          ensureEditor(session.getSource());
+          paused = false;
+          document.getElementById("pause").textContent = "Pause";
+          setStatus(entry.title + " — compiled Ranger scene, drawn with WebGL", true);
           return;
         }
 
