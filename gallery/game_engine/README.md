@@ -523,7 +523,10 @@ Kaikki alla oleva on **testattu** WASM-käännöksellä (`runtime/wasm/*_test.mj
 | **Sisäkkäiset oliot**: kentän-kentän luku/kirjoitus `a.b.c` (mielivaltainen syvyys) | ✅ | `o.mid.inner.v = 99` |
 | **Olio-kenttä** (`def v:Vec (new Vec)`) rekursiivinen vapautus + jako | ✅ | RC: retain/move + release |
 | **Singletonit** (`@singleton(true)`) — jaettu tila framejen yli | ✅ | `World.__singleton()` |
-| **Lambdat / sulkeumat** (`(fn:… (){})`, `{ … }`) | ❌ | funktio-osoittimia ei emitoida |
+| **Lambdat / sulkeumat** (`(fn:… (){})`) — kutsu + callback | ✅ (`-wasmrc`) | wasm-taulu + `call_indirect` |
+| Lambda **nappaa arvon/merkkijonon/olion** (vain luku) | ✅ (`-wasmrc`) | sulkeuma = RC-olio, napatut retainataan |
+| Lambda **mutatoi napattua oliota** (event handler) | ✅ (`-wasmrc`) | jaettu viittaus, RC estää ennenaikaisen vapautuksen |
+| Lambda **mutatoi napattua arvoa** (jaettu laskuri) | ✅ (`-wasmrc`) | arvo laatikoidaan jaettuun keko-soluun |
 
 **Singletonit ja globaali tila.** `@singleton(true)` toimii: `__singleton()`
 rakentaa instanssin laiskasti mutable-wasm-globaaliin ja palauttaa saman olion
@@ -561,9 +564,46 @@ Ainoa raja: **syklit** (`a.next = b; b.next = a`) vuotavat — RC:n luontainen
 rajoitus — mutta eivät kaadu eivätkä korruptoi muistia. Vältä sykliset
 olio-graafit, tai katkaise ne (aseta kenttä nulliksi) ennen kuin päästät irti.
 
-**Ei (vielä) tuettu.** Lambdat / sulkeumat (`(fn:… (){})`, `{ … }`): WAT-backend
-ei emitoi funktio-osoittimia eikä `call_indirect`ia, joten callbackit ja
-funktioarvot eivät käänny. Käytä metodeja + `for`/`while`-silmukoita.
+**Lambdat ja sulkeumat.** Lambda-arvot ja callbackit toimivat (`-wasmrc`):
+jokainen lambda-runko nostetaan omaksi top-level-funktioksi wasm-funktiotauluun,
+ja kutsu menee `call_indirect`in läpi. Lambda-arvo on **sulkeuma-tietue = RC-olio**
+`[ fn_index | napatut kentät ]`, joten sen elinkaari hoituu samalla
+viittauslaskennalla kuin muidenkin olioiden.
+
+```ranger
+class SG {
+    ; korkeamman kertaluvun funktio: ottaa lambdan ja kutsuu sitä
+    sfn apply:int (cb:(fn:int (x:int)) v:int) {
+        return (cb(v))
+    }
+    sfn demo:int () {
+        def k 3
+        ; nappaa paikallisen k:n (vain luku) — kopioidaan sulkeuman ympäristöön
+        return (SG.apply((fn:int (x:int) { return (* x k) }) 5))   ; 15
+    }
+}
+```
+
+Kolme nappaustasoa, kaikki tuettu:
+
+- **Vain luku** — lambda lukee ulomman muuttujan (`k` yllä). Arvot ja
+  merkkijonot **kopioidaan** sulkeuman ympäristöön (merkkijono dupataan), oliot
+  **retainataan**. Sulkeuman typedesc vapauttaa ne kun tietue tuhoutuu.
+- **Napatun olion mutatointi** (event-handler-kuvio) — lambda kirjoittaa
+  napatun olion kenttään (`entity.hp = 0`), ja kirjoitus näkyy ulkona, koska
+  sulkeuma pitää **saman viittauksen**. Käyttäjän esiin nostama vaara — olio
+  vapautuu ennenaikaisesti vaikka lambda vielä viittaa siihen — ei toteudu:
+  ympäristö retainaa olion, joten se elää niin kauan kuin **joko** ulompi skooppi
+  **tai** sulkeuma pitää siitä kiinni, ja vapautuu täsmälleen kerran.
+- **Napatun arvon mutatointi** (jaettu laskuri, `count = count + 1`) — arvo
+  **laatikoidaan** jaettuun keko-soluun, jota sekä ulompi skooppi että sulkeuma
+  osoittavat, joten muutos on molemminpuolinen. Yksisäikeinen WASM ⇒ ei
+  lukituksia.
+
+Rajat: napattu `f64`-arvo ja `this`-nappaus (`this.kenttä` lambdan sisällä)
+eivät vielä laatikoidu — kierrä tallettamalla arvo paikalliseen int-muuttujaan
+tai olioon ennen lambdaa. Sykliset sulkeumat (sulkeuma nappaa olion, joka
+viittaa takaisin sulkeumaan) vuotavat — sama RC:n raja kuin olio-graafeilla.
 
 ### Sudenkuopat
 

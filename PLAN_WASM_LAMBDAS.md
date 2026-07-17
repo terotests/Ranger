@@ -165,6 +165,14 @@ need boxing.)
 
 ## 3. Implementation phases
 
+> **Status: L0–L3 implemented and tested** (`runtime/wasm/lambda_demo.rgr` +
+> `lambda_test.mjs`, 19 assertions). Non-capturing calls/callbacks, read-only
+> capture (value/string/object), object mutation (event-handler pattern), and
+> boxed value mutation all work and are leak-free; the native/freestanding
+> non-`-wasmrc` path is byte-identical (ranger_autopeli `logic.wasm` unchanged).
+> L4 (bare-index / stack-alloc optimisation, f64 capture, `this`-capture) is the
+> remaining optional polish.
+
 - **Phase L0 — infrastructure (no captures yet).**
   Hoist every `myLambdas` body as `…__lambdaN(%__env, params…)`; emit the wasm
   `table`/`elem`; add `func_ref` + `call_indirect` LowIR ops and their WAT
