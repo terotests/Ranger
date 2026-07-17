@@ -17,7 +17,7 @@
 Import "../three/tsx/three_teapot_tsx_bridge.rgr"
 Import "../three/src/three_gl_backend.rgr"
 Import "../three/src/three_orbit_controls.rgr"
-Import "../three/src/three_gui_overlay.rgr"
+Import "../three/tsx/three_gui_overlay.rgr"
 
 class WebTeapotTsxHost {
     def engine:ComponentEngine (new ComponentEngine())

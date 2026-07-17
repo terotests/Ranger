@@ -48,7 +48,6 @@ run_suite three_light_probe_grid_helper_test
 run_suite three_teapot_test
 run_suite three_orbit_controls_test
 run_suite three_first_person_controls_test
-run_suite three_gui_overlay_test
 run_suite three_cube_texture_test
 run_suite three_sky_test
 run_suite three_mesh_test
@@ -66,5 +65,7 @@ run_tsx_poc three_teapot_tsx_test
 # scene's params drives the Ranger scene live).
 run_tsx_poc three_sponza_scene_test
 run_tsx_poc three_sponza_tsx_test
+# The teapot's lil-gui panel (demo/host layer): EVG panel rasterise + hit-testing.
+run_tsx_poc three_gui_overlay_test
 
 echo "done."
