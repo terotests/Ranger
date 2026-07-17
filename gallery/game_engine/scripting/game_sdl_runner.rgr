@@ -23,6 +23,10 @@ Import "./game_ui_runner.rgr"
 Import "./as_sprite_runner.rgr"
 Import "./wasm3d_runner.rgr"
 Import "../web/web_teapot_tsx_host.rgr"
+Import "../web/web_sponza_tsx_host.rgr"
+Import "../three/src/three_gltf_file.rgr"
+Import "../three/src/three_gltf_textures.rgr"
+Import "../three/src/three_object3d.rgr"
 Import "../gfx_sdl.rgr"
 Import "./game_audio_sdl.rgr"
 Import "./game_catalog.rgr"
@@ -66,6 +70,15 @@ class GameSdlRunner {
     def useTeapot:boolean false
     def teapotPrevBtn:int 0
     def teapotGuiTex:int 0
+    ; render=sponza: the interpreted light-probe Sponza scene (FPC + GI + shadows +
+    ; sky). The real glTF model is fetched + decoded once (host-side) and cached.
+    def sponzaHost:WebSponzaTsxHost (new WebSponzaTsxHost)
+    def useSponza:boolean false
+    def sponzaModel:ThreeObject3D (new ThreeObject3D)
+    def sponzaModelReady:boolean false
+    def sponzaMouseDown:int 0
+    def sponzaLastX:int 0
+    def sponzaLastY:int 0
     def catalog:GameCatalog (new GameCatalog)
     def nativeBridge:GameHostNativeBridge (new GameHostNativeBridge)
     def pw:int 480
@@ -586,6 +599,105 @@ class GameSdlRunner {
         }
     }
 
+    ; Load a render=sponza game: the interpreted light-probe Sponza scene through
+    ; WebSponzaTsxHost. The real glTF model + textures are fetched + decoded once
+    ; (host-side, over HTTP) and cached across re-launch; the scene + façade come
+    ; from the game folder (index.tsx + three.tsx). Tests category.
+    fn loadSponzaAt:void (path:string) {
+        useWasmRunner = false
+        useWasmPhysics = false
+        useSpriteRunner = false
+        useStreamRunner = false
+        useWasm3d = false
+        useTeapot = false
+        useSponza = true
+        this.presentLoadingScreen("LOADING SPONZA")
+        def dir:string (this.dirOf(path))
+        def sceneFile:string (this.baseOf(path))
+        def facadeBuf:buffer (buffer_read_file dir "three.tsx")
+        def facadeSrc:string (buffer_to_string facadeBuf)
+        def sceneBuf:buffer (buffer_read_file dir sceneFile)
+        def sceneSrc:string (buffer_to_string sceneBuf)
+
+        ; fetch + decode the real model once (network); cache it across re-launches.
+        if (sponzaModelReady == false) {
+            this.presentLoadingScreen("DOWNLOADING SPONZA MODEL")
+            def url:string "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Sponza/glTF/Sponza.gltf"
+            def loader:ThreeGLTFFile (new ThreeGLTFFile)
+            def m:ThreeObject3D (loader.loadFromURL(url))
+            if ((m.childCount()) > 0) {
+                this.presentLoadingScreen("DECODING TEXTURES")
+                ThreeGLTFTextures.load(loader (ThreeGLTFFile.dirOf(url)))
+                sponzaModel = m
+                sponzaModelReady = true
+            }
+        }
+
+        sponzaHost.setupGL("")
+        def r:string (sponzaHost.loadModel3D(facadeSrc sceneSrc sponzaModel pw ph 1.0))
+        if (r != "ok") {
+            useSponza = false
+            print ("[game-engine] sponza load failed: " + r)
+            this.loadMenuGame()
+            return
+        }
+        sponzaMouseDown = 0
+        currentScriptPath = path
+        currentGamePath = path
+        inMenu = false
+        inGame = true
+        splitScreenActive = false
+        wasmSplitActive = false
+        this.syncInputEdges()
+        gameInputSnap.resetSoloPad()
+        gfx_clear_should_close
+        print ("[game-engine] sponza game: " + path)
+    }
+
+    ; translate a d-pad/WASD input-mask bit to the Sponza host's key state.
+    fn sponzaKey:void (mask:int bit:int key:string) {
+        if ((bit_and mask bit) != 0) {
+            sponzaHost.keyDown(key)
+        } {
+            sponzaHost.keyUp(key)
+        }
+    }
+
+    ; Per-frame for a render=sponza game: WASD/arrows move, left-drag looks, render
+    ; + swap. A held quit (Q/Esc/Back) returns to the menu.
+    fn drawSponza:void () {
+        gfx_input_poll
+        def mask:int (gfx_input_source_mask 0)
+        this.sponzaKey(mask 1 "w")
+        this.sponzaKey(mask 2 "s")
+        this.sponzaKey(mask 16 "a")
+        this.sponzaKey(mask 32 "d")
+        this.sponzaKey(mask 4 "r")
+        this.sponzaKey(mask 64 "f")
+
+        def mx:int (gfx_mouse_x)
+        def my:int (gfx_mouse_y)
+        def btn:int (gfx_mouse_buttons)
+        def leftNow:int (bit_and btn 1)
+        if ((sponzaMouseDown == 0) && (leftNow == 1)) {
+            sponzaLastX = mx
+            sponzaLastY = my
+        }
+        if ((sponzaMouseDown == 1) && (leftNow == 1)) {
+            sponzaHost.look((to_double (mx - sponzaLastX)) (to_double (my - sponzaLastY)))
+            sponzaLastX = mx
+            sponzaLastY = my
+        }
+        sponzaMouseDown = leftNow
+
+        sponzaHost.frame()
+        gfx_gl_swap
+        if ((bit_and mask 8) != 0) {
+            useSponza = false
+            this.loadMenuGame()
+        }
+    }
+
     fn dirOf:string (path:string) {
         def cut (0 - 1)
         def i 0
@@ -966,6 +1078,7 @@ class GameSdlRunner {
         nativeBridge.clearPendingNav()
         useWasm3d = false
         useTeapot = false
+        useSponza = false
         currentGamePath = path
         if (this.isStreamingPath(path)) {
             splitScreenActive = false
@@ -989,6 +1102,12 @@ class GameSdlRunner {
             splitScreenActive = false
             wasmSplitActive = false
             this.loadTeapotAt(path)
+            return
+        }
+        if ((this.renderOf(path)) == "sponza") {
+            splitScreenActive = false
+            wasmSplitActive = false
+            this.loadSponzaAt(path)
             return
         }
         if (this.isAsPath(path)) {
@@ -1186,6 +1305,12 @@ class GameSdlRunner {
             ; interpreted teapot.tsx drawn through the Three GL backend + a GUI
             ; overlay; draws + swaps directly (no framebuffer present).
             this.drawTeapot()
+            return
+        }
+        if (useSponza) {
+            ; interpreted Sponza scene (FPC + GI + shadows + sky); draws + swaps
+            ; directly through the Three GL backend.
+            this.drawSponza()
             return
         }
         def s0:int (gfx_ticks_ms)
@@ -1472,6 +1597,9 @@ class GameSdlRunner {
             }
             if ((indexOf txt "render=3d") >= 0) {
                 return "3d"
+            }
+            if ((indexOf txt "render=sponza") >= 0) {
+                return "sponza"
             }
             if ((indexOf txt "render=three") >= 0) {
                 return "three"
@@ -2067,14 +2195,14 @@ class GameSdlRunner {
                     }
                 }
             } {
-                if (useTeapot) {
-                    ; The interpreted teapot (render=three) has no GameRunner scene:
-                    ; its whole per-frame update — mouse orbit, camera push, scene
-                    ; reconcile + GL render — runs inside drawTeapot() (called from
-                    ; draw() below). Falling through to runner.frameWithInput() would
-                    ; step the never-loaded default runner, whose particle pool is
-                    ; empty while maxCount is still 96 -> itemAt pool 0 throws
-                    ; std::out_of_range. draw() already guards useTeapot; so must this.
+                if (useTeapot || useSponza) {
+                    ; The interpreted teapot/sponza (render=three/sponza) has no
+                    ; GameRunner scene: their whole per-frame update runs inside
+                    ; drawTeapot()/drawSponza() (called from draw() below). Falling
+                    ; through to runner.frameWithInput() would step the never-loaded
+                    ; default runner, whose particle pool is empty while maxCount is
+                    ; still 96 -> itemAt pool 0 throws std::out_of_range. draw()
+                    ; guards these; so must this.
                 } {
                 if (useWasm3d) {
                     def gameInput3d:GameInputSnapshot (this.pollGameInput())
