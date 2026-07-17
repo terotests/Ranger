@@ -1,50 +1,149 @@
 /// <reference path="../../scripting/game.d.ts" />
 //
-// LittleCiv — mini turn-based civilization demo (original code).
-// Genre inspiration: Civilization / Freeciv. Not a Freeciv port.
+// LittleCiv — turn-based civ demo with a large fogged world + LPC units.
+// Genre inspiration: Civilization / Freeciv. LPC art: Universal LPC (see assets/).
 //
 // Run: npm run engine:game-sdl:run:littleciv
-//      or launcher → LittleCiv
 
 import { soundEvent } from "game_helpers";
 
-const COLS = 16;
-const ROWS = 10;
-const TILE = 22;
-const ORIGIN_X = 12;
-const ORIGIN_Y = 36;
-const MAX_UNITS = 12;
+const COLS = 48;
+const ROWS = 30;
+const VIEW_COLS = 16;
+const VIEW_ROWS = 10;
+const TILE = 24;
+const ORIGIN_X = 8;
+const ORIGIN_Y = 34;
 const MAX_CITIES = 6;
+const MAX_UNITS = 12;
+const TILE_SPRITES = VIEW_COLS * VIEW_ROWS;
 
 const OWNER_PLAYER = 0;
 const OWNER_AI = 1;
 const KIND_SETTLER = 0;
 const KIND_WARRIOR = 1;
 
-// ~ ocean  . plains  f forest  h hills  m mountain
-const MAP = [
-  "~~~~~~~~~~~~~~~~",
-  "~...ff..........~",
-  "~..ffhhf........~",
-  "~...ff..........~",
-  "~...............~",
-  "~...............~",
-  "~.........ff....~",
-  "~........fhhff..~",
-  "~.........ff....~",
-  "~~~~~~~~~~~~~~~~"
-];
+const SIGHT_CITY = 2;
+const SIGHT_SETTLER = 2;
+const SIGHT_WARRIOR = 3;
+
+// Slot bands so each unit id keeps a fixed LPC sheet path (sprites() is once).
+// 0..2 player settler, 3..5 player warrior, 6..8 AI settler, 9..11 AI warrior.
+const SLOT_P_SETTLER0 = 0;
+const SLOT_P_WARRIOR0 = 3;
+const SLOT_AI_SETTLER0 = 6;
+const SLOT_AI_WARRIOR0 = 9;
 
 function screens() {
   return ["splash", "play", "win", "lose"];
 }
+
+function nextSeed(seed) {
+  return (seed * 1103515245 + 12345) % 2147483647;
+}
+
+function absVal(n) {
+  if (n < 0) { return 0 - n; }
+  return n;
+}
+
+function manh(c0, r0, c1, r1) {
+  return absVal(c0 - c1) + absVal(r0 - r1);
+}
+
+function cheby(c0, r0, c1, r1) {
+  const dc = absVal(c0 - c1);
+  const dr = absVal(r0 - r1);
+  if (dc > dr) { return dc; }
+  return dr;
+}
+
+function buildWorld(seed) {
+  const cells = [];
+  let i = 0;
+  while (i < COLS * ROWS) {
+    cells.push("~");
+    i = i + 1;
+  }
+
+  let s = seed;
+  // A few landmass blobs so the map isn't a tiny island.
+  const blobs = [
+    { c: 10, r: 10, rad: 7 },
+    { c: 14, r: 18, rad: 5 },
+    { c: 36, r: 12, rad: 7 },
+    { c: 32, r: 20, rad: 5 },
+    { c: 24, r: 8, rad: 4 },
+    { c: 22, r: 22, rad: 4 }
+  ];
+  let b = 0;
+  while (b < blobs.length) {
+    const bl = blobs[b];
+    let r = 0;
+    while (r < ROWS) {
+      let c = 0;
+      while (c < COLS) {
+        const d = cheby(c, r, bl.c, bl.r);
+        if (d <= bl.rad) {
+          cells[r * COLS + c] = ".";
+        }
+        c = c + 1;
+      }
+      r = r + 1;
+    }
+    b = b + 1;
+  }
+
+  // Scatter forests / hills on land.
+  i = 0;
+  while (i < COLS * ROWS) {
+    if (cells[i] == ".") {
+      s = nextSeed(s);
+      const roll = s % 100;
+      if (roll < 18) { cells[i] = "f"; }
+      if (roll >= 18) {
+        if (roll < 28) { cells[i] = "h"; }
+      }
+    }
+    i = i + 1;
+  }
+
+  // Soft ocean rim.
+  let r = 0;
+  while (r < ROWS) {
+    let c = 0;
+    while (c < COLS) {
+      if (r == 0 || c == 0 || r == ROWS - 1 || c == COLS - 1) {
+        cells[r * COLS + c] = "~";
+      }
+      c = c + 1;
+    }
+    r = r + 1;
+  }
+
+  const rows = [];
+  r = 0;
+  while (r < ROWS) {
+    let line = "";
+    let c = 0;
+    while (c < COLS) {
+      line = line + cells[r * COLS + c];
+      c = c + 1;
+    }
+    rows.push(line);
+    r = r + 1;
+  }
+  return rows;
+}
+
+const WORLD = buildWorld(424242);
 
 function cellAt(col, row) {
   if (col < 0) { return "~"; }
   if (row < 0) { return "~"; }
   if (col >= COLS) { return "~"; }
   if (row >= ROWS) { return "~"; }
-  return MAP[row].substring(col, col + 1);
+  return WORLD[row].substring(col, col + 1);
 }
 
 function isLand(col, row) {
@@ -56,30 +155,24 @@ function isLand(col, row) {
 }
 
 function canEnter(col, row) {
-  const c = cellAt(col, row);
-  if (c == ".") { return 1; }
-  if (c == "f") { return 1; }
-  if (c == "h") { return 1; }
-  return 0;
+  return isLand(col, row);
 }
 
 function moveCost(col, row) {
-  const c = cellAt(col, row);
-  if (c == "h") { return 2; }
-  if (c == "f") { return 1; }
+  if (cellAt(col, row) == "h") { return 2; }
   return 1;
 }
 
-function tileLeft(col) {
-  return ORIGIN_X + col * TILE;
+function terrainFrame(ch) {
+  if (ch == "~") { return 0; }
+  if (ch == ".") { return 1; }
+  if (ch == "f") { return 2; }
+  if (ch == "h") { return 3; }
+  return 4;
 }
 
-function tileTop(row) {
-  return ORIGIN_Y + row * TILE;
-}
-
-function tileX(col) {
-  return tileLeft(col) + (TILE / 2);
+function tileId(i) {
+  return ("t" + i);
 }
 
 function unitId(i) {
@@ -94,40 +187,150 @@ function cursorId() {
   return "cursor";
 }
 
-// Sheet sprites are feet-anchored at (x,y). Sit pieces on the tile bottom.
-function pieceX(col) {
-  return tileX(col);
+function exploredIndex(col, row) {
+  return row * COLS + col;
 }
 
-function pieceY(row) {
-  return tileTop(row) + TILE - 1;
+function isExplored(explored, col, row) {
+  if (col < 0) { return 0; }
+  if (row < 0) { return 0; }
+  if (col >= COLS) { return 0; }
+  if (row >= ROWS) { return 0; }
+  if (explored[exploredIndex(col, row)] == 1) { return 1; }
+  return 0;
 }
 
-// pieces.png frames (32x32, 4 cols x 2 rows):
-// row0: cityP cityAI settlerP settlerAI
-// row1: warriorP warriorAI cursor _
-function cityFrame(owner) {
-  if (owner == OWNER_PLAYER) { return { p0: 0, p1: 0 }; }
-  return { p0: 1, p1: 0 };
-}
-
-function unitFrame(owner, kind) {
-  if (kind == KIND_SETTLER) {
-    if (owner == OWNER_PLAYER) { return { p0: 2, p1: 0 }; }
-    return { p0: 3, p1: 0 };
+function cloneExplored(explored) {
+  const out = [];
+  let i = 0;
+  while (i < explored.length) {
+    out.push(explored[i]);
+    i = i + 1;
   }
-  if (owner == OWNER_PLAYER) { return { p0: 0, p1: 1 }; }
-  return { p0: 1, p1: 1 };
+  return out;
+}
+
+function blankExplored() {
+  const out = [];
+  let i = 0;
+  while (i < COLS * ROWS) {
+    out.push(0);
+    i = i + 1;
+  }
+  return out;
+}
+
+function revealAround(explored, col, row, radius) {
+  const out = cloneExplored(explored);
+  let r = row - radius;
+  while (r <= row + radius) {
+    let c = col - radius;
+    while (c <= col + radius) {
+      if (c >= 0 && r >= 0 && c < COLS && r < ROWS) {
+        if (cheby(col, row, c, r) <= radius) {
+          out[exploredIndex(c, r)] = 1;
+        }
+      }
+      c = c + 1;
+    }
+    r = r + 1;
+  }
+  return out;
+}
+
+function sightForUnit(kind) {
+  if (kind == KIND_WARRIOR) { return SIGHT_WARRIOR; }
+  return SIGHT_SETTLER;
+}
+
+function revealFromSide(explored, units, cities, owner) {
+  let out = explored;
+  let i = 0;
+  while (i < cities.length) {
+    const c = cities[i];
+    if (c.alive == 1 && c.owner == owner) {
+      out = revealAround(out, c.col, c.row, SIGHT_CITY);
+    }
+    i = i + 1;
+  }
+  i = 0;
+  while (i < units.length) {
+    const u = units[i];
+    if (u.alive == 1 && u.owner == owner) {
+      out = revealAround(out, u.col, u.row, sightForUnit(u.kind));
+    }
+    i = i + 1;
+  }
+  return out;
+}
+
+function inSightOfPlayer(col, row, units, cities) {
+  let i = 0;
+  while (i < cities.length) {
+    const c = cities[i];
+    if (c.alive == 1 && c.owner == OWNER_PLAYER) {
+      if (cheby(col, row, c.col, c.row) <= SIGHT_CITY) { return 1; }
+    }
+    i = i + 1;
+  }
+  i = 0;
+  while (i < units.length) {
+    const u = units[i];
+    if (u.alive == 1 && u.owner == OWNER_PLAYER) {
+      if (cheby(col, row, u.col, u.row) <= sightForUnit(u.kind)) { return 1; }
+    }
+    i = i + 1;
+  }
+  return 0;
+}
+
+function computeCam(focusCol, focusRow) {
+  let camCol = focusCol - 8;
+  let camRow = focusRow - 5;
+  if (camCol < 0) { camCol = 0; }
+  if (camRow < 0) { camRow = 0; }
+  if (camCol > COLS - VIEW_COLS) { camCol = COLS - VIEW_COLS; }
+  if (camRow > ROWS - VIEW_ROWS) { camRow = ROWS - VIEW_ROWS; }
+  return { camCol: camCol, camRow: camRow };
+}
+
+function screenX(worldCol, camCol) {
+  return ORIGIN_X + (worldCol - camCol) * TILE + (TILE / 2);
+}
+
+function screenFeetY(worldRow, camRow) {
+  return ORIGIN_Y + (worldRow - camRow) * TILE + TILE - 1;
+}
+
+function inView(worldCol, worldRow, camCol, camRow) {
+  if (worldCol < camCol) { return 0; }
+  if (worldRow < camRow) { return 0; }
+  if (worldCol >= camCol + VIEW_COLS) { return 0; }
+  if (worldRow >= camRow + VIEW_ROWS) { return 0; }
+  return 1;
 }
 
 function resources() {
-  return [
-    { kind: "image", id: "map", path: "assets/map.png" }
-  ];
+  return [{ kind: "image", id: "chrome", path: "assets/chrome.png" }];
 }
 
 function backgroundImage() {
-  return "map";
+  return "chrome";
+}
+
+function tileSheet(id) {
+  return {
+    id: id,
+    kind: "sheet",
+    path: "assets/tiles.png",
+    frameW: TILE,
+    frameH: TILE,
+    cols: 6,
+    rows: 1,
+    scale: 100,
+    p0: 4,
+    p1: 0
+  };
 }
 
 function pieceSheet(id, p0, p1) {
@@ -145,18 +348,56 @@ function pieceSheet(id, p0, p1) {
   };
 }
 
+function lpcSheet(id, path) {
+  return {
+    id: id,
+    kind: "sheet",
+    path: path,
+    frameW: 64,
+    frameH: 64,
+    cols: 9,
+    rows: 4,
+    // ~32px tall so LPC detail reads on the 24px tile grid.
+    scale: 50,
+    feetTrim: 12,
+    jumpFrame: 0,
+    p0: 0,
+    p1: 2
+  };
+}
+
 function sprites() {
   const list = [];
-  // Cursor under units so the selection ring does not hide the piece.
-  list.push(pieceSheet(cursorId(), 2, 1));
   let i = 0;
+  while (i < TILE_SPRITES) {
+    list.push(tileSheet(tileId(i)));
+    i = i + 1;
+  }
+  list.push(pieceSheet(cursorId(), 2, 1));
+  i = 0;
   while (i < MAX_CITIES) {
     list.push(pieceSheet(cityId(i), 0, 0));
     i = i + 1;
   }
+  // Fixed LPC path per slot band.
   i = 0;
-  while (i < MAX_UNITS) {
-    list.push(pieceSheet(unitId(i), 2, 0));
+  while (i < 3) {
+    list.push(lpcSheet(unitId(SLOT_P_SETTLER0 + i), "assets/settler_p.png"));
+    i = i + 1;
+  }
+  i = 0;
+  while (i < 3) {
+    list.push(lpcSheet(unitId(SLOT_P_WARRIOR0 + i), "assets/warrior_p.png"));
+    i = i + 1;
+  }
+  i = 0;
+  while (i < 3) {
+    list.push(lpcSheet(unitId(SLOT_AI_SETTLER0 + i), "assets/settler_ai.png"));
+    i = i + 1;
+  }
+  i = 0;
+  while (i < 3) {
+    list.push(lpcSheet(unitId(SLOT_AI_WARRIOR0 + i), "assets/warrior_ai.png"));
     i = i + 1;
   }
   return list;
@@ -164,27 +405,15 @@ function sprites() {
 
 function emptyUnit() {
   return {
-    alive: 0,
-    owner: 0,
-    kind: 0,
-    col: 0,
-    row: 0,
-    moves: 0,
-    maxMoves: 0,
-    hp: 0
+    alive: 0, owner: 0, kind: 0, col: 0, row: 0,
+    moves: 0, maxMoves: 0, hp: 0, face: 2, frame: 0
   };
 }
 
 function emptyCity() {
   return {
-    alive: 0,
-    owner: 0,
-    col: 0,
-    row: 0,
-    size: 1,
-    food: 0,
-    prod: 0,
-    nameN: 0
+    alive: 0, owner: 0, col: 0, row: 0,
+    size: 1, food: 0, prod: 0, nameN: 0
   };
 }
 
@@ -196,27 +425,15 @@ function makeUnit(owner, kind, col, row) {
     hp = 2;
   }
   return {
-    alive: 1,
-    owner: owner,
-    kind: kind,
-    col: col,
-    row: row,
-    moves: maxMoves,
-    maxMoves: maxMoves,
-    hp: hp
+    alive: 1, owner: owner, kind: kind, col: col, row: row,
+    moves: maxMoves, maxMoves: maxMoves, hp: hp, face: 2, frame: 0
   };
 }
 
 function makeCity(owner, col, row, nameN) {
   return {
-    alive: 1,
-    owner: owner,
-    col: col,
-    row: row,
-    size: 1,
-    food: 0,
-    prod: 0,
-    nameN: nameN
+    alive: 1, owner: owner, col: col, row: row,
+    size: 1, food: 0, prod: 0, nameN: nameN
   };
 }
 
@@ -225,7 +442,7 @@ function cityName(owner, nameN) {
     if (nameN == 0) { return "Helsinki"; }
     if (nameN == 1) { return "Turku"; }
     if (nameN == 2) { return "Tampere"; }
-    return ("Kaupunki " + nameN);
+    return ("Town " + nameN);
   }
   if (nameN == 0) { return "Novgorod"; }
   if (nameN == 1) { return "Kiev"; }
@@ -239,14 +456,9 @@ function cloneUnits(units) {
   while (i < units.length) {
     const u = units[i];
     out.push({
-      alive: u.alive,
-      owner: u.owner,
-      kind: u.kind,
-      col: u.col,
-      row: u.row,
-      moves: u.moves,
-      maxMoves: u.maxMoves,
-      hp: u.hp
+      alive: u.alive, owner: u.owner, kind: u.kind,
+      col: u.col, row: u.row, moves: u.moves, maxMoves: u.maxMoves,
+      hp: u.hp, face: u.face, frame: u.frame
     });
     i = i + 1;
   }
@@ -259,14 +471,8 @@ function cloneCities(cities) {
   while (i < cities.length) {
     const c = cities[i];
     out.push({
-      alive: c.alive,
-      owner: c.owner,
-      col: c.col,
-      row: c.row,
-      size: c.size,
-      food: c.food,
-      prod: c.prod,
-      nameN: c.nameN
+      alive: c.alive, owner: c.owner, col: c.col, row: c.row,
+      size: c.size, food: c.food, prod: c.prod, nameN: c.nameN
     });
     i = i + 1;
   }
@@ -328,26 +534,32 @@ function findCityAt(cities, col, row) {
   return -1;
 }
 
-function firstFreeSlot(list) {
-  let i = 0;
-  while (i < list.length) {
-    if (list[i].alive == 0) { return i; }
+function slotBand(owner, kind) {
+  if (owner == OWNER_PLAYER) {
+    if (kind == KIND_SETTLER) { return { lo: SLOT_P_SETTLER0, hi: SLOT_P_SETTLER0 + 3 }; }
+    return { lo: SLOT_P_WARRIOR0, hi: SLOT_P_WARRIOR0 + 3 };
+  }
+  if (kind == KIND_SETTLER) { return { lo: SLOT_AI_SETTLER0, hi: SLOT_AI_SETTLER0 + 3 }; }
+  return { lo: SLOT_AI_WARRIOR0, hi: SLOT_AI_WARRIOR0 + 3 };
+}
+
+function firstFreeSlotFor(units, owner, kind) {
+  const band = slotBand(owner, kind);
+  let i = band.lo;
+  while (i < band.hi) {
+    if (units[i].alive == 0) { return i; }
     i = i + 1;
   }
   return -1;
 }
 
-function absVal(n) {
-  if (n < 0) { return 0 - n; }
-  return n;
-}
-
-function manh(c0, r0, c1, r1) {
-  return absVal(c0 - c1) + absVal(r0 - r1);
-}
-
-function nextSeed(seed) {
-  return (seed * 1103515245 + 12345) % 2147483647;
+function firstFreeCitySlot(cities) {
+  let i = 0;
+  while (i < cities.length) {
+    if (cities[i].alive == 0) { return i; }
+    i = i + 1;
+  }
+  return -1;
 }
 
 function refreshMoves(units, owner) {
@@ -370,10 +582,7 @@ function nearestEnemyCity(cities, col, row, myOwner) {
     const c = cities[i];
     if (c.alive == 1 && c.owner != myOwner) {
       const d = manh(col, row, c.col, c.row);
-      if (d < bestD) {
-        bestD = d;
-        best = i;
-      }
+      if (d < bestD) { bestD = d; best = i; }
     }
     i = i + 1;
   }
@@ -388,10 +597,7 @@ function nearestOwnCity(cities, col, row, owner) {
     const c = cities[i];
     if (c.alive == 1 && c.owner == owner) {
       const d = manh(col, row, c.col, c.row);
-      if (d < bestD) {
-        bestD = d;
-        best = i;
-      }
+      if (d < bestD) { bestD = d; best = i; }
     }
     i = i + 1;
   }
@@ -400,18 +606,12 @@ function nearestOwnCity(cities, col, row, owner) {
 
 function spawnNear(units, cities, owner, kind, col, row) {
   const dirs = [
-    { dc: 0, dr: 0 },
-    { dc: 1, dr: 0 },
-    { dc: -1, dr: 0 },
-    { dc: 0, dr: 1 },
-    { dc: 0, dr: -1 },
-    { dc: 1, dr: 1 },
-    { dc: -1, dr: 1 },
-    { dc: 1, dr: -1 },
-    { dc: -1, dr: -1 }
+    { dc: 0, dr: 0 }, { dc: 1, dr: 0 }, { dc: -1, dr: 0 },
+    { dc: 0, dr: 1 }, { dc: 0, dr: -1 }, { dc: 1, dr: 1 },
+    { dc: -1, dr: 1 }, { dc: 1, dr: -1 }, { dc: -1, dr: -1 }
   ];
   const out = cloneUnits(units);
-  const slot = firstFreeSlot(out);
+  const slot = firstFreeSlotFor(out, owner, kind);
   if (slot < 0) { return out; }
   let di = 0;
   while (di < dirs.length) {
@@ -419,11 +619,9 @@ function spawnNear(units, cities, owner, kind, col, row) {
     const nr = row + dirs[di].dr;
     if (canEnter(nc, nr) == 1) {
       if (findUnitAt(out, nc, nr, -1) < 0) {
-        if (findCityAt(cities, nc, nr) < 0 || (nc == col && nr == row)) {
-          out[slot] = makeUnit(owner, kind, nc, nr);
-          out[slot].moves = 0;
-          return out;
-        }
+        out[slot] = makeUnit(owner, kind, nc, nr);
+        out[slot].moves = 0;
+        return out;
       }
     }
     di = di + 1;
@@ -450,22 +648,15 @@ function growCities(cities, units, owner, seed) {
         c.food = 0;
         if (c.size < 5) { c.size = c.size + 1; }
       }
-      // Auto-build: warrior at 6, settler at 12 when size >= 2.
       if (c.prod >= 12 && c.size >= 2) {
         const before = countAlive(outU);
         outU = spawnNear(outU, outC, owner, KIND_SETTLER, c.col, c.row);
-        if (countAlive(outU) > before) {
-          c.prod = 0;
-          s = nextSeed(s);
-        }
+        if (countAlive(outU) > before) { c.prod = 0; s = nextSeed(s); }
       } else {
         if (c.prod >= 6) {
           const before2 = countAlive(outU);
           outU = spawnNear(outU, outC, owner, KIND_WARRIOR, c.col, c.row);
-          if (countAlive(outU) > before2) {
-            c.prod = c.prod - 6;
-            s = nextSeed(s);
-          }
+          if (countAlive(outU) > before2) { c.prod = c.prod - 6; s = nextSeed(s); }
         }
       }
       outC[i] = c;
@@ -483,7 +674,7 @@ function tryFoundCity(units, cities, unitIndex, nextNameN) {
   if (findCityAt(cities, u.col, u.row) >= 0) {
     return { ok: 0, units: units, cities: cities, nameN: nextNameN };
   }
-  const slot = firstFreeSlot(cities);
+  const slot = firstFreeCitySlot(cities);
   if (slot < 0) { return { ok: 0, units: units, cities: cities, nameN: nextNameN }; }
   const outU = cloneUnits(units);
   const outC = cloneCities(cities);
@@ -502,7 +693,6 @@ function resolveCombat(units, cities, atkIndex, defIndex, seed) {
   let defPower = 1 + def.hp;
   if (atk.kind == KIND_WARRIOR) { atkPower = atkPower + 2; }
   if (def.kind == KIND_WARRIOR) { defPower = defPower + 2; }
-  // City defense bonus if defender sits on own city.
   const ci = findCityAt(outC, def.col, def.row);
   if (ci >= 0 && outC[ci].owner == def.owner) {
     defPower = defPower + 1 + outC[ci].size;
@@ -510,21 +700,18 @@ function resolveCombat(units, cities, atkIndex, defIndex, seed) {
   s = nextSeed(s);
   const roll = s % (atkPower + defPower);
   if (roll < atkPower) {
-    // Attacker wins: occupy tile, maybe capture city.
     const tc = def.col;
     const tr = def.row;
     outU[defIndex].alive = 0;
     outU[atkIndex].col = tc;
     outU[atkIndex].row = tr;
     outU[atkIndex].moves = 0;
-    outU[atkIndex].hp = atk.hp;
     if (ci >= 0 && outC[ci].owner != atk.owner) {
       outC[ci].owner = atk.owner;
       outC[ci].prod = 0;
     }
     return { units: outU, cities: outC, seed: s, won: 1 };
   }
-  // Defender wins.
   outU[atkIndex].alive = 0;
   return { units: outU, cities: outC, seed: s, won: 0 };
 }
@@ -534,7 +721,6 @@ function captureEmptyCity(units, cities, unitIndex) {
   const ci = findCityAt(cities, u.col, u.row);
   if (ci < 0) { return cities; }
   if (cities[ci].owner == u.owner) { return cities; }
-  // Empty enemy city (no defender left): capture on enter.
   if (findUnitAt(units, u.col, u.row, cities[ci].owner) >= 0) { return cities; }
   const outC = cloneCities(cities);
   outC[ci].owner = u.owner;
@@ -542,47 +728,53 @@ function captureEmptyCity(units, cities, unitIndex) {
   return outC;
 }
 
+function faceFromDelta(dc, dr) {
+  if (dr < 0) { return 0; }
+  if (dc > 0) { return 3; }
+  if (dr > 0) { return 2; }
+  return 1;
+}
+
 function tryMoveUnit(units, cities, unitIndex, dc, dr, seed) {
   const u = units[unitIndex];
-  if (u.alive == 0) {
-    return { ok: 0, units: units, cities: cities, seed: seed, fought: 0 };
-  }
-  if (u.moves <= 0) {
-    return { ok: 0, units: units, cities: cities, seed: seed, fought: 0 };
+  if (u.alive == 0 || u.moves <= 0) {
+    return { ok: 0, units: units, cities: cities, seed: seed, fought: 0, won: 0 };
   }
   const nc = u.col + dc;
   const nr = u.row + dr;
   if (canEnter(nc, nr) == 0) {
-    return { ok: 0, units: units, cities: cities, seed: seed, fought: 0 };
+    return { ok: 0, units: units, cities: cities, seed: seed, fought: 0, won: 0 };
   }
   const cost = moveCost(nc, nr);
   if (u.moves < cost) {
-    return { ok: 0, units: units, cities: cities, seed: seed, fought: 0 };
+    return { ok: 0, units: units, cities: cities, seed: seed, fought: 0, won: 0 };
   }
-  const friend = findUnitAt(units, nc, nr, u.owner);
-  if (friend >= 0) {
-    return { ok: 0, units: units, cities: cities, seed: seed, fought: 0 };
+  if (findUnitAt(units, nc, nr, u.owner) >= 0) {
+    return { ok: 0, units: units, cities: cities, seed: seed, fought: 0, won: 0 };
   }
   const enemy = findEnemyUnitAt(units, nc, nr, u.owner);
   if (enemy >= 0) {
     if (u.kind == KIND_SETTLER) {
-      return { ok: 0, units: units, cities: cities, seed: seed, fought: 0 };
+      return { ok: 0, units: units, cities: cities, seed: seed, fought: 0, won: 0 };
     }
     const fight = resolveCombat(units, cities, unitIndex, enemy, seed);
+    const outU = fight.units;
+    if (outU[unitIndex].alive == 1) {
+      outU[unitIndex].face = faceFromDelta(dc, dr);
+      outU[unitIndex].frame = (outU[unitIndex].frame + 1) % 9;
+    }
     return {
-      ok: 1,
-      units: fight.units,
-      cities: fight.cities,
-      seed: fight.seed,
-      fought: 1,
-      won: fight.won
+      ok: 1, units: outU, cities: fight.cities, seed: fight.seed,
+      fought: 1, won: fight.won
     };
   }
   const outU = cloneUnits(units);
   outU[unitIndex].col = nc;
   outU[unitIndex].row = nr;
   outU[unitIndex].moves = u.moves - cost;
-  let outC = captureEmptyCity(outU, cities, unitIndex);
+  outU[unitIndex].face = faceFromDelta(dc, dr);
+  outU[unitIndex].frame = (u.frame + 1) % 9;
+  const outC = captureEmptyCity(outU, cities, unitIndex);
   return { ok: 1, units: outU, cities: outC, seed: seed, fought: 0, won: 0 };
 }
 
@@ -595,7 +787,6 @@ function firstMovableUnit(units, owner, startAt) {
     if (u.alive == 1 && u.owner == owner && u.moves > 0) { return idx; }
     i = i + 1;
   }
-  // Fall back to any living unit of owner.
   i = 0;
   while (i < n) {
     const idx2 = (startAt + i) % n;
@@ -613,25 +804,19 @@ function stepToward(units, cities, unitIndex, tc, tr, seed) {
   let bestD = manh(u.col, u.row, tc, tr);
   let improved = 0;
   const opts = [
-    { dc: 1, dr: 0 },
-    { dc: -1, dr: 0 },
-    { dc: 0, dr: 1 },
-    { dc: 0, dr: -1 }
+    { dc: 1, dr: 0 }, { dc: -1, dr: 0 }, { dc: 0, dr: 1 }, { dc: 0, dr: -1 }
   ];
   let oi = 0;
   while (oi < opts.length) {
     const nc = u.col + opts[oi].dc;
     const nr = u.row + opts[oi].dr;
-    if (canEnter(nc, nr) == 1) {
-      const friend = findUnitAt(units, nc, nr, u.owner);
-      if (friend < 0) {
-        const d = manh(nc, nr, tc, tr);
-        if (d < bestD) {
-          bestD = d;
-          bestDc = opts[oi].dc;
-          bestDr = opts[oi].dr;
-          improved = 1;
-        }
+    if (canEnter(nc, nr) == 1 && findUnitAt(units, nc, nr, u.owner) < 0) {
+      const d = manh(nc, nr, tc, tr);
+      if (d < bestD) {
+        bestD = d;
+        bestDc = opts[oi].dc;
+        bestDr = opts[oi].dr;
+        improved = 1;
       }
     }
     oi = oi + 1;
@@ -651,7 +836,6 @@ function runAiTurn(units, cities, seed, nameN) {
   let outC = cities;
   let s = seed;
   let n = nameN;
-  // Found city if settler is far from own cities.
   let i = 0;
   while (i < outU.length) {
     const u = outU[i];
@@ -659,7 +843,7 @@ function runAiTurn(units, cities, seed, nameN) {
       const own = nearestOwnCity(outC, u.col, u.row, OWNER_AI);
       let dist = 99;
       if (own >= 0) { dist = manh(u.col, u.row, outC[own].col, outC[own].row); }
-      if (own < 0 || dist >= 3) {
+      if (own < 0 || dist >= 4) {
         if (isLand(u.col, u.row) == 1 && findCityAt(outC, u.col, u.row) < 0) {
           const founded = tryFoundCity(outU, outC, i, n);
           if (founded.ok == 1) {
@@ -672,26 +856,18 @@ function runAiTurn(units, cities, seed, nameN) {
     }
     i = i + 1;
   }
-  // Move units (a few steps each).
   i = 0;
   while (i < outU.length) {
-    const u = outU[i];
-    if (u.alive == 1 && u.owner == OWNER_AI && u.moves > 0) {
+    if (outU[i].alive == 1 && outU[i].owner == OWNER_AI && outU[i].moves > 0) {
       let steps = 0;
       while (steps < 3 && outU[i].alive == 1 && outU[i].moves > 0) {
-        let tc = 8;
-        let tr = 5;
+        let tc = outU[i].col;
+        let tr = outU[i].row;
         if (outU[i].kind == KIND_SETTLER) {
           const own2 = nearestOwnCity(outC, outU[i].col, outU[i].row, OWNER_AI);
-          if (own2 >= 0 && manh(outU[i].col, outU[i].row, outC[own2].col, outC[own2].row) < 3) {
-            // Wander away from capital a bit.
-            s = nextSeed(s);
-            tc = 3 + (s % 10);
-            s = nextSeed(s);
-            tr = 2 + (s % 6);
-          } else {
-            tc = outU[i].col;
-            tr = outU[i].row;
+          if (own2 >= 0 && manh(outU[i].col, outU[i].row, outC[own2].col, outC[own2].row) < 4) {
+            s = nextSeed(s); tc = 8 + (s % 30);
+            s = nextSeed(s); tr = 6 + (s % 16);
           }
         } else {
           const target = nearestEnemyCity(outC, outU[i].col, outU[i].row, OWNER_AI);
@@ -713,52 +889,138 @@ function runAiTurn(units, cities, seed, nameN) {
   return { units: grown.units, cities: grown.cities, seed: grown.seed, nameN: n };
 }
 
-function buildEntities(units, cities, sel) {
-  const entities = {};
+function focusFromSel(units, cities, sel) {
+  if (sel >= 0 && sel < units.length && units[sel].alive == 1) {
+    return { col: units[sel].col, row: units[sel].row };
+  }
   let i = 0;
+  while (i < cities.length) {
+    if (cities[i].alive == 1 && cities[i].owner == OWNER_PLAYER) {
+      return { col: cities[i].col, row: cities[i].row };
+    }
+    i = i + 1;
+  }
+  return { col: 10, row: 10 };
+}
+
+function buildEntities(units, cities, sel, explored, camCol, camRow) {
+  const entities = {};
+
+  let i = 0;
+  while (i < TILE_SPRITES) {
+    const vc = i % VIEW_COLS;
+    let vr = 0;
+    let rest = i - vc;
+    while (rest >= VIEW_COLS) {
+      rest = rest - VIEW_COLS;
+      vr = vr + 1;
+    }
+    const wc = camCol + vc;
+    const wr = camRow + vr;
+    let frame = 4;
+    if (isExplored(explored, wc, wr) == 1) {
+      frame = terrainFrame(cellAt(wc, wr));
+    }
+    // Tile sheets are top-left anchored via feet? Sheet uses feet at bottom.
+    // For full-tile art with scale 100 / 24px, place feet at tile bottom.
+    entities[tileId(i)] = {
+      x: ORIGIN_X + vc * TILE + (TILE / 2),
+      y: ORIGIN_Y + vr * TILE + TILE - 1,
+      p0: frame,
+      p1: 0,
+      visible: 1
+    };
+    i = i + 1;
+  }
+
+  i = 0;
   while (i < MAX_CITIES) {
     if (i < cities.length && cities[i].alive == 1) {
-      const fr = cityFrame(cities[i].owner);
-      entities[cityId(i)] = {
-        x: pieceX(cities[i].col),
-        y: pieceY(cities[i].row),
-        p0: fr.p0,
-        p1: fr.p1,
-        visible: 1
-      };
+      const c = cities[i];
+      let show = 0;
+      if (c.owner == OWNER_PLAYER) { show = 1; }
+      if (c.owner != OWNER_PLAYER) {
+        if (inSightOfPlayer(c.col, c.row, units, cities) == 1) { show = 1; }
+      }
+      if (show == 1 && inView(c.col, c.row, camCol, camRow) == 1) {
+        let p0 = 0;
+        if (c.owner == OWNER_AI) { p0 = 1; }
+        entities[cityId(i)] = {
+          x: screenX(c.col, camCol),
+          y: screenFeetY(c.row, camRow),
+          p0: p0,
+          p1: 0,
+          visible: 1
+        };
+      } else {
+        entities[cityId(i)] = { x: -40, y: -40, visible: 0 };
+      }
     } else {
       entities[cityId(i)] = { x: -40, y: -40, visible: 0 };
     }
     i = i + 1;
   }
+
   i = 0;
   while (i < MAX_UNITS) {
     if (i < units.length && units[i].alive == 1) {
-      const fr = unitFrame(units[i].owner, units[i].kind);
-      entities[unitId(i)] = {
-        x: pieceX(units[i].col),
-        y: pieceY(units[i].row),
-        p0: fr.p0,
-        p1: fr.p1,
-        visible: 1
-      };
+      const u = units[i];
+      let show = 0;
+      if (u.owner == OWNER_PLAYER) { show = 1; }
+      if (u.owner != OWNER_PLAYER) {
+        if (inSightOfPlayer(u.col, u.row, units, cities) == 1) { show = 1; }
+      }
+      if (show == 1 && inView(u.col, u.row, camCol, camRow) == 1) {
+        entities[unitId(i)] = {
+          x: screenX(u.col, camCol),
+          y: screenFeetY(u.row, camRow),
+          p0: u.frame,
+          p1: u.face,
+          visible: 1
+        };
+      } else {
+        entities[unitId(i)] = { x: -40, y: -40, visible: 0 };
+      }
     } else {
       entities[unitId(i)] = { x: -40, y: -40, visible: 0 };
     }
     i = i + 1;
   }
+
   if (sel >= 0 && sel < units.length && units[sel].alive == 1) {
-    entities[cursorId()] = {
-      x: pieceX(units[sel].col),
-      y: pieceY(units[sel].row),
-      p0: 2,
-      p1: 1,
-      visible: 1
-    };
+    const u = units[sel];
+    if (inView(u.col, u.row, camCol, camRow) == 1) {
+      entities[cursorId()] = {
+        x: screenX(u.col, camCol),
+        y: screenFeetY(u.row, camRow),
+        p0: 2,
+        p1: 1,
+        visible: 1
+      };
+    } else {
+      entities[cursorId()] = { x: -40, y: -40, visible: 0 };
+    }
   } else {
     entities[cursorId()] = { x: -40, y: -40, visible: 0 };
   }
   return entities;
+}
+
+function findStartLand(cx, cy) {
+  let rad = 0;
+  while (rad < 12) {
+    let r = cy - rad;
+    while (r <= cy + rad) {
+      let c = cx - rad;
+      while (c <= cx + rad) {
+        if (isLand(c, r) == 1) { return { col: c, row: r }; }
+        c = c + 1;
+      }
+      r = r + 1;
+    }
+    rad = rad + 1;
+  }
+  return { col: cx, row: cy };
 }
 
 function initPlayState() {
@@ -774,35 +1036,49 @@ function initPlayState() {
     cities.push(emptyCity());
     i = i + 1;
   }
-  // Player starts west, AI east — classic two-civ opener.
-  cities[0] = makeCity(OWNER_PLAYER, 3, 4, 0);
-  cities[1] = makeCity(OWNER_AI, 12, 5, 0);
-  units[0] = makeUnit(OWNER_PLAYER, KIND_SETTLER, 4, 4);
-  units[1] = makeUnit(OWNER_PLAYER, KIND_WARRIOR, 3, 5);
-  units[2] = makeUnit(OWNER_AI, KIND_SETTLER, 11, 5);
-  units[3] = makeUnit(OWNER_AI, KIND_WARRIOR, 12, 4);
-  const sel = 0;
+
+  const pStart = findStartLand(10, 12);
+  const aStart = findStartLand(36, 14);
+  cities[0] = makeCity(OWNER_PLAYER, pStart.col, pStart.row, 0);
+  cities[1] = makeCity(OWNER_AI, aStart.col, aStart.row, 0);
+
+  let ps = findStartLand(pStart.col + 1, pStart.row);
+  if (ps.col == pStart.col && ps.row == pStart.row) {
+    ps = findStartLand(pStart.col, pStart.row + 1);
+  }
+  let pw = findStartLand(pStart.col, pStart.row + 1);
+  let as_ = findStartLand(aStart.col - 1, aStart.row);
+  let aw = findStartLand(aStart.col, aStart.row - 1);
+
+  units[SLOT_P_SETTLER0] = makeUnit(OWNER_PLAYER, KIND_SETTLER, ps.col, ps.row);
+  units[SLOT_P_WARRIOR0] = makeUnit(OWNER_PLAYER, KIND_WARRIOR, pw.col, pw.row);
+  units[SLOT_AI_SETTLER0] = makeUnit(OWNER_AI, KIND_SETTLER, as_.col, as_.row);
+  units[SLOT_AI_WARRIOR0] = makeUnit(OWNER_AI, KIND_WARRIOR, aw.col, aw.row);
+
+  let explored = blankExplored();
+  explored = revealFromSide(explored, units, cities, OWNER_PLAYER);
+
+  const sel = SLOT_P_SETTLER0;
+  const focus = focusFromSel(units, cities, sel);
+  const cam = computeCam(focus.col, focus.row);
+
   return {
     screen: "play",
     turn: 1,
     seed: 424242,
     units: units,
     cities: cities,
+    explored: explored,
+    camCol: cam.camCol,
+    camRow: cam.camRow,
     sel: sel,
     nameN: 1,
     gold: 0,
-    msg: "Move with arrows. Space founds a city.",
+    msg: "Explore the fog. Space founds a city.",
     msgT: 180,
     phase: "player",
-    entities: buildEntities(units, cities, sel),
-    pUp: 0,
-    pDown: 0,
-    pLeft: 0,
-    pRight: 0,
-    pAct: 0,
-    pSel: 0,
-    pStart: 0,
-    pB: 0,
+    entities: buildEntities(units, cities, sel, explored, cam.camCol, cam.camRow),
+    pUp: 0, pDown: 0, pLeft: 0, pRight: 0, pAct: 0, pSel: 0, pStart: 0, pB: 0,
     events: []
   };
 }
@@ -815,21 +1091,17 @@ function initState() {
     seed: play.seed,
     units: play.units,
     cities: play.cities,
-    sel: play.sel,
+    explored: play.explored,
+    camCol: play.camCol,
+    camRow: play.camRow,
+    sel: -1,
     nameN: play.nameN,
     gold: 0,
     msg: "",
     msgT: 0,
     phase: "player",
-    entities: buildEntities(play.units, play.cities, -1),
-    pUp: 0,
-    pDown: 0,
-    pLeft: 0,
-    pRight: 0,
-    pAct: 0,
-    pSel: 0,
-    pStart: 0,
-    pB: 0,
+    entities: buildEntities(play.units, play.cities, -1, play.explored, play.camCol, play.camRow),
+    pUp: 0, pDown: 0, pLeft: 0, pRight: 0, pAct: 0, pSel: 0, pStart: 0, pB: 0,
     events: []
   };
 }
@@ -840,15 +1112,8 @@ function readPad(props) {
     return inp.players[0];
   }
   return {
-    up: props.up,
-    down: props.down,
-    left: props.left,
-    right: props.right,
-    action: props.action,
-    select: false,
-    start: false,
-    a: false,
-    b: false
+    up: props.up, down: props.down, left: props.left, right: props.right,
+    action: props.action, select: false, start: false, a: false, b: false
   };
 }
 
@@ -868,7 +1133,8 @@ function statusLine(state) {
   if (tile == "f") { terrain = "forest"; }
   if (tile == "h") { terrain = "hills"; }
   if (tile == "~") { terrain = "ocean"; }
-  return unitLabel(u) + "  moves " + u.moves + "/" + u.maxMoves + "  @ " + terrain;
+  return unitLabel(u) + "  moves " + u.moves + "/" + u.maxMoves + "  @ " + terrain +
+    "  (" + u.col + "," + u.row + ")";
 }
 
 function checkWinner(cities) {
@@ -879,11 +1145,22 @@ function checkWinner(cities) {
   return "";
 }
 
+function withCam(state, units, cities, sel, explored) {
+  const focus = focusFromSel(units, cities, sel);
+  const cam = computeCam(focus.col, focus.row);
+  return {
+    camCol: cam.camCol,
+    camRow: cam.camRow,
+    entities: buildEntities(units, cities, sel, explored, cam.camCol, cam.camRow)
+  };
+}
+
 function endPlayerTurn(state) {
   let units = state.units;
   let cities = state.cities;
   let seed = state.seed;
   let nameN = state.nameN;
+  let explored = state.explored;
   const grown = growCities(cities, units, OWNER_PLAYER, seed);
   cities = grown.cities;
   units = grown.units;
@@ -895,39 +1172,58 @@ function endPlayerTurn(state) {
   seed = ai.seed;
   nameN = ai.nameN;
   units = refreshMoves(units, OWNER_PLAYER);
+  explored = revealFromSide(explored, units, cities, OWNER_PLAYER);
   const turn = state.turn + 1;
   let sel = firstMovableUnit(units, OWNER_PLAYER, 0);
   let screen = "play";
   const outcome = checkWinner(cities);
   if (outcome == "win") { screen = "win"; }
   if (outcome == "lose") { screen = "lose"; }
+  const cam = withCam(state, units, cities, sel, explored);
   return {
     screen: screen,
     turn: turn,
     seed: seed,
     units: units,
     cities: cities,
+    explored: explored,
+    camCol: cam.camCol,
+    camRow: cam.camRow,
     sel: sel,
     nameN: nameN,
     gold: gold,
     msg: "Turn " + turn,
     msgT: 90,
     phase: "player",
-    entities: buildEntities(units, cities, sel),
+    entities: cam.entities,
     events: [soundEvent("blip")]
+  };
+}
+
+function edgeState(s, pad) {
+  let pUp = 0; if (pad.up) { pUp = 1; }
+  let pDown = 0; if (pad.down) { pDown = 1; }
+  let pLeft = 0; if (pad.left) { pLeft = 1; }
+  let pRight = 0; if (pad.right) { pRight = 1; }
+  let pAct = 0; if (pad.action) { pAct = 1; }
+  let pSel = 0; if (pad.select) { pSel = 1; }
+  let pStart = 0; if (pad.start || pad.b) { pStart = 1; }
+  return {
+    pUp: pUp, pDown: pDown, pLeft: pLeft, pRight: pRight,
+    pAct: pAct, pSel: pSel, pStart: pStart, pB: 0
   };
 }
 
 function update(props) {
   const s = props.state;
   const pad = readPad(props);
+  const edges = edgeState(s, pad);
 
   const up = pad.up && !s.pUp;
   const down = pad.down && !s.pDown;
   const left = pad.left && !s.pLeft;
   const right = pad.right && !s.pRight;
   const act = pad.action && !s.pAct;
-  // NOTE: host aliases pad.a == pad.action, so do NOT use A for cycling.
   const selBtn = pad.select && !s.pSel;
   const startBtn = (pad.start || pad.b) && !s.pStart;
 
@@ -940,19 +1236,10 @@ function update(props) {
       if (su.alive == 0 || su.moves <= 0) { idleUnit = 1; }
     }
   }
-  // Idle Up cycles units; idle Down / Start / B ends the turn.
   let cycleUp = 0;
   if (up && idleUnit == 1) { cycleUp = 1; }
   let endDown = 0;
   if (down && idleUnit == 1) { endDown = 1; }
-
-  let pUp = 0; if (pad.up) { pUp = 1; }
-  let pDown = 0; if (pad.down) { pDown = 1; }
-  let pLeft = 0; if (pad.left) { pLeft = 1; }
-  let pRight = 0; if (pad.right) { pRight = 1; }
-  let pAct = 0; if (pad.action) { pAct = 1; }
-  let pSel = 0; if (pad.select) { pSel = 1; }
-  let pStart = 0; if (pad.start || pad.b) { pStart = 1; }
 
   if (s.screen == "splash") {
     if (act || startBtn) {
@@ -963,6 +1250,9 @@ function update(props) {
         seed: play.seed,
         units: play.units,
         cities: play.cities,
+        explored: play.explored,
+        camCol: play.camCol,
+        camRow: play.camRow,
         sel: play.sel,
         nameN: play.nameN,
         gold: 0,
@@ -970,38 +1260,19 @@ function update(props) {
         msgT: play.msgT,
         phase: "player",
         entities: play.entities,
-        pUp: pUp,
-        pDown: pDown,
-        pLeft: pLeft,
-        pRight: pRight,
-        pAct: pAct,
-        pSel: pSel,
-        pStart: pStart,
-        pB: 0,
+        pUp: edges.pUp, pDown: edges.pDown, pLeft: edges.pLeft, pRight: edges.pRight,
+        pAct: edges.pAct, pSel: edges.pSel, pStart: edges.pStart, pB: 0,
         events: [soundEvent("win")]
       };
     }
     return {
       screen: "splash",
-      turn: s.turn,
-      seed: s.seed,
-      units: s.units,
-      cities: s.cities,
-      sel: s.sel,
-      nameN: s.nameN,
-      gold: s.gold,
-      msg: s.msg,
-      msgT: s.msgT,
-      phase: s.phase,
-      entities: s.entities,
-      pUp: pUp,
-      pDown: pDown,
-      pLeft: pLeft,
-      pRight: pRight,
-      pAct: pAct,
-      pSel: pSel,
-      pStart: pStart,
-      pB: 0,
+      turn: s.turn, seed: s.seed, units: s.units, cities: s.cities,
+      explored: s.explored, camCol: s.camCol, camRow: s.camRow,
+      sel: s.sel, nameN: s.nameN, gold: s.gold, msg: s.msg, msgT: s.msgT,
+      phase: s.phase, entities: s.entities,
+      pUp: edges.pUp, pDown: edges.pDown, pLeft: edges.pLeft, pRight: edges.pRight,
+      pAct: edges.pAct, pSel: edges.pSel, pStart: edges.pStart, pB: 0,
       events: []
     };
   }
@@ -1011,56 +1282,30 @@ function update(props) {
       const play = initPlayState();
       return {
         screen: "splash",
-        turn: play.turn,
-        seed: play.seed,
-        units: play.units,
-        cities: play.cities,
-        sel: -1,
-        nameN: play.nameN,
-        gold: 0,
-        msg: "",
-        msgT: 0,
-        phase: "player",
-        entities: buildEntities(play.units, play.cities, -1),
-        pUp: pUp,
-        pDown: pDown,
-        pLeft: pLeft,
-        pRight: pRight,
-        pAct: pAct,
-        pSel: pSel,
-        pStart: pStart,
-        pB: 0,
+        turn: play.turn, seed: play.seed, units: play.units, cities: play.cities,
+        explored: play.explored, camCol: play.camCol, camRow: play.camRow,
+        sel: -1, nameN: play.nameN, gold: 0, msg: "", msgT: 0, phase: "player",
+        entities: buildEntities(play.units, play.cities, -1, play.explored, play.camCol, play.camRow),
+        pUp: edges.pUp, pDown: edges.pDown, pLeft: edges.pLeft, pRight: edges.pRight,
+        pAct: edges.pAct, pSel: edges.pSel, pStart: edges.pStart, pB: 0,
         events: []
       };
     }
     return {
       screen: s.screen,
-      turn: s.turn,
-      seed: s.seed,
-      units: s.units,
-      cities: s.cities,
-      sel: s.sel,
-      nameN: s.nameN,
-      gold: s.gold,
-      msg: s.msg,
-      msgT: s.msgT,
-      phase: s.phase,
-      entities: s.entities,
-      pUp: pUp,
-      pDown: pDown,
-      pLeft: pLeft,
-      pRight: pRight,
-      pAct: pAct,
-      pSel: pSel,
-      pStart: pStart,
-      pB: 0,
+      turn: s.turn, seed: s.seed, units: s.units, cities: s.cities,
+      explored: s.explored, camCol: s.camCol, camRow: s.camRow,
+      sel: s.sel, nameN: s.nameN, gold: s.gold, msg: s.msg, msgT: s.msgT,
+      phase: s.phase, entities: s.entities,
+      pUp: edges.pUp, pDown: edges.pDown, pLeft: edges.pLeft, pRight: edges.pRight,
+      pAct: edges.pAct, pSel: edges.pSel, pStart: edges.pStart, pB: 0,
       events: []
     };
   }
 
-  // ---- play ----
   let units = s.units;
   let cities = s.cities;
+  let explored = s.explored;
   let sel = s.sel;
   let seed = s.seed;
   let nameN = s.nameN;
@@ -1073,40 +1318,21 @@ function update(props) {
 
   if (startBtn || endDown) {
     const ended = endPlayerTurn({
-      turn: s.turn,
-      seed: seed,
-      units: units,
-      cities: cities,
-      sel: sel,
-      nameN: nameN,
-      gold: gold
+      turn: s.turn, seed: seed, units: units, cities: cities,
+      explored: explored, sel: sel, nameN: nameN, gold: gold
     });
     return {
       screen: ended.screen,
-      turn: ended.turn,
-      seed: ended.seed,
-      units: ended.units,
-      cities: ended.cities,
-      sel: ended.sel,
-      nameN: ended.nameN,
-      gold: ended.gold,
-      msg: ended.msg,
-      msgT: ended.msgT,
-      phase: "player",
-      entities: ended.entities,
-      pUp: pUp,
-      pDown: pDown,
-      pLeft: pLeft,
-      pRight: pRight,
-      pAct: pAct,
-      pSel: pSel,
-      pStart: pStart,
-      pB: 0,
+      turn: ended.turn, seed: ended.seed, units: ended.units, cities: ended.cities,
+      explored: ended.explored, camCol: ended.camCol, camRow: ended.camRow,
+      sel: ended.sel, nameN: ended.nameN, gold: ended.gold,
+      msg: ended.msg, msgT: ended.msgT, phase: "player", entities: ended.entities,
+      pUp: edges.pUp, pDown: edges.pDown, pLeft: edges.pLeft, pRight: edges.pRight,
+      pAct: edges.pAct, pSel: edges.pSel, pStart: edges.pStart, pB: 0,
       events: ended.events
     };
   }
 
-  // Space first: found / skip / fortify (before cycle, so Action is not stolen).
   if (act) {
     if (sel >= 0 && sel < units.length && units[sel].alive == 1) {
       const u = units[sel];
@@ -1116,6 +1342,7 @@ function update(props) {
           units = founded.units;
           cities = founded.cities;
           nameN = founded.nameN;
+          explored = revealFromSide(explored, units, cities, OWNER_PLAYER);
           msg = "Founded " + cityName(OWNER_PLAYER, nameN - 1);
           msgT = 120;
           events = [soundEvent("win")];
@@ -1148,7 +1375,6 @@ function update(props) {
   let dr = 0;
   if (left) { dc = -1; }
   if (right) { dc = 1; }
-  // Up/Down move only when the unit still has moves (idle = cycle / end turn).
   if (up && cycleUp == 0) { dr = -1; }
   if (down && endDown == 0) { dr = 1; }
 
@@ -1158,6 +1384,7 @@ function update(props) {
       units = moved.units;
       cities = moved.cities;
       seed = moved.seed;
+      explored = revealFromSide(explored, units, cities, OWNER_PLAYER);
       if (moved.fought == 1) {
         if (moved.won == 1) {
           msg = "Victory!";
@@ -1174,48 +1401,40 @@ function update(props) {
       const outcome = checkWinner(cities);
       if (outcome == "win") { screen = "win"; }
       if (outcome == "lose") { screen = "lose"; }
-      // Keep selection after spending moves so Space can still found a city /
-      // fortify this unit. Cycle explicitly with A / Select.
     }
   }
 
+  const cam = withCam(s, units, cities, sel, explored);
   return {
     screen: screen,
     turn: s.turn,
     seed: seed,
     units: units,
     cities: cities,
+    explored: explored,
+    camCol: cam.camCol,
+    camRow: cam.camRow,
     sel: sel,
     nameN: nameN,
     gold: gold,
     msg: msg,
     msgT: msgT,
     phase: "player",
-    entities: buildEntities(units, cities, sel),
-    pUp: pUp,
-    pDown: pDown,
-    pLeft: pLeft,
-    pRight: pRight,
-    pAct: pAct,
-    pSel: pSel,
-    pStart: pStart,
-    pB: 0,
+    entities: cam.entities,
+    pUp: edges.pUp, pDown: edges.pDown, pLeft: edges.pLeft, pRight: edges.pRight,
+    pAct: edges.pAct, pSel: edges.pSel, pStart: edges.pStart, pB: 0,
     events: events
   };
 }
 
 function citySummary(cities, owner) {
   let n = 0;
-  let size = 0;
   let i = 0;
   while (i < cities.length) {
-    if (cities[i].alive == 1 && cities[i].owner == owner) {
-      n = n + 1;
-      size = size + cities[i].size;
-    }
+    if (cities[i].alive == 1 && cities[i].owner == owner) { n = n + 1; }
     i = i + 1;
   }
-  return { n: n, size: size };
+  return n;
 }
 
 function hud(props) {
@@ -1224,9 +1443,9 @@ function hud(props) {
   if (s.screen == "splash") {
     return (
       <View width="100%" height="100%" flexDirection="column" justifyContent="center" alignItems="center">
-        <Label color="#f0d246" fontSize="42px">LittleCiv</Label>
-        <Label color="#9ec4e8" fontSize="14px">Found cities. Train warriors. Claim the map.</Label>
-        <Label color="#6a8aaa" fontSize="12px">Inspired by Freeciv / Civilization — original mini demo</Label>
+        <Label color="#f0d246" fontSize="40px">LittleCiv</Label>
+        <Label color="#9ec4e8" fontSize="13px">Large fogged world · LPC settlers & warriors</Label>
+        <Label color="#6a8aaa" fontSize="11px">Explore, found cities, defeat the rival</Label>
         <Label color="#ffe98a" fontSize="16px">Space = start</Label>
       </View>
     );
@@ -1236,7 +1455,7 @@ function hud(props) {
     return (
       <View width="100%" height="100%" flexDirection="column" justifyContent="center" alignItems="center">
         <Label color="#7CFF9B" fontSize="40px">Victory</Label>
-        <Label color="#ffffff" fontSize="16px">Rival civilization defeated on turn {s.turn}</Label>
+        <Label color="#ffffff" fontSize="16px">Rival defeated on turn {s.turn}</Label>
         <Label color="#ffe98a" fontSize="14px">Space = menu</Label>
       </View>
     );
@@ -1263,23 +1482,30 @@ function hud(props) {
   while (i < s.cities.length) {
     const c = s.cities[i];
     if (c.alive == 1) {
-      if (cityLine != "") { cityLine = cityLine + "  ·  "; }
-      cityLine = cityLine + cityName(c.owner, c.nameN) + " (" + c.size + ")";
+      let known = 0;
+      if (c.owner == OWNER_PLAYER) { known = 1; }
+      if (c.owner != OWNER_PLAYER) {
+        if (inSightOfPlayer(c.col, c.row, s.units, s.cities) == 1) { known = 1; }
+      }
+      if (known == 1) {
+        if (cityLine != "") { cityLine = cityLine + "  ·  "; }
+        cityLine = cityLine + cityName(c.owner, c.nameN) + " (" + c.size + ")";
+      }
     }
     i = i + 1;
   }
 
   return (
-    <View width="100%" height="100%" flexDirection="column" justifyContent="space-between" padding="6px">
+    <View width="100%" height="100%" flexDirection="column" justifyContent="space-between" padding="4px">
       <View flexDirection="column">
         <View flexDirection="row" justifyContent="space-between" width="100%">
-          <Label color="#f0d246" fontSize="14px">LittleCiv</Label>
-          <Label color="#9ec4e8" fontSize="12px">Turn {s.turn}  Gold {s.gold}  Cities {mine.n}/{theirs.n}</Label>
+          <Label color="#f0d246" fontSize="13px">LittleCiv</Label>
+          <Label color="#9ec4e8" fontSize="11px">Turn {s.turn}  Gold {s.gold}  Cities {mine}/{theirs}</Label>
         </View>
-        <Label color="#c8d6e8" fontSize="11px">{line}</Label>
+        <Label color="#c8d6e8" fontSize="10px">{line}</Label>
         <Label color="#8aa4c0" fontSize="10px">{cityLine}</Label>
       </View>
-      <Label color="#ffe98a" fontSize="11px">{tip}</Label>
+      <Label color="#ffe98a" fontSize="10px">{tip}</Label>
     </View>
   );
 }
