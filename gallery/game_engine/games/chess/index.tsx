@@ -3,7 +3,9 @@
 // Chess — two-player or vs computer. PNG piece sprites, painted board on a
 // felt backdrop, legal-move highlights, known openings then simple heuristics.
 //
-// Controls: arrows move the cursor, Space selects / moves, B/Select cancels.
+// Controls: D-pad / arrows move the cursor, A/Space selects / moves, B/Select
+// cancels. Kaksinpeli (hotseat): white = WASD + gamepad 0, black = arrows +
+// gamepad 1 (playerSlots=2). Vs computer / menu: either pad can navigate.
 //
 // Run: npm run engine:game-sdl:run:chess
 //      or launcher → Chess
@@ -101,10 +103,86 @@ function emptyHistory() {
   return [];
 }
 
+// Host maps pads from state.playerSlots / playerCount(): pad0+WASD → players[0],
+// pad1+arrows → players[1]. Always 2 so kaksinpeli gets a fixed dual-pad map
+// (solo "active pad" switching would steal the cursor from the other player).
+function playerCount(props) {
+  return 2;
+}
+
+function emptyButtons() {
+  return {
+    up: false,
+    down: false,
+    left: false,
+    right: false,
+    action: false,
+    b: false,
+    select: false
+  };
+}
+
+function slotButtons(props, index) {
+  const out = emptyButtons();
+  if (index == 0) {
+    // Headless runner.frame() and legacy props feed p0 only.
+    out.up = props.up;
+    out.down = props.down;
+    out.left = props.left;
+    out.right = props.right;
+    out.action = props.action;
+  }
+  if (props.input) {
+    if (props.input.players) {
+      if (props.input.players.length > index) {
+        const p = props.input.players[index];
+        if (p) {
+          if (p.up) { out.up = true; }
+          if (p.down) { out.down = true; }
+          if (p.left) { out.left = true; }
+          if (p.right) { out.right = true; }
+          if (p.action) { out.action = true; }
+          if (p.a) { out.action = true; }
+          if (p.b) { out.b = true; }
+          if (p.select) { out.select = true; }
+        }
+      }
+    }
+  }
+  return out;
+}
+
+function orButtons(a, b) {
+  return {
+    up: a.up || b.up,
+    down: a.down || b.down,
+    left: a.left || b.left,
+    right: a.right || b.right,
+    action: a.action || b.action,
+    b: a.b || b.b,
+    select: a.select || b.select
+  };
+}
+
+// Hotseat PvP: only the side-to-move's pad steers the shared cursor.
+// Menu / vs CPU / end screen: either pad (or keyboard) can navigate.
+function readCursorInput(props, s) {
+  const p0 = slotButtons(props, 0);
+  const p1 = slotButtons(props, 1);
+  if (s.screen == "play" && s.mode == "pvp") {
+    if (s.turn < 0) {
+      return p1;
+    }
+    return p0;
+  }
+  return orButtons(p0, p1);
+}
+
 function initPlay(mode) {
   return {
     screen: "play",
     mode: mode,
+    playerSlots: 2,
     board: startBoard(),
     turn: 1,
     ep: -1,
@@ -135,6 +213,7 @@ function initState() {
   return {
     screen: "menu",
     mode: "cpu",
+    playerSlots: 2,
     sel: 0,
     board: startBoard(),
     turn: 1,
@@ -162,7 +241,6 @@ function initState() {
     pB: 0
   };
 }
-
 function statusMessage(status, turn) {
   if (status == "mate") {
     if (turn > 0) {
@@ -326,6 +404,7 @@ function doMove(s, move) {
   return {
     screen: "play",
     mode: s.mode,
+    playerSlots: 2,
     board: next.board,
     turn: next.color,
     ep: next.ep,
@@ -499,33 +578,26 @@ function stepAmongTargets(targets, col, row, dcol, drow) {
 function update(props) {
   const s = props.state;
 
-  const up = props.up && !s.pUp;
-  const down = props.down && !s.pDown;
-  const left = props.left && !s.pLeft;
-  const right = props.right && !s.pRight;
-  const act = props.action && !s.pAct;
+  const inp = readCursorInput(props, s);
+  const up = inp.up && !s.pUp;
+  const down = inp.down && !s.pDown;
+  const left = inp.left && !s.pLeft;
+  const right = inp.right && !s.pRight;
+  const act = inp.action && !s.pAct;
 
   let bEdge = 0;
   let bHeld = 0;
-  if (props.input) {
-    if (props.input.players) {
-      if (props.input.players.length > 0) {
-        const p0 = props.input.players[0];
-        if (p0.b) { bHeld = 1; }
-        if (p0.select) { bHeld = 1; }
-      }
-    }
-  }
+  if (inp.b) { bHeld = 1; }
+  if (inp.select) { bHeld = 1; }
   if (bHeld == 1 && s.pB == 0) {
     bEdge = 1;
   }
 
-  let pUp = 0; if (props.up) { pUp = 1; }
-  let pDown = 0; if (props.down) { pDown = 1; }
-  let pLeft = 0; if (props.left) { pLeft = 1; }
-  let pRight = 0; if (props.right) { pRight = 1; }
-  let pAct = 0; if (props.action) { pAct = 1; }
-
+  let pUp = 0; if (inp.up) { pUp = 1; }
+  let pDown = 0; if (inp.down) { pDown = 1; }
+  let pLeft = 0; if (inp.left) { pLeft = 1; }
+  let pRight = 0; if (inp.right) { pRight = 1; }
+  let pAct = 0; if (inp.action) { pAct = 1; }
   let ev = [];
 
   if (s.screen == "menu") {
