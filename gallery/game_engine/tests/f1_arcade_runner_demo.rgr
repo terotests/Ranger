@@ -1,0 +1,86 @@
+; ==============================================================================
+; f1_arcade_runner_demo - headless smoke for games/f1_arcade/index.tsx
+; ==============================================================================
+;
+; Boots the Pole Position-style racer, waits out the countdown, then accelerates
+; and steers so the player advances along the track. Prints score / speed /
+; entity poses for CI.
+; ==============================================================================
+
+Import "../scripting/game_runtime.rgr"
+
+class F1ArcadeRunnerDemo {
+    sfn m@(main):void () {
+        def runner:GameRunner (new GameRunner)
+        runner.init(480 270)
+
+        def buf:buffer (buffer_read_file "gallery/game_engine/games/f1_arcade" "index.tsx")
+        def src:string (buffer_to_string buf)
+        runner.setScriptDir("gallery/game_engine/games/f1_arcade")
+        runner.loadScript(src)
+        runner.setupScene()
+
+        def frames:int 360
+        if ((shell_arg_cnt) > 0) {
+            def parsed@(optional):int (to_int (shell_arg 0))
+            if (!null? parsed) {
+                frames = (unwrap parsed)
+            }
+        }
+
+        def i 0
+        while (i < frames) {
+            def up:boolean false
+            def down:boolean false
+            def left:boolean false
+            def right:boolean false
+            def action:boolean false
+
+            ; Hold accelerate after countdown (~ light cycle ~ 3*700ms + 450ms).
+            if (i > 160) {
+                up = true
+                action = true
+            }
+            ; Steer through a few curves.
+            def phase (i % 100)
+            if (i > 180) {
+                if (phase < 35) {
+                    left = true
+                }
+                if (phase >= 65) {
+                    right = true
+                }
+            }
+
+            runner.frame(16 up down left right action false)
+            i = (i + 1)
+        }
+
+        runner.draw()
+        buffer_write_file "gallery/game_engine/scripting" "f1_arcade_frame.rgba" (runner.raw())
+
+        def ec:int (runner.entityCount())
+        def px:int (runner.entityX("player"))
+        def py:int (runner.entityY("player"))
+        def rdx:int (runner.entityX("rd20"))
+        def rdy:int (runner.entityY("rd20"))
+        print ("frames=" + frames)
+        print (("entities=" + ec))
+        print (("player=" + px) + ("," + py))
+        print (("rd20=" + rdx) + ("," + rdy))
+        print (("score=" + runner.score1) + ("," + runner.score2))
+        def audio:GameAudio (runner.audioRef())
+        print (("audioPlays=" + audio.playCount))
+        if (ec > 50) {
+            print "scene=ok"
+        } {
+            print "scene=too-few-entities"
+        }
+        if (runner.score1 > 0) {
+            print "progress=ok"
+        } {
+            print "progress=no-score"
+        }
+        print "f1-arcade-runner done"
+    }
+}

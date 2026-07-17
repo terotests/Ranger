@@ -1,0 +1,991 @@
+/// <reference path="../../scripting/game.d.ts" />
+//
+// F1 Arcade — classic Pole Position-style pseudo-3D racer.
+//
+// Retained horizontal strip sprites project a perspective road; curves bend
+// the center line, AI cars scale via size tiers, and the HUD mirrors the
+// old arcade layout (TIME / SCORE / SPEED / LAP).
+//
+// Controls: Left/Right steer · Up or Space accelerate · Down brake
+// Run: npm run engine:game-sdl -- --run gallery/game_engine/games/f1_arcade/index.tsx
+//      or launcher → F1 Arcade
+
+import { soundEvent } from "game_helpers";
+
+const VIEW_W = 480;
+const VIEW_H = 270;
+const HORIZON = 88;
+const STRIPS = 28;
+const TRACK_LEN = 48;
+const SEG_LEN = 220;
+const Z_STEP = 42;
+const CAR_TIERS = 4;
+const AI_COUNT = 4;
+const START_TIME = 75;
+
+// Per-segment curve strength (−2 .. 2). Read-only track definition.
+const CURVES = [
+  0, 0, 0, 0, 0, 0,
+  1, 2, 2, 1, 0, 0,
+  0, -1, -2, -2, -1, 0,
+  0, 0, 1, 1, 0, 0,
+  -1, -1, 0, 0, 2, 2,
+  1, 0, 0, -2, -1, 0,
+  0, 1, 0, -1, 0, 0,
+  0, 0, 1, 0, 0, 0
+];
+
+const CAR_ART = [
+  "......XX......",
+  ".....XXXX.....",
+  "....XXXXXX....",
+  "...XXXXXXXX...",
+  "..OOXXXXXXOO..",
+  ".OO.XXXXXX.OO.",
+  "X....XXXX....X",
+  ".....X..X.....",
+  "....XX..XX...."
+];
+
+function roadWAt(i) {
+  const n = i + 1;
+  return 26 + ((n * n * 300) / (STRIPS * STRIPS));
+}
+
+function rumbleWAt(i) {
+  return 3 + ((i * 12) / STRIPS);
+}
+
+function lineWAt(i) {
+  const w = 1 + ((i * 4) / STRIPS);
+  if (w < 2) {
+    return 2;
+  }
+  return w;
+}
+
+function stripY(i) {
+  const ground = VIEW_H - HORIZON;
+  return HORIZON + ((i + 0.5) * ground) / STRIPS;
+}
+
+function stripH() {
+  const ground = VIEW_H - HORIZON;
+  const h = (ground / STRIPS) + 1;
+  if (h < 3) {
+    return 3;
+  }
+  return h;
+}
+
+function curveAt(seg) {
+  let s = seg % TRACK_LEN;
+  if (s < 0) {
+    s = s + TRACK_LEN;
+  }
+  return CURVES[s];
+}
+
+function absVal(v) {
+  if (v < 0) {
+    return 0 - v;
+  }
+  return v;
+}
+
+function clamp(v, lo, hi) {
+  if (v < lo) {
+    return lo;
+  }
+  if (v > hi) {
+    return hi;
+  }
+  return v;
+}
+
+function floorOf(v) {
+  // Interpreter-safe truncate toward zero (same pattern as other games).
+  return v | 0;
+}
+
+function aiId(n, tier) {
+  return ("ai" + n) + ("t" + tier);
+}
+
+function treeId(n, tier) {
+  return ("tr" + n) + ("t" + tier);
+}
+
+function sprites() {
+  const list = [];
+  const h = stripH();
+
+  list.push({ id: "sky", kind: "rect", w: VIEW_W, h: HORIZON + 4, r: 50, g: 140, b: 220 });
+  list.push({ id: "ground", kind: "rect", w: VIEW_W, h: VIEW_H - HORIZON + 8, r: 34, g: 140, b: 48 });
+
+  list.push({ id: "cloud0", kind: "circle", rad: 16, r: 240, g: 248, b: 255 });
+  list.push({ id: "cloud1", kind: "circle", rad: 12, r: 235, g: 245, b: 255 });
+  list.push({ id: "cloud2", kind: "circle", rad: 14, r: 240, g: 248, b: 255 });
+
+  let m = 0;
+  while (m < 8) {
+    list.push({
+      id: "mt" + m,
+      kind: "rect",
+      w: 36 + (m % 3) * 10,
+      h: 18 + (m % 4) * 6,
+      r: 28,
+      g: 48,
+      b: 34
+    });
+    m = m + 1;
+  }
+
+  let i = 0;
+  while (i < STRIPS) {
+    const rw = roadWAt(i);
+    const rbw = rumbleWAt(i);
+    list.push({ id: "rd" + i, kind: "rect", w: rw, h: h, r: 70, g: 72, b: 80 });
+    list.push({ id: "rl" + i, kind: "rect", w: rbw, h: h, r: 220, g: 40, b: 40 });
+    list.push({ id: "rr" + i, kind: "rect", w: rbw, h: h, r: 220, g: 40, b: 40 });
+    list.push({ id: "ln" + i, kind: "rect", w: lineWAt(i), h: h, r: 240, g: 240, b: 220 });
+    i = i + 1;
+  }
+
+  // Roadside trees — 3 depth tiers × 6 slots.
+  let t = 0;
+  while (t < 6) {
+    list.push({ id: treeId(t, 0), kind: "rect", w: 6, h: 10, r: 20, g: 100, b: 30 });
+    list.push({ id: treeId(t, 1), kind: "rect", w: 12, h: 20, r: 24, g: 120, b: 36 });
+    list.push({ id: treeId(t, 2), kind: "rect", w: 22, h: 36, r: 28, g: 140, b: 40 });
+    t = t + 1;
+  }
+
+  // Start gantry pieces.
+  list.push({ id: "ganL", kind: "rect", w: 10, h: 70, r: 40, g: 70, b: 180 });
+  list.push({ id: "ganR", kind: "rect", w: 10, h: 70, r: 40, g: 70, b: 180 });
+  list.push({ id: "ganBar", kind: "rect", w: 160, h: 22, r: 230, g: 200, b: 40 });
+  list.push({ id: "chkL", kind: "rect", w: 18, h: 22, r: 20, g: 20, b: 20 });
+  list.push({ id: "chkR", kind: "rect", w: 18, h: 22, r: 240, g: 240, b: 240 });
+  list.push({ id: "lightR", kind: "circle", rad: 5, r: 90, g: 20, b: 20 });
+  list.push({ id: "lightY", kind: "circle", rad: 5, r: 90, g: 70, b: 10 });
+  list.push({ id: "lightG", kind: "circle", rad: 5, r: 20, g: 90, b: 20 });
+
+  // AI cars — size tiers (far → near). EntityPose cannot resize, so swap tiers.
+  let n = 0;
+  while (n < AI_COUNT) {
+    let tier = 0;
+    while (tier < CAR_TIERS) {
+      const w = 8 + tier * 8;
+      const hh = 6 + tier * 5;
+      let r = 220;
+      let g = 60;
+      let b = 50;
+      if (n == 1) {
+        r = 50;
+        g = 90;
+        b = 220;
+      }
+      if (n == 2) {
+        r = 240;
+        g = 220;
+        b = 50;
+      }
+      if (n == 3) {
+        r = 230;
+        g = 230;
+        b = 240;
+      }
+      list.push({
+        id: aiId(n, tier),
+        kind: "rect",
+        w: w,
+        h: hh,
+        r: r,
+        g: g,
+        b: b
+      });
+      tier = tier + 1;
+    }
+    n = n + 1;
+  }
+
+  list.push({
+    id: "player",
+    kind: "bitmap",
+    px: 3,
+    br: 230,
+    bg: 70,
+    bb: 40,
+    er: 40,
+    eg: 140,
+    eb: 230,
+    frames: [CAR_ART]
+  });
+
+  return list;
+}
+
+function hideGantry(entities) {
+  entities.ganL = { x: -40, y: -40, visible: 0 };
+  entities.ganR = { x: -40, y: -40, visible: 0 };
+  entities.ganBar = { x: -40, y: -40, visible: 0 };
+  entities.chkL = { x: -40, y: -40, visible: 0 };
+  entities.chkR = { x: -40, y: -40, visible: 0 };
+  entities.lightR = { x: -40, y: -40, visible: 0 };
+  entities.lightY = { x: -40, y: -40, visible: 0 };
+  entities.lightG = { x: -40, y: -40, visible: 0 };
+}
+
+function hideTrees(entities) {
+  let t = 0;
+  while (t < 6) {
+    let tier = 0;
+    while (tier < 3) {
+      entities[treeId(t, tier)] = { x: -40, y: -40, visible: 0 };
+      tier = tier + 1;
+    }
+    t = t + 1;
+  }
+}
+
+function hideAi(entities) {
+  let n = 0;
+  while (n < AI_COUNT) {
+    let tier = 0;
+    while (tier < CAR_TIERS) {
+      entities[aiId(n, tier)] = { x: -40, y: -40, visible: 0 };
+      tier = tier + 1;
+    }
+    n = n + 1;
+  }
+}
+
+function initAi() {
+  return {
+    z0: 900,
+    x0: -0.35,
+    s0: 0.22,
+    z1: 1600,
+    x1: 0.25,
+    s1: 0.20,
+    z2: 2400,
+    x2: -0.15,
+    s2: 0.24,
+    z3: 3200,
+    x3: 0.40,
+    s3: 0.19
+  };
+}
+
+function initState() {
+  const entities = {};
+  entities.sky = { x: 240, y: HORIZON * 0.5 };
+  entities.ground = { x: 240, y: HORIZON + (VIEW_H - HORIZON) * 0.5 };
+  entities.cloud0 = { x: 90, y: 28 };
+  entities.cloud1 = { x: 210, y: 20 };
+  entities.cloud2 = { x: 340, y: 32 };
+  let m = 0;
+  while (m < 8) {
+    entities["mt" + m] = { x: 30 + m * 58, y: HORIZON - 6, visible: 1 };
+    m = m + 1;
+  }
+
+  let i = 0;
+  while (i < STRIPS) {
+    const y = stripY(i);
+    entities["rd" + i] = { x: 240, y: y, visible: 1 };
+    entities["rl" + i] = { x: 100, y: y, visible: 1 };
+    entities["rr" + i] = { x: 380, y: y, visible: 1 };
+    entities["ln" + i] = { x: 240, y: y, visible: 0 };
+    i = i + 1;
+  }
+
+  hideTrees(entities);
+  hideGantry(entities);
+  hideAi(entities);
+  entities.player = { x: 240, y: 232, p0: 0, visible: 1 };
+
+  const ai = initAi();
+  return {
+    showNet: 0,
+    phase: "countdown",
+    countMs: 0,
+    light: 0,
+    z: 40,
+    x: 0,
+    speed: 0,
+    maxSpeed: 0.42,
+    timeLeft: START_TIME,
+    score: 0,
+    lap: 0,
+    lapMs: 0,
+    bestLap: 0,
+    distance: 0,
+    finished: 0,
+    crashMs: 0,
+    mountainX: 0,
+    entities: entities,
+    score1: 0,
+    score2: START_TIME,
+    mph: 0,
+    z0: ai.z0,
+    x0: ai.x0,
+    s0: ai.s0,
+    z1: ai.z1,
+    x1: ai.x1,
+    s1: ai.s1,
+    z2: ai.z2,
+    x2: ai.x2,
+    s2: ai.s2,
+    z3: ai.z3,
+    x3: ai.x3,
+    s3: ai.s3
+  };
+}
+
+function aiZ(s, n) {
+  if (n == 0) { return s.z0; }
+  if (n == 1) { return s.z1; }
+  if (n == 2) { return s.z2; }
+  return s.z3;
+}
+
+function aiX(s, n) {
+  if (n == 0) { return s.x0; }
+  if (n == 1) { return s.x1; }
+  if (n == 2) { return s.x2; }
+  return s.x3;
+}
+
+function aiS(s, n) {
+  if (n == 0) { return s.s0; }
+  if (n == 1) { return s.s1; }
+  if (n == 2) { return s.s2; }
+  return s.s3;
+}
+
+function setAiFields(out, n, z, x, spd) {
+  if (n == 0) {
+    out.z0 = z;
+    out.x0 = x;
+    out.s0 = spd;
+  }
+  if (n == 1) {
+    out.z1 = z;
+    out.x1 = x;
+    out.s1 = spd;
+  }
+  if (n == 2) {
+    out.z2 = z;
+    out.x2 = x;
+    out.s2 = spd;
+  }
+  if (n == 3) {
+    out.z3 = z;
+    out.x3 = x;
+    out.s3 = spd;
+  }
+}
+
+function tierForScale(scale) {
+  if (scale < 0.28) {
+    return 0;
+  }
+  if (scale < 0.48) {
+    return 1;
+  }
+  if (scale < 0.72) {
+    return 2;
+  }
+  return 3;
+}
+
+function treeTierForScale(scale) {
+  if (scale < 0.35) {
+    return 0;
+  }
+  if (scale < 0.65) {
+    return 1;
+  }
+  return 2;
+}
+
+function formatLap(ms) {
+  const total = floorOf(ms / 1000);
+  const mins = floorOf(total / 60);
+  let secs = total - mins * 60;
+  if (secs < 10) {
+    return mins + ":0" + secs;
+  }
+  return mins + ":" + secs;
+}
+
+function placeRoad(entities, playerZ, playerX) {
+  let x = 0;
+  let dx = 0;
+  let step = 0;
+  while (step < STRIPS) {
+    const i = STRIPS - 1 - step;
+    const zAhead = (step + 1) * Z_STEP;
+    const worldZ = playerZ + zAhead;
+    const seg = floorOf(worldZ / SEG_LEN);
+    dx = dx + curveAt(seg) * 0.085;
+    x = x + dx;
+
+    const scale = (step + 1) / STRIPS;
+    const cx = 240 + x - playerX * scale * 170;
+    const y = stripY(i);
+    const rw = roadWAt(i);
+    const rbw = rumbleWAt(i);
+
+    const stripe = floorOf((worldZ) / 28) % 2;
+
+    let roadR = 68;
+    let roadG = 70;
+    let roadB = 78;
+    if (stripe == 0) {
+      roadR = 78;
+      roadG = 80;
+      roadB = 88;
+    }
+
+    let rumbleR = 220;
+    let rumbleG = 40;
+    let rumbleB = 40;
+    if (stripe == 0) {
+      rumbleR = 240;
+      rumbleG = 240;
+      rumbleB = 240;
+    }
+
+    // Alternating grass is suggested by nudging the full-screen ground tint via
+    // near-strip rumble contrast; road/rumble carry the motion cues.
+    entities["rd" + i] = {
+      x: cx,
+      y: y,
+      r: roadR,
+      g: roadG,
+      b: roadB,
+      visible: 1
+    };
+    entities["rl" + i] = {
+      x: cx - rw * 0.5 - rbw * 0.5,
+      y: y,
+      r: rumbleR,
+      g: rumbleG,
+      b: rumbleB,
+      visible: 1
+    };
+    entities["rr" + i] = {
+      x: cx + rw * 0.5 + rbw * 0.5,
+      y: y,
+      r: rumbleR,
+      g: rumbleG,
+      b: rumbleB,
+      visible: 1
+    };
+
+    const dash = floorOf(worldZ / 40) % 2;
+    if (dash == 0) {
+      if (i > 4) {
+        entities["ln" + i] = {
+          x: cx,
+          y: y,
+          r: 240,
+          g: 240,
+          b: 220,
+          visible: 1
+        };
+      } else {
+        entities["ln" + i] = { x: cx, y: y, visible: 0 };
+      }
+    } else {
+      entities["ln" + i] = { x: cx, y: y, visible: 0 };
+    }
+
+    step = step + 1;
+  }
+
+  return { bend: x, nearScale: 1 };
+}
+
+function projectZ(relZ) {
+  if (relZ <= 20) {
+    return { scale: 1, step: STRIPS - 1, y: stripY(STRIPS - 1), visible: 1 };
+  }
+  if (relZ > STRIPS * Z_STEP) {
+    return { scale: 0, step: 0, y: HORIZON, visible: 0 };
+  }
+  const step = clamp(floorOf(relZ / Z_STEP), 0, STRIPS - 1);
+  const i = STRIPS - 1 - step;
+  const scale = (step + 1) / STRIPS;
+  return { scale: scale, step: step, y: stripY(i), visible: 1 };
+}
+
+function roadCenterAt(playerZ, playerX, relZ) {
+  let x = 0;
+  let dx = 0;
+  let step = 0;
+  const target = clamp(floorOf(relZ / Z_STEP), 1, STRIPS);
+  while (step < target) {
+    const zAhead = (step + 1) * Z_STEP;
+    const worldZ = playerZ + zAhead;
+    const seg = floorOf(worldZ / SEG_LEN);
+    dx = dx + curveAt(seg) * 0.085;
+    x = x + dx;
+    step = step + 1;
+  }
+  const scale = target / STRIPS;
+  return 240 + x - playerX * scale * 170;
+}
+
+function placeGantry(entities, playerZ, playerX, light) {
+  const rel = 0 - playerZ;
+  if (rel < -80) {
+    hideGantry(entities);
+    return;
+  }
+  if (rel > STRIPS * Z_STEP) {
+    hideGantry(entities);
+    return;
+  }
+  const proj = projectZ(rel + 200);
+  if (proj.visible == 0) {
+    hideGantry(entities);
+    return;
+  }
+  // Gantry sits near the start; once player passes, hide.
+  if (playerZ > 280) {
+    hideGantry(entities);
+    return;
+  }
+  const scale = clamp(0.55 + (280 - playerZ) / 500, 0.45, 1.1);
+  const cx = roadCenterAt(playerZ, playerX, 120);
+  const y = 150 - (playerZ / 280) * 40;
+  const half = 70 * scale;
+  const barW = 140 * scale;
+  entities.ganL = { x: cx - half, y: y + 20, visible: 1 };
+  entities.ganR = { x: cx + half, y: y + 20, visible: 1 };
+  entities.ganBar = { x: cx, y: y - 18, r: 230, g: 200, b: 40, visible: 1 };
+  entities.chkL = { x: cx - barW * 0.35, y: y - 18, r: 20, g: 20, b: 20, visible: 1 };
+  entities.chkR = { x: cx + barW * 0.35, y: y - 18, r: 240, g: 240, b: 240, visible: 1 };
+
+  let rr = 60;
+  let rg = 20;
+  let rb = 20;
+  let yr = 70;
+  let yg = 50;
+  let yb = 10;
+  let gr = 20;
+  let gg = 60;
+  let gb = 20;
+  if (light >= 1) {
+    rr = 240;
+    rg = 40;
+    rb = 40;
+  }
+  if (light >= 2) {
+    yr = 250;
+    yg = 190;
+    yb = 40;
+  }
+  if (light >= 3) {
+    gr = 40;
+    gg = 230;
+    gb = 70;
+  }
+  entities.lightR = { x: cx - 18, y: y - 18, r: rr, g: rg, b: rb, rad: 5, visible: 1 };
+  entities.lightY = { x: cx, y: y - 18, r: yr, g: yg, b: yb, rad: 5, visible: 1 };
+  entities.lightG = { x: cx + 18, y: y - 18, r: gr, g: gg, b: gb, rad: 5, visible: 1 };
+}
+
+function placeTrees(entities, playerZ, playerX) {
+  hideTrees(entities);
+  let slot = 0;
+  while (slot < 6) {
+    const ahead = 180 + slot * 260;
+    const worldZ = playerZ + ahead;
+    const seg = floorOf(worldZ / SEG_LEN);
+    // Trees on the outside of curves / every other segment.
+    if ((seg % 2) == 0) {
+      const proj = projectZ(ahead);
+      if (proj.visible == 1) {
+        if (proj.scale > 0.12) {
+          const cx = roadCenterAt(playerZ, playerX, ahead);
+          const rw = roadWAt(STRIPS - 1 - proj.step);
+          const side = ((seg + slot) % 2) * 2 - 1;
+          const tx = cx + side * (rw * 0.5 + 18 + proj.scale * 28);
+          const tier = treeTierForScale(proj.scale);
+          entities[treeId(slot, tier)] = {
+            x: tx,
+            y: proj.y - 8 - tier * 6,
+            visible: 1
+          };
+        }
+      }
+    }
+    slot = slot + 1;
+  }
+}
+
+function placeAiCars(entities, s, playerZ, playerX) {
+  hideAi(entities);
+  let n = 0;
+  while (n < AI_COUNT) {
+    const cz = aiZ(s, n);
+    const cxLane = aiX(s, n);
+    const rel = cz - playerZ;
+    if (rel > 40) {
+      if (rel < STRIPS * Z_STEP) {
+        const proj = projectZ(rel);
+        if (proj.visible == 1) {
+          if (proj.scale > 0.1) {
+            const roadX = roadCenterAt(playerZ, playerX, rel);
+            const screenX = roadX + cxLane * proj.scale * 150;
+            const tier = tierForScale(proj.scale);
+            entities[aiId(n, tier)] = {
+              x: screenX,
+              y: proj.y - 4 - tier * 2,
+              visible: 1
+            };
+          }
+        }
+      }
+    }
+    n = n + 1;
+  }
+}
+
+function update(props) {
+  const s = props.state;
+  const dt = props.dt;
+  const events = [];
+  let phase = s.phase;
+  let countMs = s.countMs;
+  let light = s.light;
+  let z = s.z;
+  let x = s.x;
+  let speed = s.speed;
+  let timeLeft = s.timeLeft;
+  let score = s.score;
+  let lap = s.lap;
+  let lapMs = s.lapMs;
+  let bestLap = s.bestLap;
+  let distance = s.distance;
+  let finished = s.finished;
+  let crashMs = s.crashMs;
+  let mountainX = s.mountainX;
+
+  if (phase == "countdown") {
+    countMs = countMs + dt;
+    if (countMs > 700) {
+      if (light < 3) {
+        light = light + 1;
+        countMs = 0;
+        events.push(soundEvent("blip"));
+      }
+    }
+    if (light >= 3) {
+      if (countMs > 450) {
+        phase = "racing";
+        events.push(soundEvent("win"));
+      }
+    }
+  }
+
+  let accel = 0;
+  if (phase == "racing") {
+    if (props.up || props.action) {
+      accel = 1;
+    }
+    if (props.down) {
+      accel = -1;
+    }
+  }
+
+  if (crashMs > 0) {
+    crashMs = crashMs - dt;
+    speed = speed * 0.92;
+  } else {
+    if (accel > 0) {
+      speed = speed + dt * 0.00022;
+    } else {
+      if (accel < 0) {
+        speed = speed - dt * 0.00035;
+      } else {
+        speed = speed - dt * 0.00005;
+      }
+    }
+  }
+
+  speed = clamp(speed, 0, s.maxSpeed);
+
+  // Steer — more grip at speed, classic arcade feel.
+  if (phase == "racing") {
+    const steer = dt * 0.0011 * (0.35 + speed * 2.2);
+    if (props.left) {
+      x = x - steer;
+    }
+    if (props.right) {
+      x = x + steer;
+    }
+  }
+  x = clamp(x, -1.15, 1.15);
+
+  // Centrifugal drift into curves.
+  if (phase == "racing") {
+    if (speed > 0.05) {
+      const segNow = floorOf(z / SEG_LEN);
+      const pull = curveAt(segNow) * speed * dt * 0.00035;
+      x = x + pull;
+      x = clamp(x, -1.2, 1.2);
+    }
+  }
+
+  const offroad = absVal(x) > 0.92;
+  if (offroad) {
+    if (speed > 0.12) {
+      speed = speed - dt * 0.00025;
+    }
+  }
+
+  if (phase == "racing") {
+    z = z + speed * dt;
+    distance = distance + speed * dt;
+    lapMs = lapMs + dt;
+    timeLeft = timeLeft - dt / 1000;
+    score = score + floorOf(speed * dt * 0.35);
+    mountainX = mountainX - curveAt(floorOf(z / SEG_LEN)) * speed * dt * 0.02;
+
+    const lapLen = TRACK_LEN * SEG_LEN;
+    if (z > (lap + 1) * lapLen) {
+      lap = lap + 1;
+      timeLeft = timeLeft + 25;
+      if (bestLap == 0) {
+        bestLap = lapMs;
+      } else {
+        if (lapMs < bestLap) {
+          bestLap = lapMs;
+        }
+      }
+      lapMs = 0;
+      events.push(soundEvent("celebrate"));
+      score = score + 1000;
+    }
+
+    if (timeLeft <= 0) {
+      timeLeft = 0;
+      phase = "finished";
+      finished = 1;
+      events.push(soundEvent("lose"));
+    }
+  }
+
+  // AI cars cruise and wrap ahead of the player.
+  let n = 0;
+  const aiOut = {
+    z0: s.z0,
+    x0: s.x0,
+    s0: s.s0,
+    z1: s.z1,
+    x1: s.x1,
+    s1: s.s1,
+    z2: s.z2,
+    x2: s.x2,
+    s2: s.s2,
+    z3: s.z3,
+    x3: s.x3,
+    s3: s.s3
+  };
+  while (n < AI_COUNT) {
+    let cz = aiZ(s, n) + aiS(s, n) * dt;
+    let cx = aiX(s, n);
+    const spd = aiS(s, n);
+    if (cz < z - 200) {
+      cz = z + 900 + n * 400;
+      cx = ((n % 2) * 2 - 1) * (0.2 + (n % 3) * 0.12);
+    }
+    // Mild weaving.
+    // Cheap triangle-wave weave (avoid relying on Math.sin in the interpreter).
+    const wave = absVal(((z * 0.02 + n * 40) % 40) - 20) / 20;
+    cx = cx + (wave - 0.5) * 0.0012 * dt;
+    cx = clamp(cx, -0.7, 0.7);
+
+    // Collision when overlapping in Z and lane.
+    const rel = cz - z;
+    if (phase == "racing") {
+      if (rel > 20) {
+        if (rel < 90) {
+          if (absVal(cx - x) < 0.28) {
+            if (crashMs <= 0) {
+              crashMs = 400;
+              speed = speed * 0.45;
+              score = score + 50;
+              events.push(soundEvent("bounce"));
+            }
+          }
+        }
+      }
+    }
+    setAiFields(aiOut, n, cz, cx, spd);
+    n = n + 1;
+  }
+
+  const entities = {};
+  entities.sky = { x: 240, y: HORIZON * 0.5, r: 50, g: 140, b: 220 };
+  entities.ground = {
+    x: 240,
+    y: HORIZON + (VIEW_H - HORIZON) * 0.5,
+    r: 34,
+    g: 140,
+    b: 48
+  };
+  entities.cloud0 = { x: 90 + mountainX * 0.15, y: 28 };
+  entities.cloud1 = { x: 210 + mountainX * 0.12, y: 20 };
+  entities.cloud2 = { x: 340 + mountainX * 0.1, y: 32 };
+
+  let m = 0;
+  while (m < 8) {
+    let mx = 30 + m * 58 + mountainX * 0.35;
+    while (mx < -40) {
+      mx = mx + 520;
+    }
+    while (mx > 520) {
+      mx = mx - 520;
+    }
+    entities["mt" + m] = {
+      x: mx,
+      y: HORIZON - (6 + (m % 4) * 3),
+      visible: 1
+    };
+    m = m + 1;
+  }
+
+  placeRoad(entities, z, x);
+  placeTrees(entities, z, x);
+  placeGantry(entities, z, x, light);
+  placeAiCars(entities, aiOut, z, x);
+
+  // Player car sits near the bottom; nudge with lateral position.
+  const playerScreenX = 240 + x * 70;
+  let pr = 230;
+  let pg = 70;
+  let pb = 40;
+  if (offroad) {
+    pr = 255;
+    pg = 120;
+    pb = 40;
+  }
+  if (crashMs > 0) {
+    pr = 255;
+    pg = 255;
+    pb = 80;
+  }
+  entities.player = {
+    x: playerScreenX,
+    y: 232,
+    p0: 0,
+    r: pr,
+    g: pg,
+    b: pb,
+    visible: 1
+  };
+
+  if (phase == "finished") {
+    if (props.action) {
+      return initState();
+    }
+  }
+
+  const mph = floorOf(speed * 780);
+
+  return {
+    showNet: 0,
+    phase: phase,
+    countMs: countMs,
+    light: light,
+    z: z,
+    x: x,
+    speed: speed,
+    maxSpeed: s.maxSpeed,
+    timeLeft: timeLeft,
+    score: score,
+    lap: lap,
+    lapMs: lapMs,
+    bestLap: bestLap,
+    distance: distance,
+    finished: finished,
+    crashMs: crashMs,
+    mountainX: mountainX,
+    entities: entities,
+    score1: score,
+    score2: floorOf(timeLeft),
+    z0: aiOut.z0,
+    x0: aiOut.x0,
+    s0: aiOut.s0,
+    z1: aiOut.z1,
+    x1: aiOut.x1,
+    s1: aiOut.s1,
+    z2: aiOut.z2,
+    x2: aiOut.x2,
+    s2: aiOut.s2,
+    z3: aiOut.z3,
+    x3: aiOut.x3,
+    s3: aiOut.s3,
+    mph: mph,
+    events: events
+  };
+}
+
+function hud(props) {
+  const s = props.state;
+  const timeShow = s.timeLeft | 0;
+  const mphShow = s.mph | 0;
+  const scoreShow = s.score | 0;
+  const lapStr = formatLap(s.lapMs);
+
+  if (s.phase == "finished") {
+    return (
+      <View flexDirection="column" padding="10px" width="100%" align="center">
+        <Label color="#ffe66d">TIME UP</Label>
+        <Label color="#ffffff">SCORE {scoreShow}</Label>
+        <Label color="#8fd3ff">SPACE = RESTART</Label>
+      </View>
+    );
+  }
+
+  if (s.phase == "countdown") {
+    let msg = "READY";
+    if (s.light == 1) {
+      msg = "3";
+    }
+    if (s.light == 2) {
+      msg = "2";
+    }
+    if (s.light >= 3) {
+      msg = "1";
+    }
+    return (
+      <View flexDirection="column" padding="8px" width="100%">
+        <View flexDirection="row" width="100%" justifyContent="space-between">
+          <Label color="#ffe66d">TOP {scoreShow}</Label>
+          <Label color="#7ec8ff">TIME {timeShow}</Label>
+          <Label color="#9dffb0">SPEED 0</Label>
+        </View>
+        <View flexDirection="row" width="100%" justifyContent="center" padding="18px">
+          <Label color="#ffffff">{msg}</Label>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View flexDirection="row" padding="6px" width="100%" justifyContent="space-between">
+      <Label color="#ffe66d">SCORE {scoreShow}</Label>
+      <Label color="#7ec8ff">TIME {timeShow}</Label>
+      <Label color="#ffd0a0">LAP {lapStr}</Label>
+      <Label color="#9dffb0">SPEED {mphShow}</Label>
+    </View>
+  );
+}
