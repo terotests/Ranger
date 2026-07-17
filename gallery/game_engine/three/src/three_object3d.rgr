@@ -69,4 +69,21 @@ class ThreeObject3D {
     ; on the node variable — the renderer walks the tree and calls it per node).
     fn renderInto:void (backend:ThreeRenderBackend viewProj:ThreeMatrix4) {
     }
+
+    ; Light interrogation (so the renderer can collect lights while walking the
+    ; tree without downcasting): 0 = not a light, 1 = ambient, 2 = directional.
+    ; The lightR/G/B contribution is colour*intensity; direction comes from
+    ; `position` for a directional light. Overridden by the ThreeLight subclasses.
+    fn lightKind:int () {
+        return 0
+    }
+    fn lightR:double () {
+        return 0.0
+    }
+    fn lightG:double () {
+        return 0.0
+    }
+    fn lightB:double () {
+        return 0.0
+    }
 }

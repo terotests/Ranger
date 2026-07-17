@@ -2,12 +2,12 @@
 ; three_gl_backend — GPU render backend for ThreeWebGLRenderer (WebGL + GL/GLES).
 ; ==============================================================================
 ;
-; A ThreeRenderBackend that draws through the three_gl operator layer. Because
-; those operators carry both WebGL (es6) and OpenGL/GLES (cpp) bodies, this ONE
-; Ranger backend compiles to the browser (GPU-accelerated WebGL) AND to native /
-; desktop / Raspberry Pi (GLES2) — the same code, no hand-written .js.
+; A ThreeRenderBackend that draws through the three_gl operator layer (which
+; carries both WebGL es6 and OpenGL/GLES cpp bodies), so this ONE Ranger backend
+; compiles to the browser AND to native. Lit via the übershader: setLights +
+; setView once per frame, then drawMesh per mesh with its model/MVP + material.
 ;
-; Wire it into the renderer:  renderer.setBackend(glBackend)  (after glBackend.init).
+; Wire it in:  renderer.setBackend(glBackend)  (after glBackend.init).
 ; ==============================================================================
 
 Import "three_render_backend.rgr"
@@ -16,14 +16,13 @@ Import "three_gl_shaders.rgr"
 Import "three_buffer_geometry.rgr"
 Import "three_matrix4.rgr"
 Import "three_texture.rgr"
+Import "three_material.rgr"
 Import "../../model3d/ByteReader.rgr"
 
 class ThreeGLBackend extends ThreeRenderBackend {
     def prog:int 0
     def ready:boolean false
 
-    ; acquire the GPU context + compile the program once. canvasId is used by the
-    ; WebGL path; the native path takes the host's current GL context.
     fn init:boolean (canvasId:string) {
         def ok:int (gpu_init canvasId)
         if (ok == 0) {
@@ -40,54 +39,84 @@ class ThreeGLBackend extends ThreeRenderBackend {
         gpu_begin w h r g b
     }
 
-    fn drawMesh:void (geometry:ThreeBufferGeometry mvp:ThreeMatrix4 hasTexture:boolean tex:ThreeTexture colorR:double colorG:double colorB:double) {
+    ; ambient rgb + up to 4 directional lights, packed into float32 buffers.
+    fn setLights:void (ambR:double ambG:double ambB:double dirCount:int dirs:[double] cols:[double]) {
+        def ambBuf:buffer (buffer_alloc 12)
+        ByteReader.encodeF32(ambBuf 0 ambR)
+        ByteReader.encodeF32(ambBuf 4 ambG)
+        ByteReader.encodeF32(ambBuf 8 ambB)
+        def dbuf:buffer (buffer_alloc 48)
+        def cbuf:buffer (buffer_alloc 48)
+        def n:int (dirCount * 3)
+        def i:int 0
+        while (i < 12) {
+            def dv:double 0.0
+            def cv:double 0.0
+            if (i < n) {
+                dv = (itemAt dirs i)
+                cv = (itemAt cols i)
+            }
+            ByteReader.encodeF32(dbuf (i * 4) dv)
+            ByteReader.encodeF32(cbuf (i * 4) cv)
+            i = (i + 1)
+        }
+        def c4:int dirCount
+        if (c4 > 4) {
+            c4 = 4
+        }
+        gpu_set_lights ambBuf dbuf cbuf c4
+    }
+
+    fn setView:void (camX:double camY:double camZ:double) {
+        gpu_set_view camX camY camZ
+    }
+
+    fn drawMesh:void (geometry:ThreeBufferGeometry model:ThreeMatrix4 mvp:ThreeMatrix4 mat:ThreeMaterial) {
         if (ready == false) {
             return
         }
-        ; upload geometry once, then reuse the cached GPU handle every frame.
         if (geometry.glHandle < 0) {
             geometry.glHandle = (this.uploadGeometry(geometry))
         }
         def th:int 0
-        if hasTexture {
-            if (tex.glHandle < 0) {
-                tex.glHandle = (gpu_make_texture tex.rgba tex.width tex.height)
+        if mat.hasMap {
+            if (mat.map.glHandle < 0) {
+                mat.map.glHandle = (gpu_make_texture mat.map.rgba mat.map.width mat.map.height)
             }
-            th = tex.glHandle
+            th = mat.map.glHandle
         }
         def mvpBuf:buffer (this.matrixBytes(mvp))
-        gpu_draw prog geometry.glHandle th mvpBuf colorR colorG colorB
+        def modelBuf:buffer (this.matrixBytes(model))
+        def matBuf:buffer (this.materialBytes(mat th))
+        gpu_draw prog geometry.glHandle th mvpBuf modelBuf matBuf
     }
 
     fn endFrame:void () {
         gpu_end
     }
 
-    ; interleaved float32 [px,py,pz, u,v] (20-byte stride) + uint32 index buffer.
+    ; interleaved float32 [px,py,pz, nx,ny,nz, u,v] (32-byte stride) + uint32 index.
     fn uploadGeometry:int (g:ThreeBufferGeometry) {
         def vc:int (g.vertexCount())
-        def vbuf:buffer (buffer_alloc (vc * 20))
+        def vbuf:buffer (buffer_alloc (vc * 32))
         def i:int 0
         while (i < vc) {
-            def o:int (i * 20)
-            def px:double (g.getPosition(i 0))
-            def py:double (g.getPosition(i 1))
-            def pz:double (g.getPosition(i 2))
-            def u:double (g.getUv(i 0))
-            def v:double (g.getUv(i 1))
-            ByteReader.encodeF32(vbuf o px)
-            ByteReader.encodeF32(vbuf (o + 4) py)
-            ByteReader.encodeF32(vbuf (o + 8) pz)
-            ByteReader.encodeF32(vbuf (o + 12) u)
-            ByteReader.encodeF32(vbuf (o + 16) v)
+            def o:int (i * 32)
+            ByteReader.encodeF32(vbuf o (g.getPosition(i 0)))
+            ByteReader.encodeF32(vbuf (o + 4) (g.getPosition(i 1)))
+            ByteReader.encodeF32(vbuf (o + 8) (g.getPosition(i 2)))
+            ByteReader.encodeF32(vbuf (o + 12) (g.getNormal(i 0)))
+            ByteReader.encodeF32(vbuf (o + 16) (g.getNormal(i 1)))
+            ByteReader.encodeF32(vbuf (o + 20) (g.getNormal(i 2)))
+            ByteReader.encodeF32(vbuf (o + 24) (g.getUv(i 0)))
+            ByteReader.encodeF32(vbuf (o + 28) (g.getUv(i 1)))
             i = (i + 1)
         }
         def ic:int (g.indexCount())
         def ibuf:buffer (buffer_alloc (ic * 4))
         def k:int 0
         while (k < ic) {
-            def idx:int (g.getIndex(k))
-            ByteReader.encodeU32(ibuf (k * 4) idx)
+            ByteReader.encodeU32(ibuf (k * 4) (g.getIndex(k)))
             k = (k + 1)
         }
         return (gpu_make_mesh vbuf vc ibuf ic)
@@ -98,10 +127,29 @@ class ThreeGLBackend extends ThreeRenderBackend {
         def out:buffer (buffer_alloc 64)
         def i:int 0
         while (i < 16) {
-            def e:double (m.eGet(i))
-            ByteReader.encodeF32(out (i * 4) e)
+            ByteReader.encodeF32(out (i * 4) (m.eGet(i)))
             i = (i + 1)
         }
+        return out
+    }
+
+    ; 10 float32: colRGB, specRGB, shininess, shadingMode, side, hasTex.
+    fn materialBytes:buffer (mat:ThreeMaterial th:int) {
+        def out:buffer (buffer_alloc 40)
+        ByteReader.encodeF32(out 0 mat.colorR)
+        ByteReader.encodeF32(out 4 mat.colorG)
+        ByteReader.encodeF32(out 8 mat.colorB)
+        ByteReader.encodeF32(out 12 mat.specularR)
+        ByteReader.encodeF32(out 16 mat.specularG)
+        ByteReader.encodeF32(out 20 mat.specularB)
+        ByteReader.encodeF32(out 24 mat.shininess)
+        ByteReader.encodeF32(out 28 (to_double (mat.shadingMode())))
+        ByteReader.encodeF32(out 32 (to_double mat.side))
+        def hasTexF:double 0.0
+        if (th > 0) {
+            hasTexF = 1.0
+        }
+        ByteReader.encodeF32(out 36 hasTexF)
         return out
     }
 }

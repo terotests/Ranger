@@ -12,6 +12,7 @@ Import "three_render_backend.rgr"
 Import "three_buffer_geometry.rgr"
 Import "three_matrix4.rgr"
 Import "three_texture.rgr"
+Import "three_material.rgr"
 Import "three_vector3.rgr"
 
 class ThreeSoftwareBackend extends ThreeRenderBackend {
@@ -81,11 +82,19 @@ class ThreeSoftwareBackend extends ThreeRenderBackend {
         return (buffer_get tex.rgba (off + comp))
     }
 
-    fn drawMesh:void (geometry:ThreeBufferGeometry mvp:ThreeMatrix4 hasTexture:boolean tex:ThreeTexture colorR:double colorG:double colorB:double) {
+    fn drawMesh:void (geometry:ThreeBufferGeometry model:ThreeMatrix4 mvp:ThreeMatrix4 mat:ThreeMaterial) {
         def vc:int (geometry.vertexCount())
         if (vc == 0) {
             return
         }
+        ; Software path renders the material's flat colour * texture. Directional
+        ; lighting is handled by the GL backend (the browser target); the software
+        ; backend stays the unlit reference used by the headless tests.
+        def hasTexture:boolean mat.hasMap
+        def tex:ThreeTexture mat.map
+        def colorR:double mat.colorR
+        def colorG:double mat.colorG
+        def colorB:double mat.colorB
         ; project every vertex to screen space (sx, sy, sz=NDC depth); w<=0 verts
         ; are marked behind (bad=1) and their triangles skipped.
         def sx:[double]

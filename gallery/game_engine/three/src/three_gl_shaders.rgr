@@ -2,17 +2,20 @@
 ; three_gl_shaders — shared GLSL for the GPU backend (WebGL + OpenGL/GLES).
 ; ==============================================================================
 ;
-; GLSL ES 1.00 (attribute/varying/texture2D/gl_FragColor) — the same dialect the
-; native gfx_sdl.rgr 3D program uses. It runs unchanged on WebGL1, WebGL2, GLES2
-; (Raspberry Pi) and desktop GL's compatibility profile, so ONE shader source
-; serves every target. Unlit + textured, matching ThreeMeshBasicMaterial.
+; GLSL ES 1.00 (attribute/varying/texture2D/gl_FragColor) — one source runs on
+; WebGL1/2, GLES2 (Raspberry Pi) and desktop GL compat. An übershader: unlit
+; (MeshBasicMaterial), Lambert diffuse, and Blinn-Phong specular are selected by
+; uShading (0/1/2). Up to MAX_LIGHTS directional lights + one ambient term; a
+; two-sided flag flips the normal toward the viewer for DoubleSide materials.
+;
+; Attributes: interleaved pos(3) + normal(3) + uv(2), 32-byte stride.
 ; ==============================================================================
 
 class ThreeGLShaders {
     sfn vertexSrc:string () {
-        return "attribute vec3 aPos;\nattribute vec2 aUv;\nuniform mat4 uMVP;\nvarying vec2 vUv;\nvoid main() { gl_Position = uMVP * vec4(aPos, 1.0); vUv = aUv; }\n"
+        return "attribute vec3 aPos;\nattribute vec3 aNormal;\nattribute vec2 aUv;\nuniform mat4 uMVP;\nuniform mat4 uModel;\nvarying vec3 vWorldPos;\nvarying vec3 vNormal;\nvarying vec2 vUv;\nvoid main() {\n  vec4 wp = uModel * vec4(aPos, 1.0);\n  vWorldPos = wp.xyz;\n  vNormal = mat3(uModel) * aNormal;\n  vUv = aUv;\n  gl_Position = uMVP * vec4(aPos, 1.0);\n}\n"
     }
     sfn fragmentSrc:string () {
-        return "precision mediump float;\nvarying vec2 vUv;\nuniform sampler2D uTex;\nuniform vec3 uColor;\nuniform float uHasTex;\nvoid main() { vec3 base = uColor; if (uHasTex > 0.5) { base = base * texture2D(uTex, vUv).rgb; } gl_FragColor = vec4(base, 1.0); }\n"
+        return "precision mediump float;\nconst int MAX_LIGHTS = 4;\nvarying vec3 vWorldPos;\nvarying vec3 vNormal;\nvarying vec2 vUv;\nuniform sampler2D uTex;\nuniform vec3 uColor;\nuniform vec3 uSpecular;\nuniform float uShininess;\nuniform float uHasTex;\nuniform float uShading;\nuniform float uSide;\nuniform vec3 uAmbient;\nuniform vec3 uLightDir[MAX_LIGHTS];\nuniform vec3 uLightColor[MAX_LIGHTS];\nuniform int uLightCount;\nuniform vec3 uCamPos;\nvoid main() {\n  vec3 base = uColor;\n  if (uHasTex > 0.5) { base = base * texture2D(uTex, vUv).rgb; }\n  if (uShading < 0.5) { gl_FragColor = vec4(base, 1.0); return; }\n  vec3 N = normalize(vNormal);\n  vec3 V = normalize(uCamPos - vWorldPos);\n  if (uSide > 1.5 && dot(N, V) < 0.0) { N = -N; }\n  vec3 col = uAmbient * base;\n  for (int i = 0; i < MAX_LIGHTS; i++) {\n    if (i >= uLightCount) break;\n    vec3 L = normalize(uLightDir[i]);\n    float ndl = max(dot(N, L), 0.0);\n    col += uLightColor[i] * base * ndl;\n    if (uShading > 1.5 && ndl > 0.0) {\n      vec3 H = normalize(L + V);\n      float s = pow(max(dot(N, H), 0.0), uShininess);\n      col += uLightColor[i] * uSpecular * s;\n    }\n  }\n  gl_FragColor = vec4(col, 1.0);\n}\n"
     }
 }

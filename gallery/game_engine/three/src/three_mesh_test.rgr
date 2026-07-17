@@ -3,6 +3,7 @@
 ; ==============================================================================
 
 Import "three_mesh.rgr"
+Import "three_mesh_basic_material.rgr"
 Import "three_box_geometry.rgr"
 Import "three_texture.rgr"
 Import "three_constants.rgr"

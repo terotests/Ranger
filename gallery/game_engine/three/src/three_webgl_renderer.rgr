@@ -33,6 +33,14 @@ class ThreeWebGLRenderer {
     def clearG:double 0.102
     def clearB:double 0.133
 
+    ; per-frame light accumulators (filled by walkLights, fed to the backend)
+    def accAmbR:double 0.0
+    def accAmbG:double 0.0
+    def accAmbB:double 0.0
+    def accDirs:[double]
+    def accCols:[double]
+    def accCount:int 0
+
     ; inject a GPU (e.g. WebGL) backend; default is the software rasteriser.
     fn setBackend:ThreeWebGLRenderer (b:ThreeRenderBackend) {
         backend = b
@@ -76,11 +84,63 @@ class ThreeWebGLRenderer {
             bb = scene.backgroundB
         }
         be.beginFrame(w h br bg bb)
+        ; lights (collected from the scene) + camera position for specular
+        this.applyLights(scene be)
+        be.setView(camera.position.x camera.position.y camera.position.z)
         ; view-projection = projection * inverse(camera world)
         def vp:ThreeMatrix4 (new ThreeMatrix4)
         vp.multiplyMatrices(camera.projectionMatrix camera.matrixWorldInverse)
         this.renderObject(scene be vp)
         be.endFrame()
+    }
+
+    ; Walk the scene, sum ambient light, collect up to 4 directional lights, and
+    ; hand them to the backend once for the frame.
+    fn applyLights:void (scene:ThreeObject3D be:ThreeRenderBackend) {
+        accAmbR = 0.0
+        accAmbG = 0.0
+        accAmbB = 0.0
+        def emptyD:[double]
+        def emptyC:[double]
+        accDirs = emptyD
+        accCols = emptyC
+        accCount = 0
+        this.walkLights(scene)
+        be.setLights(accAmbR accAmbG accAmbB accCount accDirs accCols)
+    }
+
+    fn walkLights:void (node:ThreeObject3D) {
+        def k:int (node.lightKind())
+        if (k == 1) {
+            accAmbR = (accAmbR + (node.lightR()))
+            accAmbG = (accAmbG + (node.lightG()))
+            accAmbB = (accAmbB + (node.lightB()))
+        }
+        if (k == 2) {
+            if (accCount < 4) {
+                def dx:double node.position.x
+                def dy:double node.position.y
+                def dz:double node.position.z
+                def len:double (sqrt(((dx * dx) + (dy * dy)) + (dz * dz)))
+                if (len < 0.000001) {
+                    len = 1.0
+                }
+                push accDirs (dx / len)
+                push accDirs (dy / len)
+                push accDirs (dz / len)
+                push accCols (node.lightR())
+                push accCols (node.lightG())
+                push accCols (node.lightB())
+                accCount = (accCount + 1)
+            }
+        }
+        def i:int 0
+        def n:int (node.childCount())
+        while (i < n) {
+            def c:ThreeObject3D (node.getChild(i))
+            this.walkLights(c)
+            i = (i + 1)
+        }
     }
 
     fn renderObject:void (obj:ThreeObject3D be:ThreeRenderBackend vp:ThreeMatrix4) {
