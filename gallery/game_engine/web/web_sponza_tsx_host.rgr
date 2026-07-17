@@ -24,12 +24,16 @@ Import "../three/src/three_gl_backend.rgr"
 Import "../three/src/three_mesh.rgr"
 Import "../three/src/three_mesh_lambert_material.rgr"
 Import "../three/src/three_box_geometry.rgr"
+Import "../three/src/three_gltf_file.rgr"
 
 class WebSponzaTsxHost {
     def engine:ComponentEngine (new ComponentEngine())
     def bridge:ThreeSponzaTsxBridge (new ThreeSponzaTsxBridge)
     def gl:ThreeGLBackend (new ThreeGLBackend)
     def renderer:ThreeWebGLRenderer (new ThreeWebGLRenderer)
+    ; the glTF loader kept from loadWithModel so a viewer can push decoded texture
+    ; pixels into the model's materials after the geometry has been built.
+    def modelLoader:ThreeGLTFFile (new ThreeGLTFFile)
     def ready:boolean false
     def w:int 800
     def h:int 500
@@ -104,9 +108,10 @@ class WebSponzaTsxHost {
         return root
     }
 
-    ; Load the façade + sponza scene (concatenated), build the scene around the
-    ; test model, and frame the camera on it (the host owns the first-person camera).
-    fn load:string (facadeSrc:string sponzaSrc:string winW:int winH:int dpr:double) {
+    ; Build the scene (façade + sponza.tsx, reconciled around `model`) and configure
+    ; the renderer. The camera framing is left to the caller (it differs for the test
+    ; scene vs. the real model). Shared by load() and loadWithModel().
+    fn loadScene:string (facadeSrc:string sponzaSrc:string model:ThreeObject3D winW:int winH:int dpr:double) {
         w = winW
         h = winH
         engine.quiet = true
@@ -121,22 +126,55 @@ class WebSponzaTsxHost {
         renderer.setShadowMapEnabled(true)
 
         bridge.setEngine(engine)
-        def model:ThreeObject3D (this.buildTestModel())
         bridge.setModel(model)
         def src:string ((facadeSrc + "\n") + sponzaSrc)
         engine.loadScript(src)
         bridge.initFromScript()
         bridge.scene.setViewport(winW winH)
+        ready = true
+        return "ok"
+    }
 
-        ; the host owns the first-person camera: place it to frame the test model,
-        ; and aim the controls at it (orientation is FPC's, not the interpreter's).
+    ; frame the procedural test scene (~40 units): a fixed vantage looking at it.
+    fn frameTestCamera:void () {
         bridge.scene.fpc.setMovementSpeed(18.0)
         bridge.scene.fpc.setLook(180.0 (0.0 - 8.0))
         bridge.scene.camera.position.set(0.0 9.0 34.0)
         bridge.scene.update(0.0)
+    }
+    ; frame the real Sponza model: keep the interpreted camera position (sponza.tsx
+    ; places it inside the hall) and aim the first-person view down the long axis.
+    fn frameModelCamera:void () {
+        bridge.scene.fpc.setMovementSpeed(6.0)
+        bridge.scene.fpc.setLook(90.0 0.0)
+        bridge.scene.update(0.0)
+    }
 
-        ready = true
-        return "ok"
+    ; Load with the procedural test scene (the browser can't fetch the real model).
+    fn load:string (facadeSrc:string sponzaSrc:string winW:int winH:int dpr:double) {
+        def r:string (this.loadScene(facadeSrc sponzaSrc (this.buildTestModel()) winW winH dpr))
+        this.frameTestCamera()
+        return r
+    }
+
+    ; Load with the real model decoded from the VFS (a viewer fetched Sponza.gltf +
+    ; its buffers and wrote them under modelDir). Falls back to the test scene if the
+    ; model is absent/empty so the host still renders.
+    fn loadWithModel:string (facadeSrc:string sponzaSrc:string modelDir:string modelFile:string winW:int winH:int dpr:double) {
+        modelLoader = (new ThreeGLTFFile)
+        def m:ThreeObject3D (modelLoader.loadGLTFFromVfs(modelDir modelFile))
+        def isReal:boolean ((m.childCount()) > 0)
+        def model:ThreeObject3D m
+        if (isReal == false) {
+            model = (this.buildTestModel())
+        }
+        def r:string (this.loadScene(facadeSrc sponzaSrc model winW winH dpr))
+        if isReal {
+            this.frameModelCamera()
+        } {
+            this.frameTestCamera()
+        }
+        return r
     }
 
     fn loadFromVfs:string (dir:string facadeFile:string sponzaFile:string winW:int winH:int dpr:double) {
@@ -175,6 +213,39 @@ class WebSponzaTsxHost {
     fn needsRender:boolean () {
         return true
     }
+    ; --- model textures (the viewer decodes JPEG/PNG; the host can't) ----------
+    ; how many baseColorTexture images the loaded model references, and each one's
+    ; uri (the file the viewer fetches + decodes to RGBA).
+    fn modelImageCount:int () {
+        return (modelLoader.imageCount())
+    }
+    fn modelImageUri:string (i:int) {
+        return (modelLoader.imageUri(i))
+    }
+    ; attach decoded RGBA pixels for image `index` to every material that uses it.
+    ; Call after loadWithModel; the next frame uploads + samples the texture.
+    fn setModelImage:void (index:int rgba:buffer w:int h:int) {
+        modelLoader.setImage(index rgba w h)
+    }
+
+    ; --- diagnostics / tuning (used by the verification harness) --------------
+    fn setExposure:void (e:double) {
+        renderer.setToneMappingExposure(e)
+    }
+    fn infoCX:double () { return bridge.scene.centerX }
+    fn infoCY:double () { return bridge.scene.centerY }
+    fn infoCZ:double () { return bridge.scene.centerZ }
+    fn infoSX:double () { return bridge.scene.sizeX }
+    fn infoSY:double () { return bridge.scene.sizeY }
+    fn infoSZ:double () { return bridge.scene.sizeZ }
+    fn infoMeshes:int () { return (bridge.scene.model.childCount()) }
+    ; place the camera outside + above the model, aimed at its centre (overview).
+    fn setCameraLook:void (px:double py:double pz:double lon:double lat:double) {
+        bridge.scene.camera.position.set(px py pz)
+        bridge.scene.fpc.setLook(lon lat)
+        bridge.scene.update(0.0)
+    }
+
     fn isReady:boolean () {
         return ready
     }
