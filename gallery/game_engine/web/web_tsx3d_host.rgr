@@ -1,0 +1,231 @@
+; ==============================================================================
+; web_tsx3d_host — TSX-script-driven 3D scene, software-rendered in the browser.
+; ==============================================================================
+;
+; The browser counterpart to the native tsx3d_sdl_runner: a short .tsx script
+; declares a scene (addModel / spin) and the host does ALL the heavy lifting —
+; GLB parse, entity instantiation, and rasterisation — with NO WASM and NO GPU.
+;
+;   .tsx init()  ── addModel("Duck.glb") ─▶ SoftScene3dBridge (native seam)
+;                   spin(id, 0.6)              │  ModelLoader (glTF + accessors + PNG/JPEG)
+;                                              │  instantiate (entity scene)
+;                                              ▼
+;                                          SoftRenderer3D  → RGB buffer → canvas
+;
+; Same interpreter seam (EvalNativeBridge in ComponentEngine) as the native GL
+; path, but the uploader is replaced by a SOFTWARE renderer, so the identical
+; games/model_viewer_tsx/index.tsx runs unchanged in the browser. Reuses the
+; #333 model3d-web pipeline (ModelLoader + SoftRenderer3D + the VFS/engine-host).
+; ==============================================================================
+
+Import "../model3d/ModelLoader.rgr"
+Import "../model3d/demo/SoftRenderer3D.rgr"
+Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../pdf_writer/src/jsx/EvalValue.rgr"
+
+; One model the script declared. Each keeps its own ModelLoader so its model and
+; entity registry stay paired for SoftRenderer3D.renderModel(model, registry).
+class SoftSceneItem {
+    def loader:ModelLoader (new ModelLoader)
+    def modelId:int 0
+    def spin:double 0.0
+    def ok:boolean false
+}
+
+; The software scene bridge — SAME script-facing API as the native Scene3dBridge
+; (addModel / place / spin), but it holds ModelAsset + EntityRegistry for the
+; software rasteriser instead of GL handles.
+class SoftScene3dBridge extends EvalNativeBridge {
+    def items:[SoftSceneItem]
+    def assetDir:string ""
+    def radius:double 1.0
+    def lastError:string ""
+
+    fn argStr:string (args:[EvalValue] i:int) {
+        if ((array_length args) <= i) {
+            return ""
+        }
+        def v:EvalValue (itemAt args i)
+        return (v.toString())
+    }
+    fn argNum:double (args:[EvalValue] i:int) {
+        if ((array_length args) <= i) {
+            return 0.0
+        }
+        def v:EvalValue (itemAt args i)
+        return (v.toNumber())
+    }
+    fn argInt:int (args:[EvalValue] i:int) {
+        return (to_int (this.argNum(args i)))
+    }
+
+    fn has:boolean (name:string) {
+        if (name == "addModel") {
+            return true
+        }
+        if (name == "place") {
+            return true
+        }
+        if (name == "spin") {
+            return true
+        }
+        if (name == "sceneError") {
+            return true
+        }
+        return false
+    }
+
+    fn invoke:EvalValue (name:string args:[EvalValue]) {
+        if (name == "addModel") {
+            return (this.doAdd(args))
+        }
+        if (name == "spin") {
+            return (this.doSpin(args))
+        }
+        if (name == "place") {
+            return (EvalValue.null())
+        }
+        if (name == "sceneError") {
+            return (EvalValue.string(lastError))
+        }
+        return (EvalValue.null())
+    }
+
+    ; addModel(file) — load + instantiate a GLB host-side, add it to the scene.
+    fn doAdd:EvalValue (args:[EvalValue]) {
+        def file:string (this.argStr(args 0))
+        def item:SoftSceneItem (new SoftSceneItem)
+        def id:int 0
+        if (radius > 0.0) {
+            id = (item.loader.loadFromFileRadius(assetDir file radius))
+        } {
+            id = (item.loader.loadFromFile(assetDir file))
+        }
+        if (item.loader.ok == false) {
+            lastError = item.loader.lastError
+            return (EvalValue.fromInt(0 - 1))
+        }
+        item.loader.instantiate(id)
+        item.modelId = id
+        item.ok = true
+        push items item
+        lastError = ""
+        def idx:int ((array_length items) - 1)
+        return (EvalValue.fromInt(idx))
+    }
+
+    fn doSpin:EvalValue (args:[EvalValue]) {
+        def i:int (this.argInt(args 0))
+        if ((i >= 0) && (i < (array_length items))) {
+            def item:SoftSceneItem (itemAt items i)
+            item.spin = (this.argNum(args 1))
+        }
+        return (EvalValue.null())
+    }
+
+    fn count:int () {
+        return (array_length items)
+    }
+    fn itemAt:SoftSceneItem (i:int) {
+        return (itemAt items i)
+    }
+}
+
+; The JS-facing host. model-viewer.js's TSX cousin (tsx3d-viewer.js) drives it:
+;   loadScriptFile(dir,file) once, then setOrbit + render + raw() each frame.
+class WebTsx3dHost {
+    def engine:ComponentEngine (new ComponentEngine)
+    def bridge:SoftScene3dBridge (new SoftScene3dBridge)
+    def renderer:SoftRenderer3D (new SoftRenderer3D)
+    def orbit:double 0.6
+    def scriptSrc:string ""
+
+    ; Run the .tsx script's one-time init() so it declares the scene. `dir` is the
+    ; game folder; models resolve from `<dir>/models` (matches the native runner).
+    fn loadScriptFile:boolean (dir:string file:string) {
+        engine.quiet = true
+        bridge.assetDir = (dir + "/models")
+        engine.setNativeBridge(bridge)
+        def buf:buffer (buffer_read_file dir file)
+        scriptSrc = (buffer_to_string buf)
+        engine.loadScript(scriptSrc)
+        engine.callFunction("init" (EvalValue.null()))
+        return ((bridge.count()) > 0)
+    }
+
+    ; The script source (so the editor pane can show the actual scene .tsx).
+    fn sourceText:string () {
+        return scriptSrc
+    }
+
+    ; Y-orbit in radians; the JS driver advances it by spinRate() each frame.
+    fn setOrbit:void (rad:double) {
+        orbit = rad
+    }
+    ; The first model's script-set spin (rad/sec) — lets the script drive speed.
+    fn spinRate:double () {
+        if ((bridge.count()) > 0) {
+            def item:SoftSceneItem (bridge.itemAt(0))
+            return item.spin
+        }
+        return 0.0
+    }
+
+    ; Software-render the scene's primary model into a w*h RGB frame.
+    fn render:void (w:int h:int) {
+        renderer.init(w h)
+        if ((bridge.count()) == 0) {
+            return
+        }
+        def item:SoftSceneItem (bridge.itemAt(0))
+        if (item.ok == false) {
+            return
+        }
+        renderer.orbitYRad = orbit
+        def model:ModelAsset (item.loader.getModel(item.modelId))
+        renderer.renderModel(model item.loader.entities)
+    }
+
+    fn raw:buffer () {
+        return (renderer.color)
+    }
+    fn width:int () {
+        return (renderer.w)
+    }
+    fn height:int () {
+        return (renderer.h)
+    }
+    fn modelCount:int () {
+        return (bridge.count())
+    }
+
+    ; Triangles across ALL meshes/primitives of the primary model (the #333
+    ; viewer counts only the first primitive; this sums them).
+    fn triangleCount:int () {
+        if ((bridge.count()) == 0) {
+            return 0
+        }
+        def item:SoftSceneItem (bridge.itemAt(0))
+        def model:ModelAsset (item.loader.getModel(item.modelId))
+        def total:int 0
+        def mc:int (model.meshCount())
+        def mi:int 0
+        while (mi < mc) {
+            def mesh:MeshAsset (model.getMesh(mi))
+            def pc:int (array_length mesh.primitives)
+            def pi:int 0
+            while (pi < pc) {
+                def prim:MeshPrimitiveAsset (itemAt mesh.primitives pi)
+                def ic:int (prim.indexCount())
+                total = (total + (idiv ic 3))
+                pi = (pi + 1)
+            }
+            mi = (mi + 1)
+        }
+        return total
+    }
+
+    fn error:string () {
+        return (bridge.lastError)
+    }
+}
