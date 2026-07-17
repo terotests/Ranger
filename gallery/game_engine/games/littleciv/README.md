@@ -29,3 +29,12 @@ Select or idle ↑ — not A.
 ## Goal
 
 Found cities, grow production, and eliminate the rival civilization's last city.
+
+## Art
+
+Terrain is a pre-rendered PNG (`assets/map.png`). Units, cities and the
+selection cursor come from `assets/pieces.png` (spritesheet). Regenerate with:
+
+```bash
+bash gallery/game_engine/games/littleciv/build-assets.sh
+```

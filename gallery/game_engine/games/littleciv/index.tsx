@@ -82,23 +82,6 @@ function tileX(col) {
   return tileLeft(col) + (TILE / 2);
 }
 
-function tileY(row) {
-  return tileTop(row) + (TILE / 2);
-}
-
-function terrainColor(ch) {
-  if (ch == "~") { return { r: 28, g: 72, b: 118 }; }
-  if (ch == "f") { return { r: 34, g: 98, b: 42 }; }
-  if (ch == "h") { return { r: 120, g: 110, b: 70 }; }
-  if (ch == "m") { return { r: 110, g: 110, b: 118 }; }
-  return { r: 62, g: 140, b: 58 };
-}
-
-function ownerColor(owner) {
-  if (owner == OWNER_PLAYER) { return { r: 240, g: 210, b: 70 }; }
-  return { r: 220, g: 80, b: 70 };
-}
-
 function unitId(i) {
   return ("u" + i);
 }
@@ -111,41 +94,69 @@ function cursorId() {
   return "cursor";
 }
 
-function createStaticBg() {
-  bgClear(16, 22, 36);
-  let row = 0;
-  while (row < ROWS) {
-    let col = 0;
-    while (col < COLS) {
-      const ch = cellAt(col, row);
-      const pal = terrainColor(ch);
-      bgFillRect(tileLeft(col), tileTop(row), TILE - 1, TILE - 1, pal.r, pal.g, pal.b);
-      if (ch == "f") {
-        bgFillRect(tileLeft(col) + 6, tileTop(row) + 4, 4, 10, 22, 70, 30);
-        bgFillRect(tileLeft(col) + 12, tileTop(row) + 7, 4, 8, 28, 82, 36);
-      }
-      if (ch == "h") {
-        bgFillRect(tileLeft(col) + 4, tileTop(row) + 10, 14, 4, 90, 82, 52);
-        bgFillRect(tileLeft(col) + 7, tileTop(row) + 6, 8, 5, 100, 92, 60);
-      }
-      col = col + 1;
-    }
-    row = row + 1;
+// Sheet sprites are feet-anchored at (x,y). Sit pieces on the tile bottom.
+function pieceX(col) {
+  return tileX(col);
+}
+
+function pieceY(row) {
+  return tileTop(row) + TILE - 1;
+}
+
+// pieces.png frames (32x32, 4 cols x 2 rows):
+// row0: cityP cityAI settlerP settlerAI
+// row1: warriorP warriorAI cursor _
+function cityFrame(owner) {
+  if (owner == OWNER_PLAYER) { return { p0: 0, p1: 0 }; }
+  return { p0: 1, p1: 0 };
+}
+
+function unitFrame(owner, kind) {
+  if (kind == KIND_SETTLER) {
+    if (owner == OWNER_PLAYER) { return { p0: 2, p1: 0 }; }
+    return { p0: 3, p1: 0 };
   }
+  if (owner == OWNER_PLAYER) { return { p0: 0, p1: 1 }; }
+  return { p0: 1, p1: 1 };
+}
+
+function resources() {
+  return [
+    { kind: "image", id: "map", path: "assets/map.png" }
+  ];
+}
+
+function backgroundImage() {
+  return "map";
+}
+
+function pieceSheet(id, p0, p1) {
+  return {
+    id: id,
+    kind: "sheet",
+    path: "assets/pieces.png",
+    frameW: 32,
+    frameH: 32,
+    cols: 4,
+    rows: 2,
+    scale: 56,
+    p0: p0,
+    p1: p1
+  };
 }
 
 function sprites() {
   const list = [];
   // Cursor under units so the selection ring does not hide the piece.
-  list.push({ id: cursorId(), kind: "rect", w: 20, h: 20, r: 255, g: 255, b: 255 });
+  list.push(pieceSheet(cursorId(), 2, 1));
   let i = 0;
   while (i < MAX_CITIES) {
-    list.push({ id: cityId(i), kind: "rect", w: 14, h: 14, r: 200, g: 180, b: 60 });
+    list.push(pieceSheet(cityId(i), 0, 0));
     i = i + 1;
   }
   i = 0;
   while (i < MAX_UNITS) {
-    list.push({ id: unitId(i), kind: "circle", rad: 6, r: 240, g: 210, b: 70 });
+    list.push(pieceSheet(unitId(i), 2, 0));
     i = i + 1;
   }
   return list;
@@ -707,13 +718,12 @@ function buildEntities(units, cities, sel) {
   let i = 0;
   while (i < MAX_CITIES) {
     if (i < cities.length && cities[i].alive == 1) {
-      const pal = ownerColor(cities[i].owner);
+      const fr = cityFrame(cities[i].owner);
       entities[cityId(i)] = {
-        x: tileX(cities[i].col),
-        y: tileY(cities[i].row),
-        r: pal.r,
-        g: pal.g,
-        b: pal.b,
+        x: pieceX(cities[i].col),
+        y: pieceY(cities[i].row),
+        p0: fr.p0,
+        p1: fr.p1,
         visible: 1
       };
     } else {
@@ -724,16 +734,12 @@ function buildEntities(units, cities, sel) {
   i = 0;
   while (i < MAX_UNITS) {
     if (i < units.length && units[i].alive == 1) {
-      const pal = ownerColor(units[i].owner);
-      let rad = 5;
-      if (units[i].kind == KIND_WARRIOR) { rad = 6; }
+      const fr = unitFrame(units[i].owner, units[i].kind);
       entities[unitId(i)] = {
-        x: tileX(units[i].col),
-        y: tileY(units[i].row),
-        r: pal.r,
-        g: pal.g,
-        b: pal.b,
-        rad: rad,
+        x: pieceX(units[i].col),
+        y: pieceY(units[i].row),
+        p0: fr.p0,
+        p1: fr.p1,
         visible: 1
       };
     } else {
@@ -743,11 +749,10 @@ function buildEntities(units, cities, sel) {
   }
   if (sel >= 0 && sel < units.length && units[sel].alive == 1) {
     entities[cursorId()] = {
-      x: tileX(units[sel].col),
-      y: tileY(units[sel].row),
-      r: 255,
-      g: 255,
-      b: 255,
+      x: pieceX(units[sel].col),
+      y: pieceY(units[sel].row),
+      p0: 2,
+      p1: 1,
       visible: 1
     };
   } else {
