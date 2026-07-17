@@ -20,6 +20,17 @@ class CannonNarrowphase {
     def tmpVecJ:CannonVec3 (new CannonVec3)
     def tmpPointOnPlane:CannonVec3 (new CannonVec3)
     def tmpPlaneOrtho:CannonVec3 (new CannonVec3)
+    ; sphere-box scratch
+    def sbRel:CannonVec3 (new CannonVec3)
+    def sbConj:CannonQuaternion (new CannonQuaternion)
+    def sbLocal:CannonVec3 (new CannonVec3)
+    def sbClosest:CannonVec3 (new CannonVec3)
+    def sbClosestWorld:CannonVec3 (new CannonVec3)
+    def sbD:CannonVec3 (new CannonVec3)
+    ; plane-box scratch
+    def pbNormal:CannonVec3 (new CannonVec3)
+    def pbCorner:CannonVec3 (new CannonVec3)
+    def pbProj:CannonVec3 (new CannonVec3)
 
     fn createContactEquation:CannonEquation (bi:CannonBody bj:CannonBody si:CannonShape sj:CannonShape) {
         def c:CannonEquation (new CannonEquation)
@@ -104,6 +115,99 @@ class CannonNarrowphase {
         return false
     }
 
+    ; Sphere (i) vs box (j): closest point on the OBB to the sphere centre.
+    fn sphereBox:boolean (radius:double xi:CannonVec3 boxShape:CannonShape xj:CannonVec3 qj:CannonQuaternion bi:CannonBody bj:CannonBody si:CannonShape sj:CannonShape justTest:boolean) {
+        xi.vsub(xj this.sbRel)
+        qj.conjugateInto(this.sbConj)
+        this.sbConj.vmult(this.sbRel this.sbLocal)
+        def he:CannonVec3 (boxShape.getHalfExtents())
+        def cx:double this.sbLocal.x
+        if (cx > he.x) {
+            cx = he.x
+        }
+        if (cx < (0.0 - he.x)) {
+            cx = (0.0 - he.x)
+        }
+        def cy:double this.sbLocal.y
+        if (cy > he.y) {
+            cy = he.y
+        }
+        if (cy < (0.0 - he.y)) {
+            cy = (0.0 - he.y)
+        }
+        def cz:double this.sbLocal.z
+        if (cz > he.z) {
+            cz = he.z
+        }
+        if (cz < (0.0 - he.z)) {
+            cz = (0.0 - he.z)
+        }
+        this.sbClosest.set(cx cy cz)
+        qj.vmult(this.sbClosest this.sbClosestWorld)
+        this.sbClosestWorld.vadd(xj this.sbClosestWorld)
+        xi.vsub(this.sbClosestWorld this.sbD)
+        def dist:double (this.sbD.norm())
+        if (dist >= radius) {
+            return false
+        }
+        if (dist < 0.00001) {
+            return false
+        }
+        if (justTest) {
+            return true
+        }
+        def r:CannonEquation (this.createContactEquation(bi bj si sj))
+        ; ni = -d/dist points from the sphere (i) toward the box (j).
+        this.sbD.scaleInto((0.0 - (1.0 / dist)) r.ni)
+        r.ni.scaleInto(radius r.ri)
+        r.ri.vadd(xi r.ri)
+        r.ri.vsub(bi.position r.ri)
+        this.sbClosestWorld.vsub(bj.position r.rj)
+        push this.result r
+        return true
+    }
+
+    ; One box corner vs the plane: add a contact if the corner is below it.
+    fn tryPlaneBoxCorner:boolean (sx:double sy:double sz:double he:CannonVec3 boxPos:CannonVec3 boxQuat:CannonQuaternion bi:CannonBody bj:CannonBody si:CannonShape sj:CannonShape justTest:boolean) {
+        this.pbCorner.set((sx * he.x) (sy * he.y) (sz * he.z))
+        boxQuat.vmult(this.pbCorner this.pbCorner)
+        boxPos.vadd(this.pbCorner this.pbCorner)
+        def cornerDot:double (this.pbNormal.dot(this.pbCorner))
+        def planeDot:double (this.pbNormal.dot(bi.position))
+        def dot:double (cornerDot - planeDot)
+        if (dot > 0.0) {
+            return false
+        }
+        if (justTest) {
+            return true
+        }
+        def r:CannonEquation (this.createContactEquation(bi bj si sj))
+        r.ni.copy(this.pbNormal)
+        this.pbCorner.vsub(bj.position r.rj)
+        this.pbNormal.scaleInto(dot this.pbProj)
+        this.pbCorner.vsub(this.pbProj this.pbProj)
+        this.pbProj.vsub(bi.position r.ri)
+        push this.result r
+        return true
+    }
+
+    ; Plane (i) vs box (j): each penetrating box corner becomes a contact.
+    fn planeBox:boolean (planeQuat:CannonQuaternion boxShape:CannonShape xj:CannonVec3 boxQuat:CannonQuaternion bi:CannonBody bj:CannonBody si:CannonShape sj:CannonShape justTest:boolean) {
+        this.pbNormal.set(0.0 0.0 1.0)
+        planeQuat.vmult(this.pbNormal this.pbNormal)
+        def he:CannonVec3 (boxShape.getHalfExtents())
+        def hit:boolean false
+        if (this.tryPlaneBoxCorner(1.0 1.0 1.0 he xj boxQuat bi bj si sj justTest)) { hit = true }
+        if (this.tryPlaneBoxCorner((0.0 - 1.0) 1.0 1.0 he xj boxQuat bi bj si sj justTest)) { hit = true }
+        if (this.tryPlaneBoxCorner(1.0 (0.0 - 1.0) 1.0 he xj boxQuat bi bj si sj justTest)) { hit = true }
+        if (this.tryPlaneBoxCorner(1.0 1.0 (0.0 - 1.0) he xj boxQuat bi bj si sj justTest)) { hit = true }
+        if (this.tryPlaneBoxCorner((0.0 - 1.0) (0.0 - 1.0) 1.0 he xj boxQuat bi bj si sj justTest)) { hit = true }
+        if (this.tryPlaneBoxCorner((0.0 - 1.0) 1.0 (0.0 - 1.0) he xj boxQuat bi bj si sj justTest)) { hit = true }
+        if (this.tryPlaneBoxCorner(1.0 (0.0 - 1.0) (0.0 - 1.0) he xj boxQuat bi bj si sj justTest)) { hit = true }
+        if (this.tryPlaneBoxCorner((0.0 - 1.0) (0.0 - 1.0) (0.0 - 1.0) he xj boxQuat bi bj si sj justTest)) { hit = true }
+        return hit
+    }
+
     fn dispatchShapePair:boolean (si:CannonShape sj:CannonShape xi:CannonVec3 xj:CannonVec3 qi:CannonQuaternion qj:CannonQuaternion bi:CannonBody bj:CannonBody justTest:boolean) {
         if (si.type == 1) {
             if (sj.type == 1) {
@@ -119,6 +223,29 @@ class CannonNarrowphase {
             if (sj.type == 1) {
                 def hitSwap:boolean (this.spherePlane(sj.radius xj xi qi bj bi sj si justTest))
                 return hitSwap
+            }
+            if (sj.type == 4) {
+                def hitPB:boolean (this.planeBox(qi sj xj qj bi bj si sj justTest))
+                return hitPB
+            }
+        }
+        ; sphere (i) vs box (j)
+        if (si.type == 1) {
+            if (sj.type == 4) {
+                def hitSBox:boolean (this.sphereBox(si.radius xi sj xj qj bi bj si sj justTest))
+                return hitSBox
+            }
+        }
+        if (si.type == 4) {
+            ; box vs sphere -> reuse sphereBox with the sphere as body i
+            if (sj.type == 1) {
+                def hitBSphere:boolean (this.sphereBox(sj.radius xj si xi qi bj bi sj si justTest))
+                return hitBSphere
+            }
+            ; box vs plane -> reuse planeBox with the plane as body i
+            if (sj.type == 2) {
+                def hitBP:boolean (this.planeBox(qj si xi qi bj bi sj si justTest))
+                return hitBP
             }
         }
         return false

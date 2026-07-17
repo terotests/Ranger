@@ -256,6 +256,17 @@ flipperi-testi.
 **Vaihe 3 — Laatikko/konveksi-narrowphase.** `boxBox`, `sphereBox`, `ConvexPolyhedron`
 + `convexConvex` (SAT). Todiste: laatikkopino-testi.
 
+- ✅ **Osa 3a (tehty):** **sphere-box** (lähin piste OBB:llä) ja **plane-box**
+  (kukin läpäisevä laatikon kulma → kontakti) lisätty narrowphaseen. Muototyyppi
+  ratkaistaan virtuaalisella `getHalfExtents()`-metodilla (perii `CannonShape`,
+  ylikirjoittaa `CannonBox`) — sama polymorfismi kuin `calculateWorldAABB`illa,
+  ei downcastia. Testit ([`cannon_boxcollision_test.rgr`](./physics/src/cannon_boxcollision_test.rgr)):
+  pallo asettuu laatikon päälle (`y ≈ 1.5000`, ei uppoa), laatikko asettuu tasolle
+  (`z ≈ 1.0000`). **Tämä on pinballin ydin: pallo vs. laatikkoseinät/flipperit.**
+  `npm run engine:physics:test` → 69 passed, 0 failed.
+  ⏳ Täysi **box-box (OBB SAT)** ja `ConvexPolyhedron` jäävät myöhempään (iso,
+  tarkkuutta vaativa) — kaksi dynaamista laatikkoa törmäämässä ei ole vielä.
+
 **Vaihe 4 — Raycast.** `Ray`, `RaycastResult`, `world.raycastClosest/Any/All`,
 muotojen `raycast`-metodit. Todiste: raycast-osumatestit per muoto.
 

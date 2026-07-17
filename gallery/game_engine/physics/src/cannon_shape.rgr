@@ -29,4 +29,9 @@ class CannonShape {
 
     fn updateBoundingSphereRadius:void () {
     }
+
+    ; Overridden by CannonBox; the base returns zero half-extents.
+    fn getHalfExtents:CannonVec3 () {
+        return (new CannonVec3)
+    }
 }
