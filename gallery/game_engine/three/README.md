@@ -1,5 +1,10 @@
 # three — a Ranger clone of Three.js
 
+> Design: [`../IDEAL_THREE.md`](../IDEAL_THREE.md) — the goal (run the canonical
+> Three.js example 1:1 as `.tsx`), the three layers (façade / object model /
+> backend), the WASM-friendly canonical object model, and the `needsUpdate`
+> reconciliation that makes dynamic mutation work without proxies.
+
 A port of the [Three.js](https://threejs.org) API to the **Ranger language**,
 built the same way as the [`physics/`](../physics) Cannon.js port: **one class
 per file, ported faithfully, each with a matching `*_test.rgr`**, added **piece

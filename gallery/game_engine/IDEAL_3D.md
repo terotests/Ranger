@@ -400,6 +400,7 @@ The guest does **not** own:
 | `IDEAL_TODO.md` Phase G | Phase G tracks the PoC slices. This document defines the architectural target those PoCs must evolve toward. |
 | `HOST_ARCHITECTURE.md` | The `GameSceneProvider` pattern aligns — the host holds the scene through an internal interface; the 3D entity registry is the generalisation. |
 | `model3d/` (`gallery/game_engine/model3d/`) | **Implements** the host-managed object model this document requires (§2, §4.3): `AssetRegistry`/`EntityRegistry`, `load_model`→`ModelAsset`→entity hierarchy→`MeshRenderer`, `instantiate_model`, `find_child`. Pure Ranger, host-owned, WASM-free. §12 below is the checklist to wire it to the §4.4 ABI imports. |
+| [`IDEAL_THREE.md`](./IDEAL_THREE.md) + `three/` | The **portable Ranger 3D object model + Three.js-compatible API**. Where IDEAL_3D is the WASM-guest ABI view (host owns the scene, guest sends commands), IDEAL_THREE is the *object model itself*, driven by three interchangeable front-ends — Ranger code, a TSX façade, and (future) a WASM guest — with a pluggable render backend (software / WebGL / GLES). The object model is canonical and front-end-agnostic, so the same layer compiles to C++/WASM and the ABI transport here becomes one of several ways to build the same objects. |
 
 ---
 

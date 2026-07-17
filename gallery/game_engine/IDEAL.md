@@ -8,6 +8,11 @@
 > the engine is *aiming* at, derived from the engine's stated goal, so that every
 > refactor has a fixed target to move toward. Where the current code violates the
 > target, the violation is shown next to the ideal so the gap is concrete.
+>
+> **3D:** [`IDEAL_3D.md`](./IDEAL_3D.md) is the WASM host-owned-scene model;
+> [`IDEAL_THREE.md`](./IDEAL_THREE.md) is the portable **Ranger clone of Three.js**
+> — one Ranger object model (compiles to C++/WASM/ES6) driven by a TSX façade,
+> Ranger code, or a WASM guest, with a pluggable software/WebGL/GLES backend.
 
 ---
 
