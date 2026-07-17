@@ -90,6 +90,19 @@ class ThreeWebGLRenderer {
         ; view-projection = projection * inverse(camera world)
         def vp:ThreeMatrix4 (new ThreeMatrix4)
         vp.multiplyMatrices(camera.projectionMatrix camera.matrixWorldInverse)
+        ; environment cube map: upload + select it, then draw the skybox behind
+        ; everything (a large cube at the origin, depth-writes off in the backend).
+        if scene.hasEnvCube {
+            def eh:int (be.ensureEnvironment(scene.envCube))
+            be.setEnvironment(eh)
+            def scaleM:ThreeMatrix4 (new ThreeMatrix4)
+            scaleM.makeScale(20000.0 20000.0 20000.0)
+            def skyMvp:ThreeMatrix4 (new ThreeMatrix4)
+            skyMvp.multiplyMatrices(vp scaleM)
+            be.drawSkybox(eh skyMvp)
+        } {
+            be.setEnvironment(0)
+        }
         this.renderObject(scene be vp)
         be.endFrame()
     }

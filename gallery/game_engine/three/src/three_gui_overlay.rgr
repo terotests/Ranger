@@ -41,7 +41,9 @@ class ThreeGuiOverlay {
         if (shadingIndex == 0) { return "WIRE" }
         if (shadingIndex == 1) { return "FLAT" }
         if (shadingIndex == 2) { return "SMOOTH" }
-        return "GLOSSY"
+        if (shadingIndex == 3) { return "GLOSSY" }
+        if (shadingIndex == 4) { return "TEXTURE" }
+        return "REFLECT"
     }
 
     fn width:int () {
@@ -147,7 +149,7 @@ class ThreeGuiOverlay {
         ; shading row
         if (y < (rowTop + (rowH - 3))) {
             shadingIndex = (shadingIndex + 1)
-            if (shadingIndex > 3) {
+            if (shadingIndex > 5) {
                 shadingIndex = 0
             }
             return true

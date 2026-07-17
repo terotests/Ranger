@@ -14,6 +14,8 @@ Import "three_render_backend.rgr"
 Import "three_gl.rgr"
 Import "three_gl_shaders.rgr"
 Import "three_buffer_geometry.rgr"
+Import "three_box_geometry.rgr"
+Import "three_cube_texture.rgr"
 Import "three_matrix4.rgr"
 Import "three_texture.rgr"
 Import "three_material.rgr"
@@ -22,6 +24,9 @@ Import "../../model3d/ByteReader.rgr"
 class ThreeGLBackend extends ThreeRenderBackend {
     def prog:int 0
     def ready:boolean false
+    def skyProg:int 0
+    def skyMesh:int 0
+    def skyReady:boolean false
 
     fn init:boolean (canvasId:string) {
         def ok:int (gpu_init canvasId)
@@ -116,6 +121,50 @@ class ThreeGLBackend extends ThreeRenderBackend {
         }
     }
 
+    ; upload the environment cube map once; cache the handle on the texture.
+    fn ensureEnvironment:int (cube:ThreeCubeTexture) {
+        if (cube.glHandle < 0) {
+            if ((cube.faceCount()) == 6) {
+                def f0:buffer (cube.face(0))
+                def f1:buffer (cube.face(1))
+                def f2:buffer (cube.face(2))
+                def f3:buffer (cube.face(3))
+                def f4:buffer (cube.face(4))
+                def f5:buffer (cube.face(5))
+                cube.glHandle = (gpu_make_cubemap f0 f1 f2 f3 f4 f5 cube.size)
+            }
+        }
+        return cube.glHandle
+    }
+    fn setEnvironment:void (handle:int) {
+        gpu_set_env handle
+    }
+
+    ; build the skybox program + a unit cube mesh (lazily) and draw the cube map.
+    fn ensureSky:void () {
+        if skyReady {
+            return
+        }
+        def vs:string (ThreeGLShaders.skyVertexSrc())
+        def fs:string (ThreeGLShaders.skyFragmentSrc())
+        skyProg = (gpu_program vs fs)
+        def box:ThreeBoxGeometry (new ThreeBoxGeometry)
+        box.setSize(2.0 2.0 2.0)
+        skyMesh = (this.uploadGeometryData(box))
+        skyReady = true
+    }
+    fn drawSkybox:void (handle:int mvp:ThreeMatrix4) {
+        if (ready == false) {
+            return
+        }
+        if (handle < 1) {
+            return
+        }
+        this.ensureSky()
+        def mvpBuf:buffer (this.matrixBytes(mvp))
+        gpu_draw_sky skyProg skyMesh handle mvpBuf
+    }
+
     fn endFrame:void () {
         gpu_end
     }
@@ -180,9 +229,10 @@ class ThreeGLBackend extends ThreeRenderBackend {
         return out
     }
 
-    ; 10 float32: colRGB, specRGB, shininess, shadingMode, side, hasTex.
+    ; 12 float32: colRGB, specRGB, shininess, shadingMode, side, hasTex,
+    ; reflectivity, hasEnv.
     fn materialBytes:buffer (mat:ThreeMaterial th:int) {
-        def out:buffer (buffer_alloc 40)
+        def out:buffer (buffer_alloc 48)
         ByteReader.encodeF32(out 0 mat.colorR)
         ByteReader.encodeF32(out 4 mat.colorG)
         ByteReader.encodeF32(out 8 mat.colorB)
@@ -197,6 +247,12 @@ class ThreeGLBackend extends ThreeRenderBackend {
             hasTexF = 1.0
         }
         ByteReader.encodeF32(out 36 hasTexF)
+        ByteReader.encodeF32(out 40 mat.reflectivity)
+        def hasEnvF:double 0.0
+        if mat.reflective {
+            hasEnvF = 1.0
+        }
+        ByteReader.encodeF32(out 44 hasEnvF)
         return out
     }
 }

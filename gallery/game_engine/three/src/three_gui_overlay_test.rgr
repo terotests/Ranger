@@ -45,11 +45,14 @@ class ThreeGuiOverlayTest {
         }
         this.ok("panel has painted pixels" (nonzero > 10))
 
-        ; shading row click cycles glossy(3) -> wire(0)
-        def before:int g.shadingIndex
+        ; shading row click cycles glossy(3) -> texture(4) -> reflect(5) -> wire(0)
         def ch1:boolean (g.pointerDown(60.0 36.0))
         this.ok("shading click changed" ch1)
-        this.ok("shading cycled to 0" (g.shadingIndex == 0))
+        this.ok("shading -> 4 (texture)" (g.shadingIndex == 4))
+        def d2:boolean (g.pointerDown(60.0 36.0))
+        this.ok("shading -> 5 (reflect)" (g.shadingIndex == 5))
+        def d3:boolean (g.pointerDown(60.0 36.0))
+        this.ok("shading wraps to 0" (g.shadingIndex == 0))
 
         ; tess + stepper increments
         def t0:int g.tess

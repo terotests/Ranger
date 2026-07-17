@@ -6,6 +6,7 @@
 ; ==============================================================================
 
 Import "three_object3d.rgr"
+Import "three_cube_texture.rgr"
 
 class ThreeScene extends ThreeObject3D {
     def isScene:boolean true
@@ -14,12 +15,21 @@ class ThreeScene extends ThreeObject3D {
     def backgroundR:double 0.0
     def backgroundG:double 0.0
     def backgroundB:double 0.0
+    ; optional environment cube map — drawn as the skybox and used for envMap
+    ; reflections on reflective materials.
+    def hasEnvCube:boolean false
+    def envCube:ThreeCubeTexture (new ThreeCubeTexture)
 
     fn setBackground:ThreeScene (r:double g:double b:double) {
         this.hasBackground = true
         this.backgroundR = r
         this.backgroundG = g
         this.backgroundB = b
+        return this
+    }
+    fn setEnvironmentMap:ThreeScene (c:ThreeCubeTexture) {
+        this.envCube = c
+        this.hasEnvCube = true
         return this
     }
 }

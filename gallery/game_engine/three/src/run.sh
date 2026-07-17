@@ -40,6 +40,7 @@ run_suite three_box_geometry_test
 run_suite three_teapot_test
 run_suite three_orbit_controls_test
 run_suite three_gui_overlay_test
+run_suite three_cube_texture_test
 run_suite three_mesh_test
 run_suite three_cube_demo_test
 run_suite three_gl_backend_test

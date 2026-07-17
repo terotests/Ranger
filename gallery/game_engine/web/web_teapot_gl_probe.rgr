@@ -20,6 +20,8 @@ Import "../three/src/three_light.rgr"
 Import "../three/src/three_teapot_geometry.rgr"
 Import "../three/src/three_orbit_controls.rgr"
 Import "../three/src/three_gui_overlay.rgr"
+Import "../three/src/three_texture.rgr"
+Import "../three/src/three_cube_texture.rgr"
 
 class WebTeapotProbe {
     def renderer:ThreeWebGLRenderer (new ThreeWebGLRenderer)
@@ -29,6 +31,7 @@ class WebTeapotProbe {
     def mesh:ThreeMesh (new ThreeMesh)
     def controls:ThreeOrbitControls (new ThreeOrbitControls)
     def gui:ThreeGuiOverlay (new ThreeGuiOverlay)
+    def uvTex:ThreeTexture (new ThreeTexture)
     def w:int 600
     def h:int 600
     def spinY:double 0.6
@@ -55,6 +58,12 @@ class WebTeapotProbe {
         dir.setIntensity(1.4)
         dir.setDirection(0.32 0.39 0.7)
         scene.add(dir)
+
+        ; environment cube map (skybox + reflections) and a UV texture for
+        ; the "textured" material — both procedural, so no external assets.
+        def env:ThreeCubeTexture (ThreeCubeTexture.proceduralSky(64))
+        scene.setEnvironmentMap(env)
+        uvTex = (ThreeTexture.uvGrid(256 8))
 
         this.createNewTeapot()
         mesh.rotation.set((0.0 - 0.2) 0.5 0.0)
@@ -83,6 +92,25 @@ class WebTeapotProbe {
             ml.setColorHex(12632256)
             ml.setSide(2)
             return ml
+        }
+        if (gui.shadingIndex == 4) {
+            def mt:ThreeMeshPhongMaterial (new ThreeMeshPhongMaterial)
+            mt.setColorHex(16777215)
+            mt.setSpecularHex(2236962)
+            mt.setShininess(120.0)
+            mt.setSide(2)
+            mt.setMap(uvTex)
+            return mt
+        }
+        if (gui.shadingIndex == 5) {
+            def mr:ThreeMeshPhongMaterial (new ThreeMeshPhongMaterial)
+            mr.setColorHex(16777215)
+            mr.setSpecularHex(4210752)
+            mr.setShininess(300.0)
+            mr.setSide(2)
+            mr.setReflective(true)
+            mr.setReflectivity(0.85)
+            return mr
         }
         def mg:ThreeMeshPhongMaterial (new ThreeMeshPhongMaterial)
         mg.setColorHex(12632256)

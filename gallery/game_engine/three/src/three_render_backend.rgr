@@ -17,6 +17,7 @@
 Import "three_buffer_geometry.rgr"
 Import "three_matrix4.rgr"
 Import "three_texture.rgr"
+Import "three_cube_texture.rgr"
 Import "three_material.rgr"
 
 class ThreeRenderBackend {
@@ -33,6 +34,16 @@ class ThreeRenderBackend {
     ; Draw one mesh: geometry, its world (model) matrix, its full MVP, and the
     ; material (colour/specular/shininess/map/side/shading path).
     fn drawMesh:void (geometry:ThreeBufferGeometry model:ThreeMatrix4 mvp:ThreeMatrix4 mat:ThreeMaterial) {
+    }
+    ; Environment cube map (envMap reflections + skybox). ensureEnvironment uploads
+    ; the cube once and returns an opaque handle; setEnvironment selects it for
+    ; reflective draws; drawSkybox renders it behind the scene. No-ops by default.
+    fn ensureEnvironment:int (cube:ThreeCubeTexture) {
+        return 0
+    }
+    fn setEnvironment:void (handle:int) {
+    }
+    fn drawSkybox:void (handle:int mvp:ThreeMatrix4) {
     }
     fn endFrame:void () {
     }

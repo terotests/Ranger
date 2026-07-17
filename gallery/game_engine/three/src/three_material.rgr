@@ -36,6 +36,10 @@ class ThreeMaterial {
     def flatShading:boolean false
     def side:int 0            ; 0 front, 1 back, 2 double
 
+    ; environment reflection (envMap): the scene's cube map, mixed by reflectivity
+    def reflective:boolean false
+    def reflectivity:double 0.9
+
     ; Shading path the übershader takes: 0 unlit, 1 lambert, 2 phong. Overridden
     ; per subclass (Ranger runs no constructor, so a method beats a field default).
     fn shadingMode:int () {
@@ -91,6 +95,14 @@ class ThreeMaterial {
     fn setMap:ThreeMaterial (t:ThreeTexture) {
         this.map = t
         this.hasMap = true
+        return this
+    }
+    fn setReflective:ThreeMaterial (b:boolean) {
+        this.reflective = b
+        return this
+    }
+    fn setReflectivity:ThreeMaterial (v:double) {
+        this.reflectivity = v
         return this
     }
 }

@@ -110,8 +110,14 @@ and adds the material/light classes.
   toggles) and material switching (shading dropdown: wireframe / flat / smooth /
   glossy). Wireframe = GL line-edge draw; flat = per-face-normal geometry variant.
   The full example minus reflections. Verified all modes in the browser.
-- **M4 — Reflections.** + Phase F: cube maps, `envMap`, skybox → the example 1:1.
-  (Also still deferred from M3: the `textured` and `reflective` dropdown options.)
+- **M4 — Reflections. ✅ DONE.** + Phase F: `ThreeCubeTexture` (procedural sky,
+  no image assets) → GL `gpu_make_cubemap` / `gpu_draw_sky` (skybox) + a
+  `samplerCube` reflection term in the übershader (`reflect(-V,N)` → `textureCube`,
+  mixed by `reflectivity`). `scene.setEnvironmentMap` draws the skybox and feeds
+  reflective materials. The two remaining dropdown options landed too: `textured`
+  (procedural `ThreeTexture.uvGrid`) and `reflective`. All six shading modes now
+  render with a skybox — the full example, verified in the browser. Cube map +
+  skybox + reflections compile clean to the C++ target.
 
 ## 5. Portability & test rules (unchanged from IDEAL_THREE)
 
