@@ -302,6 +302,16 @@ class ThreeMatrix4 {
         return this
     }
 
+    ; homogeneous w of (x,y,z,1) under this matrix — <= 0 means behind the camera.
+    fn clipW:double (x:double y:double z:double) {
+        this.ensure()
+        def e3:double (itemAt this.elements 3)
+        def e7:double (itemAt this.elements 7)
+        def e11:double (itemAt this.elements 11)
+        def e15:double (itemAt this.elements 15)
+        return ((((e3 * x) + (e7 * y)) + (e11 * z)) + e15)
+    }
+
     ; w-divided transform of a point (used by tests + the renderer until
     ; Vector3.applyMatrix4 lands with Object3D).
     fn transformPoint:ThreeVector3 (v:ThreeVector3) {

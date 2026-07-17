@@ -59,12 +59,21 @@ bash gallery/game_engine/three/src/run.sh    # prints ALL PASS per suite
 | 9 | `ThreeTexture` + `ThreeTextureLoader` | `textures/Texture.js`, `loaders/TextureLoader.js` | ✅ done |
 | 10 | `ThreeMaterial` + `ThreeMeshBasicMaterial` | `materials/*` | ✅ done |
 | 11 | `ThreeMesh` | `objects/Mesh.js` | ✅ done (14 checks incl. 9–11) |
-| 12 | `ThreeWebGLRenderer` (`render(scene, camera)` → pluggable backend) | `renderers/WebGLRenderer.js` | ⬜ next |
+| 12 | `ThreeWebGLRenderer` + `ThreeRenderBackend` + `ThreeSoftwareBackend` | `renderers/WebGLRenderer.js` | ✅ done (cube renders) |
 
-With pieces 1–11 done, `ThreeWebGLRenderer` (piece 12) walks the scene and draws
-via a **pluggable backend** — never GPU code in the core. The default backend is
-the pure-Ranger `SoftRenderer3D` (compiles to C++ for native/embedded); the browser
-supplies a WebGL backend (`web/webgl3d.js`). Then the cube example runs as Ranger.
+**All 12 pieces done — the cube renders.** `ThreeWebGLRenderer.render(scene, camera)`
+walks the scene and draws each mesh through a **pluggable backend** (`ThreeRenderBackend`),
+so there is no GPU code in the core:
+
+- `ThreeSoftwareBackend` — a pure-Ranger z-buffered, textured triangle rasteriser
+  (the default). Works headless / on a Raspberry Pi; compiles to C++.
+- a browser WebGL backend (JS, injected via `setBackend`) — GPU-accelerated; the
+  same scene drawn on the GPU. (Wiring the existing `web/webgl3d.js` in as a
+  `ThreeRenderBackend` is the remaining browser-host task; the core + software
+  path are complete.)
+
+`three_cube_demo_test.rgr` builds the canonical cube in the Three.js API shape and
+renders it with the software backend (writes `/tmp/three_cube.ppm`).
 
 ## Portability
 

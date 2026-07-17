@@ -1,0 +1,231 @@
+; ==============================================================================
+; three_software_backend — pure-Ranger rasteriser backend for ThreeWebGLRenderer.
+; ==============================================================================
+;
+; A compact z-buffered triangle rasteriser: projects each vertex by the mesh MVP,
+; then fills triangles with perspective (NDC) depth testing and affine UV /
+; texture sampling. Unlit, matching MeshBasicMaterial. No GPU, no JS — compiles
+; to C++ for native/embedded and is the default renderer backend.
+; ==============================================================================
+
+Import "three_render_backend.rgr"
+Import "three_buffer_geometry.rgr"
+Import "three_matrix4.rgr"
+Import "three_texture.rgr"
+Import "three_vector3.rgr"
+
+class ThreeSoftwareBackend extends ThreeRenderBackend {
+    def w:int 0
+    def h:int 0
+    def color:buffer (buffer_alloc 0)
+    def depth:double_buffer (double_buffer_alloc 0)
+
+    fn init:void (width:int height:int) {
+        w = width
+        h = height
+        def npix:int (width * height)
+        def nbytes:int (npix * 3)
+        color = (buffer_alloc nbytes)
+        depth = (double_buffer_alloc npix)
+    }
+
+    fn beginFrame:void (width:int height:int r:double g:double b:double) {
+        if ((w != width) || (h != height)) {
+            this.init(width height)
+        }
+        def br:int (to_int (r * 255.0))
+        def bg:int (to_int (g * 255.0))
+        def bb:int (to_int (b * 255.0))
+        def n:int (w * h)
+        def i:int 0
+        while (i < n) {
+            def o:int (i * 3)
+            buffer_set color o br
+            buffer_set color (o + 1) bg
+            buffer_set color (o + 2) bb
+            double_buffer_set depth i 1000000000.0
+            i = (i + 1)
+        }
+    }
+
+    fn clampi:int (v:int lo:int hi:int) {
+        if (v < lo) {
+            return lo
+        }
+        if (v > hi) {
+            return hi
+        }
+        return v
+    }
+
+    fn sampleTex:int (tex:ThreeTexture u:double v:double comp:int) {
+        def tw:int tex.width
+        def th:int tex.height
+        if ((tw <= 0) || (th <= 0)) {
+            return 255
+        }
+        ; wrap into 0..1
+        def uu:double (u - (to_double (to_int u)))
+        if (uu < 0.0) {
+            uu = (uu + 1.0)
+        }
+        def vv:double (v - (to_double (to_int v)))
+        if (vv < 0.0) {
+            vv = (vv + 1.0)
+        }
+        def tx:int (to_int (uu * (to_double tw)))
+        def ty:int (to_int (vv * (to_double th)))
+        tx = (this.clampi(tx 0 (tw - 1)))
+        ty = (this.clampi(ty 0 (th - 1)))
+        def off:int (((ty * tw) + tx) * 4)
+        return (buffer_get tex.rgba (off + comp))
+    }
+
+    fn drawMesh:void (geometry:ThreeBufferGeometry mvp:ThreeMatrix4 hasTexture:boolean tex:ThreeTexture colorR:double colorG:double colorB:double) {
+        def vc:int (geometry.vertexCount())
+        if (vc == 0) {
+            return
+        }
+        ; project every vertex to screen space (sx, sy, sz=NDC depth); w<=0 verts
+        ; are marked behind (bad=1) and their triangles skipped.
+        def sx:[double]
+        def sy:[double]
+        def sz:[double]
+        def bad:[int]
+        def vi:int 0
+        while (vi < vc) {
+            def lx:double (geometry.getPosition(vi 0))
+            def ly:double (geometry.getPosition(vi 1))
+            def lz:double (geometry.getPosition(vi 2))
+            def cw:double (mvp.clipW(lx ly lz))
+            def ndc:ThreeVector3 (mvp.transformPoint((ThreeVector3.of(lx ly lz))))
+            def screenX:double (((ndc.x * 0.5) + 0.5) * (to_double w))
+            def screenY:double ((1.0 - ((ndc.y * 0.5) + 0.5)) * (to_double h))
+            push sx screenX
+            push sy screenY
+            push sz ndc.z
+            if (cw <= 0.0) {
+                push bad 1
+            } {
+                push bad 0
+            }
+            vi = (vi + 1)
+        }
+
+        def ic:int (geometry.indexCount())
+        def r255:int (to_int (colorR * 255.0))
+        def g255:int (to_int (colorG * 255.0))
+        def b255:int (to_int (colorB * 255.0))
+        def t:int 0
+        while (t < ic) {
+            def i0:int (geometry.getIndex(t))
+            def i1:int (geometry.getIndex(t + 1))
+            def i2:int (geometry.getIndex(t + 2))
+            if ((((itemAt bad i0) + (itemAt bad i1)) + (itemAt bad i2)) == 0) {
+                this.rasterTri(geometry sx sy sz i0 i1 i2 hasTexture tex r255 g255 b255)
+            }
+            t = (t + 3)
+        }
+    }
+
+    fn rasterTri:void (geometry:ThreeBufferGeometry sx:[double] sy:[double] sz:[double] i0:int i1:int i2:int hasTexture:boolean tex:ThreeTexture r255:int g255:int b255:int) {
+        def x0:double (itemAt sx i0)
+        def y0:double (itemAt sy i0)
+        def z0:double (itemAt sz i0)
+        def x1:double (itemAt sx i1)
+        def y1:double (itemAt sy i1)
+        def z1:double (itemAt sz i1)
+        def x2:double (itemAt sx i2)
+        def y2:double (itemAt sy i2)
+        def z2:double (itemAt sz i2)
+        def area:double (((x1 - x0) * (y2 - y0)) - ((x2 - x0) * (y1 - y0)))
+        if ((area < 0.0001) && (area > (0.0 - 0.0001))) {
+            return
+        }
+        ; screen bounding box
+        def minx:int (to_int (this.dmin3(x0 x1 x2)))
+        def maxx:int (to_int (this.dmax3(x0 x1 x2)))
+        def miny:int (to_int (this.dmin3(y0 y1 y2)))
+        def maxy:int (to_int (this.dmax3(y0 y1 y2)))
+        minx = (this.clampi(minx 0 (w - 1)))
+        maxx = (this.clampi(maxx 0 (w - 1)))
+        miny = (this.clampi(miny 0 (h - 1)))
+        maxy = (this.clampi(maxy 0 (h - 1)))
+        ; uvs at the corners
+        def u0:double (geometry.getUv(i0 0))
+        def v0:double (geometry.getUv(i0 1))
+        def u1:double (geometry.getUv(i1 0))
+        def v1:double (geometry.getUv(i1 1))
+        def u2:double (geometry.getUv(i2 0))
+        def v2:double (geometry.getUv(i2 1))
+        def invArea:double (1.0 / area)
+        def py:int miny
+        while (py <= maxy) {
+            def px:int minx
+            while (px <= maxx) {
+                def fx:double ((to_double px) + 0.5)
+                def fy:double ((to_double py) + 0.5)
+                def w0:double ((((x1 - fx) * (y2 - fy)) - ((x2 - fx) * (y1 - fy))) * invArea)
+                def w1:double ((((x2 - fx) * (y0 - fy)) - ((x0 - fx) * (y2 - fy))) * invArea)
+                def w2:double ((1.0 - w0) - w1)
+                if (((w0 >= 0.0) && (w1 >= 0.0)) && (w2 >= 0.0)) {
+                    def d:double (((w0 * z0) + (w1 * z1)) + (w2 * z2))
+                    def pidx:int ((py * w) + px)
+                    if (d < (double_buffer_get depth pidx)) {
+                        double_buffer_set depth pidx d
+                        def cr:int r255
+                        def cg:int g255
+                        def cb:int b255
+                        if hasTexture {
+                            def u:double (((w0 * u0) + (w1 * u1)) + (w2 * u2))
+                            def v:double (((w0 * v0) + (w1 * v1)) + (w2 * v2))
+                            def tr:int (this.sampleTex(tex u v 0))
+                            def tg:int (this.sampleTex(tex u v 1))
+                            def tb:int (this.sampleTex(tex u v 2))
+                            cr = (idiv (r255 * tr) 255)
+                            cg = (idiv (g255 * tg) 255)
+                            cb = (idiv (b255 * tb) 255)
+                        }
+                        def o:int (pidx * 3)
+                        buffer_set color o cr
+                        buffer_set color (o + 1) cg
+                        buffer_set color (o + 2) cb
+                    }
+                }
+                px = (px + 1)
+            }
+            py = (py + 1)
+        }
+    }
+
+    fn dmin3:double (a:double b:double c:double) {
+        def m:double a
+        if (b < m) {
+            m = b
+        }
+        if (c < m) {
+            m = c
+        }
+        return m
+    }
+    fn dmax3:double (a:double b:double c:double) {
+        def m:double a
+        if (b > m) {
+            m = b
+        }
+        if (c > m) {
+            m = c
+        }
+        return m
+    }
+
+    fn raw:buffer () {
+        return color
+    }
+    fn width:int () {
+        return w
+    }
+    fn height:int () {
+        return h
+    }
+}

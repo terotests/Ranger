@@ -16,6 +16,7 @@ Import "three_vector3.rgr"
 Import "three_euler.rgr"
 Import "three_quaternion.rgr"
 Import "three_matrix4.rgr"
+Import "three_render_backend.rgr"
 
 class ThreeObject3D {
     def isObject3D:boolean true
@@ -61,5 +62,11 @@ class ThreeObject3D {
     fn updateMatrixWorld:void () {
         def id:ThreeMatrix4 (new ThreeMatrix4)
         this.updateWorld(id)
+    }
+
+    ; Draw this node with the given render backend and the camera view-projection.
+    ; Base Object3D draws nothing; ThreeMesh overrides this (polymorphic dispatch
+    ; on the node variable — the renderer walks the tree and calls it per node).
+    fn renderInto:void (backend:ThreeRenderBackend viewProj:ThreeMatrix4) {
     }
 }
