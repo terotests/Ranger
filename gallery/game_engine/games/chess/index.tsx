@@ -20,13 +20,14 @@ import {
   sqRow,
   startBoard
 } from "./chess_rules";
-import { pickAiMove, uciOf } from "./chess_ai";
+import { AI_MAX_THINK_FRAMES, pickAiMove, pickAnyMove, uciOf } from "./chess_ai";
 
 const TILE = 28;
 const ORIGIN_X = 128;
 const ORIGIN_Y = 22;
 const MAX_PIECES = 32;
 const MAX_MARKS = 28;
+const AI_PAUSE_FRAMES = 8;
 
 function resources() {
   return [
@@ -79,12 +80,13 @@ function sprites() {
       id: pieceId(i),
       kind: "sheet",
       path: "assets/pieces.png",
-      frameW: 28,
-      frameH: 28,
+      frameW: 16,
+      frameH: 16,
       cols: 6,
       rows: 2,
-      scale: 100,
-      feetTrim: 1,
+      // 16px SpicyGame pixels → ~28px on the board (TILE).
+      scale: 175,
+      feetTrim: 0,
       jumpFrame: 0
     });
     i = i + 1;
@@ -366,6 +368,102 @@ function playerCanAct(s) {
   return 1;
 }
 
+// Allowed cursor squares while a piece is selected: origin + legal destinations.
+function collectMoveTargets(board, selSq, turn, ep, rights) {
+  const out = [];
+  out.push({ c: sqCol(selSq), r: sqRow(selSq) });
+  const moves = legalMovesFrom(board, selSq, turn, ep, rights);
+  let i = 0;
+  while (i < moves.length) {
+    out.push({ c: sqCol(moves[i].to), r: sqRow(moves[i].to) });
+    i = i + 1;
+  }
+  return out;
+}
+
+// Step cursor among targets in a direction; wraps to the far side if needed.
+function stepAmongTargets(targets, col, row, dcol, drow) {
+  let bestC = col;
+  let bestR = row;
+  let bestKey = 999999;
+  let found = 0;
+  let i = 0;
+  while (i < targets.length) {
+    const tc = targets[i].c;
+    const tr = targets[i].r;
+    if (tc != col || tr != row) {
+      const dc = tc - col;
+      const dr = tr - row;
+      let ok = 0;
+      if (dcol == 1 && dc > 0) { ok = 1; }
+      if (dcol == 0 - 1 && dc < 0) { ok = 1; }
+      if (drow == 1 && dr > 0) { ok = 1; }
+      if (drow == 0 - 1 && dr < 0) { ok = 1; }
+      if (ok == 1) {
+        let primary = 0;
+        let secondary = 0;
+        if (dcol != 0) {
+          primary = dc * dcol;
+          secondary = dr;
+          if (secondary < 0) { secondary = 0 - secondary; }
+        } else {
+          primary = dr * drow;
+          secondary = dc;
+          if (secondary < 0) { secondary = 0 - secondary; }
+        }
+        const key = primary * 100 + secondary;
+        if (found == 0 || key < bestKey) {
+          bestKey = key;
+          bestC = tc;
+          bestR = tr;
+          found = 1;
+        }
+      }
+    }
+    i = i + 1;
+  }
+  if (found == 1) {
+    return { c: bestC, r: bestR };
+  }
+  // Wrap: pick the extreme target in the travel direction.
+  if (targets.length == 0) {
+    return { c: col, r: row };
+  }
+  let wrapC = targets[0].c;
+  let wrapR = targets[0].r;
+  i = 1;
+  while (i < targets.length) {
+    const tc = targets[i].c;
+    const tr = targets[i].r;
+    if (dcol == 1) {
+      if (tc < wrapC || (tc == wrapC && tr < wrapR)) {
+        wrapC = tc;
+        wrapR = tr;
+      }
+    }
+    if (dcol == 0 - 1) {
+      if (tc > wrapC || (tc == wrapC && tr > wrapR)) {
+        wrapC = tc;
+        wrapR = tr;
+      }
+    }
+    if (drow == 1) {
+      if (tr < wrapR || (tr == wrapR && tc < wrapC)) {
+        wrapC = tc;
+        wrapR = tr;
+      }
+    }
+    if (drow == 0 - 1) {
+      if (tr > wrapR || (tr == wrapR && tc > wrapC)) {
+        wrapC = tc;
+        wrapR = tr;
+      }
+    }
+    i = i + 1;
+  }
+  return { c: wrapC, r: wrapR };
+}
+
 function update(props) {
   const s = props.state;
 
@@ -499,7 +597,7 @@ function update(props) {
   // AI turn (black when mode == cpu)
   if (s.mode == "cpu" && s.turn < 0) {
     let wait = s.aiWait + 1;
-    if (wait < 18) {
+    if (wait < AI_PAUSE_FRAMES) {
       const thinking = {
         screen: "play",
         mode: s.mode,
@@ -531,7 +629,11 @@ function update(props) {
       thinking.events = ev;
       return thinking;
     }
-    const ai = pickAiMove(s.board, s.turn, s.ep, s.rights, s.history, s.seed);
+    let ai = pickAiMove(s.board, s.turn, s.ep, s.rights, s.history, s.seed);
+    // Hard cap: never leave the "thinking" screen stuck — pick any legal move.
+    if (ai.move == null && wait >= AI_MAX_THINK_FRAMES) {
+      ai = pickAnyMove(s.board, s.turn, s.ep, s.rights, s.seed + wait);
+    }
     if (ai.move != null) {
       const moved = doMove(s, ai.move);
       moved.seed = ai.seed;
@@ -545,6 +647,37 @@ function update(props) {
       moved.events = [{ kind: "playSound", id: "blip" }];
       return moved;
     }
+    // Still no move (should be rare) — keep a short think state, then force.
+    const stall = {
+      screen: "play",
+      mode: s.mode,
+      board: cloneBoard(s.board),
+      turn: s.turn,
+      ep: s.ep,
+      rights: s.rights,
+      cursorCol: s.cursorCol,
+      cursorRow: s.cursorRow,
+      selSq: -1,
+      status: s.status,
+      history: cloneHistory(s.history),
+      lastFrom: s.lastFrom,
+      lastTo: s.lastTo,
+      seed: s.seed,
+      aiWait: wait,
+      msg: "Tietokone miettii…",
+      score1: s.score1,
+      score2: s.score2,
+      showNet: 0,
+      pUp: pUp,
+      pDown: pDown,
+      pLeft: pLeft,
+      pRight: pRight,
+      pAct: pAct,
+      pB: bHeld
+    };
+    stall.entities = buildEntities(stall);
+    stall.events = ev;
+    return stall;
   }
 
   let cursorCol = s.cursorCol;
@@ -564,21 +697,46 @@ function update(props) {
   let seed = s.seed;
 
   if (playerCanAct(s) == 1) {
-    if (up) {
-      cursorRow = cursorRow - 1;
-      if (cursorRow < 0) { cursorRow = 7; }
-    }
-    if (down) {
-      cursorRow = cursorRow + 1;
-      if (cursorRow > 7) { cursorRow = 0; }
-    }
-    if (left) {
-      cursorCol = cursorCol - 1;
-      if (cursorCol < 0) { cursorCol = 7; }
-    }
-    if (right) {
-      cursorCol = cursorCol + 1;
-      if (cursorCol > 7) { cursorCol = 0; }
+    if (selSq >= 0) {
+      // After selecting a piece, arrows jump only among legal targets (+ origin).
+      const targets = collectMoveTargets(board, selSq, turn, ep, rights);
+      if (up) {
+        const n = stepAmongTargets(targets, cursorCol, cursorRow, 0, 0 - 1);
+        cursorCol = n.c;
+        cursorRow = n.r;
+      }
+      if (down) {
+        const n = stepAmongTargets(targets, cursorCol, cursorRow, 0, 1);
+        cursorCol = n.c;
+        cursorRow = n.r;
+      }
+      if (left) {
+        const n = stepAmongTargets(targets, cursorCol, cursorRow, 0 - 1, 0);
+        cursorCol = n.c;
+        cursorRow = n.r;
+      }
+      if (right) {
+        const n = stepAmongTargets(targets, cursorCol, cursorRow, 1, 0);
+        cursorCol = n.c;
+        cursorRow = n.r;
+      }
+    } else {
+      if (up) {
+        cursorRow = cursorRow - 1;
+        if (cursorRow < 0) { cursorRow = 7; }
+      }
+      if (down) {
+        cursorRow = cursorRow + 1;
+        if (cursorRow > 7) { cursorRow = 0; }
+      }
+      if (left) {
+        cursorCol = cursorCol - 1;
+        if (cursorCol < 0) { cursorCol = 7; }
+      }
+      if (right) {
+        cursorCol = cursorCol + 1;
+        if (cursorCol > 7) { cursorCol = 0; }
+      }
     }
     if (bEdge == 1) {
       selSq = -1;
@@ -594,6 +752,9 @@ function update(props) {
           if (p < 0) { pc = -1; }
           if (pc == turn) {
             selSq = target;
+            // Snap onto the piece; next arrows visit only legal squares.
+            cursorCol = sqCol(target);
+            cursorRow = sqRow(target);
             ev = [{ kind: "playSound", id: "blip" }];
           }
         }
@@ -735,6 +896,10 @@ function hud(props) {
   if (s.status == "mate" || s.status == "stalemate") {
     endHint = "Space = valikko";
   }
+  let moveHint = "Space = valitse";
+  if (s.selSq >= 0) {
+    moveHint = "Nuolet = lailliset";
+  }
 
   return (
     <View width="100%" height="100%" flexDirection="row">
@@ -743,7 +908,7 @@ function hud(props) {
         <Label color="#c8ddb0" fontSize="12px">{modeLabel}</Label>
         <Label color="#e6c35c" fontSize="14px">{s.msg}</Label>
         <Label color="#a8c4a0" fontSize="12px">Kohdistin {side}</Label>
-        <Label color="#8aab88" fontSize="12px">Space = valitse</Label>
+        <Label color="#8aab88" fontSize="12px">{moveHint}</Label>
         <Label color="#6f8f6c" fontSize="12px">{endHint}</Label>
       </View>
       <View width="240px" height="100%" />
