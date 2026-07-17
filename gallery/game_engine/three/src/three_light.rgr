@@ -9,6 +9,8 @@
 
 Import "three_object3d.rgr"
 Import "three_color.rgr"
+Import "three_matrix4.rgr"
+Import "three_directional_light_shadow.rgr"
 
 class ThreeLight extends ThreeObject3D {
     def isLight:boolean true
@@ -43,6 +45,10 @@ class ThreeAmbientLight extends ThreeLight {
 
 class ThreeDirectionalLight extends ThreeLight {
     def isDirectionalLight:boolean true
+    def castShadow:boolean false
+    ; where the light aims; the example moves it around the model centre.
+    def target:ThreeObject3D (new ThreeObject3D)
+    def shadow:ThreeDirectionalLightShadow (new ThreeDirectionalLightShadow)
     fn lightKind:int () {
         return 2
     }
@@ -51,5 +57,13 @@ class ThreeDirectionalLight extends ThreeLight {
     fn setDirection:ThreeDirectionalLight (x:double y:double z:double) {
         this.position.set(x y z)
         return this
+    }
+    fn setCastShadow:ThreeDirectionalLight (on:boolean) {
+        castShadow = on
+        return this
+    }
+    ; the light-space view-projection for this light aiming at its target.
+    fn shadowViewProjection:ThreeMatrix4 () {
+        return (this.shadow.computeViewProjection(this.position this.target.position))
     }
 }

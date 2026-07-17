@@ -16,6 +16,9 @@ class ThreeMesh extends ThreeObject3D {
     def isMesh:boolean true
     def geometry:ThreeBufferGeometry (new ThreeBufferGeometry)
     def material:ThreeMaterial (new ThreeMaterial)
+    ; shadow participation (the example sets both on every Sponza mesh).
+    def castShadow:boolean false
+    def receiveShadow:boolean false
 
     fn setGeometry:ThreeMesh (g:ThreeBufferGeometry) {
         this.geometry = g

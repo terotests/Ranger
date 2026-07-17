@@ -1,0 +1,101 @@
+; ==============================================================================
+; three_directional_light_shadow_test — makeOrthographic + the light-space
+; view-projection (Sponza slice 4).
+; ==============================================================================
+; Compile to ES6 and run under Node; prints per-check PASS/FAIL and "ALL PASS".
+; ==============================================================================
+
+Import "three_directional_light_shadow.rgr"
+Import "three_light.rgr"
+
+class ThreeCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    fn near:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        if (d < 0.0001) {
+            passed = (passed + 1)
+            print ("  PASS " + name + " (" + (to_string got) + ")")
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name + " got=" + (to_string got) + " want=" + (to_string want))
+        }
+    }
+}
+
+class ThreeDirectionalLightShadowTest {
+    sfn m@(main):void () {
+        def ck:ThreeCheck (new ThreeCheck)
+        print "== makeOrthographic =="
+
+        ; symmetric ortho [-2,2] x [-2,2] x near 1 far 5 (looking down -Z)
+        def proj:ThreeMatrix4 (new ThreeMatrix4)
+        proj.makeOrthographic((0.0 - 2.0) 2.0 2.0 (0.0 - 2.0) 1.0 5.0)
+
+        ; right edge x=2 -> NDC x = +1
+        def vRight:ThreeVector3 (ThreeVector3.of(2.0 0.0 (0.0 - 1.0)))
+        def pr:ThreeVector3 (proj.transformPoint(vRight))
+        ck.near("right edge -> +1" pr.x 1.0)
+        ; left edge x=-2 -> NDC x = -1
+        def vLeft:ThreeVector3 (ThreeVector3.of((0.0 - 2.0) 0.0 (0.0 - 1.0)))
+        def pl:ThreeVector3 (proj.transformPoint(vLeft))
+        ck.near("left edge -> -1" pl.x (0.0 - 1.0))
+        ; top edge y=2 -> NDC y = +1
+        def vTop:ThreeVector3 (ThreeVector3.of(0.0 2.0 (0.0 - 1.0)))
+        def pt:ThreeVector3 (proj.transformPoint(vTop))
+        ck.near("top edge -> +1" pt.y 1.0)
+        ; near plane z=-1 -> NDC z = -1, far plane z=-5 -> NDC z = +1
+        def vNear:ThreeVector3 (ThreeVector3.of(0.0 0.0 (0.0 - 1.0)))
+        def pn:ThreeVector3 (proj.transformPoint(vNear))
+        ck.near("near -> -1" pn.z (0.0 - 1.0))
+        def vFar:ThreeVector3 (ThreeVector3.of(0.0 0.0 (0.0 - 5.0)))
+        def pf:ThreeVector3 (proj.transformPoint(vFar))
+        ck.near("far -> +1" pf.z 1.0)
+
+        print "== shadow config + light-space matrix =="
+        def dl:ThreeDirectionalLight (new ThreeDirectionalLight)
+        ; angled (not straight overhead, which is the lookAt up-vector singularity)
+        dl.position.set(0.0 10.0 10.0)
+        dl.target.position.set(0.0 0.0 0.0)
+        dl.shadow.setMapSize(2048)
+        dl.shadow.setExtent((0.0 - 8.0) 8.0 8.0 (0.0 - 8.0) 0.1 40.0)
+        ck.near("mapSize stored" (to_double dl.shadow.mapSize) 2048.0)
+        ck.near("extent right stored" dl.shadow.right 8.0)
+
+        ; light at (0,10,0) looking down at origin. The target projects to the
+        ; centre of the shadow map (NDC ~ 0,0) and within the depth range.
+        def vp:ThreeMatrix4 (dl.shadowViewProjection())
+        def vOrigin:ThreeVector3 (ThreeVector3.of(0.0 0.0 0.0))
+        def tc:ThreeVector3 (vp.transformPoint(vOrigin))
+        ck.near("target -> centre x" tc.x 0.0)
+        ck.near("target -> centre y" tc.y 0.0)
+        ck.ok("target within depth" ((tc.z > (0.0 - 1.0)) && (tc.z < 1.0)))
+
+        ; a point offset +X from the target lands off-centre in the same sign in
+        ; shadow space (nonzero x), confirming the view-projection actually maps.
+        def vOff:ThreeVector3 (ThreeVector3.of(4.0 0.0 0.0))
+        def oc:ThreeVector3 (vp.transformPoint(vOff))
+        ck.ok("offset maps off-centre" ((oc.x > 0.01) || (oc.x < (0.0 - 0.01))))
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}
