@@ -1,24 +1,32 @@
 ; ==============================================================================
-; cannon_world — physics world (Cannon.js port: gravity, collisions, integration).
+; cannon_world — physics world (Cannon.js port).
+;   Pipeline per step: apply gravity -> broadphase -> narrowphase (SPOOK contact
+;   equations) -> GS solver -> semi-implicit Euler integration.
+;   The previous hand-tuned arcade impulse resolver has been replaced by the
+;   faithful cannon-es GSSolver (see PLAN_PHYSICS_ENGINE.md, Vaihe 1).
 ; ==============================================================================
 
 Import "cannon_vec3.rgr"
 Import "cannon_body.rgr"
 Import "cannon_shape.rgr"
-Import "cannon_contact_equation.rgr"
+Import "cannon_equation.rgr"
+Import "cannon_gssolver.rgr"
 Import "cannon_contact_material.rgr"
 Import "cannon_array_collision_matrix.rgr"
 Import "cannon_naive_broadphase.rgr"
 Import "cannon_narrowphase.rgr"
 Import "cannon_overlap_keeper.rgr"
+Import "cannon_constraint.rgr"
+Import "cannon_ray.rgr"
 
 class CannonWorld {
     def dt:double (1.0 / 60.0)
     def gravity:CannonVec3 (new CannonVec3)
     def bodies:[CannonBody]
-    def contacts:[CannonContactEquation]
+    def constraints:[CannonConstraint]
     def broadphase:CannonNaiveBroadphase
     def narrowphase:CannonNarrowphase
+    def solver:CannonGSSolver
     def collisionMatrix:CannonArrayCollisionMatrix
     def collisionMatrixPrevious:CannonArrayCollisionMatrix
     def bodyOverlapKeeper:CannonOverlapKeeper
@@ -31,6 +39,7 @@ class CannonWorld {
         this.gravity.set(0.0 0.0 (0.0 - 9.82))
         this.broadphase = (new CannonNaiveBroadphase)
         this.narrowphase = (new CannonNarrowphase)
+        this.solver = (new CannonGSSolver)
         this.collisionMatrix = (new CannonArrayCollisionMatrix)
         this.collisionMatrixPrevious = (new CannonArrayCollisionMatrix)
         this.bodyOverlapKeeper = (new CannonOverlapKeeper)
@@ -41,6 +50,10 @@ class CannonWorld {
 
     fn setGravity:void (x:double y:double z:double) {
         this.gravity.set(x y z)
+    }
+
+    fn addConstraint:void (c:CannonConstraint) {
+        push this.constraints c
     }
 
     fn addBody:void (body:CannonBody) {
@@ -65,24 +78,30 @@ class CannonWorld {
         def gx:double this.gravity.x
         def gy:double this.gravity.y
         def gz:double this.gravity.z
+
+        ; 1) Apply gravity to dynamic bodies.
         def i 0
         while (i < (array_length this.bodies)) {
             def body:CannonBody (itemAt this.bodies i)
             if (body.type == 1) {
-                body.force.x = body.force.x + (body.mass * gx)
-                body.force.y = body.force.y + (body.mass * gy)
-                body.force.z = body.force.z + (body.mass * gz)
+                body.force.x = (body.force.x + (body.mass * gx))
+                body.force.y = (body.force.y + (body.mass * gy))
+                body.force.z = (body.force.z + (body.mass * gz))
             }
             i = (i + 1)
         }
+
+        ; 2) Broadphase + narrowphase (produces SPOOK contact equations).
         this.broadphase.collisionPairs(this.bodies)
         this.collisionMatrixTick()
         this.narrowphase.currentContactMaterial = this.defaultContactMaterial
         this.narrowphase.getContacts(this.broadphase.outPairs1 this.broadphase.outPairs2)
+
+        ; 3) Record collision matrix + overlap keepers from the contacts.
         def contactCount:int (array_length this.narrowphase.result)
         def k 0
         while (k < contactCount) {
-            def c:CannonContactEquation (itemAt this.narrowphase.result k)
+            def c:CannonEquation (itemAt this.narrowphase.result k)
             def bi:CannonBody c.bi
             def bj:CannonBody c.bj
             def si:CannonShape c.si
@@ -92,207 +111,128 @@ class CannonWorld {
             this.shapeOverlapKeeper.set(si.id sj.id)
             k = (k + 1)
         }
-        this.resolveContactImpulses()
+
+        ; 4) Solve the constraint system: contact equations + two friction
+        ;    equations per contact (Coulomb friction, slip force = mu*g*reducedMass).
+        this.solver.removeAllEquations()
+        def e 0
+        while (e < contactCount) {
+            def c:CannonEquation (itemAt this.narrowphase.result e)
+            this.solver.addEquation(c)
+            e = (e + 1)
+        }
+        def friction:double this.defaultContactMaterial.friction
+        if (friction > 0.0) {
+            def gLen:double (this.gravity.norm())
+            def mug:double (friction * gLen)
+            def f 0
+            while (f < contactCount) {
+                def c:CannonEquation (itemAt this.narrowphase.result f)
+                def bi:CannonBody (unwrap c.bi)
+                def bj:CannonBody (unwrap c.bj)
+                def reduced:double (bi.invMass + bj.invMass)
+                if (reduced > 0.0) {
+                    reduced = (1.0 / reduced)
+                }
+                def slip:double (mug * reduced)
+                def fe1:CannonEquation (new CannonEquation)
+                fe1.initFriction(bi bj slip)
+                def fe2:CannonEquation (new CannonEquation)
+                fe2.initFriction(bi bj slip)
+                c.ni.tangents(fe1.t fe2.t)
+                fe1.ri.copy(c.ri)
+                fe1.rj.copy(c.rj)
+                fe2.ri.copy(c.ri)
+                fe2.rj.copy(c.rj)
+                fe1.si = c.si
+                fe1.sj = c.sj
+                fe2.si = c.si
+                fe2.sj = c.sj
+                this.solver.addEquation(fe1)
+                this.solver.addEquation(fe2)
+                f = (f + 1)
+            }
+        }
+
+        ; Joint constraints: refresh jacobians and feed their equations in.
+        def ci 0
+        while (ci < (array_length this.constraints)) {
+            def con:CannonConstraint (itemAt this.constraints ci)
+            con.update()
+            def ei 0
+            while (ei < (array_length con.equations)) {
+                def eq:CannonEquation (itemAt con.equations ei)
+                this.solver.addEquation(eq)
+                ei = (ei + 1)
+            }
+            ci = (ci + 1)
+        }
+
+        this.solver.solve(dt this.bodies)
+
+        ; 5) Integrate velocities and positions.
         i = 0
         while (i < (array_length this.bodies)) {
             def body:CannonBody (itemAt this.bodies i)
-            if (body.type == 1) {
-                def invM:double body.invMass
-                body.velocity.x = body.velocity.x + ((body.force.x * invM) * dt)
-                body.velocity.y = body.velocity.y + ((body.force.y * invM) * dt)
-                body.velocity.z = body.velocity.z + ((body.force.z * invM) * dt)
-                def invIx:double body.invInertia.x
-                def invIy:double body.invInertia.y
-                def invIz:double body.invInertia.z
-                body.angularVelocity.x = body.angularVelocity.x + ((body.torque.x * invIx) * dt)
-                body.angularVelocity.y = body.angularVelocity.y + ((body.torque.y * invIy) * dt)
-                body.angularVelocity.z = body.angularVelocity.z + ((body.torque.z * invIz) * dt)
-                def damp:double (1.0 - (0.4 * dt))
-                if (damp < 0.0) {
-                    damp = 0.0
-                }
-                body.angularVelocity.z = body.angularVelocity.z * damp
-                body.clampAngularVelocity(12.0)
-                body.position.x = body.position.x + (body.velocity.x * dt)
-                body.position.y = body.position.y + (body.velocity.y * dt)
-                body.position.z = body.position.z + (body.velocity.z * dt)
-            }
+            body.integrate(dt)
             i = (i + 1)
         }
+
         this.clearForces()
-        this.time = this.time + dt
+        this.time = (this.time + dt)
         this.stepnumber = (this.stepnumber + 1)
+
+        ; 6) Sleep bookkeeping: idle bodies stop integrating (perf).
+        def sidx 0
+        while (sidx < (array_length this.bodies)) {
+            def sb:CannonBody (itemAt this.bodies sidx)
+            sb.sleepTick(this.time)
+            sidx = (sidx + 1)
+        }
     }
 
     fn step:void (dt:double) {
         this.internalStep(dt)
     }
 
-    fn resolveContactImpulses:void () {
-        def n:int (array_length this.narrowphase.result)
-        def k 0
-        while (k < n) {
-            def c:CannonContactEquation (itemAt this.narrowphase.result k)
-            if (c.enabled) {
-                this.separateContact(c)
-            }
-            k = (k + 1)
+    ; Cast a ray and keep the closest hit across all bodies.
+    fn raycastClosest:boolean (from:CannonVec3 to:CannonVec3 result:CannonRaycastResult) {
+        def ray:CannonRay (new CannonRay)
+        ray.initRay(from to)
+        ray.mode = 1
+        ray.result = result
+        result.reset()
+        ray.updateDirection()
+        def i 0
+        while (i < (array_length this.bodies)) {
+            def b:CannonBody (itemAt this.bodies i)
+            ray.intersectBody(b)
+            i = (i + 1)
         }
-        k = 0
-        while (k < n) {
-            def c:CannonContactEquation (itemAt this.narrowphase.result k)
-            if (c.enabled == false) {
-                k = (k + 1)
-            } {
-                def bi:CannonBody c.bi
-                def bj:CannonBody c.bj
-                def vn:double (c.getImpactVelocityAlongNormal())
-                if (vn >= 0.0) {
-                    k = (k + 1)
-                } {
-                    def e:double c.restitution
-                    if (bi.type == 4) {
-                        if (bj.type == 1) {
-                            e = 1.05
-                        }
-                    }
-                    if (bj.type == 4) {
-                        if (bi.type == 1) {
-                            e = 1.05
-                        }
-                    }
-                    def invMi:double bi.invMass
-                    def invMj:double bj.invMass
-                    def invSum:double (invMi + invMj)
-                    if (invSum <= 0.0) {
-                        k = (k + 1)
-                    } {
-                        def nx:double c.ni.x
-                        def ny:double c.ni.y
-                        def nz:double c.ni.z
-                        def j:double ((0.0 - (1.0 + e)) * vn) / invSum
-                        def imp:CannonVec3 (new CannonVec3)
-                        imp.set((nx * j) (ny * j) (nz * j))
-                        if (bi.type == 1) {
-                            bi.applyImpulse(imp c.ri)
-                        }
-                        if (bj.type == 1) {
-                            def impJ:CannonVec3 (new CannonVec3)
-                            impJ.set((0.0 - (nx * j)) (0.0 - (ny * j)) (0.0 - (nz * j)))
-                            bj.applyImpulse(impJ c.rj)
-                        }
-                        this.applyKinematicSpinTransfer(c)
-                        k = (k + 1)
-                    }
-                }
-            }
-        }
+        return result.hasHit
     }
 
-    fn applyKinematicSpinTransfer:void (c:CannonContactEquation) {
-        def dyn:CannonBody
-        def kin:CannonBody
-        if (c.bi.type == 1) {
-            if (c.bj.type == 4) {
-                dyn = c.bi
-                kin = c.bj
-            }
-        }
-        if (c.bj.type == 1) {
-            if (c.bi.type == 4) {
-                dyn = c.bj
-                kin = c.bi
-            }
-        }
-        if (dyn) {
-            if (dyn.invInertia.z <= 0.0) {
-                return
-            }
-            def kinW:double kin.angularVelocity.z
-            def kinAbs:double kinW
-            if (kinAbs < 0.0) {
-                kinAbs = (0.0 - kinAbs)
-            }
-            if (kinAbs > 0.05) {
-                dyn.angularVelocity.z = (dyn.angularVelocity.z + (kinW * 0.65))
-            }
-        }
-    }
-
-    fn separateContact:void (c:CannonContactEquation) {
-        def bi:CannonBody c.bi
-        def bj:CannonBody c.bj
-        def si:CannonShape c.si
-        def sj:CannonShape c.sj
-        if (si.type == 1) {
-            if (sj.type == 2) {
-                if (bi.type == 1) {
-                    def nx:double c.ni.x
-                    def ny:double c.ni.y
-                    def ri:CannonVec3 c.ri
-                    def dist:double ((nx * ri.x) + (ny * ri.y))
-                    def pen:double (si.radius - dist)
-                    if (pen > 0.001) {
-                        bi.position.x = bi.position.x + (nx * pen)
-                        bi.position.y = bi.position.y + (ny * pen)
-                    }
+    ; Cast a ray and stop at the first hit (fast occlusion / line-of-sight test).
+    fn raycastAny:boolean (from:CannonVec3 to:CannonVec3 result:CannonRaycastResult) {
+        def ray:CannonRay (new CannonRay)
+        ray.initRay(from to)
+        ray.mode = 2
+        ray.result = result
+        result.reset()
+        ray.updateDirection()
+        def i 0
+        def stop:boolean false
+        while (i < (array_length this.bodies)) {
+            if (stop == false) {
+                def b:CannonBody (itemAt this.bodies i)
+                ray.intersectBody(b)
+                if (result.shouldStop) {
+                    stop = true
                 }
-                return
             }
+            i = (i + 1)
         }
-        if (si.type == 2) {
-            if (sj.type == 1) {
-                if (bj.type == 1) {
-                    def nx2:double c.ni.x
-                    def ny2:double c.ni.y
-                    def rj:CannonVec3 c.rj
-                    def dist2:double ((nx2 * rj.x) + (ny2 * rj.y))
-                    def pen2:double (sj.radius - dist2)
-                    if (pen2 > 0.001) {
-                        bj.position.x = bj.position.x + (nx2 * pen2)
-                        bj.position.y = bj.position.y + (ny2 * pen2)
-                    }
-                }
-                return
-            }
-        }
-        if (si.type != 1) {
-            return
-        }
-        if (sj.type != 1) {
-            return
-        }
-        def ri:double si.radius
-        def rj:double sj.radius
-        def dx:double (bj.position.x - bi.position.x)
-        def dy:double (bj.position.y - bi.position.y)
-        def dist:double (sqrt((dx * dx) + (dy * dy)))
-        def minDist:double (ri + rj)
-        if (dist <= 0.001) {
-            return
-        }
-        if (dist >= minDist) {
-            return
-        }
-        def pen:double (minDist - dist)
-        def nx:double (dx / dist)
-        def ny:double (dy / dist)
-        def invMi:double bi.invMass
-        def invMj:double bj.invMass
-        def invSum:double (invMi + invMj)
-        if (invSum <= 0.0) {
-            return
-        }
-        def moveI:double ((pen * invMi) / invSum)
-        def moveJ:double ((pen * invMj) / invSum)
-        if (bi.type == 1) {
-            bi.position.x = bi.position.x - (nx * moveI)
-            bi.position.y = bi.position.y - (ny * moveI)
-        }
-        if (bj.type == 1) {
-            bj.position.x = bj.position.x + (nx * moveJ)
-            bj.position.y = bj.position.y + (ny * moveJ)
-        }
+        return result.hasHit
     }
 
     fn clearForces:void () {

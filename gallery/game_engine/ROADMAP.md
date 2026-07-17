@@ -82,7 +82,7 @@ backend. Kaikki muu on portable.
 | **Pose-input (RGP1)** | `pose/`, `game_pose_provider.rgr` | ⚠️ PoC (natiivi + MediaPipe) |
 | **Streaming (RGX1/RGLD)** | `wasm/rust_worker`, `wasm/as_resource_loader`, `streaming_world_runner.rgr` | ⚠️ PoC (mock-handlet) |
 | **Host-fysiikka** | `game_physics.rgr`, `physics_core.rgr` | ✅ Phase 1 |
-| **Cannon-fysiikka** | `physics/src/cannon_*.rgr`, `game_cannon_physics.rgr` | ✅ Pinball + sandbox |
+| **Cannon-fysiikka (uudistettu)** | `physics/src/cannon_*.rgr`, `game_cannon_physics.rgr` | ✅ Täysi moottori: SPOOK-solver+kitka, nivelet+motori, kaikki muodot (sphere/box/plane/heightfield/convex/cylinder/particle/trimesh), raycast, ajoneuvo, uni, SAP + `PhysicsWorld`-rajapinta (89 testiä) — ks. [`PLAN_PHYSICS_ENGINE.md`](./PLAN_PHYSICS_ENGINE.md). Demo: `npm run engine:physics:showcase` |
 
 ### Demo-pelit
 
@@ -178,7 +178,9 @@ backend. Kaikki muu on portable.
 
 - Scene graph
 - Täysi asset pipeline (kuvat, äänipankit, kartat) — LPC bake osittain: [`LPC_HEADLESS_SPRITESHEET.md`](./LPC_HEADLESS_SPRITESHEET.md)
-- Yksi universaali fysiikkamoottori — kaksi erillistä kerrosta (host + Cannon) tarkoituksella
+- ~~Yksi universaali fysiikkamoottori~~ — nyt on `PhysicsWorld`-rajapinta jonka takana
+  moottorit vaihtuvat (Cannon + arcade); host-top-down ja Cannon ovat edelleen erilliset
+  toteutukset, mutta saman sopimuksen takana (ks. [`PLAN_PHYSICS_ENGINE.md`](./PLAN_PHYSICS_ENGINE.md) Vaihe 7a)
 
 Nämä ovat tulevia kerroksia tai pelikohtaisia ratkaisuja, ei base-moottorin osia.
 

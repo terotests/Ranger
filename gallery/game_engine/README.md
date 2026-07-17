@@ -660,11 +660,30 @@ Kaksi opt-in-fysiikkakerrosta:
 | **Host physics** (`game_physics.rgr`) | Top-down racer, ajoneuvot, segmenttiseinät | `config().physics`, `state.physics`, `physicsContacts` |
 | **Cannon** (`game_cannon_physics.rgr`) | Pinball, painovoima, flipperit | `config().physics.cannon`, entity `physics: { … }` |
 
-Cannon.js -portti: [`physics/src/`](./physics/src/). Headless-testit:
+### Cannon-moottori (uudistettu)
+
+Cannon-portti [`physics/src/`](./physics/src/) on uudistettu **cannon-es**:n pohjalta
+täydeksi constraint-pohjaiseksi 3D-moottoriksi (89 yksikkötestiä). Katso koko
+kuvaus ja vaiheet: [`PLAN_PHYSICS_ENGINE.md`](./PLAN_PHYSICS_ENGINE.md).
+
+- **Solver:** SPOOK Gauss–Seidel + Coulomb-kitka (korvaa käsin viritetyn arcade-resolverin)
+- **Nivelet:** point-to-point, sarana (hinge), sarana-motori (flipperi)
+- **Muodot & törmäykset:** sphere, box, plane, heightfield, convex, cylinder, particle,
+  trimesh — mukaan lukien box-box- ja convex-convex-SAT
+- **Raycast**, **RaycastVehicle** (jousitus + veto + sivuttaispito + ohjaus), **uni**
+  (sleep), **SAP-broadphase**
+- **`PhysicsWorld`-rajapinta** ([`physics_world.rgr`](./physics/src/physics_world.rgr)):
+  moottorineutraali sauma, jonka takana Cannon- ja arcade-backendit ovat vaihdettavissa
 
 ```bash
-npm run engine:physics:test
+npm run engine:physics:test        # 89 yksikkötestiä
+npm run engine:physics:showcase    # engine toiminnassa: 3 pallon vakaa pino (ASCII)
 ```
+
+> **Huom:** TSX-silta ([`game_cannon_physics.rgr`](./scripting/game_cannon_physics.rgr))
+> tekee vielä arcade-tyylistä manuaalista reunakäsittelyä eikä komponoi täysin uuden
+> solverin kanssa — se on vielä luonnos ja vaatii oman uudistuksensa. `engine:physics:showcase`
+> ajaa moottoria suoraan `PhysicsWorld`-rajapinnan kautta (ohi sillan).
 
 ## Käännetty Pong-viite
 

@@ -165,6 +165,7 @@
     "engine:pacman:assets": "bash gallery/game_engine/games/pacman/build-assets.sh",
     "engine:physics:build": "bash gallery/game_engine/scripts/build-physics.sh",
     "engine:physics:test": "bash gallery/game_engine/scripts/build-physics.sh --run",
+    "engine:physics:showcase": "RANGER_LIB=compiler/Lang.rgr:lib/stdops.rgr node bin/output.js -es6 gallery/game_engine/scripting/cannon_showcase_demo.rgr -d=gallery/game_engine/scripting -o=cannon_showcase_demo.js -nodecli && node gallery/game_engine/scripting/cannon_showcase_demo.js",
     "engine:wasm:build:rust-pong": "bash gallery/game_engine/games/rust_pong/src/build.sh",
     "engine:wasm:demo:pong": "bash gallery/game_engine/scripts/build-wasm-pong-demo.sh",
     "engine:wasm:build:cube3d": "bash gallery/game_engine/games/cube3d_wasm/src/build.sh",

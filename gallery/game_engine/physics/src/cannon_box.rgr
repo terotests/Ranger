@@ -28,6 +28,10 @@ class CannonBox extends CannonShape {
         this.boundingSphereRadius = this.halfExtents.norm()
     }
 
+    fn getHalfExtents:CannonVec3 () {
+        return this.halfExtents
+    }
+
     fn calculateInertiaFromHalfExtents:void (halfExtents:CannonVec3 mass:double target:CannonVec3) {
         def ex:double (2.0 * halfExtents.x)
         def ey:double (2.0 * halfExtents.y)

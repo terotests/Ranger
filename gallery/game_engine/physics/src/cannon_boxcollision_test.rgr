@@ -1,0 +1,177 @@
+; ==============================================================================
+; cannon_boxcollision_test — sphere-box and plane-box contacts through the world.
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_sphere.rgr"
+Import "cannon_plane.rgr"
+Import "cannon_box.rgr"
+Import "cannon_body.rgr"
+Import "cannon_world.rgr"
+Import "cannon_test_harness.rgr"
+Import "cannon_test_filter.rgr"
+
+class CannonBoxCollisionTest {
+    def filter:CannonTestFilter (new CannonTestFilter)
+
+    fn runFiltered:void (h:CannonTestHarness filter:string) {
+        if (this.filter.matches(filter "BoxCollision.sphereOnBox")) { this.sphereOnBox(h) }
+        if (this.filter.matches(filter "BoxCollision.boxOnPlane")) { this.boxOnPlane(h) }
+        if (this.filter.matches(filter "BoxCollision.boxStack")) { this.boxStack(h) }
+        if (this.filter.matches(filter "BoxCollision.boxSeparate")) { this.boxSeparate(h) }
+    }
+
+    ; A small box dropped onto a wide static box rests on top (four-corner
+    ; manifold keeps it stable at y ~= 1.0 instead of sinking or tipping off).
+    fn boxStack:void (h:CannonTestHarness) {
+        h.beginTest("BoxCollision.boxStack")
+        def world:CannonWorld (new CannonWorld)
+        world.initWorld()
+        world.setGravity(0.0 (0.0 - 10.0) 0.0)
+
+        def ground:CannonBody (new CannonBody)
+        ground.initStatic()
+        def heG:CannonVec3 (new CannonVec3)
+        heG.set(2.0 0.5 2.0)
+        def groundBox:CannonBox (new CannonBox)
+        groundBox.initBox(heG)
+        ground.addShape(groundBox)
+        ground.position.set(0.0 0.0 0.0)
+        world.addBody(ground)
+
+        def box:CannonBody (new CannonBody)
+        box.initDynamic(1.0)
+        def heB:CannonVec3 (new CannonVec3)
+        heB.set(0.5 0.5 0.5)
+        def boxShape:CannonBox (new CannonBox)
+        boxShape.initBox(heB)
+        box.addShape(boxShape)
+        box.position.set(0.0 0.9 0.0)
+        world.addBody(box)
+
+        def s 0
+        while (s < 120) {
+            world.step(0.016666666666666666)
+            s = (s + 1)
+        }
+        def y:double box.position.y
+        h.ok((y > 0.8) "box rests on the box, does not sink through")
+        h.ok((y < 1.25) "box settles on top, is not launched")
+        print ("boxStackY=" + (to_string y))
+        h.finishTest()
+    }
+
+    ; Two overlapping dynamic boxes push apart along the minimum-overlap axis.
+    fn boxSeparate:void (h:CannonTestHarness) {
+        h.beginTest("BoxCollision.boxSeparate")
+        def world:CannonWorld (new CannonWorld)
+        world.initWorld()
+        world.setGravity(0.0 0.0 0.0)
+
+        def a:CannonBody (new CannonBody)
+        a.initDynamic(1.0)
+        def heA:CannonVec3 (new CannonVec3)
+        heA.set(1.0 1.0 1.0)
+        def boxA:CannonBox (new CannonBox)
+        boxA.initBox(heA)
+        a.addShape(boxA)
+        a.position.set(0.0 0.0 0.0)
+        world.addBody(a)
+
+        def b:CannonBody (new CannonBody)
+        b.initDynamic(1.0)
+        def heB:CannonVec3 (new CannonVec3)
+        heB.set(1.0 1.0 1.0)
+        def boxB:CannonBox (new CannonBox)
+        boxB.initBox(heB)
+        b.addShape(boxB)
+        b.position.set(1.5 0.0 0.0)
+        world.addBody(b)
+
+        def s 0
+        while (s < 60) {
+            world.step(0.016666666666666666)
+            s = (s + 1)
+        }
+        def gap:double (b.position.x - a.position.x)
+        h.ok((gap > 1.8) "overlapping boxes separate along x")
+        print ("boxSeparateGap=" + (to_string gap))
+        h.finishTest()
+    }
+
+    ; A falling sphere settles on the top face of a static box (top at y=0.5),
+    ; resting one radius above it (y ~= 1.5) instead of passing through.
+    fn sphereOnBox:void (h:CannonTestHarness) {
+        h.beginTest("BoxCollision.sphereOnBox")
+        def world:CannonWorld (new CannonWorld)
+        world.initWorld()
+        world.setGravity(0.0 (0.0 - 10.0) 0.0)
+
+        def ground:CannonBody (new CannonBody)
+        ground.initStatic()
+        def he:CannonVec3 (new CannonVec3)
+        he.set(2.0 0.5 2.0)
+        def boxShape:CannonBox (new CannonBox)
+        boxShape.initBox(he)
+        ground.addShape(boxShape)
+        ground.position.set(0.0 0.0 0.0)
+        world.addBody(ground)
+
+        def ball:CannonBody (new CannonBody)
+        ball.initDynamic(1.0)
+        def sphere:CannonSphere (new CannonSphere)
+        sphere.initSphere(1.0)
+        ball.addShape(sphere)
+        ball.position.set(0.0 1.4 0.0)
+        world.addBody(ball)
+
+        def s 0
+        while (s < 90) {
+            world.step(0.016666666666666666)
+            s = (s + 1)
+        }
+        def y:double ball.position.y
+        h.ok((y > 1.3) "sphere rests on the box, does not sink through")
+        h.ok((y < 1.7) "sphere is not launched off the box")
+        print ("sphereOnBoxY=" + (to_string y))
+        h.finishTest()
+    }
+
+    ; A box dropped onto the ground plane (normal +Z) rests with its bottom face
+    ; on the plane (center z ~= 1 for unit half-extents).
+    fn boxOnPlane:void (h:CannonTestHarness) {
+        h.beginTest("BoxCollision.boxOnPlane")
+        def world:CannonWorld (new CannonWorld)
+        world.initWorld()
+        world.setGravity(0.0 0.0 (0.0 - 10.0))
+
+        def ground:CannonBody (new CannonBody)
+        ground.initStatic()
+        def plane:CannonPlane (new CannonPlane)
+        plane.initPlane()
+        ground.addShape(plane)
+        ground.position.set(0.0 0.0 0.0)
+        world.addBody(ground)
+
+        def box:CannonBody (new CannonBody)
+        box.initDynamic(1.0)
+        def he:CannonVec3 (new CannonVec3)
+        he.set(1.0 1.0 1.0)
+        def boxShape:CannonBox (new CannonBox)
+        boxShape.initBox(he)
+        box.addShape(boxShape)
+        box.position.set(0.0 0.0 3.0)
+        world.addBody(box)
+
+        def s 0
+        while (s < 120) {
+            world.step(0.016666666666666666)
+            s = (s + 1)
+        }
+        def z:double box.position.z
+        h.ok((z > 0.6) "box rests on the plane, does not sink through")
+        h.ok((z < 1.5) "box settles near the plane")
+        print ("boxOnPlaneZ=" + (to_string z))
+        h.finishTest()
+    }
+}

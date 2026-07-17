@@ -1,0 +1,50 @@
+; ==============================================================================
+; cannon_sleep_test — idle bodies fall asleep and stop integrating; moving
+;   bodies stay awake.
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_body.rgr"
+Import "cannon_world.rgr"
+Import "cannon_test_harness.rgr"
+Import "cannon_test_filter.rgr"
+
+class CannonSleepTest {
+    def filter:CannonTestFilter (new CannonTestFilter)
+
+    fn runFiltered:void (h:CannonTestHarness filter:string) {
+        if (this.filter.matches(filter "Sleep.bodySleeps")) { this.bodySleeps(h) }
+    }
+
+    ; A still body becomes SLEEPY then SLEEPING past the time limit; a body that
+    ; keeps moving stays awake (the speed gate) and keeps integrating.
+    fn bodySleeps:void (h:CannonTestHarness) {
+        h.beginTest("Sleep.bodySleeps")
+        def world:CannonWorld (new CannonWorld)
+        world.initWorld()
+        world.setGravity(0.0 0.0 0.0)
+
+        def still:CannonBody (new CannonBody)
+        still.initDynamic(1.0)
+        still.position.set(0.0 0.0 0.0)
+        world.addBody(still)
+
+        def mover:CannonBody (new CannonBody)
+        mover.initDynamic(1.0)
+        mover.position.set(0.0 5.0 0.0)
+        mover.velocity.set(1.0 0.0 0.0)
+        world.addBody(mover)
+
+        def s 0
+        while (s < 120) {
+            world.step(0.016666666666666666)
+            s = (s + 1)
+        }
+        h.equalInt(still.sleepState 2 "still body is SLEEPING")
+        h.equalInt(mover.sleepState 0 "moving body stays awake")
+        h.ok((mover.position.x > 1.5) "awake body kept integrating (moved)")
+        print ("stillSleep=" + (to_string still.sleepState))
+        print ("moverX=" + (to_string mover.position.x))
+        h.finishTest()
+    }
+}

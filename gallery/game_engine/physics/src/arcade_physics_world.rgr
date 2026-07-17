@@ -1,0 +1,289 @@
+; ==============================================================================
+; arcade_physics_world — a tiny arcade engine behind the PhysicsWorld interface.
+;
+; A second, deliberately different implementation of PhysicsWorld: no constraint
+; solver, just semi-implicit Euler + penetration correction and velocity
+; reflection (spheres and infinite planes only). It exists to prove the interface
+; is a real seam — the SAME engine-agnostic test code drives this and the full
+; Cannon engine and gets the same answer. It depends on nothing in the Cannon
+; port.
+; ==============================================================================
+
+Import "physics_world.rgr"
+
+class ArcadeBody {
+    def isStatic:boolean false
+    def isPlane:boolean false
+    def x:double 0.0
+    def y:double 0.0
+    def z:double 0.0
+    def vx:double 0.0
+    def vy:double 0.0
+    def vz:double 0.0
+    def radius:double 0.5
+    def nx:double 0.0
+    def ny:double 1.0
+    def nz:double 0.0
+    def invMass:double 0.0
+    def restitution:double 0.0
+}
+
+class ArcadePhysicsWorld extends PhysicsWorld {
+    def gx:double 0.0
+    def gy:double 0.0
+    def gz:double 0.0
+    def bodies:[ArcadeBody]
+    def iterations:int 4
+    ; raycast result
+    def rHasHit:boolean false
+    def rHitX:double 0.0
+    def rHitY:double 0.0
+    def rHitZ:double 0.0
+    def rDist:double -1.0
+
+    fn initWorld:void () {
+        this.gx = 0.0
+        this.gy = 0.0
+        this.gz = 0.0
+    }
+
+    fn setGravity:void (x:double y:double z:double) {
+        this.gx = x
+        this.gy = y
+        this.gz = z
+    }
+
+    fn addSphere:int (mass:double x:double y:double z:double radius:double) {
+        def b:ArcadeBody (new ArcadeBody)
+        b.isPlane = false
+        if (mass > 0.0) {
+            b.isStatic = false
+            b.invMass = (1.0 / mass)
+        } {
+            b.isStatic = true
+            b.invMass = 0.0
+        }
+        b.x = x
+        b.y = y
+        b.z = z
+        b.radius = radius
+        push this.bodies b
+        return ((array_length this.bodies) - 1)
+    }
+
+    fn addStaticPlane:int (nx:double ny:double nz:double) {
+        def b:ArcadeBody (new ArcadeBody)
+        b.isPlane = true
+        b.isStatic = true
+        b.invMass = 0.0
+        def len:double (sqrt(((nx * nx) + (ny * ny)) + (nz * nz)))
+        if (len < 0.000001) {
+            len = 1.0
+        }
+        b.nx = (nx / len)
+        b.ny = (ny / len)
+        b.nz = (nz / len)
+        push this.bodies b
+        return ((array_length this.bodies) - 1)
+    }
+
+    fn setBodyVelocity:void (id:int vx:double vy:double vz:double) {
+        def b:ArcadeBody (itemAt this.bodies id)
+        b.vx = vx
+        b.vy = vy
+        b.vz = vz
+    }
+
+    fn bodyPosX:double (id:int) {
+        def b:ArcadeBody (itemAt this.bodies id)
+        return b.x
+    }
+
+    fn bodyPosY:double (id:int) {
+        def b:ArcadeBody (itemAt this.bodies id)
+        return b.y
+    }
+
+    fn bodyPosZ:double (id:int) {
+        def b:ArcadeBody (itemAt this.bodies id)
+        return b.z
+    }
+
+    ; Resolve a dynamic sphere against a static plane: push out of penetration,
+    ; reflect the inbound normal velocity (arcade, no solver).
+    fn resolveSpherePlane:void (s:ArcadeBody p:ArcadeBody) {
+        if (s.isStatic) {
+            return
+        }
+        def d:double (((p.nx * (s.x - p.x)) + (p.ny * (s.y - p.y))) + (p.nz * (s.z - p.z)))
+        if (d < s.radius) {
+            def pen:double (s.radius - d)
+            s.x = (s.x + (p.nx * pen))
+            s.y = (s.y + (p.ny * pen))
+            s.z = (s.z + (p.nz * pen))
+            def vn:double (((s.vx * p.nx) + (s.vy * p.ny)) + (s.vz * p.nz))
+            if (vn < 0.0) {
+                def j:double ((1.0 + s.restitution) * vn)
+                s.vx = (s.vx - (p.nx * j))
+                s.vy = (s.vy - (p.ny * j))
+                s.vz = (s.vz - (p.nz * j))
+            }
+        }
+    }
+
+    ; Resolve two spheres (at least one dynamic) by splitting the correction by
+    ; inverse mass and reflecting the relative normal velocity.
+    fn resolveSphereSphere:void (a:ArcadeBody b:ArcadeBody) {
+        def dx:double (b.x - a.x)
+        def dy:double (b.y - a.y)
+        def dz:double (b.z - a.z)
+        def dist:double (sqrt(((dx * dx) + (dy * dy)) + (dz * dz)))
+        def minDist:double (a.radius + b.radius)
+        if (dist <= 0.000001) {
+            return
+        }
+        if (dist >= minDist) {
+            return
+        }
+        def invSum:double (a.invMass + b.invMass)
+        if (invSum <= 0.0) {
+            return
+        }
+        def nx:double (dx / dist)
+        def ny:double (dy / dist)
+        def nz:double (dz / dist)
+        def pen:double (minDist - dist)
+        def aMove:double ((pen * a.invMass) / invSum)
+        def bMove:double ((pen * b.invMass) / invSum)
+        a.x = (a.x - (nx * aMove))
+        a.y = (a.y - (ny * aMove))
+        a.z = (a.z - (nz * aMove))
+        b.x = (b.x + (nx * bMove))
+        b.y = (b.y + (ny * bMove))
+        b.z = (b.z + (nz * bMove))
+        def rvn:double ((((b.vx - a.vx) * nx) + ((b.vy - a.vy) * ny)) + ((b.vz - a.vz) * nz))
+        if (rvn < 0.0) {
+            def e:double a.restitution
+            def j:double (((0.0 - (1.0 + e)) * rvn) / invSum)
+            a.vx = (a.vx - ((nx * j) * a.invMass))
+            a.vy = (a.vy - ((ny * j) * a.invMass))
+            a.vz = (a.vz - ((nz * j) * a.invMass))
+            b.vx = (b.vx + ((nx * j) * b.invMass))
+            b.vy = (b.vy + ((ny * j) * b.invMass))
+            b.vz = (b.vz + ((nz * j) * b.invMass))
+        }
+    }
+
+    fn step:void (dt:double) {
+        def n:int (array_length this.bodies)
+        ; integrate dynamic spheres
+        def i 0
+        while (i < n) {
+            def b:ArcadeBody (itemAt this.bodies i)
+            if (b.isStatic == false) {
+                if (b.isPlane == false) {
+                    b.vx = (b.vx + (this.gx * dt))
+                    b.vy = (b.vy + (this.gy * dt))
+                    b.vz = (b.vz + (this.gz * dt))
+                    b.x = (b.x + (b.vx * dt))
+                    b.y = (b.y + (b.vy * dt))
+                    b.z = (b.z + (b.vz * dt))
+                }
+            }
+            i = (i + 1)
+        }
+        ; resolve collisions (a few relaxation passes)
+        def iter 0
+        while (iter < this.iterations) {
+            def a 0
+            while (a < n) {
+                def bi:ArcadeBody (itemAt this.bodies a)
+                def bj:int (a + 1)
+                while (bj < n) {
+                    def other:ArcadeBody (itemAt this.bodies bj)
+                    if (bi.isPlane) {
+                        this.resolveSpherePlane(other bi)
+                    } {
+                        if (other.isPlane) {
+                            this.resolveSpherePlane(bi other)
+                        } {
+                            this.resolveSphereSphere(bi other)
+                        }
+                    }
+                    bj = (bj + 1)
+                }
+                a = (a + 1)
+            }
+            iter = (iter + 1)
+        }
+    }
+
+    fn raycastClosest:boolean (fx:double fy:double fz:double tx:double ty:double tz:double) {
+        this.rHasHit = false
+        this.rDist = -1.0
+        def dx:double (tx - fx)
+        def dy:double (ty - fy)
+        def dz:double (tz - fz)
+        def rayLen:double (sqrt(((dx * dx) + (dy * dy)) + (dz * dz)))
+        if (rayLen < 0.000001) {
+            return false
+        }
+        def ux:double (dx / rayLen)
+        def uy:double (dy / rayLen)
+        def uz:double (dz / rayLen)
+        def n:int (array_length this.bodies)
+        def best:double 1000000000.0
+        def i 0
+        while (i < n) {
+            def b:ArcadeBody (itemAt this.bodies i)
+            def t:double -1.0
+            if (b.isPlane) {
+                def denom:double (((ux * b.nx) + (uy * b.ny)) + (uz * b.nz))
+                if (denom < 0.0) {
+                    def num:double (((b.x - fx) * b.nx) + (((b.y - fy) * b.ny) + ((b.z - fz) * b.nz)))
+                    t = (num / denom)
+                }
+            } {
+                def ox:double (fx - b.x)
+                def oy:double (fy - b.y)
+                def oz:double (fz - b.z)
+                def bb:double (((ox * ux) + (oy * uy)) + (oz * uz))
+                def cc:double ((((ox * ox) + (oy * oy)) + (oz * oz)) - (b.radius * b.radius))
+                def disc:double ((bb * bb) - cc)
+                if (disc >= 0.0) {
+                    t = ((0.0 - bb) - (sqrt(disc)))
+                }
+            }
+            if (t >= 0.0) {
+                if (t <= rayLen) {
+                    if (t < best) {
+                        best = t
+                        this.rHasHit = true
+                        this.rDist = t
+                        this.rHitX = (fx + (ux * t))
+                        this.rHitY = (fy + (uy * t))
+                        this.rHitZ = (fz + (uz * t))
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return this.rHasHit
+    }
+
+    fn rayHitX:double () {
+        return this.rHitX
+    }
+
+    fn rayHitY:double () {
+        return this.rHitY
+    }
+
+    fn rayHitZ:double () {
+        return this.rHitZ
+    }
+
+    fn rayDistance:double () {
+        return this.rDist
+    }
+}

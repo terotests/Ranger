@@ -1,0 +1,160 @@
+; ==============================================================================
+; cannon_vehicle_test — raycast vehicle suspension + drive over a ground plane.
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_box.rgr"
+Import "cannon_plane.rgr"
+Import "cannon_body.rgr"
+Import "cannon_vehicle.rgr"
+Import "cannon_world.rgr"
+Import "cannon_test_harness.rgr"
+Import "cannon_test_filter.rgr"
+
+class CannonVehicleTest {
+    def filter:CannonTestFilter (new CannonTestFilter)
+
+    fn runFiltered:void (h:CannonTestHarness filter:string) {
+        if (this.filter.matches(filter "Vehicle.suspensionHover")) { this.suspensionHover(h) }
+        if (this.filter.matches(filter "Vehicle.drive")) { this.drive(h) }
+        if (this.filter.matches(filter "Vehicle.lateralGrip")) { this.lateralGrip(h) }
+        if (this.filter.matches(filter "Vehicle.steer")) { this.steer(h) }
+    }
+
+    ; Lateral tyre grip damps a sideways slide instead of letting the chassis
+    ; drift freely across the ground.
+    fn lateralGrip:void (h:CannonTestHarness) {
+        h.beginTest("Vehicle.lateralGrip")
+        def world:CannonWorld (new CannonWorld)
+        def vehicle:CannonRaycastVehicle (this.buildVehicle(world))
+        def chassis:CannonBody (unwrap vehicle.chassis)
+        chassis.velocity.set(0.0 0.0 3.0)
+
+        def s 0
+        while (s < 60) {
+            vehicle.updateVehicle(0.016666666666666666)
+            world.step(0.016666666666666666)
+            s = (s + 1)
+        }
+        def vz:double chassis.velocity.z
+        if (vz < 0.0) {
+            vz = (0.0 - vz)
+        }
+        h.ok((vz < 1.5) "lateral grip kills most of the sideways velocity")
+        print ("lateralVz=" + (to_string chassis.velocity.z))
+        h.finishTest()
+    }
+
+    ; With the front wheels steered and engine on, tyre grip turns the car so it
+    ; follows a curved path (develops lateral z displacement).
+    fn steer:void (h:CannonTestHarness) {
+        h.beginTest("Vehicle.steer")
+        def world:CannonWorld (new CannonWorld)
+        def vehicle:CannonRaycastVehicle (this.buildVehicle(world))
+        def chassis:CannonBody (unwrap vehicle.chassis)
+        vehicle.setEngineForce(10.0)
+        vehicle.setSteeringValue(0 0.5)
+        vehicle.setSteeringValue(1 0.5)
+
+        def s 0
+        while (s < 150) {
+            vehicle.updateVehicle(0.016666666666666666)
+            world.step(0.016666666666666666)
+            s = (s + 1)
+        }
+        def z:double chassis.position.z
+        if (z < 0.0) {
+            z = (0.0 - z)
+        }
+        h.ok((chassis.position.x > 0.3) "steered car still drives forward")
+        h.ok((z > 0.2) "steering makes the car turn (lateral displacement)")
+        print ("steerX=" + (to_string chassis.position.x))
+        print ("steerZ=" + (to_string chassis.position.z))
+        h.finishTest()
+    }
+
+    ; Build a 4-wheel raycast vehicle above a +Y ground plane. Returns the vehicle;
+    ; the chassis body is the vehicle's chassis, already added to the world.
+    fn buildVehicle:CannonRaycastVehicle (world:CannonWorld) {
+        world.initWorld()
+        world.setGravity(0.0 (0.0 - 10.0) 0.0)
+
+        def ground:CannonBody (new CannonBody)
+        ground.initStatic()
+        def plane:CannonPlane (new CannonPlane)
+        plane.initPlane()
+        ground.addShape(plane)
+        def axis:CannonVec3 (new CannonVec3)
+        axis.set(1.0 0.0 0.0)
+        ground.quaternion.setFromAxisAngle(axis (0.0 - 1.5707963267948966))
+        ground.position.set(0.0 0.0 0.0)
+        world.addBody(ground)
+
+        def chassis:CannonBody (new CannonBody)
+        chassis.initDynamic(5.0)
+        def he:CannonVec3 (new CannonVec3)
+        he.set(1.0 0.5 2.0)
+        def boxShape:CannonBox (new CannonBox)
+        boxShape.initBox(he)
+        chassis.addShape(boxShape)
+        chassis.position.set(0.0 1.4 0.0)
+        world.addBody(chassis)
+
+        def vehicle:CannonRaycastVehicle (new CannonRaycastVehicle)
+        vehicle.initVehicle(chassis world)
+        def w0:CannonWheelInfo (new CannonWheelInfo)
+        w0.initWheel(0.9 (0.0 - 0.5) 1.5 0.4 0.6 150.0 6.0)
+        vehicle.addWheel(w0)
+        def w1:CannonWheelInfo (new CannonWheelInfo)
+        w1.initWheel((0.0 - 0.9) (0.0 - 0.5) 1.5 0.4 0.6 150.0 6.0)
+        vehicle.addWheel(w1)
+        def w2:CannonWheelInfo (new CannonWheelInfo)
+        w2.initWheel(0.9 (0.0 - 0.5) (0.0 - 1.5) 0.4 0.6 150.0 6.0)
+        vehicle.addWheel(w2)
+        def w3:CannonWheelInfo (new CannonWheelInfo)
+        w3.initWheel((0.0 - 0.9) (0.0 - 0.5) (0.0 - 1.5) 0.4 0.6 150.0 6.0)
+        vehicle.addWheel(w3)
+        return vehicle
+    }
+
+    fn suspensionHover:void (h:CannonTestHarness) {
+        h.beginTest("Vehicle.suspensionHover")
+        def world:CannonWorld (new CannonWorld)
+        def vehicle:CannonRaycastVehicle (this.buildVehicle(world))
+        def chassis:CannonBody (unwrap vehicle.chassis)
+
+        def s 0
+        while (s < 150) {
+            vehicle.updateVehicle(0.016666666666666666)
+            world.step(0.016666666666666666)
+            s = (s + 1)
+        }
+        def y:double chassis.position.y
+        h.ok((y > 1.0) "chassis hovers on its suspension, does not sink")
+        h.ok((y < 1.8) "chassis is not launched off its suspension")
+        def w0:CannonWheelInfo (itemAt vehicle.wheels 0)
+        h.equalBool(w0.isInContact true "front-left wheel is on the ground")
+        print ("vehicleHoverY=" + (to_string y))
+        h.finishTest()
+    }
+
+    fn drive:void (h:CannonTestHarness) {
+        h.beginTest("Vehicle.drive")
+        def world:CannonWorld (new CannonWorld)
+        def vehicle:CannonRaycastVehicle (this.buildVehicle(world))
+        def chassis:CannonBody (unwrap vehicle.chassis)
+        vehicle.setEngineForce(8.0)
+
+        def s 0
+        while (s < 90) {
+            vehicle.updateVehicle(0.016666666666666666)
+            world.step(0.016666666666666666)
+            s = (s + 1)
+        }
+        def x:double chassis.position.x
+        h.ok((x > 0.3) "engine force drives the chassis forward")
+        h.ok((chassis.position.y > 0.6) "chassis keeps hovering while driving")
+        print ("vehicleDriveX=" + (to_string x))
+        h.finishTest()
+    }
+}

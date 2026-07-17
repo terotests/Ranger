@@ -17,6 +17,87 @@ class CannonWorldTest {
         if (this.filter.matches(filter "World.gravityStep")) { this.gravityStep(h) }
         if (this.filter.matches(filter "World.collisionMatrix")) { this.collisionMatrix(h) }
         if (this.filter.matches(filter "World.sphereBounce")) { this.sphereBounce(h) }
+        if (this.filter.matches(filter "World.contactRest")) { this.contactRest(h) }
+        if (this.filter.matches(filter "World.friction")) { this.friction(h) }
+    }
+
+    ; A sphere sliding tangentially on a resting contact must be slowed by
+    ; Coulomb friction (and pick up spin) instead of gliding forever.
+    fn friction:void (h:CannonTestHarness) {
+        h.beginTest("World.friction")
+        def world:CannonWorld (new CannonWorld)
+        world.initWorld()
+        world.setGravity(0.0 (0.0 - 10.0) 0.0)
+        world.defaultContactMaterial.friction = 0.5
+        def ground:CannonBody (new CannonBody)
+        ground.initStatic()
+        def gs:CannonSphere (new CannonSphere)
+        gs.initSphere(1.0)
+        ground.addShape(gs)
+        ground.position.set(0.0 0.0 0.0)
+        world.addBody(ground)
+        def ball:CannonBody (new CannonBody)
+        ball.initDynamic(1.0)
+        def bs:CannonSphere (new CannonSphere)
+        bs.initSphere(1.0)
+        ball.addShape(bs)
+        ball.position.set(0.0 1.95 0.0)
+        ball.velocity.set(2.0 0.0 0.0)
+        world.addBody(ball)
+        def s 0
+        while (s < 20) {
+            world.step(0.016666666666666666)
+            s = (s + 1)
+        }
+        def vx:double ball.velocity.x
+        ; Coulomb friction opposes the slide (slower) and torques the ball into spin.
+        h.ok((vx < 2.0) "friction slows the sliding sphere")
+        def wz:double ball.angularVelocity.z
+        if (wz < 0.0) {
+            wz = (0.0 - wz)
+        }
+        h.ok((wz > 0.05) "friction spins the sphere up")
+        print ("frictionVx=" + (to_string ball.velocity.x))
+        print ("frictionWz=" + (to_string ball.angularVelocity.z))
+        h.finishTest()
+    }
+
+    ; A dynamic sphere dropped onto a static one must settle in resting contact
+    ; (the GS solver holds it against gravity instead of sinking or exploding).
+    fn contactRest:void (h:CannonTestHarness) {
+        h.beginTest("World.contactRest")
+        def world:CannonWorld (new CannonWorld)
+        world.initWorld()
+        world.setGravity(0.0 (0.0 - 10.0) 0.0)
+        def ground:CannonBody (new CannonBody)
+        ground.initStatic()
+        def gs:CannonSphere (new CannonSphere)
+        gs.initSphere(1.0)
+        ground.addShape(gs)
+        ground.position.set(0.0 0.0 0.0)
+        world.addBody(ground)
+        def ball:CannonBody (new CannonBody)
+        ball.initDynamic(1.0)
+        def bs:CannonSphere (new CannonSphere)
+        bs.initSphere(1.0)
+        ball.addShape(bs)
+        ball.position.set(0.0 1.9 0.0)
+        world.addBody(ball)
+        def s 0
+        while (s < 120) {
+            world.step(0.016666666666666666)
+            s = (s + 1)
+        }
+        def py:double ball.position.y
+        h.ok((py > 1.6) "ball rests on ground, does not sink through")
+        h.ok((py < 2.3) "ball is not launched away")
+        def vy:double ball.velocity.y
+        if (vy < 0.0) {
+            vy = (0.0 - vy)
+        }
+        h.ok((vy < 2.0) "resting velocity is small")
+        print ("contactRestY=" + (to_string py))
+        h.finishTest()
     }
 
     fn clearForces:void (h:CannonTestHarness) {

@@ -1,0 +1,88 @@
+; ==============================================================================
+; cannon_heightfield — terrain height map (cannon-es Heightfield, subset).
+;   A regular grid of heights (data[i*ny + j]) with spacing elementSize; the
+;   surface is z = height at local (x, y). Collision with a sphere uses the
+;   terrain triangle plane under the sphere centre (see cannon_narrowphase).
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_quaternion.rgr"
+Import "cannon_shape.rgr"
+
+class CannonHeightfield extends CannonShape {
+    def data:[double]
+    def nx:int 0
+    def ny:int 0
+    def elementSize:double 1.0
+    def hugeRadius:double 1000000000.0
+    def hfE1:CannonVec3 (new CannonVec3)
+    def hfE2:CannonVec3 (new CannonVec3)
+
+    fn initHeightfield:void (nx:int ny:int elementSize:double) {
+        this.initShape(5)
+        this.nx = nx
+        this.ny = ny
+        this.elementSize = elementSize
+        def total:int (nx * ny)
+        def i 0
+        while (i < total) {
+            push this.data 0.0
+            i = (i + 1)
+        }
+        this.boundingSphereRadius = this.hugeRadius
+    }
+
+    fn getHeight:double (i:int j:int) {
+        return (itemAt this.data ((i * this.ny) + j))
+    }
+
+    fn setHeight:void (i:int j:int h:double) {
+        set this.data ((i * this.ny) + j) h
+    }
+
+    fn setAllHeights:void (h:double) {
+        def n:int (array_length this.data)
+        def i 0
+        while (i < n) {
+            set this.data i h
+            i = (i + 1)
+        }
+    }
+
+    fn updateBoundingSphereRadius:void () {
+        this.boundingSphereRadius = this.hugeRadius
+    }
+
+    fn heightfieldPlaneAt:boolean (localX:double localY:double outNormal:CannonVec3 outPoint:CannonVec3) {
+        def es:double this.elementSize
+        def gi:int (floor(localX / es))
+        def gj:int (floor(localY / es))
+        if (gi < 0) { return false }
+        if (gj < 0) { return false }
+        if (gi >= (this.nx - 1)) { return false }
+        if (gj >= (this.ny - 1)) { return false }
+        def x0:double ((to_double gi) * es)
+        def y0:double ((to_double gj) * es)
+        def h00:double (this.getHeight(gi gj))
+        def h10:double (this.getHeight((gi + 1) gj))
+        def h01:double (this.getHeight(gi (gj + 1)))
+        def h11:double (this.getHeight((gi + 1) (gj + 1)))
+        def fx:double ((localX - x0) / es)
+        def fy:double ((localY - y0) / es)
+        if ((fx + fy) <= 1.0) {
+            outPoint.set(x0 y0 h00)
+            this.hfE1.set(es 0.0 (h10 - h00))
+            this.hfE2.set(0.0 es (h01 - h00))
+        } {
+            outPoint.set((x0 + es) (y0 + es) h11)
+            this.hfE1.set(0.0 (0.0 - es) (h10 - h11))
+            this.hfE2.set((0.0 - es) 0.0 (h01 - h11))
+        }
+        this.hfE1.crossInto(this.hfE2 outNormal)
+        if (outNormal.z < 0.0) {
+            outNormal.negateInto(outNormal)
+        }
+        outNormal.normalizeSelf()
+        return true
+    }
+}

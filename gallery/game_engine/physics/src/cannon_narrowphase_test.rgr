@@ -7,7 +7,7 @@ Import "cannon_quaternion.rgr"
 Import "cannon_sphere.rgr"
 Import "cannon_body.rgr"
 Import "cannon_contact_material.rgr"
-Import "cannon_contact_equation.rgr"
+Import "cannon_equation.rgr"
 Import "cannon_narrowphase.rgr"
 Import "cannon_test_harness.rgr"
 Import "cannon_test_filter.rgr"
@@ -23,7 +23,7 @@ class CannonNarrowphaseTest {
 
     fn sphereSphere:void (h:CannonTestHarness) {
         h.beginTest("Narrowphase.sphereSphere")
-        def result:[CannonContactEquation]
+        def result:[CannonEquation]
         this.contactMaterial.initDefault()
         this.narrowphase.currentContactMaterial = this.contactMaterial
         this.narrowphase.result = result
