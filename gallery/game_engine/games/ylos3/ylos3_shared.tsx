@@ -2220,7 +2220,7 @@ export function playHud(props) {
   }
   let victoryLine = "";
   if (cleared == 1) {
-    if (cfg().isFinal) {
+    if (cfg().nextLevel == "") {
       victoryLine = "Viidakko valloittettu!";
       if (victory == 1) {
         msg = "Paina Space — pelaa uudelleen";
@@ -2289,7 +2289,9 @@ export function runUpdate(props) {
       celebrateMs = LEVEL_LOAD_MS;
     }
     if (levelLoadQueued == 0) {
-      if (cfg().isFinal) {
+      // Prefer nextLevel string (Invaders-style) over boolean isFinal — more
+      // reliable across the TSX evaluator than truthiness of `false`.
+      if (cfg().nextLevel == "") {
         if (showVictoryBanner({ playerSlots: slots, p1: p1, p2: p2 })) {
           if (wantsRestart(props, dual)) {
             resetGameData();

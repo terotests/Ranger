@@ -39,6 +39,9 @@ class SplitScreenHost {
     def profFrames:int 0
     def leftScriptPath:string ""
     def rightScriptPath:string ""
+    ; Filled by consumePendingNav() for the SDL host to apply once per frame.
+    def lastNavOp:string ""
+    def lastNavPath:string ""
 
     fn half:int (n:int) {
         def result 0
@@ -298,5 +301,34 @@ class SplitScreenHost {
             return true
         }
         return false
+    }
+
+    ; Consume pushGame/loadGame/popGame from either pane bridge (left wins if
+    ; both fired the same frame). Clears the other bridge so nav is applied once.
+    ; Returns true when an op was pending; read it via lastNavOp / lastNavPath.
+    fn consumePendingNav:boolean () {
+        lastNavOp = ""
+        lastNavPath = ""
+        if (leftBridge.hasPendingNav()) {
+            lastNavOp = (leftBridge.takePendingNavOp())
+            lastNavPath = (leftBridge.takePendingNavPath())
+            leftBridge.takePendingPopToMenu()
+            rightBridge.clearPendingNav()
+            return true
+        }
+        if (rightBridge.hasPendingNav()) {
+            lastNavOp = (rightBridge.takePendingNavOp())
+            lastNavPath = (rightBridge.takePendingNavPath())
+            rightBridge.takePendingPopToMenu()
+            return true
+        }
+        return false
+    }
+
+    fn clearPendingNav:void () {
+        leftBridge.clearPendingNav()
+        rightBridge.clearPendingNav()
+        lastNavOp = ""
+        lastNavPath = ""
     }
 }

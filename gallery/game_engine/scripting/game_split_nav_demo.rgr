@@ -1,0 +1,65 @@
+; ==============================================================================
+; game_split_nav_demo — self-check for pane-bridge pushGame/loadGame pending ops.
+; ==============================================================================
+;
+; Split-screen panes each own a GameHostNativeBridge. pushGame from a game
+; script lands on that bridge; the SDL host must drain it (see
+; drainSplitScriptNavigation). This demo checks the bridge queue + path resolve
+; that consumePendingNav relies on — without pulling the full SplitScreenHost
+; (SdlGameHost) graph.
+
+Import "./game_host_native.rgr"
+
+class GameSplitNavDemo {
+    sfn consumeFrom:boolean (primary:GameHostNativeBridge other:GameHostNativeBridge expectOp:string needle:string) {
+        if (false == (primary.hasPendingNav())) {
+            print ("FAIL: expected pending on primary for " + expectOp)
+            return false
+        }
+        def op:string (primary.takePendingNavOp())
+        def path:string (primary.takePendingNavPath())
+        primary.takePendingPopToMenu()
+        other.clearPendingNav()
+        if (op != expectOp) {
+            print ((("FAIL: expected op " + expectOp) + ", got ") + op)
+            return false
+        }
+        if ((indexOf path needle) < 0) {
+            print ((("FAIL: path missing " + needle) + ": ") + path)
+            return false
+        }
+        return true
+    }
+
+    sfn m@(main):void () {
+        def leftBridge:GameHostNativeBridge (new GameHostNativeBridge)
+        def rightBridge:GameHostNativeBridge (new GameHostNativeBridge)
+        leftBridge.setGameDir("gallery/game_engine/games/ylos3")
+        rightBridge.setGameDir("gallery/game_engine/games/ylos3")
+
+        def pushArgs:[EvalValue]
+        push pushArgs (EvalValue.string("level2.tsx"))
+        leftBridge.invoke("pushGame" pushArgs)
+        if (false == (GameSplitNavDemo.consumeFrom(leftBridge rightBridge "push" "level2.tsx"))) {
+            return
+        }
+
+        def loadArgs:[EvalValue]
+        push loadArgs (EvalValue.string("index.tsx"))
+        rightBridge.invoke("loadGame" loadArgs)
+        if (false == (GameSplitNavDemo.consumeFrom(rightBridge leftBridge "load" "index.tsx"))) {
+            return
+        }
+
+        if (leftBridge.hasPendingNav()) {
+            print "FAIL: left still pending"
+            return
+        }
+        if (rightBridge.hasPendingNav()) {
+            print "FAIL: right still pending"
+            return
+        }
+
+        print "split-nav OK"
+    }
+}
