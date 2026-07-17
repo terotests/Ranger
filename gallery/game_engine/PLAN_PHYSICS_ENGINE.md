@@ -335,6 +335,21 @@ muotojen `raycast`-metodit. Todiste: raycast-osumatestit per muoto.
 ja tarjoa valinnainen **Jolt/Rapier host-natiivi-backend** desktopille rajapinnan
 takana. Ranger-cannon-es on oletus; natiivi-backend opt-in raskaaseen 3D:hen.
 
+- ✅ **Osa 7a — `PhysicsWorld`-rajapinta (tehty):** [`physics_world.rgr`](./physics/src/physics_world.rgr)
+  — moottorineutraali abstrakti rajapinta (vain primitiivit ylittävät rajan, kappaleet
+  opaakkeina int-handleina: `initWorld`/`setGravity`/`addSphere`/`addBox`/
+  `addStaticPlane`/`addPointToPoint`/`step`/`bodyPos*`/`raycastClosest`). Cannon-moottori
+  sen takana: [`cannon_physics_world.rgr`](./physics/src/cannon_physics_world.rgr)
+  (`CannonPhysicsWorld extends PhysicsWorld`). Testit ([`physics_world_test.rgr`](./physics/src/physics_world_test.rgr))
+  ajavat **moottoririippumattoman** skenaarion (`dropScenario(pw:PhysicsWorld)`)
+  Cannon-backendillä: pallo lepää lattialla rajapinnan läpi (`pwBallY≈0.5`), raycast
+  osuu (`pwRayY≈1.0`), nivel toimii rajapinnan yli (`pwPendulumDist≈2.0`). Sama
+  testikoodi ajaisi minkä tahansa `PhysicsWorld`-toteutuksen → **rajapinta on nyt
+  saumana kaikelle testaukselle** ja tuleva Jolt/arcade-backend liittyy tähän.
+  `npm run engine:physics:test` → 82 passed, 0 failed.
+- ⏳ **Osa 7b:** arcade-ytimen (`physics_core.rgr`) adapteri samaan rajapintaan +
+  valinnainen Jolt/Rapier host-natiivi-backend jäävät pohdintaan.
+
 Kunkin vaiheen voi tehdä erillisenä PR:nä; **uudistus voi pysähtyä minne tahansa** ja
 jättää edellisen vaiheen tuotantoon.
 

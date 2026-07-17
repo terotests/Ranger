@@ -1,0 +1,72 @@
+; ==============================================================================
+; physics_world_test — drive the engine through the neutral PhysicsWorld
+;   interface. The scenario functions take the *base* PhysicsWorld type, so they
+;   are engine-agnostic; here they run on the Cannon backend.
+; ==============================================================================
+
+Import "physics_world.rgr"
+Import "cannon_physics_world.rgr"
+Import "cannon_test_harness.rgr"
+Import "cannon_test_filter.rgr"
+
+class PhysicsWorldTest {
+    def filter:CannonTestFilter (new CannonTestFilter)
+
+    fn runFiltered:void (h:CannonTestHarness filter:string) {
+        if (this.filter.matches(filter "PhysicsWorld.dropBackend")) { this.dropBackend(h) }
+        if (this.filter.matches(filter "PhysicsWorld.constraint")) { this.constraint(h) }
+    }
+
+    ; Engine-agnostic: a ball dropped onto a floor. Only the base interface is
+    ; used, so this same code would drive any PhysicsWorld implementation.
+    fn dropScenario:double (pw:PhysicsWorld) {
+        pw.initWorld()
+        pw.setGravity(0.0 (0.0 - 10.0) 0.0)
+        def ground:int (pw.addStaticPlane(0.0 1.0 0.0))
+        def ball:int (pw.addSphere(1.0 0.0 2.0 0.0 0.5))
+        def dt:double (1.0 / 60.0)
+        def s 0
+        while (s < 150) {
+            pw.step(dt)
+            s = (s + 1)
+        }
+        return (pw.bodyPosY(ball))
+    }
+
+    fn dropBackend:void (h:CannonTestHarness) {
+        h.beginTest("PhysicsWorld.dropBackend")
+        def pw:CannonPhysicsWorld (new CannonPhysicsWorld)
+        ; upcast to the neutral interface; all calls dispatch to the Cannon engine
+        def y:double (this.dropScenario(pw))
+        h.nearEqual(y 0.5 0.2 "ball rests on the floor through the PhysicsWorld interface")
+        def hit:boolean (pw.raycastClosest(0.0 5.0 0.0 0.0 (0.0 - 5.0) 0.0))
+        h.ok(hit "raycast through the interface finds a hit")
+        print ("pwBallY=" + (to_string y))
+        print ("pwRayY=" + (to_string (pw.rayHitY())))
+        h.finishTest()
+    }
+
+    ; Constraints also cross the interface (opaque body handles + primitives).
+    fn constraint:void (h:CannonTestHarness) {
+        h.beginTest("PhysicsWorld.constraint")
+        def pw:PhysicsWorld (new CannonPhysicsWorld)
+        pw.initWorld()
+        pw.setGravity(0.0 (0.0 - 10.0) 0.0)
+        def anchor:int (pw.addSphere(0.0 0.0 0.0 0.0 0.1))
+        def bob:int (pw.addSphere(1.0 2.0 0.0 0.0 0.5))
+        pw.addPointToPoint(anchor 0.0 0.0 0.0 bob (0.0 - 2.0) 0.0 0.0)
+        def dt:double (1.0 / 60.0)
+        def s 0
+        while (s < 60) {
+            pw.step(dt)
+            s = (s + 1)
+        }
+        def x:double (pw.bodyPosX(bob))
+        def y:double (pw.bodyPosY(bob))
+        def dist:double (sqrt((x * x) + (y * y)))
+        h.nearEqual(dist 2.0 0.4 "joint length preserved through the interface")
+        h.ok((y < 0.0) "bob swings down under gravity")
+        print ("pwPendulumDist=" + (to_string dist))
+        h.finishTest()
+    }
+}
