@@ -1,5 +1,5 @@
 ; ==============================================================================
-; pacman_runner_demo - headless GameRunner smoke for pacman.game.tsx
+; pacman_runner_demo - headless GameRunner smoke for games/pacman
 ; ==============================================================================
 
 Import "../scripting/game_runtime.rgr"
@@ -9,9 +9,9 @@ class PacmanRunnerDemo {
         def runner:GameRunner (new GameRunner)
         runner.init(480 270)
 
-        def buf:buffer (buffer_read_file "gallery/game_engine/scripting" "pacman.game.tsx")
+        def buf:buffer (buffer_read_file "gallery/game_engine/games/pacman" "index.tsx")
         def src:string (buffer_to_string buf)
-        runner.setScriptDir("gallery/game_engine/scripting")
+        runner.setScriptDir("gallery/game_engine/games/pacman")
         runner.loadScript(src)
         runner.setupScene()
 
@@ -55,6 +55,7 @@ class PacmanRunnerDemo {
         }
 
         runner.draw()
+        buffer_write_file "gallery/game_engine/scripting" "pacman_frame.rgba" (runner.raw())
 
         def px:int (runner.entityX("pac"))
         def py:int (runner.entityY("pac"))

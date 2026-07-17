@@ -26,6 +26,7 @@ function screens() {
 
 function createStaticBg() {
   bootLevel();
+  bgClear(12, 16, 32);
   paintLevelBg();
 }
 
