@@ -329,37 +329,40 @@ def draw_skew_spoiler(pix, w, h, lean):
     fill_rect(pix, w, h, x0 + total_w - 8, yR + 2, 2, 2, wing)
 
 
-def draw_skew_body(pix, w, h, body, shade, accent, lean):
-    """Chassis in the tire slot; when turning, stepped to match rear-tire plane."""
-    if lean == 0:
-        bx = 17
-        fill_rect(pix, w, h, bx, 14, 22, 14, body)
-        fill_rect(pix, w, h, bx + 2, 16, 18, 10, shade)
-        fill_rect(pix, w, h, bx + 4, 13, 14, 3, (32, 32, 38, 255))
-        fill_rect(pix, w, h, 13, 16, 6, 10, body)
-        fill_rect(pix, w, h, 37, 16, 6, 10, body)
-        fill_ellipse(pix, w, h, w // 2, 15, 5, 4, (26, 26, 30, 255))
-        fill_ellipse(pix, w, h, w // 2, 14, 3, 3, accent)
-        fill_rect(pix, w, h, 22, 26, 12, 2, (255, 150, 40, 255))
+def fill_rect_sheared(pix, w, h, x, y, rw, rh, rgba, shear):
+    """One solid rect with mild horizontal shear across rows (parallelogram)."""
+    if rh <= 0 or rw <= 0:
         return
+    for i in range(rh):
+        ox = 0
+        if rh > 1 and shear != 0:
+            ox = (shear * i) // (rh - 1)
+        fill_rect(pix, w, h, x + ox, y + i, rw, 1, rgba)
 
-    # Same horizontal slot as center; mild vertical step left→right (rise=2).
-    segs = 5
-    x0 = 13
-    total_w = 30
-    seg_w = total_w // segs
-    y_base = 14
-    rise = 2
-    for i in range(segs):
-        yy = skew_y(lean, i, segs, y_base, rise)
-        xx = x0 + i * seg_w
-        fill_rect(pix, w, h, xx, yy, seg_w + 1, 13, body)
-        fill_rect(pix, w, h, xx + 1, yy + 2, max(1, seg_w - 1), 9, shade)
-    # Cockpit / exhaust follow mid of the plane.
-    mid_y = skew_y(lean, segs // 2, segs, y_base, rise)
-    fill_ellipse(pix, w, h, w // 2, mid_y + 1, 5, 4, (26, 26, 30, 255))
-    fill_ellipse(pix, w, h, w // 2, mid_y, 3, 3, accent)
-    fill_rect(pix, w, h, 22, mid_y + 11, 12, 2, (255, 150, 40, 255))
+
+def draw_skew_body(pix, w, h, body, shade, accent, lean):
+    """One solid chassis box (same size as center), slightly sheared when turning."""
+    bx, by, bw, bh = 17, 14, 22, 14
+    # lean>0 (right): shear +2 → tips with raised left / lower right rear tire.
+    # lean<0 (left): mirror shear.
+    shear = 0
+    if lean > 0:
+        shear = 2
+    elif lean < 0:
+        shear = -2
+
+    fill_rect_sheared(pix, w, h, bx, by, bw, bh, body, shear)
+    fill_rect_sheared(pix, w, h, bx + 2, by + 2, 18, 10, shade, shear)
+    fill_rect_sheared(pix, w, h, bx + 4, by - 1, 14, 3, (32, 32, 38, 255), shear)
+    # Sidepods — same solid shear so they stay attached.
+    fill_rect_sheared(pix, w, h, 13, 16, 6, 10, body, shear)
+    fill_rect_sheared(pix, w, h, 37, 16, 6, 10, body, shear)
+
+    # Cockpit / exhaust: nudge with half shear so they sit on the body.
+    mid_ox = shear // 2
+    fill_ellipse(pix, w, h, w // 2 + mid_ox, 15, 5, 4, (26, 26, 30, 255))
+    fill_ellipse(pix, w, h, w // 2 + mid_ox, 14, 3, 3, accent)
+    fill_rect(pix, w, h, 22 + mid_ox, 26, 12, 2, (255, 150, 40, 255))
 
 
 def draw_f1_rear(
