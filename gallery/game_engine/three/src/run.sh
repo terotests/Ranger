@@ -42,5 +42,8 @@ run_suite three_gl_backend_test
 
 # The 1:1 Three.js cube example, run through the TSX interpreter on the façade.
 run_tsx_poc three_facade_poc
+# The render bridge: the interpreted cube.tsx reconciled into the Ranger core and
+# rasterised (software backend) — proves the façade scene actually renders.
+run_tsx_poc three_tsx_bridge_test
 
 echo "done."

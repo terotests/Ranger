@@ -158,21 +158,37 @@ Interpreter/parser enablers added for the 1:1 code (all with regression checks):
 - Host globals: `window` (innerWidth/innerHeight/devicePixelRatio) and the `THREE`
   constants object are injected via `registerGlobal`.
 
-## 7. Next — the render bridge + browser host
+## 7. The render bridge (built) + browser host (next)
 
-The façade runs the script; `renderer.render()` currently just counts frames.
-Remaining to draw pixels in the browser:
+**The render bridge works headlessly.** `ThreeTsxBridge` (`three/tsx/three_tsx_bridge.rgr`)
+reconciles the interpreted façade scene into the canonical Ranger core and draws
+it through the pluggable backend — the `needsUpdate` model of §4:
 
-1. `three_render(...)` bridge: at `renderer.render(scene, camera)`, reconcile the
-   façade scene (current transforms + geometry/texture handles) into the Ranger
-   `ThreeWebGLRenderer` + `ThreeGLBackend` and draw (the `needsUpdate` model, §4).
-2. Browser host wiring: a real canvas + WebGL context for `ThreeGLBackend.init`,
-   the remaining DOM stubs (`document.body.appendChild`, `renderer.domElement`,
-   `addEventListener` for resize), and `setAnimationLoop(fn)` driven by the host
-   `requestAnimationFrame` loop.
-3. Land the canonical cube running 1:1 **and rendering** in the browser TSX engine.
+- reads the façade `scene` + `camera` out of the `ComponentEngine`
+  (`getGlobal` + `EvalValue` member reads);
+- builds the Ranger objects once (geometry/material/texture cached by index/path
+  so the upload happens a single time) and updates the mutable per-frame state
+  (camera, position/rotation/scale) every frame;
+- calls `ThreeWebGLRenderer.render(scene, camera)`, which draws via the backend.
 
-The measure of success: the Three.js cube script above runs **unchanged** (✅ it
-now executes on the façade) and, once the bridge lands, renders — while the same
-scene, built from Ranger, renders natively. One object model, many front-ends and
-targets.
+`three/tsx/three_tsx_bridge_test.rgr` (in `run.sh`, **4/4 PASS**) drives the
+*unmodified* `cube.tsx` through the interpreter and rasterises it with the
+**software** backend: the cube covers the frame, and ticking the interpreted
+`animate()` loop **changes the rendered pixels** — i.e. the 1:1 Three.js code
+actually renders, GPU-independent. Swapping in `ThreeGLBackend`
+(`renderer.setBackend(gl)`) draws the same scene on the GPU.
+
+Remaining — the browser host:
+
+1. Wire `ThreeGLBackend` into a browser host: a real canvas + WebGL context for
+   `ThreeGLBackend.init(canvasId)`, host-decoded texture pixels handed to the
+   bridge (`setTexture(path, rgba, w, h)`), and the DOM stubs the example's web
+   plumbing needs (`document.body.appendChild`, `renderer.domElement`,
+   `addEventListener` for resize).
+2. Drive `setAnimationLoop(fn)` from the host `requestAnimationFrame` loop.
+3. Land the canonical cube running 1:1 **and rendering on the GPU** in the browser.
+
+The measure of success: the Three.js cube script runs **unchanged** (✅ executes
+on the façade, ✅ renders through the core headlessly) and, once the browser host
+lands, renders GPU-accelerated — while the same scene, built from Ranger, renders
+natively. One object model, many front-ends and targets.
