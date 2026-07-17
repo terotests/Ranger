@@ -187,6 +187,37 @@ function cursorId() {
   return "cursor";
 }
 
+function aimId() {
+  return "aim";
+}
+
+function selRingId() {
+  return "selRing";
+}
+
+const SLIDE_MAX = 10;
+
+// aim: -1 none, 0 up, 1 left, 2 down, 3 right (LPC face rows)
+function aimDelta(aim) {
+  if (aim == 0) { return { dc: 0, dr: -1 }; }
+  if (aim == 1) { return { dc: -1, dr: 0 }; }
+  if (aim == 2) { return { dc: 0, dr: 1 }; }
+  if (aim == 3) { return { dc: 1, dr: 0 }; }
+  return { dc: 0, dr: 0 };
+}
+
+function aimFromKeys(up, down, left, right) {
+  if (up) { return 0; }
+  if (left) { return 1; }
+  if (down) { return 2; }
+  if (right) { return 3; }
+  return -1;
+}
+
+function tileCenterY(worldRow, camRow) {
+  return ORIGIN_Y + (worldRow - camRow) * TILE + (TILE / 2);
+}
+
 function exploredIndex(col, row) {
   return row * COLS + col;
 }
@@ -373,6 +404,9 @@ function sprites() {
     list.push(tileSheet(tileId(i)));
     i = i + 1;
   }
+  // Bright selection ring + aim marker (rects are easy to see under LPC).
+  list.push({ id: selRingId(), kind: "rect", w: 28, h: 28, r: 255, g: 230, b: 40 });
+  list.push({ id: aimId(), kind: "rect", w: 18, h: 18, r: 80, g: 230, b: 255 });
   list.push(pieceSheet(cursorId(), 2, 1));
   i = 0;
   while (i < MAX_CITIES) {
@@ -903,7 +937,7 @@ function focusFromSel(units, cities, sel) {
   return { col: 10, row: 10 };
 }
 
-function buildEntities(units, cities, sel, explored, camCol, camRow) {
+function buildEntities(units, cities, sel, explored, camCol, camRow, aim, slide) {
   const entities = {};
 
   let i = 0;
@@ -971,9 +1005,21 @@ function buildEntities(units, cities, sel, explored, camCol, camRow) {
         if (inSightOfPlayer(u.col, u.row, units, cities) == 1) { show = 1; }
       }
       if (show == 1 && inView(u.col, u.row, camCol, camRow) == 1) {
+        let ux = screenX(u.col, camCol);
+        let uy = screenFeetY(u.row, camRow);
+        // Slide lerp while moving into the aimed tile.
+        if (slide && slide.on == 1 && slide.unit == i) {
+          const x0 = screenX(slide.fc, camCol);
+          const y0 = screenFeetY(slide.fr, camRow);
+          const x1 = screenX(slide.tc, camCol);
+          const y1 = screenFeetY(slide.tr, camRow);
+          const t = slide.t / SLIDE_MAX;
+          ux = x0 + (x1 - x0) * t;
+          uy = y0 + (y1 - y0) * t;
+        }
         entities[unitId(i)] = {
-          x: screenX(u.col, camCol),
-          y: screenFeetY(u.row, camRow),
+          x: ux,
+          y: uy,
           p0: u.frame,
           p1: u.face,
           visible: 1
@@ -987,21 +1033,58 @@ function buildEntities(units, cities, sel, explored, camCol, camRow) {
     i = i + 1;
   }
 
+  // Selection ring (bright rect) + sheet cursor + aim marker on target tile.
+  entities[selRingId()] = { x: -40, y: -40, visible: 0 };
+  entities[cursorId()] = { x: -40, y: -40, visible: 0 };
+  entities[aimId()] = { x: -40, y: -40, visible: 0 };
+
   if (sel >= 0 && sel < units.length && units[sel].alive == 1) {
     const u = units[sel];
-    if (inView(u.col, u.row, camCol, camRow) == 1) {
-      entities[cursorId()] = {
+    let sc = u.col;
+    let sr = u.row;
+    if (slide && slide.on == 1 && slide.unit == sel) {
+      // Keep ring on destination while sliding.
+      sc = slide.tc;
+      sr = slide.tr;
+    }
+    if (inView(u.col, u.row, camCol, camRow) == 1 || (slide && slide.on == 1)) {
+      entities[selRingId()] = {
         x: screenX(u.col, camCol),
+        y: tileCenterY(u.row, camRow),
+        visible: 1
+      };
+      if (slide && slide.on == 1 && slide.unit == sel) {
+        const x0 = screenX(slide.fc, camCol);
+        const y0 = tileCenterY(slide.fr, camRow);
+        const x1 = screenX(slide.tc, camCol);
+        const y1 = tileCenterY(slide.tr, camRow);
+        const t = slide.t / SLIDE_MAX;
+        entities[selRingId()] = {
+          x: x0 + (x1 - x0) * t,
+          y: y0 + (y1 - y0) * t,
+          visible: 1
+        };
+      }
+      entities[cursorId()] = {
+        x: entities[selRingId()].x,
         y: screenFeetY(u.row, camRow),
         p0: 2,
         p1: 1,
         visible: 1
       };
-    } else {
-      entities[cursorId()] = { x: -40, y: -40, visible: 0 };
     }
-  } else {
-    entities[cursorId()] = { x: -40, y: -40, visible: 0 };
+    if (aim >= 0 && !(slide && slide.on == 1)) {
+      const d = aimDelta(aim);
+      const ac = u.col + d.dc;
+      const ar = u.row + d.dr;
+      if (inView(ac, ar, camCol, camRow) == 1) {
+        entities[aimId()] = {
+          x: screenX(ac, camCol),
+          y: tileCenterY(ar, camRow),
+          visible: 1
+        };
+      }
+    }
   }
   return entities;
 }
@@ -1059,8 +1142,9 @@ function initPlayState() {
   explored = revealFromSide(explored, units, cities, OWNER_PLAYER);
 
   const sel = SLOT_P_SETTLER0;
-  const focus = focusFromSel(units, cities, sel);
-  const cam = computeCam(focus.col, focus.row);
+  const aim = -1;
+  const slide = emptySlide();
+  const cam = withCam(units, cities, sel, explored, aim, slide);
 
   return {
     screen: "play",
@@ -1072,12 +1156,15 @@ function initPlayState() {
     camCol: cam.camCol,
     camRow: cam.camRow,
     sel: sel,
+    aim: aim,
+    slide: slide,
     nameN: 1,
     gold: 0,
-    msg: "Explore the fog. Space founds a city.",
-    msgT: 180,
+    msg: "Arrows aim · Space moves · Select founds city",
+    msgT: 240,
+    help: 1,
     phase: "player",
-    entities: buildEntities(units, cities, sel, explored, cam.camCol, cam.camRow),
+    entities: cam.entities,
     pUp: 0, pDown: 0, pLeft: 0, pRight: 0, pAct: 0, pSel: 0, pStart: 0, pB: 0,
     events: []
   };
@@ -1095,12 +1182,15 @@ function initState() {
     camCol: play.camCol,
     camRow: play.camRow,
     sel: -1,
+    aim: -1,
+    slide: emptySlide(),
     nameN: play.nameN,
     gold: 0,
     msg: "",
     msgT: 0,
+    help: 1,
     phase: "player",
-    entities: buildEntities(play.units, play.cities, -1, play.explored, play.camCol, play.camRow),
+    entities: play.entities,
     pUp: 0, pDown: 0, pLeft: 0, pRight: 0, pAct: 0, pSel: 0, pStart: 0, pB: 0,
     events: []
   };
@@ -1145,13 +1235,26 @@ function checkWinner(cities) {
   return "";
 }
 
-function withCam(state, units, cities, sel, explored) {
-  const focus = focusFromSel(units, cities, sel);
-  const cam = computeCam(focus.col, focus.row);
+function emptySlide() {
+  return { on: 0, t: 0, unit: -1, fc: 0, fr: 0, tc: 0, tr: 0 };
+}
+
+function withCam(units, cities, sel, explored, aim, slide) {
+  let focusCol = 10;
+  let focusRow = 10;
+  if (slide && slide.on == 1) {
+    focusCol = slide.tc;
+    focusRow = slide.tr;
+  } else {
+    const focus = focusFromSel(units, cities, sel);
+    focusCol = focus.col;
+    focusRow = focus.row;
+  }
+  const cam = computeCam(focusCol, focusRow);
   return {
     camCol: cam.camCol,
     camRow: cam.camRow,
-    entities: buildEntities(units, cities, sel, explored, cam.camCol, cam.camRow)
+    entities: buildEntities(units, cities, sel, explored, cam.camCol, cam.camRow, aim, slide)
   };
 }
 
@@ -1179,7 +1282,9 @@ function endPlayerTurn(state) {
   const outcome = checkWinner(cities);
   if (outcome == "win") { screen = "win"; }
   if (outcome == "lose") { screen = "lose"; }
-  const cam = withCam(state, units, cities, sel, explored);
+  const aim = -1;
+  const slide = emptySlide();
+  const cam = withCam(units, cities, sel, explored, aim, slide);
   return {
     screen: screen,
     turn: turn,
@@ -1190,10 +1295,13 @@ function endPlayerTurn(state) {
     camCol: cam.camCol,
     camRow: cam.camRow,
     sel: sel,
+    aim: aim,
+    slide: slide,
     nameN: nameN,
     gold: gold,
-    msg: "Turn " + turn,
-    msgT: 90,
+    msg: "Turn " + turn + " — arrows aim, Space moves",
+    msgT: 100,
+    help: state.help,
     phase: "player",
     entities: cam.entities,
     events: [soundEvent("blip")]
@@ -1214,6 +1322,32 @@ function edgeState(s, pad) {
   };
 }
 
+function packState(base, edges, events) {
+  return {
+    screen: base.screen,
+    turn: base.turn,
+    seed: base.seed,
+    units: base.units,
+    cities: base.cities,
+    explored: base.explored,
+    camCol: base.camCol,
+    camRow: base.camRow,
+    sel: base.sel,
+    aim: base.aim,
+    slide: base.slide,
+    nameN: base.nameN,
+    gold: base.gold,
+    msg: base.msg,
+    msgT: base.msgT,
+    help: base.help,
+    phase: base.phase,
+    entities: base.entities,
+    pUp: edges.pUp, pDown: edges.pDown, pLeft: edges.pLeft, pRight: edges.pRight,
+    pAct: edges.pAct, pSel: edges.pSel, pStart: edges.pStart, pB: 0,
+    events: events
+  };
+}
+
 function update(props) {
   const s = props.state;
   const pad = readPad(props);
@@ -1227,115 +1361,198 @@ function update(props) {
   const selBtn = pad.select && !s.pSel;
   const startBtn = (pad.start || pad.b) && !s.pStart;
 
-  let idleUnit = 0;
-  if (s.sel < 0) {
-    idleUnit = 1;
-  } else {
-    if (s.sel < s.units.length) {
-      const su = s.units[s.sel];
-      if (su.alive == 0 || su.moves <= 0) { idleUnit = 1; }
-    }
-  }
-  let cycleUp = 0;
-  if (up && idleUnit == 1) { cycleUp = 1; }
-  let endDown = 0;
-  if (down && idleUnit == 1) { endDown = 1; }
-
   if (s.screen == "splash") {
     if (act || startBtn) {
       const play = initPlayState();
-      return {
+      return packState({
         screen: "play",
-        turn: play.turn,
-        seed: play.seed,
-        units: play.units,
-        cities: play.cities,
-        explored: play.explored,
-        camCol: play.camCol,
-        camRow: play.camRow,
-        sel: play.sel,
-        nameN: play.nameN,
-        gold: 0,
-        msg: play.msg,
-        msgT: play.msgT,
-        phase: "player",
-        entities: play.entities,
-        pUp: edges.pUp, pDown: edges.pDown, pLeft: edges.pLeft, pRight: edges.pRight,
-        pAct: edges.pAct, pSel: edges.pSel, pStart: edges.pStart, pB: 0,
-        events: [soundEvent("win")]
-      };
+        turn: play.turn, seed: play.seed, units: play.units, cities: play.cities,
+        explored: play.explored, camCol: play.camCol, camRow: play.camRow,
+        sel: play.sel, aim: play.aim, slide: play.slide, nameN: play.nameN,
+        gold: 0, msg: play.msg, msgT: play.msgT, help: 1, phase: "player",
+        entities: play.entities
+      }, edges, [soundEvent("win")]);
     }
-    return {
+    return packState({
       screen: "splash",
       turn: s.turn, seed: s.seed, units: s.units, cities: s.cities,
       explored: s.explored, camCol: s.camCol, camRow: s.camRow,
-      sel: s.sel, nameN: s.nameN, gold: s.gold, msg: s.msg, msgT: s.msgT,
-      phase: s.phase, entities: s.entities,
-      pUp: edges.pUp, pDown: edges.pDown, pLeft: edges.pLeft, pRight: edges.pRight,
-      pAct: edges.pAct, pSel: edges.pSel, pStart: edges.pStart, pB: 0,
-      events: []
-    };
+      sel: s.sel, aim: s.aim, slide: s.slide, nameN: s.nameN,
+      gold: s.gold, msg: s.msg, msgT: s.msgT, help: s.help, phase: s.phase,
+      entities: s.entities
+    }, edges, []);
   }
 
   if (s.screen == "win" || s.screen == "lose") {
     if (act || startBtn) {
       const play = initPlayState();
-      return {
+      return packState({
         screen: "splash",
         turn: play.turn, seed: play.seed, units: play.units, cities: play.cities,
         explored: play.explored, camCol: play.camCol, camRow: play.camRow,
-        sel: -1, nameN: play.nameN, gold: 0, msg: "", msgT: 0, phase: "player",
-        entities: buildEntities(play.units, play.cities, -1, play.explored, play.camCol, play.camRow),
-        pUp: edges.pUp, pDown: edges.pDown, pLeft: edges.pLeft, pRight: edges.pRight,
-        pAct: edges.pAct, pSel: edges.pSel, pStart: edges.pStart, pB: 0,
-        events: []
-      };
+        sel: -1, aim: -1, slide: emptySlide(), nameN: play.nameN,
+        gold: 0, msg: "", msgT: 0, help: 1, phase: "player",
+        entities: play.entities
+      }, edges, []);
     }
-    return {
+    return packState({
       screen: s.screen,
       turn: s.turn, seed: s.seed, units: s.units, cities: s.cities,
       explored: s.explored, camCol: s.camCol, camRow: s.camRow,
-      sel: s.sel, nameN: s.nameN, gold: s.gold, msg: s.msg, msgT: s.msgT,
-      phase: s.phase, entities: s.entities,
-      pUp: edges.pUp, pDown: edges.pDown, pLeft: edges.pLeft, pRight: edges.pRight,
-      pAct: edges.pAct, pSel: edges.pSel, pStart: edges.pStart, pB: 0,
-      events: []
-    };
+      sel: s.sel, aim: s.aim, slide: s.slide, nameN: s.nameN,
+      gold: s.gold, msg: s.msg, msgT: s.msgT, help: s.help, phase: s.phase,
+      entities: s.entities
+    }, edges, []);
   }
 
   let units = s.units;
   let cities = s.cities;
   let explored = s.explored;
   let sel = s.sel;
+  let aim = s.aim;
+  let slide = s.slide;
+  if (!slide) { slide = emptySlide(); }
   let seed = s.seed;
   let nameN = s.nameN;
   let gold = s.gold;
   let msg = s.msg;
   let msgT = s.msgT;
+  let help = s.help;
   if (msgT > 0) { msgT = msgT - 1; }
   let events = [];
   let screen = "play";
 
-  if (startBtn || endDown) {
-    const ended = endPlayerTurn({
-      turn: s.turn, seed: seed, units: units, cities: cities,
-      explored: explored, sel: sel, nameN: nameN, gold: gold
-    });
-    return {
-      screen: ended.screen,
-      turn: ended.turn, seed: ended.seed, units: ended.units, cities: ended.cities,
-      explored: ended.explored, camCol: ended.camCol, camRow: ended.camRow,
-      sel: ended.sel, nameN: ended.nameN, gold: ended.gold,
-      msg: ended.msg, msgT: ended.msgT, phase: "player", entities: ended.entities,
-      pUp: edges.pUp, pDown: edges.pDown, pLeft: edges.pLeft, pRight: edges.pRight,
-      pAct: edges.pAct, pSel: edges.pSel, pStart: edges.pStart, pB: 0,
-      events: ended.events
+  // --- slide animation in progress ---
+  if (slide.on == 1) {
+    slide = {
+      on: 1, t: slide.t + 1, unit: slide.unit,
+      fc: slide.fc, fr: slide.fr, tc: slide.tc, tr: slide.tr
     };
+    if (slide.t >= SLIDE_MAX) {
+      const dc = slide.tc - slide.fc;
+      const dr = slide.tr - slide.fr;
+      const moved = tryMoveUnit(units, cities, slide.unit, dc, dr, seed);
+      slide = emptySlide();
+      aim = -1;
+      if (moved.ok == 1) {
+        units = moved.units;
+        cities = moved.cities;
+        seed = moved.seed;
+        explored = revealFromSide(explored, units, cities, OWNER_PLAYER);
+        if (moved.fought == 1) {
+          if (moved.won == 1) {
+            msg = "Victory!";
+            events = [soundEvent("bounce")];
+          } else {
+            msg = "Unit lost!";
+            events = [soundEvent("lose")];
+            sel = firstMovableUnit(units, OWNER_PLAYER, 0);
+          }
+          msgT = 100;
+        } else {
+          events = [soundEvent("blip")];
+          msg = "Moved";
+          msgT = 40;
+        }
+        const outcome = checkWinner(cities);
+        if (outcome == "win") { screen = "win"; }
+        if (outcome == "lose") { screen = "lose"; }
+      }
+    }
+    const camS = withCam(units, cities, sel, explored, aim, slide);
+    return packState({
+      screen: screen, turn: s.turn, seed: seed, units: units, cities: cities,
+      explored: explored, camCol: camS.camCol, camRow: camS.camRow,
+      sel: sel, aim: aim, slide: slide, nameN: nameN, gold: gold,
+      msg: msg, msgT: msgT, help: help, phase: "player", entities: camS.entities
+    }, edges, events);
   }
 
-  if (act) {
-    if (sel >= 0 && sel < units.length && units[sel].alive == 1) {
-      const u = units[sel];
+  // End turn: Start / B (not Down — Down aims south).
+  if (startBtn) {
+    const ended = endPlayerTurn({
+      turn: s.turn, seed: seed, units: units, cities: cities,
+      explored: explored, sel: sel, nameN: nameN, gold: gold, help: help
+    });
+    return packState({
+      screen: ended.screen, turn: ended.turn, seed: ended.seed,
+      units: ended.units, cities: ended.cities, explored: ended.explored,
+      camCol: ended.camCol, camRow: ended.camRow, sel: ended.sel,
+      aim: ended.aim, slide: ended.slide, nameN: ended.nameN, gold: ended.gold,
+      msg: ended.msg, msgT: ended.msgT, help: ended.help, phase: "player",
+      entities: ended.entities
+    }, edges, ended.events);
+  }
+
+  // Cycle units: Select (and Up when no moves left).
+  let idleUnit = 0;
+  if (sel < 0) {
+    idleUnit = 1;
+  } else {
+    if (sel < units.length) {
+      const su = units[sel];
+      if (su.alive == 0 || su.moves <= 0) { idleUnit = 1; }
+    }
+  }
+  if (selBtn || (up && idleUnit == 1)) {
+    const next = firstMovableUnit(units, OWNER_PLAYER, sel + 1);
+    if (next >= 0) {
+      sel = next;
+      aim = -1;
+      msg = "Selected " + unitLabel(units[sel]);
+      msgT = 60;
+    }
+  }
+
+  // Arrows aim (do not move yet).
+  const keyed = aimFromKeys(up && idleUnit == 0, down, left, right);
+  if (keyed >= 0 && sel >= 0 && sel < units.length && units[sel].alive == 1) {
+    if (units[sel].moves > 0) {
+      aim = keyed;
+      const outU = cloneUnits(units);
+      outU[sel].face = aim;
+      units = outU;
+      const d = aimDelta(aim);
+      const tc = units[sel].col + d.dc;
+      const tr = units[sel].row + d.dr;
+      if (canEnter(tc, tr) == 1) {
+        msg = "Aim set — Space to move";
+      } else {
+        msg = "Blocked that way";
+      }
+      msgT = 50;
+    }
+  }
+
+  // Space: move along aim (slide), or found/skip when no aim / no moves.
+  if (act && sel >= 0 && sel < units.length && units[sel].alive == 1) {
+    const u = units[sel];
+    if (u.moves > 0 && aim >= 0) {
+      const d = aimDelta(aim);
+      const tc = u.col + d.dc;
+      const tr = u.row + d.dr;
+      // Validate before starting slide (same rules as tryMoveUnit preamble).
+      let canGo = 0;
+      if (canEnter(tc, tr) == 1 && u.moves >= moveCost(tc, tr)) {
+        if (findUnitAt(units, tc, tr, u.owner) < 0) {
+          const enemy = findEnemyUnitAt(units, tc, tr, u.owner);
+          if (enemy < 0 || u.kind == KIND_WARRIOR) { canGo = 1; }
+        }
+      }
+      if (canGo == 1) {
+        slide = {
+          on: 1, t: 0, unit: sel,
+          fc: u.col, fr: u.row, tc: tc, tr: tr
+        };
+        help = 0;
+        msg = "Moving…";
+        msgT = 20;
+      } else {
+        msg = "Cannot move there — re-aim";
+        msgT = 70;
+      }
+    } else {
+      // No aim / no moves: settler founds, otherwise skip/fortify.
       if (u.kind == KIND_SETTLER) {
         const founded = tryFoundCity(units, cities, sel, nameN);
         if (founded.ok == 1) {
@@ -1347,84 +1564,45 @@ function update(props) {
           msgT = 120;
           events = [soundEvent("win")];
           sel = firstMovableUnit(units, OWNER_PLAYER, sel);
+          aim = -1;
+        } else {
+          if (aim < 0 && u.moves > 0) {
+            msg = "Aim with arrows, then Space";
+            msgT = 90;
+          } else {
+            const outU = cloneUnits(units);
+            outU[sel].moves = 0;
+            units = outU;
+            sel = firstMovableUnit(units, OWNER_PLAYER, sel + 1);
+            aim = -1;
+            msg = "Unit skipped";
+            msgT = 60;
+          }
+        }
+      } else {
+        if (aim < 0 && u.moves > 0) {
+          msg = "Aim with arrows, then Space";
+          msgT = 90;
         } else {
           const outU = cloneUnits(units);
           outU[sel].moves = 0;
           units = outU;
           sel = firstMovableUnit(units, OWNER_PLAYER, sel + 1);
-          msg = "Unit skipped";
+          aim = -1;
+          msg = "Unit fortified";
           msgT = 60;
         }
-      } else {
-        const outU = cloneUnits(units);
-        outU[sel].moves = 0;
-        units = outU;
-        sel = firstMovableUnit(units, OWNER_PLAYER, sel + 1);
-        msg = "Unit fortified";
-        msgT = 60;
       }
     }
   }
 
-  if (selBtn || cycleUp) {
-    const next = firstMovableUnit(units, OWNER_PLAYER, sel + 1);
-    if (next >= 0) { sel = next; }
-  }
-
-  let dc = 0;
-  let dr = 0;
-  if (left) { dc = -1; }
-  if (right) { dc = 1; }
-  if (up && cycleUp == 0) { dr = -1; }
-  if (down && endDown == 0) { dr = 1; }
-
-  if ((dc != 0 || dr != 0) && sel >= 0 && sel < units.length) {
-    const moved = tryMoveUnit(units, cities, sel, dc, dr, seed);
-    if (moved.ok == 1) {
-      units = moved.units;
-      cities = moved.cities;
-      seed = moved.seed;
-      explored = revealFromSide(explored, units, cities, OWNER_PLAYER);
-      if (moved.fought == 1) {
-        if (moved.won == 1) {
-          msg = "Victory!";
-          events = [soundEvent("bounce")];
-        } else {
-          msg = "Unit lost!";
-          events = [soundEvent("lose")];
-          sel = firstMovableUnit(units, OWNER_PLAYER, 0);
-        }
-        msgT = 100;
-      } else {
-        events = [soundEvent("blip")];
-      }
-      const outcome = checkWinner(cities);
-      if (outcome == "win") { screen = "win"; }
-      if (outcome == "lose") { screen = "lose"; }
-    }
-  }
-
-  const cam = withCam(s, units, cities, sel, explored);
-  return {
-    screen: screen,
-    turn: s.turn,
-    seed: seed,
-    units: units,
-    cities: cities,
-    explored: explored,
-    camCol: cam.camCol,
-    camRow: cam.camRow,
-    sel: sel,
-    nameN: nameN,
-    gold: gold,
-    msg: msg,
-    msgT: msgT,
-    phase: "player",
-    entities: cam.entities,
-    pUp: edges.pUp, pDown: edges.pDown, pLeft: edges.pLeft, pRight: edges.pRight,
-    pAct: edges.pAct, pSel: edges.pSel, pStart: edges.pStart, pB: 0,
-    events: events
-  };
+  const cam = withCam(units, cities, sel, explored, aim, slide);
+  return packState({
+    screen: screen, turn: s.turn, seed: seed, units: units, cities: cities,
+    explored: explored, camCol: cam.camCol, camRow: cam.camRow,
+    sel: sel, aim: aim, slide: slide, nameN: nameN, gold: gold,
+    msg: msg, msgT: msgT, help: help, phase: "player", entities: cam.entities
+  }, edges, events);
 }
 
 function citySummary(cities, owner) {
@@ -1443,10 +1621,13 @@ function hud(props) {
   if (s.screen == "splash") {
     return (
       <View width="100%" height="100%" flexDirection="column" justifyContent="center" alignItems="center">
-        <Label color="#f0d246" fontSize="40px">LittleCiv</Label>
-        <Label color="#9ec4e8" fontSize="13px">Large fogged world · LPC settlers & warriors</Label>
-        <Label color="#6a8aaa" fontSize="11px">Explore, found cities, defeat the rival</Label>
-        <Label color="#ffe98a" fontSize="16px">Space = start</Label>
+        <Label color="#f0d246" fontSize="38px">LittleCiv</Label>
+        <Label color="#9ec4e8" fontSize="12px">Fogged world · aim then move</Label>
+        <Label color="#ffffff" fontSize="13px">1) Arrows = choose direction</Label>
+        <Label color="#ffffff" fontSize="13px">2) Space = slide into that tile</Label>
+        <Label color="#c8d6e8" fontSize="12px">Select = next unit / found city</Label>
+        <Label color="#c8d6e8" fontSize="12px">B / Start = end turn</Label>
+        <Label color="#ffe98a" fontSize="16px">Space = begin</Label>
       </View>
     );
   }
@@ -1474,8 +1655,19 @@ function hud(props) {
   const mine = citySummary(s.cities, OWNER_PLAYER);
   const theirs = citySummary(s.cities, OWNER_AI);
   const line = statusLine(s);
-  let tip = "Up idle=cycle   Down/B=end turn   Space=found/skip";
+  let tip = "Arrows aim · Space move · Select found/cycle · B end turn";
+  if (s.help == 1 && s.msgT <= 0) {
+    tip = "Yellow ring = selected · Cyan square = aim · Space slides";
+  }
   if (s.msgT > 0) { tip = s.msg; }
+
+  let aimLine = "";
+  if (s.aim == 0) { aimLine = "Aim: UP"; }
+  if (s.aim == 1) { aimLine = "Aim: LEFT"; }
+  if (s.aim == 2) { aimLine = "Aim: DOWN"; }
+  if (s.aim == 3) { aimLine = "Aim: RIGHT"; }
+  if (s.aim < 0) { aimLine = "Aim: —  (pick a direction)"; }
+  if (s.slide && s.slide.on == 1) { aimLine = "Moving…"; }
 
   let cityLine = "";
   let i = 0;
@@ -1503,6 +1695,7 @@ function hud(props) {
           <Label color="#9ec4e8" fontSize="11px">Turn {s.turn}  Gold {s.gold}  Cities {mine}/{theirs}</Label>
         </View>
         <Label color="#c8d6e8" fontSize="10px">{line}</Label>
+        <Label color="#7CFF9B" fontSize="11px">{aimLine}</Label>
         <Label color="#8aa4c0" fontSize="10px">{cityLine}</Label>
       </View>
       <Label color="#ffe98a" fontSize="10px">{tip}</Label>
