@@ -12,6 +12,7 @@ always tell **what is binding right now** from **what is proposed**:
 | **[`HOST_ARCHITECTURE.md`](./HOST_ARCHITECTURE.md)** | Informative | Host-internal Ranger interfaces (`GameProvider`, `GameSceneProvider`, `BodyVisual`, registries). Function-passing interfaces, **not a byte-level ABI.** |
 | **[`IDEAL.md`](./IDEAL.md)** | Rationale | Why each interface should look the way it does. The source of *intent*; never overrides a shipped byte layout. |
 | **[`IDEAL_3D.md`](./IDEAL_3D.md)** | Rationale | Host-managed 3D scene, entity, and resource ownership model. Defines the target for `fps_wasm`/`cube3d_wasm` PoC evolution: Ranger owns the scene graph, entity registry, and render resources; the guest communicates via Asset/Scene/Entity API commands. |
+| **[`IDEAL_THREE.md`](./IDEAL_THREE.md)** | Informative | The portable Ranger clone of Three.js — object model, Three.js-compatible API, and software/WebGL/GLES backends. Separate from the WASM ABI; not a byte contract. The cube, teapot, and Sponza light-probe examples run 1:1 in the interpreter against it (`IDEAL_THREE §8`). |
 
 **Where to start:** implementing a guest or host against today's runtime → read
 `ABI_V1.md` and the generated headers under [`wasm/`](./wasm/). Planning the next

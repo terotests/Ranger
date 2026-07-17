@@ -4,6 +4,11 @@
 > [`three/README.md`](./three/README.md)). Companion to [`IDEAL_3D.md`](./IDEAL_3D.md)
 > (the WASM host-owned-scene model) — this document covers the **portable Ranger
 > 3D object model** and the **Three.js-compatible API** on top of it.
+>
+> Targets run 1:1 in the interpreter, each with `*_test.rgr` in `run.sh`: the
+> rotating cube (§6–§7), the teapot ([`IDEAL_TEAPOT.md`](./three/IDEAL_TEAPOT.md)),
+> and the Sponza light-probe volume ([`IDEAL_SPONZA.md`](./three/IDEAL_SPONZA.md)) —
+> §8 records what each added and where it renders.
 
 ## 1. The goal
 
@@ -192,3 +197,62 @@ The measure of success: the Three.js cube script runs **unchanged** (✅ execute
 on the façade, ✅ renders through the core headlessly) and, once the browser host
 lands, renders GPU-accelerated — while the same scene, built from Ranger, renders
 natively. One object model, many front-ends and targets.
+
+## 8. Further targets: the teapot and the Sponza light-probe volume
+
+Two larger Three.js examples are ported the same way — new object-model classes
+(each a `Three*` file + `*_test.rgr`, `run.sh` green, `-l=cpp` clean) plus the
+example's scene code run in the interpreter against the façade and reconciled into
+the core by a per-example bridge.
+
+### 8.1 Teapot ([`three/IDEAL_TEAPOT.md`](./three/IDEAL_TEAPOT.md), `three/tsx/teapot.tsx`)
+
+The `webgl_geometry_teapot` scene runs 1:1: lighting (`ThreeAmbientLight`,
+`ThreeDirectionalLight`), lit materials (`ThreeMeshLambertMaterial`,
+`ThreeMeshPhongMaterial` — specular / shininess / flatShading / DoubleSide /
+wireframe), `ThreeColor`, the Bézier-patch `ThreeTeapotGeometry`, `ThreeCubeTexture`
+env maps, and a lil-gui panel drawn as an EVG overlay. `ThreeTeapotTsxBridge`
+reconciles the interpreted scene into the core; `web/web_teapot_tsx_host.rgr` draws
+it on the GPU in the browser (verified in headless Chromium). Host hooks
+(`setShading` / `setTess` / …) make panel edits hot-reload.
+
+### 8.2 Sponza light-probe volume ([`three/IDEAL_SPONZA.md`](./three/IDEAL_SPONZA.md), `three/tsx/sponza.tsx`)
+
+The `light probe volume (Sponza)` example: a glTF scene with an atmospheric sky, a
+shadow-casting directional light, ACES tone mapping, first-person controls and a
+baked diffuse-GI probe volume. Built as portable, unit-tested pieces:
+
+- `ThreeMathUtils`, `ThreeTimer`, `ThreeBox3` (+ `Object3D.expandBox3` /
+  `boundingBox`, `Vector3.setFromSphericalCoords`) — scalar/clock/bounds.
+- `ThreeFirstPersonControls`, `ThreeLoadingManager` — input + load tracking.
+- `ThreeToneMapping` (ACES Narkowicz + Reinhard) + a fragment tone-map epilogue
+  (`uToneMapping` / `uExposure`) + renderer `toneMapping` / `toneMappingExposure`.
+- `Matrix4.makeOrthographic`, `ThreeDirectionalLightShadow` (+ `DirectionalLight`
+  `shadow` / `target` / `castShadow`, `Mesh.castShadow` / `receiveShadow`) — the
+  light-space shadow matrix.
+- `ThreeSky` (Preetham uniforms) + the Sky scattering shader (`atmosphereVertexSrc`
+  / `atmosphereFragmentSrc`, GLSL ES 1.00).
+- `ThreeGLTFLoader` — a glTF binary accessor decoder (IEEE-754 float32 + LE ints →
+  `ThreeBufferGeometry`).
+- `ThreeSphericalHarmonics3` + `ThreeLightProbeGrid` (+ `ThreeLightProbeGridHelper`)
+  — order-2 SH projection/reconstruction, a probe grid with an analytic bake and a
+  trilinear irradiance lookup.
+- `ThreeSponzaScene` — composes the scene (sky, sun + shadow, model bounds, probe
+  volume, controls) from the above; the reconciliation target both hosts share.
+
+The scene runs interpreted with hot reload, like the teapot: `sponza.tsx` is the
+scene declaration (the async glTF download, the render loop, first-person controls
+and the lil-gui panel are host plumbing, as OrbitControls/GUI are for the teapot);
+`three/tsx/three_sponza_tsx_bridge.rgr` reconciles it into `ThreeSponzaScene`; and
+`three/tsx/three_sponza_tsx_test.rgr` (in `run.sh`) checks the reconcile and the
+hot-reload — editing the interpreted scene moves the sun, rebuilds the probe
+volume and toggles GI. `three/sponza_sdl_runner.rgr` + `scripts/build-sponza-sdl.sh`
+run the same interpreter + bridge + `ThreeGLBackend` natively on SDL2 + OpenGL,
+with a file-watch reload (verified by C++ codegen; the visual run is a local
+desktop-GL step, as the teapot's native path is).
+
+Pending: a native glTF **file** loader (the accessor decoder is done; the JSON
+structure parse, `.glb` chunk split, and host-side model attach remain — the SDL
+runner uses a placeholder box until then); the render-to-texture (FBO) passes in
+`ThreeGLBackend` for the shadow-map and probe-cubemap bake; and the browser host +
+playground entry for `sponza.tsx`.
