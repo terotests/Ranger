@@ -129,6 +129,11 @@ interface EntityPose {
   frame?: number;
   /** Visual / physics rotation in degrees (Cannon sandbox, rolling balls). */
   angle?: number;
+  /**
+   * sheet: live draw scale percent (100 = 1:1). Applied each frame in
+   * syncPose → drawSheet; use for pseudo-3D depth without pre-baked sizes.
+   */
+  scale?: number;
 }
 
 /** World-space spawn definition returned from entities(). */

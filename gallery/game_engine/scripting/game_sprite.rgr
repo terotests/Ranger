@@ -430,6 +430,19 @@ class GameSpriteRenderer {
         if (false == (radv.isNull())) {
             e.rad = (this.memInt(pos "rad" e.rad))
         }
+        ; Optional live draw scale for kind:"sheet" (percent, 100 = 1:1).
+        ; Lets games do pseudo-3D depth without pre-baking every size.
+        def scaleV:EvalValue (pos.getMember("scale"))
+        if (false == (scaleV.isNull())) {
+            def sc:int (this.memInt(pos "scale" e.shScale))
+            if (sc < 1) {
+                sc = 1
+            }
+            if (sc > 400) {
+                sc = 400
+            }
+            e.shScale = sc
+        }
     }
 
     fn drawBitmap:void (e:GameEntity canvas:SoftCanvas) {
