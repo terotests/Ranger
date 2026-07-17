@@ -40,4 +40,19 @@ class CannonShape {
     fn heightfieldPlaneAt:boolean (localX:double localY:double outNormal:CannonVec3 outPoint:CannonVec3) {
         return false
     }
+
+    ; Overridden by CannonConvexPolyhedron; the base is an empty hull.
+    fn convexVertexCount:int () {
+        return 0
+    }
+    fn convexVertexAt:void (i:int out:CannonVec3) {
+    }
+    fn convexFaceCount:int () {
+        return 0
+    }
+    fn convexFaceNormalAt:void (i:int out:CannonVec3) {
+    }
+    fn convexFaceVertexIndex:int (i:int) {
+        return 0
+    }
 }

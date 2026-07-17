@@ -157,9 +157,14 @@ describe("Cannon.js Ranger port", () => {
     cannonIt("Heightfield.restStep");
   });
 
+  describe("Convex", () => {
+    cannonIt("Convex.hullOnPlane");
+    cannonIt("Convex.sphereOnConvex");
+  });
+
   it("runs full Cannon suite aggregate", () => {
     const output = runCannonAll();
-    expect(output).toContain("pass=78");
+    expect(output).toContain("pass=80");
     expect(output).toContain("fail=0");
     expect(output).toContain("cannon-tests done");
   });

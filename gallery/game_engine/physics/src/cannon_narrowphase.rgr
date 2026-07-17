@@ -57,6 +57,14 @@ class CannonNarrowphase {
     def hfNormal:CannonVec3 (new CannonVec3)
     def hfPoint:CannonVec3 (new CannonVec3)
     def hfProj:CannonVec3 (new CannonVec3)
+    ; convex-polyhedron scratch
+    def cvRel:CannonVec3 (new CannonVec3)
+    def cvConj:CannonQuaternion (new CannonQuaternion)
+    def cvLocal:CannonVec3 (new CannonVec3)
+    def cvNormal:CannonVec3 (new CannonVec3)
+    def cvBest:CannonVec3 (new CannonVec3)
+    def cvFV:CannonVec3 (new CannonVec3)
+    def cvVert:CannonVec3 (new CannonVec3)
 
     fn createContactEquation:CannonEquation (bi:CannonBody bj:CannonBody si:CannonShape sj:CannonShape) {
         def c:CannonEquation (new CannonEquation)
@@ -266,6 +274,86 @@ class CannonNarrowphase {
         }
         def r:CannonEquation (this.createContactEquation(bi bj si sj))
         this.sbD.scaleInto((0.0 - (1.0 / dist)) r.ni)
+        r.ni.scaleInto(radius r.ri)
+        r.ri.vadd(xi r.ri)
+        r.ri.vsub(bi.position r.ri)
+        this.sbClosestWorld.vsub(bj.position r.rj)
+        push this.result r
+        return true
+    }
+
+    ; Plane (i) vs convex (j): each penetrating hull vertex becomes a contact.
+    fn convexPlane:boolean (planeQuat:CannonQuaternion convexShape:CannonShape convexPos:CannonVec3 convexQuat:CannonQuaternion bi:CannonBody bj:CannonBody si:CannonShape sj:CannonShape justTest:boolean) {
+        this.pbNormal.set(0.0 0.0 1.0)
+        planeQuat.vmult(this.pbNormal this.pbNormal)
+        def n:int (convexShape.convexVertexCount())
+        def planeDot:double (this.pbNormal.dot(bi.position))
+        def hit:boolean false
+        def k 0
+        while (k < n) {
+            convexShape.convexVertexAt(k this.cvVert)
+            convexQuat.vmult(this.cvVert this.pbCorner)
+            convexPos.vadd(this.pbCorner this.pbCorner)
+            def cornerDot:double (this.pbNormal.dot(this.pbCorner))
+            def dot:double (cornerDot - planeDot)
+            if (dot <= 0.0) {
+                if (justTest) {
+                    return true
+                }
+                def r:CannonEquation (this.createContactEquation(bi bj si sj))
+                r.ni.copy(this.pbNormal)
+                this.pbCorner.vsub(bj.position r.rj)
+                this.pbNormal.scaleInto(dot this.pbProj)
+                this.pbCorner.vsub(this.pbProj this.pbProj)
+                this.pbProj.vsub(bi.position r.ri)
+                push this.result r
+                hit = true
+            }
+            k = (k + 1)
+        }
+        return hit
+    }
+
+    ; Sphere (i) vs convex (j): contact against the most-separating face plane.
+    fn sphereConvex:boolean (radius:double xi:CannonVec3 convexShape:CannonShape xj:CannonVec3 qj:CannonQuaternion bi:CannonBody bj:CannonBody si:CannonShape sj:CannonShape justTest:boolean) {
+        xi.vsub(xj this.cvRel)
+        qj.conjugateInto(this.cvConj)
+        this.cvConj.vmult(this.cvRel this.cvLocal)
+        def fc:int (convexShape.convexFaceCount())
+        if (fc == 0) {
+            return false
+        }
+        def maxDist:double (0.0 - 1000000000.0)
+        def f 0
+        while (f < fc) {
+            convexShape.convexFaceNormalAt(f this.cvNormal)
+            def vidx:int (convexShape.convexFaceVertexIndex(f))
+            convexShape.convexVertexAt(vidx this.cvFV)
+            this.cvLocal.vsub(this.cvFV this.hfProj)
+            def dist:double (this.cvNormal.dot(this.hfProj))
+            if (dist > maxDist) {
+                maxDist = dist
+                this.cvBest.copy(this.cvNormal)
+            }
+            f = (f + 1)
+        }
+        if (maxDist >= radius) {
+            return false
+        }
+        if (justTest) {
+            return true
+        }
+        this.cvBest.scaleInto(maxDist this.hfProj)
+        this.cvLocal.vsub(this.hfProj this.hfProj)
+        qj.vmult(this.hfProj this.sbClosestWorld)
+        this.sbClosestWorld.vadd(xj this.sbClosestWorld)
+        xi.vsub(this.sbClosestWorld this.sbD)
+        def dd:double (this.sbD.norm())
+        if (dd < 0.00001) {
+            return false
+        }
+        def r:CannonEquation (this.createContactEquation(bi bj si sj))
+        this.sbD.scaleInto((0.0 - (1.0 / dd)) r.ni)
         r.ni.scaleInto(radius r.ri)
         r.ri.vadd(xi r.ri)
         r.ri.vsub(bi.position r.ri)
@@ -484,6 +572,31 @@ class CannonNarrowphase {
             if (sj.type == 1) {
                 def hitHfS:boolean (this.sphereHeightfield(sj.radius xj si xi qi bj bi sj si justTest))
                 return hitHfS
+            }
+        }
+        ; sphere (i) vs convex (j)
+        if (si.type == 1) {
+            if (sj.type == 6) {
+                def hitSCv:boolean (this.sphereConvex(si.radius xi sj xj qj bi bj si sj justTest))
+                return hitSCv
+            }
+        }
+        if (si.type == 6) {
+            if (sj.type == 1) {
+                def hitCvS:boolean (this.sphereConvex(sj.radius xj si xi qi bj bi sj si justTest))
+                return hitCvS
+            }
+            ; convex vs plane -> plane is body i
+            if (sj.type == 2) {
+                def hitCvP:boolean (this.convexPlane(qj si xi qi bj bi sj si justTest))
+                return hitCvP
+            }
+        }
+        ; plane (i) vs convex (j)
+        if (si.type == 2) {
+            if (sj.type == 6) {
+                def hitPCv:boolean (this.convexPlane(qi sj xj qj bi bj si sj justTest))
+                return hitPCv
             }
         }
         if (si.type == 4) {

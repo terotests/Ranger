@@ -1,0 +1,92 @@
+; ==============================================================================
+; cannon_convex_test — convex polyhedron vs plane and vs sphere.
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_sphere.rgr"
+Import "cannon_plane.rgr"
+Import "cannon_convex.rgr"
+Import "cannon_body.rgr"
+Import "cannon_world.rgr"
+Import "cannon_test_harness.rgr"
+Import "cannon_test_filter.rgr"
+
+class CannonConvexTest {
+    def filter:CannonTestFilter (new CannonTestFilter)
+
+    fn runFiltered:void (h:CannonTestHarness filter:string) {
+        if (this.filter.matches(filter "Convex.hullOnPlane")) { this.hullOnPlane(h) }
+        if (this.filter.matches(filter "Convex.sphereOnConvex")) { this.sphereOnConvex(h) }
+    }
+
+    ; A convex box-hull dropped on the ground plane rests on its bottom face
+    ; (center z ~= 1) through the convex-plane path.
+    fn hullOnPlane:void (h:CannonTestHarness) {
+        h.beginTest("Convex.hullOnPlane")
+        def world:CannonWorld (new CannonWorld)
+        world.initWorld()
+        world.setGravity(0.0 0.0 (0.0 - 10.0))
+
+        def ground:CannonBody (new CannonBody)
+        ground.initStatic()
+        def plane:CannonPlane (new CannonPlane)
+        plane.initPlane()
+        ground.addShape(plane)
+        ground.position.set(0.0 0.0 0.0)
+        world.addBody(ground)
+
+        def hull:CannonBody (new CannonBody)
+        hull.initDynamic(1.0)
+        def convex:CannonConvexPolyhedron (new CannonConvexPolyhedron)
+        convex.initBoxHull(1.0 1.0 1.0)
+        hull.addShape(convex)
+        hull.position.set(0.0 0.0 3.0)
+        world.addBody(hull)
+
+        def s 0
+        while (s < 150) {
+            world.step(0.016666666666666666)
+            s = (s + 1)
+        }
+        def z:double hull.position.z
+        h.ok((z > 0.7) "convex hull rests on the plane, does not sink through")
+        h.ok((z < 1.4) "convex hull settles near the plane")
+        print ("convexHullZ=" + (to_string z))
+        h.finishTest()
+    }
+
+    ; A ball settles on the top face of a static convex box-hull (top at z=1),
+    ; resting one radius above it (z ~= 1.5).
+    fn sphereOnConvex:void (h:CannonTestHarness) {
+        h.beginTest("Convex.sphereOnConvex")
+        def world:CannonWorld (new CannonWorld)
+        world.initWorld()
+        world.setGravity(0.0 0.0 (0.0 - 10.0))
+
+        def block:CannonBody (new CannonBody)
+        block.initStatic()
+        def convex:CannonConvexPolyhedron (new CannonConvexPolyhedron)
+        convex.initBoxHull(1.0 1.0 1.0)
+        block.addShape(convex)
+        block.position.set(0.0 0.0 0.0)
+        world.addBody(block)
+
+        def ball:CannonBody (new CannonBody)
+        ball.initDynamic(1.0)
+        def sphere:CannonSphere (new CannonSphere)
+        sphere.initSphere(0.5)
+        ball.addShape(sphere)
+        ball.position.set(0.0 0.0 2.0)
+        world.addBody(ball)
+
+        def s 0
+        while (s < 120) {
+            world.step(0.016666666666666666)
+            s = (s + 1)
+        }
+        def z:double ball.position.z
+        h.nearEqual(z 1.5 0.2 "ball rests one radius above the convex top face")
+        print ("sphereConvexZ=" + (to_string z))
+        h.finishTest()
+    }
+}

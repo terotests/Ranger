@@ -320,8 +320,16 @@ muotojen `raycast`-metodit. Todiste: raycast-osumatestit per muoto.
   `heightfieldPlaneAt`). Testi `Heightfield.restStep`: porrastetulla maastolla
   (matala puoli h=1, korkea h=2) pallot asettuvat säteen verran oman maastokorkeuden
   yläpuolelle (`hfLowZ≈1.5`, `hfHighZ≈2.5`) → ruudukko haetaan sijainnin mukaan.
-  `npm run engine:physics:test` → 78 passed, 0 failed. ⏳ `Cylinder`/`Trimesh`/
-  `Particle` jäävät vielä; `ConvexPolyhedron` seuraavaksi.
+  `npm run engine:physics:test` → 78 passed, 0 failed.
+- ✅ **Osa 3c — ConvexPolyhedron (konveksit muodot, tehty):** [`cannon_convex.rgr`](./physics/src/cannon_convex.rgr)
+  — yleinen konveksi (kärjet + tahkonormaalit, `initBoxHull`-apuri). **convex-plane**
+  (kukin läpäisevä kärki → kontakti, iteroi kärjet kuten planeBox) ja **sphere-convex**
+  (kontakti erottavimpaan tahkotasoon). Virtuaaliset accessorit (`convexVertexAt`/
+  `convexFaceNormalAt`/…) `CannonShape`ssa. Testit: box-hull-konveksi lepää tasolla
+  (`convexHullZ≈1.0`), pallo lepää konveksin tahkolla (`sphereConvexZ≈1.5`).
+  `npm run engine:physics:test` → 80 passed, 0 failed. ⏳ Yleinen convex-convex-SAT
+  (mielivaltaiset konveksit toisiaan vasten) ja `Cylinder`/`Trimesh`/`Particle`
+  jäävät vielä; laatikot, tasot, pallot ja konveksit tasoa/palloa vasten katettu.
 
 **Vaihe 7 — Rajapinta & backend-luukku.** Nosta `PhysicsWorld`-rajapinta (IDEAL §2.5)
 ja tarjoa valinnainen **Jolt/Rapier host-natiivi-backend** desktopille rajapinnan
