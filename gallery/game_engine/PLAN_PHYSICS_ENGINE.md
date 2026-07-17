@@ -293,8 +293,14 @@ muotojen `raycast`-metodit. Todiste: raycast-osumatestit per muoto.
   vain maan. Testit ([`cannon_vehicle_test.rgr`](./physics/src/cannon_vehicle_test.rgr)):
   4-pyöräinen ajoneuvo leijuu jousituksellaan tasolla (`vehicleHoverY ≈ 1.42`, pyörät
   kontaktissa, ei uppoa), moottorivoima ajaa eteenpäin (`vehicleDriveX ≈ 5.2`).
-  `npm run engine:physics:test` → 73 passed, 0 failed. ⏳ Sivuttaiskitka/ohjaus
-  (lateral grip, steering) tulee myöhemmin — jousitus + veto toimivat.
+  `npm run engine:physics:test` → 73 passed, 0 failed.
+- ✅ **Osa 5b — Sivuttaiskitka + ohjaus (tehty):** kukin pyörä laskee ohjatun
+  suunnan (chassis-forward kääntyy ohjauskulmalla) ja **sivuttaispidon** (vastustaa
+  sivuttaisnopeutta kontaktissa, rajattuna `frictionSlip * jousituskuorma`).
+  `setSteeringValue` kääntää pyöriä. Testit: sivuttaisliuku vaimenee
+  (`lateralVz 3.0 → 0.21`), ohjattu auto kääntyy kaarelle (`steerX ≈ 6.8`,
+  `steerZ ≈ 7.0`). **Ajoneuvo on nyt kokonainen: jousitus + veto + pito + ohjaus.**
+  `npm run engine:physics:test` → 77 passed, 0 failed.
 
 **Vaihe 6 — Muodot + broadphase + uni.** `Cylinder`, `Heightfield`, `Trimesh`,
 `Particle`; `SAPBroadphase`; islands/sleep. Todiste: per-muoto-testit + skaalaustesti.

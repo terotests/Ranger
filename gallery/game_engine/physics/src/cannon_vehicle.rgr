@@ -19,6 +19,9 @@ class CannonWheelInfo {
     def damping:double 4.0
     def radius:double 0.4
     def engineForce:double 0.0
+    def steering:double 0.0
+    def sideGrip:double 30.0
+    def frictionSlip:double 5.0
     ; runtime
     def isInContact:boolean false
     def suspensionLength:double 0.6
@@ -44,6 +47,7 @@ class CannonRaycastVehicle {
     def world:CannonWorld
     def wheels:[CannonWheelInfo]
     def forwardLocal:CannonVec3 (new CannonVec3)
+    def rightLocal:CannonVec3 (new CannonVec3)
     ; scratch
     def vFrom:CannonVec3 (new CannonVec3)
     def vTo:CannonVec3 (new CannonVec3)
@@ -51,15 +55,26 @@ class CannonRaycastVehicle {
     def vRel:CannonVec3 (new CannonVec3)
     def vVel:CannonVec3 (new CannonVec3)
     def vForward:CannonVec3 (new CannonVec3)
+    def vRight:CannonVec3 (new CannonVec3)
+    def vSteerA:CannonVec3 (new CannonVec3)
+    def vSteerB:CannonVec3 (new CannonVec3)
+    def vSteerFwd:CannonVec3 (new CannonVec3)
+    def vSide:CannonVec3 (new CannonVec3)
 
     fn initVehicle:void (chassis:CannonBody world:CannonWorld) {
         this.chassis = chassis
         this.world = world
         this.forwardLocal.set(1.0 0.0 0.0)
+        this.rightLocal.set(0.0 0.0 1.0)
     }
 
     fn addWheel:void (w:CannonWheelInfo) {
         push this.wheels w
+    }
+
+    fn setSteeringValue:void (index:int angle:double) {
+        def w:CannonWheelInfo (itemAt this.wheels index)
+        w.steering = angle
     }
 
     fn setEngineForce:void (force:double) {
@@ -105,11 +120,40 @@ class CannonRaycastVehicle {
                 w.contactPoint.vsub(chassis.position this.vRel)
                 w.contactNormal.scaleInto(force this.vForce)
                 chassis.applyForce(this.vForce this.vRel)
+
+                ; Steered heading: rotate chassis-forward toward chassis-right by
+                ; the steering angle, in the ground plane.
+                def cosS:double (cos(w.steering))
+                def sinS:double (sin(w.steering))
+                chassis.vectorToWorldFrame(this.forwardLocal this.vForward)
+                chassis.vectorToWorldFrame(this.rightLocal this.vRight)
+                this.vForward.scaleInto(cosS this.vSteerA)
+                this.vRight.scaleInto(sinS this.vSteerB)
+                this.vSteerA.vadd(this.vSteerB this.vSteerFwd)
+                ; Side (axle) direction = steered forward x contact normal.
+                this.vSteerFwd.crossInto(w.contactNormal this.vSide)
+                this.vSide.normalizeSelf()
+
+                ; Engine force drives along the steered heading.
                 if (w.engineForce != 0.0) {
-                    chassis.vectorToWorldFrame(this.forwardLocal this.vForward)
-                    this.vForward.scaleInto(w.engineForce this.vForce)
+                    this.vSteerFwd.scaleInto(w.engineForce this.vForce)
                     chassis.applyForce(this.vForce this.vRel)
                 }
+
+                ; Lateral tyre grip: oppose sideways velocity at the contact,
+                ; capped by the friction limit (mu * suspension load).
+                chassis.getVelocityAtWorldPoint(w.contactPoint this.vVel)
+                def vSideSpeed:double (this.vVel.dot(this.vSide))
+                def maxSide:double (w.frictionSlip * force)
+                def sideForce:double (0.0 - (w.sideGrip * vSideSpeed))
+                if (sideForce > maxSide) {
+                    sideForce = maxSide
+                }
+                if (sideForce < (0.0 - maxSide)) {
+                    sideForce = (0.0 - maxSide)
+                }
+                this.vSide.scaleInto(sideForce this.vForce)
+                chassis.applyForce(this.vForce this.vRel)
             }
             i = (i + 1)
         }

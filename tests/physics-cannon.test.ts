@@ -144,6 +144,8 @@ describe("Cannon.js Ranger port", () => {
   describe("Vehicle", () => {
     cannonIt("Vehicle.suspensionHover");
     cannonIt("Vehicle.drive");
+    cannonIt("Vehicle.lateralGrip");
+    cannonIt("Vehicle.steer");
   });
 
   describe("Sleep & broadphase", () => {
@@ -153,7 +155,7 @@ describe("Cannon.js Ranger port", () => {
 
   it("runs full Cannon suite aggregate", () => {
     const output = runCannonAll();
-    expect(output).toContain("pass=75");
+    expect(output).toContain("pass=77");
     expect(output).toContain("fail=0");
     expect(output).toContain("cannon-tests done");
   });
