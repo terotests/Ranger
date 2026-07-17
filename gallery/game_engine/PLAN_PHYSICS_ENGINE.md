@@ -313,8 +313,15 @@ muotojen `raycast`-metodit. Todiste: raycast-osumatestit per muoto.
 - ✅ **Osa 6b — SAP-broadphase (tehty):** [`cannon_sap_broadphase.rgr`](./physics/src/cannon_sap_broadphase.rgr)
   — lajittelu AABB:n min-x:n mukaan + pyyhkäisy, karsii O(n²)-parit. Testi
   `SAP.sameAsNaive`: tuottaa samat parit kuin naiivi (2 = 2). `npm run engine:physics:test`
-  → 75 passed, 0 failed. ⏳ `Cylinder`/`Heightfield`/`Trimesh`/`Particle`-muodot
-  (törmäyskoodi kullekin) jäävät vielä.
+  → 75 passed, 0 failed.
+- ✅ **Osa 6c — Heightfield (maasto, tehty):** [`cannon_heightfield.rgr`](./physics/src/cannon_heightfield.rgr)
+  — korkeusruudukko (`data[i*ny+j]`, `elementSize`), pinta z = korkeus. Sphere-
+  heightfield-törmäys ottaa maaston kolmiotason pallon keskipisteen alta (virtuaali
+  `heightfieldPlaneAt`). Testi `Heightfield.restStep`: porrastetulla maastolla
+  (matala puoli h=1, korkea h=2) pallot asettuvat säteen verran oman maastokorkeuden
+  yläpuolelle (`hfLowZ≈1.5`, `hfHighZ≈2.5`) → ruudukko haetaan sijainnin mukaan.
+  `npm run engine:physics:test` → 78 passed, 0 failed. ⏳ `Cylinder`/`Trimesh`/
+  `Particle` jäävät vielä; `ConvexPolyhedron` seuraavaksi.
 
 **Vaihe 7 — Rajapinta & backend-luukku.** Nosta `PhysicsWorld`-rajapinta (IDEAL §2.5)
 ja tarjoa valinnainen **Jolt/Rapier host-natiivi-backend** desktopille rajapinnan

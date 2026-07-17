@@ -50,6 +50,13 @@ class CannonNarrowphase {
     def bbPointA:CannonVec3 (new CannonVec3)
     def bbPointB:CannonVec3 (new CannonVec3)
     def bbMade:int 0
+    ; sphere-heightfield scratch
+    def hfRel:CannonVec3 (new CannonVec3)
+    def hfConj:CannonQuaternion (new CannonQuaternion)
+    def hfLocal:CannonVec3 (new CannonVec3)
+    def hfNormal:CannonVec3 (new CannonVec3)
+    def hfPoint:CannonVec3 (new CannonVec3)
+    def hfProj:CannonVec3 (new CannonVec3)
 
     fn createContactEquation:CannonEquation (bi:CannonBody bj:CannonBody si:CannonShape sj:CannonShape) {
         def c:CannonEquation (new CannonEquation)
@@ -225,6 +232,46 @@ class CannonNarrowphase {
         if (this.tryPlaneBoxCorner(1.0 (0.0 - 1.0) (0.0 - 1.0) he xj boxQuat bi bj si sj justTest)) { hit = true }
         if (this.tryPlaneBoxCorner((0.0 - 1.0) (0.0 - 1.0) (0.0 - 1.0) he xj boxQuat bi bj si sj justTest)) { hit = true }
         return hit
+    }
+
+    ; Sphere (i) vs heightfield (j): contact against the terrain triangle plane
+    ; under the sphere centre.
+    fn sphereHeightfield:boolean (radius:double xi:CannonVec3 hfShape:CannonShape xj:CannonVec3 qj:CannonQuaternion bi:CannonBody bj:CannonBody si:CannonShape sj:CannonShape justTest:boolean) {
+        xi.vsub(xj this.hfRel)
+        qj.conjugateInto(this.hfConj)
+        this.hfConj.vmult(this.hfRel this.hfLocal)
+        if (hfShape.heightfieldPlaneAt(this.hfLocal.x this.hfLocal.y this.hfNormal this.hfPoint) == false) {
+            return false
+        }
+        this.hfLocal.vsub(this.hfPoint this.hfProj)
+        def d:double (this.hfNormal.dot(this.hfProj))
+        if (d >= radius) {
+            return false
+        }
+        if (d <= 0.0) {
+            return false
+        }
+        if (justTest) {
+            return true
+        }
+        ; project the sphere centre onto the terrain plane (local -> world)
+        this.hfNormal.scaleInto(d this.hfProj)
+        this.hfLocal.vsub(this.hfProj this.hfProj)
+        qj.vmult(this.hfProj this.sbClosestWorld)
+        this.sbClosestWorld.vadd(xj this.sbClosestWorld)
+        xi.vsub(this.sbClosestWorld this.sbD)
+        def dist:double (this.sbD.norm())
+        if (dist < 0.00001) {
+            return false
+        }
+        def r:CannonEquation (this.createContactEquation(bi bj si sj))
+        this.sbD.scaleInto((0.0 - (1.0 / dist)) r.ni)
+        r.ni.scaleInto(radius r.ri)
+        r.ri.vadd(xi r.ri)
+        r.ri.vsub(bi.position r.ri)
+        this.sbClosestWorld.vsub(bj.position r.rj)
+        push this.result r
+        return true
     }
 
     ; --- box-box (OBB) via the separating axis theorem ---
@@ -426,6 +473,17 @@ class CannonNarrowphase {
             if (sj.type == 4) {
                 def hitSBox:boolean (this.sphereBox(si.radius xi sj xj qj bi bj si sj justTest))
                 return hitSBox
+            }
+            ; sphere (i) vs heightfield (j)
+            if (sj.type == 5) {
+                def hitSHf:boolean (this.sphereHeightfield(si.radius xi sj xj qj bi bj si sj justTest))
+                return hitSHf
+            }
+        }
+        if (si.type == 5) {
+            if (sj.type == 1) {
+                def hitHfS:boolean (this.sphereHeightfield(sj.radius xj si xi qi bj bi sj si justTest))
+                return hitHfS
             }
         }
         if (si.type == 4) {

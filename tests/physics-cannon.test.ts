@@ -153,9 +153,13 @@ describe("Cannon.js Ranger port", () => {
     cannonIt("SAP.sameAsNaive");
   });
 
+  describe("Heightfield", () => {
+    cannonIt("Heightfield.restStep");
+  });
+
   it("runs full Cannon suite aggregate", () => {
     const output = runCannonAll();
-    expect(output).toContain("pass=77");
+    expect(output).toContain("pass=78");
     expect(output).toContain("fail=0");
     expect(output).toContain("cannon-tests done");
   });

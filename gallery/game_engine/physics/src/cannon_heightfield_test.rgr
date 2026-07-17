@@ -1,0 +1,75 @@
+; ==============================================================================
+; cannon_heightfield_test — spheres rest on a terrain height map.
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_sphere.rgr"
+Import "cannon_heightfield.rgr"
+Import "cannon_body.rgr"
+Import "cannon_world.rgr"
+Import "cannon_test_harness.rgr"
+Import "cannon_test_filter.rgr"
+
+class CannonHeightfieldTest {
+    def filter:CannonTestFilter (new CannonTestFilter)
+
+    fn runFiltered:void (h:CannonTestHarness filter:string) {
+        if (this.filter.matches(filter "Heightfield.restStep")) { this.restStep(h) }
+    }
+
+    fn dropBall:CannonBody (world:CannonWorld x:double y:double z:double) {
+        def ball:CannonBody (new CannonBody)
+        ball.initDynamic(1.0)
+        def sphere:CannonSphere (new CannonSphere)
+        sphere.initSphere(0.5)
+        ball.addShape(sphere)
+        ball.position.set(x y z)
+        world.addBody(ball)
+        return ball
+    }
+
+    ; A stepped terrain (height 1 for the low half in x, height 2 for the high
+    ; half). Two balls settle one radius above their local terrain height,
+    ; proving the grid is sampled by position.
+    fn restStep:void (h:CannonTestHarness) {
+        h.beginTest("Heightfield.restStep")
+        def world:CannonWorld (new CannonWorld)
+        world.initWorld()
+        world.setGravity(0.0 0.0 (0.0 - 10.0))
+
+        def ground:CannonBody (new CannonBody)
+        ground.initStatic()
+        def field:CannonHeightfield (new CannonHeightfield)
+        field.initHeightfield(6 6 2.0)
+        def i 0
+        while (i < 6) {
+            def j 0
+            while (j < 6) {
+                if (i < 3) {
+                    field.setHeight(i j 1.0)
+                } {
+                    field.setHeight(i j 2.0)
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        ground.addShape(field)
+        ground.position.set(0.0 0.0 0.0)
+        world.addBody(ground)
+
+        def low:CannonBody (this.dropBall(world 2.0 4.0 4.0))
+        def high:CannonBody (this.dropBall(world 8.0 4.0 5.0))
+
+        def s 0
+        while (s < 150) {
+            world.step(0.016666666666666666)
+            s = (s + 1)
+        }
+        h.nearEqual(low.position.z 1.5 0.2 "ball rests one radius above the low terrain (z~1.5)")
+        h.nearEqual(high.position.z 2.5 0.2 "ball rests one radius above the high terrain (z~2.5)")
+        print ("hfLowZ=" + (to_string low.position.z))
+        print ("hfHighZ=" + (to_string high.position.z))
+        h.finishTest()
+    }
+}
