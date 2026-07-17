@@ -51,6 +51,11 @@ class LittlecivRunnerDemo {
         runner.draw()
         buffer_write_file "gallery/game_engine/scripting" "littleciv_frame.rgba" (runner.raw())
 
+        ; Re-aim right so aim marker is visible on the final frame.
+        runner.frame(16 false false false true false false)
+        runner.frame(16 false false false false false false)
+        runner.draw()
+
         def ec:int (runner.entityCount())
         def ringX:int (runner.entityX("selRing"))
         def aimX:int (runner.entityX("aim"))
@@ -69,6 +74,11 @@ class LittlecivRunnerDemo {
             print "select=ok"
         } {
             print "select=missing"
+        }
+        if (aimX > 0) {
+            print "aim=ok"
+        } {
+            print "aim=missing"
         }
         def audio:GameAudio (runner.audioRef())
         print (("audioPlays=" + audio.playCount))

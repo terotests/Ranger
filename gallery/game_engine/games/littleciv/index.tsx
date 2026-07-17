@@ -329,8 +329,13 @@ function screenX(worldCol, camCol) {
   return ORIGIN_X + (worldCol - camCol) * TILE + (TILE / 2);
 }
 
+// LPC feet sit inside the tile (not on the grid line under it).
 function screenFeetY(worldRow, camRow) {
-  return ORIGIN_Y + (worldRow - camRow) * TILE + TILE - 1;
+  return ORIGIN_Y + (worldRow - camRow) * TILE + TILE - 6;
+}
+
+function tileTopY(worldRow, camRow) {
+  return ORIGIN_Y + (worldRow - camRow) * TILE;
 }
 
 function inView(worldCol, worldRow, camCol, camRow) {
@@ -404,9 +409,9 @@ function sprites() {
     list.push(tileSheet(tileId(i)));
     i = i + 1;
   }
-  // Bright selection ring + aim marker (rects are easy to see under LPC).
-  list.push({ id: selRingId(), kind: "rect", w: 28, h: 28, r: 255, g: 230, b: 40 });
-  list.push({ id: aimId(), kind: "rect", w: 18, h: 18, r: 80, g: 230, b: 255 });
+  // Full-tile yellow aim highlight + thinner gold selection under the unit.
+  list.push({ id: aimId(), kind: "rect", w: TILE - 2, h: TILE - 2, r: 255, g: 220, b: 40 });
+  list.push({ id: selRingId(), kind: "rect", w: TILE - 6, h: TILE - 6, r: 255, g: 255, b: 180 });
   list.push(pieceSheet(cursorId(), 2, 1));
   i = 0;
   while (i < MAX_CITIES) {
@@ -955,11 +960,10 @@ function buildEntities(units, cities, sel, explored, camCol, camRow, aim, slide)
     if (isExplored(explored, wc, wr) == 1) {
       frame = terrainFrame(cellAt(wc, wr));
     }
-    // Tile sheets are top-left anchored via feet? Sheet uses feet at bottom.
-    // For full-tile art with scale 100 / 24px, place feet at tile bottom.
+    // Sheet sprites are feet-anchored: feet at tile bottom → art fills the cell.
     entities[tileId(i)] = {
       x: ORIGIN_X + vc * TILE + (TILE / 2),
-      y: ORIGIN_Y + vr * TILE + TILE - 1,
+      y: ORIGIN_Y + vr * TILE + TILE,
       p0: frame,
       p1: 0,
       visible: 1
@@ -1073,6 +1077,7 @@ function buildEntities(units, cities, sel, explored, camCol, camRow, aim, slide)
         visible: 1
       };
     }
+    // Destination tile: full yellow square (always when aiming).
     if (aim >= 0 && !(slide && slide.on == 1)) {
       const d = aimDelta(aim);
       const ac = u.col + d.dc;
@@ -1081,6 +1086,22 @@ function buildEntities(units, cities, sel, explored, camCol, camRow, aim, slide)
         entities[aimId()] = {
           x: screenX(ac, camCol),
           y: tileCenterY(ar, camRow),
+          r: 255,
+          g: 220,
+          b: 40,
+          visible: 1
+        };
+      }
+    }
+    // While sliding, keep the destination highlighted.
+    if (slide && slide.on == 1 && slide.unit == sel) {
+      if (inView(slide.tc, slide.tr, camCol, camRow) == 1) {
+        entities[aimId()] = {
+          x: screenX(slide.tc, camCol),
+          y: tileCenterY(slide.tr, camRow),
+          r: 255,
+          g: 220,
+          b: 40,
           visible: 1
         };
       }
@@ -1620,14 +1641,14 @@ function hud(props) {
 
   if (s.screen == "splash") {
     return (
-      <View width="100%" height="100%" flexDirection="column" justifyContent="center" alignItems="center">
-        <Label color="#f0d246" fontSize="38px">LittleCiv</Label>
-        <Label color="#9ec4e8" fontSize="12px">Fogged world · aim then move</Label>
-        <Label color="#ffffff" fontSize="13px">1) Arrows = choose direction</Label>
-        <Label color="#ffffff" fontSize="13px">2) Space = slide into that tile</Label>
-        <Label color="#c8d6e8" fontSize="12px">Select = next unit / found city</Label>
-        <Label color="#c8d6e8" fontSize="12px">B / Start = end turn</Label>
-        <Label color="#ffe98a" fontSize="16px">Space = begin</Label>
+      <View width="100%" height="100%" flexDirection="column" justifyContent="center" alignItems="center" backgroundColor="#101828cc">
+        <Label color="#f0d246" fontSize="42px">LittleCiv</Label>
+        <Label color="#9ec4e8" fontSize="14px">How to play</Label>
+        <Label color="#ffffff" fontSize="16px">Arrows = aim (yellow tile)</Label>
+        <Label color="#ffffff" fontSize="16px">Space = move there</Label>
+        <Label color="#d0d8e8" fontSize="14px">Select = next unit / found city</Label>
+        <Label color="#d0d8e8" fontSize="14px">B / Start = end turn</Label>
+        <Label color="#ffe98a" fontSize="20px">Press Space to begin</Label>
       </View>
     );
   }
@@ -1656,17 +1677,17 @@ function hud(props) {
   const theirs = citySummary(s.cities, OWNER_AI);
   const line = statusLine(s);
   let tip = "Arrows aim · Space move · Select found/cycle · B end turn";
-  if (s.help == 1 && s.msgT <= 0) {
-    tip = "Yellow ring = selected · Cyan square = aim · Space slides";
+  if (s.help == 1) {
+    tip = "Yellow tile = where you will move · Space to go";
   }
   if (s.msgT > 0) { tip = s.msg; }
 
   let aimLine = "";
-  if (s.aim == 0) { aimLine = "Aim: UP"; }
-  if (s.aim == 1) { aimLine = "Aim: LEFT"; }
-  if (s.aim == 2) { aimLine = "Aim: DOWN"; }
-  if (s.aim == 3) { aimLine = "Aim: RIGHT"; }
-  if (s.aim < 0) { aimLine = "Aim: —  (pick a direction)"; }
+  if (s.aim == 0) { aimLine = "Aim: UP  (yellow tile)"; }
+  if (s.aim == 1) { aimLine = "Aim: LEFT  (yellow tile)"; }
+  if (s.aim == 2) { aimLine = "Aim: DOWN  (yellow tile)"; }
+  if (s.aim == 3) { aimLine = "Aim: RIGHT  (yellow tile)"; }
+  if (s.aim < 0) { aimLine = "Aim: —  press an arrow first"; }
   if (s.slide && s.slide.on == 1) { aimLine = "Moving…"; }
 
   let cityLine = "";
