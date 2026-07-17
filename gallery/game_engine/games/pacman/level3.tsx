@@ -1,12 +1,8 @@
 /// <reference path="../../scripting/game.d.ts" />
 //
-// Pac-Man — taso 1 (avenue). Seuraavat tasot: pushGame("level2.tsx").
-//
-// Controls: arrows / WASD. Split-screen: game.info splitScreen=auto.
-//
-// Run: npm run engine:game-sdl:launcher → Pac-Man
+// Pac-Man — taso 3 (fortress). Lopputaso → loadGame("win.tsx").
 
-import { installAvenueLevel } from "./level_avenue";
+import { installFortressLevel } from "./level_fortress";
 import {
   gameScreens,
   paintLevelBg,
@@ -17,7 +13,7 @@ import {
 } from "./pacman_shared";
 
 function bootLevel() {
-  installAvenueLevel();
+  installFortressLevel();
 }
 
 function screens() {
