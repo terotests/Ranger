@@ -15,7 +15,7 @@ Two-player or vs-computer chess for the Ranger game engine (480×270).
 
 | Input | Action |
 |-------|--------|
-| Arrows | Move cursor |
+| Arrows | Move cursor (after select: jump between legal squares only) |
 | Space / Action | Select piece / move |
 | B / Select | Cancel selection |
 

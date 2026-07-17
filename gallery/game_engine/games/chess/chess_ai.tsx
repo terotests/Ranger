@@ -1,7 +1,8 @@
 /// <reference path="../../scripting/game.d.ts" />
 //
 // Lightweight chess AI: known openings for the first few plies, then a
-// 1-ply heuristic (material + center control + captures / checks / develop).
+// cheap 1-ply heuristic (material + center + captures). No deep look-ahead —
+// the TSX interpreter cannot afford per-reply legal-move generation.
 
 import {
   allLegalMoves,
@@ -28,6 +29,9 @@ const OPENINGS = [
   ["e2e4", "e7e6", "d2d4", "d7d5"]
 ];
 
+// Soft cap: if scoring somehow stalls, force a pick after this many think frames.
+export const AI_MAX_THINK_FRAMES = 36;
+
 function nextSeed(seed) {
   return (seed * 1103515245 + 12345) % 2147483647;
 }
@@ -47,7 +51,6 @@ function pieceSquare(p, sq) {
   let s = centerBonus(sq);
   const r = sqRow(sq);
   if (k == 1) {
-    // Encourage pawn advances a little.
     if (p > 0) {
       s = s + (6 - r) * 3;
     } else {
@@ -61,7 +64,6 @@ function pieceSquare(p, sq) {
 }
 
 function evaluate(board, color) {
-  // Positive is good for `color`.
   let mat = materialScore(board);
   if (color < 0) {
     mat = 0 - mat;
@@ -88,7 +90,7 @@ function scoreMove(board, move, color, ep, rights) {
   const next = applyFullMove(board, move, color, ep, rights);
   let score = evaluate(next.board, color) - before;
 
-  // Captures / specials
+  // Captures / specials (cheap flags — no reply search).
   if (move.flags == 1 || move.flags == 3 || move.flags == 5) {
     score = score + 35;
   }
@@ -102,7 +104,6 @@ function scoreMove(board, move, color, ep, rights) {
     score = score + 25;
   }
 
-  // Prefer developing minors from back rank early.
   const fromR = sqRow(move.from);
   const p = board[move.from];
   const k = absPiece(p);
@@ -111,23 +112,23 @@ function scoreMove(board, move, color, ep, rights) {
     if (color < 0 && fromR == 0) { score = score + 12; }
   }
 
-  // Tiny look-ahead: worst opponent reply material swing (captures only).
-  const replies = allLegalMoves(next.board, next.color, next.ep, next.rights);
-  let worst = 0;
-  let ri = 0;
-  while (ri < replies.length) {
-    const rm = replies[ri];
-    if (rm.flags == 1 || rm.flags == 3 || rm.flags == 5) {
-      const after = applyFullMove(next.board, rm, next.color, next.ep, next.rights);
-      const oppGain = evaluate(after.board, color) - evaluate(next.board, color);
-      if (oppGain < worst) {
-        worst = oppGain;
-      }
-    }
-    ri = ri + 1;
+  // Cheap MVV-ish: prefer capturing higher value with lower value.
+  if (move.flags == 1 || move.flags == 3) {
+    const victim = board[move.to];
+    score = score + pieceValueAbs(victim) - (pieceValueAbs(p) / 10);
   }
-  score = score + worst;
   return score;
+}
+
+function pieceValueAbs(p) {
+  const k = absPiece(p);
+  if (k == 1) { return 100; }
+  if (k == 2) { return 320; }
+  if (k == 3) { return 330; }
+  if (k == 4) { return 500; }
+  if (k == 5) { return 900; }
+  if (k == 6) { return 20000; }
+  return 0;
 }
 
 export function pickOpeningMove(board, color, ep, rights, history, seed) {
@@ -135,7 +136,6 @@ export function pickOpeningMove(board, color, ep, rights, history, seed) {
   if (moves.length == 0) {
     return { move: null, seed: seed };
   }
-  // Collect opening continuations that match history so far.
   const cands = [];
   let oi = 0;
   while (oi < OPENINGS.length) {
@@ -194,6 +194,16 @@ export function pickAiMove(board, color, ep, rights, history, seed) {
   let s2 = nextSeed(seed + bestScore + moves.length);
   const pick = bests[s2 % bests.length];
   return { move: pick, seed: s2 };
+}
+
+/** Last-resort: any legal move, for AI think-time caps. */
+export function pickAnyMove(board, color, ep, rights, seed) {
+  const moves = allLegalMoves(board, color, ep, rights);
+  if (moves.length == 0) {
+    return { move: null, seed: seed };
+  }
+  const s2 = nextSeed(seed);
+  return { move: moves[s2 % moves.length], seed: s2 };
 }
 
 export function uciOf(move) {
