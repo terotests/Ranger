@@ -31,10 +31,19 @@ class ThreeLightProbeGrid extends ThreeObject3D {
         g.sizeX = sizeX
         g.sizeY = sizeY
         g.sizeZ = sizeZ
-        g.countX = cx
-        g.countY = cy
-        g.countZ = cz
-        def n:int ((cx * cy) * cz)
+        ; clamp counts to >= 1 so the grid is never empty — a hot-reload hook can
+        ; set a count to 0, and an empty probe array would make getProbe index a
+        ; size-0 list (out of range).
+        def ccx:int cx
+        if (ccx < 1) { ccx = 1 }
+        def ccy:int cy
+        if (ccy < 1) { ccy = 1 }
+        def ccz:int cz
+        if (ccz < 1) { ccz = 1 }
+        g.countX = ccx
+        g.countY = ccy
+        g.countZ = ccz
+        def n:int ((ccx * ccy) * ccz)
         def i:int 0
         while (i < n) {
             push g.probes (ThreeSphericalHarmonics3.create())
@@ -51,7 +60,13 @@ class ThreeLightProbeGrid extends ThreeObject3D {
         return (((iz * this.countY) * this.countX) + ((iy * this.countX) + ix))
     }
     fn getProbe:ThreeSphericalHarmonics3 (ix:int iy:int iz:int) {
-        return (itemAt this.probes (this.probeIndex(ix iy iz)))
+        ; clamp the flat index into range (defense-in-depth: never itemAt past the
+        ; end even if a caller passes an out-of-range cell).
+        def idx:int (this.probeIndex(ix iy iz))
+        def last:int ((array_length this.probes) - 1)
+        if (idx < 0) { idx = 0 }
+        if (idx > last) { idx = last }
+        return (itemAt this.probes idx)
     }
 
     ; analytic bake: every probe receives a uniform ambient radiance (the trivial

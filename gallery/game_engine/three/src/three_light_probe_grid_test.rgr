@@ -101,6 +101,16 @@ class ThreeLightProbeGridTest {
         grid.sampleIrradiance(100.0 100.0 100.0 1.0 0.0 0.0 s)
         ck.near("clamped sample r" s.x 0.3)
 
+        ; degenerate counts (a hot-reload hook could pass 0) never yield an empty
+        ; grid or an out-of-range getProbe.
+        def deg:ThreeLightProbeGrid (ThreeLightProbeGrid.create(4.0 4.0 4.0 0 3 3))
+        ck.ok("count 0 clamped to >= 1 probe" ((deg.probeCount()) >= 1))
+        deg.bakeAmbient(0.1 0.1 0.1)
+        def dp:ThreeSphericalHarmonics3 (deg.getProbe(999 999 999))
+        def di:ThreeVector3 (new ThreeVector3)
+        dp.getIrradianceAt(0.0 1.0 0.0 di)
+        ck.near("out-of-range getProbe clamped (still baked)" di.x 0.1)
+
         print "== summary =="
         print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
         if (ck.failed == 0) {
