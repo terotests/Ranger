@@ -178,6 +178,23 @@ class CannonQuaternion {
         return true
     }
 
+    ; Integrate angular velocity into orientation (cannon-es Quaternion.integrate).
+    ; target may alias this (all reads are cached first).
+    fn integrate:void (w:CannonVec3 dt:double angularFactor:CannonVec3 target:CannonQuaternion) {
+        def ax:double (w.x * angularFactor.x)
+        def ay:double (w.y * angularFactor.y)
+        def az:double (w.z * angularFactor.z)
+        def bx:double this.x
+        def by:double this.y
+        def bz:double this.z
+        def bw:double this.w
+        def half:double (dt * 0.5)
+        target.x = (bx + (half * (((ax * bw) + (ay * bz)) - (az * by))))
+        target.y = (by + (half * (((ay * bw) + (az * bx)) - (ax * bz))))
+        target.z = (bz + (half * (((az * bw) + (ax * by)) - (ay * bx))))
+        target.w = (bw + (half * (((0.0 - (ax * bx)) - (ay * by)) - (az * bz))))
+    }
+
     fn vmult:void (v:CannonVec3 target:CannonVec3) {
         def vx:double v.x
         def vy:double v.y

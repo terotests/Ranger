@@ -1,17 +1,19 @@
 ; ==============================================================================
 ; cannon_narrowphase — contact generation (Cannon.js port subset).
+;   Produces SPOOK CannonEquation contacts (kind = contact) for the GS solver.
+;   Contact normal ni follows cannon-es: it points from body i toward body j.
 ; ==============================================================================
 
 Import "cannon_vec3.rgr"
 Import "cannon_quaternion.rgr"
 Import "cannon_shape.rgr"
 Import "cannon_body.rgr"
-Import "cannon_contact_equation.rgr"
+Import "cannon_equation.rgr"
 Import "cannon_contact_material.rgr"
 
 class CannonNarrowphase {
     def currentContactMaterial:CannonContactMaterial
-    def result:[CannonContactEquation]
+    def result:[CannonEquation]
     def tmpQuatI:CannonQuaternion (new CannonQuaternion)
     def tmpQuatJ:CannonQuaternion (new CannonQuaternion)
     def tmpVecI:CannonVec3 (new CannonVec3)
@@ -19,9 +21,9 @@ class CannonNarrowphase {
     def tmpPointOnPlane:CannonVec3 (new CannonVec3)
     def tmpPlaneOrtho:CannonVec3 (new CannonVec3)
 
-    fn createContactEquation:CannonContactEquation (bi:CannonBody bj:CannonBody si:CannonShape sj:CannonShape) {
-        def c:CannonContactEquation (new CannonContactEquation)
-        c.initContact(bi bj)
+    fn createContactEquation:CannonEquation (bi:CannonBody bj:CannonBody si:CannonShape sj:CannonShape) {
+        def c:CannonEquation (new CannonEquation)
+        c.initContact(bi bj 1000000.0)
         def enabled:boolean true
         if (bi.collisionResponse == false) {
             enabled = false
@@ -41,6 +43,7 @@ class CannonNarrowphase {
         def cm:CannonContactMaterial this.currentContactMaterial
         if (cm) {
             c.restitution = cm.restitution
+            c.setSpookParams(cm.contactEquationStiffness cm.contactEquationRelaxation (1.0 / 60.0))
         }
         return c
     }
@@ -51,9 +54,10 @@ class CannonNarrowphase {
             def limit2:double (limit * limit)
             return (xi.distanceSquared(xj) < limit2)
         }
-        def r:CannonContactEquation (this.createContactEquation(bi bj si sj))
+        def r:CannonEquation (this.createContactEquation(bi bj si sj))
         def ni:CannonVec3 r.ni
-        xi.vsub(xj ni)
+        ; ni points from body i toward body j (cannon-es convention).
+        xj.vsub(xi ni)
         ni.normalizeSelf()
         r.ri.copy(ni)
         r.rj.copy(ni)
@@ -69,7 +73,7 @@ class CannonNarrowphase {
     }
 
     fn spherePlane:boolean (radiusI:double xi:CannonVec3 xj:CannonVec3 qj:CannonQuaternion bi:CannonBody bj:CannonBody si:CannonShape sj:CannonShape justTest:boolean) {
-        def r:CannonContactEquation (this.createContactEquation(bi bj si sj))
+        def r:CannonEquation (this.createContactEquation(bi bj si sj))
         def ni:CannonVec3 r.ni
         ni.set(0.0 0.0 1.0)
         qj.vmult(ni ni)

@@ -199,6 +199,30 @@ class CannonBody {
         }
     }
 
+    ; Semi-implicit Euler integration of one body (cannon-es Body.integrate).
+    ; Only dynamic bodies move; linear/angular factors let a game constrain a
+    ; body to a plane / single spin axis (default factors are (1,1,1)).
+    fn integrate:void (dt:double) {
+        if (this.type != 1) {
+            return
+        }
+        this.initSolveState()
+        this.velocity.x = (this.velocity.x + (((this.force.x * this.invMass) * dt) * this.linearFactor.x))
+        this.velocity.y = (this.velocity.y + (((this.force.y * this.invMass) * dt) * this.linearFactor.y))
+        this.velocity.z = (this.velocity.z + (((this.force.z * this.invMass) * dt) * this.linearFactor.z))
+        this.updateInertiaWorld()
+        this.tmpRotForce.x = (this.torque.x * this.angularFactor.x)
+        this.tmpRotForce.y = (this.torque.y * this.angularFactor.y)
+        this.tmpRotForce.z = (this.torque.z * this.angularFactor.z)
+        this.invInertiaWorld.vmultInto(this.tmpRotForce this.tmpVelo)
+        this.angularVelocity.addScaledVector(dt this.tmpVelo this.angularVelocity)
+        this.position.x = (this.position.x + (this.velocity.x * dt))
+        this.position.y = (this.position.y + (this.velocity.y * dt))
+        this.position.z = (this.position.z + (this.velocity.z * dt))
+        this.quaternion.integrate(this.angularVelocity dt this.angularFactor this.quaternion)
+        this.quaternion.normalize()
+    }
+
     fn clampAngularVelocity:void (maxW:double) {
         if (this.type != 1) {
             return

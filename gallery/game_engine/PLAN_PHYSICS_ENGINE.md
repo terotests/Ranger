@@ -211,10 +211,18 @@ päivitä matikkamoduulit (`Vec3/Quaternion/Mat3`) cannon-es:n bugikorjauksiin, 
   > Huom porttausta varten: nykyinen narrowphase asettaa `ni = xi - xj`, mutta
   > cannon-es:n `ContactEquation` odottaa vastakkaisen konvention (`ni` osoittaa
   > i→j). Vaihe 1b:n kytkennässä narrowphase tuottaa yhtälöt oikealla konventiolla.
-- ⏳ **Osa 1b (seuraava):** kytke `CannonWorld.step` ajamaan `CannonGSSolver` (kontakti-
-  + kitkayhtälöt narrowphasesta) nykyisen käsin viritetyn `resolveContactImpulses`in
-  tilalle. Pinball menee uusiksi (sovittu — vielä luonnos), joten vanhaa arcade-
-  resolveria ei säilytetä lipun takana. Todiste: pino-vakaus-testi + sandbox-ajo.
+- ✅ **Osa 1b (tehty):** `CannonWorld.step` ajaa nyt `CannonGSSolver`in. Narrowphase
+  tuottaa SPOOK-kontaktiyhtälöt (`CannonEquation`, cannon-es `ni`-konventio i→j,
+  restituutio + spook-parametrit kontaktimateriaalista); World lisää ne solveriin,
+  ratkaisee, ja integroi puoli-implisiittisellä Eulerilla (`CannonBody.integrate` +
+  `CannonQuaternion.integrate`, linear/angular-factorit). Käsin viritetty
+  `resolveContactImpulses`/`separateContact`/`applyKinematicSpinTransfer` **poistettu**.
+  Uusi `World.contactRest`-testi: pallo asettuu lepokontaktiin toisen päälle
+  (`contactRestY ≈ 2.0000`, ei uppoa läpi), lisäksi `sphereBounce`/`gravityStep`/
+  `collisionMatrix` pysyvät vihreinä. `npm run engine:physics:test` → 60 passed, 0 failed.
+- ⏳ **Osa 1c (valinnainen):** kitkayhtälöiden generointi narrowphasessa (kaksi
+  tangenttia per kontakti) — solver tukee kitkaa jo (`GSSolver.friction` vihreä),
+  vain narrowphase-kytkentä puuttuu.
 
 **Vaihe 2 — Nivelet.** `Constraint` → `PointToPointConstraint` → `HingeConstraint` →
 `DistanceConstraint` → `LockConstraint` → `Spring`. Muunna flipperi hinge-nivelellä
