@@ -150,6 +150,7 @@ npm run engine:compile && npm run engine:run
 | Pac-Man | `pacman` | TSX | Split screen + autoscale |
 | Space Invaders | `invaders` | TSX | Stressitesti (paljon rect-spritejä) |
 | Pomppija | `ylos2` | TSX | Platformer, LPC-sheet-spritet, musiikki |
+| Viidakko Pomppija | `ylos3` | TSX | Ylos 2 -jatkumo: 3 viidakkotasoa, loadGame-tasot |
 | Flipperitorni | `pinpall` | TSX + Cannon | Pystypinball, split screen |
 | Physics Sandbox | `physics_sandbox` | TSX + Cannon | Flipperit, pegs, sheet-animaatiot |
 | Autopeli Physics | `autopeli_physics` | TSX + host physics | Top-down racer, jaettu fysiikkamaailma |
