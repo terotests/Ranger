@@ -1854,9 +1854,18 @@ function tickMathPuzzles(
                 // Wrong answer: pads + digits vanish; no diamond for this puzzle.
                 status = markPuzzleStatus(status, pi, PUZZLE_FAILED);
                 events.push(soundEvent("brick"));
-                events.push(particleEvent("burst", midX, ans.y - 8, 28));
-                events.push(particleEvent("burst", midX - 20, ans.y - 4, 12));
-                events.push(particleEvent("burst", midX + 20, ans.y - 4, 12));
+                // Pop every answer pad so the vanish reads clearly.
+                let pai = 0;
+                while (pai < puzzle.answers.length) {
+                  const pad = puzzle.answers[pai];
+                  const px = scaleX(pad.x + pad.w * 0.5);
+                  const py = pad.y;
+                  events.push(particleEvent("burst", px, py - 6, 22));
+                  events.push(particleEvent("burst", px - 14, py - 10, 10));
+                  events.push(particleEvent("burst", px + 14, py - 10, 10));
+                  events.push(particleEvent("sparkle", px, py - 18, 14));
+                  pai = pai + 1;
+                }
               }
               decided = 1;
             }
