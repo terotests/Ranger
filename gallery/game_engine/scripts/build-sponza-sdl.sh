@@ -72,7 +72,7 @@ fi
 echo "==> 2/2 $CXX -> native binary (SDL2 + OpenGL)"
 GL_FLAGS=""
 if [[ "$(uname -s)" == "Darwin" ]]; then
-  GL_FLAGS="-framework OpenGL"
+  GL_FLAGS="-framework OpenGL -DGL_SILENCE_DEPRECATION -Wno-deprecated-declarations"
 else
   ARCH="$(uname -m)"
   if [[ "$ARCH" == "aarch64" || "$ARCH" == arm* ]]; then

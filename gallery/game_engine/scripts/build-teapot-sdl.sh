@@ -40,7 +40,7 @@ cp "$ROOT/gallery/invaders/variant.hpp" "$OUT_DIR/variant.hpp"
 
 echo "==> 2/2 $CXX -> native binary"
 GL_FLAGS=""
-if [[ "$(uname -s)" == "Darwin" ]]; then GL_FLAGS="-framework OpenGL"
+if [[ "$(uname -s)" == "Darwin" ]]; then GL_FLAGS="-framework OpenGL -DGL_SILENCE_DEPRECATION -Wno-deprecated-declarations"
 else
   ARCH="$(uname -m)"
   if [[ "$ARCH" == "aarch64" || "$ARCH" == arm* ]]; then
