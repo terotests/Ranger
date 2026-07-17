@@ -31,6 +31,133 @@ operators {
         templates {
             cpp ( "rgfx_open(" (e 1) ", " (e 2) ", " (e 3) ")"
                   (imp "<SDL2/SDL.h>") (imp "<cstdint>") (imp "<string>") (imp "<cstdio>") (imp "<cstdlib>") (imp "<cstring>") (imp "<unistd.h>")
+
+                )
+            es6 ( "0" )
+        }
+    }
+
+    ; Upload a tightly-packed RGBA (w*h*4 bytes) frame and present it.
+    gfx_present _:void (pixels:buffer w:int h:int) {
+        templates {
+            cpp ( "rgfx_present(" (e 1) ".data(), " (e 2) ", " (e 3) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Actual output surface width/height in pixels (0 in es6). Lets a UI render at
+    ; native resolution rather than a small upscaled buffer.
+    gfx_surface_width _:int () {
+        templates {
+            cpp ( "rgfx_surface_dim(1)" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+    gfx_surface_height _:int () {
+        templates {
+            cpp ( "rgfx_surface_dim(0)" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+
+    ; Present two full-res panes side-by-side, GPU-scaled into each window half.
+    ; left/right are w*h*4 RGBA buffers; the GPU downscale replaces the CPU blit.
+    gfx_present_split _:void (left:buffer right:buffer w:int h:int) {
+        templates {
+            cpp ( "rgfx_present_split(" (e 1) ".data(), " (e 2) ".data(), " (e 3) ", " (e 4) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Pump events and return a bitmask of currently-pressed buttons:
+    ;   1 = up, 2 = down, 4 = action, 8 = quit/back (Q or Esc), 16 = left, 32 = right
+    ; Player-1 keyboard only (W/S/A/D/Space/Q/Esc). Use gfx_input_source_mask for
+    ; arrows, gamepads, and multi-player mapping via game_input.rgr.
+    gfx_poll_mask _:int () {
+        templates {
+            cpp ( "rgfx_poll_mask()" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+
+    ; Refresh keyboard + up to 8 SDL GameController sources.
+    gfx_input_poll _:void () {
+        templates {
+            cpp ( "rgfx_input_poll()" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Raw input source mask. Sources: 0=keyboard P1, 1=keyboard P2 (arrows),
+    ; 2..9 = gamepad 0..7. Bits: 1 up, 2 down, 4 action/A, 8 quit, 16 left,
+    ; 32 right, 64 B, 128 X, 256 Y, 512 start, 1024 select/back.
+    gfx_input_source_mask _:int (source:int) {
+        templates {
+            cpp ( "rgfx_input_source_mask(" (e 1) ")" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+
+    ; Number of connected SDL GameController devices.
+    gfx_input_pad_count _:int () {
+        templates {
+            cpp ( "rgfx_input_pad_count()" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+
+    ; --- mouse pointer (updated by gfx_input_poll / rgfx_pump_events) ----------
+    ; Position is in window pixels; call after gfx_input_poll each frame.
+    gfx_mouse_x _:int () {
+        templates {
+            cpp ( "g_rgfx_mouse_x" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+    gfx_mouse_y _:int () {
+        templates {
+            cpp ( "g_rgfx_mouse_y" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+    ; Button bitmask: 1 = left, 2 = right, 4 = middle.
+    gfx_mouse_buttons _:int () {
+        templates {
+            cpp ( "g_rgfx_mouse_btn" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+    ; Accumulated wheel notches since the last read (positive = scroll up); reads
+    ; and clears the accumulator.
+    gfx_mouse_wheel _:int () {
+        templates {
+            cpp ( "([]{ int w = g_rgfx_wheel; g_rgfx_wheel = 0; return w; }())" (imp "<SDL2/SDL.h>") )
+            es6 ( "0" )
+        }
+    }
+
+    ; Swap the GL back buffer to the window (present a GPU-drawn frame). Use after
+    ; drawing directly with the GL backend (three_gl's rgl_*), not the 2D path.
+    gfx_gl_swap _:void () {
+        templates {
+            cpp ( "rgfx_gpu_finish_frame()" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; Rumble connected gamepad(s). pad=-1 all pads; strength 0..65535; duration ms.
+    gfx_rumble_pad _:void (padIdx:int strength:int durationMs:int) {
+        templates {
+            cpp ( "rgfx_pad_rumble(" (e 1) ", (Uint16)" (e 2) ", (Uint16)" (e 2) ", (Uint32)" (e 3) ")"
+                (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; True once the window received a quit / close request.
+    gfx_should_close _:boolean () {
+        templates {
+            cpp ( "(rgfx_should_close() != 0)" (imp "<SDL2/SDL.h>") (imp "<cstdint>") (imp "<string>") (imp "<cstdio>") (imp "<cstdlib>") (imp "<cstring>") (imp "<unistd.h>")
 (polyfill "after_imports" "
 static SDL_Window*   g_rgfx_win = nullptr;
 static SDL_Renderer* g_rgfx_ren = nullptr;
@@ -2748,133 +2875,7 @@ extern \"C\" void rgfx_scene_render(int w, int h) {
     }
     glDepthMask(GL_TRUE); glDisable(GL_BLEND); glDisable(GL_DEPTH_TEST);
 }
-")
-                )
-            es6 ( "0" )
-        }
-    }
-
-    ; Upload a tightly-packed RGBA (w*h*4 bytes) frame and present it.
-    gfx_present _:void (pixels:buffer w:int h:int) {
-        templates {
-            cpp ( "rgfx_present(" (e 1) ".data(), " (e 2) ", " (e 3) ")" (imp "<SDL2/SDL.h>") )
-            es6 ( "undefined" )
-        }
-    }
-
-    ; Actual output surface width/height in pixels (0 in es6). Lets a UI render at
-    ; native resolution rather than a small upscaled buffer.
-    gfx_surface_width _:int () {
-        templates {
-            cpp ( "rgfx_surface_dim(1)" (imp "<SDL2/SDL.h>") )
-            es6 ( "0" )
-        }
-    }
-    gfx_surface_height _:int () {
-        templates {
-            cpp ( "rgfx_surface_dim(0)" (imp "<SDL2/SDL.h>") )
-            es6 ( "0" )
-        }
-    }
-
-    ; Present two full-res panes side-by-side, GPU-scaled into each window half.
-    ; left/right are w*h*4 RGBA buffers; the GPU downscale replaces the CPU blit.
-    gfx_present_split _:void (left:buffer right:buffer w:int h:int) {
-        templates {
-            cpp ( "rgfx_present_split(" (e 1) ".data(), " (e 2) ".data(), " (e 3) ", " (e 4) ")" (imp "<SDL2/SDL.h>") )
-            es6 ( "undefined" )
-        }
-    }
-
-    ; Pump events and return a bitmask of currently-pressed buttons:
-    ;   1 = up, 2 = down, 4 = action, 8 = quit/back (Q or Esc), 16 = left, 32 = right
-    ; Player-1 keyboard only (W/S/A/D/Space/Q/Esc). Use gfx_input_source_mask for
-    ; arrows, gamepads, and multi-player mapping via game_input.rgr.
-    gfx_poll_mask _:int () {
-        templates {
-            cpp ( "rgfx_poll_mask()" (imp "<SDL2/SDL.h>") )
-            es6 ( "0" )
-        }
-    }
-
-    ; Refresh keyboard + up to 8 SDL GameController sources.
-    gfx_input_poll _:void () {
-        templates {
-            cpp ( "rgfx_input_poll()" (imp "<SDL2/SDL.h>") )
-            es6 ( "undefined" )
-        }
-    }
-
-    ; Raw input source mask. Sources: 0=keyboard P1, 1=keyboard P2 (arrows),
-    ; 2..9 = gamepad 0..7. Bits: 1 up, 2 down, 4 action/A, 8 quit, 16 left,
-    ; 32 right, 64 B, 128 X, 256 Y, 512 start, 1024 select/back.
-    gfx_input_source_mask _:int (source:int) {
-        templates {
-            cpp ( "rgfx_input_source_mask(" (e 1) ")" (imp "<SDL2/SDL.h>") )
-            es6 ( "0" )
-        }
-    }
-
-    ; Number of connected SDL GameController devices.
-    gfx_input_pad_count _:int () {
-        templates {
-            cpp ( "rgfx_input_pad_count()" (imp "<SDL2/SDL.h>") )
-            es6 ( "0" )
-        }
-    }
-
-    ; --- mouse pointer (updated by gfx_input_poll / rgfx_pump_events) ----------
-    ; Position is in window pixels; call after gfx_input_poll each frame.
-    gfx_mouse_x _:int () {
-        templates {
-            cpp ( "g_rgfx_mouse_x" (imp "<SDL2/SDL.h>") )
-            es6 ( "0" )
-        }
-    }
-    gfx_mouse_y _:int () {
-        templates {
-            cpp ( "g_rgfx_mouse_y" (imp "<SDL2/SDL.h>") )
-            es6 ( "0" )
-        }
-    }
-    ; Button bitmask: 1 = left, 2 = right, 4 = middle.
-    gfx_mouse_buttons _:int () {
-        templates {
-            cpp ( "g_rgfx_mouse_btn" (imp "<SDL2/SDL.h>") )
-            es6 ( "0" )
-        }
-    }
-    ; Accumulated wheel notches since the last read (positive = scroll up); reads
-    ; and clears the accumulator.
-    gfx_mouse_wheel _:int () {
-        templates {
-            cpp ( "([]{ int w = g_rgfx_wheel; g_rgfx_wheel = 0; return w; }())" (imp "<SDL2/SDL.h>") )
-            es6 ( "0" )
-        }
-    }
-
-    ; Swap the GL back buffer to the window (present a GPU-drawn frame). Use after
-    ; drawing directly with the GL backend (three_gl's rgl_*), not the 2D path.
-    gfx_gl_swap _:void () {
-        templates {
-            cpp ( "rgfx_gpu_finish_frame()" (imp "<SDL2/SDL.h>") )
-            es6 ( "undefined" )
-        }
-    }
-
-    ; Rumble connected gamepad(s). pad=-1 all pads; strength 0..65535; duration ms.
-    gfx_rumble_pad _:void (padIdx:int strength:int durationMs:int) {
-        templates {
-            cpp ( "rgfx_pad_rumble(" (e 1) ", (Uint16)" (e 2) ", (Uint16)" (e 2) ", (Uint32)" (e 3) ")"
-                (imp "<SDL2/SDL.h>") )
-            es6 ( "undefined" )
-        }
-    }
-
-    ; True once the window received a quit / close request.
-    gfx_should_close _:boolean () {
-        templates {
-            cpp ( "(rgfx_should_close() != 0)" (imp "<SDL2/SDL.h>") )
+") )
             es6 ( "true" )
         }
     }

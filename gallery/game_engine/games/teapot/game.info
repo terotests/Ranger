@@ -1,0 +1,5 @@
+name=Teapot (Three.js)
+render=three
+category=Tests
+entry=teapot.tsx
+facade=three.tsx
