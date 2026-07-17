@@ -17,6 +17,114 @@ class CannonConvexTest {
     fn runFiltered:void (h:CannonTestHarness filter:string) {
         if (this.filter.matches(filter "Convex.hullOnPlane")) { this.hullOnPlane(h) }
         if (this.filter.matches(filter "Convex.sphereOnConvex")) { this.sphereOnConvex(h) }
+        if (this.filter.matches(filter "Convex.cylinderOnPlane")) { this.cylinderOnPlane(h) }
+        if (this.filter.matches(filter "Convex.sphereOnCylinder")) { this.sphereOnCylinder(h) }
+        if (this.filter.matches(filter "Convex.convexStack")) { this.convexStack(h) }
+    }
+
+    ; A convex hull rests on top of another convex hull (convex-convex SAT).
+    fn convexStack:void (h:CannonTestHarness) {
+        h.beginTest("Convex.convexStack")
+        def world:CannonWorld (new CannonWorld)
+        world.initWorld()
+        world.setGravity(0.0 0.0 (0.0 - 10.0))
+
+        def ground:CannonBody (new CannonBody)
+        ground.initStatic()
+        def base:CannonConvexPolyhedron (new CannonConvexPolyhedron)
+        base.initBoxHull(2.0 2.0 0.5)
+        ground.addShape(base)
+        ground.position.set(0.0 0.0 0.0)
+        world.addBody(ground)
+
+        def top:CannonBody (new CannonBody)
+        top.initDynamic(1.0)
+        def hull:CannonConvexPolyhedron (new CannonConvexPolyhedron)
+        hull.initBoxHull(0.5 0.5 0.5)
+        top.addShape(hull)
+        top.position.set(0.0 0.0 0.9)
+        world.addBody(top)
+
+        def s 0
+        while (s < 150) {
+            world.step(0.016666666666666666)
+            s = (s + 1)
+        }
+        def z:double top.position.z
+        h.ok((z > 0.8) "convex rests on convex, does not sink through")
+        h.ok((z < 1.25) "convex settles on top")
+        print ("convexStackZ=" + (to_string z))
+        h.finishTest()
+    }
+
+    ; A cylinder (convex prism about Z) dropped on the ground plane rests on its
+    ; bottom rim (center z ~= halfHeight = 1).
+    fn cylinderOnPlane:void (h:CannonTestHarness) {
+        h.beginTest("Convex.cylinderOnPlane")
+        def world:CannonWorld (new CannonWorld)
+        world.initWorld()
+        world.setGravity(0.0 0.0 (0.0 - 10.0))
+
+        def ground:CannonBody (new CannonBody)
+        ground.initStatic()
+        def plane:CannonPlane (new CannonPlane)
+        plane.initPlane()
+        ground.addShape(plane)
+        ground.position.set(0.0 0.0 0.0)
+        world.addBody(ground)
+
+        def cyl:CannonBody (new CannonBody)
+        cyl.initDynamic(1.0)
+        def convex:CannonConvexPolyhedron (new CannonConvexPolyhedron)
+        convex.initCylinderHull(1.0 1.0 8)
+        cyl.addShape(convex)
+        cyl.position.set(0.0 0.0 3.0)
+        world.addBody(cyl)
+
+        def s 0
+        while (s < 150) {
+            world.step(0.016666666666666666)
+            s = (s + 1)
+        }
+        def z:double cyl.position.z
+        h.ok((z > 0.7) "cylinder rests on the plane, does not sink through")
+        h.ok((z < 1.4) "cylinder settles on its bottom face")
+        print ("cylinderZ=" + (to_string z))
+        h.finishTest()
+    }
+
+    ; A ball settles on the flat top of a static cylinder (top at z=1) at z ~= 1.5.
+    fn sphereOnCylinder:void (h:CannonTestHarness) {
+        h.beginTest("Convex.sphereOnCylinder")
+        def world:CannonWorld (new CannonWorld)
+        world.initWorld()
+        world.setGravity(0.0 0.0 (0.0 - 10.0))
+
+        def block:CannonBody (new CannonBody)
+        block.initStatic()
+        def convex:CannonConvexPolyhedron (new CannonConvexPolyhedron)
+        convex.initCylinderHull(1.5 1.0 8)
+        block.addShape(convex)
+        block.position.set(0.0 0.0 0.0)
+        world.addBody(block)
+
+        def ball:CannonBody (new CannonBody)
+        ball.initDynamic(1.0)
+        def sphere:CannonSphere (new CannonSphere)
+        sphere.initSphere(0.5)
+        ball.addShape(sphere)
+        ball.position.set(0.0 0.0 2.0)
+        world.addBody(ball)
+
+        def s 0
+        while (s < 120) {
+            world.step(0.016666666666666666)
+            s = (s + 1)
+        }
+        def z:double ball.position.z
+        h.nearEqual(z 1.5 0.2 "ball rests one radius above the cylinder top")
+        print ("sphereCylinderZ=" + (to_string z))
+        h.finishTest()
     }
 
     ; A convex box-hull dropped on the ground plane rests on its bottom face

@@ -67,6 +67,33 @@ class CannonConvexPolyhedron extends CannonShape {
         return (itemAt this.faceVertex i)
     }
 
+    ; Build a cylinder as an N-sided convex prism about the local Z axis
+    ; (cannon-es models Cylinder as a ConvexPolyhedron). Reuses the convex
+    ; collision paths — no cylinder-specific code needed.
+    fn initCylinderHull:void (radius:double halfHeight:double segments:int) {
+        this.initConvex()
+        def twoPi:double 6.283185307179586
+        def seg:double (to_double segments)
+        def k 0
+        while (k < segments) {
+            def ang:double ((twoPi * (to_double k)) / seg)
+            def cx:double (radius * (cos(ang)))
+            def cy:double (radius * (sin(ang)))
+            this.addVertex(cx cy halfHeight)
+            this.addVertex(cx cy (0.0 - halfHeight))
+            k = (k + 1)
+        }
+        this.addFace(0.0 0.0 1.0 0)
+        this.addFace(0.0 0.0 (0.0 - 1.0) 1)
+        k = 0
+        while (k < segments) {
+            def midAng:double ((twoPi * ((to_double k) + 0.5)) / seg)
+            this.addFace((cos(midAng)) (sin(midAng)) 0.0 (2 * k))
+            k = (k + 1)
+        }
+        this.updateBoundingSphereRadius()
+    }
+
     ; Build an axis-aligned box hull (8 vertices, 6 faces) — a general convex that
     ; happens to be a box, exercising the convex collision path (not the OBB SAT).
     fn initBoxHull:void (hx:double hy:double hz:double) {

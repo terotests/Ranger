@@ -1,0 +1,21 @@
+; ==============================================================================
+; cannon_particle — a point mass (cannon-es Particle).
+;   Modelled as a zero-radius sphere (shape type 1) so it reuses the sphere
+;   collision routines (particle vs plane / sphere) without extra narrowphase
+;   code. Unlike CannonSphere it accepts radius 0.
+; ==============================================================================
+
+Import "cannon_vec3.rgr"
+Import "cannon_shape.rgr"
+
+class CannonParticle extends CannonShape {
+    fn initParticle:void () {
+        this.initShape(1)
+        this.radius = 0.0
+        this.boundingSphereRadius = 0.0
+    }
+
+    fn updateBoundingSphereRadius:void () {
+        this.boundingSphereRadius = 0.0
+    }
+}

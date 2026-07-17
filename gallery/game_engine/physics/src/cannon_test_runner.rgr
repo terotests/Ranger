@@ -26,6 +26,7 @@ Import "cannon_sap_test.rgr"
 Import "cannon_heightfield_test.rgr"
 Import "cannon_convex_test.rgr"
 Import "physics_world_test.rgr"
+Import "cannon_extra_shapes_test.rgr"
 
 class CannonTestRunner {
     sfn m@(main):void () {
@@ -57,6 +58,7 @@ class CannonTestRunner {
         def heightfieldTest:CannonHeightfieldTest (new CannonHeightfieldTest)
         def convexTest:CannonConvexTest (new CannonConvexTest)
         def physicsWorldTest:PhysicsWorldTest (new PhysicsWorldTest)
+        def extraShapesTest:CannonExtraShapesTest (new CannonExtraShapesTest)
 
         vec3Test.runFiltered(harness filter)
         quatTest.runFiltered(harness filter)
@@ -80,6 +82,7 @@ class CannonTestRunner {
         heightfieldTest.runFiltered(harness filter)
         convexTest.runFiltered(harness filter)
         physicsWorldTest.runFiltered(harness filter)
+        extraShapesTest.runFiltered(harness filter)
 
         if (filter == "") {
             print ("pass=" + (to_string harness.passCount))

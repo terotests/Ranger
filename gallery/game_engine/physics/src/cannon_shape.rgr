@@ -55,4 +55,11 @@ class CannonShape {
     fn convexFaceVertexIndex:int (i:int) {
         return 0
     }
+
+    ; Overridden by CannonTrimesh; the base is an empty mesh.
+    fn trimeshTriangleCount:int () {
+        return 0
+    }
+    fn trimeshVertex:void (tri:int corner:int out:CannonVec3) {
+    }
 }

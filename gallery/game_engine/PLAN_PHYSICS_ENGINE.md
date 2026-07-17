@@ -327,9 +327,26 @@ muotojen `raycast`-metodit. Todiste: raycast-osumatestit per muoto.
   (kontakti erottavimpaan tahkotasoon). Virtuaaliset accessorit (`convexVertexAt`/
   `convexFaceNormalAt`/…) `CannonShape`ssa. Testit: box-hull-konveksi lepää tasolla
   (`convexHullZ≈1.0`), pallo lepää konveksin tahkolla (`sphereConvexZ≈1.5`).
-  `npm run engine:physics:test` → 80 passed, 0 failed. ⏳ Yleinen convex-convex-SAT
-  (mielivaltaiset konveksit toisiaan vasten) ja `Cylinder`/`Trimesh`/`Particle`
-  jäävät vielä; laatikot, tasot, pallot ja konveksit tasoa/palloa vasten katettu.
+  `npm run engine:physics:test` → 80 passed, 0 failed.
+- ✅ **Osa 3d — Pieni häntä (tehty):** loput muodot + yleinen convex-convex.
+  - **Cylinder** ([`initCylinderHull`](./physics/src/cannon_convex.rgr)) — N-tahoinen
+    konveksi prisma Z-akselin ympäri (kuten cannon-es); saa convex-törmäykset
+    ilmaiseksi. Testit: sylinteri lepää tasolla (`cylinderZ≈1.0`), pallo sylinterin
+    päällä (`sphereCylinderZ≈1.5`).
+  - **Particle** ([`cannon_particle.rgr`](./physics/src/cannon_particle.rgr)) — pistemassa
+    (säde-0 pallo, reitittyy pallorutiinien läpi). Testi: hiukkanen lepää tason pinnalla
+    (`particleZ≈0.0`).
+  - **Trimesh** ([`cannon_trimesh.rgr`](./physics/src/cannon_trimesh.rgr)) — staattinen
+    kolmioverkko, sphere-trimesh (lähin piste kolmiolla, Ericson). Testi: pallo lepää
+    trimesh-lattialla (`trimeshZ≈0.5`).
+  - **Yleinen convex-convex-SAT** — tahkonormaali-SAT + kärki-rungossa-manifold
+    (mielivaltaiset konveksit, myös cylinder-cylinder). Testi: konveksi lepää toisen
+    konveksin päällä (`convexStackZ≈1.0`). (Särmä-särmä-akselit karsittu; tahko-tahko
+    ja akselin­suuntaiset tapaukset tarkkoja.)
+
+  `npm run engine:physics:test` → **89 passed, 0 failed.** Kaikki muodot (sphere, box,
+  plane, heightfield, convex, cylinder, particle, trimesh) katettu pareittain
+  keskeisissä yhdistelmissä.
 
 **Vaihe 7 — Rajapinta & backend-luukku.** Nosta `PhysicsWorld`-rajapinta (IDEAL §2.5)
 ja tarjoa valinnainen **Jolt/Rapier host-natiivi-backend** desktopille rajapinnan

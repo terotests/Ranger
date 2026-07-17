@@ -160,6 +160,14 @@ describe("Cannon.js Ranger port", () => {
   describe("Convex", () => {
     cannonIt("Convex.hullOnPlane");
     cannonIt("Convex.sphereOnConvex");
+    cannonIt("Convex.cylinderOnPlane");
+    cannonIt("Convex.sphereOnCylinder");
+    cannonIt("Convex.convexStack");
+  });
+
+  describe("Particle & Trimesh", () => {
+    cannonIt("Particle.onPlane");
+    cannonIt("Trimesh.sphereRests");
   });
 
   describe("PhysicsWorld interface", () => {
@@ -171,7 +179,7 @@ describe("Cannon.js Ranger port", () => {
 
   it("runs full Cannon suite aggregate", () => {
     const output = runCannonAll();
-    expect(output).toContain("pass=84");
+    expect(output).toContain("pass=89");
     expect(output).toContain("fail=0");
     expect(output).toContain("cannon-tests done");
   });
