@@ -99,9 +99,9 @@ export function installVinesLevel() {
       qx: 145,
       qy: 1788,
       answers: [
-        { x: 30, y: 1795, w: 95, h: 12, value: 12 },
-        { x: 190, y: 1795, w: 95, h: 12, value: 13 },
-        { x: 350, y: 1795, w: 95, h: 12, value: 14 }
+        { x: 30, y: 1795, w: 95, h: 12, value: 14 },
+        { x: 190, y: 1795, w: 95, h: 12, value: 12 },
+        { x: 350, y: 1795, w: 95, h: 12, value: 13 }
       ],
       correct: 13
     },
@@ -111,9 +111,9 @@ export function installVinesLevel() {
       qx: 150,
       qy: 1178,
       answers: [
-        { x: 30, y: 1185, w: 95, h: 12, value: 12 },
-        { x: 190, y: 1185, w: 95, h: 12, value: 13 },
-        { x: 350, y: 1185, w: 95, h: 12, value: 14 }
+        { x: 30, y: 1185, w: 95, h: 12, value: 13 },
+        { x: 190, y: 1185, w: 95, h: 12, value: 14 },
+        { x: 350, y: 1185, w: 95, h: 12, value: 12 }
       ],
       correct: 13
     },
@@ -124,8 +124,8 @@ export function installVinesLevel() {
       qy: 618,
       answers: [
         { x: 30, y: 625, w: 95, h: 12, value: 12 },
-        { x: 190, y: 625, w: 95, h: 12, value: 13 },
-        { x: 350, y: 625, w: 95, h: 12, value: 14 }
+        { x: 190, y: 625, w: 95, h: 12, value: 14 },
+        { x: 350, y: 625, w: 95, h: 12, value: 13 }
       ],
       correct: 13
     }

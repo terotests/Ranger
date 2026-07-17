@@ -79,8 +79,8 @@ export function installForestLevel() {
       qx: 150,
       qy: 1548,
       answers: [
-        { x: 40, y: 1585, w: 100, h: 14, value: 7 },
-        { x: 190, y: 1585, w: 100, h: 14, value: 8 },
+        { x: 40, y: 1585, w: 100, h: 14, value: 8 },
+        { x: 190, y: 1585, w: 100, h: 14, value: 7 },
         { x: 340, y: 1585, w: 100, h: 14, value: 9 }
       ],
       correct: 8
@@ -92,8 +92,8 @@ export function installForestLevel() {
       qy: 1128,
       answers: [
         { x: 40, y: 1145, w: 100, h: 14, value: 5 },
-        { x: 190, y: 1145, w: 100, h: 14, value: 6 },
-        { x: 340, y: 1145, w: 100, h: 14, value: 7 }
+        { x: 190, y: 1145, w: 100, h: 14, value: 7 },
+        { x: 340, y: 1145, w: 100, h: 14, value: 6 }
       ],
       correct: 6
     },
@@ -103,9 +103,9 @@ export function installForestLevel() {
       qx: 160,
       qy: 628,
       answers: [
-        { x: 40, y: 645, w: 100, h: 14, value: 7 },
-        { x: 190, y: 645, w: 100, h: 14, value: 8 },
-        { x: 340, y: 645, w: 100, h: 14, value: 9 }
+        { x: 40, y: 645, w: 100, h: 14, value: 9 },
+        { x: 190, y: 645, w: 100, h: 14, value: 7 },
+        { x: 340, y: 645, w: 100, h: 14, value: 8 }
       ],
       correct: 8
     }

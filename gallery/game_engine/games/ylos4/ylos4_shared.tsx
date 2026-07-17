@@ -181,17 +181,38 @@ function copyMathAnswers(src) {
   return out;
 }
 
+function nextPuzzleSeed(s: i32) {
+  return (s * 75 + 74) % 65537;
+}
+
+// Fisher–Yates so the correct value is not always the middle pad.
+function shuffleMathAnswers(src, seed: i32) {
+  const out = copyMathAnswers(src);
+  let s = seed;
+  let i = out.length - 1;
+  while (i > 0) {
+    s = nextPuzzleSeed(s);
+    const j = s % (i + 1);
+    const tmp = out[i];
+    out[i] = out[j];
+    out[j] = tmp;
+    i = i - 1;
+  }
+  return out;
+}
+
 function copyMathPuzzles(src) {
   const out = [];
   let i = 0;
   while (i < src.length) {
     const p = src[i];
+    const seed = p.a * 31 + p.b * 17 + i * 97 + 11;
     out.push({
       a: p.a,
       b: p.b,
       qx: p.qx,
       qy: p.qy,
-      answers: copyMathAnswers(p.answers),
+      answers: shuffleMathAnswers(p.answers, seed),
       correct: p.correct
     });
     i = i + 1;
@@ -350,8 +371,14 @@ const MAX_ENEMIES = 24;
 const MAX_FRUITS = 14;
 const MAX_DIAMONDS = 8;
 const MAX_PUZZLES = 6;
+const MAX_ANSWERS = 3;
+const MAX_ANSWER_DIGITS = 2;
 const MAX_BULLETS = 4;
 const MAX_MOVING_PLATFORMS = 16;
+// puzzleStatus: 0 = open, 1 = solved (diamond), 2 = failed (answers gone)
+const PUZZLE_OPEN = 0;
+const PUZZLE_SOLVED = 1;
+const PUZZLE_FAILED = 2;
 const PLAT_EDGE_H = 4;
 const LEVEL_LOAD_MS = 1800;
 const JUMP_MIN_V = 0.28;
@@ -502,23 +529,46 @@ function scalePlatform(p): Platform {
   };
 }
 
-function buildPlatforms(): Platform[] {
+function buildClimbPlatforms(): Platform[] {
   const out = [];
   let i = 0;
   while (i < cfg().platforms.length) {
     out.push(scalePlatform(cfg().platforms[i]));
     i = i + 1;
   }
-  // Answer pads are solid platforms too (painted + collidable).
+  return out;
+}
+
+function puzzleIsOpen(status: i32[], pi: i32) {
+  if (pi < 0) {
+    return false;
+  }
+  if (pi >= MAX_PUZZLES) {
+    return false;
+  }
+  if (status == null) {
+    return true;
+  }
+  if (status[pi] == null) {
+    return true;
+  }
+  return status[pi] == PUZZLE_OPEN;
+}
+
+// Climb platforms + answer pads that are still open (not solved/failed).
+function buildPlatforms(status: i32[]): Platform[] {
+  const out = buildClimbPlatforms();
   const puzzles = cfg().mathPuzzles;
   let pi = 0;
   while (pi < puzzles.length) {
-    const answers = puzzles[pi].answers;
-    let ai = 0;
-    while (ai < answers.length) {
-      const a = answers[ai];
-      out.push(scalePlatform({ x: a.x, y: a.y, w: a.w, h: a.h }));
-      ai = ai + 1;
+    if (puzzleIsOpen(status, pi)) {
+      const answers = puzzles[pi].answers;
+      let ai = 0;
+      while (ai < answers.length) {
+        const a = answers[ai];
+        out.push(scalePlatform({ x: a.x, y: a.y, w: a.w, h: a.h }));
+        ai = ai + 1;
+      }
     }
     pi = pi + 1;
   }
@@ -691,24 +741,72 @@ function paintMathPrompt(p: MathPuzzleDef) {
 }
 
 function paintMathPuzzles() {
+  // Only the prompt is baked into the static bg. Answer pads + digits are
+  // sprites so they can vanish on a wrong (or correct) landing.
   const puzzles = cfg().mathPuzzles;
   let i = 0;
   while (i < puzzles.length) {
-    const p = puzzles[i];
-    paintMathPrompt(p);
-    let ai = 0;
-    while (ai < p.answers.length) {
-      const ans = p.answers[ai];
-      const sc = 3;
-      const step = sc * 3 + sc;
-      const numW = numberDigitCount(ans.value) * step - sc;
-      const ax = scaleX(ans.x) + scaleX(ans.w) * 0.5 - numW * 0.5;
-      const ay = ans.y - 22;
-      bgDrawNumber(ax, ay, sc, ans.value, 240, 255, 250);
-      ai = ai + 1;
-    }
+    paintMathPrompt(puzzles[i]);
     i = i + 1;
   }
+}
+
+function digitFrame(d: i32) {
+  const bits = digitBits(d);
+  const rows = [];
+  let row = 0;
+  while (row < 5) {
+    let line = "";
+    let col = 0;
+    while (col < 3) {
+      const idx = row * 3 + col;
+      const ch = bits.substring(idx, idx + 1);
+      if (ch == "1") {
+        line = line + "X";
+      } else {
+        line = line + ".";
+      }
+      col = col + 1;
+    }
+    rows.push(line);
+    row = row + 1;
+  }
+  return rows;
+}
+
+function answerDigitSprite(id: string, d: i32) {
+  return {
+    id: id,
+    kind: "bitmap",
+    px: 3,
+    br: 240,
+    bg: 255,
+    bb: 250,
+    er: 255,
+    eg: 255,
+    eb: 255,
+    frames: [digitFrame(d)]
+  };
+}
+
+function answerPadSprites(pi: i32, ai: i32, w: f64, h: i32) {
+  const bodyH = h - PLAT_EDGE_H * 2;
+  const prefix = "ap" + pi + "_" + ai;
+  return [
+    movingPlatformLayerSprite(prefix + "t", w, PLAT_EDGE_H, platTop().r, platTop().g, platTop().b),
+    movingPlatformLayerSprite(prefix + "m", w, bodyH, platBody().r, platBody().g, platBody().b),
+    movingPlatformLayerSprite(prefix + "b", w, PLAT_EDGE_H, platBottom().r, platBottom().g, platBottom().b)
+  ];
+}
+
+function nthDigit(value: i32, placeFromLeft: i32, digitCount: i32) {
+  let div = 1;
+  let p = 0;
+  while (p < digitCount - 1 - placeFromLeft) {
+    div = div * 10;
+    p = p + 1;
+  }
+  return ((value / div) | 0) % 10;
 }
 
 function inactiveMovingPlatform(): MovingPlatform {
@@ -1199,7 +1297,8 @@ function drawDistantTrees(kind: string) {
 }
 
 function createStaticBgForLevel() {
-  const platforms = buildPlatforms();
+  // Answer pads are dynamic sprites — only climb platforms go into the static bg.
+  const platforms = buildClimbPlatforms();
   const kind = cfg().bgKind;
   drawJungleGradient(kind);
 
@@ -1333,6 +1432,71 @@ function hideMovingPlatformEntities(entities, mpi) {
   entities["mp" + mpi + "b"] = hiddenEntity();
 }
 
+function hideAnswerPadEntities(entities, pi: i32, ai: i32) {
+  const prefix = "ap" + pi + "_" + ai;
+  entities[prefix + "t"] = hiddenEntity();
+  entities[prefix + "m"] = hiddenEntity();
+  entities[prefix + "b"] = hiddenEntity();
+  let di = 0;
+  while (di < MAX_ANSWER_DIGITS) {
+    entities["ad" + pi + "_" + ai + "_" + di] = hiddenEntity();
+    di = di + 1;
+  }
+}
+
+function placeAnswerPadEntities(entities, pi: i32, ai: i32, ans: MathAnswerDef, cam: f64) {
+  const plat = scalePlatform({ x: ans.x, y: ans.y, w: ans.w, h: ans.h });
+  const cx = plat.x + plat.w / 2;
+  const screenY = plat.y - cam;
+  const midH = plat.h - PLAT_EDGE_H * 2;
+  const prefix = "ap" + pi + "_" + ai;
+  entities[prefix + "t"] = {
+    x: cx,
+    y: screenY + PLAT_EDGE_H / 2.0,
+    visible: 1,
+    r: platTop().r,
+    g: platTop().g,
+    b: platTop().b
+  };
+  entities[prefix + "m"] = {
+    x: cx,
+    y: screenY + PLAT_EDGE_H + midH / 2.0,
+    visible: 1,
+    r: platBody().r,
+    g: platBody().g,
+    b: platBody().b
+  };
+  entities[prefix + "b"] = {
+    x: cx,
+    y: screenY + plat.h - PLAT_EDGE_H / 2.0,
+    visible: 1,
+    r: platBottom().r,
+    g: platBottom().g,
+    b: platBottom().b
+  };
+  const sc = 3;
+  const step = sc * 3 + sc;
+  const count = numberDigitCount(ans.value);
+  const numW = count * step - sc;
+  const baseX = cx - numW * 0.5 + (sc * 3) * 0.5;
+  const digitY = plat.y - 14 - cam;
+  let di = 0;
+  while (di < MAX_ANSWER_DIGITS) {
+    const id = "ad" + pi + "_" + ai + "_" + di;
+    if (di < count) {
+      entities[id] = {
+        x: baseX + di * step,
+        y: digitY,
+        visible: 1,
+        p0: 0
+      };
+    } else {
+      entities[id] = hiddenEntity();
+    }
+    di = di + 1;
+  }
+}
+
 function playerSheetSprite(id, path) {
   return {
     id: id,
@@ -1440,6 +1604,41 @@ export function buildSprites() {
     list.push(layers[1]);
     list.push(layers[2]);
     mpi = mpi + 1;
+  }
+  // Answer pads + digits (hidden when puzzle solved/failed).
+  const puzzles = cfg().mathPuzzles;
+  let pi = 0;
+  while (pi < MAX_PUZZLES) {
+    let ai = 0;
+    while (ai < MAX_ANSWERS) {
+      let aw: f64 = 100;
+      let ah: i32 = 14;
+      let av: i32 = 0;
+      if (pi < puzzles.length) {
+        if (ai < puzzles[pi].answers.length) {
+          const ans = puzzles[pi].answers[ai];
+          aw = scaleX(ans.w);
+          ah = ans.h;
+          av = ans.value;
+        }
+      }
+      const layers = answerPadSprites(pi, ai, aw, ah);
+      list.push(layers[0]);
+      list.push(layers[1]);
+      list.push(layers[2]);
+      let di = 0;
+      while (di < MAX_ANSWER_DIGITS) {
+        const count = numberDigitCount(av);
+        let dig: i32 = 0;
+        if (di < count) {
+          dig = nthDigit(av, di, count);
+        }
+        list.push(answerDigitSprite("ad" + pi + "_" + ai + "_" + di, dig));
+        di = di + 1;
+      }
+      ai = ai + 1;
+    }
+    pi = pi + 1;
   }
   // Draw players last so they appear above enemies / pickups.
   list.push(playerSheetSprite("p1", P1_SHEET));
@@ -1593,14 +1792,14 @@ function copyPuzzleSolved(prev: i32[]) {
   return out;
 }
 
-function markPuzzleSolved(prev: i32[], index: i32) {
+function markPuzzleStatus(prev: i32[], index: i32, status: i32) {
   const out = [];
   let i = 0;
   while (i < MAX_PUZZLES) {
     if (i == index) {
-      out.push(1);
+      out.push(status);
     } else {
-      let v = 0;
+      let v = PUZZLE_OPEN;
       if (prev) {
         if (prev[i] != null) {
           v = prev[i];
@@ -1623,34 +1822,44 @@ function tickMathPuzzles(
 ) {
   const puzzles = cfg().mathPuzzles;
   const pw = 10;
-  let solved = copyPuzzleSolved(puzzleSolved);
+  let status = copyPuzzleSolved(puzzleSolved);
   let outDiamonds = diamonds;
   let pi = 0;
   while (pi < puzzles.length) {
     if (pi < MAX_PUZZLES) {
-      if (solved[pi] == 0) {
+      if (status[pi] == PUZZLE_OPEN) {
         const puzzle = puzzles[pi];
         let ai = 0;
+        let decided = 0;
         while (ai < puzzle.answers.length) {
-          const ans = puzzle.answers[ai];
-          let hit = standingOnAnswer(p1, pw, ans);
-          if (dual) {
-            if (standingOnAnswer(p2, pw, ans)) {
-              hit = true;
+          if (decided == 0) {
+            const ans = puzzle.answers[ai];
+            let hit = standingOnAnswer(p1, pw, ans);
+            if (dual) {
+              if (standingOnAnswer(p2, pw, ans)) {
+                hit = true;
+              }
             }
-          }
-          if (hit) {
-            if (ans.value == puzzle.correct) {
-              solved = markPuzzleSolved(solved, pi);
+            if (hit) {
               const midX = scaleX(ans.x + ans.w * 0.5);
-              events.push(soundEvent("win"));
-              events.push(particleEvent("celebrate", midX, ans.y - 8, 40));
-              events.push(particleEvent("sparkle", midX, ans.y - 20, 22));
-              events.push(particleEvent("burst", midX - 16, ans.y - 10, 16));
-              events.push(particleEvent("burst", midX + 16, ans.y - 10, 16));
-              outDiamonds = revealPuzzleDiamonds(outDiamonds, pi, events);
+              if (ans.value == puzzle.correct) {
+                status = markPuzzleStatus(status, pi, PUZZLE_SOLVED);
+                events.push(soundEvent("win"));
+                events.push(particleEvent("celebrate", midX, ans.y - 8, 40));
+                events.push(particleEvent("sparkle", midX, ans.y - 20, 22));
+                events.push(particleEvent("burst", midX - 16, ans.y - 10, 16));
+                events.push(particleEvent("burst", midX + 16, ans.y - 10, 16));
+                outDiamonds = revealPuzzleDiamonds(outDiamonds, pi, events);
+              } else {
+                // Wrong answer: pads + digits vanish; no diamond for this puzzle.
+                status = markPuzzleStatus(status, pi, PUZZLE_FAILED);
+                events.push(soundEvent("brick"));
+                events.push(particleEvent("burst", midX, ans.y - 8, 28));
+                events.push(particleEvent("burst", midX - 20, ans.y - 4, 12));
+                events.push(particleEvent("burst", midX + 20, ans.y - 4, 12));
+              }
+              decided = 1;
             }
-            // Wrong pad: no penalty — keep climbing / try another answer.
           }
           ai = ai + 1;
         }
@@ -1658,7 +1867,7 @@ function tickMathPuzzles(
     }
     pi = pi + 1;
   }
-  return { puzzleSolved: solved, diamonds: outDiamonds };
+  return { puzzleSolved: status, diamonds: outDiamonds };
 }
 
 function respawnMarkedDiamonds(prev: Collectible[]): Collectible[] {
@@ -1741,7 +1950,8 @@ export function makeInitState() {
       movingPlatforms: movingPlatforms
     },
     cameraY,
-    slots
+    slots,
+    puzzleSolved
   );
   return {
     // ---- Platform keys: the Ranger engine reads these out of the returned
@@ -2289,7 +2499,7 @@ function placePlayerEntity(entities, id, superId, pl: Player, cam, moving) {
   }
 }
 
-function placeEntities(s: GameSnapshot, cam: f64, slots: i32) {
+function placeEntities(s: GameSnapshot, cam: f64, slots: i32, puzzleStatus: i32[]) {
   const fruitDefs = buildFruitDefs();
   const diamondDefs = buildDiamondDefs();
   const entities = {};
@@ -2371,6 +2581,28 @@ function placeEntities(s: GameSnapshot, cam: f64, slots: i32) {
       placeMovingPlatformEntities(entities, mpi, mp, cam);
     }
     mpi = mpi + 1;
+  }
+  const puzzles = cfg().mathPuzzles;
+  let pi = 0;
+  while (pi < MAX_PUZZLES) {
+    let ai = 0;
+    while (ai < MAX_ANSWERS) {
+      let show = 0;
+      if (puzzleIsOpen(puzzleStatus, pi)) {
+        if (pi < puzzles.length) {
+          if (ai < puzzles[pi].answers.length) {
+            show = 1;
+          }
+        }
+      }
+      if (show == 1) {
+        placeAnswerPadEntities(entities, pi, ai, puzzles[pi].answers[ai], cam);
+      } else {
+        hideAnswerPadEntities(entities, pi, ai);
+      }
+      ai = ai + 1;
+    }
+    pi = pi + 1;
   }
   return entities;
 }
@@ -2552,7 +2784,7 @@ export function playHud(props) {
   const cleared = levelCleared(slots, s.p1, s.p2);
   const victory = showVictoryBanner(s);
   const localSlot = localPlayerSlot();
-  let msg = "Ylos 4 — Laske ja hyppää oikeaan vastaukseen!";
+  let msg = "Ylos 4 — Oikea vastaus = timantti, väärä = vastaukset katoavat!";
   if (cleared == 0) {
     if (isSplitPane()) {
       if (paneIndex == 0) {
@@ -2631,7 +2863,11 @@ export function runUpdate(props) {
   const dt = props.dt;
   const slots = playerSlots();
   const events = [];
-  const staticPlatforms = buildPlatforms();
+  let puzzleStatus = s.puzzleSolved;
+  if (puzzleStatus == null) {
+    puzzleStatus = makePuzzleSolved();
+  }
+  const staticPlatforms = buildPlatforms(puzzleStatus);
   const fruitDefs = buildFruitDefs();
   const diamondDefs = buildDiamondDefs();
   const dual = slots == 2;
@@ -2705,7 +2941,8 @@ export function runUpdate(props) {
         movingPlatforms: s.movingPlatforms
       },
       cameraY,
-      slots
+      slots,
+      puzzleStatus
     );
     return {
       showNet: 0,
@@ -2717,7 +2954,7 @@ export function runUpdate(props) {
       enemies: s.enemies,
       fruits: s.fruits,
       diamonds: s.diamonds,
-      puzzleSolved: s.puzzleSolved,
+      puzzleSolved: puzzleStatus,
       bullets: s.bullets,
       movingPlatforms: s.movingPlatforms,
       score1: s.score1,
@@ -2918,7 +3155,8 @@ export function runUpdate(props) {
       movingPlatforms: movingPlatforms
     },
     cameraY,
-    slots
+    slots,
+    puzzleSolved
   );
 
   return {
