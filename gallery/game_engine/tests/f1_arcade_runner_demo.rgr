@@ -64,37 +64,38 @@ class F1ArcadeRunnerDemo {
         def py:int (runner.entityY("player"))
         def rdx:int (runner.entityX("rd20"))
         def rdy:int (runner.entityY("rd20"))
-        ; Scan a few prop ids — at least one roadside PNG should be on-screen.
+        ; Scan roadside PNG ids — at least one prop + panorama should be on-screen.
         def propHits:int 0
         def si:int 0
         while (si < 8) {
-            def ti:int 0
-            while (ti < 3) {
-                def pid:string (("palm" + si) + ("t" + ti))
-                def hid:string (("house" + si) + ("t" + ti))
-                def cid:string (("crowd" + si) + ("t" + ti))
-                if ((runner.entityX(pid)) > 0) {
-                    propHits = (propHits + 1)
-                }
-                if ((runner.entityX(hid)) > 0) {
-                    propHits = (propHits + 1)
-                }
-                if ((runner.entityX(cid)) > 0) {
-                    propHits = (propHits + 1)
-                }
-                ti = (ti + 1)
+            def pid:string ("palm" + si)
+            def hid:string ("house" + si)
+            def cid:string ("crowd" + si)
+            ; Hidden poses park at x=-40; anything else counts as placed.
+            if ((runner.entityX(pid)) != (0 - 40)) {
+                propHits = (propHits + 1)
+            }
+            if ((runner.entityX(hid)) != (0 - 40)) {
+                propHits = (propHits + 1)
+            }
+            if ((runner.entityX(cid)) != (0 - 40)) {
+                propHits = (propHits + 1)
             }
             si = (si + 1)
         }
+        def panX:int (runner.entityX("pan0"))
+        def sunX:int (runner.entityX("sun"))
         print ("frames=" + frames)
         print (("entities=" + ec))
         print (("player=" + px) + ("," + py))
         print (("rd20=" + rdx) + ("," + rdy))
         print (("propHits=" + propHits))
+        print (("pan0=" + panX))
+        print (("sun=" + sunX))
         print (("score=" + runner.score1) + ("," + runner.score2))
         def audio:GameAudio (runner.audioRef())
         print (("audioPlays=" + audio.playCount))
-        if (ec > 50) {
+        if (ec > 40) {
             print "scene=ok"
         } {
             print "scene=too-few-entities"
@@ -108,6 +109,11 @@ class F1ArcadeRunnerDemo {
             print "props=ok"
         } {
             print "props=missing"
+        }
+        if (panX > -500) {
+            print "sky=ok"
+        } {
+            print "sky=missing"
         }
         print "f1-arcade-runner done"
     }

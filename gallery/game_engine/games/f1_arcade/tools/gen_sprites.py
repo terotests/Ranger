@@ -311,6 +311,87 @@ def main():
                 write_png(os.path.join(OUT, "car_player.png"), nw, nh, sp)
             else:
                 write_png(os.path.join(OUT, f"{name}_{ti}.png"), nw, nh, sp)
+            # Full-size aliases for live pose.scale (pseudo-3D).
+            if name.startswith("ai"):
+                write_png(os.path.join(OUT, f"{name}.png"), w, h, pix)
+    write_png(os.path.join(OUT, "palm.png"), pw, ph, palm)
+    write_png(os.path.join(OUT, "house.png"), hw, hh, house_a)
+    write_png(os.path.join(OUT, "house2.png"), hw, hh, house_b)
+    write_png(os.path.join(OUT, "crowd.png"), cw, ch, crowd)
+    write_panorama()
+    write_sun_and_clouds()
+
+
+def write_panorama():
+    """960px strip: N pine / E sunny / S sandstone / W snow — scrolls with heading."""
+    w, h = 960, 56
+    pix = blank(w, h)
+
+    def peak_line(x0, x1, base_y, peaks, color, snow=None):
+        heights = [0] * w
+        for px, ht in peaks:
+            for x in range(max(x0, px - 80), min(x1, px + 80)):
+                d = abs(x - px) / 80.0
+                hgt = int(ht * (1 - d) * (1 - d))
+                if hgt > heights[x]:
+                    heights[x] = hgt
+        for x in range(x0, x1):
+            top = base_y - heights[x]
+            for y in range(max(0, top), base_y):
+                t = (base_y - y) / max(1, heights[x])
+                r = min(255, color[0] + int(t * 35))
+                g = min(255, color[1] + int(t * 30))
+                b = min(255, color[2] + int(t * 20))
+                setp(pix, w, h, x, y, (r, g, b, 255))
+                if snow and t > 0.62 and heights[x] > 16:
+                    setp(pix, w, h, x, y, snow)
+
+    peak_line(0, 240, h, [(40, 38), (90, 50), (140, 34), (190, 46), (230, 28)], (55, 95, 60))
+    peak_line(240, 480, h, [(270, 26), (320, 42), (370, 32), (420, 44), (460, 22)], (90, 140, 75))
+    for x in range(240, 480):
+        for y in range(h):
+            p = pix[y * w + x]
+            if p[3]:
+                setp(
+                    pix,
+                    w,
+                    h,
+                    x,
+                    y,
+                    (min(255, p[0] + 20), min(255, p[1] + 12), max(0, p[2] - 8), 255),
+                )
+    peak_line(480, 720, h, [(510, 34), (560, 48), (610, 28), (660, 46), (700, 30)], (175, 135, 85))
+    for x in range(545, 575):
+        for y in range(h - 48, h - 40):
+            setp(pix, w, h, x, y, (190, 150, 95, 255))
+    peak_line(
+        720,
+        960,
+        h,
+        [(750, 40), (800, 52), (850, 36), (900, 48), (940, 32)],
+        (95, 115, 140),
+        snow=(235, 245, 255, 255),
+    )
+    write_png(os.path.join(OUT, "panorama.png"), w, h, pix)
+
+
+def write_sun_and_clouds():
+    sw, sh = 32, 32
+    sp = blank(sw, sh)
+    fill_ellipse(sp, sw, sh, 16, 16, 12, 12, (255, 220, 80, 255))
+    fill_ellipse(sp, sw, sh, 16, 16, 8, 8, (255, 245, 160, 255))
+    write_png(os.path.join(OUT, "sun.png"), sw, sh, sp)
+
+    def cloud(name, w, h, blobs):
+        cp = blank(w, h)
+        for cx, cy, rx, ry in blobs:
+            fill_ellipse(cp, w, h, cx, cy, rx, ry, (245, 248, 255, 255))
+            fill_ellipse(cp, w, h, cx - 1, cy - 1, max(1, rx - 2), max(1, ry - 2), (255, 255, 255, 255))
+        write_png(os.path.join(OUT, name), w, h, cp)
+
+    cloud("cloud_a.png", 48, 24, [(14, 14, 12, 8), (26, 12, 14, 9), (36, 15, 10, 7)])
+    cloud("cloud_b.png", 40, 20, [(12, 12, 10, 7), (24, 10, 12, 8), (32, 13, 8, 6)])
+    cloud("cloud_c.png", 36, 18, [(10, 10, 9, 6), (22, 9, 11, 7)])
 
 
 if __name__ == "__main__":

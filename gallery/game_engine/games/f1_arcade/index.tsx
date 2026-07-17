@@ -2,14 +2,13 @@
 //
 // F1 Arcade — classic Pole Position-style pseudo-3D racer.
 //
-// Retained horizontal strip sprites project a perspective road. Roadside
-// props (palms, houses, cheering crowds) and cars are real PNG sheets with
-// pre-baked depth tiers (sheet cache is keyed by path, so each size is its
-// own file — see tools/gen_sprites.py).
+// Road = horizontal strip sprites. Roadside props / AI cars are PNG sheets
+// with live pose.scale (engine syncPose → drawSheet) so nearer objects grow.
+// Sky uses a wrapping mountain panorama + sun/clouds keyed to heading so
+// curves make the scenery tell which way you're facing.
 //
 // Controls: Left/Right steer · Up or Space accelerate · Down brake
 // Run: npm run engine:game-sdl:run:f1_arcade
-//      or launcher → F1 Arcade
 
 import { soundEvent } from "game_helpers";
 
@@ -20,23 +19,21 @@ const STRIPS = 28;
 const TRACK_LEN = 48;
 const SEG_LEN = 220;
 const Z_STEP = 42;
-const CAR_TIERS = 4;
 const AI_COUNT = 4;
 const PROP_SLOTS = 8;
-const PROP_TIERS = 3;
 const START_TIME = 75;
+const PAN_W = 960;
+const PAN_H = 56;
 
-// Pre-baked PNG sizes from tools/gen_sprites.py
-const PALM_W = [20, 37, 64];
-const PALM_H = [30, 55, 96];
-const HOUSE_W = [20, 37, 64];
-const HOUSE_H = [20, 37, 64];
-const CROWD_FW = [23, 41, 72];
-const CROWD_FH = [17, 32, 56];
-const AI_W = [15, 26, 39, 56];
-const AI_H = [11, 20, 29, 42];
-const PLAYER_W = 56;
-const PLAYER_H = 42;
+// Full-size masters — live scale via EntityPose.scale (percent).
+const PALM_W = 64;
+const PALM_H = 96;
+const HOUSE_W = 64;
+const HOUSE_H = 64;
+const CROWD_FW = 72;
+const CROWD_FH = 56;
+const CAR_W = 56;
+const CAR_H = 42;
 
 const CURVES = [
   0, 0, 0, 0, 0, 0,
@@ -109,12 +106,20 @@ function floorOf(v) {
   return v | 0;
 }
 
-function aiId(n, tier) {
-  return ("ai" + n) + ("t" + tier);
+function wrapMod(v, mod) {
+  let x = v % mod;
+  if (x < 0) {
+    x = x + mod;
+  }
+  return x;
 }
 
-function propId(kind, slot, tier) {
-  return (kind + slot) + ("t" + tier);
+function aiId(n) {
+  return "ai" + n;
+}
+
+function propId(kind, slot) {
+  return kind + slot;
 }
 
 function sheetSprite(id, path, frameW, frameH, cols) {
@@ -131,6 +136,13 @@ function sheetSprite(id, path, frameW, frameH, cols) {
   };
 }
 
+// Perspective scale percent from a 0..1 nearness factor.
+function depthScale(nearness) {
+  const t = clamp(nearness, 0, 1);
+  const s = 10 + t * t * 90;
+  return clamp(floorOf(s), 8, 100);
+}
+
 function sprites() {
   const list = [];
   const h = stripH();
@@ -138,23 +150,13 @@ function sprites() {
   list.push({ id: "sky", kind: "rect", w: VIEW_W, h: HORIZON + 4, r: 50, g: 140, b: 220 });
   list.push({ id: "ground", kind: "rect", w: VIEW_W, h: VIEW_H - HORIZON + 8, r: 34, g: 140, b: 48 });
 
-  list.push({ id: "cloud0", kind: "circle", rad: 16, r: 240, g: 248, b: 255 });
-  list.push({ id: "cloud1", kind: "circle", rad: 12, r: 235, g: 245, b: 255 });
-  list.push({ id: "cloud2", kind: "circle", rad: 14, r: 240, g: 248, b: 255 });
-
-  let m = 0;
-  while (m < 8) {
-    list.push({
-      id: "mt" + m,
-      kind: "rect",
-      w: 36 + (m % 3) * 10,
-      h: 18 + (m % 4) * 6,
-      r: 28,
-      g: 48,
-      b: 34
-    });
-    m = m + 1;
-  }
+  // Directional sky: wrapping panorama + sun + clouds (no black boxes).
+  list.push(sheetSprite("pan0", "assets/panorama.png", PAN_W, PAN_H, 1));
+  list.push(sheetSprite("pan1", "assets/panorama.png", PAN_W, PAN_H, 1));
+  list.push(sheetSprite("sun", "assets/sun.png", 32, 32, 1));
+  list.push(sheetSprite("cloud0", "assets/cloud_a.png", 48, 24, 1));
+  list.push(sheetSprite("cloud1", "assets/cloud_b.png", 40, 20, 1));
+  list.push(sheetSprite("cloud2", "assets/cloud_c.png", 36, 18, 1));
 
   let i = 0;
   while (i < STRIPS) {
@@ -167,43 +169,20 @@ function sprites() {
     i = i + 1;
   }
 
-  // Roadside PNG props — pre-sized tiers (sheet cache is path-keyed).
-  // Define far slots first so nearer props paint on top.
+  // Roadside props — one sprite per slot; size from pose.scale.
+  // Far slots first so nearer props paint on top.
   let slot = PROP_SLOTS - 1;
   while (slot >= 0) {
-    let tier = 0;
-    while (tier < PROP_TIERS) {
-      list.push(sheetSprite(
-        propId("palm", slot, tier),
-        "assets/palm_" + tier + ".png",
-        PALM_W[tier],
-        PALM_H[tier],
-        1
-      ));
-      let housePath = "assets/house_";
-      if ((slot % 2) == 1) {
-        housePath = "assets/house2_";
-      }
-      list.push(sheetSprite(
-        propId("house", slot, tier),
-        housePath + tier + ".png",
-        HOUSE_W[tier],
-        HOUSE_H[tier],
-        1
-      ));
-      list.push(sheetSprite(
-        propId("crowd", slot, tier),
-        "assets/crowd_" + tier + ".png",
-        CROWD_FW[tier],
-        CROWD_FH[tier],
-        2
-      ));
-      tier = tier + 1;
+    list.push(sheetSprite(propId("palm", slot), "assets/palm.png", PALM_W, PALM_H, 1));
+    let housePath = "assets/house.png";
+    if ((slot % 2) == 1) {
+      housePath = "assets/house2.png";
     }
+    list.push(sheetSprite(propId("house", slot), housePath, HOUSE_W, HOUSE_H, 1));
+    list.push(sheetSprite(propId("crowd", slot), "assets/crowd.png", CROWD_FW, CROWD_FH, 2));
     slot = slot - 1;
   }
 
-  // Start gantry pieces.
   list.push({ id: "ganL", kind: "rect", w: 10, h: 70, r: 40, g: 70, b: 180 });
   list.push({ id: "ganR", kind: "rect", w: 10, h: 70, r: 40, g: 70, b: 180 });
   list.push({ id: "ganBar", kind: "rect", w: 160, h: 22, r: 230, g: 200, b: 40 });
@@ -213,24 +192,13 @@ function sprites() {
   list.push({ id: "lightY", kind: "circle", rad: 5, r: 90, g: 70, b: 10 });
   list.push({ id: "lightG", kind: "circle", rad: 5, r: 20, g: 90, b: 20 });
 
-  // AI cars — PNG depth tiers.
   let n = 0;
   while (n < AI_COUNT) {
-    let tier = 0;
-    while (tier < CAR_TIERS) {
-      list.push(sheetSprite(
-        aiId(n, tier),
-        (("assets/ai" + n) + "_") + tier + ".png",
-        AI_W[tier],
-        AI_H[tier],
-        1
-      ));
-      tier = tier + 1;
-    }
+    list.push(sheetSprite(aiId(n), "assets/ai" + n + ".png", CAR_W, CAR_H, 1));
     n = n + 1;
   }
 
-  list.push(sheetSprite("player", "assets/car_player.png", PLAYER_W, PLAYER_H, 1));
+  list.push(sheetSprite("player", "assets/car_player.png", CAR_W, CAR_H, 1));
 
   return list;
 }
@@ -249,13 +217,9 @@ function hideGantry(entities) {
 function hideProps(entities) {
   let slot = 0;
   while (slot < PROP_SLOTS) {
-    let tier = 0;
-    while (tier < PROP_TIERS) {
-      entities[propId("palm", slot, tier)] = { x: -40, y: -40, visible: 0 };
-      entities[propId("house", slot, tier)] = { x: -40, y: -40, visible: 0 };
-      entities[propId("crowd", slot, tier)] = { x: -40, y: -40, visible: 0, p0: 0 };
-      tier = tier + 1;
-    }
+    entities[propId("palm", slot)] = { x: -40, y: -40, visible: 0, scale: 100 };
+    entities[propId("house", slot)] = { x: -40, y: -40, visible: 0, scale: 100 };
+    entities[propId("crowd", slot)] = { x: -40, y: -40, visible: 0, p0: 0, scale: 100 };
     slot = slot + 1;
   }
 }
@@ -263,11 +227,7 @@ function hideProps(entities) {
 function hideAi(entities) {
   let n = 0;
   while (n < AI_COUNT) {
-    let tier = 0;
-    while (tier < CAR_TIERS) {
-      entities[aiId(n, tier)] = { x: -40, y: -40, visible: 0 };
-      tier = tier + 1;
-    }
+    entities[aiId(n)] = { x: -40, y: -40, visible: 0, scale: 100 };
     n = n + 1;
   }
 }
@@ -293,14 +253,12 @@ function initState() {
   const entities = {};
   entities.sky = { x: 240, y: HORIZON * 0.5 };
   entities.ground = { x: 240, y: HORIZON + (VIEW_H - HORIZON) * 0.5 };
-  entities.cloud0 = { x: 90, y: 28 };
-  entities.cloud1 = { x: 210, y: 20 };
-  entities.cloud2 = { x: 340, y: 32 };
-  let m = 0;
-  while (m < 8) {
-    entities["mt" + m] = { x: 30 + m * 58, y: HORIZON - 6, visible: 1 };
-    m = m + 1;
-  }
+  entities.pan0 = { x: 240, y: HORIZON, scale: 100, visible: 1 };
+  entities.pan1 = { x: 240 - PAN_W, y: HORIZON, scale: 100, visible: 1 };
+  entities.sun = { x: 360, y: 36, scale: 100, visible: 1 };
+  entities.cloud0 = { x: 100, y: 28, scale: 70, visible: 1 };
+  entities.cloud1 = { x: 220, y: 22, scale: 55, visible: 1 };
+  entities.cloud2 = { x: 340, y: 32, scale: 60, visible: 1 };
 
   let i = 0;
   while (i < STRIPS) {
@@ -315,7 +273,7 @@ function initState() {
   hideProps(entities);
   hideGantry(entities);
   hideAi(entities);
-  entities.player = { x: 240, y: 242, p0: 0, visible: 1 };
+  entities.player = { x: 240, y: 248, p0: 0, scale: 100, visible: 1 };
 
   const ai = initAi();
   return {
@@ -335,7 +293,7 @@ function initState() {
     distance: 0,
     finished: 0,
     crashMs: 0,
-    mountainX: 0,
+    heading: 0,
     anim: 0,
     entities: entities,
     score1: 0,
@@ -400,29 +358,6 @@ function setAiFields(out, n, z, x, spd) {
   }
 }
 
-function tierForScale(scale) {
-  if (scale < 0.28) {
-    return 0;
-  }
-  if (scale < 0.48) {
-    return 1;
-  }
-  if (scale < 0.72) {
-    return 2;
-  }
-  return 3;
-}
-
-function propTierForScale(scale) {
-  if (scale < 0.35) {
-    return 0;
-  }
-  if (scale < 0.65) {
-    return 1;
-  }
-  return 2;
-}
-
 function formatLap(ms) {
   const total = floorOf(ms / 1000);
   const mins = floorOf(total / 60);
@@ -450,7 +385,6 @@ function placeRoad(entities, playerZ, playerX) {
     const y = stripY(i);
     const rw = roadWAt(i);
     const rbw = rumbleWAt(i);
-
     const stripe = floorOf(worldZ / 28) % 2;
 
     let roadR = 68;
@@ -471,14 +405,7 @@ function placeRoad(entities, playerZ, playerX) {
       rumbleB = 240;
     }
 
-    entities["rd" + i] = {
-      x: cx,
-      y: y,
-      r: roadR,
-      g: roadG,
-      b: roadB,
-      visible: 1
-    };
+    entities["rd" + i] = { x: cx, y: y, r: roadR, g: roadG, b: roadB, visible: 1 };
     entities["rl" + i] = {
       x: cx - rw * 0.5 - rbw * 0.5,
       y: y,
@@ -499,14 +426,7 @@ function placeRoad(entities, playerZ, playerX) {
     const dash = floorOf(worldZ / 40) % 2;
     if (dash == 0) {
       if (i > 4) {
-        entities["ln" + i] = {
-          x: cx,
-          y: y,
-          r: 240,
-          g: 240,
-          b: 220,
-          visible: 1
-        };
+        entities["ln" + i] = { x: cx, y: y, r: 240, g: 240, b: 220, visible: 1 };
       } else {
         entities["ln" + i] = { x: cx, y: y, visible: 0 };
       }
@@ -516,11 +436,10 @@ function placeRoad(entities, playerZ, playerX) {
 
     step = step + 1;
   }
-
-  return { bend: x, nearScale: 1 };
 }
 
 function projectZ(relZ) {
+  // scale 1 = at camera (big sprites), ~0 = at horizon (tiny).
   if (relZ <= 20) {
     return { scale: 1, step: STRIPS - 1, y: stripY(STRIPS - 1), visible: 1 };
   }
@@ -529,7 +448,7 @@ function projectZ(relZ) {
   }
   const step = clamp(floorOf(relZ / Z_STEP), 0, STRIPS - 1);
   const i = STRIPS - 1 - step;
-  const scale = (step + 1) / STRIPS;
+  const scale = (STRIPS - step) / STRIPS;
   return { scale: scale, step: step, y: stripY(i), visible: 1 };
 }
 
@@ -550,16 +469,47 @@ function roadCenterAt(playerZ, playerX, relZ) {
   return 240 + x - playerX * scale * 170;
 }
 
+function placeSky(entities, heading) {
+  // Panorama scroll: 960px = full 360° of scenery.
+  const scroll = wrapMod(heading * (PAN_W / 360), PAN_W);
+  let c0 = PAN_W * 0.5 - scroll;
+  // Keep a copy on-screen for wrapping.
+  while (c0 < -PAN_W * 0.5) {
+    c0 = c0 + PAN_W;
+  }
+  while (c0 > PAN_W * 0.5) {
+    c0 = c0 - PAN_W;
+  }
+  entities.pan0 = { x: c0, y: HORIZON, scale: 100, visible: 1 };
+  entities.pan1 = { x: c0 + PAN_W, y: HORIZON, scale: 100, visible: 1 };
+
+  // Sun fixed in the East (world angle 90°).
+  const sunRel = wrapMod(90 - heading, 360);
+  let sunX = -80;
+  let sunVis = 0;
+  if (sunRel < 180) {
+    sunX = floorOf((sunRel / 180) * VIEW_W);
+    sunVis = 1;
+  }
+  entities.sun = { x: sunX, y: 34, scale: 100, visible: sunVis };
+
+  // Clouds at fixed world bearings — drift with heading.
+  placeCloud(entities, "cloud0", heading, 40, 26, 70);
+  placeCloud(entities, "cloud1", heading, 160, 20, 55);
+  placeCloud(entities, "cloud2", heading, 300, 30, 62);
+}
+
+function placeCloud(entities, id, heading, worldAngle, y, scale) {
+  const rel = wrapMod(worldAngle - heading, 360);
+  if (rel >= 180) {
+    entities[id] = { x: -80, y: y, scale: scale, visible: 0 };
+    return;
+  }
+  const x = floorOf((rel / 180) * VIEW_W);
+  entities[id] = { x: x, y: y, scale: scale, visible: 1 };
+}
+
 function placeGantry(entities, playerZ, playerX, light) {
-  const rel = 0 - playerZ;
-  if (rel < -80) {
-    hideGantry(entities);
-    return;
-  }
-  if (rel > STRIPS * Z_STEP) {
-    hideGantry(entities);
-    return;
-  }
   if (playerZ > 280) {
     hideGantry(entities);
     return;
@@ -613,7 +563,7 @@ function placeProps(entities, playerZ, playerX, anim) {
     const seg = floorOf(worldZ / SEG_LEN);
     const proj = projectZ(ahead);
     if (proj.visible == 1) {
-      if (proj.scale > 0.14) {
+      if (proj.scale > 0.12) {
         const cx = roadCenterAt(playerZ, playerX, ahead);
         const rw = roadWAt(STRIPS - 1 - proj.step);
         const side = ((seg + slot) % 2) * 2 - 1;
@@ -629,21 +579,21 @@ function placeProps(entities, playerZ, playerX, anim) {
           edge = 26;
         }
         const tx = cx + side * (rw * 0.5 + edge + proj.scale * 34);
-        const tier = propTierForScale(proj.scale);
-        // Sheet sprites plant feet at (x,y).
+        const sc = depthScale(proj.scale);
         const feetY = proj.y + 2;
         if (kind == "crowd") {
-          const frame = (anim + slot) % 2;
-          entities[propId(kind, slot, tier)] = {
+          entities[propId(kind, slot)] = {
             x: tx,
             y: feetY,
-            p0: frame,
+            p0: (anim + slot) % 2,
+            scale: sc,
             visible: 1
           };
         } else {
-          entities[propId(kind, slot, tier)] = {
+          entities[propId(kind, slot)] = {
             x: tx,
             y: feetY,
+            scale: sc,
             visible: 1
           };
         }
@@ -667,10 +617,10 @@ function placeAiCars(entities, s, playerZ, playerX) {
           if (proj.scale > 0.1) {
             const roadX = roadCenterAt(playerZ, playerX, rel);
             const screenX = roadX + cxLane * proj.scale * 150;
-            const tier = tierForScale(proj.scale);
-            entities[aiId(n, tier)] = {
+            entities[aiId(n)] = {
               x: screenX,
               y: proj.y + 2,
+              scale: depthScale(proj.scale),
               visible: 1
             };
           }
@@ -699,7 +649,7 @@ function update(props) {
   let distance = s.distance;
   let finished = s.finished;
   let crashMs = s.crashMs;
-  let mountainX = s.mountainX;
+  let heading = s.heading;
   let anim = s.anim;
 
   if (phase == "countdown") {
@@ -763,6 +713,9 @@ function update(props) {
       const pull = curveAt(segNow) * speed * dt * 0.00035;
       x = x + pull;
       x = clamp(x, -1.2, 1.2);
+      // Heading follows track curvature so the sky panorama turns with you.
+      heading = heading + curveAt(segNow) * speed * dt * 0.045;
+      heading = wrapMod(heading, 360);
     }
   }
 
@@ -779,7 +732,6 @@ function update(props) {
     lapMs = lapMs + dt;
     timeLeft = timeLeft - dt / 1000;
     score = score + floorOf(speed * dt * 0.35);
-    mountainX = mountainX - curveAt(floorOf(z / SEG_LEN)) * speed * dt * 0.02;
     anim = anim + 1;
     if (anim > 100000) {
       anim = 0;
@@ -866,37 +818,18 @@ function update(props) {
     g: 140,
     b: 48
   };
-  entities.cloud0 = { x: 90 + mountainX * 0.15, y: 28 };
-  entities.cloud1 = { x: 210 + mountainX * 0.12, y: 20 };
-  entities.cloud2 = { x: 340 + mountainX * 0.1, y: 32 };
 
-  let m = 0;
-  while (m < 8) {
-    let mx = 30 + m * 58 + mountainX * 0.35;
-    while (mx < -40) {
-      mx = mx + 520;
-    }
-    while (mx > 520) {
-      mx = mx - 520;
-    }
-    entities["mt" + m] = {
-      x: mx,
-      y: HORIZON - (6 + (m % 4) * 3),
-      visible: 1
-    };
-    m = m + 1;
-  }
-
+  placeSky(entities, heading);
   placeRoad(entities, z, x);
   placeProps(entities, z, x, floorOf(anim / 8));
   placeGantry(entities, z, x, light);
   placeAiCars(entities, aiOut, z, x);
 
-  const playerScreenX = 240 + x * 70;
   entities.player = {
-    x: playerScreenX,
+    x: 240 + x * 70,
     y: 248,
     p0: 0,
+    scale: 100,
     visible: 1
   };
 
@@ -925,7 +858,7 @@ function update(props) {
     distance: distance,
     finished: finished,
     crashMs: crashMs,
-    mountainX: mountainX,
+    heading: heading,
     anim: anim,
     entities: entities,
     score1: score,
