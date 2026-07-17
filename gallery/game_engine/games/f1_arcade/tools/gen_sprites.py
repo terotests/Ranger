@@ -265,7 +265,11 @@ def draw_f1_rear(
     h=38,
     lean=0,
 ):
-    """Rear chase-cam view. lean: -1 left / 0 center / +1 right — body + tires shift."""
+    """Rear chase-cam. lean -1/0/+1 = yaw left / straight / right in 3D space.
+
+    Turning reads as: body + wing yaw toward the steer side, outer flank
+    exposed, outer rear tire slides out, inner front tire peeks, wing skews.
+    """
     pix = blank(w, h)
     wing = (22, 22, 26, 255)
     shade = (
@@ -274,49 +278,92 @@ def draw_f1_rear(
         max(0, body[2] - 30),
         255,
     )
-    # Body yaw toward steer; tires offset more on the outer side.
-    ox = lean * 5
-    tip = lean * 2
+    dark = (
+        max(0, body[0] - 70),
+        max(0, body[1] - 50),
+        max(0, body[2] - 45),
+        255,
+    )
+    # Strong yaw in screen space (readable at a glance).
+    ox = lean * 8
 
-    # 1) Front tires FIRST — outboard of the narrow chassis so they stay visible
-    #    between body and rear tires (not covered by sidepods).
-    fl_x = 7 + ox - lean * 3
-    fr_x = 42 + ox - lean * 3
-    draw_front_tire(pix, w, h, fl_x, 19, 8)
-    draw_front_tire(pix, w, h, fr_x, 19, 8)
+    # --- Front tires (far): outer front slides out, inner tucks under body ---
+    if lean < 0:
+        # Turning left: see more of left front; right front almost hidden.
+        draw_front_tire(pix, w, h, 4, 18, 9)
+        draw_front_tire(pix, w, h, 38, 20, 6)
+    elif lean > 0:
+        draw_front_tire(pix, w, h, 12, 20, 6)
+        draw_front_tire(pix, w, h, 43, 18, 9)
+    else:
+        draw_front_tire(pix, w, h, 8, 19, 8)
+        draw_front_tire(pix, w, h, 40, 19, 8)
 
-    # 2) Body first (so spoiler can sit on it), narrow sidepods.
-    fill_rect(pix, w, h, 17 + ox, 14, 22, 14, body)
-    fill_rect(pix, w, h, 19 + ox, 16, 18, 10, shade)
-    fill_rect(pix, w, h, 21 + ox, 13, 14, 3, (32, 32, 38, 255))
-    fill_rect(pix, w, h, 12 + ox + tip, 16, 7, 10, body)
-    fill_rect(pix, w, h, 37 + ox - tip, 16, 7, 10, body)
+    # --- Body yawed + banked (outer flank visible as a dark slab) ---
+    bx = 17 + ox
+    if lean == 0:
+        fill_rect(pix, w, h, bx, 14, 22, 14, body)
+        fill_rect(pix, w, h, bx + 2, 16, 18, 10, shade)
+        fill_rect(pix, w, h, bx + 4, 13, 14, 3, (32, 32, 38, 255))
+        fill_rect(pix, w, h, 13, 16, 6, 10, body)
+        fill_rect(pix, w, h, 37, 16, 6, 10, body)
+    if lean < 0:
+        # Nose left: left flank thick, right side foreshortened.
+        fill_rect(pix, w, h, bx - 2, 14, 20, 14, body)
+        fill_rect(pix, w, h, bx, 16, 16, 10, shade)
+        fill_rect(pix, w, h, bx + 2, 13, 12, 3, (32, 32, 38, 255))
+        fill_rect(pix, w, h, bx - 6, 15, 6, 12, dark)  # left side face
+        fill_rect(pix, w, h, bx + 14, 17, 4, 9, body)  # skinny right
+    if lean > 0:
+        fill_rect(pix, w, h, bx + 2, 14, 20, 14, body)
+        fill_rect(pix, w, h, bx + 4, 16, 16, 10, shade)
+        fill_rect(pix, w, h, bx + 6, 13, 12, 3, (32, 32, 38, 255))
+        fill_rect(pix, w, h, bx + 18, 15, 6, 12, dark)  # right side face
+        fill_rect(pix, w, h, bx, 17, 4, 9, body)  # skinny left
 
-    # Helmet from behind.
+    # Helmet shifts with yaw.
     fill_ellipse(pix, w, h, w // 2 + ox, 15, 5, 4, (26, 26, 30, 255))
     fill_ellipse(pix, w, h, w // 2 + ox, 14, 3, 3, accent)
 
-    # 3) Spoiler attached to body top (no air gap).
-    wing_w = 30
+    # --- Spoiler on the body, skewed in 3D when turning ---
+    wing_w = 28
     wing_x = (w - wing_w) // 2 + ox
-    fill_rect(pix, w, h, wing_x, 10, wing_w, 3, wing)
-    fill_rect(pix, w, h, wing_x + 1, 9, wing_w - 2, 2, (48, 48, 54, 255))
-    # Endplates + stalks down into the body.
-    fill_rect(pix, w, h, wing_x - 1, 9, 3, 6, wing)
-    fill_rect(pix, w, h, wing_x + wing_w - 2, 9, 3, 6, wing)
-    fill_rect(pix, w, h, wing_x + 4, 12, 2, 3, wing)
-    fill_rect(pix, w, h, wing_x + wing_w - 6, 12, 2, 3, wing)
-    for sx in range(wing_x + 4, wing_x + wing_w - 4, 5):
-        fill_rect(pix, w, h, sx, 10, 1, 2, (70, 70, 78, 255))
+    if lean == 0:
+        fill_rect(pix, w, h, wing_x, 11, wing_w, 3, wing)
+        fill_rect(pix, w, h, wing_x + 1, 10, wing_w - 2, 2, (48, 48, 54, 255))
+        fill_rect(pix, w, h, wing_x - 1, 10, 3, 5, wing)
+        fill_rect(pix, w, h, wing_x + wing_w - 2, 10, 3, 5, wing)
+        fill_rect(pix, w, h, wing_x + 5, 13, 2, 2, wing)
+        fill_rect(pix, w, h, wing_x + wing_w - 7, 13, 2, 2, wing)
+    if lean < 0:
+        # Left tip closer/lower, right tip farther — stepped wing.
+        fill_rect(pix, w, h, wing_x - 4, 12, 14, 3, wing)
+        fill_rect(pix, w, h, wing_x + 8, 10, 16, 3, wing)
+        fill_rect(pix, w, h, wing_x - 5, 11, 3, 5, wing)
+        fill_rect(pix, w, h, wing_x + 21, 9, 3, 5, wing)
+        fill_rect(pix, w, h, wing_x + 2, 14, 2, 2, wing)
+        fill_rect(pix, w, h, wing_x + 14, 12, 2, 2, wing)
+    if lean > 0:
+        fill_rect(pix, w, h, wing_x + 2, 10, 16, 3, wing)
+        fill_rect(pix, w, h, wing_x + 14, 12, 14, 3, wing)
+        fill_rect(pix, w, h, wing_x + 1, 9, 3, 5, wing)
+        fill_rect(pix, w, h, wing_x + 25, 11, 3, 5, wing)
+        fill_rect(pix, w, h, wing_x + 8, 12, 2, 2, wing)
+        fill_rect(pix, w, h, wing_x + 20, 14, 2, 2, wing)
 
-    # Exhaust tucked between rear tires.
+    # Exhaust.
     fill_rect(pix, w, h, 22 + ox, 26, 12, 2, (255, 150, 40, 255))
 
-    # 4) Rear tires LAST — body bottom overlaps their top edge.
-    rl_x = 0 + lean * 4
-    rr_x = 44 + lean * 4
-    draw_rear_tire(pix, w, h, rl_x, 22, 12, 15)
-    draw_rear_tire(pix, w, h, rr_x, 22, 12, 15)
+    # --- Rear tires: outer slides out + slightly larger; inner tucks ---
+    if lean < 0:
+        draw_rear_tire(pix, w, h, 0, 21, 13, 16)   # left outer-ish
+        draw_rear_tire(pix, w, h, 42, 23, 10, 13)  # right tucked
+    elif lean > 0:
+        draw_rear_tire(pix, w, h, 4, 23, 10, 13)
+        draw_rear_tire(pix, w, h, 43, 21, 13, 16)
+    else:
+        draw_rear_tire(pix, w, h, 1, 22, 12, 15)
+        draw_rear_tire(pix, w, h, 43, 22, 12, 15)
     return pix, w, h
 
 

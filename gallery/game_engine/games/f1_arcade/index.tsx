@@ -970,12 +970,12 @@ function update(props) {
   placeWorld(entities, z, x, floorOf(anim / 8), aiOut);
   placeGantry(entities, z, x, light);
 
-  // Player car: lean frames + slight yaw so body turns with steer.
+  // Player car: distinct lean frames (3D yaw) + light sheet rotation.
   let carFrame = 1;
-  if (steer < -0.2) {
+  if (steer < -0.15) {
     carFrame = 0;
   }
-  if (steer > 0.2) {
+  if (steer > 0.15) {
     carFrame = 2;
   }
   entities.player = {
@@ -983,7 +983,7 @@ function update(props) {
     y: 248,
     p0: carFrame,
     scale: 100,
-    angle: steer * 10,
+    angle: steer * 14,
     visible: 1
   };
 
