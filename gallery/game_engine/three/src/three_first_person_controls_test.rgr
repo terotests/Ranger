@@ -1,0 +1,109 @@
+; ==============================================================================
+; three_first_person_controls_test — ThreeFirstPersonControls unit checks.
+; ==============================================================================
+; Compile to ES6 and run under Node; prints per-check PASS/FAIL and "ALL PASS".
+; ==============================================================================
+
+Import "three_first_person_controls.rgr"
+Import "three_loading_manager.rgr"
+
+class ThreeCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    fn near:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        if (d < 0.000001) {
+            passed = (passed + 1)
+            print ("  PASS " + name + " (" + (to_string got) + ")")
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name + " got=" + (to_string got) + " want=" + (to_string want))
+        }
+    }
+}
+
+class ThreeFirstPersonControlsTest {
+    sfn m@(main):void () {
+        def ck:ThreeCheck (new ThreeCheck)
+        print "== ThreeFirstPersonControls =="
+
+        def cam:ThreePerspectiveCamera (new ThreePerspectiveCamera)
+        cam.position.set(0.0 0.0 0.0)
+        def fpc:ThreeFirstPersonControls (new ThreeFirstPersonControls)
+        fpc.setCamera(cam)
+        fpc.setMovementSpeed(2.0)
+        fpc.setLook(0.0 0.0)
+
+        ; lon=0, lat=0 -> look direction +Z
+        def dir:ThreeVector3 (fpc.lookDirection())
+        ck.near("look dir z" dir.z 1.0)
+        ck.near("look dir x" dir.x 0.0)
+        ck.near("look dir y" dir.y 0.0)
+
+        ; forward for 0.5s at speed 2 -> +1 along Z
+        fpc.keyDown("w")
+        fpc.update(0.5)
+        ck.near("forward moves +Z" cam.position.z 1.0)
+        ck.near("forward keeps x" cam.position.x 0.0)
+        fpc.keyUp("w")
+
+        ; strafe right (worldUp x +Z = +X) for 0.5s -> +1 along X
+        fpc.keyDown("d")
+        fpc.update(0.5)
+        ck.near("right moves +X" cam.position.x 1.0)
+        fpc.keyUp("d")
+
+        ; fly up
+        fpc.keyDown("r")
+        fpc.update(0.5)
+        ck.near("up moves +Y" cam.position.y 1.0)
+        fpc.keyUp("r")
+
+        ; look: pointer dx rotates lon by -dx*lookSpeed
+        def fpc2:ThreeFirstPersonControls (new ThreeFirstPersonControls)
+        fpc2.setLookSpeed(0.1)
+        fpc2.setLook(0.0 0.0)
+        fpc2.handleLook(100.0 0.0)
+        ck.near("lon rotates by -dx*speed" fpc2.lon (0.0 - 10.0))
+        ; pitch clamps to +/-85
+        fpc2.handleLook(0.0 (0.0 - 10000.0))
+        ck.ok("lat clamps to <= 85" (fpc2.lat <= 85.0))
+        ck.near("lat clamped to 85" fpc2.lat 85.0)
+
+        print "== ThreeLoadingManager =="
+        def lm:ThreeLoadingManager (new ThreeLoadingManager)
+        ck.near("empty progress = 1" (lm.progress()) 1.0)
+        ck.ok("first start is onStart edge" (lm.itemStart("a.glb")))
+        ck.ok("second start not onStart" (lm.itemStart("b.png") == false))
+        ck.near("total tracked" (to_double lm.itemsTotal) 2.0)
+        ck.near("progress 0/2" (lm.progress()) 0.0)
+        ck.ok("first end not done" (lm.itemEnd("a.glb") == false))
+        ck.near("progress 1/2" (lm.progress()) 0.5)
+        ck.near("percent 1/2" (lm.percent()) 50.0)
+        ck.ok("second end is onLoad edge" (lm.itemEnd("b.png")))
+        ck.ok("done" (lm.isDone()))
+        ck.ok("justFinished set" lm.justFinished)
+        ck.near("progress 2/2" (lm.progress()) 1.0)
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

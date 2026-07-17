@@ -1,0 +1,70 @@
+; ==============================================================================
+; three_loading_manager — asset load tracking (Three.js port of
+; src/loaders/LoadingManager.js). Sponza slice 2.
+; ==============================================================================
+; Tracks in-flight loads so the host can drive a progress bar and know when the
+; scene is ready. Three exposes onStart/onProgress/onLoad/onError callbacks; the
+; portable core keeps the counters (itemsStarted / itemsLoaded / itemsTotal) and
+; the derived progress, and reports transitions via return values / flags so the
+; façade JS can fire the JS callbacks. Pure Ranger — no DOM, no closures.
+; ==============================================================================
+
+class ThreeLoadingManager {
+    def itemsStarted:int 0
+    def itemsLoaded:int 0
+    def itemsTotal:int 0
+    def isLoading:boolean false
+    ; set for one tick when the last item finished (host fires onLoad then clears).
+    def justFinished:boolean false
+
+    ; a new load begins. Returns true if this is the first item of a batch (the
+    ; onStart edge). Three increments total and marks loading.
+    fn itemStart:boolean (url:string) {
+        itemsTotal = (itemsTotal + 1)
+        itemsStarted = (itemsStarted + 1)
+        def firstOfBatch:boolean (isLoading == false)
+        isLoading = true
+        justFinished = false
+        return firstOfBatch
+    }
+
+    ; a load completed. Returns true if the batch is now fully done (onLoad edge).
+    fn itemEnd:boolean (url:string) {
+        itemsLoaded = (itemsLoaded + 1)
+        if (itemsLoaded == itemsTotal) {
+            isLoading = false
+            justFinished = true
+            return true
+        }
+        return false
+    }
+
+    ; a load errored — Three still counts it as ended for progress purposes.
+    fn itemError:boolean (url:string) {
+        return (this.itemEnd(url))
+    }
+
+    ; loaded / total in 0..1 (1 when nothing is pending).
+    fn progress:double () {
+        if (itemsTotal == 0) {
+            return 1.0
+        }
+        return ((to_double itemsLoaded) / (to_double itemsTotal))
+    }
+    fn percent:double () {
+        def p:double (this.progress())
+        return (p * 100.0)
+    }
+    fn isDone:boolean () {
+        return (itemsLoaded >= itemsTotal)
+    }
+
+    fn reset:ThreeLoadingManager () {
+        itemsStarted = 0
+        itemsLoaded = 0
+        itemsTotal = 0
+        isLoading = false
+        justFinished = false
+        return this
+    }
+}
