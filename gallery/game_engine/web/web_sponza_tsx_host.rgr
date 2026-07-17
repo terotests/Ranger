@@ -150,10 +150,21 @@ class WebSponzaTsxHost {
         bridge.scene.update(0.0)
     }
 
+    ; render one frame so the GPU shadow map is populated, read it back, and compute
+    ; per-probe sun visibility so shadowed probes lose their direct-sun GI lobe. Runs
+    ; once after load (the first visible frame then uses the shadow-aware bake).
+    fn establishProbeVisibility:void () {
+        renderer.render(bridge.scene.scene bridge.scene.camera)
+        def size:int (gl.shadowMapSize())
+        def depth:buffer (gl.readShadowDepth())
+        bridge.scene.applyProbeVisibility(depth size)
+    }
+
     ; Load with the procedural test scene (the browser can't fetch the real model).
     fn load:string (facadeSrc:string sponzaSrc:string winW:int winH:int dpr:double) {
         def r:string (this.loadScene(facadeSrc sponzaSrc (this.buildTestModel()) winW winH dpr))
         this.frameTestCamera()
+        this.establishProbeVisibility()
         return r
     }
 
@@ -174,6 +185,7 @@ class WebSponzaTsxHost {
         } {
             this.frameTestCamera()
         }
+        this.establishProbeVisibility()
         return r
     }
 

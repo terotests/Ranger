@@ -6,6 +6,7 @@
 
 Import "three_spherical_harmonics3.rgr"
 Import "three_light_probe_grid.rgr"
+Import "three_matrix4.rgr"
 
 class ThreeCheck {
     def passed:int 0
@@ -121,6 +122,47 @@ class ThreeLightProbeGridTest {
         ck.near("GI fill b = baked b" (grid.lightB()) 0.7)
         grid.visible = false
         ck.near("hidden volume contributes no light (kind 0)" (to_double (grid.lightKind())) 0.0)
+
+        ; directional bake + per-probe sun visibility from a (fake) shadow depth map.
+        def dg:ThreeLightProbeGrid (ThreeLightProbeGrid.create(2.0 2.0 2.0 2 2 2))
+        dg.position.set(0.0 0.0 0.0)
+        dg.bakeDirectional(0.0 1.0 0.0 1.0 0.9 0.7 0.3 0.4 0.6 0.5 0.4 0.3)
+        def up:ThreeVector3 (new ThreeVector3)
+        dg.sampleIrradiance(0.0 0.0 0.0 0.0 1.0 0.0 up)
+        ck.ok("directional bake fills up-facing" ((up.x + (up.y + up.z)) > 0.0))
+
+        ; all-far depth (bytes 255 => stored depth ~1) => every probe is lit.
+        def far:buffer (buffer_alloc 16)
+        def fi:int 0
+        while (fi < 16) {
+            buffer_set far fi 255
+            fi = (fi + 1)
+        }
+        def idm:ThreeMatrix4 (new ThreeMatrix4)
+        dg.computeSunVisibility(far 2 idm)
+        ck.near("visibility computed for all 8 probes" (to_double (array_length dg.sunVis)) 8.0)
+        def allLit:boolean true
+        def vi:int 0
+        while (vi < (array_length dg.sunVis)) {
+            if ((itemAt dg.sunVis vi) < 0.9) {
+                allLit = false
+            }
+            vi = (vi + 1)
+        }
+        ck.ok("all-far depth => all probes lit" allLit)
+
+        ; all-near depth (bytes 0 => stored depth 0) => front-facing probes shadowed.
+        def near:buffer (buffer_alloc 16)
+        dg.computeSunVisibility(near 2 idm)
+        def anyShadow:boolean false
+        def si:int 0
+        while (si < (array_length dg.sunVis)) {
+            if ((itemAt dg.sunVis si) < 0.5) {
+                anyShadow = true
+            }
+            si = (si + 1)
+        }
+        ck.ok("all-near depth => some probes shadowed" anyShadow)
 
         print "== summary =="
         print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))

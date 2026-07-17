@@ -316,7 +316,7 @@ function __rglMakeDepthTarget(size){
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
   var colorRb=gl.createRenderbuffer(); gl.bindRenderbuffer(gl.RENDERBUFFER,colorRb);
-  gl.renderbufferStorage(gl.RENDERBUFFER,gl.RGBA4,size,size);
+  gl.renderbufferStorage(gl.RENDERBUFFER, __rglGL2 ? gl.RGBA8 : gl.RGBA4, size, size);
   var fb=gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER,fb);
   gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.DEPTH_ATTACHMENT,gl.TEXTURE_2D,depthTex,0);
   gl.framebufferRenderbuffer(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.RENDERBUFFER,colorRb);
@@ -325,9 +325,10 @@ function __rglMakeDepthTarget(size){
   __rglTargets.push({fb:fb,size:size,depthTexId:texId});
   return __rglTargets.length;
 }
-function __rglBindTarget(h){ var gl=__rgl; if(!gl||h<1) return; var t=__rglTargets[h-1]; gl.bindFramebuffer(gl.FRAMEBUFFER,t.fb); gl.viewport(0,0,t.size,t.size); gl.clear(gl.DEPTH_BUFFER_BIT); }
+function __rglBindTarget(h){ var gl=__rgl; if(!gl||h<1) return; var t=__rglTargets[h-1]; gl.bindFramebuffer(gl.FRAMEBUFFER,t.fb); gl.viewport(0,0,t.size,t.size); gl.clearColor(1,1,1,1); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT); }
 function __rglBindScreen(w,h){ var gl=__rgl; if(!gl) return; gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.viewport(0,0,w,h); }
 function __rglTargetDepthTex(h){ if(h<1) return 0; return __rglTargets[h-1].depthTexId; }
+function __rglReadTarget(h,size){ var gl=__rgl; function mk(ab){ ab._view=new DataView(ab); return ab; } if(!gl||h<1) return mk(new ArrayBuffer(0)); var t=__rglTargets[h-1]; gl.bindFramebuffer(gl.FRAMEBUFFER,t.fb); var px=new Uint8Array(size*size*4); gl.readPixels(0,0,size,size,gl.RGBA,gl.UNSIGNED_BYTE,px); gl.bindFramebuffer(gl.FRAMEBUFFER,null); return mk(px.buffer); }
 ") )
             cpp ( "rgl_make_depth_target(" (e 1) ")" (create_polyfill "
 struct RglTarget { GLuint fb; GLuint depthTex; GLuint colorRb; int size; int depthTexId; };
@@ -339,6 +340,14 @@ static const GLenum RGL_DEPTH_TYPE = GL_UNSIGNED_SHORT;
 static const GLenum RGL_DEPTH_INTERNAL = GL_DEPTH_COMPONENT24;
 static const GLenum RGL_DEPTH_TYPE = GL_UNSIGNED_INT;
 #endif
+#if defined(__arm__) || defined(__aarch64__)
+#ifndef GL_RGBA8
+#define GL_RGBA8 0x8058
+#endif
+static const GLenum RGL_RGBA8 = GL_RGBA8;
+#else
+static const GLenum RGL_RGBA8 = GL_RGBA8;
+#endif
 static int rgl_make_depth_target(int size){
   RglTarget t; t.size=size;
   glGenTextures(1,&t.depthTex); glBindTexture(GL_TEXTURE_2D,t.depthTex);
@@ -348,7 +357,7 @@ static int rgl_make_depth_target(int size){
   glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
   glGenRenderbuffers(1,&t.colorRb); glBindRenderbuffer(GL_RENDERBUFFER,t.colorRb);
-  glRenderbufferStorage(GL_RENDERBUFFER,GL_RGBA4,size,size);
+  glRenderbufferStorage(GL_RENDERBUFFER,RGL_RGBA8,size,size);
   glGenFramebuffers(1,&t.fb); glBindFramebuffer(GL_FRAMEBUFFER,t.fb);
   glFramebufferTexture2D(GL_FRAMEBUFFER,GL_DEPTH_ATTACHMENT,GL_TEXTURE_2D,t.depthTex,0);
   glFramebufferRenderbuffer(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,GL_RENDERBUFFER,t.colorRb);
@@ -357,9 +366,10 @@ static int rgl_make_depth_target(int size){
   g_rglTargets.push_back(t);
   return (int)g_rglTargets.size();
 }
-static void rgl_bind_target(int h){ if(h<1) return; RglTarget t=g_rglTargets[h-1]; glBindFramebuffer(GL_FRAMEBUFFER,t.fb); glViewport(0,0,t.size,t.size); glClear(GL_DEPTH_BUFFER_BIT); }
+static void rgl_bind_target(int h){ if(h<1) return; RglTarget t=g_rglTargets[h-1]; glBindFramebuffer(GL_FRAMEBUFFER,t.fb); glViewport(0,0,t.size,t.size); glClearColor(1,1,1,1); glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT); }
 static void rgl_bind_screen(int w,int h){ glBindFramebuffer(GL_FRAMEBUFFER,0); glViewport(0,0,w,h); }
 static int rgl_target_depth_tex(int h){ if(h<1) return 0; return g_rglTargets[h-1].depthTexId; }
+static std::vector<uint8_t> rgl_read_target(int h,int size){ std::vector<uint8_t> px; if(h<1) return px; RglTarget t=g_rglTargets[h-1]; px.resize((size_t)size*size*4); glBindFramebuffer(GL_FRAMEBUFFER,t.fb); glReadPixels(0,0,size,size,GL_RGBA,GL_UNSIGNED_BYTE,px.data()); glBindFramebuffer(GL_FRAMEBUFFER,0); return px; }
 ") )
         }
     }
@@ -381,6 +391,15 @@ static int rgl_target_depth_tex(int h){ if(h<1) return 0; return g_rglTargets[h-
         templates {
             es6 ( "__rglTargetDepthTex(" (e 1) ")" )
             cpp ( "rgl_target_depth_tex(" (e 1) ")" )
+        }
+    }
+    ; read a render target's colour attachment back to CPU as RGBA bytes (size*size*4).
+    ; The shadow target packs window depth into RGB, so this yields a depth map the
+    ; probe bake can test for per-probe sun visibility.
+    gpu_read_target _:buffer (handle:int size:int) {
+        templates {
+            es6 ( "__rglReadTarget(" (e 1) ", " (e 2) ")" )
+            cpp ( "rgl_read_target(" (e 1) ", " (e 2) ")" )
         }
     }
 

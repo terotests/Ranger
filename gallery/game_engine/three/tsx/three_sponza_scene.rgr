@@ -212,6 +212,18 @@ class ThreeSponzaScene {
         this.bakeGI()
     }
 
+    ; the sun's light-space view-projection (for testing probe shadowing).
+    fn sunViewProjection:ThreeMatrix4 () {
+        return (this.dirLight.shadowViewProjection())
+    }
+    ; given the shadow map's packed-depth read back to CPU, compute per-probe sun
+    ; visibility and re-bake so shadowed probes lose their direct-sun lobe. The host
+    ; calls this once after the first frame renders the shadow map.
+    fn applyProbeVisibility:void (shadowDepth:buffer size:int) {
+        this.probes.computeSunVisibility(shadowDepth size (this.sunViewProjection()))
+        this.bakeGI()
+    }
+
     ; sample the baked GI irradiance at a world point for a surface normal (what the
     ; shader does per fragment; exposed here for the software path + tests).
     fn sampleGI:ThreeVector3 (wx:double wy:double wz:double nx:double ny:double nz:double target:ThreeVector3) {

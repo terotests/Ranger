@@ -24,8 +24,12 @@ class ThreeGLShaders {
     sfn depthVertexSrc:string () {
         return "attribute vec3 aPos;\nuniform mat4 uMVP;\nvoid main() {\n  gl_Position = uMVP * vec4(aPos, 1.0);\n}\n"
     }
+    ; also pack window depth (gl_FragCoord.z) into RGB as a 24-bit fixed point, so
+    ; the shadow map's colour attachment can be read back on the CPU for per-probe
+    ; sun-visibility during the GI bake. (The depth *texture* attachment still gets
+    ; real depth for the shading pass — this only adds a readable colour copy.)
     sfn depthFragmentSrc:string () {
-        return "#ifdef GL_ES\nprecision mediump float;\n#endif\nvoid main() {\n  gl_FragColor = vec4(1.0);\n}\n"
+        return "#ifdef GL_ES\nprecision highp float;\n#endif\nvoid main() {\n  float v = clamp(gl_FragCoord.z, 0.0, 0.999999);\n  float r = floor(v * 256.0);\n  float g = floor(fract(v * 256.0) * 256.0);\n  float b = floor(fract(v * 256.0 * 256.0) * 256.0);\n  gl_FragColor = vec4(r / 255.0, g / 255.0, b / 255.0, 1.0);\n}\n"
     }
 
     ; skybox: sample the environment cube map by view direction. aPos (offset 0,

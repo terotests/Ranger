@@ -216,6 +216,18 @@ class ThreeGLBackend extends ThreeRenderBackend {
     fn endShadowPass:void (w:int h:int) {
         gpu_bind_screen w h
     }
+    ; the shadow map's size, and its packed-depth colour read back to CPU (RGBA
+    ; bytes, size*size*4) — used to compute per-probe sun visibility for the GI bake.
+    fn shadowMapSize:int () {
+        return shadowSize
+    }
+    fn readShadowDepth:buffer () {
+        if (shadowReady == false) {
+            return (buffer_alloc 0)
+        }
+        return (gpu_read_target shadowTarget shadowSize)
+    }
+
     ; feed the depth map + light view-projection to the lit pass (or disable it).
     fn setShadow:void (lightViewProj:ThreeMatrix4 enabled:boolean) {
         def mb:buffer (this.matrixBytes(lightViewProj))
