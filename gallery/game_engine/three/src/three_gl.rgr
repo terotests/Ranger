@@ -43,7 +43,10 @@ function __rglSh(gl,t,src){ var s=gl.createShader(t); gl.shaderSource(s,src); gl
 function __rglProgram(vs,fs){ var gl=__rgl; if(!gl) return 0; var p=gl.createProgram(); gl.attachShader(p,__rglSh(gl,gl.VERTEX_SHADER,vs)); gl.attachShader(p,__rglSh(gl,gl.FRAGMENT_SHADER,fs)); gl.linkProgram(p); __rglProgs.push({p:p,loc:{}}); return __rglProgs.length; }
 function __rglUloc(e,name){ var gl=__rgl; if(e.loc[name]===undefined){ e.loc[name]=gl.getUniformLocation(e.p,name); } return e.loc[name]; }
 function __rglMesh(vb,vc,ib,ic){ var gl=__rgl; if(!gl) return 0; var vbo=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,vbo); gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(vb),gl.STATIC_DRAW); var ebo=gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ebo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint32Array(ib),gl.STATIC_DRAW); __rglMeshes.push({vbo:vbo,ebo:ebo,count:ic}); return __rglMeshes.length; }
-function __rglTexture(bytes,w,h){ var gl=__rgl; if(!gl) return 0; var t=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,t); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(bytes)); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR); __rglTex.push(t); return __rglTex.length; }
+function __rglTexture(bytes,w,h){ var gl=__rgl; if(!gl) return 0; var t=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,t); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(bytes)); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  if(__rglGL2){ gl.generateMipmap(gl.TEXTURE_2D); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR); var ax=gl.getExtension('EXT_texture_filter_anisotropic'); if(ax){ gl.texParameterf(gl.TEXTURE_2D, ax.TEXTURE_MAX_ANISOTROPY_EXT, 8); } }
+  else { gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR); }
+  __rglTex.push(t); return __rglTex.length; }
 function __rglSetLights(amb,dirs,cols,count){ __rglAmb=new Float32Array(amb); __rglDirs=new Float32Array(dirs); __rglCols=new Float32Array(cols); __rglLC=count|0; }
 function __rglSetView(cx,cy,cz){ __rglCam=[cx,cy,cz]; }
 function __rglSetTone(m,e){ __rglTone=m; __rglExposure=e; }
@@ -112,7 +115,13 @@ static int rgl_init(const char* id){ (void)id; return 1; }
 static void rgl_begin(int w,int h,double r,double g,double b){ glViewport(0,0,w,h); glClearColor((float)r,(float)g,(float)b,1.0f); glEnable(GL_DEPTH_TEST); glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT); }
 static int rgl_program(std::string vs, std::string fs){ GLuint p=glCreateProgram(); glAttachShader(p, rgl_sh(GL_VERTEX_SHADER, vs.c_str())); glAttachShader(p, rgl_sh(GL_FRAGMENT_SHADER, fs.c_str())); glLinkProgram(p); RglProg e; e.p=p; g_rglProgs.push_back(e); return (int)g_rglProgs.size(); }
 static int rgl_mesh(const uint8_t* vb,int vsz,int vc,const uint8_t* ib,int isz,int ic){ (void)vc; RglMesh m; glGenBuffers(1,&m.vbo); glBindBuffer(GL_ARRAY_BUFFER,m.vbo); glBufferData(GL_ARRAY_BUFFER,vsz,vb,GL_STATIC_DRAW); glGenBuffers(1,&m.ebo); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,m.ebo); glBufferData(GL_ELEMENT_ARRAY_BUFFER,isz,ib,GL_STATIC_DRAW); m.count=ic; g_rglMeshes.push_back(m); return (int)g_rglMeshes.size(); }
-static int rgl_texture(const uint8_t* bytes,int w,int h){ GLuint t; glGenTextures(1,&t); glBindTexture(GL_TEXTURE_2D,t); glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,w,h,0,GL_RGBA,GL_UNSIGNED_BYTE,bytes); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_REPEAT); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_REPEAT); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR); g_rglTex.push_back(t); return (int)g_rglTex.size(); }
+static int rgl_texture(const uint8_t* bytes,int w,int h){ GLuint t; glGenTextures(1,&t); glBindTexture(GL_TEXTURE_2D,t); glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,w,h,0,GL_RGBA,GL_UNSIGNED_BYTE,bytes); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_REPEAT); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_REPEAT); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+#if defined(__arm__) || defined(__aarch64__)
+  glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
+#else
+  glGenerateMipmap(GL_TEXTURE_2D); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_LINEAR);
+#endif
+  g_rglTex.push_back(t); return (int)g_rglTex.size(); }
 static void rgl_set_lights(const uint8_t* amb,const uint8_t* dirs,const uint8_t* cols,int count){ const float* a=(const float*)amb; const float* d=(const float*)dirs; const float* c=(const float*)cols; g_rglAmb[0]=a[0];g_rglAmb[1]=a[1];g_rglAmb[2]=a[2]; for(int i=0;i<12;i++){ g_rglDirs[i]=d[i]; g_rglCols[i]=c[i]; } g_rglLC=count; }
 static void rgl_set_view(double cx,double cy,double cz){ g_rglCam[0]=(float)cx; g_rglCam[1]=(float)cy; g_rglCam[2]=(float)cz; }
 static void rgl_set_tone(double m,double e){ g_rglTone=(float)m; g_rglExposure=(float)e; }
