@@ -200,6 +200,24 @@ const TEAPOT_TSX_SCENES = [
   },
 ];
 
+// Interpreted WebGL Sponza (kind:"sponza-tsx"). The light-probe-volume scene
+// (sponza.tsx) runs in the TSX interpreter against the three.tsx façade and
+// renders on the GPU via web_sponza_tsx_host.rgr (ComponentEngine +
+// ThreeSponzaTsxBridge + ThreeGLBackend), driven by src/sponza-tsx-viewer.js. The
+// real glTF model + textures are fetched at runtime from the Khronos sample-assets
+// repo (too big to bundle); only the editable script + façade are staged.
+const SPONZA_TSX_RGR = "gallery/game_engine/web/web_sponza_tsx_host.rgr";
+const SPONZA_TSX_SCENES = [
+  {
+    id: "sponza3d",
+    title: "Sponza — light-probe GI on the GPU",
+    scriptDir: "gallery/game_engine/three/tsx",
+    script: "sponza.tsx",
+    facade: "gallery/game_engine/three/tsx/three.tsx",
+    controls: "The light-probe-volume Sponza scene, its code run in the interpreter on the Ranger Three clone + WebGL: WASD / arrows to move, drag to look. Real glTF model + textures stream in from the Khronos sample assets. Sky, cast shadows and per-probe GI. Edit sponza.tsx (sun angle, probe counts) and it hot-reloads.",
+  },
+];
+
 // ------------------------------------------------------------------- helpers
 function log(...a) {
   console.log("[web-build]", ...a);
@@ -378,6 +396,24 @@ function compileTeapotTsxBundle() {
   fs.rmSync(rawDir, { recursive: true, force: true });
 }
 
+// Compile web_sponza_tsx_host.rgr -> sponza-tsx.bundle.js (exports
+// WebSponzaTsxHost), the interpreter host for the editable Sponza scene.
+function compileSponzaTsxBundle() {
+  const rawDir = path.join(OUT, "_rawsponzatsx");
+  fs.mkdirSync(rawDir, { recursive: true });
+  log("compiling Sponza TSX host:", SPONZA_TSX_RGR);
+  sh("node", [
+    "bin/output.js", "-es6", SPONZA_TSX_RGR,
+    "-d=" + path.relative(ROOT, rawDir), "-o=sponzatsx.raw.js", "-nodecli",
+  ], { env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" }, stdio: "inherit" });
+  let src = fs.readFileSync(path.join(rawDir, "sponzatsx.raw.js"), "utf8").replace(/^#![^\n]*\n/, "");
+  src = src.replace(/\n__js_main\(\);\s*$/, "\n").replace(/\n[A-Za-z_$][\w$]*\(\);\s*$/, "\n");
+  src += "\n;return { WebSponzaTsxHost };\n";
+  fs.writeFileSync(path.join(OUT, "sponza-tsx.bundle.js"), src);
+  log("wrote sponza-tsx.bundle.js (" + (src.length / 1024).toFixed(0) + " KB)");
+  fs.rmSync(rawDir, { recursive: true, force: true });
+}
+
 // ------------------------------------------------------------------- packages
 function packageGames() {
   const gamesOut = path.join(OUT, "games");
@@ -462,6 +498,22 @@ function packageGames() {
     });
     log("staged teapot-tsx", s.id, "(script + façade)");
   }
+  // Interpreted WebGL Sponza (kind:"sponza-tsx") — stage the editable sponza.tsx
+  // + the three.tsx façade; the model + textures are fetched at runtime.
+  for (const s of SPONZA_TSX_SCENES) {
+    const dir3 = path.join(gamesOut, s.id);
+    fs.mkdirSync(dir3, { recursive: true });
+    fs.copyFileSync(path.join(ROOT, s.scriptDir, s.script), path.join(dir3, "script.tsx"));
+    fs.copyFileSync(path.join(ROOT, s.facade), path.join(dir3, "facade.tsx"));
+    registry.push({
+      id: s.id, title: s.title, kind: "sponza-tsx", width: 640, height: 400,
+      scriptDir: s.scriptDir, script: s.script,
+      scriptUrl: "games/" + s.id + "/script.tsx",
+      facadeUrl: "games/" + s.id + "/facade.tsx",
+      controls: s.controls || "",
+    });
+    log("staged sponza-tsx", s.id, "(script + façade)");
+  }
   fs.writeFileSync(path.join(OUT, "games.json"), JSON.stringify(registry, null, 2));
 }
 
@@ -512,7 +564,7 @@ async function buildEditor() {
 
 // ------------------------------------------------------------------- assets
 function copyRuntime() {
-  for (const f of ["vfs.js", "engine-host.js", "runner.js", "tsx3d-viewer.js", "tsx3d-gl-viewer.js", "teapot-tsx-viewer.js"]) {
+  for (const f of ["vfs.js", "engine-host.js", "runner.js", "tsx3d-viewer.js", "tsx3d-gl-viewer.js", "teapot-tsx-viewer.js", "sponza-tsx-viewer.js"]) {
     fs.copyFileSync(path.join(SRC, f), path.join(OUT, f));
   }
   fs.copyFileSync(path.join(HERE, "index.html"), path.join(OUT, "index.html"));
@@ -524,8 +576,8 @@ function copyRuntime() {
 // so it only changes when they actually change.
 function cacheBust() {
   const names = [
-    "vfs.js", "engine-host.js", "runner.js", "tsx3d-viewer.js", "tsx3d-gl-viewer.js", "teapot-tsx-viewer.js",
-    "engine.bundle.js", "tsx3d.bundle.js", "tsx3d-gl.bundle.js", "teapot-tsx.bundle.js", "games.json",
+    "vfs.js", "engine-host.js", "runner.js", "tsx3d-viewer.js", "tsx3d-gl-viewer.js", "teapot-tsx-viewer.js", "sponza-tsx-viewer.js",
+    "engine.bundle.js", "tsx3d.bundle.js", "tsx3d-gl.bundle.js", "teapot-tsx.bundle.js", "sponza-tsx.bundle.js", "games.json",
     "editor.bundle.js", "editor.bundle.css",
   ];
   const h = crypto.createHash("sha1");
@@ -550,6 +602,7 @@ compileEngineBundle();
 compileTsx3dBundle();
 if (TSX3D_GL_SCENES.length) compileTsx3dGlBundle();
 if (TEAPOT_TSX_SCENES.length) compileTeapotTsxBundle();
+if (SPONZA_TSX_SCENES.length) compileSponzaTsxBundle();
 packageGames();
 const editorOk = await buildEditor();
 copyRuntime();
