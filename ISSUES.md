@@ -1,21 +1,86 @@
 # Ranger Compiler Known Issues
 
-## Summary (December 2025)
+## Summary (July 2026)
+
+> **Huom:** Tämä tiedosto käyttää **sisäisiä** issue-numeroita, jotka eivät vastaa GitHub-issueita 1:1. Sama numero voi esiintyä kahdesti eri ongelmissa (esim. #58 = Go-slice **ja** UTF-8-kohdekielet). Alla olevassa tiekartassa käytetään tunnisteita kuten `#58-go-slice` erottamaan ne.
+
+### Työmääräluokat
+
+| Luokka | Tekninen laajuus |
+|--------|------------------|
+| **S** | 1–2 tiedostoa, yksittäinen regressiotesti |
+| **M** | 3–6 tiedostoa, useampi testi tai yksi kohdekieli |
+| **L** | Useita kohdekieliä tai parser/compiler-kerros |
+| **XL** | Arkkitehtuurimuutos (LSP, inkrementaalinen kääntäjä, tyyppirekisteri) |
 
 ### Recently Fixed
-- Issue #1: `toString` method crash - Fixed with `hasOwnProperty` check
-- Issue #4: Go integer division type - Fixed with `float64()` cast
-- Issue #57: Go UTF-8 string handling - Fixed with rune-based operations
-- Issue #58: Go slice pass-by-value - Fixed with pointer semantics
-- Issue #59: Go `clear` operator - Fixed with `[:0]` slice reset
-- Issue #60: Go `buffer_read_file` separator - Fixed with `filepath.Join()`
-- Issue #60: Systemclass types not dynamically discovered in `isDefinedType()` - Fixed with `TTypeRegistry` and `registerLangSystemClasses()` (July 2026)
 
-### Still Open
-- Issue #59: System classes have hardcoded type handling (Design Issue)
-- Issue #15: Adding new primitive types requires changes in multiple files (partially addressed by `TTypeRegistry`; full `primitivetype` registry not done)
+| ID | Ongelma | Ratkaisu |
+|----|---------|----------|
+| #1 | `toString`-metodin kaatuminen | ES6 `get` käyttää `hasOwnProperty`-tarkistusta |
+| #4 | Go kokonaislukujako | `float64()`-cast `Lang.rgr`:ssä |
+| #7 | Python `super().__init__()` | Parent-konstruktorin argumentit välitetään |
+| #12-lf | LF-rivinvaihdot CI:ssä | `normalizeLineEndings()` parserissa + conformance-fixture |
+| #57 | Go UTF-8 / merkkijonot | Rune-pohjaiset Go-mallit + lexer `isAlpha` |
+| #59-clear | Go `clear` → nil | `[:0]`-malli |
+| #60-path | Go `buffer_read_file` | `filepath.Join()` |
+| #60-types | Systemclass `isDefinedType()` | `TTypeRegistry` + `registerLangSystemClasses()` |
+| #61-import | Rekursiiviset import-polut | `libraryPaths` push/pop `mergeImports`:ssa |
+| #61-http | HTTP-palvelin (design) | Annotation-pohjainen `@(HttpServer)` + Go-writer |
+
+### Open Issues — Roadmap (sisäiset)
+
+| ID | Ongelma | Vakavuus | Ratkaisuehdotus | Työmäärä |
+|----|---------|----------|-----------------|----------|
+| #5 | Go peritty konstruktori, duplikaatti-assign | Low | Seuraa jo assignattuja kenttiä `ng_RangerGolangClassWriter.rgr`:ssä | **S** |
+| #6 | `-d` / `-o` polku- ja laajennuslogiikka | Medium | Yhtenäistä polkujen normalisointi; lisää laajennus automaattisesti kun `-o` ilman pistettä | **M** |
+| #9 | Go math mixed int/double | Medium | Auditoi `Lang.rgr` Go-mallit; conformance-fixture `math_ops` Go-kohteelle | **M** |
+| #13-cpp | C++ polyfill-duplikaatit | Medium | Hash- tai ID-pohjainen deduplikointi `create_polyfill`-emitterissä | **M** |
+| #15 | Uusi primitiivi = monta tiedostoa | Medium | Laajenna `TTypeRegistry` → `primitivetype`-syntaksi `Lang.rgr`:ssä | **XL** (vaihe 1: **M**) |
+| #16 | If/else-return varoitus | Low | Perus-CFG: kaikki haarat return → ei varoitusta | **M** |
+| #58-go-slice | Go array-parametri mutaatio | High | Pointer-boxaus `*[]T` tai return-arvo -kuvio; conformance `array_param_mutate` | **L** |
+| #57-utf8 | UTF-8 osittain (PDF TrueType) | High | TrueType-mittaus + kohdekohtainen conformance `string_codepoint_index` | **L** |
+| #58-utf8 | UTF-8 muut kohdekielet | Medium | Laajenna conformance Unicode-merkkijonolla Rust/C++/Swift/Java | **L** |
+| #59-systemclass | Kovakoodatut systemclass-tyypit writereissä | Low | Poista `case "buffer"` -haarat; käytä `cc.systemNames` kaikissa writereissä | **M** |
+| #62 | `-nodemodule` ohittaa `-d`/`-o` | Medium | Yhdistä #6:n polkukorjaukseen; sama `saveTo`-polku | **S** |
+| #14-evg | EVG TSX ehdollinen JSX | Medium | Tuki `&&` / ternary JSX:ssä tai selkeä compile-time -virhe | **L** |
+
+### GitHub Issues — avoimet (erillinen numerointi)
+
+| GH | Otsikko | Tila | Ratkaisuehdotus | Työmäärä |
+|----|---------|------|-----------------|----------|
+| [#4](https://github.com/terotests/Ranger/issues/4) | Compiler unit tests | **Ratkaistu** — suljettavissa | `tests/conformance/`, `compiler-issue-*.test.ts`, Vitest CI | — |
+| [#20](https://github.com/terotests/Ranger/issues/20) | `super()` perinnässä | **Ratkaistu** — suljettavissa | `super(n)` / `super().__init__(n)`; `inheritance.rgr` testit | — |
+| [#22](https://github.com/terotests/Ranger/issues/22) | Hakemistojen luonti | **Ratkaistu** — suljettavissa | `ng_writer.rgr` `mkdir()` ennen `write_file` | — |
+| [#33](https://github.com/terotests/Ranger/issues/33) | `nullify`-operaattori | **Ratkaistu** — suljettavissa | `nullify` `Lang.rgr`:ssä (es6/java/cpp/go/php) | — |
+| [#37](https://github.com/terotests/Ranger/issues/37) | C++ optional `double` | **Ratkaistu** — suljettavissa | `r_optional_primitive<double>` C++-writerissä | — |
+| [#19](https://github.com/terotests/Ranger/issues/19) | Annotations-validointi | Avoin | Tunnettu flag-lista parserissa; virhe tuntemattomasta `@(foo)` | **M** |
+| [#23](https://github.com/terotests/Ranger/issues/23) | Swift tyhjät optionaalit | Avoin (epävarma) | Regressiotesti + `nil` vs `Optional.none` Swift3/6-writerissä | **S** |
+| [#26](https://github.com/terotests/Ranger/issues/26) | `lifetime == 1` -virhe | Avoin | Korvaa numerolla selkeä viesti + ehdota `@(lives)`; tai poista varoitus | **S** |
+| [#27](https://github.com/terotests/Ranger/issues/27) | Generic trait -parametrit | Avoin | Validoi trait-parametrit type-check -vaiheessa `ng_RangerArgMatch.rgr` | **M** |
+| [#32](https://github.com/terotests/Ranger/issues/32) | Ei-optionaalinen jäsen konstruktorissa | Avoin | Scala-tyylinen init-faasi: konstruktorin parametrit näkyvissä jäsenalustuksessa | **L** |
+| [#35](https://github.com/terotests/Ranger/issues/35) | Platform reserved keywords | Avoin | Laajenna `reserved_words` `Lang.rgr`:ssä; dokumentoi `ai/ADDING_NEW_LANGUAGE.md` | **M** |
+| [#38](https://github.com/terotests/Ranger/issues/38) | `[string:[T]]` syntaksi | Avoin | Joko parserin nested-type -tuki **tai** dokumentoi immutable-tyyppien suositus | **L** / **S** (docs) |
+| [#39](https://github.com/terotests/Ranger/issues/39) | Android Optional < API 24 | Avoin | Polyfill-luokka tai compile-time-only Optional Java7-writerissä | **M** |
+| [#40](https://github.com/terotests/Ranger/issues/40) | Union-tyypit | Osittain | `stdlib.rgr` `case`/`to`-operaattorit; täydennä puuttuvat kohdekielet + testit | **M** |
+| [#41](https://github.com/terotests/Ranger/issues/41) | Inkrementaalinen kääntäjä / VSCode | Avoin | LSP + osittainen uudelleenkääntäminen; introspection API on jo olemassa | **XL** |
+| [#43](https://github.com/terotests/Ranger/issues/43) | Java optional lambda -jäsen | Avoin | `Optional.of()` automaattisesti lambda-jäsenassigneissa Java7-writerissä | **M** |
+| [#44](https://github.com/terotests/Ranger/issues/44) | Swift3 `@escaping` kaikille | Avoin | Escape-analyysi: `@escaping` vain kun closure tallennetaan | **M** |
+| [#48](https://github.com/terotests/Ranger/issues/48) | Immutable `this`-mutaatio | Avoin | Type-check: `@(immutable)`-luokan metodi ei saa mutatoida `this`-kenttiä | **M** |
+| [#53](https://github.com/terotests/Ranger/issues/53) | Immutable `map` + assign | Avoin | Korjaa lambda-return -tyypitys immutable-ketjussa `map`-kutsun yhteydessä | **M** |
+
+### Suositeltu prioriteettijärjestys
+
+1. **Sulje ratkaistut GitHub-issuet** (#4, #20, #22, #33, #37) — ei koodimuutoksia
+2. **Pikakorjaukset (S):** #5, #62, #23, #26
+3. **CLI/polku (M):** #6 yhdessä #62:n kanssa
+4. **Go-kohde (M–L):** #9, sitten #58-go-slice
+5. **Tekninen velka (M–XL):** #15, #59-systemclass, #13-cpp
+6. **Kieliominaisuudet (M–L):** GH #40, #43, #44, #48, #53
+7. **Pitkä aikaväli (XL):** GH #41 (inkrementaalinen kääntäjä)
 
 ### New in December 2025
+
 - HTTP Server support added with annotation-based type aliasing
 - New systemclasses: `HttpRequest`, `HttpResponse`, `SSEClient`, `HttpServer`
 - Route annotations: `@(GET "/")`, `@(POST "/")`, `@(SSE "/")`
@@ -270,6 +335,16 @@ The constructor generation for inherited classes appears to process the parent's
 - Go (`-l=go`)
 - Other targets - Not tested
 
+### Proposed Solution
+
+1. Kerää konstruktorin aikana jo assignattujen kenttien nimet `Set`-rakenteeseen.
+2. Ohita parent-luokan assign-lauseet, jos kenttä on jo alustettu child-konstruktorissa.
+3. Regressiotesti: `tests/fixtures/inheritance.rgr` Go-output — ei duplikaattirivejä.
+
+### Effort Estimate
+
+**S** — muutos lokalisoituu `ng_RangerGolangClassWriter.rgr`:n konstruktorigenerointiin.
+
 ---
 
 ## Issue #6: Output directory and filename options behavior is confusing
@@ -343,6 +418,17 @@ The file extension logic in `compiler/VirtualCompiler.clj` only runs when `the_t
 ### Files Affected
 
 - `compiler/VirtualCompiler.clj` - Lines ~395-440 (file extension and directory logic)
+
+### Proposed Solution
+
+1. **Polkujen normalisointi:** Käytä yhtenäistä `normalizeOutputPath(base, dir, filename)` -funktiota; poista `tests\/./tests`-tyyppiset duplikaatit.
+2. **Laajennuslogiikka:** Jos `-o` ei sisällä pistettä, lisää kohdekielen laajennus automaattisesti (sama logiikka kuin default `output`).
+3. **Yhteinen polku:** Sama funktio myös `-nodemodule`-polulle (Issue #62).
+4. Regressiotestit: `tests/compiler-cli.test.ts` tai laajenna conformancea.
+
+### Effort Estimate
+
+**M** — `VirtualCompiler.clj` / `ng_Compiler.rgr` + 2–3 CLI-regressiotestiä.
 
 ---
 
@@ -557,6 +643,16 @@ Use explicit type conversions in Ranger source code:
 ```ranger
 def result:double ((int2double a) / (int2double b))
 ```
+
+### Proposed Solution
+
+1. Auditoi `Lang.rgr`:n Go-mallit operaattoreille `+`, `-`, `*`, `/`, `%` sekä mixed int/double -skenaarioille.
+2. Lisää automaattinen `float64()`-cast kun toinen operandi on `double` ja toinen `int`.
+3. Poista skip `tests/compiler-go.test.ts` math_ops -testistä; lisää conformance-fixture jos puuttuu.
+
+### Effort Estimate
+
+**M** — pääosin `Lang.rgr` Go-templates + yksi conformance/regressiotesti.
 
 ---
 
@@ -819,6 +915,18 @@ cpp ( 'r_utf8_substr(' (e 1) ', ' (e 2) ', 1)'
 - `compiler/Lang.rgr` - polyfill definitions
 - `compiler/ng_RangerGenericClassWriter.rgr` or similar - polyfill emission logic
 
+### Proposed Solution
+
+**Suositus: hash-pohjainen deduplikointi (vaihtoehto 2)**
+
+1. Laske polyfill-lähtökoodin hash emitterissä (`ng_RangerGenericClassWriter.rgr` tai vastaava).
+2. Säilytä `emittedPolyfillHashes`-joukko writer-kontekstissa.
+3. Ohita emissio jos hash on jo lähetetty; säilytä tag-pohjainen ID vaihtoehtona nimikolliosille.
+
+### Effort Estimate
+
+**M** — emitter + yksi C++-regressiotesti joka käyttää kahta samaa polyfill-nimeä.
+
 ---
 
 ## Issue #14: Variable definition fails inside nested if blocks
@@ -969,6 +1077,21 @@ Until refactored, document the full list of files that need changes when adding 
 - `buffer` type was added in December 2025 for PDF generation support
 - Type mismatch errors appear as "Types were X vs Y" where X and Y are enum integers
 
+### Proposed Solution (vaiheittain)
+
+| Vaihe | Toimenpide | Työmäärä |
+|-------|------------|----------|
+| 1 | Dokumentoi nykyinen checklist `ai/ADDING_NEW_LANGUAGE.md`:ään (TTypeRegistry huomioiden) | **S** |
+| 2 | Laajenna `TTypeRegistry.rgr` kattamaan enum + writer-type lookup | **M** |
+| 3 | Toteuta `primitivetype` syntaksi `Lang.rgr`:ssä; automaattinen rekisteröinti | **L** |
+| 4 | Poista jäljellä olevat kovakoodatut `buffer`-haarat writereistä | **M** |
+
+**Kokonaisuus: XL** (vaihe 1–2 riittää lyhyen aikavälin velan vähentämiseen).
+
+### Effort Estimate
+
+**XL** (täysi), **M** (vaiheet 1–2).
+
 ---
 
 ## Issue #16: Function return value not recognized when both if/else branches return
@@ -1042,6 +1165,16 @@ Implement basic control flow analysis for return statements:
 
 - `ng_Compiler.rgr` or similar - Function analysis phase
 - Wherever "Function does not return any values" warning is generated
+
+### Proposed Solution
+
+1. Lisää funktioanalyysiin `allBranchesReturn(node)` -rekursio if/else-puille.
+2. Jos kaikki haarat returnaavat arvon ja funktiolla on paluutyyppi, älä emitoi varoitusta.
+3. Regressiotesti: `readUint16`-tyylinen endianness-kuvio ilman ylimääräistä returnia.
+
+### Effort Estimate
+
+**M** — analyysivaihe + 1–2 regressiotestiä varoituksille.
 
 ### Related
 
@@ -1168,8 +1301,22 @@ While Go supports `*[]T` pointer parameters, this approach has drawbacks:
 
 ### Related Issues
 
-- Also affects `clear` operator (see Issue #59)
+- Also affects `clear` operator (see Issue #59-clear)
 - Same issue exists for any mutable container passed as parameter
+
+### Proposed Solution
+
+**Suositus: return-arvo -kuvio (ei API-muutosta kutsujalle)**
+
+1. **Lyhyellä aikavälillä:** Dokumentoi workaround (funktio palauttaa arrayn) conformance-ohjeissa.
+2. **Keskimääräinen korjaus:** Go-writer tunnistaa `push`/`clear`/`set` parametrilla ja generoi funktion palauttamaan päivitetyn slicen; kutsuja assignaa tuloksen (`arr = fillArray(arr)`).
+3. **Täysi korjaus:** Pointer-semantiikka `*[]T` + automaattinen `&` kutsukohdassa (vaatii syntaksipäätöksen).
+
+Conformance `tests/conformance/array_param_mutate` on tällä hetkellä Go-kohteelle skipattu (`GO_KNOWN_GAPS`).
+
+### Effort Estimate
+
+**L** — `ng_RangerGolangClassWriter.rgr` + `Lang.rgr` Go-mallit + conformance-testin aktivointi.
 
 ---
 
@@ -1357,15 +1504,14 @@ Building a pipeline to convert TSX files with JSX to PDF using EVG layout engine
 
 ### Blocked By
 
-- **Issue #61**: Import paths don't work recursively
-  - Cannot import from `../ts_parser/` and `../evg/` directories
-  - Need to fix compiler before EVG PDF tool can compile
+- ~~**Issue #61**: Import paths don't work recursively~~ — **Resolved July 2026** (`tests/compiler-imports.test.ts`)
 
 ### Next Steps
 
-1. Fix Issue #61 in the Ranger compiler
-2. Test compilation of evg_pdf_tool.rgr
+1. ~~Fix Issue #61 in the Ranger compiler~~ ✅
+2. Test compilation of evg_pdf_tool.rgr end-to-end
 3. Run end-to-end test with sample.tsx
+4. Address Issue #14-evg (conditional JSX) for richer TSX layouts
 
 ---
 
@@ -1414,6 +1560,16 @@ The `-nodemodule` code path in `VirtualCompiler.clj` likely has separate output 
 
 - Issue #6 documents similar problems with `-d` and `-o` for regular compilation
 - This issue is specific to the `-nodemodule` flag
+
+### Proposed Solution
+
+1. Yhdistä Issue #6:n `normalizeOutputPath`-korjaukseen.
+2. Varmista että `-nodemodule`-polku käyttää samaa `saveTo`-/`mkdir`-ketjua kuin tavallinen käännös.
+3. Regressiotesti: `-nodemodule -d=... -o=eval_value_module.cjs` → oikea hakemisto ja tiedostonimi.
+
+### Effort Estimate
+
+**S** — yksi polkuhaara `VirtualCompiler`/`ng_Compiler` + yksi CLI-testi.
 
 ---
 
@@ -1573,6 +1729,19 @@ function Component({ src1, src2 }) {
 - This affects HOC (Higher-Order Component) patterns in photo album layouts
 - Components must be designed without conditional rendering for EVG compatibility
 
+### Proposed Solution
+
+| Vaihtoehto | Kuvaus | Työmäärä |
+|------------|--------|----------|
+| A (täysi) | Laajenna TSX/EVG-parseri tukemaan `{cond && <X/>}` ja ternary JSX | **L** |
+| B (minimi) | Selkeä compile-time -virhe + dokumentaatio tuetuista kuvioista | **S** |
+| C (välitavoite) | Tuki vain `{cond && <X/>}` ilman sisäkkäisiä lausekkeita | **M** |
+
+**Suositus:** aloita B:stä (estää hiljaiset `null`-polkuviat), sitten C.
+
+### Effort Estimate
+
+**L** (täysi JSX-ehdollisuus), **S** (virheilmoitus + docs).
 
 ---
 
@@ -1651,6 +1820,15 @@ go ( "int64(math.Floor(" (e 1) "))" (imp "math"))
    - Java (`java7`)
    - Kotlin (`kotlin`)
    - Python (`python`)
+
+### Proposed Solution
+
+1. **TrueType:** Korjaa fonttimittaus `EVGPDFRenderer.rgr` / layout-engineissä (glyph width vs. WinAnsi).
+2. **Muut kohdekielet:** Katso Issue #58-utf8 — yhteinen Unicode-conformance-fixture.
+
+### Effort Estimate
+
+**L** — PDF-layout + kohdekohtaiset `Lang.rgr`-mallit.
 
 ### New Operator Added
 
@@ -1741,6 +1919,16 @@ Use this test string containing various Unicode characters:
 ```
 "Äiti ja Isä - Öljy - Åland - 日本語 - 中文 - €100"
 ```
+
+### Proposed Solution
+
+1. Lisää `tests/conformance/string_unicode/` fixture yllä olevalla merkkijonolla.
+2. Aja conformance jokaiselle kohdekielelle; korjaa `Lang.rgr`-mallit operaattoreille `strlen`, `at`, `substring`, `indexOf`.
+3. Rust/C++ vaativat todennäköisesti UTF-8/polyfill-muutoksia (kuten Go Issue #57).
+
+### Effort Estimate
+
+**L** — conformance laajennus + 4–6 kohdekielen mallipäivitykset.
 
 ---
 
@@ -1833,6 +2021,17 @@ When adding a new systemclass, test:
 3. Function return type: `fn getReq:HttpRequest ()`
 4. Array of type: `def requests:[HttpRequest]`
 5. Dictionary value: `def cache:[string:HttpRequest]`
+
+### Proposed Solution
+
+1. Poista kovakoodatut `case "buffer"` / `case "charbuffer"` -haarat kaikista `ng_Ranger*ClassWriter.rgr` -tiedostoista.
+2. Käytä aina `cc.systemNames[targetLang]` kun `cc.is_system == true`.
+3. Siirrä jäljellä olevat primitiivit (`int_buffer` jne.) `TTypeRegistry.rgr`:ään (linkitys Issue #15).
+4. Regressiotesti: uusi `systemclass` ilman writer-muutoksia.
+
+### Effort Estimate
+
+**M** — 6–8 writer-tiedostoa + type-registry-testin laajennus.
 
 ---
 
