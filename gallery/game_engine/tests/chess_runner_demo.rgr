@@ -69,11 +69,12 @@ class ChessRunnerDemo {
         print (("entities=" + ec))
         print (("pc0=" + pc0x) + ("," + pc0y))
         print (("cursor=" + curx) + ("," + cury))
-        ; After e2e4 the last-move highlight should sit on e4 (col 4, row 4).
-        def ltx:int (runner.entityX("lastTo"))
-        def lty:int (runner.entityY("lastTo"))
-        print (("lastTo=" + ltx) + ("," + lty))
-        if (ltx > 0) {
+        ; After e2e4 lastFrom is e2. lastTo may be hidden while the cursor
+        ; still sits on e4 (cursor wins over last-move tint).
+        def lfx:int (runner.entityX("lastFrom"))
+        def lfy:int (runner.entityY("lastFrom"))
+        print (("lastFrom=" + lfx) + ("," + lfy))
+        if (lfx > 0) {
             print "moved=ok"
         } {
             print "moved=missing"

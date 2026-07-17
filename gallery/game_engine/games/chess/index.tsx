@@ -65,10 +65,13 @@ function markId(i) {
 
 function sprites() {
   const list = [];
-  list.push({ id: "cursor", kind: "rect", w: TILE - 2, h: TILE - 2, r: 255, g: 230, b: 80 });
-  list.push({ id: "sel", kind: "rect", w: TILE - 2, h: TILE - 2, r: 80, g: 200, b: 255 });
+  // Draw order = sprites() order. Last-move must sit under cursor/selection,
+  // otherwise a muted lastTo square hides the bright yellow cursor (e.g. when
+  // targeting the square the opponent just moved to).
   list.push({ id: "lastFrom", kind: "rect", w: TILE - 2, h: TILE - 2, r: 200, g: 180, b: 60 });
   list.push({ id: "lastTo", kind: "rect", w: TILE - 2, h: TILE - 2, r: 200, g: 180, b: 60 });
+  list.push({ id: "sel", kind: "rect", w: TILE - 2, h: TILE - 2, r: 80, g: 200, b: 255 });
+  list.push({ id: "cursor", kind: "rect", w: TILE - 2, h: TILE - 2, r: 255, g: 230, b: 80 });
   let i = 0;
   while (i < MAX_MARKS) {
     list.push({ id: markId(i), kind: "circle", rad: 5, r: 70, g: 220, b: 120 });
@@ -207,7 +210,10 @@ function buildEntities(s) {
     entities.sel = { x: -40, y: -40, visible: 0 };
   }
 
-  if (s.lastFrom >= 0) {
+  // Hide last-move tint on the square under the cursor (or selection) so the
+  // bright yellow / cyan highlight always reads clearly.
+  const curSq = sq(s.cursorCol, s.cursorRow);
+  if (s.lastFrom >= 0 && s.lastFrom != curSq && s.lastFrom != s.selSq) {
     entities.lastFrom = {
       x: tileX(sqCol(s.lastFrom)),
       y: tileY(sqRow(s.lastFrom)),
@@ -219,7 +225,7 @@ function buildEntities(s) {
   } else {
     entities.lastFrom = { x: -40, y: -40, visible: 0 };
   }
-  if (s.lastTo >= 0) {
+  if (s.lastTo >= 0 && s.lastTo != curSq && s.lastTo != s.selSq) {
     entities.lastTo = {
       x: tileX(sqCol(s.lastTo)),
       y: tileY(sqRow(s.lastTo)),
