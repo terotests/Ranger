@@ -282,6 +282,53 @@ def draw_front_tire(pix, w, h, x, y, size=7, turn=0):
         fill_rect(pix, w, h, x + 2, y, 1, 1, (255, 255, 255, 255))
 
 
+def draw_skew_spoiler(pix, w, h, lean):
+    """Spoiler follows rear-tire plane: straight when lean=0, skewed when turning.
+
+    Turn right (lean>0): left tip higher (with raised left rear), right tip lower.
+    Turn left: mirror.
+    """
+    wing = (22, 22, 26, 255)
+    hi = (48, 48, 54, 255)
+    if lean == 0:
+        wing_w = 28
+        wing_x = (w - wing_w) // 2
+        fill_rect(pix, w, h, wing_x, 11, wing_w, 3, wing)
+        fill_rect(pix, w, h, wing_x + 1, 10, wing_w - 2, 2, hi)
+        fill_rect(pix, w, h, wing_x - 1, 10, 3, 5, wing)
+        fill_rect(pix, w, h, wing_x + wing_w - 2, 10, 3, 5, wing)
+        fill_rect(pix, w, h, wing_x + 5, 13, 2, 2, wing)
+        fill_rect(pix, w, h, wing_x + wing_w - 7, 13, 2, 2, wing)
+        return
+    # Stepped diagonal bar aligned with the raised far-side rear tire.
+    # Segments left→right with rising/falling Y.
+    segs = 7
+    x0 = 12
+    total_w = 32
+    seg_w = total_w // segs
+    for i in range(segs):
+        if lean > 0:
+            # Left high → right low
+            yy = 9 + (i * 3) // (segs - 1)
+        else:
+            # Left low → right high
+            yy = 12 - (i * 3) // (segs - 1)
+        xx = x0 + i * seg_w
+        fill_rect(pix, w, h, xx, yy, seg_w + 1, 3, wing)
+        fill_rect(pix, w, h, xx, yy - 1, seg_w, 1, hi)
+    # Endplates at the tips (match tire heights).
+    if lean > 0:
+        fill_rect(pix, w, h, x0 - 1, 8, 3, 5, wing)
+        fill_rect(pix, w, h, x0 + total_w - 2, 12, 3, 5, wing)
+        fill_rect(pix, w, h, x0 + 4, 12, 2, 2, wing)
+        fill_rect(pix, w, h, x0 + total_w - 8, 14, 2, 2, wing)
+    else:
+        fill_rect(pix, w, h, x0 - 1, 12, 3, 5, wing)
+        fill_rect(pix, w, h, x0 + total_w - 2, 8, 3, 5, wing)
+        fill_rect(pix, w, h, x0 + 4, 14, 2, 2, wing)
+        fill_rect(pix, w, h, x0 + total_w - 8, 12, 2, 2, wing)
+
+
 def draw_f1_rear(
     body=(220, 50, 40, 255),
     accent=(40, 120, 220, 255),
@@ -291,64 +338,50 @@ def draw_f1_rear(
 ):
     """Rear chase-cam. lean -1/0/+1 = yaw left / straight / right.
 
-    Center frame stays the settled layout. Turn frames follow 3D yaw:
-    far-side tires rise a few px, near-side tires slide inward, all tires
-    get steered shading; left turn is the mirror of right turn.
+    Chassis stays centered between the tires (same as straight). Tires carry
+    the yaw: far-side up, near-side in, steered shading. Spoiler skews to
+    match the rear-tire plane.
     """
     pix = blank(w, h)
-    wing = (22, 22, 26, 255)
     shade = (
         max(0, body[0] - 45),
         max(0, body[1] - 35),
         max(0, body[2] - 30),
         255,
     )
-    ox = lean * 5
 
     # --- Front tires (far) ---
     if lean > 0:
-        # Turn RIGHT: left front higher; both fronts steered-right look;
-        # right front same style, slightly inboard.
         draw_front_tire(pix, w, h, 6, 16, 8, turn=1)
         draw_front_tire(pix, w, h, 40, 18, 8, turn=1)
     elif lean < 0:
-        # Mirror: right front higher; steered-left look.
         draw_front_tire(pix, w, h, 8, 18, 8, turn=-1)
         draw_front_tire(pix, w, h, 42, 16, 8, turn=-1)
     else:
         draw_front_tire(pix, w, h, 8, 19, 8, turn=0)
         draw_front_tire(pix, w, h, 40, 19, 8, turn=0)
 
-    # --- Body (mild yaw; center layout preserved) ---
-    bx = 17 + ox
+    # --- Body FIXED in the center slot (same as straight frame) ---
+    bx = 17
     fill_rect(pix, w, h, bx, 14, 22, 14, body)
     fill_rect(pix, w, h, bx + 2, 16, 18, 10, shade)
     fill_rect(pix, w, h, bx + 4, 13, 14, 3, (32, 32, 38, 255))
-    fill_rect(pix, w, h, 13 + ox, 16, 6, 10, body)
-    fill_rect(pix, w, h, 37 + ox, 16, 6, 10, body)
+    fill_rect(pix, w, h, 13, 16, 6, 10, body)
+    fill_rect(pix, w, h, 37, 16, 6, 10, body)
 
-    fill_ellipse(pix, w, h, w // 2 + ox, 15, 5, 4, (26, 26, 30, 255))
-    fill_ellipse(pix, w, h, w // 2 + ox, 14, 3, 3, accent)
+    fill_ellipse(pix, w, h, w // 2, 15, 5, 4, (26, 26, 30, 255))
+    fill_ellipse(pix, w, h, w // 2, 14, 3, 3, accent)
 
-    # Spoiler attached to body.
-    wing_w = 28
-    wing_x = (w - wing_w) // 2 + ox
-    fill_rect(pix, w, h, wing_x, 11, wing_w, 3, wing)
-    fill_rect(pix, w, h, wing_x + 1, 10, wing_w - 2, 2, (48, 48, 54, 255))
-    fill_rect(pix, w, h, wing_x - 1, 10, 3, 5, wing)
-    fill_rect(pix, w, h, wing_x + wing_w - 2, 10, 3, 5, wing)
-    fill_rect(pix, w, h, wing_x + 5, 13, 2, 2, wing)
-    fill_rect(pix, w, h, wing_x + wing_w - 7, 13, 2, 2, wing)
+    # Spoiler: straight or skewed with the rear tires.
+    draw_skew_spoiler(pix, w, h, lean)
 
-    fill_rect(pix, w, h, 22 + ox, 26, 12, 2, (255, 150, 40, 255))
+    fill_rect(pix, w, h, 22, 26, 12, 2, (255, 150, 40, 255))
 
     # --- Rear tires (near) ---
     if lean > 0:
-        # Turn RIGHT: left rear higher; right rear shifts left; both turn=1.
         draw_rear_tire(pix, w, h, 1, 19, 12, 15, turn=1)
         draw_rear_tire(pix, w, h, 40, 22, 12, 15, turn=1)
     elif lean < 0:
-        # Mirror: right rear higher; left rear shifts right.
         draw_rear_tire(pix, w, h, 4, 22, 12, 15, turn=-1)
         draw_rear_tire(pix, w, h, 43, 19, 12, 15, turn=-1)
     else:

@@ -983,7 +983,7 @@ function update(props) {
     y: 248,
     p0: carFrame,
     scale: 100,
-    angle: steer * 14,
+    angle: steer * 6,
     visible: 1
   };
 
