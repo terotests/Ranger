@@ -9,7 +9,7 @@ const BALL_R = 14;
 function config() {
   return {
     world: { width: 480, height: 270 },
-    physics: { enabled: true, cannon: true, gravityY: 300, restitution: 0.05 },
+    physics: { enabled: true, cannon: true, gravityY: 300, restitution: 0.05, debug: true },
   };
 }
 
