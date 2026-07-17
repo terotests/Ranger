@@ -2035,6 +2035,22 @@ function playerVictoryReady(pl: Player) {
   return pl.done == 1 && pl.finishMs >= FINISH_PHASE_DONE;
 }
 
+// Level is cleared as soon as the required player(s) touch the goal — do not
+// wait for the long finish walk (FINISH_PHASE_DONE). Invaders uses the same
+// "clear → short celebrate → pushGame" pattern.
+function levelCleared(slots: i32, p1: Player, p2: Player) {
+  if (slots == 1) {
+    return p1.done == 1;
+  }
+  if (p1.done == 0) {
+    return false;
+  }
+  if (p2.done == 0) {
+    return false;
+  }
+  return true;
+}
+
 function showVictoryBanner(s: GameSnapshot) {
   if (s.playerSlots == 1) {
     return playerVictoryReady(s.p1);
@@ -2148,17 +2164,19 @@ function tickFinishPlayer(pl: Player, dt: f64, events: GameEvent[]): Player {
 
 export function playHud(props) {
   const s = props.state;
+  const slots = playerSlots();
+  const cleared = levelCleared(slots, s.p1, s.p2);
   const victory = showVictoryBanner(s);
   const localSlot = localPlayerSlot();
   let msg = "Ylos 3 — Viidakko! Kerää timantteja = supervoima.";
-  if (victory == 0) {
+  if (cleared == 0) {
     if (isSplitPane()) {
       if (paneIndex == 0) {
         msg = "Vasen — tyttö (P1). Pääse maaliin!";
       } else {
         msg = "Oikea — poika (P2). Pääse maaliin!";
       }
-    } else if (s.playerSlots == 2) {
+    } else if (slots == 2) {
       msg = msg + " Ensimmäinen maaliin juhlii — toinen jatkaa!";
     } else {
       msg = cfg().label + " — pääse temppeliin!";
@@ -2170,7 +2188,7 @@ export function playHud(props) {
         msg = "P1 MAALISSA!";
       }
     }
-    if (s.playerSlots == 2) {
+    if (slots == 2) {
       if (s.p2.done == 1) {
         if (s.p1.done == 1) {
           msg = "MOLEMMAT MAALISSA!";
@@ -2181,7 +2199,7 @@ export function playHud(props) {
     }
   }
   let scoreLine = "Hedelmät: " + s.score1;
-  if (s.playerSlots == 2) {
+  if (slots == 2) {
     scoreLine = "Hedelmät P1:" + s.score1 + "  P2:" + s.score2;
   }
   let superLine = "";
@@ -2192,7 +2210,7 @@ export function playHud(props) {
       superLine = "P1 SUPER!";
     }
   }
-  if (s.playerSlots == 2) {
+  if (slots == 2) {
     if (s.p2.superMs > 0) {
       if (superLine.length > 0) {
         superLine = superLine + "  ";
@@ -2201,10 +2219,14 @@ export function playHud(props) {
     }
   }
   let victoryLine = "";
-if (victory == 1) {
+  if (cleared == 1) {
     if (cfg().isFinal) {
       victoryLine = "Viidakko valloittettu!";
-      msg = "Paina Space — pelaa uudelleen";
+      if (victory == 1) {
+        msg = "Paina Space — pelaa uudelleen";
+      } else {
+        msg = "Juhli huipulla…";
+      }
     } else {
       victoryLine = "Taso selvitetty!";
       msg = "Seuraava taso latautuu…";
@@ -2256,7 +2278,8 @@ export function runUpdate(props) {
     }
   }
 
-  if (showVictoryBanner({ playerSlots: slots, p1: p1, p2: p2 })) {
+  // Invaders-style: once the goal is reached, celebrate briefly then pushGame.
+  if (levelCleared(slots, p1, p2)) {
     let levelLoadQueued = s.levelLoadQueued;
     if (levelLoadQueued == null) {
       levelLoadQueued = 0;
@@ -2267,10 +2290,12 @@ export function runUpdate(props) {
     }
     if (levelLoadQueued == 0) {
       if (cfg().isFinal) {
-        if (wantsRestart(props, dual)) {
-          resetGameData();
-          loadGame("index.tsx");
-          return s;
+        if (showVictoryBanner({ playerSlots: slots, p1: p1, p2: p2 })) {
+          if (wantsRestart(props, dual)) {
+            resetGameData();
+            loadGame("index.tsx");
+            return s;
+          }
         }
       } else {
         celebrateMs = celebrateMs - dt;
