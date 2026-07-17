@@ -12,6 +12,10 @@
 ;
 ; autoscale=off: runner canvas matches pane size (240x270); game script scales
 ; layout itself (e.g. Ylos via bgWidth).
+;
+; Per-pane pushGame/loadGame uses a cooperative main-loop load (beginPaneLoad /
+; tickPaneLoad): read → parse → setupScene across frames so the sibling pane
+; keeps updating. Not a background thread — setupScene can still hitch briefly.
 ; ==============================================================================
 
 Import "./game_runtime.rgr"
@@ -46,6 +50,12 @@ class SplitScreenHost {
     ; One-deep prev path per pane so popGame can restore that pane only.
     def leftPrevPath:string ""
     def rightPrevPath:string ""
+    ; Cooperative per-pane load (no threads): while one pane reloads, the
+    ; sibling keeps receiving frames. Phases: 0=idle 1=read 2=parse 3=setup.
+    def loadPane:int -1
+    def loadPath:string ""
+    def loadPhase:int 0
+    def loadSrc:string ""
 
     fn half:int (n:int) {
         def result 0
@@ -227,8 +237,17 @@ class SplitScreenHost {
         right.syncSharedWorldFrom(left)
     }
 
+    fn isPaneLoading:boolean () {
+        if (loadPhase > 0) {
+            return true
+        }
+        return false
+    }
+
     fn frameWithInput:void (dtMs:int) {
         if (this.usesSharedPhysics()) {
+            ; Shared-physics games step both runners together — skip cooperative
+            ; single-pane load there (nav still sync-reloads via reloadPane).
             this.frameSharedPhysics(dtMs)
             return
         }
@@ -236,8 +255,13 @@ class SplitScreenHost {
         right.setPeerCar((left.exportPeerCar()))
         def leftSnap:GameInputSnapshot (this.snapForPane(0))
         def rightSnap:GameInputSnapshot (this.snapForPane(1))
-        left.frameWithInput(dtMs leftSnap)
-        right.frameWithInput(dtMs rightSnap)
+        ; Skip the pane that is mid-reload so the sibling keeps playing.
+        if (loadPane != 0) {
+            left.frameWithInput(dtMs leftSnap)
+        }
+        if (loadPane != 1) {
+            right.frameWithInput(dtMs rightSnap)
+        }
     }
 
     ; Render both panes. In autoscale mode the composite/blit is skipped — the
@@ -249,19 +273,29 @@ class SplitScreenHost {
         if (profileEnabled) {
             t0 = (gfx_ticks_ms)
         }
-        left.draw()
+        ; Freeze the loading pane on its last drawn frame (canvas untouched).
+        if (loadPane != 0) {
+            left.draw()
+        }
         def t1:int 0
         if (profileEnabled) {
             t1 = (gfx_ticks_ms)
         }
-        right.draw()
+        if (loadPane != 1) {
+            right.draw()
+        }
         def t2:int 0
         if (profileEnabled) {
             t2 = (gfx_ticks_ms)
         }
         if (false == autoscale) {
-            canvas.copyRectFrom((left.canvas) 0 0 paneW paneH 0 0)
-            canvas.copyRectFrom((right.canvas) 0 0 paneW paneH paneW 0)
+            ; Keep the loading pane's last framebuffer (do not redraw mid-reload).
+            if (loadPane != 0) {
+                canvas.copyRectFrom((left.canvas) 0 0 paneW paneH 0 0)
+            }
+            if (loadPane != 1) {
+                canvas.copyRectFrom((right.canvas) 0 0 paneW paneH paneW 0)
+            }
             def ny 0
             def divX paneW
             while (ny < ph) {
@@ -340,7 +374,7 @@ class SplitScreenHost {
         lastNavPane = -1
     }
 
-    ; Reload a single pane's script. The other pane's runner/state is untouched.
+    ; Synchronous single-pane reload (shared-physics path / fallback).
     fn reloadPane:void (pane:int tsxPath:string) {
         if (pane == 0) {
             this.loadScriptAt(left leftBridge tsxPath 0)
@@ -350,6 +384,85 @@ class SplitScreenHost {
         if (pane == 1) {
             this.loadScriptAt(right rightBridge tsxPath 1)
             rightScriptPath = tsxPath
+            return
+        }
+    }
+
+    ; Start a cooperative reload: sibling keeps framing across load phases.
+    fn beginPaneLoad:void (pane:int tsxPath:string) {
+        if (pane < 0) {
+            return
+        }
+        if ((strlen tsxPath) == 0) {
+            return
+        }
+        if (loadPhase > 0) {
+            return
+        }
+        loadPane = pane
+        loadPath = tsxPath
+        loadSrc = ""
+        loadPhase = 1
+    }
+
+    fn loadRunnerRef:GameRunner (pane:int) {
+        if (pane == 1) {
+            return right
+        }
+        return left
+    }
+
+    fn loadBridgeRef:GameHostNativeBridge (pane:int) {
+        if (pane == 1) {
+            return rightBridge
+        }
+        return leftBridge
+    }
+
+    ; Advance one load phase. Call at most once per host frame so the sibling
+    ; pane can update + present between read / parse / setupScene.
+    fn tickPaneLoad:void () {
+        if (loadPhase <= 0) {
+            return
+        }
+        def runner:GameRunner (this.loadRunnerRef(loadPane))
+        def bridge:GameHostNativeBridge (this.loadBridgeRef(loadPane))
+        def dir:string ""
+        def file:string loadPath
+        def slash:int (lastIndexOf loadPath "/")
+        if (slash >= 0) {
+            dir = (substring loadPath 0 slash)
+            file = (substring loadPath (slash + 1) (strlen loadPath))
+        }
+        if (loadPhase == 1) {
+            def buf:buffer (buffer_read_file dir file)
+            loadSrc = (buffer_to_string buf)
+            runner.setScriptDir(dir)
+            bridge.setGameDir(dir)
+            runner.setNativeBridge(bridge)
+            loadPhase = 2
+            return
+        }
+        if (loadPhase == 2) {
+            runner.loadScript(loadSrc)
+            runner.registerSplitPane(loadPane)
+            loadPhase = 3
+            return
+        }
+        if (loadPhase == 3) {
+            runner.setupScene()
+            runner.enableGpuSheetOverlay()
+            runner.trackScriptFile(loadPath)
+            if (loadPane == 0) {
+                leftScriptPath = loadPath
+            }
+            if (loadPane == 1) {
+                rightScriptPath = loadPath
+            }
+            loadSrc = ""
+            loadPath = ""
+            loadPane = -1
+            loadPhase = 0
             return
         }
     }
