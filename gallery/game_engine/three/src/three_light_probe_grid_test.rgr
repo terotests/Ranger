@@ -111,6 +111,17 @@ class ThreeLightProbeGridTest {
         dp.getIrradianceAt(0.0 1.0 0.0 di)
         ck.near("out-of-range getProbe clamped (still baked)" di.x 0.1)
 
+        ; GI fill: a visible volume is a scene-wide ambient light (kind 3) whose
+        ; colour is the baked irradiance level; a hidden volume contributes nothing.
+        grid.bakeAmbient(0.3 0.5 0.7)
+        grid.visible = true
+        ck.near("visible volume is a light (kind 3)" (to_double (grid.lightKind())) 3.0)
+        ck.near("GI fill r = baked r" (grid.lightR()) 0.3)
+        ck.near("GI fill g = baked g" (grid.lightG()) 0.5)
+        ck.near("GI fill b = baked b" (grid.lightB()) 0.7)
+        grid.visible = false
+        ck.near("hidden volume contributes no light (kind 0)" (to_double (grid.lightKind())) 0.0)
+
         print "== summary =="
         print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
         if (ck.failed == 0) {

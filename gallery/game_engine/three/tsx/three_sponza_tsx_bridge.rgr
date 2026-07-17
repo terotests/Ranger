@@ -180,6 +180,8 @@ class ThreeSponzaTsxBridge {
         scene.dirLight.castShadow = scene.shadows
         scene.probes.visible = scene.enabled
         scene.updateLightPosition()
+        ; re-bake the skylight GI fill so intensity/elevation edits take effect.
+        scene.refreshGI()
     }
 
     ; convenience: run the script's init() then reconcile (first build).

@@ -66,9 +66,6 @@ class ThreeSponzaSceneTest {
         s.lightAzimuth = 90.0
         s.lightElevation = 30.0
         s.lightIntensity = 5.0
-        s.ambientR = 0.2
-        s.ambientG = 0.4
-        s.ambientB = 0.6
         s.build(model)
 
         ; derived metrics from bounds
@@ -94,11 +91,14 @@ class ThreeSponzaSceneTest {
         ; sun uniform from az/elev: y = cos(90 - elev) = cos(60) = 0.5
         ck.near("sky sun y = cos(60)" s.sky.sunPosition.y 0.5)
 
-        ; baked GI: the analytic ambient bake is sampled back
+        ; baked GI: the skylight fill is derived from the sun (intensity + elevation)
+        ; and sampled back. level = intensity*0.025*(sin(elev)+0.25); tint is cool
+        ; (blue > red). For intensity 5, elev 30: level = 5*0.025*0.75 = 0.09375.
         def gi:ThreeVector3 (new ThreeVector3)
         s.sampleGI(0.0 0.0 0.0 0.0 1.0 0.0 gi)
-        ck.near("GI sample r = ambient" gi.x 0.2)
-        ck.near("GI sample b = ambient" gi.z 0.6)
+        ck.near("GI fill r = level*0.85" gi.x 0.0796875)
+        ck.near("GI fill b = level*1.15" gi.z 0.1078125)
+        ck.ok("GI fill is cool-tinted (b > r)" (gi.z > gi.x))
 
         ; controls integrate: walking forward moves the camera
         def before:double s.camera.position.z

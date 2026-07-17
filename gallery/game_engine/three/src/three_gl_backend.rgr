@@ -76,6 +76,11 @@ class ThreeGLBackend extends ThreeRenderBackend {
         gpu_set_view camX camY camZ
     }
 
+    ; feed the HDR tone-mapping mode + exposure to the übershader epilogue.
+    fn setToneMapping:void (mode:int exposure:double) {
+        gpu_set_tonemap (to_double mode) exposure
+    }
+
     fn drawMesh:void (geometry:ThreeBufferGeometry model:ThreeMatrix4 mvp:ThreeMatrix4 mat:ThreeMaterial) {
         if (ready == false) {
             return

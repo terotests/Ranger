@@ -162,9 +162,26 @@ class ThreeSponzaScene {
         this.sky.copySunPosition(sun)
     }
 
+    ; analytic skylight fill the probe volume bakes as its uniform ambient: a cool
+    ; daylight tint scaled by the sun's strength + elevation. A stand-in for the GPU
+    ; bake (per-probe cubemap capture of the bounced sun + sky); good enough to fill
+    ; the surfaces the direct sun misses so they are lit, not black.
+    fn computeSkylight:void () {
+        def elevation:double (ThreeMathUtils.degToRad(this.lightElevation))
+        def daylight:double ((sin elevation) + 0.25)
+        if (daylight < 0.05) {
+            daylight = 0.05
+        }
+        def level:double ((this.lightIntensity * 0.025) * daylight)
+        this.ambientR = (level * 0.85)
+        this.ambientG = (level * 0.95)
+        this.ambientB = (level * 1.15)
+    }
+
     ; (re)create the probe grid at the current settings and bake it. Removes the
     ; previous volume + helper first so hot-reloads don't leak scene children.
     fn rebuildProbes:void () {
+        this.computeSkylight()
         this.scene.remove(this.probes)
         this.scene.remove(this.probesHelper)
         this.probes = (ThreeLightProbeGrid.create(this.gridSizeX this.gridSizeY this.gridSizeZ this.countX this.countY this.countZ))
@@ -176,6 +193,13 @@ class ThreeSponzaScene {
         this.probesHelper = (ThreeLightProbeGridHelper.create(this.probes this.probeSize))
         this.probesHelper.visible = this.showProbes
         this.scene.add(this.probesHelper)
+    }
+
+    ; re-bake the existing probe volume's skylight fill (no re-create) — the cheap
+    ; path when only the sun's intensity/elevation changed on a hot reload.
+    fn refreshGI:void () {
+        this.computeSkylight()
+        this.probes.bakeAmbient(this.ambientR this.ambientG this.ambientB)
     }
 
     ; sample the baked GI irradiance at a world point for a surface normal (what the

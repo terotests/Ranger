@@ -1,0 +1,181 @@
+; ==============================================================================
+; web_sponza_tsx_host — run the light-probe-volume (Sponza) scene on the GPU, edited.
+; ==============================================================================
+;
+; The Sponza counterpart to web_teapot_tsx_host. sponza.tsx (the editable scene
+; code) runs in ComponentEngine against the three.tsx façade; ThreeSponzaTsxBridge
+; reconciles it into the Ranger Three core (ThreeSponzaScene); ThreeGLBackend +
+; ThreeWebGLRenderer draw it with real WebGL. FirstPersonControls are host
+; plumbing (WASD keys + pointer look routed in from the viewer).
+;
+; The browser cannot run the host-side glTF download (no child_process), so the
+; model is a procedural TEST scene here — a ground plane + boxes — enough to make
+; the whole interpret -> reconcile -> GPU path verifiable in a real (headless)
+; browser, and to debug the shadow pass against clean geometry. The native SDL
+; host (sponza_sdl_runner) loads the real Sponza .gltf over the network instead.
+;
+; No JavaScript in the engine — compiles to C++ too. Exposes a flat API the JS
+; viewer drives (setupGL / load / frame / key + look input / setSize).
+; ==============================================================================
+
+Import "../three/tsx/three_sponza_tsx_bridge.rgr"
+Import "../three/src/three_webgl_renderer.rgr"
+Import "../three/src/three_gl_backend.rgr"
+Import "../three/src/three_mesh.rgr"
+Import "../three/src/three_mesh_lambert_material.rgr"
+Import "../three/src/three_box_geometry.rgr"
+
+class WebSponzaTsxHost {
+    def engine:ComponentEngine (new ComponentEngine())
+    def bridge:ThreeSponzaTsxBridge (new ThreeSponzaTsxBridge)
+    def gl:ThreeGLBackend (new ThreeGLBackend)
+    def renderer:ThreeWebGLRenderer (new ThreeWebGLRenderer)
+    def ready:boolean false
+    def w:int 800
+    def h:int 500
+    def dt:double 0.033
+
+    ; interpreter globals the scene reads (THREE constants + window size).
+    fn registerGlobals:void (winW:int winH:int dpr:double) {
+        def tk:[string]
+        def tv:[EvalValue]
+        push tk "SRGBColorSpace"
+        push tv (EvalValue.string("srgb"))
+        push tk "DoubleSide"
+        push tv (EvalValue.number(2.0))
+        push tk "FrontSide"
+        push tv (EvalValue.number(0.0))
+        push tk "BackSide"
+        push tv (EvalValue.number(1.0))
+        push tk "RepeatWrapping"
+        push tv (EvalValue.number(1000.0))
+        push tk "ACESFilmicToneMapping"
+        push tv (EvalValue.number(4.0))
+        engine.registerGlobal("THREE" (EvalValue.object(tk tv)))
+
+        def wk:[string]
+        def wv:[EvalValue]
+        push wk "innerWidth"
+        push wv (EvalValue.number((to_double winW)))
+        push wk "innerHeight"
+        push wv (EvalValue.number((to_double winH)))
+        push wk "devicePixelRatio"
+        push wv (EvalValue.number(dpr))
+        engine.registerGlobal("window" (EvalValue.object(wk wv)))
+    }
+
+    fn setupGL:boolean (canvasId:string) {
+        def ok:boolean (gl.init(canvasId))
+        if (ok == false) {
+            return false
+        }
+        renderer.setBackend(gl)
+        return true
+    }
+
+    ; a Lambert-shaded box mesh at a position (lit by the directional + ambient light).
+    fn makeBox:ThreeMesh (sx:double sy:double sz:double px:double py:double pz:double hex:int) {
+        def geo:ThreeBoxGeometry (new ThreeBoxGeometry)
+        geo.setSize(sx sy sz)
+        def mat:ThreeMeshLambertMaterial (new ThreeMeshLambertMaterial)
+        mat.setColorHex(hex)
+        mat.setSide(2)
+        def m:ThreeMesh (new ThreeMesh)
+        m.setGeometry(geo)
+        m.setMaterial(mat)
+        m.position.set(px py pz)
+        m.castShadow = true
+        m.receiveShadow = true
+        return m
+    }
+
+    ; procedural stand-in for the Sponza model: a wide ground slab + a few boxes.
+    ; Casts clean shadows (once the shadow pass is wired) and exercises the lit path.
+    fn buildTestModel:ThreeObject3D () {
+        def root:ThreeObject3D (new ThreeObject3D)
+        def ground:ThreeMesh (this.makeBox(48.0 1.0 48.0 0.0 (0.0 - 0.5) 0.0 12303291))
+        root.add(ground)
+        def a:ThreeMesh (this.makeBox(5.0 8.0 5.0 (0.0 - 6.0) 4.0 (0.0 - 4.0) 13458524))
+        root.add(a)
+        def b:ThreeMesh (this.makeBox(4.0 12.0 4.0 6.0 6.0 3.0 5025616))
+        root.add(b)
+        def c:ThreeMesh (this.makeBox(3.0 5.0 3.0 2.0 2.5 (0.0 - 9.0) 15844367))
+        root.add(c)
+        return root
+    }
+
+    ; Load the façade + sponza scene (concatenated), build the scene around the
+    ; test model, and frame the camera on it (the host owns the first-person camera).
+    fn load:string (facadeSrc:string sponzaSrc:string winW:int winH:int dpr:double) {
+        w = winW
+        h = winH
+        engine.quiet = true
+        this.registerGlobals(winW winH dpr)
+
+        renderer.setSize(winW winH)
+        renderer.setToneMapping(4)
+        renderer.setToneMappingExposure(1.0)
+        renderer.setShadowMapEnabled(true)
+
+        bridge.setEngine(engine)
+        def model:ThreeObject3D (this.buildTestModel())
+        bridge.setModel(model)
+        def src:string ((facadeSrc + "\n") + sponzaSrc)
+        engine.loadScript(src)
+        bridge.initFromScript()
+        bridge.scene.setViewport(winW winH)
+
+        ; the host owns the first-person camera: place it to frame the test model,
+        ; and aim the controls at it (orientation is FPC's, not the interpreter's).
+        bridge.scene.fpc.setMovementSpeed(18.0)
+        bridge.scene.fpc.setLook(180.0 (0.0 - 8.0))
+        bridge.scene.camera.position.set(0.0 9.0 34.0)
+        bridge.scene.update(0.0)
+
+        ready = true
+        return "ok"
+    }
+
+    fn loadFromVfs:string (dir:string facadeFile:string sponzaFile:string winW:int winH:int dpr:double) {
+        def f:buffer (buffer_read_file dir facadeFile)
+        def c:buffer (buffer_read_file dir sponzaFile)
+        return (this.load((buffer_to_string f) (buffer_to_string c) winW winH dpr))
+    }
+
+    fn frame:void () {
+        if (ready == false) {
+            return
+        }
+        bridge.scene.update(dt)
+        renderer.render(bridge.scene.scene bridge.scene.camera)
+    }
+
+    fn setSize:void (winW:int winH:int) {
+        w = winW
+        h = winH
+        renderer.setSize(winW winH)
+        bridge.scene.setViewport(winW winH)
+    }
+
+    ; --- first-person input (routed from the viewer) --------------------------
+    fn keyDown:void (key:string) {
+        bridge.scene.fpc.keyDown(key)
+    }
+    fn keyUp:void (key:string) {
+        bridge.scene.fpc.keyUp(key)
+    }
+    fn look:void (dx:double dy:double) {
+        bridge.scene.fpc.handleLook(dx dy)
+    }
+
+    ; the scene is first-person animated, so every frame may differ.
+    fn needsRender:boolean () {
+        return true
+    }
+    fn isReady:boolean () {
+        return ready
+    }
+    fn getSource:string () {
+        return ""
+    }
+}

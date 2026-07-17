@@ -106,6 +106,7 @@ class ThreeWebGLRenderer {
         ; lights (collected from the scene) + camera position for specular
         this.applyLights(scene be)
         be.setView(camera.position.x camera.position.y camera.position.z)
+        be.setToneMapping(toneMapping toneMappingExposure)
         ; view-projection = projection * inverse(camera world)
         def vp:ThreeMatrix4 (new ThreeMatrix4)
         vp.multiplyMatrices(camera.projectionMatrix camera.matrixWorldInverse)
@@ -143,7 +144,9 @@ class ThreeWebGLRenderer {
 
     fn walkLights:void (node:ThreeObject3D) {
         def k:int (node.lightKind())
-        if (k == 1) {
+        ; kind 1 = AmbientLight, kind 3 = LightProbeGrid GI fill — both add a
+        ; uniform ambient term (the probe volume's baked irradiance).
+        if ((k == 1) || (k == 3)) {
             accAmbR = (accAmbR + (node.lightR()))
             accAmbG = (accAmbG + (node.lightG()))
             accAmbB = (accAmbB + (node.lightB()))

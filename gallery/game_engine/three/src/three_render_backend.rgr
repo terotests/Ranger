@@ -31,6 +31,10 @@ class ThreeRenderBackend {
     ; Camera world position (for Phong specular view vector).
     fn setView:void (camX:double camY:double camZ:double) {
     }
+    ; HDR tone-mapping mode + exposure for the frame (0 = none). No-op by default;
+    ; the GL backend feeds these to the übershader epilogue.
+    fn setToneMapping:void (mode:int exposure:double) {
+    }
     ; Draw one mesh: geometry, its world (model) matrix, its full MVP, and the
     ; material (colour/specular/shininess/map/side/shading path).
     fn drawMesh:void (geometry:ThreeBufferGeometry model:ThreeMatrix4 mvp:ThreeMatrix4 mat:ThreeMaterial) {
