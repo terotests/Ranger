@@ -181,6 +181,14 @@ class CannonWorld {
         this.clearForces()
         this.time = (this.time + dt)
         this.stepnumber = (this.stepnumber + 1)
+
+        ; 6) Sleep bookkeeping: idle bodies stop integrating (perf).
+        def sidx 0
+        while (sidx < (array_length this.bodies)) {
+            def sb:CannonBody (itemAt this.bodies sidx)
+            sb.sleepTick(this.time)
+            sidx = (sidx + 1)
+        }
     }
 
     fn step:void (dt:double) {

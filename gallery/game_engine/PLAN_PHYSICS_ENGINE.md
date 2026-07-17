@@ -299,6 +299,17 @@ muotojen `raycast`-metodit. Todiste: raycast-osumatestit per muoto.
 **Vaihe 6 — Muodot + broadphase + uni.** `Cylinder`, `Heightfield`, `Trimesh`,
 `Particle`; `SAPBroadphase`; islands/sleep. Todiste: per-muoto-testit + skaalaustesti.
 
+- ✅ **Osa 6a — Uni (sleep, tehty):** `CannonBody.sleepTick`/`sleep`/`wakeUp`
+  (SLEEPY→SLEEPING nopeusrajan + aikarajan mukaan), `CannonWorld` kutsuu joka steppi.
+  Nukkuva kappale ei integroidu eikä liiku solverissa (`invMassSolve=0`). Testi
+  `Sleep.bodySleeps`: paikallaan oleva kappale nukahtaa (`sleepState=2`), liikkuva
+  pysyy hereillä ja jatkaa integrointia (`moverX=2.0`).
+- ✅ **Osa 6b — SAP-broadphase (tehty):** [`cannon_sap_broadphase.rgr`](./physics/src/cannon_sap_broadphase.rgr)
+  — lajittelu AABB:n min-x:n mukaan + pyyhkäisy, karsii O(n²)-parit. Testi
+  `SAP.sameAsNaive`: tuottaa samat parit kuin naiivi (2 = 2). `npm run engine:physics:test`
+  → 75 passed, 0 failed. ⏳ `Cylinder`/`Heightfield`/`Trimesh`/`Particle`-muodot
+  (törmäyskoodi kullekin) jäävät vielä.
+
 **Vaihe 7 — Rajapinta & backend-luukku.** Nosta `PhysicsWorld`-rajapinta (IDEAL §2.5)
 ja tarjoa valinnainen **Jolt/Rapier host-natiivi-backend** desktopille rajapinnan
 takana. Ranger-cannon-es on oletus; natiivi-backend opt-in raskaaseen 3D:hen.

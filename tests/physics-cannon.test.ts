@@ -146,9 +146,14 @@ describe("Cannon.js Ranger port", () => {
     cannonIt("Vehicle.drive");
   });
 
+  describe("Sleep & broadphase", () => {
+    cannonIt("Sleep.bodySleeps");
+    cannonIt("SAP.sameAsNaive");
+  });
+
   it("runs full Cannon suite aggregate", () => {
     const output = runCannonAll();
-    expect(output).toContain("pass=73");
+    expect(output).toContain("pass=75");
     expect(output).toContain("fail=0");
     expect(output).toContain("cannon-tests done");
   });

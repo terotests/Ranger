@@ -21,6 +21,8 @@ Import "cannon_constraint_test.rgr"
 Import "cannon_ray_test.rgr"
 Import "cannon_boxcollision_test.rgr"
 Import "cannon_vehicle_test.rgr"
+Import "cannon_sleep_test.rgr"
+Import "cannon_sap_test.rgr"
 
 class CannonTestRunner {
     sfn m@(main):void () {
@@ -47,6 +49,8 @@ class CannonTestRunner {
         def rayTest:CannonRayTest (new CannonRayTest)
         def boxCollisionTest:CannonBoxCollisionTest (new CannonBoxCollisionTest)
         def vehicleTest:CannonVehicleTest (new CannonVehicleTest)
+        def sleepTest:CannonSleepTest (new CannonSleepTest)
+        def sapTest:CannonSapTest (new CannonSapTest)
 
         vec3Test.runFiltered(harness filter)
         quatTest.runFiltered(harness filter)
@@ -65,6 +69,8 @@ class CannonTestRunner {
         rayTest.runFiltered(harness filter)
         boxCollisionTest.runFiltered(harness filter)
         vehicleTest.runFiltered(harness filter)
+        sleepTest.runFiltered(harness filter)
+        sapTest.runFiltered(harness filter)
 
         if (filter == "") {
             print ("pass=" + (to_string harness.passCount))
