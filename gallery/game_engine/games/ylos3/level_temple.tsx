@@ -1,5 +1,8 @@
 // Taso 3 — temppelin huippu: tiukat hypyt, nopeat viholliset, kultainen maali.
-export const LEVEL_TEMPLE = {
+import { setLevelConfig } from "./ylos3_shared";
+
+export function installTempleLevel() {
+  setLevelConfig({
   id: "temple",
   label: "Taso 3 — Temppelin huippu",
   worldH: 2280,
@@ -125,4 +128,5 @@ export const LEVEL_TEMPLE = {
     { x: 215, y: 570, respawn: false },
     { x: 215, y: 195, respawn: false }
   ]
-};
+  });
+}

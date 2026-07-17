@@ -2,34 +2,44 @@
 //
 // Ylos 3 — taso 2 (köysisillat). Ladataan pushGame("level2.tsx") tasolta 1.
 
-import { LEVEL_VINES } from "./levels/vines";
+import { installVinesLevel } from "./level_vines";
 import {
-  setLevelConfig,
-  createStaticBg as paintLevelBg,
-  sprites as levelSprites,
-  initState as levelInitState,
-  update as levelUpdate,
-  hud as levelHud
+  paintLevelBg,
+  levelHeight,
+  buildSprites,
+  makeInitState,
+  runUpdate,
+  playHud
 } from "./ylos3_shared";
 
-setLevelConfig(LEVEL_VINES);
+function bootLevel() {
+  installVinesLevel();
+}
+
+function staticLevelHeight() {
+  bootLevel();
+  return levelHeight();
+}
 
 function createStaticBg() {
+  bootLevel();
   paintLevelBg();
 }
 
 function sprites() {
-  return levelSprites();
+  bootLevel();
+  return buildSprites();
 }
 
 function initState() {
-  return levelInitState();
+  bootLevel();
+  return makeInitState();
 }
 
 function update(props) {
-  return levelUpdate(props);
+  return runUpdate(props);
 }
 
 function hud(props) {
-  return levelHud(props);
+  return playHud(props);
 }
