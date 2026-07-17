@@ -18,10 +18,13 @@ npm run engine:game-sdl:launcher
 
 | Input | Action |
 |-------|--------|
-| ←↑↓→ | Move selected unit |
-| Space / Action | Found city (settler) / skip unit |
-| Select / A | Cycle units with moves left |
-| Start / B / Down while idle | End turn |
+| ←↑↓→ | Move selected unit (while it has moves) |
+| Space / Action | Found city (settler) / skip or fortify |
+| ↑ while idle / Select | Cycle to next unit |
+| ↓ while idle / Start / B | End turn |
+
+Note: the engine aliases gamepad **A** to Action/Space, so cycling uses
+Select or idle ↑ — not A.
 
 ## Goal
 

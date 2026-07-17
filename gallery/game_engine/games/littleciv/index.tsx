@@ -922,27 +922,31 @@ function update(props) {
   const left = pad.left && !s.pLeft;
   const right = pad.right && !s.pRight;
   const act = pad.action && !s.pAct;
-  const selBtn = (pad.select || pad.a) && !s.pSel;
+  // NOTE: host aliases pad.a == pad.action, so do NOT use A for cycling.
+  const selBtn = pad.select && !s.pSel;
   const startBtn = (pad.start || pad.b) && !s.pStart;
-  // End-turn also via Down when the selected unit has no moves (idle shortcut).
-  let endDown = 0;
-  if (down) {
-    if (s.sel < 0) {
-      endDown = 1;
-    } else {
-      if (s.sel < s.units.length) {
-        const su = s.units[s.sel];
-        if (su.alive == 0 || su.moves <= 0) { endDown = 1; }
-      }
+
+  let idleUnit = 0;
+  if (s.sel < 0) {
+    idleUnit = 1;
+  } else {
+    if (s.sel < s.units.length) {
+      const su = s.units[s.sel];
+      if (su.alive == 0 || su.moves <= 0) { idleUnit = 1; }
     }
   }
+  // Idle Up cycles units; idle Down / Start / B ends the turn.
+  let cycleUp = 0;
+  if (up && idleUnit == 1) { cycleUp = 1; }
+  let endDown = 0;
+  if (down && idleUnit == 1) { endDown = 1; }
 
   let pUp = 0; if (pad.up) { pUp = 1; }
   let pDown = 0; if (pad.down) { pDown = 1; }
   let pLeft = 0; if (pad.left) { pLeft = 1; }
   let pRight = 0; if (pad.right) { pRight = 1; }
   let pAct = 0; if (pad.action) { pAct = 1; }
-  let pSel = 0; if (pad.select || pad.a) { pSel = 1; }
+  let pSel = 0; if (pad.select) { pSel = 1; }
   let pStart = 0; if (pad.start || pad.b) { pStart = 1; }
 
   if (s.screen == "splash") {
@@ -1097,11 +1101,7 @@ function update(props) {
     };
   }
 
-  if (selBtn) {
-    const next = firstMovableUnit(units, OWNER_PLAYER, sel + 1);
-    if (next >= 0) { sel = next; }
-  }
-
+  // Space first: found / skip / fortify (before cycle, so Action is not stolen).
   if (act) {
     if (sel >= 0 && sel < units.length && units[sel].alive == 1) {
       const u = units[sel];
@@ -1116,7 +1116,6 @@ function update(props) {
           events = [soundEvent("win")];
           sel = firstMovableUnit(units, OWNER_PLAYER, sel);
         } else {
-          // Skip / fortify: spend remaining moves.
           const outU = cloneUnits(units);
           outU[sel].moves = 0;
           units = outU;
@@ -1135,12 +1134,17 @@ function update(props) {
     }
   }
 
+  if (selBtn || cycleUp) {
+    const next = firstMovableUnit(units, OWNER_PLAYER, sel + 1);
+    if (next >= 0) { sel = next; }
+  }
+
   let dc = 0;
   let dr = 0;
   if (left) { dc = -1; }
   if (right) { dc = 1; }
-  if (up) { dr = -1; }
-  // Down moves south only when the unit still has moves (else end-turn above).
+  // Up/Down move only when the unit still has moves (idle = cycle / end turn).
+  if (up && cycleUp == 0) { dr = -1; }
   if (down && endDown == 0) { dr = 1; }
 
   if ((dc != 0 || dr != 0) && sel >= 0 && sel < units.length) {
@@ -1165,12 +1169,8 @@ function update(props) {
       const outcome = checkWinner(cities);
       if (outcome == "win") { screen = "win"; }
       if (outcome == "lose") { screen = "lose"; }
-      if (sel >= 0 && sel < units.length) {
-        if (units[sel].alive == 1 && units[sel].moves <= 0) {
-          const nsel = firstMovableUnit(units, OWNER_PLAYER, sel + 1);
-          if (nsel >= 0) { sel = nsel; }
-        }
-      }
+      // Keep selection after spending moves so Space can still found a city /
+      // fortify this unit. Cycle explicitly with A / Select.
     }
   }
 
@@ -1250,7 +1250,7 @@ function hud(props) {
   const mine = citySummary(s.cities, OWNER_PLAYER);
   const theirs = citySummary(s.cities, OWNER_AI);
   const line = statusLine(s);
-  let tip = "A = cycle unit   B/Start = end turn   Space = found/skip";
+  let tip = "Up idle=cycle   Down/B=end turn   Space=found/skip";
   if (s.msgT > 0) { tip = s.msg; }
 
   let cityLine = "";
