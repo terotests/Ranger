@@ -1,0 +1,80 @@
+; ==============================================================================
+; three_tone_mapping_test — ThreeToneMapping (ACES/Reinhard/exposure) checks.
+; ==============================================================================
+; Compile to ES6 and run under Node; prints per-check PASS/FAIL and "ALL PASS".
+; ==============================================================================
+
+Import "three_tone_mapping.rgr"
+
+class ThreeCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    fn near:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        if (d < 0.0001) {
+            passed = (passed + 1)
+            print ("  PASS " + name + " (" + (to_string got) + ")")
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name + " got=" + (to_string got) + " want=" + (to_string want))
+        }
+    }
+}
+
+class ThreeToneMappingTest {
+    sfn m@(main):void () {
+        def ck:ThreeCheck (new ThreeCheck)
+        print "== ThreeToneMapping =="
+
+        ; mode constants match Three's enum
+        ck.ok("NoToneMapping = 0" ((ThreeToneMapping.NoToneMapping()) == 0))
+        ck.ok("ACESFilmic = 4" ((ThreeToneMapping.ACESFilmicToneMapping()) == 4))
+
+        ; ACES maps 0 -> 0
+        ck.near("aces 0" (ThreeToneMapping.acesFilmic(0.0)) 0.0)
+        ; ACES is monotonic and stays in 0..1 for large HDR input
+        def big:double (ThreeToneMapping.acesFilmic(100.0))
+        ck.ok("aces clamps <= 1" (big <= 1.0))
+        ck.ok("aces big near white" (big > 0.98))
+        def mid:double (ThreeToneMapping.acesFilmic(1.0))
+        ck.ok("aces(1) in range" ((mid > 0.7) && (mid < 0.85)))
+        ; monotonic: aces(2) > aces(1) > aces(0.5)
+        def a05:double (ThreeToneMapping.acesFilmic(0.5))
+        def a1:double (ThreeToneMapping.acesFilmic(1.0))
+        def a2:double (ThreeToneMapping.acesFilmic(2.0))
+        ck.ok("aces monotonic" ((a2 > a1) && (a1 > a05)))
+
+        ; Reinhard: 1 -> 0.5
+        ck.near("reinhard 1 -> 0.5" (ThreeToneMapping.reinhard(1.0)) 0.5)
+
+        ; mapChannel: NoToneMapping passes through (with exposure)
+        ck.near("none passthrough x2" (ThreeToneMapping.mapChannel(0 0.4 2.0)) 0.8)
+        ; mapChannel ACES with exposure applies exposure before the curve
+        def viaExp:double (ThreeToneMapping.mapChannel(4 0.5 2.0))
+        def direct:double (ThreeToneMapping.acesFilmic(1.0))
+        ck.near("aces exposure applied first" viaExp direct)
+        ; linear clamps to 1
+        ck.near("linear clamps" (ThreeToneMapping.mapChannel(1 5.0 1.0)) 1.0)
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

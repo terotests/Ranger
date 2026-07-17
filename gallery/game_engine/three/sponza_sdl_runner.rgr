@@ -1,0 +1,226 @@
+; ==============================================================================
+; sponza_sdl_runner — the light-probe-volume (Sponza) scene on SDL + OpenGL,
+; running the interpreted sponza.tsx with HOT RELOAD (edit the .tsx, the scene
+; reloads live). Native counterpart to the web host.
+; ==============================================================================
+; Same design as tsx3d_sdl_runner, but the scene is the real Three clone: the TSX
+; interpreter runs sponza.tsx against the three.tsx façade, ThreeSponzaTsxBridge
+; reconciles it into the Ranger core (ThreeSponzaScene), and ThreeGLBackend draws
+; it through the shared three_gl operators (desktop GL). The host owns the loop,
+; the first-person input, and the hot-reload file watch — the interpreter only
+; declares the scene (and re-declares it on edit).
+;
+; The model is loaded HOST-side (no interpreter async): http_get_bytes fetches the
+; Sponza .gltf + its external buffers and three_gltf_file decodes them into an
+; Object3D, once, at startup (hot-reloads reuse it). A placeholder box stands in
+; only if the network is unavailable. The Sky / shadow-map / probe-bake GPU passes
+; (which need render-to-texture) layer onto ThreeGLBackend next; this runner
+; renders the lit model + tone mapping + first-person camera + hot reload.
+;
+; Build & run (desktop GL):  compile with -l=cpp and link SDL2 + OpenGL, then
+;   ./sponza_sdl_runner gallery/game_engine/three/tsx
+; No display is available in CI, so this is verified by C++ codegen; the visual run
+; is a local desktop-GL step (as the teapot's native path was).
+; ==============================================================================
+
+Import "../gfx_sdl.rgr"
+Import "tsx/three_sponza_tsx_bridge.rgr"
+Import "src/three_webgl_renderer.rgr"
+Import "src/three_gl_backend.rgr"
+Import "src/three_mesh.rgr"
+Import "src/three_box_geometry.rgr"
+Import "src/three_gltf_file.rgr"
+Import "src/three_gltf_textures.rgr"
+
+class SponzaSdlRunner {
+    def pw:int 1280
+    def ph:int 720
+
+    sfn argOr:string (index:int dflt:string) {
+        if ((shell_arg_cnt) > index) {
+            def a:string (shell_arg index)
+            if ((strlen a) > 0) {
+                return a
+            }
+        }
+        return dflt
+    }
+
+    fn bitOn:boolean (mask:int bitVal:int) {
+        def shifted:int (idiv mask bitVal)
+        def half:int (idiv shifted 2)
+        if ((half * 2) == shifted) {
+            return false
+        }
+        return true
+    }
+
+    ; interpreter globals the scene reads (THREE constants + window size).
+    sfn registerGlobals:void (engine:ComponentEngine w:int h:int) {
+        def tk:[string]
+        def tv:[EvalValue]
+        push tk "SRGBColorSpace"
+        push tv (EvalValue.string("srgb"))
+        push tk "DoubleSide"
+        push tv (EvalValue.number(2.0))
+        push tk "RepeatWrapping"
+        push tv (EvalValue.number(1000.0))
+        engine.registerGlobal("THREE" (EvalValue.object(tk tv)))
+
+        def wk:[string]
+        def wv:[EvalValue]
+        push wk "innerWidth"
+        push wv (EvalValue.number((to_double w)))
+        push wk "innerHeight"
+        push wv (EvalValue.number((to_double h)))
+        push wk "devicePixelRatio"
+        push wv (EvalValue.number(1.0))
+        engine.registerGlobal("window" (EvalValue.object(wk wv)))
+    }
+
+    ; a placeholder hall box, used when the model fetch fails (offline).
+    sfn buildPlaceholderModel:ThreeObject3D () {
+        def geo:ThreeBoxGeometry (new ThreeBoxGeometry)
+        geo.setSize(20.0 10.0 8.0)
+        def m:ThreeMesh (new ThreeMesh)
+        m.setGeometry(geo)
+        def obj:ThreeObject3D m
+        return obj
+    }
+
+    ; fetch + decode the model from a url (Sponza .gltf by default); fall back to
+    ; the placeholder box if the network is unavailable. Loaded ONCE — hot-reloads
+    ; reuse it (only the interpreted scene params re-run), so no re-download.
+    sfn loadModel:ThreeObject3D (url:string) {
+        def loader:ThreeGLTFFile (new ThreeGLTFFile)
+        def m:ThreeObject3D (loader.loadFromURL(url))
+        if ((m.childCount()) > 0) {
+            ; decode + attach the baseColor textures (native path — no canvas).
+            print "[sponza] decoding textures (this can take a while)..."
+            ThreeGLTFTextures.load(loader (ThreeGLTFFile.dirOf(url)))
+            return m
+        }
+        return (SponzaSdlRunner.buildPlaceholderModel())
+    }
+
+    ; map the d-pad/WASD input mask onto the scene's FirstPersonControls.
+    fn applyInput:void (fpc:ThreeFirstPersonControls mask:int) {
+        fpc.moveForward = (this.bitOn(mask 1))
+        fpc.moveBackward = (this.bitOn(mask 2))
+        fpc.moveLeft = (this.bitOn(mask 16))
+        fpc.moveRight = (this.bitOn(mask 32))
+        fpc.moveUp = (this.bitOn(mask 4))
+        fpc.moveDown = (this.bitOn(mask 64))
+    }
+
+    sfn m@(main):void () {
+        def runner:SponzaSdlRunner (new SponzaSdlRunner)
+        def tsxDir:string (SponzaSdlRunner.argOr(0 "gallery/game_engine/three/tsx"))
+        def framesS:string (SponzaSdlRunner.argOr(1 "0"))
+        def maxFrames:int (unwrap (str2int framesS))
+
+        def win:int (gfx_open_gpu "Ranger — light probe volume (Sponza)" runner.pw runner.ph)
+        if (win == 0) {
+            print "[sponza] gfx_open_gpu failed (no GL context)"
+            return
+        }
+
+        ; GL backend (draws into gfx's current context) + HDR renderer
+        def gl:ThreeGLBackend (new ThreeGLBackend)
+        def glok:boolean (gl.init(""))
+        def renderer:ThreeWebGLRenderer (new ThreeWebGLRenderer)
+        renderer.setBackend(gl)
+        renderer.setSize(runner.pw runner.ph)
+        renderer.setToneMapping(4)
+        renderer.setToneMappingExposure(1.0)
+        renderer.setShadowMapEnabled(true)
+
+        ; interpreter + reconcile bridge, driven by sponza.tsx on disk
+        def facadeBuf:buffer (buffer_read_file tsxDir "three.tsx")
+        def facadeSrc:string (buffer_to_string facadeBuf)
+        def sponzaBuf:buffer (buffer_read_file tsxDir "sponza.tsx")
+        def lastSrc:string (buffer_to_string sponzaBuf)
+
+        def engine (new ComponentEngine())
+        engine.quiet = true
+        SponzaSdlRunner.registerGlobals(engine runner.pw runner.ph)
+        engine.loadScript((facadeSrc + "\n") + lastSrc)
+
+        ; fetch + decode the model once (Sponza .gltf by default; override with the
+        ; 3rd CLI arg). Hot-reloads reuse this — no re-download.
+        def modelURL:string (SponzaSdlRunner.argOr(2 "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Sponza/glTF/Sponza.gltf"))
+        print ("[sponza] loading model: " + modelURL)
+        def hostModel:ThreeObject3D (SponzaSdlRunner.loadModel(modelURL))
+
+        def bridge:ThreeSponzaTsxBridge (new ThreeSponzaTsxBridge)
+        bridge.setEngine(engine)
+        bridge.setModel(hostModel)
+        bridge.initFromScript()
+        bridge.scene.setViewport(runner.pw runner.ph)
+        print ("[sponza] scene declared: probes=" + (to_string (bridge.scene.probes.probeCount())))
+
+        def frame:int 0
+        def running:boolean true
+        def dt:double 0.016
+        ; current framebuffer size — re-read each frame so fullscreen / window
+        ; resize updates the GL viewport + camera aspect (else the frame is drawn
+        ; at the old size, e.g. bottom-left after a fullscreen toggle).
+        def curW:int runner.pw
+        def curH:int runner.ph
+        while running {
+            gfx_input_poll
+            def mask:int (gfx_input_source_mask 0)
+
+            def sw:int (gfx_surface_width)
+            def sh:int (gfx_surface_height)
+            if (((sw > 0) && (sh > 0)) && ((sw != curW) || (sh != curH))) {
+                curW = sw
+                curH = sh
+                renderer.setSize(curW curH)
+                bridge.scene.setViewport(curW curH)
+            }
+
+            runner.applyInput(bridge.scene.fpc mask)
+            bridge.scene.update(dt)
+
+            renderer.render(bridge.scene.scene bridge.scene.camera)
+            gfx_3d_present
+
+            ; hot reload: re-read sponza.tsx; on change, rebuild the interpreted scene.
+            if ((idiv frame 30) * 30 == frame) {
+                def curBuf:buffer (buffer_read_file tsxDir "sponza.tsx")
+                def curSrc:string (buffer_to_string curBuf)
+                if (curSrc != lastSrc) {
+                    lastSrc = curSrc
+                    def e2 (new ComponentEngine())
+                    e2.quiet = true
+                    SponzaSdlRunner.registerGlobals(e2 runner.pw runner.ph)
+                    e2.loadScript((facadeSrc + "\n") + curSrc)
+                    engine = e2
+                    bridge = (new ThreeSponzaTsxBridge)
+                    bridge.setEngine(e2)
+                    bridge.setModel(hostModel)
+                    bridge.initFromScript()
+                    bridge.scene.setViewport(runner.pw runner.ph)
+                    print "[sponza] hot-reloaded sponza.tsx"
+                }
+            }
+
+            gfx_delay 16
+            frame = (frame + 1)
+            if (gfx_should_close) {
+                running = false
+            }
+            if (runner.bitOn(mask 8)) {
+                running = false
+            }
+            if ((maxFrames > 0) && (frame >= maxFrames)) {
+                running = false
+            }
+        }
+        ; tear the window + GL context down and restore the video mode, so quitting
+        ; doesn't leave a black screen (the SDL/GL state is reset on close).
+        gfx_close
+        print ("[sponza] done frames=" + (to_string frame))
+    }
+}

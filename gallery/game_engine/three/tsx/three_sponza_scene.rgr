@@ -1,0 +1,241 @@
+; ==============================================================================
+; three_sponza_scene — the light-probe-volume scene composition (demo/host layer).
+; ==============================================================================
+; NOT part of the canonical object model (three/src). This is the reconciliation
+; target the Sponza hosts share: it assembles a probe-lit scene — Sky + a
+; shadow-casting DirectionalLight + a host-supplied model + a baked LightProbeGrid
+; + FirstPersonControls — out of the object-model classes. The scene's tunable
+; knobs (grid dims/counts/bounds, light angle/intensity/colour, sky uniforms) are
+; NOT baked here: they are set by the caller before build(), from sponza.tsx's
+; params via three_sponza_tsx_bridge (the single source of truth). The defaults
+; below are neutral placeholders, not the demo's values.
+;
+; What IS here is the composition recipe: how the light distance, shadow-camera
+; extent and probe-volume far plane derive from the model's bounds. The model is a
+; plain Object3D argument, so composition is decoupled from asset loading and is
+; unit-testable. Pure Ranger (compiles to C++ for the native SDL host).
+; ==============================================================================
+
+Import "../src/three_scene.rgr"
+Import "../src/three_perspective_camera.rgr"
+Import "../src/three_sky.rgr"
+Import "../src/three_light.rgr"
+Import "../src/three_light_probe_grid.rgr"
+Import "../src/three_light_probe_grid_helper.rgr"
+Import "../src/three_first_person_controls.rgr"
+Import "../src/three_box3.rgr"
+Import "../src/three_vector3.rgr"
+Import "../src/three_math_utils.rgr"
+
+class ThreeSponzaScene {
+    def scene:ThreeScene (new ThreeScene)
+    def camera:ThreePerspectiveCamera (new ThreePerspectiveCamera)
+    def sky:ThreeSky (new ThreeSky)
+    def dirLight:ThreeDirectionalLight (new ThreeDirectionalLight)
+    def probes:ThreeLightProbeGrid (new ThreeLightProbeGrid)
+    def probesHelper:ThreeLightProbeGridHelper (new ThreeLightProbeGridHelper)
+    def fpc:ThreeFirstPersonControls (new ThreeFirstPersonControls)
+    def model:ThreeObject3D (new ThreeObject3D)
+
+    ; derived model metrics (filled by build() from the model bounds)
+    def sizeX:double 1.0
+    def sizeY:double 1.0
+    def sizeZ:double 1.0
+    def centerX:double 0.0
+    def centerY:double 0.0
+    def centerZ:double 0.0
+    def targetY:double 0.0
+    def lightBaseDistance:double 1.0
+    def probeFar:double 1.0
+
+    ; --- tunable knobs — NEUTRAL defaults; the caller (the bridge, from sponza.tsx)
+    ; sets the demo's actual values before build(). --------------------------
+    def enabled:boolean true
+    def showProbes:boolean false
+    def probeSize:double 0.2
+    def boundsX:double 0.0
+    def boundsY:double 0.0
+    def boundsZ:double 0.0
+    def gridSizeX:double 1.0
+    def gridSizeY:double 1.0
+    def gridSizeZ:double 1.0
+    def countX:int 2
+    def countY:int 2
+    def countZ:int 2
+    def bounces:int 1
+    def lightAzimuth:double 0.0
+    def lightElevation:double 45.0
+    def lightIntensity:double 1.0
+    def lightColorHex:int 16777215
+    def shadows:boolean true
+    def shadowMapSize:int 2048
+    def movementSpeed:double 1.0
+    def lookSpeed:double 0.005
+    ; ambient radiance the analytic bake writes (a placeholder for the GPU bake,
+    ; which renders each probe as a cubemap); not a demo value.
+    def ambientR:double 0.1
+    def ambientG:double 0.1
+    def ambientB:double 0.1
+
+    sfn maxOf2:double (a:double b:double) {
+        if (a > b) {
+            return a
+        }
+        return b
+    }
+    sfn maxOf3:double (a:double b:double c:double) {
+        def m:double (ThreeSponzaScene.maxOf2(a b))
+        return (ThreeSponzaScene.maxOf2(m c))
+    }
+
+    ; assemble the scene around a host-supplied model. Uses the current knob values
+    ; (the caller sets them first); the camera + sky uniforms are configured by the
+    ; caller too, not baked here.
+    fn build:ThreeSponzaScene (modelRoot:ThreeObject3D) {
+        this.model = modelRoot
+
+        ; SKY — a large inverted dome; its scattering uniforms come from the caller.
+        this.sky.scale.setScalar(450000.0)
+        this.scene.add(this.sky)
+
+        this.scene.add(this.model)
+
+        ; model bounds -> composition recipe (light distance, probe far).
+        def box:ThreeBox3 (this.model.boundingBox())
+        def sz:ThreeVector3 (new ThreeVector3)
+        box.getSize(sz)
+        def ctr:ThreeVector3 (new ThreeVector3)
+        box.getCenter(ctr)
+        this.sizeX = sz.x
+        this.sizeY = sz.y
+        this.sizeZ = sz.z
+        this.centerX = ctr.x
+        this.centerY = ctr.y
+        this.centerZ = ctr.z
+        this.targetY = (ctr.y + (sz.y * 0.2))
+        this.lightBaseDistance = (ThreeSponzaScene.maxOf2(sz.x sz.z))
+        this.probeFar = ((ThreeSponzaScene.maxOf3(sz.x sz.y sz.z)) * 2.0)
+
+        ; DIRECTIONAL LIGHT (+ shadow) — colour/intensity/shadows are knobs; the
+        ; shadow-camera extent + far derive from the model bounds.
+        this.dirLight.setColorHex(this.lightColorHex)
+        this.dirLight.intensity = this.lightIntensity
+        this.dirLight.target.position.set(this.centerX this.targetY this.centerZ)
+        this.scene.add(this.dirLight.target)
+        this.dirLight.castShadow = this.shadows
+        this.dirLight.shadow.setMapSize(this.shadowMapSize)
+        def shadowExtent:double ((ThreeSponzaScene.maxOf2(sz.x sz.z)) * 0.7)
+        this.dirLight.shadow.setExtent((0.0 - shadowExtent) shadowExtent shadowExtent (0.0 - shadowExtent) 0.1 (sz.y * 4.0))
+        this.scene.add(this.dirLight)
+
+        this.updateLightPosition()
+
+        ; LIGHT PROBE GRID
+        this.rebuildProbes()
+
+        ; FIRST-PERSON CONTROLS
+        this.fpc.setCamera(this.camera)
+        this.fpc.setMovementSpeed(this.movementSpeed)
+        this.fpc.setLookSpeed(this.lookSpeed)
+
+        return this
+    }
+
+    ; place the sun from azimuth + elevation (knobs) and drive the sky sun uniform.
+    fn updateLightPosition:void () {
+        def azimuth:double (ThreeMathUtils.degToRad(this.lightAzimuth))
+        def elevation:double (ThreeMathUtils.degToRad(this.lightElevation))
+        def radius:double this.lightBaseDistance
+        def horizontal:double ((cos elevation) * radius)
+        def vertical:double ((sin elevation) * radius)
+        def lx:double (this.centerX + ((cos azimuth) * horizontal))
+        def ly:double (this.targetY + vertical)
+        def lz:double (this.centerZ + ((sin azimuth) * horizontal))
+        this.dirLight.position.set(lx ly lz)
+        this.dirLight.target.position.set(this.centerX this.targetY this.centerZ)
+        this.dirLight.target.updateMatrixWorld()
+
+        def phi:double (ThreeMathUtils.degToRad(90.0 - this.lightElevation))
+        def theta:double (ThreeMathUtils.degToRad(this.lightAzimuth))
+        def sun:ThreeVector3 (new ThreeVector3)
+        sun.setFromSphericalCoords(1.0 phi theta)
+        this.sky.copySunPosition(sun)
+    }
+
+    ; bake the probe volume as a directional SH environment: cool sky from above, a
+    ; warm ground bounce from below, and the sun as a directional lobe (all scaled by
+    ; the sun's strength). A per-probe "openness" gradient dims the low/enclosed
+    ; probes. Analytic stand-in for a cubemap capture, but directional + spatially
+    ; varying, so the sun-shadowed surfaces are filled with bounce, not black.
+    fn bakeGI:void () {
+        def elevation:double (ThreeMathUtils.degToRad(this.lightElevation))
+        def daylight:double ((sin elevation) + 0.25)
+        if (daylight < 0.05) {
+            daylight = 0.05
+        }
+        ; sun direction (same convention as the sky sun uniform)
+        def phi:double (ThreeMathUtils.degToRad(90.0 - this.lightElevation))
+        def theta:double (ThreeMathUtils.degToRad(this.lightAzimuth))
+        def sun:ThreeVector3 (new ThreeVector3)
+        sun.setFromSphericalCoords(1.0 phi theta)
+
+        ; radiance strengths in the scene's lighting scale (a fraction of the direct
+        ; sun), tinted warm (sun / ground bounce) and cool (sky).
+        def sunLevel:double ((this.lightIntensity * 0.10) * daylight)
+        def skyLevel:double ((this.lightIntensity * 0.06) * daylight)
+        def gndLevel:double ((this.lightIntensity * 0.07) * daylight)
+        this.probes.bakeDirectional(
+            sun.x sun.y sun.z
+            (sunLevel * 1.0) (sunLevel * 0.96) (sunLevel * 0.86)
+            (skyLevel * 0.62) (skyLevel * 0.80) (skyLevel * 1.10)
+            (gndLevel * 0.90) (gndLevel * 0.80) (gndLevel * 0.62))
+    }
+
+    ; (re)create the probe grid at the current settings and bake it. Removes the
+    ; previous volume + helper first so hot-reloads don't leak scene children.
+    fn rebuildProbes:void () {
+        this.scene.remove(this.probes)
+        this.scene.remove(this.probesHelper)
+        this.probes = (ThreeLightProbeGrid.create(this.gridSizeX this.gridSizeY this.gridSizeZ this.countX this.countY this.countZ))
+        this.probes.position.set(this.boundsX this.boundsY this.boundsZ)
+        this.probes.visible = this.enabled
+        this.bakeGI()
+        this.scene.add(this.probes)
+        this.probesHelper = (ThreeLightProbeGridHelper.create(this.probes this.probeSize))
+        this.probesHelper.visible = this.showProbes
+        this.scene.add(this.probesHelper)
+    }
+
+    ; re-bake the existing probe volume (no re-create) — the cheap path when only
+    ; the sun's intensity/elevation changed on a hot reload.
+    fn refreshGI:void () {
+        this.bakeGI()
+    }
+
+    ; the sun's light-space view-projection (for testing probe shadowing).
+    fn sunViewProjection:ThreeMatrix4 () {
+        return (this.dirLight.shadowViewProjection())
+    }
+    ; given the shadow map's packed-depth read back to CPU, compute per-probe sun
+    ; visibility and re-bake so shadowed probes lose their direct-sun lobe. The host
+    ; calls this once after the first frame renders the shadow map.
+    fn applyProbeVisibility:void (shadowDepth:buffer size:int) {
+        this.probes.computeSunVisibility(shadowDepth size (this.sunViewProjection()))
+        this.bakeGI()
+    }
+
+    ; sample the baked GI irradiance at a world point for a surface normal (what the
+    ; shader does per fragment; exposed here for the software path + tests).
+    fn sampleGI:ThreeVector3 (wx:double wy:double wz:double nx:double ny:double nz:double target:ThreeVector3) {
+        return (this.probes.sampleIrradiance(wx wy wz nx ny nz target))
+    }
+
+    ; host feeds viewport + input; per frame: integrate controls.
+    fn setViewport:void (w:int h:int) {
+        this.camera.aspect = ((to_double w) / (to_double h))
+        this.camera.updateProjectionMatrix()
+    }
+    fn update:void (delta:double) {
+        this.fpc.update(delta)
+    }
+}

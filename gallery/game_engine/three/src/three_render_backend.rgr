@@ -31,9 +31,27 @@ class ThreeRenderBackend {
     ; Camera world position (for Phong specular view vector).
     fn setView:void (camX:double camY:double camZ:double) {
     }
+    ; HDR tone-mapping mode + exposure for the frame (0 = none). No-op by default;
+    ; the GL backend feeds these to the übershader epilogue.
+    fn setToneMapping:void (mode:int exposure:double) {
+    }
     ; Draw one mesh: geometry, its world (model) matrix, its full MVP, and the
     ; material (colour/specular/shininess/map/side/shading path).
     fn drawMesh:void (geometry:ThreeBufferGeometry model:ThreeMatrix4 mvp:ThreeMatrix4 mat:ThreeMaterial) {
+    }
+
+    ; Shadow map (two-pass): beginShadowPass binds an off-screen depth target and
+    ; drawDepth renders each caster's depth from the light (mvp = lightVP * model);
+    ; endShadowPass restores the screen; setShadow feeds the depth map + light
+    ; view-projection to the lit pass (enabled=false turns shadowing off). No-ops by
+    ; default so the software backend simply renders unshadowed.
+    fn beginShadowPass:void () {
+    }
+    fn drawDepth:void (geometry:ThreeBufferGeometry mvp:ThreeMatrix4) {
+    }
+    fn endShadowPass:void (w:int h:int) {
+    }
+    fn setShadow:void (lightViewProj:ThreeMatrix4 enabled:boolean) {
     }
     ; Environment cube map (envMap reflections + skybox). ensureEnvironment uploads
     ; the cube once and returns an opaque handle; setEnvironment selects it for
@@ -44,6 +62,16 @@ class ThreeRenderBackend {
     fn setEnvironment:void (handle:int) {
     }
     fn drawSkybox:void (handle:int mvp:ThreeMatrix4) {
+    }
+    ; Preetham atmosphere dome: mvp + model for the huge sky box, its sun direction
+    ; and the four scattering uniforms. Drawn behind everything. No-op by default.
+    fn drawAtmosphere:void (mvp:ThreeMatrix4 model:ThreeMatrix4 sunX:double sunY:double sunZ:double rayleigh:double turbidity:double mieCoefficient:double mieDirectionalG:double) {
+    }
+    ; Light-probe volume for per-fragment GI: the packed SH texture payload (9
+    ; texels/probe row), probe count, grid counts, world origin + size, a bake
+    ; version (upload only on change), and an enable flag. No-op by default (the
+    ; software path uses the flat ambient instead).
+    fn setProbeVolume:void (shData:buffer probeCount:int cx:int cy:int cz:int ox:double oy:double oz:double sx:double sy:double sz:double version:int enabled:boolean) {
     }
     fn endFrame:void () {
     }

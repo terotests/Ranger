@@ -17,6 +17,7 @@ gallery/game_engine/
 ├── ui/                 # EVG-pohjainen interaktiivinen UI-kerros (RGU1, valikot, widgetit)
 ├── scripting/          # MOOTTORIN YDIN: runtime, host, fysiikka, WASM/TSX-runnerit, TSX-tyypit
 ├── physics/            # Cannon.js -portti (pinball, sandbox)
+├── three/              # Three.js -portti: 3D-objektimalli + software/WebGL/GLES-backend; kuutio-, teapot- ja Sponza-valoprobe-esimerkit ajetaan tulkissa (ks. IDEAL_THREE.md)
 ├── wasm/               # WASM-guestit: Rust (`rust_*`) + AssemblyScript (`as_*`) + jaetut ABI-headerit
 ├── lib/                # Jaetut guest-kirjastot: .as-helperit (abi.as, ui.as) + Rust `ranger_game` -crate
 ├── pose/               # Pose-input (RGP1): natiivi provider + MediaPipe-PoC

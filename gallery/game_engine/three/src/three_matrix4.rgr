@@ -335,6 +335,35 @@ class ThreeMatrix4 {
         return this
     }
 
+    ; Orthographic projection (Three.js Matrix4.makeOrthographic), looking down -Z.
+    ; Maps [left,right]x[bottom,top]x[-near,-far] to the [-1,1] NDC cube.
+    fn makeOrthographic:ThreeMatrix4 (left:double right:double top:double bottom:double near:double far:double) {
+        this.ensure()
+        def w:double (1.0 / (right - left))
+        def h:double (1.0 / (top - bottom))
+        def p:double (1.0 / (far - near))
+        def x:double ((right + left) * w)
+        def y:double ((top + bottom) * h)
+        def z:double ((far + near) * p)
+        set this.elements 0 (2.0 * w)
+        set this.elements 4 0.0
+        set this.elements 8 0.0
+        set this.elements 12 (0.0 - x)
+        set this.elements 1 0.0
+        set this.elements 5 (2.0 * h)
+        set this.elements 9 0.0
+        set this.elements 13 (0.0 - y)
+        set this.elements 2 0.0
+        set this.elements 6 0.0
+        set this.elements 10 ((0.0 - 2.0) * p)
+        set this.elements 14 (0.0 - z)
+        set this.elements 3 0.0
+        set this.elements 7 0.0
+        set this.elements 11 0.0
+        set this.elements 15 1.0
+        return this
+    }
+
     fn transpose:ThreeMatrix4 () {
         this.ensure()
         def t:double 0.0

@@ -1,0 +1,137 @@
+; ==============================================================================
+; three_sponza_tsx_test — run sponza.tsx in the interpreter, reconcile, hot-reload.
+; ==============================================================================
+; Loads the three.tsx façade + sponza.tsx into ComponentEngine, runs the scene's
+; init(), reconciles through ThreeSponzaTsxBridge into the Ranger core scene, and
+; asserts it was built (sky uniforms, shadow-casting sun, probe volume, model
+; bounds). Then it exercises the hot-reload path: calling exported hooks
+; (setLightElevation / setProbeCountX) and re-reconciling changes the core scene —
+; proving edits to the interpreted scene reload live, like teapot.tsx.
+; ==============================================================================
+
+Import "three_sponza_tsx_bridge.rgr"
+Import "../src/three_mesh.rgr"
+Import "../src/three_box_geometry.rgr"
+
+class ThreeSponzaTsxTest {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (label:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + label)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + label)
+        }
+    }
+    fn near:void (label:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        if (d < 0.01) {
+            passed = (passed + 1)
+            print ("  PASS " + label + " (" + (to_string got) + ")")
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + label + " got=" + (to_string got) + " want=" + (to_string want))
+        }
+    }
+
+    sfn registerGlobals:void (engine:ComponentEngine) {
+        def tk:[string]
+        def tv:[EvalValue]
+        push tk "SRGBColorSpace"
+        push tv (EvalValue.string("srgb"))
+        push tk "DoubleSide"
+        push tv (EvalValue.number(2.0))
+        push tk "RepeatWrapping"
+        push tv (EvalValue.number(1000.0))
+        engine.registerGlobal("THREE" (EvalValue.object(tk tv)))
+
+        def wk:[string]
+        def wv:[EvalValue]
+        push wk "innerWidth"
+        push wv (EvalValue.number(1280.0))
+        push wk "innerHeight"
+        push wv (EvalValue.number(720.0))
+        push wk "devicePixelRatio"
+        push wv (EvalValue.number(1.0))
+        engine.registerGlobal("window" (EvalValue.object(wk wv)))
+    }
+
+    sfn m@(main):void () {
+        def t:ThreeSponzaTsxTest (new ThreeSponzaTsxTest)
+        t.run()
+    }
+
+    fn run:void () {
+        def dir:string "gallery/game_engine/three/tsx"
+        def facadeBuf:buffer (buffer_read_file dir "three.tsx")
+        def sponzaBuf:buffer (buffer_read_file dir "sponza.tsx")
+        def src:string (((buffer_to_string facadeBuf) + "\n") + (buffer_to_string sponzaBuf))
+
+        def engine (new ComponentEngine())
+        engine.quiet = true
+        ThreeSponzaTsxTest.registerGlobals(engine)
+        engine.loadScript(src)
+
+        ; the host's decoded model: a 20 x 10 x 8 box stands in for Sponza.
+        def geo:ThreeBoxGeometry (new ThreeBoxGeometry)
+        geo.setSize(20.0 10.0 8.0)
+        def modelMesh:ThreeMesh (new ThreeMesh)
+        modelMesh.setGeometry(geo)
+
+        def bridge:ThreeSponzaTsxBridge (new ThreeSponzaTsxBridge)
+        bridge.setEngine(engine)
+        bridge.setModel(modelMesh)
+        bridge.initFromScript()
+
+        print "== interpreted scene reconciled into the core =="
+        ; scene composed: sky, model, light target, light, probes, helper
+        this.ok("scene has 6 children" ((bridge.scene.scene.childCount()) == 6))
+        ; sky uniforms flowed from the interpreted script (rayleigh 2, mieG 0.8)
+        this.near("sky rayleigh 2" bridge.scene.sky.rayleigh 2.0)
+        this.near("sky mieDirectionalG 0.8" bridge.scene.sky.mieDirectionalG 0.8)
+        this.near("sky turbidity 10" bridge.scene.sky.turbidity 10.0)
+        ; probe volume: 10 x 7 x 7 = 490
+        this.near("probe count 490" (to_double (bridge.scene.probes.probeCount())) 490.0)
+        ; sun / light from az -45 / elev 55
+        this.near("light intensity 100" bridge.scene.dirLight.intensity 100.0)
+        this.ok("light casts shadow" bridge.scene.dirLight.castShadow)
+        this.ok("light above target" (bridge.scene.dirLight.position.y > bridge.scene.targetY))
+        this.near("sky sun y = cos(35)" bridge.scene.sky.sunPosition.y 0.819152)
+        ; model bounds measured (host box is 20 x 10)
+        this.near("model size x = 20" bridge.scene.sizeX 20.0)
+        this.near("model size y = 10" bridge.scene.sizeY 10.0)
+
+        print "== hot-reload: edit the interpreted scene, re-reconcile =="
+        ; drop the sun toward the horizon -> the sky sun uniform lifts (cos(70))
+        def before:double bridge.scene.sky.sunPosition.y
+        engine.callFunction("setLightElevation" (EvalValue.number(20.0)))
+        bridge.reconcile()
+        this.near("elevation now 20" bridge.scene.lightElevation 20.0)
+        this.near("sun y = cos(70)" bridge.scene.sky.sunPosition.y 0.342020)
+        this.ok("sun moved" (bridge.scene.sky.sunPosition.y != before))
+
+        ; change a probe count -> the volume rebuilds + rebakes (4 x 7 x 7 = 196)
+        engine.callFunction("setProbeCountX" (EvalValue.number(4.0)))
+        bridge.reconcile()
+        this.near("probe count now 196" (to_double (bridge.scene.probes.probeCount())) 196.0)
+
+        ; toggle GI off -> the probe volume hides
+        engine.callFunction("setGI" (EvalValue.boolean(false)))
+        bridge.reconcile()
+        this.ok("GI toggled off" (bridge.scene.probes.visible == false))
+
+        print "== summary =="
+        print (("passed=" + (to_string passed)) + (" failed=" + (to_string failed)))
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

@@ -1,0 +1,121 @@
+; ==============================================================================
+; three_gltf_loader_test — glTF binary accessor decoder (Sponza slice 6).
+; ==============================================================================
+; Builds a hand-encoded little-endian binary buffer (a single triangle: 3 VEC3
+; float positions + 3 UNSIGNED_SHORT indices) and asserts the decoder round-trips
+; it into a ThreeBufferGeometry. Also checks readF32 on known IEEE-754 patterns.
+; Compile to ES6 and run under Node; prints per-check PASS/FAIL and "ALL PASS".
+; ==============================================================================
+
+Import "three_gltf_loader.rgr"
+
+class ThreeCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    fn near:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        if (d < 0.0001) {
+            passed = (passed + 1)
+            print ("  PASS " + name + " (" + (to_string got) + ")")
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name + " got=" + (to_string got) + " want=" + (to_string want))
+        }
+    }
+}
+
+class ThreeGLTFLoaderTest {
+    ; write the 4 little-endian bytes of a value into buf at off.
+    sfn put4:void (buf:buffer off:int b0:int b1:int b2:int b3:int) {
+        buffer_set buf off b0
+        buffer_set buf (off + 1) b1
+        buffer_set buf (off + 2) b2
+        buffer_set buf (off + 3) b3
+    }
+
+    sfn m@(main):void () {
+        def ck:ThreeCheck (new ThreeCheck)
+        print "== ThreeGLTFLoader.readF32 (IEEE-754 LE) =="
+
+        def sb:buffer (buffer_alloc 16)
+        ; 1.0 = 0x3F800000 -> LE 00 00 80 3F
+        ThreeGLTFLoaderTest.put4(sb 0 0 0 128 63)
+        ; 0.5 = 0x3F000000 -> LE 00 00 00 3F
+        ThreeGLTFLoaderTest.put4(sb 4 0 0 0 63)
+        ; -2.0 = 0xC0000000 -> LE 00 00 00 C0
+        ThreeGLTFLoaderTest.put4(sb 8 0 0 0 192)
+        ; 0.0 -> 00 00 00 00
+        ThreeGLTFLoaderTest.put4(sb 12 0 0 0 0)
+        ck.near("f32 1.0" (ThreeGLTFLoader.readF32(sb 0)) 1.0)
+        ck.near("f32 0.5" (ThreeGLTFLoader.readF32(sb 4)) 0.5)
+        ck.near("f32 -2.0" (ThreeGLTFLoader.readF32(sb 8)) (0.0 - 2.0))
+        ck.near("f32 0.0" (ThreeGLTFLoader.readF32(sb 12)) 0.0)
+
+        print "== accessor + geometry decode (one triangle) =="
+        ; 3 VEC3 positions (36 bytes) then 3 uint16 indices (6 bytes) = 42 bytes
+        def buf:buffer (buffer_alloc 42)
+        ; v0 = (0,0,0) : bytes 0..11 already zero
+        ; v1 = (1,0,0) : x at 12 = 1.0
+        ThreeGLTFLoaderTest.put4(buf 12 0 0 128 63)
+        ThreeGLTFLoaderTest.put4(buf 16 0 0 0 0)
+        ThreeGLTFLoaderTest.put4(buf 20 0 0 0 0)
+        ; v2 = (0,1,0) : y at 28 = 1.0
+        ThreeGLTFLoaderTest.put4(buf 24 0 0 0 0)
+        ThreeGLTFLoaderTest.put4(buf 28 0 0 128 63)
+        ThreeGLTFLoaderTest.put4(buf 32 0 0 0 0)
+        ; indices uint16 0,1,2 at offset 36
+        buffer_set buf 36 0
+        buffer_set buf 37 0
+        buffer_set buf 38 1
+        buffer_set buf 39 0
+        buffer_set buf 40 2
+        buffer_set buf 41 0
+
+        def posAcc:ThreeGLTFAccessor (new ThreeGLTFAccessor)
+        posAcc.set(5126 3 3 0 0)
+        def idxAcc:ThreeGLTFAccessor (new ThreeGLTFAccessor)
+        idxAcc.set(5123 1 3 36 0)
+
+        ck.near("pos stride tight" (to_double (posAcc.stride())) 12.0)
+
+        def positions:[double] (ThreeGLTFLoader.decodeFloats(buf posAcc))
+        ck.near("decoded pos count" (to_double (array_length positions)) 9.0)
+        ck.near("v1.x = 1" (itemAt positions 3) 1.0)
+        ck.near("v2.y = 1" (itemAt positions 7) 1.0)
+        ck.near("v0.x = 0" (itemAt positions 0) 0.0)
+
+        def indices:[int] (ThreeGLTFLoader.decodeIndices(buf idxAcc))
+        ck.near("index count" (to_double (array_length indices)) 3.0)
+        ck.near("index[1] = 1" (to_double (itemAt indices 1)) 1.0)
+        ck.near("index[2] = 2" (to_double (itemAt indices 2)) 2.0)
+
+        def empty:[double]
+        def emptyUV:[double]
+        def geo:ThreeBufferGeometry (ThreeGLTFLoader.buildGeometry(positions empty emptyUV indices))
+        ck.near("geometry vertexCount" (to_double (geo.vertexCount())) 3.0)
+        ck.near("geometry indexCount" (to_double (geo.indexCount())) 3.0)
+        ck.near("geometry v1.x" (geo.getPosition(1 0)) 1.0)
+        ck.near("geometry v2.y" (geo.getPosition(2 1)) 1.0)
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

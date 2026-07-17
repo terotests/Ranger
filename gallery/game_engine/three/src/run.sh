@@ -30,17 +30,29 @@ run_tsx_poc() {
 
 # One suite per ported class (grows piece by piece).
 run_suite three_vector3_test
+run_suite three_math_utils_test
+run_suite three_timer_test
+run_suite three_box3_test
 run_suite three_euler_test
 run_suite three_quaternion_test
 run_suite three_matrix4_test
 run_suite three_object3d_test
 run_suite three_light_test
+run_suite three_directional_light_shadow_test
+run_suite three_tone_mapping_test
 run_suite three_perspective_camera_test
 run_suite three_box_geometry_test
+run_suite three_gltf_loader_test
+run_suite three_gltf_file_test
+run_suite three_json_test
+run_suite three_http_test
+run_suite three_light_probe_grid_test
+run_suite three_light_probe_grid_helper_test
 run_suite three_teapot_test
 run_suite three_orbit_controls_test
-run_suite three_gui_overlay_test
+run_suite three_first_person_controls_test
 run_suite three_cube_texture_test
+run_suite three_sky_test
 run_suite three_mesh_test
 run_suite three_cube_demo_test
 run_suite three_gl_backend_test
@@ -51,5 +63,12 @@ run_tsx_poc three_facade_poc
 # rasterised (software backend) — proves the façade scene actually renders.
 run_tsx_poc three_tsx_bridge_test
 run_tsx_poc three_teapot_tsx_test
+# The Sponza light-probe scene (demo/host layer): the composition recipe, and
+# sponza.tsx interpreted + reconciled into the core with hot-reload (editing the
+# scene's params drives the Ranger scene live).
+run_tsx_poc three_sponza_scene_test
+run_tsx_poc three_sponza_tsx_test
+# The teapot's lil-gui panel (demo/host layer): EVG panel rasterise + hit-testing.
+run_tsx_poc three_gui_overlay_test
 
 echo "done."

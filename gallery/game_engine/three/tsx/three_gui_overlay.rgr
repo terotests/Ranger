@@ -1,15 +1,18 @@
 ; ==============================================================================
-; three_gui_overlay — a lil-gui-style control panel, drawn with EVG.
+; three_gui_overlay — the teapot demo's lil-gui control panel (demo/host layer).
 ; ==============================================================================
-; The teapot example's GUI, kept in pure Ranger: the panel is an EVGElement tree
-; rasterised to an RGBA buffer (via GameHudBlitter + SoftCanvas), which the host
-; composites over the WebGL frame in a small 2D overlay canvas (native: over the
-; GL framebuffer). Holds its own control state; pointerDown() hit-tests a click,
-; mutates state, and returns whether anything changed so the host can rebuild the
-; teapot and re-render. No DOM, no callbacks — compiles to C++ like the rest.
+; NOT part of the canonical object model (three/src): this panel is specific to
+; the teapot example (its title, shading modes, and lid/body/bottom/fitLid/blinn
+; toggles), so it lives in the demo layer next to the teapot bridge/host — the
+; same way three_sponza_scene does for the Sponza demo. A reusable EVG panel/
+; widget framework could be factored out of it later; for now it is the teapot's.
 ;
-; Controls (mirrors webgl_geometry_teapot): shading mode, tessellation stepper,
-; and the lid / body / bottom / fitLid / blinn toggles.
+; Kept in pure Ranger: the panel is an EVGElement tree rasterised to an RGBA
+; buffer (via GameHudBlitter + SoftCanvas), which the host composites over the
+; WebGL frame in a small 2D overlay canvas (native: over the GL framebuffer).
+; Holds its own control state; pointerDown() hit-tests a click, mutates state, and
+; returns whether anything changed so the host can rebuild the teapot and
+; re-render. No DOM, no callbacks — compiles to C++ like the rest.
 ; ==============================================================================
 
 Import "../../framebuffer.rgr"

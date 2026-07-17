@@ -1,0 +1,41 @@
+; ==============================================================================
+; three_math_utils — scalar helpers (Three.js port of src/math/MathUtils.js).
+; ==============================================================================
+;
+; The subset the Sponza / light-probe example uses: THREE.MathUtils.degToRad,
+; radToDeg, clamp, lerp. Static methods (sfn) so calls read like Three.js
+; (ThreeMathUtils.degToRad(45)). See IDEAL_SPONZA.md slice 1.
+; ==============================================================================
+
+class ThreeMathUtils {
+    ; PI / 180 and 180 / PI, matching Three's DEG2RAD / RAD2DEG constants.
+    sfn degToRad:double (degrees:double) {
+        return (degrees * 0.017453292519943295)
+    }
+    sfn radToDeg:double (radians:double) {
+        return (radians * 57.29577951308232)
+    }
+
+    sfn clamp:double (value:double minv:double maxv:double) {
+        if (value < minv) {
+            return minv
+        }
+        if (value > maxv) {
+            return maxv
+        }
+        return value
+    }
+
+    ; Linear interpolate x -> y by t (t is NOT clamped, matching Three).
+    sfn lerp:double (x:double y:double t:double) {
+        return (x + ((y - x) * t))
+    }
+
+    ; Inverse of lerp: where value sits between x and y as a 0..1 fraction.
+    sfn inverseLerp:double (x:double y:double value:double) {
+        if (x != y) {
+            return ((value - x) / (y - x))
+        }
+        return 0.0
+    }
+}

@@ -1,0 +1,65 @@
+; ==============================================================================
+; three_directional_light_shadow — shadow config for a directional light
+; (Three.js src/lights/DirectionalLightShadow.js). Sponza slice 4.
+; ==============================================================================
+; Holds the shadow-map resolution and the orthographic shadow-camera frustum, and
+; builds the light-space view-projection matrix used both to render the depth map
+; (GPU) and to project a world point into shadow-map space (portable + testable).
+;
+; The example sets these as dirLight.shadow.mapSize.setScalar(2048) and
+; dirLight.shadow.camera.left/right/top/bottom/near/far; the façade bridge maps
+; that nested shape onto setMapSize / setExtent here. The light-space matrix is
+; proj * view where view is the inverse of the shadow camera's world matrix
+; (camera at the light, looking at the target — Object3D.lookAt, tested elsewhere).
+; ==============================================================================
+
+Import "three_matrix4.rgr"
+Import "three_object3d.rgr"
+Import "three_vector3.rgr"
+
+class ThreeDirectionalLightShadow {
+    def isDirectionalLightShadow:boolean true
+    def mapSize:int 512
+    ; orthographic frustum (Three defaults: +/-5, near 0.5, far 500)
+    def left:double (0.0 - 5.0)
+    def right:double 5.0
+    def top:double 5.0
+    def bottom:double (0.0 - 5.0)
+    def near:double 0.5
+    def far:double 500.0
+
+    fn setMapSize:ThreeDirectionalLightShadow (n:int) {
+        mapSize = n
+        return this
+    }
+    fn setExtent:ThreeDirectionalLightShadow (l:double r:double t:double b:double n:double f:double) {
+        left = l
+        right = r
+        top = t
+        bottom = b
+        near = n
+        far = f
+        return this
+    }
+
+    fn getProjectionMatrix:ThreeMatrix4 () {
+        def proj:ThreeMatrix4 (new ThreeMatrix4)
+        proj.makeOrthographic(left right top bottom near far)
+        return proj
+    }
+
+    ; light-space view-projection: proj * inverse(shadowCameraWorld). The shadow
+    ; camera sits at lightPos looking at target (Object3D.lookAt = -Z toward target,
+    ; the same convention makeOrthographic projects along).
+    fn computeViewProjection:ThreeMatrix4 (lightPos:ThreeVector3 target:ThreeVector3) {
+        def cam:ThreeObject3D (new ThreeObject3D)
+        cam.position.copy(lightPos)
+        cam.lookAt(target.x target.y target.z)
+        cam.updateMatrixWorld()
+        def view:ThreeMatrix4 (cam.matrixWorld.clone())
+        view.invert()
+        def vp:ThreeMatrix4 (this.getProjectionMatrix())
+        vp.multiply(view)
+        return vp
+    }
+}

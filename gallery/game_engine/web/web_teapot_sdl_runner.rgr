@@ -61,6 +61,19 @@ class WebTeapotSdlRunner {
 
         while running {
             gfx_input_poll
+
+            ; re-read the framebuffer size each frame so a fullscreen toggle / window
+            ; resize updates the GL viewport, camera aspect and the GUI panel anchor
+            ; (else the scene keeps drawing at the old size in a corner of the screen).
+            def sw:int (gfx_surface_width)
+            def sh:int (gfx_surface_height)
+            if (((sw > 0) && (sh > 0)) && ((sw != w) || (sh != h))) {
+                w = sw
+                h = sh
+                probe.setSize(w h)
+                panelX = (w - gw)
+            }
+
             def mx:int (gfx_mouse_x)
             def my:int (gfx_mouse_y)
             def btn:int (gfx_mouse_buttons)

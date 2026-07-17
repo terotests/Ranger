@@ -1,0 +1,82 @@
+; ==============================================================================
+; three_tone_mapping — HDR tone mapping (Three.js src/constants.js tone-mapping
+; modes + the ACES filmic curve). Sponza slice 3.
+; ==============================================================================
+; The Sponza example renders HDR (dirLight intensity 100, ACESFilmicToneMapping,
+; exposure 1.0) so the übershader must compress linear HDR into displayable range.
+; This is the portable, unit-tested core: the mode constants (matching Three's
+; enum values) and the per-channel curves. The GPU applies the same curve in the
+; fragment-shader epilogue (uToneMapping/uExposure); this file lets the software
+; path and tests share the exact math. ACES uses the Narkowicz fit (the standard
+; "ACES filmic" approximation).
+; ==============================================================================
+
+class ThreeToneMapping {
+    ; mode constants — same integer values Three exports.
+    sfn NoToneMapping:int () {
+        return 0
+    }
+    sfn LinearToneMapping:int () {
+        return 1
+    }
+    sfn ReinhardToneMapping:int () {
+        return 2
+    }
+    sfn ACESFilmicToneMapping:int () {
+        return 4
+    }
+
+    ; ACES filmic (Narkowicz) applied to one already-exposed channel, clamped 0..1.
+    sfn acesFilmic:double (x:double) {
+        def a:double 2.51
+        def b:double 0.03
+        def c:double 2.43
+        def d:double 0.59
+        def e:double 0.14
+        def num:double (x * ((a * x) + b))
+        def den:double ((x * ((c * x) + d)) + e)
+        def r:double (num / den)
+        if (r < 0.0) {
+            return 0.0
+        }
+        if (r > 1.0) {
+            return 1.0
+        }
+        return r
+    }
+
+    ; Reinhard: x / (1 + x), clamped 0..1.
+    sfn reinhard:double (x:double) {
+        def r:double (x / (1.0 + x))
+        if (r < 0.0) {
+            return 0.0
+        }
+        if (r > 1.0) {
+            return 1.0
+        }
+        return r
+    }
+
+    ; map one channel through `mode` after multiplying by exposure.
+    sfn mapChannel:double (mode:int channel:double exposure:double) {
+        def x:double (channel * exposure)
+        if (mode == 4) {
+            return (ThreeToneMapping.acesFilmic(x))
+        }
+        if (mode == 2) {
+            return (ThreeToneMapping.reinhard(x))
+        }
+        if (mode == 1) {
+            ; linear: just exposure + clamp
+            if (x < 0.0) {
+                return 0.0
+            }
+            if (x > 1.0) {
+                return 1.0
+            }
+            return x
+        }
+        ; NoToneMapping: pass through unchanged (no clamp, matching Three).
+        return x
+    }
+}

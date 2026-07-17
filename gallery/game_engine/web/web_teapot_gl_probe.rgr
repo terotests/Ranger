@@ -19,7 +19,7 @@ Import "../three/src/three_mesh_phong_material.rgr"
 Import "../three/src/three_light.rgr"
 Import "../three/src/three_teapot_geometry.rgr"
 Import "../three/src/three_orbit_controls.rgr"
-Import "../three/src/three_gui_overlay.rgr"
+Import "../three/tsx/three_gui_overlay.rgr"
 Import "../three/src/three_texture.rgr"
 Import "../three/src/three_cube_texture.rgr"
 

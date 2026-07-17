@@ -32,6 +32,17 @@ wrong side of the engine-core ↔ game boundary, or opens a seam that was welded
 | R runtime correctness (fixed-step, input, transactional load) | ⬜ not started — from an external review, all 8 findings re-verified against source |
 | G 3D graphics (mesh · camera · lighting · materials/textures · resource loader · player physics) | 🟡 Phase-1 slices landed: `games/cube3d_wasm` (textured lit cube via `rg_res_load`) + `games/fps_wasm` (Doom-style character-controller walk-around, z-buffer + near-clip); rigid-body `cannon` wiring + `.rgr`/SDL host = follow-ups |
 
+**Three.js clone (separate track, not an ABI phase).** The portable Ranger clone
+of Three.js ([`IDEAL_THREE.md`](./IDEAL_THREE.md), `three/`) is tracked outside the
+phases above. The cube and teapot examples run 1:1 in the interpreter (the teapot
+renders on the GPU in the browser); the Sponza light-probe example
+([`three/IDEAL_SPONZA.md`](./three/IDEAL_SPONZA.md)) runs interpreted with hot
+reload (`three/tsx/three_sponza_tsx_test.rgr` in `run.sh`) and has a native SDL
+runner (`three/sponza_sdl_runner.rgr`, C++-codegen verified). Remaining: a native
+glTF **file** loader (the accessor decoder is done), the render-to-texture (FBO)
+passes for the shadow map + probe bake in `ThreeGLBackend`, and the browser +
+playground host for `sponza.tsx`. See `IDEAL_THREE §8`.
+
 **Verification strategy (three tiers, no SDL/WASM build needed).** This approach
 emerged during the work and proved repeatable — new items should follow it:
 

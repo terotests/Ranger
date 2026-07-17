@@ -1,0 +1,267 @@
+; ==============================================================================
+; web_sponza_tsx_host — run the light-probe-volume (Sponza) scene on the GPU, edited.
+; ==============================================================================
+;
+; The Sponza counterpart to web_teapot_tsx_host. sponza.tsx (the editable scene
+; code) runs in ComponentEngine against the three.tsx façade; ThreeSponzaTsxBridge
+; reconciles it into the Ranger Three core (ThreeSponzaScene); ThreeGLBackend +
+; ThreeWebGLRenderer draw it with real WebGL. FirstPersonControls are host
+; plumbing (WASD keys + pointer look routed in from the viewer).
+;
+; The browser cannot run the host-side glTF download (no child_process), so the
+; model is a procedural TEST scene here — a ground plane + boxes — enough to make
+; the whole interpret -> reconcile -> GPU path verifiable in a real (headless)
+; browser, and to debug the shadow pass against clean geometry. The native SDL
+; host (sponza_sdl_runner) loads the real Sponza .gltf over the network instead.
+;
+; No JavaScript in the engine — compiles to C++ too. Exposes a flat API the JS
+; viewer drives (setupGL / load / frame / key + look input / setSize).
+; ==============================================================================
+
+Import "../three/tsx/three_sponza_tsx_bridge.rgr"
+Import "../three/src/three_webgl_renderer.rgr"
+Import "../three/src/three_gl_backend.rgr"
+Import "../three/src/three_mesh.rgr"
+Import "../three/src/three_mesh_lambert_material.rgr"
+Import "../three/src/three_box_geometry.rgr"
+Import "../three/src/three_gltf_file.rgr"
+
+class WebSponzaTsxHost {
+    def engine:ComponentEngine (new ComponentEngine())
+    def bridge:ThreeSponzaTsxBridge (new ThreeSponzaTsxBridge)
+    def gl:ThreeGLBackend (new ThreeGLBackend)
+    def renderer:ThreeWebGLRenderer (new ThreeWebGLRenderer)
+    ; the glTF loader kept from loadWithModel so a viewer can push decoded texture
+    ; pixels into the model's materials after the geometry has been built.
+    def modelLoader:ThreeGLTFFile (new ThreeGLTFFile)
+    def ready:boolean false
+    def w:int 800
+    def h:int 500
+    def dt:double 0.033
+
+    ; interpreter globals the scene reads (THREE constants + window size).
+    fn registerGlobals:void (winW:int winH:int dpr:double) {
+        def tk:[string]
+        def tv:[EvalValue]
+        push tk "SRGBColorSpace"
+        push tv (EvalValue.string("srgb"))
+        push tk "DoubleSide"
+        push tv (EvalValue.number(2.0))
+        push tk "FrontSide"
+        push tv (EvalValue.number(0.0))
+        push tk "BackSide"
+        push tv (EvalValue.number(1.0))
+        push tk "RepeatWrapping"
+        push tv (EvalValue.number(1000.0))
+        push tk "ACESFilmicToneMapping"
+        push tv (EvalValue.number(4.0))
+        engine.registerGlobal("THREE" (EvalValue.object(tk tv)))
+
+        def wk:[string]
+        def wv:[EvalValue]
+        push wk "innerWidth"
+        push wv (EvalValue.number((to_double winW)))
+        push wk "innerHeight"
+        push wv (EvalValue.number((to_double winH)))
+        push wk "devicePixelRatio"
+        push wv (EvalValue.number(dpr))
+        engine.registerGlobal("window" (EvalValue.object(wk wv)))
+    }
+
+    fn setupGL:boolean (canvasId:string) {
+        def ok:boolean (gl.init(canvasId))
+        if (ok == false) {
+            return false
+        }
+        renderer.setBackend(gl)
+        return true
+    }
+
+    ; a Lambert-shaded box mesh at a position (lit by the directional + ambient light).
+    fn makeBox:ThreeMesh (sx:double sy:double sz:double px:double py:double pz:double hex:int) {
+        def geo:ThreeBoxGeometry (new ThreeBoxGeometry)
+        geo.setSize(sx sy sz)
+        def mat:ThreeMeshLambertMaterial (new ThreeMeshLambertMaterial)
+        mat.setColorHex(hex)
+        mat.setSide(2)
+        def m:ThreeMesh (new ThreeMesh)
+        m.setGeometry(geo)
+        m.setMaterial(mat)
+        m.position.set(px py pz)
+        m.castShadow = true
+        m.receiveShadow = true
+        return m
+    }
+
+    ; procedural stand-in for the Sponza model: a wide ground slab + a few boxes.
+    ; Casts clean shadows (once the shadow pass is wired) and exercises the lit path.
+    fn buildTestModel:ThreeObject3D () {
+        def root:ThreeObject3D (new ThreeObject3D)
+        def ground:ThreeMesh (this.makeBox(48.0 1.0 48.0 0.0 (0.0 - 0.5) 0.0 12303291))
+        root.add(ground)
+        def a:ThreeMesh (this.makeBox(5.0 8.0 5.0 (0.0 - 6.0) 4.0 (0.0 - 4.0) 13458524))
+        root.add(a)
+        def b:ThreeMesh (this.makeBox(4.0 12.0 4.0 6.0 6.0 3.0 5025616))
+        root.add(b)
+        def c:ThreeMesh (this.makeBox(3.0 5.0 3.0 2.0 2.5 (0.0 - 9.0) 15844367))
+        root.add(c)
+        return root
+    }
+
+    ; Build the scene (façade + sponza.tsx, reconciled around `model`) and configure
+    ; the renderer. The camera framing is left to the caller (it differs for the test
+    ; scene vs. the real model). Shared by load() and loadWithModel().
+    fn loadScene:string (facadeSrc:string sponzaSrc:string model:ThreeObject3D winW:int winH:int dpr:double) {
+        w = winW
+        h = winH
+        engine.quiet = true
+        this.registerGlobals(winW winH dpr)
+
+        renderer.setSize(winW winH)
+        renderer.setToneMapping(4)
+        ; the demo's directional intensity (100) is a physically-based value; this
+        ; clone's Lambert is not PBR, so expose down to keep the sunlit ground out of
+        ; full saturation (and the cast shadows readable) under ACES.
+        renderer.setToneMappingExposure(0.09)
+        renderer.setShadowMapEnabled(true)
+
+        bridge.setEngine(engine)
+        bridge.setModel(model)
+        def src:string ((facadeSrc + "\n") + sponzaSrc)
+        engine.loadScript(src)
+        bridge.initFromScript()
+        bridge.scene.setViewport(winW winH)
+        ready = true
+        return "ok"
+    }
+
+    ; frame the procedural test scene (~40 units): a fixed vantage looking at it.
+    fn frameTestCamera:void () {
+        bridge.scene.fpc.setMovementSpeed(18.0)
+        bridge.scene.fpc.setLook(180.0 (0.0 - 8.0))
+        bridge.scene.camera.position.set(0.0 9.0 34.0)
+        bridge.scene.update(0.0)
+    }
+    ; frame the real Sponza model: keep the interpreted camera position (sponza.tsx
+    ; places it inside the hall) and aim the first-person view down the long axis.
+    fn frameModelCamera:void () {
+        bridge.scene.fpc.setMovementSpeed(6.0)
+        bridge.scene.fpc.setLook(90.0 0.0)
+        bridge.scene.update(0.0)
+    }
+
+    ; render one frame so the GPU shadow map is populated, read it back, and compute
+    ; per-probe sun visibility so shadowed probes lose their direct-sun GI lobe. Runs
+    ; once after load (the first visible frame then uses the shadow-aware bake).
+    fn establishProbeVisibility:void () {
+        renderer.render(bridge.scene.scene bridge.scene.camera)
+        def size:int (gl.shadowMapSize())
+        def depth:buffer (gl.readShadowDepth())
+        bridge.scene.applyProbeVisibility(depth size)
+    }
+
+    ; Load with the procedural test scene (the browser can't fetch the real model).
+    fn load:string (facadeSrc:string sponzaSrc:string winW:int winH:int dpr:double) {
+        def r:string (this.loadScene(facadeSrc sponzaSrc (this.buildTestModel()) winW winH dpr))
+        this.frameTestCamera()
+        this.establishProbeVisibility()
+        return r
+    }
+
+    ; Load with the real model decoded from the VFS (a viewer fetched Sponza.gltf +
+    ; its buffers and wrote them under modelDir). Falls back to the test scene if the
+    ; model is absent/empty so the host still renders.
+    fn loadWithModel:string (facadeSrc:string sponzaSrc:string modelDir:string modelFile:string winW:int winH:int dpr:double) {
+        modelLoader = (new ThreeGLTFFile)
+        def m:ThreeObject3D (modelLoader.loadGLTFFromVfs(modelDir modelFile))
+        def isReal:boolean ((m.childCount()) > 0)
+        def model:ThreeObject3D m
+        if (isReal == false) {
+            model = (this.buildTestModel())
+        }
+        def r:string (this.loadScene(facadeSrc sponzaSrc model winW winH dpr))
+        if isReal {
+            this.frameModelCamera()
+        } {
+            this.frameTestCamera()
+        }
+        this.establishProbeVisibility()
+        return r
+    }
+
+    fn loadFromVfs:string (dir:string facadeFile:string sponzaFile:string winW:int winH:int dpr:double) {
+        def f:buffer (buffer_read_file dir facadeFile)
+        def c:buffer (buffer_read_file dir sponzaFile)
+        return (this.load((buffer_to_string f) (buffer_to_string c) winW winH dpr))
+    }
+
+    fn frame:void () {
+        if (ready == false) {
+            return
+        }
+        bridge.scene.update(dt)
+        renderer.render(bridge.scene.scene bridge.scene.camera)
+    }
+
+    fn setSize:void (winW:int winH:int) {
+        w = winW
+        h = winH
+        renderer.setSize(winW winH)
+        bridge.scene.setViewport(winW winH)
+    }
+
+    ; --- first-person input (routed from the viewer) --------------------------
+    fn keyDown:void (key:string) {
+        bridge.scene.fpc.keyDown(key)
+    }
+    fn keyUp:void (key:string) {
+        bridge.scene.fpc.keyUp(key)
+    }
+    fn look:void (dx:double dy:double) {
+        bridge.scene.fpc.handleLook(dx dy)
+    }
+
+    ; the scene is first-person animated, so every frame may differ.
+    fn needsRender:boolean () {
+        return true
+    }
+    ; --- model textures (the viewer decodes JPEG/PNG; the host can't) ----------
+    ; how many baseColorTexture images the loaded model references, and each one's
+    ; uri (the file the viewer fetches + decodes to RGBA).
+    fn modelImageCount:int () {
+        return (modelLoader.imageCount())
+    }
+    fn modelImageUri:string (i:int) {
+        return (modelLoader.imageUri(i))
+    }
+    ; attach decoded RGBA pixels for image `index` to every material that uses it.
+    ; Call after loadWithModel; the next frame uploads + samples the texture.
+    fn setModelImage:void (index:int rgba:buffer w:int h:int) {
+        modelLoader.setImage(index rgba w h)
+    }
+
+    ; --- diagnostics / tuning (used by the verification harness) --------------
+    fn setExposure:void (e:double) {
+        renderer.setToneMappingExposure(e)
+    }
+    fn infoCX:double () { return bridge.scene.centerX }
+    fn infoCY:double () { return bridge.scene.centerY }
+    fn infoCZ:double () { return bridge.scene.centerZ }
+    fn infoSX:double () { return bridge.scene.sizeX }
+    fn infoSY:double () { return bridge.scene.sizeY }
+    fn infoSZ:double () { return bridge.scene.sizeZ }
+    fn infoMeshes:int () { return (bridge.scene.model.childCount()) }
+    ; place the camera outside + above the model, aimed at its centre (overview).
+    fn setCameraLook:void (px:double py:double pz:double lon:double lat:double) {
+        bridge.scene.camera.position.set(px py pz)
+        bridge.scene.fpc.setLook(lon lat)
+        bridge.scene.update(0.0)
+    }
+
+    fn isReady:boolean () {
+        return ready
+    }
+    fn getSource:string () {
+        return ""
+    }
+}

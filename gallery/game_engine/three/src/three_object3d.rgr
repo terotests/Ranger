@@ -17,6 +17,7 @@ Import "three_euler.rgr"
 Import "three_quaternion.rgr"
 Import "three_matrix4.rgr"
 Import "three_render_backend.rgr"
+Import "three_box3.rgr"
 
 class ThreeObject3D {
     def isObject3D:boolean true
@@ -36,6 +37,21 @@ class ThreeObject3D {
 
     fn add:ThreeObject3D (child:ThreeObject3D) {
         push this.children child
+        return this
+    }
+    ; remove a child by identity (rebuilds the child list without it).
+    fn remove:ThreeObject3D (child:ThreeObject3D) {
+        def next:[ThreeObject3D]
+        def i:int 0
+        def n:int (array_length this.children)
+        while (i < n) {
+            def c:ThreeObject3D (itemAt this.children i)
+            if (c != child) {
+                push next c
+            }
+            i = (i + 1)
+        }
+        this.children = next
         return this
     }
     fn childCount:int () {
@@ -85,6 +101,32 @@ class ThreeObject3D {
     fn renderInto:void (backend:ThreeRenderBackend viewProj:ThreeMatrix4) {
     }
 
+    ; Bounding-box accumulation (so Box3 stays pure math and needs no Object3D
+    ; import). expandBox3 walks the subtree calling contributeBounds per node;
+    ; base Object3D contributes nothing, ThreeMesh overrides contributeBounds to
+    ; add its transformed vertices. Assumes world matrices are current.
+    fn contributeBounds:void (box:ThreeBox3) {
+    }
+    fn expandBox3:void (box:ThreeBox3) {
+        this.contributeBounds(box)
+        def i:int 0
+        def n:int (array_length this.children)
+        while (i < n) {
+            def c:ThreeObject3D (itemAt this.children i)
+            c.expandBox3(box)
+            i = (i + 1)
+        }
+    }
+    ; The setFromObject equivalent: bounds of this node's whole subtree in world
+    ; space (updates world matrices first). Returns a fresh Box3.
+    fn boundingBox:ThreeBox3 () {
+        def box:ThreeBox3 (new ThreeBox3)
+        box.makeEmpty()
+        this.updateMatrixWorld()
+        this.expandBox3(box)
+        return box
+    }
+
     ; Light interrogation (so the renderer can collect lights while walking the
     ; tree without downcasting): 0 = not a light, 1 = ambient, 2 = directional.
     ; The lightR/G/B contribution is colour*intensity; direction comes from
@@ -100,5 +142,30 @@ class ThreeObject3D {
     }
     fn lightB:double () {
         return 0.0
+    }
+
+    ; Shadow interrogation (same no-downcast pattern): does this node cast a shadow
+    ; map (a shadow-casting directional light), and its light-space view-projection.
+    ; Overridden by ThreeDirectionalLight.
+    fn castsShadow:boolean () {
+        return false
+    }
+    fn lightViewProjection:ThreeMatrix4 () {
+        return (new ThreeMatrix4)
+    }
+
+    ; Shadow depth pass: draw this node's depth from the light (mvp = lightVP *
+    ; matrixWorld). No-op for non-meshes; ThreeMesh overrides to draw its geometry.
+    fn renderDepthInto:void (backend:ThreeRenderBackend lightViewProj:ThreeMatrix4) {
+    }
+
+    ; Sky pass: draw an atmosphere/background dome behind the scene. No-op by
+    ; default; ThreeSky overrides to draw the Preetham atmosphere with its uniforms.
+    fn renderSkyInto:void (backend:ThreeRenderBackend viewProj:ThreeMatrix4) {
+    }
+
+    ; GI pass: hand a light-probe volume's data to the backend for per-fragment
+    ; irradiance. No-op by default; ThreeLightProbeGrid overrides.
+    fn renderGIInto:void (backend:ThreeRenderBackend) {
     }
 }

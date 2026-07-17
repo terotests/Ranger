@@ -52,6 +52,17 @@ class ThreeVector3 {
         return this
     }
 
+    ; Position on a sphere: radius, phi = polar angle from +Y (0..PI),
+    ; theta = azimuth in the XZ plane. Matches Three's Vector3.setFromSphericalCoords;
+    ; the Sponza example uses it to turn (elevation, azimuth) into a sun direction.
+    fn setFromSphericalCoords:ThreeVector3 (radius:double phi:double theta:double) {
+        def sinPhiRadius:double (radius * (sin phi))
+        this.x = (sinPhiRadius * (sin theta))
+        this.y = (radius * (cos phi))
+        this.z = (sinPhiRadius * (cos theta))
+        return this
+    }
+
     fn copy:ThreeVector3 (v:ThreeVector3) {
         this.x = v.x
         this.y = v.y

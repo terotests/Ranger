@@ -1,0 +1,102 @@
+; ==============================================================================
+; three_json_test — the recursive-descent JSON parser, on a glTF-shaped fixture.
+; ==============================================================================
+; Compile to ES6 and run under Node; prints per-check PASS/FAIL and "ALL PASS".
+; ==============================================================================
+
+Import "three_json.rgr"
+
+class ThreeCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    fn near:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) { d = (0.0 - d) }
+        if (d < 0.0001) {
+            passed = (passed + 1)
+            print ("  PASS " + name + " (" + (to_string got) + ")")
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name + " got=" + (to_string got) + " want=" + (to_string want))
+        }
+    }
+}
+
+class ThreeJsonTest {
+    sfn m@(main):void () {
+        def ck:ThreeCheck (new ThreeCheck)
+        print "== JsonParser =="
+
+        ; scalars
+        def p0:JsonParser (new JsonParser)
+        def n0:JsonValue (p0.parse("  42.5 "))
+        ck.ok("number kind" (n0.isNumber()))
+        ck.near("number value" (n0.asNumber()) 42.5)
+
+        def p1:JsonParser (new JsonParser)
+        def b1:JsonValue (p1.parse("true"))
+        ck.ok("bool kind" (b1.isBool()))
+        ck.ok("bool value" (b1.asBool()))
+
+        def p2:JsonParser (new JsonParser)
+        def s2:JsonValue (p2.parse("\"POSITION\""))
+        ck.ok("string kind" (s2.isString()))
+        ck.ok("string value" ((s2.asString()) == "POSITION"))
+
+        ; a glTF-shaped object
+        def gltf:string "{ \"asset\": { \"version\": \"2.0\" }, \"accessors\": [ { \"bufferView\": 0, \"componentType\": 5126, \"count\": 3, \"type\": \"VEC3\" }, { \"bufferView\": 1, \"componentType\": 5123, \"count\": 3, \"type\": \"SCALAR\" } ], \"meshes\": [ { \"primitives\": [ { \"attributes\": { \"POSITION\": 0 }, \"indices\": 1, \"material\": 0 } ] } ], \"nodes\": [ { \"mesh\": 0, \"translation\": [ 1.0, 2.0, 3.0 ] } ] }"
+        def p:JsonParser (new JsonParser)
+        def root:JsonValue (p.parse(gltf))
+        ck.ok("root is object" (root.isObject()))
+
+        def asset:JsonValue (root.get("asset"))
+        ck.ok("asset.version = 2.0" ((asset.strOr("version" "")) == "2.0"))
+
+        def accessors:JsonValue (root.get("accessors"))
+        ck.ok("accessors is array" (accessors.isArray()))
+        ck.near("2 accessors" (to_double (accessors.length())) 2.0)
+        def acc0:JsonValue (accessors.at(0))
+        ck.near("accessor0 componentType 5126" (to_double (acc0.intOr("componentType" 0))) 5126.0)
+        ck.near("accessor0 count 3" (to_double (acc0.intOr("count" 0))) 3.0)
+        ck.ok("accessor0 type VEC3" ((acc0.strOr("type" "")) == "VEC3"))
+        def acc1:JsonValue (accessors.at(1))
+        ck.near("accessor1 componentType 5123" (to_double (acc1.intOr("componentType" 0))) 5123.0)
+
+        def meshes:JsonValue (root.get("meshes"))
+        def mesh0:JsonValue (meshes.at(0))
+        def prims:JsonValue (mesh0.get("primitives"))
+        def prim0:JsonValue (prims.at(0))
+        def attrs:JsonValue (prim0.get("attributes"))
+        ck.near("primitive POSITION accessor 0" (to_double (attrs.intOr("POSITION" (0 - 1)))) 0.0)
+        ck.near("primitive indices 1" (to_double (prim0.intOr("indices" (0 - 1)))) 1.0)
+
+        def nodes:JsonValue (root.get("nodes"))
+        def node0:JsonValue (nodes.at(0))
+        ck.near("node0 mesh 0" (to_double (node0.intOr("mesh" (0 - 1)))) 0.0)
+        def t:JsonValue (node0.get("translation"))
+        ck.ok("translation is array" (t.isArray()))
+        def ty:JsonValue (t.at(1))
+        ck.near("translation[1] = 2.0" (ty.asNumber()) 2.0)
+
+        ; missing key -> null value with defaults
+        ck.ok("missing key is null" ((root.get("missing")).isNull()))
+        ck.near("intOr default" (to_double (root.intOr("missing" 99))) 99.0)
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

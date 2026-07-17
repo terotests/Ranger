@@ -107,6 +107,19 @@ class ThreeVector3Test {
         l0.lerp(l1 0.5)
         ck.near("lerp x" l0.x 5.0)
 
+        ; setFromSphericalCoords: (r, phi from +Y, theta azimuth in XZ)
+        def sc:ThreeVector3 (new ThreeVector3)
+        def halfPi:double 1.5707963267948966
+        sc.setFromSphericalCoords(1.0 halfPi 0.0)
+        ck.near("spherical (r,PI/2,0) -> z" sc.z 1.0)
+        ck.near("spherical (r,PI/2,0) -> x" sc.x 0.0)
+        ck.near("spherical (r,PI/2,0) -> y" sc.y 0.0)
+        sc.setFromSphericalCoords(1.0 halfPi halfPi)
+        ck.near("spherical (r,PI/2,PI/2) -> x" sc.x 1.0)
+        ck.near("spherical (r,PI/2,PI/2) -> z" sc.z 0.0)
+        sc.setFromSphericalCoords(2.0 0.0 0.0)
+        ck.near("spherical (2,0,0) -> y (up)" sc.y 2.0)
+
         ; fluent chaining (Three.js style)
         def chain:ThreeVector3 (new ThreeVector3)
         chain.set(1.0 1.0 1.0).multiplyScalar(3.0).addScalar(1.0)

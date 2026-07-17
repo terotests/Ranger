@@ -13,6 +13,12 @@
 > [`IDEAL_THREE.md`](./IDEAL_THREE.md) is the portable **Ranger clone of Three.js**
 > — one Ranger object model (compiles to C++/WASM/ES6) driven by a TSX façade,
 > Ranger code, or a WASM guest, with a pluggable software/WebGL/GLES backend.
+> Three example scenes run 1:1 in the interpreter against that model: the rotating
+> cube, the teapot ([`three/IDEAL_TEAPOT.md`](./three/IDEAL_TEAPOT.md), rendered on
+> the GPU in the browser) and the Sponza light-probe volume
+> ([`three/IDEAL_SPONZA.md`](./three/IDEAL_SPONZA.md) — sky, shadows, ACES tone
+> mapping, a baked diffuse-GI probe volume; runs interpreted with hot reload and
+> has a native SDL runner). See `IDEAL_THREE §8`.
 
 ---
 
