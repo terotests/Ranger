@@ -67,7 +67,7 @@ interface Framebuffer {
 type Screen = Framebuffer;
 
 /** Retained sprite kinds understood by game_sprite.rgr / GameRunner. */
-type SpriteKind = "rect" | "circle" | "wedge" | "ghost" | "bitmap" | "sheet";
+type SpriteKind = "rect" | "circle" | "wedge" | "ghost" | "bitmap" | "sheet" | "trap";
 
 /** Static sprite definition returned from sprites(). */
 interface SpriteDef {
@@ -135,11 +135,16 @@ interface EntityPose {
    */
   scale?: number;
   /**
-   * rect: live width/height in pixels. Applied each frame in syncPose so
+   * rect/trap: live width/height in pixels. Applied each frame in syncPose so
    * pseudo-3D road bands can grow nearer the camera without gaps.
    */
   w?: number;
   h?: number;
+  /**
+   * trap: bottom edge width lives in p0, bottom center X in p1.
+   * Top edge is (x ± w/2) at y; bottom is (p1 ± p0/2) at y+h
+   * (SoftCanvas.fillTrapezoid).
+   */
 }
 
 /** World-space spawn definition returned from entities(). */

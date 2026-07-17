@@ -596,6 +596,15 @@ class GameSpriteRenderer {
             canvas.fillGhost(e.x e.y e.rad e.p0 e.p1 e.cr e.cg e.cb)
             return
         }
+        ; Horizontal trapezoid: top (x ± w/2) @ y → bottom (p1 ± p0/2) @ y+h.
+        if (e.kind == "trap") {
+            def y0:int e.y
+            def y1:int (e.y + e.h)
+            def half0:int (this.half(e.w))
+            def half1:int (this.half(e.p0))
+            canvas.fillTrapezoid(y0 (e.x - half0) (e.x + half0) y1 (e.p1 - half1) (e.p1 + half1) e.cr e.cg e.cb)
+            return
+        }
         if (e.angleDeg != 0.0) {
             canvas.fillRectRotated(e.x e.y e.w e.h e.angleDeg e.cr e.cg e.cb)
             return

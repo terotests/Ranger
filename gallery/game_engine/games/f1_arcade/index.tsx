@@ -3,11 +3,8 @@
 // F1 Arcade — Pole Position-style pseudo-3D racer.
 //
 // Projection: Lou / Jake Gordon scale = camDepth / relZ, with curve x/dx.
-// Screen Y is remapped into [HORIZON .. VIEW_H] so the road fills the ground
-// plane. Consecutive projected points define each band's height so nearer
-// strips are taller AND wider, with 2px overlap (no green gaps).
-// Rect poses use live w/h (engine syncPose). Player car is a rear-view sheet
-// with left/center/right steer frames.
+// Road/rumble/line use kind:"trap" → SoftCanvas.fillTrapezoid (diagonal edges).
+// Props pin to the rendered curb; player car is a rear-view lean sheet.
 //
 // Controls: Left/Right steer · Up or Space accelerate · Down brake
 // Run: npm run engine:game-sdl:run:f1_arcade
@@ -203,13 +200,13 @@ function sprites() {
   list.push(sheetSprite("cloud1", "assets/cloud_b.png", 40, 20, 1));
   list.push(sheetSprite("cloud2", "assets/cloud_c.png", 36, 18, 1));
 
-  // Road bands: live pose.w / pose.h each frame (max sizes here).
+  // Road bands as trapezoids (SoftCanvas.fillTrapezoid) — diagonal edges, no stairs.
   let n = DRAW_DIST - 1;
   while (n >= 0) {
-    list.push({ id: "rd" + n, kind: "rect", w: VIEW_W - 4, h: 48, r: 70, g: 72, b: 80 });
-    list.push({ id: "rl" + n, kind: "rect", w: 40, h: 48, r: 220, g: 40, b: 40 });
-    list.push({ id: "rr" + n, kind: "rect", w: 40, h: 48, r: 220, g: 40, b: 40 });
-    list.push({ id: "ln" + n, kind: "rect", w: 12, h: 48, r: 240, g: 240, b: 220 });
+    list.push({ id: "rd" + n, kind: "trap", w: VIEW_W - 4, h: 48, p0: VIEW_W - 4, p1: CX, r: 70, g: 72, b: 80 });
+    list.push({ id: "rl" + n, kind: "trap", w: 40, h: 48, p0: 40, p1: 0, r: 220, g: 40, b: 40 });
+    list.push({ id: "rr" + n, kind: "trap", w: 40, h: 48, p0: 40, p1: 0, r: 220, g: 40, b: 40 });
+    list.push({ id: "ln" + n, kind: "trap", w: 12, h: 48, p0: 12, p1: CX, r: 240, g: 240, b: 220 });
     n = n - 1;
   }
 
@@ -276,10 +273,10 @@ function hideAi(entities) {
 function hideRoad(entities) {
   let n = 0;
   while (n < DRAW_DIST) {
-    entities["rd" + n] = { x: -80, y: -80, w: 4, h: 2, visible: 0 };
-    entities["rl" + n] = { x: -80, y: -80, w: 2, h: 2, visible: 0 };
-    entities["rr" + n] = { x: -80, y: -80, w: 2, h: 2, visible: 0 };
-    entities["ln" + n] = { x: -80, y: -80, w: 2, h: 2, visible: 0 };
+    entities["rd" + n] = { x: -80, y: -80, w: 4, h: 2, p0: 4, p1: -80, visible: 0 };
+    entities["rl" + n] = { x: -80, y: -80, w: 2, h: 2, p0: 2, p1: -80, visible: 0 };
+    entities["rr" + n] = { x: -80, y: -80, w: 2, h: 2, p0: 2, p1: -80, visible: 0 };
+    entities["ln" + n] = { x: -80, y: -80, w: 2, h: 2, p0: 2, p1: -80, visible: 0 };
     n = n + 1;
   }
 }
@@ -459,31 +456,40 @@ function placeWorld(entities, playerZ, playerX, anim, aiState) {
   }
 
   let propSlot = 0;
-  // Paint far → near.
+  // Paint far → near as true trapezoids (top = far, bottom = near).
   let bi = DRAW_DIST - 1;
   while (bi >= 0) {
     const yNear = ys[bi];
     const yFar = ys[bi + 1];
-    let bandH = floorOf(yNear - yFar) + 3;
-    if (bandH < 2) {
-      bandH = 2;
+    let bandH = floorOf(yNear - yFar) + 1;
+    if (bandH < 1) {
+      bandH = 1;
     }
-    const y = (yNear + yFar) * 0.5;
-    const cx = (xs[bi] + xs[bi + 1]) * 0.5;
-    let half = (ws[bi] + ws[bi + 1]) * 0.5;
-    // Keep road + rumbles inside the view; clamp half so edges abut (no grass seam).
-    const maxHalf = VIEW_W * 0.5 - 8;
-    if (half > maxHalf) {
-      half = maxHalf;
+    let halfFar = ws[bi + 1];
+    let halfNear = ws[bi];
+    const maxHalf = VIEW_W * 0.5 - 6;
+    if (halfFar > maxHalf) {
+      halfFar = maxHalf;
     }
-    if (half < 5) {
-      half = 5;
+    if (halfNear > maxHalf) {
+      halfNear = maxHalf;
     }
+    if (halfFar < 4) {
+      halfFar = 4;
+    }
+    if (halfNear < 5) {
+      halfNear = 5;
+    }
+    const cxFar = xs[bi + 1];
+    const cxNear = xs[bi];
+    const topW = floorOf(halfFar * 2);
+    const botW = floorOf(halfNear * 2);
+    const yTop = floorOf(yFar);
     const relZ = (zs[bi] + zs[bi + 1]) * 0.5;
-    const camX = cams[bi];
-    const roadW = floorOf(half * 2);
-    const rb = rumbleW(half);
-    const lw = lineW(half);
+    const rbFar = rumbleW(halfFar);
+    const rbNear = rumbleW(halfNear);
+    const lwFar = lineW(halfFar);
+    const lwNear = lineW(halfNear);
     const segIdx = baseSeg + floorOf(relZ / SEG_LENGTH);
     const stripe = wrapMod(segIdx + floorOf(relZ / 40), 2);
 
@@ -502,38 +508,49 @@ function placeWorld(entities, playerZ, playerX, anim, aiState) {
     if (yNear > HORIZON - 2) {
       if (yFar < VIEW_H + 4) {
         entities["rd" + bi] = {
-          x: cx,
-          y: y,
-          w: roadW,
+          x: cxFar,
+          y: yTop,
+          w: topW,
           h: bandH,
+          p0: botW,
+          p1: floorOf(cxNear),
           r: roadR,
           g: roadG,
           b: roadB,
           visible: 1
         };
-        // Rumble overlaps road edge by ~1/3 so no grass seam at the curb.
+
+        // Left/right rumble: traps just outside the asphalt edge.
+        const rlTopC = cxFar - halfFar + rbFar * 0.15;
+        const rlBotC = cxNear - halfNear + rbNear * 0.15;
+        const rrTopC = cxFar + halfFar - rbFar * 0.15;
+        const rrBotC = cxNear + halfNear - rbNear * 0.15;
         entities["rl" + bi] = {
-          x: cx - half + rb * 0.2,
-          y: y,
-          w: rb,
+          x: rlTopC,
+          y: yTop,
+          w: rbFar,
           h: bandH,
+          p0: rbNear,
+          p1: floorOf(rlBotC),
           r: rumbleR,
           g: rumbleG,
           b: rumbleB,
           visible: 1
         };
         entities["rr" + bi] = {
-          x: cx + half - rb * 0.2,
-          y: y,
-          w: rb,
+          x: rrTopC,
+          y: yTop,
+          w: rbFar,
           h: bandH,
+          p0: rbNear,
+          p1: floorOf(rrBotC),
           r: rumbleR,
           g: rumbleG,
           b: rumbleB,
           visible: 1
         };
 
-        // Center line: solid on the nearest few bands, dashed farther out.
+        // Center line: solid near, dashed far.
         let drawLine = 0;
         if (bi <= 4) {
           drawLine = 1;
@@ -545,21 +562,23 @@ function placeWorld(entities, playerZ, playerX, anim, aiState) {
           }
         }
         if (drawLine == 1) {
-          let lineH = bandH;
-          if (lineH < 3) {
-            lineH = 3;
-          }
-          let lineWpx = lw;
+          let topLW = lwFar;
+          let botLW = lwNear;
           if (bi <= 2) {
-            if (lineWpx < 4) {
-              lineWpx = 4;
+            if (topLW < 3) {
+              topLW = 3;
+            }
+            if (botLW < 4) {
+              botLW = 4;
             }
           }
           entities["ln" + bi] = {
-            x: cx,
-            y: y,
-            w: lineWpx,
-            h: lineH,
+            x: cxFar,
+            y: yTop,
+            w: topLW,
+            h: bandH,
+            p0: botLW,
+            p1: floorOf(cxNear),
             r: 240,
             g: 240,
             b: 220,
@@ -567,8 +586,7 @@ function placeWorld(entities, playerZ, playerX, anim, aiState) {
           };
         }
 
-        // Pin props to the *rendered* road edge (same cx/half as asphalt),
-        // not a world X inside the lane — otherwise curves put them on tarmac.
+        // Props pinned to near edge of this band (outside rumble).
         if (propSlot < PROP_SLOTS) {
           if ((bi % 2) == 0) {
             if (bi > 2) {
@@ -577,9 +595,8 @@ function placeWorld(entities, playerZ, playerX, anim, aiState) {
                 if (kindN > 0) {
                   const side = propSideAt(segIdx);
                   const sc = spriteScalePct(CAM_DEPTH / relZ);
-                  // Outside rumble: edge + margin that also scales with depth.
-                  const margin = rb + 6 + floorOf(half * 0.08);
-                  const propX = cx + side * (half + margin);
+                  const margin = rbNear + 6 + floorOf(halfNear * 0.08);
+                  const propX = cxNear + side * (halfNear + margin);
                   const propY = yNear;
                   if (sc >= 12) {
                     if (propX > 8) {
@@ -591,7 +608,6 @@ function placeWorld(entities, playerZ, playerX, anim, aiState) {
                         if (kindN == 3) {
                           kind = "crowd";
                         }
-                        // Crowds get a slight scale bump so they stay readable.
                         let useScale = sc;
                         if (kind == "crowd") {
                           useScale = clamp(floorOf(sc * 1.15), 14, 120);
