@@ -162,44 +162,54 @@ class ThreeSponzaScene {
         this.sky.copySunPosition(sun)
     }
 
-    ; analytic skylight fill the probe volume bakes as its uniform ambient: a cool
-    ; daylight tint scaled by the sun's strength + elevation. A stand-in for the GPU
-    ; bake (per-probe cubemap capture of the bounced sun + sky); good enough to fill
-    ; the surfaces the direct sun misses so they are lit, not black.
-    fn computeSkylight:void () {
+    ; bake the probe volume as a directional SH environment: cool sky from above, a
+    ; warm ground bounce from below, and the sun as a directional lobe (all scaled by
+    ; the sun's strength). A per-probe "openness" gradient dims the low/enclosed
+    ; probes. Analytic stand-in for a cubemap capture, but directional + spatially
+    ; varying, so the sun-shadowed surfaces are filled with bounce, not black.
+    fn bakeGI:void () {
         def elevation:double (ThreeMathUtils.degToRad(this.lightElevation))
         def daylight:double ((sin elevation) + 0.25)
         if (daylight < 0.05) {
             daylight = 0.05
         }
-        def level:double ((this.lightIntensity * 0.08) * daylight)
-        this.ambientR = (level * 0.85)
-        this.ambientG = (level * 0.95)
-        this.ambientB = (level * 1.15)
+        ; sun direction (same convention as the sky sun uniform)
+        def phi:double (ThreeMathUtils.degToRad(90.0 - this.lightElevation))
+        def theta:double (ThreeMathUtils.degToRad(this.lightAzimuth))
+        def sun:ThreeVector3 (new ThreeVector3)
+        sun.setFromSphericalCoords(1.0 phi theta)
+
+        ; radiance strengths in the scene's lighting scale (a fraction of the direct
+        ; sun), tinted warm (sun / ground bounce) and cool (sky).
+        def sunLevel:double ((this.lightIntensity * 0.10) * daylight)
+        def skyLevel:double ((this.lightIntensity * 0.06) * daylight)
+        def gndLevel:double ((this.lightIntensity * 0.07) * daylight)
+        this.probes.bakeDirectional(
+            sun.x sun.y sun.z
+            (sunLevel * 1.0) (sunLevel * 0.96) (sunLevel * 0.86)
+            (skyLevel * 0.62) (skyLevel * 0.80) (skyLevel * 1.10)
+            (gndLevel * 0.90) (gndLevel * 0.80) (gndLevel * 0.62))
     }
 
     ; (re)create the probe grid at the current settings and bake it. Removes the
     ; previous volume + helper first so hot-reloads don't leak scene children.
     fn rebuildProbes:void () {
-        this.computeSkylight()
         this.scene.remove(this.probes)
         this.scene.remove(this.probesHelper)
         this.probes = (ThreeLightProbeGrid.create(this.gridSizeX this.gridSizeY this.gridSizeZ this.countX this.countY this.countZ))
         this.probes.position.set(this.boundsX this.boundsY this.boundsZ)
         this.probes.visible = this.enabled
-        ; analytic ambient bake (GPU bake renders each probe as a cubemap instead).
-        this.probes.bakeAmbient(this.ambientR this.ambientG this.ambientB)
+        this.bakeGI()
         this.scene.add(this.probes)
         this.probesHelper = (ThreeLightProbeGridHelper.create(this.probes this.probeSize))
         this.probesHelper.visible = this.showProbes
         this.scene.add(this.probesHelper)
     }
 
-    ; re-bake the existing probe volume's skylight fill (no re-create) — the cheap
-    ; path when only the sun's intensity/elevation changed on a hot reload.
+    ; re-bake the existing probe volume (no re-create) — the cheap path when only
+    ; the sun's intensity/elevation changed on a hot reload.
     fn refreshGI:void () {
-        this.computeSkylight()
-        this.probes.bakeAmbient(this.ambientR this.ambientG this.ambientB)
+        this.bakeGI()
     }
 
     ; sample the baked GI irradiance at a world point for a surface normal (what the

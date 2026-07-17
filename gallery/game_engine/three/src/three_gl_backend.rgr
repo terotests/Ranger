@@ -37,6 +37,9 @@ class ThreeGLBackend extends ThreeRenderBackend {
     def shadowProg:int 0
     def shadowSize:int 2048
     def shadowReady:boolean false
+    ; light-probe SH texture (uploaded once, re-uploaded when the bake version changes)
+    def probeTex:int 0
+    def probeVersion:int (0 - 1)
 
     fn init:boolean (canvasId:string) {
         def ok:int (gpu_init canvasId)
@@ -253,6 +256,26 @@ class ThreeGLBackend extends ThreeRenderBackend {
         ByteReader.encodeF32(params 20 mieCoefficient)
         ByteReader.encodeF32(params 24 mieDirectionalG)
         gpu_draw_atmosphere atmoProg atmoMesh mvpBuf modelBuf params
+    }
+
+    ; --- light-probe volume (per-fragment GI) --------------------------------
+    fn setProbeVolume:void (shData:buffer probeCount:int cx:int cy:int cz:int ox:double oy:double oz:double sx:double sy:double sz:double version:int enabled:boolean) {
+        if ((enabled == false) || (probeCount < 1)) {
+            gpu_set_probes 0 1.0 1.0 1.0 1.0 0.0 0.0 0.0 1.0 1.0 1.0 0
+            return
+        }
+        ; upload the SH texture (9 texels wide, one row per probe) on first use, and
+        ; re-upload only when the bake changed.
+        if (probeTex < 1) {
+            probeTex = (gpu_make_float_tex shData 9 probeCount)
+            probeVersion = version
+        } {
+            if (version != probeVersion) {
+                gpu_update_float_tex probeTex shData 9 probeCount
+                probeVersion = version
+            }
+        }
+        gpu_set_probes probeTex (to_double probeCount) (to_double cx) (to_double cy) (to_double cz) ox oy oz sx sy sz 1
     }
 
     fn endFrame:void () {

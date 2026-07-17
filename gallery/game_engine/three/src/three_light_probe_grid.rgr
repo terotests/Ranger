@@ -15,6 +15,7 @@
 Import "three_object3d.rgr"
 Import "three_vector3.rgr"
 Import "three_spherical_harmonics3.rgr"
+Import "../../model3d/ByteReader.rgr"
 
 class ThreeLightProbeGrid extends ThreeObject3D {
     def isLightProbeGrid:boolean true
@@ -30,6 +31,8 @@ class ThreeLightProbeGrid extends ThreeObject3D {
     def bakedR:double 0.0
     def bakedG:double 0.0
     def bakedB:double 0.0
+    ; bumped on every bake so a GPU backend re-uploads the SH texture only on change.
+    def bakeVersion:int 0
 
     sfn create:ThreeLightProbeGrid (sizeX:double sizeY:double sizeZ:double cx:int cy:int cz:int) {
         def g:ThreeLightProbeGrid (new ThreeLightProbeGrid)
@@ -81,6 +84,7 @@ class ThreeLightProbeGrid extends ThreeObject3D {
         this.bakedR = r
         this.bakedG = g
         this.bakedB = b
+        this.bakeVersion = (this.bakeVersion + 1)
         def n:int (array_length this.probes)
         def i:int 0
         while (i < n) {
@@ -90,6 +94,94 @@ class ThreeLightProbeGrid extends ThreeObject3D {
             i = (i + 1)
         }
         return this
+    }
+
+    ; directional bake: each probe stores an SH irradiance environment built from
+    ; the sky (from above), a ground bounce (from below) and the sun (a directional
+    ; lobe). An "openness" factor rising with height dims probes low/enclosed in the
+    ; volume and brightens those near the open top — a cheap analytic stand-in for
+    ; the cubemap capture, but directional + spatially varying, so surfaces the sun
+    ; misses are filled by warm bounce + cool sky instead of going black.
+    fn bakeDirectional:ThreeLightProbeGrid (sunX:double sunY:double sunZ:double sunR:double sunG:double sunB:double skyR:double skyG:double skyB:double gndR:double gndG:double gndB:double) {
+        def sl:double (sqrt(((sunX * sunX) + (sunY * sunY)) + (sunZ * sunZ)))
+        if (sl < 0.000001) { sl = 1.0 }
+        def sx:double (sunX / sl)
+        def sy:double (sunY / sl)
+        def sz:double (sunZ / sl)
+        def accR:double 0.0
+        def accG:double 0.0
+        def accB:double 0.0
+        def tmp:ThreeVector3 (new ThreeVector3)
+        def iz:int 0
+        while (iz < this.countZ) {
+            def iy:int 0
+            while (iy < this.countY) {
+                def ix:int 0
+                while (ix < this.countX) {
+                    def t:double 0.5
+                    if (this.countY > 1) {
+                        t = ((to_double iy) / (to_double (this.countY - 1)))
+                    }
+                    def openness:double (0.2 + (0.8 * t))
+                    def p:ThreeSphericalHarmonics3 (this.getProbe(ix iy iz))
+                    p.zero()
+                    ; ambient floor so nothing is ever pure black
+                    p.addAmbient((skyR * 0.15) (skyG * 0.15) (skyB * 0.15))
+                    ; sky from above (cool), stronger for open probes
+                    p.projectRadiance(0.0 1.0 0.0 skyR skyG skyB (openness * 0.9))
+                    ; ground bounce from below (warm)
+                    p.projectRadiance(0.0 (0.0 - 1.0) 0.0 gndR gndG gndB 0.7)
+                    ; sun as a directional lobe, only reaching open probes
+                    p.projectRadiance(sx sy sz sunR sunG sunB (openness * 1.2))
+                    p.getIrradianceAt(0.0 1.0 0.0 tmp)
+                    accR = (accR + tmp.x)
+                    accG = (accG + tmp.y)
+                    accB = (accB + tmp.z)
+                    ix = (ix + 1)
+                }
+                iy = (iy + 1)
+            }
+            iz = (iz + 1)
+        }
+        ; representative up-facing irradiance (average), for the flat-ambient fallback
+        def n:int (this.probeCount())
+        if (n < 1) { n = 1 }
+        this.bakedR = (accR / (to_double n))
+        this.bakedG = (accG / (to_double n))
+        this.bakedB = (accB / (to_double n))
+        this.bakeVersion = (this.bakeVersion + 1)
+        return this
+    }
+
+    ; GI pass: hand the backend this volume's SH texture + grid metadata so the lit
+    ; pass samples per-fragment irradiance from it (no-op backend => ignored).
+    fn renderGIInto:void (backend:ThreeRenderBackend) {
+        def data:buffer (this.packSH())
+        backend.setProbeVolume(data (this.probeCount()) this.countX this.countY this.countZ this.position.x this.position.y this.position.z this.sizeX this.sizeY this.sizeZ this.bakeVersion this.visible)
+    }
+
+    ; pack every probe's 9 SH RGB coefficients into a float32 texture payload for
+    ; the GPU: one texel row per probe (width 9), texel j = (coeff.x, coeff.y,
+    ; coeff.z, 0). Row index is the probe's flat index (matches the shader's lookup).
+    fn packSH:buffer () {
+        def n:int (this.probeCount())
+        def out:buffer (buffer_alloc (((n * 9) * 4) * 4))
+        def pi:int 0
+        while (pi < n) {
+            def sh:ThreeSphericalHarmonics3 (itemAt this.probes pi)
+            def j:int 0
+            while (j < 9) {
+                def c:ThreeVector3 (itemAt sh.coefficients j)
+                def o:int (((pi * 9) + j) * 16)
+                ByteReader.encodeF32(out o c.x)
+                ByteReader.encodeF32(out (o + 4) c.y)
+                ByteReader.encodeF32(out (o + 8) c.z)
+                ByteReader.encodeF32(out (o + 12) 0.0)
+                j = (j + 1)
+            }
+            pi = (pi + 1)
+        }
+        return out
     }
 
     ; the renderer treats a visible probe volume as a scene-wide ambient (GI) fill:

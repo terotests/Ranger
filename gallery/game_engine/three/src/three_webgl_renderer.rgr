@@ -145,6 +145,11 @@ class ThreeWebGLRenderer {
         } {
             be.setEnvironment(0)
         }
+        ; light-probe GI: disable first (so a probe-less scene doesn't keep stale
+        ; state), then let any probe volume in the tree hand its SH to the backend.
+        def noBuf:buffer (buffer_alloc 0)
+        be.setProbeVolume(noBuf 0 1 1 1 0.0 0.0 0.0 1.0 1.0 1.0 0 false)
+        this.renderGI(scene be)
         ; atmosphere sky (Preetham dome): drawn first, behind everything.
         this.renderSky(scene be vp)
         this.renderObject(scene be vp)
@@ -228,6 +233,18 @@ class ThreeWebGLRenderer {
         while (i < n) {
             def c:ThreeObject3D (obj.getChild(i))
             this.renderSky(c be vp)
+            i = (i + 1)
+        }
+    }
+
+    ; GI pass: let any light-probe volume in the tree upload its SH to the backend.
+    fn renderGI:void (obj:ThreeObject3D be:ThreeRenderBackend) {
+        obj.renderGIInto(be)
+        def i:int 0
+        def n:int (obj.childCount())
+        while (i < n) {
+            def c:ThreeObject3D (obj.getChild(i))
+            this.renderGI(c be)
             i = (i + 1)
         }
     }

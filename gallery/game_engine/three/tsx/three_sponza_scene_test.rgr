@@ -91,14 +91,16 @@ class ThreeSponzaSceneTest {
         ; sun uniform from az/elev: y = cos(90 - elev) = cos(60) = 0.5
         ck.near("sky sun y = cos(60)" s.sky.sunPosition.y 0.5)
 
-        ; baked GI: the skylight fill is derived from the sun (intensity + elevation)
-        ; and sampled back. level = intensity*0.08*(sin(elev)+0.25); tint is cool
-        ; (blue > red). For intensity 5, elev 30: level = 5*0.08*0.75 = 0.3.
-        def gi:ThreeVector3 (new ThreeVector3)
-        s.sampleGI(0.0 0.0 0.0 0.0 1.0 0.0 gi)
-        ck.near("GI fill r = level*0.85" gi.x 0.255)
-        ck.near("GI fill b = level*1.15" gi.z 0.345)
-        ck.ok("GI fill is cool-tinted (b > r)" (gi.z > gi.x))
+        ; baked GI: a directional SH environment (cool sky above, warm ground bounce
+        ; below, sun lobe). Sample the irradiance back for up- and down-facing normals.
+        def giUp:ThreeVector3 (new ThreeVector3)
+        s.sampleGI(0.0 0.0 0.0 0.0 1.0 0.0 giUp)
+        ck.ok("GI fills up-facing surfaces (non-zero)" ((giUp.x + (giUp.y + giUp.z)) > 0.0))
+        ck.ok("up-facing GI is cool (sky, b >= r)" (giUp.z >= giUp.x))
+        def giDown:ThreeVector3 (new ThreeVector3)
+        s.sampleGI(0.0 0.0 0.0 0.0 (0.0 - 1.0) 0.0 giDown)
+        ck.ok("GI fills down-facing surfaces (non-zero)" ((giDown.x + (giDown.y + giDown.z)) > 0.0))
+        ck.ok("down-facing GI is warm bounce (r > b)" (giDown.x > giDown.z))
 
         ; controls integrate: walking forward moves the camera
         def before:double s.camera.position.z

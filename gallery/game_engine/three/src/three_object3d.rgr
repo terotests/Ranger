@@ -163,4 +163,9 @@ class ThreeObject3D {
     ; default; ThreeSky overrides to draw the Preetham atmosphere with its uniforms.
     fn renderSkyInto:void (backend:ThreeRenderBackend viewProj:ThreeMatrix4) {
     }
+
+    ; GI pass: hand a light-probe volume's data to the backend for per-fragment
+    ; irradiance. No-op by default; ThreeLightProbeGrid overrides.
+    fn renderGIInto:void (backend:ThreeRenderBackend) {
+    }
 }
