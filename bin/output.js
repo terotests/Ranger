@@ -30347,6 +30347,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       ins.arg3 = pt;
       this.emit(ins);
     };
+    emitLoadI32At (base, byteOff) {
+      const pt = this.irModule.ptrType;
+      if ( byteOff == 0 ) {
+        return this.emitPtrLoad(base);
+      }
+      const off = this.emitConst(pt, ("" + byteOff));
+      const addr = this.emitBin("add", pt, base, off);
+      return this.emitPtrLoad(addr);
+    };
     emitStrPtr (globalName, byteLen) {
       const tag = "s";
       const dest = this.freshTemp(tag);
@@ -31366,6 +31375,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       this.selfPtr = "";
     }
   }
+  class LambdaCaptureInfo  {
+    constructor() {
+      this.names = [];
+      this.irTypes = [];
+      this.kinds = [];
+      this.objClasses = [];
+      this.offsets = [];
+      this.totalBytes = 4;
+      this.hasOwned = false;
+      this.tdName = "";
+    }
+  }
   class LowIRBuilderPass  {
     constructor() {
       this.irModule = new LowIRModule();
@@ -31377,6 +31398,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       this.lambdaByName = {};
       this.lambdaNames = [];
       this.lambdaCounter = 0;
+      this.lambdaCaptures = {};
     }
     isLambdaTypeNode (node) {
       if ( node.value_type == 20 ) {
@@ -34413,6 +34435,24 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           lctx.objectSlots[p.name] = paramTypeName;
         }
       };
+      if ( ( typeof(this.lambdaCaptures[fnName] ) != "undefined" && this.lambdaCaptures.hasOwnProperty(fnName) ) ) {
+        const cinfo = (( this.lambdaCaptures.hasOwnProperty(fnName) ? this.lambdaCaptures[fnName] : undefined ));
+        const envRef = "%__env";
+        let ci = 0;
+        const cn2 = cinfo.names.length;
+        while (ci < cn2) {
+          const capName = cinfo.names[ci];
+          const capOff = cinfo.offsets[ci];
+          const capIrt = cinfo.irTypes[ci];
+          const capKnd = cinfo.kinds[ci];
+          const loaded = builder.emitLoadI32At(envRef, capOff);
+          this.bindSlot(capName, capIrt, loaded, lctx);
+          if ( capKnd == 2 ) {
+            lctx.objectSlots[capName] = cinfo.objClasses[ci];
+          }
+          ci = ci + 1;
+        };
+      }
       if ( (typeof(lam.fnBody) !== "undefined" && lam.fnBody != null )  ) {
         this.lowerBlock(lam.fnBody, lctx);
       }
@@ -34439,23 +34479,109 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       };
       return 0;
     };
+    computeLambdaCaptures (node, lam, lctx) {
+      const key = lam.compiledName;
+      if ( ( typeof(this.lambdaCaptures[key] ) != "undefined" && this.lambdaCaptures.hasOwnProperty(key) ) ) {
+        return (( this.lambdaCaptures.hasOwnProperty(key) ? this.lambdaCaptures[key] : undefined ));
+      }
+      const info = new LambdaCaptureInfo();
+      let off = 4;
+      if ( (typeof(node.lambda_ctx) !== "undefined" && node.lambda_ctx != null )  ) {
+        const lamCtx = node.lambda_ctx;
+        for ( let i = 0; i < lamCtx.captured_variables.length; i++) {
+          var cn = lamCtx.captured_variables[i];
+          if ( ( typeof(lctx.slots[cn] ) != "undefined" && lctx.slots.hasOwnProperty(cn) ) ) {
+            let kind = 0;
+            let objCls = "";
+            let cirt = lctx.ptrType;
+            if ( ( typeof(lctx.objectSlots[cn] ) != "undefined" && lctx.objectSlots.hasOwnProperty(cn) ) ) {
+              kind = 2;
+              objCls = (( lctx.objectSlots.hasOwnProperty(cn) ? lctx.objectSlots[cn] : undefined ));
+            } else {
+              let isStr = false;
+              if ( this.isOwnedStringLocal(cn, lctx) ) {
+                isStr = true;
+              }
+              if ( ( typeof(lctx.slotTypes[cn] ) != "undefined" && lctx.slotTypes.hasOwnProperty(cn) ) ) {
+                if ( ((( lctx.slotTypes.hasOwnProperty(cn) ? lctx.slotTypes[cn] : undefined ))) == "i8*" ) {
+                  isStr = true;
+                }
+              }
+              if ( isStr ) {
+                kind = 1;
+                cirt = "i8*";
+              } else {
+                kind = 0;
+                if ( ( typeof(lctx.slotTypes[cn] ) != "undefined" && lctx.slotTypes.hasOwnProperty(cn) ) ) {
+                  cirt = (( lctx.slotTypes.hasOwnProperty(cn) ? lctx.slotTypes[cn] : undefined ));
+                }
+              }
+            }
+            info.names.push(cn);
+            info.irTypes.push(cirt);
+            info.kinds.push(kind);
+            info.objClasses.push(objCls);
+            info.offsets.push(off);
+            if ( kind != 0 ) {
+              info.hasOwned = true;
+            }
+            off = off + 4;
+          }
+        };
+      }
+      info.totalBytes = off;
+      if ( info.hasOwned ) {
+        const tdName = "__closure_" + key;
+        info.tdName = tdName;
+        const td = new LowIRTypeDesc();
+        td.className = tdName;
+        td.size = info.totalBytes;
+        let k = 0;
+        const nn = info.names.length;
+        while (k < nn) {
+          const knd = info.kinds[k];
+          if ( knd != 0 ) {
+            const fd = new LowIRTypeFieldDesc();
+            fd.offset = info.offsets[k];
+            if ( knd == 1 ) {
+              fd.kind = 0;
+            } else {
+              fd.kind = 1;
+            }
+            fd.owned = 1;
+            td.fields.push(fd);
+          }
+          k = k + 1;
+        };
+        this.irModule.typeDescs.push(td);
+      }
+      this.lambdaCaptures[key] = info;
+      return info;
+    };
     lowerLambdaValue (node, lctx) {
       const builder = lctx.builder;
-      let name = "";
-      if ( (typeof(node.lambdaFnDesc) !== "undefined" && node.lambdaFnDesc != null )  ) {
-        const lfd = node.lambdaFnDesc;
-        name = lfd.compiledName;
+      if ( typeof(node.lambdaFnDesc) === "undefined" ) {
+        const bytes0 = builder.emitConst("i32", "4");
+        return builder.emitHeapAlloc(bytes0);
       }
+      const lfd = node.lambdaFnDesc;
+      const name = lfd.compiledName;
       const idx = this.lambdaTableIndex(name);
-      const bytes = builder.emitConst("i32", "4");
+      const info = this.computeLambdaCaptures(node, lfd, lctx);
+      const bytes = builder.emitConst("i32", ("" + info.totalBytes));
       let rec = "";
       if ( this.objRcEnabled(lctx) ) {
-        const zeroTd = builder.emitConst("i32", "0");
+        let tdArg = "";
+        if ( info.hasOwned ) {
+          tdArg = builder.emitTypeDescPtr(info.tdName);
+        } else {
+          tdArg = builder.emitConst("i32", "0");
+        }
         let a = [];
         let at = [];
         a.push(bytes);
         at.push("i32");
-        a.push(zeroTd);
+        a.push(tdArg);
         at.push("i32");
         rec = builder.emitCall("ranger_obj_new", lctx.ptrType, a, at);
       } else {
@@ -34463,6 +34589,23 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       }
       const idxC = builder.emitConst("i32", ("" + idx));
       builder.emitStoreI32At(rec, 0, idxC);
+      let k = 0;
+      const nn = info.names.length;
+      while (k < nn) {
+        const cn = info.names[k];
+        const knd = info.kinds[k];
+        const coff = info.offsets[k];
+        const cirt = info.irTypes[k];
+        let cval = this.loadSlot(cn, cirt, lctx);
+        if ( knd == 1 ) {
+          cval = this.emitStrdupExpr(cval, lctx);
+        }
+        if ( knd == 2 ) {
+          this.emitObjRetainPtr(cval, lctx);
+        }
+        builder.emitStoreI32At(rec, coff, cval);
+        k = k + 1;
+      };
       this.registerFreshObjectTemp(rec, lctx);
       return rec;
     };

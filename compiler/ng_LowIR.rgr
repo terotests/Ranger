@@ -715,6 +715,16 @@ class LowIRBuilder {
     this.emit(ins)
   }
 
+  fn emitLoadI32At:string (base:string byteOff:int) {
+    def pt (this.irModule.ptrType)
+    if (byteOff == 0) {
+      return (this.emitPtrLoad(base))
+    }
+    def off (this.emitConst(pt ("" + byteOff)))
+    def addr (this.emitBin("add" pt base off))
+    return (this.emitPtrLoad(addr))
+  }
+
   fn emitStrPtr:string (globalName:string byteLen:int) {
     def tag:string "s"
     def dest (this.freshTemp(tag))

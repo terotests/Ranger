@@ -30,6 +30,18 @@ const f5 = x.SG_churn(5);
 const f500 = x.SG_churn(500);
 ok("churn leak-free (frontier stable)", f500, f5);
 
+// --- L2: capture by value (read-only) ---
+ok("capVal base=100 + x=5", x.SG_capVal(100, 5), 105);
+ok("capTwo a=10 b=20 + x=5", x.SG_capTwo(10, 20, 5), 35);
+ok("capCb k=3 * v=5 (capturing callback)", x.SG_capCb(3, 5), 15);
+ok("capObj reads captured object field", x.SG_capObj(42), 42);
+ok("capChurn sum 0..99", x.SG_capChurn(100), 4950);
+
+// object-capturing closures built in a loop must not leak (env retains + frees)
+const oc5 = x.SG_capChurn(5);
+const oc500 = x.SG_capChurn(500);
+ok("capChurn object-capture leak-free", x.SG_liveBlocks(), 0);
+
 // no live objects remain after all calls returned
 ok("no leaked objects", x.SG_liveBlocks(), 0);
 

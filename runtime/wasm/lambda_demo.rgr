@@ -7,7 +7,64 @@
 
 Import "./ranger_obj.rgr"
 
+class Box {
+    def v:int 0
+}
+
 class SG {
+    ; --- L2: capture by value (read-only) ---
+
+    ; capture an int local by value; the lambda reads `base` from its env
+    sfn capVal:int (base:int x:int) {
+        def adder (fn:int (n:int) {
+            return (+ n base)
+        })
+        return (adder(x))
+    }
+
+    ; capture two values
+    sfn capTwo:int (a:int b:int x:int) {
+        def f (fn:int (n:int) {
+            return (+ (+ n a) b)
+        })
+        return (f(x))
+    }
+
+    ; a capturing lambda passed as a callback through a higher-order fn
+    sfn capCb:int (k:int v:int) {
+        return (SG.apply((fn:int (x:int) {
+            return (* x k)
+        }) v))
+    }
+
+    ; capture an object created in the enclosing scope; read its field in the
+    ; lambda. The env retains it, so it survives even though the creating scope
+    ; also owns it; released exactly once when both are gone (leak check below).
+    sfn capObj:int (val:int) {
+        def b (new Box)
+        b.v = val
+        def rd (fn:int () {
+            return (b.v)
+        })
+        return (rd())
+    }
+
+    ; build+call an object-capturing closure many times; heap stays flat and no
+    ; object leaks (the retained Box is freed once per iteration)
+    sfn capChurn:int (n:int) {
+        def i 0
+        def s 0
+        while (< i n) {
+            def b (new Box)
+            b.v = i
+            def rd (fn:int () {
+                return (b.v)
+            })
+            s = (+ s (rd()))
+            i = (+ i 1)
+        }
+        return s
+    }
     ; direct call of a lambda bound to a local
     sfn directCall:int (v:int) {
         def dbl (fn:int (x:int) {

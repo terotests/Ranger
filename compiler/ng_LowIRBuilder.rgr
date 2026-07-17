@@ -25,6 +25,22 @@ class LowIRLowerContext {
   def selfPtr:string ""
 }
 
+; Capture layout for one lambda's closure environment (L2+). The closure record
+; is [ fn_index@0 | capture0 | capture1 | … ]; each capture i is stored at
+; offsets[i] with IR type irTypes[i] and kind kinds[i] (0=value copy, 1=string
+; dup/owned, 2=object retain/owned). objClasses[i] is the object class name for
+; kind-2 captures (for field access inside the body), "" otherwise.
+class LambdaCaptureInfo {
+  def names:[string]
+  def irTypes:[string]
+  def kinds:[int]
+  def objClasses:[string]
+  def offsets:[int]
+  def totalBytes:int 4
+  def hasOwned:boolean false
+  def tdName:string ""
+}
+
 class LowIRBuilderPass {
   def irModule:LowIRModule (new LowIRModule())
   def usedMapRuntime:boolean false
@@ -37,6 +53,9 @@ class LowIRBuilderPass {
   def lambdaByName:[string:RangerAppFunctionDesc]
   def lambdaNames:[string]
   def lambdaCounter:int 0
+  ; lambda compiledName -> its closure-env capture layout (computed lazily at the
+  ; first lowerLambdaValue, read back when the hoisted body is lowered).
+  def lambdaCaptures:[string:LambdaCaptureInfo]
 
   ; A parameter/value typed as a lambda/function `(fn:… (…))` — its runtime value
   ; is an i32 closure-record pointer. Detected by the ExpressionType marker the
@@ -3349,6 +3368,30 @@ class LowIRBuilderPass {
       }
     }
 
+    ; L2: snapshot captured variables out of the closure env (%__env) into local
+    ; slots at entry. Read-only capture => a one-time copy is correct. Captured
+    ; strings/objects are NOT registered as owned locals here: the closure's
+    ; typedesc owns them and frees them when the record is released, so the body
+    ; must not release them at scope end.
+    if (has this.lambdaCaptures fnName) {
+      def cinfo@(lives):LambdaCaptureInfo (unwrap (get this.lambdaCaptures fnName))
+      def envRef:string "%__env"
+      def ci 0
+      def cn2 (array_length cinfo.names)
+      while (< ci cn2) {
+        def capName (itemAt cinfo.names ci)
+        def capOff (itemAt cinfo.offsets ci)
+        def capIrt (itemAt cinfo.irTypes ci)
+        def capKnd (itemAt cinfo.kinds ci)
+        def loaded (builder.emitLoadI32At(envRef capOff))
+        this.bindSlot(capName capIrt loaded lctx)
+        if (capKnd == 2) {
+          set lctx.objectSlots capName (itemAt cinfo.objClasses ci)
+        }
+        ci = (+ ci 1)
+      }
+    }
+
     if (!null? lam.fnBody) {
       this.lowerBlock((unwrap lam.fnBody) lctx)
     }
@@ -3377,26 +3420,122 @@ class LowIRBuilderPass {
     return 0
   }
 
+  ; Analyse and lay out one lambda's closure environment (L2+). Reads the
+  ; frontend's capture set (node.lambda_ctx.captured_variables) and classifies
+  ; each captured enclosing local as value (copy), string (dup/owned), or object
+  ; (retain/owned) using the CREATING context's slot types. Assigns each an env
+  ; offset (fn_index sits at 0) and, if any capture is owned, registers a closure
+  ; typedesc so obj_release frees the captured strings/objects. Memoised per
+  ; lambda so the creating site and the hoisted-body site share one layout.
+  fn computeLambdaCaptures:LambdaCaptureInfo (node:CodeNode lam:RangerAppFunctionDesc lctx:LowIRLowerContext) {
+    def key:string lam.compiledName
+    if (has this.lambdaCaptures key) {
+      return (unwrap (get this.lambdaCaptures key))
+    }
+    def info@(lives):LambdaCaptureInfo (new LambdaCaptureInfo())
+    def off 4
+    if (!null? node.lambda_ctx) {
+      def lamCtx (unwrap node.lambda_ctx)
+      for lamCtx.captured_variables cn:string i {
+        ; only names that are enclosing locals/params we can load from a slot
+        if (has lctx.slots cn) {
+          def kind 0
+          def objCls:string ""
+          def cirt:string lctx.ptrType
+          if (has lctx.objectSlots cn) {
+            kind = 2
+            objCls = (unwrap (get lctx.objectSlots cn))
+          } {
+            def isStr false
+            if (this.isOwnedStringLocal(cn lctx)) {
+              isStr = true
+            }
+            if (has lctx.slotTypes cn) {
+              if ((unwrap (get lctx.slotTypes cn)) == "i8*") {
+                isStr = true
+              }
+            }
+            if isStr {
+              kind = 1
+              cirt = "i8*"
+            } {
+              kind = 0
+              if (has lctx.slotTypes cn) {
+                cirt = (unwrap (get lctx.slotTypes cn))
+              }
+            }
+          }
+          push info.names cn
+          push info.irTypes cirt
+          push info.kinds kind
+          push info.objClasses objCls
+          push info.offsets off
+          if (kind != 0) {
+            info.hasOwned = true
+          }
+          off = (+ off 4)
+        }
+      }
+    }
+    info.totalBytes = off
+    ; a closure typedesc lets obj_destroyFields free owned captures for free
+    if info.hasOwned {
+      def tdName:string ("__closure_" + key)
+      info.tdName = tdName
+      def td@(lives):LowIRTypeDesc (new LowIRTypeDesc())
+      td.className = tdName
+      td.size = info.totalBytes
+      def k 0
+      def nn (array_length info.names)
+      while (< k nn) {
+        def knd (itemAt info.kinds k)
+        if (knd != 0) {
+          def fd@(lives):LowIRTypeFieldDesc (new LowIRTypeFieldDesc())
+          fd.offset = (itemAt info.offsets k)
+          ; runtime typedesc kind: 0=string, 1=object
+          if (knd == 1) {
+            fd.kind = 0
+          } {
+            fd.kind = 1
+          }
+          fd.owned = 1
+          push td.fields fd
+        }
+        k = (+ k 1)
+      }
+      push this.irModule.typeDescs td
+    }
+    set this.lambdaCaptures key info
+    return info
+  }
+
   ; A lambda literal -> a closure record (RC object) [ fn_index | captures… ].
-  ; L0/L1: only fn_index (non-capturing). Returns the record pointer.
+  ; L0/L1 non-capturing = just fn_index; L2 stores captured value copies, string
+  ; dups, and retained object refs into the env. Returns the record pointer.
   fn lowerLambdaValue:string (node:CodeNode lctx:LowIRLowerContext) {
     def builder (lctx.builder)
-    def name:string ""
-    if (!null? node.lambdaFnDesc) {
-      def lfd@(lives):RangerAppFunctionDesc (unwrap node.lambdaFnDesc)
-      name = lfd.compiledName
+    if (null? node.lambdaFnDesc) {
+      def bytes0 (builder.emitConst("i32" "4"))
+      return (builder.emitHeapAlloc(bytes0))
     }
+    def lfd@(lives):RangerAppFunctionDesc (unwrap node.lambdaFnDesc)
+    def name:string lfd.compiledName
     def idx (this.lambdaTableIndex(name))
-    ; allocate the closure record (RC object; typedesc 0 = no owned captures yet)
-    def bytes (builder.emitConst("i32" "4"))
+    def info@(lives):LambdaCaptureInfo (this.computeLambdaCaptures(node lfd lctx))
+    def bytes (builder.emitConst("i32" ("" + info.totalBytes)))
     def rec:string ""
     if (this.objRcEnabled(lctx)) {
-      def zeroTd (builder.emitConst("i32" "0"))
+      def tdArg:string ""
+      if info.hasOwned {
+        tdArg = (builder.emitTypeDescPtr(info.tdName))
+      } {
+        tdArg = (builder.emitConst("i32" "0"))
+      }
       def a:[string]
       def at:[string]
       push a bytes
       push at "i32"
-      push a zeroTd
+      push a tdArg
       push at "i32"
       rec = (builder.emitCall("ranger_obj_new" lctx.ptrType a at))
     } {
@@ -3404,6 +3543,27 @@ class LowIRBuilderPass {
     }
     def idxC (builder.emitConst("i32" ("" + idx)))
     builder.emitStoreI32At(rec 0 idxC)
+    ; materialise the captured environment
+    def k 0
+    def nn (array_length info.names)
+    while (< k nn) {
+      def cn (itemAt info.names k)
+      def knd (itemAt info.kinds k)
+      def coff (itemAt info.offsets k)
+      def cirt (itemAt info.irTypes k)
+      def cval (this.loadSlot(cn cirt lctx))
+      if (knd == 1) {
+        ; string capture: the closure owns a private dup
+        cval = (this.emitStrdupExpr(cval lctx))
+      }
+      if (knd == 2) {
+        ; object capture: retain so it outlives the creating scope (the closure's
+        ; typedesc releases it on destruction — solves premature-free)
+        this.emitObjRetainPtr(cval lctx)
+      }
+      builder.emitStoreI32At(rec coff cval)
+      k = (+ k 1)
+    }
     ; no local owns it yet — register for statement-scoped release so an inline
     ; lambda argument (`apply((fn…){}) v)`) does not leak. A binding claims it.
     this.registerFreshObjectTemp(rec lctx)
