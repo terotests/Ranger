@@ -188,30 +188,34 @@ ORDER = ["P", "N", "B", "R", "Q", "K"]
 
 
 def draw_knight(white: bool) -> bytearray:
-    """Staunton horse head (facing left). '#' fill, 'o' outline, '.' empty."""
-    # Iconic profile: ear (top), muzzle sticking left, small mouth, neck, base.
+    """Classic chess-knight silhouette (facing left).
+
+    Solid horse head — ear up, snout left, curved neck, pedestal.
+    Only a shallow under-jaw notch (no see-through hole in the body).
+    '#' = fill, 'o' = outline, '.' = empty.
+    """
     mask = [
         "............................",
         "............................",
         "..............oo............",
         ".............o##o...........",
         "............o####o..........",
-        "...oo......o######o.........",
-        "..o##oooooo########o........",
-        ".o##################o.......",
-        ".o########ooooo#####o.......",
-        ".o#######o.....o####o.......",
-        "..o######o.....o###o........",
-        "...o######o...o####o........",
-        "....o######ooo#####o........",
-        ".....o#############o........",
-        ".....o##############o.......",
+        "..oo.......o######o.........",
+        ".o##ooooooo########o........",
+        "o###################o.......",
+        "o####################o......",
+        "o############oo######o......",
+        ".o##########o..o#####o......",
+        "..o#########o..o####o.......",
+        "...o#########.o#####o.......",
+        "....o###############o.......",
         "....o################o......",
         "...o##################o.....",
         "..o####################o....",
         "..o####################o....",
         "..o####################o....",
         "..oooooooooooooooooooooo....",
+        "............................",
         "............................",
         "............................",
         "............................",
@@ -234,10 +238,10 @@ def draw_knight(white: bool) -> bytearray:
             if ch == "o":
                 setp(buf, FW, FH, x, y, or_, og, ob, 255)
             elif ch == "#":
-                col = hi if y < 7 else (fr, fg, fb)
+                col = hi if y < 8 else (fr, fg, fb)
                 setp(buf, FW, FH, x, y, col[0], col[1], col[2], 255)
-    # Eye just behind the snout
-    setp(buf, FW, FH, 13, 8, or_, og, ob, 255)
+    # Single-pixel eye on the head (outline on fill — not a hole)
+    setp(buf, FW, FH, 15, 8, or_, og, ob, 255)
     return buf
 
 
