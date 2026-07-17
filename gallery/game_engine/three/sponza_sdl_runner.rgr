@@ -140,9 +140,24 @@ class SponzaSdlRunner {
         def frame:int 0
         def running:boolean true
         def dt:double 0.016
+        ; current framebuffer size — re-read each frame so fullscreen / window
+        ; resize updates the GL viewport + camera aspect (else the frame is drawn
+        ; at the old size, e.g. bottom-left after a fullscreen toggle).
+        def curW:int runner.pw
+        def curH:int runner.ph
         while running {
             gfx_input_poll
             def mask:int (gfx_input_source_mask 0)
+
+            def sw:int (gfx_surface_width)
+            def sh:int (gfx_surface_height)
+            if (((sw > 0) && (sh > 0)) && ((sw != curW) || (sh != curH))) {
+                curW = sw
+                curH = sh
+                renderer.setSize(curW curH)
+                bridge.scene.setViewport(curW curH)
+            }
+
             runner.applyInput(bridge.scene.fpc mask)
             bridge.scene.update(dt)
 
@@ -182,6 +197,9 @@ class SponzaSdlRunner {
                 running = false
             }
         }
+        ; tear the window + GL context down and restore the video mode, so quitting
+        ; doesn't leave a black screen (the SDL/GL state is reset on close).
+        gfx_close
         print ("[sponza] done frames=" + (to_string frame))
     }
 }
