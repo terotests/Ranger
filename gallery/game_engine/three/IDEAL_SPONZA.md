@@ -97,22 +97,36 @@ fragment shader). Everything else is comparatively small.
 
 ## 3. Slices (dependency order; each is `Three*` class + `*_test.rgr`, run.sh green)
 
-- **Slice 1 — math & clock foundation** *(this commit)*: `ThreeMathUtils`
+- **Slice 1 — math & clock foundation** ✅: `ThreeMathUtils`
   (`degToRad`/`radToDeg`/`clamp`/`lerp`), `ThreeTimer`, `ThreeBox3`
   (`min/max`, `expandByPoint`, `setFromPoints`, `union`, `getSize`, `getCenter`,
-  `getBoundingSphere`, `setFromObject` over box-geometry meshes), and
-  `Vector3.setFromSphericalCoords`. All headless-tested.
-- **Slice 2 — input & loading**: `ThreeFirstPersonControls`, `ThreeLoadingManager`.
-- **Slice 3 — HDR**: ACES tone mapping + exposure in the übershader; renderer
-  `toneMapping`/`toneMappingExposure`.
-- **Slice 4 — shadows**: directional shadow-map pass + PCF sample.
-- **Slice 5 — Sky**: `ThreeSky` Preetham pass.
-- **Slice 6 — GLTFLoader**: portable parser → geometry/materials/nodes (+ fixture).
-- **Slice 7 — LightProbeGrid**: `ThreeSphericalHarmonics3`, the bake pipeline,
-  and the GI reconstruction in the shader.
-- **Slice 8 — LightProbeGridHelper** + the full `sponza.tsx` façade bridge + host,
-  driving the whole thing (browser first, then SDL — same source, like the teapot).
+  `getBoundingSphere`, `setFromObject` via `Object3D.boundingBox`/`expandBox3`
+  over meshes), and `Vector3.setFromSphericalCoords`. All headless-tested.
+- **Slice 2 — input & loading** ✅: `ThreeFirstPersonControls` (WASD/arrows/RF +
+  mouse-look), `ThreeLoadingManager` (batch progress).
+- **Slice 3 — HDR** ✅ core: `ThreeToneMapping` (ACES Narkowicz + Reinhard,
+  exposure), the übershader tone-map epilogue (`uToneMapping`/`uExposure`), and
+  renderer `toneMapping`/`toneMappingExposure`/`shadowMapEnabled` fields.
+- **Slice 4 — shadows** ✅ core: `Matrix4.makeOrthographic`,
+  `ThreeDirectionalLightShadow` (ortho frustum + light-space view-projection),
+  `DirectionalLight.castShadow`/`target`/`shadow`, `Mesh.castShadow`/`receiveShadow`.
+- **Slice 5 — Sky** ✅ core: `ThreeSky` (Preetham uniforms) + the Sky daylight
+  scattering shader (`atmosphereVertexSrc`/`atmosphereFragmentSrc`, GLSL ES 1.00).
+- **Slice 6 — GLTFLoader** ✅ core: `ThreeGLTFAccessor` + `ThreeGLTFLoader` binary
+  decoder (IEEE-754 float32 + LE ints → `ThreeBufferGeometry`).
+- **Slice 7 — LightProbeGrid** ✅ core: `ThreeSphericalHarmonics3` (SH9
+  project/reconstruct) + `ThreeLightProbeGrid` (grid model, analytic bake,
+  trilinear irradiance sampling).
+- **Slice 8 — LightProbeGridHelper** ✅ core: `ThreeLightProbeGridHelper` (gizmo
+  positions + colours).
 
-Each slice ends with `bash three/src/run.sh` green and (from slice 6 on) a headless
-interpreter/bridge check on `sponza.tsx` for the parts that don't need the GPU or
-network. The final rendered result is a local browser/desktop-GL step.
+**All eight slices' portable cores are built and headless-tested** (`bash
+three/src/run.sh` green — the pre-existing cube/teapot/façade suites included).
+
+**Remaining — GPU + host integration** (browser/SDL only, not headless-verifiable):
+the `sponza.tsx` façade bridge into the Ranger core (mirroring
+`three_teapot_tsx_bridge`), the GL-backend uniform feeds for tone mapping /
+shadow-map depth pass / probe-SH GI lookup, the Sky + shadow + probe render
+passes, and the loader's host layer (JSON structure parse via `lib/JSON`, `.glb`
+JSON+BIN chunk split, and the network fetch of Sponza). The final rendered result
+is a local browser / desktop-GL step, then SDL — same source, like the teapot.

@@ -10,16 +10,19 @@
 // built piece by piece. See ../IDEAL_SPONZA.md for the slice plan:
 //
 //   slice 1  ✅ ThreeMathUtils, ThreeTimer, ThreeBox3, Vector3.setFromSphericalCoords
-//   slice 2     FirstPersonControls, LoadingManager
-//   slice 3     ACES tone mapping + exposure
-//   slice 4     DirectionalLight shadow map
-//   slice 5     Sky (Preetham)
-//   slice 6     GLTFLoader (portable parser)
-//   slice 7     LightProbeGrid (SH bake + GI reconstruction)
-//   slice 8     LightProbeGridHelper + façade bridge + host (browser, then SDL)
+//   slice 2  ✅ FirstPersonControls, LoadingManager
+//   slice 3  ✅ ACES tone mapping + exposure (core + shader)
+//   slice 4  ✅ DirectionalLight shadow model (ortho + light-space matrix)
+//   slice 5  ✅ Sky (Preetham) — object + GLSL
+//   slice 6  ✅ GLTFLoader binary accessor decoder (core)
+//   slice 7  ✅ LightProbeGrid (SphericalHarmonics3 + grid + trilinear GI)
+//   slice 8  ✅ LightProbeGridHelper (core)
 //
-// Once slice 8 lands this file is the entry the editor shows and hot-reloads,
-// like teapot.tsx. Kept verbatim so "unmodified 1:1" stays honest.
+// All eight portable cores are built + headless-tested (three/src/run.sh green).
+// What remains is the GPU + host integration (this file's façade bridge into the
+// Ranger core, the GL-backend uniform feeds, the Sky/shadow/probe render passes,
+// and the Sponza network loader) — a browser/SDL step, same as the teapot's host.
+// Kept verbatim so "unmodified 1:1" stays honest.
 // ============================================================================
 
 import * as THREE from 'three';

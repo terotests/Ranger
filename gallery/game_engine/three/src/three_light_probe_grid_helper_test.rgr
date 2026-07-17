@@ -1,0 +1,80 @@
+; ==============================================================================
+; three_light_probe_grid_helper_test — probe gizmo positions + colours (slice 8).
+; ==============================================================================
+; Compile to ES6 and run under Node; prints per-check PASS/FAIL and "ALL PASS".
+; ==============================================================================
+
+Import "three_light_probe_grid_helper.rgr"
+
+class ThreeCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    fn near:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        if (d < 0.0005) {
+            passed = (passed + 1)
+            print ("  PASS " + name + " (" + (to_string got) + ")")
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name + " got=" + (to_string got) + " want=" + (to_string want))
+        }
+    }
+}
+
+class ThreeLightProbeGridHelperTest {
+    sfn m@(main):void () {
+        def ck:ThreeCheck (new ThreeCheck)
+        print "== ThreeLightProbeGridHelper =="
+
+        def grid:ThreeLightProbeGrid (ThreeLightProbeGrid.create(4.0 4.0 4.0 3 3 3))
+        grid.position.set(10.0 6.0 (0.0 - 2.0))
+        grid.bakeAmbient(0.25 0.5 0.75)
+
+        def helper:ThreeLightProbeGridHelper (ThreeLightProbeGridHelper.create(grid 0.3))
+        ck.near("helper probe count" (to_double (helper.probeCount())) 27.0)
+        ck.near("helper size stored" helper.size 0.3)
+
+        ; probe (0,0,0) sits at grid origin minus half-size on each axis
+        def wp:ThreeVector3 (new ThreeVector3)
+        helper.probeWorldPosition(0 0 0 wp)
+        ck.near("probe000 world x" wp.x 8.0)
+        ck.near("probe000 world y" wp.y 4.0)
+        ck.near("probe000 world z" wp.z (0.0 - 4.0))
+        ; probe (2,2,2) at origin plus half-size
+        helper.probeWorldPosition(2 2 2 wp)
+        ck.near("probe222 world x" wp.x 12.0)
+        ck.near("probe222 world z" wp.z 0.0)
+        ; centre probe (1,1,1) at the grid origin
+        helper.probeWorldPosition(1 1 1 wp)
+        ck.near("centre probe at origin x" wp.x 10.0)
+        ck.near("centre probe at origin y" wp.y 6.0)
+
+        ; gizmo colour = the baked ambient irradiance
+        def col:ThreeVector3 (new ThreeVector3)
+        helper.probeColor(1 1 1 col)
+        ck.near("gizmo colour r" col.x 0.25)
+        ck.near("gizmo colour g" col.y 0.5)
+        ck.near("gizmo colour b" col.z 0.75)
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}
