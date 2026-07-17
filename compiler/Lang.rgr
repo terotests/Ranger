@@ -1514,12 +1514,16 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
         *               cmdMulOp:double         ( left:double right:double ) { templates { * ( (e 1) " * " (e 2) ) } }
         *               cmdMulOp:int            ( left:int right:int ) { templates { * ( (e 1) " * " (e 2) ) } }
 
-        /               cmdDivOp:double         ( left:double right:double ) { templates { * ( (e 1) " / " (e 2) ) } }
-        /               cmdDivOp:double         ( left:int right:int ) { templates { 
+        /               cmdDivOp:double         ( left:double right:double ) { templates {
+            cpp ( "((double)(" (e 1) ") / (double)(" (e 2) "))" )
+            * ( (e 1) " / " (e 2) )
+        } }
+        /               cmdDivOp:double         ( left:int right:int ) { templates {
             go ( "float64(" (e 1) ") / float64(" (e 2) ")" )
             rust ( "(" (e 1) " as f64) / (" (e 2) " as f64)" )
             kotlin ( (e 1) ".toDouble() / " (e 2) ".toDouble()" )
-            * ( (e 1) " / " (e 2) ) 
+            cpp ( "((double)(" (e 1) ") / (double)(" (e 2) "))" )
+            * ( (e 1) " / " (e 2) )
         } }
 
         ; optional string operator...

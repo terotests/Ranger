@@ -199,11 +199,11 @@ class CannonMat3 {
         def n:int 3
         def k:int 3
         while (k > 0) {
-            i = (k - n)
+            i = (n - k)
             def pivot:double (itemAt eqns (i + (nc * i)))
             if (pivot == 0.0) {
                 def j:int (i + 1)
-                while (j < k) {
+                while (j < n) {
                     def pj:double (itemAt eqns (i + (nc * j)))
                     if (pj != 0.0) {
                         def np:int 4
@@ -226,7 +226,7 @@ class CannonMat3 {
             pivot = (itemAt eqns (i + (nc * i)))
             if (pivot != 0.0) {
                 def j2:int (i + 1)
-                while (j2 < k) {
+                while (j2 < n) {
                     def mult:double (itemAt eqns (i + (nc * j2)))
                     mult = mult / pivot
                     def np2:int 4
@@ -328,11 +328,11 @@ class CannonMat3 {
         def n:int 3
         def k:int 3
         while (k > 0) {
-            i = (k - n)
+            i = (n - k)
             def pivot:double (itemAt eqns (i + (nc * i)))
             if (pivot == 0.0) {
                 def j:int (i + 1)
-                while (j < k) {
+                while (j < n) {
                     def pj:double (itemAt eqns (i + (nc * j)))
                     if (pj != 0.0) {
                         def np:int 6
@@ -352,7 +352,7 @@ class CannonMat3 {
             pivot = (itemAt eqns (i + (nc * i)))
             if (pivot != 0.0) {
                 def j2:int (i + 1)
-                while (j2 < k) {
+                while (j2 < n) {
                     def mult:double (itemAt eqns (i + (nc * j2)))
                     mult = mult / pivot
                     def np2:int 6
@@ -426,7 +426,7 @@ class CannonMat3 {
                 if (this.isBadDouble(pval)) {
                     return false
                 }
-                def dstIdx:int (i + (j3 * 3))
+                def dstIdx:int (j3 + (i * 3))
                 set target.elements dstIdx pval
                 j3 = (j3 - 1)
             }

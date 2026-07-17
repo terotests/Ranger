@@ -7,8 +7,6 @@ class CannonOverlapKeeper {
     def previous:[int]
     def currentCount:int 0
     def previousCount:int 0
-    def outAdditions:[int]
-    def outRemovals:[int]
 
     fn getKey:int (i:int j:int) {
         if (j < i) {
@@ -68,9 +66,11 @@ class CannonOverlapKeeper {
         push array lo
     }
 
+    ; Push directly into the caller's arrays. Storing them in members first
+    ; (this.outAdditions = additions) relies on JS array-by-reference aliasing,
+    ; which does NOT hold for C++ std::vector (assignment copies) — the caller's
+    ; arrays would stay empty. Pushing to the params keeps them mutable refs.
     fn getDiff:void (additions:[int] removals:[int]) {
-        this.outAdditions = additions
-        this.outRemovals = removals
         def al:int this.currentCount
         def bl:int this.previousCount
         def j 0
@@ -92,7 +92,7 @@ class CannonOverlapKeeper {
                 }
             }
             if (found == false) {
-                this.unpackAndPush(this.outAdditions keyA)
+                this.unpackAndPush(additions keyA)
             }
             i = (i + 1)
         }
@@ -115,7 +115,7 @@ class CannonOverlapKeeper {
                 }
             }
             if (found2 == false) {
-                this.unpackAndPush(this.outRemovals keyB)
+                this.unpackAndPush(removals keyB)
             }
             i = (i + 1)
         }
