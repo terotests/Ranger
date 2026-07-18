@@ -55,9 +55,16 @@ class ThreeTsxBridge {
     def scene:ThreeScene (new ThreeScene)
     def camera:ThreePerspectiveCamera (new ThreePerspectiveCamera)
 
-    ; Ranger nodes, parallel to the façade scene.children (built once, index-keyed).
-    ; Any node is a ThreeObject3D subclass — mesh or light — so one array holds them.
+    ; Ranger nodes, parallel to the façade scene.children (index-keyed). Any node is
+    ; a ThreeObject3D subclass — mesh / light / sky — so one array holds them.
     def nodes:[ThreeObject3D]
+    ; per-node rebuild bookkeeping: a mesh whose geometry/material signature changes
+    ; (e.g. the teapot GUI re-tessellates or swaps shading — the scene removes the
+    ; old mesh and adds a new one at the same index) is REBUILT, so a scene that
+    ; mutates its geometry/material actually updates (the needsUpdate model), instead
+    ; of being frozen at its first build.
+    def nodeSigs:[string]
+    def nodeIsMesh:[boolean]
     ; HOST-supplied textures by path (real decoded pixels handed in via setTexture).
     def texPaths:[string]
     def texObjs:[ThreeTexture]
@@ -276,8 +283,28 @@ class ThreeTsxBridge {
     ; Build the real Ranger node for façade child i (by type), add it to the scene,
     ; and cache it — so the geometry/texture upload happens once. A light and a mesh
     ; are both ThreeObject3D, so the same cache holds either.
+    ; keep the parallel arrays (node / signature / is-mesh) in lockstep.
+    fn registerNode:ThreeObject3D (node:ThreeObject3D sig:string isMesh:boolean) {
+        push nodes node
+        push nodeSigs sig
+        push nodeIsMesh isMesh
+        return node
+    }
+
     fn ensureNode:ThreeObject3D (i:int childV:EvalValue) {
         if (i < (array_length nodes)) {
+            ; rebuild a mesh whose geometry/material signature changed (needsUpdate).
+            if (itemAt nodeIsMesh i) {
+                def newSig:string (this.meshSig(childV))
+                if (newSig != (itemAt nodeSigs i)) {
+                    scene.remove((itemAt nodes i))
+                    def rebuilt:ThreeMesh (this.buildMesh(childV))
+                    scene.add(rebuilt)
+                    set nodes i rebuilt
+                    set nodeSigs i newSig
+                    return rebuilt
+                }
+            }
             return (itemAt nodes i)
         }
         ; light? (Ambient / Directional) — built with its colour/intensity/direction
@@ -286,9 +313,8 @@ class ThreeTsxBridge {
             amb.setColorHex((to_int (this.numOr(childV "color" 16777215.0))))
             amb.setIntensity((this.numOr(childV "intensity" 1.0)))
             scene.add(amb)
-            push nodes amb
             nAmbient = (nAmbient + 1)
-            return amb
+            return (this.registerNode(amb "" false))
         }
         if (this.flagOn(childV "isDirectionalLight")) {
             def dir:ThreeDirectionalLight (new ThreeDirectionalLight)
@@ -319,9 +345,8 @@ class ThreeTsxBridge {
                 }
             }
             scene.add(dir)
-            push nodes dir
             nDirectional = (nDirectional + 1)
-            return dir
+            return (this.registerNode(dir "" false))
         }
         ; sky (Preetham atmosphere) — a real ThreeSky the renderer draws behind the
         ; scene; its scattering params + sun direction are driven by the scene.
@@ -336,17 +361,15 @@ class ThreeTsxBridge {
                 sky.setSunPosition((this.num(sp "x")) (this.num(sp "y")) (this.num(sp "z")))
             }
             scene.add(sky)
-            push nodes sky
             nSky = (nSky + 1)
-            return sky
+            return (this.registerNode(sky "" false))
         }
         ; mesh (default) — typed geometry + typed material
         if (this.flagOn(childV "isMesh")) {
             def m:ThreeMesh (this.buildMesh(childV))
             scene.add(m)
-            push nodes m
             nMesh = (nMesh + 1)
-            return m
+            return (this.registerNode(m (this.meshSig(childV)) true))
         }
         ; a child the scene specified but we don't reconcile (an unsupported light
         ; type — Point/Spot/Hemisphere — or any other object). Report it (loud +
@@ -365,8 +388,34 @@ class ThreeTsxBridge {
         }}}
         def o:ThreeObject3D (new ThreeObject3D)
         scene.add(o)
-        push nodes o
-        return o
+        return (this.registerNode(o "" false))
+    }
+
+    ; A change-detection signature over the façade mesh's geometry + material params
+    ; — when it changes, ensureNode rebuilds the mesh (so re-tessellation / a shading
+    ; swap / a colour edit actually re-uploads, per the needsUpdate model).
+    fn meshSig:string (childV:EvalValue) {
+        def s:string ""
+        def geoV:EvalValue (childV.getMember("geometry"))
+        if (geoV.isObject()) {
+            if (this.flagOn(geoV "isTeapotGeometry")) {
+                s = ("t" + (to_string (this.numOr(geoV "size" 300.0))) + "," + (to_string (this.numOr(geoV "segments" 10.0))) + "," + (to_string (this.boolOr(geoV "bottom" true))) + "," + (to_string (this.boolOr(geoV "lid" true))) + "," + (to_string (this.boolOr(geoV "body" true))) + "," + (to_string (this.boolOr(geoV "fitLid" true))) + "," + (to_string (this.boolOr(geoV "blinn" true))))
+            } {
+                s = ("b" + (to_string (this.numOr(geoV "width" 1.0))) + "," + (to_string (this.numOr(geoV "height" 1.0))) + "," + (to_string (this.numOr(geoV "depth" 1.0))))
+            }
+        }
+        def matV:EvalValue (childV.getMember("material"))
+        if (matV.isObject()) {
+            s = (s + "|" + (this.materialKind(matV)) + ":" + (to_string (this.numOr(matV "color" 16777215.0))) + ":" + (to_string (this.boolOr(matV "wireframe" false))) + ":" + (to_string (this.boolOr(matV "flatShading" false))) + ":" + (to_string (this.numOr(matV "side" 0.0))))
+            def mapV:EvalValue (matV.getMember("map"))
+            if (mapV.isObject()) {
+                def pv:EvalValue (mapV.getMember("path"))
+                if (pv.isString()) { s = (s + ":m" + pv.stringValue) }
+            }
+            def emv:EvalValue (matV.getMember("envMap"))
+            if (emv.isObject()) { s = (s + ":env") }
+        }
+        return s
     }
 
     ; --- mesh: typed geometry + typed material --------------------------------
@@ -420,6 +469,16 @@ class ThreeTsxBridge {
             firstMatKind = (this.materialKind(matV))
         }
         def mat:ThreeMaterial (this.buildMaterial(matV))
+        ; envMap → reflective material. The actual reflection needs the host to have
+        ; supplied the scene's cube map (scene.setEnvironmentMap); with none, the
+        ; übershader's uHasEnv gate simply leaves the base material (no crash, no fake).
+        if (matV.isObject()) {
+            def emv:EvalValue (matV.getMember("envMap"))
+            if (emv.isObject()) {
+                mat.setReflective(true)
+                mat.setReflectivity(0.9)
+            }
+        }
         m.setMaterial(mat)
         return m
     }
@@ -445,12 +504,6 @@ class ThreeTsxBridge {
                     this.noteUnsupported("material (only Basic/Lambert/Phong are reconciled)")
                 }
             }
-        }
-        ; envMap specified but the generic bridge has no supplied cube map to reflect
-        ; — report it rather than silently rendering a non-reflective material.
-        def emv:EvalValue (matV.getMember("envMap"))
-        if (emv.isObject()) {
-            this.noteUnsupported("material.envMap (needs a supplied cube map)")
         }
         def side:int (to_int (this.numOr(matV "side" 0.0)))
         def colHex:int 16777215

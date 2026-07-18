@@ -157,13 +157,21 @@ per-frame mutation). The façade avoids it.
   A bridge that hard-codes one geometry + one material — or a second `*_tsx_bridge`
   per demo — is **forbidden**: adding an example must not add a reconciler.
 
-  > **Deprecated:** `three/tsx/three_teapot_tsx_bridge.rgr` and
-  > `three/tsx/three_sponza_tsx_bridge.rgr` are **transitional** and are *not* the
-  > pattern to copy. Their scene reconciliation belongs in `ThreeTsxBridge` (the
-  > generic bridge already reconciles the Sponza scene *content* — sky, shadow-
-  > casting sun, lit meshes — see `three_tsx_bridge_features_test`); their remaining
-  > job is plumbing (FPC, async glTF, the GI bake, exposure policy), which moves to a
-  > host module as they are retired in favour of `render=tsx`.
+  > **The teapot bridge is gone.** `three_teapot_tsx_bridge.rgr` has been **deleted**:
+  > the `webgl_geometry_teapot` scene now runs on the generic `ThreeTsxBridge`, with
+  > `WebTeapotTsxHost` reduced to pure plumbing (OrbitControls + the lil-gui panel +
+  > the procedural env cube map / UV texture / grey background the example loads from
+  > image files). Reflections, the six shading modes and GUI re-tessellation all work
+  > through the generic reconciler (verified headless; `three_teapot_tsx_test` asserts
+  > reconcile + rebuild-on-change). This required only *general* additions to
+  > `ThreeTsxBridge` — envMap → reflective material, and rebuild-on-signature-change
+  > (the needsUpdate model) — plus a real `scene.remove` in the façade.
+  >
+  > **`three/tsx/three_sponza_tsx_bridge.rgr` is the last transitional bridge** and is
+  > *not* the pattern to copy. The generic bridge already reconciles the Sponza scene
+  > *content* (sky, shadow-casting sun, lit meshes — `three_tsx_bridge_features_test`);
+  > its remaining job is plumbing (FPC, async glTF, the GI bake, exposure policy),
+  > which moves to a host module as it is retired in favour of `render=tsx`.
 
 ## 6. The implemented API surface
 

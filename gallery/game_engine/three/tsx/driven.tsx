@@ -1,9 +1,10 @@
 // ============================================================================
 // driven.tsx — a fixture that SPECIFIES the settings a demo-surface would other-
-// wise hardcode or drop: camera orientation, renderer tone mapping + exposure,
-// scene background, and an unsupported material feature (envMap). The generic
-// bridge must actually honour the honourable ones and LOUDLY report the rest —
-// i.e. the interpreted TSX drives the real objects, not a façade that fakes it.
+// wise hardcode or drop: camera orientation, renderer tone mapping + exposure, and
+// scene background. The generic bridge must actually honour them in the real
+// renderer/scene/camera — i.e. the interpreted TSX drives the real objects, not a
+// façade that fakes it. (Unsupported-feature reporting is covered by the features
+// test's probe grid.)
 // ============================================================================
 
 import * as THREE from 'three';
@@ -20,9 +21,7 @@ export function init() {
   scene.background = new THREE.Color( 0xff0000 ); // clear colour must be honoured
 
   const geometry = new THREE.BoxGeometry();
-  // envMap is specified but the generic bridge has no supplied cube map — it must
-  // be reported (counted), not silently rendered as a plain material.
-  const material = new THREE.MeshPhongMaterial( { color: 0x8888ff, envMap: new THREE.CubeTexture() } );
+  const material = new THREE.MeshPhongMaterial( { color: 0x8888ff } );
   mesh = new THREE.Mesh( geometry, material );
   scene.add( mesh );
 

@@ -52,12 +52,18 @@ class Scene {
   scale = new Vector3().set(1, 1, 1);
   children = [];
   background = null;
-  add(o) { this.children.push(o); return this; }
+  add(o) { o.__removed = false; this.children.push(o); return this; }
+  // NOTE: the TSX interpreter's object-identity `!==` does not distinguish
+  // instances, so filter on a removal flag set on the object instead (identity via
+  // a marker). This makes scene.remove actually shrink children — the teapot's
+  // rebuild (remove old mesh + add new) depends on it, and the generic bridge then
+  // reconciles the current children faithfully.
   remove(o) {
+    o.__removed = true;
     const next = [];
     let i = 0;
     while (i < this.children.length) {
-      if (this.children[i] !== o) { next.push(this.children[i]); }
+      if (this.children[i].__removed !== true) { next.push(this.children[i]); }
       i = i + 1;
     }
     this.children = next;

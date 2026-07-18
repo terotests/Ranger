@@ -92,15 +92,6 @@ class ThreeTsxBridgeDrivenTest {
             print "  FAIL scene.background ignored (fell back to hard-wired clear)"
         }
 
-        ; unsupported feature reported, not faked
-        if ((bridge.unsupportedCount()) >= 1) {
-            passed = (passed + 1)
-            print "  PASS envMap reported as unsupported (counted, not silently faked)"
-        } {
-            failed = (failed + 1)
-            print "  FAIL unsupported feature was silently swallowed"
-        }
-
         print "== summary =="
         print ("passed=" + (to_string passed) + " failed=" + (to_string failed))
         if (failed == 0) {
