@@ -21,6 +21,7 @@ Import "three_perspective_camera.rgr"
 Import "three_object3d.rgr"
 Import "three_box_geometry.rgr"
 Import "three_teapot_geometry.rgr"
+Import "three_primitive_geometries.rgr"
 Import "three_buffer_geometry.rgr"
 Import "three_mesh.rgr"
 Import "three_material.rgr"
@@ -101,6 +102,58 @@ class ThreeSceneHost {
         push geometries g
         return (array_length geometries)
     }
+    ; Primitive + complex geometries — the REAL vertex data is built here in the
+    ; Ranger host from the interpreter-supplied args (three_primitive_geometries).
+    fn geometryPlane:int (width:double height:double wSeg:int hSeg:int) {
+        def g:ThreePlaneGeometry (new ThreePlaneGeometry)
+        g.build(width height wSeg hSeg)
+        push geometries g
+        return (array_length geometries)
+    }
+    fn geometryCircle:int (radius:double segments:int thetaStart:double thetaLength:double) {
+        def g:ThreeCircleGeometry (new ThreeCircleGeometry)
+        g.build(radius segments thetaStart thetaLength)
+        push geometries g
+        return (array_length geometries)
+    }
+    fn geometryRing:int (innerRadius:double outerRadius:double thetaSeg:int phiSeg:int thetaStart:double thetaLength:double) {
+        def g:ThreeRingGeometry (new ThreeRingGeometry)
+        g.build(innerRadius outerRadius thetaSeg phiSeg thetaStart thetaLength)
+        push geometries g
+        return (array_length geometries)
+    }
+    fn geometrySphere:int (radius:double wSeg:int hSeg:int phiStart:double phiLength:double thetaStart:double thetaLength:double) {
+        def g:ThreeSphereGeometry (new ThreeSphereGeometry)
+        g.build(radius wSeg hSeg phiStart phiLength thetaStart thetaLength)
+        push geometries g
+        return (array_length geometries)
+    }
+    fn geometryCylinder:int (radiusTop:double radiusBottom:double height:double radialSeg:int heightSeg:int openEnded:boolean thetaStart:double thetaLength:double) {
+        def g:ThreeCylinderGeometry (new ThreeCylinderGeometry)
+        g.build(radiusTop radiusBottom height radialSeg heightSeg openEnded thetaStart thetaLength)
+        push geometries g
+        return (array_length geometries)
+    }
+    fn geometryCone:int (radius:double height:double radialSeg:int heightSeg:int openEnded:boolean thetaStart:double thetaLength:double) {
+        ; Cone.build delegates to a Cylinder(radiusTop=0) and returns THAT populated
+        ; geometry (the wrapper itself stays empty) — register the returned one.
+        def cone:ThreeConeGeometry (new ThreeConeGeometry)
+        def g:ThreeCylinderGeometry (cone.build(radius height radialSeg heightSeg openEnded thetaStart thetaLength))
+        push geometries g
+        return (array_length geometries)
+    }
+    fn geometryTorus:int (radius:double tube:double radialSeg:int tubularSeg:int arc:double) {
+        def g:ThreeTorusGeometry (new ThreeTorusGeometry)
+        g.build(radius tube radialSeg tubularSeg arc)
+        push geometries g
+        return (array_length geometries)
+    }
+    fn geometryTorusKnot:int (radius:double tube:double tubularSeg:int radialSeg:int p:int q:int) {
+        def g:ThreeTorusKnotGeometry (new ThreeTorusKnotGeometry)
+        g.build(radius tube tubularSeg radialSeg p q)
+        push geometries g
+        return (array_length geometries)
+    }
 
     ; --- material (resources) -------------------------------------------------
     fn materialBasic:int (colorHex:int side:int wireframe:boolean) {
@@ -148,6 +201,36 @@ class ThreeSceneHost {
         sc.add(m)
         push entities m
         return (array_length entities)
+    }
+    ; --- hierarchy: nodes parented under another entity (not the scene) --------
+    ; A transform-only node (THREE.Group / Object3D). parentH==0 => under the scene.
+    fn groupNew:int (sceneH:int parentH:int) {
+        def g:ThreeObject3D (new ThreeObject3D)
+        if (parentH == 0) {
+            def sc:ThreeScene (this.sceneAt(sceneH))
+            sc.add(g)
+        } {
+            def par:ThreeObject3D (this.entityAt(parentH))
+            par.add(g)
+        }
+        push entities g
+        return (array_length entities)
+    }
+    ; A mesh parented under another entity, so its world matrix composes with the
+    ; parent's (the core's updateMatrixWorld walks parent -> child).
+    fn meshNewUnder:int (parentH:int geoH:int matH:int) {
+        def m:ThreeMesh (new ThreeMesh)
+        m.setGeometry((this.geometryAt(geoH)))
+        m.setMaterial((this.materialAt(matH)))
+        def par:ThreeObject3D (this.entityAt(parentH))
+        par.add(m)
+        push entities m
+        return (array_length entities)
+    }
+    ; force-compose all world matrices (the renderer also does this each frame).
+    fn updateWorldMatrices:void (sceneH:int) {
+        def sc:ThreeScene (this.sceneAt(sceneH))
+        sc.updateMatrixWorld()
     }
     ; a host-decoded model subtree (glTF) added as one entity.
     fn modelAttach:int (sceneH:int model:ThreeObject3D) {

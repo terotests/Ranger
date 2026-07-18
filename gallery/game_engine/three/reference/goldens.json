@@ -1,0 +1,150 @@
+{
+  "v3_add": {
+    "x": 5,
+    "y": 7,
+    "z": 9,
+    "len": 12.4499
+  },
+  "v3_sub": {
+    "x": -3,
+    "y": -3,
+    "z": -3
+  },
+  "v3_cross": {
+    "x": -3,
+    "y": 6,
+    "z": -3
+  },
+  "v3_dot": {
+    "dot": 32
+  },
+  "v3_normalize": {
+    "x": 0.6,
+    "y": 0,
+    "z": 0.8
+  },
+  "v3_lengthSq": {
+    "v": 25
+  },
+  "v3_distanceTo": {
+    "d": 5.196152
+  },
+  "v3_lerp": {
+    "x": 1.75,
+    "y": 2.75,
+    "z": 3.75
+  },
+  "v3_multiplyScalar": {
+    "x": 2.5,
+    "y": 5,
+    "z": 7.5
+  },
+  "v3_applyMatrix4": {
+    "x": 11,
+    "y": 22,
+    "z": 33
+  },
+  "v3_applyQuaternion": {
+    "x": 0,
+    "y": 1,
+    "z": 0
+  },
+  "v2_length": {
+    "v": 5
+  },
+  "v2_add": {
+    "x": 4,
+    "y": 5
+  },
+  "v2_angle": {
+    "v": 0.785398
+  },
+  "m4_rotY_applied": {
+    "x": 0,
+    "y": 0,
+    "z": -1
+  },
+  "m4_compose_elements": {
+    "e": [
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      1,
+      2,
+      3,
+      1
+    ]
+  },
+  "m4_determinant": {
+    "v": 24
+  },
+  "quat_axisAngle": {
+    "x": 0,
+    "y": 0.707107,
+    "z": 0,
+    "w": 0.707107
+  },
+  "quat_fromEuler": {
+    "x": 0.064071,
+    "y": 0.091158,
+    "z": 0.153439,
+    "w": 0.981856
+  },
+  "euler_fromQuat": {
+    "x": 0,
+    "y": 1.570796,
+    "z": 0
+  },
+  "color_channels": {
+    "r": 1,
+    "g": 0.246201,
+    "b": 0
+  },
+  "color_named": {
+    "hex": 16711680
+  },
+  "color_hsl": {
+    "r": 0,
+    "g": 1,
+    "b": 1
+  },
+  "o3d_lookAt_quat": {
+    "x": 0,
+    "y": 1,
+    "z": 0,
+    "w": 0
+  },
+  "o3d_worldPos": {
+    "x": 10,
+    "y": 5,
+    "z": 0
+  },
+  "o3d_childCount": {
+    "n": 1
+  },
+  "o3d_parentIsSet": {
+    "same": true,
+    "kids": 1
+  },
+  "o3d_traverse": {
+    "visited": 3
+  },
+  "math_degToRad": {
+    "v": 1.570796
+  },
+  "math_clamp": {
+    "v": 3
+  },
+  "math_lerp": {
+    "v": 3
+  }
+}

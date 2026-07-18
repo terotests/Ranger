@@ -28,6 +28,19 @@ run_tsx_poc() {
   echo
 }
 
+# Feature test folders (three/tests/<feature>/): each is a self-contained,
+# interpreter-driven suite — a JS .tsx scene + its .rgr driver + a README. Pass the
+# path under three/tests (e.g. "value_parity/three_value_parity_test"). The broad
+# grep also surfaces the "value parity: implemented=X/Y" measurement line.
+run_feature() {
+  local rel="$1"
+  local name="$(basename "$rel")"
+  echo "### ${name}"
+  $RGRC "gallery/game_engine/three/tests/${rel}.rgr" -d="$OUT" -o="${name}.js" >/dev/null 2>&1
+  node "$OUT/${name}.js" | grep -E "PASS |FAIL |ALL PASS|SOME FAILED|passed=|value parity:"
+  echo
+}
+
 # One suite per ported class (grows piece by piece).
 run_suite three_vector3_test
 run_suite three_math_utils_test
@@ -63,12 +76,30 @@ run_suite three_gl_backend_test
 # one registry by integer handle; no front-end owns Three objects privately.
 run_suite three_scene_host_test
 
+# The value-parity conformance gate (three/tests/value_parity/, THREE.md §9):
+# baseline idioms hard-asserted (regression gate), plus the measured
+# "implemented=X/Y" parity % against real-three.js goldens. GAPs are the backlog.
+run_feature value_parity/three_value_parity_test
+
 # The interpreter transport for the command ABI: bare `three_*(...)` calls
 # routed through ThreeNativeBridge into the one shared ThreeSceneHost.
 run_tsx_poc three_native_bridge_test
 # Convergence: the interpreter front-end and a direct-command guest land on
 # identical host-registry state, and both drive ONE shared registry.
 run_tsx_poc three_convergence_test
+# Primitive + complex geometries (three/tests/geometry/): Plane/Circle/Ring/Sphere/
+# Cylinder/Cone/Torus/TorusKnot driven THROUGH THE INTERPRETER — the JS scene
+# supplies args, the real geometry is built in the Ranger host, validated vs goldens.
+run_feature geometry/three_geometry_parity_test
+# Multi-feature spec runner (three/tests/spec/): ONE compiled runner, data-driven
+# from spec_goldens.json — camera + projection matrix, transformed-mesh world
+# matrix, colour families, and view-frustum culling, all validated vs real three.js
+# with no rendering. Compiled once instead of one .rgr per feature (the speedup).
+run_feature spec/three_spec_runner
+# Object hierarchy (three/tests/object_hierarchy/): a nested Group/mesh tree driven
+# through the interpreter, reconciled into the host with real parenting; each
+# node's composed world matrix validated vs real three.js. No rendering.
+run_feature object_hierarchy/three_hierarchy_test
 # The 1:1 Three.js cube example, run through the TSX interpreter on the façade.
 run_tsx_poc three_facade_poc
 # The render bridge: the interpreted cube.tsx reconciled into the Ranger core and

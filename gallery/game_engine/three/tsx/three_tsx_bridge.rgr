@@ -79,6 +79,12 @@ class ThreeTsxBridge {
     ; of being frozen at its first build.
     def nodeSigs:[string]
     def nodeIsMesh:[boolean]
+    ; nested-node (hierarchy) handles, in a stable DFS order across frames. Built
+    ; once (append on first sight); on later frames the cursor re-walks the same
+    ; order and reuses the handles, so nested transforms re-sync without allocating
+    ; new host entities. Assumes a stable tree shape (as the flat cache does too).
+    def subHandles:[int]
+    def subCursor:int 0
 
     ; reconcile bookkeeping (also serves as introspection for tests: proves the
     ; façade was mapped to the right REAL object types, not a single hard-coded one).
@@ -315,6 +321,15 @@ class ThreeTsxBridge {
             return
         }
         def h:int (this.ensureNode(i childV))
+        this.applyTransform(h childV)
+        ; recurse into this node's children (hierarchy): build/reuse each as a host
+        ; entity parented under h, and sync its transform. Flat scenes (no children)
+        ; skip this entirely — fully backward compatible.
+        this.syncChildren(childV h)
+    }
+
+    ; read the façade node's local TRS and command the host entity's transform.
+    fn applyTransform:void (h:int childV:EvalValue) {
         def ex:double 0.0
         def ey:double 0.0
         def ez:double 0.0
@@ -343,6 +358,51 @@ class ThreeTsxBridge {
             sz = (this.num(scl "z"))
         }
         host.entityTransform(h px py pz ex ey ez sx sy sz)
+    }
+
+    ; reconcile the children of a node whose host handle is parentH.
+    fn syncChildren:void (parentV:EvalValue parentH:int) {
+        def kids:EvalValue (parentV.getMember("children"))
+        if (kids.isArray() == false) {
+            return
+        }
+        def n:int (array_length kids.arrayValue)
+        def k:int 0
+        while (k < n) {
+            def gv:EvalValue (kids.getIndex(k))
+            if (gv.isObject()) {
+                def gh:int (this.ensureSub(gv parentH))
+                this.applyTransform(gh gv)
+                this.syncChildren(gv gh)
+            }
+            k = (k + 1)
+        }
+    }
+
+    ; nested node: reuse its handle from the DFS-ordinal cache, or build it once
+    ; (a mesh or a transform-only group) parented under parentH.
+    fn ensureSub:int (childV:EvalValue parentH:int) {
+        if (subCursor < (array_length subHandles)) {
+            def cached:int (itemAt subHandles subCursor)
+            subCursor = (subCursor + 1)
+            return cached
+        }
+        def built:int (this.buildSubNode(childV parentH))
+        push subHandles built
+        subCursor = (subCursor + 1)
+        return built
+    }
+
+    fn buildSubNode:int (childV:EvalValue parentH:int) {
+        if (this.flagOn(childV "isMesh")) {
+            def geoV:EvalValue (childV.getMember("geometry"))
+            def geoH:int (this.buildGeometryH(geoV))
+            def matV:EvalValue (childV.getMember("material"))
+            def matH:int (this.buildMaterialH(matV))
+            return (host.meshNewUnder(parentH geoH matH))
+        }
+        ; a Group / Object3D — a transform-only node.
+        return (host.groupNew(sceneH parentH))
     }
 
     ; keep the parallel arrays (handle / signature / is-mesh) in lockstep.
@@ -454,6 +514,12 @@ class ThreeTsxBridge {
             nMesh = (nMesh + 1)
             return (this.registerNode(h (this.meshSig(childV)) true))
         }
+        ; a transform-only node (THREE.Group / Object3D) at the top level — a real
+        ; host Object3D under the scene; its children reconcile via syncChildren.
+        if ((this.flagOn(childV "isGroup")) || (this.flagOn(childV "isObject3D"))) {
+            def gh2:int (host.groupNew(sceneH 0))
+            return (this.registerNode(gh2 "" false))
+        }
         ; a child the scene specified but we don't reconcile (an unsupported light
         ; type — Point/Spot/Hemisphere — or any other object). Report it (loud +
         ; counted) rather than pretending it rendered; an empty Object3D keeps the
@@ -474,6 +540,38 @@ class ThreeTsxBridge {
         return (this.registerNode(oh "" false))
     }
 
+    ; Type-tagged geometry signature (so a re-tessellation OR a type swap rebuilds).
+    fn geometrySig:string (geoV:EvalValue) {
+        if (this.flagOn(geoV "isTeapotGeometry")) {
+            return ("t" + (to_string (this.numOr(geoV "size" 300.0))) + "," + (to_string (this.numOr(geoV "segments" 10.0))) + "," + (to_string (this.boolOr(geoV "bottom" true))) + "," + (to_string (this.boolOr(geoV "lid" true))) + "," + (to_string (this.boolOr(geoV "body" true))) + "," + (to_string (this.boolOr(geoV "fitLid" true))) + "," + (to_string (this.boolOr(geoV "blinn" true))))
+        }
+        if (this.flagOn(geoV "isPlaneGeometry")) {
+            return ("pl" + (to_string (this.numOr(geoV "width" 1.0))) + "," + (to_string (this.numOr(geoV "height" 1.0))) + "," + (to_string (this.numOr(geoV "widthSegments" 1.0))) + "," + (to_string (this.numOr(geoV "heightSegments" 1.0))))
+        }
+        if (this.flagOn(geoV "isCircleGeometry")) {
+            return ("ci" + (to_string (this.numOr(geoV "radius" 1.0))) + "," + (to_string (this.numOr(geoV "segments" 32.0))))
+        }
+        if (this.flagOn(geoV "isRingGeometry")) {
+            return ("ri" + (to_string (this.numOr(geoV "innerRadius" 0.5))) + "," + (to_string (this.numOr(geoV "outerRadius" 1.0))) + "," + (to_string (this.numOr(geoV "thetaSegments" 32.0))) + "," + (to_string (this.numOr(geoV "phiSegments" 1.0))))
+        }
+        if (this.flagOn(geoV "isSphereGeometry")) {
+            return ("sp" + (to_string (this.numOr(geoV "radius" 1.0))) + "," + (to_string (this.numOr(geoV "widthSegments" 32.0))) + "," + (to_string (this.numOr(geoV "heightSegments" 16.0))))
+        }
+        if (this.flagOn(geoV "isCylinderGeometry")) {
+            return ("cy" + (to_string (this.numOr(geoV "radiusTop" 1.0))) + "," + (to_string (this.numOr(geoV "radiusBottom" 1.0))) + "," + (to_string (this.numOr(geoV "height" 1.0))) + "," + (to_string (this.numOr(geoV "radialSegments" 32.0))) + "," + (to_string (this.numOr(geoV "heightSegments" 1.0))))
+        }
+        if (this.flagOn(geoV "isConeGeometry")) {
+            return ("co" + (to_string (this.numOr(geoV "radius" 1.0))) + "," + (to_string (this.numOr(geoV "height" 1.0))) + "," + (to_string (this.numOr(geoV "radialSegments" 32.0))))
+        }
+        if (this.flagOn(geoV "isTorusGeometry")) {
+            return ("to" + (to_string (this.numOr(geoV "radius" 1.0))) + "," + (to_string (this.numOr(geoV "tube" 0.4))) + "," + (to_string (this.numOr(geoV "radialSegments" 12.0))) + "," + (to_string (this.numOr(geoV "tubularSegments" 48.0))))
+        }
+        if (this.flagOn(geoV "isTorusKnotGeometry")) {
+            return ("tk" + (to_string (this.numOr(geoV "radius" 1.0))) + "," + (to_string (this.numOr(geoV "tube" 0.4))) + "," + (to_string (this.numOr(geoV "tubularSegments" 64.0))) + "," + (to_string (this.numOr(geoV "radialSegments" 8.0))) + "," + (to_string (this.numOr(geoV "p" 2.0))) + "," + (to_string (this.numOr(geoV "q" 3.0))))
+        }
+        return ("b" + (to_string (this.numOr(geoV "width" 1.0))) + "," + (to_string (this.numOr(geoV "height" 1.0))) + "," + (to_string (this.numOr(geoV "depth" 1.0))))
+    }
+
     ; A change-detection signature over the façade mesh's geometry + material params
     ; — when it changes, ensureNode rebuilds the mesh (so re-tessellation / a shading
     ; swap / a colour edit actually re-uploads, per the needsUpdate model).
@@ -481,11 +579,7 @@ class ThreeTsxBridge {
         def s:string ""
         def geoV:EvalValue (childV.getMember("geometry"))
         if (geoV.isObject()) {
-            if (this.flagOn(geoV "isTeapotGeometry")) {
-                s = ("t" + (to_string (this.numOr(geoV "size" 300.0))) + "," + (to_string (this.numOr(geoV "segments" 10.0))) + "," + (to_string (this.boolOr(geoV "bottom" true))) + "," + (to_string (this.boolOr(geoV "lid" true))) + "," + (to_string (this.boolOr(geoV "body" true))) + "," + (to_string (this.boolOr(geoV "fitLid" true))) + "," + (to_string (this.boolOr(geoV "blinn" true))))
-            } {
-                s = ("b" + (to_string (this.numOr(geoV "width" 1.0))) + "," + (to_string (this.numOr(geoV "height" 1.0))) + "," + (to_string (this.numOr(geoV "depth" 1.0))))
-            }
+            s = (this.geometrySig(geoV))
         }
         def matV:EvalValue (childV.getMember("material"))
         if (matV.isObject()) {
@@ -504,44 +598,82 @@ class ThreeTsxBridge {
     ; --- mesh: typed geometry + typed material, as host resource + instance -----
     ; Command the host to build the geometry + material resources and a mesh instance
     ; referencing them; return the mesh entity handle.
-    fn buildMeshH:int (childV:EvalValue) {
-        def geoV:EvalValue (childV.getMember("geometry"))
-        def geoH:int 0
-        def isTeapot:boolean false
+    ; Two-pi default for the sweep-based primitives (no M_PI constant here).
+    ; Build the real host geometry from the façade args — the object is constructed
+    ; in Ranger from interpreter-supplied args; the type is chosen by the flag.
+    fn buildGeometryH:int (geoV:EvalValue) {
+        def twoPi:double 6.283185307179586
+        def pi:double 3.141592653589793
         if (geoV.isObject()) {
             if (this.flagOn(geoV "isTeapotGeometry")) {
-                isTeapot = true
-            } {
-                ; a geometry object that is neither Box nor Teapot is an unsupported
-                ; type — report it (loud) rather than silently rendering a box in its
-                ; place. (No geometry object at all = the sensible unit-box default.)
-                if ((this.flagOn(geoV "isBoxGeometry")) == false) {
-                    this.noteUnsupported("geometry (only Box/Teapot are reconciled)")
-                }
+                return (host.geometryTeapot((this.numOr(geoV "size" 300.0))
+                    (to_int (this.numOr(geoV "segments" 10.0)))
+                    (this.boolOr(geoV "bottom" true)) (this.boolOr(geoV "lid" true))
+                    (this.boolOr(geoV "body" true)) (this.boolOr(geoV "fitLid" true))
+                    (this.boolOr(geoV "blinn" true))))
+            }
+            if (this.flagOn(geoV "isPlaneGeometry")) {
+                return (host.geometryPlane((this.numOr(geoV "width" 1.0)) (this.numOr(geoV "height" 1.0))
+                    (to_int (this.numOr(geoV "widthSegments" 1.0))) (to_int (this.numOr(geoV "heightSegments" 1.0)))))
+            }
+            if (this.flagOn(geoV "isCircleGeometry")) {
+                return (host.geometryCircle((this.numOr(geoV "radius" 1.0)) (to_int (this.numOr(geoV "segments" 32.0)))
+                    (this.numOr(geoV "thetaStart" 0.0)) (this.numOr(geoV "thetaLength" twoPi))))
+            }
+            if (this.flagOn(geoV "isRingGeometry")) {
+                return (host.geometryRing((this.numOr(geoV "innerRadius" 0.5)) (this.numOr(geoV "outerRadius" 1.0))
+                    (to_int (this.numOr(geoV "thetaSegments" 32.0))) (to_int (this.numOr(geoV "phiSegments" 1.0)))
+                    (this.numOr(geoV "thetaStart" 0.0)) (this.numOr(geoV "thetaLength" twoPi))))
+            }
+            if (this.flagOn(geoV "isSphereGeometry")) {
+                return (host.geometrySphere((this.numOr(geoV "radius" 1.0)) (to_int (this.numOr(geoV "widthSegments" 32.0)))
+                    (to_int (this.numOr(geoV "heightSegments" 16.0))) (this.numOr(geoV "phiStart" 0.0)) (this.numOr(geoV "phiLength" twoPi))
+                    (this.numOr(geoV "thetaStart" 0.0)) (this.numOr(geoV "thetaLength" pi))))
+            }
+            if (this.flagOn(geoV "isCylinderGeometry")) {
+                return (host.geometryCylinder((this.numOr(geoV "radiusTop" 1.0)) (this.numOr(geoV "radiusBottom" 1.0))
+                    (this.numOr(geoV "height" 1.0)) (to_int (this.numOr(geoV "radialSegments" 32.0)))
+                    (to_int (this.numOr(geoV "heightSegments" 1.0))) (this.boolOr(geoV "openEnded" false))
+                    (this.numOr(geoV "thetaStart" 0.0)) (this.numOr(geoV "thetaLength" twoPi))))
+            }
+            if (this.flagOn(geoV "isConeGeometry")) {
+                return (host.geometryCone((this.numOr(geoV "radius" 1.0)) (this.numOr(geoV "height" 1.0))
+                    (to_int (this.numOr(geoV "radialSegments" 32.0))) (to_int (this.numOr(geoV "heightSegments" 1.0)))
+                    (this.boolOr(geoV "openEnded" false)) (this.numOr(geoV "thetaStart" 0.0)) (this.numOr(geoV "thetaLength" twoPi))))
+            }
+            if (this.flagOn(geoV "isTorusGeometry")) {
+                return (host.geometryTorus((this.numOr(geoV "radius" 1.0)) (this.numOr(geoV "tube" 0.4))
+                    (to_int (this.numOr(geoV "radialSegments" 12.0))) (to_int (this.numOr(geoV "tubularSegments" 48.0)))
+                    (this.numOr(geoV "arc" twoPi))))
+            }
+            if (this.flagOn(geoV "isTorusKnotGeometry")) {
+                return (host.geometryTorusKnot((this.numOr(geoV "radius" 1.0)) (this.numOr(geoV "tube" 0.4))
+                    (to_int (this.numOr(geoV "tubularSegments" 64.0))) (to_int (this.numOr(geoV "radialSegments" 8.0)))
+                    (to_int (this.numOr(geoV "p" 2.0))) (to_int (this.numOr(geoV "q" 3.0)))))
+            }
+            if ((this.flagOn(geoV "isBoxGeometry")) == false) {
+                ; unknown geometry object — loud, not a silent box.
+                this.noteUnsupported("geometry (unrecognised type)")
             }
         }
-        if isTeapot {
-            geoH = (host.geometryTeapot((this.numOr(geoV "size" 300.0))
-                (to_int (this.numOr(geoV "segments" 10.0)))
-                (this.boolOr(geoV "bottom" true))
-                (this.boolOr(geoV "lid" true))
-                (this.boolOr(geoV "body" true))
-                (this.boolOr(geoV "fitLid" true))
-                (this.boolOr(geoV "blinn" true))))
-        } {
-            def gw:double 1.0
-            def gh:double 1.0
-            def gd:double 1.0
-            if (geoV.isObject()) {
-                def w:double (this.numOr(geoV "width" 1.0))
-                def h:double (this.numOr(geoV "height" 1.0))
-                def d:double (this.numOr(geoV "depth" 1.0))
-                if (w > 0.0) { gw = w }
-                if (h > 0.0) { gh = h }
-                if (d > 0.0) { gd = d }
-            }
-            geoH = (host.geometryBox(gw gh gd))
+        ; Box (default): a geometry object with width/height/depth, or none = unit box.
+        def gw:double 1.0
+        def gh:double 1.0
+        def gd:double 1.0
+        if (geoV.isObject()) {
+            def w:double (this.numOr(geoV "width" 1.0))
+            def h:double (this.numOr(geoV "height" 1.0))
+            def d:double (this.numOr(geoV "depth" 1.0))
+            if (w > 0.0) { gw = w }
+            if (h > 0.0) { gh = h }
+            if (d > 0.0) { gd = d }
         }
+        return (host.geometryBox(gw gh gd))
+    }
+
+    fn buildMeshH:int (childV:EvalValue) {
+        def geoV:EvalValue (childV.getMember("geometry"))
+        def geoH:int (this.buildGeometryH(geoV))
 
         def matV:EvalValue (childV.getMember("material"))
         if (nMesh == 0) {
@@ -669,7 +801,12 @@ class ThreeTsxBridge {
         lastH = h
         this.syncRenderer()
         this.syncCamera()
+        subCursor = 0
         this.syncScene()
+        ; compose world matrices so nested nodes' matrixWorld is current (the
+        ; renderer also does this during present; explicit here so a headless
+        ; reconcile without a draw still yields correct world transforms).
+        host.updateWorldMatrices(sceneH)
     }
     ; Draw the reconciled scene (the host owns the renderer + scene + camera).
     fn present:void () {

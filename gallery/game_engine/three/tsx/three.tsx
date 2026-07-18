@@ -144,6 +144,81 @@ class BoxGeometry {
   depth = 1;
 }
 
+// --- Primitive + complex geometries -----------------------------------------
+// Thin arg holders ONLY: the vertex data is built in the Ranger host from these
+// args (the bridge reads them and commands host.geometry*()). No geometry math in
+// JS — the objects live in Ranger. Omitted args stay undefined; the bridge/host
+// supplies the three.js default (single place), matching the Box path.
+class PlaneGeometry {
+  isPlaneGeometry = true;
+  constructor(width, height, widthSegments, heightSegments) {
+    this.width = width; this.height = height;
+    this.widthSegments = widthSegments; this.heightSegments = heightSegments;
+  }
+  dispose() { }
+}
+class CircleGeometry {
+  isCircleGeometry = true;
+  constructor(radius, segments, thetaStart, thetaLength) {
+    this.radius = radius; this.segments = segments;
+    this.thetaStart = thetaStart; this.thetaLength = thetaLength;
+  }
+  dispose() { }
+}
+class RingGeometry {
+  isRingGeometry = true;
+  constructor(innerRadius, outerRadius, thetaSegments, phiSegments, thetaStart, thetaLength) {
+    this.innerRadius = innerRadius; this.outerRadius = outerRadius;
+    this.thetaSegments = thetaSegments; this.phiSegments = phiSegments;
+    this.thetaStart = thetaStart; this.thetaLength = thetaLength;
+  }
+  dispose() { }
+}
+class SphereGeometry {
+  isSphereGeometry = true;
+  constructor(radius, widthSegments, heightSegments, phiStart, phiLength, thetaStart, thetaLength) {
+    this.radius = radius; this.widthSegments = widthSegments; this.heightSegments = heightSegments;
+    this.phiStart = phiStart; this.phiLength = phiLength;
+    this.thetaStart = thetaStart; this.thetaLength = thetaLength;
+  }
+  dispose() { }
+}
+class CylinderGeometry {
+  isCylinderGeometry = true;
+  constructor(radiusTop, radiusBottom, height, radialSegments, heightSegments, openEnded, thetaStart, thetaLength) {
+    this.radiusTop = radiusTop; this.radiusBottom = radiusBottom; this.height = height;
+    this.radialSegments = radialSegments; this.heightSegments = heightSegments;
+    this.openEnded = openEnded; this.thetaStart = thetaStart; this.thetaLength = thetaLength;
+  }
+  dispose() { }
+}
+class ConeGeometry {
+  isConeGeometry = true;
+  constructor(radius, height, radialSegments, heightSegments, openEnded, thetaStart, thetaLength) {
+    this.radius = radius; this.height = height;
+    this.radialSegments = radialSegments; this.heightSegments = heightSegments;
+    this.openEnded = openEnded; this.thetaStart = thetaStart; this.thetaLength = thetaLength;
+  }
+  dispose() { }
+}
+class TorusGeometry {
+  isTorusGeometry = true;
+  constructor(radius, tube, radialSegments, tubularSegments, arc) {
+    this.radius = radius; this.tube = tube;
+    this.radialSegments = radialSegments; this.tubularSegments = tubularSegments; this.arc = arc;
+  }
+  dispose() { }
+}
+class TorusKnotGeometry {
+  isTorusKnotGeometry = true;
+  constructor(radius, tube, tubularSegments, radialSegments, p, q) {
+    this.radius = radius; this.tube = tube;
+    this.tubularSegments = tubularSegments; this.radialSegments = radialSegments;
+    this.p = p; this.q = q;
+  }
+  dispose() { }
+}
+
 class Texture {
   isTexture = true;
   path = "";
@@ -255,11 +330,58 @@ class Mesh {
   scale = new Vector3().set(1, 1, 1);
   geometry = null;
   material = null;
+  children = [];
   constructor(geometry, material) {
     this.geometry = geometry;
     this.material = material;
   }
-  add(o) { return this; }
+  // real add now — the bridge recurses into children and builds them in the host
+  // parented to this mesh (nested world transforms compose in the Ranger core).
+  add(o) { o.__removed = false; this.children.push(o); return this; }
+}
+
+// A transform-only node (no geometry). THREE.Group / THREE.Object3D — the parents
+// that make a scene a hierarchy. Same flat-node shape (own TRS + children); the
+// bridge builds a host Object3D and parents this node's children under it.
+class Group {
+  isGroup = true;
+  isObject3D = true;
+  position = new Vector3();
+  rotation = new Vector3();
+  scale = new Vector3().set(1, 1, 1);
+  children = [];
+  add(o) { o.__removed = false; this.children.push(o); return this; }
+  remove(o) {
+    o.__removed = true;
+    const next = [];
+    let i = 0;
+    while (i < this.children.length) {
+      if (this.children[i].__removed !== true) { next.push(this.children[i]); }
+      i = i + 1;
+    }
+    this.children = next;
+    return this;
+  }
+}
+
+class Object3D {
+  isObject3D = true;
+  position = new Vector3();
+  rotation = new Vector3();
+  scale = new Vector3().set(1, 1, 1);
+  children = [];
+  add(o) { o.__removed = false; this.children.push(o); return this; }
+  remove(o) {
+    o.__removed = true;
+    const next = [];
+    let i = 0;
+    while (i < this.children.length) {
+      if (this.children[i].__removed !== true) { next.push(this.children[i]); }
+      i = i + 1;
+    }
+    this.children = next;
+    return this;
+  }
 }
 
 class WebGLRenderer {

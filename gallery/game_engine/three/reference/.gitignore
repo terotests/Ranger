@@ -1,0 +1,3 @@
+# Third-party three.js source, fetched on demand by fetch-three-reference.sh.
+# Reproducible from the pinned version + that script — not committed (~23 MB).
+vendor/
