@@ -157,21 +157,24 @@ per-frame mutation). The façade avoids it.
   A bridge that hard-codes one geometry + one material — or a second `*_tsx_bridge`
   per demo — is **forbidden**: adding an example must not add a reconciler.
 
-  > **The teapot bridge is gone.** `three_teapot_tsx_bridge.rgr` has been **deleted**:
-  > the `webgl_geometry_teapot` scene now runs on the generic `ThreeTsxBridge`, with
-  > `WebTeapotTsxHost` reduced to pure plumbing (OrbitControls + the lil-gui panel +
-  > the procedural env cube map / UV texture / grey background the example loads from
-  > image files). Reflections, the six shading modes and GUI re-tessellation all work
-  > through the generic reconciler (verified headless; `three_teapot_tsx_test` asserts
-  > reconcile + rebuild-on-change). This required only *general* additions to
-  > `ThreeTsxBridge` — envMap → reflective material, and rebuild-on-signature-change
-  > (the needsUpdate model) — plus a real `scene.remove` in the façade.
-  >
-  > **`three/tsx/three_sponza_tsx_bridge.rgr` is the last transitional bridge** and is
-  > *not* the pattern to copy. The generic bridge already reconciles the Sponza scene
-  > *content* (sky, shadow-casting sun, lit meshes — `three_tsx_bridge_features_test`);
-  > its remaining job is plumbing (FPC, async glTF, the GI bake, exposure policy),
-  > which moves to a host module as it is retired in favour of `render=tsx`.
+  > **Both per-demo bridges are gone — there are no `*_tsx_bridge.rgr` files.**
+  > `three_teapot_tsx_bridge.rgr` and `three_sponza_tsx_bridge.rgr` have been
+  > **deleted**. Every example — cube, cubes, teapot, Sponza — now reconciles through
+  > the one generic `ThreeTsxBridge`; each host is pure plumbing:
+  > - **Teapot** (`WebTeapotTsxHost`): OrbitControls + lil-gui panel + the procedural
+  >   env cube map / UV texture / grey background the example loads from image files.
+  >   Needed only *general* bridge additions — envMap → reflective, rebuild-on-
+  >   signature-change (needsUpdate), and a real façade `scene.remove`. Reflections,
+  >   the six shading modes and GUI re-tessellation verified headless.
+  > - **Sponza** (`ThreeSponzaScene`, now a plumbing module): the generic bridge
+  >   reconciles the sky, the shadow-casting sun, the host-attached model and the
+  >   camera; `ThreeSponzaScene` runs the GPU technique on those reconciled objects —
+  >   bounds → shadow extent, the diffuse-GI probe bake, the per-probe sun-visibility
+  >   pass, and first-person controls. `bind()` points it at the bridge's objects; it
+  >   never reconciles. Reconcile + hot-reload (sun angle, probe counts, GI toggle)
+  >   verified headless (`three_sponza_tsx_test`); the GI/shadow/sky *visual* is the
+  >   local desktop-GL / device step Sponza has always had (its model streams over a
+  >   network a headless CI can't reach).
 
 ## 6. The implemented API surface
 
