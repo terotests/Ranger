@@ -1,0 +1,78 @@
+; ==============================================================================
+; three_light_probe_generator — project a cube capture to SH (Three.js port of
+; examples/jsm/lights/LightProbeGenerator.fromCubeRenderTarget / fromCubeTexture).
+; ==============================================================================
+; The GENERIC, scene-capturing diffuse-GI bake: given a ThreeCubeMap rendered at a
+; probe position, integrate the six faces into 9 spherical-harmonic coefficients —
+; the exact Three.js algorithm:
+;   * per texel, map (face, col, row) → the cube-face direction `coord`;
+;   * solid-angle weight = 4 / (|coord| · |coord|²)  (corrects cube distortion);
+;   * accumulate coeff_i += basis_i(dir) · color · weight  (SphericalHarmonics3);
+;   * normalise by 4π / totalWeight.
+; Because it integrates the ACTUAL captured scene (any lights, colours, occlusion),
+; this replaces the analytic sun/sky/ground stand-in — GI now works for any scene,
+; not just a sunlit courtyard, and shadowing falls out of the capture. Pure Ranger
+; (ES6 + C++); the capture that feeds it is ThreeCubeCamera.
+; ==============================================================================
+
+Import "three_cube_map.rgr"
+Import "three_spherical_harmonics3.rgr"
+Import "three_vector3.rgr"
+
+class ThreeLightProbeGenerator {
+    ; the (unnormalised) cube-face direction for face + (col,row) in [-1,1]², in the
+    ; standard +X,-X,+Y,-Y,+Z,-Z face order (matches ThreeCubeCamera's capture).
+    sfn faceCoord:ThreeVector3 (face:int col:double row:double) {
+        def v:ThreeVector3 (new ThreeVector3)
+        if (face == 0) { v.set(1.0 row (0.0 - col)) }
+        if (face == 1) { v.set((0.0 - 1.0) row col) }
+        if (face == 2) { v.set(col 1.0 (0.0 - row)) }
+        if (face == 3) { v.set(col (0.0 - 1.0) row) }
+        if (face == 4) { v.set(col row 1.0) }
+        if (face == 5) { v.set((0.0 - col) row (0.0 - 1.0)) }
+        return v
+    }
+
+    ; project the whole cube capture into a fresh SphericalHarmonics3.
+    sfn fromCubeTexture:ThreeSphericalHarmonics3 (cube:ThreeCubeMap) {
+        def sh:ThreeSphericalHarmonics3 (ThreeSphericalHarmonics3.create())
+        def w:int cube.size
+        if (w < 1) {
+            return sh
+        }
+        def pixelSize:double (2.0 / (to_double w))
+        def totalWeight:double 0.0
+        def face:int 0
+        while (face < 6) {
+            def buf:buffer (cube.faceBuffer(face))
+            def n:int (w * w)
+            def i:int 0
+            while (i < n) {
+                def cxi:int (i % w)
+                def cyi:int (idiv i w)
+                def col:double ((0.0 - 1.0) + (((to_double cxi) + 0.5) * pixelSize))
+                def row:double (1.0 - (((to_double cyi) + 0.5) * pixelSize))
+                def coord:ThreeVector3 (ThreeLightProbeGenerator.faceCoord(face col row))
+                def lensq:double (((coord.x * coord.x) + (coord.y * coord.y)) + (coord.z * coord.z))
+                def len:double (sqrt lensq)
+                def weight:double (4.0 / (len * lensq))
+                def nx:double (coord.x / len)
+                def ny:double (coord.y / len)
+                def nz:double (coord.z / len)
+                def o:int (i * 3)
+                def r:double ((to_double (buffer_get buf o)) / 255.0)
+                def g:double ((to_double (buffer_get buf (o + 1))) / 255.0)
+                def b:double ((to_double (buffer_get buf (o + 2))) / 255.0)
+                sh.projectRadiance(nx ny nz r g b weight)
+                totalWeight = (totalWeight + weight)
+                i = (i + 1)
+            }
+            face = (face + 1)
+        }
+        if (totalWeight > 0.0) {
+            def norm:double ((4.0 * 3.141592653589793) / totalWeight)
+            sh.scale(norm)
+        }
+        return sh
+    }
+}

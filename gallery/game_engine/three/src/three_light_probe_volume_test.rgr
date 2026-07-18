@@ -10,6 +10,11 @@
 Import "three_light_probe_volume.rgr"
 Import "three_scene.rgr"
 Import "three_vector3.rgr"
+Import "three_mesh.rgr"
+Import "three_box_geometry.rgr"
+Import "three_mesh_basic_material.rgr"
+Import "three_software_backend.rgr"
+Import "three_webgl_renderer.rgr"
 
 class ThreeLightProbeVolumeTest {
     def passed:int 0
@@ -83,6 +88,44 @@ class ThreeLightProbeVolumeTest {
         ; toggle visibility flows to the grid.
         vol.setEnabled(false)
         this.ok("disable hides the grid" ((vol.probes.visible) == false))
+
+        ; --- bakeFromScene: the generic Three.js capture bake on a real scene ---
+        ; a bright box on the +X side of a 2×2×2 volume; capture-bake each probe and
+        ; assert the volume is brighter toward the box (occlusion-free, no sun model).
+        def gscene:ThreeScene (new ThreeScene)
+        gscene.setBackground(0.0 0.0 0.0)
+        def geo:ThreeBoxGeometry (new ThreeBoxGeometry)
+        geo.setSize(4.0 4.0 4.0)
+        def gmat:ThreeMeshBasicMaterial (new ThreeMeshBasicMaterial)
+        gmat.setColorHex(16777215)
+        def gm:ThreeMesh (new ThreeMesh)
+        gm.setGeometry(geo)
+        gm.setMaterial(gmat)
+        gm.position.set(10.0 0.0 0.0)
+        gscene.add(gm)
+
+        def gvol:ThreeLightProbeVolume (new ThreeLightProbeVolume)
+        gvol.gridSizeX = 4.0
+        gvol.gridSizeY = 4.0
+        gvol.gridSizeZ = 4.0
+        gvol.countX = 2
+        gvol.countY = 2
+        gvol.countZ = 2
+        gvol.captureFaceSize = 12
+        gvol.rebuild(gscene)
+
+        def sw:ThreeSoftwareBackend (new ThreeSoftwareBackend)
+        def renderer:ThreeWebGLRenderer (new ThreeWebGLRenderer)
+        renderer.setBackend(sw)
+        gvol.bakeFromScene(gscene renderer)
+
+        def tgt:ThreeVector3 (new ThreeVector3)
+        gvol.sample(1.0 0.0 0.0 1.0 0.0 0.0 tgt)
+        def bx:double tgt.x
+        gvol.sample(1.0 0.0 0.0 (0.0 - 1.0) 0.0 0.0 tgt)
+        def ax:double tgt.x
+        this.ok("bakeFromScene: probe irradiance faces the box (+X > -X)" (bx > ax))
+        this.ok("bakeFromScene: captured irradiance is positive" (bx > 0.0))
 
         print "== summary =="
         print (("passed=" + (to_string passed)) + (" failed=" + (to_string failed)))
