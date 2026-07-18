@@ -1,0 +1,85 @@
+; ==============================================================================
+; three_sun_shadow_rig_test — the reusable sun/shadow rig derives from bounds.
+; ==============================================================================
+; Drives ThreeSunShadowRig standalone (no demo, no bridge): configure from a known
+; box's bounds, install the shadow, place the sun, and assert the derived metrics
+; + sun placement + sky drive — the generic technique, unit-tested on its own.
+; ==============================================================================
+
+Import "three_sun_shadow_rig.rgr"
+Import "three_box3.rgr"
+Import "three_vector3.rgr"
+Import "three_scene.rgr"
+Import "three_sky.rgr"
+Import "three_light.rgr"
+
+class ThreeSunShadowRigTest {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    fn near:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) { d = (0.0 - d) }
+        if (d < 0.001) {
+            passed = (passed + 1)
+            print ("  PASS " + name + " (" + (to_string got) + ")")
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name + " got=" + (to_string got) + " want=" + (to_string want))
+        }
+    }
+
+    sfn m@(main):void () {
+        def t:ThreeSunShadowRigTest (new ThreeSunShadowRigTest)
+        t.run()
+    }
+
+    fn run:void () {
+        print "== ThreeSunShadowRig (reusable sun/shadow technique) =="
+        ; a 20 x 10 x 8 box centred at origin
+        def box:ThreeBox3 (new ThreeBox3)
+        box.makeEmpty()
+        box.expandByPoint((ThreeVector3.of((0.0 - 10.0) (0.0 - 5.0) (0.0 - 4.0))))
+        box.expandByPoint((ThreeVector3.of(10.0 5.0 4.0)))
+
+        def rig:ThreeSunShadowRig (new ThreeSunShadowRig)
+        rig.setAngles(90.0 30.0)
+        rig.setIntensity(5.0)
+        rig.configureFromBounds(box)
+
+        this.near("size x" rig.sizeX 20.0)
+        this.near("targetY = cy + sy*0.2" rig.targetY 2.0)
+        this.near("baseDistance = max(sx,sz)" rig.baseDistance 20.0)
+        this.near("probeFar = maxdim*2" rig.probeFar 40.0)
+
+        def scene:ThreeScene (new ThreeScene)
+        def sun:ThreeDirectionalLight (new ThreeDirectionalLight)
+        sun.setIntensity(5.0)
+        def sky:ThreeSky (new ThreeSky)
+        rig.installShadow(sun scene)
+        this.ok("shadow target added to scene" ((scene.childCount()) == 1))
+
+        rig.place(sun sky)
+        this.ok("sun above target" (sun.position.y > rig.targetY))
+        this.near("sun y = targetY + sin(elev)*dist" sun.position.y 12.0)
+        this.near("sun x = 0 (az 90)" sun.position.x 0.0)
+        this.ok("sun +z (az 90)" (sun.position.z > 0.0))
+        this.near("sky sun y = cos(90 - elev) = cos(60)" sky.sunPosition.y 0.5)
+
+        def sd:ThreeVector3 (new ThreeVector3)
+        rig.sunDirection(sd)
+        this.near("sun direction is unit length" ((sqrt (((sd.x * sd.x) + (sd.y * sd.y)) + (sd.z * sd.z)))) 1.0)
+
+        print "== summary =="
+        print (("passed=" + (to_string passed)) + (" failed=" + (to_string failed)))
+        if (failed == 0) { print "ALL PASS" } { print "SOME FAILED" }
+    }
+}

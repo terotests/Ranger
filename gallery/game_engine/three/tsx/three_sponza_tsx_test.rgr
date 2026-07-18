@@ -105,33 +105,33 @@ class ThreeSponzaTsxTest {
         this.near("sky mieDirectionalG 0.8" sponza.sky.mieDirectionalG 0.8)
         this.near("sky turbidity 10" sponza.sky.turbidity 10.0)
         ; probe volume: 10 x 7 x 7 = 490 (built + baked by the plumbing)
-        this.near("probe count 490" (to_double (sponza.probes.probeCount())) 490.0)
+        this.near("probe count 490" (to_double (sponza.volume.probeCount())) 490.0)
         ; sun / light from az -45 / elev 55 (reconciled by the generic bridge)
         this.near("light intensity 100" sponza.dirLight.intensity 100.0)
         this.ok("light casts shadow" sponza.dirLight.castShadow)
-        this.ok("light above target (bounds-scaled by the plumbing)" (sponza.dirLight.position.y > sponza.targetY))
+        this.ok("light above target (bounds-scaled by the plumbing)" (sponza.dirLight.position.y > sponza.sunRig.targetY))
         this.near("sky sun y = cos(35)" sponza.sky.sunPosition.y 0.819152)
         ; model bounds measured by the plumbing (host box is 20 x 10)
-        this.near("model size x = 20" sponza.sizeX 20.0)
-        this.near("model size y = 10" sponza.sizeY 10.0)
+        this.near("model size x = 20" sponza.sunRig.sizeX 20.0)
+        this.near("model size y = 10" sponza.sunRig.sizeY 10.0)
 
         print "== hot-reload: edit a knob, re-run the plumbing =="
         def before:double sponza.sky.sunPosition.y
         engine.callFunction("setLightElevation" (EvalValue.number(20.0)))
         sponza.reconcile()
-        this.near("elevation now 20" sponza.lightElevation 20.0)
+        this.near("elevation now 20" sponza.sunRig.elevation 20.0)
         this.near("sun y = cos(70)" sponza.sky.sunPosition.y 0.342020)
         this.ok("sun moved" (sponza.sky.sunPosition.y != before))
 
         ; change a probe count -> the volume rebuilds + rebakes (4 x 7 x 7 = 196)
         engine.callFunction("setProbeCountX" (EvalValue.number(4.0)))
         sponza.reconcile()
-        this.near("probe count now 196" (to_double (sponza.probes.probeCount())) 196.0)
+        this.near("probe count now 196" (to_double (sponza.volume.probeCount())) 196.0)
 
         ; toggle GI off -> the probe volume hides
         engine.callFunction("setGI" (EvalValue.boolean(false)))
         sponza.reconcile()
-        this.ok("GI toggled off" (sponza.probes.visible == false))
+        this.ok("GI toggled off" (sponza.volume.probes.visible == false))
 
         print "== summary =="
         print (("passed=" + (to_string passed)) + (" failed=" + (to_string failed)))

@@ -52,20 +52,20 @@ class ThreeSponzaSceneTest {
         def model:ThreeMesh (new ThreeMesh)
         model.setGeometry(geo)
 
-        ; the caller sets the knobs (arbitrary test values, not the demo's)
+        ; the caller sets the rigs' knobs (arbitrary test values, not the demo's)
         def s:ThreeSponzaScene (new ThreeSponzaScene)
-        s.gridSizeX = 4.0
-        s.gridSizeY = 4.0
-        s.gridSizeZ = 4.0
-        s.countX = 3
-        s.countY = 3
-        s.countZ = 3
-        s.boundsX = 0.0
-        s.boundsY = 0.0
-        s.boundsZ = 0.0
-        s.lightAzimuth = 90.0
-        s.lightElevation = 30.0
-        s.lightIntensity = 5.0
+        s.volume.gridSizeX = 4.0
+        s.volume.gridSizeY = 4.0
+        s.volume.gridSizeZ = 4.0
+        s.volume.countX = 3
+        s.volume.countY = 3
+        s.volume.countZ = 3
+        s.volume.boundsX = 0.0
+        s.volume.boundsY = 0.0
+        s.volume.boundsZ = 0.0
+        s.sunRig.azimuth = 90.0
+        s.sunRig.elevation = 30.0
+        s.sunRig.intensity = 5.0
         ; the generic bridge normally reconciles the sun's colour/intensity/castShadow
         ; from sponza.tsx; this standalone test drives build() directly, so set them as
         ; the bridge would (build() only adds the bounds-derived config + probe bake).
@@ -73,21 +73,21 @@ class ThreeSponzaSceneTest {
         s.dirLight.castShadow = true
         s.build(model)
 
-        ; derived metrics from bounds
-        ck.near("size x" s.sizeX 20.0)
-        ck.near("targetY = cy + sy*0.2" s.targetY 2.0)
-        ck.near("lightBaseDistance = max(sx,sz)" s.lightBaseDistance 20.0)
-        ck.near("probeFar = maxdim*2" s.probeFar 40.0)
+        ; derived metrics from bounds (owned by the sun/shadow rig)
+        ck.near("size x" s.sunRig.sizeX 20.0)
+        ck.near("targetY = cy + sy*0.2" s.sunRig.targetY 2.0)
+        ck.near("lightBaseDistance = max(sx,sz)" s.sunRig.baseDistance 20.0)
+        ck.near("probeFar = maxdim*2" s.sunRig.probeFar 40.0)
 
         ; build() now adds only what the bridge does not: the shadow target + the
         ; baked probe volume + its helper (sky/model/sun are the bridge's, added there).
         ck.near("scene child count (target + probes + helper)" (to_double (s.scene.childCount())) 3.0)
 
         ; probe volume: 3 x 3 x 3 = 27 (from the knobs)
-        ck.near("probe count = cx*cy*cz" (to_double (s.probes.probeCount())) 27.0)
+        ck.near("probe count = cx*cy*cz" (to_double (s.volume.probeCount())) 27.0)
 
         ; light placed from azimuth/elevation: above target, and along +Z for az 90
-        ck.ok("light above target" (s.dirLight.position.y > s.targetY))
+        ck.ok("light above target" (s.dirLight.position.y > s.sunRig.targetY))
         ck.near("light y = targetY + sin(elev)*dist" s.dirLight.position.y 12.0)
         ck.near("light x = 0 (az 90)" s.dirLight.position.x 0.0)
         ck.ok("light +z (az 90)" (s.dirLight.position.z > 0.0))

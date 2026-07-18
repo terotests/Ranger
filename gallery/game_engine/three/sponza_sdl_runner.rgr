@@ -165,7 +165,7 @@ class SponzaSdlRunner {
         sponza.bind(gbridge.scene gbridge.camera (gbridge.sunLight()) (gbridge.skyNode()) (gbridge.modelNode()))
         sponza.reconcile()
         sponza.setViewport(runner.pw runner.ph)
-        print ("[sponza] scene declared: probes=" + (to_string (sponza.probes.probeCount())))
+        print ("[sponza] scene declared: probes=" + (to_string (sponza.volume.probeCount())))
 
         def frame:int 0
         def running:boolean true

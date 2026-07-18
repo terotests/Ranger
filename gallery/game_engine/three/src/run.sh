@@ -51,6 +51,9 @@ run_suite three_light_probe_grid_helper_test
 run_suite three_teapot_test
 run_suite three_orbit_controls_test
 run_suite three_first_person_controls_test
+# Reusable GPU-technique rigs (composed by the Sponza recipe; usable by any scene).
+run_suite three_sun_shadow_rig_test
+run_suite three_light_probe_volume_test
 run_suite three_cube_texture_test
 run_suite three_sky_test
 run_suite three_mesh_test
