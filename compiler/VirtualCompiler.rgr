@@ -768,7 +768,16 @@ class tester {
 
         def staticMethods:RangerAppClassDesc
         
+        ; Polyfill position tags. Physical slice order below is:
+        ;   [before_imports][importFork][forward_declarations][after_imports]
+        ;   [contentFork][utilities][file_end]
+        ; before_imports  -> ahead of the #include/import lines (e.g. #define guards)
+        ; forward_declarations -> right after the imports, before any content, so
+        ;   embedded helpers (polyfills) can forward-declare each other and avoid
+        ;   "use of undeclared identifier" ordering errors in C++.
+        def beforeImports:CodeWriter (wr.createTag("before_imports"))
         def importFork:CodeWriter (wr.fork())
+        def forwardDecls:CodeWriter (wr.createTag("forward_declarations"))
         wr.createTag("after_imports")
         def contentFork (wr.fork())
         wr.createTag("utilities")

@@ -1,0 +1,194 @@
+; ==============================================================================
+; cannon_native_bridge — the host side of the 1:1 CANNON binding.
+; ==============================================================================
+;
+; The Ranger Cannon engine (physics/src) exposed to the TSX interpreter as bare
+; native functions over an integer-handle registry, via EvalNativeBridge. Each
+; guest CANNON.* object holds a handle to exactly ONE host object here — the host
+; is the single source of truth. Guest constructors/methods delegate to these
+; functions (cannon.tsx), so ANY cannon-es program drives the real engine; there
+; is no per-demo reconciliation and no duplicated physics state on the guest.
+;
+; Handles are 1-based indices into the registry arrays (0 = null / unbound).
+;
+; API surface (all bare calls; ComponentEngine routes them here by name):
+;   cannon_world_new() -> wh
+;   cannon_world_set_gravity(wh x y z)
+;   cannon_world_add_body(wh bh)
+;   cannon_world_step(wh dt)
+;   cannon_world_body_count(wh) -> n
+;   cannon_body_new(mass) -> bh
+;   cannon_body_add_shape(bh sh)
+;   cannon_body_set_vec(bh field x y z)   field: 1=position 2=velocity 3=angularVelocity
+;   cannon_body_set_quat(bh x y z w)
+;   cannon_body_get(bh code) -> double    code: 0..2=pos x/y/z, 3..6=quat x/y/z/w
+;   cannon_box_new(hx hy hz) -> sh
+;   cannon_sphere_new(r) -> sh
+;   cannon_plane_new() -> sh
+; ==============================================================================
+
+Import "../src/cannon_world.rgr"
+Import "../src/cannon_body.rgr"
+Import "../src/cannon_box.rgr"
+Import "../src/cannon_sphere.rgr"
+Import "../src/cannon_plane.rgr"
+Import "../src/cannon_vec3.rgr"
+Import "../src/cannon_shape.rgr"
+Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class CannonNativeBridge extends EvalNativeBridge {
+    def worlds:[CannonWorld]
+    def bodies:[CannonBody]
+    def shapes:[CannonShape]
+
+    ; --- arg helpers ----------------------------------------------------------
+    fn argNum:double (args:[EvalValue] i:int) {
+        if (i < (array_length args)) {
+            def v:EvalValue (itemAt args i)
+            return (v.toNumber())
+        }
+        return 0.0
+    }
+    fn argHandle:int (args:[EvalValue] i:int) {
+        return (to_int (this.argNum(args i)))
+    }
+
+    ; --- registry accessors (1-based handles) ---------------------------------
+    fn worldAt:CannonWorld (h:int) {
+        return (itemAt worlds (h - 1))
+    }
+    fn bodyAt:CannonBody (h:int) {
+        return (itemAt bodies (h - 1))
+    }
+    fn shapeAt:CannonShape (h:int) {
+        return (itemAt shapes (h - 1))
+    }
+
+    ; --- EvalNativeBridge -----------------------------------------------------
+    fn has:boolean (name:string) {
+        if (name == "cannon_world_new") { return true }
+        if (name == "cannon_world_set_gravity") { return true }
+        if (name == "cannon_world_add_body") { return true }
+        if (name == "cannon_world_step") { return true }
+        if (name == "cannon_world_body_count") { return true }
+        if (name == "cannon_body_new") { return true }
+        if (name == "cannon_body_add_shape") { return true }
+        if (name == "cannon_body_set_vec") { return true }
+        if (name == "cannon_body_set_quat") { return true }
+        if (name == "cannon_body_get") { return true }
+        if (name == "cannon_box_new") { return true }
+        if (name == "cannon_sphere_new") { return true }
+        if (name == "cannon_plane_new") { return true }
+        return false
+    }
+
+    fn invoke:EvalValue (name:string args:[EvalValue]) {
+        ; ---- world ----
+        if (name == "cannon_world_new") {
+            def w:CannonWorld (new CannonWorld)
+            w.initWorld()
+            w.setGravity(0.0 0.0 0.0)
+            push worlds w
+            return (EvalValue.fromInt((array_length worlds)))
+        }
+        if (name == "cannon_world_set_gravity") {
+            def w:CannonWorld (this.worldAt((this.argHandle(args 0))))
+            w.setGravity((this.argNum(args 1)) (this.argNum(args 2)) (this.argNum(args 3)))
+            return (EvalValue.null())
+        }
+        if (name == "cannon_world_add_body") {
+            def w:CannonWorld (this.worldAt((this.argHandle(args 0))))
+            def b:CannonBody (this.bodyAt((this.argHandle(args 1))))
+            w.addBody(b)
+            return (EvalValue.null())
+        }
+        if (name == "cannon_world_step") {
+            def w:CannonWorld (this.worldAt((this.argHandle(args 0))))
+            w.step((this.argNum(args 1)))
+            return (EvalValue.null())
+        }
+        if (name == "cannon_world_body_count") {
+            def w:CannonWorld (this.worldAt((this.argHandle(args 0))))
+            return (EvalValue.fromInt((array_length w.bodies)))
+        }
+
+        ; ---- body ----
+        if (name == "cannon_body_new") {
+            def b:CannonBody (new CannonBody)
+            b.initDynamic((this.argNum(args 0)))
+            ; Deterministic PoC: no auto-sleep so a settling body keeps integrating.
+            b.allowSleep = false
+            push bodies b
+            return (EvalValue.fromInt((array_length bodies)))
+        }
+        if (name == "cannon_body_add_shape") {
+            def b:CannonBody (this.bodyAt((this.argHandle(args 0))))
+            def s:CannonShape (this.shapeAt((this.argHandle(args 1))))
+            b.addShape(s)
+            return (EvalValue.null())
+        }
+        if (name == "cannon_body_set_vec") {
+            def b:CannonBody (this.bodyAt((this.argHandle(args 0))))
+            def field:int (this.argHandle(args 1))
+            def x:double (this.argNum(args 2))
+            def y:double (this.argNum(args 3))
+            def z:double (this.argNum(args 4))
+            if (field == 1) {
+                b.position.set(x y z)
+            }
+            if (field == 2) {
+                b.velocity.set(x y z)
+            }
+            if (field == 3) {
+                b.angularVelocity.set(x y z)
+            }
+            return (EvalValue.null())
+        }
+        if (name == "cannon_body_set_quat") {
+            def b:CannonBody (this.bodyAt((this.argHandle(args 0))))
+            b.quaternion.set((this.argNum(args 1)) (this.argNum(args 2)) (this.argNum(args 3)) (this.argNum(args 4)))
+            return (EvalValue.null())
+        }
+        if (name == "cannon_body_get") {
+            def b:CannonBody (this.bodyAt((this.argHandle(args 0))))
+            def code:int (this.argHandle(args 1))
+            if (code == 0) { return (EvalValue.number(b.position.x)) }
+            if (code == 1) { return (EvalValue.number(b.position.y)) }
+            if (code == 2) { return (EvalValue.number(b.position.z)) }
+            if (code == 3) { return (EvalValue.number(b.quaternion.x)) }
+            if (code == 4) { return (EvalValue.number(b.quaternion.y)) }
+            if (code == 5) { return (EvalValue.number(b.quaternion.z)) }
+            if (code == 6) { return (EvalValue.number(b.quaternion.w)) }
+            return (EvalValue.number(0.0))
+        }
+
+        ; ---- shapes ----
+        if (name == "cannon_box_new") {
+            def he:CannonVec3 (new CannonVec3)
+            he.set((this.argNum(args 0)) (this.argNum(args 1)) (this.argNum(args 2)))
+            def box:CannonBox (new CannonBox)
+            box.initBox(he)
+            push shapes box
+            return (EvalValue.fromInt((array_length shapes)))
+        }
+        if (name == "cannon_sphere_new") {
+            def r:double (this.argNum(args 0))
+            if (r <= 0.0) {
+                r = 1.0
+            }
+            def sph:CannonSphere (new CannonSphere)
+            sph.initSphere(r)
+            push shapes sph
+            return (EvalValue.fromInt((array_length shapes)))
+        }
+        if (name == "cannon_plane_new") {
+            def pl:CannonPlane (new CannonPlane)
+            pl.initPlane()
+            push shapes pl
+            return (EvalValue.fromInt((array_length shapes)))
+        }
+
+        return (EvalValue.null())
+    }
+}
