@@ -1,0 +1,206 @@
+; ==============================================================================
+; three_native_bridge — the interpreter transport for the Three command ABI.
+; ==============================================================================
+; THREE_BRIDGE.md Phase 2 (interpreter side). Exposes the ONE host-owned
+; ThreeSceneHost registry to the TSX interpreter as bare `three_*` native
+; functions over integer handles, via EvalNativeBridge — the exact analog of
+; physics' CannonNativeBridge. ComponentEngine routes any bare `three_*(...)`
+; call the interpreted program makes into `invoke(name, args)` here, which
+; dispatches into the single shared host. The declarative reconciler
+; (ThreeTsxBridge) and any imperative interpreted guest thus command the SAME
+; registry and converge on one scene.
+;
+; This bridge OWNS no Three objects — it forwards to `host`. Point several
+; front-ends at one host (`setHost`) to make them converge.
+;
+; Transport note: EvalValue carries f64, so the interpreter passes doubles
+; directly (no fixed-point). A WASM front-end fixed-point-encodes in its own
+; wrapper — a transport detail kept out of the object model (THREE_BRIDGE §3).
+; The pose/transform commands take Euler angles to match ThreeSceneHost (the
+; object model), not the quaternion sketch in the ABI table.
+; ==============================================================================
+
+Import "../src/three_scene_host.rgr"
+Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class ThreeNativeBridge extends EvalNativeBridge {
+    ; the ONE registry every front-end drives; share it via setHost.
+    def host:ThreeSceneHost (new ThreeSceneHost)
+
+    fn setHost:void (h:ThreeSceneHost) {
+        this.host = h
+    }
+    fn getHost:ThreeSceneHost () {
+        return this.host
+    }
+
+    ; --- arg helpers (mirror CannonNativeBridge) ------------------------------
+    fn argNum:double (args:[EvalValue] i:int) {
+        if (i < (array_length args)) {
+            def v:EvalValue (itemAt args i)
+            return (v.toNumber())
+        }
+        return 0.0
+    }
+    fn argHandle:int (args:[EvalValue] i:int) {
+        return (to_int (this.argNum(args i)))
+    }
+    fn argBool:boolean (args:[EvalValue] i:int) {
+        if (i < (array_length args)) {
+            def v:EvalValue (itemAt args i)
+            return (v.toBool())
+        }
+        return false
+    }
+    fn argStr:string (args:[EvalValue] i:int) {
+        if (i < (array_length args)) {
+            def v:EvalValue (itemAt args i)
+            return (v.toString())
+        }
+        return ""
+    }
+
+    ; --- EvalNativeBridge -----------------------------------------------------
+    fn has:boolean (name:string) {
+        if (name == "three_scene_new") { return true }
+        if (name == "three_scene_background") { return true }
+        if (name == "three_scene_environment") { return true }
+        if (name == "three_camera_new") { return true }
+        if (name == "three_camera_set") { return true }
+        if (name == "three_camera_pose") { return true }
+        if (name == "three_geometry_box") { return true }
+        if (name == "three_geometry_teapot") { return true }
+        if (name == "three_material_basic") { return true }
+        if (name == "three_material_lambert") { return true }
+        if (name == "three_material_phong") { return true }
+        if (name == "three_material_map") { return true }
+        if (name == "three_material_reflective") { return true }
+        if (name == "three_mesh_new") { return true }
+        if (name == "three_entity_transform") { return true }
+        if (name == "three_entity_visible") { return true }
+        if (name == "three_entity_destroy") { return true }
+        if (name == "three_light_ambient") { return true }
+        if (name == "three_light_directional") { return true }
+        if (name == "three_light_shadow_extent") { return true }
+        if (name == "three_sky_new") { return true }
+        if (name == "three_renderer_set") { return true }
+        if (name == "three_render") { return true }
+        if (name == "three_entity_count") { return true }
+        if (name == "three_geometry_count") { return true }
+        if (name == "three_material_count") { return true }
+        return false
+    }
+
+    fn invoke:EvalValue (name:string args:[EvalValue]) {
+        ; ---- scene ----
+        if (name == "three_scene_new") {
+            return (EvalValue.fromInt((host.sceneNew())))
+        }
+        if (name == "three_scene_background") {
+            host.sceneBackground((this.argHandle(args 0)) (this.argNum(args 1)) (this.argNum(args 2)) (this.argNum(args 3)))
+            return (EvalValue.null())
+        }
+        if (name == "three_scene_environment") {
+            host.sceneEnvironment((this.argHandle(args 0)) (this.argBool(args 1)))
+            return (EvalValue.null())
+        }
+
+        ; ---- camera ----
+        if (name == "three_camera_new") {
+            return (EvalValue.fromInt((host.cameraNew())))
+        }
+        if (name == "three_camera_set") {
+            host.cameraSet((this.argHandle(args 0)) (this.argNum(args 1)) (this.argNum(args 2)) (this.argNum(args 3)) (this.argNum(args 4)))
+            return (EvalValue.null())
+        }
+        if (name == "three_camera_pose") {
+            host.cameraPose((this.argHandle(args 0)) (this.argNum(args 1)) (this.argNum(args 2)) (this.argNum(args 3)) (this.argNum(args 4)) (this.argNum(args 5)) (this.argNum(args 6)))
+            return (EvalValue.null())
+        }
+
+        ; ---- geometry (resources) ----
+        if (name == "three_geometry_box") {
+            return (EvalValue.fromInt((host.geometryBox((this.argNum(args 0)) (this.argNum(args 1)) (this.argNum(args 2))))))
+        }
+        if (name == "three_geometry_teapot") {
+            return (EvalValue.fromInt((host.geometryTeapot((this.argNum(args 0)) (this.argHandle(args 1)) (this.argBool(args 2)) (this.argBool(args 3)) (this.argBool(args 4)) (this.argBool(args 5)) (this.argBool(args 6))))))
+        }
+
+        ; ---- material (resources) ----
+        if (name == "three_material_basic") {
+            return (EvalValue.fromInt((host.materialBasic((this.argHandle(args 0)) (this.argHandle(args 1)) (this.argBool(args 2))))))
+        }
+        if (name == "three_material_lambert") {
+            return (EvalValue.fromInt((host.materialLambert((this.argHandle(args 0)) (this.argHandle(args 1))))))
+        }
+        if (name == "three_material_phong") {
+            return (EvalValue.fromInt((host.materialPhong((this.argHandle(args 0)) (this.argHandle(args 1)) (this.argNum(args 2)) (this.argBool(args 3)) (this.argHandle(args 4))))))
+        }
+        if (name == "three_material_map") {
+            host.materialMap((this.argHandle(args 0)) (this.argStr(args 1)))
+            return (EvalValue.null())
+        }
+        if (name == "three_material_reflective") {
+            host.materialReflective((this.argHandle(args 0)) (this.argNum(args 1)))
+            return (EvalValue.null())
+        }
+
+        ; ---- mesh (instance) ----
+        if (name == "three_mesh_new") {
+            return (EvalValue.fromInt((host.meshNew((this.argHandle(args 0)) (this.argHandle(args 1)) (this.argHandle(args 2))))))
+        }
+        if (name == "three_entity_transform") {
+            host.entityTransform((this.argHandle(args 0)) (this.argNum(args 1)) (this.argNum(args 2)) (this.argNum(args 3)) (this.argNum(args 4)) (this.argNum(args 5)) (this.argNum(args 6)) (this.argNum(args 7)) (this.argNum(args 8)) (this.argNum(args 9)))
+            return (EvalValue.null())
+        }
+        if (name == "three_entity_visible") {
+            host.entityVisible((this.argHandle(args 0)) (this.argBool(args 1)))
+            return (EvalValue.null())
+        }
+        if (name == "three_entity_destroy") {
+            host.entityRemove((this.argHandle(args 0)) (this.argHandle(args 1)))
+            return (EvalValue.null())
+        }
+
+        ; ---- lights ----
+        if (name == "three_light_ambient") {
+            return (EvalValue.fromInt((host.lightAmbient((this.argHandle(args 0)) (this.argHandle(args 1)) (this.argNum(args 2))))))
+        }
+        if (name == "three_light_directional") {
+            return (EvalValue.fromInt((host.lightDirectional((this.argHandle(args 0)) (this.argHandle(args 1)) (this.argNum(args 2)) (this.argNum(args 3)) (this.argNum(args 4)) (this.argNum(args 5)) (this.argBool(args 6)) (this.argHandle(args 7))))))
+        }
+        if (name == "three_light_shadow_extent") {
+            host.lightShadowExtent((this.argHandle(args 0)) (this.argNum(args 1)) (this.argNum(args 2)) (this.argNum(args 3)) (this.argNum(args 4)) (this.argNum(args 5)) (this.argNum(args 6)))
+            return (EvalValue.null())
+        }
+
+        ; ---- sky ----
+        if (name == "three_sky_new") {
+            return (EvalValue.fromInt((host.skyNew((this.argHandle(args 0)) (this.argNum(args 1)) (this.argNum(args 2)) (this.argNum(args 3)) (this.argNum(args 4)) (this.argNum(args 5)) (this.argNum(args 6)) (this.argNum(args 7))))))
+        }
+
+        ; ---- renderer policy + draw ----
+        if (name == "three_renderer_set") {
+            host.rendererSet((this.argHandle(args 0)) (this.argNum(args 1)) (this.argBool(args 2)))
+            return (EvalValue.null())
+        }
+        if (name == "three_render") {
+            host.render((this.argHandle(args 0)) (this.argHandle(args 1)) (this.argHandle(args 2)) (this.argHandle(args 3)))
+            return (EvalValue.null())
+        }
+
+        ; ---- registry sizes (convergence snapshots) ----
+        if (name == "three_entity_count") {
+            return (EvalValue.fromInt((host.entityCount())))
+        }
+        if (name == "three_geometry_count") {
+            return (EvalValue.fromInt((host.geometryCount())))
+        }
+        if (name == "three_material_count") {
+            return (EvalValue.fromInt((host.materialCount())))
+        }
+
+        return (EvalValue.null())
+    }
+}

@@ -1,0 +1,162 @@
+; ==============================================================================
+; three_native_bridge_test — the command ABI reaches the host as bare calls.
+; ==============================================================================
+; THREE_BRIDGE.md Phase 2. Drives ThreeSceneHost purely through the string
+; command surface ThreeNativeBridge.invoke(name, args) exposes to the
+; interpreter (exactly the calls a bare `three_*(...)` interpreted program, or
+; a WASM guest forwarding to `three_*` host imports, would issue). Asserts the
+; commands build a real renderable scene in the ONE shared host and that
+; resource/instance separation holds — proving the transport seam before the
+; reconciler is re-pointed onto it (Phase 3).
+; ==============================================================================
+
+Import "three_native_bridge.rgr"
+Import "../src/three_software_backend.rgr"
+
+class ThreeNativeBridgeTest {
+    def passed:int 0
+    def failed:int 0
+    def br:ThreeNativeBridge (new ThreeNativeBridge)
+
+    fn ok:void (label:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + label)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + label)
+        }
+    }
+
+    ; issue one bare command through the interpreter transport.
+    fn num:EvalValue (n:double) {
+        return (EvalValue.number(n))
+    }
+    fn call:int (name:string args:[EvalValue]) {
+        def r:EvalValue (this.br.invoke(name args))
+        return (to_int (r.toNumber()))
+    }
+
+    sfn covered:int (color:buffer w:int h:int) {
+        def n:int (w * h)
+        def c:int 0
+        def i:int 0
+        while (i < n) {
+            def o:int (i * 3)
+            if ((((buffer_get color o) + (buffer_get color (o + 1))) + (buffer_get color (o + 2))) > 60) {
+                c = (c + 1)
+            }
+            i = (i + 1)
+        }
+        return c
+    }
+
+    sfn m@(main):void () {
+        def t:ThreeNativeBridgeTest (new ThreeNativeBridgeTest)
+        t.run()
+    }
+
+    fn run:void () {
+        def host:ThreeSceneHost (this.br.getHost())
+        def sw:ThreeSoftwareBackend (new ThreeSoftwareBackend)
+        host.useBackend(sw)
+
+        ; build the whole scene through the string command ABI only.
+        def sArgs:[EvalValue]
+        def sceneH:int (this.call("three_scene_new" sArgs))
+
+        def cArgs:[EvalValue]
+        def camH:int (this.call("three_camera_new" cArgs))
+
+        def csArgs:[EvalValue]
+        push csArgs (this.num((to_double camH)))
+        push csArgs (this.num(70.0))
+        push csArgs (this.num(1.0))
+        push csArgs (this.num(0.1))
+        push csArgs (this.num(100.0))
+        this.br.invoke("three_camera_set" csArgs)
+
+        def cpArgs:[EvalValue]
+        push cpArgs (this.num((to_double camH)))
+        push cpArgs (this.num(0.0))
+        push cpArgs (this.num(0.0))
+        push cpArgs (this.num(3.0))
+        push cpArgs (this.num(0.0))
+        push cpArgs (this.num(0.0))
+        push cpArgs (this.num(0.0))
+        this.br.invoke("three_camera_pose" cpArgs)
+
+        def gArgs:[EvalValue]
+        push gArgs (this.num(1.0))
+        push gArgs (this.num(1.0))
+        push gArgs (this.num(1.0))
+        def geoH:int (this.call("three_geometry_box" gArgs))
+
+        def mArgs:[EvalValue]
+        push mArgs (this.num(16746496.0))
+        push mArgs (this.num(0.0))
+        push mArgs (this.num(0.0))
+        def matH:int (this.call("three_material_basic" mArgs))
+
+        def meArgs:[EvalValue]
+        push meArgs (this.num((to_double sceneH)))
+        push meArgs (this.num((to_double geoH)))
+        push meArgs (this.num((to_double matH)))
+        def meshH:int (this.call("three_mesh_new" meArgs))
+
+        def tArgs:[EvalValue]
+        push tArgs (this.num((to_double meshH)))
+        push tArgs (this.num(0.0))
+        push tArgs (this.num(0.0))
+        push tArgs (this.num(0.0))
+        push tArgs (this.num(0.2))
+        push tArgs (this.num(0.4))
+        push tArgs (this.num(0.0))
+        push tArgs (this.num(1.0))
+        push tArgs (this.num(1.0))
+        push tArgs (this.num(1.0))
+        this.br.invoke("three_entity_transform" tArgs)
+
+        def lArgs:[EvalValue]
+        push lArgs (this.num((to_double sceneH)))
+        push lArgs (this.num(3355443.0))
+        push lArgs (this.num(1.0))
+        def ambH:int (this.call("three_light_ambient" lArgs))
+
+        print "== ThreeNativeBridge built a scene via string commands =="
+        this.ok("scene handle 1-based" (sceneH == 1))
+        this.ok("one geometry resource" ((host.geometryCount()) == 1))
+        this.ok("one material resource" ((host.materialCount()) == 1))
+        this.ok("two entities (mesh + light)" ((host.entityCount()) == 2))
+        this.ok("mesh handle before light" (meshH < ambH))
+
+        ; render via a string command too.
+        def rArgs:[EvalValue]
+        push rArgs (this.num((to_double sceneH)))
+        push rArgs (this.num((to_double camH)))
+        push rArgs (this.num(200.0))
+        push rArgs (this.num(200.0))
+        this.br.invoke("three_render" rArgs)
+        def frame:buffer (host.raw())
+        def cov:int (ThreeNativeBridgeTest.covered(frame 200 200))
+        print ("  covered=" + (to_string cov))
+        this.ok("commanded scene renders" (cov > 3000))
+
+        ; the count commands are readable through the transport too.
+        def qArgs:[EvalValue]
+        this.ok("three_entity_count command == 2" ((this.call("three_entity_count" qArgs)) == 2))
+
+        ; a second mesh reusing the SAME resources (instancing over the ABI).
+        def me2:[EvalValue]
+        push me2 (this.num((to_double sceneH)))
+        push me2 (this.num((to_double geoH)))
+        push me2 (this.num((to_double matH)))
+        this.call("three_mesh_new" me2)
+        this.ok("instancing reuses resources" (((host.geometryCount()) == 1) && ((host.materialCount()) == 1)))
+        this.ok("three entities now" ((host.entityCount()) == 3))
+
+        print "== summary =="
+        print (("passed=" + (to_string passed)) + (" failed=" + (to_string failed)))
+        if (failed == 0) { print "ALL PASS" } { print "SOME FAILED" }
+    }
+}
