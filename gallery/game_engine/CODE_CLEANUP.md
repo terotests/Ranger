@@ -4,22 +4,32 @@ The individual "wrong files" listed later in this plan are symptoms. The disease
 is a repeating pattern, and it works like this:
 
 1. A generic engine path needs something a game knows (a world, a light, a class,
-   a helper).
+   a helper, a sound name).
 2. Instead of opening a proper seam (an interface, a registry entry, a shared
-   module), a **bridge or helper file is added as a "temporary" shortcut** — it
-   imports the game's code directly, or copies the shared code locally.
+   module), a **bridge or helper is added as a "temporary" shortcut** — it
+   imports the game's code directly, copies the shared code locally, or hardcodes
+   the game's vocabulary inline.
 3. The demo works, so the shortcut ships. The documentation calls it temporary.
 4. The next feature builds **on top of the shortcut**, because it is the path
-   that works. The copy diverges; the game import grows roots; the accessor list
-   gets one more entry.
+   that works. The copy diverges; the game import grows roots; the hardcoded
+   ladder gets one more case.
 
 Nothing fails loudly at any step — the engine *silently reroutes* through
 game-specific Ranger code, and each reroute makes the next one cheaper to add
-and harder to remove. The examples below are all live in the codebase today,
-with file and line references, so the pattern is concrete before the plan talks
-about fixing it.
+and harder to remove. There is also a second-order form of the trap, documented
+in its own chapter (0.21): **when a proper fix finally lands, the old path is
+not retired**, so the fix becomes one more parallel system.
 
-## 0.1 Example: the "generic" physics runner is secretly the autopeli runner
+Everything below is live in the codebase today, verified with file and line
+references. The chapters are grouped into six categories, and together they
+cover every use-case area IDEAL.md describes (§2.1–§2.18); the coverage table at
+the end of this part maps each chapter to its IDEAL.md section.
+
+---
+
+## Category A — core silently reroutes into game-specific code
+
+### 0.1 The "generic" physics runner is secretly the autopeli runner
 
 `scripting/wasm_physics_runner.rgr` presents itself as the generic WASM physics
 runner. What the file actually contains:
@@ -39,7 +49,82 @@ lines 11–12: the moment the runner imported the game instead of receiving it
 through an interface, every later shortcut (the constants, the camera numbers,
 the progress formula) had a natural place to land.
 
-## 0.2 Example: the same world is defined twice and agrees only by luck
+### 0.2 Three HUD systems, all selected inside that same runner
+
+The engine has three unrelated ways to draw a HUD, and `wasm_physics_runner.rgr`
+chooses between all three at runtime:
+
+1. **The guest's RGU1 UI document** — the guest writes a retained-mode UI block,
+   the host validates and renders it (`scripting/wasm_ui_io.rgr`; selected at
+   `wasm_physics_runner.rgr:814–841`, flag `useWasmHud`).
+2. **The TS `hud()` path** — a JSX tree composited by `GameHudBlitter`
+   (`scripting/game_hud.rgr`), which supports only View backgrounds and Label
+   text in a 3×5 bitmap font.
+3. **A hardcoded autopeli HUD** — `wasm_physics_runner.rgr:844–890` (`drawHudOn`)
+   draws speed, progress, hits, grip, oil and air bars with raw `fillRect`
+   calls. The bars' meanings (grip, oil, air) are autopeli game design living in
+   the "generic" runner as the fallback.
+
+Meanwhile the rich EVG renderer (TTF fonts, borders, widgets) exists but is used
+only for menus. Three render paths, three capability ceilings, and the fallback
+is a specific game's dashboard (IDEAL.md §2.15).
+
+### 0.3 Sound: the guest sends integers, and hosts hand-map them in three places
+
+The ABI transports a sound event as an integer `sub` id, and the header now
+correctly says the id indexes a game-registered palette. But no registered
+palette crosses the boundary — instead each host path hardcodes its own
+integer→name ladder:
+
+- `scripting/as_sprite_runner.rgr:64–70` — `1 → "blip", 2 → "brick",
+  3 → "win", 4 → "lose"`.
+- `scripting/wasm_physics_runner.rgr:300–308` — `1 → "wall", 2 → "bounce",
+  3 → "win"` (a different vocabulary for the same id numbers).
+- `scripting/game_scene_provider.rgr:77–79` — `soundName(sub)` stub returning
+  `""`.
+
+The names themselves are then restated a second time where the sounds are
+registered (`scripting/game_audio.rgr:247–251` registers
+`"brick"/"bounce"/"wall"/"lose"/"win"`). The same guest id can mean a different
+sound depending on which runner happens to load the game (IDEAL.md §2.10, §4).
+
+### 0.4 Particles: every guest effect becomes "sparkle"
+
+Two reroutes stacked:
+
+- The one shared preset is a **verbatim copy**: `game_particles.rgr:142–181` and
+  `wasm_sparkle_pool.rgr:88–127` contain the same sparkle spawner — identical
+  count clamps (`≤0→12`, `>28→28`), the same angle range `0…6.283185307`, speed
+  `0.06…0.22`, life `200…420 ms`, size `1.5…4.0`, and the same four hardcoded
+  colors. A tuning change in one file silently does not apply to the other.
+- The WASM path then discards the guest's intent: a particle event's sub-id is
+  overwritten with `ev.id = "sparkle"` (`wasm_physics_runner.rgr:318–319`), and
+  `game_scene_provider.rgr:81–83` returns `"sparkle"` for every sub-id. A guest
+  cannot ask for any other effect, so the next game's explosion will be a
+  sparkle until someone adds another hardcoded case (IDEAL.md §2.18).
+
+### 0.5 A deleted game class was relocated *into* the generic reconciler
+
+`three/tsx/three_tsx_bridge.rgr` is the one generic TSX→host reconciler. It also
+contains:
+
+```
+line 154: fn sunLight:ThreeDirectionalLight () { return reconciledSun }
+line 156: fn skyNode:ThreeSky ()              { return reconciledSky }
+line 158: fn modelNode:ThreeObject3D ()       { return reconciledModel }
+```
+
+The file's own comments say where this came from: the per-demo `ThreeSponzaScene`
+class was deleted and its recipe "now lives in the one generic reconciler"
+(lines 120, 1033, 1079). The demo-specific class was removed **in name only** —
+its content rerouted into core, where every future rendering technique (probes,
+fog, post-processing) will want its own accessor next to `sunLight()`.
+
+---
+
+## Category B — the same data declared in more than one place
+
+### 0.6 The same world is defined twice and agrees only by luck
 
 The autopeli road and traffic exist in **two unrelated source files in two
 languages**, one on each side of the WASM boundary:
@@ -50,35 +135,27 @@ languages**, one on each side of the WASM boundary:
   (line 53), a 15-entry `TRAFFIC` table (line 269).
 
 Nothing checks these against each other. Change one and the game does not error
-— physics and rendering just quietly disagree. This is the same reroute as 0.1
-seen from the other side: because the host imported its own copy of the world,
-the guest's declaration never became the single source.
+— physics and rendering just quietly disagree (IDEAL.md §5).
 
-## 0.3 Example: a deleted game class was relocated *into* the generic reconciler
+### 0.7 The voice-effect vocabulary is maintained in three hand-synced lists
 
-`three/tsx/three_tsx_bridge.rgr` is the one generic TSX→host reconciler. It also
-contains this:
+The 11 vocal effects (`laugh, giggle, chuckle, sigh, gasp, cough, cheer, boo,
+hmm, huh, yawn`) are hardcoded, in the same order, in:
 
-```
-line 154: fn sunLight:ThreeDirectionalLight () { return reconciledSun }
-line 156: fn skyNode:ThreeSky ()              { return reconciledSky }
-line 158: fn modelNode:ThreeObject3D ()       { return reconciledModel }
-```
+1. `scripting/game_vocal_fx.rgr:78–88` — the canonical list.
+2. `scripting/engine.d.ts:425–436` — restated as the `VoiceEffectId` union type,
+   **and again** at lines 659–669 as eleven `declare function` helpers.
+3. `scripting/game_vocal_fx_bridge.rgr:30–42` — restated as an
+   `if (name == "laugh") … if (name == "yawn")` ladder in `has()`.
 
-The file's own comments say where this came from: the per-demo `ThreeSponzaScene`
-class was deleted, and its recipe "now lives in the one generic reconciler"
-(lines 120, 1033, 1079). The demo-specific class was removed **in name only** —
-its content rerouted into core, where every future rendering technique (probes,
-fog, post-processing) will want its own accessor next to `sunLight()`. The
-documentation records this as progress; the debt just moved to a file that is
-harder to clean.
+Adding one effect means editing three (arguably four) lists; missing one produces
+no error, just a voice that works on some paths and not others.
 
-## 0.4 Example: one façade, five copies, four of them drifting
+### 0.8 Shared script modules are copied per game — and every copy has drifted
 
 Games import the Three.js façade as `import * as THREE from 'three'`. The
-interpreter resolves that bare name by checking **the game's own folder first**
-(`eval/jsx/ComponentEngine.rgr:1160`), so each 3D game copied the façade in —
-and every copy has diverged:
+interpreter resolves the bare name by checking **the game's own folder first**
+(`eval/jsx/ComponentEngine.rgr:1160`), so each 3D game copied the façade in:
 
 | Copy | Lines |
 |------|-------|
@@ -90,13 +167,38 @@ and every copy has diverged:
 
 A bug fixed in one copy stays broken in the other four. The interpreter already
 supports shared search directories (`assetPaths`, same function, line 1170) —
-the copies exist because copying into the game folder was the shortcut that
-worked that day. `game_helpers.tsx`, `game.d.ts`, and `breakout.d.ts` are
-duplicated the same way.
+the copies exist because copying was the shortcut that worked that day. The same
+has happened to `game_helpers.tsx` and `game.d.ts` (in both `scripting/` and
+`lib/`) and `breakout_bricks.tsx` (`scripting/` and `games/breakout/` hold
+byte-identical 127-line copies — identical *today*, one edit away from drifting).
 
-## 0.5 Example: the same vector math is implemented five times
+### 0.9 Whole games exist as parallel copies
 
-There is no shared math module, so each subsystem wrote its own:
+The duplication is not only inside the engine — entire games are copied:
+
+- **Pong exists five times**: `games/pong/index.tsx` (213 lines, TSX),
+  `scripting/pong.game.tsx` (216 lines, a diverged near-copy),
+  `ranger_games/pong_core.rgr` + `pong.rgr` + render/SDL/native runners (static
+  Ranger, 7 files), `games/ranger_pong/` (Ranger→WASM), and `games/rust_pong/`
+  (Rust→WASM). Some of these are deliberate portability proofs — but the two
+  TSX variants are just an unmerged copy.
+- **Four games live in both `scripting/` and `games/`**: `breakout`, `invaders`,
+  `pacman`, `pong` each have a `scripting/<name>.game.tsx` *and* a
+  `games/<name>/` folder.
+- **The ylos series is versioned by copying the whole game**: `ylos3` and
+  `ylos4` share the same file list; their `index.tsx` differs by 7 lines while
+  `ylosN_shared.tsx` has diverged from 2,564 to 3,153 lines — the shared module
+  was copied and then grew separately. `ylos2` is an earlier 2,204-line
+  monolith, and `old/ylos` (now removed) was a fourth generation.
+
+Version control exists; versioning by folder copy means every bug fixed in
+`ylos4` is still present in `ylos2` and `ylos3`.
+
+---
+
+## Category C — the same subsystem implemented N times
+
+### 0.10 Vector math: five implementations in three languages
 
 | Implementation | Where | Language |
 |----------------|-------|----------|
@@ -106,23 +208,196 @@ There is no shared math module, so each subsystem wrote its own:
 | `scene.rs` (`Vec3`, `Quat`) | `lib/ranger_game/src/` | Rust |
 | `three.tsx` (`class Vector3`, ~90 methods) | `three/tsx/` + 4 game copies | TSX |
 
-Five implementations of the same arithmetic in three languages, each tested (or
-not) on its own. Numerical fixes and conventions (handedness, Euler order,
-normalization edge cases) do not propagate.
+Numerical fixes and conventions (handedness, Euler order, normalization edge
+cases) do not propagate between them.
 
-## 0.6 Example: three entity systems, none shared
+### 0.11 Entities: three registries, none shared
 
-- `three/src/three_scene_host.rgr` — five parallel arrays, handle = array index,
-  removal never frees the slot.
+- `three/src/three_scene_host.rgr` — five parallel arrays, handle = array
+  index, removal never frees the slot.
 - `model3d/EntityModel.rgr` — a second `EntityRegistry`, also id = array index.
 - `scripting/game_entity_store.rgr` — a third store keyed by string ids for 2D
   world games.
 
-Each was written when a subsystem needed entities *that day*. All three have the
-same missing pieces (stable ids, safe removal, type information) — and fixing
-one fixes nothing for the other two.
+All three lack the same things (stable ids, safe removal, type information), and
+fixing one fixes nothing for the other two. Part II exists to replace all three
+with one registry.
 
-## 0.7 Example: a one-line "for now" that became an architecture
+### 0.12 Input: five representations, and the host one contradicts the other four
+
+The same D-pad + buttons concept is encoded five times (IDEAL.md §2.9):
+
+| Representation | Players × buttons | Bit layout |
+|----------------|-------------------|------------|
+| `wasm/wasm_game_abi.h` (RGW1 `input`/`input_p2`) | 2 × 5 | `UP=1 DOWN=2 LEFT=4 RIGHT=8 ACTION=16` |
+| `wasm/wasm_sprite_abi.h` (RGSP1) | 2 × 6 | same as RGW1 (`+BACK=32`) |
+| `wasm/wasm_input_abi.h` (RGIN) | 8 × analog+pointer | same base bits |
+| `lib/ranger_game/src/input.rs` (guest `Buttons`) | — | same base bits |
+| `scripting/game_input.rgr` (host `InputMask`) | 8 × 12 | **`ACTION=4 QUIT=8 LEFT=16 RIGHT=32 …`** |
+
+Four representations agree on the bit values; the host's own `InputMask` uses a
+**conflicting layout** for the same buttons. Every host↔ABI crossing therefore
+requires a translation, and getting it wrong is silent. (RGIN also illustrates
+the half-landed-fix pattern — see 0.21.)
+
+### 0.13 Body→visual binding: three unrelated mechanisms
+
+How a moving thing gets drawn depends on which path the game took (IDEAL.md §2.5):
+
+1. **Host template mapping** — `scripting/wasm_autopeli_render.rgr` keeps
+   `WasmVisualEntity` templates and maps them by string id
+   (`findTemplate`/`spawnVisual`, lines 188/225); the host pushes body poses into
+   the visuals each frame.
+2. **RGSP1 character slots** — `scripting/wasm_sprite_runner.rgr` reads
+   guest-written slots (`charId/anim/dir/xFp/yFp`) and resolves sheets through
+   the LPC catalog — with **no link to any physics body** (the file has no RGW1
+   import at all).
+3. **The `.as` draw list** — `scripting/as_abi_bridge.rgr:36–40, 356` lets the
+   guest push `drawSprite(tpl, x, y, angleDeg, frame)` calls into native arrays;
+   the guest authors the transform directly, no physics in between.
+
+A game written once does not bind the same way on the other backend.
+
+### 0.14 Animation: three frame systems, only one of which actually keeps time
+
+1. `ui/UIAnimator.rgr` — host-only glow/pulse effects with an `elapsedMs` clock
+   and an `.after` completion callback (lines 78, 174–184).
+2. RGSP1's per-slot clock — the only real time→frame computation:
+   `wasm_sprite_runner.rgr:121–146` (`animFps`: walk 9, run 13, jump 10;
+   `timedFrame = clockMs × fps / 1000 mod frames`).
+3. RGU1 — no retained animation at all: any change re-emits the entire UI
+   document (`as_abi_bridge.rgr:161–267` zeroes and re-adds every node).
+
+The other sprite paths don't keep time — `game_sprite.rgr` takes a frame index
+from the guest (`p0`), and the `.as` draw list takes `frame` per call. Three
+mechanisms, three capability ceilings, no shared tween/easing/completion model
+(IDEAL.md §2.12).
+
+### 0.15 Sprite sheets: three registration paths
+
+1. `scripting/game_sprite.rgr` — TS-path sheet defs (`shFrameW/shCols/…`,
+   lines 58–66, loaded at 336), drawn by sub-rect blit or GPU sprites.
+2. `scripting/wasm_sprite_runner.rgr` — RGSP1 catalog sheets resolved as
+   `slug + "/walk.png"` (line 207) via the LPC character catalog.
+3. `scripting/as_abi_bridge.rgr:306–313` — the `.as` `hostSheet`/`hostRect`
+   native-array manifest.
+
+Three ways to tell the engine "here is a sheet of frames," none shared, and the
+emitted `atlas.json` from the packing pipeline is ignored at runtime
+(IDEAL.md §2.8).
+
+### 0.16 Cameras: three systems, and the ABI can only scroll vertically
+
+1. **Integer pan** — `scripting/game_camera.rgr:27–28` (`camX/camY`) with the
+   literal `screen = world − cam` subtraction in `game_runtime.rgr:1076–1085`.
+2. **A real pan/zoom/rotate matrix camera** — exists only on the GLES2 sprite
+   overlay (`gfx_sdl.rgr:842–863`, `rgfx_gpu_camera_set`), wired from exactly
+   one caller (`game_sprite.rgr:117`), **off by default**, and the software
+   fallbacks ignore it entirely (`gfx_sdl.rgr:1814`).
+3. **A full Mat3 library** — `physics/src/cannon_mat3.rgr` (472 lines), imported
+   by nothing outside `physics/src/`.
+
+And the shared ABI carries only `camera_y` — a guest cannot even pan
+horizontally through the transport (IDEAL.md §2.17).
+
+### 0.17 Physics: three parallel paths, two vehicle models, one unwired interface
+
+- **Path 1:** `scripting/physics_core.rgr` (701 lines, arcade 2D) behind the
+  `game_physics.rgr` facade — what games actually use.
+- **Path 2:** the full Cannon port under `physics/src/` behind the
+  `physics_world.rgr` interface, with `arcade_physics_world.rgr` as a second
+  implementation — and **no game or scripting file imports the interface**
+  (grep: its only importers are the two implementations and the test).
+- **Path 3:** `scripting/game_cannon_physics.rgr` — the TS bridge that imports
+  the Cannon solver but then fights it: hand-rolled `clampBody`/`clampArena`
+  position resets run every step (lines 961–1015) instead of letting the solver
+  own boundaries.
+
+Vehicles exist twice: `scripting/physics_vehicle.rgr` (arcade wheel plugin, 164
+lines) and `physics/src/cannon_vehicle.rgr` (raycast suspension model, 161
+lines, reachable only from tests). IDEAL.md §2.5's interface seam was built —
+then never connected (see 0.21).
+
+---
+
+## Category D — features that exist on only one guest path
+
+The engine promises "write the game once, run it compiled or interpreted." These
+features break that promise silently — the game runs, and the feature is just
+absent (IDEAL.md's parity axis, §2):
+
+### 0.18 The interpreted `.as` path has APIs the compiled path does not
+
+`scripting/as_abi_bridge.rgr` (64 functions) exposes the guest draw list
+(`drawSprite`), the host resource manifest (`hostSheet`/`hostRect`), and the
+sound queue (`playSound`) as native-array APIs. `scripting/wasm_abi_io.rgr` (57
+functions) — the compiled-WASM equivalent — has **none of them** (zero matches
+for any of those names). A game that uses sprites-by-manifest or sounds, written
+once, behaves differently compiled vs interpreted.
+
+### 0.19 TS-path-only features: voice, music, screen navigation, persistence
+
+- **Voice/music** — `playVoice` flows only through the TS event bridge
+  (`game_vocal_fx_bridge.rgr:59`); music only via the TS `startMusic`/soundscore
+  path (`game_soundscore.rgr:503–522`). The binary ABI has no encoding for
+  either (IDEAL.md §2.10).
+- **Screen navigation** — `loadGame`/`pushGame`/`popGame` exist only as
+  host-native string invokes on the TS path
+  (`game_host_native.rgr:114–176` → `pendingNavOp` → `game_sdl_runner.rgr:1231`).
+  No ABI slot exists; every transition is a full teardown + `initState()`
+  reload, with no suspend/resume (IDEAL.md §2.13).
+- **Persistence** — `saveGameData`/`loadGameData`/`resetGameData` are a TS-path
+  native bridge only (`game_host_native.rgr:124–187`,
+  `game_persistence.rgr:5`); a WASM or `.as` guest cannot save
+  (IDEAL.md §2.11).
+
+### 0.20 Named ABI blocks with no header
+
+`RGX1` (streaming) and `RGLD` (loader) are used by
+`scripting/streaming_world_runner.rgr` and `wasm/rust_worker/src/lib.rs`, but
+`wasm/` contains only five headers (game, input, pose, sprite, ui) — the
+streaming and loader blocks exist purely as conventions in two codebases that
+must agree byte-for-byte with no shared definition (IDEAL.md §2.7).
+
+---
+
+## Category E — the half-landed fix: the cure becomes another copy
+
+### 0.21 Fixes ship, but the old path is never retired
+
+This is the second-order trap, and it is worth naming because it is how the
+*cleanup itself* goes wrong. Every example below is a correct fix that stopped
+halfway, leaving the engine with one more parallel system:
+
+- **The capability gate** (`wasm_cap_gate.rgr`) exists and is wired into
+  `wasm_game_runner` and `wasm_physics_runner` — but not the sprite runner or
+  the `.as` runner (grep: no `CapGate` reference in either). Half the guests
+  are gated; half still read zeroed memory on a missing capability
+  (IDEAL.md §2.14, §6).
+- **The generic control channel** landed in `as_abi_bridge.rgr` as
+  `writeControlChannel` (line 116) — and the car-shaped
+  `writeControl(steer, throttle, brake, grip)` still sits directly below it
+  (line 121), while the compiled path still reads
+  `readControlSteer/Throttle/Brake/Grip` (`wasm_abi_io.rgr:234–246`). The
+  genre-neutral fix and the car vocabulary now coexist (IDEAL.md §2.2).
+- **The `PhysicsWorld` interface** was built with two conforming engines — and
+  no game or runner imports it (0.17). The seam exists; nothing goes through it.
+- **The RGIN input ABI** was created to fix RGW1's two-bitfield input — its own
+  header says so ("RGIN is the one typed per-player input surface that closes
+  that gap") — but RGW1's `input`/`input_p2` words and RGSP1's copies remain,
+  so the fix is now the **fifth** input representation (0.12).
+- **The RGCQ resolver** (`game_env_resolver.rgr`) exists to answer the typed
+  capability query that IDEAL.md problem #7 called inert — the byte plumbing is
+  in place but it is not called from every runner.
+- **The host↔native-bridge command surface** drifted the same way: the host
+  gained 10 geometry constructors; `ThreeNativeBridge.invoke` still exposes 2
+  (Box, Teapot). The new commands landed on one face of the bridge only.
+
+The rule this implies for all the work in this plan: **a fix is finished when
+the old path is deleted**, not when the new path works. Retirement is part of
+the fix's definition of done.
+
+### 0.22 A one-line "for now" that became an architecture
 
 `eval/jsx/EvalValue.rgr:540`:
 
@@ -137,43 +412,105 @@ needed a way to remove scene nodes without identity, so it grew the `__removed`
 flag hack (`three.tsx:60,67,71`); the reconciler could not key nodes by object,
 so it keys them by array position and "assumes a stable tree shape"
 (`three_tsx_bridge.rgr:77–89`). One deferred line in the interpreter dictated
-the design of every layer above it. This is the smallest reroute in the
-codebase and the most expensive one.
+the design of every layer above it. This is the smallest reroute in the codebase
+and the most expensive one.
 
-## 0.8 What the new core must do differently — build and test rules
+### 0.23 Logging and flags: nine vocabularies and a mode soup
+
+- Log lines are bare `print` calls with ad-hoc bracket tags — nine distinct
+  prefixes across `scripting/` (`[game-engine]`, `[split-screen]`, `[menu]`,
+  `[sprite-demo]`, `[wasm]`, `[wasm3d]`, `[tsx3d]`, `[poc]`, `[as]`), with
+  single files mixing several. No severity levels, no way to filter
+  (IDEAL.md §2.16).
+- Feature toggles are scattered booleans: `hotReload` in `game_runtime.rgr:41`,
+  `useAs` defined **independently in two files** (`wasm_abi_io.rgr:17` and
+  `game_ui_runner.rgr:49`), and `game_runner_mode.rgr:6` documents the runner
+  state as "a set of INDEPENDENT booleans (useWasmRunner, useWasmPhysics,
+  useSpriteRunner, useStream, wasmSplit…)" — contradictory states are
+  representable, which is the illegal-state bug class IDEAL.md §0.1 records as
+  already having caused real failures.
+
+---
+
+## 0.24 What the new core must do differently — build and test rules
 
 Each example above survived because nothing *failed* when the shortcut was
-taken. The new core's job is to make every one of these reroutes either
-impossible or loudly visible:
+taken. There is also proof in this codebase that the right fix works when done
+completely: **pose input (RGP1)** was in exactly this state — every producer
+with its own layout — and now has one shared header (`wasm/wasm_pose_abi.h`)
+that every producer and both guest paths conform to, byte-for-byte
+(IDEAL.md §2.4). The rules below make each category either impossible or loudly
+visible:
 
 - **A runner receives the game, never imports it.** Games bind through the
   provider/scene interface. Enforced mechanically: a CI grep fails the build if
-  a file under `core/` names a game in its filename or imports one (kills 0.1).
+  a file under `core/` names a game in its filename or imports one
+  (kills 0.1, 0.5, and the HUD/sound/particle inlining of 0.2–0.4).
+- **Every vocabulary is registered data, not a code ladder.** Sound names,
+  particle effects, voice effects, character rosters: the game registers them
+  once; core dispatches by table lookup. A grep for `sub == 1`-style ladders and
+  duplicated name lists backs it (kills 0.3, 0.4, 0.7).
 - **Every world/scene fact has exactly one owner.** The guest declares it; the
   host reads it through the ABI. A conformance fixture runs one game on both
-  paths and diffs the bytes (kills 0.2).
-- **Technique code depends on typed capabilities, not bridge accessors.** The
-  registry's Object Type ID + `resolveAs` (Parts II–III) replaces the
-  `sunLight()` accessor pattern; adding a technique adds a type, not a method on
-  the reconciler (kills 0.3).
+  paths and diffs the block bytes (kills 0.6).
 - **Shared modules resolve from one place.** The façade and helpers live once on
   the shared search path; a duplicate-basename check in CI flags a game-local
-  copy of a shared module (kills 0.4).
-- **One definition per class, all faces generated.** The Class Registry
-  (Part IV) is the single source for classes/methods/props; interpreter façade,
-  Rust/AS guest structs, and bridge surfaces are generated from it, with a
-  surface-parity test that fails on drift (kills 0.5, and the 10-vs-2 geometry
-  constructor drift between host and native bridge).
+  copy of a shared module — and flags a game copied whole into a sibling folder
+  (kills 0.8, 0.9).
+- **One definition per class and per subsystem, all faces generated.** The Class
+  Registry (Part IV) is the single source for classes/methods/props; the
+  interpreter façade, Rust/AS guest structs, and every bridge surface are
+  generated from it, with a surface-parity test that fails on drift
+  (kills 0.10, and the command-surface drift in 0.21).
 - **One entity registry** with stable generation-tagged ids and type ids
-  (Part II) backs the Three host, `model3d`, and the world store (kills 0.6).
+  (Part II) backs the Three host, `model3d`, and the world store
+  (kills 0.11, and gives 0.13's binding one identity to hang on).
+- **One representation per concept across the boundary.** Input, camera,
+  sheets, animation each get one typed surface in the contract, and the old
+  encodings are deleted as part of the change (kills 0.12, 0.14–0.16).
+- **Parity is tested, not promised.** A fixture game exercises sprites, sound,
+  persistence, and navigation on the compiled and interpreted paths and asserts
+  identical behavior — a feature that exists on one path fails the suite
+  instead of silently missing (kills 0.18–0.20).
+- **A fix is finished when the old path is deleted.** Every migration in this
+  plan lists the files it retires, and the PR that lands the new path removes
+  the old one or is not done (kills 0.21 — the half-landed-fix trap).
 - **No silent "for now" in the value model.** The interpreter semantics get
   their own test suite (`component_engine_js_semantics_test`, Part III) so a
   deferred semantic — identity, `undefined`, Map/Set keys — is a red test, not
-  a comment (kills 0.7).
+  a comment (kills 0.22).
+- **One log call with a severity and one flag registry** replace the bracket
+  tags and the independent booleans; runner mode becomes a single enum so
+  contradictory states are unrepresentable (kills 0.23).
 
-The rest of this plan is organized around making those rules true: Part I maps
-where everything lives and moves core into one place; Part II builds the one
-registry; Parts IV–V define the one contract and the bridge that runs it;
+## 0.25 Coverage — this catalog vs IDEAL.md's use-case areas
+
+| IDEAL.md § | Area | Chapter here |
+|-----------|------|--------------|
+| §2.1 | ABI taxonomy in headers | largely fixed in headers; residue tracked in 0.3 (sound ids), 0.21 |
+| §2.2 | Car-shaped control record | 0.21 |
+| §2.3 | RGU1 discipline (the good model) | referenced in 0.2, 0.14 |
+| §2.4 | Pose block | the success story — cited in 0.24 |
+| §2.5 | Physics, collision, body→sprite | 0.13, 0.17 |
+| §2.6 | Dynamic UI (snapshot-only rebuild) | 0.14 (RGU1 re-emit) |
+| §2.7 | Resource loaders / streaming | 0.20 |
+| §2.8 | Sprite sheets | 0.15 |
+| §2.9 | Input & haptics | 0.12 |
+| §2.10 | Sound / voice / music | 0.3, 0.19 |
+| §2.11 | Persistence | 0.19 |
+| §2.12 | Animation systems | 0.14 |
+| §2.13 | Screens / view stack | 0.19 |
+| §2.14 | Init & capability negotiation | 0.21 |
+| §2.15 | HUD | 0.2 |
+| §2.16 | Logging & feature flags | 0.23 |
+| §2.17 | Camera & matrices | 0.16 |
+| §2.18 | Particles & effects | 0.4 |
+| §5 | One world, one owner | 0.6 |
+| §7 | Mechanically checkable "done" | 0.24 |
+
+The rest of this plan is organized around making the 0.24 rules true: Part I
+maps where everything lives and moves core into one place; Part II builds the
+one registry; Parts IV–V define the one contract and the bridge that runs it;
 Parts VI–VII cover lifetime and the generated guest faces.
 
 ---
