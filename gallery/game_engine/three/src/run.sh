@@ -115,6 +115,10 @@ run_tsx_poc three_teapot_tsx_test
 # scene's params drives the Ranger scene live).
 run_tsx_poc three_sponza_scene_test
 run_tsx_poc three_sponza_tsx_test
+# Sponza game-controller navigation (value-parity path): the scene reads the
+# STANDARD navigator.getGamepads() from its update() loop and returns a movement/
+# look intent the host applies to the first-person camera — no engine-specific name.
+run_tsx_poc three_gamepad_nav_test
 # The teapot's lil-gui panel (demo/host layer): EVG panel rasterise + hit-testing.
 run_tsx_poc three_gui_overlay_test
 

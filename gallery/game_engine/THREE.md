@@ -128,7 +128,11 @@ renders it with WebGL. Editing the shown script hot-reloads the scene.
 - **Sponza** streams the real model + 69 textures at runtime from the Khronos
   sample-assets repo (they are too big to bundle), with a loading progress bar;
   expect a short download + in-browser decode on first open. Controls: WASD /
-  arrows move, drag to look.
+  arrows move, drag to look — or a **game controller** (left stick / d-pad move,
+  right stick looks, LB/RB fly down/up). The scene reads it via the standard
+  `navigator.getGamepads()` from its `update()` loop (the host fills that Web
+  Gamepad API surface — see §9.2 on host-filled runtime, no engine-specific name),
+  and the viewer polls the browser's real gamepad each frame.
 
 ### Native SDL binaries (macOS / Linux / Raspberry Pi)
 ```
@@ -154,7 +158,8 @@ the **Tests** category:
 - `games/teapot` — `render=three` (host = OrbitControls + lil-gui panel + procedural
   env cube / UV texture plumbing).
 - `games/sponza` — `render=sponza` (host = first-person controls + async glTF +
-  the `ThreeSponzaScene` GI-bake plumbing; WASD / arrows move, drag to look).
+  the `ThreeSponzaScene` GI-bake plumbing; WASD / arrows / gamepad move, drag or
+  right-stick to look).
 
 Every example — cube, cubes, teapot, Sponza — reconciles through the **one** generic
 `ThreeTsxBridge`; the hosts are pure plumbing (controls, GUI, async loading, the

@@ -9,7 +9,8 @@
 // are far too big to bundle): the model bytes go into the engine VFS, and each
 // JPEG/PNG is canvas-decoded and streamed into the host's materials (the Ranger
 // host can't decode JPEG/PNG in the browser). First-person controls: WASD / arrows
-// move, drag to look.
+// move, drag to look; a game controller also navigates — the scene reads the
+// standard navigator.getGamepads() (host-filled) from its update() loop.
 // ============================================================================
 
 (function (root) {
@@ -135,7 +136,7 @@
       }
       this.host.frame();
       this._hideProgress();
-      this.onStatus("Sponza — WASD / arrows to move, drag to look", true);
+      this.onStatus("Sponza — WASD / arrows / gamepad to move, drag or right-stick to look", true);
       this._wireInput();
       this._loaded = true;
       this._resume();
@@ -184,7 +185,31 @@
     setMuted() {}
     stop() { if (this._raf) cancelAnimationFrame(this._raf); this._raf = 0; }
     _resume() { if (!this._raf) this._raf = requestAnimationFrame(this._tick); }
-    _tick() { this.host.frame(); this._raf = requestAnimationFrame(this._tick); }
+    _tick() { this._pollPad(); this.host.frame(); this._raf = requestAnimationFrame(this._tick); }
+
+    // Poll the browser's real navigator.getGamepads() and hand the first connected
+    // pad to the host (standard layout: axes 0/1 = left stick, 2/3 = right stick;
+    // buttons by standard index). The host both exposes this to the scene via its
+    // own navigator.getGamepads() and drives the first-person camera from it. A
+    // small deadzone keeps a centred stick from drifting.
+    _pollPad() {
+      const nav = typeof navigator !== "undefined" ? navigator : null;
+      if (!nav || !nav.getGamepads || !this.host.setPad) return;
+      const pads = nav.getGamepads();
+      let g = null;
+      for (let i = 0; i < pads.length; i++) { if (pads[i]) { g = pads[i]; break; } }
+      if (!g) { this.host.setPad(0, 0, 0, 0, 0, 0); return; }
+      const dz = (v) => (Math.abs(v) < 0.12 ? 0 : v);
+      const ax = g.axes || [];
+      const lx = dz(ax[0] || 0), ly = dz(ax[1] || 0);
+      const rx = dz(ax[2] || 0), ry = dz(ax[3] || 0);
+      let mask = 0;
+      const b = g.buttons || [];
+      for (let i = 0; i < 16; i++) {
+        if (b[i] && (b[i].pressed || b[i].value > 0.5)) mask |= (1 << i);
+      }
+      this.host.setPad(1, lx, ly, rx, ry, mask);
+    }
 
     dispose() {
       this.stop();
