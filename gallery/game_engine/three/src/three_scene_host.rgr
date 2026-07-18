@@ -202,6 +202,36 @@ class ThreeSceneHost {
         push entities m
         return (array_length entities)
     }
+    ; --- hierarchy: nodes parented under another entity (not the scene) --------
+    ; A transform-only node (THREE.Group / Object3D). parentH==0 => under the scene.
+    fn groupNew:int (sceneH:int parentH:int) {
+        def g:ThreeObject3D (new ThreeObject3D)
+        if (parentH == 0) {
+            def sc:ThreeScene (this.sceneAt(sceneH))
+            sc.add(g)
+        } {
+            def par:ThreeObject3D (this.entityAt(parentH))
+            par.add(g)
+        }
+        push entities g
+        return (array_length entities)
+    }
+    ; A mesh parented under another entity, so its world matrix composes with the
+    ; parent's (the core's updateMatrixWorld walks parent -> child).
+    fn meshNewUnder:int (parentH:int geoH:int matH:int) {
+        def m:ThreeMesh (new ThreeMesh)
+        m.setGeometry((this.geometryAt(geoH)))
+        m.setMaterial((this.materialAt(matH)))
+        def par:ThreeObject3D (this.entityAt(parentH))
+        par.add(m)
+        push entities m
+        return (array_length entities)
+    }
+    ; force-compose all world matrices (the renderer also does this each frame).
+    fn updateWorldMatrices:void (sceneH:int) {
+        def sc:ThreeScene (this.sceneAt(sceneH))
+        sc.updateMatrixWorld()
+    }
     ; a host-decoded model subtree (glTF) added as one entity.
     fn modelAttach:int (sceneH:int model:ThreeObject3D) {
         def sc:ThreeScene (this.sceneAt(sceneH))

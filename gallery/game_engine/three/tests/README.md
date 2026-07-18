@@ -21,13 +21,13 @@ Every feature folder is self-contained:
 | [`value_parity/`](./value_parity/) | Math + core API value parity (Vector2/3, Matrix4, Quaternion, Euler, Color, Object3D, MathUtils) returning correct values through the interpreter | 9 baseline PASS; parity `0/31` (the measured backlog) |
 | [`geometry/`](./geometry/) | Primitive + complex geometry construction (Plane, Circle, Ring, Sphere, Cylinder, Cone, Torus, TorusKnot) built in the Ranger host from interpreter args | `62/62` PASS |
 | [`spec/`](./spec/) | Camera (projection matrix), transformed-mesh world matrix, colour families, view-frustum culling — one runner, one description file | `57/57` PASS |
+| [`object_hierarchy/`](./object_hierarchy/) | Nested `Group`/mesh world transforms + tree structure, reconciled with real parenting | `13/13` PASS |
 
 Planned — folder + README present, no runner yet (each README says what should be tested,
 why it's blocked, and the concrete wiring step to unblock):
 
 | Folder | Feature | Blocked on |
 |---|---|---|
-| [`object_hierarchy/`](./object_hierarchy/) | Nested world transforms, traversal, reparenting | façade `Group` + bridge nested reconcile (object model is ready) |
 | [`animation/`](./animation/) | KeyframeTrack sampling (linear/slerp), clip + mixer | object-model `KeyframeTrack`/mixer + façade |
 | [`model_loading/`](./model_loading/) | glTF node tree / geometry decode / bounds | interpreter path (parser exists + unit-tested in `../src/`) |
 

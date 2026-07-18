@@ -79,6 +79,12 @@ class ThreeTsxBridge {
     ; of being frozen at its first build.
     def nodeSigs:[string]
     def nodeIsMesh:[boolean]
+    ; nested-node (hierarchy) handles, in a stable DFS order across frames. Built
+    ; once (append on first sight); on later frames the cursor re-walks the same
+    ; order and reuses the handles, so nested transforms re-sync without allocating
+    ; new host entities. Assumes a stable tree shape (as the flat cache does too).
+    def subHandles:[int]
+    def subCursor:int 0
 
     ; reconcile bookkeeping (also serves as introspection for tests: proves the
     ; façade was mapped to the right REAL object types, not a single hard-coded one).
@@ -315,6 +321,15 @@ class ThreeTsxBridge {
             return
         }
         def h:int (this.ensureNode(i childV))
+        this.applyTransform(h childV)
+        ; recurse into this node's children (hierarchy): build/reuse each as a host
+        ; entity parented under h, and sync its transform. Flat scenes (no children)
+        ; skip this entirely — fully backward compatible.
+        this.syncChildren(childV h)
+    }
+
+    ; read the façade node's local TRS and command the host entity's transform.
+    fn applyTransform:void (h:int childV:EvalValue) {
         def ex:double 0.0
         def ey:double 0.0
         def ez:double 0.0
@@ -343,6 +358,51 @@ class ThreeTsxBridge {
             sz = (this.num(scl "z"))
         }
         host.entityTransform(h px py pz ex ey ez sx sy sz)
+    }
+
+    ; reconcile the children of a node whose host handle is parentH.
+    fn syncChildren:void (parentV:EvalValue parentH:int) {
+        def kids:EvalValue (parentV.getMember("children"))
+        if (kids.isArray() == false) {
+            return
+        }
+        def n:int (array_length kids.arrayValue)
+        def k:int 0
+        while (k < n) {
+            def gv:EvalValue (kids.getIndex(k))
+            if (gv.isObject()) {
+                def gh:int (this.ensureSub(gv parentH))
+                this.applyTransform(gh gv)
+                this.syncChildren(gv gh)
+            }
+            k = (k + 1)
+        }
+    }
+
+    ; nested node: reuse its handle from the DFS-ordinal cache, or build it once
+    ; (a mesh or a transform-only group) parented under parentH.
+    fn ensureSub:int (childV:EvalValue parentH:int) {
+        if (subCursor < (array_length subHandles)) {
+            def cached:int (itemAt subHandles subCursor)
+            subCursor = (subCursor + 1)
+            return cached
+        }
+        def built:int (this.buildSubNode(childV parentH))
+        push subHandles built
+        subCursor = (subCursor + 1)
+        return built
+    }
+
+    fn buildSubNode:int (childV:EvalValue parentH:int) {
+        if (this.flagOn(childV "isMesh")) {
+            def geoV:EvalValue (childV.getMember("geometry"))
+            def geoH:int (this.buildGeometryH(geoV))
+            def matV:EvalValue (childV.getMember("material"))
+            def matH:int (this.buildMaterialH(matV))
+            return (host.meshNewUnder(parentH geoH matH))
+        }
+        ; a Group / Object3D — a transform-only node.
+        return (host.groupNew(sceneH parentH))
     }
 
     ; keep the parallel arrays (handle / signature / is-mesh) in lockstep.
@@ -453,6 +513,12 @@ class ThreeTsxBridge {
             def h:int (this.buildMeshH(childV))
             nMesh = (nMesh + 1)
             return (this.registerNode(h (this.meshSig(childV)) true))
+        }
+        ; a transform-only node (THREE.Group / Object3D) at the top level — a real
+        ; host Object3D under the scene; its children reconcile via syncChildren.
+        if ((this.flagOn(childV "isGroup")) || (this.flagOn(childV "isObject3D"))) {
+            def gh2:int (host.groupNew(sceneH 0))
+            return (this.registerNode(gh2 "" false))
         }
         ; a child the scene specified but we don't reconcile (an unsupported light
         ; type — Point/Spot/Hemisphere — or any other object). Report it (loud +
@@ -735,7 +801,12 @@ class ThreeTsxBridge {
         lastH = h
         this.syncRenderer()
         this.syncCamera()
+        subCursor = 0
         this.syncScene()
+        ; compose world matrices so nested nodes' matrixWorld is current (the
+        ; renderer also does this during present; explicit here so a headless
+        ; reconcile without a draw still yields correct world transforms).
+        host.updateWorldMatrices(sceneH)
     }
     ; Draw the reconciled scene (the host owns the renderer + scene + camera).
     fn present:void () {

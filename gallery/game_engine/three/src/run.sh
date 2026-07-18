@@ -96,6 +96,10 @@ run_feature geometry/three_geometry_parity_test
 # matrix, colour families, and view-frustum culling, all validated vs real three.js
 # with no rendering. Compiled once instead of one .rgr per feature (the speedup).
 run_feature spec/three_spec_runner
+# Object hierarchy (three/tests/object_hierarchy/): a nested Group/mesh tree driven
+# through the interpreter, reconciled into the host with real parenting; each
+# node's composed world matrix validated vs real three.js. No rendering.
+run_feature object_hierarchy/three_hierarchy_test
 # The 1:1 Three.js cube example, run through the TSX interpreter on the façade.
 run_tsx_poc three_facade_poc
 # The render bridge: the interpreted cube.tsx reconciled into the Ranger core and

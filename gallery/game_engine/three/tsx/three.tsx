@@ -330,11 +330,58 @@ class Mesh {
   scale = new Vector3().set(1, 1, 1);
   geometry = null;
   material = null;
+  children = [];
   constructor(geometry, material) {
     this.geometry = geometry;
     this.material = material;
   }
-  add(o) { return this; }
+  // real add now — the bridge recurses into children and builds them in the host
+  // parented to this mesh (nested world transforms compose in the Ranger core).
+  add(o) { o.__removed = false; this.children.push(o); return this; }
+}
+
+// A transform-only node (no geometry). THREE.Group / THREE.Object3D — the parents
+// that make a scene a hierarchy. Same flat-node shape (own TRS + children); the
+// bridge builds a host Object3D and parents this node's children under it.
+class Group {
+  isGroup = true;
+  isObject3D = true;
+  position = new Vector3();
+  rotation = new Vector3();
+  scale = new Vector3().set(1, 1, 1);
+  children = [];
+  add(o) { o.__removed = false; this.children.push(o); return this; }
+  remove(o) {
+    o.__removed = true;
+    const next = [];
+    let i = 0;
+    while (i < this.children.length) {
+      if (this.children[i].__removed !== true) { next.push(this.children[i]); }
+      i = i + 1;
+    }
+    this.children = next;
+    return this;
+  }
+}
+
+class Object3D {
+  isObject3D = true;
+  position = new Vector3();
+  rotation = new Vector3();
+  scale = new Vector3().set(1, 1, 1);
+  children = [];
+  add(o) { o.__removed = false; this.children.push(o); return this; }
+  remove(o) {
+    o.__removed = true;
+    const next = [];
+    let i = 0;
+    while (i < this.children.length) {
+      if (this.children[i].__removed !== true) { next.push(this.children[i]); }
+      i = i + 1;
+    }
+    this.children = next;
+    return this;
+  }
 }
 
 class WebGLRenderer {

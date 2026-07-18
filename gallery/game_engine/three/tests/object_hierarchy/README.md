@@ -1,61 +1,71 @@
-# object_hierarchy — PLANNED (not runnable yet)
+# object_hierarchy — nested world transforms through the interpreter
 
-> Status: **blocked on façade + bridge wiring.** This folder documents what the
-> test should check; there is no runner here yet. Once the wiring below lands,
-> this becomes a `spec/`-style data-driven suite validated against real three.js.
+## What is tested
 
-## What should be tested
+Nested scene-graph transforms — with **no rendering** — by reading the internal
+Ranger `ThreeObject3D.matrixWorld` after reconcile. `hierarchy_scene.tsx` builds:
 
-Nested scene-graph transforms — the thing every non-trivial scene relies on — with
-**no rendering**, by reading the internal Ranger `ThreeObject3D.matrixWorld` after
-reconcile:
+```
+group      pos(10,0,0) rot(0,0.5,0)     → handle 1
+  meshA    pos(0,5,0)                    → handle 2
+  subgroup pos(0,0,3) scale(2,2,2)       → handle 3
+    meshB  pos(1,0,0)                    → handle 4
+loneMesh   pos(-4,0,0)  (flat sibling)   → handle 5
+```
 
-- **world position of a child** — parent at `(10,0,0)`, child at `(0,5,0)` →
-  child world position `(10,5,0)`.
-- **compounded transforms** — parent with rotation + scale, child offset →
-  child world matrix equals `parentWorld · childLocal` (all 16 elements vs
-  three.js).
-- **deep nesting** — grandparent → parent → child, each with its own TRS →
-  grandchild world matrix.
-- **traversal** — `traverse` visits `group + N descendants` (count + order).
-- **add/remove reparenting** — moving a child sets `.parent`, updates
-  `children.length` on both old and new parent, and changes the child's world
-  matrix accordingly.
-- **getObjectByName** — returns the right descendant.
+and the test checks, against real three.js (`../../reference/hierarchy_goldens.json`):
 
-Internal objects to read back: `ThreeObject3D.matrixWorld` (via `eGet(i)`),
-`childCount()`, `getChild(i)`, `.parent`.
+- each node's **world matrix** (all 16 elements) — so `meshB`'s world transform is
+  the full `group · subgroup · local` composition (translation + rotation + the
+  parent's scale);
+- each node's **world position**;
+- the **tree structure** — child counts of the scene, the group, and the subgroup.
 
-## Why it can't run yet
+## How it works — args from the interpreter, tree built in Ranger
 
-The interpreter path can't express a hierarchy today:
+`new THREE.Group()` / `mesh.add(child)` in the scene only record the parent→child
+*intent*; the real objects are built in the Ranger host:
 
-- the façade `Mesh.add` is a **no-op** (`add(o){ return this; }`), and there is no
-  `Group` / `Object3D` façade class, so a nested child never reaches the bridge;
-- the bridge's reconcile walks `scene.children` **flat** — it does not recurse
-  into `child.children` or compose parent→child world transforms;
-- the host `meshNew` attaches every mesh directly under the scene (no parent
-  handle), so `matrixWorld` is only ever `local`.
+```
+hierarchy_scene.tsx  →  ComponentEngine interprets
+   →  ThreeTsxBridge  walks each node's `children`, building every child as a host
+      entity PARENTED under its parent (host.groupNew / host.meshNewUnder)
+   →  ThreeSceneHost   holds the real ThreeObject3D tree
+   →  core updateMatrixWorld composes parent → child world matrices
+   →  three_hierarchy_test.rgr reads entityAt(h).matrixWorld and diffs vs goldens
+```
 
-(The object model itself is ready: `ThreeObject3D` already has `add/remove`,
-`updateMatrixWorld`, `updateWorld(parentWorld)`, `matrixWorld`, and is unit-tested
-at the object-model level in `../../src/three_object3d_test.rgr`. The gap is
-purely the interpreter→host path.)
+Handles are assigned in the host's DFS build order (matching the goldens).
 
-## Plan to unblock
+## What changed to close this gap
 
-1. Add a thin façade `Group` (and make `Object3D`/`Mesh.add` actually push to a
-   `children` array) in `../../tsx/three.tsx`.
-2. Teach the bridge to recurse: for each reconciled node, walk its `children`,
-   create host entities with a **parent handle**, and compose world transforms
-   (`host.entityParent(childH, parentH)` + `updateMatrixWorld` from the root).
-3. Add `gen-*-goldens.mjs` computing the world matrices from real three.js, a
-   `hierarchy_scene.tsx`, and a runner (or fold into `spec/`).
+- **façade** (`../../tsx/three.tsx`): `Mesh.add` now really pushes to a `children`
+  array, and new `Group` / `Object3D` transform-only nodes were added.
+- **bridge** (`../../tsx/three_tsx_bridge.rgr`): `syncChildren` recurses into each
+  node's `children`, `ensureSub` builds/reuses nested handles in a stable DFS order,
+  and a top-level `Group`/`Object3D` becomes a host group. Flat scenes (no children)
+  are untouched — fully backward compatible.
+- **host** (`../../src/three_scene_host.rgr`): `groupNew(sceneH,parentH)` and
+  `meshNewUnder(parentH,…)` place entities under a parent; `updateWorldMatrices`
+  composes the tree.
 
-## Files (planned)
+## Result
+
+**13/13 PASS.** The object model itself (`ThreeObject3D` transforms, `updateWorld`)
+was already correct and unit-tested in `../../src/three_object3d_test.rgr`; this
+suite proves the whole interpreter→bridge→host→world-matrix path.
+
+## Files
 
 | File | Role |
 |---|---|
-| `hierarchy_scene.tsx` | JS scene building a nested group/mesh tree. |
-| `three_hierarchy_test.rgr` | Reconcile + read `matrixWorld` of each node vs goldens. |
+| `hierarchy_scene.tsx` | The JS scene the interpreter runs (a nested Group/mesh tree). |
+| `three_hierarchy_test.rgr` | Reconcile + read each node's world matrix / structure vs goldens. |
 | `../../reference/gen-hierarchy-goldens.mjs` → `hierarchy_goldens.json` | Expected world matrices from real three.js. |
+
+## Not yet covered (next steps in this area)
+
+- **reparenting / remove** at runtime (the DFS-ordinal handle cache assumes a
+  stable tree shape, as the flat cache does);
+- **getObjectByName / traverse** exposed through the façade;
+- deep-copy **clone** of a subtree.
