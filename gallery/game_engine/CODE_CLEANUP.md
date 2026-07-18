@@ -23,7 +23,7 @@
 >   1**; no further file deletion.
 > - **D2 = Line B — native-object adapter.** Goal is broad Three.js value
 >   parity ("paste almost any Three.js code"), so the interpreter gets a real
->   native-object adapter (§II.9), not just a bounded façade subset.
+>   native-object adapter (§III.9), not just a bounded façade subset.
 > - **D3 = keep planning.** No implementation yet; this document + the ADR are
 >   the review artifacts.
 
@@ -139,109 +139,217 @@ Phase 1.
 `games/`, `prototypes/`, and the protected folders — the delete list writes
 itself.
 
+## I.6 Relocate the TS evaluator (under review)
+The evaluator — `gallery/pdf_writer/src/jsx/{ComponentEngine,EvalValue}.rgr` +
+`gallery/ts_parser/` — is where most current work happens: ~44 importers under
+`gallery/game_engine/`, vs a handful in `pdf_writer` (tools/lib/bench) and the
+separate `ts_to_ranger` module. Bringing it into the engine is reasonable, but
+the shape matters:
+- **Option A — move under `core/jsx/`.** Simple, matches "dev lives here", but
+  inverts the dependency: `pdf_writer` and `ts_to_ranger` would import *up* into
+  `game_engine`, which is a layering smell (pdf_writer is the older, lower
+  module).
+- **Option B — promote to a shared gallery-level module** (e.g.
+  `gallery/jsx_engine/`) that `game_engine`, `pdf_writer`, and `ts_to_ranger`
+  all import as a peer. No inverted dependency; slightly more churn now.
+- **Recommendation: Option B.** It gives the engine first-class ownership
+  *without* making pdf_writer depend on the game engine. Either way it's a
+  relative-import rewrite across ~50 files, compile-verified, and should land
+  *with or before* the identity fix (§II.A) since that edits `EvalValue`.
+Decision **C2** below.
+
 ---
 
-# Part II — fix the Three object model (the real work)
+# Part II — Entity Registry & stable identity (engine-wide)
 
-## II.1 Issue — the interpreter has no stable object identity
-- `EvalValue.equals()` returns **`false` for every object and array**
-  (`gallery/pdf_writer/src/jsx/EvalValue.rgr:540-541`, *"reference equality for
-  now → return false"*). So `a === a` is false; `Map`/`Set` object keys (same
-  `equals`) are broken; `Array.indexOf/includes` on objects fail.
-- Consequence in the Three façade: `three.tsx` can't use object identity to
-  remove nodes, so it carries a `__removed` workaround.
-- `EvalValue.getMember()` returns **`null` for a missing member**
-  (`EvalValue.rgr:341`) although a distinct `undefined` exists (`isUndefined`,
-  `EvalValue.undefined()`). Breaks default params, `typeof`, `??`, optional
-  chaining, and lets tests confuse "missing" with a real `0`/`false`.
+> The branch's core theme, and **not** an interpreter-only concern. A stable,
+> process-wide entity ID is needed at **four layers**, and they must be *one*
+> coherent scheme — not four ad-hoc array-index tricks (which is what exists
+> today). 32-bit, generation-tagged, never a raw index (per owner decision).
 
-**The type system it plugs into** (`EvalValue.valueType`): `0` null,
-`1` number, `2` string, `3` bool, `4` array, `5` object, `6` function/bound-
-method, `7` **native `EVGElement`** (`EvalValue.element()` — a native Ranger
-object already wrapped in an EvalValue), `8` undefined, `9` Map, `10` Set. Map
-(9)/Set (10) store keys in `arrayValue` and look them up with the broken
-`equals()`, so object keys silently fail today. Note `7` already proves the
-interpreter can hold a native host object — Line B (§II.9) generalizes exactly
-that slot.
+## II.A Interpreter identity — `EvalValue.identityId`
+Give every reference value (`valueType 4,5,6,7,9,10`) a monotonic
+`identityId:int`, assigned once at construction. Make `equals()` compare
+`identityId` instead of `return false`; route `===`, `Map`/`Set` keys, and
+`Array.indexOf/includes` through it. This gives every `*.game.tsx` / `.as`
+object a stable runtime identity — the thing the reconciler keys on, replacing
+the `__rid`/`__removed` hacks. (Interpreter-semantics detail + the
+`null→undefined` companion fix live in
+[`docs/TSX_ENGINE_ISSUES.md`](./docs/TSX_ENGINE_ISSUES.md) #7/#8.)
+⚠️ `EvalValue` is shared by the whole JSX/TSX interpreter, so this lands behind a
+new `component_engine_js_semantics_test` + the existing pdf_writer suites.
 
-**Fix (interpreter core — high blast radius, do behind a semantics test suite):**
-- Add a monotonic `identityId:int` to `EvalValue`, assigned once at construction
-  for every reference type (`4,5,6,7,9,10`). Make `equals()` compare `identityId`
-  for those types instead of `return false`. Route `===`, `Map`/`Set` keys,
-  `Array.indexOf/includes` through it. This identity is also what the reconciler
-  keys on — no more `__rid`/`__removed`.
-- `getMember()` on a missing key → `EvalValue.undefined()` (type 8), not
-  `EvalValue.null()` (`EvalValue.rgr:341`); null/invalid receiver → defined
-  error/optional path.
-- ⚠️ `EvalValue` lives in `gallery/pdf_writer/` and is shared by the **whole**
-  JSX/TSX interpreter (pdf_writer + game engine + UI/EVG), so this is validated
-  by a new `component_engine_js_semantics_test` (see §II.5) and the existing
-  pdf_writer suites, not just Three tests. Sequence identity before the
-  `null→undefined` change (the latter can surface latent `isNull()` assumptions).
+## II.B Host registry — generation-checked handles
+`ThreeSceneHost` and `model3d` replace their append-only index arrays with **one**
+registry whose id is a generation-tagged handle. Today `entityRemove` only
+detaches from the scene and never frees the slot (`three_scene_host.rgr:255`),
+which is the leak; the registry fixes it:
+Each slot stores **three** things: the object, its `generation`, and its
+**Object Type ID** (Mesh / Group / DirectionalLight / Sky / AmbientLight /
+Geometry / Material / Texture / …). Storing the type next to the id is what lets
+the host dispatch a bridge call without downcasting (Part III.5).
+```
+; 32-bit id, never a raw array index; 0 = null
+handle = (generation << 20) | (slot + 1)
 
-## II.2 Lock one architecture — a short ADR  *(docs currently contradict)*
-`IDEAL_THREE.md` says Ranger/C++/WASM front-ends use the object model directly;
-`THREE_BRIDGE.md` says all front-ends issue commands to one host-owned handle
-registry. The second is the built direction, but the first is still in the
-design docs, and `THREE.md` still names Teapot/Sponza via removed demo bridges.
-Write one ADR: **"`ThreeSceneHost` owns authoritative state; interpreter/Ranger/
-WASM front-ends hold opaque handles and own no Three object graph."** Then delete
-or mark-historical the alternative descriptions.
+create(typeId, obj)          -> handle     ; free slot (or grow), stamp gen + type
+resolve(handle)              -> obj | null ; null if the generation is stale
+resolveAs(handle, typeId)    -> obj | null ; null if stale OR the type doesn't match
+typeOf(handle)               -> typeId     ; what kind of object this id names
+retain(handle)                             ; refcount++ — another referrer shares the id
+release(handle)                            ; refcount--; at zero, free slot + bump gen
+```
+`create` reuses freed slots (no unbounded growth); `resolve`/`resolveAs` reject a
+stale *or* wrong-typed handle instead of aliasing; `retain`/`release` give shared
+resources one id and a real lifetime (II.E). This one core is what the scene
+entities and `model3d`'s `EntityRegistry` both fold onto.
 
-## II.3 Reconciler: key by identity, mark-and-sweep
-`three_tsx_bridge.rgr` caches top-level nodes by `scene.children` index and
-nested nodes by DFS ordinal, and states it *"Assumes a stable tree shape"*
-(`:77,86,89`). `syncScene()` walks only currently-visible children with **no
-mark-and-sweep**, so removing/reordering/reparenting a node, inserting mid-list,
-or a hot-reload rebuild leaves stale host objects and misaligned handles.
+## II.C WASM bridge IDs — the boundary needs the same ID
+A WASM guest **cannot hold host pointers or JS object refs** — host↔guest
+exchange only opaque **32-bit integer IDs** (the RGW1 body ids; the 3D ABI
+`EntityId` from `rg_create_mesh_entity`/`rg_set_parent`, `IDEAL_3D.md` §12). So
+the ID scheme is dictated as much by this boundary as by the interpreter: it
+**must** be a 32-bit, generation-tagged integer, so a guest holding a freed id
+gets a safe reject (generation mismatch) instead of aliasing a recycled entity
+(`IDEAL_3D.md` §12.3.3 already asks for exactly this). The **host handle (II.B)
+is the id that crosses the boundary** — not a separate numbering.
+
+## II.D How the three layers compose (one identity, three representations)
+The reconciler maps **interpreter identity (II.A) → host handle (II.B)**; the
+host handle **is** the id exposed over WASM (II.C); `model3d`'s `EntityId` is the
+same II.B scheme. So a mesh has *one* identity across the whole engine —
+front-end object, host entity, and guest-visible id all agree, and a stale
+reference is rejected at every layer instead of silently aliasing. This is the
+generalization the `model3d`/host/interpreter registries each approximate today
+with a volatile index.
+
+## II.E Shared references must resolve to one id (the concrete payoff)
+The rule "same source object → same id" is not abstract; it is the fix for a real
+bug. In Three.js two meshes can **share** one geometry and one material:
+```js
+const geo = new THREE.BoxGeometry();
+const mat = new THREE.MeshBasicMaterial();
+const a = new THREE.Mesh(geo, mat);
+const b = new THREE.Mesh(geo, mat);   // a and b reference the SAME geo + mat
+```
+Editing `mat` must change both meshes, and disposing it once must free it. Today
+`buildMeshH()` always calls `buildGeometryH()`/`buildMaterialH()`
+(`three_tsx_bridge.rgr:~560`), minting a **new** host resource per mesh — so `a`
+and `b` get separate copies: a `mat` edit reaches only one, `dispose()` /
+`needsUpdate` can't be modelled, and nothing frees the old copy on change, so the
+host tables grow unbounded over a hot-reload/GUI session.
+
+With II.A identity + II.B handles this disappears: the reconciler resolves `geo`'s
+identity to **one** geometry handle that both meshes point at, and a **refcount**
+on the handle frees it when the last mesh referencing it goes away. No extra
+machinery — sharing and lifetime fall straight out of "one source object → one
+id." (This is why III.4 below is now just a pointer here.)
+
+---
+
+# Part III — fix the Three object model (the real work)
+
+## III.1 Interpreter object semantics (identity + missing member)
+The evaluator lacks stable object identity and returns `null` for missing
+members — tracked in [`docs/TSX_ENGINE_ISSUES.md`](./docs/TSX_ENGINE_ISSUES.md)
+(#7 identity, #8 missing→`undefined`). The identity fix is **Part II.A** (it is
+engine-wide, not Three-only); missing→`undefined` is its interpreter-local
+companion. Both gate §III.2–III.4 and the native adapter (§III.9). The
+`EvalValue.valueType` value model the adapter plugs into (note `7` is already a
+native `EVGElement` slot) is in
+[`TSX_ENGINE_ISSUES.md` → Value model](./docs/TSX_ENGINE_ISSUES.md).
+
+## III.2 Fix the contradictory docs (concrete edits)
+Three design docs describe two incompatible architectures, which is why the code
+drifts. The decision is already written in
+[`docs/ADR-0001-three-scene-host-authority.md`](./docs/ADR-0001-three-scene-host-authority.md):
+**one `ThreeSceneHost` holds the scene; every front-end drives it by integer id,
+and no front-end keeps its own copy of the objects.** The action here is to make
+the docs say that, in three specific edits:
+
+1. **`IDEAL_THREE.md` §3 (lines ~63–78)** currently says *"Ranger / C++ / WASM
+   use the object model **directly** — no façade"* and draws each front-end
+   building its own objects. **Rewrite it:** front-ends send commands to the one
+   `ThreeSceneHost` and refer to objects by integer id; they do not each build a
+   private object graph. (Or mark the section "historical — superseded by
+   ADR-0001".)
+2. **`THREE.md` demo table (lines ~272–273)** still lists `ThreeTeapotTsxBridge`
+   / `ThreeSponzaTsxBridge` as the Teapot/Sponza mechanism, even though line ~168
+   of the *same file* says those bridges were deleted. **Fix the table** to name
+   the real path (reconciler → `ThreeSceneHost`), so the doc stops contradicting
+   itself.
+3. **Add a one-line pointer to ADR-0001** at the top of `IDEAL_THREE.md`,
+   `THREE_BRIDGE.md`, and `THREE.md` so there is a single source of truth.
+
+Doc-only, no code — safe to do first; it unblocks everyone reading the design.
+("Integer id" here = a small number naming a host object, **not** a pointer; the
+guest never sees host memory. This is the same id as Part II.B/II.C.)
+
+## III.3 Reconciler: key by identity, mark-and-sweep
+Today `three_tsx_bridge.rgr` keys nodes by array index / DFS ordinal and assumes
+a stable tree shape (`:77,86,89`), so a remove/reorder/reparent/mid-list-insert
+or a hot-reload leaves stale host objects behind.
 
 **Fix:** maintain identity→handle maps (`EvalValue id → entity`, `geometry id →
 geometry`, `material id → material`, `texture id → texture`). Each reconcile:
 1) mark reached identities, 2) create missing, 3) update changed, 4) **destroy
 unmarked**, 5) set parent links explicitly. Never use an array index as identity.
+(The identity is Part II.A; the handle it maps to is Part II.B.)
 
-## II.4 Resource sharing + lifecycle
-`buildMeshH()` always calls `buildGeometryH()`/`buildMaterialH()`
-(`three_tsx_bridge.rgr:~560`), so two meshes sharing one `geometry`/`material` in
-Three.js get **separate** host resources — material edits don't affect both, and
-`dispose()`/`needsUpdate` can't be modelled. A mesh signature change frees no
-geometry/material, so long hot-reload/GUI sessions grow the host tables
-unbounded.
+## III.4 Resource sharing → see Part II.E
+The `buildMeshH()` duplicate-resource bug and its fix (shared geometry/material
+resolve to one handle) are the concrete payoff of the identity scheme, covered in
+**Part II.E**. In reconciler terms: step 2 of III.3 looks a resource up by its
+source identity before creating one.
 
-**Fix:** identify geometry/material/texture by **interpreter identity, not mesh
-signature**, so shared resources map to one handle; add lifecycle ops with
-refcount or mark-and-sweep:
+## III.5 The bridge-call model (dispatch by stored Type ID)
+This is how a front-end drives the host, and where the **Object Type ID** (II.B)
+earns its place. A front-end never touches a host object; it issues a **command**
+that names objects by their 32-bit id:
 ```
-geometryCreate / geometryUpdate / geometryRelease
-materialCreate / materialUpdate / materialRelease
-textureCreate  / textureUpdate  / textureRelease
-entityCreate   / entityReparent / entityDestroy
+invoke(command, args…) -> result        ; args and result are ids or scalars, never pointers
+; e.g.  meshH  = invoke("meshNew", sceneH, geoH, matH)   ; returns a Mesh id
+;       invoke("entityTransform", meshH, x,y,z, …)       ; drives it by id
 ```
-**This is where the EntityRegistry work lands** — the host registry gains stable
-generation-checked handles + a free list + refcount, replacing the append-only
-`entities`/`geometries`/`materials` arrays and the no-op `entityRemove`
-(`three_scene_host.rgr:255`). (32-bit handle `= (generation<<20)|(slot+1)`, per
-earlier decision.) `model3d/EntityModel.rgr`'s parallel index-based
-`EntityRegistry` folds onto the same core.
 
-## II.5 Type-erasure → capability components
-`ThreeSceneHost.entities` stores everything as `ThreeObject3D`; with no downcast,
-Sponza reaches typed nodes via `sunLight()/skyNode()/modelNode()` accessors on
-the bridge. Each new technique (probe, fog, post) would grow that list until the
-reconciler is a service locator. **Fix:** a host typed side-registry /
-capability model — `EntityHandle → optional {DirectionalLight, Sky, Mesh,
-ProbeGrid} component`; technique code depends on host capabilities, not
-`ThreeTsxBridge`.
+**The problem today.** `ThreeSceneHost.entities` stores every node as a bare
+`ThreeObject3D`, and Ranger has no downcast, so when a technique needs the *typed*
+object (Sponza's sun, sky, model root) the bridge grew special accessors —
+`sunLight()`, `skyNode()`, `modelNode()`. Every new technique (probe, fog, post)
+adds another accessor, and the bridge slides into a service locator.
 
-## II.6 Command ABI from one schema
-Host exposes 10 geometry constructors; `ThreeNativeBridge.invoke` exposes 2
-(Box, Teapot). The declarative reconciler calls the host directly so demos work,
-but the command transport is hand-maintained and already drifted. **Fix:** one
-command schema generating the `ThreeSceneHost` interface, `ThreeNativeBridge.
-has/invoke`, WASM imports, TS/Rust wrappers, the doc command table, and a
-surface-parity test.
+**The fix — dispatch on the stored Type ID.** Because each id already carries its
+Type ID (II.B), the host resolves *and type-checks* in one step and routes the
+command to the right typed operation — no downcast, no per-technique accessor:
+```
+; host side of a command, uniform for every type:
+fn applyCommand(cmd, targetH, args) {
+    match typeOf(targetH) {                 ; the stored Object Type ID
+        DirectionalLight -> asLight(resolveAs(targetH, DirectionalLight)).apply(cmd,args)
+        Sky              -> asSky(resolveAs(targetH, Sky)).apply(cmd,args)
+        Mesh             -> asMesh(resolveAs(targetH, Mesh)).apply(cmd,args)
+        …
+    }
+}
+```
+`resolveAs(h, Sky)` returns null for a stale *or* wrong-typed id, so a bad command
+is a safe no-op, not a crash or a silent wrong-object edit. Technique code asks
+"is this id a DirectionalLight?" via `typeOf`, and depends on the host's typed
+capability — **not** on `ThreeTsxBridge`. Adding a technique = registering a new
+Type ID + its `apply`, never a new bridge accessor.
 
-## II.7 Harden the parity rig (`THREE_VALUE_PARITY_TESTS.md`)
+## III.6 One command schema (kills host/native drift)
+The bridge surface is hand-maintained in several places and has already drifted:
+the host exposes 10 geometry constructors but `ThreeNativeBridge.invoke` exposes
+2 (Box, Teapot) — the declarative reconciler calls the host directly so demos
+still work, hiding the gap. **Fix:** describe every command **once** — its name,
+argument types, and the **Type ID** it produces/consumes — and generate from that
+one schema: the `ThreeSceneHost` method, `ThreeNativeBridge.has/invoke`, the WASM
+imports, the TS/Rust wrappers, the doc command table, and a surface-parity test
+that fails when any generated face is missing a command. The Type ID in the
+schema is what ties a command to III.5's dispatch.
+
+## III.7 Harden the parity rig (`THREE_VALUE_PARITY_TESTS.md`)
 Good foundation (real Three.js goldens, natural Three code as input, render vs
 value parity split, honest 0/31 reporting), but:
 - `matchField()` uses `ev.toNumber()`; `null.toNumber()==0`, `null.toBool()==
@@ -260,7 +368,7 @@ value parity split, honest 0/31 reporting), but:
 - Report a vector, not one %: `executed cleanly / correct type / correct value /
   core-synced`, with versioned profiles (`three-core-math-v1`, `object3d-v1`, …).
 
-## II.8 Goal scoping — Line B chosen (native adapter)
+## III.8 Goal scoping — Line B chosen (native adapter)
 `three.tsx` hand-copies Vector3/Object3D methods (and carries the `__removed`
 hack, `three.tsx:60,67,71`) while wanting the math to live only in Ranger core —
 these fight as the API grows to hundreds of methods. **Owner picked Line B**:
@@ -269,7 +377,7 @@ Quaternion/Object3D` become interpreter wrappers over the Ranger canonical model
 (the same objects the host already uses), removing the hand-copied ~90 Vector3
 methods. (Line A — a bounded façade subset — is retired as the goal.)
 
-## II.9 Line B design — the native-object adapter *(chosen)*
+## III.9 Line B design — the native-object adapter *(chosen)*
 The interpreter **already** wraps one native Ranger class: `valueType 7`
 (`EvalValue.element(el:EVGElement)`). Line B generalizes that single-class hook
 into a typed adapter so the interpreter can construct and drive *any* registered
@@ -297,44 +405,44 @@ native class by value.
 4. **Backing objects are the canonical Ranger types.** `Vector3` → the Ranger
    core `Vec3`; `Matrix4` → `Mat4`; `Quaternion` → `Quat`; `Object3D` → the host
    `ThreeObject3D`. So the interpreter, the host scene, and the parity tests all
-   read the **same** math — closing §II.7's "value parity could be 100% while
+   read the **same** math — closing §III.7's "value parity could be 100% while
    core differs" gap by construction.
 5. **Identity for free.** A `NativeRef`-bearing EvalValue gets an `identityId`
-   like any reference (§II.1), so shared `geometry`/`material`/`Object3D`
+   like any reference (§II.A), so shared `geometry`/`material`/`Object3D`
    instances are the *same* value everywhere — this is what makes §II.4 resource
-   aliasing and §II.3 keyed reconciliation actually work (two meshes sharing one
+   aliasing and §III.3 keyed reconciliation actually work (two meshes sharing one
    material share one handle).
 6. **Scope of the first cut.** Start with the math/scene-graph core actually
    exercised by the parity goldens: `Vector3`, `Euler`, `Quaternion`, `Matrix4`,
    `Object3D`, `Color`. Geometry/material/texture stay host resources reached via
-   the command ABI (§II.6); the adapter is for the *value* types Three code
+   the command ABI (§III.6); the adapter is for the *value* types Three code
    constructs and mutates directly. Loaders/new materials wait for the §II hard
    gate.
 
 **Blast radius / risk.** This is a ComponentEngine change, not a Three-only one:
 `new`, member access, and method dispatch in the interpreter gain a native path.
-It must land behind the §II.5 semantics suite and keep the existing `EVGElement`
+It must land behind the §III.5 semantics suite and keep the existing `EVGElement`
 UI path working (it becomes adapter client #0, a built-in regression).
 
 ---
 
 # Recommended execution order (Line B locked)
-0. **ADR** (§II.2) — lock "host owns state"; retire the contradictory
+0. **ADR** (§III.2) — lock "host owns state"; retire the contradictory
    `IDEAL_THREE.md`/`THREE.md` descriptions. *(Doc-only; see `docs/ADR-0001`.)*
-1. **Interpreter semantics** (§II.1) — `identityId` + `equals()` by identity,
+1. **Interpreter semantics** (§II.A) — `identityId` + `equals()` by identity,
    `getMember` missing→`undefined`, identity-keyed Map/Set, clear error states —
    behind the new semantics suite. **Prereq for everything below.**
-2. **Native-object adapter** (§II.9) — generalize the `valueType 7` native slot
+2. **Native-object adapter** (§III.9) — generalize the `valueType 7` native slot
    into `NativeClassAdapter`; back `Vector3/Euler/Quaternion/Matrix4/Object3D/
    Color` with the Ranger canonical types; keep `EVGElement` working as client #0.
-3. **Identity-keyed reconciler** (§II.3) — replace index/DFS cache with a keyed
-   diff + mark-and-sweep, keyed on the §II.1 identity.
+3. **Identity-keyed reconciler** (§III.3) — replace index/DFS cache with a keyed
+   diff + mark-and-sweep, keyed on the §II.A identity.
 4. **Resource aliasing + lifecycle + host EntityRegistry** (§II.4) — shared
    resources by identity; generation handles; refcount/release; fold in
    `model3d`'s registry; regression-test resource counts.
-5. **Capability components** (§II.5) — retire `sunLight()/skyNode()/…`.
-6. **Command ABI from one schema** (§II.6) — kill host/native drift.
-7. **Extend the parity rig** (§II.7) — types, errors, identity, aliasing,
+5. **Capability components** (§III.5) — retire `sunLight()/skyNode()/…`.
+6. **Command ABI from one schema** (§III.6) — kill host/native drift.
+7. **Extend the parity rig** (§III.7) — types, errors, identity, aliasing,
    cross-layer.
 > **Hard gate:** do not add the next material/loader/geometry until steps 1–4
 > land.
@@ -342,7 +450,7 @@ UI path working (it becomes adapter client #0, a built-in regression).
 # Decisions — RESOLVED
 - **D1 = keep `ranger_games/`.** Part I complete at tranche 1; no further
   deletions.
-- **D2 = Line B** (native-object adapter, §II.9).
+- **D2 = Line B** (native-object adapter, §III.9).
 - **D3 = keep planning.** No code yet; this doc + `docs/ADR-0001-three-scene-
   host-authority.md` are the artifacts to review.
 
