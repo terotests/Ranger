@@ -4,18 +4,20 @@
 > interpreter value type `gallery/pdf_writer/src/jsx/EvalValue.rgr`, which the
 > Three path depends on).
 >
-> Two bodies of work, in order:
-> - **Part I — delete dead weight** (files that serve no test/build/shipped-game
->   need). Tranche 1 **done**; no further deletions (see decisions).
-> - **Part II — fix the Three object model.** An external architecture review
->   (folded in below) shows the entity-ID
->   problem is one of **several coupled issues** — the biggest being that the
->   interpreter has no stable object identity, which the entity-handle problem
->   sits on top of. The fix is identity-first, and it comes with a hard rule:
->   **stop adding Three classes/loaders/geometries until identity, keyed
->   reconciliation, and resource sharing are fixed** — every new feature
->   otherwise grows the signature/flag/typed-accessor web and gets harder to
->   unwind.
+> Chapters:
+> - **Part I — reorganize first, delete later.** Build a `core/` folder, move the
+>   engine core in; the leftover is the real cleanup set. Tranche 1 deletions done.
+> - **Part II — Entity Registry & stable identity (engine-wide).** One
+>   generation-tagged id, carrying an Object Type ID, shared by the interpreter,
+>   the host, and the WASM bridge. The branch's core theme.
+> - **Part III — fix the Three object model.** The coupled Three issues that sit
+>   on Part II: reconciler, resource sharing, bridge-call model, parity rig.
+> - **Part IV — Class Registry** (the bridge ABI contract, special review).
+> - **Part V — the native-object adapter** (D2 = Line B).
+>
+> Hard rule from the review: **stop adding Three classes/loaders/geometries until
+> identity, keyed reconciliation, and resource sharing land** — every new feature
+> otherwise grows the signature/flag/typed-accessor web and gets harder to unwind.
 >
 > **Decisions locked (owner):**
 > - **D1 = keep `ranger_games/`.** It is load-bearing (TSX→native/C++/Rust
@@ -23,7 +25,7 @@
 >   1**; no further file deletion.
 > - **D2 = Line B — native-object adapter.** Goal is broad Three.js value
 >   parity ("paste almost any Three.js code"), so the interpreter gets a real
->   native-object adapter (§III.9), not just a bounded façade subset.
+>   native-object adapter (Part V), not just a bounded façade subset.
 > - **D3 = keep planning.** No implementation yet; this document + the ADR are
 >   the review artifacts.
 
@@ -254,7 +256,7 @@ The evaluator lacks stable object identity and returns `null` for missing
 members — tracked in [`docs/TSX_ENGINE_ISSUES.md`](./docs/TSX_ENGINE_ISSUES.md)
 (#7 identity, #8 missing→`undefined`). The identity fix is **Part II.A** (it is
 engine-wide, not Three-only); missing→`undefined` is its interpreter-local
-companion. Both gate §III.2–III.4 and the native adapter (§III.9). The
+companion. Both gate §III.2–III.4 and the native adapter (Part V). The
 `EvalValue.valueType` value model the adapter plugs into (note `7` is already a
 native `EVGElement` slot) is in
 [`TSX_ENGINE_ISSUES.md` → Value model](./docs/TSX_ENGINE_ISSUES.md).
@@ -338,16 +340,12 @@ is a safe no-op, not a crash or a silent wrong-object edit. Technique code asks
 capability — **not** on `ThreeTsxBridge`. Adding a technique = registering a new
 Type ID + its `apply`, never a new bridge accessor.
 
-## III.6 One command schema (kills host/native drift)
-The bridge surface is hand-maintained in several places and has already drifted:
-the host exposes 10 geometry constructors but `ThreeNativeBridge.invoke` exposes
-2 (Box, Teapot) — the declarative reconciler calls the host directly so demos
-still work, hiding the gap. **Fix:** describe every command **once** — its name,
-argument types, and the **Type ID** it produces/consumes — and generate from that
-one schema: the `ThreeSceneHost` method, `ThreeNativeBridge.has/invoke`, the WASM
-imports, the TS/Rust wrappers, the doc command table, and a surface-parity test
-that fails when any generated face is missing a command. The Type ID in the
-schema is what ties a command to III.5's dispatch.
+## III.6 The bridge surface has drifted → generate it from the Class Registry
+The bridge is hand-maintained in several places and already drifted: the host
+exposes 10 geometry constructors but `ThreeNativeBridge.invoke` exposes 2 (Box,
+Teapot); the declarative reconciler calls the host directly, so demos work and
+hide the gap. **Fix:** stop hand-writing the surface and generate every face from
+the one **Class Registry** contract — see **Part IV**.
 
 ## III.7 Harden the parity rig (`THREE_VALUE_PARITY_TESTS.md`)
 Good foundation (real Three.js goldens, natural Three code as input, render vs
@@ -355,74 +353,109 @@ value parity split, honest 0/31 reporting), but:
 - `matchField()` uses `ev.toNumber()`; `null.toNumber()==0`, `null.toBool()==
   false`, so a **missing** impl passes when the golden is `0`/`false`. Type-check
   first; give a field one of `MISSING / THREW / WRONG_TYPE / VALUE_MISMATCH / OK`.
-- Split out a `component_engine_js_semantics_test` (identity `a===a`, distinct
-  objects unequal, Map/Set object keys, `undefined` vs `null`, `extends`/`super`,
-  getters/setters, typed arrays, constructor defaults, error types) so JS-runtime
-  gaps don't hide inside the Three-API "GAP" bucket.
-- Add **cross-layer** parity (façade state == host canonical object), and
-  aliasing/lifecycle tests: two meshes share geometry/material; material change
-  shows in both; removing a child really removes the host entity; mid-list insert
-  keeps others' identity; reorder preserves objects; reparent updates
-  parent+matrixWorld; dispose/reload doesn't grow resource count; nested texture
-  request resolves.
-- Report a vector, not one %: `executed cleanly / correct type / correct value /
-  core-synced`, with versioned profiles (`three-core-math-v1`, `object3d-v1`, …).
+- Give the interpreter semantics gaps their **own** suite (a
+  `component_engine_js_semantics_test`) covering the items in
+  [`TSX_ENGINE_ISSUES.md`](./docs/TSX_ENGINE_ISSUES.md) (#7 identity, #8
+  missing-member, etc.), so JS-runtime gaps don't hide inside the Three-API "GAP"
+  bucket. (Detail lives in that doc — not repeated here.)
+- Add **cross-layer** parity (façade state == host canonical object) and
+  regression tests for the behaviors already specified in **II.E** (resource
+  aliasing, refcounted lifetime) and **III.3** (real removal; stable identity
+  under insert/reorder/reparent) — a bounded resource count on reload is the
+  headline assertion. Scenarios live there, not re-listed here.
+- Report **several numbers, not one percentage.** A single "X% of Three.js
+  works" hides *why* a case failed and drifts every time a probe is added.
+  Instead count each stage separately: how many cases **ran without throwing**,
+  how many returned the **right type**, how many the **right value**, and how many
+  have the **façade state matching the host object**. Group the tests into named,
+  versioned sets (e.g. `three-core-math-v1`, `object3d-v1`) so each area's
+  progress is tracked on its own instead of in one moving aggregate.
 
-## III.8 Goal scoping — Line B chosen (native adapter)
-`three.tsx` hand-copies Vector3/Object3D methods (and carries the `__removed`
-hack, `three.tsx:60,67,71`) while wanting the math to live only in Ranger core —
-these fight as the API grows to hundreds of methods. **Owner picked Line B**:
-true value parity via a native-object adapter, so `THREE.Vector3/Matrix4/
-Quaternion/Object3D` become interpreter wrappers over the Ranger canonical model
-(the same objects the host already uses), removing the hand-copied ~90 Vector3
-methods. (Line A — a bounded façade subset — is retired as the goal.)
+---
 
-## III.9 Line B design — the native-object adapter *(chosen)*
+# Part IV — Class Registry: the bridge contract  ⚠️ SPECIAL REVIEW
+> A **contract**, not a codegen convenience. The bridge between any front-end
+> (interpreter / WASM guest / native) and `ThreeSceneHost` is defined by a
+> registry of **classes → their methods and props**. A guest compiled against it
+> can outlive a host change, so it must be **backward compatible** and every edit
+> goes through change review. It belongs with the ABI (alongside `wasm/*.h`,
+> `ABI_V1.md`, `ABI_V2_PROPOSAL.md`).
+
+**What it holds** — for each exposed class, one stable record:
+```
+class {
+  classId : u32          ; stable, never reused — this IS the Object Type ID (Part II)
+  name    : "Vector3"    ; the Three name a front-end constructs
+  props   : [ { propId,   name, type, access: get|set|getset } ]
+  methods : [ { methodId, name, argTypes[], returnType } ]
+}
+; ABI types: id (a handle to another class), f64, i32, bool, string, enum
+```
+
+**Backward-compatibility rules (the contract):**
+- *Append-only ids* — `classId`/`propId`/`methodId` are assigned once, never
+  reused or renumbered; a new capability is a new id.
+- *No silent removal* — a retired member is marked `deprecated` and kept so old
+  guests still resolve it; removed only on a major ABI version.
+- *Version + handshake* — the registry carries an ABI version; host and guest
+  negotiate it (the capability gate, `IDEAL.md` §6); a guest needing a missing
+  class/method is rejected at load, not fed zeros.
+- *Additive args* — new method args append with defaults; existing calls stay valid.
+
+**One source of truth.** Authored once, it generates the `ThreeSceneHost`
+methods, `ThreeNativeBridge.has/invoke`, the WASM import table, the TS/Rust guest
+wrappers, the native-adapter registrations (Part V), the doc command table, and a
+**surface-parity test** that fails if any generated face is missing a member —
+closing today's drift (host 10 geometry constructors vs native-bridge 2). The
+`classId` is the Object Type ID the host dispatches on (Part III, bridge-call
+model).
+
+**Status — SPECIAL REVIEW.** It governs every front-end and any compiled guest,
+so freeze its shape before building codegen on it. Open: id widths, the type set,
+where the registry lives (a `.rgr` table vs a data file), and how it maps onto
+the existing `wasm/*.h` ABI headers.
+
+# Part V — The native-object adapter (D2 = Line B)
+*Motivation:* `three.tsx` hand-copies ~90 Vector3/Object3D methods (plus the
+`__removed` hack, `three.tsx:60,67,71`) while wanting the math to live only in
+Ranger core — a fight that worsens as the API grows. D2 resolves it with the
+adapter below; the bounded-façade alternative is retired.
+
 The interpreter **already** wraps one native Ranger class: `valueType 7`
-(`EvalValue.element(el:EVGElement)`). Line B generalizes that single-class hook
-into a typed adapter so the interpreter can construct and drive *any* registered
-native class by value.
+(`EvalValue.element(el:EVGElement)`). The adapter generalizes that hook so the
+interpreter can construct and drive *any* class in the **Class Registry (Part
+IV)** by value:
 
-1. **Generic native slot.** Replace the special-cased `evgElement` field with a
-   `nativeObject` reference + a `nativeClassId`. `EVGElement` becomes the first
-   client of the general mechanism rather than a bespoke type tag.
-2. **`NativeClassAdapter` interface**, one per exposed class, registered with the
-   ComponentEngine:
-   ```
-   interface NativeClassAdapter {
-       fn className() : string                          ; "Vector3" | "Object3D" | …
-       fn construct(args:[EvalValue]) : NativeRef        ; new THREE.Vector3(x,y,z)
-       fn getProperty(self:NativeRef key:string) : EvalValue
-       fn setProperty(self:NativeRef key:string v:EvalValue) : void
-       fn invokeMethod(self:NativeRef m:string args:[EvalValue]) : EvalValue
-   }
-   ```
-3. **`new THREE.X(...)` dispatch.** When the interpreter evaluates a `new` on a
-   registered class, it calls `adapter.construct(args)` and returns an EvalValue
-   holding the `NativeRef` — no façade `class Vector3` in `three.tsx` at all.
-   Member get/set and method calls on that value route to
-   `getProperty/setProperty/invokeMethod`.
-4. **Backing objects are the canonical Ranger types.** `Vector3` → the Ranger
-   core `Vec3`; `Matrix4` → `Mat4`; `Quaternion` → `Quat`; `Object3D` → the host
-   `ThreeObject3D`. So the interpreter, the host scene, and the parity tests all
-   read the **same** math — closing §III.7's "value parity could be 100% while
-   core differs" gap by construction.
-5. **Identity for free.** A `NativeRef`-bearing EvalValue gets an `identityId`
-   like any reference (§II.A), so shared `geometry`/`material`/`Object3D`
-   instances are the *same* value everywhere — this is what makes §II.4 resource
-   aliasing and §III.3 keyed reconciliation actually work (two meshes sharing one
-   material share one handle).
-6. **Scope of the first cut.** Start with the math/scene-graph core actually
-   exercised by the parity goldens: `Vector3`, `Euler`, `Quaternion`, `Matrix4`,
-   `Object3D`, `Color`. Geometry/material/texture stay host resources reached via
-   the command ABI (§III.6); the adapter is for the *value* types Three code
-   constructs and mutates directly. Loaders/new materials wait for the §II hard
-   gate.
+- **Generic native slot** — replace the special-cased `evgElement` field with a
+  `nativeObject` + `nativeClassId`; `EVGElement` becomes client #0 of the general
+  mechanism.
+- **One adapter per class**, registered with the ComponentEngine:
+```
+interface NativeClassAdapter {
+  fn className() : string                       ; "Vector3" | "Object3D" | …
+  fn construct(args:[EvalValue]) : NativeRef     ; new THREE.Vector3(x,y,z)
+  fn getProperty(self:NativeRef key:string) : EvalValue
+  fn setProperty(self:NativeRef key:string v:EvalValue) : void
+  fn invokeMethod(self:NativeRef m:string args:[EvalValue]) : EvalValue
+}
+```
+- **`new THREE.X(...)` dispatch** — a `new` on a registered class calls
+  `construct` and returns an EvalValue holding the `NativeRef`; member get/set and
+  method calls route to `getProperty/setProperty/invokeMethod`. No façade
+  `class Vector3` in `three.tsx`.
+- **Backing objects are the canonical Ranger types** — `Vector3`→`Vec3`,
+  `Matrix4`→`Mat4`, `Quaternion`→`Quat`, `Object3D`→host `ThreeObject3D`, so the
+  interpreter, host scene, and parity tests read the **same** math.
+- **Identity for free** — a `NativeRef` EvalValue gets an `identityId` (Part II),
+  so shared instances are the same value everywhere; this is what makes the
+  resource aliasing (II.E) and reconciliation (III.3) work.
+- **First cut** — `Vector3, Euler, Quaternion, Matrix4, Object3D, Color` (the
+  value types Three code constructs directly); geometry/material/texture stay host
+  resources via the command surface. Loaders/new materials wait for the hard gate.
 
-**Blast radius / risk.** This is a ComponentEngine change, not a Three-only one:
-`new`, member access, and method dispatch in the interpreter gain a native path.
-It must land behind the §III.5 semantics suite and keep the existing `EVGElement`
-UI path working (it becomes adapter client #0, a built-in regression).
+**Risk.** A ComponentEngine change (`new`, member access, method dispatch gain a
+native path), so it lands behind the semantics suite (III.7) and must keep the
+`EVGElement` UI path green as client #0.
 
 ---
 
@@ -432,16 +465,16 @@ UI path working (it becomes adapter client #0, a built-in regression).
 1. **Interpreter semantics** (§II.A) — `identityId` + `equals()` by identity,
    `getMember` missing→`undefined`, identity-keyed Map/Set, clear error states —
    behind the new semantics suite. **Prereq for everything below.**
-2. **Native-object adapter** (§III.9) — generalize the `valueType 7` native slot
+2. **Native-object adapter** (Part V) — generalize the `valueType 7` native slot
    into `NativeClassAdapter`; back `Vector3/Euler/Quaternion/Matrix4/Object3D/
    Color` with the Ranger canonical types; keep `EVGElement` working as client #0.
 3. **Identity-keyed reconciler** (§III.3) — replace index/DFS cache with a keyed
    diff + mark-and-sweep, keyed on the §II.A identity.
-4. **Resource aliasing + lifecycle + host EntityRegistry** (§II.4) — shared
+4. **Resource aliasing + lifecycle + host EntityRegistry** (§II.B, §II.E) — shared
    resources by identity; generation handles; refcount/release; fold in
    `model3d`'s registry; regression-test resource counts.
 5. **Capability components** (§III.5) — retire `sunLight()/skyNode()/…`.
-6. **Command ABI from one schema** (§III.6) — kill host/native drift.
+6. **Command ABI from the Class Registry** (§III.6 → Part IV) — kill host/native drift.
 7. **Extend the parity rig** (§III.7) — types, errors, identity, aliasing,
    cross-layer.
 > **Hard gate:** do not add the next material/loader/geometry until steps 1–4
@@ -450,7 +483,7 @@ UI path working (it becomes adapter client #0, a built-in regression).
 # Decisions — RESOLVED
 - **D1 = keep `ranger_games/`.** Part I complete at tranche 1; no further
   deletions.
-- **D2 = Line B** (native-object adapter, §III.9).
+- **D2 = Line B** (native-object adapter, Part V).
 - **D3 = keep planning.** No code yet; this doc + `docs/ADR-0001-three-scene-
   host-authority.md` are the artifacts to review.
 
