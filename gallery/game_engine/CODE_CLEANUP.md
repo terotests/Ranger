@@ -1,168 +1,209 @@
-# CODE_CLEANUP — shrink the engine, then fix the Three object model
+# Part I — the engine core, and where it lives on disk
 
-> Status: **in progress**. Scope: `gallery/game_engine` (+ the shared
-> interpreter value type `gallery/pdf_writer/src/jsx/EvalValue.rgr`, which the
-> Three path depends on).
->
-> Chapters:
-> - **Part I — reorganize first, delete later.** Build a `core/` folder, move the
->   engine core in; the leftover is the real cleanup set. Tranche 1 deletions done.
-> - **Part II — Entity Registry & stable identity (engine-wide).** One
->   generation-tagged id, carrying an Object Type ID, shared by the interpreter,
->   the host, and the WASM bridge. The branch's core theme.
-> - **Part III — fix the Three object model.** The coupled Three issues that sit
->   on Part II: reconciler, resource sharing, bridge-call model, parity rig.
-> - **Part IV — Class Registry** (the bridge ABI contract, special review).
-> - **Part V — the Bridge** (native classes via `NativeClassAdapter` + object
->   invocation + native modules like `ranger-game`).
->
-> Hard rule from the review: **stop adding Three classes/loaders/geometries until
-> identity, keyed reconciliation, and resource sharing land** — every new feature
-> otherwise grows the signature/flag/typed-accessor web and gets harder to unwind.
->
-> **Decisions locked (owner):**
-> - **D1 = keep `ranger_games/`.** It is load-bearing (TSX→native/C++/Rust
->   portability tests + npm scripts). Part I is therefore **complete at tranche
->   1**; no further file deletion.
-> - **D2 = native-object adapter.** The goal is that almost any Three.js code
->   runs and gives the same results as real Three.js. To get there the interpreter
->   builds real Ranger objects (Part V), instead of supporting only a hand-picked
->   set of Three.js features.
-> - **D3 = keep planning.** No implementation yet; this document + the ADR are
->   the review artifacts.
+The engine's core is spread across many folders. Some of it already sits in tidy
+subsystem folders (`three/`, `physics/`, `model3d/`), some is loose at the engine
+root (`framebuffer.rgr`, `gfx_sdl.rgr`, …), and some is mixed together with games
+and demos under `scripting/`. This part maps every core component to the place it
+lives today and the place it should end up. The target is a single `core/` folder
+so the boundary between "engine" and "a game" is a real directory, not a naming
+convention — and this map is the inventory that move works from.
 
----
+Each chapter is written the same way: **Status now** describes what is on disk
+today, then **Actions** lists what to do with it.
 
-# Part I — reorganize first, delete later
+## I.1 The eval engine — `eval/`
 
-**Strategy (owner):** do **not** delete eagerly. First build a single `core/`
-folder and move the genuine engine core into it; then whatever is left *outside*
-`core/` (and outside `games/`, `docs/`, `assets/`, `menu/`, `prototypes/`) is
-the real cleanup candidate set, judged with the boundary already made concrete.
-Reorg is compile-verified (`bin/output.js` runs here); nothing is removed until
-the core boundary is drawn.
+### Status now
+- `eval/` holds a self-contained copy of the JSX/TSX interpreter: `eval/jsx/`
+  (`ComponentEngine.rgr` ≈ 7,300 lines, `EvalValue.rgr` ≈ 550, `JSXToEVG.rgr`),
+  `eval/jpeg/JPEGMetadata.rgr`, and `eval/core/Buffer.rgr`.
+- It was copied out of `gallery/pdf_writer/src/jsx/` and has **no** references
+  back into `pdf_writer`. Its only external dependencies are the shared gallery
+  modules `ts_parser/` and `evg/`.
+- All 46 game-engine importers now point at this copy (`../eval/jsx/…`), and both
+  `EvalValue` and `ComponentEngine` compile from the new location.
+- This is the interpreter that runs `*.game.tsx` and `.as` scripts at runtime.
 
-## I.0 Protected — never delete
-`docs/`, `assets/`, `menu/` are kept as-is. `ranger_games/` is kept too, moved
-to `prototypes/` (§I.3). `games/<name>/` are the shipped games.
+### Actions
+- Develop the object-identity and native-adapter work (Parts II and V) directly
+  on this copy, independent of `pdf_writer`.
+- Move it back into `pdf_writer` once it is stable, or promote it to a shared
+  module both can use.
+- In the final layout it belongs under `core/` (e.g. `core/eval/`).
 
-## I.1 Keep/delete criterion (applied only after the core move)
-A file **stays** iff it is (a) engine core / reusable subsystem imported by a
-shipped path, (b) a shipped game under `games/<name>/`, (c) reachable from a
-test/build root (a vitest `.test.ts`, `scripts/*.sh|*.mjs`, repo-root
-`package.json`, or a subsystem runner like `three/src/run.sh`), or (d) in a
-protected folder (§I.0). Everything else — surfaced by "what sits outside
-`core/` after the move" — is a delete candidate, decided then, not now.
+## I.2 The graphics layer — loose files at the engine root
 
-## I.2 Tranche 1 — DONE (28 files, all zero-reference)
-Removed on this branch; every file confirmed unreferenced across all roots +
-`.rgr` imports before deletion:
-- `old/ylos/` (superseded original of `games/ylos2-4`).
-- Debug/bisect scratch: `scripting/autopeli_debug_{load,min,orig}.rgr`,
-  `scripting/autopeli_bisect.rgr`.
-- 22 orphan `scripting/*_demo.rgr` (no test, script, package.json, or import
-  loads them): `as_autopeli_src_demo`, `as_physics_integration_demo`,
-  `as_source_demo`, `autopeli_physics_runner_demo`, `game_env_resolver_demo`,
-  `game_fixed_step_demo`, `game_provider_demo`, `game_runner_mode_demo`,
-  `game_scene_provider_demo`, `game_script_contract_demo`,
-  `game_sound_palette_demo`, `game_split_nav_demo`, `game_split_world_demo`,
-  `import_ast_cache_demo`, `lpc_test_runner_demo`, `menu_tsx_fit_demo`,
-  `menu_tsx_render_demo`, `menu_tsx_uirunner_demo`, `pose_provider_demo`,
-  `wasm_block_validator_demo`, `wasm_cap_gate_demo`, `wasm_ui_demo`.
+### Status now
+- `framebuffer.rgr` — the RGBA framebuffer every backend draws into.
+- `gfx_sdl.rgr` — the SDL window + input + GPU path (native macOS/Linux/Pi).
+- `rgba_fast_blit.rgr` — the fast software blit.
+- `wasm_runtime.rgr` — the host side of the WASM runtime.
+- All four sit loose in the engine root next to the planning docs, so nothing
+  marks them as core. `framebuffer.rgr` alone has 27 importers.
 
-*(Note: vitest deps aren't installed in this environment, so the JS suite
-couldn't be run here; safety is by construction — none of the 28 are referenced
-by any test/build root or import.)*
+### Actions
+- Move `framebuffer` / `gfx_sdl` / `rgba_fast_blit` to `core/gfx/`.
+- Move `wasm_runtime` to `core/wasm/` alongside the ABI (I.7).
 
-## I.3 `ranger_games/` → `prototypes/` (keep, don't delete)
-`ranger_games/` is **not** dead — it's the TSX→native/C++/Rust portability proof
-(load-bearing for `ts-to-ranger-{native,host}.test.ts`, `game-engine-render.
-test.ts`, the `engine:*` npm scripts, and several `build-*.sh`). **Decision:
-keep it, but move it and its TSX→Ranger tests under a `prototypes/` folder** so
-the main line is uncluttered without losing the proof. Mechanical move only —
-relocate `ranger_games/` → `prototypes/ranger_games/`, the `ts-to-ranger-*`
-tests → `prototypes/` (or `tests/prototypes/`), and rewrite the relative
-`Import` paths + the test/`package.json`/`build-*.sh` path references; verify by
-compiling. No behaviour change.
+## I.3 The Three object model — `three/`
 
-## I.4 Flag: a game name in a core file is a leak, by definition
-Principle (AGENTS.md rule #1): a generic runner/core file must know **nothing**
-about a specific game. So **any file under the core area whose name contains a
-game** (`autopeli`, `pong`, `pacman`, `invaders`, `sprite_char`,
-`streaming_world`, `pyorretris`, …) is suspect and flagged for review — it is
-either mislabeled core, a game that belongs under `games/`, or a demo. Survey of
-`scripting/`:
+### Status now
+- `three/src/` (87 files) is the canonical Ranger clone of Three.js — pure Ranger
+  that compiles to ES6 and C++: the math types (`three_vector3`, `three_matrix4`,
+  `three_quaternion`, `three_euler`, `three_color`, `three_box3`, `three_frustum`),
+  the geometries and materials, lights and textures, the WebGL and software
+  renderer, the glTF loader, the light-probe GI, and `three_scene_host.rgr` — the
+  one host-owned registry of scenes/cameras/geometries/materials/entities.
+- `three/tsx/` (23 files) is the front-end: the TSX façade (`three.tsx`), the
+  reconciler bridge (`three_tsx_bridge.rgr`), the native command bridge, and the
+  convergence/parity tests.
+- `three/tests/` (19) and `three/reference/` (14) round it out.
 
-| File | Verdict |
-|------|---------|
-| `wasm_autopeli_setup.rgr`, `wasm_autopeli_render.rgr` | **The leak.** Imported by the *generic* `wasm_physics_runner.rgr` — a runner reaching into a game. Move the game logic to `games/autopeli_*/`; the runner binds via the `GameSceneProvider` seam (`IDEAL.md` §8). Not a plain `rm`; a refactor. |
-| `streaming_world_runner.rgr` | Game-named "runner" → belongs with `games/streaming_world/`, not core. Review. |
-| `sprite_char_poc.rgr`, `sprite_char_poc_demo.rgr` | PoC for the sprite-char game → `games/sprite_char/` or `prototypes/`. Review. |
-| `ranger_autopeli_runner_demo`, `ranger_pong_runner_demo`, `wasm_autopeli_runner_demo`, `wasm_pong_runner_demo`, `pyorretris2p_demo` | Game-named demos, imported by no runner. Test-referenced ones move with their game/`prototypes/`; orphans join the delete list after the core move. |
+### Actions
+- Treat `three/` as a reusable subsystem: either move it under `core/` or keep it
+  a sibling of `core/` (decision C1).
+- `three_scene_host.rgr` is the host end of the entity registry — its rework lives
+  in Part II.
 
-**Rule going forward:** after the `core/` move (§I.5), a CI grep asserts no file
-in `core/` contains a game name in its filename *or* an `Import` of one — the
-mechanical version of "the runner has nothing to do with the games."
+## I.4 Physics — `physics/`
 
-## I.5 The `core/` move — Phase 1 (do this before any more deletion)
-`scripting/` is a dumpster: 88 `.rgr` mixing game-neutral **core** (facades,
-ABI, generic runners), **games** (`*.game.tsx`), and **demos**
-(`*_runner_demo.rgr`), plus loose core files at the engine root
-(`framebuffer.rgr`, `gfx_sdl.rgr`, `rgba_fast_blit.rgr`, `wasm_runtime.rgr`).
-Move the core into one `core/` folder so the boundary is physical, not implied.
+### Status now
+- `physics/src/` (60 files) is a full rigid-body engine behind a `PhysicsWorld`
+  interface, with two implementations (an upgraded Cannon port and an independent
+  arcade engine): vectors/quaternions, shapes, the SPOOK solver, broadphase,
+  raycasting, joints, and a raycast vehicle.
+- `physics/tsx/` (2 files) is the TSX bridge that exposes it to game scripts.
 
-**Proposed target layout** (subsystems already have their own folders; the open
-question is whether they move *under* `core/` or stay siblings):
-```
-core/
-  gfx/        framebuffer.rgr, gfx_sdl.rgr, rgba_fast_blit.rgr
-  runtime/    game_runtime, game_physics, game_audio, game_hud, game_sprite,
-              game_camera, game_input, game_particles, game_persistence,
-              game_fixed_step, game_runner_mode, game_entity_store,
-              game_world_grid, … (the game-neutral scripting/ facades)
-  wasm/       wasm_runtime.rgr, wasm_abi_io, wasm_ui_io, as_abi_bridge,
-              wasm_cap_gate, wasm_block_validator, the generic *_runner.rgr,
-              + the wasm/*.h ABI headers
-  (subsystems: three/ physics/ model3d/ lpc/ pose/ ui/ lib/ — move under
-   core/ too, or stay siblings — this is decision C1)
-```
-**Blast radius.** Imports are **relative**, so each moved file rewrites its own
-`../` imports *and* every importer's path to it (e.g. `framebuffer.rgr` alone
-has 27 importers). Therefore move in **blast-ordered tranches, compile-verified**:
-1. **Loose gfx roots** (`framebuffer`, `gfx_sdl`, `rgba_fast_blit`) → `core/gfx/`
-   — self-contained, ~30 importer edits, a clean first proof of the mechanic.
-2. **`wasm_runtime` + ABI/runners** → `core/wasm/`.
-3. **`scripting/` game-neutral facades** → `core/runtime/` (leaving games +
-   demos behind — which is exactly what makes the leftover set the cleanup list).
-4. **Subsystems** (`three/`, `physics/`, …) → under `core/` *iff* C1 says so.
-Each tranche: `git mv`, rewrite `Import` strings + test/script/`package.json`
-paths, compile the affected roots via `bin/output.js`, commit. No deletion in
-Phase 1.
+### Actions
+- Reusable subsystem: `core/` or sibling (C1).
+- Wire the `PhysicsWorld` interface to the WASM/`.as` guest ABIs so a compiled
+  game can pick an engine (IDEAL.md §2.5).
 
-**Then** Part I.1's criterion is applied to whatever remains outside `core/`,
-`games/`, `prototypes/`, and the protected folders — the delete list writes
-itself.
+## I.5 3D model loading — `model3d/`
 
-## I.6 Relocate the TS evaluator (under review)
-The evaluator — `gallery/pdf_writer/src/jsx/{ComponentEngine,EvalValue}.rgr` +
-`gallery/ts_parser/` — is where most current work happens: ~44 importers under
-`gallery/game_engine/`, vs a handful in `pdf_writer` (tools/lib/bench) and the
-separate `ts_to_ranger` module. Bringing it into the engine is reasonable, but
-the shape matters:
-- **Option A — move under `core/jsx/`.** Simple, matches "dev lives here", but
-  inverts the dependency: `pdf_writer` and `ts_to_ranger` would import *up* into
-  `game_engine`, which is a layering smell (pdf_writer is the older, lower
-  module).
-- **Option B — promote to a shared gallery-level module** (e.g.
-  `gallery/jsx_engine/`) that `game_engine`, `pdf_writer`, and `ts_to_ranger`
-  all import as a peer. No inverted dependency; slightly more churn now.
-- **Recommendation: Option B.** It gives the engine first-class ownership
-  *without* making pdf_writer depend on the game engine. Either way it's a
-  relative-import rewrite across ~50 files, compile-verified, and should land
-  *with or before* the identity fix (§II.A) since that edits `EvalValue`.
-Decision **C2** below.
+### Status now
+- `model3d/` (23 files) is the host-side, WASM-free object model: an
+  `AssetRegistry` and `EntityRegistry`, a GLB importer, a `ModelInstancer`, and
+  `ModelLoader` (load → instantiate → find child).
+- Its `EntityRegistry` is a **second**, index-based registry — the same pattern as
+  the Three host, hand-rolled again.
 
----
+### Actions
+- Reusable subsystem: `core/` or sibling (C1).
+- Fold its `EntityRegistry` onto the shared registry defined in Part II so there
+  is one implementation, not two.
+
+## I.6 The host runtime facades — `scripting/game_*.rgr`
+
+### Status now
+- 40 `game_*.rgr` files are the game-neutral host runtime: `game_runtime` (the
+  loop, script loading, hot reload), `game_physics`, `game_audio`, `game_hud`,
+  `game_sprite`, `game_camera`, `game_input`, `game_particles`,
+  `game_persistence`, `game_fixed_step`, `game_runner_mode`, `game_entity_store`,
+  `game_world_grid`, the provider and catalog files, and more.
+- They live in `scripting/` mixed in with games, demos, runners and ABI code.
+
+### Actions
+- Move the game-neutral facades to `core/runtime/`.
+- Any file here whose name or contents names a specific game is not core — a
+  generic runtime file must know nothing about a specific game (AGENTS.md rule
+  #1) — so it moves to that game under `games/` instead.
+
+## I.7 The guest ABI — `wasm/` + `scripting/wasm_*.rgr` / `as_*.rgr`
+
+### Status now
+- `wasm/` holds the shared byte-layout headers that every guest language mirrors:
+  `wasm_game_abi.h`, `wasm_input_abi.h`, `wasm_pose_abi.h`, `wasm_sprite_abi.h`,
+  `wasm_ui_abi.h`, plus two guests (`as_resource_loader/`, `rust_worker/`).
+- `scripting/` holds the host side of those ABIs — 19 `wasm_*.rgr` / `as_*.rgr`
+  files: `wasm_abi_io`, `wasm_ui_io`, `wasm_cap_gate`, `wasm_block_validator`, the
+  `as_abi_bridge`, and so on.
+
+### Actions
+- Move the headers and the host IO to `core/wasm/`.
+- Keep game taxonomy out of the headers — body indices and sound ids are
+  conventions the guest defines, not part of the transport (IDEAL.md §2.1).
+
+## I.8 Generic runners — `scripting/*_runner*.rgr`
+
+### Status now
+- 28 runner files load a game and drive it each frame through the ABIs:
+  `wasm_game_runner`, `wasm_physics_runner`, `wasm_sprite_runner`,
+  `as_source_runner`, the SDL runners, split-screen, streaming, and others.
+- A few still `Import` a specific game (e.g. `wasm_physics_runner` reaches into
+  `wasm_autopeli_setup`/`_render`) — a runner is supposed to know no game.
+
+### Actions
+- Move the game-neutral runners to `core/runtime/`.
+- Break the game imports: a runner binds to a game through a `GameSceneProvider`
+  seam, so a second game reuses it unchanged (IDEAL.md §8). Game-named runners
+  move to their game under `games/`.
+
+## I.9 Reusable subsystems — `ui/`, `menu/`, `lpc/`, `pose/`
+
+### Status now
+- `ui/` (19 files) — the retained-mode UI toolkit: `UILayer`, widgets, text
+  input, soft keyboard, the animator, the EVG launcher menu.
+- `menu/` (3 files + assets) — the launcher menu.
+- `lpc/` — the sprite-character pipeline: character catalog, spritesheet packing,
+  and baked output.
+- `pose/` — body-tracking input: the native provider, a MediaPipe proof of
+  concept, and a benchmark.
+
+### Actions
+- Each is its own domain and knows no specific game, so each is a reusable
+  subsystem: `core/` or sibling (C1).
+
+## I.10 Guest libraries — `lib/ranger_game/`
+
+### Status now
+- `lib/ranger_game/src/` is the Rust library a compiled WASM game links against:
+  `input` (controllers/`Buttons`), `scene`, `sprite`, `ui`, `world`, `pose`,
+  `resources`, `block`.
+- It is the guest-side face of the ABIs and the source of the `ranger-game`
+  native module (Part V). Its `scene.rs` duplicates the host math by hand.
+
+### Actions
+- Keep it as the guest SDK.
+- Generate its scene/class types from the Class Registry (Part VII) so the guest
+  copy cannot drift from the host.
+
+## I.11 Not core — games, demos, prototypes
+
+### Status now
+- `games/` (70 files) — the shipped games; these are the ones that matter.
+- `scripting/*.game.tsx` (13) — games that happen to live in `scripting/`.
+- `scripting/*_demo.rgr` (30) — demo runners; 22 orphaned demos were already
+  removed, the rest are still referenced by the test suite.
+- `ranger_games/` (16) — the TSX→native/C++/Rust portability proof (load-bearing
+  for tests and npm scripts).
+- `docs/`, `assets/`, `menu/` are kept as-is.
+
+### Actions
+- Games stay in `games/`; move the `scripting/*.game.tsx` ones there too.
+- Move `ranger_games/` (and its TSX→Ranger tests) under `prototypes/`.
+- Demos: keep the test-referenced ones; once the `core/` move draws the boundary,
+  whatever is left outside `core/`, `games/`, `prototypes/`, `docs/`, `assets/`,
+  and `menu/` is the delete-candidate list.
+
+## I.12 How the move is done
+
+### Status now
+- Imports are relative paths, so moving one file rewrites its own `../` imports
+  *and* every importer's path to it. The Ranger compiler (`bin/output.js`) runs
+  here, so each move can be compile-verified.
+- The eval-engine copy (I.1) already proved the mechanic end to end: five files
+  relocated and 46 importers repointed, both compiling from the new location.
+
+### Actions
+- Move in blast-ordered, compile-verified tranches:
+  1. loose gfx roots → `core/gfx/`;
+  2. `wasm_runtime` + the ABI headers and host IO → `core/wasm/`;
+  3. the game-neutral facades and runners → `core/runtime/`;
+  4. the subsystems (`three/`, `physics/`, `model3d/`, …) per decision C1.
+- After each tranche, compile the affected roots before committing.
+- No file is deleted during the move; the delete list is drawn only once the
+  boundary exists (I.11).
 
 # Part II — Entity Registry & stable identity (engine-wide)
 
