@@ -55,6 +55,7 @@ const CONE_SPEC = [
 
 let traffic = [];
 let cones = [];
+let glbProps = [];
 let yAxis;
 
 function clamp(v, lo, hi) {
@@ -309,6 +310,48 @@ function updateCamera() {
   camera.rotation.z = 0;
 }
 
+// Real Khronos / pack .glb models (host preloads models/*.glb and attaches by name).
+function buildGlbProps() {
+  glbProps = [];
+
+  // Pedestals so the spinning props read as roadside attractions.
+  const pedDuck = makeBoxMesh(1.6, 0.35, 1.6, 0x8d6e63);
+  pedDuck.position.set(-11.5, 0.2, -28);
+  scene.add(pedDuck);
+  const pedBox = makeBoxMesh(1.4, 0.35, 1.4, 0x6d4c41);
+  pedBox.position.set(11.5, 0.2, -75);
+  scene.add(pedBox);
+
+  const duck = new THREE.GLTFModel('Duck');
+  duck.position.set(-11.5, 0.9, -28);
+  // Khronos Duck is authored in centimetres (~100 units tall).
+  duck.scale.set(0.012, 0.012, 0.012);
+  scene.add(duck);
+  glbProps.push({ model: duck, spin: 0.9 });
+
+  const crate = new THREE.GLTFModel('BoxTextured');
+  crate.position.set(11.5, 1.0, -75);
+  crate.scale.set(1.4, 1.4, 1.4);
+  scene.add(crate);
+  glbProps.push({ model: crate, spin: 1.15 });
+
+  const bush = new THREE.GLTFModel('bush_1');
+  bush.position.set(-12.0, 0.0, -120);
+  bush.scale.set(2.2, 2.2, 2.2);
+  scene.add(bush);
+  glbProps.push({ model: bush, spin: 0.4 });
+}
+
+function spinGlbProps() {
+  const dt = 1 / 60;
+  let i = 0;
+  while (i < glbProps.length) {
+    const p = glbProps[i];
+    p.model.rotation.y = p.model.rotation.y + p.spin * dt;
+    i = i + 1;
+  }
+}
+
 export function init() {
   yAxis = new CANNON.Vec3(0, 1, 0);
 
@@ -331,6 +374,7 @@ export function init() {
   buildCar();
   buildTraffic();
   buildCones();
+  buildGlbProps();
 
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(window.devicePixelRatio);
@@ -382,6 +426,7 @@ function animate() {
     i = i + 1;
   }
 
+  spinGlbProps();
   updateCamera();
   renderer.render(scene, camera);
 }
@@ -399,3 +444,4 @@ export function bodyCount() { return world.bodies.length; }
 export function frameCount() { return frames; }
 export function trafficCount() { return traffic.length; }
 export function coneCount() { return cones.length; }
+export function glbPropCount() { return glbProps.length; }

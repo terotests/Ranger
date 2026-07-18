@@ -16,10 +16,18 @@
 ; each requestAnimationFrame). No JavaScript in the engine — this whole host
 ; compiles to C++ too (the GL backend's cpp templates emit desktop GL/GLES), so
 ; the same path runs native.
+;
+; Optional Cannon: when cannonSrc is provided, CannonNativeBridge is bound so
+; `import * as CANNON from 'cannon-es'` drives the real Ranger physics engine.
+; Optional models/: preloadModels(dir) registers each .glb for
+; `new THREE.GLTFModel('Name')` before init() runs.
 ; ==============================================================================
 
 Import "../three/tsx/three_tsx_bridge.rgr"
 Import "../three/src/three_gl_backend.rgr"
+Import "../three/src/three_gltf_file.rgr"
+Import "../three/src/three_gltf_textures.rgr"
+Import "../three/src/three_object3d.rgr"
 Import "../physics/tsx/cannon_native_bridge.rgr"
 
 class WebTsx3dGlHost {
@@ -28,6 +36,8 @@ class WebTsx3dGlHost {
     def gl:ThreeGLBackend (new ThreeGLBackend)
     def cannonBridge:CannonNativeBridge (new CannonNativeBridge)
     def useCannon:boolean false
+    def glReady:boolean false
+    def scriptLoaded:boolean false
     def ready:boolean false
     def w:int 800
     def h:int 600
@@ -60,27 +70,39 @@ class WebTsx3dGlHost {
             return false
         }
         bridge.useBackend(gl)
+        glReady = true
         return true
     }
 
     ; Load the façade + the 1:1 cube script (concatenated, one program) and run
     ; the example's init() to build the scene.
     fn load:string (facadeSrc:string cubeSrc:string winW:int winH:int dpr:double) {
-        return (this.loadScene("" facadeSrc cubeSrc winW winH dpr))
+        def r:string (this.loadScene("" facadeSrc cubeSrc winW winH dpr))
+        if (r != "ok") {
+            return r
+        }
+        return (this.start())
     }
 
-    ; Load optional Cannon façade + Three façade + scene. When cannonSrc is
-    ; non-empty, the real Ranger Cannon engine is bound via CannonNativeBridge so
-    ; `import * as CANNON from 'cannon-es'` drives host physics 1:1 (same pattern
-    ; as physics/tsx/cannon_box_scene.tsx), while Three reconciles meshes.
+    ; Prepare engine + façades + scene script, but do NOT call init() yet — so the
+    ; host can preloadModels() first. Call start() afterwards.
     fn loadScene:string (cannonSrc:string threeSrc:string sceneSrc:string winW:int winH:int dpr:double) {
         w = winW
         h = winH
         useCannon = false
+        ready = false
+        scriptLoaded = false
         engine = (new ComponentEngine())
         engine.quiet = true
+        ; Fresh reconciler each load so a previous cube/sponza scene cannot leak
+        ; node handles into the next game; rebind the GL backend if we have one.
+        bridge = (new ThreeTsxBridge)
+        if glReady {
+            bridge.useBackend(gl)
+        }
         this.registerGlobals(winW winH dpr)
         bridge.setEngine(engine)
+        bridge.clearHostModels()
         def src:string ((threeSrc + "\n") + sceneSrc)
         if ((strlen cannonSrc) > 0) {
             useCannon = true
@@ -89,6 +111,15 @@ class WebTsx3dGlHost {
             src = (((cannonSrc + "\n") + threeSrc) + "\n") + sceneSrc
         }
         engine.loadScript(src)
+        scriptLoaded = true
+        return "ok"
+    }
+
+    ; Run the scene's init() after optional preloadModels().
+    fn start:string () {
+        if (scriptLoaded == false) {
+            return "no-script"
+        }
         def r:EvalValue (engine.callFunction("init" (EvalValue.null())))
         ready = true
         return "ok"
@@ -100,6 +131,7 @@ class WebTsx3dGlHost {
     }
 
     ; VFS load with optional Cannon façade file (empty cannonFile => Three-only).
+    ; Loads script, preloads models/<dir>/models/*.glb, then calls init().
     fn loadFromVfsEx:string (dir:string threeFile:string sceneFile:string cannonFile:string winW:int winH:int dpr:double) {
         def t:buffer (buffer_read_file dir threeFile)
         def s:buffer (buffer_read_file dir sceneFile)
@@ -110,7 +142,65 @@ class WebTsx3dGlHost {
             def c:buffer (buffer_read_file dir cannonFile)
             cannonSrc = (buffer_to_string c)
         }
-        return (this.loadScene(cannonSrc threeSrc sceneSrc winW winH dpr))
+        def r:string (this.loadScene(cannonSrc threeSrc sceneSrc winW winH dpr))
+        if (r != "ok") {
+            return r
+        }
+        this.preloadModels(dir)
+        return (this.start())
+    }
+
+    fn endsWithGlb:boolean (name:string) {
+        def n:int (strlen name)
+        if (n < 4) {
+            return false
+        }
+        def ext:string (substring name (n - 4) n)
+        if (ext == ".glb") { return true }
+        if (ext == ".GLB") { return true }
+        return false
+    }
+
+    fn stripGlb:string (name:string) {
+        def n:int (strlen name)
+        if (n < 4) {
+            return name
+        }
+        return (substring name 0 (n - 4))
+    }
+
+    ; Preload every <gameDir>/models/*.glb into the bridge as named host models so
+    ; the scene can declare `new THREE.GLTFModel('Duck')` etc. Decodes embedded
+    ; PNG/JPEG textures when present.
+    fn preloadModels:void (gameDir:string) {
+        if ((file_exists gameDir "models") == false) {
+            return
+        }
+        def dir:string (gameDir + "/models")
+        def names:[string] (list_dir_files dir)
+        def i:int 0
+        def loaded:int 0
+        while (i < (array_length names)) {
+            def fname:string (itemAt names i)
+            if (this.endsWithGlb(fname)) {
+                def bytes:buffer (buffer_read_file dir fname)
+                if ((buffer_length bytes) > 20) {
+                    def file:ThreeGLTFFile (new ThreeGLTFFile)
+                    def root:ThreeObject3D (file.loadGLB(bytes))
+                    ThreeGLTFTextures.loadEmbedded(file)
+                    def base:string (this.stripGlb(fname))
+                    bridge.registerHostModel(base root)
+                    loaded = (loaded + 1)
+                    print ("[tsx3d] model '" + base + "' ready")
+                } {
+                    print ("[tsx3d] model skip (empty): " + fname)
+                }
+            }
+            i = (i + 1)
+        }
+        if (loaded > 0) {
+            print ("[tsx3d] preloaded " + (to_string loaded) + " glb model(s)")
+        }
     }
 
     ; Forward pad/keyboard state into the scene when it exports setControls().
@@ -153,6 +243,10 @@ class WebTsx3dGlHost {
     }
     fn fallbackTextureCount:int () {
         return (bridge.fallbackTextureCount())
+    }
+
+    fn hostModelCount:int () {
+        return (bridge.hostModelCount())
     }
 
     ; Advance the interpreted animate() loop one step, then draw the reconciled

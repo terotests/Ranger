@@ -65,6 +65,7 @@ class Autopeli3dRunnerDemo {
         def bodies0:double (Autopeli3dRunnerDemo.callNum(engine "bodyCount"))
         def traffic0:double (Autopeli3dRunnerDemo.callNum(engine "trafficCount"))
         def cones0:double (Autopeli3dRunnerDemo.callNum(engine "coneCount"))
+        def glb0:double (Autopeli3dRunnerDemo.callNum(engine "glbPropCount"))
 
         def frames:int 180
         if ((shell_arg_cnt) > 0) {
@@ -89,7 +90,7 @@ class Autopeli3dRunnerDemo {
         def passed:int 0
         def failed:int 0
         print "== autopeli_3d Cannon+Three headless smoke =="
-        print ("bodies=" + (to_string bodies0) + " traffic=" + (to_string traffic0) + " cones=" + (to_string cones0) + " z0=" + (to_string z0) + " zN=" + (to_string zN) + " speed=" + (to_string spd) + " steps=" + (to_string steps) + " won=" + (to_string won))
+        print ("bodies=" + (to_string bodies0) + " traffic=" + (to_string traffic0) + " cones=" + (to_string cones0) + " glb=" + (to_string glb0) + " z0=" + (to_string z0) + " zN=" + (to_string zN) + " speed=" + (to_string spd) + " steps=" + (to_string steps) + " won=" + (to_string won))
 
         if (bodies0 >= 10.0) {
             passed = (passed + 1)
@@ -111,6 +112,13 @@ class Autopeli3dRunnerDemo {
         } {
             failed = (failed + 1)
             print "  FAIL cones missing"
+        }
+        if (glb0 >= 3.0) {
+            passed = (passed + 1)
+            print "  PASS glb prop placeholders declared (Duck/BoxTextured/bush_1)"
+        } {
+            failed = (failed + 1)
+            print "  FAIL expected spinning glb props in the scene"
         }
         if (zN < (z0 - 8.0)) {
             passed = (passed + 1)

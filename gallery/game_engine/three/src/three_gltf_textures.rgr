@@ -22,7 +22,7 @@ Import "../../../pdf_writer/src/jpeg/ImageBuffer.rgr"
 Import "../../lpc/src/png_decoder.rgr"
 
 class ThreeGLTFTextures {
-    ; true if uri ends with ".png" (case-insensitive on the extension letters).
+    ; true if uri/mime looks like PNG (".png" suffix or "image/png").
     sfn isPng:boolean (uri:string) {
         def n:int (strlen uri)
         if (n < 4) {
@@ -31,6 +31,8 @@ class ThreeGLTFTextures {
         def ext:string (substring uri (n - 4) n)
         if (ext == ".png") { return true }
         if (ext == ".PNG") { return true }
+        if (uri == "image/png") { return true }
+        if (uri == "image/PNG") { return true }
         return false
     }
 
@@ -68,6 +70,43 @@ class ThreeGLTFTextures {
                         img = (jpg.decodeBytes(bytes))
                     }
                     ; a decoder returns width<=1 on failure (e.g. unsupported subset)
+                    if (img.width > 1) {
+                        def flipped:buffer (ThreeGLTFTextures.flipV(img.pixels img.width img.height))
+                        file.setImage(i flipped img.width img.height)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Decode embedded .glb images (images[i].bufferView → BIN slice → PNG/JPEG).
+    ; Used by the render=tsx host when preloading models/*.glb from a game folder.
+    sfn loadEmbedded:void (file:ThreeGLTFFile) {
+        def n:int (file.imageCount())
+        def jpg:JPEGDecoder (new JPEGDecoder)
+        def png:PNGDecoder (new PNGDecoder)
+        def i:int 0
+        while (i < n) {
+            def uri:string (file.imageUri(i))
+            def bv:int (file.imageBufferView(i))
+            if ((uri == "") && (bv >= 0)) {
+                def bytes:buffer (file.bufferViewBytes(bv))
+                if ((buffer_length bytes) > 0) {
+                    def mime:string (file.imageMimeType(i))
+                    def img:ImageBuffer (new ImageBuffer)
+                    def asPng:boolean (ThreeGLTFTextures.isPng(mime))
+                    if ((strlen mime) == 0) {
+                        ; sniff PNG signature
+                        if ((buffer_get bytes 0) == 137) {
+                            asPng = true
+                        }
+                    }
+                    if asPng {
+                        img = (png.decodeBytes(bytes))
+                    } {
+                        img = (jpg.decodeBytes(bytes))
+                    }
                     if (img.width > 1) {
                         def flipped:buffer (ThreeGLTFTextures.flipV(img.pixels img.width img.height))
                         file.setImage(i flipped img.width img.height)
