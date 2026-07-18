@@ -12,6 +12,14 @@ export const BRICK_GAP = 4;
 export const BRICK_TOP = 52;
 export const BRICK_LEFT = 40;
 
+/** Paddle size — wider than classic breakout for easier ball control. */
+export const PADDLE_W = 88;
+export const PADDLE_H = 10;
+export const PADDLE_HALF = 44;
+export const PLAYFIELD_W = 480;
+export const PADDLE_MIN_X = PADDLE_HALF;
+export const PADDLE_MAX_X = PLAYFIELD_W - PADDLE_HALF;
+
 export const BRICK_COLORS: RgbColor[] = [
   { r: 220, g: 80, b: 90 },
   { r: 255, g: 150, b: 60 },
