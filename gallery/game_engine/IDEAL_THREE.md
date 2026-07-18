@@ -163,7 +163,11 @@ Interpreter/parser enablers added for the 1:1 code (all with regression checks):
 - Host globals: `window` (innerWidth/innerHeight/devicePixelRatio) and the `THREE`
   constants object are injected via `registerGlobal`.
 
-## 7. The render bridge (built) + browser host (next)
+> **Status update:** the "next"/"Pending" items in §7 and §8.2 below (browser
+> host, render-to-texture passes, glTF textures) are now **built**. See
+> [`THREE.md`](./THREE.md) for the current state and how to run it.
+
+## 7. The render bridge (built) + browser host (built)
 
 **The render bridge works headlessly.** `ThreeTsxBridge` (`three/tsx/three_tsx_bridge.rgr`)
 reconciles the interpreted façade scene into the canonical Ranger core and draws
@@ -183,20 +187,12 @@ it through the pluggable backend — the `needsUpdate` model of §4:
 actually renders, GPU-independent. Swapping in `ThreeGLBackend`
 (`renderer.setBackend(gl)`) draws the same scene on the GPU.
 
-Remaining — the browser host:
-
-1. Wire `ThreeGLBackend` into a browser host: a real canvas + WebGL context for
-   `ThreeGLBackend.init(canvasId)`, host-decoded texture pixels handed to the
-   bridge (`setTexture(path, rgba, w, h)`), and the DOM stubs the example's web
-   plumbing needs (`document.body.appendChild`, `renderer.domElement`,
-   `addEventListener` for resize).
-2. Drive `setAnimationLoop(fn)` from the host `requestAnimationFrame` loop.
-3. Land the canonical cube running 1:1 **and rendering on the GPU** in the browser.
-
-The measure of success: the Three.js cube script runs **unchanged** (✅ executes
-on the façade, ✅ renders through the core headlessly) and, once the browser host
-lands, renders GPU-accelerated — while the same scene, built from Ranger, renders
-natively. One object model, many front-ends and targets.
+The browser host is built: `ThreeGLBackend` runs on a real canvas + WebGL context
+(`ThreeGLBackend.init(canvasId)`), host-decoded texture pixels are handed to the
+bridge, and the DOM/`requestAnimationFrame` plumbing the examples need is stubbed.
+The cube, teapot and Sponza all run 1:1 in the browser gallery **and render on the
+GPU** (verified in headless Chromium), while the same object model renders natively
+via SDL. One object model, many front-ends and targets. See [`THREE.md`](./THREE.md).
 
 ## 8. Further targets: the teapot and the Sponza light-probe volume
 
@@ -259,6 +255,11 @@ JSON parser (since `lib/JSON` is ES6-only); and `three_gltf_file.rgr` splits a
 Sponza loads on-device with no interpreter async — verified end-to-end (the live
 fetch produced Sponza's atrium bounds 29.77 x 12.45 x 18.31).
 
-Pending: the render-to-texture (FBO) passes in `ThreeGLBackend` for the shadow-map
-and probe-cubemap bake; glTF PBR materials + textures (geometry + bounds land now,
-materials default); and the browser host + playground entry for `sponza.tsx`.
+Built since: the render-to-texture (FBO) shadow-map pass in `ThreeGLBackend` (two-
+pass depth render sampled with PCF) and the shadow-map-driven per-probe sun
+visibility for the GI bake; glTF baseColor **and tangent-space normal** textures
+(decoded natively via Ranger's JPEG/PNG decoders, or in-browser via canvas); and
+the browser host + gallery entry for `sponza.tsx` plus a native launcher entry
+(`games/sponza`, `render=sponza`). See [`THREE.md`](./THREE.md) for the full state.
+Still open: glTF PBR metallic-roughness specular, sRGB baseColor decode, captured
+(vs analytic) per-probe GI, `normalScale`, and anti-aliasing / AO.
