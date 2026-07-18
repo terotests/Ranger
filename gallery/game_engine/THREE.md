@@ -151,13 +151,16 @@ the **Tests** category:
   decides what renders (see §8.1). *(The native `render=tsx` path uses the
   procedural checker texture today; host-side image decode for `.tsx` scenes is the
   remaining follow-up.)*
-- `games/teapot` — `render=three` (specialised host: OrbitControls + lil-gui panel).
-- `games/sponza` — `render=sponza` (specialised host: first-person + async glTF;
-  WASD / arrows move, drag to look).
+- `games/teapot` — `render=three` (host = OrbitControls + lil-gui panel + procedural
+  env cube / UV texture plumbing).
+- `games/sponza` — `render=sponza` (host = first-person controls + async glTF +
+  the `ThreeSponzaScene` GI-bake plumbing; WASD / arrows move, drag to look).
 
-`render=three`/`render=sponza` are transitional per-example hosts kept only for
-their **plumbing** (controls, GUI, async loading); the scene reconciliation in all
-three is the one generic `ThreeTsxBridge` (see [`IDEAL_THREE.md §5`](./IDEAL_THREE.md)).
+Every example — cube, cubes, teapot, Sponza — reconciles through the **one** generic
+`ThreeTsxBridge`; the hosts are pure plumbing (controls, GUI, async loading, the
+GPU-technique GI bake). **There are no per-demo `*_tsx_bridge.rgr` files** — both
+the teapot and Sponza bridges have been deleted (see
+[`IDEAL_THREE.md §5`](./IDEAL_THREE.md)).
 
 ---
 
@@ -321,13 +324,14 @@ mapping / background honoured; `envMap` ⇒ `unsupportedCount()≥1`).
 `fallbackTextureCount()==0` **and** `unsupportedCount()==0` is the guarantee that a
 scene rendered exactly what it specified.
 
-Known transitional exceptions (documented, not hidden): the **Sponza** host still
-sets tone-mapping exposure to `0.09` (a deliberate compensation for the non-PBR
-Lambert shading — the canonical scene's PBR exposure of `1.0` would blow out), and
-drives the initial view via its first-person controller rather than the scene's
-`camera.rotation`; in the browser it renders procedural boxes until the glTF model
-streams in. These live in the specialised Sponza host and are resolved when it is
-folded into the generic `render=tsx` path.
+Known exceptions (documented, not hidden — these are host **plumbing** choices, not
+reconciliation): the **Sponza** host sets tone-mapping exposure to `0.09` (a
+deliberate compensation for the non-PBR Lambert shading — the canonical scene's PBR
+exposure of `1.0` would blow out), and drives the view via its first-person
+controller rather than the scene's `camera.rotation`; in the browser it renders
+procedural boxes until the glTF model streams in. (The scene itself — sky, sun,
+model, meshes — is reconciled by the generic bridge; only these policy/plumbing bits
+live in the host's `ThreeSponzaScene` module.)
 
 ### 8.3 API coverage — what's missing for the rest of the examples
 
