@@ -38,14 +38,26 @@ class ThreeCubeCamera {
         return v
     }
 
+    ; Copy n bytes src→dst. Callers must pass locals (not call results): C++ emits
+    ; buffer params as non-const std::vector& and rejects temporaries.
+    sfn copyInto:void (src:buffer dst:buffer n:int) {
+        def i:int 0
+        while (i < n) {
+            buffer_set dst i (buffer_get src i)
+            i = (i + 1)
+        }
+    }
+
     ; capture the scene at (px,py,pz) into a faceSize² cube using `renderer`.
-    ; Bind renderer.raw() to a local before storing — C++ emits buffer params as
-    ; non-const std::vector& and rejects temporaries (cannot bind lvalue ref).
-    ; setFace stores that copy so the next face's render cannot overwrite it.
+    ; Bind raw()/faceBuffer() to locals before copyInto (C++ temp-ref rule).
+    ; Byte-copy into the face buffer, then setFace so C++ value-return from
+    ; faceBuffer is written back; ES6 needs the copy because raw() aliases the
+    ; renderer color buffer (storing it would let the next face overwrite all).
     sfn capture:ThreeCubeMap (renderer:ThreeWebGLRenderer scene:ThreeScene px:double py:double pz:double faceSize:int) {
         def cube:ThreeCubeMap (ThreeCubeMap.create(faceSize))
         def cam:ThreePerspectiveCamera (new ThreePerspectiveCamera)
         cam.setPerspective(90.0 1.0 0.1 100000.0)
+        def bytes:int ((faceSize * faceSize) * 3)
         def face:int 0
         while (face < 6) {
             def fwd:ThreeVector3 (ThreeCubeCamera.faceForward(face))
@@ -56,7 +68,9 @@ class ThreeCubeCamera {
             renderer.setSize(faceSize faceSize)
             renderer.render(scene cam)
             def src:buffer (renderer.raw())
-            cube.setFace(face src)
+            def dst:buffer (cube.faceBuffer(face))
+            ThreeCubeCamera.copyInto(src dst bytes)
+            cube.setFace(face dst)
             face = (face + 1)
         }
         return cube
