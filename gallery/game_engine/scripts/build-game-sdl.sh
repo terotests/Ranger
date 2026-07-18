@@ -7,6 +7,8 @@
 # Requirements:
 #   * a C++17 compiler (clang++ or g++)
 #   * SDL2 development libraries
+#   * libcurl (three_http / Sponza glTF fetch). macOS: brew install curl
+#     Debian/Pi: sudo apt-get install libcurl4-openssl-dev
 #
 # Usage:
 #   ./gallery/game_engine/scripts/build-game-sdl.sh [--run [tsx] [frames]]
@@ -62,6 +64,16 @@ elif command -v sdl2-config >/dev/null 2>&1; then
   SDL_FLAGS="$(sdl2-config --cflags --libs)"
 else
   echo "error: SDL2 not found. Install libsdl2-dev (or brew install sdl2 on macOS)" >&2
+  exit 1
+fi
+
+# libcurl: game_sdl_runner imports three_gltf_* → three_http (Sponza over HTTPS).
+if command -v pkg-config >/dev/null 2>&1 && pkg-config --exists libcurl; then
+  CURL_FLAGS="$(pkg-config --cflags --libs libcurl)"
+elif command -v curl-config >/dev/null 2>&1; then
+  CURL_FLAGS="$(curl-config --cflags --libs)"
+else
+  echo "error: libcurl not found. Install libcurl4-openssl-dev (or brew install curl on macOS)" >&2
   exit 1
 fi
 
@@ -123,7 +135,7 @@ for src in "$WASM_BRIDGE" "${WASM3_SOURCES[@]}"; do
   WASM3_OBJS+=("$obj")
 done
 # shellcheck disable=SC2086
-"$CXX" $CXX_OPT -std=c++17 "${WASM3_CFLAGS[@]}" "$CPP_FILE" "${WASM3_OBJS[@]}" -o "$BIN_FILE" $SDL_FLAGS $GL_FLAGS -lm
+"$CXX" $CXX_OPT -std=c++17 "${WASM3_CFLAGS[@]}" "$CPP_FILE" "${WASM3_OBJS[@]}" -o "$BIN_FILE" $SDL_FLAGS $GL_FLAGS $CURL_FLAGS -lm
 
 echo "==> 3/3 Ready: $BIN_FILE"
 
