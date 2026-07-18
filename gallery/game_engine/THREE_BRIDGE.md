@@ -1,10 +1,36 @@
 # THREE_BRIDGE — driving Three onto a single host-owned registry (interpreter + WASM convergence)
 
-> Status: **migration proposal** (target spec, not yet implemented). Companion to
+> Status: **implemented** (interpreter side; the WASM front-end forwards to the
+> same command ABI when it lands). Companion to
 > [`IDEAL_THREE.md`](./IDEAL_THREE.md) (the object model + the generic reconciler
 > rule §5) and [`IDEAL_3D.md`](./IDEAL_3D.md) (the host-owned scene/entity/resource
 > ownership model the WASM path targets). The physics side already ships the end
 > state — see [`physics/tsx`](./physics/tsx/README.md) as the worked reference.
+
+## 0. What shipped (map to the phases below)
+
+The single-truth model is live. There is now exactly **one registry**
+(`ThreeSceneHost`) and **one reconciler** (`ThreeTsxBridge`); every front-end
+commands the one registry by integer handle and they converge on one scene.
+
+| phase | artefact | status |
+|---|---|---|
+| 1 — host registry | `three/src/three_scene_host.rgr` (+ `_test`) | ✅ done |
+| 2 — interpreter transport | `three/tsx/three_native_bridge.rgr` (+ `_test`) | ✅ done |
+| 2 — WASM transport | a `three.rs` forwarding to the `three_*` host imports | ⬜ when WASM lands |
+| 3 — re-point reconciler | `three/tsx/three_tsx_bridge.rgr` commands the host | ✅ done |
+| 4 — render from registry | `present()` → `host.render(sceneH, camH, …)` | ✅ done |
+| 5 — convergence proof | `three/tsx/three_convergence_test.rgr` | ✅ done |
+| 6 — delete parallelism | one registry / one reconciler; no private scene graph | ✅ done |
+
+The reconciler no longer owns a private `ThreeScene` / `[ThreeObject3D]` graph:
+it caches only host **entity handles**, and its `scene` / `camera` / `renderer`
+fields are read-through references to the host's owned instances (kept so the
+demo plumbing — `ThreeSponzaScene`, the web hosts, the native runners — reads
+the one registry rather than a fork). The one remaining cleanup, when someone
+touches the Sponza device path, is to migrate that plumbing's `bind(...)` from
+host-owned object refs to raw integer handles — an API-surface change, not an
+ownership change (ownership already lives solely in `ThreeSceneHost`).
 
 ## 1. Why this change
 
