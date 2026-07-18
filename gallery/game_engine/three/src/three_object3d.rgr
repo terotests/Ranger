@@ -153,6 +153,10 @@ class ThreeObject3D {
     fn lightViewProjection:ThreeMatrix4 () {
         return (new ThreeMatrix4)
     }
+    ; set the (directional) shadow-camera ortho extent; base is a no-op so a host
+    ; can call it on any entity handle without a downcast (overridden by the light).
+    fn setShadowExtent:void (l:double r:double t:double b:double n:double f:double) {
+    }
 
     ; Shadow depth pass: draw this node's depth from the light (mvp = lightVP *
     ; matrixWorld). No-op for non-meshes; ThreeMesh overrides to draw its geometry.

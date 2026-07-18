@@ -269,12 +269,12 @@ class WebSponzaTsxHost {
     fn setExposure:void (e:double) {
         renderer.setToneMappingExposure(e)
     }
-    fn infoCX:double () { return sponza.centerX }
-    fn infoCY:double () { return sponza.centerY }
-    fn infoCZ:double () { return sponza.centerZ }
-    fn infoSX:double () { return sponza.sizeX }
-    fn infoSY:double () { return sponza.sizeY }
-    fn infoSZ:double () { return sponza.sizeZ }
+    fn infoCX:double () { return sponza.sunRig.centerX }
+    fn infoCY:double () { return sponza.sunRig.centerY }
+    fn infoCZ:double () { return sponza.sunRig.centerZ }
+    fn infoSX:double () { return sponza.sunRig.sizeX }
+    fn infoSY:double () { return sponza.sunRig.sizeY }
+    fn infoSZ:double () { return sponza.sunRig.sizeZ }
     fn infoMeshes:int () { return (sponza.model.childCount()) }
     ; place the camera outside + above the model, aimed at its centre (overview).
     fn setCameraLook:void (px:double py:double pz:double lon:double lat:double) {

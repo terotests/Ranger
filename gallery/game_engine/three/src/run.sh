@@ -51,12 +51,24 @@ run_suite three_light_probe_grid_helper_test
 run_suite three_teapot_test
 run_suite three_orbit_controls_test
 run_suite three_first_person_controls_test
+# Reusable GPU-technique rigs (composed by the Sponza recipe; usable by any scene).
+run_suite three_sun_shadow_rig_test
+run_suite three_light_probe_volume_test
 run_suite three_cube_texture_test
 run_suite three_sky_test
 run_suite three_mesh_test
 run_suite three_cube_demo_test
 run_suite three_gl_backend_test
+# The single-truth host registry (THREE_BRIDGE.md): every front-end commands this
+# one registry by integer handle; no front-end owns Three objects privately.
+run_suite three_scene_host_test
 
+# The interpreter transport for the command ABI: bare `three_*(...)` calls
+# routed through ThreeNativeBridge into the one shared ThreeSceneHost.
+run_tsx_poc three_native_bridge_test
+# Convergence: the interpreter front-end and a direct-command guest land on
+# identical host-registry state, and both drive ONE shared registry.
+run_tsx_poc three_convergence_test
 # The 1:1 Three.js cube example, run through the TSX interpreter on the façade.
 run_tsx_poc three_facade_poc
 # The render bridge: the interpreted cube.tsx reconciled into the Ranger core and

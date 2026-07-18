@@ -1,0 +1,91 @@
+; ==============================================================================
+; three_light_probe_volume_test — the reusable probe-GI volume, standalone.
+; ==============================================================================
+; Drives ThreeLightProbeVolume with no demo/bridge: set the grid knobs, build it
+; into a scene, bake a directional SH environment (cool sky above, warm ground
+; bounce below, a sun lobe), and sample the irradiance back — the generic GI
+; technique, unit-tested on its own. Also checks the hot-reload count signature.
+; ==============================================================================
+
+Import "three_light_probe_volume.rgr"
+Import "three_scene.rgr"
+Import "three_vector3.rgr"
+
+class ThreeLightProbeVolumeTest {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    fn near:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) { d = (0.0 - d) }
+        if (d < 0.001) {
+            passed = (passed + 1)
+            print ("  PASS " + name + " (" + (to_string got) + ")")
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name + " got=" + (to_string got) + " want=" + (to_string want))
+        }
+    }
+
+    sfn m@(main):void () {
+        def t:ThreeLightProbeVolumeTest (new ThreeLightProbeVolumeTest)
+        t.run()
+    }
+
+    fn run:void () {
+        print "== ThreeLightProbeVolume (reusable diffuse-GI technique) =="
+        def scene:ThreeScene (new ThreeScene)
+        def vol:ThreeLightProbeVolume (new ThreeLightProbeVolume)
+        vol.gridSizeX = 4.0
+        vol.gridSizeY = 4.0
+        vol.gridSizeZ = 4.0
+        vol.countX = 3
+        vol.countY = 3
+        vol.countZ = 3
+        vol.enabled = true
+        vol.rebuild(scene)
+
+        this.near("probe count = cx*cy*cz" (to_double (vol.probeCount())) 27.0)
+        this.ok("volume + helper added to scene" ((scene.childCount()) == 2))
+
+        ; bake: sun lobe up-ish, cool sky term (b>r), warm ground term (r>b).
+        def sd:ThreeVector3 (new ThreeVector3)
+        sd.setFromSphericalCoords(1.0 0.7 0.3)
+        vol.bake(sd.x sd.y sd.z
+            0.375 0.360 0.322
+            0.140 0.180 0.248
+            0.236 0.210 0.163)
+
+        def giUp:ThreeVector3 (new ThreeVector3)
+        vol.sample(0.0 0.0 0.0 0.0 1.0 0.0 giUp)
+        this.ok("GI fills up-facing surfaces (non-zero)" ((giUp.x + (giUp.y + giUp.z)) > 0.0))
+        this.ok("up-facing GI is cool (sky, b >= r)" (giUp.z >= giUp.x))
+
+        def giDown:ThreeVector3 (new ThreeVector3)
+        vol.sample(0.0 0.0 0.0 0.0 (0.0 - 1.0) 0.0 giDown)
+        this.ok("GI fills down-facing surfaces (non-zero)" ((giDown.x + (giDown.y + giDown.z)) > 0.0))
+        this.ok("down-facing GI is warm bounce (r > b)" (giDown.x > giDown.z))
+
+        ; hot-reload signature: unchanged counts are stable; a count edit trips it.
+        vol.captureCounts()
+        this.ok("counts stable after capture" ((vol.countsChanged()) == false))
+        vol.countX = 5
+        this.ok("count edit trips the rebuild signature" (vol.countsChanged()))
+
+        ; toggle visibility flows to the grid.
+        vol.setEnabled(false)
+        this.ok("disable hides the grid" ((vol.probes.visible) == false))
+
+        print "== summary =="
+        print (("passed=" + (to_string passed)) + (" failed=" + (to_string failed)))
+        if (failed == 0) { print "ALL PASS" } { print "SOME FAILED" }
+    }
+}

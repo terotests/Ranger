@@ -1,36 +1,41 @@
 ; ==============================================================================
 ; three_tsx_bridge — the GENERIC reconciler: map an interpreted TSX façade scene
-; onto the REAL Ranger Three object model, then render it (software headless, or
-; WebGL/GLES in a host).
+; onto the ONE host-owned Ranger Three registry (ThreeSceneHost), then render it
+; (software headless, or WebGL/GLES in a host).
 ; ==============================================================================
 ;
-; This is the render bridge of IDEAL_THREE §7 and the generic-reconciliation rule
-; of §5. The canonical Three.js script runs in the TSX interpreter
-; (ComponentEngine) against the thin `three.tsx` façade, which holds only plain
-; data (positions, rotations, geometry params, material params, the texture path).
-; Each frame the host advances the script (animate()) and calls renderFrame(): the
-; bridge reads the façade `scene` + `camera` out of the engine (getGlobal +
-; EvalValue member reads) and reconciles them into the *canonical* Ranger objects
-; — every façade object mapped to its real counterpart BY TYPE:
+; This is the render bridge of IDEAL_THREE §7, the generic-reconciliation rule of
+; §5, and the single-truth-model migration of THREE_BRIDGE.md (Phase 3). The
+; canonical Three.js script runs in the TSX interpreter (ComponentEngine) against
+; the thin `three.tsx` façade, which holds only plain data (positions, rotations,
+; geometry params, material params, the texture path). Each frame the host advances
+; the script (animate()) and calls renderFrame(): the bridge reads the façade
+; `scene` + `camera` out of the engine and reconciles them — every façade object
+; mapped to its real counterpart BY TYPE:
 ;
-;   - geometry  → ThreeBoxGeometry / ThreeTeapotGeometry (by isXxxGeometry flag)
-;   - material  → ThreeMeshBasicMaterial / …Lambert / …Phong (by isXxxMaterial),
+;   - geometry  → three_geometry_box / three_geometry_teapot (host resource handle)
+;   - material  → three_material_basic / …lambert / …phong (host resource handle),
 ;                 with colour / map / side / wireframe / shininess / specular / …
-;   - light     → ThreeAmbientLight / ThreeDirectionalLight (by isXxxLight)
-;   - transform → position / rotation / scale, re-read fresh every frame
+;   - light     → three_light_ambient / a directional light (host entity handle)
+;   - transform → three_entity_transform, re-read fresh every frame
 ;
-; …then draws the real `ThreeScene` through the pluggable backend. Because it maps
-; against the real object model (not a demo-specific shortcut), adding a new scene
-; needs NO new bridge — the same reconciler renders the cube, the many-cubes scene,
-; a lit Lambert/Phong scene, and so on. This is the `needsUpdate` model: mutable
-; per-frame state (transforms) is re-read every frame; heavy resources (geometry,
-; textures) are built once and cached by index/path so the upload happens once.
+; …but it no longer OWNS those objects. Ownership lives in ONE ThreeSceneHost
+; registry (`host`); the reconciler is a declarative → command translator that
+; *commands* that host by integer handle and caches the handles it gets back. So
+; the interpreter front-end and a future WASM/native front-end drive the SAME
+; registry and converge on one scene (THREE_BRIDGE §2). `scene` / `camera` /
+; `renderer` are now read-through references to the host's owned instances (kept
+; for the demo plumbing until Phase 6 migrates it to pure handles).
 ;
-; No GPU code here: the renderer draws through ThreeRenderBackend, so the bridge is
-; pure Ranger and compiles to C++ as well as ES6. The host chooses the backend
-; (software = headless/Raspberry Pi; ThreeGLBackend = WebGL browser / desktop GL).
+; This is the `needsUpdate` model: mutable per-frame state (transforms) is re-read
+; every frame; heavy resources (geometry, textures) are built once (host caches
+; them) so the upload happens once. No GPU code here — the host's renderer draws
+; through ThreeRenderBackend, so the bridge is pure Ranger and compiles to C++ as
+; well as ES6. The host chooses the backend (software = headless/Raspberry Pi;
+; ThreeGLBackend = WebGL browser / desktop GL).
 ; ==============================================================================
 
+Import "../src/three_scene_host.rgr"
 Import "../src/three_webgl_renderer.rgr"
 Import "../src/three_render_backend.rgr"
 Import "../src/three_scene.rgr"
@@ -51,13 +56,22 @@ Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
 
 class ThreeTsxBridge {
     def engine:ComponentEngine (new ComponentEngine())
-    def renderer:ThreeWebGLRenderer (new ThreeWebGLRenderer)
+    ; the ONE host-owned Three registry this reconciler commands (THREE_BRIDGE §2).
+    def host:ThreeSceneHost (new ThreeSceneHost)
+    def sceneH:int 0
+    def camH:int 0
+    def lastW:int 0
+    def lastH:int 0
+    ; read-through references to the host's owned scene / camera / renderer (the
+    ; same instances the registry holds), so the demo plumbing that reads them keeps
+    ; working. The bridge never NEWs or privately mutates these for construction —
+    ; every scene mutation goes through a host command.
     def scene:ThreeScene (new ThreeScene)
     def camera:ThreePerspectiveCamera (new ThreePerspectiveCamera)
+    def renderer:ThreeWebGLRenderer (new ThreeWebGLRenderer)
 
-    ; Ranger nodes, parallel to the façade scene.children (index-keyed). Any node is
-    ; a ThreeObject3D subclass — mesh / light / sky — so one array holds them.
-    def nodes:[ThreeObject3D]
+    ; the host ENTITY HANDLES for each façade scene.children[i] (index-keyed).
+    def nodeHandles:[int]
     ; per-node rebuild bookkeeping: a mesh whose geometry/material signature changes
     ; (e.g. the teapot GUI re-tessellates or swaps shading — the scene removes the
     ; old mesh and adds a new one at the same index) is REBUILT, so a scene that
@@ -65,20 +79,6 @@ class ThreeTsxBridge {
     ; of being frozen at its first build.
     def nodeSigs:[string]
     def nodeIsMesh:[boolean]
-    ; HOST-supplied textures by path (real decoded pixels handed in via setTexture).
-    def texPaths:[string]
-    def texObjs:[ThreeTexture]
-    ; per-path resolution + PROVENANCE: for every texture a material actually asked
-    ; for, whether it was satisfied by real host pixels (true) or a placeholder
-    ; (false). This makes "are we rendering the specified asset, or a silent
-    ; fallback?" a machine-checkable question — hostTextureCount vs
-    ; fallbackTextureCount — instead of an invisible substitution.
-    def reqPaths:[string]
-    def reqTex:[ThreeTexture]
-    def reqHost:[boolean]
-    def nHostTex:int 0
-    def nFallbackTex:int 0
-    def warnedFallback:boolean false
 
     ; reconcile bookkeeping (also serves as introspection for tests: proves the
     ; façade was mapped to the right REAL object types, not a single hard-coded one).
@@ -89,8 +89,9 @@ class ThreeTsxBridge {
     def firstMatKind:string ""
     ; references to reconciled scene content a host PLUMBING module may need to drive
     ; a GPU technique (e.g. the Sponza GI bake reads the reconciled sun + model, and
-    ; adds its baked probe volume to `scene`). The bridge reconciles the objects; the
-    ; module runs the technique on them — it never forks the reconciler.
+    ; adds its baked probe volume to `scene`). These are the SAME instances the host
+    ; registry owns (the reconciler builds them, then attaches them to the host via a
+    ; command); the module runs the technique on them — it never forks the reconciler.
     def reconciledSun:ThreeDirectionalLight (new ThreeDirectionalLight)
     def hasSun:boolean false
     def reconciledSky:ThreeSky (new ThreeSky)
@@ -118,11 +119,12 @@ class ThreeTsxBridge {
         print ("[three] WARNING: scene specified '" + what + "' but it is not reconciled to a real object (not a silent fake)")
         nUnsupported = (nUnsupported + 1)
     }
-    ; texture-fidelity introspection: how many referenced textures were satisfied
-    ; by real host pixels vs a placeholder. fallbackTextureCount()==0 means every
-    ; texture the scene specified is the real asset (no silent substitution).
-    fn hostTextureCount:int () { return nHostTex }
-    fn fallbackTextureCount:int () { return nFallbackTex }
+    ; texture-fidelity introspection (delegated to the host, the texture owner): how
+    ; many referenced textures were satisfied by real host pixels vs a placeholder.
+    ; fallbackTextureCount()==0 means every texture the scene specified is the real
+    ; asset (no silent substitution).
+    fn hostTextureCount:int () { return (host.hostTextureCount()) }
+    fn fallbackTextureCount:int () { return (host.fallbackTextureCount()) }
 
     ; reconciled-object accessors for a host plumbing module (see field comment).
     fn sunLight:ThreeDirectionalLight () { return reconciledSun }
@@ -139,32 +141,50 @@ class ThreeTsxBridge {
         return this
     }
 
+    ; point this reconciler at an EXISTING host so several front-ends command one
+    ; shared registry (the convergence path). Resets the handles so ensureHost
+    ; re-allocates the scene/camera in the new host.
+    fn setHost:ThreeTsxBridge (h:ThreeSceneHost) {
+        host = h
+        sceneH = 0
+        camH = 0
+        return this
+    }
+    ; the one registry this reconciler commands (for tests / a shared-host front-end).
+    fn getHost:ThreeSceneHost () {
+        this.ensureHost()
+        return host
+    }
+
+    ; allocate the host scene + camera once, and point the read-through references at
+    ; the host's owned instances (idempotent; called from every public entry).
+    fn ensureHost:void () {
+        if (sceneH == 0) {
+            sceneH = (host.sceneNew())
+            camH = (host.cameraNew())
+            scene = (host.sceneAt(sceneH))
+            camera = (host.cameraAt(camH))
+            renderer = host.renderer
+        }
+    }
+
     fn setEngine:ThreeTsxBridge (e:ComponentEngine) {
+        this.ensureHost()
         engine = e
         return this
     }
 
     ; Inject a GPU backend (ThreeGLBackend) — otherwise the software rasteriser.
     fn useBackend:ThreeTsxBridge (b:ThreeRenderBackend) {
-        renderer.setBackend(b)
+        this.ensureHost()
+        host.useBackend(b)
         return this
     }
 
-    ; Supply decoded pixels for a texture path (e.g. the host decoded the image).
-    ; Call before the first renderFrame so the material picks it up.
+    ; Supply decoded pixels for a texture path (forwarded to the host, which owns the
+    ; texture cache). Call before the first renderFrame so the material picks it up.
     fn setTexture:void (path:string rgba:buffer w:int h:int) {
-        def tex:ThreeTexture (new ThreeTexture)
-        tex.setImage(rgba w h)
-        def i:int 0
-        while (i < (array_length texPaths)) {
-            if ((itemAt texPaths i) == path) {
-                set texObjs i tex
-                return
-            }
-            i = (i + 1)
-        }
-        push texPaths path
-        push texObjs tex
+        host.setTexture(path rgba w h)
     }
 
     ; --- read helpers ---------------------------------------------------------
@@ -210,41 +230,48 @@ class ThreeTsxBridge {
         if (far <= near) {
             far = 2000.0
         }
-        camera.setPerspective(fov aspect near far)
+        host.cameraSet(camH fov aspect near far)
+        ; position AND orientation — honour the interpreted camera.position +
+        ; camera.rotation (the core derives the view matrix from the world transform),
+        ; so a scene that aims the camera actually aims it.
+        def px:double 0.0
+        def py:double 0.0
+        def pz:double 0.0
         def pos:EvalValue (cam.getMember("position"))
         if (pos.isObject()) {
-            camera.position.set((this.num(pos "x")) (this.num(pos "y")) (this.num(pos "z")))
+            px = (this.num(pos "x"))
+            py = (this.num(pos "y"))
+            pz = (this.num(pos "z"))
         }
-        ; camera ORIENTATION — honour the interpreted camera.rotation (the core
-        ; derives the view matrix from the world transform), so a scene that aims the
-        ; camera actually aims it, instead of the view being hard-wired to look down -Z.
+        def ex:double 0.0
+        def ey:double 0.0
+        def ez:double 0.0
         def crot:EvalValue (cam.getMember("rotation"))
         if (crot.isObject()) {
-            camera.rotation.set((this.num(crot "x")) (this.num(crot "y")) (this.num(crot "z")))
+            ex = (this.num(crot "x"))
+            ey = (this.num(crot "y"))
+            ez = (this.num(crot "z"))
         }
+        host.cameraPose(camH px py pz ex ey ez)
     }
 
     ; Honour the interpreted renderer + scene settings (tone mapping / exposure /
-    ; background) that the TSX specifies — the real WebGLRenderer/Scene drive them,
-    ; not a hard-wired host value. Unspecified values keep their sensible defaults.
+    ; background) that the TSX specifies — the real host renderer/scene drive them,
+    ; not a hard-wired host value. Unspecified values keep their current defaults.
     fn syncRenderer:void () {
         def rd:EvalValue (engine.getGlobal("renderer"))
         if (rd.isObject()) {
-            def tm:EvalValue (rd.getMember("toneMapping"))
-            if (tm.isNumber()) {
-                renderer.setToneMapping((to_int (tm.toNumber())))
-            }
-            def ex:EvalValue (rd.getMember("toneMappingExposure"))
-            if (ex.isNumber()) {
-                renderer.setToneMappingExposure((ex.toNumber()))
-            }
+            def tm:int (to_int (this.numOr(rd "toneMapping" (to_double renderer.toneMapping))))
+            def ex:double (this.numOr(rd "toneMappingExposure" renderer.toneMappingExposure))
+            def shadowOn:boolean renderer.shadowMapEnabled
             def sm:EvalValue (rd.getMember("shadowMap"))
             if (sm.isObject()) {
                 def en:EvalValue (sm.getMember("enabled"))
                 if (en.isBoolean()) {
-                    renderer.setShadowMapEnabled(en.boolValue)
+                    shadowOn = en.boolValue
                 }
             }
+            host.rendererSet(tm ex shadowOn)
         }
         def sc:EvalValue (engine.getGlobal("scene"))
         if (sc.isObject()) {
@@ -256,7 +283,7 @@ class ThreeTsxBridge {
                     def r:int (idiv hex 65536)
                     def g:int (idiv (hex - (r * 65536)) 256)
                     def b:int ((hex - (r * 65536)) - (g * 256))
-                    scene.setBackground(((to_double r) / 255.0) ((to_double g) / 255.0) ((to_double b) / 255.0))
+                    host.sceneBackground(sceneH ((to_double r) / 255.0) ((to_double g) / 255.0) ((to_double b) / 255.0))
                 }
             }
         }
@@ -280,70 +307,82 @@ class ThreeTsxBridge {
         }
     }
 
-    ; Reconcile façade child i: build its real node on first sight, then update the
-    ; mutable per-frame transform (position/rotation/scale).
+    ; Reconcile façade child i: build its real node (command the host) on first sight,
+    ; then update the mutable per-frame transform (position/rotation/scale) via a
+    ; three_entity_transform command.
     fn syncNode:void (i:int childV:EvalValue) {
         if (childV.isObject() == false) {
             return
         }
-        def node:ThreeObject3D (this.ensureNode(i childV))
+        def h:int (this.ensureNode(i childV))
+        def ex:double 0.0
+        def ey:double 0.0
+        def ez:double 0.0
         def rot:EvalValue (childV.getMember("rotation"))
         if (rot.isObject()) {
-            node.rotation.set((this.num(rot "x")) (this.num(rot "y")) (this.num(rot "z")))
+            ex = (this.num(rot "x"))
+            ey = (this.num(rot "y"))
+            ez = (this.num(rot "z"))
         }
+        def px:double 0.0
+        def py:double 0.0
+        def pz:double 0.0
         def pos:EvalValue (childV.getMember("position"))
         if (pos.isObject()) {
-            node.position.set((this.num(pos "x")) (this.num(pos "y")) (this.num(pos "z")))
+            px = (this.num(pos "x"))
+            py = (this.num(pos "y"))
+            pz = (this.num(pos "z"))
         }
+        def sx:double 1.0
+        def sy:double 1.0
+        def sz:double 1.0
         def scl:EvalValue (childV.getMember("scale"))
         if (scl.isObject()) {
-            def sx:double (this.num(scl "x"))
-            def sy:double (this.num(scl "y"))
-            def sz:double (this.num(scl "z"))
-            if (sx == 0.0) { sx = 1.0 }
-            if (sy == 0.0) { sy = 1.0 }
-            if (sz == 0.0) { sz = 1.0 }
-            node.scale.set(sx sy sz)
+            sx = (this.num(scl "x"))
+            sy = (this.num(scl "y"))
+            sz = (this.num(scl "z"))
         }
+        host.entityTransform(h px py pz ex ey ez sx sy sz)
     }
 
-    ; Build the real Ranger node for façade child i (by type), add it to the scene,
-    ; and cache it — so the geometry/texture upload happens once. A light and a mesh
-    ; are both ThreeObject3D, so the same cache holds either.
-    ; keep the parallel arrays (node / signature / is-mesh) in lockstep.
-    fn registerNode:ThreeObject3D (node:ThreeObject3D sig:string isMesh:boolean) {
-        push nodes node
+    ; keep the parallel arrays (handle / signature / is-mesh) in lockstep.
+    fn registerNode:int (handle:int sig:string isMesh:boolean) {
+        push nodeHandles handle
         push nodeSigs sig
         push nodeIsMesh isMesh
-        return node
+        return handle
     }
 
-    fn ensureNode:ThreeObject3D (i:int childV:EvalValue) {
-        if (i < (array_length nodes)) {
+    ; Command the host to build the real node for façade child i (by type) and cache
+    ; the returned handle — so the geometry/texture upload happens once. A light and
+    ; a mesh are both entities in the one registry, so the same handle cache holds
+    ; either.
+    fn ensureNode:int (i:int childV:EvalValue) {
+        if (i < (array_length nodeHandles)) {
             ; rebuild a mesh whose geometry/material signature changed (needsUpdate).
             if (itemAt nodeIsMesh i) {
                 def newSig:string (this.meshSig(childV))
                 if (newSig != (itemAt nodeSigs i)) {
-                    scene.remove((itemAt nodes i))
-                    def rebuilt:ThreeMesh (this.buildMesh(childV))
-                    scene.add(rebuilt)
-                    set nodes i rebuilt
+                    host.entityRemove(sceneH (itemAt nodeHandles i))
+                    def rebuilt:int (this.buildMeshH(childV))
+                    set nodeHandles i rebuilt
                     set nodeSigs i newSig
                     return rebuilt
                 }
             }
-            return (itemAt nodes i)
+            return (itemAt nodeHandles i)
         }
         ; light? (Ambient / Directional) — built with its colour/intensity/direction
         if (this.flagOn(childV "isAmbientLight")) {
-            def amb:ThreeAmbientLight (new ThreeAmbientLight)
-            amb.setColorHex((to_int (this.numOr(childV "color" 16777215.0))))
-            amb.setIntensity((this.numOr(childV "intensity" 1.0)))
-            scene.add(amb)
+            def color:int (to_int (this.numOr(childV "color" 16777215.0)))
+            def intensity:double (this.numOr(childV "intensity" 1.0))
+            def h:int (host.lightAmbient(sceneH color intensity))
             nAmbient = (nAmbient + 1)
-            return (this.registerNode(amb "" false))
+            return (this.registerNode(h "" false))
         }
         if (this.flagOn(childV "isDirectionalLight")) {
+            ; the demo plumbing (Sponza GI bake) needs the typed sun, so build it here
+            ; and attach it to the host (which then OWNS it in the one registry).
             def dir:ThreeDirectionalLight (new ThreeDirectionalLight)
             dir.setColorHex((to_int (this.numOr(childV "color" 16777215.0))))
             dir.setIntensity((this.numOr(childV "intensity" 1.0)))
@@ -371,11 +410,11 @@ class ThreeTsxBridge {
                         (this.numOr(shcam "far" 500.0)))
                 }
             }
-            scene.add(dir)
+            def h:int (host.modelAttach(sceneH dir))
             nDirectional = (nDirectional + 1)
             reconciledSun = dir
             hasSun = true
-            return (this.registerNode(dir "" false))
+            return (this.registerNode(h "" false))
         }
         ; sky (Preetham atmosphere) — a real ThreeSky the renderer draws behind the
         ; scene; its scattering params + sun direction are driven by the scene.
@@ -389,32 +428,31 @@ class ThreeTsxBridge {
             if (sp.isObject()) {
                 sky.setSunPosition((this.num(sp "x")) (this.num(sp "y")) (this.num(sp "z")))
             }
-            scene.add(sky)
+            def h:int (host.modelAttach(sceneH sky))
             nSky = (nSky + 1)
             reconciledSky = sky
             hasSky = true
-            return (this.registerNode(sky "" false))
+            return (this.registerNode(h "" false))
         }
         ; host-attached model (GLTFModel placeholder). The decoded geometry is
         ; supplied by the host (setHostModel); the bridge attaches it to the scene.
         if (this.flagOn(childV "isModel")) {
             if hasHostModel {
-                scene.add(hostModel)
+                def h:int (host.modelAttach(sceneH hostModel))
                 reconciledModel = hostModel
                 hasModelNode = true
-                return (this.registerNode(hostModel "" false))
+                return (this.registerNode(h "" false))
             }
             this.noteUnsupported("model (no host-decoded geometry supplied via setHostModel)")
             def mo:ThreeObject3D (new ThreeObject3D)
-            scene.add(mo)
-            return (this.registerNode(mo "" false))
+            def hh:int (host.modelAttach(sceneH mo))
+            return (this.registerNode(hh "" false))
         }
         ; mesh (default) — typed geometry + typed material
         if (this.flagOn(childV "isMesh")) {
-            def m:ThreeMesh (this.buildMesh(childV))
-            scene.add(m)
+            def h:int (this.buildMeshH(childV))
             nMesh = (nMesh + 1)
-            return (this.registerNode(m (this.meshSig(childV)) true))
+            return (this.registerNode(h (this.meshSig(childV)) true))
         }
         ; a child the scene specified but we don't reconcile (an unsupported light
         ; type — Point/Spot/Hemisphere — or any other object). Report it (loud +
@@ -432,8 +470,8 @@ class ThreeTsxBridge {
             this.noteUnsupported("scene object (not a Mesh/Ambient/Directional light/Sky)")
         }}}
         def o:ThreeObject3D (new ThreeObject3D)
-        scene.add(o)
-        return (this.registerNode(o "" false))
+        def oh:int (host.modelAttach(sceneH o))
+        return (this.registerNode(oh "" false))
     }
 
     ; A change-detection signature over the façade mesh's geometry + material params
@@ -463,11 +501,12 @@ class ThreeTsxBridge {
         return s
     }
 
-    ; --- mesh: typed geometry + typed material --------------------------------
-    fn buildMesh:ThreeMesh (childV:EvalValue) {
-        def m:ThreeMesh (new ThreeMesh)
+    ; --- mesh: typed geometry + typed material, as host resource + instance -----
+    ; Command the host to build the geometry + material resources and a mesh instance
+    ; referencing them; return the mesh entity handle.
+    fn buildMeshH:int (childV:EvalValue) {
         def geoV:EvalValue (childV.getMember("geometry"))
-
+        def geoH:int 0
         def isTeapot:boolean false
         if (geoV.isObject()) {
             if (this.flagOn(geoV "isTeapotGeometry")) {
@@ -482,17 +521,14 @@ class ThreeTsxBridge {
             }
         }
         if isTeapot {
-            def tgeo:ThreeTeapotGeometry (new ThreeTeapotGeometry)
-            tgeo.setTeapot((this.numOr(geoV "size" 300.0))
+            geoH = (host.geometryTeapot((this.numOr(geoV "size" 300.0))
                 (to_int (this.numOr(geoV "segments" 10.0)))
                 (this.boolOr(geoV "bottom" true))
                 (this.boolOr(geoV "lid" true))
                 (this.boolOr(geoV "body" true))
                 (this.boolOr(geoV "fitLid" true))
-                (this.boolOr(geoV "blinn" true)))
-            m.setGeometry(tgeo)
+                (this.boolOr(geoV "blinn" true))))
         } {
-            ; BoxGeometry (default unit cube)
             def gw:double 1.0
             def gh:double 1.0
             def gd:double 1.0
@@ -504,31 +540,18 @@ class ThreeTsxBridge {
                 if (h > 0.0) { gh = h }
                 if (d > 0.0) { gd = d }
             }
-            def box:ThreeBoxGeometry (new ThreeBoxGeometry)
-            box.setSize(gw gh gd)
-            m.setGeometry(box)
+            geoH = (host.geometryBox(gw gh gd))
         }
 
         def matV:EvalValue (childV.getMember("material"))
         if (nMesh == 0) {
             firstMatKind = (this.materialKind(matV))
         }
-        def mat:ThreeMaterial (this.buildMaterial(matV))
-        ; envMap → reflective material. The actual reflection needs the host to have
-        ; supplied the scene's cube map (scene.setEnvironmentMap); with none, the
-        ; übershader's uHasEnv gate simply leaves the base material (no crash, no fake).
-        if (matV.isObject()) {
-            def emv:EvalValue (matV.getMember("envMap"))
-            if (emv.isObject()) {
-                mat.setReflective(true)
-                mat.setReflectivity(0.9)
-            }
-        }
-        m.setMaterial(mat)
-        return m
+        def matH:int (this.buildMaterialH(matV))
+        return (host.meshNew(sceneH geoH matH))
     }
 
-    ; --- material: typed by isXxxMaterial flag --------------------------------
+    ; --- material: typed by isXxxMaterial flag, as a host resource handle -------
     fn materialKind:string (matV:EvalValue) {
         if (this.flagOn(matV "isMeshBasicMaterial")) { return "basic" }
         if (this.flagOn(matV "isMeshLambertMaterial")) { return "lambert" }
@@ -536,10 +559,9 @@ class ThreeTsxBridge {
         return "basic"
     }
 
-    fn buildMaterial:ThreeMaterial (matV:EvalValue) {
+    fn buildMaterialH:int (matV:EvalValue) {
         if (matV.isObject() == false) {
-            def d:ThreeMeshBasicMaterial (new ThreeMeshBasicMaterial)
-            return d
+            return (host.materialBasic(16777215 0 false))
         }
         def kind:string (this.materialKind(matV))
         ; unknown material type specified? report it (we render a basic placeholder).
@@ -557,86 +579,40 @@ class ThreeTsxBridge {
             colHex = (to_int (cv.toNumber()))
         }
 
+        def matH:int 0
         if (kind == "basic") {
-            def mb:ThreeMeshBasicMaterial (new ThreeMeshBasicMaterial)
-            mb.setColorHex(colHex)
-            mb.setSide(side)
-            mb.setWireframe((this.boolOr(matV "wireframe" false)))
-            this.applyMap(mb matV)
-            return mb
-        }
+            matH = (host.materialBasic(colHex side (this.boolOr(matV "wireframe" false))))
+        } {
         if (kind == "lambert") {
-            def ml:ThreeMeshLambertMaterial (new ThreeMeshLambertMaterial)
-            ml.setColorHex(colHex)
-            ml.setSide(side)
-            this.applyMap(ml matV)
-            return ml
-        }
-        ; phong
-        def mp:ThreeMeshPhongMaterial (new ThreeMeshPhongMaterial)
-        mp.setColorHex(colHex)
-        mp.setSide(side)
-        mp.setShininess((this.numOr(matV "shininess" 30.0)))
-        def spec:EvalValue (matV.getMember("specular"))
-        if (spec.isNumber()) {
-            mp.setSpecularHex((to_int (spec.toNumber())))
-        }
-        if (this.boolOr(matV "flatShading" false)) {
-            mp.setFlatShading(true)
-        }
-        this.applyMap(mp matV)
-        return mp
-    }
-
-    ; texture map: host pixels for the path if supplied, else a visible checker so a
-    ; UV-mapped material still shows textured faces headlessly.
-    fn applyMap:void (mat:ThreeMaterial matV:EvalValue) {
+            matH = (host.materialLambert(colHex side))
+        } {
+            ; phong
+            def specHex:int 1118481
+            def spec:EvalValue (matV.getMember("specular"))
+            if (spec.isNumber()) {
+                specHex = (to_int (spec.toNumber()))
+            }
+            matH = (host.materialPhong(colHex specHex (this.numOr(matV "shininess" 30.0)) (this.boolOr(matV "flatShading" false)) side))
+        }}
+        ; texture map: the host resolves host pixels for the path (or a counted +
+        ; warned placeholder), so a UV-mapped material still shows textured faces.
         def mapV:EvalValue (matV.getMember("map"))
-        if (mapV.isObject() == false) {
-            return
-        }
-        def pathV:EvalValue (mapV.getMember("path"))
-        def path:string ""
-        if (pathV.isString()) {
-            path = pathV.stringValue
-        }
-        mat.setMap((this.textureForPath(path)))
-    }
-
-    ; Resolve the texture for a path. Prefer real HOST pixels; only if none were
-    ; supplied do we fall back to a placeholder checker — and that fallback is NOT
-    ; silent: it is counted (fallbackTextureCount) and warned once, so a caller can
-    ; assert it never happened. Resolution is cached per path (provenance kept).
-    fn textureForPath:ThreeTexture (path:string) {
-        def r:int 0
-        while (r < (array_length reqPaths)) {
-            if ((itemAt reqPaths r) == path) {
-                return (itemAt reqTex r)
+        if (mapV.isObject()) {
+            def pathV:EvalValue (mapV.getMember("path"))
+            def path:string ""
+            if (pathV.isString()) {
+                path = pathV.stringValue
             }
-            r = (r + 1)
+            host.materialMap(matH path)
         }
-        def i:int 0
-        while (i < (array_length texPaths)) {
-            if ((itemAt texPaths i) == path) {
-                def ht:ThreeTexture (itemAt texObjs i)
-                push reqPaths path
-                push reqTex ht
-                push reqHost true
-                nHostTex = (nHostTex + 1)
-                return ht
-            }
-            i = (i + 1)
+        ; envMap → reflective material. The actual reflection needs the host to have
+        ; supplied the scene's cube map; with none, the übershader's uHasEnv gate
+        ; simply leaves the base material (no crash, no fake).
+        def emv:EvalValue (matV.getMember("envMap"))
+        if (emv.isObject()) {
+            host.materialReflective(matH 0.9)
         }
-        if (warnedFallback == false) {
-            print ("[three] WARNING: no host pixels for texture '" + path + "' — using placeholder (not the specified asset)")
-            warnedFallback = true
-        }
-        def tex:ThreeTexture (this.checkerTexture())
-        push reqPaths path
-        push reqTex tex
-        push reqHost false
-        nFallbackTex = (nFallbackTex + 1)
-        return tex
+        return matH
     }
 
     ; The texture paths the current façade scene references (a pure façade read — no
@@ -683,44 +659,22 @@ class ThreeTsxBridge {
         return out
     }
 
-    ; 2x2 RGBA checker — a stand-in when the host has not supplied decoded image
-    ; pixels for the texture path.
-    fn checkerTexture:ThreeTexture () {
-        def px:buffer (buffer_alloc 16)
-        buffer_set px 0 220
-        buffer_set px 1 60
-        buffer_set px 2 60
-        buffer_set px 3 255
-        buffer_set px 4 60
-        buffer_set px 5 200
-        buffer_set px 6 90
-        buffer_set px 7 255
-        buffer_set px 8 70
-        buffer_set px 9 120
-        buffer_set px 10 230
-        buffer_set px 11 255
-        buffer_set px 12 230
-        buffer_set px 13 220
-        buffer_set px 14 180
-        buffer_set px 15 255
-        def tex:ThreeTexture (new ThreeTexture)
-        tex.setImage(px 2 2)
-        return tex
-    }
-
-    ; Reconcile the current façade scene into the real object graph WITHOUT drawing.
+    ; Reconcile the current façade scene into the one host registry WITHOUT drawing.
     ; A host plumbing module can run between reconcile() and present() — e.g. to add
     ; a baked probe volume to `scene`, or set bounds-derived shadow extents on the
     ; reconciled sun — then present().
     fn reconcile:void (w:int h:int) {
-        renderer.setSize(w h)
+        this.ensureHost()
+        lastW = w
+        lastH = h
         this.syncRenderer()
         this.syncCamera()
         this.syncScene()
     }
-    ; Draw the reconciled scene.
+    ; Draw the reconciled scene (the host owns the renderer + scene + camera).
     fn present:void () {
-        renderer.render(scene camera)
+        this.ensureHost()
+        host.render(sceneH camH lastW lastH)
     }
 
     ; Reconcile the current façade scene and draw one frame at w*h.
@@ -731,6 +685,6 @@ class ThreeTsxBridge {
 
     ; The rendered RGB frame (software backend path).
     fn raw:buffer () {
-        return (renderer.raw())
+        return (host.raw())
     }
 }
