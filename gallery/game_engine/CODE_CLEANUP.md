@@ -1,3 +1,183 @@
+# Part 0 — The rerouting trap: how this codebase accumulates debt
+
+The individual "wrong files" listed later in this plan are symptoms. The disease
+is a repeating pattern, and it works like this:
+
+1. A generic engine path needs something a game knows (a world, a light, a class,
+   a helper).
+2. Instead of opening a proper seam (an interface, a registry entry, a shared
+   module), a **bridge or helper file is added as a "temporary" shortcut** — it
+   imports the game's code directly, or copies the shared code locally.
+3. The demo works, so the shortcut ships. The documentation calls it temporary.
+4. The next feature builds **on top of the shortcut**, because it is the path
+   that works. The copy diverges; the game import grows roots; the accessor list
+   gets one more entry.
+
+Nothing fails loudly at any step — the engine *silently reroutes* through
+game-specific Ranger code, and each reroute makes the next one cheaper to add
+and harder to remove. The examples below are all live in the codebase today,
+with file and line references, so the pattern is concrete before the plan talks
+about fixing it.
+
+## 0.1 Example: the "generic" physics runner is secretly the autopeli runner
+
+`scripting/wasm_physics_runner.rgr` presents itself as the generic WASM physics
+runner. What the file actually contains:
+
+```
+line 11:  Import "./wasm_autopeli_setup.rgr"        ; a specific game's world
+line 12:  Import "./wasm_autopeli_render.rgr"        ; a specific game's rendering
+line 32:  def assetsDir:string "gallery/game_engine/games/autopeli_wasm"
+line 35:  def worldH:int 6000                        ; autopeli's track length
+line 39:  def camSmoothP2:double 5860.0              ; autopeli's camera anchor
+line 855: (idiv ((6000 - (to_int car.y)) * 100) 6000)  ; autopeli's progress bar
+```
+
+A second physics game cannot use this runner without editing it — which means it
+is not a runner, it is autopeli with a generic name. The reroute happened at
+lines 11–12: the moment the runner imported the game instead of receiving it
+through an interface, every later shortcut (the constants, the camera numbers,
+the progress formula) had a natural place to land.
+
+## 0.2 Example: the same world is defined twice and agrees only by luck
+
+The autopeli road and traffic exist in **two unrelated source files in two
+languages**, one on each side of the WASM boundary:
+
+- Host: `scripting/wasm_autopeli_setup.rgr` — `roadHalf = 126` (line 10),
+  narrowing to `112` (line 187), with interpolation logic (line 217).
+- Guest: `games/autopeli_wasm/src/src/lib.rs` — `TRAFFIC_COUNT: i32 = 15`
+  (line 53), a 15-entry `TRAFFIC` table (line 269).
+
+Nothing checks these against each other. Change one and the game does not error
+— physics and rendering just quietly disagree. This is the same reroute as 0.1
+seen from the other side: because the host imported its own copy of the world,
+the guest's declaration never became the single source.
+
+## 0.3 Example: a deleted game class was relocated *into* the generic reconciler
+
+`three/tsx/three_tsx_bridge.rgr` is the one generic TSX→host reconciler. It also
+contains this:
+
+```
+line 154: fn sunLight:ThreeDirectionalLight () { return reconciledSun }
+line 156: fn skyNode:ThreeSky ()              { return reconciledSky }
+line 158: fn modelNode:ThreeObject3D ()       { return reconciledModel }
+```
+
+The file's own comments say where this came from: the per-demo `ThreeSponzaScene`
+class was deleted, and its recipe "now lives in the one generic reconciler"
+(lines 120, 1033, 1079). The demo-specific class was removed **in name only** —
+its content rerouted into core, where every future rendering technique (probes,
+fog, post-processing) will want its own accessor next to `sunLight()`. The
+documentation records this as progress; the debt just moved to a file that is
+harder to clean.
+
+## 0.4 Example: one façade, five copies, four of them drifting
+
+Games import the Three.js façade as `import * as THREE from 'three'`. The
+interpreter resolves that bare name by checking **the game's own folder first**
+(`eval/jsx/ComponentEngine.rgr:1160`), so each 3D game copied the façade in —
+and every copy has diverged:
+
+| Copy | Lines |
+|------|-------|
+| `three/tsx/three.tsx` (canonical) | 585 |
+| `games/cube/three.tsx` | 350 |
+| `games/cubes/three.tsx` | 350 |
+| `games/sponza/three.tsx` | 337 |
+| `games/teapot/three.tsx` | 237 |
+
+A bug fixed in one copy stays broken in the other four. The interpreter already
+supports shared search directories (`assetPaths`, same function, line 1170) —
+the copies exist because copying into the game folder was the shortcut that
+worked that day. `game_helpers.tsx`, `game.d.ts`, and `breakout.d.ts` are
+duplicated the same way.
+
+## 0.5 Example: the same vector math is implemented five times
+
+There is no shared math module, so each subsystem wrote its own:
+
+| Implementation | Where | Language |
+|----------------|-------|----------|
+| `three_vector3.rgr` | `three/src/` | Ranger |
+| `cannon_vec3.rgr` | `physics/src/` | Ranger |
+| `GltfMath.rgr` | `model3d/` | Ranger |
+| `scene.rs` (`Vec3`, `Quat`) | `lib/ranger_game/src/` | Rust |
+| `three.tsx` (`class Vector3`, ~90 methods) | `three/tsx/` + 4 game copies | TSX |
+
+Five implementations of the same arithmetic in three languages, each tested (or
+not) on its own. Numerical fixes and conventions (handedness, Euler order,
+normalization edge cases) do not propagate.
+
+## 0.6 Example: three entity systems, none shared
+
+- `three/src/three_scene_host.rgr` — five parallel arrays, handle = array index,
+  removal never frees the slot.
+- `model3d/EntityModel.rgr` — a second `EntityRegistry`, also id = array index.
+- `scripting/game_entity_store.rgr` — a third store keyed by string ids for 2D
+  world games.
+
+Each was written when a subsystem needed entities *that day*. All three have the
+same missing pieces (stable ids, safe removal, type information) — and fixing
+one fixes nothing for the other two.
+
+## 0.7 Example: a one-line "for now" that became an architecture
+
+`eval/jsx/EvalValue.rgr:540`:
+
+```
+; Arrays and objects - reference equality for now
+return false
+```
+
+Because object equality "for now" returns false, `a === a` is false in game
+scripts, and `Map`/`Set` cannot key on objects. Downstream, the Three façade
+needed a way to remove scene nodes without identity, so it grew the `__removed`
+flag hack (`three.tsx:60,67,71`); the reconciler could not key nodes by object,
+so it keys them by array position and "assumes a stable tree shape"
+(`three_tsx_bridge.rgr:77–89`). One deferred line in the interpreter dictated
+the design of every layer above it. This is the smallest reroute in the
+codebase and the most expensive one.
+
+## 0.8 What the new core must do differently — build and test rules
+
+Each example above survived because nothing *failed* when the shortcut was
+taken. The new core's job is to make every one of these reroutes either
+impossible or loudly visible:
+
+- **A runner receives the game, never imports it.** Games bind through the
+  provider/scene interface. Enforced mechanically: a CI grep fails the build if
+  a file under `core/` names a game in its filename or imports one (kills 0.1).
+- **Every world/scene fact has exactly one owner.** The guest declares it; the
+  host reads it through the ABI. A conformance fixture runs one game on both
+  paths and diffs the bytes (kills 0.2).
+- **Technique code depends on typed capabilities, not bridge accessors.** The
+  registry's Object Type ID + `resolveAs` (Parts II–III) replaces the
+  `sunLight()` accessor pattern; adding a technique adds a type, not a method on
+  the reconciler (kills 0.3).
+- **Shared modules resolve from one place.** The façade and helpers live once on
+  the shared search path; a duplicate-basename check in CI flags a game-local
+  copy of a shared module (kills 0.4).
+- **One definition per class, all faces generated.** The Class Registry
+  (Part IV) is the single source for classes/methods/props; interpreter façade,
+  Rust/AS guest structs, and bridge surfaces are generated from it, with a
+  surface-parity test that fails on drift (kills 0.5, and the 10-vs-2 geometry
+  constructor drift between host and native bridge).
+- **One entity registry** with stable generation-tagged ids and type ids
+  (Part II) backs the Three host, `model3d`, and the world store (kills 0.6).
+- **No silent "for now" in the value model.** The interpreter semantics get
+  their own test suite (`component_engine_js_semantics_test`, Part III) so a
+  deferred semantic — identity, `undefined`, Map/Set keys — is a red test, not
+  a comment (kills 0.7).
+
+The rest of this plan is organized around making those rules true: Part I maps
+where everything lives and moves core into one place; Part II builds the one
+registry; Parts IV–V define the one contract and the bridge that runs it;
+Parts VI–VII cover lifetime and the generated guest faces.
+
+---
+
 # Part I — the engine core, and where it lives on disk
 
 The engine's core is spread across many folders. Some of it already sits in tidy
