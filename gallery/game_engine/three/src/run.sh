@@ -56,6 +56,9 @@ run_suite three_sky_test
 run_suite three_mesh_test
 run_suite three_cube_demo_test
 run_suite three_gl_backend_test
+# The single-truth host registry (THREE_BRIDGE.md): every front-end commands this
+# one registry by integer handle; no front-end owns Three objects privately.
+run_suite three_scene_host_test
 
 # The 1:1 Three.js cube example, run through the TSX interpreter on the façade.
 run_tsx_poc three_facade_poc

@@ -74,4 +74,7 @@ class ThreeDirectionalLight extends ThreeLight {
     fn lightViewProjection:ThreeMatrix4 () {
         return (this.shadowViewProjection())
     }
+    fn setShadowExtent:void (l:double r:double t:double b:double n:double f:double) {
+        this.shadow.setExtent(l r t b n f)
+    }
 }

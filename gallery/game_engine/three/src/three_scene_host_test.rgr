@@ -1,0 +1,87 @@
+; ==============================================================================
+; three_scene_host_test — the host registry builds a real, renderable scene from
+; commands (THREE_BRIDGE.md Phase 1).
+; ==============================================================================
+; Drives ThreeSceneHost with the integer-handle command surface (scene / camera /
+; geometry / material / mesh / light / transform), renders it with the software
+; backend, and asserts the registry holds the right resources + instances and that
+; the commanded scene actually renders. No front-end here — this is the shared
+; registry the interpreter reconciler and a WASM guest will both command.
+; ==============================================================================
+
+Import "three_scene_host.rgr"
+Import "three_software_backend.rgr"
+
+class ThreeSceneHostTest {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (label:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + label)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + label)
+        }
+    }
+
+    sfn covered:int (color:buffer w:int h:int) {
+        def n:int (w * h)
+        def c:int 0
+        def i:int 0
+        while (i < n) {
+            def o:int (i * 3)
+            if ((((buffer_get color o) + (buffer_get color (o + 1))) + (buffer_get color (o + 2))) > 60) {
+                c = (c + 1)
+            }
+            i = (i + 1)
+        }
+        return c
+    }
+
+    sfn m@(main):void () {
+        def t:ThreeSceneHostTest (new ThreeSceneHostTest)
+        t.run()
+    }
+
+    fn run:void () {
+        def host:ThreeSceneHost (new ThreeSceneHost)
+        def sw:ThreeSoftwareBackend (new ThreeSoftwareBackend)
+        host.useBackend(sw)
+
+        ; build a scene entirely through commands (the single source of truth).
+        def sceneH:int (host.sceneNew())
+        def camH:int (host.cameraNew())
+        host.cameraSet(camH 70.0 1.0 0.1 100.0)
+        host.cameraPose(camH 0.0 0.0 3.0 0.0 0.0 0.0)
+        def geoH:int (host.geometryBox(1.0 1.0 1.0))
+        def matH:int (host.materialBasic(16746496 0 false))
+        def meshH:int (host.meshNew(sceneH geoH matH))
+        host.entityTransform(meshH 0.0 0.0 0.0 0.2 0.4 0.0 1.0 1.0 1.0)
+        def ambH:int (host.lightAmbient(sceneH 3355443 1.0))
+
+        print "== ThreeSceneHost built a scene from commands =="
+        this.ok("scene handle is 1-based (==1)" (sceneH == 1))
+        this.ok("one geometry resource" ((host.geometryCount()) == 1))
+        this.ok("one material resource" ((host.materialCount()) == 1))
+        this.ok("two entities (mesh + ambient light)" ((host.entityCount()) == 2))
+        this.ok("mesh handle before light handle" (meshH < ambH))
+
+        ; render the commanded scene with the software backend.
+        host.render(sceneH camH 200 200)
+        def frame:buffer (host.raw())
+        def cov:int (ThreeSceneHostTest.covered(frame 200 200))
+        print ("  covered=" + (to_string cov))
+        this.ok("commanded scene renders (mesh covers the frame)" (cov > 3000))
+
+        ; a second mesh sharing the SAME geometry + material resources (instancing).
+        def m2:int (host.meshNew(sceneH geoH matH))
+        host.entityTransform(m2 1.5 0.0 0.0 0.0 0.0 0.0 1.0 1.0 1.0)
+        this.ok("instancing reuses resources (still 1 geometry, 1 material)" (((host.geometryCount()) == 1) && ((host.materialCount()) == 1)))
+        this.ok("three entities now" ((host.entityCount()) == 3))
+
+        print "== summary =="
+        print (("passed=" + (to_string passed)) + (" failed=" + (to_string failed)))
+        if (failed == 0) { print "ALL PASS" } { print "SOME FAILED" }
+    }
+}
