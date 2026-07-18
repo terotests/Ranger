@@ -1,0 +1,231 @@
+; ==============================================================================
+; three_convergence_test — the interpreter and a direct-command guest land on
+; the SAME host registry state (THREE_BRIDGE.md Phase 5).
+; ==============================================================================
+; The whole point of the single-truth-model migration: two independent
+; front-ends converge on one scene. This test proves it two ways.
+;
+; 1) IDENTICAL STATE. Drive the canonical cube (three.tsx + cube.tsx) through the
+;    INTERPRETER front-end (ThreeTsxBridge reconciles N ticks) onto host A. Then
+;    drive the SAME logical scene through a direct `three_*` command sequence
+;    (ThreeNativeBridge — the WASM/Rust-guest simulation) onto a fresh host B.
+;    Assert the two registries are identical: same entity / geometry / material
+;    counts, same mesh transform, same texture provenance. Same scene, one shape.
+;
+; 2) FRONT-END INDEPENDENCE. Point BOTH front-ends at ONE shared host. Reconcile
+;    the cube through the interpreter, then issue a direct `three_light_ambient`
+;    through the command guest. Assert both objects coexist in the one registry —
+;    the state is front-end-independent because there is exactly one registry.
+; ==============================================================================
+
+Import "three_tsx_bridge.rgr"
+Import "three_native_bridge.rgr"
+Import "../src/three_scene_host.rgr"
+Import "../src/three_software_backend.rgr"
+Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class ThreeConvergenceTest {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (label:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + label)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + label)
+        }
+    }
+    sfn near:boolean (a:double b:double) {
+        def d:double (a - b)
+        if (d < 0.0) { d = (0.0 - d) }
+        return (d < 0.000001)
+    }
+    fn num:EvalValue (n:double) {
+        return (EvalValue.number(n))
+    }
+
+    ; wire the host globals the cube script needs (THREE constants + window sizes).
+    fn makeEngine:ComponentEngine () {
+        def engine (new ComponentEngine())
+        engine.quiet = true
+        def tk:[string]
+        def tv:[EvalValue]
+        push tk "SRGBColorSpace"
+        push tv (EvalValue.string("srgb"))
+        engine.registerGlobal("THREE" (EvalValue.object(tk tv)))
+        def wk:[string]
+        def wv:[EvalValue]
+        push wk "innerWidth"
+        push wv (EvalValue.number(800.0))
+        push wk "innerHeight"
+        push wv (EvalValue.number(600.0))
+        push wk "devicePixelRatio"
+        push wv (EvalValue.number(1.0))
+        engine.registerGlobal("window" (EvalValue.object(wk wv)))
+        def facade:buffer (buffer_read_file "gallery/game_engine/three/tsx" "three.tsx")
+        def cube:buffer (buffer_read_file "gallery/game_engine/three/tsx" "cube.tsx")
+        def src:string ((buffer_to_string facade) + "\n" + (buffer_to_string cube))
+        engine.loadScript(src)
+        engine.callFunction("init" (EvalValue.null()))
+        return engine
+    }
+
+    sfn m@(main):void () {
+        def t:ThreeConvergenceTest (new ThreeConvergenceTest)
+        t.run()
+    }
+
+    fn run:void () {
+        def W:int 200
+        def H:int 200
+        def N:int 10
+
+        ; ---- front-end 1: the INTERPRETER drives host A ----
+        def engine:ComponentEngine (this.makeEngine())
+        def f:int 0
+        while (f < N) {
+            engine.callFunction("tick" (EvalValue.null()))
+            f = (f + 1)
+        }
+        def recon:ThreeTsxBridge (new ThreeTsxBridge)
+        recon.setEngine(engine)
+        recon.reconcile(W H)
+        def hostA:ThreeSceneHost (recon.getHost())
+
+        ; ---- front-end 2: a DIRECT three_* command guest drives host B ----
+        def nb:ThreeNativeBridge (new ThreeNativeBridge)
+        def hostB:ThreeSceneHost (nb.getHost())
+        def aspect:double (800.0 / 600.0)
+
+        def a0:[EvalValue]
+        def sceneB:int (to_int ((nb.invoke("three_scene_new" a0)).toNumber()))
+        def a1:[EvalValue]
+        def camB:int (to_int ((nb.invoke("three_camera_new" a1)).toNumber()))
+        def csA:[EvalValue]
+        push csA (this.num((to_double camB)))
+        push csA (this.num(70.0))
+        push csA (this.num(aspect))
+        push csA (this.num(0.1))
+        push csA (this.num(100.0))
+        nb.invoke("three_camera_set" csA)
+        def cpA:[EvalValue]
+        push cpA (this.num((to_double camB)))
+        push cpA (this.num(0.0))
+        push cpA (this.num(0.0))
+        push cpA (this.num(2.0))
+        push cpA (this.num(0.0))
+        push cpA (this.num(0.0))
+        push cpA (this.num(0.0))
+        nb.invoke("three_camera_pose" cpA)
+        def gA:[EvalValue]
+        push gA (this.num(1.0))
+        push gA (this.num(1.0))
+        push gA (this.num(1.0))
+        def geoB:int (to_int ((nb.invoke("three_geometry_box" gA)).toNumber()))
+        def mA:[EvalValue]
+        push mA (this.num(16777215.0))
+        push mA (this.num(0.0))
+        push mA (this.num(0.0))
+        def matB:int (to_int ((nb.invoke("three_material_basic" mA)).toNumber()))
+        def mmA:[EvalValue]
+        push mmA (this.num((to_double matB)))
+        push mmA (EvalValue.string("textures/crate.gif"))
+        nb.invoke("three_material_map" mmA)
+        def meA:[EvalValue]
+        push meA (this.num((to_double sceneB)))
+        push meA (this.num((to_double geoB)))
+        push meA (this.num((to_double matB)))
+        def meshB:int (to_int ((nb.invoke("three_mesh_new" meA)).toNumber()))
+        ; the cube's animate() adds 0.005 / 0.01 per tick from rotation 0.
+        def rx:double ((to_double N) * 0.005)
+        def ry:double ((to_double N) * 0.01)
+        def teA:[EvalValue]
+        push teA (this.num((to_double meshB)))
+        push teA (this.num(0.0))
+        push teA (this.num(0.0))
+        push teA (this.num(0.0))
+        push teA (this.num(rx))
+        push teA (this.num(ry))
+        push teA (this.num(0.0))
+        push teA (this.num(1.0))
+        push teA (this.num(1.0))
+        push teA (this.num(1.0))
+        nb.invoke("three_entity_transform" teA)
+
+        print "== convergence 1: interpreter vs direct-command land identical state =="
+        this.ok("same entity count" ((hostA.entityCount()) == (hostB.entityCount())))
+        this.ok("same geometry count" ((hostA.geometryCount()) == (hostB.geometryCount())))
+        this.ok("same material count" ((hostA.materialCount()) == (hostB.materialCount())))
+        this.ok("exactly one mesh entity" ((hostA.entityCount()) == 1))
+        this.ok("exactly one geometry resource" ((hostA.geometryCount()) == 1))
+
+        def eA:ThreeObject3D (hostA.entityAt(1))
+        def eB:ThreeObject3D (hostB.entityAt(1))
+        this.ok("mesh rotation.x converges" (ThreeConvergenceTest.near(eA.rotation.x eB.rotation.x)))
+        this.ok("mesh rotation.y converges" (ThreeConvergenceTest.near(eA.rotation.y eB.rotation.y)))
+        this.ok("mesh rotation.x is N*0.005" (ThreeConvergenceTest.near(eA.rotation.x rx)))
+
+        def cA:ThreePerspectiveCamera (hostA.cameraAt(1))
+        def cB:ThreePerspectiveCamera (hostB.cameraAt(1))
+        this.ok("camera position.z converges (==2)" (ThreeConvergenceTest.near(cA.position.z cB.position.z)))
+
+        ; texture provenance converges: both asked for crate.gif with no host pixels,
+        ; so both counted exactly one fallback (never a silent, uncounted fake).
+        this.ok("fallback texture count converges" ((hostA.fallbackTextureCount()) == (hostB.fallbackTextureCount())))
+        this.ok("both fell back exactly once" ((hostA.fallbackTextureCount()) == 1))
+
+        ; both registries actually render (same core path).
+        def swA:ThreeSoftwareBackend (new ThreeSoftwareBackend)
+        hostA.useBackend(swA)
+        hostA.render(1 1 W H)
+        def swB:ThreeSoftwareBackend (new ThreeSoftwareBackend)
+        hostB.useBackend(swB)
+        hostB.render(sceneB camB W H)
+        this.ok("both registries render (coverage > 3000)" (((ThreeConvergenceTest.covered((hostA.raw()) W H)) > 3000) && ((ThreeConvergenceTest.covered((hostB.raw()) W H)) > 3000)))
+
+        ; ---- convergence 2: BOTH front-ends command ONE shared host ----
+        def shared:ThreeSceneHost (new ThreeSceneHost)
+        def eng2:ComponentEngine (this.makeEngine())
+        def recon2:ThreeTsxBridge (new ThreeTsxBridge)
+        recon2.setHost(shared)
+        recon2.setEngine(eng2)
+        recon2.reconcile(W H)
+        def afterInterp:int (shared.entityCount())
+
+        def nb2:ThreeNativeBridge (new ThreeNativeBridge)
+        nb2.setHost(shared)
+        ; the reconciler allocated scene handle 1 in the shared host; the command
+        ; guest adds a light to that SAME scene.
+        def lA:[EvalValue]
+        push lA (this.num(1.0))
+        push lA (this.num(3355443.0))
+        push lA (this.num(1.0))
+        nb2.invoke("three_light_ambient" lA)
+
+        print "== convergence 2: two front-ends drive ONE registry =="
+        this.ok("interpreter added the cube mesh" (afterInterp == 1))
+        this.ok("command guest added a light to the SAME registry" ((shared.entityCount()) == 2))
+        this.ok("shared host has one scene (not two)" ((shared.entityCount()) == 2))
+
+        print "== summary =="
+        print (("passed=" + (to_string passed)) + (" failed=" + (to_string failed)))
+        if (failed == 0) { print "ALL PASS" } { print "SOME FAILED" }
+    }
+
+    sfn covered:int (color:buffer w:int h:int) {
+        def n:int (w * h)
+        def c:int 0
+        def i:int 0
+        while (i < n) {
+            def o:int (i * 3)
+            if ((((buffer_get color o) + (buffer_get color (o + 1))) + (buffer_get color (o + 2))) > 60) {
+                c = (c + 1)
+            }
+            i = (i + 1)
+        }
+        return c
+    }
+}

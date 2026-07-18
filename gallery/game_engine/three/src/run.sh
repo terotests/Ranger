@@ -63,6 +63,9 @@ run_suite three_scene_host_test
 # The interpreter transport for the command ABI: bare `three_*(...)` calls
 # routed through ThreeNativeBridge into the one shared ThreeSceneHost.
 run_tsx_poc three_native_bridge_test
+# Convergence: the interpreter front-end and a direct-command guest land on
+# identical host-registry state, and both drive ONE shared registry.
+run_tsx_poc three_convergence_test
 # The 1:1 Three.js cube example, run through the TSX interpreter on the façade.
 run_tsx_poc three_facade_poc
 # The render bridge: the interpreted cube.tsx reconciled into the Ranger core and

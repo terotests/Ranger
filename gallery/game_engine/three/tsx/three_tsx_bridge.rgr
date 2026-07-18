@@ -141,6 +141,21 @@ class ThreeTsxBridge {
         return this
     }
 
+    ; point this reconciler at an EXISTING host so several front-ends command one
+    ; shared registry (the convergence path). Resets the handles so ensureHost
+    ; re-allocates the scene/camera in the new host.
+    fn setHost:ThreeTsxBridge (h:ThreeSceneHost) {
+        host = h
+        sceneH = 0
+        camH = 0
+        return this
+    }
+    ; the one registry this reconciler commands (for tests / a shared-host front-end).
+    fn getHost:ThreeSceneHost () {
+        this.ensureHost()
+        return host
+    }
+
     ; allocate the host scene + camera once, and point the read-through references at
     ; the host's owned instances (idempotent; called from every public entry).
     fn ensureHost:void () {
