@@ -13,7 +13,8 @@
 > - **Part III — fix the Three object model.** The coupled Three issues that sit
 >   on Part II: reconciler, resource sharing, bridge-call model, parity rig.
 > - **Part IV — Class Registry** (the bridge ABI contract, special review).
-> - **Part V — the native-object adapter** (D2 = Line B).
+> - **Part V — the Bridge** (native classes via `NativeClassAdapter` + object
+>   invocation + native modules like `ranger-game`; D2 = Line B).
 >
 > Hard rule from the review: **stop adding Three classes/loaders/geometries until
 > identity, keyed reconciliation, and resource sharing land** — every new feature
@@ -415,47 +416,80 @@ so freeze its shape before building codegen on it. Open: id widths, the type set
 where the registry lives (a `.rgr` table vs a data file), and how it maps onto
 the existing `wasm/*.h` ABI headers.
 
-# Part V — The native-object adapter (D2 = Line B)
-*Motivation:* `three.tsx` hand-copies ~90 Vector3/Object3D methods (plus the
-`__removed` hack, `three.tsx:60,67,71`) while wanting the math to live only in
-Ranger core — a fight that worsens as the API grows. D2 resolves it with the
-adapter below; the bounded-façade alternative is retired.
+# Part V — The Bridge: native classes & native modules
+The bridge is how interpreted game code reaches host/native functionality
+**without pointers** — it is the runtime side of the Class Registry contract
+(Part IV). It has **two surfaces**: native *classes* a script constructs
+(`new THREE.Vector3()`), and native *modules* a script imports
+(`import * as Ranger from "ranger-game"`). Both are versioned by, and
+backward-compatible under, the Part IV contract.
 
+## V.1 Why a bridge, not façade classes
+`three.tsx` hand-copies ~90 Vector3/Object3D methods (plus the `__removed` hack,
+`three.tsx:60,67,71`) while wanting the math to live only in Ranger core — a
+fight that worsens as the API grows. D2 resolves it with the adapter below; the
+bounded-façade alternative is retired.
+
+## V.2 Native-class adapter (`NativeClassAdapter`)
 The interpreter **already** wraps one native Ranger class: `valueType 7`
-(`EvalValue.element(el:EVGElement)`). The adapter generalizes that hook so the
-interpreter can construct and drive *any* class in the **Class Registry (Part
-IV)** by value:
-
-- **Generic native slot** — replace the special-cased `evgElement` field with a
-  `nativeObject` + `nativeClassId`; `EVGElement` becomes client #0 of the general
-  mechanism.
-- **One adapter per class**, registered with the ComponentEngine:
+(`EvalValue.element(el:EVGElement)`). Generalize that hook — a `nativeObject` +
+`nativeClassId` slot, with **one adapter per class in the Class Registry (Part
+IV)** registered with the ComponentEngine (`EVGElement` becomes client #0):
 ```
 interface NativeClassAdapter {
-  fn className() : string                       ; "Vector3" | "Object3D" | …
+  fn className() : string                       ; "Vector3" | "Object3D" | …  (== a Part IV class)
   fn construct(args:[EvalValue]) : NativeRef     ; new THREE.Vector3(x,y,z)
   fn getProperty(self:NativeRef key:string) : EvalValue
   fn setProperty(self:NativeRef key:string v:EvalValue) : void
   fn invokeMethod(self:NativeRef m:string args:[EvalValue]) : EvalValue
 }
 ```
-- **`new THREE.X(...)` dispatch** — a `new` on a registered class calls
-  `construct` and returns an EvalValue holding the `NativeRef`; member get/set and
-  method calls route to `getProperty/setProperty/invokeMethod`. No façade
-  `class Vector3` in `three.tsx`.
-- **Backing objects are the canonical Ranger types** — `Vector3`→`Vec3`,
-  `Matrix4`→`Mat4`, `Quaternion`→`Quat`, `Object3D`→host `ThreeObject3D`, so the
-  interpreter, host scene, and parity tests read the **same** math.
-- **Identity for free** — a `NativeRef` EvalValue gets an `identityId` (Part II),
-  so shared instances are the same value everywhere; this is what makes the
-  resource aliasing (II.E) and reconciliation (III.3) work.
-- **First cut** — `Vector3, Euler, Quaternion, Matrix4, Object3D, Color` (the
-  value types Three code constructs directly); geometry/material/texture stay host
-  resources via the command surface. Loaders/new materials wait for the hard gate.
+**Backing objects are the canonical Ranger types** — `Vector3`→`Vec3`,
+`Matrix4`→`Mat4`, `Quaternion`→`Quat`, `Object3D`→host `ThreeObject3D` — so the
+interpreter, host scene, and parity tests read the **same** math. A `NativeRef`
+EvalValue gets an `identityId` (Part II), so shared instances are one value
+everywhere (what makes II.E aliasing + III.3 reconciliation work).
 
-**Risk.** A ComponentEngine change (`new`, member access, method dispatch gain a
-native path), so it lands behind the semantics suite (III.7) and must keep the
-`EVGElement` UI path green as client #0.
+## V.3 Object invocation (the dispatch path)
+How the interpreter drives a native-class value at runtime — four hooks, no
+façade class in `three.tsx`:
+```
+new THREE.X(args…)   -> adapter.construct(args)  -> EvalValue holding a NativeRef
+obj.prop             -> adapter.getProperty(ref, "prop")
+obj.prop = v         -> adapter.setProperty(ref, "prop", v)
+obj.method(args…)    -> adapter.invokeMethod(ref, "method", args)
+```
+The interpreter picks the adapter by the value's `nativeClassId` (== the Part IV
+`classId` / Object Type ID), so dispatch is a table lookup, and an unknown
+member is a defined error, not a crash.
+
+## V.4 Native modules — `import * as Ranger from "ranger-game"`
+Beyond classes, the bridge exposes host functionality as **importable native
+modules**. `ranger-game` is the core module namespace — the TSX-visible face of
+the guest library `lib/ranger_game/` (`input`, `scene`, `sprite`, `ui`, `world`,
+`resources`, `pose`) and the surface already declared in
+`scripting/engine.d.ts` (`Buttons`, connected-controller count, audio/voice,
+persistence). This is the important seam for handing game scripts the engine's
+live state and capabilities uniformly across interpreter / WASM / native:
+```ts
+import * as Ranger from "ranger-game";
+const pad = Ranger.controllers[0];               // live GameController state (host-owned)
+if (pad.pressed(Ranger.Buttons.ACTION)) fire();
+Ranger.audio.play("hit");
+```
+These are native functions/state, **not** JS objects — same no-pointer discipline
+as V.2, and the module's exported names/signatures are part of the **Part IV
+contract** (versioned, append-only), so a game compiled against `ranger-game`
+keeps working when the host adds capabilities. Candidate first exports:
+`controllers`/`input`, `time`, `audio`, and read-only engine/config state.
+
+## V.5 First cut & risk
+First classes: `Vector3, Euler, Quaternion, Matrix4, Object3D, Color`
+(geometry/material/texture stay host resources via the command surface; loaders
+wait for the hard gate). First module surface: `ranger-game` input/controllers.
+**Risk:** a ComponentEngine change (`new`, member access, method dispatch, and
+now module import gain a native path), so it lands behind the semantics suite
+(III.7) and must keep the `EVGElement` UI path green as client #0.
 
 ---
 
