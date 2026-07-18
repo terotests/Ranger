@@ -33,6 +33,11 @@ class Vector3 {
 // Tone-mapping constant referenced by the scene (renderer.toneMapping).
 const ACESFilmicToneMapping = 4;
 
+// A process-wide id counter so the bridge can bind a mixer to its target across
+// the interpreter's broken object identity (=== on objects is unreliable). Every
+// bindable node stamps a unique __uid in its constructor.
+let __threeUid = 0;
+
 // Constants the teapot example references (side, wrapping, colour space).
 const FrontSide = 0;
 const BackSide = 1;
@@ -219,6 +224,60 @@ class TorusKnotGeometry {
   dispose() { }
 }
 
+// --- Animation --------------------------------------------------------------
+// Thin arg holders: the sampling (linear / slerp) and the mixer application run
+// in the Ranger core (three_animation). Track names are three.js property paths
+// ('.position' / '.quaternion' / '.scale'); stride = components per keyframe.
+class VectorKeyframeTrack {
+  isKeyframeTrack = true;
+  constructor(name, times, values) {
+    this.name = name; this.times = times; this.values = values;
+    this.stride = 3; this.isQuaternion = false;
+  }
+}
+class NumberKeyframeTrack {
+  isKeyframeTrack = true;
+  constructor(name, times, values) {
+    this.name = name; this.times = times; this.values = values;
+    this.stride = 1; this.isQuaternion = false;
+  }
+}
+class QuaternionKeyframeTrack {
+  isKeyframeTrack = true;
+  constructor(name, times, values) {
+    this.name = name; this.times = times; this.values = values;
+    this.stride = 4; this.isQuaternion = true;
+  }
+}
+class AnimationClip {
+  isAnimationClip = true;
+  constructor(name, duration, tracks) {
+    this.name = name; this.duration = duration; this.tracks = tracks;
+  }
+}
+class AnimationAction {
+  constructor(clip) { this.clip = clip; this.running = false; this.weight = 1; }
+  play() { this.running = true; return this; }
+  stop() { this.running = false; return this; }
+  setEffectiveWeight(w) { this.weight = w; return this; }   // crossfade weight
+}
+class AnimationMixer {
+  isAnimationMixer = true;
+  constructor(target) {
+    this.target = target; this.time = 0;
+    this.actions = [];        // all playing clips (blended by weight — crossfade)
+    this.action = null;       // last, for single-clip convenience
+  }
+  clipAction(clip) {
+    const a = new AnimationAction(clip);
+    this.actions.push(a);
+    this.action = a;
+    return a;
+  }
+  update(dt) { this.time = this.time + dt; return this; }   // advance (accumulate)
+  setTime(t) { this.time = t; return this; }                // absolute seek
+}
+
 class Texture {
   isTexture = true;
   path = "";
@@ -331,9 +390,12 @@ class Mesh {
   geometry = null;
   material = null;
   children = [];
+  __uid = 0;
   constructor(geometry, material) {
     this.geometry = geometry;
     this.material = material;
+    __threeUid = __threeUid + 1;
+    this.__uid = __threeUid;
   }
   // real add now — the bridge recurses into children and builds them in the host
   // parented to this mesh (nested world transforms compose in the Ranger core).

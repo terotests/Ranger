@@ -22,13 +22,13 @@ Every feature folder is self-contained:
 | [`geometry/`](./geometry/) | Primitive + complex geometry construction (Plane, Circle, Ring, Sphere, Cylinder, Cone, Torus, TorusKnot) built in the Ranger host from interpreter args | `62/62` PASS |
 | [`spec/`](./spec/) | Camera (projection matrix), transformed-mesh world matrix, colour families, view-frustum culling — one runner, one description file | `57/57` PASS |
 | [`object_hierarchy/`](./object_hierarchy/) | Nested `Group`/mesh world transforms + tree structure, reconciled with real parenting | `13/13` PASS |
+| [`animation/`](./animation/) | KeyframeTrack sampling (linear + quaternion slerp) + an AnimationMixer applied to a target, driven through the interpreter | `15/15` PASS |
 
 Planned — folder + README present, no runner yet (each README says what should be tested,
 why it's blocked, and the concrete wiring step to unblock):
 
 | Folder | Feature | Blocked on |
 |---|---|---|
-| [`animation/`](./animation/) | KeyframeTrack sampling (linear/slerp), clip + mixer | object-model `KeyframeTrack`/mixer + façade |
 | [`model_loading/`](./model_loading/) | glTF node tree / geometry decode / bounds | interpreter path (parser exists + unit-tested in `../src/`) |
 
 ## One runner + a description file (why `spec/` is shaped that way)

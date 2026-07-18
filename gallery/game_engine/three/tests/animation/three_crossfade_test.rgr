@@ -1,0 +1,109 @@
+; ==============================================================================
+; three_crossfade_test — blended (crossfade) animation THROUGH THE INTERPRETER.
+; ==============================================================================
+; Two clips play at once on one mesh; the test sets per-action weights, reconciles,
+; and reads the blended entity TRS — comparing to real three.js
+; (../../reference/crossfade_goldens.json). The blend runs in the Ranger core:
+; weighted lerp for position, incremental slerp for quaternion (three.js
+; NormalAnimationBlendMode). No rendering.
+; ==============================================================================
+
+Import "../../tsx/three_tsx_bridge.rgr"
+Import "../../src/three_json.rgr"
+Import "../../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class CrossCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    sfn near:boolean (a:double b:double) {
+        def d:double (a - b)
+        if (d < 0.0) { d = (0.0 - d) }
+        return (d < 0.001)
+    }
+}
+
+class ThreeCrossfadeTest {
+    sfn m@(main):void () {
+        def ck:CrossCheck (new CrossCheck)
+        def gbuf:buffer (buffer_read_file "gallery/game_engine/three/reference" "crossfade_goldens.json")
+        def parser:ThreeJsonParser (new ThreeJsonParser)
+        def golds:ThreeJsonValue (parser.parse((buffer_to_string gbuf)))
+
+        def engine (new ComponentEngine())
+        engine.quiet = true
+        def tk:[string]
+        def tv:[EvalValue]
+        push tk "SRGBColorSpace"
+        push tv (EvalValue.string("srgb"))
+        engine.registerGlobal("THREE" (EvalValue.object(tk tv)))
+        def wk:[string]
+        def wv:[EvalValue]
+        push wk "innerWidth"
+        push wv (EvalValue.number(300.0))
+        push wk "innerHeight"
+        push wv (EvalValue.number(200.0))
+        push wk "devicePixelRatio"
+        push wv (EvalValue.number(1.0))
+        engine.registerGlobal("window" (EvalValue.object(wk wv)))
+
+        def facade:buffer (buffer_read_file "gallery/game_engine/three/tsx" "three.tsx")
+        def scene:buffer (buffer_read_file "gallery/game_engine/three/tests/animation" "crossfade_scene.tsx")
+        def src:string ((buffer_to_string facade) + "\n" + (buffer_to_string scene))
+        engine.loadScript(src)
+        def initR:EvalValue (engine.callFunction("init" (EvalValue.null())))
+
+        def bridge (new ThreeTsxBridge)
+        bridge.setEngine(engine)
+
+        print "== crossfade: two weighted clips blended via the interpreter =="
+        def cases:ThreeJsonValue (golds.get("cases"))
+        def n:int (cases.length())
+        def i:int 0
+        while (i < n) {
+            def c:ThreeJsonValue (cases.at(i))
+            def wa:double (c.numOr("wa" 0.0))
+            def wb:double (c.numOr("wb" 0.0))
+            ; set the two effective weights: setWeights({ a, b })
+            def ok2:[string]
+            def ov2:[EvalValue]
+            push ok2 "a"
+            push ov2 (EvalValue.number(wa))
+            push ok2 "b"
+            push ov2 (EvalValue.number(wb))
+            def sr:EvalValue (engine.callFunction("setWeights" (EvalValue.object(ok2 ov2))))
+            bridge.renderFrame(300 200)
+            def e:ThreeObject3D (bridge.host.entityAt(1))
+            def label:string ("wa=" + (to_string wa) + " wb=" + (to_string wb))
+            def gp:ThreeJsonValue (c.get("pos"))
+            ck.ok((label + " position") (
+                (CrossCheck.near((e.position.x) ((gp.at(0)).asNumber())))
+                && (CrossCheck.near((e.position.y) ((gp.at(1)).asNumber())))
+                && (CrossCheck.near((e.position.z) ((gp.at(2)).asNumber())))))
+            def gq:ThreeJsonValue (c.get("quat"))
+            ck.ok((label + " quaternion") (
+                (CrossCheck.near((e.quaternion.x) ((gq.at(0)).asNumber())))
+                && (CrossCheck.near((e.quaternion.y) ((gq.at(1)).asNumber())))
+                && (CrossCheck.near((e.quaternion.z) ((gq.at(2)).asNumber())))
+                && (CrossCheck.near((e.quaternion.w) ((gq.at(3)).asNumber())))))
+            i = (i + 1)
+        }
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}
