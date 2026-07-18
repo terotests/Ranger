@@ -91,6 +91,21 @@ class WebTsx3dGlHost {
         bridge.setTexture(path rgba texW texH)
     }
 
+    ; The texture paths the loaded scene references — so a host can load exactly the
+    ; specified assets and hand them in before the first frame.
+    fn collectTextureRequests:[string] () {
+        return (bridge.collectTextureRequests())
+    }
+    ; Texture fidelity: how many referenced textures used the real host asset vs a
+    ; placeholder. fallbackTextureCount()==0 ⇒ the specified textures are rendering,
+    ; not a silent substitution.
+    fn hostTextureCount:int () {
+        return (bridge.hostTextureCount())
+    }
+    fn fallbackTextureCount:int () {
+        return (bridge.fallbackTextureCount())
+    }
+
     ; Advance the interpreted animate() loop one step, then draw the reconciled
     ; scene to the GL canvas. The JS harness calls this each requestAnimationFrame.
     fn frame:void () {

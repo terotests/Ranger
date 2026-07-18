@@ -261,13 +261,12 @@ is in [`IDEAL_THREE.md`](./IDEAL_THREE.md).
 
 ### 8.2 Where they run (support matrix)
 
-✅ works · ◐ codegen-verified but visual run pending · ✱ works with the procedural
-checker texture (host image decode for `.tsx` scenes is a follow-up) · — n/a.
+✅ works (renders the specified assets) · ◐ codegen-verified, visual run pending.
 
 | Demo | Web gallery (WebGL) | Native SDL (macOS / Linux desktop GL) | Raspberry Pi 5 (GLES2) |
 |---|---|---|---|
-| **Cube** | ✅ `Cube 3D` | ✱ launcher `games/cube` (`render=tsx`), codegen-verified | ✱ same build (GLES2 on ARM), codegen-verified |
-| **Cubes** | ✅ `Cubes` | ✱ launcher `games/cubes` (`render=tsx`), codegen-verified | ✱ same build (GLES2 on ARM), codegen-verified |
+| **Cube** | ✅ `Cube 3D` (real crate texture) | ◐ launcher `games/cube` (`render=tsx`), real crate via `texture.ppm`; codegen-verified | ◐ same build (GLES2 on ARM); codegen-verified |
+| **Cubes** | ✅ `Cubes` (real crate texture) | ◐ launcher `games/cubes` (`render=tsx`), real crate via `texture.ppm`; codegen-verified | ◐ same build (GLES2 on ARM); codegen-verified |
 | **Teapot** | ✅ `Teapot` | ✅ `build-teapot-sdl.sh`, launcher `games/teapot` (`render=three`) | ✅ same build (GLES2 auto-selected on ARM) |
 | **Sponza** | ✅ `Sponza` | ✅ `build-sponza-sdl.sh`, launcher `games/sponza` (`render=sponza`) | ✅ same build (GLES2 path); fetch + decode over the network |
 
@@ -275,11 +274,28 @@ Notes: the native GL renders are codegen-verified (`-l=cpp`) and run on the user
 desktop/device; the browser renders are verified in headless Chromium. The
 Pi-5/GLES2 divergences (float-texture formats, NPOT mipmaps, depth-target formats)
 are guarded in `three_gl.rgr`; Apple Silicon is treated as desktop GL, not GLES2.
-Cube/Cubes now run natively through the same generic `ThreeTsxBridge` +
-`ThreeGLBackend` as the web (`render=tsx`); the ✱ is only that the native `.tsx`
-path uses the procedural checker instead of the crate image pending host-side
-`.tsx` texture decode — the geometry, materials, lights and animation are the real
-render.
+Cube/Cubes run natively through the *same* generic `ThreeTsxBridge` +
+`ThreeGLBackend` as the web (`render=tsx`) and load the real crate (`texture.ppm`
+staged in the game folder, decoded to the scene's texture path before the first
+frame).
+
+### 8.2.1 Fidelity — no silent fallbacks
+
+"Are we rendering the specified asset, or did the system quietly substitute
+something?" is a **machine-checkable** question, not a matter of eyeballing:
+
+- `ThreeTsxBridge` records provenance for every texture a material asks for:
+  `hostTextureCount()` (real supplied asset) vs `fallbackTextureCount()`
+  (placeholder). A missing asset is **counted and warned once** — never silent.
+- `collectTextureRequests()` reports exactly the paths a scene references, so a
+  host loads precisely the specified assets before the first frame.
+- Web decodes the image and hands the pixels in; native decodes `texture.ppm` and
+  hands the pixels in; the native runner then **logs** `tsx textures: host=N
+  fallback=M` each launch, so a run self-declares its fidelity.
+- `three_tsx_bridge_texture_test` (in `run.sh`) asserts the accounting both ways:
+  no asset ⇒ `fallback=1/host=0` (loud), specified asset supplied ⇒
+  `fallback=0/host=1`. `fallbackTextureCount()==0` is the guarantee that the
+  specified textures — not a demo placeholder — are what render.
 
 ### 8.3 API coverage — what's missing for the rest of the examples
 

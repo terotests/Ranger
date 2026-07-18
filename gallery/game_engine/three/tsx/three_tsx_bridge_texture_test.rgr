@@ -1,0 +1,112 @@
+; ==============================================================================
+; three_tsx_bridge_texture_test — no SILENT fallbacks: we can prove whether the
+; specified texture actually rendered, or a placeholder was substituted.
+; ==============================================================================
+; Drives the textured cube.tsx (material.map = 'textures/crate.gif') through the
+; bridge two ways and checks the machine-readable provenance:
+;   1. WITHOUT host pixels -> the bridge falls back to a placeholder, but LOUDLY:
+;      fallbackTextureCount()==1, hostTextureCount()==0. (You can assert you are
+;      NOT running the specified asset.)
+;   2. WITH the real pixels supplied first (as a host would after decoding the
+;      image) -> fallbackTextureCount()==0, hostTextureCount()==1. (You can assert
+;      you ARE running the specified asset — no silent substitution.)
+; Also checks collectTextureRequests() reports exactly the referenced path, so a
+; host can load precisely the specified assets before the first frame.
+; ==============================================================================
+
+Import "three_tsx_bridge.rgr"
+Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class ThreeTsxBridgeTextureTest {
+    sfn buildEngine:ComponentEngine () {
+        def engine (new ComponentEngine())
+        engine.quiet = true
+        def tk:[string]
+        def tv:[EvalValue]
+        push tk "SRGBColorSpace"
+        push tv (EvalValue.string("srgb"))
+        engine.registerGlobal("THREE" (EvalValue.object(tk tv)))
+        def wk:[string]
+        def wv:[EvalValue]
+        push wk "innerWidth"
+        push wv (EvalValue.number(200.0))
+        push wk "innerHeight"
+        push wv (EvalValue.number(200.0))
+        push wk "devicePixelRatio"
+        push wv (EvalValue.number(1.0))
+        engine.registerGlobal("window" (EvalValue.object(wk wv)))
+        def facade:buffer (buffer_read_file "gallery/game_engine/three/tsx" "three.tsx")
+        def cube:buffer (buffer_read_file "gallery/game_engine/three/tsx" "cube.tsx")
+        def src:string ((buffer_to_string facade) + "\n" + (buffer_to_string cube))
+        engine.loadScript(src)
+        def initR:EvalValue (engine.callFunction("init" (EvalValue.null())))
+        return engine
+    }
+
+    sfn realPixels:buffer () {
+        def px:buffer (buffer_alloc 16)
+        def i:int 0
+        while (i < 16) {
+            buffer_set px i 180
+            i = (i + 1)
+        }
+        return px
+    }
+
+    sfn m@(main):void () {
+        def W:int 120
+        def H:int 120
+        def passed:int 0
+        def failed:int 0
+        print "== texture fidelity: fallbacks are loud + checkable, not silent =="
+
+        ; (0) the scene declares exactly one texture path
+        def e0 (ThreeTsxBridgeTextureTest.buildEngine())
+        def probe (new ThreeTsxBridge)
+        probe.setEngine(e0)
+        def reqs:[string] (probe.collectTextureRequests())
+        if (((array_length reqs) == 1) && ((itemAt reqs 0) == "textures/crate.gif")) {
+            passed = (passed + 1)
+            print "  PASS collectTextureRequests reports the specified path"
+        } {
+            failed = (failed + 1)
+            print ("  FAIL collectTextureRequests wrong: n=" + (to_string (array_length reqs)))
+        }
+
+        ; (1) no host pixels -> loud fallback, provable
+        def e1 (ThreeTsxBridgeTextureTest.buildEngine())
+        def b1 (new ThreeTsxBridge)
+        b1.setEngine(e1)
+        b1.renderFrame(W H)
+        if (((b1.fallbackTextureCount()) == 1) && ((b1.hostTextureCount()) == 0)) {
+            passed = (passed + 1)
+            print "  PASS missing asset is counted as a fallback (not silent)"
+        } {
+            failed = (failed + 1)
+            print ("  FAIL fallback accounting wrong: host=" + (to_string (b1.hostTextureCount())) + " fallback=" + (to_string (b1.fallbackTextureCount())))
+        }
+
+        ; (2) real pixels supplied first -> the specified asset is used, zero fallback
+        def e2 (ThreeTsxBridgeTextureTest.buildEngine())
+        def b2 (new ThreeTsxBridge)
+        b2.setEngine(e2)
+        b2.setTexture("textures/crate.gif" (ThreeTsxBridgeTextureTest.realPixels()) 2 2)
+        b2.renderFrame(W H)
+        if (((b2.fallbackTextureCount()) == 0) && ((b2.hostTextureCount()) == 1)) {
+            passed = (passed + 1)
+            print "  PASS specified asset is used — zero silent substitution"
+        } {
+            failed = (failed + 1)
+            print ("  FAIL host asset not used: host=" + (to_string (b2.hostTextureCount())) + " fallback=" + (to_string (b2.fallbackTextureCount())))
+        }
+
+        print "== summary =="
+        print ("passed=" + (to_string passed) + " failed=" + (to_string failed))
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

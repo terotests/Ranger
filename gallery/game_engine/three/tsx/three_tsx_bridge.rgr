@@ -57,9 +57,20 @@ class ThreeTsxBridge {
     ; Ranger nodes, parallel to the façade scene.children (built once, index-keyed).
     ; Any node is a ThreeObject3D subclass — mesh or light — so one array holds them.
     def nodes:[ThreeObject3D]
-    ; texture cache by path (host-supplied pixels, or a checker fallback).
+    ; HOST-supplied textures by path (real decoded pixels handed in via setTexture).
     def texPaths:[string]
     def texObjs:[ThreeTexture]
+    ; per-path resolution + PROVENANCE: for every texture a material actually asked
+    ; for, whether it was satisfied by real host pixels (true) or a placeholder
+    ; (false). This makes "are we rendering the specified asset, or a silent
+    ; fallback?" a machine-checkable question — hostTextureCount vs
+    ; fallbackTextureCount — instead of an invisible substitution.
+    def reqPaths:[string]
+    def reqTex:[ThreeTexture]
+    def reqHost:[boolean]
+    def nHostTex:int 0
+    def nFallbackTex:int 0
+    def warnedFallback:boolean false
 
     ; reconcile bookkeeping (also serves as introspection for tests: proves the
     ; façade was mapped to the right REAL object types, not a single hard-coded one).
@@ -72,6 +83,11 @@ class ThreeTsxBridge {
     fn ambientLightCount:int () { return nAmbient }
     fn directionalLightCount:int () { return nDirectional }
     fn firstMaterialKind:string () { return firstMatKind }
+    ; texture-fidelity introspection: how many referenced textures were satisfied
+    ; by real host pixels vs a placeholder. fallbackTextureCount()==0 means every
+    ; texture the scene specified is the real asset (no silent substitution).
+    fn hostTextureCount:int () { return nHostTex }
+    fn fallbackTextureCount:int () { return nFallbackTex }
 
     fn setEngine:ThreeTsxBridge (e:ComponentEngine) {
         engine = e
@@ -358,20 +374,84 @@ class ThreeTsxBridge {
         mat.setMap((this.textureForPath(path)))
     }
 
-    ; Host-supplied texture for the path, else a checker (cached so repeat paths and
-    ; many meshes share one upload).
+    ; Resolve the texture for a path. Prefer real HOST pixels; only if none were
+    ; supplied do we fall back to a placeholder checker — and that fallback is NOT
+    ; silent: it is counted (fallbackTextureCount) and warned once, so a caller can
+    ; assert it never happened. Resolution is cached per path (provenance kept).
     fn textureForPath:ThreeTexture (path:string) {
+        def r:int 0
+        while (r < (array_length reqPaths)) {
+            if ((itemAt reqPaths r) == path) {
+                return (itemAt reqTex r)
+            }
+            r = (r + 1)
+        }
         def i:int 0
         while (i < (array_length texPaths)) {
             if ((itemAt texPaths i) == path) {
-                return (itemAt texObjs i)
+                def ht:ThreeTexture (itemAt texObjs i)
+                push reqPaths path
+                push reqTex ht
+                push reqHost true
+                nHostTex = (nHostTex + 1)
+                return ht
             }
             i = (i + 1)
         }
+        if (warnedFallback == false) {
+            print ("[three] WARNING: no host pixels for texture '" + path + "' — using placeholder (not the specified asset)")
+            warnedFallback = true
+        }
         def tex:ThreeTexture (this.checkerTexture())
-        push texPaths path
-        push texObjs tex
+        push reqPaths path
+        push reqTex tex
+        push reqHost false
+        nFallbackTex = (nFallbackTex + 1)
         return tex
+    }
+
+    ; The texture paths the current façade scene references (a pure façade read — no
+    ; object built), so a host can load exactly those assets from disk/network and
+    ; hand them in via setTexture BEFORE the first reconcile — i.e. run the
+    ; specified textures rather than the fallback.
+    fn collectTextureRequests:[string] () {
+        def out:[string]
+        def sc:EvalValue (engine.getGlobal("scene"))
+        if (sc.isObject() == false) {
+            return out
+        }
+        def childrenV:EvalValue (sc.getMember("children"))
+        if (childrenV.isArray() == false) {
+            return out
+        }
+        def n:int (array_length childrenV.arrayValue)
+        def i:int 0
+        while (i < n) {
+            def c:EvalValue (childrenV.getIndex(i))
+            if (c.isObject()) {
+                def matV:EvalValue (c.getMember("material"))
+                if (matV.isObject()) {
+                    def mapV:EvalValue (matV.getMember("map"))
+                    if (mapV.isObject()) {
+                        def pathV:EvalValue (mapV.getMember("path"))
+                        if (pathV.isString()) {
+                            def p:string pathV.stringValue
+                            def found:boolean false
+                            def k:int 0
+                            while (k < (array_length out)) {
+                                if ((itemAt out k) == p) { found = true }
+                                k = (k + 1)
+                            }
+                            if (found == false) {
+                                push out p
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
     }
 
     ; 2x2 RGBA checker — a stand-in when the host has not supplied decoded image
