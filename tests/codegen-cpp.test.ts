@@ -216,4 +216,35 @@ describe("C++ Code Generation", () => {
       expect(result.code).not.toContain("const std::vector<int>& arr");
     });
   });
+
+  describe("Buffer return by reference", () => {
+    // A buffer accessor that returns a stored buffer (member field or an element
+    // of a member container) must return `std::vector<uint8_t>&`, matching ES6
+    // reference semantics: the result aliases the stored buffer and binds to
+    // non-const reference parameters. A method returning a freshly allocated
+    // local buffer must keep value semantics so it never returns a dangling
+    // reference. Regression for the ThreeCubeMap::faceBuffer / copyInto build
+    // break (temporary std::vector could not bind to std::vector<uint8_t>&).
+    it("should return a reference for a stored-buffer accessor and value for a fresh local", () => {
+      const result = getGeneratedCppCode(
+        `${FIXTURES_DIR}/buffer_return_ref.rgr`
+      );
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      // accessor returning a member-container element -> reference return
+      expect(result.code).toContain(
+        "std::vector<uint8_t>&  CubeMap::faceBuffer( int face )"
+      );
+      // freshly-allocated local -> value return (no dangling reference)
+      expect(result.code).toContain(
+        "std::vector<uint8_t>  CubeMap::makeScratch( int n )"
+      );
+      expect(result.code).not.toContain(
+        "std::vector<uint8_t>&  CubeMap::makeScratch"
+      );
+      // header declaration must match the out-of-line definition
+      expect(result.code).toContain(
+        "std::vector<uint8_t>& faceBuffer( int face );"
+      );
+    });
+  });
 });

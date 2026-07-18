@@ -18739,6 +18739,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     constructor() {
       super()
       this.header_created = false;
+      this.buf_ret_seen = false;
+      this.buf_ret_all_safe = true;
     }
     lineEnding () {
       return ";";
@@ -19032,6 +19034,111 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           wr.out(this.getTypeString2(t_name, ctx), false);
           break;
       };
+    };
+    cppMemberPathOf (node) {
+      if ( (node.ns.length) >= 2 ) {
+        let path = "";
+        for ( let i = 0; i < node.ns.length; i++) {
+          var part = node.ns[i];
+          if ( i > 0 ) {
+            path = path + ".";
+          }
+          path = path + part;
+        };
+        return path;
+      }
+      if ( (node.vref.length) > 0 ) {
+        const idx = node.vref.indexOf(".");
+        if ( idx > 0 ) {
+          return node.vref;
+        }
+      }
+      return "";
+    };
+    cppReturnIsSafeBufferLvalue (retValue) {
+      const path = this.cppMemberPathOf(retValue);
+      if ( (path.length) > 0 ) {
+        if ( (path.indexOf("this.")) == 0 ) {
+          return true;
+        }
+      }
+      if ( retValue.expression ) {
+        if ( (retValue.children.length) >= 2 ) {
+          const head = retValue.getFirst();
+          const op = head.vref;
+          if ( (op == "itemAt") || (op == "get") ) {
+            const container = retValue.getSecond();
+            const cpath = this.cppMemberPathOf(container);
+            if ( (cpath.length) > 0 ) {
+              if ( (cpath.indexOf("this.")) == 0 ) {
+                return true;
+              }
+            }
+          }
+        }
+      }
+      return false;
+    };
+    cppScanBufferReturns (node) {
+      if ( (typeof(node.lambda_ctx) !== "undefined" && node.lambda_ctx != null )  ) {
+        return;
+      }
+      if ( node.expression ) {
+        if ( (node.children.length) > 0 ) {
+          const first = node.getFirst();
+          if ( first.vref == "return" ) {
+            if ( (node.children.length) >= 2 ) {
+              this.buf_ret_seen = true;
+              const retValue = node.getSecond();
+              if ( false == this.cppReturnIsSafeBufferLvalue(retValue) ) {
+                this.buf_ret_all_safe = false;
+              }
+            } else {
+              this.buf_ret_seen = true;
+              this.buf_ret_all_safe = false;
+            }
+          }
+        }
+      }
+      for ( let i = 0; i < node.children.length; i++) {
+        var child = node.children[i];
+        this.cppScanBufferReturns(child);
+      };
+    };
+    cppBufferReturnByRef (variant, ctx) {
+      if ( typeof(variant.nameNode) === "undefined" ) {
+        return false;
+      }
+      const node = variant.nameNode;
+      if ( node.hasFlag("optional") ) {
+        return false;
+      }
+      let v_type = node.value_type;
+      if ( ((v_type == 10) || (v_type == 11)) || (v_type == 0) ) {
+        v_type = node.typeNameAsType(ctx);
+      }
+      if ( node.eval_type != 0 ) {
+        v_type = node.eval_type;
+      }
+      if ( ((v_type != 16) && (v_type != 17)) && (v_type != 18) ) {
+        return false;
+      }
+      if ( typeof(variant.fnBody) === "undefined" ) {
+        return false;
+      }
+      this.buf_ret_seen = false;
+      this.buf_ret_all_safe = true;
+      this.cppScanBufferReturns(variant.fnBody);
+      if ( this.buf_ret_seen == false ) {
+        return false;
+      }
+      return this.buf_ret_all_safe;
+    };
+    async writeReturnTypeDef (variant, ctx, wr) {
+      await this.writeTypeDef(variant.nameNode, ctx, wr);
+      if ( this.cppBufferReturnByRef(variant, ctx) ) {
+        wr.out("&", false);
+      }
     };
     async WriteVRef (node, ctx, wr) {
       if ( node.vref == "this" ) {
@@ -19619,7 +19726,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           wr.out("/* static methods */ ", true);
         }
         wr.out("static ", false);
-        await this.writeTypeDef(variant.nameNode, ctx, wr);
+        await this.writeReturnTypeDef(variant, ctx, wr);
         wr.out((" " + variant.compiledName) + "(", false);
         await this.writeArgsDef(variant, ctx, wr);
         wr.out(");", true);
@@ -19644,7 +19751,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           if ( cl.is_inherited ) {
             wr.out("virtual ", false);
           }
-          await this.writeTypeDef(variant_1.nameNode, ctx, wr);
+          await this.writeReturnTypeDef(variant_1, ctx, wr);
           wr.out((" " + variant_1.compiledName) + "(", false);
           await this.writeArgsDef(variant_1, ctx, wr);
           wr.out(");", true);
@@ -19809,7 +19916,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         if ( variant.nameNode.hasFlag("main") ) {
           continue;
         }
-        await this.writeTypeDef(variant.nameNode, ctx, wr);
+        await this.writeReturnTypeDef(variant, ctx, wr);
         wr.out(" ", false);
         wr.out((" " + cl.name) + "::", false);
         wr.out(variant.compiledName + "(", false);
@@ -19829,7 +19936,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         const mVs = ( cl.method_variants.hasOwnProperty(fnVar) ? cl.method_variants[fnVar] : undefined );
         for ( let i_7 = 0; i_7 < mVs.variants.length; i_7++) {
           var variant_1 = mVs.variants[i_7];
-          await this.writeTypeDef(variant_1.nameNode, ctx, wr);
+          await this.writeReturnTypeDef(variant_1, ctx, wr);
           wr.out(" ", false);
           wr.out((" " + cl.name) + "::", false);
           wr.out(variant_1.compiledName + "(", false);
