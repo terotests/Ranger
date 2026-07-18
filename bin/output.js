@@ -41709,7 +41709,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         break;
                     };
                     let staticMethods;
+                    const beforeImports = wr.createTag("before_imports");
                     const importFork = wr.fork();
+                    const forwardDecls = wr.createTag("forward_declarations");
                     wr.createTag("after_imports");
                     const contentFork = wr.fork();
                     wr.createTag("utilities");
