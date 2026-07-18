@@ -166,15 +166,17 @@ per-frame mutation). The façade avoids it.
   >   Needed only *general* bridge additions — envMap → reflective, rebuild-on-
   >   signature-change (needsUpdate), and a real façade `scene.remove`. Reflections,
   >   the six shading modes and GUI re-tessellation verified headless.
-  > - **Sponza** (`ThreeSponzaScene`, now a plumbing module): the generic bridge
-  >   reconciles the sky, the shadow-casting sun, the host-attached model and the
-  >   camera; `ThreeSponzaScene` runs the GPU technique on those reconciled objects —
-  >   bounds → shadow extent, the diffuse-GI probe bake, the per-probe sun-visibility
-  >   pass, and first-person controls. `bind()` points it at the bridge's objects; it
-  >   never reconciles. Reconcile + hot-reload (sun angle, probe counts, GI toggle)
-  >   verified headless (`three_sponza_tsx_test`); the GI/shadow/sky *visual* is the
-  >   local desktop-GL / device step Sponza has always had (its model streams over a
-  >   network a headless CI can't reach).
+  > - **Sponza** (no model-named class — three.js has none): a faithful port of the
+  >   upstream example. `sponza.tsx` measures the model bounds (`Box3.setFromObject`,
+  >   fed the host-published `__hostBounds`), derives the sun + shadow camera + probe
+  >   far inline, and calls `probes.bake(renderer, scene, {...})`. The ONE generic
+  >   bridge reconciles the sky, sun, model and camera AND builds + bakes the diffuse-GI
+  >   probe volume via the capture bake (`bakeFromScene` — occlusion falls out of the
+  >   capture, so no per-probe shadow-readback). First-person controls are host
+  >   plumbing. Reconcile + hot-reload (sun angle, probe counts, GI toggle) verified
+  >   headless (`three_sponza_tsx_test`); the GI/shadow/sky *visual* is the local
+  >   desktop-GL / device step Sponza has always had (its model streams over a network
+  >   a headless CI can't reach).
 
 ## 6. The implemented API surface
 

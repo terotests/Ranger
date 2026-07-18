@@ -106,9 +106,11 @@ where-does-it-run support matrix, and the API-coverage table.
 - **Sponza** — the light-probe-volume scene (`three/tsx/sponza.tsx`): the real
   glTF Sponza model with textures + normal maps, an atmospheric sky, a
   shadow-casting sun, ACES tone mapping, first-person controls, and the baked
-  diffuse-GI probe volume. Composed by `ThreeSponzaScene`
-  (`three/tsx/three_sponza_scene.rgr`) and reconciled from the interpreted scene
-  by `three/tsx/three_sponza_tsx_bridge.rgr`.
+  diffuse-GI probe volume. A faithful port of the upstream three.js example — the
+  bounds, bounds-derived sun + shadow, and `probes.bake(renderer, scene, {...})`
+  capture bake are declared inline in `sponza.tsx` and reconciled by the ONE generic
+  `ThreeTsxBridge` (`three/tsx/three_tsx_bridge.rgr`). There is no model-named scene
+  class — three.js has none, so neither do we.
 
 ---
 
@@ -157,8 +159,8 @@ the **Tests** category:
   remaining follow-up.)*
 - `games/teapot` — `render=three` (host = OrbitControls + lil-gui panel + procedural
   env cube / UV texture plumbing).
-- `games/sponza` — `render=sponza` (host = first-person controls + async glTF +
-  the `ThreeSponzaScene` GI-bake plumbing; WASD / arrows / gamepad move, drag or
+- `games/sponza` — `render=sponza` (host = first-person controls + async glTF; the
+  GI capture bake runs in the generic bridge; WASD / arrows / gamepad move, drag or
   right-stick to look).
 
 Every example — cube, cubes, teapot, Sponza — reconciles through the **one** generic
@@ -335,8 +337,8 @@ deliberate compensation for the non-PBR Lambert shading — the canonical scene'
 exposure of `1.0` would blow out), and drives the view via its first-person
 controller rather than the scene's `camera.rotation`; in the browser it renders
 procedural boxes until the glTF model streams in. (The scene itself — sky, sun,
-model, meshes — is reconciled by the generic bridge; only these policy/plumbing bits
-live in the host's `ThreeSponzaScene` module.)
+model, meshes, and the diffuse-GI probe volume — is reconciled by the generic
+bridge; only these policy/plumbing bits live in the host runner/viewer.)
 
 ### 8.3 API coverage — what's missing for the rest of the examples
 

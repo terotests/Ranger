@@ -26,19 +26,21 @@ commands the one registry by integer handle and they converge on one scene.
 The reconciler no longer owns a private `ThreeScene` / `[ThreeObject3D]` graph:
 it caches only host **entity handles**, and its `scene` / `camera` / `renderer`
 fields are read-through references to the host's owned instances (kept so the
-demo plumbing — `ThreeSponzaScene`, the web hosts, the native runners — reads
-the one registry rather than a fork).
+GPU technique — the diffuse-GI capture bake, run inside the reconciler — and the
+web hosts / native runners read the one registry rather than a fork).
 
-### Why the GPU-technique plumbing takes typed refs, not raw handles
+### Why the GPU-technique layer works on typed refs, not raw handles
 
-`ThreeSponzaScene.bind(scene, camera, sun, sky, model)` takes typed object
-references, not integer handles — and that is the **intended** seam, not a
-leftover. The registry is deliberately **type-erased**: it stores every entity
-as the base `ThreeObject3D` and drives one generic render walk. But a GPU
-technique operates *on the typed object*: the GI/shadow bake calls
-`sun.target.position.set(...)`, `sun.shadow.setExtent(...)`,
-`sun.shadowViewProjection()` (returns a `ThreeMatrix4` for the depth pass) and
-`sky.copySunPosition(...)`. None of that survives an integer-handle command ABI.
+The GI/shadow technique now runs **inside the one generic reconciler**
+(`applyDynamics` → `applySun` / `applyProbes`), operating on the *typed*
+reconciled objects it already built (`reconciledSun`, `reconciledSky`, the
+`ThreeLightProbeVolume`) — there is no separate model-named module and no `bind()`.
+The registry is deliberately **type-erased**: it stores every entity as the base
+`ThreeObject3D` and drives one generic render walk. But a GPU technique operates
+*on the typed object*: the sun/shadow setup calls `sun.target.position.set(...)`,
+`sun.shadow.setExtent(...)`, `sun.shadowViewProjection()` (returns a `ThreeMatrix4`
+for the depth pass), and the capture bake renders the scene into a cube per probe.
+None of that survives an integer-handle command ABI.
 
 Making `bind` handle-only would force one of two things the guardrails forbid:
 either **downcast** `host.entityAt(h)` back to `ThreeDirectionalLight` / `ThreeSky`
@@ -200,9 +202,10 @@ Add `three/tsx/three_convergence_test.rgr`:
    state is front-end-independent after one refresh cycle.
 
 ### Phase 6 — delete the parallelism
-Once the teapot/Sponza plumbing (`WebTeapotTsxHost`, `ThreeSponzaScene`) binds to
-the shared registry via handles, remove any remaining bridge-private object
-construction. There must be exactly one registry and one reconciler.
+The teapot host (`WebTeapotTsxHost`) and the Sponza hosts read the shared registry
+directly (the Sponza GI technique runs inside the one reconciler, not a separate
+module); remove any remaining bridge-private object construction. There must be
+exactly one registry and one reconciler.
 
 ## 5. Guardrails (non-negotiable — inherited from §5 + IDEAL_3D)
 
