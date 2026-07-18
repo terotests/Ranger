@@ -87,6 +87,18 @@ class ThreeTsxBridge {
     def nDirectional:int 0
     def nSky:int 0
     def firstMatKind:string ""
+    ; references to reconciled scene content a host PLUMBING module may need to drive
+    ; a GPU technique (e.g. the Sponza GI bake reads the reconciled sun + model, and
+    ; adds its baked probe volume to `scene`). The bridge reconciles the objects; the
+    ; module runs the technique on them — it never forks the reconciler.
+    def reconciledSun:ThreeDirectionalLight (new ThreeDirectionalLight)
+    def hasSun:boolean false
+    def reconciledSky:ThreeSky (new ThreeSky)
+    def hasSky:boolean false
+    def hostModel:ThreeObject3D (new ThreeObject3D)
+    def hasHostModel:boolean false
+    def reconciledModel:ThreeObject3D (new ThreeObject3D)
+    def hasModelNode:boolean false
     ; anything the scene SPECIFIED that we could not reconcile to a real object
     ; (an unsupported geometry / material / light / feature). Counted + warned so a
     ; deviation from the specified scene is never a silent fake. (Sensible defaults
@@ -111,6 +123,21 @@ class ThreeTsxBridge {
     ; texture the scene specified is the real asset (no silent substitution).
     fn hostTextureCount:int () { return nHostTex }
     fn fallbackTextureCount:int () { return nFallbackTex }
+
+    ; reconciled-object accessors for a host plumbing module (see field comment).
+    fn sunLight:ThreeDirectionalLight () { return reconciledSun }
+    fn hasSunLight:boolean () { return hasSun }
+    fn skyNode:ThreeSky () { return reconciledSky }
+    fn hasSkyNode:boolean () { return hasSky }
+    fn modelNode:ThreeObject3D () { return reconciledModel }
+    fn hasModelNode3D:boolean () { return hasModelNode }
+    ; the host hands in the decoded model (the async glTF load is host plumbing); the
+    ; bridge attaches it when it reconciles the scene's `GLTFModel` placeholder.
+    fn setHostModel:ThreeTsxBridge (m:ThreeObject3D) {
+        hostModel = m
+        hasHostModel = true
+        return this
+    }
 
     fn setEngine:ThreeTsxBridge (e:ComponentEngine) {
         engine = e
@@ -346,6 +373,8 @@ class ThreeTsxBridge {
             }
             scene.add(dir)
             nDirectional = (nDirectional + 1)
+            reconciledSun = dir
+            hasSun = true
             return (this.registerNode(dir "" false))
         }
         ; sky (Preetham atmosphere) — a real ThreeSky the renderer draws behind the
@@ -362,7 +391,23 @@ class ThreeTsxBridge {
             }
             scene.add(sky)
             nSky = (nSky + 1)
+            reconciledSky = sky
+            hasSky = true
             return (this.registerNode(sky "" false))
+        }
+        ; host-attached model (GLTFModel placeholder). The decoded geometry is
+        ; supplied by the host (setHostModel); the bridge attaches it to the scene.
+        if (this.flagOn(childV "isModel")) {
+            if hasHostModel {
+                scene.add(hostModel)
+                reconciledModel = hostModel
+                hasModelNode = true
+                return (this.registerNode(hostModel "" false))
+            }
+            this.noteUnsupported("model (no host-decoded geometry supplied via setHostModel)")
+            def mo:ThreeObject3D (new ThreeObject3D)
+            scene.add(mo)
+            return (this.registerNode(mo "" false))
         }
         ; mesh (default) — typed geometry + typed material
         if (this.flagOn(childV "isMesh")) {
@@ -663,13 +708,25 @@ class ThreeTsxBridge {
         return tex
     }
 
-    ; Reconcile the current façade scene and draw one frame at w*h.
-    fn renderFrame:void (w:int h:int) {
+    ; Reconcile the current façade scene into the real object graph WITHOUT drawing.
+    ; A host plumbing module can run between reconcile() and present() — e.g. to add
+    ; a baked probe volume to `scene`, or set bounds-derived shadow extents on the
+    ; reconciled sun — then present().
+    fn reconcile:void (w:int h:int) {
         renderer.setSize(w h)
         this.syncRenderer()
         this.syncCamera()
         this.syncScene()
+    }
+    ; Draw the reconciled scene.
+    fn present:void () {
         renderer.render(scene camera)
+    }
+
+    ; Reconcile the current façade scene and draw one frame at w*h.
+    fn renderFrame:void (w:int h:int) {
+        this.reconcile(w h)
+        this.present()
     }
 
     ; The rendered RGB frame (software backend path).
