@@ -6,7 +6,7 @@
 >
 > Two bodies of work, in order:
 > - **Part I — delete dead weight** (files that serve no test/build/shipped-game
->   need). Tranche 1 **done**; the rest gated on decisions in §I.3.
+>   need). Tranche 1 **done**; no further deletions (see decisions).
 > - **Part II — fix the Three object model.** An external architecture review
 >   (folded in below, every claim verified against code) shows the entity-ID
 >   problem is a *symptom* of a deeper root cause: **the interpreter has no
@@ -15,6 +15,16 @@
 >   reconciliation, and resource sharing are fixed** — every new feature
 >   otherwise grows the signature/flag/typed-accessor web and gets harder to
 >   unwind.
+>
+> **Decisions locked (owner):**
+> - **D1 = keep `ranger_games/`.** It is load-bearing (TSX→native/C++/Rust
+>   portability tests + npm scripts). Part I is therefore **complete at tranche
+>   1**; no further file deletion.
+> - **D2 = Line B — native-object adapter.** Goal is broad Three.js value
+>   parity ("paste almost any Three.js code"), so the interpreter gets a real
+>   native-object adapter (§II.9), not just a bounded façade subset.
+> - **D3 = keep planning.** No implementation yet; this document + the ADR are
+>   the review artifacts.
 
 ---
 
@@ -97,16 +107,29 @@ identity. Today the seam leaks in five verified places.
   `EvalValue.undefined()`). Breaks default params, `typeof`, `??`, optional
   chaining, and lets tests confuse "missing" with a real `0`/`false`.
 
+**The type system it plugs into** (`EvalValue.valueType`, verified): `0` null,
+`1` number, `2` string, `3` bool, `4` array, `5` object, `6` function/bound-
+method, `7` **native `EVGElement`** (`EvalValue.element()` — a native Ranger
+object already wrapped in an EvalValue), `8` undefined, `9` Map, `10` Set. Map
+(9)/Set (10) store keys in `arrayValue` and look them up with the broken
+`equals()`, so object keys silently fail today. Note `7` already proves the
+interpreter can hold a native host object — Line B (§II.9) generalizes exactly
+that slot.
+
 **Fix (interpreter core — high blast radius, do behind a semantics test suite):**
-- Give every reference value (`object`, `array`, `function`, `Map`, `Set`,
-  native) a monotonic `identityId`. Route `===`, `Map`/`Set` keys,
-  `indexOf`/`includes` through it. This identity is also what the reconciler
+- Add a monotonic `identityId:int` to `EvalValue`, assigned once at construction
+  for every reference type (`4,5,6,7,9,10`). Make `equals()` compare `identityId`
+  for those types instead of `return false`. Route `===`, `Map`/`Set` keys,
+  `Array.indexOf/includes` through it. This identity is also what the reconciler
   keys on — no more `__rid`/`__removed`.
-- Missing member → `undefined` (not `null`); null/invalid receiver → defined
+- `getMember()` on a missing key → `EvalValue.undefined()` (type 8), not
+  `EvalValue.null()` (`EvalValue.rgr:341`); null/invalid receiver → defined
   error/optional path.
-- ⚠️ `EvalValue` is shared by the whole JSX interpreter (pdf_writer + game
-  engine), so this change is validated by a new
-  `component_engine_js_semantics_test` (see §II.5), not just Three tests.
+- ⚠️ `EvalValue` lives in `gallery/pdf_writer/` and is shared by the **whole**
+  JSX/TSX interpreter (pdf_writer + game engine + UI/EVG), so this is validated
+  by a new `component_engine_js_semantics_test` (see §II.5) and the existing
+  pdf_writer suites, not just Three tests. Sequence identity before the
+  `null→undefined` change (the latter can surface latent `isNull()` assumptions).
 
 ## II.2 Lock one architecture — a short ADR  *(docs currently contradict)*
 `IDEAL_THREE.md` says Ranger/C++/WASM front-ends use the object model directly;
@@ -189,46 +212,95 @@ value parity split, honest 0/31 reporting), but:
 - Report a vector, not one %: `executed cleanly / correct type / correct value /
   core-synced`, with versioned profiles (`three-core-math-v1`, `object3d-v1`, …).
 
-## II.8 The Line A / Line B decision (goal scoping)
-`three.tsx` hand-copies Vector3/Object3D methods while wanting the math to live
-only in Ranger core — these fight as the API grows to hundreds of methods.
-- **Line A — bounded demo compat.** Façade stays a data model over a named
-  Three.js subset; drop "paste arbitrary Three.js code"; reconciler+bridge tests
-  are the contract. Cheapest, most stable.
-- **Line B — true value compat.** Add a native-object adapter
-  (`EvalValue.nativeObject`, `NativeClassAdapter{construct,getProperty,
-  setProperty,invokeMethod}`) so `THREE.Vector3/Matrix4/Quaternion/Object3D` are
-  interpreter wrappers over the Ranger canonical model — removes the hand-copied
-  ~90 Vector3 methods. Bigger interpreter change, but the only path to "almost
-  any Three.js code."
+## II.8 Goal scoping — Line B chosen (native adapter)
+`three.tsx` hand-copies Vector3/Object3D methods (and carries the `__removed`
+hack, `three.tsx:60,67,71`) while wanting the math to live only in Ranger core —
+these fight as the API grows to hundreds of methods. **Owner picked Line B**:
+true value parity via a native-object adapter, so `THREE.Vector3/Matrix4/
+Quaternion/Object3D` become interpreter wrappers over the Ranger canonical model
+(the same objects the host already uses), removing the hand-copied ~90 Vector3
+methods. (Line A — a bounded façade subset — is retired as the goal.)
+
+## II.9 Line B design — the native-object adapter *(chosen)*
+The interpreter **already** wraps one native Ranger class: `valueType 7`
+(`EvalValue.element(el:EVGElement)`). Line B generalizes that single-class hook
+into a typed adapter so the interpreter can construct and drive *any* registered
+native class by value.
+
+1. **Generic native slot.** Replace the special-cased `evgElement` field with a
+   `nativeObject` reference + a `nativeClassId`. `EVGElement` becomes the first
+   client of the general mechanism rather than a bespoke type tag.
+2. **`NativeClassAdapter` interface**, one per exposed class, registered with the
+   ComponentEngine:
+   ```
+   interface NativeClassAdapter {
+       fn className() : string                          ; "Vector3" | "Object3D" | …
+       fn construct(args:[EvalValue]) : NativeRef        ; new THREE.Vector3(x,y,z)
+       fn getProperty(self:NativeRef key:string) : EvalValue
+       fn setProperty(self:NativeRef key:string v:EvalValue) : void
+       fn invokeMethod(self:NativeRef m:string args:[EvalValue]) : EvalValue
+   }
+   ```
+3. **`new THREE.X(...)` dispatch.** When the interpreter evaluates a `new` on a
+   registered class, it calls `adapter.construct(args)` and returns an EvalValue
+   holding the `NativeRef` — no façade `class Vector3` in `three.tsx` at all.
+   Member get/set and method calls on that value route to
+   `getProperty/setProperty/invokeMethod`.
+4. **Backing objects are the canonical Ranger types.** `Vector3` → the Ranger
+   core `Vec3`; `Matrix4` → `Mat4`; `Quaternion` → `Quat`; `Object3D` → the host
+   `ThreeObject3D`. So the interpreter, the host scene, and the parity tests all
+   read the **same** math — closing §II.7's "value parity could be 100% while
+   core differs" gap by construction.
+5. **Identity for free.** A `NativeRef`-bearing EvalValue gets an `identityId`
+   like any reference (§II.1), so shared `geometry`/`material`/`Object3D`
+   instances are the *same* value everywhere — this is what makes §II.4 resource
+   aliasing and §II.3 keyed reconciliation actually work (two meshes sharing one
+   material share one handle).
+6. **Scope of the first cut.** Start with the math/scene-graph core actually
+   exercised by the parity goldens: `Vector3`, `Euler`, `Quaternion`, `Matrix4`,
+   `Object3D`, `Color`. Geometry/material/texture stay host resources reached via
+   the command ABI (§II.6); the adapter is for the *value* types Three code
+   constructs and mutates directly. Loaders/new materials wait for the §II hard
+   gate.
+
+**Blast radius / risk.** This is a ComponentEngine change, not a Three-only one:
+`new`, member access, and method dispatch in the interpreter gain a native path.
+It must land behind the §II.5 semantics suite and keep the existing `EVGElement`
+UI path working (it becomes adapter client #0, a built-in regression).
 
 ---
 
-# Recommended execution order
-1. **ADR** (§II.2) — lock "host owns state"; retire the contradictory docs.
-2. **Interpreter semantics** (§II.1) — object identity, missing→`undefined`,
-   identity-keyed Map/Set, clear error states — behind the new semantics suite.
+# Recommended execution order (Line B locked)
+0. **ADR** (§II.2) — lock "host owns state"; retire the contradictory
+   `IDEAL_THREE.md`/`THREE.md` descriptions. *(Doc-only; see `docs/ADR-0001`.)*
+1. **Interpreter semantics** (§II.1) — `identityId` + `equals()` by identity,
+   `getMember` missing→`undefined`, identity-keyed Map/Set, clear error states —
+   behind the new semantics suite. **Prereq for everything below.**
+2. **Native-object adapter** (§II.9) — generalize the `valueType 7` native slot
+   into `NativeClassAdapter`; back `Vector3/Euler/Quaternion/Matrix4/Object3D/
+   Color` with the Ranger canonical types; keep `EVGElement` working as client #0.
 3. **Identity-keyed reconciler** (§II.3) — replace index/DFS cache with a keyed
-   diff + mark-and-sweep.
+   diff + mark-and-sweep, keyed on the §II.1 identity.
 4. **Resource aliasing + lifecycle + host EntityRegistry** (§II.4) — shared
    resources by identity; generation handles; refcount/release; fold in
    `model3d`'s registry; regression-test resource counts.
 5. **Capability components** (§II.5) — retire `sunLight()/skyNode()/…`.
 6. **Command ABI from one schema** (§II.6) — kill host/native drift.
-7. **Line A vs B** (§II.8) — decide the native-object adapter.
-8. **Extend the parity rig** (§II.7) — types, errors, identity, aliasing.
-> **Hard gate:** do not add the next material/loader/geometry until steps 2–4
+7. **Extend the parity rig** (§II.7) — types, errors, identity, aliasing,
+   cross-layer.
+> **Hard gate:** do not add the next material/loader/geometry until steps 1–4
 > land.
 
-# Decisions needed from you
-- **D1 (cleanup).** `ranger_games/` + the `category=Tests` game variants + their
-  `ts-to-ranger-*` tests and `engine:*` npm scripts: delete the whole
-  TSX→native portability feature, or keep it? (It's load-bearing, not dead.)
-- **D2 (goal).** Line A (bounded façade subset) or Line B (native-object adapter
-  for broad value parity)? This sets how far steps 2 and 7 go.
-- **D3 (order).** Do you want me to start at step 1–2 (ADR + interpreter
-  identity, the root cause), or land the host-side EntityRegistry (step 4) first
-  as an isolated win while the interpreter change is scoped?
+# Decisions — RESOLVED
+- **D1 = keep `ranger_games/`.** Part I complete at tranche 1; no further
+  deletions.
+- **D2 = Line B** (native-object adapter, §II.9).
+- **D3 = keep planning.** No code yet; this doc + `docs/ADR-0001-three-scene-
+  host-authority.md` are the artifacts to review.
+
+**Open for your review before any implementation:** does the step 0→4 ordering
+work, and do you want the ADR (step 0) landed as the first concrete change since
+it's doc-only and unblocks the doc cleanup?
 
 ---
-*Part I tranche 1 is committed. Parts I.3 and II await D1–D3.*
+*Part I tranche 1 committed. Part II is planning-only pending your review.*
