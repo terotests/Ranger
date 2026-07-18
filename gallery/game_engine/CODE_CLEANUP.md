@@ -181,6 +181,9 @@ today, then **Actions** lists what to do with it.
 
 ### Actions
 - Games stay in `games/`; move the `scripting/*.game.tsx` ones there too.
+- Games must not carry private copies of shared modules: four games hold
+  diverged copies of `three.tsx` today (see V.1) — once the shared façade
+  resolves via the search path, those copies are deleted.
 - Move `ranger_games/` (and its TSX→Ranger tests) under `prototypes/`.
 - Demos: keep the test-referenced ones; once the `core/` move draws the boundary,
   whatever is left outside `core/`, `games/`, `prototypes/`, `docs/`, `assets/`,
@@ -469,11 +472,30 @@ The bridge is how interpreted game code reaches host/native functionality
 (`import * as Ranger from "ranger-game"`). Both are versioned by, and
 backward-compatible under, the Part IV contract.
 
-## V.1 Why a bridge, not façade classes
-`three.tsx` hand-copies ~90 Vector3/Object3D methods (plus the `__removed` hack,
-`three.tsx:60,67,71`) while wanting the math to live only in Ranger core — a
-fight that worsens as the API grows. D2 resolves it with the adapter below; the
-bounded-façade alternative is retired.
+## V.1 The façade stays — but it is declared once, and it is thin
+The façade module is still needed: something must answer
+`import * as THREE from 'three'` and declare the THREE names to the interpreter.
+What changes is what's *inside* it and how many copies exist:
+
+- **Thin, not hand-written.** Today `three.tsx` hand-copies ~90 Vector3/Object3D
+  method bodies (plus the `__removed` hack, `three.tsx:60,67,71`) while the real
+  math should live only in Ranger core. With the adapter (V.2), the façade stops
+  implementing anything — it only *declares* which names bind to which registered
+  native classes (and can be generated from the Class Registry, Part IV).
+- **One copy, not one per game.** Today the façade is copied into every 3D game
+  folder — `three/tsx/three.tsx` (585 lines) plus diverged copies in
+  `games/cube/` (350), `games/cubes/` (350), `games/teapot/` (237),
+  `games/sponza/` (337). They diverged because the interpreter resolves the bare
+  import `'three'` by looking in the **game's own directory first**
+  (`readImportSource`, ComponentEngine:1160), so each game keeps a private copy
+  that drifts on its own. The interpreter already has the fix built in: the same
+  function falls back to the `assetPaths` search list — so the runner adds the
+  one shared façade directory to `assetPaths`, `import 'three'` resolves to the
+  **single canonical file** from every game, and the per-game copies are deleted.
+
+The same declared-once rule applies to the other shared script modules that have
+started duplicating (`game_helpers.tsx` and `game.d.ts` exist in both
+`scripting/` and `lib/`; `breakout.d.ts` in two places).
 
 ## V.2 Native-class adapter (`NativeClassAdapter`)
 The interpreter **already** wraps one native Ranger class: `valueType 7`
@@ -514,8 +536,9 @@ So the **Class Registry (Part IV) marks each method/prop with an execution site*
 types guest-side is also what keeps the GC problem (Part VI) small.
 
 ## V.4 Object invocation (the dispatch path)
-How the interpreter drives a native-class value at runtime — four hooks, no
-façade class in `three.tsx`:
+How the interpreter drives a native-class value at runtime — four hooks. The
+façade only maps the name `THREE.X` to a registered class (V.1); it contributes
+no code to any of these paths:
 ```
 new THREE.X(args…)   -> adapter.construct(args)  -> EvalValue holding a NativeRef
 obj.prop             -> adapter.getProperty(ref, "prop")
@@ -591,20 +614,26 @@ Approach:
    avoid it.
 
 # Part VII — One guest support layer, generated (don't hand-replicate)
-Today each guest path hand-writes its **own** copy of the same support classes:
-`three.tsx` carries a full `Vector3`/`Object3D` façade (~90 methods), the Rust
-WASM helpers duplicate the math in `lib/ranger_game/src/scene.rs` (`Vec3`, `Quat`,
-`Color`, `Scene`), and an AssemblyScript guest would add a third copy. Same
-classes, N implementations → the same drift as the command ABI, at the class
-level (a method fixed in one copy stays wrong in the others).
+Today the same support classes are hand-written over and over, on two axes:
+- **Per language:** `three.tsx` carries a full `Vector3`/`Object3D` façade (~90
+  method bodies), the Rust WASM helpers duplicate the math in
+  `lib/ranger_game/src/scene.rs` (`Vec3`, `Quat`, `Color`, `Scene`), and an
+  AssemblyScript guest would add a third copy.
+- **Per game:** the `three.tsx` façade itself is copied into each 3D game folder
+  and has already diverged — 585 lines canonical vs 350/350/337/237 in
+  `games/cube`, `cubes`, `sponza`, `teapot` (see V.1 for why, and the fix).
 
-**Rule: a support class is defined once and every guest face is generated from
-it — never hand-copied per language.** Concretely:
+Same classes, N implementations → the same drift as the command ABI, at the
+class level: a method fixed in one copy stays wrong in the others.
+
+**Rule: a support class is defined once and every face of it is generated from
+that definition — never hand-copied per language, and never copied per game.**
+Concretely:
 - The **Class Registry (Part IV)** is that single definition (names, methods,
   props, types).
-- On the interpreter path, the native adapter (Part V) removes the `three.tsx`
-  façade entirely — the classes *are* the host's canonical types, so there is no
-  second copy to drift.
+- On the interpreter path, the adapter (Part V) empties the façade of
+  implementation: one thin, shared `three.tsx` remains, declaring name→class
+  bindings, resolved from a shared search path by every game (V.1).
 - For compiled guests (Rust/AS) that genuinely need local structs, **generate**
   them from the registry (the same codegen that emits the wrappers in Part IV),
   so `lib/ranger_game/` scene types and the AS equivalents can't diverge from the
@@ -642,8 +671,10 @@ the whole engine; deepest risk, needs the new semantics suite)
   imports, TS/Rust wrappers, doc table, surface-parity test. **L**
 
 **D. Three façade & reconciler** — `three/tsx/`
-- `three.tsx` (585) — delete the hand-copied `Vector3`/`Object3D` classes +
-  `__removed` hack (the adapter removes most of the file). **M**
+- `three.tsx` (585) — strip the hand-copied `Vector3`/`Object3D` method bodies +
+  `__removed` hack; keep one thin declaration façade (V.1). **M**
+- Delete the diverged per-game copies (`games/cube`, `cubes`, `sponza`,
+  `teapot`); resolve `'three'` via the shared `assetPaths` search dir instead. **S**
 - `three_tsx_bridge.rgr` (1109) — reconciler: index/DFS cache → identity-keyed
   mark-and-sweep; resource reuse by identity. **L**
 - `three_native_bridge.rgr` (206) — regenerated from the registry. **S**
