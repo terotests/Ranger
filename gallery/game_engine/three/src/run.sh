@@ -28,6 +28,18 @@ run_tsx_poc() {
   echo
 }
 
+# Value-parity gate (THREE.md §9): interprets natural three.js snippets on the
+# façade and diffs the engine's returned values against real-three.js goldens.
+# Reads the committed goldens.json — no vendored three.js needed at run time. The
+# extra grep surfaces the "value parity: implemented=X/Y" measurement line.
+run_parity() {
+  local name="$1"
+  echo "### ${name}"
+  $RGRC "gallery/game_engine/three/src/${name}.rgr" -d="$OUT" -o="${name}.js" >/dev/null 2>&1
+  node "$OUT/${name}.js" | grep -E "PASS |FAIL |ALL PASS|SOME FAILED|passed=|value parity:"
+  echo
+}
+
 # One suite per ported class (grows piece by piece).
 run_suite three_vector3_test
 run_suite three_math_utils_test
@@ -62,6 +74,11 @@ run_suite three_gl_backend_test
 # The single-truth host registry (THREE_BRIDGE.md): every front-end commands this
 # one registry by integer handle; no front-end owns Three objects privately.
 run_suite three_scene_host_test
+
+# The value-parity conformance gate (THREE.md §9): baseline idioms hard-asserted
+# (regression gate), plus the measured "implemented=X/Y" parity % against
+# real-three.js goldens. GAPs are the backlog, not failures.
+run_parity three_value_parity_test
 
 # The interpreter transport for the command ABI: bare `three_*(...)` calls
 # routed through ThreeNativeBridge into the one shared ThreeSceneHost.

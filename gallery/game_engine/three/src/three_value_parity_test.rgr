@@ -1,0 +1,221 @@
+; ==============================================================================
+; three_value_parity_test — the value-parity conformance gate (THREE.md §9.4-7).
+; ==============================================================================
+; Interprets NATURAL three.js snippets (three/tsx/parity/parity_probes.tsx) on
+; the three.tsx façade and validates the engine's returned values against golden
+; numbers computed from the REAL three.js (three/reference/goldens.json, produced
+; by gen-goldens.mjs). This is the value-axis counterpart of the §8.2.1 render
+; fidelity gate: it measures "can the interpreter run random three.js and get the
+; right value", decoupled from whether anything draws.
+;
+; Instrumentation: after loadScript we drive each probe with engine.callFunction
+; and read the returned EvalValue tree (getMember / getIndex / toNumber / toBool),
+; then diff it field-by-field against the parsed golden JSON. Missing façade
+; methods degrade to null in the interpreter (they do not abort), so a gap shows
+; up as a value mismatch — reported as GAP, never a crash.
+;
+; Output contract:
+;   - BASELINE checks (idioms supported today) emit PASS/FAIL and gate
+;     regressions via ALL PASS / SOME FAILED (what run.sh greps).
+;   - PARITY probes emit OK / GAP and a "value parity: implemented=X/Y (Z%)"
+;     line. GAPs are the measured backlog; they do NOT fail the suite.
+; ==============================================================================
+
+Import "three_json.rgr"
+Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
+
+; ------------------------------------------------------------------ probe rig
+class ThreeValueProbe {
+    def engine:ComponentEngine (new ComponentEngine())
+    def golds:ThreeJsonValue (new ThreeJsonValue)
+    ; baseline (regression gate)
+    def passed:int 0
+    def failed:int 0
+    ; parity (measurement)
+    def implemented:int 0
+    def total:int 0
+
+    ; --- setup: register host globals, load façade + probes, parse goldens ----
+    fn boot:void () {
+        engine.quiet = true
+        def tk:[string]
+        def tv:[EvalValue]
+        push tk "SRGBColorSpace"
+        push tv (EvalValue.string("srgb"))
+        engine.registerGlobal("THREE" (EvalValue.object(tk tv)))
+        def wk:[string]
+        def wv:[EvalValue]
+        push wk "innerWidth"
+        push wv (EvalValue.number(800.0))
+        push wk "innerHeight"
+        push wv (EvalValue.number(600.0))
+        push wk "devicePixelRatio"
+        push wv (EvalValue.number(1.0))
+        engine.registerGlobal("window" (EvalValue.object(wk wv)))
+
+        def facade:buffer (buffer_read_file "gallery/game_engine/three/tsx" "three.tsx")
+        def scene:buffer (buffer_read_file "gallery/game_engine/three/tsx/parity" "parity_probes.tsx")
+        def src:string ((buffer_to_string facade) + "\n" + (buffer_to_string scene))
+        engine.loadScript(src)
+
+        def gbuf:buffer (buffer_read_file "gallery/game_engine/three/reference" "goldens.json")
+        def parser:ThreeJsonParser (new ThreeJsonParser)
+        golds = (parser.parse((buffer_to_string gbuf)))
+    }
+
+    fn callProbe:EvalValue (name:string) {
+        return (engine.callFunction(name (EvalValue.null())))
+    }
+
+    sfn near:boolean (a:double b:double) {
+        def d:double (a - b)
+        if (d < 0.0) { d = (0.0 - d) }
+        return (d < 0.0001)
+    }
+
+    ; --- generic field compare: EvalValue member vs golden JSON value ---------
+    fn matchField:boolean (ev:EvalValue gold:ThreeJsonValue) {
+        if (gold.isNumber()) {
+            return (ThreeValueProbe.near((ev.toNumber()) (gold.asNumber())))
+        }
+        if (gold.isBool()) {
+            return ((ev.toBool()) == (gold.asBool()))
+        }
+        if (gold.isArray()) {
+            def n:int (gold.length())
+            if ((array_length ev.arrayValue) != n) { return false }
+            def i:int 0
+            while (i < n) {
+                if (false == (ThreeValueProbe.near(((ev.getIndex(i)).toNumber()) ((gold.at(i)).asNumber())))) {
+                    return false
+                }
+                i = (i + 1)
+            }
+            return true
+        }
+        return false
+    }
+
+    sfn goldStr:string (g:ThreeJsonValue) {
+        if (g.isNumber()) { return (to_string (g.asNumber())) }
+        if (g.isBool()) { return (to_string (g.asBool())) }
+        if (g.isArray()) { return ("[" + (to_string (g.length())) + " nums]") }
+        return "?"
+    }
+    sfn evStr:string (ev:EvalValue g:ThreeJsonValue) {
+        if (g.isBool()) { return (to_string (ev.toBool())) }
+        if (g.isArray()) { return ("[" + (to_string (array_length ev.arrayValue)) + " nums]") }
+        return (to_string (ev.toNumber()))
+    }
+
+    ; --- run one golden-backed parity probe -----------------------------------
+    fn parity:void (name:string) {
+        total = (total + 1)
+        def result:EvalValue (this.callProbe(name))
+        def gold:ThreeJsonValue (golds.get(name))
+        def ok:boolean true
+        def detail:string ""
+        def i:int 0
+        while (i < (array_length gold.keys)) {
+            def k:string (itemAt gold.keys i)
+            def g:ThreeJsonValue (gold.get(k))
+            def ev:EvalValue (result.getMember(k))
+            if (false == (this.matchField(ev g))) {
+                ok = false
+                detail = (detail + " " + k + "(want=" + (ThreeValueProbe.goldStr(g)) + " got=" + (ThreeValueProbe.evStr(ev g)) + ")")
+            }
+            i = (i + 1)
+        }
+        if ok {
+            implemented = (implemented + 1)
+            print ("  OK  " + name)
+        } {
+            print ("  GAP " + name + " -" + detail)
+        }
+    }
+
+    ; --- baseline hard assert (a named field of a probe result == want) -------
+    fn expectNum:void (label:string probe:string field:string want:double) {
+        def result:EvalValue (this.callProbe(probe))
+        def got:double ((result.getMember(field)).toNumber())
+        if (ThreeValueProbe.near(got want)) {
+            passed = (passed + 1)
+            print ("  PASS " + label + " (" + (to_string got) + ")")
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + label + " got=" + (to_string got) + " want=" + (to_string want))
+        }
+    }
+}
+
+class ThreeValueParityTest {
+    sfn m@(main):void () {
+        def p:ThreeValueProbe (new ThreeValueProbe)
+        p.boot()
+
+        print "== BASELINE (façade idioms supported today — regression gate) =="
+        p.expectNum("v3.set x" "base_v3_set" "x" 1.0)
+        p.expectNum("v3.set y" "base_v3_set" "y" 2.0)
+        p.expectNum("v3.set z" "base_v3_set" "z" 3.0)
+        p.expectNum("v3.clone independent (orig)" "base_v3_clone_indep" "vx" 1.0)
+        p.expectNum("v3.clone independent (clone)" "base_v3_clone_indep" "cx" 9.0)
+        p.expectNum("scene.add -> children" "base_scene_children" "after1" 1.0)
+        p.expectNum("scene.remove -> children" "base_scene_children" "after2" 0.0)
+        p.expectNum("v3.setFromSphericalCoords z" "base_spherical" "z" 1.0)
+        p.expectNum("v3.setFromSphericalCoords x" "base_spherical" "x" 0.0)
+
+        print "== VALUE PARITY (natural three.js vs real-three.js goldens) =="
+        ; Math — Vector3
+        p.parity("v3_add")
+        p.parity("v3_sub")
+        p.parity("v3_cross")
+        p.parity("v3_dot")
+        p.parity("v3_normalize")
+        p.parity("v3_lengthSq")
+        p.parity("v3_distanceTo")
+        p.parity("v3_lerp")
+        p.parity("v3_multiplyScalar")
+        p.parity("v3_applyMatrix4")
+        p.parity("v3_applyQuaternion")
+        ; Math — Vector2
+        p.parity("v2_length")
+        p.parity("v2_add")
+        p.parity("v2_angle")
+        ; Math — Matrix4
+        p.parity("m4_rotY_applied")
+        p.parity("m4_compose_elements")
+        p.parity("m4_determinant")
+        ; Math — Quaternion / Euler
+        p.parity("quat_axisAngle")
+        p.parity("quat_fromEuler")
+        p.parity("euler_fromQuat")
+        ; Color
+        p.parity("color_channels")
+        p.parity("color_named")
+        p.parity("color_hsl")
+        ; Object3D scene graph
+        p.parity("o3d_lookAt_quat")
+        p.parity("o3d_worldPos")
+        p.parity("o3d_childCount")
+        p.parity("o3d_parentIsSet")
+        p.parity("o3d_traverse")
+        ; MathUtils
+        p.parity("math_degToRad")
+        p.parity("math_clamp")
+        p.parity("math_lerp")
+
+        print "== summary =="
+        def pct:int 0
+        if (p.total > 0) {
+            pct = (to_int ((100.0 * (to_double p.implemented)) / (to_double p.total)))
+        }
+        print ("value parity: implemented=" + (to_string p.implemented) + "/" + (to_string p.total) + " (" + (to_string pct) + "%)")
+        print ("passed=" + (to_string p.passed) + " failed=" + (to_string p.failed))
+        if (p.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

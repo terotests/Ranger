@@ -530,6 +530,15 @@ Exactly the §8.3 table: once a call *executes and holds the right value*, does 
    machine-checkable — the value-axis counterpart of
    `fallbackTextureCount()==0 && unsupportedCount()==0`.
 
+   *This gate exists* — see [`THREE_VALUE_PARITY_TESTS.md`](./THREE_VALUE_PARITY_TESTS.md).
+   A pinned three.js is vendored (`three/reference/`, via `fetch-three-reference.sh`);
+   `gen-goldens.mjs` computes reference values from the real library into
+   `goldens.json`; `three/tsx/parity/parity_probes.tsx` holds natural three.js
+   snippets; and `three/src/three_value_parity_test.rgr` (in `run.sh`) interprets
+   them on the façade, diffs the engine's returned `EvalValue` tree against the
+   goldens, and prints `value parity: implemented=X/Y (Z%)`. It reads `0/31` today
+   — the honest starting line for steps 1–6 above.
+
 Note the division of labour vs §8.4's roadmap: that roadmap grows **render**
 coverage (new geometries/materials/lights that draw); this list grows **value**
 coverage (the same API surface *executing and returning correct values*). Steps
