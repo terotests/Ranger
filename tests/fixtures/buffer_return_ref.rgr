@@ -1,0 +1,50 @@
+; Regression fixture for buffer return-by-reference in the C++ backend.
+; A buffer accessor that hands back a stored buffer (a member field, or an
+; element of a member container) must return `std::vector<uint8_t>&` so the
+; result aliases the stored buffer (ES6 reference semantics) and binds to
+; non-const reference parameters. A method that returns a freshly allocated
+; local buffer must keep value-return semantics (no dangling reference).
+class CubeMap {
+    def size:int 2
+    def faces:[buffer]
+
+    sfn create:CubeMap (size:int) {
+        def c:CubeMap (new CubeMap)
+        c.size = size
+        def i:int 0
+        while (i < 6) {
+            push c.faces (buffer_alloc ((size * size) * 3))
+            i = (i + 1)
+        }
+        return c
+    }
+
+    ; SAFE: element of a member container -> reference return
+    fn faceBuffer:buffer (face:int) {
+        return (itemAt this.faces face)
+    }
+
+    ; UNSAFE: freshly allocated local -> value return (must not dangle)
+    fn makeScratch:buffer (n:int) {
+        def b:buffer (buffer_alloc n)
+        return b
+    }
+}
+
+class Worker {
+    sfn copyInto:void (src:buffer dst:buffer n:int) {
+        def i:int 0
+        while (i < n) {
+            buffer_set dst i (buffer_get src i)
+            i = (i + 1)
+        }
+    }
+
+    sfn run:void () {
+        def cube:CubeMap (CubeMap.create(2))
+        def src:buffer (buffer_alloc 12)
+        ; Passing the accessor result directly to a non-const buffer& parameter
+        ; only compiles if faceBuffer returns a reference.
+        Worker.copyInto(src (cube.faceBuffer(0)) 12)
+    }
+}

@@ -2,6 +2,11 @@ class RangerCppClassWriter {
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
   def header_created:boolean false
+  ; Accumulators used while scanning a buffer-returning method body to decide
+  ; whether its return type can be emitted as a C++ reference (see
+  ; cppBufferReturnByRef).
+  def buf_ret_seen:boolean false
+  def buf_ret_all_safe:boolean true
 
   fn lineEnding:string () {
     return ";"
@@ -336,6 +341,148 @@ class RangerCppClassWriter {
       }
     }
   }
+
+  ; ---------------------------------------------------------------------------
+  ; Buffer return-by-reference analysis
+  ;
+  ; Ranger `buffer` semantics are reference semantics (ES6 returns the live,
+  ; stored buffer). The C++ backend already passes buffers to parameters by
+  ; reference (`std::vector<uint8_t>&`) so in-place writes are visible to the
+  ; caller. The return side must match: a buffer accessor that hands back a
+  ; stored buffer must return a reference to it, otherwise C++ copies it into a
+  ; temporary that (a) cannot bind to a non-const reference parameter and
+  ; (b) silently drops writes. We only do this when every `return` in the body
+  ; yields a safe lvalue that outlives the call — a class member field or an
+  ; element of a member container. Fresh allocations / locals / computed values
+  ; keep value-return semantics so we never return a dangling reference.
+  ; ---------------------------------------------------------------------------
+
+  ; Build a dotted member path (e.g. "this.faces") from a node's namespace, or
+  ; "" when the node is not a simple member access.
+  fn cppMemberPathOf:string (node:CodeNode) {
+    if ((array_length node.ns) >= 2) {
+      def path:string ""
+      for node.ns part:string i {
+        if (i > 0) {
+          path = (path + ".")
+        }
+        path = (path + part)
+      }
+      return path
+    }
+    if ((strlen node.vref) > 0) {
+      def idx:int (indexOf node.vref ".")
+      if (idx > 0) {
+        return node.vref
+      }
+    }
+    return ""
+  }
+
+  ; True when a returned expression refers to storage that outlives the call and
+  ; is therefore safe to hand back as a C++ reference: `this.field`, or an
+  ; element of a member container `(itemAt this.field idx)` / `(get this.field key)`.
+  fn cppReturnIsSafeBufferLvalue:boolean (retValue:CodeNode) {
+    def path:string (this.cppMemberPathOf(retValue))
+    if ((strlen path) > 0) {
+      if ((indexOf path "this.") == 0) {
+        return true
+      }
+    }
+    if retValue.expression {
+      if ((array_length retValue.children) >= 2) {
+        def head:CodeNode (retValue.getFirst())
+        def op:string head.vref
+        if ((op == "itemAt") || (op == "get")) {
+          def container:CodeNode (retValue.getSecond())
+          def cpath:string (this.cppMemberPathOf(container))
+          if ((strlen cpath) > 0) {
+            if ((indexOf cpath "this.") == 0) {
+              return true
+            }
+          }
+        }
+      }
+    }
+    return false
+  }
+
+  ; Walk a function body recording whether it contains any `return <value>` and
+  ; whether every such return is a safe buffer lvalue. Nested lambdas own their
+  ; own returns, so we do not descend into them.
+  fn cppScanBufferReturns:void (node:CodeNode) {
+    if (!null? node.lambda_ctx) {
+      return
+    }
+    if node.expression {
+      if ((array_length node.children) > 0) {
+        def first:CodeNode (node.getFirst())
+        if (first.vref == "return") {
+          if ((array_length node.children) >= 2) {
+            buf_ret_seen = true
+            def retValue:CodeNode (node.getSecond())
+            if (false == (this.cppReturnIsSafeBufferLvalue(retValue))) {
+              buf_ret_all_safe = false
+            }
+          } {
+            ; bare `return` inside a buffer-returning fn — treat conservatively.
+            buf_ret_seen = true
+            buf_ret_all_safe = false
+          }
+        }
+      }
+    }
+    for node.children child:CodeNode i {
+      this.cppScanBufferReturns(child)
+    }
+  }
+
+  ; Decide whether `variant`'s (buffer) return type should be emitted as a C++
+  ; reference. Returns true only for buffer/int_buffer/double_buffer returns
+  ; whose every return statement is a safe stored-buffer lvalue.
+  fn cppBufferReturnByRef:boolean (variant:RangerAppFunctionDesc ctx:RangerAppWriterContext) {
+    if (null? variant.nameNode) {
+      return false
+    }
+    def node:CodeNode (unwrap variant.nameNode)
+    ; Optional buffers are wrapped (shared_ptr / optional), not a bare vector.
+    if (node.hasFlag("optional")) {
+      return false
+    }
+    ; Resolve the return value type the same way writeTypeDef does.
+    def v_type:RangerNodeType node.value_type
+    if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef) || (v_type == RangerNodeType.NoType)) {
+      v_type = (node.typeNameAsType(ctx))
+    }
+    if (node.eval_type != RangerNodeType.NoType) {
+      v_type = node.eval_type
+    }
+    if (((v_type != RangerNodeType.Buffer) && (v_type != RangerNodeType.IntBuffer)) && (v_type != RangerNodeType.DoubleBuffer)) {
+      return false
+    }
+    if (null? variant.fnBody) {
+      return false
+    }
+    buf_ret_seen = false
+    buf_ret_all_safe = true
+    this.cppScanBufferReturns((unwrap variant.fnBody))
+    if (buf_ret_seen == false) {
+      return false
+    }
+    return buf_ret_all_safe
+  }
+
+  ; Emit a method's return type, adding `&` when the buffer it returns aliases
+  ; stored storage (so it matches ES6 reference semantics and binds to non-const
+  ; reference parameters). Used for both the header declaration and the
+  ; out-of-line definition so the two signatures always agree.
+  fn writeReturnTypeDef:void (variant:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    this.writeTypeDef((unwrap variant.nameNode) ctx wr)
+    if (this.cppBufferReturnByRef(variant ctx)) {
+      wr.out("&" false)
+    }
+  }
+
   fn WriteVRef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if (node.vref == "this") {
       ; std::dynamic_pointer_cast<RangerAppClassDesc>
@@ -1004,7 +1151,7 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
         wr.out("/* static methods */ " true)
       }
       wr.out("static " false)
-      this.writeTypeDef( (unwrap variant.nameNode) ctx wr)
+      this.writeReturnTypeDef(variant ctx wr)
       wr.out(((" " + variant.compiledName) + "(") false)
       this.writeArgsDef(variant ctx wr)
       wr.out(");" true)
@@ -1026,8 +1173,8 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
       for mVs.variants variant:RangerAppFunctionDesc i {
         if(cl.is_inherited) {
           wr.out("virtual " false)
-        }        
-        this.writeTypeDef((unwrap variant.nameNode) ctx wr)
+        }
+        this.writeReturnTypeDef(variant ctx wr)
         wr.out(((" " + variant.compiledName) + "(") false)
         this.writeArgsDef(variant ctx wr)
         wr.out(");" true)
@@ -1234,7 +1381,7 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
         continue _
       }
       ; wr.out("static " false)
-      this.writeTypeDef( (unwrap variant.nameNode ) ctx wr)
+      this.writeReturnTypeDef(variant ctx wr)
       wr.out(" " false)
       wr.out(((" " + cl.name) + "::") false)
       wr.out((variant.compiledName + "(") false)
@@ -1252,7 +1399,7 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
     for cl.defined_variants fnVar:string i {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
       for mVs.variants variant:RangerAppFunctionDesc i {
-        this.writeTypeDef((unwrap variant.nameNode )ctx wr)
+        this.writeReturnTypeDef(variant ctx wr)
         ;this.writePtr((unwrap variant.nameNode ) ctx wr)
         wr.out(" " false)
         wr.out(((" " + cl.name) + "::") false)
