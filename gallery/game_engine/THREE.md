@@ -389,3 +389,150 @@ macOS, and Pi 5 together.
    shared dialect allows.
 9. **Fog, Sprite, InstancedMesh, DataTexture/CanvasTexture** — smaller families,
    each a modest object-model + shader-uniform addition.
+
+---
+
+## 9. Value parity — running arbitrary Three.js code from the interpreter
+
+§8 measures **render parity**: does a *known* scene draw the right pixels on all
+three targets. This section measures a different, orthogonal axis — **value
+parity**: can the interpreter *execute* an arbitrary Three.js snippet and have
+every `THREE.*` call return the value real three.js returns, even when nothing is
+drawn. The goal is "paste almost any random three.js code and it runs."
+
+The two axes are decoupled and value parity is the larger, more foundational one.
+A large fraction of real three.js code — and nearly all of it in docs, tutorials,
+Stack Overflow answers and the setup half of every example — is pure math and
+scene-graph manipulation that must return correct values *before a single pixel
+matters*: `new THREE.Vector3(1,2,3).applyMatrix4(m).normalize().length()`,
+`box.setFromObject(mesh).getCenter(v)`, `object.lookAt(target)`,
+`raycaster.intersectObjects(scene.children)`, `camera.updateMatrixWorld()`. Today
+the façade returns correct values only for the exact call sequences the four demo
+scenes make; anything else throws or silently yields `undefined`.
+
+Parity here has **three layers**, top to bottom. Layers 1–2 are what "run any
+random code" actually needs; layer 3 is the §8 table.
+
+### 9.1 Layer 1 — interpreter (ComponentEngine) language parity
+
+The scenes run in Ranger's TSX interpreter (`gallery/pdf_writer/src/jsx/
+ComponentEngine.rgr`, ~7.3 kloc), which the façade source is concatenated into and
+evaluated. It already supports a broad JS subset: classes + methods, arrow
+functions, destructuring (`ArrayPattern`/`ObjectPattern`/`RestElement`), spread,
+`for…of`/`for…in`, `switch`, `try`/`throw`, template literals, `Map`/`Set`, and
+the common `Array`/`Object`/`Math`/`JSON` builtins. Two limitations, however, cap
+everything above them and are worked around by hand in the façade today:
+
+- **No `extends` / `super`.** ComponentEngine has no class-inheritance path
+  (grep: zero `extends`/`super` handling). This is why the façade comment says
+  "no `extends`/`super` (flattened — each node carries its own position/rotation/
+  scale)": every façade class re-declares Object3D's fields instead of inheriting
+  them. Consequently **any user code that subclasses a THREE class throws** — and
+  subclassing is idiomatic three.js (`class Controls extends EventDispatcher`,
+  custom `extends BufferGeometry`, `extends Curve`, the whole jsm ecosystem).
+- **Reference equality is broken.** `EvalValue.equals` returns `false` for every
+  object/array comparison — *including a value against itself* — so `a === a` is
+  `false` for objects (`gallery/pdf_writer/src/jsx/EvalValue.rgr:540` "reference
+  equality for now → return false"). This silently breaks identity guards
+  (`if (obj === selected)`), `array.indexOf(obj)` / `.includes(obj)`, parent/root
+  checks (`obj.parent === null` works only because `null` is a primitive),
+  Map/Set keyed by object, and raycast/selection dedup. The façade's
+  `Scene.remove` cannot use identity and instead tags a `__removed` marker — a
+  direct symptom of this gap.
+
+Lower-priority interpreter gaps that arbitrary code hits: **no typed arrays**
+(`Float32Array`/`Uint16Array`/… are unregistered, so `new THREE.BufferAttribute(
+new Float32Array([...]), 3)` — the standard geometry-building idiom — throws); no
+`Promise`/`async`/`await` (loaders must stay callback-shaped; `.loadAsync` is
+unavailable); no class getters/setters (accessor properties like a `.needsUpdate`
+setter can't be expressed).
+
+### 9.2 Layer 2 — façade (`three.tsx`) value parity
+
+The façade is **demo-shaped**: it declares only the classes, methods and constants
+the cube/cubes/teapot/Sponza scenes touch. The underlying *values* mostly already
+exist in the Ranger core (`three/src`) — the gap is that the interpreter-facing
+façade doesn't surface them. The clearest example: the core `ThreeVector3` has 33
+methods (`add`, `sub`, `cross`, `dot`, `normalize`, `applyMatrix4` via Matrix4,
+`lerp`, `distanceTo`, …) but the façade `Vector3` exposes **5**
+(`set`/`copy`/`setScalar`/`clone`/`setFromSphericalCoords`). So value parity is
+largely a **surfacing** exercise, not new engine math.
+
+Concrete façade gaps for arbitrary code:
+
+- **Math is stubbed.** `Vector3` = 5 of ~90 methods. `Vector2`, `Vector4`,
+  `Matrix3`, `Quaternion`, `Euler`, `Box3`, `Sphere`, `Ray`, `Plane`, `Line3`,
+  `Triangle`, `Spherical`, `Cylindrical`, `Frustum`, `MathUtils` are **absent from
+  the façade** (several exist in the core — `ThreeQuaternion`/`ThreeEuler`/
+  `ThreeBox3`/`ThreeMathUtils` — just not exposed). `Color` is a hex box: no
+  `.set('red')`, `.setHSL`, `.getHex`, `.r/.g/.b`, `.convertSRGBToLinear`.
+- **Object3D surface is missing.** No `lookAt`, `traverse`/`traverseVisible`,
+  `updateMatrixWorld`, `getWorldPosition/Quaternion/Scale/Direction`,
+  `localToWorld`/`worldToLocal`, `applyMatrix4`, `rotateX/Y/Z`/`rotateOnAxis`,
+  `translateOnAxis`, `.parent`, `.matrix`/`.matrixWorld`, `getObjectByName`,
+  `clone`/`copy`. `add`/`remove` don't maintain `.parent`. Every scene node
+  re-declares its own `position`/`rotation`/`scale` (the `extends` gap).
+- **Constants are ad-hoc and silently `undefined`.** `teapot.tsx` reads
+  `THREE.SRGBColorSpace`, which the façade never defines — it happens to resolve
+  only because the *host* registers a `THREE` global with that one key
+  (`web_tsx3d_gl_host.rgr` `registerGlobals`). Any other enum
+  (`THREE.LinearFilter`, `THREE.RGBAFormat`, `THREE.AdditiveBlending`,
+  `THREE.PCFSoftShadowMap`, …) evaluates to `undefined` with no error — code runs
+  but configures the wrong thing.
+- **Construction breadth.** Most geometry constructors (`SphereGeometry`,
+  `PlaneGeometry`, …), materials (`MeshStandardMaterial`, `ShaderMaterial`,
+  `PointsMaterial`, `LineBasicMaterial`), objects (`Group`, `Points`, `Line`,
+  `Sprite`, `InstancedMesh`), `BufferGeometry.setAttribute`/`BufferAttribute`,
+  `EventDispatcher`, `Clock`, `Raycaster`, and the loaders don't exist on the
+  façade, so even `new THREE.X(...)` throws before any render question arises.
+
+### 9.3 Layer 3 — render parity
+
+Exactly the §8.3 table: once a call *executes and holds the right value*, does the
+`ThreeTsxBridge` + `ThreeGLBackend` actually draw it (or loudly count it via
+`unsupportedCount()`). This is downstream of layers 1–2 and unchanged here.
+
+### 9.4 Steps for value parity (ordered by leverage)
+
+1. **Fix the two interpreter blockers** — they cap every layer above them.
+   (a) Reference/identity equality in `EvalValue.equals` (compare object/array
+   handles instead of returning `false`), and (b) `extends`/`super` in
+   ComponentEngine (field + method inheritance, `super(...)` constructor chaining,
+   `super.m()` dispatch). Together these let the façade stop hand-flattening and
+   let *user* subclasses run — the single biggest unlock for "random code."
+2. **Make the math layer value-complete on the façade** — the highest-leverage
+   pure-value work (no GPU). Surface the core's Vector3/Quaternion/Euler/Matrix4/
+   Box3/Color/MathUtils in full and add the missing `Vector2/Vector4/Matrix3/
+   Sphere/Ray/Plane/Line3/Triangle/Spherical`. Gate with a **numeric** test that
+   runs three.js math snippets and asserts equality against known reference outputs.
+3. **Complete the Object3D surface once** (post-`extends`): `lookAt`, `traverse*`,
+   `updateMatrixWorld`, `getWorld*`, `local/worldToLocal`, `applyMatrix4`,
+   `rotate*`/`translate*`, `.parent` bookkeeping, `getObjectByName`, `clone`/`copy`
+   — inherited by Mesh/Camera/Light/Group/Scene.
+4. **Ship a complete constant registry** — every `THREE.*` enum (sides, wrapping,
+   filters, formats/types, color spaces, tone-mapping, blending, shadow-map types,
+   draw usage) as real façade exports, so a constant is never silently `undefined`.
+5. **Add typed arrays + the BufferAttribute/BufferGeometry builder API** to the
+   interpreter and façade, so geometry-building code (`setAttribute(new
+   BufferAttribute(new Float32Array(...), 3))`) executes.
+6. **Broaden construction** — value holders for the remaining geometries,
+   materials, objects, plus `EventDispatcher`, `Clock`, `Raycaster` (a value-level
+   `intersectObjects` on the now-complete math layer), and callback-shaped loader
+   stubs. Unrenderable ones still flow through the bridge's loud `unsupportedCount()`
+   path, so "runs" never masquerades as "renders."
+7. **A conformance harness — the measurable gate.** Mirror §8.2.1's machine-checked
+   fidelity gate for values: assemble a corpus of snippets (three.js docs/examples,
+   plus a generated set), run each under the interpreter against the façade, and
+   classify — *executed clean* / *threw* (missing symbol · missing method ·
+   unsupported language feature) / *value mismatch* vs a real-three.js reference.
+   Track **"% runs without throwing"** as the parity metric. That number *is* the
+   operational definition of "run almost any random Three.js code," made
+   machine-checkable — the value-axis counterpart of
+   `fallbackTextureCount()==0 && unsupportedCount()==0`.
+
+Note the division of labour vs §8.4's roadmap: that roadmap grows **render**
+coverage (new geometries/materials/lights that draw); this list grows **value**
+coverage (the same API surface *executing and returning correct values*). Steps
+1–4 are almost entirely interpreter + façade work with no GPU component, so they
+advance web, macOS and Pi 5 identically and can land ahead of the matching render
+support.
