@@ -93,9 +93,14 @@ façade (interpreter), Ranger code directly, or (future) a WASM guest.
   browser the viewer decodes images with a canvas instead (the host can't decode
   JPEG/PNG in-browser); both feed the same `setImage` seam.
 
-### Example scenes
+### Example scenes (demos)
+See [§8 Demos & parity](#8-demos--parity) for the full catalog, the
+where-does-it-run support matrix, and the API-coverage table.
 - **Cube** — the canonical rotating textured cube (`three/tsx/cube.tsx`),
   unmodified.
+- **Cubes** — a ring of crate-textured, colour-tinted spinning cubes
+  (`three/tsx/cubes.tsx`): the same scene-graph code with many meshes, run 1:1 on
+  the generic bridge (no new engine code).
 - **Teapot** — `webgl_geometry_teapot` (`three/tsx/teapot.tsx`): lit materials,
   env-map reflections, a lil-gui panel; OrbitControls.
 - **Sponza** — the light-probe-volume scene (`three/tsx/sponza.tsx`): the real
@@ -115,7 +120,7 @@ cd gallery/game_engine/web
 npm install
 npm run build            # -> dist/ (static, self-contained)
 cd dist && python3 -m http.server 8000
-# open http://localhost:8000 and pick "Cube 3D", "Teapot", or "Sponza"
+# open http://localhost:8000 and pick "Cube 3D", "Cubes", "Teapot", or "Sponza"
 ```
 The gallery interprets each scene's `.tsx` against the `three.tsx` façade and
 renders it with WebGL. Editing the shown script hot-reloads the scene.
@@ -223,3 +228,99 @@ GL renders are verified by codegen + (browser) a headless-Chromium harness.
 - **`normalScale`** (per-material normal-map strength) is not wired from the glTF.
 - The native GL runs are codegen-verified in CI; the visual run is a local
   desktop-GL / device step.
+
+---
+
+## 8. Demos & parity
+
+The goal is to run the **three.js examples section** (`threejs.org/examples`) 1:1
+on three targets — **web** (WebGL), **macOS** (desktop OpenGL via SDL), and
+**Raspberry Pi 5** (GLES2 via SDL) — from one Ranger object model. This section is
+the demo catalog (what we have, where each runs) and the API-coverage table (what
+is still missing to reach more of the examples section). The API *design* behind it
+is in [`IDEAL_THREE.md`](./IDEAL_THREE.md).
+
+### 8.1 Demos we have
+
+| Demo | Scene | Three.js example | Renders via | Notes |
+|---|---|---|---|---|
+| **Cube** | `three/tsx/cube.tsx` | the intro rotating cube | generic bridge (`ThreeTsxBridge`) | canonical script, unmodified |
+| **Cubes** | `three/tsx/cubes.tsx` | multi-mesh scene graph | generic bridge | many tinted crate cubes; no new engine code |
+| **Teapot** | `three/tsx/teapot.tsx` | `webgl_geometry_teapot` | `ThreeTeapotTsxBridge` | lit + env-map reflections, lil-gui panel, OrbitControls |
+| **Sponza** | `three/tsx/sponza.tsx` | `webgl_lightprobe` / light-probe volume | `ThreeSponzaTsxBridge` | real glTF model + textures + normal maps, sky, shadows, ACES, baked GI, first-person |
+
+### 8.2 Where they run (support matrix)
+
+✅ works · ◐ shares the same object model + GL backend but no host/launcher entry
+is wired yet · — n/a.
+
+| Demo | Web gallery (WebGL) | Native SDL (macOS / Linux desktop GL) | Raspberry Pi 5 (GLES2) |
+|---|---|---|---|
+| **Cube** | ✅ `Cube 3D` | ◐ object model is portable; no SDL runner wired | ◐ portable; not wired |
+| **Cubes** | ✅ `Cubes` | ◐ portable; no SDL runner wired | ◐ portable; not wired |
+| **Teapot** | ✅ `Teapot` | ✅ `build-teapot-sdl.sh`, launcher `games/teapot` (`render=three`) | ✅ same build (GLES2 auto-selected on ARM) |
+| **Sponza** | ✅ `Sponza` | ✅ `build-sponza-sdl.sh`, launcher `games/sponza` (`render=sponza`) | ✅ same build (GLES2 path); fetch + decode over the network |
+
+Notes: the native GL renders are codegen-verified (`-l=cpp`) and run on the user's
+desktop/device; the browser renders are verified in headless Chromium. The
+Pi-5/GLES2 divergences (float-texture formats, NPOT mipmaps, depth-target formats)
+are guarded in `three_gl.rgr`; Apple Silicon is treated as desktop GL, not GLES2.
+Cube/Cubes run through the generic web host only today — they share the object
+model, so a native runner is a wiring task, not new engine work.
+
+### 8.3 API coverage — what's missing for the rest of the examples
+
+Status: ✅ implemented · ◐ partial · ✗ missing. "Unlocks" names the example family
+that becomes reachable once the row is ✅ on all three targets.
+
+| Three.js module | Implemented (✅ / ◐) | Missing (✗) | Unlocks |
+|---|---|---|---|
+| **Math** | Vector3, Euler, Quaternion, Matrix4, Box3, Color, MathUtils ✅; Vector3.setFromSphericalCoords ◐ | Vector2, Vector4, Matrix3, Sphere, Plane, Ray, Frustum, Triangle, Spherical, Cylindrical | prerequisite for raycasting, UV/2D work, culling |
+| **Core** | Object3D (transforms/world matrix/children ⇒ also covers Group), BufferGeometry (position/normal/uv/tangent/index), Clock via ThreeTimer ✅ | Raycaster, InstancedBufferGeometry, InterleavedBuffer, BufferAttribute usage beyond the fixed set, Layers, morph attributes | picking/interaction examples, instancing |
+| **Cameras** | PerspectiveCamera ✅ | OrthographicCamera (public), CubeCamera, ArrayCamera, StereoCamera | ortho/CAD, cubemap-capture, VR examples |
+| **Geometries** | BoxGeometry, TeapotGeometry ✅ | Sphere, Plane, Circle, Cylinder, Cone, Torus, TorusKnot, Ring, Tetra/Octa/Icosa/Dodeca, Capsule, Extrude, Lathe, Tube, Shape, Text, Edges/Wireframe geometry | **most `webgl_geometry_*` examples** |
+| **Materials** | MeshBasicMaterial, MeshLambertMaterial, MeshPhongMaterial (map + envMap; normalMap via glTF) ✅ | MeshStandardMaterial / MeshPhysicalMaterial (PBR metallic-roughness + IBL), ShaderMaterial / RawShaderMaterial, PointsMaterial, LineBasicMaterial / LineDashedMaterial, MeshToon/Matcap/Depth/Normal/Distance materials, per-material normalScale/aoMap/emissiveMap/roughnessMap | **material examples, correct glTF, custom-shader examples** |
+| **Lights** | AmbientLight, DirectionalLight (+ shadow, PCF) ✅; LightProbeGrid (custom SH GI) ◐ | PointLight, SpotLight, HemisphereLight, RectAreaLight, standard LightProbe, point/spot shadow maps | **lights & shadow examples** |
+| **Objects** | Mesh ✅ | Points, Line / LineSegments / LineLoop, Sprite, InstancedMesh, SkinnedMesh + Skeleton/Bone, LOD | particles, lines, sprites, instancing, skinned characters |
+| **Textures** | Texture, CubeTexture (env/skybox) ✅; wrapping/filtering ◐ | DataTexture, CanvasTexture, VideoTexture, CompressedTexture (KTX2/Basis), DepthTexture (public), sRGB color-space decode | procedural/video/compressed-texture examples, correct color |
+| **Loaders** | TextureLoader, CubeTextureLoader, GLTFLoader (geometry + TRS nodes + baseColor/normal textures) ◐ | glTF PBR materials / animations / skins / Draco / KTX2 / morph; OBJ, FBX, Collada, STL, PLY, 3MF, USDZ loaders | **loader examples** (the largest example family) |
+| **Animation** | — | AnimationMixer, AnimationClip, KeyframeTrack, morph-target & skeletal animation, AnimationObjectGroup | **animation examples**, animated glTF |
+| **Controls** (jsm) | OrbitControls, FirstPersonControls ✅ | TrackballControls, FlyControls, MapControls, PointerLockControls, TransformControls, DragControls, ArcballControls | controls & editor-style examples |
+| **Renderer** | WebGLRenderer (render, setSize, tone mapping, shadow map, FBO) ◐ | EffectComposer + passes (post-processing), WebGLRenderTarget as public API, MRT, instanced/indirect draw, WebGPURenderer/TSL | **postprocessing examples**, render-target examples |
+| **Scene extras** | Scene, Sky (Preetham) ✅ | Fog / FogExp2, background as texture/cubemap API, environment (IBL) property | fog examples, environment-lit examples |
+| **Helpers** | LightProbeGridHelper (custom) ◐ | GridHelper, AxesHelper, Box3Helper, CameraHelper, Directional/Point/SpotLightHelper, SkeletonHelper, VertexNormalsHelper | helper/debug examples |
+| **Tone/color** | ACES + Reinhard tone mapping, exposure ✅ | full color-management (sRGB working/output color spaces), LinearToneMapping/Cineon/AgX | color-managed examples, AgX examples |
+
+### 8.4 Roadmap (priority order)
+
+Ordered by how many example pages each unlocks per unit of work. Every item stays
+inside the shared constraints — object model (ES6 + C++), GPU work as `gpu_*`
+es6/cpp templates, shaders in **GLSL ES 1.00** — so each landed row advances web,
+macOS, and Pi 5 together.
+
+1. **Primitive geometries** — Sphere, Plane, Cylinder, Cone, Torus, TorusKnot,
+   Circle, Ring, the polyhedra. Pure object-model math, portable by construction;
+   lights up most `webgl_geometry_*` pages. Highest ratio. (A "Shapes" demo becomes
+   trivial on the generic bridge, like Cubes.)
+2. **MeshStandardMaterial (PBR) + IBL** — metallic-roughness lighting, an
+   environment prefilter (FBO passes already exist), sRGB baseColor decode. Unlocks
+   the material family and makes glTF render correctly. Stays ES 1.00 (analytic BRDF
+   + prefiltered mip chain, no compute).
+3. **Point / Spot / Hemisphere lights** (+ point/spot shadows) — extends the
+   übershader light loop; shadow FBO plumbing is reusable. Unlocks lights & shadows.
+4. **Points & Line objects** (`PointsMaterial`, `LineBasicMaterial`) — new draw
+   modes (`GL_POINTS`/`GL_LINES`) + tiny shaders; particles/lines examples, cheap on
+   all three targets.
+5. **glTF animation + skinning** (`AnimationMixer`, morph + skeletal) — CPU-side
+   sampling is portable; skinning needs a bone-matrix uniform path (ES 1.00-friendly).
+   Unlocks animation and animated-loader examples.
+6. **Raycaster + a couple more controls** (Transform/Trackball) — interaction/
+   picking family; pure object model, no GPU work.
+7. **More loaders** (OBJ/STL/PLY first — text/binary, no external deps; then
+   Draco/KTX2, which need decoders like the JPEG/PNG path already used natively).
+8. **Post-processing** (`EffectComposer` + core passes: FXAA, bloom, outline).
+   Feasible in ES 1.00 with ping-pong FBOs + the existing float-texture support; the
+   main risk item on GLES2/Pi (format/precision limits), so scope passes to what the
+   shared dialect allows.
+9. **Fog, Sprite, InstancedMesh, DataTexture/CanvasTexture** — smaller families,
+   each a modest object-model + shader-uniform addition.

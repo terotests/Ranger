@@ -38,10 +38,10 @@ phases above. The cube and teapot examples run 1:1 in the interpreter (the teapo
 renders on the GPU in the browser); the Sponza light-probe example
 ([`three/IDEAL_SPONZA.md`](./three/IDEAL_SPONZA.md)) runs interpreted with hot
 reload (`three/tsx/three_sponza_tsx_test.rgr` in `run.sh`) and has a native SDL
-runner (`three/sponza_sdl_runner.rgr`, C++-codegen verified). Remaining: a native
-glTF **file** loader (the accessor decoder is done), the render-to-texture (FBO)
-passes for the shadow map + probe bake in `ThreeGLBackend`, and the browser +
-playground host for `sponza.tsx`. See `IDEAL_THREE §8`.
+runner (`three/sponza_sdl_runner.rgr`, C++-codegen verified). The native glTF
+**file** loader, the render-to-texture (FBO) shadow-map pass, glTF textures +
+normal maps, and the browser + launcher hosts for `sponza.tsx` are now built. See
+`THREE.md` for the demo catalog, support matrix and remaining API coverage.
 
 **Verification strategy (three tiers, no SDL/WASM build needed).** This approach
 emerged during the work and proved repeatable — new items should follow it:
