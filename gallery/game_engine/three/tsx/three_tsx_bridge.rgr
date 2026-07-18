@@ -40,6 +40,7 @@ Import "../src/three_webgl_renderer.rgr"
 Import "../src/three_render_backend.rgr"
 Import "../src/three_scene.rgr"
 Import "../src/three_object3d.rgr"
+Import "../src/three_animation.rgr"
 Import "../src/three_perspective_camera.rgr"
 Import "../src/three_box_geometry.rgr"
 Import "../src/three_teapot_geometry.rgr"
@@ -85,6 +86,10 @@ class ThreeTsxBridge {
     ; new host entities. Assumes a stable tree shape (as the flat cache does too).
     def subHandles:[int]
     def subCursor:int 0
+    ; a single AnimationMixer reconciled from a global `mixer` (built once from the
+    ; interpreted clip's tracks; applied to its target entity each frame).
+    def animMixer:ThreeAnimationMixer (new ThreeAnimationMixer)
+    def animBuilt:boolean false
 
     ; reconcile bookkeeping (also serves as introspection for tests: proves the
     ; façade was mapped to the right REAL object types, not a single hard-coded one).
@@ -311,6 +316,87 @@ class ThreeTsxBridge {
             this.syncNode(i childV)
             i = (i + 1)
         }
+    }
+
+    ; --- animation reconcile --------------------------------------------------
+    ; find the host entity handle for the top-level scene child carrying __uid.
+    fn findHandleByUid:int (uid:int) {
+        def sc:EvalValue (engine.getGlobal("scene"))
+        if (sc.isObject() == false) { return 0 }
+        def childrenV:EvalValue (sc.getMember("children"))
+        if (childrenV.isArray() == false) { return 0 }
+        def n:int (array_length childrenV.arrayValue)
+        def i:int 0
+        while (i < n) {
+            def cv:EvalValue (childrenV.getIndex(i))
+            def cuid:int (to_int (this.numOr(cv "__uid" 0.0)))
+            if (cuid == uid) {
+                if (i < (array_length nodeHandles)) {
+                    return (itemAt nodeHandles i)
+                }
+            }
+            i = (i + 1)
+        }
+        return 0
+    }
+
+    ; build the host KeyframeTracks (once) from the interpreted clip's tracks.
+    fn buildHostMixer:void (clipV:EvalValue) {
+        def tracksV:EvalValue (clipV.getMember("tracks"))
+        if (tracksV.isArray() == false) { return }
+        def n:int (array_length tracksV.arrayValue)
+        def i:int 0
+        while (i < n) {
+            def tv:EvalValue (tracksV.getIndex(i))
+            def name:string ""
+            def nameV:EvalValue (tv.getMember("name"))
+            if (nameV.isString()) { name = nameV.stringValue }
+            def stride:int (to_int (this.numOr(tv "stride" 3.0)))
+            def isQuat:boolean (this.boolOr(tv "isQuaternion" false))
+            def tr:ThreeKeyframeTrack (new ThreeKeyframeTrack)
+            tr.setup(name stride isQuat)
+            def timesV:EvalValue (tv.getMember("times"))
+            if (timesV.isArray()) {
+                def tn:int (array_length timesV.arrayValue)
+                def k:int 0
+                while (k < tn) {
+                    tr.pushTime(((timesV.getIndex(k)).toNumber()))
+                    k = (k + 1)
+                }
+            }
+            def valuesV:EvalValue (tv.getMember("values"))
+            if (valuesV.isArray()) {
+                def vn:int (array_length valuesV.arrayValue)
+                def j:int 0
+                while (j < vn) {
+                    tr.pushValue(((valuesV.getIndex(j)).toNumber()))
+                    j = (j + 1)
+                }
+            }
+            animMixer.clip.addTrack(tr)
+            i = (i + 1)
+        }
+    }
+
+    fn syncAnimation:void () {
+        def mx:EvalValue (engine.getGlobal("mixer"))
+        if (mx.isObject() == false) { return }
+        def action:EvalValue (mx.getMember("action"))
+        if (action.isObject() == false) { return }
+        def clipV:EvalValue (action.getMember("clip"))
+        if (clipV.isObject() == false) { return }
+        if (animBuilt == false) {
+            this.buildHostMixer(clipV)
+            animBuilt = true
+        }
+        def targetV:EvalValue (mx.getMember("target"))
+        if (targetV.isObject() == false) { return }
+        def uid:int (to_int (this.numOr(targetV "__uid" 0.0)))
+        def th:int (this.findHandleByUid(uid))
+        if (th <= 0) { return }
+        def t:double (this.numOr(mx "time" 0.0))
+        def target:ThreeObject3D (host.entityAt(th))
+        animMixer.applyAt(t target)
     }
 
     ; Reconcile façade child i: build its real node (command the host) on first sight,
@@ -803,6 +889,10 @@ class ThreeTsxBridge {
         this.syncCamera()
         subCursor = 0
         this.syncScene()
+        ; animation: sample the reconciled clip at the mixer's time and write the
+        ; result onto the target entity's TRS (after syncScene, so it overrides the
+        ; static façade transform; before world compose).
+        this.syncAnimation()
         ; compose world matrices so nested nodes' matrixWorld is current (the
         ; renderer also does this during present; explicit here so a headless
         ; reconcile without a draw still yields correct world transforms).

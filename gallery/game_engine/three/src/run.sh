@@ -106,6 +106,10 @@ run_feature spec/three_spec_runner
 # through the interpreter, reconciled into the host with real parenting; each
 # node's composed world matrix validated vs real three.js. No rendering.
 run_feature object_hierarchy/three_hierarchy_test
+# Animation (three/tests/animation/): keyframe sampling (linear + quaternion slerp)
+# + an AnimationMixer, driven through the interpreter — the host samples the clip
+# and writes the target entity's TRS; validated vs real three.js. No rendering.
+run_feature animation/three_animation_test
 # The 1:1 Three.js cube example, run through the TSX interpreter on the façade.
 run_tsx_poc three_facade_poc
 # The render bridge: the interpreted cube.tsx reconciled into the Ranger core and

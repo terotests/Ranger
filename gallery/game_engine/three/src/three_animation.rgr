@@ -1,0 +1,170 @@
+; ==============================================================================
+; three_animation — keyframe animation (Three.js port, no-render core).
+; ==============================================================================
+; The testable-without-rendering heart of animation: sample a KeyframeTrack at a
+; time (linear for number/vector, three.js-exact slerp for quaternion), collect
+; tracks into a clip, and have a mixer apply the sampled values onto a target
+; Object3D's TRS. Pure Ranger — compiles to ES6 + C++.
+;
+; Interpolation matches three.js: LinearInterpolant (component lerp) and
+; QuaternionLinearInterpolant (Quaternion.slerp: dot-flip, acos/sin, lerp+normalise
+; for near-parallel).
+; ==============================================================================
+
+Import "three_object3d.rgr"
+
+class ThreeKeyframeTrack {
+    def isKeyframeTrack:boolean true
+    def name:string ""
+    def times:[double]
+    def values:[double]
+    def stride:int 3          ; 1 = number, 3 = vector, 4 = quaternion
+    def isQuaternion:boolean false
+
+    fn setup:ThreeKeyframeTrack (name:string stride:int isQuat:boolean) {
+        this.name = name
+        this.stride = stride
+        this.isQuaternion = isQuat
+        return this
+    }
+    fn pushTime:void (t:double) { push this.times t }
+    fn pushValue:void (v:double) { push this.values v }
+
+    ; sample `stride` components at time t into a fresh array (three.js semantics:
+    ; clamp before the first key / after the last, else interpolate the segment).
+    fn sample:[double] (t:double) {
+        def out:[double]
+        def n:int (array_length this.times)
+        if (n == 0) { return out }
+        if (t <= (itemAt this.times 0)) {
+            def c:int 0
+            while (c < this.stride) {
+                def fv:double (itemAt this.values c)
+                push out fv
+                c = (c + 1)
+            }
+            return out
+        }
+        def last:int (n - 1)
+        if (t >= (itemAt this.times last)) {
+            def base:int (last * this.stride)
+            def c2:int 0
+            while (c2 < this.stride) {
+                def lv:double (itemAt this.values (base + c2))
+                push out lv
+                c2 = (c2 + 1)
+            }
+            return out
+        }
+        ; segment i with times[i] <= t < times[i+1]
+        def i:int 0
+        while ((i < (n - 1)) && ((itemAt this.times (i + 1)) <= t)) { i = (i + 1) }
+        def t0:double (itemAt this.times i)
+        def t1:double (itemAt this.times (i + 1))
+        def alpha:double ((t - t0) / (t1 - t0))
+        def b0:int (i * this.stride)
+        def b1:int ((i + 1) * this.stride)
+        if this.isQuaternion {
+            def qs:[double] (this.slerpValues(b0 b1 alpha))
+            def k:int 0
+            while (k < 4) {
+                def qv:double (itemAt qs k)
+                push out qv
+                k = (k + 1)
+            }
+        } {
+            def c3:int 0
+            while (c3 < this.stride) {
+                def a:double (itemAt this.values (b0 + c3))
+                def b:double (itemAt this.values (b1 + c3))
+                push out (a + ((b - a) * alpha))
+                c3 = (c3 + 1)
+            }
+        }
+        return out
+    }
+
+    ; three.js Quaternion.slerp between values[b0..] and values[b1..] by alpha,
+    ; returned as a fresh 4-vector.
+    fn slerpValues:[double] (b0:int b1:int alpha:double) {
+        def out:[double]
+        def ax:double (itemAt this.values b0)
+        def ay:double (itemAt this.values (b0 + 1))
+        def az:double (itemAt this.values (b0 + 2))
+        def aw:double (itemAt this.values (b0 + 3))
+        def bx:double (itemAt this.values b1)
+        def by:double (itemAt this.values (b1 + 1))
+        def bz:double (itemAt this.values (b1 + 2))
+        def bw:double (itemAt this.values (b1 + 3))
+        def dot:double ((((ax * bx) + (ay * by)) + (az * bz)) + (aw * bw))
+        if (dot < 0.0) {
+            bx = (0.0 - bx)
+            by = (0.0 - by)
+            bz = (0.0 - bz)
+            bw = (0.0 - bw)
+            dot = (0.0 - dot)
+        }
+        def s0:double (1.0 - alpha)
+        def s1:double alpha
+        def doNorm:boolean false
+        if (dot < 0.9995) {
+            def theta:double (acos dot)
+            def sinT:double (sin theta)
+            s0 = ((sin ((1.0 - alpha) * theta)) / sinT)
+            s1 = ((sin (alpha * theta)) / sinT)
+        } {
+            doNorm = true
+        }
+        def rx:double ((s0 * ax) + (s1 * bx))
+        def ry:double ((s0 * ay) + (s1 * by))
+        def rz:double ((s0 * az) + (s1 * bz))
+        def rw:double ((s0 * aw) + (s1 * bw))
+        if doNorm {
+            def len:double (sqrt((((rx * rx) + (ry * ry)) + (rz * rz)) + (rw * rw)))
+            if (len < 0.000000001) { len = 1.0 }
+            rx = (rx / len)
+            ry = (ry / len)
+            rz = (rz / len)
+            rw = (rw / len)
+        }
+        push out rx
+        push out ry
+        push out rz
+        push out rw
+        return out
+    }
+}
+
+class ThreeAnimationClip {
+    def isAnimationClip:boolean true
+    def name:string ""
+    def duration:double 0.0
+    def tracks:[ThreeKeyframeTrack]
+    fn addTrack:void (tr:ThreeKeyframeTrack) { push this.tracks tr }
+}
+
+class ThreeAnimationMixer {
+    def isAnimationMixer:boolean true
+    def clip:ThreeAnimationClip (new ThreeAnimationClip)
+
+    ; sample every track at time t and write onto the target's TRS (three.js binds
+    ; a track by its property path: .position / .quaternion / .scale).
+    fn applyAt:void (t:double target:ThreeObject3D) {
+        def i:int 0
+        while (i < (array_length this.clip.tracks)) {
+            def tr:ThreeKeyframeTrack (itemAt this.clip.tracks i)
+            def v:[double] (tr.sample(t))
+            if (tr.name == ".position") {
+                target.position.set((itemAt v 0) (itemAt v 1) (itemAt v 2))
+            }
+            if (tr.name == ".scale") {
+                target.scale.set((itemAt v 0) (itemAt v 1) (itemAt v 2))
+            }
+            if (tr.name == ".quaternion") {
+                target.quaternion.set((itemAt v 0) (itemAt v 1) (itemAt v 2) (itemAt v 3))
+                target.quatDriven = true
+            }
+            i = (i + 1)
+        }
+    }
+}
