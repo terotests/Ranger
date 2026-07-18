@@ -40,6 +40,8 @@ Import "../src/three_webgl_renderer.rgr"
 Import "../src/three_render_backend.rgr"
 Import "../src/three_scene.rgr"
 Import "../src/three_object3d.rgr"
+Import "../src/three_box3.rgr"
+Import "../src/three_vector3.rgr"
 Import "../src/three_animation.rgr"
 Import "../src/three_perspective_camera.rgr"
 Import "../src/three_box_geometry.rgr"
@@ -51,6 +53,7 @@ Import "../src/three_mesh_lambert_material.rgr"
 Import "../src/three_mesh_phong_material.rgr"
 Import "../src/three_light.rgr"
 Import "../src/three_sky.rgr"
+Import "../src/three_light_probe_volume.rgr"
 Import "../src/three_texture.rgr"
 Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
 Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
@@ -111,6 +114,16 @@ class ThreeTsxBridge {
     def hasHostModel:boolean false
     def reconciledModel:ThreeObject3D (new ThreeObject3D)
     def hasModelNode:boolean false
+    ; the diffuse-GI probe volume this reconciler builds from a declared
+    ; LightProbeGrid node and bakes (capture bake — no analytic tints) when the scene
+    ; calls probes.bake(). This is the generic technique the old model-named
+    ; ThreeSponzaScene recipe used to own; it now lives in the one generic reconciler.
+    def volume:ThreeLightProbeVolume (new ThreeLightProbeVolume)
+    def hasProbes:boolean false
+    def probesBuilt:boolean false
+    def lastProbeSig:string ""
+    def lastBakeReq:int 0
+    def bakePending:boolean false
     ; anything the scene SPECIFIED that we could not reconcile to a real object
     ; (an unsupported geometry / material / light / feature). Counted + warned so a
     ; deviation from the specified scene is never a silent fake. (Sensible defaults
@@ -144,12 +157,46 @@ class ThreeTsxBridge {
     fn hasSkyNode:boolean () { return hasSky }
     fn modelNode:ThreeObject3D () { return reconciledModel }
     fn hasModelNode3D:boolean () { return hasModelNode }
+    ; the diffuse-GI probe volume built from a declared LightProbeGrid node.
+    fn hasProbeVolume:boolean () { return hasProbes }
+    fn probeVolume:ThreeLightProbeVolume () { return volume }
     ; the host hands in the decoded model (the async glTF load is host plumbing); the
     ; bridge attaches it when it reconciles the scene's `GLTFModel` placeholder.
     fn setHostModel:ThreeTsxBridge (m:ThreeObject3D) {
         hostModel = m
         hasHostModel = true
         return this
+    }
+
+    ; Publish a decoded model's world bounds to the interpreter as the `__hostBounds`
+    ; global, so an interpreted scene's `new THREE.Box3().setFromObject(model)` reads
+    ; real numbers (the interpreter can't traverse decoded geometry). The host calls
+    ; this AFTER decoding the model and BEFORE init(), since init() derives the light
+    ; distance / shadow extents / probe far from these bounds.
+    sfn publishBounds:void (engine:ComponentEngine model:ThreeObject3D) {
+        def box:ThreeBox3 (model.boundingBox())
+        def sz:ThreeVector3 (new ThreeVector3)
+        box.getSize(sz)
+        def ct:ThreeVector3 (new ThreeVector3)
+        box.getCenter(ct)
+        def hx:double (sz.x * 0.5)
+        def hy:double (sz.y * 0.5)
+        def hz:double (sz.z * 0.5)
+        def keys:[string]
+        def vals:[EvalValue]
+        push keys "minX"
+        push vals (EvalValue.number(ct.x - hx))
+        push keys "minY"
+        push vals (EvalValue.number(ct.y - hy))
+        push keys "minZ"
+        push vals (EvalValue.number(ct.z - hz))
+        push keys "maxX"
+        push vals (EvalValue.number(ct.x + hx))
+        push keys "maxY"
+        push vals (EvalValue.number(ct.y + hy))
+        push keys "maxZ"
+        push vals (EvalValue.number(ct.z + hz))
+        engine.registerGlobal("__hostBounds" (EvalValue.object(keys vals)))
     }
 
     ; point this reconciler at an EXISTING host so several front-ends command one
@@ -554,35 +601,11 @@ class ThreeTsxBridge {
             return (this.registerNode(h "" false))
         }
         if (this.flagOn(childV "isDirectionalLight")) {
-            ; the demo plumbing (Sponza GI bake) needs the typed sun, so build it here
-            ; and attach it to the host (which then OWNS it in the one registry).
+            ; a real typed sun in the one registry. Its dynamic props (position +
+            ; target, intensity, castShadow, the bounds-derived shadow extents) are
+            ; (re)applied every reconcile by applySun, so a live light-angle / hot-
+            ; reload edit actually moves the sun + its shadow.
             def dir:ThreeDirectionalLight (new ThreeDirectionalLight)
-            dir.setColorHex((to_int (this.numOr(childV "color" 16777215.0))))
-            dir.setIntensity((this.numOr(childV "intensity" 1.0)))
-            def dp:EvalValue (childV.getMember("position"))
-            if (dp.isObject()) {
-                dir.setDirection((this.num(dp "x")) (this.num(dp "y")) (this.num(dp "z")))
-            }
-            ; shadow casting — honour castShadow + shadow.mapSize + shadow.camera
-            ; extents the scene specifies (the renderer runs the depth pass when the
-            ; light casts and the renderer's shadow map is enabled).
-            dir.setCastShadow((this.boolOr(childV "castShadow" false)))
-            def sh:EvalValue (childV.getMember("shadow"))
-            if (sh.isObject()) {
-                def ms:EvalValue (sh.getMember("mapSize"))
-                if (ms.isNumber()) {
-                    dir.shadow.setMapSize((to_int (ms.toNumber())))
-                }
-                def shcam:EvalValue (sh.getMember("camera"))
-                if (shcam.isObject()) {
-                    dir.shadow.setExtent((this.numOr(shcam "left" (0.0 - 5.0)))
-                        (this.numOr(shcam "right" 5.0))
-                        (this.numOr(shcam "top" 5.0))
-                        (this.numOr(shcam "bottom" (0.0 - 5.0)))
-                        (this.numOr(shcam "near" 0.5))
-                        (this.numOr(shcam "far" 500.0)))
-                }
-            }
             def h:int (host.modelAttach(sceneH dir))
             nDirectional = (nDirectional + 1)
             reconciledSun = dir
@@ -590,17 +613,9 @@ class ThreeTsxBridge {
             return (this.registerNode(h "" false))
         }
         ; sky (Preetham atmosphere) — a real ThreeSky the renderer draws behind the
-        ; scene; its scattering params + sun direction are driven by the scene.
+        ; scene; its scattering params + sun uniform are (re)applied by applySky.
         if (this.flagOn(childV "isSky")) {
             def sky:ThreeSky (new ThreeSky)
-            sky.setTurbidity((this.numOr(childV "turbidity" 10.0)))
-            sky.setRayleigh((this.numOr(childV "rayleigh" 3.0)))
-            sky.setMieCoefficient((this.numOr(childV "mieCoefficient" 0.005)))
-            sky.setMieDirectionalG((this.numOr(childV "mieDirectionalG" 0.7)))
-            def sp:EvalValue (childV.getMember("sunPosition"))
-            if (sp.isObject()) {
-                sky.setSunPosition((this.num(sp "x")) (this.num(sp "y")) (this.num(sp "z")))
-            }
             def h:int (host.modelAttach(sceneH sky))
             nSky = (nSky + 1)
             reconciledSky = sky
@@ -621,6 +636,17 @@ class ThreeTsxBridge {
             def hh:int (host.modelAttach(sceneH mo))
             return (this.registerNode(hh "" false))
         }
+        ; light-probe volume (diffuse GI) — a real ThreeLightProbeVolume the bridge
+        ; builds from the declared dims/counts and bakes via bakeFromScene when the
+        ; scene calls probes.bake() (the generic Three.js capture bake, no tints). The
+        ; volume manages its own grid + helper as host scene children; applyProbes
+        ; drives build/bake each reconcile. Keep an empty placeholder entity so the
+        ; index cache stays aligned.
+        if (this.flagOn(childV "isLightProbeGrid")) {
+            hasProbes = true
+            def h:int (host.groupNew(sceneH 0))
+            return (this.registerNode(h "" false))
+        }
         ; mesh (default) — typed geometry + typed material
         if (this.flagOn(childV "isMesh")) {
             def h:int (this.buildMeshH(childV))
@@ -637,9 +663,6 @@ class ThreeTsxBridge {
         ; type — Point/Spot/Hemisphere — or any other object). Report it (loud +
         ; counted) rather than pretending it rendered; an empty Object3D keeps the
         ; parallel-array indexing intact.
-        if (this.flagOn(childV "isLightProbeGrid")) {
-            this.noteUnsupported("light-probe grid (its GI bake is a host plumbing pass, not scene reconciliation)")
-        } {
         if (this.flagOn(childV "isModel")) {
             this.noteUnsupported("model (its async load/decode is host plumbing — attach via a host module)")
         } {
@@ -647,7 +670,7 @@ class ThreeTsxBridge {
             this.noteUnsupported("light (only Ambient/Directional are reconciled)")
         } {
             this.noteUnsupported("scene object (not a Mesh/Ambient/Directional light/Sky)")
-        }}}
+        }}
         def o:ThreeObject3D (new ThreeObject3D)
         def oh:int (host.modelAttach(sceneH o))
         return (this.registerNode(oh "" false))
@@ -904,6 +927,138 @@ class ThreeTsxBridge {
         return out
     }
 
+    ; (re)apply a declared DirectionalLight's dynamic props onto the reconciled sun.
+    ; position + target place the light and its shadow camera (which sits AT the light
+    ; looking at the target — so direction = target - position, matching three.js);
+    ; intensity / castShadow / mapSize / the bounds-derived ortho extents follow.
+    fn applySun:void (childV:EvalValue) {
+        if (hasSun == false) {
+            return
+        }
+        reconciledSun.setColorHex((to_int (this.numOr(childV "color" 16777215.0))))
+        reconciledSun.setIntensity((this.numOr(childV "intensity" 1.0)))
+        def dp:EvalValue (childV.getMember("position"))
+        if (dp.isObject()) {
+            reconciledSun.position.set((this.num(dp "x")) (this.num(dp "y")) (this.num(dp "z")))
+        }
+        def tg:EvalValue (childV.getMember("target"))
+        if (tg.isObject()) {
+            def tp:EvalValue (tg.getMember("position"))
+            if (tp.isObject()) {
+                reconciledSun.target.position.set((this.num(tp "x")) (this.num(tp "y")) (this.num(tp "z")))
+            }
+        }
+        reconciledSun.setCastShadow((this.boolOr(childV "castShadow" false)))
+        def sh:EvalValue (childV.getMember("shadow"))
+        if (sh.isObject()) {
+            def ms:EvalValue (sh.getMember("mapSize"))
+            if (ms.isNumber()) {
+                reconciledSun.shadow.setMapSize((to_int (ms.toNumber())))
+            }
+            def shcam:EvalValue (sh.getMember("camera"))
+            if (shcam.isObject()) {
+                reconciledSun.shadow.setExtent((this.numOr(shcam "left" (0.0 - 5.0)))
+                    (this.numOr(shcam "right" 5.0))
+                    (this.numOr(shcam "top" 5.0))
+                    (this.numOr(shcam "bottom" (0.0 - 5.0)))
+                    (this.numOr(shcam "near" 0.5))
+                    (this.numOr(shcam "far" 500.0)))
+            }
+        }
+    }
+
+    ; (re)apply a declared Sky's scattering params + sun uniform onto the reconciled
+    ; sky, so a live sun-angle / turbidity edit updates the atmosphere.
+    fn applySky:void (childV:EvalValue) {
+        if (hasSky == false) {
+            return
+        }
+        reconciledSky.setTurbidity((this.numOr(childV "turbidity" 10.0)))
+        reconciledSky.setRayleigh((this.numOr(childV "rayleigh" 3.0)))
+        reconciledSky.setMieCoefficient((this.numOr(childV "mieCoefficient" 0.005)))
+        reconciledSky.setMieDirectionalG((this.numOr(childV "mieDirectionalG" 0.7)))
+        def sp:EvalValue (childV.getMember("sunPosition"))
+        if (sp.isObject()) {
+            reconciledSky.setSunPosition((this.num(sp "x")) (this.num(sp "y")) (this.num(sp "z")))
+        }
+    }
+
+    ; the probe grid's rebuild signature — a count change rebuilds the volume.
+    fn probeSig:string (childV:EvalValue) {
+        return ((to_string (to_int (this.numOr(childV "countX" 2.0)))) + "," + (to_string (to_int (this.numOr(childV "countY" 2.0)))) + "," + (to_string (to_int (this.numOr(childV "countZ" 2.0)))))
+    }
+
+    ; build the diffuse-GI probe volume from a declared LightProbeGrid node: dims /
+    ; counts / bounds (position) / visibility come from the node; a count change
+    ; rebuilds the grid. A probes.bake() call (bakeRequest bump) arms the capture bake
+    ; (deferred to after world matrices compose, so the captured scene is current).
+    fn applyProbes:void (childV:EvalValue) {
+        this.volume.gridSizeX = (this.numOr(childV "sizeX" 1.0))
+        this.volume.gridSizeY = (this.numOr(childV "sizeY" 1.0))
+        this.volume.gridSizeZ = (this.numOr(childV "sizeZ" 1.0))
+        this.volume.countX = (to_int (this.numOr(childV "countX" 2.0)))
+        this.volume.countY = (to_int (this.numOr(childV "countY" 2.0)))
+        this.volume.countZ = (to_int (this.numOr(childV "countZ" 2.0)))
+        def pv:EvalValue (childV.getMember("position"))
+        if (pv.isObject()) {
+            this.volume.boundsX = (this.num(pv "x"))
+            this.volume.boundsY = (this.num(pv "y"))
+            this.volume.boundsZ = (this.num(pv "z"))
+        }
+        this.volume.probeSize = (this.numOr(childV "probeSize" 0.2))
+        this.volume.captureFaceSize = (to_int (this.numOr(childV "cubemapSize" 32.0)))
+        this.volume.enabled = (this.boolOr(childV "visible" true))
+        this.volume.showProbes = (this.boolOr(childV "showProbes" false))
+
+        def sig:string (this.probeSig(childV))
+        if ((probesBuilt == false) || (sig != lastProbeSig)) {
+            this.volume.rebuild(this.scene)
+            this.volume.captureCounts()
+            probesBuilt = true
+            lastProbeSig = sig
+        }
+        this.volume.setEnabled(this.volume.enabled)
+        this.volume.setHelperVisible(this.volume.showProbes)
+
+        def req:int (to_int (this.numOr(childV "bakeRequest" 0.0)))
+        if (req != lastBakeReq) {
+            bakePending = true
+            lastBakeReq = req
+        }
+    }
+
+    ; re-apply the declared sun / sky / probe-volume props onto the reconciled host
+    ; objects each reconcile (they are built once by ensureNode, but their props are
+    ; dynamic — live GUI + hot-reload edits). This generic technique driver replaces
+    ; the model-named ThreeSponzaScene recipe.
+    fn applyDynamics:void () {
+        def sc:EvalValue (engine.getGlobal("scene"))
+        if (sc.isObject() == false) {
+            return
+        }
+        def childrenV:EvalValue (sc.getMember("children"))
+        if (childrenV.isArray() == false) {
+            return
+        }
+        def n:int (array_length childrenV.arrayValue)
+        def i:int 0
+        while (i < n) {
+            def childV:EvalValue (childrenV.getIndex(i))
+            if (childV.isObject()) {
+                if (this.flagOn(childV "isDirectionalLight")) {
+                    this.applySun(childV)
+                }
+                if (this.flagOn(childV "isSky")) {
+                    this.applySky(childV)
+                }
+                if (this.flagOn(childV "isLightProbeGrid")) {
+                    this.applyProbes(childV)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
     ; Reconcile the current façade scene into the one host registry WITHOUT drawing.
     ; A host plumbing module can run between reconcile() and present() — e.g. to add
     ; a baked probe volume to `scene`, or set bounds-derived shadow extents on the
@@ -920,10 +1075,20 @@ class ThreeTsxBridge {
         ; result onto the target entity's TRS (after syncScene, so it overrides the
         ; static façade transform; before world compose).
         this.syncAnimation()
+        ; drive the sun / sky / probe volume from the declared scene (the generic
+        ; technique that replaced ThreeSponzaScene): sun placement + shadow extents,
+        ; probe build, and arming the capture bake.
+        this.applyDynamics()
         ; compose world matrices so nested nodes' matrixWorld is current (the
         ; renderer also does this during present; explicit here so a headless
         ; reconcile without a draw still yields correct world transforms).
         host.updateWorldMatrices(sceneH)
+        ; the capture bake renders the whole scene into a cube per probe, so it runs
+        ; AFTER world matrices compose (the just-built probes + placed sun included).
+        if bakePending {
+            this.volume.bakeFromScene(this.scene this.renderer)
+            bakePending = false
+        }
     }
     ; Draw the reconciled scene (the host owns the renderer + scene + camera).
     fn present:void () {

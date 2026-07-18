@@ -3,9 +3,9 @@
 ; ==============================================================================
 ; NOT part of the canonical object model (three/src): this panel is specific to
 ; the teapot example (its title, shading modes, and lid/body/bottom/fitLid/blinn
-; toggles), so it lives in the demo layer next to the teapot bridge/host — the
-; same way three_sponza_scene does for the Sponza demo. A reusable EVG panel/
-; widget framework could be factored out of it later; for now it is the teapot's.
+; toggles), so it lives in the demo layer next to the teapot bridge/host. A reusable
+; EVG panel/widget framework could be factored out of it later; for now it is the
+; teapot's.
 ;
 ; Kept in pure Ranger: the panel is an EVGElement tree rasterised to an RGBA
 ; buffer (via GameHudBlitter + SoftCanvas), which the host composites over the

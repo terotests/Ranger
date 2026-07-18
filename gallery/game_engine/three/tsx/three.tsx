@@ -483,8 +483,13 @@ class Sky {
   sunPosition = new Vector3().set(0, 1, 0);
 }
 
-// A grid of SH light probes (diffuse GI). The bridge builds + bakes the real
-// ThreeLightProbeGrid from these dims/counts; the interpreter just declares them.
+// A grid of SH light probes (diffuse GI). The bridge builds the real
+// ThreeLightProbeVolume from these dims/counts and, when bake() is called, runs
+// the capture bake (probes.bake(renderer, scene, opts) -> ThreeLightProbeVolume
+// .bakeFromScene) — the same generic Three.js LightProbeGenerator path, no analytic
+// tints. bake() records the opts + bumps bakeRequest; the bridge does the GPU work
+// (the interpreter can't). showProbes/probeSize drive the volume's own helper (the
+// upstream example's separate LightProbeGridHelper is folded into the volume here).
 class LightProbeGrid {
   isLightProbeGrid = true;
   position = new Vector3();
@@ -498,6 +503,13 @@ class LightProbeGrid {
   countY = 2;
   countZ = 2;
   bounces = 1;
+  showProbes = false;
+  probeSize = 0.2;
+  // capture-bake opts the bridge reads (defaults match probes.bake({...}) upstream).
+  cubemapSize = 32;
+  near = 0.05;
+  far = 1000;
+  bakeRequest = 0;
   constructor(sizeX, sizeY, sizeZ, countX, countY, countZ) {
     this.sizeX = sizeX;
     this.sizeY = sizeY;
@@ -506,7 +518,46 @@ class LightProbeGrid {
     this.countY = countY;
     this.countZ = countZ;
   }
+  // Bake the diffuse-GI probe volume by CAPTURING the real scene at each probe.
+  // Records the opts + signals the bridge (which owns the renderer + host scene) to
+  // run ThreeLightProbeVolume.bakeFromScene. Callers pass a full opts object.
+  bake(renderer, scene, opts) {
+    this.cubemapSize = opts.cubemapSize;
+    this.near = opts.near;
+    this.far = opts.far;
+    this.bounces = opts.bounces;
+    this.bakeRequest = this.bakeRequest + 1;
+  }
   dispose() { }
+}
+
+// Axis-aligned bounds (THREE.Box3). The interpreter can't traverse decoded geometry,
+// so setFromObject(model) copies the host-measured bounds the host publishes as the
+// `__hostBounds` global (min/max) BEFORE init() runs — the single decoded host model.
+// getSize/getCenter then mirror THREE.Box3 so the scene derives light distance,
+// shadow extents and probe far exactly like the upstream example.
+class Box3 {
+  isBox3 = true;
+  minX = 0; minY = 0; minZ = 0;
+  maxX = 0; maxY = 0; maxZ = 0;
+  setFromObject(obj) {
+    const b = __hostBounds;
+    this.minX = b.minX; this.minY = b.minY; this.minZ = b.minZ;
+    this.maxX = b.maxX; this.maxY = b.maxY; this.maxZ = b.maxZ;
+    return this;
+  }
+  getSize(target) {
+    target.x = this.maxX - this.minX;
+    target.y = this.maxY - this.minY;
+    target.z = this.maxZ - this.minZ;
+    return target;
+  }
+  getCenter(target) {
+    target.x = (this.minX + this.maxX) * 0.5;
+    target.y = (this.minY + this.maxY) * 0.5;
+    target.z = (this.minZ + this.maxZ) * 0.5;
+    return target;
+  }
 }
 
 class LightProbeGridHelper {

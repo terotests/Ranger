@@ -1,18 +1,26 @@
 ; ==============================================================================
-; three_sponza_tsx_test — sponza.tsx runs through the GENERIC bridge + plumbing.
+; three_sponza_tsx_test — sponza.tsx runs through the GENERIC bridge, no recipe.
 ; ==============================================================================
-; sponza.tsx has NO bespoke bridge. It reconciles through the one generic
-; ThreeTsxBridge (sky, shadow-casting sun, host-attached model, camera); the
-; ThreeSponzaScene PLUMBING module runs on those reconciled objects (bounds →
-; shadow extent, the baked GI probe volume, per-probe visibility, FPC). This
-; asserts the reconcile (sky uniforms, sun, probe volume, model bounds) and the
-; hot-reload path (edit a knob + re-run the plumbing changes the core scene).
+; sponza.tsx has NO bespoke bridge and NO model-named host recipe. It reconciles
+; entirely through the one generic ThreeTsxBridge: the sky, the bounds-derived
+; shadow-casting sun, the host-attached model and the diffuse-GI probe volume are
+; all declared in sponza.tsx and driven by the bridge, and probes.bake() runs the
+; generic capture bake (ThreeLightProbeVolume.bakeFromScene). This asserts the
+; reconcile (sky uniforms, sun placement from the host-published bounds, the built
+; probe volume) and the hot-reload path (edit a knob + reconcile updates the core).
+;
+; The host publishes the model's bounds as `__hostBounds` BEFORE init(), exactly as
+; the real runners do, so `_box.setFromObject(model)` in sponza.tsx sees real numbers.
+; The probe counts are shrunk before the first reconcile so the capture bake (a real
+; per-probe scene render) stays fast in this headless unit test.
 ; ==============================================================================
 
 Import "three_tsx_bridge.rgr"
-Import "three_sponza_scene.rgr"
 Import "../src/three_mesh.rgr"
 Import "../src/three_box_geometry.rgr"
+Import "../src/three_sky.rgr"
+Import "../src/three_light.rgr"
+Import "../src/three_light_probe_volume.rgr"
 
 class ThreeSponzaTsxTest {
     def passed:int 0
@@ -80,58 +88,64 @@ class ThreeSponzaTsxTest {
         engine.quiet = true
         ThreeSponzaTsxTest.registerGlobals(engine)
         engine.loadScript(src)
-        engine.callFunction("init" (EvalValue.null()))
 
-        ; the host's decoded model: a 20 x 10 x 8 box stands in for Sponza.
+        ; the host's decoded model: a 20 x 10 x 8 box (centred at origin) stands in for
+        ; Sponza. Publish its bounds BEFORE init(), as the real runners do.
         def geo:ThreeBoxGeometry (new ThreeBoxGeometry)
         geo.setSize(20.0 10.0 8.0)
         def modelMesh:ThreeMesh (new ThreeMesh)
         modelMesh.setGeometry(geo)
+        ThreeTsxBridge.publishBounds(engine modelMesh)
 
-        ; generic bridge reconciles the declared scene graph.
+        engine.callFunction("init" (EvalValue.null()))
+
+        ; keep the headless capture bake cheap: shrink the probe counts to 3 x 3 x 3.
+        engine.callFunction("setProbeCountX" (EvalValue.number(3.0)))
+        engine.callFunction("setProbeCountY" (EvalValue.number(3.0)))
+        engine.callFunction("setProbeCountZ" (EvalValue.number(3.0)))
+
+        ; the ONE generic bridge reconciles everything + runs the capture bake.
         def gbridge (new ThreeTsxBridge)
         gbridge.setEngine(engine)
         gbridge.setHostModel(modelMesh)
         gbridge.reconcile(1280 720)
-        ; plumbing module runs on the reconciled objects.
-        def sponza (new ThreeSponzaScene)
-        sponza.setEngine(engine)
-        sponza.bind(gbridge.scene gbridge.camera (gbridge.sunLight()) (gbridge.skyNode()) (gbridge.modelNode()))
-        sponza.reconcile()
 
-        print "== sponza.tsx reconciled through the generic bridge + plumbing =="
+        def skyN:ThreeSky (gbridge.skyNode())
+        def sunN:ThreeDirectionalLight (gbridge.sunLight())
+        def vol:ThreeLightProbeVolume (gbridge.probeVolume())
+
+        print "== sponza.tsx reconciled through the generic bridge (no recipe) =="
         ; sky uniforms flowed from the interpreted script (via the generic bridge)
-        this.near("sky rayleigh 2" sponza.sky.rayleigh 2.0)
-        this.near("sky mieDirectionalG 0.8" sponza.sky.mieDirectionalG 0.8)
-        this.near("sky turbidity 10" sponza.sky.turbidity 10.0)
-        ; probe volume: 10 x 7 x 7 = 490 (built + baked by the plumbing)
-        this.near("probe count 490" (to_double (sponza.volume.probeCount())) 490.0)
+        this.near("sky rayleigh 2" skyN.rayleigh 2.0)
+        this.near("sky mieDirectionalG 0.8" skyN.mieDirectionalG 0.8)
+        this.near("sky turbidity 10" skyN.turbidity 10.0)
+        ; probe volume built by the bridge (3 x 3 x 3 = 27)
+        this.ok("probe volume reconciled" (gbridge.hasProbeVolume()))
+        this.near("probe count 27" (to_double (vol.probeCount())) 27.0)
         ; sun / light from az -45 / elev 55 (reconciled by the generic bridge)
-        this.near("light intensity 100" sponza.dirLight.intensity 100.0)
-        this.ok("light casts shadow" sponza.dirLight.castShadow)
-        this.ok("light above target (bounds-scaled by the plumbing)" (sponza.dirLight.position.y > sponza.sunRig.targetY))
-        this.near("sky sun y = cos(35)" sponza.sky.sunPosition.y 0.819152)
-        ; model bounds measured by the plumbing (host box is 20 x 10)
-        this.near("model size x = 20" sponza.sunRig.sizeX 20.0)
-        this.near("model size y = 10" sponza.sunRig.sizeY 10.0)
+        this.near("light intensity 100" sunN.intensity 100.0)
+        this.ok("light casts shadow" sunN.castShadow)
+        ; bounds-derived placement: targetY = 0 + 10*0.2 = 2; dist = max(20,8) = 20;
+        ; ly = targetY + sin(55)*20 = 2 + 16.383 = 18.383.
+        this.near("light y = targetY + sin(elev)*dist" sunN.position.y 18.383)
+        this.near("sky sun y = cos(35)" skyN.sunPosition.y 0.819152)
 
-        print "== hot-reload: edit a knob, re-run the plumbing =="
-        def before:double sponza.sky.sunPosition.y
+        print "== hot-reload: edit a knob, reconcile =="
+        def before:double skyN.sunPosition.y
         engine.callFunction("setLightElevation" (EvalValue.number(20.0)))
-        sponza.reconcile()
-        this.near("elevation now 20" sponza.sunRig.elevation 20.0)
-        this.near("sun y = cos(70)" sponza.sky.sunPosition.y 0.342020)
-        this.ok("sun moved" (sponza.sky.sunPosition.y != before))
+        gbridge.reconcile(1280 720)
+        this.near("sun y = cos(70)" skyN.sunPosition.y 0.342020)
+        this.ok("sun moved" (skyN.sunPosition.y != before))
 
-        ; change a probe count -> the volume rebuilds + rebakes (4 x 7 x 7 = 196)
+        ; change a probe count -> the volume rebuilds + rebakes (4 x 3 x 3 = 36)
         engine.callFunction("setProbeCountX" (EvalValue.number(4.0)))
-        sponza.reconcile()
-        this.near("probe count now 196" (to_double (sponza.volume.probeCount())) 196.0)
+        gbridge.reconcile(1280 720)
+        this.near("probe count now 36" (to_double (vol.probeCount())) 36.0)
 
         ; toggle GI off -> the probe volume hides
         engine.callFunction("setGI" (EvalValue.boolean(false)))
-        sponza.reconcile()
-        this.ok("GI toggled off" (sponza.volume.probes.visible == false))
+        gbridge.reconcile(1280 720)
+        this.ok("GI toggled off" (vol.probes.visible == false))
 
         print "== summary =="
         print (("passed=" + (to_string passed)) + (" failed=" + (to_string failed)))

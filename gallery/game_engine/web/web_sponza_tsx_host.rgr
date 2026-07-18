@@ -4,10 +4,10 @@
 ;
 ; The Sponza counterpart to web_teapot_tsx_host. sponza.tsx (the editable scene
 ; code) runs in ComponentEngine against the three.tsx façade; the generic
-; ThreeTsxBridge reconciles it and ThreeSponzaScene (plumbing) bakes the GI on the
-; reconciled objects; ThreeGLBackend + ThreeWebGLRenderer draw it with real WebGL.
-; FirstPersonControls are host
-; plumbing (WASD keys + pointer look routed in from the viewer).
+; ThreeTsxBridge reconciles it AND builds + bakes the diffuse-GI probe volume via
+; the capture bake (probes.bake -> bakeFromScene, no recipe); ThreeGLBackend +
+; ThreeWebGLRenderer draw it with real WebGL. FirstPersonControls are host plumbing
+; (WASD keys + pointer look routed in from the viewer).
 ;
 ; The browser cannot run the host-side glTF download (no child_process), so the
 ; model is a procedural TEST scene here — a ground plane + boxes — enough to make
@@ -20,23 +20,28 @@
 ; ==============================================================================
 
 Import "../three/tsx/three_tsx_bridge.rgr"
-Import "../three/tsx/three_sponza_scene.rgr"
 Import "../three/src/three_webgl_renderer.rgr"
 Import "../three/src/three_gl_backend.rgr"
+Import "../three/src/three_perspective_camera.rgr"
+Import "../three/src/three_first_person_controls.rgr"
+Import "../three/src/three_light_probe_volume.rgr"
+Import "../three/src/three_box3.rgr"
+Import "../three/src/three_vector3.rgr"
 Import "../three/src/three_mesh.rgr"
 Import "../three/src/three_mesh_lambert_material.rgr"
 Import "../three/src/three_box_geometry.rgr"
 Import "../three/src/three_gltf_file.rgr"
 
-; The Sponza scene reconciles through the ONE generic ThreeTsxBridge (sky, shadow-
-; casting sun, host-attached model, camera); ThreeSponzaScene is the GPU-technique
-; PLUMBING module (bounds → shadow extent, the diffuse-GI probe bake + per-probe
-; visibility, first-person controls) running on the bridge's reconciled objects.
-; There is no ThreeSponzaTsxBridge.
+; The Sponza scene reconciles ENTIRELY through the ONE generic ThreeTsxBridge (sky,
+; bounds-derived shadow-casting sun, host-attached model, camera, and the diffuse-GI
+; probe volume). probes.bake() runs the generic capture bake (bakeFromScene) — the
+; shadowing falls out of the capture, so there is no per-probe shadow-readback pass
+; and no model-named recipe. First-person controls are host plumbing. There is no
+; ThreeSponzaTsxBridge and no ThreeSponzaScene.
 class WebSponzaTsxHost {
     def engine:ComponentEngine (new ComponentEngine())
     def gbridge:ThreeTsxBridge (new ThreeTsxBridge)
-    def sponza:ThreeSponzaScene (new ThreeSponzaScene)
+    def fpc:ThreeFirstPersonControls (new ThreeFirstPersonControls)
     def gl:ThreeGLBackend (new ThreeGLBackend)
     def renderer:ThreeWebGLRenderer (new ThreeWebGLRenderer)
     ; the glTF loader kept from loadWithModel so a viewer can push decoded texture
@@ -46,6 +51,14 @@ class WebSponzaTsxHost {
     def w:int 800
     def h:int 500
     def dt:double 0.033
+    ; model bounds snapshot for the verification harness (info* accessors).
+    def modelMeshes:int 0
+    def bCX:double 0.0
+    def bCY:double 0.0
+    def bCZ:double 0.0
+    def bSX:double 0.0
+    def bSY:double 0.0
+    def bSZ:double 0.0
 
     ; --- gamepad snapshot -----------------------------------------------------
     ; The viewer polls the browser's navigator.getGamepads() each frame and hands
@@ -145,13 +158,8 @@ class WebSponzaTsxHost {
         engine.quiet = true
         this.registerGlobals(winW winH dpr)
 
-        renderer.setSize(winW winH)
-        renderer.setToneMapping(4)
-        ; the demo's directional intensity (100) is a physically-based value; this
-        ; clone's Lambert is not PBR, so expose down to keep the sunlit ground out of
-        ; full saturation (and the cast shadows readable) under ACES.
-        renderer.setToneMappingExposure(0.09)
-        renderer.setShadowMapEnabled(true)
+        ; snapshot the model bounds for the verification harness (info* accessors).
+        this.snapshotBounds(model)
 
         ; Standard-runtime prelude: expose navigator.getGamepads() to the scene,
         ; reading the host-filled __gamepadState. The engine holds no gamepad-
@@ -160,52 +168,79 @@ class WebSponzaTsxHost {
         def navPrelude:string "const navigator = { getGamepads: () => __gamepadState };\n"
         def src:string (((navPrelude + facadeSrc) + "\n") + sponzaSrc)
         engine.loadScript(src)
+        ; publish the decoded model's bounds so sponza.tsx's Box3.setFromObject reads
+        ; real numbers when init() derives the light / shadow / probe placement.
+        ThreeTsxBridge.publishBounds(engine model)
         engine.callFunction("init" (EvalValue.null()))
-        ; generic bridge reconciles the declared scene graph (sky, sun+shadow, the
-        ; host-attached model, camera) into gbridge.scene.
+
+        ; the ONE generic bridge owns the host registry + renderer; give that renderer
+        ; the GL backend so the capture bake (bakeFromScene) renders the real scene.
         gbridge.setEngine(engine)
         gbridge.setHostModel(model)
+        renderer = gbridge.renderer
+        renderer.setBackend(gl)
+        renderer.setSize(winW winH)
+        renderer.setToneMapping(4)
+        ; the demo's directional intensity (100) is a physically-based value; this
+        ; clone's Lambert is not PBR, so expose down to keep the sunlit ground out of
+        ; full saturation (and the cast shadows readable) under ACES.
+        renderer.setToneMappingExposure(0.09)
+        renderer.setShadowMapEnabled(true)
+
+        ; reconcile the declared scene (sky, sun+shadow, model, camera) AND build +
+        ; bake the diffuse-GI probe volume (probes.bake -> capture bake) — no recipe.
         gbridge.reconcile(winW winH)
-        ; the plumbing module runs on those reconciled objects: bounds → shadow
-        ; extent, the baked GI probe volume, first-person controls.
-        sponza.setEngine(engine)
-        sponza.bind(gbridge.scene gbridge.camera (gbridge.sunLight()) (gbridge.skyNode()) (gbridge.modelNode()))
-        sponza.reconcile()
-        sponza.setViewport(winW winH)
+
+        ; host-owned first-person controls on the reconciled camera.
+        fpc.setCamera(gbridge.camera)
+        this.setViewportCam(winW winH)
         ready = true
         return "ok"
     }
 
+    ; snapshot the model's world bounds (size + centre) for the info* diagnostics.
+    fn snapshotBounds:void (model:ThreeObject3D) {
+        modelMeshes = (model.childCount())
+        def box:ThreeBox3 (model.boundingBox())
+        def sz:ThreeVector3 (new ThreeVector3)
+        box.getSize(sz)
+        def ct:ThreeVector3 (new ThreeVector3)
+        box.getCenter(ct)
+        bSX = sz.x
+        bSY = sz.y
+        bSZ = sz.z
+        bCX = ct.x
+        bCY = ct.y
+        bCZ = ct.z
+    }
+
+    ; update the reconciled camera's aspect (host-owned plumbing).
+    fn setViewportCam:void (winW:int winH:int) {
+        gbridge.camera.aspect = ((to_double winW) / (to_double winH))
+        gbridge.camera.updateProjectionMatrix()
+    }
+
     ; frame the procedural test scene (~40 units): a fixed vantage looking at it.
     fn frameTestCamera:void () {
-        sponza.fpc.setMovementSpeed(18.0)
-        sponza.fpc.setLook(180.0 (0.0 - 8.0))
+        fpc.setMovementSpeed(18.0)
+        fpc.setLook(180.0 (0.0 - 8.0))
         gbridge.camera.position.set(0.0 9.0 34.0)
-        sponza.update(0.0)
+        fpc.update(0.0)
     }
     ; frame the real Sponza model: keep the interpreted camera position (sponza.tsx
     ; places it inside the hall) and aim the first-person view down the long axis.
     fn frameModelCamera:void () {
-        sponza.fpc.setMovementSpeed(6.0)
-        sponza.fpc.setLook(90.0 0.0)
-        sponza.update(0.0)
-    }
-
-    ; render one frame so the GPU shadow map is populated, read it back, and compute
-    ; per-probe sun visibility so shadowed probes lose their direct-sun GI lobe. Runs
-    ; once after load (the first visible frame then uses the shadow-aware bake).
-    fn establishProbeVisibility:void () {
-        renderer.render(gbridge.scene gbridge.camera)
-        def size:int (gl.shadowMapSize())
-        def depth:buffer (gl.readShadowDepth())
-        sponza.applyProbeVisibility(depth size)
+        fpc.setMovementSpeed(6.0)
+        fpc.setLook(90.0 0.0)
+        fpc.update(0.0)
     }
 
     ; Load with the procedural test scene (the browser can't fetch the real model).
+    ; The capture bake integrates the real scene (shadows/occlusion fall out of it),
+    ; so there is no separate shadow-readback pass.
     fn load:string (facadeSrc:string sponzaSrc:string winW:int winH:int dpr:double) {
         def r:string (this.loadScene(facadeSrc sponzaSrc (this.buildTestModel()) winW winH dpr))
         this.frameTestCamera()
-        this.establishProbeVisibility()
         return r
     }
 
@@ -226,7 +261,6 @@ class WebSponzaTsxHost {
         } {
             this.frameTestCamera()
         }
-        this.establishProbeVisibility()
         return r
     }
 
@@ -235,7 +269,6 @@ class WebSponzaTsxHost {
     fn loadModel3D:string (facadeSrc:string sponzaSrc:string model:ThreeObject3D winW:int winH:int dpr:double) {
         def r:string (this.loadScene(facadeSrc sponzaSrc model winW winH dpr))
         this.frameModelCamera()
-        this.establishProbeVisibility()
         return r
     }
 
@@ -253,7 +286,7 @@ class WebSponzaTsxHost {
         ; the camera, then integrate the controls (keyboard/mouse + analog pad).
         this.refreshGamepadGlobal()
         this.applyPadToControls()
-        sponza.update(dt)
+        fpc.update(dt)
         renderer.render(gbridge.scene gbridge.camera)
     }
 
@@ -261,18 +294,18 @@ class WebSponzaTsxHost {
         w = winW
         h = winH
         renderer.setSize(winW winH)
-        sponza.setViewport(winW winH)
+        this.setViewportCam(winW winH)
     }
 
     ; --- first-person input (routed from the viewer) --------------------------
     fn keyDown:void (key:string) {
-        sponza.fpc.keyDown(key)
+        fpc.keyDown(key)
     }
     fn keyUp:void (key:string) {
-        sponza.fpc.keyUp(key)
+        fpc.keyUp(key)
     }
     fn look:void (dx:double dy:double) {
-        sponza.fpc.handleLook(dx dy)
+        fpc.handleLook(dx dy)
     }
 
     ; --- gamepad input (routed from the viewer; standard Gamepad API layout) ----
@@ -364,12 +397,12 @@ class WebSponzaTsxHost {
     ; controls (the analog axes ADD to keyboard/mouse). If the scene exports no
     ; update(), map the raw pad here so a controller navigates any Sponza scene.
     fn applyPadToControls:void () {
-        sponza.fpc.clearAxes()
+        fpc.clearAxes()
         if (this.scriptHasFunction("update")) {
             def intent:EvalValue (engine.callFunction("update" (EvalValue.number(dt))))
             if (intent.isObject()) {
-                sponza.fpc.setMoveAxes((this.numOr(intent "moveZ" 0.0)) (this.numOr(intent "moveX" 0.0)) (this.numOr(intent "moveY" 0.0)))
-                sponza.fpc.setLookAxes((this.numOr(intent "lookX" 0.0)) (this.numOr(intent "lookY" 0.0)))
+                fpc.setMoveAxes((this.numOr(intent "moveZ" 0.0)) (this.numOr(intent "moveX" 0.0)) (this.numOr(intent "moveY" 0.0)))
+                fpc.setLookAxes((this.numOr(intent "lookX" 0.0)) (this.numOr(intent "lookY" 0.0)))
                 return
             }
         }
@@ -385,8 +418,8 @@ class WebSponzaTsxHost {
         def up:double 0.0
         if (this.padBit(4)) { up = (0.0 - 1.0) }
         if (this.padBit(5)) { up = 1.0 }
-        sponza.fpc.setMoveAxes(fwd rgt up)
-        sponza.fpc.setLookAxes(padRX padRY)
+        fpc.setMoveAxes(fwd rgt up)
+        fpc.setLookAxes(padRX padRY)
     }
 
     ; the scene is first-person animated, so every frame may differ.
@@ -412,18 +445,18 @@ class WebSponzaTsxHost {
     fn setExposure:void (e:double) {
         renderer.setToneMappingExposure(e)
     }
-    fn infoCX:double () { return sponza.sunRig.centerX }
-    fn infoCY:double () { return sponza.sunRig.centerY }
-    fn infoCZ:double () { return sponza.sunRig.centerZ }
-    fn infoSX:double () { return sponza.sunRig.sizeX }
-    fn infoSY:double () { return sponza.sunRig.sizeY }
-    fn infoSZ:double () { return sponza.sunRig.sizeZ }
-    fn infoMeshes:int () { return (sponza.model.childCount()) }
+    fn infoCX:double () { return bCX }
+    fn infoCY:double () { return bCY }
+    fn infoCZ:double () { return bCZ }
+    fn infoSX:double () { return bSX }
+    fn infoSY:double () { return bSY }
+    fn infoSZ:double () { return bSZ }
+    fn infoMeshes:int () { return modelMeshes }
     ; place the camera outside + above the model, aimed at its centre (overview).
     fn setCameraLook:void (px:double py:double pz:double lon:double lat:double) {
         gbridge.camera.position.set(px py pz)
-        sponza.fpc.setLook(lon lat)
-        sponza.update(0.0)
+        fpc.setLook(lon lat)
+        fpc.update(0.0)
     }
 
     fn isReady:boolean () {

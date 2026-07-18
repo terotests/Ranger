@@ -5,10 +5,10 @@
 ; Drives scene_features.tsx (Preetham sky + shadow-casting directional light + a
 ; lit mesh + a probe grid) through the GENERIC ThreeTsxBridge and asserts the
 ; scene CONTENT reconciled into the real object model — a real ThreeSky, a real
-; shadow-casting light + the renderer shadow toggle honoured — while the light-
-; probe grid (whose GI bake is host plumbing, not reconciliation) is honestly
-; COUNTED as needing a plumbing module, not silently faked. This is the structural
-; reason a specialised Sponza scene bridge is unnecessary.
+; shadow-casting light + the renderer shadow toggle honoured, and the light-probe
+; grid reconciled to a real ThreeLightProbeVolume (probes.bake() runs the generic
+; capture bake). Nothing is faked or swallowed. This is the structural reason a
+; specialised Sponza scene bridge is unnecessary.
 ; ==============================================================================
 
 Import "three_tsx_bridge.rgr"
@@ -79,13 +79,14 @@ class ThreeTsxBridgeFeaturesTest {
             failed = (failed + 1)
             print "  FAIL mesh not reconciled"
         }
-        ; the probe grid's GI bake is host plumbing — it must be reported, not faked
-        if ((bridge.unsupportedCount()) >= 1) {
+        ; the probe grid is reconciled to a real diffuse-GI volume by the GENERIC
+        ; bridge (probes.bake() would run the capture bake) — nothing is faked.
+        if ((bridge.hasProbeVolume()) && ((bridge.unsupportedCount()) == 0)) {
             passed = (passed + 1)
-            print "  PASS probe grid reported as needing a plumbing module (not faked)"
+            print "  PASS probe grid reconciled to a real ThreeLightProbeVolume (nothing unsupported)"
         } {
             failed = (failed + 1)
-            print "  FAIL probe grid silently swallowed"
+            print "  FAIL probe grid not reconciled to a real volume"
         }
 
         print "== summary =="
