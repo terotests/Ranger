@@ -1,0 +1,115 @@
+; ==============================================================================
+; cannon_tsx_bridge_test — the interpreted cannon-es scene actually simulates.
+; ==============================================================================
+; Proves the full physics bridge end to end, no host: the canonical cannon-es
+; script (cannon_box_scene.tsx) runs in the TSX interpreter against the cannon.tsx
+; façade, and CannonTsxBridge reconciles that interpreted world into the Ranger
+; Cannon core, STEPS it, and writes each body's pose back onto the façade objects.
+;
+;   - after init(): one body, resting at y=0.
+;   - after ticking the interpreted animate() loop (bridge steps each frame): the
+;     façade mesh has FALLEN (position.y < 0, gravity integrated Ranger-side and
+;     written back) and SPUN (quaternion.y != 0, from the initial angularVelocity),
+;     i.e. the interpreted `mesh.position.copy(body.position)` read simulated data.
+; ==============================================================================
+
+Import "cannon_tsx_bridge.rgr"
+Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class CannonTsxBridgeTest {
+    sfn callNum:double (engine:ComponentEngine name:string) {
+        def r:EvalValue (engine.callFunction(name (EvalValue.null())))
+        return (r.toNumber())
+    }
+
+    sfn m@(main):void () {
+        def engine (new ComponentEngine())
+        engine.quiet = true
+
+        ; host capability: the CANNON namespace constants (body types).
+        def ck:[string]
+        def cv:[EvalValue]
+        push ck "BODY_DYNAMIC"
+        push cv (EvalValue.number(1.0))
+        push ck "BODY_STATIC"
+        push cv (EvalValue.number(2.0))
+        push ck "BODY_KINEMATIC"
+        push cv (EvalValue.number(4.0))
+        engine.registerGlobal("CANNON" (EvalValue.object(ck cv)))
+
+        def facade:buffer (buffer_read_file "gallery/game_engine/physics/tsx" "cannon.tsx")
+        def scene:buffer (buffer_read_file "gallery/game_engine/physics/tsx" "cannon_box_scene.tsx")
+        def src:string ((buffer_to_string facade) + "\n" + (buffer_to_string scene))
+        engine.loadScript(src)
+        def initR:EvalValue (engine.callFunction("init" (EvalValue.null())))
+
+        def bridge (new CannonTsxBridge)
+        bridge.setEngine(engine)
+
+        ; initial pose off the façade mesh (as init() left it)
+        def y0:double (CannonTsxBridgeTest.callNum(engine "meshY"))
+        def qy0:double (CannonTsxBridgeTest.callNum(engine "meshQuatY"))
+        def bodies:double (CannonTsxBridgeTest.callNum(engine "bodyCount"))
+
+        ; drive 60 frames: bridge steps Ranger physics + writes back, then the
+        ; interpreted animate() copies the simulated pose onto the mesh.
+        def dt:double (1.0 / 60.0)
+        def f:int 0
+        while (f < 60) {
+            bridge.stepFrame(dt)
+            def t:EvalValue (engine.callFunction("tick" (EvalValue.null())))
+            f = (f + 1)
+        }
+
+        def yN:double (CannonTsxBridgeTest.callNum(engine "meshY"))
+        def qyN:double (CannonTsxBridgeTest.callNum(engine "meshQuatY"))
+        def steps:double (CannonTsxBridgeTest.callNum(engine "stepCount"))
+
+        def passed:int 0
+        def failed:int 0
+        print "== interpreted cannon-es scene stepped through the Ranger core =="
+        print ("bodies=" + (to_string bodies) + " y0=" + (to_string y0) + " yN=" + (to_string yN) + " qyN=" + (to_string qyN) + " steps=" + (to_string steps))
+
+        if (bodies == 1.0) {
+            passed = (passed + 1)
+            print "  PASS one body reconciled from the façade world"
+        } {
+            failed = (failed + 1)
+            print "  FAIL expected exactly one body"
+        }
+        if (yN < (0.0 - 0.1)) {
+            passed = (passed + 1)
+            print "  PASS mesh fell under gravity (write-back reached the interpreter)"
+        } {
+            failed = (failed + 1)
+            print "  FAIL mesh did not fall — physics/write-back did not drive the mesh"
+        }
+        def absQ:double qyN
+        if (absQ < 0.0) {
+            absQ = (0.0 - absQ)
+        }
+        if (absQ > 0.01) {
+            passed = (passed + 1)
+            print "  PASS mesh spun (angularVelocity integrated into the quaternion)"
+        } {
+            failed = (failed + 1)
+            print "  FAIL mesh did not spin — angularVelocity not integrated"
+        }
+        if (steps >= 60.0) {
+            passed = (passed + 1)
+            print "  PASS interpreted animate() ran the façade step marker each frame"
+        } {
+            failed = (failed + 1)
+            print "  FAIL step marker count too low"
+        }
+
+        print "== summary =="
+        print ("passed=" + (to_string passed) + " failed=" + (to_string failed))
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

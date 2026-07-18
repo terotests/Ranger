@@ -1,0 +1,200 @@
+; ==============================================================================
+; cannon_tsx_bridge — reconcile the interpreted TSX CANNON façade world into the
+; Ranger Cannon core, step it, and write the results back onto the façade bodies.
+; ==============================================================================
+;
+; The physics analogue of ThreeTsxBridge (IDEAL_THREE §7). A canonical cannon-es
+; script runs in the TSX interpreter (ComponentEngine) against the thin
+; `cannon.tsx` façade, which holds only plain data (mass, position, velocity,
+; angularVelocity, the shape params). This bridge:
+;
+;   1. build()      — on first sight, reads the façade `world` (gravity, bodies,
+;                     each body's shape) and constructs the REAL Ranger CannonWorld
+;                     + CannonBody objects (kept index-parallel to world.bodies).
+;   2. stepFrame(dt) — advances the Ranger simulation one step, then writes each
+;                     body's position (x/y/z) and quaternion (x/y/z/w) BACK onto
+;                     the interpreted façade objects via EvalValue.setMember.
+;
+; Because getMember returns the stored EvalValue by reference and setMember mutates
+; it in place, the write-back is visible to the interpreted script — so the next
+; `mesh.position.copy(body.position)` in animate() reads the simulated pose. This
+; is pure Ranger and compiles to C++ as well as ES6 (no host/GPU code here).
+; ==============================================================================
+
+Import "../src/cannon_world.rgr"
+Import "../src/cannon_body.rgr"
+Import "../src/cannon_box.rgr"
+Import "../src/cannon_sphere.rgr"
+Import "../src/cannon_plane.rgr"
+Import "../src/cannon_vec3.rgr"
+Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class CannonTsxBridge {
+    def engine:ComponentEngine (new ComponentEngine())
+    def world:CannonWorld (new CannonWorld)
+    ; Ranger bodies, parallel to the façade world.bodies (built once, index-keyed).
+    def bodies:[CannonBody]
+    def built:boolean false
+
+    fn setEngine:CannonTsxBridge (e:ComponentEngine) {
+        engine = e
+        return this
+    }
+
+    ; --- read helpers ---------------------------------------------------------
+    fn num:double (obj:EvalValue key:string) {
+        def v:EvalValue (obj.getMember(key))
+        return (v.toNumber())
+    }
+
+    fn readVec:void (obj:EvalValue key:string target:CannonVec3) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isObject()) {
+            target.set((this.num(v "x")) (this.num(v "y")) (this.num(v "z")))
+        }
+    }
+
+    ; --- build: façade world -> Ranger world (once) ---------------------------
+    fn build:void () {
+        this.world.initWorld()
+        this.world.setGravity(0.0 0.0 0.0)
+
+        def wv:EvalValue (engine.getGlobal("world"))
+        if (wv.isObject() == false) {
+            built = true
+            return
+        }
+
+        def gv:EvalValue (wv.getMember("gravity"))
+        if (gv.isObject()) {
+            this.world.setGravity((this.num(gv "x")) (this.num(gv "y")) (this.num(gv "z")))
+        }
+
+        def bodiesV:EvalValue (wv.getMember("bodies"))
+        if (bodiesV.isArray()) {
+            def n:int (array_length bodiesV.arrayValue)
+            def i:int 0
+            while (i < n) {
+                def bodyV:EvalValue (bodiesV.getIndex(i))
+                this.buildBody(bodyV)
+                i = (i + 1)
+            }
+        }
+        built = true
+    }
+
+    ; Construct one Ranger CannonBody from a façade body EvalValue.
+    fn buildBody:void (bodyV:EvalValue) {
+        def rb:CannonBody (new CannonBody)
+        def mass:double (this.num(bodyV "mass"))
+        rb.initDynamic(mass)
+        ; Deterministic PoC: no auto-sleep so a slow/settling body keeps integrating.
+        rb.allowSleep = false
+
+        this.readVec(bodyV "position" rb.position)
+        this.readVec(bodyV "velocity" rb.velocity)
+        this.readVec(bodyV "angularVelocity" rb.angularVelocity)
+
+        def qv:EvalValue (bodyV.getMember("quaternion"))
+        if (qv.isObject()) {
+            rb.quaternion.set((this.num(qv "x")) (this.num(qv "y")) (this.num(qv "z")) (this.num(qv "w")))
+        }
+
+        this.attachShape(rb bodyV)
+
+        this.world.addBody(rb)
+        push this.bodies rb
+    }
+
+    ; Read shapes[0] and attach the matching Ranger shape (Box / Sphere / Plane).
+    fn attachShape:void (rb:CannonBody bodyV:EvalValue) {
+        def shapesV:EvalValue (bodyV.getMember("shapes"))
+        if (shapesV.isArray() == false) {
+            return
+        }
+        if ((array_length shapesV.arrayValue) == 0) {
+            return
+        }
+        def shapeV:EvalValue (shapesV.getIndex(0))
+        if (shapeV.isObject() == false) {
+            return
+        }
+        def kind:int (to_int (this.num(shapeV "shapeType")))
+        if (kind == 1) {
+            def he:CannonVec3 (new CannonVec3)
+            this.readVec(shapeV "halfExtents" he)
+            def box:CannonBox (new CannonBox)
+            box.initBox(he)
+            rb.addShape(box)
+            return
+        }
+        if (kind == 2) {
+            def r:double (this.num(shapeV "radius"))
+            if (r <= 0.0) {
+                r = 1.0
+            }
+            def sph:CannonSphere (new CannonSphere)
+            sph.initSphere(r)
+            rb.addShape(sph)
+            return
+        }
+        if (kind == 4) {
+            def pl:CannonPlane (new CannonPlane)
+            pl.initPlane()
+            rb.addShape(pl)
+            return
+        }
+    }
+
+    ; --- per-frame: step + write back -----------------------------------------
+    fn stepFrame:void (dt:double) {
+        if (built == false) {
+            this.build()
+        }
+        this.world.step(dt)
+        this.writeBack()
+    }
+
+    ; Copy each Ranger body's pose onto the interpreted façade body in place.
+    fn writeBack:void () {
+        def wv:EvalValue (engine.getGlobal("world"))
+        if (wv.isObject() == false) {
+            return
+        }
+        def bodiesV:EvalValue (wv.getMember("bodies"))
+        if (bodiesV.isArray() == false) {
+            return
+        }
+        def n:int (array_length this.bodies)
+        def i:int 0
+        while (i < n) {
+            if (i < (array_length bodiesV.arrayValue)) {
+                def bodyV:EvalValue (bodiesV.getIndex(i))
+                def rb:CannonBody (itemAt this.bodies i)
+                this.writeVec(bodyV "position" rb.position.x rb.position.y rb.position.z)
+                this.writeQuat(bodyV rb.quaternion.x rb.quaternion.y rb.quaternion.z rb.quaternion.w)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn writeVec:void (bodyV:EvalValue key:string x:double y:double z:double) {
+        def v:EvalValue (bodyV.getMember(key))
+        if (v.isObject()) {
+            v.setMember("x" (EvalValue.number(x)))
+            v.setMember("y" (EvalValue.number(y)))
+            v.setMember("z" (EvalValue.number(z)))
+        }
+    }
+
+    fn writeQuat:void (bodyV:EvalValue x:double y:double z:double w:double) {
+        def v:EvalValue (bodyV.getMember("quaternion"))
+        if (v.isObject()) {
+            v.setMember("x" (EvalValue.number(x)))
+            v.setMember("y" (EvalValue.number(y)))
+            v.setMember("z" (EvalValue.number(z)))
+            v.setMember("w" (EvalValue.number(w)))
+        }
+    }
+}

@@ -886,6 +886,21 @@ class ComponentEngine {
             return
         }
 
+        ; Same for the Cannon physics façade. `import * as CANNON from 'cannon-es'`
+        ; (or '@ranger/cannon', or the canonical demo's relative '../dist/cannon-es.js')
+        ; is a capability hint, not a file: the CANNON.* façade classes are loaded
+        ; into the class table (concatenated), so `new CANNON.World()` resolves by
+        ; class name; the CANNON namespace constants come from a registered global.
+        if (modulePath == "cannon") {
+            return
+        }
+        if ((indexOf modulePath "cannon-es") >= 0) {
+            return
+        }
+        if ((indexOf modulePath "@ranger/cannon") >= 0) {
+            return
+        }
+
         ; Get imported symbols from node.children (import specifiers)
         def importExportNames:[string]
         def importLocalNames:[string]
