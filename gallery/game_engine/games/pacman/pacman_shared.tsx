@@ -25,6 +25,10 @@ interface LevelConfig {
 const VIEW_W = 480;
 const VIEW_H = 270;
 const POWER_MS = 6000;
+// Fruit pickups (`*` in the maze): score + short scared-ghost window so kids
+// can clear a level without relying only on the four corner power pellets.
+const FRUIT_SCORE = 100;
+const FRUIT_POWER_MS = 5000;
 const SCATTER_MS = 7000;
 const CHASE_MS = 20000;
 const HURT_MS = 1500;
@@ -299,6 +303,10 @@ function powerId(i) {
   return "p" + i;
 }
 
+function fruitId(i) {
+  return "f" + i;
+}
+
 function ghostId(i) {
   return "g" + i;
 }
@@ -330,6 +338,7 @@ export function buildSprites() {
   const list = [];
   let dotIdx = 0;
   let powIdx = 0;
+  let fruitIdx = 0;
   let row = 0;
   while (row < ROWS()) {
     let col = 0;
@@ -342,6 +351,11 @@ export function buildSprites() {
       if (ch == "O") {
         list.push({ id: powerId(powIdx), kind: "circle", rad: 5, r: 255, g: 220, b: 160 });
         powIdx = powIdx + 1;
+      }
+      // Cherry-like fruit: larger/redder than a power pellet so kids spot it.
+      if (ch == "*") {
+        list.push({ id: fruitId(fruitIdx), kind: "circle", rad: 6, r: 255, g: 70, b: 90 });
+        fruitIdx = fruitIdx + 1;
       }
       col = col + 1;
     }
@@ -391,6 +405,22 @@ function initPowers() {
   return powers;
 }
 
+function initFruits() {
+  const fruits = [];
+  let row = 0;
+  while (row < ROWS()) {
+    let col = 0;
+    while (col < COLS()) {
+      if (cellAt(col, row) == "*") {
+        fruits.push({ col: col, row: row, alive: 1 });
+      }
+      col = col + 1;
+    }
+    row = row + 1;
+  }
+  return fruits;
+}
+
 function findStart() {
   let row = 0;
   while (row < ROWS()) {
@@ -426,7 +456,7 @@ function hiddenPose() {
   return { x: -40, y: -40, visible: 0, p0: 0, p1: 0, p2: 0 };
 }
 
-function placeDots(entities, dots, powers) {
+function placeDots(entities, dots, powers, fruits) {
   let i = 0;
   while (i < dots.length) {
     if (dots[i].alive == 1) {
@@ -442,6 +472,15 @@ function placeDots(entities, dots, powers) {
       entities[powerId(i)] = { x: tileX(powers[i].col), y: tileY(powers[i].row) };
     } else {
       entities[powerId(i)] = { x: -40, y: -40, visible: 0 };
+    }
+    i = i + 1;
+  }
+  i = 0;
+  while (i < fruits.length) {
+    if (fruits[i].alive == 1) {
+      entities[fruitId(i)] = { x: tileX(fruits[i].col), y: tileY(fruits[i].row) };
+    } else {
+      entities[fruitId(i)] = { x: -40, y: -40, visible: 0 };
     }
     i = i + 1;
   }
@@ -545,9 +584,9 @@ function placeGhosts(entities, ghosts, powered, frameSeed) {
   }
 }
 
-function initPlayEntities(start, dots, powers, ghosts) {
+function initPlayEntities(start, dots, powers, fruits, ghosts) {
   const entities = {};
-  placeDots(entities, dots, powers);
+  placeDots(entities, dots, powers, fruits);
   placePac(entities, start.col, start.row, 0, 0, 0, 0, 0);
   placeGhosts(entities, ghosts, 0, 0);
   return entities;
@@ -565,10 +604,11 @@ function initSplashState() {
   const start = findStart();
   const dots = initDots();
   const powers = initPowers();
+  const fruits = initFruits();
   const ghosts = initGhosts(cfg().ghostStarts);
   return {
     showNet: 0,
-    entities: initPlayEntities(start, dots, powers, ghosts),
+    entities: initPlayEntities(start, dots, powers, fruits, ghosts),
     score1: 0,
     score2: 0
   };
@@ -579,10 +619,11 @@ function initPlayState(score, lives) {
   const startDir = firstOpenDir(start.col, start.row);
   const dots = initDots();
   const powers = initPowers();
+  const fruits = initFruits();
   const ghosts = initGhosts(cfg().ghostStarts);
   return {
     showNet: 0,
-    entities: initPlayEntities(start, dots, powers, ghosts),
+    entities: initPlayEntities(start, dots, powers, fruits, ghosts),
     pacCol: start.col,
     pacRow: start.row,
     pacDir: startDir,
@@ -594,6 +635,7 @@ function initPlayState(score, lives) {
     modeTimer: SCATTER_MS,
     dots: dots,
     powers: powers,
+    fruits: fruits,
     ghosts: ghosts,
     score: score,
     lives: lives,
@@ -666,11 +708,13 @@ function tryTurn(col, row, curDir, wantDir) {
   return curDir;
 }
 
-function eatAt(col, row, dots, powers) {
+function eatAt(col, row, dots, powers, fruits) {
   let score = 0;
   let powered = 0;
+  let fruitPower = 0;
   let eatenDot = -1;
   let eatenPow = -1;
+  let eatenFruit = -1;
   let i = 0;
   while (i < dots.length) {
     const d = dots[i];
@@ -700,7 +744,30 @@ function eatAt(col, row, dots, powers) {
     }
     i = i + 1;
   }
-  return { score: score, powered: powered, eatenDot: eatenDot, eatenPow: eatenPow };
+  i = 0;
+  while (i < fruits.length) {
+    const f = fruits[i];
+    if (f.alive == 1) {
+      if (f.col == col) {
+        if (f.row == row) {
+          f.alive = 0;
+          score = score + FRUIT_SCORE;
+          powered = 1;
+          fruitPower = 1;
+          eatenFruit = i;
+        }
+      }
+    }
+    i = i + 1;
+  }
+  return {
+    score: score,
+    powered: powered,
+    fruitPower: fruitPower,
+    eatenDot: eatenDot,
+    eatenPow: eatenPow,
+    eatenFruit: eatenFruit
+  };
 }
 
 function listDirs(g, forbidReverse) {
@@ -953,6 +1020,7 @@ function clearLevelState(play, score, lives, entities, events) {
         modeTimer: play.modeTimer,
         dots: play.dots,
         powers: play.powers,
+        fruits: play.fruits,
         ghosts: play.ghosts,
         score: score,
         lives: lives,
@@ -1009,6 +1077,7 @@ function updateLevelCleared(s, props) {
         modeTimer: play.modeTimer,
         dots: play.dots,
         powers: play.powers,
+        fruits: play.fruits,
         ghosts: play.ghosts,
         score: play.score,
         lives: play.lives,
@@ -1059,11 +1128,13 @@ function updatePlay(s, props) {
   let deathPacDir = play.deathPacDir;
   const dots = play.dots;
   const powers = play.powers;
+  const fruits = play.fruits;
   const ghosts = play.ghosts;
   let moving = 0;
   let blink = 0;
   const eatenDots = [];
   const eatenPowers = [];
+  const eatenFruits = [];
 
   if (deathTimer > 0) {
     deathTimer = deathTimer - dt;
@@ -1131,7 +1202,7 @@ function updatePlay(s, props) {
         pacRow = mv.row;
         pacFrac = pacFrac - 1000;
         moving = 1;
-        const eat = eatAt(pacCol, pacRow, dots, powers);
+        const eat = eatAt(pacCol, pacRow, dots, powers, fruits);
         score = score + eat.score;
         if (eat.eatenDot >= 0) {
           eatenDots.push(eat.eatenDot);
@@ -1139,10 +1210,25 @@ function updatePlay(s, props) {
         if (eat.eatenPow >= 0) {
           eatenPowers.push(eat.eatenPow);
         }
+        if (eat.eatenFruit >= 0) {
+          eatenFruits.push(eat.eatenFruit);
+        }
         if (eat.powered == 1) {
           powered = 1;
-          powerLeft = POWER_MS;
-          events.push(soundEvent("brick"));
+          if (eat.fruitPower == 1) {
+            powerLeft = FRUIT_POWER_MS;
+            events.push(soundEvent("brick"));
+            events.push({
+              kind: "particles",
+              id: "fruit",
+              x: tileX(pacCol),
+              y: tileY(pacRow),
+              amount: 18
+            });
+          } else {
+            powerLeft = POWER_MS;
+            events.push(soundEvent("brick"));
+          }
         } else if (eat.score > 0) {
           events.push(soundEvent("blip"));
         }
@@ -1212,6 +1298,11 @@ function updatePlay(s, props) {
     entities[powerId(eatenPowers[hp])] = { x: -40, y: -40, visible: 0 };
     hp = hp + 1;
   }
+  let hf = 0;
+  while (hf < eatenFruits.length) {
+    entities[fruitId(eatenFruits[hf])] = { x: -40, y: -40, visible: 0 };
+    hf = hf + 1;
+  }
   if (deathTimer > 0) {
     placePacDeath(entities, deathPacCol, deathPacRow, deathPacFrac, deathPacDir, frameSeed);
   } else {
@@ -1236,6 +1327,7 @@ function updatePlay(s, props) {
         modeTimer: modeTimer,
         dots: dots,
         powers: powers,
+        fruits: fruits,
         ghosts: ghosts,
         score: score,
         lives: lives,
