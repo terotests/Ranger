@@ -47,6 +47,20 @@ class WebSponzaTsxHost {
     def h:int 500
     def dt:double 0.033
 
+    ; --- gamepad snapshot -----------------------------------------------------
+    ; The viewer polls the browser's navigator.getGamepads() each frame and hands
+    ; the first connected pad here. The host then (a) fills the interpreted scene's
+    ; navigator.getGamepads() from it (so scene code reads the STANDARD Web Gamepad
+    ; API, no engine-specific name), and (b) drives the first-person camera from it.
+    ; buttons is a bitmask keyed by the standard Gamepad button indices
+    ; (0=A,1=B,2=X,3=Y,4=LB,5=RB,8=Back,9=Start,12=up,13=down,14=left,15=right).
+    def padConnected:boolean false
+    def padLX:double 0.0
+    def padLY:double 0.0
+    def padRX:double 0.0
+    def padRY:double 0.0
+    def padButtons:int 0
+
     ; interpreter globals the scene reads (THREE constants + window size).
     fn registerGlobals:void (winW:int winH:int dpr:double) {
         def tk:[string]
@@ -74,6 +88,12 @@ class WebSponzaTsxHost {
         push wk "devicePixelRatio"
         push wv (EvalValue.number(dpr))
         engine.registerGlobal("window" (EvalValue.object(wk wv)))
+
+        ; live gamepad state behind the standard navigator.getGamepads() (see the
+        ; navigator prelude in loadScene). Registered empty so navigator.getGamepads()
+        ; returns [] before the first pad frame instead of an undefined global.
+        def emptyPads:[EvalValue]
+        engine.registerGlobal("__gamepadState" (EvalValue.array(emptyPads)))
     }
 
     fn setupGL:boolean (canvasId:string) {
@@ -133,7 +153,12 @@ class WebSponzaTsxHost {
         renderer.setToneMappingExposure(0.09)
         renderer.setShadowMapEnabled(true)
 
-        def src:string ((facadeSrc + "\n") + sponzaSrc)
+        ; Standard-runtime prelude: expose navigator.getGamepads() to the scene,
+        ; reading the host-filled __gamepadState. The engine holds no gamepad-
+        ; specific name — the scene uses the same Web Gamepad API a browser three.js
+        ; example does, and the host just supplies the live values (as it does window).
+        def navPrelude:string "const navigator = { getGamepads: () => __gamepadState };\n"
+        def src:string (((navPrelude + facadeSrc) + "\n") + sponzaSrc)
         engine.loadScript(src)
         engine.callFunction("init" (EvalValue.null()))
         ; generic bridge reconciles the declared scene graph (sky, sun+shadow, the
@@ -224,6 +249,10 @@ class WebSponzaTsxHost {
         if (ready == false) {
             return
         }
+        ; refresh the scene-visible navigator.getGamepads(), then let the pad drive
+        ; the camera, then integrate the controls (keyboard/mouse + analog pad).
+        this.refreshGamepadGlobal()
+        this.applyPadToControls()
         sponza.update(dt)
         renderer.render(gbridge.scene gbridge.camera)
     }
@@ -244,6 +273,120 @@ class WebSponzaTsxHost {
     }
     fn look:void (dx:double dy:double) {
         sponza.fpc.handleLook(dx dy)
+    }
+
+    ; --- gamepad input (routed from the viewer; standard Gamepad API layout) ----
+    ; connected!=0 with the left/right stick axes (−1..1) and a standard-index
+    ; button bitmask. Called once per frame before frame().
+    fn setPad:void (connected:int lx:double ly:double rx:double ry:double buttons:int) {
+        padConnected = (connected != 0)
+        padLX = lx
+        padLY = ly
+        padRX = rx
+        padRY = ry
+        padButtons = buttons
+    }
+
+    ; is the standard Gamepad button at index `idx` (0-based) set in the mask?
+    fn padBit:boolean (idx:int) {
+        def bit:int 1
+        def i:int 0
+        while (i < idx) {
+            bit = (bit * 2)
+            i = (i + 1)
+        }
+        return ((bit_and padButtons bit) != 0)
+    }
+
+    ; does the interpreted scene export a function of this name?
+    fn scriptHasFunction:boolean (name:string) {
+        def f:EvalValue (engine.getGlobal(name))
+        return (f.isFunction())
+    }
+    fn numOr:double (obj:EvalValue key:string dflt:double) {
+        def v:EvalValue (obj.getMember(key))
+        if (v.isNumber()) {
+            return (v.toNumber())
+        }
+        return dflt
+    }
+
+    ; Build the standard-shaped array navigator.getGamepads() returns for the scene:
+    ; [{connected,index,id,mapping,axes:[lx,ly,rx,ry],buttons:[{pressed,value}×16]}]
+    ; when a pad is connected, else [] — exactly what a browser three.js scene reads.
+    fn buildGamepadState:EvalValue () {
+        def pads:[EvalValue]
+        if padConnected {
+            def axes:[EvalValue]
+            push axes (EvalValue.number(padLX))
+            push axes (EvalValue.number(padLY))
+            push axes (EvalValue.number(padRX))
+            push axes (EvalValue.number(padRY))
+            def buttons:[EvalValue]
+            def i:int 0
+            while (i < 16) {
+                def pressed:boolean (this.padBit(i))
+                def val:double 0.0
+                if pressed { val = 1.0 }
+                def bk:[string]
+                def bv:[EvalValue]
+                push bk "pressed"
+                push bv (EvalValue.boolean(pressed))
+                push bk "value"
+                push bv (EvalValue.number(val))
+                push buttons (EvalValue.object(bk bv))
+                i = (i + 1)
+            }
+            def k:[string]
+            def v:[EvalValue]
+            push k "connected"
+            push v (EvalValue.boolean(true))
+            push k "index"
+            push v (EvalValue.fromInt(0))
+            push k "id"
+            push v (EvalValue.string("gamepad"))
+            push k "mapping"
+            push v (EvalValue.string("standard"))
+            push k "axes"
+            push v (EvalValue.array(axes))
+            push k "buttons"
+            push v (EvalValue.array(buttons))
+            push pads (EvalValue.object(k v))
+        }
+        return (EvalValue.array(pads))
+    }
+    fn refreshGamepadGlobal:void () {
+        engine.registerGlobal("__gamepadState" (this.buildGamepadState()))
+    }
+
+    ; Per frame: let the scene read the pad (navigator.getGamepads()) and return a
+    ; nav intent {moveX,moveZ,moveY,lookX,lookY}, applied to the first-person
+    ; controls (the analog axes ADD to keyboard/mouse). If the scene exports no
+    ; update(), map the raw pad here so a controller navigates any Sponza scene.
+    fn applyPadToControls:void () {
+        sponza.fpc.clearAxes()
+        if (this.scriptHasFunction("update")) {
+            def intent:EvalValue (engine.callFunction("update" (EvalValue.number(dt))))
+            if (intent.isObject()) {
+                sponza.fpc.setMoveAxes((this.numOr(intent "moveZ" 0.0)) (this.numOr(intent "moveX" 0.0)) (this.numOr(intent "moveY" 0.0)))
+                sponza.fpc.setLookAxes((this.numOr(intent "lookX" 0.0)) (this.numOr(intent "lookY" 0.0)))
+                return
+            }
+        }
+        if (padConnected == false) {
+            return
+        }
+        def fwd:double (0.0 - padLY)
+        def rgt:double padLX
+        if (this.padBit(12)) { fwd = 1.0 }
+        if (this.padBit(13)) { fwd = (0.0 - 1.0) }
+        if (this.padBit(14)) { rgt = (0.0 - 1.0) }
+        if (this.padBit(15)) { rgt = 1.0 }
+        def up:double 0.0
+        if (this.padBit(4)) { up = (0.0 - 1.0) }
+        if (this.padBit(5)) { up = 1.0 }
+        sponza.fpc.setMoveAxes(fwd rgt up)
+        sponza.fpc.setLookAxes(padRX padRY)
     }
 
     ; the scene is first-person animated, so every frame may differ.

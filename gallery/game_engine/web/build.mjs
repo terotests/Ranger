@@ -224,7 +224,7 @@ const SPONZA_TSX_SCENES = [
     scriptDir: "gallery/game_engine/three/tsx",
     script: "sponza.tsx",
     facade: "gallery/game_engine/three/tsx/three.tsx",
-    controls: "The light-probe-volume Sponza scene, its code run in the interpreter on the Ranger Three clone + WebGL: WASD / arrows to move, drag to look. Real glTF model + textures stream in from the Khronos sample assets. Sky, cast shadows and per-probe GI. Edit sponza.tsx (sun angle, probe counts) and it hot-reloads.",
+    controls: "The light-probe-volume Sponza scene, its code run in the interpreter on the Ranger Three clone + WebGL: WASD / arrows / game controller to move, drag or right-stick to look. Real glTF model + textures stream in from the Khronos sample assets. Sky, cast shadows and per-probe GI. Edit sponza.tsx (sun angle, probe counts) and it hot-reloads.",
   },
 ];
 
