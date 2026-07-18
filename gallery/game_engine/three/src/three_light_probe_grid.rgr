@@ -70,6 +70,24 @@ class ThreeLightProbeGrid extends ThreeObject3D {
     fn probeIndex:int (ix:int iy:int iz:int) {
         return (((iz * this.countY) * this.countX) + ((iy * this.countX) + ix))
     }
+    ; the WORLD position of probe cell (ix,iy,iz) — the inverse of axisCoord, so a
+    ; cubemap capture can be taken exactly where sampleIrradiance later reads. The
+    ; grid is centred on this.position with extent size along each axis.
+    sfn axisWorld:double (origin:double size:double count:int i:int) {
+        if (count < 2) {
+            return origin
+        }
+        def lo:double (origin - (0.5 * size))
+        def t:double ((to_double i) / (to_double (count - 1)))
+        return (lo + (t * size))
+    }
+    fn probeWorldPos:ThreeVector3 (ix:int iy:int iz:int target:ThreeVector3) {
+        return (target.set(
+            (ThreeLightProbeGrid.axisWorld(this.position.x this.sizeX this.countX ix))
+            (ThreeLightProbeGrid.axisWorld(this.position.y this.sizeY this.countY iy))
+            (ThreeLightProbeGrid.axisWorld(this.position.z this.sizeZ this.countZ iz))))
+    }
+
     fn getProbe:ThreeSphericalHarmonics3 (ix:int iy:int iz:int) {
         ; clamp the flat index into range (defense-in-depth: never itemAt past the
         ; end even if a caller passes an out-of-range cell).

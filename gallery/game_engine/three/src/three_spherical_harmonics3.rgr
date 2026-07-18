@@ -90,6 +90,19 @@ class ThreeSphericalHarmonics3 {
         return this
     }
 
+    ; copy another SH's coefficients into this one (e.g. store a freshly-projected
+    ; probe capture into the grid's probe).
+    fn copyFrom:ThreeSphericalHarmonics3 (other:ThreeSphericalHarmonics3) {
+        def i:int 0
+        while (i < 9) {
+            def c:ThreeVector3 (itemAt this.coefficients i)
+            def o:ThreeVector3 (itemAt other.coefficients i)
+            c.set(o.x o.y o.z)
+            i = (i + 1)
+        }
+        return this
+    }
+
     ; accumulate another SH scaled by s (used to blend / bounce probes).
     fn addScaledSH:ThreeSphericalHarmonics3 (other:ThreeSphericalHarmonics3 s:double) {
         def i:int 0

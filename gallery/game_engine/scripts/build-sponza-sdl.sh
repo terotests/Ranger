@@ -2,9 +2,10 @@
 # Ranger Three clone: sponza_sdl_runner.rgr -> C++ -> native SDL2 + OpenGL binary.
 #
 # Runs the light-probe-volume (Sponza) scene in a native SDL2/GL window: the TSX
-# interpreter runs sponza.tsx against the three.tsx façade, ThreeSponzaTsxBridge
-# reconciles it into the Ranger core (ThreeSponzaScene), and ThreeGLBackend draws
-# it through the shared three_gl operators. Editing gallery/game_engine/three/tsx/
+# interpreter runs sponza.tsx against the three.tsx façade, the ONE generic
+# ThreeTsxBridge reconciles it into the Ranger core AND bakes the diffuse-GI probe
+# volume (the capture bake — no model-named recipe), and ThreeGLBackend draws it
+# through the shared three_gl operators. Editing gallery/game_engine/three/tsx/
 # sponza.tsx while it runs HOT-RELOADS the scene. No WASM.
 #
 # Requirements: a C++17 compiler (clang++/g++) + SDL2 dev libs + OpenGL + libcurl

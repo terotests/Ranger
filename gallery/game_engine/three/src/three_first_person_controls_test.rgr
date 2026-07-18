@@ -72,6 +72,39 @@ class ThreeFirstPersonControlsTest {
         ck.near("up moves +Y" cam.position.y 1.0)
         fpc.keyUp("r")
 
+        ; --- analog (gamepad) axes: add to the digital keys, drive the same camera ---
+        def cam3:ThreePerspectiveCamera (new ThreePerspectiveCamera)
+        cam3.position.set(0.0 0.0 0.0)
+        def fpc3:ThreeFirstPersonControls (new ThreeFirstPersonControls)
+        fpc3.setCamera(cam3)
+        fpc3.setMovementSpeed(2.0)
+        fpc3.setLook(0.0 0.0)
+        ; full forward on the left stick for 0.5s at speed 2 -> +1 along Z
+        fpc3.setMoveAxes(1.0 0.0 0.0)
+        fpc3.update(0.5)
+        ck.near("analog forward moves +Z" cam3.position.z 1.0)
+        ck.near("analog forward keeps x" cam3.position.x 0.0)
+        ; half strafe right for 0.5s -> +0.5 along X
+        fpc3.clearAxes()
+        fpc3.setMoveAxes(0.0 0.5 0.0)
+        fpc3.update(0.5)
+        ck.near("analog half-strafe moves +0.5 X" cam3.position.x 0.5)
+        ; cleared axes coast to a stop (no further movement)
+        fpc3.clearAxes()
+        fpc3.update(0.5)
+        ck.near("cleared axes stop X" cam3.position.x 0.5)
+        ck.near("cleared axes stop Z" cam3.position.z 1.0)
+
+        ; look stick rotates lon at lookRateDeg deg/sec (default 120): +1 for 0.5s -> -60
+        def cam4:ThreePerspectiveCamera (new ThreePerspectiveCamera)
+        cam4.position.set(0.0 0.0 0.0)
+        def fpc4:ThreeFirstPersonControls (new ThreeFirstPersonControls)
+        fpc4.setCamera(cam4)
+        fpc4.setLook(0.0 0.0)
+        fpc4.setLookAxes(1.0 0.0)
+        fpc4.update(0.5)
+        ck.near("look stick rotates lon -60 in 0.5s" fpc4.lon (0.0 - 60.0))
+
         ; look: pointer dx rotates lon by -dx*lookSpeed
         def fpc2:ThreeFirstPersonControls (new ThreeFirstPersonControls)
         fpc2.setLookSpeed(0.1)

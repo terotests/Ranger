@@ -1,0 +1,69 @@
+; ==============================================================================
+; three_cube_camera — render a scene into a cube capture (Three.js CubeCamera).
+; ==============================================================================
+; Renders the scene six times from a probe position — a 90°-FOV, aspect-1 camera
+; looking down +X,-X,+Y,-Y,+Z,-Z with the per-face up vectors — into a ThreeCubeMap
+; whose face orientation matches ThreeLightProbeGenerator.faceCoord. This is the
+; WebGLCubeRenderTarget + CubeCamera step that feeds LightProbeGenerator: capture
+; the ACTUAL scene radiance (lit surfaces, sky, occlusion), then project to SH.
+; Uses the pluggable renderer/backend, so it captures on the software rasteriser
+; (headless/native) or real GL. Pure Ranger (ES6 + C++).
+; ==============================================================================
+
+Import "three_cube_map.rgr"
+Import "three_scene.rgr"
+Import "three_perspective_camera.rgr"
+Import "three_webgl_renderer.rgr"
+
+class ThreeCubeCamera {
+    ; per-face forward target-offset + up (matches the LightProbeGenerator faces).
+    sfn faceForward:ThreeVector3 (face:int) {
+        def v:ThreeVector3 (new ThreeVector3)
+        if (face == 0) { v.set(1.0 0.0 0.0) }
+        if (face == 1) { v.set((0.0 - 1.0) 0.0 0.0) }
+        if (face == 2) { v.set(0.0 1.0 0.0) }
+        if (face == 3) { v.set(0.0 (0.0 - 1.0) 0.0) }
+        if (face == 4) { v.set(0.0 0.0 1.0) }
+        if (face == 5) { v.set(0.0 0.0 (0.0 - 1.0)) }
+        return v
+    }
+    sfn faceUp:ThreeVector3 (face:int) {
+        def v:ThreeVector3 (new ThreeVector3)
+        if (face == 0) { v.set(0.0 1.0 0.0) }
+        if (face == 1) { v.set(0.0 1.0 0.0) }
+        if (face == 2) { v.set(0.0 0.0 (0.0 - 1.0)) }
+        if (face == 3) { v.set(0.0 0.0 1.0) }
+        if (face == 4) { v.set(0.0 1.0 0.0) }
+        if (face == 5) { v.set(0.0 1.0 0.0) }
+        return v
+    }
+
+    sfn copyInto:void (src:buffer dst:buffer n:int) {
+        def i:int 0
+        while (i < n) {
+            buffer_set dst i (buffer_get src i)
+            i = (i + 1)
+        }
+    }
+
+    ; capture the scene at (px,py,pz) into a faceSize² cube using `renderer`.
+    sfn capture:ThreeCubeMap (renderer:ThreeWebGLRenderer scene:ThreeScene px:double py:double pz:double faceSize:int) {
+        def cube:ThreeCubeMap (ThreeCubeMap.create(faceSize))
+        def cam:ThreePerspectiveCamera (new ThreePerspectiveCamera)
+        cam.setPerspective(90.0 1.0 0.1 100000.0)
+        def bytes:int ((faceSize * faceSize) * 3)
+        def face:int 0
+        while (face < 6) {
+            def fwd:ThreeVector3 (ThreeCubeCamera.faceForward(face))
+            def up:ThreeVector3 (ThreeCubeCamera.faceUp(face))
+            cam.position.set(px py pz)
+            cam.up.set(up.x up.y up.z)
+            cam.lookAt((px + fwd.x) (py + fwd.y) (pz + fwd.z))
+            renderer.setSize(faceSize faceSize)
+            renderer.render(scene cam)
+            ThreeCubeCamera.copyInto((renderer.raw()) (cube.faceBuffer(face)) bytes)
+            face = (face + 1)
+        }
+        return cube
+    }
+}

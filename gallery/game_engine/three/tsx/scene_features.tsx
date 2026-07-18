@@ -2,10 +2,10 @@
 // scene_features.tsx — a "Sponza-shaped" scene (Preetham sky + a shadow-casting
 // directional light + a lit mesh + a light-probe volume) declared with the plain
 // façade and driven through the GENERIC bridge. It exists to prove the generic
-// reconciler handles the same scene CONTENT the specialised Sponza bridge does —
-// so no per-demo scene bridge is needed. GI baking is host plumbing (not scene
-// reconciliation), so the probe grid is honestly reported as needing a plumbing
-// module rather than silently faked.
+// reconciler handles the same scene CONTENT the specialised Sponza bridge did —
+// so no per-demo scene bridge is needed. The probe grid reconciles to a real
+// ThreeLightProbeVolume; probes.bake(renderer, scene, {...}) runs the generic
+// capture bake (no analytic tints).
 // ============================================================================
 
 import * as THREE from 'three';
@@ -37,8 +37,8 @@ export function init() {
   const mat = new THREE.MeshLambertMaterial( { color: 0xcccccc } );
   scene.add( new THREE.Mesh( geo, mat ) );
 
-  // Declared as real scene content; GI baking is a host plumbing pass, so the
-  // generic bridge must report this as needing a plumbing module (not fake it).
+  // Real scene content: the generic bridge builds a ThreeLightProbeVolume from
+  // these dims/counts; probes.bake(renderer, scene, {...}) would run the capture bake.
   probes = new THREE.LightProbeGrid( 4, 4, 4, 3, 3, 3 );
   scene.add( probes );
 

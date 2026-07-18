@@ -33,6 +33,11 @@ class Vector3 {
 // Tone-mapping constant referenced by the scene (renderer.toneMapping).
 const ACESFilmicToneMapping = 4;
 
+// A process-wide id counter so the bridge can bind a mixer to its target across
+// the interpreter's broken object identity (=== on objects is unreliable). Every
+// bindable node stamps a unique __uid in its constructor.
+let __threeUid = 0;
+
 // Constants the teapot example references (side, wrapping, colour space).
 const FrontSide = 0;
 const BackSide = 1;
@@ -219,6 +224,60 @@ class TorusKnotGeometry {
   dispose() { }
 }
 
+// --- Animation --------------------------------------------------------------
+// Thin arg holders: the sampling (linear / slerp) and the mixer application run
+// in the Ranger core (three_animation). Track names are three.js property paths
+// ('.position' / '.quaternion' / '.scale'); stride = components per keyframe.
+class VectorKeyframeTrack {
+  isKeyframeTrack = true;
+  constructor(name, times, values) {
+    this.name = name; this.times = times; this.values = values;
+    this.stride = 3; this.isQuaternion = false;
+  }
+}
+class NumberKeyframeTrack {
+  isKeyframeTrack = true;
+  constructor(name, times, values) {
+    this.name = name; this.times = times; this.values = values;
+    this.stride = 1; this.isQuaternion = false;
+  }
+}
+class QuaternionKeyframeTrack {
+  isKeyframeTrack = true;
+  constructor(name, times, values) {
+    this.name = name; this.times = times; this.values = values;
+    this.stride = 4; this.isQuaternion = true;
+  }
+}
+class AnimationClip {
+  isAnimationClip = true;
+  constructor(name, duration, tracks) {
+    this.name = name; this.duration = duration; this.tracks = tracks;
+  }
+}
+class AnimationAction {
+  constructor(clip) { this.clip = clip; this.running = false; this.weight = 1; }
+  play() { this.running = true; return this; }
+  stop() { this.running = false; return this; }
+  setEffectiveWeight(w) { this.weight = w; return this; }   // crossfade weight
+}
+class AnimationMixer {
+  isAnimationMixer = true;
+  constructor(target) {
+    this.target = target; this.time = 0;
+    this.actions = [];        // all playing clips (blended by weight — crossfade)
+    this.action = null;       // last, for single-clip convenience
+  }
+  clipAction(clip) {
+    const a = new AnimationAction(clip);
+    this.actions.push(a);
+    this.action = a;
+    return a;
+  }
+  update(dt) { this.time = this.time + dt; return this; }   // advance (accumulate)
+  setTime(t) { this.time = t; return this; }                // absolute seek
+}
+
 class Texture {
   isTexture = true;
   path = "";
@@ -331,9 +390,12 @@ class Mesh {
   geometry = null;
   material = null;
   children = [];
+  __uid = 0;
   constructor(geometry, material) {
     this.geometry = geometry;
     this.material = material;
+    __threeUid = __threeUid + 1;
+    this.__uid = __threeUid;
   }
   // real add now — the bridge recurses into children and builds them in the host
   // parented to this mesh (nested world transforms compose in the Ranger core).
@@ -421,8 +483,13 @@ class Sky {
   sunPosition = new Vector3().set(0, 1, 0);
 }
 
-// A grid of SH light probes (diffuse GI). The bridge builds + bakes the real
-// ThreeLightProbeGrid from these dims/counts; the interpreter just declares them.
+// A grid of SH light probes (diffuse GI). The bridge builds the real
+// ThreeLightProbeVolume from these dims/counts and, when bake() is called, runs
+// the capture bake (probes.bake(renderer, scene, opts) -> ThreeLightProbeVolume
+// .bakeFromScene) — the same generic Three.js LightProbeGenerator path, no analytic
+// tints. bake() records the opts + bumps bakeRequest; the bridge does the GPU work
+// (the interpreter can't). showProbes/probeSize drive the volume's own helper (the
+// upstream example's separate LightProbeGridHelper is folded into the volume here).
 class LightProbeGrid {
   isLightProbeGrid = true;
   position = new Vector3();
@@ -436,6 +503,13 @@ class LightProbeGrid {
   countY = 2;
   countZ = 2;
   bounces = 1;
+  showProbes = false;
+  probeSize = 0.2;
+  // capture-bake opts the bridge reads (defaults match probes.bake({...}) upstream).
+  cubemapSize = 32;
+  near = 0.05;
+  far = 1000;
+  bakeRequest = 0;
   constructor(sizeX, sizeY, sizeZ, countX, countY, countZ) {
     this.sizeX = sizeX;
     this.sizeY = sizeY;
@@ -444,7 +518,46 @@ class LightProbeGrid {
     this.countY = countY;
     this.countZ = countZ;
   }
+  // Bake the diffuse-GI probe volume by CAPTURING the real scene at each probe.
+  // Records the opts + signals the bridge (which owns the renderer + host scene) to
+  // run ThreeLightProbeVolume.bakeFromScene. Callers pass a full opts object.
+  bake(renderer, scene, opts) {
+    this.cubemapSize = opts.cubemapSize;
+    this.near = opts.near;
+    this.far = opts.far;
+    this.bounces = opts.bounces;
+    this.bakeRequest = this.bakeRequest + 1;
+  }
   dispose() { }
+}
+
+// Axis-aligned bounds (THREE.Box3). The interpreter can't traverse decoded geometry,
+// so setFromObject(model) copies the host-measured bounds the host publishes as the
+// `__hostBounds` global (min/max) BEFORE init() runs — the single decoded host model.
+// getSize/getCenter then mirror THREE.Box3 so the scene derives light distance,
+// shadow extents and probe far exactly like the upstream example.
+class Box3 {
+  isBox3 = true;
+  minX = 0; minY = 0; minZ = 0;
+  maxX = 0; maxY = 0; maxZ = 0;
+  setFromObject(obj) {
+    const b = __hostBounds;
+    this.minX = b.minX; this.minY = b.minY; this.minZ = b.minZ;
+    this.maxX = b.maxX; this.maxY = b.maxY; this.maxZ = b.maxZ;
+    return this;
+  }
+  getSize(target) {
+    target.x = this.maxX - this.minX;
+    target.y = this.maxY - this.minY;
+    target.z = this.maxZ - this.minZ;
+    return target;
+  }
+  getCenter(target) {
+    target.x = (this.minX + this.maxX) * 0.5;
+    target.y = (this.minY + this.maxY) * 0.5;
+    target.z = (this.minZ + this.maxZ) * 0.5;
+    return target;
+  }
 }
 
 class LightProbeGridHelper {

@@ -1,0 +1,120 @@
+; ==============================================================================
+; three_gamepad_nav_test — the interpreter side of Sponza's controller support.
+; ==============================================================================
+; Proves the value-parity path: the host registers a live __gamepadState global,
+; the navigator prelude exposes the STANDARD navigator.getGamepads() to the scene,
+; and an interpreted update(dt) reads the pad and returns a movement/look intent
+; that the host reads back — with NO engine-specific gamepad name. Compile to ES6
+; and run under Node; prints per-check PASS/FAIL and "ALL PASS".
+; ==============================================================================
+
+Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
+
+class GpCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    fn near:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) { d = (0.0 - d) }
+        if (d < 0.000001) {
+            passed = (passed + 1)
+            print ("  PASS " + name + " (" + (to_string got) + ")")
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name + " got=" + (to_string got) + " want=" + (to_string want))
+        }
+    }
+}
+
+class GamepadNavTest {
+    ; one standard-shaped pad: axes [lx,ly,rx,ry], 16 buttons, optional d-pad-up.
+    sfn buildPad:EvalValue (lx:double ly:double rx:double ry:double dpadUp:boolean) {
+        def axes:[EvalValue]
+        push axes (EvalValue.number(lx))
+        push axes (EvalValue.number(ly))
+        push axes (EvalValue.number(rx))
+        push axes (EvalValue.number(ry))
+        def buttons:[EvalValue]
+        def i:int 0
+        while (i < 16) {
+            def pressed:boolean false
+            if (i == 12) { pressed = dpadUp }
+            def bk:[string]
+            def bv:[EvalValue]
+            push bk "pressed"
+            push bv (EvalValue.boolean(pressed))
+            push buttons (EvalValue.object(bk bv))
+            i = (i + 1)
+        }
+        def k:[string]
+        def v:[EvalValue]
+        push k "axes"
+        push v (EvalValue.array(axes))
+        push k "buttons"
+        push v (EvalValue.array(buttons))
+        def pads:[EvalValue]
+        push pads (EvalValue.object(k v))
+        return (EvalValue.array(pads))
+    }
+
+    sfn m@(main):void () {
+        def ck:GpCheck (new GpCheck)
+        print "== gamepad nav (interpreter) =="
+
+        def engine:ComponentEngine (new ComponentEngine())
+        engine.quiet = true
+        def emptyPads:[EvalValue]
+        engine.registerGlobal("__gamepadState" (EvalValue.array(emptyPads)))
+
+        ; the exact navigator prelude the Sponza host prepends + the scene's update().
+        def src:string ""
+        src = (src + "const navigator = { getGamepads: () => __gamepadState };\n")
+        src = (src + "export function update(dt) {\n")
+        src = (src + "  const pads = navigator.getGamepads();\n")
+        src = (src + "  const p = pads[0];\n")
+        src = (src + "  let moveX = 0; let moveZ = 0; let moveY = 0; let lookX = 0; let lookY = 0;\n")
+        src = (src + "  if (p) {\n")
+        src = (src + "    const ax = p.axes; const b = p.buttons;\n")
+        src = (src + "    moveX = ax[0]; moveZ = 0 - ax[1]; lookX = ax[2]; lookY = ax[3];\n")
+        src = (src + "    if (b[12] && b[12].pressed) { moveZ = 1; }\n")
+        src = (src + "  }\n")
+        src = (src + "  return { moveX: moveX, moveZ: moveZ, moveY: moveY, lookX: lookX, lookY: lookY };\n")
+        src = (src + "}\n")
+        engine.loadScript(src)
+
+        ; the host gates on scriptHasFunction("update") (engine.getGlobal + isFunction)
+        ; to let the scene drive; assert that gate resolves to the exported update().
+        ck.ok("host sees exported update()" ((engine.getGlobal("update")).isFunction()))
+
+        ; case 1 — no pad connected -> navigator.getGamepads() is [], all zero.
+        def r0:EvalValue (engine.callFunction("update" (EvalValue.number(0.016))))
+        ck.near("no-pad moveX" ((r0.getMember("moveX")).toNumber()) 0.0)
+        ck.near("no-pad moveZ" ((r0.getMember("moveZ")).toNumber()) 0.0)
+
+        ; case 2 — left stick strafe 0.5, forward (y=-1 -> +1), right stick x 0.25.
+        engine.registerGlobal("__gamepadState" (GamepadNavTest.buildPad(0.5 (0.0 - 1.0) 0.25 0.0 false)))
+        def r1:EvalValue (engine.callFunction("update" (EvalValue.number(0.016))))
+        ck.near("stick moveX" ((r1.getMember("moveX")).toNumber()) 0.5)
+        ck.near("stick moveZ (fwd)" ((r1.getMember("moveZ")).toNumber()) 1.0)
+        ck.near("stick lookX" ((r1.getMember("lookX")).toNumber()) 0.25)
+
+        ; case 3 — d-pad up overrides forward to +1 even with a centred stick.
+        engine.registerGlobal("__gamepadState" (GamepadNavTest.buildPad(0.0 0.0 0.0 0.0 true)))
+        def r2:EvalValue (engine.callFunction("update" (EvalValue.number(0.016))))
+        ck.near("dpad-up moveZ" ((r2.getMember("moveZ")).toNumber()) 1.0)
+
+        print "== summary =="
+        print ("passed=" + (to_string ck.passed) + " failed=" + (to_string ck.failed))
+        if (ck.failed == 0) { print "ALL PASS" } { print "SOME FAILED" }
+    }
+}

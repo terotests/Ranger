@@ -61,6 +61,12 @@ run_suite three_json_test
 run_suite three_http_test
 run_suite three_light_probe_grid_test
 run_suite three_light_probe_grid_helper_test
+# Three.js cube→SH projection (LightProbeGenerator): the generic, scene-capturing
+# diffuse-GI bake that replaces the analytic sun/sky/ground stand-in.
+run_suite three_light_probe_generator_test
+# CubeCamera capture → LightProbeGenerator projection, end-to-end: a bright box on
+# one side of a probe drives the probe's irradiance that way (capture the real scene).
+run_suite three_cube_camera_test
 run_suite three_teapot_test
 run_suite three_orbit_controls_test
 run_suite three_first_person_controls_test
@@ -100,6 +106,14 @@ run_feature spec/three_spec_runner
 # through the interpreter, reconciled into the host with real parenting; each
 # node's composed world matrix validated vs real three.js. No rendering.
 run_feature object_hierarchy/three_hierarchy_test
+# Animation (three/tests/animation/): keyframe sampling (linear + quaternion slerp)
+# + an AnimationMixer, driven through the interpreter — the host samples the clip
+# and writes the target entity's TRS; validated vs real three.js. No rendering.
+run_feature animation/three_animation_test
+# Crossfade (three/tests/animation/): two clips blended by per-action weight —
+# weighted lerp (position) + incremental slerp (quaternion), matching three.js's
+# NormalAnimationBlendMode. Driven through the interpreter, no rendering.
+run_feature animation/three_crossfade_test
 # The 1:1 Three.js cube example, run through the TSX interpreter on the façade.
 run_tsx_poc three_facade_poc
 # The render bridge: the interpreted cube.tsx reconciled into the Ranger core and
@@ -110,11 +124,14 @@ run_tsx_poc three_tsx_bridge_texture_test
 run_tsx_poc three_tsx_bridge_driven_test
 run_tsx_poc three_tsx_bridge_features_test
 run_tsx_poc three_teapot_tsx_test
-# The Sponza light-probe scene (demo/host layer): the composition recipe, and
-# sponza.tsx interpreted + reconciled into the core with hot-reload (editing the
-# scene's params drives the Ranger scene live).
-run_tsx_poc three_sponza_scene_test
+# The Sponza light-probe scene: sponza.tsx (a faithful port of the upstream three.js
+# example — bounds, bounds-derived sun+shadow, probes.bake capture bake) interpreted
+# + reconciled through the ONE generic bridge, with hot-reload. No model-named recipe.
 run_tsx_poc three_sponza_tsx_test
+# Sponza game-controller navigation (value-parity path): the scene reads the
+# STANDARD navigator.getGamepads() from its update() loop and returns a movement/
+# look intent the host applies to the first-person camera — no engine-specific name.
+run_tsx_poc three_gamepad_nav_test
 # The teapot's lil-gui panel (demo/host layer): EVG panel rasterise + hit-testing.
 run_tsx_poc three_gui_overlay_test
 

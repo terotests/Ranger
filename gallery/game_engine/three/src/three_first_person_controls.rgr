@@ -32,6 +32,20 @@ class ThreeFirstPersonControls {
     def moveUp:boolean false
     def moveDown:boolean false
 
+    ; analog movement/look intents (host sets these each frame from a gamepad's
+    ; sticks — range −1..1). They ADD to the digital key intents above, so
+    ; keyboard + controller drive the same camera; both default 0 (a scene with no
+    ; pad, or the native SDL runner that only sets the booleans, is unaffected).
+    ; forward = along the look dir, right = strafe, up = world +Y.
+    def axisForward:double 0.0
+    def axisRight:double 0.0
+    def axisUp:double 0.0
+    ; look-stick rate (−1..1); integrated as degrees/sec so it is frame-rate
+    ; independent, unlike handleLook's per-pixel pointer deltas.
+    def lookAxisX:double 0.0
+    def lookAxisY:double 0.0
+    def lookRateDeg:double 120.0
+
     ; reusable scratch so update allocates nothing per frame.
     def _dir:ThreeVector3 (new ThreeVector3)
     def _right:ThreeVector3 (new ThreeVector3)
@@ -54,6 +68,29 @@ class ThreeFirstPersonControls {
         lon = lonDeg
         lat = latDeg
         this.clampLat()
+        return this
+    }
+    ; host: set the per-frame analog movement axes (gamepad sticks, −1..1).
+    fn setMoveAxes:ThreeFirstPersonControls (fwd:double right:double up:double) {
+        axisForward = fwd
+        axisRight = right
+        axisUp = up
+        return this
+    }
+    ; host: set the per-frame analog look axes (right stick, −1..1).
+    fn setLookAxes:ThreeFirstPersonControls (x:double y:double) {
+        lookAxisX = x
+        lookAxisY = y
+        return this
+    }
+    ; host: clear the analog axes (called each frame before re-applying the pad, so
+    ; a released stick stops the camera instead of coasting on last frame's value).
+    fn clearAxes:ThreeFirstPersonControls () {
+        axisForward = 0.0
+        axisRight = 0.0
+        axisUp = 0.0
+        lookAxisX = 0.0
+        lookAxisY = 0.0
         return this
     }
 
@@ -108,47 +145,54 @@ class ThreeFirstPersonControls {
         if (key == "F") { moveDown = on }
     }
 
-    ; integrate one frame: move along look/right/up by speed*delta, then re-aim.
+    ; integrate one frame: apply the look-stick, move along look/right/up by
+    ; speed*delta, then re-aim.
     fn update:void (delta:double) {
         if (hasCamera == false) {
             return
         }
+        ; look stick: rotate lon/lat at lookRateDeg degrees/sec (frame-rate safe),
+        ; before deriving the look direction so this frame's move uses the new aim.
+        if (lookAxisX != 0.0) {
+            lon = (lon - ((lookAxisX * lookRateDeg) * delta))
+        }
+        if (lookAxisY != 0.0) {
+            lat = (lat - ((lookAxisY * lookRateDeg) * delta))
+            this.clampLat()
+        }
+
         def step:double (movementSpeed * delta)
         this.lookDirection()
         ; right = worldUp x dir  (+X when looking +Z)
         _right.crossVectors(_worldUp _dir)
         _right.normalize()
 
+        ; combine digital keys (±1) and analog sticks into one scalar per axis, so
+        ; keyboard and controller drive the same camera. Opposed keys cancel, as
+        ; before (a held w+s nets 0).
+        def fwd:double axisForward
+        if moveForward { fwd = (fwd + 1.0) }
+        if moveBackward { fwd = (fwd - 1.0) }
+        def rgt:double axisRight
+        if moveRight { rgt = (rgt + 1.0) }
+        if moveLeft { rgt = (rgt - 1.0) }
+        def upv:double axisUp
+        if moveUp { upv = (upv + 1.0) }
+        if moveDown { upv = (upv - 1.0) }
+
         def px:double camera.position.x
         def py:double camera.position.y
         def pz:double camera.position.z
 
-        if moveForward {
-            px = (px + (_dir.x * step))
-            py = (py + (_dir.y * step))
-            pz = (pz + (_dir.z * step))
-        }
-        if moveBackward {
-            px = (px - (_dir.x * step))
-            py = (py - (_dir.y * step))
-            pz = (pz - (_dir.z * step))
-        }
-        if moveRight {
-            px = (px + (_right.x * step))
-            py = (py + (_right.y * step))
-            pz = (pz + (_right.z * step))
-        }
-        if moveLeft {
-            px = (px - (_right.x * step))
-            py = (py - (_right.y * step))
-            pz = (pz - (_right.z * step))
-        }
-        if moveUp {
-            py = (py + step)
-        }
-        if moveDown {
-            py = (py - step)
-        }
+        px = (px + ((_dir.x * step) * fwd))
+        py = (py + ((_dir.y * step) * fwd))
+        pz = (pz + ((_dir.z * step) * fwd))
+
+        px = (px + ((_right.x * step) * rgt))
+        py = (py + ((_right.y * step) * rgt))
+        pz = (pz + ((_right.z * step) * rgt))
+
+        py = (py + (step * upv))
 
         camera.position.set(px py pz)
         ; re-aim at position + look direction.

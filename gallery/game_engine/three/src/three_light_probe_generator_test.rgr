@@ -1,0 +1,89 @@
+; ==============================================================================
+; three_light_probe_generator_test — the Three.js cube→SH projection is faithful.
+; ==============================================================================
+; Verifies ThreeLightProbeGenerator.fromCubeTexture against known environments,
+; independent of any renderer (synthetic cube captures):
+;   * a UNIFORM environment of radiance L projects to isotropic irradiance π·L
+;     (the defining property: uniform in ⇒ uniform out, correct magnitude);
+;   * a single bright face projects to a DIRECTIONAL probe (lit side brighter).
+; This pins the solid-angle weighting + 4π/totalWeight normalisation + SH basis.
+; ==============================================================================
+
+Import "three_light_probe_generator.rgr"
+Import "three_cube_map.rgr"
+Import "three_spherical_harmonics3.rgr"
+Import "three_vector3.rgr"
+
+class ThreeLightProbeGeneratorTest {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    fn nearTol:void (name:string got:double want:double tol:double) {
+        def d:double (got - want)
+        if (d < 0.0) { d = (0.0 - d) }
+        if (d < tol) {
+            passed = (passed + 1)
+            print ("  PASS " + name + " (" + (to_string got) + ")")
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name + " got=" + (to_string got) + " want=" + (to_string want))
+        }
+    }
+
+    sfn m@(main):void () {
+        def t:ThreeLightProbeGeneratorTest (new ThreeLightProbeGeneratorTest)
+        t.run()
+    }
+
+    fn run:void () {
+        print "== ThreeLightProbeGenerator (Three.js cube→SH projection) =="
+        def PI:double 3.141592653589793
+
+        ; --- 1. uniform white environment ⇒ isotropic irradiance ≈ π ---
+        def cube:ThreeCubeMap (ThreeCubeMap.create(16))
+        cube.fillAll(255 255 255)
+        def sh:ThreeSphericalHarmonics3 (ThreeLightProbeGenerator.fromCubeTexture(cube))
+        def t:ThreeVector3 (new ThreeVector3)
+        sh.getIrradianceAt(1.0 0.0 0.0 t)
+        def ex:double t.x
+        sh.getIrradianceAt(0.0 1.0 0.0 t)
+        def ey:double t.x
+        sh.getIrradianceAt(0.0 0.0 (0.0 - 1.0) t)
+        def ez:double t.x
+        this.nearTol("uniform env: +X irradiance ≈ π" ex PI 0.12)
+        this.nearTol("uniform env: isotropic (+Y = +X)" ey ex 0.05)
+        this.nearTol("uniform env: isotropic (-Z = +X)" ez ex 0.05)
+
+        ; --- 2. a single bright +X face ⇒ directional probe ---
+        def cube2:ThreeCubeMap (ThreeCubeMap.create(16))
+        cube2.fillAll(0 0 0)
+        cube2.fillFace(0 255 255 255)
+        def sh2:ThreeSphericalHarmonics3 (ThreeLightProbeGenerator.fromCubeTexture(cube2))
+        sh2.getIrradianceAt(1.0 0.0 0.0 t)
+        def px:double t.x
+        sh2.getIrradianceAt((0.0 - 1.0) 0.0 0.0 t)
+        def nx:double t.x
+        this.ok("+X-lit env: +X normal is positive" (px > 0.0))
+        this.ok("+X-lit env: +X brighter than -X (directional)" (px > nx))
+
+        ; --- 3. a coloured face carries its colour into the probe ---
+        def cube3:ThreeCubeMap (ThreeCubeMap.create(16))
+        cube3.fillAll(0 0 0)
+        cube3.fillFace(2 40 255 40)
+        def sh3:ThreeSphericalHarmonics3 (ThreeLightProbeGenerator.fromCubeTexture(cube3))
+        sh3.getIrradianceAt(0.0 1.0 0.0 t)
+        this.ok("green +Y env: green channel dominates up-facing irradiance" ((t.y > t.x) && (t.y > t.z)))
+
+        print "== summary =="
+        print (("passed=" + (to_string passed)) + (" failed=" + (to_string failed)))
+        if (failed == 0) { print "ALL PASS" } { print "SOME FAILED" }
+    }
+}

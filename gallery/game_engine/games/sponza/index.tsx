@@ -120,3 +120,35 @@ export function setProbeCountX(v) { params.countX = v; probes.countX = v; }
 export function setProbeCountY(v) { params.countY = v; probes.countY = v; }
 export function setProbeCountZ(v) { params.countZ = v; probes.countZ = v; }
 export function setShowProbes(on) { params.showProbes = on; }
+
+// --- game-controller navigation ---------------------------------------------
+// Read the STANDARD Web Gamepad API — the same navigator.getGamepads() call a
+// browser three.js scene makes — from the per-frame update loop, and return a
+// movement/look intent the host folds into the first-person camera alongside WASD
+// and mouse-look. Left stick + d-pad move, right stick looks, shoulder buttons
+// (LB/RB) fly down/up. Nothing here is engine-specific: any pad-reading three.js
+// snippet works because the host fills navigator.getGamepads() like the browser.
+export function update(dt) {
+  const pads = navigator.getGamepads();
+  const p = pads[0];
+  let moveX = 0;
+  let moveZ = 0;
+  let moveY = 0;
+  let lookX = 0;
+  let lookY = 0;
+  if (p) {
+    const ax = p.axes;
+    const b = p.buttons;
+    moveX = ax[0];        // left stick X -> strafe
+    moveZ = 0 - ax[1];    // left stick Y (up = -1) -> forward
+    lookX = ax[2];        // right stick -> look
+    lookY = ax[3];
+    if (b[12] && b[12].pressed) { moveZ = 1; }       // d-pad up
+    if (b[13] && b[13].pressed) { moveZ = 0 - 1; }   // d-pad down
+    if (b[14] && b[14].pressed) { moveX = 0 - 1; }   // d-pad left
+    if (b[15] && b[15].pressed) { moveX = 1; }       // d-pad right
+    if (b[4] && b[4].pressed) { moveY = 0 - 1; }     // LB -> down
+    if (b[5] && b[5].pressed) { moveY = 1; }         // RB -> up
+  }
+  return { moveX: moveX, moveZ: moveZ, moveY: moveY, lookX: lookX, lookY: lookY };
+}

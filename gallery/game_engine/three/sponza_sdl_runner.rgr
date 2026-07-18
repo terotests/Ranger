@@ -4,11 +4,12 @@
 ; reloads live). Native counterpart to the web host.
 ; ==============================================================================
 ; Same design as tsx3d_sdl_runner, but the scene is the real Three clone: the TSX
-; interpreter runs sponza.tsx against the three.tsx façade, the generic ThreeTsxBridge
-; reconciles it (ThreeSponzaScene is the GI-bake plumbing), and ThreeGLBackend draws
-; it through the shared three_gl operators (desktop GL). The host owns the loop,
-; the first-person input, and the hot-reload file watch — the interpreter only
-; declares the scene (and re-declares it on edit).
+; interpreter runs sponza.tsx against the three.tsx façade, the ONE generic
+; ThreeTsxBridge reconciles it AND builds + bakes the diffuse-GI probe volume (the
+; capture bake, probes.bake -> bakeFromScene — no model-named recipe), and
+; ThreeGLBackend draws it through the shared three_gl operators (desktop GL). The
+; host owns the loop, the first-person input, and the hot-reload file watch — the
+; interpreter only declares the scene (and re-declares it on edit).
 ;
 ; The model is loaded HOST-side (no interpreter async): http_get_bytes fetches the
 ; Sponza .gltf + its external buffers and three_gltf_file decodes them into an
@@ -25,9 +26,11 @@
 
 Import "../gfx_sdl.rgr"
 Import "tsx/three_tsx_bridge.rgr"
-Import "tsx/three_sponza_scene.rgr"
 Import "src/three_webgl_renderer.rgr"
 Import "src/three_gl_backend.rgr"
+Import "src/three_perspective_camera.rgr"
+Import "src/three_first_person_controls.rgr"
+Import "src/three_light_probe_volume.rgr"
 Import "src/three_mesh.rgr"
 Import "src/three_box_geometry.rgr"
 Import "src/three_gltf_file.rgr"
@@ -104,6 +107,12 @@ class SponzaSdlRunner {
         return (SponzaSdlRunner.buildPlaceholderModel())
     }
 
+    ; update the reconciled camera's aspect on a resize (host-owned plumbing).
+    sfn setViewport:void (cam:ThreePerspectiveCamera w:int h:int) {
+        cam.aspect = ((to_double w) / (to_double h))
+        cam.updateProjectionMatrix()
+    }
+
     ; map the d-pad/WASD input mask onto the scene's FirstPersonControls.
     fn applyInput:void (fpc:ThreeFirstPersonControls mask:int) {
         fpc.moveForward = (this.bitOn(mask 1))
@@ -126,17 +135,11 @@ class SponzaSdlRunner {
             return
         }
 
-        ; GL backend (draws into gfx's current context) + HDR renderer
+        ; GL backend (draws into gfx's current context).
         def gl:ThreeGLBackend (new ThreeGLBackend)
         def glok:boolean (gl.init(""))
-        def renderer:ThreeWebGLRenderer (new ThreeWebGLRenderer)
-        renderer.setBackend(gl)
-        renderer.setSize(runner.pw runner.ph)
-        renderer.setToneMapping(4)
-        renderer.setToneMappingExposure(1.0)
-        renderer.setShadowMapEnabled(true)
 
-        ; interpreter + reconcile bridge, driven by sponza.tsx on disk
+        ; interpreter driven by sponza.tsx on disk
         def facadeBuf:buffer (buffer_read_file tsxDir "three.tsx")
         def facadeSrc:string (buffer_to_string facadeBuf)
         def sponzaBuf:buffer (buffer_read_file tsxDir "sponza.tsx")
@@ -152,20 +155,35 @@ class SponzaSdlRunner {
         def modelURL:string (SponzaSdlRunner.argOr(2 "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Sponza/glTF/Sponza.gltf"))
         print ("[sponza] loading model: " + modelURL)
         def hostModel:ThreeObject3D (SponzaSdlRunner.loadModel(modelURL))
+        ; publish the decoded model's bounds so sponza.tsx's Box3.setFromObject reads
+        ; real numbers when init() derives the light distance / shadow / probe far.
+        ThreeTsxBridge.publishBounds(engine hostModel)
 
-        ; generic bridge reconciles the declared scene graph; ThreeSponzaScene is the
-        ; GPU-technique plumbing (bounds/shadow/GI bake/FPC) on the reconciled objects.
-        engine.callFunction("init" (EvalValue.null()))
+        ; the ONE generic bridge owns the host registry + renderer; give that renderer
+        ; the GL backend so the capture bake (bakeFromScene) renders the real scene.
         def gbridge:ThreeTsxBridge (new ThreeTsxBridge)
         gbridge.setEngine(engine)
         gbridge.setHostModel(hostModel)
+        def renderer:ThreeWebGLRenderer (gbridge.renderer)
+        renderer.setBackend(gl)
+        renderer.setSize(runner.pw runner.ph)
+        renderer.setToneMapping(4)
+        renderer.setToneMappingExposure(1.0)
+        renderer.setShadowMapEnabled(true)
+
+        ; init declares the scene (reads __hostBounds); reconcile reconciles it +
+        ; builds + bakes the diffuse-GI probe volume — no model-named recipe.
+        engine.callFunction("init" (EvalValue.null()))
         gbridge.reconcile(runner.pw runner.ph)
-        def sponza:ThreeSponzaScene (new ThreeSponzaScene)
-        sponza.setEngine(engine)
-        sponza.bind(gbridge.scene gbridge.camera (gbridge.sunLight()) (gbridge.skyNode()) (gbridge.modelNode()))
-        sponza.reconcile()
-        sponza.setViewport(runner.pw runner.ph)
-        print ("[sponza] scene declared: probes=" + (to_string (sponza.volume.probeCount())))
+
+        ; host-owned first-person controls on the reconciled camera.
+        def fpc:ThreeFirstPersonControls (new ThreeFirstPersonControls)
+        fpc.setCamera(gbridge.camera)
+        fpc.setMovementSpeed(2.0)
+        fpc.setLookSpeed(0.16)
+        SponzaSdlRunner.setViewport(gbridge.camera runner.pw runner.ph)
+        def vol0:ThreeLightProbeVolume (gbridge.probeVolume())
+        print ("[sponza] scene declared: probes=" + (to_string (vol0.probeCount())))
 
         def frame:int 0
         def running:boolean true
@@ -185,11 +203,11 @@ class SponzaSdlRunner {
                 curW = sw
                 curH = sh
                 renderer.setSize(curW curH)
-                sponza.setViewport(curW curH)
+                SponzaSdlRunner.setViewport(gbridge.camera curW curH)
             }
 
-            runner.applyInput(sponza.fpc mask)
-            sponza.update(dt)
+            runner.applyInput(fpc mask)
+            fpc.update(dt)
 
             renderer.render(gbridge.scene gbridge.camera)
             gfx_3d_present
@@ -204,17 +222,21 @@ class SponzaSdlRunner {
                     e2.quiet = true
                     SponzaSdlRunner.registerGlobals(e2 runner.pw runner.ph)
                     e2.loadScript((facadeSrc + "\n") + curSrc)
+                    ThreeTsxBridge.publishBounds(e2 hostModel)
                     e2.callFunction("init" (EvalValue.null()))
                     engine = e2
                     gbridge = (new ThreeTsxBridge)
                     gbridge.setEngine(e2)
                     gbridge.setHostModel(hostModel)
-                    gbridge.reconcile(runner.pw runner.ph)
-                    sponza = (new ThreeSponzaScene)
-                    sponza.setEngine(e2)
-                    sponza.bind(gbridge.scene gbridge.camera (gbridge.sunLight()) (gbridge.skyNode()) (gbridge.modelNode()))
-                    sponza.reconcile()
-                    sponza.setViewport(runner.pw runner.ph)
+                    renderer = gbridge.renderer
+                    renderer.setBackend(gl)
+                    renderer.setSize(curW curH)
+                    renderer.setToneMapping(4)
+                    renderer.setToneMappingExposure(1.0)
+                    renderer.setShadowMapEnabled(true)
+                    gbridge.reconcile(curW curH)
+                    fpc.setCamera(gbridge.camera)
+                    SponzaSdlRunner.setViewport(gbridge.camera curW curH)
                     print "[sponza] hot-reloaded sponza.tsx"
                 }
             }

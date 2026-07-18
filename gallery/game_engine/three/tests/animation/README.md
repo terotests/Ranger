@@ -1,56 +1,87 @@
-# animation — PLANNED (not runnable yet)
+# animation — keyframe sampling + mixer through the interpreter
 
-> Status: **blocked on object-model + façade wiring.** This folder documents what
-> the test should check; there is no runner here yet. Animation sampling is pure
-> math, so it is fully testable **without rendering** once the object model exists.
+## What is tested
 
-## What should be tested
+Keyframe animation with **no rendering**, by seeking a mixer and reading the target
+object's TRS back. `animation_scene.tsx` builds a clip with three tracks on a mesh:
 
-Keyframe sampling and clip playback, by reading the sampled value at a given time
-and comparing to real three.js:
+- **position** — `VectorKeyframeTrack('.position', [0,1,2], …)` — linear
+- **quaternion** — `QuaternionKeyframeTrack('.quaternion', …)` — identity → 90° → 180°
+  about Y, interpolated with **slerp**
+- **scale** — `VectorKeyframeTrack('.scale', [0,2], …)` — linear
 
-- **scalar linear interpolation** — a `KeyframeTrack` with times `[0, 1, 2]` and
-  values `[0, 10, 0]`; sample at `t = 0.5` → `5`, `t = 1.5` → `5`, `t = 2` → `0`.
-- **vector track** — `VectorKeyframeTrack` (position x/y/z) sampled mid-segment.
-- **quaternion track** — `QuaternionKeyframeTrack` sampled with **slerp** (not
-  lerp) between two orientations; check the interpolated quaternion is unit-length
-  and matches three.js at `t`.
-- **clamping / looping** — sampling before the first / after the last key, and
-  `LoopRepeat` wrap-around time.
-- **mixer applies to an object** — an `AnimationMixer` bound to an `Object3D`
-  advanced by `dt` sets the object's `position` / `quaternion` to the sampled
-  value (read the internal `ThreeObject3D` back).
+The test seeks the mixer to `t ∈ {0, 0.5, 1, 1.5, 1.9}`, reconciles, and checks the
+animated entity's `position` / `quaternion` / `scale` against real three.js
+(`../../reference/animation_goldens.json`). The slerp is three.js-exact: at t=0.5 the
+quaternion is 45° about Y `(0, 0.38268, 0, 0.92388)`, at t=1.5 it is 135°.
 
-Internal objects to read back: the sampled track value, and after a mixer update,
-`ThreeObject3D.position` / `.quaternion`.
+## How it works — args from the interpreter, math in Ranger
 
-## Why it can't run yet
+```
+animation_scene.tsx   new THREE.QuaternionKeyframeTrack(…)  (times + values only)
+   →  ComponentEngine interprets; seek(t) sets mixer.time
+   →  ThreeTsxBridge.syncAnimation builds the host clip once from the interpreted
+      tracks, resolves the mixer's TARGET by __uid, and applies at mixer.time
+   →  ThreeAnimationMixer.applyAt samples each track (ThreeKeyframeTrack) and writes
+      .position / .quaternion / .scale onto the target ThreeObject3D
+   →  three_animation_test.rgr reads the entity's TRS back and diffs vs goldens
+```
 
-There is **no animation object model and no façade**: no `AnimationMixer`,
-`AnimationClip`, `KeyframeTrack`, or interpolants exist in `three/src`, and nothing
-in `three.tsx`. So there is nothing to construct or sample.
+Interpolation matches three.js: `LinearInterpolant` (component lerp) for
+number/vector, `Quaternion.slerp` (dot-flip, `acos`/`sin`, lerp+normalise near
+parallel) for quaternion.
 
-## Plan to unblock
+### Target binding
 
-1. Add a minimal object model in `../../src/`:
-   - `ThreeKeyframeTrack` — times + values + component width; `sample(t)` doing
-     linear interpolation (scalar/vector) and **slerp** for quaternion tracks.
-     This alone is unit-testable with no façade.
-   - `ThreeAnimationClip` — a named bag of tracks with a duration.
-   - `ThreeAnimationMixer` — binds a clip to a `ThreeObject3D`, `update(dt)`
-     advances time and writes sampled values onto the target's TRS.
-2. Add façade `AnimationMixer` / `AnimationClip` / `*KeyframeTrack` arg-holders and
-   the bridge/host wiring so an interpreted scene can drive a mixer.
-3. Add `gen-animation-goldens.mjs` (sample the same tracks in real three.js at the
-   same times), an `animation_scene.tsx`, and a runner.
+The scene adds a **static** mesh first, so the animated mesh is host **handle 2**,
+not 1. The mixer's `target` is resolved by a `__uid` the façade stamps on each mesh
+(the interpreter's `===` on objects is unreliable), so the test proves real target
+binding — not "animate the first mesh".
 
-Start with step 1 (the `KeyframeTrack` sampler): it is the highest-value, purely
-no-render piece and can be validated against three.js immediately.
+## What was added to close this gap
 
-## Files (planned)
+- **object model** (`../../src/three_animation.rgr`, new): `ThreeKeyframeTrack`
+  (`sample(t)` — linear + slerp), `ThreeAnimationClip`, `ThreeAnimationMixer`
+  (`applyAt(t, target)`). Pure Ranger — compiles to ES6 + C++.
+- **façade** (`../../tsx/three.tsx`): `VectorKeyframeTrack` / `NumberKeyframeTrack` /
+  `QuaternionKeyframeTrack` / `AnimationClip` / `AnimationAction` / `AnimationMixer`
+  arg-holders, plus a `__uid` on meshes.
+- **bridge** (`../../tsx/three_tsx_bridge.rgr`): `syncAnimation` builds the host clip
+  once, resolves the target by uid, and applies at the mixer's time each reconcile
+  (after `syncScene`, so it overrides the static transform). Scenes with no `mixer`
+  global are unaffected.
+
+## Result
+
+**15/15 PASS** (position / quaternion / scale at 5 times).
+
+## Crossfade (blended actions)
+
+`crossfade_scene.tsx` + `three_crossfade_test.rgr` cover **two clips playing at
+once**, blended by per-action `setEffectiveWeight` — three.js
+`NormalAnimationBlendMode`: **weighted lerp** for position/scale, **incremental
+slerp** for quaternion (ratio = wᵢ / cumulative-weight, in action order). The test
+checks three weight splits at a fixed time against real three.js
+(`../../reference/crossfade_goldens.json`): `1/0` (pure A), `0.5/0.5` (→ the two
+±90° rotations cancel to identity), `0.25/0.75` (→ −45° about Y). **6/6 PASS.**
+
+The mixer holds N weighted layers (`ThreeAnimationLayer`); a single action is just
+the 1-layer case, so the plain animation test runs the same blended path.
+
+## Not yet covered (next steps in this area)
+
+- **looping / clamping** past the clip duration (`LoopRepeat` wrap), and
+  `InterpolateDiscrete` / `InterpolateSmooth` (cubic) interpolation modes;
+- **morph-target** animation;
+- driving the mixer from a real per-frame `update(dt)` loop rather than absolute
+  `setTime` seeks (the façade supports `update(dt)`; the test uses `setTime`).
+- crossfade weights that **animate over time** (`crossFadeTo` ramps) — the weights
+  are re-read each frame, so a time-varying ramp already works; only a test is missing.
+
+## Files
 
 | File | Role |
 |---|---|
-| `animation_scene.tsx` | JS scene building a clip + mixer on an object. |
-| `three_animation_test.rgr` | Sample tracks / advance the mixer, read values vs goldens. |
-| `../../reference/gen-animation-goldens.mjs` → `animation_goldens.json` | Sampled values from real three.js at the test times. |
+| `animation_scene.tsx` | The JS scene the interpreter runs (clip + mixer on a mesh). |
+| `three_animation_test.rgr` | Seek + reconcile + read the entity TRS vs goldens. |
+| `../../reference/gen-animation-goldens.mjs` → `animation_goldens.json` | Sampled TRS from the real three.js mixer. |
