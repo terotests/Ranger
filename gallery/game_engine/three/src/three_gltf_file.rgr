@@ -42,6 +42,9 @@ class ThreeGLTFFile {
     ; decoded the images (only it can — JPEG/PNG) fills these in via setImage().
     def texMaterials:[ThreeMaterial]
     def texImageIdx:[int]
+    ; same, for normalTexture (a material may have both a baseColor + a normal map).
+    def normalMaterials:[ThreeMaterial]
+    def normalImageIdx:[int]
 
     sfn subBuffer:buffer (src:buffer off:int len:int) {
         def dst:buffer (buffer_alloc len)
@@ -106,7 +109,13 @@ class ThreeGLTFFile {
             def idxBuf:buffer (this.bufferFor(idxAi))
             indices = (ThreeGLTFLoader.decodeIndices(idxBuf idxAcc))
         }
-        return (ThreeGLTFLoader.buildGeometry(positions normals uvs indices))
+        def geo:ThreeBufferGeometry (ThreeGLTFLoader.buildGeometry(positions normals uvs indices))
+        ; TANGENT (VEC4: xyz + handedness) for normal mapping, when the mesh has it.
+        def tangents:[double] (this.decodeFloatAttr(attrs "TANGENT"))
+        if ((array_length tangents) > 0) {
+            geo.tangents = tangents
+        }
+        return geo
     }
 
     fn applyTransform:void (obj:ThreeObject3D node:ThreeJsonValue) {
@@ -175,8 +184,31 @@ class ThreeGLTFFile {
         def img:ThreeJsonValue (this.imagesJson.at(i))
         return (img.strOr("uri" ""))
     }
-    ; a host supplies decoded RGBA pixels for a baseColorTexture image; every
-    ; primitive material bound to that image gets the texture as its map.
+    ; the normalTexture image index for material mi (-1 if none): material ->
+    ; normalTexture.index (a texture) -> texture.source.
+    fn normalIndexForMaterial:int (mi:int) {
+        if (mi < 0) {
+            return (0 - 1)
+        }
+        if ((this.materialsJson.length()) <= mi) {
+            return (0 - 1)
+        }
+        def mat:ThreeJsonValue (this.materialsJson.at(mi))
+        if (mat.has("normalTexture") == false) {
+            return (0 - 1)
+        }
+        def nt:ThreeJsonValue (mat.get("normalTexture"))
+        def ti:int (nt.intOr("index" (0 - 1)))
+        if (ti < 0) {
+            return (0 - 1)
+        }
+        def tex:ThreeJsonValue (this.texturesJson.at(ti))
+        return (tex.intOr("source" (0 - 1)))
+    }
+
+    ; a host supplies decoded RGBA pixels for an image; every material bound to it
+    ; as a baseColor gets it as its map, and every material bound to it as a normal
+    ; map gets it as its normalMap (one decode serves both roles).
     fn setImage:void (imageIndex:int rgba:buffer w:int h:int) {
         def tex:ThreeTexture (new ThreeTexture)
         tex.setImage(rgba w h)
@@ -188,6 +220,15 @@ class ThreeGLTFFile {
                 mat.setMap(tex)
             }
             k = (k + 1)
+        }
+        def kn:int 0
+        def nn:int (array_length this.normalMaterials)
+        while (kn < nn) {
+            if ((itemAt this.normalImageIdx kn) == imageIndex) {
+                def nmat:ThreeMaterial (itemAt this.normalMaterials kn)
+                nmat.setNormalMap(tex)
+            }
+            kn = (kn + 1)
         }
     }
 
@@ -222,6 +263,12 @@ class ThreeGLTFFile {
                     mat.setColor(1.0 1.0 1.0)
                     push this.texMaterials matBase
                     push this.texImageIdx imgIdx
+                }
+                ; record the normal map (if any) so a host can attach its pixels.
+                def normalImgIdx:int (this.normalIndexForMaterial(matIdx))
+                if (normalImgIdx >= 0) {
+                    push this.normalMaterials matBase
+                    push this.normalImageIdx normalImgIdx
                 }
                 m.setMaterial(matBase)
                 m.castShadow = true

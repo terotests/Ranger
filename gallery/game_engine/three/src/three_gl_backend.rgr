@@ -129,6 +129,15 @@ class ThreeGLBackend extends ThreeRenderBackend {
             }
             th = mat.map.glHandle
         }
+        ; tangent-space normal map (0 = none): uploaded + cached like the base map.
+        def nth:int 0
+        if mat.hasNormalMap {
+            if (mat.normalMap.glHandle < 0) {
+                mat.normalMap.glHandle = (gpu_make_texture mat.normalMap.rgba mat.normalMap.width mat.normalMap.height)
+            }
+            nth = mat.normalMap.glHandle
+        }
+        gpu_set_normal nth
         def mvpBuf:buffer (this.matrixBytes(mvp))
         def modelBuf:buffer (this.matrixBytes(model))
         def matBuf:buffer (this.materialBytes(mat th))
@@ -294,13 +303,15 @@ class ThreeGLBackend extends ThreeRenderBackend {
         gpu_end
     }
 
-    ; interleaved float32 [px,py,pz, nx,ny,nz, u,v] (32-byte stride) for a geometry.
+    ; interleaved float32 [px,py,pz, nx,ny,nz, u,v, tx,ty,tz,tw] (48-byte stride).
+    ; The tangent (offset 32) drives normal mapping; a default is packed when the
+    ; geometry has none, so the vertex layout is uniform for every mesh.
     fn packVerts:buffer (g:ThreeBufferGeometry) {
         def vc:int (g.vertexCount())
-        def vbuf:buffer (buffer_alloc (vc * 32))
+        def vbuf:buffer (buffer_alloc (vc * 48))
         def i:int 0
         while (i < vc) {
-            def o:int (i * 32)
+            def o:int (i * 48)
             ByteReader.encodeF32(vbuf o (g.getPosition(i 0)))
             ByteReader.encodeF32(vbuf (o + 4) (g.getPosition(i 1)))
             ByteReader.encodeF32(vbuf (o + 8) (g.getPosition(i 2)))
@@ -309,6 +320,10 @@ class ThreeGLBackend extends ThreeRenderBackend {
             ByteReader.encodeF32(vbuf (o + 20) (g.getNormal(i 2)))
             ByteReader.encodeF32(vbuf (o + 24) (g.getUv(i 0)))
             ByteReader.encodeF32(vbuf (o + 28) (g.getUv(i 1)))
+            ByteReader.encodeF32(vbuf (o + 32) (g.getTangent(i 0)))
+            ByteReader.encodeF32(vbuf (o + 36) (g.getTangent(i 1)))
+            ByteReader.encodeF32(vbuf (o + 40) (g.getTangent(i 2)))
+            ByteReader.encodeF32(vbuf (o + 44) (g.getTangent(i 3)))
             i = (i + 1)
         }
         return vbuf

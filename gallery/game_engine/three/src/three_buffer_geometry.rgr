@@ -12,6 +12,9 @@ class ThreeBufferGeometry {
     def positions:[double]
     def normals:[double]
     def uvs:[double]
+    ; optional tangents (4 per vertex: xyz + handedness w), for normal mapping.
+    ; Empty => getTangent returns a default so the vertex format stays uniform.
+    def tangents:[double]
     def index:[int]
     ; cached GPU mesh handles for a GL backend (-1 = not uploaded yet):
     ; smooth (as-is), flat-shaded variant, and a wireframe line mesh.
@@ -54,6 +57,17 @@ class ThreeBufferGeometry {
     }
     fn getUv:double (vertex:int comp:int) {
         return (itemAt this.uvs ((vertex * 2) + comp))
+    }
+    ; tangent (xyz + handedness w); a default (1,0,0,1) when none were supplied so
+    ; the packed vertex format is uniform (unused unless the material has a normal map).
+    fn getTangent:double (vertex:int comp:int) {
+        def base:int ((vertex * 4) + comp)
+        if (base < (array_length this.tangents)) {
+            return (itemAt this.tangents base)
+        }
+        if (comp == 0) { return 1.0 }
+        if (comp == 3) { return 1.0 }
+        return 0.0
     }
     fn getIndex:int (i:int) {
         return (itemAt this.index i)
