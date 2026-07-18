@@ -340,10 +340,11 @@ class ThreeTsxBridge {
         return 0
     }
 
-    ; build the host KeyframeTracks (once) from the interpreted clip's tracks.
-    fn buildHostMixer:void (clipV:EvalValue) {
+    ; build a host ThreeAnimationClip from an interpreted clip's tracks.
+    fn buildClipFromV:ThreeAnimationClip (clipV:EvalValue) {
+        def clip:ThreeAnimationClip (new ThreeAnimationClip)
         def tracksV:EvalValue (clipV.getMember("tracks"))
-        if (tracksV.isArray() == false) { return }
+        if (tracksV.isArray() == false) { return clip }
         def n:int (array_length tracksV.arrayValue)
         def i:int 0
         while (i < n) {
@@ -373,7 +374,23 @@ class ThreeTsxBridge {
                     j = (j + 1)
                 }
             }
-            animMixer.clip.addTrack(tr)
+            clip.addTrack(tr)
+            i = (i + 1)
+        }
+        return clip
+    }
+
+    ; build one blend layer per playing action (once).
+    fn buildHostMixer:void (actionsV:EvalValue) {
+        def n:int (array_length actionsV.arrayValue)
+        def i:int 0
+        while (i < n) {
+            def av:EvalValue (actionsV.getIndex(i))
+            def clipV:EvalValue (av.getMember("clip"))
+            if (clipV.isObject()) {
+                def clip:ThreeAnimationClip (this.buildClipFromV(clipV))
+                animMixer.addLayer(clip (this.numOr(av "weight" 1.0)))
+            }
             i = (i + 1)
         }
     }
@@ -381,13 +398,23 @@ class ThreeTsxBridge {
     fn syncAnimation:void () {
         def mx:EvalValue (engine.getGlobal("mixer"))
         if (mx.isObject() == false) { return }
-        def action:EvalValue (mx.getMember("action"))
-        if (action.isObject() == false) { return }
-        def clipV:EvalValue (action.getMember("clip"))
-        if (clipV.isObject() == false) { return }
+        def actionsV:EvalValue (mx.getMember("actions"))
+        if (actionsV.isArray() == false) { return }
+        if ((array_length actionsV.arrayValue) == 0) { return }
         if (animBuilt == false) {
-            this.buildHostMixer(clipV)
+            this.buildHostMixer(actionsV)
             animBuilt = true
+        }
+        ; refresh weights each frame (crossfade can change them over time).
+        def nl:int (array_length animMixer.layers)
+        def li:int 0
+        while (li < nl) {
+            if (li < (array_length actionsV.arrayValue)) {
+                def av:EvalValue (actionsV.getIndex(li))
+                def layer:ThreeAnimationLayer (itemAt animMixer.layers li)
+                layer.weight = (this.numOr(av "weight" 1.0))
+            }
+            li = (li + 1)
         }
         def targetV:EvalValue (mx.getMember("target"))
         if (targetV.isObject() == false) { return }
@@ -396,7 +423,7 @@ class ThreeTsxBridge {
         if (th <= 0) { return }
         def t:double (this.numOr(mx "time" 0.0))
         def target:ThreeObject3D (host.entityAt(th))
-        animMixer.applyAt(t target)
+        animMixer.applyBlendedAt(t target)
     }
 
     ; Reconcile façade child i: build its real node (command the host) on first sight,

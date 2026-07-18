@@ -55,14 +55,28 @@ binding — not "animate the first mesh".
 
 **15/15 PASS** (position / quaternion / scale at 5 times).
 
+## Crossfade (blended actions)
+
+`crossfade_scene.tsx` + `three_crossfade_test.rgr` cover **two clips playing at
+once**, blended by per-action `setEffectiveWeight` — three.js
+`NormalAnimationBlendMode`: **weighted lerp** for position/scale, **incremental
+slerp** for quaternion (ratio = wᵢ / cumulative-weight, in action order). The test
+checks three weight splits at a fixed time against real three.js
+(`../../reference/crossfade_goldens.json`): `1/0` (pure A), `0.5/0.5` (→ the two
+±90° rotations cancel to identity), `0.25/0.75` (→ −45° about Y). **6/6 PASS.**
+
+The mixer holds N weighted layers (`ThreeAnimationLayer`); a single action is just
+the 1-layer case, so the plain animation test runs the same blended path.
+
 ## Not yet covered (next steps in this area)
 
 - **looping / clamping** past the clip duration (`LoopRepeat` wrap), and
   `InterpolateDiscrete` / `InterpolateSmooth` (cubic) interpolation modes;
-- **multiple actions / weights / crossfade** (this mixer plays one clip);
-- **skeletal (bone) + morph-target** animation;
+- **morph-target** animation;
 - driving the mixer from a real per-frame `update(dt)` loop rather than absolute
   `setTime` seeks (the façade supports `update(dt)`; the test uses `setTime`).
+- crossfade weights that **animate over time** (`crossFadeTo` ramps) — the weights
+  are re-read each frame, so a time-varying ramp already works; only a test is missing.
 
 ## Files
 

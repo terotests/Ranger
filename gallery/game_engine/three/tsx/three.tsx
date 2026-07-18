@@ -256,14 +256,24 @@ class AnimationClip {
   }
 }
 class AnimationAction {
-  constructor(clip) { this.clip = clip; this.running = false; }
+  constructor(clip) { this.clip = clip; this.running = false; this.weight = 1; }
   play() { this.running = true; return this; }
   stop() { this.running = false; return this; }
+  setEffectiveWeight(w) { this.weight = w; return this; }   // crossfade weight
 }
 class AnimationMixer {
   isAnimationMixer = true;
-  constructor(target) { this.target = target; this.time = 0; this.action = null; }
-  clipAction(clip) { this.action = new AnimationAction(clip); return this.action; }
+  constructor(target) {
+    this.target = target; this.time = 0;
+    this.actions = [];        // all playing clips (blended by weight — crossfade)
+    this.action = null;       // last, for single-clip convenience
+  }
+  clipAction(clip) {
+    const a = new AnimationAction(clip);
+    this.actions.push(a);
+    this.action = a;
+    return a;
+  }
   update(dt) { this.time = this.time + dt; return this; }   // advance (accumulate)
   setTime(t) { this.time = t; return this; }                // absolute seek
 }

@@ -110,6 +110,10 @@ run_feature object_hierarchy/three_hierarchy_test
 # + an AnimationMixer, driven through the interpreter — the host samples the clip
 # and writes the target entity's TRS; validated vs real three.js. No rendering.
 run_feature animation/three_animation_test
+# Crossfade (three/tests/animation/): two clips blended by per-action weight —
+# weighted lerp (position) + incremental slerp (quaternion), matching three.js's
+# NormalAnimationBlendMode. Driven through the interpreter, no rendering.
+run_feature animation/three_crossfade_test
 # The 1:1 Three.js cube example, run through the TSX interpreter on the façade.
 run_tsx_poc three_facade_poc
 # The render bridge: the interpreted cube.tsx reconciled into the Ranger core and
